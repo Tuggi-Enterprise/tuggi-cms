@@ -19,6 +19,12 @@
  * THE GATE IS CHOSEN, NEVER COMPUTED. BR-B2B-011's preamble: *"quem decide quem entra é operador,
  * nao o sistema"*. The three options are the rule's three gates, in its order, and the reason is
  * required because item 4 forbids a refusal that only says "not approved".
+ *
+ * AND IT NEVER SAYS `Tente de novo` — that is the difference between this panel and `PublishPanel`.
+ * Publishing the same place twice is the same state; refusing it twice is two rows in an
+ * append-only table, and the second one enters the history that BR-B2B-011, item 4, exists to
+ * preserve. So the failure that does not know what happened closes the panel instead of offering
+ * the click again (#377, item 3).
  */
 
 import { useState } from 'react'
@@ -28,36 +34,53 @@ import { Label } from '@/components/ui/label'
 import { formatDateTime } from '@/components/admin/partner-proposals/format'
 import { TRIAGE_GATES, type TriageGate, type TriageRefusal } from '@/lib/partnerships/triage'
 
+/**
+ * `refused` — the route answered and wrote nothing; repeating is safe.
+ * `failed`  — we do not know whether the row landed; repeating is what creates two refusals.
+ * The two are never one outcome here, because the sentences the operator reads are opposite
+ * (#377, item 3).
+ */
 export type RefusalOutcome = 'ok' | 'refused' | 'failed'
 
 export function RefusalPanel({
   onClose,
   refuse,
   onRefused,
+  onRefusalUnknown,
 }: {
   onClose: () => void
   refuse: (gate: TriageGate, reason: string) => Promise<RefusalOutcome>
   onRefused: () => Promise<void>
+  /** The panel closes, the screen reloads, and the sentence is raised to the page. */
+  onRefusalUnknown: () => Promise<void>
 }) {
   const t = useTranslations('Partnerships')
   const [gate, setGate] = useState<TriageGate | ''>('')
   const [reason, setReason] = useState('')
   const [busy, setBusy] = useState(false)
-  const [failed, setFailed] = useState(false)
+  const [rejected, setRejected] = useState(false)
 
   const ready = gate !== '' && reason.trim().length > 0
 
   async function submit() {
     if (!ready) return
     setBusy(true)
-    setFailed(false)
+    setRejected(false)
     const outcome = await refuse(gate, reason.trim())
     setBusy(false)
     if (outcome === 'ok') {
       await onRefused()
       return
     }
-    setFailed(true)
+    // The server refused before writing: the criterion or the reason is what has to change, and
+    // the button stays where it is because trying again cannot produce a second row.
+    if (outcome === 'refused') {
+      setRejected(true)
+      return
+    }
+    // We do not know. THIS is the one that must not offer a retry — the guard `TGB11` stops a
+    // refusal from being REWRITTEN, never from being written twice (BR-B2B-011, item 5).
+    await onRefusalUnknown()
   }
 
   return (
@@ -108,9 +131,9 @@ export function RefusalPanel({
 
       <p className="mt-3 text-xs text-gray-800">{t('triage.refuseSeparateAct')}</p>
 
-      {failed && (
+      {rejected && (
         <p role="alert" className="mt-2 text-sm font-medium text-red-800">
-          {t('triage.refuseFailed')}
+          {t('triage.refuseRejected')}
         </p>
       )}
 

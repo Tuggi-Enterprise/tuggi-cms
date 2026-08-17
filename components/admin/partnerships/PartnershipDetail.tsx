@@ -34,7 +34,7 @@ import type { PartnershipDetail as Detail, PartnershipPlace } from '@/lib/servic
 import { PendencyList } from './PendencyList'
 import { PublishPanel, UnpublishPanel } from './PublishPanel'
 import { CommunicationPanel, RefusalPanel, RefusalSummary, type RefusalOutcome } from './TriageRefusalPanel'
-import { triageText } from './triage-text'
+import { triageDeadlineText, triageText } from './triage-text'
 
 type BandId = 'proposal' | 'conference' | 'client' | 'place' | 'publication'
 type BandStatus = 'done' | 'current' | 'future'
@@ -47,6 +47,10 @@ type Panel = { attractionId: string; kind: PanelKind } | null
  * `refused_at_triage` sits at band 4, with the place: the refusal is a decision ABOUT THE PLACE
  * and the operator who comes back to the row goes to the place to read it. It is terminal without
  * being an ending — the partnership continues (BR-B2B-010, 6th edge case).
+ *
+ * `refusal_not_communicated` sits there too, and for a stronger reason: the act it is waiting for
+ * (`Registrar a comunicação ao parceiro`) is a control inside band 4. Ordering it anywhere else
+ * would open a band whose work is not the one the header names.
  */
 const STATE_ORDER: Record<PipelineState, number> = {
   proposal_received: 0,
@@ -54,6 +58,7 @@ const STATE_ORDER: Record<PipelineState, number> = {
   client_created: 2,
   contract_signed: 3,
   place_in_curation: 4,
+  refusal_not_communicated: 4,
   published: 5,
   discarded: 0,
   refused_at_triage: 4,
@@ -89,6 +94,12 @@ export function PartnershipDetail({ locale, clientId }: { locale: string; client
   const [touched, setTouched] = useState(false)
   const [panel, setPanel] = useState<Panel>(null)
   const [editingPlaceId, setEditingPlaceId] = useState<string | null>(null)
+  /**
+   * A refusal whose request never came back with an answer. It outlives the panel on purpose: the
+   * panel closes, the screen reloads, and the operator still has to be told what to check before
+   * clicking again — the table is append-only (#377, item 3).
+   */
+  const [refusalUnknown, setRefusalUnknown] = useState(false)
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -161,6 +172,13 @@ export function PartnershipDetail({ locale, clientId }: { locale: string; client
    * Register the refusal — one round of the triage, and it is not idempotent: the table is
    * append-only and a second click is a second refusal (BR-B2B-011, item 5). So no retry is
    * offered on a network error, exactly like the promotion of a proposal.
+   *
+   * THE TWO FAILURES ARE DIFFERENT FACTS, and the copy for them says opposite things (#377,
+   * item 3). A 4xx is the route answering before it wrote anything — every one of them is a
+   * validation, a place that is not this client's or a place already published, and all of them
+   * return before `triageRefusalService.register`. Repeating that is safe. Anything else — the
+   * `write_failed` 503, a 5xx, a request that never came back — leaves us not knowing whether the
+   * row landed, and THAT is the one where repeating creates two refusals.
    */
   const refuse = useCallback(
     async (attractionId: string, gate: TriageGate, reason: string): Promise<RefusalOutcome> => {
@@ -173,7 +191,8 @@ export function PartnershipDetail({ locale, clientId }: { locale: string; client
             body: JSON.stringify({ gate, reason }),
           }
         )
-        return response.ok ? 'ok' : 'failed'
+        if (response.ok) return 'ok'
+        return response.status >= 400 && response.status < 500 ? 'refused' : 'failed'
       } catch {
         return 'failed'
       }
@@ -280,19 +299,36 @@ export function PartnershipDetail({ locale, clientId }: { locale: string; client
           )}
           {/* The clock, in the header the spec draws it in (§6.2) and out of the SAME module the
               queue column reads — the list and the detail cannot disagree about a promise made to
-              a partner (BR-B2B-010, item 4). */}
+              a partner (BR-B2B-010, item 4). There is no second line here, so the instant of the
+              deadline comes in parentheses on this one (DS-COPY-025, point 5). */}
           <span className="ml-2 font-normal text-gray-800" title={t('triage.deadlineTitle')}>
-            {t('triage.headerLine', { value: triageText(deriveTriageStatus(detail.triage), t) })}
+            {headerClock(detail, t)}
           </span>
         </p>
-        {/* Criterion 33: the terminal state carries this line, and the screen offers no action
-            that removes the partnership — BR-B2B-010, 6th edge case, and BR-B2B-027, item 3. */}
-        {detail.state === 'refused_at_triage' && (
+        {/* Criterion 33: the two states the refusal produces carry this line, and the screen offers
+            no action that removes the partnership — BR-B2B-010, 6th edge case, and BR-B2B-027,
+            item 3. Before the communication the state is `refusal_not_communicated`, and that is
+            precisely when the operator is about to write to the partner. */}
+        {(detail.state === 'refused_at_triage' ||
+          detail.state === 'refusal_not_communicated') && (
           <p className="mt-1 text-sm font-medium text-gray-900">
             {t('triage.partnershipContinues')}
           </p>
         )}
       </header>
+
+      {/* The refusal whose fate we do not know — raised out of the panel, because the panel closed.
+          The act is append-only: repeating it is what creates two refusals, so no control here
+          offers to (#377, item 3, and BR-B2B-011, item 5). */}
+      {refusalUnknown && (
+        <div
+          role="alert"
+          className="mb-4 rounded-md border border-destructive/40 bg-destructive/5 p-3 text-sm text-gray-900"
+        >
+          <p className="font-semibold">{t('triage.refuseUnknownTitle')}</p>
+          <p className="mt-1">{t('triage.refuseUnknownBody')}</p>
+        </div>
+      )}
 
       <div className="flex flex-col gap-6 lg:flex-row">
         <div className="min-w-0 flex-1 space-y-3">
@@ -319,6 +355,8 @@ export function PartnershipDetail({ locale, clientId }: { locale: string; client
                   refuse={refuse}
                   communicate={communicate}
                   reload={load}
+                  refusalUnknown={refusalUnknown}
+                  setRefusalUnknown={setRefusalUnknown}
                 />
               )}
               {band === 'publication' && (
@@ -561,6 +599,8 @@ function PlaceBand({
   refuse,
   communicate,
   reload,
+  refusalUnknown,
+  setRefusalUnknown,
 }: {
   detail: Detail
   locale: string
@@ -572,6 +612,9 @@ function PlaceBand({
   refuse: (attractionId: string, gate: TriageGate, reason: string) => Promise<RefusalOutcome>
   communicate: (attractionId: string, refusalId: string) => Promise<RefusalOutcome>
   reload: () => Promise<void>
+  /** Read to clear it: opening the panel again is the operator saying he has checked. */
+  refusalUnknown: boolean
+  setRefusalUnknown: (value: boolean) => void
 }) {
   const t = useTranslations('Partnerships')
   const [creating, setCreating] = useState(false)
@@ -705,6 +748,13 @@ function PlaceBand({
                     setPanel(null)
                     await reload()
                   }}
+                  onRefusalUnknown={async () => {
+                    // Close first, reload, and only then raise the sentence: the operator has to
+                    // read it over a screen that already shows whether the row landed.
+                    setPanel(null)
+                    await reload()
+                    setRefusalUnknown(true)
+                  }}
                 />
               ) : (
                 <div className="flex flex-wrap items-center gap-3">
@@ -729,12 +779,15 @@ function PlaceBand({
                     <Button
                       type="button"
                       variant="outline"
-                      onClick={() =>
+                      onClick={() => {
+                        // Reopening the panel is the operator saying he has checked the esteira,
+                        // which is exactly what the sentence asked of him.
+                        if (refusalUnknown) setRefusalUnknown(false)
                         setPanel({
                           attractionId: place.readiness.place.attractionId,
                           kind: 'refuse',
                         })
-                      }
+                      }}
                     >
                       {t('triage.refuseAction')}
                     </Button>
@@ -866,6 +919,20 @@ function Trail({ detail }: { detail: Detail }) {
 }
 
 // ── Lines ────────────────────────────────────────────────────────────────────────────────────
+
+/**
+ * `Triagem: venceu há 8 h (prazo 17/08, 04h00)` — the queue's two lines folded into one, because a
+ * sticky header has no second line to give (DS-COPY-025, point 5, in the shape `design` wrote for
+ * the detail). Same status, same texts, same module as the column.
+ */
+function headerClock(detail: Detail, t: ReturnType<typeof useTranslations>): string {
+  const status = deriveTriageStatus(detail.triage)
+  const value = triageText(status, t)
+  const deadline = triageDeadlineText(status)
+  return deadline
+    ? t('triage.headerLineWithDeadline', { value, deadline })
+    : t('triage.headerLine', { value })
+}
 
 function cityLine(detail: Detail): string {
   const { city, region } = detail.client

@@ -37,6 +37,7 @@ import {
 import { buildPublishPlan, type PartnerFee, type PublishPlan } from '@/lib/partnerships/publish-plan'
 import {
   currentRefusal,
+  hasUncommunicatedRefusal,
   isRefusedAtTriage,
   isTriageGate,
   type PlaceTriageOutcome,
@@ -193,6 +194,7 @@ export async function loadPartnershipQueue(
       placeCount: readiness.length,
       publishedPlaceCount: readiness.filter((item) => item.published).length,
       refusedPlaceCount: outcomes.filter(isRefusedAtTriage).length,
+      uncommunicatedRefusal: hasUncommunicatedRefusal(outcomes),
     })
 
     const answers = row.answers ?? {}
@@ -308,6 +310,7 @@ export async function loadPartnershipDetail(
       placeCount: readiness.length,
       publishedPlaceCount: readiness.filter((item) => item.published).length,
       refusedPlaceCount: outcomes.filter(isRefusedAtTriage).length,
+      uncommunicatedRefusal: hasUncommunicatedRefusal(outcomes),
     }),
     client,
     contract,

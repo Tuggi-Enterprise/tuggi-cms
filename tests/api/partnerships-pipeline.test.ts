@@ -38,7 +38,7 @@ import {
   detailPath,
 } from '@/lib/partnerships/pipeline'
 import { EMPTY_CONFERENCE, type ConferenceRecord } from '@/lib/partner-form/regularity'
-import { deriveTriageStatus } from '@/lib/partnerships/triage'
+import { deriveTriageStatus, isTriageOverdue } from '@/lib/partnerships/triage'
 
 const REPO_ROOT = resolve(import.meta.dirname, '../..')
 
@@ -1257,11 +1257,13 @@ test('#377 crit. 6: after the refusal is communicated, the pipeline reads the ro
   assert.equal(place?.refusal?.communicatedAt ?? null, null)
   assert.equal(place?.refusal?.gate, 2)
   assert.equal(
-    deriveTriageStatus(
-      { approvedAt: state.clients[0].approved_at, places: [{ published: false, refusal: place!.refusal! }] },
-      new Date('2026-08-20T10:32:00.000Z')
-    ).kind,
-    'overdue'
+    isTriageOverdue(
+      deriveTriageStatus(
+        { approvedAt: state.clients[0].approved_at, places: [{ published: false, refusal: place!.refusal! }] },
+        new Date('2026-08-20T10:32:00.000Z')
+      )
+    ),
+    true
   )
 
   const told = await COMMUNICATE(request({ refusalId: registered.id }), context)
