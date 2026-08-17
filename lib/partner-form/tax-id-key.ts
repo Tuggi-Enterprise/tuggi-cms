@@ -7,15 +7,16 @@
  *
  *     upper(regexp_replace(coalesce(answers ->> 'tax_id', ''), '[^0-9A-Za-z]', '', 'g'))
  *
- * IT IS A COLUMN `DEFAULT`, NOT `GENERATED ALWAYS ... STORED`, and this docstring said the wrong
- * one until #396 measured it on the live database (2026-08-17). The difference is the whole
- * safety of the key: `GENERATED ALWAYS` REFUSES an INSERT that supplies the column, while a
- * DEFAULT only applies when the INSERT omits it. So a writer that sends `tax_id_normalized`
- * wins — the row keeps whatever the caller said, the filter below stops finding that company,
- * and nothing errors. The writer today is another repository
+ * IT IS `GENERATED ALWAYS ... STORED`, NOT A COLUMN `DEFAULT`. Measured on the live database on
+ * 2026-08-17 (`is_generated = 'ALWAYS'`, `column_default = NULL`, `attgenerated = 's'`), and the
+ * migration named above says the same and probes for it. #396 rewrote this paragraph the wrong
+ * way round and #398 put it back — worth knowing, because the difference is the whole safety of
+ * the key: `GENERATED ALWAYS` REFUSES an INSERT that supplies the column (428C9), while a DEFAULT
+ * would only apply when the INSERT omitted it, so a writer that sent `tax_id_normalized` would
+ * win in silence. The writer today is another repository
  * (`tuggi-enterprise/src/lib/partner-proposal/proposal-service.ts`), which never sends the
  * column and has a test that proves it; the contract that records the obligation is
- * `docs/contracts/partner-proposal-answers.md`.
+ * `docs/contracts/partner-proposal-answers.md`, §2.2.
  *
  * This function exists because a filter has to be built from a value the database has not stored
  * yet (`tax_id_normalized=eq.<key>`), and PostgREST cannot apply an expression to the operand.

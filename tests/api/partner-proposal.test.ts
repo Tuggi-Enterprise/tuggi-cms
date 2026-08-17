@@ -13,9 +13,11 @@
  *     `core.partner_form_submissions.answers` by the ids in `lib/partner-form/fields.ts`, which
  *     is a copy of a list owned by another repository. What binds them is
  *     `docs/contracts/partner-proposal-answers.md`; what fails when the copy rots is here.
- *  2. **The deduplication key.** `tax_id_normalized` is a column DEFAULT, not `GENERATED
- *     ALWAYS` — measured on the live database on 2026-08-17 — so the key is only correct while
- *     the writer omits the column and `normalizedTaxId` mirrors the expression exactly.
+ *  2. **The deduplication key.** `tax_id_normalized` is `GENERATED ALWAYS ... STORED` — measured
+ *     on the live database on 2026-08-17, and probed by the migration that created it — so the
+ *     database refuses a writer that supplies the column, and the key is correct as long as
+ *     `normalizedTaxId` mirrors the expression exactly. (#396 recorded the opposite here; #398
+ *     measured it again and put it back.)
  *  3. **The 301.** The commercial team e-mailed `/pt/parceria` to real establishments. Deleting
  *     the page without the redirect answers 404 to material already handed out.
  *  4. **The labels.** The reviewer reads the same question the merchant answered, and that only
@@ -183,14 +185,26 @@ test('BR-B2B-026: the key strips first and upper-cases second — the order is t
   )
 })
 
-test('#396: the mirror says the column is a DEFAULT, because the safety of the key depends on it', () => {
-  // The docstring said `GENERATED ALWAYS ... STORED` until #396 measured it. The difference is
-  // not pedantry: `GENERATED ALWAYS` REFUSES an INSERT that supplies the column, a DEFAULT
-  // silently yields to it. Whoever reads this module has to learn the second sentence, because
-  // the writer is in another repository and this is the only place the obligation is stated on
-  // this side.
+test('#398: the mirror says the column is GENERATED ALWAYS, because the safety of the key depends on it', () => {
+  // This assertion was inverted between #396 and #398, and the inversion is the point: #396
+  // recorded "column DEFAULT" from a bad reading, and a test then held the wrong sentence in
+  // place. The difference is not pedantry — `GENERATED ALWAYS` REFUSES an INSERT that supplies
+  // the column (428C9), a DEFAULT would silently yield to it — and whoever reads this module has
+  // to learn which one it is, because the writer is in another repository and this is the only
+  // place the obligation is stated on this side.
+  //
+  // Measured on the live database on 2026-08-17: `is_generated = 'ALWAYS'`,
+  // `column_default = NULL`, `pg_attribute.attgenerated = 's'`. The migration
+  // `20260814140000_issue341_proposta_do_parceiro_em_formulario_unico` declares it and probes it.
   const source = read('lib/partner-form/tax-id-key.ts')
-  assert.ok(source.includes('`DEFAULT`'), 'the docstring must name the DEFAULT')
+  assert.ok(
+    source.includes('GENERATED ALWAYS ... STORED'),
+    'the docstring must name what the column actually is'
+  )
+  assert.ok(
+    source.includes('428C9'),
+    'and the SQLSTATE the database answers, which is what makes the guarantee structural'
+  )
   assert.ok(
     source.includes('docs/contracts/partner-proposal-answers.md'),
     'and must point at the contract that binds the writer to omitting the column'
