@@ -26,16 +26,23 @@ export function partnerFormPath(): string {
 }
 
 /**
- * Where "Como tratamos os seus dados" points — and it points nowhere yet.
+ * Where "Como tratamos os seus dados" points — the policy published by `tuggi-enterprise`.
  *
- * BR-USUARIO-028, item 1: the categories collected have to be declared in the published
- * policy, and the field and the policy line are the same delivery. This form introduces name,
- * role, e-mail and phone of the legal representative. The `tuggi-cms` has no privacy policy at
- * all, and the Tech Lead decided in #341 that no new one is written for it: the destination is
- * the policy that already exists in `tuggi-enterprise`, extended with these categories. That
- * is #344, and it blocks the go-live of this form — not its implementation.
+ * THE SLUG IS NOT TRANSLATED, and that is a fact of the other repo rather than a preference:
+ * `/trust-center/*` is in `SHARED_SLUG_ROUTES` of `src/i18n/pathnames.ts`, so `/pt/` carries the
+ * English segment and `/pt/central-de-confianca/politica-de-privacidade` is a 404. The URL was
+ * verified live by the operator on 2026-08-17 (200) and the route exists in the site repo.
  *
- * Until it exists the label renders as plain text, so nobody clicks a promise that has no
- * page behind it.
+ * ABSOLUTE AND CROSS-ORIGIN, on purpose: the form lives in the CMS and the policy in the site, so
+ * there is no relative path that reaches it and next-intl's `Link` cannot route to another
+ * deployment. The anchor opens in a new tab — a partner halfway through a form must not lose it to
+ * read the policy.
+ *
+ * The Tech Lead decided in #341 that the CMS writes no policy of its own (#344): the destination is
+ * the one that already exists, EXTENDED with the categories this form introduces — name, role,
+ * e-mail and phone of the legal representative, plus CNPJ, razão social and the establishment's
+ * address. BR-USUARIO-028, item 1, is about that text and is the half of #344 that lives in
+ * `tuggi-enterprise` (`Legal.Privacy`), not here.
  */
-export const PARTNER_PRIVACY_POLICY_URL: string | null = null
+export const PARTNER_PRIVACY_POLICY_URL: string | null =
+  'https://www.tuggi.app/pt/trust-center/privacy-policy'

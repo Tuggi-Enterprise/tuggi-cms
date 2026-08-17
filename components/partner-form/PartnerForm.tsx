@@ -263,16 +263,17 @@ export function PartnerForm() {
             <div className="mt-2 rounded-md border border-input bg-gray-50 p-3">
               <p className="text-sm text-gray-900">{t('privacy.notice')}</p>
               <p className="mt-2 text-sm">
-                {/* The destination does not exist yet: BR-USUARIO-028 ties the field to the
-                    published policy, and that policy is #344. Until it has a URL the label
-                    renders as text — the slot is ready and the form is not publishable
-                    without it. */}
+                {/* The policy published by the site (#344). A new tab, because a partner halfway
+                    through this form must not lose it to read the policy — and `noopener` with it,
+                    since the destination is another origin. The `null` branch stays: the constant
+                    is typed nullable, and a label with no page behind it must never become a dead
+                    link. */}
                 {PARTNER_PRIVACY_POLICY_URL ? (
                   <a
                     className="font-semibold text-primary-800 underline"
                     href={PARTNER_PRIVACY_POLICY_URL}
                     target="_blank"
-                    rel="noreferrer"
+                    rel="noopener noreferrer"
                   >
                     {t('privacy.link')}
                   </a>

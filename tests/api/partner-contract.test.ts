@@ -289,6 +289,50 @@ test('BR-B2B-022: every checklist item names where it is resolved', () => {
   }
 })
 
+/**
+ * BR-B2B-022, item 3, and CLAUDE.md §6 — a name that lies is worse than a name that is bad.
+ *
+ * The partner form has asked for NO file since 2026-08-16: the papers are checked in person before
+ * the link is sent, and `loadRegularity` reads the `ConferenceRecord` inside the review annotation.
+ * So `Alvará de funcionamento anexado` named an act nobody performs and `formulário do parceiro`
+ * sent the operator to a screen with no field for it — a checklist whose whole job is to say where.
+ */
+test('BR-B2B-022 item 3: the document items point at the conference band, not at the form', () => {
+  const missing = contractChecklist(client(), PAID, {
+    platformOwner: OWNER,
+    regularity: { businessLicenseDocument: false, incorporationDocument: false, businessLicenseValidUntil: null },
+  }).missing
+
+  const documents = missing.filter((item) => item.id === 'business_license' || item.id === 'incorporation')
+  assert.equal(documents.length, 2, 'both documents are missing in this fixture')
+
+  for (const item of documents) {
+    assert.match(item.where, /Conferência presencial/, `${item.id} must name where the evidence is`)
+    assert.equal(/formul[áa]rio do parceiro/i.test(item.where), false, `${item.id} still points at the form`)
+    assert.equal(/anexad/i.test(item.label), false, `${item.id} still promises an upload`)
+  }
+
+  // The band is the one the operator reads at the top of the conference section, so the label on the
+  // checklist and the heading on the screen are the same words.
+  const heading = JSON.parse(
+    readFileSync(resolve(REPO_ROOT, 'messages/pt.json'), 'utf8')
+  ).PartnerProposals.conference.heading
+  assert.equal(heading, 'Conferência presencial')
+  for (const item of documents) assert.ok(item.where.includes(heading))
+
+  // The two validity branches point at the same place: a `where` that drifts on one of them sends
+  // somebody to a screen that cannot answer.
+  for (const regularity of [
+    { businessLicenseDocument: true, incorporationDocument: true, businessLicenseValidUntil: null },
+    { businessLicenseDocument: true, incorporationDocument: true, businessLicenseValidUntil: '2020-01-01' },
+  ]) {
+    const item = contractChecklist(client(), PAID, { platformOwner: OWNER, regularity }).missing.find(
+      (candidate) => candidate.id.startsWith('business_license')
+    )
+    assert.match(item!.where, /Conferência presencial/)
+  }
+})
+
 test('BR-B2B-022: an incomplete partner registration blocks the snapshot outright', () => {
   assert.throws(() =>
     buildSnapshot(client({ tax_id: undefined }), PAID, {
