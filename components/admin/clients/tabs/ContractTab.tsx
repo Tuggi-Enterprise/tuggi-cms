@@ -17,6 +17,7 @@ import { useLocale } from 'next-intl'
 import { FileSignature } from 'lucide-react'
 import { SectionHeader } from '@/components/admin/clients/shared/SectionHeader'
 import { formatDate, formatFee } from '@/lib/contract/snapshot'
+import { returnParams } from '@/lib/navigation/return-to'
 import type { ClientEditorTabProps } from './ProfileTab'
 
 interface Summary {
@@ -110,9 +111,16 @@ export function ContractTab({ clientId }: ClientEditorTabProps) {
           </dl>
         )}
 
+        {/* The way back is this very tab, so generating the contract and coming back to the
+            record is not a hunt through the client list. */}
         <a
           className="mt-6 inline-flex rounded-xl bg-primary-800 px-4 py-2 text-sm font-semibold text-white"
-          href={`/${locale}/admin/clients/${clientId}/contract`}
+          href={`/${locale}/admin/clients/${clientId}/contract?${new URLSearchParams(
+            returnParams(
+              `/${locale}/admin/clients?clientId=${clientId}&tab=contract`,
+              'Voltar para a ficha do cliente'
+            )
+          ).toString()}`}
         >
           Abrir a página do contrato
         </a>

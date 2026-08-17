@@ -17,6 +17,7 @@ import { ClientsListAdmin } from '@/components/admin/ClientsListAdmin'
 import { ClientEditorModal, type ClientEditorTab } from '@/components/admin/clients/ClientEditorModal'
 import { useSupabaseClient, useSessionContext } from '@supabase/auth-helpers-react'
 import { Container } from '@/components/ui/Container'
+import { RETURN_TO_PARAM, parseReturnTo } from '@/lib/navigation/return-to'
 
 function AdminClientsContent() {
   const router = useRouter()
@@ -27,6 +28,15 @@ function AdminClientsContent() {
   // Backwards compat — old links use ?new=true, the new editor reads ?mode=new.
   const isCreateNew = searchParams.get('mode') === 'new' || searchParams.get('new') === 'true'
   const initialTab = (searchParams.get('tab') as ClientEditorTab | null) ?? 'profile'
+  /**
+   * Where closing the record sends the operator — DS-LAYOUT-006, point 2.
+   *
+   * The partnership pipeline opens this record to have ONE field filled in and expects the
+   * operator back in the band they left; without this, closing dropped them on the client list
+   * and the way back was the browser's button. The rule of what may be trusted is
+   * `lib/navigation/return-to`, shared with the POI screen.
+   */
+  const returnTo = parseReturnTo(searchParams.get(RETURN_TO_PARAM))
   const [isAuthorized, setIsAuthorized] = useState(false)
   const [isLoading, setIsLoading] = useState(true)
 
@@ -82,11 +92,19 @@ function AdminClientsContent() {
   }
 
   const closeDrawers = () => {
+    // Whoever sent the operator here gets them back, in the state they left.
+    if (returnTo) {
+      router.push(returnTo)
+      return
+    }
     const params = new URLSearchParams(searchParams.toString())
     params.delete('clientId')
     params.delete('new')
     params.delete('mode')
     params.delete('tab')
+    // A `returnTo` that did not survive `parseReturnTo` is not carried into the next URL: it
+    // would sit in the address bar looking like a promise nothing keeps.
+    params.delete(RETURN_TO_PARAM)
     const query = params.toString()
     router.push(`/admin/clients${query ? `?${query}` : ''}`, { scroll: false })
   }

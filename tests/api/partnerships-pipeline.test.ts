@@ -552,12 +552,15 @@ test('#390 · BR-B2B-026 item 4: the band that says `Assinar o contrato` links t
     'the next step of this state is still the contract'
   )
 
+  // The href moved into `contractHref`, which composes the same path and adds the way back —
+  // so the assertion is on the destination, not on the shape of the JSX attribute.
   const detail = read('components/admin/partnerships/PartnershipDetail.tsx')
   assert.match(
     detail,
-    /href=\{`\/\$\{locale\}\/admin\/clients\/\$\{client\.id\}\/contract`\}/,
+    /\/admin\/clients\/\$\{clientId\}\/contract/,
     'the client band links straight at the contract page'
   )
+  assert.match(detail, /href=\{contractHref\(\)\}/, 'and the band uses that one builder')
   assert.match(detail, /t\('detail\.openContract'\)/, 'and it is labelled by a key, not a literal')
 
   // A link is only a door if the page is on the other side of it.
@@ -599,14 +602,17 @@ test('#359 crit. 35 · DS-LAYOUT-006: the tool opens ON the object and declares 
   assert.match(poiPage, /initialTab/)
 
   // A return path that is not an in-app path is refused, so the query string cannot bounce an
-  // authenticated operator out to another origin. The guard is a test on `rawReturnTo`, and
-  // `returnTo` is what the screen actually uses.
-  assert.match(poiPage, /rawReturnTo && [^\n]*test\(rawReturnTo\)/)
+  // authenticated operator out to another origin. The guard itself moved to
+  // `lib/navigation/return-to` once a second screen needed it — the client record — and is
+  // proved in `tests/api/return-to.test.ts`. What this suite still owns is that THIS page
+  // navigates with the parsed value and never with the raw one.
+  assert.match(poiPage, /parseReturnTo\(searchParams\?\.get\(RETURN_TO_PARAM\)\)/)
   assert.equal(
     poiPage.indexOf('router.push(rawReturnTo'),
     -1,
     'the unvalidated value must never reach a navigation'
   )
+  assert.match(poiPage, /router\.push\(returnTo \?\? '\/pois'\)/)
 })
 
 test('#359 crit. 18: the publish path names ONE column, and none of the forbidden ones', () => {

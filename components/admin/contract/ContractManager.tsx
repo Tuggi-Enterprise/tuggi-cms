@@ -84,7 +84,16 @@ function statusLabel(state: ContractState): string {
   return `Rascunho gerado em ${formatDate(contract.createdAt)}`
 }
 
-export function ContractManager({ clientId }: { clientId: string }) {
+export function ContractManager({
+  clientId,
+  returnTo = null,
+  returnLabel = null,
+}: {
+  clientId: string
+  /** Already validated by the page; see `lib/navigation/return-to`. */
+  returnTo?: string | null
+  returnLabel?: string | null
+}) {
   const [state, setState] = useState<ContractState | null>(null)
   const [tier, setTier] = useState<'free' | 'paid'>('free')
   const [paymentMethod, setPaymentMethod] = useState<'boleto' | 'pix' | ''>('')
@@ -174,6 +183,17 @@ export function ContractManager({ clientId }: { clientId: string }) {
 
   return (
     <div className="mx-auto max-w-4xl space-y-6 p-6">
+      {/* Whoever sent the operator here says so, and takes them back. Without it the only way
+          out of a page reached from the pipeline was the browser's button. */}
+      {returnTo ? (
+        <a
+          href={returnTo}
+          className="inline-flex min-h-[24px] items-center text-sm font-semibold text-primary-800 underline underline-offset-4"
+        >
+          {returnLabel ?? 'Voltar'}
+        </a>
+      ) : null}
+
       <header>
         <h1 className="text-2xl font-bold text-gray-900">Contrato de parceria</h1>
         <p className="mt-1 text-sm text-gray-700">

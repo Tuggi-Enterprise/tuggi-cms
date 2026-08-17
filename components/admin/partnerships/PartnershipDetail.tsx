@@ -30,6 +30,7 @@ import { formatMonthlyFee } from '@/lib/partnerships/publish-plan'
 import type { PendencyId } from '@/lib/partnerships/place-readiness'
 import { IN_PROGRESS_STATES, type PipelineState } from '@/lib/partnerships/pipeline'
 import { deriveTriageStatus, type TriageGate } from '@/lib/partnerships/triage'
+import { returnParams } from '@/lib/navigation/return-to'
 import type { PartnershipDetail as Detail, PartnershipPlace } from '@/lib/services/partnership-service'
 import { PendencyList } from './PendencyList'
 import { PublishPanel, UnpublishPanel } from './PublishPanel'
@@ -268,8 +269,33 @@ export function PartnershipDetail({ locale, clientId }: { locale: string; client
     // The boundary is drawn inside the trigger-points panel (`TriggerPointsManager` renders
     // `BoundaryControls`), so both land there.
     const tab = pendency === 'audio_description' ? 'description' : 'trigger-points'
-    const query = new URLSearchParams({ tab, returnTo, returnLabel })
+    const query = new URLSearchParams({ tab, ...returnParams(returnTo, returnLabel) })
     return `/${locale}/pois/${attractionId}?${query.toString()}`
+  }
+
+  /**
+   * The client record, OPENED — and until this was written it was not.
+   *
+   * The link read `?client=`, and the screen on the other side reads `clientId`
+   * (`AdminClientsPageContent`): every `Abrir a ficha do cliente` landed the operator on the
+   * paginated client list with nothing open, to hunt by hand for the client they had just been
+   * looking at. Built here, out of one function, so the two callers cannot drift again.
+   *
+   * `tab` is an allowlisted deep link of `ClientEditorModal`; the way back travels with it,
+   * because the operator opened this to fill in one field and belongs back in the band.
+   */
+  function clientHref(tab?: 'profile' | 'fiscal' | 'contract'): string {
+    // The route parameter and not `detail.client.id`: this screen IS the pipeline of that
+    // client, and the two are the same id by construction of the endpoint above.
+    const query = new URLSearchParams({ clientId, ...returnParams(returnTo, returnLabel) })
+    if (tab) query.set('tab', tab)
+    return `/${locale}/admin/clients?${query.toString()}`
+  }
+
+  /** The contract's own route — a long document with a trail, so it stays a page (#342). */
+  function contractHref(): string {
+    const query = new URLSearchParams(returnParams(returnTo, returnLabel))
+    return `/${locale}/admin/clients/${clientId}/contract?${query.toString()}`
   }
 
   return (
@@ -342,11 +368,18 @@ export function PartnershipDetail({ locale, clientId }: { locale: string; client
             >
               {band === 'proposal' && <ProposalBand detail={detail} locale={locale} />}
               {band === 'conference' && <ConferenceBand detail={detail} />}
-              {band === 'client' && <ClientBand detail={detail} locale={locale} />}
+              {band === 'client' && (
+                <ClientBand
+                  detail={detail}
+                  clientHref={clientHref}
+                  contractHref={contractHref}
+                />
+              )}
               {band === 'place' && (
                 <PlaceBand
                   detail={detail}
                   locale={locale}
+                  clientHref={clientHref}
                   panel={panel}
                   setPanel={setPanel}
                   onOpenPlace={setEditingPlaceId}
@@ -531,7 +564,15 @@ function ConferenceBand({ detail }: { detail: Detail }) {
   )
 }
 
-function ClientBand({ detail, locale }: { detail: Detail; locale: string }) {
+function ClientBand({
+  detail,
+  clientHref,
+  contractHref,
+}: {
+  detail: Detail
+  clientHref: (tab?: 'profile' | 'fiscal' | 'contract') => string
+  contractHref: () => string
+}) {
   const t = useTranslations('Partnerships')
   const { client, contract, submission } = detail
 
@@ -585,13 +626,13 @@ function ClientBand({ detail, locale }: { detail: Detail; locale: string }) {
           new tab (DS-LAYOUT-006, pt. 4). */}
       <div className="mt-2 flex flex-wrap items-center gap-x-4 gap-y-1">
         <Link
-          href={`/${locale}/admin/clients?client=${client.id}`}
+          href={clientHref()}
           className="inline-flex min-h-[24px] items-center text-sm font-medium text-primary-800 underline underline-offset-4"
         >
           {t('detail.openClient')}
         </Link>
         <Link
-          href={`/${locale}/admin/clients/${client.id}/contract`}
+          href={contractHref()}
           className="inline-flex min-h-[24px] items-center text-sm font-medium text-primary-800 underline underline-offset-4"
         >
           {t('detail.openContract')}
@@ -604,6 +645,7 @@ function ClientBand({ detail, locale }: { detail: Detail; locale: string }) {
 function PlaceBand({
   detail,
   locale,
+  clientHref,
   panel,
   setPanel,
   onOpenPlace,
@@ -617,6 +659,7 @@ function PlaceBand({
 }: {
   detail: Detail
   locale: string
+  clientHref: (tab?: 'profile' | 'fiscal' | 'contract') => string
   panel: Panel
   setPanel: (value: Panel) => void
   onOpenPlace: (id: string) => void
@@ -742,7 +785,9 @@ function PlaceBand({
               panel.kind === 'publish' ? (
                 <PublishPanel
                   place={place}
-                  clientHref={`/${locale}/admin/clients?client=${detail.client.id}`}
+                  // The fee and the courtesy live in `Fiscal e Pagamentos`, so variant (iv)'s
+                  // way out opens that tab and not the record's front page.
+                  clientHref={clientHref('fiscal')}
                   onClose={() => setPanel(null)}
                   onPublished={async () => {
                     setPanel(null)

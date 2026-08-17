@@ -9,6 +9,12 @@ import {
   type POIDetailsTab,
 } from '@/components/poi-management/POIDetailsModal'
 import { ArrowLeft, Loader2 } from 'lucide-react'
+import {
+  RETURN_LABEL_PARAM,
+  RETURN_TO_PARAM,
+  parseReturnLabel,
+  parseReturnTo,
+} from '@/lib/navigation/return-to'
 
 /**
  * The tabs another screen may send an operator straight to. An allowlist and not a cast: a
@@ -31,22 +37,12 @@ export default function POIPage() {
 
   /**
    * WHERE THE OPERATOR CAME FROM, AND WHERE THEY GO BACK TO — DS-LAYOUT-006, point 2.
-   *
-   * A specialised tool reached from a pipeline has to declare the way back with a visible
-   * control, not the browser's back button. `returnTo` is the path and `returnLabel` is the
-   * whole sentence, already built by the caller: the partnership pipeline's copy lives only in
-   * `messages/pt.json` under `Partnerships`, and this screen keeps the operator's locale — so
-   * the caller composes the sentence, and this page renders it rather than growing a
-   * Portuguese-only namespace of its own.
-   *
-   * Only an in-app path is accepted. A `returnTo` that starts with anything but a single `/`
-   * is ignored, so the query string cannot be used to bounce an authenticated operator out to
-   * another origin.
+   * The rule of what may be trusted lives in `lib/navigation/return-to`, which is also what
+   * the client record reads: two screens deciding separately what an in-app path is would be
+   * two chances to get the same security decision wrong.
    */
-  const rawReturnTo = searchParams?.get('returnTo') ?? null
-  const returnTo =
-    rawReturnTo && /^\/[^/\\]/.test(rawReturnTo) ? rawReturnTo : null
-  const returnLabel = returnTo ? searchParams?.get('returnLabel') ?? null : null
+  const returnTo = parseReturnTo(searchParams?.get(RETURN_TO_PARAM))
+  const returnLabel = parseReturnLabel(searchParams?.get(RETURN_LABEL_PARAM), returnTo)
 
   const requestedTab = searchParams?.get('tab')
   const initialTab = DEEP_LINK_TABS.find((tab) => tab === requestedTab)
