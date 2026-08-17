@@ -29,14 +29,25 @@ import { formatDate } from '@/components/admin/partner-proposals/format'
 import { formatMonthlyFee } from '@/lib/partnerships/publish-plan'
 import type { PendencyId } from '@/lib/partnerships/place-readiness'
 import { IN_PROGRESS_STATES, type PipelineState } from '@/lib/partnerships/pipeline'
+import { deriveTriageStatus, type TriageGate } from '@/lib/partnerships/triage'
 import type { PartnershipDetail as Detail, PartnershipPlace } from '@/lib/services/partnership-service'
 import { PendencyList } from './PendencyList'
 import { PublishPanel, UnpublishPanel } from './PublishPanel'
+import { CommunicationPanel, RefusalPanel, RefusalSummary, type RefusalOutcome } from './TriageRefusalPanel'
+import { triageText } from './triage-text'
 
 type BandId = 'proposal' | 'conference' | 'client' | 'place' | 'publication'
 type BandStatus = 'done' | 'current' | 'future'
+type PanelKind = 'publish' | 'unpublish' | 'refuse' | 'communicate'
+type Panel = { attractionId: string; kind: PanelKind } | null
 
-/** How far along the pipeline each state is. `discarded` reads as the very beginning. */
+/**
+ * How far along the pipeline each state is. `discarded` reads as the very beginning.
+ *
+ * `refused_at_triage` sits at band 4, with the place: the refusal is a decision ABOUT THE PLACE
+ * and the operator who comes back to the row goes to the place to read it. It is terminal without
+ * being an ending — the partnership continues (BR-B2B-010, 6th edge case).
+ */
 const STATE_ORDER: Record<PipelineState, number> = {
   proposal_received: 0,
   in_conference: 1,
@@ -45,6 +56,7 @@ const STATE_ORDER: Record<PipelineState, number> = {
   place_in_curation: 4,
   published: 5,
   discarded: 0,
+  refused_at_triage: 4,
 }
 
 /**
@@ -75,9 +87,7 @@ export function PartnershipDetail({ locale, clientId }: { locale: string; client
   const [failure, setFailure] = useState<'none' | 'not_found' | 'error'>('none')
   const [open, setOpen] = useState<BandId[]>([])
   const [touched, setTouched] = useState(false)
-  const [panel, setPanel] = useState<{ attractionId: string; kind: 'publish' | 'unpublish' } | null>(
-    null
-  )
+  const [panel, setPanel] = useState<Panel>(null)
   const [editingPlaceId, setEditingPlaceId] = useState<string | null>(null)
 
   const load = useCallback(async () => {
@@ -142,6 +152,53 @@ export function PartnershipDetail({ locale, clientId }: { locale: string; client
         // The request never came back with an answer. Publishing the same place twice is the
         // same state, so this one DOES get a retry (DS-COMPONENTE-021, 2nd edge case).
         return 'network' as const
+      }
+    },
+    [clientId]
+  )
+
+  /**
+   * Register the refusal — one round of the triage, and it is not idempotent: the table is
+   * append-only and a second click is a second refusal (BR-B2B-011, item 5). So no retry is
+   * offered on a network error, exactly like the promotion of a proposal.
+   */
+  const refuse = useCallback(
+    async (attractionId: string, gate: TriageGate, reason: string): Promise<RefusalOutcome> => {
+      try {
+        const response = await fetch(
+          `/api/admin/partnerships/clients/${clientId}/places/${attractionId}/triage-refusal`,
+          {
+            method: 'POST',
+            headers: { 'content-type': 'application/json' },
+            body: JSON.stringify({ gate, reason }),
+          }
+        )
+        return response.ok ? 'ok' : 'failed'
+      } catch {
+        return 'failed'
+      }
+    },
+    [clientId]
+  )
+
+  /** Record the communication — the act that stops the 72h clock of BR-B2B-010, item 4. */
+  const communicate = useCallback(
+    async (attractionId: string, refusalId: string): Promise<RefusalOutcome> => {
+      try {
+        const response = await fetch(
+          `/api/admin/partnerships/clients/${clientId}/places/${attractionId}/triage-refusal/communicate`,
+          {
+            method: 'POST',
+            headers: { 'content-type': 'application/json' },
+            body: JSON.stringify({ refusalId }),
+          }
+        )
+        if (response.ok) return 'ok'
+        const payload = await response.json().catch(() => ({}))
+        // Already communicated is not a failure: somebody closed it, and the screen says so.
+        return payload?.error === 'already_communicated' ? 'refused' : 'failed'
+      } catch {
+        return 'failed'
       }
     },
     [clientId]
@@ -221,7 +278,20 @@ export function PartnershipDetail({ locale, clientId }: { locale: string; client
               {t(`nextSteps.${detail.state}`)}
             </span>
           )}
+          {/* The clock, in the header the spec draws it in (§6.2) and out of the SAME module the
+              queue column reads — the list and the detail cannot disagree about a promise made to
+              a partner (BR-B2B-010, item 4). */}
+          <span className="ml-2 font-normal text-gray-800" title={t('triage.deadlineTitle')}>
+            {t('triage.headerLine', { value: triageText(deriveTriageStatus(detail.triage), t) })}
+          </span>
         </p>
+        {/* Criterion 33: the terminal state carries this line, and the screen offers no action
+            that removes the partnership — BR-B2B-010, 6th edge case, and BR-B2B-027, item 3. */}
+        {detail.state === 'refused_at_triage' && (
+          <p className="mt-1 text-sm font-medium text-gray-900">
+            {t('triage.partnershipContinues')}
+          </p>
+        )}
       </header>
 
       <div className="flex flex-col gap-6 lg:flex-row">
@@ -246,6 +316,8 @@ export function PartnershipDetail({ locale, clientId }: { locale: string; client
                   onOpenPlace={setEditingPlaceId}
                   toolHref={toolHref}
                   publish={publish}
+                  refuse={refuse}
+                  communicate={communicate}
                   reload={load}
                 />
               )}
@@ -486,15 +558,19 @@ function PlaceBand({
   onOpenPlace,
   toolHref,
   publish,
+  refuse,
+  communicate,
   reload,
 }: {
   detail: Detail
   locale: string
-  panel: { attractionId: string; kind: 'publish' | 'unpublish' } | null
-  setPanel: (value: { attractionId: string; kind: 'publish' | 'unpublish' } | null) => void
+  panel: Panel
+  setPanel: (value: Panel) => void
   onOpenPlace: (id: string) => void
   toolHref: (attractionId: string, pendency: PendencyId) => string
   publish: (attractionId: string, approved: boolean) => Promise<'ok' | 'write' | 'network' | 'refused'>
+  refuse: (attractionId: string, gate: TriageGate, reason: string) => Promise<RefusalOutcome>
+  communicate: (attractionId: string, refusalId: string) => Promise<RefusalOutcome>
   reload: () => Promise<void>
 }) {
   const t = useTranslations('Partnerships')
@@ -563,6 +639,47 @@ function PlaceBand({
             />
           </div>
 
+          {/* The refusal, once it is on the record: which criterion, what was missing, who, when,
+              and whether the partner has been told. Shown for a place that is NOT in the app —
+              a place that was refused, corrected and published is published, and band 5 is where
+              it then speaks from (BR-B2B-011, item 5). */}
+          {!place.readiness.published && place.refusal && (
+            <>
+              <RefusalSummary refusal={place.refusal} />
+              {place.refusal.communicatedAt === null && (
+                <div className="mt-3">
+                  {panel?.attractionId === place.readiness.place.attractionId &&
+                  panel.kind === 'communicate' ? (
+                    <CommunicationPanel
+                      refusal={place.refusal}
+                      onClose={() => setPanel(null)}
+                      communicate={(refusalId) =>
+                        communicate(place.readiness.place.attractionId, refusalId)
+                      }
+                      onCommunicated={async () => {
+                        setPanel(null)
+                        await reload()
+                      }}
+                    />
+                  ) : (
+                    <Button
+                      type="button"
+                      variant="cta"
+                      onClick={() =>
+                        setPanel({
+                          attractionId: place.readiness.place.attractionId,
+                          kind: 'communicate',
+                        })
+                      }
+                    >
+                      {t('triage.communicateAction')}
+                    </Button>
+                  )}
+                </div>
+              )}
+            </>
+          )}
+
           {!place.readiness.published && (
             <div className="mt-3">
               {panel?.attractionId === place.readiness.place.attractionId &&
@@ -577,19 +694,52 @@ function PlaceBand({
                   }}
                   publish={(approved) => publish(place.readiness.place.attractionId, approved)}
                 />
-              ) : (
-                <Button
-                  type="button"
-                  variant="cta"
-                  onClick={() =>
-                    setPanel({
-                      attractionId: place.readiness.place.attractionId,
-                      kind: 'publish',
-                    })
+              ) : panel?.attractionId === place.readiness.place.attractionId &&
+                panel.kind === 'refuse' ? (
+                <RefusalPanel
+                  onClose={() => setPanel(null)}
+                  refuse={(gate, reason) =>
+                    refuse(place.readiness.place.attractionId, gate, reason)
                   }
-                >
-                  {t('publish.actionNamed', { name: place.readiness.place.name })}
-                </Button>
+                  onRefused={async () => {
+                    setPanel(null)
+                    await reload()
+                  }}
+                />
+              ) : (
+                <div className="flex flex-wrap items-center gap-3">
+                  <Button
+                    type="button"
+                    variant="cta"
+                    onClick={() =>
+                      setPanel({
+                        attractionId: place.readiness.place.attractionId,
+                        kind: 'publish',
+                      })
+                    }
+                  >
+                    {t('publish.actionNamed', { name: place.readiness.place.name })}
+                  </Button>
+                  {/* The other outcome of the triage, beside the one it is the alternative to —
+                      BR-B2B-010, item 4, promises ONE of the two within 72 hours, and a screen
+                      that offers only publishing hides the outcome the operator owes. A refusal
+                      already on the record is not offered again: correcting one is a new round
+                      (BR-B2B-011, item 5), and that starts with the place changing. */}
+                  {!place.refusal && (
+                    <Button
+                      type="button"
+                      variant="outline"
+                      onClick={() =>
+                        setPanel({
+                          attractionId: place.readiness.place.attractionId,
+                          kind: 'refuse',
+                        })
+                      }
+                    >
+                      {t('triage.refuseAction')}
+                    </Button>
+                  )}
+                </div>
               )}
             </div>
           )}
@@ -607,8 +757,8 @@ function PublicationBand({
   reload,
 }: {
   detail: Detail
-  panel: { attractionId: string; kind: 'publish' | 'unpublish' } | null
-  setPanel: (value: { attractionId: string; kind: 'publish' | 'unpublish' } | null) => void
+  panel: Panel
+  setPanel: (value: Panel) => void
   publish: (attractionId: string, approved: boolean) => Promise<'ok' | 'write' | 'network' | 'refused'>
   reload: () => Promise<void>
 }) {

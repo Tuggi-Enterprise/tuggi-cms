@@ -26,6 +26,33 @@ export function formatShortDate(value: string | null | undefined): string {
   return date.toLocaleDateString(OPERATOR_LOCALE, { day: '2-digit', month: '2-digit' })
 }
 
+/**
+ * The hour, in the shape spec §3.1 wrote it: `10h32`, never `10:32`.
+ *
+ * Built from the parts and not from a locale option because `pt-BR` renders `10:32` for every
+ * combination of `hour`/`minute`, and the `h` is the form the operator reads on that column.
+ */
+export function formatClockTime(value: string | null | undefined): string {
+  if (!value) return '—'
+  const date = new Date(value)
+  if (Number.isNaN(date.getTime())) return '—'
+  const hour = String(date.getHours()).padStart(2, '0')
+  const minute = String(date.getMinutes()).padStart(2, '0')
+  return `${hour}h${minute}`
+}
+
+/**
+ * `18/08, 10h32` — the deadline of the 72-hour triage clock (BR-B2B-010, item 4), and the hour
+ * is not decoration: 72 hours from an approval at 10h32 expires at 10h32, and a date alone would
+ * make the operator believe he has the whole day.
+ */
+export function formatDeadline(value: string | null | undefined): string {
+  if (!value) return '—'
+  const day = formatShortDate(value)
+  if (day === '—') return '—'
+  return `${day}, ${formatClockTime(value)}`
+}
+
 export function formatDateTime(value: string | null | undefined): string {
   if (!value) return '—'
   const date = new Date(value)

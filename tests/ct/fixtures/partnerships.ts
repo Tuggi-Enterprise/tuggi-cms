@@ -43,6 +43,9 @@ export function queueRow(overrides: Partial<PartnershipQueueRow> = {}): Partners
     duplicateCount: 0,
     since: '2026-08-10T12:00:00.000Z',
     places: { total: 0, published: 0, blocking: 0, silencing: 0, improving: 0, allReady: false },
+    // No approval and no place: the `Triagem` column reads `—`, which is the state of every row
+    // that has not reached the client yet (#377, spec §3.1).
+    triage: { approvedAt: null, places: [] },
     discardReason: null,
     ...overrides,
   }
@@ -97,6 +100,10 @@ function partnerPlace(facts: PartnerPlaceFacts, fee: PartnerFee): PartnershipPla
     readiness,
     plan: buildPublishPlan(fee, readiness),
     publishedBy: null,
+    // Nobody refused these places: the triage of #377 is exercised by
+    // `tests/api/partnership-triage.test.ts`, and a fixture that carried a refusal would make
+    // every screen here render the terminal state.
+    refusal: null,
   }
 }
 
@@ -170,6 +177,9 @@ export function detailInCuration(): PartnershipDetail {
       conference: FILLED_CONFERENCE,
     },
     places: [partnerPlace(facts, fee)],
+    // The same facts the queue row carries, so the header clock and the column agree — the
+    // detail derives it from `approved_at` and the places, exactly as the service does (#377).
+    triage: { approvedAt: '2026-08-14T13:00:00.000Z', places: [{ published: false, refusal: null }] },
   }
 }
 
@@ -219,5 +229,8 @@ export function detailReadyToPublish(): PartnershipDetail {
       conference: FILLED_CONFERENCE,
     },
     places: [partnerPlace(facts, fee)],
+    // The same facts the queue row carries, so the header clock and the column agree — the
+    // detail derives it from `approved_at` and the places, exactly as the service does (#377).
+    triage: { approvedAt: '2026-08-14T13:00:00.000Z', places: [{ published: false, refusal: null }] },
   }
 }

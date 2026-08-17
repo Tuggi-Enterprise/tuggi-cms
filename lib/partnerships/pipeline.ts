@@ -16,15 +16,14 @@
 import type { ConferenceRecord } from '@/lib/partner-form/regularity'
 
 /**
- * THE SEVEN LABELS, and one of them is not the one the spec listed.
+ * THE EIGHT LABELS — the spec's seven plus one this pipeline needs.
  *
- * The spec's seventh is `Recusado na triagem`, and it is NOT here: BR-B2B-010's Nota de
- * operação declares that no column records the outcome of triage, and spec §9, question 3, is
- * explicit that until it exists neither the terminal state nor the `Triagem` column may be
- * published — a refused partnership would sit in the queue looking overdue forever. That is a
- * card of its own, with the `data` migration in front of it.
+ * `refused_at_triage` is the spec's seventh, and it arrived with the card that gave the outcome
+ * of the triage a place to live (#377, `core.partner_triage_refusals`): while nothing recorded
+ * it, a refused partnership would have sat in the queue looking overdue forever, which is why
+ * spec §9, question 3, held both it and the `Triagem` column back.
  *
- * `client_created` takes its place, and it is not an invention of convenience: promoting a
+ * `client_created` is the extra one, and it is not an invention of convenience: promoting a
  * proposal writes `core.clients` and NOTHING about a contract (`promoteProposal`), so every
  * partnership passes through "the client exists, the contract is not signed yet". Without this
  * id those rows derive to no state at all and vanish from the queue — which is the one failure
@@ -39,6 +38,7 @@ export type PipelineState =
   | 'place_in_curation'
   | 'published'
   | 'discarded'
+  | 'refused_at_triage'
 
 /** The states that are still work. The queue's default filter (criterion 4). */
 export const IN_PROGRESS_STATES: PipelineState[] = [
@@ -49,7 +49,15 @@ export const IN_PROGRESS_STATES: PipelineState[] = [
   'place_in_curation',
 ]
 
-export const TERMINAL_STATES: PipelineState[] = ['discarded']
+/**
+ * Neither of these is work, and neither may show up under the default filter (criterion 4).
+ *
+ * `refused_at_triage` is terminal WITHOUT ending the partnership: BR-B2B-010, 6th edge case, and
+ * BR-B2B-027, item 3 — the QR, the first-touch attribution and the revenue share stay whole, and
+ * no POI leaves the catalogue. Terminal here means "the triage of this place is decided", never
+ * "the relationship is over".
+ */
+export const TERMINAL_STATES: PipelineState[] = ['discarded', 'refused_at_triage']
 
 /** Every state, in pipeline order — the order the queue's counters are shown in. */
 export const PIPELINE_STATES: PipelineState[] = IN_PROGRESS_STATES.concat(
@@ -84,15 +92,31 @@ export interface PipelineInput {
   placeCount: number
   /** How many of them satisfy the read model's visibility predicate. */
   publishedPlaceCount: number
+  /**
+   * How many of them are refused at triage — a row in `core.partner_triage_refusals` and the
+   * place not in the app (`isRefusedAtTriage`). Optional and defaulting to zero because a
+   * partnership whose places nobody refused is the ordinary case, and every call site that has
+   * the refusals passes them.
+   */
+  refusedPlaceCount?: number
 }
 
 export function derivePipelineState(input: PipelineInput): PipelineState {
   if (input.proposalStatus === 'discarded') return 'discarded'
 
   if (input.clientId) {
-    // Every place in the app: the partnership is delivered. One of three still in curation is
-    // NOT `Publicado` — the queue shows the least advanced place (DS-COMPONENTE-020).
-    if (input.placeCount > 0 && input.publishedPlaceCount === input.placeCount) return 'published'
+    const refused = input.refusedPlaceCount ?? 0
+    // DECIDED, not "finished": a place is resolved when it is in the app or its triage refused
+    // it. Below that line there is still work, and the row belongs in the work queue.
+    const resolved = input.publishedPlaceCount + refused
+
+    if (input.placeCount > 0 && resolved >= input.placeCount) {
+      // Every place in the app: the partnership is delivered. One of three still in curation is
+      // NOT `Publicado` — the queue shows the least advanced place (DS-COMPONENTE-020). And a
+      // partnership whose every place was refused is terminal, with the partnership intact
+      // (BR-B2B-010, 6th edge case).
+      return input.publishedPlaceCount > 0 ? 'published' : 'refused_at_triage'
+    }
     if (input.placeCount > 0) return 'place_in_curation'
     if (input.contractSigned) return 'contract_signed'
     return 'client_created'

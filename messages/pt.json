@@ -2677,8 +2677,11 @@
         "city": "Cidade",
         "state": "Estado",
         "missing": "O que falta",
-        "idle": "Parado há"
+        "idle": "Parado há",
+        "triage": "Triagem"
       },
+      "overdueCount": "{count, plural, one {# com a triagem vencida} other {# com a triagem vencida}}",
+      "onlyLate": "Só o que está atrasado",
       "open": "Abrir",
       "openNamed": "Abrir a parceria de {name}",
       "loading": "Carregando a esteira.",
@@ -2705,7 +2708,8 @@
       "contract_signed": "Contrato assinado",
       "place_in_curation": "Local em curadoria",
       "published": "Publicado",
-      "discarded": "Descartada"
+      "discarded": "Descartada",
+      "refused_at_triage": "Recusado na triagem"
     },
     "nextSteps": {
       "proposal_received": "Conferir a regularidade",
@@ -2714,7 +2718,45 @@
       "contract_signed": "Criar o local",
       "place_in_curation": "Publicar o local",
       "published": "—",
-      "discarded": "—"
+      "discarded": "—",
+      "refused_at_triage": "—"
+    },
+    "triage": {
+      "none": "—",
+      "within": "até {deadline}",
+      "dueToday": "vence hoje, {time}",
+      "overdue": "{count, plural, =0 {venceu hoje} one {venceu há # dia} other {venceu há # dias}}",
+      "headerLine": "Triagem: {value}",
+      "deadlineTitle": "Prazo de 72 horas corridas, contadas da aprovação da parceria",
+      "partnershipContinues": "A parceria continua.",
+      "refusedTitle": "Recusado na triagem",
+      "refusedLine": "Recusado em {date}, por {person}.",
+      "refusedLineAnonymous": "Recusado em {date}.",
+      "refusedGate": "Critério: {gate}",
+      "refusedReason": "O que faltou: {reason}",
+      "gates": {
+        "1": "Elegibilidade do lugar",
+        "2": "O que o lugar tem para contar",
+        "3": "Recusa comercial"
+      },
+      "refuseAction": "Recusar na triagem",
+      "refuseTitle": "Registrar a recusa da triagem",
+      "refuseBody": "A recusa vale só para este local. A parceria continua: o QR, a atribuição e a participação na receita seguem inteiros, e nenhum local publicado sai do catálogo.",
+      "refuseGateLabel": "Qual critério reprovou",
+      "refuseReasonLabel": "O que faltou, nas palavras que o parceiro vai receber",
+      "refuseReasonHint": "Dizer que não foi aprovado não basta: o parceiro precisa saber o que faltou para poder reapresentar.",
+      "refuseConfirm": "Registrar a recusa",
+      "refuseCancel": "Cancelar",
+      "refuseSeparateAct": "Registrar a recusa não avisa ninguém. Comunicar é o passo seguinte, e é a comunicação que encerra o prazo de 72 horas.",
+      "refuseFailed": "Não foi possível registrar a recusa. Tente de novo.",
+      "notCommunicated": "Recusa registrada e ainda não comunicada. O prazo de 72 horas continua correndo.",
+      "communicateAction": "Registrar a comunicação ao parceiro",
+      "communicateBody": "Marque isto depois de comunicar a recusa ao parceiro. O Tuggi não envia essa mensagem: quem comunica é você, e esta marca registra quando aconteceu.",
+      "communicateConfirm": "Já comuniquei",
+      "communicateCancel": "Cancelar",
+      "communicatedLine": "Comunicada ao parceiro em {date}.",
+      "communicateFailed": "Não foi possível registrar a comunicação. Tente de novo.",
+      "communicateAlready": "Esta recusa já estava registrada como comunicada."
     },
     "pendencies": {
       "classes": {

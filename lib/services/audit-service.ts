@@ -40,6 +40,14 @@ export type AuditAction =
   // the contract, and nothing on the client record moves when the place goes live.
   | 'PUBLISH_PARTNER_PLACE'
   | 'UNPUBLISH_PARTNER_PLACE'
+  // The other outcome of the triage (#377), and the two acts are deliberately two rows.
+  // `core.partner_triage_refusals` is append-only and already carries who decided and when, so
+  // these rows are not the record of the refusal — they are the record of the DECISION HAVING
+  // BEEN TAKEN IN THE CMS, next to the publication it is the alternative to, on the one screen
+  // that shows the whole trail. The communication is separate because it is a separate act:
+  // BR-B2B-010, item 4, stops the 72h clock at the communication and not at the decision.
+  | 'REFUSE_PARTNER_PLACE_AT_TRIAGE'
+  | 'COMMUNICATE_PARTNER_PLACE_TRIAGE_REFUSAL'
 
 /**
  * `CLIENT` is the record the promotion writes; `PARTNER_PROPOSAL` is the thing outside the
