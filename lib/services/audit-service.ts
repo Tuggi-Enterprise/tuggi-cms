@@ -21,6 +21,13 @@ export type AuditAction =
   // Partnership (#341). Promoting and discarding are irreversible acts of the team over a
   // live record, so each one leaves a row saying who, when and over which proposal.
   | 'PROMOTE_PARTNER_PROPOSAL'
+  // Same class as `GRANT_TIME_CREDIT_UNRECORDED`: the first write committed and the second did
+  // not. The promotion writes `core.clients` first (BR-B2B-026 — the claim needs a destination
+  // in the same statement), so a claim that fails leaves a client record carrying full personal
+  // data with no promotion behind it. `core.clients` has no authorship column, no audit trigger
+  // and no unique `tax_id`, so this row is the ONLY thing tying that record to who created it
+  // and to the proposal it came from.
+  | 'PROMOTE_PARTNER_PROPOSAL_UNCLAIMED'
   | 'DISCARD_PARTNER_PROPOSAL'
   | 'RESTORE_PARTNER_PROPOSAL'
   // The conference annotation. It writes no `status` and reaches no client record, and it is

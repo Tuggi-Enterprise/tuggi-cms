@@ -94,6 +94,32 @@ export const POST = withRateLimit(20, 60_000)(
     if (!outcome.ok) {
       const status = outcome.reason === 'not_promotable' ? 409 : 503
       console.error(`[partner-proposals] promotion refused: ${outcome.reason}`)
+
+      // THE RESIDUE GETS A ROW. The client is written before the claim (BR-B2B-026: the claim
+      // has to name its destination in the same statement), so a refusal here can mean the
+      // record already exists in `core.clients` — with the representative's name, e-mail,
+      // phone and role, the CNPJ and the address on it — while the proposal is still in the
+      // queue. That row has no authorship column, no audit trigger and no unique `tax_id`
+      // behind it, so without this event nothing at all says who created it or what it came
+      // from. `clientId` is null when the client write is what failed: nothing was written,
+      // so there is nothing to trace and no row to write.
+      //
+      // UUIDS AND THE REASON, NOTHING ELSE. What makes this record worth tracking is exactly
+      // what must not be copied into the trail — the audit table is read by more people than
+      // the client record is, and a description carrying the answers would put the personal
+      // data in a second place while claiming to protect it.
+      if (outcome.clientId) {
+        await logAuditEvent({
+          request: req,
+          action: 'PROMOTE_PARTNER_PROPOSAL_UNCLAIMED',
+          entity: 'CLIENT',
+          entityId: outcome.clientId,
+          userId: auth.user.id,
+          userEmail: auth.user.email ?? null,
+          description: `Client ${outcome.clientId} was written by the promotion of partner proposal ${submissionId}, but the claim was refused (${outcome.reason}). The client record exists with no promotion behind it and the proposal is still in the queue; reconcile the two by hand — promoting again would write a second record.`,
+        })
+      }
+
       return NextResponse.json({ error: outcome.reason }, { status })
     }
 
