@@ -17,6 +17,7 @@
  */
 
 import { getSupabaseService } from '@/lib/core/supabase-client'
+import { operatorLabel } from '@/lib/services/operator-label'
 import type { PartnerAnswers } from '@/lib/partner-form/schema'
 import type { PromotableColumn } from '@/lib/partner-form/promotion'
 import {
@@ -168,27 +169,6 @@ export async function loadProposalDetail(submissionId: string): Promise<Proposal
   }
 }
 
-/**
- * Who an auth uid is, in something an operator can read.
- *
- * WHY THE AUTH ADMIN API AND NOT A JOIN: `core.cms_users` is keyed by e-mail and has no
- * column holding the auth uid, so there is no path in `core` from `reviewed_by` to a person.
- * `promoted_by` and `reviewed_by` are both `auth.users(id)`, and this is the only lookup that
- * resolves them.
- *
- * It fails to null on purpose. A trail line is worth showing or leaving out; it is not worth
- * failing the whole screen, and printing the uuid would be the third option that helps nobody.
- */
-async function operatorLabel(userId: string | null): Promise<string | null> {
-  if (!userId) return null
-  try {
-    const { data, error } = await getSupabaseService().auth.admin.getUserById(userId)
-    if (error || !data?.user?.email) return null
-    return data.user.email
-  } catch {
-    return null
-  }
-}
 
 /**
  * The client this proposal is ABOUT, found by CNPJ.

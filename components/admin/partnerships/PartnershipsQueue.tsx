@@ -14,13 +14,22 @@
  * informative icons, never `text-tuggi-blue` (#00A8E8, 2.70:1, which fails SC 1.4.3).
  *
  * THE STATE IS TEXT, always (DS-A11Y-003 and criterion 2): nothing on this screen is
- * distinguishable by colour or by icon alone.
+ * distinguishable by colour or by icon alone. THE `Triagem` COLUMN INCLUDED — it is the 72-hour
+ * promise of BR-B2B-010, item 4, and `venceu há 2 dias` in red would be the same information for
+ * nobody who cannot see red.
  *
- * WHAT IS NOT HERE, and it is a decision and not an omission: the `Triagem` column of spec
- * §3.1. BR-B2B-010's Nota de operação declares that nothing records the OUTCOME of triage, so
- * a partnership refused at triage would show as overdue forever and the column would become
- * noise the operator learns to ignore. Spec §9, question 3, is explicit that it must not be
- * published until the `data` migration exists. Criteria 6 and 33 belong to that card.
+ * THE COLUMN ARRIVED WITH #377, once the outcome of the triage had a place to live
+ * (`core.partner_triage_refusals`). While it did not, a refused partnership would have shown as
+ * overdue forever and the column would have become noise the operator learns to ignore — which
+ * is why spec §9, question 3, held it back. The ordering follows from it: the overdue rows first,
+ * then the longest idle, because a broken promise outranks a slow one.
+ *
+ * `{n} com a triagem vencida` AND THE DEFAULT FILTER CANNOT DISAGREE, and that is not a property
+ * of this component — it is `derivePipelineState` putting `Recusa não comunicada` in
+ * `IN_PROGRESS_STATES` (DS-COPY-020, point 5). The counter scans `rows` and the table renders
+ * `filtered`; while the refusal was terminal from the DECISION, clicking `1 com a triagem vencida`
+ * opened `Nenhuma parceria com esse filtro`. The guarantee is asserted over the two pure modules
+ * in `tests/api/partnership-triage.test.ts`, never by making the counter read the filtered list.
  */
 
 import { useEffect, useMemo, useState } from 'react'
@@ -31,6 +40,8 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { formatDate } from '@/components/admin/partner-proposals/format'
 import { daysUntil } from '@/lib/partner-form/regularity'
+import { deriveTriageStatus, isTriageOverdue, type TriageStatus } from '@/lib/partnerships/triage'
+import { triageDeadlineText, triageText } from './triage-text'
 import {
   IN_PROGRESS_STATES,
   PIPELINE_STATES,
@@ -40,6 +51,13 @@ import type { PartnershipQueueRow } from '@/lib/services/partnership-service'
 
 type StateFilter = 'in_progress' | 'all' | PipelineState
 
+/**
+ * What a row with no clock reads as. One constant and not five inline literals: the counter, the
+ * filter, the two sides of the sort and the cell have to fall back to the SAME status, or the
+ * count and the table start disagreeing about a row nobody approved yet.
+ */
+const NOT_STARTED: TriageStatus = { kind: 'not_started' }
+
 export function PartnershipsQueue({ locale }: { locale: string }) {
   const t = useTranslations('Partnerships')
 
@@ -48,6 +66,7 @@ export function PartnershipsQueue({ locale }: { locale: string }) {
   const [failed, setFailed] = useState(false)
   const [search, setSearch] = useState('')
   const [stateFilter, setStateFilter] = useState<StateFilter>('in_progress')
+  const [onlyLate, setOnlyLate] = useState(false)
 
   useEffect(() => {
     let cancelled = false
@@ -83,6 +102,25 @@ export function PartnershipsQueue({ locale }: { locale: string }) {
     return map
   }, [rows])
 
+  /**
+   * The clock of every row, derived ONCE from one `now`.
+   *
+   * One instant for the whole table and not `new Date()` per cell: two rows approved at the same
+   * minute must not disagree about the deadline because they rendered milliseconds apart, and the
+   * counter above the table has to count exactly the rows the column marks.
+   */
+  const triage = useMemo(() => {
+    const now = new Date()
+    const map = new Map<string, TriageStatus>()
+    for (const row of rows) map.set(row.submissionId, deriveTriageStatus(row.triage, now))
+    return map
+  }, [rows])
+
+  const overdueCount = useMemo(
+    () => rows.filter((row) => isTriageOverdue(triage.get(row.submissionId) ?? NOT_STARTED)).length,
+    [rows, triage]
+  )
+
   const filtered = useMemo(() => {
     const needle = search.trim().toLowerCase()
     return rows
@@ -93,6 +131,9 @@ export function PartnershipsQueue({ locale }: { locale: string }) {
         if (stateFilter !== 'in_progress' && stateFilter !== 'all' && row.state !== stateFilter) {
           return false
         }
+        if (onlyLate && !isTriageOverdue(triage.get(row.submissionId) ?? NOT_STARTED)) {
+          return false
+        }
         if (!needle) return true
         return (
           (row.tradeName ?? '').toLowerCase().indexOf(needle) >= 0 ||
@@ -100,15 +141,22 @@ export function PartnershipsQueue({ locale }: { locale: string }) {
           (row.city ?? '').toLowerCase().indexOf(needle) >= 0
         )
       })
-      // Longest idle first: the row nobody has touched is the one waiting the longest.
-      .sort((a, b) => (a.since ?? '').localeCompare(b.since ?? ''))
-  }, [rows, search, stateFilter])
+      // Overdue triage first (spec §6.1), then longest idle: a broken 72-hour promise outranks a
+      // row nobody has touched, and among equals the one waiting the longest comes first.
+      .sort((a, b) => {
+        const lateA = isTriageOverdue(triage.get(a.submissionId) ?? NOT_STARTED)
+        const lateB = isTriageOverdue(triage.get(b.submissionId) ?? NOT_STARTED)
+        if (lateA !== lateB) return lateA ? -1 : 1
+        return (a.since ?? '').localeCompare(b.since ?? '')
+      })
+  }, [rows, search, stateFilter, onlyLate, triage])
 
-  const filtering = search.trim() !== '' || stateFilter !== 'in_progress'
+  const filtering = search.trim() !== '' || stateFilter !== 'in_progress' || onlyLate
 
   function clearFilters() {
     setSearch('')
     setStateFilter('in_progress')
+    setOnlyLate(false)
   }
 
   return (
@@ -133,6 +181,21 @@ export function PartnershipsQueue({ locale }: { locale: string }) {
             {t('queue.countOne', { label: t(`states.${state}`), count: counts.get(state) ?? 0 })}
           </button>
         ))}
+        {/* Spec §6.1: `3 com a triagem vencida`, in text and never a red strip — it is the count
+            of the rows whose 72-hour promise (BR-B2B-010, item 4) is already broken. Clicking it
+            filters, exactly like the counters beside it. */}
+        {overdueCount > 0 && (
+          <button
+            type="button"
+            onClick={() => setOnlyLate(true)}
+            aria-pressed={onlyLate}
+            className={`min-h-[24px] text-sm underline-offset-4 hover:underline ${
+              onlyLate ? 'font-semibold text-gray-900 underline' : 'font-medium text-primary-800'
+            }`}
+          >
+            {t('queue.overdueCount', { count: overdueCount })}
+          </button>
+        )}
       </nav>
 
       <div className="flex flex-col gap-6 lg:flex-row">
@@ -165,6 +228,19 @@ export function PartnershipsQueue({ locale }: { locale: string }) {
             </select>
           </div>
 
+          <div className="flex items-center gap-2">
+            <input
+              id="partnership-only-late"
+              type="checkbox"
+              checked={onlyLate}
+              onChange={(event) => setOnlyLate(event.target.checked)}
+              className="h-4 w-4 rounded border-input"
+            />
+            <Label htmlFor="partnership-only-late" className="mb-0">
+              {t('queue.onlyLate')}
+            </Label>
+          </div>
+
           {filtering && (
             <Button variant="outline" className="w-full" onClick={clearFilters}>
               {t('queue.clearFilters')}
@@ -189,6 +265,7 @@ export function PartnershipsQueue({ locale }: { locale: string }) {
                   <th scope="col" className="px-2 py-2">{t('queue.columns.state')}</th>
                   <th scope="col" className="px-2 py-2">{t('queue.columns.missing')}</th>
                   <th scope="col" className="px-2 py-2">{t('queue.columns.idle')}</th>
+                  <th scope="col" className="px-2 py-2">{t('queue.columns.triage')}</th>
                   <th scope="col" className="px-2 py-2" />
                 </tr>
               </thead>
@@ -196,7 +273,7 @@ export function PartnershipsQueue({ locale }: { locale: string }) {
                 {loading &&
                   [0, 1, 2, 3, 4].map((row) => (
                     <tr key={`skeleton-${row}`} className="border-b border-gray-100">
-                      <td className="px-2 py-3" colSpan={6}>
+                      <td className="px-2 py-3" colSpan={7}>
                         <span className="sr-only">{t('queue.loading')}</span>
                         <span
                           className="block h-4 w-full animate-pulse rounded bg-gray-100"
@@ -207,7 +284,11 @@ export function PartnershipsQueue({ locale }: { locale: string }) {
                   ))}
 
                 {!loading &&
-                  filtered.map((row) => (
+                  filtered.map((row) => {
+                    const status = triage.get(row.submissionId) ?? NOT_STARTED
+                    const deadlineLine = triageDeadlineText(status)
+
+                    return (
                     <tr key={row.submissionId} className="border-b border-gray-100 align-top">
                       <td className="px-2 py-3 text-gray-900">
                         {/* Truncates in the column and carries the whole name in the accessible
@@ -232,6 +313,16 @@ export function PartnershipsQueue({ locale }: { locale: string }) {
                         <span title={formatDate(row.since)}>{idleFor(row.since, t)}</span>
                         <span className="block text-xs text-gray-700">{formatDate(row.since)}</span>
                       </td>
+                      {/* Two lines, exactly like `Parado há` next door: the relative counter the
+                          operator acts on, and under it the instant that was promised to the
+                          partner (DS-COPY-025, point 5). The instant is never left only in the
+                          `title` — that attribute does not reach the keyboard. */}
+                      <td className="px-2 py-3 text-gray-900">
+                        <span title={t('triage.deadlineTitle')}>{triageText(status, t)}</span>
+                        {deadlineLine && (
+                          <span className="block text-xs text-gray-700">{deadlineLine}</span>
+                        )}
+                      </td>
                       <td className="px-2 py-3">
                         <Link
                           href={`/${locale}${row.href}`}
@@ -244,7 +335,8 @@ export function PartnershipsQueue({ locale }: { locale: string }) {
                         </Link>
                       </td>
                     </tr>
-                  ))}
+                    )
+                  })}
               </tbody>
             </table>
           )}
@@ -283,6 +375,12 @@ function whatIsMissing(
   row: PartnershipQueueRow,
   t: ReturnType<typeof useTranslations>
 ): string {
+  // The act owed to somebody OUTSIDE the company wins the column (DS-COPY-020, points 2 and 5).
+  // A refused place keeps its curation pendencies — no description, no audio — and printing
+  // `2 pendências que bloqueiam` there would answer a question nobody is asking: the work of this
+  // row is to tell the partner, and only after that does the place go back to being work.
+  if (row.state === 'refusal_not_communicated') return t('nextSteps.refusal_not_communicated')
+
   const parts: string[] = []
 
   if (row.places.total > 1) {

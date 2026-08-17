@@ -39,12 +39,17 @@ export function PendencyList({ readiness, onOpenPlace, toolHref }: PendencyListP
   const t = useTranslations('Partnerships')
 
   if (readiness.ready) {
+    // "Pronto para publicar" about a place that IS in the app makes the two indistinguishable
+    // from the third one that is not, and contradicts the queue, which counts them apart.
+    // Only the no-pendency branch splits: a published place that still has a `silences_app`
+    // pendency keeps showing the whole block, which is the #356 defect and may not disappear.
+    const key = readiness.published ? 'published' : 'ready'
     return (
       <p className="flex items-start gap-2 text-sm">
         <Check className="mt-0.5 h-4 w-4 shrink-0 text-green-800" aria-hidden="true" />
         <span>
-          <span className="font-semibold text-gray-900">{t('pendencies.readyTitle')} </span>
-          <span className="text-gray-800">{t('pendencies.readyBody')}</span>
+          <span className="font-semibold text-gray-900">{t(`pendencies.${key}Title`)} </span>
+          <span className="text-gray-800">{t(`pendencies.${key}Body`)}</span>
         </span>
       </p>
     )

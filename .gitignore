@@ -17,6 +17,12 @@ build/
 .next/
 out/
 
+# Playwright — generated at run time, never source
+/test-results/
+/playwright-report/
+/playwright/.cache/
+/blob-report/
+
 # IDE
 .vscode/
 .idea/

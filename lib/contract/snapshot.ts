@@ -208,6 +208,16 @@ export interface ChecklistItem {
   where: string
 }
 
+/**
+ * Where the evidence of BR-B2B-022, item 3, is registered — the band of the proposal's conference
+ * screen, in the words the operator reads at the top of it (`PartnerProposals.conference.heading`).
+ *
+ * ONE CONSTANT because the four items below point at the same place, and a `where` that drifts on
+ * one of them sends somebody to a screen that cannot answer. It is NOT the partner form: there has
+ * been no upload there since 2026-08-16.
+ */
+const CONFERENCE_BAND = 'banda Conferência presencial, na proposta'
+
 export interface ChecklistResult {
   ready: boolean
   missing: ChecklistItem[]
@@ -258,25 +268,32 @@ export function contractChecklist(
   }
 
   // BR-B2B-022, item 3: "documento vencido é ausência".
+  //
+  // THE EVIDENCE IS A CONFERENCE, NOT AN UPLOAD, and the checklist says where it really is. The
+  // partner form stopped asking for either file on 2026-08-16 — the papers are checked in person
+  // before the link is ever sent — so `anexado` named an act that does not exist and
+  // `formulário do parceiro` sent the operator to a screen with no field to fill. What
+  // `loadRegularity` reads is the `ConferenceRecord` inside the review annotation, registered in
+  // the `Conferência presencial` band of the proposal (`ProposalReview`, `conference.heading`).
   const regularity = options.regularity
   if (!regularity.businessLicenseDocument) {
-    missing.push({ id: 'business_license', label: 'Alvará de funcionamento anexado', where: 'formulário do parceiro' })
+    missing.push({ id: 'business_license', label: 'Alvará de funcionamento conferido', where: CONFERENCE_BAND })
   } else if (!regularity.businessLicenseValidUntil) {
     missing.push({
       id: 'business_license_validity',
       label: 'Validade do alvará preenchida',
-      where: 'formulário do parceiro',
+      where: CONFERENCE_BAND,
     })
   } else if (new Date(regularity.businessLicenseValidUntil).getTime() <= now.getTime()) {
     missing.push({
       id: 'business_license_expired',
       label: 'Alvará vencido — pedir o vigente ao parceiro',
-      where: 'formulário do parceiro',
+      where: CONFERENCE_BAND,
     })
   }
 
   if (!regularity.incorporationDocument) {
-    missing.push({ id: 'incorporation', label: 'Documento de constituição anexado', where: 'formulário do parceiro' })
+    missing.push({ id: 'incorporation', label: 'Documento de constituição conferido', where: CONFERENCE_BAND })
   }
 
   if (typeof client.commission_rate !== 'number') {

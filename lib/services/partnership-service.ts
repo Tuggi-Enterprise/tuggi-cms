@@ -36,6 +36,17 @@ import {
 } from '@/lib/partnerships/place-readiness'
 import { buildPublishPlan, type PartnerFee, type PublishPlan } from '@/lib/partnerships/publish-plan'
 import {
+  currentRefusal,
+  hasUncommunicatedRefusal,
+  isRefusedAtTriage,
+  isTriageGate,
+  type PlaceTriageOutcome,
+  type TriageFacts,
+  type TriageRefusal,
+} from '@/lib/partnerships/triage'
+import { triageRefusalService, type TriageRefusalRow } from '@/lib/core/triage-refusal-service'
+import { operatorLabel } from '@/lib/services/operator-label'
+import {
   derivePipelineState,
   detailPath,
   type PipelineState,
@@ -113,6 +124,12 @@ export interface PartnershipQueueRow {
   /** The last thing that happened in this pipeline. `Parado há` counts from here. */
   since: string | null
   places: PlacesSummary
+  /**
+   * What the `Triagem` column derives from — BR-B2B-010, item 4. The FACTS and not the text: the
+   * clock is computed where it is rendered, so a screen left open does not keep saying `até
+   * 18/08` after the 18th.
+   */
+  triage: TriageFacts
   /** Only on the terminal state, and it is the closed list the discard already writes. */
   discardReason: string | null
 }
@@ -146,6 +163,12 @@ export async function loadPartnershipQueue(
     loadPartnerPlaces(clientIds, operator),
   ])
 
+  // One read for the whole queue, and it is the only extra round trip the `Triagem` column
+  // costs. Per row it would be N+1 over a screen the operator reloads all day.
+  const refusals = await loadRefusalStamps(
+    Array.from(places.values()).flat().map((row) => row.attractionId)
+  )
+
   const duplicates = countPendingDuplicates(submissions)
 
   return submissions.map((row) => {
@@ -154,6 +177,11 @@ export async function loadPartnershipQueue(
     const contract = clientId ? contracts.get(clientId) ?? null : null
     const readiness = (clientId ? places.get(clientId) ?? [] : []).map(buildPlaceReadiness)
     const conference = readReviewNote(row.review_note).conference
+
+    const outcomes: PlaceTriageOutcome[] = readiness.map((item) => ({
+      published: item.published,
+      refusal: refusals.get(item.place.attractionId) ?? null,
+    }))
 
     const state = derivePipelineState({
       proposalStatus: row.status,
@@ -165,6 +193,8 @@ export async function loadPartnershipQueue(
       contractSigned: contract?.signed === true,
       placeCount: readiness.length,
       publishedPlaceCount: readiness.filter((item) => item.published).length,
+      refusedPlaceCount: outcomes.filter(isRefusedAtTriage).length,
+      uncommunicatedRefusal: hasUncommunicatedRefusal(outcomes),
     })
 
     const answers = row.answers ?? {}
@@ -187,6 +217,7 @@ export async function loadPartnershipQueue(
         contract?.signedAt ?? null,
       ]),
       places: summarizePlaces(readiness),
+      triage: { approvedAt: client?.approvedAt ?? null, places: outcomes },
       discardReason: row.status === 'discarded' ? row.discard_reason : null,
     }
   })
@@ -202,18 +233,25 @@ export interface PartnershipPlace {
   readiness: PlaceReadiness
   plan: PublishPlan
   /**
-   * WHY THE TRAIL AND NOT `attractions.approved_at` / `approved_by`.
+   * WHY THE SCREEN READS THE TRAIL AND NOT `attractions.approved_at` / `approved_by`.
    *
-   * Publishing writes ONE column, `approved`, and criterion 18 is literal about it. Two more
-   * columns on the same UPDATE would be two more facts this screen decides, and the second one
-   * of them (`approved_by`) is the sort of field that quietly becomes the answer to a question
-   * it was never measured for.
+   * Publishing writes both — the stamp is the schema's home for the fact and
+   * `placeService.setApproved` fills it (a column that exists is not the same as data that
+   * exists: 136 filled rows in ~2.23 M, measured by the `data` on 2026-08-16). What the stamp
+   * cannot answer is what this screen asks: `approved_by` is a `drive.profiles` id, so showing
+   * a name from it costs a join, and the column holds only the LAST publication.
    *
-   * `core.audit_logs` already has to carry who, when, which client and which place (criterion
-   * 21), so the answer to "quem publicou, e quando" exists exactly once — in the trail that is
-   * mandatory anyway. Reading it back is what band 5 shows.
+   * `core.audit_logs` has to carry who, when, which client and which place anyway (criterion
+   * 21), it already carries the operator's e-mail, and it keeps every publication rather than
+   * the current one. That is what band 5 and the trail render.
    */
   publishedBy: PublicationTrail | null
+  /**
+   * The refusal in force for THIS place, if the triage refused it — BR-B2B-011. Per place and
+   * never per client: a CNPJ has more than one address, and refusing one does not refuse the
+   * others (`core.partner_triage_refusals.attraction_id` is NOT NULL for that reason).
+   */
+  refusal: TriageRefusal | null
 }
 
 export interface PartnershipDetail {
@@ -230,6 +268,8 @@ export interface PartnershipDetail {
     conference: ConferenceRecord
   } | null
   places: PartnershipPlace[]
+  /** The same facts the queue column reads, so the header and the row cannot disagree. */
+  triage: TriageFacts
 }
 
 export async function loadPartnershipDetail(
@@ -248,9 +288,18 @@ export async function loadPartnershipDetail(
 
   const contract = contracts.get(clientId) ?? null
   const readiness = (places.get(clientId) ?? []).map(buildPlaceReadiness)
-  const trail = await loadPublicationTrail(readiness.map((item) => item.place.attractionId))
+  const attractionIds = readiness.map((item) => item.place.attractionId)
+  const [trail, refusals] = await Promise.all([
+    loadPublicationTrail(attractionIds),
+    loadCurrentRefusals(attractionIds),
+  ])
 
   const conference = submission ? readReviewNote(submission.review_note).conference : EMPTY_CONFERENCE
+
+  const outcomes: PlaceTriageOutcome[] = readiness.map((item) => ({
+    published: item.published,
+    refusal: refusals.get(item.place.attractionId) ?? null,
+  }))
 
   return {
     state: derivePipelineState({
@@ -260,6 +309,8 @@ export async function loadPartnershipDetail(
       contractSigned: contract?.signed === true,
       placeCount: readiness.length,
       publishedPlaceCount: readiness.filter((item) => item.published).length,
+      refusedPlaceCount: outcomes.filter(isRefusedAtTriage).length,
+      uncommunicatedRefusal: hasUncommunicatedRefusal(outcomes),
     }),
     client,
     contract,
@@ -278,7 +329,9 @@ export async function loadPartnershipDetail(
       readiness: item,
       plan: buildPublishPlan(client.fee, item),
       publishedBy: trail.get(item.place.attractionId) ?? null,
+      refusal: refusals.get(item.place.attractionId) ?? null,
     })),
+    triage: { approvedAt: client.approvedAt, places: outcomes },
   }
 }
 
@@ -303,11 +356,15 @@ export async function loadPartnerPlace(
   if (!row) return null
 
   const readiness = buildPlaceReadiness(row)
-  const trail = await loadPublicationTrail([attractionId])
+  const [trail, refusals] = await Promise.all([
+    loadPublicationTrail([attractionId]),
+    loadCurrentRefusals([attractionId]),
+  ])
   return {
     readiness,
     plan: buildPublishPlan(client.fee, readiness),
     publishedBy: trail.get(attractionId) ?? null,
+    refusal: refusals.get(attractionId) ?? null,
   }
 }
 
@@ -346,6 +403,90 @@ async function loadPublicationTrail(
     }
   }
   return map
+}
+
+/**
+ * The two stamps of the refusal in force for each place — what the 72h clock reads
+ * (BR-B2B-010, item 4).
+ *
+ * No operator name is resolved here: the queue asks for up to 500 rows and each name is an Auth
+ * Admin round trip. The detail asks for the name through `loadCurrentRefusals`, where there is
+ * one partnership on the screen.
+ */
+async function loadRefusalStamps(
+  attractionIds: string[]
+): Promise<Map<string, { decidedAt: string; communicatedAt: string | null }>> {
+  const map = new Map<string, { decidedAt: string; communicatedAt: string | null }>()
+  if (attractionIds.length === 0) return map
+
+  let rows: Map<string, TriageRefusalRow[]>
+  try {
+    rows = await triageRefusalService.listByAttractions(attractionIds)
+  } catch (error) {
+    // A refusal lookup that did not answer is NOT "nobody was refused": the clock would then
+    // read `venceu há 2 dias` for a partnership somebody closed properly. No refusal in the map
+    // means the column falls back to the clock, which is the honest degradation, and the error
+    // is in the log rather than on a badge.
+    console.error('[partnerships] triage refusal lookup failed:', error)
+    return map
+  }
+
+  for (const [attractionId, list] of rows) {
+    const current = currentRefusal(list.map(toRefusal))
+    if (current) {
+      map.set(attractionId, {
+        decidedAt: current.decidedAt,
+        communicatedAt: current.communicatedAt,
+      })
+    }
+  }
+  return map
+}
+
+/** The refusal in force, whole, with the name of whoever decided it — one partnership's worth. */
+async function loadCurrentRefusals(attractionIds: string[]): Promise<Map<string, TriageRefusal>> {
+  const map = new Map<string, TriageRefusal>()
+  if (attractionIds.length === 0) return map
+
+  let rows: Map<string, TriageRefusalRow[]>
+  try {
+    rows = await triageRefusalService.listByAttractions(attractionIds)
+  } catch (error) {
+    console.error('[partnerships] triage refusal lookup failed:', error)
+    return map
+  }
+
+  for (const [attractionId, list] of rows) {
+    const current = currentRefusal(list.map(toRefusal))
+    if (!current) continue
+    map.set(attractionId, {
+      ...current,
+      decidedByLabel: await operatorLabel(
+        list.find((row) => row.id === current.id)?.decided_by ?? null
+      ),
+    })
+  }
+  return map
+}
+
+/**
+ * One row of `core.partner_triage_refusals`, as the screens see it.
+ *
+ * `gate` OUTSIDE 1..3 READS AS `null`, and the screen then prints the reason alone.
+ * `partner_triage_refusals_gate_check` makes such a row impossible to write, so this branch is
+ * unreachable today — and picking gate 1 for it would be INVENTING which gate refused, which is
+ * the one thing BR-B2B-011, item 4, is about.
+ */
+function toRefusal(row: TriageRefusalRow): TriageRefusal {
+  return {
+    id: row.id,
+    attractionId: row.attraction_id,
+    gate: isTriageGate(row.gate) ? row.gate : null,
+    reason: row.reason,
+    decidedAt: row.decided_at,
+    decidedByLabel: null,
+    communicatedAt: row.communicated_at,
+  }
 }
 
 // ── The five reads ───────────────────────────────────────────────────────────────────────────
@@ -473,22 +614,6 @@ async function loadPromotedSubmission(clientId: string): Promise<SubmissionRow |
   return data[0] as unknown as SubmissionRow
 }
 
-/**
- * Who an auth uid is, in something an operator can read — the same lookup and the same reason
- * as `partner-proposal-admin-service`: `core.cms_users` is keyed by e-mail and holds no auth
- * uid, so there is no path in `core` from `promoted_by` to a person. It fails to null, and the
- * copy then leaves the line out instead of printing a uuid at somebody.
- */
-async function operatorLabel(userId: string | null): Promise<string | null> {
-  if (!userId) return null
-  try {
-    const { data, error } = await getSupabaseService().auth.admin.getUserById(userId)
-    if (error || !data?.user?.email) return null
-    return data.user.email
-  } catch {
-    return null
-  }
-}
 
 // ── Small derivations ────────────────────────────────────────────────────────────────────────
 

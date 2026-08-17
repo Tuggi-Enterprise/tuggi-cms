@@ -19,6 +19,7 @@
 import { test, before, mock } from 'node:test'
 import assert from 'node:assert/strict'
 import { existsSync, readFileSync } from 'node:fs'
+import { randomUUID } from 'node:crypto'
 import { resolve } from 'node:path'
 
 import {
@@ -37,6 +38,7 @@ import {
   detailPath,
 } from '@/lib/partnerships/pipeline'
 import { EMPTY_CONFERENCE, type ConferenceRecord } from '@/lib/partner-form/regularity'
+import { deriveTriageStatus, isTriageOverdue } from '@/lib/partnerships/triage'
 
 const REPO_ROOT = resolve(import.meta.dirname, '../..')
 
@@ -574,12 +576,100 @@ test('#359 crit. 18: the publish path names ONE column, and none of the forbidde
     )
   }
 
+  // The keys are named literally in `setApproved`, so the allowlist can be read off the source
+  // instead of trusted: the publication (`approved`) and the stamp that says who put the place
+  // in front of tourists and when. A fourth key cannot arrive from a call site.
   const service = read('lib/core/place-service.ts')
-  assert.match(
-    service,
-    /async setApproved\([\s\S]{0,400}?\.update\(\{ approved \}\)/,
-    'setApproved updates exactly `{ approved }` — there is no patch object to grow a key'
+  const update = /async setApproved\([\s\S]{0,600}?\.update\((\{[\s\S]*?\})\)/.exec(service)
+  assert.ok(update, 'setApproved still writes through a literal `.update({ ... })`')
+  const written = (update![1].match(/^\s*(\w+)\s*[:,]/gm) ?? []).map((line) =>
+    line.trim().replace(/[:,]$/, '')
   )
+  assert.deepEqual(
+    written.sort(),
+    ['approved', 'approved_at', 'approved_by'],
+    'setApproved writes the publication and nothing else'
+  )
+})
+
+// ── The design validation of 2026-08-16 — what the six fixes have to keep true ────────────────
+
+test('#359 · DS-COMPONENTE-021, 3rd/4th edge cases: refusing the act refuses the CONFIRMATION', () => {
+  const panel = read('components/admin/partnerships/PublishPanel.tsx')
+
+  // What blocks the place comes first, and whatever the tier variant is. The old guard revealed
+  // one reason at a time: a place with no coordinate AND no declared fee showed only the fee,
+  // so the operator registered it, came back, and only then met the coordinate — two trips.
+  assert.equal(panel.indexOf("plan.variant !== 'undeclared' && !plan.offersAct"), -1)
+  assert.match(panel, /const blocked = place\.readiness\.blocking\.length > 0/)
+  const blockedAt = panel.indexOf('{blocked && (')
+  const effectAt = panel.indexOf("t('publish.effectWithAudio')")
+  const tierAt = panel.indexOf('{showTier && (')
+  assert.ok(blockedAt > 0, 'the blocking notice renders on the blocking pendencies alone')
+  assert.ok(blockedAt < effectAt && blockedAt < tierAt, 'and it is the first thing the panel says')
+
+  // The sentence that describes the outcome does not survive the removal of the control that
+  // causes it — the panel may not say "a partir de agora o local entra no app" above the notice
+  // that it will not.
+  assert.match(panel, /\{offersAct && \(\s*<p[\s\S]{0,240}?publish\.effectWithAudio/)
+
+  // The tier block survives the refusal in exactly one case: when IT is the refusal, and the
+  // way out (register the fee, or the courtesy with its reason) is written inside it.
+  assert.match(panel, /const showTier = offersAct \|\| plan\.variant === 'undeclared'/)
+})
+
+test('#359 · DS-LAYOUT-003: the act the header names is in the band that opens', () => {
+  const detail = read('components/admin/partnerships/PartnershipDetail.tsx')
+
+  // `contract_signed` opens band 4, where `Criar o local a partir da proposta` lives — not
+  // band 3, whose work is the contract that has just been signed.
+  assert.match(detail, /client: \[2, 2\]/)
+  assert.match(detail, /place: \[3, 4\]/)
+
+  // `published` and `discarded` have no next step, and a bare em dash beside the state is not
+  // the way to say so.
+  assert.match(detail, /IN_PROGRESS_STATES\.indexOf\(detail\.state\) >= 0 && \(/)
+})
+
+test('#359 · DS-COMPONENTE-020, pt. 4: the detail never contradicts the queue about the app', () => {
+  const detail = read('components/admin/partnerships/PartnershipDetail.tsx')
+  // Band 5 cannot come from the pipeline state alone: a partnership with 2 of 3 places on air
+  // is `place_in_curation`, and `ainda não` beside the queue's `2 de 3 locais publicados` is
+  // the disagreement the single module exists to make impossible.
+  assert.match(detail, /detail\.places\.some\(\(place\) => place\.readiness\.published\)/)
+
+  // And a place that IS in the app does not read as "pronto para publicar". Only the branch
+  // with no pendency at all splits — a published place with a `silences_app` pendency keeps
+  // the whole block, which is the #356 defect.
+  const list = read('components/admin/partnerships/PendencyList.tsx')
+  assert.match(list, /readiness\.published \? 'published' : 'ready'/)
+  assert.match(list, /if \(readiness\.ready\)/)
+})
+
+test('#359 · DS-COPY-020/-021: the copy the validation replaced', () => {
+  const copy = messages().Partnerships
+
+  // A queue row one click from a monthly fee may not read as "nothing to do here": three lines
+  // in `Local em curadoria` showed `—` under `O que falta` while being ready to publish.
+  assert.notEqual(copy.nextSteps.place_in_curation, '—')
+  assert.match(copy.nextSteps.place_in_curation, /publicar/i)
+
+  // The `inactive` body may not state a fact about the pendency beside it: a place with no
+  // coordinate and inactive read "Falta a coordenada do local." above "…mesmo aprovado e com
+  // coordenada."
+  assert.equal(copy.pendencies.items.inactive.body.toLowerCase().indexOf('coordenada'), -1)
+
+  // The label describes what the click does. There is no writer of `partner_client_id` on an
+  // existing POI anywhere in the CMS — that is card #374.
+  assert.equal(copy.pendencies.emptyLink.toLowerCase().indexOf('vincular'), -1)
+
+  assert.equal(typeof copy.pendencies.publishedTitle, 'string')
+  assert.equal(typeof copy.pendencies.publishedBody, 'string')
+  assert.notEqual(copy.pendencies.publishedTitle, copy.pendencies.readyTitle)
+
+  // The trail of a client with N places is N named lines, not N identical ones.
+  assert.match(copy.publish.trailPublished, /\{name\}/)
+  assert.match(copy.publish.trailPublishedAnonymous, /\{name\}/)
 })
 
 // ── The route, end to end — criteria 17, 18, 21, 22 ──────────────────────────────────────────
@@ -590,6 +680,8 @@ interface FakeState {
   attraction_coordinate: Record<string, any>[]
   attraction_trigger_points: Record<string, any>[]
   attraction_descriptions: Record<string, any>[]
+  /** #377 — the refusal outcome of the triage. Empty in every publish test, by design. */
+  partner_triage_refusals: Record<string, any>[]
   audit_logs: Record<string, any>[]
   /** Every write that left the process, whole. Criterion 18 is proved against THIS. */
   writes: { table: string; patch: Record<string, any> }[]
@@ -640,6 +732,7 @@ function freshState(clientOverrides: Record<string, any> = {}): FakeState {
     ],
     attraction_trigger_points: [{ attraction_id: PLACE_ID, is_active: true }],
     attraction_descriptions: [{ attraction_id: PLACE_ID, audio_url: 'https://audio/1.mp3' }],
+    partner_triage_refusals: [],
     audit_logs: [],
     writes: [],
   }
@@ -661,8 +754,15 @@ function createFakeDb(current: () => FakeState) {
         const value = row[filter.column]
         if (filter.op === 'eq') return value === filter.value
         if (filter.op === 'in') return (filter.value as any[]).indexOf(value) >= 0
-        if (filter.op === 'is') return value === filter.value
-        if (filter.op === 'notIs') return value !== filter.value
+        // `.is(col, null)` has to match a row that simply does not carry the column: an absent
+        // key here IS a NULL column in Postgres, and reading it as "present and different" made
+        // the write-once UPDATE of #377 miss the very row it exists for.
+        if (filter.op === 'is') {
+          return filter.value === null ? value == null : value === filter.value
+        }
+        if (filter.op === 'notIs') {
+          return filter.value === null ? value != null : value !== filter.value
+        }
         return true
       })
     }
@@ -673,10 +773,15 @@ function createFakeDb(current: () => FakeState) {
 
       if (operation === 'insert') {
         const inserted = payload ?? {}
-        rows.push(inserted)
+        // The stored row is a COPY, and it gets the `id` a real INSERT would: every table here
+        // has `DEFAULT gen_random_uuid()`, and a row with no id cannot be addressed by the act
+        // that comes after it (#377's communication is exactly that act). `writes` keeps what the
+        // caller sent, unchanged — criterion 18 is proved against that and not against defaults.
+        const stored = { id: randomUUID(), ...inserted }
+        rows.push(stored)
         ;(store as any)[table] = rows
         store.writes.push({ table, patch: inserted })
-        return { data: [inserted], error: null }
+        return { data: [stored], error: null }
       }
 
       const matched = rows.filter(matches)
@@ -724,6 +829,15 @@ function createFakeDb(current: () => FakeState) {
         const result = apply()
         return { data: result.data[0] ?? null, error: result.error }
       },
+      // `single()` is what an INSERT … RETURNING one row uses (#377's refusal service). It
+      // errors on no row, like PostgREST does, so a test can tell "refused" from "wrote".
+      single: async () => {
+        const result = apply()
+        const row = result.data[0] ?? null
+        return row === null
+          ? { data: null, error: { message: 'no rows returned' } }
+          : { data: row, error: null }
+      },
       then: (onFulfilled: (value: any) => unknown) => Promise.resolve(apply()).then(onFulfilled),
     }
     return chain
@@ -763,6 +877,17 @@ function createFakeAuthClient(current: () => FakeState) {
 }
 
 let PUBLISH: (req: any, ctx: any) => Promise<Response>
+/** #377 — the other outcome of the triage, and the act that stops its clock. */
+let REFUSE: (req: any, ctx: any) => Promise<Response>
+let COMMUNICATE: (req: any, ctx: any) => Promise<Response>
+/**
+ * IMPORTED AFTER `mock.module`, AND THAT IS NOT OPTIONAL. A top-level
+ * `import { loadPartnerPlace } from '@/lib/services/partnership-service'` binds the REAL
+ * `getSupabaseService` at module evaluation, before the mock is installed — the mock then
+ * replaces the registry entry and the already-bound consumer keeps the original. Every route
+ * test in this file answered `500` the first time it was written that way.
+ */
+let loadPartnerPlaceLive: typeof import('@/lib/services/partnership-service')['loadPartnerPlace']
 
 before(async () => {
   process.env.NEXT_PUBLIC_APP_URL ??= 'https://cms.tuggi.app'
@@ -784,6 +909,19 @@ before(async () => {
     '@/app/api/admin/partnerships/clients/[clientId]/places/[attractionId]/publish/route'
   )
   PUBLISH = route.POST as any
+
+  const refusalRoute = await import(
+    '@/app/api/admin/partnerships/clients/[clientId]/places/[attractionId]/triage-refusal/route'
+  )
+  REFUSE = refusalRoute.POST as any
+
+  const communicateRoute = await import(
+    '@/app/api/admin/partnerships/clients/[clientId]/places/[attractionId]/triage-refusal/communicate/route'
+  )
+  COMMUNICATE = communicateRoute.POST as any
+
+  const pipeline = await import('@/lib/services/partnership-service')
+  loadPartnerPlaceLive = pipeline.loadPartnerPlace
 })
 
 /** A fresh caller each time: `withRateLimit` keys by IP and would fail a test because of the
@@ -806,7 +944,7 @@ function request(body: unknown) {
 
 const context = { params: Promise.resolve({ clientId: CLIENT_ID, attractionId: PLACE_ID }) }
 
-test('#359 crit. 18 · 21: publishing writes `approved` and nothing else, and leaves a trail', async () => {
+test('#359 crit. 18 · 21: publishing writes the publication and nothing else, and leaves a trail', async () => {
   state = freshState()
 
   const response = await PUBLISH(request({ approved: true }), context)
@@ -815,11 +953,19 @@ test('#359 crit. 18 · 21: publishing writes `approved` and nothing else, and le
   const attractionWrites = state.writes.filter((write) => write.table === 'attractions')
   assert.equal(attractionWrites.length, 1, 'one write, not two')
   assert.deepEqual(
-    Object.keys(attractionWrites[0].patch),
-    ['approved'],
+    Object.keys(attractionWrites[0].patch).sort(),
+    ['approved', 'approved_at', 'approved_by'],
     'the whole of what left the process — not a list somebody kept up to date'
   )
   assert.equal(attractionWrites[0].patch.approved, true)
+  // The column existing is not the datum existing: the `data` measured 136 filled rows in
+  // ~2.23 M approved ones, and zero among `place` and `event` (2026-08-16).
+  assert.equal(attractionWrites[0].patch.approved_by, OPERATOR_ID)
+  assert.equal(
+    Number.isNaN(Date.parse(attractionWrites[0].patch.approved_at)),
+    false,
+    'approved_at is a timestamp, not a flag'
+  )
 
   // Nothing on the client record moved: `commission_rate`, `monthly_fee_cents`, `is_courtesy`,
   // `status` and `slug` are unreachable from this path.
@@ -851,7 +997,7 @@ test('#359 crit. 22 · DS-COMPONENTE-021: publishing twice is the same state', a
   assert.equal(second.status, 200)
   assert.equal(state.attractions[0].approved, true, 'idempotent at the destination')
   for (const write of state.writes.filter((item) => item.table === 'attractions')) {
-    assert.deepEqual(Object.keys(write.patch), ['approved'])
+    assert.deepEqual(Object.keys(write.patch).sort(), ['approved', 'approved_at', 'approved_by'])
   }
 })
 
@@ -890,6 +1036,11 @@ test('#359 crit. 20: taking a place out of the app is never refused', async () =
   assert.equal(response.status, 200)
   assert.equal(state.attractions[0].approved, false)
 
+  // The stamp goes with it: `approved = false` beside `approved_by = <somebody>` would say a
+  // row was published by a person while it is not published at all.
+  assert.equal(state.attractions[0].approved_at, null)
+  assert.equal(state.attractions[0].approved_by, null)
+
   const trail = state.audit_logs[state.audit_logs.length - 1]
   assert.equal(trail.action, 'UNPUBLISH_PARTNER_PLACE')
 })
@@ -915,4 +1066,216 @@ test('#359: the route validates its input before it reaches the database', async
     params: Promise.resolve({ clientId: 'not-a-uuid', attractionId: PLACE_ID }),
   })
   assert.equal(badId.status, 400)
+})
+
+// ── The refusal of the triage, end to end — #377, criteria 6 and 33 ──────────────────────────
+
+const REFUSAL_ID = 'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee'
+
+test('#377 · BR-B2B-011 item 4: the refusal writes the gate, the reason and WHO decided', async () => {
+  state = freshState()
+
+  const response = await REFUSE(
+    request({ gate: 2, reason: 'O insumo é o cadastro mínimo e nada além dele.' }),
+    context
+  )
+  assert.equal(response.status, 201)
+
+  const written = state.writes.filter((write) => write.table === 'partner_triage_refusals')
+  assert.equal(written.length, 1)
+  assert.deepEqual(Object.keys(written[0].patch).sort(), [
+    'attraction_id',
+    'decided_by',
+    'gate',
+    'reason',
+  ])
+  assert.equal(written[0].patch.gate, 2)
+  assert.equal(written[0].patch.attraction_id, PLACE_ID)
+  // From the SESSION and never from the body — BR-B2B-029/-030: an author supplied by the caller
+  // is not a trail.
+  assert.equal(written[0].patch.decided_by, OPERATOR_ID)
+  // `decided_at` is left to the column default, so the instant is the database's clock.
+  assert.equal('decided_at' in written[0].patch, false)
+  // And nothing else was written: BR-B2B-010, 6th edge case, and BR-B2B-027, item 3 — the
+  // partnership continues and no POI leaves the catalogue.
+  assert.deepEqual(
+    state.writes.filter((write) => write.table !== 'partner_triage_refusals' && write.table !== 'audit_logs'),
+    []
+  )
+})
+
+test('#377 · BR-B2B-011: the route refuses what is not one of the three gates', async () => {
+  state = freshState()
+
+  for (const body of [
+    { gate: 4, reason: 'qualquer' },
+    { gate: 0, reason: 'qualquer' },
+    { gate: '2', reason: 'qualquer' },
+    { reason: 'qualquer' },
+  ]) {
+    const response = await REFUSE(request(body), context)
+    assert.equal(response.status, 400, JSON.stringify(body))
+    assert.equal((await response.json()).error, 'invalid_gate')
+  }
+  assert.deepEqual(state.writes, [], 'a refused request writes nothing')
+})
+
+test('#377 · BR-B2B-011 item 4: "não foi aprovado" is not a refusal — the reason is required', async () => {
+  state = freshState()
+
+  for (const reason of ['', '   ', null, 42]) {
+    const response = await REFUSE(request({ gate: 1, reason }), context)
+    assert.equal(response.status, 400)
+    assert.equal((await response.json()).error, 'invalid_reason')
+  }
+
+  const long = await REFUSE(request({ gate: 1, reason: 'x'.repeat(2001) }), context)
+  assert.equal(long.status, 400)
+  assert.equal((await long.json()).error, 'reason_too_long')
+  assert.deepEqual(state.writes, [])
+})
+
+test('#377 · BR-B2B-027 item 3: a place already in the app is not refused at triage', async () => {
+  state = freshState()
+  state.attractions[0].approved = true
+
+  const response = await REFUSE(request({ gate: 3, reason: 'qualquer' }), context)
+  assert.equal(response.status, 409)
+  assert.equal((await response.json()).error, 'place_already_published')
+  // Gate 3 is about ENTRY. Removing what is already on air is a decision nobody took, and this
+  // route is not where it would be taken.
+  assert.deepEqual(state.writes, [])
+})
+
+test('#377 · BR-CMS-002: a place that is not this client’s is not this screen’s to refuse', async () => {
+  state = freshState()
+  state.attractions[0].partner_client_id = 'another-client'
+
+  const response = await REFUSE(request({ gate: 1, reason: 'qualquer' }), context)
+  assert.equal(response.status, 404)
+  assert.equal((await response.json()).error, 'place_not_linked')
+})
+
+test('#377 · BR-B2B-010 item 4: the communication is a SECOND act, and it stops the clock', async () => {
+  state = freshState()
+  state.partner_triage_refusals = [
+    {
+      id: REFUSAL_ID,
+      attraction_id: PLACE_ID,
+      gate: 2,
+      reason: 'Falta um fato próprio do lugar.',
+      decided_by: OPERATOR_ID,
+      decided_at: '2026-08-16T09:00:00.000Z',
+      communicated_at: null,
+    },
+  ]
+
+  const response = await COMMUNICATE(request({ refusalId: REFUSAL_ID }), context)
+  assert.equal(response.status, 200)
+
+  const written = state.writes.filter((write) => write.table === 'partner_triage_refusals')
+  assert.equal(written.length, 1)
+  assert.deepEqual(Object.keys(written[0].patch), ['communicated_at'])
+  assert.equal(typeof state.partner_triage_refusals[0].communicated_at, 'string')
+  // The decision was NOT rewritten: the row is append-only and the guard would refuse it anyway
+  // (BR-B2B-011, item 5).
+  assert.equal(state.partner_triage_refusals[0].decided_at, '2026-08-16T09:00:00.000Z')
+  assert.equal(state.partner_triage_refusals[0].gate, 2)
+})
+
+test('#377 · `communicated_at` is write-once, and the loser of the race gets 409', async () => {
+  state = freshState()
+  state.partner_triage_refusals = [
+    {
+      id: REFUSAL_ID,
+      attraction_id: PLACE_ID,
+      gate: 2,
+      reason: 'Falta um fato próprio do lugar.',
+      decided_by: OPERATOR_ID,
+      decided_at: '2026-08-16T09:00:00.000Z',
+      communicated_at: '2026-08-17T09:00:00.000Z',
+    },
+  ]
+
+  const response = await COMMUNICATE(request({ refusalId: REFUSAL_ID }), context)
+  assert.equal(response.status, 409)
+  const payload = await response.json()
+  assert.equal(payload.error, 'already_communicated')
+  // The first communication is what the partner was told about, and it stands.
+  assert.equal(payload.communicatedAt, '2026-08-17T09:00:00.000Z')
+  // The UPDATE is narrowed to `communicated_at IS NULL`, so the statement leaves the process and
+  // affects NOTHING — the row keeps the instant the partner was told about, and the guard
+  // (`TGB11`) is the belt behind that brace.
+  assert.equal(state.partner_triage_refusals[0].communicated_at, '2026-08-17T09:00:00.000Z')
+})
+
+test('#377: a refusal of ANOTHER place is not closed from this one', async () => {
+  state = freshState()
+  state.partner_triage_refusals = [
+    {
+      id: REFUSAL_ID,
+      attraction_id: OTHER_PLACE_ID,
+      gate: 2,
+      reason: 'Falta um fato próprio do lugar.',
+      decided_by: OPERATOR_ID,
+      decided_at: '2026-08-16T09:00:00.000Z',
+      communicated_at: null,
+    },
+  ]
+
+  const response = await COMMUNICATE(request({ refusalId: REFUSAL_ID }), context)
+  assert.equal(response.status, 404)
+  assert.equal((await response.json()).error, 'refusal_not_found')
+  assert.equal(state.partner_triage_refusals[0].communicated_at, null)
+})
+
+test('#377: both routes validate their input before they reach the database', async () => {
+  state = freshState()
+
+  const badContext = { params: Promise.resolve({ clientId: 'nope', attractionId: PLACE_ID }) }
+  assert.equal((await REFUSE(request({ gate: 1, reason: 'x' }), badContext)).status, 400)
+  assert.equal((await COMMUNICATE(request({ refusalId: REFUSAL_ID }), badContext)).status, 400)
+
+  const badRefusal = await COMMUNICATE(request({ refusalId: 'not-a-uuid' }), context)
+  assert.equal(badRefusal.status, 400)
+  assert.equal((await badRefusal.json()).error, 'invalid_refusal_id')
+  assert.deepEqual(state.writes, [])
+})
+
+test('#377 crit. 6: after the refusal is communicated, the pipeline reads the row as CLOSED', async () => {
+  state = freshState()
+
+  const refused = await REFUSE(request({ gate: 2, reason: 'Falta um fato próprio do lugar.' }), context)
+  assert.equal(refused.status, 201)
+
+  const registered = state.partner_triage_refusals[0]
+  // Registered and not yet communicated: the place is refused, and the clock is still running —
+  // the operator still owes the partner the news (BR-B2B-010, item 4).
+  const place = await loadPartnerPlaceLive(CLIENT_ID, PLACE_ID, createFakeDb(() => state) as any)
+  // `?? null` because this fake does not apply the column defaults a real INSERT would: the
+  // column is nullable and the row simply has no value yet.
+  assert.equal(place?.refusal?.communicatedAt ?? null, null)
+  assert.equal(place?.refusal?.gate, 2)
+  assert.equal(
+    isTriageOverdue(
+      deriveTriageStatus(
+        { approvedAt: state.clients[0].approved_at, places: [{ published: false, refusal: place!.refusal! }] },
+        new Date('2026-08-20T10:32:00.000Z')
+      )
+    ),
+    true
+  )
+
+  const told = await COMMUNICATE(request({ refusalId: registered.id }), context)
+  assert.equal(told.status, 200)
+
+  const after = await loadPartnerPlaceLive(CLIENT_ID, PLACE_ID, createFakeDb(() => state) as any)
+  assert.equal(typeof after?.refusal?.communicatedAt, 'string')
+  assert.equal(
+    deriveTriageStatus(
+      { approvedAt: state.clients[0].approved_at, places: [{ published: false, refusal: after!.refusal! }] },
+      new Date('2026-08-20T10:32:00.000Z')
+    ).kind,
+    'closed'
+  )
 })

@@ -46,7 +46,7 @@ import {
   readMirror,
   writeMirror,
 } from '@/lib/partner-form/draft-mirror'
-import { partnerFormPath } from '@/lib/partner-form/link'
+import { PARTNER_PRIVACY_POLICY_URL, partnerFormPath } from '@/lib/partner-form/link'
 import { normalizedTaxId } from '@/lib/partner-form/tax-id-key'
 
 const REPO_ROOT = resolve(import.meta.dirname, '../..')
@@ -427,6 +427,34 @@ test('#341: the privacy notice describes what is actually collected', () => {
   for (const collected of ['nome', 'cargo', 'e-mail', 'telefone']) {
     assert.ok(notice.includes(collected), `the notice has to name "${collected}"`)
   }
+})
+
+/**
+ * #344 · BR-USUARIO-028, item 1: the label is a link, and the page behind it exists.
+ *
+ * The constant was `null`, so `Como tratamos os seus dados` rendered as dead text and the code
+ * itself said that blocked the go-live. The destination is the policy the SITE publishes — the CMS
+ * writes none (#341, Tech Lead) — and the slug is not translated: `/trust-center/*` is in
+ * `SHARED_SLUG_ROUTES` of the site's `src/i18n/pathnames.ts`, so `/pt/` keeps the English segment
+ * and the Portuguese-looking path is a 404. Verified live by the operator on 2026-08-17.
+ */
+test('#344 · BR-USUARIO-028 item 1: the privacy label points at the published policy', () => {
+  assert.equal(
+    PARTNER_PRIVACY_POLICY_URL,
+    'https://www.tuggi.app/pt/trust-center/privacy-policy',
+    'the untranslated slug is the one that answers 200'
+  )
+  // The Portuguese-looking slug does not exist on the site, and a dead link under a data-protection
+  // promise is worse than plain text.
+  assert.equal(/central-de-confianca|politica-de-privacidade/.test(PARTNER_PRIVACY_POLICY_URL!), false)
+  assert.match(PARTNER_PRIVACY_POLICY_URL!, /^https:\/\//, 'another origin, so it cannot be relative')
+
+  // A new tab, because a partner halfway through the form must not lose it — and `noopener` with
+  // it, since the destination is cross-origin.
+  const form = readFileSync(resolve(REPO_ROOT, 'components/partner-form/PartnerForm.tsx'), 'utf8')
+  assert.match(form, /href=\{PARTNER_PRIVACY_POLICY_URL\}/)
+  assert.match(form, /target="_blank"/)
+  assert.match(form, /rel="noopener noreferrer"/)
 })
 
 // ── The route ──

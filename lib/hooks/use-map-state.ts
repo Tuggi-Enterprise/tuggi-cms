@@ -2,6 +2,7 @@ import { useState, useCallback } from 'react'
 import { MapState } from '@/types/poi-importer'
 import { DEFAULT_MAP_CENTER, DEFAULT_MAP_ZOOM } from '@/constants/poi-importer'
 import { geoJSONToPaths } from '@/lib/maps/geojson-paths'
+import { geocodeAddress } from '@/lib/maps/geocode-address'
 
 export function useMapState() {
   // State
@@ -33,37 +34,23 @@ export function useMapState() {
     setIsSearchingCity(true)
     
     try {
-      const geocoder = new google.maps.Geocoder()
-      
-      const result = await new Promise<google.maps.GeocoderResult[]>((resolve, reject) => {
-        geocoder.geocode({ address: cityQuery }, (results, status) => {
-          if (status === 'OK' && results) {
-            resolve(results)
-          } else {
-            reject(new Error(`Geocoding failed: ${status}`))
-          }
-        })
-      })
+      // ONE forward geocoder in the CMS — `lib/maps/geocode-address.ts`. This call used to be the
+      // only one, and #371 needed a second surface (the place's map centre); lifting it out is
+      // what keeps them from drifting (CLAUDE.md §6, DRY).
+      const place = await geocodeAddress(cityQuery)
 
-      if (result && result.length > 0) {
-        const place = result[0]
-        const location = place.geometry.location
-        
-        // Update map center
-        const newCenter = {
-          lat: location.lat(),
-          lng: location.lng()
-        }
-        
+      if (place) {
+        const newCenter = { lat: place.lat, lng: place.lng }
+
         setMapCenter(newCenter)
         setMapZoom(12)
-        setCurrentCityName(place.formatted_address)
+        setCurrentCityName(place.formattedAddress)
 
         // Try to fetch city boundary
         const boundaryFetched = await fetchCityBoundary(
           newCenter.lat, 
           newCenter.lng, 
-          place.formatted_address
+          place.formattedAddress
         )
         
         return { center: newCenter, zoom: 12, boundaryFetched }

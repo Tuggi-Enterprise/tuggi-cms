@@ -11,6 +11,8 @@
  * caller — see lib/hooks/usePoiMutations.ts for the bound hook surface.
  */
 
+import { placeService } from './place-service'
+
 // The app uses an untyped client (useSupabaseClient<any>()); keep it permissive.
 type SupabaseLike = any
 
@@ -100,16 +102,10 @@ export async function approvePoi(supabase: SupabaseLike, poi: any, userId?: stri
     await putHomolog(poi.id, { approved: true })
     return
   }
-  const { error } = await supabase
-    .schema('core')
-    .from('attractions')
-    .update({
-      approved: true,
-      approved_by: userId ?? null,
-      approved_at: new Date().toISOString(),
-    })
-    .eq('id', poi.id)
-  if (error) throw error
+  // The core write lives in `placeService.setApproved` — one writer of
+  // `core.attractions.approved`, so the partnership pipeline and this screen cannot come to
+  // stamp the publication differently.
+  await placeService.setApproved(poi.id, true, userId ?? null, supabase)
 }
 
 /** Toggle a core POI's active flag (homolog POIs have no is_active). */

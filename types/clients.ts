@@ -235,11 +235,6 @@ export interface ClientRegistrationFormProps {
   onError?: (error: string) => void
 }
 
-export interface ClientApprovalPanelProps {
-  onApprove?: (clientId: string) => void
-  onReject?: (clientId: string) => void
-}
-
 export interface ClientDashboardProps {
   clientId?: string
 }
