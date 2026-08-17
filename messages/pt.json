@@ -2237,161 +2237,69 @@
     }
   },
   "PartnerForm": {
-    "progress": "Passo {current} de {total}",
-    "loading": "Carregando o formulário",
-    "charactersLeft": "{n, plural, one {resta # caractere} other {restam # caracteres}}",
-    "actions": {
-      "continue": "Continuar",
-      "back": "Voltar",
-      "submit": "Enviar para a Tuggi",
-      "submitting": "Enviando…",
-      "edit": "Editar",
-      "restart": "Recomeçar do zero",
-      "restartConfirm": "Isso apaga tudo o que você preencheu. Quer mesmo recomeçar?",
-      "seeExample": "Ver um exemplo"
-    },
-    "step1": {
-      "title": "O seu estabelecimento",
-      "subtitle": "A gente começa pelo que está na fachada e no CNPJ."
-    },
-    "step2": {
-      "title": "Quem responde pelo estabelecimento",
-      "subtitle": "Precisa ser quem pode assinar pelo CNPJ. É esta pessoa que vai receber o contrato."
-    },
-    "step3": {
-      "title": "A história do seu lugar",
-      "subtitle": "Esta é a única parte que só você pode responder. Tudo o que veio antes a gente encontra em documento; isto aqui, não.",
-      "intro": "O Tuggi conta histórias em voz alta para quem está viajando. Para contar a do seu lugar, a gente precisa de pelo menos um fato que seja seu: uma data, um nome, alguma coisa que dê para ver aí dentro. Não precisa escrever bonito — quem escreve o texto final somos nós.",
-      "notHere": "Aqui não é o lugar de cardápio, preço, promoção, número de quartos, forma de pagamento nem horário — o horário a gente já pediu lá atrás. Essas coisas importam para o seu negócio, mas não é isso que o turista escuta.",
-      "exampleBadTitle": "Assim não dá:",
-      "exampleBad": "Restaurante familiar, ambiente aconchegante e atendimento de primeira. Almoço executivo de segunda a sexta e rodízio de pizza aos sábados.",
-      "exampleBadWhy": "Troque o nome pelo do vizinho: continua verdadeiro. E a segunda frase é cardápio.",
-      "exampleGoodTitle": "Assim dá:",
-      "exampleGood": "Meu avô, Antônio, abriu a casa em 1961 num galpão que era da fábrica de guarda-chuvas do bairro. O forno a lenha é o mesmo desde a inauguração — foi feito pelo pedreiro que morava na esquina, e a gente nunca trocou o tijolo.",
-      "exampleGoodWhy": "Tem nome, tem ano, e tem uma coisa que só existe aí.",
-      "exampleInnTitle": "Pousada, do mesmo jeito:",
-      "exampleInn": "A casa era a sede de uma fazenda de café de 1897. O piso de peroba e a escada são os originais, e do terraço dá para ver o vale onde passava a linha de trem que fechou em 1971.",
-      "substituteTestTitle": "Antes de continuar, faça este teste:",
-      "substituteTest": "troque o nome do seu estabelecimento pelo do vizinho da mesma rua. Se o texto continuar verdadeiro, ele ainda não é sobre o seu lugar — e é exatamente isso que a nossa curadoria vai olhar.",
-      "curation": "Nem todo lugar entra no app. Quem decide é a nossa curadoria, e o critério é o lugar ser permanente, aberto a visita, e ter história própria para contar. Se faltar alguma coisa, a gente diz o que faltou, e você pode mandar de novo.",
-      "nudgeShort": "Isso ainda está curto. Um nome e um ano já ajudam muito.",
-      "nudgeOffer": "Parece que você falou de cardápio, preço ou reserva. Isso a gente não usa aqui — conte uma coisa que aconteceu no lugar."
-    },
-    "step4": {
-      "title": "Conferir e enviar",
-      "subtitle": "Confira o que você escreveu. Se precisar corrigir, toque em editar.",
-      "beforeSubmit": "Confira o e-mail e o telefone antes de enviar: é por eles que a gente fala com você.",
-      "empty": "não preenchido"
-    },
-    "privacy": {
-      "notice": "Os campos deste passo são de uma pessoa, não da empresa. O nome, o cargo, o e-mail e o telefone ficam guardados junto com a sua proposta, e a Tuggi os usa para falar com você sobre esta parceria e para gerar o contrato.",
-      "link": "Como tratamos os seus dados"
-    },
     "fields": {
       "trade_name": {
-        "label": "Como as pessoas chamam o seu estabelecimento?",
-        "help": "O nome que está na fachada.",
-        "requiredError": "Preencha o nome do estabelecimento."
+        "label": "Como as pessoas chamam o seu estabelecimento?"
       },
       "legal_name": {
-        "label": "Razão social",
-        "help": "O nome que está no CNPJ. Se for o mesmo da fachada, pode repetir.",
-        "requiredError": "Preencha a razão social."
+        "label": "Razão social"
       },
       "tax_id": {
-        "label": "CNPJ",
-        "help": "14 caracteres. Desde 2026 o CNPJ pode ter letras — se o seu tiver, digite normalmente.",
-        "requiredError": "Preencha o CNPJ."
+        "label": "CNPJ"
       },
       "category": {
-        "label": "Que tipo de lugar é?",
-        "help": "",
-        "requiredError": "Escolha o tipo de lugar."
+        "label": "Que tipo de lugar é?"
       },
       "address": {
-        "label": "Rua e número",
-        "help": "",
-        "requiredError": "Preencha a rua e o número."
+        "label": "Rua e número"
       },
       "address_complement": {
-        "label": "Complemento",
-        "help": "Sala, loja, andar.",
-        "requiredError": ""
+        "label": "Complemento"
       },
       "district": {
-        "label": "Bairro",
-        "help": "",
-        "requiredError": "Preencha o bairro."
+        "label": "Bairro"
       },
       "postal_code": {
-        "label": "CEP",
-        "help": "",
-        "requiredError": "Preencha o CEP."
+        "label": "CEP"
       },
       "city": {
-        "label": "Cidade",
-        "help": "",
-        "requiredError": "Preencha a cidade."
+        "label": "Cidade"
       },
       "state": {
-        "label": "Estado",
-        "help": "",
-        "requiredError": "Escolha o estado."
+        "label": "Estado"
       },
       "instagram": {
-        "label": "Instagram",
-        "help": "Só o @, se tiver.",
-        "requiredError": ""
+        "label": "Instagram"
       },
       "opening_hours": {
-        "label": "Horário de funcionamento",
-        "help": "Escreva do seu jeito. Por exemplo: terça a domingo, das 11h às 15h e das 18h às 23h; fecha segunda.",
-        "requiredError": ""
+        "label": "Horário de funcionamento"
       },
       "website": {
-        "label": "Site",
-        "help": "",
-        "requiredError": ""
+        "label": "Site"
       },
       "representative_name": {
-        "label": "Nome completo",
-        "help": "Como está no documento de constituição.",
-        "requiredError": "Preencha o nome completo de quem responde pelo estabelecimento."
+        "label": "Nome completo"
       },
       "representative_role": {
-        "label": "Cargo no estabelecimento",
-        "help": "Sócio, sócia-administradora, proprietário, procurador.",
-        "requiredError": "Preencha o cargo no estabelecimento."
+        "label": "Cargo no estabelecimento"
       },
       "representative_email": {
-        "label": "E-mail",
-        "help": "É para este endereço que o contrato vai. Confira com calma.",
-        "requiredError": "Preencha o e-mail de quem responde pelo estabelecimento."
+        "label": "E-mail"
       },
       "representative_phone": {
-        "label": "Telefone com WhatsApp",
-        "help": "A gente usa para falar sobre esta parceria. Não entra em lista de mensagens.",
-        "requiredError": "Preencha o telefone com WhatsApp."
+        "label": "Telefone com WhatsApp"
       },
       "story_founder": {
-        "label": "Quem começou este lugar, e quando?",
-        "help": "O nome da pessoa e o ano. Se foi você, escreva o seu nome. Se você comprou de alguém, conte as duas coisas: quem começou, e quando você assumiu. Por exemplo: Meu pai, Sebastião, abriu em 1978. Assumi em 2009.",
-        "requiredError": "Conte quem começou o lugar e quando."
+        "label": "Quem começou este lugar, e quando?"
       },
       "story_before": {
-        "label": "O que tinha neste endereço antes do seu negócio?",
-        "help": "Casa de família, oficina, armazém, cinema, terreno vazio. Se você sabe de que ano é o prédio, escreva. Por exemplo: Era uma serralheria. O prédio é de 1932, está escrito na fachada.",
-        "requiredError": ""
+        "label": "O que tinha neste endereço antes do seu negócio?"
       },
       "story_unique": {
-        "label": "O que existe aí dentro que não existe em outro lugar?",
-        "help": "Vale coisa que dá para ver, tocar ou provar: um forno, um móvel, uma foto na parede, uma peça antiga, uma receita que veio de alguém da família. Elogio não vale — aconchegante e atendimento familiar servem para qualquer lugar. Por exemplo: O balcão de mármore é o original da confeitaria que funcionava aqui; a gente só lixou.",
-        "requiredError": ""
+        "label": "O que existe aí dentro que não existe em outro lugar?"
       },
       "story_event": {
-        "label": "Aconteceu alguma coisa aqui que o pessoal do bairro conta até hoje?",
-        "help": "Uma visita, uma enchente, um jogo, uma festa que começou aqui, alguém conhecido que era freguês. Por exemplo: Em 1994 a rua inteira assistiu à final aqui na calçada.",
-        "requiredError": ""
+        "label": "Aconteceu alguma coisa aqui que o pessoal do bairro conta até hoje?"
       }
     },
     "categories": {
@@ -2402,30 +2310,7 @@
       "shop": "Loja",
       "attraction": "Atração ou passeio",
       "other": "Outro"
-    },
-    "errors": {
-      "summary": "{count, plural, one {Falta # coisa neste passo.} other {Faltam # coisas neste passo.}}",
-      "email_malformed": "Este e-mail não parece completo. Confira antes de continuar.",
-      "phone_short": "Escreva o telefone com DDD.",
-      "cnpj_incomplete": "O CNPJ tem 14 caracteres. {n, plural, one {Falta # caractere} other {Faltam # caracteres}}.",
-      "cnpj_invalid": "Este CNPJ não confere. Confira os 14 caracteres — inclusive as letras, se o seu tiver.",
-      "postal_code": "O CEP tem 8 números.",
-      "too_long": "Você passou de {max} caracteres. Tire {over} para continuar."
-    },
-    "states": {
-      "draftResumed": "O que você preencheu em {date} ficou guardado neste aparelho. Continue de onde parou.",
-      "offlineTitle": "Você está sem internet.",
-      "offlineBody": "O que você escrever agora fica no aparelho, e a gente envia quando a conexão voltar.",
-      "submitErrorTitle": "Não conseguimos enviar agora.",
-      "submitErrorBody": "Tente enviar de novo. Se continuar dando erro, fale com a pessoa da Tuggi que passou este link — o que você preencheu continua guardado neste aparelho.",
-      "successTitle": "Recebemos os seus dados.",
-      "successBody": "A gente confere e volta a falar com você por este e-mail: {email}. Enviar o formulário ainda não fecha a parceria: o contrato é o passo seguinte.",
-      "taxIdRegisteredTitle": "Não dá para seguir com este CNPJ por aqui.",
-      "taxIdRegisteredBody": "Não é erro de digitação. Se o estabelecimento é seu, fale com a pessoa da Tuggi que passou este link — ela resolve com você. Se você cuida de mais de um endereço, confira o número: cada endereço tem o seu próprio CNPJ.",
-      "tooManyTitle": "Chegaram muitos envios desta mesma rede.",
-      "tooManyBody": "Não é nada que você tenha feito de errado — em internet compartilhada, os envios contam juntos. Tente de novo mais tarde: o que você preencheu continua guardado neste aparelho. Se precisar resolver hoje, fale com a pessoa da Tuggi que passou este link."
-    },
-    "savedOnDevice": "O que você escrever fica guardado neste aparelho por 24 horas, até você enviar."
+    }
   },
   "PartnerProposals": {
     "title": "Parcerias",

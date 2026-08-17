@@ -22,34 +22,31 @@ export function isClient(role?: string | null): boolean {
 // ── The public surface of the CMS ──────────────────────────────────────────────────────
 //
 // SSOT for "which pages are served without a CMS session". `proxy.ts` reads it and states
-// nothing of its own: the list used to live inline in the middleware, and the two pages
-// #341 and #342 exist FOR people who have no account here (`/parceria` and
-// `/contrato/<token>`) were never added to it — so the whole external half answered 307 to
+// nothing of its own: the list used to live inline in the middleware, and the pages of #341 and
+// #342 exist FOR people who have no account here — so the whole external half answered 307 to
 // `/login` and the feature did not exist for anyone outside. `tests/api/public-pages.test.ts`
 // is what makes removing an entry from here fail out loud instead of silently.
 //
-// THE TWO ENTRIES ARE NOT PROTECTED BY THE SAME THING, and this comment used to claim they
-// were. `/contrato/<token>` is still reached only by a 256-bit single-use token stored as a
-// hash. `/parceria` HAS NO CREDENTIAL AT ALL since 2026-08-16 (operator): one address goes to
-// every partner. Nothing on that page is read from the database and nothing is shown that a
-// caller did not type; what stands between the internet and the `service_role` write behind it
-// is three things, none of them a secret in the URL — a durable per-address limit counted by
-// the database (`registerSubmissionAttempt`), a field allowlist that strips everything else
-// out of the body (`normalizeAnswers`), and the fact that a submission is a PROPOSAL, never a
-// registration: promoting it is an authenticated act of the team (BR-B2B-026, item 4).
-// Reading the old promise here as "so it is safe" is how a reviewer six months from now
-// concludes the door is locked. It is watched, which is a different sentence.
+// `/parceria` USED TO BE HERE AND IS NOT ANY MORE (#396). The proposal moved to
+// `tuggi-enterprise` and the old address answers a 301, declared in `next.config.js`. Putting
+// it back would not make the redirect work better — config redirects run at step 2 of Next's
+// execution order and the proxy at step 3, so the redirect answers BEFORE this list is even
+// consulted. What it would do is keep a public prefix alive for a page that no longer exists.
+//
+// So one entry is left, and what protects it is a credential: `/contrato/<token>` is reached
+// only by a 256-bit single-use token, stored as a SHA-256 hash and expiring. That is a
+// different sentence from the one the proposal ever had, and it is the reason the two are no
+// longer described together.
 
 /** Paths served without a session, matched WHOLE. */
 export const PUBLIC_EXACT_PATHS = ['/login', '/client-signup', '/debug', '/unauthorized'] as const
 
 /**
- * Paths public from the segment on — `/contrato` because the credential is the next segment,
- * `/parceria` because the page itself is open and the prefix also covers the path with nothing
- * after it. Exact prefixes on purpose: `/parceria-interna` is not `/parceria`, and loosening
- * the middleware matcher instead of this list would open every page under a locale.
+ * Paths public from the segment on — `/contrato`, because the credential is the next segment.
+ * Exact prefixes on purpose: `/contratos` is not `/contrato`, and loosening the proxy matcher
+ * instead of this list would open every page under a locale.
  */
-export const PUBLIC_PATH_PREFIXES = ['/parceria', '/contrato'] as const
+export const PUBLIC_PATH_PREFIXES = ['/contrato'] as const
 
 /** `path` is the pathname WITHOUT the locale prefix — `/contrato/abc`, never `/pt/contrato/abc`. */
 export function isPublicPath(path: string): boolean {

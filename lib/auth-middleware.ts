@@ -221,8 +221,11 @@ const rateLimitMap = new Map<string, number[]>()
  * public partner form was built on that sentence.
  *
  * A route that needs a real limit counts in the database, where the window survives the
- * process: `registerSubmissionAttempt` in `lib/services/partner-proposal-service.ts` is the
- * shape, and this composer stays in front of it as the cheap first line.
+ * process — the RPC `core.record_partner_form_attempt` is the shape. The route that was built
+ * on that sentence, the public partnership proposal, left this repository in #396 and is now
+ * `tuggi-enterprise/src/app/api/partner-proposal/route.ts`; it took the composer out entirely
+ * and kept only the database count, because a first line that reads like a barrier is worse
+ * than no first line at all.
  *
  * It forwards `(req, ctx)` — dropping `ctx` here would hand `{}` to every handler on
  * a dynamic segment, so `/api/pois/[id]` would lose its `id` the moment it got a

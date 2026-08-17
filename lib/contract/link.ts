@@ -1,6 +1,9 @@
 /**
- * How the signing link is built — #342, same shape and same reason as
- * `lib/partner-form/link.ts`.
+ * How the signing link is built — #342.
+ *
+ * It had a sibling, the proposal's own link builder, and that one left with the form in #396:
+ * the proposal is served by `tuggi-enterprise` now and the old CMS address answers a 301
+ * declared in `next.config.js`. The shape below is unchanged, and so is the reason for it.
  *
  * `i18n.ts` falls back to `en` for a missing or invalid locale, and this contract is a
  * Brazilian instrument signed by a Brazilian legal representative. The locale segment is

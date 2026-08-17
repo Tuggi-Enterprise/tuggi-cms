@@ -38,6 +38,7 @@ import {
   detailPath,
 } from '@/lib/partnerships/pipeline'
 import { EMPTY_CONFERENCE, type ConferenceRecord } from '@/lib/partner-form/regularity'
+import { PUBLIC_PATH_PREFIXES } from '@/lib/roles'
 import { deriveTriageStatus, isTriageOverdue } from '@/lib/partnerships/triage'
 
 const REPO_ROOT = resolve(import.meta.dirname, '../..')
@@ -527,9 +528,18 @@ test('#359 crit. 20 · BR-B2B-018: `Tirar do app` says what is written, and noth
 })
 
 test('#359 crit. 34: no pipeline surface is public', () => {
-  const publicForm = read('app/[locale]/parceria/page.tsx')
-  assert.equal(publicForm.indexOf('partnerships'), -1)
-  assert.equal(publicForm.indexOf('Partnerships'), -1)
+  // It used to be checked against the public form: the merchant filling it in must not be
+  // shown a word of the internal pipeline. #396 moved that form to `tuggi-enterprise`, so what
+  // this repository can still assert is the stronger half — it serves NO session-less page in
+  // that feature at all, and the pipeline's own vocabulary therefore cannot leak from one.
+  assert.equal(
+    existsSync(resolve(REPO_ROOT, 'app/[locale]/parceria/page.tsx')),
+    false,
+    'the public proposal left this deployment; the old address answers a 301'
+  )
+  for (const prefix of PUBLIC_PATH_PREFIXES) {
+    assert.notEqual(prefix, '/parceria', 'no session-less prefix points at the pipeline')
+  }
 })
 
 test('#359 crit. 36 · DS-LAYOUT-006 pt. 4: no shortcut opens a new tab', () => {

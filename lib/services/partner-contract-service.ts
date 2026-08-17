@@ -1,7 +1,9 @@
 /**
- * The partnership contract's data access — and the only place in the #342 surface that
- * holds a `service_role` client. Same shape, and for the same reasons, as
- * `lib/services/partner-proposal-service.ts` (#341), which passed the security gate:
+ * The partnership contract's data access — and, since #396 took the public proposal to
+ * `tuggi-enterprise`, the only place in this repository that puts a `service_role` client
+ * behind a route with no session. Same shape, and for the same reasons, as the proposal
+ * service that passed the security gate in #341 and now lives at
+ * `tuggi-enterprise/src/lib/partner-proposal/proposal-service.ts`:
  *
  *  1. The API is closed and narrow. There is no "run this query" export. Every function
  *     names one operation on the two contract tables, and none of them can be pointed at
