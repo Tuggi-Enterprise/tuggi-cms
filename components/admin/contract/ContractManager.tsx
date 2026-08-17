@@ -30,7 +30,6 @@ interface ContractState {
   template: {
     version: string
     title: string
-    legalReview: { status: 'pending' | 'approved'; pending: string[]; note: string }
   }
   checklist: { ready: boolean; missing: ChecklistItem[] }
   registration: {
@@ -147,11 +146,9 @@ export function ContractManager({ clientId }: { clientId: string }) {
         )
       } else if (!response.ok) {
         setMessage(
-          payload?.error === 'legal_review_pending'
-            ? 'A versão do modelo ainda está pendente de revisão jurídica: o contrato não pode ser enviado para assinatura.'
-            : payload?.error === 'checklist_incomplete'
-              ? 'Ainda falta item do checklist.'
-              : 'A ação não foi concluída.'
+          payload?.error === 'checklist_incomplete'
+            ? 'Ainda falta item do checklist.'
+            : 'A ação não foi concluída.'
         )
       } else if (action === 'send') {
         setMessage(
@@ -174,7 +171,6 @@ export function ContractManager({ clientId }: { clientId: string }) {
   }
 
   const signed = Boolean(state.acceptance)
-  const legalPending = state.template.legalReview.status !== 'approved'
 
   return (
     <div className="mx-auto max-w-4xl space-y-6 p-6">
@@ -202,13 +198,12 @@ export function ContractManager({ clientId }: { clientId: string }) {
         </section>
       ) : null}
 
-      {legalPending ? (
-        <section className="rounded-lg border border-amber-400 bg-amber-50 p-4 text-sm text-gray-900">
-          <p className="font-semibold">Minuta pendente de revisão jurídica.</p>
-          <p className="mt-1">{state.template.legalReview.note}</p>
-        </section>
-      ) : null}
-
+      {/*
+        Não existe aviso de "minuta pendente de revisão jurídica" nem botão travado por ela.
+        Quem decide se a minuta está pronta para ir ao parceiro é o operador, fora do
+        software — decisão dele em 2026-08-17. A trava que fica é o checklist de campos
+        obrigatórios, e ela recusa a GERAÇÃO logo abaixo.
+      */}
       {!signed ? (
         <section className="space-y-4 rounded-lg border border-gray-300 p-4">
           <h2 className="text-lg font-semibold text-gray-900">Gerar contrato</h2>
@@ -294,9 +289,8 @@ export function ContractManager({ clientId }: { clientId: string }) {
                 <button
                   type="button"
                   className="rounded bg-primary-800 px-4 py-2 text-sm font-semibold text-white disabled:opacity-50"
-                  disabled={busy || legalPending}
+                  disabled={busy}
                   onClick={() => act('send')}
-                  title={legalPending ? state.template.legalReview.note : undefined}
                 >
                   Enviar para assinatura
                 </button>

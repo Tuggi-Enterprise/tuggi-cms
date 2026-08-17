@@ -26,6 +26,7 @@ import assert from 'node:assert/strict'
 import { createHash } from 'node:crypto'
 
 import { hashSingleUseToken } from '@/lib/security/single-use-token'
+import { activeTemplate } from '@/lib/contract/template'
 
 const TOKEN = 'a'.repeat(43)
 const CLIENT_ID = 'client-1'
@@ -215,6 +216,7 @@ function createFakeAuthClient() {
 let service: typeof import('@/lib/services/partner-contract-service')
 let GET: (req: Request, ctx: { params: Promise<{ token: string }> }) => Promise<Response>
 let adminGET: (req: any, ctx: { params: Promise<{ clientId: string }> }) => Promise<Response>
+let adminPOST: (req: any, ctx: { params: Promise<{ clientId: string }> }) => Promise<Response>
 
 before(async () => {
   mock.module('next/headers', {
@@ -248,6 +250,7 @@ before(async () => {
 
   const adminRoute = await import('@/app/api/admin/clients/[clientId]/contract/route')
   adminGET = adminRoute.GET as any
+  adminPOST = adminRoute.POST as any
 })
 
 function sha256(bytes: Uint8Array): string {
@@ -608,4 +611,100 @@ test('a retry after the archive landed re-renders nothing and re-uploads nothing
   assert.equal(retry.ok && retry.alreadyAccepted, true)
   assert.equal(renders.length, rendersAfterFirst, 'the archive exists; there is nothing to render')
   assert.equal(objects.size, objectsAfterFirst)
+})
+
+// ── 4. The trava that left and the trava that stayed ───────────────────────────────────
+//
+// On 2026-08-17 the operator took the legal-review refusal out of `sendForSignature`:
+// deciding that a minuta is ready to go to a partner is a human act, and it is his. What
+// stayed is the checklist, which is not an opinion about the process — without the razão
+// social, the CNPJ, the address and the legal representative of the CONTRATADA there is
+// nothing to print on the Tuggi's side of the instrument, and a signed PDF is the one
+// artefact of this feature that cannot be corrected afterwards.
+//
+// The two are asserted side by side on purpose: whoever comes to remove one of them reads
+// here that the other is load-bearing.
+
+function adminPostRequest(clientId: string, body: Record<string, unknown>) {
+  ipCounter += 1
+  const url = `http://localhost/api/admin/clients/${clientId}/contract`
+  const base = new Request(url, {
+    method: 'POST',
+    // `withRateLimit` keeps ONE bucket per IP across every route of the CMS, so a fresh
+    // address per request is what keeps these tests from failing on their neighbours.
+    headers: { 'Content-Type': 'application/json', 'x-forwarded-for': `10.7.${ipCounter}.1` },
+    body: JSON.stringify(body),
+  })
+  return Object.assign(base, { nextUrl: new URL(url) }) as any
+}
+
+function seedClient(overrides: Row = {}): Row {
+  const row: Row = {
+    id: CLIENT_ID,
+    name: 'Cantina do Zé',
+    company_name: 'Cantina Ltda.',
+    email: 'antonio@cantina.com.br',
+    billing_email: null,
+    address: 'Rua das Pedras, 10',
+    city: 'Búzios',
+    state: 'RJ',
+    postal_code: '28950-000',
+    tax_id: '11222333000181',
+    tax_id_type: 'cnpj',
+    legal_representative_name: 'Antônio Silva',
+    legal_representative_role: 'Sócio',
+    commission_rate: 0.2,
+    monthly_fee_cents: 19900,
+    is_courtesy: false,
+    is_platform_owner: false,
+    ...overrides,
+  }
+  clients.push(row)
+  return row
+}
+
+function adminContext() {
+  return { params: Promise.resolve({ clientId: CLIENT_ID }) }
+}
+
+test('BR-B2B-026 item 4: the operator sends the contract for signature with the minuta still under legal review', async () => {
+  seedClient()
+  const contract = seedContract({ status: 'draft', token_hash: null, token_expires_at: null, sent_at: null })
+  const review = activeTemplate().legalReview
+
+  const res = await adminPOST(adminPostRequest(CLIENT_ID, { action: 'send' }), adminContext())
+
+  // Until 2026-08-17 this answered 409 `legal_review_pending` and nothing left the CMS.
+  assert.equal(res.status, 200, `the review state ("${review.status}") is not the route's business`)
+
+  const payload = (await res.json()) as any
+  assert.match(payload.url, /\/pt\/contrato\//, 'the operator gets the link back')
+  assert.equal(payload.recipientEmail, 'antonio@cantina.com.br', 'derived from the registration, not from the body')
+  assert.equal(payload.emailed, true)
+
+  assert.equal(contract.status, 'sent', 'and the contract row moved')
+  assert.match(contract.token_hash, /^[0-9a-f]{64}$/, 'holding the hash of the token, never the token')
+  assert.equal(emails.length, 1)
+  assert.equal((emails[0] as any).type, 'partner_contract_sign')
+})
+
+test('BR-B2B-023: the checklist STAYS — generation is still refused with 409 while the Tuggi side is incomplete', async () => {
+  seedClient()
+  // The CONTRATADA, missing the CNPJ the "Das partes" clause has to print.
+  seedClient({ id: 'tuggi', name: 'Tuggi', company_name: 'Tuggi Tecnologia Ltda.', tax_id: null, is_platform_owner: true })
+
+  const res = await adminPOST(
+    adminPostRequest(CLIENT_ID, { action: 'generate', tier: 'paid', paymentMethod: 'pix', qrDeliveryDays: 15 }),
+    adminContext()
+  )
+
+  assert.equal(res.status, 409)
+  const payload = (await res.json()) as any
+  assert.equal(payload.error, 'checklist_incomplete')
+  assert.ok(
+    payload.missing.some((item: { id: string }) => item.id === 'provider_tax_id'),
+    'and it names the missing fact instead of failing vaguely'
+  )
+  assert.equal(contracts.length, 0, 'nothing was generated')
+  assert.equal(objects.size, 0, 'and no PDF reached the bucket')
 })

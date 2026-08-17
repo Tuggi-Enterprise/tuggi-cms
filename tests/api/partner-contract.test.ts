@@ -47,6 +47,7 @@ import {
 } from '@/lib/contract/template'
 import { CONTRACT_LOCALE, contractPath } from '@/lib/contract/link'
 import { isSha256Hex, sha256Hex, shortHash } from '@/lib/contract/hash'
+import { hashSingleUseToken } from '@/lib/security/single-use-token'
 
 const REPO_ROOT = resolve(import.meta.dirname, '../..')
 
@@ -568,13 +569,18 @@ test('a contract renders with ITS OWN template version, and an unknown version f
   assert.throws(() => renderClauses({ ...snapshotOf(), templateVersion: 'v0-nao-existe' }))
 })
 
-test('the active template declares whether a lawyer has reviewed it', () => {
+test('the active template declares whether a lawyer has reviewed it — and it gates nothing', () => {
   const review = activeTemplate().legalReview
   assert.ok(review.status === 'pending' || review.status === 'approved')
   if (review.status === 'pending') {
     assert.ok(review.pending.length > 0, 'pending has to name which clauses are holding it')
     assert.ok(review.note.length > 0)
   }
+
+  // Since 2026-08-17 the field is a statement, not a rule: it must not claim to stop the
+  // sending, because it does not. The refusal it used to describe is gone, and the send
+  // going through in this very state is proven further down.
+  assert.doesNotMatch(review.note, /não pode ser enviado|nao pode ser enviado/i)
 })
 
 // ── The signing link ───────────────────────────────────────────────────────────────────
@@ -1022,21 +1028,45 @@ test('`Conferir integridade` compares the STORED file with the recorded hash', a
   assert.equal(missing.state, 'unavailable')
 })
 
-test('BR-B2B-023 item 2: a template pending legal review cannot be SENT for signature', async () => {
+test('BR-B2B-026 item 4: the minuta is sent for signature in ANY legal-review state — the operator decides, not the software', async () => {
   const { contract } = await generated()
+  const review = activeTemplate().legalReview
+
   const sent = await contractService.sendForSignature(contract.id, {
     recipientEmail: 'antonio@cantina.com.br',
     sentBy: 'operator-1',
   })
 
-  if (activeTemplate().legalReview.status === 'pending') {
-    assert.equal(sent.ok, false)
-    assert.equal(sent.ok === false && sent.reason, 'legal_review_pending')
-    assert.equal(contract.token_hash, undefined, 'a refused send mints no token at all')
-  } else {
-    // The day the lawyer's text lands, the gate opens and the same call goes through.
-    assert.equal(sent.ok, true)
-  }
+  // Until 2026-08-17 this same call answered `legal_review_pending` and minted no token.
+  // The operator took that decision out of the software: BR-B2B-026, item 4 puts the
+  // conference before the sending, and the conference is a person's.
+  assert.equal(sent.ok, true, `sending must not depend on the review state (it is "${review.status}" here)`)
+  if (!sent.ok) return
+
+  assert.match(sent.token, /^[A-Za-z0-9_-]{43}$/, 'a real single-use token came out')
+  assert.equal(contract.token_hash, hashSingleUseToken(sent.token), 'and the row holds its hash, not the token')
+  assert.equal(contract.token_expires_at, sent.expiresAt)
+  assert.equal(contract.sent_by, 'operator-1')
+  assert.ok(new Date(sent.expiresAt).getTime() > Date.now(), 'the link has a deadline')
+})
+
+test('BR-B2B-026: what still refuses the send is fact about the contract, never opinion about the minuta', async () => {
+  const { contract } = await generated()
+  Object.assign(contract, { status: 'signed' })
+
+  const resent = await contractService.sendForSignature(contract.id, {
+    recipientEmail: 'antonio@cantina.com.br',
+    sentBy: 'operator-1',
+  })
+  assert.equal(resent.ok, false)
+  assert.equal(resent.ok === false && resent.reason, 'already_signed')
+
+  const missing = await contractService.sendForSignature('contract-nao-existe', {
+    recipientEmail: 'antonio@cantina.com.br',
+    sentBy: 'operator-1',
+  })
+  assert.equal(missing.ok, false)
+  assert.equal(missing.ok === false && missing.reason, 'not_found')
 })
 
 test('a contract whose template version no longer exists cannot be signed', async () => {
@@ -1056,13 +1086,6 @@ test('a contract whose template version no longer exists cannot be signed', asyn
 
 test('the raw signing token is never stored — only its SHA-256', async () => {
   const { contract } = await generated()
-  const template = templateByVersion(contract.template_version)!
-  if (template.legalReview.status !== 'approved') {
-    // The gate above refuses to mint a token, so mint one the way the service does and
-    // assert the storage shape that will hold when the gate opens.
-    assert.match(contract.document_hash, /^[0-9a-f]{64}$/)
-    return
-  }
   const sent = await contractService.sendForSignature(contract.id, {
     recipientEmail: 'antonio@cantina.com.br',
     sentBy: 'operator-1',

@@ -12,12 +12,17 @@
  * version up here. Publishing v2 therefore never edits v1 — it adds an entry. Editing a
  * published version in place would silently change what a signed hash claims to prove.
  *
- * THE GATE. `legalReview.status` is `pending` while a clause still carries a decision no
- * agent may take — BR-B2B-023, item 2 is explicit that the adjustment index is chosen by
- * the lawyer and the operator and that *no document names it before that*. While it is
- * pending the document can be generated and read (that is how the lawyer gets the draft),
- * but `sendForSignature` and `acceptContract` refuse. The refusal is in
- * `lib/services/partner-contract-service.ts` and it is proven by a test.
+ * THERE IS NO GATE. `legalReview.status` says whether a lawyer has already signed off on
+ * this wording, and NOTHING in the code refuses anything because of it. It used to:
+ * `sendForSignature` answered `legal_review_pending` while the status was `pending`. That
+ * check came out on 2026-08-17 by decision of the operator — approving a minuta is a human
+ * act taken outside this software, and whoever is about to put the document in front of a
+ * partner is the one who knows if it is ready. Do not put the gate back; it is absent on
+ * purpose, and `lib/services/partner-contract-service.ts` says the same at `sendForSignature`.
+ *
+ * What BR-B2B-023, item 2 does require is still enforced by the text itself and by a test:
+ * no document NAMES the adjustment index before the lawyer picks it, which is why the
+ * clause carries a bracketed hole instead of an acronym.
  *
  * Numbers in the clauses are not typed here twice: each one is a constant with the ID of
  * the rule it comes from (CLAUDE.md §6, SSOT).
@@ -59,6 +64,10 @@ export interface ContractTemplate {
   /** What the partner sees as the document title. */
   title: string
   publishedAt: string
+  /**
+   * Whether a lawyer has reviewed this wording. It GATES NOTHING (operator, 2026-08-17 —
+   * see the file docblock); its only reader is the `MINUTA` banner of `lib/contract/pdf.tsx`.
+   */
   legalReview: {
     status: 'pending' | 'approved'
     /** Clause ids still carrying a decision that is not ours to take. */
@@ -88,9 +97,7 @@ const V1: ContractTemplate = {
     pending: ['price_and_payment', 'governing_law'],
     note:
       'Minuta pendente de revisão jurídica: o índice de reajuste (BR-B2B-023, item 2) e o foro ' +
-      'são escolha do advogado e do operador, e nenhum agente os nomeia. Enquanto esta versão ' +
-      'estiver pendente, o contrato pode ser gerado e lido, mas não pode ser enviado para ' +
-      'assinatura.',
+      'são escolha do advogado e do operador, e nenhum agente os nomeia.',
   },
   clauses: [
     {

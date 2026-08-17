@@ -242,16 +242,24 @@ export async function supersedeContract(previousId: string, replacementId: strin
 
 export type SendOutcome =
   | { ok: true; token: string; expiresAt: string }
-  | { ok: false; reason: 'not_found' | 'legal_review_pending' | 'already_signed' | 'write_failed' }
+  | { ok: false; reason: 'not_found' | 'already_signed' | 'write_failed' }
 
 /**
- * Opens the signing link.
+ * Opens the signing link (BR-B2B-026, item 4 — the team checks, generates and sends).
  *
- * It refuses while the template version of THIS contract is pending legal review. That is
- * not ceremony: BR-B2B-023, item 2 says the adjustment index is chosen by the lawyer and
- * the operator and that no document names it before that, so the generated draft still
- * carries a bracketed hole. Generating and reading it is how the lawyer gets the draft;
- * sending it for signature would put that hole in front of a partner.
+ * THERE IS NO LEGAL-REVIEW GATE HERE, AND THE ABSENCE IS A DECISION, NOT AN OVERSIGHT.
+ * Until 2026-08-17 this refused with `legal_review_pending` while the template carried
+ * `legalReview.status === 'pending'`, so a minuta could be generated and read but never
+ * sent. Deciding that a draft is ready to go to a partner is a human act that happens
+ * outside this software — the operator said it plainly on that date: "vc nao faz essa
+ * trava, o operador faz". Do not reintroduce the check.
+ *
+ * What still refuses is fact about the data, never opinion about the process: a contract
+ * that does not exist and one that is already signed. One step earlier, in
+ * `app/api/admin/clients/[clientId]/contract/route.ts`, GENERATION is still blocked by the
+ * checklist of BR-B2B-022 and BR-B2B-023 — and that one is not process either: without the
+ * razão social, the CNPJ, the address, the CEP and the legal representative there is
+ * nothing to print on the contracted party's side of the instrument.
  */
 export async function sendForSignature(
   contractId: string,
@@ -260,11 +268,6 @@ export async function sendForSignature(
   const contract = await getContract(contractId)
   if (!contract) return { ok: false, reason: 'not_found' }
   if (contract.status === 'signed') return { ok: false, reason: 'already_signed' }
-
-  const template = templateByVersion(contract.template_version)
-  if (!template || template.legalReview.status !== 'approved') {
-    return { ok: false, reason: 'legal_review_pending' }
-  }
 
   const token = generateSingleUseToken()
   const expiresAt = new Date(
@@ -426,12 +429,11 @@ export type AcceptOutcome =
  * not the caller's (CPC arts. 411 and 434).
  */
 export async function acceptContract(input: AcceptInput): Promise<AcceptOutcome> {
-  // The legal-review gate belongs to `sendForSignature` and NOT here. It is the sending
-  // that puts a document in front of a person, and a contract that was legitimately sent
-  // must stay signable: publishing a new template version, or pulling one back for review,
-  // cannot reach into a link somebody is already holding. The version this contract was
-  // generated with is the version it renders and is signed under, and if that version has
-  // disappeared from the code there is nothing to render and the refusal is honest.
+  // No legal-review gate here either, and none in `sendForSignature` since 2026-08-17 —
+  // see the note there. The only version question left is whether the wording this contract
+  // was generated with still EXISTS: it is the version it renders and is signed under, and
+  // if it has disappeared from the code there is nothing to render and the refusal is
+  // honest. A link somebody is already holding is never reached into.
   if (!templateByVersion(input.contract.template_version)) {
     console.error('[contract] unknown template version on contract', input.contract.id)
     return { ok: false, reason: 'unknown_template' }
