@@ -100,7 +100,8 @@
     "points_management": "Points Management",
     "newsletter": "Newsletter",
     "geography": "Demand",
-    "catalog": "Catalog"
+    "catalog": "Catalog",
+    "system_audio": "System Audio"
   },
   "Pages": {
     "Login": {
