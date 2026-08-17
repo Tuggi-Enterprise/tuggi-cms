@@ -164,10 +164,12 @@ export const GET = withRateLimit(60, 60_000)(
     const checklist = contractChecklist(client, choices, { platformOwner, regularity })
 
     return NextResponse.json({
+      // The legal-review state is deliberately NOT here, and since 2026-08-17 the template
+      // does not even carry it: it gated nothing and the surface shows no "minuta em
+      // revisão" warning, so it would be a field the page reads to decide nothing.
       template: {
         version: template.version,
         title: template.title,
-        legalReview: template.legalReview,
       },
       checklist,
       registration: {
@@ -282,9 +284,12 @@ async function send(clientId: string, operatorId: string, req: NextRequest) {
     return NextResponse.json({ error: 'client_without_email' }, { status: 409 })
   }
 
+  // No legal-review refusal to map any more (operator, 2026-08-17): what is left is either
+  // the state of this contract — `not_found`, `already_signed` — which is the caller's
+  // situation and answers 409, or a write that failed, which is ours and answers 503.
   const outcome = await sendForSignature(contract.id, { recipientEmail, sentBy: operatorId })
   if (!outcome.ok) {
-    const status = outcome.reason === 'legal_review_pending' ? 409 : 503
+    const status = outcome.reason === 'write_failed' ? 503 : 409
     return NextResponse.json({ error: outcome.reason }, { status })
   }
 

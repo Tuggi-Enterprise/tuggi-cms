@@ -2,7 +2,7 @@
  * The public half of the CMS — who gets a page without a session, and who gets /login.
  *
  * This exists because of a defect that cost the whole external delivery of #341 and #342:
- * both features are FOR people who have no account here, and neither `/parceria` nor
+ * both features are FOR people who have no account here, and neither the proposal nor
  * `/contrato/<token>` was in the middleware's list of public paths. The failure was
  * closed (307 to /login, nothing leaked) and therefore silent — the partner simply could
  * not open the form or the contract, and no test said so.
@@ -11,12 +11,16 @@
  * REAL middleware (`proxy.ts`) with no session and asserts both directions:
  *   · a public page answers the page, not a redirect to login;
  *   · a CMS page still answers 307 to login;
- *   · and the prefix is exact — `/parceria-interna` is not `/parceria`.
+ *   · and the prefix is exact — `/contratos` is not `/contrato`.
  *
- * Public here means "no CMS session", and the two entries do not mean the same thing beyond
- * that. `/contrato/<token>` carries a credential: a 256-bit single-use token in the next
- * segment, stored only as a SHA-256 (BR-B2B-026, item 2). `/parceria` carries none at all
- * since 2026-08-16 — one address for every partner, guarded by what `lib/roles.ts` spells out.
+ * ONE OF THE TWO PAGES LEFT (#396). The proposal is served by `tuggi-enterprise` now, and
+ * `/parceria` came off the list with it: config redirects run at step 2 of Next 16's execution
+ * order and the proxy at step 3, so the 301 in `next.config.js` answers before this gate is
+ * consulted — keeping the prefix would only leave a session-less door onto a page that no
+ * longer exists. That half is asserted in `tests/api/partner-proposal.test.ts`.
+ *
+ * What is left carries a credential: `/contrato/<token>` is a 256-bit single-use token in the
+ * next segment, stored only as a SHA-256 (BR-B2B-026, item 2).
  *
  * Run with: npm run test:api
  */
@@ -71,24 +75,24 @@ test('BR-B2B-026: the signing page opens with no session — the failure that ma
   assert.equal(answer.location, null, 'no redirect at all — not to login, not anywhere')
 })
 
-test('BR-B2B-026: the partner form opens with no session — the same failure in #341', async () => {
-  // The real address has nothing after the segment any more, and the prefix rule has to cover
-  // the bare path as well as anything under it — `isPublicPath` matches `path === prefix`.
+test('#396: the proposal is no longer a public page of this CMS, and the proxy is not what answers', async () => {
+  // The page moved to `tuggi-enterprise`. What a merchant with the old e-mailed link gets is
+  // the 301 declared in `next.config.js`, which Next applies BEFORE the proxy — so this gate
+  // never sees the request, and a 307 to /login here would mean the redirect is missing.
+  assert.equal(isPublicPath('/parceria'), false)
   const answer = await visit('/pt/parceria')
-  assert.equal(answer.status, 200)
-  assert.equal(answer.location, null)
+  assert.equal(answer.status, 307, 'the proxy treats it as any other unknown path')
+  assert.equal(answer.location, 'http://localhost/pt/login')
 })
 
-test('the token pages are public under every locale the routing declares', async () => {
+test('the token page is public under every locale the routing declares', async () => {
   // Literals, not the constant: a loop over a list somebody shortened passes by being
   // empty, which is the same silence this suite exists to break.
-  assert.deepEqual([...PUBLIC_PATH_PREFIXES], ['/parceria', '/contrato'])
+  assert.deepEqual([...PUBLIC_PATH_PREFIXES], ['/contrato'])
 
   for (const locale of ['en', 'pt', 'es']) {
-    for (const prefix of ['/parceria', '/contrato']) {
-      const answer = await visit(`/${locale}${prefix}/${TOKEN}`)
-      assert.equal(answer.status, 200, `${locale}${prefix} must not be gated`)
-    }
+    const answer = await visit(`/${locale}/contrato/${TOKEN}`)
+    assert.equal(answer.status, 200, `${locale}/contrato must not be gated`)
   }
 })
 
@@ -116,7 +120,7 @@ test('every CMS page still refuses an anonymous visitor with 307 to login', asyn
 })
 
 test('the public prefix is a whole segment — a lookalike path is not public', async () => {
-  for (const lookalike of ['/parceria-interna', '/contratos', '/contrato-modelo']) {
+  for (const lookalike of ['/contratos', '/contrato-modelo']) {
     assert.equal(isPublicPath(lookalike), false, `${lookalike} is not the public surface`)
     const answer = await visit(`/pt${lookalike}`)
     assert.equal(answer.status, 307, `${lookalike} must stay behind the session`)
@@ -137,9 +141,9 @@ test('the four pages that were already public stay public', async () => {
 // ── The list points at pages that exist ─────────────────────────────────────────────────
 
 test('every public prefix names a real page — a renamed route cannot leave the list stale', () => {
-  // The two prefixes are no longer the same shape: `/contrato/<token>` is reached by a
-  // credential and `/parceria` is one address for everybody (#341, 2026-08-16). Either page
-  // satisfies the list; NEITHER existing is a prefix that bypasses the session for nothing.
+  // A prefix whose page does not exist is a session bypass for nothing — which is exactly what
+  // `/parceria` became when the proposal moved to `tuggi-enterprise` (#396), and why it came
+  // off the list in the same commit instead of being left behind as a harmless-looking string.
   for (const prefix of PUBLIC_PATH_PREFIXES) {
     assert.ok(
       existsSync(resolve(REPO_ROOT, `app/[locale]${prefix}/page.tsx`)) ||
@@ -155,7 +159,7 @@ test('the middleware states no list of its own — the decision lives in lib/rol
   assert.match(source, /isPublicPath\(pathWithoutLocale\)/)
   // A second inline list is how the first one drifted out of date. (`'/login'` still
   // appears here, and legitimately: it is where a signed-in visitor is bounced FROM.)
-  for (const literal of ["'/client-signup'", "'/debug'", "'/unauthorized'", "'/parceria'", "'/contrato'"]) {
+  for (const literal of ["'/client-signup'", "'/debug'", "'/unauthorized'", "'/contrato'"]) {
     assert.ok(!source.includes(literal), `${literal} restated in the middleware is a second list`)
   }
 })

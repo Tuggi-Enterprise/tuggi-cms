@@ -38,6 +38,8 @@ interface Row {
 
 let contracts: Row[]
 let acceptances: Row[]
+/** `core.clients`, read only by the internal surface of section 3. */
+let clients: Row[]
 let objects: Map<string, Uint8Array>
 let emails: Record<string, unknown>[]
 /** Every set of bytes the renderer produced, in order. */
@@ -57,9 +59,18 @@ function acceptanceGuard(before: Row, patch: Row): void {
   }
 }
 
+const TABLES: Record<string, () => Row[]> = {
+  partner_contracts: () => contracts,
+  partner_contract_acceptances: () => acceptances,
+  clients: () => clients,
+  // No proposal was promoted into this client, which is a truthful answer and the one the
+  // checklist already knows how to render.
+  partner_form_submissions: () => [],
+}
+
 function createFakeService() {
   const build = (tableName: string) => {
-    const rows = () => (tableName === 'partner_contracts' ? contracts : acceptances)
+    const rows = () => (TABLES[tableName] ?? (() => []))()
     const filters: [string, unknown][] = []
     let operation: 'select' | 'update' | 'upsert' = 'select'
     let payload: Row = {}
@@ -184,8 +195,27 @@ function createFakeService() {
   }
 }
 
+/** An authenticated CMS admin — what the internal surface of section 3 requires. */
+function createFakeAuthClient() {
+  const chain: any = {
+    select: () => chain,
+    eq: () => chain,
+    maybeSingle: async () => ({
+      data: { email: 'admin@tuggi.app', role: 'admin', is_active: true },
+      error: null,
+    }),
+  }
+
+  return {
+    auth: { getUser: async () => ({ data: { user: { id: 'auth-1', email: 'admin@tuggi.app' } }, error: null }) },
+    schema: () => ({ from: () => chain }),
+  }
+}
+
 let service: typeof import('@/lib/services/partner-contract-service')
 let GET: (req: Request, ctx: { params: Promise<{ token: string }> }) => Promise<Response>
+let adminGET: (req: any, ctx: { params: Promise<{ clientId: string }> }) => Promise<Response>
+let adminPOST: (req: any, ctx: { params: Promise<{ clientId: string }> }) => Promise<Response>
 
 before(async () => {
   mock.module('next/headers', {
@@ -195,7 +225,7 @@ before(async () => {
   mock.module('@/lib/core/supabase-client', {
     namedExports: {
       getSupabaseService: () => createFakeService(),
-      getSupabaseRouteHandler: () => ({}),
+      getSupabaseRouteHandler: () => createFakeAuthClient(),
       getSupabaseClient: () => ({}),
     },
   })
@@ -216,6 +246,10 @@ before(async () => {
   service = await import('@/lib/services/partner-contract-service')
   const route = await import('@/app/api/contract/[token]/pdf/route')
   GET = route.GET as any
+
+  const adminRoute = await import('@/app/api/admin/clients/[clientId]/contract/route')
+  adminGET = adminRoute.GET as any
+  adminPOST = adminRoute.POST as any
 })
 
 function sha256(bytes: Uint8Array): string {
@@ -258,6 +292,7 @@ function seedContract(overrides: Row = {}): Row {
 beforeEach(() => {
   contracts = []
   acceptances = []
+  clients = []
   objects = new Map()
   emails = []
   renders = []
@@ -350,7 +385,15 @@ test('a SIGNED link downloads the archived copy, not the unsigned one', async ()
   )
 })
 
-// ── 2. The archive survives two people signing at the same time ────────────────────────
+// ── 1b. BR-B2B-026 · #390 — the clock is read BEFORE the state, in every state ──────────
+//
+// The defect: `resolveSigningToken` answered `signed` before it ever looked at
+// `token_expires_at`, so the link to an already-signed contract served the page and the PDF
+// forever. The raw token lives in two e-mails for good, a commercial mailbox is shared and
+// inherited, and the database guard (TGB17) refuses a new `token_hash` on a signed contract
+// — the expiry is the ONLY thing that can ever close that link.
+
+const EXPIRED = () => new Date(Date.now() - 1000).toISOString()
 
 const SIGNATURE = {
   signingToken: TOKEN,
@@ -359,6 +402,76 @@ const SIGNATURE = {
   ipAddress: '203.0.113.7',
   userAgent: 'Mozilla/5.0 (iPhone)',
 }
+
+test('BR-B2B-026 · #390: an expired token on a SIGNED contract is refused — the bug this suite missed', async () => {
+  const contract = seedContract()
+  await service.acceptContract({ contract: contract as any, ...SIGNATURE })
+  assert.equal(contracts[0].status, 'signed', 'the contract really is signed')
+
+  // The 14 days of SIGNING_TTL_DAYS run out on a link that has already been used.
+  contracts[0].token_expires_at = EXPIRED()
+
+  const resolved = await service.resolveSigningToken(TOKEN)
+  assert.equal(resolved.state, 'expired', 'a signed link is not exempt from its own deadline')
+  assert.equal(service.canServeDocument(resolved.state), false)
+
+  const res = await GET(pdfRequest().req, pdfRequest().ctx)
+  assert.equal(res.status, 404, 'and the PDF route says the same thing the page does')
+  assert.equal(res.headers.get('content-type')?.includes('application/pdf'), false)
+  assert.deepEqual(await res.json(), { state: 'expired' })
+})
+
+test('BR-B2B-026 · #390: the deadline outranks every state, not just `sent`', async () => {
+  // `sent` is the only state that ever checked the clock; the other three answered their
+  // state and returned. Each is seeded expired, and each has to answer `expired`.
+  const cases: [string, Row][] = [
+    ['sent', { status: 'sent' }],
+    ['draft', { status: 'draft' }],
+    ['superseded', { status: 'superseded', superseded_by: 'contract-2' }],
+    ['terminated', { status: 'terminated', terminated_at: new Date().toISOString() }],
+  ]
+
+  for (const [label, overrides] of cases) {
+    contracts = []
+    acceptances = []
+    seedContract({ ...overrides, token_expires_at: EXPIRED() })
+
+    const resolved = await service.resolveSigningToken(TOKEN)
+    assert.equal(resolved.state, 'expired', `a ${label} contract with a dead token answers expired`)
+    assert.equal(service.canServeDocument(resolved.state), false, `and ${label} serves nothing`)
+  }
+})
+
+test('BR-B2B-026 · #390: a LIVE token on a signed contract still serves the receipt', async () => {
+  // The other half of the fix. Closing the expired link may not close the open one: the
+  // signer is entitled to the copy of what they signed, inside the TTL.
+  const contract = seedContract()
+  await service.acceptContract({ contract: contract as any, ...SIGNATURE })
+
+  const resolved = await service.resolveSigningToken(TOKEN)
+  assert.equal(resolved.state, 'signed')
+  assert.ok(resolved.acceptance, 'and the receipt comes with it')
+
+  const res = await GET(pdfRequest().req, pdfRequest().ctx)
+  assert.equal(res.status, 200)
+  assert.equal(res.headers.get('content-type'), 'application/pdf')
+  assert.equal(
+    sha256(new Uint8Array(await res.arrayBuffer())),
+    acceptances[0].signed_document_hash,
+    'the archived copy, still reachable by the person who signed it'
+  )
+})
+
+test('BR-B2B-026 · #390: a contract that was never sent has no deadline to miss', async () => {
+  // `token_expires_at` is null on a draft — no link was ever minted. The clock must not turn
+  // that into `expired`; the state ladder refuses it, as it always did.
+  seedContract({ status: 'draft', token_expires_at: null })
+
+  const resolved = await service.resolveSigningToken(TOKEN)
+  assert.equal(resolved.state, 'invalid')
+})
+
+// ── 2. The archive survives two people signing at the same time ────────────────────────
 
 test('two simultaneous acceptances leave ONE acceptance whose file and hash are the same pair', async () => {
   const contract = seedContract()
@@ -439,6 +552,51 @@ test('the contract is closed once, and it names the same file the trail does', a
   assert.equal(contracts[0].signed_document_hash, acceptances[0].signed_document_hash)
 })
 
+// ── 3. #390 — what left the partner's PDF did NOT leave the operator's surface ──────────
+//
+// The other half of taking the IP and the user agent out of `lib/contract/pdf.tsx`. If they
+// vanished from the internal route too, the fix would have deleted the trail instead of
+// narrowing its audience, and nothing would be left to answer "who accepted this, from
+// where" — the acceptance row exists precisely to be read.
+
+function adminRequest(clientId: string) {
+  const url = `http://localhost/api/admin/clients/${clientId}/contract`
+  const base = new Request(url, { headers: { 'x-forwarded-for': '10.9.9.9' } })
+  // `withAuth` hands the handler a NextRequest; the only member this route reaches for
+  // beyond the standard Request is `nextUrl`.
+  return Object.assign(base, { nextUrl: new URL(url) }) as any
+}
+
+test('#390: the operator surface still answers with the IP and the user agent of the signer', async () => {
+  clients.push({
+    id: CLIENT_ID,
+    name: 'Cantina do Zé',
+    company_name: 'Cantina Ltda.',
+    email: 'antonio@cantina.com.br',
+    billing_email: null,
+    tax_id: '11222333000181',
+    tax_id_type: 'cnpj',
+    legal_representative_name: 'Antônio Silva',
+    legal_representative_role: 'Sócio',
+    monthly_fee_cents: 19900,
+    is_courtesy: false,
+    is_platform_owner: false,
+  })
+
+  const contract = seedContract()
+  const accepted = await service.acceptContract({ contract: contract as any, ...SIGNATURE })
+  assert.equal(accepted.ok, true)
+
+  const res = await adminGET(adminRequest(CLIENT_ID), { params: Promise.resolve({ clientId: CLIENT_ID }) })
+  assert.equal(res.status, 200)
+
+  const payload = (await res.json()) as any
+  assert.equal(payload.acceptance.ipAddress, SIGNATURE.ipAddress, 'the trail the operator reads still has the IP')
+  assert.equal(payload.acceptance.userAgent, SIGNATURE.userAgent, 'and the user agent')
+  assert.equal(payload.acceptance.signerName, SIGNATURE.signerName)
+  assert.equal(payload.acceptance.documentHash, contract.document_hash)
+})
+
 test('a retry after the archive landed re-renders nothing and re-uploads nothing', async () => {
   const contract = seedContract()
 
@@ -452,4 +610,99 @@ test('a retry after the archive landed re-renders nothing and re-uploads nothing
   assert.equal(retry.ok && retry.alreadyAccepted, true)
   assert.equal(renders.length, rendersAfterFirst, 'the archive exists; there is nothing to render')
   assert.equal(objects.size, objectsAfterFirst)
+})
+
+// ── 4. The trava that left and the trava that stayed ───────────────────────────────────
+//
+// On 2026-08-17 the operator took the legal-review refusal out of `sendForSignature`:
+// deciding that a minuta is ready to go to a partner is a human act, and it is his. What
+// stayed is the checklist, which is not an opinion about the process — without the razão
+// social, the CNPJ, the address and the legal representative of the CONTRATADA there is
+// nothing to print on the Tuggi's side of the instrument, and a signed PDF is the one
+// artefact of this feature that cannot be corrected afterwards.
+//
+// The two are asserted side by side on purpose: whoever comes to remove one of them reads
+// here that the other is load-bearing.
+
+function adminPostRequest(clientId: string, body: Record<string, unknown>) {
+  ipCounter += 1
+  const url = `http://localhost/api/admin/clients/${clientId}/contract`
+  const base = new Request(url, {
+    method: 'POST',
+    // `withRateLimit` keeps ONE bucket per IP across every route of the CMS, so a fresh
+    // address per request is what keeps these tests from failing on their neighbours.
+    headers: { 'Content-Type': 'application/json', 'x-forwarded-for': `10.7.${ipCounter}.1` },
+    body: JSON.stringify(body),
+  })
+  return Object.assign(base, { nextUrl: new URL(url) }) as any
+}
+
+function seedClient(overrides: Row = {}): Row {
+  const row: Row = {
+    id: CLIENT_ID,
+    name: 'Cantina do Zé',
+    company_name: 'Cantina Ltda.',
+    email: 'antonio@cantina.com.br',
+    billing_email: null,
+    address: 'Rua das Pedras, 10',
+    city: 'Búzios',
+    state: 'RJ',
+    postal_code: '28950-000',
+    tax_id: '11222333000181',
+    tax_id_type: 'cnpj',
+    legal_representative_name: 'Antônio Silva',
+    legal_representative_role: 'Sócio',
+    commission_rate: 0.2,
+    monthly_fee_cents: 19900,
+    is_courtesy: false,
+    is_platform_owner: false,
+    ...overrides,
+  }
+  clients.push(row)
+  return row
+}
+
+function adminContext() {
+  return { params: Promise.resolve({ clientId: CLIENT_ID }) }
+}
+
+test('BR-B2B-026 item 4: the operator sends the contract for signature with the minuta still under legal review', async () => {
+  seedClient()
+  const contract = seedContract({ status: 'draft', token_hash: null, token_expires_at: null, sent_at: null })
+
+  const res = await adminPOST(adminPostRequest(CLIENT_ID, { action: 'send' }), adminContext())
+
+  // Until 2026-08-17 this answered 409 `legal_review_pending` and nothing left the CMS.
+  assert.equal(res.status, 200, 'the state of our legal review is not the route\'s business')
+
+  const payload = (await res.json()) as any
+  assert.match(payload.url, /\/pt\/contrato\//, 'the operator gets the link back')
+  assert.equal(payload.recipientEmail, 'antonio@cantina.com.br', 'derived from the registration, not from the body')
+  assert.equal(payload.emailed, true)
+
+  assert.equal(contract.status, 'sent', 'and the contract row moved')
+  assert.match(contract.token_hash, /^[0-9a-f]{64}$/, 'holding the hash of the token, never the token')
+  assert.equal(emails.length, 1)
+  assert.equal((emails[0] as any).type, 'partner_contract_sign')
+})
+
+test('BR-B2B-023: the checklist STAYS — generation is still refused with 409 while the Tuggi side is incomplete', async () => {
+  seedClient()
+  // The CONTRATADA, missing the CNPJ the "Das partes" clause has to print.
+  seedClient({ id: 'tuggi', name: 'Tuggi', company_name: 'Tuggi Tecnologia Ltda.', tax_id: null, is_platform_owner: true })
+
+  const res = await adminPOST(
+    adminPostRequest(CLIENT_ID, { action: 'generate', tier: 'paid', paymentMethod: 'pix', qrDeliveryDays: 15 }),
+    adminContext()
+  )
+
+  assert.equal(res.status, 409)
+  const payload = (await res.json()) as any
+  assert.equal(payload.error, 'checklist_incomplete')
+  assert.ok(
+    payload.missing.some((item: { id: string }) => item.id === 'provider_tax_id'),
+    'and it names the missing fact instead of failing vaguely'
+  )
+  assert.equal(contracts.length, 0, 'nothing was generated')
+  assert.equal(objects.size, 0, 'and no PDF reached the bucket')
 })

@@ -419,13 +419,50 @@ test('BR-B2B-022: an annotation written before the conference existed reads as "
 
 // ── The routes ──
 
+/** One statement the stand-in received, in the order it received it, with what it carried. */
+interface FakeStatement {
+  table: string
+  operation: 'select' | 'insert' | 'update' | 'delete'
+  payload: Record<string, any> | null
+}
+
 interface FakeState {
   submissions: Record<string, any>[]
   clients: Record<string, any>[]
   audit_logs: Record<string, any>[]
   touchedTables: string[]
+  /** Every write the stand-in executed — what the promotion invariant is asserted against. */
+  statements: FakeStatement[]
   /** Set to make the write against `core.clients` fail, for the rollback case. */
   clientWriteFails: boolean
+  /**
+   * Set to make the CLAIM fail — the second statement, after the client is already written.
+   * This is the residue the write order accepts, and the only case in which a record with
+   * personal data on it exists with nothing pointing at where it came from.
+   */
+  claimFails: boolean
+}
+
+/**
+ * `partner_form_submissions_promotion_ck`, as the database has it — decision 6 of
+ * `20260814140000`, BR-B2B-026: promotion is an act WITH a destination.
+ *
+ * Written out here because the stand-in below is otherwise a table that accepts anything, and a
+ * table that accepts anything cannot go red for the bug that took every promotion in production
+ * down: the claim was written in one statement and `promoted_client_id` in the next, and the
+ * intermediate state does not exist.
+ */
+function violatesPromotionCheck(row: Record<string, any>): boolean {
+  return row.status === 'promoted' && (!row.promoted_at || !row.promoted_client_id)
+}
+
+/** The error Postgres actually returned in production, in the shape PostgREST hands over. */
+function checkViolation() {
+  return {
+    code: '23514',
+    message:
+      'new row for relation "partner_form_submissions" violates check constraint "partner_form_submissions_promotion_ck"',
+  }
 }
 
 let state: FakeState
@@ -456,8 +493,20 @@ function createFakeService(current: () => FakeState) {
         return { data: [], error: { code: '08006', message: 'connection lost' } }
       }
 
+      if (operation !== 'select') {
+        current().statements.push({ table, operation, payload })
+      }
+
       const matched = rows()
       if (operation === 'update') {
+        // The statement travelled and the connection dropped: recorded above, refused here,
+        // and no row mutated.
+        if (key === 'submissions' && current().claimFails && payload?.status === 'promoted') {
+          return { data: [], error: { code: '08006', message: 'connection lost' } }
+        }
+        if (key === 'submissions' && matched.some((row) => violatesPromotionCheck({ ...row, ...payload }))) {
+          return { data: [], error: checkViolation() }
+        }
         for (const row of matched) Object.assign(row, payload)
         return { data: matched, error: null }
       }
@@ -466,6 +515,9 @@ function createFakeService(current: () => FakeState) {
           id: `${key}-${Math.random().toString(36).slice(2, 10)}`,
           created_at: new Date().toISOString(),
           ...payload,
+        }
+        if (key === 'submissions' && violatesPromotionCheck(inserted)) {
+          return { data: [], error: checkViolation() }
         }
         ;(current() as any)[key].push(inserted)
         return { data: [inserted], error: null }
@@ -619,7 +671,9 @@ function freshState(
     clients: overrides.client ? [overrides.client] : [],
     audit_logs: [],
     touchedTables: [],
+    statements: [],
     clientWriteFails: false,
+    claimFails: false,
   }
 }
 
@@ -627,6 +681,15 @@ let GET_PROPOSAL: (req: any, ctx: any) => Promise<Response>
 let PROMOTE: (req: any, ctx: any) => Promise<Response>
 let DISCARD: (req: any, ctx: any) => Promise<Response>
 let SAVE_NOTE: (req: any, ctx: any) => Promise<Response>
+/**
+ * The service function itself, for the one case the route cannot reach: the claim losing the
+ * race. The route re-reads the proposal before promoting, so a proposal that is already
+ * `promoted` is answered by the route's own precheck and `promoteProposal` never runs.
+ *
+ * Imported here and not at the top of the file on purpose: `mock.module` below only reaches
+ * modules loaded after it, and this one holds `getSupabaseService`.
+ */
+let PROMOTE_PROPOSAL: typeof import('@/lib/services/partner-proposal-admin-service').promoteProposal
 
 before(async () => {
   process.env.NEXT_PUBLIC_APP_URL ??= 'https://cms.tuggi.app'
@@ -655,7 +718,22 @@ before(async () => {
 
   const note = await import('@/app/api/admin/partner-proposals/[submissionId]/review-note/route')
   SAVE_NOTE = note.PUT as any
+
+  const admin = await import('@/lib/services/partner-proposal-admin-service')
+  PROMOTE_PROPOSAL = admin.promoteProposal
 })
+
+/** Every write the promotion aimed at the queue table, in the order the stand-in got them. */
+function submissionWrites(): FakeStatement[] {
+  return state.statements.filter(
+    (statement) => statement.table === 'partner_form_submissions' && statement.operation !== 'delete'
+  )
+}
+
+/** The index of the first write against `core.clients`, or -1 when there was none. */
+function firstClientWriteIndex(): number {
+  return state.statements.findIndex((statement) => statement.table === 'clients')
+}
 
 /**
  * A fresh caller each time. `withRateLimit` keys by IP and these routes allow 20 acts a
@@ -746,7 +824,96 @@ test('DS-COMPONENTE-018: the body cannot name a column the plan did not produce'
   }
 })
 
-test('#341: a promotion that fails to write the client hands the proposal back — nothing was written', async () => {
+// ── BR-B2B-026 — promotion is an act WITH a destination, and the destination travels with it ──
+
+test('BR-B2B-026: no statement ever writes `promoted` without the destination in the same payload', async () => {
+  // THE BUG THIS EXISTS FOR, and it took every promotion in production down: the claim wrote
+  // `status`, `promoted_at` and `promoted_by` in one statement and `promoted_client_id` in a
+  // later one. `partner_form_submissions_promotion_ck` refuses that intermediate row with
+  // 23514, so the PATCH came back 400 and the panel said nothing had been written.
+  //
+  // The assertion is on the PAYLOADS and not on the order of the calls: any future shape that
+  // splits the trail across two statements is red here even if it splits it the other way round.
+  state = freshState()
+
+  const response = await PROMOTE(request('POST', { approved: [], industry: 'Restaurante' }), proposalContext)
+  assert.equal(response.status, 200)
+
+  const writes = submissionWrites()
+  assert.equal(writes.length > 0, true, 'the promotion did write the queue row')
+
+  for (const write of writes) {
+    const payload = write.payload ?? {}
+    if (payload.status === 'promoted') {
+      assert.equal(
+        Boolean(payload.promoted_client_id),
+        true,
+        'a statement made the row `promoted` without saying into which client'
+      )
+      assert.equal(Boolean(payload.promoted_at), true, 'and without saying when')
+    }
+    if ('promoted_client_id' in payload) {
+      assert.equal(
+        payload.status,
+        'promoted',
+        'the destination was written apart from the status — the same split, mirrored'
+      )
+    }
+  }
+})
+
+test('BR-B2B-026: a promotion that CREATES the client writes it before the claim, and claims in one statement', async () => {
+  state = freshState()
+
+  const response = await PROMOTE(request('POST', { approved: [], industry: 'Restaurante' }), proposalContext)
+  const payload = await response.json()
+
+  assert.equal(response.status, 200)
+  assert.equal(state.clients.length, 1)
+
+  const clientIndex = firstClientWriteIndex()
+  const claimIndex = state.statements.findIndex(
+    (statement) => statement.table === 'partner_form_submissions' && statement.payload?.status === 'promoted'
+  )
+  assert.equal(clientIndex >= 0 && claimIndex > clientIndex, true, 'the client id exists before it is claimed')
+
+  const claim = state.statements[claimIndex].payload ?? {}
+  assert.equal(claim.status, 'promoted')
+  assert.equal(claim.promoted_client_id, state.clients[0].id)
+  assert.equal(claim.promoted_by, OPERATOR_ID)
+  assert.equal(Boolean(claim.promoted_at), true)
+
+  // And the row the operator will reload says the same four things.
+  assert.equal(state.submissions[0].status, 'promoted')
+  assert.equal(state.submissions[0].promoted_client_id, payload.clientId)
+})
+
+test('BR-B2B-026: a promotion onto an EXISTING client claims in one statement too', async () => {
+  state = freshState({
+    client: {
+      id: CLIENT_ID,
+      name: 'Cantina do Zé',
+      email: 'antonio@cantina.com.br',
+      tax_id: '12ABC34501DE35',
+      city: 'Santos',
+    },
+  })
+
+  const response = await PROMOTE(request('POST', { approved: ['city'], industry: 'Restaurante' }), proposalContext)
+
+  assert.equal(response.status, 200)
+  assert.equal(state.clients[0].city, 'São Vicente', 'the ticked column was written')
+
+  const claims = submissionWrites().filter((write) => write.payload?.status === 'promoted')
+  assert.equal(claims.length, 1, 'one statement, not two')
+  assert.equal(claims[0].payload?.promoted_client_id, CLIENT_ID)
+  assert.equal(state.submissions[0].promoted_client_id, CLIENT_ID)
+})
+
+test('#341: a promotion that fails to write the client never claims the proposal', async () => {
+  // The client write comes first now, so its failure is the cheap one: the queue row is not
+  // touched at all and the proposal is still offered. `write_failed` is what the route turns
+  // into 503.
   state = freshState({
     client: {
       id: CLIENT_ID,
@@ -758,11 +925,42 @@ test('#341: a promotion that fails to write the client hands the proposal back �
   state.clientWriteFails = true
 
   const response = await PROMOTE(request('POST', { approved: [], industry: 'Restaurante' }), proposalContext)
+  const payload = await response.json()
 
   assert.equal(response.status, 503)
-  assert.equal(state.submissions[0].status, 'submitted', 'the proposal is back in the queue')
+  assert.equal(payload.error, 'write_failed')
+  assert.equal(state.submissions[0].status, 'submitted', 'the proposal is still in the queue')
   assert.equal(state.submissions[0].promoted_at, null)
+  assert.equal(state.submissions[0].promoted_client_id, null)
+  assert.equal(submissionWrites().length, 0, 'no claim was ever attempted')
   assert.equal(state.clients[0].city, undefined, 'and the client record is untouched')
+})
+
+test('BR-B2B-026: a claim that matches no row answers `not_promotable` — the loser of the race', async () => {
+  // Two operators clicking together: the predicate `status = 'submitted'` still elects exactly
+  // one winner, and the second UPDATE matches nothing. The reason has to stay `not_promotable`
+  // — it is what the route maps to 409 — even though the client write already happened, which
+  // is the residue this order accepts and the block comment on `promoteProposal` names.
+  state = freshState({ submission: { status: 'promoted' }, client: { id: CLIENT_ID, name: 'Cantina do Zé' } })
+  state.submissions[0].promoted_at = '2026-08-17T10:00:00Z'
+  state.submissions[0].promoted_client_id = OTHER_CLIENT_ID
+
+  const outcome = await PROMOTE_PROPOSAL({
+    submissionId: SUBMISSION_ID,
+    clientId: CLIENT_ID,
+    updates: { name: 'Cantina do Zé' },
+    written: ['name'],
+    promotedBy: OPERATOR_ID,
+  })
+
+  // The id travels out of the failure branch: the client write already happened, and the route
+  // is what turns that into the trail the record would otherwise not have.
+  assert.deepEqual(outcome, { ok: false, reason: 'not_promotable', clientId: CLIENT_ID })
+  assert.equal(
+    state.submissions[0].promoted_client_id,
+    OTHER_CLIENT_ID,
+    'the winner kept the destination it wrote'
+  )
 })
 
 test('BR-B2B-026: a proposal somebody already promoted cannot be promoted again', async () => {
@@ -1048,6 +1246,119 @@ test('#341: promoting and discarding each leave a row in the trail', async () =>
   state = freshState()
   await DISCARD(request('POST', { reason: 'gave_up' }), proposalContext)
   assert.ok(state.audit_logs.find((row) => row.action === 'DISCARD_PARTNER_PROPOSAL'))
+})
+
+test('BR-B2B-026: a claim that fails after the client was written leaves a row naming the residue', async () => {
+  // The order of the promotion is the client first (the claim needs its destination in the same
+  // statement), so this is the failure that COSTS something: `core.clients` holds a record with
+  // the representative's name, e-mail, phone and role, the CNPJ and the address, and the table
+  // has no authorship column, no audit trigger and no unique `tax_id` to find it by later.
+  // Without this row, that record exists and nothing anywhere says who made it or from what.
+  state = freshState()
+  state.claimFails = true
+
+  const response = await PROMOTE(request('POST', { approved: [], industry: 'Restaurante' }), proposalContext)
+  const payload = await response.json()
+
+  assert.equal(response.status, 503, 'the operator is still told the promotion did not happen')
+  assert.equal(payload.error, 'write_failed')
+  assert.equal(state.clients.length, 1, 'and the client the write created is still there')
+  assert.equal(state.submissions[0].status, 'submitted', 'with the proposal back in the queue')
+
+  const row = state.audit_logs.find((entry) => entry.action === 'PROMOTE_PARTNER_PROPOSAL_UNCLAIMED')
+  assert.ok(row, 'the residue left a trail')
+  assert.equal(row?.entity, 'CLIENT')
+  assert.equal(row?.entity_id, state.clients[0].id, 'pointing at the record that was written')
+  assert.equal(row?.user_id, OPERATOR_ID, 'and naming who wrote it')
+  assert.equal(row?.user_email, 'admin@tuggi.app')
+  assert.ok(row?.description.includes(SUBMISSION_ID), 'and the proposal it came from')
+  assert.ok(row?.description.includes(String(state.clients[0].id)), 'and the client id')
+  assert.equal(
+    state.audit_logs.some((entry) => entry.action === 'PROMOTE_PARTNER_PROPOSAL'),
+    false,
+    'nothing in the trail claims the promotion happened'
+  )
+})
+
+test('BR-B2B-026: a promotion whose client write failed leaves NO audit row — there is nothing to trace', async () => {
+  // The mirror case, and the reason the event is conditional instead of unconditional: nothing
+  // was written, so a row here would name a client id that does not exist and send whoever
+  // reads the trail looking for a record nobody created.
+  state = freshState()
+  state.clientWriteFails = true
+
+  const response = await PROMOTE(request('POST', { approved: [], industry: 'Restaurante' }), proposalContext)
+
+  assert.equal(response.status, 503)
+  assert.equal(state.clients.length, 0)
+  assert.equal(state.audit_logs.length, 0, 'no act happened, so no act is recorded')
+})
+
+test('BR-B2B-026: a promotion that goes through records the promotion and nothing else', async () => {
+  state = freshState({
+    client: {
+      id: CLIENT_ID,
+      name: 'Cantina do Zé',
+      email: 'antonio@cantina.com.br',
+      tax_id: '12ABC34501DE35',
+    },
+  })
+
+  const response = await PROMOTE(request('POST', { approved: [], industry: 'Restaurante' }), proposalContext)
+  assert.equal(response.status, 200)
+
+  assert.ok(state.audit_logs.find((row) => row.action === 'PROMOTE_PARTNER_PROPOSAL'))
+  assert.equal(
+    state.audit_logs.some((row) => row.action === 'PROMOTE_PARTNER_PROPOSAL_UNCLAIMED'),
+    false,
+    'a promotion that landed is not a residue'
+  )
+})
+
+test('BR-B2B-026: no promotion trail carries a value the partner typed — uuids and the reason only', async () => {
+  // The audit table is read by more people than the client record is, so a description carrying
+  // the answers would copy the personal data into a SECOND place while claiming to protect it.
+  // The needles are the fixture's own values: whatever the description is rewritten into, it
+  // goes red the moment an answer reaches it.
+  const typed = answers()
+  const needles = [
+    typed.representative_name!,
+    typed.representative_email!,
+    typed.representative_phone!,
+    typed.representative_role!,
+    typed.tax_id!,
+    typed.address!,
+    typed.legal_name!,
+  ]
+
+  const scenarios: (() => void)[] = [
+    () => {
+      state = freshState()
+    },
+    () => {
+      state = freshState()
+      state.claimFails = true
+    },
+    () => {
+      state = freshState()
+      state.clientWriteFails = true
+    },
+  ]
+
+  for (const scenario of scenarios) {
+    scenario()
+    await PROMOTE(request('POST', { approved: [], industry: 'Restaurante' }), proposalContext)
+
+    for (const row of state.audit_logs) {
+      for (const needle of needles) {
+        assert.equal(
+          String(row.description ?? '').includes(needle),
+          false,
+          `"${needle}" reached the audit trail of ${row.action}`
+        )
+      }
+    }
+  }
 })
 
 // ── The copy ──

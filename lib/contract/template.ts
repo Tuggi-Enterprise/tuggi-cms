@@ -12,12 +12,20 @@
  * version up here. Publishing v2 therefore never edits v1 — it adds an entry. Editing a
  * published version in place would silently change what a signed hash claims to prove.
  *
- * THE GATE. `legalReview.status` is `pending` while a clause still carries a decision no
- * agent may take — BR-B2B-023, item 2 is explicit that the adjustment index is chosen by
- * the lawyer and the operator and that *no document names it before that*. While it is
- * pending the document can be generated and read (that is how the lawyer gets the draft),
- * but `sendForSignature` and `acceptContract` refuse. The refusal is in
- * `lib/services/partner-contract-service.ts` and it is proven by a test.
+ * THERE IS NO GATE, AND NO FIELD DESCRIBING ONE. This template used to carry a
+ * `legalReview` object, and `sendForSignature` answered `legal_review_pending` while its
+ * status was `pending`. That check came out on 2026-08-17 by decision of the operator —
+ * approving a minuta is a human act taken outside this software, and whoever is about to
+ * put the document in front of a partner is the one who knows if it is ready. The field
+ * outlived the gate by one commit, printing a banner that told the partner the document he
+ * had just been sent could not be sent, so it came out too: nothing reads the review state
+ * because nothing decides by it. Do not put either back; both are absent on purpose, and
+ * `lib/services/partner-contract-service.ts` says the same at `sendForSignature`.
+ *
+ * What BR-B2B-023, item 2 does require is still enforced by the text itself and by a test:
+ * no document NAMES the adjustment index before the lawyer picks it, which is why the
+ * clause carries a bracketed hole instead of an acronym. The foro of `governing_law` is a
+ * hole for the same reason: it is the lawyer's and the operator's choice, not an agent's.
  *
  * Numbers in the clauses are not typed here twice: each one is a constant with the ID of
  * the rule it comes from (CLAUDE.md §6, SSOT).
@@ -59,12 +67,6 @@ export interface ContractTemplate {
   /** What the partner sees as the document title. */
   title: string
   publishedAt: string
-  legalReview: {
-    status: 'pending' | 'approved'
-    /** Clause ids still carrying a decision that is not ours to take. */
-    pending: readonly string[]
-    note: string
-  }
   clauses: readonly ContractClause[]
 }
 
@@ -83,15 +85,6 @@ const V1: ContractTemplate = {
   version: 'v1-2026-08',
   title: 'Contrato de parceria — Tuggi',
   publishedAt: '2026-08-14',
-  legalReview: {
-    status: 'pending',
-    pending: ['price_and_payment', 'governing_law'],
-    note:
-      'Minuta pendente de revisão jurídica: o índice de reajuste (BR-B2B-023, item 2) e o foro ' +
-      'são escolha do advogado e do operador, e nenhum agente os nomeia. Enquanto esta versão ' +
-      'estiver pendente, o contrato pode ser gerado e lido, mas não pode ser enviado para ' +
-      'assinatura.',
-  },
   clauses: [
     {
       id: 'parties',

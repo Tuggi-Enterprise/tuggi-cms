@@ -19,6 +19,14 @@
  * and hashed as stored — `Conferir integridade` re-hashes the stored file and compares it
  * with the recorded hash. It never re-renders. Anyone "improving" this into a re-render
  * comparison turns a green check into a permanent red one.
+ *
+ * THE DOCUMENT CARRIES NO JUDGEMENT ABOUT OUR OWN DRAFT (BR-B2B-026, item 4). Until
+ * 2026-08-17 the pre-signature page opened with a `MINUTA — pendente de revisão jurídica`
+ * banner saying the contract "não pode ser enviado para assinatura", written when
+ * `sendForSignature` really did refuse. That gate came out by decision of the operator, so
+ * the banner survived as a claim contradicted by the very act of the partner reading it —
+ * on the copy the partner downloads through the signing link. The state of our internal
+ * review is not a fact about the instrument, and it is not printed here. Do not add it back.
  */
 
 import { Document, Page, Text, View, StyleSheet, renderToBuffer } from '@react-pdf/renderer'
@@ -31,13 +39,22 @@ import {
 } from './snapshot'
 import { renderClauses, templateByVersion } from './template'
 
-/** What the acceptance appendix prints. Every field is a fact of the trail. */
+/**
+ * What the acceptance appendix prints. Every field is a fact of the trail.
+ *
+ * THE SIGNER'S IP AND USER AGENT ARE DELIBERATELY ABSENT (#390). They are recorded — in
+ * `core.partner_contract_acceptances`, whose rows the database guard makes immutable — and
+ * the operator reads them on the internal surface, `GET /api/admin/clients/[clientId]/contract`.
+ * What they are not is printed in the artefact the partner downloads, because that artefact
+ * travels: it is served by a link that lives in two e-mails forever and reaches whoever
+ * inherits a commercial mailbox. The legal proof of the acceptance is the hash and the
+ * immutable row (MP 2.200-2, art. 10, §2º), not a line of network telemetry in a footer, so
+ * publishing them buys nothing and exposes the signer. Do not add them back here.
+ */
 export interface AcceptanceStamp {
   signerName: string
   signerRole: string
   acceptedAt: string
-  ipAddress: string
-  userAgent: string
   recipientEmail: string
   /** SHA-256 of the unsigned PDF — the exact document that was displayed and accepted. */
   documentHash: string
@@ -47,15 +64,6 @@ const styles = StyleSheet.create({
   page: { paddingTop: 56, paddingBottom: 64, paddingHorizontal: 56, fontSize: 10, lineHeight: 1.5, color: '#1a1a1a' },
   title: { fontSize: 16, fontFamily: 'Helvetica-Bold', marginBottom: 4 },
   subtitle: { fontSize: 9, color: '#4a4a4a', marginBottom: 20 },
-  draftBanner: {
-    fontSize: 9,
-    fontFamily: 'Helvetica-Bold',
-    color: '#8a3b00',
-    borderColor: '#8a3b00',
-    borderWidth: 1,
-    padding: 6,
-    marginBottom: 16,
-  },
   clauseTitle: { fontSize: 11, fontFamily: 'Helvetica-Bold', marginTop: 14, marginBottom: 6 },
   paragraph: { marginBottom: 6, textAlign: 'justify' },
   footer: { position: 'absolute', bottom: 32, left: 56, right: 56, fontSize: 8, color: '#6a6a6a' },
@@ -74,7 +82,6 @@ function ContractDocument({
 }) {
   const template = templateByVersion(snapshot.templateVersion)
   const clauses = renderClauses(snapshot)
-  const isDraft = template?.legalReview.status !== 'approved'
 
   return (
     <Document
@@ -88,13 +95,6 @@ function ContractDocument({
           {snapshot.partner.legalName} · CNPJ {formatTaxId(snapshot.partner.taxId)} · versão{' '}
           {snapshot.templateVersion}, de {formatDate(snapshot.generatedAt)}
         </Text>
-
-        {isDraft && !acceptance ? (
-          <Text style={styles.draftBanner}>
-            MINUTA — pendente de revisão jurídica. Este documento não pode ser enviado para assinatura
-            enquanto esta versão do modelo estiver pendente.
-          </Text>
-        ) : null}
 
         {clauses.map((clause) => (
           <View key={clause.id} wrap>
@@ -143,10 +143,6 @@ function AcceptanceAppendix({
     ['Em nome de', `${snapshot.partner.legalName} — CNPJ ${formatTaxId(snapshot.partner.taxId)}`],
     ['Data e hora', formatDateTime(acceptance.acceptedAt)],
     ['E-mail do convite', acceptance.recipientEmail],
-    ['Endereço IP', acceptance.ipAddress],
-    // Declared by the client, and the appendix has to say so: everything else in this list
-    // is written by us or by the edge, and a reader would take this one for the same thing.
-    ['Agente de usuário (declarado pelo navegador)', acceptance.userAgent],
     ['Versão do modelo', snapshot.templateVersion],
     ['Valor aceito', snapshot.isCourtesy ? 'Cortesia, sem mensalidade' : formatFee(snapshot.monthlyFeeCents)],
   ]

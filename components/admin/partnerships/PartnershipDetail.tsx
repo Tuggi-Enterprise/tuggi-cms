@@ -578,12 +578,25 @@ function ClientBand({ detail, locale }: { detail: Detail; locale: string }) {
 
       <p className="pt-2 text-gray-900">{feeLine(client.fee, t)}</p>
 
-      <Link
-        href={`/${locale}/admin/clients?client=${client.id}`}
-        className="mt-2 inline-flex min-h-[24px] items-center text-sm font-medium text-primary-800 underline underline-offset-4"
-      >
-        {t('detail.openClient')}
-      </Link>
+      {/* The next step of `client_created` is `Assinar o contrato`, and until #390 this band
+          named the act without offering it: the operator left for the client list, opened the
+          modal and hunted for the tab. The contract has its own page, so the band links
+          straight at it — same shortcut shape as `Abrir a ficha do cliente` beside it, and no
+          new tab (DS-LAYOUT-006, pt. 4). */}
+      <div className="mt-2 flex flex-wrap items-center gap-x-4 gap-y-1">
+        <Link
+          href={`/${locale}/admin/clients?client=${client.id}`}
+          className="inline-flex min-h-[24px] items-center text-sm font-medium text-primary-800 underline underline-offset-4"
+        >
+          {t('detail.openClient')}
+        </Link>
+        <Link
+          href={`/${locale}/admin/clients/${client.id}/contract`}
+          className="inline-flex min-h-[24px] items-center text-sm font-medium text-primary-800 underline underline-offset-4"
+        >
+          {t('detail.openContract')}
+        </Link>
+      </div>
     </div>
   )
 }

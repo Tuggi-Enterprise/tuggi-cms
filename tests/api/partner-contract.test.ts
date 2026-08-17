@@ -20,6 +20,7 @@ import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
 import { createHash } from 'node:crypto'
+import { inflateSync } from 'node:zlib'
 
 import {
   buildSnapshot,
@@ -40,12 +41,12 @@ import {
   GRACE_PERIOD_DAYS,
   SUSPENSION_DAY,
   TERMINATION_NOTICE_DAYS,
-  activeTemplate,
   renderClauses,
   templateByVersion,
 } from '@/lib/contract/template'
 import { CONTRACT_LOCALE, contractPath } from '@/lib/contract/link'
 import { isSha256Hex, sha256Hex, shortHash } from '@/lib/contract/hash'
+import { hashSingleUseToken } from '@/lib/security/single-use-token'
 
 const REPO_ROOT = resolve(import.meta.dirname, '../..')
 
@@ -567,13 +568,20 @@ test('a contract renders with ITS OWN template version, and an unknown version f
   assert.throws(() => renderClauses({ ...snapshotOf(), templateVersion: 'v0-nao-existe' }))
 })
 
-test('the active template declares whether a lawyer has reviewed it', () => {
-  const review = activeTemplate().legalReview
-  assert.ok(review.status === 'pending' || review.status === 'approved')
-  if (review.status === 'pending') {
-    assert.ok(review.pending.length > 0, 'pending has to name which clauses are holding it')
-    assert.ok(review.note.length > 0)
-  }
+test('BR-B2B-026 item 4: the template states no legal-review state at all — nothing decides by it', () => {
+  // The field outlived its gate by one commit and kept printing a banner in the partner's
+  // copy. A record of a review nobody consults is a claim about the product that is not
+  // true (CLAUDE.md §6), so it is not a template concern any more — the source is asserted
+  // because an object nobody reads is invisible to a behavioural test.
+  // Comments are stripped before matching: the file docblock explains the removal by name,
+  // and a static ruler that reads prose fails on the very sentence documenting it.
+  const source = readFileSync(resolve(REPO_ROOT, 'lib/contract/template.ts'), 'utf8')
+  const declarations = source
+    .slice(source.indexOf('export interface ContractTemplate'))
+    .replace(/\/\*[\s\S]*?\*\//g, '')
+    .replace(/\/\/.*$/gm, '')
+  assert.doesNotMatch(declarations, /legalReview/, 'no template carries a legal-review state')
+  assert.doesNotMatch(declarations, /legal_review_pending/, 'and no refusal is named here')
 })
 
 // ── The signing link ───────────────────────────────────────────────────────────────────
@@ -818,6 +826,147 @@ test('CPC arts. 411 and 434: the acceptance records hash, version, IP, user agen
   assert.equal(sha256Hex(objects.get(acceptance.signed_document_path!)!), acceptance.signed_document_hash)
 })
 
+/**
+ * What a partner actually reads in the PDF.
+ *
+ * `@react-pdf/renderer` writes the page text as hex strings inside Flate-compressed content
+ * streams, so `bytes.includes('203.0.113.7')` answers `false` on a document that prints the
+ * IP in 10pt Helvetica — a needle search on the raw file is a test that passes for the wrong
+ * reason. This inflates every stream and decodes the `TJ`/`Tj` operands back to text: the
+ * standard-14 Helvetica this document uses is WinAnsi, so each hex pair is the character.
+ * Kerning splits a word across several `<...>` chunks inside one array, which is why the
+ * chunks of an array are joined before anything is searched.
+ */
+function shownText(bytes: Uint8Array): string {
+  const buf = Buffer.from(bytes)
+  const raw = buf.toString('latin1')
+
+  let content = ''
+  const streams = /stream\r?\n/g
+  let match: RegExpExecArray | null
+  while ((match = streams.exec(raw))) {
+    const start = match.index + match[0].length
+    const end = raw.indexOf('endstream', start)
+    if (end < 0) continue
+    try {
+      content += inflateSync(buf.subarray(start, end)).toString('latin1')
+    } catch {
+      // Not every stream is text and not every stream is deflated; those are not the ones
+      // this test is about.
+    }
+  }
+
+  return (content.match(/\[[\s\S]*?\]\s*TJ|<[0-9a-fA-F\s]*?>\s*Tj/g) ?? [])
+    .map((operand) =>
+      (operand.match(/<[0-9a-fA-F\s]*?>/g) ?? [])
+        .map((hex) => Buffer.from(hex.slice(1, -1).replace(/\s/g, ''), 'hex').toString('latin1'))
+        .join('')
+    )
+    .join('\n')
+}
+
+test('#390 · LGPD art. 6º, III: the copy the PARTNER downloads carries neither the IP nor the user agent', async () => {
+  const { contract } = await generated()
+
+  const outcome = await contractService.acceptContract({
+    contract: contract as any,
+    signingToken: 'a'.repeat(43),
+    signerName: 'Antônio Silva',
+    signerRole: 'Sócio',
+    ipAddress: '203.0.113.7',
+    userAgent: 'Mozilla/5.0 (iPhone)',
+  })
+  assert.equal(outcome.ok, true)
+  if (!outcome.ok) return
+
+  const archived = objects.get(outcome.acceptance.signed_document_path!)
+  assert.ok(archived, 'the signed copy is in the bucket')
+
+  // The layout wraps long values (the SHA-256 breaks after its first character), so the
+  // absence is asserted against a whitespace-free view: a needle cannot hide in a line break.
+  const shown = shownText(archived!)
+  const packed = shown.replace(/\s+/g, '')
+  const packedNeedle = (value: string) => value.replace(/\s+/g, '')
+
+  // The two needles are the fixture's own values, so this cannot pass by rendering nothing:
+  // the four facts below prove the appendix is there and was read.
+  assert.equal(
+    packed.indexOf(packedNeedle('203.0.113.7')),
+    -1,
+    'the signer IP is not printed in the artefact that travels'
+  )
+  assert.equal(packed.indexOf(packedNeedle('Mozilla/5.0 (iPhone)')), -1, 'nor is the user agent')
+
+  // And neither are the labels — a row with an empty value is the same leak with worse copy.
+  assert.equal(/Endere.oIP/.test(packed), false)
+  assert.equal(/Agentedeusu.rio/.test(packed), false)
+
+  // The proof of acceptance is untouched: who signed, under which version, and the hash of
+  // what was read (MP 2.200-2, art. 10, §2º).
+  assert.ok(shown.indexOf('Termo de aceite eletrônico') >= 0, 'the appendix really did render')
+  assert.ok(shown.indexOf('Antônio Silva') >= 0, 'the signer is still named')
+  assert.ok(
+    packed.indexOf(contract.document_hash) >= 0,
+    'and the hash of the accepted document is still printed'
+  )
+  assert.ok(shown.indexOf('antonio@cantina.com.br') >= 0, 'as is the invited address')
+})
+
+test('BR-B2B-026 item 4: the PRE-SIGNATURE copy makes no claim about our legal review', async () => {
+  const { contract } = await generated()
+
+  // This is the exact artefact the signing link serves: `generated()` stores what
+  // `createContract` rendered, and `canServeDocument` hands that file to the partner.
+  const shown = shownText(objects.get(contract.document_path)!)
+  const packed = shown.replace(/\s+/g, '')
+
+  // Until 2026-08-17 a banner above the first clause told the reader this document "não
+  // pode ser enviado para assinatura" — printed on the copy of a person who had just been
+  // invited to sign it, because the send gate came out and the banner stayed.
+  assert.equal(/MINUTA/.test(packed), false, 'the word MINUTA is not in the partner\'s copy')
+  assert.equal(/revis.ojur.dica/i.test(packed), false, 'nor is the legal review mentioned')
+  assert.equal(
+    /n.opodeserenviado/i.test(packed),
+    false,
+    'and nothing tells the signer the document could not have been sent'
+  )
+
+  // The absences above are only worth something if the document really rendered: these are
+  // the fixture's own facts, so a blank PDF fails here instead of passing three lines up.
+  assert.ok(shown.indexOf('Das partes') >= 0, 'the clauses are there')
+  assert.ok(shown.indexOf(ELECTRONIC_ACCEPTANCE_CLAUSE_TITLE) >= 0, 'including the acceptance clause')
+  assert.ok(packed.indexOf(ACTIVE_TEMPLATE_VERSION) >= 0, 'the template version identifies which minuta this is')
+  assert.ok(packed.indexOf(packedOf('Cantina do Antônio Ltda.')) >= 0, 'the CONTRATANTE is named')
+  assert.ok(packed.indexOf(packedOf('11.222.333/0001-81')) >= 0, 'with the CNPJ of the CONTRATADA')
+  assert.ok(packed.indexOf(packedOf('12.345.678/0001-95')) >= 0, 'and the CNPJ of the CONTRATANTE')
+})
+
+/** Needles are packed the same way the haystack is: a line break must not hide a match. */
+function packedOf(value: string): string {
+  return value.replace(/\s+/g, '')
+}
+
+test('#390: the trail keeps what the PDF stopped printing — the record does not move', async () => {
+  const { contract } = await generated()
+
+  const outcome = await contractService.acceptContract({
+    contract: contract as any,
+    signingToken: 'a'.repeat(43),
+    signerName: 'Antônio Silva',
+    signerRole: 'Sócio',
+    ipAddress: '203.0.113.7',
+    userAgent: 'Mozilla/5.0 (iPhone)',
+  })
+  assert.equal(outcome.ok, true)
+  if (!outcome.ok) return
+
+  // Taking the two facts off the document is not deleting them. They stay in
+  // `core.partner_contract_acceptances`, which the database guard makes write-once, and the
+  // operator reads them on the internal surface.
+  assert.equal(outcome.acceptance.ip_address, '203.0.113.7')
+  assert.equal(outcome.acceptance.user_agent, 'Mozilla/5.0 (iPhone)')
+})
+
 test('the acceptance is idempotent per contract — one token, one signature', async () => {
   const { contract } = await generated()
   const input = {
@@ -914,21 +1063,44 @@ test('`Conferir integridade` compares the STORED file with the recorded hash', a
   assert.equal(missing.state, 'unavailable')
 })
 
-test('BR-B2B-023 item 2: a template pending legal review cannot be SENT for signature', async () => {
+test('BR-B2B-026 item 4: the minuta is sent for signature in ANY legal-review state — the operator decides, not the software', async () => {
   const { contract } = await generated()
+
   const sent = await contractService.sendForSignature(contract.id, {
     recipientEmail: 'antonio@cantina.com.br',
     sentBy: 'operator-1',
   })
 
-  if (activeTemplate().legalReview.status === 'pending') {
-    assert.equal(sent.ok, false)
-    assert.equal(sent.ok === false && sent.reason, 'legal_review_pending')
-    assert.equal(contract.token_hash, undefined, 'a refused send mints no token at all')
-  } else {
-    // The day the lawyer's text lands, the gate opens and the same call goes through.
-    assert.equal(sent.ok, true)
-  }
+  // Until 2026-08-17 this same call answered `legal_review_pending` and minted no token.
+  // The operator took that decision out of the software: BR-B2B-026, item 4 puts the
+  // conference before the sending, and the conference is a person's.
+  assert.equal(sent.ok, true, 'sending depends on no opinion about the minuta')
+  if (!sent.ok) return
+
+  assert.match(sent.token, /^[A-Za-z0-9_-]{43}$/, 'a real single-use token came out')
+  assert.equal(contract.token_hash, hashSingleUseToken(sent.token), 'and the row holds its hash, not the token')
+  assert.equal(contract.token_expires_at, sent.expiresAt)
+  assert.equal(contract.sent_by, 'operator-1')
+  assert.ok(new Date(sent.expiresAt).getTime() > Date.now(), 'the link has a deadline')
+})
+
+test('BR-B2B-026: what still refuses the send is fact about the contract, never opinion about the minuta', async () => {
+  const { contract } = await generated()
+  Object.assign(contract, { status: 'signed' })
+
+  const resent = await contractService.sendForSignature(contract.id, {
+    recipientEmail: 'antonio@cantina.com.br',
+    sentBy: 'operator-1',
+  })
+  assert.equal(resent.ok, false)
+  assert.equal(resent.ok === false && resent.reason, 'already_signed')
+
+  const missing = await contractService.sendForSignature('contract-nao-existe', {
+    recipientEmail: 'antonio@cantina.com.br',
+    sentBy: 'operator-1',
+  })
+  assert.equal(missing.ok, false)
+  assert.equal(missing.ok === false && missing.reason, 'not_found')
 })
 
 test('a contract whose template version no longer exists cannot be signed', async () => {
@@ -948,13 +1120,6 @@ test('a contract whose template version no longer exists cannot be signed', asyn
 
 test('the raw signing token is never stored — only its SHA-256', async () => {
   const { contract } = await generated()
-  const template = templateByVersion(contract.template_version)!
-  if (template.legalReview.status !== 'approved') {
-    // The gate above refuses to mint a token, so mint one the way the service does and
-    // assert the storage shape that will hold when the gate opens.
-    assert.match(contract.document_hash, /^[0-9a-f]{64}$/)
-    return
-  }
   const sent = await contractService.sendForSignature(contract.id, {
     recipientEmail: 'antonio@cantina.com.br',
     sentBy: 'operator-1',

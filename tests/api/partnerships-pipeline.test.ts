@@ -38,6 +38,7 @@ import {
   detailPath,
 } from '@/lib/partnerships/pipeline'
 import { EMPTY_CONFERENCE, type ConferenceRecord } from '@/lib/partner-form/regularity'
+import { PUBLIC_PATH_PREFIXES } from '@/lib/roles'
 import { deriveTriageStatus, isTriageOverdue } from '@/lib/partnerships/triage'
 
 const REPO_ROOT = resolve(import.meta.dirname, '../..')
@@ -527,9 +528,54 @@ test('#359 crit. 20 · BR-B2B-018: `Tirar do app` says what is written, and noth
 })
 
 test('#359 crit. 34: no pipeline surface is public', () => {
-  const publicForm = read('app/[locale]/parceria/page.tsx')
-  assert.equal(publicForm.indexOf('partnerships'), -1)
-  assert.equal(publicForm.indexOf('Partnerships'), -1)
+  // It used to be checked against the public form: the merchant filling it in must not be
+  // shown a word of the internal pipeline. #396 moved that form to `tuggi-enterprise`, so what
+  // this repository can still assert is the stronger half — it serves NO session-less page in
+  // that feature at all, and the pipeline's own vocabulary therefore cannot leak from one.
+  assert.equal(
+    existsSync(resolve(REPO_ROOT, 'app/[locale]/parceria/page.tsx')),
+    false,
+    'the public proposal left this deployment; the old address answers a 301'
+  )
+  for (const prefix of PUBLIC_PATH_PREFIXES) {
+    assert.notEqual(prefix, '/parceria', 'no session-less prefix points at the pipeline')
+  }
+})
+
+test('#390 · BR-B2B-026 item 4: the band that says `Assinar o contrato` links to the contract', () => {
+  // The esteira named the next step of `client_created` and offered no way to take it: the
+  // operator left for the client list, opened the modal and hunted for the tab. The step and
+  // the door now live in the same band.
+  assert.match(
+    messages().Partnerships.nextSteps.client_created,
+    /contrato/i,
+    'the next step of this state is still the contract'
+  )
+
+  const detail = read('components/admin/partnerships/PartnershipDetail.tsx')
+  assert.match(
+    detail,
+    /href=\{`\/\$\{locale\}\/admin\/clients\/\$\{client\.id\}\/contract`\}/,
+    'the client band links straight at the contract page'
+  )
+  assert.match(detail, /t\('detail\.openContract'\)/, 'and it is labelled by a key, not a literal')
+
+  // A link is only a door if the page is on the other side of it.
+  assert.equal(
+    existsSync(resolve(REPO_ROOT, 'app/[locale]/admin/clients/[clientId]/contract/page.tsx')),
+    true
+  )
+
+  // #408: the CMS is Portuguese-only for now, and the label follows the rest of `Partnerships`
+  // — one source of the text, not three that drift.
+  assert.equal(typeof messages().Partnerships.detail.openContract, 'string')
+  for (const locale of ['en', 'es']) {
+    assert.equal(
+      read(`messages/${locale}.json`).indexOf('openContract'),
+      -1,
+      `${locale}.json must not carry a second copy of this label`
+    )
+  }
 })
 
 test('#359 crit. 36 · DS-LAYOUT-006 pt. 4: no shortcut opens a new tab', () => {
