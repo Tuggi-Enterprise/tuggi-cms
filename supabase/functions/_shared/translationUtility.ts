@@ -319,3 +319,63 @@ ${text}`;
 
     return runGeminiPrompt(prompt, apiKey, 2048);
 };
+
+/** Que tipo de fala é a linha — muda o registro esperado na tradução. */
+export type SystemAudioLineKind = 'direction' | 'notice';
+
+/**
+ * Prompt de tradução das linhas faladas de sistema (direções e avisos).
+ *
+ * Existe porque `translateText` **não serve** aqui, e o defeito foi ao ar: aquele
+ * prompt é de copy de marketing e manda *não traduzir nome de marca*. Com a fonte
+ * `logo à frente`, o modelo leu o "logo" português como **logotipo**, preservou a
+ * palavra e o inglês saiu falando *"Logo ahead"*. Falso amigo mais uma regra de
+ * preservação de marca dá exatamente isso.
+ *
+ * Aqui não há marca, não há markdown, não há placeholder e não há tom de campanha:
+ * é uma frase curta que uma voz vai dizer dentro de um carro. Tudo se traduz.
+ *
+ * Exportado separado da chamada para poder ser verificado por teste — o que o
+ * modelo devolve não é determinístico, mas o que a gente pede é.
+ */
+export const buildSystemAudioPrompt = (
+    text: string,
+    targetLanguage: string,
+    kind: SystemAudioLineKind
+): string => {
+    const langName = getLanguageName(targetLanguage);
+    const context = kind === 'direction'
+        ? `This line is a SPOKEN DIRECTION CUE played in a car right before the guide narrates a place — the equivalent of "on your left" or "just ahead". It must be the short, natural phrase a native driver would expect to hear, not a literal word-by-word rendering.`
+        : `This line is a SPOKEN NOTICE from the guide to the driver (about remaining hours, connection or permissions). It must sound calm and natural read aloud, never like written UI text.`;
+
+    return `You are translating short spoken lines for a car audio guide called Tuggi.
+
+${context}
+
+Rules:
+- TRANSLATE EVERY WORD. There are no brand names, no product names, no URLs and no
+  placeholders in this text — treat every word as ordinary language.
+- Beware of false friends with the source language. In Portuguese, "logo" means
+  "right/just" (as in "right ahead"), NEVER the English word "logo".
+- Keep it as short as the original. These clips play while someone is driving.
+- Natural spoken register for a native speaker of the target language.
+- Do not add greetings, quotes, punctuation marks or explanations that are not in
+  the source.
+- Output ONLY the translated line.
+
+TARGET LANGUAGE: ${langName} (code: ${targetLanguage})
+
+LINE:
+${text}`;
+};
+
+/** Traduz uma linha falada de sistema. Ver `buildSystemAudioPrompt`. */
+export const translateSystemAudioLine = async (
+    text: string,
+    targetLanguage: string,
+    apiKey: string,
+    kind: SystemAudioLineKind
+): Promise<string> => {
+    if (!text || typeof text !== 'string' || text.trim().length === 0) return '';
+    return runGeminiPrompt(buildSystemAudioPrompt(text, targetLanguage, kind), apiKey, 512);
+};

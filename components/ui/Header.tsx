@@ -39,7 +39,8 @@ import {
   Mail,
   CalendarDays,
   Store,
-  Network
+  Network,
+  Volume2
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { isMarketingEnabled } from '@/lib/modules/marketing'
@@ -79,6 +80,8 @@ export function Header({ className }: { className?: string }) {
     // mesmo trabalho em dois momentos (DS-LAYOUT-003).
     { name: 'Parcerias', href: '/admin/partnerships', icon: Handshake, category: 'admin' },
     { name: 'Audit Logs', href: '/admin/audit-logs', icon: Activity, category: 'admin' },
+    // Direções + avisos: os clipes que não pertencem a nenhum POI.
+    { name: t('system_audio'), href: '/dashboard/system-audio', icon: Volume2, category: 'admin' },
     { name: 'Coupons', href: '/admin/coupons', icon: Gift, category: 'marketing' },
     // Módulo Marketing (gated). Push migrou de /dashboard/notifications.
     ...(isMarketingEnabled() ? [
