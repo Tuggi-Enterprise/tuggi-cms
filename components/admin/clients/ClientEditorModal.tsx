@@ -19,7 +19,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
   X, Save, Loader2, Building2, Scale, Users, MapPin, Gift, AlertTriangle, Plus, Edit, Smartphone,
-  FileSignature,
+  FileSignature, Handshake,
 } from 'lucide-react'
 import { useTranslations } from 'next-intl'
 import { cn } from '@/lib/utils'
@@ -30,6 +30,7 @@ import { FiscalPaymentsTab } from '@/components/admin/clients/tabs/FiscalPayment
 import { TeamTab } from '@/components/admin/clients/tabs/TeamTab'
 import { AppUsersTab, type AppUserLite } from '@/components/admin/clients/tabs/AppUsersTab'
 import { PlacesTab } from '@/components/admin/clients/tabs/PlacesTab'
+import { PartnershipTab } from '@/components/admin/clients/tabs/PartnershipTab'
 import { CouponsTab } from '@/components/admin/clients/tabs/CouponsTab'
 import { ContractTab } from '@/components/admin/clients/tabs/ContractTab'
 import { DEFAULT_CLIENT_TYPE, type Client } from '@/types/clients'
@@ -40,7 +41,15 @@ import { DEFAULT_CLIENT_TYPE, type Client } from '@/types/clients'
  * rather than the subject — `AdminClientsPageContent` still accepts `?tab=pois` so the links
  * already out there keep landing here.
  */
-export type ClientEditorTab = 'profile' | 'fiscal' | 'contract' | 'team' | 'appusers' | 'places' | 'coupons'
+export type ClientEditorTab =
+  | 'partnership'
+  | 'profile'
+  | 'fiscal'
+  | 'contract'
+  | 'team'
+  | 'appusers'
+  | 'places'
+  | 'coupons'
 
 interface ClientEditorModalProps {
   clientId?: string
@@ -54,6 +63,10 @@ interface ClientEditorModalProps {
 
 interface TabDef { id: ClientEditorTab; labelKey: string; icon: typeof Building2; placeholder?: boolean }
 const TABS: TabDef[] = [
+  // First because it is the work: the five states of the pipeline, in the record that owns
+  // them. It is the same `PartnershipDetail` the standalone page renders, so the two cannot
+  // disagree about a state.
+  { id: 'partnership', labelKey: 'partnership', icon: Handshake },
   { id: 'profile', labelKey: 'profile', icon: Building2 },
   { id: 'fiscal', labelKey: 'fiscal', icon: Scale },
   // Summary only: the contract has its own route (#342). A long document with an audit
@@ -303,7 +316,9 @@ export function ClientEditorModal({
             </p>
 
             {TABS.map((tab) => {
-              const disabled = tab.placeholder || (!isEditing && (tab.id === 'team' || tab.id === 'places' || tab.id === 'coupons'))
+              // A registration being born has no pipeline, no team, no places and no coupons
+              // to show — all four are keyed by an id that does not exist until the save.
+              const disabled = tab.placeholder || (!isEditing && (tab.id === 'partnership' || tab.id === 'team' || tab.id === 'places' || tab.id === 'coupons'))
               return (
                 <button
                   key={tab.id}
@@ -370,6 +385,16 @@ export function ClientEditorModal({
 
           {/* Right content area */}
           <main className="flex-1 overflow-y-auto p-8">
+            {activeTab === 'partnership' && (
+              <PartnershipTab
+                client={client}
+                edited={edited}
+                updateField={updateField}
+                canEdit
+                clientId={clientId}
+                onOpenTab={setActiveTab}
+              />
+            )}
             {activeTab === 'profile' && (
               <ProfileTab client={client} edited={edited} updateField={updateField} canEdit clientId={clientId} />
             )}

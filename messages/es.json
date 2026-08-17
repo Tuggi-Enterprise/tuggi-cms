@@ -1819,6 +1819,7 @@
       },
       "loading": "Cargando…",
       "tabs": {
+        "partnership": "Alianza",
         "profile": "Perfil",
         "fiscal": "Fiscal y Pagos",
         "contract": "Contrato",

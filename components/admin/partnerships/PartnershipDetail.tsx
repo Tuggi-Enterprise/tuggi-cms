@@ -85,7 +85,33 @@ const BAND_RANGE: Record<BandId, [number, number]> = {
 
 const BANDS: BandId[] = ['proposal', 'conference', 'client', 'place', 'publication']
 
-export function PartnershipDetail({ locale, clientId }: { locale: string; clientId: string }) {
+interface PartnershipDetailProps {
+  locale: string
+  clientId: string
+  /**
+   * Where `Voltar para a fila` goes, when there is a queue behind this screen. Absent when the
+   * pipeline is a TAB of the client record: the way out of a tab is the tab strip, and a link
+   * back to a list the operator never came from is a false trail.
+   */
+  backHref?: string
+  /**
+   * How to reach a neighbouring tab, when this pipeline is embedded in the client record.
+   *
+   * THIS IS WHERE THE ROUND TRIP DIES. Band 3 used to LINK at the client record and at the
+   * contract — two page changes to fill one field and come back. Inside the record those two
+   * destinations are tabs, one click away, with no fetch and no navigation, so the band offers
+   * the act instead of a door to it. On the standalone page there is no tab strip and the
+   * links stay.
+   */
+  onOpenTab?: (tab: 'profile' | 'fiscal' | 'contract') => void
+}
+
+export function PartnershipDetail({
+  locale,
+  clientId,
+  backHref,
+  onOpenTab,
+}: PartnershipDetailProps) {
   const t = useTranslations('Partnerships')
 
   const [detail, setDetail] = useState<Detail | null>(null)
@@ -250,12 +276,14 @@ export function PartnershipDetail({ locale, clientId }: { locale: string; client
               {t('detail.retry')}
             </Button>
           )}
-          <Link
-            href={`/${locale}/admin/partnerships`}
-            className="inline-flex min-h-[24px] items-center text-sm font-medium text-primary-800 underline underline-offset-4"
-          >
-            {t('detail.backToQueue')}
-          </Link>
+          {backHref && (
+            <Link
+              href={backHref}
+              className="inline-flex min-h-[24px] items-center text-sm font-medium text-primary-800 underline underline-offset-4"
+            >
+              {t('detail.backToQueue')}
+            </Link>
+          )}
         </div>
       </div>
     )
@@ -300,12 +328,14 @@ export function PartnershipDetail({ locale, clientId }: { locale: string; client
 
   return (
     <div className="mx-auto w-full max-w-7xl px-6 py-6">
-      <Link
-        href={`/${locale}/admin/partnerships`}
-        className="inline-flex min-h-[24px] items-center text-sm font-medium text-primary-800 underline underline-offset-4"
-      >
-        {t('detail.backToQueue')}
-      </Link>
+      {backHref && (
+        <Link
+          href={backHref}
+          className="inline-flex min-h-[24px] items-center text-sm font-medium text-primary-800 underline underline-offset-4"
+        >
+          {t('detail.backToQueue')}
+        </Link>
+      )}
 
       {/* Sticky: in a partnership with three places, publishing must not mean scrolling back
           up, and the action of the current state is never behind a menu (DS-LAYOUT-003). */}
@@ -373,6 +403,7 @@ export function PartnershipDetail({ locale, clientId }: { locale: string; client
                   detail={detail}
                   clientHref={clientHref}
                   contractHref={contractHref}
+                  onOpenTab={onOpenTab}
                 />
               )}
               {band === 'place' && (
@@ -568,10 +599,12 @@ function ClientBand({
   detail,
   clientHref,
   contractHref,
+  onOpenTab,
 }: {
   detail: Detail
   clientHref: (tab?: 'profile' | 'fiscal' | 'contract') => string
   contractHref: () => string
+  onOpenTab?: (tab: 'profile' | 'fiscal' | 'contract') => void
 }) {
   const t = useTranslations('Partnerships')
   const { client, contract, submission } = detail
@@ -624,19 +657,43 @@ function ClientBand({
           modal and hunted for the tab. The contract has its own page, so the band links
           straight at it — same shortcut shape as `Abrir a ficha do cliente` beside it, and no
           new tab (DS-LAYOUT-006, pt. 4). */}
+      {/* Embedded in the client record these two are neighbouring tabs — no navigation, no
+          fetch, and no way to lose the pipeline on the way back. Standing on its own page the
+          band still links, because there is no tab strip to move to. */}
       <div className="mt-2 flex flex-wrap items-center gap-x-4 gap-y-1">
-        <Link
-          href={clientHref()}
-          className="inline-flex min-h-[24px] items-center text-sm font-medium text-primary-800 underline underline-offset-4"
-        >
-          {t('detail.openClient')}
-        </Link>
-        <Link
-          href={contractHref()}
-          className="inline-flex min-h-[24px] items-center text-sm font-medium text-primary-800 underline underline-offset-4"
-        >
-          {t('detail.openContract')}
-        </Link>
+        {onOpenTab ? (
+          <>
+            <button
+              type="button"
+              onClick={() => onOpenTab('profile')}
+              className="inline-flex min-h-[24px] items-center text-sm font-medium text-primary-800 underline underline-offset-4"
+            >
+              {t('detail.openClient')}
+            </button>
+            <button
+              type="button"
+              onClick={() => onOpenTab('contract')}
+              className="inline-flex min-h-[24px] items-center text-sm font-medium text-primary-800 underline underline-offset-4"
+            >
+              {t('detail.openContract')}
+            </button>
+          </>
+        ) : (
+          <>
+            <Link
+              href={clientHref()}
+              className="inline-flex min-h-[24px] items-center text-sm font-medium text-primary-800 underline underline-offset-4"
+            >
+              {t('detail.openClient')}
+            </Link>
+            <Link
+              href={contractHref()}
+              className="inline-flex min-h-[24px] items-center text-sm font-medium text-primary-800 underline underline-offset-4"
+            >
+              {t('detail.openContract')}
+            </Link>
+          </>
+        )}
       </div>
     </div>
   )

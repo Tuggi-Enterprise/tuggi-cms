@@ -29,7 +29,14 @@ export default async function PartnershipDetailPage({
         Common: ptMessages.Common,
       }}
     >
-      <PartnershipDetail locale={locale} clientId={clientId} />
+      {/* The queue is behind this page, so the way back to it is drawn. The same component
+          rendered as a tab of the client record gets no `backHref`: there the way out is the
+          tab strip. */}
+      <PartnershipDetail
+        locale={locale}
+        clientId={clientId}
+        backHref={`/${locale}/admin/partnerships`}
+      />
     </NextIntlClientProvider>
   )
 }
