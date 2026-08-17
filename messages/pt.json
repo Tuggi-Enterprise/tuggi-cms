@@ -2369,6 +2369,7 @@
       },
       "promotedTitle": "Promovido em {date} por {person}",
       "promotedOpenClient": "Abrir a ficha de {name}",
+      "promotedReturnLabel": "Voltar para a proposta",
       "promotedBody": "O cliente foi criado com status Pendente. Aprovar a parceria continua sendo outra decisão, na ficha do cliente (BR-B2B-010, item 1) — e gerar o contrato é o passo seguinte, com o gate de regularidade.",
       "discardedTitle": "Descartada em {date}",
       "duplicateTitle": "{count, plural, one {Há outra proposta com este mesmo CNPJ.} other {Há # outras propostas com este mesmo CNPJ.}}",

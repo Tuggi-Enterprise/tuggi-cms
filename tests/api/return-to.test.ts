@@ -24,7 +24,7 @@
 
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { readFileSync } from 'node:fs'
+import { readdirSync, readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
 
 import {
@@ -37,6 +37,20 @@ import {
 
 const root = resolve(import.meta.dirname, '../..')
 const read = (path: string) => readFileSync(resolve(root, path), 'utf8')
+
+/** Every `.tsx`/`.ts` under the given roots, repo-relative — the sweep below reads them all. */
+function sourceFiles(roots: string[]): string[] {
+  const found: string[] = []
+  const walk = (relative: string) => {
+    for (const entry of readdirSync(resolve(root, relative), { withFileTypes: true })) {
+      const next = `${relative}/${entry.name}`
+      if (entry.isDirectory()) walk(next)
+      else if (/\.tsx?$/.test(entry.name)) found.push(next)
+    }
+  }
+  for (const start of roots) walk(start)
+  return found
+}
 
 // ── The rule ─────────────────────────────────────────────────────────────────────────────────
 
@@ -78,23 +92,41 @@ test('returnParams carries the label only when there is one', () => {
 
 // ── The two sides of the link ────────────────────────────────────────────────────────────────
 
-test('the partnership detail opens the client record with the key that record reads', () => {
-  const detail = read('components/admin/partnerships/PartnershipDetail.tsx')
+test('no surface links the client record with a key that record does not read', () => {
   const record = read('components/admin/AdminClientsPageContent.tsx')
-
-  // The defect, named: a query key the other side does not read.
-  assert.ok(
-    !/\?client=\$\{/.test(detail),
-    'PartnershipDetail must not link `?client=` — AdminClientsPageContent reads `clientId`'
-  )
-  assert.ok(
-    /URLSearchParams\(\{ clientId,/.test(detail),
-    'the client record link must carry `clientId`'
-  )
   assert.ok(
     /searchParams\.get\('clientId'\)/.test(record),
-    'AdminClientsPageContent must still read `clientId` — this test compares the two'
+    'AdminClientsPageContent must still read `clientId` — this test compares against it'
   )
+
+  /**
+   * SWEPT AND NOT LISTED, because listing is what let the defect survive: the first fix
+   * covered `PartnershipDetail` and a third `?client=` sat untouched in `ProposalReview`,
+   * where the same link had been written a second time. A test that names its files can only
+   * find the defect somebody already knew about.
+   */
+  // `?client=${...}` — an interpolated URL, which is what a link is. The bare string appears in
+  // the prose of both files that once had the defect, and prose is not a link.
+  const offenders: string[] = []
+  for (const file of sourceFiles(['app', 'components'])) {
+    if (/[?&]client=\$\{/.test(read(file))) offenders.push(file)
+  }
+  assert.deepEqual(
+    offenders,
+    [],
+    'these link the client record with `?client=`; the record reads `clientId`'
+  )
+})
+
+test('the two surfaces that open the client record carry the way back', () => {
+  for (const file of [
+    'components/admin/partnerships/PartnershipDetail.tsx',
+    'components/admin/partner-proposals/ProposalReview.tsx',
+  ]) {
+    const source = read(file)
+    assert.match(source, /clientId:/, `${file} must open the record by its own key`)
+    assert.match(source, /returnParams\(/, `${file} must declare where the operator goes back to`)
+  }
 })
 
 test('every screen that takes a way back parses it with the shared module', () => {

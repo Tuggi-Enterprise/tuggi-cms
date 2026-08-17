@@ -47,6 +47,7 @@ import {
   type DiscardReasonId,
   type ReviewMark,
 } from '@/lib/partner-form/proposal-review'
+import { returnParams } from '@/lib/navigation/return-to'
 import { PromotionPanel } from './PromotionPanel'
 import { RegularityBand } from './RegularityBand'
 import { OutboundMessage, type OutboundKind } from './OutboundMessage'
@@ -289,9 +290,18 @@ export function ProposalReview({ locale, submissionId }: ProposalReviewProps) {
               person: detail.submission.promotedBy ?? '—',
             })}
           </p>
+          {/* `?client=` was the key nothing reads — the record takes `clientId` — so this
+              link landed on the paginated client list with nothing open. The way back is
+              this proposal, which is where the operator was reading. */}
           {detail.submission.promotedClientId && (
             <Link
-              href={`/${locale}/admin/clients?client=${detail.submission.promotedClientId}`}
+              href={`/${locale}/admin/clients?${new URLSearchParams({
+                clientId: detail.submission.promotedClientId,
+                ...returnParams(
+                  `/${locale}/admin/partnerships/proposals/${submissionId}`,
+                  t('review.promotedReturnLabel')
+                ),
+              }).toString()}`}
               className="mt-1 inline-block font-medium text-primary-800 underline underline-offset-4"
             >
               {t('review.promotedOpenClient', { name: detail.client?.name ?? tradeName })}
