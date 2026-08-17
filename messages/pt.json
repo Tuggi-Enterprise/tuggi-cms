@@ -691,6 +691,152 @@
         "no_results": "Nenhum usuário encontrado",
         "logins": "Logins"
       },
+      "credit": {
+        "panel": {
+          "title": "Acesso e saldo",
+          "state": "Estado",
+          "state_unlimited": "Ilimitado",
+          "state_metered": "Com saldo",
+          "state_free": "Gratuito",
+          "balance": "Saldo",
+          "balance_minutes": "{minutes} minutos",
+          "ends_at": "Prazo vigente",
+          "license": "Licença",
+          "provider": "Origem",
+          "inert_notice": "O saldo não é consumido enquanto o prazo estiver vigente. Ele volta a valer em {date}.",
+          "balance_unknown": "Saldo não carregado",
+          "error": "Não foi possível carregar o saldo.",
+          "retry": "Tentar de novo",
+          "forbidden": "Seu papel no CMS não permite ver saldo e concessões.",
+          "updated": "Atualizado",
+          "grant_cta": "Conceder"
+        },
+        "tabs": {
+          "grants": "Concessões",
+          "consumption": "Consumo"
+        },
+        "grants": {
+          "col_when": "Quando",
+          "col_type": "Tipo",
+          "col_amount": "Quantidade",
+          "col_source": "Origem",
+          "col_by": "Concedido por",
+          "col_status": "Situação",
+          "type_minutes": "Saldo",
+          "type_until": "Prazo",
+          "until_value": "até {date}",
+          "status_valid": "Válida",
+          "status_revoked": "Estornada",
+          "by_system": "Sem operador (ação do próprio usuário)",
+          "source_purchase": "Compra",
+          "source_welcome": "Boas-vindas",
+          "source_coupon": "Cupom",
+          "source_cms": "Concessão do CMS",
+          "source_partner": "Parceiro",
+          "source_transfer": "Transferência",
+          "empty": "Nenhuma concessão registrada.",
+          "revoke_cta": "Estornar"
+        },
+        "usage": {
+          "col_session": "Sessão",
+          "col_blocks": "Blocos",
+          "col_minutes": "Minutos",
+          "col_origin": "Registro",
+          "origin_online": "Online",
+          "origin_offline": "Offline (provisório)",
+          "origin_reconciled": "Offline · reconciliado",
+          "empty": "Nenhum consumo registrado.",
+          "load_more": "Carregar mais"
+        },
+        "form": {
+          "title": "Conceder acesso",
+          "type": "Tipo de concessão",
+          "type_minutes": "Saldo de horas",
+          "type_minutes_help": "Minutos de uso efetivo. Não expiram.",
+          "type_until": "Prazo de acesso",
+          "type_until_help": "Acesso ilimitado até uma data. No máximo 1 ano a partir de hoje.",
+          "amount": "Quantidade",
+          "hours": "Horas",
+          "minutes": "Minutos",
+          "total": "Total: {duration} · {minutes} minutos",
+          "step_help": "O consumo é medido em blocos de 5 minutos, e a quantidade concedida acompanha: o campo de minutos só oferece múltiplos de 5.",
+          "min_amount": "Informe pelo menos 5 minutos.",
+          "add_hours": "+{hours} h",
+          "until_date": "Acesso até",
+          "until_max": "No máximo {date}.",
+          "until_required": "Informe a data. Concessão sem data de fim não é permitida.",
+          "until_past": "A data precisa ser no futuro.",
+          "license": "Licença",
+          "license_required": "Informe a licença.",
+          "ref": "Referência (opcional)",
+          "ref_help": "Número do chamado ou do contrato. Não escreva dados pessoais aqui.",
+          "cancel": "Cancelar",
+          "review": "Revisar"
+        },
+        "confirm": {
+          "title": "Confirmar concessão",
+          "sentence_minutes": "Conceder {duration} ({minutes} minutos) a {who}.",
+          "sentence_until": "Conceder acesso ilimitado a {who} até {date}.",
+          "permanence": "A concessão fica registrada permanentemente. Estornar invalida a linha e recalcula o saldo — não apaga o registro.",
+          "inert_warning": "Este usuário está com acesso ilimitado até {date}. Os minutos entram no saldo agora e só passam a ser consumidos quando o prazo terminar.",
+          "until_stacks_warning": "Este usuário já tem acesso até {date}. O novo prazo é somado a partir dessa data — a data final será depois da que você escolheu.",
+          "cta_minutes": "Conceder {minutes} minutos",
+          "cta_until": "Conceder acesso até {date}",
+          "who_unnamed": "Sem nome"
+        },
+        "result": {
+          "granted": "Concedido. Saldo agora: {duration}.",
+          "granted_until": "Concedido. Acesso ilimitado até {date}.",
+          "granted_until_stacked": "Concedido. Acesso ilimitado até {date} — o prazo foi somado ao acesso que já existia.",
+          "duplicate": "Nada foi concedido: este evento já estava registrado."
+        },
+        "revoke": {
+          "title": "Estornar concessão",
+          "summary": "{amount}, origem {source}, concedida em {date}.",
+          "consumed": "Já foram consumidos {duration} desta concessão.",
+          "effect": "Estornar tira da conta o que esta concessão creditou e o consumo que ela pagou. Minutos já consumidos não voltam como saldo.",
+          "until_warning": "Estornar uma concessão de prazo não encurta o prazo. Para encerrar o acesso, altere o prazo pelo caminho de vigência.",
+          "reason": "Motivo do estorno",
+          "reason_help": "Fica registrado no ledger, permanentemente. Não escreva dados pessoais.",
+          "reason_required": "O motivo é obrigatório.",
+          "cta": "Estornar concessão",
+          "done": "Estornada. Saldo agora: {duration}.",
+          "not_found": "Esta concessão não existe mais. Recarregue a lista.",
+          "already": "Esta concessão já foi estornada."
+        },
+        "batch": {
+          "cta": "Conceder horas ({count})",
+          "selected": "{count} selecionados",
+          "clear": "Limpar seleção",
+          "select_user": "Selecionar este usuário",
+          "select_all": "Selecionar os usuários visíveis",
+          "review_title": "Confira antes de executar",
+          "sentence": "Você vai conceder {duration} ({minutes} minutos) a {count} usuários.",
+          "unlimited_note": "{count} deles estão com acesso ilimitado. Para esses, o saldo entra parado.",
+          "until_stacks_note": "{count, plural, one {# deles já tem acesso vigente} other {# deles já têm acesso vigente}}. Para esses, o prazo é somado ao que já existe.",
+          "not_atomic": "Cada usuário é concedido separadamente. Se algum falhar, os outros seguem.",
+          "type_to_confirm": "A lista não cabe na tela. Para confirmar, digite {word}.",
+          "confirm_word": "CONCEDER",
+          "cta_confirm": "Conceder a {count} usuários",
+          "running": "Concedendo… {done} de {count}",
+          "stop": "Parar",
+          "stopped": "Interrompido. {done} de {count} foram processados.",
+          "result_title": "{ok} concedidos · {failed} recusados",
+          "retry_failed": "Tentar de novo com os {count} recusados",
+          "copy": "Copiar resultado",
+          "close": "Fechar"
+        },
+        "errors": {
+          "forbidden": "Sua conta não tem permissão para conceder. Fale com um administrador do CMS.",
+          "no_profile": "Este usuário não tem perfil no app. Não é possível conceder.",
+          "not_multiple": "A quantidade precisa ser múltiplo de 5 minutos. Os valores válidos mais próximos são {lower} e {upper}.",
+          "above_cap": "Máximo de {duration} ({cap} minutos) por concessão. Para dar mais, conceda de novo — cada concessão é uma linha própria no histórico.",
+          "above_cap_unknown": "A quantidade passa do teto por concessão. Reduza a quantidade e tente de novo.",
+          "period_applied_no_record": "O prazo foi aplicado e o usuário já tem o acesso. Falhou só o registro da concessão. Não conceda de novo: o novo prazo seria somado ao que já existe, e estornar não encurta o prazo. Esta concessão não vai aparecer no histórico. O log de auditoria mostra quem aplicou e até quando.",
+          "unknown": "Não foi possível concluir. Código {code}. O detalhe ficou no log do servidor.",
+          "network": "Não foi possível falar com o servidor. A concessão pode ter sido feita mesmo assim — confira o histórico de concessões antes de tentar de novo."
+        }
+      },
       "modal": {
         "profile": "Perfil",
         "device": "Dispositivo",
@@ -987,6 +1133,10 @@
       "tags_hint": "separadas por vírgula",
       "cuisine_hint": "separadas por vírgula",
       "reused_note": "Horário, acessibilidade, boundary, trigger points e descrição/áudio reusam os editores de POI (por attraction_id) — a plugar em seguida.",
+      "address_centered": "Mapa centralizado no endereço do cadastro. Clique no mapa para definir a coordenada.",
+      "address_locating": "Localizando o endereço do cadastro…",
+      "address_not_located": "Não foi possível localizar no mapa o endereço do cadastro. Procure o local e clique no mapa para definir a coordenada.",
+      "address_missing": "Este local não tem endereço no cadastro. Procure o local e clique no mapa para definir a coordenada.",
       "validation_required": "Nome, cidade e país são obrigatórios.",
       "error_save": "Falha ao salvar o local"
     },
@@ -1744,6 +1894,7 @@
       "tabs": {
         "profile": "Perfil",
         "fiscal": "Fiscal & Pagamentos",
+        "contract": "Contrato",
         "team": "Equipe",
         "appusers": "Usuários do App",
         "pois": "POIs",
@@ -1832,7 +1983,9 @@
         "influencer": "Influencer",
         "hotel": "Hotel",
         "partner": "Parceiro",
-        "creator": "Criador de conteúdo"
+        "creator": "Criador de conteúdo",
+        "driver": "Motorista",
+        "venue": "Local"
       },
       "qr": {
         "title": "QR Code de Atribuição",
@@ -1875,6 +2028,11 @@
         "accountPlaceholder": "123456789",
         "commissionRate": "Taxa de comissão",
         "commissionRateHelp": "Valor entre 0 e 1 (ex. 0.20 = 20%)",
+        "monthlyFee": "Valor mensal do contrato",
+        "monthlyFeeHelp": "Em reais. Sem valor e sem \"cortesia\" marcada, o contrato não sai. Zero digitado não vale como cortesia: cortesia é decisão, campo vazio é cadastro incompleto.",
+        "courtesy": "Cortesia (sem mensalidade)",
+        "courtesyReason": "Motivo da cortesia",
+        "frozenValueNote": "Existe contrato assinado em {date} com {value}. Este campo é o valor para o próximo contrato ou aditivo — editá-lo não muda o que já foi assinado.",
         "isPlatformOwner": "Platform owner?",
         "isPlatformOwnerHelp": "Marque se o cliente é a própria Tuggi (split contábil)"
       }
@@ -2076,6 +2234,683 @@
         "loadFailed": "Falha ao carregar desempenho",
         "loadNetwork": "Não foi possível carregar o desempenho por owner"
       }
+    }
+  },
+  "PartnerForm": {
+    "progress": "Passo {current} de {total}",
+    "loading": "Carregando o formulário",
+    "charactersLeft": "{n, plural, one {resta # caractere} other {restam # caracteres}}",
+    "actions": {
+      "continue": "Continuar",
+      "back": "Voltar",
+      "submit": "Enviar para a Tuggi",
+      "submitting": "Enviando…",
+      "edit": "Editar",
+      "restart": "Recomeçar do zero",
+      "restartConfirm": "Isso apaga tudo o que você preencheu. Quer mesmo recomeçar?",
+      "seeExample": "Ver um exemplo"
+    },
+    "step1": {
+      "title": "O seu estabelecimento",
+      "subtitle": "A gente começa pelo que está na fachada e no CNPJ."
+    },
+    "step2": {
+      "title": "Quem responde pelo estabelecimento",
+      "subtitle": "Precisa ser quem pode assinar pelo CNPJ. É esta pessoa que vai receber o contrato."
+    },
+    "step3": {
+      "title": "A história do seu lugar",
+      "subtitle": "Esta é a única parte que só você pode responder. Tudo o que veio antes a gente encontra em documento; isto aqui, não.",
+      "intro": "O Tuggi conta histórias em voz alta para quem está viajando. Para contar a do seu lugar, a gente precisa de pelo menos um fato que seja seu: uma data, um nome, alguma coisa que dê para ver aí dentro. Não precisa escrever bonito — quem escreve o texto final somos nós.",
+      "notHere": "Aqui não é o lugar de cardápio, preço, promoção, número de quartos, forma de pagamento nem horário — o horário a gente já pediu lá atrás. Essas coisas importam para o seu negócio, mas não é isso que o turista escuta.",
+      "exampleBadTitle": "Assim não dá:",
+      "exampleBad": "Restaurante familiar, ambiente aconchegante e atendimento de primeira. Almoço executivo de segunda a sexta e rodízio de pizza aos sábados.",
+      "exampleBadWhy": "Troque o nome pelo do vizinho: continua verdadeiro. E a segunda frase é cardápio.",
+      "exampleGoodTitle": "Assim dá:",
+      "exampleGood": "Meu avô, Antônio, abriu a casa em 1961 num galpão que era da fábrica de guarda-chuvas do bairro. O forno a lenha é o mesmo desde a inauguração — foi feito pelo pedreiro que morava na esquina, e a gente nunca trocou o tijolo.",
+      "exampleGoodWhy": "Tem nome, tem ano, e tem uma coisa que só existe aí.",
+      "exampleInnTitle": "Pousada, do mesmo jeito:",
+      "exampleInn": "A casa era a sede de uma fazenda de café de 1897. O piso de peroba e a escada são os originais, e do terraço dá para ver o vale onde passava a linha de trem que fechou em 1971.",
+      "substituteTestTitle": "Antes de continuar, faça este teste:",
+      "substituteTest": "troque o nome do seu estabelecimento pelo do vizinho da mesma rua. Se o texto continuar verdadeiro, ele ainda não é sobre o seu lugar — e é exatamente isso que a nossa curadoria vai olhar.",
+      "curation": "Nem todo lugar entra no app. Quem decide é a nossa curadoria, e o critério é o lugar ser permanente, aberto a visita, e ter história própria para contar. Se faltar alguma coisa, a gente diz o que faltou, e você pode mandar de novo.",
+      "nudgeShort": "Isso ainda está curto. Um nome e um ano já ajudam muito.",
+      "nudgeOffer": "Parece que você falou de cardápio, preço ou reserva. Isso a gente não usa aqui — conte uma coisa que aconteceu no lugar."
+    },
+    "step4": {
+      "title": "Conferir e enviar",
+      "subtitle": "Confira o que você escreveu. Se precisar corrigir, toque em editar.",
+      "beforeSubmit": "Confira o e-mail e o telefone antes de enviar: é por eles que a gente fala com você.",
+      "empty": "não preenchido"
+    },
+    "privacy": {
+      "notice": "Os campos deste passo são de uma pessoa, não da empresa. O nome, o cargo, o e-mail e o telefone ficam guardados junto com a sua proposta, e a Tuggi os usa para falar com você sobre esta parceria e para gerar o contrato.",
+      "link": "Como tratamos os seus dados"
+    },
+    "fields": {
+      "trade_name": {
+        "label": "Como as pessoas chamam o seu estabelecimento?",
+        "help": "O nome que está na fachada.",
+        "requiredError": "Preencha o nome do estabelecimento."
+      },
+      "legal_name": {
+        "label": "Razão social",
+        "help": "O nome que está no CNPJ. Se for o mesmo da fachada, pode repetir.",
+        "requiredError": "Preencha a razão social."
+      },
+      "tax_id": {
+        "label": "CNPJ",
+        "help": "14 caracteres. Desde 2026 o CNPJ pode ter letras — se o seu tiver, digite normalmente.",
+        "requiredError": "Preencha o CNPJ."
+      },
+      "category": {
+        "label": "Que tipo de lugar é?",
+        "help": "",
+        "requiredError": "Escolha o tipo de lugar."
+      },
+      "address": {
+        "label": "Rua e número",
+        "help": "",
+        "requiredError": "Preencha a rua e o número."
+      },
+      "address_complement": {
+        "label": "Complemento",
+        "help": "Sala, loja, andar.",
+        "requiredError": ""
+      },
+      "district": {
+        "label": "Bairro",
+        "help": "",
+        "requiredError": "Preencha o bairro."
+      },
+      "postal_code": {
+        "label": "CEP",
+        "help": "",
+        "requiredError": "Preencha o CEP."
+      },
+      "city": {
+        "label": "Cidade",
+        "help": "",
+        "requiredError": "Preencha a cidade."
+      },
+      "state": {
+        "label": "Estado",
+        "help": "",
+        "requiredError": "Escolha o estado."
+      },
+      "instagram": {
+        "label": "Instagram",
+        "help": "Só o @, se tiver.",
+        "requiredError": ""
+      },
+      "opening_hours": {
+        "label": "Horário de funcionamento",
+        "help": "Escreva do seu jeito. Por exemplo: terça a domingo, das 11h às 15h e das 18h às 23h; fecha segunda.",
+        "requiredError": ""
+      },
+      "website": {
+        "label": "Site",
+        "help": "",
+        "requiredError": ""
+      },
+      "representative_name": {
+        "label": "Nome completo",
+        "help": "Como está no documento de constituição.",
+        "requiredError": "Preencha o nome completo de quem responde pelo estabelecimento."
+      },
+      "representative_role": {
+        "label": "Cargo no estabelecimento",
+        "help": "Sócio, sócia-administradora, proprietário, procurador.",
+        "requiredError": "Preencha o cargo no estabelecimento."
+      },
+      "representative_email": {
+        "label": "E-mail",
+        "help": "É para este endereço que o contrato vai. Confira com calma.",
+        "requiredError": "Preencha o e-mail de quem responde pelo estabelecimento."
+      },
+      "representative_phone": {
+        "label": "Telefone com WhatsApp",
+        "help": "A gente usa para falar sobre esta parceria. Não entra em lista de mensagens.",
+        "requiredError": "Preencha o telefone com WhatsApp."
+      },
+      "story_founder": {
+        "label": "Quem começou este lugar, e quando?",
+        "help": "O nome da pessoa e o ano. Se foi você, escreva o seu nome. Se você comprou de alguém, conte as duas coisas: quem começou, e quando você assumiu. Por exemplo: Meu pai, Sebastião, abriu em 1978. Assumi em 2009.",
+        "requiredError": "Conte quem começou o lugar e quando."
+      },
+      "story_before": {
+        "label": "O que tinha neste endereço antes do seu negócio?",
+        "help": "Casa de família, oficina, armazém, cinema, terreno vazio. Se você sabe de que ano é o prédio, escreva. Por exemplo: Era uma serralheria. O prédio é de 1932, está escrito na fachada.",
+        "requiredError": ""
+      },
+      "story_unique": {
+        "label": "O que existe aí dentro que não existe em outro lugar?",
+        "help": "Vale coisa que dá para ver, tocar ou provar: um forno, um móvel, uma foto na parede, uma peça antiga, uma receita que veio de alguém da família. Elogio não vale — aconchegante e atendimento familiar servem para qualquer lugar. Por exemplo: O balcão de mármore é o original da confeitaria que funcionava aqui; a gente só lixou.",
+        "requiredError": ""
+      },
+      "story_event": {
+        "label": "Aconteceu alguma coisa aqui que o pessoal do bairro conta até hoje?",
+        "help": "Uma visita, uma enchente, um jogo, uma festa que começou aqui, alguém conhecido que era freguês. Por exemplo: Em 1994 a rua inteira assistiu à final aqui na calçada.",
+        "requiredError": ""
+      }
+    },
+    "categories": {
+      "restaurant": "Restaurante",
+      "bar_cafe": "Bar ou café",
+      "hotel": "Hotel",
+      "inn": "Pousada",
+      "shop": "Loja",
+      "attraction": "Atração ou passeio",
+      "other": "Outro"
+    },
+    "errors": {
+      "summary": "{count, plural, one {Falta # coisa neste passo.} other {Faltam # coisas neste passo.}}",
+      "email_malformed": "Este e-mail não parece completo. Confira antes de continuar.",
+      "phone_short": "Escreva o telefone com DDD.",
+      "cnpj_incomplete": "O CNPJ tem 14 caracteres. {n, plural, one {Falta # caractere} other {Faltam # caracteres}}.",
+      "cnpj_invalid": "Este CNPJ não confere. Confira os 14 caracteres — inclusive as letras, se o seu tiver.",
+      "postal_code": "O CEP tem 8 números.",
+      "too_long": "Você passou de {max} caracteres. Tire {over} para continuar."
+    },
+    "states": {
+      "draftResumed": "O que você preencheu em {date} ficou guardado neste aparelho. Continue de onde parou.",
+      "offlineTitle": "Você está sem internet.",
+      "offlineBody": "O que você escrever agora fica no aparelho, e a gente envia quando a conexão voltar.",
+      "submitErrorTitle": "Não conseguimos enviar agora.",
+      "submitErrorBody": "Tente enviar de novo. Se continuar dando erro, fale com a pessoa da Tuggi que passou este link — o que você preencheu continua guardado neste aparelho.",
+      "successTitle": "Recebemos os seus dados.",
+      "successBody": "A gente confere e volta a falar com você por este e-mail: {email}. Enviar o formulário ainda não fecha a parceria: o contrato é o passo seguinte.",
+      "taxIdRegisteredTitle": "Não dá para seguir com este CNPJ por aqui.",
+      "taxIdRegisteredBody": "Não é erro de digitação. Se o estabelecimento é seu, fale com a pessoa da Tuggi que passou este link — ela resolve com você. Se você cuida de mais de um endereço, confira o número: cada endereço tem o seu próprio CNPJ.",
+      "tooManyTitle": "Chegaram muitos envios desta mesma rede.",
+      "tooManyBody": "Não é nada que você tenha feito de errado — em internet compartilhada, os envios contam juntos. Tente de novo mais tarde: o que você preencheu continua guardado neste aparelho. Se precisar resolver hoje, fale com a pessoa da Tuggi que passou este link."
+    },
+    "savedOnDevice": "O que você escrever fica guardado neste aparelho por 24 horas, até você enviar."
+  },
+  "PartnerProposals": {
+    "title": "Parcerias",
+    "subtitle": "As propostas que chegaram pelo formulário de parceria.",
+    "tabs": {
+      "withCount": "{label} · {count}"
+    },
+    "proposals": {
+      "heading": "Propostas",
+      "searchLabel": "Buscar",
+      "searchPlaceholder": "Estabelecimento, CNPJ ou cidade",
+      "statusLabel": "Situação",
+      "allStatuses": "Todas",
+      "statuses": {
+        "submitted": "Para conferir",
+        "promoted": "Promovida",
+        "discarded": "Descartada"
+      },
+      "columns": {
+        "establishment": "Estabelecimento",
+        "taxId": "CNPJ",
+        "city": "Cidade",
+        "received": "Recebida",
+        "contract": "Para o contrato"
+      },
+      "ready": "Documentação em ordem",
+      "missing": "{count, plural, one {Falta # item} other {Faltam # itens}}",
+      "open": "Abrir",
+      "loading": "Carregando as propostas.",
+      "emptyTitle": "Nenhuma proposta ainda.",
+      "emptyBody": "Quando um estabelecimento preencher o formulário de parceria, a proposta aparece aqui.",
+      "emptyFilteredTitle": "Nenhuma proposta com esse filtro.",
+      "errorTitle": "Não foi possível carregar as propostas.",
+      "retry": "Tentar de novo",
+      "clearFilters": "Limpar filtros",
+      "duplicateBadge": "+{count} com o mesmo CNPJ"
+    },
+    "review": {
+      "back": "Voltar para a esteira",
+      "receivedAt": "Recebido em {date}",
+      "taxId": "CNPJ {value}",
+      "noTradeName": "Proposta sem nome de fachada",
+      "loading": "Carregando a proposta.",
+      "notFoundTitle": "Esta proposta não existe.",
+      "notFoundBody": "Ela pode ter sido descartada e removida.",
+      "errorTitle": "Não foi possível carregar a proposta.",
+      "retry": "Tentar de novo",
+      "answersHeading": "O que o parceiro preencheu",
+      "step1Heading": "O estabelecimento",
+      "step2Heading": "Quem responde",
+      "absence": {
+        "contract": "Falta para o contrato",
+        "optional": "Opcional — não respondido",
+        "triage": "Sem resposta — ajudaria a triagem"
+      },
+      "promotedTitle": "Promovido em {date} por {person}",
+      "promotedOpenClient": "Abrir a ficha de {name}",
+      "promotedBody": "O cliente foi criado com status Pendente. Aprovar a parceria continua sendo outra decisão, na ficha do cliente (BR-B2B-010, item 1) — e gerar o contrato é o passo seguinte, com o gate de regularidade.",
+      "discardedTitle": "Descartada em {date}",
+      "duplicateTitle": "{count, plural, one {Há outra proposta com este mesmo CNPJ.} other {Há # outras propostas com este mesmo CNPJ.}}",
+      "duplicateBody": "Nada foi juntado automaticamente. Escolha uma para promover e descarte as outras com o motivo de duplicidade.",
+      "duplicateOpen": "Abrir a proposta de {date}"
+    },
+    "regularity": {
+      "heading": "Regularidade — o que o contrato exige",
+      "rule": "BR-B2B-022",
+      "items": {
+        "tax_id": "CNPJ",
+        "business_license": "Alvará de funcionamento",
+        "incorporation_document": "Documento de constituição",
+        "representative": "Representante legal"
+      },
+      "taxIdOk": "CNPJ {value}",
+      "taxIdMissing": "Falta para o contrato: CNPJ",
+      "licenseOk": "Vigente até {date} ({days, plural, one {falta # dia} other {faltam # dias}})",
+      "licenseIdentity": "Alvará {number} · {issuer}",
+      "licenseIdentityMissing": "Alvará sem número e município registrados.",
+      "licenseMissing": "Falta para o contrato: alvará vigente",
+      "licenseExpired": "Venceu em {date} — {days, plural, one {há # dia} other {há # dias}}. Para o contrato, alvará vencido é o mesmo que não ter alvará.",
+      "licenseExpiring": "Vence em {date}, daqui a {days, plural, one {# dia} other {# dias}}. Se o contrato demorar, ele vence no meio do caminho.",
+      "licenseUndated": "Falta para o contrato: a data de validade do alvará. Sem ela não dá para saber se o documento ainda vale.",
+      "incorporationOk": "Visto pessoalmente.",
+      "incorporationMissing": "Falta para o contrato: documento de constituição",
+      "representativeOk": "{name} · {role}",
+      "representativeMissing": "Falta para o contrato: nome e cargo de quem assina",
+      "ready": "Documentação em ordem para gerar o contrato.",
+      "notReady": "Falta para gerar o contrato: {items}.",
+      "itemSeparator": ", ",
+      "checkedBy": "Conferência registrada por {person} em {date}.",
+      "source": "A Tuggi não fica com cópia do alvará nem do documento de constituição, e não atesta a autenticidade deles."
+    },
+    "story": {
+      "heading": "A história do lugar",
+      "noAnswer": "Sem resposta — ajudaria a triagem",
+      "substituteApply": "Aplicar o teste do substituto",
+      "substituteUndo": "Voltar ao texto original",
+      "substituteIntro": "Trocamos o nome do estabelecimento. Leia de novo: se continuar verdadeiro, o texto não é sobre este lugar. — BR-B2B-011, portão 2, alínea (c).",
+      "substituteReplacement": "outro {category} em {city}",
+      "substituteFallbackCategory": "estabelecimento",
+      "substituteFallbackCity": "outra cidade",
+      "marksHeading": "Três marcas de leitura",
+      "marks": {
+        "dated": "Tem data",
+        "named_person": "Tem uma pessoa com nome",
+        "observable": "Tem coisa que dá para ver aí dentro"
+      },
+      "observationLabel": "Observação para a triagem",
+      "save": "Guardar a anotação",
+      "saving": "Guardando.",
+      "saved": "Anotação guardada",
+      "saveFailed": "Não foi possível guardar a anotação agora. Tente de novo.",
+      "footer": "Isto não aprova nem reprova o lugar. A triagem é outra decisão, com outro dono e outro momento (BR-B2B-011). Reprovado na triagem continua parceiro — e o que decide o contrato é a faixa de regularidade lá em cima, não este bloco.",
+      "offerWarning": "Este texto tem marca de cardápio, promoção ou reserva. Não bloqueia nada — só vale ler com atenção antes de aproveitar como história."
+    },
+    "promotion": {
+      "action": "Promover",
+      "heading": "Promover para o cadastro",
+      "createTitle": "Criar cliente novo",
+      "updateTitle": "Atualizar {name}",
+      "columns": {
+        "field": "Campo",
+        "current": "No cadastro hoje",
+        "proposed": "Da proposta"
+      },
+      "fields": {
+        "name": "Nome",
+        "company_name": "Razão social",
+        "tax_id": "CNPJ",
+        "tax_id_type": "Tipo de documento",
+        "industry": "Ramo",
+        "address": "Endereço",
+        "city": "Cidade",
+        "state": "Estado",
+        "postal_code": "CEP",
+        "country": "País",
+        "website": "Site",
+        "social_handle": "Instagram",
+        "legal_representative_name": "Representante legal",
+        "legal_representative_role": "Cargo do representante",
+        "email": "E-mail",
+        "phone": "Telefone"
+      },
+      "emptyValue": "vazio",
+      "fillBadge": "Estava vazio — vai ser preenchido",
+      "replace": "Substituir",
+      "unchanged": "{count, plural, one {# campo já está igual} other {# campos já estão iguais}}",
+      "industryHint": "Texto livre no cadastro. Você pode ajustar antes de gravar.",
+      "neverHeading": "O que a promoção nunca escreve",
+      "neverBody": "Dinheiro, ciclo de vida e o endereço público do QR não vêm de formulário externo. Comissão, faixa, status e slug continuam onde sempre estiveram, na ficha do cliente.",
+      "neverFields": "commission_rate, status, slug, billing_email, iban, bic_swift, bank_account_number, bank_routing_number, bank_name, is_coordinator, is_platform_owner, parent_client_id, welcome_poi_id",
+      "reviewTitle": "Vai ser gravado agora:",
+      "reviewBody": "{total, plural, one {# campo} other {# campos}} em {name} — {filled} que {filled, plural, one {estava vazio} other {estavam vazios}} e {replaced} que você mandou substituir. Isso não desfaz.",
+      "reviewNoReplacement": "{total, plural, one {# campo} other {# campos}} em {name}, {total, plural, one {que estava vazio} other {todos que estavam vazios}}. Isso não desfaz.",
+      "commit": "{count, plural, one {Gravar # campo em {name}} other {Gravar # campos em {name}}}",
+      "committing": "Gravando.",
+      "back": "Voltar",
+      "nothingToWrite": "Não há nada para gravar: os campos da proposta já estão no cadastro, ou nenhum divergente foi marcado.",
+      "keptNotice": "{count, plural, one {# campo divergente não vai ser tocado} other {# campos divergentes não vão ser tocados}} — o que está no cadastro fica.",
+      "failedTitle": "Não foi possível promover.",
+      "failedNothingWritten": "Nada foi gravado. O cadastro está exatamente como estava.",
+      "failedNotPromotable": "Esta proposta não está mais para conferir — alguém já promoveu ou descartou. Recarregue a página.",
+      "failedNetworkTitle": "Não sabemos se a gravação chegou.",
+      "failedNetworkBody": "Abra a ficha do cliente antes de tentar de novo — se os campos já estiverem lá, está feito."
+    },
+    "discard": {
+      "action": "Descartar",
+      "title": "Descartar a proposta",
+      "reasonLabel": "Por quê",
+      "reasons": {
+        "duplicate": "Duplicada — já existe proposta ou cliente para este CNPJ",
+        "gave_up": "O estabelecimento desistiu",
+        "data_mismatch": "Dados que não conferem / suspeita de fraude",
+        "will_not_regularize": "Não vai regularizar a documentação"
+      },
+      "notifies": "Este motivo tem uma mensagem para o parceiro. O texto aparece depois de descartar.",
+      "notTriage": "Descartar não reprova o lugar na triagem. Reprovação de triagem é outra decisão e não tira a parceria de ninguém (BR-B2B-011). Se o que você quer é dizer que o lugar não entra no catálogo, isso não se faz aqui.",
+      "reversible": "Dá para desfazer: enquanto ninguém tiver promovido, a proposta volta para a fila por esta mesma tela.",
+      "confirm": "Descartar a proposta",
+      "cancel": "Cancelar",
+      "failed": "Não foi possível descartar agora. Nada mudou.",
+      "restore": "Devolver para a fila",
+      "restoreFailed": "Não foi possível devolver a proposta para a fila."
+    },
+    "outbound": {
+      "heading": "O que mandar para o parceiro",
+      "copy": "Copiar mensagem",
+      "copied": "Mensagem copiada",
+      "subject": "Assunto",
+      "manualNotice": "Este texto é para você mandar por e-mail ou WhatsApp. A tela não envia por conta própria.",
+      "regularity": {
+        "subject": "Sobre a parceria com a Tuggi",
+        "body": "Olá, {name}.\n\nPor enquanto a gente não vai conseguir seguir com o contrato do {tradeName}.\n\nA Tuggi só assina contrato de parceria com estabelecimento com a documentação de funcionamento em dia, e falta {missing}.\n\nIsso não é definitivo. Quando o documento estiver em mãos, responda este e-mail que a gente retoma de onde parou — os dados que você mandou continuam guardados.\n\nObrigado pelo tempo que você dedicou a isso."
+      },
+      "gate1": {
+        "subject": "Sobre o {tradeName} no app da Tuggi",
+        "body": "Olá, {name}.\n\nO {tradeName} não vai entrar no app agora, e o motivo é {reason}.\n\nSe isso mudar — ou se a gente estiver enganado —, responda este e-mail que olhamos de novo.",
+        "reasons": {
+          "not_located": "não conseguimos localizar o endereço",
+          "already_there": "o lugar já está no app",
+          "not_permanent": "não é um lugar permanente",
+          "not_open": "não é aberto a visita"
+        }
+      },
+      "gate2": {
+        "subject": "Sobre a história do {tradeName}",
+        "body": "Olá, {name}.\n\nA gente leu o que você contou sobre o {tradeName} e, por enquanto, não deu para montar uma história para o app.\n\nO que faltou: um fato que seja só desse lugar — uma data, uma pessoa com nome, ou alguma coisa que dê para ver aí dentro. O que você escreveu vale igual para outro {category} em {city}, e é por isso que ele ainda não é sobre o seu lugar.\n\nO que serve, para você ter ideia: quem abriu o lugar e em que ano; o que funcionava nesse endereço antes; uma peça que está aí desde o começo.\n\nVocê pode mandar de novo quando quiser: responda este e-mail e a gente olha outra vez."
+      },
+      "partnershipStands": "A parceria continua como está.",
+      "partnershipStandsHint": "Esta linha só entra quando já existe parceria firmada (BR-B2B-010). Sem contrato, tire-a antes de mandar.",
+      "gate3NoTemplate": "Este motivo não tem mensagem pronta.",
+      "gate3Body": "O que a Tuggi pode dizer publicamente sobre este critério não está decidido (BR-B2B-011, item 6 — descrever o portão 3 continua proibido). Escreva à mão, ou trate por telefone e registre aqui o que foi combinado.",
+      "pick": "O que mandar para o parceiro",
+      "pickNone": "Nada agora",
+      "kinds": {
+        "regularity": "Não vai dar para seguir com o contrato (documentação)",
+        "gate1": "O lugar não entra no app — endereço, duplicidade ou acesso",
+        "gate2": "A história não tem âncora",
+        "gate3": "Falta de fit — sem mensagem pronta"
+      }
+    },
+    "conference": {
+      "heading": "Conferência presencial",
+      "intro": "A Tuggi só assina contrato com estabelecimento com documentação em ordem. Marque o que você viu com o parceiro, pessoalmente.",
+      "seen": {
+        "business_license": "Vi o alvará de funcionamento",
+        "incorporation_document": "Vi o documento de constituição"
+      },
+      "licenseNumberLabel": "Número do alvará",
+      "licenseNumberHint": "O número impresso no alvará que você viu. Copie como está, com pontos e barras.",
+      "licenseNumberDisabled": "Marque o alvará para registrar o número.",
+      "licenseIssuerLabel": "Município que emitiu",
+      "licenseIssuerHint": "A prefeitura que assinou o alvará. Nem sempre é a cidade do endereço do estabelecimento.",
+      "licenseIssuerDisabled": "Marque o alvará para registrar o município.",
+      "validUntilLabel": "Validade do alvará",
+      "validUntilHint": "A data que está impressa no alvará que você viu.",
+      "validUntilDisabled": "Marque o alvará acima para registrar a validade.",
+      "savedWithNote": "Isto é guardado junto com a anotação, no seu nome e com a data."
+    }
+  },
+  "Partnerships":   {
+    "title": "Parcerias",
+    "subtitle": "Do formulário ao app, numa fila só: a proposta, o cliente, o contrato e o local.",
+    "queue": {
+      "searchLabel": "Buscar",
+      "searchPlaceholder": "Estabelecimento, CNPJ ou cidade",
+      "stateLabel": "Estado",
+      "inProgress": "Em andamento",
+      "allStates": "Todos",
+      "countsLabel": "Na esteira",
+      "countOne": "{label} {count}",
+      "columns": {
+        "establishment": "Estabelecimento",
+        "city": "Cidade",
+        "state": "Estado",
+        "missing": "O que falta",
+        "idle": "Parado há",
+        "triage": "Triagem"
+      },
+      "overdueCount": "{count, plural, one {# com a triagem vencida} other {# com a triagem vencida}}",
+      "onlyLate": "Só o que está atrasado",
+      "open": "Abrir",
+      "openNamed": "Abrir a parceria de {name}",
+      "loading": "Carregando a esteira.",
+      "emptyTitle": "Nenhuma parceria na esteira.",
+      "emptyBody": "Quando uma proposta chegar pelo formulário, ela aparece aqui como o primeiro estado.",
+      "emptyFilteredTitle": "Nenhuma parceria com esse filtro.",
+      "errorTitle": "Não foi possível carregar a esteira.",
+      "retry": "Tentar de novo",
+      "clearFilters": "Limpar filtros",
+      "duplicateBadge": "+{count} com o mesmo CNPJ",
+      "idleDays": "{count, plural, =0 {hoje} one {# dia} other {# dias}}",
+      "idleUnknown": "—",
+      "placesProgress": "{published} de {total} locais publicados",
+      "missingBlocking": "{count, plural, one {# impede} other {# impedem}}",
+      "missingSilencing": "{count, plural, one {# fica mudo} other {# ficam mudos}}",
+      "missingSeparator": ", ",
+      "missingNone": "—",
+      "noTradeName": "Sem nome fantasia"
+    },
+    "states": {
+      "proposal_received": "Proposta recebida",
+      "in_conference": "Em conferência",
+      "client_created": "Cliente criado",
+      "contract_signed": "Contrato assinado",
+      "place_in_curation": "Local em curadoria",
+      "refusal_not_communicated": "Recusa não comunicada",
+      "published": "Publicado",
+      "discarded": "Descartada",
+      "refused_at_triage": "Recusado na triagem"
+    },
+    "nextSteps": {
+      "proposal_received": "Conferir a regularidade",
+      "in_conference": "Registrar a conferência",
+      "client_created": "Assinar o contrato",
+      "contract_signed": "Criar o local",
+      "place_in_curation": "Publicar o local",
+      "refusal_not_communicated": "Comunicar a recusa ao parceiro",
+      "published": "—",
+      "discarded": "—",
+      "refused_at_triage": "—"
+    },
+    "triage": {
+      "none": "—",
+      "within": "até {deadline}",
+      "dueSoon": "{count, plural, one {falta # h} other {faltam # h}}",
+      "dueLastHour": "falta menos de 1 h",
+      "overdueFirstHour": "venceu há menos de 1 h",
+      "overdueHours": "venceu há {count} h",
+      "overdueDays": "{count, plural, one {venceu há # dia} other {venceu há # dias}}",
+      "headerLine": "Triagem: {value}",
+      "headerLineWithDeadline": "Triagem: {value} (prazo {deadline})",
+      "deadlineTitle": "Prazo de 72 horas corridas, contadas da aprovação da parceria",
+      "partnershipContinues": "A parceria continua.",
+      "refusedTitle": "Recusado na triagem",
+      "refusedLine": "Recusado em {date}, por {person}.",
+      "refusedLineAnonymous": "Recusado em {date}.",
+      "refusedGate": "Critério: {gate}",
+      "refusedReason": "O que faltou: {reason}",
+      "gates": {
+        "1": "Elegibilidade do lugar",
+        "2": "O que o lugar tem para contar",
+        "3": "Recusa comercial"
+      },
+      "refuseAction": "Recusar na triagem",
+      "refuseTitle": "Registrar a recusa da triagem",
+      "refuseBody": "A recusa vale só para este local. A parceria continua: o QR, a atribuição e a participação na receita seguem inteiros, e nenhum local publicado sai do catálogo.",
+      "refuseGateLabel": "Qual critério reprovou",
+      "refuseReasonLabel": "O que faltou, nas palavras que o parceiro vai receber",
+      "refuseReasonHint": "Dizer que não foi aprovado não basta: o parceiro precisa saber o que faltou para poder reapresentar.",
+      "refuseConfirm": "Registrar a recusa",
+      "refuseCancel": "Cancelar",
+      "refuseSeparateAct": "Registrar a recusa não avisa ninguém. Comunicar é o passo seguinte, e é a comunicação que encerra o prazo de 72 horas.",
+      "refuseRejected": "Nada foi registrado. Confira o critério e o que faltou, e registre de novo.",
+      "refuseUnknownTitle": "Não sabemos se a recusa foi registrada.",
+      "refuseUnknownBody": "Recarregue a esteira e confira antes de registrar de novo: registrar duas vezes cria duas recusas.",
+      "notCommunicated": "Recusa registrada e ainda não comunicada. O prazo de 72 horas continua correndo.",
+      "communicateAction": "Registrar a comunicação ao parceiro",
+      "communicateBody": "Marque isto depois de comunicar a recusa ao parceiro. O Tuggi não envia essa mensagem: quem comunica é você, e esta marca registra quando aconteceu.",
+      "communicateConfirm": "Já comuniquei",
+      "communicateCancel": "Cancelar",
+      "communicatedLine": "Comunicada ao parceiro em {date}.",
+      "communicateFailed": "Não foi possível registrar a comunicação. Tente de novo.",
+      "communicateAlready": "Esta recusa já estava registrada como comunicada."
+    },
+    "pendencies": {
+      "classes": {
+        "blocks_app": "Impede aparecer no app",
+        "silences_app": "Publica, e o app fica mudo",
+        "improves": "Melhora, e não impede nada"
+      },
+      "items": {
+        "coordinate": {
+          "title": "Falta a coordenada do local.",
+          "body": "Sem ela o local não entra no app: ninguém vê e nada dispara.",
+          "action": "Abrir o local"
+        },
+        "inactive": {
+          "title": "O local está desativado.",
+          "body": "Enquanto estiver desativado, o local fica fora do app, mesmo depois de publicado.",
+          "action": "Abrir o local"
+        },
+        "hidden_from_map": {
+          "title": "O local está marcado para não aparecer no mapa.",
+          "body": "Enquanto estiver assim, ele fica fora do app mesmo depois de publicado.",
+          "action": "Abrir o local"
+        },
+        "trigger_point": {
+          "title": "Nenhum ponto de disparo ativo.",
+          "body": "O local vai aparecer no mapa e nunca vai disparar narração para quem passar perto.",
+          "action": "Abrir os pontos de disparo"
+        },
+        "audio_description": {
+          "title": "Nenhuma descrição com áudio.",
+          "body": "Quando o disparo acontecer, não há o que narrar.",
+          "action": "Abrir as descrições"
+        },
+        "boundary": {
+          "title": "Sem área desenhada.",
+          "body": "O disparo usa só o raio do ponto; com a área, ele acerta mais.",
+          "action": "Desenhar a área"
+        }
+      },
+      "readyTitle": "O local está pronto para publicar.",
+      "readyBody": "Ponto de disparo ativo, descrição com áudio e coordenada no lugar.",
+      "publishedTitle": "O local está no app.",
+      "publishedBody": "Ponto de disparo ativo, descrição com áudio e coordenada no lugar.",
+      "emptyTitle": "Este cliente ainda não tem local vinculado.",
+      "emptyBody": "O local é o endereço físico; o cliente é a pessoa jurídica, e um CNPJ pode ter mais de um endereço.",
+      "emptyCreate": "Criar o local a partir da proposta",
+      "emptyLink": "Ver os locais já cadastrados"
+    },
+    "publish": {
+      "action": "Publicar",
+      "actionNamed": "Publicar {name} no app",
+      "title": "Publicar {name} no app",
+      "effectWithAudio": "A partir de agora o local entra no app. Quem passar perto vai ver o local no mapa e ouvir a narração.",
+      "effectSilent": "A partir de agora o local entra no app. Quem passar perto vai ver o local no mapa e não vai ouvir nada, porque ainda falta {missing}. Dá para publicar assim e completar depois.",
+      "missingTriggerPoint": "ponto de disparo",
+      "missingAudio": "descrição com áudio",
+      "missingSeparator": " · ",
+      "paidStartsTitle": "Isto inicia a mensalidade.",
+      "paidStartsBody": "A faixa paga deste contrato é de {fee} por mês, e ela passa a correr hoje, {date} — é a publicação do local com a descrição no ar que a inicia.",
+      "paidStartsContent": "A descrição que vai ao ar é conteúdo de parceiro. Enquanto a forma da identificação não estiver decidida, ela não pode conter oferta comercial: cardápio, preço, promoção ou reserva.",
+      "paidStartsAction": "Publicar e iniciar a mensalidade de {fee} em {name}",
+      "paidPendingTitle": "Ainda não inicia a mensalidade.",
+      "paidPendingBody": "A faixa paga começa a correr quando a descrição estiver no ar, e ela ainda não está. Publicar agora coloca o local no mapa com o nome, como na faixa gratuita.",
+      "paidPendingAction": "Publicar {name} sem a descrição",
+      "courtesyTitle": "Nada será cobrado.",
+      "courtesyBody": "Este contrato está registrado como cortesia: {reason}.",
+      "courtesyAction": "Publicar {name}",
+      "undeclaredTitle": "Não dá para publicar sem saber o que será cobrado.",
+      "undeclaredBody": "A publicação é o que inicia a mensalidade, e a ficha deste cliente não tem valor mensal registrado nem está marcada como cortesia. Registre um dos dois antes: o valor, ou a cortesia com o motivo.",
+      "undeclaredAction": "Abrir a ficha de {name}",
+      "blockedTitle": "Antes de publicar, resolva o que impede o local de aparecer.",
+      "blockedBody": "Enquanto isso não estiver resolvido, publicar não coloca o local no app — a lista acima diz o que falta e onde se resolve.",
+      "back": "Voltar",
+      "publishing": "Publicando…",
+      "failedTitle": "Não foi possível publicar.",
+      "failedBody": "Nada foi publicado.",
+      "networkTitle": "Não sabemos se a publicação chegou.",
+      "networkBody": "Publicar duas vezes o mesmo local é o mesmo estado, então dá para tentar de novo sem risco.",
+      "retry": "Tentar de novo",
+      "publishedLine": "Publicado em {date} por {person}. Está no app desde então.",
+      "publishedLineAnonymous": "Publicado em {date}. Está no app desde então.",
+      "publishedLineUndated": "Está no app.",
+      "trailPublished": "{name} publicado em {date} por {person}.",
+      "trailPublishedAnonymous": "{name} publicado em {date}.",
+      "billingStarted": "Mensalidade iniciada em {date}.",
+      "unpublishAction": "Tirar do app",
+      "unpublishTitle": "Tirar {name} do app.",
+      "unpublishBody": "O local sai do app e para de disparar. O cadastro, o vínculo com o cliente e tudo o que já foi produzido continuam aqui.",
+      "unpublishContract": "Tirar do app não encerra o contrato e não cancela a cobrança. Se a intenção é parar a mensalidade, isso se resolve no contrato, não aqui.",
+      "unpublishConfirm": "Tirar {name} do app",
+      "unpublishing": "Tirando do app…",
+      "unpublishFailed": "Não foi possível tirar do app. Nada mudou."
+    },
+    "detail": {
+      "backToQueue": "Voltar para a esteira",
+      "loading": "Carregando a parceria.",
+      "notFoundTitle": "Esta parceria não existe.",
+      "errorTitle": "Não foi possível carregar a parceria.",
+      "retry": "Tentar de novo",
+      "bandStatus": {
+        "done": "concluída",
+        "current": "em andamento",
+        "future": "ainda não"
+      },
+      "bands": {
+        "proposal": "1 · Proposta recebida",
+        "conference": "2 · Conferência de regularidade",
+        "client": "3 · Cliente e contrato",
+        "place": "4 · O local",
+        "publication": "5 · Publicação"
+      },
+      "toggle": "Abrir ou fechar a faixa {band}",
+      "proposalLine": "Recebida em {date}.",
+      "proposalLineUndated": "Proposta recebida.",
+      "proposalLink": "Ver a proposta",
+      "proposalMissing": "Este cliente não veio do formulário de parceria.",
+      "conferenceLine": "Conferida por {person} em {date}.",
+      "conferenceLineAnonymous": "Conferência registrada em {date}.",
+      "conferenceLicense": "Alvará {number} · {issuer} · vigente até {validUntil}.",
+      "conferenceNone": "Nenhuma conferência registrada ainda.",
+      "conferenceDerived": "Derivado de você já ter começado a registrar a conferência. Não existe campo de “em análise”.",
+      "clientCreated": "Cliente criado em {date}.",
+      "clientApproved": "Parceria aprovada em {date}.",
+      "clientApprovedBy": "Parceria aprovada em {date} por {person}.",
+      "clientNotApproved": "Parceria ainda não aprovada.",
+      "clientSeparateActs": "Aprovar a parceria e assinar o contrato são atos diferentes. Aprovar a parceria também não aprova o local.",
+      "contractSigned": "Contrato assinado em {date}.",
+      "contractSignedBy": "Contrato assinado em {date} por {person}.",
+      "contractNotSigned": "Contrato ainda não assinado.",
+      "openClient": "Abrir a ficha do cliente",
+      "feeLine": "Faixa paga: {fee} por mês.",
+      "feeCourtesy": "Cortesia: {reason}.",
+      "feeUndeclared": "Sem valor mensal registrado e sem cortesia.",
+      "placeHeading": "{name}",
+      "placeCount": "{count, plural, one {# local} other {# locais}}",
+      "publicationBefore": "Ainda não publicado. Publicar é o que coloca o local no app — e, na faixa paga, o que inicia a mensalidade.",
+      "trail": "Trilha",
+      "trailEmpty": "Nada registrado ainda.",
+      "openPlace": "Abrir o local"
+    },
+    "returnBar": {
+      "label": "Voltar para a esteira de {name}"
     }
   }
 }

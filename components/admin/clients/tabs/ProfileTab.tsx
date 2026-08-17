@@ -2,7 +2,13 @@
 
 import { Building2, Sparkles } from 'lucide-react'
 import { useTranslations } from 'next-intl'
-import type { Client, ClientType } from '@/types/clients'
+import {
+  DEFAULT_CLIENT_TYPE,
+  REGISTRABLE_CLIENT_TYPES,
+  isRegistrableClientType,
+  type Client,
+  type ClientType,
+} from '@/types/clients'
 import { COUNTRIES } from '@/components/admin/clients/shared/countries'
 import { EditField } from '@/components/admin/clients/shared/EditField'
 import { SectionHeader } from '@/components/admin/clients/shared/SectionHeader'
@@ -16,8 +22,6 @@ export interface ClientEditorTabProps {
   clientId?: string
 }
 
-const CLIENT_TYPE_VALUES: ClientType[] = ['business', 'influencer', 'hotel', 'partner', 'creator']
-
 function v<K extends keyof Client>(client: Client | null, edited: Partial<Client>, k: K): string {
   const raw = edited[k] ?? client?.[k]
   return raw == null ? '' : String(raw)
@@ -27,8 +31,15 @@ export function ProfileTab({ client, edited, updateField, canEdit, clientId }: C
   const t = useTranslations('Clients.profile')
   const isEditing = canEdit
   const currentCountry = String(edited.country ?? client?.country ?? '')
-  const currentType: ClientType = (edited.client_type ?? client?.client_type ?? 'business') as ClientType
+  const currentType: ClientType = (edited.client_type ?? client?.client_type ?? DEFAULT_CLIENT_TYPE) as ClientType
   const currentSlug = String(edited.slug ?? client?.slug ?? '')
+  // The offer is the four of BR-B2B-020, item 8 — never the seven the CHECK accepts. A legacy
+  // value (`business`, `partner`, `hotel`) shows up only when it is what THIS client already
+  // is, so the operator sees the truth and saving without touching the field reclassifies
+  // nobody (edge case written into item 8). It is never offered to a registration being born.
+  const typeOptions: readonly ClientType[] = isRegistrableClientType(currentType)
+    ? REGISTRABLE_CLIENT_TYPES
+    : [...REGISTRABLE_CLIENT_TYPES, currentType]
   // Show the QR only once we know which client we're attributing to —
   // create mode (no clientId yet) has nothing to point at.
   const showQr = Boolean(clientId)
@@ -69,7 +80,7 @@ export function ProfileTab({ client, edited, updateField, canEdit, clientId }: C
                 onChange={(e) => updateField('client_type', e.target.value as ClientType)}
                 className="w-full px-3 py-2 bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl text-sm font-semibold text-gray-900 dark:text-white outline-none focus:ring-2 focus:ring-tuggi-blue/30 transition-all"
               >
-                {CLIENT_TYPE_VALUES.map((value) => (
+                {typeOptions.map((value) => (
                   <option key={value} value={value}>{t(`clientTypes.${value}`)}</option>
                 ))}
               </select>

@@ -16,6 +16,8 @@ import {
   resolveParentForNewChild,
   canTouchClient,
 } from '@/lib/services/coordinator-service'
+import { describeClientUniqueViolation } from '@/lib/services/client-unique-conflicts'
+import { DEFAULT_CLIENT_TYPE, isRegistrableClientType } from '@/types/clients'
 
 export const dynamic = 'force-dynamic'
 
@@ -85,6 +87,15 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Missing required fields: name, email' }, { status: 400 })
     }
 
+    // A filha nasce aqui, então o tipo dela sai dos quatro que a regra oferece —
+    // BR-B2B-020, item 8. Mais estreito que o CHECK de propósito: ele ainda aceita
+    // `business`, `partner` e `hotel` (linha já gravada continua válida, ninguém
+    // reclassifica), e por isso não responde por esta rota, que carrega `service_role`,
+    // ignora RLS e é a única barreira que sobra. O PATCH de edição não estreita.
+    if (client_type != null && client_type !== '' && !isRegistrableClientType(client_type)) {
+      return NextResponse.json({ error: 'Invalid client_type' }, { status: 400 })
+    }
+
     // O pai vem do SERVIDOR. Um não-admin nunca consegue pendurar uma filha em
     // guarda-chuva alheio, mesmo mandando parent_client_id no body.
     const parent = resolveParentForNewChild(ctx, requestedParent)
@@ -107,7 +118,8 @@ export async function POST(request: NextRequest) {
         postal_code: postal_code || null,
         industry: industry || null,
         website: website || null,
-        client_type: client_type || 'business',
+        // O default é declarado uma vez, em `types/clients.ts`, e lido aqui.
+        client_type: client_type || DEFAULT_CLIENT_TYPE,
         parent_client_id: parent.parentId,
         // Filha de coordenador nasce APPROVED (decisão de produto): o QR precisa funcionar
         // no ato. A landing /d/<slug> não filtra status — uma filha 'pending' captaria
@@ -120,8 +132,11 @@ export async function POST(request: NextRequest) {
       .single()
 
     if (insertError) {
-      if (insertError.code === '23505') {
-        return NextResponse.json({ error: 'Email already exists' }, { status: 409 })
+      // A child sharing the parent's e-mail is the point of this screen, not a conflict:
+      // several places, one owner. Only a real unique constraint answers 409 here.
+      const conflict = describeClientUniqueViolation(insertError)
+      if (conflict) {
+        return NextResponse.json({ error: conflict }, { status: 409 })
       }
       // 23514 = trigger core.enforce_client_hierarchy_depth (2 níveis / ciclo)
       if (insertError.code === '23514') {

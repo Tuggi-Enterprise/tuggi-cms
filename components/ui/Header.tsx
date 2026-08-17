@@ -35,6 +35,7 @@ import {
   Bell,
   Crown,
   Gift,
+  Handshake,
   Mail,
   CalendarDays,
   Store,
@@ -74,6 +75,9 @@ export function Header({ className }: { className?: string }) {
     { name: t('clients'), href: '/admin/clients', icon: Settings, category: 'admin' },
     { name: t('users'), href: '/admin/users', icon: Users, category: 'admin' },
     { name: t('poi_trigger_map'), href: '/admin/poi-trigger-map', icon: Map, category: 'admin' },
+    // Uma entrada só para as duas abas de #341: a fila de convites e a de propostas são o
+    // mesmo trabalho em dois momentos (DS-LAYOUT-003).
+    { name: 'Parcerias', href: '/admin/partnerships', icon: Handshake, category: 'admin' },
     { name: 'Audit Logs', href: '/admin/audit-logs', icon: Activity, category: 'admin' },
     { name: 'Coupons', href: '/admin/coupons', icon: Gift, category: 'marketing' },
     // Módulo Marketing (gated). Push migrou de /dashboard/notifications.

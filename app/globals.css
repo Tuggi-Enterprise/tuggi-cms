@@ -19,11 +19,24 @@
     --muted-foreground: 107 114 126;
     --accent: 240 244 247;
     --accent-foreground: 16 16 16;
-    --destructive: 239 68 68;
+    /* #DC2626 — white on it measures 4.83:1 (WCAG 2.2 SC 1.4.3 AA needs 4.5:1).
+       It was #EF4444, which measures 3.76:1 and failed: `Button variant="destructive"`
+       renders `--destructive-foreground` (white) on this token, and the revoke button
+       of the hour-credit panel is its main use. The `.dark` block below already used
+       this value, so one token now has one value across both halves of the theme.
+       These triplets only reach the screen because `tailwind.config.js` wraps them in
+       `rgb()`; wrapped in `hsl()` this one painted navy (card #329). */
+    --destructive: 220 38 38;
     --destructive-foreground: 255 255 255;
-    --border: 217 217 217; /* #D9D9D9 */
-    --input: 217 217 217;
-    --ring: 0 168 232;
+    /* #B91C1C — white on it measures 6.47:1. The hover state of the destructive button
+       darkens by this token instead of `/90`, which lightens over a light background. */
+    --destructive-hover: 185 28 28;
+    /* `--border`, `--input` and `--ring` are NOT declared here on purpose: nothing
+       consumes them. `tailwind.config.js` declares `border`, `input` and `ring` as
+       literal hexadecimal, so a value written here would be a second source of the
+       same fact that changes nothing on screen — and whoever edited it would believe
+       they had. Removed with the SC 1.4.11 fix of `input` (spec do `design`
+       spec-parceria-formulario-e-contrato-2026-08, §2.3). */
   }
 
   .dark {
@@ -44,9 +57,11 @@
     --accent-foreground: 247 249 250;
     --destructive: 220 38 38;
     --destructive-foreground: 255 255 255;
-    --border: 64 64 64;
-    --input: 64 64 64;
-    --ring: 0 168 232;
+    /* #B91C1C — opaque, so white on it measures the same 6.47:1 as in the light theme.
+       That is the point of a named token: `/90` measured 4.32:1 over a light background
+       and 5.62:1 over a dark one, because opacity composes with whatever is behind. */
+    --destructive-hover: 185 28 28;
+    /* Same as the light block: dead declarations removed, not moved. */
   }
 }
 

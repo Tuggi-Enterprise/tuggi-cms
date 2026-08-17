@@ -8,6 +8,14 @@ import nextTypescript from 'eslint-config-next/typescript'
 // (TypeError: Converting circular structure to JSON, ao tentar validar o
 // plugin 'react' via schema legado do @eslint/eslintrc).
 export default [
+  {
+    // Build artefacts of the component tests (`playwright-ct.config.ts`), all three already
+    // gitignored — but eslint 9's flat config does NOT read `.gitignore`, so they were linted.
+    // `playwright/.cache/` holds Vite's bundled output, which is 71 errors of minified vendor
+    // code: `npm run lint` and therefore the pre-commit hook failed for anyone who had run
+    // `tests/ct/` once, with a diff that contained none of it.
+    ignores: ['playwright/.cache/**', 'playwright-report/**', 'test-results/**'],
+  },
   ...nextCoreWebVitals,
   ...nextTypescript,
   {

@@ -19,6 +19,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
   X, Save, Loader2, Building2, Scale, Users, MapPin, Gift, AlertTriangle, Plus, Edit, Smartphone,
+  FileSignature,
 } from 'lucide-react'
 import { useTranslations } from 'next-intl'
 import { cn } from '@/lib/utils'
@@ -30,9 +31,10 @@ import { TeamTab } from '@/components/admin/clients/tabs/TeamTab'
 import { AppUsersTab, type AppUserLite } from '@/components/admin/clients/tabs/AppUsersTab'
 import { PoisTab } from '@/components/admin/clients/tabs/PoisTab'
 import { CouponsTab } from '@/components/admin/clients/tabs/CouponsTab'
-import type { Client } from '@/types/clients'
+import { ContractTab } from '@/components/admin/clients/tabs/ContractTab'
+import { DEFAULT_CLIENT_TYPE, type Client } from '@/types/clients'
 
-export type ClientEditorTab = 'profile' | 'fiscal' | 'team' | 'appusers' | 'pois' | 'coupons'
+export type ClientEditorTab = 'profile' | 'fiscal' | 'contract' | 'team' | 'appusers' | 'pois' | 'coupons'
 
 interface ClientEditorModalProps {
   clientId?: string
@@ -48,6 +50,9 @@ interface TabDef { id: ClientEditorTab; labelKey: string; icon: typeof Building2
 const TABS: TabDef[] = [
   { id: 'profile', labelKey: 'profile', icon: Building2 },
   { id: 'fiscal', labelKey: 'fiscal', icon: Scale },
+  // Summary only: the contract has its own route (#342). A long document with an audit
+  // trail does not fit in a modal, but its STATE has to be where the team already looks.
+  { id: 'contract', labelKey: 'contract', icon: FileSignature },
   { id: 'team', labelKey: 'team', icon: Users },
   { id: 'appusers', labelKey: 'appusers', icon: Smartphone },
   { id: 'pois', labelKey: 'pois', icon: MapPin },
@@ -96,7 +101,7 @@ export function ClientEditorModal({
       void fetchClient(clientId)
     } else {
       setClient(null)
-      setEdited({ client_type: 'business', status: 'pending', commission_rate: 0.2 })
+      setEdited({ client_type: DEFAULT_CLIENT_TYPE, status: 'pending', commission_rate: 0.2 })
     }
     return () => {
       // Cancel any in-flight fetch when the effect re-runs or unmounts —
@@ -364,6 +369,9 @@ export function ClientEditorModal({
             )}
             {activeTab === 'fiscal' && (
               <FiscalPaymentsTab client={client} edited={edited} updateField={updateField} canEdit clientId={clientId} />
+            )}
+            {activeTab === 'contract' && (
+              <ContractTab client={client} edited={edited} updateField={updateField} canEdit clientId={clientId} />
             )}
             {activeTab === 'team' && (
               <TeamTab client={client} edited={edited} updateField={updateField} canEdit clientId={clientId} />

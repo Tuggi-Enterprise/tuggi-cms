@@ -11,6 +11,11 @@ import {
 import { cn } from '@/lib/utils'
 import { StatCard, StatCardRow } from '@/components/ui/StatCard'
 import { SubscriptionBadge, ProviderIcon, PlatformBadge } from '@/components/ui/SubscriptionBadge'
+import { Button } from '@/components/ui/button'
+import { CreditPanel } from '@/components/admin/credit/CreditPanel'
+import { GrantCreditDialog } from '@/components/admin/credit/GrantCreditDialog'
+import type { GrantTarget } from '@/components/admin/credit/types'
+import { useCmsUser } from '@/lib/hooks/useCmsUser'
 import { useTranslations } from 'next-intl'
 
 // PlayCircle icon (not in lucide-react standard)
@@ -309,16 +314,9 @@ const UserDetailModal = ({
   supabase: any
 }) => {
   const t = useTranslations('Pages.AppUsers.modal')
+  const { isAdmin } = useCmsUser()
   const [user, setUser] = useState<UserDetail | null>(null)
   const [isLoading, setIsLoading] = useState(false)
-
-  // Edit Subscription State
-  const [isEditingSub, setIsEditingSub] = useState(false)
-  const [tiers, setTiers] = useState<any[]>([])
-  const [selectedTierId, setSelectedTierId] = useState<string>('')
-  const [selectedEndDate, setSelectedEndDate] = useState<string>('')
-  const [selectedDays, setSelectedDays] = useState<number | null>(null)
-  const [isSavingSub, setIsSavingSub] = useState(false)
 
   const fetchDetail = useCallback(async () => {
     if (!userId) {
@@ -343,84 +341,6 @@ const UserDetailModal = ({
   }, [userId, supabase])
 
   useEffect(() => { void fetchDetail() }, [fetchDetail])
-
-  const handleEditClick = async () => {
-    if (tiers.length === 0) {
-      try {
-        const { data, error } = await supabase
-          .schema('drive')
-          .from('subscription_tiers')
-          .select('id, display_name, name')
-          .eq('is_active', true)
-        
-        if (!error && data) {
-          setTiers(data)
-        }
-      } catch (err) {
-        console.error('Error fetching tiers:', err)
-      }
-    }
-    
-    // Set initial values from user
-    setSelectedTierId(user?.subscription_tier_id || '')
-    if (user?.subscription_end_date) {
-      setSelectedEndDate(new Date(user.subscription_end_date).toISOString().split('T')[0])
-    } else {
-      setSelectedEndDate('')
-    }
-    setSelectedDays(null)
-    
-    setIsEditingSub(true)
-  }
-
-  const handleSaveSub = async () => {
-    if (!userId || !user) return
-    
-    try {
-      setIsSavingSub(true)
-      
-      const payload: Record<string, any> = {
-        subscription_tier_id: selectedTierId || null,
-      }
-      
-      if (selectedEndDate) {
-        payload.subscription_end_date = new Date(selectedEndDate).toISOString()
-      } else {
-        payload.subscription_end_date = null
-      }
-
-      const res = await fetch(`/api/admin/users/${user.user_id}/subscription`, {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload),
-      })
-
-      const result = await res.json()
-      
-      if (!res.ok) {
-        throw new Error(result.error || t('save_error'))
-      }
-      
-      // Refresh user details to show new tier immediately inside modal
-      const { data: refreshedData, error: refreshError } = await supabase
-        .schema('core')
-        .rpc('dashboard_user_detail', { target_user_id: user.user_id })
-      
-      if (!refreshError && refreshedData && refreshedData.length > 0) {
-        setUser(refreshedData[0])
-      }
-      
-      // Tell parent to refresh the grid
-      if (onUpdate) onUpdate()
-      
-      setIsEditingSub(false)
-    } catch (err) {
-      console.error('Error updating subscription:', err)
-      alert(err instanceof Error ? err.message : t('save_error'))
-    } finally {
-      setIsSavingSub(false)
-    }
-  }
 
   if (!userId) return null
 
@@ -544,124 +464,19 @@ const UserDetailModal = ({
                 </div>
               </div>
 
-              {/* Subscription */}
-              <div className="p-4 bg-gradient-to-r from-gray-50 to-gray-100 dark:from-gray-800/50 dark:to-gray-800 rounded-xl">
-                <div className="flex justify-between items-center mb-3">
-                  <h3 className="text-sm font-bold text-gray-700 dark:text-gray-300 flex items-center">
-                    <CreditCard className="h-4 w-4 mr-2" />
-                    {t('subscription')}
-                  </h3>
-                  {!isEditingSub ? (
-                    <button 
-                      onClick={handleEditClick}
-                      className="text-xs text-tuggi-blue hover:underline font-medium"
-                    >
-                      {t('edit')}
-                    </button>
-                  ) : (
-                    <div className="flex items-center gap-3">
-                      <button 
-                        onClick={() => setIsEditingSub(false)}
-                        className="text-xs text-gray-500 hover:text-gray-700 dark:hover:text-gray-300 font-medium"
-                      >
-                        {t('cancel')}
-                      </button>
-                      <button 
-                        onClick={handleSaveSub}
-                        disabled={isSavingSub}
-                        className="text-xs bg-tuggi-blue text-white px-3 py-1 rounded-md hover:bg-tuggi-blue/80 disabled:opacity-50 transition-colors font-medium"
-                      >
-                        {isSavingSub ? t('saving') : t('save')}
-                      </button>
-                    </div>
-                  )}
-                </div>
-
-                {!isEditingSub ? (
-                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-                    <div>
-                      <p className="text-xs text-gray-500">{t('tier')}</p>
-                      <p className="font-bold text-gray-900 dark:text-white flex items-center gap-2 mt-1">
-                        {user.is_premium ? (
-                          <>
-                            <Crown className="h-4 w-4 text-amber-500" />
-                            {user.subscription_tier_display_name || 'Premium'}
-                          </>
-                        ) : (
-                          'Free'
-                        )}
-                      </p>
-                    </div>
-                    <div>
-                      <p className="text-xs text-gray-500">{t('provider')}</p>
-                      <p className="font-medium text-gray-900 dark:text-white flex items-center gap-1 mt-1">
-                        <ProviderIcon provider={user.subscription_provider} />
-                        {user.subscription_provider || 'N/A'}
-                      </p>
-                    </div>
-                    <div>
-                      <p className="text-xs text-gray-500">{t('expires_at')}</p>
-                      <p className="font-medium text-gray-900 dark:text-white mt-1">
-                        {user.subscription_end_date 
-                          ? new Date(user.subscription_end_date).toLocaleDateString()
-                          : 'N/A'
-                        }
-                      </p>
-                    </div>
-                  </div>
-                ) : (
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mt-4 bg-white dark:bg-gray-900 p-3 rounded-lg border border-gray-200 dark:border-gray-700">
-                    <div>
-                      <label className="block text-xs font-bold text-gray-500 uppercase tracking-wider mb-1">
-                        {t('tier')}
-                      </label>
-                      <select 
-                        value={selectedTierId} 
-                        onChange={e => setSelectedTierId(e.target.value)}
-                        className="w-full text-sm py-1.5 px-2 rounded-md border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-gray-900 dark:text-white focus:ring-1 focus:ring-tuggi-blue"
-                      >
-                        <option value="">{t('select_tier')}</option>
-                        {tiers.map(t => (
-                          <option key={t.id} value={t.id}>{t.display_name} ({t.name})</option>
-                        ))}
-                      </select>
-                    </div>
-                    <div>
-                      <label className="block text-xs font-bold text-gray-500 uppercase tracking-wider mb-2">
-                        {t('duration')}
-                      </label>
-                      <div className="flex gap-2">
-                        {[7, 15, 30].map(days => (
-                          <button
-                            key={days}
-                            type="button"
-                            onClick={() => {
-                              const date = new Date()
-                              date.setDate(date.getDate() + days)
-                              setSelectedEndDate(date.toISOString().split('T')[0])
-                              setSelectedDays(days)
-                            }}
-                            className={cn(
-                              "flex-1 py-2 text-xs font-black rounded-lg border transition-all",
-                              selectedDays === days 
-                                ? "bg-tuggi-blue text-white border-tuggi-blue shadow-md" 
-                                : "bg-white dark:bg-gray-800 text-gray-500 border-gray-200 dark:border-gray-700 hover:border-tuggi-blue/50"
-                            )}
-                          >
-                            {days} {t('days_unit') || 'dias'}
-                          </button>
-                        ))}
-                      </div>
-                      
-                      {selectedEndDate && (
-                        <p className="mt-2 text-[10px] font-bold text-gray-400 uppercase tracking-widest text-center">
-                          {t('expires_at')}: {new Date(selectedEndDate).toLocaleDateString()}
-                        </p>
-                      )}
-                    </div>
-                  </div>
-                )}
-              </div>
+              {/* Access and hour balance — card #310. It replaced the Subscription block,
+                  which edited tier + date and wrote drive.profiles through a service-role
+                  route: a second writer of both the balance and subscription_end_date, where
+                  BR-MONETIZACAO-047 allows one door. */}
+              <CreditPanel
+                userId={user.user_id}
+                name={user.full_name}
+                email={user.email}
+                isAdmin={isAdmin}
+                licenseLabel={user.subscription_tier_display_name}
+                providerLabel={user.subscription_provider}
+                onChanged={() => { void fetchDetail(); if (onUpdate) onUpdate() }}
+              />
 
               {/* Linked Client (partner QR) */}
               <LinkedClientSection
@@ -755,6 +570,7 @@ const UserDetailModal = ({
 
 export default function AppUsersPage() {
   const t = useTranslations('Pages.AppUsers')
+  const tCredit = useTranslations('Pages.AppUsers.credit')
   const supabase = useSupabaseClient()
   const [users, setUsers] = useState<AppUser[]>([])
   const [subscriptionStats, setSubscriptionStats] = useState<SubscriptionStats | null>(null)
@@ -762,6 +578,14 @@ export default function AppUsersPage() {
   const [searchQuery, setSearchQuery] = useState('')
   const [selectedUserId, setSelectedUserId] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
+
+  // Batch grant (card #310). The batch is born from the SELECTION in this list and only
+  // from it: every recipient is an account that already exists and that the operator has
+  // seen. Pasted e-mails would introduce a new class of error — an address that matches no
+  // account — with a resolution screen of its own, and that is a different card.
+  const { isAdmin } = useCmsUser()
+  const [selectedIds, setSelectedIds] = useState<string[]>([])
+  const [batchOpen, setBatchOpen] = useState(false)
   
   // Filters
   const [filterCountry, setFilterCountry] = useState<string>('')
@@ -890,6 +714,26 @@ export default function AppUsersPage() {
     google_subscriptions: 0,
     stripe_subscriptions: 0
   }
+
+  // Selection follows the rows the filters left visible; nothing hidden is ever selected.
+  const visibleIds = sortedUsers.map((user) => user.user_id)
+  const selectedVisibleIds = selectedIds.filter((id) => visibleIds.includes(id))
+  const allVisibleSelected = visibleIds.length > 0 && selectedVisibleIds.length === visibleIds.length
+
+  const toggleUser = (userId: string) => {
+    setSelectedIds((current) =>
+      current.includes(userId) ? current.filter((id) => id !== userId) : [...current, userId]
+    )
+  }
+
+  const toggleAllVisible = () => {
+    setSelectedIds(allVisibleSelected ? [] : visibleIds)
+  }
+
+  const batchTargets: GrantTarget[] = selectedVisibleIds.map((id) => {
+    const user = users.find((candidate) => candidate.user_id === id)
+    return { userId: id, name: user?.full_name ?? null, email: user?.email ?? null }
+  })
 
   const clearFilters = () => {
     setFilterCountry('')
@@ -1061,12 +905,39 @@ export default function AppUsersPage() {
         {t('table.results_info', { filtered: filteredUsers.length, total: users.length })}
       </p>
 
+      {/* Selection bar. The button carries the count — never "Confirmar", never "OK". */}
+      {isAdmin && selectedVisibleIds.length > 0 && (
+        <div className="mb-4 flex flex-wrap items-center gap-3 rounded-xl bg-tuggi-blue/10 px-4 py-3">
+          <span className="text-sm font-bold text-gray-900 dark:text-white">
+            {tCredit('batch.selected', { count: selectedVisibleIds.length })}
+          </span>
+          <Button size="sm" onClick={() => setBatchOpen(true)}>
+            {tCredit('batch.cta', { count: selectedVisibleIds.length })}
+          </Button>
+          <Button size="sm" variant="outline" onClick={() => setSelectedIds([])}>
+            {tCredit('batch.clear')}
+          </Button>
+        </div>
+      )}
+
       {/* Users Table */}
       <div className="bg-white dark:bg-gray-900 rounded-2xl border border-gray-200 dark:border-gray-800 overflow-hidden">
         <div className="overflow-x-auto">
           <table className="w-full">
             <thead>
               <tr className="border-b border-gray-200 dark:border-gray-800 bg-gray-50 dark:bg-gray-800/50">
+                {isAdmin && (
+                  <th className="w-12 px-3 py-4">
+                    {/* 24 x 24 px target — WCAG 2.2 SC 2.5.8. */}
+                    <input
+                      type="checkbox"
+                      className="h-6 w-6 cursor-pointer align-middle"
+                      aria-label={tCredit('batch.select_all')}
+                      checked={allVisibleSelected}
+                      onChange={toggleAllVisible}
+                    />
+                  </th>
+                )}
                 <th 
                   className="px-6 py-4 text-left text-xs font-bold text-gray-500 uppercase tracking-wider"
                 >
@@ -1111,6 +982,7 @@ export default function AppUsersPage() {
               {isLoading ? (
                 [...Array(10)].map((_, i) => (
                   <tr key={i} className="animate-pulse">
+                    {isAdmin && <td className="px-3 py-4"><div className="h-6 w-6 bg-gray-200 dark:bg-gray-700 rounded" /></td>}
                     <td className="px-6 py-4"><div className="h-10 w-48 bg-gray-200 dark:bg-gray-700 rounded" /></td>
                     <td className="px-6 py-4"><div className="h-6 w-20 bg-gray-200 dark:bg-gray-700 rounded-full" /></td>
                     <td className="px-6 py-4"><div className="h-6 w-16 bg-gray-200 dark:bg-gray-700 rounded" /></td>
@@ -1124,7 +996,7 @@ export default function AppUsersPage() {
                 ))
               ) : sortedUsers.length === 0 ? (
                 <tr>
-                  <td colSpan={9} className="px-6 py-12 text-center text-gray-500">
+                  <td colSpan={isAdmin ? 11 : 10} className="px-6 py-12 text-center text-gray-500">
                     {t('table.no_results')}
                   </td>
                 </tr>
@@ -1135,6 +1007,17 @@ export default function AppUsersPage() {
                     className="hover:bg-gray-50 dark:hover:bg-gray-800/50 transition-colors cursor-pointer"
                     onClick={() => setSelectedUserId(user.user_id)}
                   >
+                    {isAdmin && (
+                      <td className="px-3 py-4" onClick={(event) => event.stopPropagation()}>
+                        <input
+                          type="checkbox"
+                          className="h-6 w-6 cursor-pointer align-middle"
+                          aria-label={tCredit('batch.select_user')}
+                          checked={selectedIds.includes(user.user_id)}
+                          onChange={() => toggleUser(user.user_id)}
+                        />
+                      </td>
+                    )}
                     <td className="px-6 py-4">
                       <div className="flex items-center">
                         <div className="h-10 w-10 rounded-full bg-gradient-to-br from-tuggi-blue to-purple-500 flex items-center justify-center text-white font-bold mr-3">
@@ -1220,6 +1103,19 @@ export default function AppUsersPage() {
           </table>
         </div>
       </div>
+
+      {/* Batch grant, from the selection. Same dialog as the individual grant. */}
+      {batchOpen ? (
+        <GrantCreditDialog
+          targets={batchTargets}
+          onClose={() => setBatchOpen(false)}
+          onGranted={() => {
+            setSelectedIds([])
+            fetchUsers()
+            fetchSubscriptionStats()
+          }}
+        />
+      ) : null}
 
       {/* User Detail Modal */}
       <UserDetailModal 

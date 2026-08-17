@@ -166,3 +166,72 @@ test('still answers 400 when no editable field is provided', async () => {
   assert.equal(response.status, 400)
   assert.equal(service.lastUpdate, null)
 })
+
+// ── What a 23505 on `core.clients` is allowed to say (#341) ──
+
+test('#341: a unique violation names the constraint the database reported, not e-mail', async () => {
+  // `core.clients.email` stops being unique in `20260814160000`: one owner, several places.
+  // Four routes answered every 23505 with "Email already exists", which was imprecise before
+  // the migration and false after it — the 409 that is left comes from `slug` or from
+  // `cms_user_id`, and a message naming the wrong column sends the next person to the wrong
+  // field. The mapping is by constraint, so it is true on both sides of the migration.
+  const { describeClientUniqueViolation } = await import('@/lib/services/client-unique-conflicts')
+
+  assert.equal(
+    describeClientUniqueViolation({
+      code: '23505',
+      message: 'duplicate key value violates unique constraint "idx_clients_slug"',
+    }),
+    'Slug already in use'
+  )
+  assert.equal(
+    describeClientUniqueViolation({
+      code: '23505',
+      message: 'duplicate key value violates unique constraint "clients_cms_user_id_key"',
+    }),
+    'This CMS user is already linked to a client'
+  )
+  assert.equal(
+    describeClientUniqueViolation({
+      code: '23505',
+      message: 'duplicate key value violates unique constraint "clients_email_key"',
+    }),
+    'Email already exists',
+    'while the constraint still exists, a collision on it still says e-mail'
+  )
+
+  // A constraint nobody told this function about is the case that produced the lie. It says
+  // that something is taken; it does not invent a column.
+  assert.equal(
+    describeClientUniqueViolation({ code: '23505', message: 'duplicate key value violates X' }),
+    'A unique field of this client record is already taken'
+  )
+
+  // And nothing that is not a unique violation gets turned into a 409.
+  assert.equal(describeClientUniqueViolation({ code: '23514', message: 'depth' }), null)
+  assert.equal(describeClientUniqueViolation(null), null)
+})
+
+test('#341: no route left translating 23505 into an e-mail collision on core.clients', async () => {
+  const { readFileSync } = await import('node:fs')
+  const { resolve } = await import('node:path')
+  const root = resolve(import.meta.dirname, '../..')
+
+  for (const route of [
+    'app/api/admin/clients/route.ts',
+    'app/api/admin/clients/[clientId]/route.ts',
+    'app/api/coordinator/children/route.ts',
+    'app/api/coordinator/children/[childId]/route.ts',
+  ]) {
+    const source = readFileSync(resolve(root, route), 'utf8')
+    assert.equal(
+      source.includes("'Email already exists'"),
+      false,
+      `${route} still names e-mail for a constraint it did not check`
+    )
+    assert.ok(
+      source.includes('describeClientUniqueViolation'),
+      `${route} does not ask which constraint collided`
+    )
+  }
+})

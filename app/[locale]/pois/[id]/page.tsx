@@ -2,9 +2,19 @@
 
 import { useState, useEffect } from 'react'
 import { useSupabaseClient } from '@supabase/auth-helpers-react'
-import { useRouter, useParams } from 'next/navigation'
-import { POIDetailsModal, type POI } from '@/components/poi-management/POIDetailsModal'
+import { useRouter, useParams, useSearchParams } from 'next/navigation'
+import {
+  POIDetailsModal,
+  type POI,
+  type POIDetailsTab,
+} from '@/components/poi-management/POIDetailsModal'
 import { ArrowLeft, Loader2 } from 'lucide-react'
+
+/**
+ * The tabs another screen may send an operator straight to. An allowlist and not a cast: a
+ * `?tab=` nobody implemented would otherwise land the modal on a blank panel.
+ */
+const DEEP_LINK_TABS: POIDetailsTab[] = ['details', 'description', 'trigger-points', 'narration-audio']
 
 export default function POIPage() {
   const [poi, setPoi] = useState<POI | null>(null)
@@ -15,8 +25,31 @@ export default function POIPage() {
   const supabase = useSupabaseClient()
   const router = useRouter()
   const params = useParams()
+  const searchParams = useSearchParams()
   const id = params?.id as string | undefined
   const isCreate = id === 'new'
+
+  /**
+   * WHERE THE OPERATOR CAME FROM, AND WHERE THEY GO BACK TO — DS-LAYOUT-006, point 2.
+   *
+   * A specialised tool reached from a pipeline has to declare the way back with a visible
+   * control, not the browser's back button. `returnTo` is the path and `returnLabel` is the
+   * whole sentence, already built by the caller: the partnership pipeline's copy lives only in
+   * `messages/pt.json` under `Partnerships`, and this screen keeps the operator's locale — so
+   * the caller composes the sentence, and this page renders it rather than growing a
+   * Portuguese-only namespace of its own.
+   *
+   * Only an in-app path is accepted. A `returnTo` that starts with anything but a single `/`
+   * is ignored, so the query string cannot be used to bounce an authenticated operator out to
+   * another origin.
+   */
+  const rawReturnTo = searchParams?.get('returnTo') ?? null
+  const returnTo =
+    rawReturnTo && /^\/[^/\\]/.test(rawReturnTo) ? rawReturnTo : null
+  const returnLabel = returnTo ? searchParams?.get('returnLabel') ?? null : null
+
+  const requestedTab = searchParams?.get('tab')
+  const initialTab = DEEP_LINK_TABS.find((tab) => tab === requestedTab)
 
   useEffect(() => {
     const fetchPOI = async () => {
@@ -139,13 +172,15 @@ export default function POIPage() {
 
   const handleClose = () => {
     setIsModalOpen(false)
-    // Navigate back to the POIs list
-    router.push('/pois')
+    // Back to where the operator came from when a pipeline sent them here; the POI catalogue
+    // otherwise. Going back re-mounts the pipeline screen, which refetches — that is how the
+    // pendency the operator just resolved disappears without a manual reload
+    // (DS-LAYOUT-006, point 3).
+    router.push(returnTo ?? '/pois')
   }
 
   const handleUpdate = () => {
-    // Optionally show a success message or navigate back
-    router.push('/pois')
+    router.push(returnTo ?? '/pois')
   }
 
   if (isLoading) {
@@ -192,7 +227,7 @@ export default function POIPage() {
           className="inline-flex items-center px-4 py-2 bg-white dark:bg-gray-800 text-gray-700 dark:text-gray-300 rounded-lg shadow-lg hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors border border-gray-200 dark:border-gray-600"
         >
           <ArrowLeft className="h-4 w-4 mr-2" />
-          Back to POIs
+          {returnLabel ?? 'Back to POIs'}
         </button>
       </div>
 
@@ -208,6 +243,7 @@ export default function POIPage() {
             onClose={handleClose}
             onUpdate={handleUpdate}
             mode={isCreate ? 'create' : 'view'}
+            initialTab={initialTab}
           />
         </div>
       </div>

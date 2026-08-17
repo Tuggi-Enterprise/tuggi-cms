@@ -10,7 +10,7 @@ import { useEffect, useState } from 'react'
 import { useQueryClient } from '@tanstack/react-query'
 import { useTranslations } from 'next-intl'
 import { Store, Info, Sparkles, Send } from 'lucide-react'
-import { placeService } from '@/lib/core/place-service'
+import { PLACE_TYPES, placeService } from '@/lib/core/place-service'
 import { usePlaceDetails } from '@/lib/hooks/use-places'
 import { useCmsUser } from '@/lib/hooks/useCmsUser'
 import { EntityManagementDrawer } from '@/components/entity-management/EntityManagementDrawer'
@@ -23,7 +23,6 @@ interface PlaceFormModalProps {
   onSaved?: (id: string) => void
 }
 
-const PLACE_TYPES = ['restaurant', 'bar', 'cafe', 'shop', 'hotel', 'service', 'other']
 const AMENITIES: { key: string; t: string }[] = [
   { key: 'has_wifi', t: 'wifi' },
   { key: 'has_outdoor_seating', t: 'outdoor' },
@@ -210,11 +209,21 @@ export function PlaceFormModal({ placeId, isOpen, onClose, onSaved }: PlaceFormM
           </div>
           <div className="md:col-span-3">
             <label className={fieldLabel}>{L('location')} *</label>
+            {/* O endereço vai junto para CENTRALIZAR o mapa quando o local ainda não tem
+                coordenada — é o caso do local que a aprovação do parceiro cria (#371). Ele nunca
+                vira coordenada: quem grava é `handleSave`, com o par que o clique produziu. */}
             <LocationPicker
               editable={canEdit}
               latitude={form.latitude !== '' && form.latitude != null ? Number(form.latitude) : null}
               longitude={form.longitude !== '' && form.longitude != null ? Number(form.longitude) : null}
               name={form.name}
+              address={details?.formatted_address ?? null}
+              captions={{
+                locating: t('address_locating'),
+                centered: t('address_centered'),
+                not_located: t('address_not_located'),
+                no_address: t('address_missing'),
+              }}
               onChange={(lat, lng) => { set('latitude', lat); set('longitude', lng) }}
             />
           </div>

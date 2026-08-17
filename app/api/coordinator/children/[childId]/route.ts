@@ -14,6 +14,7 @@ import {
   pickEditableFields,
   validateAvatarUrl,
 } from '@/lib/services/client-editable-fields'
+import { describeClientUniqueViolation } from '@/lib/services/client-unique-conflicts'
 
 export const dynamic = 'force-dynamic'
 
@@ -92,8 +93,9 @@ export async function PATCH(
       .single()
 
     if (error) {
-      if (error.code === '23505') {
-        return NextResponse.json({ error: 'Email already exists' }, { status: 409 })
+      const conflict = describeClientUniqueViolation(error)
+      if (conflict) {
+        return NextResponse.json({ error: conflict }, { status: 409 })
       }
       return NextResponse.json({ error: error.message }, { status: 500 })
     }

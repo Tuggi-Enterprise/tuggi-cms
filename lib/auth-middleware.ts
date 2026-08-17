@@ -206,11 +206,23 @@ export type GatedRouteHandler<P extends RouteParams = RouteParams> = (
 const rateLimitMap = new Map<string, number[]>()
 
 /**
- * Caps requests per IP, per window. Composes over a gate:
+ * Caps requests per IP, per window, PER PROCESS. Composes over a gate:
  *
  * ```ts
  * export const POST = withRateLimit(10, 60_000)(withAuth({ roles: ['admin'] }, handler))
  * ```
+ *
+ * READ THAT LAST PART BEFORE RELYING ON THIS. The window lives in the `Map` above, which
+ * belongs to one serverless instance: instances are created and destroyed per burst, several
+ * run at once, and a caller who spreads their requests meets a fresh counter almost every
+ * time. So this is a brake on an accidental double-click and on one client hammering one warm
+ * instance — it is NOT a barrier, and a public route that writes to the database cannot be
+ * defended by it alone. This docstring used to say "caps requests per IP" full stop, and the
+ * public partner form was built on that sentence.
+ *
+ * A route that needs a real limit counts in the database, where the window survives the
+ * process: `registerSubmissionAttempt` in `lib/services/partner-proposal-service.ts` is the
+ * shape, and this composer stays in front of it as the cheap first line.
  *
  * It forwards `(req, ctx)` — dropping `ctx` here would hand `{}` to every handler on
  * a dynamic segment, so `/api/pois/[id]` would lose its `id` the moment it got a
