@@ -231,7 +231,7 @@ modo que a revisão seja uma linha e não uma caçada dentro de parágrafo.
 | :-- | :-- |
 | `notices` (nova) | Aviso é por escrito e por e-mail, ao endereço do representante para quem o contrato foi enviado; cada parte mantém o seu atualizado; reputa-se recebido no primeiro dia útil seguinte ao envio. Mensagem de aplicativo de conversa e aviso verbal não produzem efeito |
 | `liability` (nova) | Sem promessa de disponibilidade ininterrupta; crédito proporcional em interrupção contínua imputável à Tuggi; exclusão mútua de lucros cessantes e dano indireto; teto de responsabilidade direta; caso fortuito e força maior (CC, art. 393) |
-| `payment_default` | Multa e juros de mora; rescisão por inadimplência prolongada; e a ambiguidade fechada — a suspensão **não** interrompe a contraprestação |
+| `payment_default` | Rescisão por inadimplência prolongada; multa **só** sobre o débito da rescisão; tolerância que não vira renúncia; e a ambiguidade fechada — a suspensão **não** interrompe a contraprestação |
 | `curation` | O parceiro pode apontar erro factual sobre si e a Tuggi corrige em prazo certo. Alcança o **erro**, não a linha editorial |
 | `price_and_payment` | O valor é bruto, a Tuggi emite documento fiscal por competência, e retenção legal é da fonte pagadora |
 
@@ -241,12 +241,30 @@ Todos em `lib/contract/template.ts`, cada um com o motivo ao lado:
 
 | Constante | Proposto | De onde veio |
 | :-- | --: | :-- |
-| `LATE_INTEREST_MONTHLY_PERCENT` | 1% ao mês | supletivo do art. 406 do Código Civil |
-| `LATE_FINE_PERCENT` | 2% | costume de mercado e teto do CDC, adotado por prudência |
+| `LATE_FINE_PERCENT` | 2% | costume de mercado e teto do CDC, adotado por prudência — e **só sobre o débito da rescisão** |
 | `TERMINATION_FOR_DEFAULT_DAYS` | 60 dias | usual em assinatura mensal |
 | `FACTUAL_CORRECTION_BUSINESS_DAYS` | 5 dias úteis | proposta |
 | `OUTAGE_CREDIT_DAYS` | 5 dias corridos | proposta |
 | `LIABILITY_CAP_MONTHS` | 12 meses | usual em SaaS B2B |
+
+### Por que não há encargo de mora correndo mês a mês
+
+Decisão do operador em 2026-08-18: *"eu nao vou entrar em estresse com parceiro por cause de 1
+real de juros"*. O remédio real é a suspensão da descrição, e cobrar centavos de mora numa
+mensalidade de R$ 100 custa mais em trabalho do que arrecada.
+
+Isso é juridicamente sólido, e não só operacional:
+
+- **Juros de mora não precisam de cláusula.** Com vencimento certo — que agora existe, dia 20 —
+  a mora é automática (Código Civil, arts. 397 e 406). Se um dia houver cobrança judicial, os
+  juros correm de qualquer forma. Por isso o contrato diz *"juros legais"* e não um número que
+  alguém teria de conferir contra a Selic; a constante do juro saiu.
+- **A multa convencional é a única que precisa estar escrita** para existir (art. 408). Ela ficou,
+  escopada ao débito que sobrevive à rescisão — que é quando de fato se cobra.
+- **Cláusula que nunca se aplica é pior que cláusula ausente.** A tolerância repetida gera
+  expectativa legítima (*supressio*), e o dia em que a Tuggi cobrasse, o parceiro alegaria que
+  nunca foi assim. Por isso o último parágrafo diz que deixar de cobrar não importa novação nem
+  renúncia — é ele que permite não cobrar sem perder o direito.
 
 ### Duas escolhas que o advogado deve olhar primeiro
 

@@ -61,9 +61,15 @@ export const DUE_DAY_OF_MONTH = 20
  * dentro de parágrafo. Cada um é o valor de mercado usual para o caso, e nenhum tem origem em
  * regra `BR-*` ainda: `produto` registra depois que o jurídico fechar.
  */
-/** Mora, ao mês, sobre a parcela vencida. 1% é o usual e o teto legal supletivo (CC, art. 406). */
-export const LATE_INTEREST_MONTHLY_PERCENT = 1
-/** Multa moratória. 2% é o costume do mercado e o teto do CDC, adotado aqui por prudência. */
+/**
+ * Multa sobre o débito que sobrevive à rescisão por inadimplência. 2% é o costume do mercado e o
+ * teto do CDC, adotado por prudência.
+ *
+ * NÃO EXISTE CONSTANTE DE JUROS ao lado desta, e a ausência é a decisão: com vencimento certo a
+ * mora é automática (Código Civil, arts. 397 e 406), então o contrato cita `juros legais` e não
+ * um número que alguém teria de conferir contra a Selic. A multa convencional é a única que
+ * precisa estar escrita para existir (art. 408).
+ */
 export const LATE_FINE_PERCENT = 2
 /** Dias corridos do vencimento a partir dos quais a TUGGI pode rescindir por falta de pagamento. */
 export const TERMINATION_FOR_DEFAULT_DAYS = 60
@@ -492,13 +498,24 @@ const V2_REPLACEMENTS: Record<string, ContractClause> = {
       'O pagamento do débito restabelece a descrição, sem nova triagem do insumo já apresentado.',
       // A escada parava na suspensão: no 60º dia o contrato seguia vigente, com o ponto no ar e a
       // comissão correndo, e a TUGGI sem remédio nenhum além de esperar.
-      `Sobre a parcela vencida incidem multa de ${LATE_FINE_PERCENT}% e juros de mora de ` +
-        `${LATE_INTEREST_MONTHLY_PERCENT}% ao mês, calculados pro rata die a partir do vencimento.`,
       `Persistindo a inadimplência por ${TERMINATION_FOR_DEFAULT_DAYS} dias corridos contados do ` +
         `vencimento, a TUGGI poderá rescindir este contrato mediante aviso, sem o prazo de ` +
         `antecedência previsto na cláusula "Da vigência e do início da cobrança" e sem prejuízo da ` +
         `cobrança do débito. A suspensão da descrição não interrompe a contraprestação, que ` +
         `permanece devida enquanto o contrato vigorar.`,
+      // O ENCARGO SÓ APARECE NO FIM, e isso é decisão do operador em 2026-08-18: *"eu nao vou
+      // entrar em estresse com parceiro por cause de 1 real de juros"*. O remédio real é a
+      // suspensão, e cobrar centavos de mora todo mês custa mais do que arrecada.
+      //
+      // Juros de mora não precisavam de cláusula: com vencimento certo a mora é automática
+      // (Código Civil, arts. 397 e 406). A multa convencional precisa (art. 408), e por isso ela
+      // está aqui — escopada ao débito que sobrevive à rescisão, que é quando de fato se cobra.
+      `Rescindido este contrato por inadimplência, o débito remanescente fica sujeito a multa de ` +
+        `${LATE_FINE_PERCENT}% e aos juros legais de mora, contados do vencimento de cada parcela.`,
+      // A defesa contra a supressio. Sem esta linha, deixar de cobrar por meses vira expectativa
+      // legítima, e o dia em que a TUGGI cobrar o parceiro alega que nunca foi assim.
+      'Enquanto o contrato vigorar, a TUGGI pode deixar de cobrar encargos de atraso sem que isso ' +
+        'importe novação, renúncia ou alteração dos prazos deste contrato.',
     ],
   },
   commission: {

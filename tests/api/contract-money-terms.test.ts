@@ -35,7 +35,6 @@ import {
   DUE_DAY_OF_MONTH,
   FACTUAL_CORRECTION_BUSINESS_DAYS,
   LATE_FINE_PERCENT,
-  LATE_INTEREST_MONTHLY_PERCENT,
   LIABILITY_CAP_MONTHS,
   OUTAGE_CREDIT_DAYS,
   TERMINATION_FOR_DEFAULT_DAYS,
@@ -192,17 +191,28 @@ test('the operator types a percentage, and the column keeps the rate', () => {
 // asserções seguram não é a redação: é que cada número da minuta saia de uma constante nomeada,
 // para que a revisão jurídica seja uma linha e não uma caçada dentro de parágrafo.
 
-test('a inadimplência tem juros, multa e uma saída — antes parava na suspensão', () => {
+test('a inadimplência tem uma saída, e o encargo só aparece no fim', () => {
   const text = textOf(snapshot(), 'payment_default')
 
-  assert.match(text, new RegExp(`multa de ${LATE_FINE_PERCENT}%`))
-  assert.match(text, new RegExp(`juros de mora de\\s+${LATE_INTEREST_MONTHLY_PERCENT}% ao mês`))
-  // No 60º dia o contrato seguia vigente, com o ponto no ar e a comissão correndo, e a TUGGI
-  // sem remédio nenhum além de esperar.
+  // O remédio real é a suspensão, e a escada parava nela: no 60º dia o contrato seguia vigente,
+  // com o ponto no ar e a comissão correndo, e a TUGGI sem remédio além de esperar.
   assert.match(text, new RegExp(`${TERMINATION_FOR_DEFAULT_DAYS} dias corridos`))
   assert.match(text, /poderá rescindir/)
   // E a ambiguidade que o parecer nomeou: a suspensão interrompe a cobrança?
   assert.match(text, /A suspensão da descrição não interrompe a contraprestação/)
+
+  // A MULTA NÃO CORRE MÊS A MÊS. Decisão do operador em 2026-08-18: cobrar centavos de mora
+  // custa mais do que arrecada, e cláusula que nunca se aplica é pior que cláusula ausente —
+  // a tolerância repetida vira expectativa legítima. Ela é escopada ao débito da rescisão.
+  assert.match(text, new RegExp(`Rescindido este contrato por inadimplência[\\s\\S]*multa de ${LATE_FINE_PERCENT}%`))
+  assert.equal(/pro rata die a partir do vencimento/.test(text), false)
+
+  // Juros não viram número no contrato: com vencimento certo a mora é automática (CC 397/406).
+  assert.match(text, /juros legais de mora/)
+  assert.equal(/% ao mês/.test(text), false)
+
+  // E a defesa contra a supressio, que é o que permite não cobrar sem perder o direito.
+  assert.match(text, /não[\s\S]*importe novação, renúncia/)
 })
 
 test('a responsabilidade tem teto, a disponibilidade tem verdade, e o teto tem exceções', () => {
