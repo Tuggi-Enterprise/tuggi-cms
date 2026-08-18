@@ -242,6 +242,8 @@ Todos em `lib/contract/template.ts`, cada um com o motivo ao lado:
 | Constante | Proposto | De onde veio |
 | :-- | --: | :-- |
 | `LATE_FINE_PERCENT` | 2% | costume de mercado e teto do CDC, adotado por prudência — e **só sobre o débito da rescisão** |
+| `ADJUSTMENT_INDEX` | IPCA, **como teto** | decisão do operador em 18/08; ver abaixo |
+| `JURISDICTION_CITY/STATE` | São Paulo / SP | sede da Tuggi, decisão do operador em 18/08 |
 | `TERMINATION_FOR_DEFAULT_DAYS` | 60 dias | usual em assinatura mensal |
 | `FACTUAL_CORRECTION_BUSINESS_DAYS` | 5 dias úteis | proposta |
 | `OUTAGE_CREDIT_DAYS` | 5 dias corridos | proposta |
@@ -265,6 +267,33 @@ Isso é juridicamente sólido, e não só operacional:
   expectativa legítima (*supressio*), e o dia em que a Tuggi cobrasse, o parceiro alegaria que
   nunca foi assim. Por isso o último parágrafo diz que deixar de cobrar não importa novação nem
   renúncia — é ele que permite não cobrar sem perder o direito.
+
+### O reajuste é teto, não obrigação — e é a escolha mais incomum do contrato
+
+O operador decidiu em 2026-08-18: *"vamos colocar o IPCA como referencia e nao como indice
+absoluto, reajusta de 37% mata o contrato, mas poderemos aplicar 10"*.
+
+**A escolha do IPCA** é a convencional: o IGP-M mede atacado, é puxado por commodity e câmbio, e
+acumulou mais de 37% em doze meses em 2021 contra inflação ao consumidor perto de 10%. Depois
+daquele salto, o IPCA virou o padrão de contrato de serviço no país.
+
+**Usá-lo como teto é o que muda o contrato de lado.** Índice obrigatório reajusta sozinho e, num
+ano ruim, reajusta contra a vontade das duas partes. Como limite, ele só pode ser aplicado para
+baixo — e cláusula que apenas beneficia quem aderiu não esbarra no art. 424 do Código Civil. É
+das poucas cláusulas deste instrumento que são melhores para o parceiro do que o padrão de
+mercado, e vale dizer isso a ele na conversa comercial.
+
+**A lacuna que um teto abre está fechada**: não reajustar num aniversário não acumula o
+percentual não aplicado nem renuncia aos períodos seguintes. Sem essa linha, a tolerância vira
+crédito guardado na cabeça de um e expectativa legítima na do outro — a mesma defesa contra a
+*supressio* que a cláusula de inadimplência recebeu.
+
+**O foro é São Paulo**, sede da Tuggi. Válido entre empresas (CPC, art. 63), e a eleição que
+acompanha a sede de quem redige é a defensável num contrato de adesão — comarca sem relação com
+ninguém é a que o juiz reputa abusiva de ofício (§3º).
+
+**Pendência de `produto`:** BR-B2B-023, item 2, ainda diz que o índice é escolha do advogado. A
+decisão foi do operador, e o item precisa ser reescrito.
 
 ### Duas escolhas que o advogado deve olhar primeiro
 

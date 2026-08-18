@@ -73,25 +73,38 @@ export const DUE_DAY_OF_MONTH = 20
 export const LATE_FINE_PERCENT = 2
 
 /**
- * O buraco que só o advogado fecha — BR-B2B-023, item 2, e ele continua aberto de propósito.
- *
- * O operador perguntou qual índice é o usual em 2026-08-18 e a resposta é IPCA: o IGP-M mede
- * atacado, é puxado por commodity e câmbio, e acumulou mais de 37% em doze meses em 2021 contra
- * uma inflação ao consumidor perto de 10% — é o reajuste que faz o parceiro cancelar. O IPCA é a
- * inflação oficial, publicada pelo IBGE, e explica-se sozinho ao dono do restaurante.
- *
- * MAS RESPONDER NÃO É DECIDIR. A regra reserva a escolha ao advogado, e trocar o marcador por
- * uma sigla aqui seria um agente tomando a decisão no lugar dele. O marcador fica, e agora ele
- * BLOQUEIA a geração em vez de sair impresso num documento que parece pronto.
- */
-export const ADJUSTMENT_INDEX_PLACEHOLDER = '[ÍNDICE A DEFINIR PELO JURÍDICO]'
-
-/**
  * Todo marcador de revisão que o modelo ainda carrega. `contractChecklist` recusa a geração
  * enquanto qualquer um deles aparecer no texto renderizado — um contrato com colchete no corpo é
  * pior que um campo vazio, porque ele parece pronto.
  */
 export const REVIEW_PLACEHOLDER_PATTERN = /\[[A-ZÀ-Ú][A-ZÀ-Ú\s]+\]/
+
+/**
+ * O índice de reajuste, decidido pelo operador em 2026-08-18 — e ele é TETO, não valor devido.
+ *
+ * *"vamos colocar o IPCA como referencia e nao como indice absoluto, reajusta de 37% mata o
+ * contrato, mas poderemos aplicar 10"*.
+ *
+ * A ESCOLHA DO IPCA. O IGP-M mede preços no atacado e é puxado por commodity e câmbio: acumulou
+ * mais de 37% em doze meses em 2021, contra uma inflação ao consumidor perto de 10%. Aplicar
+ * isso a uma mensalidade vendida para dono de restaurante é o reajuste que faz o parceiro
+ * cancelar. O IPCA é a inflação oficial, publicada pelo IBGE, e explica-se sozinho.
+ *
+ * A ESCOLHA DE USÁ-LO COMO TETO é a que muda o contrato de lado. Índice obrigatório reajusta
+ * sozinho, e num ano ruim reajusta contra a vontade das duas partes. Como limite, ele só pode
+ * ser aplicado para BAIXO — e cláusula que apenas beneficia quem aderiu não esbarra no art. 424
+ * do Código Civil.
+ *
+ * O que ela exige é a linha que fecha a lacuna seguinte: não reajustar num aniversário não
+ * acumula o percentual não aplicado nem renuncia aos períodos seguintes. É a mesma defesa contra
+ * a supressio que a cláusula de inadimplência recebeu, pelo mesmo motivo.
+ *
+ * BR-B2B-023, item 2, reservava a escolha ao advogado, e é por isso que ela esperou dois turnos.
+ * A decisão é do operador; `produto` registra a mudança da regra.
+ */
+export const ADJUSTMENT_INDEX = 'IPCA'
+export const ADJUSTMENT_INDEX_FULL_NAME = 'Índice Nacional de Preços ao Consumidor Amplo'
+export const ADJUSTMENT_INDEX_AUTHORITY = 'IBGE'
 
 /**
  * O foro eleito — a comarca da sede da TUGGI, decidida pelo operador em 2026-08-18.
@@ -483,8 +496,13 @@ const V2_REPLACEMENTS: Record<string, ContractClause> = {
         `valor devido durante a sua vigência. A alteração do valor de contrato vigente depende de termo ` +
         `aditivo com novo aceite do ESTABELECIMENTO, e nenhuma alteração de cadastro interno da TUGGI ` +
         `altera o valor aqui pactuado.`,
-      `O valor será reajustado anualmente, no aniversário deste contrato, pela variação acumulada do ` +
-        `índice ${ADJUSTMENT_INDEX_PLACEHOLDER} no período, ou pelo índice que legalmente o substituir.`,
+      `O valor poderá ser reajustado anualmente, no aniversário deste contrato, em percentual ` +
+        `definido pela TUGGI e limitado à variação acumulada do ${ADJUSTMENT_INDEX} ` +
+        `(${ADJUSTMENT_INDEX_FULL_NAME}), apurado pelo ${ADJUSTMENT_INDEX_AUTHORITY}, no período, ou ` +
+        `do índice que legalmente o substituir.`,
+      `O índice é o TETO do reajuste e não o seu valor obrigatório: a TUGGI pode aplicar percentual ` +
+        `menor ou deixar de reajustar. Fazê-lo em um aniversário não acumula o percentual não ` +
+        `aplicado nem importa renúncia ao reajuste dos períodos seguintes.`,
       // Bruto ou líquido, e quem emite o documento fiscal: nada disso estava dito, e é a
       // primeira pergunta do contador do parceiro.
       'O valor acima é bruto e nele já estão compreendidos os tributos devidos pela TUGGI sobre a ' +

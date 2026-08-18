@@ -22,9 +22,10 @@ import { test } from 'node:test'
 import assert from 'node:assert/strict'
 
 import {
-  ADJUSTMENT_INDEX_PLACEHOLDER,
+  ADJUSTMENT_INDEX,
   JURISDICTION_CITY,
   JURISDICTION_STATE,
+  REVIEW_PLACEHOLDER_PATTERN,
   activeTemplate,
   pendingReviewPlaceholder,
   renderClauses,
@@ -64,35 +65,46 @@ function snapshot(tier: 'free' | 'paid' = 'paid'): ContractSnapshot {
   }
 }
 
-test('o marcador do índice segue aberto — a escolha é do advogado, não de um agente', () => {
+test('o índice é TETO, e não o valor que o reajuste tem de ser', () => {
   const price = renderClauses(snapshot())
     .find((clause) => clause.id === 'price_and_payment')!
     .paragraphs.join(' ')
 
-  // BR-B2B-023, item 2. O operador perguntou qual índice é o usual em 2026-08-18 e a resposta
-  // foi IPCA; responder não é decidir, e nomear a sigla aqui seria um agente escolhendo no
-  // lugar de quem a regra nomeia.
+  assert.equal(ADJUSTMENT_INDEX, 'IPCA')
+  assert.match(price, /IPCA/)
+  assert.match(price, /IBGE/)
+  // O IGP-M mede atacado e acumulou mais de 37% em doze meses em 2021: é o reajuste que faz o
+  // parceiro cancelar.
+  assert.doesNotMatch(price, /IGP-M/)
+
+  // O QUE MUDA O CONTRATO DE LADO. Índice obrigatório reajusta sozinho, e num ano ruim reajusta
+  // contra a vontade das duas partes. Como limite, ele só pode ser aplicado para baixo — e
+  // cláusula que apenas beneficia quem aderiu não esbarra no art. 424 do Código Civil.
+  assert.match(price, /limitado à variação acumulada/)
+  assert.match(price, /TETO do reajuste e não o seu valor obrigatório/)
+
+  // E a lacuna que um teto abre, fechada: não reajustar não vira crédito guardado nem renúncia.
+  assert.match(price, /não acumula o percentual não\s+aplicado/)
+  assert.match(price, /nem importa renúncia ao reajuste dos períodos seguintes/)
+
+  // O substituto legal continua previsto, para o dia em que o IBGE mudar a metodologia.
   assert.match(price, /índice que legalmente o substituir/)
-  assert.ok(price.includes(ADJUSTMENT_INDEX_PLACEHOLDER))
-  for (const index of [/IPCA/, /IGP-M/, /INPC/, /IGPM/]) assert.doesNotMatch(price, index)
 })
 
-test('enquanto houver marcador, o contrato pago não é gerado — e o gratuito não tem o que travar', () => {
-  // A trava que faltava: o buraco era correto e nada impedia mandá-lo ao parceiro impresso.
-  // Um contrato com colchete no corpo é pior que um campo vazio, porque parece pronto.
-  assert.equal(pendingReviewPlaceholder('paid'), ADJUSTMENT_INDEX_PLACEHOLDER)
+test('não sobrou marcador nenhum — e a trava continua de pé para o próximo', () => {
+  // Os dois buracos foram fechados pelo operador em 2026-08-18: IPCA como teto e foro em São
+  // Paulo. Nenhuma faixa tem colchete a resolver, então nada mais bloqueia a geração.
+  for (const tier of ['free', 'paid'] as const) {
+    assert.equal(pendingReviewPlaceholder(tier), null, `faixa ${tier}`)
+  }
 
-  // A faixa gratuita não recebe a cláusula de preço, então não tem índice a definir e não fica
-  // bloqueada por uma decisão que não a alcança. A trava lê o texto RENDERIZADO por faixa, e é
-  // por isso que ela acerta isto sem ninguém ter escrito a exceção.
-  assert.equal(pendingReviewPlaceholder('free'), null)
+  // A MÁQUINA FICA. Ela lê o texto renderizado, não uma lista de marcadores conhecidos: quem
+  // abrir um buraco novo numa cláusula futura fica bloqueado sem lembrar de vir aqui. Provado
+  // aqui contra um marcador inventado, já que o modelo não tem mais nenhum.
+  assert.match('cláusula com [FOO A DEFINIR] no meio', REVIEW_PLACEHOLDER_PATTERN)
+  assert.doesNotMatch('cláusula sem buraco algum', REVIEW_PLACEHOLDER_PATTERN)
 
-  const blocked = checklistFor(client())
-  assert.equal(blocked.ready, false, 'com marcador aberto, a geração é recusada')
-  assert.ok(blocked.missing.find((item) => item.id === 'template_placeholder'))
-
-  // E quando o jurídico fechar o buraco, é ESTE teste que solta a geração: sem marcador, o
-  // item some do checklist.
+  // E o checklist deixa de apontar o item quando não há marcador.
   const free = contractChecklist(
     client(),
     { tier: 'paid', paymentMethod: 'pix', qrDeliveryDays: 30 },

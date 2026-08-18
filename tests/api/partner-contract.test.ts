@@ -525,14 +525,24 @@ test('BR-B2B-023 item 1: prazo indeterminado, 30 dias, sem multa e sem fidelidad
   assert.match(text, /sem multa/i)
 })
 
-test('BR-B2B-023 item 2: no agent names the adjustment index, and the template says so', () => {
+test('BR-B2B-023 item 2: o índice foi decidido pelo OPERADOR, e entrou como teto', () => {
   const text = renderedText(snapshotOf())
-  assert.match(text, /reajustado anualmente/i)
-  assert.match(text, /ÍNDICE A DEFINIR PELO JURÍDICO/)
-  // Naming one here would be an agent taking a decision the rule reserves for the lawyer.
-  for (const index of [/IPCA/, /IGP-M/, /INPC/, /IGPM/]) {
-    assert.doesNotMatch(text, index)
-  }
+
+  // A regra reservava a escolha ao advogado, e este teste segurou duas tentativas minhas de
+  // nomear o índice. Quem decidiu foi o operador, em 2026-08-18, e a decisão dele é IPCA como
+  // LIMITE — `produto` reescreve o item 2 para registrar. Enquanto isso, a asserção deixa de
+  // proibir a sigla e passa a exigir o que torna a escolha defensável.
+  assert.match(text, /reajustado anualmente|poderá ser reajustado anualmente/i)
+  assert.match(text, /IPCA/)
+  assert.doesNotMatch(text, /ÍNDICE A DEFINIR/)
+
+  // O teto é o ponto: índice obrigatório reajusta sozinho e, num ano ruim, contra a vontade das
+  // duas partes. Só para baixo, ele apenas beneficia quem aderiu.
+  assert.match(text, /limitado à variação acumulada/)
+  assert.match(text, /não o seu valor obrigatório/)
+
+  // E o IGP-M continua fora: mede atacado e acumulou mais de 37% em doze meses em 2021.
+  for (const index of [/IGP-M/, /IGPM/, /INPC/]) assert.doesNotMatch(text, index)
 })
 
 test('BR-B2B-023 items 3 and 4: non-exclusivity and the two-way brand licence are in', () => {

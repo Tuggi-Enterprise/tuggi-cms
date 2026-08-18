@@ -22,7 +22,7 @@
  */
 
 import { formatCommissionRate, formatFee, type ContractSnapshot } from './snapshot'
-import { DUE_DAY_OF_MONTH, TERMINATION_NOTICE_DAYS } from './template'
+import { ADJUSTMENT_INDEX, DUE_DAY_OF_MONTH, TERMINATION_NOTICE_DAYS } from './template'
 
 export interface SummaryRow {
   /** Estável; o teste cita este id, nunca a posição. */
@@ -48,7 +48,8 @@ export function buildContractSummary(snapshot: ContractSnapshot): SummaryRow[] {
     ? 'Nada. A faixa gratuita não tem mensalidade.'
     : snapshot.isCourtesy
       ? `Nada, enquanto durar a cortesia (${snapshot.courtesyReason}).`
-      : `${formatFee(snapshot.monthlyFeeCents)} por mês.`
+      : `${formatFee(snapshot.monthlyFeeCents)} por mês. Uma vez por ano o valor pode subir, no ` +
+        `máximo pela inflação do período (${ADJUSTMENT_INDEX}) — nunca mais que isso.`
 
   const when = !paid || snapshot.isCourtesy
     ? 'Não há cobrança.'
