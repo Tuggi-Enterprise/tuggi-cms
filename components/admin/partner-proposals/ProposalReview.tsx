@@ -54,6 +54,34 @@ import { OutboundMessage, type OutboundKind } from './OutboundMessage'
 import { formatDate, formatDateTime } from './format'
 import type { ProposalDetail } from './types'
 
+/**
+ * THE SHELL IS `/pois`'s, THE INK IS NOT — and the two halves are separable on purpose.
+ *
+ * The CMS's visual language is the glass panel: `rounded-3xl`, `backdrop-blur-xl`, a hairline
+ * border and a wide shadow, over `bg-gray-50 dark:bg-gray-950`. This screen was the only
+ * dialect left that drew flat `rounded-md` boxes on plain white with no dark theme at all, so
+ * an operator arriving from `/pois` in the dark got a white flash.
+ *
+ * What it does NOT take from `/pois` is the paint. That screen writes text and draws
+ * informative icons in `text-tuggi-blue` (#00A8E8, 2.70:1 on white — SC 1.4.3 asks 4.5:1).
+ * Here the ink stays `text-primary-800` (#00719F, 5.44:1) in daylight and becomes
+ * `text-tuggi-blue` in the dark, where the same colour measures 6.57:1 over `gray-900`. The
+ * brand blue is not a bad ink; it is a bad ink ON WHITE.
+ *
+ * Micro-caps labels are `text-gray-500` and not `/pois`'s `text-gray-400`, which measures
+ * 2.51:1 at 10px — a defect of the pattern, reported to `design` in
+ * `docs/dev/briefing-design-parcerias.md`.
+ */
+const CARD =
+  'rounded-3xl border border-gray-200 bg-white/70 shadow-2xl shadow-black/5 backdrop-blur-xl ' +
+  'dark:border-gray-800 dark:bg-gray-900/70'
+
+/** One typed control, in the shape the rest of the CMS uses. */
+const FIELD =
+  'block w-full rounded-xl border border-gray-200 bg-gray-50/50 px-3 py-2.5 text-sm text-gray-900 ' +
+  'outline-none transition-all focus:border-transparent focus:ring-2 focus:ring-primary-800 ' +
+  'dark:border-gray-700 dark:bg-gray-900/50 dark:text-white'
+
 const STORY_FIELDS: PartnerFieldId[] = ['story_founder', 'story_before', 'story_unique', 'story_event']
 
 const OUTBOUND_KINDS: OutboundKind[] = ['regularity', 'gate1', 'gate2', 'gate3']
@@ -129,7 +157,7 @@ export function ProposalReview({ locale, submissionId }: ProposalReviewProps) {
 
   if (loading) {
     return (
-      <p className="p-6 text-sm text-gray-800" aria-busy="true">
+      <p className="min-h-screen bg-gray-50 p-8 text-sm text-gray-800 dark:bg-gray-950 dark:text-gray-300" aria-busy="true">
         <Loader2 className="mr-2 inline h-4 w-4 animate-spin" aria-hidden="true" />
         {t('review.loading')}
       </p>
@@ -138,12 +166,12 @@ export function ProposalReview({ locale, submissionId }: ProposalReviewProps) {
 
   if (notFound) {
     return (
-      <div className="p-6">
-        <p className="font-medium text-gray-900">{t('review.notFoundTitle')}</p>
-        <p className="mt-1 text-sm text-gray-800">{t('review.notFoundBody')}</p>
+      <div className="min-h-screen bg-gray-50 p-8 dark:bg-gray-950">
+        <p className="font-medium text-gray-900 dark:text-white">{t('review.notFoundTitle')}</p>
+        <p className="mt-1 text-sm text-gray-800 dark:text-gray-300">{t('review.notFoundBody')}</p>
         <Link
           href={`/${locale}/admin/clients?state=in_progress`}
-          className="mt-3 inline-block text-sm font-medium text-primary-800 underline underline-offset-4"
+          className="mt-3 inline-block text-sm font-medium text-primary-800 underline dark:text-tuggi-blue underline-offset-4"
         >
           {t('review.back')}
         </Link>
@@ -153,8 +181,8 @@ export function ProposalReview({ locale, submissionId }: ProposalReviewProps) {
 
   if (failed || !detail) {
     return (
-      <div className="p-6">
-        <p className="font-medium text-gray-900">{t('review.errorTitle')}</p>
+      <div className="min-h-screen bg-gray-50 p-8 dark:bg-gray-950">
+        <p className="font-medium text-gray-900 dark:text-white">{t('review.errorTitle')}</p>
         <Button variant="outline" className="mt-3" onClick={load}>
           {t('review.retry')}
         </Button>
@@ -239,12 +267,14 @@ export function ProposalReview({ locale, submissionId }: ProposalReviewProps) {
   }
 
   return (
-    <div className="mx-auto w-full max-w-7xl px-6 py-6">
+    // The frame of `/pois`, which is the CMS's: page ground, generous padding, and every panel
+    // a glass card. The INK is not `/pois`'s — see the note above `CARD`.
+    <div className="min-h-screen bg-gray-50 p-6 dark:bg-gray-950 lg:p-8">
       {/* Sticky, so promoting a long proposal never asks the operator to scroll back. */}
-      <header className="sticky top-0 z-10 -mx-6 mb-5 border-b border-gray-200 bg-white px-6 py-4">
+      <header className={`${CARD} sticky top-0 z-30 mb-6 px-6 py-4`}>
         <Link
           href={`/${locale}/admin/clients?state=in_progress`}
-          className="inline-flex items-center gap-1 text-sm text-primary-800 underline underline-offset-4"
+          className="inline-flex items-center gap-1 text-sm text-primary-800 underline dark:text-tuggi-blue underline-offset-4"
         >
           <ArrowLeft className="h-3 w-3" aria-hidden="true" />
           {t('review.back')}
@@ -252,10 +282,10 @@ export function ProposalReview({ locale, submissionId }: ProposalReviewProps) {
 
         <div className="mt-2 flex flex-wrap items-baseline justify-between gap-3">
           <div>
-            <h1 className="text-xl font-semibold text-gray-900">
+            <h1 className="text-xl font-semibold text-gray-900 dark:text-white">
               {tradeName || t('review.noTradeName')}
             </h1>
-            <p className="text-sm text-gray-700">
+            <p className="text-sm text-gray-700 dark:text-gray-400">
               {answers.tax_id ? t('review.taxId', { value: answers.tax_id }) : ''}
               {detail.submission.submittedAt
                 ? ` · ${t('review.receivedAt', { date: formatDate(detail.submission.submittedAt) })}`
@@ -267,7 +297,7 @@ export function ProposalReview({ locale, submissionId }: ProposalReviewProps) {
           <div className="flex items-center gap-3">
             {isSubmitted && (
               <>
-                <Button onClick={() => setPromoting(true)}>{t('promotion.action')}</Button>
+                <Button variant="cta" onClick={() => setPromoting(true)}>{t('promotion.action')}</Button>
                 <Button variant="outline" onClick={() => setDiscarding(true)}>
                   {t('discard.action')}
                 </Button>
@@ -283,7 +313,7 @@ export function ProposalReview({ locale, submissionId }: ProposalReviewProps) {
       </header>
 
       {isPromoted && (
-        <div className="mb-4 rounded-md border border-green-700/40 bg-green-50 p-3 text-sm text-gray-900">
+        <div className="mb-4 rounded-md border border-green-700/40 bg-green-50 p-3 text-sm text-gray-900 dark:text-white">
           <p className="font-semibold">
             {t('review.promotedTitle', {
               date: formatDate(detail.submission.promotedAt),
@@ -302,7 +332,7 @@ export function ProposalReview({ locale, submissionId }: ProposalReviewProps) {
                   t('review.promotedReturnLabel')
                 ),
               }).toString()}`}
-              className="mt-1 inline-block font-medium text-primary-800 underline underline-offset-4"
+              className="mt-1 inline-block font-medium text-primary-800 underline dark:text-tuggi-blue underline-offset-4"
             >
               {t('review.promotedOpenClient', { name: detail.client?.name ?? tradeName })}
             </Link>
@@ -333,18 +363,18 @@ export function ProposalReview({ locale, submissionId }: ProposalReviewProps) {
       )}
 
       {discarding && (
-        <section className="mt-5 rounded-md border border-gray-300 bg-white p-4 text-sm">
-          <h2 className="text-base font-semibold text-gray-900">{t('discard.title')}</h2>
-          <p className="mt-2 text-gray-900">{t('discard.notTriage')}</p>
+        <section className={`${CARD} mt-6 p-6 text-sm`}>
+          <h2 className="text-base font-semibold text-gray-900 dark:text-white">{t('discard.title')}</h2>
+          <p className="mt-2 text-gray-900 dark:text-white">{t('discard.notTriage')}</p>
 
-          <label htmlFor="discard-reason" className="mt-3 block font-medium text-gray-700">
+          <label htmlFor="discard-reason" className="mt-3 block font-medium text-gray-700 dark:text-gray-400">
             {t('discard.reasonLabel')}
           </label>
           <select
             id="discard-reason"
             value={discardReason}
             onChange={(event) => setDiscardReason(event.target.value as DiscardReasonId)}
-            className="mt-1 block w-full rounded-md border border-input bg-white px-3 py-2 text-sm text-gray-900"
+            className={`mt-1 ${FIELD}`}
           >
             {DISCARD_REASONS.map((reason) => (
               <option key={reason.id} value={reason.id}>
@@ -354,13 +384,13 @@ export function ProposalReview({ locale, submissionId }: ProposalReviewProps) {
           </select>
 
           {DISCARD_REASONS.find((reason) => reason.id === discardReason)?.notifies && (
-            <p className="mt-2 text-xs text-gray-800">{t('discard.notifies')}</p>
+            <p className="mt-2 text-xs text-gray-800 dark:text-gray-300">{t('discard.notifies')}</p>
           )}
 
-          <p className="mt-3 text-gray-800">{t('discard.reversible')}</p>
+          <p className="mt-3 text-gray-800 dark:text-gray-300">{t('discard.reversible')}</p>
 
           {discardError && (
-            <p className="mt-2 rounded-md border border-destructive/40 bg-destructive/5 p-2 text-gray-900">
+            <p className="mt-2 rounded-md border border-destructive/40 bg-destructive/5 p-2 text-gray-900 dark:text-white">
               {t('discard.failed')}
             </p>
           )}
@@ -379,7 +409,7 @@ export function ProposalReview({ locale, submissionId }: ProposalReviewProps) {
       <div className="mt-5 grid gap-5 lg:grid-cols-[minmax(0,1fr)_20rem]">
         <div className="space-y-5">
           {detail.duplicates.length > 0 && (
-            <div className="rounded-md border border-secondary-700/50 bg-secondary-50 p-3 text-sm text-gray-900">
+            <div className="rounded-md border border-secondary-700/50 bg-secondary-50 p-3 text-sm text-gray-900 dark:text-white">
               <p className="font-semibold">
                 {t('review.duplicateTitle', { count: detail.duplicates.length })}
               </p>
@@ -389,7 +419,7 @@ export function ProposalReview({ locale, submissionId }: ProposalReviewProps) {
                   <li key={duplicate.id}>
                     <Link
                       href={`/${locale}/admin/partnerships/proposals/${duplicate.id}`}
-                      className="font-medium text-primary-800 underline underline-offset-4"
+                      className="font-medium text-primary-800 underline dark:text-tuggi-blue underline-offset-4"
                     >
                       {t('review.duplicateOpen', { date: formatDateTime(duplicate.submittedAt) })}
                     </Link>
@@ -399,21 +429,21 @@ export function ProposalReview({ locale, submissionId }: ProposalReviewProps) {
             </div>
           )}
 
-          <section aria-labelledby="answers-heading">
-            <h2 id="answers-heading" className="text-base font-semibold text-gray-900">
+          <section aria-labelledby="answers-heading" className={`${CARD} p-6`}>
+            <h2 id="answers-heading" className="text-base font-semibold text-gray-900 dark:text-white">
               {t('review.answersHeading')}
             </h2>
 
             {([1, 2] as const).map((step) => (
               <div key={step} className="mt-4">
-                <h3 className="text-sm font-semibold uppercase tracking-wide text-gray-700">
+                <h3 className="text-sm font-semibold uppercase tracking-wide text-gray-700 dark:text-gray-400">
                   {t(`review.step${step}Heading`)}
                 </h3>
                 <dl className="mt-2 grid gap-x-6 gap-y-2 sm:grid-cols-2">
                   {fieldsOfStep(step).map((field) => (
                     <div key={field.id}>
-                      <dt className="text-xs text-gray-700">{form(`fields.${field.id}.label`)}</dt>
-                      <dd className="text-sm text-gray-900">
+                      <dt className="text-xs text-gray-700 dark:text-gray-400">{form(`fields.${field.id}.label`)}</dt>
+                      <dd className="text-sm text-gray-900 dark:text-white">
                         {answers[field.id] ? (
                           answers[field.id]
                         ) : (
@@ -435,9 +465,9 @@ export function ProposalReview({ locale, submissionId }: ProposalReviewProps) {
             ))}
           </section>
 
-          <section aria-labelledby="story-heading" className="rounded-md border border-gray-300 p-4">
+          <section aria-labelledby="story-heading" className={`${CARD} p-6`}>
             <div className="flex flex-wrap items-baseline justify-between gap-3">
-              <h2 id="story-heading" className="text-base font-semibold text-gray-900">
+              <h2 id="story-heading" className="text-base font-semibold text-gray-900 dark:text-white">
                 {t('story.heading')}
               </h2>
               <Button
@@ -451,7 +481,7 @@ export function ProposalReview({ locale, submissionId }: ProposalReviewProps) {
             </div>
 
             {substitute && (
-              <p className="mt-2 rounded-md border border-primary/40 bg-primary-50 p-2 text-sm text-gray-900">
+              <p className="mt-2 rounded-md border border-primary/40 bg-primary-50 p-2 text-sm text-gray-900 dark:text-white">
                 {t('story.substituteIntro')}
               </p>
             )}
@@ -470,8 +500,8 @@ export function ProposalReview({ locale, submissionId }: ProposalReviewProps) {
                   : value
                 return (
                   <div key={field}>
-                    <dt className="text-xs text-gray-700">{form(`fields.${field}.label`)}</dt>
-                    <dd className="text-sm text-gray-900">
+                    <dt className="text-xs text-gray-700 dark:text-gray-400">{form(`fields.${field}.label`)}</dt>
+                    <dd className="text-sm text-gray-900 dark:text-white">
                       {value ? (
                         <>
                           <span className="whitespace-pre-wrap break-words">{shown}</span>
@@ -482,7 +512,7 @@ export function ProposalReview({ locale, submissionId }: ProposalReviewProps) {
                           )}
                         </>
                       ) : (
-                        <span className="text-gray-700">{t('story.noAnswer')}</span>
+                        <span className="text-gray-700 dark:text-gray-400">{t('story.noAnswer')}</span>
                       )}
                     </dd>
                   </div>
@@ -491,10 +521,10 @@ export function ProposalReview({ locale, submissionId }: ProposalReviewProps) {
             </dl>
 
             <fieldset className="mt-4">
-              <legend className="text-sm font-medium text-gray-900">{t('story.marksHeading')}</legend>
+              <legend className="text-sm font-medium text-gray-900 dark:text-white">{t('story.marksHeading')}</legend>
               <div className="mt-2 space-y-2">
                 {REVIEW_MARKS.map((mark) => (
-                  <label key={mark} className="flex items-center gap-2 text-sm text-gray-900">
+                  <label key={mark} className="flex items-center gap-2 text-sm text-gray-900 dark:text-white">
                     <Checkbox
                       checked={marks.indexOf(mark) >= 0}
                       onCheckedChange={() =>
@@ -512,7 +542,7 @@ export function ProposalReview({ locale, submissionId }: ProposalReviewProps) {
             </fieldset>
 
             <div className="mt-3">
-              <label htmlFor="review-observation" className="block text-sm font-medium text-gray-700">
+              <label htmlFor="review-observation" className="block text-sm font-medium text-gray-700 dark:text-gray-400">
                 {t('story.observationLabel')}
               </label>
               <textarea
@@ -520,12 +550,12 @@ export function ProposalReview({ locale, submissionId }: ProposalReviewProps) {
                 value={observation}
                 rows={3}
                 onChange={(event) => setObservation(event.target.value)}
-                className="mt-1 block w-full rounded-md border border-input bg-white px-3 py-2 text-sm text-gray-900"
+                className={`mt-1 ${FIELD}`}
               />
             </div>
 
             <div className="mt-3 flex items-center gap-3">
-              <Button type="button" size="sm" onClick={saveNote} disabled={noteState === 'saving'}>
+              <Button type="button" variant="cta" size="sm" onClick={saveNote} disabled={noteState === 'saving'}>
                 {noteState === 'saving' ? t('story.saving') : t('story.save')}
               </Button>
               <span role="status" className="text-sm text-primary-800">
@@ -536,7 +566,7 @@ export function ProposalReview({ locale, submissionId }: ProposalReviewProps) {
               )}
             </div>
 
-            <p className="mt-4 border-t border-gray-200 pt-3 text-xs text-gray-800">
+            <p className="mt-4 border-t border-gray-200 pt-3 dark:border-gray-800 text-xs text-gray-800 dark:text-gray-300">
               {t('story.footer')}
             </p>
           </section>
@@ -544,14 +574,14 @@ export function ProposalReview({ locale, submissionId }: ProposalReviewProps) {
           {/* The five texts of §5, chosen by the operator. Gate 3 is on the list and has no
               template — it is the option that explains why there is nothing to send. */}
           <section aria-labelledby="outbound-picker" className="space-y-3">
-            <label id="outbound-picker" htmlFor="outbound-kind" className="block text-sm font-medium text-gray-700">
+            <label id="outbound-picker" htmlFor="outbound-kind" className="block text-sm font-medium text-gray-700 dark:text-gray-400">
               {t('outbound.pick')}
             </label>
             <select
               id="outbound-kind"
               value={outbound ?? ''}
               onChange={(event) => setOutbound((event.target.value || null) as OutboundKind | null)}
-              className="block w-full max-w-sm rounded-md border border-input bg-white px-3 py-2 text-sm text-gray-900"
+              className={`${FIELD} max-w-sm`}
             >
               <option value="">{t('outbound.pickNone')}</option>
               {OUTBOUND_KINDS.map((kind) => (
@@ -579,16 +609,16 @@ export function ProposalReview({ locale, submissionId }: ProposalReviewProps) {
               papers are seen in person before the link is sent, and one operator writes down
               what they saw. It is saved with the annotation below, under their name, and it is
               what the band at the top reads. */}
-          <section aria-labelledby="conference-heading" className="rounded-md border border-gray-300 p-4">
-            <h2 id="conference-heading" className="text-base font-semibold text-gray-900">
+          <section aria-labelledby="conference-heading" className={`${CARD} p-6`}>
+            <h2 id="conference-heading" className="text-base font-semibold text-gray-900 dark:text-white">
               {t('conference.heading')}
             </h2>
-            <p className="mt-1 text-sm text-gray-800">{t('conference.intro')}</p>
+            <p className="mt-1 text-sm text-gray-800 dark:text-gray-300">{t('conference.intro')}</p>
 
             <fieldset className="mt-3">
               <legend className="sr-only">{t('conference.heading')}</legend>
               {PARTNER_DOCUMENT_KINDS.map((kind) => (
-                <label key={kind} className="mt-2 flex items-start gap-2 text-sm text-gray-900">
+                <label key={kind} className="mt-2 flex items-start gap-2 text-sm text-gray-900 dark:text-white">
                   <Checkbox
                     checked={conference.documentsSeen.indexOf(kind) >= 0}
                     onCheckedChange={() => toggleDocumentSeen(kind)}
@@ -601,7 +631,7 @@ export function ProposalReview({ locale, submissionId }: ProposalReviewProps) {
             {/* Number, municipality, validity — the order the three appear on the paper in the
                 operator's hand. Any other order makes them read the document twice. */}
             <div className="mt-3">
-              <label htmlFor="license-number" className="block text-sm font-medium text-gray-700">
+              <label htmlFor="license-number" className="block text-sm font-medium text-gray-700 dark:text-gray-400">
                 {t('conference.licenseNumberLabel')}
               </label>
               <input
@@ -617,15 +647,15 @@ export function ProposalReview({ locale, submissionId }: ProposalReviewProps) {
                     licenseNumber: event.target.value || null,
                   }))
                 }
-                className="mt-1 block w-full rounded-md border border-input bg-white px-3 py-2 text-sm text-gray-900 disabled:bg-gray-100"
+                className={`mt-1 ${FIELD} disabled:opacity-50`}
               />
-              <span id="license-number-hint" className="mt-1 block text-xs text-gray-800">
+              <span id="license-number-hint" className="mt-1 block text-xs text-gray-800 dark:text-gray-300">
                 {licenseSeen ? t('conference.licenseNumberHint') : t('conference.licenseNumberDisabled')}
               </span>
             </div>
 
             <div className="mt-3">
-              <label htmlFor="license-issuer" className="block text-sm font-medium text-gray-700">
+              <label htmlFor="license-issuer" className="block text-sm font-medium text-gray-700 dark:text-gray-400">
                 {t('conference.licenseIssuerLabel')}
               </label>
               <input
@@ -641,15 +671,15 @@ export function ProposalReview({ locale, submissionId }: ProposalReviewProps) {
                     licenseIssuer: event.target.value || null,
                   }))
                 }
-                className="mt-1 block w-full rounded-md border border-input bg-white px-3 py-2 text-sm text-gray-900 disabled:bg-gray-100"
+                className={`mt-1 ${FIELD} disabled:opacity-50`}
               />
-              <span id="license-issuer-hint" className="mt-1 block text-xs text-gray-800">
+              <span id="license-issuer-hint" className="mt-1 block text-xs text-gray-800 dark:text-gray-300">
                 {licenseSeen ? t('conference.licenseIssuerHint') : t('conference.licenseIssuerDisabled')}
               </span>
             </div>
 
             <div className="mt-3">
-              <label htmlFor="license-valid-until" className="block text-sm font-medium text-gray-700">
+              <label htmlFor="license-valid-until" className="block text-sm font-medium text-gray-700 dark:text-gray-400">
                 {t('conference.validUntilLabel')}
               </label>
               <input
@@ -664,22 +694,22 @@ export function ProposalReview({ locale, submissionId }: ProposalReviewProps) {
                     licenseValidUntil: event.target.value || null,
                   }))
                 }
-                className="mt-1 block w-full rounded-md border border-input bg-white px-3 py-2 text-sm text-gray-900 disabled:bg-gray-100"
+                className={`mt-1 ${FIELD} disabled:opacity-50`}
               />
               {/* The reason beside the disabled control, never the grey alone: without a
                   licence there is no date to copy off one. */}
-              <span id="license-valid-until-hint" className="mt-1 block text-xs text-gray-800">
+              <span id="license-valid-until-hint" className="mt-1 block text-xs text-gray-800 dark:text-gray-300">
                 {licenseSeen ? t('conference.validUntilHint') : t('conference.validUntilDisabled')}
               </span>
             </div>
 
-            <p className="mt-3 border-t border-gray-200 pt-2 text-xs text-gray-800">
+            <p className="mt-3 border-t border-gray-200 pt-2 dark:border-gray-800 text-xs text-gray-800 dark:text-gray-300">
               {t('conference.savedWithNote')}
             </p>
           </section>
 
           {isDiscarded && (
-            <p className="rounded-md border border-gray-300 bg-gray-50 p-3 text-sm text-gray-900">
+            <p className={`${CARD} p-4 text-sm text-gray-900 dark:text-gray-200`}>
               <AlertTriangle className="mr-1 inline h-4 w-4" aria-hidden="true" />
               {t('review.discardedTitle', { date: formatDate(detail.submission.updatedAt) })}
             </p>

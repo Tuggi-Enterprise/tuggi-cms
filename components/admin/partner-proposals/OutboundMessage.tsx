@@ -26,6 +26,19 @@ import { useTranslations } from 'next-intl'
 import { Button } from '@/components/ui/button'
 import type { RegularityReport } from '@/lib/partner-form/regularity'
 
+/**
+ * The shell is the CMS's glass panel; the ink stays accessible — see the note in
+ * `ProposalReview.tsx`, which declares the same two constants for the same reason.
+ */
+const CARD =
+  'rounded-3xl border border-gray-200 bg-white/70 shadow-2xl shadow-black/5 backdrop-blur-xl ' +
+  'dark:border-gray-800 dark:bg-gray-900/70'
+
+const FIELD =
+  'block w-full rounded-xl border border-gray-200 bg-gray-50/50 px-3 py-2.5 text-sm text-gray-900 ' +
+  'outline-none transition-all focus:border-transparent focus:ring-2 focus:ring-primary-800 ' +
+  'dark:border-gray-700 dark:bg-gray-900/50 dark:text-white'
+
 export type OutboundKind = 'regularity' | 'gate1' | 'gate2' | 'gate3'
 
 /**
@@ -60,9 +73,9 @@ export function OutboundMessage({
 
   if (kind === 'gate3') {
     return (
-      <section className="rounded-md border border-gray-300 bg-gray-50 p-4 text-sm">
-        <h3 className="font-semibold text-gray-900">{t('outbound.gate3NoTemplate')}</h3>
-        <p className="mt-1 text-gray-800">{t('outbound.gate3Body')}</p>
+      <section className={`${CARD} p-6 text-sm`}>
+        <h3 className="font-semibold text-gray-900 dark:text-white">{t('outbound.gate3NoTemplate')}</h3>
+        <p className="mt-1 text-gray-800 dark:text-gray-300">{t('outbound.gate3Body')}</p>
       </section>
     )
   }
@@ -112,13 +125,13 @@ export function OutboundMessage({
   }
 
   return (
-    <section className="rounded-md border border-gray-300 bg-white p-4 text-sm">
-      <h3 className="font-semibold text-gray-900">{t('outbound.heading')}</h3>
-      <p className="mt-1 text-xs text-gray-700">{t('outbound.manualNotice')}</p>
+    <section className={`${CARD} p-6 text-sm`}>
+      <h3 className="font-semibold text-gray-900 dark:text-white">{t('outbound.heading')}</h3>
+      <p className="mt-1 text-xs text-gray-700 dark:text-gray-400">{t('outbound.manualNotice')}</p>
 
       {kind === 'gate1' && (
         <div className="mt-3">
-          <label htmlFor="gate1-reason" className="block text-sm font-medium text-gray-700">
+          <label htmlFor="gate1-reason" className="block text-sm font-medium text-gray-700 dark:text-gray-400">
             {t('discard.reasonLabel')}
           </label>
           <select
@@ -127,7 +140,7 @@ export function OutboundMessage({
             onChange={(event) =>
               setGate1Reason(event.target.value as (typeof GATE1_REASONS)[number])
             }
-            className="mt-1 block w-full rounded-md border border-input bg-white px-3 py-2 text-sm text-gray-900"
+            className={`mt-1 ${FIELD}`}
           >
             {GATE1_REASONS.map((reason) => (
               <option key={reason} value={reason}>
@@ -138,17 +151,17 @@ export function OutboundMessage({
         </div>
       )}
 
-      <p className="mt-3 text-xs uppercase tracking-wide text-gray-700">{t('outbound.subject')}</p>
-      <p className="font-medium text-gray-900">{subject}</p>
+      <p className="mt-3 text-xs uppercase tracking-wide text-gray-700 dark:text-gray-400">{t('outbound.subject')}</p>
+      <p className="font-medium text-gray-900 dark:text-white">{subject}</p>
 
       {/* No `max-height` with `overflow-hidden` anywhere above this: a long message has to
           be readable whole, and this repo has lost text to that pair before. */}
-      <pre className="mt-3 whitespace-pre-wrap break-words font-sans text-gray-900">{body}</pre>
+      <pre className="mt-3 whitespace-pre-wrap break-words font-sans text-gray-900 dark:text-white">{body}</pre>
 
       {(kind === 'gate1' || kind === 'gate2') && (
         <>
-          <p className="mt-3 font-medium text-gray-900">{t('outbound.partnershipStands')}</p>
-          <p className="mt-1 text-xs text-gray-700">{t('outbound.partnershipStandsHint')}</p>
+          <p className="mt-3 font-medium text-gray-900 dark:text-white">{t('outbound.partnershipStands')}</p>
+          <p className="mt-1 text-xs text-gray-700 dark:text-gray-400">{t('outbound.partnershipStandsHint')}</p>
         </>
       )}
 

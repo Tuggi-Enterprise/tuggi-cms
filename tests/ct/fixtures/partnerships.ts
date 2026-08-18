@@ -19,6 +19,7 @@ import type {
   PipelineContract,
 } from '@/lib/services/partnership-service'
 import type { ConferenceRecord } from '@/lib/partner-form/regularity'
+import type { ProposalDetail } from '@/components/admin/partner-proposals/types'
 
 /** A string the operator would actually read: not lorem ipsum, and exactly 80 characters. */
 export const LONG_ESTABLISHMENT_NAME =
@@ -243,5 +244,43 @@ export function detailReadyToPublish(): PartnershipDetail {
     // The same facts the queue row carries, so the header clock and the column agree — the
     // detail derives it from `approved_at` and the places, exactly as the service does (#377).
     triage: { approvedAt: '2026-08-14T13:00:00.000Z', places: [{ published: false, refusal: null }] },
+  }
+}
+
+/**
+ * One proposal on the conference screen, with the two acts still available.
+ *
+ * `submitted` and not `promoted` on purpose: it is the state that renders the most surface at
+ * once — the regularity band with its three licence fields enabled, the story block with its
+ * marks, the observation textarea, the outbound picker and both header buttons. An `axe` scan
+ * of a screen in its emptiest state proves very little.
+ */
+export function proposalUnderConference(): ProposalDetail {
+  return {
+    submission: {
+      id: 'sub-0001',
+      status: 'submitted',
+      answers: {
+        trade_name: 'Cantina do Zé',
+        tax_id: '12.345.678/0001-90',
+        city: 'Santos',
+        state: 'SP',
+        representative_name: 'Ana Prado',
+        story_founder: 'A cantina abriu em 1978, quando o avô do dono chegou de Nápoles.',
+        story_unique: 'O forno a lenha é o mesmo desde a inauguração.',
+      } as ProposalDetail['submission']['answers'],
+      submittedAt: '2026-08-10T09:00:00.000Z',
+      updatedAt: '2026-08-10T09:00:00.000Z',
+      createdAt: '2026-08-10T09:00:00.000Z',
+      promotedAt: null,
+      promotedBy: null,
+      promotedClientId: null,
+      reviewedAt: null,
+      reviewedBy: null,
+    },
+    note: { marks: [], observation: '', conference: FILLED_CONFERENCE },
+    conference: FILLED_CONFERENCE,
+    client: null,
+    duplicates: [],
   }
 }

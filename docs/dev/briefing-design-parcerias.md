@@ -62,6 +62,25 @@ Achado pelo `axe-core` no minuto em que esta tela adotou o idioma. Corrigi local
 defeito desta tela: é do padrão**, e ele está em `/pois`, na ficha do cliente e em toda tela do
 dialeto A. A correção certa é sua, e é uma linha no design system.
 
+## 2.2 Divergência D-D — o variant PADRÃO do `Button` reprova AA — **nova, e é a mais cara**
+
+`components/ui/button.tsx`, variant `default`: `bg-primary text-primary-foreground` = branco
+sobre `#00A8E8` = **2,70:1**. Reprova SC 1.4.3, e reprovaria até os 3:1 de não-texto.
+
+Ao lado, no mesmo arquivo, existe `variant="cta"` = `bg-primary-800 text-white`, com o
+comentário que diz exatamente isto: *"o primeiro degrau de `primary` que carrega texto branco em
+AA"*.
+
+**O padrão é o errado.** Quem escreve `<Button>` sem variant — o caminho de menor esforço —
+produz um botão que reprova; quem lembra de escrever `variant="cta"` produz um que passa. São
+**33 `<Button>` sem variant** no CMS hoje (`grep -rn "<Button" components/ app/ | grep -v
+"variant="`).
+
+Corrigi os três das telas de parceria que o `axe` alcançou (`Promover`, `Salvar` da anotação, e
+o `Promover` do painel). **Não troquei o default global**: isso repinta o CTA de toda tela do
+CMS e é decisão sua, não minha. Mas enquanto o default for este, cada botão novo nasce
+reprovando — é o formato de defeito que CLAUDE.md §10 diz que devia ser hook, não regra escrita.
+
 ## 3. Divergência D-A — dois dialetos visuais convivem a um clique
 
 **Medido, não impressão.**
@@ -70,8 +89,13 @@ dialeto A. A correção certa é sua, e é uma linha no design system.
 `bg-white/70 dark:bg-gray-900/70 backdrop-blur-xl rounded-3xl shadow-2xl`, sidebar `w-[18%]
 sticky top-24`, ícone em `bg-tuggi-blue/10 rounded-xl`, pills `rounded-2xl`, tema escuro.
 
-**Dialeto B** — `ClientDirectory` e `PartnershipDetail`: `max-w-[100rem] px-6 py-6`,
-`rounded-md border-gray-200`, `<table>` cru, `text-primary-800`, **sem `dark:`**.
+**Dialeto B** — `PartnershipDetail` (e, até 2026-08-17, `ClientDirectory` e as telas de
+proposta): `max-w-7xl px-6 py-6`, `rounded-md border-gray-300`, `<table>` cru,
+`text-primary-800`, **sem `dark:`**.
+
+`ClientDirectory` e `partnerships/proposals/` já migraram para a moldura do dialeto A com a
+tinta do B. **Falta `PartnershipDetail`** — que é também a aba `Parceria` dentro do drawer, e
+por isso é o último ponto onde os dois dialetos se encostam.
 
 O dialeto B é escolha declarada de acessibilidade: `text-tuggi-blue` (#00A8E8) mede **2,70:1** e
 reprova SC 1.4.3; `text-primary-800` (#00719F) mede **5,44:1**. Bate com **D-001** em

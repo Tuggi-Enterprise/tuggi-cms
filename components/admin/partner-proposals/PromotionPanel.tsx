@@ -38,6 +38,14 @@ import {
 } from '@/lib/partner-form/promotion'
 import type { ProposalDetail } from './types'
 
+/**
+ * The shell is the CMS's glass panel; the ink stays accessible — see the note in
+ * `ProposalReview.tsx`, which declares the same two constants for the same reason.
+ */
+const CARD =
+  'rounded-3xl border border-gray-200 bg-white/70 shadow-2xl shadow-black/5 backdrop-blur-xl ' +
+  'dark:border-gray-800 dark:bg-gray-900/70'
+
 type Failure = 'write' | 'not_promotable' | 'network' | 'nothing' | null
 
 interface PromotionPanelProps {
@@ -113,15 +121,15 @@ export function PromotionPanel({ detail, categoryLabel, onClose, onPromoted }: P
   return (
     <section
       aria-labelledby="promotion-heading"
-      className="rounded-md border-2 border-primary/50 bg-white p-4"
+      className={`${CARD} border-2 border-primary-800/40 p-6`}
     >
-      <h2 id="promotion-heading" className="text-base font-semibold text-gray-900">
+      <h2 id="promotion-heading" className="text-base font-semibold text-gray-900 dark:text-white">
         {plan.creating ? t('promotion.createTitle') : t('promotion.updateTitle', { name: targetName })}
       </h2>
 
       <table className="mt-4 w-full border-collapse text-sm">
         <thead>
-          <tr className="border-b border-gray-300 text-left text-xs uppercase tracking-wide text-gray-700">
+          <tr className="border-b border-gray-200 text-left dark:border-gray-800 text-xs uppercase tracking-wide text-gray-700 dark:text-gray-400">
             <th scope="col" className="px-2 py-2">{t('promotion.columns.field')}</th>
             <th scope="col" className="px-2 py-2">{t('promotion.columns.current')}</th>
             <th scope="col" className="px-2 py-2">{t('promotion.columns.proposed')}</th>
@@ -131,13 +139,13 @@ export function PromotionPanel({ detail, categoryLabel, onClose, onPromoted }: P
         <tbody>
           {plan.entries.map((entry) => (
             <tr key={entry.column} className="border-b border-gray-100 align-top">
-              <td className="px-2 py-2 font-medium text-gray-900">
+              <td className="px-2 py-2 font-medium text-gray-900 dark:text-white">
                 {t(`promotion.fields.${entry.column}`)}
               </td>
-              <td className="px-2 py-2 text-gray-700">
+              <td className="px-2 py-2 text-gray-700 dark:text-gray-400">
                 {entry.current ?? <em className="not-italic text-gray-600">{t('promotion.emptyValue')}</em>}
               </td>
-              <td className="px-2 py-2 text-gray-900">
+              <td className="px-2 py-2 text-gray-900 dark:text-white">
                 {entry.editable ? (
                   <>
                     <Label htmlFor="promotion-industry" className="sr-only">
@@ -149,7 +157,7 @@ export function PromotionPanel({ detail, categoryLabel, onClose, onPromoted }: P
                       onChange={(event) => setIndustry(event.target.value)}
                       aria-describedby="promotion-industry-hint"
                     />
-                    <span id="promotion-industry-hint" className="mt-1 block text-xs text-gray-700">
+                    <span id="promotion-industry-hint" className="mt-1 block text-xs text-gray-700 dark:text-gray-400">
                       {t('promotion.industryHint')}
                     </span>
                   </>
@@ -159,7 +167,7 @@ export function PromotionPanel({ detail, categoryLabel, onClose, onPromoted }: P
               </td>
               <td className="px-2 py-2">
                 {entry.decision === 'conflict' ? (
-                  <label className="flex items-center gap-2 text-xs font-medium text-gray-900">
+                  <label className="flex items-center gap-2 text-xs font-medium text-gray-900 dark:text-white">
                     <Checkbox
                       checked={approved.indexOf(entry.column) >= 0}
                       onCheckedChange={() => toggle(entry.column)}
@@ -168,7 +176,7 @@ export function PromotionPanel({ detail, categoryLabel, onClose, onPromoted }: P
                     <span>{t('promotion.replace')}</span>
                   </label>
                 ) : (
-                  <span className="text-xs text-gray-700">{t('promotion.fillBadge')}</span>
+                  <span className="text-xs text-gray-700 dark:text-gray-400">{t('promotion.fillBadge')}</span>
                 )}
               </td>
             </tr>
@@ -177,24 +185,24 @@ export function PromotionPanel({ detail, categoryLabel, onClose, onPromoted }: P
       </table>
 
       {plan.unchanged.length > 0 && (
-        <p className="mt-2 text-xs text-gray-700">
+        <p className="mt-2 text-xs text-gray-700 dark:text-gray-400">
           {t('promotion.unchanged', { count: plan.unchanged.length })}
         </p>
       )}
 
       {summary.kept > 0 && (
-        <p className="mt-1 text-xs text-gray-800">{t('promotion.keptNotice', { count: summary.kept })}</p>
+        <p className="mt-1 text-xs text-gray-800 dark:text-gray-300">{t('promotion.keptNotice', { count: summary.kept })}</p>
       )}
 
-      <div className="mt-4 rounded-md border border-gray-200 bg-gray-50 p-3 text-xs text-gray-800">
-        <p className="font-semibold text-gray-900">{t('promotion.neverHeading')}</p>
+      <div className="mt-4 rounded-2xl border border-gray-200 bg-gray-50/60 p-3 text-xs text-gray-800 dark:border-gray-800 dark:bg-gray-900/40 dark:text-gray-300">
+        <p className="font-semibold text-gray-900 dark:text-white">{t('promotion.neverHeading')}</p>
         <p className="mt-1 font-mono">{PROMOTION_NEVER_WRITES.join(', ')}</p>
         <p className="mt-2">{t('promotion.neverBody')}</p>
       </div>
 
-      <div className="mt-4 rounded-md border border-gray-300 p-3 text-sm">
-        <p className="font-semibold text-gray-900">{t('promotion.reviewTitle')}</p>
-        <p className="mt-1 text-gray-900">
+      <div className="mt-4 rounded-2xl border border-gray-200 p-3 text-sm dark:border-gray-800">
+        <p className="font-semibold text-gray-900 dark:text-white">{t('promotion.reviewTitle')}</p>
+        <p className="mt-1 text-gray-900 dark:text-white">
           {summary.replaced > 0
             ? t('promotion.reviewBody', {
                 total: summary.total,
@@ -208,7 +216,7 @@ export function PromotionPanel({ detail, categoryLabel, onClose, onPromoted }: P
 
       {failure && (
         <div
-          className="mt-3 rounded-md border border-destructive/40 bg-destructive/5 p-3 text-sm text-gray-900"
+          className="mt-3 rounded-md border border-destructive/40 bg-destructive/5 p-3 text-sm text-gray-900 dark:text-white"
           role="alert"
         >
           <p className="flex items-center gap-2 font-semibold">
@@ -227,6 +235,7 @@ export function PromotionPanel({ detail, categoryLabel, onClose, onPromoted }: P
       <div className="mt-4 flex flex-wrap gap-3">
         <Button
           type="button"
+          variant="cta"
           onClick={promote}
           disabled={submitting || summary.total === 0}
         >

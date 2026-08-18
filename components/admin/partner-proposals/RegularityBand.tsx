@@ -26,6 +26,14 @@ import type { PartnerAnswers } from '@/lib/partner-form/schema'
 import { formatDate } from './format'
 import type { Translator } from './types'
 
+/**
+ * The shell is the CMS's glass panel; the ink stays accessible — see the note in
+ * `ProposalReview.tsx`, which declares the same two constants for the same reason.
+ */
+const CARD =
+  'rounded-3xl border border-gray-200 bg-white/70 shadow-2xl shadow-black/5 backdrop-blur-xl ' +
+  'dark:border-gray-800 dark:bg-gray-900/70'
+
 interface RegularityBandProps {
   report: RegularityReport
   answers: PartnerAnswers
@@ -80,13 +88,13 @@ export function RegularityBand({ report, answers, checkedBy, checkedAt }: Regula
   return (
     <section
       aria-labelledby="regularity-heading"
-      className="rounded-md border border-gray-300 bg-white p-4"
+      className={`${CARD} p-6`}
     >
       <div className="flex items-baseline justify-between gap-3">
-        <h2 id="regularity-heading" className="text-base font-semibold text-gray-900">
+        <h2 id="regularity-heading" className="text-base font-semibold text-gray-900 dark:text-white">
           {t('regularity.heading')}
         </h2>
-        <span className="text-xs text-gray-700">{t('regularity.rule')}</span>
+        <span className="text-xs text-gray-700 dark:text-gray-400">{t('regularity.rule')}</span>
       </div>
 
       <ul className="mt-3 space-y-2">
@@ -94,12 +102,12 @@ export function RegularityBand({ report, answers, checkedBy, checkedAt }: Regula
           <li key={line.id} className="flex items-start gap-2 text-sm">
             <Icon tone={line.tone} />
             <span>
-              <span className="font-medium text-gray-900">{t(`regularity.items.${line.id}`)}: </span>
+              <span className="font-medium text-gray-900 dark:text-white">{t(`regularity.items.${line.id}`)}: </span>
               <span className={line.tone === 'ok' ? 'text-gray-800' : 'text-gray-900'}>{line.text}</span>
               {/* A municipality name wraps rather than truncates: `Santa Bárbara d'Oeste` is
                   what a licence says, and a trail nobody can read is not a trail. */}
               {line.note ? (
-                <span className="block break-words text-xs text-gray-800">{line.note}</span>
+                <span className="block break-words text-xs text-gray-800 dark:text-gray-300">{line.note}</span>
               ) : null}
             </span>
           </li>
@@ -119,7 +127,7 @@ export function RegularityBand({ report, answers, checkedBy, checkedAt }: Regula
         </span>
       </p>
 
-      <div className="mt-3 border-t border-gray-200 pt-3 text-xs text-gray-700">
+      <div className="mt-3 border-t border-gray-200 pt-3 text-xs text-gray-700 dark:text-gray-400">
         {checkedBy && checkedAt && (
           <p>{t('regularity.checkedBy', { person: checkedBy, date: formatDate(checkedAt) })}</p>
         )}

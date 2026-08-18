@@ -21,12 +21,14 @@ import { test, expect } from '@playwright/experimental-ct-react'
 import type { Page } from '@playwright/test'
 import AxeBuilder from '@axe-core/playwright'
 import { PartnershipDetail } from '@/components/admin/partnerships/PartnershipDetail'
+import { ProposalReview } from '@/components/admin/partner-proposals/ProposalReview'
 import { DirectoryHarness, Wrapper } from './helpers'
 import {
   QUEUE_ROWS_IN_PROGRESS,
   LONG_ESTABLISHMENT_NAME,
   detailInCuration,
   detailReadyToPublish,
+  proposalUnderConference,
 } from './fixtures/partnerships'
 
 /**
@@ -256,6 +258,22 @@ test.describe('criteria 23/25/26 — axe-core, contrast, and 24x24 targets', () 
       </Wrapper>
     )
     await expect(component.getByText('Não foi possível carregar a lista.')).toBeVisible()
+    await assertNoAxeViolations(page)
+  })
+
+  test('the proposal under conference, with both acts available', async ({ mount, page }) => {
+    const detail = proposalUnderConference()
+    await page.route(`**/api/admin/partner-proposals/${detail.submission.id}`, (route) =>
+      route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(detail) })
+    )
+    const component = await mount(
+      <Wrapper>
+        <ProposalReview locale="pt" submissionId={detail.submission.id} />
+      </Wrapper>
+    )
+    await expect(component.getByRole('heading', { name: 'Cantina do Zé' })).toBeVisible({
+      timeout: 10_000,
+    })
     await assertNoAxeViolations(page)
   })
 
