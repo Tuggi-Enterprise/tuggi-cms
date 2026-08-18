@@ -237,14 +237,6 @@ const V1: ContractTemplate = {
           `valor devido durante a sua vigência. A alteração do valor de contrato vigente depende de termo ` +
           `aditivo com novo aceite do ESTABELECIMENTO, e nenhuma alteração de cadastro interno da TUGGI ` +
           `altera o valor aqui pactuado.`,
-        `A contraprestação é mensal, vence no dia ${DUE_DAY_OF_MONTH} de cada mês e corresponde ao mês ` +
-          `em que vence. A fatura é enviada ao ESTABELECIMENTO no início do mês do vencimento.`,
-        `O primeiro vencimento é o dia ${DUE_DAY_OF_MONTH} do mês seguinte ao da publicação de que trata ` +
-          `a cláusula "Da vigência e do início da cobrança", e a primeira fatura compreende o período ` +
-          `proporcional entre a data da publicação e o último dia daquele mês, somado ao mês do ` +
-          `vencimento.`,
-        `Recaindo o vencimento em sábado, domingo ou feriado bancário, o pagamento pode ser feito no ` +
-          `primeiro dia útil seguinte, sem qualquer encargo.`,
         `O valor será reajustado anualmente, no aniversário deste contrato, pela variação acumulada do ` +
           `índice [ÍNDICE A DEFINIR PELO JURÍDICO] no período, ou pelo índice que legalmente o substituir.`,
       ],
@@ -276,14 +268,6 @@ const V1: ContractTemplate = {
           `entre as partes.`,
         'A participação na receita e a contraprestação mensal da faixa paga, quando houver, são fluxos ' +
           'independentes e não se compensam entre si.',
-        'A apuração é mensal, tem por base o mês civil anterior, e a TUGGI disponibiliza ao ' +
-          'ESTABELECIMENTO o demonstrativo do período até o dia 10 do mês seguinte ao apurado. O ' +
-          'valor apurado é pago até o último dia útil desse mesmo mês, por Pix ou transferência à ' +
-          'conta indicada pelo ESTABELECIMENTO.',
-        'O percentual acima é o percentual aceito pelo ESTABELECIMENTO no ato da assinatura deste ' +
-          'instrumento e é o percentual devido durante a sua vigência. A sua alteração depende de ' +
-          'termo aditivo com novo aceite do ESTABELECIMENTO, e nenhuma alteração de cadastro interno ' +
-          'da TUGGI altera o percentual aqui pactuado.',
       ],
     },
     {
@@ -376,15 +360,95 @@ const V1: ContractTemplate = {
   ],
 }
 
-const TEMPLATES: Record<string, ContractTemplate> = {
-  [V1.version]: V1,
+/**
+ * V2 — o dia do vencimento e o acordo da apuração (2026-08-18).
+ *
+ * POR QUE UMA VERSÃO NOVA E NÃO UMA EDIÇÃO. Quatro contratos já tinham sido ENVIADOS na v1
+ * quando estas duas mudanças foram decididas. Nenhum estava assinado, então nada que um hash
+ * prove mudou — mas quatro parceiros tinham na mão um link para um documento, e editar a v1
+ * teria trocado o texto sob os pés deles em silêncio. A v1 continua exatamente como saiu; quem
+ * a recebeu lê o que recebeu, e um contrato novo nasce na v2.
+ *
+ * AS CLÁUSULAS VÊM DA v1 E DUAS SÃO SUBSTITUÍDAS POR ID. Não é economia de digitação: escrito
+ * assim, o `diff` entre as duas versões é esta constante, e é ela que alguém lê daqui a um ano
+ * para saber o que mudou. A v1 estar congelada é o que torna a referência segura, e
+ * `tests/api/contract-template-versions.test.ts` fixa o texto renderizado dela por hash — editar
+ * a v1 fica vermelho.
+ */
+const V2_REPLACEMENTS: Record<string, ContractClause> = {
+  price_and_payment: {
+    id: 'price_and_payment',
+    title: 'Do preço, da forma de pagamento e do reajuste',
+    ruleIds: ['BR-B2B-017', 'BR-B2B-019', 'BR-B2B-023'],
+    appliesTo: 'paid',
+    body: (s) => [
+      s.isCourtesy
+        ? `A faixa paga é concedida ao ESTABELECIMENTO em regime de cortesia, sem contraprestação mensal, ` +
+          `pelo seguinte motivo: ${s.courtesyReason}. A cortesia não é gratuidade permanente e a sua ` +
+          `alteração observa o disposto no parágrafo sobre revisão de valor.`
+        : `Pela faixa paga, o ESTABELECIMENTO pagará à TUGGI a quantia mensal de ${formatFee(s.monthlyFeeCents)}, ` +
+          `a partir do início da cobrança previsto na cláusula "Da vigência e do início da cobrança".`,
+      s.isCourtesy
+        ? 'Não há forma de pagamento acordada enquanto durar a cortesia.'
+        : `A forma de pagamento acordada entre as partes é: ${s.paymentMethod === 'pix' ? 'Pix' : 'boleto bancário'}.`,
+      // O marco que faltava: BR-B2B-019 conta tolerância, avisos e suspensão "do vencimento" e
+      // nunca disse que dia era esse.
+      `A contraprestação é mensal, vence no dia ${DUE_DAY_OF_MONTH} de cada mês e corresponde ao mês ` +
+        `em que vence. A fatura é enviada ao ESTABELECIMENTO no início do mês do vencimento.`,
+      `O primeiro vencimento é o dia ${DUE_DAY_OF_MONTH} do mês seguinte ao da publicação de que trata ` +
+        `a cláusula "Da vigência e do início da cobrança", e a primeira fatura compreende o período ` +
+        `proporcional entre a data da publicação e o último dia daquele mês, somado ao mês do ` +
+        `vencimento.`,
+      `Recaindo o vencimento em sábado, domingo ou feriado bancário, o pagamento pode ser feito no ` +
+        `primeiro dia útil seguinte, sem qualquer encargo.`,
+      `O valor acima é o valor aceito pelo ESTABELECIMENTO no ato da assinatura deste instrumento e é o ` +
+        `valor devido durante a sua vigência. A alteração do valor de contrato vigente depende de termo ` +
+        `aditivo com novo aceite do ESTABELECIMENTO, e nenhuma alteração de cadastro interno da TUGGI ` +
+        `altera o valor aqui pactuado.`,
+      `O valor será reajustado anualmente, no aniversário deste contrato, pela variação acumulada do ` +
+        `índice [ÍNDICE A DEFINIR PELO JURÍDICO] no período, ou pelo índice que legalmente o substituir.`,
+    ],
+  },
+  commission: {
+    id: 'commission',
+    title: 'Da participação na receita',
+    ruleIds: ['BR-MONETIZACAO-039', 'BR-B2B-018'],
+    body: (s) => [
+      `O ESTABELECIMENTO faz jus a ${formatCommissionRate(s.commissionRate)} da receita líquida ` +
+        `atribuída à origem identificada pelo QR Code que lhe for fornecido.`,
+      'A participação na receita e a contraprestação mensal da faixa paga, quando houver, são fluxos ' +
+        'independentes e não se compensam entre si.',
+      // "Apurada na forma acordada entre as partes" apontava para um acordo que não existia em
+      // lugar nenhum: sem periodicidade, sem prazo, sem demonstrativo.
+      'A apuração é mensal, tem por base o mês civil anterior, e a TUGGI disponibiliza ao ' +
+        'ESTABELECIMENTO o demonstrativo do período até o dia 10 do mês seguinte ao apurado. O ' +
+        'valor apurado é pago até o último dia útil desse mesmo mês, por Pix ou transferência à ' +
+        'conta indicada pelo ESTABELECIMENTO.',
+      'O percentual acima é o percentual aceito pelo ESTABELECIMENTO no ato da assinatura deste ' +
+        'instrumento e é o percentual devido durante a sua vigência. A sua alteração depende de ' +
+        'termo aditivo com novo aceite do ESTABELECIMENTO, e nenhuma alteração de cadastro interno ' +
+        'da TUGGI altera o percentual aqui pactuado.',
+    ],
+  },
 }
 
-/** The version a NEW contract is generated with. Signed contracts keep their own. */
-export const ACTIVE_TEMPLATE_VERSION = V1.version
+const V2: ContractTemplate = {
+  version: 'v2-2026-08',
+  title: V1.title,
+  publishedAt: '2026-08-18',
+  clauses: V1.clauses.map((clause) => V2_REPLACEMENTS[clause.id] ?? clause),
+}
+
+const TEMPLATES: Record<string, ContractTemplate> = {
+  [V1.version]: V1,
+  [V2.version]: V2,
+}
+
+/** The version a NEW contract is generated with. Sent and signed contracts keep their own. */
+export const ACTIVE_TEMPLATE_VERSION = V2.version
 
 export function activeTemplate(): ContractTemplate {
-  return V1
+  return V2
 }
 
 /**
