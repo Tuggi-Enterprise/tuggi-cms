@@ -47,6 +47,9 @@ function checklist(client: Client | null, ownerFound: boolean): ChecklistItem[] 
         ? { state: 'found', client: bare(OWNER_ID) }
         : { state: 'absent' },
       regularity: { conference: EMPTY_CONFERENCE } as never,
+      // `null` de propósito: esta suíte prova os ALVOS dos itens de cadastro, e a trava do
+      // marcador de revisão tem suíte própria em `contract-jurisdiction.test.ts`.
+      templateMarker: null,
     }
   ).missing
 }

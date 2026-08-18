@@ -118,6 +118,10 @@ test('v2 revises the clauses it says it revises, and adds the two that were miss
     'commission',
     'curation',
     'electronic_acceptance',
+    // O foro é escolha do operador, e ele escolheu em 2026-08-18. O ÍNDICE não está aqui: a
+    // escolha dele é do advogado (BR-B2B-023, item 2) e o marcador segue na v2, bloqueando a
+    // geração em vez de sair impresso.
+    'governing_law',
     'payment_default',
     'price_and_payment',
   ])

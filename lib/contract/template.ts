@@ -71,6 +71,37 @@ export const DUE_DAY_OF_MONTH = 20
  * precisa estar escrita para existir (art. 408).
  */
 export const LATE_FINE_PERCENT = 2
+
+/**
+ * O buraco que só o advogado fecha — BR-B2B-023, item 2, e ele continua aberto de propósito.
+ *
+ * O operador perguntou qual índice é o usual em 2026-08-18 e a resposta é IPCA: o IGP-M mede
+ * atacado, é puxado por commodity e câmbio, e acumulou mais de 37% em doze meses em 2021 contra
+ * uma inflação ao consumidor perto de 10% — é o reajuste que faz o parceiro cancelar. O IPCA é a
+ * inflação oficial, publicada pelo IBGE, e explica-se sozinho ao dono do restaurante.
+ *
+ * MAS RESPONDER NÃO É DECIDIR. A regra reserva a escolha ao advogado, e trocar o marcador por
+ * uma sigla aqui seria um agente tomando a decisão no lugar dele. O marcador fica, e agora ele
+ * BLOQUEIA a geração em vez de sair impresso num documento que parece pronto.
+ */
+export const ADJUSTMENT_INDEX_PLACEHOLDER = '[ÍNDICE A DEFINIR PELO JURÍDICO]'
+
+/**
+ * Todo marcador de revisão que o modelo ainda carrega. `contractChecklist` recusa a geração
+ * enquanto qualquer um deles aparecer no texto renderizado — um contrato com colchete no corpo é
+ * pior que um campo vazio, porque ele parece pronto.
+ */
+export const REVIEW_PLACEHOLDER_PATTERN = /\[[A-ZÀ-Ú][A-ZÀ-Ú\s]+\]/
+
+/**
+ * O foro eleito — a comarca da sede da TUGGI, decidida pelo operador em 2026-08-18.
+ *
+ * Válido entre empresas (CPC, art. 63). Num contrato de adesão o juiz pode reputar abusiva a
+ * eleição que dificulte a defesa (art. 63, §3º), e é por isso que ela acompanha a sede de quem
+ * redige em vez de escolher uma comarca sem relação com ninguém.
+ */
+export const JURISDICTION_CITY = 'São Paulo'
+export const JURISDICTION_STATE = 'São Paulo'
 /** Dias corridos do vencimento a partir dos quais a TUGGI pode rescindir por falta de pagamento. */
 export const TERMINATION_FOR_DEFAULT_DAYS = 60
 /** Dias úteis para a TUGGI corrigir erro factual apontado por escrito pelo ESTABELECIMENTO. */
@@ -453,7 +484,7 @@ const V2_REPLACEMENTS: Record<string, ContractClause> = {
         `aditivo com novo aceite do ESTABELECIMENTO, e nenhuma alteração de cadastro interno da TUGGI ` +
         `altera o valor aqui pactuado.`,
       `O valor será reajustado anualmente, no aniversário deste contrato, pela variação acumulada do ` +
-        `índice [ÍNDICE A DEFINIR PELO JURÍDICO] no período, ou pelo índice que legalmente o substituir.`,
+        `índice ${ADJUSTMENT_INDEX_PLACEHOLDER} no período, ou pelo índice que legalmente o substituir.`,
       // Bruto ou líquido, e quem emite o documento fiscal: nada disso estava dito, e é a
       // primeira pergunta do contador do parceiro.
       'O valor acima é bruto e nele já estão compreendidos os tributos devidos pela TUGGI sobre a ' +
@@ -516,6 +547,22 @@ const V2_REPLACEMENTS: Record<string, ContractClause> = {
       // legítima, e o dia em que a TUGGI cobrar o parceiro alega que nunca foi assim.
       'Enquanto o contrato vigorar, a TUGGI pode deixar de cobrar encargos de atraso sem que isso ' +
         'importe novação, renúncia ou alteração dos prazos deste contrato.',
+    ],
+  },
+  governing_law: {
+    id: 'governing_law',
+    title: 'Do foro e da lei aplicável',
+    ruleIds: [],
+    body: () => [
+      'Este contrato é regido pelas leis da República Federativa do Brasil.',
+      // O foro é escolha do operador — o docblock deste arquivo já dizia que ele é "do advogado
+      // E do operador", diferente do índice, que é só do advogado. Decidido em 2026-08-18: a
+      // comarca da sede. Num contrato de adesão, a eleição que acompanha a sede de quem redige é
+      // a defensável; comarca sem relação com ninguém é a que o juiz reputa abusiva de ofício
+      // (CPC, art. 63, §3º).
+      `Fica eleito o foro da comarca de ${JURISDICTION_CITY}, Estado de ${JURISDICTION_STATE}, sede ` +
+        `da TUGGI, para dirimir as controvérsias decorrentes deste contrato, com renúncia a qualquer ` +
+        `outro, por mais privilegiado que seja.`,
     ],
   },
   commission: {
@@ -670,6 +717,37 @@ export interface RenderedClause {
  * The single source both surfaces render from: the HTML page and the PDF walk this same
  * array. Two presentations of one document — never two documents.
  */
+/**
+ * O marcador de revisão que a versão ativa ainda carrega, ou `null`.
+ *
+ * Lê o TEXTO RENDERIZADO e não uma lista de marcadores conhecidos: quem abrir um buraco novo
+ * numa cláusula futura fica bloqueado sem precisar lembrar de vir aqui. Mora neste módulo porque
+ * é ele que sabe o que é marcador — `snapshot.ts` só reporta o que recebe, e importar daqui para
+ * lá fecharia um ciclo.
+ */
+export function pendingReviewPlaceholder(tier: ContractTier): string | null {
+  const probe: ContractSnapshot = {
+    templateVersion: ACTIVE_TEMPLATE_VERSION,
+    tier,
+    provider: { legalName: '—', taxId: '—', addressLine: '—', representativeName: '—', representativeRole: '—' },
+    partner: {
+      clientId: '—', legalName: '—', tradeName: null, taxId: '—',
+      addressLine: '—', representativeName: '—', representativeRole: '—',
+    },
+    monthlyFeeCents: tier === 'paid' ? 1 : null,
+    isCourtesy: false,
+    courtesyReason: null,
+    paymentMethod: 'pix',
+    commissionRate: 0,
+    qrDeliveryDays: 1,
+    generatedAt: '1970-01-01T00:00:00.000Z',
+  }
+  const text = renderClauses(probe)
+    .flatMap((clause) => clause.paragraphs)
+    .join(' ')
+  return REVIEW_PLACEHOLDER_PATTERN.exec(text)?.[0] ?? null
+}
+
 export function renderClauses(snapshot: ContractSnapshot): RenderedClause[] {
   const template = templateByVersion(snapshot.templateVersion)
   if (!template) {

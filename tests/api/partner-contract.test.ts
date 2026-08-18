@@ -119,6 +119,7 @@ function snapshotOf(overrides: Partial<ContractClient> = {}, choices: Generation
   return buildSnapshot(client(overrides), choices, {
     platformOwner: OWNER,
     regularity: REGULAR,
+    templateMarker: null,
     templateVersion: ACTIVE_TEMPLATE_VERSION,
   })
 }
@@ -167,7 +168,7 @@ test('BR-B2B-017 item 5: the contract states that changing the registration does
 // ── BR-B2B-017 item 6 — absent is not zero ─────────────────────────────────────────────
 
 function checklistIds(overrides: Partial<ContractClient>, choices = PAID, regularity = REGULAR): string[] {
-  return contractChecklist(client(overrides), choices, { platformOwner: OWNER, regularity }).missing.map(
+  return contractChecklist(client(overrides), choices, { platformOwner: OWNER, regularity, templateMarker: null }).missing.map(
     (item) => item.id
   )
 }
@@ -213,6 +214,7 @@ test('BR-B2B-022 item 3: no licence, no contract', () => {
   const missing = contractChecklist(client(), PAID, {
     platformOwner: OWNER,
     regularity: { ...REGULAR, businessLicenseDocument: false },
+    templateMarker: null,
   }).missing.map((item) => item.id)
   assert.ok(missing.includes('business_license'))
 })
@@ -221,6 +223,7 @@ test('BR-B2B-022 item 3: an expired licence is an absent licence', () => {
   const missing = contractChecklist(client(), PAID, {
     platformOwner: OWNER,
     regularity: { ...REGULAR, businessLicenseValidUntil: '2020-01-01' },
+    templateMarker: null,
   }).missing.map((item) => item.id)
   assert.ok(missing.includes('business_license_expired'))
 })
@@ -229,6 +232,7 @@ test('BR-B2B-022 item 3: no incorporation document, no contract', () => {
   const missing = contractChecklist(client(), PAID, {
     platformOwner: OWNER,
     regularity: { ...REGULAR, incorporationDocument: false },
+    templateMarker: null,
   }).missing.map((item) => item.id)
   assert.ok(missing.includes('incorporation'))
 })
@@ -244,6 +248,7 @@ test('BR-B2B-031 item 2: an expired licence blocks a NEW contract on the free ti
   const missing = contractChecklist(client(), free, {
     platformOwner: OWNER,
     regularity: { ...REGULAR, businessLicenseValidUntil: '2020-01-01' },
+    templateMarker: null,
   }).missing.map((item) => item.id)
   assert.ok(missing.includes('business_license_expired'), 'the free tier is not an exception')
 })
@@ -252,13 +257,14 @@ test('BR-B2B-031, 1st edge case: a licence seen with no date blocks the same as 
   const missing = contractChecklist(client(), PAID, {
     platformOwner: OWNER,
     regularity: { ...REGULAR, businessLicenseValidUntil: null },
+    templateMarker: null,
   }).missing.map((item) => item.id)
   assert.ok(missing.includes('business_license_validity'), 'undated is treated as absent, same as vencido')
 })
 
 test('BR-B2B-031: a renewed licence (valid date, future) releases the free tier — the other direction of the mutation', () => {
   const free: GenerationChoices = { tier: 'free', paymentMethod: null, qrDeliveryDays: 15 }
-  const missing = contractChecklist(client(), free, { platformOwner: OWNER, regularity: REGULAR }).missing.map(
+  const missing = contractChecklist(client(), free, { platformOwner: OWNER, regularity: REGULAR, templateMarker: null }).missing.map(
     (item) => item.id
   )
   assert.equal(
@@ -283,6 +289,7 @@ test('BR-B2B-022: every checklist item names where it is resolved', () => {
   const result = contractChecklist(client({ tax_id: undefined }), PAID, {
     platformOwner: OWNER,
     regularity: { ...REGULAR, businessLicenseDocument: false },
+    templateMarker: null,
   })
   assert.equal(result.ready, false)
   for (const item of result.missing) {
@@ -302,6 +309,7 @@ test('BR-B2B-022 item 3: the document items point at the conference band, not at
   const missing = contractChecklist(client(), PAID, {
     platformOwner: OWNER,
     regularity: { businessLicenseDocument: false, incorporationDocument: false, businessLicenseValidUntil: null },
+    templateMarker: null,
   }).missing
 
   const documents = missing.filter((item) => item.id === 'business_license' || item.id === 'incorporation')
@@ -327,7 +335,7 @@ test('BR-B2B-022 item 3: the document items point at the conference band, not at
     { businessLicenseDocument: true, incorporationDocument: true, businessLicenseValidUntil: null },
     { businessLicenseDocument: true, incorporationDocument: true, businessLicenseValidUntil: '2020-01-01' },
   ]) {
-    const item = contractChecklist(client(), PAID, { platformOwner: OWNER, regularity }).missing.find(
+    const item = contractChecklist(client(), PAID, { platformOwner: OWNER, regularity, templateMarker: null }).missing.find(
       (candidate) => candidate.id.startsWith('business_license')
     )
     assert.match(item!.where, /Conferência presencial/)
@@ -339,6 +347,7 @@ test('BR-B2B-022: an incomplete partner registration blocks the snapshot outrigh
     buildSnapshot(client({ tax_id: undefined }), PAID, {
       platformOwner: OWNER,
       regularity: REGULAR,
+      templateMarker: null,
       templateVersion: ACTIVE_TEMPLATE_VERSION,
     })
   )
@@ -350,7 +359,7 @@ test('BR-B2B-022: an incomplete partner registration blocks the snapshot outrigh
 // variables — until 2026-08-16, and changing the address of the company was a deploy.
 
 function ownerChecklist(lookup: PlatformOwnerLookup) {
-  return contractChecklist(client(), PAID, { platformOwner: lookup, regularity: REGULAR })
+  return contractChecklist(client(), PAID, { platformOwner: lookup, regularity: REGULAR, templateMarker: null })
 }
 
 test('BR-B2B-023: with no client marked as platform owner the contract is NOT generated, and the message says where', () => {
@@ -367,6 +376,7 @@ test('BR-B2B-023: with no client marked as platform owner the contract is NOT ge
       buildSnapshot(client(), PAID, {
         platformOwner: { state: 'absent' },
         regularity: REGULAR,
+        templateMarker: null,
         templateVersion: ACTIVE_TEMPLATE_VERSION,
       }),
     /platform_owner/
@@ -442,6 +452,7 @@ test('BR-B2B-017: editing the OWNER registration moves the NEXT contract and not
   const next = buildSnapshot(client(), PAID, {
     platformOwner: moved,
     regularity: REGULAR,
+    templateMarker: null,
     templateVersion: ACTIVE_TEMPLATE_VERSION,
   })
 

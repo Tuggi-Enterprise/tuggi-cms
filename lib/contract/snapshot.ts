@@ -268,7 +268,17 @@ export interface ChecklistResult {
 export function contractChecklist(
   client: ContractClient | null,
   choices: GenerationChoices,
-  options: { platformOwner: PlatformOwnerLookup; regularity: RegularityEvidence; now?: Date }
+  options: {
+    platformOwner: PlatformOwnerLookup
+    regularity: RegularityEvidence
+    /**
+     * O marcador de revisão que o modelo ainda carrega, apurado por
+     * `pendingReviewPlaceholder`. Obrigatório de propósito: opcional, seria esquecido no
+     * próximo chamador, e o efeito de esquecer é um contrato com colchete indo ao parceiro.
+     */
+    templateMarker: string | null
+    now?: Date
+  }
 ): ChecklistResult {
   const missing: ChecklistItem[] = []
   const now = options.now ?? new Date()
@@ -292,6 +302,50 @@ export function contractChecklist(
 
   if (!client.address?.trim()) {
     missing.push({ id: 'address', label: 'Endereço do estabelecimento', where: 'aba Perfil', target: { kind: 'client', clientId: client.id, tab: 'profile' } })
+  }
+
+  /**
+   * O MODELO É UM INSTRUMENTO BRASILEIRO, e o cadastro já aceita nove países.
+   *
+   * O contrato diz `inscrita no CNPJ sob o nº`, exige alvará de funcionamento, invoca a MP
+   * 2.200-2/2001 para a assinatura eletrônica, elege foro em São Paulo e oferece Pix ou boleto.
+   * Nada disso alcança um estabelecimento português — `countries.ts` sabe que lá o documento é
+   * NIPC, e `formatTaxId` só formata 14 dígitos, então um NIPC sairia cru debaixo da palavra
+   * CNPJ. O documento afirmaria coisa falsa sobre a contraparte.
+   *
+   * Havia um cliente assim no cadastro quando isto foi escrito (2026-08-18): `Tasca das Tias
+   * Lda`, em Angra do Heroísmo. A trava não resolve o caso dele — resolver é escrever um modelo
+   * com advogado de lá —, ela impede o documento errado de sair enquanto isso não existe.
+   */
+  /**
+   * NENHUM CONTRATO SAI COM COLCHETE NO CORPO.
+   *
+   * `[ÍNDICE A DEFINIR PELO JURÍDICO]` é buraco correto — BR-B2B-023, item 2, reserva a escolha
+   * ao advogado —, mas nada impedia gerar um documento com ele impresso, e um contrato assim é
+   * pior que um campo vazio: ele parece pronto. A trava chegou em 2026-08-18, junto com o
+   * parecer que a apontou.
+   *
+   * Ela lê o TEXTO RENDERIZADO da versão ativa, e não uma lista de marcadores conhecidos: quem
+   * abrir um buraco novo numa cláusula futura fica bloqueado sem precisar lembrar de vir aqui.
+   */
+  if (options.templateMarker) {
+    missing.push({
+      id: 'template_placeholder',
+      label: `O modelo ainda tem ${options.templateMarker} no corpo`,
+      where: 'decisão do jurídico; enquanto ela não vier, nenhum contrato pode ser gerado',
+      target: { kind: 'page' },
+    })
+  }
+
+  const country = (client.country ?? '').trim()
+  const brazilian = country === '' || /^(BR|BRA|Brazil|Brasil)$/i.test(country)
+  if (!brazilian) {
+    missing.push({
+      id: 'foreign_establishment',
+      label: `Modelo de contrato para estabelecimento fora do Brasil (${country})`,
+      where: 'não existe ainda — este modelo é um instrumento brasileiro',
+      target: { kind: 'page' },
+    })
   }
 
   if (!client.legal_representative_name?.trim()) {
@@ -379,11 +433,18 @@ export function contractChecklist(
 export function buildSnapshot(
   client: ContractClient,
   choices: GenerationChoices,
-  options: { platformOwner: PlatformOwnerLookup; regularity: RegularityEvidence; templateVersion: string; now?: Date }
+  options: {
+    platformOwner: PlatformOwnerLookup
+    regularity: RegularityEvidence
+    templateVersion: string
+    templateMarker: string | null
+    now?: Date
+  }
 ): ContractSnapshot {
   const check = contractChecklist(client, choices, {
     platformOwner: options.platformOwner,
     regularity: options.regularity,
+    templateMarker: options.templateMarker,
     now: options.now,
   })
   if (!check.ready) {

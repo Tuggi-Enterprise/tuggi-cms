@@ -26,7 +26,7 @@ import {
   type PlatformOwnerLookup,
   type RegularityEvidence,
 } from '@/lib/contract/snapshot'
-import { activeTemplate } from '@/lib/contract/template'
+import { activeTemplate, pendingReviewPlaceholder } from '@/lib/contract/template'
 import { buildContractUrl } from '@/lib/contract/link'
 import { readReviewNote } from '@/lib/partner-form/proposal-review'
 import {
@@ -161,7 +161,10 @@ export const GET = withRateLimit(60, 60_000)(
 
     const platformOwner = await loadPlatformOwner()
     const regularity = await loadRegularity(clientId)
-    const checklist = contractChecklist(client, choices, { platformOwner, regularity })
+    // Um marcador de revisão ainda aberto no modelo recusa a geração — ver
+    // `pendingReviewPlaceholder`. É por faixa porque a gratuita não recebe a cláusula de preço.
+    const templateMarker = pendingReviewPlaceholder(choices.tier)
+    const checklist = contractChecklist(client, choices, { platformOwner, regularity, templateMarker })
 
     return NextResponse.json({
       // The legal-review state is deliberately NOT here, and since 2026-08-17 the template
@@ -241,7 +244,8 @@ async function generate(clientId: string, body: Record<string, unknown>, operato
   const platformOwner = await loadPlatformOwner()
   const regularity = await loadRegularity(clientId)
   const choices = choicesOf(body)
-  const checklist = contractChecklist(client, choices, { platformOwner, regularity })
+  const templateMarker = pendingReviewPlaceholder(choices.tier)
+  const checklist = contractChecklist(client, choices, { platformOwner, regularity, templateMarker })
 
   // The block is the point: a missing item produces a signed PDF with a hole in it, and a
   // signed PDF is the one artefact here that cannot be corrected afterwards.
@@ -253,6 +257,7 @@ async function generate(clientId: string, body: Record<string, unknown>, operato
     platformOwner,
     regularity,
     templateVersion: activeTemplate().version,
+    templateMarker,
   })
 
   const previous = await getLiveContract(clientId)
