@@ -31,7 +31,17 @@ import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
 
-import { DUE_DAY_OF_MONTH, activeTemplate, renderClauses } from '@/lib/contract/template'
+import {
+  DUE_DAY_OF_MONTH,
+  FACTUAL_CORRECTION_BUSINESS_DAYS,
+  LATE_FINE_PERCENT,
+  LATE_INTEREST_MONTHLY_PERCENT,
+  LIABILITY_CAP_MONTHS,
+  OUTAGE_CREDIT_DAYS,
+  TERMINATION_FOR_DEFAULT_DAYS,
+  activeTemplate,
+  renderClauses,
+} from '@/lib/contract/template'
 import { DEFAULT_COMMISSION_RATE } from '@/types/clients'
 import type { ContractSnapshot } from '@/lib/contract/snapshot'
 
@@ -174,4 +184,63 @@ test('the operator types a percentage, and the column keeps the rate', () => {
     assert.equal(/0[.,]20/.test(help), false, `${locale} still asks for a fraction`)
     assert.match(help, /10/)
   }
+})
+
+// ── As cláusulas que o parecer de 2026-08-18 apontou como ausentes ────────────────────────────
+//
+// MINUTA, e a redação final é do advogado — como o resto do template diz de si. O que estas
+// asserções seguram não é a redação: é que cada número da minuta saia de uma constante nomeada,
+// para que a revisão jurídica seja uma linha e não uma caçada dentro de parágrafo.
+
+test('a inadimplência tem juros, multa e uma saída — antes parava na suspensão', () => {
+  const text = textOf(snapshot(), 'payment_default')
+
+  assert.match(text, new RegExp(`multa de ${LATE_FINE_PERCENT}%`))
+  assert.match(text, new RegExp(`juros de mora de\\s+${LATE_INTEREST_MONTHLY_PERCENT}% ao mês`))
+  // No 60º dia o contrato seguia vigente, com o ponto no ar e a comissão correndo, e a TUGGI
+  // sem remédio nenhum além de esperar.
+  assert.match(text, new RegExp(`${TERMINATION_FOR_DEFAULT_DAYS} dias corridos`))
+  assert.match(text, /poderá rescindir/)
+  // E a ambiguidade que o parecer nomeou: a suspensão interrompe a cobrança?
+  assert.match(text, /A suspensão da descrição não interrompe a contraprestação/)
+})
+
+test('a responsabilidade tem teto, a disponibilidade tem verdade, e o teto tem exceções', () => {
+  const paid = textOf(snapshot(), 'liability')
+
+  assert.match(paid, /não promete disponibilidade ininterrupta/)
+  assert.match(paid, new RegExp(`superior a ${OUTAGE_CREDIT_DAYS} dias corridos`))
+  assert.match(paid, /lucros cessantes/)
+  assert.match(paid, new RegExp(`nos\\s+${LIABILITY_CAP_MONTHS} meses anteriores`))
+  // Um teto sem estas ressalvas é o que o art. 424 fulmina — e a LGPD não se limita por contrato.
+  assert.match(paid, /dolo, a culpa grave/)
+  assert.match(paid, /13\.709\/2018/)
+  assert.match(paid, /art\. 393 do Código Civil/)
+
+  // Na faixa gratuita não há mensalidade, então um teto de 12 mensalidades seria teto zero —
+  // renúncia antecipada disfarçada de número.
+  const free = textOf(snapshot({ tier: 'free', monthlyFeeCents: null }), 'liability')
+  assert.equal(new RegExp(`${LIABILITY_CAP_MONTHS} meses`).test(free), false)
+  assert.match(free, /respondem nos termos da lei/)
+})
+
+test('o aviso tem canal, endereço e prazo de recebimento', () => {
+  const text = textOf(snapshot(), 'notices')
+
+  // `mediante aviso à outra parte`, sem canal e sem endereço, era o ponto de disputa mais
+  // provável do contrato inteiro.
+  assert.match(text, /por escrito e por\s+correio eletrônico/)
+  assert.match(text, /Ana/, 'o aviso nomeia o representante para quem o contrato foi enviado')
+  assert.match(text, /primeiro dia\s+útil seguinte ao do envio/)
+  assert.match(text, /mensagem por aplicativo de conversa/)
+})
+
+test('a curadoria ganhou o contraponto que faltava, e o preço diz bruto e nota fiscal', () => {
+  assert.match(
+    textOf(snapshot(), 'curation'),
+    new RegExp(`erro factual[\\s\\S]*${FACTUAL_CORRECTION_BUSINESS_DAYS} dias úteis`)
+  )
+  const price = textOf(snapshot(), 'price_and_payment')
+  assert.match(price, /valor acima é bruto/)
+  assert.match(price, /documento fiscal/)
 })

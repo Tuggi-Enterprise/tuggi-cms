@@ -90,8 +90,10 @@ export function buildContractSummary(snapshot: ContractSnapshot): SummaryRow[] {
       id: 'exit',
       label: 'Como você sai',
       value:
-        `Quando quiser, avisando com ${TERMINATION_NOTICE_DAYS} dias de antecedência. Não há ` +
-        `multa e não há tempo mínimo de permanência.`,
+        // "Não há multa" precisa dizer multa DE QUÊ: a v2 criou multa de mora sobre parcela
+        // atrasada, e um resumo ambíguo sobre isso é exatamente o que o art. 423 lê contra nós.
+        `Quando quiser, avisando por e-mail com ${TERMINATION_NOTICE_DAYS} dias de antecedência. ` +
+        `Não há multa por sair e não há tempo mínimo de permanência.`,
       clauseId: 'term',
     },
   ]

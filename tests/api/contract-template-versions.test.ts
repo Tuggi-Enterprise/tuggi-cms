@@ -88,24 +88,39 @@ test('a new contract is generated on the newest version, and the old ones still 
   assert.equal(templateByVersion('v9-2099-01'), null)
 })
 
-test('v2 changes exactly two clauses, and adds none', () => {
+test('v2 revises the clauses it says it revises, and adds the two that were missing', () => {
   const v1 = renderClauses(fixedSnapshot('v1-2026-08'))
   const v2 = renderClauses(fixedSnapshot('v2-2026-08'))
 
-  assert.deepEqual(
-    v2.map((clause) => clause.id),
-    v1.map((clause) => clause.id),
-    'the clause list and its order are the same — v2 is a revision, not a new instrument'
-  )
+  const v1Ids = v1.map((clause) => clause.id)
+  const v2Ids = v2.map((clause) => clause.id)
+
+  // Nada saiu: uma revisão que remove cláusula é outro instrumento, não uma revisão.
+  for (const id of v1Ids) assert.ok(v2Ids.indexOf(id) >= 0, `v2 perdeu \`${id}\``)
+
+  // E as duas que entraram são as que o parecer apontou como ausentes.
+  assert.deepEqual(v2Ids.filter((id) => v1Ids.indexOf(id) < 0), ['liability', 'notices'])
+  // Cada uma logo depois da cláusula que responde.
+  assert.equal(v2Ids[v2Ids.indexOf('penalties') + 1], 'liability')
+  assert.equal(v2Ids[v2Ids.indexOf('data_protection') + 1], 'notices')
 
   const changed = v1
-    .filter((clause, index) => clause.paragraphs.join('') !== v2[index].paragraphs.join(''))
+    .filter((clause) => {
+      const twin = v2.find((candidate) => candidate.id === clause.id)!
+      return clause.paragraphs.join('') !== twin.paragraphs.join('')
+    })
     .map((clause) => clause.id)
 
-  // `electronic_acceptance` prints the version it belongs to — *"Este documento corresponde à
-  // versão {x} do modelo"* — so it differs between any two versions by construction, and that
-  // is the point of it. It is not a revision somebody wrote.
-  assert.deepEqual(changed, ['price_and_payment', 'commission', 'electronic_acceptance'])
+  // `electronic_acceptance` imprime a versão a que pertence — *"Este documento corresponde à
+  // versão {x} do modelo"* —, então difere entre duas versões quaisquer por construção. Não é
+  // revisão que alguém escreveu.
+  assert.deepEqual(changed.slice().sort(), [
+    'commission',
+    'curation',
+    'electronic_acceptance',
+    'payment_default',
+    'price_and_payment',
+  ])
   assert.match(
     v2.find((clause) => clause.id === 'electronic_acceptance')!.paragraphs.join(' '),
     /versão v2-2026-08 do modelo/

@@ -54,6 +54,26 @@ export const TERMINATION_NOTICE_DAYS = 30
  */
 export const DUE_DAY_OF_MONTH = 20
 
+/**
+ * Os números que a minuta de 2026-08-18 introduziu — TODOS PROPOSTA, nenhum decidido.
+ *
+ * Estão aqui, com nome e ID, para que a revisão do advogado seja uma linha e não uma caçada
+ * dentro de parágrafo. Cada um é o valor de mercado usual para o caso, e nenhum tem origem em
+ * regra `BR-*` ainda: `produto` registra depois que o jurídico fechar.
+ */
+/** Mora, ao mês, sobre a parcela vencida. 1% é o usual e o teto legal supletivo (CC, art. 406). */
+export const LATE_INTEREST_MONTHLY_PERCENT = 1
+/** Multa moratória. 2% é o costume do mercado e o teto do CDC, adotado aqui por prudência. */
+export const LATE_FINE_PERCENT = 2
+/** Dias corridos do vencimento a partir dos quais a TUGGI pode rescindir por falta de pagamento. */
+export const TERMINATION_FOR_DEFAULT_DAYS = 60
+/** Dias úteis para a TUGGI corrigir erro factual apontado por escrito pelo ESTABELECIMENTO. */
+export const FACTUAL_CORRECTION_BUSINESS_DAYS = 5
+/** Dias corridos de indisponibilidade contínua imputável à TUGGI que geram crédito proporcional. */
+export const OUTAGE_CREDIT_DAYS = 5
+/** Meses de mensalidade que limitam a responsabilidade direta, na faixa paga. */
+export const LIABILITY_CAP_MONTHS = 12
+
 /** BR-B2B-019, item 2 — tolerância, avisos e suspensão, em dias corridos do vencimento. */
 export const GRACE_PERIOD_DAYS = 10
 export const FIRST_DUNNING_DAY = 1
@@ -90,6 +110,8 @@ export const RESTRICTIVE_CLAUSE_IDS: readonly string[] = [
   'penalties',
   'payment_default',
   'brand_license',
+  // O caso de manual do art. 424: limitar responsabilidade é limitar direito do aderente.
+  'liability',
 ]
 
 export interface ContractTemplate {
@@ -426,6 +448,57 @@ const V2_REPLACEMENTS: Record<string, ContractClause> = {
         `altera o valor aqui pactuado.`,
       `O valor será reajustado anualmente, no aniversário deste contrato, pela variação acumulada do ` +
         `índice [ÍNDICE A DEFINIR PELO JURÍDICO] no período, ou pelo índice que legalmente o substituir.`,
+      // Bruto ou líquido, e quem emite o documento fiscal: nada disso estava dito, e é a
+      // primeira pergunta do contador do parceiro.
+      'O valor acima é bruto e nele já estão compreendidos os tributos devidos pela TUGGI sobre a ' +
+        'prestação. A TUGGI emite o documento fiscal correspondente a cada competência. Retenções ' +
+        'exigidas por lei são de responsabilidade da fonte pagadora e não alteram o valor pactuado.',
+    ],
+  },
+  curation: {
+    id: 'curation',
+    title: 'Da curadoria do conteúdo',
+    ruleIds: ['BR-B2B-016', 'BR-B2B-025'],
+    body: () => [
+      'O ESTABELECIMENTO fornece o insumo; a TUGGI redige, produz e narra o texto que chega ao turista. ' +
+        'A redação final, a extensão, o tom e a decisão de publicar são da TUGGI, e o ESTABELECIMENTO não ' +
+        'tem direito de exigir a publicação de texto de sua própria autoria.',
+      'A TUGGI pode recusar ou solicitar a substituição de insumo que não atenda à sua régua editorial, ' +
+        'sem que isso configure descumprimento deste contrato por qualquer das partes.',
+      // O contraponto que faltava. A curadoria dá à TUGGI a redação inteira e a cláusula da
+      // veracidade diz que ela não apura o que o parceiro afirma — de modo que um erro da TUGGI
+      // sobre o estabelecimento não tinha remédio nenhum no instrumento. Sem isto, é o tipo de
+      // assimetria que o art. 424 do Código Civil alcança.
+      `O ESTABELECIMENTO pode apontar à TUGGI, por escrito, erro factual sobre si na descrição ` +
+        `publicada — nome, endereço, horário, produto ou fato que não corresponda à realidade — e a ` +
+        `TUGGI obriga-se a corrigi-lo em até ${FACTUAL_CORRECTION_BUSINESS_DAYS} dias úteis contados do ` +
+        `recebimento do apontamento. Esta obrigação alcança o erro, e não a linha editorial.`,
+    ],
+  },
+  payment_default: {
+    id: 'payment_default',
+    title: 'Da inadimplência',
+    ruleIds: ['BR-B2B-019'],
+    appliesTo: 'paid',
+    body: () => [
+      `Vencida e não paga a contraprestação mensal, o ESTABELECIMENTO disporá de tolerância de ` +
+        `${GRACE_PERIOD_DAYS} dias corridos contados do vencimento, e será avisado pela TUGGI no ` +
+        `${FIRST_DUNNING_DAY}º e no ${SECOND_DUNNING_DAY}º dia após o vencimento.`,
+      `Persistindo a inadimplência, a TUGGI suspenderá a descrição do ESTABELECIMENTO no aplicativo a ` +
+        `partir do ${SUSPENSION_DAY}º dia contado do vencimento.`,
+      'A suspensão alcança exclusivamente a descrição da faixa paga daquele estabelecimento. O ponto ' +
+        'permanece no aplicativo, rebaixado à menção direcional da faixa gratuita, e a suspensão não ' +
+        'alcança o nome, a presença no mapa, o QR Code ou a participação na receita.',
+      'O pagamento do débito restabelece a descrição, sem nova triagem do insumo já apresentado.',
+      // A escada parava na suspensão: no 60º dia o contrato seguia vigente, com o ponto no ar e a
+      // comissão correndo, e a TUGGI sem remédio nenhum além de esperar.
+      `Sobre a parcela vencida incidem multa de ${LATE_FINE_PERCENT}% e juros de mora de ` +
+        `${LATE_INTEREST_MONTHLY_PERCENT}% ao mês, calculados pro rata die a partir do vencimento.`,
+      `Persistindo a inadimplência por ${TERMINATION_FOR_DEFAULT_DAYS} dias corridos contados do ` +
+        `vencimento, a TUGGI poderá rescindir este contrato mediante aviso, sem o prazo de ` +
+        `antecedência previsto na cláusula "Da vigência e do início da cobrança" e sem prejuízo da ` +
+        `cobrança do débito. A suspensão da descrição não interrompe a contraprestação, que ` +
+        `permanece devida enquanto o contrato vigorar.`,
     ],
   },
   commission: {
@@ -451,11 +524,97 @@ const V2_REPLACEMENTS: Record<string, ContractClause> = {
   },
 }
 
+/**
+ * As duas cláusulas que o instrumento não tinha, e a posição de cada uma.
+ *
+ * `liability` entra depois de `penalties`, porque é a resposta à pergunta que as penalidades
+ * levantam: até onde vai a conta quando algo dá errado. `notices` entra antes do foro, que é o
+ * lugar clássico das disposições finais — e é a cláusula mais barata do contrato inteiro, porque
+ * `mediante aviso à outra parte`, sem canal e sem endereço, é o ponto de disputa mais provável
+ * de todos.
+ *
+ * MINUTA. Como o resto deste arquivo, a redação final é do advogado.
+ */
+const V2_ADDITIONS: { after: string; clause: ContractClause }[] = [
+  {
+    after: 'penalties',
+    clause: {
+      id: 'liability',
+      title: 'Da responsabilidade, da disponibilidade e do caso fortuito',
+      ruleIds: [],
+      body: (s) => [
+        'A TUGGI emprega esforços comerciais razoáveis para manter o aplicativo disponível, e não ' +
+          'promete disponibilidade ininterrupta. Interrupções para manutenção, falha de terceiro de ' +
+          'que a TUGGI dependa — inclusive lojas de aplicativo, provedores de hospedagem e redes de ' +
+          'telecomunicação — e indisponibilidade do aparelho do turista não constituem ' +
+          'descumprimento deste contrato.',
+        s.tier === 'paid'
+          ? `Interrupção contínua superior a ${OUTAGE_CREDIT_DAYS} dias corridos, imputável à TUGGI, ` +
+            `que impeça a entrega da descrição da faixa paga dá ao ESTABELECIMENTO crédito ` +
+            `proporcional aos dias de indisponibilidade, abatido da contraprestação seguinte.`
+          : 'Na faixa gratuita não há contraprestação e, por consequência, não há crédito a apurar ' +
+            'por indisponibilidade.',
+        'Nenhuma das partes responde perante a outra por lucros cessantes, perda de oportunidade, ' +
+          'perda de clientela ou dano indireto de qualquer natureza decorrente deste contrato.',
+        s.tier === 'paid'
+          ? `A responsabilidade da TUGGI por danos diretos decorrentes deste contrato fica limitada ` +
+            `ao total das contraprestações mensais efetivamente pagas pelo ESTABELECIMENTO nos ` +
+            `${LIABILITY_CAP_MONTHS} meses anteriores ao fato que lhe der causa.`
+          : 'Na faixa gratuita, em que não há contraprestação, as partes respondem nos termos da lei, ' +
+            'observada a exclusão de danos indiretos prevista acima.',
+        'As limitações desta cláusula não alcançam o dolo, a culpa grave, a violação de direito de ' +
+          'terceiro nem as obrigações decorrentes da Lei nº 13.709/2018, e não se aplicam onde a lei ' +
+          'as vedar.',
+        'Nenhuma parte responde pelo descumprimento decorrente de caso fortuito ou força maior, na ' +
+          'forma do art. 393 do Código Civil, enquanto durar o evento e desde que a outra parte seja ' +
+          'comunicada por escrito.',
+      ],
+    },
+  },
+  {
+    after: 'data_protection',
+    clause: {
+      id: 'notices',
+      title: 'Dos avisos entre as partes',
+      ruleIds: ['BR-B2B-023'],
+      body: (s) => [
+        `Os avisos previstos neste contrato, inclusive o de rescisão, são feitos por escrito e por ` +
+          `correio eletrônico: à TUGGI, no endereço que constar do documento fiscal ou do domínio ` +
+          `tuggi.app; ao ESTABELECIMENTO, no endereço de e-mail do seu representante legal, ` +
+          `${s.partner.representativeName}, informado no cadastro e para o qual este contrato foi ` +
+          `enviado.`,
+        'Cada parte obriga-se a manter o seu endereço de e-mail atualizado e a comunicar a alteração ' +
+          'à outra. O aviso enviado ao último endereço informado reputa-se recebido no primeiro dia ' +
+          'útil seguinte ao do envio, ainda que não respondido.',
+        'Aviso verbal, mensagem por aplicativo de conversa e comunicação a preposto sem poderes não ' +
+          'produzem os efeitos deste contrato, salvo confirmação por escrito na forma acima.',
+      ],
+    },
+  },
+]
+
+/** Insere cada acréscimo logo depois da cláusula que ele responde. */
+function withAdditions(
+  clauses: readonly ContractClause[],
+  additions: { after: string; clause: ContractClause }[]
+): ContractClause[] {
+  return clauses.flatMap((clause) => [
+    clause,
+    ...additions.filter((addition) => addition.after === clause.id).map((addition) => addition.clause),
+  ])
+}
+
 const V2: ContractTemplate = {
   version: 'v2-2026-08',
   title: V1.title,
   publishedAt: '2026-08-18',
-  clauses: V1.clauses.map((clause) => V2_REPLACEMENTS[clause.id] ?? clause),
+  // Ajustada no mesmo dia, com ZERO contratos gerados nela — o teste de "publicada" é ter saído
+  // documento, não ter data. Inflar para v3 sem ninguém na v2 só criaria versão que nunca vai
+  // aparecer em linha nenhuma. A v1, essa sim, está congelada e defendida por hash.
+  clauses: withAdditions(
+    V1.clauses.map((clause) => V2_REPLACEMENTS[clause.id] ?? clause),
+    V2_ADDITIONS
+  ),
 }
 
 const TEMPLATES: Record<string, ContractTemplate> = {

@@ -221,6 +221,52 @@ exatamente a v2 funcionando. Para valer 10% lá, é contrato novo.
 
 ---
 
+## Minuta das quatro cláusulas que faltavam — para o advogado revisar
+
+Escritas na **v2-2026-08** em 2026-08-18. São **minuta**, como o resto do template: a redação
+final é do advogado, e o que o código garante é que cada número sai de uma constante nomeada, de
+modo que a revisão seja uma linha e não uma caçada dentro de parágrafo.
+
+| Onde | O que passou a dizer |
+| :-- | :-- |
+| `notices` (nova) | Aviso é por escrito e por e-mail, ao endereço do representante para quem o contrato foi enviado; cada parte mantém o seu atualizado; reputa-se recebido no primeiro dia útil seguinte ao envio. Mensagem de aplicativo de conversa e aviso verbal não produzem efeito |
+| `liability` (nova) | Sem promessa de disponibilidade ininterrupta; crédito proporcional em interrupção contínua imputável à Tuggi; exclusão mútua de lucros cessantes e dano indireto; teto de responsabilidade direta; caso fortuito e força maior (CC, art. 393) |
+| `payment_default` | Multa e juros de mora; rescisão por inadimplência prolongada; e a ambiguidade fechada — a suspensão **não** interrompe a contraprestação |
+| `curation` | O parceiro pode apontar erro factual sobre si e a Tuggi corrige em prazo certo. Alcança o **erro**, não a linha editorial |
+| `price_and_payment` | O valor é bruto, a Tuggi emite documento fiscal por competência, e retenção legal é da fonte pagadora |
+
+### Os seis números são proposta, não decisão
+
+Todos em `lib/contract/template.ts`, cada um com o motivo ao lado:
+
+| Constante | Proposto | De onde veio |
+| :-- | --: | :-- |
+| `LATE_INTEREST_MONTHLY_PERCENT` | 1% ao mês | supletivo do art. 406 do Código Civil |
+| `LATE_FINE_PERCENT` | 2% | costume de mercado e teto do CDC, adotado por prudência |
+| `TERMINATION_FOR_DEFAULT_DAYS` | 60 dias | usual em assinatura mensal |
+| `FACTUAL_CORRECTION_BUSINESS_DAYS` | 5 dias úteis | proposta |
+| `OUTAGE_CREDIT_DAYS` | 5 dias corridos | proposta |
+| `LIABILITY_CAP_MONTHS` | 12 meses | usual em SaaS B2B |
+
+### Duas escolhas que o advogado deve olhar primeiro
+
+**O teto não se aplica à faixa gratuita.** Doze mensalidades de um contrato sem mensalidade é
+teto zero, e teto zero é renúncia antecipada disfarçada de número — o art. 424 do Código Civil
+alcança isso num contrato de adesão. Na gratuita, a cláusula diz que as partes respondem nos
+termos da lei, mantida só a exclusão de dano indireto.
+
+**O teto tem quatro exceções**: dolo, culpa grave, violação de direito de terceiro e LGPD. Sem
+elas, um teto num contrato de adesão é frágil, e obrigação de LGPD não se limita por contrato de
+qualquer forma.
+
+### O que continua fora, e é decisão de negócio
+
+Confidencialidade e cláusula anticorrupção não entraram. Nenhuma das duas é exigível neste tipo
+de relação e ambas alongam um documento que o parceiro lê no celular — 19 cláusulas e ~2.240
+palavras já é o dobro do que era. Se o jurídico quiser, entram na próxima versão.
+
+---
+
 ## Ordem de ataque
 
 | # | Achado | Dono | Custo |

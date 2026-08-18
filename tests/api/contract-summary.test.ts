@@ -157,5 +157,11 @@ test('a faixa gratuita não destaca a cláusula de dinheiro que ela nem recebe',
   assert.equal(free.some((clause) => clause.id === 'payment_default'), false)
   // As outras quatro continuam destacadas.
   const marked = free.filter((clause) => clause.restrictive).map((clause) => clause.id)
-  assert.deepEqual(marked.slice().sort(), ['brand_license', 'curation', 'non_exclusivity', 'penalties'])
+  assert.deepEqual(marked.slice().sort(), [
+    'brand_license',
+    'curation',
+    'liability',
+    'non_exclusivity',
+    'penalties',
+  ])
 })
