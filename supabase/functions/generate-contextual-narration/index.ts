@@ -20,6 +20,7 @@ import {
     validateRequestBody,
 } from "../_shared/validation-schemas.ts";
 import { createAuditLogger } from "../_shared/audit-logger.ts";
+import { isContextualNarrationEnabled } from "../_shared/feature-flags.ts";
 const corsHeaders = {
     "Access-Control-Allow-Origin": "*",
     "Access-Control-Allow-Headers":
@@ -167,21 +168,34 @@ serve(async (req: Request): Promise<Response> => {
         });
     }
 
-    // ✅ FEATURE FLAG (HARDCODED)
-    // DESLIGADO: narração contextual em tempo real fora do ar. A única geração de
-    // texto/tradução ativa é a do master-description. Qualquer chamada aqui é
-    // curto-circuitada ANTES de auth/rate-limit/modelo → nada é gerado.
-    const isEnabled = false;
-
-    if (!isEnabled) {
+    // ═══════════════════════════════════════════════════════════════════════
+    // KILL SWITCH — #487, 2026-08-18. OFF by default, re-enabled by setting the
+    // `CONTEXTUAL_NARRATION_ENABLED` secret to `true` (see `_shared/feature-flags.ts`).
+    //
+    // Short-circuits BEFORE auth, rate limit and the AI provider: nothing is
+    // generated, nothing is billed, nothing is logged about the caller.
+    //
+    // The status is 200 ON PURPOSE, and it is not cosmetic. The callers are the
+    // native pre-fetch loops (`TriggerDetectionService.processPreFetch` on
+    // Android, `processPreFetchForTriggerPoint` on iOS), and they split on the
+    // transport error, not on the body: a non-2xx lands on the error branch,
+    // where iOS does NOT write `failedPreFetchHashes` and therefore re-asks on
+    // every location tick. A 200 carrying `success: false` lands on the same
+    // branch that already handles NO_PREVIOUS_POI / POI_BEHIND /
+    // BASE_CONTENT_MISSING: the trigger point is skipped quietly, iOS keeps it
+    // in its 5-minute negative cache, and the tourist falls through to the
+    // catalog audio with no error surface. Those clients are already installed
+    // and cannot be changed — the app has no OTA.
+    // ═══════════════════════════════════════════════════════════════════════
+    if (!isContextualNarrationEnabled()) {
         return new Response(
             JSON.stringify({
                 success: false,
-                code: "SERVICE_UNAVAILABLE",
-                message: "Narração contextual indisponível no momento.",
+                code: "CONTEXTUAL_NARRATION_DISABLED",
+                error: "Contextual narration is disabled - defaulting to static audio",
             }),
             {
-                status: 503,
+                status: 200,
                 headers: createSecureHeaders(corsHeaders),
             },
         );
