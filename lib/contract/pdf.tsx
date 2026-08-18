@@ -38,6 +38,7 @@ import {
   type ContractSnapshot,
 } from './snapshot'
 import { renderClauses, templateByVersion } from './template'
+import { SUMMARY_DISCLAIMER, SUMMARY_TITLE, buildContractSummary } from './summary'
 
 /**
  * What the acceptance appendix prints. Every field is a fact of the trail.
@@ -71,6 +72,10 @@ const styles = StyleSheet.create({
   stampLabel: { width: 150, color: '#4a4a4a' },
   stampValue: { flex: 1 },
   mono: { fontFamily: 'Courier', fontSize: 8 },
+  summary: { borderWidth: 1, borderColor: '#1a1a1a', padding: 10, marginBottom: 8 },
+  summaryNote: { fontSize: 8, color: '#4a4a4a', marginTop: 6 },
+  restrictive: { borderWidth: 1.5, borderColor: '#1a1a1a', padding: 10, marginTop: 10 },
+  restrictiveFlag: { fontSize: 8, fontFamily: 'Helvetica-Bold', letterSpacing: 0.5 },
 })
 
 function ContractDocument({
@@ -82,6 +87,7 @@ function ContractDocument({
 }) {
   const template = templateByVersion(snapshot.templateVersion)
   const clauses = renderClauses(snapshot)
+  const summary = buildContractSummary(snapshot)
 
   return (
     <Document
@@ -96,8 +102,28 @@ function ContractDocument({
           {snapshot.templateVersion}, de {formatDate(snapshot.generatedAt)}
         </Text>
 
+        {/*
+          O MESMO QUADRO DA TELA, NO ARQUIVO. Ter o resumo só numa das duas superfícies faria o
+          que a pessoa leu diferir do que ela arquivou — e o quadro sai do mesmo `snapshot` que
+          as cláusulas, então não diverge delas nem aqui.
+        */}
+        <View style={styles.summary} wrap={false}>
+          <Text style={styles.clauseTitle}>{SUMMARY_TITLE}</Text>
+          {summary.map((row) => (
+            <Text key={row.id} style={styles.paragraph}>
+              {row.label}: {row.value}
+            </Text>
+          ))}
+          <Text style={styles.summaryNote}>{SUMMARY_DISCLAIMER}</Text>
+        </View>
+
         {clauses.map((clause) => (
-          <View key={clause.id} wrap>
+          <View key={clause.id} style={clause.restrictive ? styles.restrictive : undefined} wrap>
+            {/* O destaque vai para o arquivo também: ele é medida do art. 424 do Código Civil,
+                e vale sobre o instrumento, não sobre a tela. */}
+            {clause.restrictive ? (
+              <Text style={styles.restrictiveFlag}>ATENÇÃO — ESTA CLÁUSULA LIMITA OS SEUS DIREITOS</Text>
+            ) : null}
             <Text style={styles.clauseTitle}>
               {clause.number}. {clause.title}
             </Text>

@@ -73,6 +73,25 @@ export interface ContractClause {
   body: (snapshot: ContractSnapshot) => readonly string[]
 }
 
+/**
+ * As cláusulas que RESTRINGEM o parceiro, e por isso saem em destaque na tela.
+ *
+ * Contrato de adesão tem duas regras que fazem do destaque medida defensiva, não enfeite: o
+ * art. 423 do Código Civil manda interpretar a cláusula ambígua a favor de quem aderiu, e o
+ * art. 424 fulmina a renúncia antecipada a direito próprio da natureza do negócio. Uma cláusula
+ * limitativa que o aderente não teve como notar é exatamente o que esses dois artigos alcançam.
+ *
+ * A lista é dos IDs e não de posições, porque a numeração muda com a faixa contratada — a
+ * gratuita não recebe as duas cláusulas de dinheiro.
+ */
+export const RESTRICTIVE_CLAUSE_IDS: readonly string[] = [
+  'curation',
+  'non_exclusivity',
+  'penalties',
+  'payment_default',
+  'brand_license',
+]
+
 export interface ContractTemplate {
   version: string
   /** What the partner sees as the document title. */
@@ -466,6 +485,8 @@ export interface RenderedClause {
   number: number
   title: string
   ruleIds: readonly string[]
+  /** Restringe o parceiro, e por isso a tela a destaca — ver `RESTRICTIVE_CLAUSE_IDS`. */
+  restrictive: boolean
   paragraphs: readonly string[]
 }
 
@@ -486,6 +507,8 @@ export function renderClauses(snapshot: ContractSnapshot): RenderedClause[] {
       number: index + 1,
       title: clause.title,
       ruleIds: clause.ruleIds,
+      /** Decidido aqui, e não pela tela: quem lê a lista lê junto o motivo dela existir. */
+      restrictive: RESTRICTIVE_CLAUSE_IDS.indexOf(clause.id) >= 0,
       paragraphs: [...clause.body(snapshot)],
     }))
 }

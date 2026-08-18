@@ -20,10 +20,16 @@
 
 import { formatDate, formatTaxId, type ContractSnapshot } from '@/lib/contract/snapshot'
 import { renderClauses, templateByVersion } from '@/lib/contract/template'
+import {
+  SUMMARY_DISCLAIMER,
+  SUMMARY_TITLE,
+  buildContractSummary,
+} from '@/lib/contract/summary'
 
 export function ContractText({ snapshot }: { snapshot: ContractSnapshot }) {
   const template = templateByVersion(snapshot.templateVersion)
   const clauses = renderClauses(snapshot)
+  const summary = buildContractSummary(snapshot)
 
   return (
     <article className="mx-auto w-full max-w-3xl px-4 text-base leading-relaxed text-gray-900">
@@ -37,6 +43,39 @@ export function ContractText({ snapshot }: { snapshot: ContractSnapshot }) {
         </p>
       </header>
 
+      {/*
+        O QUADRO VEM ANTES DO ÍNDICE, e cada linha aponta para a cláusula que manda.
+        
+        Ele é derivado do mesmo `snapshot` que as cláusulas (`buildContractSummary`), então não
+        tem como divergir delas — e é isso que o torna defensável: num contrato de adesão, o que
+        diverge é lido contra quem redigiu (art. 423 do Código Civil). A ressalva ao pé não é
+        formalidade: ela é o que impede o resumo de ser lido como o contrato.
+      */}
+      <section aria-labelledby="resumo" className="mt-6 rounded-md border border-gray-300 p-4">
+        <h2 id="resumo" className="text-lg font-semibold">
+          {SUMMARY_TITLE}
+        </h2>
+        <dl className="mt-3 space-y-3">
+          {summary.map((row) => (
+            <div key={row.id}>
+              <dt className="text-base font-semibold">{row.label}</dt>
+              <dd className="mt-1 text-base">
+                {row.value}{' '}
+                <a
+                  className="whitespace-nowrap text-primary-800 underline"
+                  href={`#clausula-${row.clauseId}`}
+                >
+                  Ver a cláusula
+                </a>
+              </dd>
+            </div>
+          ))}
+        </dl>
+        <p className="mt-4 border-t border-gray-300 pt-3 text-sm text-gray-700">
+          {SUMMARY_DISCLAIMER}
+        </p>
+      </section>
+
       <nav aria-label="Índice das cláusulas" className="mt-6">
         <h2 className="text-lg font-semibold">Índice</h2>
         <ol className="mt-2 space-y-1">
@@ -45,6 +84,9 @@ export function ContractText({ snapshot }: { snapshot: ContractSnapshot }) {
               <a className="text-primary-800 underline" href={`#clausula-${clause.id}`}>
                 {clause.number}. {clause.title}
               </a>
+              {clause.restrictive && (
+                <span className="ml-2 text-sm font-semibold">(atenção)</span>
+              )}
             </li>
           ))}
         </ol>
@@ -52,8 +94,29 @@ export function ContractText({ snapshot }: { snapshot: ContractSnapshot }) {
 
       <div className="mt-8 space-y-6">
         {clauses.map((clause) => (
-          <section key={clause.id} aria-labelledby={`clausula-${clause.id}`}>
-            <h2 id={`clausula-${clause.id}`} className="text-lg font-semibold">
+          /*
+            A cláusula que restringe o parceiro sai com borda, fundo e a palavra `Atenção` —
+            texto, nunca só a cor (DS-A11Y-003), porque quem não enxerga a diferença de fundo
+            precisa receber o mesmo aviso.
+          */
+          <section
+            key={clause.id}
+            aria-labelledby={`clausula-${clause.id}`}
+            className={
+              clause.restrictive
+                ? 'rounded-md border-2 border-gray-900 bg-gray-50 p-4'
+                : undefined
+            }
+          >
+            {clause.restrictive && (
+              <p className="text-sm font-bold uppercase tracking-wide">
+                Atenção — esta cláusula limita os seus direitos
+              </p>
+            )}
+            <h2
+              id={`clausula-${clause.id}`}
+              className={clause.restrictive ? 'mt-1 text-lg font-semibold' : 'text-lg font-semibold'}
+            >
               {clause.number}. {clause.title}
             </h2>
             {clause.paragraphs.map((paragraph, index) => (

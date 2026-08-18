@@ -189,6 +189,38 @@ Desde 2026-08-17 a página também imprime o documento sem a moldura.
 
 ---
 
+## Estado em 2026-08-18, depois das decisões do operador
+
+| Achado | Situação |
+| :-- | :-- |
+| A1 — comissão sem apuração | **mantido por decisão**: repasse é entregável à mão (fingerprint + RevenueCat). A cláusula deixou de apontar para um acordo inexistente e passou a dizê-lo: apuração mensal sobre o mês civil anterior, demonstrativo até o dia 10, pagamento até o último dia útil, por Pix ou transferência |
+| A2 — duas réguas para o percentual | **corrigido**: o percentual do aceite é o devido, e alterar exige aditivo — mesma doutrina de BR-B2B-017 para a mensalidade |
+| Vencimento indefinido | **corrigido**: dia 20, com dia útil seguinte em fim de semana ou feriado, e primeira fatura proporcional a partir da publicação |
+| Resumo para leigo + destaque nas restritivas | **entregue**: quadro derivado do mesmo `snapshot`, com ressalva, e as cinco cláusulas limitativas marcadas em texto na tela e no PDF |
+
+Tudo isso está na **v2-2026-08**. A v1 ficou congelada e defendida por hash — quatro linhas de
+contrato existiam nela, todas do mesmo cliente (Hotel la plage), uma viva e aberta pelo parceiro.
+Por decisão do operador, elas ficam como estão.
+
+### Achado de dado, e é de `data` executar
+
+`core.clients.commission_rate` mede **20% em 10 dos 11 clientes** — escrito pelo default
+silencioso que saiu do código em 2026-08-18, não por decisão de ninguém. O único percentual
+decidido é o de `Tasca das Tias Lda` (50%).
+
+Se o padrão passa a ser 10%, as dez linhas precisam de um `UPDATE`, e ele não é meu:
+
+```sql
+-- Área do `data`. Confira a lista antes; `Tasca das Tias Lda` NÃO entra.
+update core.clients set commission_rate = 0.100
+ where commission_rate = 0.200;
+```
+
+`Hotel la plage` tem contrato enviado imprimindo 20%. Mudar a linha **não** muda o contrato — é
+exatamente a v2 funcionando. Para valer 10% lá, é contrato novo.
+
+---
+
 ## Ordem de ataque
 
 | # | Achado | Dono | Custo |
