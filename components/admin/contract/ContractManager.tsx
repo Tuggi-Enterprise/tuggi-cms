@@ -425,6 +425,8 @@ export function ContractManager({
             <a
               className="inline-flex h-10 items-center rounded-md border border-input px-4 py-2 text-sm font-semibold text-gray-900 hover:bg-accent dark:text-gray-200"
               href={`/api/admin/clients/${clientId}/contract/pdf`}
+              target="_blank"
+              rel="noopener noreferrer"
             >
               Abrir o PDF
             </a>

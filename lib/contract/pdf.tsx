@@ -73,6 +73,9 @@ const styles = StyleSheet.create({
   stampValue: { flex: 1 },
   mono: { fontFamily: 'Courier', fontSize: 8 },
   summary: { borderWidth: 1, borderColor: '#1a1a1a', padding: 10, marginBottom: 8 },
+  summaryRow: { marginBottom: 6 },
+  summaryLabel: { fontFamily: 'Helvetica-Bold', marginBottom: 2 },
+  summaryBullet: { marginLeft: 10, marginBottom: 1 },
   summaryNote: { fontSize: 8, color: '#4a4a4a', marginTop: 6 },
   restrictive: { borderWidth: 1.5, borderColor: '#1a1a1a', padding: 10, marginTop: 10 },
   restrictiveFlag: { fontSize: 8, fontFamily: 'Helvetica-Bold', letterSpacing: 0.5 },
@@ -110,9 +113,14 @@ function ContractDocument({
         <View style={styles.summary} wrap={false}>
           <Text style={styles.clauseTitle}>{SUMMARY_TITLE}</Text>
           {summary.map((row) => (
-            <Text key={row.id} style={styles.paragraph}>
-              {row.label}: {row.value}
-            </Text>
+            <View key={row.id} style={styles.summaryRow}>
+              <Text style={styles.summaryLabel}>{row.label}</Text>
+              {row.points.map((point, index) => (
+                <Text key={index} style={styles.summaryBullet}>
+                  {`\u2022 ${point}`}
+                </Text>
+              ))}
+            </View>
           ))}
           <Text style={styles.summaryNote}>{SUMMARY_DISCLAIMER}</Text>
         </View>

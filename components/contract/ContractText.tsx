@@ -60,9 +60,13 @@ export function ContractText({ snapshot }: { snapshot: ContractSnapshot }) {
             <div key={row.id}>
               <dt className="text-base font-semibold">{row.label}</dt>
               <dd className="mt-1 text-base">
-                {row.value}{' '}
+                <ul className="list-disc space-y-1 pl-5">
+                  {row.points.map((point, index) => (
+                    <li key={index}>{point}</li>
+                  ))}
+                </ul>
                 <a
-                  className="whitespace-nowrap text-primary-800 underline"
+                  className="mt-1 inline-block whitespace-nowrap text-primary-800 underline"
                   href={`#clausula-${row.clauseId}`}
                 >
                   Ver a cláusula

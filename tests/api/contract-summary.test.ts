@@ -76,6 +76,13 @@ const rowOf = (rows: SummaryRow[], id: string) => {
   return row!
 }
 
+/**
+ * A linha é lida em bullets, mas o que o teste mede é o CONTEÚDO dela — em que bullet o número
+ * caiu é decisão de redação, e prender a asserção nisso quebraria o teste a cada reescrita sem
+ * que promessa nenhuma tivesse mudado.
+ */
+const textOf = (rows: SummaryRow[], id: string) => rowOf(rows, id).points.join(' ')
+
 test('o resumo repete os números da cláusula, porque sai da mesma fonte', () => {
   const s = snapshot({ monthlyFeeCents: 24900, commissionRate: 0.1 })
   const rows = buildContractSummary(s)
@@ -86,37 +93,37 @@ test('o resumo repete os números da cláusula, porque sai da mesma fonte', () =
   // O valor do resumo é o valor da cláusula, formatado pela MESMA função — comparar contra a
   // função e não contra um literal é o que impede o teste de aceitar duas grafias do mesmo número.
   const fee = formatFee(24900)
-  assert.ok(rowOf(rows, 'price').value.includes(fee), `resumo deveria conter ${fee}`)
+  assert.ok(textOf(rows, 'price').includes(fee), `resumo deveria conter ${fee}`)
   assert.ok(price.includes(fee), `cláusula deveria conter ${fee}`)
 
   const rate = formatCommissionRate(0.1)
-  assert.ok(rowOf(rows, 'commission').value.includes(rate), `resumo deveria conter ${rate}`)
+  assert.ok(textOf(rows, 'commission').includes(rate), `resumo deveria conter ${rate}`)
   assert.ok(commission.includes(rate), `cláusula deveria conter ${rate}`)
 
   // O dia e o prazo vêm das constantes, não de um literal digitado duas vezes.
-  assert.match(rowOf(rows, 'due').value, new RegExp(`dia ${DUE_DAY_OF_MONTH}`))
-  assert.match(rowOf(rows, 'exit').value, new RegExp(`${TERMINATION_NOTICE_DAYS} dias`))
+  assert.match(textOf(rows, 'due'), new RegExp(`dia ${DUE_DAY_OF_MONTH}`))
+  assert.match(textOf(rows, 'exit'), new RegExp(`${TERMINATION_NOTICE_DAYS} dias`))
 })
 
 test('a faixa gratuita não é resumida como se pagasse, nem como se recebesse descrição', () => {
   const rows = buildContractSummary(snapshot({ tier: 'free', monthlyFeeCents: null }))
 
-  assert.match(rowOf(rows, 'price').value, /Nada/)
-  assert.match(rowOf(rows, 'due').value, /Não há cobrança/)
+  assert.match(textOf(rows, 'price'), /não paga nada/)
+  assert.match(textOf(rows, 'due'), /Não há cobrança/)
   // BR-B2B-016: na gratuita o turista ouve nome e direção, e nada além disso.
-  assert.equal(/descrição/.test(rowOf(rows, 'what').value), false)
+  assert.equal(/descrição/.test(textOf(rows, 'what')), false)
   // E a comissão continua sendo prometida às duas faixas, como a cláusula promete.
-  assert.ok(rowOf(rows, 'commission').value.includes(formatCommissionRate(0.1)))
+  assert.ok(textOf(rows, 'commission').includes(formatCommissionRate(0.1)))
 })
 
 test('a cortesia diz o motivo, e não vira mensalidade zero', () => {
   const rows = buildContractSummary(
     snapshot({ isCourtesy: true, monthlyFeeCents: null, courtesyReason: 'lançamento em Santos' })
   )
-  assert.match(rowOf(rows, 'price').value, /cortesia/i)
-  assert.match(rowOf(rows, 'price').value, /lançamento em Santos/)
+  assert.match(textOf(rows, 'price'), /cortesia/i)
+  assert.match(textOf(rows, 'price'), /lançamento em Santos/)
   // Ausente não é zero — BR-B2B-017, item 6.
-  assert.equal(/R\$\s?0,00/.test(rowOf(rows, 'price').value), false)
+  assert.equal(/R\$\s?0,00/.test(textOf(rows, 'price')), false)
 })
 
 test('toda linha aponta para uma cláusula que aquela faixa realmente recebe', () => {
@@ -164,4 +171,26 @@ test('a faixa gratuita não destaca a cláusula de dinheiro que ela nem recebe',
     'non_exclusivity',
     'penalties',
   ])
+})
+
+test('o quadro é lido em bullets, e sem os tiques de texto gerado', () => {
+  for (const tier of ['free', 'paid'] as const) {
+    const rows = buildContractSummary(
+      snapshot({ tier, monthlyFeeCents: tier === 'paid' ? 24900 : null })
+    )
+    for (const row of rows) {
+      assert.ok(row.points.length > 0, `a linha \`${row.id}\` ficou sem nenhum bullet`)
+      for (const point of row.points) {
+        // Travessão e meia-risca são a marca registrada de texto gerado, e aqui eles ainda
+        // custam legibilidade: o quadro é lido em diagonal, no celular, e a oração encaixada
+        // entre travessões é exatamente a que o olho pula.
+        assert.equal(
+          /[—–]/.test(point),
+          false,
+          `a linha \`${row.id}\` voltou a usar travessão: ${point}`
+        )
+        assert.ok(point.trim() === point, `a linha \`${row.id}\` tem bullet com sobra de espaço`)
+      }
+    }
+  }
 })

@@ -29,7 +29,11 @@ export interface SummaryRow {
   id: string
   /** A pergunta que o parceiro está fazendo, na voz dele. */
   label: string
-  value: string
+  /**
+   * A resposta em bullets, uma afirmação por item. O quadro é lido em diagonal, no celular, antes
+   * das cláusulas — parágrafo corrido aqui vira a mesma leitura que ele já ia ter lá embaixo.
+   */
+  points: string[]
   /** A cláusula que governa a linha — vira `#clausula-{id}` na página. */
   clauseId: string
 }
@@ -45,56 +49,70 @@ export function buildContractSummary(snapshot: ContractSnapshot): SummaryRow[] {
   const paid = snapshot.tier === 'paid'
 
   const price = !paid
-    ? 'Nada. A faixa gratuita não tem mensalidade.'
+    ? ['A faixa gratuita não tem mensalidade. Você não paga nada.']
     : snapshot.isCourtesy
-      ? `Nada, enquanto durar a cortesia (${snapshot.courtesyReason}).`
-      : `${formatFee(snapshot.monthlyFeeCents)} por mês. Uma vez por ano o valor pode subir, no ` +
-        `máximo pela inflação do período (${ADJUSTMENT_INDEX}) — nunca mais que isso.`
+      ? [`Nada, enquanto durar a cortesia (${snapshot.courtesyReason}).`]
+      : [
+          `${formatFee(snapshot.monthlyFeeCents)} por mês.`,
+          `Uma vez por ano o valor pode subir, no máximo pela inflação do período ` +
+            `(${ADJUSTMENT_INDEX}). Esse é o teto, e nunca sobe mais que isso.`,
+        ]
 
   const when = !paid || snapshot.isCourtesy
-    ? 'Não há cobrança.'
-    : `Vence todo dia ${DUE_DAY_OF_MONTH}. A primeira cobrança só vem depois que o seu ` +
-      `estabelecimento estiver no ar no aplicativo — nada é cobrado antes disso.`
+    ? ['Não há cobrança.']
+    : [
+        `Vence todo dia ${DUE_DAY_OF_MONTH}.`,
+        'A primeira cobrança só chega depois que o seu estabelecimento estiver no ar no ' +
+          'aplicativo. Antes disso, você não paga nada.',
+      ]
 
   return [
     {
       id: 'what',
       label: 'O que é',
-      value: paid
-        ? 'O seu estabelecimento entra no aplicativo da Tuggi, e o turista que passa perto ouve ' +
-          'o nome, a direção e uma descrição do lugar, escrita e narrada pela Tuggi.'
-        : 'O seu estabelecimento entra no aplicativo da Tuggi, e o turista que passa perto ouve ' +
-          'o nome e a direção do lugar.',
+      points: paid
+        ? [
+            'O seu estabelecimento entra no aplicativo da Tuggi.',
+            'O turista que passa perto ouve o nome, a direção e uma descrição do lugar, escrita ' +
+              'e narrada pela Tuggi.',
+          ]
+        : [
+            'O seu estabelecimento entra no aplicativo da Tuggi.',
+            'O turista que passa perto ouve o nome e a direção do lugar.',
+          ],
       clauseId: 'object',
     },
-    { id: 'price', label: 'Quanto você paga', value: price, clauseId: paid ? 'price_and_payment' : 'object' },
-    { id: 'due', label: 'Quando vence', value: when, clauseId: paid ? 'price_and_payment' : 'term' },
+    { id: 'price', label: 'Quanto você paga', points: price, clauseId: paid ? 'price_and_payment' : 'object' },
+    { id: 'due', label: 'Quando vence', points: when, clauseId: paid ? 'price_and_payment' : 'term' },
     {
       id: 'commission',
       label: 'Quanto você recebe',
-      value:
+      points: [
         `${formatCommissionRate(snapshot.commissionRate)} da receita líquida dos turistas que ` +
-        `chegarem pelo seu QR Code. A Tuggi manda o demonstrativo até o dia 10 e paga até o ` +
-        `último dia útil do mês.`,
+          `chegarem pelo seu QR Code.`,
+        'A Tuggi manda o demonstrativo até o dia 10 e paga até o último dia útil do mês.',
+      ],
       clauseId: 'commission',
     },
     {
       id: 'duties',
       label: 'O que você faz',
-      value:
-        'Mantém o QR Code e o display à vista do público enquanto o contrato durar, e avisa a ' +
-        'Tuggi se mudar endereço, razão social, representante ou a regularidade do ' +
-        'estabelecimento.',
+      points: [
+        'Mantém o QR Code e o display à vista do público enquanto o contrato durar.',
+        'Avisa a Tuggi se mudar endereço, razão social, representante ou a regularidade do ' +
+          'estabelecimento.',
+      ],
       clauseId: 'partner_obligations',
     },
     {
       id: 'exit',
       label: 'Como você sai',
-      value:
+      points: [
+        `Quando quiser, avisando por e-mail com ${TERMINATION_NOTICE_DAYS} dias de antecedência.`,
         // "Não há multa" precisa dizer multa DE QUÊ: a v2 criou multa de mora sobre parcela
         // atrasada, e um resumo ambíguo sobre isso é exatamente o que o art. 423 lê contra nós.
-        `Quando quiser, avisando por e-mail com ${TERMINATION_NOTICE_DAYS} dias de antecedência. ` +
-        `Não há multa por sair e não há tempo mínimo de permanência.`,
+        'Não há multa por sair e não há tempo mínimo de permanência.',
+      ],
       clauseId: 'term',
     },
   ]
