@@ -1813,8 +1813,8 @@
   },
   "Clients": {
     "directory": {
-      "title": "Clientes y alianzas",
-      "subtitle": "Una sola lista: el cliente cargado a mano y la propuesta que aún no es cliente.",
+      "title": "Alianzas",
+      "subtitle": "Todo socio y toda propuesta en una sola lista — incluidos los que aún no son clientes.",
       "searchLabel": "Buscar",
       "searchPlaceholder": "Nombre, CUIT/CNPJ o ciudad",
       "clear": "Limpiar filtros",

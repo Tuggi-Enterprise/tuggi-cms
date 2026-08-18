@@ -73,13 +73,16 @@ export function Header({ className }: { className?: string }) {
     { name: t('cms_team'), href: '/users/cms', icon: UserCog, category: 'users' },
     { name: t('app_users'), href: '/users/app', icon: Smartphone, category: 'users' },
     { name: t('trail_map'), href: '/trail-visualization', icon: Route, category: 'points' },
-    { name: t('clients'), href: '/admin/clients', icon: Settings, category: 'admin' },
     { name: t('users'), href: '/admin/users', icon: Users, category: 'admin' },
     { name: t('poi_trigger_map'), href: '/admin/poi-trigger-map', icon: Map, category: 'admin' },
-    // `Parcerias` não é mais uma tela: é a lista de clientes aberta no conjunto de trabalho —
-    // os estados que ainda dão trabalho, com `Publicado`, `Descartado` e `Recusado na triagem`
-    // fora do caminho (critério 4). A fila tinha essa única coisa a mais que a lista, e um
-    // filtro que cabe num link não precisa de tela própria (DS-LAYOUT-003).
+    // UMA ENTRADA, e ela se chama `Parcerias` — decisão do operador em 2026-08-17. Eram duas
+    // (`Clientes` e `Parcerias`) apontando para a mesma tela depois que a fila foi absorvida, e
+    // duas entradas de menu para um destino é a promessa de que existem dois lugares.
+    //
+    // Abre no conjunto de trabalho: os estados que ainda dão trabalho, com `Publicado`,
+    // `Descartado` e `Recusado na triagem` fora do caminho (critério 4). Ver a lista inteira é
+    // um clique em `Limpar filtros`, e um filtro que cabe num link não precisa de tela própria
+    // (DS-LAYOUT-003).
     {
       name: 'Parcerias',
       href: '/admin/clients?state=in_progress',

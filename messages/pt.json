@@ -1887,8 +1887,8 @@
   },
   "Clients": {
     "directory": {
-      "title": "Clientes e parcerias",
-      "subtitle": "Uma lista só: o cliente cadastrado à mão e a proposta que ainda não virou cliente.",
+      "title": "Parcerias",
+      "subtitle": "Todo parceiro e toda proposta numa lista só — inclusive quem ainda não virou cliente.",
       "searchLabel": "Buscar",
       "searchPlaceholder": "Nome, CNPJ ou cidade",
       "clear": "Limpar filtros",

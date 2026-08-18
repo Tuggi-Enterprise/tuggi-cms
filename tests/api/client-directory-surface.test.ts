@@ -124,7 +124,9 @@ test('the rail is translated in all three locales; the pipeline vocabulary stays
   // decision (#408) and overlaid by the host rather than copied into en/es.
   const host = read('components/admin/AdminClientsPageContent.tsx')
   assert.match(host, /messages=\{\{ \.\.\.messages, Partnerships: ptMessages\.Partnerships \}\}/)
+  // The KEY, parsed — not the literal string, which is also the English title of the screen
+  // now that the operator renamed it `Parcerias`.
   for (const locale of ['en', 'es']) {
-    assert.equal(read(`messages/${locale}.json`).indexOf('"Partnerships"'), -1)
+    assert.equal('Partnerships' in messages(locale), false, `${locale} must not carry the namespace`)
   }
 })

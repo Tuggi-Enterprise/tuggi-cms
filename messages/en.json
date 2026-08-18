@@ -1894,8 +1894,8 @@
   },
   "Clients": {
     "directory": {
-      "title": "Clients and partnerships",
-      "subtitle": "One list: the client registered by hand and the proposal that has not become one yet.",
+      "title": "Partnerships",
+      "subtitle": "Every partner and every proposal in one list — including the ones not yet registered.",
       "searchLabel": "Search",
       "searchPlaceholder": "Name, tax ID or city",
       "clear": "Clear filters",
