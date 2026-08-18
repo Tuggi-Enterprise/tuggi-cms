@@ -34,23 +34,26 @@ const messages = (locale: string) => JSON.parse(read(`messages/${locale}.json`))
 const SERVICE = 'lib/services/partnership-service.ts'
 const SCREEN = 'components/admin/clients/ClientDirectory.tsx'
 
-test('one loader: the queue is a filter over the directory, not a second assembly', () => {
+test('one loader, because there is one list', () => {
   const service = read(SERVICE)
 
-  const queue = service.slice(
-    service.indexOf('export async function loadPartnershipQueue'),
-    service.indexOf('export interface ClientDirectoryRow')
-  )
-  assert.match(queue, /await loadClientDirectory\(operator\)/)
-  // The CALL, not the word: the docblock below the function explains why the derivation lives
-  // in one place, and prose is not a second implementation.
+  // `loadPartnershipQueue` was a second assembly of the same rows, feeding a second screen.
+  // Both are gone: the working set is `/admin/clients?state=in_progress`, a filter of this one.
   assert.equal(
-    queue.indexOf('derivePipelineState('),
+    service.indexOf('loadPartnershipQueue'),
     -1,
-    'the queue must not derive a state of its own — that is how two screens disagree'
+    'a second assembly is how two screens end up disagreeing about the same partnership'
   )
-  assert.equal(queue.indexOf('summarizePlaces('), -1)
-  assert.match(queue, /row\.submissionId !== null/, 'it is the rows with a proposal behind them')
+  assert.equal(service.indexOf('PartnershipQueueRow'), -1)
+
+  // The state is derived in exactly two places here — once per row shape the directory builds
+  // (the proposal-backed rows and the clients no proposal claims), both inside the one loader.
+  const directory = service.slice(service.indexOf('export async function loadClientDirectory'))
+  assert.equal(
+    (service.match(/derivePipelineState\(/g) ?? []).length,
+    (directory.match(/derivePipelineState\(/g) ?? []).length,
+    'nothing outside the directory loader derives a pipeline state'
+  )
 })
 
 test('a client no proposal claims is still a row — the half the queue could not show', () => {

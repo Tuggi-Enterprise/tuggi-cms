@@ -706,12 +706,16 @@ test('#377 · the refused row opens the CLIENT detail, where the refusal is', ()
   )
 })
 
-// ── The column, in the queue ─────────────────────────────────────────────────────────────────
+// ── The column, in the list ──────────────────────────────────────────────────────────────────
+//
+// The queue was retired: `ClientDirectory` is the one list now, and the column moved to it
+// unchanged. What these three assert is unchanged too — the column is text, it reads the pure
+// module, and one `now` serves the whole table.
 
-test('#377 crit. 6 · DS-A11Y-003: the column is TEXT, and the queue reads it from the pure module', () => {
-  const queue = read('components/admin/partnerships/PartnershipsQueue.tsx')
+test('#377 crit. 6 · DS-A11Y-003: the column is TEXT, and the list reads it from the pure module', () => {
+  const queue = read('components/admin/clients/ClientDirectory.tsx')
 
-  assert.match(queue, /queue\.columns\.triage/, 'the column has a header')
+  assert.match(queue, /columns\.triage/, 'the column has a header')
   assert.match(queue, /triageText\(/, 'and its cell is text')
   assert.match(queue, /deriveTriageStatus\(/)
 
@@ -721,7 +725,14 @@ test('#377 crit. 6 · DS-A11Y-003: the column is TEXT, and the queue reads it fr
   assert.match(queue, /const now = new Date\(\)/)
 
   // The overdue rows come first (spec §6.1) — a broken 72-hour promise outranks a slow row.
-  assert.match(queue, /isTriageOverdue/)
+  // The sort moved to the pure module with the rest of the list's decisions; the screen renders
+  // what it returns, which is why the assertion follows it there.
+  assert.match(read('lib/clients/directory-filter.ts'), /isTriageOverdue/)
+  assert.match(
+    read('lib/clients/directory-filter.ts'),
+    /if \(lateA !== lateB\) return lateA \? -1 : 1/,
+    'a broken promise sorts above a longer idle row'
+  )
   assert.match(messages().Partnerships.queue.overdueCount, /triagem vencida/)
 
   // The same text function serves the detail header, so the list and the detail cannot disagree
@@ -730,22 +741,22 @@ test('#377 crit. 6 · DS-A11Y-003: the column is TEXT, and the queue reads it fr
 })
 
 test('#377 crit. 6 · DS-COPY-025 point 5: the cell draws the second line, in text and not in `title`', () => {
-  const queue = code('components/admin/partnerships/PartnershipsQueue.tsx')
+  const queue = code('components/admin/clients/ClientDirectory.tsx')
 
   // The instant of the deadline is rendered as a sibling line in `text-xs`, exactly the pair the
   // `Parado há` column next door already uses. A `title` attribute does not reach the keyboard, and
   // here the instant is the record of what was promised to a partner.
   assert.match(queue, /triageDeadlineText\(status\)/)
-  assert.match(queue, /\{deadlineLine && \(/)
-  assert.match(queue, /className="block text-xs text-gray-700">\{deadlineLine\}/)
+  assert.match(queue, /\{deadline && </)
+  assert.match(queue, /className="block text-xs text-gray-700">\{deadline\}/)
 })
 
 test('#377 · DS-COPY-020 point 2: the row that owes the communication says so in `O que falta`', () => {
-  const queue = code('components/admin/partnerships/PartnershipsQueue.tsx')
+  const queue = code('components/admin/clients/ClientDirectory.tsx')
 
   // A refused place keeps its curation pendencies, and `whatIsMissing` prefers those counts to the
   // next step. For this state it must not: the work of the row is the act owed to the partner, and
   // `2 pendências que bloqueiam` would answer a question nobody is asking.
   assert.match(queue, /row\.state === 'refusal_not_communicated'/)
-  assert.match(queue, /return t\('nextSteps\.refusal_not_communicated'\)/)
+  assert.match(queue, /return p\('nextSteps\.refusal_not_communicated'\)/)
 })

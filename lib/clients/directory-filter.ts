@@ -25,7 +25,11 @@
  */
 
 import { isTriageOverdue, deriveTriageStatus } from '@/lib/partnerships/triage'
-import { IN_PROGRESS_STATES, type PipelineState } from '@/lib/partnerships/pipeline'
+import {
+  IN_PROGRESS_STATES,
+  PIPELINE_STATES,
+  type PipelineState,
+} from '@/lib/partnerships/pipeline'
 import type { ClientDirectoryRow } from '@/lib/services/partnership-service'
 
 /**
@@ -174,6 +178,93 @@ export function buildDirectoryView(
     hiddenCount: rows.length - visible.length,
     filtering: isFiltering(filters),
   }
+}
+
+/**
+ * THE FILTERS LIVE IN THE URL, and that is what let the second list die.
+ *
+ * `/admin/partnerships` was a whole screen whose only distinct behaviour was opening on the
+ * working set — the states that are still work, with `Publicado`, `Descartado` and
+ * `Recusado na triagem` out of the way (criterion 4, DS-COPY-020, point 5). That is a filter,
+ * not a screen, and once a filter can be named in a link the menu entry `Parcerias` becomes
+ * `/admin/clients?state=in_progress` and the queue has nothing left of its own.
+ *
+ * It also buys what neither list had: an operator can send `Minas, sem contrato` to somebody
+ * else, or keep it as a bookmark, instead of describing the six clicks that produce it.
+ *
+ * DEFAULTS ARE NOT WRITTEN. A list with nothing applied has a clean URL, so `?state=all` never
+ * appears and `Limpar filtros` really does empty the address bar. The default is `all` and not
+ * `in_progress`, because this is the CLIENT list too: somebody opening it to fix the fiscal
+ * data of a partner already on air must find them, and `in_progress` hides exactly that row.
+ */
+const PARAM_KEYS = {
+  search: 'q',
+  country: 'country',
+  region: 'region',
+  city: 'city',
+  clientType: 'type',
+  status: 'status',
+  contract: 'contract',
+  state: 'state',
+  onlyLate: 'late',
+} as const
+
+export function parseFilters(params: URLSearchParams): DirectoryFilters {
+  const text = (key: string) => {
+    const value = params.get(key)
+    return value === null || value.trim() === '' ? null : value
+  }
+
+  const rawState = params.get(PARAM_KEYS.state)
+  const state: DirectoryFilters['state'] =
+    rawState === 'in_progress' || rawState === 'all'
+      ? rawState
+      : PIPELINE_STATES.indexOf(rawState as PipelineState) >= 0
+        ? (rawState as PipelineState)
+        : // A `?state=` nobody implemented falls back to the whole list rather than to an empty
+          // table that looks like a broken screen.
+          'all'
+
+  return {
+    search: params.get(PARAM_KEYS.search) ?? '',
+    country: text(PARAM_KEYS.country),
+    region: text(PARAM_KEYS.region),
+    city: text(PARAM_KEYS.city),
+    clientType: text(PARAM_KEYS.clientType),
+    status: text(PARAM_KEYS.status),
+    contract: text(PARAM_KEYS.contract),
+    state,
+    onlyLate: params.get(PARAM_KEYS.onlyLate) === '1',
+  }
+}
+
+/**
+ * The filters as a query string, merged onto whatever else the URL carries — the client record
+ * opens over this list through `?clientId=`, and narrowing the rail must not close it.
+ */
+export function applyFilters(params: URLSearchParams, filters: DirectoryFilters): URLSearchParams {
+  const next = new URLSearchParams(params)
+  const set = (key: string, value: string | null) => {
+    if (value === null || value === '') next.delete(key)
+    else next.set(key, value)
+  }
+
+  set(PARAM_KEYS.search, filters.search.trim())
+  set(PARAM_KEYS.country, filters.country)
+  set(PARAM_KEYS.region, filters.region)
+  set(PARAM_KEYS.city, filters.city)
+  set(PARAM_KEYS.clientType, filters.clientType)
+  set(PARAM_KEYS.status, filters.status)
+  set(PARAM_KEYS.contract, filters.contract)
+  set(PARAM_KEYS.state, filters.state === 'all' ? null : filters.state)
+  set(PARAM_KEYS.onlyLate, filters.onlyLate ? '1' : null)
+
+  return next
+}
+
+/** How many rows the working set holds — the count the `Em andamento` option carries. */
+export function inProgressCount(rows: ClientDirectoryRow[]): number {
+  return rows.filter((row) => IN_PROGRESS_STATES.indexOf(row.state) >= 0).length
 }
 
 export function isFiltering(filters: DirectoryFilters): boolean {

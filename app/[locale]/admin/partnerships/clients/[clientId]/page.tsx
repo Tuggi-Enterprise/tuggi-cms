@@ -29,13 +29,14 @@ export default async function PartnershipDetailPage({
         Common: ptMessages.Common,
       }}
     >
-      {/* The queue is behind this page, so the way back to it is drawn. The same component
-          rendered as a tab of the client record gets no `backHref`: there the way out is the
-          tab strip. */}
+      {/* The way back is the working set of the client list — `/admin/partnerships` was
+          retired, and it was only ever this filter with a screen around it. The same component
+          rendered as a tab of the record gets no `backHref`: there the way out is the tab
+          strip. */}
       <PartnershipDetail
         locale={locale}
         clientId={clientId}
-        backHref={`/${locale}/admin/partnerships`}
+        backHref={`/${locale}/admin/clients?state=in_progress`}
       />
     </NextIntlClientProvider>
   )

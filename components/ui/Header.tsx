@@ -76,9 +76,16 @@ export function Header({ className }: { className?: string }) {
     { name: t('clients'), href: '/admin/clients', icon: Settings, category: 'admin' },
     { name: t('users'), href: '/admin/users', icon: Users, category: 'admin' },
     { name: t('poi_trigger_map'), href: '/admin/poi-trigger-map', icon: Map, category: 'admin' },
-    // Uma entrada só para as duas abas de #341: a fila de convites e a de propostas são o
-    // mesmo trabalho em dois momentos (DS-LAYOUT-003).
-    { name: 'Parcerias', href: '/admin/partnerships', icon: Handshake, category: 'admin' },
+    // `Parcerias` não é mais uma tela: é a lista de clientes aberta no conjunto de trabalho —
+    // os estados que ainda dão trabalho, com `Publicado`, `Descartado` e `Recusado na triagem`
+    // fora do caminho (critério 4). A fila tinha essa única coisa a mais que a lista, e um
+    // filtro que cabe num link não precisa de tela própria (DS-LAYOUT-003).
+    {
+      name: 'Parcerias',
+      href: '/admin/clients?state=in_progress',
+      icon: Handshake,
+      category: 'admin',
+    },
     { name: 'Audit Logs', href: '/admin/audit-logs', icon: Activity, category: 'admin' },
     // Direções + avisos: os clipes que não pertencem a nenhum POI.
     { name: t('system_audio'), href: '/dashboard/system-audio', icon: Volume2, category: 'admin' },

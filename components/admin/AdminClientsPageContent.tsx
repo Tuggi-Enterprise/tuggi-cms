@@ -11,7 +11,7 @@
  * (and the user's actual session) does exist.
  */
 
-import { useState, useEffect, Suspense } from 'react'
+import { useCallback, useEffect, useMemo, useState, Suspense } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
 import { NextIntlClientProvider, useLocale, useMessages } from 'next-intl'
 import ptMessages from '@/messages/pt.json'
@@ -19,6 +19,7 @@ import { ClientDirectory } from '@/components/admin/clients/ClientDirectory'
 import { ClientEditorModal, type ClientEditorTab } from '@/components/admin/clients/ClientEditorModal'
 import { useSupabaseClient, useSessionContext } from '@supabase/auth-helpers-react'
 import { RETURN_TO_PARAM, parseReturnTo } from '@/lib/navigation/return-to'
+import { applyFilters, parseFilters, type DirectoryFilters } from '@/lib/clients/directory-filter'
 
 function AdminClientsContent() {
   const router = useRouter()
@@ -43,6 +44,31 @@ function AdminClientsContent() {
    * `lib/navigation/return-to`, shared with the POI screen.
    */
   const returnTo = parseReturnTo(searchParams.get(RETURN_TO_PARAM))
+
+  /**
+   * THE FILTERS OF THE LIST LIVE IN THE URL, and that is what let `/admin/partnerships` die:
+   * its one distinct behaviour was opening on the working set, which is now
+   * `/admin/clients?state=in_progress` — a filter that fits in a link does not need a screen
+   * (DS-LAYOUT-003). It also buys the operator something neither list had: `Minas, sem
+   * contrato` can be sent to somebody else instead of described as six clicks.
+   *
+   * `replace` and not `push`: narrowing a rail is not a place in history worth walking back
+   * through one click at a time. The other parameters survive, because the client record opens
+   * over this list through `?clientId=` and filtering must not close it.
+   */
+  const filters = useMemo(
+    () => parseFilters(new URLSearchParams(searchParams.toString())),
+    [searchParams]
+  )
+
+  const writeFilters = useCallback(
+    (next: DirectoryFilters) => {
+      const params = applyFilters(new URLSearchParams(searchParams.toString()), next)
+      const query = params.toString()
+      router.replace(`/admin/clients${query ? `?${query}` : ''}`, { scroll: false })
+    },
+    [router, searchParams]
+  )
   const [isAuthorized, setIsAuthorized] = useState(false)
   const [isLoading, setIsLoading] = useState(true)
 
@@ -135,7 +161,13 @@ function AdminClientsContent() {
         locale={locale}
         messages={{ ...messages, Partnerships: ptMessages.Partnerships }}
       >
-        <ClientDirectory key={reloadKey} locale={locale} onCreateNew={startCreateNew} />
+        <ClientDirectory
+          key={reloadKey}
+          locale={locale}
+          filters={filters}
+          onFiltersChange={writeFilters}
+          onCreateNew={startCreateNew}
+        />
       </NextIntlClientProvider>
 
       <ClientEditorModal

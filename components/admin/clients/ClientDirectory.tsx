@@ -42,6 +42,7 @@ import { triageDeadlineText, triageText } from '@/components/admin/partnerships/
 import {
   EMPTY_FILTERS,
   buildDirectoryView,
+  inProgressCount,
   overdueCount,
   type DirectoryFilters,
   type FacetKey,
@@ -54,7 +55,27 @@ const NOT_STARTED: TriageStatus = { kind: 'not_started' }
 /** The rail, in the order an operator narrows: where, then who, then how far along. */
 const FACETS: FacetKey[] = ['country', 'region', 'city', 'clientType', 'status', 'contract', 'state']
 
-export function ClientDirectory({ locale, onCreateNew }: { locale: string; onCreateNew?: () => void }) {
+interface ClientDirectoryProps {
+  locale: string
+  /**
+   * THE FILTERS ARE THE URL'S, and this component does not know that.
+   *
+   * The host reads and writes them (`parseFilters` / `applyFilters`), which is what makes
+   * `Minas, sem contrato` a link somebody can send. Keeping `useSearchParams` out of here also
+   * keeps the screen mountable in `tests/ct`, where there is no Next app router to provide one
+   * — the same reason `tests/ct/helpers.tsx` leaves `Header` out.
+   */
+  filters: DirectoryFilters
+  onFiltersChange: (next: DirectoryFilters) => void
+  onCreateNew?: () => void
+}
+
+export function ClientDirectory({
+  locale,
+  filters,
+  onFiltersChange,
+  onCreateNew,
+}: ClientDirectoryProps) {
   const t = useTranslations('Clients.directory')
   const p = useTranslations('Partnerships')
 
@@ -62,7 +83,6 @@ export function ClientDirectory({ locale, onCreateNew }: { locale: string; onCre
   const [truncated, setTruncated] = useState(false)
   const [loading, setLoading] = useState(true)
   const [failed, setFailed] = useState(false)
-  const [filters, setFilters] = useState<DirectoryFilters>(EMPTY_FILTERS)
 
   const fetchRows = useCallback(async () => {
     const response = await fetch('/api/admin/clients/directory')
@@ -95,6 +115,7 @@ export function ClientDirectory({ locale, onCreateNew }: { locale: string; onCre
 
   const view = useMemo(() => buildDirectoryView(rows, filters), [rows, filters])
   const late = useMemo(() => overdueCount(rows), [rows])
+  const working = useMemo(() => inProgressCount(rows), [rows])
 
   /**
    * The clock of every row, derived ONCE from one `now`. Two rows approved in the same minute
@@ -108,7 +129,7 @@ export function ClientDirectory({ locale, onCreateNew }: { locale: string; onCre
   }, [rows])
 
   function set<K extends keyof DirectoryFilters>(key: K, value: DirectoryFilters[K]) {
-    setFilters((current) => ({ ...current, [key]: value }))
+    onFiltersChange({ ...filters, [key]: value })
   }
 
   /** The label of one facet value — the vocabulary is the pipeline's, not this screen's. */
@@ -183,6 +204,33 @@ export function ClientDirectory({ locale, onCreateNew }: { locale: string; onCre
                   {t(`filters.${key}`)}
                 </h2>
                 <ul className="mt-2 space-y-1">
+                  {/*
+                    THE WORKING SET, and it is the last thing `/admin/partnerships` had that this
+                    list did not. A queue that shows `Publicado`, `Descartado` and `Recusado na
+                    triagem` alongside what still needs doing is noise the operator learns to
+                    ignore (criterion 4, DS-COPY-020, point 5). It is an option here and not the
+                    default, because this is the client list too: somebody opening it to fix the
+                    fiscal data of a partner already on air must still find them.
+                  */}
+                  {key === 'state' && (
+                    <li>
+                      <button
+                        type="button"
+                        aria-pressed={filters.state === 'in_progress'}
+                        onClick={() =>
+                          set('state', filters.state === 'in_progress' ? 'all' : 'in_progress')
+                        }
+                        className={`flex min-h-[24px] w-full items-center justify-between gap-2 text-left text-sm underline-offset-4 hover:underline ${
+                          filters.state === 'in_progress'
+                            ? 'font-semibold text-gray-900 underline'
+                            : 'text-primary-800'
+                        }`}
+                      >
+                        <span className="truncate">{p('queue.inProgress')}</span>
+                        <span className="shrink-0 text-xs text-gray-700">{working}</span>
+                      </button>
+                    </li>
+                  )}
                   {options.map((option) => {
                     const active = selected === option.value
                     return (
@@ -191,7 +239,17 @@ export function ClientDirectory({ locale, onCreateNew }: { locale: string; onCre
                           type="button"
                           aria-pressed={active}
                           onClick={() =>
-                            set(key as keyof DirectoryFilters, (active ? null : option.value) as never)
+                            // Clearing a dimension means `null` for every one of them EXCEPT
+                            // `state`, whose "no filter" value is `all` — `null` is not one of
+                            // its values, and setting it matched no row at all.
+                            set(
+                              key as keyof DirectoryFilters,
+                              (active
+                                ? key === 'state'
+                                  ? 'all'
+                                  : null
+                                : option.value) as never
+                            )
                           }
                           className={`flex min-h-[24px] w-full items-center justify-between gap-2 text-left text-sm underline-offset-4 hover:underline ${
                             active ? 'font-semibold text-gray-900 underline' : 'text-primary-800'
@@ -222,7 +280,7 @@ export function ClientDirectory({ locale, onCreateNew }: { locale: string; onCre
           </div>
 
           {view.filtering && (
-            <Button variant="outline" className="w-full" onClick={() => setFilters(EMPTY_FILTERS)}>
+            <Button variant="outline" className="w-full" onClick={() => onFiltersChange(EMPTY_FILTERS)}>
               {t('clear')}
             </Button>
           )}
@@ -286,15 +344,24 @@ export function ClientDirectory({ locale, onCreateNew }: { locale: string; onCre
                               {t(`statusValues.${row.status}`)}
                             </span>
                           )}
-                          {/* A proposal nobody promoted has no registration behind it, and the
-                              row says so instead of looking like a client that lost its data. */}
+                          {/*
+                            A proposal nobody promoted has no registration behind it, and the
+                            row says so instead of looking like a client that lost its data.
+
+                            THE TEXT IS `text-gray-900` AND NOT `text-secondary-700`. The ramp
+                            stops at `700` (#CC5200), which measures 4.16:1 on this surface —
+                            below the 4.5:1 of SC 1.4.3 at 12px. The BORDER keeps the accent,
+                            because a border is non-text and 4.16 clears its 3:1 (SC 1.4.11).
+                            Caught by `tests/ct/partnerships-a11y.spec.tsx`, which never scanned
+                            this badge while the queue's fixtures had no duplicate to render.
+                          */}
                           {row.clientId === null && (
-                            <span className="mt-1 inline-block rounded-full border border-secondary-700 px-1.5 py-0.5 text-xs text-secondary-700">
+                            <span className="mt-1 inline-block rounded-full border border-secondary-700 px-1.5 py-0.5 text-xs text-gray-900">
                               {t('proposalBadge')}
                             </span>
                           )}
                           {row.duplicateCount > 0 && (
-                            <span className="mt-1 inline-block rounded-full border border-secondary-700 px-1.5 py-0.5 text-xs text-secondary-700">
+                            <span className="mt-1 inline-block rounded-full border border-secondary-700 px-1.5 py-0.5 text-xs text-gray-900">
                               {p('queue.duplicateBadge', { count: row.duplicateCount })}
                             </span>
                           )}
@@ -338,7 +405,7 @@ export function ClientDirectory({ locale, onCreateNew }: { locale: string; onCre
                 {view.filtering ? t('emptyFilteredTitle') : t('emptyTitle')}
               </p>
               {view.filtering && (
-                <Button variant="outline" className="mt-3" onClick={() => setFilters(EMPTY_FILTERS)}>
+                <Button variant="outline" className="mt-3" onClick={() => onFiltersChange(EMPTY_FILTERS)}>
                   {t('clear')}
                 </Button>
               )}

@@ -418,15 +418,23 @@ function read(relative: string): string {
   return readFileSync(resolve(REPO_ROOT, relative), 'utf8')
 }
 
-test('#359 crit. 1: the old proposal LIST is gone and `Parcerias` opens the pipeline', () => {
+test('#359 crit. 1: neither old list survives, and `Parcerias` opens the working set', () => {
   assert.equal(
     existsSync(resolve(REPO_ROOT, 'app/[locale]/admin/partner-proposals')),
     false,
     'the queue absorbed it; a screen with no route is an orphan (CLAUDE.md §6)'
   )
+  // And then the queue itself was absorbed. `/admin/partnerships` had exactly one behaviour the
+  // unified list did not — opening on the states that are still work — and a filter that fits
+  // in a link does not need a screen (DS-LAYOUT-003).
   assert.equal(
     existsSync(resolve(REPO_ROOT, 'app/[locale]/admin/partnerships/page.tsx')),
-    true
+    false,
+    'the queue is a filter of /admin/clients now, not a route'
+  )
+  assert.equal(
+    existsSync(resolve(REPO_ROOT, 'components/admin/partnerships/PartnershipsQueue.tsx')),
+    false
   )
   assert.equal(
     existsSync(
@@ -437,12 +445,10 @@ test('#359 crit. 1: the old proposal LIST is gone and `Parcerias` opens the pipe
   )
 
   const header = read('components/ui/Header.tsx')
-  assert.match(header, /'Parcerias', href: '\/admin\/partnerships'/)
-  assert.equal(
-    header.indexOf('/admin/partner-proposals'),
-    -1,
-    'nothing in the menu points at the route that no longer exists'
-  )
+  assert.match(header, /href: '\/admin\/clients\?state=in_progress'/)
+  for (const dead of ['/admin/partner-proposals', "href: '/admin/partnerships'"]) {
+    assert.equal(header.indexOf(dead), -1, `nothing in the menu points at ${dead}`)
+  }
 })
 
 function messages(): Record<string, any> {
@@ -468,14 +474,19 @@ test('#359 crit. 29: the pipeline screens hand the pt messages down explicitly',
   // The namespace lives only in `messages/pt.json` (spec §2), and an ABSENT key in next-intl
   // renders the KEY NAME. "Only pt" and "`/en/` never shows `Partnerships.title`" are both
   // true only because of this provider.
-  for (const page of [
-    'app/[locale]/admin/partnerships/page.tsx',
-    'app/[locale]/admin/partnerships/clients/[clientId]/page.tsx',
+  const page = 'app/[locale]/admin/partnerships/clients/[clientId]/page.tsx'
+  const source = read(page)
+  assert.match(source, /NextIntlClientProvider/, page)
+  assert.match(source, /locale="pt"/, page)
+  assert.match(source, /Partnerships: ptMessages\.Partnerships/, page)
+
+  // The unified list carries the same namespace the same way, except that its OWN copy is
+  // translated — so the Portuguese one is overlaid on the operator's messages, not swapped in.
+  for (const host of [
+    'components/admin/AdminClientsPageContent.tsx',
+    'components/admin/clients/tabs/PartnershipTab.tsx',
   ]) {
-    const source = read(page)
-    assert.match(source, /NextIntlClientProvider/, page)
-    assert.match(source, /locale="pt"/, page)
-    assert.match(source, /Partnerships: ptMessages\.Partnerships/, page)
+    assert.match(read(host), /Partnerships: ptMessages\.Partnerships/, host)
   }
 
   const all = JSON.parse(read('messages/en.json'))
@@ -587,7 +598,7 @@ test('#359 crit. 36 · DS-LAYOUT-006 pt. 4: no shortcut opens a new tab', () => 
   for (const file of [
     'components/admin/partnerships/PendencyList.tsx',
     'components/admin/partnerships/PartnershipDetail.tsx',
-    'components/admin/partnerships/PartnershipsQueue.tsx',
+    'components/admin/clients/ClientDirectory.tsx',
   ]) {
     assert.equal(read(file).indexOf('target="_blank"'), -1, file)
   }

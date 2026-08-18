@@ -12,9 +12,9 @@ import { buildPlaceReadiness, type PartnerPlaceFacts } from '@/lib/partnerships/
 import { buildPublishPlan, type PartnerFee } from '@/lib/partnerships/publish-plan'
 import type { PipelineState } from '@/lib/partnerships/pipeline'
 import type {
+  ClientDirectoryRow,
   PartnershipDetail,
   PartnershipPlace,
-  PartnershipQueueRow,
   PipelineClient,
   PipelineContract,
 } from '@/lib/services/partnership-service'
@@ -30,13 +30,22 @@ if (LONG_ESTABLISHMENT_NAME.length !== 80) {
   )
 }
 
-export function queueRow(overrides: Partial<PartnershipQueueRow> = {}): PartnershipQueueRow {
+/**
+ * One row of the unified list. It was `queueRow` while `/admin/partnerships` existed; the queue
+ * is gone and the same fixtures now feed `ClientDirectory`, which is the list that absorbed it.
+ */
+export function queueRow(overrides: Partial<ClientDirectoryRow> = {}): ClientDirectoryRow {
   return {
     submissionId: 'sub-0001',
     clientId: null,
     state: 'proposal_received',
     href: '/admin/partnerships/proposals/sub-0001',
-    tradeName: 'Cantina do Zé',
+    name: 'Cantina do Zé',
+    country: null,
+    clientType: 'venue',
+    status: 'pending',
+    contract: 'none',
+    contractSigned: false,
     taxId: '12.345.678/0001-90',
     city: 'Santos',
     region: 'SP',
@@ -52,36 +61,36 @@ export function queueRow(overrides: Partial<PartnershipQueueRow> = {}): Partners
 }
 
 /** One row per in-progress state — enough for the queue to render a real table. */
-export const QUEUE_ROWS_IN_PROGRESS: PartnershipQueueRow[] = [
-  queueRow({ submissionId: 'sub-0001', state: 'proposal_received', tradeName: 'Cantina do Zé' }),
+export const QUEUE_ROWS_IN_PROGRESS: ClientDirectoryRow[] = [
+  queueRow({ submissionId: 'sub-0001', state: 'proposal_received', name: 'Cantina do Zé' }),
   queueRow({
     submissionId: 'sub-0002',
     state: 'in_conference',
-    tradeName: 'Pousada Vista Mar',
+    name: 'Pousada Vista Mar',
     since: '2026-08-08T09:00:00.000Z',
   }),
   queueRow({
     submissionId: 'sub-0003',
     clientId: 'client-0003',
     state: 'client_created',
-    href: '/admin/partnerships/clients/client-0003',
-    tradeName: 'Locadora Costa Verde',
+    href: '/admin/clients?clientId=client-0003&tab=partnership',
+    name: 'Locadora Costa Verde',
     since: '2026-08-07T09:00:00.000Z',
   }),
   queueRow({
     submissionId: 'sub-0004',
     clientId: 'client-0004',
     state: 'contract_signed' as PipelineState,
-    href: '/admin/partnerships/clients/client-0004',
-    tradeName: 'Transfer Serra Acima',
+    href: '/admin/clients?clientId=client-0004&tab=partnership',
+    name: 'Transfer Serra Acima',
     since: '2026-08-05T09:00:00.000Z',
   }),
   queueRow({
     submissionId: 'sub-0005',
     clientId: 'client-0005',
     state: 'place_in_curation',
-    href: '/admin/partnerships/clients/client-0005',
-    tradeName: 'Restaurante do Porto',
+    href: '/admin/clients?clientId=client-0005&tab=partnership',
+    name: 'Restaurante do Porto',
     since: '2026-08-01T09:00:00.000Z',
     places: { total: 3, published: 2, blocking: 0, silencing: 1, improving: 0, allReady: false },
   }),

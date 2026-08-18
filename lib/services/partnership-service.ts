@@ -1,5 +1,5 @@
 /**
- * The partnership pipeline, assembled — one queue and one detail, out of five tables that
+ * The partnership pipeline, assembled — one list and one detail, out of five tables that
  * nobody had ever read together.
  *
  * WHAT THIS MODULE IS FOR, in one sentence: until now the state of the pipeline lived in the
@@ -8,10 +8,11 @@
  * costs — of the 6 clients with a `welcome_poi_id`, 3 have zero trigger points: places that
  * are published, intact, and mute, with nobody in a position to notice.
  *
- * THE QUEUE IS ANCHORED ON THE SUBMISSION, and that is the rule of spec §3, not a shortcut:
- * states 1 and 2 exist only as a submission, and states 3 onwards exist only through
- * `promoted_client_id`. A client somebody registered by hand has no proposal behind it and is
- * not in this pipeline; it is reachable, as it always was, from `/admin/clients`.
+ * THE LIST IS ANCHORED ON BOTH, and that is the correction the unified directory made. Spec §3
+ * is still true about the OBJECT — states 1 and 2 exist only as a submission, states 3 onwards
+ * only through `promoted_client_id` — but anchoring the list on the submission alone left every
+ * hand-registered client out of it, and there was a second screen listing exactly those. There
+ * is one list now, `loadClientDirectory`, and its spine is the union.
  *
  * WHICH IDENTITY READS WHAT. The submissions, the clients and the contracts are read with the
  * service client, exactly as `partner-proposal-admin-service` already does, and every function
@@ -113,63 +114,6 @@ export interface PipelineContract {
   signerName: string | null
 }
 
-export interface PartnershipQueueRow {
-  submissionId: string
-  clientId: string | null
-  state: PipelineState
-  /** Where `Abrir` goes, without the locale prefix. */
-  href: string
-  tradeName: string | null
-  taxId: string | null
-  city: string | null
-  region: string | null
-  /** Other proposals waiting with the same CNPJ — the existing badge, kept. */
-  duplicateCount: number
-  /** The last thing that happened in this pipeline. `Parado há` counts from here. */
-  since: string | null
-  places: PlacesSummary
-  /**
-   * What the `Triagem` column derives from — BR-B2B-010, item 4. The FACTS and not the text: the
-   * clock is computed where it is rendered, so a screen left open does not keep saying `até
-   * 18/08` after the 18th.
-   */
-  triage: TriageFacts
-  /** Only on the terminal state, and it is the closed list the discard already writes. */
-  discardReason: string | null
-}
-
-/**
- * The whole queue.
- *
- * Five round trips and not one per row: submissions, then clients, contracts, acceptances and
- * places for the whole set at once. A per-row lookup here would be N+1 over a screen the
- * operator reloads all day.
- */
-export async function loadPartnershipQueue(
-  operator: SupabaseClient
-): Promise<PartnershipQueueRow[]> {
-  // The queue is the directory seen through one filter: the rows with a proposal behind them.
-  // Deriving it separately is what let the two screens disagree about the same partnership.
-  const directory = await loadClientDirectory(operator)
-  return directory.rows
-    .filter((row): row is ClientDirectoryRow & { submissionId: string } => row.submissionId !== null)
-    .map((row) => ({
-      submissionId: row.submissionId,
-      clientId: row.clientId,
-      state: row.state,
-      href: row.href,
-      tradeName: row.name,
-      taxId: row.taxId,
-      city: row.city,
-      region: row.region,
-      duplicateCount: row.duplicateCount,
-      since: row.since,
-      places: row.places,
-      triage: row.triage,
-      discardReason: row.discardReason,
-    }))
-}
-
 /**
  * ONE LIST, and it is the answer to the question the two screens were asking separately.
  *
@@ -220,7 +164,10 @@ export interface ClientDirectoryRow {
   /** The last thing that happened here. `Parado há` counts from it. */
   since: string | null
   places: PlacesSummary
-  /** The FACTS the triage clock is derived from, never the text — see `PartnershipQueueRow`. */
+  /**
+   * The FACTS the triage clock is derived from, never the text: a screen left open must not go
+   * on saying `até 18/08` after the 18th, so the clock is computed where it is rendered.
+   */
   triage: TriageFacts
   discardReason: string | null
 }

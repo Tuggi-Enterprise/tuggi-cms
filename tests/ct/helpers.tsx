@@ -15,17 +15,41 @@
  * comment.
  */
 
+import { useState } from 'react'
 import { NextIntlClientProvider } from 'next-intl'
 import ptMessages from '@/messages/pt.json'
 import { QueryProvider } from '@/components/providers/QueryProvider'
+import { ClientDirectory } from '@/components/admin/clients/ClientDirectory'
+import { EMPTY_FILTERS, type DirectoryFilters } from '@/lib/clients/directory-filter'
 
 export function Wrapper({ children }: { children: React.ReactNode }) {
   return (
     <NextIntlClientProvider
       locale="pt"
-      messages={{ Partnerships: ptMessages.Partnerships, Modals: ptMessages.Modals, Common: ptMessages.Common }}
+      messages={{
+        Partnerships: ptMessages.Partnerships,
+        Modals: ptMessages.Modals,
+        Common: ptMessages.Common,
+        // The unified list is the screen that absorbed the queue, and its own copy is
+        // translated — only the pipeline vocabulary inside it is Portuguese-only.
+        Clients: ptMessages.Clients,
+      }}
     >
       <QueryProvider>{children}</QueryProvider>
     </NextIntlClientProvider>
   )
+}
+
+/**
+ * `ClientDirectory` is a CONTROLLED component: the filters are the URL's, and the host reads
+ * and writes them. There is no Next app router in a component mount, so this harness plays the
+ * host — it holds the same state in `useState` and hands it back exactly as
+ * `AdminClientsPageContent` hands back what it parsed from the query string.
+ *
+ * Without it the rail would render and never change, and every filter assertion below would be
+ * testing a screenshot rather than a screen.
+ */
+export function DirectoryHarness({ initial = EMPTY_FILTERS }: { initial?: DirectoryFilters }) {
+  const [filters, setFilters] = useState<DirectoryFilters>(initial)
+  return <ClientDirectory locale="pt" filters={filters} onFiltersChange={setFilters} />
 }

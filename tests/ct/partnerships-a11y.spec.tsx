@@ -7,7 +7,7 @@
  * distinct (7), and each detail band being a real `<section>`/`<h2>`/`aria-expanded` triple (24).
  *
  * Real Chromium (`playwright-ct.config.ts`, Tailwind resolved through the app's own
- * `postcss.config.js`), the actual `PartnershipsQueue`/`PartnershipDetail` components, and every
+ * `postcss.config.js`), the actual `ClientDirectory`/`PartnershipDetail` components, and every
  * network call intercepted by `page.route` — see that file for why this is a component mount
  * and not a full page navigation (`proxy.ts`'s server-side auth check cannot be reached from a
  * browser-side route hook, and this suite has no CMS credential to sign in for real).
@@ -20,9 +20,8 @@
 import { test, expect } from '@playwright/experimental-ct-react'
 import type { Page } from '@playwright/test'
 import AxeBuilder from '@axe-core/playwright'
-import { PartnershipsQueue } from '@/components/admin/partnerships/PartnershipsQueue'
 import { PartnershipDetail } from '@/components/admin/partnerships/PartnershipDetail'
-import { Wrapper } from './helpers'
+import { DirectoryHarness, Wrapper } from './helpers'
 import {
   QUEUE_ROWS_IN_PROGRESS,
   LONG_ESTABLISHMENT_NAME,
@@ -30,8 +29,12 @@ import {
   detailReadyToPublish,
 } from './fixtures/partnerships'
 
+/**
+ * The list's own endpoint. `/api/admin/partnerships` was retired with the queue: the working
+ * set is a filter of this list now (`?state=in_progress`), not a screen of its own.
+ */
 async function mockQueue(page: Page, body: unknown, opts: { delayMs?: number; status?: number } = {}) {
-  await page.route('**/api/admin/partnerships', async (route) => {
+  await page.route('**/api/admin/clients/directory', async (route) => {
     if (opts.delayMs) await new Promise((r) => setTimeout(r, opts.delayMs))
     await route.fulfill({
       status: opts.status ?? 200,
@@ -51,15 +54,15 @@ async function mockDetail(page: Page, clientId: string, detail: unknown) {
 
 test.describe('criterion 7 (DS-COMPONENTE-002) — the four states of the queue', () => {
   test('loading shows the 5-row skeleton with the sr-only "Carregando" text', async ({ mount, page }) => {
-    await mockQueue(page, { partnerships: QUEUE_ROWS_IN_PROGRESS }, { delayMs: 1200 })
+    await mockQueue(page, { rows: QUEUE_ROWS_IN_PROGRESS, truncated: false }, { delayMs: 1200 })
     const component = await mount(
       <Wrapper>
-        <PartnershipsQueue locale="pt" />
+        <DirectoryHarness />
       </Wrapper>
     )
     // Each of the 5 skeleton rows carries its own `sr-only` announcement.
-    await expect(component.getByText('Carregando a esteira.').first()).toBeVisible()
-    await expect(component.getByText('Carregando a esteira.')).toHaveCount(5)
+    await expect(component.getByText('Carregando a lista…').first()).toBeVisible()
+    await expect(component.getByText('Carregando a lista…')).toHaveCount(5)
     await expect(component.locator('tbody tr')).toHaveCount(5)
   })
 
@@ -67,27 +70,27 @@ test.describe('criterion 7 (DS-COMPONENTE-002) — the four states of the queue'
     mount,
     page,
   }) => {
-    await mockQueue(page, { partnerships: [] })
+    await mockQueue(page, { rows: [], truncated: false })
     const component = await mount(
       <Wrapper>
-        <PartnershipsQueue locale="pt" />
+        <DirectoryHarness />
       </Wrapper>
     )
-    await expect(component.getByText('Nenhuma parceria na esteira.')).toBeVisible()
+    await expect(component.getByText('Nenhum cliente cadastrado ainda.')).toBeVisible()
     await expect(component.getByRole('button', { name: 'Limpar filtros' })).toHaveCount(0)
   })
 
   test('empty WITH a filter reads a different sentence and offers "Limpar filtros"', async ({ mount, page }) => {
-    await mockQueue(page, { partnerships: QUEUE_ROWS_IN_PROGRESS })
+    await mockQueue(page, { rows: QUEUE_ROWS_IN_PROGRESS, truncated: false })
     const component = await mount(
       <Wrapper>
-        <PartnershipsQueue locale="pt" />
+        <DirectoryHarness />
       </Wrapper>
     )
     await expect(component.locator('tbody tr').first()).toBeVisible()
     await component.getByLabel('Buscar').fill('nome-que-nao-existe-em-nenhuma-linha')
-    await expect(component.getByText('Nenhuma parceria com esse filtro.')).toBeVisible()
-    await expect(component.getByText('Nenhuma parceria na esteira.')).toHaveCount(0)
+    await expect(component.getByText('Nenhum cliente com esses filtros.')).toBeVisible()
+    await expect(component.getByText('Nenhum cliente cadastrado ainda.')).toHaveCount(0)
     // Two, legitimately: the filter rail's own `Limpar filtros` (always present while
     // `filtering` is true) and the empty-state's own call to action.
     await expect(component.getByRole('button', { name: 'Limpar filtros' })).toHaveCount(2)
@@ -97,10 +100,10 @@ test.describe('criterion 7 (DS-COMPONENTE-002) — the four states of the queue'
     await mockQueue(page, {}, { status: 500 })
     const component = await mount(
       <Wrapper>
-        <PartnershipsQueue locale="pt" />
+        <DirectoryHarness />
       </Wrapper>
     )
-    await expect(component.getByText('Não foi possível carregar a esteira.')).toBeVisible()
+    await expect(component.getByText('Não foi possível carregar a lista.')).toBeVisible()
     await expect(component.getByRole('button', { name: 'Tentar de novo' })).toBeVisible()
   })
 })
@@ -211,10 +214,10 @@ test('criterion 28 — 80-char name is whole in the detail and no text ancestor 
 
 test.describe('criteria 23/25/26 — axe-core, contrast, and 24x24 targets', () => {
   test('the queue with rows loaded', async ({ mount, page }) => {
-    await mockQueue(page, { partnerships: QUEUE_ROWS_IN_PROGRESS })
+    await mockQueue(page, { rows: QUEUE_ROWS_IN_PROGRESS, truncated: false })
     const component = await mount(
       <Wrapper>
-        <PartnershipsQueue locale="pt" />
+        <DirectoryHarness />
       </Wrapper>
     )
     await expect(component.locator('tbody tr').first()).toBeVisible()
@@ -222,26 +225,26 @@ test.describe('criteria 23/25/26 — axe-core, contrast, and 24x24 targets', () 
   })
 
   test('the queue, empty without filter', async ({ mount, page }) => {
-    await mockQueue(page, { partnerships: [] })
+    await mockQueue(page, { rows: [], truncated: false })
     const component = await mount(
       <Wrapper>
-        <PartnershipsQueue locale="pt" />
+        <DirectoryHarness />
       </Wrapper>
     )
-    await expect(component.getByText('Nenhuma parceria na esteira.')).toBeVisible()
+    await expect(component.getByText('Nenhum cliente cadastrado ainda.')).toBeVisible()
     await assertNoAxeViolations(page)
   })
 
   test('the queue, empty with filter', async ({ mount, page }) => {
-    await mockQueue(page, { partnerships: QUEUE_ROWS_IN_PROGRESS })
+    await mockQueue(page, { rows: QUEUE_ROWS_IN_PROGRESS, truncated: false })
     const component = await mount(
       <Wrapper>
-        <PartnershipsQueue locale="pt" />
+        <DirectoryHarness />
       </Wrapper>
     )
     await expect(component.locator('tbody tr').first()).toBeVisible()
     await component.getByLabel('Buscar').fill('nome-que-nao-existe-em-nenhuma-linha')
-    await expect(component.getByText('Nenhuma parceria com esse filtro.')).toBeVisible()
+    await expect(component.getByText('Nenhum cliente com esses filtros.')).toBeVisible()
     await assertNoAxeViolations(page)
   })
 
@@ -249,10 +252,10 @@ test.describe('criteria 23/25/26 — axe-core, contrast, and 24x24 targets', () 
     await mockQueue(page, {}, { status: 500 })
     const component = await mount(
       <Wrapper>
-        <PartnershipsQueue locale="pt" />
+        <DirectoryHarness />
       </Wrapper>
     )
-    await expect(component.getByText('Não foi possível carregar a esteira.')).toBeVisible()
+    await expect(component.getByText('Não foi possível carregar a lista.')).toBeVisible()
     await assertNoAxeViolations(page)
   })
 
@@ -315,7 +318,7 @@ function describeViolations(violations: import('axe-core').Result[]): string {
 
 // ── Criterion 25, in addition to axe's color-contrast: the brand-blue ban ──────────────────────
 //
-// SCOPE NOTE. This checks the esteira's OWN components, `PartnershipsQueue` and
+// SCOPE NOTE. This checks the esteira's OWN components, `ClientDirectory` and
 // `PartnershipDetail` — not `components/ui/Header.tsx`, which this suite does not mount (see
 // `./helpers.tsx`). Reading `Header.tsx` directly: `renderNavItem` paints the active nav link
 // `text-tuggi-blue` (`bg-tuggi-blue/10 text-tuggi-blue …`), and visiting either new route makes
@@ -329,10 +332,10 @@ test('criterion 25 — #00A8E8 never paints text or an informative icon inside t
   mount,
   page,
 }) => {
-  await mockQueue(page, { partnerships: QUEUE_ROWS_IN_PROGRESS })
+  await mockQueue(page, { rows: QUEUE_ROWS_IN_PROGRESS, truncated: false })
   const queue = await mount(
     <Wrapper>
-      <PartnershipsQueue locale="pt" />
+      <DirectoryHarness />
     </Wrapper>
   )
   await expect(queue.locator('tbody tr').first()).toBeVisible()
@@ -390,10 +393,10 @@ test('criterion 27 — the queue: filters, the state counters, and each row\'s "
   mount,
   page,
 }) => {
-  await mockQueue(page, { partnerships: QUEUE_ROWS_IN_PROGRESS })
+  await mockQueue(page, { rows: QUEUE_ROWS_IN_PROGRESS, truncated: false })
   const component = await mount(
     <Wrapper>
-      <PartnershipsQueue locale="pt" />
+      <DirectoryHarness />
     </Wrapper>
   )
   await expect(component.locator('tbody tr').first()).toBeVisible()
@@ -405,24 +408,24 @@ test('criterion 27 — the queue: filters, the state counters, and each row\'s "
   await expect(component.getByLabel('Buscar')).toHaveValue('Cantina')
   await component.getByLabel('Buscar').fill('')
 
-  // The state <select> is a native control — focusable and changeable with the keyboard by
-  // construction, but asserted rather than assumed.
-  await component.getByLabel('Estado').focus()
-  await expect(component.getByLabel('Estado')).toBeFocused()
-  await component.getByLabel('Estado').selectOption('published')
-  await expect(component.getByLabel('Estado')).toHaveValue('published')
-  await component.getByLabel('Estado').selectOption('in_progress')
-
-  // Every state-count control (the fila's other filter, spec §6.1) is a real <button>, so it
-  // is in the default Tab order and activates on Enter/Space — never a <div onClick>.
-  const firstCount = component.getByRole('button', { name: /Proposta recebida \d/ })
-  await firstCount.focus()
-  await expect(firstCount).toBeFocused()
+  // The state filter is the rail now, not a <select>: every option is a real <button>, so it
+  // is in the default Tab order and activates on Enter/Space — never a <div onClick>. Same
+  // guarantee the queue's counters carried (spec §6.1), on the control that replaced them.
+  const working = component.getByRole('button', { name: /Em andamento \d/ })
+  await working.focus()
+  await expect(working).toBeFocused()
   await page.keyboard.press('Enter')
-  await expect(firstCount).toHaveAttribute('aria-pressed', 'true')
-  // The count button changed `stateFilter`; put it back to the default before checking `Abrir`
-  // on the `proposal_received` row.
-  await component.getByLabel('Estado').selectOption('in_progress')
+  await expect(working).toHaveAttribute('aria-pressed', 'true')
+
+  // And one concrete state, with the count it opens beside it.
+  const oneState = component.getByRole('button', { name: /Proposta recebida \d/ })
+  await oneState.focus()
+  await expect(oneState).toBeFocused()
+  await page.keyboard.press('Enter')
+  await expect(oneState).toHaveAttribute('aria-pressed', 'true')
+  // Pressing it again clears the dimension — the rail toggles, it does not trap.
+  await page.keyboard.press('Enter')
+  await expect(oneState).toHaveAttribute('aria-pressed', 'false')
 
   // Every row's `Abrir` is a real link (keyboard-focusable) with the whole establishment name
   // in its accessible name — the column itself may truncate (spec §6.1), the control that
@@ -430,7 +433,7 @@ test('criterion 27 — the queue: filters, the state counters, and each row\'s "
   // route to navigate TO (see `playwright-ct.config.ts`), so the proof that Enter would work
   // is that this is a real `<a href>`, focusable, pointing at the right place — not a
   // non-interactive element with a click handler.
-  const openLink = component.getByRole('link', { name: /Abrir a parceria de Cantina do Zé/ })
+  const openLink = component.getByRole('link', { name: /Abrir Cantina do Zé/ })
   await expect(openLink).toBeVisible()
   await openLink.focus()
   await expect(openLink).toBeFocused()

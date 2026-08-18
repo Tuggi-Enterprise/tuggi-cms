@@ -51,10 +51,12 @@ test('one pipeline, two hosts — the tab renders the same component the page do
 })
 
 test('the way back is chrome, and only the standalone page has a queue behind it', () => {
+  // The queue was retired; the way back is the working set of the unified list, which is what
+  // `/admin/partnerships` had been all along — one filter with a screen around it.
   assert.match(
     read(PAGE),
-    /backHref=\{`\/\$\{locale\}\/admin\/partnerships`\}/,
-    'the standalone page came from the queue and draws the way back to it'
+    /backHref=\{`\/\$\{locale\}\/admin\/clients\?state=in_progress`\}/,
+    'the standalone page draws the way back to the list it came from'
   )
   // The prop, not the word: the docblock above explains why this host does not pass one.
   assert.equal(
