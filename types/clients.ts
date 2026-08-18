@@ -27,24 +27,30 @@ export type ClientRole = 'owner' | 'manager' | 'viewer'
  * refuses at write time. The two go together, in this order: migration first.
  */
 /**
- * The commission percentage a NEW registration is born with — decided by the operator on
- * 2026-08-18: *"a % padrão será de 10%"*, and reaffirmed as being the CMS's default rather than
- * a figure typed into the contract.
+ * The commission percentage a NEW registration STARTS at — decided by the operator on
+ * 2026-08-18: *"a % padrão será de 10%"*, *"é um valor de inicio e pode mudar"*.
  *
- * IT IS DECLARED ONCE, AND THAT IS THE POINT. BR-MONETIZACAO-039, item 2, forbids code from
- * declaring a commission percentage, and item 4 says there is no default on a new registration —
- * the rule still reads that way today, and `produto` has to rewrite both items for this constant
- * to have a registered origin. What the rule was protecting against, though, is exactly what the
- * repository had: `0.200` written into three different files (the create route, the editor seed
- * and the form's display fallback), which is the `kRetryDelayMs` defect CLAUDE.md §6 names — the
- * day somebody changes one of them, the other two go on lying.
+ * IT IS A STARTING VALUE, NOT A TABLE PRICE, and the distinction is the operator's own: it
+ * pre-fills the field so a contract can be produced quickly, and whoever is registering the
+ * partner may change or clear it before saving. Keeping it in the CMS rather than in the
+ * contract template is what makes it editable per partner at all.
  *
- * So the value moves here and nowhere else. It is a FLOAT, not a percentage: the column stores
- * the rate and the form multiplies by 100 to show `10%`, because an operator typing `0.1` into a
- * field labelled `Taxa de comissão` is a UX defect that also invites a factor-of-ten mistake.
+ * WHAT BR-MONETIZACAO-039, item 2, was written against is a different thing: `0.200` sitting in
+ * three files with no decision behind it — the create route, the editor seed and the form's
+ * display fallback — which is the `kRetryDelayMs` defect CLAUDE.md §6 names. The day somebody
+ * changed one, the other two would go on lying. That is why the number lives here and nowhere
+ * else, and why it carries the date it was decided on.
  *
- * A stored `0` is still a different decision from absent, and neither is this default: this only
- * pre-fills a registration being born, and the operator may clear or change it before saving.
+ * BR-B2B-017 and BR-MONETIZACAO-039 are being revised by `produto` to match; until they are,
+ * cite this constant and not an ID.
+ *
+ * ONE CONSEQUENCE, and it is deliberate: with a pre-filled value, `commission_rate` is never
+ * absent on a new registration, so the contract checklist's pendency for it never fires. The
+ * gate that forced somebody to decide the percentage consciously is gone, traded for the speed
+ * of producing the contract. A stored `0` remains a different decision from absent.
+ *
+ * It is a FLOAT and not a percentage: the column stores the rate, and the form multiplies by
+ * 100 so the operator types `10`.
  */
 export const DEFAULT_COMMISSION_RATE = 0.1
 

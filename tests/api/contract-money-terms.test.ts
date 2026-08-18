@@ -135,9 +135,10 @@ test('the commission clause reaches BOTH tiers — the free partner is promised 
 })
 
 test('the default percentage is declared once, and no surface writes its own', () => {
-  // The operator set 10% on 2026-08-18 and reaffirmed it is the CMS default, not a figure in
-  // the contract. What may not come back is `0.200` in three files at once — the shape
-  // BR-MONETIZACAO-039, item 2, exists to prevent, and the `kRetryDelayMs` defect of §6.
+  // A starting value the operator set on 2026-08-18, editable per partner, living in the CMS
+  // so the contract can be produced fast. What may not come back is `0.200` in three files at
+  // once — the shape BR-MONETIZACAO-039, item 2, exists to prevent, and the `kRetryDelayMs`
+  // defect of §6.
   assert.equal(DEFAULT_COMMISSION_RATE, 0.1)
 
   const offenders: string[] = []
