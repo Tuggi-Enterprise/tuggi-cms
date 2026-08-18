@@ -747,8 +747,8 @@ test('#377 crit. 6 · DS-COPY-025 point 5: the cell draws the second line, in te
   // `Parado há` column next door already uses. A `title` attribute does not reach the keyboard, and
   // here the instant is the record of what was promised to a partner.
   assert.match(queue, /triageDeadlineText\(status\)/)
-  assert.match(queue, /\{deadline && </)
-  assert.match(queue, /className="block text-xs text-gray-700">\{deadline\}/)
+  assert.match(queue, /\{deadline && \(/)
+  assert.match(queue, /className="block text-xs text-gray-500 dark:text-gray-400">\s*\{deadline\}/)
 })
 
 test('#377 · DS-COPY-020 point 2: the row that owes the communication says so in `O que falta`', () => {

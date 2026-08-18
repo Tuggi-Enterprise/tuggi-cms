@@ -1889,6 +1889,7 @@
     "directory": {
       "title": "Parcerias",
       "subtitle": "Todo parceiro e toda proposta numa lista só — inclusive quem ainda não virou cliente.",
+      "filtersTitle": "Filtros",
       "searchLabel": "Buscar",
       "searchPlaceholder": "Nome, CNPJ ou cidade",
       "clear": "Limpar filtros",

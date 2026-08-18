@@ -1815,6 +1815,7 @@
     "directory": {
       "title": "Alianzas",
       "subtitle": "Todo socio y toda propuesta en una sola lista — incluidos los que aún no son clientes.",
+      "filtersTitle": "Filtros",
       "searchLabel": "Buscar",
       "searchPlaceholder": "Nombre, CUIT/CNPJ o ciudad",
       "clear": "Limpiar filtros",

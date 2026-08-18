@@ -29,7 +29,40 @@ faixas), `Perfil`, `Fiscal & Pagamentos`, `Contrato`, `Equipe`, `Usuários do Ap
 
 ---
 
-## 2. Divergência D-A — dois dialetos visuais convivem a um clique
+## 2. O que mudou em 2026-08-17, depois deste briefing ser escrito
+
+O operador pediu que a tela seguisse o padrão das outras e apontou a `/pois` como exemplo. A
+estrutura foi adotada: moldura `min-h-screen bg-gray-50 dark:bg-gray-950 p-6 lg:p-8`, trilho de
+`w-[18%]` em cartão de vidro `rounded-3xl backdrop-blur-xl` fixo em `top-24`, barra de números
+fixa no topo da coluna de `82%`, tabela dentro de cartão de vidro, e **tema escuro em toda a
+tela**.
+
+O que NÃO foi copiado, e por quê — as duas medições abaixo são novas:
+
+**A tinta.** `/pois` pinta texto e ícone com `text-tuggi-blue`. Aqui a estrutura é a mesma e a
+tinta é `text-primary-800` (5,44:1). A marca continua presente como **superfície**
+(`bg-tuggi-blue/10` no chip do trilho) e como ícone **decorativo** com `aria-hidden` — o título
+ao lado carrega o significado, o que isenta o ícone de SC 1.4.11.
+
+**No escuro, a marca funciona.** `#00A8E8` sobre `gray-900` mede **6,57:1** e passa com folga —
+é 2,70:1 sobre branco que reprova. Então links e opções do trilho são
+`text-primary-800 dark:text-tuggi-blue`. Não é inconsistência: é a mesma medição lida em duas
+superfícies, e vale registrar porque contradiz a leitura fácil de D-001 ("a marca não serve de
+tinta"). Ela não serve **de dia**.
+
+## 2.1 Divergência D-C — o rótulo micro-caps da `/pois` reprova AA — **nova**
+
+O elemento mais característico do padrão — `text-[10px] font-bold text-gray-400 uppercase
+tracking-widest`, usado em toda seção de filtro, cabeçalho de tabela e rótulo de número — mede
+**2,51:1** (#9CA3AF sobre o painel). SC 1.4.3 pede 4,5:1, e 10px não é texto grande sob nenhuma
+leitura.
+
+Achado pelo `axe-core` no minuto em que esta tela adotou o idioma. Corrigi localmente para
+`text-gray-500` (#6B7280, **4,83:1**), que é o mesmo rótulo no mesmo peso. **Isto não é um
+defeito desta tela: é do padrão**, e ele está em `/pois`, na ficha do cliente e em toda tela do
+dialeto A. A correção certa é sua, e é uma linha no design system.
+
+## 3. Divergência D-A — dois dialetos visuais convivem a um clique
 
 **Medido, não impressão.**
 
@@ -58,7 +91,7 @@ de `components/ui/` (botão e select crus); a esteira inteira não tem `dark:`, 
 
 ---
 
-## 3. Divergência D-B — a rampa `secondary` não tem degrau que passe AA para texto
+## 4. Divergência D-B — a rampa `secondary` não tem degrau que passe AA para texto
 
 **Novo, medido em 2026-08-17 por `axe-core` em `tests/ct/partnerships-a11y.spec.tsx`.**
 
@@ -76,7 +109,7 @@ no laranja, e o par que falta é seu.
 
 ---
 
-## 4. Decisões pendentes, com dono
+## 5. Decisões pendentes, com dono
 
 ### D-1 — a aba `Parceria` aparece para todo cliente
 
@@ -100,11 +133,20 @@ rótulo; o Tech Lead decide se a rota segue.**
 
 São nove: Cliente, Onde, Tipo, Estado, Contrato, O que falta, Parado há, Triagem, Abrir. Herdei
 seis da fila e acrescentei três (Tipo, Contrato, e a `Situação do cadastro` como segunda linha
-sob o nome). Não medi se nove ainda cabem sem rolagem horizontal no monitor do time comercial.
+sob o nome). Não medi se nove cabem no monitor do time comercial; por ora o cartão rola a tabela
+dentro dele (`overflow-x-auto`), então a página nunca rola de lado — mas rolagem horizontal
+dentro de um cartão continua sendo custo de leitura, e cortar coluna é decisão sua.
+
+### D-4 — o trilho usa botões com contagem, e a `/pois` usa `<select>`
+
+`/pois` filtra país, estado e cidade com três `<select>`. Aqui são listas de botões, porque cada
+opção carrega **a contagem que ela abre** — informação que um `<select>` não mostra, e que é o
+que torna a união das duas listas útil. Mantive os botões e registro a divergência: se o padrão
+tem de ser `<select>`, a contagem morre junto.
 
 ---
 
-## 5. O que já está travado por teste — não mexa sem trocar a asserção
+## 6. O que já está travado por teste — não mexa sem trocar a asserção
 
 - **Todo estado é texto**, nunca cor ou ícone sozinho (DS-A11Y-003): estado do pipeline,
   contrato, relógio da triagem.
@@ -115,7 +157,7 @@ sob o nome). Não medi se nove ainda cabem sem rolagem horizontal no monitor do 
   `tests/api/client-directory-filter.test.ts`.
 - **Dimensão sem valor não desenha**: em 2026-08-17, 3 de 11 clientes tinham país.
 
-## 6. Como validar
+## 7. Como validar
 
 ```
 npm run test:api                              # 570 casos

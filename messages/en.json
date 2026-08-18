@@ -1896,6 +1896,7 @@
     "directory": {
       "title": "Partnerships",
       "subtitle": "Every partner and every proposal in one list — including the ones not yet registered.",
+      "filtersTitle": "Filters",
       "searchLabel": "Search",
       "searchPlaceholder": "Name, tax ID or city",
       "clear": "Clear filters",

@@ -32,9 +32,8 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { useTranslations } from 'next-intl'
 import Link from 'next/link'
+import { Filter, RotateCcw, Search } from 'lucide-react'
 import { Button } from '@/components/ui/button'
-import { Input } from '@/components/ui/input'
-import { Label } from '@/components/ui/label'
 import { formatDate } from '@/components/admin/partner-proposals/format'
 import { daysUntil } from '@/lib/partner-form/regularity'
 import { deriveTriageStatus, type TriageStatus } from '@/lib/partnerships/triage'
@@ -140,279 +139,386 @@ export function ClientDirectory({
     return value
   }
 
+  const clearControl = view.filtering ? (
+    <button
+      type="button"
+      onClick={() => onFiltersChange(EMPTY_FILTERS)}
+      aria-label={t('clear')}
+      title={t('clear')}
+      className="rounded-lg p-2 text-gray-400 transition-all hover:bg-primary-800/5 hover:text-primary-800"
+    >
+      <RotateCcw className="h-4 w-4" aria-hidden="true" />
+    </button>
+  ) : null
+
   return (
-    <div className="mx-auto w-full max-w-[100rem] px-6 py-6">
-      <header className="mb-5 flex flex-wrap items-start justify-between gap-3">
-        <div>
-          <h1 className="text-2xl font-semibold text-gray-900">{t('title')}</h1>
-          <p className="mt-1 text-sm text-gray-700">{t('subtitle')}</p>
-        </div>
-        {onCreateNew && (
-          <Button type="button" variant="cta" onClick={onCreateNew}>
-            {t('newClient')}
-          </Button>
-        )}
-      </header>
+    <div className="flex min-h-screen flex-col bg-gray-50 p-6 dark:bg-gray-950 lg:p-8">
+      <div className="flex flex-1 gap-8 pt-6">
+        {/* ── The rail ──────────────────────────────────────────────────────────────────── */}
+        <div className="w-[18%] flex-shrink-0">
+          <div className="sticky top-24 rounded-3xl border border-gray-200 bg-white/70 shadow-2xl shadow-black/5 backdrop-blur-xl dark:border-gray-800 dark:bg-gray-900/70">
+            <div className="p-6">
+              <div className="mb-6 flex items-center justify-between">
+                <div className="flex items-center gap-3">
+                  {/* The chip is a SURFACE tint and the icon inside it is decorative — the
+                      heading beside it carries the meaning, so it is `aria-hidden` and exempt
+                      from SC 1.4.11. That is what lets the brand blue stay here while never
+                      painting a word. */}
+                  <div className="rounded-xl bg-tuggi-blue/10 p-2">
+                    <Filter className="h-5 w-5 text-tuggi-blue" aria-hidden="true" />
+                  </div>
+                  <h2 className="text-xl font-semibold tracking-tight text-gray-900 dark:text-white">
+                    {t('filtersTitle')}
+                  </h2>
+                </div>
+                {clearControl}
+              </div>
 
-      {/* The broken 72-hour promise (BR-B2B-010, item 4), counted over the WHOLE set and never
-          over the filtered one: it is the count the operator clicks to REACH those rows. */}
-      {late > 0 && (
-        <nav className="mb-4">
-          <button
-            type="button"
-            onClick={() => set('onlyLate', !filters.onlyLate)}
-            aria-pressed={filters.onlyLate}
-            className={`min-h-[24px] text-sm underline-offset-4 hover:underline ${
-              filters.onlyLate ? 'font-semibold text-gray-900 underline' : 'font-medium text-primary-800'
-            }`}
-          >
-            {p('queue.overdueCount', { count: late })}
-          </button>
-        </nav>
-      )}
+              <div className="mb-6">
+                <label htmlFor="directory-search" className="sr-only">
+                  {t('searchLabel')}
+                </label>
+                <div className="group relative">
+                  <div className="pointer-events-none absolute inset-y-0 left-0 flex items-center pl-3">
+                    <Search
+                      className="h-4 w-4 text-gray-400 transition-colors group-focus-within:text-primary-800"
+                      aria-hidden="true"
+                    />
+                  </div>
+                  <input
+                    id="directory-search"
+                    type="text"
+                    value={filters.search}
+                    placeholder={t('searchPlaceholder')}
+                    onChange={(event) => set('search', event.target.value)}
+                    className="w-full rounded-xl border border-gray-200 bg-gray-50/50 py-3 pl-10 pr-4 text-sm outline-none transition-all focus:border-transparent focus:ring-2 focus:ring-primary-800 dark:border-gray-700 dark:bg-gray-800/50 dark:text-white"
+                  />
+                </div>
+              </div>
 
-      {truncated && (
-        <p role="status" className="mb-4 rounded-md border border-gray-300 p-3 text-sm text-gray-900">
-          {t('truncated')}
-        </p>
-      )}
+              <div className="space-y-5">
+                {FACETS.map((key) => {
+                  const options = view.facets[key]
+                  // A dimension nobody filled in is not a filter — it is noise with a heading.
+                  if (options.length === 0) return null
+                  const selected = filters[key] as string | null
 
-      <div className="flex flex-col gap-6 lg:flex-row">
-        <aside className="w-full shrink-0 space-y-5 lg:w-64">
-          <div>
-            <Label htmlFor="directory-search">{t('searchLabel')}</Label>
-            <Input
-              id="directory-search"
-              value={filters.search}
-              placeholder={t('searchPlaceholder')}
-              onChange={(event) => set('search', event.target.value)}
-            />
-          </div>
-
-          {FACETS.map((key) => {
-            const options = view.facets[key]
-            // A dimension nobody filled in is not a filter — it is noise with a heading.
-            if (options.length === 0) return null
-            const selected = filters[key] as string | null
-
-            return (
-              <section key={key} aria-labelledby={`facet-${key}`}>
-                <h2
-                  id={`facet-${key}`}
-                  className="text-xs font-semibold uppercase tracking-wide text-gray-900"
-                >
-                  {t(`filters.${key}`)}
-                </h2>
-                <ul className="mt-2 space-y-1">
-                  {/*
-                    THE WORKING SET, and it is the last thing `/admin/partnerships` had that this
-                    list did not. A queue that shows `Publicado`, `Descartado` and `Recusado na
-                    triagem` alongside what still needs doing is noise the operator learns to
-                    ignore (criterion 4, DS-COPY-020, point 5). It is an option here and not the
-                    default, because this is the client list too: somebody opening it to fix the
-                    fiscal data of a partner already on air must still find them.
-                  */}
-                  {key === 'state' && (
-                    <li>
-                      <button
-                        type="button"
-                        aria-pressed={filters.state === 'in_progress'}
-                        onClick={() =>
-                          set('state', filters.state === 'in_progress' ? 'all' : 'in_progress')
-                        }
-                        className={`flex min-h-[24px] w-full items-center justify-between gap-2 text-left text-sm underline-offset-4 hover:underline ${
-                          filters.state === 'in_progress'
-                            ? 'font-semibold text-gray-900 underline'
-                            : 'text-primary-800'
-                        }`}
+                  return (
+                    <section key={key} aria-labelledby={`facet-${key}`}>
+                      <h3
+                        id={`facet-${key}`}
+                        className="mb-3 px-1 text-[10px] font-bold uppercase tracking-widest text-gray-500 dark:text-gray-400"
                       >
-                        <span className="truncate">{p('queue.inProgress')}</span>
-                        <span className="shrink-0 text-xs text-gray-700">{working}</span>
-                      </button>
-                    </li>
-                  )}
-                  {options.map((option) => {
-                    const active = selected === option.value
-                    return (
-                      <li key={option.value}>
-                        <button
-                          type="button"
-                          aria-pressed={active}
-                          onClick={() =>
-                            // Clearing a dimension means `null` for every one of them EXCEPT
-                            // `state`, whose "no filter" value is `all` — `null` is not one of
-                            // its values, and setting it matched no row at all.
-                            set(
-                              key as keyof DirectoryFilters,
-                              (active
-                                ? key === 'state'
-                                  ? 'all'
-                                  : null
-                                : option.value) as never
-                            )
-                          }
-                          className={`flex min-h-[24px] w-full items-center justify-between gap-2 text-left text-sm underline-offset-4 hover:underline ${
-                            active ? 'font-semibold text-gray-900 underline' : 'text-primary-800'
-                          }`}
-                        >
-                          <span className="truncate">{optionLabel(key, option.value)}</span>
-                          <span className="shrink-0 text-xs text-gray-700">{option.count}</span>
-                        </button>
-                      </li>
-                    )
-                  })}
-                </ul>
-              </section>
-            )
-          })}
+                        {t(`filters.${key}`)}
+                      </h3>
+                      <ul className="space-y-1">
+                        {/*
+                          THE WORKING SET, and it is the one thing `/admin/partnerships` had that
+                          this list did not. A list that shows `Publicado`, `Descartado` and
+                          `Recusado na triagem` alongside what still needs doing is noise the
+                          operator learns to ignore (criterion 4, DS-COPY-020, point 5). An
+                          option and not the default: this is the client list too, and somebody
+                          fixing the fiscal data of a partner already on air must find them.
+                        */}
+                        {key === 'state' && (
+                          <li>
+                            <FacetOptionButton
+                              label={p('queue.inProgress')}
+                              count={working}
+                              active={filters.state === 'in_progress'}
+                              onToggle={() =>
+                                set('state', filters.state === 'in_progress' ? 'all' : 'in_progress')
+                              }
+                            />
+                          </li>
+                        )}
+                        {options.map((option) => (
+                          <li key={option.value}>
+                            <FacetOptionButton
+                              label={optionLabel(key, option.value)}
+                              count={option.count}
+                              active={selected === option.value}
+                              onToggle={() =>
+                                // Clearing a dimension means `null` for every one of them EXCEPT
+                                // `state`, whose "no filter" value is `all` — `null` is not one
+                                // of its values, and setting it matched no row at all.
+                                set(
+                                  key as keyof DirectoryFilters,
+                                  (selected === option.value
+                                    ? key === 'state'
+                                      ? 'all'
+                                      : null
+                                    : option.value) as never
+                                )
+                              }
+                            />
+                          </li>
+                        ))}
+                      </ul>
+                    </section>
+                  )
+                })}
 
-          <div className="flex items-center gap-2">
-            <input
-              id="directory-only-late"
-              type="checkbox"
-              checked={filters.onlyLate}
-              onChange={(event) => set('onlyLate', event.target.checked)}
-              className="h-4 w-4 rounded border-input"
-            />
-            <Label htmlFor="directory-only-late" className="mb-0">
-              {t('filters.onlyLate')}
-            </Label>
-          </div>
-
-          {view.filtering && (
-            <Button variant="outline" className="w-full" onClick={() => onFiltersChange(EMPTY_FILTERS)}>
-              {t('clear')}
-            </Button>
-          )}
-        </aside>
-
-        <section className="min-w-0 flex-1">
-          <p className="mb-2 text-sm text-gray-700">
-            {t('results', { count: view.rows.length, total: rows.length })}
-          </p>
-
-          {failed ? (
-            <div className="rounded-md border border-gray-200 p-6 text-center">
-              <p className="font-medium text-gray-900">{t('errorTitle')}</p>
-              <Button variant="outline" className="mt-3" onClick={() => window.location.reload()}>
-                {t('retry')}
-              </Button>
+                <div className="border-t border-gray-100 pt-4 dark:border-gray-800">
+                  <label className="flex cursor-pointer items-center gap-2">
+                    <input
+                      type="checkbox"
+                      checked={filters.onlyLate}
+                      onChange={(event) => set('onlyLate', event.target.checked)}
+                      className="h-4 w-4 rounded border-gray-300 text-primary-800 focus:ring-primary-800"
+                    />
+                    <span className="text-sm text-gray-900 dark:text-gray-200">
+                      {t('filters.onlyLate')}
+                    </span>
+                  </label>
+                </div>
+              </div>
             </div>
-          ) : (
-            <table className="w-full border-collapse text-sm">
-              <thead>
-                <tr className="border-b border-gray-300 text-left text-xs uppercase tracking-wide text-gray-700">
-                  <th scope="col" className="px-2 py-2">{t('columns.name')}</th>
-                  <th scope="col" className="px-2 py-2">{t('columns.location')}</th>
-                  <th scope="col" className="px-2 py-2">{t('columns.clientType')}</th>
-                  <th scope="col" className="px-2 py-2">{t('columns.state')}</th>
-                  <th scope="col" className="px-2 py-2">{t('columns.contract')}</th>
-                  <th scope="col" className="px-2 py-2">{t('columns.missing')}</th>
-                  <th scope="col" className="px-2 py-2">{t('columns.idle')}</th>
-                  <th scope="col" className="px-2 py-2">{t('columns.triage')}</th>
-                  <th scope="col" className="px-2 py-2" />
-                </tr>
-              </thead>
-              <tbody>
-                {loading &&
-                  [0, 1, 2, 3, 4].map((index) => (
-                    <tr key={`skeleton-${index}`} className="border-b border-gray-100">
-                      <td className="px-2 py-3" colSpan={9}>
-                        <span className="sr-only">{t('loading')}</span>
-                        <span
-                          className="block h-4 w-full animate-pulse rounded bg-gray-100"
-                          aria-hidden="true"
-                        />
-                      </td>
-                    </tr>
-                  ))}
+          </div>
+        </div>
 
-                {!loading &&
-                  view.rows.map((row) => {
-                    const status = triage.get(rowKey(row)) ?? NOT_STARTED
-                    const deadline = triageDeadlineText(status)
-                    const name = row.name || t('noName')
+        {/* ── The list ──────────────────────────────────────────────────────────────────── */}
+        <div className="w-[82%] min-w-0">
+          <div className="sticky top-0 z-30 mb-8 rounded-3xl border border-gray-200 bg-white/80 shadow-2xl shadow-black/5 backdrop-blur-xl dark:border-gray-800 dark:bg-gray-900/80">
+            <div className="flex flex-wrap items-center justify-between gap-4 p-4">
+              <div className="flex flex-wrap items-center gap-8 pl-2">
+                <div>
+                  <h1 className="text-xl font-semibold tracking-tight text-gray-900 dark:text-white">
+                    {t('title')}
+                  </h1>
+                  <p className="text-[11px] text-gray-500 dark:text-gray-400">{t('subtitle')}</p>
+                </div>
 
-                    return (
-                      <tr key={rowKey(row)} className="border-b border-gray-100 align-top">
-                        <td className="px-2 py-3 text-gray-900">
-                          <span className="block max-w-[20rem] truncate" title={row.name ?? ''}>
-                            {name}
-                          </span>
-                          {row.status && (
-                            <span className="block text-xs text-gray-700">
-                              {t(`statusValues.${row.status}`)}
-                            </span>
-                          )}
-                          {/*
-                            A proposal nobody promoted has no registration behind it, and the
-                            row says so instead of looking like a client that lost its data.
+                <div className="h-8 w-px bg-gray-200 dark:bg-gray-800" aria-hidden="true" />
 
-                            THE TEXT IS `text-gray-900` AND NOT `text-secondary-700`. The ramp
-                            stops at `700` (#CC5200), which measures 4.16:1 on this surface —
-                            below the 4.5:1 of SC 1.4.3 at 12px. The BORDER keeps the accent,
-                            because a border is non-text and 4.16 clears its 3:1 (SC 1.4.11).
-                            Caught by `tests/ct/partnerships-a11y.spec.tsx`, which never scanned
-                            this badge while the queue's fixtures had no duplicate to render.
-                          */}
-                          {row.clientId === null && (
-                            <span className="mt-1 inline-block rounded-full border border-secondary-700 px-1.5 py-0.5 text-xs text-gray-900">
-                              {t('proposalBadge')}
-                            </span>
-                          )}
-                          {row.duplicateCount > 0 && (
-                            <span className="mt-1 inline-block rounded-full border border-secondary-700 px-1.5 py-0.5 text-xs text-gray-900">
-                              {p('queue.duplicateBadge', { count: row.duplicateCount })}
-                            </span>
-                          )}
-                        </td>
-                        <td className="px-2 py-3 text-gray-800">{placeLine(row)}</td>
-                        <td className="px-2 py-3 text-gray-800">{row.clientType ?? '—'}</td>
-                        <td className="px-2 py-3 font-medium text-gray-900">
-                          {p(`states.${row.state}`)}
-                        </td>
-                        <td className="px-2 py-3 text-gray-800">
-                          {t(`contractValues.${row.contract}`)}
-                        </td>
-                        <td className="px-2 py-3 text-gray-800">{whatIsMissing(row, p)}</td>
-                        <td className="px-2 py-3 text-gray-800">
-                          <span>{idleFor(row.since, p)}</span>
-                          <span className="block text-xs text-gray-700">{formatDate(row.since)}</span>
-                        </td>
-                        <td className="px-2 py-3 text-gray-900">
-                          <span title={p('triage.deadlineTitle')}>{triageText(status, p)}</span>
-                          {deadline && <span className="block text-xs text-gray-700">{deadline}</span>}
-                        </td>
-                        <td className="px-2 py-3">
-                          <Link
-                            href={`/${locale}${row.href}`}
-                            aria-label={t('openNamed', { name })}
-                            className="inline-flex min-h-[24px] items-center text-sm font-medium text-primary-800 underline underline-offset-4"
-                          >
-                            {t('open')}
-                          </Link>
-                        </td>
-                      </tr>
-                    )
-                  })}
-              </tbody>
-            </table>
-          )}
+                <Stat label={t('columns.name')} value={t('results', { count: view.rows.length, total: rows.length })} />
 
-          {!loading && !failed && view.rows.length === 0 && (
-            <div className="rounded-md border border-gray-200 p-6 text-center">
-              <p className="font-medium text-gray-900">
-                {view.filtering ? t('emptyFilteredTitle') : t('emptyTitle')}
-              </p>
-              {view.filtering && (
-                <Button variant="outline" className="mt-3" onClick={() => onFiltersChange(EMPTY_FILTERS)}>
-                  {t('clear')}
+                {/* The broken 72-hour promise (BR-B2B-010, item 4), counted over the WHOLE set
+                    and never over the filtered one: it is the count the operator clicks to
+                    REACH those rows. */}
+                {late > 0 && (
+                  <button
+                    type="button"
+                    onClick={() => set('onlyLate', !filters.onlyLate)}
+                    aria-pressed={filters.onlyLate}
+                    className={`min-h-[24px] text-sm underline-offset-4 hover:underline ${
+                      filters.onlyLate
+                        ? 'font-semibold text-gray-900 underline dark:text-white'
+                        : 'font-medium text-primary-800 dark:text-tuggi-blue'
+                    }`}
+                  >
+                    {p('queue.overdueCount', { count: late })}
+                  </button>
+                )}
+              </div>
+
+              {onCreateNew && (
+                <Button type="button" variant="cta" onClick={onCreateNew}>
+                  {t('newClient')}
                 </Button>
               )}
             </div>
+          </div>
+
+          {truncated && (
+            <p
+              role="status"
+              className="mb-4 rounded-2xl border border-gray-200 bg-white/70 p-3 text-sm text-gray-900 backdrop-blur-xl dark:border-gray-800 dark:bg-gray-900/70 dark:text-gray-200"
+            >
+              {t('truncated')}
+            </p>
           )}
-        </section>
+
+          <div className="overflow-hidden rounded-3xl border border-gray-200 bg-white/70 shadow-2xl shadow-black/5 backdrop-blur-xl dark:border-gray-800 dark:bg-gray-900/70">
+            {failed ? (
+              <div className="p-8 text-center">
+                <p className="font-medium text-gray-900 dark:text-white">{t('errorTitle')}</p>
+                <Button variant="outline" className="mt-3" onClick={() => window.location.reload()}>
+                  {t('retry')}
+                </Button>
+              </div>
+            ) : (
+              // Nine columns on a commercial team's monitor: the card scrolls its own table
+              // rather than the page scrolling sideways.
+              <div className="overflow-x-auto">
+                <table className="w-full border-collapse text-sm">
+                  <thead>
+                    <tr className="border-b border-gray-200 text-left text-[10px] uppercase tracking-widest text-gray-500 dark:border-gray-800 dark:text-gray-400">
+                      <th scope="col" className="px-4 py-3">{t('columns.name')}</th>
+                      <th scope="col" className="px-4 py-3">{t('columns.location')}</th>
+                      <th scope="col" className="px-4 py-3">{t('columns.clientType')}</th>
+                      <th scope="col" className="px-4 py-3">{t('columns.state')}</th>
+                      <th scope="col" className="px-4 py-3">{t('columns.contract')}</th>
+                      <th scope="col" className="px-4 py-3">{t('columns.missing')}</th>
+                      <th scope="col" className="px-4 py-3">{t('columns.idle')}</th>
+                      <th scope="col" className="px-4 py-3">{t('columns.triage')}</th>
+                      <th scope="col" className="px-4 py-3" />
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {loading &&
+                      [0, 1, 2, 3, 4].map((index) => (
+                        <tr key={`skeleton-${index}`} className="border-b border-gray-100 dark:border-gray-800">
+                          <td className="px-4 py-4" colSpan={9}>
+                            <span className="sr-only">{t('loading')}</span>
+                            <span
+                              className="block h-4 w-full animate-pulse rounded bg-gray-100 dark:bg-gray-800"
+                              aria-hidden="true"
+                            />
+                          </td>
+                        </tr>
+                      ))}
+
+                    {!loading &&
+                      view.rows.map((row) => {
+                        const status = triage.get(rowKey(row)) ?? NOT_STARTED
+                        const deadline = triageDeadlineText(status)
+                        const name = row.name || t('noName')
+
+                        return (
+                          <tr
+                            key={rowKey(row)}
+                            className="border-b border-gray-100 align-top transition-colors last:border-0 hover:bg-gray-50/60 dark:border-gray-800 dark:hover:bg-gray-800/40"
+                          >
+                            <td className="px-4 py-4 text-gray-900 dark:text-white">
+                              <span className="block max-w-[20rem] truncate font-medium" title={row.name ?? ''}>
+                                {name}
+                              </span>
+                              {row.status && (
+                                <span className="block text-xs text-gray-500 dark:text-gray-400">
+                                  {t(`statusValues.${row.status}`)}
+                                </span>
+                              )}
+                              {/*
+                                A proposal nobody promoted has no registration behind it, and the
+                                row says so instead of looking like a client that lost its data.
+
+                                THE TEXT IS `text-gray-900` AND NOT `text-secondary-700`. The
+                                ramp stops at `700` (#CC5200), which measures 4.16:1 on this
+                                surface — below the 4.5:1 of SC 1.4.3 at 12px. The BORDER keeps
+                                the accent: a border is non-text and 4.16 clears its 3:1
+                                (SC 1.4.11). Caught by `tests/ct/partnerships-a11y.spec.tsx`.
+                              */}
+                              {row.clientId === null && (
+                                <span className="mt-1 inline-block rounded-full border border-secondary-700 px-2 py-0.5 text-xs text-gray-900 dark:text-gray-200">
+                                  {t('proposalBadge')}
+                                </span>
+                              )}
+                              {row.duplicateCount > 0 && (
+                                <span className="mt-1 inline-block rounded-full border border-secondary-700 px-2 py-0.5 text-xs text-gray-900 dark:text-gray-200">
+                                  {p('queue.duplicateBadge', { count: row.duplicateCount })}
+                                </span>
+                              )}
+                            </td>
+                            <td className="px-4 py-4 text-gray-800 dark:text-gray-300">{placeLine(row)}</td>
+                            <td className="px-4 py-4 text-gray-800 dark:text-gray-300">{row.clientType ?? '—'}</td>
+                            <td className="px-4 py-4 font-medium text-gray-900 dark:text-white">
+                              {p(`states.${row.state}`)}
+                            </td>
+                            <td className="px-4 py-4 text-gray-800 dark:text-gray-300">
+                              {t(`contractValues.${row.contract}`)}
+                            </td>
+                            <td className="px-4 py-4 text-gray-800 dark:text-gray-300">{whatIsMissing(row, p)}</td>
+                            <td className="px-4 py-4 text-gray-800 dark:text-gray-300">
+                              <span>{idleFor(row.since, p)}</span>
+                              <span className="block text-xs text-gray-500 dark:text-gray-400">
+                                {formatDate(row.since)}
+                              </span>
+                            </td>
+                            <td className="px-4 py-4 text-gray-900 dark:text-gray-200">
+                              <span title={p('triage.deadlineTitle')}>{triageText(status, p)}</span>
+                              {deadline && (
+                                <span className="block text-xs text-gray-500 dark:text-gray-400">{deadline}</span>
+                              )}
+                            </td>
+                            <td className="px-4 py-4">
+                              <Link
+                                href={`/${locale}${row.href}`}
+                                aria-label={t('openNamed', { name })}
+                                className="inline-flex min-h-[24px] items-center text-sm font-medium text-primary-800 underline underline-offset-4 dark:text-tuggi-blue"
+                              >
+                                {t('open')}
+                              </Link>
+                            </td>
+                          </tr>
+                        )
+                      })}
+                  </tbody>
+                </table>
+              </div>
+            )}
+
+            {!loading && !failed && view.rows.length === 0 && (
+              <div className="p-8 text-center">
+                <p className="font-medium text-gray-900 dark:text-white">
+                  {view.filtering ? t('emptyFilteredTitle') : t('emptyTitle')}
+                </p>
+                {view.filtering && (
+                  <Button variant="outline" className="mt-3" onClick={() => onFiltersChange(EMPTY_FILTERS)}>
+                    {t('clear')}
+                  </Button>
+                )}
+              </div>
+            )}
+          </div>
+        </div>
       </div>
+    </div>
+  )
+}
+
+/**
+ * One option of the rail: the label, and the count it would open.
+ *
+ * `text-primary-800` on light and `text-tuggi-blue` on dark, which is not an inconsistency —
+ * it is the same measurement read on two surfaces. The brand blue is 2.70:1 on white and fails
+ * SC 1.4.3; on `gray-900` it is 6.57:1 and passes comfortably. The token that fails as ink in
+ * daylight is the one that works at night.
+ */
+function FacetOptionButton({
+  label,
+  count,
+  active,
+  onToggle,
+}: {
+  label: string
+  count: number
+  active: boolean
+  onToggle: () => void
+}) {
+  return (
+    <button
+      type="button"
+      aria-pressed={active}
+      onClick={onToggle}
+      className={`flex min-h-[24px] w-full items-center justify-between gap-2 rounded-lg px-1 py-1 text-left text-sm underline-offset-4 transition-colors hover:underline ${
+        active
+          ? 'font-semibold text-gray-900 underline dark:text-white'
+          : 'text-primary-800 dark:text-tuggi-blue'
+      }`}
+    >
+      <span className="truncate">{label}</span>
+      <span className="shrink-0 text-xs text-gray-500 dark:text-gray-400">{count}</span>
+    </button>
+  )
+}
+
+/**
+ * A figure in the sticky bar, in the shape `/pois` uses: micro-caps label over the value.
+ *
+ * WITH ONE CORRECTION TO THE PATTERN. `/pois` paints these labels `text-gray-400` (#9CA3AF),
+ * which measures 2.51:1 at 10px bold on the panel — SC 1.4.3 asks 4.5:1, and 10px is not large
+ * text under any reading. `text-gray-500` (#6B7280) is 4.83:1 and is the same label at the same
+ * weight. Caught by `axe-core` in `tests/ct/partnerships-a11y.spec.tsx` the moment this screen
+ * adopted the idiom; reported to `design` as a finding about the pattern, not about this file.
+ */
+function Stat({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="flex flex-col">
+      <span className="mb-1 text-[10px] font-bold uppercase leading-none tracking-widest text-gray-500 dark:text-gray-400">
+        {label}
+      </span>
+      <span className="text-lg font-bold leading-none text-gray-900 dark:text-white">{value}</span>
     </div>
   )
 }

@@ -149,7 +149,7 @@ function AdminClientsContent() {
   }
 
   return (
-    <div className="min-h-screen bg-gray-50/50">
+    <>
       {/*
         ONE LIST. `ClientsListAdmin` read `core.clients` and `PartnershipsQueue` read
         `core.partner_form_submissions`, so the same establishment was two rows in two screens.
@@ -187,7 +187,7 @@ function AdminClientsContent() {
           setReloadKey((prev) => prev + 1)
         }}
       />
-    </div>
+    </>
   )
 }
 
