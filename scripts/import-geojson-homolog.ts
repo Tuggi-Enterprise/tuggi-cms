@@ -17,10 +17,14 @@ const supabase = getSupabase('service');
 
 const UUID_NAMESPACE = "6ba7b810-9dad-11d1-80b4-00c04fd430c8";
 
-function generateUUID(osmId: any, osmType: string, name: string, lat: number, lon: number): string {
-  // Matches EXACTLY the logic in supabase/functions/capture-pois/index.ts
-  const dataString = `osm:${osmId}:${osmType}:${name || ''}:${lat}:${lon}`;
-  
+function generateUUID(osmId: any, osmType: string, name: string): string {
+  // The natural key of an OSM object is osm_id + osm_type. Coordinates used to be part of this
+  // string (as they still are in the legacy Overpass path, supabase/functions/capture-pois), and
+  // that duplicated 87,083 rows of the German import: osmium export emits a closed way twice, once
+  // as LineString and once as (Multi)Polygon, the derived point differs by ~20m, and two UUIDs came
+  // out of one object. Keep the areal variant — see preferAreal below.
+  const dataString = `osm:${osmId}:${osmType}:${name || ''}`;
+
   const nsBytes = Buffer.from(UUID_NAMESPACE.replace(/-/g, ''), 'hex');
   const nameBytes = Buffer.from(dataString, 'utf8');
   const hash = createHash('sha1').update(nsBytes).update(nameBytes).digest();
@@ -121,6 +125,9 @@ async function main() {
   console.log(`📖 Streaming GeoJSON: ${filePath}`);
 
   const BATCH_SIZE = 100;
+  // The two variants of a closed way can land in different batches, so the "areal wins" rule needs
+  // to survive across them.
+  const arealUuids = new Set<string>();
   let imported = 0;
   let errors = 0;
   let fileDuplicates = 0;
@@ -145,11 +152,21 @@ async function main() {
       const lon = point.lon;
       const lat = point.lat;
 
-      const uuid = generateUUID(osmId, osmType, name, lat, lon);
-      
-      if (poisMap.has(uuid)) {
+      const uuid = generateUUID(osmId, osmType, name);
+
+      // Same object twice in the file (LineString + Polygon of one closed way): the areal variant
+      // wins, it is the one carrying boundary_geometry.
+      const isAreal = geom?.type === 'Polygon' || geom?.type === 'MultiPolygon';
+      if (arealUuids.has(uuid) && !isAreal) {
         fileDuplicates++;
         continue;
+      }
+      if (isAreal) arealUuids.add(uuid);
+      if (poisMap.has(uuid)) {
+        fileDuplicates++;
+        const seenGeom = coordsMap.get(uuid)?.boundary_geometry || '';
+        const seenIsAreal = seenGeom.startsWith('POLYGON') || seenGeom.startsWith('MULTIPOLYGON');
+        if (!isAreal || seenIsAreal) continue;
       }
 
       const boundaryGeom = geoJsonToWkt(geom);

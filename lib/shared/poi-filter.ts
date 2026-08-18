@@ -41,6 +41,32 @@ export const CATEGORIES = [
   "place=square"
 ];
 
+/**
+ * Stage 1 (osmium tags-filter) keeps referenced objects on purpose — a way's nodes and a matched
+ * relation's member ways — because without them osmium export cannot build the geometry. Those
+ * referenced objects reach Stage 3 carrying their own tags (roads, rails, gates) and match none of
+ * CATEGORIES: 31,161 rows of the German import (2026-08-14) came in that way, 24.5k of them plain
+ * `highway=secondary/primary/tertiary` road ways. This gate restores the Stage 1 intent.
+ */
+export function matchesEliteCategories(props: any): boolean {
+  return CATEGORIES.some(expr => {
+    const [key, value] = expr.split('=');
+    if (!props[key]) return false;
+    if (!value) return true;
+    return String(props[key]).split(';').some(v => v.trim() === value);
+  });
+}
+
+// Street furniture tagged `tourism=information`. It is already in TAG_BLOCKLIST, but OSM info
+// boards almost always carry `description` (12,667 of 12,962 in Germany), and description alone
+// sets isFamous, which bypasses the blocklist. `office`/`visitor_centre` stay out: those are real.
+export const INFO_FURNITURE = ['board', 'map', 'guidepost', 'route_marker', 'audioguide', 'terminal', 'tactile_model'];
+
+// Memorial subtypes that are markers, not destinations: a Stolperstein is a 10cm brass cobblestone
+// (41k in Germany alone), a plaque is a wall sign. Each victim has their own Wikidata item, so the
+// wikidata guard does not apply here.
+export const MEMORIAL_NOISE = ['stolperstein', 'plaque', 'stone', 'ghost_bike'];
+
 export const FILTER_CONFIG = {
   // Categories that are completely blocked unless they are famous (Wiki/Wikidata)
   TAG_BLOCKLIST: [
@@ -178,6 +204,13 @@ export const FILTER_CONFIG = {
       " close", " court", " crescent", " terrace", " grove", " mews", " row", " rise", " parade", " estate", " roundabout", " cottages", " wharf", // EN/UK/IE
       // US — subdivisões/loteamentos (o clássico naming americano); famosos (wikidata) são preservados
       " estates", " subdivision", " acres", " meadows", " oaks", " crossing", " pointe", " addition", " villas", " landing", " farms", " run", " heights", " hills", " shores", " glen" // US
+    ],
+    // DE — a rua alemã é composto colado ("Bahnhofstraße"), então nem PREFIXES nem SUFFIXES (que
+    // todos começam com espaço) pegavam: 32.055 linhas no import da Alemanha. "platz" fica de fora
+    // de propósito — praça é POI e `place=square` é categoria mantida.
+    COMPOUND_SUFFIXES: [
+      "straße", "strasse", "str.", "gasse", "allee", "damm", "ufer", "chaussee",
+      "weg", "pfad", "steig", "stieg", "twiete", "zeile", "siedlung"
     ]
   },
 
@@ -232,6 +265,20 @@ export function shouldFilterPOI(poi: any): POIFilterResult {
 
   if (props.route || props.type === "route") {
     return { remove: true, reason: "Category: Rota/Trajeto (não é um ponto fixo)" };
+  }
+
+  // Objeto que só entrou como referenciado do Stage 1 (rua, trilho, portão, entrada).
+  if (!matchesEliteCategories(props)) {
+    return { remove: true, reason: "OFF_CATEGORY: não casa nenhuma categoria do Stage 1" };
+  }
+
+  if (props.tourism === "information" && INFO_FURNITURE.includes(String(props.information)) && !hasReference && !hasHeritage) {
+    return { remove: true, reason: `INFO_FURNITURE: tourism=information/${props.information}` };
+  }
+
+  const memorialType = String(props.memorial || props["memorial:type"] || "");
+  if (MEMORIAL_NOISE.includes(memorialType)) {
+    return { remove: true, reason: `MEMORIAL_NOISE: memorial=${memorialType}` };
   }
 
   // --- 2. ELITE EXCEPTIONS (Full exemption if recognized landmark) ---
@@ -417,7 +464,8 @@ export function shouldFilterPOI(poi: any): POIFilterResult {
   // Generic Street Names check - streets should not be POIs unless they are landmarks
   const isGenericStreet = 
     FILTER_CONFIG.STREET_KEYWORDS.PREFIXES.some(p => nameLower.startsWith(p)) ||
-    FILTER_CONFIG.STREET_KEYWORDS.SUFFIXES.some(s => nameLower.endsWith(s));
+    FILTER_CONFIG.STREET_KEYWORDS.SUFFIXES.some(s => nameLower.endsWith(s)) ||
+    FILTER_CONFIG.STREET_KEYWORDS.COMPOUND_SUFFIXES.some(s => nameLower.endsWith(s));
     
   if (isGenericStreet && !isFamous) {
     return { remove: true, reason: "STREET: Rua/Avenida/Street genérica sem fama ou histórico" };
