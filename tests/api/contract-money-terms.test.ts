@@ -32,9 +32,19 @@ import { readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
 
 import { DUE_DAY_OF_MONTH, activeTemplate, renderClauses } from '@/lib/contract/template'
+import { DEFAULT_COMMISSION_RATE } from '@/types/clients'
 import type { ContractSnapshot } from '@/lib/contract/snapshot'
 
 const read = (path: string) => readFileSync(resolve(import.meta.dirname, '../..', path), 'utf8')
+
+/**
+ * The source WITHOUT its comments. A ruler that reads prose measures the prose, and the note
+ * above this very field explains at length the `max="1"` it replaced.
+ */
+const code = (path: string) =>
+  read(path)
+    .replace(/\/\*[\s\S]*?\*\//g, '')
+    .replace(/^\s*\/\/.*$/gm, '')
 
 function snapshot(overrides: Partial<ContractSnapshot> = {}): ContractSnapshot {
   return {
@@ -124,16 +134,43 @@ test('the commission clause reaches BOTH tiers — the free partner is promised 
   assert.equal(free.indexOf('payment_default'), -1)
 })
 
-test('no code in the CMS declares a commission percentage — BR-MONETIZACAO-039, item 2', () => {
+test('the default percentage is declared once, and no surface writes its own', () => {
+  // The operator set 10% on 2026-08-18 and reaffirmed it is the CMS default, not a figure in
+  // the contract. What may not come back is `0.200` in three files at once — the shape
+  // BR-MONETIZACAO-039, item 2, exists to prevent, and the `kRetryDelayMs` defect of §6.
+  assert.equal(DEFAULT_COMMISSION_RATE, 0.1)
+
   const offenders: string[] = []
   for (const file of [
     'app/api/admin/clients/route.ts',
     'components/admin/clients/ClientEditorModal.tsx',
     'components/admin/clients/tabs/FiscalPaymentsTab.tsx',
   ]) {
-    // `commission_rate` next to a number literal is the defect the rule names — a default
-    // nobody decided, applied in silence.
     if (/commission_rate['"]?\s*[:,]?\s*(\?\?\s*)?0\.\d/.test(read(file))) offenders.push(file)
   }
-  assert.deepEqual(offenders, [], 'these apply a percentage nobody decided')
+  assert.deepEqual(offenders, [], 'these write a percentage of their own')
+
+  // And the two that seed a registration read the constant rather than a number.
+  for (const file of ['app/api/admin/clients/route.ts', 'components/admin/clients/ClientEditorModal.tsx']) {
+    assert.match(read(file), /DEFAULT_COMMISSION_RATE/, file)
+  }
+})
+
+test('the operator types a percentage, and the column keeps the rate', () => {
+  const form = code('components/admin/clients/tabs/FiscalPaymentsTab.tsx')
+
+  // `max="1"` under a label that reads `Taxa de comissão` invited a factor-of-ten mistake.
+  assert.match(form, /max="100"/)
+  assert.equal(form.indexOf('max="1"'), -1)
+  // Typed 10 → stored 0.1; stored 0.1 → shown 10. Rounded, because 0.07 * 100 is not 7 in
+  // binary floating point.
+  assert.match(form, /Math\.round\(parseFloat\(typed\) \* 10\) \/ 1000/)
+  assert.match(form, /Math\.round\(commissionRate \* 1000\) \/ 10/)
+
+  // And the help text stops asking for a fraction.
+  for (const locale of ['pt', 'en', 'es']) {
+    const help = JSON.parse(read(`messages/${locale}.json`)).Clients.fiscal.fields.commissionRateHelp
+    assert.equal(/0[.,]20/.test(help), false, `${locale} still asks for a fraction`)
+    assert.match(help, /10/)
+  }
 })

@@ -33,7 +33,7 @@ import { PlacesTab } from '@/components/admin/clients/tabs/PlacesTab'
 import { PartnershipTab } from '@/components/admin/clients/tabs/PartnershipTab'
 import { CouponsTab } from '@/components/admin/clients/tabs/CouponsTab'
 import { ContractTab } from '@/components/admin/clients/tabs/ContractTab'
-import { DEFAULT_CLIENT_TYPE, type Client } from '@/types/clients'
+import { DEFAULT_CLIENT_TYPE, DEFAULT_COMMISSION_RATE, type Client } from '@/types/clients'
 
 /**
  * `places` was called `pois` while the tab was only the welcome-POI picker. It now lists the
@@ -120,9 +120,13 @@ export function ClientEditorModal({
       void fetchClient(clientId)
     } else {
       setClient(null)
-      // No percentage: BR-MONETIZACAO-039, item 4 — there is no default on a new registration,
-      // and a stored `0` is a different decision from absent (the rule's own edge case).
-      setEdited({ client_type: DEFAULT_CLIENT_TYPE, status: 'pending' })
+      // The default comes from the one place that declares it; the operator may clear or
+      // change it before saving, and a stored `0` stays a different decision from absent.
+      setEdited({
+        client_type: DEFAULT_CLIENT_TYPE,
+        status: 'pending',
+        commission_rate: DEFAULT_COMMISSION_RATE,
+      })
     }
     return () => {
       // Cancel any in-flight fetch when the effect re-runs or unmounts —

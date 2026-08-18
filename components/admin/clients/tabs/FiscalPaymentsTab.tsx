@@ -177,18 +177,40 @@ export function FiscalPaymentsTab({ client, edited, updateField, canEdit, client
           {isEditing ? (
             <div className="space-y-1">
               <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest">{t('fields.commissionRate')}</p>
-              <input
-                type="number"
-                step="0.001"
-                min="0"
-                max="1"
-                value={commissionRate ?? ''}
-                onChange={(e) => {
-                  const typed = e.target.value
-                  updateField('commission_rate', typed === '' ? (undefined as never) : parseFloat(typed))
-                }}
-                className="w-full px-3 py-2 bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl text-sm font-semibold text-gray-900 dark:text-white outline-none focus:ring-2 focus:ring-tuggi-blue/30"
-              />
+              {/*
+                THE OPERATOR TYPES `10`, AND THE COLUMN STORES `0.1`.
+                
+                The field used to be the raw rate — `step="0.001"`, `max="1"` — under a label
+                that reads `Taxa de comissão`. Typing `10` into it meant 1000%, and typing `0.1`
+                is a translation the person should not be doing. The percentage is the unit the
+                decision is taken in; the fraction is how the column happens to store it.
+                
+                `Math.round` on the product because binary floats turn `0.07 * 100` into
+                `7.000000000000001`, and a rate is not worth persisting with that tail.
+              */}
+              <div className="flex items-center gap-2">
+                <input
+                  type="number"
+                  step="0.1"
+                  min="0"
+                  max="100"
+                  inputMode="decimal"
+                  value={commissionRate === null ? '' : Math.round(commissionRate * 1000) / 10}
+                  onChange={(e) => {
+                    const typed = e.target.value
+                    updateField(
+                      'commission_rate',
+                      typed === ''
+                        ? (undefined as never)
+                        : Math.round(parseFloat(typed) * 10) / 1000
+                    )
+                  }}
+                  className="w-full px-3 py-2 bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl text-sm font-semibold text-gray-900 dark:text-white outline-none focus:ring-2 focus:ring-tuggi-blue/30"
+                />
+                <span className="text-sm font-semibold text-gray-500 dark:text-gray-400" aria-hidden="true">
+                  %
+                </span>
+              </div>
               <p className="text-[10px] text-gray-400 mt-1">{t('fields.commissionRateHelp')}</p>
             </div>
           ) : (

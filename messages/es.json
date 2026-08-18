@@ -2008,7 +2008,7 @@
         "accountNumber": "Número de cuenta",
         "accountPlaceholder": "123456789",
         "commissionRate": "Tasa de comisión",
-        "commissionRateHelp": "Valor entre 0 y 1 (ej. 0.20 = 20%)",
+        "commissionRateHelp": "Porcentaje de los ingresos que recibe el socio. Ej.: 10 = 10%.",
         "monthlyFee": "Valor mensual del contrato",
         "monthlyFeeHelp": "En reales. Sin valor y sin \"cortesía\" marcada, el contrato no se genera. Un cero escrito no vale como cortesía: la cortesía es una decisión, el campo vacío es un registro incompleto.",
         "courtesy": "Cortesía (sin mensualidad)",

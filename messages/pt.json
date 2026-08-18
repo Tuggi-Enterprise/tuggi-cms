@@ -2082,7 +2082,7 @@
         "accountNumber": "Número da conta",
         "accountPlaceholder": "123456789",
         "commissionRate": "Taxa de comissão",
-        "commissionRateHelp": "Valor entre 0 e 1 (ex. 0.20 = 20%)",
+        "commissionRateHelp": "Percentual da receita repassado ao parceiro. Ex.: 10 = 10%.",
         "monthlyFee": "Valor mensal do contrato",
         "monthlyFeeHelp": "Em reais. Sem valor e sem \"cortesia\" marcada, o contrato não sai. Zero digitado não vale como cortesia: cortesia é decisão, campo vazio é cadastro incompleto.",
         "courtesy": "Cortesia (sem mensalidade)",

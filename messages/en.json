@@ -2089,7 +2089,7 @@
         "accountNumber": "Account number",
         "accountPlaceholder": "123456789",
         "commissionRate": "Commission rate",
-        "commissionRateHelp": "Value between 0 and 1 (e.g. 0.20 = 20%)",
+        "commissionRateHelp": "Share of revenue passed on to the partner. E.g. 10 = 10%.",
         "monthlyFee": "Monthly contract fee",
         "monthlyFeeHelp": "In reais. With no value and no \"courtesy\" checked, the contract cannot be generated. A typed zero is not courtesy: courtesy is a decision, an empty field is an incomplete record.",
         "courtesy": "Courtesy (no monthly fee)",

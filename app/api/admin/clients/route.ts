@@ -13,7 +13,7 @@ import { cookies } from 'next/headers'
 import { getSupabaseService } from '@/lib/core/supabase-client'
 import { validateAvatarUrl } from '@/lib/services/client-editable-fields'
 import { describeClientUniqueViolation } from '@/lib/services/client-unique-conflicts'
-import { DEFAULT_CLIENT_TYPE, isRegistrableClientType } from '@/types/clients'
+import { DEFAULT_CLIENT_TYPE, DEFAULT_COMMISSION_RATE, isRegistrableClientType } from '@/types/clients'
 
 export async function GET(request: NextRequest) {
   try {
@@ -198,11 +198,11 @@ export async function POST(request: NextRequest) {
         bank_account_number: bank_account_number || null,
         bank_routing_number: bank_routing_number || null,
         bank_name: bank_name || null,
-        // BR-MONETIZACAO-039, items 2 and 4: no code declares a commission percentage, and
-        // "no default value is applied to a new registration". The 0.200 that used to sit here
-        // applied 20% silently to every client created, including the ones nobody had decided
-        // yet. Absent is a legitimate state (item 5) and surfaces as a contract pendency.
-        commission_rate: commission_rate ?? null,
+        // The default is declared once, in `types/clients.ts`, with the decision behind it —
+        // it used to be `0.200` written here and in two other files. A body that sends `null`
+        // still stores `null`: absent is a legitimate state (BR-MONETIZACAO-039, item 5) and
+        // surfaces as a pendency on the contract checklist.
+        commission_rate: commission_rate === undefined ? DEFAULT_COMMISSION_RATE : commission_rate,
         is_platform_owner: is_platform_owner ?? false,
         is_coordinator: is_coordinator ?? false,
         welcome_poi_id: welcome_poi_id || null,

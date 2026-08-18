@@ -26,6 +26,28 @@ export type ClientRole = 'owner' | 'manager' | 'viewer'
  * Adding a value here without the migration that widens the CHECK produces a row the database
  * refuses at write time. The two go together, in this order: migration first.
  */
+/**
+ * The commission percentage a NEW registration is born with — decided by the operator on
+ * 2026-08-18: *"a % padrão será de 10%"*, and reaffirmed as being the CMS's default rather than
+ * a figure typed into the contract.
+ *
+ * IT IS DECLARED ONCE, AND THAT IS THE POINT. BR-MONETIZACAO-039, item 2, forbids code from
+ * declaring a commission percentage, and item 4 says there is no default on a new registration —
+ * the rule still reads that way today, and `produto` has to rewrite both items for this constant
+ * to have a registered origin. What the rule was protecting against, though, is exactly what the
+ * repository had: `0.200` written into three different files (the create route, the editor seed
+ * and the form's display fallback), which is the `kRetryDelayMs` defect CLAUDE.md §6 names — the
+ * day somebody changes one of them, the other two go on lying.
+ *
+ * So the value moves here and nowhere else. It is a FLOAT, not a percentage: the column stores
+ * the rate and the form multiplies by 100 to show `10%`, because an operator typing `0.1` into a
+ * field labelled `Taxa de comissão` is a UX defect that also invites a factor-of-ten mistake.
+ *
+ * A stored `0` is still a different decision from absent, and neither is this default: this only
+ * pre-fills a registration being born, and the operator may clear or change it before saving.
+ */
+export const DEFAULT_COMMISSION_RATE = 0.1
+
 export const CLIENT_TYPES = [
   'business',
   'influencer',
