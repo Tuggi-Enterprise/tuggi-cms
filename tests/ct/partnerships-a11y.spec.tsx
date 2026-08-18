@@ -22,6 +22,7 @@ import type { Page } from '@playwright/test'
 import AxeBuilder from '@axe-core/playwright'
 import { PartnershipDetail } from '@/components/admin/partnerships/PartnershipDetail'
 import { ProposalReview } from '@/components/admin/partner-proposals/ProposalReview'
+import { ContractManager } from '@/components/admin/contract/ContractManager'
 import { DirectoryHarness, Wrapper } from './helpers'
 import {
   QUEUE_ROWS_IN_PROGRESS,
@@ -29,6 +30,7 @@ import {
   detailInCuration,
   detailReadyToPublish,
   proposalUnderConference,
+  contractState,
 } from './fixtures/partnerships'
 
 /**
@@ -274,6 +276,28 @@ test.describe('criteria 23/25/26 — axe-core, contrast, and 24x24 targets', () 
     await expect(component.getByRole('heading', { name: 'Cantina do Zé' })).toBeVisible({
       timeout: 10_000,
     })
+    await assertNoAxeViolations(page)
+  })
+
+  test('the contract screen, generated and unsigned, with the preview open', async ({ mount, page }) => {
+    await page.route('**/api/admin/clients/client-0005/contract**', (route) =>
+      route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify(contractState()),
+      })
+    )
+    const component = await mount(
+      <Wrapper>
+        <ContractManager clientId="client-0005" />
+      </Wrapper>
+    )
+    await expect(component.getByRole('heading', { name: 'Contrato de parceria' })).toBeVisible({
+      timeout: 10_000,
+    })
+    // The document itself, which is what a print produces — scanned WITH the preview open.
+    await component.getByRole('button', { name: /Ver o contrato como o parceiro vai ver/ }).click()
+    await expect(component.getByRole('heading', { name: 'Índice' })).toBeVisible()
     await assertNoAxeViolations(page)
   })
 

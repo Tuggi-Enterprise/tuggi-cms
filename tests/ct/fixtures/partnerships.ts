@@ -20,6 +20,9 @@ import type {
 } from '@/lib/services/partnership-service'
 import type { ConferenceRecord } from '@/lib/partner-form/regularity'
 import type { ProposalDetail } from '@/components/admin/partner-proposals/types'
+// The version the template module actually serves — a literal here would render an empty
+// contract the day `V1` is superseded, and the scan would pass over nothing.
+import { ACTIVE_TEMPLATE_VERSION } from '@/lib/contract/template'
 
 /** A string the operator would actually read: not lorem ipsum, and exactly 80 characters. */
 export const LONG_ESTABLISHMENT_NAME =
@@ -282,5 +285,78 @@ export function proposalUnderConference(): ProposalDetail {
     conference: FILLED_CONFERENCE,
     client: null,
     duplicates: [],
+  }
+}
+
+/**
+ * A generated, unsigned contract — the state where the operator screen shows the most at once:
+ * the generation form, the checklist with a hole in it, the preview control, the send control
+ * and the acceptance trail with the document hash.
+ */
+export function contractState() {
+  const snapshot = {
+    templateVersion: ACTIVE_TEMPLATE_VERSION,
+    tier: 'paid' as const,
+    provider: {
+      legalName: 'Tuggi Tecnologia Ltda',
+      taxId: '11.222.333/0001-44',
+      addressLine: 'Rua das Laranjeiras, 10, Rio de Janeiro, RJ',
+      representativeName: 'Marta Lima',
+      representativeRole: 'Sócia-administradora',
+    },
+    partner: {
+      clientId: 'client-0005',
+      legalName: 'Restaurante do Porto Ltda',
+      tradeName: 'Restaurante do Porto',
+      taxId: '12345678000190',
+      addressLine: 'Av. Beira Mar, 200, Santos, SP',
+      representativeName: 'Ana Prado',
+      representativeRole: 'Sócia',
+    },
+    monthlyFeeCents: 24900,
+    isCourtesy: false,
+    courtesyReason: null,
+    paymentMethod: 'pix' as const,
+    commissionRate: 0.2,
+    qrDeliveryDays: 30,
+    generatedAt: '2026-08-16T12:00:00.000Z',
+  }
+
+  return {
+    template: { version: ACTIVE_TEMPLATE_VERSION, title: 'Contrato de parceria — Tuggi' },
+    checklist: {
+      ready: false,
+      missing: [
+        {
+          id: 'tax_id',
+          label: 'CNPJ do estabelecimento',
+          where: 'aba Fiscal e Pagamentos',
+          // A target the screen can act on: the item renders as a control, not a sentence.
+          target: { kind: 'client' as const, clientId: 'client-0005', tab: 'fiscal' as const },
+        },
+      ],
+    },
+    registration: {
+      legalName: 'Restaurante do Porto Ltda',
+      recipientEmail: 'ana@restaurantedoporto.com.br',
+      monthlyFeeCents: 24900,
+      isCourtesy: false,
+      commissionRate: 0.2,
+    },
+    contract: {
+      id: 'contract-1',
+      status: 'draft' as const,
+      tier: 'paid' as const,
+      templateVersion: ACTIVE_TEMPLATE_VERSION,
+      snapshot,
+      documentHash: 'a'.repeat(64),
+      createdAt: '2026-08-16T12:00:00.000Z',
+      sentAt: null,
+      sentToEmail: null,
+      openedAt: null,
+      tokenExpiresAt: null,
+      feeDivergence: { diverges: false, registrationFeeCents: 24900 },
+    },
+    acceptance: null,
   }
 }

@@ -19,6 +19,7 @@
 import { useCallback, useEffect, useState } from 'react'
 import { ContractText } from '@/components/contract/ContractText'
 import { ClientEditorModal } from '@/components/admin/clients/ClientEditorModal'
+import { Button } from '@/components/ui/button'
 import {
   formatDate,
   formatDateTime,
@@ -26,6 +27,28 @@ import {
   type ChecklistItem,
   type ContractSnapshot,
 } from '@/lib/contract/snapshot'
+
+/**
+ * THE SHELL IS THE CMS's, THE INK IS ACCESSIBLE, AND THE DOCUMENT PRINTS ALONE.
+ *
+ * Same two constants as `ProposalReview`, for the same reason: this screen drew flat `rounded`
+ * boxes on plain white with no dark theme, while every other CMS surface is a glass panel over
+ * `bg-gray-50 dark:bg-gray-950`.
+ *
+ * `print:` is the half that is not cosmetic. A contract is the one document in this product
+ * somebody will put on paper, and until now Ctrl+P here printed the checklist, the generation
+ * form and the audit trail around it. Every panel that is not the document carries
+ * `print:hidden`, so what leaves the printer is what `ContractText` renders — the same text the
+ * partner reads and the same array the PDF walks.
+ */
+const CARD =
+  'rounded-3xl border border-gray-200 bg-white/70 shadow-2xl shadow-black/5 backdrop-blur-xl ' +
+  'dark:border-gray-800 dark:bg-gray-900/70'
+
+const FIELD =
+  'mt-1 block w-full rounded-xl border border-gray-200 bg-gray-50/50 px-3 py-2.5 text-sm ' +
+  'text-gray-900 outline-none transition-all focus:border-transparent focus:ring-2 ' +
+  'focus:ring-primary-800 dark:border-gray-700 dark:bg-gray-900/50 dark:text-white'
 
 interface ContractState {
   template: {
@@ -187,33 +210,38 @@ export function ContractManager({
   }
 
   if (!state) {
-    return <p className="p-8 text-sm text-gray-600">Carregando o contrato…</p>
+    return (
+      <p className="min-h-screen bg-gray-50 p-8 text-sm text-gray-600 dark:bg-gray-950 dark:text-gray-300">
+        Carregando o contrato…
+      </p>
+    )
   }
 
   const signed = Boolean(state.acceptance)
 
   return (
-    <div className="mx-auto max-w-4xl space-y-6 p-6">
+    <div className="min-h-screen bg-gray-50 p-6 dark:bg-gray-950 lg:p-8">
+      <div className="mx-auto max-w-4xl space-y-6">
       {/* Whoever sent the operator here says so, and takes them back. Without it the only way
           out of a page reached from the pipeline was the browser's button. */}
       {returnTo ? (
         <a
           href={returnTo}
-          className="inline-flex min-h-[24px] items-center text-sm font-semibold text-primary-800 underline underline-offset-4"
+          className="inline-flex min-h-[24px] items-center text-sm font-semibold text-primary-800 underline underline-offset-4 print:hidden dark:text-tuggi-blue"
         >
           {returnLabel ?? 'Voltar'}
         </a>
       ) : null}
 
-      <header>
-        <h1 className="text-2xl font-bold text-gray-900">Contrato de parceria</h1>
-        <p className="mt-1 text-sm text-gray-700">
+      <header className={`${CARD} p-6 print:hidden`}>
+        <h1 className="text-2xl font-bold text-gray-900 dark:text-white">Contrato de parceria</h1>
+        <p className="mt-1 text-sm text-gray-700 dark:text-gray-400">
           {state.registration.legalName} · {statusLabel(state)}
         </p>
       </header>
 
       {state.contract && signed && state.contract.feeDivergence.diverges ? (
-        <section className="rounded-lg border border-amber-400 bg-amber-50 p-4 text-sm text-gray-900">
+        <section className="rounded-3xl border border-amber-400 bg-amber-50 p-6 text-sm text-gray-900 print:hidden dark:bg-amber-950/30 dark:text-amber-100">
           <p className="font-semibold">
             Valor aceito:{' '}
             {state.contract.snapshot.isCourtesy
@@ -236,14 +264,14 @@ export function ContractManager({
         obrigatórios, e ela recusa a GERAÇÃO logo abaixo.
       */}
       {!signed ? (
-        <section className="space-y-4 rounded-lg border border-gray-300 p-4">
-          <h2 className="text-lg font-semibold text-gray-900">Gerar contrato</h2>
+        <section className={`${CARD} space-y-4 p-6 print:hidden`}>
+          <h2 className="text-lg font-semibold text-gray-900 dark:text-white">Gerar contrato</h2>
 
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
-            <label className="text-sm font-semibold text-gray-900">
+            <label className="text-sm font-semibold text-gray-900 dark:text-gray-200">
               Faixa
               <select
-                className="mt-1 block w-full rounded border border-gray-400 px-2 py-2 text-sm"
+                className={FIELD}
                 value={tier}
                 onChange={(event) => setTier(event.target.value as 'free' | 'paid')}
               >
@@ -253,10 +281,10 @@ export function ContractManager({
             </label>
 
             {tier === 'paid' ? (
-              <label className="text-sm font-semibold text-gray-900">
+              <label className="text-sm font-semibold text-gray-900 dark:text-gray-200">
                 Forma de pagamento
                 <select
-                  className="mt-1 block w-full rounded border border-gray-400 px-2 py-2 text-sm"
+                  className={FIELD}
                   value={paymentMethod}
                   onChange={(event) => setPaymentMethod(event.target.value as 'boleto' | 'pix' | '')}
                 >
@@ -267,13 +295,13 @@ export function ContractManager({
               </label>
             ) : null}
 
-            <label className="text-sm font-semibold text-gray-900">
+            <label className="text-sm font-semibold text-gray-900 dark:text-gray-200">
               Prazo de entrega do QR (dias)
               <input
                 type="number"
                 min={1}
                 max={180}
-                className="mt-1 block w-full rounded border border-gray-400 px-2 py-2 text-sm"
+                className={FIELD}
                 value={qrDeliveryDays}
                 onChange={(event) => setQrDeliveryDays(event.target.value)}
               />
@@ -281,7 +309,7 @@ export function ContractManager({
           </div>
 
           {!state.checklist.ready ? (
-            <div className="rounded border border-gray-300 bg-gray-50 p-3 text-sm text-gray-900">
+            <div className="rounded-2xl border border-gray-200 bg-gray-50/60 p-4 text-sm text-gray-900 dark:border-gray-800 dark:bg-gray-900/40 dark:text-gray-200">
               <p className="font-semibold">Ainda não dá para gerar o contrato. Faltam:</p>
               <ul className="mt-2 list-disc space-y-1 pl-5">
                 {state.checklist.missing.map((item) => (
@@ -296,38 +324,29 @@ export function ContractManager({
             </div>
           ) : null}
 
-          <p className="rounded border border-gray-300 p-3 text-sm text-gray-900">
+          <p className="rounded-2xl border border-gray-200 p-4 text-sm text-gray-900 dark:border-gray-800 dark:text-gray-200">
             A cláusula de comissão cria uma obrigação que o sistema ainda não sabe apurar. Não prometa
             extrato de comissão a este parceiro.
           </p>
 
           <div className="flex flex-wrap gap-3">
-            <button
+            <Button
               type="button"
-              className="rounded bg-primary-800 px-4 py-2 text-sm font-semibold text-white disabled:opacity-50"
+              variant="cta"
               disabled={busy || !state.checklist.ready}
               onClick={() => act('generate')}
             >
               Gerar contrato
-            </button>
+            </Button>
 
             {state.contract ? (
               <>
-                <button
-                  type="button"
-                  className="rounded border border-gray-400 px-4 py-2 text-sm font-semibold text-gray-900"
-                  onClick={() => setPreview((value) => !value)}
-                >
+                <Button type="button" variant="outline" onClick={() => setPreview((value) => !value)}>
                   {preview ? 'Fechar a prévia' : 'Ver o contrato como o parceiro vai ver'}
-                </button>
-                <button
-                  type="button"
-                  className="rounded bg-primary-800 px-4 py-2 text-sm font-semibold text-white disabled:opacity-50"
-                  disabled={busy}
-                  onClick={() => act('send')}
-                >
+                </Button>
+                <Button type="button" variant="cta" disabled={busy} onClick={() => act('send')}>
                   Enviar para assinatura
-                </button>
+                </Button>
               </>
             ) : null}
           </div>
@@ -353,15 +372,17 @@ export function ContractManager({
         </section>
       ) : null}
 
+      {/* The one panel that is NOT `print:hidden`: the document is what a print is for, and it
+          drops the card's chrome on paper so nothing frames the instrument. */}
       {state.contract && preview ? (
-        <section className="rounded-lg border border-gray-300 p-4">
+        <section className={`${CARD} p-6 print:border-0 print:bg-transparent print:p-0 print:shadow-none`}>
           <ContractText snapshot={state.contract.snapshot} />
         </section>
       ) : null}
 
       {state.contract ? (
-        <section className="rounded-lg border border-gray-300 p-4">
-          <h2 className="text-lg font-semibold text-gray-900">Trilha do aceite</h2>
+        <section className={`${CARD} p-6 print:hidden`}>
+          <h2 className="text-lg font-semibold text-gray-900 dark:text-white">Trilha do aceite</h2>
           <dl className="mt-3 grid grid-cols-1 gap-2 text-sm sm:grid-cols-[220px_1fr]">
             <Row label="Gerado em" value={formatDateTime(state.contract.createdAt)} />
             <Row
@@ -398,16 +419,11 @@ export function ContractManager({
           </dl>
 
           <div className="mt-4 flex flex-wrap gap-3">
-            <button
-              type="button"
-              className="rounded border border-gray-400 px-4 py-2 text-sm font-semibold text-gray-900"
-              disabled={busy}
-              onClick={() => act('verify')}
-            >
+            <Button type="button" variant="outline" disabled={busy} onClick={() => act('verify')}>
               Conferir integridade
-            </button>
+            </Button>
             <a
-              className="rounded border border-gray-400 px-4 py-2 text-sm font-semibold text-gray-900"
+              className="inline-flex h-10 items-center rounded-md border border-input px-4 py-2 text-sm font-semibold text-gray-900 hover:bg-accent dark:text-gray-200"
               href={`/api/admin/clients/${clientId}/contract/pdf`}
             >
               Abrir o PDF
@@ -417,24 +433,28 @@ export function ContractManager({
       ) : null}
 
       {message ? (
-        <p role="status" className="rounded border border-gray-300 p-3 text-sm text-gray-900">
+        <p
+          role="status"
+          className="rounded-2xl border border-gray-200 bg-white/70 p-4 text-sm text-gray-900 backdrop-blur-xl print:hidden dark:border-gray-800 dark:bg-gray-900/70 dark:text-gray-200"
+        >
           {message}
         </p>
       ) : null}
 
       {/* Closing it re-reads the checklist: the item the operator just resolved disappears with
           no manual reload, which is the whole point of bringing the record here. */}
-      <ClientEditorModal
-        clientId={editing?.clientId}
-        isOpen={editing !== null}
-        mode="edit"
-        initialTab={editing?.tab ?? 'profile'}
-        onClose={() => {
-          setEditing(null)
-          void reload()
-        }}
-        onSaved={() => void reload()}
-      />
+        <ClientEditorModal
+          clientId={editing?.clientId}
+          isOpen={editing !== null}
+          mode="edit"
+          initialTab={editing?.tab ?? 'profile'}
+          onClose={() => {
+            setEditing(null)
+            void reload()
+          }}
+          onSaved={() => void reload()}
+        />
+      </div>
     </div>
   )
 }
@@ -481,8 +501,8 @@ function MissingItem({
 function Row({ label, value, copyable }: { label: string; value: string; copyable?: boolean }) {
   return (
     <>
-      <dt className="font-semibold text-gray-700">{label}</dt>
-      <dd className="break-all text-gray-900">
+      <dt className="font-semibold text-gray-700 dark:text-gray-400">{label}</dt>
+      <dd className="break-all text-gray-900 dark:text-gray-200">
         {value}
         {copyable ? (
           <button

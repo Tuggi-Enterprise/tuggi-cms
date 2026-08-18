@@ -133,6 +133,50 @@ no laranja, e o par que falta é seu.
 
 ---
 
+## 4.1 As superfícies do contrato — e a que NÃO é sua para repintar
+
+São três, e o dono é diferente em cada uma:
+
+| Superfície | Arquivo | Dono do visual |
+| :-- | :-- | :-- |
+| Operador: gerar, enviar, conferir | `components/admin/contract/ContractManager.tsx` | CMS — migrada para a moldura em 2026-08-17 |
+| Parceiro: ler e assinar | `app/[locale]/contrato/[token]/page.tsx`, `SigningBlock`, `SigningSurface` | **sua spec, §4.2** — não toquei na linguagem visual |
+| O documento | `components/contract/ContractText.tsx` | compartilhado pelas duas, e pelo PDF |
+
+A tela do parceiro está desenhada em `spec-parceria-formulario-e-contrato-2026-08.md` §4.2 —
+`pt` fixo, 360 px, índice ancorado, proibição de `max-height` + `overflow-hidden`, os dois atos
+afirmativos. O que está implementado bate com o que está escrito. Repintá-la no vidro do CMS
+seria contrariar spec sua, e não fiz.
+
+## 4.2 Divergência D-E — nada no produto sabia imprimir — **nova**
+
+`grep -rn "@media print\|print:"` no repositório inteiro devolvia **zero**. Consequência nas
+duas pontas:
+
+- o parceiro que aperta Ctrl+P na tela de assinatura levava para o papel a linha de orientação,
+  o botão `Baixar o PDF`, o link de pular e o **formulário de aceite em branco**;
+- o operador que imprimia a página do contrato levava o checklist, o formulário de geração e a
+  trilha do aceite.
+
+A spec §4.2 diz que o PDF é *"cópia para arquivo, nunca o único caminho de leitura"*, e a razão é
+CDC art. 46. O papel é o terceiro caminho, e ele estava quebrado.
+
+Implementei o mínimo defensável e travei por teste (`tests/api/contract-print.test.ts`): a
+moldura sai (`print:hidden`), **o documento fica**, e a prévia do operador solta o cartão no
+papel em vez de emoldurar o instrumento.
+
+**Uma decisão dentro disso é de produto, não minha, e vale sua leitura:** o **formulário de
+aceite em branco não vai para o papel**. Uma folha com dois checkboxes e um campo de nome
+convida alguém a assinar algo que não registra nada — o aceite é ato contra o servidor, com IP,
+user agent e hash (BR-B2B-026). O **recibo assinado imprime**, porque é o que se arquiva. Se
+`produto` discordar, é uma linha.
+
+O que NÃO fiz e é seu: `@page` (margens, tamanho), quebra de página entre cláusulas
+(`break-inside: avoid`), e se o cabeçalho da Tuggi deve repetir por página. Isso é composição de
+documento impresso e tem régua própria.
+
+---
+
 ## 5. Decisões pendentes, com dono
 
 ### D-1 — a aba `Parceria` aparece para todo cliente

@@ -75,12 +75,26 @@ export default async function ContractSigningPage({
 
   return (
     <main className="min-h-screen bg-white py-8">
-      <p className="mx-auto mb-6 w-full max-w-3xl px-4 text-base text-gray-700">
+      {/*
+        THE THIRD WAY OF READING IT, and until now it was broken.
+        
+        The spec (§4.2) gives two: the text on the page and the PDF for filing, because
+        CDC art. 46 does not let us bind somebody to what they could not read. There is a third
+        that nobody designed and everybody uses — Ctrl+P — and it printed the buttons, the skip
+        link and the acceptance form along with the instrument.
+        
+        `print:hidden` on the navigation leaves the DOCUMENT on the paper. The acceptance form
+        is hidden by `SigningBlock` for the same reason: an unsigned form on paper is not a
+        contract, and printing it invites somebody to sign a sheet that records nothing. The
+        RECEIPT does print — a signed contract with its verification code is exactly what
+        somebody files.
+      */}
+      <p className="mx-auto mb-6 w-full max-w-3xl px-4 text-base text-gray-700 print:hidden">
         Leia o contrato inteiro antes de aceitar. Ele está aqui embaixo por escrito, e você também pode
         baixar o PDF.
       </p>
 
-      <div className="mx-auto mb-8 w-full max-w-3xl space-y-3 px-4">
+      <div className="mx-auto mb-8 w-full max-w-3xl space-y-3 px-4 print:hidden">
         <a className={BUTTON_SECONDARY} href={`/api/contract/${encodeURIComponent(token)}/pdf`}>
           Baixar o PDF
         </a>
@@ -91,7 +105,7 @@ export default async function ContractSigningPage({
 
       <ContractText snapshot={snapshot} />
 
-      <div className="mx-auto mt-8 w-full max-w-3xl px-4">
+      <div className="mx-auto mt-8 w-full max-w-3xl px-4 print:hidden">
         <a className="text-base text-primary-800 underline" href="#top">
           Voltar ao topo
         </a>

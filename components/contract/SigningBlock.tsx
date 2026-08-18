@@ -121,7 +121,11 @@ export function SigningBlock({
   }
 
   return (
-    <section aria-labelledby="aceite" className="mx-auto mt-10 w-full max-w-3xl px-4">
+    // NOT ON PAPER. An unsigned acceptance form printed out is not a contract, and a sheet
+    // with two checkboxes and a name field invites somebody to sign something that records
+    // nothing — the acceptance is an act against the server, with IP, user agent and a hash.
+    // The RECEIPT prints, because a signed contract is exactly what somebody files.
+    <section aria-labelledby="aceite" className="mx-auto mt-10 w-full max-w-3xl px-4 print:hidden">
       <h2 id="aceite" className="text-xl font-bold text-gray-900">
         Aceite
       </h2>
