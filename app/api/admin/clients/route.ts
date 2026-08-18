@@ -198,7 +198,11 @@ export async function POST(request: NextRequest) {
         bank_account_number: bank_account_number || null,
         bank_routing_number: bank_routing_number || null,
         bank_name: bank_name || null,
-        commission_rate: commission_rate ?? 0.200,
+        // BR-MONETIZACAO-039, items 2 and 4: no code declares a commission percentage, and
+        // "no default value is applied to a new registration". The 0.200 that used to sit here
+        // applied 20% silently to every client created, including the ones nobody had decided
+        // yet. Absent is a legitimate state (item 5) and surfaces as a contract pendency.
+        commission_rate: commission_rate ?? null,
         is_platform_owner: is_platform_owner ?? false,
         is_coordinator: is_coordinator ?? false,
         welcome_poi_id: welcome_poi_id || null,

@@ -57,7 +57,13 @@ export function FiscalPaymentsTab({ client, edited, updateField, canEdit, client
   const currentCountry = String(edited.country ?? client?.country ?? '')
   const taxConfig = taxConfigFor(currentCountry)
   const showIBAN = usesBankingIBAN(currentCountry)
-  const commissionRate = edited.commission_rate ?? client?.commission_rate ?? 0.2
+  /**
+   * No fallback. Painting 20% into a field nobody filled in is the presumed value
+   * BR-MONETIZACAO-039, item 3, forbids — the operator would save the guess believing they had
+   * confirmed it. Absent renders as a pendency; a stored `0` renders as `0,0%`, because zero is
+   * a decision somebody took and the two may not look alike (the rule's edge case).
+   */
+  const commissionRate = edited.commission_rate ?? client?.commission_rate ?? null
   const signedContract = useSignedContract(clientId)
   const isCourtesy = Boolean(edited.is_courtesy ?? client?.is_courtesy)
   const monthlyFeeCents = edited.monthly_fee_cents ?? client?.monthly_fee_cents ?? null
@@ -176,8 +182,11 @@ export function FiscalPaymentsTab({ client, edited, updateField, canEdit, client
                 step="0.001"
                 min="0"
                 max="1"
-                value={commissionRate}
-                onChange={(e) => updateField('commission_rate', parseFloat(e.target.value))}
+                value={commissionRate ?? ''}
+                onChange={(e) => {
+                  const typed = e.target.value
+                  updateField('commission_rate', typed === '' ? (undefined as never) : parseFloat(typed))
+                }}
                 className="w-full px-3 py-2 bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl text-sm font-semibold text-gray-900 dark:text-white outline-none focus:ring-2 focus:ring-tuggi-blue/30"
               />
               <p className="text-[10px] text-gray-400 mt-1">{t('fields.commissionRateHelp')}</p>
@@ -185,7 +194,9 @@ export function FiscalPaymentsTab({ client, edited, updateField, canEdit, client
           ) : (
             <div className="space-y-1">
               <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest">{t('fields.commissionRate')}</p>
-              <p className="text-2xl font-bold text-gray-900 dark:text-white">{(commissionRate * 100).toFixed(1)}%</p>
+              <p className="text-2xl font-bold text-gray-900 dark:text-white">
+                {commissionRate === null ? '—' : `${(commissionRate * 100).toFixed(1)}%`}
+              </p>
             </div>
           )}
           <div className="space-y-1">

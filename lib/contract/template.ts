@@ -43,6 +43,17 @@ import {
 /** BR-B2B-023, item 1 — rescisão por qualquer parte, aviso em dias corridos. */
 export const TERMINATION_NOTICE_DAYS = 30
 
+/**
+ * O dia do vencimento da mensalidade — decisão do operador em 2026-08-18, para dar ao
+ * financeiro uma data só: *"vamos colocar o vencimento para o dia 20 de cada mes, assim podemos
+ * enviar as cobranças no inicio do mes"*.
+ *
+ * ELE PREENCHE UM BURACO, não muda uma régua. BR-B2B-019 conta tolerância, avisos e suspensão
+ * *"do vencimento"* e nunca diz que dia é esse — toda a escada de 10/1/7/11 pendia de um marco
+ * que documento nenhum fixava. `produto` precisa registrar isto como item da regra.
+ */
+export const DUE_DAY_OF_MONTH = 20
+
 /** BR-B2B-019, item 2 — tolerância, avisos e suspensão, em dias corridos do vencimento. */
 export const GRACE_PERIOD_DAYS = 10
 export const FIRST_DUNNING_DAY = 1
@@ -226,6 +237,14 @@ const V1: ContractTemplate = {
           `valor devido durante a sua vigência. A alteração do valor de contrato vigente depende de termo ` +
           `aditivo com novo aceite do ESTABELECIMENTO, e nenhuma alteração de cadastro interno da TUGGI ` +
           `altera o valor aqui pactuado.`,
+        `A contraprestação é mensal, vence no dia ${DUE_DAY_OF_MONTH} de cada mês e corresponde ao mês ` +
+          `em que vence. A fatura é enviada ao ESTABELECIMENTO no início do mês do vencimento.`,
+        `O primeiro vencimento é o dia ${DUE_DAY_OF_MONTH} do mês seguinte ao da publicação de que trata ` +
+          `a cláusula "Da vigência e do início da cobrança", e a primeira fatura compreende o período ` +
+          `proporcional entre a data da publicação e o último dia daquele mês, somado ao mês do ` +
+          `vencimento.`,
+        `Recaindo o vencimento em sábado, domingo ou feriado bancário, o pagamento pode ser feito no ` +
+          `primeiro dia útil seguinte, sem qualquer encargo.`,
         `O valor será reajustado anualmente, no aniversário deste contrato, pela variação acumulada do ` +
           `índice [ÍNDICE A DEFINIR PELO JURÍDICO] no período, ou pelo índice que legalmente o substituir.`,
       ],
@@ -257,6 +276,14 @@ const V1: ContractTemplate = {
           `entre as partes.`,
         'A participação na receita e a contraprestação mensal da faixa paga, quando houver, são fluxos ' +
           'independentes e não se compensam entre si.',
+        'A apuração é mensal, tem por base o mês civil anterior, e a TUGGI disponibiliza ao ' +
+          'ESTABELECIMENTO o demonstrativo do período até o dia 10 do mês seguinte ao apurado. O ' +
+          'valor apurado é pago até o último dia útil desse mesmo mês, por Pix ou transferência à ' +
+          'conta indicada pelo ESTABELECIMENTO.',
+        'O percentual acima é o percentual aceito pelo ESTABELECIMENTO no ato da assinatura deste ' +
+          'instrumento e é o percentual devido durante a sua vigência. A sua alteração depende de ' +
+          'termo aditivo com novo aceite do ESTABELECIMENTO, e nenhuma alteração de cadastro interno ' +
+          'da TUGGI altera o percentual aqui pactuado.',
       ],
     },
     {

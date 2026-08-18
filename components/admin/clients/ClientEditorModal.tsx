@@ -120,7 +120,9 @@ export function ClientEditorModal({
       void fetchClient(clientId)
     } else {
       setClient(null)
-      setEdited({ client_type: DEFAULT_CLIENT_TYPE, status: 'pending', commission_rate: 0.2 })
+      // No percentage: BR-MONETIZACAO-039, item 4 — there is no default on a new registration,
+      // and a stored `0` is a different decision from absent (the rule's own edge case).
+      setEdited({ client_type: DEFAULT_CLIENT_TYPE, status: 'pending' })
     }
     return () => {
       // Cancel any in-flight fetch when the effect re-runs or unmounts —
