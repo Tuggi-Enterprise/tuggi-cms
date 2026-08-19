@@ -2547,7 +2547,9 @@
       "discardedTitle": "Descartada em {date}",
       "duplicateTitle": "{count, plural, one {Há outra proposta com este mesmo CNPJ.} other {Há # outras propostas com este mesmo CNPJ.}}",
       "duplicateBody": "Nada foi juntado automaticamente. Escolha uma para promover e descarte as outras com o motivo de duplicidade.",
-      "duplicateOpen": "Abrir a proposta de {date}"
+      "duplicateOpen": "Abrir a proposta de {date}",
+      "materialHeading": "Material de divulgação",
+      "materialNone": "não pediu"
     },
     "regularity": {
       "heading": "Regularidade — o que o contrato exige",

@@ -30,7 +30,12 @@ import Link from 'next/link'
 import { AlertTriangle, ArrowLeft, Loader2 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Checkbox } from '@/components/ui/checkbox'
-import { PARTNER_DOCUMENT_KINDS, fieldsOfStep } from '@/lib/partner-form/fields'
+import {
+  MATERIAL_KINDS,
+  PARTNER_DOCUMENT_KINDS,
+  fieldsOfStep,
+  materialFieldId,
+} from '@/lib/partner-form/fields'
 import type { PartnerDocumentKind, PartnerFieldId } from '@/lib/partner-form/fields'
 import {
   EMPTY_CONFERENCE,
@@ -51,7 +56,7 @@ import { returnParams } from '@/lib/navigation/return-to'
 import { PromotionPanel } from './PromotionPanel'
 import { RegularityBand } from './RegularityBand'
 import { OutboundMessage, type OutboundKind } from './OutboundMessage'
-import { formatDate, formatDateTime } from './format'
+import { answerLabel, formatDate, formatDateTime } from './format'
 import type { ProposalDetail } from './types'
 
 /**
@@ -445,7 +450,12 @@ export function ProposalReview({ locale, submissionId }: ProposalReviewProps) {
                       <dt className="text-xs text-gray-700 dark:text-gray-400">{form(`fields.${field.id}.label`)}</dt>
                       <dd className="text-sm text-gray-900 dark:text-white">
                         {answers[field.id] ? (
-                          answers[field.id]
+                          /* #404: the label of a choice, never its identifier. This grid rendered
+                             `answers[field.id]` raw, so the curator read `bar_cafe` on the screen
+                             where they decide about a real proposal — with `categoryLabel`
+                             already calculated one screen above. The site half of the same grid
+                             carried the same defect. */
+                          answerLabel(field.id, answers[field.id]!, form)
                         ) : (
                           <span
                             className={
@@ -463,6 +473,38 @@ export function ProposalReview({ locale, submissionId }: ProposalReviewProps) {
                 </dl>
               </div>
             ))}
+
+            {/* THE PROMOTIONAL MATERIAL, and it needs a block of its own since 2026-08-19.
+                It used to be three more rows of the step-1 grid; the step it belongs to is now
+                3, which this screen renders as the story and not as a grid. Dropping it from
+                the loop without putting it back here would have taken the quantities off the
+                one screen where a person decides about them — and the promotion reads them
+                (`buildMaterialOrder`), so the curator would be approving a number they never
+                saw. */}
+            <div className="mt-4">
+              <h3 className="text-sm font-semibold uppercase tracking-wide text-gray-700 dark:text-gray-400">
+                {t('review.materialHeading')}
+              </h3>
+              <dl className="mt-2 grid gap-x-6 gap-y-2 sm:grid-cols-2">
+                {MATERIAL_KINDS.map((kind) => {
+                  const id = materialFieldId(kind)
+                  return (
+                    <div key={id}>
+                      <dt className="text-xs text-gray-700 dark:text-gray-400">
+                        {form(`fields.${id}.label`)}
+                      </dt>
+                      <dd className="text-sm text-gray-900 dark:text-white">
+                        {answers[id] ? (
+                          answers[id]
+                        ) : (
+                          <span className="text-gray-700">{t('review.materialNone')}</span>
+                        )}
+                      </dd>
+                    </div>
+                  )
+                })}
+              </dl>
+            </div>
           </section>
 
           <section aria-labelledby="story-heading" className={`${CARD} p-6`}>

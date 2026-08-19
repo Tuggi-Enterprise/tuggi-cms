@@ -98,7 +98,6 @@ export const PARTNER_FORM_FIELDS: readonly PartnerAnswerField[] = [
   { id: 'instagram', step: 1 },
   { id: 'opening_hours', step: 1 },
   { id: 'website', step: 1 },
-  ...MATERIAL_KINDS.map((kind) => ({ id: materialFieldId(kind), step: 1 as const })),
 
   { id: 'representative_name', step: 2 },
   { id: 'representative_role', step: 2 },
@@ -109,6 +108,12 @@ export const PARTNER_FORM_FIELDS: readonly PartnerAnswerField[] = [
   { id: 'story_before', step: 3 },
   { id: 'story_unique', step: 3 },
   { id: 'story_event', step: 3 },
+
+  // The promotional material moved from the end of step 1 to the end of step 3 on 2026-08-19:
+  // step 1 carried 16 of the 24 fields and its own subtitle had stopped describing it. The step
+  // is what the conference screen GROUPS BY, so the mirror has to move with the writer —
+  // `docs/contracts/partner-proposal-answers.md` is the document that says so.
+  ...MATERIAL_KINDS.map((kind) => ({ id: materialFieldId(kind), step: 3 as const })),
 ] as const
 
 export const PARTNER_FIELD_IDS = PARTNER_FORM_FIELDS.map((field) => field.id)

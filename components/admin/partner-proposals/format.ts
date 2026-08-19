@@ -1,3 +1,5 @@
+import { BRAZIL_STATES } from '@/lib/constants/brazil-states'
+import { PARTNER_CATEGORIES, type PartnerFieldId } from '@/lib/partner-form/fields'
 /**
  * Dates, formatted once for the queue and the review screen.
  *
@@ -64,4 +66,38 @@ export function formatDateTime(value: string | null | undefined): string {
     hour: '2-digit',
     minute: '2-digit',
   })
+}
+
+/**
+ * What a stored answer LOOKS LIKE on the conference screen — #404.
+ *
+ * The answers grid rendered `answers[field.id]` raw, so the curator read `bar_cafe` where the
+ * merchant had picked *"Bar ou café"*, and `RJ` where the form had shown *"RJ — Rio de Janeiro"*.
+ * A code identifier where the name of the business should be makes the reader doubt what the
+ * system understood, on the one screen where a person decides about a real proposal — and the
+ * file was already computing `categoryLabel` a hundred lines above.
+ *
+ * The site half of the same grid carries `displayAnswer`, and the two are deliberately NOT one
+ * module: two repositories cannot share one, and the contract that keeps them honest is
+ * `docs/contracts/partner-proposal-answers.md`, which owns the option lists.
+ *
+ * Anything that is not a closed list is returned untouched — this is a display helper, not a
+ * validator, and inventing a label for free text is how a screen starts lying about the answer.
+ */
+export function answerLabel(
+  fieldId: PartnerFieldId,
+  value: string,
+  translateForm: (key: string) => string
+): string {
+  if (!value) return value
+  if (fieldId === 'category') {
+    return PARTNER_CATEGORIES.some((category) => category === value)
+      ? translateForm(`categories.${value}`)
+      : value
+  }
+  if (fieldId === 'state') {
+    const state = BRAZIL_STATES.find((candidate) => candidate.code === value)
+    return state ? `${state.code} — ${state.name}` : value
+  }
+  return value
 }

@@ -40,6 +40,7 @@ import {
   fieldsOfStep,
 } from '@/lib/partner-form/fields'
 import { storyNudge } from '@/lib/partner-form/schema'
+import { answerLabel } from '@/components/admin/partner-proposals/format'
 import { normalizedTaxId } from '@/lib/partner-form/tax-id-key'
 import { isValidCnpj } from '@/lib/validation/cnpj'
 import { CLIENT_ADMIN_ONLY_FIELDS } from '@/lib/services/client-editable-fields'
@@ -96,19 +97,46 @@ test('#396: the reader mirrors the 24 answer keys, and nothing more', () => {
       'instagram',
       'opening_hours',
       'website',
-      'material_sticker_qty',
-      'material_table_display_qty',
-      'material_counter_display_qty',
     ]
   )
   assert.deepEqual(
     fieldsOfStep(2).map((field) => field.id),
     ['representative_name', 'representative_role', 'representative_email', 'representative_phone']
   )
+  // The three quantities moved out of step 1 on 2026-08-19: it carried 16 of the 24 fields and
+  // its own subtitle ("a gente começa pelo que está na fachada e no CNPJ") had stopped
+  // describing it. The STEP is what the conference screen groups by, so the mirror moved with
+  // the writer — `docs/contracts/partner-proposal-answers.md` is the document that says so, and
+  // this assertion is where the two repositories are held to it.
   assert.deepEqual(
     fieldsOfStep(3).map((field) => field.id),
-    ['story_founder', 'story_before', 'story_unique', 'story_event']
+    [
+      'story_founder',
+      'story_before',
+      'story_unique',
+      'story_event',
+      'material_sticker_qty',
+      'material_table_display_qty',
+      'material_counter_display_qty',
+    ]
   )
+})
+
+test('#404: a choice is shown by its label, never by its identifier', () => {
+  // The conference grid rendered `answers[field.id]` raw, so the curator read `bar_cafe` where
+  // the merchant had picked "Bar ou café" — on the one screen where a person decides about a
+  // real proposal. Mutation: return `value` for `category` again and this goes red.
+  const form = (key: string) => (key === 'categories.bar_cafe' ? 'Bar ou café' : key)
+
+  assert.equal(answerLabel('category', 'bar_cafe', form), 'Bar ou café')
+  assert.notEqual(answerLabel('category', 'bar_cafe', form), 'bar_cafe')
+  assert.equal(answerLabel('state', 'RJ', form), 'RJ — Rio de Janeiro')
+
+  // Free text is returned untouched: this is a display helper, not a validator, and inventing a
+  // label for something that is not a closed list is how a screen starts lying about the answer.
+  assert.equal(answerLabel('trade_name', 'Cantina do Zé', form), 'Cantina do Zé')
+  // An identifier that is not in the list is shown as it is, rather than as a missing key.
+  assert.equal(answerLabel('category', 'nao_existe', form), 'nao_existe')
 })
 
 test('#396: the mirror carries no rule it does not apply', () => {
