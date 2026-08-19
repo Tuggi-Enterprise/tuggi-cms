@@ -28,7 +28,7 @@ export type PublishVariant = 'paid_starts' | 'paid_pending' | 'courtesy' | 'unde
 
 /** What the client's record says about money. Read from the record; never presumed. */
 export interface PartnerFee {
-  /** `core.clients.monthly_fee_cents` — BR-B2B-017, item 4. Absent is NOT zero (item 6). */
+  /** `partner.clients.monthly_fee_cents` — BR-B2B-017, item 4. Absent is NOT zero (item 6). */
   monthlyFeeCents: number | null
   isCourtesy: boolean
   courtesyReason: string | null

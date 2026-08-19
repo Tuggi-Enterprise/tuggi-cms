@@ -7,7 +7,7 @@
  * other side — "a recusa comunicada encerra o prazo". Deciding and telling are two acts by the
  * rule, so they are two acts on the screen and two routes here. One click doing both would stop
  * the clock of a partner nobody has told, which is precisely the failure the `data` wrote into
- * `COMMENT ON COLUMN core.partner_triage_refusals.communicated_at`.
+ * `COMMENT ON COLUMN partner.partner_triage_refusals.communicated_at`.
  *
  * IT DOES NOT SEND ANYTHING. There is no channel here, and the CMS has no partner e-mail path:
  * the operator communicates the refusal by whatever channel the `design` owns, and this route

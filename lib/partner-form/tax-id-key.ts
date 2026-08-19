@@ -2,7 +2,7 @@
  * The deduplication key of a CNPJ — the TypeScript side of one expression that lives in the
  * database.
  *
- * THE OWNER IS `core.partner_form_submissions.tax_id_normalized`, written in migration
+ * THE OWNER IS `partner.partner_form_submissions.tax_id_normalized`, written in migration
  * `20260814140000_issue341_proposta_do_parceiro_em_formulario_unico`:
  *
  *     upper(regexp_replace(coalesce(answers ->> 'tax_id', ''), '[^0-9A-Za-z]', '', 'g'))
@@ -37,9 +37,9 @@
  * RELATED, AND DELIBERATELY NOT THE SAME THING:
  *  · `lib/validation/cnpj.ts` owns whether a CNPJ IS VALID (`isValidCnpj`) and the mask.
  *  · `cnpjLookupValues`, in that same module, answers a different question — which stored
- *    SHAPES to match in `core.clients.tax_id`, a plain column with no normalised twin and rows
+ *    SHAPES to match in `partner.clients.tax_id`, a plain column with no normalised twin and rows
  *    typed by hand carrying the printed mask. That one cannot be replaced by this key: there is
- *    no column on `core.clients` to compare it against.
+ *    no column on `partner.clients` to compare it against.
  */
 
 /** `12.abc.345/01de-35` → `12ABC34501DE35`. Empty string when there is nothing left. */

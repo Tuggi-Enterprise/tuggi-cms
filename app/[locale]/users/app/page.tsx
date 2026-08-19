@@ -124,7 +124,7 @@ interface ClientOption {
  * Passaporte. The current link (`linked`) comes from the core.dashboard_user_detail
  * RPC; writes go through PATCH /api/admin/users/[userId]/client (admin-only), which
  * calls the core.admin_set_app_user_client RPC. After a write, onChanged re-runs the
- * detail RPC. This is NOT the CMS user link (core.client_cms_users / Team tab).
+ * detail RPC. This is NOT the CMS user link (partner.client_cms_users / Team tab).
  */
 const LinkedClientSection = ({
   userId,

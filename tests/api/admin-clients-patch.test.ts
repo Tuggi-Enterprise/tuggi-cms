@@ -16,7 +16,7 @@ const CLIENT_ID = '11111111-1111-1111-1111-111111111111'
 
 interface FakeService {
   client: any
-  /** Payload handed to .update(), i.e. what would reach core.clients. */
+  /** Payload handed to .update(), i.e. what would reach partner.clients. */
   lastUpdate: Record<string, any> | null
   /** Row state after the update, i.e. what would be persisted. */
   row: Record<string, any>
@@ -167,10 +167,10 @@ test('still answers 400 when no editable field is provided', async () => {
   assert.equal(service.lastUpdate, null)
 })
 
-// ── What a 23505 on `core.clients` is allowed to say (#341) ──
+// ── What a 23505 on `partner.clients` is allowed to say (#341) ──
 
 test('#341: a unique violation names the constraint the database reported, not e-mail', async () => {
-  // `core.clients.email` stops being unique in `20260814160000`: one owner, several places.
+  // `partner.clients.email` stops being unique in `20260814160000`: one owner, several places.
   // Four routes answered every 23505 with "Email already exists", which was imprecise before
   // the migration and false after it — the 409 that is left comes from `slug` or from
   // `cms_user_id`, and a message naming the wrong column sends the next person to the wrong
@@ -212,7 +212,7 @@ test('#341: a unique violation names the constraint the database reported, not e
   assert.equal(describeClientUniqueViolation(null), null)
 })
 
-test('#341: no route left translating 23505 into an e-mail collision on core.clients', async () => {
+test('#341: no route left translating 23505 into an e-mail collision on partner.clients', async () => {
   const { readFileSync } = await import('node:fs')
   const { resolve } = await import('node:path')
   const root = resolve(import.meta.dirname, '../..')

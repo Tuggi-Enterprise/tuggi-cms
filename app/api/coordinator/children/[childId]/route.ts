@@ -33,7 +33,7 @@ export async function GET(
 
     const service = getSupabaseService()
     const { data: client, error } = await service
-      .schema('core')
+      .schema('partner')
       .from('clients')
       .select('*')
       .eq('id', childId)
@@ -85,7 +85,7 @@ export async function PATCH(
 
     const service = getSupabaseService()
     const { data: client, error } = await service
-      .schema('core')
+      .schema('partner')
       .from('clients')
       .update(updates)
       .eq('id', childId)

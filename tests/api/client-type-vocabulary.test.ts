@@ -1,5 +1,5 @@
 /**
- * Two vocabularies for `core.clients.client_type` — #357.
+ * Two vocabularies for `partner.clients.client_type` — #357.
  *
  * The database ACCEPTS seven values; BR-B2B-020, item 8, OFFERS four to a registration that is
  * being born. Everything here is red when the two are collapsed back into one, in either
@@ -201,7 +201,7 @@ const ADMIN_EMAIL = 'admin@tuggi.app'
 
 interface FakeService {
   client: any
-  /** Payload handed to .insert(), i.e. what would reach core.clients. */
+  /** Payload handed to .insert(), i.e. what would reach partner.clients. */
   lastInsert: Record<string, any> | null
 }
 
@@ -274,7 +274,7 @@ test('BR-B2B-020: POST /api/admin/clients refuses a type that left the offer', a
     const response = await createClientRequest({ client_type })
 
     assert.equal(response.status, 400, `${client_type} must not start a registration`)
-    assert.equal(service.lastInsert, null, 'nothing reaches core.clients')
+    assert.equal(service.lastInsert, null, 'nothing reaches partner.clients')
   }
 })
 

@@ -1,10 +1,10 @@
 /**
- * What a `23505` on `core.clients` actually means — one answer, read by every route that
+ * What a `23505` on `partner.clients` actually means — one answer, read by every route that
  * writes that table.
  *
  * WHY THIS EXISTS AT ALL. Four routes translated every unique violation into
  * `409 "Email already exists"`, which was already imprecise (the same code comes out of the
- * slug and of `cms_user_id`) and became FALSE with `20260814160000`: `core.clients.email`
+ * slug and of `cms_user_id`) and became FALSE with `20260814160000`: `partner.clients.email`
  * stops being unique, because one owner has several places and each place is its own record.
  * After that migration the 409 that is left cannot be about e-mail, and a message that names
  * the wrong column sends whoever is debugging to the wrong field.
@@ -39,7 +39,7 @@ const CLIENT_UNIQUE_CONSTRAINTS: readonly { constraint: string; message: string 
 ]
 
 /**
- * Says which unique constraint of `core.clients` was violated, or null when the error is not
+ * Says which unique constraint of `partner.clients` was violated, or null when the error is not
  * a unique violation at all.
  *
  * The fallback names no column ON PURPOSE. A constraint this function has not been told about

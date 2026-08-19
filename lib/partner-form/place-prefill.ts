@@ -1,9 +1,9 @@
 /**
  * What the partner's form answers become on the PLACE — the second thing a proposal writes,
- * and the sibling of `promotion.ts`, which owns the first (`core.clients`).
+ * and the sibling of `promotion.ts`, which owns the first (`partner.clients`).
  *
  * TWO WRITE PATHS OUT OF ONE FORM, AND EACH HAS ITS OWN ALLOWLIST. `promotion.ts` decides
- * what reaches `core.clients` and is an operator panel with one act per divergent column;
+ * what reaches `partner.clients` and is an operator panel with one act per divergent column;
  * this module decides what reaches `core.attractions` / `core.place_details` and has no panel
  * at all, because there is nothing to overwrite: the place does not exist until the approval
  * creates it. What the two share is the property that matters — a column that is not on the
@@ -30,7 +30,7 @@
  *    than an empty one;
  *  · the representative's phone and e-mail. They are a PERSON's contact details (BR-B2B-030),
  *    collected to talk to whoever signs the contract — not the establishment's public number.
- *    They belong to `core.clients`, where the promotion already wrote them, and a POI column is
+ *    They belong to `partner.clients`, where the promotion already wrote them, and a POI column is
  *    read by the app;
  *  · the story fields (`story_*`). They are the insumo of gate 2 of BR-B2B-011 and of the paid
  *    tier's narration; turning them into a description is exactly what starts BR-B2B-018.

@@ -10,7 +10,7 @@
  * break in silence:
  *
  *  1. **The mirror of the field list.** The conference indexes
- *     `core.partner_form_submissions.answers` by the ids in `lib/partner-form/fields.ts`, which
+ *     `partner.partner_form_submissions.answers` by the ids in `lib/partner-form/fields.ts`, which
  *     is a copy of a list owned by another repository. What binds them is
  *     `docs/contracts/partner-proposal-answers.md`; what fails when the copy rots is here.
  *  2. **The deduplication key.** `tax_id_normalized` is `GENERATED ALWAYS ... STORED` — measured
@@ -139,7 +139,7 @@ test('BR-B2B-022: the two documents stay on the internal side, and the proposal 
 
 test('BR-B2B-026: what the proposal collects that only an admin may write is in the admin allowlist', () => {
   // Not a formality: `tax_id` and the legal representative sit in CLIENT_ADMIN_ONLY_FIELDS and
-  // `pickEditableFields` drops them. A public path that tried to write `core.clients` would
+  // `pickEditableFields` drops them. A public path that tried to write `partner.clients` would
   // persist nothing and report success — which is why the submission is a proposal and the
   // promotion is authenticated (BR-B2B-026, item 4).
   const adminOnly = new Set<string>(CLIENT_ADMIN_ONLY_FIELDS as readonly string[])

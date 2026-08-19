@@ -10,7 +10,7 @@
  * WHICH PERCENTAGE IS OWED. The contract prints the commission from the snapshot, and
  * BR-MONETIZACAO-039's edge case says the apuração uses the percentage registered on the day it
  * runs. Two rulers for the same number, with legal effect: the operator lowers
- * `core.clients.commission_rate` and the signed instrument still says the old figure. The
+ * `partner.clients.commission_rate` and the signed instrument still says the old figure. The
  * contract now freezes it under the same doctrine BR-B2B-017 already applies to the fee — an
  * aditivo with a new acceptance — and `produto` has to align the rule's edge case.
  *
@@ -119,7 +119,7 @@ test('the first invoice never reaches back before the publication — BR-B2B-018
 test('the commission is frozen by the same doctrine as the fee, and says when it is paid', () => {
   const commission = textOf(snapshot(), 'commission')
 
-  // A2: without this, `core.clients.commission_rate` and the signed instrument are two rulers
+  // A2: without this, `partner.clients.commission_rate` and the signed instrument are two rulers
   // for one number.
   assert.match(commission, /depende de\s+termo aditivo com novo aceite|termo aditivo com novo aceite/)
   assert.match(commission, /nenhuma alteração de cadastro interno/)

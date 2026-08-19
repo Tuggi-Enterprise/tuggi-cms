@@ -24,7 +24,7 @@ import type { ConferenceRecord } from '@/lib/partner-form/regularity'
  * THE NINE LABELS — the spec's eight plus one this pipeline needs.
  *
  * `refused_at_triage` is the spec's seventh, and it arrived with the card that gave the outcome
- * of the triage a place to live (#377, `core.partner_triage_refusals`): while nothing recorded
+ * of the triage a place to live (#377, `partner.partner_triage_refusals`): while nothing recorded
  * it, a refused partnership would have sat in the queue looking overdue forever, which is why
  * spec §9, question 3, held both it and the `Triagem` column back.
  *
@@ -35,7 +35,7 @@ import type { ConferenceRecord } from '@/lib/partner-form/regularity'
  * point 5, and its edge case names this defect.
  *
  * `client_created` is the extra one, and it is not an invention of convenience: promoting a
- * proposal writes `core.clients` and NOTHING about a contract (`promoteProposal`), so every
+ * proposal writes `partner.clients` and NOTHING about a contract (`promoteProposal`), so every
  * partnership passes through "the client exists, the contract is not signed yet". Without this
  * id those rows derive to no state at all and vanish from the queue — which is the one failure
  * mode a work queue may not have. Its copy is built out of the spec's own vocabulary for band
@@ -95,19 +95,19 @@ export function conferenceStarted(conference: ConferenceRecord): boolean {
 }
 
 export interface PipelineInput {
-  /** `core.partner_form_submissions.status`. */
+  /** `partner.partner_form_submissions.status`. */
   proposalStatus: 'submitted' | 'promoted' | 'discarded'
   conference: ConferenceRecord
   /** The client the proposal was promoted into, if any. */
   clientId: string | null
-  /** `core.partner_contracts.status === 'signed'` for the live contract of that client. */
+  /** `partner.partner_contracts.status === 'signed'` for the live contract of that client. */
   contractSigned: boolean
   /** How many places carry `core.attractions.partner_client_id = clientId`. */
   placeCount: number
   /** How many of them satisfy the read model's visibility predicate. */
   publishedPlaceCount: number
   /**
-   * How many of them are refused at triage — a row in `core.partner_triage_refusals` and the
+   * How many of them are refused at triage — a row in `partner.partner_triage_refusals` and the
    * place not in the app (`isRefusedAtTriage`). Optional and defaulting to zero because a
    * partnership whose places nobody refused is the ordinary case, and every call site that has
    * the refusals passes them.

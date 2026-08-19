@@ -24,7 +24,7 @@ export async function GET() {
 
     if (ctx.isAdmin) {
       const { data, error } = await service
-        .schema('core')
+        .schema('partner')
         .from('clients')
         .select('id, company_name, slug')
         .eq('is_coordinator', true)
@@ -35,7 +35,7 @@ export async function GET() {
 
     // Coordenador: só as próprias raízes (as que são de fato coordenador).
     const { data, error } = await service
-      .schema('core')
+      .schema('partner')
       .from('clients')
       .select('id, company_name, slug')
       .in('id', ctx.rootClientIds.length ? ctx.rootClientIds : ['00000000-0000-0000-0000-000000000000'])

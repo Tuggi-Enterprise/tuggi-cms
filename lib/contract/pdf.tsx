@@ -44,7 +44,7 @@ import { SUMMARY_DISCLAIMER, SUMMARY_TITLE, buildContractSummary } from './summa
  * What the acceptance appendix prints. Every field is a fact of the trail.
  *
  * THE SIGNER'S IP AND USER AGENT ARE DELIBERATELY ABSENT (#390). They are recorded — in
- * `core.partner_contract_acceptances`, whose rows the database guard makes immutable — and
+ * `partner.partner_contract_acceptances`, whose rows the database guard makes immutable — and
  * the operator reads them on the internal surface, `GET /api/admin/clients/[clientId]/contract`.
  * What they are not is printed in the artefact the partner downloads, because that artefact
  * travels: it is served by a link that lives in two e-mails forever and reaches whoever

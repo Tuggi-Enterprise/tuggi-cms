@@ -136,7 +136,7 @@ export function CoordinatorOverview() {
             <p className="font-semibold">Nenhum guarda-chuva de afiliados configurado</p>
             <p className="mt-1 text-xs">
               {isAdmin
-                ? 'Marque um cliente como coordenador (core.clients.is_coordinator = true) para gerenciar a rede dele aqui.'
+                ? 'Marque um cliente como coordenador (partner.clients.is_coordinator = true) para gerenciar a rede dele aqui.'
                 : 'Sua conta ainda não é um coordenador de afiliados. Fale com a Tuggi.'}
             </p>
           </div>

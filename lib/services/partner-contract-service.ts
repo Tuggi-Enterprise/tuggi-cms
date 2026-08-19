@@ -7,7 +7,7 @@
  *
  *  1. The API is closed and narrow. There is no "run this query" export. Every function
  *     names one operation on the two contract tables, and none of them can be pointed at
- *     `core.clients` for writing — the registration is read here and never written.
+ *     `partner.clients` for writing — the registration is read here and never written.
  *  2. Every public operation is keyed by the signing token, which the caller has to know,
  *     is single use in effect, expires, and is stored only as a SHA-256 hash.
  *  3. The public routes that call it carry `withRateLimit` and validate the body first.
@@ -15,12 +15,12 @@
  * THREE THINGS THIS MODULE IS RESPONSIBLE FOR NOT GETTING WRONG:
  *
  * FROZEN VALUE (BR-B2B-017, item 5). The contract row carries a `snapshot` taken when the
- * document was generated. Nothing here re-reads `core.clients` to render, to re-hash or to
+ * document was generated. Nothing here re-reads `partner.clients` to render, to re-hash or to
  * answer the trail. Editing the registration afterwards changes the next contract and
  * nothing else.
  *
  * IDEMPOTENT ACCEPTANCE. The deduplication key is the contract, and it is enforced by the
- * database: `core.partner_contract_acceptances.contract_id` is UNIQUE, the insert is an
+ * database: `partner.partner_contract_acceptances.contract_id` is UNIQUE, the insert is an
  * `on conflict do nothing` whose affected rows decide the winner, and a second request
  * with the same token gets the FIRST acceptance back — same timestamp, same hash. A
  * network failure after the commit therefore cannot produce a second version of the fact,
@@ -47,7 +47,7 @@ import { renderContractPdf, type AcceptanceStamp } from '@/lib/contract/pdf'
 import { activeTemplate, templateByVersion } from '@/lib/contract/template'
 import type { ContractSnapshot, ContractTier } from '@/lib/contract/snapshot'
 
-const SCHEMA = 'core'
+const SCHEMA = 'partner'
 const CONTRACTS = 'partner_contracts'
 const ACCEPTANCES = 'partner_contract_acceptances'
 

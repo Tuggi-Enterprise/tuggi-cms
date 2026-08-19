@@ -2,7 +2,7 @@
  * Partner approval/rejection side-effects.
  *
  * ⚠️ THE NOTIFICATIONS MOVED TO THE DATABASE and they are not coming back. The Pro grant, the
- * push and the e-mail run from DB triggers on `core.clients` — migration
+ * push and the e-mail run from DB triggers on `partner.clients` — migration
  * `20260624140300_partner_notifications_db.sql` (`core.notify_partner_status_change`). The DB
  * path is reliable regardless of the CMS runtime env/deploy; the previous Next.js
  * implementation depended on `process.env.SUPABASE_SERVICE_ROLE_KEY` and was not firing (no

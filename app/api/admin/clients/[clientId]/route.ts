@@ -56,7 +56,7 @@ export async function GET(
 
     // Get client
     const { data: client, error: clientError } = await supabaseService
-      .schema('core')
+      .schema('partner')
       .from('clients')
       .select('*')
       .eq('id', clientId)
@@ -68,7 +68,7 @@ export async function GET(
 
     // Get linked users count
     const { count: usersCount } = await supabaseService
-      .schema('core')
+      .schema('partner')
       .from('client_cms_users')
       .select('id', { count: 'exact' })
       .eq('client_id', clientId)
@@ -102,7 +102,7 @@ export async function PATCH(
 
     // Get current client
     const { data: currentClient, error: fetchError } = await supabaseService
-      .schema('core')
+      .schema('partner')
       .from('clients')
       .select('*')
       .eq('id', clientId)
@@ -134,7 +134,7 @@ export async function PATCH(
         return NextResponse.json({ error: 'Um cliente não pode ser coordenador de si mesmo' }, { status: 400 })
       }
       const { data: parent } = await supabaseService
-        .schema('core')
+        .schema('partner')
         .from('clients')
         .select('id, is_coordinator')
         .eq('id', updateData.parent_client_id)
@@ -149,7 +149,7 @@ export async function PATCH(
 
     // Update client
     const { data: client, error: updateError } = await supabaseService
-      .schema('core')
+      .schema('partner')
       .from('clients')
       .update({
         ...updateData,
@@ -161,7 +161,7 @@ export async function PATCH(
 
     if (updateError) {
       // Unique-constraint conflict: which column collided is read off the error, never
-      // defaulted to e-mail — `core.clients.email` is not unique (20260814160000).
+      // defaulted to e-mail — `partner.clients.email` is not unique (20260814160000).
       const conflict = describeClientUniqueViolation(updateError)
       if (conflict) {
         return NextResponse.json({ error: conflict }, { status: 409 })
@@ -199,7 +199,7 @@ export async function DELETE(
 
     // Check if client has linked users
     const { count: usersCount, error: countError } = await supabaseAuth
-      .schema('core')
+      .schema('partner')
       .from('client_cms_users')
       .select('id', { count: 'exact' })
       .eq('client_id', clientId)
@@ -230,7 +230,7 @@ export async function DELETE(
 
     // Delete client
     const { error: deleteError } = await supabaseAuth
-      .schema('core')
+      .schema('partner')
       .from('clients')
       .delete()
       .eq('id', clientId)

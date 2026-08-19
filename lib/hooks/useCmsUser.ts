@@ -69,9 +69,9 @@ export function useCmsUser() {
     isLoading,
     /** @deprecated cms_users.client_id está NULL em todo client — use clientIds. */
     clientId,
-    /** Vínculo real (core.client_cms_users + clients.cms_user_id). */
+    /** Vínculo real (partner.client_cms_users + clients.cms_user_id). */
     clientIds,
-    /** Capacidade explícita (core.clients.is_coordinator), não derivada de ter filhas. */
+    /** Capacidade explícita (partner.clients.is_coordinator), não derivada de ter filhas. */
     isCoordinator,
     coordinatorClientId,
     enabledModules,

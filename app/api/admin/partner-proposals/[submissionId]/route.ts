@@ -6,7 +6,7 @@
  * CLIENT), so the screen has to say "there is another one of these" and let a person choose.
  * Nothing merges; nothing is decided here.
  *
- * There is no `emailConflict` any more. It existed because `core.clients.email` was unique,
+ * There is no `emailConflict` any more. It existed because `partner.clients.email` was unique,
  * and it is not: one owner has several places and each is its own record.
  */
 

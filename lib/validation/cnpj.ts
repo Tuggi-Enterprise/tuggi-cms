@@ -103,7 +103,7 @@ export function isValidCnpj(cnpj: string): boolean {
  * The shapes one CNPJ can already have in a `tax_id` column, so a lookup by CNPJ matches the
  * company however it was typed.
  *
- * `core.clients.tax_id` holds both: everything written by the partner form is normalised (no
+ * `partner.clients.tax_id` holds both: everything written by the partner form is normalised (no
  * mask, uppercase), and records typed by hand before it existed carry the printed mask.
  * Matching one shape only lets the same company be registered twice, which is the whole point
  * of looking it up. It lives here because "what a stored CNPJ can look like" is one fact, and

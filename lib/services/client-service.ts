@@ -67,7 +67,7 @@ export class ClientService {
    */
   static async getPendingClients(limit = 50): Promise<Client[]> {
     const { data, error } = await getSupabase()
-      .schema('core')
+      .schema('partner')
       .from('clients')
       .select('*')
       .eq('status', 'pending')
@@ -89,7 +89,7 @@ export class ClientService {
 
     // 1. Get clients where user is the direct owner/creator
     const { data: directClients, error: directError } = await supabase
-      .schema('core')
+      .schema('partner')
       .from('clients')
       .select('*')
       .eq('cms_user_id', userId);
@@ -100,7 +100,7 @@ export class ClientService {
 
     // 2. Get client IDs where user is linked via client_cms_users
     const { data: linkedUserRecords, error: linkError } = await supabase
-      .schema('core')
+      .schema('partner')
       .from('client_cms_users')
       .select('client_id')
       .eq('cms_user_id', userId);
@@ -117,7 +117,7 @@ export class ClientService {
 
     // 3. Get the actual client records for the linked IDs
     const { data: linkedClients, error: linkedClientsError } = await supabase
-      .schema('core')
+      .schema('partner')
       .from('clients')
       .select('*')
       .in('id', linkedClientIds);
@@ -138,7 +138,7 @@ export class ClientService {
    */
   static async getClientById(clientId: string): Promise<Client | null> {
     const { data, error } = await getSupabase()
-      .schema('core')
+      .schema('partner')
       .from('clients')
       .select('*')
       .eq('id', clientId)
@@ -176,7 +176,7 @@ export class ClientService {
 
     // 2. Update client with approval status and link to CMS user
     const { data: client, error: clientError } = await getSupabase()
-      .schema('core')
+      .schema('partner')
       .from('clients')
       .update({
         status: 'approved',
@@ -194,7 +194,7 @@ export class ClientService {
 
     // 3. Link the CMS user as 'owner' of the client
     await getSupabase()
-      .schema('core')
+      .schema('partner')
       .from('client_cms_users')
       .insert([
         {
@@ -213,7 +213,7 @@ export class ClientService {
    */
   static async rejectClient(clientId: string, rejectionReason: string, rejecterUserId: string): Promise<Client> {
     const { data, error } = await getSupabase()
-      .schema('core')
+      .schema('partner')
       .from('clients')
       .update({
         status: 'rejected',
@@ -237,7 +237,7 @@ export class ClientService {
    */
   static async linkCmsUser(clientId: string, cmsUserId: string, userId: string, clientRole = 'viewer'): Promise<ClientCmsUser> {
     const { data, error } = await getSupabase()
-      .schema('core')
+      .schema('partner')
       .from('client_cms_users')
       .insert([
         {
@@ -262,7 +262,7 @@ export class ClientService {
    */
   static async unlinkCmsUser(linkId: string): Promise<void> {
     const { error } = await getSupabase()
-      .schema('core')
+      .schema('partner')
       .from('client_cms_users')
       .delete()
       .eq('id', linkId)
@@ -277,7 +277,7 @@ export class ClientService {
    */
   static async getClientCmsUsers(clientId: string): Promise<(ClientCmsUser & { cms_user?: any })[]> {
     const { data, error } = await getSupabase()
-      .schema('core')
+      .schema('partner')
       .from('client_cms_users')
       .select('*, cms_users:cms_user_id(id, email, full_name, role)')
       .eq('client_id', clientId)

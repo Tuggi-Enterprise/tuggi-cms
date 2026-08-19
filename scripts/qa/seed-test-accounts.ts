@@ -4,7 +4,7 @@
  * user and rotate its password rather than failing on "already registered".
  *
  * What this script does NOT do, on purpose: it never writes to
- * `core.cms_users` or `core.clients`. Those two tables are the actual
+ * `core.cms_users` or `partner.clients`. Those two tables are the actual
  * authorization decision (role, is_active, client_id) and writing to them is
  * `data`'s call under CLAUDE.md §1 ("qualquer SQL executado"), not qa's —
  * whether the write happens via psql or via `.insert()` makes no difference,
@@ -159,10 +159,10 @@ async function main() {
   console.log(
     [
       'As personas "admin" e "client" existem em Supabase Auth mas ainda não são CMS users.',
-      'Falta, em core.cms_users (e para "client", também um core.clients de teste — não existe',
+      'Falta, em core.cms_users (e para "client", também um partner.clients de teste — não existe',
       'nenhum "%test%" hoje, ver docs/dev/2026-08-05-qa-contas-de-teste-gate-api.md):',
       '',
-      `  insert into core.clients (id, name, email)`,
+      `  insert into partner.clients (id, name, email)`,
       `  values ('${randomUUID()}', 'QA CARD-CMS-01 (apagar depois do card)', '${emailFor('client')}');`,
       '  -- guarde o id gerado acima como <client_id> abaixo',
       '',

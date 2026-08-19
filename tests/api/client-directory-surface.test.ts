@@ -2,8 +2,8 @@
  * The unified list, from the spine to the screen — one row per establishment, one rail, and no
  * second derivation of anything.
  *
- * WHAT WAS TRUE BEFORE. `/admin/clients` listed `core.clients`; `/admin/partnerships` listed
- * `core.partner_form_submissions`. A promoted proposal was a row in both, described by two
+ * WHAT WAS TRUE BEFORE. `/admin/clients` listed `partner.clients`; `/admin/partnerships` listed
+ * `partner.partner_form_submissions`. A promoted proposal was a row in both, described by two
  * vocabularies, and a client somebody registered by hand was invisible in the queue. The two
  * screens each had a loader, so the same partnership could be `client_created` in one and
  * something else in the other.

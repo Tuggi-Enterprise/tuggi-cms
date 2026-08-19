@@ -8,7 +8,7 @@
  *
  * The registration is read here, with the service client, and turned into a FROZEN
  * snapshot before it reaches `lib/services/partner-contract-service.ts`. That module never
- * touches `core.clients`, which is what keeps a signed contract from following an edit of
+ * touches `partner.clients`, which is what keeps a signed contract from following an edit of
  * the fee field (BR-B2B-017, item 5).
  */
 
@@ -54,7 +54,7 @@ async function clientIdOf(ctx: { params?: Promise<ClientParams> }): Promise<stri
 
 async function loadClient(clientId: string): Promise<ContractClient | null> {
   const { data, error } = await getSupabaseService()
-    .schema('core')
+    .schema('partner')
     .from('clients')
     .select(CLIENT_COLUMNS)
     .eq('id', clientId)
@@ -75,7 +75,7 @@ async function loadClient(clientId: string): Promise<ContractClient | null> {
  */
 async function loadPlatformOwner(): Promise<PlatformOwnerLookup> {
   const { data, error } = await getSupabaseService()
-    .schema('core')
+    .schema('partner')
     .from('clients')
     .select(CLIENT_COLUMNS)
     .eq('is_platform_owner', true)
@@ -111,7 +111,7 @@ async function loadRegularity(clientId: string): Promise<RegularityEvidence> {
   }
 
   const { data: submissions } = await getSupabaseService()
-    .schema('core')
+    .schema('partner')
     .from('partner_form_submissions')
     .select('id, review_note, promoted_at')
     .eq('promoted_client_id', clientId)

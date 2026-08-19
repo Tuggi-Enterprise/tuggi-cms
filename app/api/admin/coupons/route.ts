@@ -116,7 +116,7 @@ export async function GET(request: NextRequest) {
     const ownerMap: Record<string, any> = {};
     if (ownerIds.length > 0) {
       const { data: owners, error: ownersErr } = await supabaseService
-        .schema('core')
+        .schema('partner')
         .from('clients')
         .select('id, name, client_type, avatar_url')
         .in('id', ownerIds);

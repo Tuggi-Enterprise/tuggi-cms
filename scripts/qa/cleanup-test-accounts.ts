@@ -3,7 +3,7 @@
  * Idempotent — running it with nothing left to clean is a no-op, not an error.
  *
  * Only removes `auth.users` rows. If `data` has since inserted the matching
- * `core.cms_users` (and `core.clients`) rows for the admin/client personas
+ * `core.cms_users` (and `partner.clients`) rows for the admin/client personas
  * per seed-test-accounts.ts's printed instructions, deleting the Auth user
  * first will orphan those rows (no FK back-reference is assumed here) —
  * ask `data` to remove them in the same pass; this script does not touch

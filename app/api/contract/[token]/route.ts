@@ -12,7 +12,7 @@
  *   2. The body is two short strings and both are validated here; everything else that
  *      goes into the row — the timestamp, the IP, the user agent, the e-mail, the value,
  *      the version, the hash — comes from the server, never from the caller.
- *   3. Nothing here can reach `core.clients`, and nothing here re-reads the registration:
+ *   3. Nothing here can reach `partner.clients`, and nothing here re-reads the registration:
  *      the document was frozen when it was generated (BR-B2B-017, item 5).
  *
  * IDEMPOTENT BY CONTRACT, WHICH IS WHAT LETS THE RETRY BUTTON EXIST. The second request

@@ -10,7 +10,7 @@
  * without lying.
  *
  * WHY THE OPTIONS ARE DERIVED AND NOT DECLARED. `país`, `estado` and `cidade` are free text in
- * `core.clients`, and on 2026-08-17 only 3 of 11 rows carried a country at all. A dropdown of
+ * `partner.clients`, and on 2026-08-17 only 3 of 11 rows carried a country at all. A dropdown of
  * 200 countries over 3 usable values is a filter that costs more to read than the list it
  * filters, so the options come from the rows themselves, each with the count it would produce.
  * A dimension with nothing to choose from does not render.

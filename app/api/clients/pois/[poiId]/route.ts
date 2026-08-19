@@ -172,7 +172,7 @@ async function checkClientUserAccess(
   if (!clientId) return false
 
   const { data, error } = await supabase
-    .schema('core')
+    .schema('partner')
     .from('client_cms_users')
     .select('client_role')
     .eq('cms_user_id', cmsUserId)

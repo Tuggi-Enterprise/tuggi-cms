@@ -23,7 +23,7 @@ const ROLE_VALUES: Array<'viewer' | 'manager' | 'owner'> = ['viewer', 'manager',
 
 /**
  * Equipe tab — list and manage CMS users linked to this client via the
- * core.client_cms_users junction table. Extracted from the "Linked Users"
+ * partner.client_cms_users junction table. Extracted from the "Linked Users"
  * section that used to live inside ClientDetails (now deleted).
  *
  * Reuses the existing endpoints:
@@ -54,7 +54,7 @@ export function TeamTab({ client, edited, updateField, clientId, canEdit }: Clie
   const [newRole, setNewRole] = useState<'owner' | 'manager' | 'viewer'>('owner')
   const [success, setSuccess] = useState<string | null>(null)
 
-  // Toggle "é coordenador" (capacidade em core.clients.is_coordinator). Fica staged em
+  // Toggle "é coordenador" (capacidade em partner.clients.is_coordinator). Fica staged em
   // `edited` e persiste no Salvar do modal (PATCH), como os demais campos do editor.
   const isCoordinator = Boolean(edited.is_coordinator ?? client?.is_coordinator)
 

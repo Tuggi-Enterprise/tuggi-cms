@@ -1,10 +1,10 @@
 /**
  * The internal side of the partner proposal — the queue the Tuggi team works, and the
- * promotion into `core.clients`.
+ * promotion into `partner.clients`.
  *
  * WHY NOTHING PUBLIC REACHES THIS MODULE, AND WHAT ACTUALLY GUARDS THAT:
  *
- * This module holds a `service_role` client and writes `core.clients` by definition, so the
+ * This module holds a `service_role` client and writes `partner.clients` by definition, so the
  * only thing standing between anonymous input and that table is that no public route reaches
  * here. Since #396 the form itself left the repository — it is served by `tuggi-enterprise` —
  * and with it went the public route, the component and the public write service that used to
@@ -17,9 +17,9 @@
  * `app/api/partner-form/route.ts`, `components/partner-form/PartnerForm.tsx` or
  * `lib/services/partner-proposal-service.ts` come back. It does NOT guard a NEW public route:
  * anything added to `PUBLIC_PATH_PREFIXES` that ends up calling into this file puts
- * `core.clients` back within reach of unauthenticated input, and no test here would notice.
+ * `partner.clients` back within reach of unauthenticated input, and no test here would notice.
  *
- * Rows this module reads and writes are `core.partner_form_submissions` and `core.clients`.
+ * Rows this module reads and writes are `partner.partner_form_submissions` and `partner.clients`.
  * The migration `20260814140000` IS applied — its CHECKs are live, and a statement that violates
  * one comes back as a Supabase error, which is what the routes already turn into a typed
  * response. `partner_form_submissions_promotion_ck` is the one that dictates the write order of
@@ -40,7 +40,7 @@ import { normalizedTaxId } from '@/lib/partner-form/tax-id-key'
 import { cnpjLookupValues } from '@/lib/validation/cnpj'
 import type { ClientType } from '@/types/clients'
 
-const SCHEMA = 'core'
+const SCHEMA = 'partner'
 const SUBMISSIONS = 'partner_form_submissions'
 const CLIENTS = 'clients'
 
@@ -191,7 +191,7 @@ export async function loadProposalDetail(submissionId: string): Promise<Proposal
  * When it does find one, the promotion becomes an UPDATE and DS-COMPONENTE-018 applies in
  * full: a divergent column is born unticked and stays that way until somebody says otherwise.
  * The same shapes count as the same CNPJ on both surfaces (`cnpjLookupValues`), and this is the
- * one lookup that still asks by SHAPE rather than by key: `core.clients.tax_id` is a plain
+ * one lookup that still asks by SHAPE rather than by key: `partner.clients.tax_id` is a plain
  * column with no normalised twin, so there is nothing to compare `normalizedTaxId` against and
  * the expression index of `20260814170000` is the database's own, not PostgREST's.
  */
@@ -285,7 +285,7 @@ export async function loadClient(clientId: string): Promise<ClientRecord | null>
 }
 
 /**
- * `core.clients.email` IS NOT UNIQUE (operator, 2026-08-16): one owner has several places, and
+ * `partner.clients.email` IS NOT UNIQUE (operator, 2026-08-16): one owner has several places, and
  * each place is its own record with the same address on it. There used to be a panel here that
  * made the operator resolve an e-mail collision before the write button appeared — it existed
  * only because of the constraint, and it went with it. What keeps a company from being
@@ -297,9 +297,9 @@ export async function loadClient(clientId: string): Promise<ClientRecord | null>
  */
 /**
  * A FAILURE CARRIES THE CLIENT ID TOO, and that is the whole point of the field. With the
- * client written first, a failure of the claim leaves a live record in `core.clients` with full
+ * client written first, a failure of the claim leaves a live record in `partner.clients` with full
  * personal data on it and nothing anywhere saying who created it or which proposal it came from
- * — `core.clients` has no authorship column and no audit trigger, and `tax_id` is not unique, so
+ * — `partner.clients` has no authorship column and no audit trigger, and `tax_id` is not unique, so
  * there is nothing to disambiguate the row by afterwards. The caller is what writes that trail,
  * and it cannot write it without the id. `null` means the write itself failed and no row exists.
  */
@@ -317,7 +317,7 @@ export interface PromotionCommand {
 }
 
 /**
- * Writes the promotion. One statement against `core.clients`, which is what makes "either
+ * Writes the promotion. One statement against `partner.clients`, which is what makes "either
  * everything you ticked, or nothing" literally true for the record the copy is about.
  *
  * ORDER, AND WHY IT IS THIS ONE — THE CLIENT FIRST, AND IT IS THE DATABASE THAT DECIDES IT.
@@ -325,7 +325,7 @@ export interface PromotionCommand {
  * is an act WITH a destination) is `status <> 'promoted' OR (promoted_at IS NOT NULL AND
  * promoted_client_id IS NOT NULL)`. There is no state in which the row is `promoted` and the
  * destination is not yet known, so `promoted_client_id` has to be in the SAME statement that
- * writes `status` — and the client id only exists after `core.clients` is written. Taking the
+ * writes `status` — and the client id only exists after `partner.clients` is written. Taking the
  * claim first, in the hope of filling the destination in a second statement, is not a slower
  * promotion: it is a promotion the database refuses with 23514, and it refused every one of
  * them in production.
@@ -411,7 +411,7 @@ async function writeClient(command: PromotionCommand): Promise<ClientWriteOutcom
   const { data, error } = await service()
     .from(CLIENTS)
     // `status` is NOT part of the promotion (it is on the never-written list): a new record is
-    // born pending because that is what `core.clients` does with a new record, and approving
+    // born pending because that is what `partner.clients` does with a new record, and approving
     // the partnership is another decision on the client's own page (BR-B2B-010, item 1).
     .insert({ ...command.updates, client_type: PROMOTED_CLIENT_TYPE })
     .select('id')
@@ -467,7 +467,7 @@ export async function restoreProposal(submissionId: string): Promise<DiscardOutc
 
 /**
  * Stores the reviewer's reading of gate 2 as an ANNOTATION — never a verdict. It writes no
- * `status`, touches no column of `core.clients`, and the proposal is exactly as promotable
+ * `status`, touches no column of `partner.clients`, and the proposal is exactly as promotable
  * after it as before.
  */
 export async function saveReviewNote(

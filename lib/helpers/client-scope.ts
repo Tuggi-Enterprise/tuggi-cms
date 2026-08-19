@@ -24,7 +24,7 @@ export async function resolveClientIds(supabaseAuth: any): Promise<string[]> {
 
     // Fetch linked clients
     const { data: links } = await supabaseAuth
-      .schema('core')
+      .schema('partner')
       .from('client_cms_users')
       .select('client_id')
       .eq('cms_user_id', cmsUser.id)

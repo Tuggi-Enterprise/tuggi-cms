@@ -433,7 +433,7 @@ interface FakeState {
   touchedTables: string[]
   /** Every write the stand-in executed — what the promotion invariant is asserted against. */
   statements: FakeStatement[]
-  /** Set to make the write against `core.clients` fail, for the rollback case. */
+  /** Set to make the write against `partner.clients` fail, for the rollback case. */
   clientWriteFails: boolean
   /**
    * Set to make the CLAIM fail — the second statement, after the client is already written.
@@ -630,7 +630,7 @@ function createFakeAuthClient() {
 }
 
 /**
- * `core.partner_form_submissions.tax_id_normalized` as the database computes it — GENERATED
+ * `partner.partner_form_submissions.tax_id_normalized` as the database computes it — GENERATED
  * ALWAYS in `20260814140000`: strip everything outside `[0-9A-Za-z]`, and ONLY THEN upper-case.
  *
  * Written out here on purpose instead of importing `normalizedTaxId`: the production function
@@ -730,7 +730,7 @@ function submissionWrites(): FakeStatement[] {
   )
 }
 
-/** The index of the first write against `core.clients`, or -1 when there was none. */
+/** The index of the first write against `partner.clients`, or -1 when there was none. */
 function firstClientWriteIndex(): number {
   return state.statements.findIndex((statement) => statement.table === 'clients')
 }
@@ -1250,7 +1250,7 @@ test('#341: promoting and discarding each leave a row in the trail', async () =>
 
 test('BR-B2B-026: a claim that fails after the client was written leaves a row naming the residue', async () => {
   // The order of the promotion is the client first (the claim needs its destination in the same
-  // statement), so this is the failure that COSTS something: `core.clients` holds a record with
+  // statement), so this is the failure that COSTS something: `partner.clients` holds a record with
   // the representative's name, e-mail, phone and role, the CNPJ and the address, and the table
   // has no authorship column, no audit trigger and no unique `tax_id` to find it by later.
   // Without this row, that record exists and nothing anywhere says who made it or from what.

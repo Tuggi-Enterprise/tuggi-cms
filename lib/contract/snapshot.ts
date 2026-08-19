@@ -5,7 +5,7 @@
  * configurable field of the client registration, and the contract is NOT that field. A
  * snapshot is taken when the contract is generated, it is stored on the contract row, and
  * every later render — page, PDF, e-mail, audit trail — reads the snapshot and never the
- * registration. Editing `core.clients` afterwards changes the value of the NEXT contract
+ * registration. Editing `partner.clients` afterwards changes the value of the NEXT contract
  * or amendment and nothing else, which is why the hash of a signed PDF keeps proving what
  * was accepted.
  *
@@ -29,7 +29,7 @@ export type PaymentMethod = 'boleto' | 'pix'
 /**
  * The Tuggi side of the contract.
  *
- * It comes from the SAME place as the partner side: a row of `core.clients`, the one flagged
+ * It comes from the SAME place as the partner side: a row of `partner.clients`, the one flagged
  * `is_platform_owner`. That flag already had this meaning — `client-editable-fields.ts` says
  * "only Tuggi owns the platform" — and the five facts (razão social, CNPJ, endereço,
  * representante e cargo) are columns the operator edits in the client editor.
@@ -103,7 +103,7 @@ export function resolvePlatformOwner(lookup: PlatformOwnerLookup): ProviderResol
 
   const owner = lookup.client
   // The record to open for Tuggi's own side of the contract — a DIFFERENT row of
-  // `core.clients` from the partner's, and the reason `target` carries an id at all.
+  // `partner.clients` from the partner's, and the reason `target` carries an id at all.
   const ownerId = owner.id
   const missing: ChecklistItem[] = []
 
@@ -163,7 +163,7 @@ export interface PartnerParty {
 
 /**
  * Everything the template is allowed to read. If a clause needs a fact, the fact is a
- * field here — a clause that reaches for `core.clients` at render time would unfreeze the
+ * field here — a clause that reaches for `partner.clients` at render time would unfreeze the
  * document.
  */
 export interface ContractSnapshot {
@@ -197,7 +197,7 @@ export interface GenerationChoices {
  * It does NOT live on the client record, and that is the point: the licence and the
  * incorporation document are files the partner sent through the #341 form, and their
  * validity date is an answer in that submission. Reading them from a boolean column on
- * `core.clients` would mean trusting a flag somebody set by hand.
+ * `partner.clients` would mean trusting a flag somebody set by hand.
  */
 export interface RegularityEvidence {
   businessLicenseDocument: boolean

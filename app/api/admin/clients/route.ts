@@ -52,7 +52,7 @@ export async function GET(request: NextRequest) {
 
     // Build query (service role)
     let query = supabaseService
-      .schema('core')
+      .schema('partner')
       .from('clients')
       .select('id, name, email, phone, company_name, status, client_type, slug, cms_user_id, created_at, updated_at', { count: 'exact' })
 
@@ -81,7 +81,7 @@ export async function GET(request: NextRequest) {
 
     if (clientIds.length > 0) {
       const { data: links, error: linksErr } = await supabaseService
-        .schema('core')
+        .schema('partner')
         .from('client_cms_users')
         .select('client_id')
         .in('client_id', clientIds)
@@ -173,7 +173,7 @@ export async function POST(request: NextRequest) {
     // Insert client
     const supabaseService = getSupabaseService()
     const { data: client, error: clientError } = await supabaseService
-      .schema('core')
+      .schema('partner')
       .from('clients')
       .insert([{
         name,

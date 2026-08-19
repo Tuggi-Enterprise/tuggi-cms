@@ -28,7 +28,7 @@ import { BUTTON_SECONDARY } from '@/components/partner-form/styles'
  * check does not see pages. It is written down here on purpose, and it holds for the same
  * three reasons the #341 service holds: the API of the module is closed and narrow, every
  * operation is keyed by a 256-bit token stored only as a hash, and nothing it exposes can
- * reach `core.clients`. The read is by token, and a token that does not resolve gets the
+ * reach `partner.clients`. The read is by token, and a token that does not resolve gets the
  * same page as one that never existed.
  *
  * The locale is pinned to `pt` by redirect, not by hope: `i18n.ts` falls back to `en`, and

@@ -1,5 +1,5 @@
 /**
- * Single source of truth for which core.clients columns a CMS route may write.
+ * Single source of truth for which partner.clients columns a CMS route may write.
  *
  * Admin and coordinator share the same client editor UI but not the same
  * authorization scope, so the allowlists differ by *what a scope may touch* —
@@ -51,7 +51,7 @@ export const CLIENT_ADMIN_EDITABLE_FIELDS = [
 export const CLIENT_COORDINATOR_EDITABLE_FIELDS = CLIENT_PROFILE_FIELDS
 
 /**
- * Allowlist, not denylist: a new column in core.clients does not become editable
+ * Allowlist, not denylist: a new column in partner.clients does not become editable
  * by accident.
  */
 export function pickEditableFields(

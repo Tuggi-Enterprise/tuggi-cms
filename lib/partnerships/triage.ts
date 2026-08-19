@@ -3,7 +3,7 @@
  * item 4, and BR-B2B-011.
  *
  * WHAT THE RULE PROMISES, literally: in up to **72 straight hours** counted from the APPROVAL
- * OF THE PARTNERSHIP (`core.clients.approved_at`), either the place is published or the refusal
+ * OF THE PARTNERSHIP (`partner.clients.approved_at`), either the place is published or the refusal
  * was COMMUNICATED to the partner. Holidays and weekends do not stop it (BR-B2B-010, 5th edge
  * case). It is a promise published to the partner, which is why the queue shows it in TEXT and
  * never in colour alone (DS-A11Y-003).
@@ -12,7 +12,7 @@
  * (`core.attractions.approved`), then the COMMUNICATED refusal, then the running clock. Reading
  * `decided_at` instead of `communicated_at` is the one mistake this module exists to prevent —
  * it would read "on time" for a partner nobody has told, and the `data` wrote that warning into
- * `COMMENT ON COLUMN core.partner_triage_refusals.communicated_at` on purpose.
+ * `COMMENT ON COLUMN partner.partner_triage_refusals.communicated_at` on purpose.
  *
  * PURE, in the mould of `place-readiness.ts` and for the same reason: the queue column, the
  * detail header and the terminal state all call this, so the three cannot disagree about
@@ -56,7 +56,7 @@ const DAY_MS = 86_400_000
 /**
  * Which of the three gates of BR-B2B-011 refused, in the order the rule numbers them. A number
  * and not a vocabulary, because the taxonomy belongs to the rule — the same decision
- * `core.partner_triage_refusals.gate` is documented with.
+ * `partner.partner_triage_refusals.gate` is documented with.
  */
 export type TriageGate = 1 | 2 | 3
 
@@ -67,7 +67,7 @@ export function isTriageGate(value: unknown): value is TriageGate {
 }
 
 /**
- * One row of `core.partner_triage_refusals`, as a screen may see it.
+ * One row of `partner.partner_triage_refusals`, as a screen may see it.
  *
  * `decidedBy` is NOT here: the column is an `auth.users(id)`, and a uuid is not something to
  * put in front of an operator. The service resolves it into `decidedByLabel` with the same
@@ -165,7 +165,7 @@ export function isRefusedAtTriage(place: PlaceTriageOutcome): boolean {
  * left open (the same reason `Parado há` counts its days in the component).
  */
 export interface TriageFacts {
-  /** `core.clients.approved_at` — the transition of BR-B2B-003, and nothing else. */
+  /** `partner.clients.approved_at` — the transition of BR-B2B-003, and nothing else. */
   approvedAt: string | null
   /** Every place of the partnership. A partnership with no place has no triage to run yet. */
   places: PlaceTriageOutcome[]

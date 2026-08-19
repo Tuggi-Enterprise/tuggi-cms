@@ -1,8 +1,8 @@
 /**
  * GET /api/admin/clients/directory — the unified list.
  *
- * One answer where there were two: `/api/admin/clients` reads `core.clients` and
- * `/api/admin/partnerships` reads `core.partner_form_submissions`, so the same establishment
+ * One answer where there were two: `/api/admin/clients` reads `partner.clients` and
+ * `/api/admin/partnerships` reads `partner.partner_form_submissions`, so the same establishment
  * was two rows in two screens, and neither could answer `quais parceiros de Minas ainda não
  * assinaram o contrato?` — half the answer lived in the other screen.
  *

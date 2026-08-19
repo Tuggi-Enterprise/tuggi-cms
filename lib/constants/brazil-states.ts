@@ -10,7 +10,7 @@
  */
 
 export interface BrazilState {
-  /** UF code, uppercase — what goes in `core.clients.state`. */
+  /** UF code, uppercase — what goes in `partner.clients.state`. */
   code: string
   /** Full name, for the option label. */
   name: string

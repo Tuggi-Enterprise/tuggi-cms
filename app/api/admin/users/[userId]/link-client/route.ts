@@ -74,7 +74,7 @@ export async function POST(
 
     // Verify client exists
     const { data: client, error: clientError } = await supabaseAdmin
-      .schema('core')
+      .schema('partner')
       .from('clients')
       .select('id')
       .eq('id', client_id)
@@ -86,7 +86,7 @@ export async function POST(
 
     // Link user to client (create entry in client_cms_users)
     const { data: link, error: linkError } = await supabaseAdmin
-      .schema('core')
+      .schema('partner')
       .from('client_cms_users')
       .insert([{
         client_id,
@@ -143,7 +143,7 @@ export async function DELETE(
 
     // Delete link
     const { error: deleteError } = await supabaseAdmin
-      .schema('core')
+      .schema('partner')
       .from('client_cms_users')
       .delete()
       .eq('cms_user_id', userId)

@@ -6,7 +6,7 @@
  * The form does not ask for those files any more, so this is where the evidence enters the
  * system, and it enters as somebody's signed assertion: `reviewed_by` names them.
  *
- * THIS IS STILL NOT A VERDICT: it writes no `status`, reaches no column of `core.clients`, and
+ * THIS IS STILL NOT A VERDICT: it writes no `status`, reaches no column of `partner.clients`, and
  * the proposal is exactly as promotable after it as before (BR-B2B-011 — triage is another
  * decision, with another owner and another moment, and a place turned down there is still a
  * partner). What the conference record does decide is whether a CONTRACT can be produced, and

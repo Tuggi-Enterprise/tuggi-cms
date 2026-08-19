@@ -1,5 +1,5 @@
 /**
- * `core.partner_triage_refusals` — the refusal outcome of the partner-place triage, read and
+ * `partner.partner_triage_refusals` — the refusal outcome of the partner-place triage, read and
  * written by the pipeline. THE only module that touches that table.
  *
  * BR-B2B-011: the triage applies three gates, stops at the first that refuses, and the refusal
@@ -24,7 +24,7 @@
  * AFFECTED rather than by an `if` in JavaScript: two operators clicking at the same time is a
  * race only the database can settle.
  *
- * NOTHING HERE WRITES TO `core.clients` OR `core.attractions`. Refusing a place does not end the
+ * NOTHING HERE WRITES TO `partner.clients` OR `core.attractions`. Refusing a place does not end the
  * partnership (BR-B2B-010, 6th edge case) and takes no POI out of the catalogue (BR-B2B-027,
  * item 3); a module that could reach either of those tables would be one commit away from doing
  * it.

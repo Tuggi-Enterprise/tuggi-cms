@@ -12,7 +12,7 @@
  * by the team, the proposal by somebody outside, and an external form does not get to erase
  * internal work in silence.
  *
- * THERE IS NO E-MAIL COLLISION TO RESOLVE. `core.clients.email` stopped being unique
+ * THERE IS NO E-MAIL COLLISION TO RESOLVE. `partner.clients.email` stopped being unique
  * (operator, 2026-08-16) because one owner has several places and each place is its own
  * record — so the panel that made the operator choose between "tie it to that client" and
  * "use another address" went with the constraint that created it. What keeps a company from

@@ -8,9 +8,9 @@
  * rule numbers them) and what was missing, in the words that will be communicated (item 4: the
  * gate alone is "not approved", which the rule forbids).
  *
- * IT WRITES ONE ROW IN ONE TABLE. `core.partner_triage_refusals` and nothing else: refusing the
+ * IT WRITES ONE ROW IN ONE TABLE. `partner.partner_triage_refusals` and nothing else: refusing the
  * place does NOT end the partnership (BR-B2B-010, 6th edge case) and takes no POI out of the
- * catalogue (BR-B2B-027, item 3). There is no path from this handler to `core.clients` or to
+ * catalogue (BR-B2B-027, item 3). There is no path from this handler to `partner.clients` or to
  * `core.attractions`, and that is by construction rather than by review.
  *
  * IT DOES NOT COMMUNICATE ANYTHING. `communicated_at` is stamped by the sibling route, because
@@ -114,7 +114,7 @@ export const POST = withRateLimit(30, 60_000)(
         userId: auth.user.id,
         userEmail: auth.user.email ?? null,
         // The gate, never the reason: the reason is the operator's free text and the audit row
-        // is not where a copy of it belongs — `core.partner_triage_refusals` holds it, once.
+        // is not where a copy of it belongs — `partner.partner_triage_refusals` holds it, once.
         description: `Partner place ${attractionId} of client ${clientId} refused at triage (gate ${gate})`,
       })
 

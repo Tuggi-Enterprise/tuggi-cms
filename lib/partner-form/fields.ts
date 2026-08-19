@@ -5,7 +5,7 @@
  * THE FORM IS NOT HERE ANY MORE (#396). It is `tuggi-enterprise`, at
  * `src/app/[locale]/partners/proposal/page.tsx`, and the establishment fills it in there. What
  * stayed is the conference, the promotion and the contract, all authenticated (BR-B2B-026,
- * items 1 and 4) — and all of them read `core.partner_form_submissions.answers`, a JSON object
+ * items 1 and 4) — and all of them read `partner.partner_form_submissions.answers`, a JSON object
  * whose keys are the ids below.
  *
  * SO THIS IS A MIRROR, AND IT SAYS SO. The owner of the field list is the surface that writes

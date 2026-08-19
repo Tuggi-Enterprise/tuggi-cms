@@ -45,7 +45,7 @@ export async function POST(
     // Check if user is admin or client owner of this client
     if (cmsUser.role !== 'admin') {
       const { data: client, error: clientError } = await supabaseAuth
-        .schema('core')
+        .schema('partner')
         .from('clients')
         .select('id')
         .eq('id', clientId)

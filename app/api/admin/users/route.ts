@@ -91,7 +91,7 @@ export async function GET(request: NextRequest) {
     let links: any[] = []
     if (userIds.length > 0) {
       const { data: ldata, error: lerr } = await supabaseService
-        .schema('core')
+        .schema('partner')
         .from('client_cms_users')
         .select('cms_user_id, client_id, client_role')
         .in('cms_user_id', userIds)
@@ -108,7 +108,7 @@ export async function GET(request: NextRequest) {
     const clientsMap: Record<string, { id: string; name?: string }> = {}
     if (allClientIds.length > 0) {
       const { data: cdata, error: cerr } = await supabaseService
-        .schema('core')
+        .schema('partner')
         .from('clients')
         .select('id, name')
         .in('id', allClientIds)

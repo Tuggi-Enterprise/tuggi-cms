@@ -58,7 +58,7 @@ export type ReviewMark = (typeof REVIEW_MARKS)[number]
  * operator saw of the two documents of BR-B2B-022.
  *
  * THE CONFERENCE RECORD LIVES HERE AND NOT IN A COLUMN OF ITS OWN, on purpose. The `data`
- * left `core.partner_form_submissions.review_note` shape-free in `20260814160000` — the
+ * left `partner.partner_form_submissions.review_note` shape-free in `20260814160000` — the
  * database asks only that it be an object, and this function is the whole format. Putting the
  * registry beside the annotation it belongs to costs no migration and keeps one fact in one
  * place: everything one operator wrote down about one proposal, in one write, under one

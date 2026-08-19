@@ -1,5 +1,5 @@
 /**
- * Promotion of a partner proposal into the live `core.clients` record — DS-COMPONENTE-018.
+ * Promotion of a partner proposal into the live `partner.clients` record — DS-COMPONENTE-018.
  *
  * This module is the decision, not the screen. The panel renders what `buildPromotionPlan`
  * returns and the route writes what `resolvePromotionWrite` allows; neither of them decides
@@ -17,7 +17,7 @@
  *     silence.
  *
  * WHAT IS WRITABLE IS AN ALLOWLIST, NOT A DENYLIST. `PROMOTION_MAP` is the only source of
- * columns this feature can ever touch, so a column added to `core.clients` tomorrow is not
+ * columns this feature can ever touch, so a column added to `partner.clients` tomorrow is not
  * promotable by accident. `PROMOTION_NEVER_WRITES` is not the enforcement — it is the list
  * the panel shows the operator, and `promotionAllowlistIsClosed` asserts the two never
  * overlap. Money, lifecycle and the public URL of the printed QR do not come from a form
@@ -26,7 +26,7 @@
 
 import type { PartnerAnswers } from '@/lib/partner-form/schema'
 
-/** Columns of `core.clients` this promotion may write. Nothing else is reachable. */
+/** Columns of `partner.clients` this promotion may write. Nothing else is reachable. */
 export type PromotableColumn =
   | 'name'
   | 'company_name'
@@ -180,7 +180,7 @@ function text(value: unknown): string {
 }
 
 /**
- * The address of `core.clients` is one column and the form asks three questions. Joining
+ * The address of `partner.clients` is one column and the form asks three questions. Joining
  * here — and showing the result in the panel — is the only way the operator can see what
  * will actually be written before it is written.
  */
@@ -258,7 +258,7 @@ export interface PromotionRequest {
 }
 
 export interface PromotionWrite {
-  /** Exactly what goes to `core.clients`. Keys are columns of the plan and nothing else. */
+  /** Exactly what goes to `partner.clients`. Keys are columns of the plan and nothing else. */
   updates: Partial<Record<PromotableColumn, string>>
   written: PromotableColumn[]
   /** Conflicts the operator did not tick. Reported so the copy can count what it kept. */

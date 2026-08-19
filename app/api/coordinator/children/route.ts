@@ -43,7 +43,7 @@ export async function GET(request: NextRequest) {
     // O RPC revalida o escopo no banco (resolve_dashboard_scope) — defesa em profundidade:
     // mesmo que o gate acima falhasse, o banco recusa com 42501.
     const { data: breakdown, error: rpcError } = await service
-      .schema('core')
+      .schema('partner')
       .rpc('coordinator_child_breakdown', { p_root: root })
 
     if (rpcError) {
@@ -104,7 +104,7 @@ export async function POST(request: NextRequest) {
     const service = getSupabaseService()
 
     const { data: client, error: insertError } = await service
-      .schema('core')
+      .schema('partner')
       .from('clients')
       .insert([{
         name,

@@ -54,10 +54,22 @@ import {
 } from '@/lib/partnerships/pipeline'
 import type { PartnerAnswers } from '@/lib/partner-form/schema'
 
-const SCHEMA = 'core'
-
+/**
+ * This module reads from TWO schemas, which is why there are two clients and not one.
+ *
+ * The partner domain moved from `core` to `partner` on 2026-08-19 (`20260819150000`);
+ * `audit_logs` did not, because an audit trail is not the partner's. A single `SCHEMA` constant
+ * here would force one of the two reads to be wrong — and while the compatibility views still
+ * exist in `core`, wrong WITHOUT BREAKING, which is the worst way to be wrong. The views come
+ * down in phase 3 (`docs/dev/migracao-schema-partner.md`) and only then would it start to hurt.
+ */
 function service() {
-  return getSupabaseService().schema(SCHEMA)
+  return getSupabaseService().schema('partner')
+}
+
+/** `audit_logs` only, which stays in `core`. */
+function coreService() {
+  return getSupabaseService().schema('core')
 }
 
 const SUBMISSION_COLUMNS =
@@ -65,7 +77,7 @@ const SUBMISSION_COLUMNS =
   'promoted_client_id, review_note, reviewed_at, reviewed_by, discard_reason'
 
 /**
- * The columns of `core.clients` the pipeline decides with. An allowlist, and a short one: the
+ * The columns of `partner.clients` the pipeline decides with. An allowlist, and a short one: the
  * fiscal record, the banking record, the team and the coupons stay on the client's own page
  * (DS-LAYOUT-006, 1st edge case) — copying three of them here "for convenience" is how the
  * second source of the same fact gets born.
@@ -117,8 +129,8 @@ export interface PipelineContract {
 /**
  * ONE LIST, and it is the answer to the question the two screens were asking separately.
  *
- * `/admin/clients` was anchored on `core.clients` and `/admin/partnerships` on
- * `core.partner_form_submissions`, so the same establishment was two rows in two screens with
+ * `/admin/clients` was anchored on `partner.clients` and `/admin/partnerships` on
+ * `partner.partner_form_submissions`, so the same establishment was two rows in two screens with
  * two vocabularies — and neither list could answer `quais parceiros de Minas ainda não
  * assinaram o contrato?`, because half the answer was in the other screen.
  *
@@ -347,7 +359,7 @@ export interface PartnershipPlace {
   /**
    * The refusal in force for THIS place, if the triage refused it — BR-B2B-011. Per place and
    * never per client: a CNPJ has more than one address, and refusing one does not refuse the
-   * others (`core.partner_triage_refusals.attraction_id` is NOT NULL for that reason).
+   * others (`partner.partner_triage_refusals.attraction_id` is NOT NULL for that reason).
    */
   refusal: TriageRefusal | null
 }
@@ -481,7 +493,7 @@ async function loadPublicationTrail(
   const map = new Map<string, PublicationTrail>()
   if (attractionIds.length === 0) return map
 
-  const { data, error } = await service()
+  const { data, error } = await coreService()
     .from('audit_logs')
     .select('entity_id, user_email, created_at')
     .eq('action', 'PUBLISH_PARTNER_PLACE')
@@ -568,7 +580,7 @@ async function loadCurrentRefusals(attractionIds: string[]): Promise<Map<string,
 }
 
 /**
- * One row of `core.partner_triage_refusals`, as the screens see it.
+ * One row of `partner.partner_triage_refusals`, as the screens see it.
  *
  * `gate` OUTSIDE 1..3 READS AS `null`, and the screen then prints the reason alone.
  * `partner_triage_refusals_gate_check` makes such a row impossible to write, so this branch is

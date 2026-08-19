@@ -56,7 +56,7 @@ export async function GET(
 
       if (!hasDirectAccess) {
         const { data: link, error: linkError } = await supabaseAuth
-          .schema('core')
+          .schema('partner')
           .from('client_cms_users')
           .select('id')
           .eq('client_id', clientId)
@@ -77,7 +77,7 @@ export async function GET(
       : supabaseAuth
 
     const { data, error } = await supabaseQueryClient
-      .schema('core')
+      .schema('partner')
       .from('client_cms_users')
       .select('id, client_id, cms_user_id, client_role, created_at, cms_users:cms_user_id(id, email, full_name)')
       .eq('client_id', clientId)

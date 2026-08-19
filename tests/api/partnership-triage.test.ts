@@ -518,7 +518,7 @@ test('#377 · BR-B2B-011: the refusal writes ONE table, and reaches neither the 
   )
 
   // BR-B2B-010, 6th edge case, and BR-B2B-027, item 3, in the only form that survives a future
-  // commit: there is no path from here to `core.clients` or to `core.attractions`.
+  // commit: there is no path from here to `partner.clients` or to `core.attractions`.
   for (const forbidden of ["from('clients')", "from('attractions')", 'setApproved', 'setCoordinate']) {
     assert.equal(service.indexOf(forbidden), -1, `the refusal service must not reach ${forbidden}`)
     assert.equal(route.indexOf(forbidden), -1, `the refusal route must not reach ${forbidden}`)

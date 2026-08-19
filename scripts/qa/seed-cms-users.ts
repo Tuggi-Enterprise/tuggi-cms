@@ -21,7 +21,7 @@
  *  - `client_id` stays NULL: all 12 production rows with `role='client'` have it NULL,
  *    the client-scoped routes key off `cms_users.id` (`attractions.created_by`) or the
  *    caller's JWT, and pointing it at the platform-owner client would add a fake member
- *    to that client's team lists. No `core.clients` row is needed for these personas.
+ *    to that client's team lists. No `partner.clients` row is needed for these personas.
  *  - `role` is constrained to admin|editor|viewer|client (`cms_users_role_check`).
  */
 import { createClient } from '@supabase/supabase-js'

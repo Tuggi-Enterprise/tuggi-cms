@@ -2,7 +2,7 @@
  * POST /api/admin/clients/[clientId]/team/create-login
  *
  * Cria um login de acesso ao CMS para uma pessoa e o vincula a ESTE cliente na
- * core.client_cms_users (o vínculo VIVO). Admin-only.
+ * partner.client_cms_users (o vínculo VIVO). Admin-only.
  *
  * Por que um endpoint dedicado em vez de encadear POST /api/admin/users + link-client
  * no frontend:
@@ -68,7 +68,7 @@ export async function POST(
 
     // Confirma que o cliente existe (o vínculo aponta para ele).
     const { data: client } = await service
-      .schema('core')
+      .schema('partner')
       .from('clients')
       .select('id')
       .eq('id', clientId)
@@ -108,7 +108,7 @@ export async function POST(
 
     // 3. Vínculo VIVO usuário↔cliente.
     const { error: linkErr } = await service
-      .schema('core')
+      .schema('partner')
       .from('client_cms_users')
       .insert([{ client_id: clientId, cms_user_id: newUserId, client_role: clientRole, linked_by: adminUser.id }])
 

@@ -54,7 +54,7 @@ export async function GET(request: NextRequest) {
     } else if (cmsUser?.role !== 'admin') {
       // Non-admin: restrict to their clients
       const { data: clientLinks } = await supabaseAuth
-        .schema('core')
+        .schema('partner')
         .from('client_cms_users')
         .select('client_id')
         .eq('cms_user_id', cmsUser?.id)

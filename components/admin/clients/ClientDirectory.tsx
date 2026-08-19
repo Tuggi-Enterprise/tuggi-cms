@@ -3,8 +3,8 @@
 /**
  * ONE LIST, where there were two.
  *
- * `/admin/clients` was anchored on `core.clients` and `/admin/partnerships` on
- * `core.partner_form_submissions`, so the same establishment was two rows in two screens with
+ * `/admin/clients` was anchored on `partner.clients` and `/admin/partnerships` on
+ * `partner.partner_form_submissions`, so the same establishment was two rows in two screens with
  * two vocabularies — and neither could answer `quais parceiros de Minas ainda não assinaram o
  * contrato?`, because half of that lived in the other screen. The spine here is the union, and
  * the rail is what makes the union worth having.

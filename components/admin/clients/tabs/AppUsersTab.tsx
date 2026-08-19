@@ -23,7 +23,7 @@ interface SearchResult extends AppUserLite {
  * via drive.profiles.client_id, so the partner QR shows up in their Passaporte.
  *
  * This is the APP user link (auth.users / drive.profiles), distinct from the
- * "Team" tab which links CMS users (core.client_cms_users).
+ * "Team" tab which links CMS users (partner.client_cms_users).
  *
  * - Edit mode (clientId set): reads the linked list via the core.client_app_users
  *   RPC and links/unlinks immediately via PATCH /api/admin/users/[userId]/client.

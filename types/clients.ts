@@ -6,7 +6,7 @@ export type ClientStatus = 'pending' | 'approved' | 'rejected'
 export type ClientRole = 'owner' | 'manager' | 'viewer'
 
 /**
- * Relationship category — the SINGLE vocabulary of `core.clients.client_type`.
+ * Relationship category — the SINGLE vocabulary of `partner.clients.client_type`.
  *
  * THIS LIST IS THE MIRROR OF `clients_client_type_check`, and the database is the owner.
  * Measured on the live constraint on 2026-08-16, after `20260816150000`:

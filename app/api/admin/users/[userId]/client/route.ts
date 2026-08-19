@@ -1,7 +1,7 @@
 /**
  * PATCH /api/admin/users/[userId]/client - Set or clear an app user's linked client.
  *
- * The link is the column drive.profiles.client_id (FK -> core.clients,
+ * The link is the column drive.profiles.client_id (FK -> partner.clients,
  * ON DELETE SET NULL). Once populated, the app surfaces that client's partner QR
  * (https://tuggi.app/d/<slug>) in the user's Passaporte via drive.get_user_profile_v1.
  *
@@ -10,7 +10,7 @@
  * RPC, called with the service role. This route owns the admin gate and audit log.
  *
  * NOTE: this is the APP user <-> client link (drive.profiles / auth.users identity),
- * unrelated to the CMS user <-> client link (core.client_cms_users / "Team" tab).
+ * unrelated to the CMS user <-> client link (partner.client_cms_users / "Team" tab).
  */
 
 import { NextRequest, NextResponse } from 'next/server'
@@ -63,7 +63,7 @@ export async function PATCH(
 
     // Validation + write happen inside the RPC (service role bypasses RLS on drive.profiles).
     const { error: rpcError } = await getSupabaseService()
-      .schema('core')
+      .schema('partner')
       .rpc('admin_set_app_user_client', {
         target_user_id: userId,
         target_client_id: clientId,

@@ -38,7 +38,7 @@ interface Row {
 
 let contracts: Row[]
 let acceptances: Row[]
-/** `core.clients`, read only by the internal surface of section 3. */
+/** `partner.clients`, read only by the internal surface of section 3. */
 let clients: Row[]
 let objects: Map<string, Uint8Array>
 let emails: Record<string, unknown>[]

@@ -113,7 +113,7 @@ test('BR-B2B-011 / BR-B2B-010 / BR-B2B-018: the prefill cannot reach approval, p
 
 test('BR-B2B-030: the representative is a person, and their contact stays off the POI', () => {
   // `representative_phone` and `representative_email` are collected to talk to whoever signs
-  // the contract. They live in `core.clients`; a POI column is read by the app.
+  // the contract. They live in `partner.clients`; a POI column is read by the app.
   const prefill = buildPlacePrefill(answers())
   const values = JSON.stringify({ ...prefill?.create, ...prefill?.attraction })
   assert.equal(values.includes('99999-0000'), false)

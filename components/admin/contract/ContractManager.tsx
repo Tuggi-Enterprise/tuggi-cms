@@ -132,7 +132,7 @@ export function ContractManager({
    * it cost a round trip per missing field: leave, hunt for the record, fill, come back,
    * discover the next hole. The record is a drawer that fetches and saves on its own, so it
    * comes here instead. It carries an id because Tuggi's own side of the contract lives in a
-   * DIFFERENT row of `core.clients` than the partner's, and both are on this checklist.
+   * DIFFERENT row of `partner.clients` than the partner's, and both are on this checklist.
    */
   const [editing, setEditing] = useState<{ clientId: string; tab: 'profile' | 'fiscal' } | null>(null)
 

@@ -46,7 +46,7 @@ export async function GET(request: NextRequest) {
     if (clients.length === 0 && cmsUser.role === 'admin') {
       const supabaseService = getSupabaseService()
       const { data, error } = await supabaseService
-        .schema('core')
+        .schema('partner')
         .from('clients')
         .select('*')
         .eq('status', 'approved')

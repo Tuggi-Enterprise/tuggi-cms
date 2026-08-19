@@ -151,8 +151,8 @@ function AdminClientsContent() {
   return (
     <>
       {/*
-        ONE LIST. `ClientsListAdmin` read `core.clients` and `PartnershipsQueue` read
-        `core.partner_form_submissions`, so the same establishment was two rows in two screens.
+        ONE LIST. `ClientsListAdmin` read `partner.clients` and `PartnershipsQueue` read
+        `partner.partner_form_submissions`, so the same establishment was two rows in two screens.
         `ClientDirectory` renders the union, and the pipeline vocabulary — the states, `o que
         falta`, the triage clock — is Portuguese-only by decision (#408), so it is overlaid on
         the operator's messages rather than replacing them.

@@ -10,7 +10,7 @@
  *
  * What stayed is what the CONFERENCE uses:
  *
- *  - `PartnerAnswers`, the shape of `core.partner_form_submissions.answers`, which the review
+ *  - `PartnerAnswers`, the shape of `partner.partner_form_submissions.answers`, which the review
  *    screen, the regularity band and the promotion all index;
  *  - `storyNudge`, which reads a story the merchant already sent and says whether it looks like
  *    an offer instead of a story. It runs on both sides on purpose and it is the same list of

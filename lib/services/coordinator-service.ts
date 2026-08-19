@@ -45,8 +45,8 @@ export type CoordinatorResult =
 export async function getCallerRootClientIds(cmsUserId: string): Promise<string[]> {
   const service = getSupabaseService()
   const [{ data: links }, { data: owned }] = await Promise.all([
-    service.schema('core').from('client_cms_users').select('client_id').eq('cms_user_id', cmsUserId),
-    service.schema('core').from('clients').select('id').eq('cms_user_id', cmsUserId),
+    service.schema('partner').from('client_cms_users').select('client_id').eq('cms_user_id', cmsUserId),
+    service.schema('partner').from('clients').select('id').eq('cms_user_id', cmsUserId),
   ])
   return Array.from(new Set([
     ...(links ?? []).map((l: any) => l.client_id),
@@ -59,7 +59,7 @@ export async function filterCoordinatorClientIds(clientIds: string[]): Promise<s
   if (clientIds.length === 0) return []
   const service = getSupabaseService()
   const { data } = await service
-    .schema('core')
+    .schema('partner')
     .from('clients')
     .select('id')
     .in('id', clientIds)
@@ -72,7 +72,7 @@ export async function getScopeClientIds(rootClientIds: string[]): Promise<string
   if (rootClientIds.length === 0) return []
   const service = getSupabaseService()
   const { data: children } = await service
-    .schema('core')
+    .schema('partner')
     .from('clients')
     .select('id')
     .in('parent_client_id', rootClientIds)

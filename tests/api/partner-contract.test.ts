@@ -53,7 +53,7 @@ const REPO_ROOT = resolve(import.meta.dirname, '../..')
 // ── Fixtures ───────────────────────────────────────────────────────────────────────────
 
 /**
- * The Tuggi side is a `core.clients` row flagged `is_platform_owner` — not configuration
+ * The Tuggi side is a `partner.clients` row flagged `is_platform_owner` — not configuration
  * (#342, 2026-08-16). The fixture is a registration, exactly like the partner's, because
  * that is now the single owner of those five facts.
  */
@@ -982,7 +982,7 @@ test('#390: the trail keeps what the PDF stopped printing — the record does no
   if (!outcome.ok) return
 
   // Taking the two facts off the document is not deleting them. They stay in
-  // `core.partner_contract_acceptances`, which the database guard makes write-once, and the
+  // `partner.partner_contract_acceptances`, which the database guard makes write-once, and the
   // operator reads them on the internal surface.
   assert.equal(outcome.acceptance.ip_address, '203.0.113.7')
   assert.equal(outcome.acceptance.user_agent, 'Mozilla/5.0 (iPhone)')

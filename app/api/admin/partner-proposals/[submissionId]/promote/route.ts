@@ -71,7 +71,7 @@ export const POST = withRateLimit(20, 60_000)(
 
     // The target is the client this proposal was already promoted into, or nothing — in which
     // case the promotion creates a record. There is no third option and there is no id in the
-    // body that can name one: `core.clients.email` stopped being unique, so the collision the
+    // body that can name one: `partner.clients.email` stopped being unique, so the collision the
     // operator used to resolve here does not exist, and a body that could redirect a promotion
     // at an arbitrary client record would be the same door with none of the reason.
     const target = detail.client
@@ -97,7 +97,7 @@ export const POST = withRateLimit(20, 60_000)(
 
       // THE RESIDUE GETS A ROW. The client is written before the claim (BR-B2B-026: the claim
       // has to name its destination in the same statement), so a refusal here can mean the
-      // record already exists in `core.clients` — with the representative's name, e-mail,
+      // record already exists in `partner.clients` — with the representative's name, e-mail,
       // phone and role, the CNPJ and the address on it — while the proposal is still in the
       // queue. That row has no authorship column, no audit trigger and no unique `tax_id`
       // behind it, so without this event nothing at all says who created it or what it came

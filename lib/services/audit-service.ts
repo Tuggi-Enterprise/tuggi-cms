@@ -22,9 +22,9 @@ export type AuditAction =
   // live record, so each one leaves a row saying who, when and over which proposal.
   | 'PROMOTE_PARTNER_PROPOSAL'
   // Same class as `GRANT_TIME_CREDIT_UNRECORDED`: the first write committed and the second did
-  // not. The promotion writes `core.clients` first (BR-B2B-026 — the claim needs a destination
+  // not. The promotion writes `partner.clients` first (BR-B2B-026 — the claim needs a destination
   // in the same statement), so a claim that fails leaves a client record carrying full personal
-  // data with no promotion behind it. `core.clients` has no authorship column, no audit trigger
+  // data with no promotion behind it. `partner.clients` has no authorship column, no audit trigger
   // and no unique `tax_id`, so this row is the ONLY thing tying that record to who created it
   // and to the proposal it came from.
   | 'PROMOTE_PARTNER_PROPOSAL_UNCLAIMED'
@@ -48,7 +48,7 @@ export type AuditAction =
   | 'PUBLISH_PARTNER_PLACE'
   | 'UNPUBLISH_PARTNER_PLACE'
   // The other outcome of the triage (#377), and the two acts are deliberately two rows.
-  // `core.partner_triage_refusals` is append-only and already carries who decided and when, so
+  // `partner.partner_triage_refusals` is append-only and already carries who decided and when, so
   // these rows are not the record of the refusal — they are the record of the DECISION HAVING
   // BEEN TAKEN IN THE CMS, next to the publication it is the alternative to, on the one screen
   // that shows the whole trail. The communication is separate because it is a separate act:
