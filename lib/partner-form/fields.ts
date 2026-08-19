@@ -36,6 +36,9 @@ export type PartnerFieldId =
   | 'instagram'
   | 'opening_hours'
   | 'website'
+  | 'material_sticker_qty'
+  | 'material_table_display_qty'
+  | 'material_counter_display_qty'
   // Step 2 — who answers for the establishment
   | 'representative_name'
   | 'representative_role'
@@ -63,7 +66,24 @@ export const PARTNER_CATEGORIES = [
   'other',
 ] as const
 
-/** The 21 keys `answers` can carry, and the group each one belongs to. */
+/**
+ * The three kinds of promotional material the partner may ask for.
+ *
+ * SAME VOCABULARY IN THREE PLACES, and that is the point: `partner.material_order_items.kind`
+ * carries these exact ids in its CHECK, the writing side declares them in
+ * `tuggi-enterprise/src/lib/partner-proposal/fields.ts`, and the answer key of each one is
+ * `material_<kind>_qty`, derived rather than typed out. A fourth kind is one edit here, one in
+ * the writing side and one CHECK widened; there is no fourth place where the list could
+ * disagree with itself.
+ */
+export const MATERIAL_KINDS = ['sticker', 'table_display', 'counter_display'] as const
+export type MaterialKind = (typeof MATERIAL_KINDS)[number]
+
+export function materialFieldId(kind: MaterialKind): PartnerFieldId {
+  return `material_${kind}_qty` as PartnerFieldId
+}
+
+/** The 24 keys `answers` can carry, and the group each one belongs to. */
 export const PARTNER_FORM_FIELDS: readonly PartnerAnswerField[] = [
   { id: 'trade_name', step: 1 },
   { id: 'legal_name', step: 1 },
@@ -78,6 +98,7 @@ export const PARTNER_FORM_FIELDS: readonly PartnerAnswerField[] = [
   { id: 'instagram', step: 1 },
   { id: 'opening_hours', step: 1 },
   { id: 'website', step: 1 },
+  ...MATERIAL_KINDS.map((kind) => ({ id: materialFieldId(kind), step: 1 as const })),
 
   { id: 'representative_name', step: 2 },
   { id: 'representative_role', step: 2 },

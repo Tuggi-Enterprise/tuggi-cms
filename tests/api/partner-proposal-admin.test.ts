@@ -48,6 +48,7 @@ const SUBMISSION_ID = '33333333-3333-3333-3333-333333333333'
 const CLIENT_ID = '44444444-4444-4444-4444-444444444444'
 const OTHER_CLIENT_ID = '55555555-5555-5555-5555-555555555555'
 const OPERATOR_ID = 'cms-user-1'
+const MATERIAL_ORDER_ID = '55555555-5555-5555-5555-555555555555'
 
 /** What one operator wrote down after seeing the papers. The band's only input. */
 function conference(overrides: Partial<ConferenceRecord> = {}): ConferenceRecord {
@@ -441,6 +442,10 @@ interface FakeState {
    * personal data on it exists with nothing pointing at where it came from.
    */
   claimFails: boolean
+  /** Every RPC the promotion fired, in order. */
+  rpcCalls: { fn: string; args: any }[]
+  /** Set to make `partner.create_material_order` refuse, for the "order failed" case. */
+  materialOrderFails: boolean
 }
 
 /**
@@ -596,6 +601,18 @@ function createFakeService(current: () => FakeState) {
         current().touchedTables.push(table)
         return build(table)
       },
+      // The stand-in records the call instead of executing it: what this suite can prove about
+      // `partner.create_material_order` is the ARGUMENTS the CMS sends. Idempotency by
+      // submission and the refusal of an empty order are the database's, asserted by the
+      // probes of migration 20260819140000, and a fake that reimplemented them here would be a
+      // second declaration of a rule this side does not own.
+      rpc: async (fn: string, args: any) => {
+        current().rpcCalls.push({ fn, args })
+        if (current().materialOrderFails) {
+          return { data: null, error: { code: '23514', message: 'refused' } }
+        }
+        return { data: MATERIAL_ORDER_ID, error: null }
+      },
     }),
     storage: {
       from: () => ({
@@ -674,6 +691,8 @@ function freshState(
     statements: [],
     clientWriteFails: false,
     claimFails: false,
+    rpcCalls: [],
+    materialOrderFails: false,
   }
 }
 
@@ -950,6 +969,7 @@ test('BR-B2B-026: a claim that matches no row answers `not_promotable` — the l
     clientId: CLIENT_ID,
     updates: { name: 'Cantina do Zé' },
     written: ['name'],
+    answers: {},
     promotedBy: OPERATOR_ID,
   })
 
@@ -1533,4 +1553,91 @@ test('#341: the conference page hands the Portuguese messages to its children', 
     assert.ok(source.indexOf("ptMessages.PartnerProposals") >= 0, `${page} does not provide the namespace`)
     assert.ok(source.indexOf("ptMessages.PartnerForm") >= 0, `${page} does not provide the labels`)
   }
+})
+
+
+/* -------------------------------------------------------------------------- */
+/* O pedido de material que a promoção materializa                            */
+/* -------------------------------------------------------------------------- */
+
+test('BR-B2B-021: promoting turns the material asked for into ONE order, with a line per kind', async () => {
+  state = freshState()
+  state.submissions[0].answers = {
+    ...state.submissions[0].answers,
+    material_sticker_qty: '30',
+    material_table_display_qty: '12',
+  }
+
+  const response = await PROMOTE(request('POST', { approved: [] }), proposalContext)
+  assert.equal(response.status, 200)
+
+  const calls = state.rpcCalls.filter((call) => call.fn === 'create_material_order')
+  assert.equal(calls.length, 1, 'one promotion, one order')
+
+  const args = calls[0].args
+  // The quantities travel as NUMBERS, not as the strings `answers` stores: the column is
+  // `smallint`, and `"30"` reaching a smallint depends on a cast nobody wrote down.
+  assert.deepEqual(args.p_items, { sticker: 30, table_display: 12 })
+  assert.equal(args.p_source, 'proposal')
+  assert.equal(args.p_submission_id, SUBMISSION_ID)
+  assert.equal(args.p_created_by, OPERATOR_ID)
+  assert.ok(args.p_client_id, 'the order points at the client the promotion produced')
+})
+
+test('a kind left blank is a kind with no line — never a line with zero', async () => {
+  state = freshState()
+  state.submissions[0].answers = {
+    ...state.submissions[0].answers,
+    material_sticker_qty: '30',
+    material_table_display_qty: '',
+    material_counter_display_qty: '0',
+  }
+
+  await PROMOTE(request('POST', { approved: [] }), proposalContext)
+
+  const args = state.rpcCalls.find((call) => call.fn === 'create_material_order')?.args
+  // `partner.material_order_items` has `CHECK (quantity > 0)`. Sending a zero would be the CMS
+  // asking the database to refuse something it could have not sent — and "não quero" and
+  // "quero zero" would become two spellings of one fact.
+  assert.deepEqual(args.p_items, { sticker: 30 })
+})
+
+test('a proposal that asked for no material promotes anyway, and fires no order', async () => {
+  // Rows written before the material question existed carry none of the three. Refusing to
+  // promote them would strand a partner over a question they were never asked — the rule that
+  // requires at least one lives on the WRITING side, and it cannot reach backwards.
+  state = freshState()
+
+  const response = await PROMOTE(request('POST', { approved: [] }), proposalContext)
+  assert.equal(response.status, 200)
+  assert.equal(
+    state.rpcCalls.filter((call) => call.fn === 'create_material_order').length,
+    0,
+    'no material asked for, no order'
+  )
+})
+
+test('an order that fails does not undo the promotion, and does not pass as "asked for nothing"', async () => {
+  state = freshState()
+  state.materialOrderFails = true
+  state.submissions[0].answers = {
+    ...state.submissions[0].answers,
+    material_counter_display_qty: '2',
+  }
+
+  const outcome = await PROMOTE_PROPOSAL({
+    submissionId: SUBMISSION_ID,
+    clientId: null,
+    updates: { name: 'Cantina do Zé' },
+    written: ['name'],
+    answers: { material_counter_display_qty: '2' },
+    promotedBy: OPERATOR_ID,
+  })
+
+  // The client is written and the submission is claimed by the time the order is attempted.
+  // Failing the whole promotion here would report "nothing happened" about an act that already
+  // happened; a silent `null` would say the partner asked for no material, which is a
+  // different fact and the one somebody would act on.
+  assert.equal(outcome.ok, true)
+  assert.equal(outcome.ok && outcome.materialOrder, 'failed')
 })

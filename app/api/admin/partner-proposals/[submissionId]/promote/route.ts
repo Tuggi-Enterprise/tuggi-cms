@@ -89,6 +89,9 @@ export const POST = withRateLimit(20, 60_000)(
       updates: write.updates,
       written: write.written,
       promotedBy: auth.user.id,
+      // For the material order, not for `partner.clients` — what lands in the record is
+      // `updates`, and only `PROMOTION_MAP` decides that.
+      answers,
     })
 
     if (!outcome.ok) {

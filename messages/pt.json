@@ -1068,9 +1068,23 @@
       "time_upcoming": "Próximos",
       "time_past": "Passados"
     },
-    "stats": { "total": "Total", "upcoming": "Próximos", "approved": "Aprovados", "pending": "Pendentes" },
-    "columns": { "name": "Nome", "when": "Quando", "location": "Local", "status": "Status", "content": "Conteúdo" },
-    "badges": { "approved": "Aprovado", "pending": "Pendente" },
+    "stats": {
+      "total": "Total",
+      "upcoming": "Próximos",
+      "approved": "Aprovados",
+      "pending": "Pendentes"
+    },
+    "columns": {
+      "name": "Nome",
+      "when": "Quando",
+      "location": "Local",
+      "status": "Status",
+      "content": "Conteúdo"
+    },
+    "badges": {
+      "approved": "Aprovado",
+      "pending": "Pendente"
+    },
     "content_summary": "{desc} desc · {tp} TP",
     "empty": "Nenhum evento encontrado."
   },
@@ -1086,9 +1100,24 @@
       "status_approved": "Aprovados",
       "status_pending": "Pendentes"
     },
-    "stats": { "total": "Total", "with_hours": "Com horário", "approved": "Aprovados", "pending": "Pendentes" },
-    "columns": { "name": "Nome", "type": "Tipo", "location": "Local", "status": "Status", "content": "Conteúdo" },
-    "badges": { "approved": "Aprovado", "pending": "Pendente", "hours": "horário" },
+    "stats": {
+      "total": "Total",
+      "with_hours": "Com horário",
+      "approved": "Aprovados",
+      "pending": "Pendentes"
+    },
+    "columns": {
+      "name": "Nome",
+      "type": "Tipo",
+      "location": "Local",
+      "status": "Status",
+      "content": "Conteúdo"
+    },
+    "badges": {
+      "approved": "Aprovado",
+      "pending": "Pendente",
+      "hours": "horário"
+    },
     "content_summary": "{desc} desc · {tp} TP",
     "empty": "Nenhum local encontrado."
   },
@@ -1096,19 +1125,45 @@
     "EventDetails": {
       "title_new": "Novo Evento",
       "title_edit": "Editar Evento",
-      "sections": { "identity": "Identidade", "schedule": "Agenda", "host": "Anfitrião", "tickets": "Ingressos e Organizador", "publish": "Publicação" },
+      "sections": {
+        "identity": "Identidade",
+        "schedule": "Agenda",
+        "host": "Anfitrião",
+        "tickets": "Ingressos e Organizador",
+        "publish": "Publicação"
+      },
       "labels": {
         "location": "Localização",
-        "name": "Nome", "country": "País", "state": "Estado", "city": "Cidade",
-        "latitude": "Latitude", "longitude": "Longitude",
-        "starts_at": "Início", "ends_at": "Fim", "timezone": "Fuso horário", "all_day": "Dia inteiro",
-        "status": "Status", "category": "Categoria", "tags": "Tags",
-        "is_free": "Entrada gratuita", "price_min": "Preço mín.", "price_max": "Preço máx.", "currency": "Moeda",
-        "capacity": "Capacidade", "age_restriction": "Faixa etária",
-        "organizer_name": "Organizador", "organizer_url": "URL do organizador",
-        "ticket_url": "URL de ingressos", "poster_url": "URL do cartaz",
-        "venue": "POI anfitrião", "venue_search_placeholder": "Buscar POI por nome…", "venue_no_results": "Nenhum POI encontrado", "venue_remove": "Remover vínculo",
-        "approved": "Aprovado", "active": "Ativo", "priority": "Prioridade"
+        "name": "Nome",
+        "country": "País",
+        "state": "Estado",
+        "city": "Cidade",
+        "latitude": "Latitude",
+        "longitude": "Longitude",
+        "starts_at": "Início",
+        "ends_at": "Fim",
+        "timezone": "Fuso horário",
+        "all_day": "Dia inteiro",
+        "status": "Status",
+        "category": "Categoria",
+        "tags": "Tags",
+        "is_free": "Entrada gratuita",
+        "price_min": "Preço mín.",
+        "price_max": "Preço máx.",
+        "currency": "Moeda",
+        "capacity": "Capacidade",
+        "age_restriction": "Faixa etária",
+        "organizer_name": "Organizador",
+        "organizer_url": "URL do organizador",
+        "ticket_url": "URL de ingressos",
+        "poster_url": "URL do cartaz",
+        "venue": "POI anfitrião",
+        "venue_search_placeholder": "Buscar POI por nome…",
+        "venue_no_results": "Nenhum POI encontrado",
+        "venue_remove": "Remover vínculo",
+        "approved": "Aprovado",
+        "active": "Ativo",
+        "priority": "Prioridade"
       },
       "tags_hint": "separadas por vírgula",
       "venue_hint": "Vincule este evento ao POI onde ele acontece — o POI passa a narrá-lo.",
@@ -1120,17 +1175,40 @@
     "PlaceDetails": {
       "title_new": "Novo Local",
       "title_edit": "Editar Local",
-      "sections": { "identity": "Identidade", "commerce": "Comércio", "amenities": "Comodidades", "publish": "Publicação" },
+      "sections": {
+        "identity": "Identidade",
+        "commerce": "Comércio",
+        "amenities": "Comodidades",
+        "publish": "Publicação"
+      },
       "labels": {
         "location": "Localização",
-        "name": "Nome", "country": "País", "state": "Estado", "city": "Cidade",
-        "latitude": "Latitude", "longitude": "Longitude", "type": "Tipo",
-        "price_range": "Faixa de preço", "cuisine": "Culinária",
-        "reservation_url": "URL de reserva", "menu_url": "URL do cardápio",
-        "delivery_url": "URL de delivery", "order_online_url": "URL de pedido online",
-        "tags": "Tags", "approved": "Aprovado", "active": "Ativo", "priority": "Prioridade"
+        "name": "Nome",
+        "country": "País",
+        "state": "Estado",
+        "city": "Cidade",
+        "latitude": "Latitude",
+        "longitude": "Longitude",
+        "type": "Tipo",
+        "price_range": "Faixa de preço",
+        "cuisine": "Culinária",
+        "reservation_url": "URL de reserva",
+        "menu_url": "URL do cardápio",
+        "delivery_url": "URL de delivery",
+        "order_online_url": "URL de pedido online",
+        "tags": "Tags",
+        "approved": "Aprovado",
+        "active": "Ativo",
+        "priority": "Prioridade"
       },
-      "amenities": { "wifi": "Wi-Fi", "outdoor": "Mesas ao ar livre", "delivery": "Delivery", "takeaway": "Para viagem", "alcohol": "Serve álcool", "reservations": "Reservas" },
+      "amenities": {
+        "wifi": "Wi-Fi",
+        "outdoor": "Mesas ao ar livre",
+        "delivery": "Delivery",
+        "takeaway": "Para viagem",
+        "alcohol": "Serve álcool",
+        "reservations": "Reservas"
+      },
       "tags_hint": "separadas por vírgula",
       "cuisine_hint": "separadas por vírgula",
       "reused_note": "Horário, acessibilidade, boundary, trigger points e descrição/áudio reusam os editores de POI (por attraction_id) — a plugar em seguida.",
@@ -2052,6 +2130,38 @@
         "copyImage": "Copiar imagem",
         "copied": "Copiado",
         "legacyLink": "Legado: /download?ID={id} (ainda funciona)"
+      },
+      "material": {
+        "title": "Material de divulgação",
+        "help": "O que o parceiro pediu para exibir o Tuggi no estabelecimento. O primeiro pedido vem da proposta; os seguintes são reposições que a equipe registra aqui.",
+        "loading": "Carregando os pedidos…",
+        "empty": "Nenhum pedido registrado para este parceiro.",
+        "notesPlaceholder": "Observação do pedido (opcional) — endereço de entrega, prazo combinado…",
+        "kinds": {
+          "sticker": "Adesivos",
+          "table_display": "Displays de mesa",
+          "counter_display": "Displays de balcão"
+        },
+        "statuses": {
+          "requested": "Pedido",
+          "fulfilled": "Entregue",
+          "cancelled": "Cancelado"
+        },
+        "sources": {
+          "proposal": "Pedido na proposta",
+          "cms": "Registrado pela equipe"
+        },
+        "actions": {
+          "add": "Registrar um pedido",
+          "save": "Registrar pedido",
+          "saving": "Registrando…",
+          "discard": "Descartar",
+          "fulfil": "Marcar entregue",
+          "cancel": "Cancelar"
+        },
+        "errors": {
+          "saveFailed": "Não deu para salvar agora. Tente de novo em alguns instantes."
+        }
       }
     },
     "fiscal": {
@@ -2332,6 +2442,15 @@
       "website": {
         "label": "Site"
       },
+      "material_sticker_qty": {
+        "label": "Adesivos (quantidade)"
+      },
+      "material_table_display_qty": {
+        "label": "Displays de mesa (quantidade)"
+      },
+      "material_counter_display_qty": {
+        "label": "Displays de balcão (quantidade)"
+      },
       "representative_name": {
         "label": "Nome completo"
       },
@@ -2606,7 +2725,7 @@
       "savedWithNote": "Isto é guardado junto com a anotação, no seu nome e com a data."
     }
   },
-  "Partnerships":   {
+  "Partnerships": {
     "title": "Parcerias",
     "subtitle": "Do formulário ao app, numa fila só: a proposta, o cliente, o contrato e o local.",
     "queue": {

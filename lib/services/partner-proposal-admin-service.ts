@@ -30,6 +30,7 @@ import { getSupabaseService } from '@/lib/core/supabase-client'
 import { operatorLabel } from '@/lib/services/operator-label'
 import type { PartnerAnswers } from '@/lib/partner-form/schema'
 import type { PromotableColumn } from '@/lib/partner-form/promotion'
+import { MATERIAL_KINDS, materialFieldId } from '@/lib/partner-form/fields'
 import {
   readReviewNote,
   type DiscardReasonId,
@@ -304,7 +305,23 @@ export async function loadClient(clientId: string): Promise<ClientRecord | null>
  * and it cannot write it without the id. `null` means the write itself failed and no row exists.
  */
 export type PromotionOutcome =
-  | { ok: true; clientId: string; created: boolean; written: PromotableColumn[] }
+  | {
+      ok: true
+      clientId: string
+      created: boolean
+      written: PromotableColumn[]
+      /**
+       * The material order this promotion materialized, or `null` when the proposal asked for
+       * nothing — and `'failed'` when the order could not be written.
+       *
+       * A THIRD VALUE INSTEAD OF A THROW, deliberately. By the time the order is attempted the
+       * client record is written and the submission is claimed; failing the whole promotion
+       * there would report "nothing happened" about an act that already happened. But a silent
+       * `null` would tell the operator the partner asked for no material, which is a different
+       * fact — so the failure travels out and the route says so.
+       */
+      materialOrder: string | null | 'failed'
+    }
   | { ok: false; reason: 'not_promotable' | 'write_failed'; clientId: string | null }
 
 export interface PromotionCommand {
@@ -314,6 +331,11 @@ export interface PromotionCommand {
   updates: Partial<Record<PromotableColumn, string>>
   written: PromotableColumn[]
   promotedBy: string
+  /**
+   * The proposal's answers, for the material order. Not for `partner.clients` — what lands
+   * there is `updates`, and only `PROMOTION_MAP` decides that.
+   */
+  answers: PartnerAnswers
 }
 
 /**
@@ -371,7 +393,59 @@ export async function promoteProposal(command: PromotionCommand): Promise<Promot
     clientId: written.clientId,
     created: written.created,
     written: command.written,
+    materialOrder: await createMaterialOrder(command, written.clientId),
   }
+}
+
+/**
+ * Turns what the partner asked for into a row somebody can act on.
+ *
+ * WHY HERE AND NOT IN `PROMOTION_MAP`: the map writes COLUMNS of `partner.clients`, and the
+ * material is not a column — it is `partner.material_orders` plus one line per kind. The map
+ * stays an allowlist of columns, which is what keeps `commission_rate` and `slug` out of reach.
+ *
+ * IDEMPOTENT BY THE DATABASE, not by a check here. `material_orders_submission_uk` is unique on
+ * `submission_id`, and `partner.create_material_order` returns the existing order instead of
+ * raising when the proposal already produced one. Promotion is re-runnable, and without that
+ * the second attempt would leave the partner with two identical orders.
+ *
+ * A FAILURE HERE DOES NOT UNDO THE PROMOTION. The client is written and the submission is
+ * claimed; the order is the one thing a person can redo from the client's record. It is
+ * reported, never swallowed.
+ */
+async function createMaterialOrder(
+  command: PromotionCommand,
+  clientId: string
+): Promise<string | null | 'failed'> {
+  const items: Record<string, number> = {}
+  for (const kind of MATERIAL_KINDS) {
+    const raw = (command.answers[materialFieldId(kind)] ?? '').trim()
+    const quantity = Number.parseInt(raw, 10)
+    if (Number.isFinite(quantity) && quantity > 0) items[kind] = quantity
+  }
+
+  // Nothing asked for is not a failure. The writing side requires at least one, but a row
+  // written before that rule existed carries none, and refusing to promote it would strand a
+  // partner over a question they were never asked.
+  if (Object.keys(items).length === 0) return null
+
+  const { data, error } = await service().rpc('create_material_order', {
+    p_client_id: clientId,
+    p_items: items,
+    p_source: 'proposal',
+    p_submission_id: command.submissionId,
+    p_created_by: command.promotedBy,
+  })
+
+  if (error) {
+    console.error('[promotion] material order failed', {
+      submissionId: command.submissionId,
+      clientId,
+      error: error.message,
+    })
+    return 'failed'
+  }
+  return typeof data === 'string' ? data : null
 }
 
 /**

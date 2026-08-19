@@ -13,6 +13,7 @@ import { COUNTRIES } from '@/components/admin/clients/shared/countries'
 import { EditField } from '@/components/admin/clients/shared/EditField'
 import { SectionHeader } from '@/components/admin/clients/shared/SectionHeader'
 import { ClientQrCode } from '@/components/admin/clients/shared/ClientQrCode'
+import { MaterialOrders } from '@/components/admin/clients/shared/MaterialOrders'
 
 export interface ClientEditorTabProps {
   client: Client | null
@@ -122,6 +123,10 @@ export function ProfileTab({ client, edited, updateField, canEdit, clientId }: C
 
       {/* Revenue QR — only on saved clients (need either a slug or an id to point at). */}
       {showQr && <ClientQrCode clientId={clientId} slug={currentSlug} />}
+
+      {/* The material that carries that QR into the establishment. Same condition, and it is
+          the same reason: an order is keyed on a client that exists. */}
+      {clientId && <MaterialOrders clientId={clientId} />}
     </div>
   )
 }

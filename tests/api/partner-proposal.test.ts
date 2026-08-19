@@ -73,12 +73,12 @@ const PROPOSAL_URL = 'https://www.tuggi.app/pt/parcerias/proposta'
 
 // ── 1. The mirror ───────────────────────────────────────────────────────────────────────
 
-test('#396: the reader mirrors the 21 answer keys, and nothing more', () => {
+test('#396: the reader mirrors the 24 answer keys, and nothing more', () => {
   // The count is the contract's. A key that exists on the writing side and not here is an
   // answer the conference never shows; a key that exists here and not there is a column the
   // reviewer is told is empty when it was never asked.
-  assert.equal(PARTNER_FORM_FIELDS.length, 21)
-  assert.equal(new Set(PARTNER_FIELD_IDS).size, 21, 'no id is declared twice')
+  assert.equal(PARTNER_FORM_FIELDS.length, 24)
+  assert.equal(new Set(PARTNER_FIELD_IDS).size, 24, 'no id is declared twice')
 
   assert.deepEqual(
     fieldsOfStep(1).map((field) => field.id),
@@ -96,6 +96,9 @@ test('#396: the reader mirrors the 21 answer keys, and nothing more', () => {
       'instagram',
       'opening_hours',
       'website',
+      'material_sticker_qty',
+      'material_table_display_qty',
+      'material_counter_display_qty',
     ]
   )
   assert.deepEqual(
