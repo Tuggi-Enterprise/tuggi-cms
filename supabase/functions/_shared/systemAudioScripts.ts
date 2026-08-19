@@ -131,6 +131,16 @@ export const SYSTEM_AUDIO_SCRIPTS: ReadonlyArray<SystemAudioScript> = [
     sourceText: 'Seu passe está ativo. Já volto a narrar os lugares do caminho.',
     trigger: 'direito concedido durante sessão ativa',
   },
+  {
+    // Placeholder copy: the final line is the operator's, written on the screen —
+    // the `Texto base` field of `SystemAudioManager` edits this source before
+    // generating, and the other eleven languages are translations of it.
+    key: 'missedpoi',
+    family: 'notice',
+    sourceText:
+      'Você acabou de passar por um lugar que eu teria contado, mas suas horas acabaram.',
+    trigger: 'primeiro POI alcançado sem saldo; cooldown de 20 min, teto de 3 por sessão',
+  },
 ];
 
 export const getScript = (key: string): SystemAudioScript | undefined =>

@@ -78,9 +78,9 @@ test('build → parse é ida e volta para todas as combinações do catálogo', 
     }
   }
 
-  // 12 chaves × 12 locales × 2 gêneros. Um número aqui é o que denuncia chave
+  // 13 chaves × 12 locales × 2 gêneros. Um número aqui é o que denuncia chave
   // removida sem querer.
-  assert.equal(combinations, 288)
+  assert.equal(combinations, 312)
 })
 
 test('o nome que o app monta hoje continua sendo aceito', () => {
@@ -131,14 +131,18 @@ test('as duas pastas são as que o app lê, e o silent.mp3 é reservado', () => 
   assert.ok(mod.RESERVED_FILES.has('silent.mp3'))
 })
 
-test('as 9 chaves de aviso do §10 estão no catálogo, e as sem copy estão marcadas', () => {
+test('as chaves de aviso estão no catálogo — as 9 do §10 e `missedpoi` —, e as sem copy estão marcadas', () => {
   const notices = mod.SYSTEM_AUDIO_SCRIPTS.filter((s) => s.family === 'notice').map((s) => s.key)
 
+  // `missedpoi` é a única que não vem do §10: ela avisa o POI que passou sem ser
+  // narrado por falta de saldo. As outras nove são as do documento, e a lista é
+  // fechada de propósito — chave a mais aqui é arquivo a mais num bucket público.
   assert.deepEqual(notices.sort(), [
     'balance15min',
     'balance1h',
     'balanceend',
     'locationoff',
+    'missedpoi',
     'offline',
     'online',
     'passactive',
