@@ -375,3 +375,57 @@ test('DS-COPY-015: the quality nudge classifies and never blocks', () => {
   )
   assert.equal(storyNudge(''), null, 'an empty answer is not a bad answer, it is no answer')
 })
+
+test('BR-B2B-028: a unicidade do CNPJ é do banco, e o CMS não a reimplementa', () => {
+  // A GARANTIA MUDOU DE LUGAR EM 2026-08-19, e este teste é o que impede a volta.
+  //
+  // Até essa data ela morava em duas leituras de aplicação — `lookupTaxId`, na porta pública do
+  // site, e `findClientByTaxId` aqui. Isso é corrida (ler e inserir não é atômico) e não alcança
+  // os outros caminhos de escrita em `partner.clients`: o editor de cliente, um INSERT manual e
+  // `drive.register_partner_v1`. E o controle mais visível, a recusa no formulário, era o único
+  // que qualquer pessoa na internet podia sondar — pagando com um oráculo de carteira de clientes
+  // por uma garantia que ele não dava.
+  //
+  // Agora é `clients_tax_id_normalized_uk`, índice ÚNICO sobre a expressão normalizada
+  // (migration `20260819190000`), provado contra o banco no dia: duas grafias do mesmo CNPJ
+  // devolvem `unique_violation`.
+  const migration = readFileSync(
+    resolve(
+      __dirname,
+      '../../../db-tuggiApp/supabase/migrations/20260819190000_cnpj_de_cliente_e_unico_no_banco.sql'
+    ),
+    'utf8'
+  )
+  assert.match(migration, /create unique index concurrently/i)
+  assert.match(migration, /clients_tax_id_normalized_uk/)
+  // A MESMA expressão de `normalizedTaxId` e de `cnpjLookupValues`. Um índice que normalizasse
+  // diferente deixaria a mesma empresa entrar duas vezes com duas grafias, que é o defeito que
+  // ele existe para fechar.
+  assert.match(migration, /upper\(regexp_replace\(tax_id::text, '\[\^0-9A-Za-z\]', '', 'g'\)\)/)
+  assert.match(migration, /where tax_id is not null/)
+
+  // E o `drop` do índice antigo, redundante, NÃO está no caminho do agente: é ação destrutiva,
+  // documentada e executada por gente (CLAUDE.md §3).
+  const dropLines = migration
+    .split('\n')
+    .filter((line) => /drop index/i.test(line) && !line.trimStart().startsWith('--'))
+  assert.deepEqual(dropLines, [], 'nenhum DROP fora de comentário nesta migration')
+})
+
+test('#404 / BR-B2B-028: a conferência diz por qual e-mail responder quando o CNPJ já é cliente', () => {
+  // A consequência operacional de a porta ter parado de recusar, e a única.
+  //
+  // Quem sonda um CNPJ alheio põe o PRÓPRIO e-mail no formulário. Responder pelo e-mail da
+  // PROPOSTA devolveria, pela operação, o oráculo que o código deixou de ser. Pelo e-mail do
+  // CADASTRO, só quem controla aquele endereço fica sabendo — e quem controla é o dono.
+  const screen = code('components/admin/partner-proposals/ProposalReview.tsx')
+  assert.ok(screen.includes('review.existingClientReplyTo'), 'a tela não diz por qual e-mail responder')
+  assert.ok(screen.includes('detail.client.email'), 'a nota não lê o e-mail do cadastro')
+
+  const pt = JSON.parse(readFileSync(resolve(__dirname, '../../messages/pt.json'), 'utf8'))
+  const copy = pt.PartnerProposals.review.existingClientReplyTo as string
+  assert.ok(copy.includes('{email}'), 'a copy não interpola o endereço')
+  assert.match(copy, /cadastro/i)
+  // Diz POR QUE, e não só o quê: sem o motivo, a próxima pessoa a ler acha que é preferência.
+  assert.match(copy, /dono do CNPJ/i)
+})

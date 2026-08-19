@@ -16,7 +16,10 @@
  * (operator, 2026-08-16) because one owner has several places and each place is its own
  * record — so the panel that made the operator choose between "tie it to that client" and
  * "use another address" went with the constraint that created it. What keeps a company from
- * being registered twice is the CNPJ, refused at the form.
+ * being registered twice is the CNPJ — and since 2026-08-19 it is the DATABASE that refuses it,
+ * `clients_tax_id_normalized_uk`, and not the public form. The form used to, and that refusal was
+ * a public oracle of who is a client of the Tuggi in exchange for a guarantee it could not give:
+ * read-then-insert is a race, and it missed the four other write paths into `partner.clients`.
  *
  * The confirmation is ONE act and names the effect with the count and the target — never
  * `Confirmar`. Two acts are the rule for what binds legally (DS-COMPONENTE-017); this is

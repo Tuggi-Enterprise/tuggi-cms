@@ -184,10 +184,15 @@ export async function loadProposalDetail(submissionId: string): Promise<Proposal
 /**
  * The client this proposal is ABOUT, found by CNPJ.
  *
- * The public form refuses a CNPJ that is already a client, so in the ordinary case this is
- * null and the promotion creates a record. It is not the only case: a proposal can be sitting
- * in the queue while somebody registers that company by hand, and promoting it then would
- * produce two records for one company — the exact thing the CNPJ is the key against.
+ * THE PUBLIC FORM NO LONGER REFUSES ANYTHING, since 2026-08-19, so this is no longer an edge
+ * case: any proposal may be about a company that is already a client. The refusal was a public
+ * oracle of who is a client of the Tuggi, and the guarantee it was supposed to give — one record
+ * per company — is now `clients_tax_id_normalized_uk`, a UNIQUE index on the normalised CNPJ
+ * (migration `20260819190000`). The database refuses the second row on every write path, which
+ * is four more than the form ever covered, and it does it without a race between read and insert.
+ *
+ * What this function does is therefore no longer a safety net: it is how the promotion knows to
+ * UPDATE instead of INSERT, and how the screen knows to say so.
  *
  * When it does find one, the promotion becomes an UPDATE and DS-COMPONENTE-018 applies in
  * full: a divergent column is born unticked and stays that way until somebody says otherwise.

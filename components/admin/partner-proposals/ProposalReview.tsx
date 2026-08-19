@@ -317,6 +317,30 @@ export function ProposalReview({ locale, submissionId }: ProposalReviewProps) {
         </div>
       </header>
 
+      {/* ESTE CNPJ JÁ É CLIENTE, e desde 2026-08-19 é aqui que a operação descobre isso.
+          A porta pública parou de recusar: recusar era um oráculo de carteira de clientes, e a
+          garantia contra cadastro duplicado passou a ser o índice único do banco
+          (`clients_tax_id_normalized_uk`), que vale nos cinco caminhos de escrita e não só neste.
+
+          A CONSEQUÊNCIA OPERACIONAL É UMA SÓ, E É POR ISSO QUE ESTA CAIXA EXISTE: quem sonda um
+          CNPJ alheio põe o PRÓPRIO e-mail no formulário. Responder pelo e-mail da proposta
+          devolveria, pela operação, exatamente o oráculo que o código deixou de ser. Respondendo
+          pelo e-mail do CADASTRO, só quem controla aquele endereço fica sabendo — e quem controla
+          é o dono. */}
+      {isSubmitted && detail.client && (
+        <div className="mb-4 rounded-md border border-amber-600/40 bg-amber-50 p-3 text-sm text-gray-900 dark:bg-amber-950/30 dark:text-white">
+          <p className="font-semibold">
+            {t('review.existingClientTitle', { name: detail.client.name ?? tradeName })}
+          </p>
+          <p className="mt-1">{t('review.existingClientBody')}</p>
+          {detail.client.email && (
+            <p className="mt-1 font-medium">
+              {t('review.existingClientReplyTo', { email: detail.client.email })}
+            </p>
+          )}
+        </div>
+      )}
+
       {isPromoted && (
         <div className="mb-4 rounded-md border border-green-700/40 bg-green-50 p-3 text-sm text-gray-900 dark:text-white">
           <p className="font-semibold">
