@@ -1123,7 +1123,9 @@
       "venue_hint": "Link this event to the POI where it happens — the POI then narrates it.",
       "venue_linked_hint": "Linked. The event's own trigger points were deactivated: the host POI is what narrates.",
       "reused_note": "Boundary, Trigger Points and Description/Audio reuse the POI editors (keyed by attraction_id) — wired in a follow-up.",
-      "validation_required": "Name, city, country and start date are required.",
+      "validation_missing": "Fill in the required fields: {fields}.",
+      "location_detecting": "Detecting city, state and country…",
+      "location_detected": "Location detected:",
       "error_save": "Failed to save event"
     },
     "PlaceDetails": {
@@ -1147,7 +1149,9 @@
       "address_locating": "Locating the registered address…",
       "address_not_located": "We could not locate the registered address on the map. Find the place and click the map to set the coordinate.",
       "address_missing": "This place has no registered address. Find the place and click the map to set the coordinate.",
-      "validation_required": "Name, city and country are required.",
+      "validation_missing": "Fill in the required fields: {fields}.",
+      "location_detecting": "Detecting city, state and country…",
+      "location_detected": "Location detected:",
       "error_save": "Failed to save place"
     },
     "POIDetails": {

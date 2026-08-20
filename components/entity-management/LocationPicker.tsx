@@ -143,6 +143,14 @@ export function LocationPicker({
           center={view.center}
           zoom={view.zoom}
           height="100%"
+          /* DRAWING OFF, AND THAT IS WHAT MAKES THE CLICK WORK. `GoogleMapComponent` defaults
+             `enableDrawing`/`showDrawingButton` to `true`, so it starts a polygon on mount — and
+             while a polygon is being drawn its click listener returns before calling `onMapClick`.
+             Observed in place creation: the operator clicked, the map dropped a vertex, no
+             coordinate was ever written, and saving complained about fields that were filled in.
+             Here ONE point is picked; the polygon has its own tab in the drawer. */
+          enableDrawing={false}
+          showDrawingButton={false}
           markers={
             view.showMarker
               ? [{ id: 'entity-location', position: view.center, title: name || '', color: '#00A8E8' }]

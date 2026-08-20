@@ -1171,7 +1171,9 @@
       "venue_hint": "Vincule este evento ao POI onde ele acontece — o POI passa a narrá-lo.",
       "venue_linked_hint": "Vinculado. Os trigger points próprios do evento foram desativados: quem narra é o POI anfitrião.",
       "reused_note": "Boundary, Trigger Points e Descrição/Áudio reusam os editores de POI (por attraction_id) — a plugar em seguida.",
-      "validation_required": "Nome, cidade, país e data de início são obrigatórios.",
+      "validation_missing": "Preencha os campos obrigatórios: {fields}.",
+      "location_detecting": "Detectando cidade, estado e país…",
+      "location_detected": "Localização detectada:",
       "error_save": "Falha ao salvar o evento"
     },
     "PlaceDetails": {
@@ -1218,7 +1220,9 @@
       "address_locating": "Localizando o endereço do cadastro…",
       "address_not_located": "Não foi possível localizar no mapa o endereço do cadastro. Procure o local e clique no mapa para definir a coordenada.",
       "address_missing": "Este local não tem endereço no cadastro. Procure o local e clique no mapa para definir a coordenada.",
-      "validation_required": "Nome, cidade e país são obrigatórios.",
+      "validation_missing": "Preencha os campos obrigatórios: {fields}.",
+      "location_detecting": "Detectando cidade, estado e país…",
+      "location_detected": "Localização detectada:",
       "error_save": "Falha ao salvar o local"
     },
     "POIDetails": {

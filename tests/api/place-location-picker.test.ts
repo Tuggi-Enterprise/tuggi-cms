@@ -344,3 +344,108 @@ function grepRepo(needle: string): string[] {
   }
   return found.sort()
 }
+
+// ── The click that writes the coordinate, and the fields it fills ────────────────────────────
+
+test('the picker map never opens in drawing mode — otherwise the click drops a vertex', () => {
+  const picker = code(PICKER)
+
+  // `GoogleMapComponent` defaults both to `true`, and while a polygon is being drawn its click
+  // listener returns BEFORE calling `onMapClick`. That is exactly how place creation reached a
+  // form with name/city/country filled, no coordinate, and a message blaming the filled fields.
+  assert.match(picker, /enableDrawing=\{false\}/)
+  assert.match(picker, /showDrawingButton=\{false\}/)
+
+  const map = code('components/ui/GoogleMapComponent.tsx')
+  assert.match(map, /if \(drawerRef\.current\?\.isDrawing\(\)\) return/)
+})
+
+test('the missing-field message names what is missing, coordinate included', async () => {
+  const { IDENTITY_REQUIRED_FIELDS, missingRequiredLabels } =
+    await import('@/lib/core/entity-form-validation')
+
+  // The reported case: everything typed, nothing clicked on the map.
+  assert.deepEqual(
+    missingRequiredLabels({ name: 'Telhanorte', city: 'Bragança Paulista', country: 'Brazil' }),
+    ['location'],
+  )
+
+  // Latitude alone is not a location: half a pair writes a coordinate in the ocean.
+  assert.deepEqual(
+    missingRequiredLabels({ name: 'X', city: 'Y', country: 'Z', latitude: -22.9, longitude: '' }),
+    ['location'],
+  )
+
+  assert.deepEqual(
+    missingRequiredLabels({ name: 'X', city: 'Y', country: 'Z', latitude: -22.9, longitude: -43.2 }),
+    [],
+  )
+
+  // Nothing filled: every group is reported, in the order of the form.
+  assert.deepEqual(missingRequiredLabels({}), ['name', 'city', 'country', 'location'])
+
+  // The event modal adds its own group on creation, and it is reported the same way.
+  const withStart = [...IDENTITY_REQUIRED_FIELDS, { label: 'starts_at', keys: ['starts_at'] }]
+  assert.deepEqual(
+    missingRequiredLabels({ name: 'X', city: 'Y', country: 'Z', latitude: 1, longitude: 2 }, withStart),
+    ['starts_at'],
+  )
+})
+
+test('both form modals report missing fields by name, and the label of each exists', () => {
+  for (const modal of [
+    'components/place-management/PlaceFormModal.tsx',
+    'components/event-management/EventFormModal.tsx',
+  ]) {
+    const source = code(modal)
+    assert.match(source, /missingRequiredLabels/, `${modal} still uses a fixed sentence`)
+    assert.equal(source.includes("t('validation_required')"), false, `${modal} keeps the old message`)
+  }
+
+  for (const locale of ['pt', 'en', 'es']) {
+    const messages = JSON.parse(read(`messages/${locale}.json`))
+    for (const namespace of ['PlaceDetails', 'EventDetails']) {
+      const node = messages.Modals?.[namespace]
+      const message = node?.validation_missing
+      assert.equal(typeof message, 'string', `${locale} is missing Modals.${namespace}.validation_missing`)
+      assert.match(message, /\{fields\}/, `${locale}.${namespace}.validation_missing drops the list`)
+      // Every group's label is what the message interpolates: a missing one prints the key.
+      for (const label of ['name', 'city', 'country', 'location', 'starts_at']) {
+        if (namespace === 'PlaceDetails' && label === 'starts_at') continue
+        assert.equal(typeof node?.labels?.[label], 'string', `${locale}.${namespace}.labels.${label}`)
+      }
+    }
+  }
+})
+
+test('the click fills city/state/country, and only on creation', () => {
+  const hook = code('lib/hooks/use-reverse-geocode.ts')
+
+  // Same endpoint as POI creation (SSOT for the Nominatim lookup), not a second geocoder.
+  assert.match(hook, /'\/api\/pois\/reverse-geocode'/)
+  // Nominatim answers "Brasil"/"State of São Paulo"; the base stores the canonical English form.
+  assert.match(hook, /normalizeLocation/)
+  // The hook never writes a coordinate: it only reads one. The human click stays the sole writer.
+  assert.equal(hook.includes('setCoordinate'), false)
+
+  for (const modal of [
+    'components/place-management/PlaceFormModal.tsx',
+    'components/event-management/EventFormModal.tsx',
+  ]) {
+    const source = code(modal)
+    assert.match(source, /useReverseGeocode\(\{/, `${modal} does not detect the location`)
+    // Create mode only: on an existing record those three fields were curated by someone.
+    assert.match(source, /enabled: isOpen && !isEdit && canEdit/, `${modal} would overwrite curated fields`)
+  }
+})
+
+test('the detected-location lookup stays the only reverse geocoder in the CMS client', () => {
+  // `lib/roles.ts` names the route in its permission table without calling it — the ruler is
+  // the fetch, not the string.
+  const callers = grepRepo("fetch('/api/pois/reverse-geocode'")
+  assert.deepEqual(
+    callers,
+    ['components/poi-management/POIDetailsModal.tsx', 'lib/hooks/use-reverse-geocode.ts'],
+    'a third reverse geocoder appeared — fold it into use-reverse-geocode',
+  )
+})

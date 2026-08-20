@@ -9,9 +9,11 @@
 import { useEffect, useState } from 'react'
 import { useQueryClient } from '@tanstack/react-query'
 import { useTranslations } from 'next-intl'
-import { CalendarDays, Info, CalendarClock, Ticket, Send, Link2 } from 'lucide-react'
+import { CalendarDays, Info, CalendarClock, Ticket, Send, Link2, Loader2 } from 'lucide-react'
 import { eventService } from '@/lib/core/event-service'
 import { useEventDetails } from '@/lib/hooks/use-events'
+import { useReverseGeocode } from '@/lib/hooks/use-reverse-geocode'
+import { IDENTITY_REQUIRED_FIELDS, missingRequiredLabels } from '@/lib/core/entity-form-validation'
 import { useCmsUser } from '@/lib/hooks/useCmsUser'
 import { EntityManagementDrawer } from '@/components/entity-management/EntityManagementDrawer'
 import { LocationPicker } from '@/components/entity-management/LocationPicker'
@@ -103,6 +105,34 @@ export function EventFormModal({ eventId, isOpen, onClose, onSaved }: EventFormM
 
   const set = (k: string, v: any) => setForm((p) => ({ ...p, [k]: v }))
 
+  /**
+   * Country/state/city come from the map click, like POI creation does. CREATE MODE ONLY: on an
+   * existing record those fields were curated, and overwriting them when the pin moves would
+   * erase someone's work. The operator can still correct all three by hand.
+   */
+  const { detecting: detectingLocation, detected: detectedLocation } = useReverseGeocode({
+    enabled: isOpen && !isEdit && canEdit,
+    latitude: form.latitude !== '' && form.latitude != null ? Number(form.latitude) : null,
+    longitude: form.longitude !== '' && form.longitude != null ? Number(form.longitude) : null,
+    onDetected: (loc) => {
+      setForm((p) => ({
+        ...p,
+        city: loc.city ?? p.city,
+        state: loc.state ?? p.state,
+        country: loc.country ?? p.country,
+      }))
+    },
+  })
+
+  /** Which required fields are still empty, in the operator's language. */
+  const missingFieldsMessage = (includeStart: boolean) => {
+    const groups = includeStart
+      ? [...IDENTITY_REQUIRED_FIELDS, { label: 'starts_at', keys: ['starts_at'] }]
+      : IDENTITY_REQUIRED_FIELDS
+    const fields = missingRequiredLabels(form, groups).map((label) => t(`labels.${label}`))
+    return t('validation_missing', { fields: fields.join(', ') })
+  }
+
   const invalidate = () => {
     queryClient.invalidateQueries({ queryKey: ['events'] })
     queryClient.invalidateQueries({ queryKey: ['events-facets'] })
@@ -115,7 +145,9 @@ export function EventFormModal({ eventId, isOpen, onClose, onSaved }: EventFormM
     try {
       if (!isEdit) {
         if (!form.name || !form.city || !form.country || !form.starts_at || !form.latitude || !form.longitude) {
-          throw new Error(t('validation_required'))
+          // Names the fields that are actually missing: the old fixed sentence listed
+          // name/city/country while what was missing was the coordinate.
+          throw new Error(missingFieldsMessage(true))
         }
         const id = await eventService.create({
           name: form.name,
@@ -136,7 +168,7 @@ export function EventFormModal({ eventId, isOpen, onClose, onSaved }: EventFormM
       }
 
       if (!form.name || !form.city || !form.country || !form.latitude || !form.longitude) {
-        throw new Error(t('validation_required'))
+        throw new Error(missingFieldsMessage(false))
       }
 
       await eventService.updateAttraction(eventId as string, {
@@ -236,6 +268,19 @@ export function EventFormModal({ eventId, isOpen, onClose, onSaved }: EventFormM
               name={form.name}
               onChange={(lat, lng) => { set('latitude', lat); set('longitude', lng) }}
             />
+            {/* What the click resolved to, like the POI create tab: the fields above are already
+                filled with it, and this panel is what lets the operator check before saving. */}
+            {!isEdit && detectingLocation && (
+              <p className="mt-2 flex items-center gap-2 text-xs text-gray-600 dark:text-gray-400">
+                <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                {t('location_detecting')}
+              </p>
+            )}
+            {!isEdit && !detectingLocation && detectedLocation?.formatted_address && (
+              <p className="mt-2 text-xs text-gray-600 dark:text-gray-400">
+                {t('location_detected')} {detectedLocation.formatted_address}
+              </p>
+            )}
           </div>
         </div>
       </section>
