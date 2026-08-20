@@ -7,7 +7,7 @@
  */
 
 import { useTranslations } from 'next-intl'
-import { CheckCircle, Star, FileText, AlertTriangle, Volume2, Target, Info } from 'lucide-react'
+import { CheckCircle, Star, FileText, Volume2, Target, Info } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { getScoreColor, getScoreBackgroundColor, getScoreDescription } from '@/lib/score/compute'
 import { usePOIModalContext } from '../POIModalContext'
@@ -166,8 +166,8 @@ export function ReviewTab() {
                             </>
                           ) : (
                             <>
-                               <AlertTriangle className="h-4 w-4 text-red-500" />
-                               <span className="text-xs text-red-600 dark:text-red-400">{tCommon('status.required')}</span>
+                               <Info className="h-4 w-4 text-blue-500" />
+                               <span className="text-xs text-blue-600 dark:text-blue-400">{t('labels.optional')}</span>
                              </>
                           )}
                         </div>
@@ -189,8 +189,8 @@ export function ReviewTab() {
                              </>
                           ) : (
                             <>
-                               <AlertTriangle className="h-4 w-4 text-red-500" />
-                               <span className="text-xs text-red-600 dark:text-red-400">{t('labels.min_audio_required')}</span>
+                               <Info className="h-4 w-4 text-blue-500" />
+                               <span className="text-xs text-blue-600 dark:text-blue-400">{t('labels.optional')}</span>
                              </>
                           )}
                         </div>
@@ -215,11 +215,14 @@ export function ReviewTab() {
 
 
                   {/* Approval Status */}
+                  {/* Conteúdo não é requisito de aprovação (BR-CONTEUDO-004, item 3): o painel
+                      informa o que o cadastro já tem, e não bloqueia nada. Vermelho aqui dizia ao
+                      operador que faltava cumprir algo que o produto não exige. */}
                   <div className={cn(
                     "rounded-lg p-4 border",
                     currentDescription.trim() && translatedDescriptions.length > 0
                       ? "bg-green-50 dark:bg-green-900/20 border-green-200 dark:border-green-800"
-                      : "bg-red-50 dark:bg-red-900/20 border-red-200 dark:border-red-800"
+                      : "bg-blue-50 dark:bg-blue-900/20 border-blue-200 dark:border-blue-800"
                   )}>
                     <div className="flex items-center gap-2">
                       {currentDescription.trim() && translatedDescriptions.length > 0 ? (
@@ -243,20 +246,20 @@ export function ReviewTab() {
                         </>
                       ) : (
                         <>
-                          <AlertTriangle className="h-5 w-5 text-red-500" />
+                          <Info className="h-5 w-5 text-blue-500" />
                           <div className="flex-1">
                             <div className="flex items-center justify-between">
-                               <h6 className="text-sm font-medium text-red-900 dark:text-red-200">
-                                 {t('labels.pending_requirements')}
+                               <h6 className="text-sm font-medium text-blue-900 dark:text-blue-200">
+                                 {t('labels.content_optional_title')}
                                </h6>
                               {verificationResult && (
-                                <span className="text-xs font-bold bg-red-100 text-red-800 px-2 py-0.5 rounded-full">
+                                <span className="text-xs font-bold bg-blue-100 text-blue-800 px-2 py-0.5 rounded-full">
                                   {t('labels.review_score', { score: verificationResult.score })}
                                 </span>
                               )}
                             </div>
-                             <p className="text-xs text-red-700 dark:text-red-300">
-                               {t('labels.complete_criteria_hint')}
+                             <p className="text-xs text-blue-700 dark:text-blue-300">
+                               {t('labels.content_optional_hint')}
                              </p>
                           </div>
                         </>

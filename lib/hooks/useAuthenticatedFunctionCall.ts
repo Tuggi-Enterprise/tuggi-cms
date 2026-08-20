@@ -7,6 +7,7 @@
 
 import { useCallback } from 'react'
 import { getSupabaseClient } from '@/lib/core/supabase-client'
+import { readEdgeFunctionError } from '@/lib/core/edge-function-error'
 
 export function useAuthenticatedFunctionCall() {
   const supabase = getSupabaseClient()
@@ -44,9 +45,13 @@ export function useAuthenticatedFunctionCall() {
         })
 
         if (error) {
+          // The body first: supabase-js reports every non-2xx as "Edge Function returned a
+          // non-2xx status code", which tells the operator nothing. The function's own message
+          // ("No description found for attraction …") is in the response it kept on the error.
+          const detail = await readEdgeFunctionError(error)
           return {
             error: new Error(
-              error.message || `Erro ao chamar ${functionName}`
+              detail || error.message || `Erro ao chamar ${functionName}`
             )
           }
         }

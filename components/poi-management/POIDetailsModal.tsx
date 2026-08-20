@@ -2554,7 +2554,14 @@ export function POIDetailsModal({ poi, isOpen, onClose, onUpdate, onPOIUpdated, 
                         {!getPoi()?.approved && isAdmin && (
                           <button
                             onClick={handleApprove}
-                            disabled={isSaving || !currentDescription.trim() || translatedDescriptions.length === 0}
+                            /* APROVAR NÃO EXIGE DESCRIÇÃO NEM ÁUDIO (BR-CONTEUDO-004, item 3, e
+                               BR-POI-006, item 2). Publicado e narrável são conjuntos diferentes
+                               por desenho: o conteúdo nasce quando um usuário chega perto ou
+                               quando o operador pede, não na aprovação. A trava anterior exigia
+                               descrição salva mais um áudio, e era o único gate de conteúdo do
+                               CMS — `handleApprove`, `approvePoi` e `setApproved` nunca a
+                               revalidaram. */
+                            disabled={isSaving}
                             className="inline-flex items-center px-8 py-3 bg-green-600 text-white rounded-2xl font-bold text-sm hover:shadow-xl hover:shadow-green-600/30 transition-all uppercase tracking-widest disabled:opacity-50 active:scale-95"
                           >
                              <CheckCircle className="h-4 w-4 mr-2" />

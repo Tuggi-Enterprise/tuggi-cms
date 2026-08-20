@@ -8,9 +8,10 @@
  */
 
 import { useTranslations } from 'next-intl'
-import { Loader2, Volume2, RotateCcw, Download, Trash2, User, X } from 'lucide-react'
+import { Loader2, Volume2, RotateCcw, Download, Trash2, User, X, AlertTriangle } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { formatDate } from '@/lib/utils'
+import { describeDescriptionState } from '@/lib/core/description-state'
 import { usePOIModalContext } from '../POIModalContext'
 
 export function NarrationAudioTab() {
@@ -20,6 +21,7 @@ export function NarrationAudioTab() {
     getPoi,
     isLoading,
     currentDescription,
+    originalDescription,
     descriptions,
     currentAudioUrl,
     selectedGender,
@@ -42,6 +44,14 @@ export function NarrationAudioTab() {
   } = usePOIModalContext()
   const poi = getPoi()
 
+  /**
+   * The edge function translates the SAVED row, never the editor. Reading the textarea to decide
+   * whether audio can be generated is what let a Place with a generated-but-unsaved description
+   * reach the function and come back 500 — with the description visible on screen the whole time.
+   */
+  const descriptionState = describeDescriptionState({ descriptions, currentDescription, originalDescription })
+  const canGenerateAudio = descriptionState !== 'missing' && descriptionState !== 'unsaved'
+
   return (
               <div className="px-6 py-4 max-h-[80vh] overflow-y-auto">
                 {isLoading ? (
@@ -52,6 +62,19 @@ export function NarrationAudioTab() {
                   </div>
                 ) : (
                   <div className="space-y-6">
+                    {/* The state of the description, said before the operator clicks: the button
+                        below cannot work without a saved row, and the reason is not on screen
+                        anywhere else. */}
+                    {descriptionState !== 'saved' && (
+                      <div className="flex items-start gap-2 p-3 rounded-lg border border-amber-200 dark:border-amber-800 bg-amber-50 dark:bg-amber-900/20">
+                        <AlertTriangle className="h-4 w-4 mt-0.5 text-amber-600 dark:text-amber-400 flex-shrink-0" />
+                        <p className="text-sm text-amber-800 dark:text-amber-300">
+                          {descriptionState === 'unsaved'
+                            ? t('labels.description_unsaved_warning')
+                            : t('labels.description_missing_warning')}
+                        </p>
+                      </div>
+                    )}
                     <div className="flex items-center justify-between">
                       <div>
                          <h4 className="text-lg font-medium text-gray-900 dark:text-white">
@@ -76,7 +99,7 @@ export function NarrationAudioTab() {
                             // Always regenerate all audios (PT, EN, ES)
                             regenerateAllAudios()
                           }}
-                          disabled={isGeneratingAudio || isTranslating || (!currentDescription.trim() && !currentAudioUrl)}
+                          disabled={isGeneratingAudio || isTranslating || !canGenerateAudio}
                           className="inline-flex items-center px-4 py-2 border border-transparent text-sm font-medium rounded-md text-white bg-tuggi-blue hover:bg-tuggi-blue/90 focus:outline-none focus:ring-2 focus:ring-tuggi-blue disabled:opacity-50"
                         >
                           {(isGeneratingAudio || isTranslating) ? (
@@ -396,9 +419,11 @@ export function NarrationAudioTab() {
                          <p className="text-sm text-gray-500 dark:text-gray-400 mb-4">
                            {t('labels.no_audio_description')}
                          </p>
-                        {!currentDescription.trim() && (
+                        {descriptionState !== 'saved' && (
                            <p className="text-sm text-tuggi-orange">
-                             ⚠️ {t('labels.save_description_first')}
+                             ⚠️ {descriptionState === 'unsaved'
+                               ? t('labels.description_unsaved_warning')
+                               : t('labels.description_missing_warning')}
                            </p>
                         )}
                       </div>

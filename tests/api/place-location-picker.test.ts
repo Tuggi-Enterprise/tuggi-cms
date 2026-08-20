@@ -449,3 +449,32 @@ test('the detected-location lookup stays the only reverse geocoder in the CMS cl
     'a third reverse geocoder appeared — fold it into use-reverse-geocode',
   )
 })
+
+// ── Publicação: onde os três controles moram ─────────────────────────────────────────────────
+
+test('publishing lives in the sidebar, and only where the Save button also is', () => {
+  const drawer = code('components/entity-management/EntityManagementDrawer.tsx')
+
+  // The slot is in the <aside>, pinned to the bottom.
+  assert.match(drawer, /sidebarFooter && activeTab === 'details'/)
+  assert.match(drawer, /<div className="mt-auto">\{sidebarFooter\}<\/div>/)
+
+  // The footer with Save is rendered under the same condition. Splitting them would let the
+  // operator tick `Approved` on a tab with no way to persist it, and lose it on close.
+  assert.match(drawer, /\{activeTab === 'details' && \(\s*<footer/)
+
+  for (const modal of [
+    'components/place-management/PlaceFormModal.tsx',
+    'components/event-management/EventFormModal.tsx',
+  ]) {
+    const source = code(modal)
+    assert.match(source, /sidebarFooter=\{isEdit \? \(/, `${modal} does not fill the sidebar slot`)
+    assert.match(source, /<PublishingControls/, `${modal} rebuilt the controls by hand`)
+    // The old home: the bottom of the Details form, below Identity/Commerce/Amenities.
+    assert.equal(
+      source.includes("<h4 className={sectionTitle}><Send"),
+      false,
+      `${modal} still renders a Publishing section inside the form`,
+    )
+  }
+})

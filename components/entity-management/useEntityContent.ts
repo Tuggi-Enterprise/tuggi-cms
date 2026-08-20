@@ -261,6 +261,16 @@ export function useEntityContent(opts: Options): EntityContent {
 
   const regenerateAllAudios = useCallback(async () => {
     if (!entityId || !selectedLanguages.length) return
+    // A base description has to EXIST IN THE BANK: the edge function translates the most recent
+    // saved row, not what is in the editor. Without one it answers 500, and the operator used to
+    // read "Edge Function returned a non-2xx status code" instead of the reason.
+    const hasSavedDescription = descriptions.some(
+      (d: any) => typeof d?.description === 'string' && d.description.trim() && d.description !== '[PROCESSING]'
+    )
+    if (!hasSavedDescription) {
+      showFeedback('Gere e salve uma descrição antes de gerar o áudio.', 'error')
+      return
+    }
     setIsGeneratingAudio(true); setIsTranslating(true)
     const results: string[] = []
     try {
@@ -282,7 +292,7 @@ export function useEntityContent(opts: Options): EntityContent {
       setIsGeneratingAudio(false); setIsTranslating(false)
       setTimeout(() => setAudioProgress({ current: 0, total: 0, currentTask: '' }), 3000)
     }
-  }, [entityId, selectedLanguages, selectedGender, callFunction, fetchAdditionalData])
+  }, [entityId, descriptions, selectedLanguages, selectedGender, callFunction, showFeedback, fetchAdditionalData])
 
   const regenerateTranslation = useCallback(async (language: string, gender: string) => {
     if (!currentDescription.trim()) { showFeedback('Salve uma descrição base primeiro.', 'error'); return }

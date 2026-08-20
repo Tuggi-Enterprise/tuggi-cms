@@ -9,7 +9,7 @@
 import { useEffect, useState } from 'react'
 import { useQueryClient } from '@tanstack/react-query'
 import { useTranslations } from 'next-intl'
-import { Store, Info, Sparkles, Send, Loader2 } from 'lucide-react'
+import { Store, Info, Sparkles, Loader2 } from 'lucide-react'
 import { PLACE_TYPES, placeService } from '@/lib/core/place-service'
 import { usePlaceDetails } from '@/lib/hooks/use-places'
 import { useReverseGeocode } from '@/lib/hooks/use-reverse-geocode'
@@ -17,6 +17,7 @@ import { missingRequiredLabels } from '@/lib/core/entity-form-validation'
 import { useCmsUser } from '@/lib/hooks/useCmsUser'
 import { EntityManagementDrawer } from '@/components/entity-management/EntityManagementDrawer'
 import { LocationPicker } from '@/components/entity-management/LocationPicker'
+import { PublishingControls } from '@/components/entity-management/PublishingControls'
 
 interface PlaceFormModalProps {
   placeId?: string | null
@@ -204,6 +205,17 @@ export function PlaceFormModal({ placeId, isOpen, onClose, onSaved }: PlaceFormM
       onClose={onClose}
       onSave={handleSave}
       invalidate={invalidate}
+      sidebarFooter={isEdit ? (
+        <PublishingControls
+          title={t('sections.publish')}
+          labels={{ approved: L('approved'), active: L('active'), priority: L('priority') }}
+          approved={!!form.approved}
+          isActive={!!form.is_active}
+          priorityLevel={Number(form.priority_level) || 3}
+          disabled={!canEdit}
+          onChange={(patch) => setForm((p) => ({ ...p, ...patch }))}
+        />
+      ) : undefined}
     >
       {error && (
         <div className="p-3 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-xl text-red-700 dark:text-red-400 text-sm">{error}</div>
@@ -325,26 +337,6 @@ export function PlaceFormModal({ placeId, isOpen, onClose, onSaved }: PlaceFormM
             </div>
           </section>
 
-          {/* Publishing */}
-          <section className={sectionCard}>
-            <h4 className={sectionTitle}><Send className="h-4 w-4 text-tuggi-blue" />{t('sections.publish')}</h4>
-            <div className="flex flex-wrap items-center gap-6">
-              <label className="flex items-center gap-2 cursor-pointer">
-                <input type="checkbox" checked={!!form.approved} onChange={(e) => set('approved', e.target.checked)} className="w-4 h-4 rounded accent-tuggi-blue" />
-                <span className="text-sm font-medium text-gray-700 dark:text-gray-300">{L('approved')}</span>
-              </label>
-              <label className="flex items-center gap-2 cursor-pointer">
-                <input type="checkbox" checked={!!form.is_active} onChange={(e) => set('is_active', e.target.checked)} className="w-4 h-4 rounded accent-tuggi-blue" />
-                <span className="text-sm font-medium text-gray-700 dark:text-gray-300">{L('active')}</span>
-              </label>
-              <div className="flex items-center gap-2">
-                <span className="text-sm font-medium text-gray-700 dark:text-gray-300">{L('priority')}</span>
-                <select value={form.priority_level ?? 3} onChange={(e) => set('priority_level', e.target.value)} className="px-3 py-1.5 bg-gray-50 dark:bg-gray-900/50 border border-transparent rounded-lg text-sm dark:text-white outline-none focus:ring-2 focus:ring-tuggi-blue">
-                  <option value={1}>1</option><option value={2}>2</option><option value={3}>3</option>
-                </select>
-              </div>
-            </div>
-          </section>
         </>
       )}
     </EntityManagementDrawer>

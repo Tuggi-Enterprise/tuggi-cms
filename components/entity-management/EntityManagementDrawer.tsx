@@ -36,6 +36,13 @@ interface Props {
    *  (quem narra é o POI). Só eventos passam isso; POI/local ficam undefined. */
   venueLinked?: boolean
   venueName?: string
+  /**
+   * Publicação (aprovado / ativo / prioridade), no rodapé da barra lateral. Fica AQUI e não no
+   * formulário porque no formulário ficava abaixo da dobra — e é renderizado só na aba Details,
+   * a única com o rodapé de Salvar: separá-los deixaria o operador marcar `Aprovado` numa aba
+   * sem nenhum botão para gravar, e a marca se perderia ao fechar.
+   */
+  sidebarFooter?: React.ReactNode
   onClose: () => void
   onSave: () => void
   invalidate: () => void
@@ -45,7 +52,7 @@ interface Props {
 export function EntityManagementDrawer({
   isOpen, isEdit, entityId, name, coordinates, canEdit,
   loading = false, saving = false, title, HeaderIcon,
-  venueLinked = false, venueName,
+  venueLinked = false, venueName, sidebarFooter,
   onClose, onSave, invalidate, children,
 }: Props) {
   const t = useTranslations('Modals.POIDetails')
@@ -106,6 +113,9 @@ export function EntityManagementDrawer({
             ))}
             {!isEdit && (
               <p className="text-[11px] text-gray-400 px-3 mt-3 leading-relaxed">{t('validation.location_required')}</p>
+            )}
+            {sidebarFooter && activeTab === 'details' && (
+              <div className="mt-auto">{sidebarFooter}</div>
             )}
           </aside>
 
