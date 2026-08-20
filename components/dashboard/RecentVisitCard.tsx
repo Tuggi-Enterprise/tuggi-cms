@@ -1,7 +1,10 @@
 'use client'
 
-import { Headphones, Eye, Clock } from 'lucide-react'
+import { Headphones, Eye, Clock, Radar, Hand } from 'lucide-react'
+import { useTranslations } from 'next-intl'
 import { Link } from '@/navigation'
+import { visitSourceKind } from '@/lib/shared/visit-source'
+import { languageFlag } from '@/lib/shared/language-flag'
 
 export interface RecentVisit {
   visit_id: string
@@ -15,9 +18,16 @@ export interface RecentVisit {
   audio_played: boolean
   platform: string
   audio_language: string
+  /** Ausente no radar em tempo real: `core.dashboard_realtime_activity` ainda não devolve a coluna. */
+  visit_source?: string
 }
 
-export const RecentVisitCard = ({ visit, locale }: { visit: RecentVisit, locale: string }) => (
+export const RecentVisitCard = ({ visit, locale }: { visit: RecentVisit, locale: string }) => {
+  const t = useTranslations('Pages.Dashboard.labels')
+  const kind = visitSourceKind(visit.visit_source)
+  const flag = languageFlag(visit.audio_language)
+
+  return (
   <Link
     href={`/pois?poiId=${visit.poi_id}`}
     className="group relative flex items-center p-3 mb-2 bg-gray-50/50 dark:bg-gray-800/30 border border-transparent hover:border-gray-100 dark:hover:border-gray-700 hover:shadow-sm rounded-xl transition-all duration-300 cursor-pointer"
@@ -44,8 +54,25 @@ export const RecentVisitCard = ({ visit, locale }: { visit: RecentVisit, locale:
             {visit.poi_name}
           </span>
           <div className="flex items-center gap-1">
+            {/* Tipo de engajamento: o Trigger Point disparou sozinho, ou o usuário
+                abriu o POI e apertou play. Sem a coluna, nada é afirmado. */}
+            {kind !== 'unknown' && (
+              <span
+                className={`inline-flex items-center gap-0.5 text-[7px] font-black uppercase px-1 py-0.5 rounded border tracking-tighter ${
+                  kind === 'trigger_point'
+                    ? 'bg-orange-100 dark:bg-orange-900/40 text-orange-600 dark:text-orange-300 border-orange-200/50'
+                    : 'bg-purple-100 dark:bg-purple-900/40 text-purple-600 dark:text-purple-300 border-purple-200/50'
+                }`}
+              >
+                {kind === 'trigger_point' ? <Radar size={7} /> : <Hand size={7} />}
+                {t(kind === 'trigger_point' ? 'engagement_trigger_point' : 'engagement_manual_play')}
+              </span>
+            )}
             {visit.audio_language && visit.audio_language !== 'unknown' && (
-              <span className="text-[7px] font-black uppercase px-1 py-0.5 rounded bg-blue-100 dark:bg-blue-900/40 text-blue-600 dark:text-blue-300 border border-blue-200/50 tracking-tighter">
+              <span className="inline-flex items-center gap-0.5 text-[7px] font-black uppercase px-1 py-0.5 rounded bg-blue-100 dark:bg-blue-900/40 text-blue-600 dark:text-blue-300 border border-blue-200/50 tracking-tighter">
+                {/* A bandeira é iconografia: acompanha a sigla, nunca a substitui —
+                    o Windows não desenha indicador regional. */}
+                {flag && <span className="text-[9px] leading-none">{flag}</span>}
                 {visit.audio_language}
               </span>
             )}
@@ -56,7 +83,11 @@ export const RecentVisitCard = ({ visit, locale }: { visit: RecentVisit, locale:
             )}
           </div>
         </div>
-        <p className="text-[9px] font-bold text-gray-400 uppercase truncate tracking-widest">{visit.poi_city}</p>
+        <p className="text-[9px] font-bold text-gray-400 uppercase truncate tracking-widest">
+          {visit.poi_city}
+          {/* Cidade repete entre países — "Valença" é BA e Portugal na mesma base. */}
+          {visit.poi_country && <span className="text-gray-300 dark:text-gray-600"> &middot; {visit.poi_country}</span>}
+        </p>
       </div>
     </div>
 
@@ -71,4 +102,5 @@ export const RecentVisitCard = ({ visit, locale }: { visit: RecentVisit, locale:
       </div>
     </div>
   </Link>
-)
+  )
+}

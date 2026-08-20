@@ -304,7 +304,9 @@
         "inactive": "Inactive",
         "pois_per_trip": "POIs / Trip",
         "km_per_trip": "Km / Trip",
-        "demand_points": "Demand Points"
+        "demand_points": "Demand Points",
+        "engagement_trigger_point": "Trigger Point",
+        "engagement_manual_play": "Manual play"
       },
       "footer": {
         "copyright": "© 2026 Tuggi - Territorial Intelligence"

@@ -305,7 +305,9 @@
         "inactive": "Inativo",
         "pois_per_trip": "POIs / Viagem",
         "km_per_trip": "Km / Viagem",
-        "demand_points": "Pontos de Demanda"
+        "demand_points": "Pontos de Demanda",
+        "engagement_trigger_point": "Trigger Point",
+        "engagement_manual_play": "Play manual"
       },
       "reports": {
         "inventory": {

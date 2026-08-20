@@ -276,7 +276,9 @@
         "inactive": "Inactivo",
         "pois_per_trip": "POIs / Viaje",
         "km_per_trip": "Km / Viaje",
-        "demand_points": "Puntos de Demanda"
+        "demand_points": "Puntos de Demanda",
+        "engagement_trigger_point": "Trigger Point",
+        "engagement_manual_play": "Play manual"
       },
       "charts": {
         "mau": "Usuarios Activos (Últimos 30 Días)",

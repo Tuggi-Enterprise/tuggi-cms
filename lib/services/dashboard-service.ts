@@ -650,6 +650,33 @@ class DashboardService {
   }
   
   /**
+   * Busca perfis por termo (nickname/full_name) direto no banco.
+   * O seletor de push direto carrega só os N mais recentes; sem busca no
+   * servidor um usuário fora dessa janela nunca aparece.
+   */
+  static async searchProfiles(term: string, limit = 50): Promise<{ success: boolean; data?: any[]; error?: string }> {
+    const query = term.trim()
+    if (!query) return this.getProfiles(limit)
+    try {
+      const supabase = getSupabaseClient()
+      const escaped = query.replace(/[%_,]/g, (c) => `\\${c}`)
+      const { data, error } = await supabase
+        .schema('drive')
+        .from('profiles')
+        .select('id, full_name, nickname, avatar_url, country, language, last_sign_in_at, login_count, created_at, last_platform, subscription_tier_id')
+        .or(`nickname.ilike.%${escaped}%,full_name.ilike.%${escaped}%`)
+        .order('last_sign_in_at', { ascending: false, nullsFirst: false })
+        .limit(limit)
+
+      if (error) throw error
+      return { success: true, data }
+    } catch (error) {
+      console.error('Error searching profiles:', error)
+      return { success: false, error: error instanceof Error ? error.message : 'Unknown error' }
+    }
+  }
+
+  /**
    * Busca a última posição conhecida de cada usuário (profiles.lat/lng) para o
    * mapa-hero da Overview. Endpoint slim — NÃO passa pelo getDashboardData monolítico.
    */
@@ -940,7 +967,10 @@ class DashboardService {
     success: boolean;
     data?: {
       active_users: Array<{ user_id: string; lat: number; lng: number; timestamp: string }>;
-      active_pois: Array<{ visit_id: string; poi_id: string; poi_name: string; poi_city: string; poi_country: string; poi_category: string; user_nickname: string; visit_timestamp: string; audio_played: boolean; platform: string; audio_language: string }>;
+      // `visit_source` é opcional enquanto `core.dashboard_realtime_activity` não
+      // devolver a coluna — SQL pendente em docs/dev/radar-visit-source.md. O cartão
+      // omite o selo de engajamento no que chegar sem ela.
+      active_pois: Array<{ visit_id: string; poi_id: string; poi_name: string; poi_city: string; poi_country: string; poi_category: string; user_nickname: string; visit_timestamp: string; audio_played: boolean; platform: string; audio_language: string; visit_source?: string }>;
       window_seconds: number;
       generated_at: string;
     };
@@ -994,6 +1024,7 @@ export const dashboardService = {
   getHeatmapData: (sampleSize?: number) => DashboardService.getHeatmapData(sampleSize),
   getUsersWithSessions: (limit?: number) => DashboardService.getUsersWithSessions(limit),
   getProfiles: (limit?: number) => DashboardService.getProfiles(limit),
+  searchProfiles: (term: string, limit?: number) => DashboardService.searchProfiles(term, limit),
   getUserLocationPins: (limit?: number, ownerId?: string) => DashboardService.getUserLocationPins(limit, ownerId),
   getWaitlistStats: () => DashboardService.getWaitlistStats(),
   getWaitlistPins: (limit?: number, onlyPending?: boolean) => DashboardService.getWaitlistPins(limit, onlyPending),

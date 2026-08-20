@@ -42,23 +42,25 @@ export function NotificationManager() {
 
   const t = useTranslations('Pages.Notifications');
 
-  // Load users for Direct Push
+  // Load users for Direct Push. A busca vai ao banco: a lista sem termo traz só
+  // os logins mais recentes, e filtrar no cliente escondia quem está fora dela.
   useEffect(() => {
-    if (activeTab === 'direct') {
-      const fetchUsers = async () => {
-        setIsLoadingUsers(true);
-        try {
-          const result = await dashboardService.getProfiles(50);
-          if (result.success) setUsers(result.data || []);
-        } catch (e) {
-          console.error(e);
-        } finally {
-          setIsLoadingUsers(false);
-        }
-      };
-      fetchUsers();
-    }
-  }, [activeTab]);
+    if (activeTab !== 'direct') return;
+    let cancelled = false;
+    const fetchUsers = async () => {
+      setIsLoadingUsers(true);
+      try {
+        const result = await dashboardService.searchProfiles(userSearch, 50);
+        if (!cancelled && result.success) setUsers(result.data || []);
+      } catch (e) {
+        console.error(e);
+      } finally {
+        if (!cancelled) setIsLoadingUsers(false);
+      }
+    };
+    const timer = setTimeout(fetchUsers, userSearch ? 300 : 0);
+    return () => { cancelled = true; clearTimeout(timer); };
+  }, [activeTab, userSearch]);
 
   const toggleUserSelection = (user: any) => {
     setSelectedUsers(prev => {
@@ -142,11 +144,12 @@ export function NotificationManager() {
     }
   };
 
-  const filteredUsers = users.filter(u => 
-    (u.nickname?.toLowerCase().includes(userSearch.toLowerCase())) ||
-    (u.full_name?.toLowerCase().includes(userSearch.toLowerCase())) ||
-    (u.email?.toLowerCase().includes(userSearch.toLowerCase()))
-  );
+  // A filtragem é feita no servidor (searchProfiles); selecionados ficam sempre
+  // visíveis para não sumirem da lista ao trocar o termo de busca.
+  const filteredUsers = [
+    ...selectedUsers.filter(su => !users.some(u => u.id === su.id)),
+    ...users,
+  ];
 
   const tabs = [
     { id: 'broadcast', label: t('tabs.broadcast'), icon: Send },
