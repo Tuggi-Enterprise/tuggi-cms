@@ -58,6 +58,10 @@ export const RecentVisitCard = ({ visit, locale }: { visit: RecentVisit, locale:
                 abriu o POI e apertou play. Sem a coluna, nada é afirmado. */}
             {kind !== 'unknown' && (
               <span
+                /* O valor cru fica a um hover de distância: `trigger_point` e
+                   `audio_trigger` são o mesmo engajamento, mas caminhos de
+                   gravação diferentes, e quem investiga sync precisa de qual foi. */
+                title={visit.visit_source}
                 className={`inline-flex items-center gap-0.5 text-[7px] font-black uppercase px-1 py-0.5 rounded border tracking-tighter ${
                   kind === 'trigger_point'
                     ? 'bg-orange-100 dark:bg-orange-900/40 text-orange-600 dark:text-orange-300 border-orange-200/50'
