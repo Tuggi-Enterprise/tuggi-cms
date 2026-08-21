@@ -554,11 +554,20 @@ function ProposalBand({ detail, locale }: { detail: Detail; locale: string }) {
   )
 }
 
+/**
+ * Band 2 reads the CLIENT's conference, not the promoted proposal's.
+ *
+ * It used to read `detail.submission.conference`, and for a client that was never a proposal
+ * there is no submission: the band said `conferenceNone` about a step the CMS gave nobody a way
+ * to complete, and the pipeline stayed pinned there. The record moved to
+ * `partner.client_conferences` on 2026-08-21 and the band followed it. Where it is FILLED IN is
+ * the contract page, which is also where its absence refuses something.
+ */
 function ConferenceBand({ detail }: { detail: Detail }) {
   const t = useTranslations('Partnerships')
-  const submission = detail.submission
+  const { record, reviewedAt, reviewedByLabel } = detail.conference
 
-  if (!submission || !submission.reviewedAt) {
+  if (!reviewedAt) {
     return (
       <div className="text-sm text-gray-900">
         <p>{t('detail.conferenceNone')}</p>
@@ -569,27 +578,21 @@ function ConferenceBand({ detail }: { detail: Detail }) {
     )
   }
 
-  const conference = submission.conference
+  const conference = record
 
   return (
     <div className="text-sm text-gray-900">
       <p>
-        {submission.reviewedByLabel
+        {reviewedByLabel
           ? t('detail.conferenceLine', {
-              person: submission.reviewedByLabel,
-              date: formatDate(submission.reviewedAt),
+              person: reviewedByLabel,
+              date: formatDate(reviewedAt),
             })
-          : t('detail.conferenceLineAnonymous', { date: formatDate(submission.reviewedAt) })}
+          : t('detail.conferenceLineAnonymous', { date: formatDate(reviewedAt) })}
       </p>
-      {conference.licenseNumber && (
-        <p className="mt-1 break-words text-gray-800">
-          {t('detail.conferenceLicense', {
-            number: conference.licenseNumber,
-            issuer: conference.licenseIssuer ?? '—',
-            validUntil: formatDate(conference.licenseValidUntil),
-          })}
-        </p>
-      )}
+      {/* The licence trail line left on 2026-08-21: the conference is a tick, so there is no
+          number, municipality or validity to print. What the band still says is WHO conferred
+          and WHEN, which is the half of BR-B2B-030 item 2 the record still holds. */}
       <p className="mt-2 text-xs text-gray-800">{t('detail.conferenceDerived')}</p>
     </div>
   )
@@ -994,13 +997,15 @@ function Trail({ detail }: { detail: Detail }) {
     detail.submission?.submittedAt
       ? t('detail.proposalLine', { date: formatDate(detail.submission.submittedAt) })
       : null,
-    detail.submission?.reviewedAt
-      ? detail.submission.reviewedByLabel
+    // The client's conference, the same source band 2 reads. Reading `submission` here would
+    // put the trail and the band on two different records for the same act.
+    detail.conference.reviewedAt
+      ? detail.conference.reviewedByLabel
         ? t('detail.conferenceLine', {
-            person: detail.submission.reviewedByLabel,
-            date: formatDate(detail.submission.reviewedAt),
+            person: detail.conference.reviewedByLabel,
+            date: formatDate(detail.conference.reviewedAt),
           })
-        : t('detail.conferenceLineAnonymous', { date: formatDate(detail.submission.reviewedAt) })
+        : t('detail.conferenceLineAnonymous', { date: formatDate(detail.conference.reviewedAt) })
       : null,
     detail.client.createdAt
       ? t('detail.clientCreated', { date: formatDate(detail.client.createdAt) })

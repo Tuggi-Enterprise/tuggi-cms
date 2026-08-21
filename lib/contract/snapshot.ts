@@ -202,8 +202,6 @@ export interface GenerationChoices {
 export interface RegularityEvidence {
   businessLicenseDocument: boolean
   incorporationDocument: boolean
-  /** ISO date from the partner's answer. `null` is "not informed", which is a blocker. */
-  businessLicenseValidUntil: string | null
 }
 
 export type ContractClient = Client
@@ -250,8 +248,14 @@ export interface ChecklistItem {
  * ONE CONSTANT because the four items below point at the same place, and a `where` that drifts on
  * one of them sends somebody to a screen that cannot answer. It is NOT the partner form: there has
  * been no upload there since 2026-08-16.
+ *
+ * IT POINTS AT THIS PAGE SINCE 2026-08-21, and the move is the whole fix. It used to name the
+ * band on the PROPOSAL, which a client registered directly has never had: the item said where to
+ * go, the place did not exist, and generation was refused forever. The conference is now a fact
+ * about the client (`partner.client_conferences`), it is registered on the contract page itself,
+ * and the operator resolves the item without leaving the screen that raised it.
  */
-const CONFERENCE_BAND = 'banda Conferência presencial, na proposta'
+const CONFERENCE_BAND = 'banda Conferência presencial, nesta página'
 
 export interface ChecklistResult {
   ready: boolean
@@ -356,31 +360,22 @@ export function contractChecklist(
     missing.push({ id: 'representative_role', label: 'Cargo do representante legal', where: 'aba Fiscal e Pagamentos', target: { kind: 'client', clientId: client.id, tab: 'fiscal' } })
   }
 
-  // BR-B2B-022, item 3: "documento vencido é ausência".
+  // BR-B2B-022, item 3: the two documents, and what the gate can actually check about them.
   //
-  // THE EVIDENCE IS A CONFERENCE, NOT AN UPLOAD, and the checklist says where it really is. The
-  // partner form stopped asking for either file on 2026-08-16 — the papers are checked in person
-  // before the link is ever sent — so `anexado` named an act that does not exist and
-  // `formulário do parceiro` sent the operator to a screen with no field to fill. What
-  // `loadRegularity` reads is the `ConferenceRecord` inside the review annotation, registered in
-  // the `Conferência presencial` band of the proposal (`ProposalReview`, `conference.heading`).
+  // THE EVIDENCE IS A CONFERENCE, NOT AN UPLOAD. The partner form stopped asking for either file
+  // on 2026-08-16 — the papers are checked in person before the link is ever sent — so `anexado`
+  // named an act that does not exist. What `loadRegularity` reads is the `ConferenceRecord` of
+  // the client, registered in the `Conferência presencial` band of this page.
+  //
+  // TWO ITEMS LEFT ON 2026-08-21, AND THE ABSENCE IS THE DECISION. `business_license_validity`
+  // and `business_license_expired` read a date the conference no longer records (operator:
+  // *"nao iremos pedir o numero do alvará, só dar um check no cms"*). They are gone rather than
+  // permanently satisfied, because a checklist item that can never fire is a promise the screen
+  // keeps making about a check nobody performs. The consequence for BR-B2B-022 item 4 is written
+  // on `ConferenceRecord` and is `produto`'s to resolve in the rule text.
   const regularity = options.regularity
   if (!regularity.businessLicenseDocument) {
     missing.push({ id: 'business_license', label: 'Alvará de funcionamento conferido', where: CONFERENCE_BAND, target: { kind: 'conference' } })
-  } else if (!regularity.businessLicenseValidUntil) {
-    missing.push({
-      id: 'business_license_validity',
-      label: 'Validade do alvará preenchida',
-      where: CONFERENCE_BAND,
-      target: { kind: 'conference' },
-    })
-  } else if (new Date(regularity.businessLicenseValidUntil).getTime() <= now.getTime()) {
-    missing.push({
-      id: 'business_license_expired',
-      label: 'Alvará vencido — pedir o vigente ao parceiro',
-      where: CONFERENCE_BAND,
-      target: { kind: 'conference' },
-    })
   }
 
   if (!regularity.incorporationDocument) {

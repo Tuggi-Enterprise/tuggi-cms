@@ -20,6 +20,9 @@ import { useCallback, useEffect, useState } from 'react'
 import { ContractText } from '@/components/contract/ContractText'
 import { ClientEditorModal } from '@/components/admin/clients/ClientEditorModal'
 import { Button } from '@/components/ui/button'
+import { Checkbox } from '@/components/ui/checkbox'
+import { PARTNER_DOCUMENT_KINDS, type PartnerDocumentKind } from '@/lib/partner-form/fields'
+import { EMPTY_CONFERENCE, type ConferenceRecord } from '@/lib/partner-form/regularity'
 import {
   formatDate,
   formatDateTime,
@@ -126,6 +129,17 @@ export function ContractManager({
   const [message, setMessage] = useState<string | null>(null)
   const [preview, setPreview] = useState(false)
   /**
+   * The signing link the last send minted, kept on screen instead of inside a sentence.
+   *
+   * IT CANNOT BE FETCHED BACK, and that is why it lives here. `partner.partner_contracts`
+   * stores only the SHA-256 of the token, so the raw value exists exactly once: in the answer
+   * to the POST that created it. Until 2026-08-21 the page printed it only when the e-mail
+   * FAILED, inside a status line with no control on it, and an operator who wanted to send
+   * the contract over WhatsApp had no way to reach it. Losing it is not fatal — sending again
+   * mints a new one, while the contract is unsigned — but it costs the partner a dead link.
+   */
+  const [signingLink, setSigningLink] = useState<SigningLink | null>(null)
+  /**
    * The registration the operator is filling in WITHOUT leaving this page.
    *
    * Every checklist item used to be an instruction — `aba Fiscal e Pagamentos` — and obeying
@@ -194,10 +208,20 @@ export function ContractManager({
             : 'A ação não foi concluída.'
         )
       } else if (action === 'send') {
+        const url = typeof payload?.url === 'string' ? payload.url : ''
+        if (url) {
+          setSigningLink({
+            url,
+            expiresAt: typeof payload?.expiresAt === 'string' ? payload.expiresAt : null,
+            recipientEmail:
+              typeof payload?.recipientEmail === 'string' ? payload.recipientEmail : null,
+            emailed: payload?.emailed === true,
+          })
+        }
         setMessage(
           payload?.emailed
             ? `Contrato enviado para ${String(payload.recipientEmail)}.`
-            : `Link gerado, mas o e-mail não saiu. Link: ${String(payload?.url ?? '')}`
+            : 'O link foi gerado, mas o e-mail não saiu. Use o link abaixo para enviar por outro canal.'
         )
       } else {
         setMessage('Contrato gerado.')
@@ -263,6 +287,8 @@ export function ContractManager({
         software — decisão dele em 2026-08-17. A trava que fica é o checklist de campos
         obrigatórios, e ela recusa a GERAÇÃO logo abaixo.
       */}
+      {!signed ? <ConferenceCard clientId={clientId} onSaved={() => void reload()} /> : null}
+
       {!signed ? (
         <section className={`${CARD} space-y-4 p-6 print:hidden`}>
           <h2 className="text-lg font-semibold text-gray-900 dark:text-white">Gerar contrato</h2>
@@ -379,6 +405,8 @@ export function ContractManager({
           <ContractText snapshot={state.contract.snapshot} />
         </section>
       ) : null}
+
+      {signingLink ? <SigningLinkCard link={signingLink} /> : null}
 
       {state.contract ? (
         <section className={`${CARD} p-6 print:hidden`}>
@@ -506,16 +534,243 @@ function Row({ label, value, copyable }: { label: string; value: string; copyabl
       <dt className="font-semibold text-gray-700 dark:text-gray-400">{label}</dt>
       <dd className="break-all text-gray-900 dark:text-gray-200">
         {value}
-        {copyable ? (
-          <button
-            type="button"
-            className="ml-2 rounded border border-gray-400 px-2 py-0.5 text-xs"
-            onClick={() => navigator.clipboard?.writeText(value)}
-          >
-            Copiar
-          </button>
-        ) : null}
+        {copyable ? <CopyButton value={value} size="compact" className="ml-2" /> : null}
       </dd>
     </>
+  )
+}
+
+/**
+ * The in-person conference of BR-B2B-022, item 3, WHERE THE OPERATOR IS BLOCKED.
+ *
+ * The evidence used to be registered only on the proposal review screen, so a client that was
+ * never a proposal had nowhere to record it and the checklist item above pointed at a band that
+ * did not exist for them. It is a fact about the client now (`partner.client_conferences`), and
+ * it is filled in here, on the page that refuses the generation without it.
+ *
+ * NOTHING HERE VERIFIES A DOCUMENT, and the copy says so. What is stored is one named person
+ * asserting what they saw, with `reviewed_by` and a date on it. A tick is not "Tuggi checked the
+ * alvará"; it is "somebody at Tuggi says they had it in their hands".
+ *
+ * IT IS TWO TICKS AND NOTHING ELSE (operator, 2026-08-21: *"nao iremos pedir o numero do alvará,
+ * só dar um check no cms"*). The licence number, the issuing municipality and the validity date
+ * were three transcriptions off a piece of paper on every conference, and nothing read them
+ * back. What went with the date is written on `ConferenceRecord`.
+ */
+function ConferenceCard({ clientId, onSaved }: { clientId: string; onSaved: () => void }) {
+  const [conference, setConference] = useState<ConferenceRecord>(EMPTY_CONFERENCE)
+  const [reviewed, setReviewed] = useState<{ at: string | null; byLabel: string | null }>({
+    at: null,
+    byLabel: null,
+  })
+  const [loaded, setLoaded] = useState(false)
+  const [saving, setSaving] = useState(false)
+  const [note, setNote] = useState<string | null>(null)
+
+  useEffect(() => {
+    let active = true
+    fetch(`/api/admin/clients/${clientId}/conference`)
+      .then((response) => (response.ok ? response.json() : Promise.reject(new Error('load failed'))))
+      .then((data) => {
+        if (!active) return
+        setConference(data.conference ?? EMPTY_CONFERENCE)
+        setReviewed({ at: data.reviewedAt ?? null, byLabel: data.reviewedByLabel ?? null })
+        setLoaded(true)
+      })
+      .catch(() => {
+        if (active) setLoaded(true)
+      })
+    return () => {
+      active = false
+    }
+  }, [clientId])
+
+  function toggle(kind: PartnerDocumentKind) {
+    setConference((current) => ({
+      ...current,
+      documentsSeen:
+        current.documentsSeen.indexOf(kind) >= 0
+          ? current.documentsSeen.filter((seen) => seen !== kind)
+          : current.documentsSeen.concat(kind),
+    }))
+  }
+
+  async function save() {
+    setSaving(true)
+    setNote(null)
+    try {
+      const response = await fetch(`/api/admin/clients/${clientId}/conference`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(conference),
+      })
+      if (!response.ok) {
+        setNote('Não foi possível registrar a conferência.')
+        return
+      }
+      const data = (await response.json()) as { conference: ConferenceRecord }
+      setConference(data.conference)
+      setNote('Conferência registrada.')
+      onSaved()
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  return (
+    <section className={`${CARD} space-y-4 p-6 print:hidden`}>
+      <div>
+        <h2 className="text-lg font-semibold text-gray-900 dark:text-white">Conferência presencial</h2>
+        <p className="mt-1 text-sm text-gray-800 dark:text-gray-300">
+          Marque o que você viu em mãos. Isto é o seu registro do que conferiu, e não uma verificação
+          do documento pela Tuggi.
+        </p>
+      </div>
+
+      <fieldset>
+        <legend className="sr-only">Documentos conferidos</legend>
+        {PARTNER_DOCUMENT_KINDS.map((kind) => (
+          <label key={kind} className="mt-2 flex items-start gap-2 text-sm text-gray-900 dark:text-white">
+            <Checkbox
+              checked={conference.documentsSeen.indexOf(kind) >= 0}
+              disabled={!loaded}
+              onCheckedChange={() => toggle(kind)}
+            />
+            <span>
+              {kind === 'business_license'
+                ? 'Vi o alvará de funcionamento'
+                : 'Vi o contrato social ou o documento de constituição'}
+            </span>
+          </label>
+        ))}
+      </fieldset>
+
+      <div className="flex flex-wrap items-center gap-3">
+        {/* `cta` and not the default: `bg-primary` is #00A8E8, and white on it measures 2.70:1
+            against the 4.5:1 of WCAG AA. Every primary action on this page already uses `cta`
+            (`bg-primary-800`) for that reason, and axe caught this one the moment it appeared. */}
+        <Button type="button" variant="cta" disabled={saving || !loaded} onClick={() => void save()}>
+          {saving ? 'Registrando…' : 'Registrar a conferência'}
+        </Button>
+        {note ? (
+          <span role="status" className="text-sm text-gray-900 dark:text-gray-200">
+            {note}
+          </span>
+        ) : null}
+      </div>
+
+      {reviewed.at ? (
+        <p className="border-t border-gray-200 pt-2 text-xs text-gray-800 dark:border-gray-800 dark:text-gray-300">
+          {reviewed.byLabel
+            ? `Conferido por ${reviewed.byLabel} em ${formatDateTime(reviewed.at)}.`
+            : `Conferido em ${formatDateTime(reviewed.at)}.`}{' '}
+          Registrar de novo substitui este registro e passa a valer o seu nome.
+        </p>
+      ) : null}
+    </section>
+  )
+}
+
+interface SigningLink {
+  url: string
+  expiresAt: string | null
+  recipientEmail: string | null
+  emailed: boolean
+}
+
+/**
+ * The link that was just minted, with the two ways out of this screen it actually needs.
+ *
+ * WHY WHATSAPP IS A BUTTON AND NOT AN INSTRUCTION. It is how the team talks to the partners,
+ * and `wa.me` needs no integration, no number and no token of its own: it opens the app with
+ * the message written and the operator picks the contact. Everything sensitive stays where it
+ * already is — the link IS the credential, and this is the same link the e-mail carries.
+ *
+ * THE WARNING IS NOT DECORATION. The raw token is nowhere in the database, so leaving this
+ * page loses it. Saying that beside the control is cheaper than an operator discovering it.
+ */
+function SigningLinkCard({ link }: { link: SigningLink }) {
+  const message =
+    'Olá! O contrato de parceria da Tuggi está pronto para assinatura. ' +
+    `Você lê o texto completo e assina por este link: ${link.url}`
+
+  return (
+    <section className={`${CARD} p-6 print:hidden`}>
+      <h2 className="text-lg font-semibold text-gray-900 dark:text-white">Link de assinatura</h2>
+
+      <p className="mt-1 text-sm text-gray-800 dark:text-gray-300">
+        {link.emailed
+          ? `Enviado por e-mail para ${link.recipientEmail ?? 'o representante legal'}. Use o link abaixo para mandar também por WhatsApp ou por outro canal.`
+          : 'O e-mail não saiu. Envie o link abaixo por WhatsApp ou por outro canal.'}
+      </p>
+
+      <p className="mt-3 break-all rounded-lg bg-gray-50 p-3 font-mono text-xs text-gray-900 dark:bg-gray-800 dark:text-gray-200">
+        {link.url}
+      </p>
+
+      <div className="mt-3 flex flex-wrap items-center gap-3">
+        <CopyButton value={link.url} label="Copiar o link" />
+        <a
+          className="inline-flex h-10 items-center rounded-md border border-input px-4 py-2 text-sm font-semibold text-gray-900 hover:bg-accent dark:text-gray-200"
+          href={`https://wa.me/?text=${encodeURIComponent(message)}`}
+          target="_blank"
+          rel="noopener noreferrer"
+        >
+          Enviar por WhatsApp
+        </a>
+      </div>
+
+      <p className="mt-3 border-t border-gray-200 pt-2 text-xs text-gray-800 dark:border-gray-800 dark:text-gray-300">
+        {link.expiresAt
+          ? `O link vale até ${formatDateTime(link.expiresAt)}. Guarde-o agora, porque ele não fica salvo e sai da tela quando você a deixar. Enquanto o contrato não for assinado, enviar de novo gera um link novo e invalida este.`
+          : 'Guarde o link agora, porque ele não fica salvo e sai da tela quando você a deixar. Enquanto o contrato não for assinado, enviar de novo gera um link novo e invalida este.'}
+      </p>
+    </section>
+  )
+}
+
+/**
+ * Copy, and say that it copied. A button that answers nothing leaves the operator pressing it
+ * twice and pasting into the address bar to check.
+ */
+function CopyButton({
+  value,
+  label = 'Copiar',
+  size = 'default',
+  className = '',
+}: {
+  value: string
+  label?: string
+  /** `compact` is the inline chip beside a hash; `default` is a control of its own. */
+  size?: 'default' | 'compact'
+  className?: string
+}) {
+  const [copied, setCopied] = useState(false)
+
+  async function copy() {
+    try {
+      await navigator.clipboard?.writeText(value)
+      setCopied(true)
+      window.setTimeout(() => setCopied(false), 2000)
+    } catch {
+      // A clipboard the browser refuses is not an error worth a banner: the value is on
+      // screen and selectable, which is the fallback the operator already knows.
+    }
+  }
+
+  const shape =
+    size === 'compact'
+      ? 'rounded border border-gray-400 px-2 py-0.5 text-xs'
+      : 'h-10 rounded-md border border-input px-4 py-2 text-sm font-semibold hover:bg-accent'
+
+  return (
+    <button
+      type="button"
+      onClick={() => void copy()}
+      aria-live="polite"
+      className={`inline-flex items-center text-gray-900 dark:text-gray-200 ${shape} ${className}`}
+    >
+      {copied ? 'Copiado' : label}
+    </button>
   )
 }

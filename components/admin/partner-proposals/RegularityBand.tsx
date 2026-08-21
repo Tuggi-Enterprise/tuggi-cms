@@ -8,9 +8,10 @@
  * "aprovado", and never says the Tuggi verified, audited or certified anybody: item 7 of the
  * rule. It says what is there and what is missing.
  *
- * AN EXPIRED LICENCE IS AN ABSENT LICENCE, and the operator does not do the arithmetic — the
- * line says `Venceu em {data} — há {n} dias` with the number already counted. Every line
- * carries an icon AND text (DS-A11Y-003); the icon alone would leave the state to colour.
+ * THE EXPIRY LINES LEFT ON 2026-08-21 with the date that fed them: the conference is a tick
+ * now (operator's decision, see `ConferenceRecord`), so `Venceu em {data}` and the licence
+ * number trail describe facts this system no longer holds. Every remaining line carries an icon
+ * AND text (DS-A11Y-003); the icon alone would leave the state to colour.
  *
  * THE TWO DOCUMENT LINES ARE SOMEBODY'S WORD, NOT A FILE, and the band says so twice, in this
  * order: `checkedBy` names the person and the date (BR-B2B-030, item 2), and only then does
@@ -24,7 +25,6 @@ import { AlertTriangle, Check, X } from 'lucide-react'
 import type { RegularityReport } from '@/lib/partner-form/regularity'
 import type { PartnerAnswers } from '@/lib/partner-form/schema'
 import { formatDate } from './format'
-import type { Translator } from './types'
 
 /**
  * The shell is the CMS's glass panel; the ink stays accessible — see the note in
@@ -58,7 +58,13 @@ export function RegularityBand({ report, answers, checkedBy, checkedAt }: Regula
           note: null,
         }
       case 'business_license':
-        return { id: item.id, ok: item.ok, ...licenseLine(report, t), note: identityNote(report, t) }
+        return {
+          id: item.id,
+          ok: item.ok,
+          tone: item.ok ? 'ok' : 'bad',
+          text: item.ok ? t('regularity.licenseOk') : t('regularity.licenseMissing'),
+          note: null,
+        }
       case 'incorporation_document':
         return {
           id: item.id,
@@ -104,8 +110,8 @@ export function RegularityBand({ report, answers, checkedBy, checkedAt }: Regula
             <span>
               <span className="font-medium text-gray-900 dark:text-white">{t(`regularity.items.${line.id}`)}: </span>
               <span className={line.tone === 'ok' ? 'text-gray-800' : 'text-gray-900'}>{line.text}</span>
-              {/* A municipality name wraps rather than truncates: `Santa Bárbara d'Oeste` is
-                  what a licence says, and a trail nobody can read is not a trail. */}
+              {/* `note` survives the removal of the licence trail: it is the slot a line uses
+                  when it has something to add under itself, and it wraps rather than truncates. */}
               {line.note ? (
                 <span className="block break-words text-xs text-gray-800 dark:text-gray-300">{line.note}</span>
               ) : null}
@@ -135,53 +141,6 @@ export function RegularityBand({ report, answers, checkedBy, checkedAt }: Regula
       </div>
     </section>
   )
-}
-
-function licenseLine(
-  report: RegularityReport,
-  t: Translator
-): { tone: string; text: string } {
-  const { status, validUntil, daysRemaining } = report.license
-
-  if (status === 'expired') {
-    return {
-      tone: 'bad',
-      text: t('regularity.licenseExpired', {
-        date: formatDate(validUntil),
-        days: Math.abs(daysRemaining ?? 0),
-      }),
-    }
-  }
-  if (status === 'expiring') {
-    return {
-      tone: 'warn',
-      text: t('regularity.licenseExpiring', {
-        date: formatDate(validUntil),
-        days: daysRemaining ?? 0,
-      }),
-    }
-  }
-  if (status === 'undated') return { tone: 'bad', text: t('regularity.licenseUndated') }
-  if (status === 'missing') return { tone: 'bad', text: t('regularity.licenseMissing') }
-
-  return {
-    tone: 'ok',
-    text: t('regularity.licenseOk', { date: formatDate(validUntil), days: daysRemaining ?? 0 }),
-  }
-}
-
-/**
- * The trail of BR-B2B-030 item 2, under the line it belongs to. It is NOT part of the gate:
- * a licence in date with no number registered is still a licence in date, and the band says
- * the trail is incomplete without turning the line red — the decision is the operator's, of
- * 2026-08-16, and it lives in `buildRegularityReport`, not here.
- */
-function identityNote(report: RegularityReport, t: Translator): string | null {
-  const { status, number, issuer, identityComplete } = report.license
-  if (status === 'missing') return null
-  if (identityComplete)
-    return t('regularity.licenseIdentity', { number: number ?? '', issuer: issuer ?? '' })
-  return t('regularity.licenseIdentityMissing')
 }
 
 /** Decorative: every one of these sits beside text that says the same thing. */

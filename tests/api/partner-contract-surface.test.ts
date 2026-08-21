@@ -42,6 +42,7 @@ let acceptances: Row[]
 let clients: Row[]
 let objects: Map<string, Uint8Array>
 let emails: Record<string, unknown>[]
+let emailRoutes: string[]
 /** Every set of bytes the renderer produced, in order. */
 let renders: Uint8Array[]
 
@@ -187,7 +188,12 @@ function createFakeService() {
       }),
     },
     functions: {
-      invoke: async (_name: string, options: { body: Record<string, unknown> }) => {
+      // THE INVOKED ADDRESS IS RECORDED, not thrown away as `_name`. For months both callers
+      // invoked `send-transactional` without the `/send` route of the contract, the function
+      // answered 404 to every contract e-mail, and no test saw it — because none of them
+      // looked at the name. See `lib/services/transactional-email.ts`.
+      invoke: async (name: string, options: { body: Record<string, unknown> }) => {
+        emailRoutes.push(name)
         emails.push(options.body)
         return { data: { ok: true }, error: null }
       },
@@ -295,6 +301,7 @@ beforeEach(() => {
   clients = []
   objects = new Map()
   emails = []
+  emailRoutes = []
   renders = []
 })
 
@@ -536,6 +543,7 @@ test('two simultaneous acceptances send ONE signed copy, and the trail keeps the
   ])
 
   assert.equal(emails.filter((body) => body.type === 'partner_contract_signed').length, 1)
+  assert.deepEqual(new Set(emailRoutes), new Set(['send-transactional/send']))
   assert.equal(acceptances[0].signer_name, 'Antônio Silva')
 })
 
@@ -684,6 +692,11 @@ test('BR-B2B-026 item 4: the operator sends the contract for signature with the 
   assert.match(contract.token_hash, /^[0-9a-f]{64}$/, 'holding the hash of the token, never the token')
   assert.equal(emails.length, 1)
   assert.equal((emails[0] as any).type, 'partner_contract_sign')
+  assert.equal(
+    emailRoutes[0],
+    'send-transactional/send',
+    'the route in the contract, not the bare slug: the root answers 404 and nothing is sent'
+  )
 })
 
 test('BR-B2B-023: the checklist STAYS — generation is still refused with 409 while the Tuggi side is incomplete', async () => {

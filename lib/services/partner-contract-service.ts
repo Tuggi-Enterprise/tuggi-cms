@@ -45,6 +45,7 @@ import {
 import { sha256Hex, shortHash } from '@/lib/contract/hash'
 import { renderContractPdf, type AcceptanceStamp } from '@/lib/contract/pdf'
 import { activeTemplate, templateByVersion } from '@/lib/contract/template'
+import { sendTransactionalEmail } from '@/lib/services/transactional-email'
 import type { ContractSnapshot, ContractTier } from '@/lib/contract/snapshot'
 
 const SCHEMA = 'partner'
@@ -520,30 +521,20 @@ async function sendSignedCopy(input: {
   acceptedAt: string
   verificationCode: string
 }): Promise<void> {
-  try {
-    // `functions.invoke` resolves for any HTTP answer and only fills `error` on a non-2xx,
-    // so the envelope has to be read too — a 200 with `{ error }` looks like success.
-    const { data, error } = await getSupabaseService().functions.invoke('send-transactional', {
-      body: {
-        type: 'partner_contract_signed',
-        to: input.to,
-        lang: 'pt',
-        data: {
-          name: input.signerName,
-          role: input.signerRole,
-          legal_name: input.legalName,
-          accepted_at: input.acceptedAt,
-          verification_code: input.verificationCode,
-          token: input.token,
-        },
-      },
-    })
-    if (error || (data && typeof data === 'object' && 'error' in data)) {
-      console.error('[contract] signed copy refused by send-transactional')
-    }
-  } catch (err) {
-    console.error('[contract] signed copy failed:', err instanceof Error ? err.message : err)
-  }
+  await sendTransactionalEmail({
+    type: 'partner_contract_signed',
+    to: input.to,
+    lang: 'pt',
+    data: {
+      name: input.signerName,
+      role: input.signerRole,
+      legal_name: input.legalName,
+      accepted_at: input.acceptedAt,
+      verification_code: input.verificationCode,
+      token: input.token,
+    },
+    context: 'signed contract copy',
+  })
 }
 
 /**

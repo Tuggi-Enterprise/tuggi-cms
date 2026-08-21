@@ -26,6 +26,7 @@ export type PartnerFieldId =
   | 'trade_name'
   | 'legal_name'
   | 'tax_id'
+  | 'legal_status_declaration'
   | 'category'
   | 'address'
   | 'address_complement'
@@ -49,6 +50,7 @@ export type PartnerFieldId =
   | 'story_before'
   | 'story_unique'
   | 'story_event'
+  | 'plan_choice'
 
 export interface PartnerAnswerField {
   id: PartnerFieldId
@@ -67,6 +69,18 @@ export const PARTNER_CATEGORIES = [
 ] as const
 
 /**
+ * The two tiers of BR-B2B-016 item 1, as the establishment picked between them on the form.
+ *
+ * MIRROR OF `tuggi-enterprise/src/lib/partner-proposal/fields.ts`, symbol `PLAN_CHOICES`, and
+ * the contract that keeps the two honest is `docs/contracts/partner-proposal-answers.md`. What
+ * arrives here is what the establishment ASKED FOR, in a conversation the commercial team had
+ * already had. It decides nothing: the tier of the contract is the operator's choice at
+ * generation, in `ContractManager`, and no public route writes it to `partner.clients`.
+ */
+export const PLAN_CHOICES = ['map_only', 'map_and_description'] as const
+export type PlanChoice = (typeof PLAN_CHOICES)[number]
+
+/**
  * The three kinds of promotional material the partner may ask for.
  *
  * SAME VOCABULARY IN THREE PLACES, and that is the point: `partner.material_order_items.kind`
@@ -83,11 +97,20 @@ export function materialFieldId(kind: MaterialKind): PartnerFieldId {
   return `material_${kind}_qty` as PartnerFieldId
 }
 
-/** The 24 keys `answers` can carry, and the group each one belongs to. */
+/**
+ * The 26 keys `answers` can carry, and the group each one belongs to.
+ *
+ * It was 24 until 2026-08-21, when the operator added the two questions the team had been
+ * asking by hand: whether the establishment declares itself legalized (`legal_status_declaration`,
+ * BR-B2B-022 item 5, which BLOCKS the submission when unticked) and which of the two tiers of
+ * BR-B2B-016 it is asking for (`plan_choice`). Neither decides anything here: the conference is
+ * still an act of the team, and the contract tier is still chosen by the operator at generation.
+ */
 export const PARTNER_FORM_FIELDS: readonly PartnerAnswerField[] = [
   { id: 'trade_name', step: 1 },
   { id: 'legal_name', step: 1 },
   { id: 'tax_id', step: 1 },
+  { id: 'legal_status_declaration', step: 1 },
   { id: 'category', step: 1 },
   { id: 'address', step: 1 },
   { id: 'address_complement', step: 1 },
@@ -108,6 +131,7 @@ export const PARTNER_FORM_FIELDS: readonly PartnerAnswerField[] = [
   { id: 'story_before', step: 3 },
   { id: 'story_unique', step: 3 },
   { id: 'story_event', step: 3 },
+  { id: 'plan_choice', step: 3 },
 
   // The promotional material moved from the end of step 1 to the end of step 3 on 2026-08-19:
   // step 1 carried 16 of the 24 fields and its own subtitle had stopped describing it. The step

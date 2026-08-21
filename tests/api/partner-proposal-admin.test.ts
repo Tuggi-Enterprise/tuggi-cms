@@ -24,7 +24,6 @@ import {
   summarizePromotion,
 } from '@/lib/partner-form/promotion'
 import {
-  LICENSE_EXPIRY_WARNING_DAYS,
   absenceClassOf,
   buildRegularityReport,
   daysUntil,
@@ -32,7 +31,6 @@ import {
 } from '@/lib/partner-form/regularity'
 import {
   DISCARD_REASONS,
-  LICENSE_FIELD_MAX,
   REVIEW_MARKS,
   applySubstituteTest,
   describeConference,
@@ -52,13 +50,7 @@ const MATERIAL_ORDER_ID = '55555555-5555-5555-5555-555555555555'
 
 /** What one operator wrote down after seeing the papers. The band's only input. */
 function conference(overrides: Partial<ConferenceRecord> = {}): ConferenceRecord {
-  return {
-    documentsSeen: [],
-    licenseNumber: null,
-    licenseIssuer: null,
-    licenseValidUntil: null,
-    ...overrides,
-  }
+  return { documentsSeen: [], ...overrides }
 }
 
 function answers(overrides: PartnerAnswers = {}): PartnerAnswers {
@@ -191,36 +183,26 @@ test('BR-B2B-022: a proposal with no licence is missing it for the CONTRACT and 
   assert.ok(plan.entries.length > 0)
 })
 
-test('BR-B2B-022: an expired licence is an absent licence, and the days are already counted', () => {
-  const now = new Date('2026-08-14T15:00:00Z')
-  const report = buildRegularityReport(
-    answers(),
-    conference({ documentsSeen: ['business_license'], licenseValidUntil: '2026-08-02' }),
-    now
-  )
+/**
+ * THE EXPIRY TESTS THAT USED TO BE HERE ARE GONE, AND THE ABSENCE IS THE POINT.
+ *
+ * Three of them proved `expired`, `expiring` and `undated`: an expired licence blocked the
+ * contract, one about to expire warned, one with no date could not satisfy the gate. All three
+ * read `licenseValidUntil`, which the conference stopped recording on 2026-08-21 by the
+ * operator's decision (*"nao iremos pedir o numero do alvará, só dar um check no cms"*).
+ *
+ * Keeping them as `todo` would be a suite claiming to guard BR-B2B-022 item 4. Nothing guards
+ * it now: the system cannot see an expiry it never stored, and that is written on
+ * `ConferenceRecord` and on the migration for `produto` to resolve in the rule text.
+ */
+test('BR-B2B-022: the licence half of the gate is a tick, and the tick is the whole of it', () => {
+  const seen = buildRegularityReport(answers(), conference({ documentsSeen: ['business_license'] }))
+  assert.equal(seen.license.status, 'seen')
+  assert.equal(seen.missing.indexOf('business_license') >= 0, false)
 
-  assert.equal(report.license.status, 'expired')
-  assert.equal(report.license.daysRemaining, -12, 'the screen never asks the operator to subtract')
-  assert.equal(report.missing.indexOf('business_license') >= 0, true)
-})
-
-test('BR-B2B-022: a licence expiring inside the warning window is a warning, not an absence', () => {
-  const now = new Date('2026-08-14T15:00:00Z')
-  const report = buildRegularityReport(
-    answers(),
-    conference({ documentsSeen: ['business_license'], licenseValidUntil: '2026-09-01' }),
-    now
-  )
-
-  assert.equal(report.license.status, 'expiring')
-  assert.ok((report.license.daysRemaining ?? 0) <= LICENSE_EXPIRY_WARNING_DAYS)
-  assert.equal(report.missing.indexOf('business_license') >= 0, false, 'it still counts for the contract')
-})
-
-test('BR-B2B-022: a licence seen with no validity date cannot satisfy the gate', () => {
-  const report = buildRegularityReport(answers(), conference({ documentsSeen: ['business_license'] }))
-  assert.equal(report.license.status, 'undated')
-  assert.equal(report.missing.indexOf('business_license') >= 0, true)
+  const unseen = buildRegularityReport(answers(), conference({ documentsSeen: [] }))
+  assert.equal(unseen.license.status, 'missing')
+  assert.equal(unseen.missing.indexOf('business_license') >= 0, true)
 })
 
 test('BR-B2B-022: a licence valid until today is valid today, whatever the hour', () => {
@@ -273,141 +255,63 @@ test('BR-B2B-022: the conference record accepts only the two documents of the ru
   const note = normalizeReviewNote({
     marks: [],
     observation: '',
-    conference: { documentsSeen: ['business_license'], licenseValidUntil: '2027-01-31' },
+    conference: { documentsSeen: ['business_license'] },
   })
   assert.deepEqual(note?.conference.documentsSeen, ['business_license'])
-  assert.equal(note?.conference.licenseValidUntil, '2027-01-31')
 
   // A third "document" would be a gate nobody wrote, applied to a contract.
   assert.equal(
     normalizeReviewNote({ marks: [], observation: '', conference: { documentsSeen: ['selfie'] } }),
     null
   )
-  assert.equal(
-    normalizeReviewNote({
-      marks: [],
-      observation: '',
-      conference: { documentsSeen: [], licenseValidUntil: 'ontem' },
-    }),
-    null
-  )
 })
 
-test('BR-B2B-022: a validity date with no licence behind it is dropped, not stored', () => {
-  // Otherwise the band shows `Vence em 31/01/2027` for a document nobody says they saw, and
-  // the gate reads as satisfied by a date somebody typed and then unticked.
+/**
+ * ONE TEST REPLACES FIVE, because there is one rule left where there were three fields.
+ *
+ * What stood here proved the licence number and the issuing municipality were trimmed, refused
+ * when too long, and dropped together with the validity date when the tick was off. The three
+ * fields left the record on 2026-08-21, so the behaviour they guarded has no code behind it.
+ * What DOES need guarding is the compatibility below: `review_note` is shape-free JSON the
+ * database never validated, and rows written before that date still carry the three keys.
+ */
+test('an annotation carrying the retired licence keys is READ, not refused', () => {
   const note = normalizeReviewNote({
-    marks: [],
-    observation: '',
-    conference: { documentsSeen: [], licenseValidUntil: '2027-01-31' },
-  })
-  assert.equal(note?.conference.licenseValidUntil, null)
-})
-
-test('BR-B2B-030: the licence number and the issuing municipality are stored as registered', () => {
-  const note = normalizeReviewNote({
-    marks: [],
+    marks: ['dated'],
     observation: '',
     conference: {
-      documentsSeen: ['business_license'],
-      licenseNumber: '  1.234/2019  ',
+      documentsSeen: ['business_license', 'incorporation_document'],
+      licenseNumber: '1.234/2019',
       licenseIssuer: "Santa Bárbara d'Oeste",
       licenseValidUntil: '2027-01-31',
     },
   })
 
-  assert.equal(note?.conference.licenseNumber, '1.234/2019', 'trimmed, never reformatted')
-  assert.equal(note?.conference.licenseIssuer, "Santa Bárbara d'Oeste")
-})
-
-test('BR-B2B-030: number and municipality fall with the tick, like the date already did', () => {
-  // One rule for the three fields of one document. Kept, the band would publish
-  // `Alvará 1.234/2019 · Búzios` for a licence nobody says they saw.
-  const note = normalizeReviewNote({
-    marks: [],
-    observation: '',
-    conference: {
-      documentsSeen: [],
-      licenseNumber: '1.234/2019',
-      licenseIssuer: 'Armação dos Búzios',
-      licenseValidUntil: '2027-01-31',
-    },
-  })
-
-  assert.equal(note?.conference.licenseNumber, null)
-  assert.equal(note?.conference.licenseIssuer, null)
-  assert.equal(note?.conference.licenseValidUntil, null)
-})
-
-test('BR-B2B-030: a licence field that is not a short string is refused, not truncated', () => {
-  const withValue = (value: unknown) =>
-    normalizeReviewNote({
-      marks: [],
-      observation: '',
-      conference: { documentsSeen: ['business_license'], licenseNumber: value },
-    })
-
-  assert.equal(withValue(42), null)
-  assert.equal(withValue({ nested: true }), null)
-  assert.equal(withValue('x'.repeat(LICENSE_FIELD_MAX + 1)), null)
-  assert.equal(withValue('x'.repeat(LICENSE_FIELD_MAX))?.conference.licenseNumber?.length, LICENSE_FIELD_MAX)
-})
-
-test('BR-B2B-030: the two new fields are NOT in the contract gate — only the validity is', () => {
-  // The operator's decision of 2026-08-16, and the 1st edge case of BR-B2B-030: an absent
-  // date is an absence, a blank number is an incomplete trail. Putting them in the gate would
-  // refuse a contract to a conference that is correct.
-  const registered = conference({
+  // Refusing would make every proposal conferred before 2026-08-21 unreadable, and the screen
+  // would report "nothing seen" about documents somebody did see.
+  assert.deepEqual(note?.conference, {
     documentsSeen: ['business_license', 'incorporation_document'],
-    licenseValidUntil: '2027-01-31',
   })
-
-  const report = buildRegularityReport(answers(), registered, new Date('2026-08-16T12:00:00Z'))
-  assert.equal(report.ready, true, 'no number and no municipality, and the contract is not blocked')
-  assert.equal(report.license.identityComplete, false, 'and the band still says the trail is short')
-
-  const complete = buildRegularityReport(
-    answers(),
-    { ...registered, licenseNumber: '1.234/2019', licenseIssuer: 'Armação dos Búzios' },
-    new Date('2026-08-16T12:00:00Z')
-  )
-  assert.equal(complete.license.identityComplete, true)
-  assert.equal(complete.license.number, '1.234/2019')
+  assert.equal(buildRegularityReport(answers(), note!.conference).ready, true)
 })
 
-test('BR-B2B-030: the audit description is codes and dates — never what the operator typed', () => {
+test('a value that is not a document kind is still refused, whatever else the body carries', () => {
+  assert.equal(
+    normalizeReviewNote({ marks: [], observation: '', conference: { documentsSeen: [42] } }),
+    null
+  )
+})
+
+test('BR-B2B-030: the audit description is codes — never what the operator typed', () => {
   const note = normalizeReviewNote({
     marks: ['dated', 'named_person'],
     observation: 'O sócio Antônio trouxe o alvará em mãos.',
-    conference: {
-      documentsSeen: ['business_license'],
-      licenseNumber: '1.234/2019',
-      licenseIssuer: 'Armação dos Búzios',
-      licenseValidUntil: '2027-03-31',
-    },
+    conference: { documentsSeen: ['business_license'] },
   })
 
   const described = describeConference(note!)
   assert.equal(described.includes('Antônio'), false, 'no free text')
-  assert.equal(described.includes('1.234/2019'), false, 'and no transcription of the document')
-  assert.equal(described.includes('Búzios'), false)
-  assert.equal(
-    described,
-    'documents=business_license; license_valid_until=2027-03-31; license_identity=number+issuer; marks=dated+named_person'
-  )
-})
-
-test('BR-B2B-030: half a trail is not a trail — one field alone does not complete it', () => {
-  const report = buildRegularityReport(
-    answers(),
-    conference({
-      documentsSeen: ['business_license'],
-      licenseNumber: '1.234/2019',
-      licenseValidUntil: '2027-01-31',
-    }),
-    new Date('2026-08-16T12:00:00Z')
-  )
-  assert.equal(report.license.identityComplete, false)
+  assert.equal(described, 'documents=business_license; marks=dated+named_person')
 })
 
 test('BR-B2B-022: an annotation written before the conference existed reads as "nothing seen"', () => {
@@ -1115,15 +1019,17 @@ test('BR-B2B-022: the conference the operator registers is what the screen reads
     request('PUT', {
       marks: ['dated'],
       observation: 'Alvará conferido no balcão.',
-      conference: { documentsSeen: ['business_license'], licenseValidUntil: '2027-03-31' },
+      conference: { documentsSeen: ['business_license', 'incorporation_document'] },
     }),
     proposalContext
   )
   assert.equal(saved.status, 200)
 
   const detail = await (await GET_PROPOSAL(request('GET'), proposalContext)).json()
-  assert.deepEqual(detail.conference.documentsSeen, ['business_license'])
-  assert.equal(detail.conference.licenseValidUntil, '2027-03-31')
+  assert.deepEqual(detail.conference.documentsSeen, [
+    'business_license',
+    'incorporation_document',
+  ])
   assert.equal(detail.submission.status, 'submitted', 'registering a document decides nothing')
   assert.equal(state.clients.length, 0, 'and reaches no client record')
 })
@@ -1141,12 +1047,7 @@ test('BR-B2B-011: the annotation changes no status and reaches no client record'
   assert.deepEqual(state.submissions[0].review_note, {
     marks: ['dated'],
     observation: 'O avô abriu em 1962.',
-    conference: {
-      documentsSeen: [],
-      licenseNumber: null,
-      licenseIssuer: null,
-      licenseValidUntil: null,
-    },
+    conference: { documentsSeen: [] },
   })
   assert.equal(state.touchedTables.indexOf('clients') < 0, true)
 })
@@ -1185,12 +1086,7 @@ test('BR-B2B-030: the annotation that opens the contract door says who wrote it'
     request('PUT', {
       marks: ['dated'],
       observation: 'Alvará conferido no balcão, com o sócio presente.',
-      conference: {
-        documentsSeen: ['business_license'],
-        licenseNumber: '1.234/2019',
-        licenseIssuer: 'Armação dos Búzios',
-        licenseValidUntil: '2027-03-31',
-      },
+      conference: { documentsSeen: ['business_license'] },
     }),
     proposalContext
   )
@@ -1206,8 +1102,10 @@ test('BR-B2B-030: the annotation that opens the contract door says who wrote it'
   // Codes, never the annotation: the observation is free text about somebody's business.
   assert.equal(row?.description.includes('balcão'), false, 'no free text in the trail')
   assert.ok(row?.description.includes('documents=business_license'))
-  assert.ok(row?.description.includes('license_identity=number+issuer'))
-  assert.ok(row?.description.includes('license_valid_until=2027-03-31'))
+  // `documents=business_license` is a document CODE, not a transcription. What must be gone is
+  // the trail of the three fields that left the record on 2026-08-21.
+  assert.equal(row?.description.includes('license_valid_until'), false)
+  assert.equal(row?.description.includes('license_identity'), false)
 })
 
 test('BR-B2B-030: an annotation that could not be saved leaves no trail claiming it was', async () => {
@@ -1230,19 +1128,16 @@ test('BR-B2B-030: the conference survives the save and comes back whole', async 
     request('PUT', {
       marks: [],
       observation: '',
-      conference: {
-        documentsSeen: ['business_license'],
-        licenseNumber: '1.234/2019',
-        licenseIssuer: "Santa Bárbara d'Oeste",
-        licenseValidUntil: '2027-03-31',
-      },
+      conference: { documentsSeen: ['business_license', 'incorporation_document'] },
     }),
     proposalContext
   )
 
   const detail = await (await GET_PROPOSAL(request('GET'), proposalContext)).json()
-  assert.equal(detail.conference.licenseNumber, '1.234/2019')
-  assert.equal(detail.conference.licenseIssuer, "Santa Bárbara d'Oeste")
+  assert.deepEqual(detail.conference.documentsSeen, [
+    'business_license',
+    'incorporation_document',
+  ])
   assert.ok(detail.submission.reviewedAt, 'and the screen can say when it was registered')
 })
 
@@ -1471,7 +1366,10 @@ test('BR-B2B-022: the band claims no attachment — there is no file anywhere in
   for (const forbidden of ['anexad', 'arquivo enviado', 'baixar']) {
     assert.equal(serialized.includes(forbidden), false, `the band must not say "${forbidden}"`)
   }
-  assert.equal(copy.regularity.licenseOk.indexOf('Vigente até'), 0)
+  // The line says what the record holds, and the record is a tick. It said `Vigente até {date}`
+  // until 2026-08-21, which was the copy promising a validity check nothing performs any more.
+  assert.equal(copy.regularity.licenseOk.includes('{date}'), false)
+  assert.equal(copy.regularity.licenseOk.includes('Vigente'), false)
 })
 
 test('BR-B2B-030: the band says who registered the conference, before saying what it is not', () => {
@@ -1482,12 +1380,20 @@ test('BR-B2B-030: the band says who registered the conference, before saying wha
   assert.ok(copy.regularity.checkedBy.includes('{date}'))
   assert.equal(copy.regularity.source.includes('duas linhas'), false)
   assert.ok(copy.regularity.source.includes('alvará'), 'the limit names what it is about')
-  assert.ok(copy.regularity.licenseIdentity.includes('{number}'))
-  assert.ok(copy.regularity.licenseIdentity.includes('{issuer}'))
-  assert.ok(copy.regularity.licenseIdentityMissing.length > 0)
+
+  // `licenseIdentity` and `licenseIdentityMissing` are gone with the fields they printed. A key
+  // that outlives its screen is copy nobody maintains and every translator still translates.
+  assert.equal('licenseIdentity' in copy.regularity, false)
+  assert.equal('licenseIdentityMissing' in copy.regularity, false)
 })
 
-test('BR-B2B-030: the conference block names the three licence fields and the reason each is off', () => {
+/**
+ * The inverse of what stood here. It asserted that the conference block carried a label, a hint
+ * and a disabled-reason for each of the three licence fields; now it asserts the nine keys are
+ * GONE, for the same reason the old test existed — copy that outlives its control is a promise
+ * the screen no longer keeps, and every translator still pays for it.
+ */
+test('the licence transcription keys left the conference block with the fields', () => {
   for (const key of [
     'licenseNumberLabel',
     'licenseNumberHint',
@@ -1495,12 +1401,17 @@ test('BR-B2B-030: the conference block names the three licence fields and the re
     'licenseIssuerLabel',
     'licenseIssuerHint',
     'licenseIssuerDisabled',
+    'validUntilLabel',
+    'validUntilHint',
+    'validUntilDisabled',
   ]) {
-    assert.ok(copy.conference[key], `conference.${key} is missing`)
+    assert.equal(key in copy.conference, false, `conference.${key} outlived its control`)
   }
-  // DS-A11Y-003: the reason beside the disabled control, never the grey alone.
-  assert.ok(copy.conference.licenseNumberDisabled.includes('Marque o alvará'))
-  assert.ok(copy.conference.licenseIssuerDisabled.includes('Marque o alvará'))
+
+  // What the block still has to say: the two ticks, and that a tick is somebody's word.
+  assert.ok(copy.conference.seen.business_license)
+  assert.ok(copy.conference.seen.incorporation_document)
+  assert.ok(copy.conference.savedWithNote.length > 0)
 })
 
 test('#341: the screen describes no `draft` proposal — the CHECK does not accept one', () => {

@@ -1,5 +1,5 @@
 import { BRAZIL_STATES } from '@/lib/constants/brazil-states'
-import { PARTNER_CATEGORIES, type PartnerFieldId } from '@/lib/partner-form/fields'
+import { PARTNER_CATEGORIES, PLAN_CHOICES, type PartnerFieldId } from '@/lib/partner-form/fields'
 /**
  * Dates, formatted once for the queue and the review screen.
  *
@@ -98,6 +98,16 @@ export function answerLabel(
   if (fieldId === 'state') {
     const state = BRAZIL_STATES.find((candidate) => candidate.code === value)
     return state ? `${state.code} — ${state.name}` : value
+  }
+  if (fieldId === 'plan_choice') {
+    return PLAN_CHOICES.some((choice) => choice === value)
+      ? translateForm(`plans.${value}`)
+      : value
+  }
+  // A tick is stored as the literal `true`, which is a code where a sentence belongs — the same
+  // defect `bar_cafe` was in #404, on the screen where somebody decides about a real proposal.
+  if (fieldId === 'legal_status_declaration') {
+    return value === 'true' ? translateForm('answers.declared') : value
   }
   return value
 }

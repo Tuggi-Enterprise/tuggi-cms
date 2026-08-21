@@ -101,10 +101,7 @@ export const QUEUE_ROWS_IN_PROGRESS: ClientDirectoryRow[] = [
 ]
 
 const FILLED_CONFERENCE: ConferenceRecord = {
-  documentsSeen: ['business_license'],
-  licenseNumber: '12345',
-  licenseIssuer: 'Santos/SP',
-  licenseValidUntil: '2027-12-01',
+  documentsSeen: ['business_license', 'incorporation_document'],
 }
 
 function partnerPlace(facts: PartnerPlaceFacts, fee: PartnerFee): PartnershipPlace {
@@ -182,6 +179,11 @@ export function detailInCuration(): PartnershipDetail {
       fee,
     }),
     contract: SIGNED_CONTRACT,
+    conference: {
+      record: FILLED_CONFERENCE,
+      reviewedAt: '2026-08-11T09:00:00.000Z',
+      reviewedByLabel: 'ana@tuggi.app',
+    },
     submission: {
       id: 'sub-0005',
       submittedAt: '2026-08-10T09:00:00.000Z',
@@ -234,6 +236,11 @@ export function detailReadyToPublish(): PartnershipDetail {
       fee,
     }),
     contract: SIGNED_CONTRACT,
+    conference: {
+      record: FILLED_CONFERENCE,
+      reviewedAt: '2026-08-11T09:00:00.000Z',
+      reviewedByLabel: 'ana@tuggi.app',
+    },
     submission: {
       id: 'sub-0006',
       submittedAt: '2026-08-10T09:00:00.000Z',

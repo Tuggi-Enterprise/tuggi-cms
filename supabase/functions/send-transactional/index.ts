@@ -85,14 +85,42 @@ const esc = (s: unknown) =>
     c === '<' ? '&lt;' : c === '>' ? '&gt;' : c === '&' ? '&amp;' : '&quot;'
   );
 
-function shell(title: string, bodyHtml: string): string {
+/**
+ * The brand mark, served from an origin of OURS — the same secret that composes the contract
+ * href, so there is one answer to "where does the CMS live" and not two.
+ *
+ * WHY THE BAND STAYS BLUE BEHIND IT. Most clients block remote images until the reader allows
+ * them, and Gmail blocks them for a first-time sender by default. The `alt` below is styled
+ * white on the blue band, so an inbox with images off still shows `Tuggi` on the brand colour
+ * instead of a broken-image icon on white. The band is the identification; the file is the
+ * upgrade.
+ */
+const LOGO_FILE = '/logo_tuggi_full_white.png';
+
+/**
+ * Hidden preview text — the line the inbox shows next to the subject, before anyone opens
+ * anything. Left empty the client scrapes the first words of the HTML, which here is the
+ * greeting, so every Tuggi e-mail previewed as `Olá,` and none of them said what they were.
+ */
+function preheaderBlock(text: string): string {
+  if (!text) return '';
+  return `<div style="display:none;max-height:0;overflow:hidden;opacity:0;color:transparent;height:0;width:0">${esc(
+    text
+  )}</div>`;
+}
+
+function shell(title: string, bodyHtml: string, preheader = ''): string {
+  const logo = `${ownOrigin('PARTNER_FORM_ORIGIN', DEFAULT_PARTNER_FORM_ORIGIN)}${LOGO_FILE}`;
+
   return `<!doctype html><html><body style="margin:0;background:#f4f6f8;font-family:-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;color:#1c2638">
+  ${preheaderBlock(preheader)}
   <div style="max-width:520px;margin:0 auto;padding:24px">
     <div style="background:${TUGGI_BLUE};border-radius:16px 16px 0 0;padding:20px 24px">
-      <span style="color:#fff;font-size:20px;font-weight:800;letter-spacing:.5px">TUGGI</span>
+      <img src="${esc(logo)}" alt="Tuggi" width="132" height="43"
+           style="display:block;width:132px;height:auto;border:0;outline:none;text-decoration:none;color:#fff;font-size:20px;font-weight:800;letter-spacing:.5px" />
     </div>
     <div style="background:#fff;border-radius:0 0 16px 16px;padding:28px 24px">
-      <h1 style="font-size:20px;margin:0 0 12px">${esc(title)}</h1>
+      <h1 style="font-size:20px;line-height:1.3;margin:0 0 12px">${esc(title)}</h1>
       ${bodyHtml}
     </div>
     <p style="color:#8a93a3;font-size:12px;text-align:center;margin:16px 0">© Tuggi</p>
@@ -139,11 +167,12 @@ function renderLocalized(
       ? `<p><b>${esc(s.email.reasonLabel)}</b> ${esc(data.reason)}</p>`
       : '';
 
+  // `ctaButton` and not the band colour: white on #00A8E8 measures 2.70:1 and fails even the
+  // 3:1 of the non-text criterion. This button carried that defect until 2026-08-21, while
+  // the two contract templates beside it had already been corrected.
   const cta =
     event === 'approved' && s.email.cta
-      ? `<p style="margin-top:20px">
-           <a href="${esc(ownOrigin('APP_URL', DEFAULT_APP_ORIGIN))}" style="background:${TUGGI_BLUE};color:#fff;text-decoration:none;padding:12px 22px;border-radius:12px;font-weight:700;display:inline-block">${esc(s.email.cta)}</a>
-         </p>`
+      ? ctaButton(ownOrigin('APP_URL', DEFAULT_APP_ORIGIN), s.email.cta)
       : '';
 
   return {
@@ -173,26 +202,94 @@ function contractHref(token: string): string {
   return `${ownOrigin('PARTNER_FORM_ORIGIN', DEFAULT_PARTNER_FORM_ORIGIN)}/${CONTRACT_LOCALE}/contrato/${token}`;
 }
 
-/** #342 — the contract is ready, come and read it. It never mentions the value. */
+/**
+ * The button of an e-mail body, in one place. Three templates were repeating the same nine
+ * declarations, and the first `href` that drifted would have been invisible.
+ */
+function ctaButton(href: string, label: string): string {
+  return `<p style="margin:24px 0">
+         <a href="${esc(
+           href
+         )}" style="background:${CTA_BLUE};color:#fff;text-decoration:none;padding:13px 24px;border-radius:12px;font-weight:700;display:inline-block">${esc(
+    label
+  )}</a>
+       </p>`;
+}
+
+/**
+ * The number of days the signing link stays open, as the CMS minted it. It is a NUMBER and
+ * never a sentence: `SIGNING_TTL_DAYS` is the single fact, it lives in
+ * `lib/services/partner-contract-service.ts`, and a copy of it here would be the second
+ * declaration that drifts. Anything that is not a small positive integer drops the line
+ * rather than printing a guess at the deadline of a legal instrument.
+ */
+function expiryDays(value: unknown): number | null {
+  const days = Number(value);
+  return Number.isInteger(days) && days > 0 && days <= 365 ? days : null;
+}
+
+/**
+ * Brazilian civil time, spelled out. `accepted_at` arrives as the database timestamp, and
+ * the line beside it says `horário de Brasília` — until 2026-08-21 it printed the raw UTC
+ * ISO string under that label, which is a caption contradicting its own value.
+ */
+function brasiliaMoment(iso: unknown): string {
+  const parsed = new Date(String(iso ?? ''));
+  if (Number.isNaN(parsed.getTime())) return esc(iso);
+  return esc(
+    new Intl.DateTimeFormat('pt-BR', {
+      timeZone: 'America/Sao_Paulo',
+      day: '2-digit',
+      month: '2-digit',
+      year: 'numeric',
+      hour: '2-digit',
+      minute: '2-digit',
+    })
+      .format(parsed)
+      .replace(', ', ' às ')
+  );
+}
+
+/**
+ * #342 — the contract is ready, come and read it. It never mentions the value.
+ *
+ * THE COPY OBEYS DS-COPY-013, and the rewrite of 2026-08-21 is what put it there: the body
+ * carried a dash standing in for a full stop, which is the exact tic the rule counts. Every
+ * paragraph below has zero aparte marks and no stretch over 90 characters without a pause.
+ */
 function renderContractSign(data: Record<string, unknown>): {
   subject: string;
   html: string;
 } {
   const name = esc(data.name ?? '');
-  const legalName = esc(data.legal_name ?? 'seu estabelecimento');
+  const legalName = esc(data.legal_name ?? '');
   const href = contractHref(String(data.token ?? ''));
   const greeting = name ? `Olá, ${name}.` : 'Olá.';
+  const days = expiryDays(data.expires_days);
+
+  const subject = legalName
+    ? `Contrato de parceria Tuggi de ${legalName}, pronto para assinar`
+    : 'Seu contrato de parceria Tuggi está pronto para assinar';
+
+  const whose = legalName
+    ? `O contrato de parceria de ${legalName} está pronto para assinatura.`
+    : 'O seu contrato de parceria está pronto para assinatura.';
+
+  const validity = days
+    ? `<p>O link vale por ${days} dias. Depois desse prazo, geramos um novo para você.</p>`
+    : '';
 
   return {
-    subject: 'Seu contrato de parceria está pronto para assinatura',
+    subject,
     html: shell(
-      'Seu contrato de parceria está pronto',
+      'Seu contrato está pronto',
       `<p>${greeting}</p>
-       <p>O contrato de parceria de ${legalName} está pronto. Você lê o texto inteiro na tela e assina por lá — não precisa imprimir nem instalar nada.</p>
-       <p style="margin-top:20px">
-         <a href="${esc(href)}" style="background:${CTA_BLUE};color:#fff;text-decoration:none;padding:12px 22px;border-radius:12px;font-weight:700;display:inline-block">Ler e assinar</a>
-       </p>
-       <p>Qualquer dúvida, é só responder este e-mail.</p>`
+       <p>${whose}</p>
+       <p>Você lê o texto completo na tela e assina por ali mesmo. Não precisa imprimir, escanear nem instalar nada.</p>
+       ${ctaButton(href, 'Ler e assinar o contrato')}
+       ${validity}
+       <p>Ficou com alguma dúvida? É só responder este e-mail.</p>`,
+      'Leia o texto completo e assine pelo celular, sem imprimir nada.'
     ),
   };
 }
@@ -213,19 +310,27 @@ function renderContractSigned(data: Record<string, unknown>): {
   const name = esc(data.name ?? '');
   const role = esc(data.role ?? '');
   const legalName = esc(data.legal_name ?? '');
-  const acceptedAt = esc(data.accepted_at ?? '');
+  const acceptedAt = brasiliaMoment(data.accepted_at);
   const code = esc(data.verification_code ?? '');
   const href = contractHref(String(data.token ?? ''));
 
+  // The verification code is the one thing here that is worthless when absent, and a label
+  // followed by nothing reads as a code the reader failed to see.
+  const verification = code
+    ? `<p>O código de verificação deste documento é <strong>${code}</strong>. Guarde o código junto com o arquivo.</p>`
+    : '';
+
   return {
-    subject: `Contrato de parceria assinado — ${legalName}`,
+    subject: legalName
+      ? `Contrato de parceria assinado: ${legalName}`
+      : 'Contrato de parceria assinado',
     html: shell(
-      'Contrato de parceria assinado',
-      `<p>Assinado por ${name}${role ? ` (${role})` : ''} em ${acceptedAt}, horário de Brasília.</p>
-       <p style="margin-top:20px">
-         <a href="${esc(href)}" style="background:${CTA_BLUE};color:#fff;text-decoration:none;padding:12px 22px;border-radius:12px;font-weight:700;display:inline-block">Baixar o contrato assinado</a>
-       </p>
-       <p>O código de verificação do documento é <strong>${code}</strong> — guarde junto com o arquivo.</p>`
+      'Contrato assinado',
+      `<p>Assinado por ${name}${role ? `, ${role}` : ''}, em ${acceptedAt}, horário de Brasília.</p>
+       ${ctaButton(href, 'Baixar o contrato assinado')}
+       ${verification}
+       <p>Boas-vindas à rede de parceiros Tuggi.</p>`,
+      'Sua via assinada e o código de verificação do documento.'
     ),
   };
 }

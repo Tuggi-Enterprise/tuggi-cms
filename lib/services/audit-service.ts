@@ -37,6 +37,12 @@ export type AuditAction =
   // the single write that opens the contract door is the one act on the screen with no
   // history — which is what the security review of 2026-08-16 found (M-2).
   | 'REVIEW_PARTNER_PROPOSAL'
+  // The same annotation, against the CLIENT, and it exists for the reason the one above did
+  // not cover: a client registered directly has no proposal, so the door the line above guards
+  // had no key at all for 10 of the 12 clients that existed on 2026-08-21. Same overwrite, same
+  // `reviewed_by` naming only the last operator, same need for the row that keeps the earlier
+  // assertion. See `lib/services/client-conference-service.ts`.
+  | 'REVIEW_CLIENT_CONFERENCE'
   // The place the approval creates (#360). It is a write into a catalogue of 2.2 million rows
   // made by a side-effect and not by the Places screen, so the row that says which approval
   // produced which POI is the only way back from one to the other.

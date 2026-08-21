@@ -45,7 +45,6 @@ import {
 } from '@/lib/partner-form/regularity'
 import {
   DISCARD_REASONS,
-  LICENSE_FIELD_MAX,
   REVIEW_MARKS,
   applySubstituteTest,
   hasOfferMarker,
@@ -154,7 +153,6 @@ export function ProposalReview({ locale, submissionId }: ProposalReviewProps) {
   // did anything.
   const report = useMemo(() => buildRegularityReport(answers, conference), [answers, conference])
   // One question, asked once: the three licence fields are enabled by the same tick.
-  const licenseSeen = conference.documentsSeen.indexOf('business_license') >= 0
 
   const categoryLabel = answers.category ? form(`categories.${answers.category}`) : ''
   const tradeName = answers.trade_name ?? ''
@@ -693,81 +691,6 @@ export function ProposalReview({ locale, submissionId }: ProposalReviewProps) {
                 </label>
               ))}
             </fieldset>
-
-            {/* Number, municipality, validity — the order the three appear on the paper in the
-                operator's hand. Any other order makes them read the document twice. */}
-            <div className="mt-3">
-              <label htmlFor="license-number" className="block text-sm font-medium text-gray-700 dark:text-gray-400">
-                {t('conference.licenseNumberLabel')}
-              </label>
-              <input
-                id="license-number"
-                type="text"
-                value={conference.licenseNumber ?? ''}
-                maxLength={LICENSE_FIELD_MAX}
-                disabled={!licenseSeen}
-                aria-describedby="license-number-hint"
-                onChange={(event) =>
-                  setConference((current) => ({
-                    ...current,
-                    licenseNumber: event.target.value || null,
-                  }))
-                }
-                className={`mt-1 ${FIELD} disabled:opacity-50`}
-              />
-              <span id="license-number-hint" className="mt-1 block text-xs text-gray-800 dark:text-gray-300">
-                {licenseSeen ? t('conference.licenseNumberHint') : t('conference.licenseNumberDisabled')}
-              </span>
-            </div>
-
-            <div className="mt-3">
-              <label htmlFor="license-issuer" className="block text-sm font-medium text-gray-700 dark:text-gray-400">
-                {t('conference.licenseIssuerLabel')}
-              </label>
-              <input
-                id="license-issuer"
-                type="text"
-                value={conference.licenseIssuer ?? ''}
-                maxLength={LICENSE_FIELD_MAX}
-                disabled={!licenseSeen}
-                aria-describedby="license-issuer-hint"
-                onChange={(event) =>
-                  setConference((current) => ({
-                    ...current,
-                    licenseIssuer: event.target.value || null,
-                  }))
-                }
-                className={`mt-1 ${FIELD} disabled:opacity-50`}
-              />
-              <span id="license-issuer-hint" className="mt-1 block text-xs text-gray-800 dark:text-gray-300">
-                {licenseSeen ? t('conference.licenseIssuerHint') : t('conference.licenseIssuerDisabled')}
-              </span>
-            </div>
-
-            <div className="mt-3">
-              <label htmlFor="license-valid-until" className="block text-sm font-medium text-gray-700 dark:text-gray-400">
-                {t('conference.validUntilLabel')}
-              </label>
-              <input
-                id="license-valid-until"
-                type="date"
-                value={conference.licenseValidUntil ?? ''}
-                disabled={!licenseSeen}
-                aria-describedby="license-valid-until-hint"
-                onChange={(event) =>
-                  setConference((current) => ({
-                    ...current,
-                    licenseValidUntil: event.target.value || null,
-                  }))
-                }
-                className={`mt-1 ${FIELD} disabled:opacity-50`}
-              />
-              {/* The reason beside the disabled control, never the grey alone: without a
-                  licence there is no date to copy off one. */}
-              <span id="license-valid-until-hint" className="mt-1 block text-xs text-gray-800 dark:text-gray-300">
-                {licenseSeen ? t('conference.validUntilHint') : t('conference.validUntilDisabled')}
-              </span>
-            </div>
 
             <p className="mt-3 border-t border-gray-200 pt-2 dark:border-gray-800 text-xs text-gray-800 dark:text-gray-300">
               {t('conference.savedWithNote')}

@@ -63,9 +63,17 @@ test('a client no proposal claims is still a row — the half the queue could no
   assert.match(directory, /loadAllClients\(DIRECTORY_CLIENT_CAP\)/, 'every client, not only the promoted ones')
   assert.match(directory, /const claimed = new Set\(/)
   assert.match(directory, /if \(claimed\.has\(client\.id\)\) continue/)
-  // Its state comes from the same pure function, with the answer a client without a proposal
-  // already has: nothing was conferred, because there was no conference.
-  assert.match(directory, /proposalStatus: 'promoted',\s*conference: EMPTY_CONFERENCE,/)
+  // Its state comes from the same pure function, fed by the client's OWN conference.
+  //
+  // It used to be fed `EMPTY_CONFERENCE`, on the premise that a client without a proposal had
+  // nothing conferred — true only because there was nowhere to record it. Since 2026-08-21 the
+  // conference is a fact about the client (`partner.client_conferences`), so the premise is
+  // gone: reading a constant here would pin every directly registered client at `in_conference`
+  // while the detail screen showed the conference it actually has.
+  assert.match(
+    directory,
+    /proposalStatus: 'promoted',\s*conference: \(conferences\.get\(client\.id\) \?\? NO_CONFERENCE\)\.conference,/
+  )
 })
 
 test('the directory decides with country and client_type, and says so in its columns', () => {

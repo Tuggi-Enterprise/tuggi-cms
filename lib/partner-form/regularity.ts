@@ -14,37 +14,38 @@
  * a bucket; it still refuses to produce a contract without both documents, and it still says
  * so in the same words.
  *
- * AN EXPIRED LICENCE IS AN ABSENT LICENCE — BR-B2B-022, item 4. Nobody should have to work
- * that out from a date on screen, so the arithmetic is here and the copy gets the number.
+ * THE EXPIRY ARITHMETIC LEFT THIS FILE ON 2026-08-21. It read a date the conference no longer
+ * records, by the operator's decision — see the note on `ConferenceRecord` for what that costs
+ * BR-B2B-022 item 4. `daysUntil` stays because `ClientDirectory` counts a different clock with
+ * it; nothing here calls it any more.
  */
 
 import type { PartnerAnswers } from '@/lib/partner-form/schema'
 import type { PartnerDocumentKind, PartnerFieldId } from '@/lib/partner-form/fields'
 
-/** Days before expiry at which the band warns instead of confirming. */
-export const LICENSE_EXPIRY_WARNING_DAYS = 30
-
 /**
  * What one operator saw with the papers in their hands. It is an assertion by a named person
- * (the annotation carries `reviewed_by`), never a file this system holds — and the band says
+ * (the record carries `reviewed_by`), never a file this system holds — and the band says
  * exactly that, so nobody reads a tick here as "the Tuggi verified the document".
+ *
+ * IT IS A TICK AND NOTHING ELSE SINCE 2026-08-21, by the operator's decision: *"nao iremos pedir
+ * o numero do alvará, só dar um check no cms"*. Number, issuing municipality and validity date
+ * left together. What they cost was three transcriptions off a piece of paper, on every
+ * conference, for a trail nobody was reading back.
+ *
+ * WHAT LEFT WITH THE DATE, and it has to be said out loud rather than discovered: the system no
+ * longer knows when a licence expires, so it cannot enforce the second half of BR-B2B-022 item
+ * 4 (*"documento vencido é ausência"*, and regularity as a continuing obligation). The gate that
+ * remains is "somebody says they saw it". Registered for `produto` — the rule text still
+ * describes an expiry check that no code performs.
  */
 export interface ConferenceRecord {
   /** The documents of BR-B2B-022 item 3 the team confirmed in person. */
   documentsSeen: PartnerDocumentKind[]
-  /** The number printed on the licence they saw, as printed, or null. */
-  licenseNumber: string | null
-  /** The municipality that issued it — often not the one in the address — or null. */
-  licenseIssuer: string | null
-  /** The date printed on the licence they saw, ISO `YYYY-MM-DD`, or null. */
-  licenseValidUntil: string | null
 }
 
 export const EMPTY_CONFERENCE: ConferenceRecord = {
   documentsSeen: [],
-  licenseNumber: null,
-  licenseIssuer: null,
-  licenseValidUntil: null,
 }
 
 export type RegularityItemId =
@@ -54,12 +55,14 @@ export type RegularityItemId =
   | 'representative'
 
 /**
- * `valid` — seen and in date; `expiring` — seen, in date, and about to stop being;
- * `expired` — seen and worthless to the contract; `missing` — nobody has seen it;
- * `undated` — seen, with no date registered, which BR-B2B-022 item 4 cannot be applied to, so
- * it counts as missing for the gate and says why.
+ * `seen` — somebody registered having had it in their hands; `missing` — nobody has.
+ *
+ * IT USED TO HAVE FIVE VALUES, three of them about the expiry date. The date left on
+ * 2026-08-21 with the rest of the transcription, so `expiring`, `expired` and `undated` became
+ * states nothing could produce — and a state nothing produces is a lie the screen keeps telling
+ * about what it checks. See the note on `ConferenceRecord`.
  */
-export type LicenseStatus = 'valid' | 'expiring' | 'expired' | 'missing' | 'undated'
+export type LicenseStatus = 'seen' | 'missing'
 
 export interface RegularityItem {
   id: RegularityItemId
@@ -69,24 +72,7 @@ export interface RegularityItem {
 
 export interface RegularityReport {
   items: RegularityItem[]
-  license: {
-    status: LicenseStatus
-    /** ISO date as the team registered it, or null. */
-    validUntil: string | null
-    /** Negative when already expired. Null when there is no date to count from. */
-    daysRemaining: number | null
-    /**
-     * The two identity fields of BR-B2B-030 item 2, carried so the band can show the trail
-     * without a second input. THEY DO NOT DECIDE `status`, and that is the operator's
-     * decision of 2026-08-16: what determines regularity is the VALIDITY (1st edge case of
-     * BR-B2B-030 — only an absent date counts as absence). Number and municipality make the
-     * trail traceable; blank, they leave it incomplete and refuse no contract.
-     */
-    number: string | null
-    issuer: string | null
-    /** True only when BOTH are registered — half a trail is not a trail. */
-    identityComplete: boolean
-  }
+  license: { status: LicenseStatus }
   /** Everything still needed before a contract can be signed, in band order. */
   missing: RegularityItemId[]
   /** True when nothing is missing — the `Documentação em ordem` line. */
@@ -112,31 +98,10 @@ export function daysUntil(isoDate: string, now: Date = new Date()): number | nul
   return Math.round((target - today) / 86_400_000)
 }
 
-export function licenseStatus(
-  conference: ConferenceRecord,
-  now: Date = new Date()
-): RegularityReport['license'] {
-  const raw = (conference.licenseValidUntil ?? '').trim()
-  const seen = conference.documentsSeen.indexOf('business_license') >= 0
-  const number = (conference.licenseNumber ?? '').trim() || null
-  const issuer = (conference.licenseIssuer ?? '').trim() || null
-  // Identity is only shown for a licence somebody says they saw: a number with no tick behind
-  // it is a line about a document nobody has looked at.
-  const identity = seen
-    ? { number, issuer, identityComplete: number !== null && issuer !== null }
-    : { number: null, issuer: null, identityComplete: false }
-
-  if (!seen) return { status: 'missing', validUntil: raw || null, daysRemaining: null, ...identity }
-  if (!raw) return { status: 'undated', validUntil: null, daysRemaining: null, ...identity }
-
-  const daysRemaining = daysUntil(raw, now)
-  if (daysRemaining === null)
-    return { status: 'undated', validUntil: null, daysRemaining: null, ...identity }
-
-  if (daysRemaining < 0) return { status: 'expired', validUntil: raw, daysRemaining, ...identity }
-  if (daysRemaining <= LICENSE_EXPIRY_WARNING_DAYS)
-    return { status: 'expiring', validUntil: raw, daysRemaining, ...identity }
-  return { status: 'valid', validUntil: raw, daysRemaining, ...identity }
+export function licenseStatus(conference: ConferenceRecord): RegularityReport['license'] {
+  return {
+    status: conference.documentsSeen.indexOf('business_license') >= 0 ? 'seen' : 'missing',
+  }
 }
 
 /**
@@ -145,25 +110,20 @@ export function licenseStatus(
  * Two of the four items come from what the partner typed and two from what the team saw; the
  * report does not distinguish them, because the contract does not either.
  *
- * THE LICENCE NUMBER AND THE ISSUING MUNICIPALITY ARE NOT IN THIS GATE, deliberately. They
- * are two of the five fields of BR-B2B-030 item 2, and its first edge case puts only the
- * ABSENT DATE on the side of absence: a conference that is correct except for a blank number
- * would be refused a contract, and refusing it is the defect. If that is ever to change it is
- * the `produto`'s decision, and it changes here — in `items`, not in the screen.
+ * SINCE 2026-08-21 THE LICENCE HALF IS A TICK. What the gate asks of the alvará is that somebody
+ * registered having seen it; what it can no longer ask is that the document was in date, because
+ * nothing records the date any more. The note on `ConferenceRecord` carries the decision and
+ * what it costs.
  */
 export function buildRegularityReport(
   answers: PartnerAnswers,
-  conference: ConferenceRecord = EMPTY_CONFERENCE,
-  now: Date = new Date()
+  conference: ConferenceRecord = EMPTY_CONFERENCE
 ): RegularityReport {
-  const license = licenseStatus(conference, now)
+  const license = licenseStatus(conference)
 
   const items: RegularityItem[] = [
     { id: 'tax_id', ok: has(answers, 'tax_id') },
-    {
-      id: 'business_license',
-      ok: license.status === 'valid' || license.status === 'expiring',
-    },
+    { id: 'business_license', ok: license.status === 'seen' },
     {
       id: 'incorporation_document',
       ok: conference.documentsSeen.indexOf('incorporation_document') >= 0,

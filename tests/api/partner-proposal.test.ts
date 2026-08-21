@@ -74,12 +74,16 @@ const PROPOSAL_URL = 'https://www.tuggi.app/pt/parcerias/proposta'
 
 // ── 1. The mirror ───────────────────────────────────────────────────────────────────────
 
-test('#396: the reader mirrors the 24 answer keys, and nothing more', () => {
+test('#396: the reader mirrors the 26 answer keys, and nothing more', () => {
   // The count is the contract's. A key that exists on the writing side and not here is an
   // answer the conference never shows; a key that exists here and not there is a column the
   // reviewer is told is empty when it was never asked.
-  assert.equal(PARTNER_FORM_FIELDS.length, 24)
-  assert.equal(new Set(PARTNER_FIELD_IDS).size, 24, 'no id is declared twice')
+  //
+  // It was 24 until 2026-08-21, when the operator added the two questions the team was asking
+  // by hand: the legal-status declaration, which BLOCKS the form when unticked (BR-B2B-022
+  // item 5), and which of the two tiers of BR-B2B-016 the establishment is asking for.
+  assert.equal(PARTNER_FORM_FIELDS.length, 26)
+  assert.equal(new Set(PARTNER_FIELD_IDS).size, 26, 'no id is declared twice')
 
   assert.deepEqual(
     fieldsOfStep(1).map((field) => field.id),
@@ -87,6 +91,7 @@ test('#396: the reader mirrors the 24 answer keys, and nothing more', () => {
       'trade_name',
       'legal_name',
       'tax_id',
+      'legal_status_declaration',
       'category',
       'address',
       'address_complement',
@@ -115,6 +120,7 @@ test('#396: the reader mirrors the 24 answer keys, and nothing more', () => {
       'story_before',
       'story_unique',
       'story_event',
+      'plan_choice',
       'material_sticker_qty',
       'material_table_display_qty',
       'material_counter_display_qty',
@@ -137,6 +143,25 @@ test('#404: a choice is shown by its label, never by its identifier', () => {
   assert.equal(answerLabel('trade_name', 'Cantina do Zé', form), 'Cantina do Zé')
   // An identifier that is not in the list is shown as it is, rather than as a missing key.
   assert.equal(answerLabel('category', 'nao_existe', form), 'nao_existe')
+})
+
+test('#404: the plan and the declaration are shown by their sentence, never by their code', () => {
+  const form = (key: string) =>
+    key === 'plans.map_and_description'
+      ? 'Aparecer no mapa e ter uma descrição falada, com custo'
+      : key === 'answers.declared'
+        ? 'O parceiro declarou ter CNPJ ativo, alvará vigente e documento de constituição.'
+        : key
+
+  assert.equal(
+    answerLabel('plan_choice', 'map_and_description', form),
+    'Aparecer no mapa e ter uma descrição falada, com custo'
+  )
+  assert.equal(answerLabel('plan_choice', 'inventado', form), 'inventado')
+
+  // `true` on the screen where somebody decides about a real proposal is a code where a
+  // sentence belongs — the same defect `bar_cafe` was.
+  assert.match(answerLabel('legal_status_declaration', 'true', form), /declarou/)
 })
 
 test('#396: the mirror carries no rule it does not apply', () => {
@@ -307,7 +332,9 @@ test('#396: the CMS keeps the labels and nothing else of the form copy', () => {
   // Only what the conference renders. The states, the errors, the actions, the step titles and
   // the privacy notice are the FORM's copy, they are published by another repository now, and a
   // copy here would be a second version of a sentence nobody would ever compare.
-  assert.deepEqual(Object.keys(form).sort(), ['categories', 'fields'])
+  // `plans` and `answers` joined on 2026-08-21: both are labels for CLOSED LISTS the conference
+  // renders, which is the same reason `categories` is here. Neither is form copy.
+  assert.deepEqual(Object.keys(form).sort(), ['answers', 'categories', 'fields', 'plans'])
 
   for (const id of PARTNER_FIELD_IDS) {
     assert.ok(form.fields[id]?.label, `${id} has no label for the conference to show`)
@@ -349,12 +376,26 @@ test('DS-COPY-018: no copy left here tells a merchant to use the link somebody p
   assert.equal(serialized.includes('este link'), false)
 })
 
-test('BR-B2B-030: the conference fields exist only on the internal side', () => {
-  // Item 5 of the rule: nothing in the trail is claimed on a public surface. The merchant is
-  // never asked for a licence number, and no label mentions one.
+test('BR-B2B-030 item 5: the TRAIL is never claimed on the surface the merchant sees', () => {
+  // The forbidden list shrank on 2026-08-21, and the two halves of the change pull opposite ways.
+  //
+  // `alvará` came OFF the list because the form now asks the merchant to DECLARE that the
+  // establishment has one (operator's decision, `legal_status_declaration`). That is the
+  // merchant's own answer about their own business, not our trail, and item 5 never covered it.
+  //
+  // The number and the issuing municipality stay forbidden, and now for a stronger reason than
+  // item 5: they do not exist anywhere in the product any more. The conference is a tick.
   const serialized = JSON.stringify(messages().PartnerForm).toLowerCase()
-  for (const forbidden of ['número do alvará', 'município que emitiu', 'alvará']) {
+  for (const forbidden of ['número do alvará', 'município que emitiu', 'município emissor']) {
     assert.equal(serialized.includes(forbidden), false, `the labels must not mention "${forbidden}"`)
+  }
+
+  // What the merchant is asked is a declaration, and the CMS shows it back as one. It must not
+  // read as Tuggi having verified anything — BR-B2B-022 item 7, which this change does not touch.
+  const declared = messages().PartnerForm.answers.declared as string
+  assert.match(declared, /declarou/)
+  for (const claim of ['verificamos', 'conferimos', 'validado', 'comprovado']) {
+    assert.equal(declared.toLowerCase().includes(claim), false)
   }
 })
 

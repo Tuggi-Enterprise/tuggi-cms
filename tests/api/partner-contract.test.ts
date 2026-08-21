@@ -84,10 +84,10 @@ function ownerLookup(overrides: Partial<ContractClient> = {}): PlatformOwnerLook
 
 const OWNER = ownerLookup()
 
+/** Both documents conferred. Since 2026-08-21 that is the whole of the evidence. */
 const REGULAR: RegularityEvidence = {
   businessLicenseDocument: true,
   incorporationDocument: true,
-  businessLicenseValidUntil: new Date(Date.now() + 365 * 86_400_000).toISOString().slice(0, 10),
 }
 
 function client(overrides: Partial<ContractClient> = {}): ContractClient {
@@ -219,15 +219,6 @@ test('BR-B2B-022 item 3: no licence, no contract', () => {
   assert.ok(missing.includes('business_license'))
 })
 
-test('BR-B2B-022 item 3: an expired licence is an absent licence', () => {
-  const missing = contractChecklist(client(), PAID, {
-    platformOwner: OWNER,
-    regularity: { ...REGULAR, businessLicenseValidUntil: '2020-01-01' },
-    templateMarker: null,
-  }).missing.map((item) => item.id)
-  assert.ok(missing.includes('business_license_expired'))
-})
-
 test('BR-B2B-022 item 3: no incorporation document, no contract', () => {
   const missing = contractChecklist(client(), PAID, {
     platformOwner: OWNER,
@@ -237,40 +228,43 @@ test('BR-B2B-022 item 3: no incorporation document, no contract', () => {
   assert.ok(missing.includes('incorporation'))
 })
 
-// ── BR-B2B-031 — the same gate, restated for the two facts it adds over BR-B2B-022 item 3:
-// the block reaches BOTH tiers (including the free one), and an undated licence blocks the
-// same as an expired one. `loadRegularity`, in the route, only maps the conference's raw
-// date into `businessLicenseValidUntil` — the comparison against `now` proven here is the
-// whole of the applied gate; there is no second copy of it to audit at the route layer.
+/**
+ * BR-B2B-031 ITEM 2 HAS NO CODE BEHIND IT SINCE 2026-08-21, AND THAT IS WHY THERE ARE NO TESTS
+ * FOR IT HERE.
+ *
+ * The rule refuses a NEW contract while the registered licence is expired *or undated*, in both
+ * tiers. Three tests proved exactly that, through `businessLicenseValidUntil`. The operator
+ * removed the date from the conference on that date (*"nao iremos pedir o numero do alvará, só
+ * dar um check no cms"*), so nothing records an expiry and no code can compare one.
+ *
+ * The tests are DELETED rather than rewritten to pass. `.claude/scripts/cobertura-de-regra.sh`
+ * answers "which promises are not proven" by counting rule ids in test descriptions, so a test
+ * that kept the id while proving something weaker would report the rule as covered when it is
+ * not. BR-B2B-031 and BR-B2B-030 both need `produto` to say what they mean now.
+ *
+ * What survives below is the half that still has code: both tiers are refused when the alvará
+ * was never conferred at all.
+ */
 
-test('BR-B2B-031 item 2: an expired licence blocks a NEW contract on the free tier too', () => {
+test('BR-B2B-022 item 2: the free tier is not an exception — no conference, no contract', () => {
   const free: GenerationChoices = { tier: 'free', paymentMethod: null, qrDeliveryDays: 15 }
   const missing = contractChecklist(client(), free, {
     platformOwner: OWNER,
-    regularity: { ...REGULAR, businessLicenseValidUntil: '2020-01-01' },
+    regularity: { ...REGULAR, businessLicenseDocument: false },
     templateMarker: null,
   }).missing.map((item) => item.id)
-  assert.ok(missing.includes('business_license_expired'), 'the free tier is not an exception')
+  assert.ok(missing.includes('business_license'), 'the free tier is not an exception')
 })
 
-test('BR-B2B-031, 1st edge case: a licence seen with no date blocks the same as an expired one', () => {
-  const missing = contractChecklist(client(), PAID, {
-    platformOwner: OWNER,
-    regularity: { ...REGULAR, businessLicenseValidUntil: null },
-    templateMarker: null,
-  }).missing.map((item) => item.id)
-  assert.ok(missing.includes('business_license_validity'), 'undated is treated as absent, same as vencido')
-})
-
-test('BR-B2B-031: a renewed licence (valid date, future) releases the free tier — the other direction of the mutation', () => {
+test('BR-B2B-022: both documents conferred releases the free tier — the other direction', () => {
   const free: GenerationChoices = { tier: 'free', paymentMethod: null, qrDeliveryDays: 15 }
   const missing = contractChecklist(client(), free, { platformOwner: OWNER, regularity: REGULAR, templateMarker: null }).missing.map(
     (item) => item.id
   )
   assert.equal(
-    missing.some((id) => id.startsWith('business_license')),
-    false,
-    'a licence within validity blocks nothing, on either tier'
+    missing.filter((id) => id.startsWith('business_license') || id === 'incorporation').length,
+    0,
+    'nothing about the documents is missing once both are ticked'
   )
 })
 
@@ -308,7 +302,7 @@ test('BR-B2B-022: every checklist item names where it is resolved', () => {
 test('BR-B2B-022 item 3: the document items point at the conference band, not at the form', () => {
   const missing = contractChecklist(client(), PAID, {
     platformOwner: OWNER,
-    regularity: { businessLicenseDocument: false, incorporationDocument: false, businessLicenseValidUntil: null },
+    regularity: { businessLicenseDocument: false, incorporationDocument: false },
     templateMarker: null,
   }).missing
 
@@ -329,17 +323,15 @@ test('BR-B2B-022 item 3: the document items point at the conference band, not at
   assert.equal(heading, 'Conferência presencial')
   for (const item of documents) assert.ok(item.where.includes(heading))
 
-  // The two validity branches point at the same place: a `where` that drifts on one of them sends
-  // somebody to a screen that cannot answer.
-  for (const regularity of [
-    { businessLicenseDocument: true, incorporationDocument: true, businessLicenseValidUntil: null },
-    { businessLicenseDocument: true, incorporationDocument: true, businessLicenseValidUntil: '2020-01-01' },
-  ]) {
-    const item = contractChecklist(client(), PAID, { platformOwner: OWNER, regularity, templateMarker: null }).missing.find(
-      (candidate) => candidate.id.startsWith('business_license')
-    )
-    assert.match(item!.where, /Conferência presencial/)
-  }
+  // There is ONE licence branch since 2026-08-21 — the two validity branches went with the date
+  // — and it points at the band on the contract page, which is where it is now filled in.
+  const item = contractChecklist(client(), PAID, {
+    platformOwner: OWNER,
+    regularity: { businessLicenseDocument: false, incorporationDocument: true },
+    templateMarker: null,
+  }).missing.find((candidate) => candidate.id.startsWith('business_license'))
+  assert.match(item!.where, /Conferência presencial/)
+  assert.match(item!.where, /nesta página/, 'the proposal band is not reachable for every client')
 })
 
 test('BR-B2B-022: an incomplete partner registration blocks the snapshot outright', () => {
@@ -654,6 +646,7 @@ interface FakeTables {
 let tables: FakeTables
 let objects: Map<string, Uint8Array>
 let emails: Record<string, unknown>[]
+let emailRoutes: string[]
 
 function createFakeService() {
   const build = (tableName: keyof FakeTables) => {
@@ -764,7 +757,12 @@ function createFakeService() {
       }),
     },
     functions: {
-      invoke: async (_name: string, options: { body: Record<string, unknown> }) => {
+      // THE INVOKED ADDRESS IS RECORDED, not thrown away as `_name`. For months both callers
+      // invoked `send-transactional` without the `/send` route of the contract, the function
+      // answered 404 to every contract e-mail, and no test saw it — because none of them
+      // looked at the name. See `lib/services/transactional-email.ts`.
+      invoke: async (name: string, options: { body: Record<string, unknown> }) => {
+        emailRoutes.push(name)
         emails.push(options.body)
         return { data: { ok: true }, error: null }
       },
@@ -789,6 +787,7 @@ function resetState() {
   tables = { partner_contracts: [], partner_contract_acceptances: [] }
   objects = new Map()
   emails = []
+  emailRoutes = []
 }
 
 async function generated(overrides: Partial<ContractClient> = {}) {
@@ -1032,6 +1031,29 @@ test('the retry sends no second e-mail — one signature, one copy', async () =>
   // The link is composed inside the function, from the token — never from a URL we send.
   assert.equal((signedCopies[0].data as Record<string, unknown>).token, 'a'.repeat(43))
   assert.ok(!('url' in (signedCopies[0].data as Record<string, unknown>)))
+  assert.equal(emailRoutes[0], 'send-transactional/send', 'the route declared in the contract')
+})
+
+/**
+ * The 404 of 2026-08-21, turned into a test.
+ *
+ * `docs/contracts/edge-functions.md` declares `POST /send`, and the function answers
+ * `404 not_found` to any other path. Invoking the bare slug is the defect that made EVERY
+ * contract e-mail die before the body of the function ran, with no signal in the suite —
+ * the stubs threw the invoked name away.
+ */
+test('the transactional route is the slug PLUS /send, and it is a single fact', async () => {
+  const { TRANSACTIONAL_EMAIL_FUNCTION, TRANSACTIONAL_EMAIL_ROUTE } = await import(
+    '@/lib/services/transactional-email'
+  )
+
+  assert.equal(TRANSACTIONAL_EMAIL_FUNCTION, 'send-transactional')
+  assert.equal(TRANSACTIONAL_EMAIL_ROUTE, 'send-transactional/send')
+  assert.notEqual(
+    TRANSACTIONAL_EMAIL_ROUTE,
+    TRANSACTIONAL_EMAIL_FUNCTION,
+    'invoking the root of the function is exactly the defect this test guards'
+  )
 })
 
 test('an acceptance whose archive never landed is FINISHED by the retry, not duplicated', async () => {

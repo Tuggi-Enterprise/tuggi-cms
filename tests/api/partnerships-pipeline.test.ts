@@ -329,9 +329,14 @@ test('#359 crit. 3 · DS-COPY-020: every state derives from the condition the sp
 
   assert.equal(derivePipelineState(base), 'proposal_received')
 
-  // State 2 has NO column behind it: it is derived from the conference having been started.
+  // State 2 has NO column behind it: it is derived from the conference having been started, and
+  // since 2026-08-21 "started" is a tick — the licence transcriptions that could also start it
+  // no longer exist.
   assert.equal(
-    derivePipelineState({ ...base, conference: conference({ licenseNumber: '12345' }) }),
+    derivePipelineState({
+      ...base,
+      conference: conference({ documentsSeen: ['incorporation_document'] }),
+    }),
     'in_conference'
   )
   assert.equal(conferenceStarted(conference()), false)

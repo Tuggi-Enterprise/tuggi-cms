@@ -28,13 +28,15 @@ import {
 } from '@/lib/contract/snapshot'
 import { activeTemplate, pendingReviewPlaceholder } from '@/lib/contract/template'
 import { buildContractUrl } from '@/lib/contract/link'
-import { readReviewNote } from '@/lib/partner-form/proposal-review'
+import { getClientConference } from '@/lib/services/client-conference-service'
+import { sendTransactionalEmail } from '@/lib/services/transactional-email'
 import {
   createContract,
   getLiveContract,
   sendForSignature,
   supersedeContract,
   verifyStoredDocument,
+  SIGNING_TTL_DAYS,
 } from '@/lib/services/partner-contract-service'
 
 const CLIENT_COLUMNS =
@@ -90,43 +92,28 @@ async function loadPlatformOwner(): Promise<PlatformOwnerLookup> {
 }
 
 /**
- * The evidence of BR-B2B-022, item 3, read where it actually is: the conference record one
- * operator wrote down after seeing the alvará and the contrato social IN PERSON, on the
- * proposal that was promoted into this client.
+ * The evidence of BR-B2B-022, item 3, read where it now lives: the conference one operator
+ * recorded after seeing the alvará and the contrato social IN PERSON, against THIS CLIENT.
  *
  * It used to read the files the partner had uploaded through the #341 form. There is no upload
  * any more (operator, 2026-08-16) — the papers are checked before the link is ever sent — so
- * the source moved and the gate did not. There is still no "documents are fine" flag on the
- * client record, and inventing one would turn a gate into somebody's memory: what this reads
- * is an annotation with a date and a `reviewed_by` on it.
+ * the source moved to an annotation with a date and a `reviewed_by` on it, and the gate did not
+ * move with it in one respect: the annotation was keyed by the PROPOSAL. A client registered
+ * directly has no proposal, so this answered "nothing seen" about a document nobody had any way
+ * to record, and generation was refused forever with no screen to unblock it. Ten of twelve
+ * clients were in that state on 2026-08-21.
  *
- * A client with no promoted proposal answers "nothing attached", which is the truth and blocks
- * generation with a checklist item that names the missing document.
+ * `partner.client_conferences` is the single source now, and it is keyed by the client. The
+ * proposal annotation stays the reviewer's own record; `promoteProposal` copies it across, and
+ * the migration copied the rows that already existed. See
+ * `lib/services/client-conference-service.ts`.
  */
 async function loadRegularity(clientId: string): Promise<RegularityEvidence> {
-  const empty: RegularityEvidence = {
-    businessLicenseDocument: false,
-    incorporationDocument: false,
-    businessLicenseValidUntil: null,
-  }
-
-  const { data: submissions } = await getSupabaseService()
-    .schema('partner')
-    .from('partner_form_submissions')
-    .select('id, review_note, promoted_at')
-    .eq('promoted_client_id', clientId)
-    .order('promoted_at', { ascending: false })
-    .limit(1)
-
-  const submission = (submissions ?? [])[0] as { review_note?: unknown } | undefined
-  if (!submission) return empty
-
-  const { conference } = readReviewNote(submission.review_note)
+  const { conference } = await getClientConference(clientId)
 
   return {
     businessLicenseDocument: conference.documentsSeen.indexOf('business_license') >= 0,
     incorporationDocument: conference.documentsSeen.indexOf('incorporation_document') >= 0,
-    businessLicenseValidUntil: conference.licenseValidUntil,
   }
 }
 
@@ -333,6 +320,9 @@ async function verify(clientId: string) {
  * without authorization until #346, and a function that renders whatever href its body
  * asks for is a phishing kit with our DKIM on it — the correction the #341 gate made, and
  * the reason the origin is composed inside the function from `PARTNER_FORM_ORIGIN`.
+ *
+ * The invocation itself lives in `lib/services/transactional-email.ts`, which is where the
+ * ROUTE is a single fact. It was a literal here and a literal there, and both were wrong.
  */
 async function sendSigningEmail(input: {
   to: string
@@ -340,26 +330,19 @@ async function sendSigningEmail(input: {
   legalName: string
   token: string
 }): Promise<boolean> {
-  try {
-    // `functions.invoke` resolves for any HTTP answer and only fills `error` on a non-2xx,
-    // so the envelope has to be read too — a 200 with `{ error }` is a failure that looks
-    // like success.
-    const { data, error } = await getSupabaseService().functions.invoke('send-transactional', {
-      body: {
-        type: 'partner_contract_sign',
-        to: input.to,
-        lang: 'pt',
-        data: { name: input.name, legal_name: input.legalName, token: input.token },
-      },
-    })
-
-    if (error || (data && typeof data === 'object' && 'error' in data)) {
-      console.error('[contract] signing e-mail refused by send-transactional')
-      return false
-    }
-    return true
-  } catch (err) {
-    console.error('[contract] signing e-mail failed:', err instanceof Error ? err.message : err)
-    return false
-  }
+  return sendTransactionalEmail({
+    type: 'partner_contract_sign',
+    to: input.to,
+    lang: 'pt',
+    data: {
+      name: input.name,
+      legal_name: input.legalName,
+      token: input.token,
+      // The deadline travels as a NUMBER, from the constant that mints it. The template
+      // needs to say how long the link is open, and a second declaration of the TTL inside
+      // the Edge Function is the copy that drifts away from the expiry it describes.
+      expires_days: SIGNING_TTL_DAYS,
+    },
+    context: 'contract signing e-mail',
+  })
 }

@@ -28,7 +28,7 @@ import { getSupabaseService } from '@/lib/core/supabase-client'
 import { placeService, type PartnerPlaceRow } from '@/lib/core/place-service'
 import { readReviewNote } from '@/lib/partner-form/proposal-review'
 import { normalizedTaxId } from '@/lib/partner-form/tax-id-key'
-import { EMPTY_CONFERENCE, type ConferenceRecord } from '@/lib/partner-form/regularity'
+import type { ConferenceRecord } from '@/lib/partner-form/regularity'
 import {
   buildPlaceReadiness,
   summarizePlaces,
@@ -47,6 +47,11 @@ import {
 } from '@/lib/partnerships/triage'
 import { triageRefusalService, type TriageRefusalRow } from '@/lib/core/triage-refusal-service'
 import { operatorLabel } from '@/lib/services/operator-label'
+import {
+  NO_CONFERENCE,
+  getClientConference,
+  getClientConferences,
+} from '@/lib/services/client-conference-service'
 import {
   derivePipelineState,
   detailPath,
@@ -206,9 +211,14 @@ export async function loadClientDirectory(operator: SupabaseClient): Promise<Cli
   const submissions = (submissionsResult.error ? [] : submissionsResult.data ?? []) as unknown as SubmissionRow[]
   const clientIds = Array.from(clients.keys())
 
-  const [contracts, places] = await Promise.all([
+  const [contracts, places, conferences] = await Promise.all([
     loadLiveContracts(clientIds),
     loadPartnerPlaces(clientIds, operator),
+    // ONE read for the whole queue, and it reads the CLIENT. Deriving the state from the
+    // proposal annotation — which is what happened until 2026-08-21 — made this list and the
+    // detail answer differently about the same client, and pinned every client that was never
+    // a proposal at `in_conference` for a step neither screen could complete.
+    getClientConferences(clientIds),
   ])
 
   // One read for the whole queue, and it is the only extra round trip the `Triagem` column
@@ -233,7 +243,12 @@ export async function loadClientDirectory(operator: SupabaseClient): Promise<Cli
     const clientId = row.promoted_client_id
     const client = clientId ? clients.get(clientId) ?? null : null
     const { readiness, outcomes, contract } = partnershipOf(client)
-    const conference = readReviewNote(row.review_note).conference
+    // A proposal not yet promoted has no client to carry a conference, so the annotation is
+    // still the only record there is — and it is the right one: at that point the proposal IS
+    // the establishment. Once promoted, the client's row is the answer.
+    const conference = client
+      ? (conferences.get(client.id) ?? NO_CONFERENCE).conference
+      : readReviewNote(row.review_note).conference
 
     const state = derivePipelineState({
       proposalStatus: row.status,
@@ -296,11 +311,12 @@ export async function loadClientDirectory(operator: SupabaseClient): Promise<Cli
     rows.push({
       submissionId: null,
       clientId: client.id,
-      // No submission means no conference to read, and `promoted` is what the detail already
-      // assumes for a client that arrived without one — the same call, the same answer.
+      // A client that arrived without a proposal HAS a conference to read since 2026-08-21 —
+      // its own. `promoted` is what the detail already assumes for it: the same call, the same
+      // answer, and now the same evidence.
       state: derivePipelineState({
         proposalStatus: 'promoted',
-        conference: EMPTY_CONFERENCE,
+        conference: (conferences.get(client.id) ?? NO_CONFERENCE).conference,
         clientId: client.id,
         contractSigned: contract?.signed === true,
         placeCount: readiness.length,
@@ -368,6 +384,21 @@ export interface PartnershipDetail {
   state: PipelineState
   client: PipelineClient
   contract: PipelineContract | null
+  /**
+   * The conference of BR-B2B-022, item 3, READ FROM THE CLIENT and no longer from the proposal
+   * annotation.
+   *
+   * It sits beside `submission` and not inside it, and that is the whole correction. Band 2 of
+   * this pipeline used to render `submission.conference`, so a client that was never a proposal
+   * showed `conferenceNone` forever — and `derivePipelineState` was fed the same empty record,
+   * which pinned the pipeline at `in_conference` for a step the screen offered no way to
+   * complete. Ten of twelve clients were in that state on 2026-08-21.
+   */
+  conference: {
+    record: ConferenceRecord
+    reviewedAt: string | null
+    reviewedByLabel: string | null
+  }
   submission: {
     id: string
     submittedAt: string | null
@@ -390,10 +421,11 @@ export async function loadPartnershipDetail(
   const client = clients.get(clientId)
   if (!client) return null
 
-  const [contracts, places, submission] = await Promise.all([
+  const [contracts, places, submission, clientConference] = await Promise.all([
     loadLiveContracts([clientId]),
     loadPartnerPlaces([clientId], operator),
     loadPromotedSubmission(clientId),
+    getClientConference(clientId),
   ])
 
   const contract = contracts.get(clientId) ?? null
@@ -404,7 +436,7 @@ export async function loadPartnershipDetail(
     loadCurrentRefusals(attractionIds),
   ])
 
-  const conference = submission ? readReviewNote(submission.review_note).conference : EMPTY_CONFERENCE
+  const conference = clientConference.conference
 
   const outcomes: PlaceTriageOutcome[] = readiness.map((item) => ({
     published: item.published,
@@ -424,6 +456,13 @@ export async function loadPartnershipDetail(
     }),
     client,
     contract,
+    conference: {
+      record: conference,
+      reviewedAt: clientConference.reviewedAt,
+      reviewedByLabel: clientConference.reviewedBy
+        ? await operatorLabel(clientConference.reviewedBy)
+        : null,
+    },
     submission: submission
       ? {
           id: submission.id,

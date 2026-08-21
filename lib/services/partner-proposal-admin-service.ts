@@ -37,6 +37,7 @@ import {
   type ReviewNote,
 } from '@/lib/partner-form/proposal-review'
 import type { ConferenceRecord } from '@/lib/partner-form/regularity'
+import { seedConferenceFromProposal } from '@/lib/services/client-conference-service'
 import { normalizedTaxId } from '@/lib/partner-form/tax-id-key'
 import { cnpjLookupValues } from '@/lib/validation/cnpj'
 import type { ClientType } from '@/types/clients'
@@ -393,6 +394,14 @@ export async function promoteProposal(command: PromotionCommand): Promise<Promot
     return { ok: false, reason: 'not_promotable', clientId: written.clientId }
   }
 
+  // THE CONFERENCE TRAVELS WITH THE PROMOTION, and this is the only moment it can. What the
+  // reviewer recorded about the PROPOSAL is what the contract gate needs about the CLIENT, and
+  // since 2026-08-21 the gate reads `partner.client_conferences` and nothing else — the
+  // annotation stayed the reviewer's own record, keyed by the proposal, with its own
+  // `reviewed_by`. Without this line a proposal promoted after that date would arrive at the
+  // contract with the documents unrecorded, and the operator would have to type them again.
+  await transferConference(command.submissionId, written.clientId)
+
   return {
     ok: true,
     clientId: written.clientId,
@@ -400,6 +409,26 @@ export async function promoteProposal(command: PromotionCommand): Promise<Promot
     written: command.written,
     materialOrder: await createMaterialOrder(command, written.clientId),
   }
+}
+
+/**
+ * Copies the proposal's conference onto the client it became.
+ *
+ * A failure here never undoes the promotion: the client is written, the submission is claimed,
+ * and what is lost is a form the operator can fill in on the contract page. It is reported.
+ */
+async function transferConference(submissionId: string, clientId: string): Promise<void> {
+  const { data, error } = await service()
+    .from(SUBMISSIONS)
+    .select('review_note, reviewed_by')
+    .eq('id', submissionId)
+    .maybeSingle()
+
+  if (error || !data) return
+
+  const row = data as unknown as { review_note: unknown; reviewed_by: string | null }
+  const { conference } = readReviewNote(row.review_note)
+  await seedConferenceFromProposal(clientId, conference, row.reviewed_by)
 }
 
 /**

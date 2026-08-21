@@ -86,12 +86,9 @@ export const PIPELINE_STATES: PipelineState[] = IN_PROGRESS_STATES.concat(
  * data.
  */
 export function conferenceStarted(conference: ConferenceRecord): boolean {
-  return (
-    conference.documentsSeen.length > 0 ||
-    conference.licenseNumber !== null ||
-    conference.licenseIssuer !== null ||
-    conference.licenseValidUntil !== null
-  )
+  // One condition since 2026-08-21, and it is the whole record: the conference is a tick. The
+  // three licence transcriptions it used to also look at no longer exist.
+  return conference.documentsSeen.length > 0
 }
 
 export interface PipelineInput {
