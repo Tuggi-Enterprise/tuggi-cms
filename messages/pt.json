@@ -3153,5 +3153,50 @@
         "link_failed": "Não foi possível vincular agora. Tente de novo."
       }
     }
+  },
+  "Materials": {
+    "title": "Material de divulgação",
+    "dragHint": "Arraste o pedido para Entregue ou Cancelado. Um pedido fechado não volta — reposição é um pedido novo, registrado na ficha do parceiro.",
+    "searchLabel": "Buscar por parceiro, estabelecimento ou cidade",
+    "searchPlaceholder": "Parceiro, local ou cidade…",
+    "reload": "Atualizar",
+    "loading": "Carregando os pedidos…",
+    "empty": "Nenhum pedido nesta coluna.",
+    "emptyFiltered": "Nenhum pedido desta busca nesta coluna.",
+    "errorTitle": "Não deu para carregar os pedidos.",
+    "retry": "Tentar de novo",
+    "truncated": "A lista foi cortada no limite de leitura: os números abaixo são pisos, não totais.",
+    "atLeast": "≥ {count}",
+    "columnHints": {
+      "requested": "Ainda não saiu. É o que há para produzir e enviar.",
+      "fulfilled": "Material entregue ao parceiro.",
+      "cancelled": "Pedido cancelado. Nada foi produzido."
+    },
+    "refused": {
+      "reopen": "Pedido não volta para Pedido. Se o parceiro precisa de mais material, registre um pedido novo na ficha dele.",
+      "closed": "Este pedido já foi fechado. Só um pedido em aberto pode ser entregue ou cancelado."
+    },
+    "card": {
+      "noAddress": "Sem endereço: este parceiro não tem local vinculado nem cidade no cadastro.",
+      "origin": {
+        "linked_place": "local vinculado",
+        "welcome_poi": "POI de boas-vindas",
+        "client_address": "endereço do cadastro",
+        "none": "sem endereço"
+      }
+    },
+    "summary": {
+      "title": "Resumo dos pedidos de material",
+      "openOrders": "Pedidos em aberto",
+      "openUnits": "{count} peças no total",
+      "toPrint": "A produzir",
+      "towns": "Cidades de destino",
+      "fulfilled": "{count} já entregues",
+      "noAddress": "Sem endereço",
+      "noAddressHint": "Vincule o local do parceiro ou preencha a cidade no cadastro antes de enviar.",
+      "tableCaption": "Pedidos em aberto por cidade de destino, do mais pesado para o mais leve.",
+      "town": "Cidade",
+      "orders": "Pedidos"
+    }
   }
 }

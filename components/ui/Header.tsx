@@ -40,7 +40,8 @@ import {
   CalendarDays,
   Store,
   Network,
-  Volume2
+  Volume2,
+  Package
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { isMarketingEnabled } from '@/lib/modules/marketing'
@@ -89,6 +90,10 @@ export function Header({ className }: { className?: string }) {
       icon: Handshake,
       category: 'admin',
     },
+    // A fila de material fica FORA de `Parcerias` porque o objeto da tela é o pedido, não o
+    // parceiro: a pergunta que ela responde — quantos displays imprimir e para quais cidades —
+    // não tem resposta dentro de uma ficha.
+    { name: 'Material', href: '/admin/materials', icon: Package, category: 'admin' },
     { name: 'Audit Logs', href: '/admin/audit-logs', icon: Activity, category: 'admin' },
     // Direções + avisos: os clipes que não pertencem a nenhum POI.
     { name: t('system_audio'), href: '/dashboard/system-audio', icon: Volume2, category: 'admin' },

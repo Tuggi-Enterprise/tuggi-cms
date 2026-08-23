@@ -19,6 +19,7 @@
 
 import { getSupabaseService } from '@/lib/core/supabase-client'
 import { MATERIAL_KINDS, type MaterialKind } from '@/lib/partner-form/fields'
+import type { MaterialDestination, MaterialQueueOrder } from '@/lib/materials/order-queue'
 
 const SCHEMA = 'partner'
 const ORDERS = 'material_orders'
@@ -158,4 +159,180 @@ export async function setMaterialOrderStatus(
     .select('id')
 
   return !error && Array.isArray(data) && data.length > 0
+}
+
+/**
+ * EVERY PARTNER'S ORDER, for the queue screen — `/admin/materials`.
+ *
+ * WHY THIS IS NOT `loadMaterialOrders` WITHOUT THE FILTER: the per-partner panel is read inside
+ * a record that already says who the partner is and where they are. A cross-client card carries
+ * neither, and an order that says `30 adesivos` with no name and no town is not shippable.
+ *
+ * THREE READS AND NOT AN EMBED, and the reason is the schema line: the orders are in `partner`,
+ * the establishment is `core.attractions`, and PostgREST does not embed across schemas. So the
+ * ids are collected and the two other tables are read once each — three round trips for the
+ * whole board, not three per card.
+ *
+ * THE ADDRESS IS RESOLVED, NOT PICKED. `core.attractions.partner_client_id` and
+ * `partner.clients.welcome_poi_id` are two independent claims about the same establishment and
+ * they disagreed for 10 of 10 partners on 2026-08-23 (see `welcomeDivergence`). The linked place
+ * wins because it is the one the pipeline publishes; the welcome POI answers when nothing is
+ * linked; the client's own city answers when neither does; and when even that is empty the
+ * destination says `none` instead of inventing one.
+ */
+export async function loadMaterialOrderQueue(cap = 500): Promise<MaterialQueueOrder[]> {
+  const { data, error } = await service()
+    .from(ORDERS)
+    .select(
+      'id, client_id, status, source, submission_id, notes, created_at, material_order_items(kind, quantity)'
+    )
+    .order('created_at', { ascending: false })
+    .limit(cap)
+
+  if (error || !data) return []
+
+  const rows = data as (OrderRow & { client_id: string })[]
+  const clientIds = Array.from(new Set(rows.map((row) => row.client_id)))
+  if (clientIds.length === 0) return []
+
+  const clients = await loadOrderClients(clientIds)
+  const places = await loadOrderPlaces(clientIds, clients)
+
+  return rows.map((row) => {
+    const client = clients.get(row.client_id)
+    return {
+      id: row.id,
+      clientId: row.client_id,
+      clientName: client?.name ?? client?.companyName ?? row.client_id,
+      status: row.status as MaterialOrderStatus,
+      source: row.source as MaterialOrderSource,
+      notes: row.notes,
+      createdAt: row.created_at,
+      items: sortedItems(row.material_order_items ?? []),
+      destination: places.get(row.client_id) ?? NO_DESTINATION,
+    }
+  })
+}
+
+const NO_DESTINATION: MaterialDestination = {
+  attractionId: null,
+  name: null,
+  city: null,
+  region: null,
+  country: null,
+  origin: 'none',
+}
+
+interface OrderClient {
+  id: string
+  name: string | null
+  companyName: string | null
+  city: string | null
+  state: string | null
+  country: string | null
+  welcomePoiId: string | null
+}
+
+async function loadOrderClients(ids: string[]): Promise<Map<string, OrderClient>> {
+  const { data } = await service()
+    .from('clients')
+    .select('id, name, company_name, city, state, country, welcome_poi_id')
+    .in('id', ids)
+
+  const clients = new Map<string, OrderClient>()
+  for (const row of (data ?? []) as Record<string, string | null>[]) {
+    if (!row.id) continue
+    clients.set(row.id, {
+      id: row.id,
+      name: row.name,
+      companyName: row.company_name,
+      city: row.city,
+      state: row.state,
+      country: row.country,
+      welcomePoiId: row.welcome_poi_id,
+    })
+  }
+  return clients
+}
+
+/**
+ * One address per partner, from the best claim available.
+ *
+ * Only two reads no matter how many partners: the places linked TO these clients, and the
+ * welcome POIs of the ones that came back without a linked place.
+ */
+async function loadOrderPlaces(
+  clientIds: string[],
+  clients: Map<string, OrderClient>
+): Promise<Map<string, MaterialDestination>> {
+  const core = getSupabaseService().schema('core')
+  const destinations = new Map<string, MaterialDestination>()
+
+  const { data: linked } = await core
+    .from('attractions')
+    .select('id, name, city, state, country, partner_client_id')
+    .in('partner_client_id', clientIds)
+
+  for (const row of (linked ?? []) as Record<string, string | null>[]) {
+    const clientId = row.partner_client_id
+    // The first linked place wins and the rest are not read: BR-B2B-033 is 1 client : N places,
+    // and the material goes to the establishment the partnership was opened for.
+    if (!clientId || destinations.has(clientId)) continue
+    destinations.set(clientId, {
+      attractionId: row.id,
+      name: row.name,
+      city: row.city,
+      region: row.state,
+      country: row.country,
+      origin: 'linked_place',
+    })
+  }
+
+  const welcomeByClient = new Map<string, string>()
+  for (const clientId of clientIds) {
+    const client = clients.get(clientId)
+    if (!client?.welcomePoiId || destinations.has(clientId)) continue
+    welcomeByClient.set(clientId, client.welcomePoiId)
+  }
+
+  if (welcomeByClient.size > 0) {
+    const { data: welcome } = await core
+      .from('attractions')
+      .select('id, name, city, state, country')
+      .in('id', Array.from(welcomeByClient.values()))
+
+    const byId = new Map<string, Record<string, string | null>>()
+    for (const row of (welcome ?? []) as Record<string, string | null>[]) {
+      if (row.id) byId.set(row.id, row)
+    }
+    for (const [clientId, poiId] of welcomeByClient) {
+      const row = byId.get(poiId)
+      // A pointer at a row nobody can read is a dangling id, not an address.
+      if (!row) continue
+      destinations.set(clientId, {
+        attractionId: row.id,
+        name: row.name,
+        city: row.city,
+        region: row.state,
+        country: row.country,
+        origin: 'welcome_poi',
+      })
+    }
+  }
+
+  for (const clientId of clientIds) {
+    if (destinations.has(clientId)) continue
+    const client = clients.get(clientId)
+    if (!client?.city) continue
+    destinations.set(clientId, {
+      attractionId: null,
+      name: client.companyName ?? client.name,
+      city: client.city,
+      region: client.state,
+      country: client.country,
+      origin: 'client_address',
+    })
+  }
+
+  return destinations
 }
