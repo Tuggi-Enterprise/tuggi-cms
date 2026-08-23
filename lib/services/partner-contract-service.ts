@@ -47,6 +47,10 @@ import { renderContractPdf, type AcceptanceStamp } from '@/lib/contract/pdf'
 import { activeTemplate, templateByVersion } from '@/lib/contract/template'
 import { sendTransactionalEmail } from '@/lib/services/transactional-email'
 import type { ContractSnapshot, ContractTier } from '@/lib/contract/snapshot'
+// Re-exported so the call sites that already import it from here keep working; the
+// declaration itself moved to a pure module the pipeline can read without this service.
+export type { ContractStatus } from '@/lib/contract/status'
+import type { ContractStatus } from '@/lib/contract/status'
 
 const SCHEMA = 'partner'
 const CONTRACTS = 'partner_contracts'
@@ -58,7 +62,6 @@ export const PARTNER_CONTRACTS_BUCKET = 'partner-contracts'
 /** How long a signing link stays open, in days. */
 export const SIGNING_TTL_DAYS = 14
 
-export type ContractStatus = 'draft' | 'sent' | 'signed' | 'superseded' | 'terminated'
 
 export interface ContractRow {
   id: string

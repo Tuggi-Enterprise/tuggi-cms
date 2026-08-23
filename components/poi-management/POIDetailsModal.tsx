@@ -28,6 +28,7 @@ import {
   sanitizeBoundary,
 } from '@/lib/core/poi-boundary-service'
 import { usePoiMutations } from '@/lib/hooks/usePoiMutations'
+import { PLACE_WITHOUT_COORDINATE } from '@/lib/core/place-service'
 import {
   fetchNearbyInPolygon,
   fetchGroupOfPoi,
@@ -1362,8 +1363,15 @@ export function POIDetailsModal({ poi, isOpen, onClose, onUpdate, onPOIUpdated, 
       onClose()
     } catch (error) {
       console.error('Error approving POI:', error)
-      // Show user-friendly error message
-      showFeedback(`Erro ao aprovar POI: ${error instanceof Error ? error.message : 'Erro desconhecido'}`, 'error')
+      // O ponto que falta tem frase própria: `place_without_coordinate` é o código que
+      // `placeService.setApproved` lança, e mostrá-lo cru mandaria o operador procurar o que
+      // fazer. Todo predicado que serve o turista faz JOIN na coordenada, então aprovar sem ela
+      // marca como no ar um registro que ninguém vê.
+      const message =
+        error instanceof Error && error.message === PLACE_WITHOUT_COORDINATE
+          ? 'Marque o ponto no mapa antes de aprovar. Sem coordenada o POI não aparece para o turista.'
+          : `Erro ao aprovar POI: ${error instanceof Error ? error.message : 'Erro desconhecido'}`
+      showFeedback(message, 'error')
     } finally {
       setIsSaving(false)
     }

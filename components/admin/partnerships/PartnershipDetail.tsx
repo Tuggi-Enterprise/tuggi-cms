@@ -33,6 +33,7 @@ import { deriveTriageStatus, type TriageGate } from '@/lib/partnerships/triage'
 import { returnParams } from '@/lib/navigation/return-to'
 import type { PartnershipDetail as Detail, PartnershipPlace } from '@/lib/services/partnership-service'
 import { PendencyList } from './PendencyList'
+import { PlaceLinkPanel } from './PlaceLinkPanel'
 import { PublishPanel, UnpublishPanel } from './PublishPanel'
 import { CommunicationPanel, RefusalPanel, RefusalSummary, type RefusalOutcome } from './TriageRefusalPanel'
 import { triageDeadlineText, triageText } from './triage-text'
@@ -57,6 +58,9 @@ const STATE_ORDER: Record<PipelineState, number> = {
   proposal_received: 0,
   in_conference: 1,
   client_created: 2,
+  // Band 3 as well, and not a band of its own: the act it waits for (`Cobrar a assinatura`) is
+  // the signing link, which lives in the client band beside the contract that produced it.
+  contract_sent: 3,
   contract_signed: 3,
   place_in_curation: 4,
   refusal_not_communicated: 4,
@@ -753,29 +757,29 @@ function PlaceBand({
       <div className="text-sm">
         <p className="font-semibold text-gray-900">{t('pendencies.emptyTitle')}</p>
         <p className="mt-1 text-gray-800">{t('pendencies.emptyBody')}</p>
-        <div className="mt-3 flex flex-wrap items-center gap-3">
+
+        {/* LINKING NOW HAS A WRITER (#409), and it goes FIRST. What stood here was a link to
+            `/places` under a comment saying this act had no surface in the CMS — a round trip
+            that ended in nothing. What that absence cost is measured: three of three clients
+            who used the create button below ended up with an empty second row beside an
+            establishment already published (`lib/partnerships/place-link`). */}
+        <div className="mt-4">
+          <PlaceLinkPanel clientId={detail.client.id} locale={locale} onLinked={reload} />
+        </div>
+
+        <p className="mt-4 text-xs text-gray-700">{t('placeLink.orCreate')}</p>
+        <div className="mt-2 flex flex-wrap items-center gap-3">
           {/* Creating the place from the proposal is the SAME act the partner approval runs
               (#360, `applyPartnerApprovalEffects`): prefilled from what the partner wrote and
               linked by `partner_client_id`. Not a second implementation of the prefill. */}
           <Button
             type="button"
-            variant="cta"
+            variant="outline"
             disabled={creating}
             onClick={() => void createFromProposal()}
           >
             {t('pendencies.emptyCreate')}
           </Button>
-          {/* Linking a place that already exists has no writer yet — there is no surface in the
-              CMS that sets `attractions.partner_client_id` on an existing POI. So the label
-              describes what the click DOES (`Ver os locais já cadastrados`) and not the act it
-              cannot perform: sending the operator to a 2.2 M-row catalogue under the promise of
-              linking is a round trip that ends in nothing. The writer is card #374. */}
-          <Link
-            href={`/${locale}/places`}
-            className="inline-flex min-h-[24px] items-center text-sm font-medium text-primary-800 underline underline-offset-4"
-          >
-            {t('pendencies.emptyLink')}
-          </Link>
         </div>
       </div>
     )

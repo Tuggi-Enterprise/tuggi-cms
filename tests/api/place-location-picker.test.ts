@@ -31,7 +31,7 @@ import {
   pickLocationCaption,
   pickLocationPickerView,
 } from '@/lib/maps/location-picker-view'
-import { geocodeAddress, waitForGoogleMaps } from '@/lib/maps/geocode-address'
+import { GEOCODE_ENDPOINT, geocodeAddress } from '@/lib/maps/geocode-address'
 
 const REPO_ROOT = resolve(import.meta.dirname, '../..')
 
@@ -176,36 +176,33 @@ interface FakeGeocode {
   results: unknown[]
 }
 
-function stubGoogle(answer: FakeGeocode, spy?: { address?: string }) {
-  ;(globalThis as any).window = globalThis
-  ;(globalThis as any).google = {
-    maps: {
-      Geocoder: class {
-        geocode(request: { address: string }, callback: (results: unknown[] | null, status: string) => void) {
-          if (spy) spy.address = request.address
-          callback(answer.results, answer.status)
-        }
-      },
-    },
-  }
-}
-
-function googleResult(lat: number, lng: number, formatted: string) {
-  return {
-    geometry: { location: { lat: () => lat, lng: () => lng } },
-    formatted_address: formatted,
+/**
+ * A CHAMADA DEIXOU DE SER O SDK DO NAVEGADOR EM 2026-08-23, e o motivo está no cabeçalho de
+ * `geocode-address`: `google.maps.Geocoder` exige a Geocoding API, que esta chave nega
+ * (`REQUEST_DENIED`, medido). A centralização do #371 nunca funcionou, e falhava em silêncio.
+ * Agora a pergunta vai para `/api/maps/geocode`, que responde com `places:searchText`.
+ *
+ * O QUE ESTA SUÍTE PROVA NÃO MUDOU: o ponto move a câmera, o endereço em branco não vira
+ * requisição, e falha nenhuma bloqueia a tela. É o mecanismo que trocou, não a promessa.
+ */
+function stubFetch(answer: unknown, spy?: { address?: string; url?: string }) {
+  ;(globalThis as any).fetch = async (url: string, init?: { body?: string }) => {
+    if (spy) {
+      spy.url = url
+      spy.address = JSON.parse(init?.body ?? '{}').address
+    }
+    return { ok: true, json: async () => answer }
   }
 }
 
 afterEach(() => {
-  delete (globalThis as any).google
-  delete (globalThis as any).window
+  delete (globalThis as any).fetch
 })
 
 test('#371: a resolved address answers the point AND the label, and nothing else', async () => {
-  const spy: { address?: string } = {}
-  stubGoogle(
-    { status: 'OK', results: [googleResult(-22.7469, -41.8817, 'R. das Pedras, Búzios - RJ')] },
+  const spy: { address?: string; url?: string } = {}
+  stubFetch(
+    { result: { lat: -22.7469, lng: -41.8817, formattedAddress: 'R. das Pedras, Búzios - RJ' } },
     spy
   )
 
@@ -217,36 +214,71 @@ test('#371: a resolved address answers the point AND the label, and nothing else
   })
   // Trimmed before it leaves: `formatted_address` comes from a form somebody typed by hand.
   assert.equal(spy.address, 'R. das Pedras, 100, Búzios')
+  // Pela NOSSA rota: a chave da Google não sai do servidor, e a busca responde a um `withAuth`.
+  assert.equal(spy.url, GEOCODE_ENDPOINT)
 })
 
-test('#371 item 3: `ZERO_RESULTS` is null, not an exception — nothing blocks', async () => {
-  stubGoogle({ status: 'ZERO_RESULTS', results: [] })
+test('#371 item 3: nada encontrado é null, não é exceção — nada bloqueia', async () => {
+  stubFetch({ result: null })
   assert.equal(await geocodeAddress('Rua que não existe, 0'), null)
 })
 
 test('#371: an empty address never reaches Google', async () => {
   const spy: { address?: string } = {}
-  stubGoogle({ status: 'OK', results: [googleResult(0, 0, 'nowhere')] }, spy)
+  stubFetch({ result: { lat: 0, lng: 0, formattedAddress: 'nowhere' } }, spy)
 
   assert.equal(await geocodeAddress(''), null)
   assert.equal(await geocodeAddress('   '), null)
   assert.equal(spy.address, undefined, 'a blank address is not a request')
 })
 
-test('#371: the SDK never loading is null, and it does not hang the screen', async () => {
-  ;(globalThis as any).window = globalThis
-  assert.equal(await waitForGoogleMaps(150), false)
+test('#371: a rota falhando é null, e não pendura a tela', async () => {
+  ;(globalThis as any).fetch = async () => {
+    throw new Error('network down')
+  }
   assert.equal(await geocodeAddress('Búzios', { timeoutMs: 150 }), null)
+
+  ;(globalThis as any).fetch = async () => ({ ok: false, json: async () => ({}) })
+  assert.equal(await geocodeAddress('Búzios'), null)
+})
+
+test('#409: a Geocoding API está negada nesta chave, e nada volta a chamá-la', () => {
+  // Medido em 2026-08-23: `maps/api/geocode` responde `REQUEST_DENIED`, e a documentação da
+  // Google diz que `google.maps.Geocoder` do SDK exige essa mesma API. Um commit que volte a
+  // qualquer um dos dois traz de volta a falha silenciosa que o #371 deixou em produção.
+  const client = code('lib/maps/geocode-address.ts')
+  assert.equal(client.indexOf('google.maps.Geocoder'), -1)
+  assert.equal(client.indexOf('new google.maps'), -1)
+  assert.match(client, /GEOCODE_ENDPOINT = '\/api\/maps\/geocode'/)
+
+  const route = code('app/api/maps/geocode/route.ts')
+  assert.match(route, /places\.googleapis\.com\/v1\/places:searchText/)
+  assert.equal(route.indexOf('maps/api/geocode'), -1)
+  // A chave fica no servidor, atrás de autenticação e de rate limit.
+  assert.match(route, /withAuth\(\{ roles: \['admin', 'editor'\] \}/)
+  assert.match(route, /withRateLimit\(/)
 })
 
 // ── The negative guarantee, where a future commit would break it ─────────────────────────────
 
-test('#371: the picker writes NO coordinate — `onChange` has exactly one caller, the map click', () => {
+test('#371: the picker writes NO coordinate — só GESTO no mapa chama `onChange`', () => {
   const source = code(PICKER)
 
+  // ERAM UM CHAMADOR, SÃO DOIS DESDE #409, e a garantia é a mesma: a geocodificação não vira
+  // coordenada. Clicar diz a quadra; arrastar acerta a fachada, que fica a poucos metros dali —
+  // e repetir cliques até acertar é mirar sem ver o que se move. Os dois são a mão do operador
+  // sobre o mapa, que é exatamente o que a decisão de 2026-08-17 exige.
   const calls = source.match(/onChange\?\.\(/g) ?? []
-  assert.equal(calls.length, 1, 'one caller, and it is `onMapClick`')
+  assert.equal(calls.length, 2, 'dois chamadores, e os dois são gesto humano no mapa')
   assert.match(source, /onMapClick=\{\(lat: number, lng: number\) => onChange\?\.\(lat, lng\)\}/)
+  assert.match(
+    source,
+    /onMarkerDragEnd=\{\(_id: string, lat: number, lng: number\) => onChange\?\.\(lat, lng\)\}/
+  )
+
+  // E o pino só arrasta em modo de edição: num mapa de leitura ele seria dado alterado por
+  // acidente, com aparência de verdade.
+  assert.match(source, /draggable: editable/)
 
   // The geocoding result reaches `setGeocoded` and nothing else. The effect that geocodes is read
   // on its own: if `onChange` ever appeared inside it, the form would hold a coordinate nobody
@@ -276,13 +308,15 @@ test('#371: the picker cannot reach the coordinate writer at all', () => {
 })
 
 test('#371 · CLAUDE.md §6: there is ONE forward geocoder in the CMS', () => {
-  // `new google.maps.Geocoder()` is the forward geocoding of the Maps JS SDK. Reverse geocoding
-  // (latlng → address) is a different question with its own modules and is not counted here.
-  const geocoders = grepRepo('new google.maps.Geocoder(')
-  assert.deepEqual(geocoders, ['lib/maps/geocode-address.ts'])
+  // O SDK saiu em 2026-08-23 (#409): `google.maps.Geocoder` exige a Geocoding API, negada nesta
+  // chave. A garantia de dono único não mudou — mudou quem é o dono. Reverse geocoding
+  // (latlng → endereço) é outra pergunta, com módulos próprios, e não é contada aqui.
+  assert.deepEqual(grepRepo('new google.maps.Geocoder('), [])
+  assert.deepEqual(grepRepo('places:searchText'), ['app/api/maps/geocode/route.ts'])
 
-  // And the caller that used to own it goes through the module now.
+  // E os dois chamadores passam pelo módulo, que é quem fala com a rota.
   assert.match(code('lib/hooks/use-map-state.ts'), /geocodeAddress\(cityQuery\)/)
+  assert.match(code(PICKER), /geocodeAddress\(/)
 })
 
 test('#371: the modal hands the address down, and the address comes from the record', () => {

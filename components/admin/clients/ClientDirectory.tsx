@@ -29,13 +29,13 @@
  * locale, `Partnerships` overlaid in Portuguese by the tab's own provider.
  */
 
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useMemo } from 'react'
 import { useTranslations } from 'next-intl'
 import Link from 'next/link'
-import { Filter, RotateCcw, Search } from 'lucide-react'
 import { Button } from '@/components/ui/button'
+import { DirectoryFilterRail } from '@/components/admin/clients/DirectoryFilterRail'
 import { formatDate } from '@/components/admin/partner-proposals/format'
-import { daysUntil } from '@/lib/partner-form/regularity'
+import { idleFor, placeLine, rowKey, whatIsMissing } from '@/components/admin/clients/board/row-text'
 import { deriveTriageStatus, type TriageStatus } from '@/lib/partnerships/triage'
 import { triageDeadlineText, triageText } from '@/components/admin/partnerships/triage-text'
 import {
@@ -44,15 +44,11 @@ import {
   inProgressCount,
   overdueCount,
   type DirectoryFilters,
-  type FacetKey,
 } from '@/lib/clients/directory-filter'
 import type { ClientDirectoryRow } from '@/lib/services/partnership-service'
 
 /** What a row with no clock reads as — one constant, so the count and the cell agree. */
 const NOT_STARTED: TriageStatus = { kind: 'not_started' }
-
-/** The rail, in the order an operator narrows: where, then who, then how far along. */
-const FACETS: FacetKey[] = ['country', 'region', 'city', 'clientType', 'status', 'contract', 'state']
 
 interface ClientDirectoryProps {
   locale: string
@@ -67,6 +63,17 @@ interface ClientDirectoryProps {
   filters: DirectoryFilters
   onFiltersChange: (next: DirectoryFilters) => void
   onCreateNew?: () => void
+  /**
+   * THE ROWS COME FROM THE HOST, and so does the board's copy of them: `useClientDirectory` is
+   * one read for both views, so switching between them does not re-fetch and an act on a card
+   * invalidates the table behind it.
+   */
+  rows: ClientDirectoryRow[]
+  truncated: boolean
+  loading: boolean
+  failed: boolean
+  /** The Quadro/Tabela control, rendered by the host so both views carry the same one. */
+  viewSwitch?: React.ReactNode
 }
 
 export function ClientDirectory({
@@ -74,43 +81,14 @@ export function ClientDirectory({
   filters,
   onFiltersChange,
   onCreateNew,
+  rows,
+  truncated,
+  loading,
+  failed,
+  viewSwitch,
 }: ClientDirectoryProps) {
   const t = useTranslations('Clients.directory')
   const p = useTranslations('Partnerships')
-
-  const [rows, setRows] = useState<ClientDirectoryRow[]>([])
-  const [truncated, setTruncated] = useState(false)
-  const [loading, setLoading] = useState(true)
-  const [failed, setFailed] = useState(false)
-
-  const fetchRows = useCallback(async () => {
-    const response = await fetch('/api/admin/clients/directory')
-    if (!response.ok) return null
-    return (await response.json()) as { rows: ClientDirectoryRow[]; truncated: boolean }
-  }, [])
-
-  useEffect(() => {
-    let active = true
-    void fetchRows()
-      .then((payload) => {
-        if (!active) return
-        if (payload) {
-          setRows(payload.rows)
-          setTruncated(payload.truncated)
-        } else {
-          setFailed(true)
-        }
-        setLoading(false)
-      })
-      .catch(() => {
-        if (!active) return
-        setFailed(true)
-        setLoading(false)
-      })
-    return () => {
-      active = false
-    }
-  }, [fetchRows])
 
   const view = useMemo(() => buildDirectoryView(rows, filters), [rows, filters])
   const late = useMemo(() => overdueCount(rows), [rows])
@@ -131,151 +109,15 @@ export function ClientDirectory({
     onFiltersChange({ ...filters, [key]: value })
   }
 
-  /** The label of one facet value — the vocabulary is the pipeline's, not this screen's. */
-  function optionLabel(key: FacetKey, value: string): string {
-    if (key === 'state') return p(`states.${value}`)
-    if (key === 'contract') return t(`contractValues.${value}`)
-    if (key === 'status') return t(`statusValues.${value}`)
-    return value
-  }
-
-  const clearControl = view.filtering ? (
-    <button
-      type="button"
-      onClick={() => onFiltersChange(EMPTY_FILTERS)}
-      aria-label={t('clear')}
-      title={t('clear')}
-      className="rounded-lg p-2 text-gray-400 transition-all hover:bg-primary-800/5 hover:text-primary-800"
-    >
-      <RotateCcw className="h-4 w-4" aria-hidden="true" />
-    </button>
-  ) : null
-
   return (
     <div className="flex min-h-screen flex-col bg-gray-50 p-6 dark:bg-gray-950 lg:p-8">
       <div className="flex flex-1 gap-8 pt-6">
-        {/* ── The rail ──────────────────────────────────────────────────────────────────── */}
-        <div className="w-[18%] flex-shrink-0">
-          <div className="sticky top-24 rounded-3xl border border-gray-200 bg-white/70 shadow-2xl shadow-black/5 backdrop-blur-xl dark:border-gray-800 dark:bg-gray-900/70">
-            <div className="p-6">
-              <div className="mb-6 flex items-center justify-between">
-                <div className="flex items-center gap-3">
-                  {/* The chip is a SURFACE tint and the icon inside it is decorative — the
-                      heading beside it carries the meaning, so it is `aria-hidden` and exempt
-                      from SC 1.4.11. That is what lets the brand blue stay here while never
-                      painting a word. */}
-                  <div className="rounded-xl bg-tuggi-blue/10 p-2">
-                    <Filter className="h-5 w-5 text-tuggi-blue" aria-hidden="true" />
-                  </div>
-                  <h2 className="text-xl font-semibold tracking-tight text-gray-900 dark:text-white">
-                    {t('filtersTitle')}
-                  </h2>
-                </div>
-                {clearControl}
-              </div>
-
-              <div className="mb-6">
-                <label htmlFor="directory-search" className="sr-only">
-                  {t('searchLabel')}
-                </label>
-                <div className="group relative">
-                  <div className="pointer-events-none absolute inset-y-0 left-0 flex items-center pl-3">
-                    <Search
-                      className="h-4 w-4 text-gray-400 transition-colors group-focus-within:text-primary-800"
-                      aria-hidden="true"
-                    />
-                  </div>
-                  <input
-                    id="directory-search"
-                    type="text"
-                    value={filters.search}
-                    placeholder={t('searchPlaceholder')}
-                    onChange={(event) => set('search', event.target.value)}
-                    className="w-full rounded-xl border border-gray-200 bg-gray-50/50 py-3 pl-10 pr-4 text-sm outline-none transition-all focus:border-transparent focus:ring-2 focus:ring-primary-800 dark:border-gray-700 dark:bg-gray-800/50 dark:text-white"
-                  />
-                </div>
-              </div>
-
-              <div className="space-y-5">
-                {FACETS.map((key) => {
-                  const options = view.facets[key]
-                  // A dimension nobody filled in is not a filter — it is noise with a heading.
-                  if (options.length === 0) return null
-                  const selected = filters[key] as string | null
-
-                  return (
-                    <section key={key} aria-labelledby={`facet-${key}`}>
-                      <h3
-                        id={`facet-${key}`}
-                        className="mb-3 px-1 text-[10px] font-bold uppercase tracking-widest text-gray-500 dark:text-gray-400"
-                      >
-                        {t(`filters.${key}`)}
-                      </h3>
-                      <ul className="space-y-1">
-                        {/*
-                          THE WORKING SET, and it is the one thing `/admin/partnerships` had that
-                          this list did not. A list that shows `Publicado`, `Descartado` and
-                          `Recusado na triagem` alongside what still needs doing is noise the
-                          operator learns to ignore (criterion 4, DS-COPY-020, point 5). An
-                          option and not the default: this is the client list too, and somebody
-                          fixing the fiscal data of a partner already on air must find them.
-                        */}
-                        {key === 'state' && (
-                          <li>
-                            <FacetOptionButton
-                              label={p('queue.inProgress')}
-                              count={working}
-                              active={filters.state === 'in_progress'}
-                              onToggle={() =>
-                                set('state', filters.state === 'in_progress' ? 'all' : 'in_progress')
-                              }
-                            />
-                          </li>
-                        )}
-                        {options.map((option) => (
-                          <li key={option.value}>
-                            <FacetOptionButton
-                              label={optionLabel(key, option.value)}
-                              count={option.count}
-                              active={selected === option.value}
-                              onToggle={() =>
-                                // Clearing a dimension means `null` for every one of them EXCEPT
-                                // `state`, whose "no filter" value is `all` — `null` is not one
-                                // of its values, and setting it matched no row at all.
-                                set(
-                                  key as keyof DirectoryFilters,
-                                  (selected === option.value
-                                    ? key === 'state'
-                                      ? 'all'
-                                      : null
-                                    : option.value) as never
-                                )
-                              }
-                            />
-                          </li>
-                        ))}
-                      </ul>
-                    </section>
-                  )
-                })}
-
-                <div className="border-t border-gray-100 pt-4 dark:border-gray-800">
-                  <label className="flex cursor-pointer items-center gap-2">
-                    <input
-                      type="checkbox"
-                      checked={filters.onlyLate}
-                      onChange={(event) => set('onlyLate', event.target.checked)}
-                      className="h-4 w-4 rounded border-gray-300 text-primary-800 focus:ring-primary-800"
-                    />
-                    <span className="text-sm text-gray-900 dark:text-gray-200">
-                      {t('filters.onlyLate')}
-                    </span>
-                  </label>
-                </div>
-              </div>
-            </div>
-          </div>
-        </div>
+        <DirectoryFilterRail
+          view={view}
+          filters={filters}
+          onFiltersChange={onFiltersChange}
+          working={working}
+        />
 
         {/* ── The list ──────────────────────────────────────────────────────────────────── */}
         <div className="w-[82%] min-w-0">
@@ -312,11 +154,14 @@ export function ClientDirectory({
                 )}
               </div>
 
-              {onCreateNew && (
-                <Button type="button" variant="cta" onClick={onCreateNew}>
-                  {t('newClient')}
-                </Button>
-              )}
+              <div className="flex items-center gap-3">
+                {viewSwitch}
+                {onCreateNew && (
+                  <Button type="button" variant="cta" onClick={onCreateNew}>
+                    {t('newClient')}
+                  </Button>
+                )}
+              </div>
             </div>
           </div>
 
@@ -468,42 +313,6 @@ export function ClientDirectory({
 }
 
 /**
- * One option of the rail: the label, and the count it would open.
- *
- * `text-primary-800` on light and `text-tuggi-blue` on dark, which is not an inconsistency —
- * it is the same measurement read on two surfaces. The brand blue is 2.70:1 on white and fails
- * SC 1.4.3; on `gray-900` it is 6.57:1 and passes comfortably. The token that fails as ink in
- * daylight is the one that works at night.
- */
-function FacetOptionButton({
-  label,
-  count,
-  active,
-  onToggle,
-}: {
-  label: string
-  count: number
-  active: boolean
-  onToggle: () => void
-}) {
-  return (
-    <button
-      type="button"
-      aria-pressed={active}
-      onClick={onToggle}
-      className={`flex min-h-[24px] w-full items-center justify-between gap-2 rounded-lg px-1 py-1 text-left text-sm underline-offset-4 transition-colors hover:underline ${
-        active
-          ? 'font-semibold text-gray-900 underline dark:text-white'
-          : 'text-primary-800 dark:text-tuggi-blue'
-      }`}
-    >
-      <span className="truncate">{label}</span>
-      <span className="shrink-0 text-xs text-gray-500 dark:text-gray-400">{count}</span>
-    </button>
-  )
-}
-
-/**
  * A figure in the sticky bar, in the shape `/pois` uses: micro-caps label over the value.
  *
  * WITH ONE CORRECTION TO THE PATTERN. `/pois` paints these labels `text-gray-400` (#9CA3AF),
@@ -521,42 +330,4 @@ function Stat({ label, value }: { label: string; value: string }) {
       <span className="text-lg font-bold leading-none text-gray-900 dark:text-white">{value}</span>
     </div>
   )
-}
-
-/** A row is a client, or a proposal that is not one yet — one of the two ids is always there. */
-function rowKey(row: ClientDirectoryRow): string {
-  return row.clientId ?? row.submissionId ?? ''
-}
-
-function placeLine(row: ClientDirectoryRow): string {
-  const parts = [row.city, row.region, row.country].filter(Boolean)
-  return parts.length > 0 ? parts.join(' / ') : '—'
-}
-
-/**
- * The `O que falta` column — the next step, or the pendency counts of the LEAST ADVANCED place
- * plus the proportion. Never the sum across places: summing hides which one is stuck
- * (DS-COMPONENTE-020, 2nd edge case). Same rule the queue applies, same keys.
- */
-function whatIsMissing(row: ClientDirectoryRow, p: ReturnType<typeof useTranslations>): string {
-  // The act owed to somebody OUTSIDE the company wins the column (DS-COPY-020, points 2 and 5).
-  if (row.state === 'refusal_not_communicated') return p('nextSteps.refusal_not_communicated')
-
-  const parts: string[] = []
-  if (row.places.total > 1) {
-    parts.push(p('queue.placesProgress', { published: row.places.published, total: row.places.total }))
-  }
-  if (row.places.blocking > 0) parts.push(p('queue.missingBlocking', { count: row.places.blocking }))
-  if (row.places.silencing > 0) parts.push(p('queue.missingSilencing', { count: row.places.silencing }))
-
-  if (parts.length > 0) return parts.join(p('queue.missingSeparator'))
-  return p(`nextSteps.${row.state}`)
-}
-
-/** `Parado há`, counted on the calendar day by the one function that counts days here. */
-function idleFor(since: string | null, p: ReturnType<typeof useTranslations>): string {
-  if (!since) return p('queue.idleUnknown')
-  const days = daysUntil(since)
-  if (days === null) return p('queue.idleUnknown')
-  return p('queue.idleDays', { count: Math.max(0, -days) })
 }

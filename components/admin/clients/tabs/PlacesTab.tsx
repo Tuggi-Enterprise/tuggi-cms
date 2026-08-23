@@ -29,11 +29,12 @@
  */
 
 import { useCallback, useEffect, useState } from 'react'
-import { NextIntlClientProvider, useTranslations } from 'next-intl'
+import { NextIntlClientProvider, useLocale, useTranslations } from 'next-intl'
 import { MapPin } from 'lucide-react'
 import ptMessages from '@/messages/pt.json'
 import { Button } from '@/components/ui/button'
 import { SectionHeader } from '@/components/admin/clients/shared/SectionHeader'
+import { PlaceLinkPanel } from '@/components/admin/partnerships/PlaceLinkPanel'
 import { PendencyList } from '@/components/admin/partnerships/PendencyList'
 import { returnParams } from '@/lib/navigation/return-to'
 import type { PendencyId } from '@/lib/partnerships/place-readiness'
@@ -42,6 +43,11 @@ import { PoisTab } from './PoisTab'
 import type { ClientEditorTabProps } from './ProfileTab'
 
 export function PlacesTab(props: ClientEditorTabProps) {
+  // Read OUTSIDE the Portuguese provider below: the vocabulary of the pipeline is pt-only, but
+  // the routes it links to are the operator's own, and `/pt/pois/...` for somebody working in
+  // `en` is a locale switch nobody asked for.
+  const locale = useLocale()
+
   return (
     <div className="mx-auto max-w-5xl space-y-8">
       {/* Portuguese only, and only here — see the docblock. */}
@@ -49,7 +55,7 @@ export function PlacesTab(props: ClientEditorTabProps) {
         locale="pt"
         messages={{ Partnerships: ptMessages.Partnerships }}
       >
-        <PartnerPlaces clientId={props.clientId} />
+        <PartnerPlaces clientId={props.clientId} locale={locale} />
       </NextIntlClientProvider>
 
       {/* The welcome POI is a different question — WHICH place answers `/d/{slug}` — and its
@@ -59,7 +65,7 @@ export function PlacesTab(props: ClientEditorTabProps) {
   )
 }
 
-function PartnerPlaces({ clientId }: { clientId?: string }) {
+function PartnerPlaces({ clientId, locale }: { clientId?: string; locale: string }) {
   const t = useTranslations('Partnerships')
   const [detail, setDetail] = useState<PartnershipDetail | null>(null)
   // A client with no id was never saved, so there is nothing to wait for — derived, not set
@@ -176,8 +182,16 @@ function PartnerPlaces({ clientId }: { clientId?: string }) {
               {t('clientPlaces.createFailed')}
             </p>
           )}
-          <div className="mt-3">
-            <Button type="button" variant="cta" disabled={creating} onClick={() => void create()}>
+          {/* SEARCH BEFORE CREATE, and the order is the fix: three of three clients who used
+              the create button ended up with an empty second row beside the establishment
+              already published (`lib/partnerships/place-link`). */}
+          <div className="mt-4">
+            <PlaceLinkPanel clientId={clientId} locale={locale} onLinked={load} />
+          </div>
+
+          <div className="mt-4">
+            <p className="mb-2 text-xs text-gray-700 dark:text-gray-300">{t('placeLink.orCreate')}</p>
+            <Button type="button" variant="outline" disabled={creating} onClick={() => void create()}>
               {creating ? t('clientPlaces.creating') : t('pendencies.emptyCreate')}
             </Button>
           </div>

@@ -25,6 +25,7 @@
  */
 
 import type { PartnerAnswers } from '@/lib/partner-form/schema'
+import { normalizeLocation } from '@/lib/shared/location-normalize'
 
 /** Columns of `partner.clients` this promotion may write. Nothing else is reachable. */
 export type PromotableColumn =
@@ -60,6 +61,9 @@ export type PromotionSource =
   | { kind: 'field'; field: keyof PartnerAnswers }
   | { kind: 'address' }
   | { kind: 'constant'; value: string }
+  /** `country` e `state` no canônico de `location-normalize` — ver `proposedValue`. */
+  | { kind: 'canonical_country' }
+  | { kind: 'canonical_state' }
   | { kind: 'category' }
 
 export interface PromotionTarget {
@@ -81,9 +85,9 @@ export const PROMOTION_MAP: readonly PromotionTarget[] = [
   { column: 'industry', source: { kind: 'category' }, editable: true },
   { column: 'address', source: { kind: 'address' } },
   { column: 'city', source: { kind: 'field', field: 'city' } },
-  { column: 'state', source: { kind: 'field', field: 'state' } },
+  { column: 'state', source: { kind: 'canonical_state' } },
   { column: 'postal_code', source: { kind: 'field', field: 'postal_code' } },
-  { column: 'country', source: { kind: 'constant', value: 'BR' } },
+  { column: 'country', source: { kind: 'canonical_country' } },
   { column: 'website', source: { kind: 'field', field: 'website' } },
   { column: 'social_handle', source: { kind: 'field', field: 'instagram' } },
   {
@@ -191,6 +195,21 @@ export function joinAddress(answers: PartnerAnswers): string {
   return parts.join(', ')
 }
 
+/**
+ * `country` E `state` NO PADRÃO DO CATÁLOGO, e não como o formulário os escreve.
+ *
+ * O formulário responde `BR` e `RJ`; `core.attractions` guarda `Brazil` e `Rio de Janeiro`, que
+ * é o canônico de `lib/shared/location-normalize` — o mesmo por onde passam a ingestão do OSM, a
+ * importação do Google Places e a edição manual do POI. Gravar o cru aqui fazia dos dois lados
+ * dialetos diferentes do mesmo fato, e a conta disso é medida: um filtro de igualdade em
+ * `country AND state AND city` entre `partner.clients` e `core.attractions` devolvia **zero para
+ * 11 dos 16 clientes** em 2026-08-23, o que apagava a busca que impede a duplicata de local.
+ *
+ * `city` fica como veio, e é decisão e não esquecimento: `location-normalize` canoniza país e
+ * estado, e não tem — nem deveria ter — um dicionário de municípios do mundo. A comparação de
+ * cidade é por `slug` (`lib/partnerships/place-scope`), que resolve `barueri` contra `Barueri`
+ * sem inventar um nome oficial que ninguém conferiu.
+ */
 function proposedValue(target: PromotionTarget, answers: PartnerAnswers, context: PlanContext): string {
   switch (target.source.kind) {
     case 'field':
@@ -199,6 +218,12 @@ function proposedValue(target: PromotionTarget, answers: PartnerAnswers, context
       return joinAddress(answers)
     case 'constant':
       return target.source.value
+    case 'canonical_country':
+      // O formulário só existe no Brasil (CNPJ, alvará), então o país é um fato da superfície e
+      // não uma resposta — mas ele entra no padrão do catálogo, não como a sigla.
+      return normalizeLocation('BR', text(answers.state)).country ?? 'Brazil'
+    case 'canonical_state':
+      return normalizeLocation('BR', text(answers.state)).state ?? text(answers.state)
     case 'category':
       return text(context.categoryLabel)
   }

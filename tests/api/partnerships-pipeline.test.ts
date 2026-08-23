@@ -322,7 +322,7 @@ test('#359 crit. 3 · DS-COPY-020: every state derives from the condition the sp
     proposalStatus: 'submitted' as const,
     conference: conference(),
     clientId: null,
-    contractSigned: false,
+    contract: 'none' as const,
     placeCount: 0,
     publishedPlaceCount: 0,
   }
@@ -351,26 +351,87 @@ test('#359 crit. 3 · DS-COPY-020: every state derives from the condition the sp
       ...base,
       proposalStatus: 'promoted',
       clientId: CLIENT_ID,
-      contractSigned: true,
+      contract: 'signed' as const,
     }),
     'contract_signed'
+  )
+  // #409 · BR-B2B-026 item 5: `sent` is a state of its own — the instrument left the building
+  // and the only acts left on this side are to re-send the link or wait. `draft` is NOT: a
+  // contract nobody sent is still work here, and it reads as `client_created`.
+  assert.equal(
+    derivePipelineState({
+      ...base,
+      proposalStatus: 'promoted',
+      clientId: CLIENT_ID,
+      contract: 'sent' as const,
+    }),
+    'contract_sent'
   )
   assert.equal(
     derivePipelineState({
       ...base,
       proposalStatus: 'promoted',
       clientId: CLIENT_ID,
-      contractSigned: true,
+      contract: 'draft' as const,
+    }),
+    'client_created'
+  )
+
+  assert.equal(
+    derivePipelineState({
+      ...base,
+      proposalStatus: 'promoted',
+      clientId: CLIENT_ID,
+      contract: 'signed' as const,
       placeCount: 1,
     }),
     'place_in_curation'
   )
+
+  // #409 · BR-B2B-018: approving the client CREATES the place, before any contract exists
+  // (`applyPartnerApprovalEffects`). An unpublished place therefore proves nothing about the
+  // instrument, and reading it first sent every approved partnership to `place_in_curation`
+  // with `Publicar o local` as its next step — publishing, and so billing, with nothing signed.
   assert.equal(
     derivePipelineState({
       ...base,
       proposalStatus: 'promoted',
       clientId: CLIENT_ID,
-      contractSigned: true,
+      contract: 'none' as const,
+      placeCount: 1,
+    }),
+    'client_created'
+  )
+  assert.equal(
+    derivePipelineState({
+      ...base,
+      proposalStatus: 'promoted',
+      clientId: CLIENT_ID,
+      contract: 'sent' as const,
+      placeCount: 1,
+    }),
+    'contract_sent'
+  )
+
+  // A place already in the app still wins: it is delivered, whatever the paperwork says, and
+  // hiding that would make the queue lie about what tourists can see.
+  assert.equal(
+    derivePipelineState({
+      ...base,
+      proposalStatus: 'promoted',
+      clientId: CLIENT_ID,
+      contract: 'none' as const,
+      placeCount: 1,
+      publishedPlaceCount: 1,
+    }),
+    'published'
+  )
+  assert.equal(
+    derivePipelineState({
+      ...base,
+      proposalStatus: 'promoted',
+      clientId: CLIENT_ID,
+      contract: 'signed' as const,
       placeCount: 1,
       publishedPlaceCount: 1,
     }),
@@ -385,7 +446,7 @@ test('#359 crit. 5 · DS-COMPONENTE-020: one of three published is NOT `Publicad
       proposalStatus: 'promoted',
       conference: conference(),
       clientId: CLIENT_ID,
-      contractSigned: true,
+      contract: 'signed' as const,
       placeCount: 3,
       publishedPlaceCount: 2,
     }),
@@ -633,6 +694,39 @@ test('#359 crit. 35 · DS-LAYOUT-006: the tool opens ON the object and declares 
   assert.match(poiPage, /router\.push\(returnTo \?\? '\/pois'\)/)
 })
 
+test('#409 · BR-B2B-011: publicar sem coordenada é publicar nada, e agora é recusado', () => {
+  // TODO predicado que serve o turista faz JOIN em `core.attraction_coordinate` —
+  // `app_get_nearby_places`, `app_get_place_details` e o read model do POI. Um registro
+  // `approved = true` sem coordenada fica marcado como no ar e é invisível: 22 linhas assim em
+  // 2026-08-23 (12 `event`, 10 `poi`), cada uma mentindo para quem a olhou.
+  const service = read('lib/core/place-service.ts')
+    .replace(/\/\*[\s\S]*?\*\//g, '')
+    .replace(/^\s*\/\/.*$/gm, '')
+
+  // O gate vive no ÚNICO escritor de `approved`, e é por isso que ele alcança os dois caminhos:
+  // `buildPlaceReadiness` já classificava `coordinate` como `blocks_app`, mas essa é a régua da
+  // TELA — só a esteira consultava, e `approvePoi` publicava direto.
+  assert.match(
+    service,
+    /if \(approved && !\(await placeService\.hasCoordinate\(attractionId, db\)\)\) \{\s*throw new Error\(PLACE_WITHOUT_COORDINATE\)/
+  )
+
+  // DESPUBLICAR NUNCA É BARRADO: tirar do ar é a saída de emergência, e exigir dado completo
+  // para desfazer uma publicação prende o operador dentro do próprio erro.
+  const guard = /if \(approved && !\(await placeService\.hasCoordinate/.exec(service)
+  assert.ok(guard, 'o gate tem de olhar `approved` antes de olhar a coordenada')
+
+  // Falha fechada: publicar em cima de uma leitura que não respondeu é publicar sem saber.
+  assert.match(service, /async hasCoordinate\([\s\S]*?if \(error\) throw new Error\(error\.message\)/)
+  // Presença, nunca a coordenada em si — `head: true` num caminho que roda a cada publicação.
+  assert.match(service, /\.select\('attraction_id', \{ count: 'exact', head: true \}\)/)
+
+  // E o operador lê uma frase, não o código: o `catch` da tela de POIs reconhece a constante.
+  const modal = read('components/poi-management/POIDetailsModal.tsx')
+  assert.match(modal, /error\.message === PLACE_WITHOUT_COORDINATE/)
+  assert.match(modal, /Marque o ponto no mapa antes de aprovar/)
+})
+
 test('#359 crit. 18: the publish path names ONE column, and none of the forbidden ones', () => {
   const route = read(
     'app/api/admin/partnerships/clients/[clientId]/places/[attractionId]/publish/route.ts'
@@ -649,7 +743,12 @@ test('#359 crit. 18: the publish path names ONE column, and none of the forbidde
   // The keys are named literally in `setApproved`, so the allowlist can be read off the source
   // instead of trusted: the publication (`approved`) and the stamp that says who put the place
   // in front of tourists and when. A fourth key cannot arrive from a call site.
+  // Lido SEM comentários: o gate que recusa publicar sem coordenada (#409) trouxe um docblock
+  // longo entre a assinatura e a escrita, e uma janela contada em caracteres de prosa mede o
+  // tamanho do comentário, não o que a função faz.
   const service = read('lib/core/place-service.ts')
+    .replace(/\/\*[\s\S]*?\*\//g, '')
+    .replace(/^\s*\/\/.*$/gm, '')
   const update = /async setApproved\([\s\S]{0,600}?\.update\((\{[\s\S]*?\})\)/.exec(service)
   assert.ok(update, 'setApproved still writes through a literal `.update({ ... })`')
   const written = (update![1].match(/^\s*(\w+)\s*[:,]/gm) ?? []).map((line) =>
@@ -865,8 +964,16 @@ function createFakeDb(current: () => FakeState) {
       return { data: matched, error: null }
     }
 
+    // `head: true` é a forma de "só a contagem" do PostgREST, e `setApproved` a usa desde #409
+    // para recusar publicação sem coordenada. Sem isto o mock devolve linhas onde o código
+    // espera um número, e o gate lê zero para uma coordenada que existe.
+    let counting = false
+
     const chain: any = {
-      select: () => chain,
+      select: (_columns?: string, options?: { count?: string; head?: boolean }) => {
+        if (options?.head === true) counting = true
+        return chain
+      },
       insert: (values: Record<string, any>) => {
         operation = 'insert'
         payload = values
@@ -908,7 +1015,13 @@ function createFakeDb(current: () => FakeState) {
           ? { data: null, error: { message: 'no rows returned' } }
           : { data: row, error: null }
       },
-      then: (onFulfilled: (value: any) => unknown) => Promise.resolve(apply()).then(onFulfilled),
+      then: (onFulfilled: (value: any) => unknown) => {
+        const result = apply()
+        const value = counting
+          ? { data: null, count: result.error ? null : result.data.length, error: result.error }
+          : result
+        return Promise.resolve(value).then(onFulfilled)
+      },
     }
     return chain
   }
@@ -1329,7 +1442,7 @@ test('#377 crit. 6: after the refusal is communicated, the pipeline reads the ro
   assert.equal(
     isTriageOverdue(
       deriveTriageStatus(
-        { approvedAt: state.clients[0].approved_at, places: [{ published: false, refusal: place!.refusal! }] },
+        { approvedAt: state.clients[0].approved_at, places: [{ attractionId: 'place-1', published: false, refusal: place!.refusal! }] },
         new Date('2026-08-20T10:32:00.000Z')
       )
     ),
@@ -1343,7 +1456,7 @@ test('#377 crit. 6: after the refusal is communicated, the pipeline reads the ro
   assert.equal(typeof after?.refusal?.communicatedAt, 'string')
   assert.equal(
     deriveTriageStatus(
-      { approvedAt: state.clients[0].approved_at, places: [{ published: false, refusal: after!.refusal! }] },
+      { approvedAt: state.clients[0].approved_at, places: [{ attractionId: 'place-2', published: false, refusal: after!.refusal! }] },
       new Date('2026-08-20T10:32:00.000Z')
     ).kind,
     'closed'

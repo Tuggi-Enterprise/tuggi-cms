@@ -37,6 +37,7 @@
  */
 
 import { PARTNER_CATEGORIES } from './fields'
+import { normalizeLocation } from '@/lib/shared/location-normalize'
 import { joinAddress } from './promotion'
 import type { PartnerAnswers } from './schema'
 import { PLACE_TYPES, type PlaceType } from '@/lib/core/place-service'
@@ -137,8 +138,8 @@ function text(value: unknown): string {
  * rows. The approval carries on and says nothing was created — the operator creates the place
  * by hand, which is what happened before this existed.
  *
- * `country` is a constant for the same reason it is one in `PROMOTION_MAP`: the form only
- * exists in Brazil (CNPJ, alvará), so it is a fact of the surface and not an answer.
+ * `country` não é uma resposta: o formulário só existe no Brasil (CNPJ, alvará), então ele é um
+ * fato da superfície — mas entra no PADRÃO DO CATÁLOGO (`Brazil`), não como a sigla.
  */
 export function buildPlacePrefill(answers: PartnerAnswers): PlacePrefill | null {
   const name = text(answers.trade_name)
@@ -156,12 +157,20 @@ export function buildPlacePrefill(answers: PartnerAnswers): PlacePrefill | null 
   const website = text(answers.website)
   if (website) attraction.website = website
 
+  // O MESMO PADRÃO DO CATÁLOGO, e não o que o formulário escreveu. `core.attractions` guarda o
+  // canônico de `lib/shared/location-normalize` — `Brazil`, `Rio de Janeiro` —, por onde passam a
+  // ingestão do OSM, a importação do Google Places e a edição manual do POI. Gravar `BR` e `RJ`
+  // aqui punha o local do parceiro num dialeto que os filtros do catálogo não alcançam: um POI
+  // com `country = 'BR'` é invisível para toda faceta de país, e o registro parece existir só
+  // até alguém procurá-lo por onde ele fica.
+  const canonical = normalizeLocation('BR', text(answers.state))
+
   return {
     create: {
       name,
       city,
-      country: 'BR',
-      state: text(answers.state) || null,
+      country: canonical.country ?? 'Brazil',
+      state: canonical.state ?? (text(answers.state) || null),
       place_type: placeType && PLACE_TYPES.includes(placeType) ? placeType : null,
     },
     attraction,

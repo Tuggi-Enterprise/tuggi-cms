@@ -59,11 +59,16 @@ function answers(overrides: PartnerAnswers = {}): PartnerAnswers {
 test('#360: the place is named, located and typed by what the partner answered', () => {
   const prefill = buildPlacePrefill(answers())
   assert.ok(prefill)
+  // #409 · NO PADRÃO DO CATÁLOGO, e não como o formulário escreve. O parceiro responde `SP`; o
+  // resto de `core.attractions` guarda `São Paulo` e `Brazil`, que é o canônico de
+  // `lib/shared/location-normalize` — por onde já passam a ingestão do OSM, a importação do
+  // Google Places e a edição manual do POI. Gravar a sigla punha o local do parceiro num dialeto
+  // que nenhuma faceta de país ou estado do catálogo alcança.
   assert.deepEqual(prefill.create, {
     name: 'Cantina do Zé',
     city: 'São Vicente',
-    country: 'BR',
-    state: 'SP',
+    country: 'Brazil',
+    state: 'São Paulo',
     place_type: 'restaurant',
   })
   assert.equal(
@@ -254,7 +259,7 @@ test('BR-B2B-033: the approval creates the place already linked to the client', 
   assert.deepEqual(outcome, { status: 'created', attractionId: ATTRACTION_ID })
   assert.equal(state.recorded.rpcs[0].name, 'cms_create_place')
   assert.equal(state.recorded.rpcs[0].args.p_name, 'Cantina do Zé')
-  assert.equal(state.recorded.rpcs[0].args.p_country, 'BR')
+  assert.equal(state.recorded.rpcs[0].args.p_country, 'Brazil')
   assert.equal(state.recorded.updates.length, 1)
   assert.equal(state.recorded.updates[0].table, 'attractions')
   assert.equal(

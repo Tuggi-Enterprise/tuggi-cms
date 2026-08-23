@@ -116,7 +116,7 @@ test('#377 · BR-B2B-010 item 4: the deadline is 72 STRAIGHT hours from `clients
 
 test('#377 crit. 6 · BR-B2B-010 item 4: a client with no `approved_at` shows `—`', () => {
   const status = deriveTriageStatus(
-    { approvedAt: null, places: [{ published: false, refusal: null }] },
+    { approvedAt: null, places: [{ attractionId: 'place-1', published: false, refusal: null }] },
     new Date(APPROVED_AT)
   )
   assert.equal(status.kind, 'not_started')
@@ -153,7 +153,7 @@ const LADDER: Array<{
 ]
 
 test('#377 crit. 6 · DS-COPY-025: the ladder is the conta, and 80 h is `venceu há 8 h`', () => {
-  const facts = { approvedAt: APPROVED_AT, places: [{ published: false, refusal: null }] }
+  const facts = { approvedAt: APPROVED_AT, places: [{ attractionId: 'place-2', published: false, refusal: null }] }
 
   for (const step of LADDER) {
     const status = deriveTriageStatus(facts, hoursAfter(APPROVED_AT, step.sinceApproval))
@@ -227,7 +227,7 @@ test('#377 · DS-COPY-025 points 1, 2 and 4: each face has its copy, and the ban
 })
 
 test('#377 · spec §3.1: `TRIAGE_DUE_SOON_HOURS` is where the relative counter starts, and it is 12', () => {
-  const facts = { approvedAt: APPROVED_AT, places: [{ published: false, refusal: null }] }
+  const facts = { approvedAt: APPROVED_AT, places: [{ attractionId: 'place-3', published: false, refusal: null }] }
 
   assert.equal(TRIAGE_DUE_SOON_HOURS, 12)
   assert.equal(deriveTriageStatus(facts, hoursAfter(APPROVED_AT, 59.9)).kind, 'within')
@@ -250,7 +250,7 @@ test('#377 · DS-COPY-025 point 5: the detail header folds the instant into its 
 
 test('#377 · the closed and not-started faces have no second line and no clock', () => {
   const closed = deriveTriageStatus(
-    { approvedAt: APPROVED_AT, places: [{ published: true, refusal: null }] },
+    { approvedAt: APPROVED_AT, places: [{ attractionId: 'place-4', published: true, refusal: null }] },
     hoursAfter(APPROVED_AT, 200)
   )
   assert.equal(triageDeadlineText(closed), null)
@@ -259,7 +259,7 @@ test('#377 · the closed and not-started faces have no second line and no clock'
   assert.equal(
     triageDeadlineText(
       deriveTriageStatus(
-        { approvedAt: APPROVED_AT, places: [{ published: false, refusal: null }] },
+        { approvedAt: APPROVED_AT, places: [{ attractionId: 'place-5', published: false, refusal: null }] },
         hoursAfter(APPROVED_AT, 24)
       )
     ),
@@ -269,7 +269,7 @@ test('#377 · the closed and not-started faces have no second line and no clock'
 
 test('#377 · BR-B2B-010 item 4: PUBLISHING stops the clock', () => {
   const status = deriveTriageStatus(
-    { approvedAt: APPROVED_AT, places: [{ published: true, refusal: null }] },
+    { approvedAt: APPROVED_AT, places: [{ attractionId: 'place-6', published: true, refusal: null }] },
     hoursAfter(APPROVED_AT, 200)
   )
   assert.equal(status.kind, 'closed')
@@ -283,7 +283,7 @@ test('#377 · BR-B2B-010 item 4 · BR-B2B-011 item 5: only the COMMUNICATED refu
   // This is THE assertion of this suite — making it green by reading `decidedAt` would tell the
   // operator a partnership is closed while nobody has spoken to the partner.
   const decidedOnly = deriveTriageStatus(
-    { approvedAt: APPROVED_AT, places: [{ published: false, refusal: refusal() }] },
+    { approvedAt: APPROVED_AT, places: [{ attractionId: 'place-7', published: false, refusal: refusal() }] },
     late
   )
   // `isTriageOverdue` and not one face of the ladder: what this asserts is that the promise is
@@ -293,7 +293,7 @@ test('#377 · BR-B2B-010 item 4 · BR-B2B-011 item 5: only the COMMUNICATED refu
   const communicated = deriveTriageStatus(
     {
       approvedAt: APPROVED_AT,
-      places: [{ published: false, refusal: refusal({ communicatedAt: '2026-08-17T09:00:00.000Z' }) }],
+      places: [{ attractionId: 'place-8', published: false, refusal: refusal({ communicatedAt: '2026-08-17T09:00:00.000Z' }) }],
     },
     late
   )
@@ -311,8 +311,8 @@ test('#377 · BR-B2B-033 item 3: with three places, the clock closes only when e
         {
           approvedAt: APPROVED_AT,
           places: [
-            { published: true, refusal: null },
-            { published: false, refusal: null },
+            { attractionId: 'place-9', published: true, refusal: null },
+            { attractionId: 'place-10', published: false, refusal: null },
           ],
         },
         late
@@ -327,8 +327,8 @@ test('#377 · BR-B2B-033 item 3: with three places, the clock closes only when e
       {
         approvedAt: APPROVED_AT,
         places: [
-          { published: true, refusal: null },
-          { published: false, refusal: told },
+          { attractionId: 'place-11', published: true, refusal: null },
+          { attractionId: 'place-12', published: false, refusal: told },
         ],
       },
       late
@@ -528,11 +528,11 @@ test('#377 · BR-B2B-011: the refusal writes ONE table, and reaches neither the 
 // ── The pipeline state ───────────────────────────────────────────────────────────────────────
 
 test('#377 · the state of a refused place: decided AND not in the app', () => {
-  assert.equal(isRefusedAtTriage({ published: false, refusal: refusal() }), true)
-  assert.equal(isRefusedAtTriage({ published: false, refusal: null }), false)
+  assert.equal(isRefusedAtTriage({ attractionId: 'place-13', published: false, refusal: refusal() }), true)
+  assert.equal(isRefusedAtTriage({ attractionId: 'place-14', published: false, refusal: null }), false)
   // Refused, corrected and published IS published — BR-B2B-011, item 5, describes that round
   // trip, and the refusal on the record is history, not the current state.
-  assert.equal(isRefusedAtTriage({ published: true, refusal: refusal() }), false)
+  assert.equal(isRefusedAtTriage({ attractionId: 'place-15', published: true, refusal: refusal() }), false)
 })
 
 test('#377 · a partnership whose every place was refused AND communicated is `Recusado na triagem`', () => {
@@ -540,7 +540,7 @@ test('#377 · a partnership whose every place was refused AND communicated is `R
     proposalStatus: 'promoted' as const,
     conference: EMPTY_CONFERENCE,
     clientId: CLIENT_ID,
-    contractSigned: true,
+    contract: 'signed' as const,
     // Every case below is a refusal the partner was already told about: without this, the state is
     // `Recusa não comunicada` and the next test is the one that says so.
     uncommunicatedRefusal: false,
@@ -579,7 +579,7 @@ test('#377 · DS-COPY-020 point 5: a refusal nobody communicated is WORK, and it
     proposalStatus: 'promoted' as const,
     conference: EMPTY_CONFERENCE,
     clientId: CLIENT_ID,
-    contractSigned: true,
+    contract: 'signed' as const,
   }
 
   // The row `design` measured: one place, refused, not communicated. It used to derive
@@ -623,16 +623,16 @@ test('#377 · DS-COPY-020 point 5: a refusal nobody communicated is WORK, and it
 test('#377 · DS-COPY-020 point 5: `hasUncommunicatedRefusal` is the one reading of "was the partner told"', () => {
   const told = refusal({ communicatedAt: '2026-08-17T09:00:00.000Z' })
 
-  assert.equal(hasUncommunicatedRefusal([{ published: false, refusal: refusal() }]), true)
-  assert.equal(hasUncommunicatedRefusal([{ published: false, refusal: told }]), false)
-  assert.equal(hasUncommunicatedRefusal([{ published: false, refusal: null }]), false)
+  assert.equal(hasUncommunicatedRefusal([{ attractionId: 'place-16', published: false, refusal: refusal() }]), true)
+  assert.equal(hasUncommunicatedRefusal([{ attractionId: 'place-17', published: false, refusal: told }]), false)
+  assert.equal(hasUncommunicatedRefusal([{ attractionId: 'place-18', published: false, refusal: null }]), false)
   assert.equal(hasUncommunicatedRefusal([]), false)
 
   // ANY place is enough — one published address does not answer for the refusal of another.
   assert.equal(
     hasUncommunicatedRefusal([
-      { published: true, refusal: null },
-      { published: false, refusal: refusal() },
+      { attractionId: 'place-19', published: true, refusal: null },
+      { attractionId: 'place-20', published: false, refusal: refusal() },
     ]),
     true
   )
@@ -641,7 +641,7 @@ test('#377 · DS-COPY-020 point 5: `hasUncommunicatedRefusal` is the one reading
   // clock and `isRefusedAtTriage` ignores it: the outcome the partner was promised happened, and
   // `PlaceBand` offers no control to communicate the refusal of a published place — a next step
   // with no control on the screen would be a worse defect than the one this fixes.
-  assert.equal(hasUncommunicatedRefusal([{ published: true, refusal: refusal() }]), false)
+  assert.equal(hasUncommunicatedRefusal([{ attractionId: 'place-21', published: true, refusal: refusal() }]), false)
 })
 
 /**
@@ -656,10 +656,10 @@ test('#377 · DS-COPY-020 point 5: `hasUncommunicatedRefusal` is the one reading
 test('#377 · DS-COPY-020 point 5: the overdue counter and the default filter cannot disagree', () => {
   const told = refusal({ communicatedAt: '2026-08-17T09:00:00.000Z' })
   const outcomes: Record<string, PlaceTriageOutcome> = {
-    pending: { published: false, refusal: null },
-    published: { published: true, refusal: null },
-    refusedTold: { published: false, refusal: told },
-    refusedSilent: { published: false, refusal: refusal() },
+    pending: { attractionId: 'place-22', published: false, refusal: null },
+    published: { attractionId: 'place-23', published: true, refusal: null },
+    refusedTold: { attractionId: 'place-24', published: false, refusal: told },
+    refusedSilent: { attractionId: 'place-25', published: false, refusal: refusal() },
   }
   const names = Object.keys(outcomes)
   const now = hoursAfter(APPROVED_AT, 200)
@@ -683,7 +683,7 @@ test('#377 · DS-COPY-020 point 5: the overdue counter and the default filter ca
       proposalStatus: 'promoted',
       conference: EMPTY_CONFERENCE,
       clientId: CLIENT_ID,
-      contractSigned: true,
+      contract: 'signed' as const,
       placeCount: places.length,
       publishedPlaceCount: places.filter((place) => place.published).length,
       refusedPlaceCount: places.filter(isRefusedAtTriage).length,
@@ -752,7 +752,9 @@ test('#377 crit. 6 · DS-COPY-025 point 5: the cell draws the second line, in te
 })
 
 test('#377 · DS-COPY-020 point 2: the row that owes the communication says so in `O que falta`', () => {
-  const queue = code('components/admin/clients/ClientDirectory.tsx')
+  // `whatIsMissing` moved to `board/row-text.ts` with the board (#409): the table and the card
+  // print the same line for the same row, and two copies of this rule would drift.
+  const queue = code('components/admin/clients/board/row-text.ts')
 
   // A refused place keeps its curation pendencies, and `whatIsMissing` prefers those counts to the
   // next step. For this state it must not: the work of the row is the act owed to the partner, and

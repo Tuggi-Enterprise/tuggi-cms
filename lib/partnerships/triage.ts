@@ -95,6 +95,12 @@ export interface TriageRefusal {
  * operator's name for every row of a 500-row list.
  */
 export interface PlaceTriageOutcome {
+  /**
+   * `core.attractions.id`. The clock does not read it, but everything that ACTS on the clock
+   * does: communicating a refusal is a call on one place, and a row that knows it is late
+   * without knowing which place is late sends the operator hunting for it.
+   */
+  attractionId: string
   /** `PlaceReadiness.published` — the visibility predicate of the place's own `entity_kind`. */
   published: boolean
   /** The refusal in force, if any. Many rows per place is by design (BR-B2B-011, item 5). */

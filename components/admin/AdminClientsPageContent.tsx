@@ -16,6 +16,10 @@ import { useRouter, useSearchParams } from 'next/navigation'
 import { NextIntlClientProvider, useLocale, useMessages } from 'next-intl'
 import ptMessages from '@/messages/pt.json'
 import { ClientDirectory } from '@/components/admin/clients/ClientDirectory'
+import { ClientBoard } from '@/components/admin/clients/ClientBoard'
+import { useClientDirectory } from '@/lib/hooks/use-client-directory'
+import { useBoardActs } from '@/lib/hooks/use-board-acts'
+import { ViewSwitch, isBoardView, VIEW_PARAM } from '@/components/admin/clients/ViewSwitch'
 import { ClientEditorModal, type ClientEditorTab } from '@/components/admin/clients/ClientEditorModal'
 import { useSupabaseClient, useSessionContext } from '@supabase/auth-helpers-react'
 import { RETURN_TO_PARAM, parseReturnTo } from '@/lib/navigation/return-to'
@@ -69,11 +73,49 @@ function AdminClientsContent() {
     },
     [router, searchParams]
   )
+  /**
+   * WHICH VIEW, and the board is the default.
+   *
+   * The screen is read to WORK the queue far more often than to look a partner up, so the shape
+   * that answers `where is each one stuck` is what a clean URL opens. Only `?view=table` is ever
+   * written, which keeps `Limpar filtros` able to empty the address bar and keeps every link
+   * already out there — none of which carries `view` — landing on the board.
+   */
+  const board = isBoardView(searchParams.get(VIEW_PARAM))
+
+  const directory = useClientDirectory()
+
+  /**
+   * Where an act takes the operator back to — this list, with its filters and its view intact.
+   * Same contract as `parseReturnTo`, so the panel it opens knows the way home.
+   */
+  const boardHref = useMemo(() => {
+    const query = searchParams.toString()
+    return `/admin/clients${query ? `?${query}` : ''}`
+  }, [searchParams])
+
+  const navigate = useCallback((href: string) => router.push(href), [router])
+
+  const openRecord = useCallback(
+    (id: string, tab: string) => {
+      const params = new URLSearchParams(searchParams.toString())
+      params.set('clientId', id)
+      params.set('tab', tab)
+      router.push(`/admin/clients?${params.toString()}`, { scroll: false })
+    },
+    [router, searchParams]
+  )
+
+  const acts = useBoardActs({
+    locale,
+    returnTo: boardHref,
+    navigate,
+    openRecord,
+    reload: directory.reload,
+  })
+
   const [isAuthorized, setIsAuthorized] = useState(false)
   const [isLoading, setIsLoading] = useState(true)
-
-  // Reload key to trigger refresh on list
-  const [reloadKey, setReloadKey] = useState(0)
 
   useEffect(() => {
     const checkAuth = async () => {
@@ -148,26 +190,77 @@ function AdminClientsContent() {
     router.push(`/admin/clients?${params.toString()}`, { scroll: false })
   }
 
+  /** Switching views keeps every filter: it is the same list, read a different way. */
+  const switchView = (toBoard: boolean) => {
+    const params = new URLSearchParams(searchParams.toString())
+    if (toBoard) params.delete(VIEW_PARAM)
+    else params.set(VIEW_PARAM, 'table')
+    const query = params.toString()
+    router.replace(`/admin/clients${query ? `?${query}` : ''}`, { scroll: false })
+  }
+
+  const viewSwitch = <ViewSwitch board={board} onChange={switchView} />
+
   return (
     <>
       {/*
-        ONE LIST. `ClientsListAdmin` read `partner.clients` and `PartnershipsQueue` read
-        `partner.partner_form_submissions`, so the same establishment was two rows in two screens.
-        `ClientDirectory` renders the union, and the pipeline vocabulary — the states, `o que
-        falta`, the triage clock — is Portuguese-only by decision (#408), so it is overlaid on
-        the operator's messages rather than replacing them.
+        ONE LIST, TWO READINGS. `ClientsListAdmin` read `partner.clients` and `PartnershipsQueue`
+        read `partner.partner_form_submissions`, so the same establishment was two rows in two
+        screens. There is one set of rows now, and the operator chooses the shape: the board for
+        working the queue, the table for looking things up.
+
+        THE WHOLE ESTEIRA IS PORTUGUESE, and the seam is between SCREENS rather than inside a
+        sentence. Decision #408 made the pipeline vocabulary pt-only; the first cut of this
+        screen applied that to `Partnerships` alone and left `Clients.directory` translated, so
+        one card read `Proposta recebida` over `Proposal, not registered yet` over `Abrir` —
+        three languages in four lines. A costura that falls in the middle of a card is not a
+        translation, it is a defect.
+
+        So the three namespaces the esteira speaks — `Partnerships`, `Clients.directory` and
+        `Clients.board` — are overlaid in Portuguese, whatever locale the operator is on. The
+        rest of `Clients` (the editor, the fiscal tab, the team) stays translated, because those
+        are the CLIENT's record and not the pipeline. `Clients.directory` and `Clients.board`
+        have no reader outside these four components, which is what makes the overlay total
+        rather than a fallback with holes in it.
       */}
       <NextIntlClientProvider
         locale={locale}
-        messages={{ ...messages, Partnerships: ptMessages.Partnerships }}
+        messages={{
+          ...messages,
+          Partnerships: ptMessages.Partnerships,
+          Clients: {
+            ...(messages.Clients ?? {}),
+            directory: ptMessages.Clients.directory,
+            board: ptMessages.Clients.board,
+          },
+        }}
       >
-        <ClientDirectory
-          key={reloadKey}
-          locale={locale}
-          filters={filters}
-          onFiltersChange={writeFilters}
-          onCreateNew={startCreateNew}
-        />
+        {board ? (
+          <ClientBoard
+            locale={locale}
+            filters={filters}
+            onFiltersChange={writeFilters}
+            onCreateNew={startCreateNew}
+            rows={directory.rows}
+            truncated={directory.truncated}
+            loading={directory.loading}
+            failed={directory.failed}
+            onAct={(row, act) => void acts.run(row, act)}
+            viewSwitch={viewSwitch}
+          />
+        ) : (
+          <ClientDirectory
+            locale={locale}
+            filters={filters}
+            onFiltersChange={writeFilters}
+            onCreateNew={startCreateNew}
+            rows={directory.rows}
+            truncated={directory.truncated}
+            loading={directory.loading}
+            failed={directory.failed}
+            viewSwitch={viewSwitch}
+          />
+        )}
       </NextIntlClientProvider>
 
       <ClientEditorModal
@@ -184,7 +277,9 @@ function AdminClientsContent() {
           params.delete('new')
           params.set('clientId', savedId)
           router.push(`/admin/clients?${params.toString()}`, { scroll: false })
-          setReloadKey((prev) => prev + 1)
+          // One read behind both views: saving the record re-reads the list rather than
+          // remounting it, so the board keeps its scroll and its expanded columns.
+          directory.reload()
         }}
       />
     </>

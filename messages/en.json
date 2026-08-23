@@ -1899,59 +1899,6 @@
     "drawWarning": "⚠️ It is required to draw the boundary on the map before saving."
   },
   "Clients": {
-    "directory": {
-      "title": "Partnerships",
-      "subtitle": "Every partner and every proposal in one list — including the ones not yet registered.",
-      "filtersTitle": "Filters",
-      "searchLabel": "Search",
-      "searchPlaceholder": "Name, tax ID or city",
-      "clear": "Clear filters",
-      "results": "{count} of {total}",
-      "truncated": "The list was cut at the load cap. Filter to see the rest.",
-      "emptyTitle": "No clients registered yet.",
-      "emptyFilteredTitle": "No clients with these filters.",
-      "errorTitle": "Could not load the list.",
-      "retry": "Try again",
-      "loading": "Loading the list…",
-      "open": "Open",
-      "openNamed": "Open {name}",
-      "noName": "No name",
-      "proposalBadge": "Proposal, not registered yet",
-      "newClient": "New client",
-      "filters": {
-        "country": "Country",
-        "region": "State",
-        "city": "City",
-        "clientType": "Type",
-        "status": "Registration status",
-        "contract": "Contract",
-        "state": "Partnership state",
-        "onlyLate": "Overdue triage only"
-      },
-      "columns": {
-        "name": "Client",
-        "location": "Where",
-        "clientType": "Type",
-        "state": "State",
-        "contract": "Contract",
-        "missing": "What is missing",
-        "idle": "Idle for",
-        "triage": "Triage"
-      },
-      "contractValues": {
-        "none": "No contract",
-        "draft": "Draft",
-        "sent": "Awaiting signature",
-        "signed": "Signed",
-        "superseded": "Superseded",
-        "terminated": "Terminated"
-      },
-      "statusValues": {
-        "pending": "Pending",
-        "approved": "Approved",
-        "rejected": "Rejected"
-      }
-    },
     "editor": {
       "header": {
         "newClient": "New client",

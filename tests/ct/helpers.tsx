@@ -20,6 +20,8 @@ import { NextIntlClientProvider } from 'next-intl'
 import ptMessages from '@/messages/pt.json'
 import { QueryProvider } from '@/components/providers/QueryProvider'
 import { ClientDirectory } from '@/components/admin/clients/ClientDirectory'
+import { ClientBoard } from '@/components/admin/clients/ClientBoard'
+import { useClientDirectory } from '@/lib/hooks/use-client-directory'
 import { EMPTY_FILTERS, type DirectoryFilters } from '@/lib/clients/directory-filter'
 
 export function Wrapper({ children }: { children: React.ReactNode }) {
@@ -41,15 +43,49 @@ export function Wrapper({ children }: { children: React.ReactNode }) {
 }
 
 /**
- * `ClientDirectory` is a CONTROLLED component: the filters are the URL's, and the host reads
- * and writes them. There is no Next app router in a component mount, so this harness plays the
- * host — it holds the same state in `useState` and hands it back exactly as
- * `AdminClientsPageContent` hands back what it parsed from the query string.
+ * `ClientDirectory` and `ClientBoard` are CONTROLLED components: the filters are the URL's and
+ * the ROWS are the host's. There is no Next app router in a component mount, so this harness
+ * plays the host — the filters in `useState`, the rows from `useClientDirectory`, exactly as
+ * `AdminClientsPageContent` hands them down.
  *
- * Without it the rail would render and never change, and every filter assertion below would be
- * testing a screenshot rather than a screen.
+ * The rows come through the HOOK and not through props on purpose: it is the one read behind
+ * both views, so mounting it here is what keeps `page.route('**\/api/admin/clients/directory')`
+ * the way these tests state their fixtures — and what proves the loading, empty and error
+ * states are the hook's, not a prop somebody remembered to pass.
  */
+function useHarnessFilters(initial: DirectoryFilters) {
+  return useState<DirectoryFilters>(initial)
+}
+
 export function DirectoryHarness({ initial = EMPTY_FILTERS }: { initial?: DirectoryFilters }) {
-  const [filters, setFilters] = useState<DirectoryFilters>(initial)
-  return <ClientDirectory locale="pt" filters={filters} onFiltersChange={setFilters} />
+  const [filters, setFilters] = useHarnessFilters(initial)
+  const directory = useClientDirectory()
+  return (
+    <ClientDirectory
+      locale="pt"
+      filters={filters}
+      onFiltersChange={setFilters}
+      rows={directory.rows}
+      truncated={directory.truncated}
+      loading={directory.loading}
+      failed={directory.failed}
+    />
+  )
+}
+
+export function BoardHarness({ initial = EMPTY_FILTERS }: { initial?: DirectoryFilters }) {
+  const [filters, setFilters] = useHarnessFilters(initial)
+  const directory = useClientDirectory()
+  return (
+    <ClientBoard
+      locale="pt"
+      filters={filters}
+      onFiltersChange={setFilters}
+      rows={directory.rows}
+      truncated={directory.truncated}
+      loading={directory.loading}
+      failed={directory.failed}
+      onAct={() => {}}
+    />
+  )
 }

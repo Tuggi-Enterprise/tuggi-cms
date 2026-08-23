@@ -30,6 +30,7 @@ import {
   PIPELINE_STATES,
   type PipelineState,
 } from '@/lib/partnerships/pipeline'
+import { planFacetValue } from '@/lib/clients/partner-plan'
 import type { ClientDirectoryRow } from '@/lib/services/partnership-service'
 
 /**
@@ -47,6 +48,13 @@ export interface DirectoryFilters {
   status: string | null
   /** `none` | `draft` | `sent` | `signed` | `superseded` | `terminated` */
   contract: string | null
+  /**
+   * `paid` | `courtesy` | `undeclared` — what the REGISTRATION says about money, which is the
+   * reading that decides whether publishing may be offered (BR-B2B-017, item 6). Not the tier of
+   * the contract and not what the partner asked for on the form: `lib/clients/partner-plan`
+   * keeps the three apart, and this is the one an operator filters a work queue by.
+   */
+  plan: string | null
   /** A single pipeline state, `in_progress` for the working set, or `all`. */
   state: PipelineState | 'in_progress' | 'all'
   onlyLate: boolean
@@ -60,12 +68,21 @@ export const EMPTY_FILTERS: DirectoryFilters = {
   clientType: null,
   status: null,
   contract: null,
+  plan: null,
   state: 'all',
   onlyLate: false,
 }
 
 /** Which dimensions the facet counts leave out, one at a time. */
-export type FacetKey = 'country' | 'region' | 'city' | 'clientType' | 'status' | 'contract' | 'state'
+export type FacetKey =
+  | 'country'
+  | 'region'
+  | 'city'
+  | 'clientType'
+  | 'status'
+  | 'contract'
+  | 'plan'
+  | 'state'
 
 export interface FacetOption {
   value: string
@@ -120,6 +137,7 @@ const MATCHERS: Record<FacetKey | 'search' | 'onlyLate', (row: ClientDirectoryRo
   clientType: (row, filters) => filters.clientType === null || row.clientType === filters.clientType,
   status: (row, filters) => filters.status === null || row.status === filters.status,
   contract: (row, filters) => filters.contract === null || row.contract === filters.contract,
+  plan: (row, filters) => filters.plan === null || planFacetValue(row) === filters.plan,
   state: (row, filters) => {
     if (filters.state === 'all') return true
     if (filters.state === 'in_progress') return IN_PROGRESS_STATES.indexOf(row.state) >= 0
@@ -146,10 +164,22 @@ function valueOf(row: ClientDirectoryRow, key: FacetKey): string | null {
   if (key === 'clientType') return row.clientType
   if (key === 'status') return row.status
   if (key === 'contract') return row.contract
+  // A proposal nobody priced has no answer to give, and `planFacetValue` returns `null` for it —
+  // counted as nothing, exactly like a row with no country.
+  if (key === 'plan') return planFacetValue(row)
   return row.state
 }
 
-const FACET_KEYS: FacetKey[] = ['country', 'region', 'city', 'clientType', 'status', 'contract', 'state']
+const FACET_KEYS: FacetKey[] = [
+  'country',
+  'region',
+  'city',
+  'clientType',
+  'status',
+  'contract',
+  'plan',
+  'state',
+]
 
 export function buildDirectoryView(
   rows: ClientDirectoryRow[],
@@ -205,6 +235,7 @@ const PARAM_KEYS = {
   clientType: 'type',
   status: 'status',
   contract: 'contract',
+  plan: 'plan',
   state: 'state',
   onlyLate: 'late',
 } as const
@@ -233,6 +264,7 @@ export function parseFilters(params: URLSearchParams): DirectoryFilters {
     clientType: text(PARAM_KEYS.clientType),
     status: text(PARAM_KEYS.status),
     contract: text(PARAM_KEYS.contract),
+    plan: text(PARAM_KEYS.plan),
     state,
     onlyLate: params.get(PARAM_KEYS.onlyLate) === '1',
   }
@@ -256,6 +288,7 @@ export function applyFilters(params: URLSearchParams, filters: DirectoryFilters)
   set(PARAM_KEYS.clientType, filters.clientType)
   set(PARAM_KEYS.status, filters.status)
   set(PARAM_KEYS.contract, filters.contract)
+  set(PARAM_KEYS.plan, filters.plan)
   set(PARAM_KEYS.state, filters.state === 'all' ? null : filters.state)
   set(PARAM_KEYS.onlyLate, filters.onlyLate ? '1' : null)
 
@@ -276,6 +309,7 @@ export function isFiltering(filters: DirectoryFilters): boolean {
     filters.clientType !== null ||
     filters.status !== null ||
     filters.contract !== null ||
+    filters.plan !== null ||
     filters.state !== 'all' ||
     filters.onlyLate
   )

@@ -17,6 +17,12 @@ interface GoogleMapComponentProps {
   onPolygonChange?: (polygon: google.maps.Polygon) => void
   onMarkerClick?: (markerId: string) => void
   onMapClick?: (lat: number, lng: number) => void
+  /**
+   * Onde o pino parou depois de arrastado. Só dispara para marcador com `draggable`, e é o
+   * ÚNICO jeito de saber a posição nova: o Google move o pino sozinho e não avisa ninguém, então
+   * sem este callback o mapa mostraria uma coordenada que a tela não tem.
+   */
+  onMarkerDragEnd?: (markerId: string, lat: number, lng: number) => void
   markers?: Array<{
     id: string
     position: { lat: number; lng: number }
@@ -25,6 +31,11 @@ interface GoogleMapComponentProps {
     color?: string
     /** Marca o usuário como ativo agora — pin maior, cor de destaque e animação (pulse). */
     active?: boolean
+    /**
+     * Deixa o pino ser arrastado. Padrão `false`: quase todo mapa aqui MOSTRA posição, e um pino
+     * que se move sob o cursor num mapa de leitura é um dado alterado por acidente.
+     */
+    draggable?: boolean
   }>
   polygon?: Array<{ lat: number; lng: number }>
   savedPolygons?: Array<{
@@ -76,6 +87,7 @@ const MapComponent: React.FC<Omit<GoogleMapComponentProps, 'height' | 'className
   onPolygonChange,
   onMarkerClick,
   onMapClick,
+  onMarkerDragEnd,
   markers = [],
   polygon,
   savedPolygons = [],
@@ -304,8 +316,16 @@ const MapComponent: React.FC<Omit<GoogleMapComponentProps, 'height' | 'className
           title: markerData.title,
           zIndex: isActive ? 1000 : 1,
           animation: isActive ? google.maps.Animation.BOUNCE : undefined,
+          draggable: markerData.draggable === true,
           icon,
         })
+        if (markerData.draggable === true && onMarkerDragEnd) {
+          marker.addListener('dragend', (event: google.maps.MapMouseEvent) => {
+            if (event.latLng) {
+              onMarkerDragEnd(markerData.id, event.latLng.lat(), event.latLng.lng())
+            }
+          })
+        }
         if (onMarkerClick) {
           marker.addListener('click', () => onMarkerClick(markerData.id))
         }
@@ -328,9 +348,12 @@ const MapComponent: React.FC<Omit<GoogleMapComponentProps, 'height' | 'className
         existing.setZIndex(isActive ? 1000 : 1)
         existing.setTitle(markerData.title)
         existing.setAnimation(isActive ? google.maps.Animation.BOUNCE : null)
+        // Reaplicado no update: um marcador que virou arrastável depois de montado ficaria
+        // preso, e o operador não teria como saber que o pino deveria se mover.
+        existing.setDraggable(markerData.draggable === true)
       }
     })
-  }, [markers, onMarkerClick])
+  }, [markers, onMarkerClick, onMarkerDragEnd])
 
   const updateMapView = useCallback(() => {
     if (!mapInstanceRef.current) return
@@ -678,11 +701,17 @@ export function GoogleMapComponent({
         className={`bg-yellow-50 dark:bg-yellow-900/20 rounded-lg border border-yellow-200 dark:border-yellow-800 flex items-center justify-center ${className}`}
         style={{ height }}
       >
+        {/* O ACENTO É A BORDA E O FUNDO, NUNCA A TINTA. `text-yellow-600` (#CA8A04) mede
+            2.84:1 sobre `bg-yellow-50` (#FEFCE8) e reprova SC 1.4.3, que pede 4.5:1 — apanhado
+            pelo `axe-core` em `tests/ct/partnerships-a11y.spec.tsx` quando o painel do ponto do
+            parceiro passou a montar este mapa. É a mesma correção que o diretório já aplicou ao
+            seu badge: a cor vive na moldura, onde 3:1 basta (SC 1.4.11), e a palavra fica
+            legível. */}
         <div className="text-center p-4">
-          <p className="text-yellow-700 dark:text-yellow-300 font-medium">
+          <p className="font-medium text-gray-900 dark:text-yellow-200">
             Google Maps API Key Required
           </p>
-          <p className="text-yellow-600 dark:text-yellow-400 text-sm mt-1">
+          <p className="mt-1 text-sm text-gray-800 dark:text-yellow-300">
             Please add NEXT_PUBLIC_GOOGLE_MAPS_API_KEY to your environment variables
           </p>
         </div>

@@ -72,6 +72,12 @@ export interface PlaceFilters {
  *
  * Cardinality is 1 client : N places (BR-B2B-033, item 3) — never assume one.
  */
+/**
+ * O que `setApproved` lança quando falta o ponto. Um código e não uma frase: quem mostra é a
+ * tela, em português, e uma mensagem cravada aqui apareceria crua no `catch` de quem chamou.
+ */
+export const PLACE_WITHOUT_COORDINATE = 'place_without_coordinate'
+
 export const PLACE_PARTNER_OWNER_COLUMN = 'partner_client_id'
 
 /** A place with the client it belongs to, as `listByPartnerClient` answers. */
@@ -371,6 +377,27 @@ export const placeService = {
     approvedBy: string | null,
     db?: SupabaseClient
   ) {
+    /**
+     * PUBLICAR SEM PONTO É PUBLICAR NADA, e até 2026-08-23 nada impedia.
+     *
+     * Todo predicado que serve o turista faz `JOIN core.attraction_coordinate`:
+     * `app_get_nearby_places`, `app_get_place_details` e o read model do POI. Um registro
+     * `approved = true` sem coordenada fica marcado como no ar e é invisível — mede-se: **22
+     * linhas** assim em 2026-08-23 (12 `event`, 10 `poi`), cada uma mentindo para o operador
+     * que a olhou.
+     *
+     * O gate vive AQUI porque `setApproved` é o único escritor de `approved` no CMS — a esteira
+     * de parceria e a tela de POIs passam pelas duas pontas desta função. `buildPlaceReadiness`
+     * já classificava `coordinate` como `blocks_app`, mas isso é a régua da TELA: só o caminho
+     * do parceiro consultava, e `approvePoi` publicava direto.
+     *
+     * DESPUBLICAR NUNCA É BARRADO. Tirar do ar é a saída de emergência, e exigir um dado
+     * completo para desfazer uma publicação é prender o operador dentro do próprio erro.
+     */
+    if (approved && !(await placeService.hasCoordinate(attractionId, db))) {
+      throw new Error(PLACE_WITHOUT_COORDINATE)
+    }
+
     const { error } = await client(db)
       .schema('core')
       .from('attractions')
@@ -381,6 +408,23 @@ export const placeService = {
       })
       .eq('id', attractionId)
     if (error) throw new Error(error.message)
+  },
+
+  /**
+   * Se existe uma linha em `core.attraction_coordinate` — presença, nunca a coordenada em si.
+   *
+   * `head: true` porque a resposta é um booleano: trazer latitude e longitude para descartá-las
+   * é ler o que não se vai usar, num caminho que roda a cada publicação.
+   */
+  async hasCoordinate(attractionId: string, db?: SupabaseClient): Promise<boolean> {
+    const { count, error } = await client(db)
+      .schema('core')
+      .from('attraction_coordinate')
+      .select('attraction_id', { count: 'exact', head: true })
+      .eq('attraction_id', attractionId)
+    // Falha fechada: publicar em cima de uma leitura que não respondeu é publicar sem saber.
+    if (error) throw new Error(error.message)
+    return (count ?? 0) > 0
   },
 
   /** Set/edit the place's coordinate (upsert in core.attraction_coordinate). */

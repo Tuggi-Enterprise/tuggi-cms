@@ -9,6 +9,7 @@
 import { useEffect, useState } from 'react'
 import { useQueryClient } from '@tanstack/react-query'
 import { useTranslations } from 'next-intl'
+import { PlaceDeleteControl } from '@/components/place-management/PlaceDeleteControl'
 import { Store, Info, Sparkles, Loader2 } from 'lucide-react'
 import { PLACE_TYPES, placeService } from '@/lib/core/place-service'
 import { usePlaceDetails } from '@/lib/hooks/use-places'
@@ -206,15 +207,31 @@ export function PlaceFormModal({ placeId, isOpen, onClose, onSaved }: PlaceFormM
       onSave={handleSave}
       invalidate={invalidate}
       sidebarFooter={isEdit ? (
-        <PublishingControls
-          title={t('sections.publish')}
-          labels={{ approved: L('approved'), active: L('active'), priority: L('priority') }}
-          approved={!!form.approved}
-          isActive={!!form.is_active}
-          priorityLevel={Number(form.priority_level) || 3}
-          disabled={!canEdit}
-          onChange={(patch) => setForm((p) => ({ ...p, ...patch }))}
-        />
+        <>
+          <PublishingControls
+            title={t('sections.publish')}
+            labels={{ approved: L('approved'), active: L('active'), priority: L('priority') }}
+            approved={!!form.approved}
+            isActive={!!form.is_active}
+            priorityLevel={Number(form.priority_level) || 3}
+            disabled={!canEdit}
+            onChange={(patch) => setForm((p) => ({ ...p, ...patch }))}
+          />
+          {/* ABAIXO DA PUBLICAÇÃO, e não ao lado de Salvar: `Ativo` logo acima é a alternativa
+              que o operador tem para o local que carrega histórico e por isso não pode sumir —
+              tirar do turista sem apagar visita, feedback e trilha de triagem (BR-POI-005). */}
+          {canEdit && placeId && (
+            <PlaceDeleteControl
+              attractionId={placeId as string}
+              name={form.name || ''}
+              onDeleted={async () => {
+                invalidate()
+                onSaved?.(placeId as string)
+                onClose()
+              }}
+            />
+          )}
+        </>
       ) : undefined}
     >
       {error && (

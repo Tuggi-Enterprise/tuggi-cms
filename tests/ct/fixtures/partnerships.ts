@@ -49,7 +49,9 @@ export function queueRow(overrides: Partial<ClientDirectoryRow> = {}): ClientDir
     clientType: 'venue',
     status: 'pending',
     contract: 'none',
-    contractSigned: false,
+    fee: { monthlyFeeCents: null, isCourtesy: false, courtesyReason: null },
+    contractTier: null,
+    planChoice: null,
     taxId: '12.345.678/0001-90',
     city: 'Santos',
     region: 'SP',
@@ -100,6 +102,117 @@ export const QUEUE_ROWS_IN_PROGRESS: ClientDirectoryRow[] = [
   }),
 ]
 
+/**
+ * One row per BOARD column, plus the alert band — enough for the board to render every column
+ * with something in it, including the two terminal ones and the state that gets no column
+ * (#409). `QUEUE_ROWS_IN_PROGRESS` covers only the working set, which is the table's default
+ * reading and leaves half the board empty.
+ */
+export const BOARD_ROWS_EVERY_COLUMN: ClientDirectoryRow[] = QUEUE_ROWS_IN_PROGRESS.concat([
+  queueRow({
+    submissionId: 'sub-0006',
+    clientId: 'client-0006',
+    state: 'contract_sent',
+    contract: 'sent',
+    status: 'approved',
+    href: '/admin/clients?clientId=client-0006&tab=partnership',
+    name: 'Padaria Boa Vista',
+    since: '2026-08-12T09:00:00.000Z',
+  }),
+  queueRow({
+    submissionId: 'sub-0007',
+    clientId: 'client-0007',
+    state: 'published',
+    contract: 'signed',
+    status: 'approved',
+    href: '/admin/clients?clientId=client-0007&tab=partnership',
+    name: 'Café da Praça',
+    since: '2026-08-14T09:00:00.000Z',
+    places: { total: 1, published: 1, blocking: 0, silencing: 0, improving: 0, allReady: true },
+  }),
+  queueRow({
+    submissionId: 'sub-0008',
+    state: 'discarded',
+    name: 'Quiosque sem CNPJ',
+    since: '2026-08-03T09:00:00.000Z',
+    discardReason: 'no_tax_id',
+  }),
+  // The one state with no column: an act owed to somebody OUTSIDE the company, which the board
+  // shows above every column (DS-COPY-020, point 5).
+  queueRow({
+    submissionId: 'sub-0009',
+    clientId: 'client-0009',
+    state: 'refusal_not_communicated',
+    contract: 'signed',
+    status: 'approved',
+    href: '/admin/clients?clientId=client-0009&tab=partnership',
+    name: 'Bar do Mirante',
+    since: '2026-08-02T09:00:00.000Z',
+    places: { total: 1, published: 0, blocking: 0, silencing: 0, improving: 0, allReady: false },
+    triage: {
+      approvedAt: '2026-08-01T09:00:00.000Z',
+      places: [
+        {
+          attractionId: 'place-0009',
+          published: false,
+          refusal: { decidedAt: '2026-08-02T09:00:00.000Z', communicatedAt: null },
+        },
+      ],
+    },
+  }),
+])
+
+/**
+ * The four answers to `who pays`, one row each — the states `lib/clients/partner-plan` keeps
+ * apart, plus the disagreement between a signed contract and a registration edited after it.
+ */
+export const BOARD_ROWS_EVERY_PLAN: ClientDirectoryRow[] = [
+  queueRow({
+    submissionId: 'plan-1',
+    clientId: null,
+    state: 'proposal_received',
+    name: 'Pediu descrição',
+    planChoice: 'map_and_description',
+  }),
+  queueRow({
+    submissionId: 'plan-2',
+    clientId: 'client-plan-2',
+    state: 'client_created',
+    status: 'approved',
+    name: 'Paga por mês',
+    fee: { monthlyFeeCents: 14900, isCourtesy: false, courtesyReason: null },
+  }),
+  queueRow({
+    submissionId: 'plan-3',
+    clientId: 'client-plan-3',
+    state: 'client_created',
+    status: 'approved',
+    name: 'Cortesia declarada',
+    fee: {
+      monthlyFeeCents: null,
+      isCourtesy: true,
+      courtesyReason: 'patrocínio do festival',
+    },
+  }),
+  queueRow({
+    submissionId: 'plan-4',
+    clientId: 'client-plan-4',
+    state: 'client_created',
+    status: 'approved',
+    name: 'Ninguém declarou',
+  }),
+  queueRow({
+    submissionId: 'plan-5',
+    clientId: 'client-plan-5',
+    state: 'contract_signed',
+    status: 'approved',
+    contract: 'signed',
+    contractTier: 'free',
+    name: 'Contrato divergente',
+    fee: { monthlyFeeCents: 14900, isCourtesy: false, courtesyReason: null },
+  }),
+]
+
 const FILLED_CONFERENCE: ConferenceRecord = {
   documentsSeen: ['business_license', 'incorporation_document'],
 }
@@ -135,6 +248,7 @@ function client(overrides: Partial<PipelineClient> & { id: string; fee: PartnerF
 
 const SIGNED_CONTRACT: PipelineContract = {
   status: 'signed',
+  tier: 'paid',
   signed: true,
   signedAt: '2026-08-13T10:00:00.000Z',
   signerName: 'Ana Prado',
@@ -196,7 +310,7 @@ export function detailInCuration(): PartnershipDetail {
     places: [partnerPlace(facts, fee)],
     // The same facts the queue row carries, so the header clock and the column agree — the
     // detail derives it from `approved_at` and the places, exactly as the service does (#377).
-    triage: { approvedAt: '2026-08-14T13:00:00.000Z', places: [{ published: false, refusal: null }] },
+    triage: { approvedAt: '2026-08-14T13:00:00.000Z', places: [{ attractionId: 'place-1', published: false, refusal: null }] },
   }
 }
 
@@ -253,7 +367,7 @@ export function detailReadyToPublish(): PartnershipDetail {
     places: [partnerPlace(facts, fee)],
     // The same facts the queue row carries, so the header clock and the column agree — the
     // detail derives it from `approved_at` and the places, exactly as the service does (#377).
-    triage: { approvedAt: '2026-08-14T13:00:00.000Z', places: [{ published: false, refusal: null }] },
+    triage: { approvedAt: '2026-08-14T13:00:00.000Z', places: [{ attractionId: 'place-2', published: false, refusal: null }] },
   }
 }
 

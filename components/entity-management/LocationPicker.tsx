@@ -151,12 +151,27 @@ export function LocationPicker({
              Here ONE point is picked; the polygon has its own tab in the drawer. */
           enableDrawing={false}
           showDrawingButton={false}
+          /* ARRASTAR É O AJUSTE FINO, e o clique continua sendo como o ponto NASCE (#409). Um
+             clique acerta a quadra; a fachada certa está a poucos metros dele, e repetir cliques
+             até acertar é mirar sem ver o que se move. O pino só arrasta quando `editable` — num
+             mapa de leitura, um pino que corre sob o cursor é dado alterado por acidente.
+             Os dois caminhos chamam `onChange`, que continua tendo um único efeito: preencher os
+             campos da tela. Nenhum dos dois grava — quem grava é `handleSave`. */
           markers={
             view.showMarker
-              ? [{ id: 'entity-location', position: view.center, title: name || '', color: '#00A8E8' }]
+              ? [
+                  {
+                    id: 'entity-location',
+                    position: view.center,
+                    title: name || '',
+                    color: '#00A8E8',
+                    draggable: editable,
+                  },
+                ]
               : []
           }
           onMapClick={(lat: number, lng: number) => onChange?.(lat, lng)}
+          onMarkerDragEnd={(_id: string, lat: number, lng: number) => onChange?.(lat, lng)}
         />
       </div>
       {/* SEMPRE que falta a coordenada, e o espaço é reservado desde o primeiro render (duas linhas

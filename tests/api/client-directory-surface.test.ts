@@ -33,6 +33,9 @@ const messages = (locale: string) => JSON.parse(read(`messages/${locale}.json`))
 
 const SERVICE = 'lib/services/partnership-service.ts'
 const SCREEN = 'components/admin/clients/ClientDirectory.tsx'
+const BOARD = 'components/admin/clients/ClientBoard.tsx'
+const RAIL = 'components/admin/clients/DirectoryFilterRail.tsx'
+const READ = 'lib/hooks/use-client-directory.ts'
 
 test('one loader, because there is one list', () => {
   const service = read(SERVICE)
@@ -98,14 +101,39 @@ test('the endpoint returns the rows whole — filtering there would make the cou
 })
 
 test('the screen reads one endpoint and decides nothing on its own', () => {
+  // ONE READ FOR BOTH VIEWS since #409. The endpoint moved out of the table and into the hook
+  // the table and the board share — without it, switching Quadro/Tabela re-fetched a thousand
+  // rows and an act on a card could not invalidate the list behind it. The guarantee is
+  // unchanged: one endpoint, and neither view calls it itself.
+  const hook = read(READ)
+  assert.match(hook, /DIRECTORY_ENDPOINT = '\/api\/admin\/clients\/directory'/)
+  assert.match(hook, /fetch\(DIRECTORY_ENDPOINT\)/)
+
+  for (const view of [SCREEN, BOARD]) {
+    assert.equal(read(view).includes("fetch('/api/admin/clients"), false, `${view} must not fetch`)
+  }
+
   const screen = read(SCREEN)
-  assert.match(screen, /fetch\('\/api\/admin\/clients\/directory'\)/)
   assert.match(screen, /buildDirectoryView\(rows, filters\)/)
-  // The counts on the rail and the rows in the table come from the same call.
-  assert.match(screen, /view\.facets\[key\]/)
   assert.match(screen, /view\.rows\.map/)
   // The overdue counter reads the WHOLE set: it exists to reach rows the filter is hiding.
   assert.match(screen, /overdueCount\(rows\)/)
+
+  // The counts on the rail and the rows in either view come from the same call: the rail is
+  // handed the view, it does not build one of its own.
+  const rail = read(RAIL)
+  assert.match(rail, /view\.facets\[key\]/)
+  assert.equal(
+    rail.includes('buildDirectoryView('),
+    false,
+    'the rail must not filter on its own'
+  )
+
+  // The board hands the rail the SAME view it bucketed into columns.
+  const board = read(BOARD)
+  assert.match(board, /buildBoardView\(rows, filters/)
+  assert.match(board, /view=\{board\.directory\}/)
+  assert.match(board, /overdueCount\(rows\)/)
 })
 
 test('the old client list is gone, not left behind', () => {
@@ -116,25 +144,28 @@ test('the old client list is gone, not left behind', () => {
   )
 })
 
-test('the rail is translated in all three locales; the pipeline vocabulary stays Portuguese', () => {
-  for (const locale of ['pt', 'en', 'es']) {
-    const directory = messages(locale).Clients.directory
-    assert.equal(typeof directory.title, 'string', `${locale} must carry the list title`)
-    for (const key of ['country', 'region', 'city', 'clientType', 'status', 'contract', 'state']) {
-      assert.equal(typeof directory.filters[key], 'string', `${locale} must label the ${key} facet`)
-    }
-    for (const key of ['none', 'draft', 'sent', 'signed']) {
-      assert.equal(typeof directory.contractValues[key], 'string')
-    }
+test('the rail speaks the esteira’s language, and the esteira is Portuguese', () => {
+  // IT USED TO BE TRANSLATED, and the seam landed inside a card: `Proposta recebida` over
+  // `Proposal, not registered yet` over `Open`. The pipeline vocabulary was already pt-only by
+  // decision (#408); the rail describes the same pipeline, so it is pt too. What stayed
+  // translated is the CLIENT's own record — a different object with a different owner.
+  const directory = messages('pt').Clients.directory
+  assert.equal(typeof directory.title, 'string')
+  for (const key of ['country', 'region', 'city', 'clientType', 'status', 'contract', 'state']) {
+    assert.equal(typeof directory.filters[key], 'string', `the ${key} facet needs a label`)
+  }
+  for (const key of ['none', 'draft', 'sent', 'signed']) {
+    assert.equal(typeof directory.contractValues[key], 'string')
   }
 
-  // The states, `o que falta` and the triage clock are `Partnerships`, which is pt-only by
-  // decision (#408) and overlaid by the host rather than copied into en/es.
+  // Overlaid by the host rather than copied into en/es — the full assertion, including the
+  // proof that nothing outside the esteira reads these namespaces, is in
+  // `client-board-surface.test.ts`.
   const host = read('components/admin/AdminClientsPageContent.tsx')
-  assert.match(host, /messages=\{\{ \.\.\.messages, Partnerships: ptMessages\.Partnerships \}\}/)
-  // The KEY, parsed — not the literal string, which is also the English title of the screen
-  // now that the operator renamed it `Parcerias`.
+  assert.match(host, /Partnerships: ptMessages\.Partnerships,/)
+  assert.match(host, /directory: ptMessages\.Clients\.directory,/)
   for (const locale of ['en', 'es']) {
     assert.equal('Partnerships' in messages(locale), false, `${locale} must not carry the namespace`)
+    assert.equal('directory' in messages(locale).Clients, false, `${locale} must not fork the rail`)
   }
 })

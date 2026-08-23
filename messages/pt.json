@@ -1223,7 +1223,25 @@
       "validation_missing": "Preencha os campos obrigatórios: {fields}.",
       "location_detecting": "Detectando cidade, estado e país…",
       "location_detected": "Localização detectada:",
-      "error_save": "Falha ao salvar o local"
+      "error_save": "Falha ao salvar o local",
+      "delete": {
+        "action": "Excluir este local",
+        "confirm": "Apagar {name} do catálogo? Isto não tem volta.",
+        "deleting": "Excluindo…",
+        "failed": "Não foi possível excluir agora. Tente de novo.",
+        "blockedTitle": "Este local não pode ser apagado:",
+        "blockedHint": "Para tirar do turista sem perder o histórico, desmarque “Ativo” aqui ao lado.",
+        "reasons": {
+          "has_visits": "Turistas já passaram por aqui, e o histórico de visitas some junto.",
+          "has_feedback": "Tem feedback de usuário, que não volta.",
+          "has_sessions": "Aparece em sessões de viagem já registradas.",
+          "has_triage_refusal": "Tem recusa de triagem registrada, e essa trilha não se apaga.",
+          "is_welcome_poi": "É o POI de boas-vindas de um parceiro.",
+          "is_partner_place": "É o local de um parceiro. Desvincule antes de apagar."
+        },
+        "cancel": "Cancelar",
+        "confirmAction": "Apagar"
+      }
     },
     "POIDetails": {
       "trigger_disabled": {
@@ -1996,6 +2014,7 @@
         "clientType": "Tipo",
         "status": "Situação do cadastro",
         "contract": "Contrato",
+        "plan": "Plano",
         "state": "Estado da parceria",
         "onlyLate": "Só triagem vencida"
       },
@@ -2016,6 +2035,11 @@
         "signed": "Assinado",
         "superseded": "Substituído",
         "terminated": "Encerrado"
+      },
+      "planValues": {
+        "paid": "Pago",
+        "courtesy": "Cortesia",
+        "undeclared": "Sem plano declarado"
       },
       "statusValues": {
         "pending": "Pendente",
@@ -2291,6 +2315,85 @@
       "emptyHeader": "Cupons",
       "emptyDesc": "Salve o cliente para começar a vincular cupons.",
       "scopedBanner": "Apenas cupons atribuídos a este cliente. Cupons genéricos (sem owner) aparecem só na <link>busca global</link>."
+    },
+    "board": {
+      "title": "Quadro",
+      "tableView": "Tabela",
+      "boardView": "Quadro",
+      "switchLabel": "Como ver a lista",
+      "empty": "Nada nesta coluna.",
+      "emptyFiltered": "Nada nesta coluna com esses filtros.",
+      "expand": "Abrir",
+      "collapse": "Fechar",
+      "countTruncated": "≥ {count}",
+      "seeAll": "Ver todos na tabela ({count})",
+      "seeAllDiscarded": "Ver as descartadas ({count})",
+      "seeAllRefused": "Ver as recusadas na triagem ({count})",
+      "overflow": "Mais {count} na tabela.",
+      "alertTitle": "Recusas que o parceiro ainda não sabe",
+      "alertBody": "A triagem foi decidida e ninguém avisou o parceiro. O relógio de 72 horas só para com a comunicação.",
+      "dragHint": "Arraste para a próxima coluna, ou use o botão do card.",
+      "idleLine": "Parado há {value}",
+      "deadlineLine": "Prazo era {deadline}",
+      "deadlineAheadLine": "Prazo {deadline}",
+      "plan": {
+        "paid": "Plano: {value} por mês",
+        "courtesy": "Plano: cortesia",
+        "courtesyReason": "Cortesia por {reason}",
+        "undeclared": "Plano: ninguém declarou",
+        "free": "Plano: sem mensalidade",
+        "requestedMapOnly": "Pediu só o mapa",
+        "requestedMapAndDescription": "Pediu mapa e descrição",
+        "requestedNone": "Não escolheu plano no formulário",
+        "fromContract": "em contrato",
+        "fromRegistration": "no cadastro",
+        "divergesFree": "O contrato não cobra e o cadastro cobra.",
+        "divergesUndeclared": "O contrato cobra e o cadastro não diz quanto."
+      },
+      "dropInvalid": "Não dá para mover para {column}.",
+      "columns": {
+        "proposal": "Proposta recebida",
+        "conference": "Conferência de documentos",
+        "client": "Cliente criado",
+        "contract_sent": "Contrato enviado",
+        "contract_signed": "Contrato assinado",
+        "curation": "Local em curadoria",
+        "published": "Publicado",
+        "closed": "Encerrados"
+      },
+      "columnHints": {
+        "proposal": "Chegou pelo formulário e ninguém conferiu ainda.",
+        "conference": "Alvará e contrato social conferidos. Falta virar cliente.",
+        "client": "Cadastro existe. Falta gerar e enviar o contrato.",
+        "contract_sent": "O contrato está com o parceiro. A assinatura é dele.",
+        "contract_signed": "Contrato em vigor. Falta criar o local.",
+        "curation": "O local existe e está invisível. 72 horas para decidir.",
+        "published": "O local está no ar para o turista.",
+        "closed": "Proposta descartada ou local recusado na triagem."
+      },
+      "acts": {
+        "record_conference": "Registrar a conferência",
+        "open_promotion": "Promover a cliente",
+        "send_contract": "Enviar o contrato",
+        "open_contract": "Gerar o contrato",
+        "create_place": "Criar o local",
+        "open_publish": "Publicar o local",
+        "open_discard": "Descartar a proposta",
+        "communicate_refusal": "Comunicar a recusa"
+      },
+      "blocked": {
+        "no_submission": "Este cadastro não veio de uma proposta, então não há o que conferir nem descartar.",
+        "already_promoted": "Esta proposta já virou cliente. A conferência agora é a do cliente, na página do contrato.",
+        "no_client": "Ainda não existe cadastro de cliente para este passo.",
+        "partner_acts": "Quem assina é o parceiro. Daqui dá para reenviar o link ou copiá-lo.",
+        "place_exists": "O local já foi criado. Ele está na curadoria.",
+        "no_place": "Não há local para publicar. Crie o local primeiro.",
+        "blocking_pendencies": "O local tem {count} pendência(s) que impedem a publicação.",
+        "places_unresolved": "Ainda há local sem publicar nem recusar.",
+        "not_closable": "Não dá para encerrar por aqui. Use a ficha do cliente."
+      },
+      "backwards": "O fluxo anda para a frente. Para desfazer, abra a ficha.",
+      "notAdjacent": "Falta a etapa {column} antes desta."
     }
   },
   "Coupons": {
@@ -2593,6 +2696,7 @@
       "ready": "Documentação em ordem para gerar o contrato.",
       "notReady": "Falta para gerar o contrato: {items}.",
       "itemSeparator": ", ",
+      "goToConference": "Registrar a conferência",
       "checkedBy": "Conferência registrada por {person} em {date}.",
       "source": "A Tuggi não fica com cópia do alvará nem do documento de constituição, e não atesta a autenticidade deles."
     },
@@ -2779,6 +2883,7 @@
       "proposal_received": "Proposta recebida",
       "in_conference": "Em conferência",
       "client_created": "Cliente criado",
+      "contract_sent": "Contrato enviado",
       "contract_signed": "Contrato assinado",
       "place_in_curation": "Local em curadoria",
       "refusal_not_communicated": "Recusa não comunicada",
@@ -2789,7 +2894,8 @@
     "nextSteps": {
       "proposal_received": "Conferir a regularidade",
       "in_conference": "Registrar a conferência",
-      "client_created": "Assinar o contrato",
+      "client_created": "Gerar e enviar o contrato",
+      "contract_sent": "Cobrar a assinatura do parceiro",
       "contract_signed": "Criar o local",
       "place_in_curation": "Publicar o local",
       "refusal_not_communicated": "Comunicar a recusa ao parceiro",
@@ -2884,7 +2990,7 @@
       "publishedBody": "Ponto de disparo ativo, descrição com áudio e coordenada no lugar.",
       "emptyTitle": "Este cliente ainda não tem local vinculado.",
       "emptyBody": "O local é o endereço físico; o cliente é a pessoa jurídica, e um CNPJ pode ter mais de um endereço.",
-      "emptyCreate": "Criar o local a partir da proposta",
+      "emptyCreate": "Criar um local novo",
       "emptyLink": "Ver os locais já cadastrados"
     },
     "publish": {
@@ -2981,6 +3087,51 @@
     },
     "returnBar": {
       "label": "Voltar para a esteira de {name}"
+    },
+    "placePin": {
+      "title": "Onde este local fica no mapa",
+      "body": "Sem o ponto, o local não aparece para o turista. Confira o pino e arraste se estiver fora.",
+      "loading": "Procurando o endereço…",
+      "suggestionTitle": "O Google achou isto:",
+      "suggestionNone": "Não achamos o endereço. Clique no mapa para marcar o ponto.",
+      "suggestionFailed": "A busca falhou. Clique no mapa para marcar o ponto.",
+      "useSuggestion": "Usar este ponto",
+      "dragHint": "Arraste o pino ou clique no mapa para corrigir.",
+      "current": "Ponto atual: {lat}, {lng}",
+      "unsaved": "O pino mudou e ainda não foi salvo.",
+      "save": "Confirmar o ponto",
+      "saving": "Salvando…",
+      "saved": "Ponto confirmado.",
+      "failed": "Não foi possível salvar o ponto. Tente de novo.",
+      "cityMismatch": "O Google diz {city}, e o cadastro diz {registered}. Confira antes de confirmar."
+    },
+    "placeLink": {
+      "title": "Este lugar já está no catálogo?",
+      "body": "Procure antes de criar. Quase todo parceiro já é um POI publicado, e criar de novo deixa dois registros do mesmo endereço, um no ar e outro vazio.",
+      "searchLabel": "Procurar pelo nome",
+      "searchPlaceholder": "Nome do estabelecimento",
+      "minLength": "Digite ao menos {count} letras.",
+      "searching": "Procurando…",
+      "empty": "Nenhum lugar com esse nome. Crie um local novo.",
+      "scopeCity": "Procurando em {city}.",
+      "scopeAll": "Procurando no catálogo inteiro.",
+      "widen": "Procurar em qualquer cidade",
+      "narrow": "Voltar a procurar só em {city}",
+      "emptyInCity": "Nenhum lugar com esse nome em {city}.",
+      "failed": "A busca falhou. Tente de novo.",
+      "linkAction": "Vincular",
+      "linking": "Vinculando…",
+      "linkFailed": "Não foi possível vincular agora. Tente de novo.",
+      "alreadyLinked": "Este lugar já é o local deste cliente.",
+      "approved": "no ar",
+      "notApproved": "em curadoria",
+      "refused": {
+        "wrong_kind": "É um evento. O app não serve evento como local de parceiro.",
+        "no_coordinate": "Sem ponto no mapa. Marque o ponto no editor de POI antes de vincular.",
+        "other_owner": "Já é o local de outro cliente."
+      },
+      "openEditor": "Abrir no editor de POI",
+      "orCreate": "Não achou? Crie um local novo a partir da proposta."
     },
     "clientPlaces": {
       "title": "Locais que aparecem no app",

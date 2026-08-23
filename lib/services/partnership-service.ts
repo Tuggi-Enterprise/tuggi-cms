@@ -58,6 +58,20 @@ import {
   type PipelineState,
 } from '@/lib/partnerships/pipeline'
 import type { PartnerAnswers } from '@/lib/partner-form/schema'
+import type { ContractState, ContractStatus } from '@/lib/contract/status'
+import type { ContractTier } from '@/lib/contract/snapshot'
+import { PLAN_CHOICES, type PlanChoice } from '@/lib/partner-form/fields'
+
+/**
+ * What a row with no client says about money: nothing, and `undeclared` is the honest reading of
+ * nothing. Absent is NOT zero (BR-B2B-017, item 6) — a constant so the two row shapes below
+ * cannot disagree about it.
+ */
+const NO_FEE: PartnerFee = { monthlyFeeCents: null, isCourtesy: false, courtesyReason: null }
+
+function isPlanChoice(value: unknown): value is PlanChoice {
+  return PLAN_CHOICES.indexOf(value as PlanChoice) >= 0
+}
 
 /**
  * This module reads from TWO schemas, which is why there are two clients and not one.
@@ -125,7 +139,14 @@ export interface PipelineClient {
 }
 
 export interface PipelineContract {
-  status: string
+  status: ContractStatus
+  /**
+   * `partner_contracts.tier` — a COLUMN, deliberately, and not the tier inside `snapshot`.
+   * The frozen snapshot carries legal names, addresses and the representative of every partner,
+   * and a list endpoint has no business dragging that through for a label. The tier alone
+   * answers `does this contract charge`, which is the question the directory asks.
+   */
+  tier: ContractTier | null
   signed: boolean
   signedAt: string | null
   signerName: string | null
@@ -174,8 +195,17 @@ export interface ClientDirectoryRow {
    * The live contract's state, or `none`. A filter of its own because `quem ainda não assinou`
    * is the question the two lists could not answer between them.
    */
-  contract: string
-  contractSigned: boolean
+  contract: ContractState
+  /**
+   * THE THREE ANSWERS TO `who pays`, carried separately because they belong to three different
+   * people and `derivePartnerPlan` is what picks between them. Merging them into one field here
+   * would be the merge that module exists to prevent.
+   */
+  fee: PartnerFee
+  /** `partner_contracts.tier` of the live contract — what the partner signed. */
+  contractTier: ContractTier | null
+  /** `answers.plan_choice` — what the establishment ASKED FOR. It prices nothing. */
+  planChoice: PlanChoice | null
   /** Other proposals waiting with the same CNPJ — the existing badge, kept. */
   duplicateCount: number
   /** The last thing that happened here. `Parado há` counts from it. */
@@ -233,6 +263,7 @@ export async function loadClientDirectory(operator: SupabaseClient): Promise<Cli
   function partnershipOf(client: PipelineClient | null) {
     const readiness = (client ? places.get(client.id) ?? [] : []).map(buildPlaceReadiness)
     const outcomes: PlaceTriageOutcome[] = readiness.map((item) => ({
+      attractionId: item.place.attractionId,
       published: item.published,
       refusal: refusals.get(item.place.attractionId) ?? null,
     }))
@@ -257,7 +288,7 @@ export async function loadClientDirectory(operator: SupabaseClient): Promise<Cli
       // state has to fall back to the proposal, or the list would show a client-shaped row
       // whose detail route is a 404.
       clientId: client ? client.id : null,
-      contractSigned: contract?.signed === true,
+      contract: contract?.status ?? 'none',
       placeCount: readiness.length,
       publishedPlaceCount: readiness.filter((item) => item.published).length,
       refusedPlaceCount: outcomes.filter(isRefusedAtTriage).length,
@@ -281,7 +312,9 @@ export async function loadClientDirectory(operator: SupabaseClient): Promise<Cli
       clientType: client?.clientType ?? null,
       status: client?.status ?? null,
       contract: contract?.status ?? 'none',
-      contractSigned: contract?.signed === true,
+      fee: client?.fee ?? NO_FEE,
+      contractTier: contract?.tier ?? null,
+      planChoice: isPlanChoice(answers.plan_choice) ? answers.plan_choice : null,
       duplicateCount: duplicates.get(row.id) ?? 0,
       since: lastEvent([
         row.submitted_at,
@@ -318,7 +351,7 @@ export async function loadClientDirectory(operator: SupabaseClient): Promise<Cli
         proposalStatus: 'promoted',
         conference: (conferences.get(client.id) ?? NO_CONFERENCE).conference,
         clientId: client.id,
-        contractSigned: contract?.signed === true,
+        contract: contract?.status ?? 'none',
         placeCount: readiness.length,
         publishedPlaceCount: readiness.filter((item) => item.published).length,
         refusedPlaceCount: outcomes.filter(isRefusedAtTriage).length,
@@ -333,7 +366,10 @@ export async function loadClientDirectory(operator: SupabaseClient): Promise<Cli
       clientType: client.clientType,
       status: client.status,
       contract: contract?.status ?? 'none',
-      contractSigned: contract?.signed === true,
+      fee: client.fee,
+      contractTier: contract?.tier ?? null,
+      // A registration nobody proposed asked for nothing: there is no form behind it.
+      planChoice: null,
       duplicateCount: 0,
       since: lastEvent([client.createdAt, client.approvedAt, contract?.signedAt ?? null]),
       places: summarizePlaces(readiness),
@@ -439,6 +475,7 @@ export async function loadPartnershipDetail(
   const conference = clientConference.conference
 
   const outcomes: PlaceTriageOutcome[] = readiness.map((item) => ({
+    attractionId: item.place.attractionId,
     published: item.published,
     refusal: refusals.get(item.place.attractionId) ?? null,
   }))
@@ -448,7 +485,7 @@ export async function loadPartnershipDetail(
       proposalStatus: submission?.status ?? 'promoted',
       conference,
       clientId,
-      contractSigned: contract?.signed === true,
+      contract: contract?.status ?? 'none',
       placeCount: readiness.length,
       publishedPlaceCount: readiness.filter((item) => item.published).length,
       refusedPlaceCount: outcomes.filter(isRefusedAtTriage).length,
@@ -703,13 +740,19 @@ async function loadLiveContracts(ids: string[]): Promise<Map<string, PipelineCon
 
   const { data, error } = await service()
     .from('partner_contracts')
-    .select('id, client_id, status, created_at')
+    .select('id, client_id, status, tier, created_at')
     .in('client_id', ids)
     .is('superseded_by', null)
     .order('created_at', { ascending: false })
   if (error || !data) return map
 
-  const rows = data as { id: string; client_id: string; status: string; created_at: string }[]
+  const rows = data as {
+    id: string
+    client_id: string
+    status: ContractStatus
+    tier: ContractTier | null
+    created_at: string
+  }[]
   const live = new Map<string, (typeof rows)[number]>()
   for (const row of rows) {
     // Ordered newest first, so the first one seen for a client is the live one.
@@ -739,6 +782,7 @@ async function loadLiveContracts(ids: string[]): Promise<Map<string, PipelineCon
     const acceptance = acceptances.get(row.id) ?? null
     map.set(clientId, {
       status: row.status,
+      tier: row.tier ?? null,
       signed: row.status === 'signed',
       signedAt: acceptance?.accepted_at ?? null,
       signerName: acceptance?.signer_name ?? null,

@@ -18,6 +18,10 @@
 
 import { test, before, beforeEach, mock } from 'node:test'
 import assert from 'node:assert/strict'
+import { readFileSync } from 'node:fs'
+import { resolve } from 'node:path'
+
+const REPO_ROOT = resolve(import.meta.dirname, '../..')
 
 interface ConferenceRow {
   client_id: string
@@ -190,3 +194,29 @@ test('promotion never overwrites a conference already registered against the cli
   assert.deepEqual(stored.conference.documentsSeen, ['business_license', 'incorporation_document'])
   assert.equal(stored.reviewedBy, OPERATOR, 'the newer assertion survives the older one')
 })
+
+test('#409 · DS-COMPONENTE-020 — a missing document names the control that resolves it', () => {
+  // The band and the conference fieldset are on the SAME page, far enough apart that the band
+  // read as a verdict with no way to answer it. The link is an in-page anchor and not a route:
+  // a proposal has no client, and the contract screen is addressed by `clientId`.
+  const band = readFileSync(
+    resolve(REPO_ROOT, 'components/admin/partner-proposals/RegularityBand.tsx'),
+    'utf8'
+  )
+  assert.match(band, /const CONFERENCE_ANCHOR = '#conference-heading'/)
+  assert.match(band, /act: item\.ok \? null : CONFERENCE_ANCHOR/)
+
+  // The anchor has to exist on the page that renders the band, or the link is a promise
+  // nothing keeps.
+  const review = readFileSync(
+    resolve(REPO_ROOT, 'components/admin/partner-proposals/ProposalReview.tsx'),
+    'utf8'
+  )
+  assert.match(review, /id="conference-heading"/)
+
+  // Only the two documents link: the CNPJ and the representative are fields the partner typed,
+  // and nobody on this screen ticks them.
+  const linked = Array.from(band.matchAll(/act: item\.ok \? null : CONFERENCE_ANCHOR/g))
+  assert.equal(linked.length, 2)
+})
+

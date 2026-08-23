@@ -18,6 +18,13 @@
  * the footer say what the Tuggi does not hold and does not attest (BR-B2B-022, item 7).
  * Affirm, then limit — and the limit carries its own scope, because a footer that opens with
  * "these two lines" points at a set that changes every time the band gains a line.
+ *
+ * AND A MISSING DOCUMENT NOW CARRIES ITS ACT. The band and the conference are on the same
+ * screen, but far enough apart that the band read as a verdict with no way to answer it: it
+ * named the pendency, and where to resolve it was a scroll somebody had to guess at. Each
+ * unticked document line links to the conference fieldset instead — DS-COMPONENTE-020, 1st edge
+ * case, in the direction the operator moves: a derived pendency shows what it was derived from,
+ * and here that is a control they can reach.
  */
 
 import { useTranslations } from 'next-intl'
@@ -33,6 +40,14 @@ import { formatDate } from './format'
 const CARD =
   'rounded-3xl border border-gray-200 bg-white/70 shadow-2xl shadow-black/5 backdrop-blur-xl ' +
   'dark:border-gray-800 dark:bg-gray-900/70'
+
+/**
+ * The conference fieldset, further down THIS page (`ProposalReview`). An in-page anchor and not
+ * a route: the control is already here, and sending the operator to the contract screen would
+ * be a page they cannot reach yet — a proposal has no client, and that screen is addressed by
+ * `clientId`.
+ */
+const CONFERENCE_ANCHOR = '#conference-heading'
 
 interface RegularityBandProps {
   report: RegularityReport
@@ -56,6 +71,9 @@ export function RegularityBand({ report, answers, checkedBy, checkedAt }: Regula
             ? t('regularity.taxIdOk', { value: answers.tax_id ?? '' })
             : t('regularity.taxIdMissing'),
           note: null,
+          // The CNPJ and the representative are fields of the proposal, not acts of this
+          // screen: the partner typed them, and nobody here ticks them.
+          act: null,
         }
       case 'business_license':
         return {
@@ -64,6 +82,8 @@ export function RegularityBand({ report, answers, checkedBy, checkedAt }: Regula
           tone: item.ok ? 'ok' : 'bad',
           text: item.ok ? t('regularity.licenseOk') : t('regularity.licenseMissing'),
           note: null,
+          // Only when it is missing: a line already ticked has nothing to send anybody to.
+          act: item.ok ? null : CONFERENCE_ANCHOR,
         }
       case 'incorporation_document':
         return {
@@ -74,6 +94,7 @@ export function RegularityBand({ report, answers, checkedBy, checkedAt }: Regula
             ? t('regularity.incorporationOk')
             : t('regularity.incorporationMissing'),
           note: null,
+          act: item.ok ? null : CONFERENCE_ANCHOR,
         }
       default:
         return {
@@ -87,6 +108,7 @@ export function RegularityBand({ report, answers, checkedBy, checkedAt }: Regula
               })
             : t('regularity.representativeMissing'),
           note: null,
+          act: null,
         }
     }
   })
@@ -114,6 +136,14 @@ export function RegularityBand({ report, answers, checkedBy, checkedAt }: Regula
                   when it has something to add under itself, and it wraps rather than truncates. */}
               {line.note ? (
                 <span className="block break-words text-xs text-gray-800 dark:text-gray-300">{line.note}</span>
+              ) : null}
+              {line.act ? (
+                <a
+                  href={line.act}
+                  className="ml-1 whitespace-nowrap text-sm font-medium text-primary-800 underline underline-offset-4 dark:text-tuggi-blue"
+                >
+                  {t('regularity.goToConference')}
+                </a>
               ) : null}
             </span>
           </li>

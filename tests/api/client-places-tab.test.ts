@@ -30,6 +30,13 @@ const messages = (locale: string) => JSON.parse(read(`messages/${locale}.json`))
 
 const TAB = 'components/admin/clients/tabs/PlacesTab.tsx'
 
+/** The source WITHOUT its comments — every assertion about what a file DOES reads this. */
+function code(path: string): string {
+  return read(path)
+    .replace(/\/\*[\s\S]*?\*\//g, '')
+    .replace(/^\s*\/\/.*$/gm, '')
+}
+
 test('the places tab reads the readiness, it does not compute it', () => {
   const tab = read(TAB)
 
@@ -64,8 +71,12 @@ test('creating a place reuses the provisioning route, and writes nothing itself'
 })
 
 test('the triage stays in the pipeline — the record does not offer it twice', () => {
-  const tab = read(TAB)
-  for (const act of ['triage-refusal', 'publish', 'PublishPanel', 'RefusalPanel']) {
+  // COMMENTS STRIPPED, and the assertion narrowed to what an act actually looks like: the
+  // first version matched the bare word `publish`, so a comment explaining that a linked
+  // establishment was ALREADY PUBLISHED turned the suite red. A ruler that reads prose measures
+  // the prose — the guarantee is that the tab never CALLS the act, not that it never names it.
+  const tab = code(TAB)
+  for (const act of ['/triage-refusal', '/publish', 'PublishPanel', 'RefusalPanel', 'setApproved']) {
     assert.equal(
       tab.indexOf(act),
       -1,

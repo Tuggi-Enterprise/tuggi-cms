@@ -14,47 +14,34 @@
  * corrected by dragging; a wrong coordinate on the record has the appearance of truth and travels
  * through the triage.
  *
- * THE BROWSER'S SDK AND NOT THE HTTP API, on purpose: the Maps JS SDK is already loaded by
- * `GoogleMapComponent` (`@googlemaps/react-wrapper`) wherever a map is on the screen, the
- * geocoding quota is the same one, and going through a route of ours would mean a second place
- * holding a Google key.
+ * IT WENT THROUGH OUR OWN ROUTE ON 2026-08-23, AND THAT WAS A REPAIR. It used to ask the
+ * browser's `google.maps.Geocoder`, and Google's own documentation requires the **Geocoding API**
+ * for that service: *"Before using the Geocoding service in the Maps JavaScript API, first ensure
+ * that the Geocoding API is enabled in the Google Cloud console"*. Measured against this
+ * project's key, that API answers:
+ *
+ *     REQUEST_DENIED — "This API key is not authorized to use this service or API."
+ *
+ * So the centring #371 shipped never worked, and — because this module fails to `null` on
+ * purpose — it never worked IN SILENCE: the map opened at the fallback centre and the legend
+ * read `não localizamos`, which is the state #371 existed to remove. `/api/maps/geocode` asks
+ * `places:searchText`, which the same key answers.
  *
  * IT FAILS TO NULL, ALWAYS. A geocoding that answers nothing is a map that opens where it opened
  * before — never an error in front of the operator, and never a blocked form (#371, item 3).
  */
 
-/** The SDK is loaded by whichever map is on the screen; this is how long we wait for it. */
-const SDK_WAIT_TIMEOUT_MS = 10_000
-const SDK_POLL_INTERVAL_MS = 100
+/** A rota que responde. Nomeada uma vez, para o teste e o chamador concordarem. */
+export const GEOCODE_ENDPOINT = '/api/maps/geocode'
+
+/** Uma busca que não respondeu neste tempo não vale segurar a montagem de um mapa. */
+const REQUEST_TIMEOUT_MS = 10_000
 
 export interface GeocodedAddress {
   lat: number
   lng: number
-  /** What Google calls the place it found — the label `searchCity` shows. */
+  /** O que a Google chama o lugar que achou — o rótulo que `searchCity` mostra. */
   formattedAddress: string
-}
-
-/**
- * Resolve when `google.maps` is available, or false when it never arrives.
- *
- * The same 100 ms / 10 s convention `GoogleMapComponent` polls with, and for the same reason:
- * `@googlemaps/react-wrapper` injects the script when a map mounts, so a sibling of the map
- * cannot assume the SDK is there on its first render.
- */
-export async function waitForGoogleMaps(timeoutMs: number = SDK_WAIT_TIMEOUT_MS): Promise<boolean> {
-  const ready = () =>
-    typeof window !== 'undefined' &&
-    typeof (window as any).google?.maps?.Geocoder === 'function'
-
-  if (ready()) return true
-  if (typeof window === 'undefined') return false
-
-  const deadline = Date.now() + timeoutMs
-  while (Date.now() < deadline) {
-    await new Promise((resolve) => setTimeout(resolve, SDK_POLL_INTERVAL_MS))
-    if (ready()) return true
-  }
-  return false
 }
 
 export async function geocodeAddress(
@@ -62,27 +49,29 @@ export async function geocodeAddress(
   options: { timeoutMs?: number } = {}
 ): Promise<GeocodedAddress | null> {
   const query = address.trim()
+  // Um endereço em branco não é uma requisição.
   if (query.length === 0) return null
-  if (!(await waitForGoogleMaps(options.timeoutMs))) return null
+
+  const controller = new AbortController()
+  const timer = setTimeout(() => controller.abort(), options.timeoutMs ?? REQUEST_TIMEOUT_MS)
 
   try {
-    const geocoder = new google.maps.Geocoder()
-    const results = await new Promise<google.maps.GeocoderResult[]>((resolve, reject) => {
-      geocoder.geocode({ address: query }, (found, status) => {
-        if (status === 'OK' && found && found.length > 0) resolve(found)
-        else reject(new Error(`Geocoding failed: ${status}`))
-      })
+    const response = await fetch(GEOCODE_ENDPOINT, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ address: query }),
+      signal: controller.signal,
     })
+    if (!response.ok) return null
 
-    const location = results[0].geometry.location
-    return {
-      lat: location.lat(),
-      lng: location.lng(),
-      formattedAddress: results[0].formatted_address,
-    }
+    const payload = (await response.json()) as { result: GeocodedAddress | null }
+    return payload.result ?? null
   } catch (error) {
-    // `ZERO_RESULTS` for an address a partner typed by hand is ordinary, not exceptional.
+    // `ZERO_RESULTS` para um endereço que um parceiro digitou à mão é o caso comum, não a
+    // exceção — e o mesmo vale para a rede cair no meio.
     console.warn('[geocode-address] could not resolve the address:', error)
     return null
+  } finally {
+    clearTimeout(timer)
   }
 }

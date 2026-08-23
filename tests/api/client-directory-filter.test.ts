@@ -48,7 +48,9 @@ function row(overrides: Partial<ClientDirectoryRow>): ClientDirectoryRow {
     clientType: 'venue',
     status: 'approved',
     contract: 'none',
-    contractSigned: false,
+    fee: { monthlyFeeCents: null, isCourtesy: false, courtesyReason: null },
+    contractTier: null,
+    planChoice: null,
     duplicateCount: 0,
     since: '2026-08-01',
     places: PLACES as ClientDirectoryRow['places'],
@@ -60,10 +62,10 @@ function row(overrides: Partial<ClientDirectoryRow>): ClientDirectoryRow {
 
 const ROWS: ClientDirectoryRow[] = [
   row({ clientId: 'mg-1', name: 'Pousada Ouro', country: 'Brazil', region: 'MG', city: 'Ouro Preto', contract: 'sent' }),
-  row({ clientId: 'mg-2', name: 'Café Tiradentes', country: 'Brazil', region: 'MG', city: 'Tiradentes', contract: 'signed', contractSigned: true }),
+  row({ clientId: 'mg-2', name: 'Café Tiradentes', country: 'Brazil', region: 'MG', city: 'Tiradentes', contract: 'signed' }),
   row({ clientId: 'mg-3', name: 'Bar Mariana', country: 'Brazil', region: 'MG', city: 'Mariana', contract: 'none' }),
   row({ clientId: 'rj-1', name: 'Quiosque Búzios', country: 'Brazil', region: 'RJ', city: 'Búzios', contract: 'none', clientType: 'hotel' }),
-  row({ clientId: 'pt-1', name: 'Taberna Porto', country: 'Portugal', region: 'Porto', city: 'Porto', contract: 'signed', contractSigned: true }),
+  row({ clientId: 'pt-1', name: 'Taberna Porto', country: 'Portugal', region: 'Porto', city: 'Porto', contract: 'signed' }),
   // A registration nobody filled in: no country, no state, no city. It must never become an
   // empty-string option in the rail.
   row({ clientId: 'bare', name: 'Sem endereço', status: 'pending' }),
@@ -76,7 +78,7 @@ const withFilters = (overrides: Partial<DirectoryFilters>): DirectoryFilters => 
 
 test('the question neither list could answer: Minas, contract not signed', () => {
   const view = buildDirectoryView(ROWS, withFilters({ country: 'Brazil', region: 'MG' }))
-  const unsigned = view.rows.filter((candidate) => !candidate.contractSigned)
+  const unsigned = view.rows.filter((candidate) => candidate.contract !== 'signed')
 
   assert.deepEqual(
     unsigned.map((candidate) => candidate.clientId).sort(),
@@ -170,7 +172,7 @@ test('the overdue counter reads the whole set, never the filtered one', () => {
     clientId: 'late',
     country: 'Brazil',
     region: 'MG',
-    triage: { approvedAt: '2020-01-01T00:00:00.000Z', places: [{ published: false, refusal: null }] },
+    triage: { approvedAt: '2020-01-01T00:00:00.000Z', places: [{ attractionId: 'place-1', published: false, refusal: null }] },
   })
   const set = ROWS.concat(late)
 
@@ -187,7 +189,7 @@ test('an overdue triage sorts above a longer idle row', () => {
   const late = row({
     clientId: 'late',
     since: '2026-08-15',
-    triage: { approvedAt: '2020-01-01T00:00:00.000Z', places: [{ published: false, refusal: null }] },
+    triage: { approvedAt: '2020-01-01T00:00:00.000Z', places: [{ attractionId: 'place-2', published: false, refusal: null }] },
   })
   const view = buildDirectoryView([idle, late], EMPTY_FILTERS)
   assert.deepEqual(view.rows.map((candidate) => candidate.clientId), ['late', 'idle'])

@@ -19,9 +19,18 @@
  */
 
 import type { ConferenceRecord } from '@/lib/partner-form/regularity'
+import { isSigned, type ContractState } from '@/lib/contract/status'
 
 /**
- * THE NINE LABELS — the spec's eight plus one this pipeline needs.
+ * THE TEN LABELS — the spec's eight plus two this pipeline needs.
+ *
+ * `contract_sent` is the second of the two, and it arrived with the board (#409). The fact was
+ * always in the database — `partner.partner_contracts.status = 'sent'` — and the pipeline threw
+ * it away by asking a boolean: `draft` and `sent` both answered "not signed" and collapsed into
+ * one label, which hid the only distinction that changes who is holding up the work. A contract
+ * in `draft` is owed BY US; a contract `sent` is owed BY THE PARTNER, and the only acts left on
+ * this side are to re-send the link or wait. One label for both told the operator to do
+ * something about a row where there was nothing to do.
  *
  * `refused_at_triage` is the spec's seventh, and it arrived with the card that gave the outcome
  * of the triage a place to live (#377, `partner.partner_triage_refusals`): while nothing recorded
@@ -45,6 +54,7 @@ export type PipelineState =
   | 'proposal_received'
   | 'in_conference'
   | 'client_created'
+  | 'contract_sent'
   | 'contract_signed'
   | 'place_in_curation'
   | 'refusal_not_communicated'
@@ -57,6 +67,7 @@ export const IN_PROGRESS_STATES: PipelineState[] = [
   'proposal_received',
   'in_conference',
   'client_created',
+  'contract_sent',
   'contract_signed',
   'place_in_curation',
   'refusal_not_communicated',
@@ -97,8 +108,13 @@ export interface PipelineInput {
   conference: ConferenceRecord
   /** The client the proposal was promoted into, if any. */
   clientId: string | null
-  /** `partner.partner_contracts.status === 'signed'` for the live contract of that client. */
-  contractSigned: boolean
+  /**
+   * `partner.partner_contracts.status` of that client's LIVE contract, or `none` when there is
+   * no contract at all. A status and not a boolean since the board: `sent` is a state of its own
+   * — the instrument left the building and the partner has not signed it — and a `signed: false`
+   * could not tell it apart from `draft`, which is work still on this side of the door.
+   */
+  contract: ContractState
   /** How many places carry `core.attractions.partner_client_id = clientId`. */
   placeCount: number
   /** How many of them satisfy the read model's visibility predicate. */
@@ -143,9 +159,25 @@ export function derivePipelineState(input: PipelineInput): PipelineState {
       // by the check above.
       return input.publishedPlaceCount > 0 ? 'published' : 'refused_at_triage'
     }
+    // THE CONTRACT OUTRANKS A PLACE NOBODY PUBLISHED, and the order is the whole reason the
+    // pipeline has three states between the client and the curation instead of one.
+    //
+    // Approving the client CREATES the place — `applyPartnerApprovalEffects`, invisible and
+    // `approved = false` — and it happens before anybody generates a contract. Reading
+    // `placeCount > 0` first therefore sent EVERY approved partnership straight to
+    // `place_in_curation`: the two contract states could never be reached, and the next step
+    // read `Publicar o local` for a partner with no instrument signed. BR-B2B-026, item 5, puts
+    // the term of the agreement at the signature, and BR-B2B-018 starts the fee at the
+    // publication — publishing first is billing without a contract behind it.
+    //
+    // A place that exists is not a state; a place the partnership is ALLOWED to publish is. So
+    // below `published` the unsigned contract wins, and `place_in_curation` names what it says:
+    // the instrument is in force and the place is what is left.
+    if (!isSigned(input.contract)) {
+      return input.contract === 'sent' ? 'contract_sent' : 'client_created'
+    }
     if (input.placeCount > 0) return 'place_in_curation'
-    if (input.contractSigned) return 'contract_signed'
-    return 'client_created'
+    return 'contract_signed'
   }
 
   return conferenceStarted(input.conference) ? 'in_conference' : 'proposal_received'

@@ -47,6 +47,17 @@ export type AuditAction =
   // made by a side-effect and not by the Places screen, so the row that says which approval
   // produced which POI is the only way back from one to the other.
   | 'CREATE_PARTNER_PLACE'
+  // Pointing the client at a place the catalogue ALREADY carried (#409), which is the ordinary
+  // act and not the exception: the three clients that used `CREATE_PARTNER_PLACE` each got an
+  // empty second row beside an establishment that was already published. This row is what
+  // distinguishes "the operator recognised the existing POI" from "a POI was born here", and
+  // the two answer different questions when somebody asks why a partner has two addresses.
+  | 'LINK_PARTNER_PLACE'
+  // Apagar um local do catálogo (#409). A linha fica porque o registro não fica: `DELETE` em
+  // `core.attractions` propaga para 17 tabelas, e o que sobra de que aquilo existiu é isto.
+  // Só chega aqui um local sem visita, sem feedback, sem sessão, sem recusa de triagem e sem
+  // parceiro vinculado — `lib/core/place-delete` recusa o resto.
+  | 'DELETE_PLACE'
   // The 4 → 5 act of the pipeline (#359), and its reverse. Publishing is what starts the
   // monthly fee of the paid tier (BR-B2B-018, item 1), so "who put this place in front of
   // tourists, and when" is the only record of when money began — the fee itself is frozen on
