@@ -3,6 +3,12 @@ import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
 import { getSecretKey } from '../_shared/supabase-client.ts';
 import { partnerStrings, type PartnerEvent } from '../_shared/partner-i18n.ts';
 import { resolveDeeplink } from '../_shared/notification-deeplink.ts';
+import {
+  fcmErrorCode,
+  isDeadRegistration,
+  isSenderPayloadError,
+  shouldAbortForBadPayload,
+} from '../_shared/fcm-errors.ts';
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -176,14 +182,28 @@ Deno.serve(async (req) => {
 
     // Helper: Send Notification
     const sendNotification = async (tokens: string[], notification: any, priority: string, ttl: number) => {
-      if (tokens.length === 0) return { success: 0, failure: 0, errors: [] };
+      if (tokens.length === 0) return { success: 0, failure: 0, errors: [], aborted: null };
       
       const accessToken = await createAccessToken();
-      const results = { success: 0, failure: 0, errors: [] as string[] };
+      const results = {
+        success: 0,
+        failure: 0,
+        errors: [] as string[],
+        // Set only when the loop gave up on a payload FCM keeps rejecting; the
+        // routes turn it into a non-2xx so the caller does not record a send.
+        aborted: null as string | null,
+      };
       const baseMessage = constructMessage(notification, priority, ttl);
+
+      // A payload FCM rejects fails EVERY token with the same INVALID_ARGUMENT,
+      // so the loop has to be able to stop itself instead of hammering FCM with
+      // a request it already answered. See _shared/fcm-errors.ts for the number.
+      let invalidArgumentCount = 0;
+      let attempted = 0;
 
       for (const token of tokens) {
         const message = { message: { ...baseMessage, token } };
+        attempted++;
 
         try {
           const res = await fetch(`https://fcm.googleapis.com/v1/projects/${FIREBASE_PROJECT_ID}/messages:send`, {
@@ -200,12 +220,33 @@ Deno.serve(async (req) => {
             results.success++;
           } else {
             const error = data.error?.message || 'Unknown';
+            // The FCM code is in `details[].errorCode` / `status`, never in the
+            // prose `message` — the old `message.includes(...)` matched neither.
+            const code = fcmErrorCode(data);
             results.failure++;
-            results.errors.push(`Token ${token.substring(0, 8)}...: ${error}`);
+            results.errors.push(`Token ${token.substring(0, 8)}...: ${code || 'UNKNOWN'} ${error}`);
             console.error(`[${requestId}] ⚠️ FCM error for token ${token.substring(0, 8)}:`, JSON.stringify(data));
-            
-            if (error.includes('UNREGISTERED') || error.includes('INVALID_ARGUMENT')) {
+
+            if (isDeadRegistration(code)) {
+              // The registration is gone (uninstall, revoked permission, 270
+              // idle days) and will never be valid again: stop sending to it.
               await supabase.schema('drive').from('fcm_tokens').update({ is_active: false }).eq('fcm_token', token);
+              console.log(`[${requestId}] 🧹 token ${token.substring(0, 8)} deactivated (${code})`);
+            } else if (isSenderPayloadError(code)) {
+              // INVALID_ARGUMENT indicts the REQUEST, not the token. Firebase:
+              // it "signals an invalid registration only if the payload is
+              // completely valid" — which we cannot prove from here. So the
+              // token stays active and the failure is loud instead of silent.
+              invalidArgumentCount++;
+              console.error(
+                `[${requestId}] 🚨 FCM INVALID_ARGUMENT — sender-side payload error, token KEPT ACTIVE — token=${token.substring(0, 8)} reason=${error} count=${invalidArgumentCount}/${attempted}`
+              );
+              if (shouldAbortForBadPayload(invalidArgumentCount, attempted)) {
+                results.aborted = `FCM rejected the payload: INVALID_ARGUMENT on ${invalidArgumentCount} of ${attempted} tokens. Send aborted, ${tokens.length - attempted} token(s) not attempted, no token deactivated.`;
+                results.errors.push(results.aborted);
+                console.error(`[${requestId}] ⛔ ${results.aborted}`);
+                break;
+              }
             }
           }
         } catch (e) {
@@ -416,8 +457,26 @@ Deno.serve(async (req) => {
       }
 
       const logUserIds = type === 'broadcast' ? broadcastUserIds : userIds;
-      await logResult(type, notification, logUserIds, topic, stats.success > 0 ? 'sent' : 'failed', stats);
-      
+      // An aborted run is a failure even if the first tokens went through: the
+      // audience was NOT reached and the log must not claim it was.
+      const sendStatus = !stats.aborted && stats.success > 0 ? 'sent' : 'failed';
+      await logResult(type, notification, logUserIds, topic, sendStatus, stats);
+
+      if (stats.aborted) {
+        // 400, not 500: the request is what FCM refused, so retrying it
+        // unchanged will fail the same way. The daily orchestrator keys off
+        // `response.ok`, so a non-2xx also stops it from marking users notified.
+        return new Response(JSON.stringify({
+          success: false,
+          error: 'FCM_PAYLOAD_REJECTED',
+          message: stats.aborted,
+          requestId,
+          result: stats,
+        }), {
+          status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+        });
+      }
+
       return new Response(JSON.stringify({ success: true, result: stats }), {
         headers: { ...corsHeaders, 'Content-Type': 'application/json' },
       });
@@ -553,11 +612,16 @@ Deno.serve(async (req) => {
 
             // Note: priority and ttl come from scheduled_notifications columns if they exist
             stats = await sendNotification(tokens, { title: item.title, body: item.body, data: item.data }, item.priority || 'normal', item.ttl || 3600);
-            
+
+            // Same rule as /send: an aborted run never counts as sent. Only this
+            // item is abandoned — each pending row carries its own payload, so a
+            // payload FCM refuses says nothing about the next one in the batch.
+            const itemStatus = !stats.aborted && stats.success > 0 ? 'sent' : 'failed';
+
             // Mark as sent
             await supabase.schema('marketing').from('scheduled_notifications')
                 .update({
-                    status: stats.success > 0 ? 'sent' : 'failed', 
+                    status: itemStatus,
                     processed_at: new Date().toISOString(),
                     error_details: stats.failure > 0 ? stats.errors.join(', ') : null
                 })
@@ -565,8 +629,8 @@ Deno.serve(async (req) => {
 
             // Log the result
             const schedLogUserIds = item.type === 'broadcast' ? scheduledBroadcastIds : item.user_ids;
-            await logResult(item.type, { title: item.title, body: item.body, data: item.data }, schedLogUserIds, item.topic, stats.success > 0 ? 'sent' : 'failed', stats);
-            results.push({ id: item.id, status: stats.success > 0 ? 'sent' : 'failed' });
+            await logResult(item.type, { title: item.title, body: item.body, data: item.data }, schedLogUserIds, item.topic, itemStatus, stats);
+            results.push({ id: item.id, status: itemStatus, ...(stats.aborted ? { aborted: stats.aborted } : {}) });
 
         } catch (e) {
             console.error(`[${requestId}] ⚠️ Failed processing notification ${item.id}:`, e.message);
