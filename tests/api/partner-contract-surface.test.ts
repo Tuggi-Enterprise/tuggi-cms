@@ -24,6 +24,10 @@
 import { test, before, beforeEach, mock } from 'node:test'
 import assert from 'node:assert/strict'
 import { createHash } from 'node:crypto'
+import { readFileSync } from 'node:fs'
+import { resolve } from 'node:path'
+
+const ROOT = resolve(import.meta.dirname, '../..')
 
 import { hashSingleUseToken } from '@/lib/security/single-use-token'
 
@@ -718,4 +722,42 @@ test('BR-B2B-023: the checklist STAYS — generation is still refused with 409 w
   )
   assert.equal(contracts.length, 0, 'nothing was generated')
   assert.equal(objects.size, 0, 'and no PDF reached the bucket')
+})
+
+// ── A faixa que o estabelecimento escolheu não se digita de novo ─────────────────────────────
+
+test('#409 · a tela de contrato começa na faixa que o parceiro pediu', () => {
+  const route = readFileSync(
+    resolve(ROOT, 'app/api/admin/clients/[clientId]/contract/route.ts'),
+    'utf8'
+  )
+
+  // MEDIDO em 2026-08-23: dos 9 clientes promovidos de uma proposta `map_only`, os 9 tiveram o
+  // contrato gerado na faixa gratuita — o operador repetindo, um a um, a resposta que o
+  // estabelecimento já tinha dado no formulário (BR-B2B-016, item 1).
+  assert.match(route, /async function loadPlanChoice/)
+  assert.match(route, /promoted_client_id/)
+  assert.match(route, /planChoice: choice/)
+
+  // A ORDEM importa e é esta: o que a tela pediu > o contrato que já existe > a escolha do
+  // estabelecimento > `free`. A escolha entra como padrão, nunca por cima de um contrato vivo.
+  assert.match(
+    route,
+    /searchParams\.get\('tier'\) \?\? contract\?\.tier \?\? choiceTier \?\? 'free'/
+  )
+
+  const manager = readFileSync(
+    resolve(ROOT, 'components/admin/contract/ContractManager.tsx'),
+    'utf8'
+  )
+  // Continua sendo um `select`: o parceiro que muda de ideia depois do formulário é caso real,
+  // e travar a faixa transformaria uma escolha em parede.
+  assert.match(manager, /<option value="free">/)
+  assert.match(manager, /<option value="paid">/)
+
+  // E a faixa efetiva é derivada UMA vez: lê-la crua no `select`, no campo de pagamento e no
+  // corpo do POST era garantir que os três discordassem antes da primeira resposta chegar.
+  assert.match(manager, /const effectiveTier: 'free' \| 'paid' =/)
+  assert.match(manager, /tier: effectiveTier,/)
+  assert.equal(manager.indexOf("{tier === 'paid' ?"), -1)
 })

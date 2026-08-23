@@ -29,7 +29,7 @@
 
 import type { ContractTier } from '@/lib/contract/snapshot'
 import type { PlanChoice } from '@/lib/partner-form/fields'
-import type { PartnerFee } from '@/lib/partnerships/publish-plan'
+import { registrationMoneyKind, type PartnerFee } from '@/lib/partnerships/publish-plan'
 
 /** Whose answer the line is showing. Never omitted: it is what keeps the three apart. */
 export type PlanSource = 'contract' | 'registration' | 'proposal'
@@ -49,6 +49,8 @@ export type PlanDivergence =
   | 'free_contract_paid_registration'
   /** The contract charges and the registration does not say how much. */
   | 'paid_contract_undeclared_registration'
+  /** The establishment asked for the free tier and the registration carries a fee. */
+  | 'free_choice_paid_registration'
 
 export interface PartnerPlan {
   source: PlanSource
@@ -72,19 +74,12 @@ export interface PlanFacts {
 }
 
 /**
- * What the REGISTRATION says, on its own — the reading `buildPublishPlan` already applies, and
- * the one that must not be forked.
- *
- * Courtesy wins over a fee that is also on the record, exactly as `buildPublishPlan` and
- * `buildSnapshot` do; and a courtesy with no reason is NOT a courtesy, it is an unexplained
- * discount, so it falls through to whatever the fee says.
+ * What the REGISTRATION says, on its own. It is `registrationMoneyKind` and nothing else: this
+ * file used to carry its own copy, which read `typeof cents === 'number'` and therefore called a
+ * zero a fee — the card then said `O contrato não cobra e o cadastro cobra` about a registration
+ * that charges nothing.
  */
-function registrationKind(fee: PartnerFee): 'paid' | 'courtesy' | 'undeclared' {
-  if (fee.isCourtesy === true && (fee.courtesyReason ?? '').trim().length > 0) return 'courtesy'
-  // Absent is NOT zero (BR-B2B-017, item 6): a registration nobody filled in is undeclared, and
-  // reading it as free would publish a partner nobody agreed to publish for free.
-  return typeof fee.monthlyFeeCents === 'number' ? 'paid' : 'undeclared'
-}
+const registrationKind = registrationMoneyKind
 
 export function derivePartnerPlan(facts: PlanFacts): PartnerPlan {
   const registration = registrationKind(facts.fee)
@@ -118,7 +113,35 @@ export function derivePartnerPlan(facts: PlanFacts): PartnerPlan {
     }
   }
 
-  // 2 · A CLIENT EXISTS but no contract: what the Tuggi recorded is the firmest fact there is.
+  /**
+   * 2 · NO CONTRACT YET, AND THE ESTABLISHMENT ASKED FOR THE FREE TIER.
+   *
+   * `map_only` is the tier where BR-B2B-016, item 1, charges nothing — "a gente coloca como um
+   * ponto dentro do Tuggi… vai simplesmente falar, olha, aqui do lado direito, estabelecimento
+   * X". There is nothing left for anybody to price, and asking the operator to type a zero the
+   * establishment already chose is asking the same question twice.
+   *
+   * MEASURED on 2026-08-23, and this is the reason it is a derivation and not a new field: of
+   * the 9 clients promoted from a proposal that chose `map_only`, ALL 9 carry commission `0.000`
+   * and a `free` contract, and 8 of them also carry `monthly_fee_cents` empty. The operator has
+   * been re-typing the establishment's answer in three places, by hand, every time.
+   *
+   * The registration still outranks it when it CONTRADICTS the choice: a fee somebody typed is
+   * a decision that was made after the form, and the screen says so instead of hiding one of
+   * the two.
+   */
+  if (facts.clientId && facts.planChoice === 'map_only' && registration !== 'paid') {
+    return {
+      source: 'proposal',
+      kind: 'free',
+      feeCents: null,
+      courtesyReason: null,
+      requested: 'map_only',
+      divergence: null,
+    }
+  }
+
+  // 3 · A CLIENT EXISTS but no contract: what the Tuggi recorded is the firmest fact there is.
   if (facts.clientId) {
     return {
       source: 'registration',
@@ -126,11 +149,14 @@ export function derivePartnerPlan(facts: PlanFacts): PartnerPlan {
       feeCents,
       courtesyReason,
       requested: null,
-      divergence: null,
+      divergence:
+        facts.planChoice === 'map_only' && registration === 'paid'
+          ? 'free_choice_paid_registration'
+          : null,
     }
   }
 
-  // 3 · ONLY A PROPOSAL: nobody has priced anything, and the honest answer is the request.
+  // 4 · ONLY A PROPOSAL: nobody has priced anything, and the honest answer is the request.
   return {
     source: 'proposal',
     kind: 'requested',
@@ -153,5 +179,11 @@ export type PlanFacet = 'paid' | 'courtesy' | 'undeclared'
 
 export function planFacetValue(facts: PlanFacts): PlanFacet | null {
   if (!facts.clientId) return null
+  // The free tier the establishment chose has no answer to give either, and for the same
+  // reason: the rail exists to find registrations somebody still has to fill in, and this one
+  // was answered on the form. A `map_only` client filed under `undeclared` is a row the
+  // operator opens to discover there is nothing to do.
+  const plan = derivePartnerPlan(facts)
+  if (plan.kind === 'free' && plan.source === 'proposal') return null
   return registrationKind(facts.fee)
 }

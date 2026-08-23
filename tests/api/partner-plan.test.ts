@@ -24,6 +24,11 @@
 
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
+import { readFileSync } from 'node:fs'
+import { resolve } from 'node:path'
+
+const root = resolve(import.meta.dirname, '../..')
+const read = (path: string) => readFileSync(resolve(root, path), 'utf8')
 
 import {
   derivePartnerPlan,
@@ -74,10 +79,49 @@ test('#409 · BR-B2B-017 item 6: absent is NOT zero — a registration nobody fi
   assert.equal(plan.feeCents, null)
   assert.equal(planFacetValue(facts()), 'undeclared')
 
-  // Zero is a DECLARED zero and reads as paid: somebody typed it.
+  // AND ZERO IS NOT A FEE EITHER, which is the other half of the same rule and the one that was
+  // wrong here until 2026-08-23. `lib/contract/snapshot.ts` — the file that produces the
+  // instrument the partner signs — has always read it this way: `zero without the courtesy
+  // decision is the same thing wearing a number`. This file read `typeof cents === 'number'`
+  // and called it `paid`, and the queue card then said `O contrato não cobra e o cadastro
+  // cobra` about `Sabor e Arte Restaurante` — fee 0, courtesy without a reason, free contract
+  // signed. The registration charges nothing; the sentence was simply false.
   const zero = derivePartnerPlan(facts({ fee: { ...NO_FEE, monthlyFeeCents: 0 } }))
-  assert.equal(zero.kind, 'paid')
-  assert.equal(zero.feeCents, 0)
+  assert.equal(zero.kind, 'undeclared')
+  assert.equal(zero.feeCents, null)
+  assert.equal(planFacetValue(facts({ fee: { ...NO_FEE, monthlyFeeCents: 0 } })), 'undeclared')
+
+  // A negative and a NaN are the same thing wearing a worse number.
+  assert.equal(derivePartnerPlan(facts({ fee: { ...NO_FEE, monthlyFeeCents: -1 } })).kind, 'undeclared')
+  assert.equal(derivePartnerPlan(facts({ fee: { ...NO_FEE, monthlyFeeCents: NaN } })).kind, 'undeclared')
+})
+
+test('#409 · o zero do cadastro não vira divergência contra um contrato que não cobra', () => {
+  // O CASO REAL, medido em 2026-08-23: `Sabor e Arte Restaurante` (`f81f01b5…`) tem
+  // `monthly_fee_cents = 0`, `is_courtesy = true` sem motivo, e contrato `free` assinado. O
+  // cartão da fila dizia `O contrato não cobra e o cadastro cobra` — os dois não cobram.
+  const zeroSobContratoFree = derivePartnerPlan(
+    facts({
+      contractTier: 'free',
+      fee: { monthlyFeeCents: 0, isCourtesy: true, courtesyReason: null },
+    })
+  )
+  assert.equal(zeroSobContratoFree.source, 'contract')
+  assert.equal(zeroSobContratoFree.kind, 'free')
+  assert.equal(zeroSobContratoFree.divergence, null, 'nenhum dos dois cobra — não há divergência')
+
+  // A divergência que EXISTE continua sendo dita: contrato que não cobra e cadastro com valor.
+  const contratoFreeCadastroPago = derivePartnerPlan(
+    facts({ contractTier: 'free', fee: { ...NO_FEE, monthlyFeeCents: 14900 } })
+  )
+  assert.equal(contratoFreeCadastroPago.divergence, 'free_contract_paid_registration')
+
+  // E o zero sob contrato QUE COBRA é o outro lado: não dá para publicar sem saber quanto.
+  const contratoPagoCadastroZero = derivePartnerPlan(
+    facts({ contractTier: 'paid', fee: { ...NO_FEE, monthlyFeeCents: 0 } })
+  )
+  assert.equal(contratoPagoCadastroZero.kind, 'undeclared')
+  assert.equal(contratoPagoCadastroZero.divergence, 'paid_contract_undeclared_registration')
 })
 
 test('#409 · BR-B2B-017 item 6: a courtesy with no reason is not a courtesy', () => {
@@ -173,4 +217,60 @@ test('#409 · the request never survives a client: it prices nothing', () => {
   const both = derivePartnerPlan(facts({ planChoice: 'map_and_description' }))
   assert.equal(both.source, 'registration')
   assert.equal(both.requested, null)
+})
+
+// ── A escolha do parceiro é decisão, e não se digita de novo ─────────────────────────────────
+
+test('#409 · BR-B2B-016 item 1: quem escolheu `map_only` já disse que não paga', () => {
+  // MEDIDO em 2026-08-23: dos 9 clientes promovidos de uma proposta que escolheu `map_only`, os
+  // 9 estão com `commission_rate = 0.000` e contrato `free`. O operador vinha redigitando a
+  // resposta do estabelecimento em três lugares — percentual, mensalidade e tier do contrato.
+  const escolheuGratis = derivePartnerPlan(facts({ planChoice: 'map_only' }))
+  assert.equal(escolheuGratis.source, 'proposal')
+  assert.equal(escolheuGratis.kind, 'free')
+  assert.equal(escolheuGratis.feeCents, null)
+  assert.equal(escolheuGratis.divergence, null, 'não há o que divergir: ninguém cobra')
+
+  // E não vira pendência de plano na régua: `undeclared` é o cadastro que ninguém preencheu, e
+  // este foi respondido pelo estabelecimento.
+  assert.equal(planFacetValue(facts({ planChoice: 'map_only' })), null)
+
+  // A faixa PAGA continua sendo do operador, cliente a cliente (BR-B2B-017, itens 2 e 4): pedir
+  // descrição não diz quanto custa.
+  const pediuDescricao = derivePartnerPlan(facts({ planChoice: 'map_and_description' }))
+  assert.equal(pediuDescricao.source, 'registration')
+  assert.equal(pediuDescricao.kind, 'undeclared')
+})
+
+test('#409 · o cadastro que cobra contradiz a escolha, e a tela diz isso', () => {
+  // Um valor que alguém digitou é decisão tomada DEPOIS do formulário, então ele vence — mas a
+  // contradição é dita, em vez de uma das duas ser escondida.
+  const cobrandoQuemEscolheuGratis = derivePartnerPlan(
+    facts({ planChoice: 'map_only', fee: { ...NO_FEE, monthlyFeeCents: 14900 } })
+  )
+  assert.equal(cobrandoQuemEscolheuGratis.source, 'registration')
+  assert.equal(cobrandoQuemEscolheuGratis.kind, 'paid')
+  assert.equal(cobrandoQuemEscolheuGratis.divergence, 'free_choice_paid_registration')
+
+  // E o contrato assinado continua acima dos dois (BR-B2B-017, item 5).
+  const contratoManda = derivePartnerPlan(
+    facts({ planChoice: 'map_only', contractTier: 'paid', fee: { ...NO_FEE, monthlyFeeCents: 14900 } })
+  )
+  assert.equal(contratoManda.source, 'contract')
+  assert.equal(contratoManda.kind, 'paid')
+})
+
+test('#409 · a promoção grava o percentual zero da faixa grátis, e não deixa para o default', () => {
+  const source = read('lib/services/partner-proposal-admin-service.ts')
+
+  // O default da COLUNA é `0.200` e `DEFAULT_COMMISSION_RATE` em `types/clients.ts` é `0.1`:
+  // dois donos para o mesmo fato, e um cliente nascido da proposta não recebia o mesmo
+  // percentual de um nascido do formulário do admin. Para a faixa grátis nenhum dos dois vale.
+  assert.match(source, /function commercialTermsOfChoice/)
+  assert.match(source, /answers\.plan_choice === 'map_only'/)
+  assert.match(source, /commission_rate: 0/)
+  assert.match(source, /commercialTermsOfChoice\(command\.answers\)/)
+
+  // E a faixa paga não é escrita aqui: o valor é por cliente, e é do operador.
+  assert.match(source, /: \{\}/)
 })

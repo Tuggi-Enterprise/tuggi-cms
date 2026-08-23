@@ -65,6 +65,37 @@ function isRecordedCourtesy(fee: PartnerFee): boolean {
   return fee.isCourtesy === true && (fee.courtesyReason ?? '').trim().length > 0
 }
 
+/**
+ * WHAT THE REGISTRATION SAYS ABOUT MONEY, and the ONE place that decides it.
+ *
+ * BR-B2B-017, item 6, is quoted everywhere as `absent is NOT zero`. The converse was never
+ * written down and three readers each guessed at it:
+ *
+ *   `lib/contract/snapshot.ts`  `fee <= 0` is an incomplete registration — "zero without the
+ *                               courtesy decision is the same thing wearing a number";
+ *   `buildPublishPlan`          `typeof fee === 'number'` — so zero was a DECLARED fee, and a
+ *                               publication with a description on air announced that billing
+ *                               starts at R$ 0,00;
+ *   `derivePartnerPlan`         the same, and it produced a sentence that is simply false:
+ *                               `Sabor e Arte Restaurante` (fee 0, courtesy without a reason,
+ *                               free contract signed) got `O contrato não cobra e o cadastro
+ *                               cobra` on the queue card. The registration charges nothing.
+ *
+ * `snapshot` is the one that is right, and it is the one that produces the instrument the
+ * partner signs — so its reading wins and the other two come here. A zero nobody explained is
+ * an incomplete registration, not a decision to charge nothing: the decision that charges
+ * nothing is the courtesy, and it comes with a reason.
+ *
+ * Measured on 2026-08-23: 1 client of 24 carries `monthly_fee_cents = 0`, and it is the one in
+ * the card above. 20 carry `null` and 3 carry a positive value.
+ */
+export function registrationMoneyKind(fee: PartnerFee): 'paid' | 'courtesy' | 'undeclared' {
+  if (isRecordedCourtesy(fee)) return 'courtesy'
+  const cents = fee.monthlyFeeCents
+  if (typeof cents !== 'number' || !Number.isFinite(cents) || cents <= 0) return 'undeclared'
+  return 'paid'
+}
+
 export function buildPublishPlan(fee: PartnerFee, readiness: PlaceReadiness): PublishPlan {
   const blocked = readiness.blocking.length > 0
 
@@ -81,7 +112,10 @@ export function buildPublishPlan(fee: PartnerFee, readiness: PlaceReadiness): Pu
     }
   }
 
-  const declaredFee = typeof fee.monthlyFeeCents === 'number' ? fee.monthlyFeeCents : null
+  // Zero is not a fee — see `registrationMoneyKind`. Reading it as one made the publication
+  // announce that billing starts at R$ 0,00.
+  const declaredFee =
+    registrationMoneyKind(fee) === 'paid' ? (fee.monthlyFeeCents as number) : null
 
   // Nothing on the record about money. It only matters when publishing WOULD start something:
   // with no description on air nothing starts, so the act stays available and falls into

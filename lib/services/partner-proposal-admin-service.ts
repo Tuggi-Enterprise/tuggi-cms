@@ -503,6 +503,28 @@ type ClientWriteOutcome =
   | { ok: true; clientId: string; created: boolean }
   | { ok: false; reason: 'write_failed' }
 
+/**
+ * THE TIER THE ESTABLISHMENT CHOSE IS A DECISION, NOT A REQUEST — and this is where it stops
+ * being typed a second time.
+ *
+ * `plan_choice = map_only` is the free tier of BR-B2B-016, item 1: the app says the name and
+ * nothing else, and nobody is charged. There is nothing left to price, so a promotion that
+ * leaves `commission_rate` to the column default (`0.200`) and `monthly_fee_cents` to whoever
+ * remembers is asking the operator to answer a question the establishment already answered.
+ *
+ * MEASURED on 2026-08-23: of the 9 clients promoted from a `map_only` proposal, ALL 9 carry
+ * `commission_rate = 0.000` and a `free` contract. The operator has been re-typing it every
+ * time, in three places, and one of the three had already drifted — the column default is
+ * `0.200` while `DEFAULT_COMMISSION_RATE` in `types/clients.ts` is `0.1`, so a client born from
+ * a proposal and a client born from the admin form did not get the same percentage.
+ *
+ * `map_and_description` writes NOTHING here: the paid tier has a value per client (BR-B2B-017,
+ * items 2 and 4), and that one really is the operator's, cliente a cliente.
+ */
+function commercialTermsOfChoice(answers: PartnerAnswers): Record<string, unknown> {
+  return answers.plan_choice === 'map_only' ? { commission_rate: 0, monthly_fee_cents: null } : {}
+}
+
 async function writeClient(command: PromotionCommand): Promise<ClientWriteOutcome> {
   if (command.clientId) {
     const { data, error } = await service()
@@ -521,7 +543,11 @@ async function writeClient(command: PromotionCommand): Promise<ClientWriteOutcom
     // `status` is NOT part of the promotion (it is on the never-written list): a new record is
     // born pending because that is what `partner.clients` does with a new record, and approving
     // the partnership is another decision on the client's own page (BR-B2B-010, item 1).
-    .insert({ ...command.updates, client_type: PROMOTED_CLIENT_TYPE })
+    .insert({
+      ...command.updates,
+      client_type: PROMOTED_CLIENT_TYPE,
+      ...commercialTermsOfChoice(command.answers),
+    })
     .select('id')
     .single()
 

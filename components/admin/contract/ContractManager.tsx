@@ -59,6 +59,8 @@ interface ContractState {
     title: string
   }
   checklist: { ready: boolean; missing: ChecklistItem[] }
+  /** O que o estabelecimento escolheu no formulário, quando houve formulário. */
+  planChoice: 'map_only' | 'map_and_description' | null
   registration: {
     legalName: string
     recipientEmail: string | null
@@ -122,7 +124,13 @@ export function ContractManager({
   returnLabel?: string | null
 }) {
   const [state, setState] = useState<ContractState | null>(null)
-  const [tier, setTier] = useState<'free' | 'paid'>('free')
+  /**
+   * A faixa começa NA ESCOLHA DO ESTABELECIMENTO, e a rota é quem a resolve — ver o cabeçalho
+   * de `loadPlanChoice`. Aqui ela só espera a primeira resposta: `null` até lá, e o `select`
+   * fica no que o servidor mandou. Um `useState('free')` fixo era a terceira vez que alguém
+   * digitava a mesma decisão.
+   */
+  const [tier, setTier] = useState<'free' | 'paid' | null>(null)
   const [paymentMethod, setPaymentMethod] = useState<'boleto' | 'pix' | ''>('')
   const [qrDeliveryDays, setQrDeliveryDays] = useState('')
   const [busy, setBusy] = useState(false)
@@ -154,7 +162,7 @@ export function ContractManager({
   // effect whose body sets state cascades renders, and keeping the two apart also makes
   // the same call reusable after every action below.
   const fetchState = useCallback(async (): Promise<ContractState | null> => {
-    const query = new URLSearchParams({ tier, qrDeliveryDays })
+    const query = new URLSearchParams({ ...(tier ? { tier } : {}), qrDeliveryDays })
     if (paymentMethod) query.set('paymentMethod', paymentMethod)
     const response = await fetch(`/api/admin/clients/${clientId}/contract?${query.toString()}`)
     return response.ok ? ((await response.json()) as ContractState) : null
@@ -177,6 +185,17 @@ export function ContractManager({
     if (next) setState(next)
   }
 
+  /**
+   * A FAIXA EFETIVA, e ela é derivada em UM lugar.
+   *
+   * `tier` é o que o operador escolheu NESTA sessão da tela e começa `null`; abaixo dele vem a
+   * faixa do contrato que já existe, e abaixo dela a escolha do estabelecimento. Ler `tier`
+   * cru em três lugares — o `select`, o campo de pagamento e o corpo do POST — era garantir
+   * que os três discordassem enquanto a primeira resposta não chegasse.
+   */
+  const effectiveTier: 'free' | 'paid' =
+    tier ?? state?.contract?.tier ?? (state?.planChoice === 'map_and_description' ? 'paid' : 'free')
+
   async function act(action: 'generate' | 'send' | 'verify') {
     setBusy(true)
     setMessage(null)
@@ -186,7 +205,7 @@ export function ContractManager({
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           action,
-          tier,
+          tier: effectiveTier,
           paymentMethod: paymentMethod || null,
           qrDeliveryDays: Number(qrDeliveryDays) || null,
         }),
@@ -298,7 +317,7 @@ export function ContractManager({
               Faixa
               <select
                 className={FIELD}
-                value={tier}
+                value={effectiveTier}
                 onChange={(event) => setTier(event.target.value as 'free' | 'paid')}
               >
                 <option value="free">Gratuita</option>
@@ -306,7 +325,7 @@ export function ContractManager({
               </select>
             </label>
 
-            {tier === 'paid' ? (
+            {effectiveTier === 'paid' ? (
               <label className="text-sm font-semibold text-gray-900 dark:text-gray-200">
                 Forma de pagamento
                 <select

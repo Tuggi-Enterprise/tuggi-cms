@@ -116,6 +116,10 @@ export function planSource(plan: PartnerPlan, t: Translator): string | null {
   }
   if (plan.source === 'contract') return t('plan.fromContract')
   if (plan.source === 'registration') return t('plan.fromRegistration')
+  // The free tier the establishment itself asked for: `escolha do parceiro`, not `em contrato`,
+  // because nobody has signed anything yet and saying otherwise would name a document that does
+  // not exist.
+  if (plan.source === 'proposal' && plan.kind === 'free') return t('plan.fromChoice')
   return null
 }
 
@@ -123,5 +127,6 @@ export function planSource(plan: PartnerPlan, t: Translator): string | null {
 export function planDivergence(plan: PartnerPlan, t: Translator): string | null {
   if (plan.divergence === 'free_contract_paid_registration') return t('plan.divergesFree')
   if (plan.divergence === 'paid_contract_undeclared_registration') return t('plan.divergesUndeclared')
+  if (plan.divergence === 'free_choice_paid_registration') return t('plan.divergesFreeChoice')
   return null
 }

@@ -2332,7 +2332,9 @@
         "fromContract": "em contrato",
         "fromRegistration": "no cadastro",
         "divergesFree": "O contrato não cobra e o cadastro cobra.",
-        "divergesUndeclared": "O contrato cobra e o cadastro não diz quanto."
+        "divergesUndeclared": "O contrato cobra e o cadastro não diz quanto.",
+        "divergesFreeChoice": "O parceiro escolheu a faixa grátis e o cadastro cobra.",
+        "fromChoice": "escolha do parceiro"
       },
       "dropInvalid": "Não dá para mover para {column}.",
       "columns": {

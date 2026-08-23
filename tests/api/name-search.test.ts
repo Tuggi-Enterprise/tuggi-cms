@@ -24,10 +24,11 @@ import { namePattern, nameMatchFilter } from '@/lib/shared/name-search'
 const root = resolve(import.meta.dirname, '../..')
 const read = (path: string) => readFileSync(resolve(root, path), 'utf8')
 
-/** The migration that carries the SQL half of the contract. */
-const MIGRATION =
-  '../db-tuggiApp/supabase/migrations/' +
-  '20260823150000_name_search_is_blind_to_accent_case_and_punctuation.sql'
+/** The migrations that carry the SQL half of the contract. */
+const MIGRATIONS = '../db-tuggiApp/supabase/migrations/'
+const KEY_MIGRATION = MIGRATIONS + '20260823160000_name_search_key.sql'
+const INDEX_MIGRATION = MIGRATIONS + '20260823161000_name_search_key_index.sql'
+const SWAP_MIGRATION = MIGRATIONS + '20260823170000_search_rpcs_use_the_indexed_key.sql'
 
 const asRegExp = (term: string) => new RegExp(namePattern(term), 'i')
 
@@ -115,33 +116,57 @@ test('what is deliberately NOT a name search stays `ilike`', () => {
   assert.match(read('lib/services/location-resolver.ts'), /name\.ilike/)
 })
 
-test('the SQL half exists, and it is the same rule', () => {
-  // PARITY, and it is asserted on the shape because the two engines cannot be run side by side
-  // here: the migration has to carry the same variant classes, the same optional combining
-  // mark, and the same bounded hole. A rule that changes in one and not the other is exactly
-  // the `kRetryDelayMs` defect the protocol names — one fact, two homes, and no alarm.
-  const migration = read(MIGRATION)
+test('the SQL half exists, and it folds the same characters', () => {
+  // PARITY, and it is asserted on the FOLDING and not on the shape, because the two halves
+  // deliberately use different mechanisms:
+  //
+  //   TypeScript  builds a regex from the TERM (`~*`), because PostgREST cannot call a function
+  //               on a column — and those queries run under RLS, where no name index is
+  //               reachable anyway (`texticlike` is not leakproof);
+  //   SQL         normalises the DATA (`core.name_search_key`) and compares with a plain `LIKE`
+  //               against a trigram index on that expression. Measured on 2026-08-23: the regex
+  //               with character classes cost 15.809 ms over 2,6 M rows because pg_trgm can
+  //               extract almost nothing from it, against 102 ms for a literal.
+  //
+  // What must NOT diverge is which characters are treated as the same letter. A rule that
+  // changes in one and not the other is the `kRetryDelayMs` defect the protocol names: one
+  // fact, two homes, and no alarm.
+  const key = read(KEY_MIGRATION)
+  const ts = read('lib/shared/name-search.ts')
 
-  assert.match(migration, /CREATE OR REPLACE FUNCTION core\.name_search_pattern/)
-  assert.match(migration, /IMMUTABLE/)
+  assert.match(key, /CREATE OR REPLACE FUNCTION core\.name_search_key/)
+  assert.match(key, /IMMUTABLE/)
+  // O ÍNDICE MORA NUM ARQUIVO SÓ DELE, e não é organização: o editor SQL do Supabase envelopa
+  // o que se cola numa transação, e `CREATE INDEX CONCURRENTLY` responde
+  // `25001: cannot run inside a transaction block`. Misturar os dois no mesmo arquivo é
+  // garantir que metade dele não roda.
+  const index = read(INDEX_MIGRATION)
+  assert.match(index, /CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_attractions_name_search_key_trgm/)
+  assert.match(index, /gin_trgm_ops/)
+  // O cabeçalho da 160000 NOMEIA o comando para explicar por que ele não está ali — o que não
+  // pode voltar é o comando executável, então a asserção é sobre a linha e não sobre a palavra.
+  assert.doesNotMatch(key, /^CREATE INDEX/m, 'o índice não pode voltar para o arquivo da função')
+  assert.equal(index.indexOf('BEGIN;'), -1, 'e o arquivo do índice não pode abrir transação')
 
-  for (const variants of ['aáàâãäåāª', 'cç', 'eéèêëē', 'iíìîïī', 'nñ', 'oóòôõöøōº', 'uúùûüū', 'yýÿ']) {
+  // The `translate` source string is the SQL half's folding table.
+  const folded = key.match(/translate\(\s*[\s\S]*?'([^']+)',\s*\n\s*'([^']+)'/)
+  assert.ok(folded, 'the migration must carry a translate() folding table')
+  const [, accented, plain] = folded!
+  assert.equal(accented.length, plain.length, 'translate() needs both sides the same length')
+
+  for (const character of accented) {
     assert.ok(
-      migration.indexOf(variants) >= 0,
-      `the SQL pattern must carry the same class as the TypeScript one: ${variants}`
-    )
-    assert.ok(
-      read('lib/shared/name-search.ts').indexOf(variants) >= 0,
-      `and the TypeScript one must carry it too: ${variants}`
+      ts.indexOf(character) >= 0,
+      `TypeScript must fold ${character} the same way SQL does`
     )
   }
 
-  assert.ok(migration.indexOf('.?.?.?') >= 0, 'the same bounded hole, and not `.{0,3}`')
-  assert.equal(migration.indexOf('.{0,3}'), -1)
+  // And the swap of the predicate is a migration of its own, applied AFTER the index exists —
+  // the order is the whole safety of it.
+  const swap = read(SWAP_MIGRATION)
+  assert.match(swap, /core\.name_search_key\(a\.name\) LIKE/)
+  assert.match(swap, /DROP FUNCTION IF EXISTS core\.name_search_pattern/)
 
-  // The six functions that answer the operator's typing, and they change together: a facet that
-  // counted with `ILIKE` while its list matched with `~*` would report a number the list cannot
-  // show.
   for (const fn of [
     'cms_list_pois',
     'cms_list_places',
@@ -153,6 +178,6 @@ test('the SQL half exists, and it is the same rule', () => {
     'cms_search_pois_internal',
     'cms_search_pois_map',
   ]) {
-    assert.ok(migration.indexOf(fn) >= 0, `${fn} must be migrated with the others`)
+    assert.ok(swap.indexOf(fn) >= 0, `${fn} must be migrated with the others`)
   }
 })

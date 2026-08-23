@@ -129,6 +129,27 @@ function choicesOf(body: Record<string, unknown>): GenerationChoices {
   }
 }
 
+/**
+ * A faixa que o estabelecimento pediu no formulário, quando houve formulário.
+ *
+ * Lida da proposta promovida, que é onde ela vive — não existe coluna de faixa em
+ * `partner.clients`, e criar uma seria um quarto lugar dizendo quem paga (ver
+ * `lib/clients/partner-plan.ts`). `null` para o cliente que ninguém promoveu de proposta.
+ */
+async function loadPlanChoice(clientId: string): Promise<'map_only' | 'map_and_description' | null> {
+  const { data } = await getSupabaseService()
+    .schema('partner')
+    .from('partner_form_submissions')
+    .select('answers')
+    .eq('promoted_client_id', clientId)
+    .order('promoted_at', { ascending: false })
+    .limit(1)
+    .maybeSingle()
+
+  const answer = (data as { answers?: Record<string, unknown> } | null)?.answers?.plan_choice
+  return answer === 'map_only' || answer === 'map_and_description' ? answer : null
+}
+
 /** The state of the contract, the checklist, and the trail. Everything the page shows. */
 export const GET = withRateLimit(60, 60_000)(
   withAuth<ClientParams>({ roles: ['admin'] }, async (req: NextRequest, ctx) => {
@@ -139,8 +160,23 @@ export const GET = withRateLimit(60, 60_000)(
     const template = activeTemplate()
     const { contract, acceptance } = await getLiveContract(clientId)
 
+    /**
+     * A FAIXA QUE O ESTABELECIMENTO ESCOLHEU É O PADRÃO DA TELA, e não `free` fixo.
+     *
+     * `plan_choice` é a resposta dele no formulário (BR-B2B-016, item 1), e até 2026-08-23 o
+     * operador tinha de repeti-la aqui — medido: dos 9 clientes promovidos de uma proposta
+     * `map_only`, os 9 foram gerados com contrato `free`, um a um, à mão. Continua sendo um
+     * `select` e o operador pode trocar: o parceiro que mudou de ideia depois do formulário é
+     * caso real, e travar a faixa transformaria uma escolha em parede.
+     *
+     * A ordem é: o que a tela pediu > a faixa do contrato que já existe > a escolha do
+     * estabelecimento > `free`.
+     */
+    const choice = await loadPlanChoice(clientId)
+    const choiceTier = choice === 'map_and_description' ? 'paid' : choice === 'map_only' ? 'free' : null
+
     const choices = choicesOf({
-      tier: req.nextUrl.searchParams.get('tier') ?? contract?.tier ?? 'free',
+      tier: req.nextUrl.searchParams.get('tier') ?? contract?.tier ?? choiceTier ?? 'free',
       paymentMethod: req.nextUrl.searchParams.get('paymentMethod') ?? contract?.snapshot.paymentMethod,
       qrDeliveryDays:
         req.nextUrl.searchParams.get('qrDeliveryDays') ?? contract?.snapshot.qrDeliveryDays ?? null,
@@ -162,6 +198,8 @@ export const GET = withRateLimit(60, 60_000)(
         title: template.title,
       },
       checklist,
+      // O que o estabelecimento escolheu, para a tela dizer de onde veio a faixa sugerida.
+      planChoice: choice,
       registration: {
         legalName: client.company_name ?? client.name,
         recipientEmail: client.billing_email ?? client.email,
