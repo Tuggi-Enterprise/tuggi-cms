@@ -2,6 +2,7 @@
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
 import { getSecretKey } from '../_shared/supabase-client.ts';
 import { partnerStrings, type PartnerEvent } from '../_shared/partner-i18n.ts';
+import { resolveDeeplink } from '../_shared/notification-deeplink.ts';
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -286,7 +287,10 @@ Deno.serve(async (req) => {
           const notifType = template
             ? `partner_${String(template).replace(/^partner_/, '')}`
             : (notification?.data?.type ?? data?.type ?? 'generic');
-          const deeplink = notification?.data?.deeplink ?? data?.deeplink ?? null;
+          // Same resolver as the two broadcast paths below — this one used to
+          // read `deeplink` only, so a link typed in the CMS composer (which
+          // emits `data.url`) reached the device but never the inbox row.
+          const deeplink = resolveDeeplink(notification?.data, data);
           const rows = userIds.map((uid: string) => ({
             user_id: uid,
             type: notifType,
@@ -375,8 +379,7 @@ Deno.serve(async (req) => {
         // log records who was targeted. Same audience/filter as the token resolver.
         if (body.persist !== false && notification?.title) {
           const notifType = notification?.data?.type ?? data?.type ?? 'generic';
-          const deeplink =
-            notification?.data?.deeplink ?? notification?.data?.url ?? data?.deeplink ?? null;
+          const deeplink = resolveDeeplink(notification?.data, data);
           const { data: inboxIds, error: inboxErr } = await supabase
             .schema('core')
             .rpc('broadcast_persist_inbox', {
@@ -523,7 +526,8 @@ Deno.serve(async (req) => {
                 // Mirror into the inbox (SSOT for the in-app Notification Center).
                 if (item.title) {
                     const notifType = item.data?.type ?? 'generic';
-                    const deeplink = item.data?.deeplink ?? item.data?.url ?? null;
+                    // `item.data` is the `notification.data` frozen by /schedule.
+                    const deeplink = resolveDeeplink(item.data);
                     const { data: inboxIds, error: inboxErr } = await supabase
                         .schema('core')
                         .rpc('broadcast_persist_inbox', {
