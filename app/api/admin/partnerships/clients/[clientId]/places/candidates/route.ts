@@ -147,7 +147,12 @@ export const GET = withRateLimit(60, 60_000)(
       .from('attractions')
       .select('id, name, city, state, country, entity_kind, approved, partner_client_id')
       .in('entity_kind', ['place', 'poi', 'event'])
-      .imatch('name', namePattern(term))
+      // `.filter(...)` e não `.imatch(...)`: o método existe na TIPAGEM de `postgrest-js`
+      // 2.110.0 e NÃO existe no objeto em runtime —
+      // `auth.supabase.schema(...).from(...).select(...).in(...).imatch is not a function`,
+      // 500 na cara do operador. `filter` monta o mesmo `name=imatch.<padrão>` e está lá desde
+      // sempre; o servidor suporta o operador, o cliente é que não tem o atalho.
+      .filter('name', 'imatch', namePattern(term))
       .eq('country', scope.country)
 
     // `all` is the operator deliberately asking beyond the city — and there the scope stays

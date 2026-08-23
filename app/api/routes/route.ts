@@ -84,7 +84,9 @@ export async function GET(request: NextRequest) {
     }
 
     if (search) {
-      query = query.imatch('name', namePattern(search))
+      // `.filter(...)` e não `.imatch(...)`: o método existe na tipagem de `postgrest-js` 2.110.0
+      // e não no objeto em runtime. Ver `lib/shared/name-search`.
+      query = query.filter('name', 'imatch', namePattern(search))
     }
 
     if (status === 'active') {

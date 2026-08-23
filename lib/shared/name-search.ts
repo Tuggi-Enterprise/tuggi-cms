@@ -124,6 +124,17 @@ export function namePattern(term: string): string {
  *
  * The columns are names of columns, never operator input: passing user text here would be an
  * injection into the filter grammar.
+ *
+ * ⚠️ AND FOR ONE COLUMN, USE `.filter(column, 'imatch', namePattern(term))` — never
+ * `.imatch(...)`. The method is in the TYPINGS of `postgrest-js` 2.110.0 and is NOT on the
+ * object at runtime:
+ *
+ *   auth.supabase.schema(...).from(...).select(...).in(...).imatch is not a function
+ *   GET .../places/candidates?q=Nonna&scope=city 500 in 1641ms
+ *
+ * `filter` builds the same `name=imatch.<pattern>` and has always been there. The server
+ * supports the operator; the client is missing the shortcut, and `tsc` says nothing because the
+ * type is right.
  */
 export function nameMatchFilter(columns: string[], term: string): string {
   const pattern = namePattern(term)

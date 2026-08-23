@@ -251,7 +251,10 @@ test('#409 · the candidate search uses the shared name matcher', () => {
   // proven by `tests/api/name-search.test.ts`, because every search in the CMS shares it.
   const search = code('app/api/admin/partnerships/clients/[clientId]/places/candidates/route.ts')
   assert.match(search, /from '@\/lib\/shared\/name-search'/)
-  assert.match(search, /\.imatch\('name', namePattern\(term\)\)/)
+  assert.match(search, /\.filter\('name', 'imatch', namePattern\(term\)\)/)
+  // NUNCA `.imatch(...)` como método: ele existe na tipagem de `postgrest-js` 2.110.0 e não no
+  // objeto em runtime, e o resultado é 500 na busca — medido em 2026-08-23.
+  assert.equal(search.indexOf('.imatch('), -1)
   assert.equal(search.indexOf(".ilike('name'"), -1, 'ILIKE compared bytes, and the bytes differed')
 })
 
@@ -294,7 +297,12 @@ test('#409 · a refused candidate is shown WITH its reason, never filtered out',
   // how the operator creates the duplicate all over again. Events are searched deliberately.
   assert.match(search, /\.in\('entity_kind', \['place', 'poi', 'event'\]\)/)
   assert.match(search, /verdict: verdictFor\(candidate, clientId\)/)
-  assert.equal(search.indexOf('.filter('), -1, 'the route must not drop the refused ones')
+  // O ruler mira o `Array.prototype.filter` — o que derrubaria candidatos recusados —, e não o
+  // `.filter(coluna, operador, valor)` do PostgREST, que é como o nome é casado desde que
+  // `.imatch(...)` se mostrou ausente em runtime. Um mede callback, o outro mede três
+  // argumentos: a régua tem de saber a diferença.
+  assert.doesNotMatch(search, /\.filter\(\s*\(/, 'the route must not drop the refused ones')
+  assert.equal(search.indexOf('candidates.filter'), -1)
 
   // One coordinate lookup for the whole page: N+1 over a panel somebody types into is a request
   // per keystroke per row.
