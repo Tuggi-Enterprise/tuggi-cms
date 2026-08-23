@@ -7,6 +7,8 @@ import {
   fcmErrorCode,
   isDeadRegistration,
   isSenderPayloadError,
+  isUnclassifiedNotFound,
+  sampledSendOrder,
   shouldAbortForBadPayload,
 } from '../_shared/fcm-errors.ts';
 
@@ -201,7 +203,12 @@ Deno.serve(async (req) => {
       let invalidArgumentCount = 0;
       let attempted = 0;
 
-      for (const token of tokens) {
+      // Walk the audience in random order. `core.get_audience_push_tokens`
+      // builds it with `array_agg(DISTINCT tok)` and DISTINCT sorts, so the
+      // head of the list is the lexicographically smallest tokens in the base —
+      // rows anyone signed in can plant. Shuffling is what turns the window the
+      // brake measures into a sample of the audience. See ABORT_MIN_SAMPLE.
+      for (const token of sampledSendOrder(tokens)) {
         const message = { message: { ...baseMessage, token } };
         attempted++;
 
@@ -232,6 +239,14 @@ Deno.serve(async (req) => {
               // idle days) and will never be valid again: stop sending to it.
               await supabase.schema('drive').from('fcm_tokens').update({ is_active: false }).eq('fcm_token', token);
               console.log(`[${requestId}] 🧹 token ${token.substring(0, 8)} deactivated (${code})`);
+            } else if (isUnclassifiedNotFound(code)) {
+              // 404 with no `details[].errorCode`: NOT_FOUND is a google.rpc
+              // status, not an FCM error code, and it is what a wrong
+              // FIREBASE_PROJECT_ID or a deleted project answers for EVERY
+              // token. Nothing is written to the token; the run is loud instead.
+              console.error(
+                `[${requestId}] 🚨 FCM 404 without an FCM errorCode — treated as systemic (project/endpoint), token KEPT ACTIVE — token=${token.substring(0, 8)} reason=${error}`
+              );
             } else if (isSenderPayloadError(code)) {
               // INVALID_ARGUMENT indicts the REQUEST, not the token. Firebase:
               // it "signals an invalid registration only if the payload is

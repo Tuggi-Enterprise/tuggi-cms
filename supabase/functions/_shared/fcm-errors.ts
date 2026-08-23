@@ -5,14 +5,14 @@
  * (`sendNotification`): a single `if` deactivated the row in `drive.fcm_tokens`
  * for `UNREGISTERED` OR `INVALID_ARGUMENT`. They do not mean the same thing.
  *
- *  - UNREGISTERED (HTTP 404, `error.status: NOT_FOUND`) — the registration is
- *    gone: uninstall, revoked permission, 270 idle days. The documented action
- *    is to stop sending to it.
+ *  - UNREGISTERED (HTTP 404) — "App instance was unregistered from FCM. This
+ *    usually means that the token used is no longer valid and a new one must be
+ *    used" (https://firebase.google.com/docs/cloud-messaging/error-codes). The
+ *    documented action is to stop sending to it.
  *  - INVALID_ARGUMENT (HTTP 400) — "Request parameters were invalid". This is a
  *    SENDER error. Firebase is explicit that it does not indict the token:
- *    "INVALID_ARGUMENT can also be returned in cases of issues in the message
- *    payload, so it signals an invalid registration only if the payload is
- *    completely valid"
+ *    deleting the registration is safe only "if you are certain that the message
+ *    payload is valid"
  *    (https://firebase.google.com/docs/cloud-messaging/manage-tokens).
  *
  * The send loop walks token by token with the SAME payload, so a payload FCM
@@ -61,12 +61,38 @@ export function fcmErrorCode(body: FcmErrorBody): string {
  * The registration is dead and will never be valid again — the only case where
  * deactivating the token is the right answer.
  *
- * `NOT_FOUND` is here because it is the google.rpc status that ships WITH
- * `errorCode: UNREGISTERED` on a 404; it is the fallback when `details` is
- * absent, and on a token send a 404 has no other meaning.
+ * `UNREGISTERED` and nothing else. The FCM v1 error table has exactly eight
+ * codes — UNSPECIFIED_ERROR, INVALID_ARGUMENT, UNREGISTERED, SENDER_ID_MISMATCH,
+ * QUOTA_EXCEEDED, UNAVAILABLE, INTERNAL, THIRD_PARTY_AUTH_ERROR
+ * (https://firebase.google.com/docs/cloud-messaging/error-codes) — and
+ * `NOT_FOUND` is NOT one of them: it is the generic google.rpc status that
+ * happens to ship alongside `errorCode: UNREGISTERED` on a 404.
+ *
+ * It used to be accepted here as a fallback, and that reopened the same
+ * catastrophe through the other door: a 404 of SYSTEMIC origin — a rotated
+ * `FIREBASE_PROJECT_ID`, a deleted Firebase project, a moved endpoint — answers
+ * `status: NOT_FOUND` with NO `details[].errorCode`, is identical for every
+ * token, and the deactivation branch has no rate brake of its own. One
+ * misconfigured environment variable would have wiped the base one row at a
+ * time. See `isUnclassifiedNotFound`.
+ *
+ * The cost of the strictness is the mirror image and much smaller: if FCM ever
+ * answers a genuine dead registration without `details`, the token stays active
+ * and keeps being tried — waste, not damage, and exactly the behaviour that ran
+ * in production until 5de8be0.
  */
 export function isDeadRegistration(code: string): boolean {
-  return code === 'UNREGISTERED' || code === 'NOT_FOUND'
+  return code === 'UNREGISTERED'
+}
+
+/**
+ * A 404 that carries no FCM `errorCode`: the request did not reach a live FCM
+ * resource, and the token is not the accused. Systemic until proven otherwise
+ * (wrong project id, deleted project, wrong endpoint), so the answer is a loud
+ * log and nothing else — never a write to `drive.fcm_tokens`.
+ */
+export function isUnclassifiedNotFound(code: string): boolean {
+  return code === 'NOT_FOUND'
 }
 
 /**
@@ -78,34 +104,62 @@ export function isSenderPayloadError(code: string): boolean {
 }
 
 /**
- * How many INVALID_ARGUMENT failures in one run before the send gives up.
+ * The smallest number of attempts the abort brake is allowed to judge a rate on.
  *
- * Why a floor at all, and why not 1: a token can be individually malformed —
- * a truncated row in `drive.fcm_tokens`, or a stale `drive.profiles.push_token`
- * (a pool with no `is_active` column, never cleaned, and appended as a
- * contiguous block to the end of the recipient list). One rotten token cannot
- * be allowed to kill a broadcast to the whole base.
+ * The brake answers one question — "is FCM refusing this payload?" — and its
+ * only evidence is the failure rate of what has been tried so far. That evidence
+ * is worthless if the sample is tiny, and worse than worthless if somebody else
+ * picks it. Both were true of the previous floor of 10:
  *
- * Why 10 and not 5: 5 is inside the plausible size of such a cluster, precisely
- * because the two token sources are concatenated rather than interleaved, so a
- * run of junk is not evidence of anything. 10 sits above that and still bounds
- * the damage: with a genuinely bad payload the loop stops after 10 sequential
- * FCM calls (~2-3 s) no matter whether the audience is 200 or 200,000 — the cost
- * of aborting late is a handful of wasted round-trips, while the cost of
- * aborting early is a duplicate push to everyone already reached when the
- * operator retries. The asymmetry is what sets the number, not roundness.
+ *  - the broadcast audience comes from `core.get_audience_push_tokens`, which
+ *    builds it with `array_agg(DISTINCT tok)`, and DISTINCT SORTS. The first
+ *    tokens tried were never a sample of the base, they were its
+ *    lexicographically smallest rows (measured 2026-08-23: `array_agg(distinct
+ *    …)` over `zzz-token, !!!aaa, 0abc, mmm, APA91b-…` returns
+ *    `["0abc","!!!aaa","APA91b-…","mmm","zzz-token"]`);
+ *  - `drive.fcm_tokens` takes an INSERT from any signed-in user for their own
+ *    `user_id`, and its only uniqueness is `(user_id, device_id)`. Rows holding
+ *    junk that sorts early are therefore cheap to plant, and a malformed token
+ *    answers 400 INVALID_ARGUMENT.
+ *
+ * Ten planted rows were enough to fail the first ten attempts of every broadcast
+ * and stop the send for the entire base — a `break` any tourist could pull, and
+ * on `/process-scheduled` the item is then marked `failed` with no retry. Two
+ * changes answer it and both are needed: `sampledSendOrder` takes the choice of
+ * sample away from whoever controls the ordering, and this floor makes the
+ * sample large enough to mean something. Together they move the cost of forcing
+ * an abort from 10 planted rows to roughly half of the whole audience.
+ *
+ * Why 50 and not 10: the brake is only consulted ON a failure, so inside a block
+ * of junk `attempted` equals the failure count — which makes this floor exactly
+ * the length a contiguous block of planted rows would need to reach, and 50 rows
+ * is past any cluster that arrives by accident. Elsewhere in the run the rate
+ * gate demands 25 failures in the first 50 attempts, which under `sampledSendOrder`
+ * no longer follows from ordering. Why not 500: the price of judging late is only
+ * wasted FCM round-trips (50 sequential calls, ~10 s) while the price of judging
+ * early is a broadcast that dies for everyone. The asymmetry sets the number, not
+ * roundness.
+ *
+ * Why the token format is NOT validated before sending instead: FCM publishes no
+ * grammar for a registration token. The documentation says only "Make sure it
+ * matches the registration token the client app receives from registering with
+ * FCM. Do not truncate the token or add additional characters"
+ * (https://firebase.google.com/docs/cloud-messaging/error-codes). A regex here
+ * would be a second, invented source of truth about a string only FCM can judge,
+ * and its failure mode is silently dropping real recipients — a worse outcome
+ * than the one it would prevent.
  */
-export const INVALID_ARGUMENT_ABORT_FLOOR = 10
+export const ABORT_MIN_SAMPLE = 50
 
 /**
  * Should the send loop stop? A rejected payload fails EVERY token, so the signal
- * is the rate, not the count: the floor must also be at least half of everything
- * attempted so far.
+ * is the rate, not the count: at least half of everything attempted so far, over
+ * a sample of at least `ABORT_MIN_SAMPLE` attempts.
  *
- * The rate gate is what separates "the payload is broken" (100% of attempts
- * fail) from "the base carries some junk tokens" (a few percent, and the send
- * must go through). With a bad payload the condition is met on the 10th token,
- * since every attempt failed.
+ * Why half and not all: a real base carries dead registrations, and with
+ * `sampledSendOrder` they are spread through the run instead of clustered. A
+ * single UNREGISTERED would break a "100% failed" streak and disarm the brake
+ * forever, on precisely the run where it is needed.
  *
  * @param invalidArgumentCount INVALID_ARGUMENT failures so far in this run
  * @param attempted            tokens tried so far, successes included
@@ -114,8 +168,26 @@ export function shouldAbortForBadPayload(
   invalidArgumentCount: number,
   attempted: number
 ): boolean {
-  return (
-    invalidArgumentCount >= INVALID_ARGUMENT_ABORT_FLOOR &&
-    invalidArgumentCount * 2 >= attempted
-  )
+  return attempted >= ABORT_MIN_SAMPLE && invalidArgumentCount * 2 >= attempted
+}
+
+/**
+ * The order the send loop walks the recipients in — a uniform shuffle, which is
+ * what makes the failure rate the brake reads a sample of the AUDIENCE instead
+ * of a sample of its lexicographic head. See `ABORT_MIN_SAMPLE` for why the head
+ * is attacker-controlled; without this, the brake is reachable from 25 planted
+ * rows no matter how high the floor is set.
+ *
+ * Fisher-Yates over a copy: the input array is left alone, and every recipient
+ * appears exactly once. Dropping or duplicating a token here would be a silent
+ * delivery bug, which is why the tests pin the permutation and not just the
+ * disorder.
+ */
+export function sampledSendOrder<T>(tokens: readonly T[]): T[] {
+  const out = tokens.slice()
+  for (let i = out.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1))
+    ;[out[i], out[j]] = [out[j], out[i]]
+  }
+  return out
 }
