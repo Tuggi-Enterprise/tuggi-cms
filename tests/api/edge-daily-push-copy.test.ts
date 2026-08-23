@@ -246,3 +246,45 @@ test('the orchestrator still picks body_zero_heard by heard_count alone', () => 
   assert.match(src, /i18n\.body\(/, 'the function stopped calling body()')
   assert.match(src, /i18n\.body_zero_heard\(/, 'the function stopped calling body_zero_heard()')
 })
+
+// --- The FCM `data` bag: the same source ruler, for the same reason ----------
+//
+// `data.type` is what the app gates the open event on: `firebaseMessaging.ts`
+// only calls `trackPushNotificationOpened` when `remoteMessage.data.type` is
+// truthy, in `onNotificationOpenedApp` and in `getInitialNotification`. This
+// push shipped without the key, so it produced zero open events. It also feeds
+// `drive.user_notifications.type` (firebase-push-notification writes
+// `data.type ?? 'generic'`), which is why every daily row was `generic`.
+// The bag reaches the device untouched: `constructMessage` copies
+// `notification.data` into the FCM v1 message with no allowlist.
+
+/** The `data: { ... }` literal of the orchestrator payload, by brace matching. */
+const payloadDataLiteral = (src: string): string => {
+  const start = src.indexOf('const payload = {')
+  assert.notEqual(start, -1, 'the orchestrator no longer builds a `payload` object')
+  const open = src.indexOf('data: {', start)
+  assert.notEqual(open, -1, 'the payload no longer carries a `data` bag')
+  let depth = 0
+  for (let i = src.indexOf('{', open); i < src.length; i++) {
+    if (src[i] === '{') depth++
+    else if (src[i] === '}' && --depth === 0) return src.slice(open, i + 1)
+  }
+  assert.fail('unbalanced braces in the payload `data` bag')
+}
+
+test('the daily push carries data.type = daily_fomo, or the app records no open', () => {
+  const data = payloadDataLiteral(readFileSync(FUNCTION_PATH, 'utf8'))
+  assert.match(data, /\btype:\s*'daily_fomo'/, 'data.type is missing or changed value')
+  // snake_case, like the `partner_approved` already stored in the type column.
+  const value = /\btype:\s*'([^']+)'/.exec(data)![1]
+  assert.match(value, /^[a-z][a-z0-9_]*$/, `data.type is not snake_case — ${value}`)
+})
+
+test('data.type did not arrive at the cost of source, date or deeplink', () => {
+  const data = payloadDataLiteral(readFileSync(FUNCTION_PATH, 'utf8'))
+  assert.match(data, /\bsource:\s*'daily-fomo'/, 'data.source was dropped or renamed')
+  assert.match(data, /\bdate:\s*new Date\(\)/, 'data.date was dropped')
+  // BR: the inbox only understands `deeplink`, `data.deeplink` and `data.url`
+  // (docs/contracts/notificacoes.md §2.2) — a fourth spelling is dropped silently.
+  assert.match(data, /\bdeeplink:\s*'tuggi:\/\/map'/, 'data.deeplink was dropped or renamed')
+})

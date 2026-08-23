@@ -63,10 +63,22 @@ Deno.serve(async (req) => {
           notification: {
             title: i18n.title,
             body: messageBody,
+            // `type` is NOT decoration. The app only records an open when
+            // `data.type` is present (firebaseMessaging.ts, both
+            // onNotificationOpenedApp and getInitialNotification), so without it
+            // this push produced zero open events since it shipped; and
+            // firebase-push-notification writes `data.type ?? 'generic'` into
+            // drive.user_notifications.type, so every daily row landed in the
+            // inbox as `generic`. snake_case, like `partner_approved`.
             // deeplink → app opens the Explore/Discover sheet on nearby
             // attractions so the tap lands somewhere actionable (was: no
             // deeplink → fell into the inbox and went nowhere on tap).
-            data: { source: 'daily-fomo', date: new Date().toISOString().split('T')[0], deeplink: 'tuggi://map' }
+            data: {
+              type: 'daily_fomo',
+              source: 'daily-fomo',
+              date: new Date().toISOString().split('T')[0],
+              deeplink: 'tuggi://map',
+            }
           },
           priority: 'high',
           ttl: 86400
