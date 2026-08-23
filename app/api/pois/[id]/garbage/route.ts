@@ -19,8 +19,21 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
     const { data: { session }, error: authError } = await supabaseAuth.auth.getSession()
     if (authError || !session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
-    // Use RPC to get user info
-    const { data: userData, error: userErr } = await supabaseAuth
+    /**
+     * A IDENTIDADE VEM DA SESSÃO; A CONSULTA VAI COM `service_role`, e a diferença é o que
+     * permite fechar a função no banco.
+     *
+     * `core.get_cms_user_info(text)` é `SECURITY DEFINER` e não confere NADA sobre quem chama:
+     * passa um e-mail, recebe `id`, `role`, `is_active` e `client_id` do `cms_user`. Enquanto
+     * ela tiver `EXECUTE` para `authenticated`, qualquer conta do app descobre o `uuid` de um
+     * admin — que é a chave que `core.delete_poi_as_garbage` aceita como autorização
+     * (parecer de segurança de 2026-08-23). Lendo aqui com `service_role`, o `EXECUTE` de
+     * `authenticated` pode ser revogado sem quebrar esta rota.
+     *
+     * O e-mail continua sendo o da sessão, não do corpo do pedido: quem decide quem é o
+     * chamador é o cookie, e nunca um parâmetro.
+     */
+    const { data: userData, error: userErr } = await supabaseService
       .schema('core')
       .rpc('get_cms_user_info', { p_email: session.user.email as string })
     

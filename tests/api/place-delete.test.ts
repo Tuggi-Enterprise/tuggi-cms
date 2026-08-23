@@ -182,3 +182,33 @@ test('#409 · todo motivo de recusa tem frase, e a saída sem perda é oferecida
   // `blockedHint` é o caminho que não perde nada: sair do ar por `is_active` (BR-POI-005).
   assert.match(copy.blockedHint, /Ativo/)
 })
+
+// ── A identidade vem da sessão, nunca de um parâmetro ────────────────────────────────────────
+
+test('#409 · a lixeira lê o cms_user com `service_role`, para a função poder ser fechada no banco', () => {
+  // O ACHADO, do parecer de segurança de 2026-08-23: `core.delete_poi_as_garbage(p_poi_id,
+  // p_admin_id)` é `SECURITY DEFINER` com `EXECUTE` para `authenticated`, e toda a autorização
+  // dela é `SELECT role, is_active FROM core.cms_users WHERE id = p_admin_id` — o parâmetro que
+  // o chamador manda. Ela nunca consulta `auth.uid()`. O `uuid` de admin necessário vinha de
+  // `core.get_cms_user_info`, que também tinha `EXECUTE` para `authenticated` e não confere nada
+  // sobre quem chama. Conta grátis do app + duas RPCs = catálogo apagado, com cascade por 17
+  // tabelas.
+  //
+  // O REVOKE fecha isso no banco (migration 20260823190000), e ele só não derruba a lixeira
+  // porque estas rotas leem o cms_user com `service_role`. Voltar a ler com o client do operador
+  // é o que reabre a necessidade do GRANT.
+  for (const route of ['app/api/pois/[id]/garbage/route.ts', 'app/api/pois/bulk-garbage/route.ts']) {
+    const source = read(route)
+
+    const call = source.slice(
+      source.indexOf("rpc('get_cms_user_info'") - 200,
+      source.indexOf("rpc('get_cms_user_info'")
+    )
+    assert.match(call, /supabaseService/, `${route}: o cms_user tem de ser lido com service_role`)
+    assert.doesNotMatch(call, /await supabaseAuth\s*$/, `${route}: nunca com o client do operador`)
+
+    // E o e-mail continua vindo da SESSÃO, não do corpo do pedido: quem diz quem é o chamador é
+    // o cookie. Um `p_email` que viesse do body seria a mesma falha, uma camada acima.
+    assert.match(source, /p_email: session\.user\.email/)
+  }
+})
