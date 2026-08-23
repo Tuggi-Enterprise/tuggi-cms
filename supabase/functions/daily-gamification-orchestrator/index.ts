@@ -1,64 +1,14 @@
 
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
 import { getSecretKey } from '../_shared/supabase-client.ts';
+// The copy of this push lives in _shared/daily-push-i18n.ts, outside this file,
+// because this one imports a remote URL and therefore cannot be loaded by a
+// test. Spec: docs/design/copy-push-diario-2026-08.md.
+import { getTranslation } from '../_shared/daily-push-i18n.ts';
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
-};
-
-// --- Dicionário de Traduções (Personalidade Tuggi - Sem Emojis) ---
-const TRANSLATIONS: Record<string, any> = {
-  'pt-br': {
-    title: 'Sua jornada de ontem',
-    fallback: 'Viajante',
-    body: (name: string, heard: number, missed: number) => 
-      `Ei ${name}! Sua jornada de ontem revelou ${heard} historias, mas ${missed} segredos ficaram pelo caminho. Que tal ligar o som e descobrir novos misterios hoje?`,
-    body_zero_heard: (name: string, missed: number) => 
-      `Viagem silenciosa, ${name}? Vimos que voce iniciou sua jornada, mas ${missed} historias ainda esperam para serem ouvidas por ai. Que tal ativar o guia hoje?`
-  },
-  'pt-pt': {
-    title: 'A sua jornada de ontem',
-    fallback: 'Viajante',
-    body: (name: string, heard: number, missed: number) => 
-      `Olá ${name}! A sua jornada de ontem revelou ${heard} historias, mas ${missed} segredos ficaram pelo caminho. Que tal ligar o som e descobrir novos misterios hoje?`,
-    body_zero_heard: (name: string, missed: number) => 
-      `Viagem silenciosa, ${name}? Vimos que iniciou a sua jornada, mas ${missed} historias ainda esperam para ouvidas por ai. Que tal ativar o guia hoje?`
-  },
-  'en': {
-    title: 'Your journey yesterday',
-    fallback: 'Traveler',
-    body: (name: string, heard: number, missed: number) => 
-      `Hey ${name}! Yesterdays journey uncovered ${heard} stories, but ${missed} secrets were left behind. Ready to tune in and discover new mysteries today?`,
-    body_zero_heard: (name: string, missed: number) => 
-      `A quiet trip, ${name}? We noticed you started your journey, but ${missed} stories are still waiting to be heard. How about turning on the guide today?`
-  },
-  'es': {
-    title: 'Tu jornada de ayer',
-    fallback: 'Viajero',
-    body: (name: string, heard: number, missed: number) => 
-      `¡Hola ${name}! Tu jornada de ayer revelo ${heard} historias, pero ${missed} secretos quedaron por el camino. ¿Que tal encender el sonido y descubrir nuevos misterios hoje?`,
-    body_zero_heard: (name: string, missed: number) => 
-      `¿Viaje silencioso, ${name}? Vimos que iniciaste tu jornada, pero ${missed} historias aun esperan para ser escuchadas. ¿Que tal activar el guia hoy?`
-  },
-  'it': {
-    title: 'Il tuo viaggio di ieri',
-    fallback: 'Viaggiatore',
-    body: (name: string, heard: number, missed: number) => 
-      `Ehi ${name}! Il tuo viaggio di ieri ha svelato ${heard} storie, ma ${missed} segreti sono rimasti lungo a strada. Che ne dici di accendere il suono e scoprire nuovi misteri oggi?`,
-    body_zero_heard: (name: string, missed: number) => 
-      `Viaggio silenzioso, ${name}? Abbiamo notato que hai iniziato il tuo viaggio, ma ${missed} storie aspettano ancora di essere ascoltate. Che ne dici di attivare la guida oggi?`
-  }
-};
-
-const getTranslation = (lang: string) => {
-  const code = (lang || 'pt-br').toLowerCase();
-  if (code.startsWith('pt-br')) return TRANSLATIONS['pt-br'];
-  if (code.startsWith('pt-pt')) return TRANSLATIONS['pt-pt'];
-  if (code.startsWith('pt')) return TRANSLATIONS['pt-br'];
-  if (code.startsWith('it')) return TRANSLATIONS['it'];
-  if (code.startsWith('es')) return TRANSLATIONS['es'];
-  return TRANSLATIONS['en'];
 };
 
 Deno.serve(async (req) => {
@@ -72,7 +22,7 @@ Deno.serve(async (req) => {
     const supabaseUrl = (Deno.env.get('SUPABASE_URL') ?? '').trim();
     const supabaseKey = (getSecretKey() ?? '').trim();
     
-    const supabase = createClient(supabaseUrl, supabaseKey);
+    // Every read and write of this function is in the `drive` schema.
     const driveClient = createClient(supabaseUrl, supabaseKey, {
       db: { schema: 'drive' }
     });
