@@ -995,9 +995,23 @@
       "time_upcoming": "Próximos",
       "time_past": "Pasados"
     },
-    "stats": { "total": "Total", "upcoming": "Próximos", "approved": "Aprobados", "pending": "Pendientes" },
-    "columns": { "name": "Nombre", "when": "Cuándo", "location": "Ubicación", "status": "Estado", "content": "Contenido" },
-    "badges": { "approved": "Aprobado", "pending": "Pendiente" },
+    "stats": {
+      "total": "Total",
+      "upcoming": "Próximos",
+      "approved": "Aprobados",
+      "pending": "Pendientes"
+    },
+    "columns": {
+      "name": "Nombre",
+      "when": "Cuándo",
+      "location": "Ubicación",
+      "status": "Estado",
+      "content": "Contenido"
+    },
+    "badges": {
+      "approved": "Aprobado",
+      "pending": "Pendiente"
+    },
     "content_summary": "{desc} desc · {tp} TP",
     "empty": "No se encontraron eventos."
   },
@@ -1019,9 +1033,24 @@
       "status_approved": "Aprobados",
       "status_pending": "Pendientes"
     },
-    "stats": { "total": "Total", "with_hours": "Con horario", "approved": "Aprobados", "pending": "Pendientes" },
-    "columns": { "name": "Nombre", "type": "Tipo", "location": "Ubicación", "status": "Estado", "content": "Contenido" },
-    "badges": { "approved": "Aprobado", "pending": "Pendiente", "hours": "horario" },
+    "stats": {
+      "total": "Total",
+      "with_hours": "Con horario",
+      "approved": "Aprobados",
+      "pending": "Pendientes"
+    },
+    "columns": {
+      "name": "Nombre",
+      "type": "Tipo",
+      "location": "Ubicación",
+      "status": "Estado",
+      "content": "Contenido"
+    },
+    "badges": {
+      "approved": "Aprobado",
+      "pending": "Pendiente",
+      "hours": "horario"
+    },
     "content_summary": "{desc} desc · {tp} TP",
     "empty": "No se encontraron lugares."
   },
@@ -1029,19 +1058,45 @@
     "EventDetails": {
       "title_new": "Nuevo Evento",
       "title_edit": "Editar Evento",
-      "sections": { "identity": "Identidad", "schedule": "Agenda", "host": "Anfitrión", "tickets": "Entradas y Organizador", "publish": "Publicación" },
+      "sections": {
+        "identity": "Identidad",
+        "schedule": "Agenda",
+        "host": "Anfitrión",
+        "tickets": "Entradas y Organizador",
+        "publish": "Publicación"
+      },
       "labels": {
         "location": "Ubicación",
-        "name": "Nombre", "country": "País", "state": "Estado", "city": "Ciudad",
-        "latitude": "Latitud", "longitude": "Longitud",
-        "starts_at": "Inicio", "ends_at": "Fin", "timezone": "Zona horaria", "all_day": "Todo el día",
-        "status": "Estado", "category": "Categoría", "tags": "Etiquetas",
-        "is_free": "Entrada gratuita", "price_min": "Precio mín.", "price_max": "Precio máx.", "currency": "Moneda",
-        "capacity": "Capacidad", "age_restriction": "Restricción de edad",
-        "organizer_name": "Organizador", "organizer_url": "URL del organizador",
-        "ticket_url": "URL de entradas", "poster_url": "URL del cartel",
-        "venue": "POI anfitrión", "venue_search_placeholder": "Buscar POI por nombre…", "venue_no_results": "Ningún POI encontrado", "venue_remove": "Quitar vínculo",
-        "approved": "Aprobado", "active": "Activo", "priority": "Prioridad"
+        "name": "Nombre",
+        "country": "País",
+        "state": "Estado",
+        "city": "Ciudad",
+        "latitude": "Latitud",
+        "longitude": "Longitud",
+        "starts_at": "Inicio",
+        "ends_at": "Fin",
+        "timezone": "Zona horaria",
+        "all_day": "Todo el día",
+        "status": "Estado",
+        "category": "Categoría",
+        "tags": "Etiquetas",
+        "is_free": "Entrada gratuita",
+        "price_min": "Precio mín.",
+        "price_max": "Precio máx.",
+        "currency": "Moneda",
+        "capacity": "Capacidad",
+        "age_restriction": "Restricción de edad",
+        "organizer_name": "Organizador",
+        "organizer_url": "URL del organizador",
+        "ticket_url": "URL de entradas",
+        "poster_url": "URL del cartel",
+        "venue": "POI anfitrión",
+        "venue_search_placeholder": "Buscar POI por nombre…",
+        "venue_no_results": "Ningún POI encontrado",
+        "venue_remove": "Quitar vínculo",
+        "approved": "Aprobado",
+        "active": "Activo",
+        "priority": "Prioridad"
       },
       "tags_hint": "separadas por comas",
       "venue_hint": "Vincula este evento al POI donde ocurre — el POI pasa a narrarlo.",
@@ -1055,17 +1110,40 @@
     "PlaceDetails": {
       "title_new": "Nuevo Lugar",
       "title_edit": "Editar Lugar",
-      "sections": { "identity": "Identidad", "commerce": "Comercio", "amenities": "Comodidades", "publish": "Publicación" },
+      "sections": {
+        "identity": "Identidad",
+        "commerce": "Comercio",
+        "amenities": "Comodidades",
+        "publish": "Publicación"
+      },
       "labels": {
         "location": "Ubicación",
-        "name": "Nombre", "country": "País", "state": "Estado", "city": "Ciudad",
-        "latitude": "Latitud", "longitude": "Longitud", "type": "Tipo",
-        "price_range": "Rango de precio", "cuisine": "Cocina",
-        "reservation_url": "URL de reserva", "menu_url": "URL del menú",
-        "delivery_url": "URL de delivery", "order_online_url": "URL de pedido en línea",
-        "tags": "Etiquetas", "approved": "Aprobado", "active": "Activo", "priority": "Prioridad"
+        "name": "Nombre",
+        "country": "País",
+        "state": "Estado",
+        "city": "Ciudad",
+        "latitude": "Latitud",
+        "longitude": "Longitud",
+        "type": "Tipo",
+        "price_range": "Rango de precio",
+        "cuisine": "Cocina",
+        "reservation_url": "URL de reserva",
+        "menu_url": "URL del menú",
+        "delivery_url": "URL de delivery",
+        "order_online_url": "URL de pedido en línea",
+        "tags": "Etiquetas",
+        "approved": "Aprobado",
+        "active": "Activo",
+        "priority": "Prioridad"
       },
-      "amenities": { "wifi": "Wi-Fi", "outdoor": "Mesas al aire libre", "delivery": "Delivery", "takeaway": "Para llevar", "alcohol": "Sirve alcohol", "reservations": "Reservas" },
+      "amenities": {
+        "wifi": "Wi-Fi",
+        "outdoor": "Mesas al aire libre",
+        "delivery": "Delivery",
+        "takeaway": "Para llevar",
+        "alcohol": "Sirve alcohol",
+        "reservations": "Reservas"
+      },
       "tags_hint": "separadas por comas",
       "cuisine_hint": "separadas por comas",
       "reused_note": "Horario, accesibilidad, boundary, trigger points y descripción/audio reutilizan los editores de POI (por attraction_id) — se conectan a continuación.",
@@ -2031,22 +2109,6 @@
         "loadFailed": "Error al cargar usuarios de la app",
         "linkFailed": "Error al vincular usuario de la app",
         "unlinkFailed": "Error al desvincular usuario de la app"
-      }
-    },
-    "pois": {
-      "section": "POI de referencia (Welcome POI)",
-      "help": "POI reproducido cuando el usuario accede a la página del socio (tuggi.app/d/[slug]) — su descripción y audio sirven como contenido de bienvenida. Pega el UUID, valida y asigna. Los cambios se aplican tras guardar el modal.",
-      "uuidPlaceholder": "Pega el UUID del POI...",
-      "validate": "Validar",
-      "attach": "Asignar",
-      "remove": "Eliminar Welcome POI",
-      "hint": "Tip: copia el ID de un POI en la página /pois. Autocompletar por nombre llega en una próxima iteración.",
-      "saveFirst": "Guarda el cliente primero para asignar un Welcome POI.",
-      "approved": "Aprobado",
-      "pending": "Pendiente",
-      "errors": {
-        "notFound": "POI no encontrado (UUID inválido o inexistente)",
-        "network": "Error de red al buscar POI"
       }
     },
     "coupons": {

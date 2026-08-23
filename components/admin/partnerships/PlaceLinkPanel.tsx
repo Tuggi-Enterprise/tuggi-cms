@@ -49,6 +49,8 @@ export function PlaceLinkPanel({ clientId, locale, onLinked }: PlaceLinkPanelPro
   const [scopeCity, setScopeCity] = useState<string | null>(null)
   const [searching, setSearching] = useState(false)
   const [failed, setFailed] = useState(false)
+  // The client's registration has no city, so there is no indexable query — see the route.
+  const [scopeMissing, setScopeMissing] = useState(false)
   const [linking, setLinking] = useState<string | null>(null)
   const [linkFailed, setLinkFailed] = useState(false)
 
@@ -56,12 +58,14 @@ export function PlaceLinkPanel({ clientId, locale, onLinked }: PlaceLinkPanelPro
     if (!isSearchable(term)) {
       setCandidates([])
       setFailed(false)
+      setScopeMissing(false)
       return
     }
 
     let active = true
     setSearching(true)
     setFailed(false)
+    setScopeMissing(false)
 
     const timer = setTimeout(() => {
       void fetch(
@@ -78,9 +82,14 @@ export function PlaceLinkPanel({ clientId, locale, onLinked }: PlaceLinkPanelPro
           const payload = (await response.json()) as {
             candidates: Candidate[]
             scope: string | null
+            error?: string
           }
           setCandidates(payload.candidates)
           setScopeCity(payload.scope)
+          // A refusal that is not a failure: the search CANNOT run without the client's city,
+          // and saying `nenhum lugar com esse nome` over a search that never happened is what
+          // sends the operator to the create button.
+          setScopeMissing(payload.error === 'scope_required')
         })
         .catch(() => {
           if (active) setFailed(true)
@@ -156,10 +165,11 @@ export function PlaceLinkPanel({ clientId, locale, onLinked }: PlaceLinkPanelPro
         {short && t('minLength', { count: MIN_SEARCH_LENGTH })}
         {searching && t('searching')}
         {failed && t('failed')}
+        {scopeMissing && t('scopeMissing')}
         {/* O RECORTE É DITO E O QUE ELE ESCONDEU TAMBÉM. `Nenhum em Cabo Frio` sobre um bar que
             existe em Cabo Frio é o mesmo erro de não ter busca; `Nenhum em Cabo Frio · mais 3 em
             outras cidades` é uma frase sobre a qual dá para decidir. */}
-        {!searching && !failed && isSearchable(term) && candidates.length === 0 && (
+        {!searching && !failed && !scopeMissing && isSearchable(term) && candidates.length === 0 && (
           scopeCity && mode === 'city' ? t('emptyInCity', { city: scopeCity }) : t('empty')
         )}
       </div>

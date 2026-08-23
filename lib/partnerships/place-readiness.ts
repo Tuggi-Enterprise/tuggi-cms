@@ -19,7 +19,7 @@
  *      entity_kind = 'place' AND approved AND is_active AND location_geography IS NOT NULL
  *
  * AND THE PARTNER'S PLACE IS A `place`. `core.cms_create_place` inserts `entity_kind = 'place'`
- * (`supabase/migrations/20260703_07_places_rpcs.sql`), so the place `applyPartnerApprovalEffects`
+ * (`supabase/migrations/20260703_07_places_rpcs.sql`), so the place `provisionPartnerPlace`
  * creates NEVER enters `core.app_poi_read` — it travels the places path. Spec §3 and §4 quote
  * the POI read model at it, and reading `show_in_map` as a blocker for a `place`, or ignoring
  * `is_active`, would each produce a screen that lies. The divergence is reported on #359 and

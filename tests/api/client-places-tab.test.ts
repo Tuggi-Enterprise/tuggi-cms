@@ -21,7 +21,7 @@
 
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { readFileSync } from 'node:fs'
+import { existsSync, readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
 
 const root = resolve(import.meta.dirname, '../..')
@@ -59,11 +59,11 @@ test('creating a place reuses the provisioning route, and writes nothing itself'
   assert.match(
     tab,
     /fetch\(`\/api\/admin\/partnerships\/clients\/\$\{clientId\}\/places`, \{\s*method: 'POST',/,
-    'the create button posts to the route that already runs applyPartnerApprovalEffects'
+    'the create button posts to the route that already runs provisionPartnerPlace'
   )
   // The route is the one guarded against a second prefill and against approving anything.
   const route = read('app/api/admin/partnerships/clients/[clientId]/places/route.ts')
-  assert.match(route, /applyPartnerApprovalEffects/)
+  assert.match(route, /provisionPartnerPlace/)
   // `approved` appears in the prose above the handler, explaining that the place is born
   // `approved = false`. What may not appear is a WRITE of it.
   assert.equal(tab.indexOf('approved:'), -1, 'the record never approves a place')
@@ -139,7 +139,25 @@ test('the tab hands its subtree the Portuguese namespace, and only that subtree'
   // Without this an operator on /en/ would read `Partnerships.pendencies...` as a label.
   assert.match(tab, /locale="pt"/)
   assert.match(tab, /messages=\{\{ Partnerships: ptMessages\.Partnerships \}\}/)
-  // The welcome-POI section is translated in all three, so it stays outside the provider.
-  const provider = tab.slice(tab.indexOf('<NextIntlClientProvider'), tab.indexOf('</NextIntlClientProvider>'))
-  assert.equal(provider.indexOf('<PoisTab'), -1, 'PoisTab keeps the operator locale')
+})
+
+test('the welcome POI is the place, and there is no second pointer to type', () => {
+  // THE DEFECT THIS CLOSES, measured on 2026-08-23: of the 10 clients carrying a
+  // `welcome_poi_id`, 10 pointed at a POI that was NOT the client's linked place. The tab
+  // hosted a text field where a UUID was pasted straight into the column, with no check that
+  // the POI was the client's, had a coordinate, or was even a place.
+  assert.equal(
+    existsSync(resolve(root, 'components/admin/clients/tabs/PoisTab.tsx')),
+    false,
+    'the UUID field is gone, not hidden'
+  )
+
+  const tab = code(TAB)
+  assert.equal(tab.indexOf('PoisTab'), -1)
+  assert.equal(tab.indexOf('welcome_poi_id'), -1, 'the record never writes the column by hand')
+
+  // What replaced it: the badge reads the derived pointer, and choosing among several places
+  // goes through the route that checks the place is this client's.
+  assert.match(tab, /detail\.client\.welcomePoiId/)
+  assert.match(tab, /places\/welcome/)
 })

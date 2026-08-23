@@ -1071,9 +1071,23 @@
       "time_upcoming": "Upcoming",
       "time_past": "Past"
     },
-    "stats": { "total": "Total", "upcoming": "Upcoming", "approved": "Approved", "pending": "Pending" },
-    "columns": { "name": "Name", "when": "When", "location": "Location", "status": "Status", "content": "Content" },
-    "badges": { "approved": "Approved", "pending": "Pending" },
+    "stats": {
+      "total": "Total",
+      "upcoming": "Upcoming",
+      "approved": "Approved",
+      "pending": "Pending"
+    },
+    "columns": {
+      "name": "Name",
+      "when": "When",
+      "location": "Location",
+      "status": "Status",
+      "content": "Content"
+    },
+    "badges": {
+      "approved": "Approved",
+      "pending": "Pending"
+    },
     "content_summary": "{desc} desc · {tp} TP",
     "empty": "No events found."
   },
@@ -1095,9 +1109,24 @@
       "status_approved": "Approved",
       "status_pending": "Pending"
     },
-    "stats": { "total": "Total", "with_hours": "With hours", "approved": "Approved", "pending": "Pending" },
-    "columns": { "name": "Name", "type": "Type", "location": "Location", "status": "Status", "content": "Content" },
-    "badges": { "approved": "Approved", "pending": "Pending", "hours": "hours" },
+    "stats": {
+      "total": "Total",
+      "with_hours": "With hours",
+      "approved": "Approved",
+      "pending": "Pending"
+    },
+    "columns": {
+      "name": "Name",
+      "type": "Type",
+      "location": "Location",
+      "status": "Status",
+      "content": "Content"
+    },
+    "badges": {
+      "approved": "Approved",
+      "pending": "Pending",
+      "hours": "hours"
+    },
     "content_summary": "{desc} desc · {tp} TP",
     "empty": "No places found."
   },
@@ -1105,19 +1134,45 @@
     "EventDetails": {
       "title_new": "New Event",
       "title_edit": "Edit Event",
-      "sections": { "identity": "Identity", "schedule": "Schedule", "host": "Host", "tickets": "Tickets & Organizer", "publish": "Publishing" },
+      "sections": {
+        "identity": "Identity",
+        "schedule": "Schedule",
+        "host": "Host",
+        "tickets": "Tickets & Organizer",
+        "publish": "Publishing"
+      },
       "labels": {
         "location": "Location",
-        "name": "Name", "country": "Country", "state": "State", "city": "City",
-        "latitude": "Latitude", "longitude": "Longitude",
-        "starts_at": "Starts at", "ends_at": "Ends at", "timezone": "Timezone", "all_day": "All day",
-        "status": "Status", "category": "Category", "tags": "Tags",
-        "is_free": "Free entry", "price_min": "Price min", "price_max": "Price max", "currency": "Currency",
-        "capacity": "Capacity", "age_restriction": "Age restriction",
-        "organizer_name": "Organizer name", "organizer_url": "Organizer URL",
-        "ticket_url": "Ticket URL", "poster_url": "Poster URL",
-        "venue": "Host POI", "venue_search_placeholder": "Search POI by name…", "venue_no_results": "No POI found", "venue_remove": "Remove link",
-        "approved": "Approved", "active": "Active", "priority": "Priority"
+        "name": "Name",
+        "country": "Country",
+        "state": "State",
+        "city": "City",
+        "latitude": "Latitude",
+        "longitude": "Longitude",
+        "starts_at": "Starts at",
+        "ends_at": "Ends at",
+        "timezone": "Timezone",
+        "all_day": "All day",
+        "status": "Status",
+        "category": "Category",
+        "tags": "Tags",
+        "is_free": "Free entry",
+        "price_min": "Price min",
+        "price_max": "Price max",
+        "currency": "Currency",
+        "capacity": "Capacity",
+        "age_restriction": "Age restriction",
+        "organizer_name": "Organizer name",
+        "organizer_url": "Organizer URL",
+        "ticket_url": "Ticket URL",
+        "poster_url": "Poster URL",
+        "venue": "Host POI",
+        "venue_search_placeholder": "Search POI by name…",
+        "venue_no_results": "No POI found",
+        "venue_remove": "Remove link",
+        "approved": "Approved",
+        "active": "Active",
+        "priority": "Priority"
       },
       "tags_hint": "comma-separated",
       "venue_hint": "Link this event to the POI where it happens — the POI then narrates it.",
@@ -1131,17 +1186,40 @@
     "PlaceDetails": {
       "title_new": "New Place",
       "title_edit": "Edit Place",
-      "sections": { "identity": "Identity", "commerce": "Commerce", "amenities": "Amenities", "publish": "Publishing" },
+      "sections": {
+        "identity": "Identity",
+        "commerce": "Commerce",
+        "amenities": "Amenities",
+        "publish": "Publishing"
+      },
       "labels": {
         "location": "Location",
-        "name": "Name", "country": "Country", "state": "State", "city": "City",
-        "latitude": "Latitude", "longitude": "Longitude", "type": "Type",
-        "price_range": "Price range", "cuisine": "Cuisine",
-        "reservation_url": "Reservation URL", "menu_url": "Menu URL",
-        "delivery_url": "Delivery URL", "order_online_url": "Order online URL",
-        "tags": "Tags", "approved": "Approved", "active": "Active", "priority": "Priority"
+        "name": "Name",
+        "country": "Country",
+        "state": "State",
+        "city": "City",
+        "latitude": "Latitude",
+        "longitude": "Longitude",
+        "type": "Type",
+        "price_range": "Price range",
+        "cuisine": "Cuisine",
+        "reservation_url": "Reservation URL",
+        "menu_url": "Menu URL",
+        "delivery_url": "Delivery URL",
+        "order_online_url": "Order online URL",
+        "tags": "Tags",
+        "approved": "Approved",
+        "active": "Active",
+        "priority": "Priority"
       },
-      "amenities": { "wifi": "Wi-Fi", "outdoor": "Outdoor seating", "delivery": "Delivery", "takeaway": "Takeaway", "alcohol": "Serves alcohol", "reservations": "Reservations" },
+      "amenities": {
+        "wifi": "Wi-Fi",
+        "outdoor": "Outdoor seating",
+        "delivery": "Delivery",
+        "takeaway": "Takeaway",
+        "alcohol": "Serves alcohol",
+        "reservations": "Reservations"
+      },
       "tags_hint": "comma-separated",
       "cuisine_hint": "comma-separated",
       "reused_note": "Opening hours, accessibility, boundary, trigger points and description/audio reuse the POI editors (keyed by attraction_id) — wired in a follow-up.",
@@ -2112,22 +2190,6 @@
         "loadFailed": "Failed to load app users",
         "linkFailed": "Failed to link app user",
         "unlinkFailed": "Failed to unlink app user"
-      }
-    },
-    "pois": {
-      "section": "Reference POI (Welcome POI)",
-      "help": "POI played when the user accesses the partner page (tuggi.app/d/[slug]) — its description and audio serve as welcome content. Paste the UUID, validate, and attach. Changes take effect after the modal's Save.",
-      "uuidPlaceholder": "Paste POI UUID...",
-      "validate": "Validate",
-      "attach": "Attach",
-      "remove": "Remove Welcome POI",
-      "hint": "Tip: copy a POI's ID from the /pois page. Name autocomplete coming in a future iteration.",
-      "saveFirst": "Save the client first to attach a Welcome POI.",
-      "approved": "Approved",
-      "pending": "Pending",
-      "errors": {
-        "notFound": "POI not found (invalid or nonexistent UUID)",
-        "network": "Network error fetching POI"
       }
     },
     "coupons": {

@@ -21,11 +21,17 @@
  * `GET /api/admin/partnerships/clients/{id}` — the same answer the pipeline and the queue
  * read, so the three cannot disagree about what is missing.
  *
+ * THE WELCOME POI IS NOT A SECOND SECTION ANY MORE, and that is the correction of 2026-08-23.
+ * Under this tab sat a field where the operator pasted a UUID into `welcome_poi_id`, a second
+ * pointer at "this partner's POI" that nothing forced to agree with the link — and of the 10
+ * clients that carried one, 10 pointed at a POI that was not the client's place. Linking now
+ * adopts it (`../places/link`), and choosing among several is an act on the place itself,
+ * below.
+ *
  * THE `Partnerships` NAMESPACE TRAVELS WITH IT. That copy lives only in `messages/pt.json`
  * (spec §2), and an absent key in next-intl renders THE KEY NAME on screen — so an operator on
  * `/en/` would read `Partnerships.pendencies...` instead of a pendency. The provider below
- * hands the Portuguese to this subtree and nothing else; the welcome-POI section under it
- * keeps the operator's locale, because its copy is translated in all three.
+ * hands the Portuguese to this subtree and nothing else.
  */
 
 import { useCallback, useEffect, useState } from 'react'
@@ -39,7 +45,6 @@ import { PendencyList } from '@/components/admin/partnerships/PendencyList'
 import { returnParams } from '@/lib/navigation/return-to'
 import type { PendencyId } from '@/lib/partnerships/place-readiness'
 import type { PartnershipDetail, PartnershipPlace } from '@/lib/services/partnership-service'
-import { PoisTab } from './PoisTab'
 import type { ClientEditorTabProps } from './ProfileTab'
 
 export function PlacesTab(props: ClientEditorTabProps) {
@@ -57,10 +62,6 @@ export function PlacesTab(props: ClientEditorTabProps) {
       >
         <PartnerPlaces clientId={props.clientId} locale={locale} />
       </NextIntlClientProvider>
-
-      {/* The welcome POI is a different question — WHICH place answers `/d/{slug}` — and its
-          copy is translated in all three locales, so it stays outside the provider above. */}
-      <PoisTab {...props} />
     </div>
   )
 }
@@ -115,8 +116,8 @@ function PartnerPlaces({ clientId, locale }: { clientId?: string; locale: string
   }, [clientId, fetchDetail])
 
   /**
-   * Creating the place is the SAME act the partner approval runs (`applyPartnerApprovalEffects`,
-   * #360): prefilled from what the partner wrote and linked by `partner_client_id`, born
+   * Creating the place is `provisionPartnerPlace`, and since 2026-08-23 this button is the ONLY
+   * caller: prefilled from what the partner wrote and linked by `partner_client_id`, born
    * `approved = false` because the triage is a human decision (BR-B2B-011). Not a second
    * implementation of the prefill — this tab only moves the button to where the operator is.
    */
@@ -205,6 +206,12 @@ function PartnerPlaces({ clientId, locale }: { clientId?: string; locale: string
               key={place.readiness.place.attractionId}
               place={place}
               placeHref={placeHref}
+              clientId={clientId}
+              isWelcome={place.readiness.place.attractionId === detail.client.welcomePoiId}
+              // The act only makes sense where there is a choice: with one place the link
+              // already adopted it, and a button that changes nothing is a button that lies.
+              canChooseWelcome={detail.places.length > 1}
+              onWelcomeChanged={load}
             />
           ))}
         </div>
@@ -227,12 +234,43 @@ function PartnerPlaces({ clientId, locale }: { clientId?: string; locale: string
 function Place({
   place,
   placeHref,
+  clientId,
+  isWelcome,
+  canChooseWelcome,
+  onWelcomeChanged,
 }: {
   place: PartnershipPlace
   placeHref: (attractionId: string, pendency?: PendencyId) => string
+  clientId: string
+  isWelcome: boolean
+  canChooseWelcome: boolean
+  onWelcomeChanged: () => Promise<void>
 }) {
   const t = useTranslations('Partnerships')
   const attractionId = place.readiness.place.attractionId
+  const [choosing, setChoosing] = useState(false)
+  const [chooseFailed, setChooseFailed] = useState(false)
+
+  async function chooseWelcome() {
+    setChoosing(true)
+    setChooseFailed(false)
+    try {
+      const response = await fetch(
+        `/api/admin/partnerships/clients/${clientId}/places/welcome`,
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ attractionId }),
+        }
+      )
+      if (!response.ok) setChooseFailed(true)
+    } catch {
+      setChooseFailed(true)
+    }
+    // Same answer as the link: the badge that moved IS the confirmation.
+    await onWelcomeChanged()
+    setChoosing(false)
+  }
 
   return (
     <article className="rounded-md border border-gray-200 p-4 dark:border-gray-800">
@@ -240,6 +278,28 @@ function Place({
       <h3 className="break-words text-sm font-semibold text-gray-900 dark:text-white">
         {place.readiness.place.name}
       </h3>
+
+      {/* WHICH place greets the tourist on `/d/{slug}`, said on the place itself — it was a
+          separate section with a UUID field, and the two pointers drifted apart in 10 of 10
+          clients. */}
+      {isWelcome && (
+        <p className="mt-1 text-xs font-medium text-primary-800">{t('welcome.badge')}</p>
+      )}
+      {!isWelcome && canChooseWelcome && (
+        <button
+          type="button"
+          disabled={choosing}
+          onClick={() => void chooseWelcome()}
+          className="mt-1 inline-flex min-h-[24px] items-center text-xs font-medium text-primary-800 underline underline-offset-4 disabled:opacity-60"
+        >
+          {choosing ? t('welcome.choosing') : t('welcome.choose')}
+        </button>
+      )}
+      {chooseFailed && (
+        <p role="alert" className="mt-1 text-xs text-gray-900 dark:text-white">
+          {t('welcome.failed')}
+        </p>
+      )}
 
       <div className="mt-3">
         <PendencyList

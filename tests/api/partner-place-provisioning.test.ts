@@ -24,7 +24,7 @@ import {
 } from '@/lib/partner-form/place-prefill'
 import { PLACE_TYPES } from '@/lib/core/place-service'
 import type { PartnerAnswers } from '@/lib/partner-form/schema'
-import type { PartnerPlaceOutcome } from '@/lib/services/partner-approval-effects'
+import type { PartnerPlaceOutcome } from '@/lib/services/partner-place-provisioning'
 
 const CLIENT_ID = '44444444-4444-4444-4444-444444444444'
 const SUBMISSION_ID = '33333333-3333-3333-3333-333333333333'
@@ -232,7 +232,7 @@ function createFakeOperator() {
   }
 }
 
-let applyPartnerApprovalEffects: (
+let provisionPartnerPlace: (
   clientId: string,
   operator: any
 ) => Promise<PartnerPlaceOutcome>
@@ -247,14 +247,14 @@ before(async () => {
     },
   })
 
-  const effects = await import('@/lib/services/partner-approval-effects')
-  applyPartnerApprovalEffects = effects.applyPartnerApprovalEffects as any
+  const effects = await import('@/lib/services/partner-place-provisioning')
+  provisionPartnerPlace = effects.provisionPartnerPlace as any
 })
 
-test('BR-B2B-033: the approval creates the place already linked to the client', async () => {
+test('BR-B2B-033: provisioning creates the place already linked to the client', async () => {
   state = freshState()
 
-  const outcome = await applyPartnerApprovalEffects(CLIENT_ID, createFakeOperator())
+  const outcome = await provisionPartnerPlace(CLIENT_ID, createFakeOperator())
 
   assert.deepEqual(outcome, { status: 'created', attractionId: ATTRACTION_ID })
   assert.equal(state.recorded.rpcs[0].name, 'cms_create_place')
@@ -269,14 +269,14 @@ test('BR-B2B-033: the approval creates the place already linked to the client', 
   )
 })
 
-test('BR-B2B-011: nothing the approval writes approves, activates or promotes the place', async () => {
+test('BR-B2B-011: nothing this act writes approves, activates or promotes the place', async () => {
   // The place is born `approved = false` inside `core.cms_create_place`; what is provable on
   // this side is that no payload leaving the CMS can change that. `is_active` is on the same
   // list on purpose — hiding the place by DEACTIVATING it would be a second, false statement
   // about the record (BR-POI-005, item 5), when `approved = false` is the state that is true.
   state = freshState()
 
-  await applyPartnerApprovalEffects(CLIENT_ID, createFakeOperator())
+  await provisionPartnerPlace(CLIENT_ID, createFakeOperator())
 
   const payloads = [
     ...state.recorded.rpcs.map((call) => call.args),
@@ -296,7 +296,7 @@ test('BR-B2B-018: no coordinate is invented, and no description is written', asy
   // air (item 1), which is a write this path does not have.
   state = freshState()
 
-  await applyPartnerApprovalEffects(CLIENT_ID, createFakeOperator())
+  await provisionPartnerPlace(CLIENT_ID, createFakeOperator())
 
   assert.equal(state.recorded.rpcs.length, 1, 'one RPC: the creation')
   assert.equal(state.recorded.rpcs[0].args.p_latitude, null)
@@ -308,13 +308,13 @@ test('BR-B2B-018: no coordinate is invented, and no description is written', asy
   )
 })
 
-test('BR-B2B-033: a client that already has a place is not given a second one automatically', async () => {
+test('BR-B2B-033: a client that already has a place is not given a second one by this act', async () => {
   // The guard is over THIS AUTOMATIC ACT — approving twice does not duplicate the catalogue.
   // It is not a 1 : 1 constraint: the second address of the same CNPJ is a place the operator
   // registers, and item 3 forbids reverting the cardinality to make a screen simpler.
   state = freshState({ linkedPlaces: [{ id: ATTRACTION_ID, partner_client_id: CLIENT_ID }] })
 
-  const outcome = await applyPartnerApprovalEffects(CLIENT_ID, createFakeOperator())
+  const outcome = await provisionPartnerPlace(CLIENT_ID, createFakeOperator())
 
   assert.deepEqual(outcome, { status: 'skipped', reason: 'already_provisioned' })
   assert.equal(state.recorded.rpcs.length, 0)
@@ -324,7 +324,7 @@ test('#360: a client nobody promoted from a proposal gets no place', async () =>
   // The 10 records that existed before the form, and every client registered by hand.
   state = freshState({ submissions: [] })
 
-  const outcome = await applyPartnerApprovalEffects(CLIENT_ID, createFakeOperator())
+  const outcome = await provisionPartnerPlace(CLIENT_ID, createFakeOperator())
 
   assert.deepEqual(outcome, { status: 'skipped', reason: 'no_promoted_proposal' })
   assert.equal(state.recorded.rpcs.length, 0)
@@ -334,18 +334,18 @@ test('#360: a failed lookup creates nothing — the guard fails closed', async (
   // Creating on a read that did not answer is how one client ends up with two identical places.
   state = freshState({ lookupFails: true })
 
-  const outcome = await applyPartnerApprovalEffects(CLIENT_ID, createFakeOperator())
+  const outcome = await provisionPartnerPlace(CLIENT_ID, createFakeOperator())
 
   assert.deepEqual(outcome, { status: 'failed', reason: 'lookup_failed', attractionId: null })
   assert.equal(state.recorded.rpcs.length, 0)
 })
 
-test('BR-B2B-010: a place the CMS could not create does not fail the approval', async () => {
+test('BR-B2B-010: a place the CMS could not create does not fail the act', async () => {
   // Approving the partnership is the decision the operator made (item 1) and it already
   // happened. The effect answers with data and never throws, so the route can report it.
   state = freshState({ createFails: true })
 
-  const outcome = await applyPartnerApprovalEffects(CLIENT_ID, createFakeOperator())
+  const outcome = await provisionPartnerPlace(CLIENT_ID, createFakeOperator())
 
   assert.deepEqual(outcome, { status: 'failed', reason: 'create_failed', attractionId: null })
   assert.equal(state.recorded.updates.length, 0, 'nothing was linked to a place that does not exist')
@@ -357,7 +357,7 @@ test('#360: a place created and not linked names itself, because nothing deletes
   // (CLAUDE.md §3), so the residue is reported with the id the operator has to link by hand.
   state = freshState({ linkFails: true })
 
-  const outcome = await applyPartnerApprovalEffects(CLIENT_ID, createFakeOperator())
+  const outcome = await provisionPartnerPlace(CLIENT_ID, createFakeOperator())
 
   assert.deepEqual(outcome, { status: 'failed', reason: 'link_failed', attractionId: ATTRACTION_ID })
 })

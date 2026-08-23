@@ -8,7 +8,6 @@ import { NextRequest, NextResponse } from 'next/server'
 import { getSupabaseRouteHandler } from '@/lib/core/supabase-client'
 import { cookies } from 'next/headers'
 import { ClientService } from '@/lib/services/client-service'
-import { applyPartnerRejectionEffects } from '@/lib/services/partner-approval-effects'
 
 export async function POST(
   request: NextRequest,
@@ -56,8 +55,8 @@ export async function POST(
 
     console.log('✅ Client rejected:', { clientId: rejectedClient.id })
 
-    // App-partner side-effects: push + email the linked app user(s) with the reason.
-    await applyPartnerRejectionEffects(clientId, rejectionReason)
+    // The push and the e-mail with the reason run from the DB trigger
+    // `core.notify_partner_status_change` on `partner.clients`, not from here.
 
     return NextResponse.json({
       success: true,

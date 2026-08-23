@@ -12,14 +12,34 @@
  * minutes old and the operator's tab may have been open all afternoon. A client-side check is a
  * courtesy; this is the gate.
  *
- * IT WRITES ONE COLUMN. `partner_client_id`, and nothing else — not `approved` (BR-B2B-011: the
- * triage is a human decision, and a place that was already approved STAYS approved because
- * linking is not a publication), not `priority_level`, not `is_tuggi_partner` (BR-B2B-010,
- * item 6: same treatment as any POI). Linking is a statement about who the place belongs to.
+ * IT WRITES ONE COLUMN ON THE CATALOGUE. `partner_client_id`, and nothing else — not `approved`
+ * (BR-B2B-011: the triage is a human decision, and a place that was already approved STAYS
+ * approved because linking is not a publication), not `priority_level`, not `is_tuggi_partner`
+ * (BR-B2B-010, item 6: same treatment as any POI). Linking is a statement about who the place
+ * belongs to.
+ *
+ * ─────────────────────────────────────────────────────────────────────────────────────────────
+ * AND IT ADOPTS THE WELCOME POI, because they were never two facts.
+ *
+ * `partner.clients.welcome_poi_id` — the POI that plays when somebody lands on `/d/{slug}` —
+ * was a second, hand-typed pointer at "this partner's POI", and nothing forced the two to
+ * agree. Measured on 2026-08-23: of the 10 clients carrying a `welcome_poi_id`, 10 pointed at a
+ * POI that was NOT the client's linked place. The pipeline read `partner_client_id` and
+ * reported pendencies about an empty row while the real establishment was on air.
+ *
+ * So `partner_client_id` is the fact and `welcome_poi_id` follows it: linking the first place
+ * writes both. It is written only when the column is EMPTY — `.is('welcome_poi_id', null)` —
+ * because BR-B2B-033, item 3, is 1 client : N places, and the second address of the same CNPJ
+ * does not silently take over the welcome page the operator chose.
+ *
+ * The write goes through `service_role`, and it has to: `authenticated` has no `USAGE` on
+ * schema `partner` (`42501`), which is the same defect that made the candidate search fall back
+ * to a full scan. The route is behind `withAuth({ roles: ['admin'] })`.
  */
 
 import { NextResponse } from 'next/server'
 import { withAuth, withRateLimit } from '@/lib/auth-middleware'
+import { getSupabaseService } from '@/lib/core/supabase-client'
 import { logAuditEvent } from '@/lib/services/audit-service'
 import { verdictFor, type LinkCandidate } from '@/lib/partnerships/place-link'
 
@@ -116,6 +136,32 @@ export const POST = withRateLimit(20, 60_000)(
       return NextResponse.json({ error: 'other_owner', place: candidate }, { status: 409 })
     }
 
+    // The welcome POI follows the link — see the header. A failure here does not fail the act:
+    // the place IS linked, and the pipeline reads that column, not this one.
+    let welcomeAdopted = false
+    const { data: clientRow } = await getSupabaseService()
+      .schema('partner')
+      .from('clients')
+      .select('welcome_poi_id')
+      .eq('id', clientId)
+      .maybeSingle()
+
+    if (clientRow && (clientRow as { welcome_poi_id: string | null }).welcome_poi_id === null) {
+      const { data: adopted, error: welcomeError } = await getSupabaseService()
+        .schema('partner')
+        .from('clients')
+        .update({ welcome_poi_id: attractionId })
+        .eq('id', clientId)
+        .is('welcome_poi_id', null)
+        .select('id')
+
+      if (welcomeError) {
+        console.error('[partnerships] welcome poi not adopted:', welcomeError.message)
+      } else {
+        welcomeAdopted = (adopted ?? []).length > 0
+      }
+    }
+
     await logAuditEvent({
       request: req,
       action: 'LINK_PARTNER_PLACE',
@@ -123,9 +169,17 @@ export const POST = withRateLimit(20, 60_000)(
       entityId: attractionId,
       userId: auth.user.id,
       userEmail: auth.user.email ?? null,
-      description: `Existing ${row.entity_kind} ${attractionId} (${row.name}) linked to client ${clientId} as its place, from the partnership pipeline`,
+      description:
+        `Existing ${row.entity_kind} ${attractionId} (${row.name}) linked to client ${clientId} ` +
+        `as its place, from the partnership pipeline` +
+        (welcomeAdopted ? ', and adopted as its welcome POI' : ''),
     })
 
-    return NextResponse.json({ ok: true, linked: true, place: { ...candidate, partnerClientId: clientId } })
+    return NextResponse.json({
+      ok: true,
+      linked: true,
+      welcomeAdopted,
+      place: { ...candidate, partnerClientId: clientId },
+    })
   })
 )

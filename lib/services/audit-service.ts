@@ -53,6 +53,11 @@ export type AuditAction =
   // distinguishes "the operator recognised the existing POI" from "a POI was born here", and
   // the two answer different questions when somebody asks why a partner has two addresses.
   | 'LINK_PARTNER_PLACE'
+  // Which of the client's places greets the tourist on `/d/{slug}`. It is a separate action
+  // from the link because it is a separate question: linking says whose place it is, this says
+  // which one speaks first. Written by hand only when the client has more than one place —
+  // linking the first adopts it — and never again by pasting a UUID into a text field.
+  | 'SET_PARTNER_WELCOME_POI'
   // Apagar um local do catálogo (#409). A linha fica porque o registro não fica: `DELETE` em
   // `core.attractions` propaga para 17 tabelas, e o que sobra de que aquilo existiu é isto.
   // Só chega aqui um local sem visita, sem feedback, sem sessão, sem recusa de triagem e sem

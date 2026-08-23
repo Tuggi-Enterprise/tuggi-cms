@@ -19,7 +19,7 @@
  * here is called only from `withAuth({ roles: ['admin'] })`. `core.attractions` and its
  * children are read with the OPERATOR's client, because an unapproved place is visible through
  * the `CMS admins can read attractions` policy and asking with `service_role` would answer for
- * an identity that is not the one on the screen — the same reasoning `applyPartnerApprovalEffects`
+ * an identity that is not the one on the screen — the same reasoning `provisionPartnerPlace`
  * wrote down for the write side.
  */
 
@@ -103,7 +103,7 @@ const SUBMISSION_COLUMNS =
  */
 const CLIENT_COLUMNS =
   'id, name, company_name, city, state, country, client_type, tax_id, status, approved_at, ' +
-  'created_at, monthly_fee_cents, is_courtesy, courtesy_reason'
+  'created_at, monthly_fee_cents, is_courtesy, courtesy_reason, welcome_poi_id'
 
 interface SubmissionRow {
   id: string
@@ -136,6 +136,14 @@ export interface PipelineClient {
   approvedAt: string | null
   createdAt: string | null
   fee: PartnerFee
+  /**
+   * The POI that plays on `/d/{slug}` — DERIVED from the link since 2026-08-23, not typed.
+   *
+   * It is here so the `Locais` tab can say WHICH of the client's places answers the welcome
+   * page. It used to be a UUID pasted by hand into a second field, and of the 10 clients that
+   * carried one, 10 pointed at a POI that was not the client's place.
+   */
+  welcomePoiId: string | null
 }
 
 export interface PipelineContract {
@@ -716,6 +724,7 @@ function indexClients(
       status: (row.status as string) ?? null,
       approvedAt: (row.approved_at as string) ?? null,
       createdAt: (row.created_at as string) ?? null,
+      welcomePoiId: (row.welcome_poi_id as string) ?? null,
       fee: {
         // `monthly_fee_cents` absent is an incomplete registration and is NOT zero —
         // BR-B2B-017, item 6. `?? null` and never `?? 0`.

@@ -15,7 +15,6 @@ import { NextRequest, NextResponse } from 'next/server'
 import { getSupabaseRouteHandler } from '@/lib/core/supabase-client'
 import { cookies } from 'next/headers'
 import { ClientService } from '@/lib/services/client-service'
-import { applyPartnerApprovalEffects } from '@/lib/services/partner-approval-effects'
 import { logAuditEvent } from '@/lib/services/audit-service'
 
 export async function POST(
@@ -72,32 +71,24 @@ export async function POST(
 
     console.log('✅ Client approved successfully:', { clientId: approvedClient.id })
 
-    // The partner's place, out of the proposal this client was promoted from. The operator's
-    // own client is handed over on purpose: `core.cms_create_place` is gated on the CMS
-    // session's e-mail, and `service_role` does not satisfy that gate.
-    const place = await applyPartnerApprovalEffects(clientId, supabaseAuth)
-
-    if (place.status === 'created') {
-      await logAuditEvent({
-        request,
-        action: 'CREATE_PARTNER_PLACE',
-        // `POI` is what this vocabulary calls a `core.attractions` row (`CREATE_POI`), and a
-        // place is one. A second name for the same entity would split the audit page's answer.
-        entity: 'POI',
-        entityId: place.attractionId,
-        userId: session.user.id,
-        userEmail: session.user.email ?? null,
-        description: `Place ${place.attractionId} created in curation for client ${clientId} on approval (BR-B2B-033)`,
-      })
-    } else if (place.status === 'failed') {
-      console.error('❌ Partner place not provisioned:', { clientId, ...place })
-    }
+    /**
+     * NO PLACE IS CREATED HERE, and the absence is the fix of 2026-08-23.
+     *
+     * Since #360 this route provisioned the place by itself and the catalogue paid for it:
+     * every client it touched already had its establishment published and pinned, and approval
+     * put an empty row beside it — `Faella Bistro` beside `Faella Bistrô`, `Tucas` beside
+     * `Tucas Empório Bistrô`. An automatic act cannot search the catalogue first, and searching
+     * first is the only thing that stops the duplicate.
+     *
+     * The act lives in the `Locais` tab now, behind the search that answers `este lugar já está
+     * no catálogo?` — `provisionPartnerPlace`, reached by
+     * `POST /api/admin/partnerships/clients/{id}/places`.
+     */
 
     return NextResponse.json({
       success: true,
       message: 'Client approved successfully. CMS user created.',
-      client: approvedClient,
-      place
+      client: approvedClient
     })
 
   } catch (error) {

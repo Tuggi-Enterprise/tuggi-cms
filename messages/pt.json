@@ -2294,22 +2294,6 @@
         "unlinkFailed": "Falha ao desvincular usuário do app"
       }
     },
-    "pois": {
-      "section": "POI de referência (Welcome POI)",
-      "help": "POI tocado quando o usuário acessa a página do parceiro (tuggi.app/d/[slug]) — a descrição e o áudio deste POI servem como conteúdo de boas-vindas. Cole o UUID, valide e atribua. As mudanças entram em vigor após o Salvar do modal.",
-      "uuidPlaceholder": "Cole o UUID do POI...",
-      "validate": "Validar",
-      "attach": "Atribuir",
-      "remove": "Remover Welcome POI",
-      "hint": "Dica: copie o ID de um POI na página /pois. Autocomplete por nome chega numa próxima iteração.",
-      "saveFirst": "Salve o cliente primeiro para atribuir um Welcome POI.",
-      "approved": "Aprovado",
-      "pending": "Pendente",
-      "errors": {
-        "notFound": "POI não encontrado (UUID inválido ou inexistente)",
-        "network": "Erro de rede ao buscar POI"
-      }
-    },
     "coupons": {
       "emptyTitle": "Cliente ainda não salvo",
       "emptyHeader": "Cupons",
@@ -3131,7 +3115,9 @@
         "other_owner": "Já é o local de outro cliente."
       },
       "openEditor": "Abrir no editor de POI",
-      "orCreate": "Não achou? Crie um local novo a partir da proposta."
+      "orCreate": "Não achou? Crie um local novo a partir da proposta.",
+      "scopeMissing": "O cadastro deste cliente não diz a cidade, e sem ela a busca varre o catálogo inteiro. Preencha cidade e estado na aba Perfil e volte aqui.",
+      "scopeAllFrom": "Procurando em {state}, fora de {city}."
     },
     "clientPlaces": {
       "title": "Locais que aparecem no app",
@@ -3143,6 +3129,12 @@
       "loading": "Carregando os locais deste cliente…",
       "errorTitle": "Não foi possível carregar os locais deste cliente.",
       "retry": "Tentar de novo"
+    },
+    "welcome": {
+      "badge": "É o POI de boas-vindas. Toca quando o turista abre a página do parceiro.",
+      "choose": "Usar este como boas-vindas",
+      "choosing": "Trocando…",
+      "failed": "Não foi possível trocar agora. Tente de novo."
     }
   }
 }

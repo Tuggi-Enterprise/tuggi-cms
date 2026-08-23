@@ -162,10 +162,12 @@ export function derivePipelineState(input: PipelineInput): PipelineState {
     // THE CONTRACT OUTRANKS A PLACE NOBODY PUBLISHED, and the order is the whole reason the
     // pipeline has three states between the client and the curation instead of one.
     //
-    // Approving the client CREATES the place — `applyPartnerApprovalEffects`, invisible and
-    // `approved = false` — and it happens before anybody generates a contract. Reading
-    // `placeCount > 0` first therefore sent EVERY approved partnership straight to
-    // `place_in_curation`: the two contract states could never be reached, and the next step
+    // Until 2026-08-23 approving the client CREATED the place by itself, `approved = false`
+    // and before anybody generated a contract, so reading `placeCount > 0` first sent EVERY
+    // approved partnership straight to `place_in_curation`. The automatic creation is gone —
+    // it produced a duplicate every time — but the order below stays, because the operator can
+    // link the place on day one just the same: the two contract states would never be reached,
+    // and the next step
     // read `Publicar o local` for a partner with no instrument signed. BR-B2B-026, item 5, puts
     // the term of the agreement at the signature, and BR-B2B-018 starts the fee at the
     // publication — publishing first is billing without a contract behind it.

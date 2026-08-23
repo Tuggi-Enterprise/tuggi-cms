@@ -74,20 +74,30 @@ test('#382 · CLAUDE.md §6: the orphan screen is gone, and so is its only consu
 
 test('#382: the act it duplicated is still there, and still wired to the esteira', () => {
   // NOT a target of this card: the route is the live one, called by the client screen's
-  // `ApprovalHeaderControls`, and it is what fires the effects of the approval (#360).
+  // `ApprovalHeaderControls`.
   const route = 'app/api/admin/clients/[clientId]/approve/route.ts'
   assert.equal(existsSync(resolve(REPO_ROOT, route)), true)
-  assert.match(read(route), /applyPartnerApprovalEffects/)
 
-  assert.equal(existsSync(resolve(REPO_ROOT, 'lib/services/partner-approval-effects.ts')), true)
-  assert.match(read('lib/services/partner-approval-effects.ts'), /export async function applyPartnerApprovalEffects/)
+  // AND IT NO LONGER CREATES A PLACE. Since #360 approving the client created one by itself,
+  // and it produced a duplicate every time: the establishment was already in the catalogue,
+  // published and pinned, and approval put an empty row beside it. An automatic act cannot
+  // search the catalogue first, and searching first is what stops the duplicate.
+  // The comment in the route still NAMES the function, and that is the point — it says where
+  // the act went. What must be absent is the import and the call.
+  assert.equal(read(route).indexOf("from '@/lib/services/partner-place-provisioning'"), -1)
+  assert.doesNotMatch(read(route), /await\s+provisionPartnerPlace\(/)
 
-  // The screen that has the act now, and it reaches the same function — one act, one
-  // implementation, two entry points that cannot diverge (#359, `Criar o local a partir da
-  // proposta`).
+  assert.equal(existsSync(resolve(REPO_ROOT, 'lib/services/partner-approval-effects.ts')), false)
+  assert.match(
+    read('lib/services/partner-place-provisioning.ts'),
+    /export async function provisionPartnerPlace/
+  )
+
+  // The screen that has the act now, and it is the ONLY caller: the operator sees the catalogue
+  // search above the button before deciding (#359, `Criar o local a partir da proposta`).
   assert.match(
     read('app/api/admin/partnerships/clients/[clientId]/places/route.ts'),
-    /applyPartnerApprovalEffects/
+    /provisionPartnerPlace/
   )
 
   // And the caller that keeps the approve route from being an orphan in its turn.

@@ -6,29 +6,45 @@
  * the three clients that used it (see `lib/partnerships/place-link`). The establishment was
  * already in the catalogue, approved and with a pin; the button made an empty row beside it.
  *
- * IT READS WITH THE OPERATOR'S CLIENT and not `service_role`. Unapproved rows are visible
- * through the `CMS admins can read attractions` policy, and asking with `service_role` would
- * answer for an identity that is not the one about to write — the same reasoning
- * `applyPartnerApprovalEffects` wrote down.
- *
  * IT NEVER FILTERS THE REFUSED ONES OUT. A candidate that cannot be linked comes back WITH its
  * reason: an operator searching for `Tucas` and getting nothing would create the duplicate all
  * over again, while `este é um event, o app não serve eventos como local` is an answer they can
  * act on. Deciding is `verdictFor`, and this route does not re-implement it.
  *
- * O RECORTE É A CIDADE DO CLIENTE, e ele é aplicado DEPOIS da busca, de propósito. Filtrar no
- * `WHERE` seria mais barato e deixaria a rota sem saber quantos ficaram de fora — e um recorte
- * que devolve lista vazia sem dizer que existe algo além dela é a mesma armadilha de não ter
- * busca nenhuma. Por que a cidade e não `country`/`state`, e por que por `slug`, está em
- * `lib/partnerships/place-scope`: os dois lados guardam localização em padrões diferentes, e a
- * igualdade nos três campos devolveria zero para 11 dos 16 clientes.
+ * ─────────────────────────────────────────────────────────────────────────────────────────────
+ * THE CLIENT'S CITY IS READ WITH `service_role`, AND THAT IS A DEFECT FIX, NOT A PREFERENCE.
+ *
+ * Until 2026-08-23 this route read `partner.clients` with the operator's client, and the read
+ * failed every single time:
+ *
+ *     ERROR: 42501: permission denied for schema partner
+ *
+ * `authenticated` has no `USAGE` on schema `partner`, and policy `clients_select_safe` compares
+ * `cms_users.id = auth.uid()`, false for all 15 `cms_users` (measured 2026-08-23). The `error`
+ * was discarded, `clientRow` came back `null`, `scopeOf` returned `null`, the scope never
+ * reached the `WHERE` — and the search became a `Seq Scan` over 2,646,466 rows: 64 seconds,
+ * 57014, and `A busca falhou` in the operator's face. Scoped, the same `ILIKE` costs 10 ms.
+ *
+ * The route already sits behind `withAuth({ roles: ['admin'] })`, so the asker is an active
+ * admin; `service_role` here reads ONE field of ONE client the operator already sees on screen.
+ * The CATALOGUE is still read with the operator's own client: unapproved rows are visible
+ * through the `CMS admins can read attractions` policy, and answering for an identity that is
+ * not the one about to write is how a search shows what the link then refuses.
+ *
+ * AND THE SCOPE BECAME MANDATORY. Without `city`/`country` there is no indexable query on this
+ * table under RLS — `texticlike` is not leakproof, so the trigram index is out of reach and
+ * every unscoped `ILIKE` is a scan. The route refuses with `scope_required` instead of taking
+ * the database down: the screen can say the registration is missing its city, and the operator
+ * fixes that in ten seconds.
  */
 
 import { NextResponse } from 'next/server'
 import { withAuth, withRateLimit } from '@/lib/auth-middleware'
+import { getSupabaseService } from '@/lib/core/supabase-client'
 import {
   MIN_SEARCH_LENGTH,
   isSearchable,
+  namePattern,
   verdictFor,
   type LinkCandidate,
 } from '@/lib/partnerships/place-link'
@@ -40,12 +56,12 @@ const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{
 const RESULT_CAP = 20
 
 /**
- * Quantas linhas o banco entrega ANTES do recorte, e é por isso que é mais que `RESULT_CAP`.
+ * How many rows the database hands back BEFORE the final cut, and why it is more than
+ * `RESULT_CAP`.
  *
- * O recorte roda depois da consulta (ver o cabeçalho), então cortar em 20 no `LIMIT` deixaria o
- * único resultado da cidade do parceiro cair fora da página quando 20 homônimos de outros
- * lugares chegam primeiro — a busca responderia `nenhum em Cabo Frio` sobre um bar que está lá.
- * O `ilike` já foi reduzido pelo índice trigram, então pedir o triplo custa quase nada.
+ * The ordering happens in memory over what came back (see the end of the route), so cutting at
+ * 20 in the `LIMIT` would drop the published result off the page whenever 20 namesakes arrive
+ * first. The scope already reduced this to dozens, so asking for triple costs almost nothing.
  */
 const SEARCH_CAP = RESULT_CAP * 3
 
@@ -77,13 +93,19 @@ export const GET = withRateLimit(60, 60_000)(
       return NextResponse.json({ candidates: [], scope: null, minLength: MIN_SEARCH_LENGTH })
     }
 
-    // A cidade do cliente é o recorte. Lida com o client do operador, como o resto da rota.
-    const { data: clientRow } = await auth.supabase
+    // `service_role`, and the reason is in the header: with the operator's client this read
+    // fails on `permission denied for schema partner` and the scope vanishes silently.
+    const { data: clientRow, error: clientError } = await getSupabaseService()
       .schema('partner')
       .from('clients')
       .select('city, country, state')
       .eq('id', clientId)
       .maybeSingle()
+
+    if (clientError) {
+      console.error('[partnerships] client scope lookup failed:', clientError.message)
+      return NextResponse.json({ error: 'scope_unavailable' }, { status: 503 })
+    }
 
     const client = (clientRow ?? null) as {
       city: string | null
@@ -97,29 +119,41 @@ export const GET = withRateLimit(60, 60_000)(
     })
 
     /**
-     * O RECORTE VAI PARA O `WHERE`, e é o que faz esta rota responder — ver o cabeçalho de
-     * `place-scope` para os números. Sem ele, e com o `ORDER BY approved DESC` que estava aqui,
-     * a busca varria 2.646.463 linhas aplicando o `OR` das 12 policies de RLS em cada uma:
-     * 64 segundos, e 57014 na cara do operador.
+     * NO SCOPE, NO SEARCH, and the refusal is deliberate.
      *
-     * SEM `ORDER BY`, DE PROPÓSITO. Ordenar por `approved` dava ao planner a saída de percorrer
-     * `idx_attractions_approved` inteiro em vez de usar `idx_attractions_geo_search`, e ele
-     * pegava a saída. A ordem é decidida depois, sobre as dezenas de linhas que voltam.
+     * `country` is the least `idx_attractions_geo_search (country, state, city)` accepts;
+     * without it the planner only has the scan. Answering `scope_required` tells the operator
+     * what is missing — the city on the client's registration — instead of hanging the screen
+     * for 64 s and answering 503.
+     */
+    if (!scope || !scope.country) {
+      return NextResponse.json(
+        { candidates: [], scope: null, minLength: MIN_SEARCH_LENGTH, error: 'scope_required' },
+        { status: 200 }
+      )
+    }
+
+    /**
+     * THE NAME IS MATCHED AS A REGEX, blind to accent, to case and to punctuation — see
+     * `namePattern`. `ILIKE` compared bytes, so `Faella Bistro` did not find `Faella Bistrô`
+     * and neither did `Faella Bistrô` when the row was written in the other Unicode
+     * normalisation. The operator who cannot find the establishment creates it again.
+     *
+     * The pattern never contains a regex metacharacter or a comma of the operator's own, so
+     * there is nothing to escape for PostgREST's filter grammar either.
      */
     let query = auth.supabase
       .schema('core')
       .from('attractions')
       .select('id, name, city, state, country, entity_kind, approved, partner_client_id')
       .in('entity_kind', ['place', 'poi', 'event'])
-      .ilike('name', `%${term}%`)
+      .imatch('name', namePattern(term))
+      .eq('country', scope.country)
 
-    // Só no modo recortado: `all` é o operador pedindo o catálogo inteiro de propósito, e aí a
-    // lentidão é escolha dele — mas o `LIMIT` continua segurando o custo.
-    if (scope && mode === 'city') {
-      if (scope.country) query = query.eq('country', scope.country)
-      if (scope.state) query = query.eq('state', scope.state)
-      query = query.eq('city', scope.city)
-    }
+    // `all` is the operator deliberately asking beyond the city — and there the scope stays
+    // country and state, which is what keeps the query on the index.
+    if (scope.state) query = query.eq('state', scope.state)
+    if (mode === 'city') query = query.eq('city', scope.city)
 
     const { data, error } = await query.limit(SEARCH_CAP)
 
@@ -129,6 +163,7 @@ export const GET = withRateLimit(60, 60_000)(
     }
 
     const rows = (data ?? []) as CandidateRow[]
+
     const ids = rows.map((row) => row.id)
 
     // One lookup for the whole page, not one per row: the coordinate decides the verdict, and
@@ -160,8 +195,8 @@ export const GET = withRateLimit(60, 60_000)(
       return { ...candidate, verdict: verdictFor(candidate, clientId) }
     })
 
-    // Publicados primeiro, depois por nome — em memória, sobre as dezenas que voltaram. No
-    // `ORDER BY` isto custava a varredura inteira da tabela.
+    // Published first, then by name — in memory, over the dozens that came back. As an
+    // `ORDER BY` this cost the whole table scan.
     const candidates = all
       .slice()
       .sort((left, right) => {
@@ -172,9 +207,9 @@ export const GET = withRateLimit(60, 60_000)(
 
     return NextResponse.json({
       candidates,
-      // A cidade como o CLIENTE a escreveu: é o que a tela mostra, e mostrar o `slug` faria o
-      // operador ler `cabo frio` sobre um cadastro que diz `Cabo Frio`.
-      scope: scope ? scope.city : null,
+      // The city as the CLIENT wrote it: that is what the screen shows, and showing the `slug`
+      // would make the operator read `cabo frio` over a registration that says `Cabo Frio`.
+      scope: scope.city,
       minLength: MIN_SEARCH_LENGTH,
     })
   })

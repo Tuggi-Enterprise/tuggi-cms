@@ -38,6 +38,7 @@ import {
   MIN_SEARCH_LENGTH,
   canLink,
   isSearchable,
+  namePattern,
   verdictFor,
   type LinkCandidate,
 } from '@/lib/partnerships/place-link'
@@ -201,48 +202,85 @@ test('#409 · a busca abre recortada, e um `scope` inválido não vira busca glo
   }
 })
 
-test('#409 · o recorte vai para o `WHERE`, e o `ORDER BY` não volta', () => {
+test('#409 · the scope goes into the `WHERE`, and it is mandatory', () => {
   const search = code('app/api/admin/partnerships/clients/[clientId]/places/candidates/route.ts')
 
-  // Os três campos do `idx_attractions_geo_search (country, state, city)`, e só no modo
-  // recortado: `all` é o operador pedindo o catálogo inteiro de propósito.
-  assert.match(search, /if \(scope && mode === 'city'\)/)
-  assert.match(search, /query\.eq\('country', scope\.country\)/)
+  // The three columns of `idx_attractions_geo_search (country, state, city)`. `city` only in
+  // the scoped mode: `all` is the operator deliberately asking beyond the city, and there the
+  // country and the state are what keep the query on the index.
+  assert.match(search, /\.eq\('country', scope\.country\)/)
   assert.match(search, /query\.eq\('state', scope\.state\)/)
-  assert.match(search, /query\.eq\('city', scope\.city\)/)
+  assert.match(search, /if \(mode === 'city'\) query = query\.eq\('city', scope\.city\)/)
 
-  // O `ORDER BY approved DESC` É O QUE CAUSOU O TIMEOUT: ele deu ao planner a saída de varrer
-  // `idx_attractions_approved` inteiro em vez de usar o índice geo, e ele varreu 2.646.463
-  // linhas aplicando o `OR` de 12 policies de RLS em cada uma. A ordem é decidida em memória,
-  // sobre as dezenas de linhas que voltam.
-  assert.equal(search.indexOf(".order('approved'"), -1, 'ordenar no banco custou 64 segundos')
+  // NO SCOPE, NO SEARCH. An unscoped `ILIKE` on this table under RLS is a `Seq Scan` over
+  // 2.6 M rows — 64 s and 57014 — because `texticlike` is not leakproof and the trigram index
+  // cannot be an index condition below the security quals. The route refuses instead.
+  assert.match(search, /error: 'scope_required'/)
+  assert.match(search, /if \(!scope \|\| !scope\.country\)/)
+
+  // THE `ORDER BY approved DESC` IS WHAT CAUSED THE TIMEOUT: it gave the planner the option of
+  // walking `idx_attractions_approved` end to end instead of the geo index, and it took it. The
+  // order is decided in memory, over the dozens of rows that come back.
+  assert.equal(search.indexOf(".order('approved'"), -1, 'ordering in the database cost 64 seconds')
   assert.equal(search.indexOf(".order('name'"), -1)
   assert.match(search, /\.sort\(\(left, right\) =>/)
 
   assert.match(search, /\.limit\(SEARCH_CAP\)/)
-  // A cidade que a tela mostra é a do CADASTRO, não o `slug`.
-  assert.match(search, /scope: scope \? scope\.city : null/)
+  // The city the screen shows is the one on the REGISTRATION, not the `slug`.
+  assert.match(search, /scope: scope\.city/)
 })
 
-test('#409 · o cadastro do cliente passa a falar o dialeto do catálogo', () => {
-  const promotion = code('lib/partner-form/promotion.ts')
-  // `country` era a constante `BR` e `state` era o campo cru do formulário.
-  assert.match(promotion, /column: 'country', source: \{ kind: 'canonical_country' \}/)
-  assert.match(promotion, /column: 'state', source: \{ kind: 'canonical_state' \}/)
-  assert.match(promotion, /normalizeLocation\('BR', text\(answers\.state\)\)/)
+test('#409 · the client scope is read with `service_role`, because the operator cannot', () => {
+  const search = code('app/api/admin/partnerships/clients/[clientId]/places/candidates/route.ts')
 
-  // `city` fica como veio, e é decisão: `location-normalize` canoniza país e estado, e não tem
-  // um dicionário de municípios do mundo. Inventar um nome oficial que ninguém conferiu é pior
-  // que comparar por `slug`.
-  assert.match(promotion, /column: 'city', source: \{ kind: 'field', field: 'city' \}/)
+  // THE DEFECT, measured on 2026-08-23: `authenticated` has no `USAGE` on schema `partner`
+  // (`42501: permission denied for schema partner`), and `clients_select_safe` compares
+  // `cms_users.id = auth.uid()`, false for all 15 `cms_users`. Reading the client with the
+  // operator's session ALWAYS failed, the error was discarded, and the scope silently vanished
+  // — which is what turned every search into the full scan.
+  const clientRead = search.slice(search.indexOf("from('clients')") - 400, search.indexOf("from('clients')"))
+  assert.match(clientRead, /getSupabaseService\(\)/)
+  assert.equal(clientRead.indexOf('auth.supabase'), -1)
 
-  // E o local criado a partir da proposta grava o mesmo padrão — os dois lados de uma proposta.
-  const prefill = code('lib/partner-form/place-prefill.ts')
-  assert.match(prefill, /normalizeLocation\('BR', text\(answers\.state\)\)/)
-  assert.equal(prefill.indexOf("country: 'BR'"), -1)
+  // And the error is no longer swallowed: a scope that cannot be read is a 503, not a scan.
+  assert.match(search, /if \(clientError\)/)
+  assert.match(search, /error: 'scope_unavailable'/)
 })
 
-// ── The surfaces ─────────────────────────────────────────────────────────────────────────────
+test('#409 · the search is blind to accent, to case and to punctuation', () => {
+  // MEASURED on `Faella Bistrô` (Cabo Frio, `dc93ef2f…`): the stored name is NFD — 14
+  // characters, `o` plus a combining circumflex — and BOTH `ILIKE` spellings failed. The
+  // operator searched for an establishment that was in the catalogue, got nothing, and the only
+  // button left was `Criar um local novo`: the duplicate factory this module exists to close.
+  const stored = 'Faella Bistro\u0302'
+  const composed = 'Faella Bistrô'.normalize('NFC')
+  assert.notEqual(stored, composed, 'the two spellings are different strings')
+
+  // A JS `RegExp` is not the Postgres engine, but the pattern is plain enough that both agree,
+  // and what is asserted here is the SHAPE: every accent optional in both directions.
+  const asRegExp = (term: string) => new RegExp(namePattern(term), 'i')
+
+  for (const typed of ['Faella Bistro', 'faella bistrô', 'FAELLA BISTRÔ', 'Faella  Bistro']) {
+    assert.ok(asRegExp(typed).test(stored), `typing "${typed}" must find the NFD row`)
+    assert.ok(asRegExp(typed).test(composed), `typing "${typed}" must find the NFC row`)
+  }
+
+  // Punctuation is where three people writing the same establishment disagree.
+  assert.ok(asRegExp("Bar do Ze").test('Bar do Zé'))
+  assert.ok(asRegExp("Bar-do-Zé").test('Bar do Ze'))
+
+  // And the pattern carries no metacharacter of the operator's own — nothing to escape for the
+  // regex engine or for PostgREST's filter grammar, where a comma is a separator.
+  const dirty = namePattern("O'Malley, Bar & Grill (2)")
+  assert.equal(dirty.indexOf(','), -1)
+  assert.equal(dirty.indexOf('('), -1)
+  assert.equal(dirty.indexOf('&'), -1)
+  assert.equal(dirty.indexOf('\\'), -1)
+
+  const search = code('app/api/admin/partnerships/clients/[clientId]/places/candidates/route.ts')
+  assert.match(search, /\.imatch\('name', namePattern\(term\)\)/)
+  assert.equal(search.indexOf(".ilike('name'"), -1, 'ILIKE compared bytes, and the bytes differed')
+})
 
 test('#409 · the route is the gate, and the panel is only a courtesy', () => {
   const route = code('app/api/admin/partnerships/clients/[clientId]/places/link/route.ts')
@@ -257,7 +295,16 @@ test('#409 · the route is the gate, and the panel is only a courtesy', () => {
   // on the WRITES and not on the word: the route reads `approved` to build the candidate, and a
   // ruler that cannot tell a read from a write measures the wrong thing.
   const writes = Array.from(route.matchAll(/\.update\((\{[^}]*\})\)/g)).map((match) => match[1])
-  assert.deepEqual(writes, ['{ partner_client_id: clientId }'])
+  assert.deepEqual(writes, ['{ partner_client_id: clientId }', '{ welcome_poi_id: attractionId }'])
+
+  // THE WELCOME POI FOLLOWS THE LINK, and it is the same fact — measured on 2026-08-23, of the
+  // 10 clients carrying a `welcome_poi_id`, 10 pointed at a POI that was NOT the client's
+  // place. It is written only when the column is EMPTY: BR-B2B-033, item 3, is 1 client :
+  // N places, and the second address does not take over the welcome page somebody chose.
+  assert.match(route, /\.is\('welcome_poi_id', null\)/)
+  // Through `service_role`, because `authenticated` has no `USAGE` on schema `partner`.
+  const welcomeWrite = route.slice(route.indexOf("update({ welcome_poi_id") - 300, route.indexOf("update({ welcome_poi_id"))
+  assert.match(welcomeWrite, /getSupabaseService\(\)/)
 
   // The race guard, not decoration: two operators on two tabs would otherwise both pass the
   // check and the second would silently take the place from the first.
@@ -280,10 +327,16 @@ test('#409 · a refused candidate is shown WITH its reason, never filtered out',
   // per keystroke per row.
   assert.match(search, /\.in\('attraction_id', ids\)/)
 
-  // Read with the OPERATOR's client — unapproved rows are visible through the `CMS admins can
-  // read attractions` policy, and `service_role` would answer for another identity.
-  assert.match(search, /auth\.supabase/)
-  assert.equal(search.indexOf('getSupabaseService'), -1)
+  // The CATALOGUE is read with the OPERATOR's client — unapproved rows are visible through the
+  // `CMS admins can read attractions` policy, and `service_role` would answer for another
+  // identity than the one about to write. `service_role` appears in this file for ONE reason,
+  // and it is the client's city: see the scope test above.
+  const catalogueRead = search.slice(
+    search.indexOf("from('attractions')") - 200,
+    search.indexOf("from('attractions')")
+  )
+  assert.match(catalogueRead, /auth\.supabase/)
+  assert.equal(catalogueRead.indexOf('getSupabaseService'), -1)
 })
 
 test('#409 · searching comes BEFORE creating, on both surfaces that offer the act', () => {
@@ -316,4 +369,40 @@ test('#409 · every verdict the panel can render has Portuguese copy', () => {
   for (const locale of ['en', 'es']) {
     assert.equal(read(`messages/${locale}.json`).indexOf('placeLink'), -1)
   }
+})
+
+// ── The welcome POI stopped being a second pointer ───────────────────────────────────────────
+
+test('#409 · the welcome POI is chosen among the client\'s places, never typed', () => {
+  const route = code('app/api/admin/partnerships/clients/[clientId]/places/welcome/route.ts')
+
+  // THE GATE IS THE LINK ITSELF. Everything `verdictFor` refuses — the wrong kind, the missing
+  // coordinate, somebody else's place — was refused when the place was linked, so a row
+  // carrying `partner_client_id = clientId` has already been through it. What replaced this
+  // route was a text field that took a pasted UUID with no check at all, and of the 10 clients
+  // that carried a `welcome_poi_id`, 10 pointed at a POI that was not the client's place — one
+  // of them an `event`, which the app does not serve as a place in any query.
+  assert.match(route, /if \(row\.partner_client_id !== clientId\)/)
+  assert.match(route, /error: 'not_linked'/)
+
+  assert.match(route, /withAuth<\{ clientId: string \}>\(\{ roles: \['admin'\] \}/)
+  assert.match(route, /action: 'SET_PARTNER_WELCOME_POI'/)
+
+  // One write, and it is the pointer. Nothing about the place itself.
+  const writes = Array.from(route.matchAll(/\.update\((\{[^}]*\})\)/g)).map((match) => match[1])
+  assert.deepEqual(writes, ['{ welcome_poi_id: attractionId }'])
+})
+
+test('#409 · the tab offers the choice only where there IS a choice', () => {
+  const tab = code('components/admin/clients/tabs/PlacesTab.tsx')
+
+  // Linking the first place already adopted it (`../places/link`), so a client with one place
+  // never sees the act — a button that changes nothing is a button that lies.
+  assert.match(tab, /canChooseWelcome=\{detail\.places\.length > 1\}/)
+  assert.match(tab, /isWelcome=\{place\.readiness\.place\.attractionId === detail\.client\.welcomePoiId\}/)
+
+  // And the pointer the badge reads is the one the pipeline reads, carried by the same answer.
+  const service = code('lib/services/partnership-service.ts')
+  assert.match(service, /welcomePoiId: \(row\.welcome_poi_id as string\) \?\? null/)
+  assert.match(service, /welcome_poi_id'/)
 })

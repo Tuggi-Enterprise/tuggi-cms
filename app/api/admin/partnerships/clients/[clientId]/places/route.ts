@@ -1,7 +1,7 @@
 /**
  * POST /api/admin/partnerships/clients/{clientId}/places — `Criar o local a partir da proposta`.
  *
- * IT DOES NOT IMPLEMENT ANYTHING. It calls `applyPartnerApprovalEffects`, the same function the
+ * IT DOES NOT IMPLEMENT ANYTHING. It calls `provisionPartnerPlace`, the same function the
  * partner approval runs (#360): the place is created from what the partner wrote in the form
  * (`buildPlacePrefill`) and linked by `core.attractions.partner_client_id`, in the curation
  * state. A second prefill on this path would be the second implementation of one decision, and
@@ -19,7 +19,7 @@
 import { NextResponse } from 'next/server'
 import { withAuth, withRateLimit } from '@/lib/auth-middleware'
 import { logAuditEvent } from '@/lib/services/audit-service'
-import { applyPartnerApprovalEffects } from '@/lib/services/partner-approval-effects'
+import { provisionPartnerPlace } from '@/lib/services/partner-place-provisioning'
 
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
 
@@ -31,7 +31,7 @@ export const POST = withRateLimit(20, 60_000)(
       return NextResponse.json({ error: 'invalid_client_id' }, { status: 400 })
     }
 
-    const outcome = await applyPartnerApprovalEffects(clientId, auth.supabase)
+    const outcome = await provisionPartnerPlace(clientId, auth.supabase)
 
     if (outcome.status === 'failed') {
       console.error('[partnerships] place provisioning failed:', outcome.reason)

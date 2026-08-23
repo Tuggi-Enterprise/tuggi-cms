@@ -1,20 +1,26 @@
 /**
- * Partner approval/rejection side-effects.
+ * Provisioning the partner's place out of the proposal — the MANUAL act, and the word manual is
+ * the whole point.
  *
- * ⚠️ THE NOTIFICATIONS MOVED TO THE DATABASE and they are not coming back. The Pro grant, the
+ * ⚠️ THE NOTIFICATIONS LIVE IN THE DATABASE and they are not coming back. The Pro grant, the
  * push and the e-mail run from DB triggers on `partner.clients` — migration
- * `20260624140300_partner_notifications_db.sql` (`core.notify_partner_status_change`). The DB
- * path is reliable regardless of the CMS runtime env/deploy; the previous Next.js
- * implementation depended on `process.env.SUPABASE_SERVICE_ROLE_KEY` and was not firing (no
- * approval e-mails in Resend, no `notification_logs`). Do NOT re-add the grant/notifications
- * here.
+ * `20260624140300_partner_notifications_db.sql` (`core.notify_partner_status_change`). Do NOT
+ * re-add them here.
  *
- * WHAT DOES LIVE HERE, since #360: approving the client CREATES THE PLACE, already linked by
- * `core.attractions.partner_client_id` and prefilled with what the partner wrote in the form,
- * in the curation state. Before it, the two acts had nothing in common — not the `clientId`,
- * not the insumo — and the measurement in the card is what that costs: of the 6 clients with a
- * `welcome_poi_id`, 3 had zero trigger points and 1 was an `event` that the app's read model
- * does not even carry.
+ * ⚠️ APPROVING THE CLIENT NO LONGER CALLS THIS, and that is the fix of 2026-08-23. Since #360
+ * approval created the place by itself, and every client it touched got a duplicate: the
+ * establishment was already in the catalogue, published and pinned, and approval put an empty
+ * row beside it with no coordinate and no trigger point.
+ *
+ *   BAIRES BISTRO       catalogue → `Baires Bistrô`        approval → `BAIRES BISTRO` (empty)
+ *   Tucas               catalogue → `Tucas Empório Bistrô` approval → `Tucas` (empty)
+ *   CAFETERIA ENCONTROS catalogue → `Cafeteria Encontros`  approval → `CAFETERIA ENCONTROS` (empty)
+ *   Faella Bistrô       catalogue → `Faella Bistrô`        approval → `Faella Bistro` (empty)
+ *
+ * An automatic act cannot search first, and searching first is what stops the duplicate — so
+ * the act moved to where a human is looking at the answer: the `Locais` tab, where the
+ * catalogue search comes BEFORE this button (`PlaceLinkPanel`). Creating is now the exception,
+ * for an establishment the catalogue does not carry yet.
  *
  * THE FOUR THINGS THIS IS NOT, each one a rule and each one visible in the code below:
  *  · it does not APPROVE the place — `core.cms_create_place` inserts `approved = false`, and
@@ -23,8 +29,8 @@
  *    the POI with the description on air, and nothing here writes a description;
  *  · it does not give PROMINENCE — BR-B2B-010, item 6. See `PLACE_PREFILL_NEVER_WRITES`;
  *  · it does not make the client's place UNIQUE — BR-B2B-033, item 3, is 1 client : N places.
- *    The guard below stops THIS AUTOMATIC ACT from running twice, not the operator from
- *    registering the second address of the same CNPJ.
+ *    The guard below stops THIS act from running twice, not the operator from registering the
+ *    second address of the same CNPJ.
  *
  * AND ONE DECISION THAT HAS TO BE DELIBERATE, because a POI can be invisible for two different
  * reasons and they are not interchangeable. The place is born `approved = false` and
@@ -42,10 +48,9 @@ import { buildPlacePrefill } from '@/lib/partner-form/place-prefill'
 import { findPromotedSubmission } from '@/lib/services/partner-proposal-admin-service'
 
 /**
- * What the approval did about the place, as data. The route reports it and never fails on it:
- * approving the partnership is the decision the operator made (BR-B2B-010, item 1), and the
- * place is the convenience that follows. An approval that 500s because a catalogue write
- * failed would leave the operator re-clicking an act that already happened.
+ * What the act did about the place, as data. The route reports it and never throws on it: the
+ * operator asked for a place, and a screen that 500s over a catalogue write leaves them
+ * re-clicking an act that already happened.
  */
 export type PartnerPlaceOutcome =
   | { status: 'created'; attractionId: string }
@@ -82,7 +87,9 @@ async function findLinkedPlace(
 }
 
 /**
- * Creates the partner's place out of the proposal that was promoted into this client.
+ * Creates the partner's place out of the proposal that was promoted into this client. Called by
+ * ONE route — `POST /api/admin/partnerships/clients/{id}/places`, the button behind the
+ * catalogue search.
  *
  * `operator` is the route handler's client, carrying the admin's session — see the note on
  * `place-service.ts`: `core.cms_create_place` is gated on `is_active_cms_editor_or_admin()`,
@@ -96,7 +103,7 @@ async function findLinkedPlace(
  * the `attractionId` and the operator links it by hand. The guard above then sees no link and
  * a retry would create a SECOND place; that is why `link_failed` names the place it created.
  */
-export async function applyPartnerApprovalEffects(
+export async function provisionPartnerPlace(
   clientId: string,
   operator: SupabaseClient
 ): Promise<PartnerPlaceOutcome> {
@@ -133,11 +140,4 @@ export async function applyPartnerApprovalEffects(
   }
 
   return { status: 'created', attractionId }
-}
-
-export async function applyPartnerRejectionEffects(
-  _clientId: string,
-  _reason: string
-): Promise<void> {
-  // no-op — handled by core.notify_partner_status_change (DB trigger)
 }

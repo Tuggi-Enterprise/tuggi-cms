@@ -770,7 +770,7 @@ function PlaceBand({
         <p className="mt-4 text-xs text-gray-700">{t('placeLink.orCreate')}</p>
         <div className="mt-2 flex flex-wrap items-center gap-3">
           {/* Creating the place from the proposal is the SAME act the partner approval runs
-              (#360, `applyPartnerApprovalEffects`): prefilled from what the partner wrote and
+              (`provisionPartnerPlace`): prefilled from what the partner wrote and
               linked by `partner_client_id`. Not a second implementation of the prefill. */}
           <Button
             type="button"
