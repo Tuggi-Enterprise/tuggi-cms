@@ -38,6 +38,7 @@ import {
 } from '@/lib/partner-form/proposal-review'
 import type { ConferenceRecord } from '@/lib/partner-form/regularity'
 import { seedConferenceFromProposal } from '@/lib/services/client-conference-service'
+import { DEFAULT_COMMISSION_RATE } from '@/types/clients'
 import { normalizedTaxId } from '@/lib/partner-form/tax-id-key'
 import { cnpjLookupValues } from '@/lib/validation/cnpj'
 import type { ClientType } from '@/types/clients'
@@ -505,7 +506,8 @@ type ClientWriteOutcome =
 
 /**
  * THE TIER THE ESTABLISHMENT CHOSE IS A DECISION, NOT A REQUEST — and this is where it stops
- * being typed a second time.
+ * being typed a second time, AND where the promoted client stops entering through a different
+ * door than the one the admin form uses.
  *
  * `plan_choice = map_only` is the free tier of BR-B2B-016, item 1: the app says the name and
  * nothing else, and nobody is charged. There is nothing left to price, so a promotion that
@@ -518,11 +520,18 @@ type ClientWriteOutcome =
  * `0.200` while `DEFAULT_COMMISSION_RATE` in `types/clients.ts` is `0.1`, so a client born from
  * a proposal and a client born from the admin form did not get the same percentage.
  *
- * `map_and_description` writes NOTHING here: the paid tier has a value per client (BR-B2B-017,
- * items 2 and 4), and that one really is the operator's, cliente a cliente.
+ * `map_and_description` gets the STARTING percentage and nothing else: the monthly value is per
+ * client (BR-B2B-017, items 2 and 4) and really is the operator's, cliente a cliente — but the
+ * percentage a registration starts at was decided once, on 2026-08-18, and lives in
+ * `DEFAULT_COMMISSION_RATE`. Sending it here is what lets `partner.clients.commission_rate` drop
+ * its own `DEFAULT 0.200` (migration `20260823180000`): a column default is a second home for a
+ * number that has one, and it was already disagreeing — 9 of 28 clients carry `0.200` that
+ * nobody chose, all of them promoted from a proposal.
  */
 function commercialTermsOfChoice(answers: PartnerAnswers): Record<string, unknown> {
-  return answers.plan_choice === 'map_only' ? { commission_rate: 0, monthly_fee_cents: null } : {}
+  return answers.plan_choice === 'map_only'
+    ? { commission_rate: 0, monthly_fee_cents: null }
+    : { commission_rate: DEFAULT_COMMISSION_RATE }
 }
 
 async function writeClient(command: PromotionCommand): Promise<ClientWriteOutcome> {

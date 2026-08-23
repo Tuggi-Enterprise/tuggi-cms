@@ -271,6 +271,18 @@ test('#409 · a promoção grava o percentual zero da faixa grátis, e não deix
   assert.match(source, /commission_rate: 0/)
   assert.match(source, /commercialTermsOfChoice\(command\.answers\)/)
 
-  // E a faixa paga não é escrita aqui: o valor é por cliente, e é do operador.
-  assert.match(source, /: \{\}/)
+  // E AS DUAS PORTAS MANDAM O MESMO VALOR DE PARTIDA. A faixa paga recebe
+  // `DEFAULT_COMMISSION_RATE` — decidido em 2026-08-18, num lugar só —, e é isso que permite à
+  // coluna largar o `DEFAULT 0.200` que discordava dele: 9 dos 28 clientes carregam `0.200` que
+  // ninguém escolheu, todos promovidos de proposta.
+  assert.match(source, /commission_rate: DEFAULT_COMMISSION_RATE/)
+  assert.match(source, /from '@\/types\/clients'/)
+
+  // A MENSALIDADE continua sendo do operador, cliente a cliente (BR-B2B-017, itens 2 e 4): a
+  // faixa paga não ganha valor aqui.
+  const helper = source.slice(
+    source.indexOf('function commercialTermsOfChoice'),
+    source.indexOf('function commercialTermsOfChoice') + 400
+  )
+  assert.equal(helper.indexOf('monthly_fee_cents: 1'), -1)
 })
