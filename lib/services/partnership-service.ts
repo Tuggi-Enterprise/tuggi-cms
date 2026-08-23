@@ -453,8 +453,34 @@ export interface PartnershipDetail {
     conference: ConferenceRecord
   } | null
   places: PartnershipPlace[]
+  /**
+   * THE POINTER THAT DISAGREES WITH THE LINK, when there is one.
+   *
+   * `partner.clients.welcome_poi_id` and `core.attractions.partner_client_id` were two
+   * independent ways to say "this partner's POI", and measured on 2026-08-23 the two disagreed
+   * for 10 of the 10 clients that carried a welcome POI. `Garota Beer` is the shape of it: the
+   * welcome POI points at a real, published establishment, `partner_client_id` points nowhere,
+   * and band 4 reads `este cliente ainda não tem local vinculado` over a partner that HAS one.
+   *
+   * `null` when the two agree — the ordinary case from now on, since linking adopts the welcome
+   * POI. When it is filled, the screen shows the POI and offers the act that ends the
+   * divergence, instead of an empty state that is not true.
+   */
+  welcomeDivergence: WelcomeDivergence | null
   /** The same facts the queue column reads, so the header and the row cannot disagree. */
   triage: TriageFacts
+}
+
+/** The welcome POI of a client that is not among that client's places. */
+export interface WelcomeDivergence {
+  attractionId: string
+  name: string
+  city: string | null
+  country: string | null
+  entityKind: string
+  approved: boolean
+  /** `partner_client_id` of the POI — another client's, when it is not null. */
+  partnerClientId: string | null
 }
 
 export async function loadPartnershipDetail(
@@ -525,7 +551,63 @@ export async function loadPartnershipDetail(
       publishedBy: trail.get(item.place.attractionId) ?? null,
       refusal: refusals.get(item.place.attractionId) ?? null,
     })),
+    welcomeDivergence: await loadWelcomeDivergence(
+      client.welcomePoiId,
+      attractionIds,
+      operator
+    ),
     triage: { approvedAt: client.approvedAt, places: outcomes },
+  }
+}
+
+/**
+ * The welcome POI, but only when it is NOT one of the client's places.
+ *
+ * Reading it costs one query and only when the two pointers disagree, which after 2026-08-23 is
+ * a backlog and not a state anybody can create: linking adopts the welcome POI, and the welcome
+ * POI can only be chosen among the places.
+ *
+ * Read with the OPERATOR's client, like the places beside it: an unapproved row is visible
+ * through `CMS admins can read attractions`, and answering for another identity would show a
+ * POI the operator cannot then act on.
+ */
+async function loadWelcomeDivergence(
+  welcomePoiId: string | null,
+  linkedAttractionIds: string[],
+  operator: SupabaseClient
+): Promise<WelcomeDivergence | null> {
+  if (!welcomePoiId) return null
+  if (linkedAttractionIds.indexOf(welcomePoiId) >= 0) return null
+
+  const { data, error } = await operator
+    .schema('core')
+    .from('attractions')
+    .select('id, name, city, country, entity_kind, approved, partner_client_id')
+    .eq('id', welcomePoiId)
+    .maybeSingle()
+
+  // A pointer at a row nobody can read is not a divergence the screen can help with — it is a
+  // dangling id, and inventing a name for it would be worse than saying nothing.
+  if (error || !data) return null
+
+  const row = data as {
+    id: string
+    name: string
+    city: string | null
+    country: string | null
+    entity_kind: string
+    approved: boolean | null
+    partner_client_id: string | null
+  }
+
+  return {
+    attractionId: row.id,
+    name: row.name,
+    city: row.city,
+    country: row.country,
+    entityKind: row.entity_kind,
+    approved: row.approved === true,
+    partnerClientId: row.partner_client_id,
   }
 }
 

@@ -311,6 +311,7 @@ export function detailInCuration(): PartnershipDetail {
     places: [partnerPlace(facts, fee)],
     // The same facts the queue row carries, so the header clock and the column agree — the
     // detail derives it from `approved_at` and the places, exactly as the service does (#377).
+    welcomeDivergence: null,
     triage: { approvedAt: '2026-08-14T13:00:00.000Z', places: [{ attractionId: 'place-1', published: false, refusal: null }] },
   }
 }
@@ -368,6 +369,7 @@ export function detailReadyToPublish(): PartnershipDetail {
     places: [partnerPlace(facts, fee)],
     // The same facts the queue row carries, so the header clock and the column agree — the
     // detail derives it from `approved_at` and the places, exactly as the service does (#377).
+    welcomeDivergence: null,
     triage: { approvedAt: '2026-08-14T13:00:00.000Z', places: [{ attractionId: 'place-2', published: false, refusal: null }] },
   }
 }

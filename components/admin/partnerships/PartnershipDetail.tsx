@@ -34,6 +34,7 @@ import { returnParams } from '@/lib/navigation/return-to'
 import type { PartnershipDetail as Detail, PartnershipPlace } from '@/lib/services/partnership-service'
 import { PendencyList } from './PendencyList'
 import { PlaceLinkPanel } from './PlaceLinkPanel'
+import { WelcomeDivergenceCard } from './WelcomeDivergenceCard'
 import { PublishPanel, UnpublishPanel } from './PublishPanel'
 import { CommunicationPanel, RefusalPanel, RefusalSummary, type RefusalOutcome } from './TriageRefusalPanel'
 import { triageDeadlineText, triageText } from './triage-text'
@@ -757,6 +758,18 @@ function PlaceBand({
       <div className="text-sm">
         <p className="font-semibold text-gray-900">{t('pendencies.emptyTitle')}</p>
         <p className="mt-1 text-gray-800">{t('pendencies.emptyBody')}</p>
+
+        {/* AND IT COMES FIRST WHEN IT EXISTS, above the search: telling an operator to look for
+            an establishment the client ALREADY points at is how the duplicate is born. */}
+        {detail.welcomeDivergence && (
+          <div className="mt-4">
+            <WelcomeDivergenceCard
+              clientId={detail.client.id}
+              divergence={detail.welcomeDivergence}
+              onLinked={reload}
+            />
+          </div>
+        )}
 
         {/* LINKING NOW HAS A WRITER (#409), and it goes FIRST. What stood here was a link to
             `/places` under a comment saying this act had no surface in the CMS — a round trip

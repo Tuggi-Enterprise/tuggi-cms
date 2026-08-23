@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { getSupabaseRouteHandler } from '@/lib/core/supabase-client'
 import { RouteService } from '@/lib/services/route-service'
 import { cookies } from 'next/headers'
+import { namePattern } from '@/lib/shared/name-search'
 
 /**
  * GET /api/routes
@@ -83,7 +84,7 @@ export async function GET(request: NextRequest) {
     }
 
     if (search) {
-      query = query.ilike('name', `%${search}%`)
+      query = query.imatch('name', namePattern(search))
     }
 
     if (status === 'active') {

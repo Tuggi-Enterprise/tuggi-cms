@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getSupabase } from '../../../../lib/core/supabase-client'
 import { memoryCache } from '@/lib/cache/memory-cache'
+import { nameMatchFilter } from '@/lib/shared/name-search'
 
 const supabase = getSupabase('service')
 
@@ -87,7 +88,7 @@ export async function GET(request: NextRequest) {
       
       // Apply same filters as search endpoint
       if (search) {
-        baseQuery = baseQuery.or(`name.ilike.%${search}%,city.ilike.%${search}%,country.ilike.%${search}%`)
+        baseQuery = baseQuery.or(nameMatchFilter(['name', 'city', 'country'], search))
       }
       
       if (status !== 'all') {

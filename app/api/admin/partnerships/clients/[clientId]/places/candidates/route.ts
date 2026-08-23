@@ -44,10 +44,10 @@ import { getSupabaseService } from '@/lib/core/supabase-client'
 import {
   MIN_SEARCH_LENGTH,
   isSearchable,
-  namePattern,
   verdictFor,
   type LinkCandidate,
 } from '@/lib/partnerships/place-link'
+import { namePattern } from '@/lib/shared/name-search'
 import { DEFAULT_SCOPE, isScopeMode, scopeOf } from '@/lib/partnerships/place-scope'
 
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i

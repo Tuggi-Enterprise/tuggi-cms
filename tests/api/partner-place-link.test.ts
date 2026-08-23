@@ -38,7 +38,6 @@ import {
   MIN_SEARCH_LENGTH,
   canLink,
   isSearchable,
-  namePattern,
   verdictFor,
   type LinkCandidate,
 } from '@/lib/partnerships/place-link'
@@ -247,37 +246,11 @@ test('#409 · the client scope is read with `service_role`, because the operator
   assert.match(search, /error: 'scope_unavailable'/)
 })
 
-test('#409 · the search is blind to accent, to case and to punctuation', () => {
-  // MEASURED on `Faella Bistrô` (Cabo Frio, `dc93ef2f…`): the stored name is NFD — 14
-  // characters, `o` plus a combining circumflex — and BOTH `ILIKE` spellings failed. The
-  // operator searched for an establishment that was in the catalogue, got nothing, and the only
-  // button left was `Criar um local novo`: the duplicate factory this module exists to close.
-  const stored = 'Faella Bistro\u0302'
-  const composed = 'Faella Bistrô'.normalize('NFC')
-  assert.notEqual(stored, composed, 'the two spellings are different strings')
-
-  // A JS `RegExp` is not the Postgres engine, but the pattern is plain enough that both agree,
-  // and what is asserted here is the SHAPE: every accent optional in both directions.
-  const asRegExp = (term: string) => new RegExp(namePattern(term), 'i')
-
-  for (const typed of ['Faella Bistro', 'faella bistrô', 'FAELLA BISTRÔ', 'Faella  Bistro']) {
-    assert.ok(asRegExp(typed).test(stored), `typing "${typed}" must find the NFD row`)
-    assert.ok(asRegExp(typed).test(composed), `typing "${typed}" must find the NFC row`)
-  }
-
-  // Punctuation is where three people writing the same establishment disagree.
-  assert.ok(asRegExp("Bar do Ze").test('Bar do Zé'))
-  assert.ok(asRegExp("Bar-do-Zé").test('Bar do Ze'))
-
-  // And the pattern carries no metacharacter of the operator's own — nothing to escape for the
-  // regex engine or for PostgREST's filter grammar, where a comma is a separator.
-  const dirty = namePattern("O'Malley, Bar & Grill (2)")
-  assert.equal(dirty.indexOf(','), -1)
-  assert.equal(dirty.indexOf('('), -1)
-  assert.equal(dirty.indexOf('&'), -1)
-  assert.equal(dirty.indexOf('\\'), -1)
-
+test('#409 · the candidate search uses the shared name matcher', () => {
+  // The rule itself — accent, case and punctuation — lives in `lib/shared/name-search` and is
+  // proven by `tests/api/name-search.test.ts`, because every search in the CMS shares it.
   const search = code('app/api/admin/partnerships/clients/[clientId]/places/candidates/route.ts')
+  assert.match(search, /from '@\/lib\/shared\/name-search'/)
   assert.match(search, /\.imatch\('name', namePattern\(term\)\)/)
   assert.equal(search.indexOf(".ilike('name'"), -1, 'ILIKE compared bytes, and the bytes differed')
 })
@@ -405,4 +378,53 @@ test('#409 · the tab offers the choice only where there IS a choice', () => {
   const service = code('lib/services/partnership-service.ts')
   assert.match(service, /welcomePoiId: \(row\.welcome_poi_id as string\) \?\? null/)
   assert.match(service, /welcome_poi_id'/)
+})
+
+// ── The partner that HAS a POI and whose screen said it had none ─────────────────────────────
+
+test('#409 · a welcome POI that is not the client\'s place is shown, not hidden', () => {
+  const service = code('lib/services/partnership-service.ts')
+
+  // MEASURED on 2026-08-23: of the 10 clients carrying a `welcome_poi_id`, 10 pointed at a POI
+  // that was NOT the client's place. `Garota Beer` points at a published establishment with a
+  // pin while `partner_client_id` points nowhere, and band 4 read `este cliente ainda não tem
+  // local vinculado` over a partner that has one on air — with `Criar um local novo` as the
+  // next move, which is how the duplicate is born.
+  assert.match(service, /welcomeDivergence: await loadWelcomeDivergence\(/)
+
+  // Only when the two POINTERS DISAGREE: the query costs nothing in the ordinary case, and a
+  // divergence card over a client whose welcome POI IS its place would be noise.
+  assert.match(service, /if \(linkedAttractionIds\.indexOf\(welcomePoiId\) >= 0\) return null/)
+  assert.match(service, /if \(!welcomePoiId\) return null/)
+
+  // A dangling id is not a divergence the screen can help with.
+  assert.match(service, /if \(error \|\| !data\) return null/)
+})
+
+test('#409 · the divergence card writes nothing itself, it uses the link route', () => {
+  const card = code('components/admin/partnerships/WelcomeDivergenceCard.tsx')
+
+  // The same gate as the search: `verdictFor` refuses an event, a POI with no coordinate and
+  // somebody else's place, and the route adopts the welcome POI in the same act. A card that
+  // wrote `partner_client_id` on its own would be the second implementation of the link.
+  assert.match(card, /places\/link/)
+  assert.match(card, /method: 'POST'/)
+  assert.equal(card.indexOf('partner_client_id'), -1)
+  assert.equal(card.indexOf('welcome_poi_id'), -1)
+
+  // It answers WITH the reason, because the reasons need different acts from the operator: an
+  // `event` is not fixed by clicking again, and a missing pin is fixed in the POI editor.
+  assert.match(card, /refused\.\$\{refusal\}/)
+
+  // And it renders where the empty state is, on BOTH surfaces that offer the act.
+  for (const surface of [
+    'components/admin/partnerships/PartnershipDetail.tsx',
+    'components/admin/clients/tabs/PlacesTab.tsx',
+  ]) {
+    const source = code(surface)
+    assert.match(source, /<WelcomeDivergenceCard/, `${surface} must show the divergence`)
+    const card_ = source.indexOf('<WelcomeDivergenceCard')
+    const panel = source.indexOf('<PlaceLinkPanel')
+    assert.ok(card_ >= 0 && panel >= 0 && card_ < panel, `${surface}: the POI it already has comes first`)
+  }
 })

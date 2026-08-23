@@ -11,6 +11,7 @@ import { getSupabaseRouteHandler } from '@/lib/core/supabase-client'
 import { cookies } from 'next/headers'
 import { getSupabase } from '@/lib/core/supabase-client'
 import { callerIsCoordinator } from '@/lib/services/coordinator-service'
+import { nameMatchFilter } from '@/lib/shared/name-search'
 
 const supabaseService = getSupabase('service')
 
@@ -121,7 +122,7 @@ export async function GET(request: NextRequest) {
 
     // Filter by search term
     if (search) {
-      query = query.or(`name.ilike.%${search}%,city.ilike.%${search}%`)
+      query = query.or(nameMatchFilter(['name', 'city'], search))
     }
 
     // Filter by approval status

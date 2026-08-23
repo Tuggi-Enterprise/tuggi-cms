@@ -12,6 +12,7 @@ import { cookies } from 'next/headers'
 import { randomUUID } from 'crypto'
 
 import { getSupabaseService } from '@/lib/core/supabase-client'
+import { nameMatchFilter } from '@/lib/shared/name-search'
 
 export async function GET(request: NextRequest) {
   try {
@@ -66,7 +67,7 @@ export async function GET(request: NextRequest) {
 
     // Filter by search (email or full_name)
     if (search) {
-      query = query.or(`email.ilike.%${search}%,full_name.ilike.%${search}%`)
+      query = query.or(nameMatchFilter(['email', 'full_name'], search))
     }
 
     // Apply sorting and pagination

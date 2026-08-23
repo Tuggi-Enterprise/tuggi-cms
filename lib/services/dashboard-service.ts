@@ -15,6 +15,7 @@
  */
 
 import { getSupabaseClient } from '@/lib/core/supabase-client'
+import { nameMatchFilter } from '@/lib/shared/name-search'
 
 // ============================================================================
 // TRANSPORTE
@@ -659,12 +660,15 @@ class DashboardService {
     if (!query) return this.getProfiles(limit)
     try {
       const supabase = getSupabaseClient()
-      const escaped = query.replace(/[%_,]/g, (c) => `\\${c}`)
+      // NOTHING TO ESCAPE ANY MORE. This escaped `%`, `_` and `,` because the term went into a
+      // `LIKE` pattern and into PostgREST's `or` grammar raw. `nameMatchFilter` builds a regex
+      // in which every character that is not a letter or a digit becomes a hole, so a `%` the
+      // operator typed is data, not syntax — and escaping it would make the backslash data.
       const { data, error } = await supabase
         .schema('drive')
         .from('profiles')
         .select('id, full_name, nickname, avatar_url, country, language, last_sign_in_at, login_count, created_at, last_platform, subscription_tier_id')
-        .or(`nickname.ilike.%${escaped}%,full_name.ilike.%${escaped}%`)
+        .or(nameMatchFilter(['nickname', 'full_name'], query))
         .order('last_sign_in_at', { ascending: false, nullsFirst: false })
         .limit(limit)
 

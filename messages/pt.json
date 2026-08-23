@@ -3135,6 +3135,21 @@
       "choose": "Usar este como boas-vindas",
       "choosing": "Trocando…",
       "failed": "Não foi possível trocar agora. Tente de novo."
+    },
+    "welcomeDivergence": {
+      "title": "Este cliente já aponta para um POI.",
+      "body": "O POI de boas-vindas dele não está vinculado como local. Vincular resolve os dois de uma vez, e é o mesmo ato da busca acima.",
+      "action": "Vincular este POI",
+      "linking": "Vinculando…",
+      "open": "Abrir no editor de POI",
+      "refused": {
+        "wrong_kind": "É um evento. O app não serve evento como local de parceiro — procure o estabelecimento acima.",
+        "no_coordinate": "Sem ponto no mapa. Marque o ponto no editor de POI e vincule depois.",
+        "other_owner": "Já é o local de outro cliente. Um endereço não pode ter dois parceiros.",
+        "not_found": "O POI apontado não existe mais.",
+        "lookup_failed": "Não foi possível ler o POI agora. Tente de novo.",
+        "link_failed": "Não foi possível vincular agora. Tente de novo."
+      }
     }
   }
 }

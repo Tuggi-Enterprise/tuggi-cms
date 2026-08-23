@@ -9,6 +9,7 @@
  */
 
 import { getSupabaseClient } from '@/lib/core/supabase-client'
+import { nameMatchFilter } from '@/lib/shared/name-search'
 
 export interface MapPOI {
   id: string
@@ -168,7 +169,7 @@ async function getMapPOICount(filters: MapSearchFilters): Promise<number> {
     query = query.eq('approved', filters.status === 'approved')
   }
   if (filters.search) {
-    query = query.or(`name.ilike.%${filters.search}%,city.ilike.%${filters.search}%,country.ilike.%${filters.search}%`)
+    query = query.or(nameMatchFilter(['name', 'city', 'country'], filters.search))
   }
   if (filters.isActiveFilter && filters.isActiveFilter !== 'all') {
     query = query.eq('is_active', filters.isActiveFilter === 'active')

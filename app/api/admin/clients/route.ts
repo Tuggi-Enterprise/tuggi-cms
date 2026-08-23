@@ -14,6 +14,7 @@ import { getSupabaseService } from '@/lib/core/supabase-client'
 import { validateAvatarUrl } from '@/lib/services/client-editable-fields'
 import { describeClientUniqueViolation } from '@/lib/services/client-unique-conflicts'
 import { DEFAULT_CLIENT_TYPE, DEFAULT_COMMISSION_RATE, isRegistrableClientType } from '@/types/clients'
+import { nameMatchFilter } from '@/lib/shared/name-search'
 
 export async function GET(request: NextRequest) {
   try {
@@ -63,7 +64,7 @@ export async function GET(request: NextRequest) {
 
     // Filter by search (name or email)
     if (search) {
-      query = query.or(`name.ilike.%${search}%,email.ilike.%${search}%,company_name.ilike.%${search}%`)
+      query = query.or(nameMatchFilter(['name', 'email', 'company_name'], search))
     }
 
     // Apply sorting, pagination

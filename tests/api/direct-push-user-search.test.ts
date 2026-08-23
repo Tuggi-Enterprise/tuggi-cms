@@ -16,6 +16,7 @@ import { test, before, after, beforeEach } from 'node:test'
 import assert from 'node:assert/strict'
 import { createServer, type Server } from 'node:http'
 import { createClient, type SupabaseClient } from '@supabase/supabase-js'
+import { namePattern } from '@/lib/shared/name-search'
 
 interface RecordedRequest {
   path: string
@@ -92,8 +93,11 @@ test('searchProfiles manda o termo ao banco, em nickname e full_name', async () 
 
   const or = request.params.get('or')
   assert.ok(or, 'a busca precisa virar filtro na query, não filtro no cliente')
-  assert.ok(or!.includes('nickname.ilike.%AdventurerCurious2772%'), or!)
-  assert.ok(or!.includes('full_name.ilike.%AdventurerCurious2772%'), or!)
+  // `imatch` e não `ilike` desde 2026-08-23: a régua é `lib/shared/name-search`, e ela é a mesma
+  // das outras sete telas de busca — `tests/api/name-search.test.ts` é quem prova a regra.
+  assert.ok(or!.includes('nickname.imatch.'), or!)
+  assert.ok(or!.includes('full_name.imatch.'), or!)
+  assert.ok(or!.includes(namePattern('AdventurerCurious2772')), or!)
   assert.equal(request.params.get('limit'), '50')
 
   assert.equal(result.success, true)
@@ -109,11 +113,17 @@ test('busca vazia mantém a janela de logins recentes, sem filtro', async () => 
   assert.equal(request.params.get('order'), 'last_sign_in_at.desc.nullslast')
 })
 
-// Controle anti-vacuidade: um caractere de wildcard no termo não pode virar
-// wildcard no filtro, senão a busca por `100%` casa com a base inteira.
-test('% e _ do termo são escapados', async () => {
+// Controle anti-vacuidade: um caractere de wildcard no termo não pode virar wildcard no filtro,
+// senão a busca por `100%` casa com a base inteira. O escape saiu junto com o `LIKE`: no padrão
+// de `namePattern`, tudo que não é letra nem dígito vira um buraco de no máximo três caracteres,
+// então o `%` digitado é dado e não sintaxe — nem do regex, nem do `or` do PostgREST.
+test('wildcard digitado não vira wildcard no filtro', async () => {
   await dashboardService.searchProfiles('100%_x', 50)
 
   const or = onlyRequest().params.get('or')!
-  assert.ok(or.includes('100\\%\\_x'), or)
+  assert.equal(or.indexOf('%'), -1, or)
+  assert.equal(or.indexOf('\\\\'), -1, or)
+  assert.ok(or.includes('100.?.?.?x'), or)
+  // E continua sendo uma busca, não um curinga: duas condições, uma por coluna.
+  assert.equal(or.split(',').length, 2, or)
 })

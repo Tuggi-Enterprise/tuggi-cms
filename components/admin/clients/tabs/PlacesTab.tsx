@@ -41,6 +41,7 @@ import ptMessages from '@/messages/pt.json'
 import { Button } from '@/components/ui/button'
 import { SectionHeader } from '@/components/admin/clients/shared/SectionHeader'
 import { PlaceLinkPanel } from '@/components/admin/partnerships/PlaceLinkPanel'
+import { WelcomeDivergenceCard } from '@/components/admin/partnerships/WelcomeDivergenceCard'
 import { PendencyList } from '@/components/admin/partnerships/PendencyList'
 import { returnParams } from '@/lib/navigation/return-to'
 import type { PendencyId } from '@/lib/partnerships/place-readiness'
@@ -182,6 +183,17 @@ function PartnerPlaces({ clientId, locale }: { clientId?: string; locale: string
             <p role="alert" className="mt-3 text-gray-900 dark:text-white">
               {t('clientPlaces.createFailed')}
             </p>
+          )}
+
+          {/* The client that already points at a POI, above the search — see the card. */}
+          {detail.welcomeDivergence && (
+            <div className="mt-4">
+              <WelcomeDivergenceCard
+                clientId={clientId}
+                divergence={detail.welcomeDivergence}
+                onLinked={load}
+              />
+            </div>
           )}
           {/* SEARCH BEFORE CREATE, and the order is the fix: three of three clients who used
               the create button ended up with an empty second row beside the establishment
