@@ -29,18 +29,26 @@
  * locale, `Partnerships` overlaid in Portuguese by the tab's own provider.
  */
 
-import { useMemo } from 'react'
+import { useMemo, useState } from 'react'
 import { useTranslations } from 'next-intl'
 import Link from 'next/link'
+import { ChevronLeft, ChevronRight } from 'lucide-react'
 import { Button } from '@/components/ui/button'
-import { DirectoryFilterRail } from '@/components/admin/clients/DirectoryFilterRail'
+import {
+  DirectoryFilterRail,
+  DirectoryFilterSheet,
+} from '@/components/admin/clients/DirectoryFilterRail'
 import { formatDate } from '@/components/admin/partner-proposals/format'
-import { idleFor, placeLine, rowKey, whatIsMissing } from '@/components/admin/clients/board/row-text'
+import { idleFor, placeLine, planLine, rowKey, whatIsMissing } from '@/components/admin/clients/board/row-text'
+import { derivePartnerPlan, paymentStance } from '@/lib/clients/partner-plan'
+import { PaymentStanceBadge } from '@/components/admin/clients/shared/PaymentStanceBadge'
 import { deriveTriageStatus, type TriageStatus } from '@/lib/partnerships/triage'
 import { triageDeadlineText, triageText } from '@/components/admin/partnerships/triage-text'
 import {
   EMPTY_FILTERS,
+  applyFilters,
   buildDirectoryView,
+  pageWindow,
   inProgressCount,
   overdueCount,
   type DirectoryFilters,
@@ -49,6 +57,16 @@ import type { ClientDirectoryRow } from '@/lib/services/partnership-service'
 
 /** What a row with no clock reads as — one constant, so the count and the cell agree. */
 const NOT_STARTED: TriageStatus = { kind: 'not_started' }
+
+/**
+ * How many rows a page holds.
+ *
+ * TWENTY-FIVE because this table is read by scanning a column top to bottom, and a page that
+ * does not fit a monitor turns paging into scrolling-plus-paging — two navigations for one list.
+ * It is also small enough that the eight `<td>`s per row do not make the first paint the slow
+ * part of switching a facet.
+ */
+const PAGE_SIZE = 25
 
 interface ClientDirectoryProps {
   locale: string
@@ -89,6 +107,10 @@ export function ClientDirectory({
 }: ClientDirectoryProps) {
   const t = useTranslations('Clients.directory')
   const p = useTranslations('Partnerships')
+  // `planLine` was written for the card and reads `Clients.board.plan.*`. The table borrows the
+  // translator rather than a second copy of the sentences: `R$ 149,00 por mês` must not be
+  // phrased one way on a card and another in a row about the same partner.
+  const b = useTranslations('Clients.board')
 
   const view = useMemo(() => buildDirectoryView(rows, filters), [rows, filters])
   const late = useMemo(() => overdueCount(rows), [rows])
@@ -109,9 +131,41 @@ export function ClientDirectory({
     onFiltersChange({ ...filters, [key]: value })
   }
 
+  /**
+   * ── THE PAGE, AND WHY IT IS CLIENT-SIDE ────────────────────────────────────────────────────
+   *
+   * `/api/admin/clients/directory` returns the WHOLE set — it has to, because the facet counts
+   * in the rail are computed over the same rows the table renders, and a server that paginated
+   * would leave the rail counting a page instead of the list. So the browser already holds every
+   * row, and asking the database for a page would be a round trip that fetches nothing new.
+   *
+   * IT IS DERIVED FROM THE FILTERS, NOT RESET BY AN EFFECT. Narrowing to four rows while sitting
+   * on page 3 shows an empty table that reads as a broken screen, so the page has to return to 1
+   * — and doing that in a `useEffect` means one render of the wrong page first, plus the
+   * cascading-render the linter (correctly) warns about. Instead the page number REMEMBERS which
+   * filters it belongs to: the moment they change, it is no longer this page's number and 1 is
+   * what renders. The key is `applyFilters`, which is already the canonical serialisation of a
+   * filter set — the one the URL uses — so nothing here can disagree with the address bar.
+   */
+  const filterKey = useMemo(
+    () => applyFilters(new URLSearchParams(), filters).toString(),
+    [filters]
+  )
+  const [anchored, setAnchored] = useState({ key: filterKey, page: 1 })
+  const pageCount = Math.max(1, Math.ceil(view.rows.length / PAGE_SIZE))
+  // Clamped as well as anchored: `Ver mais` is not the only way to leave a page behind — an act
+  // on the last row of the last page removes it from the set while the page number stays.
+  const page = Math.min(anchored.key === filterKey ? anchored.page : 1, pageCount)
+  const goTo = (next: number) => setAnchored({ key: filterKey, page: next })
+
+  const pageRows = useMemo(
+    () => view.rows.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE),
+    [view.rows, page]
+  )
+
   return (
-    <div className="flex min-h-screen flex-col bg-gray-50 p-6 dark:bg-gray-950 lg:p-8">
-      <div className="flex flex-1 gap-8 pt-6">
+    <div className="flex min-h-screen flex-col bg-gray-50 p-4 dark:bg-gray-950 lg:p-8">
+      <div className="flex flex-1 flex-col gap-6 pt-2 lg:flex-row lg:gap-8 lg:pt-6">
         <DirectoryFilterRail
           view={view}
           filters={filters}
@@ -120,18 +174,20 @@ export function ClientDirectory({
         />
 
         {/* ── The list ──────────────────────────────────────────────────────────────────── */}
-        <div className="w-[82%] min-w-0">
-          <div className="sticky top-0 z-30 mb-8 rounded-3xl border border-gray-200 bg-white/80 shadow-2xl shadow-black/5 backdrop-blur-xl dark:border-gray-800 dark:bg-gray-900/80">
-            <div className="flex flex-wrap items-center justify-between gap-4 p-4">
-              <div className="flex flex-wrap items-center gap-8 pl-2">
+        {/* `w-full` under `lg`: `18% + 82% + gap-8 + p-6` is wider than a phone, and the
+            remainder was the board and the table hanging off the right edge of the screen. */}
+        <div className="w-full min-w-0 lg:w-[82%]">
+          <div className="sticky top-0 z-30 mb-4 rounded-3xl border border-gray-200 bg-white/80 shadow-2xl shadow-black/5 backdrop-blur-xl dark:border-gray-800 dark:bg-gray-900/80 lg:mb-8">
+            <div className="flex flex-wrap items-center justify-between gap-3 p-3 lg:gap-4 lg:p-4">
+              <div className="flex flex-wrap items-center gap-3 lg:gap-8 lg:pl-2">
                 <div>
-                  <h1 className="text-xl font-semibold tracking-tight text-gray-900 dark:text-white">
+                  <h1 className="text-lg font-semibold tracking-tight text-gray-900 dark:text-white lg:text-xl">
                     {t('title')}
                   </h1>
                   <p className="text-[11px] text-gray-500 dark:text-gray-400">{t('subtitle')}</p>
                 </div>
 
-                <div className="h-8 w-px bg-gray-200 dark:bg-gray-800" aria-hidden="true" />
+                <div className="hidden h-8 w-px bg-gray-200 dark:bg-gray-800 lg:block" aria-hidden="true" />
 
                 <Stat label={t('columns.name')} value={t('results', { count: view.rows.length, total: rows.length })} />
 
@@ -154,7 +210,13 @@ export function ClientDirectory({
                 )}
               </div>
 
-              <div className="flex items-center gap-3">
+              <div className="flex flex-wrap items-center gap-2 lg:gap-3">
+                <DirectoryFilterSheet
+                  view={view}
+                  filters={filters}
+                  onFiltersChange={onFiltersChange}
+                  working={working}
+                />
                 {viewSwitch}
                 {onCreateNew && (
                   <Button type="button" variant="cta" onClick={onCreateNew}>
@@ -174,6 +236,17 @@ export function ClientDirectory({
             </p>
           )}
 
+          {!loading && !failed && view.rows.length > 0 && (
+            <Pager
+              page={page}
+              pageCount={pageCount}
+              total={view.rows.length}
+              onGo={goTo}
+              t={t}
+              className="mb-3"
+            />
+          )}
+
           <div className="overflow-hidden rounded-3xl border border-gray-200 bg-white/70 shadow-2xl shadow-black/5 backdrop-blur-xl dark:border-gray-800 dark:bg-gray-900/70">
             {failed ? (
               <div className="p-8 text-center">
@@ -191,8 +264,11 @@ export function ClientDirectory({
                     <tr className="border-b border-gray-200 text-left text-[10px] uppercase tracking-widest text-gray-500 dark:border-gray-800 dark:text-gray-400">
                       <th scope="col" className="px-4 py-3">{t('columns.name')}</th>
                       <th scope="col" className="px-4 py-3">{t('columns.location')}</th>
-                      <th scope="col" className="px-4 py-3">{t('columns.clientType')}</th>
                       <th scope="col" className="px-4 py-3">{t('columns.state')}</th>
+                      {/* WHO PAYS, in the column that replaced `Tipo`. The type of establishment
+                          is a facet of the rail and says almost nothing row by row; the money is
+                          what this table was reopened to answer. */}
+                      <th scope="col" className="px-4 py-3">{t('columns.plan')}</th>
                       <th scope="col" className="px-4 py-3">{t('columns.contract')}</th>
                       <th scope="col" className="px-4 py-3">{t('columns.missing')}</th>
                       <th scope="col" className="px-4 py-3">{t('columns.idle')}</th>
@@ -215,10 +291,11 @@ export function ClientDirectory({
                       ))}
 
                     {!loading &&
-                      view.rows.map((row) => {
+                      pageRows.map((row) => {
                         const status = triage.get(rowKey(row)) ?? NOT_STARTED
                         const deadline = triageDeadlineText(status)
                         const name = row.name || t('noName')
+                        const plan = derivePartnerPlan(row)
 
                         return (
                           <tr
@@ -256,9 +333,24 @@ export function ClientDirectory({
                               )}
                             </td>
                             <td className="px-4 py-4 text-gray-800 dark:text-gray-300">{placeLine(row)}</td>
-                            <td className="px-4 py-4 text-gray-800 dark:text-gray-300">{row.clientType ?? '—'}</td>
                             <td className="px-4 py-4 font-medium text-gray-900 dark:text-white">
                               {p(`states.${row.state}`)}
+                            </td>
+                            {/*
+                              THE BADGE AND THE VALUE, in that order, and both of them.
+                              
+                              The badge is the summary somebody scanning the column sees without
+                              reading; the line under it is the record — `R$ 149,00 por mês`,
+                              `Cortesia`, `Plano: ninguém declarou`. The badge alone would flatten
+                              a pendency into an answer, which is the one thing the two-colour
+                              reading is not allowed to do (DS-A11Y-003, and BR-B2B-017 item 6,
+                              which refuses to publish an undeclared registration).
+                            */}
+                            <td className="px-4 py-4">
+                              <PaymentStanceBadge stance={paymentStance(plan.kind)} />
+                              <span className="mt-1 block text-xs text-gray-800 dark:text-gray-300">
+                                {planLine(row, b)}
+                              </span>
                             </td>
                             <td className="px-4 py-4 text-gray-800 dark:text-gray-300">
                               {t(`contractValues.${row.contract}`)}
@@ -306,6 +398,20 @@ export function ClientDirectory({
               </div>
             )}
           </div>
+
+          {/* TWICE, ABOVE AND BELOW, and it is not decoration. Twenty-five rows is more than a
+              laptop shows at once, so an operator who reached the bottom would have to scroll
+              back past the whole page to reach the next one. */}
+          {!loading && !failed && view.rows.length > 0 && (
+            <Pager
+              page={page}
+              pageCount={pageCount}
+              total={view.rows.length}
+              onGo={goTo}
+              t={t}
+              className="mt-3"
+            />
+          )}
         </div>
       </div>
     </div>
@@ -329,5 +435,120 @@ function Stat({ label, value }: { label: string; value: string }) {
       </span>
       <span className="text-lg font-bold leading-none text-gray-900 dark:text-white">{value}</span>
     </div>
+  )
+}
+
+/**
+ * The pager — the range in words, and the numbers that move it.
+ *
+ * NO ROUND TRIP HAPPENS HERE. `/api/admin/clients/directory` already returned every row, because
+ * the facet counts in the rail have to be computed over the same set the table renders; a
+ * server-side page would leave the rail counting a page. So this control slices an array the
+ * browser already holds, and paging is instant by construction rather than by caching.
+ *
+ * THE RANGE IS TEXT AND COMES FIRST, because it is the answer to the question the numbers only
+ * imply: `Mostrando 26–36 de 36` says both where you are and how much there is, and it is the
+ * part that survives being read by somebody who cannot see which button is pressed.
+ *
+ * `aria-current="page"` AND NOT COLOUR ALONE on the active number (DS-A11Y-003), and the
+ * disabled ends are `disabled` rather than hidden — a control that appears and disappears under
+ * the thumb is worse than one that greys out where it always was.
+ */
+function Pager({
+  page,
+  pageCount,
+  total,
+  onGo,
+  t,
+  className,
+}: {
+  page: number
+  pageCount: number
+  total: number
+  onGo: (page: number) => void
+  t: ReturnType<typeof useTranslations<'Clients.directory'>>
+  className?: string
+}) {
+  const from = (page - 1) * PAGE_SIZE + 1
+  const to = Math.min(page * PAGE_SIZE, total)
+
+  return (
+    <div className={`flex flex-wrap items-center justify-between gap-3 px-1 ${className ?? ''}`}>
+      <p className="text-xs text-gray-500 dark:text-gray-400">
+        {t('showingRange', { from, to, total })}
+      </p>
+
+      {/* One page is not a pager. Printing `‹ 1 ›` over a list that fits would be a control
+          whose every button is dead. */}
+      {pageCount > 1 && (
+        <nav aria-label={t('paginationLabel')} className="flex items-center gap-1">
+          <PageStep
+            label={t('previousPage')}
+            disabled={page <= 1}
+            onClick={() => onGo(page - 1)}
+            chevron={<ChevronLeft className="h-4 w-4" aria-hidden="true" />}
+          />
+
+          {pageWindow(page, pageCount).map((value, index) =>
+            value === null ? (
+              <span
+                key={`gap-${index}`}
+                aria-hidden="true"
+                className="px-1 text-xs text-gray-400 dark:text-gray-500"
+              >
+                …
+              </span>
+            ) : (
+              <button
+                key={value}
+                type="button"
+                onClick={() => onGo(value)}
+                aria-current={value === page ? 'page' : undefined}
+                aria-label={t('goToPage', { page: value })}
+                className={`min-h-[44px] min-w-[44px] rounded-xl px-2 text-sm transition-colors lg:min-h-[32px] lg:min-w-[32px] ${
+                  value === page
+                    ? 'bg-primary-800/10 font-semibold text-gray-900 dark:bg-tuggi-blue/10 dark:text-white'
+                    : 'text-primary-800 hover:bg-gray-100 dark:text-tuggi-blue dark:hover:bg-gray-800'
+                }`}
+              >
+                {value}
+              </button>
+            )
+          )}
+
+          <PageStep
+            label={t('nextPage')}
+            disabled={page >= pageCount}
+            onClick={() => onGo(page + 1)}
+            chevron={<ChevronRight className="h-4 w-4" aria-hidden="true" />}
+          />
+        </nav>
+      )}
+    </div>
+  )
+}
+
+/** One end of the pager. The chevron is decorative; `aria-label` carries the whole meaning. */
+function PageStep({
+  label,
+  disabled,
+  onClick,
+  chevron,
+}: {
+  label: string
+  disabled: boolean
+  onClick: () => void
+  chevron: React.ReactNode
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      disabled={disabled}
+      aria-label={label}
+      className="inline-flex min-h-[44px] min-w-[44px] items-center justify-center rounded-xl text-primary-800 transition-colors hover:bg-gray-100 disabled:opacity-40 dark:text-tuggi-blue dark:hover:bg-gray-800 lg:min-h-[32px] lg:min-w-[32px]"
+    >
+      {chevron}
+    </button>
   )
 }

@@ -2021,12 +2021,12 @@
       "columns": {
         "name": "Cliente",
         "location": "Onde",
-        "clientType": "Tipo",
         "state": "Estado",
         "contract": "Contrato",
         "missing": "O que falta",
         "idle": "Parado há",
-        "triage": "Triagem"
+        "triage": "Triagem",
+        "plan": "Plano"
       },
       "contractValues": {
         "none": "Sem contrato",
@@ -2045,7 +2045,15 @@
         "pending": "Pendente",
         "approved": "Aprovado",
         "rejected": "Rejeitado"
-      }
+      },
+      "close": "Fechar",
+      "filtersButtonActive": "{count, plural, one {Filtros: # ativo} other {Filtros: # ativos}}",
+      "showResults": "{count, plural, one {Ver # parceiro} other {Ver # parceiros}}",
+      "showingRange": "Mostrando {from}–{to} de {total}",
+      "paginationLabel": "Páginas da lista",
+      "previousPage": "Página anterior",
+      "nextPage": "Próxima página",
+      "goToPage": "Ir para a página {page}"
     },
     "editor": {
       "header": {
@@ -2082,7 +2090,8 @@
       "messages": {
         "saved": "Salvo com sucesso",
         "created": "Cliente criado"
-      }
+      },
+      "close": "Fechar"
     },
     "approval": {
       "approve": "Aprovar",
@@ -2159,7 +2168,8 @@
         "downloadPng": "Baixar PNG",
         "copyImage": "Copiar imagem",
         "copied": "Copiado",
-        "legacyLink": "Legado: /download?ID={id} (ainda funciona)"
+        "legacyLink": "Legado: /download?ID={id} (ainda funciona)",
+        "share": "Compartilhar"
       },
       "material": {
         "title": "Material de divulgação",
@@ -2307,13 +2317,10 @@
       "switchLabel": "Como ver a lista",
       "empty": "Nada nesta coluna.",
       "emptyFiltered": "Nada nesta coluna com esses filtros.",
-      "expand": "Abrir",
-      "collapse": "Fechar",
       "countTruncated": "≥ {count}",
       "seeAll": "Ver todos na tabela ({count})",
       "seeAllDiscarded": "Ver as descartadas ({count})",
       "seeAllRefused": "Ver as recusadas na triagem ({count})",
-      "overflow": "Mais {count} na tabela.",
       "alertTitle": "Recusas que o parceiro ainda não sabe",
       "alertBody": "A triagem foi decidida e ninguém avisou o parceiro. O relógio de 72 horas só para com a comunicação.",
       "dragHint": "Arraste para a próxima coluna, ou use o botão do card.",
@@ -2379,7 +2386,18 @@
         "not_closable": "Não dá para encerrar por aqui. Use a ficha do cliente."
       },
       "backwards": "O fluxo anda para a frente. Para desfazer, abra a ficha.",
-      "notAdjacent": "Falta a etapa {column} antes desta."
+      "notAdjacent": "Falta a etapa {column} antes desta.",
+      "tapHint": "Toque na etapa para ver a fila, e use o botão do card para avançar.",
+      "columnPickerLabel": "Etapas do quadro",
+      "revealMore": "Ver mais {count}",
+      "windowCount": "{shown} de {total} nesta coluna",
+      "boardTotal": "{total, plural, one {# parceria no quadro} other {# parcerias no quadro}}",
+      "boardTotalWindowed": "{shown} de {total} parcerias visíveis no quadro",
+      "columnsLabel": "Colunas do quadro"
+    },
+    "stance": {
+      "paying": "Pagante",
+      "not_paying": "Não pagante"
     }
   },
   "Coupons": {

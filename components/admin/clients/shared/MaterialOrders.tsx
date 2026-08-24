@@ -96,7 +96,7 @@ export function MaterialOrders({ clientId }: MaterialOrdersProps) {
   }
 
   return (
-    <div className="bg-white dark:bg-gray-900 rounded-3xl border border-gray-200 dark:border-gray-800 p-8 shadow-sm">
+    <div className="bg-white dark:bg-gray-900 rounded-3xl border border-gray-200 dark:border-gray-800 p-5 lg:p-8 shadow-sm">
       <SectionHeader
         icon={<Package className="w-4 h-4 text-amber-500" />}
         title={t('title')}

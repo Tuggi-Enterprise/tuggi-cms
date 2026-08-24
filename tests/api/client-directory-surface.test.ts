@@ -115,7 +115,22 @@ test('the screen reads one endpoint and decides nothing on its own', () => {
 
   const screen = read(SCREEN)
   assert.match(screen, /buildDirectoryView\(rows, filters\)/)
-  assert.match(screen, /view\.rows\.map/)
+
+  /*
+   * THE PAGE IS A SLICE OF THE VIEW, and that is the whole claim of this line.
+   *
+   * The table paged on 2026-08-24, and the danger of paging is a second source of truth: a screen
+   * that re-filtered, re-sorted or re-fetched to build its page would leave the rail counting one
+   * set and the rows showing another — the defect `directory-filter`'s own header was written
+   * about. `view.rows.slice` is the only way rows may leave the view.
+   */
+  assert.match(screen, /view\.rows\.slice\(/)
+  assert.match(screen, /pageRows\.map/)
+  assert.equal(
+    screen.indexOf('rows.filter('),
+    -1,
+    'the screen must not narrow the set on its own — buildDirectoryView decides'
+  )
   // The overdue counter reads the WHOLE set: it exists to reach rows the filter is hiding.
   assert.match(screen, /overdueCount\(rows\)/)
 

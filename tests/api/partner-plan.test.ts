@@ -32,8 +32,10 @@ const read = (path: string) => readFileSync(resolve(root, path), 'utf8')
 
 import {
   derivePartnerPlan,
+  paymentStance,
   planFacetValue,
   type PlanFacts,
+  type PlanKind,
 } from '@/lib/clients/partner-plan'
 
 const NO_FEE = { monthlyFeeCents: null, isCourtesy: false, courtesyReason: null }
@@ -285,4 +287,87 @@ test('#409 · a promoção grava o percentual zero da faixa grátis, e não deix
     source.indexOf('function commercialTermsOfChoice') + 400
   )
   assert.equal(helper.indexOf('monthly_fee_cents: 1'), -1)
+})
+
+// ── Paga ou não paga: the binary the colour on the board is ──────────────────────────────────
+
+/**
+ * THE COLOUR IS A SUMMARY OF FIVE STATES INTO TWO, and the summary is only safe because of what
+ * it claims. `paying` means the registration is billing something today; `not_paying` means it
+ * is not — which is TRUE of a courtesy, of the free tier, of a registration nobody filled in and
+ * of a proposal nobody priced. What the binary deliberately does NOT claim is that somebody
+ * DECIDED not to charge, and that is why `Plano: ninguém declarou` stays printed in words beside
+ * the stripe and `buildPublishPlan` still refuses to publish that row.
+ *
+ * `paid` IS THE ONLY MEMBER OF `paying`, and the test enumerates all five kinds rather than
+ * spot-checking two: a sixth `PlanKind` added later lands in `not_paying` by default, and this
+ * is where somebody finds out whether that is what they meant. TypeScript's exhaustive `Record`
+ * below is what makes the list impossible to leave incomplete.
+ *
+ * Mutations that turn this red:
+ *  · folding `free` or `courtesy` into `paying`, which would colour a partner who pays nothing
+ *    as revenue;
+ *  · folding `undeclared` into `paying` on the theory that "a fee might exist", which is exactly
+ *    the `absent is NOT zero` reading BR-B2B-017, item 6, forbids;
+ *  · reading the stance off `feeCents` instead of `kind`, which would call a signed free
+ *    contract `paying` because the registration still carries the old number.
+ */
+const EXPECTED_STANCE: Record<PlanKind, 'paying' | 'not_paying'> = {
+  paid: 'paying',
+  courtesy: 'not_paying',
+  free: 'not_paying',
+  undeclared: 'not_paying',
+  requested: 'not_paying',
+}
+
+test('only a registration that bills something is `paying`', () => {
+  for (const [kind, expected] of Object.entries(EXPECTED_STANCE)) {
+    assert.equal(paymentStance(kind as PlanKind), expected, kind)
+  }
+})
+
+test('the stance follows the derived kind, over every path through derivePartnerPlan', () => {
+  // A fee somebody typed, no contract: the registration is billing.
+  assert.equal(
+    paymentStance(derivePartnerPlan(facts({ fee: { ...NO_FEE, monthlyFeeCents: 14900 } })).kind),
+    'paying'
+  )
+
+  // A courtesy WITH its reason is a decision not to charge — not paying, and not a pendency.
+  assert.equal(
+    paymentStance(
+      derivePartnerPlan(
+        facts({ fee: { monthlyFeeCents: null, isCourtesy: true, courtesyReason: 'patrocínio' } })
+      ).kind
+    ),
+    'not_paying'
+  )
+
+  // Nobody filled the record in. Not paying today, and the word beside the colour is the one
+  // that says nobody decided — see `planLine`.
+  assert.equal(paymentStance(derivePartnerPlan(facts()).kind), 'not_paying')
+
+  // The establishment chose the free tier on the form and the record does not contradict it.
+  assert.equal(
+    paymentStance(derivePartnerPlan(facts({ planChoice: 'map_only' })).kind),
+    'not_paying'
+  )
+
+  /*
+   * THE CONTRACT OUTRANKS THE REGISTRATION, and the stance inherits that ordering for free.
+   * A `free` tier that was signed over a record still carrying `R$ 149,00` is NOT paying: the
+   * instrument the partner signed charges nothing, and the disagreement is already reported as
+   * `divergence` in its own bordered line on the card.
+   */
+  const signedFree = derivePartnerPlan(
+    facts({ contractTier: 'free', fee: { ...NO_FEE, monthlyFeeCents: 14900 } })
+  )
+  assert.equal(signedFree.divergence, 'free_contract_paid_registration')
+  assert.equal(paymentStance(signedFree.kind), 'not_paying')
+
+  // Only a proposal: nobody has priced anything, so nothing is being billed.
+  assert.equal(
+    paymentStance(derivePartnerPlan(facts({ clientId: null, planChoice: 'map_only' })).kind),
+    'not_paying'
+  )
 })

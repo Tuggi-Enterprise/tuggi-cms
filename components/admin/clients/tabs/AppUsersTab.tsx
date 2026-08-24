@@ -162,7 +162,7 @@ export function AppUsersTab({
 
   return (
     <div className="space-y-8 max-w-5xl mx-auto">
-      <div className="bg-white dark:bg-gray-900 rounded-3xl border border-gray-200 dark:border-gray-800 p-8 shadow-sm">
+      <div className="bg-white dark:bg-gray-900 rounded-3xl border border-gray-200 dark:border-gray-800 p-5 lg:p-8 shadow-sm">
         <div className="flex items-center justify-between mb-6">
           <SectionHeader icon={<Smartphone className="w-4 h-4 text-amber-500" />} title={t('section')} color="amber-500" />
           {canEdit && (
@@ -240,7 +240,7 @@ export function AppUsersTab({
           </div>
         )}
 
-        <div className="overflow-hidden rounded-2xl border border-gray-100 dark:border-gray-800">
+        <div className="overflow-x-auto rounded-2xl border border-gray-100 dark:border-gray-800">
           <table className="w-full">
             <thead className="bg-gray-50 dark:bg-gray-800/50">
               <tr>

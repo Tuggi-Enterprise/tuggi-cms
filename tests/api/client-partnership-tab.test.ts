@@ -51,11 +51,20 @@ test('one pipeline, two hosts — the tab renders the same component the page do
 })
 
 test('the way back is chrome, and only the standalone page has a queue behind it', () => {
-  // The queue was retired; the way back is the working set of the unified list, which is what
-  // `/admin/partnerships` had been all along — one filter with a screen around it.
+  /*
+   * THE WAY BACK IS THE LIST, and until 2026-08-24 it was the list FILTERED to the working set —
+   * which is what `/admin/partnerships` had been all along, one filter with a screen around it.
+   * The filter came off every link into the list on that date: `IN_PROGRESS_STATES` excludes the
+   * three states of the board's two terminal columns, so it emptied `Publicado` and `Encerrados`
+   * on arrival. It also made `voltar` after discarding a proposal land on a list the discarded
+   * row had just fallen out of, which reads as the act having failed.
+   *
+   * The destination is a constant now, for the reason the four copies of it demonstrated: three
+   * carried the filter and one did not.
+   */
   assert.match(
     read(PAGE),
-    /backHref=\{`\/\$\{locale\}\/admin\/clients\?state=in_progress`\}/,
+    /backHref=\{`\/\$\{locale\}\$\{CLIENT_DIRECTORY_PATH\}`\}/,
     'the standalone page draws the way back to the list it came from'
   )
   // The prop, not the word: the docblock above explains why this host does not pass one.

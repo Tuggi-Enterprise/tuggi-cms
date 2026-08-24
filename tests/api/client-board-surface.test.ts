@@ -21,7 +21,9 @@ import { readFileSync } from 'node:fs'
 import { execSync } from 'node:child_process'
 import { resolve } from 'node:path'
 
-import { BOARD_COLUMNS } from '@/lib/clients/board-transitions'
+import { BOARD_COLUMNS, TERMINAL_COLUMNS, COLUMN_STATES } from '@/lib/clients/board-transitions'
+import { CLIENT_DIRECTORY_PATH } from '@/lib/clients/directory-filter'
+import { IN_PROGRESS_STATES } from '@/lib/partnerships/pipeline'
 
 const root = resolve(import.meta.dirname, '../..')
 const read = (path: string) => readFileSync(resolve(root, path), 'utf8')
@@ -71,7 +73,10 @@ test('#409 · one read, one filter: the board owns neither', () => {
     -1,
     'the board must not filter on its own — the rail would count a different set'
   )
-  assert.match(board, /buildBoardView\(rows, filters, \{ expanded \}\)/)
+  // `{ shown }` since 2026-08-24, when the terminal columns stopped collapsing and started
+  // windowing. The assertion is the same one it always was — the board hands `buildBoardView`
+  // the rows and the filters and adds only its own view state.
+  assert.match(board, /buildBoardView\(rows, filters, \{ shown \}\)/)
   assert.match(board, /view=\{board\.directory\}/, 'the rail is handed the view the columns came from')
 })
 
@@ -230,4 +235,60 @@ test('#409 · the whole esteira is Portuguese — the seam is between screens, n
   const partnerships = messages('pt').Partnerships
   assert.equal(typeof partnerships.states.contract_sent, 'string')
   assert.equal(typeof partnerships.nextSteps.contract_sent, 'string')
+})
+
+// ── The front door ───────────────────────────────────────────────────────────────────────────
+
+/**
+ * THE TEST THAT WAS MISSING, and the reason the one above it was not enough.
+ *
+ * On 2026-08-24 the terminal columns stopped collapsing and started windowing, and every test
+ * written for it mounted the board with `EMPTY_FILTERS` — which is not how anybody arrives. The
+ * nav link carried `?state=in_progress`, and `IN_PROGRESS_STATES` excludes `published`,
+ * `discarded` and `refused_at_triage`: precisely the three states of the two columns the change
+ * was about. The mechanism was correct and the screen was unchanged, because the way IN filtered
+ * the rows out before the board ever saw them.
+ *
+ * So this asserts the relationship rather than the string: no link into the list may carry a
+ * `state` filter that empties a board column. It fails whether somebody re-adds `in_progress` to
+ * the nav, or moves a state out of `IN_PROGRESS_STATES` into a terminal column, or adds a third
+ * terminal column that the working set happens to exclude.
+ */
+const ENTRY_POINTS = [
+  'components/ui/Header.tsx',
+  'components/admin/partner-proposals/ProposalReview.tsx',
+  'app/[locale]/admin/partnerships/clients/[clientId]/page.tsx',
+]
+
+test('#409 · no link into the list carries a filter that empties a board column', () => {
+  // The premise: `in_progress` and the terminal columns are complements, so any link filtering
+  // to the working set hides both of those columns entirely.
+  const terminalStates = TERMINAL_COLUMNS.flatMap((id) => COLUMN_STATES[id])
+  for (const state of terminalStates) {
+    assert.equal(
+      IN_PROGRESS_STATES.indexOf(state) >= 0,
+      false,
+      `${state} is both terminal and in-progress — the premise of this test no longer holds`
+    )
+  }
+
+  for (const path of ENTRY_POINTS) {
+    const source = code(path)
+    assert.equal(
+      /admin\/clients\?[^`'"]*state=/.test(source),
+      false,
+      `${path} links into the list with a state filter, which empties ${TERMINAL_COLUMNS.join(' and ')}`
+    )
+  }
+})
+
+test('#409 · the destination is one constant, not four strings that drift', () => {
+  assert.equal(CLIENT_DIRECTORY_PATH, '/admin/clients')
+  for (const path of ENTRY_POINTS) {
+    assert.match(
+      code(path),
+      /CLIENT_DIRECTORY_PATH/,
+      `${path} writes the path out by hand — three of the four already disagreed once`
+    )
+  }
 })

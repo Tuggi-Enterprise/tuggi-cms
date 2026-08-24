@@ -93,8 +93,25 @@ export const ALERT_STATE: PipelineState = 'refusal_not_communicated'
  */
 export const TERMINAL_COLUMNS: BoardColumnId[] = ['published', 'closed']
 
-/** How many rows an expanded terminal column shows before deferring to the table. */
-export const TERMINAL_WINDOW = 10
+/**
+ * How many rows a terminal column shows at a time, and how many `Ver mais` adds.
+ *
+ * IT REPLACED A COLLAPSE, and the reason the collapse existed was right while being wrong about
+ * what to do with it: `Publicado` and `Encerrados` are outcomes, they grow without bound, and a
+ * board whose two widest columns are things nobody has to do again stops being read. Coming shut
+ * solved that by making the work of the last month INVISIBLE — an operator who had just
+ * published a place could not see it on the board at all, and the only way to it was a link out
+ * to the table.
+ *
+ * A WINDOW SOLVES THE SAME PROBLEM WITHOUT HIDING ANYTHING. Five is small enough that the column
+ * cannot swamp the seven beside it and large enough to answer `o que entrou no ar esta semana?`
+ * without a click. What is past the window is stated as a number and reachable by a button that
+ * grows the column in place — never a link to a different screen.
+ *
+ * FIVE AND NOT TEN, which is what the collapse revealed when opened: ten cards is roughly three
+ * phone screens of scrolling in a column the operator did not navigate to on purpose.
+ */
+export const TERMINAL_PAGE = 5
 
 /**
  * Which column a state is shown in, or `null` for the alert band.
@@ -279,11 +296,16 @@ export interface BoardColumnView {
   id: BoardColumnId
   /** Every row of the column, after the filters. What the header counts. */
   total: number
-  /** The rows actually rendered — windowed for a collapsed or terminal column. */
+  /** The rows actually rendered — windowed for a terminal column. */
   rows: ClientDirectoryRow[]
-  /** How many the window left out. `0` for a column showing everything it has. */
+  /**
+   * How many the window left out. `0` for a column showing everything it has.
+   *
+   * `collapsed` USED TO LIVE HERE and is gone with the collapse it described. A boolean nothing
+   * sets to `true` any more is the kind of flag that survives a redesign and then lies about
+   * what the screen does — `overflow > 0` is the same question asked of a fact.
+   */
   overflow: number
-  collapsed: boolean
 }
 
 export interface BoardView {
@@ -295,8 +317,18 @@ export interface BoardView {
 }
 
 export interface BoardOptions {
-  /** Which terminal columns the operator opened. Working columns are never collapsed. */
-  expanded?: BoardColumnId[]
+  /**
+   * How many rows each terminal column has been asked to reveal — what `Ver mais` grows.
+   *
+   * A MAP AND NOT A LIST OF OPEN COLUMNS, because the question changed from `is it open?` to
+   * `how far down is it?`. Absent, and anything below `TERMINAL_PAGE`, reads as one page: the
+   * floor is applied here rather than at the caller, so a board mounted with `{}` and one whose
+   * state was never touched render identically.
+   *
+   * Working columns ignore this entirely. They are the queue, and a queue that hid part of
+   * itself would be a board that under-reports the work.
+   */
+  shown?: Partial<Record<BoardColumnId, number>>
 }
 
 /**
@@ -316,7 +348,7 @@ export function buildBoardView(
   options: BoardOptions = {}
 ): BoardView {
   const directory = buildDirectoryView(rows, filters)
-  const expanded = options.expanded ?? []
+  const shown = options.shown ?? {}
 
   const buckets = new Map<BoardColumnId, ClientDirectoryRow[]>(
     BOARD_COLUMNS.map((column) => [column, [] as ClientDirectoryRow[]])
@@ -331,15 +363,16 @@ export function buildBoardView(
 
   const columns = BOARD_COLUMNS.map((id) => {
     const all = buckets.get(id)!
-    const terminal = isTerminalColumn(id)
-    if (!terminal) {
-      return { id, total: all.length, rows: all, overflow: 0, collapsed: false }
+    if (!isTerminalColumn(id)) {
+      return { id, total: all.length, rows: all, overflow: 0 }
     }
 
     const recent = all.slice().sort((a, b) => (b.since ?? '').localeCompare(a.since ?? ''))
-    const collapsed = expanded.indexOf(id) < 0
-    const shown = collapsed ? [] : recent.slice(0, TERMINAL_WINDOW)
-    return { id, total: all.length, rows: shown, overflow: all.length - shown.length, collapsed }
+    // The floor lives here, not at the caller: `{}` and `{ published: 0 }` and a state nobody
+    // touched all have to render the same first page.
+    const window = Math.max(TERMINAL_PAGE, shown[id] ?? 0)
+    const visible = recent.slice(0, window)
+    return { id, total: all.length, rows: visible, overflow: all.length - visible.length }
   })
 
   return { columns, alert, directory }

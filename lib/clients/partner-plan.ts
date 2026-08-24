@@ -187,3 +187,28 @@ export function planFacetValue(facts: PlanFacts): PlanFacet | null {
   if (plan.kind === 'free' && plan.source === 'proposal') return null
   return registrationKind(facts.fee)
 }
+
+/**
+ * PAGA OU NÃO PAGA — the binary reading, and the one place that decides it.
+ *
+ * The five `PlanKind` values answer a finer question than the board is coloured by, and that is
+ * deliberate: `undeclared` blocks the publication (BR-B2B-017, item 6) and `requested` means
+ * nobody has priced anything yet. Both are collapsed here into `not_paying`, which is TRUE about
+ * the money — neither is billing anything today — while being silent about whose decision it was.
+ * The word beside the colour is what keeps that distinction: the card still prints `Plano:
+ * ninguém declarou`, the rail still filters by the three registration states, and
+ * `buildPublishPlan` still refuses to publish an undeclared one. The colour is a summary, never
+ * the record.
+ *
+ * IT IS A FUNCTION AND NOT A CLASS NAME on each surface, because two surfaces read it from two
+ * honest sources: the board card derives the full `PartnerPlan` (contract outranks registration
+ * outranks proposal), and the fiscal tab reads `registrationMoneyKind` alone, since that tab IS
+ * the registration and a badge saying `grátis pelo contrato` over a fee somebody is typing would
+ * be describing a different document. Different sources, one rule about what the answer means —
+ * which is the half that would drift if each surface wrote its own `kind === 'paid'`.
+ */
+export type PaymentStance = 'paying' | 'not_paying'
+
+export function paymentStance(kind: PlanKind): PaymentStance {
+  return kind === 'paid' ? 'paying' : 'not_paying'
+}

@@ -31,7 +31,7 @@ import {
   BOARD_COLUMNS,
   COLUMN_STATES,
   TERMINAL_COLUMNS,
-  TERMINAL_WINDOW,
+  TERMINAL_PAGE,
   buildBoardView,
   columnOf,
   nextAct,
@@ -100,7 +100,7 @@ test('#409 · DS-COPY-020 point 5: a refusal nobody communicated gets no column'
   assert.equal(columnOf(ALERT_STATE), null)
 
   const owed = row({ state: ALERT_STATE, places: { ...PLACES, total: 2, published: 1 } })
-  const view = buildBoardView([owed], filters(), { expanded: TERMINAL_COLUMNS })
+  const view = buildBoardView([owed], filters())
 
   assert.deepEqual(view.alert.map((item) => item.clientId), ['client-1'])
   for (const column of view.columns) {
@@ -339,55 +339,121 @@ const SPREAD: ClientDirectoryRow[] = [
   row({ clientId: 'c10', state: ALERT_STATE }),
 ]
 
+/** A run of published rows, oldest first, so the last one built is the most recent. */
+function publishedRun(count: number) {
+  return Array.from({ length: count }, (_, index) =>
+    row({
+      clientId: `pub-${index}`,
+      state: 'published',
+      since: `2026-0${1 + Math.floor(index / 28)}-${String((index % 28) + 1).padStart(2, '0')}T00:00:00.000Z`,
+    })
+  )
+}
+
+function publishedIn(view: ReturnType<typeof buildBoardView>) {
+  return view.columns.find((candidate) => candidate.id === 'published')!
+}
+
 test('#409 · no row is lost: the columns plus the alert are exactly what the rail counted', () => {
   for (const applied of [filters(), filters({ state: 'in_progress' }), filters({ search: 'zé' })]) {
-    const view = buildBoardView(SPREAD, applied, { expanded: TERMINAL_COLUMNS })
+    const view = buildBoardView(SPREAD, applied)
     const carried = view.columns.reduce((sum, column) => sum + column.total, 0) + view.alert.length
     assert.equal(carried, buildDirectoryView(SPREAD, applied).rows.length)
   }
 })
 
-test('#409 · a terminal column is collapsed by default, and counts what it does not show', () => {
-  const view = buildBoardView(SPREAD, filters())
-  for (const id of TERMINAL_COLUMNS) {
-    const column = view.columns.find((candidate) => candidate.id === id)!
-    assert.equal(column.collapsed, true)
-    assert.deepEqual(column.rows, [])
-    assert.equal(column.overflow, column.total, `${id} must not claim to be showing rows`)
-  }
+/**
+ * WHAT THIS TEST REPLACED, and why the replacement is not a relaxation.
+ *
+ * Until 2026-08-24 the assertion here was that a terminal column comes COLLAPSED — `rows: []`
+ * and `overflow === total`. That was a true description of a screen with a real defect: the last
+ * month of delivered work was invisible, and an operator who had just published a place had no
+ * way to see it on the board. The reason for the collapse survives (an unbounded `Publicado`
+ * swamps the seven columns beside it); what changed is the answer to it, from a shut drawer to a
+ * window that grows.
+ *
+ * So the invariant is now the WINDOW, and it is stricter than the collapse was: a terminal column
+ * always shows something, always says how much it is not showing, and never shows more than it
+ * was asked for.
+ */
+test('#409 · a terminal column shows its first page by default, and counts the rest', () => {
+  const many = publishedRun(TERMINAL_PAGE + 5)
+  const column = publishedIn(buildBoardView(many, filters()))
 
-  // A working column is never collapsed and never windowed.
-  const client = view.columns.find((candidate) => candidate.id === 'client')!
-  assert.equal(client.collapsed, false)
-  assert.equal(client.overflow, 0)
-  assert.equal(client.rows.length, client.total)
+  assert.equal(column.total, TERMINAL_PAGE + 5)
+  assert.equal(column.rows.length, TERMINAL_PAGE)
+  assert.equal(column.overflow, 5)
 })
 
-test('#409 · an expanded terminal column windows to the NEWEST rows, and says what it left out', () => {
-  const many = Array.from({ length: TERMINAL_WINDOW + 5 }, (_, index) =>
-    row({
-      clientId: `pub-${index}`,
-      state: 'published',
-      // Ascending: the last one built is the most recent.
-      since: `2026-08-${String(index + 1).padStart(2, '0')}T00:00:00.000Z`,
-    })
+/**
+ * THE WINDOW IS A PROPERTY OF BEING TERMINAL, not of being named `published`. `Encerrados` grows
+ * without bound for the same reason and is windowed by the same rule; every working column is
+ * the queue, and a queue that hid part of itself would be a board that under-reports the work.
+ */
+test('#409 · every terminal column windows, and no working column does', () => {
+  const many = BOARD_COLUMNS.flatMap((id) =>
+    Array.from({ length: TERMINAL_PAGE + 3 }, (_, index) =>
+      row({
+        clientId: `${id}-${index}`,
+        state: COLUMN_STATES[id][0],
+        since: `2026-02-${String(index + 1).padStart(2, '0')}T00:00:00.000Z`,
+      })
+    )
   )
+  const view = buildBoardView(many, filters())
 
-  const column = buildBoardView(many, filters(), { expanded: ['published'] }).columns.find(
-    (candidate) => candidate.id === 'published'
-  )!
+  for (const column of view.columns) {
+    const terminal = TERMINAL_COLUMNS.indexOf(column.id) >= 0
+    assert.equal(column.total, TERMINAL_PAGE + 3, column.id)
+    assert.equal(column.rows.length, terminal ? TERMINAL_PAGE : TERMINAL_PAGE + 3, column.id)
+    assert.equal(column.overflow, terminal ? 3 : 0, column.id)
+  }
+})
 
-  assert.equal(column.total, TERMINAL_WINDOW + 5)
-  assert.equal(column.rows.length, TERMINAL_WINDOW)
-  assert.equal(column.overflow, 5)
+test('#409 · the window keeps the NEWEST rows, and grows by a page at a time', () => {
+  const many = publishedRun(TERMINAL_PAGE * 3)
+
+  const first = publishedIn(buildBoardView(many, filters()))
   // Newest first — the opposite of `compareRows`, which puts the most idle row on top because
   // that is what work looks like. In an archive it would surface the oldest fossils.
-  assert.equal(column.rows[0].clientId, `pub-${TERMINAL_WINDOW + 4}`)
+  assert.equal(first.rows[0].clientId, `pub-${TERMINAL_PAGE * 3 - 1}`)
+
+  const second = publishedIn(
+    buildBoardView(many, filters(), { shown: { published: TERMINAL_PAGE * 2 } })
+  )
+  assert.equal(second.rows.length, TERMINAL_PAGE * 2)
+  assert.equal(second.overflow, TERMINAL_PAGE)
+  // Growing REVEALS, never reshuffles: page one is still page one, in the same order.
+  assert.deepEqual(
+    second.rows.slice(0, TERMINAL_PAGE).map((item) => item.clientId),
+    first.rows.map((item) => item.clientId)
+  )
+})
+
+/**
+ * THE FLOOR IS THE MODULE'S, not the caller's — so a board mounted with `{}`, one whose state
+ * nobody has touched, and one carrying a number below a page all render the same first page.
+ * Without it, `Math.max` living only in `revealMore` would let a `0` from anywhere paint an
+ * empty `Publicado` that says `14` in its heading.
+ */
+test('#409 · a window below one page is still one page', () => {
+  const many = publishedRun(TERMINAL_PAGE + 5)
+  for (const asked of [0, 1, TERMINAL_PAGE - 1]) {
+    const column = publishedIn(buildBoardView(many, filters(), { shown: { published: asked } }))
+    assert.equal(column.rows.length, TERMINAL_PAGE, `asked for ${asked}`)
+  }
+})
+
+test('#409 · asking for more than the column holds shows all of it and claims no overflow', () => {
+  const many = publishedRun(3)
+  const column = publishedIn(buildBoardView(many, filters(), { shown: { published: 100 } }))
+  assert.equal(column.rows.length, 3)
+  assert.equal(column.overflow, 0)
 })
 
 test('#409 · the board never filters on its own: it hands the rail its own view back', () => {
   const applied = filters({ state: 'published' })
-  const view = buildBoardView(SPREAD, applied, { expanded: TERMINAL_COLUMNS })
+  const view = buildBoardView(SPREAD, applied)
   assert.deepEqual(
     view.directory.rows.map((item) => item.clientId),
     buildDirectoryView(SPREAD, applied).rows.map((item) => item.clientId)

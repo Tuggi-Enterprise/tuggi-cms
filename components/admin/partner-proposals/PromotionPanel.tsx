@@ -130,7 +130,13 @@ export function PromotionPanel({ detail, categoryLabel, onClose, onPromoted }: P
         {plan.creating ? t('promotion.createTitle') : t('promotion.updateTitle', { name: targetName })}
       </h2>
 
-      <table className="mt-4 w-full border-collapse text-sm">
+      {/* FOUR COLUMNS OF COMPARISON DO NOT FIT A PHONE, and squeezing them is worse than
+          scrolling them: `campo / atual / proposto` at 90px each turns every value into a
+          column of single words, and this table is read to DECIDE which value is right. It
+          scrolls inside its own box, so the page behind it never moves sideways — the same
+          rule the directory table follows. */}
+      <div className="mt-4 -mx-2 overflow-x-auto px-2">
+        <table className="w-full min-w-[34rem] border-collapse text-sm">
         <thead>
           <tr className="border-b border-gray-200 text-left dark:border-gray-800 text-xs uppercase tracking-wide text-gray-700 dark:text-gray-400">
             <th scope="col" className="px-2 py-2">{t('promotion.columns.field')}</th>
@@ -185,7 +191,8 @@ export function PromotionPanel({ detail, categoryLabel, onClose, onPromoted }: P
             </tr>
           ))}
         </tbody>
-      </table>
+        </table>
+      </div>
 
       {plan.unchanged.length > 0 && (
         <p className="mt-2 text-xs text-gray-700 dark:text-gray-400">

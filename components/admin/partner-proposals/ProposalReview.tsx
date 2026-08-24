@@ -24,6 +24,7 @@
  * normal here, and this repo has lost text to that pair with no error at all.
  */
 
+import { CLIENT_DIRECTORY_PATH } from '@/lib/clients/directory-filter'
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { useTranslations } from 'next-intl'
 import Link from 'next/link'
@@ -173,7 +174,7 @@ export function ProposalReview({ locale, submissionId }: ProposalReviewProps) {
         <p className="font-medium text-gray-900 dark:text-white">{t('review.notFoundTitle')}</p>
         <p className="mt-1 text-sm text-gray-800 dark:text-gray-300">{t('review.notFoundBody')}</p>
         <Link
-          href={`/${locale}/admin/clients?state=in_progress`}
+          href={`/${locale}${CLIENT_DIRECTORY_PATH}`}
           className="mt-3 inline-block text-sm font-medium text-primary-800 underline dark:text-tuggi-blue underline-offset-4"
         >
           {t('review.back')}
@@ -276,7 +277,7 @@ export function ProposalReview({ locale, submissionId }: ProposalReviewProps) {
       {/* Sticky, so promoting a long proposal never asks the operator to scroll back. */}
       <header className={`${CARD} sticky top-0 z-30 mb-6 px-6 py-4`}>
         <Link
-          href={`/${locale}/admin/clients?state=in_progress`}
+          href={`/${locale}${CLIENT_DIRECTORY_PATH}`}
           className="inline-flex items-center gap-1 text-sm text-primary-800 underline dark:text-tuggi-blue underline-offset-4"
         >
           <ArrowLeft className="h-3 w-3" aria-hidden="true" />

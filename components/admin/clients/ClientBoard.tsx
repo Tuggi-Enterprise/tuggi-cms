@@ -35,17 +35,23 @@ import {
   type DragStartEvent,
 } from '@dnd-kit/core'
 import { Button } from '@/components/ui/button'
-import { DirectoryFilterRail } from '@/components/admin/clients/DirectoryFilterRail'
+import {
+  DirectoryFilterRail,
+  DirectoryFilterSheet,
+} from '@/components/admin/clients/DirectoryFilterRail'
 import { BoardCard, deriveTriageOf } from '@/components/admin/clients/board/BoardCard'
 import { BoardColumn } from '@/components/admin/clients/board/BoardColumn'
 import {
+  TERMINAL_PAGE,
   buildBoardView,
   columnOf,
   planTransition,
   type BoardAct,
   type BoardColumnId,
+  type BoardColumnView,
   type TransitionPlan,
 } from '@/lib/clients/board-transitions'
+import { useIsDesktop } from '@/lib/hooks/use-media-query'
 import {
   EMPTY_FILTERS,
   applyFilters,
@@ -89,22 +95,66 @@ export function ClientBoard({
   const c = useTranslations('Clients.directory')
   const p = useTranslations('Partnerships')
 
-  const [expanded, setExpanded] = useState<BoardColumnId[]>([])
+  /**
+   * HOW FAR DOWN EACH TERMINAL COLUMN HAS BEEN OPENED, which used to be `which ones are open`.
+   *
+   * The collapse it replaced is described in `TERMINAL_PAGE`: it kept the board readable by
+   * hiding the last month of delivered work, and an operator who had just published a place
+   * could not see it on the board at all. Now every column shows its first page and this counter
+   * is what `Ver mais` grows.
+   *
+   * COMPONENT STATE AND NOT THE URL, like `phoneColumn` and unlike every filter here. A filter is
+   * a claim about WHICH partnerships matter and is worth sending to somebody; how far somebody
+   * has scrolled into the archive is not, and putting it in the address bar would give
+   * `Limpar filtros` two more keys to reason about for nothing.
+   */
+  const [shown, setShown] = useState<Partial<Record<BoardColumnId, number>>>({})
+
+  /**
+   * WHICH COLUMN A PHONE SHOWS, and why the board is not simply narrower there.
+   *
+   * Eight 288px lanes in a horizontal scroller is a shape that works with a mouse wheel and a
+   * 2560px monitor. On a 390px screen it puts one and a third columns on screen, and the sideways
+   * scroll it needs is the same gesture the operator uses to go back a page — so the board reads
+   * as broken before it reads as full. Below `lg` the columns become a picker and one list: the
+   * heading, the hint and the count all survive, because `BoardColumn` renders unchanged and only
+   * its width differs.
+   *
+   * IT IS COMPONENT STATE AND NOT A URL PARAMETER, unlike every filter on this screen. A filter
+   * is a claim about WHICH partnerships matter and is worth sending to somebody; which lane a
+   * thumb is currently on is not. Putting it in the address bar would also mean `Limpar filtros`
+   * had one more key to reason about, for nothing.
+   */
+  const [phoneColumn, setPhoneColumn] = useState<BoardColumnId>('proposal')
+  const desktop = useIsDesktop()
 
   const board = useMemo(
-    () => buildBoardView(rows, filters, { expanded }),
-    [rows, filters, expanded]
+    () => buildBoardView(rows, filters, { shown }),
+    [rows, filters, shown]
+  )
+  /**
+   * How many cards the columns are actually painting, alert band included.
+   *
+   * DERIVED FROM THE VIEW and never counted a second way: it is the sum of what `buildBoardView`
+   * decided to render, so a change to the windowing rule moves this figure with it. A count that
+   * re-implemented the window here is exactly how `{n} com a triagem vencida` once opened an
+   * empty table.
+   */
+  const painted = useMemo(
+    () => board.columns.reduce((sum, column) => sum + column.rows.length, 0) + board.alert.length,
+    [board]
   )
   const late = useMemo(() => overdueCount(rows), [rows])
   const working = useMemo(() => inProgressCount(rows), [rows])
   const triage = useMemo(() => deriveTriageOf(rows), [rows])
 
-  const toggleColumn = useCallback((column: BoardColumnId) => {
-    setExpanded((current) =>
-      current.indexOf(column) >= 0
-        ? current.filter((candidate) => candidate !== column)
-        : current.concat(column)
-    )
+  const revealMore = useCallback((column: BoardColumnId) => {
+    setShown((current) => ({
+      ...current,
+      // The floor is `TERMINAL_PAGE` in `buildBoardView` too, so a column nobody has touched and
+      // one sitting at its first page grow by the same amount from the same number.
+      [column]: Math.max(TERMINAL_PAGE, current[column] ?? 0) + TERMINAL_PAGE,
+    }))
   }, [])
 
   /**
@@ -197,8 +247,8 @@ export function ClientBoard({
   }
 
   return (
-    <div className="flex min-h-screen flex-col bg-gray-50 p-6 dark:bg-gray-950 lg:p-8">
-      <div className="flex flex-1 gap-8 pt-6">
+    <div className="flex min-h-screen flex-col bg-gray-50 p-4 dark:bg-gray-950 lg:p-8">
+      <div className="flex flex-1 flex-col gap-6 pt-2 lg:flex-row lg:gap-8 lg:pt-6">
         <DirectoryFilterRail
           view={board.directory}
           filters={filters}
@@ -206,18 +256,24 @@ export function ClientBoard({
           working={working}
         />
 
-        <div className="w-[82%] min-w-0">
-          <div className="sticky top-0 z-30 mb-6 rounded-3xl border border-gray-200 bg-white/80 shadow-2xl shadow-black/5 backdrop-blur-xl dark:border-gray-800 dark:bg-gray-900/80">
-            <div className="flex flex-wrap items-center justify-between gap-4 p-4">
-              <div className="flex flex-wrap items-center gap-8 pl-2">
+        {/* `w-full` under `lg`, and the old percentage above it. `18% + 82% + gap-8 + p-6` came
+            to more than a phone has, which is what pushed the whole board past the right edge. */}
+        <div className="w-full min-w-0 lg:w-[82%]">
+          <div className="sticky top-0 z-30 mb-4 rounded-3xl border border-gray-200 bg-white/80 shadow-2xl shadow-black/5 backdrop-blur-xl dark:border-gray-800 dark:bg-gray-900/80 lg:mb-6">
+            <div className="flex flex-wrap items-center justify-between gap-3 p-3 lg:gap-4 lg:p-4">
+              <div className="flex flex-wrap items-center gap-3 lg:gap-8 lg:pl-2">
                 <div>
-                  <h1 className="text-xl font-semibold tracking-tight text-gray-900 dark:text-white">
+                  <h1 className="text-lg font-semibold tracking-tight text-gray-900 dark:text-white lg:text-xl">
                     {c('title')}
                   </h1>
-                  <p className="text-[11px] text-gray-500 dark:text-gray-400">{t('dragHint')}</p>
+                  {/* `Arraste para a próxima coluna` is a lie on a touch screen, where there is
+                      no drag to offer. The hint names the path that exists at each width. */}
+                  <p className="text-[11px] text-gray-500 dark:text-gray-400">
+                    {desktop ? t('dragHint') : t('tapHint')}
+                  </p>
                 </div>
 
-                <div className="h-8 w-px bg-gray-200 dark:bg-gray-800" aria-hidden="true" />
+                <div className="hidden h-8 w-px bg-gray-200 dark:bg-gray-800 lg:block" aria-hidden="true" />
 
                 <span className="text-sm text-gray-900 dark:text-gray-200">
                   {c('results', { count: board.directory.rows.length, total: rows.length })}
@@ -241,7 +297,13 @@ export function ClientBoard({
                 )}
               </div>
 
-              <div className="flex items-center gap-3">
+              <div className="flex flex-wrap items-center gap-2 lg:gap-3">
+                <DirectoryFilterSheet
+                  view={board.directory}
+                  filters={filters}
+                  onFiltersChange={onFiltersChange}
+                  working={working}
+                />
                 {viewSwitch}
                 {onCreateNew && (
                   <Button type="button" variant="cta" onClick={onCreateNew}>
@@ -273,7 +335,7 @@ export function ClientBoard({
               <p className="mt-1 text-xs text-gray-800 dark:text-gray-300">{t('alertBody')}</p>
               <div className="mt-3 flex flex-wrap gap-2">
                 {board.alert.map((row) => (
-                  <div key={rowKey(row)} className="w-72">
+                  <div key={rowKey(row)} className="w-full lg:w-72">
                     <BoardCard
                       row={row}
                       column="curation"
@@ -287,54 +349,144 @@ export function ClientBoard({
             </section>
           )}
 
+          {/*
+            HOW MUCH OF THE BOARD IS ON SCREEN, above the columns.
+            
+            THREE NUMBERS LIVE ON THIS SCREEN AND THEY ANSWER THREE QUESTIONS. The header's
+            `21 de 36` is `passou o filtro` de `existe`; a column's `5 de 14` is that column's
+            window; and this line is the board's own: how many cards are painted, out of
+            everything the filter let through. Before it existed the header said `21` while the
+            columns rendered fewer, because `Publicado` and `Encerrados` came shut — and nothing
+            on the screen owned up to the difference.
+            
+            IT IS THE LOADED SET IT SPEAKS OF, not the database. When `truncated` is true the
+            server cut the list before it arrived, and the banner right above says so; this line
+            stays honest by never claiming to count rows the browser does not hold.
+            
+            `lg:block` — ON A PHONE THIS WOULD BE THE FOURTH NUMBER of the same family on a 390px
+            screen, and the wrong one. Only one column renders there, so `painted` counts cards
+            that are not on screen; what IS on screen is already carried twice, by the picker
+            chips (every column's total) and by the column's own `5 de 14`.
+          */}
+          {!loading && (
+            <p className="mb-3 hidden px-1 text-xs text-gray-500 dark:text-gray-400 lg:block">
+              {painted < board.directory.rows.length
+                ? t('boardTotalWindowed', { shown: painted, total: board.directory.rows.length })
+                : t('boardTotal', { total: board.directory.rows.length })}
+            </p>
+          )}
+
           {loading ? (
             <p role="status" className="p-8 text-center text-sm text-gray-500 dark:text-gray-400">
               {c('loading')}
             </p>
           ) : (
-            <DndContext sensors={sensors} onDragStart={onDragStart} onDragEnd={onDragEnd}>
-              {/* The board scrolls sideways inside its own container; the page never does. */}
-              <div className="flex gap-3 overflow-x-auto pb-4">
-                {board.columns.map((column) => (
-                  <DroppableColumn
-                    key={column.id}
-                    column={column}
-                    truncated={truncated}
-                    filtering={board.directory.filtering}
-                    onToggle={toggleColumn}
-                    seeAllHref={seeAllHref}
-                  >
-                    {column.rows.map((row) => (
-                      <DraggableCard
-                        key={rowKey(row)}
-                        row={row}
-                        column={column.id}
-                        locale={locale}
-                        triage={triage.get(rowKey(row)) ?? NOT_STARTED}
-                        onAct={onAct}
-                        refusal={refusal?.key === rowKey(row) ? refusal.message : null}
-                      />
-                    ))}
-                  </DroppableColumn>
-                ))}
-              </div>
+            /*
+             * TWO TREES, AND `@dnd-kit` MOUNTS IN ONLY ONE OF THEM.
+             *
+             * Not a matter of taste: `PointerSensor` claims the touch events it needs to tell a
+             * drag from a scroll, and on a phone the finger that would start a drag is the one
+             * scrolling the column. Rendering the drag tree and hiding it with `hidden` would
+             * mount those sensors anyway, so the split is at the component and not in CSS —
+             * which is what `useIsDesktop` exists for. Nothing is lost: `BoardCard` already
+             * carries every act as a button, because WCAG 2.2 SC 2.5.7 demanded that of the
+             * desktop board too.
+             */
+            desktop ? (
+              <DndContext sensors={sensors} onDragStart={onDragStart} onDragEnd={onDragEnd}>
+                {/*
+                  The board scrolls sideways inside its own container; the page never does.
+                  
+                  `tabIndex` AND A NAME, BECAUSE A SCROLL BOX MUST BE REACHABLE BY KEYBOARD.
+                  WCAG 2.1.1: a region that scrolls has to be scrollable without a pointer, which
+                  means it is focusable or it contains something focusable. It used to contain
+                  something focusable by accident — every terminal column carried an `Abrir`
+                  toggle, so even an empty board had two buttons in it. Replacing the collapse
+                  with `Ver mais`, which only exists when a column overflows, left the empty board
+                  with nothing to tab to and the columns unreachable by arrow key. Caught by
+                  `axe-core` on the empty state, which is the only state where it showed.
+                */}
+                <div
+                  role="group"
+                  aria-label={t('columnsLabel')}
+                  tabIndex={0}
+                  className="flex gap-3 overflow-x-auto pb-4 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary-800"
+                >
+                  {board.columns.map((column) => (
+                    <DroppableColumn
+                      key={column.id}
+                      column={column}
+                      truncated={truncated}
+                      filtering={board.directory.filtering}
+                      onRevealMore={revealMore}
+                      seeAllHref={seeAllHref}
+                    >
+                      {column.rows.map((row) => (
+                        <DraggableCard
+                          key={rowKey(row)}
+                          row={row}
+                          column={column.id}
+                          locale={locale}
+                          triage={triage.get(rowKey(row)) ?? NOT_STARTED}
+                          onAct={onAct}
+                          refusal={refusal?.key === rowKey(row) ? refusal.message : null}
+                        />
+                      ))}
+                    </DroppableColumn>
+                  ))}
+                </div>
 
-              {/* What follows the pointer. A copy, so the card in the column keeps its place —
-                  the original only dims, because nothing has moved yet. */}
-              <DragOverlay>
-                {dragging && (
-                  <div className="w-72 rotate-1">
-                    <BoardCard
-                      row={dragging}
-                      column={columnOf(dragging.state) ?? 'client'}
-                      locale={locale}
-                      triage={triage.get(rowKey(dragging)) ?? NOT_STARTED}
-                      onAct={onAct}
-                    />
-                  </div>
-                )}
-              </DragOverlay>
-            </DndContext>
+                {/* What follows the pointer. A copy, so the card in the column keeps its place —
+                    the original only dims, because nothing has moved yet. */}
+                <DragOverlay>
+                  {dragging && (
+                    <div className="w-72 rotate-1">
+                      <BoardCard
+                        row={dragging}
+                        column={columnOf(dragging.state) ?? 'client'}
+                        locale={locale}
+                        triage={triage.get(rowKey(dragging)) ?? NOT_STARTED}
+                        onAct={onAct}
+                      />
+                    </div>
+                  )}
+                </DragOverlay>
+              </DndContext>
+            ) : (
+              <div className="pb-4">
+                <ColumnPicker
+                  columns={board.columns}
+                  selected={phoneColumn}
+                  truncated={truncated}
+                  onSelect={setPhoneColumn}
+                />
+
+                {board.columns
+                  .filter((column) => column.id === phoneColumn)
+                  .map((column) => (
+                    <BoardColumn
+                      key={column.id}
+                      column={column}
+                      truncated={truncated}
+                      filtering={board.directory.filtering}
+                      onRevealMore={revealMore}
+                      seeAllHref={seeAllHref}
+                      stacked
+                    >
+                      {column.rows.map((row) => (
+                        <BoardCard
+                          key={rowKey(row)}
+                          row={row}
+                          column={column.id}
+                          locale={locale}
+                          triage={triage.get(rowKey(row)) ?? NOT_STARTED}
+                          onAct={onAct}
+                        />
+                      ))}
+                    </BoardColumn>
+                  ))}
+              </div>
+            )
           )}
 
           {!loading && board.directory.rows.length === 0 && (
@@ -425,5 +577,72 @@ function DroppableColumn(props: React.ComponentProps<typeof BoardColumn>) {
       dropRef={setNodeRef}
       dropActive={isOver}
     />
+  )
+}
+
+/**
+ * The phone's way through the eight columns — a strip of chips, each carrying its count.
+ *
+ * THE COUNT IS ON THE CHIP because that is the whole board a phone can hold at once. On a
+ * monitor the eight headings are read in one glance and the shape of the queue comes for free —
+ * `5 na proposta, 1 no contrato` is visible without touching anything. Collapse that to one
+ * column and the operator loses the overview, not just the columns: they would have to tap
+ * through all eight to learn where the work is. The chips give the overview back.
+ *
+ * `≥ n` FOR A TRUNCATED SET, the same way `BoardColumn` prints it. `loadClientDirectory` caps at
+ * 1000 rows newest first, so a cut set loses the OLDEST rows — exactly what fills `Publicado`
+ * and `Encerrados`. A chip reading `142` for a number that is a floor is the defect that made
+ * `{n} com a triagem vencida` open an empty table.
+ *
+ * `overflow-x-auto` HERE IS FINE where it was not for the columns themselves: this strip is one
+ * row tall, so a sideways drag on it cannot be mistaken for the vertical scroll of a long list.
+ */
+function ColumnPicker({
+  columns,
+  selected,
+  truncated,
+  onSelect,
+}: {
+  columns: BoardColumnView[]
+  selected: BoardColumnId
+  truncated: boolean
+  onSelect: (column: BoardColumnId) => void
+}) {
+  const t = useTranslations('Clients.board')
+
+  return (
+    <div
+      role="tablist"
+      aria-label={t('columnPickerLabel')}
+      className="-mx-1 mb-4 flex gap-2 overflow-x-auto px-1 pb-2"
+    >
+      {columns.map((column) => {
+        const active = column.id === selected
+        const count = truncated ? t('countTruncated', { count: column.total }) : String(column.total)
+
+        return (
+          <button
+            key={column.id}
+            type="button"
+            role="tab"
+            aria-selected={active}
+            onClick={() => onSelect(column.id)}
+            /*
+             * `whitespace-nowrap` and a real 44px target. The selected chip is carried by
+             * WEIGHT and by a border, never by colour alone (DS-A11Y-003) — and `aria-selected`
+             * says it out loud, which is what a screen reader reads instead of the border.
+             */
+            className={`inline-flex min-h-[44px] shrink-0 items-center gap-2 whitespace-nowrap rounded-xl border px-3 py-2 text-sm transition-colors ${
+              active
+                ? 'border-primary-800 bg-primary-800/10 font-semibold text-gray-900 dark:border-tuggi-blue dark:bg-tuggi-blue/10 dark:text-white'
+                : 'border-gray-200 text-primary-800 dark:border-gray-700 dark:text-tuggi-blue'
+            }`}
+          >
+            {t(`columns.${column.id}`)}
+            <span className="text-xs text-gray-500 dark:text-gray-400">{count}</span>
+          </button>
+        )
+      })}
+    </div>
   )
 }

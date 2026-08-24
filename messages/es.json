@@ -1931,7 +1931,8 @@
       "messages": {
         "saved": "Guardado con éxito",
         "created": "Cliente creado"
-      }
+      },
+      "close": "Cerrar"
     },
     "approval": {
       "approve": "Aprobar",
@@ -2008,7 +2009,8 @@
         "downloadPng": "Descargar PNG",
         "copyImage": "Copiar imagen",
         "copied": "Copiado",
-        "legacyLink": "Legado: /download?ID={id} (aún funciona)"
+        "legacyLink": "Legado: /download?ID={id} (aún funciona)",
+        "share": "Compartir"
       }
     },
     "fiscal": {
@@ -2116,6 +2118,10 @@
       "emptyHeader": "Cupones",
       "emptyDesc": "Guarda el cliente para comenzar a vincular cupones.",
       "scopedBanner": "Solo cupones atribuidos a este cliente. Los cupones genéricos (sin owner) aparecen solo en <link>búsqueda global</link>."
+    },
+    "stance": {
+      "paying": "De pago",
+      "not_paying": "Sin pago"
     }
   },
   "Coupons": {

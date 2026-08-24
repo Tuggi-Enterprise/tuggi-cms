@@ -117,7 +117,11 @@ export function ApprovalHeaderControls({
 
   const Icon = badge.icon
   return (
-    <div className="relative flex items-center gap-2">
+    // `flex-wrap` because on a phone this row is the whole width of the screen and the badge
+    // plus two acts is wider than 390px in Portuguese. `min-h-[44px]` on the acts: they are
+    // `Aprovar` and `Recusar` on a client record, and a 26px target for a decision that sends
+    // an e-mail is the shape that gets tapped by accident.
+    <div className="relative flex flex-wrap items-center gap-2">
       <span className={cn('inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-[10px] font-bold uppercase tracking-widest border', badge.className)}>
         <Icon className="w-3.5 h-3.5" />
         {badge.label}
@@ -129,7 +133,7 @@ export function ApprovalHeaderControls({
             type="button"
             onClick={() => setOpenAction('approve')}
             disabled={submitting}
-            className="inline-flex items-center gap-1.5 rounded-xl bg-green-600 px-3 py-1.5 text-xs font-bold text-white hover:bg-green-700 disabled:opacity-50 transition-all"
+            className="inline-flex min-h-[44px] items-center gap-1.5 rounded-xl bg-green-600 px-3 py-1.5 text-xs font-bold text-white hover:bg-green-700 disabled:opacity-50 transition-all lg:min-h-0"
           >
             <CheckCircle className="w-3.5 h-3.5" /> {t('approve')}
           </button>
@@ -137,7 +141,7 @@ export function ApprovalHeaderControls({
             type="button"
             onClick={() => setOpenAction('reject')}
             disabled={submitting}
-            className="inline-flex items-center gap-1.5 rounded-xl border border-red-200 bg-red-50 px-3 py-1.5 text-xs font-bold text-red-700 hover:bg-red-100 disabled:opacity-50 transition-all"
+            className="inline-flex min-h-[44px] items-center gap-1.5 rounded-xl border border-red-200 bg-red-50 px-3 py-1.5 text-xs font-bold text-red-700 hover:bg-red-100 disabled:opacity-50 transition-all lg:min-h-0"
           >
             <XCircle className="w-3.5 h-3.5" /> {t('reject')}
           </button>

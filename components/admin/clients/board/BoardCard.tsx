@@ -29,9 +29,42 @@ import {
   planSource,
   whatIsMissing,
 } from '@/components/admin/clients/board/row-text'
-import { derivePartnerPlan } from '@/lib/clients/partner-plan'
+import { derivePartnerPlan, paymentStance, type PaymentStance } from '@/lib/clients/partner-plan'
 import { nextAct, type BoardAct, type BoardColumnId } from '@/lib/clients/board-transitions'
 import type { ClientDirectoryRow } from '@/lib/services/partnership-service'
+
+/**
+ * PAGA OU NÃO PAGA, ON THE LEFT EDGE OF THE CARD.
+ *
+ * A BORDER AND NOT INK, which is what makes these values usable at all. As a non-text element
+ * the stripe answers to SC 1.4.11 (3:1) rather than SC 1.4.3 (4.5:1), and the four tokens below
+ * were measured against every surface a card sits on — the white/`gray-900` fill it carries and
+ * the `gray-50`/`gray-950` column behind it:
+ *
+ *   light   `emerald-600` #059669 → 3.77:1 on white, 3.61:1 on gray-50
+ *           `gray-700`    #374151 → 10.31:1 on white, 9.86:1 on gray-50
+ *   dark    `emerald-500` #10B981 → 6.99:1 on gray-900, 7.94:1 on gray-950
+ *           `gray-500`    #6B7280 → 3.67:1 on gray-900, 4.16:1 on gray-950
+ *
+ * TWO TOKENS PER STANCE, one per mode, for the reason the rest of this screen already writes
+ * down about `primary-800` and `tuggi-blue`: it is one measurement read on two surfaces, and
+ * the token that works as an edge in daylight is not the one that works at night.
+ *
+ * THE PAIR ALSO SEPARATES WITHOUT HUE. Green against grey is the first thing to fail for a
+ * reader with deuteranopia, so the two were chosen to differ in LIGHTNESS as well: 2.74:1
+ * between them on light, 1.91:1 on dark. That is a supporting property and not the compliance
+ * argument — DS-A11Y-003 is satisfied by the plan line in words, three lines further down, which
+ * says `Plano: R$ 149,00 por mês` or `Plano: ninguém declarou` and never relies on this edge.
+ *
+ * IT CARRIES NO ACCESSIBLE NAME on purpose. The stripe is a SUMMARY of a line that is already
+ * on the card in text; announcing `não pagante` beside `Plano: ninguém declarou` would read the
+ * same fact twice and, worse, would flatten a pendency into an answer for the one reader who
+ * cannot see that the two are the same mark.
+ */
+const STANCE_STRIPE: Record<PaymentStance, string> = {
+  paying: 'border-l-emerald-600 dark:border-l-emerald-500',
+  not_paying: 'border-l-gray-700 dark:border-l-gray-500',
+}
 
 interface BoardCardProps {
   row: ClientDirectoryRow
@@ -69,14 +102,15 @@ export function BoardCard({
   const plan = derivePartnerPlan(row)
   const planNote = planSource(plan, t)
   const divergence = planDivergence(plan, t)
+  const stance = paymentStance(plan.kind)
 
   return (
     <article
       {...dragHandleProps}
       aria-label={name}
-      className={`rounded-2xl border border-gray-200 bg-white p-3 text-sm shadow-sm transition-shadow dark:border-gray-800 dark:bg-gray-900 ${
-        dragging ? 'opacity-50' : 'hover:shadow-md'
-      }`}
+      className={`rounded-2xl border border-l-4 border-gray-200 bg-white p-3 text-sm shadow-sm transition-shadow dark:border-gray-800 dark:bg-gray-900 ${
+        STANCE_STRIPE[stance]
+      } ${dragging ? 'opacity-50' : 'hover:shadow-md'}`}
     >
       <h3 className="truncate font-medium text-gray-900 dark:text-white" title={row.name ?? ''}>
         {name}

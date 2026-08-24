@@ -8,6 +8,9 @@ import { taxConfigFor, usesBankingIBAN } from '@/components/admin/clients/shared
 import { EditField } from '@/components/admin/clients/shared/EditField'
 import { SectionHeader } from '@/components/admin/clients/shared/SectionHeader'
 import { formatDate, formatFee } from '@/lib/contract/snapshot'
+import { registrationMoneyKind } from '@/lib/partnerships/publish-plan'
+import { paymentStance } from '@/lib/clients/partner-plan'
+import { PaymentStanceBadge } from '@/components/admin/clients/shared/PaymentStanceBadge'
 import type { ClientEditorTabProps } from './ProfileTab'
 
 function v<K extends keyof Client>(client: Client | null, edited: Partial<Client>, k: K): string {
@@ -68,10 +71,32 @@ export function FiscalPaymentsTab({ client, edited, updateField, canEdit, client
   const isCourtesy = Boolean(edited.is_courtesy ?? client?.is_courtesy)
   const monthlyFeeCents = edited.monthly_fee_cents ?? client?.monthly_fee_cents ?? null
 
+  /**
+   * PAGA OU NÃO PAGA, READ OFF THE REGISTRATION AND NOTHING ELSE.
+   *
+   * The board card derives the full `PartnerPlan`, where a signed contract outranks the record
+   * and the establishment's own choice outranks an empty one. HERE THAT WOULD BE WRONG: this tab
+   * IS the registration, and a badge reading `grátis pelo contrato` over the very field somebody
+   * is typing a fee into would be describing a different document than the one on screen. So the
+   * source is `registrationMoneyKind` — the same predicate `buildPublishPlan` refuses a
+   * publication by — and only the binary rule is shared with the card.
+   *
+   * IT FOLLOWS `edited`, NOT `client`. Ticking `Cortesia` or clearing the fee flips the badge
+   * before the save, which is the whole point of putting it beside the control: the operator sees
+   * what they are about to store, not what is stored.
+   */
+  const stance = paymentStance(
+    registrationMoneyKind({
+      monthlyFeeCents,
+      isCourtesy,
+      courtesyReason: (edited.courtesy_reason ?? client?.courtesy_reason ?? null) as string | null,
+    })
+  )
+
   return (
     <div className="space-y-8 max-w-5xl mx-auto">
       {/* Legal */}
-      <div className="bg-white dark:bg-gray-900 rounded-3xl border border-gray-200 dark:border-gray-800 p-8 shadow-sm">
+      <div className="bg-white dark:bg-gray-900 rounded-3xl border border-gray-200 dark:border-gray-800 p-5 lg:p-8 shadow-sm">
         <SectionHeader icon={<Scale className="w-4 h-4 text-purple-500" />} title={t('sections.legal')} color="purple-500" />
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-y-6 gap-x-10">
           <EditField
@@ -114,7 +139,7 @@ export function FiscalPaymentsTab({ client, edited, updateField, canEdit, client
       </div>
 
       {/* Banking */}
-      <div className="bg-white dark:bg-gray-900 rounded-3xl border border-gray-200 dark:border-gray-800 p-8 shadow-sm">
+      <div className="bg-white dark:bg-gray-900 rounded-3xl border border-gray-200 dark:border-gray-800 p-5 lg:p-8 shadow-sm">
         <SectionHeader icon={<Landmark className="w-4 h-4 text-green-500" />} title={t('sections.banking')} color="green-500" />
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-y-6 gap-x-10">
           <EditField
@@ -171,7 +196,7 @@ export function FiscalPaymentsTab({ client, edited, updateField, canEdit, client
       </div>
 
       {/* Commission */}
-      <div className="bg-white dark:bg-gray-900 rounded-3xl border border-gray-200 dark:border-gray-800 p-8 shadow-sm">
+      <div className="bg-white dark:bg-gray-900 rounded-3xl border border-gray-200 dark:border-gray-800 p-5 lg:p-8 shadow-sm">
         <SectionHeader icon={<Percent className="w-4 h-4 text-amber-500" />} title={t('sections.commission')} color="amber-500" />
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-y-6 gap-x-10">
           {isEditing ? (
@@ -222,7 +247,10 @@ export function FiscalPaymentsTab({ client, edited, updateField, canEdit, client
             </div>
           )}
           <div className="space-y-1">
-            <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest">{t('fields.monthlyFee')}</p>
+            <div className="flex flex-wrap items-center gap-2">
+              <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest">{t('fields.monthlyFee')}</p>
+              <PaymentStanceBadge stance={stance} />
+            </div>
             {isEditing ? (
               <>
                 <input

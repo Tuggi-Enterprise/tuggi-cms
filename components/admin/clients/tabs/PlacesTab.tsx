@@ -155,7 +155,7 @@ function PartnerPlaces({ clientId, locale }: { clientId?: string; locale: string
   }
 
   return (
-    <div className="rounded-3xl border border-gray-200 bg-white p-8 shadow-sm dark:border-gray-800 dark:bg-gray-900">
+    <div className="rounded-3xl border border-gray-200 bg-white p-5 shadow-sm lg:p-8 dark:border-gray-800 dark:bg-gray-900">
       <SectionHeader
         icon={<MapPin className="h-4 w-4 text-primary-800" />}
         title={t('clientPlaces.title')}

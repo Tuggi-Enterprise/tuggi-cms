@@ -1,3 +1,4 @@
+import { CLIENT_DIRECTORY_PATH } from '@/lib/clients/directory-filter'
 import { NextIntlClientProvider } from 'next-intl'
 import ptMessages from '@/messages/pt.json'
 import { PartnershipDetail } from '@/components/admin/partnerships/PartnershipDetail'
@@ -36,7 +37,7 @@ export default async function PartnershipDetailPage({
       <PartnershipDetail
         locale={locale}
         clientId={clientId}
-        backHref={`/${locale}/admin/clients?state=in_progress`}
+        backHref={`/${locale}${CLIENT_DIRECTORY_PATH}`}
       />
     </NextIntlClientProvider>
   )

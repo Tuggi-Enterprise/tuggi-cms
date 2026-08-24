@@ -1,4 +1,20 @@
 <html lang="pt">
+  <head>
+    <!--
+      THE VIEWPORT META, and without it the mobile project measures a screen nobody has.
+
+      Chromium in mobile emulation falls back to a 980px LAYOUT viewport for any page that does
+      not declare one — the compatibility rule for pages written before phones existed. That is
+      not a detail here: `tests/ct/*.mobile.spec.tsx` asserts that a 390px screen does not scroll
+      sideways, and on a silent 980px layout viewport that assertion passes no matter how wide
+      the board is. It measured nothing until this line existed.
+
+      The real screens are not affected either way: `app/[locale]/layout.tsx` is an App Router
+      layout, and Next injects `width=device-width, initial-scale=1` into every page it renders.
+      This file only makes the harness agree with the app.
+    -->
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+  </head>
   <body>
     <div id="root"></div>
     <script type="module" src="./index.tsx"></script>

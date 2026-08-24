@@ -14,8 +14,9 @@ import { test, expect } from '@playwright/experimental-ct-react'
 import type { Page } from '@playwright/test'
 import AxeBuilder from '@axe-core/playwright'
 import { BoardHarness, Wrapper } from './helpers'
-import { BOARD_ROWS_EVERY_COLUMN, BOARD_ROWS_EVERY_PLAN } from './fixtures/partnerships'
-import { BOARD_COLUMNS, TERMINAL_COLUMNS } from '@/lib/clients/board-transitions'
+import { BOARD_ROWS_EVERY_COLUMN, BOARD_ROWS_EVERY_PLAN, queueRow } from './fixtures/partnerships'
+import { BOARD_COLUMNS, TERMINAL_COLUMNS, TERMINAL_PAGE } from '@/lib/clients/board-transitions'
+import { EMPTY_FILTERS } from '@/lib/clients/directory-filter'
 import ptMessages from '@/messages/pt.json'
 
 const BOARD = ptMessages.Clients.board
@@ -224,7 +225,15 @@ test('#409 — the rail filters by what decides the money, and a proposal is not
 
 // ── The terminal columns ─────────────────────────────────────────────────────────────────────
 
-test('#409 — Publicado and Encerrados open closed, and say so with aria-expanded', async ({
+/**
+ * WHAT THIS TEST REPLACED. Until 2026-08-24 it asserted that `Publicado` and `Encerrados` come
+ * SHUT, with `aria-expanded="false"` on a toggle. That was a faithful test of a screen with a
+ * real defect: the last month of delivered work was invisible on the board, and an operator who
+ * had just published a place had to leave for the table to see it. The reason the collapse
+ * existed survives — an unbounded `Publicado` swamps the seven columns beside it — and the
+ * window is the answer to it that does not hide anything.
+ */
+test('#409 — Publicado opens on its first page and says how much it is not showing', async ({
   mount,
   page,
 }) => {
@@ -235,22 +244,88 @@ test('#409 — Publicado and Encerrados open closed, and say so with aria-expand
     </Wrapper>
   )
 
+  // No click, no toggle: the card of a published place is on the board from the first paint.
+  const published = page.getByRole('region', { name: BOARD.columns.published })
+  await expect(published.getByRole('article', { name: 'Café da Praça' })).toBeVisible()
+
+  // And a terminal column that fits inside one page offers no `Ver mais` at all — a button that
+  // adds nothing is a button that teaches the operator the control does nothing.
   for (const id of TERMINAL_COLUMNS) {
     const label = BOARD.columns[id as keyof typeof BOARD.columns]
     const region = page.getByRole('region', { name: label })
-    const toggle = region.getByRole('button', { name: BOARD.expand })
-
-    await expect(toggle).toHaveAttribute('aria-expanded', 'false')
-    await toggle.click()
-    await expect(region.getByRole('button', { name: BOARD.collapse })).toHaveAttribute(
-      'aria-expanded',
-      'true'
-    )
+    await expect(region.getByRole('button', { name: /Ver mais/ })).toHaveCount(0)
   }
+})
 
-  // Opened, `Publicado` shows its card and offers the table for the rest.
+test('#409 — `Ver mais` grows the column in place, a page at a time', async ({ mount, page }) => {
+  // Twelve published rows against a page of five: two taps to reach the end, and the button is
+  // gone on the third.
+  const many = Array.from({ length: 12 }, (_, index) =>
+    queueRow({
+      submissionId: `pub-${index}`,
+      clientId: `client-pub-${index}`,
+      state: 'published',
+      status: 'approved',
+      name: `Publicado ${index}`,
+      since: `2026-08-${String(index + 1).padStart(2, '0')}T00:00:00.000Z`,
+    })
+  )
+  await mockDirectory(page, { rows: many, truncated: false })
+  await mount(
+    <Wrapper>
+      <BoardHarness />
+    </Wrapper>
+  )
+
   const published = page.getByRole('region', { name: BOARD.columns.published })
-  await expect(published.getByRole('article', { name: 'Café da Praça' })).toBeVisible()
+  await expect(published.getByRole('article')).toHaveCount(TERMINAL_PAGE)
+  await expect(published).toContainText('5 de 12')
+
+  await published.getByRole('button', { name: /Ver mais/ }).click()
+  await expect(published.getByRole('article')).toHaveCount(TERMINAL_PAGE * 2)
+  await expect(published).toContainText('10 de 12')
+
+  /*
+   * THE LAST PAGE IS SHORT, and the label said so before it was clicked: `Ver mais 2`, not
+   * `Ver mais 5`. A control that promises five and delivers two is the small lie that makes an
+   * operator stop trusting the count beside it.
+   */
+  await expect(published.getByRole('button', { name: 'Ver mais 2' })).toBeVisible()
+  await published.getByRole('button', { name: 'Ver mais 2' }).click()
+  await expect(published.getByRole('article')).toHaveCount(12)
+  await expect(published.getByRole('button', { name: /Ver mais/ })).toHaveCount(0)
+})
+
+test('#409 — the board says how many cards it is painting, above the columns', async ({
+  mount,
+  page,
+}) => {
+  const many = Array.from({ length: 12 }, (_, index) =>
+    queueRow({
+      submissionId: `pub-${index}`,
+      clientId: `client-pub-${index}`,
+      state: 'published',
+      status: 'approved',
+      name: `Publicado ${index}`,
+      since: `2026-08-${String(index + 1).padStart(2, '0')}T00:00:00.000Z`,
+    })
+  )
+  await mockDirectory(page, { rows: many, truncated: false })
+  await mount(
+    <Wrapper>
+      <BoardHarness />
+    </Wrapper>
+  )
+
+  // Five of twelve painted, and the line owns up to it. Before this existed the header said
+  // `12 de 12` while the columns rendered five, and nothing on screen named the difference.
+  await expect(page.getByText('5 de 12 parcerias visíveis no quadro')).toBeVisible()
+
+  await page
+    .getByRole('region', { name: BOARD.columns.published })
+    .getByRole('button', { name: /Ver mais/ })
+    .click()
+  await expect(page.getByText('10 de 12 parcerias visíveis no quadro')).toBeVisible()
 })
 
 test('#409 — a truncated set turns every column count into a floor, not a fact', async ({
@@ -350,4 +425,161 @@ test('#409 · SC 1.4.3 — #00A8E8 never paints text or an informative icon on t
     return bad
   })
   expect(offenders).toEqual([])
+})
+
+// ── Paga ou não paga, as a colour on the card's left edge ────────────────────────────────────
+
+/** The two measured tokens, as the browser reports them. */
+const PAYING_STRIPE = 'rgb(5, 150, 105)' //  emerald-600 #059669 — 3.77:1 on white, 3.61:1 on gray-50
+const NOT_PAYING_STRIPE = 'rgb(55, 65, 81)' // gray-700 #374151 — 10.31:1 on white, 9.86:1 on gray-50
+
+async function stripeOf(page: Page, name: string): Promise<string> {
+  return page
+    .getByRole('article', { name })
+    .evaluate((node) => getComputedStyle(node).borderLeftColor)
+}
+
+test('#409 — the left edge separates who bills from who does not', async ({ mount, page }) => {
+  await mockDirectory(page, { rows: BOARD_ROWS_EVERY_PLAN, truncated: false })
+  await mount(
+    <Wrapper>
+      <BoardHarness />
+    </Wrapper>
+  )
+
+  // The one member of `paying`: a registration with a fee somebody typed.
+  expect(await stripeOf(page, 'Paga por mês')).toBe(PAYING_STRIPE)
+
+  /*
+   * AND THE EDGE IS ACTUALLY 4px WHILE THE OTHER THREE STAY AT 1px.
+   *
+   * `border border-l-4` are two utilities of equal specificity, so which one wins the left edge
+   * is decided by the ORDER Tailwind emits them in — not by the order they appear in the class
+   * string. That is a fact about the framework, not about this card, and it is the kind of thing
+   * an upgrade changes silently: the colour test above would stay green with a 1px edge nobody
+   * can see from across a column.
+   */
+  const widths = await page
+    .getByRole('article', { name: 'Paga por mês' })
+    .evaluate((node) => {
+      const style = getComputedStyle(node)
+      return { left: style.borderLeftWidth, top: style.borderTopWidth }
+    })
+  expect(widths).toEqual({ left: '4px', top: '1px' })
+
+  /*
+   * AND THE FOUR THAT ARE NOT, each for a different reason, which is exactly why the WORD stays
+   * on the card. `Cortesia declarada` is a decision; `Ninguém declarou` is a pendency that
+   * refuses the publication; `Pediu descrição` is a proposal nobody priced; `Contrato
+   * divergente` signed a free tier over a record still carrying `R$ 149,00`. The colour says
+   * only "nothing is being billed", and it is the plan line that says which of the four.
+   */
+  for (const name of [
+    'Cortesia declarada',
+    'Ninguém declarou',
+    'Pediu descrição',
+    'Contrato divergente',
+  ]) {
+    expect(await stripeOf(page, name), name).toBe(NOT_PAYING_STRIPE)
+  }
+})
+
+test('#409 · DS-A11Y-003 — the stripe never carries the money on its own', async ({
+  mount,
+  page,
+}) => {
+  await mockDirectory(page, { rows: BOARD_ROWS_EVERY_PLAN, truncated: false })
+  await mount(
+    <Wrapper>
+      <BoardHarness />
+    </Wrapper>
+  )
+
+  /*
+   * THE ASSERTION IS THAT REMOVING THE COLOUR CHANGES NOTHING AN OPERATOR CAN READ.
+   *
+   * DS-A11Y-003 asks for two channels, and the second one here is not an icon or a badge — it is
+   * the plan line the card already carried before the stripe existed. So the test states it as a
+   * property of the TEXT: every card, in either stance, names its own money in words. A future
+   * change that moved the money onto the stripe alone — dropping `planLine` to save a line on a
+   * phone, say — turns this red while the colour test above stays green.
+   */
+  const PLAN = BOARD.plan
+
+  await expect(page.getByRole('article', { name: 'Paga por mês' })).toContainText('R$ 149,00')
+  await expect(page.getByRole('article', { name: 'Cortesia declarada' })).toContainText(PLAN.courtesy)
+  await expect(page.getByRole('article', { name: 'Ninguém declarou' })).toContainText(PLAN.undeclared)
+  await expect(page.getByRole('article', { name: 'Contrato divergente' })).toContainText(PLAN.free)
+
+  // And the stripe itself announces nothing: it is a border on the `<article>`, so there is no
+  // element whose accessible name is `pagante` or `não pagante` competing with the line above.
+  await expect(page.getByText(/^N[ãa]o pagante$/i)).toHaveCount(0)
+  await expect(page.getByText(/^Pagante$/i)).toHaveCount(0)
+})
+
+/**
+ * WHY THE FRONT DOOR MAY NOT CARRY `state=in_progress`, stated as a rendering rather than as a
+ * comment.
+ *
+ * The nav link carried it until 2026-08-24, for a reason written when this screen was a flat
+ * list: `Publicado`, `Descartado` and `Recusado na triagem` mixed into a queue are noise the
+ * operator learns to ignore. On a BOARD that premise dissolves — each outcome has its own
+ * column, so nothing is confused with work — and the filter's effect is what this test paints:
+ * two columns that exist, carry a heading and a hint, and can never hold a card.
+ *
+ * `tests/api/client-board-surface.test.ts` is what actually guards the link. This is the
+ * evidence for why that guard is there, and it fails the day somebody makes `in_progress`
+ * include a terminal state, which would make both this and that test wrong together.
+ */
+test('#409 — the working-set filter empties the terminal columns, which is why no link carries it', async ({
+  mount,
+  page,
+}) => {
+  const rows = BOARD_ROWS_EVERY_COLUMN.concat(
+    queueRow({
+      submissionId: 'pub-1',
+      clientId: 'client-pub-1',
+      state: 'published',
+      status: 'approved',
+      name: 'Já está no ar',
+    })
+  )
+  await mockDirectory(page, { rows, truncated: false })
+  await mount(
+    <Wrapper>
+      <BoardHarness initial={{ ...EMPTY_FILTERS, state: 'in_progress' }} />
+    </Wrapper>
+  )
+
+  const published = page.getByRole('region', { name: BOARD.columns.published })
+  await expect(published.getByRole('article')).toHaveCount(0)
+  await expect(published).toContainText(BOARD.emptyFiltered)
+})
+
+/** The other half of the pair: with no filter — what the link gives now — the row is on the board. */
+test('#409 — unfiltered, a published partnership is a card on the board', async ({
+  mount,
+  page,
+}) => {
+  const rows = BOARD_ROWS_EVERY_COLUMN.concat(
+    queueRow({
+      submissionId: 'pub-1',
+      clientId: 'client-pub-1',
+      state: 'published',
+      status: 'approved',
+      name: 'Já está no ar',
+    })
+  )
+  await mockDirectory(page, { rows, truncated: false })
+  await mount(
+    <Wrapper>
+      <BoardHarness />
+    </Wrapper>
+  )
+
+  await expect(
+    page.getByRole('region', { name: BOARD.columns.published }).getByRole('article', {
+      name: 'Já está no ar',
+    })
+  ).toBeVisible()
 })

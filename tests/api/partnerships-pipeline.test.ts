@@ -484,7 +484,7 @@ function read(relative: string): string {
   return readFileSync(resolve(REPO_ROOT, relative), 'utf8')
 }
 
-test('#359 crit. 1: neither old list survives, and `Parcerias` opens the working set', () => {
+test('#359 crit. 1: neither old list survives, and `Parcerias` opens the whole list', () => {
   assert.equal(
     existsSync(resolve(REPO_ROOT, 'app/[locale]/admin/partner-proposals')),
     false,
@@ -511,7 +511,30 @@ test('#359 crit. 1: neither old list survives, and `Parcerias` opens the working
   )
 
   const header = read('components/ui/Header.tsx')
-  assert.match(header, /href: '\/admin\/clients\?state=in_progress'/)
+
+  /*
+   * `Parcerias` OPENED THE WORKING SET UNTIL 2026-08-24, and criterion 1 is only half revoked.
+   *
+   * What stands: there is no separate queue screen, and a filter that fits in a link does not
+   * need one (DS-LAYOUT-003). What changed is WHICH link. The working-set filter was decided
+   * while this screen was a flat list, where `Publicado` and `Encerrados` really do mix into the
+   * work; the default became the BOARD, where each outcome has a column of its own and cannot be
+   * confused with anything. There the filter had one effect only — `IN_PROGRESS_STATES` is the
+   * complement of the two terminal columns, so it emptied both before the operator saw them.
+   *
+   * The board's own answer to the same worry is `TERMINAL_PAGE`: those columns show five and
+   * grow on demand, which bounds them without hiding a row. `Em andamento` is still one click in
+   * the rail. The relationship this replaces is asserted in `client-board-surface.test.ts`,
+   * which fails for any link into the list carrying a `state` filter at all.
+   */
+  assert.match(header, /href: CLIENT_DIRECTORY_PATH/)
+  assert.equal(
+    /admin\/clients\?[^'"`]*state=/.test(
+      header.replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '')
+    ),
+    false,
+    'the menu must not land the operator on a filter that empties two board columns'
+  )
   for (const dead of ['/admin/partner-proposals', "href: '/admin/partnerships'"]) {
     assert.equal(header.indexOf(dead), -1, `nothing in the menu points at ${dead}`)
   }

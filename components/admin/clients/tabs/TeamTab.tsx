@@ -203,7 +203,7 @@ export function TeamTab({ client, edited, updateField, clientId, canEdit }: Clie
     <div className="space-y-8 max-w-5xl mx-auto">
       {/* Programa de afiliados — capacidade de coordenador (admin-only; esta aba só existe
           no editor admin, nunca no modal de filha do coordenador). */}
-      <div className="bg-white dark:bg-gray-900 rounded-3xl border border-gray-200 dark:border-gray-800 p-8 shadow-sm">
+      <div className="bg-white dark:bg-gray-900 rounded-3xl border border-gray-200 dark:border-gray-800 p-5 lg:p-8 shadow-sm">
         <SectionHeader icon={<Network className="w-4 h-4 text-tuggi-blue" />} title={t('coordinatorTitle')} color="tuggi-blue" />
         <p className="text-xs text-gray-500 mb-4 leading-relaxed">{t('coordinatorHelp')}</p>
         <label className="inline-flex items-center gap-2">
@@ -240,7 +240,7 @@ export function TeamTab({ client, edited, updateField, clientId, canEdit }: Clie
         )}
       </div>
 
-      <div className="bg-white dark:bg-gray-900 rounded-3xl border border-gray-200 dark:border-gray-800 p-8 shadow-sm">
+      <div className="bg-white dark:bg-gray-900 rounded-3xl border border-gray-200 dark:border-gray-800 p-5 lg:p-8 shadow-sm">
         <div className="flex items-center justify-between mb-6">
           <SectionHeader icon={<Users className="w-4 h-4 text-green-500" />} title={t('section')} color="green-500" />
           {canEdit && (
@@ -355,7 +355,7 @@ export function TeamTab({ client, edited, updateField, clientId, canEdit }: Clie
           </form>
         )}
 
-        <div className="overflow-hidden rounded-2xl border border-gray-100 dark:border-gray-800">
+        <div className="overflow-x-auto rounded-2xl border border-gray-100 dark:border-gray-800">
           <table className="w-full">
             <thead className="bg-gray-50 dark:bg-gray-800/50">
               <tr>

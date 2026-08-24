@@ -47,7 +47,32 @@ export default defineConfig({
   projects: [
     {
       name: 'chromium',
+      // The mobile suite states its own viewport as the whole point of its assertions; running
+      // it here too would measure a 1280px window against a 390px expectation.
+      testIgnore: /\.mobile\.spec\.tsx$/,
       use: { ...devices['Desktop Chrome'] },
+    },
+    {
+      /**
+       * THE PHONE, and it is a project rather than a `page.setViewportSize` inside the tests.
+       *
+       * `ClientBoard` chooses its tree from `window.matchMedia('(min-width: 1024px)')` at mount
+       * — `@dnd-kit` mounts on a monitor and does not on a phone — so the viewport has to be
+       * right BEFORE the component mounts, not resized after it. A project fixes it for the
+       * whole run.
+       *
+       * 390×844 is the iPhone 14/15/16 logical viewport, which is the narrow end of what the
+       * commercial team actually carries. `hasTouch` matters for the same reason the width
+       * does: `pointer: coarse` is what tells the browser which hover styles to skip.
+       */
+      name: 'mobile-390',
+      testMatch: /\.mobile\.spec\.tsx$/,
+      use: {
+        ...devices['Desktop Chrome'],
+        viewport: { width: 390, height: 844 },
+        hasTouch: true,
+        isMobile: true,
+      },
     },
   ],
 })

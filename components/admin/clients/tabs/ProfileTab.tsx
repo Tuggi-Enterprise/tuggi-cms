@@ -48,7 +48,7 @@ export function ProfileTab({ client, edited, updateField, canEdit, clientId }: C
   return (
     <div className="space-y-8 max-w-5xl mx-auto">
       {/* Identity */}
-      <div className="bg-white dark:bg-gray-900 rounded-3xl border border-gray-200 dark:border-gray-800 p-8 shadow-sm">
+      <div className="bg-white dark:bg-gray-900 rounded-3xl border border-gray-200 dark:border-gray-800 p-5 lg:p-8 shadow-sm">
         <SectionHeader icon={<Building2 className="w-4 h-4 text-tuggi-blue" />} title={t('sections.identity')} />
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-y-6 gap-x-10">
           <EditField label={t('fields.name')} value={v(client, edited, 'name')} isEditing={isEditing} onChange={(val) => updateField('name', val)} />
@@ -69,7 +69,7 @@ export function ProfileTab({ client, edited, updateField, canEdit, clientId }: C
       </div>
 
       {/* Partner attribution */}
-      <div className="bg-white dark:bg-gray-900 rounded-3xl border border-gray-200 dark:border-gray-800 p-8 shadow-sm">
+      <div className="bg-white dark:bg-gray-900 rounded-3xl border border-gray-200 dark:border-gray-800 p-5 lg:p-8 shadow-sm">
         <SectionHeader icon={<Sparkles className="w-4 h-4 text-pink-500" />} title={t('sections.attribution')} color="pink-500" />
         <p className="text-xs text-gray-500 mb-6 leading-relaxed">{t('sections.attributionHelp')}</p>
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-y-6 gap-x-10">
@@ -96,7 +96,7 @@ export function ProfileTab({ client, edited, updateField, canEdit, clientId }: C
       </div>
 
       {/* Address */}
-      <div className="bg-white dark:bg-gray-900 rounded-3xl border border-gray-200 dark:border-gray-800 p-8 shadow-sm">
+      <div className="bg-white dark:bg-gray-900 rounded-3xl border border-gray-200 dark:border-gray-800 p-5 lg:p-8 shadow-sm">
         <SectionHeader icon={<Building2 className="w-4 h-4 text-indigo-500" />} title={t('sections.address')} color="indigo-500" />
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-y-6 gap-x-10">
           <EditField label={t('fields.address')} value={v(client, edited, 'address')} isEditing={isEditing} onChange={(val) => updateField('address', val)} fullWidth />

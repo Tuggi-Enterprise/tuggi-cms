@@ -1,7 +1,7 @@
 'use client'
 
-import { useMemo, useState } from 'react'
-import { QrCode, Download, Copy, Check, AlertTriangle } from 'lucide-react'
+import { useMemo, useState, useSyncExternalStore } from 'react'
+import { QrCode, Download, Copy, Check, AlertTriangle, Share2 } from 'lucide-react'
 import { QRCodeCanvas } from 'qrcode.react'
 import { useTranslations } from 'next-intl'
 import { cn } from '@/lib/utils'
@@ -22,6 +22,35 @@ interface ClientQrCodeProps {
  * keeps a slug-less fallback so even a freshly created client without
  * a slug yet still has a working QR.
  */
+/** The capability never changes within a session, so there is nothing to subscribe to. */
+const subscribeNever = () => () => {}
+
+/**
+ * `canShare` IS PROBED WITH AN ACTUAL FILE and not merely by the presence of `navigator.share`.
+ * Desktop Safari and several Android browsers expose `share` for text and URLs while refusing
+ * files, and a share button that throws `NotAllowedError` on tap is worse than no button.
+ *
+ * The answer is memoised because `getSnapshot` runs on every render and must return a stable
+ * value — and because building a probe `File` per render to learn something that cannot change
+ * is waste. The probe is one byte and is never sent anywhere.
+ */
+let shareFileSupport: boolean | null = null
+
+function detectShareFile(): boolean {
+  if (shareFileSupport !== null) return shareFileSupport
+  if (typeof navigator === 'undefined' || typeof navigator.canShare !== 'function') {
+    shareFileSupport = false
+    return shareFileSupport
+  }
+  try {
+    const probe = new File([new Uint8Array([0])], 'probe.png', { type: 'image/png' })
+    shareFileSupport = navigator.canShare({ files: [probe] })
+  } catch {
+    shareFileSupport = false
+  }
+  return shareFileSupport
+}
+
 export function ClientQrCode({ clientId, slug }: ClientQrCodeProps) {
   const t = useTranslations('Clients.profile.qr')
   const [copied, setCopied] = useState(false)
@@ -48,6 +77,50 @@ export function ClientQrCode({ clientId, slug }: ClientQrCodeProps) {
     link.click()
   }
 
+  /**
+   * WHETHER THIS DEVICE HAS A SHARE SHEET THAT ACCEPTS A FILE.
+   *
+   * `useSyncExternalStore` and not an effect, because this is not state that changes — it is a
+   * fact about the browser that differs between the server (where `navigator` does not exist)
+   * and the client. The server snapshot is `false`, so the HTML never contains a button the
+   * device cannot honour, and React reconciles the difference on hydration instead of the
+   * component setting its own state one render late.
+   */
+  const canShareFile = useSyncExternalStore(subscribeNever, detectShareFile, () => false)
+
+  /** The canvas as a PNG file, named the way the download names it. One shape, two consumers. */
+  const toPngFile = (): Promise<File | null> =>
+    new Promise((resolve) => {
+      const canvas = document.getElementById(canvasId) as HTMLCanvasElement | null
+      if (!canvas) return resolve(null)
+      canvas.toBlob((blob) => {
+        if (!blob) return resolve(null)
+        resolve(new File([blob], `tuggi-qr-${trimmedSlug || clientId || 'client'}.png`, { type: 'image/png' }))
+      }, 'image/png')
+    })
+
+  /**
+   * THE PHONE'S WAY OUT OF THIS SCREEN, and the reason it is not just another download.
+   *
+   * The QR is printed and stuck on a partner's counter, and the operator doing that is standing
+   * in front of them with a phone. `Baixar PNG` on iOS drops the file into Downloads and ends
+   * the story there; the share sheet is where `Imprimir`, `Salvar em Arquivos` and `WhatsApp`
+   * all live, which is every real destination this image has.
+   *
+   * `AbortError` IS NOT AN ERROR. Dismissing the sheet rejects the promise with it, and every
+   * user who changes their mind would otherwise see a failure they did not cause.
+   */
+  const handleShare = async () => {
+    const file = await toPngFile()
+    if (!file) return
+    try {
+      await navigator.share({ files: [file], title: t('title'), text: finalUrl })
+    } catch (err) {
+      if ((err as Error)?.name === 'AbortError') return
+      console.error('Failed to share QR', err)
+    }
+  }
+
   const handleCopy = () => {
     const canvas = document.getElementById(canvasId) as HTMLCanvasElement | null
     if (!canvas) return
@@ -67,7 +140,7 @@ export function ClientQrCode({ clientId, slug }: ClientQrCodeProps) {
   if (!finalUrl) return null
 
   return (
-    <div className="bg-white dark:bg-gray-900 rounded-3xl border border-gray-200 dark:border-gray-800 p-8 shadow-sm">
+    <div className="bg-white dark:bg-gray-900 rounded-3xl border border-gray-200 dark:border-gray-800 p-5 lg:p-8 shadow-sm">
       <SectionHeader icon={<QrCode className="w-4 h-4 text-tuggi-blue" />} title={t('title')} />
       <p className="text-xs text-gray-500 mb-6 leading-relaxed">{t('subtitle')}</p>
 
@@ -80,7 +153,11 @@ export function ClientQrCode({ clientId, slug }: ClientQrCodeProps) {
 
       <div className="grid grid-cols-1 md:grid-cols-2 gap-6 items-center">
         <div className="flex flex-col items-center">
-          <div className="p-5 bg-white border-2 border-gray-50 rounded-3xl shadow-sm">
+          {/* `p-5` on the frame plus a 220px canvas plus the card's own padding came to more
+              than a 390px screen has once the drawer's padding is counted. The frame gives back
+              the difference below `lg`; the canvas keeps its 220px, because shrinking the
+              rendered modules is how a QR stops scanning. */}
+          <div className="p-3 lg:p-5 bg-white border-2 border-gray-50 rounded-3xl shadow-sm max-w-full overflow-hidden">
             <QRCodeCanvas
               id={canvasId}
               value={finalUrl}
@@ -114,11 +191,28 @@ export function ClientQrCode({ clientId, slug }: ClientQrCodeProps) {
             )}
           </div>
 
-          <div className="flex gap-3">
+          <div className="flex flex-wrap gap-3">
+            {/* The share sheet leads the row where it exists, because on the device that has one
+                it is the shorter path to the printer. Where it does not, the download is still
+                first — the order changes, the set of paths does not. */}
+            {canShareFile && (
+              <button
+                type="button"
+                onClick={handleShare}
+                className="flex-1 min-h-[44px] inline-flex items-center justify-center gap-2 px-4 py-2.5 bg-gray-900 text-white rounded-xl text-xs font-bold hover:bg-black transition-all shadow-md"
+              >
+                <Share2 className="w-4 h-4" /> {t('share')}
+              </button>
+            )}
             <button
               type="button"
               onClick={handleDownload}
-              className="flex-1 inline-flex items-center justify-center gap-2 px-4 py-2.5 bg-gray-900 text-white rounded-xl text-xs font-bold hover:bg-black transition-all shadow-md"
+              className={cn(
+                'flex-1 min-h-[44px] inline-flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl text-xs font-bold transition-all',
+                canShareFile
+                  ? 'border border-gray-200 bg-white text-gray-700 hover:bg-gray-50'
+                  : 'bg-gray-900 text-white hover:bg-black shadow-md'
+              )}
             >
               <Download className="w-4 h-4" /> {t('downloadPng')}
             </button>
@@ -126,7 +220,7 @@ export function ClientQrCode({ clientId, slug }: ClientQrCodeProps) {
               type="button"
               onClick={handleCopy}
               className={cn(
-                'inline-flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl text-xs font-bold transition-all border',
+                'min-h-[44px] inline-flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl text-xs font-bold transition-all border',
                 copied ? 'bg-green-50 text-green-700 border-green-200' : 'bg-white text-gray-700 border-gray-200 hover:bg-gray-50'
               )}
             >

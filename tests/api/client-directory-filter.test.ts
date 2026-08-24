@@ -25,6 +25,8 @@ import assert from 'node:assert/strict'
 
 import {
   EMPTY_FILTERS,
+  activeFilterCount,
+  pageWindow,
   buildDirectoryView,
   isFiltering,
   overdueCount,
@@ -193,4 +195,122 @@ test('an overdue triage sorts above a longer idle row', () => {
   })
   const view = buildDirectoryView([idle, late], EMPTY_FILTERS)
   assert.deepEqual(view.rows.map((candidate) => candidate.clientId), ['late', 'idle'])
+})
+
+// ── The figure the phone's `Filtros` button wears ────────────────────────────────────────────
+
+/**
+ * ON A MONITOR NOTHING NEEDS TO COUNT THE FACETS: every active one is on screen, underlined, in
+ * a rail that is always open. On a phone the same facets are behind a closed sheet, and the
+ * button that opens it is the only thing left that can say a filter is on at all. A wrong count
+ * there is the defect the rail could never have — an operator reading `21 de 36` and hunting for
+ * a partner that a forgotten `país = Portugal` is hiding.
+ *
+ * THE INVARIANT IS AGREEMENT WITH `isFiltering`, and it is asserted over every dimension rather
+ * than spot-checked: the two functions enumerate the same ten fields by hand, and a dimension
+ * added to one and not the other is exactly the drift that produces `Filtros` with no number
+ * over a filtered list.
+ *
+ * Mutations that turn this red:
+ *  · forgetting a dimension (`plan`, `onlyLate`) as `activeFilterCount` grows;
+ *  · counting `state: 'all'` or `search: ''` as narrowing, which would put a number on the
+ *    button of an untouched list;
+ *  · counting whitespace-only search text, which `applyFilters` deletes from the URL.
+ */
+const NARROWED: DirectoryFilters[] = [
+  { ...EMPTY_FILTERS, search: 'padaria' },
+  { ...EMPTY_FILTERS, country: 'Brazil' },
+  { ...EMPTY_FILTERS, region: 'MG' },
+  { ...EMPTY_FILTERS, city: 'Cabo Frio' },
+  { ...EMPTY_FILTERS, clientType: 'restaurante' },
+  { ...EMPTY_FILTERS, status: 'approved' },
+  { ...EMPTY_FILTERS, contract: 'signed' },
+  { ...EMPTY_FILTERS, plan: 'paid' },
+  { ...EMPTY_FILTERS, state: 'in_progress' },
+  { ...EMPTY_FILTERS, onlyLate: true },
+]
+
+test('an untouched list wears no number, and agrees with isFiltering', () => {
+  assert.equal(activeFilterCount(EMPTY_FILTERS), 0)
+  assert.equal(isFiltering(EMPTY_FILTERS), false)
+})
+
+test('every dimension counts exactly one, and every one of them is a narrowing', () => {
+  for (const filters of NARROWED) {
+    assert.equal(activeFilterCount(filters), 1, JSON.stringify(filters))
+    // The two functions enumerate the same fields by hand. If one grows a dimension the other
+    // does not, this is where it shows.
+    assert.equal(isFiltering(filters), true, JSON.stringify(filters))
+  }
+})
+
+test('the count is the number of dimensions narrowed, not of rows removed', () => {
+  const three = { ...EMPTY_FILTERS, country: 'Brazil', contract: 'signed', onlyLate: true }
+  assert.equal(activeFilterCount(three), 3)
+})
+
+test('whitespace-only search is not a filter — applyFilters deletes it from the URL', () => {
+  const blank = { ...EMPTY_FILTERS, search: '   ' }
+  assert.equal(activeFilterCount(blank), 0)
+  assert.equal(isFiltering(blank), false)
+})
+
+// ── The pager's numbers ──────────────────────────────────────────────────────────────────────
+
+/**
+ * `pageWindow` EXISTS BECAUSE THE CAP IS 1000. At 25 rows a page that is forty buttons, and a
+ * row of forty numbers is wider than the table it pages — the current one becomes impossible to
+ * find, which is the opposite of what a pager is for.
+ *
+ * Mutations that turn this red:
+ *  · printing a page number outside `1..pageCount`, which is a button that opens an empty table;
+ *  · printing the same page twice, which is two buttons that open the same one;
+ *  · replacing a gap of exactly ONE page with an ellipsis, which hides a page that was reachable
+ *    in a click and costs the same width to print;
+ *  · rendering a pager at all for a single page, where every button would be dead.
+ */
+test('a single page is just itself', () => {
+  assert.deepEqual(pageWindow(1, 1), [1])
+  assert.deepEqual(pageWindow(1, 0), [1])
+})
+
+test('a short list prints every page, with no gaps', () => {
+  assert.deepEqual(pageWindow(1, 3), [1, 2, 3])
+  assert.deepEqual(pageWindow(2, 4), [1, 2, 3, 4])
+  assert.deepEqual(pageWindow(1, 5), [1, 2, 3, 4, 5])
+})
+
+test('a long list keeps the ends, the current page and two neighbours each side', () => {
+  assert.deepEqual(pageWindow(20, 40), [1, null, 18, 19, 20, 21, 22, null, 40])
+  assert.deepEqual(pageWindow(1, 40), [1, 2, 3, null, 40])
+  assert.deepEqual(pageWindow(40, 40), [1, null, 38, 39, 40])
+})
+
+/**
+ * A GAP OF EXACTLY ONE IS PRINTED. `1 … 3` and `1 2 3` are the same width, and the first hides a
+ * page the operator could have reached without opening it first.
+ */
+test('a gap of one page is printed rather than elided', () => {
+  assert.deepEqual(pageWindow(1, 6), [1, 2, 3, null, 6])
+  assert.deepEqual(pageWindow(4, 7), [1, 2, 3, 4, 5, 6, 7])
+})
+
+test('every number is inside the range, and none repeats', () => {
+  for (const pageCount of [1, 2, 5, 9, 40]) {
+    for (let page = 1; page <= pageCount; page += 1) {
+      const window = pageWindow(page, pageCount)
+      const numbers = window.filter((value): value is number => value !== null)
+      assert.ok(
+        numbers.every((value) => value >= 1 && value <= pageCount),
+        `page ${page} of ${pageCount} printed something out of range: ${JSON.stringify(window)}`
+      )
+      assert.equal(
+        new Set(numbers).size,
+        numbers.length,
+        `page ${page} of ${pageCount} printed a duplicate: ${JSON.stringify(window)}`
+      )
+      // The current page is always one of them, or the pager cannot say where you are.
+      assert.ok(numbers.indexOf(page) >= 0, `page ${page} of ${pageCount} lost the current page`)
+    }
+  }
 })

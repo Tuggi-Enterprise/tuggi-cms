@@ -325,3 +325,93 @@ export function isFiltering(filters: DirectoryFilters): boolean {
 export function overdueCount(rows: ClientDirectoryRow[]): number {
   return rows.filter(isLate).length
 }
+
+/**
+ * How many dimensions the operator has narrowed — the number the mobile `Filtros` button wears.
+ *
+ * IT EXISTS BECAUSE THE RAIL DOES NOT ALWAYS EXIST. On a monitor every active facet is visible
+ * at once, underlined and counted, so nothing has to summarise it. On a phone the same facets
+ * live behind a closed sheet, and a button that says only `Filtros` cannot tell `36 parceiros`
+ * from `36 parceiros, dos quais estou vendo 5 por causa de um filtro que esqueci aberto`. That
+ * confusion is the one this figure buys off.
+ *
+ * `search` COUNTS AS ONE DIMENSION and is not weighted by how much it removes: this is a count
+ * of decisions taken, not of rows hidden — `hiddenCount` is the one that answers the second
+ * question. It agrees with `isFiltering` by construction, both here and in the test: a count of
+ * `0` and `isFiltering === false` are the same state read twice.
+ */
+export function activeFilterCount(filters: DirectoryFilters): number {
+  let count = 0
+  if (filters.search.trim() !== '') count += 1
+  if (filters.country !== null) count += 1
+  if (filters.region !== null) count += 1
+  if (filters.city !== null) count += 1
+  if (filters.clientType !== null) count += 1
+  if (filters.status !== null) count += 1
+  if (filters.contract !== null) count += 1
+  if (filters.plan !== null) count += 1
+  if (filters.state !== 'all') count += 1
+  if (filters.onlyLate) count += 1
+  return count
+}
+
+/**
+ * WHICH PAGE NUMBERS A PAGER PRINTS, with `null` where it skips.
+ *
+ * A LIST OF EVERY PAGE IS FINE UNTIL IT IS NOT. `loadClientDirectory` caps at 1000 rows, so at
+ * 25 per page this control can be asked for forty buttons — a row of numbers wider than the
+ * table it pages, in which the current one is impossible to find. The window is the standard
+ * shape: the first, the last, the current with `PAGE_NEIGHBOURS` each side, and a gap marker for
+ * whatever it jumped.
+ *
+ * TWO NEIGHBOURS AND NOT ONE, which is what decides how a SHORT list reads. With one, page 1 of
+ * five prints `1 2 … 5` — an ellipsis standing in for two pages that would have cost the same
+ * width to print, over a list the operator can see the whole of. With two, anything up to seven
+ * pages prints whole and the gaps only appear where they are earning something.
+ *
+ * `null` AND NOT THE STRING `…`, because the ellipsis is text the operator's locale owns and
+ * this module has no translator. The renderer decides what a gap looks like; this decides where
+ * the gaps are.
+ *
+ * IT NEVER RETURNS A PAGE THAT DOES NOT EXIST, and never the same page twice — the two ways a
+ * pager breaks are a button that opens an empty table and two buttons that open the same one.
+ */
+const PAGE_NEIGHBOURS = 2
+
+export function pageWindow(page: number, pageCount: number): (number | null)[] {
+  if (pageCount <= 1) return [1]
+
+  const wanted = new Set<number>([1, pageCount])
+  for (let candidate = page - PAGE_NEIGHBOURS; candidate <= page + PAGE_NEIGHBOURS; candidate += 1) {
+    if (candidate >= 1 && candidate <= pageCount) wanted.add(candidate)
+  }
+
+  const ordered = Array.from(wanted).sort((a, b) => a - b)
+  const out: (number | null)[] = []
+  let previous = 0
+  for (const value of ordered) {
+    // A gap of exactly one page is printed rather than hidden: `1 … 3` costs the same width as
+    // `1 2 3` and hides a page the operator could have reached in one click.
+    if (previous > 0 && value - previous === 2) out.push(previous + 1)
+    else if (previous > 0 && value - previous > 2) out.push(null)
+    out.push(value)
+    previous = value
+  }
+  return out
+}
+
+/**
+ * WHERE THE PARTNERSHIP LIST LIVES — one constant, because it was written out four times and the
+ * four drifted.
+ *
+ * Three of them carried `?state=in_progress` and one did not, which is the shape of a fact with
+ * no owner (CLAUDE.md §6). The filter was right for the flat list it was written for and wrong
+ * for the board that became the default: `IN_PROGRESS_STATES` excludes `published`, `discarded`
+ * and `refused_at_triage` — exactly the three states of the two terminal columns — so the front
+ * door emptied `Publicado` and `Encerrados` before the operator saw them. What keeps those
+ * columns from swamping the board is `TERMINAL_PAGE`, a window that hides nothing.
+ *
+ * NO LOCALE PREFIX. Every caller has its own (`/${locale}${CLIENT_DIRECTORY_PATH}`), and baking
+ * one in here would be this module deciding something it cannot know.
+ */
+export const CLIENT_DIRECTORY_PATH = '/admin/clients'

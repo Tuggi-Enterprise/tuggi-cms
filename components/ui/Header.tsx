@@ -47,6 +47,7 @@ import { cn } from '@/lib/utils'
 import { isMarketingEnabled } from '@/lib/modules/marketing'
 import { isEventsEnabled } from '@/lib/modules/events'
 import { isPlacesEnabled } from '@/lib/modules/places'
+import { CLIENT_DIRECTORY_PATH } from '@/lib/clients/directory-filter'
 import { TuggiLogo } from './TuggiLogo'
 import { LanguageSwitcher } from './LanguageSwitcher'
 
@@ -80,13 +81,22 @@ export function Header({ className }: { className?: string }) {
     // (`Clientes` e `Parcerias`) apontando para a mesma tela depois que a fila foi absorvida, e
     // duas entradas de menu para um destino é a promessa de que existem dois lugares.
     //
-    // Abre no conjunto de trabalho: os estados que ainda dão trabalho, com `Publicado`,
-    // `Descartado` e `Recusado na triagem` fora do caminho (critério 4). Ver a lista inteira é
-    // um clique em `Limpar filtros`, e um filtro que cabe num link não precisa de tela própria
-    // (DS-LAYOUT-003).
+    // ABRE NA LISTA INTEIRA, e até 24/08/2026 abria em `?state=in_progress`.
+    //
+    // Aquele filtro foi escrito para uma LISTA PLANA, onde `Publicado`, `Descartado` e
+    // `Recusado na triagem` de fato se misturam ao que ainda dá trabalho (critério 4). O padrão
+    // da tela virou o QUADRO, e ali a premissa deixou de valer: cada desfecho tem coluna
+    // própria, então nada se confunde com trabalho — e o filtro, que exclui exatamente os três
+    // estados daquelas duas colunas, esvaziava `Publicado` e `Encerrados` na porta de entrada.
+    // O operador que acabava de publicar um local não achava o card em lugar nenhum do quadro.
+    //
+    // O que hoje protege o quadro do acúmulo é a janela de `TERMINAL_PAGE`: as colunas de
+    // desfecho mostram as 5 mais recentes e crescem sob demanda. Isso resolve o mesmo problema
+    // sem apagar linha, que é o que um filtro faz. `Em andamento` continua a um clique no rail
+    // (DS-LAYOUT-003), e agora é escolha, não estado inicial.
     {
       name: 'Parcerias',
-      href: '/admin/clients?state=in_progress',
+      href: CLIENT_DIRECTORY_PATH,
       icon: Handshake,
       category: 'admin',
     },

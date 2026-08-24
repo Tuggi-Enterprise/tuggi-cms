@@ -2012,7 +2012,8 @@
       "messages": {
         "saved": "Saved successfully",
         "created": "Client created"
-      }
+      },
+      "close": "Close"
     },
     "approval": {
       "approve": "Approve",
@@ -2089,7 +2090,8 @@
         "downloadPng": "Download PNG",
         "copyImage": "Copy image",
         "copied": "Copied",
-        "legacyLink": "Legacy: /download?ID={id} (still works)"
+        "legacyLink": "Legacy: /download?ID={id} (still works)",
+        "share": "Share"
       }
     },
     "fiscal": {
@@ -2197,6 +2199,10 @@
       "emptyHeader": "Coupons",
       "emptyDesc": "Save the client to start linking coupons.",
       "scopedBanner": "Only coupons attributed to this client. Generic coupons (no owner) only appear in <link>global search</link>."
+    },
+    "stance": {
+      "paying": "Paying",
+      "not_paying": "Not paying"
     }
   },
   "Coupons": {
