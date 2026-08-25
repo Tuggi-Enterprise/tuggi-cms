@@ -18,14 +18,15 @@
 
 import { test, before, mock } from 'node:test'
 import assert from 'node:assert/strict'
-import { existsSync, readFileSync } from 'node:fs'
+import { existsSync, readFileSync, readdirSync } from 'node:fs'
 import { randomUUID } from 'node:crypto'
-import { resolve } from 'node:path'
+import { join, relative, resolve } from 'node:path'
 
 import {
   PENDENCY_CLASS,
   buildPlaceReadiness,
   leastAdvanced,
+  readinessContextOf,
   summarizePlaces,
   type PartnerPlaceFacts,
 } from '@/lib/partnerships/place-readiness'
@@ -42,6 +43,21 @@ import { PUBLIC_PATH_PREFIXES } from '@/lib/roles'
 import { deriveTriageStatus, isTriageOverdue } from '@/lib/partnerships/triage'
 
 const REPO_ROOT = resolve(import.meta.dirname, '../..')
+
+/** Every `.ts`/`.tsx` under the given repo folders, skipping build output. */
+function sourceFiles(dirs: string[]): string[] {
+  const found: string[] = []
+  const walk = (dir: string) => {
+    for (const entry of readdirSync(dir, { withFileTypes: true })) {
+      if (entry.name === 'node_modules' || entry.name.startsWith('.')) continue
+      const full = join(dir, entry.name)
+      if (entry.isDirectory()) walk(full)
+      else if (/\.tsx?$/.test(entry.name)) found.push(full)
+    }
+  }
+  for (const dir of dirs) walk(join(REPO_ROOT, dir))
+  return found
+}
 
 const CLIENT_ID = '44444444-4444-4444-4444-444444444444'
 const SUBMISSION_ID = '33333333-3333-3333-3333-333333333333'
@@ -1484,4 +1500,73 @@ test('#377 crit. 6: after the refusal is communicated, the pipeline reads the ro
     ).kind,
     'closed'
   )
+})
+
+/* -------------------------------------------------------------------------- */
+/* A faixa decide o que o local deve — 2026-08-25                              */
+/* -------------------------------------------------------------------------- */
+
+test('BR-B2B-016 item 1: a esteira não pede descrição a parceiro em faixa gratuita', () => {
+  /**
+   * THE SCREEN WAS ASKING FOR THE VIOLATION. `Nenhuma descrição com áudio` was raised on every
+   * partner place regardless of tier — and the free tier is a point whose audio points the
+   * direction and says the name, AND NOTHING BEYOND IT. The operator restated it on 2026-08-25
+   * for the second surface, the place card opened on the map: *"no plano gratuito, somente o nome
+   * é exposto e tocado"*, and the description — read and played — is what the paid tier buys.
+   *
+   * A pendency that names as a defect the very thing the rule requires is worse than no pendency:
+   * it teaches the operator to work around the only difference the paid tier has.
+   */
+  const mute = place({ audioDescriptionCount: 0 })
+
+  const free = buildPlaceReadiness(mute, readinessContextOf('free'))
+  assert.equal(free.pending.indexOf('audio_description'), -1, 'a faixa gratuita não deve descrição')
+
+  const paid = buildPlaceReadiness(mute, readinessContextOf('paid'))
+  assert.deepEqual(paid.silencing, ['audio_description'])
+
+  // SEM CONTRATO NÃO HÁ FAIXA, e ausência não é gratuito: `plan_choice` é o que o
+  // estabelecimento PEDIU, e BR-B2B-026 item 5 põe o termo na assinatura. Enquanto não há
+  // instrumento, a pendência aparece — o erro barato. O caro é um parceiro pagante publicado
+  // mudo porque uma tela deduziu a faixa de um formulário.
+  const unknown = buildPlaceReadiness(mute, readinessContextOf(null))
+  assert.ok(unknown.pending.indexOf('audio_description') >= 0)
+})
+
+test('BR-B2B-016 item 1: o ponto de disparo continua devido nas duas faixas', () => {
+  // O áudio da faixa gratuita DISPARA — *"quando alguém passar ali na frente, vai simplesmente
+  // falar, olha, aqui do lado direito, estabelecimento X"*. Sem ponto de disparo o parceiro é
+  // mudo em qualquer faixa, e essa pendência não tem nada a ver com a descrição.
+  const noTrigger = place({ activeTriggerPointCount: 0, audioDescriptionCount: 1 })
+  for (const tier of ['free', 'paid', null] as const) {
+    const readiness = buildPlaceReadiness(noTrigger, readinessContextOf(tier))
+    assert.ok(
+      readiness.pending.indexOf('trigger_point') >= 0,
+      `o ponto de disparo sumiu na faixa ${tier ?? 'sem contrato'}`
+    )
+  }
+})
+
+test('nenhuma superfície de produção lê a prontidão sem dizer qual é a faixa', () => {
+  /**
+   * `descriptionExpected` tem um padrão — `true`, o seguro — para que a suíte de fixtures não
+   * precise declará-lo em vinte lugares. O preço desse padrão é que uma chamada NOVA em produção
+   * herda "faixa desconhecida" em silêncio, e volta a pedir descrição a quem não a tem direito.
+   *
+   * Então a régua não é sobre o módulo: é sobre quem o chama. Lista, detalhe e local único leem a
+   * mesma faixa, e discordarem entre si é o que o módulo único existe para impedir
+   * (DS-COMPONENTE-020, ponto 4).
+   */
+  const offenders: string[] = []
+  for (const file of sourceFiles(['lib', 'app'])) {
+    const source = readFileSync(file, 'utf8')
+    for (const call of source.matchAll(/buildPlaceReadiness\(([^)]*)\)/g)) {
+      // A própria declaração da função não é uma chamada.
+      if (/^\s*$/.test(call[1])) continue
+      if (call[1].indexOf(',') < 0 && call[1].indexOf('context') < 0) {
+        offenders.push(`${relative(REPO_ROOT, file)} — buildPlaceReadiness(${call[1].trim()})`)
+      }
+    }
+  }
+  assert.deepEqual(offenders, [], 'estas chamadas não declaram a faixa e herdam o padrão')
 })

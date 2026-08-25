@@ -25,19 +25,17 @@ import { useState } from 'react'
 import { useTranslations } from 'next-intl'
 import { Button } from '@/components/ui/button'
 import type { RegularityReport } from '@/lib/partner-form/regularity'
+import { FIELD } from './surface'
 
 /**
- * The shell is the CMS's glass panel; the ink stays accessible — see the note in
- * `ProposalReview.tsx`, which declares the same two constants for the same reason.
+ * THE MESSAGE IS NOT A CARD OF ITS OWN, and stopped being one on 2026-08-25.
+ *
+ * It used to draw the same glass panel as the block that chooses it, with the same `Outbound
+ * heading` inside — a card inside a card, and the heading twice. The picker owns the card and
+ * the heading now; this is the panel that opens under the choice.
  */
-const CARD =
-  'rounded-3xl border border-gray-200 bg-white/70 shadow-2xl shadow-black/5 backdrop-blur-xl ' +
-  'dark:border-gray-800 dark:bg-gray-900/70'
-
-const FIELD =
-  'block w-full rounded-xl border border-gray-200 bg-gray-50/50 px-3 py-2.5 text-sm text-gray-900 ' +
-  'outline-none transition-all focus:border-transparent focus:ring-2 focus:ring-primary-800 ' +
-  'dark:border-gray-700 dark:bg-gray-900/50 dark:text-white'
+const PANEL =
+  'rounded-2xl border border-gray-200 bg-gray-50/60 p-4 dark:border-gray-800 dark:bg-gray-900/40'
 
 export type OutboundKind = 'regularity' | 'gate1' | 'gate2' | 'gate3'
 
@@ -73,10 +71,10 @@ export function OutboundMessage({
 
   if (kind === 'gate3') {
     return (
-      <section className={`${CARD} p-6 text-sm`}>
-        <h3 className="font-semibold text-gray-900 dark:text-white">{t('outbound.gate3NoTemplate')}</h3>
+      <div className={`${PANEL} text-sm`}>
+        <p className="font-semibold text-gray-900 dark:text-white">{t('outbound.gate3NoTemplate')}</p>
         <p className="mt-1 text-gray-800 dark:text-gray-300">{t('outbound.gate3Body')}</p>
-      </section>
+      </div>
     )
   }
 
@@ -125,9 +123,8 @@ export function OutboundMessage({
   }
 
   return (
-    <section className={`${CARD} p-6 text-sm`}>
-      <h3 className="font-semibold text-gray-900 dark:text-white">{t('outbound.heading')}</h3>
-      <p className="mt-1 text-xs text-gray-700 dark:text-gray-400">{t('outbound.manualNotice')}</p>
+    <div className={`${PANEL} text-sm`}>
+      <p className="text-xs text-gray-700 dark:text-gray-400">{t('outbound.manualNotice')}</p>
 
       {kind === 'gate1' && (
         <div className="mt-3">
@@ -169,10 +166,10 @@ export function OutboundMessage({
         <Button type="button" size="sm" variant="outline" onClick={copy}>
           {t('outbound.copy')}
         </Button>
-        <span role="status" className="text-sm font-medium text-primary-800">
+        <span role="status" className="text-sm font-medium text-primary-800 dark:text-tuggi-blue">
           {copied ? t('outbound.copied') : ''}
         </span>
       </div>
-    </section>
+    </div>
   )
 }

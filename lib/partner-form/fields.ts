@@ -77,7 +77,7 @@ export const PARTNER_CATEGORIES = [
  * already had. It decides nothing: the tier of the contract is the operator's choice at
  * generation, in `ContractManager`, and no public route writes it to `partner.clients`.
  */
-export const PLAN_CHOICES = ['map_only', 'map_and_description'] as const
+export const PLAN_CHOICES = ['map_and_description', 'map_only'] as const
 export type PlanChoice = (typeof PLAN_CHOICES)[number]
 
 /**

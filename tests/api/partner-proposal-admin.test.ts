@@ -37,6 +37,12 @@ import {
   normalizeReviewNote,
   readReviewNote,
 } from '@/lib/partner-form/proposal-review'
+import {
+  MATERIAL_KINDS,
+  PARTNER_FIELD_IDS,
+  fieldsOfStep,
+  materialFieldId,
+} from '@/lib/partner-form/fields'
 import { CLIENT_ADMIN_ONLY_FIELDS } from '@/lib/services/client-editable-fields'
 import type { PartnerAnswers } from '@/lib/partner-form/schema'
 
@@ -1551,4 +1557,231 @@ test('an order that fails does not undo the promotion, and does not pass as "ask
   // different fact and the one somebody would act on.
   assert.equal(outcome.ok, true)
   assert.equal(outcome.ok && outcome.materialOrder, 'failed')
+})
+
+/* -------------------------------------------------------------------------- */
+/* A tela de conferência reorganizada — 2026-08-25                             */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * The screen was arranged by FORM and not by DECISION, and the three defects the reordering
+ * closed are the three cases below. They are source assertions for the same reason the rest of
+ * this block is: what broke was a rendering choice, and a rendering choice has no return value.
+ */
+
+const SUMMARY_SOURCE = resolve(REPO_ROOT, 'components/admin/partner-proposals/ProposalSummary.tsx')
+const ANSWERS_SOURCE = resolve(REPO_ROOT, 'components/admin/partner-proposals/ProposalAnswers.tsx')
+const REVIEW_SOURCE = resolve(REPO_ROOT, 'components/admin/partner-proposals/ProposalReview.tsx')
+const PROPOSAL_PAGE = 'app/[locale]/admin/partnerships/proposals/[submissionId]/page.tsx'
+
+test('nenhuma resposta do formulário fica invisível na tela de conferência', () => {
+  /**
+   * THE DEFECT THIS CLOSES, and it survived a green build for four days: the answers grid
+   * renders `fieldsOfStep(1)` and `fieldsOfStep(2)`, the story card renders the four
+   * `story_*`, and the material block renders `MATERIAL_KINDS` — which left `plan_choice`,
+   * added to step 3 on 2026-08-21, on NO part of the page. It is the answer that says whether
+   * the partner is asking for the free faixa or the paid one (BR-B2B-016), and the operator
+   * deciding about the proposal could not read it without opening the database.
+   *
+   * The test is the complement and not the field: any 27th question added to step 3 fails here
+   * until somebody puts it in front of a person.
+   */
+  const loops = new Set<string>()
+  for (const step of [1, 2] as const) {
+    for (const field of fieldsOfStep(step)) loops.add(field.id)
+  }
+  for (const kind of MATERIAL_KINDS) loops.add(materialFieldId(kind))
+  // The four the story card walks, declared there as `STORY_FIELDS`.
+  for (const id of ['story_founder', 'story_before', 'story_unique', 'story_event']) loops.add(id)
+
+  const surfaces = [SUMMARY_SOURCE, ANSWERS_SOURCE, REVIEW_SOURCE]
+    .map((path) => readFileSync(path, 'utf8'))
+    .join('\n')
+
+  const invisible = PARTNER_FIELD_IDS.filter(
+    (id) => !loops.has(id) && surfaces.indexOf(id) < 0
+  )
+  assert.deepEqual(invisible, [], 'estas respostas não aparecem em lugar nenhum da tela')
+
+  // And the one the complement was written for is read by name, in the digest, first.
+  assert.match(readFileSync(SUMMARY_SOURCE, 'utf8'), /plan_choice/)
+})
+
+test('o cabeçalho lê o estado e o próximo passo do mesmo módulo que a esteira', () => {
+  // DS-COPY-020 separates the two fields and DS-COMPONENTE-020, point 4, forbids the detail
+  // and the list from wording the same row differently. One module, one set of message keys.
+  const review = readFileSync(REVIEW_SOURCE, 'utf8')
+  assert.match(review, /derivePipelineState/, 'o estado é derivado à mão nesta tela')
+  assert.match(review, /states\.\$\{shownState\}/, 'o rótulo do estado não vem de `Partnerships`')
+  assert.match(review, /nextSteps\.\$\{shownState\}/, 'o próximo passo não vem de `Partnerships`')
+  assert.match(review, /IN_PROGRESS_STATES/, 'estado terminal ganharia um próximo passo vazio')
+
+  // Sem o namespace na página, next-intl imprime o NOME DA CHAVE no lugar do rótulo.
+  const page = readFileSync(resolve(REPO_ROOT, PROPOSAL_PAGE), 'utf8')
+  assert.ok(
+    page.indexOf('ptMessages.Partnerships') >= 0,
+    `${PROPOSAL_PAGE} não entrega o vocabulário da esteira aos filhos`
+  )
+
+  // E o vocabulário existe onde os dois o procuram.
+  const partnerships = JSON.parse(readFileSync(resolve(REPO_ROOT, 'messages/pt.json'), 'utf8'))
+    .Partnerships
+  for (const state of ['proposal_received', 'in_conference', 'client_created']) {
+    assert.ok(partnerships.states[state], `states.${state} não existe`)
+    assert.ok(partnerships.nextSteps[state], `nextSteps.${state} não existe`)
+  }
+})
+
+test('promovida, a tela oferece o próximo ato — e ele abre a aba da parceria', () => {
+  /**
+   * The round trip this closes: promoting ended in a stripe whose only link opened the
+   * paginated client list on the profile tab, so the operator went BACK to the board and
+   * FORWARD again to do the next act. DS-LAYOUT-006, points 1 and 2 — open the tool ON the
+   * object, and declare the way back.
+   */
+  const review = readFileSync(REVIEW_SOURCE, 'utf8')
+  assert.match(review, /tab: 'partnership'/, 'o link não abre a aba da parceria')
+  assert.match(review, /returnParams\(/, 'o link não declara o caminho de volta')
+  assert.ok(copy.review.continueAction.indexOf('{name}') >= 0, 'o ato não nomeia o alvo')
+  assert.ok(copy.review.continueHeading.length > 0)
+  assert.ok(copy.review.continueHint.length > 0)
+  // O estado exibido depois da promoção é LIDO, nunca derivado do que uma submissão sabe: o
+  // contrato e os locais não estão nesta tela, e `Cliente criado` ao lado de um contrato
+  // assinado ontem é a discordância que o módulo único existe para impedir.
+  assert.match(review, /api\/admin\/partnerships\/clients\//)
+  assert.ok(copy.review.continueUnknown.length > 0, 'sem estado lido, a tela precisa dizer isso')
+})
+
+test('a conferência se guarda do cartão onde ela é marcada', () => {
+  // O tique ficava num trilho estreito do outro lado da página e era gravado por um botão de um
+  // TERCEIRO cartão. Um controle cuja gravação mora noutro bloco é um controle que o operador
+  // acha que não fez nada.
+  const review = readFileSync(REVIEW_SOURCE, 'utf8')
+  assert.match(review, /saveNote\('conference'\)/)
+  assert.match(review, /saveNote\('note'\)/)
+  for (const key of ['save', 'saving', 'saved', 'saveFailed']) {
+    assert.ok(copy.conference[key], `conference.${key} não existe`)
+  }
+  // A âncora que a faixa aponta continua existindo na tela que a desenha.
+  assert.match(review, /id="conference-heading"/)
+})
+
+test('os dois tokens de superfície das telas de parceria são declarados uma vez', () => {
+  // CLAUDE.md §6, DRY: quatro cópias verbatim da mesma decisão de estilo, cada uma com o
+  // comentário que a explicava. O dia em que alguém corrigir a borda do tema escuro numa delas,
+  // as outras ficam com a antiga e nada quebra.
+  const folder = [
+    'ProposalReview.tsx',
+    'ProposalSummary.tsx',
+    'ProposalAnswers.tsx',
+    'RegularityBand.tsx',
+    'PromotionPanel.tsx',
+    'OutboundMessage.tsx',
+  ]
+  for (const file of folder) {
+    const source = readFileSync(
+      resolve(REPO_ROOT, 'components/admin/partner-proposals', file),
+      'utf8'
+    )
+    assert.equal(
+      /^const (CARD|FIELD) =/m.test(source),
+      false,
+      `${file} redeclara um token que mora em surface.ts`
+    )
+  }
+})
+
+test('a promoção só pede ato onde existe divergência', () => {
+  /**
+   * THE DEAD STEP THIS CLOSES. The panel drew a four-column comparison table over every column
+   * of the plan, and for the ordinary case — a proposal with no client behind it — all fifteen
+   * rows read `vazio` on one side and `Estava vazio — vai ser preenchido` on the other. None of
+   * them was a decision: `resolvePromotionWrite` writes a `fill` with no act, by design. The
+   * operator learns to click through a wall, and the tick that DOES matter is on the same wall.
+   */
+  const answers: PartnerAnswers = {
+    trade_name: 'Mar. Restaurante',
+    tax_id: '42947907000102',
+    category: 'restaurant',
+    city: 'Cabo Frio',
+    state: 'RJ',
+    representative_name: 'Paulo Cesar Fernandes Costa',
+    representative_email: 'paulo@exemplo.com',
+  }
+
+  // Sem cliente atrás dela, a proposta não tem uma única decisão para tomar.
+  const fresh = buildPromotionPlan(answers, null, { categoryLabel: 'Restaurante' })
+  assert.ok(fresh.entries.length > 0)
+  assert.deepEqual(
+    fresh.entries.filter((entry) => entry.decision === 'conflict'),
+    [],
+    'uma proposta sem cliente não pode ter campo divergente'
+  )
+
+  // E os dois números que a tela mostra saem da MESMA lista: a frase dos vazios e o botão que
+  // grava. Eles discordaram uma vez — `14 campos vão ser preenchidos` sobre `Gravar 15 campos` —
+  // porque a coluna editável tinha sido tirada de uma contagem e não da outra.
+  const summary = summarizePromotion(fresh, { approved: [] })
+  assert.equal(
+    summary.total,
+    fresh.entries.filter((entry) => entry.decision === 'fill').length,
+    'a frase dos vazios e o botão contam listas diferentes'
+  )
+
+  const panel = readFileSync(
+    resolve(REPO_ROOT, 'components/admin/partner-proposals/PromotionPanel.tsx'),
+    'utf8'
+  )
+  // A tabela é dos divergentes e de mais ninguém.
+  assert.match(panel, /conflicts\.map\(/)
+  assert.equal(
+    /plan\.entries\.map\(/.test(panel),
+    false,
+    'o painel voltou a desenhar uma linha de tabela por coluna do plano'
+  )
+  // Os vazios são uma frase com a contagem, e a lista fica a um clique — a gravação não desfaz.
+  assert.match(panel, /promotion\.fillsSummary/)
+  assert.match(panel, /aria-expanded=\{fillsOpen\}/)
+  // E a legenda que repetia a mesma frase quinze vezes não existe mais em lugar nenhum.
+  assert.equal('fillBadge' in copy.promotion, false, 'fillBadge sobreviveu ao controle que a exibia')
+  assert.equal(panel.indexOf('fillBadge') >= 0, false)
+})
+
+test('BR-B2B-011 item 2.2: a faixa gratuita não tem história para o portão 2 medir', () => {
+  /**
+   * The rule is already written, and this only applies it. The input of a `map_only` partner IS
+   * the minimal registration BY DESIGN (BR-B2B-016, item 1 — the app says the name of the place
+   * and nothing beyond it), and what gate 2 measures without qualification is WHAT WILL BE
+   * NARRATED. For this tier that is nothing, so the four story questions, the three reading
+   * marks and the substitute test are a block about a description that will never exist —
+   * rendered anyway, they report four absences about questions nobody asked.
+   */
+  const review = readFileSync(
+    resolve(REPO_ROOT, 'components/admin/partner-proposals/ProposalReview.tsx'),
+    'utf8'
+  )
+
+  // ABSENCE IS NOT THE FREE TIER. Proposals submitted before `plan_choice` existed carry no
+  // tier at all, and a negated test against the paid value would hide the gate-2 input on
+  // exactly the rows that still have one.
+  assert.match(review, /const mapOnly = answers\.plan_choice === 'map_only'/)
+  assert.equal(
+    /plan_choice !== 'map_and_description'/.test(review),
+    false,
+    'a supressão passou a tratar tier ausente como faixa gratuita'
+  )
+
+  // O bloco inteiro do portão 2 — respostas, marcas e teste do substituto — fica atrás da mesma
+  // condição, e a anotação da triagem NÃO: os portões 1 e 3 continuam valendo nas duas faixas.
+  assert.match(review, /\{!mapOnly && \(/)
+  assert.match(review, /story\.mapOnlyBody/)
+  const afterGuard = review.slice(review.indexOf('{!mapOnly && ('))
+  assert.ok(
+    afterGuard.indexOf('review-observation') > afterGuard.indexOf('</>'),
+    'a observação da triagem ficou dentro da supressão'
+  )
+
+  // E a copy diz POR QUE o bloco não está ali, com o ID que decide.
+  assert.match(copy.story.mapOnlyBody, /BR-B2B-011/)
+  assert.ok(copy.story.mapOnlyHeading.length > 0)
 })

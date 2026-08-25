@@ -30,6 +30,11 @@ export function Wrapper({ children }: { children: React.ReactNode }) {
       locale="pt"
       messages={{
         Partnerships: ptMessages.Partnerships,
+        // The conference screen mounts here too, and next-intl renders the KEY NAME when a
+        // namespace is absent — an `axe` scan over `PartnerProposals.review.back` proves
+        // nothing about the copy the operator reads.
+        PartnerProposals: ptMessages.PartnerProposals,
+        PartnerForm: ptMessages.PartnerForm,
         Modals: ptMessages.Modals,
         Common: ptMessages.Common,
         // The unified list is the screen that absorbed the queue, and its own copy is

@@ -26,6 +26,11 @@ export default async function PartnerProposalReviewPage({
       messages={{
         PartnerProposals: ptMessages.PartnerProposals,
         PartnerForm: ptMessages.PartnerForm,
+        // The state and the next step are the pipeline's vocabulary, and there is one copy of
+        // it: `Partnerships.states` / `Partnerships.nextSteps`, the same keys the board reads.
+        // A second wording of `Proposta recebida` under this namespace is how the queue and the
+        // detail start disagreeing about the same row (DS-COMPONENTE-020, point 4).
+        Partnerships: ptMessages.Partnerships,
       }}
     >
       <ProposalReview locale={locale} submissionId={submissionId} />

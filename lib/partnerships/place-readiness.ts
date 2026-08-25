@@ -123,7 +123,57 @@ export interface PlaceReadiness {
   hasDescriptionOnAir: boolean
 }
 
-export function buildPlaceReadiness(place: PartnerPlaceFacts): PlaceReadiness {
+/**
+ * What the tier changes about what this place OWES — and it is one pendency, not the report.
+ *
+ * BR-B2B-016, item 1: the free tier is a point whose audio points the direction and says the
+ * name, AND NOTHING BEYOND IT. The operator restated it on 2026-08-25 for the second surface —
+ * the place card opened on the map: *"no plano gratuito, somente o nome é exposto e tocado"*, and
+ * the description, read and played, is what the paid tier buys.
+ *
+ * So `Nenhuma descrição com áudio` was the screen telling the operator to produce, on a free-tier
+ * partner, exactly the thing the rule says that partner does not get. A pendency that names a
+ * defect the rule requires is worse than no pendency: it trains the operator to work around the
+ * only difference the paid tier has.
+ *
+ * EVERYTHING ELSE STAYS, and the trigger point most of all: the free tier's audio DOES fire —
+ * *"quando alguém passar ali na frente, vai simplesmente falar, olha, aqui do lado direito,
+ * estabelecimento X"*. Without a trigger point that partner is mute in either tier.
+ *
+ * `descriptionExpected` is a PARAMETER and not a lookup, because this module is pure and the
+ * tier lives three tables away (`partner.partner_contracts.tier`). The caller decides; this
+ * decides what to do about it.
+ */
+export interface ReadinessContext {
+  /**
+   * Whether a spoken description is owed to this partner at all. `true` is the safe default and
+   * the one every caller without a contract passes: hiding a real pendency from a paying partner
+   * costs more than showing one to a free partner, and until a contract exists there is no tier
+   * — the proposal's `plan_choice` is what the establishment ASKED for, never what it signed.
+   */
+  descriptionExpected: boolean
+}
+
+const DEFAULT_CONTEXT: ReadinessContext = { descriptionExpected: true }
+
+/**
+ * The context off the live contract's tier — the ONE reading of "is a description owed here",
+ * so the queue, the detail and the single place cannot disagree about the same partner.
+ *
+ * `null` is not `free`. A partnership with no contract yet has no tier, and the establishment's
+ * `plan_choice` is a request rather than an instrument: BR-B2B-026 item 5 puts the term at the
+ * signature, and the operator chooses the tier at generation. Until then this answers `true`,
+ * which shows a pendency that may turn out not to apply — the cheap error. The expensive one is
+ * a paying partner published mute because a screen decided their tier from a form.
+ */
+export function readinessContextOf(tier: 'free' | 'paid' | null): ReadinessContext {
+  return { descriptionExpected: tier !== 'free' }
+}
+
+export function buildPlaceReadiness(
+  place: PartnerPlaceFacts,
+  context: ReadinessContext = DEFAULT_CONTEXT
+): PlaceReadiness {
   const pending: PendencyId[] = []
 
   const hasCoordinate = place.latitude !== null && place.longitude !== null
@@ -137,7 +187,9 @@ export function buildPlaceReadiness(place: PartnerPlaceFacts): PlaceReadiness {
   // and two lines would name the same missing outcome twice.
   if (hasCoordinate && !mapVisible) pending.push('hidden_from_map')
   if (place.activeTriggerPointCount === 0) pending.push('trigger_point')
-  if (place.audioDescriptionCount === 0) pending.push('audio_description')
+  if (context.descriptionExpected && place.audioDescriptionCount === 0) {
+    pending.push('audio_description')
+  }
   if (!place.hasBoundary) pending.push('boundary')
 
   const inClass = (klass: PendencyClass) => pending.filter((id) => PENDENCY_CLASS[id] === klass)

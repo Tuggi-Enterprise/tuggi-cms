@@ -2678,7 +2678,25 @@
       "materialNone": "não pediu",
       "existingClientTitle": "Este CNPJ já é de um cliente: {name}.",
       "existingClientBody": "A proposta continua valendo, e promover vai atualizar o cadastro que já existe em vez de criar outro.",
-      "existingClientReplyTo": "Se for falar com o estabelecimento sobre isso, responda pelo e-mail do cadastro: {email}. O e-mail da proposta pode não ser de quem é dono do CNPJ."
+      "existingClientReplyTo": "Se for falar com o estabelecimento sobre isso, responda pelo e-mail do cadastro: {email}. O e-mail da proposta pode não ser de quem é dono do CNPJ.",
+      "essentialHeading": "O essencial",
+      "essentialIntro": "O que decide a conversa com este parceiro. O formulário inteiro está mais abaixo.",
+      "essentialCategory": "Ramo",
+      "essentialWhere": "Onde",
+      "essentialWho": "Quem responde",
+      "planMissing": "Não respondido. Pergunte antes de gerar o contrato: a faixa muda o que o instrumento cobra.",
+      "allAnswersHeading": "Todas as respostas do formulário",
+      "allAnswersShow": "Mostrar as {count} respostas",
+      "allAnswersHide": "Esconder as respostas",
+      "continueHeading": "A parceria segue na ficha do cliente",
+      "continueAction": "Continuar em {name}",
+      "continueHint": "O ato \"Continuar em {name}\" abre a ficha do cliente já na aba Parceria, com o caminho de volta para esta proposta.",
+      "continueUnknown": "Não deu para ler em que pé está a parceria agora. A ficha do cliente sabe.",
+      "materialKinds": {
+        "sticker": "{count, plural, one {# adesivo} other {# adesivos}}",
+        "table_display": "{count, plural, one {# display de mesa} other {# displays de mesa}}",
+        "counter_display": "{count, plural, one {# display de balcão} other {# displays de balcão}}"
+      }
     },
     "regularity": {
       "heading": "Regularidade — o que o contrato exige",
@@ -2706,6 +2724,8 @@
     },
     "story": {
       "heading": "A história do lugar",
+      "mapOnlyHeading": "Anotação para a triagem",
+      "mapOnlyBody": "Este parceiro pediu só o mapa. Na faixa gratuita o app diz o nome do lugar e nada além disso, então não há descrição falada para escrever — e o portão da história não se aplica a quem não vai ser narrado (BR-B2B-011, item 2.2).",
       "noAnswer": "Sem resposta — ajudaria a triagem",
       "substituteApply": "Aplicar o teste do substituto",
       "substituteUndo": "Voltar ao texto original",
@@ -2755,9 +2775,13 @@
         "email": "E-mail",
         "phone": "Telefone"
       },
-      "emptyValue": "vazio",
-      "fillBadge": "Estava vazio — vai ser preenchido",
       "replace": "Substituir",
+      "conflictsHeading": "O cadastro já tem outro valor nestes campos",
+      "conflictsIntro": "Nada aqui é substituído sem você marcar. O que ficar desmarcado continua como está no cadastro.",
+      "fillsSummary": "{count, plural, one {# campo está vazio no cadastro e vai ser preenchido} other {# campos estão vazios no cadastro e vão ser preenchidos}}",
+      "fillsShow": "Ver os campos",
+      "fillsHide": "Esconder os campos",
+      "industryLabel": "Ramo, como vai ficar no cadastro",
       "unchanged": "{count, plural, one {# campo já está igual} other {# campos já estão iguais}}",
       "industryHint": "Texto livre no cadastro. Você pode ajustar antes de gravar.",
       "neverHeading": "O que a promoção nunca escreve",
@@ -2824,7 +2848,7 @@
       "partnershipStandsHint": "Esta linha só entra quando já existe parceria firmada (BR-B2B-010). Sem contrato, tire-a antes de mandar.",
       "gate3NoTemplate": "Este motivo não tem mensagem pronta.",
       "gate3Body": "O que a Tuggi pode dizer publicamente sobre este critério não está decidido (BR-B2B-011, item 6 — descrever o portão 3 continua proibido). Escreva à mão, ou trate por telefone e registre aqui o que foi combinado.",
-      "pick": "O que mandar para o parceiro",
+      "pick": "Qual mensagem",
       "pickNone": "Nada agora",
       "kinds": {
         "regularity": "Não vai dar para seguir com o contrato (documentação)",
@@ -2840,7 +2864,11 @@
         "business_license": "Vi o alvará de funcionamento",
         "incorporation_document": "Vi o documento de constituição"
       },
-      "savedWithNote": "Isto é guardado junto com a anotação, no seu nome e com a data."
+      "savedWithNote": "Isto é guardado junto com a anotação, no seu nome e com a data.",
+      "save": "Guardar a conferência",
+      "saving": "Guardando.",
+      "saved": "Conferência guardada",
+      "saveFailed": "Não foi possível guardar a conferência agora. Tente de novo."
     }
   },
   "Partnerships": {

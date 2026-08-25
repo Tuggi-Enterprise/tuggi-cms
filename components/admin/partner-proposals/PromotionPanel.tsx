@@ -25,11 +25,25 @@
  * `Confirmar`. Two acts are the rule for what binds legally (DS-COMPONENTE-017); this is
  * internal operation, and the protection against the expensive mistake is already the
  * per-field tick above.
+ *
+ * ONLY THE DIVERGENCE IS A DECISION, and on 2026-08-25 the panel stopped pretending otherwise.
+ *
+ * It drew a four-column comparison table over EVERY column of the plan, and for the ordinary
+ * case — a proposal with no client behind it — every one of those rows read `vazio` on one side
+ * and `Estava vazio — vai ser preenchido` on the other, fifteen times. There was nothing to
+ * decide on any of them: `resolvePromotionWrite` writes a `fill` with no act, by design. A
+ * screen that asks for attention it has no use for is a step the operator learns to click
+ * through, and the tick that DOES matter is on the same wall.
+ *
+ * So the table survives for `conflict` rows and nothing else. The fills are one sentence with
+ * the count, and the list is one disclosure away for the operator who wants to read it before
+ * an irreversible write. `Ramo` comes out of the table entirely: it is the one value this panel
+ * lets somebody type, and a text input in the third cell of row five is where it went unnoticed.
  */
 
 import { useMemo, useState } from 'react'
 import { useTranslations } from 'next-intl'
-import { AlertTriangle, Loader2 } from 'lucide-react'
+import { AlertTriangle, ChevronDown, ChevronRight, Loader2 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Checkbox } from '@/components/ui/checkbox'
 import { Input } from '@/components/ui/input'
@@ -40,14 +54,7 @@ import {
   summarizePromotion,
 } from '@/lib/partner-form/promotion'
 import type { ProposalDetail } from './types'
-
-/**
- * The shell is the CMS's glass panel; the ink stays accessible — see the note in
- * `ProposalReview.tsx`, which declares the same two constants for the same reason.
- */
-const CARD =
-  'rounded-3xl border border-gray-200 bg-white/70 shadow-2xl shadow-black/5 backdrop-blur-xl ' +
-  'dark:border-gray-800 dark:bg-gray-900/70'
+import { CARD } from './surface'
 
 type Failure = 'write' | 'not_promotable' | 'network' | 'nothing' | null
 
@@ -66,6 +73,8 @@ export function PromotionPanel({ detail, categoryLabel, onClose, onPromoted }: P
   const [approved, setApproved] = useState<string[]>([])
   const [submitting, setSubmitting] = useState(false)
   const [failure, setFailure] = useState<Failure>(null)
+  /** The fills, which are a count by default and a list for whoever asks. */
+  const [fillsOpen, setFillsOpen] = useState(false)
 
   const client = detail.client
 
@@ -75,6 +84,22 @@ export function PromotionPanel({ detail, categoryLabel, onClose, onPromoted }: P
   )
 
   const summary = summarizePromotion(plan, { approved })
+
+  /**
+   * The plan split by what it ASKS OF A PERSON. A `conflict` is a decision and gets a row with a
+   * control; a `fill` is arithmetic and gets a count.
+   *
+   * Read off `decision` and never off `plan.creating`: a proposal promoted into an EXISTING
+   * client whose record happens to be empty is all fills too, and it deserves the same screen as
+   * a new one.
+   *
+   * THE EDITABLE COLUMN STAYS IN ITS LIST. It gets an input of its own above, because it is the
+   * one value somebody types — but it is written like any other column, so taking it out of the
+   * count made the panel say `14 campos vão ser preenchidos` above a button reading `Gravar 15
+   * campos`. Two numbers for one write is worse than the input appearing twice.
+   */
+  const conflicts = plan.entries.filter((entry) => entry.decision === 'conflict')
+  const fills = plan.entries.filter((entry) => entry.decision === 'fill')
 
   const targetName =
     client?.name ?? detail.submission.answers.trade_name ?? t('review.noTradeName')
@@ -130,69 +155,119 @@ export function PromotionPanel({ detail, categoryLabel, onClose, onPromoted }: P
         {plan.creating ? t('promotion.createTitle') : t('promotion.updateTitle', { name: targetName })}
       </h2>
 
-      {/* FOUR COLUMNS OF COMPARISON DO NOT FIT A PHONE, and squeezing them is worse than
-          scrolling them: `campo / atual / proposto` at 90px each turns every value into a
-          column of single words, and this table is read to DECIDE which value is right. It
-          scrolls inside its own box, so the page behind it never moves sideways — the same
-          rule the directory table follows. */}
-      <div className="mt-4 -mx-2 overflow-x-auto px-2">
-        <table className="w-full min-w-[34rem] border-collapse text-sm">
-        <thead>
-          <tr className="border-b border-gray-200 text-left dark:border-gray-800 text-xs uppercase tracking-wide text-gray-700 dark:text-gray-400">
-            <th scope="col" className="px-2 py-2">{t('promotion.columns.field')}</th>
-            <th scope="col" className="px-2 py-2">{t('promotion.columns.current')}</th>
-            <th scope="col" className="px-2 py-2">{t('promotion.columns.proposed')}</th>
-            <th scope="col" className="px-2 py-2" />
-          </tr>
-        </thead>
-        <tbody>
-          {plan.entries.map((entry) => (
-            <tr key={entry.column} className="border-b border-gray-100 align-top">
-              <td className="px-2 py-2 font-medium text-gray-900 dark:text-white">
-                {t(`promotion.fields.${entry.column}`)}
-              </td>
-              <td className="px-2 py-2 text-gray-700 dark:text-gray-400">
-                {entry.current ?? <em className="not-italic text-gray-600">{t('promotion.emptyValue')}</em>}
-              </td>
-              <td className="px-2 py-2 text-gray-900 dark:text-white">
-                {entry.editable ? (
-                  <>
-                    <Label htmlFor="promotion-industry" className="sr-only">
+      {/* THE ONE VALUE SOMEBODY TYPES, out of the table and into a field of its own. It was the
+          third cell of a row in the middle of fifteen, wearing the same weight as fourteen
+          read-only values, and it is the only thing on this panel a person can change. */}
+      {plan.entries.some((entry) => entry.editable) && (
+        <div className="mt-4 max-w-md">
+          <Label htmlFor="promotion-industry" className="text-sm font-medium text-gray-900 dark:text-white">
+            {t('promotion.industryLabel')}
+          </Label>
+          <Input
+            id="promotion-industry"
+            className="mt-1"
+            value={industry}
+            onChange={(event) => setIndustry(event.target.value)}
+            aria-describedby="promotion-industry-hint"
+          />
+          <span id="promotion-industry-hint" className="mt-1 block text-xs text-gray-700 dark:text-gray-400">
+            {t('promotion.industryHint')}
+          </span>
+        </div>
+      )}
+
+      {/* THE DECISION, and the only part of the plan that ever needed a table. A divergent field
+          is born unchecked and stays that way unless somebody says so, one field at a time
+          (DS-COMPONENTE-018).
+
+          THREE COLUMNS DO NOT FIT A PHONE, and squeezing them is worse than scrolling them:
+          `campo / atual / proposto` at 90px each turns every value into a column of single
+          words, and this table is read to DECIDE which value is right. It scrolls inside its own
+          box, so the page behind it never moves sideways. */}
+      {conflicts.length > 0 && (
+        <div className="mt-5">
+          <h3 className="text-sm font-semibold text-gray-900 dark:text-white">
+            {t('promotion.conflictsHeading')}
+          </h3>
+          <p className="mt-1 text-sm text-gray-800 dark:text-gray-300">{t('promotion.conflictsIntro')}</p>
+
+          <div className="mt-3 -mx-2 overflow-x-auto px-2">
+            <table className="w-full min-w-[34rem] border-collapse text-sm">
+              <thead>
+                <tr className="border-b border-gray-200 text-left dark:border-gray-800 text-xs uppercase tracking-wide text-gray-700 dark:text-gray-400">
+                  <th scope="col" className="px-2 py-2">{t('promotion.columns.field')}</th>
+                  <th scope="col" className="px-2 py-2">{t('promotion.columns.current')}</th>
+                  <th scope="col" className="px-2 py-2">{t('promotion.columns.proposed')}</th>
+                  <th scope="col" className="px-2 py-2" />
+                </tr>
+              </thead>
+              <tbody>
+                {conflicts.map((entry) => (
+                  <tr key={entry.column} className="border-b border-gray-100 align-top dark:border-gray-800">
+                    <td className="px-2 py-2 font-medium text-gray-900 dark:text-white">
                       {t(`promotion.fields.${entry.column}`)}
-                    </Label>
-                    <Input
-                      id="promotion-industry"
-                      value={industry}
-                      onChange={(event) => setIndustry(event.target.value)}
-                      aria-describedby="promotion-industry-hint"
-                    />
-                    <span id="promotion-industry-hint" className="mt-1 block text-xs text-gray-700 dark:text-gray-400">
-                      {t('promotion.industryHint')}
-                    </span>
-                  </>
-                ) : (
-                  entry.proposed
-                )}
-              </td>
-              <td className="px-2 py-2">
-                {entry.decision === 'conflict' ? (
-                  <label className="flex items-center gap-2 text-xs font-medium text-gray-900 dark:text-white">
-                    <Checkbox
-                      checked={approved.indexOf(entry.column) >= 0}
-                      onCheckedChange={() => toggle(entry.column)}
-                      aria-label={`${t('promotion.replace')} — ${t(`promotion.fields.${entry.column}`)}`}
-                    />
-                    <span>{t('promotion.replace')}</span>
-                  </label>
-                ) : (
-                  <span className="text-xs text-gray-700 dark:text-gray-400">{t('promotion.fillBadge')}</span>
-                )}
-              </td>
-            </tr>
-          ))}
-        </tbody>
-        </table>
-      </div>
+                    </td>
+                    <td className="px-2 py-2 text-gray-700 dark:text-gray-400">{entry.current}</td>
+                    <td className="px-2 py-2 text-gray-900 dark:text-white">{entry.proposed}</td>
+                    <td className="px-2 py-2">
+                      <label className="flex items-center gap-2 text-xs font-medium text-gray-900 dark:text-white">
+                        <Checkbox
+                          checked={approved.indexOf(entry.column) >= 0}
+                          onCheckedChange={() => toggle(entry.column)}
+                          aria-label={`${t('promotion.replace')} — ${t(`promotion.fields.${entry.column}`)}`}
+                        />
+                        <span>{t('promotion.replace')}</span>
+                      </label>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+
+      {/* THE ARITHMETIC. `resolvePromotionWrite` writes these with no act, so the panel states
+          the count and offers the list — it does not ask fifteen times for permission it does
+          not need. The write is irreversible, so the list is one click away and never gone. */}
+      {fills.length > 0 && (
+        <div className="mt-5 rounded-2xl border border-gray-200 p-3 dark:border-gray-800">
+          <p className="text-sm text-gray-900 dark:text-white">
+            {t('promotion.fillsSummary', { count: fills.length })}
+          </p>
+          <button
+            type="button"
+            onClick={() => setFillsOpen((value) => !value)}
+            aria-expanded={fillsOpen}
+            aria-controls="promotion-fills"
+            className="mt-2 inline-flex items-center gap-1 text-sm font-medium text-primary-800 underline underline-offset-4 dark:text-tuggi-blue"
+          >
+            {fillsOpen ? (
+              <ChevronDown className="h-4 w-4" aria-hidden="true" />
+            ) : (
+              <ChevronRight className="h-4 w-4" aria-hidden="true" />
+            )}
+            {fillsOpen ? t('promotion.fillsHide') : t('promotion.fillsShow')}
+          </button>
+
+          {fillsOpen && (
+            <dl id="promotion-fills" className="mt-3 grid gap-x-6 gap-y-2 border-t border-gray-100 pt-3 dark:border-gray-800 sm:grid-cols-2">
+              {fills.map((entry) => (
+                <div key={entry.column}>
+                  <dt className="text-xs text-gray-700 dark:text-gray-400">
+                    {t(`promotion.fields.${entry.column}`)}
+                  </dt>
+                  {/* The live value for the one column somebody can type, never the plan's
+                      original: this list is a review of what the button is about to write. */}
+                  <dd className="break-words text-sm text-gray-900 dark:text-white">
+                    {entry.editable ? industry : entry.proposed}
+                  </dd>
+                </div>
+              ))}
+            </dl>
+          )}
+        </div>
+      )}
 
       {plan.unchanged.length > 0 && (
         <p className="mt-2 text-xs text-gray-700 dark:text-gray-400">

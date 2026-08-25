@@ -32,14 +32,7 @@ import { AlertTriangle, Check, X } from 'lucide-react'
 import type { RegularityReport } from '@/lib/partner-form/regularity'
 import type { PartnerAnswers } from '@/lib/partner-form/schema'
 import { formatDate } from './format'
-
-/**
- * The shell is the CMS's glass panel; the ink stays accessible — see the note in
- * `ProposalReview.tsx`, which declares the same two constants for the same reason.
- */
-const CARD =
-  'rounded-3xl border border-gray-200 bg-white/70 shadow-2xl shadow-black/5 backdrop-blur-xl ' +
-  'dark:border-gray-800 dark:bg-gray-900/70'
+import { CARD } from './surface'
 
 /**
  * The conference fieldset, further down THIS page (`ProposalReview`). An in-page anchor and not

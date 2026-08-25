@@ -31,6 +31,7 @@ import { normalizedTaxId } from '@/lib/partner-form/tax-id-key'
 import type { ConferenceRecord } from '@/lib/partner-form/regularity'
 import {
   buildPlaceReadiness,
+  readinessContextOf,
   summarizePlaces,
   type PlaceReadiness,
   type PlacesSummary,
@@ -269,13 +270,19 @@ export async function loadClientDirectory(operator: SupabaseClient): Promise<Cli
 
   /** Facts every row needs, whether it came from a proposal or straight from a registration. */
   function partnershipOf(client: PipelineClient | null) {
-    const readiness = (client ? places.get(client.id) ?? [] : []).map(buildPlaceReadiness)
+    const contract = client ? contracts.get(client.id) ?? null : null
+    // The tier of the LIVE contract decides whether a description is owed at all — a free-tier
+    // partner is a name, by design (BR-B2B-016, item 1).
+    const context = readinessContextOf(contract?.tier ?? null)
+    const readiness = (client ? places.get(client.id) ?? [] : []).map((row) =>
+      buildPlaceReadiness(row, context)
+    )
     const outcomes: PlaceTriageOutcome[] = readiness.map((item) => ({
       attractionId: item.place.attractionId,
       published: item.published,
       refusal: refusals.get(item.place.attractionId) ?? null,
     }))
-    return { readiness, outcomes, contract: client ? contracts.get(client.id) ?? null : null }
+    return { readiness, outcomes, contract }
   }
 
   const rows: ClientDirectoryRow[] = submissions.map((row) => {
@@ -499,7 +506,9 @@ export async function loadPartnershipDetail(
   ])
 
   const contract = contracts.get(clientId) ?? null
-  const readiness = (places.get(clientId) ?? []).map(buildPlaceReadiness)
+  const readiness = (places.get(clientId) ?? []).map((row) =>
+    buildPlaceReadiness(row, readinessContextOf(contract?.tier ?? null))
+  )
   const attractionIds = readiness.map((item) => item.place.attractionId)
   const [trail, refusals] = await Promise.all([
     loadPublicationTrail(attractionIds),
@@ -631,7 +640,14 @@ export async function loadPartnerPlace(
   const row = rows.find((item) => item.attractionId === attractionId)
   if (!row) return null
 
-  const readiness = buildPlaceReadiness(row)
+  // The same tier the queue and the detail read. A single place that asked for a description the
+  // other two screens did not ask for would be the disagreement the shared module exists to make
+  // impossible (DS-COMPONENTE-020, point 4).
+  const contracts = await loadLiveContracts([clientId])
+  const readiness = buildPlaceReadiness(
+    row,
+    readinessContextOf(contracts.get(clientId)?.tier ?? null)
+  )
   const [trail, refusals] = await Promise.all([
     loadPublicationTrail([attractionId]),
     loadCurrentRefusals([attractionId]),
