@@ -25,6 +25,8 @@ interface PlaceFormModalProps {
   isOpen: boolean
   onClose: () => void
   onSaved?: (id: string) => void
+  /** The tab a deep link asks for — see `EntityManagementDrawer`. */
+  initialTab?: 'details' | 'description' | 'narration-audio' | 'trigger-points'
 }
 
 const AMENITIES: { key: string; t: string }[] = [
@@ -41,7 +43,7 @@ const fieldInput = 'w-full px-4 py-3 bg-gray-50 dark:bg-gray-900/50 border borde
 const sectionCard = 'bg-white dark:bg-gray-800/40 rounded-2xl p-6 border border-gray-100 dark:border-gray-700/50 shadow-sm'
 const sectionTitle = 'text-xs font-black text-gray-400 uppercase tracking-widest mb-5 flex items-center gap-2'
 
-export function PlaceFormModal({ placeId, isOpen, onClose, onSaved }: PlaceFormModalProps) {
+export function PlaceFormModal({ placeId, isOpen, onClose, onSaved, initialTab }: PlaceFormModalProps) {
   const t = useTranslations('Modals.PlaceDetails')
   const queryClient = useQueryClient()
   const { canEdit } = useCmsUser()
@@ -196,6 +198,7 @@ export function PlaceFormModal({ placeId, isOpen, onClose, onSaved }: PlaceFormM
       isOpen={isOpen}
       isEdit={isEdit}
       entityId={(placeId as string) || ''}
+      initialTab={initialTab}
       name={form.name || ''}
       coordinates={coordinates}
       canEdit={canEdit}

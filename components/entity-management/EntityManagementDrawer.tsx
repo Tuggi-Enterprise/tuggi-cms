@@ -22,6 +22,8 @@ import { useEntityModalContext } from './useEntityModalContext'
 type Tab = 'details' | 'description' | 'narration-audio' | 'trigger-points'
 
 interface Props {
+  /** Which tab the drawer opens on. Absent means `details`, which is what a click opens. */
+  initialTab?: Tab
   isOpen: boolean
   isEdit: boolean
   entityId: string
@@ -52,14 +54,20 @@ interface Props {
 export function EntityManagementDrawer({
   isOpen, isEdit, entityId, name, coordinates, canEdit,
   loading = false, saving = false, title, HeaderIcon,
-  venueLinked = false, venueName, sidebarFooter,
+  venueLinked = false, venueName, sidebarFooter, initialTab,
   onClose, onSave, invalidate, children,
 }: Props) {
   const t = useTranslations('Modals.POIDetails')
   const tc = useTranslations('Common')
-  const [activeTab, setActiveTab] = useState<Tab>('details')
+  /**
+   * `initialTab` is what a DEEP LINK asks for — the pipeline sends the operator here to resolve
+   * one named pendency, and landing on `details` makes them hunt for the panel that answers it
+   * (DS-LAYOUT-006, point 1: open the tool ON the object, and on the part of it that is owed).
+   * It only ever seeds: once the drawer is open the tabs are the operator's.
+   */
+  const [activeTab, setActiveTab] = useState<Tab>(initialTab ?? 'details')
 
-  useEffect(() => { if (!isOpen) setActiveTab('details') }, [isOpen])
+  useEffect(() => { if (!isOpen) setActiveTab(initialTab ?? 'details') }, [isOpen, initialTab])
 
   const ctx = useEntityModalContext({ entityId, name, coordinates, canEdit, onClose, invalidate })
 

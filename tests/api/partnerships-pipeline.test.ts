@@ -29,8 +29,10 @@ import {
   readinessContextOf,
   summarizePlaces,
   type PartnerPlaceFacts,
+  type PendencyId,
 } from '@/lib/partnerships/place-readiness'
 import { buildPublishPlan, formatMonthlyFee } from '@/lib/partnerships/publish-plan'
+import { placeToolHref } from '@/lib/partnerships/place-tool'
 import {
   IN_PROGRESS_STATES,
   PIPELINE_STATES,
@@ -711,13 +713,26 @@ test('#359 crit. 36 · DS-LAYOUT-006 pt. 4: no shortcut opens a new tab', () => 
 
 test('#359 crit. 35 · DS-LAYOUT-006: the tool opens ON the object and declares the way back', () => {
   const detail = read('components/admin/partnerships/PartnershipDetail.tsx')
-  assert.match(detail, /\/pois\/\$\{attractionId\}/, 'the tool is reached on the POI itself')
+  /**
+   * IT USED TO PIN `/pois/${attractionId}`, and the literal was the proxy for "the tool opens on
+   * the object". The proxy stopped being true on 2026-08-25: `core.attractions` holds two kinds
+   * with two editors, and a `place` opened in the POI tool answers `POI not found`. The
+   * guarantee is unchanged and now stronger — the object is named in the path AND the path is
+   * the right tool — so this asserts the rule rather than one of its two shapes.
+   */
+  assert.match(detail, /placeToolHref/, 'the tool is chosen by the kind of the object')
+  assert.match(detail, /attractionId:/, 'and it is reached on the object itself')
   assert.match(detail, /returnTo/)
   assert.match(detail, /returnLabel/)
 
+  // Both editors take the operator back, and both accept the tab a pendency asks for.
+  for (const page of ['app/[locale]/pois/[id]/page.tsx', 'app/[locale]/places/[id]/page.tsx']) {
+    const source = read(page)
+    assert.match(source, /returnTo/, `${page}: the tool must know where to send the operator back`)
+    assert.match(source, /initialTab|DEEP_LINK_TABS/, `${page}: no deep link into the panel`)
+  }
+
   const poiPage = read('app/[locale]/pois/[id]/page.tsx')
-  assert.match(poiPage, /returnTo/, 'and the tool knows where to send the operator back')
-  assert.match(poiPage, /initialTab/)
 
   // A return path that is not an in-app path is refused, so the query string cannot bounce an
   // authenticated operator out to another origin. The guard itself moved to
@@ -1569,4 +1584,138 @@ test('nenhuma superfície de produção lê a prontidão sem dizer qual é a fai
     }
   }
   assert.deepEqual(offenders, [], 'estas chamadas não declaram a faixa e herdam o padrão')
+})
+
+/* -------------------------------------------------------------------------- */
+/* Qual editor abre o local do parceiro — 2026-08-25                           */
+/* -------------------------------------------------------------------------- */
+
+test('DS-COMPONENTE-024, 3º caso de borda: o tipo do objeto decide a ferramenta', () => {
+  /**
+   * `core.attractions` guarda os dois tipos, e eles têm editores DIFERENTES. Todo link da
+   * parceria apontava para `/pois/{id}` qualquer que fosse o tipo, e um `place` aberto ali
+   * respondia `POI not found` — na linha que a lista ao lado tinha acabado de desenhar
+   * (operador, 2026-08-25).
+   *
+   * A diferença não é cosmética: `/pois/{id}` faz `select` direto em `core.attractions` do
+   * browser, então a RLS decide se a linha volta; `/places/{id}` lê `core.get_place_details`,
+   * que é RPC.
+   */
+  const base = {
+    locale: 'pt',
+    attractionId: 'aaaaaaaa-0000-4000-8000-000000000001',
+    returnTo: '/admin/clients?clientId=c1&tab=places',
+    returnLabel: 'Voltar para os locais do cliente',
+  }
+
+  assert.match(placeToolHref({ ...base, entityKind: 'place' }), /^\/pt\/places\/aaaaaaaa-/)
+  assert.match(placeToolHref({ ...base, entityKind: 'poi' }), /^\/pt\/pois\/aaaaaaaa-/)
+
+  // `null` é POI, e a direção do palpite importa: `core.get_place_details` filtra
+  // `entity_kind = 'place'`, então mandar um POI para lá abre um formulário que o exclui.
+  assert.match(placeToolHref({ ...base, entityKind: null }), /^\/pt\/pois\//)
+
+  // O locale viaja. Faltava no `PlacesTab`, que montava `/pois/{id}` cru.
+  assert.match(placeToolHref({ ...base, entityKind: 'place', locale: 'en' }), /^\/en\/places\//)
+})
+
+test('o link do local carrega o caminho de volta, e a aba da pendência que ele resolve', () => {
+  const base = {
+    locale: 'pt',
+    attractionId: 'aaaaaaaa-0000-4000-8000-000000000001',
+    entityKind: 'place',
+    returnTo: '/admin/clients?clientId=c1&tab=places',
+    returnLabel: 'Voltar para os locais do cliente',
+  }
+
+  // DS-LAYOUT-006, ponto 2: a ferramenta abre no objeto e declara para onde volta.
+  const plain = new URL(placeToolHref(base), 'https://cms.example')
+  assert.equal(plain.searchParams.get('returnTo'), base.returnTo)
+  assert.equal(plain.searchParams.get('returnLabel'), base.returnLabel)
+  assert.equal(plain.searchParams.get('tab'), null, 'sem pendência não há aba a pedir')
+
+  // A fronteira é desenhada DENTRO do painel de pontos de disparo, então as duas caem lá.
+  const tabOf = (pendency: PendencyId) =>
+    new URL(placeToolHref({ ...base, pendency }), 'https://cms.example').searchParams.get('tab')
+  assert.equal(tabOf('audio_description'), 'description')
+  assert.equal(tabOf('trigger_point'), 'trigger-points')
+  assert.equal(tabOf('boundary'), 'trigger-points')
+
+  // Coordenada, desativado e fora-do-mapa são campos do próprio registro: a ficha abre neles.
+  for (const pendency of ['coordinate', 'inactive', 'hidden_from_map'] as PendencyId[]) {
+    assert.equal(tabOf(pendency), null, `${pendency} não tem aba própria`)
+  }
+})
+
+test('as duas telas da parceria não montam o caminho do local à mão', () => {
+  // A regra escrita duas vezes é como uma delas continua apontando para a ferramenta velha
+  // depois de a outra ser corrigida — e foi exatamente o que aconteceu com o locale, que o
+  // `PartnershipDetail` levava e o `PlacesTab` não.
+  const screens = [
+    'components/admin/clients/tabs/PlacesTab.tsx',
+    'components/admin/partnerships/PartnershipDetail.tsx',
+  ]
+  for (const screen of screens) {
+    const source = readFileSync(resolve(REPO_ROOT, screen), 'utf8')
+    assert.match(source, /placeToolHref/, `${screen} não lê o módulo que decide a ferramenta`)
+    assert.equal(
+      /\/pois\/\$\{/.test(source),
+      false,
+      `${screen} monta um caminho de POI à mão, ignorando o entity_kind`
+    )
+    // E o tipo que chega ao módulo é o do REGISTRO, não uma constante. Chamar `placeToolHref`
+    // com `entityKind: 'poi'` fixo passaria pelas duas asserções acima e reporia o defeito
+    // inteiro — foi o que a mutação deste teste mostrou antes desta linha existir.
+    assert.match(
+      source,
+      /entityKind: place\.readiness\.place\.entityKind/,
+      `${screen} não passa o entity_kind do registro`
+    )
+  }
+
+  // E a rota que o `place` passou a ter existe. Antes disto ela não existia, e era por isso que
+  // não havia para onde mandá-lo.
+  assert.ok(
+    existsSync(resolve(REPO_ROOT, 'app/[locale]/places/[id]/page.tsx')),
+    'a rota de detalhe do local não existe'
+  )
+})
+
+test('nenhuma tela monta o caminho de um editor com um id na mão', () => {
+  /**
+   * A VARREDURA, e ela existe porque a versão anterior nomeava dois arquivos.
+   *
+   * O `PlacesTab` e o `PartnershipDetail` foram corrigidos em 2026-08-25 e outros dois links com
+   * o mesmo defeito continuaram de pé — `PlaceLinkPanel`, cuja lista de candidatos atravessa os
+   * DOIS tipos por desenho (#374: `cms_list_pois` e `cms_list_places` são disjuntas), e
+   * `WelcomeDivergenceCard`, que além do tipo também não levava locale. Teste que nomeia
+   * arquivos só acha o defeito que alguém já conhecia.
+   *
+   * O que ele proíbe é uma coisa só: interpolar um id dentro de `/pois/` ou `/places/`. Quem
+   * precisa desse caminho chama `placeToolHref`, que é quem lê o `entity_kind`.
+   */
+  const offenders: string[] = []
+  for (const file of sourceFiles(['app', 'components'])) {
+    const path = relative(REPO_ROOT, file)
+    // As duas rotas de detalhe SÃO os editores; elas não navegam para si mesmas.
+    if (path.startsWith('app/[locale]/pois/[id]') || path.startsWith('app/[locale]/places/[id]')) {
+      continue
+    }
+    const source = readFileSync(file, 'utf8')
+      // Prosa não é link, e estes arquivos explicam o defeito nos próprios comentários.
+      .replace(/\/\*[\s\S]*?\*\//g, '')
+      .replace(/^\s*\/\/.*$/gm, '')
+    /**
+     * A forma que importa é a de uma ROTA: um literal que ABRE com o caminho do editor, com ou
+     * sem o locale à frente. Chamada de API nunca tem essa forma — ela abre com `/api/`, e lá o
+     * `entity_kind` não escolhe ferramenta nenhuma. A primeira versão deste laço usava um
+     * lookbehind por `api` e devolveu sete chamadas de servidor, que é o ruído que faz um guard
+     * ser desligado.
+     */
+    const ROUTE_LITERAL = /`\/(?:\$\{locale\}\/)?(?:pois|places)\/\$\{/g
+    for (const hit of source.matchAll(ROUTE_LITERAL)) {
+      offenders.push(`${path} — ${source.slice(hit.index, hit.index + 44).split('\n')[0]}`)
+    }
+  }
+  assert.deepEqual(offenders, [], 'estes montam o caminho do editor sem olhar o entity_kind')
 })

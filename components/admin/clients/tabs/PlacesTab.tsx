@@ -43,7 +43,7 @@ import { SectionHeader } from '@/components/admin/clients/shared/SectionHeader'
 import { PlaceLinkPanel } from '@/components/admin/partnerships/PlaceLinkPanel'
 import { WelcomeDivergenceCard } from '@/components/admin/partnerships/WelcomeDivergenceCard'
 import { PendencyList } from '@/components/admin/partnerships/PendencyList'
-import { returnParams } from '@/lib/navigation/return-to'
+import { placeToolHref } from '@/lib/partnerships/place-tool'
 import type { PendencyId } from '@/lib/partnerships/place-readiness'
 import type { PartnershipDetail, PartnershipPlace } from '@/lib/services/partnership-service'
 import type { ClientEditorTabProps } from './ProfileTab'
@@ -145,13 +145,22 @@ function PartnerPlaces({ clientId, locale }: { clientId?: string; locale: string
   const backHere = `/admin/clients?clientId=${clientId}&tab=places`
   const returnLabel = t('clientPlaces.returnLabel')
 
-  function placeHref(attractionId: string, pendency?: PendencyId): string {
-    // The boundary is drawn inside the trigger-points panel, so it lands there too.
-    const query = new URLSearchParams(returnParams(backHere, returnLabel))
-    if (pendency) {
-      query.set('tab', pendency === 'audio_description' ? 'description' : 'trigger-points')
-    }
-    return `/pois/${attractionId}?${query.toString()}`
+  /**
+   * WHICH EDITOR, and it is `placeToolHref` that decides — the same module the pipeline reads.
+   *
+   * It used to be `/pois/{id}` for every kind, and it carried no locale either: a place the
+   * partnership provisioned is `entity_kind = 'place'`, and opening one in the POI tool answered
+   * `POI not found` (operator, 2026-08-25). The list beside it had just drawn that row.
+   */
+  function placeHref(place: PartnershipPlace, pendency?: PendencyId): string {
+    return placeToolHref({
+      locale,
+      attractionId: place.readiness.place.attractionId,
+      entityKind: place.readiness.place.entityKind,
+      pendency,
+      returnTo: backHere,
+      returnLabel,
+    })
   }
 
   return (
@@ -190,6 +199,7 @@ function PartnerPlaces({ clientId, locale }: { clientId?: string; locale: string
             <div className="mt-4">
               <WelcomeDivergenceCard
                 clientId={clientId}
+                locale={locale}
                 divergence={detail.welcomeDivergence}
                 onLinked={load}
               />
@@ -252,7 +262,7 @@ function Place({
   onWelcomeChanged,
 }: {
   place: PartnershipPlace
-  placeHref: (attractionId: string, pendency?: PendencyId) => string
+  placeHref: (place: PartnershipPlace, pendency?: PendencyId) => string
   clientId: string
   isWelcome: boolean
   canChooseWelcome: boolean
@@ -319,14 +329,14 @@ function Place({
           // `Abrir o local` navigates rather than opening a modal: this tab already lives
           // inside the client record's drawer, and a modal over a drawer buries the way out.
           onOpenPlace={() => {
-            window.location.href = placeHref(attractionId)
+            window.location.href = placeHref(place)
           }}
-          toolHref={(pendency) => placeHref(attractionId, pendency)}
+          toolHref={(pendency) => placeHref(place, pendency)}
         />
       </div>
 
       <a
-        href={placeHref(attractionId)}
+        href={placeHref(place)}
         className="mt-3 inline-flex min-h-[24px] items-center text-sm font-medium text-primary-800 underline underline-offset-4"
       >
         {t('detail.openPlace')}

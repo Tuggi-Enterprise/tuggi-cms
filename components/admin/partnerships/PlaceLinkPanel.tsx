@@ -27,6 +27,7 @@ import { Search } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { MIN_SEARCH_LENGTH, isSearchable, type LinkCandidate, type LinkVerdict } from '@/lib/partnerships/place-link'
 import { DEFAULT_SCOPE, type ScopeMode } from '@/lib/partnerships/place-scope'
+import { placeToolHref } from '@/lib/partnerships/place-tool'
 
 type Candidate = LinkCandidate & { verdict: LinkVerdict }
 
@@ -226,7 +227,16 @@ export function PlaceLinkPanel({ clientId, locale, onLinked }: PlaceLinkPanelPro
 
               <div className="flex shrink-0 items-center gap-3">
                 <Link
-                  href={`/${locale}/pois/${candidate.attractionId}`}
+                  /* THE CANDIDATE LIST CROSSES BOTH KINDS BY DESIGN — it is the whole point of
+                     #374, because `cms_list_pois` and `cms_list_places` are disjoint by
+                     `entity_kind` and the POI the operator is looking for lives in either. The
+                     link ignored the very column the line above prints, so roughly half of these
+                     opened the wrong editor and answered `POI not found`. */
+                  href={placeToolHref({
+                    locale,
+                    attractionId: candidate.attractionId,
+                    entityKind: candidate.entityKind,
+                  })}
                   className="min-h-[24px] text-xs font-medium text-primary-800 underline underline-offset-4 dark:text-tuggi-blue"
                 >
                   {t('openEditor')}

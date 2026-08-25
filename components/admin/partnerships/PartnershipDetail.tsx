@@ -31,6 +31,7 @@ import type { PendencyId } from '@/lib/partnerships/place-readiness'
 import { IN_PROGRESS_STATES, type PipelineState } from '@/lib/partnerships/pipeline'
 import { deriveTriageStatus, type TriageGate } from '@/lib/partnerships/triage'
 import { returnParams } from '@/lib/navigation/return-to'
+import { placeToolHref } from '@/lib/partnerships/place-tool'
 import type { PartnershipDetail as Detail, PartnershipPlace } from '@/lib/services/partnership-service'
 import { PendencyList } from './PendencyList'
 import { PlaceLinkPanel } from './PlaceLinkPanel'
@@ -298,12 +299,20 @@ export function PartnershipDetail({
   const returnTo = `/${locale}/admin/partnerships/clients/${clientId}`
   const returnLabel = t('returnBar.label', { name })
 
-  function toolHref(attractionId: string, pendency: PendencyId): string {
-    // The boundary is drawn inside the trigger-points panel (`TriggerPointsManager` renders
-    // `BoundaryControls`), so both land there.
-    const tab = pendency === 'audio_description' ? 'description' : 'trigger-points'
-    const query = new URLSearchParams({ tab, ...returnParams(returnTo, returnLabel) })
-    return `/${locale}/pois/${attractionId}?${query.toString()}`
+  /**
+   * WHICH EDITOR, and it is `placeToolHref` that decides — the same module the client record
+   * reads. It used to be `/pois/{id}` whatever the kind, and a `place` opened there answered
+   * `POI not found` (operator, 2026-08-25).
+   */
+  function toolHref(place: PartnershipPlace, pendency: PendencyId): string {
+    return placeToolHref({
+      locale,
+      attractionId: place.readiness.place.attractionId,
+      entityKind: place.readiness.place.entityKind,
+      pendency,
+      returnTo,
+      returnLabel,
+    })
   }
 
   /**
@@ -728,7 +737,7 @@ function PlaceBand({
   panel: Panel
   setPanel: (value: Panel) => void
   onOpenPlace: (id: string) => void
-  toolHref: (attractionId: string, pendency: PendencyId) => string
+  toolHref: (place: PartnershipPlace, pendency: PendencyId) => string
   publish: (attractionId: string, approved: boolean) => Promise<'ok' | 'write' | 'network' | 'refused'>
   refuse: (attractionId: string, gate: TriageGate, reason: string) => Promise<RefusalOutcome>
   communicate: (attractionId: string, refusalId: string) => Promise<RefusalOutcome>
@@ -765,6 +774,7 @@ function PlaceBand({
           <div className="mt-4">
             <WelcomeDivergenceCard
               clientId={detail.client.id}
+              locale={locale}
               divergence={detail.welcomeDivergence}
               onLinked={reload}
             />
@@ -811,7 +821,7 @@ function PlaceBand({
             <PendencyList
               readiness={place.readiness}
               onOpenPlace={() => onOpenPlace(place.readiness.place.attractionId)}
-              toolHref={(pendency) => toolHref(place.readiness.place.attractionId, pendency)}
+              toolHref={(pendency) => toolHref(place, pendency)}
             />
           </div>
 

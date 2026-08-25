@@ -29,14 +29,25 @@ import { useState } from 'react'
 import { useTranslations } from 'next-intl'
 import { AlertTriangle } from 'lucide-react'
 import { Button } from '@/components/ui/button'
+import { placeToolHref } from '@/lib/partnerships/place-tool'
 import type { WelcomeDivergence } from '@/lib/services/partnership-service'
 
 export function WelcomeDivergenceCard({
   clientId,
+  locale,
   divergence,
   onLinked,
 }: {
   clientId: string
+  /**
+   * The operator's locale, HANDED DOWN and never read here.
+   *
+   * This card renders inside a subtree whose provider is pinned to `locale="pt"` — the pipeline
+   * vocabulary is Portuguese by decision — so `useLocale()` in this file would answer `pt` for
+   * everybody and send an operator working in `en` across a locale switch nobody asked for. The
+   * callers read it outside that provider, which is where the answer is true.
+   */
+  locale: string
   divergence: WelcomeDivergence
   onLinked: () => Promise<void>
 }) {
@@ -86,7 +97,13 @@ export function WelcomeDivergenceCard({
           {linking ? t('linking') : t('action')}
         </Button>
         <a
-          href={`/pois/${divergence.attractionId}`}
+          /* Same rule as everywhere else: the kind decides the editor. This one also carried no
+             locale, so an operator on `/en/` was sent to `/pois/...` unprefixed. */
+          href={placeToolHref({
+            locale,
+            attractionId: divergence.attractionId,
+            entityKind: divergence.entityKind,
+          })}
           className="inline-flex min-h-[24px] items-center text-sm font-medium text-primary-800 underline underline-offset-4"
         >
           {t('open')}

@@ -92,15 +92,35 @@ test('the triage stays in the pipeline — the record does not offer it twice', 
 
 test('every way out of the tab declares the way back into it', () => {
   const tab = read(TAB)
-  assert.match(tab, /from '@\/lib\/navigation\/return-to'/)
   assert.match(
     tab,
     /const backHere = `\/admin\/clients\?clientId=\$\{clientId\}&tab=places`/,
     'the way back is this tab, not the client list'
   )
-  assert.match(tab, /returnParams\(backHere, returnLabel\)/)
-  // The POI editor is reached ON the object, never on a search screen.
-  assert.match(tab, /`\/pois\/\$\{attractionId\}\?\$\{query\.toString\(\)\}`/)
+
+  /**
+   * THE WAY BACK MOVED ONE LEVEL DOWN ON 2026-08-25, and the guarantee did not.
+   *
+   * The tab used to build the URL itself — `returnParams(backHere, returnLabel)` and a literal
+   * `/pois/{id}`. That literal was the defect: `core.attractions` holds two kinds with two
+   * editors, and a partner's place opened in the POI tool answered `POI not found`. The tab hands
+   * `returnTo` and `returnLabel` to `lib/partnerships/place-tool`, which chooses the editor by
+   * `entity_kind` AND calls the validated module — one rule, read by this tab and by the pipeline.
+   */
+  assert.match(tab, /placeToolHref/, 'the tab must not choose the editor by itself')
+  assert.match(tab, /returnTo: backHere/)
+  assert.match(tab, /returnLabel,/)
+  assert.equal(
+    /`\/pois\/\$\{/.test(tab),
+    false,
+    'a hand-built POI path ignores the kind of the object'
+  )
+
+  // And the builder is what reads the guard, so an in-app path is still the only thing that
+  // survives — `tests/api/return-to.test.ts` owns that rule.
+  const tool = read('lib/partnerships/place-tool.ts')
+  assert.match(tool, /from '@\/lib\/navigation\/return-to'/)
+  assert.match(tool, /returnParams\(target\.returnTo, target\.returnLabel\)/)
 })
 
 test('the old ?tab=pois deep link still lands on the places tab', () => {
