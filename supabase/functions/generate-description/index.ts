@@ -186,6 +186,45 @@ async function processPOIItem(
     // vínculo já veio junto com o POI.
     const venueId = linkedVenueId(poiDataFromDB?.entity_kind, eventDetails);
 
+    /**
+     * TEXTO QUE JÁ EXISTE E SÓ PRECISA DE VOZ — capturado aqui e reusado lá embaixo.
+     *
+     * O caminho "descrição existe, `audio_url` não" cai do cache para a geração, e o comentário
+     * dele sempre disse `The description text will be reused (no LLM call needed)`. Não era
+     * verdade: o passo 3.1 só reusa por TRADUÇÃO, e tradução exige uma fonte em OUTRO idioma —
+     * no mesmo idioma não há fonte, então o texto era regerado do zero, com chamada de LLM, e
+     * substituía o que já estava lá.
+     *
+     * Isso passou despercebido porque o resultado ainda era uma descrição. Deixou de passar em
+     * 2026-08-26, quando o local de parceiro ganhou a guarda `PARTNER_WITHOUT_INPUT`: sem insumo
+     * no corpo, gerar é recusado — e pedir só o áudio de um parceiro passou a estourar. A guarda
+     * está certa e o que estava errado é ela alcançar este caminho: **sintetizar voz sobre um
+     * texto gravado não produz afirmação nenhuma sobre o lugar**, e é BR-CONTEUDO-001 modo 1 pelo
+     * mesmo motivo que traduzir não é produzir.
+     *
+     * Vale para todo o catálogo, não só para parceiro: uma chamada de LLM a menos por POI nesse
+     * estado, e o texto que o curador aprovou para de ser trocado por um novo pelas costas.
+     */
+    let cachedForAudioOnly: { description: string; facts_pack_json: any } | null = null;
+
+    /**
+     * A LINHA COMO ELA ESTAVA ANTES DO LOCK — para devolvê-la se a geração falhar.
+     *
+     * O passo 2 toma o lock SOBRESCREVENDO a linha com `[PROCESSING]`, e o `catch` do passo 3
+     * APAGA essa linha. Juntos, os dois transformam qualquer falha de geração na destruição
+     * silenciosa do que já estava publicado — inclusive uma narração que um curador aprovou.
+     *
+     * Ficou latente por muito tempo porque falha de geração era rara e o retry seguinte
+     * reescrevia algo. Deixou de ser latente em 2026-08-26: a guarda `PARTNER_WITHOUT_INPUT`
+     * recusa local de parceiro sem insumo, e ela estoura DEPOIS do lock — então cada visita do
+     * app a um local de faixa gratuita apagava a descrição dele. Foi assim que
+     * `Sabor e Arte Restaurante` ficou sem linha nenhuma.
+     *
+     * Guardar e restaurar conserta a classe inteira, não só o caso do parceiro: falha de rede,
+     * finishReason ruim, cota da API — nenhuma delas deveria custar o conteúdo que estava no ar.
+     */
+    let rowBeforeLock: Record<string, unknown> | null = null;
+
     // 1. Optimistic Locking / Cache Check Loop (Max 15s)
     // We check if content exists. If it's "[PROCESSING]", we wait.
     let attempts = 0;
@@ -195,13 +234,17 @@ async function processPOIItem(
             // `generation_meta` entra na mesma query (custo zero) porque é a única
             // coisa que distingue uma descrição de evento composta com o anfitrião
             // de uma escrita quando ele ainda não estava vinculado — BR-EVENTO-002.
-            .select("updated_at, facts_pack_json, description, audio_url, id, generation_meta")
+            .select("updated_at, facts_pack_json, description, audio_url, id, generation_meta, name, verification_status")
             .eq("attraction_id", poi_id)
             .eq("language", language)
             .eq("gender", gender)
             .maybeSingle();
 
         if (existing) {
+            // O que o lock vai sobrescrever. `[PROCESSING]` não se guarda: é o próprio lock.
+            if (existing.description && existing.description !== "[PROCESSING]") {
+                rowBeforeLock = existing as Record<string, unknown>;
+            }
             // If valid content found
             if (
                 existing.description && existing.description !== "[PROCESSING]"
@@ -237,9 +280,25 @@ async function processPOIItem(
                     const { generation_meta: _trail, ...hit } = existing;
                     return { ...hit, status: "hit" };
                 }
-                if (!force && !isStale && (existing.facts_pack_json?.length > 0) && !hasAudio) {
+                // SEM EXIGIR `facts_pack_json`, e a assimetria com o ramo acima é o ponto.
+                //
+                // Ter fatos responde `esta narração está completa o bastante para eu devolvê-la
+                // como hit?`. Só falar o texto que já está gravado não faz essa pergunta: não há
+                // narração sendo produzida, há voz sendo dada a um texto que alguém já aprovou.
+                //
+                // Medido em 2026-08-26: a descrição da faixa gratuita é o NOME do estabelecimento
+                // e nasce com `facts_pack_json = []` — porque um nome próprio não tem fato a
+                // empacotar, e inventar um para satisfazer este gate seria mentir na trilha. Com a
+                // exigência aqui, os 19 locais do backfill caíam para a geração fresca e batiam na
+                // guarda `PARTNER_WITHOUT_INPUT`: texto trocado, áudio nenhum, local mudo.
+                if (!force && !isStale && !hasAudio) {
                     console.log(`${LOG_PREFIX} Cache Hit (Description only, audio_url missing). Proceeding to TTS synthesis.`);
-                    // Fall through — description will be reused in step 3.1 (translation candidates)
+                    // E o texto vai JUNTO, que é o que o comentário sempre prometeu — ver
+                    // `cachedForAudioOnly` no topo. Sem isto o passo 3 regera do zero.
+                    cachedForAudioOnly = {
+                        description: existing.description,
+                        facts_pack_json: existing.facts_pack_json,
+                    };
                 }
                 // If Stale, fall through to regenerate
             } else if (existing.description === "[PROCESSING]") {
@@ -309,11 +368,20 @@ async function processPOIItem(
         ].filter(Boolean).join(", ") || "an unknown location";
         const poiName = poiDataFromDB?.name || "Unknown Point";
 
+        // 3.0 O texto que já estava lá, quando a única coisa que falta é a voz. Vem antes da
+        // tradução e antes da geração porque é mais barato que as duas e mais fiel que ambas: é
+        // exatamente o texto que o curador aprovou.
+        if (!force && cachedForAudioOnly) {
+            console.log(`${LOG_PREFIX} Reusing the stored ${language} text — TTS only, no LLM call.`);
+            result = cachedForAudioOnly;
+            generationMeta = { kind: "tts_only", grounded: null };
+        }
+
         // 3.1 Check existing descriptions for potential translation source
         // We try to find any existing description to translate FROM, 
         // prioritizing pt-br if target is not pt-br, or just taking any available one.
         // SKIP this if 'force' is true (user wants a fresh generation)
-        if (!force) {
+        if (!force && !result) {
             const { data: candidates } = await supabaseAdmin.schema("core")
                 .from("attraction_descriptions")
                 .select("description, facts_pack_json, language, generation_meta")
@@ -702,15 +770,42 @@ async function processPOIItem(
         return { ...finalRows, status: "generated", last_score_overall: scoreResult.score_overall };
     } catch (e) {
         console.error(`${LOG_PREFIX} Fatal Generation Error:`, e);
-        // Clear Lock (Negative Cache - or just delete)
-        // For risk mitigation, we leave it or update to "[ERROR]"?
-        // We DELETE it so next retry works.
-        await supabaseAdmin.schema("core").from("attraction_descriptions")
-            .delete()
-            .eq("attraction_id", poi_id).eq("language", language).eq(
-                "gender",
-                gender,
-            ).eq("description", "[PROCESSING]");
+        // O LOCK SAI. O QUE ESTAVA NO AR VOLTA — ver `rowBeforeLock` no topo.
+        //
+        // Apagar era certo enquanto não havia nada a preservar: o `[PROCESSING]` precisa sumir
+        // para o próximo retry funcionar. O que estava errado era apagar TAMBÉM o conteúdo que o
+        // lock tinha acabado de sobrescrever. Falhar em produzir algo novo nunca deveria custar o
+        // que já estava publicado.
+        if (rowBeforeLock) {
+            const { error: restoreError } = await supabaseAdmin.schema("core")
+                .from("attraction_descriptions")
+                .update({
+                    description: rowBeforeLock.description,
+                    facts_pack_json: rowBeforeLock.facts_pack_json,
+                    audio_url: rowBeforeLock.audio_url,
+                    generation_meta: rowBeforeLock.generation_meta,
+                    verification_status: rowBeforeLock.verification_status,
+                    name: rowBeforeLock.name,
+                    updated_at: rowBeforeLock.updated_at,
+                })
+                .eq("attraction_id", poi_id)
+                .eq("language", language)
+                .eq("gender", gender)
+                .eq("description", "[PROCESSING]");
+            if (restoreError) {
+                console.error(`${LOG_PREFIX} ⚠️ Could not restore the pre-lock row:`, restoreError);
+            } else {
+                console.log(`${LOG_PREFIX} Pre-lock content restored after failure.`);
+            }
+        } else {
+            // Não havia nada antes: o lock é tudo o que existe, e ele sai.
+            await supabaseAdmin.schema("core").from("attraction_descriptions")
+                .delete()
+                .eq("attraction_id", poi_id).eq("language", language).eq(
+                    "gender",
+                    gender,
+                ).eq("description", "[PROCESSING]");
+        }
         throw e;
     }
 }
