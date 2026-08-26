@@ -9,9 +9,9 @@
  * narrows it — there is no second query anywhere on this page, which is why no two numbers on it
  * can disagree.
  *
- * CLOSING AN ORDER CALLS THE ROUTE THAT ALREADY EXISTED, keyed by the partner on the card:
+ * MOVING AN ORDER CALLS THE ROUTE THAT ALREADY EXISTED, keyed by the partner on the card:
  * `PATCH /api/admin/clients/{clientId}/material-orders`. A write of its own here would be a
- * second place for `an order does not reopen` to be forgotten.
+ * second place for `an order does not go back` to be forgotten.
  */
 
 import { useCallback, useEffect, useState } from 'react'
@@ -20,7 +20,7 @@ import { NextIntlClientProvider, useLocale, useMessages } from 'next-intl'
 import { useSessionContext, useSupabaseClient } from '@supabase/auth-helpers-react'
 import ptMessages from '@/messages/pt.json'
 import { MaterialBoard } from '@/components/admin/materials/MaterialBoard'
-import type { MaterialQueueOrder } from '@/lib/materials/order-queue'
+import type { MaterialMoveStatus, MaterialQueueOrder } from '@/lib/materials/order-queue'
 
 export function AdminMaterialsPageContent() {
   const router = useRouter()
@@ -92,8 +92,8 @@ export function AdminMaterialsPageContent() {
     if (authorized) void load()
   }, [authorized, load])
 
-  const close = useCallback(
-    async (order: MaterialQueueOrder, status: 'fulfilled' | 'cancelled') => {
+  const move = useCallback(
+    async (order: MaterialQueueOrder, status: MaterialMoveStatus) => {
       setBusy(true)
       try {
         await fetch(`/api/admin/clients/${order.clientId}/material-orders`, {
@@ -104,9 +104,9 @@ export function AdminMaterialsPageContent() {
       } finally {
         setBusy(false)
       }
-      // Re-read whatever the write did, including a 409 — somebody else closing the order while
-      // this screen was open is not an error the operator can act on, and showing what they did
-      // is more useful than a message about a race.
+      // Re-read whatever the write did, including a 409 — somebody else advancing the order
+      // while this screen was open is not an error the operator can act on, and showing what
+      // they did is more useful than a message about a race.
       await load()
     },
     [load]
@@ -149,7 +149,7 @@ export function AdminMaterialsPageContent() {
         truncated={truncated}
         busy={busy}
         onReload={() => void load()}
-        onClose={(order, status) => void close(order, status)}
+        onMove={(order, status) => void move(order, status)}
       />
     </NextIntlClientProvider>
   )

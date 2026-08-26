@@ -2240,6 +2240,8 @@
         },
         "statuses": {
           "requested": "Pedido",
+          "in_preparation": "Em preparação",
+          "dispatched": "Despachado",
           "fulfilled": "Entregue",
           "cancelled": "Cancelado"
         },
@@ -2252,6 +2254,8 @@
           "save": "Registrar pedido",
           "saving": "Registrando…",
           "discard": "Descartar",
+          "prepare": "Pôr em preparação",
+          "dispatch": "Marcar despachado",
           "fulfil": "Marcar entregue",
           "cancel": "Cancelar"
         },
@@ -3267,7 +3271,7 @@
   },
   "Materials": {
     "title": "Material de divulgação",
-    "dragHint": "Arraste o pedido para Entregue ou Cancelado. Um pedido fechado não volta — reposição é um pedido novo, registrado na ficha do parceiro.",
+    "dragHint": "Arraste o pedido para a coluna seguinte. Da preparação ele pode ir para Despachado ou direto para Entregue. Pedido entregue ou cancelado não volta: reposição é um pedido novo, registrado na ficha do parceiro.",
     "searchLabel": "Buscar por parceiro, estabelecimento ou cidade",
     "searchPlaceholder": "Parceiro, local ou cidade…",
     "reload": "Atualizar",
@@ -3279,13 +3283,17 @@
     "truncated": "A lista foi cortada no limite de leitura: os números abaixo são pisos, não totais.",
     "atLeast": "≥ {count}",
     "columnHints": {
-      "requested": "Ainda não saiu. É o que há para produzir e enviar.",
+      "requested": "Chegou e ainda não entrou na produção.",
+      "in_preparation": "Em produção ou já embalado. Ainda não saiu daqui.",
+      "dispatched": "Saiu com a transportadora. Falta confirmar a chegada.",
       "fulfilled": "Material entregue ao parceiro.",
       "cancelled": "Pedido cancelado. Nada foi produzido."
     },
     "refused": {
-      "reopen": "Pedido não volta para Pedido. Se o parceiro precisa de mais material, registre um pedido novo na ficha dele.",
-      "closed": "Este pedido já foi fechado. Só um pedido em aberto pode ser entregue ou cancelado."
+      "reopen": "Pedido não volta para uma coluna anterior. Se o parceiro precisa de mais material, registre um pedido novo na ficha dele.",
+      "closed": "Este pedido já foi fechado. Só um pedido em aberto anda na esteira.",
+      "skip": "Falta um passo. O pedido entra em preparação antes de ser despachado ou entregue.",
+      "shipped": "O material já saiu com a transportadora e não dá mais para cancelar. Se ele se perdeu, registre um pedido novo na ficha do parceiro."
     },
     "card": {
       "noAddress": "Sem endereço: este parceiro não tem local vinculado nem cidade no cadastro.",
@@ -3298,14 +3306,16 @@
     },
     "summary": {
       "title": "Resumo dos pedidos de material",
-      "openOrders": "Pedidos em aberto",
-      "openUnits": "{count} peças no total",
+      "pendingOrders": "Pedidos a enviar",
+      "pendingUnits": "{count} peças no total",
       "toPrint": "A produzir",
+      "inTransit": "Em trânsito",
+      "inTransitUnits": "{count} peças a caminho",
       "towns": "Cidades de destino",
       "fulfilled": "{count} já entregues",
       "noAddress": "Sem endereço",
       "noAddressHint": "Vincule o local do parceiro ou preencha a cidade no cadastro antes de enviar.",
-      "tableCaption": "Pedidos em aberto por cidade de destino, do mais pesado para o mais leve.",
+      "tableCaption": "Pedidos a enviar por cidade de destino, do mais pesado para o mais leve.",
       "town": "Cidade",
       "orders": "Pedidos"
     }

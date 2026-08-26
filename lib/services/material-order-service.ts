@@ -19,7 +19,14 @@
 
 import { getSupabaseService } from '@/lib/core/supabase-client'
 import { MATERIAL_KINDS, type MaterialKind } from '@/lib/partner-form/fields'
-import type { MaterialDestination, MaterialQueueOrder } from '@/lib/materials/order-queue'
+import {
+  MATERIAL_COLUMNS,
+  statusesThatMayBecome,
+  type MaterialColumnId,
+  type MaterialDestination,
+  type MaterialMoveStatus,
+  type MaterialQueueOrder,
+} from '@/lib/materials/order-queue'
 
 const SCHEMA = 'partner'
 const ORDERS = 'material_orders'
@@ -28,9 +35,17 @@ function service() {
   return getSupabaseService().schema(SCHEMA)
 }
 
-/** `requested` is where every order starts; the other two are how it ends. */
-export const MATERIAL_ORDER_STATUSES = ['requested', 'fulfilled', 'cancelled'] as const
-export type MaterialOrderStatus = (typeof MATERIAL_ORDER_STATUSES)[number]
+/**
+ * `requested` is where every order starts, `in_preparation` and `dispatched` are the esteira,
+ * and the last two are how it ends.
+ *
+ * NOT A SECOND LIST: this IS `MATERIAL_COLUMNS`, re-exported under the name the service and the
+ * CHECK use. The column on the board is the status in the row, so two lists would be two
+ * vocabularies of the same fact — the class of defect that made a board show a column nobody
+ * could ever land in.
+ */
+export const MATERIAL_ORDER_STATUSES = MATERIAL_COLUMNS
+export type MaterialOrderStatus = MaterialColumnId
 
 /** Where the order came from. `proposal` is the partner's own answer; `cms` is the team's. */
 export const MATERIAL_ORDER_SOURCES = ['proposal', 'cms'] as const
@@ -141,21 +156,27 @@ export async function createMaterialOrder(input: {
 }
 
 /**
- * Moves an order to `fulfilled` or `cancelled`.
+ * Advances an order along the esteira — `in_preparation`, `dispatched`, `fulfilled`, `cancelled`.
  *
- * There is no path back to `requested`, and no path out of a closed order: reopening a
- * fulfilled order would say the material was un-shipped. A partner who needs more asks for
+ * THE GUARD IS THE GRAPH, NOT A CONSTANT. `statusesThatMayBecome` reads `MATERIAL_TRANSITIONS`
+ * backwards, so the `WHERE` of this update is the same arrows the board draws. An order that is
+ * not a legal origin for `status` matches no row and the write reports it — the screen is not
+ * the guarantee, and a second tab that already advanced the order cannot be overwritten by this
+ * one.
+ *
+ * There is no path back to `requested` and no path out of a terminal status: reopening a
+ * delivered order would say the material was un-shipped. A partner who needs more asks for
  * another order, which is the whole reason this is a table and not three columns.
  */
 export async function setMaterialOrderStatus(
   orderId: string,
-  status: Exclude<MaterialOrderStatus, 'requested'>
+  status: MaterialMoveStatus
 ): Promise<boolean> {
   const { data, error } = await service()
     .from(ORDERS)
     .update({ status, updated_at: new Date().toISOString() })
     .eq('id', orderId)
-    .eq('status', 'requested')
+    .in('status', statusesThatMayBecome(status))
     .select('id')
 
   return !error && Array.isArray(data) && data.length > 0

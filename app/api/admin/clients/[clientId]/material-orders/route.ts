@@ -16,10 +16,12 @@ import { NextResponse } from 'next/server'
 import { withAuth, withRateLimit } from '@/lib/auth-middleware'
 import { MATERIAL_KINDS, type MaterialKind } from '@/lib/partner-form/fields'
 import {
+  MATERIAL_ORDER_STATUSES,
   createMaterialOrder,
   loadMaterialOrders,
   setMaterialOrderStatus,
 } from '@/lib/services/material-order-service'
+import type { MaterialMoveStatus } from '@/lib/materials/order-queue'
 
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
 /** Four digits, the same ceiling the public form enforces. */
@@ -115,16 +117,23 @@ export const PATCH = withRateLimit(20, 60_000)(
     if (typeof orderId !== 'string' || !UUID_PATTERN.test(orderId)) {
       return NextResponse.json({ error: 'invalid_order_id' }, { status: 400 })
     }
-    // `requested` is absent from the accepted set on purpose: an order does not go back. A
-    // partner who needs more material gets another order, which is the reason this is a table.
-    if (status !== 'fulfilled' && status !== 'cancelled') {
+    // Any status of the esteira except `requested`, which is absent from the accepted set on
+    // purpose: an order does not go back. A partner who needs more material gets another order,
+    // which is the reason this is a table. WHICH move is legal from WHERE is not decided here —
+    // `setMaterialOrderStatus` puts the graph in the `WHERE` of the update, so this route only
+    // has to refuse a word that is not a status at all.
+    if (
+      typeof status !== 'string' ||
+      status === 'requested' ||
+      !(MATERIAL_ORDER_STATUSES as readonly string[]).includes(status)
+    ) {
       return NextResponse.json({ error: 'invalid_status' }, { status: 400 })
     }
 
-    const changed = await setMaterialOrderStatus(orderId, status)
-    // 409 and not 404: the order exists, it just is not `requested` any more — somebody else
-    // closed it while this screen was open, and saying "not found" would send the operator
-    // looking for a row that is right there.
+    const changed = await setMaterialOrderStatus(orderId, status as MaterialMoveStatus)
+    // 409 and not 404: the order exists, it just is not in a status this move may start from —
+    // somebody else advanced it while this screen was open, and saying "not found" would send
+    // the operator looking for a row that is right there.
     if (!changed) return NextResponse.json({ error: 'not_open' }, { status: 409 })
 
     return NextResponse.json({ ok: true })

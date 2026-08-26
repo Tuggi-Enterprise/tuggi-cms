@@ -1,7 +1,7 @@
 'use client'
 
 /**
- * THE BOARD OF MATERIAL ORDERS — three columns, one direction.
+ * THE BOARD OF MATERIAL ORDERS — five columns, one direction.
  *
  * WHAT MAKES IT DIFFERENT FROM THE PARTNERSHIP BOARD: there the column is derived from four
  * tables and the drag fires an act that changes a fact elsewhere; here the column IS
@@ -41,6 +41,7 @@ import {
   planMaterialMove,
   summarizeMaterialQueue,
   type MaterialColumnId,
+  type MaterialMoveStatus,
   type MaterialQueueOrder,
 } from '@/lib/materials/order-queue'
 
@@ -52,7 +53,7 @@ interface MaterialBoardProps {
   truncated: boolean
   busy: boolean
   onReload: () => void
-  onClose: (order: MaterialQueueOrder, status: 'fulfilled' | 'cancelled') => void
+  onMove: (order: MaterialQueueOrder, status: MaterialMoveStatus) => void
 }
 
 export function MaterialBoard({
@@ -63,7 +64,7 @@ export function MaterialBoard({
   truncated,
   busy,
   onReload,
-  onClose,
+  onMove,
 }: MaterialBoardProps) {
   const t = useTranslations('Materials')
   const [term, setTerm] = useState('')
@@ -98,13 +99,13 @@ export function MaterialBoard({
 
       const plan = planMaterialMove(order, String(event.over.id) as MaterialColumnId)
       if (plan.kind === 'act') {
-        onClose(order, plan.status)
+        onMove(order, plan.status)
         return
       }
       if (plan.kind === 'noop') return
       setRefusal({ id: order.id, message: t(`refused.${plan.reason}`) })
     },
-    [dragging, onClose, t]
+    [dragging, onMove, t]
   )
 
   if (failed) {
@@ -176,7 +177,7 @@ export function MaterialBoard({
                       order={order}
                       locale={locale}
                       busy={busy}
-                      onClose={onClose}
+                      onMove={onMove}
                       refusal={refusal?.id === order.id ? refusal.message : null}
                     />
                   ))}
@@ -213,7 +214,7 @@ function DroppableColumn({
     <section
       aria-labelledby={headingId}
       ref={setNodeRef}
-      className={`flex w-80 flex-shrink-0 flex-col rounded-3xl border bg-gray-50/60 p-3 dark:bg-gray-900/40 ${
+      className={`flex w-72 flex-shrink-0 flex-col rounded-3xl border bg-gray-50/60 p-3 dark:bg-gray-900/40 ${
         isOver ? 'border-primary-800 dark:border-tuggi-blue' : 'border-gray-200 dark:border-gray-800'
       }`}
     >
@@ -238,7 +239,7 @@ function DraggableCard(props: {
   order: MaterialQueueOrder
   locale: string
   busy: boolean
-  onClose: (order: MaterialQueueOrder, status: 'fulfilled' | 'cancelled') => void
+  onMove: (order: MaterialQueueOrder, status: MaterialMoveStatus) => void
   refusal: string | null
 }) {
   const { attributes, listeners, setNodeRef, isDragging } = useDraggable({ id: props.order.id })
@@ -255,7 +256,7 @@ function DraggableCard(props: {
         order={props.order}
         locale={props.locale}
         busy={props.busy}
-        onClose={props.onClose}
+        onMove={props.onMove}
         dragging={isDragging}
         refusal={props.refusal}
         dragHandleProps={{

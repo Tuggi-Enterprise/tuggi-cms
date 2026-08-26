@@ -2,11 +2,14 @@
  * The material queue — `/admin/materials`. What the rule promises, and what the screen wires.
  *
  * Mutations that turn this suite red:
- *  · letting a closed order reopen, in the plan or in the write;
+ *  · letting an order go back a column, in the plan or in the write;
+ *  · letting an order skip `in_preparation`, or cancelling one the carrier already has;
  *  · counting a cancelled order's quantities into what has to be printed;
+ *  · counting a dispatched order into the print run — it was already printed;
  *  · rounding an order with no address into a town instead of naming it as a pendency;
  *  · giving the board a second fetch or a write of its own, which is a second place for
- *    `an order does not reopen` to be forgotten;
+ *    `an order does not go back` to be forgotten;
+ *  · a second copy of the transition graph anywhere — the buttons and the `WHERE` both read it;
  *  · a column, a refusal or a destination origin with no message behind it.
  *
  * Run with: npm run test:api
@@ -20,9 +23,11 @@ import { resolve } from 'node:path'
 import { MATERIAL_KINDS } from '@/lib/partner-form/fields'
 import {
   MATERIAL_COLUMNS,
+  MATERIAL_TRANSITIONS,
   filterQueue,
   groupByColumn,
   planMaterialMove,
+  statusesThatMayBecome,
   summarizeMaterialQueue,
   type MaterialQueueOrder,
 } from '@/lib/materials/order-queue'
@@ -62,19 +67,43 @@ function order(over: Partial<MaterialQueueOrder> = {}): MaterialQueueOrder {
   }
 }
 
-test('an order goes forward only, and the two refusals are different', () => {
-  assert.deepEqual(planMaterialMove(order(), 'fulfilled'), { kind: 'act', status: 'fulfilled' })
+test('the esteira runs forward, and `in_preparation` is the only fork', () => {
+  assert.deepEqual(planMaterialMove(order(), 'in_preparation'), {
+    kind: 'act',
+    status: 'in_preparation',
+  })
   assert.deepEqual(planMaterialMove(order(), 'cancelled'), { kind: 'act', status: 'cancelled' })
+
+  // The fork the operator asked for on 2026-08-26: material handed over at the counter never
+  // rides a carrier, so `fulfilled` is reachable from preparation without passing `dispatched`.
+  const prep = order({ status: 'in_preparation' })
+  assert.deepEqual(planMaterialMove(prep, 'dispatched'), { kind: 'act', status: 'dispatched' })
+  assert.deepEqual(planMaterialMove(prep, 'fulfilled'), { kind: 'act', status: 'fulfilled' })
+  assert.deepEqual(planMaterialMove(prep, 'cancelled'), { kind: 'act', status: 'cancelled' })
+
+  assert.deepEqual(planMaterialMove(order({ status: 'dispatched' }), 'fulfilled'), {
+    kind: 'act',
+    status: 'fulfilled',
+  })
 
   // Dropped back where it came from: nothing was asked.
   assert.deepEqual(planMaterialMove(order(), 'requested'), { kind: 'noop' })
+})
 
-  // Reopening is refused BEFORE the closed check, so dragging a fulfilled order to `Pedido`
+test('the four refusals are different, and each says its own thing', () => {
+  // Reopening is refused BEFORE the closed check, so dragging a delivered order to `Pedido`
   // says orders do not come back rather than saying this one is over.
   assert.deepEqual(planMaterialMove(order({ status: 'fulfilled' }), 'requested'), {
     kind: 'refused',
     reason: 'reopen',
   })
+  // Backwards inside the esteira is the same refusal.
+  assert.deepEqual(planMaterialMove(order({ status: 'dispatched' }), 'in_preparation'), {
+    kind: 'refused',
+    reason: 'reopen',
+  })
+
+  // An order that already ended does not move to the other ending.
   assert.deepEqual(planMaterialMove(order({ status: 'fulfilled' }), 'cancelled'), {
     kind: 'refused',
     reason: 'closed',
@@ -83,13 +112,54 @@ test('an order goes forward only, and the two refusals are different', () => {
     kind: 'refused',
     reason: 'closed',
   })
+
+  // Skipping preparation: nothing is printed by dragging a card two columns.
+  assert.deepEqual(planMaterialMove(order(), 'dispatched'), { kind: 'refused', reason: 'skip' })
+  assert.deepEqual(planMaterialMove(order(), 'fulfilled'), { kind: 'refused', reason: 'skip' })
+
+  // The box is with the carrier: cancelling it would say nothing was produced.
+  assert.deepEqual(planMaterialMove(order({ status: 'dispatched' }), 'cancelled'), {
+    kind: 'refused',
+    reason: 'shipped',
+  })
 })
 
-test('the write refuses the reopen too — the screen is not the guarantee', () => {
+test('the graph read backwards is what the write puts in its WHERE', () => {
+  assert.deepEqual(statusesThatMayBecome('in_preparation'), ['requested'])
+  assert.deepEqual(statusesThatMayBecome('dispatched'), ['in_preparation'])
+  assert.deepEqual(statusesThatMayBecome('fulfilled'), ['in_preparation', 'dispatched'])
+  assert.deepEqual(statusesThatMayBecome('cancelled'), ['requested', 'in_preparation'])
+  // Nothing may become `requested`, so the update could never match a row — and the type
+  // refuses the call before that.
+  assert.deepEqual(statusesThatMayBecome('requested'), [])
+})
+
+test('the write refuses the illegal move too — the screen is not the guarantee', () => {
   const service = code('lib/services/material-order-service.ts')
-  // The update touches only rows still `requested`; a closed order matches nothing.
-  assert.match(service, /\.eq\('status', 'requested'\)/)
-  assert.match(service, /status: Exclude<MaterialOrderStatus, 'requested'>/)
+  // The `WHERE` IS the graph, not a constant: `.in('status', statusesThatMayBecome(status))`.
+  assert.match(service, /\.in\('status', statusesThatMayBecome\(status\)\)/)
+  assert.equal(service.includes(".eq('status', 'requested')"), false)
+  assert.match(service, /status: MaterialMoveStatus/)
+  // And the vocabulary is not re-declared beside the graph.
+  assert.match(service, /MATERIAL_ORDER_STATUSES = MATERIAL_COLUMNS/)
+})
+
+test('the transition graph has exactly one copy, and both surfaces read it', () => {
+  // The buttons are derived from it (WCAG 2.2 SC 2.5.7 without a second list of arrows)…
+  assert.match(
+    code('components/admin/materials/MaterialMoveButtons.tsx'),
+    /MATERIAL_TRANSITIONS\[status\]/
+  )
+  // …and the two screens that offer the moves both render that component.
+  for (const path of [
+    'components/admin/materials/MaterialCard.tsx',
+    'components/admin/clients/shared/MaterialOrders.tsx',
+  ]) {
+    assert.match(code(path), /<MaterialMoveButtons/, `${path} não usa os botões da esteira`)
+  }
+  // A terminal status offers nothing.
+  assert.deepEqual([...MATERIAL_TRANSITIONS.fulfilled], [])
+  assert.deepEqual([...MATERIAL_TRANSITIONS.cancelled], [])
 })
 
 test('the dashboard counts what will be printed, and nothing else', () => {
@@ -97,6 +167,7 @@ test('the dashboard counts what will be printed, and nothing else', () => {
     order({ id: 'a' }),
     order({
       id: 'b',
+      status: 'in_preparation',
       items: [{ kind: 'counter_display', quantity: 5 }],
       destination: {
         attractionId: null,
@@ -110,11 +181,16 @@ test('the dashboard counts what will be printed, and nothing else', () => {
     order({ id: 'c', status: 'fulfilled', items: [{ kind: 'sticker', quantity: 100 }] }),
     // Cancelled: counted as an order, and its quantities count nowhere.
     order({ id: 'd', status: 'cancelled', items: [{ kind: 'sticker', quantity: 999 }] }),
+    // Dispatched: already printed. Counting it into `A produzir` prints it twice.
+    order({ id: 'e', status: 'dispatched', items: [{ kind: 'table_display', quantity: 7 }] }),
   ])
 
-  assert.equal(summary.openOrders, 2)
-  assert.equal(summary.openUnits, 18)
-  assert.deepEqual(summary.openByKind, { sticker: 3, table_display: 10, counter_display: 5 })
+  // `requested` and `in_preparation` are what has not left; both count into the print run.
+  assert.equal(summary.pendingOrders, 2)
+  assert.equal(summary.pendingUnits, 18)
+  assert.deepEqual(summary.pendingByKind, { sticker: 3, table_display: 10, counter_display: 5 })
+  assert.equal(summary.dispatchedOrders, 1)
+  assert.equal(summary.dispatchedUnits, 7)
   assert.equal(summary.fulfilledOrders, 1)
   assert.equal(summary.fulfilledUnits, 100)
   assert.equal(summary.cancelledOrders, 1)
@@ -124,7 +200,7 @@ test('the dashboard counts what will be printed, and nothing else', () => {
   assert.equal(summary.destinations[0].city, 'Búzios')
   assert.equal(summary.destinations[0].orders, 2)
   assert.equal(summary.destinations[0].units, 18)
-  assert.equal(summary.openWithoutDestination, 0)
+  assert.equal(summary.pendingWithoutDestination, 0)
 })
 
 test('an order with no address is a pendency, never a town', () => {
@@ -142,8 +218,8 @@ test('an order with no address is a pendency, never a town', () => {
     }),
   ])
 
-  assert.equal(summary.openOrders, 1)
-  assert.equal(summary.openWithoutDestination, 1)
+  assert.equal(summary.pendingOrders, 1)
+  assert.equal(summary.pendingWithoutDestination, 1)
   assert.deepEqual(summary.destinations, [])
 })
 
@@ -184,19 +260,35 @@ test('every card sits under its own status, in the order it was loaded', () => {
     order({ id: 'a' }),
     order({ id: 'b', status: 'fulfilled' }),
     order({ id: 'c' }),
+    order({ id: 'd', status: 'in_preparation' }),
+    order({ id: 'e', status: 'dispatched' }),
   ])
   assert.deepEqual(columns.requested.map((row) => row.id), ['a', 'c'])
+  assert.deepEqual(columns.in_preparation.map((row) => row.id), ['d'])
+  assert.deepEqual(columns.dispatched.map((row) => row.id), ['e'])
   assert.deepEqual(columns.fulfilled.map((row) => row.id), ['b'])
   assert.deepEqual(columns.cancelled, [])
 })
 
-test('the column vocabulary is the status vocabulary — three, and the same three', () => {
-  assert.deepEqual([...MATERIAL_COLUMNS], ['requested', 'fulfilled', 'cancelled'])
+test('the column vocabulary is the status vocabulary — five, and the same five', () => {
+  assert.deepEqual(
+    [...MATERIAL_COLUMNS],
+    ['requested', 'in_preparation', 'dispatched', 'fulfilled', 'cancelled']
+  )
   for (const column of MATERIAL_COLUMNS) {
     assert.ok(pt.Clients.profile.material.statuses[column], `sem rótulo para ${column}`)
     assert.ok(pt.Materials.columnHints[column], `sem dica para ${column}`)
   }
-  for (const reason of ['reopen', 'closed']) {
+  // Every move the graph allows has a verb the operator can click.
+  for (const targets of Object.values(MATERIAL_TRANSITIONS)) {
+    for (const target of targets) {
+      const key = { in_preparation: 'prepare', dispatched: 'dispatch', fulfilled: 'fulfil', cancelled: 'cancel' }[
+        target as 'in_preparation' | 'dispatched' | 'fulfilled' | 'cancelled'
+      ]
+      assert.ok(pt.Clients.profile.material.actions[key], `sem verbo para ${target}`)
+    }
+  }
+  for (const reason of ['reopen', 'closed', 'skip', 'shipped']) {
     assert.ok(pt.Materials.refused[reason], `sem mensagem para ${reason}`)
   }
   for (const origin of ['linked_place', 'welcome_poi', 'client_address', 'none']) {
@@ -233,10 +325,9 @@ test('one read feeds the board, and the write is the route that already existed'
   assert.match(board, /summarizeMaterialQueue\(visible\)/)
   assert.match(board, /groupByColumn\(visible\)/)
 
-  // The drag is never the only way (WCAG 2.2 SC 2.5.7): the card carries both acts as buttons.
+  // The drag is never the only way (WCAG 2.2 SC 2.5.7): the card carries the moves as buttons.
   const card = code('components/admin/materials/MaterialCard.tsx')
-  assert.match(card, /onClose\(order, 'fulfilled'\)/)
-  assert.match(card, /onClose\(order, 'cancelled'\)/)
+  assert.match(card, /onMove=\{\(status\) => onMove\(order, status\)\}/)
 })
 
 test('the read route is admin-only, read-only, and says when it cut the list', () => {

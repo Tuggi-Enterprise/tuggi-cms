@@ -12,25 +12,76 @@
  * here `partner.material_orders.status` IS the column, so a card can only be where the database
  * says it is, and there is nothing to keep in step.
  *
- * ONE-WAY, AND THE DATABASE AGREES. `setMaterialOrderStatus` updates only rows still
- * `requested`, so a reopen is refused by the write and not merely hidden by the screen. The
- * refusal is spelled out here as well, in `planMaterialMove`, so the operator reads WHY the card
- * snapped back instead of watching it fail in silence: an order that was fulfilled says the
- * material left, and un-saying that is not a state change, it is a second order.
+ * FIVE COLUMNS, ONE GRAPH, ONE PLACE. `MATERIAL_TRANSITIONS` is the whole rule of what may
+ * follow what — the board reads it to plan a drop, the card reads it to draw its buttons, and
+ * the write reads it BACKWARDS (`statusesThatMayBecome`) to build the `WHERE` that refuses the
+ * move in the database. Three surfaces, one fact: a transition added here is added everywhere,
+ * and there is no second table of arrows to fall out of step.
+ *
+ * FORWARD ONLY, AND THE DATABASE AGREES. `setMaterialOrderStatus` updates only rows whose
+ * status is a legal origin for the target, so an illegal move is refused by the write and not
+ * merely hidden by the screen. The refusal is spelled out here as well, in `planMaterialMove`,
+ * so the operator reads WHY the card snapped back instead of watching it fail in silence: an
+ * order that was delivered says the material left, and un-saying that is not a state change, it
+ * is a second order.
  *
  * Pure: no fetch, no Supabase, no React. Proven by `tests/api/material-queue.test.ts`.
  */
 
 import { MATERIAL_KINDS, type MaterialKind } from '@/lib/partner-form/fields'
-import type {
-  MaterialOrderItem,
-  MaterialOrderSource,
-  MaterialOrderStatus,
-} from '@/lib/services/material-order-service'
+import type { MaterialOrderItem, MaterialOrderSource } from '@/lib/services/material-order-service'
 
-/** Left to right: the queue, then the two ways it ends. Same vocabulary as the CHECK. */
-export const MATERIAL_COLUMNS = ['requested', 'fulfilled', 'cancelled'] as const
+/**
+ * Left to right: the queue, the two steps of the esteira, then the two ways it ends. Same
+ * vocabulary as the CHECK, and the SSOT of it — `MATERIAL_ORDER_STATUSES` is this list.
+ */
+export const MATERIAL_COLUMNS = [
+  'requested',
+  'in_preparation',
+  'dispatched',
+  'fulfilled',
+  'cancelled',
+] as const
 export type MaterialColumnId = (typeof MATERIAL_COLUMNS)[number]
+
+/** Where an order can end, and therefore what a drag may write. `requested` is never a target. */
+export type MaterialMoveStatus = Exclude<MaterialColumnId, 'requested'>
+
+/** An order that ended. Nothing leaves these two — a reposition is another order. */
+const TERMINAL_STATUSES: readonly MaterialColumnId[] = ['fulfilled', 'cancelled']
+
+/**
+ * THE GRAPH — decided with the operator on 2026-08-26.
+ *
+ * `in_preparation` has TWO exits and that is the point of it: material handed over at the
+ * counter never rides a carrier, so `fulfilled` is reachable without passing `dispatched`.
+ *
+ * `dispatched` cannot be cancelled: the box is with the carrier, and cancelling it would say
+ * nothing was produced when the money was already spent. What happens to a lost shipment is a
+ * new order, the same as a reposition.
+ */
+export const MATERIAL_TRANSITIONS: Record<MaterialColumnId, readonly MaterialColumnId[]> = {
+  requested: ['in_preparation', 'cancelled'],
+  in_preparation: ['dispatched', 'fulfilled', 'cancelled'],
+  dispatched: ['fulfilled'],
+  fulfilled: [],
+  cancelled: [],
+}
+
+/** Still moving: everything that has not ended. */
+function isOpen(status: MaterialColumnId): boolean {
+  return !TERMINAL_STATUSES.includes(status)
+}
+
+/**
+ * THE GRAPH READ BACKWARDS — which statuses may still become `target`.
+ *
+ * This is what the `WHERE` of the update is built from, so the screen's arrows and the
+ * database's refusal are literally the same list.
+ */
+export function statusesThatMayBecome(target: MaterialColumnId): MaterialColumnId[] {
+  return MATERIAL_COLUMNS.filter((from) => MATERIAL_TRANSITIONS[from].includes(target))
+}
 
 /**
  * WHERE THE MATERIAL IS GOING, and how sure we are of it.
@@ -59,7 +110,7 @@ export interface MaterialQueueOrder {
   clientId: string
   /** What the operator recognises the partner by — trade name, falling back to the record's. */
   clientName: string
-  status: MaterialOrderStatus
+  status: MaterialColumnId
   source: MaterialOrderSource
   notes: string | null
   createdAt: string
@@ -68,38 +119,63 @@ export interface MaterialQueueOrder {
 }
 
 export type MaterialMovePlan =
-  | { kind: 'act'; status: Exclude<MaterialColumnId, 'requested'> }
+  | { kind: 'act'; status: MaterialMoveStatus }
   /** Dropped back where it came from. Not an error, and not a request either. */
   | { kind: 'noop' }
-  | { kind: 'refused'; reason: 'reopen' | 'closed' }
+  | { kind: 'refused'; reason: MaterialRefusal }
+
+/**
+ * The four ways a drop is refused. They are DIFFERENT and the operator is owed the difference —
+ * "this one is over" and "you skipped a step" send them to two different next acts.
+ */
+export type MaterialRefusal = 'reopen' | 'closed' | 'skip' | 'shipped'
+
+const COLUMN_INDEX: Record<MaterialColumnId, number> = MATERIAL_COLUMNS.reduce(
+  (index, column, position) => {
+    index[column] = position
+    return index
+  },
+  {} as Record<MaterialColumnId, number>
+)
 
 /**
  * What dragging a card to a column means.
  *
- * The two refusals are DIFFERENT and the operator is owed the difference: `reopen` is dragging
- * anything back to `Pedido`, `closed` is dragging an order that already ended into the other
- * ending. The first says orders do not come back; the second says this one is already over.
+ * The order of the checks is the order of the messages, and it is deliberate: `reopen` answers
+ * BEFORE `closed` when the target is `Pedido`, so dragging a delivered order back to the start
+ * says orders do not come back rather than saying this one is over.
  */
 export function planMaterialMove(
   order: Pick<MaterialQueueOrder, 'status'>,
   target: MaterialColumnId
 ): MaterialMovePlan {
   if (order.status === target) return { kind: 'noop' }
+  // Nothing returns to the start, from anywhere. This is the rule the table exists for.
   if (target === 'requested') return { kind: 'refused', reason: 'reopen' }
-  if (order.status !== 'requested') return { kind: 'refused', reason: 'closed' }
-  return { kind: 'act', status: target }
+  if (MATERIAL_TRANSITIONS[order.status].includes(target)) {
+    return { kind: 'act', status: target as MaterialMoveStatus }
+  }
+  if (!isOpen(order.status)) return { kind: 'refused', reason: 'closed' }
+  if (COLUMN_INDEX[target] < COLUMN_INDEX[order.status]) return { kind: 'refused', reason: 'reopen' }
+  // The only forward move left that the graph refuses: cancelling what a carrier already has.
+  if (order.status === 'dispatched' && target === 'cancelled') {
+    return { kind: 'refused', reason: 'shipped' }
+  }
+  return { kind: 'refused', reason: 'skip' }
 }
 
 /** The cards under each column, in the order they arrived (newest first, as loaded). */
 export function groupByColumn(
   orders: MaterialQueueOrder[]
 ): Record<MaterialColumnId, MaterialQueueOrder[]> {
-  const columns = {
-    requested: [] as MaterialQueueOrder[],
-    fulfilled: [] as MaterialQueueOrder[],
-    cancelled: [] as MaterialQueueOrder[],
-  }
-  for (const order of orders) columns[order.status as MaterialColumnId]?.push(order)
+  const columns = MATERIAL_COLUMNS.reduce(
+    (grouped, column) => {
+      grouped[column] = []
+      return grouped
+    },
+    {} as Record<MaterialColumnId, MaterialQueueOrder[]>
+  )
+  for (const order of orders) columns[order.status]?.push(order)
   return columns
 }
 
@@ -116,21 +192,24 @@ export interface DestinationTotals {
 }
 
 export interface MaterialQueueSummary {
-  /** Orders still `requested` — what has to be printed and shipped. */
-  openOrders: number
-  /** Everything the open orders add up to, per kind and in total. */
-  openUnits: number
-  openByKind: KindTotals
+  /** Orders that have not left — `requested` plus `in_preparation`. The print-and-ship list. */
+  pendingOrders: number
+  /** Everything the pending orders add up to, per kind and in total. */
+  pendingUnits: number
+  pendingByKind: KindTotals
+  /** Already produced and with the carrier. Counted apart: printing it again is the mistake. */
+  dispatchedOrders: number
+  dispatchedUnits: number
   fulfilledOrders: number
   fulfilledUnits: number
   cancelledOrders: number
-  /** Open orders by town, heaviest first — the shipping list. */
+  /** Pending orders by town, heaviest first — the shipping list. */
   destinations: DestinationTotals[]
   /**
-   * Open orders with no address at all. Printed as a number and not swept into "outros": a box
-   * with nowhere to go is the only line here that is a pendency rather than a quantity.
+   * Pending orders with no address at all. Printed as a number and not swept into "outros": a
+   * box with nowhere to go is the only line here that is a pendency rather than a quantity.
    */
-  openWithoutDestination: number
+  pendingWithoutDestination: number
 }
 
 function emptyKinds(): KindTotals {
@@ -156,14 +235,16 @@ function unitsOf(order: MaterialQueueOrder): number {
  */
 export function summarizeMaterialQueue(orders: MaterialQueueOrder[]): MaterialQueueSummary {
   const summary: MaterialQueueSummary = {
-    openOrders: 0,
-    openUnits: 0,
-    openByKind: emptyKinds(),
+    pendingOrders: 0,
+    pendingUnits: 0,
+    pendingByKind: emptyKinds(),
+    dispatchedOrders: 0,
+    dispatchedUnits: 0,
     fulfilledOrders: 0,
     fulfilledUnits: 0,
     cancelledOrders: 0,
     destinations: [],
-    openWithoutDestination: 0,
+    pendingWithoutDestination: 0,
   }
 
   const byDestination = new Map<string, DestinationTotals>()
@@ -182,14 +263,20 @@ export function summarizeMaterialQueue(orders: MaterialQueueOrder[]): MaterialQu
       continue
     }
 
-    summary.openOrders += 1
-    summary.openUnits += units
+    if (order.status === 'dispatched') {
+      summary.dispatchedOrders += 1
+      summary.dispatchedUnits += units
+      continue
+    }
+
+    summary.pendingOrders += 1
+    summary.pendingUnits += units
     for (const item of order.items) {
-      summary.openByKind[item.kind] += item.quantity
+      summary.pendingByKind[item.kind] += item.quantity
     }
 
     if (order.destination.origin === 'none' || !order.destination.city) {
-      summary.openWithoutDestination += 1
+      summary.pendingWithoutDestination += 1
       continue
     }
 

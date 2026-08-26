@@ -1,10 +1,12 @@
 'use client'
 
 import { useCallback, useEffect, useState } from 'react'
-import { Package, Plus, Check, X, Loader2, AlertTriangle } from 'lucide-react'
+import { Package, Plus, Loader2, AlertTriangle } from 'lucide-react'
 import { useTranslations } from 'next-intl'
 import { MATERIAL_KINDS, type MaterialKind } from '@/lib/partner-form/fields'
 import type { MaterialOrder } from '@/lib/services/material-order-service'
+import { MaterialMoveButtons } from '@/components/admin/materials/MaterialMoveButtons'
+import type { MaterialMoveStatus } from '@/lib/materials/order-queue'
 import { SectionHeader } from '@/components/admin/clients/shared/SectionHeader'
 
 /**
@@ -17,8 +19,13 @@ import { SectionHeader } from '@/components/admin/clients/shared/SectionHeader'
  *
  * ONE ORDER IS NOT THE STATE OF THE PARTNER — it is one act. The first one comes from the
  * proposal, at promotion; the rest are repositions the team registers. That is why this is a
- * list and not three counters, and why a closed order has no way back to `requested`: a partner
- * who needs more gets another order.
+ * list and not three counters, and why an order has no way back to `requested`: a partner who
+ * needs more gets another order.
+ *
+ * THE ESTEIRA IS THE SAME ONE `/admin/materials` DRAWS. The moves offered here come from
+ * `MaterialMoveButtons`, which reads `MATERIAL_TRANSITIONS` — this panel deciding for itself
+ * what may follow what is how the record and the board would come to disagree about the same
+ * row.
  *
  * QUANTITY IS TYPED, NOT PICKED. A stepper for a number that runs to four digits is thirty
  * clicks for "120 mesas"; the input is `inputMode="numeric"` and strips non-digits, the same
@@ -78,7 +85,7 @@ export function MaterialOrders({ clientId }: MaterialOrdersProps) {
     await load()
   }
 
-  async function close(orderId: string, status: 'fulfilled' | 'cancelled') {
+  async function move(orderId: string, status: MaterialMoveStatus) {
     setBusy(true)
     setError(null)
     const response = await fetch(`/api/admin/clients/${clientId}/material-orders`, {
@@ -87,8 +94,8 @@ export function MaterialOrders({ clientId }: MaterialOrdersProps) {
       body: JSON.stringify({ orderId, status }),
     })
     setBusy(false)
-    // 409 means somebody else closed it while this screen was open — reloading shows what they
-    // did, which is more useful than an error about a race the operator cannot act on.
+    // 409 means somebody else advanced it while this screen was open — reloading shows what
+    // they did, which is more useful than an error about a race the operator cannot act on.
     if (!response.ok && response.status !== 409) {
       setError(t('errors.saveFailed'))
     }
@@ -130,28 +137,11 @@ export function MaterialOrders({ clientId }: MaterialOrdersProps) {
                   <span className="text-[10px] font-bold uppercase tracking-widest text-gray-400">
                     {t(`statuses.${order.status}`)}
                   </span>
-                  {order.status === 'requested' && (
-                    <>
-                      <button
-                        type="button"
-                        disabled={busy}
-                        onClick={() => close(order.id, 'fulfilled')}
-                        className="inline-flex items-center gap-1 text-xs font-semibold text-green-600 hover:underline disabled:opacity-50"
-                      >
-                        <Check className="w-3.5 h-3.5" aria-hidden="true" />
-                        {t('actions.fulfil')}
-                      </button>
-                      <button
-                        type="button"
-                        disabled={busy}
-                        onClick={() => close(order.id, 'cancelled')}
-                        className="inline-flex items-center gap-1 text-xs font-semibold text-gray-500 hover:underline disabled:opacity-50"
-                      >
-                        <X className="w-3.5 h-3.5" aria-hidden="true" />
-                        {t('actions.cancel')}
-                      </button>
-                    </>
-                  )}
+                  <MaterialMoveButtons
+                    status={order.status}
+                    busy={busy}
+                    onMove={(status) => void move(order.id, status)}
+                  />
                 </div>
               </div>
               <p className="mt-2 text-xs text-gray-500">

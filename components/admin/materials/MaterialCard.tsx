@@ -10,19 +10,22 @@
  * different degrees of certainty and the operator is the one who decides whether to trust it.
  *
  * THE BUTTONS ARE THE OTHER WAY TO DO WHAT THE DRAG DOES (WCAG 2.2 SC 2.5.7): dragging is not a
- * requirement anywhere in this screen.
+ * requirement anywhere in this screen. Which buttons those are is derived from the graph by
+ * `MaterialMoveButtons`, not decided here — the card would be the second place to write down
+ * what may follow what.
  */
 
 import { useTranslations } from 'next-intl'
 import Link from 'next/link'
-import { Check, MapPin, X } from 'lucide-react'
-import type { MaterialQueueOrder } from '@/lib/materials/order-queue'
+import { MapPin } from 'lucide-react'
+import { MaterialMoveButtons } from '@/components/admin/materials/MaterialMoveButtons'
+import type { MaterialMoveStatus, MaterialQueueOrder } from '@/lib/materials/order-queue'
 
 interface MaterialCardProps {
   order: MaterialQueueOrder
   locale: string
   busy: boolean
-  onClose: (order: MaterialQueueOrder, status: 'fulfilled' | 'cancelled') => void
+  onMove: (order: MaterialQueueOrder, status: MaterialMoveStatus) => void
   dragHandleProps?: React.HTMLAttributes<HTMLElement>
   dragging?: boolean
   refusal?: string | null
@@ -32,14 +35,13 @@ export function MaterialCard({
   order,
   locale,
   busy,
-  onClose,
+  onMove,
   dragHandleProps,
   dragging,
   refusal,
 }: MaterialCardProps) {
   const t = useTranslations('Materials')
   const m = useTranslations('Clients.profile.material')
-  const open = order.status === 'requested'
 
   return (
     <div>
@@ -94,32 +96,15 @@ export function MaterialCard({
           </p>
         )}
 
-        <div className="mt-3 flex items-center justify-between gap-2">
+        <div className="mt-3 flex flex-wrap items-center justify-between gap-2">
           <span className="text-[11px] text-gray-400">
             {new Date(order.createdAt).toLocaleDateString('pt-BR')}
           </span>
-          {open && (
-            <div className="flex items-center gap-3">
-              <button
-                type="button"
-                disabled={busy}
-                onClick={() => onClose(order, 'fulfilled')}
-                className="inline-flex min-h-[24px] items-center gap-1 text-xs font-semibold text-green-600 hover:underline disabled:opacity-50"
-              >
-                <Check className="h-3.5 w-3.5" aria-hidden="true" />
-                {m('actions.fulfil')}
-              </button>
-              <button
-                type="button"
-                disabled={busy}
-                onClick={() => onClose(order, 'cancelled')}
-                className="inline-flex min-h-[24px] items-center gap-1 text-xs font-semibold text-gray-500 hover:underline disabled:opacity-50"
-              >
-                <X className="h-3.5 w-3.5" aria-hidden="true" />
-                {m('actions.cancel')}
-              </button>
-            </div>
-          )}
+          <MaterialMoveButtons
+            status={order.status}
+            busy={busy}
+            onMove={(status) => onMove(order, status)}
+          />
         </div>
       </article>
 

@@ -3,10 +3,14 @@
 /**
  * THE DASHBOARD OVER THE QUEUE — how much is owed, of what, and to which towns.
  *
- * FOUR NUMBERS AND A LIST, and the shape follows the question the operator arrived with: what do
- * we print (quantity per kind), how many acts is that (orders), where does it go (towns), and
- * what cannot be shipped at all (orders with no address). Anything else here is a number nobody
- * spends money on.
+ * FIVE NUMBERS AND A LIST, and the shape follows the question the operator arrived with: what do
+ * we print (quantity per kind), how many acts is that (orders), what already left (in transit),
+ * where does it go (towns), and what cannot be shipped at all (orders with no address). Anything
+ * else here is a number nobody spends money on.
+ *
+ * `dispatched` IS COUNTED APART FROM `pending`, and that is the tile the new columns bought. An
+ * order with the carrier was already produced; folding it into `A produzir` would put it on the
+ * next print run a second time, which is the one mistake this dashboard exists to prevent.
  *
  * IT IS COMPUTED FROM THE CARDS BELOW IT — `summarizeMaterialQueue` over the same array — so the
  * tile and the column can never disagree. A `count()` per tile is how a board ends up printing
@@ -14,7 +18,7 @@
  */
 
 import { useTranslations } from 'next-intl'
-import { AlertTriangle, MapPin, Package, Truck } from 'lucide-react'
+import { AlertTriangle, Boxes, MapPin, Package, Truck } from 'lucide-react'
 import { MATERIAL_KINDS } from '@/lib/partner-form/fields'
 import type { MaterialQueueSummary } from '@/lib/materials/order-queue'
 
@@ -35,24 +39,24 @@ export function MaterialSummary({ summary, truncated }: MaterialSummaryProps) {
         {t('summary.title')}
       </h2>
 
-      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-4">
+      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-5">
         <Tile
           icon={<Package className="h-4 w-4 text-amber-500" aria-hidden="true" />}
-          label={t('summary.openOrders')}
-          value={floor(summary.openOrders)}
-          hint={t('summary.openUnits', { count: summary.openUnits })}
+          label={t('summary.pendingOrders')}
+          value={floor(summary.pendingOrders)}
+          hint={t('summary.pendingUnits', { count: summary.pendingUnits })}
         />
 
         {/* The three quantities in ONE tile and not three: they are printed together, and the
             operator reads them as one line on a purchase order. */}
         <Tile
-          icon={<Truck className="h-4 w-4 text-primary-800 dark:text-tuggi-blue" aria-hidden="true" />}
+          icon={<Boxes className="h-4 w-4 text-primary-800 dark:text-tuggi-blue" aria-hidden="true" />}
           label={t('summary.toPrint')}
           value={
             <span className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
               {MATERIAL_KINDS.map((kind) => (
                 <span key={kind} className="text-base font-semibold text-gray-900 dark:text-white">
-                  {summary.openByKind[kind]}
+                  {summary.pendingByKind[kind]}
                   <span className="ml-1 text-[11px] font-medium text-gray-500 dark:text-gray-400">
                     {k(kind)}
                   </span>
@@ -60,6 +64,14 @@ export function MaterialSummary({ summary, truncated }: MaterialSummaryProps) {
               ))}
             </span>
           }
+        />
+
+        {/* Already produced and on the road. Its own tile so it is never added to the print run. */}
+        <Tile
+          icon={<Truck className="h-4 w-4 text-primary-800 dark:text-tuggi-blue" aria-hidden="true" />}
+          label={t('summary.inTransit')}
+          value={floor(summary.dispatchedOrders)}
+          hint={t('summary.inTransitUnits', { count: summary.dispatchedUnits })}
         />
 
         <Tile
@@ -73,15 +85,15 @@ export function MaterialSummary({ summary, truncated }: MaterialSummaryProps) {
             appears when it is one. */}
         <Tile
           icon={
-            summary.openWithoutDestination > 0 ? (
+            summary.pendingWithoutDestination > 0 ? (
               <AlertTriangle className="h-4 w-4 text-secondary-700" aria-hidden="true" />
             ) : (
               <MapPin className="h-4 w-4 text-gray-400" aria-hidden="true" />
             )
           }
           label={t('summary.noAddress')}
-          value={String(summary.openWithoutDestination)}
-          hint={summary.openWithoutDestination > 0 ? t('summary.noAddressHint') : undefined}
+          value={String(summary.pendingWithoutDestination)}
+          hint={summary.pendingWithoutDestination > 0 ? t('summary.noAddressHint') : undefined}
         />
       </div>
 
