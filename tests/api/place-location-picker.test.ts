@@ -324,7 +324,11 @@ test('#371: the modal hands the address down, and the address comes from the rec
   // Desde 26/08/2026 o endereço desce MONTADO: `formatted_address` do local de parceiro é só rua,
   // complemento e bairro, e sem cidade a busca procurava a avenida no Brasil inteiro. A coluna
   // continua sendo a base da consulta — ver `tests/api/place-address-query.test.ts`.
-  assert.match(modal, /address=\{buildAddressQuery\(\{/)
+  // Desde 26/08/2026 ela é montada UMA vez e serve a dois leitores: o mapa procura por ela e a aba
+  // Detalhes a exibe ao operador. O que se afirma aqui é que o que desce para o picker é a consulta
+  // montada — não a coluna crua, e não uma segunda montagem.
+  assert.match(modal, /const addressQuery = buildAddressQuery\(\{/)
+  assert.match(modal, /address=\{addressQuery\}/)
   assert.match(modal, /address: details\?\.formatted_address \?\? null/)
   // Translated by the caller: this picker is used under more than one namespace, and a missing
   // one renders the key name.

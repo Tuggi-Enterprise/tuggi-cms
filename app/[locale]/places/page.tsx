@@ -12,6 +12,8 @@ import { usePlaces, usePlaceFacets } from '@/lib/hooks/use-places'
 import { useCmsUser } from '@/lib/hooks/useCmsUser'
 import type { PlaceFilters, PlaceListItem } from '@/lib/core/place-service'
 import { PlaceFormModal } from '@/components/place-management/PlaceFormModal'
+import { derivePartnerPlan, paymentStance, planFactsFromRow } from '@/lib/clients/partner-plan'
+import { PaymentStanceBadge } from '@/components/admin/clients/shared/PaymentStanceBadge'
 import { cn } from '@/lib/utils'
 
 // Map mode is opt-in, so the Google Maps view (POIMapVisualization underneath) stays out of the
@@ -80,9 +82,25 @@ export default function LocaisPage() {
   )
   const pagerBtn = 'p-3 rounded-2xl bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800 text-gray-600 dark:text-gray-300 enabled:hover:bg-tuggi-blue enabled:hover:text-white enabled:hover:border-tuggi-blue disabled:opacity-40 transition-all'
 
+  /**
+   * PAGA OU NÃO PAGA, no card — pedido do operador em 2026-08-26: *"pode levar a info para o card
+   * de places se aquele Places é pago ou nao, de acordo com o contrato em que ele está ligado?"*.
+   *
+   * A régua NÃO é reescrita aqui. `derivePartnerPlan` já sabe ranquear os três donos da resposta —
+   * contrato manda no cadastro, cadastro manda na proposta —, e `paymentStance` é o único lugar
+   * que colapsa isso no binário. Um `monthly_fee_cents > 0` nesta tela chamaria cortesia de
+   * pagamento e ausência de zero, que é BR-B2B-017 item 6 de cabeça para baixo.
+   *
+   * `null` para todo local sem parceiro atrás, que são 257 dos 283 medidos em 2026-08-26: um selo
+   * `não pagante` no catálogo curado é ruído sobre uma pergunta que ninguém fez.
+   */
+  const stanceOf = (pl: PlaceListItem) =>
+    pl.partner_client_id ? paymentStance(derivePartnerPlan(planFactsFromRow(pl)).kind) : null
+
   const renderCard = (pl: PlaceListItem) => {
     const location = [pl.city, pl.state, pl.country].filter(Boolean).join(', ')
     const price = pl.price_range ? '$'.repeat(pl.price_range) : ''
+    const stance = stanceOf(pl)
     const statusPill = (
       <span className={cn('px-2 py-0.5 rounded-lg text-[10px] font-bold uppercase tracking-widest border',
         pl.approved ? 'bg-green-500/10 text-green-500 border-green-500/20' : 'bg-orange-500/10 text-orange-500 border-orange-500/20')}>
@@ -117,6 +135,22 @@ export default function LocaisPage() {
                 <MapPin className="h-3.5 w-3.5 flex-shrink-0" /><span className="truncate">{location}</span>
               </div>
             </div>
+            {/* A PARCERIA NUMA LINHA SÓ, e ela não fica na fileira de cima.
+                Ali o selo `NÃO PAGANTE` ocupava duas linhas e empurrava `APROVADO` para fora do
+                card — reportado pelo operador em 2026-08-26. Mas o conserto não é encolher o
+                selo: a fileira de cima é sobre o REGISTRO (tipo, faixa de preço, publicado) e
+                isto é sobre a PARCERIA — de quem é e se paga. Juntas numa linha própria, com a
+                largura do card inteira, elas cabem e se leem como uma coisa só. */}
+            {(pl.partner_name || stance) && (
+              <div className="mt-3 flex items-center gap-2 min-w-0">
+                {stance && <PaymentStanceBadge stance={stance} />}
+                {pl.partner_name && (
+                  <span className="text-[11px] text-gray-500 dark:text-gray-400 truncate">
+                    {t('partner_owner', { name: pl.partner_name })}
+                  </span>
+                )}
+              </div>
+            )}
             <div className="mt-4 pt-3 border-t border-gray-100 dark:border-gray-800 flex items-center justify-between text-[11px] text-gray-400">
               <span>{t('content_summary', { desc: pl.description_count, tp: pl.trigger_point_count })}</span>
               {pl.has_hours && <span>{t('badges.hours')}</span>}
@@ -137,6 +171,7 @@ export default function LocaisPage() {
               </div>
             </div>
             <span className="hidden md:inline text-[11px] text-gray-400 flex-shrink-0">{t('content_summary', { desc: pl.description_count, tp: pl.trigger_point_count })}</span>
+            {stance && <div className="flex-shrink-0"><PaymentStanceBadge stance={stance} /></div>}
             <div className="flex-shrink-0">{statusPill}</div>
           </div>
         )}

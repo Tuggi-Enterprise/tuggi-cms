@@ -1121,7 +1121,8 @@
       "hours": "horário"
     },
     "content_summary": "{desc} desc · {tp} TP",
-    "empty": "Nenhum local encontrado."
+    "empty": "Nenhum local encontrado.",
+    "partner_owner": "Parceiro: {name}"
   },
   "Modals": {
     "EventDetails": {
@@ -1203,7 +1204,8 @@
         "tags": "Tags",
         "approved": "Aprovado",
         "active": "Ativo",
-        "priority": "Prioridade"
+        "priority": "Prioridade",
+        "address": "Endereço no cadastro"
       },
       "amenities": {
         "wifi": "Wi-Fi",
@@ -1241,7 +1243,8 @@
         },
         "cancel": "Cancelar",
         "confirmAction": "Apagar"
-      }
+      },
+      "address_none": "Sem endereço no cadastro — o pino é o que localiza este local."
     },
     "POIDetails": {
       "trigger_disabled": {
@@ -1655,6 +1658,53 @@
       "errors": {
         "missing_coordinates": "Este local ainda não tem coordenada. Defina a localização na aba Detalhes para desenhar pontos de disparo.",
         "coordinate_fetch_failed": "Não foi possível carregar a coordenada deste local. Feche e abra novamente."
+      }
+    },
+    "PartnerDescription": {
+      "cancel": "Cancelar",
+      "generate_done": "Descrição gerada. Confira e salve.",
+      "generate_empty": "O gerador não devolveu texto.",
+      "generate_failed": "Não foi possível gerar a descrição.",
+      "questions": {
+        "story_founder": "Quem começou este lugar, e quando",
+        "story_before": "O que tinha neste endereço antes",
+        "story_unique": "O que existe aí dentro que não existe em outro lugar",
+        "story_event": "O que o pessoal do bairro conta até hoje"
+      },
+      "free": {
+        "heading": "Plano gratuito: só o nome",
+        "body": "No plano gratuito o Tuggi diz a direção e o nome do estabelecimento, e nada além disso. A descrição é o que o plano pago acrescenta.",
+        "on_air": "No ar hoje: “{text}”",
+        "not_yet": "Ainda não há nada no ar. O nome entra ao salvar o local.",
+        "open_exception": "Abrir exceção",
+        "reason_label": "Por que este local vai ter descrição mesmo sem pagar",
+        "reason_placeholder": "Ex.: cortesia acordada na negociação até a assinatura do contrato.",
+        "confirm_exception": "Gravar a exceção"
+      },
+      "exception": {
+        "heading": "Exceção aberta pelo operador",
+        "trail": "Por {by}, em {at}.",
+        "unknown_operator": "operador não identificado",
+        "undo": "Desfazer a exceção"
+      },
+      "paid": {
+        "heading": "Descrição do parceiro",
+        "body": "O texto sai do que o próprio estabelecimento enviou. Nada é pesquisado na internet: quem afirma responde pelo que afirmou.",
+        "body_exception": "Este local é do plano gratuito e está sob exceção. O texto sai do que o próprio estabelecimento enviou; nada é pesquisado na internet.",
+        "no_input": "O parceiro não enviou história nenhuma — só o cadastro. Sem insumo não há o que narrar, e quem decide se isso passa é você.",
+        "input_heading": "O que o parceiro enviou",
+        "with_offer": "Fechar o áudio com a chamada para seguir em {handle}, identificada como conteúdo do parceiro.",
+        "no_handle": "O parceiro não informou rede social, então o áudio termina na história.",
+        "generate": "Gerar a narração ({seconds}s)"
+      },
+      "plan_source": {
+        "contract": "pelo contrato",
+        "registration": "pelo cadastro",
+        "proposal": "pelo que ele pediu"
+      },
+      "unavailable": {
+        "heading": "Não deu para ler o plano deste local",
+        "body": "A faixa do parceiro não aparece enquanto isto não resolver. Se a mensagem abaixo citar PGRST202, o PostgREST ainda está com o cache de schema anterior à migration — rode NOTIFY pgrst, 'reload schema'; no painel."
       }
     }
   },

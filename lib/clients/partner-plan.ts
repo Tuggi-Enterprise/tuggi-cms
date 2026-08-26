@@ -28,7 +28,7 @@
  */
 
 import type { ContractTier } from '@/lib/contract/snapshot'
-import type { PlanChoice } from '@/lib/partner-form/fields'
+import { PLAN_CHOICES, type PlanChoice } from '@/lib/partner-form/fields'
 import { registrationMoneyKind, type PartnerFee } from '@/lib/partnerships/publish-plan'
 
 /** Whose answer the line is showing. Never omitted: it is what keeps the three apart. */
@@ -211,4 +211,46 @@ export type PaymentStance = 'paying' | 'not_paying'
 
 export function paymentStance(kind: PlanKind): PaymentStance {
   return kind === 'paid' ? 'paying' : 'not_paying'
+}
+
+/**
+ * THE FIVE MONEY COLUMNS OF A ROW, TURNED INTO `PlanFacts` — one reader, because there are now
+ * two callers and they must not disagree about the same partner.
+ *
+ * `core.cms_list_places` (the Places card) and `core.cms_place_description_facts` (the description
+ * studio) both answer with exactly these five, joined from `partner.clients`,
+ * `partner.partner_contracts` and the promoted proposal. What each surface does with the result
+ * differs; how a row becomes facts must not.
+ *
+ * IT IS NOT WHERE THE DECISION IS. `derivePartnerPlan` is, and it is what the callers run next.
+ * This only refuses to guess: `monthly_fee_cents` absent stays absent (BR-B2B-017, item 6 — absent
+ * is NOT zero), and a `plan_choice` the form no longer offers reads `null` rather than being
+ * passed through as a value the union does not contain.
+ */
+export function planFactsFromRow(row: {
+  partner_client_id?: string | null
+  monthly_fee_cents?: number | null
+  is_courtesy?: boolean | null
+  courtesy_reason?: string | null
+  plan_choice?: string | null
+  contract_tier?: string | null
+}): PlanFacts {
+  const planChoice = row.plan_choice
+  return {
+    clientId: row.partner_client_id ?? null,
+    fee: {
+      monthlyFeeCents: typeof row.monthly_fee_cents === 'number' ? row.monthly_fee_cents : null,
+      isCourtesy: row.is_courtesy === true,
+      courtesyReason: row.courtesy_reason ?? null,
+    },
+    planChoice: PLAN_CHOICES.indexOf(planChoice as PlanChoice) >= 0
+      ? (planChoice as PlanChoice)
+      : null,
+    // `partner_contracts.tier` is free text in the column; anything that is not one of the two
+    // the contract knows is no tier at all, and `derivePartnerPlan` treats `null` as "no contract
+    // yet" — which is the honest reading of a value nobody can price.
+    contractTier: row.contract_tier === 'free' || row.contract_tier === 'paid'
+      ? row.contract_tier
+      : null,
+  }
 }

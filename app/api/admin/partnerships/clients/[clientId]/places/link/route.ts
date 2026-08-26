@@ -41,6 +41,7 @@ import { NextResponse } from 'next/server'
 import { withAuth, withRateLimit } from '@/lib/auth-middleware'
 import { getSupabaseService } from '@/lib/core/supabase-client'
 import { logAuditEvent } from '@/lib/services/audit-service'
+import { applyDescriptionPolicyToPlace } from '@/lib/services/place-description-policy-service'
 import { verdictFor, type LinkCandidate } from '@/lib/partnerships/place-link'
 
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
@@ -160,6 +161,27 @@ export const POST = withRateLimit(20, 60_000)(
       } else {
         welcomeAdopted = (adopted ?? []).length > 0
       }
+    }
+
+    /**
+     * THE PLACE JUST BECAME A PARTNER'S, so what Tuggi says about it just changed — BR-B2B-016,
+     * item 1. A free-tier partner's content is the name, and this is the moment it starts being
+     * owed. Best-effort on purpose: the link IS done, the pipeline reads `partner_client_id` and
+     * not this, and the description tab shows the state either way.
+     *
+     * It never overwrites a narration the catalogue already had — `applyNameOnlyDescription`
+     * refuses that, and it must, because the 5th edge case of BR-B2B-016 says a partner POI already
+     * published with a description does not lose it. Most rows this route links are exactly that.
+     */
+    try {
+      const outcome = await applyDescriptionPolicyToPlace(attractionId, auth.supabase)
+      if (outcome === 'blocked') {
+        console.info(
+          `[partnerships] ${attractionId} keeps the description it already had (BR-B2B-016, 5th edge case).`
+        )
+      }
+    } catch (policyError) {
+      console.error('[partnerships] name-only description not applied:', policyError)
     }
 
     await logAuditEvent({

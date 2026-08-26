@@ -1128,7 +1128,8 @@
       "hours": "hours"
     },
     "content_summary": "{desc} desc · {tp} TP",
-    "empty": "No places found."
+    "empty": "No places found.",
+    "partner_owner": "Partner: {name}"
   },
   "Modals": {
     "EventDetails": {
@@ -1210,7 +1211,8 @@
         "tags": "Tags",
         "approved": "Approved",
         "active": "Active",
-        "priority": "Priority"
+        "priority": "Priority",
+        "address": "Address on record"
       },
       "amenities": {
         "wifi": "Wi-Fi",
@@ -1230,7 +1232,8 @@
       "validation_missing": "Fill in the required fields: {fields}.",
       "location_detecting": "Detecting city, state and country…",
       "location_detected": "Location detected:",
-      "error_save": "Failed to save place"
+      "error_save": "Failed to save place",
+      "address_none": "No address on record — the pin is what locates this place."
     },
     "POIDetails": {
       "trigger_disabled": {
@@ -1644,6 +1647,53 @@
       "errors": {
         "missing_coordinates": "This place has no coordinate yet. Set the location on the Details tab to draw trigger points.",
         "coordinate_fetch_failed": "Could not load this place’s coordinate. Close and reopen."
+      }
+    },
+    "PartnerDescription": {
+      "cancel": "Cancel",
+      "generate_done": "Description generated. Read it and save.",
+      "generate_empty": "The generator returned no text.",
+      "generate_failed": "The description could not be generated.",
+      "questions": {
+        "story_founder": "Who started this place, and when",
+        "story_before": "What stood at this address before",
+        "story_unique": "What is in here that is nowhere else",
+        "story_event": "What the neighbourhood still tells"
+      },
+      "free": {
+        "heading": "Free plan: the name only",
+        "body": "On the free plan Tuggi points the direction and says the establishment's name, and nothing beyond it. The description is what the paid plan adds.",
+        "on_air": "On air today: “{text}”",
+        "not_yet": "Nothing is on air yet. The name goes in when the place is saved.",
+        "open_exception": "Open an exception",
+        "reason_label": "Why this place gets a description without paying",
+        "reason_placeholder": "E.g. courtesy agreed during negotiation, until the contract is signed.",
+        "confirm_exception": "Record the exception"
+      },
+      "exception": {
+        "heading": "Exception opened by the operator",
+        "trail": "By {by}, on {at}.",
+        "unknown_operator": "unidentified operator",
+        "undo": "Undo the exception"
+      },
+      "paid": {
+        "heading": "Partner description",
+        "body": "The text comes from what the establishment itself sent. Nothing is researched on the web: whoever asserts it answers for it.",
+        "body_exception": "This place is on the free plan and is under an exception. The text comes from what the establishment itself sent; nothing is researched on the web.",
+        "no_input": "The partner sent no story at all — only the registration. With no input there is nothing to tell, and whether that passes is your call.",
+        "input_heading": "What the partner sent",
+        "with_offer": "Close the audio with the invitation to follow at {handle}, identified as partner content.",
+        "no_handle": "The partner gave no social handle, so the audio ends on the story.",
+        "generate": "Generate the narration ({seconds}s)"
+      },
+      "plan_source": {
+        "contract": "by the contract",
+        "registration": "by the registration",
+        "proposal": "by what they asked for"
+      },
+      "unavailable": {
+        "heading": "This place’s plan could not be read",
+        "body": "The partner band stays hidden until this clears. If the message below mentions PGRST202, PostgREST is still serving the schema cache from before the migration — run NOTIFY pgrst, 'reload schema'; in the panel."
       }
     }
   },

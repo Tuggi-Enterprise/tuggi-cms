@@ -2,6 +2,10 @@ import { serve } from "https://deno.land/std@0.177.0/http/server.ts";
 import { getSecretKey } from '../_shared/secret-key.ts';
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { generateMasterPack } from "../_shared/masterPackGenerator.ts";
+import {
+    generatePartnerPack,
+    type PartnerPackInput,
+} from "../_shared/partnerPackGenerator.ts";
 import { translateWithGeminiWithUsage, translatePoiNameWithUsage } from "../_shared/translationUtility.ts";
 
 type GenerationKind = "master" | "translation";
@@ -49,6 +53,18 @@ interface SingleRequest {
     audio_duration?: number;
     raw_context?: string; // CMS override
     force?: boolean;
+    /**
+     * WHAT THE PARTNER SENT ABOUT THEIR OWN PLACE — the only source a partner narration has.
+     *
+     * BR-B2B-016, item 1: the paid tier's description is produced out of what the establishment
+     * sends, and BR-B2B-025 says why that matters — Tuggi NARRATES it, as reported, and does not
+     * verify it. It arrives in the request instead of being read from `partner` here because the
+     * curator is who assembles it: gate 2 of BR-B2B-011 is applied by a person, and the CMS is
+     * where they see the answers, correct them and decide there is something to tell.
+     *
+     * Absent on every other request, and every other request behaves exactly as it always has.
+     */
+    partner_input?: PartnerPackInput;
 }
 
 interface BatchRequest {
@@ -111,6 +127,27 @@ async function hashDescription(text: string): Promise<string> {
 }
 
 // --- Core Processor (Sync) ---
+/**
+ * A PARTNER'S PLACE IS NEVER RESEARCHED, and this is the error that says so.
+ *
+ * BR-B2B-016, item 9: a free-tier partner place does not trigger on-demand narration production —
+ * the first named exception to BR-CONTEUDO-001 mode 2. If it did, it would be getting the paid
+ * tier for free and item 1 would be false with nobody having decided anything.
+ *
+ * THE GUARD IS WIDER THAN THE TIER, AND ON PURPOSE. It does not ask which tier the place is on —
+ * resolving that here would mean a second implementation of `derivePartnerPlan`, in Deno, three
+ * tables away, and the two would disagree the first time one moved. It asserts the invariant that
+ * covers both tiers instead: **a narration about a partner's place comes from the partner's own
+ * input, never from a web search**. That is BR-B2B-025 — Tuggi narrates what the establishment
+ * asserts — and the CMS is the only caller that has that input to send.
+ *
+ * What it does NOT block is translating a description that already exists, whatever produced it.
+ * That is BR-CONTEUDO-001 mode 1, it makes no new claim about the place, and blocking it would
+ * degrade a partner POI that the catalogue narrated long before the partnership — which the 5th
+ * edge case of BR-B2B-016 forbids ("'Somente o nome' não é degradação do que já existe").
+ */
+const PARTNER_WITHOUT_INPUT = "partner_place_requires_partner_input";
+
 async function processPOIItem(
     poi_id: string,
     language: string,
@@ -121,6 +158,7 @@ async function processPOIItem(
     force?: boolean,
     audioDuration?: number,
     generatedBy?: GeneratedByInfo,
+    partnerInput?: PartnerPackInput,
 ): Promise<any> {
     const LOG_PREFIX = `[Gen-Desc::${poi_id}]`;
     console.log(`${LOG_PREFIX} Processing for ${language} (${gender})...`);
@@ -332,6 +370,51 @@ async function processPOIItem(
         }
 
         // 3.2 Full Generation
+        //
+        // A PARTNER GOES THROUGH HERE AND NEVER THROUGH THE MASTER. `generateMasterPack` is a
+        // two-step RAG that MAKES THE MODEL SEARCH the web; for a partner's place that is wrong by
+        // rule and not by taste — BR-B2B-025: the input is theirs, they answer for it, and Tuggi
+        // narrates what they assert. See `PARTNER_WITHOUT_INPUT` above.
+        const partnerClientId = poiDataFromDB?.partner_client_id ?? null;
+        if (!result && partnerClientId) {
+            if (!partnerInput || !(partnerInput.blocks || []).length) {
+                console.warn(
+                    `${LOG_PREFIX} Partner place (client ${partnerClientId}) with no input in the request — nothing is generated (BR-B2B-016, item 9).`,
+                );
+                throw new Error(PARTNER_WITHOUT_INPUT);
+            }
+
+            // `audioDuration` comes from the CMS, the only caller with input to send, and the
+            // 10–15s target lives there (`PARTNER_AUDIO_SECONDS`). No number is born here: a
+            // partner default on this line would be the second home of the same target.
+            const partnerResult = await generatePartnerPack(
+                partnerInput,
+                language,
+                GEMINI_API_KEY,
+                audioDuration ?? 25,
+            );
+            result = {
+                description: partnerResult.description,
+                facts_pack_json: partnerResult.facts_pack_json,
+            };
+            // `grounded` stays true: there IS a factual base and it is the establishment itself —
+            // the narration was not invented by the model, which is what `groundedOk` guards.
+            // Whoever asserted the fact answers for it (BR-B2B-025, item 1).
+            generationMeta = {
+                kind: "partner_story",
+                grounded: true,
+                partner_client_id: partnerClientId,
+                // Whether the audio carries the identified commercial closing (BR-B2B-016, item
+                // 8). Recorded because it is what tells a description that may go on air from one
+                // still waiting on the identification formula — `_perguntas-abertas.md` 85.
+                offer: !!(partnerInput.withOffer && partnerInput.socialHandle),
+                models: partnerResult.modelUsed,
+            };
+            if (partnerResult.usage) {
+                callUsage = { ...partnerResult.usage, kind: "master" };
+            }
+        }
+
         if (!result) {
             console.log(`${LOG_PREFIX} Generating FRESH Master (Gemini)...`);
             
@@ -742,7 +825,7 @@ serve(async (req) => {
                 // evento e local na mesma tabela, e o prompt precisa saber qual é
                 // (evento tem data e não tem "ano de fundação"; local tem tipo).
                 .select(
-                    "id, name, city, state, osm_tags, website, reference_links, entity_kind, event_details!event_details_attraction_id_fkey(starts_at, ends_at, event_category, venue_attraction_id), place_details(place_type)",
+                    "id, name, city, state, osm_tags, website, reference_links, entity_kind, partner_client_id, event_details!event_details_attraction_id_fkey(starts_at, ends_at, event_category, venue_attraction_id), place_details(place_type)",
                 )
 
                 .in("id", poiIds);
@@ -819,7 +902,7 @@ serve(async (req) => {
                 // ✅ ver o comentário no caminho de batch: o prompt ramifica por
                 // entity_kind (poi | event | place).
                 .select(
-                    "name, city, state, osm_tags, website, reference_links, entity_kind, event_details!event_details_attraction_id_fkey(starts_at, ends_at, event_category, venue_attraction_id), place_details(place_type)",
+                    "name, city, state, osm_tags, website, reference_links, entity_kind, partner_client_id, event_details!event_details_attraction_id_fkey(starts_at, ends_at, event_category, venue_attraction_id), place_details(place_type)",
                 )
 
                 .eq("id", manual.poi_id)
@@ -835,6 +918,9 @@ serve(async (req) => {
                 manual.force, // Pass force flag from CMS
                 manual.audio_duration,
                 generatedBy, // Track who generated this description
+                // Only ever present on a CMS call about a partner's place. Absent everywhere else,
+                // and absent is what every other request has always sent.
+                manual.partner_input,
             );
 
             // 📋 LOG SINGLE SUCCESS

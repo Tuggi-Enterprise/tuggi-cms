@@ -3,11 +3,70 @@
 // DRY: SSOT de nomes de idioma (cobre Ásia/Rússia/Tailândia com script).
 import { getLanguageName } from './translationUtility.ts';
 
-interface GeminiUsage {
+export interface GeminiUsage {
     input_tokens: number;
     output_tokens: number;
     model: string;
 }
+
+/**
+ * Speech characters per second, by script. Latin/Cyrillic run ~18, but in CJK (ja/ko/zh) each
+ * character carries a syllable or a word, so 18 would produce audio 2–3× longer than the target.
+ * Exported because the partner generator aims at the same wall from a different prompt, and two
+ * copies of this number is how one of them starts producing 30s "15s" audio.
+ */
+export const charsPerSecondFor = (language: string): number =>
+    /^(ja|ko|zh|cmn|yue)(-|$)/.test(language.toLowerCase()) ? 7 : 18;
+
+export interface ParsedNarration {
+    description: string;
+    facts_pack_json: { category: string; text: string }[];
+}
+
+/**
+ * The `<master_description>` / `<master_facts>` envelope, unwrapped — with the line-based fallback
+ * for when the model answers without the tags.
+ *
+ * Extracted so `partnerPackGenerator` shares it: the two prompts ask for the SAME output format on
+ * purpose, so that `generate-description` stores, scores and audits both the same way. Returns
+ * `null` when no narration could be recovered, which is the caller's signal to try the next model.
+ */
+export const parseNarrationOutput = (rawText: string): ParsedNarration | null => {
+    const descMatch = rawText.match(/<master_description>([\s\S]*?)<\/master_description>/i);
+    const factsMatch = rawText.match(/<master_facts>([\s\S]*?)<\/master_facts>/i);
+    const isFactLine = (line: string) => { const t = line.trim(); return t.includes('|') && t.length < 200 && !t.startsWith('<'); };
+
+    let description = descMatch ? descMatch[1].trim() : '';
+    let rawFactsText = factsMatch ? factsMatch[1].trim() : '';
+    if (!description) {
+        const lines = rawText.split('\n').map((l: string) => l.trim()).filter((l: string) => l.length > 0);
+        const descLines: string[] = []; const factLines: string[] = [];
+        for (const line of lines) {
+            if (isFactLine(line)) factLines.push(line);
+            else if (factLines.length === 0) descLines.push(line);
+        }
+        description = descLines.join(' ').trim();
+        if (!rawFactsText && factLines.length > 0) rawFactsText = factLines.join('\n');
+    }
+    if (!description) return null;
+
+    const facts_pack_json = (rawFactsText ? rawFactsText.split('\n') : []).map((line: string) => {
+        const [category, ...textParts] = line.split('|');
+        return {
+            category: (category || 'history').trim().toLowerCase().replace(/[^a-z]/g, ''),
+            text: textParts.join('|').trim().replace(/\[cite: \d+\]/g, '').replace(/\[\d+\]/g, ''),
+        };
+    }).filter((f: any) => f.text.length > 5);
+
+    return {
+        description: description
+            .replace(/<\/?master_[a-z_]*>/gi, '')
+            .replace(/\[cite: \d+\]/g, '')
+            .replace(/\[\d+\]/g, '')
+            .trim(),
+        facts_pack_json,
+    };
+};
 
 interface MasterPackResult {
     description: string;
@@ -28,7 +87,7 @@ const buildThinkingConfig = (model: string): Record<string, unknown> | undefined
     return undefined;
 };
 
-interface GeminiCallResult {
+export interface GeminiCallResult {
     ok: boolean;
     error?: string;
     finishReason?: string | null;
@@ -38,7 +97,7 @@ interface GeminiCallResult {
 }
 
 // Uma chamada generateContent crua, com tratamento de erro/finishReason.
-const callGemini = async (model: string, fetchBody: any, apiKey: string): Promise<GeminiCallResult> => {
+export const callGemini = async (model: string, fetchBody: any, apiKey: string): Promise<GeminiCallResult> => {
     try {
         const r = await fetch(
             `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`,
@@ -114,13 +173,9 @@ export const generateMasterPack = async (
 ): Promise<MasterPackResult> => {
 
     const audioTarget = `${audioDuration}s`;
-    // Caracteres por segundo de fala variam MUITO por script: no latino/cirílico
-    // ~18 chars/s, mas em CJK (ja/ko/zh) cada caractere carrega uma sílaba/palavra,
-    // então ~18 geraria áudio 2–3x mais longo que o alvo. Alvo de chars por script.
-    const lc = language.toLowerCase();
-    const isCJK = /^(ja|ko|zh|cmn|yue)(-|$)/.test(lc);
-    const charsPerSecond = isCJK ? 7 : 18;
-    const maxChars = Math.floor(audioDuration * charsPerSecond);
+    // Chars per second of speech vary a lot by script — see `charsPerSecondFor`, which the
+    // partner generator shares.
+    const maxChars = Math.floor(audioDuration * charsPerSecondFor(language));
     const langName = getLanguageName(language);
 
     const isComplex = memberPois && memberPois.length > 0;
@@ -372,38 +427,10 @@ export const generateMasterPack = async (
         if (!rawText) { attempts.push(`compose ${model}: empty`); lastError = new Error('compose empty'); continue; }
         step2Usage = res.usage ?? null;
 
-        // Extração das tags (case-insensitive) + fallback por linhas "Category|Fact".
-        const descMatch = rawText.match(/<master_description>([\s\S]*?)<\/master_description>/i);
-        const factsMatch = rawText.match(/<master_facts>([\s\S]*?)<\/master_facts>/i);
-        const isFactLine = (line: string) => { const t = line.trim(); return t.includes('|') && t.length < 200 && !t.startsWith('<'); };
-
-        let description = descMatch ? descMatch[1].trim() : '';
-        let rawFactsText = factsMatch ? factsMatch[1].trim() : '';
-        if (!description) {
-            const lines = rawText.split('\n').map((l: string) => l.trim()).filter((l: string) => l.length > 0);
-            const descLines: string[] = []; const factLines: string[] = [];
-            for (const line of lines) {
-                if (isFactLine(line)) factLines.push(line);
-                else if (factLines.length === 0) descLines.push(line);
-            }
-            description = descLines.join(' ').trim();
-            if (!rawFactsText && factLines.length > 0) rawFactsText = factLines.join('\n');
-        }
-        if (!description) { attempts.push(`compose ${model}: extraction failed`); lastError = new Error('compose extraction failed'); continue; }
-
-        const facts_pack_json = (rawFactsText ? rawFactsText.split('\n') : []).map((line: string) => {
-            const [category, ...textParts] = line.split('|');
-            return {
-                category: (category || 'history').trim().toLowerCase().replace(/[^a-z]/g, ''),
-                text: textParts.join('|').trim().replace(/\[cite: \d+\]/g, '').replace(/\[\d+\]/g, ''),
-            };
-        }).filter((f: any) => f.text.length > 5);
-
-        const finalDescription = description
-            .replace(/<\/?master_[a-z_]*>/gi, '')
-            .replace(/\[cite: \d+\]/g, '')
-            .replace(/\[\d+\]/g, '')
-            .trim();
+        // Tag extraction + the "Category|Fact" line fallback, shared with the partner generator.
+        const parsed = parseNarrationOutput(rawText);
+        if (!parsed) { attempts.push(`compose ${model}: extraction failed`); lastError = new Error('compose extraction failed'); continue; }
+        const { description: finalDescription, facts_pack_json } = parsed;
 
         const usage: GeminiUsage = {
             input_tokens: (step1Usage?.input_tokens ?? 0) + (step2Usage?.input_tokens ?? 0),

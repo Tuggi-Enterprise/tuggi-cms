@@ -83,6 +83,14 @@ export type AuditAction =
   // BR-B2B-010, item 4, stops the 72h clock at the communication and not at the decision.
   | 'REFUSE_PARTNER_PLACE_AT_TRIAGE'
   | 'COMMUNICATE_PARTNER_PLACE_TRIAGE_REFUSAL'
+  // Furar a régua da faixa gratuita (2026-08-26). BR-B2B-016, item 1, diz que o local de um
+  // parceiro gratuito é só o nome; o operador pode abrir exceção caso a caso, e pediu, na mesma
+  // frase, que a decisão ficasse gravada. As colunas em `core.attractions` guardam a exceção EM
+  // VIGOR — quem furou, quando e por quê —, mas elas são um UPDATE: fechar e reabrir apaga a
+  // anterior. Estas duas linhas são o histórico, que é o que responde "quantas vezes este local
+  // já entrou e saiu da regra, e com que motivo cada vez".
+  | 'PARTNER_DESCRIPTION_EXCEPTION_OPENED'
+  | 'PARTNER_DESCRIPTION_EXCEPTION_CLOSED'
 
 /**
  * `CLIENT` is the record the promotion writes; `PARTNER_PROPOSAL` is the thing outside the

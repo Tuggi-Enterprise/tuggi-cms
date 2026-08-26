@@ -345,6 +345,12 @@ export function ClientDirectory({
                               a pendency into an answer, which is the one thing the two-colour
                               reading is not allowed to do (DS-A11Y-003, and BR-B2B-017 item 6,
                               which refuses to publish an undeclared registration).
+
+                              SINCE 2026-08-26 THE BADGE IS A SYMBOL and carries no word, so this
+                              line stopped being a complement and became the only text in the
+                              cell. Removing it would leave the column answering `paga?` with a
+                              drawing and nothing else — and `ninguém declarou` is precisely the
+                              state a drawing cannot say.
                             */}
                             <td className="px-4 py-4">
                               <PaymentStanceBadge stance={paymentStance(plan.kind)} />

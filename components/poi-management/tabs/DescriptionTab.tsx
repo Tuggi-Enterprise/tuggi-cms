@@ -13,6 +13,8 @@ import { cn } from '@/lib/utils'
 import { formatDate } from '@/lib/utils'
 import { getScoreColor, getScoreBackgroundColor } from '@/lib/score/compute'
 import { usePOIModalContext } from '../POIModalContext'
+import { PartnerDescriptionGate } from '@/components/entity-management/PartnerDescriptionGate'
+import { useDescriptionPolicy } from '@/lib/hooks/use-description-policy'
 
 export function DescriptionTab() {
   const t = useTranslations('Modals.POIDetails')
@@ -47,8 +49,22 @@ export function DescriptionTab() {
     resetDescription,
     saveDescriptionAndNextStep,
     saveReferenceLinks,
+    canEdit,
+    showFeedback,
   } = usePOIModalContext()
   const poi = getPoi()
+
+  /**
+   * WHETHER THIS RECORD MAY HAVE A DESCRIPTION AT ALL — BR-B2B-016, item 1.
+   *
+   * A curated POI answers `curation` and every branch below is the studio exactly as it always
+   * was; a free-tier partner answers `name_only`, and the studio does not render, because leaving
+   * an editor open on a place whose only content is its name trains the operator to work around
+   * the one difference the paid tier has. Same react-query key as the band, so this is a cache hit
+   * and not a second request.
+   */
+  const { data: descriptionPolicy } = useDescriptionPolicy(poi?.id ?? null)
+  const nameOnly = descriptionPolicy?.decision.policy === 'name_only'
 
   return (
               <div className="px-6 py-6 max-h-[80vh] overflow-y-auto bg-gray-50/30 dark:bg-gray-900/10">
@@ -62,8 +78,18 @@ export function DescriptionTab() {
                   </div>
                 ) : (
                   <div className="flex flex-col gap-6">
+                    {poi?.id && (
+                      <PartnerDescriptionGate
+                        attractionId={poi.id}
+                        language={generationLanguage}
+                        canEdit={canEdit}
+                        onGenerated={setCurrentDescription}
+                        onFeedback={showFeedback}
+                      />
+                    )}
+
                     {/* STUDIO HEADER: Language Tabs */}
-                    <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+                    <div className={nameOnly ? 'hidden' : 'flex flex-col md:flex-row md:items-center justify-between gap-4'}>
                       <div className="flex items-center gap-3">
                         {/* Language Tabs */}
                         <div className="flex bg-white dark:bg-gray-800 p-1 rounded-xl border border-gray-100 dark:border-gray-700 shadow-sm">
@@ -101,7 +127,7 @@ export function DescriptionTab() {
                       </div>
                     </div>
 
-                    <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 items-start">
+                    <div className={nameOnly ? 'hidden' : 'grid grid-cols-1 lg:grid-cols-3 gap-6 items-start'}>
                       {/* MAIN COLUMN: Editor */}
                       <div className="lg:col-span-2 space-y-6">
                         {/* Translated Name Card — POI name in the selected language (SSOT: attraction_descriptions.name) */}

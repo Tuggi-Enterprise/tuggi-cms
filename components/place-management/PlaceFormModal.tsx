@@ -17,6 +17,8 @@ import { useReverseGeocode } from '@/lib/hooks/use-reverse-geocode'
 import { missingRequiredLabels } from '@/lib/core/entity-form-validation'
 import { useCmsUser } from '@/lib/hooks/useCmsUser'
 import { buildAddressQuery } from '@/lib/maps/place-address-query'
+import { cn } from '@/lib/utils'
+import { applyNameOnlyDescription, descriptionPolicyKey } from '@/lib/hooks/use-description-policy'
 import { EntityManagementDrawer } from '@/components/entity-management/EntityManagementDrawer'
 import { LocationPicker } from '@/components/entity-management/LocationPicker'
 import { PublishingControls } from '@/components/entity-management/PublishingControls'
@@ -120,7 +122,12 @@ export function PlaceFormModal({ placeId, isOpen, onClose, onSaved, initialTab }
   const invalidate = () => {
     queryClient.invalidateQueries({ queryKey: ['places'] })
     queryClient.invalidateQueries({ queryKey: ['places-facets'] })
-    if (placeId) queryClient.invalidateQueries({ queryKey: ['place-details', placeId] })
+    if (placeId) {
+      queryClient.invalidateQueries({ queryKey: ['place-details', placeId] })
+      // A faixa da aba Descrição lê o nome e o que está no ar; um save que mudou os dois deixaria
+      // a faixa afirmando o estado anterior.
+      queryClient.invalidateQueries({ queryKey: descriptionPolicyKey(placeId) })
+    }
   }
 
   const handleSave = async () => {
@@ -178,6 +185,25 @@ export function PlaceFormModal({ placeId, isOpen, onClose, onSaved, initialTab }
         accepts_reservations: !!form.accepts_reservations,
       })
       await placeService.setCoordinate(placeId as string, Number(form.latitude), Number(form.longitude))
+
+      /**
+       * O QUE O PLANO DÁ A ESTE LOCAL, aplicado — BR-B2B-016, item 1.
+       *
+       * No plano gratuito o conteúdo do parceiro é o NOME, e é este save que o coloca lá: sem ele
+       * o local fica mudo, porque o app tem guarda nativa contra tocar o direcional sozinho. A
+       * rota decide se há algo a aplicar, então chamar aqui para todo local é barato — POI de
+       * curadoria e parceiro pagante respondem `not_applicable` e nada é escrito. Ela também nunca
+       * sobrescreve descrição que já existia (5º caso de borda da mesma regra).
+       *
+       * Best-effort: o local JÁ está gravado, e derrubar o save por causa disto faria o operador
+       * reeditar tudo por uma linha de descrição que a aba Descrição mostra e resolve.
+       */
+      try {
+        await applyNameOnlyDescription(placeId as string)
+      } catch (policyError) {
+        console.error('[places] política de descrição não aplicada:', policyError)
+      }
+
       await refetch()
       invalidate()
       onSaved?.(placeId as string)
@@ -190,6 +216,34 @@ export function PlaceFormModal({ placeId, isOpen, onClose, onSaved, initialTab }
   }
 
   const L = (k: string) => t(`labels.${k}`)
+
+  /**
+   * O ENDEREÇO DO LOCAL, e é UM só — pedido do operador em 2026-08-26: *"na parte de detalhes,
+   * mostre o endereço do local"*.
+   *
+   * A string é a MESMA que o mapa procura, hoisted de dentro do `LocationPicker` em vez de montada
+   * uma segunda vez para a tela. Isso não é economia: o que o operador lê passa a ser exatamente
+   * o que o buscador recebeu, então quando o pino cai no lugar errado a linha na tela é a
+   * explicação — e não mais um dado para conferir contra o mapa.
+   *
+   * `formatted_address` é o que a aprovação do parceiro grava (rua, complemento, bairro);
+   * `buildAddressQuery` acrescenta CEP, cidade, estado e país sem repetir o que já está lá. Os
+   * campos vêm do FORMULÁRIO e não de `details`: se o curador acabou de corrigir a cidade, é a
+   * corrigida que a linha mostra.
+   */
+  const addressQuery = buildAddressQuery({
+    address: details?.formatted_address ?? null,
+    postalCode: details?.postal_code ?? null,
+    city: form.city,
+    state: form.state,
+    country: form.country,
+  })
+  /**
+   * O CEP entra na linha por `buildAddressQuery`, mas a RUA é o que decide se há endereço a
+   * mostrar: sem ela sobra `Cabo Frio, Rio de Janeiro, Brazil`, que é a repetição dos três campos
+   * logo acima e não é endereço nenhum.
+   */
+  const hasStreetAddress = !!(details?.formatted_address ?? '').trim()
   const coordinates = details?.latitude != null && details?.longitude != null
     ? { latitude: details.latitude, longitude: details.longitude }
     : undefined
@@ -270,6 +324,19 @@ export function PlaceFormModal({ placeId, isOpen, onClose, onSaved, initialTab }
             </select>
           </div>
           <div className="md:col-span-3">
+            {/* Não é campo: é o que está no cadastro. Editar endereço de parceiro é mexer no que
+                ele declarou, e isso tem outro dono e outra tela — aqui ele existe para o curador
+                conferir o pino contra o que o estabelecimento informou. */}
+            <label className={fieldLabel}>{L('address')}</label>
+            <p className={cn(
+              'mb-5 px-4 py-3 rounded-xl bg-gray-50 dark:bg-gray-900/50 text-sm',
+              hasStreetAddress
+                ? 'font-medium text-gray-700 dark:text-gray-200'
+                : 'italic text-gray-400 dark:text-gray-500'
+            )}>
+              {hasStreetAddress ? addressQuery : t('address_none')}
+            </p>
+
             <label className={fieldLabel}>{L('location')} *</label>
             {/* O endereço vai junto para CENTRALIZAR o mapa quando o local ainda não tem
                 coordenada — é o caso do local que a aprovação do parceiro cria (#371). Ele nunca
@@ -286,13 +353,7 @@ export function PlaceFormModal({ placeId, isOpen, onClose, onSaved, initialTab }
               latitude={form.latitude !== '' && form.latitude != null ? Number(form.latitude) : null}
               longitude={form.longitude !== '' && form.longitude != null ? Number(form.longitude) : null}
               name={form.name}
-              address={buildAddressQuery({
-                address: details?.formatted_address ?? null,
-                postalCode: details?.postal_code ?? null,
-                city: form.city,
-                state: form.state,
-                country: form.country,
-              })}
+              address={addressQuery}
               captions={{
                 locating: t('address_locating'),
                 centered: t('address_centered'),

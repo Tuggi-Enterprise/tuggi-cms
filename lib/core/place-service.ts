@@ -41,6 +41,29 @@ export interface PlaceListItem {
   has_hours: boolean
   description_count: number
   trigger_point_count: number
+  /**
+   * WHO THIS PLACE BELONGS TO COMMERCIALLY, and the five facts that say whether they pay.
+   *
+   * `core.cms_list_places` joins them from `partner.clients`, the live `partner_contracts` and the
+   * promoted proposal — a schema `authenticated` cannot reach on its own (no `USAGE`), which is
+   * why they arrive through the RPC and not through a second query from the screen.
+   *
+   * THEY ARE FACTS AND NOT THE ANSWER. `derivePartnerPlan` ranks them — contract over registration
+   * over proposal — and `paymentStance` collapses that into the word the card prints. A card that
+   * read `monthly_fee_cents > 0` for itself would call a courtesy a payment and an absent fee a
+   * zero, which is BR-B2B-017, item 6, backwards.
+   *
+   * `null` on every place with no partner behind it, which is 257 of the 283 measured on
+   * 2026-08-26. The card shows nothing for those: a `não pagante` badge on the curated catalogue
+   * is noise about a question nobody asked.
+   */
+  partner_client_id: string | null
+  partner_name: string | null
+  monthly_fee_cents: number | null
+  is_courtesy: boolean | null
+  courtesy_reason: string | null
+  plan_choice: string | null
+  contract_tier: string | null
 }
 
 export interface PlaceFilters {

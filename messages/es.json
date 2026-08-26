@@ -1052,7 +1052,8 @@
       "hours": "horario"
     },
     "content_summary": "{desc} desc · {tp} TP",
-    "empty": "No se encontraron lugares."
+    "empty": "No se encontraron lugares.",
+    "partner_owner": "Socio: {name}"
   },
   "Modals": {
     "EventDetails": {
@@ -1134,7 +1135,8 @@
         "tags": "Etiquetas",
         "approved": "Aprobado",
         "active": "Activo",
-        "priority": "Prioridad"
+        "priority": "Prioridad",
+        "address": "Dirección en el registro"
       },
       "amenities": {
         "wifi": "Wi-Fi",
@@ -1154,7 +1156,8 @@
       "validation_missing": "Complete los campos obligatorios: {fields}.",
       "location_detecting": "Detectando ciudad, estado y país…",
       "location_detected": "Ubicación detectada:",
-      "error_save": "Error al guardar el lugar"
+      "error_save": "Error al guardar el lugar",
+      "address_none": "Sin dirección en el registro — el pin es lo que ubica este lugar."
     },
     "POIDetails": {
       "trigger_disabled": {
@@ -1569,6 +1572,53 @@
       "errors": {
         "missing_coordinates": "Este local todavía no tiene coordenada. Define la ubicación en la pestaña Detalles para dibujar puntos de disparo.",
         "coordinate_fetch_failed": "No se pudo cargar la coordenada de este local. Cierra y vuelve a abrir."
+      }
+    },
+    "PartnerDescription": {
+      "cancel": "Cancelar",
+      "generate_done": "Descripción generada. Revísala y guarda.",
+      "generate_empty": "El generador no devolvió texto.",
+      "generate_failed": "No se pudo generar la descripción.",
+      "questions": {
+        "story_founder": "Quién empezó este lugar, y cuándo",
+        "story_before": "Qué había en esta dirección antes",
+        "story_unique": "Qué hay aquí dentro que no hay en otro lugar",
+        "story_event": "Lo que la gente del barrio todavía cuenta"
+      },
+      "free": {
+        "heading": "Plan gratuito: solo el nombre",
+        "body": "En el plan gratuito Tuggi indica la dirección y dice el nombre del establecimiento, y nada más. La descripción es lo que añade el plan de pago.",
+        "on_air": "Al aire hoy: «{text}»",
+        "not_yet": "Todavía no hay nada al aire. El nombre entra al guardar el lugar.",
+        "open_exception": "Abrir excepción",
+        "reason_label": "Por qué este lugar tendrá descripción sin pagar",
+        "reason_placeholder": "Ej.: cortesía acordada en la negociación hasta la firma del contrato.",
+        "confirm_exception": "Registrar la excepción"
+      },
+      "exception": {
+        "heading": "Excepción abierta por el operador",
+        "trail": "Por {by}, el {at}.",
+        "unknown_operator": "operador no identificado",
+        "undo": "Deshacer la excepción"
+      },
+      "paid": {
+        "heading": "Descripción del socio",
+        "body": "El texto sale de lo que el propio establecimiento envió. Nada se busca en internet: quien afirma responde por ello.",
+        "body_exception": "Este lugar es del plan gratuito y está bajo excepción. El texto sale de lo que el propio establecimiento envió; nada se busca en internet.",
+        "no_input": "El socio no envió ninguna historia — solo el registro. Sin insumo no hay qué narrar, y quien decide si eso pasa eres tú.",
+        "input_heading": "Lo que el socio envió",
+        "with_offer": "Cerrar el audio con la invitación a seguir en {handle}, identificada como contenido del socio.",
+        "no_handle": "El socio no informó red social, así que el audio termina en la historia.",
+        "generate": "Generar la narración ({seconds}s)"
+      },
+      "plan_source": {
+        "contract": "por el contrato",
+        "registration": "por el registro",
+        "proposal": "por lo que pidió"
+      },
+      "unavailable": {
+        "heading": "No se pudo leer el plan de este lugar",
+        "body": "La banda del socio no aparece hasta resolver esto. Si el mensaje de abajo menciona PGRST202, PostgREST sigue con la caché de esquema anterior a la migración — ejecuta NOTIFY pgrst, 'reload schema'; en el panel."
       }
     }
   },
