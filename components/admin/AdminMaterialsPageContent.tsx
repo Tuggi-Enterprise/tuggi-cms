@@ -124,9 +124,12 @@ export function AdminMaterialsPageContent() {
 
   return (
     // THE ESTEIRA IS PORTUGUESE WHATEVER LOCALE THE OPERATOR IS ON — decision #408, the same
-    // overlay `/admin/clients` applies. `Materials` and `Clients.profile.material` are the two
-    // namespaces this screen speaks, and both belong to the pipeline rather than to a client's
-    // record, so a seam in the middle of a card is not possible here.
+    // overlay `/admin/clients` applies. `Materials`, `Clients.profile.material` and
+    // `Clients.stance` are the three namespaces this screen speaks, and all three belong to the
+    // pipeline rather than to a client's record, so a seam in the middle of a card is not
+    // possible here. `Clients.stance` joined when the card started drawing the payment symbol:
+    // its accessible name is the only text `PaymentStanceBadge` has, and a badge announcing
+    // `Not paying` in the middle of a Portuguese card is the seam this overlay exists to avoid.
     <NextIntlClientProvider
       locale={locale}
       messages={{
@@ -134,6 +137,7 @@ export function AdminMaterialsPageContent() {
         Materials: ptMessages.Materials,
         Clients: {
           ...(messages.Clients ?? {}),
+          stance: ptMessages.Clients.stance,
           profile: {
             ...((messages.Clients as Record<string, unknown> | undefined)?.profile ?? {}),
             material: ptMessages.Clients.profile.material,

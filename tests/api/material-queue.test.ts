@@ -10,6 +10,9 @@
  *  · giving the board a second fetch or a write of its own, which is a second place for
  *    `an order does not go back` to be forgotten;
  *  · a second copy of the transition graph anywhere — the buttons and the `WHERE` both read it;
+ *  · deciding on the card who pays, instead of reading the answer `derivePartnerPlan` gave;
+ *  · a card that cannot reach the contract, or a link out of the queue with no way back;
+ *  · the screen falling out of the grid the rest of the CMS draws;
  *  · a column, a refusal or a destination origin with no message behind it.
  *
  * Run with: npm run test:api
@@ -52,6 +55,7 @@ function order(over: Partial<MaterialQueueOrder> = {}): MaterialQueueOrder {
     source: over.source ?? 'proposal',
     notes: over.notes ?? null,
     createdAt: over.createdAt ?? '2026-08-20T12:00:00Z',
+    stance: over.stance ?? 'paying',
     items: over.items ?? [
       { kind: 'sticker', quantity: 3 },
       { kind: 'table_display', quantity: 10 },
@@ -299,13 +303,52 @@ test('the column vocabulary is the status vocabulary — five, and the same five
   }
 })
 
+test('the card carries who pays, and does not decide it', () => {
+  const card = code('components/admin/materials/MaterialCard.tsx')
+  // The same symbol every other surface draws, fed by the order and not by a comparison here.
+  assert.match(card, /<PaymentStanceBadge stance=\{order\.stance\} \/>/)
+  assert.equal(/monthlyFeeCents|is_courtesy|=== 'paid'/.test(card), false)
+
+  // The decision is `derivePartnerPlan` + `paymentStance`, in the service — never a fourth copy.
+  const service = code('lib/services/material-order-service.ts')
+  assert.match(service, /derivePartnerPlan\(/)
+  assert.match(service, /return paymentStance\(plan\.kind\)/)
+})
+
+test('the card reaches the contract and the QR, and both know the way back', () => {
+  const card = code('components/admin/materials/MaterialCard.tsx')
+  // The contract page of the partner — its own route, not a tab of the modal.
+  assert.match(card, /\/admin\/clients\/\$\{order\.clientId\}\/contract\?\$\{back\}/)
+  // And the record on `tab=profile`, which is where `ClientQrCode` draws the QR.
+  assert.match(card, /clientId=\$\{order\.clientId\}&tab=profile&\$\{back\}/)
+  // DS-LAYOUT-006, point 2: the way back is a composed sentence, from the shared module.
+  assert.match(card, /returnParams\(`\/\$\{locale\}\/admin\/materials`/)
+  assert.ok(pt.Materials.card.backToQueue, 'sem frase de volta')
+  assert.ok(pt.Materials.card.contract, 'sem rótulo do contrato')
+})
+
+test('the screen sits in the same grid as the rest of the CMS', () => {
+  const board = code('components/admin/materials/MaterialBoard.tsx')
+  // The rail and the content column, the same split `/admin/clients` and `/places` draw…
+  assert.match(board, /w-\[18%\]/)
+  assert.match(board, /lg:w-\[82%\]/)
+  // …and the sticky rounded title bar over the content.
+  assert.match(board, /sticky top-0 z-30 mb-4 rounded-3xl/)
+  // Below `lg` the rail is not a rail: the same panel rides above the board.
+  assert.match(board, /lg:hidden/)
+  assert.ok(pt.Materials.subtitle, 'sem subtítulo na barra')
+})
+
 test('the esteira stays pt-only — #408', () => {
   for (const locale of ['en', 'es']) {
     const messages = JSON.parse(read(`messages/${locale}.json`))
     assert.equal(messages.Materials, undefined, `${locale} não deve carregar Materials`)
   }
-  // And the screen overlays it, so the operator reads Portuguese on any locale.
-  assert.match(code('components/admin/AdminMaterialsPageContent.tsx'), /Materials: ptMessages\.Materials/)
+  // And the screen overlays it, so the operator reads Portuguese on any locale — including the
+  // accessible name of the payment symbol, which is the only text that badge has.
+  const host = code('components/admin/AdminMaterialsPageContent.tsx')
+  assert.match(host, /Materials: ptMessages\.Materials/)
+  assert.match(host, /stance: ptMessages\.Clients\.stance/)
 })
 
 test('one read feeds the board, and the write is the route that already existed', () => {

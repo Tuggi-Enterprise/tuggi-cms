@@ -3271,6 +3271,7 @@
   },
   "Materials": {
     "title": "Material de divulgação",
+    "subtitle": "Todo pedido de material dos parceiros, num lugar só.",
     "dragHint": "Arraste o pedido para a coluna seguinte. Da preparação ele pode ir para Despachado ou direto para Entregue. Pedido entregue ou cancelado não volta: reposição é um pedido novo, registrado na ficha do parceiro.",
     "searchLabel": "Buscar por parceiro, estabelecimento ou cidade",
     "searchPlaceholder": "Parceiro, local ou cidade…",
@@ -3296,6 +3297,8 @@
       "shipped": "O material já saiu com a transportadora e não dá mais para cancelar. Se ele se perdeu, registre um pedido novo na ficha do parceiro."
     },
     "card": {
+      "contract": "Contrato",
+      "backToQueue": "Voltar para a fila de material",
       "noAddress": "Sem endereço: este parceiro não tem local vinculado nem cidade no cadastro.",
       "origin": {
         "linked_place": "local vinculado",

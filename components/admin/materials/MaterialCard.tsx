@@ -4,6 +4,17 @@
  * ONE ORDER, as the person packing the box needs to read it: what goes in, whose it is, and
  * where it is going.
  *
+ * WHO PAYS IS ON THE CARD, AS THE SYMBOL EVERY OTHER SURFACE USES (`PaymentStanceBadge`). The
+ * box that leaves is the same for both tiers and the conversation around it is not — BR-B2B-021
+ * gives the free tier its display for nothing —, so the person packing reads the side without
+ * opening a second screen. The decision itself is not taken here: it arrives on the order.
+ *
+ * THE TWO LINKS GO TO THE TWO THINGS THE OPERATOR NEEDS NEXT, and they are different screens:
+ * the partner's NAME opens the record on `tab=profile`, which is where `ClientQrCode` draws the
+ * QR that goes on the material; `Contrato` opens `/admin/clients/{id}/contract`, the page with
+ * the signed instrument and its trail. Both carry the way back (DS-LAYOUT-006, point 2), so the
+ * operator returns to the queue instead of hunting for it.
+ *
  * THE ADDRESS IS ON THE CARD AND NOT BEHIND A CLICK. An order without its destination is a
  * quantity, and a quantity does not ship. When no place answered, the card says so in the same
  * spot — `origin` is printed too, because `endereço do cadastro` and `local vinculado` are
@@ -17,8 +28,10 @@
 
 import { useTranslations } from 'next-intl'
 import Link from 'next/link'
-import { MapPin } from 'lucide-react'
+import { FileText, MapPin } from 'lucide-react'
 import { MaterialMoveButtons } from '@/components/admin/materials/MaterialMoveButtons'
+import { PaymentStanceBadge } from '@/components/admin/clients/shared/PaymentStanceBadge'
+import { returnParams } from '@/lib/navigation/return-to'
 import type { MaterialMoveStatus, MaterialQueueOrder } from '@/lib/materials/order-queue'
 
 interface MaterialCardProps {
@@ -43,6 +56,11 @@ export function MaterialCard({
   const t = useTranslations('Materials')
   const m = useTranslations('Clients.profile.material')
 
+  // The way back travels as a composed sentence, not as a key the other screen has to own.
+  const back = new URLSearchParams(
+    returnParams(`/${locale}/admin/materials`, t('card.backToQueue'))
+  ).toString()
+
   return (
     <div>
       <article
@@ -52,12 +70,15 @@ export function MaterialCard({
         }`}
       >
         <div className="flex items-start justify-between gap-2">
-          <Link
-            href={`/${locale}/admin/clients?clientId=${order.clientId}&tab=profile`}
-            className="text-sm font-semibold text-gray-900 underline-offset-4 hover:underline dark:text-white"
-          >
-            {order.clientName}
-          </Link>
+          <div className="flex min-w-0 items-start gap-2">
+            <PaymentStanceBadge stance={order.stance} />
+            <Link
+              href={`/${locale}/admin/clients?clientId=${order.clientId}&tab=profile&${back}`}
+              className="text-sm font-semibold text-gray-900 underline-offset-4 hover:underline dark:text-white"
+            >
+              {order.clientName}
+            </Link>
+          </div>
           <span className="shrink-0 text-[10px] font-bold uppercase tracking-widest text-gray-400">
             {m(`sources.${order.source}`)}
           </span>
@@ -95,6 +116,14 @@ export function MaterialCard({
             {order.notes}
           </p>
         )}
+
+        <Link
+          href={`/${locale}/admin/clients/${order.clientId}/contract?${back}`}
+          className="mt-2 inline-flex min-h-[24px] items-center gap-1 text-[11px] font-semibold text-primary-800 underline-offset-4 hover:underline dark:text-tuggi-blue"
+        >
+          <FileText className="h-3 w-3" aria-hidden="true" />
+          {t('card.contract')}
+        </Link>
 
         <div className="mt-3 flex flex-wrap items-center justify-between gap-2">
           <span className="text-[11px] text-gray-400">

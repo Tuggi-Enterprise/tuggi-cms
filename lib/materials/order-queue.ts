@@ -28,6 +28,7 @@
  * Pure: no fetch, no Supabase, no React. Proven by `tests/api/material-queue.test.ts`.
  */
 
+import type { PaymentStance } from '@/lib/clients/partner-plan'
 import { MATERIAL_KINDS, type MaterialKind } from '@/lib/partner-form/fields'
 import type { MaterialOrderItem, MaterialOrderSource } from '@/lib/services/material-order-service'
 
@@ -116,6 +117,14 @@ export interface MaterialQueueOrder {
   createdAt: string
   items: MaterialOrderItem[]
   destination: MaterialDestination
+  /**
+   * Pagante ou não pagante — decided by `derivePartnerPlan` in the service, never on the card.
+   *
+   * It is here because the box that leaves is the same for both tiers and the conversation
+   * around it is not: BR-B2B-021 gives the free tier its display for nothing, and the operator
+   * packing a shipment reads who is on which side without opening a second screen.
+   */
+  stance: PaymentStance
 }
 
 export type MaterialMovePlan =

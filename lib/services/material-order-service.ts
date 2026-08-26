@@ -18,6 +18,8 @@
  */
 
 import { getSupabaseService } from '@/lib/core/supabase-client'
+import { derivePartnerPlan, paymentStance, type PaymentStance } from '@/lib/clients/partner-plan'
+import type { ContractTier } from '@/lib/contract/snapshot'
 import { MATERIAL_KINDS, type MaterialKind } from '@/lib/partner-form/fields'
 import {
   MATERIAL_COLUMNS,
@@ -218,6 +220,7 @@ export async function loadMaterialOrderQueue(cap = 500): Promise<MaterialQueueOr
 
   const clients = await loadOrderClients(clientIds)
   const places = await loadOrderPlaces(clientIds, clients)
+  const tiers = await loadOrderContractTiers(clientIds)
 
   return rows.map((row) => {
     const client = clients.get(row.client_id)
@@ -231,8 +234,59 @@ export async function loadMaterialOrderQueue(cap = 500): Promise<MaterialQueueOr
       createdAt: row.created_at,
       items: sortedItems(row.material_order_items ?? []),
       destination: places.get(row.client_id) ?? NO_DESTINATION,
+      stance: stanceOf(client, tiers.get(row.client_id) ?? null),
     }
   })
+}
+
+/**
+ * PAGANTE OU NÃO PAGANTE, decided once here so the card only draws the symbol.
+ *
+ * IT IS `derivePartnerPlan`, NOT A COMPARISON OF ITS OWN. Three different people answer "is this
+ * one paid?" and that module is where the order between them lives (contract over registration
+ * over proposal); a `monthlyFeeCents > 0` written here would be the fourth copy, and the one
+ * that calls a zeroed fee a payer.
+ *
+ * `planChoice` IS DELIBERATELY NOT READ, and this is the one shortcut in the call. It would cost
+ * a fifth round trip — the promoted submission, per client — and it cannot change the ANSWER:
+ * the choice only ever separates `free` from `undeclared`, and `paymentStance` folds both into
+ * `not_paying`. Only `paid` is `paying`, and `paid` never comes from the form.
+ */
+function stanceOf(client: OrderClient | undefined, contractTier: ContractTier | null): PaymentStance {
+  const plan = derivePartnerPlan({
+    clientId: client?.id ?? null,
+    fee: {
+      monthlyFeeCents: client?.monthlyFeeCents ?? null,
+      isCourtesy: client?.isCourtesy ?? false,
+      courtesyReason: client?.courtesyReason ?? null,
+    },
+    planChoice: null,
+    contractTier,
+  })
+  return paymentStance(plan.kind)
+}
+
+/**
+ * The tier of each partner's LIVE contract — the one that was not superseded.
+ *
+ * One read for the whole board, newest first: the first row seen for a client is the live one,
+ * the same rule `loadLiveContracts` follows in the partnership pipeline. A partner with no
+ * contract answers `null`, which is what tells `derivePartnerPlan` to fall back to the record.
+ */
+async function loadOrderContractTiers(ids: string[]): Promise<Map<string, ContractTier | null>> {
+  const tiers = new Map<string, ContractTier | null>()
+  const { data } = await service()
+    .from('partner_contracts')
+    .select('client_id, tier, created_at')
+    .in('client_id', ids)
+    .is('superseded_by', null)
+    .order('created_at', { ascending: false })
+
+  for (const row of (data ?? []) as { client_id: string; tier: string | null }[]) {
+    if (!row.client_id || tiers.has(row.client_id)) continue
+    tiers.set(row.client_id, row.tier === 'free' || row.tier === 'paid' ? row.tier : null)
+  }
+  return tiers
 }
 
 const NO_DESTINATION: MaterialDestination = {
@@ -252,25 +306,34 @@ interface OrderClient {
   state: string | null
   country: string | null
   welcomePoiId: string | null
+  /** The three money columns of the record. Absent is NOT zero — BR-B2B-017, item 6. */
+  monthlyFeeCents: number | null
+  isCourtesy: boolean
+  courtesyReason: string | null
 }
 
 async function loadOrderClients(ids: string[]): Promise<Map<string, OrderClient>> {
   const { data } = await service()
     .from('clients')
-    .select('id, name, company_name, city, state, country, welcome_poi_id')
+    .select(
+      'id, name, company_name, city, state, country, welcome_poi_id, monthly_fee_cents, is_courtesy, courtesy_reason'
+    )
     .in('id', ids)
 
   const clients = new Map<string, OrderClient>()
-  for (const row of (data ?? []) as Record<string, string | null>[]) {
-    if (!row.id) continue
+  for (const row of (data ?? []) as Record<string, string | number | boolean | null>[]) {
+    if (typeof row.id !== 'string') continue
     clients.set(row.id, {
       id: row.id,
-      name: row.name,
-      companyName: row.company_name,
-      city: row.city,
-      state: row.state,
-      country: row.country,
-      welcomePoiId: row.welcome_poi_id,
+      name: row.name as string | null,
+      companyName: row.company_name as string | null,
+      city: row.city as string | null,
+      state: row.state as string | null,
+      country: row.country as string | null,
+      welcomePoiId: row.welcome_poi_id as string | null,
+      monthlyFeeCents: typeof row.monthly_fee_cents === 'number' ? row.monthly_fee_cents : null,
+      isCourtesy: row.is_courtesy === true,
+      courtesyReason: (row.courtesy_reason as string | null) ?? null,
     })
   }
   return clients
