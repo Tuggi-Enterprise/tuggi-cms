@@ -1563,6 +1563,11 @@
         "audio_task_status": "{current}/{total}",
         "reference_links_hint": "Add authoritative sources (Wikipedia, official sites, etc.) to help AI generate more accurate descriptions",
         "core_attractions_only": "Note: Reference links can only be saved for core attractions, not homolog POIs."
+      },
+      "coordinate_required": {
+        "title": "Set the location first",
+        "body": "This place has no coordinate yet. The trigger point and the boundary are drawn from it: open Details and click the map over the address.",
+        "action": "Go to Details"
       }
     },
     "TriggerPointsManager": {
@@ -1637,7 +1642,8 @@
         "southwest": "Southwest"
       },
       "errors": {
-        "missing_coordinates": "Could not load this POI's coordinates (system fetch error). Close and reopen."
+        "missing_coordinates": "This place has no coordinate yet. Set the location on the Details tab to draw trigger points.",
+        "coordinate_fetch_failed": "Could not load this place’s coordinate. Close and reopen."
       }
     }
   },
@@ -2051,8 +2057,8 @@
         "address": "Address"
       },
       "fields": {
-        "name": "Name / Legal name",
-        "companyName": "Trade name",
+        "name": "Trade name",
+        "companyName": "Legal name",
         "email": "Primary email",
         "phone": "Phone",
         "slug": "Slug (public URL /d/...)",

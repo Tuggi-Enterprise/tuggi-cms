@@ -185,7 +185,7 @@ export const placeService = {
     if (error) throw new Error(error.message)
     const place = (data?.[0] as any) || null
     if (!place) return null
-    return { ...place, formatted_address: await placeService.getFormattedAddress(id) }
+    return { ...place, ...(await placeService.getAddressColumns(id)) }
   },
 
   /**
@@ -196,14 +196,34 @@ export const placeService = {
    * writer of one is `setCoordinate`, and it is called from the save path of a human click.
    */
   async getFormattedAddress(attractionId: string, db?: SupabaseClient): Promise<string | null> {
+    return (await placeService.getAddressColumns(attractionId, db)).formatted_address
+  },
+
+  /**
+   * As duas colunas de endereço que o RPC não devolve, na mesma leitura.
+   *
+   * `postal_code` entrou junto em 26/08/2026 e não é enfeite: o que a aprovação grava em
+   * `formatted_address` é só rua, complemento e bairro (`joinAddress`), então a consulta que
+   * centraliza o mapa saía sem cidade, sem estado e sem CEP — `Av Assunção 606, São Bento`
+   * mandava o buscador procurar uma avenida no Brasil inteiro. Quem monta a consulta é
+   * `lib/maps/place-address-query`; isto só traz as peças.
+   */
+  async getAddressColumns(
+    attractionId: string,
+    db?: SupabaseClient
+  ): Promise<{ formatted_address: string | null; postal_code: string | null }> {
     const { data, error } = await client(db)
       .schema('core')
       .from('attractions')
-      .select('formatted_address')
+      .select('formatted_address, postal_code')
       .eq('id', attractionId)
       .maybeSingle()
-    if (error) return null
-    return ((data as { formatted_address: string | null } | null)?.formatted_address ?? null) || null
+    if (error) return { formatted_address: null, postal_code: null }
+    const row = data as { formatted_address: string | null; postal_code: string | null } | null
+    return {
+      formatted_address: (row?.formatted_address ?? null) || null,
+      postal_code: (row?.postal_code ?? null) || null,
+    }
   },
 
   async create(input: CreatePlaceInput, db?: SupabaseClient): Promise<string> {

@@ -143,13 +143,13 @@ export function TriggerPointsManager({
 
   // SSOT: load the attraction's own coordinate from core.attraction_coordinate.
   // Coordinates are NOT columns on core.attraction, so this is the only reliable
-  // source. If neither the prop nor the DB yields a valid coordinate, treat it as
-  // a system/fetch error — never silently fall back to 0,0.
+  // source. Never silently fall back to 0,0 — and never call an absent coordinate a fetch
+  // error either: `error` decides which of the two the operator is told about.
   useEffect(() => {
     if (!attractionId) return
     let cancelled = false
     ;(async () => {
-      const { data } = await supabase
+      const { data, error: fetchError } = await supabase
         .schema('core')
         .from('attraction_coordinate')
         .select('latitude, longitude')
@@ -161,7 +161,14 @@ export function TriggerPointsManager({
         setCoords({ lat: c.latitude, lng: c.longitude })
         setCoordinateError(null)
       } else if (!isValidLatLng(attractionCoordinates)) {
-        setCoordinateError(t('errors.missing_coordinates'))
+        // DUAS AUSÊNCIAS, DUAS FRASES. `error` do PostgREST era descartado, e por isso a tela
+        // dizia `erro de sistema do fetch` para o caso comum — o local que a aprovação do
+        // parceiro acabou de criar, que nasce sem coordenada de propósito. Uma frase que chama
+        // de defeito da máquina o estado normal do registro manda o operador fechar e reabrir
+        // uma tela que vai responder exatamente a mesma coisa.
+        setCoordinateError(
+          fetchError ? t('errors.coordinate_fetch_failed') : t('errors.missing_coordinates')
+        )
       }
     })()
     return () => { cancelled = true }

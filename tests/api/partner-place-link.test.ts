@@ -378,8 +378,10 @@ test('#409 · the tab offers the choice only where there IS a choice', () => {
   const tab = code('components/admin/clients/tabs/PlacesTab.tsx')
 
   // Linking the first place already adopted it (`../places/link`), so a client with one place
-  // never sees the act — a button that changes nothing is a button that lies.
-  assert.match(tab, /canChooseWelcome=\{detail\.places\.length > 1\}/)
+  // never sees the act — a button that changes nothing is a button that lies. The second half
+  // arrived with `../places/unlink` (2026-08-26): soltar o vínculo limpa `welcome_poi_id`, e o
+  // cliente que voltou a ter UM local ficaria sem crachá e sem como escolher um.
+  assert.match(tab, /canChooseWelcome=\{detail\.places\.length > 1 \|\| !detail\.client\.welcomePoiId\}/)
   assert.match(tab, /isWelcome=\{place\.readiness\.place\.attractionId === detail\.client\.welcomePoiId\}/)
 
   // And the pointer the badge reads is the one the pipeline reads, carried by the same answer.

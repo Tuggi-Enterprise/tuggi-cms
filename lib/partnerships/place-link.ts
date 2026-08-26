@@ -88,6 +88,38 @@ export function canLink(candidate: LinkCandidate, clientId: string): boolean {
 }
 
 /**
+ * ─────────────────────────────────────────────────────────────────────────────────────────────
+ * DESFAZER O VÍNCULO — o ato que faltava, e a razão dele é o próprio motivo de o vínculo existir.
+ *
+ * `verdictFor` recusa o local que já é de OUTRO cliente (`other_owner`, BR-B2B-033, item 3), e
+ * essa recusa é uma parede sem porta: quem vinculou o registro errado — a duplicata em vez do
+ * estabelecimento publicado, que é exatamente o defeito de 3 em 3 clientes medido acima — não
+ * tinha como soltá-lo, nem para si nem para ninguém. O operador pediu isto em 2026-08-26:
+ * *"precisa ser necessário tirar um local vinculado ao parceiro e vincular outro"*.
+ *
+ * DESVINCULAR NÃO APAGA E NÃO DESPUBLICA. Escreve `partner_client_id = NULL` e nada mais: o
+ * local continua no catálogo com a curadoria que tem, e continua no ar se estava — porque
+ * `core.app_get_nearby_places` e `core.app_poi_read` não leem essa coluna. O que ele perde é o
+ * DONO. Apagar o registro é outro ato, com outra porta e outra guarda (`PlaceDeleteControl`,
+ * BR-POI-005: o local carrega visita e feedback de turista).
+ */
+export type UnlinkVerdict =
+  | { kind: 'ok' }
+  /** Não é o local deste cliente — inclui o que não é de ninguém e o que é de outro. */
+  | { kind: 'not_linked' }
+
+/**
+ * Só o dono solta o que é dele.
+ *
+ * `not_linked` cobre os dois casos de uma vez porque a resposta ao operador é a mesma: esta tela
+ * não é a dona deste vínculo. Soltar o local de OUTRO cliente daqui seria o `other_owner` de
+ * `verdictFor` pela porta dos fundos — a tela de um parceiro decidindo sobre o local de outro.
+ */
+export function unlinkVerdictFor(candidate: LinkCandidate, clientId: string): UnlinkVerdict {
+  return candidate.partnerClientId === clientId ? { kind: 'ok' } : { kind: 'not_linked' }
+}
+
+/**
  * The shortest search that is worth running.
  *
  * `core.attractions` holds 2.2 million rows and the search is `name ILIKE '%q%'`, answered by

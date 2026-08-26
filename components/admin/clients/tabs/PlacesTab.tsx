@@ -230,10 +230,13 @@ function PartnerPlaces({ clientId, locale }: { clientId?: string; locale: string
               placeHref={placeHref}
               clientId={clientId}
               isWelcome={place.readiness.place.attractionId === detail.client.welcomePoiId}
-              // The act only makes sense where there is a choice: with one place the link
-              // already adopted it, and a button that changes nothing is a button that lies.
-              canChooseWelcome={detail.places.length > 1}
+              /* Onde há escolha a fazer — e não é só "mais de um local". Com o vínculo desfeito,
+                 `welcome_poi_id` é limpo (ver a rota `../places/unlink`), e um cliente que
+                 voltou a ter UM local ficava sem crachá e sem botão: ninguém saudava o turista
+                 em `/d/{slug}` e a tela não dizia como consertar. */
+              canChooseWelcome={detail.places.length > 1 || !detail.client.welcomePoiId}
               onWelcomeChanged={load}
+              onUnlinked={load}
             />
           ))}
         </div>
@@ -260,6 +263,7 @@ function Place({
   isWelcome,
   canChooseWelcome,
   onWelcomeChanged,
+  onUnlinked,
 }: {
   place: PartnershipPlace
   placeHref: (place: PartnershipPlace, pendency?: PendencyId) => string
@@ -267,11 +271,15 @@ function Place({
   isWelcome: boolean
   canChooseWelcome: boolean
   onWelcomeChanged: () => Promise<void>
+  onUnlinked: () => Promise<void>
 }) {
   const t = useTranslations('Partnerships')
   const attractionId = place.readiness.place.attractionId
   const [choosing, setChoosing] = useState(false)
   const [chooseFailed, setChooseFailed] = useState(false)
+  const [confirmingUnlink, setConfirmingUnlink] = useState(false)
+  const [unlinking, setUnlinking] = useState(false)
+  const [unlinkFailed, setUnlinkFailed] = useState(false)
 
   async function chooseWelcome() {
     setChoosing(true)
@@ -292,6 +300,36 @@ function Place({
     // Same answer as the link: the badge that moved IS the confirmation.
     await onWelcomeChanged()
     setChoosing(false)
+  }
+
+  /**
+   * SOLTAR O LOCAL, e o passo de confirmação é a diferença entre isto e escolher o boas-vindas.
+   *
+   * Não apaga e não despublica — a rota escreve `partner_client_id = NULL` e mais nada —, mas
+   * desfaz a única coluna por onde a esteira, a fila e o faturamento enxergam o parceiro, e o
+   * local some desta lista no mesmo instante. Um clique sem pergunta ao lado de `Abrir o local`
+   * é o acidente esperando acontecer.
+   */
+  async function unlink() {
+    setUnlinking(true)
+    setUnlinkFailed(false)
+    try {
+      const response = await fetch(
+        `/api/admin/partnerships/clients/${clientId}/places/unlink`,
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ attractionId }),
+        }
+      )
+      if (!response.ok) setUnlinkFailed(true)
+    } catch {
+      setUnlinkFailed(true)
+    }
+    // A lista que perdeu a linha É a confirmação, como no vínculo e no boas-vindas.
+    await onUnlinked()
+    setUnlinking(false)
+    setConfirmingUnlink(false)
   }
 
   return (
@@ -335,12 +373,60 @@ function Place({
         />
       </div>
 
-      <a
-        href={placeHref(place)}
-        className="mt-3 inline-flex min-h-[24px] items-center text-sm font-medium text-primary-800 underline underline-offset-4"
-      >
-        {t('detail.openPlace')}
-      </a>
+      <div className="mt-3 flex flex-wrap items-center gap-x-5 gap-y-2">
+        <a
+          href={placeHref(place)}
+          className="inline-flex min-h-[24px] items-center text-sm font-medium text-primary-800 underline underline-offset-4"
+        >
+          {t('detail.openPlace')}
+        </a>
+
+        {/* DEPOIS de `Abrir o local`, e sem ênfase: o ato ordinário é entrar no local, não
+            soltá-lo. Desvincular existe para o registro ERRADO — a duplicata vazia vinculada no
+            lugar do estabelecimento publicado —, e é dali que o operador segue para vincular o
+            certo, na busca que reaparece quando a lista esvazia. */}
+        {!confirmingUnlink && (
+          <button
+            type="button"
+            onClick={() => { setUnlinkFailed(false); setConfirmingUnlink(true) }}
+            className="inline-flex min-h-[24px] items-center text-sm font-medium text-gray-700 underline underline-offset-4 dark:text-gray-300"
+          >
+            {t('unlink.action')}
+          </button>
+        )}
+      </div>
+
+      {confirmingUnlink && (
+        <div className="mt-3 rounded-md border border-gray-200 p-3 dark:border-gray-800">
+          <p className="text-sm text-gray-900 dark:text-white">
+            {t('unlink.confirmTitle', { place: place.readiness.place.name })}
+          </p>
+          {/* O QUE NÃO ACONTECE, dito antes de o operador decidir: o medo aqui é apagar o local
+              ou tirá-lo do ar, e a rota não faz nem uma coisa nem outra. */}
+          <p className="mt-1 text-xs leading-relaxed text-gray-700 dark:text-gray-300">
+            {t('unlink.confirmBody')}
+          </p>
+          <div className="mt-3 flex flex-wrap gap-2">
+            <Button type="button" variant="outline" disabled={unlinking} onClick={() => void unlink()}>
+              {unlinking ? t('unlink.unlinking') : t('unlink.confirmAction')}
+            </Button>
+            <Button
+              type="button"
+              variant="ghost"
+              disabled={unlinking}
+              onClick={() => setConfirmingUnlink(false)}
+            >
+              {t('unlink.cancel')}
+            </Button>
+          </div>
+        </div>
+      )}
+
+      {unlinkFailed && (
+        <p role="alert" className="mt-2 text-xs text-gray-900 dark:text-white">
+          {t('unlink.failed')}
+        </p>
+      )}
     </article>
   )
 }

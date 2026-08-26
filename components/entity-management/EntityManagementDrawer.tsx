@@ -9,17 +9,20 @@
  * As abas de POI leem tudo de POIModalContext, alimentado por useEntityModalContext
  * (keyed por attraction_id). Boundary/TP só aparecem em modo edição (precisam do id).
  */
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useTranslations } from 'next-intl'
-import { X, Info, Target, Save, Loader2, FileText, Volume2, Link2 } from 'lucide-react'
+import { X, Info, Target, Save, Loader2, FileText, Volume2, Link2, MapPin } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { POIModalProvider } from '@/components/poi-management/POIModalContext'
 import { TriggerPointsTab } from '@/components/poi-management/tabs/TriggerPointsTab'
 import { DescriptionTab } from '@/components/poi-management/tabs/DescriptionTab'
 import { NarrationAudioTab } from '@/components/poi-management/tabs/NarrationAudioTab'
 import { useEntityModalContext } from './useEntityModalContext'
-
-type Tab = 'details' | 'description' | 'narration-audio' | 'trigger-points'
+import {
+  type EntityTab as Tab,
+  resolveOpeningTab,
+  tabNeedsCoordinate,
+} from '@/lib/entity-management/coordinate-gate'
 
 interface Props {
   /** Which tab the drawer opens on. Absent means `details`, which is what a click opens. */
@@ -68,6 +71,27 @@ export function EntityManagementDrawer({
   const [activeTab, setActiveTab] = useState<Tab>(initialTab ?? 'details')
 
   useEffect(() => { if (!isOpen) setActiveTab(initialTab ?? 'details') }, [isOpen, initialTab])
+
+  /**
+   * A COORDENADA É PRÉ-REQUISITO, e o deep link não sabe disso. O local que a aprovação do
+   * parceiro cria nasce sem coordenada, e a esteira manda o operador para `Limite & Triggers`
+   * pela pendência `Nenhum ponto de disparo ativo` — uma aba que, sem centro, não tem de onde
+   * partir. `resolveOpeningTab` rebaixa esse pedido para `Detalhes`, onde o mapa abre sobre o
+   * endereço e o clique vira a coordenada.
+   *
+   * UMA VEZ POR ABERTURA, e o `seeded` é o que garante isso: `coordinates` é um objeto novo a
+   * cada render de quem chama, então um efeito sem trava reagiria ao clique do operador e o
+   * devolveria à aba semeada. E espera o `loading`: durante a carga `coordinates` é `undefined`
+   * para todo registro, inclusive os que têm coordenada, e agir ali jogaria todos a `Detalhes`.
+   */
+  const hasCoordinate = !!coordinates
+  const seeded = useRef(false)
+  useEffect(() => { if (!isOpen) seeded.current = false }, [isOpen])
+  useEffect(() => {
+    if (!isOpen || loading || !initialTab || seeded.current) return
+    seeded.current = true
+    setActiveTab(resolveOpeningTab({ requested: initialTab, hasCoordinate }))
+  }, [isOpen, loading, initialTab, hasCoordinate])
 
   const ctx = useEntityModalContext({ entityId, name, coordinates, canEdit, onClose, invalidate })
 
@@ -143,7 +167,30 @@ export function EntityManagementDrawer({
               <POIModalProvider value={ctx}><NarrationAudioTab /></POIModalProvider>
             )}
             {activeTab === 'trigger-points' && (
-              venueLinked ? (
+              /* SEM COORDENADA NÃO HÁ DE ONDE PARTIR: o trigger point é distância e rumo A PARTIR
+                 do local, e o limite é um polígono em volta dele. Aqui ficava o painel vermelho de
+                 `TriggerPointsManager` chamando de `erro de sistema do fetch` o estado normal do
+                 local recém-criado pela aprovação do parceiro — e sem mapa nenhum. A aba continua
+                 clicável, e o botão leva ao único lugar que grava a coordenada. */
+              !hasCoordinate && tabNeedsCoordinate('trigger-points') ? (
+                <div className="p-8">
+                  <div className="max-w-xl mx-auto text-center py-16">
+                    <div className="inline-flex p-4 bg-tuggi-blue/10 rounded-2xl mb-5">
+                      <MapPin className="h-8 w-8 text-tuggi-blue" />
+                    </div>
+                    <h3 className="text-lg font-bold text-gray-900 dark:text-white mb-2">{t('coordinate_required.title')}</h3>
+                    <p className="text-sm text-gray-500 leading-relaxed">{t('coordinate_required.body')}</p>
+                    <button
+                      type="button"
+                      onClick={() => setActiveTab('details')}
+                      className="mt-6 inline-flex items-center gap-2 px-5 py-2 text-sm font-semibold rounded-xl text-white bg-tuggi-blue hover:bg-tuggi-blue/90 shadow-lg shadow-tuggi-blue/20 transition-all"
+                    >
+                      <Info className="h-4 w-4" />
+                      {t('coordinate_required.action')}
+                    </button>
+                  </div>
+                </div>
+              ) : venueLinked ? (
                 <div className="p-8">
                   <div className="max-w-xl mx-auto text-center py-16">
                     <div className="inline-flex p-4 bg-amber-100 dark:bg-amber-900/20 rounded-2xl mb-5">

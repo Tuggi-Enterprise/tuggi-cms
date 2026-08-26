@@ -169,7 +169,11 @@ export function ClientEditorModal({
 
   const headerName = useMemo(() => {
     if (mode === 'new') return t('header.newClient')
-    return edited.company_name || client?.company_name || edited.name || client?.name || t('header.noName')
+    // O FANTASIA PRIMEIRO, e a razão social como reserva. O operador procura `Cozi +`, que é o
+    // que está na fachada e no material; `Cozimais Restaurante e Café` é o nome do contrato e
+    // não identifica o cliente para quem abriu o registro. Mesma inversão que trocava os
+    // rótulos dos dois campos na aba Perfil (2026-08-26).
+    return edited.name || client?.name || edited.company_name || client?.company_name || t('header.noName')
   }, [mode, edited, client, t])
 
   // Missing-fields validation (only the bare minimum to allow save).

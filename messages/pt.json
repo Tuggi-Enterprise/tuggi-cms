@@ -1574,6 +1574,11 @@
         "audio_task_status": "{current}/{total}",
         "reference_links_hint": "Adicione fontes autoritativas (Wikipedia, sites oficiais, etc.) para ajudar a IA a gerar descrições mais precisas",
         "core_attractions_only": "Nota: Links de referência só podem ser salvos para atrações core, não para POIs homólogos."
+      },
+      "coordinate_required": {
+        "title": "Defina a localização primeiro",
+        "body": "Este local ainda não tem coordenada. O ponto de disparo e o limite são desenhados a partir dela: abra Detalhes e clique no mapa sobre o endereço.",
+        "action": "Ir para Detalhes"
       }
     },
     "TriggerPointsManager": {
@@ -1648,7 +1653,8 @@
         "southwest": "Sudoeste"
       },
       "errors": {
-        "missing_coordinates": "Não foi possível carregar as coordenadas deste POI (erro de sistema do fetch). Feche e abra novamente."
+        "missing_coordinates": "Este local ainda não tem coordenada. Defina a localização na aba Detalhes para desenhar pontos de disparo.",
+        "coordinate_fetch_failed": "Não foi possível carregar a coordenada deste local. Feche e abra novamente."
       }
     }
   },
@@ -2129,8 +2135,8 @@
         "address": "Endereço"
       },
       "fields": {
-        "name": "Nome / Razão social",
-        "companyName": "Nome comercial",
+        "name": "Nome comercial",
+        "companyName": "Razão social",
         "email": "Email principal",
         "phone": "Telefone",
         "slug": "Slug (URL pública /d/...)",
@@ -3198,6 +3204,15 @@
         "lookup_failed": "Não foi possível ler o POI agora. Tente de novo.",
         "link_failed": "Não foi possível vincular agora. Tente de novo."
       }
+    },
+    "unlink": {
+      "action": "Desvincular do parceiro",
+      "confirmTitle": "Tirar {place} deste parceiro?",
+      "confirmBody": "O local continua no catálogo e continua no ar se já estava: o que ele perde é o dono. Depois de soltar, use a busca para vincular o local certo.",
+      "confirmAction": "Sim, desvincular",
+      "cancel": "Cancelar",
+      "unlinking": "Desvinculando…",
+      "failed": "Não foi possível desvincular agora. Tente de novo."
     }
   },
   "Materials": {

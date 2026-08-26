@@ -321,7 +321,11 @@ test('#371 · CLAUDE.md §6: there is ONE forward geocoder in the CMS', () => {
 
 test('#371: the modal hands the address down, and the address comes from the record', () => {
   const modal = code('components/place-management/PlaceFormModal.tsx')
-  assert.match(modal, /address=\{details\?\.formatted_address \?\? null\}/)
+  // Desde 26/08/2026 o endereço desce MONTADO: `formatted_address` do local de parceiro é só rua,
+  // complemento e bairro, e sem cidade a busca procurava a avenida no Brasil inteiro. A coluna
+  // continua sendo a base da consulta — ver `tests/api/place-address-query.test.ts`.
+  assert.match(modal, /address=\{buildAddressQuery\(\{/)
+  assert.match(modal, /address: details\?\.formatted_address \?\? null/)
   // Translated by the caller: this picker is used under more than one namespace, and a missing
   // one renders the key name.
   // Four captions and not one: without a coordinate there is always a legend, and the form of it
@@ -333,7 +337,7 @@ test('#371: the modal hands the address down, and the address comes from the rec
   // of the RPC is a requirement written back to the `data` on the card.
   const service = code('lib/core/place-service.ts')
   assert.match(service, /getFormattedAddress/)
-  assert.match(service, /formatted_address: await placeService\.getFormattedAddress\(id\)/)
+  assert.match(service, /\.\.\.\(await placeService\.getAddressColumns\(id\)\)/)
 })
 
 test('#371: the four captions exist in the three locales, so no screen prints the key name', () => {

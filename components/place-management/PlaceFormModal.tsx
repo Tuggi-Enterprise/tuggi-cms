@@ -16,6 +16,7 @@ import { usePlaceDetails } from '@/lib/hooks/use-places'
 import { useReverseGeocode } from '@/lib/hooks/use-reverse-geocode'
 import { missingRequiredLabels } from '@/lib/core/entity-form-validation'
 import { useCmsUser } from '@/lib/hooks/useCmsUser'
+import { buildAddressQuery } from '@/lib/maps/place-address-query'
 import { EntityManagementDrawer } from '@/components/entity-management/EntityManagementDrawer'
 import { LocationPicker } from '@/components/entity-management/LocationPicker'
 import { PublishingControls } from '@/components/entity-management/PublishingControls'
@@ -272,13 +273,26 @@ export function PlaceFormModal({ placeId, isOpen, onClose, onSaved, initialTab }
             <label className={fieldLabel}>{L('location')} *</label>
             {/* O endereço vai junto para CENTRALIZAR o mapa quando o local ainda não tem
                 coordenada — é o caso do local que a aprovação do parceiro cria (#371). Ele nunca
-                vira coordenada: quem grava é `handleSave`, com o par que o clique produziu. */}
+                vira coordenada: quem grava é `handleSave`, com o par que o clique produziu.
+
+                E vai INTEIRO desde 26/08/2026. `formatted_address` do local de parceiro é só o
+                que `joinAddress` monta — rua, complemento e bairro —, então a consulta saía como
+                `Av Assunção 606, São Bento` e mandava o buscador procurar uma avenida no Brasil
+                inteiro. Cidade, estado e CEP sempre estiveram no registro; faltava perguntá-los
+                junto. Os campos são os do FORMULÁRIO e não os de `details`: se o curador acabou
+                de corrigir a cidade, é a corrigida que deve mirar a câmera. */}
             <LocationPicker
               editable={canEdit}
               latitude={form.latitude !== '' && form.latitude != null ? Number(form.latitude) : null}
               longitude={form.longitude !== '' && form.longitude != null ? Number(form.longitude) : null}
               name={form.name}
-              address={details?.formatted_address ?? null}
+              address={buildAddressQuery({
+                address: details?.formatted_address ?? null,
+                postalCode: details?.postal_code ?? null,
+                city: form.city,
+                state: form.state,
+                country: form.country,
+              })}
               captions={{
                 locating: t('address_locating'),
                 centered: t('address_centered'),

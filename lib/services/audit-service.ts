@@ -53,6 +53,12 @@ export type AuditAction =
   // distinguishes "the operator recognised the existing POI" from "a POI was born here", and
   // the two answer different questions when somebody asks why a partner has two addresses.
   | 'LINK_PARTNER_PLACE'
+  // Soltar o local do parceiro (2026-08-26). É o par de `LINK_PARTNER_PLACE`, e existe pela
+  // mesma razão que ele: `partner_client_id` é a única coluna por onde a esteira, a fila e o
+  // faturamento enxergam de quem é o estabelecimento, e desfazê-la some com o local da tela do
+  // cliente sem deixar rastro nenhum no registro — que continua no catálogo, intacto e no ar.
+  // Sem esta linha, "por que este parceiro não tem mais local?" não tem resposta.
+  | 'UNLINK_PARTNER_PLACE'
   // Which of the client's places greets the tourist on `/d/{slug}`. It is a separate action
   // from the link because it is a separate question: linking says whose place it is, this says
   // which one speaks first. Written by hand only when the client has more than one place —
