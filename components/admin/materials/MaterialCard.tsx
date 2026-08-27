@@ -24,6 +24,14 @@
  * requirement anywhere in this screen. Which buttons those are is derived from the graph by
  * `MaterialMoveButtons`, not decided here — the card would be the second place to write down
  * what may follow what.
+ *
+ * THE NAME OWNS THE TOP LINE, AND THE ORIGIN OF THE ORDER SITS WITH THE DATE. They shared the
+ * first row until 2026-08-26, and in a board column that narrow `PEDIDO NA PROPOSTA` — which is
+ * what nearly every card says — landed on top of `Borogodó Nordestino`: the name is the flex
+ * child that must shrink (`min-w-0`), and the badge beside it never yielded. Same failure the
+ * `PaymentStanceBadge` header describes, one card over. Moving the origin down is not only how
+ * the collision ends: it is a metadata line, like the date, and it was competing with the one
+ * string the operator scans the column for.
  */
 
 import { useTranslations } from 'next-intl'
@@ -69,19 +77,14 @@ export function MaterialCard({
           dragging ? 'border-primary-800 opacity-60 dark:border-tuggi-blue' : 'border-gray-200 dark:border-gray-800'
         }`}
       >
-        <div className="flex items-start justify-between gap-2">
-          <div className="flex min-w-0 items-start gap-2">
-            <PaymentStanceBadge stance={order.stance} />
-            <Link
-              href={`/${locale}/admin/clients?clientId=${order.clientId}&tab=profile&${back}`}
-              className="text-sm font-semibold text-gray-900 underline-offset-4 hover:underline dark:text-white"
-            >
-              {order.clientName}
-            </Link>
-          </div>
-          <span className="shrink-0 text-[10px] font-bold uppercase tracking-widest text-gray-400">
-            {m(`sources.${order.source}`)}
-          </span>
+        <div className="flex items-start gap-2">
+          <PaymentStanceBadge stance={order.stance} />
+          <Link
+            href={`/${locale}/admin/clients?clientId=${order.clientId}&tab=profile&${back}`}
+            className="min-w-0 flex-1 break-words text-sm font-semibold text-gray-900 underline-offset-4 hover:underline dark:text-white"
+          >
+            {order.clientName}
+          </Link>
         </div>
 
         <ul className="mt-2 space-y-0.5">
@@ -125,10 +128,13 @@ export function MaterialCard({
           {t('card.contract')}
         </Link>
 
-        <div className="mt-3 flex flex-wrap items-center justify-between gap-2">
-          <span className="text-[11px] text-gray-400">
-            {new Date(order.createdAt).toLocaleDateString('pt-BR')}
-          </span>
+        <p className="mt-3 text-[11px] text-gray-500 dark:text-gray-400">
+          {new Date(order.createdAt).toLocaleDateString('pt-BR')}
+          <span aria-hidden="true"> · </span>
+          {m(`sources.${order.source}`)}
+        </p>
+
+        <div className="mt-2">
           <MaterialMoveButtons
             status={order.status}
             busy={busy}
