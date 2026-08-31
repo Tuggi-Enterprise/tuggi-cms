@@ -101,7 +101,8 @@
     "newsletter": "Newsletter",
     "geography": "Demanda",
     "catalog": "Catálogo",
-    "system_audio": "Áudios de Sistema"
+    "system_audio": "Áudios de Sistema",
+    "acquisition": "Aquisição"
   },
   "Pages": {
     "Login": {
@@ -345,6 +346,43 @@
         "catalog": {
           "title": "Catálogo",
           "subtitle": "Inventário de POIs, qualidade de conteúdo e autores"
+        },
+        "acquisition": {
+          "title": "Aquisição",
+          "subtitle": "De onde vieram as contas novas do mês",
+          "month": "Mês",
+          "updating": "atualizando",
+          "no_coverage": "Este mês é anterior ao registro de localização na criação da conta. Os cadastros aparecem, mas a origem da maioria é desconhecida — a lacuna é de dado, não de aquisição.",
+          "stat_total": "Contas novas",
+          "stat_total_sub": "média de {avg} por dia",
+          "stat_located": "Com cidade",
+          "stat_located_sub": "{cities} cidades em {countries} países",
+          "stat_partner": "Com parceiro",
+          "stat_clusters": "Nasceram juntas",
+          "stat_clusters_sub": "contas em pontos repetidos",
+          "by_day": "Contas por dia",
+          "cumulative": "Acumulado",
+          "with_partner": "Com parceiro",
+          "without_partner": "Sem parceiro",
+          "by_city": "Por cidade",
+          "by_partner": "Por parceiro",
+          "clusters": "Onde as contas nascem juntas",
+          "clusters_hint": "Pontos onde várias contas foram criadas no mesmo lugar. Costuma ser ativação presencial.",
+          "cluster_unlabeled": "Ponto sem identificação",
+          "coordinate_hidden": "coordenada oculta",
+          "badge_event": "evento",
+          "gaps": "Sem cidade",
+          "gap_outside": "Fora dos municípios importados",
+          "gap_outside_with_country": "Fora dos municípios importados ({country})",
+          "gap_no_origin": "Sem localização registrada",
+          "empty": "Nada neste mês",
+          "footnote": "Origem = primeira posição registrada pelo aparelho, gravada quando a permissão de localização é concedida. {within1h} contas registraram origem em até 1 hora da criação. {located} tiveram a cidade identificada, {outside} ficaram fora dos municípios importados e {missing} não registraram localização.",
+          "by_country": "Por país",
+          "by_platform": "Sistema operacional",
+          "country_unidentified": "País não identificado",
+          "country_hint": "O catálogo de fronteiras tem sete países. Contas nascidas fora deles ficam sem país mesmo tendo coordenada.",
+          "platform_unknown": "Não registrado",
+          "platform_hint": "Sistema do aparelho com que a conta foi criada, não o atual."
         }
       }
     },

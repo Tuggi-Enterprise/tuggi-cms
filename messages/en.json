@@ -101,7 +101,8 @@
     "newsletter": "Newsletter",
     "geography": "Demand",
     "catalog": "Catalog",
-    "system_audio": "System Audio"
+    "system_audio": "System Audio",
+    "acquisition": "Acquisition"
   },
   "Pages": {
     "Login": {
@@ -347,6 +348,43 @@
         "catalog": {
           "title": "Catalog",
           "subtitle": "POI inventory, content quality and authors"
+        },
+        "acquisition": {
+          "title": "Acquisition",
+          "subtitle": "Where this month’s new accounts came from",
+          "month": "Month",
+          "updating": "updating",
+          "no_coverage": "This month predates location capture at sign-up. Accounts still show up, but the origin of most is unknown — the gap is in the data, not in acquisition.",
+          "stat_total": "New accounts",
+          "stat_total_sub": "{avg} per day on average",
+          "stat_located": "With a city",
+          "stat_located_sub": "{cities} cities across {countries} countries",
+          "stat_partner": "With a partner",
+          "stat_clusters": "Born together",
+          "stat_clusters_sub": "accounts in repeated spots",
+          "by_day": "Accounts per day",
+          "cumulative": "Running total",
+          "with_partner": "With partner",
+          "without_partner": "No partner",
+          "by_city": "By city",
+          "by_partner": "By partner",
+          "clusters": "Where accounts are born together",
+          "clusters_hint": "Spots where several accounts were created in the same place. Usually on-site activation.",
+          "cluster_unlabeled": "Unidentified spot",
+          "coordinate_hidden": "coordinate hidden",
+          "badge_event": "event",
+          "gaps": "No city",
+          "gap_outside": "Outside imported municipalities",
+          "gap_outside_with_country": "Outside imported municipalities ({country})",
+          "gap_no_origin": "No location recorded",
+          "empty": "Nothing this month",
+          "footnote": "Origin = the first position the device recorded, saved when location permission is granted. {within1h} accounts recorded an origin within an hour of sign-up. {located} had their city identified, {outside} fell outside the imported municipalities and {missing} recorded no location.",
+          "by_country": "By country",
+          "by_platform": "Operating system",
+          "country_unidentified": "Country not identified",
+          "country_hint": "The boundary catalogue holds seven countries. Accounts born elsewhere have no country even with a coordinate.",
+          "platform_unknown": "Not recorded",
+          "platform_hint": "The system of the device the account was created on, not the current one."
         }
       }
     },

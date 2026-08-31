@@ -67,6 +67,7 @@ export function Header({ className }: { className?: string }) {
     { name: t('catalog'), href: '/dashboard/reports/catalog', icon: Database, category: 'reports' },
     { name: t('geography'), href: '/dashboard/reports/geography', icon: MapPin, category: 'reports' },
     { name: t('users'), href: '/dashboard/reports/users', icon: Users, category: 'reports' },
+    { name: t('acquisition'), href: '/dashboard/reports/acquisition', icon: MapPin, category: 'reports' },
     { name: t('engagement'), href: '/dashboard/reports/engagement', icon: Activity, category: 'reports' },
     { name: t('poi_migration'), href: '/poi-processing', icon: ArrowRightLeft, category: 'admin' },
     { name: t('osm_importer'), href: '/osm-importer', icon: Database, category: 'admin' },

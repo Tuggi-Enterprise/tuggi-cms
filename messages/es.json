@@ -101,7 +101,8 @@
     "newsletter": "Newsletter",
     "geography": "Demanda",
     "catalog": "Catálogo",
-    "system_audio": "Audios de Sistema"
+    "system_audio": "Audios de Sistema",
+    "acquisition": "Adquisición"
   },
   "Pages": {
     "Login": {
@@ -336,6 +337,43 @@
         "catalog": {
           "title": "Catálogo",
           "subtitle": "Inventario de POIs, calidad de contenido y autores"
+        },
+        "acquisition": {
+          "title": "Adquisición",
+          "subtitle": "De dónde vinieron las cuentas nuevas del mes",
+          "month": "Mes",
+          "updating": "actualizando",
+          "no_coverage": "Este mes es anterior al registro de ubicación al crear la cuenta. Los registros aparecen, pero el origen de la mayoría es desconocido: la laguna es de datos, no de adquisición.",
+          "stat_total": "Cuentas nuevas",
+          "stat_total_sub": "promedio de {avg} por día",
+          "stat_located": "Con ciudad",
+          "stat_located_sub": "{cities} ciudades en {countries} países",
+          "stat_partner": "Con socio",
+          "stat_clusters": "Nacieron juntas",
+          "stat_clusters_sub": "cuentas en puntos repetidos",
+          "by_day": "Cuentas por día",
+          "cumulative": "Acumulado",
+          "with_partner": "Con socio",
+          "without_partner": "Sin socio",
+          "by_city": "Por ciudad",
+          "by_partner": "Por socio",
+          "clusters": "Dónde nacen juntas las cuentas",
+          "clusters_hint": "Puntos donde varias cuentas se crearon en el mismo lugar. Suele ser activación presencial.",
+          "cluster_unlabeled": "Punto sin identificar",
+          "coordinate_hidden": "coordenada oculta",
+          "badge_event": "evento",
+          "gaps": "Sin ciudad",
+          "gap_outside": "Fuera de los municipios importados",
+          "gap_outside_with_country": "Fuera de los municipios importados ({country})",
+          "gap_no_origin": "Sin ubicación registrada",
+          "empty": "Nada este mes",
+          "footnote": "Origen = primera posición registrada por el dispositivo, guardada cuando se concede el permiso de ubicación. {within1h} cuentas registraron origen dentro de una hora del registro. {located} tuvieron su ciudad identificada, {outside} quedaron fuera de los municipios importados y {missing} no registraron ubicación.",
+          "by_country": "Por país",
+          "by_platform": "Sistema operativo",
+          "country_unidentified": "País no identificado",
+          "country_hint": "El catálogo de fronteras tiene siete países. Las cuentas nacidas fuera quedan sin país aunque tengan coordenada.",
+          "platform_unknown": "No registrado",
+          "platform_hint": "Sistema del dispositivo con el que se creó la cuenta, no el actual."
         }
       }
     },
