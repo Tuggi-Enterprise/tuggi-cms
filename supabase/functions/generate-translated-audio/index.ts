@@ -11,6 +11,10 @@ import {
   GenerateTranslatedAudioSchema,
 } from '../_shared/validation-schemas.ts';
 import { createAuditLogger } from '../_shared/audit-logger.ts';
+import {
+  decideContentProduction,
+  createProductionRefusedResponse,
+} from '../_shared/content-production-gate.ts';
 import { rebuildReadModel } from '../_shared/read-model.ts';
 
 const corsHeaders = {
@@ -368,6 +372,18 @@ serve(async (req) => {
     return createRateLimitResponse(rateLimit, corsHeaders)
   }
   console.log(`[Generate-Translated-Audio] ✅ Rate limit OK (${rateLimit.remaining} remaining)`)
+
+  // ✅ BR-CONTEUDO-003 item 5 — GATE DE PRODUÇÃO, NO CORPO DA FUNÇÃO.
+  // Every path below this line spends LLM (translation, POI name) and/or TTS:
+  // route mode, POI name-only mode and the full POI package. None of them
+  // short-circuits on content that already exists, so there is no idempotent
+  // request to protect here — whoever gets past this point spends money.
+  // Refused in the instant: no queue, no promise, nothing produced later.
+  const productionGate = await decideContentProduction(authResult, 'Generate-Translated-Audio')
+  if (!productionGate.allowed) {
+    console.log(`[Generate-Translated-Audio] ⛔ BR-CONTEUDO-003: production refused (state=${productionGate.state})`)
+    return createProductionRefusedResponse(productionGate, createSecureHeaders(corsHeaders))
+  }
 
   try {
     // Check authorization (already validated above)

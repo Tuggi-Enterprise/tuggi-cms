@@ -31,6 +31,11 @@ import { createSecureHeaders } from "../_shared/security-headers.ts";
 import { createAuditLogger } from "../_shared/audit-logger.ts";
 import { rebuildReadModel } from "../_shared/read-model.ts";
 import {
+    classifyProductionRequester,
+    decideContentProduction,
+    createProductionRefusedResponse,
+} from "../_shared/content-production-gate.ts";
+import {
     isComposedWithVenue,
     linkedVenueId,
     resolveVenueContext,
@@ -859,6 +864,31 @@ serve(async (req) => {
             `[Generate-Description] ✅ Rate limit OK (${rateLimit.remaining} remaining)`,
         );
 
+        // ✅ BR-CONTEUDO-003 item 5 — GATE DE PRODUÇÃO, NO CORPO DA FUNÇÃO.
+        // Both bodies of this endpoint spend LLM + TTS (contract
+        // `docs/contracts/edge-functions.md`): the batch is the native
+        // pre-fetch, the single is the tourist's approach. The CMS operator and
+        // the platform are out of the rule's scope, not exempted from it — the
+        // gate itself makes that distinction.
+        //
+        // It runs BEFORE the body is parsed on purpose: the answer does not
+        // depend on which POI was asked for, and reading the entitlement is one
+        // round trip against a request that would otherwise cost two paid APIs
+        // per item.
+        const productionGate = await decideContentProduction(
+            authResult,
+            "Generate-Description",
+        );
+        if (!productionGate.allowed) {
+            console.log(
+                `[Generate-Description] ⛔ BR-CONTEUDO-003: production refused (state=${productionGate.state})`,
+            );
+            return createProductionRefusedResponse(
+                productionGate,
+                createSecureHeaders(corsHeaders),
+            );
+        }
+
         // ✅ PARSE REQUEST BODY (sem validação Zod - aceita qualquer idioma)
         const body = await req.json();
         const isBatch = !!body.requests && Array.isArray(body.requests);
@@ -871,11 +901,9 @@ serve(async (req) => {
         const generatedBy: GeneratedByInfo = {
             user_id: authResult.userId!,
             email: authResult.email!,
-            source: authResult.role === "service_role"
-                ? "system"
-                : (authResult.role === "admin" || authResult.role === "super_admin" || authResult.role === "editor")
-                    ? "cms_admin"
-                    : "app_user",
+            // SSOT with the production gate above: one spelling of "who is
+            // asking", in `_shared/content-production-gate.ts`.
+            source: classifyProductionRequester(authResult.role),
         };
         console.log(
             `[Generate-Description] 📋 Generated-by: ${generatedBy.source} (${generatedBy.email})`,
