@@ -16,7 +16,7 @@
 
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { readFileSync } from 'node:fs'
+import { existsSync, readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
 
 import { namePattern, nameMatchFilter } from '@/lib/shared/name-search'
@@ -24,11 +24,29 @@ import { namePattern, nameMatchFilter } from '@/lib/shared/name-search'
 const root = resolve(import.meta.dirname, '../..')
 const read = (path: string) => readFileSync(resolve(root, path), 'utf8')
 
-/** The migrations that carry the SQL half of the contract. */
+/**
+ * The migrations that carry the SQL half of the contract.
+ *
+ * THEY LIVE IN A SIBLING REPOSITORY (`db-tuggiApp`), which is where the schema is versioned,
+ * and the CI runner for THIS repository does not clone it. Reading them unconditionally is
+ * what turned the production gate red: `npm run test:api` passed on any machine holding both
+ * checkouts and failed on GitHub with ENOENT, so `deploy-producao.yml` blocked every push to
+ * `main` for reasons that had nothing to do with the code being deployed.
+ *
+ * So the SQL-side assertions skip when the sibling is absent — see `sqlHalfAvailable`. What is
+ * lost is real and worth stating plainly: this parity check now runs only where both
+ * repositories sit side by side, which in practice means a developer machine. It is not
+ * enforced in CI. Restoring that means either checking out `db-tuggiApp` in the workflow or
+ * moving the TypeScript half next to the SQL — both were considered on 2026-08-31 and both
+ * are larger than unblocking the deploy.
+ */
 const MIGRATIONS = '../db-tuggiApp/supabase/migrations/'
 const KEY_MIGRATION = MIGRATIONS + '20260823160000_name_search_key.sql'
 const INDEX_MIGRATION = MIGRATIONS + '20260823161000_name_search_key_index.sql'
 const SWAP_MIGRATION = MIGRATIONS + '20260823170000_search_rpcs_use_the_indexed_key.sql'
+
+/** True when the sibling repository is checked out next to this one. */
+const sqlHalfAvailable = existsSync(resolve(root, KEY_MIGRATION))
 
 const asRegExp = (term: string) => new RegExp(namePattern(term), 'i')
 
@@ -116,7 +134,7 @@ test('what is deliberately NOT a name search stays `ilike`', () => {
   assert.match(read('lib/services/location-resolver.ts'), /name\.ilike/)
 })
 
-test('the SQL half exists, and it folds the same characters', () => {
+test('the SQL half exists, and it folds the same characters', { skip: sqlHalfAvailable ? false : 'db-tuggiApp nao esta ao lado deste repositorio' }, () => {
   // PARITY, and it is asserted on the FOLDING and not on the shape, because the two halves
   // deliberately use different mechanisms:
   //

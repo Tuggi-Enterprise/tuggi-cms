@@ -417,7 +417,24 @@ test('DS-COPY-015: the quality nudge classifies and never blocks', () => {
   assert.equal(storyNudge(''), null, 'an empty answer is not a bad answer, it is no answer')
 })
 
-test('BR-B2B-028: a unicidade do CNPJ é do banco, e o CMS não a reimplementa', () => {
+/**
+ * A migration mora no repositório irmão `db-tuggiApp`, que versiona o schema, e o runner de CI
+ * deste repositório não o clona. Ler sem guarda foi o que deixou o portão de produção vermelho:
+ * `npm run test:api` passava em qualquer máquina com os dois checkouts e falhava no GitHub com
+ * ENOENT, bloqueando todo push na `main` por um motivo alheio ao código sendo publicado.
+ *
+ * O que se perde ao pular é real: esta paridade passa a ser verificada só onde os dois
+ * repositórios estão lado a lado, na prática a máquina de quem desenvolve. Não é mais garantida
+ * no CI. Recuperar isso exige clonar o `db-tuggiApp` no workflow ou mudar a metade TypeScript
+ * para junto do SQL — as duas saídas foram consideradas em 31/08/2026 e as duas são maiores que
+ * destravar o deploy.
+ */
+const CNPJ_MIGRATION = resolve(
+  __dirname,
+  '../../../db-tuggiApp/supabase/migrations/20260819190000_cnpj_de_cliente_e_unico_no_banco.sql'
+)
+
+test('BR-B2B-028: a unicidade do CNPJ é do banco, e o CMS não a reimplementa', { skip: existsSync(CNPJ_MIGRATION) ? false : 'db-tuggiApp nao esta ao lado deste repositorio' }, () => {
   // A GARANTIA MUDOU DE LUGAR EM 2026-08-19, e este teste é o que impede a volta.
   //
   // Até essa data ela morava em duas leituras de aplicação — `lookupTaxId`, na porta pública do
@@ -430,13 +447,7 @@ test('BR-B2B-028: a unicidade do CNPJ é do banco, e o CMS não a reimplementa',
   // Agora é `clients_tax_id_normalized_uk`, índice ÚNICO sobre a expressão normalizada
   // (migration `20260819190000`), provado contra o banco no dia: duas grafias do mesmo CNPJ
   // devolvem `unique_violation`.
-  const migration = readFileSync(
-    resolve(
-      __dirname,
-      '../../../db-tuggiApp/supabase/migrations/20260819190000_cnpj_de_cliente_e_unico_no_banco.sql'
-    ),
-    'utf8'
-  )
+  const migration = readFileSync(CNPJ_MIGRATION, 'utf8')
   assert.match(migration, /create unique index concurrently/i)
   assert.match(migration, /clients_tax_id_normalized_uk/)
   // A MESMA expressão de `normalizedTaxId` e de `cnpjLookupValues`. Um índice que normalizasse
