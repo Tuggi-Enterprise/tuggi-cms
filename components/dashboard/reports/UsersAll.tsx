@@ -6,9 +6,18 @@ import { useTranslations, useLocale } from 'next-intl'
 import { dashboardService, AppUserDetailed } from '@/lib/services/dashboard-service'
 import { StatCard } from '@/components/ui/StatCard'
 import { UserDetailModal } from '@/components/dashboard/UserDetailModal'
+import { appUserInitial, appUserLabel } from '@/lib/format/user-identity'
 
 const TUGGI_COLORS = { blue: '#00A8E8', purple: '#8B5CF6', orange: '#FF6F00', green: '#10B981' }
 
+/**
+ * The whole app base, one row per tourist.
+ *
+ * Identified by `nickname`, falling back to the first 8 characters of the `user_id` —
+ * **BR-USUARIO-042**. The `nickname` used to be the subtitle under the full name; it is the
+ * identifier now, and the subtitle keeps only the country. The search still matches name and
+ * e-mail over the loaded array (item 3: filtering is not showing).
+ */
 export function UsersAll() {
   const [users, setUsers] = useState<AppUserDetailed[]>([])
   const [analytics, setAnalytics] = useState<{ totalUsers: number; activeUsers30d: number; totalPremiumUsers: number } | null>(null)
@@ -115,11 +124,11 @@ export function UsersAll() {
                   <td className="p-4">
                     <div className="flex items-center">
                       <div className="h-10 w-10 rounded-full flex items-center justify-center text-white font-bold mr-3 shrink-0" style={{ background: `linear-gradient(135deg, ${TUGGI_COLORS.blue}, ${TUGGI_COLORS.purple})` }}>
-                        {user.full_name?.charAt(0) || '?'}
+                        {appUserInitial(user)}
                       </div>
                       <div className="min-w-0">
-                        <p className="font-bold text-gray-900 dark:text-white truncate">{user.full_name || 'Anonymous'}</p>
-                        <p className="text-xs text-gray-500 truncate">@{user.nickname || 'none'} · {user.country || 'Global'}</p>
+                        <p className="font-bold text-gray-900 dark:text-white truncate">{appUserLabel(user)}</p>
+                        <p className="text-xs text-gray-500 truncate">{user.country || 'Global'}</p>
                       </div>
                     </div>
                   </td>

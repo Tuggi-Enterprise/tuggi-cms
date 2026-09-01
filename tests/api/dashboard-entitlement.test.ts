@@ -5,8 +5,8 @@
  * where this route is listed too. What is pinned here is what only this one does:
  *
  * 1. the two RPCs are called BY NAME, with bounded arguments — the route is the only
- *    barrier in front of PostgREST, and `?limit=1e9` on a list that carries names and
- *    e-mails is a full read of personal data dressed up as a dashboard request;
+ *    barrier in front of PostgREST, and `?limit=1e9` on a list of every paying account is a
+ *    full read of personal data dressed up as a dashboard request;
  * 2. `maxBalanceMinutes` absent means "no ceiling" and must reach the RPC as `null`. As
  *    a number it would mean "balance at most zero", which is nobody;
  * 3. **a missing RPC does not take the dashboard down.** The migration behind both RPCs
@@ -133,7 +133,9 @@ test('#656: an absent balance ceiling reaches the RPC as null, not as zero', asy
 })
 
 test('#656: a caller cannot widen the list past its ceiling', async () => {
-  // The rows carry `full_name` and `email`: an unbounded limit here is a dump of people.
+  // The rows carry no name and no e-mail any more (BR-USUARIO-042), but they still carry a
+  // pseudonym, a balance and a purchase history per person: an unbounded limit is a dump of
+  // the paying base, and the ceiling is the only thing in front of PostgREST.
   asAdmin()
   await GET(new Request('http://localhost/api/dashboard/entitlement?limit=1000000000'))
   assert.equal(argsOf('dashboard_metered_users').limit_count, 1000)

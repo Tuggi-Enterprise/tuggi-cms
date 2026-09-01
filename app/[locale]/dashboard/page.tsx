@@ -16,6 +16,7 @@ import {
   UserLocationPin, WaitlistStats, WaitlistPin, PaidAccessSnapshot,
 } from '@/lib/services/dashboard-service'
 import { LOW_BALANCE_CEILING_MINUTES } from '@/lib/credit/entitlement'
+import { appUserLabel } from '@/lib/format/user-identity'
 import { RecentVisitCard } from '@/components/dashboard/RecentVisitCard'
 import { UpcomingExpirationsCard } from '@/components/dashboard/UpcomingExpirationsCard'
 import { LowBalanceCard } from '@/components/dashboard/LowBalanceCard'
@@ -151,7 +152,9 @@ export default function DashboardPage() {
       return {
         id: `u-${p.user_id}`,
         position: live ? { lat: live.lat, lng: live.lng } : { lat: p.latitude, lng: p.longitude },
-        title: p.nickname || 'User',
+        // The pin names the tourist by `nickname`, falling back to the truncated `user_id`
+        // — BR-USUARIO-042. It used to fall back to the word "User", which named nobody.
+        title: appUserLabel(p),
         color: p.is_premium ? TUGGI_COLORS.orange : TUGGI_COLORS.blue,
         active: !!live,
       }
@@ -163,7 +166,7 @@ export default function DashboardPage() {
         markers.push({
           id: `a-${u.user_id}`,
           position: { lat: u.lat, lng: u.lng },
-          title: 'Active User',
+          title: appUserLabel(u),
           color: TUGGI_COLORS.green,
           active: true,
         })

@@ -7,9 +7,12 @@
  * owns the NAMES of those facts and groups a balance into a band; no function here reads
  * `ends_at` or compares a balance against a date to infer a right.
  *
- * The bands are the Tech Lead's decision on #656, and the reason is the catalogue: the
- * smallest pass on sale is 600 minutes (**BR-MONETIZACAO-048**), so less than one hour
- * left is less than 10% of the smallest package.
+ * The bands are the Tech Lead's decision on #656, and the 60-minute edge has an owner: it
+ * is the **first warning threshold of BR-MONETIZACAO-060, item 2** — the tourist is already
+ * told when one hour is left, and the operator's list agrees with what he saw. The size of
+ * the step is read against the catalogue (the smallest pass on sale is 600 minutes,
+ * **BR-MONETIZACAO-048**): less than one hour left is less than 10% of the smallest package.
+ * The 048 is where the 600 comes from, and nothing else here.
  *
  * **Formatting minutes is not from here.** The owner of the `5 h 20 min` shape is
  * `lib/format/duration.ts`, by spec (`docs/design/spec-cms-credito-por-hora-2026-08.md`),

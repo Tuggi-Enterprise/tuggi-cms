@@ -1,9 +1,16 @@
 /**
  * The balance bands of #656, and the boundary they must never cross.
  *
- * Critical 1–59, attention 60–299, comfortable 300+ — the Tech Lead's decision, with the
- * reason in the catalogue: the smallest pass on sale is 600 minutes (**BR-MONETIZACAO-048**),
- * so less than one hour left is less than 10% of the smallest package.
+ * Critical 1–59, attention 60–299, comfortable 300+. The 60-minute edge is not a design
+ * choice made here: it is the **first warning threshold of BR-MONETIZACAO-060, item 2** —
+ * the product already tells the tourist when one hour is left, and a dashboard that called
+ * something else "critical" would be a second ruler for the same moment. Sizing it against
+ * the catalogue (the smallest pass on sale is 600 minutes, **BR-MONETIZACAO-048**) is where
+ * the 600 comes from, and that is all the 048 answers for here — it promises no band.
+ *
+ * The visual shape of the three bands — one scale, hue is severity, the word of the step is
+ * always printed — is **DS-COMPONENTE-063**
+ * (`docs/design/spec-dashboard-acesso-e-saldo-2026-09.md`).
  *
  * The last test is the one that matters in six months: **BR-MONETIZACAO-046** says
  * `drive.get_entitlement` is the single implementation of the state resolution. A screen
@@ -33,7 +40,9 @@ import { formatDuration } from '@/lib/format/duration'
 
 const REPO_ROOT = resolve(import.meta.dirname, '../..')
 
-test('BR-MONETIZACAO-048: the three bands, and the exact edge of each one', () => {
+test('BR-MONETIZACAO-060: the three bands, and the exact edge of each one', () => {
+  // 60 is the first warning threshold of item 2, read as a floor: below one hour left the
+  // tourist has already been warned, and the operator's list must agree with what he saw.
   assert.equal(balanceBand(1), 'critical')
   assert.equal(balanceBand(59), 'critical')
   assert.equal(balanceBand(60), 'attention')
@@ -80,7 +89,7 @@ test('the badge origin is the last grant, and only `purchase` is a purchase', ()
   }
 })
 
-test('the bands are in ascending order of comfort — the order of the filter on screen', () => {
+test('DS-COMPONENTE-063: the bands are in ascending order of comfort — the order of the filter on screen', () => {
   assert.deepEqual([...BALANCE_BANDS], ['critical', 'attention', 'comfortable'])
 })
 

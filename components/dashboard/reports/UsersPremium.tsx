@@ -6,9 +6,18 @@ import { useTranslations, useLocale } from 'next-intl'
 import { dashboardService, AppUserDetailed, SubscriptionStats } from '@/lib/services/dashboard-service'
 import { StatCard } from '@/components/ui/StatCard'
 import { MeteredBalances } from '@/components/dashboard/reports/MeteredBalances'
+import { appUserInitial, appUserLabel } from '@/lib/format/user-identity'
 
 const TUGGI_COLORS = { blue: '#00A8E8', purple: '#8B5CF6', orange: '#FF6F00', green: '#10B981', red: '#EF4444' }
 
+/**
+ * Subscription by term — the half of paid access that still expires on a date.
+ *
+ * The subscriber is identified by `nickname`, falling back to the first 8 characters of the
+ * `user_id` — **BR-USUARIO-042**. The search still matches name and e-mail (item 3:
+ * filtering is not showing) over the payload the old RPC keeps returning; it just never
+ * prints what matched.
+ */
 export function UsersPremium() {
   const [users, setUsers] = useState<AppUserDetailed[]>([])
   const [subStats, setSubStats] = useState<SubscriptionStats | null>(null)
@@ -151,11 +160,10 @@ export function UsersPremium() {
                     <td className="p-6">
                       <div className="flex items-center">
                         <div className="h-10 w-10 rounded-xl flex items-center justify-center text-white font-bold mr-4 shadow-lg overflow-hidden shrink-0" style={{ background: `linear-gradient(135deg, ${TUGGI_COLORS.blue}, ${TUGGI_COLORS.purple})` }}>
-                          {user.full_name?.charAt(0).toUpperCase() || '?'}
+                          {appUserInitial(user)}
                         </div>
                         <div className="min-w-0">
-                          <p className="font-bold text-gray-900 dark:text-white truncate">{user.full_name || 'Anonymous'}</p>
-                          <p className="text-xs text-gray-500 truncate">{user.email}</p>
+                          <p className="font-bold text-gray-900 dark:text-white truncate">{appUserLabel(user)}</p>
                         </div>
                       </div>
                     </td>

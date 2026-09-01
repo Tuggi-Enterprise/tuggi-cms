@@ -6,9 +6,19 @@ import {
   X, Crown, MapPin, Route, Headphones, LogIn, Building2, Smartphone, History, Loader2,
 } from 'lucide-react'
 import { dashboardService, UserDetail } from '@/lib/services/dashboard-service'
+import { appUserInitial, appUserLabel } from '@/lib/format/user-identity'
 
 const TUGGI = { blue: '#00A8E8', purple: '#8B5CF6', orange: '#FF6F00', green: '#10B981' }
 
+/**
+ * The tourist's file, opened from the base report.
+ *
+ * The header identified the same person three ways — full name in the title, its initial in
+ * the avatar, and `@nickname · e-mail` underneath. It is one identifier now: the `nickname`,
+ * falling back to the first 8 characters of the `user_id` (**BR-USUARIO-042**). What the file
+ * is for — trips, kilometres, cities, device, subscription history — is untouched; the rule
+ * decides nothing about country, language, platform or handset.
+ */
 export function UserDetailModal({ userId, onClose }: { userId: string; onClose: () => void }) {
   const [detail, setDetail] = useState<UserDetail | null>(null)
   const [isLoading, setIsLoading] = useState(true)
@@ -68,18 +78,17 @@ export function UserDetailModal({ userId, onClose }: { userId: string; onClose: 
             {/* Identidade */}
             <div className="flex items-center gap-4">
               <div className="h-14 w-14 rounded-2xl flex items-center justify-center text-white font-black text-xl shrink-0" style={{ background: `linear-gradient(135deg, ${TUGGI.blue}, ${TUGGI.purple})` }}>
-                {detail.full_name?.charAt(0).toUpperCase() || '?'}
+                {appUserInitial(detail)}
               </div>
               <div className="min-w-0">
                 <div className="flex items-center gap-2">
-                  <h4 className="text-lg font-black text-gray-900 dark:text-white truncate">{detail.full_name || 'Anonymous'}</h4>
+                  <h4 className="text-lg font-black text-gray-900 dark:text-white truncate">{appUserLabel(detail)}</h4>
                   {detail.is_premium && (
                     <span className="px-2 py-0.5 bg-orange-50 dark:bg-orange-900/20 text-orange-600 rounded-full text-[9px] font-black uppercase tracking-wider flex items-center gap-1">
                       <Crown className="h-3 w-3" /> {detail.subscription_tier_display_name || 'Premium'}
                     </span>
                   )}
                 </div>
-                <p className="text-xs text-gray-500 truncate">@{detail.nickname || '—'} · {detail.email || '—'}</p>
                 <p className="text-[11px] text-gray-400 mt-0.5 flex items-center gap-1">
                   <MapPin className="h-3 w-3" /> {detail.country || 'Global'} · {detail.language || '—'}
                 </p>

@@ -69,6 +69,27 @@ async function fetchDashboardRoute<T>(path: string): Promise<RpcResult<T>> {
 // TIPOS
 // ============================================================================
 
+/**
+ * One row of the "expiring in 30 days" queue of the Overview, from
+ * `core.dashboard_user_analytics().upcoming_expirations`.
+ *
+ * It used to be declared inside `UpcomingExpirationsCard` **and** here, inline: the same
+ * payload described twice, and the two only agreed by luck (CLAUDE.md §6). The row types of
+ * this file are the owner; the card imports it.
+ *
+ * `nickname` is optional because the RPC does not select it yet — the queue is served by an
+ * old function, and until `data` adds the column every row falls back to the truncated
+ * `user_id` (**BR-USUARIO-042** item 2). `full_name` and `email` are gone from the type on
+ * purpose: nothing on the screen may read them, and the payload still carrying them is
+ * phase 2, not this one.
+ */
+export interface UpcomingExpiration {
+  user_id: string
+  nickname?: string | null
+  tier_name: string
+  end_date: string
+}
+
 export interface DashboardStats {
   // POI Inventory
   totalPOIs: number
@@ -94,14 +115,8 @@ export interface DashboardStats {
   avgTripDuration: string
   tripsByPlatform: Array<{ platform: string; count: number }>
   totalPremiumUsers: number
-  upcomingExpirations: Array<{
-    user_id: string
-    full_name: string
-    email: string
-    tier_name: string
-    end_date: string
-  }>
-  
+  upcomingExpirations: UpcomingExpiration[]
+
   // Temporal Data (últimos 30 dias - rolling window)
   mauHistory: Array<{ date: string; count: number }>
   userGrowth: Array<{ month: string; count: number }>
@@ -325,11 +340,15 @@ export interface EntitlementOverview {
  * `state` arrives from the database resolved by `drive.get_entitlement` and is **never
  * recomputed here** — BR-MONETIZACAO-046. `balance_minutes` is minutes and stays minutes
  * in code; hours are a surface concern (`lib/format/duration.ts`).
+ *
+ * **The 11 columns do not include `full_name` or `email`, and never will**
+ * (`docs/contracts/banco-para-cms.md`, and BR-USUARIO-042 item 5: a new dashboard RPC is
+ * not born returning a tourist's name or e-mail). This type had both while the migration
+ * was being written; they are out before it is applied, so nothing here ever read them in
+ * production. The tourist is `nickname`, falling back to the truncated `user_id`.
  */
 export interface MeteredUser {
   user_id: string
-  full_name: string | null
-  email: string | null
   nickname: string | null
   state: EntitlementState
   balance_minutes: number
@@ -890,8 +909,6 @@ class DashboardService {
 
       const meteredUsers: MeteredUser[] = (data?.meteredUsers?.data || []).map((u: any) => ({
         user_id: u.user_id,
-        full_name: u.full_name ?? null,
-        email: u.email ?? null,
         nickname: u.nickname ?? null,
         // The state arrives resolved from the database (BR-MONETIZACAO-046); never inferred here.
         state: u.state as EntitlementState,

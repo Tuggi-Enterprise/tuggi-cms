@@ -13,6 +13,7 @@ import {
   grantOrigin,
 } from '@/lib/credit/entitlement'
 import { formatDuration } from '@/lib/format/duration'
+import { appUserInitial, appUserLabel } from '@/lib/format/user-identity'
 import { cn } from '@/lib/utils'
 
 const TUGGI_COLORS = { blue: '#00A8E8', purple: '#8B5CF6', orange: '#FF6F00', green: '#10B981', red: '#EF4444' }
@@ -37,6 +38,10 @@ const BAND_STYLE: Record<BalanceBand, string> = {
  *
  * The state (`unlimited`/`metered`/`free`) arrives resolved from the database —
  * BR-MONETIZACAO-046. Nothing here reads `ends_at` to decide whether someone has access.
+ *
+ * The person in each row is a `nickname`, falling back to the first 8 characters of the
+ * `user_id` — **BR-USUARIO-042**. The search matches the same thing the row prints, because
+ * the RPC brings nothing else to match on.
  */
 export function MeteredBalances() {
   const [users, setUsers] = useState<MeteredUser[]>([])
@@ -66,11 +71,12 @@ export function MeteredBalances() {
     return users.filter((user) => {
       if (band !== 'all' && balanceBand(user.balance_minutes) !== band) return false
       if (!term) return true
-      return (
-        user.full_name?.toLowerCase().includes(term) ||
-        user.nickname?.toLowerCase().includes(term) ||
-        user.email?.toLowerCase().includes(term)
-      )
+      // Only the `nickname` is here to match: `core.dashboard_metered_users` does not return
+      // `full_name` or `email` and never did (`docs/contracts/banco-para-cms.md`). Matching on
+      // a field that never arrives is not a search, it is a box that answers "nothing found".
+      // The e-mail search of BR-USUARIO-042 item 3 belongs to the server for this list — a new
+      // argument at the end of the RPC signature, matched where the value lives.
+      return user.nickname?.toLowerCase().includes(term) ?? false
     })
   }, [users, band, searchTerm])
 
@@ -167,13 +173,12 @@ export function MeteredBalances() {
                             className="h-10 w-10 rounded-xl flex items-center justify-center text-white font-bold mr-4 shadow-lg overflow-hidden shrink-0"
                             style={{ background: `linear-gradient(135deg, ${TUGGI_COLORS.blue}, ${TUGGI_COLORS.purple})` }}
                           >
-                            {(user.full_name || user.nickname || user.email || '?').charAt(0).toUpperCase()}
+                            {appUserInitial(user)}
                           </div>
                           <div className="min-w-0">
                             <p className="font-bold text-gray-900 dark:text-white truncate">
-                              {user.full_name || user.nickname || t('labels.unknown_user')}
+                              {appUserLabel(user)}
                             </p>
-                            <p className="text-xs text-gray-500 truncate">{user.email}</p>
                           </div>
                         </div>
                       </td>

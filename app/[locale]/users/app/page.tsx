@@ -5,7 +5,7 @@ import { useSupabaseClient } from '@supabase/auth-helpers-react'
 import { 
   Smartphone, Search, RefreshCw, Filter, Crown,
   CreditCard, TrendingUp, AlertCircle, ChevronDown,
-  Apple, Zap, User, Activity, Mail, Play, Plane, ArrowUpDown, ArrowUp, ArrowDown,
+  Apple, Zap, User, Activity, Play, Plane, ArrowUpDown, ArrowUp, ArrowDown,
   Link2, Building2, QrCode, Loader2, X, Trash2
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
@@ -16,6 +16,7 @@ import { CreditPanel } from '@/components/admin/credit/CreditPanel'
 import { GrantCreditDialog } from '@/components/admin/credit/GrantCreditDialog'
 import type { GrantTarget } from '@/components/admin/credit/types'
 import { useCmsUser } from '@/lib/hooks/useCmsUser'
+import { appUserInitial, appUserLabel } from '@/lib/format/user-identity'
 import { useTranslations } from 'next-intl'
 
 // PlayCircle icon (not in lucide-react standard)
@@ -30,6 +31,16 @@ const PlayCircle = ({ className }: { className?: string }) => (
 // TYPES
 // ============================================================================
 
+/**
+ * One tourist, as the old `dashboard_app_users_detailed` RPC still returns them.
+ *
+ * `full_name` and `email` stay in the type and stay out of the screen — **BR-USUARIO-042**.
+ * Two things read them, and neither is display: the search box, because filtering is not
+ * showing (item 3, and the operator finds the account by the address the tourist gave him);
+ * and `GrantTarget`, whose confirmation line is sub judice and is not this card's to change
+ * (the rule's 4th edge case). When phase 2 drops both from the payload the search has to
+ * move to the server on the same wave, or it goes quiet without breaking a single screen.
+ */
 interface AppUser {
   user_id: string
   full_name: string | null
@@ -362,20 +373,13 @@ const UserDetailModal = ({
               <div className="flex items-start justify-between">
                 <div className="flex items-center">
                   <div className="h-16 w-16 rounded-full bg-gradient-to-br from-tuggi-blue to-purple-500 flex items-center justify-center text-white text-2xl font-bold mr-4">
-                    {(user.full_name || user.nickname || 'U').charAt(0).toUpperCase()}
+                    {appUserInitial(user)}
                   </div>
                   <div>
                     <h2 className="text-xl font-bold text-gray-900 dark:text-white flex items-center gap-2">
-                      {user.full_name || t('unnamed')}
+                      {appUserLabel(user)}
                       <SubscriptionBadge isPremium={user.is_premium} tierName={user.subscription_tier_display_name} />
                     </h2>
-                    <p className="text-gray-500">@{user.nickname || t('no_nickname')}</p>
-                    {user.email && (
-                      <p className="text-sm text-gray-400 flex items-center mt-1">
-                        <Mail className="h-3 w-3 mr-1" />
-                        {user.email}
-                      </p>
-                    )}
                   </div>
                 </div>
               </div>
@@ -1021,14 +1025,11 @@ export default function AppUsersPage() {
                     <td className="px-6 py-4">
                       <div className="flex items-center">
                         <div className="h-10 w-10 rounded-full bg-gradient-to-br from-tuggi-blue to-purple-500 flex items-center justify-center text-white font-bold mr-3">
-                          {(user.full_name || user.nickname || 'U').charAt(0).toUpperCase()}
+                          {appUserInitial(user)}
                         </div>
                         <div>
                           <p className="font-medium text-gray-900 dark:text-white">
-                            {user.full_name || t('modal.unnamed')}
-                          </p>
-                          <p className="text-sm text-gray-500">
-                            {user.email || `@${user.nickname || 'none'}`}
+                            {appUserLabel(user)}
                           </p>
                         </div>
                       </div>

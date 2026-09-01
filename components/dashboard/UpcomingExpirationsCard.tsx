@@ -3,15 +3,16 @@
 import { Clock, ShieldCheck } from 'lucide-react'
 import { useTranslations } from 'next-intl'
 import { cn } from '@/lib/utils'
+import type { UpcomingExpiration } from '@/lib/services/dashboard-service'
+import { appUserLabel } from '@/lib/format/user-identity'
 
-export interface UpcomingExpiration {
-  user_id: string
-  full_name: string
-  email: string
-  tier_name: string
-  end_date: string
-}
-
+/**
+ * One subscription about to expire, in the left-hand queue of the Overview.
+ *
+ * The tourist is identified by `nickname`, falling back to the first 8 characters of the
+ * `user_id` — **BR-USUARIO-042**. This line used to fall back to the local part of the
+ * e-mail, which is the exact cut the rule's item 2 closes.
+ */
 export const UpcomingExpirationsCard = ({ expiration, locale }: { expiration: UpcomingExpiration, locale: string }) => {
   const diffDays = Math.ceil((new Date(expiration.end_date).getTime() - new Date().getTime()) / (1000 * 60 * 60 * 24));
   const isExpiringSoon = diffDays <= 7;
@@ -41,7 +42,7 @@ export const UpcomingExpirationsCard = ({ expiration, locale }: { expiration: Up
       {/* USER INFO */}
       <div className="flex-1 min-w-0">
         <p className="text-xs font-black text-gray-900 dark:text-white truncate">
-          {expiration.full_name || expiration.email?.split('@')[0] || t('unknown_user')}
+          {appUserLabel(expiration)}
         </p>
         <div className="flex items-center gap-1.5 mt-0.5">
            <span className={cn(

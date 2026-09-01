@@ -6,6 +6,7 @@ import { cn } from '@/lib/utils'
 import type { MeteredUser } from '@/lib/services/dashboard-service'
 import { GRANT_SOURCES, balanceBand, grantOrigin } from '@/lib/credit/entitlement'
 import { formatDuration } from '@/lib/format/duration'
+import { appUserLabel } from '@/lib/format/user-identity'
 
 /**
  * One user about to run out of balance, next to the expiry-by-date card.
@@ -14,6 +15,9 @@ import { formatDuration } from '@/lib/format/duration'
  * — the right-hand list is the other half of the same paid-access block, and the
  * operator reads both in one sweep. What changes is the unit: there it is days left
  * on a term, here it is hours left on a balance.
+ *
+ * The tourist is identified by `nickname`, falling back to the first 8 characters of the
+ * `user_id` — **BR-USUARIO-042**. Neither queue of this fold shows a name or an e-mail.
  *
  * Nothing is computed here. The entitlement state arrives resolved from the database
  * (BR-MONETIZACAO-046), the balance is whatever the RPC returned, and the `5 h 20 min`
@@ -63,7 +67,7 @@ export const LowBalanceCard = ({ user, locale }: { user: MeteredUser; locale: st
       {/* USER INFO */}
       <div className="flex-1 min-w-0">
         <p className="text-xs font-black text-gray-900 dark:text-white truncate">
-          {user.full_name || user.nickname || user.email?.split('@')[0] || t('unknown_user')}
+          {appUserLabel(user)}
         </p>
         <div className="flex items-center gap-1.5 mt-0.5">
           <span
