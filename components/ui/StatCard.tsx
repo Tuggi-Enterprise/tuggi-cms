@@ -49,9 +49,12 @@ export const StatCard = ({
           )} />
           <div className="h-3 w-16 bg-gray-200 dark:bg-gray-700 rounded" />
         </div>
+        {/* The block stands at the height of the number that will replace it, which is now
+            the `subtitle`-aware one above: `h-9` is `text-4xl`'s line, `h-6` is `text-2xl`'s.
+            A skeleton one size short is a row that jumps when the data lands. */}
         <div className={cn(
           "bg-gray-200 dark:bg-gray-700 rounded",
-          isCompact ? "h-6 w-12" : "h-8 w-16"
+          isCompact ? (subtitle ? "h-6 w-12" : "h-9 w-14") : "h-8 w-16"
         )} />
       </div>
     )
@@ -99,14 +102,28 @@ export const StatCard = ({
             {displayLabel}
           </p>
         </div>
-        {/* `leading-none` AFTER the size, and this is not style. `cn` is `tailwind-merge`, which
+        {/* THE NUMBER IS AS BIG AS THE CARD'S OWN SLACK ALLOWS, and the `subtitle` is what
+            spends that slack. A row of these is levelled by its tallest card, and the tallest
+            is always the one carrying a break: two 11px lines plus the 2px gap are 28px that
+            the five cards without a subtitle were leaving empty under their number (#658).
+            `text-4xl` puts 12px of it back into the digits and still clears the row's height
+            by 16px — the number grows INTO the hole, so it never becomes the card that sets
+            the row. A card with a subtitle keeps `text-2xl`: at a sixth of a 1280px row,
+            `40 h 11 min` stops fitting on one line at 31px and a four-digit hour total stops
+            fitting at 25px, so there is no size above this one that both grows and keeps the
+            pago × gratuito break whole (BR-MONETIZACAO-047).
+
+            The ceiling this buys is 6 digits: `123.456` measures 169px against 169px of card
+            at `text-4xl`, and a seventh digit wraps and takes the row's alignment with it.
+
+            `leading-none` AFTER the size, and this is not style. `cn` is `tailwind-merge`, which
             treats a font-size utility as overriding `leading-*` — declared first, it was being
             dropped from the class list, so `text-2xl` painted its own 32px line-height and every
             card in the CMS carried 8px nobody asked for. Order is the fix; the class was already
             there, it just never reached the DOM. */}
         <p className={cn(
           "font-black text-gray-900 dark:text-white",
-          isCompact ? "text-2xl" : "text-3xl",
+          isCompact ? (subtitle ? "text-2xl" : "text-4xl") : "text-3xl",
           "leading-none"
         )}>
           {typeof value === 'number' ? value.toLocaleString() : value}

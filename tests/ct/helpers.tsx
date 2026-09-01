@@ -161,39 +161,52 @@ export function AppUserLinkHarness({
  * The amounts are the ones on the operator's screen when the card was opened: 2 411 minutes
  * consumed, 1 309 of them paid and 1 102 granted (BR-MONETIZACAO-047). They are here so the
  * measurement is taken against the longest real string, never a placeholder that happens to fit.
+ *
+ * `stress` swaps them for the biggest numbers the row is claimed to survive — six digits of
+ * count and four digits of hours — because the number's size now buys a ceiling, and a ceiling
+ * nobody measures is a guess. Today's screen is nowhere near it; the row is meant to reach it
+ * without the alignment moving.
  */
-export function DashboardKpiRowHarness({ split = true }: { split?: boolean }) {
+export function DashboardKpiRowHarness({
+  split = true,
+  stress = false,
+}: {
+  split?: boolean
+  stress?: boolean
+}) {
   const t = useTranslations('Pages.Dashboard')
+  const n = (today: number, ceiling: number) => (stress ? ceiling : today)
+  const consumed = n(2411, 1234 * 60 + 56)
 
   return (
     <div className="p-4 lg:p-6">
       <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3">
         <a data-testid="kpi-approved">
-          <StatCard size="compact" icon={CheckCircle} title={t('labels.approved')} value={1234} color="#10B981" />
+          <StatCard size="compact" icon={CheckCircle} title={t('labels.approved')} value={n(1234, 123456)} color="#10B981" />
         </a>
         <a data-testid="kpi-users">
-          <StatCard size="compact" icon={Users} title={t('labels.users')} value={900} color="#8B5CF6" />
+          <StatCard size="compact" icon={Users} title={t('labels.users')} value={n(900, 123456)} color="#8B5CF6" />
         </a>
         <a data-testid="kpi-active">
-          <StatCard size="compact" icon={Zap} title={t('labels.active_30d')} value={318} color="#10B981" />
+          <StatCard size="compact" icon={Zap} title={t('labels.active_30d')} value={n(318, 123456)} color="#10B981" />
         </a>
         <a data-testid="kpi-paid">
-          <StatCard size="compact" icon={ShieldCheck} title={t('labels.paid_access')} value={412} color="#FF6F00" />
+          <StatCard size="compact" icon={ShieldCheck} title={t('labels.paid_access')} value={n(412, 123456)} color="#FF6F00" />
         </a>
         <a data-testid="kpi-trips">
-          <StatCard size="compact" icon={Play} title={t('labels.total_trips')} value={5871} color="#00A8E8" />
+          <StatCard size="compact" icon={Play} title={t('labels.total_trips')} value={n(5871, 123456)} color="#00A8E8" />
         </a>
         <a data-testid="kpi-consumed">
           <StatCard
             size="compact"
             icon={Timer}
             title={t('labels.consumed_total')}
-            value={formatDuration(2411)}
+            value={formatDuration(consumed)}
             subtitle={
               split
                 ? t('labels.consumption_split', {
-                    paid: formatDuration(1309),
-                    granted: formatDuration(1102),
+                    paid: formatDuration(n(1309, 700 * 60)),
+                    granted: formatDuration(n(1102, 534 * 60 + 56)),
                   })
                 : undefined
             }
