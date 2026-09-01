@@ -841,8 +841,7 @@
           "inert_warning": "This user has unlimited access until {date}. The minutes are added to the balance now and are only consumed once the period ends.",
           "until_stacks_warning": "This user already has access until {date}. The new period is added on top of that date — the final date will be later than the one you picked.",
           "cta_minutes": "Grant {minutes} minutes",
-          "cta_until": "Grant access until {date}",
-          "who_unnamed": "No name"
+          "cta_until": "Grant access until {date}"
         },
         "result": {
           "granted": "Granted. Balance is now {duration}.",

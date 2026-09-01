@@ -35,11 +35,13 @@ const PlayCircle = ({ className }: { className?: string }) => (
  * One tourist, as the old `dashboard_app_users_detailed` RPC still returns them.
  *
  * `full_name` and `email` stay in the type and stay out of the screen — **BR-USUARIO-042**.
- * Two things read them, and neither is display: the search box, because filtering is not
- * showing (item 3, and the operator finds the account by the address the tourist gave him);
- * and `GrantTarget`, whose confirmation line is sub judice and is not this card's to change
- * (the rule's 4th edge case). When phase 2 drops both from the payload the search has to
- * move to the server on the same wave, or it goes quiet without breaking a single screen.
+ * `full_name` is now read by exactly one thing and it is not display: the search box, because
+ * filtering is not showing (item 3, and the operator finds the account by the name or the
+ * address the tourist gave him). `email` is read by the search box too and by ONE screen —
+ * the manual grant confirmation, `GrantTarget` — which is the single nominal exception to the
+ * rule, opened by the founder on 2026-09-01 (the rule's 4th edge case). When phase 2 drops
+ * `full_name` from the payload the search has to move to the server on the same wave, or it
+ * goes quiet without breaking a single screen; `email` stays for the exception.
  */
 interface AppUser {
   user_id: string
@@ -474,7 +476,7 @@ const UserDetailModal = ({
                   BR-MONETIZACAO-047 allows one door. */}
               <CreditPanel
                 userId={user.user_id}
-                name={user.full_name}
+                nickname={user.nickname}
                 email={user.email}
                 isAdmin={isAdmin}
                 licenseLabel={user.subscription_tier_display_name}
@@ -736,7 +738,7 @@ export default function AppUsersPage() {
 
   const batchTargets: GrantTarget[] = selectedVisibleIds.map((id) => {
     const user = users.find((candidate) => candidate.user_id === id)
-    return { userId: id, name: user?.full_name ?? null, email: user?.email ?? null }
+    return { userId: id, nickname: user?.nickname ?? null, email: user?.email ?? null }
   })
 
   const clearFilters = () => {

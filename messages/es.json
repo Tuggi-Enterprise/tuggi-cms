@@ -829,8 +829,7 @@
           "inert_warning": "Este usuario tiene acceso ilimitado hasta el {date}. Los minutos entran en el saldo ahora y solo se consumen cuando termine el plazo.",
           "until_stacks_warning": "Este usuario ya tiene acceso hasta el {date}. El nuevo plazo se suma a partir de esa fecha — la fecha final será posterior a la que elegiste.",
           "cta_minutes": "Conceder {minutes} minutos",
-          "cta_until": "Conceder acceso hasta el {date}",
-          "who_unnamed": "Sin nombre"
+          "cta_until": "Conceder acceso hasta el {date}"
         },
         "result": {
           "granted": "Concedido. Saldo ahora: {duration}.",

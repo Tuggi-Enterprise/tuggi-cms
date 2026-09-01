@@ -27,7 +27,12 @@ import { execFileSync } from 'node:child_process'
 import { readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
 
-import { USER_ID_LABEL_CHARS, appUserInitial, appUserLabel } from '@/lib/format/user-identity'
+import {
+  USER_ID_LABEL_CHARS,
+  appUserInitial,
+  appUserLabel,
+  grantTargetLabel,
+} from '@/lib/format/user-identity'
 
 const REPO_ROOT = resolve(import.meta.dirname, '../..')
 
@@ -54,16 +59,30 @@ const TOURIST_SURFACES = [
 /**
  * The one exception, and it is named so it cannot spread.
  *
- * `GrantCreditDialog.personLabel` prints `name · e-mail` on the confirmation of a manual
- * grant, because granting on the wrong account is the expensive irreversible error of that
- * screen. Whether the tie-break becomes the `nickname` is the founder's call and is still
- * open, so the two lines that FEED that dialog stay as they are. They pass a value on; they
- * do not render one.
+ * The founder decided on 2026-09-01 that the manual grant confirmation identifies by
+ * **`nickname` and e-mail**, in that order: granting on the wrong account is the expensive
+ * irreversible error of that screen, so it keeps a second signal. The exception is nominal —
+ * it is the e-mail, and only there. **The full name is not part of it and is gone.**
+ *
+ * These are the two lines that FEED that dialog. They pass an address on; they do not render
+ * one, and neither of them may mention a name again.
  */
 const GRANT_TARGET_LINES = [
-  'name={user.full_name}',
   'email={user.email}',
-  'return { userId: id, name: user?.full_name ?? null, email: user?.email ?? null }',
+  'return { userId: id, nickname: user?.nickname ?? null, email: user?.email ?? null }',
+]
+
+/**
+ * The dialog itself, and everything between it and the screen.
+ *
+ * `TOURIST_SURFACES` cannot cover these: they are where the exception legitimately lives, so
+ * a blanket "no e-mail" assertion would be a lie there. What they get instead is the tighter
+ * claim — no full name, at all, in any form.
+ */
+const GRANT_SURFACES = [
+  'components/admin/credit/GrantCreditDialog.tsx',
+  'components/admin/credit/CreditPanel.tsx',
+  'components/admin/credit/types.ts',
 ]
 
 /** Source with comments removed, so prose about the rule is not read as code. */
@@ -176,4 +195,94 @@ test('BR-USUARIO-042: the tourist surfaces identify through the single owner of 
     [],
     'these surfaces name a tourist without going through lib/format/user-identity'
   )
+})
+
+// ---------------------------------------------------------------------------
+// The named exception: the manual grant confirmation, and nothing else.
+// ---------------------------------------------------------------------------
+
+test('BR-USUARIO-042: the manual grant names a tourist by nickname and e-mail, in that order', () => {
+  const userId = 'a1b2c3d4-e5f6-7890-abcd-ef1234567890'
+
+  assert.equal(
+    grantTargetLabel({ user_id: userId, nickname: 'hoppy-otter' }, 'tourist@example.com'),
+    'hoppy-otter · tourist@example.com'
+  )
+
+  // No nickname: the identity half is the same chain every other screen uses, not a second
+  // one written here. Eight characters from the front, never six from the back.
+  assert.equal(
+    grantTargetLabel({ user_id: userId, nickname: null }, 'tourist@example.com'),
+    'a1b2c3d4 · tourist@example.com'
+  )
+})
+
+test('BR-USUARIO-042: with no e-mail there is no tail, because the nickname is already unique', () => {
+  const userId = 'a1b2c3d4-e5f6-7890-abcd-ef1234567890'
+
+  // `profiles_nickname_unique` is what makes this safe: the tie-breaker the full name needed
+  // is a guarantee the nickname carries by itself (the rule's 3rd edge case).
+  assert.equal(grantTargetLabel({ user_id: userId, nickname: 'hoppy-otter' }, null), 'hoppy-otter')
+  assert.equal(grantTargetLabel({ user_id: userId, nickname: 'hoppy-otter' }, '   '), 'hoppy-otter')
+
+  // Neither half available: the uuid appears ONCE. The old line printed it twice in two
+  // different cuts — `a1b2c3d4 · …567890` — which offered a second signal carrying no
+  // second fact (CLAUDE.md §6, and the rule's 6th edge case).
+  const label = grantTargetLabel({ user_id: userId, nickname: null }, null)
+  assert.equal(label, 'a1b2c3d4')
+  assert.equal(label.includes('·'), false)
+  assert.equal(label.includes('…'), false)
+  assert.equal(userId.slice(-6), '567890')
+  assert.equal(label.includes('567890'), false)
+})
+
+test('BR-USUARIO-042: the grant dialog and everything feeding it hold no full name', () => {
+  const offenders: string[] = []
+
+  for (const surface of GRANT_SURFACES) {
+    codeOf(surface)
+      .split('\n')
+      .forEach((line, index) => {
+        // `full_name` is the payload field; a bare `name` is how it comes back wearing a
+        // different hat — the prop, the field of `GrantTarget`, the local in `personLabel`.
+        // `display_name` and `name` of a subscription tier are a licence, not a person.
+        if (/\bfull_name\b/.test(line)) {
+          offenders.push(`${surface}:${index + 1} ${line.trim()}`)
+          return
+        }
+        if (/\btarget\.name\b|\bname:\s*string\s*\|\s*null|\bname={/.test(line)) {
+          offenders.push(`${surface}:${index + 1} ${line.trim()}`)
+        }
+      })
+  }
+
+  assert.deepEqual(
+    offenders,
+    [],
+    'the exception the founder opened is the e-mail; the full name is not part of it'
+  )
+})
+
+test('BR-USUARIO-042: the grant label is composed by the owner of the chain, not by the dialog', () => {
+  // Six places in the dialog name a person and all six call `personLabel`. If `personLabel`
+  // ever builds the string itself again, the day the chain changes this screen keeps the old
+  // one — which is exactly how the name came back the first time.
+  const dialog = codeOf('components/admin/credit/GrantCreditDialog.tsx')
+
+  assert.ok(
+    dialog.includes("from '@/lib/format/user-identity'"),
+    'GrantCreditDialog must get the identity half from lib/format/user-identity'
+  )
+  assert.ok(dialog.includes('grantTargetLabel('), 'personLabel must delegate to grantTargetLabel')
+
+  // No second composition: the separator and the uuid slice belong to the helper alone. The
+  // check is scoped to `personLabel` — a `·` between state and balance elsewhere in the
+  // dialog separates two numbers, not two halves of a person.
+  const declaration = dialog.slice(dialog.indexOf('const personLabel'))
+  const body = declaration.slice(0, declaration.indexOf('const stateLabel'))
+
+  assert.ok(body.includes('grantTargetLabel('), 'personLabel must delegate, and only delegate')
+  assert.equal(/·/.test(body), false, 'personLabel composes no label of its own')
+  assert.equal(/\.slice\(/.test(body), false, 'personLabel truncates no uuid of its own')
+  assert.equal(/\bt\(/.test(body), false, 'the label has no translated fallback to hide a name in')
 })

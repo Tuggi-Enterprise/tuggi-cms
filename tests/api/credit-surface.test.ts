@@ -176,7 +176,8 @@ test('each refusal has the HTTP status the contract states', () => {
 // ---------------------------------------------------------------------------
 
 function person(id: string): GrantTarget {
-  return { userId: id, name: `Person ${id}`, email: `${id}@example.com` }
+  // BR-USUARIO-042: a target carries a `nickname`, never a full name.
+  return { userId: id, nickname: `person-${id}`, email: `${id}@example.com` }
 }
 
 function outcomeRow(target: GrantTarget, retryable: boolean, ok = false): RunResult {

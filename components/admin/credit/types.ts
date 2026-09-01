@@ -62,10 +62,15 @@ export interface LedgerEnvelope {
   session_offset: number
 }
 
-/** A person the grant dialog is about. Never identified by uuid alone (spec §6). */
+/**
+ * A person the grant dialog is about — `nickname` and e-mail, never the full name.
+ *
+ * The e-mail is the ONE nominal exception to BR-USUARIO-042, opened by the founder on
+ * 2026-09-01 and confined to this dialog; the label is composed by `grantTargetLabel`.
+ */
 export interface GrantTarget {
   userId: string
-  name: string | null
+  nickname: string | null
   email: string | null
 }
 

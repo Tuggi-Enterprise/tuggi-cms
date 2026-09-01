@@ -45,7 +45,8 @@ const PAGE_SIZE = 50
 
 interface Props {
   userId: string
-  name: string | null
+  /** BR-USUARIO-042: the tourist is a `nickname` here too. The full name never arrives. */
+  nickname: string | null
   email: string | null
   isAdmin: boolean
   /** Licence and provider are the profile's labels, not the entitlement. Secondary line. */
@@ -56,7 +57,7 @@ interface Props {
 
 export function CreditPanel({
   userId,
-  name,
+  nickname,
   email,
   isAdmin,
   licenseLabel,
@@ -254,7 +255,7 @@ export function CreditPanel({
 
       {grantOpen ? (
         <GrantCreditDialog
-          targets={[{ userId, name, email }]}
+          targets={[{ userId, nickname, email }]}
           onClose={() => setGrantOpen(false)}
           onGranted={markUpdated}
         />

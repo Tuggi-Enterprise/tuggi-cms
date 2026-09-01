@@ -9,10 +9,12 @@
  * and `coupon` only, so resending the same composition grants twice.
  *
  * - `DS-COMPONENTE-013` — confirmation of an irreversible act is ONE sentence with verb,
- *   amount and a person identified by name and e-mail; the button repeats the verb and
- *   the number; initial focus is not on it. And the confirmation says what will be
- *   ASKED, while the result says what HAPPENED, with the value the server returned —
- *   no balance is computed here.
+ *   amount and a person identified by `nickname` and e-mail — the full name is off this
+ *   screen since 2026-09-01, and the e-mail that stays is the single nominal exception to
+ *   BR-USUARIO-042, opened by the founder. The button repeats the verb and the number;
+ *   initial focus is not on it. And the confirmation says what will be ASKED, while the
+ *   result says what HAPPENED, with the value the server returned — no balance is
+ *   computed here.
  * - `DS-COMPONENTE-014` — a non-atomic batch declares that before running, shows a result
  *   per recipient afterwards, and the only path back is the subset that was **refused with
  *   an answer**. Whoever timed out is not in it: `grantedIds` cannot protect them, because
@@ -28,6 +30,7 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { formatDuration } from '@/lib/format/duration'
+import { grantTargetLabel } from '@/lib/format/user-identity'
 import { DialogShell } from './DialogShell'
 import { GrantCreditForm, draftTotalMinutes, type TierOption } from './GrantCreditForm'
 import { creditFailureText, readFailure } from './errorText'
@@ -159,12 +162,12 @@ export function GrantCreditDialog({ targets, onClose, onGranted }: Props) {
     void loadSnapshots(queue)
   }
 
-  const personLabel = (target: GrantTarget): string => {
-    const name = target.name?.trim() || t('confirm.who_unnamed')
-    // No e-mail: the last 6 characters of the uuid are a tie-breaker, never an identity.
-    const tail = target.email?.trim() || `…${target.userId.slice(-6)}`
-    return `${name} · ${tail}`
-  }
+  /**
+   * Every place this dialog names a person — all six of them go through here, and here goes
+   * through the owner of BR-USUARIO-042. Nothing about the label is decided in this file.
+   */
+  const personLabel = (target: GrantTarget): string =>
+    grantTargetLabel({ user_id: target.userId, nickname: target.nickname }, target.email)
 
   const stateLabel = (snapshot?: TargetSnapshot): string => {
     if (!snapshot || snapshot.unknown || !snapshot.state) return t('panel.balance_unknown')
