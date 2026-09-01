@@ -47,7 +47,8 @@
     "osm:filter-tourism": "deno run --allow-read --allow-write scripts/filter-pbf-tourism.ts",
     "poi:merge-duplicates": "tsx --env-file=.env scripts/merge-duplicate-pois.ts",
     "poi:dedupe-tps": "tsx --env-file=.env scripts/dedupe-trigger-points.ts",
-    "poi:enrich-osm": "tsx --env-file=.env scripts/enrich-poi-from-osm.ts"
+    "poi:enrich-osm": "tsx --env-file=.env scripts/enrich-poi-from-osm.ts",
+    "bench:master-pack": "tsx --env-file=.env scripts/bench-master-pack.ts"
   },
   "dependencies": {
     "@dnd-kit/core": "^6.3.1",
