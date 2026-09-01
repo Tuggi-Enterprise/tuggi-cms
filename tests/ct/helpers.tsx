@@ -16,12 +16,15 @@
  */
 
 import { useState } from 'react'
-import { NextIntlClientProvider } from 'next-intl'
+import { NextIntlClientProvider, useTranslations } from 'next-intl'
+import { CheckCircle, Play, ShieldCheck, Timer, Users, Zap } from 'lucide-react'
 import ptMessages from '@/messages/pt.json'
 import { QueryProvider } from '@/components/providers/QueryProvider'
 import { AppUserLink } from '@/components/dashboard/AppUserLink'
 import { ClientDirectory } from '@/components/admin/clients/ClientDirectory'
 import { ClientBoard } from '@/components/admin/clients/ClientBoard'
+import { StatCard } from '@/components/ui/StatCard'
+import { formatDuration } from '@/lib/format/duration'
 import { useClientDirectory } from '@/lib/hooks/use-client-directory'
 import { EMPTY_FILTERS, type DirectoryFilters } from '@/lib/clients/directory-filter'
 
@@ -140,6 +143,64 @@ export function AppUserLinkHarness({
       <button type="button">antes</button>
       <AppUserLink user={{ user_id: userId, nickname }} />
       <button type="button">depois</button>
+    </div>
+  )
+}
+
+/**
+ * THE SIX KPI CARDS OF THE DASHBOARD, as `app/[locale]/dashboard/page.tsx` mounts them — same
+ * grid classes, same page padding, same `<a>` wrapper each card sits inside, same `StatCard`
+ * props. It exists to be MEASURED (#658): the row's complaint was geometric — the icon owning a
+ * line of its own, and the one card with a `subtitle` standing taller than its five neighbours —
+ * and geometry is not something a source scan can answer.
+ *
+ * The wrapper is a plain `<a>` and not `next/link` for the only reason that matters here: with
+ * no app router in a component mount `Link` cannot render, and what is being measured is the
+ * grid item's height — an `<a>` with no class is the exact element `Link` produces.
+ *
+ * The amounts are the ones on the operator's screen when the card was opened: 2 411 minutes
+ * consumed, 1 309 of them paid and 1 102 granted (BR-MONETIZACAO-047). They are here so the
+ * measurement is taken against the longest real string, never a placeholder that happens to fit.
+ */
+export function DashboardKpiRowHarness({ split = true }: { split?: boolean }) {
+  const t = useTranslations('Pages.Dashboard')
+
+  return (
+    <div className="p-4 lg:p-6">
+      <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3">
+        <a data-testid="kpi-approved">
+          <StatCard size="compact" icon={CheckCircle} title={t('labels.approved')} value={1234} color="#10B981" />
+        </a>
+        <a data-testid="kpi-users">
+          <StatCard size="compact" icon={Users} title={t('labels.users')} value={900} color="#8B5CF6" />
+        </a>
+        <a data-testid="kpi-active">
+          <StatCard size="compact" icon={Zap} title={t('labels.active_30d')} value={318} color="#10B981" />
+        </a>
+        <a data-testid="kpi-paid">
+          <StatCard size="compact" icon={ShieldCheck} title={t('labels.paid_access')} value={412} color="#FF6F00" />
+        </a>
+        <a data-testid="kpi-trips">
+          <StatCard size="compact" icon={Play} title={t('labels.total_trips')} value={5871} color="#00A8E8" />
+        </a>
+        <a data-testid="kpi-consumed">
+          <StatCard
+            size="compact"
+            icon={Timer}
+            title={t('labels.consumed_total')}
+            value={formatDuration(2411)}
+            subtitle={
+              split
+                ? t('labels.consumption_split', {
+                    paid: formatDuration(1309),
+                    granted: formatDuration(1102),
+                  })
+                : undefined
+            }
+            color="#FF6F00"
+          />
+        </a>
+      </div>
     </div>
   )
 }
