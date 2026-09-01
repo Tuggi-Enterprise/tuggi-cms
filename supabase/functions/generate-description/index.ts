@@ -174,6 +174,31 @@ async function processPOIItem(
     const LOG_PREFIX = `[Gen-Desc::${poi_id}]`;
     console.log(`${LOG_PREFIX} Processing for ${language} (${gender})...`);
 
+    /**
+     * LATÊNCIA POR ETAPA — uma linha, em ms, no fim do processamento de cada POI.
+     *
+     * POR QUE MEDIR AQUI. Os `console.log` existentes marcavam POSIÇÃO, não tempo: dava para
+     * saber que a geração passou pelo retrieval, não quanto ela ficou lá. Reconstruir a
+     * duração por delta de timestamp entre linhas de log funciona para uma medição pontual e
+     * não sobrevive a um lote (várias iterações no mesmo isolate) nem a uma etapa que não
+     * loga — TTS e upload não logavam nada.
+     *
+     * O relógio é sequencial de propósito: cada `mark` fecha o intervalo desde o anterior, o
+     * que só é verdade porque este caminho é serial do começo ao fim.
+     */
+    const t0 = Date.now();
+    const stage: Record<string, number> = {};
+    let lastMark = t0;
+    const mark = (name: string) => {
+        const now = Date.now();
+        stage[name] = (stage[name] ?? 0) + (now - lastMark);
+        lastMark = now;
+    };
+    const logTiming = (outcome: string) => {
+        const parts = Object.entries(stage).map(([k, v]) => `${k}_ms=${v}`).join(" ");
+        console.log(`${LOG_PREFIX}[timing] outcome=${outcome} total_ms=${Date.now() - t0} ${parts}`);
+    };
+
     // ✅ TIPO DA ENTIDADE: POI, evento e local vivem na mesma tabela e até aqui
     // recebiam o mesmo prompt de "lugar" — que pede ano de fundação e fala em
     // "standing in front of this place". Certo para um POI, errado para um show
@@ -289,6 +314,8 @@ async function processPOIItem(
                     // decisão acima: fica fora da resposta, que continua byte a byte
                     // a de antes.
                     const { generation_meta: _trail, ...hit } = existing;
+                    mark("lookup");
+                    logTiming("hit");
                     return { ...hit, status: "hit" };
                 }
                 // SEM EXIGIR `facts_pack_json`, e a assimetria com o ramo acima é o ponto.
@@ -334,6 +361,7 @@ async function processPOIItem(
         }
         break; // No existing record (or stale/zombie), proceed to generate
     }
+    mark("lookup");
 
     // 2. Lock Acquisition
     // Attempt to insert "Processing" placeholder
@@ -361,8 +389,10 @@ async function processPOIItem(
         // `docs/contracts/edge-functions.md`). Ninguém retentava porque ninguém
         // via, e o POI ficava sem narração para a avaliação seguinte —
         // BR-CONTEUDO-004 item 5.
+        logTiming("locked");
         throw new GenerationFailure(GenerationFailureCode.GENERATION_LOCKED);
     }
+    mark("lock");
 
     try {
         // 3. Generation Logic
@@ -624,6 +654,8 @@ async function processPOIItem(
             }
         }
 
+        mark(generationMeta?.kind ? `gen_${generationMeta.kind}` : "gen");
+
         // 4. Save & Audio
         const scoreResult = calculateHeuristicScore(
             result.description,
@@ -655,6 +687,7 @@ async function processPOIItem(
             } catch (nameErr) {
                 console.warn(`${LOG_PREFIX} ⚠️ Name translation skipped:`, nameErr);
             }
+            mark("name_translate");
         }
 
         let publicUrl: string | null = null;
@@ -688,6 +721,7 @@ async function processPOIItem(
                     gender,
                     GOOGLE_TTS_API_KEY,
                 );
+                mark("tts");
                 const fileName = `${poi_id}-${language}-${gender}.mp3`;
                 const storagePath = `master_audio/${poi_id}/${fileName}`;
                 const { error: upErr } = await supabaseAdmin.storage.from(
@@ -696,6 +730,7 @@ async function processPOIItem(
                     contentType: "audio/mpeg",
                     upsert: true,
                 });
+                mark("audio_upload");
                 if (upErr) {
                     console.error(
                         `${LOG_PREFIX} ❌ Falha ao subir ${storagePath}: ${upErr.message}`,
@@ -728,6 +763,7 @@ async function processPOIItem(
             // Gender-independent translated name (null only if translation failed).
             ...(translatedName ? { name: translatedName } : {}),
         }, { onConflict: "attraction_id,language,gender" }).select().single();
+        mark("upsert");
 
         // 5.0.-1 O UPSERT PODE FALHAR, E ELE NÃO ERA CONFERIDO.
         //
@@ -775,6 +811,7 @@ async function processPOIItem(
         // logo após gravar description/audio_url, senão o guia (app_get_pois_by_cone)
         // não enxerga o conteúdo novo até o cron rodar. Best-effort (não bloqueia).
         await rebuildReadModel(supabaseAdmin, poi_id);
+        mark("read_model");
 
         // 5.1 Track who generated this description (non-blocking, defensive)
         // Runs as a separate UPDATE so that if the generated_by columns don't exist
@@ -851,14 +888,22 @@ async function processPOIItem(
         // `shouldGenerateAudio === false` (texto puro, pedido do CMS) não passa
         // por aqui: `audioFailureReason` só é escrito quando o áudio foi pedido.
         if (audioFailureReason) {
+            mark("tail");
+            logTiming(audioFailureReason);
             throw new GenerationFailure(
                 GenerationFailureCode.AUDIO_SYNTHESIS_FAILED,
                 audioFailureReason,
             );
         }
 
+        mark("tail");
+        logTiming("generated");
         return { ...finalRows, status: "generated", last_score_overall: scoreResult.score_overall };
     } catch (e) {
+        if (!(asGenerationFailure(e)?.code === GenerationFailureCode.AUDIO_SYNTHESIS_FAILED)) {
+            mark("tail");
+            logTiming("failed");
+        }
         console.error(`${LOG_PREFIX} Fatal Generation Error:`, e);
         // A falha de áudio é a única que acontece com a linha JÁ gravada: o lock
         // saiu no passo 5 e não há nada a restaurar. Sem esta saída, o UPDATE
@@ -910,6 +955,13 @@ async function processPOIItem(
     }
 }
 
+/**
+ * Marca de nascimento do isolate. `cold=true` sai UMA vez por isolate, na primeira requisição
+ * atendida: é o único ponto em que "cold start" é observável de dentro da função.
+ */
+const ISOLATE_BOOTED_AT = Date.now();
+let requestsServed = 0;
+
 // --- Main Entry Point ---
 serve(async (req) => {
     if (req.method === "OPTIONS") {
@@ -921,6 +973,11 @@ serve(async (req) => {
     // 📋 INITIALIZE AUDIT LOGGER
     const auditLogger = createAuditLogger("Generate-Description");
     const startTime = Date.now();
+    const isColdStart = requestsServed === 0;
+    requestsServed += 1;
+    console.log(
+        `[Generate-Description][timing] cold=${isColdStart} isolate_age_ms=${startTime - ISOLATE_BOOTED_AT} served=${requestsServed}`,
+    );
 
     try {
         // ✅ VALIDAR AUTENTICAÇÃO
