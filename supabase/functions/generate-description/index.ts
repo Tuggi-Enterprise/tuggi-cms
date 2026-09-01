@@ -404,10 +404,18 @@ async function processPOIItem(
         let groundedOk = true;
         // Trilha de procedência da descrição (gravada de forma defensiva no fim).
         let generationMeta: Record<string, unknown> | null = null;
-        // Location context for grounding — use the POI's real country (canonical,
-        // English) instead of assuming Brazil. Falls back from city → state → country.
-        const cityName = [
-            poiDataFromDB?.city || poiDataFromDB?.osm_tags?.["addr:city"] || null,
+        // #654 — ONDE o lugar fica, para a busca do passo 1 desambiguar nome comum: existe
+        // "Fonte da Juventude" em dezenas de cidades, e sem o entorno administrativo o Google
+        // devolve a errada. NÃO é a cidade, apesar do que o nome antigo (`cityName`) dizia:
+        // é cidade + estado + país, do mais específico ao mais amplo, e o `filter(Boolean)`
+        // derruba o que faltar sem deixar vírgula solta. O país é o real do POI
+        // (`core.attractions.country`, canônico em inglês), nunca "Brazil" presumido — até
+        // #654 ele era lido do objeto mas nunca pedido no `select`, e chegava `undefined`
+        // sempre. Coordenada fica FORA de propósito: consulta de Google Search não usa
+        // lat/lng e o prompt não pode inflar.
+        const cityName = poiDataFromDB?.city || poiDataFromDB?.osm_tags?.["addr:city"] || null;
+        const locationContext = [
+            cityName,
             poiDataFromDB?.state || null,
             poiDataFromDB?.country || null,
         ].filter(Boolean).join(", ") || "an unknown location";
@@ -611,7 +619,7 @@ async function processPOIItem(
 
             const masterResult = await generateMasterPack(
                 poiName,
-                cityName,
+                locationContext,
                 rawContextOverride || "App Batch Generation",
                 language,
                 GEMINI_API_KEY,
@@ -674,7 +682,11 @@ async function processPOIItem(
             result.description,
             result.facts_pack_json || [],
             poiName,
-            cityName,
+            // O bônus de completude procura o nome da CIDADE dentro do texto, então aqui vai a
+            // cidade — não o contexto inteiro. Sem cidade cai no contexto, que é exatamente o
+            // que este argumento recebia antes do #654; nunca string vazia, que casaria com
+            // qualquer descrição e daria o bônus de graça.
+            cityName || locationContext,
         );
         console.log(`${LOG_PREFIX} Heuristic Score calculated:`, scoreResult.score_overall);
         const descHash = await hashDescription(result.description);
@@ -1113,7 +1125,7 @@ serve(async (req) => {
                 // evento e local na mesma tabela, e o prompt precisa saber qual é
                 // (evento tem data e não tem "ano de fundação"; local tem tipo).
                 .select(
-                    "id, name, city, state, osm_tags, website, reference_links, entity_kind, partner_client_id, event_details!event_details_attraction_id_fkey(starts_at, ends_at, event_category, venue_attraction_id), place_details(place_type)",
+                    "id, name, city, state, country, osm_tags, website, reference_links, entity_kind, partner_client_id, event_details!event_details_attraction_id_fkey(starts_at, ends_at, event_category, venue_attraction_id), place_details(place_type)",
                 )
 
                 .in("id", poiIds);
@@ -1195,7 +1207,7 @@ serve(async (req) => {
                 // ✅ ver o comentário no caminho de batch: o prompt ramifica por
                 // entity_kind (poi | event | place).
                 .select(
-                    "name, city, state, osm_tags, website, reference_links, entity_kind, partner_client_id, event_details!event_details_attraction_id_fkey(starts_at, ends_at, event_category, venue_attraction_id), place_details(place_type)",
+                    "name, city, state, country, osm_tags, website, reference_links, entity_kind, partner_client_id, event_details!event_details_attraction_id_fkey(starts_at, ends_at, event_category, venue_attraction_id), place_details(place_type)",
                 )
 
                 .eq("id", manual.poi_id)

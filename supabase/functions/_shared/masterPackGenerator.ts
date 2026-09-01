@@ -366,7 +366,11 @@ export type EntityContext = {
 
 export const generateMasterPack = async (
     poiName: string,
-    city: string,
+    // #654 — cidade + estado + país do POI, já montado pelo chamador (não é só a cidade,
+    // apesar do que o nome antigo `city` dizia). É o que faz a busca do passo 1 achar ESTE
+    // "Fonte da Juventude" e não um homônimo a mil quilômetros. Pode vir só com a cidade,
+    // ou com "an unknown location" quando não há nada.
+    locationContext: string,
     rawContext: string,
     language: string,
     apiKey: string,
@@ -422,11 +426,16 @@ export const generateMasterPack = async (
         ? (eventEnd && eventEnd !== eventStart ? `${eventStart} to ${eventEnd}` : eventStart)
         : null;
 
+    // #654 — o lugar é `in`, não `near`: `locationContext` é a cidade DO PRÓPRIO POI
+    // (`attractions.city`, com fallback para `osm_tags["addr:city"]`), não a cidade mais
+    // próxima. `near` afrouxava a busca sem ser mais honesto — e é justamente o afrouxamento
+    // que traz o homônimo de outra cidade. O evento continua `held near`: a sede fica na
+    // cidade, a edição nem sempre.
     const subjectLine = isEvent
-        ? `Using Google Search, research this SPECIFIC event: "${poiName}", held near ${city}${eventWhen ? `, scheduled for ${eventWhen}` : ''}${entity.category ? ` (category: ${entity.category})` : ''}.`
+        ? `Using Google Search, research this SPECIFIC event: "${poiName}", held near ${locationContext}${eventWhen ? `, scheduled for ${eventWhen}` : ''}${entity.category ? ` (category: ${entity.category})` : ''}.`
         : isPlace
-            ? `Using Google Search, research this SPECIFIC establishment: "${poiName}", in ${city}${entity.placeType ? ` (a ${entity.placeType})` : ''}.`
-            : `Using Google Search, research this SPECIFIC place: "${poiName}", near ${city}.`;
+            ? `Using Google Search, research this SPECIFIC establishment: "${poiName}", in ${locationContext}${entity.placeType ? ` (a ${entity.placeType})` : ''}.`
+            : `Using Google Search, research this SPECIFIC place: "${poiName}", in ${locationContext}.`;
 
     // O que colher muda com o tipo: um evento não tem "ano de fundação", e um
     // hotel não tem "história de conflito" — insistir nisso empurra o modelo a

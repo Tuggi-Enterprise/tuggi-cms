@@ -20,6 +20,11 @@
  * sustenta a descrição. `factScope === 'area'` é exatamente essa população, e é decisão do operador
  * em 2026-09-01 (card #653) publicá-la. O que este arquivo garante é que ela fique CONTÁVEL.
  *
+ * #654 (seção 7) — a frase de assunto do passo 1 passou a dizer ONDE o lugar fica: cidade,
+ * estado e país, e `in` no lugar de `near`. Mora aqui porque é o MESMO prompt de colheita que
+ * as seções acima travam, e o interceptador de `fetch` já existe — um terceiro arquivo só
+ * duplicaria o harness.
+ *
  * Módulo Deno puro, carregado por caminho montado em tempo de execução: um import estático
  * terminaria em `.ts` e reprovaria o `npm run type-check` do repositório inteiro.
  *
@@ -28,6 +33,7 @@
 
 import { test, before, beforeEach, after } from 'node:test'
 import assert from 'node:assert/strict'
+import { readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
 import { pathToFileURL } from 'node:url'
 
@@ -63,6 +69,13 @@ interface MasterPackModule {
 const MODULE_PATH = resolve(
   import.meta.dirname,
   '../../supabase/functions/_shared/masterPackGenerator.ts'
+)
+
+/** #654 — a montagem do contexto de lugar mora na Edge Function, que não é importável daqui
+ *  (Deno.serve). O que se prova por leitura do fonte é o que ela PEDE ao banco e como junta. */
+const DESCRIPTION_PATH = resolve(
+  import.meta.dirname,
+  '../../supabase/functions/generate-description/index.ts'
 )
 
 let mod: MasterPackModule
@@ -146,10 +159,10 @@ function installFetch(script: RetrievalStep[]) {
   }) as typeof fetch
 }
 
-const run = (kind: 'poi' | 'event' | 'place' = 'poi') =>
+const run = (kind: 'poi' | 'event' | 'place' = 'poi', locationContext = 'Búzios, Brazil') =>
   mod.generateMasterPack(
     'Casa da Rua das Pedras',
-    'Búzios, Brazil',
+    locationContext,
     'test',
     'pt-br',
     'test-key',
@@ -341,4 +354,84 @@ test('#653 — the POI branch no longer carries the blanket prohibition on the s
   assert.match(gather, /\[area\]/)
   // O que sobrou da régua: confundir lugar continua proibido.
   assert.match(gather, /a source about a DIFFERENT place/i)
+})
+
+// ── 7. #654 — a frase de assunto diz ONDE o lugar fica ───────────────────────
+//
+// O operador, em 2026-09-01: "pode ter dez Fonte da Juventude perto de uma cidade... mas se na
+// cidade específica ele vai falar da cidade específica". O limite que ele mesmo pôs foi não
+// inflar o prompt — por isso o que entra é cidade, estado e país, e NÃO coordenada.
+//
+// Como sempre: nenhum teste de prompt prova que o Google acha o lugar certo. Este prova o que
+// nós pedimos, e que ninguém desfez o pedido depois.
+
+test('#654 — city, state and country all reach the subject line of the harvest actually sent', async () => {
+  installFetch([{ text: PLACE_FACTS }])
+  await run('poi', 'Búzios, Rio de Janeiro, Brazil')
+  const subject = retrievalPrompts[0].split('\n')[0]
+  assert.match(subject, /research this SPECIFIC place: "Casa da Rua das Pedras", in Búzios, Rio de Janeiro, Brazil\./)
+  // O estado já era enviado antes do #654 e ninguém sabia — o nome da variável escondia. O país
+  // é o que o card acrescentou; se ele sumir da frase, sumiu do `select`.
+  for (const part of ['Búzios', 'Rio de Janeiro', 'Brazil']) {
+    assert.ok(subject.includes(part), `${part} sumiu da frase de assunto`)
+  }
+})
+
+test('#654 — the POI branch says `in`, not `near`: it is the POI own city, not the nearest one', async () => {
+  installFetch([{ text: PLACE_FACTS }])
+  await run('poi', 'Búzios, Rio de Janeiro, Brazil')
+  const subject = retrievalPrompts[0].split('\n')[0]
+  assert.match(subject, /, in Búzios/)
+  assert.equal(/research this SPECIFIC place: "[^"]+", near /.test(subject), false, '`near` afrouxa a busca sem ser mais honesto')
+})
+
+test('#654 — an establishment keeps `in`, and an event keeps `held near`', async () => {
+  installFetch([{ text: PLACE_FACTS }])
+  await run('place', 'Búzios, Rio de Janeiro, Brazil')
+  assert.match(retrievalPrompts[0].split('\n')[0], /research this SPECIFIC establishment: "[^"]+", in Búzios, Rio de Janeiro, Brazil\./)
+
+  retrievalPrompts.length = 0
+  installFetch([{ text: PLACE_FACTS }])
+  await run('event', 'Búzios, Rio de Janeiro, Brazil')
+  // A sede fica na cidade; a edição nem sempre. O ramo de evento não entrou no #654.
+  assert.match(retrievalPrompts[0].split('\n')[0], /research this SPECIFIC event: "[^"]+", held near Búzios, Rio de Janeiro, Brazil/)
+})
+
+test('#654 — with the country missing the sentence stays well formed: no dangling comma', async () => {
+  installFetch([{ text: PLACE_FACTS }])
+  // O que a Edge Function entrega quando `country` (ou `state`) não veio: o `filter(Boolean)`
+  // já derrubou o campo, então o gerador nunca vê ", ," nem vírgula antes do ponto final.
+  await run('poi', 'Búzios')
+  const subject = retrievalPrompts[0].split('\n')[0]
+  assert.match(subject, /research this SPECIFIC place: "Casa da Rua das Pedras", in Búzios\./)
+  assert.equal(/,\s*,/.test(subject), false, 'vírgula solta no meio')
+  assert.equal(/,\s*\./.test(subject), false, 'vírgula solta antes do ponto')
+})
+
+test('#654 — with no location at all the sentence is still a sentence', async () => {
+  installFetch([{ text: PLACE_FACTS }])
+  // `"an unknown location"` é o fallback da Edge Function quando cidade, estado e país faltam.
+  await run('poi', 'an unknown location')
+  assert.match(retrievalPrompts[0].split('\n')[0], /, in an unknown location\./)
+})
+
+test('#654 — the Edge Function asks the database for country in BOTH selects of core.attractions', () => {
+  const src = readFileSync(DESCRIPTION_PATH, 'utf8')
+  // A intenção estava escrita no comentário e o join lia `poiDataFromDB?.country` desde sempre,
+  // mas nenhum dos dois `select` pedia a coluna: o valor chegava `undefined` e o
+  // `.filter(Boolean)` o descartava em silêncio. É o defeito que o #654 fechou.
+  const selects = src.match(/"(id, )?name, city, state, country, osm_tags[^"]*"/g) ?? []
+  assert.equal(selects.length, 2, 'os dois select de core.attractions precisam pedir country')
+  // Batch e single: nenhum dos dois pode ficar para trás — o app usa um e o CMS o outro.
+  assert.ok(selects.some((s) => s.startsWith('"id, ')), 'select do batch')
+  assert.ok(selects.some((s) => !s.startsWith('"id, ')), 'select do single')
+})
+
+test('#654 — the location context is joined from the three fields, and the name no longer lies', () => {
+  const src = readFileSync(DESCRIPTION_PATH, 'utf8')
+  assert.match(src, /const locationContext = \[\s*cityName,\s*poiDataFromDB\?\.state \|\| null,\s*poiDataFromDB\?\.country \|\| null,\s*\]\.filter\(Boolean\)\.join\(", "\)/)
+  // `cityName` continua existindo e continua sendo A CIDADE — é o que o bônus de completude de
+  // `calculateHeuristicScore` procura dentro do texto. O que foi renomeado é o contexto inteiro.
+  assert.match(src, /const cityName = poiDataFromDB\?\.city \|\| poiDataFromDB\?\.osm_tags\?\.\["addr:city"\] \|\| null;/)
+  assert.match(src, /generateMasterPack\(\s*poiName,\s*locationContext,/)
 })
