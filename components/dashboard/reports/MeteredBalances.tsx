@@ -13,7 +13,8 @@ import {
   grantOrigin,
 } from '@/lib/credit/entitlement'
 import { formatDuration } from '@/lib/format/duration'
-import { appUserInitial, appUserLabel } from '@/lib/format/user-identity'
+import { appUserInitial } from '@/lib/format/user-identity'
+import { AppUserLink } from '@/components/dashboard/AppUserLink'
 import { cn } from '@/lib/utils'
 
 const TUGGI_COLORS = { blue: '#00A8E8', purple: '#8B5CF6', orange: '#FF6F00', green: '#10B981', red: '#EF4444' }
@@ -41,7 +42,9 @@ const BAND_STYLE: Record<BalanceBand, string> = {
  *
  * The person in each row is a `nickname`, falling back to the first 8 characters of the
  * `user_id` — **BR-USUARIO-042**. The search matches the same thing the row prints, because
- * the RPC brings nothing else to match on.
+ * the RPC brings nothing else to match on. Since #659 the nickname opens the file
+ * (`AppUserLink`): this is the list where the operator decides to grant, and the decision
+ * used to require finding the same person again on another screen.
  */
 export function MeteredBalances() {
   const [users, setUsers] = useState<MeteredUser[]>([])
@@ -176,9 +179,10 @@ export function MeteredBalances() {
                             {appUserInitial(user)}
                           </div>
                           <div className="min-w-0">
-                            <p className="font-bold text-gray-900 dark:text-white truncate">
-                              {appUserLabel(user)}
-                            </p>
+                            <AppUserLink
+                              user={user}
+                              className="block font-bold text-gray-900 dark:text-white truncate max-w-full"
+                            />
                           </div>
                         </div>
                       </td>

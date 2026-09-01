@@ -2,30 +2,21 @@
 
 import { useState, useEffect, useCallback } from 'react'
 import { useSupabaseClient } from '@supabase/auth-helpers-react'
-import { 
+import {
   Smartphone, Search, RefreshCw, Filter, Crown,
-  CreditCard, TrendingUp, AlertCircle, ChevronDown,
-  Apple, Zap, User, Activity, Play, Plane, ArrowUpDown, ArrowUp, ArrowDown,
-  Link2, Building2, QrCode, Loader2, X, Trash2
+  TrendingUp, AlertCircle, ChevronDown,
+  Apple, Zap, User, Play, Plane, ArrowUpDown, ArrowUp, ArrowDown
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { StatCard, StatCardRow } from '@/components/ui/StatCard'
-import { SubscriptionBadge, ProviderIcon, PlatformBadge } from '@/components/ui/SubscriptionBadge'
+import { SubscriptionBadge, ProviderIcon } from '@/components/ui/SubscriptionBadge'
 import { Button } from '@/components/ui/button'
-import { CreditPanel } from '@/components/admin/credit/CreditPanel'
 import { GrantCreditDialog } from '@/components/admin/credit/GrantCreditDialog'
 import type { GrantTarget } from '@/components/admin/credit/types'
+import { AppUserLink } from '@/components/dashboard/AppUserLink'
 import { useCmsUser } from '@/lib/hooks/useCmsUser'
-import { appUserInitial, appUserLabel } from '@/lib/format/user-identity'
+import { appUserInitial } from '@/lib/format/user-identity'
 import { useTranslations } from 'next-intl'
-
-// PlayCircle icon (not in lucide-react standard)
-const PlayCircle = ({ className }: { className?: string }) => (
-  <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-    <circle cx="12" cy="12" r="10"/>
-    <polygon points="10,8 16,12 10,16 10,8"/>
-  </svg>
-)
 
 // ============================================================================
 // TYPES
@@ -86,489 +77,11 @@ interface SubscriptionStats {
   churned_7d: number
 }
 
-interface UserDetail extends AppUser {
-  unique_cities_visited: number
-  subscription_history: Array<{
-    id: string
-    action: string
-    provider: string
-    tier_name: string
-    previous_tier_name: string | null
-    created_at: string
-  }>
-  client_id: string | null
-  linked_client: {
-    id: string
-    name: string
-    client_type: string | null
-    slug: string | null
-    qr_url: string | null
-  } | null
-}
-
 type SortConfig = {
   key: keyof AppUser
   direction: 'asc' | 'desc'
 }
 
-// ============================================================================
-// LINKED CLIENT SECTION (partner QR)
-// ============================================================================
-
-interface LinkedClient {
-  id: string
-  name: string
-  client_type: string | null
-  slug: string | null
-  qr_url: string | null
-}
-
-interface ClientOption {
-  id: string
-  name: string
-  company_name?: string | null
-  client_type?: string | null
-  slug?: string | null
-}
-
-/**
- * "Linked Client" section — sets drive.profiles.client_id for an app user so the
- * app surfaces that client's partner QR (https://tuggi.app/d/<slug>) in the
- * Passaporte. The current link (`linked`) comes from the core.dashboard_user_detail
- * RPC; writes go through PATCH /api/admin/users/[userId]/client (admin-only), which
- * calls the core.admin_set_app_user_client RPC. After a write, onChanged re-runs the
- * detail RPC. This is NOT the CMS user link (partner.client_cms_users / Team tab).
- */
-const LinkedClientSection = ({
-  userId,
-  linked,
-  onChanged,
-}: {
-  userId: string
-  linked: LinkedClient | null
-  onChanged?: () => void
-}) => {
-  const t = useTranslations('Pages.AppUsers.modal')
-  const [isEditing, setIsEditing] = useState(false)
-  const [isSaving, setIsSaving] = useState(false)
-  const [error, setError] = useState<string | null>(null)
-
-  // Client picker state
-  const [query, setQuery] = useState('')
-  const [results, setResults] = useState<ClientOption[]>([])
-  const [searching, setSearching] = useState(false)
-
-  // Debounced client search while the picker is open
-  useEffect(() => {
-    if (!isEditing) return
-    let active = true
-    setSearching(true)
-    const handle = setTimeout(async () => {
-      try {
-        const res = await fetch(`/api/admin/clients?status=all&limit=20&search=${encodeURIComponent(query)}`)
-        const data = await res.json()
-        if (active) setResults(res.ok ? (data.clients ?? []) : [])
-      } catch {
-        if (active) setResults([])
-      } finally {
-        if (active) setSearching(false)
-      }
-    }, 300)
-    return () => { active = false; clearTimeout(handle) }
-  }, [query, isEditing])
-
-  const save = async (clientId: string | null) => {
-    setIsSaving(true)
-    setError(null)
-    try {
-      const res = await fetch(`/api/admin/users/${userId}/client`, {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ client_id: clientId }),
-      })
-      const data = await res.json()
-      if (!res.ok) {
-        setError(data.error ?? t('link_error'))
-        return
-      }
-      setIsEditing(false)
-      setQuery('')
-      if (onChanged) onChanged()
-    } catch {
-      setError(t('link_error'))
-    } finally {
-      setIsSaving(false)
-    }
-  }
-
-  return (
-    <div className="p-4 bg-gradient-to-r from-gray-50 to-gray-100 dark:from-gray-800/50 dark:to-gray-800 rounded-xl">
-      <div className="flex justify-between items-center mb-3">
-        <h3 className="text-sm font-bold text-gray-700 dark:text-gray-300 flex items-center">
-          <Link2 className="h-4 w-4 mr-2" />
-          {t('linked_client')}
-        </h3>
-        {!isEditing && (
-          <button
-            onClick={() => { setIsEditing(true); setQuery('') }}
-            className="text-xs text-tuggi-blue hover:underline font-medium"
-          >
-            {linked ? t('change_client') : t('link_client')}
-          </button>
-        )}
-      </div>
-
-      {error && (
-        <div className="mb-3 flex items-center gap-2 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-700">
-          <AlertCircle className="w-3.5 h-3.5 flex-shrink-0" /> {error}
-        </div>
-      )}
-
-      {!isEditing ? (
-        linked ? (
-          <div className="flex items-center justify-between gap-3">
-            <div className="min-w-0">
-              <p className="font-bold text-gray-900 dark:text-white flex items-center gap-2">
-                <Building2 className="h-4 w-4 text-tuggi-blue flex-shrink-0" />
-                <span className="truncate">{linked.name}</span>
-                {linked.client_type && (
-                  <span className="px-2 py-0.5 rounded-lg text-[10px] font-bold uppercase tracking-widest bg-tuggi-blue/5 text-tuggi-blue border border-tuggi-blue/10">
-                    {linked.client_type}
-                  </span>
-                )}
-              </p>
-              {linked.qr_url && (
-                <p className="text-xs text-gray-500 flex items-center gap-1 mt-1 truncate">
-                  <QrCode className="h-3 w-3 flex-shrink-0" /> {linked.qr_url}
-                </p>
-              )}
-            </div>
-            <button
-              onClick={() => save(null)}
-              disabled={isSaving}
-              title={t('remove_link')}
-              className="p-2 text-gray-300 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20 rounded-lg transition-all disabled:opacity-50 flex-shrink-0"
-            >
-              {isSaving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Trash2 className="w-4 h-4" />}
-            </button>
-          </div>
-        ) : (
-          <p className="text-sm text-gray-500">{t('no_linked_client')}</p>
-        )
-      ) : (
-        <div className="bg-white dark:bg-gray-900 p-3 rounded-lg border border-gray-200 dark:border-gray-700">
-          {linked && (
-            <p className="mb-2 text-[11px] text-amber-600 dark:text-amber-400 font-medium">
-              {t('replace_hint', { name: linked.name })}
-            </p>
-          )}
-          <div className="relative mb-2">
-            <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-400" />
-            <input
-              autoFocus
-              type="text"
-              value={query}
-              onChange={(e) => setQuery(e.target.value)}
-              placeholder={t('search_clients')}
-              className="w-full pl-9 pr-3 py-2 text-sm border border-gray-200 dark:border-gray-700 rounded-lg bg-white dark:bg-gray-800 text-gray-900 dark:text-white focus:ring-2 focus:ring-tuggi-blue/30 outline-none"
-            />
-          </div>
-          <div className="max-h-56 overflow-y-auto rounded-lg border border-gray-100 dark:border-gray-800 divide-y divide-gray-100 dark:divide-gray-800">
-            {searching ? (
-              <div className="py-6 flex justify-center"><Loader2 className="w-4 h-4 animate-spin text-tuggi-blue" /></div>
-            ) : results.length === 0 ? (
-              <p className="py-6 text-center text-xs text-gray-400">{t('no_clients')}</p>
-            ) : results.map((c) => (
-              <button
-                key={c.id}
-                onClick={() => save(c.id)}
-                disabled={isSaving}
-                className="w-full text-left px-3 py-2.5 hover:bg-gray-50 dark:hover:bg-gray-800/50 transition-colors disabled:opacity-50 flex items-center justify-between gap-2"
-              >
-                <span className="min-w-0">
-                  <span className="block text-sm font-medium text-gray-900 dark:text-white truncate">{c.name}</span>
-                  {c.slug && <span className="block text-[11px] text-gray-400 truncate">/d/{c.slug}</span>}
-                </span>
-                {c.client_type && (
-                  <span className="px-2 py-0.5 rounded-lg text-[10px] font-bold uppercase tracking-widest bg-gray-100 dark:bg-gray-800 text-gray-500 flex-shrink-0">
-                    {c.client_type}
-                  </span>
-                )}
-              </button>
-            ))}
-          </div>
-          <div className="flex justify-end mt-3">
-            <button
-              onClick={() => { setIsEditing(false); setError(null) }}
-              className="inline-flex items-center gap-1 text-xs text-gray-500 hover:text-gray-700 dark:hover:text-gray-300 font-medium"
-            >
-              <X className="w-3.5 h-3.5" /> {t('cancel')}
-            </button>
-          </div>
-        </div>
-      )}
-    </div>
-  )
-}
-
-// ============================================================================
-// USER DETAIL MODAL
-// ============================================================================
-
-const UserDetailModal = ({ 
-  userId,
-  onClose,
-  onUpdate,
-  supabase
-}: { 
-  userId: string | null
-  onClose: () => void
-  onUpdate?: () => void
-  supabase: any
-}) => {
-  const t = useTranslations('Pages.AppUsers.modal')
-  const { isAdmin } = useCmsUser()
-  const [user, setUser] = useState<UserDetail | null>(null)
-  const [isLoading, setIsLoading] = useState(false)
-
-  const fetchDetail = useCallback(async () => {
-    if (!userId) {
-      setUser(null)
-      return
-    }
-    setIsLoading(true)
-    try {
-      const { data, error } = await supabase
-        .schema('core')
-        .rpc('dashboard_user_detail', { target_user_id: userId })
-
-      if (error) throw error
-      if (data && data.length > 0) {
-        setUser(data[0])
-      }
-    } catch (err) {
-      console.error('Error fetching user detail:', err)
-    } finally {
-      setIsLoading(false)
-    }
-  }, [userId, supabase])
-
-  useEffect(() => { void fetchDetail() }, [fetchDetail])
-
-  if (!userId) return null
-
-  return (
-    <div className="fixed inset-0 z-50 overflow-y-auto bg-black/50 backdrop-blur-sm" onClick={onClose}>
-      <div className="flex min-h-full items-center justify-center p-4">
-        <div 
-          className="bg-white dark:bg-gray-900 rounded-2xl shadow-2xl w-full max-w-3xl relative animate-in zoom-in-95 duration-300"
-          onClick={(e) => e.stopPropagation()}
-        >
-          {isLoading ? (
-            <div className="p-12 flex items-center justify-center">
-              <RefreshCw className="h-8 w-8 animate-spin text-tuggi-blue" />
-            </div>
-          ) : user ? (
-          <>
-            {/* Header */}
-            <div className="p-6 border-b border-gray-200 dark:border-gray-700">
-              <div className="flex items-start justify-between">
-                <div className="flex items-center">
-                  <div className="h-16 w-16 rounded-full bg-gradient-to-br from-tuggi-blue to-purple-500 flex items-center justify-center text-white text-2xl font-bold mr-4">
-                    {appUserInitial(user)}
-                  </div>
-                  <div>
-                    <h2 className="text-xl font-bold text-gray-900 dark:text-white flex items-center gap-2">
-                      {appUserLabel(user)}
-                      <SubscriptionBadge isPremium={user.is_premium} tierName={user.subscription_tier_display_name} />
-                    </h2>
-                  </div>
-                </div>
-              </div>
-            </div>
-            
-            {/* Content */}
-            <div className="p-6 space-y-6">
-              {/* Quick Stats */}
-              <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-                <div className="text-center p-4 bg-tuggi-blue/10 rounded-xl">
-                  <p className="text-2xl font-bold text-tuggi-blue">{user.trip_count || 0}</p>
-                  <p className="text-xs text-gray-500">Trips</p>
-                </div>
-                <div className="text-center p-4 bg-green-500/10 rounded-xl">
-                  <p className="text-2xl font-bold text-green-600">{user.poi_visits_count || 0}</p>
-                  <p className="text-xs text-gray-500">POI Visits</p>
-                </div>
-                <div className="text-center p-4 bg-purple-500/10 rounded-xl">
-                  <p className="text-2xl font-bold text-purple-600">{Math.round(user.total_km || 0)}</p>
-                  <p className="text-xs text-gray-500">KM</p>
-                </div>
-                <div className="text-center p-4 bg-orange-500/10 rounded-xl">
-                  <p className="text-2xl font-bold text-orange-600">{user.unique_cities_visited || 0}</p>
-                  <p className="text-xs text-gray-500">{t('cities')}</p>
-                </div>
-              </div>
-
-              {/* Info Grid */}
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                {/* Profile Info */}
-                <div className="space-y-3">
-                  <h3 className="text-sm font-bold text-gray-700 dark:text-gray-300 flex items-center">
-                    <User className="h-4 w-4 mr-2" />
-                    {t('profile')}
-                  </h3>
-                  <div className="space-y-2 text-sm">
-                    <div className="flex justify-between">
-                      <span className="text-gray-500">{t('country')}</span>
-                      <span className="font-medium text-gray-900 dark:text-white">{user.country || 'N/A'}</span>
-                    </div>
-                    <div className="flex justify-between">
-                      <span className="text-gray-500">{t('language')}</span>
-                      <span className="font-medium text-gray-900 dark:text-white">{user.language || 'N/A'}</span>
-                    </div>
-                    <div className="flex justify-between">
-                      <span className="text-gray-500">{t('driver_type')}</span>
-                      <span className="font-medium text-gray-900 dark:text-white">{user.driver_type || 'N/A'}</span>
-                    </div>
-                    {/* <div className="flex justify-between">
-                      <span className="text-gray-500">Voz</span>
-                      <span className="font-medium text-gray-900 dark:text-white">{user.voice_preference || 'N/A'}</span>
-                    </div> */}
-                  </div>
-                </div>
-
-                {/* Device Info */}
-                <div className="space-y-3">
-                  <h3 className="text-sm font-bold text-gray-700 dark:text-gray-300 flex items-center">
-                    <Smartphone className="h-4 w-4 mr-2" />
-                    {t('device')}
-                  </h3>
-                  <div className="space-y-2 text-sm">
-                    <div className="flex justify-between">
-                      <span className="text-gray-500">{t('platform')}</span>
-                      <span className={cn(
-                        "px-2 py-0.5 rounded text-xs font-bold",
-                        user.last_platform === 'ios' ? 'bg-blue-100 text-blue-700' : 
-                        user.last_platform === 'android' ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-700'
-                      )}>
-                        {user.last_platform || 'N/A'}
-                      </span>
-                    </div>
-                    <div className="flex justify-between">
-                      <span className="text-gray-500">{t('model')}</span>
-                      <span className="font-medium text-gray-900 dark:text-white">{user.last_device_model || 'N/A'}</span>
-                    </div>
-                    <div className="flex justify-between">
-                      <span className="text-gray-500">{t('app_version')}</span>
-                      <span className="font-medium text-gray-900 dark:text-white">{user.last_app_version || 'N/A'}</span>
-                    </div>
-                    <div className="flex justify-between">
-                      <span className="text-gray-500">{t('logins')}</span>
-                      <span className="font-medium text-gray-900 dark:text-white">{user.login_count || 0}</span>
-                    </div>
-                  </div>
-                </div>
-              </div>
-
-              {/* Access and hour balance — card #310. It replaced the Subscription block,
-                  which edited tier + date and wrote drive.profiles through a service-role
-                  route: a second writer of both the balance and subscription_end_date, where
-                  BR-MONETIZACAO-047 allows one door. */}
-              <CreditPanel
-                userId={user.user_id}
-                nickname={user.nickname}
-                email={user.email}
-                isAdmin={isAdmin}
-                licenseLabel={user.subscription_tier_display_name}
-                providerLabel={user.subscription_provider}
-                onChanged={() => { void fetchDetail(); if (onUpdate) onUpdate() }}
-              />
-
-              {/* Linked Client (partner QR) */}
-              <LinkedClientSection
-                userId={user.user_id}
-                linked={user.linked_client}
-                onChanged={() => { void fetchDetail(); if (onUpdate) onUpdate() }}
-              />
-
-              {/* Subscription History */}
-              {user.subscription_history && user.subscription_history.length > 0 && (
-                <div>
-                  <h3 className="text-sm font-bold text-gray-700 dark:text-gray-300 mb-3 flex items-center">
-                    <Activity className="h-4 w-4 mr-2" />
-                    {t('history')}
-                  </h3>
-                  <div className="space-y-2">
-                    {user.subscription_history.map((h, i) => (
-                      <div key={h.id || i} className="flex items-center justify-between p-2 bg-gray-50 dark:bg-gray-800/50 rounded-lg text-sm">
-                        <div className="flex items-center gap-2">
-                          <span className={cn(
-                            "px-2 py-0.5 rounded text-xs font-bold uppercase",
-                            h.action === 'subscribe' ? 'bg-green-100 text-green-700' :
-                            h.action === 'renew' ? 'bg-blue-100 text-blue-700' :
-                            h.action === 'upgrade' ? 'bg-purple-100 text-purple-700' :
-                            h.action === 'downgrade' ? 'bg-yellow-100 text-yellow-700' :
-                            'bg-red-100 text-red-700'
-                          )}>
-                            {h.action}
-                          </span>
-                          <span className="text-gray-600 dark:text-gray-400">{h.tier_name}</span>
-                          {h.previous_tier_name && (
-                            <span className="text-gray-400">← {h.previous_tier_name}</span>
-                          )}
-                        </div>
-                        <span className="text-gray-400 text-xs">
-                          {new Date(h.created_at).toLocaleDateString()}
-                        </span>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              )}
-
-              {/* Timestamps */}
-              <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 text-sm text-gray-500 border-t border-gray-200 dark:border-gray-700 pt-4">
-                <div>
-                  <p className="text-xs">{t('created_at')}</p>
-                  <p className="font-medium text-gray-700 dark:text-gray-300">
-                    {new Date(user.created_at).toLocaleDateString()}
-                  </p>
-                </div>
-                <div>
-                  <p className="text-xs">{t('last_login')}</p>
-                  <p className="font-medium text-gray-700 dark:text-gray-300">
-                    {user.last_sign_in_at ? new Date(user.last_sign_in_at).toLocaleDateString() : t('never')}
-                  </p>
-                </div>
-                <div>
-                  <p className="text-xs">{t('last_trip')}</p>
-                  <p className="font-medium text-gray-700 dark:text-gray-300">
-                    {user.last_trip_at ? new Date(user.last_trip_at).toLocaleDateString() : t('never')}
-                  </p>
-                </div>
-              </div>
-            </div>
-
-            {/* Footer */}
-            <div className="p-6 border-t border-gray-200 dark:border-gray-700 flex justify-end">
-              <button
-                onClick={onClose}
-                className="px-4 py-2 text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800 rounded-lg transition-colors"
-              >
-                {t('close')}
-              </button>
-            </div>
-          </>
-        ) : (
-          <div className="p-12 text-center text-gray-500">
-            {t('not_found')}
-          </div>
-        )}
-        </div>
-      </div>
-    </div>
-  )
-}
 
 // ============================================================================
 // MAIN PAGE
@@ -582,7 +95,6 @@ export default function AppUsersPage() {
   const [subscriptionStats, setSubscriptionStats] = useState<SubscriptionStats | null>(null)
   const [isLoading, setIsLoading] = useState(true)
   const [searchQuery, setSearchQuery] = useState('')
-  const [selectedUserId, setSelectedUserId] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
 
   // Batch grant (card #310). The batch is born from the SELECTION in this list and only
@@ -1008,13 +520,12 @@ export default function AppUsersPage() {
                 </tr>
               ) : (
                 sortedUsers.map((user) => (
-                  <tr 
-                    key={user.user_id} 
-                    className="hover:bg-gray-50 dark:hover:bg-gray-800/50 transition-colors cursor-pointer"
-                    onClick={() => setSelectedUserId(user.user_id)}
+                  <tr
+                    key={user.user_id}
+                    className="hover:bg-gray-50 dark:hover:bg-gray-800/50 transition-colors"
                   >
                     {isAdmin && (
-                      <td className="px-3 py-4" onClick={(event) => event.stopPropagation()}>
+                      <td className="px-3 py-4">
                         <input
                           type="checkbox"
                           className="h-6 w-6 cursor-pointer align-middle"
@@ -1029,10 +540,12 @@ export default function AppUsersPage() {
                         <div className="h-10 w-10 rounded-full bg-gradient-to-br from-tuggi-blue to-purple-500 flex items-center justify-center text-white font-bold mr-3">
                           {appUserInitial(user)}
                         </div>
-                        <div>
-                          <p className="font-medium text-gray-900 dark:text-white">
-                            {appUserLabel(user)}
-                          </p>
+                        <div className="min-w-0">
+                          <AppUserLink
+                            user={user}
+                            className="block font-medium text-gray-900 dark:text-white truncate max-w-full"
+                            onUpdate={() => { fetchUsers(); fetchSubscriptionStats() }}
+                          />
                         </div>
                       </div>
                     </td>
@@ -1089,10 +602,8 @@ export default function AppUsersPage() {
                     </td>
                     <td className="px-6 py-4 text-center">
                       <button
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          window.location.href = `/admin/users/${user.user_id}`;
-                        }}
+                        type="button"
+                        onClick={() => { window.location.href = `/admin/users/${user.user_id}` }}
                         className="p-2 bg-orange-100 hover:bg-orange-200 text-orange-600 rounded-xl transition-all duration-300 hover:scale-110 shadow-sm"
                         title="Ver Passaporte"
                       >
@@ -1119,17 +630,6 @@ export default function AppUsersPage() {
           }}
         />
       ) : null}
-
-      {/* User Detail Modal */}
-      <UserDetailModal 
-        userId={selectedUserId} 
-        onClose={() => setSelectedUserId(null)}
-        supabase={supabase}
-        onUpdate={() => {
-          fetchUsers();
-          fetchSubscriptionStats();
-        }}
-      />
     </div>
   )
 }

@@ -16,6 +16,7 @@
 
 import { getSupabaseClient } from '@/lib/core/supabase-client'
 import { nameMatchFilter } from '@/lib/shared/name-search'
+import { ENTITLEMENT_STATES } from '@/lib/credit/entitlement'
 import type { EntitlementState, GrantSource } from '@/lib/credit/entitlement'
 
 // The entitlement vocabulary is owned by `lib/credit/entitlement.ts`; it is re-exported
@@ -443,16 +444,121 @@ export interface AppUserDetailed {
   last_trip_at: string | null
 }
 
-export interface UserDetail extends AppUserDetailed {
+/** One line of the subscription timeline of `core.dashboard_user_detail`. */
+export interface UserDetailSubscriptionEvent {
+  /** Absent on the rows the old payload built by hand; the timeline keys on the index then. */
+  id?: string | null
+  action: string
+  provider: string | null
+  tier_name: string | null
+  previous_tier_name: string | null
+  created_at: string
+}
+
+/** The partner whose QR the app shows in the Passaporte — `drive.profiles.client_id`. */
+export interface UserDetailLinkedClient {
+  id: string
+  name: string
+  client_type: string | null
+  slug: string | null
+  qr_url: string | null
+}
+
+/**
+ * One tourist's file — `core.dashboard_user_detail(target_user_id)`.
+ *
+ * **`full_name` and `email` are not here, and the omission is the type doing the work of the
+ * rule** (**BR-USUARIO-042**). The two columns leave the RPC in the #659 migration; the
+ * exception the founder opened on 2026-09-01 is nominal and reaches
+ * `core.dashboard_app_users_detailed` — the list that feeds `batchTargets` on the app users
+ * screen — never this one. `Omit` rather than a fresh field list so the day
+ * `AppUserDetailed` gains a column this file does not have to be edited twice.
+ *
+ * The nine hour fields arrive resolved from `drive.get_entitlement` through the RPC and are
+ * **never recomputed here** — **BR-MONETIZACAO-046**. They are nullable because the
+ * migration lands after this code: a column that did not come back is `null`, and the screen
+ * prints an em dash for it. `0` would be an assertion ("consumed nothing", "never bought")
+ * that nobody made.
+ */
+export interface UserDetail extends Omit<AppUserDetailed, 'full_name' | 'email'> {
   phone: string | null
   unique_cities_visited: number
-  subscription_history: Array<{
-    action: string
-    provider: string | null
-    tier_name: string | null
-    previous_tier_name: string | null
-    created_at: string
-  }>
+  subscription_history: UserDetailSubscriptionEvent[]
+  client_id: string | null
+  linked_client: UserDetailLinkedClient | null
+
+  // Hours — #659. Same nine columns `core.dashboard_metered_users` returns per row.
+  state: EntitlementState | null
+  balance_minutes: number | null
+  minutes_granted_total: number | null
+  minutes_consumed_total: number | null
+  has_purchase: boolean | null
+  last_grant_source: GrantSource | null
+  last_grant_at: string | null
+  last_purchase_product_id: string | null
+  ends_at: string | null
+}
+
+/**
+ * The state, or `null` — never a guess.
+ *
+ * `drive.get_entitlement` resolves `unlimited` → `metered` → `free` and is the only
+ * implementation of that order (**BR-MONETIZACAO-046**). A value outside the three means the
+ * column is absent or the database learned a fourth state; either way the honest answer here
+ * is "I do not know", and the block renders empty rather than picking `free` as a default —
+ * `free` is a claim about somebody's access.
+ */
+function entitlementStateOrNull(value: unknown): EntitlementState | null {
+  return (ENTITLEMENT_STATES as readonly string[]).includes(value as string)
+    ? (value as EntitlementState)
+    : null
+}
+
+/**
+ * A boolean column that may not exist yet — the `optionalMinutes` of `has_purchase`.
+ *
+ * `!!row.has_purchase` reads a missing column as `false`, and on screen `false` says "this
+ * person never bought". That is a different sentence from "the column is not there yet".
+ */
+function optionalBoolean(value: unknown): boolean | null {
+  return value == null ? null : !!value
+}
+
+/**
+ * The row of `core.dashboard_user_detail` as the screen needs it.
+ *
+ * Exported because it is where the "missing column is not a zero" decision actually lives,
+ * and a decision that only exists inside a network call cannot be tested without inventing a
+ * fake PostgREST.
+ */
+export function toUserDetail(row: Record<string, any>): UserDetail {
+  // Dropped at the door, not just left out of the type. The migration removes the two
+  // columns; until it is applied the old RPC still answers with them, and a spread would
+  // carry them into every component that receives a `UserDetail` — where the only thing
+  // stopping a re-add would be somebody remembering the rule (BR-USUARIO-042).
+  const { full_name: _droppedName, email: _droppedEmail, ...rest } = row
+
+  return {
+    ...rest,
+    login_count: Number(row.login_count || 0),
+    trip_count: Number(row.trip_count || 0),
+    total_km: Number(row.total_km || 0),
+    poi_visits_count: Number(row.poi_visits_count || 0),
+    unique_cities_visited: Number(row.unique_cities_visited || 0),
+    subscription_history: row.subscription_history || [],
+    client_id: row.client_id ?? null,
+    linked_client: row.linked_client ?? null,
+
+    state: entitlementStateOrNull(row.state),
+    balance_minutes: optionalMinutes(row.balance_minutes),
+    minutes_granted_total: optionalMinutes(row.minutes_granted_total),
+    minutes_consumed_total: optionalMinutes(row.minutes_consumed_total),
+    has_purchase: optionalBoolean(row.has_purchase),
+    last_grant_source: (row.last_grant_source ?? null) as GrantSource | null,
+    last_grant_at: row.last_grant_at ?? null,
+    last_purchase_product_id: row.last_purchase_product_id ?? null,
+    ends_at: row.ends_at ?? null,
+  } as UserDetail
 }
 
 export interface ContentQuality {
@@ -1007,18 +1113,7 @@ class DashboardService {
       if (error) throw error
       const row = (data?.[0] || null) as any
       if (!row) return { success: false, error: 'User not found' }
-      return {
-        success: true,
-        data: {
-          ...row,
-          login_count: Number(row.login_count || 0),
-          trip_count: Number(row.trip_count || 0),
-          total_km: Number(row.total_km || 0),
-          poi_visits_count: Number(row.poi_visits_count || 0),
-          unique_cities_visited: Number(row.unique_cities_visited || 0),
-          subscription_history: row.subscription_history || [],
-        } as UserDetail,
-      }
+      return { success: true, data: toUserDetail(row) }
     } catch (error: any) {
       console.error('Error fetching user detail:', error?.message || error)
       return { success: false, error: error?.message || 'Unknown error' }

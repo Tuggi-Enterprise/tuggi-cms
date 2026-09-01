@@ -47,10 +47,29 @@ const REPO_ROOT = resolve(import.meta.dirname, '../..')
 const TOURIST_SURFACES = [
   'app/[locale]/dashboard/page.tsx',
   'app/[locale]/users/app/page.tsx',
+  'components/dashboard/AppUserLink.tsx',
   'components/dashboard/UpcomingExpirationsCard.tsx',
   'components/dashboard/LowBalanceCard.tsx',
   'components/dashboard/PaidAccessCard.tsx',
   'components/dashboard/UserDetailModal.tsx',
+  'components/dashboard/LinkedClientSection.tsx',
+  'components/dashboard/reports/MeteredBalances.tsx',
+  'components/dashboard/reports/UsersPremium.tsx',
+  'components/dashboard/reports/UsersAll.tsx',
+]
+
+/**
+ * The six that PRINT a tourist's nickname — the founder's list in #659, and the boundary of
+ * "wherever the nickname appears, clicking opens the file".
+ *
+ * It is a subset of `TOURIST_SURFACES`: `PaidAccessCard` shows aggregates and no person,
+ * `AppUserLink` and `UserDetailModal` are the door and the room, and `LinkedClientSection`
+ * names a business counterparty (item 4), not the tourist.
+ */
+const NICKNAME_SURFACES = [
+  'app/[locale]/users/app/page.tsx',
+  'components/dashboard/UpcomingExpirationsCard.tsx',
+  'components/dashboard/LowBalanceCard.tsx',
   'components/dashboard/reports/MeteredBalances.tsx',
   'components/dashboard/reports/UsersPremium.tsx',
   'components/dashboard/reports/UsersAll.tsx',
@@ -64,11 +83,16 @@ const TOURIST_SURFACES = [
  * irreversible error of that screen, so it keeps a second signal. The exception is nominal —
  * it is the e-mail, and only there. **The full name is not part of it and is gone.**
  *
- * These are the two lines that FEED that dialog. They pass an address on; they do not render
- * one, and neither of them may mention a name again.
+ * This is the line that FEEDS that dialog. It passes an address on; it does not render one,
+ * and it may not mention a name again.
+ *
+ * There used to be a second — `email={user.email}` in the user modal — and #659 removed it
+ * rather than excused it. The modal reads `core.dashboard_user_detail`, which loses both
+ * columns in that card's migration; the exception reaches `core.dashboard_app_users_detailed`,
+ * the app users list, and stops there. `CreditPanel` gets `email={null}` from the modal, so
+ * the confirmation opened from a report names the tourist by `nickname` alone.
  */
 const GRANT_TARGET_LINES = [
-  'email={user.email}',
   'return { userId: id, nickname: user?.nickname ?? null, email: user?.email ?? null }',
 ]
 
@@ -162,6 +186,12 @@ test('BR-USUARIO-042: no tourist surface reads full_name or email except to filt
 
       if (GRANT_TARGET_LINES.some((allowed) => line.includes(allowed))) return
 
+      // `email={null}` is the exception being REFUSED, not taken. `core.dashboard_user_detail`
+      // returns no address (#659), and passing the prop as a literal null is what makes the
+      // refusal visible in a diff instead of being an absence nobody notices. The positive
+      // half of this claim is the test right below.
+      if (/\bemail=\{null\}/.test(line)) return
+
       offenders.push(`${surface}:${index + 1} ${line.trim()}`)
     })
   }
@@ -171,6 +201,18 @@ test('BR-USUARIO-042: no tourist surface reads full_name or email except to filt
     [],
     'these lines put a tourist name or e-mail on a CMS screen — the identifier is the nickname'
   )
+})
+
+test('BR-USUARIO-042: the file opened from a report names the tourist by nickname alone', () => {
+  // The founder's exception is nominal and it is the app users list, which still gets its
+  // rows from `core.dashboard_app_users_detailed`. The modal reads a different RPC, and #659
+  // takes both columns out of it — so the grant confirmation reached from a dashboard report
+  // has one signal, not two. If somebody wires an address back into this prop, the scan above
+  // catches the value and this catches the disappearance of the refusal.
+  const modal = codeOf('components/dashboard/UserDetailModal.tsx')
+
+  assert.ok(modal.includes('<CreditPanel'), 'the user file is where the credit panel is mounted')
+  assert.ok(modal.includes('email={null}'), 'CreditPanel must be told, explicitly, that there is no address here')
 })
 
 test('BR-USUARIO-042: nothing in the CMS derives a label from the local part of an e-mail', () => {
@@ -187,13 +229,25 @@ test('BR-USUARIO-042: the tourist surfaces identify through the single owner of 
   // the same two-link chain, and the day the fallback changes one of them keeps the old one
   // (CLAUDE.md §6). Surfaces that show a person import the helper; the ones that show only
   // aggregates show no person at all.
+  //
+  // Since #659 there are two ways to reach that owner and both are it: importing the helper,
+  // or rendering `AppUserLink`, which is a thin wrapper OVER the helper and is asserted below
+  // to import it. A surface that does neither is composing an identifier of its own.
   const withPeople = TOURIST_SURFACES.filter((surface) => /\bnickname\b/.test(codeOf(surface)))
-  const withoutHelper = withPeople.filter((surface) => !codeOf(surface).includes('@/lib/format/user-identity'))
+  const withoutHelper = withPeople.filter((surface) => {
+    const code = codeOf(surface)
+    return !code.includes('@/lib/format/user-identity') && !code.includes('@/components/dashboard/AppUserLink')
+  })
 
   assert.deepEqual(
     withoutHelper,
     [],
     'these surfaces name a tourist without going through lib/format/user-identity'
+  )
+
+  assert.ok(
+    codeOf('components/dashboard/AppUserLink.tsx').includes("appUserLabel"),
+    'AppUserLink is only a valid stand-in for the helper while it delegates to appUserLabel'
   )
 })
 
@@ -285,4 +339,51 @@ test('BR-USUARIO-042: the grant label is composed by the owner of the chain, not
   assert.equal(/·/.test(body), false, 'personLabel composes no label of its own')
   assert.equal(/\.slice\(/.test(body), false, 'personLabel truncates no uuid of its own')
   assert.equal(/\bt\(/.test(body), false, 'the label has no translated fallback to hide a name in')
+})
+
+// ---------------------------------------------------------------------------
+// #659 — the nickname is the door, on all six surfaces, and there is one door.
+// ---------------------------------------------------------------------------
+
+test('BR-USUARIO-042: every surface that prints a nickname opens the file from it', () => {
+  // The founder's ask, stated as code: "wherever a tourist's nickname appears, clicking opens
+  // his file". Six surfaces print one; six must render the trigger. That the trigger actually
+  // opens, by mouse and by keyboard, is `tests/ct/app-user-link.spec.tsx` — this is the half a
+  // browser cannot answer, which is whether anybody was forgotten.
+  const withoutDoor = NICKNAME_SURFACES.filter(
+    (surface) => !codeOf(surface).includes('<AppUserLink')
+  )
+
+  assert.deepEqual(
+    withoutDoor,
+    [],
+    'these surfaces print a tourist and give the operator no way into his file'
+  )
+})
+
+test('BR-USUARIO-042: AppUserLink is the only door, so no screen owns a second copy of "who is open"', () => {
+  // Two owners of the same state is the defect #659 came to remove — there were literally two
+  // components named `UserDetailModal`, one of them declared inside a page. A surface that
+  // mounts the modal itself is a surface rebuilding the row click that was never reachable by
+  // keyboard in the first place.
+  const directMounts = NICKNAME_SURFACES.filter((surface) =>
+    codeOf(surface).includes('<UserDetailModal')
+  )
+
+  assert.deepEqual(
+    directMounts,
+    [],
+    'these surfaces mount the detail modal directly instead of going through AppUserLink'
+  )
+
+  // And the modal itself is declared once, in components/dashboard. `grep` rather than the
+  // surface list, because the copy that existed was inline in a page and a list of files is
+  // exactly what would not have caught it.
+  const declarations = grepFiles('(function|const)\\s+UserDetailModal\\b', ['app', 'components'])
+
+  assert.deepEqual(
+    declarations,
+    ['components/dashboard/UserDetailModal.tsx'],
+    'the tourist file is one component; a second declaration is the defect this card removed'
+  )
 })

@@ -905,6 +905,8 @@
         "poi_visits": "POI Visits",
         "km": "KM",
         "cities": "Cities",
+        "hours": "Hours standing",
+        "has_purchase": "Has purchased",
         "edit": "Edit",
         "cancel": "Cancel",
         "save": "Save",

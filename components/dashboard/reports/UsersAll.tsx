@@ -5,8 +5,8 @@ import { Users, Crown, Search, CheckCircle, Zap } from 'lucide-react'
 import { useTranslations, useLocale } from 'next-intl'
 import { dashboardService, AppUserDetailed } from '@/lib/services/dashboard-service'
 import { StatCard } from '@/components/ui/StatCard'
-import { UserDetailModal } from '@/components/dashboard/UserDetailModal'
-import { appUserInitial, appUserLabel } from '@/lib/format/user-identity'
+import { AppUserLink } from '@/components/dashboard/AppUserLink'
+import { appUserInitial } from '@/lib/format/user-identity'
 
 const TUGGI_COLORS = { blue: '#00A8E8', purple: '#8B5CF6', orange: '#FF6F00', green: '#10B981' }
 
@@ -17,6 +17,11 @@ const TUGGI_COLORS = { blue: '#00A8E8', purple: '#8B5CF6', orange: '#FF6F00', gr
  * **BR-USUARIO-042**. The `nickname` used to be the subtitle under the full name; it is the
  * identifier now, and the subtitle keeps only the country. The search still matches name and
  * e-mail over the loaded array (item 3: filtering is not showing).
+ *
+ * The file opens from the nickname and from nothing else (#659). It used to open from an
+ * `onClick` on the `<tr>` — reachable by mouse only, with no role and no focus — and the two
+ * would have been two owners of the same state. `AppUserLink` is the door on all six
+ * surfaces that print a tourist.
  */
 export function UsersAll() {
   const [users, setUsers] = useState<AppUserDetailed[]>([])
@@ -25,7 +30,6 @@ export function UsersAll() {
   const [country, setCountry] = useState('')
   const [platform, setPlatform] = useState('')
   const [search, setSearch] = useState('')
-  const [selectedUser, setSelectedUser] = useState<string | null>(null)
   const [isLoading, setIsLoading] = useState(true)
   const t = useTranslations('Pages.Dashboard')
   const locale = useLocale()
@@ -120,14 +124,17 @@ export function UsersAll() {
                   </tr>
                 ))
               ) : filtered.map((user) => (
-                <tr key={user.user_id} onClick={() => setSelectedUser(user.user_id)} className="hover:bg-gray-50 dark:hover:bg-gray-800/50 transition-colors cursor-pointer">
+                <tr key={user.user_id} className="hover:bg-gray-50 dark:hover:bg-gray-800/50 transition-colors">
                   <td className="p-4">
                     <div className="flex items-center">
                       <div className="h-10 w-10 rounded-full flex items-center justify-center text-white font-bold mr-3 shrink-0" style={{ background: `linear-gradient(135deg, ${TUGGI_COLORS.blue}, ${TUGGI_COLORS.purple})` }}>
                         {appUserInitial(user)}
                       </div>
                       <div className="min-w-0">
-                        <p className="font-bold text-gray-900 dark:text-white truncate">{appUserLabel(user)}</p>
+                        <AppUserLink
+                          user={user}
+                          className="block font-bold text-gray-900 dark:text-white truncate max-w-full"
+                        />
                         <p className="text-xs text-gray-500 truncate">{user.country || 'Global'}</p>
                       </div>
                     </div>
@@ -163,8 +170,6 @@ export function UsersAll() {
           </table>
         </div>
       </div>
-
-      {selectedUser && <UserDetailModal userId={selectedUser} onClose={() => setSelectedUser(null)} />}
     </div>
   )
 }

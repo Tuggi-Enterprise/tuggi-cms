@@ -23,6 +23,8 @@
  * excepts is an exception somebody has to walk past to copy.
  */
 
+import { UNKNOWN_VALUE } from '@/lib/format/unknown'
+
 /**
  * How much of the `user_id` reaches the screen when there is no `nickname`.
  *
@@ -54,7 +56,7 @@ export function appUserLabel(user: AppUserIdentity | null | undefined): string {
   const userId = user?.user_id?.trim()
   if (userId) return userId.slice(0, USER_ID_LABEL_CHARS)
 
-  return '—'
+  return UNKNOWN_VALUE
 }
 
 /**

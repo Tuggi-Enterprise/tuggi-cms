@@ -4,7 +4,7 @@ import { Clock, ShieldCheck } from 'lucide-react'
 import { useTranslations } from 'next-intl'
 import { cn } from '@/lib/utils'
 import type { UpcomingExpiration } from '@/lib/services/dashboard-service'
-import { appUserLabel } from '@/lib/format/user-identity'
+import { AppUserLink } from '@/components/dashboard/AppUserLink'
 
 /**
  * One subscription about to expire, in the left-hand queue of the Overview.
@@ -12,6 +12,9 @@ import { appUserLabel } from '@/lib/format/user-identity'
  * The tourist is identified by `nickname`, falling back to the first 8 characters of the
  * `user_id` — **BR-USUARIO-042**. This line used to fall back to the local part of the
  * e-mail, which is the exact cut the rule's item 2 closes.
+ *
+ * Since #659 the identifier is also the door: `AppUserLink` renders the label and opens the
+ * file. The chain still has one owner — the link is what calls `appUserLabel`.
  */
 export const UpcomingExpirationsCard = ({ expiration, locale }: { expiration: UpcomingExpiration, locale: string }) => {
   const diffDays = Math.ceil((new Date(expiration.end_date).getTime() - new Date().getTime()) / (1000 * 60 * 60 * 24));
@@ -41,9 +44,10 @@ export const UpcomingExpirationsCard = ({ expiration, locale }: { expiration: Up
 
       {/* USER INFO */}
       <div className="flex-1 min-w-0">
-        <p className="text-xs font-black text-gray-900 dark:text-white truncate">
-          {appUserLabel(expiration)}
-        </p>
+        <AppUserLink
+          user={expiration}
+          className="block text-xs font-black text-gray-900 dark:text-white truncate max-w-full"
+        />
         <div className="flex items-center gap-1.5 mt-0.5">
            <span className={cn(
              "text-[9px] font-black uppercase px-2 py-0.5 rounded-sm tracking-wider",

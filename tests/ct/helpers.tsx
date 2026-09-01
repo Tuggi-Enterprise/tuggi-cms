@@ -19,6 +19,7 @@ import { useState } from 'react'
 import { NextIntlClientProvider } from 'next-intl'
 import ptMessages from '@/messages/pt.json'
 import { QueryProvider } from '@/components/providers/QueryProvider'
+import { AppUserLink } from '@/components/dashboard/AppUserLink'
 import { ClientDirectory } from '@/components/admin/clients/ClientDirectory'
 import { ClientBoard } from '@/components/admin/clients/ClientBoard'
 import { useClientDirectory } from '@/lib/hooks/use-client-directory'
@@ -92,5 +93,53 @@ export function BoardHarness({ initial = EMPTY_FILTERS }: { initial?: DirectoryF
       failed={directory.failed}
       onAct={() => {}}
     />
+  )
+}
+
+/**
+ * The provider stack the DASHBOARD screens get — `app/[locale]/layout.tsx` hands every
+ * namespace at once, so a component mounted here sees the same message tree the operator's
+ * browser does.
+ *
+ * Scoped rather than `messages={ptMessages}` for one reason: next-intl renders the KEY NAME
+ * for a namespace it does not have, and a test asserting on `Pages.AppUsers.modal.hours`
+ * would pass against the literal string `Pages.AppUsers.modal.hours`. Naming the three
+ * namespaces makes the absence of one a failure instead of a coincidence.
+ */
+export function DashboardWrapper({ children }: { children: React.ReactNode }) {
+  return (
+    <NextIntlClientProvider
+      locale="pt"
+      messages={{
+        Pages: { AppUsers: ptMessages.Pages.AppUsers, Dashboard: ptMessages.Pages.Dashboard },
+        Common: ptMessages.Common,
+      }}
+    >
+      <QueryProvider>{children}</QueryProvider>
+    </NextIntlClientProvider>
+  )
+}
+
+/**
+ * The trigger as every one of the six surfaces mounts it: an identity row and nothing else.
+ *
+ * `AppUserLink` owns the modal, so this harness is the whole host. That is the point of the
+ * component — there is no per-surface state to reproduce, which is why proving the door works
+ * once proves it works from all six (the static suite in `tests/api/app-user-identity.test.ts`
+ * is what proves all six use it).
+ */
+export function AppUserLinkHarness({
+  nickname = 'hoppy-otter',
+  userId = 'a1b2c3d4-e5f6-7890-abcd-ef1234567890',
+}: {
+  nickname?: string | null
+  userId?: string
+}) {
+  return (
+    <div>
+      <button type="button">antes</button>
+      <AppUserLink user={{ user_id: userId, nickname }} />
+      <button type="button">depois</button>
+    </div>
   )
 }

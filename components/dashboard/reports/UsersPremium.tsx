@@ -6,7 +6,8 @@ import { useTranslations, useLocale } from 'next-intl'
 import { dashboardService, AppUserDetailed, SubscriptionStats } from '@/lib/services/dashboard-service'
 import { StatCard } from '@/components/ui/StatCard'
 import { MeteredBalances } from '@/components/dashboard/reports/MeteredBalances'
-import { appUserInitial, appUserLabel } from '@/lib/format/user-identity'
+import { appUserInitial } from '@/lib/format/user-identity'
+import { AppUserLink } from '@/components/dashboard/AppUserLink'
 
 const TUGGI_COLORS = { blue: '#00A8E8', purple: '#8B5CF6', orange: '#FF6F00', green: '#10B981', red: '#EF4444' }
 
@@ -16,7 +17,8 @@ const TUGGI_COLORS = { blue: '#00A8E8', purple: '#8B5CF6', orange: '#FF6F00', gr
  * The subscriber is identified by `nickname`, falling back to the first 8 characters of the
  * `user_id` — **BR-USUARIO-042**. The search still matches name and e-mail (item 3:
  * filtering is not showing) over the payload the old RPC keeps returning; it just never
- * prints what matched.
+ * prints what matched. Since #659 the nickname opens the file (`AppUserLink`) — this table
+ * had no way into it at all.
  */
 export function UsersPremium() {
   const [users, setUsers] = useState<AppUserDetailed[]>([])
@@ -163,7 +165,10 @@ export function UsersPremium() {
                           {appUserInitial(user)}
                         </div>
                         <div className="min-w-0">
-                          <p className="font-bold text-gray-900 dark:text-white truncate">{appUserLabel(user)}</p>
+                          <AppUserLink
+                            user={user}
+                            className="block font-bold text-gray-900 dark:text-white truncate max-w-full"
+                          />
                         </div>
                       </div>
                     </td>

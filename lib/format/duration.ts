@@ -1,3 +1,5 @@
+import { UNKNOWN_VALUE } from '@/lib/format/unknown'
+
 /**
  * The single owner of the `5 h 20 min` shape (spec §1, `docs/design/spec-cms-credito-por-hora-2026-08.md`).
  *
@@ -43,6 +45,23 @@ export function formatDuration(minutes: number | null | undefined): string {
   if (hours > 0 && rest > 0) return `${hours} h ${rest} min`
   if (hours > 0) return `${hours} h`
   return `${rest} min`
+}
+
+/**
+ * `5 h 20 min` for a known amount, `UNKNOWN_VALUE` for a column that did not come back.
+ *
+ * `formatDuration` answers "how do I write this many minutes" and reads `null` as `0 min`,
+ * because its callers are looking at a balance the database returned: a measured zero. This
+ * one answers a different question — "did the column come back at all" — and there `0 min`
+ * would be an assertion nobody made (`DS-COMPONENTE-007`).
+ *
+ * The two live side by side on purpose. The RPCs of the dashboard belong to `data` and gain
+ * columns before the migration reaches this repo; `optionalMinutes` in
+ * `lib/services/dashboard-service.ts` is the other half of the same pact — a missing column
+ * becomes `null`, never `0`.
+ */
+export function formatDurationOrDash(minutes: number | null | undefined): string {
+  return minutes == null ? UNKNOWN_VALUE : formatDuration(minutes)
 }
 
 /** Splits whole minutes into the two fields of the quantity control (spec §2). */
