@@ -248,6 +248,7 @@
         "no_metered_users": "Nobody in this band",
         "granted_total": "Granted",
         "consumed_total": "Consumed",
+        "consumption_split": "Paid {paid} · Free {granted}",
         "all_bands": "All",
         "band_critical": "Critical",
         "band_attention": "Attention",

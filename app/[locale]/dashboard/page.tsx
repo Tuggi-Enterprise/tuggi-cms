@@ -4,7 +4,7 @@ import { useState, useEffect, useCallback, useRef, useMemo } from 'react'
 import dynamic from 'next/dynamic'
 import {
   CheckCircle, TrendingUp, AlertCircle, RefreshCw, Clock, Play, Users, ShieldCheck,
-  Database, Zap, MapPin, Globe, Radar, Wallet, Hourglass,
+  Database, Zap, MapPin, Globe, Radar, Wallet, Hourglass, Timer,
 } from 'lucide-react'
 import { useTranslations, useLocale } from 'next-intl'
 import { Link } from '@/navigation'
@@ -13,9 +13,10 @@ import { StatCard } from '@/components/ui/StatCard'
 import { WidgetCard, SectionHeader } from '@/components/dashboard/WidgetCard'
 import {
   dashboardService, DashboardStats, EMPTY_DASHBOARD_STATS, EMPTY_PAID_ACCESS,
-  UserLocationPin, WaitlistStats, WaitlistPin, PaidAccessSnapshot,
+  UserLocationPin, WaitlistPin, PaidAccessSnapshot, consumedMinutesTotal,
 } from '@/lib/services/dashboard-service'
 import { LOW_BALANCE_CEILING_MINUTES } from '@/lib/credit/entitlement'
+import { formatDuration } from '@/lib/format/duration'
 import { appUserLabel } from '@/lib/format/user-identity'
 import { RecentVisitCard } from '@/components/dashboard/RecentVisitCard'
 import { UpcomingExpirationsCard } from '@/components/dashboard/UpcomingExpirationsCard'
@@ -53,7 +54,6 @@ export default function DashboardPage() {
   const [userPins, setUserPins] = useState<UserLocationPin[]>([])
   const [waitlistPins, setWaitlistPins] = useState<WaitlistPin[]>([])
   const [activeUsers, setActiveUsers] = useState<ActiveUser[]>([])
-  const [waitlist, setWaitlist] = useState<WaitlistStats | null>(null)
   const [paidAccess, setPaidAccess] = useState<PaidAccessSnapshot>(EMPTY_PAID_ACCESS)
   const [isLoading, setIsLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
@@ -70,10 +70,9 @@ export default function DashboardPage() {
   const fetchData = useCallback(async (isBackground = false, force = false) => {
     try {
       if (!isBackground) setIsLoading(true)
-      const [dash, pins, waitlistRes, wlPins, paid] = await Promise.all([
+      const [dash, pins, wlPins, paid] = await Promise.all([
         dashboardService.getDashboardData(undefined, force),
         dashboardService.getUserLocationPins(5000),
-        dashboardService.getWaitlistStats(),
         dashboardService.getWaitlistPins(5000, true),
         // Only what is not yet a comfortable balance. The list arrives from the
         // database already ordered by ascending balance — the top runs out first.
@@ -82,7 +81,6 @@ export default function DashboardPage() {
       if (!dash.success || !dash.data) throw new Error(dash.error || 'Failed to load dashboard')
       setStats(dash.data)
       if (pins.success && pins.data) setUserPins(pins.data)
-      if (waitlistRes.success && waitlistRes.data) setWaitlist(waitlistRes.data)
       if (wlPins.success && wlPins.data) setWaitlistPins(wlPins.data)
       // Paid access is the one block that may arrive empty without a defect: the
       // migration behind both RPCs belongs to `data` and may not be applied yet. Empty
@@ -218,6 +216,12 @@ export default function DashboardPage() {
 
   const activeCount = activeUsers.length
 
+  // Consumed hours: the sum of the two columns has one owner (`consumedMinutesTotal`),
+  // because the RPC returns no total and the next screen that wants the same number would
+  // add them again, its own way. `null` here is "the aggregate did not come", never
+  // "nobody consumed".
+  const consumedMinutes = consumedMinutesTotal(paidAccess.overview)
+
   return (
     <div className="min-h-screen bg-[#F0F2F5] dark:bg-gray-950 p-4 lg:p-6 flex flex-col gap-4 animate-in fade-in duration-500">
 
@@ -247,8 +251,28 @@ export default function DashboardPage() {
         <Link href="/dashboard/reports/engagement">
           <StatCard size="compact" icon={Play} title={t('labels.total_trips')} value={stats.totalTrips} color={TUGGI_COLORS.blue} isLoading={isLoading} />
         </Link>
-        <Link href="/dashboard/reports/geography">
-          <StatCard size="compact" icon={MapPin} title={t('labels.demand_pending')} value={waitlist?.pending ?? 0} color={TUGGI_COLORS.red} isLoading={isLoading} />
+        {/* Consumption, cut by how the minute was granted (BR-MONETIZACAO-047): purchased is
+            recognised revenue being used; granted — welcome, coupon, CMS grant — is
+            acquisition being burnt. Two slices and no third: a minute that is neither belongs
+            to `data`, not to a bucket invented here. With no aggregate, an em dash — zero
+            would claim that nobody listened. */}
+        <Link href="/dashboard/reports/premium">
+          <StatCard
+            size="compact"
+            icon={Timer}
+            title={t('labels.consumed_total')}
+            value={consumedMinutes === null ? '—' : formatDuration(consumedMinutes)}
+            subtitle={
+              consumedMinutes === null
+                ? undefined
+                : t('labels.consumption_split', {
+                    paid: formatDuration(paidAccess.overview?.consumed_minutes_paid),
+                    granted: formatDuration(paidAccess.overview?.consumed_minutes_granted),
+                  })
+            }
+            color={TUGGI_COLORS.orange}
+            isLoading={isLoading}
+          />
         </Link>
       </div>
 

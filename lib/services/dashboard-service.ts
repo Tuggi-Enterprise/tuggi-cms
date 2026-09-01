@@ -65,6 +65,20 @@ async function fetchDashboardRoute<T>(path: string): Promise<RpcResult<T>> {
   return { data: (body?.data ?? null) as T | null, error: null }
 }
 
+/**
+ * A numeric column that may not exist yet, kept apart from a measured zero.
+ *
+ * The RPCs of the dashboard belong to `data` and gain columns before the migration is
+ * applied here. `Number(x || 0)` reads a missing column as `0`, and on a screen `0`
+ * is an assertion — "nobody consumed", "nobody pays". `null` is the only honest answer
+ * for a column that did not come back, and the surface prints an em dash for it.
+ */
+function optionalMinutes(value: unknown): number | null {
+  if (value == null) return null
+  const parsed = Number(value)
+  return Number.isFinite(parsed) ? parsed : null
+}
+
 // ============================================================================
 // TIPOS
 // ============================================================================
@@ -332,6 +346,35 @@ export interface EntitlementOverview {
   granted_users: number
   low_balance_users: number
   total_balance_minutes: number
+  /**
+   * Minutes already consumed, cut by how the minute was granted — BR-MONETIZACAO-047:
+   * `paid` is what came from a pass purchase, `granted` is everything else that credits
+   * `minutes` (welcome, coupon, CMS grant). There is no third slice; a minute that is
+   * neither belongs to `data`, not to a bucket invented here.
+   *
+   * `null` means the column did not come back — the RPC is older than this contract. It
+   * is NOT zero: zero would claim nobody consumed.
+   */
+  consumed_minutes_paid: number | null
+  consumed_minutes_granted: number | null
+}
+
+/**
+ * The total of consumed hours the KPI prints — the single owner of that sum.
+ *
+ * It lives here and not in the JSX because the RPC has no `total` column to read: with no
+ * owner, the next surface that wants the same number adds the two columns again, its own
+ * way (`DS-COMPONENTE-025`). Both parts are whole minutes, so the sum is exact and the
+ * printed parts always close.
+ *
+ * `null` when the aggregate is missing or either column is — a half-known total would
+ * print as a smaller number, which reads as a measurement, not as a gap.
+ */
+export function consumedMinutesTotal(overview: EntitlementOverview | null): number | null {
+  if (!overview) return null
+  const { consumed_minutes_paid: paid, consumed_minutes_granted: granted } = overview
+  if (paid == null || granted == null) return null
+  return paid + granted
 }
 
 /**
@@ -904,6 +947,10 @@ class DashboardService {
             granted_users: Number(row.granted_users || 0),
             low_balance_users: Number(row.low_balance_users || 0),
             total_balance_minutes: Number(row.total_balance_minutes || 0),
+            // Absent column stays absent. `Number(undefined || 0)` would turn "the RPC
+            // does not answer this yet" into "nobody consumed anything".
+            consumed_minutes_paid: optionalMinutes(row.consumed_minutes_paid),
+            consumed_minutes_granted: optionalMinutes(row.consumed_minutes_granted),
           }
         : null
 

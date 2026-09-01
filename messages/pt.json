@@ -248,6 +248,7 @@
         "no_metered_users": "Ninguém com saldo nesta faixa",
         "granted_total": "Concedido",
         "consumed_total": "Consumido",
+        "consumption_split": "Pagas {paid} · Gratuitas {granted}",
         "all_bands": "Todas",
         "band_critical": "Crítico",
         "band_attention": "Atenção",

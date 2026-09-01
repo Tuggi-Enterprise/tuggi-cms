@@ -90,8 +90,12 @@ export const StatCard = ({
         )}>
           {typeof value === 'number' ? value.toLocaleString() : value}
         </p>
+        {/* `text-sm text-gray-400` was #9CA3AF — 2.54:1, failing SC 1.4.3 AA, and LARGER than
+            the 11 px label above it (spec-dashboard-acesso-e-saldo-2026-09 §5). Light is what
+            the spec measured (#4B5563, 7.56:1); dark is gray-400 on gray-900, because gray-600
+            in the dark theme would repeat the same defect from the other side. */}
         {subtitle && (
-          <p className="text-sm text-gray-400 mt-1 font-bold">{subtitle}</p>
+          <p className="text-xs text-gray-600 dark:text-gray-400 mt-1 font-bold">{subtitle}</p>
         )}
       </div>
     </div>
