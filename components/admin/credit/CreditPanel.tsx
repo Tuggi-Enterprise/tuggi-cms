@@ -35,14 +35,13 @@ import { Button } from '@/components/ui/button'
 import { Label } from '@/components/ui/label'
 import { Textarea } from '@/components/ui/textarea'
 import { formatDuration } from '@/lib/format/duration'
+import { GRANT_SOURCES } from '@/lib/credit/entitlement'
 import { DialogShell } from './DialogShell'
 import { GrantCreditDialog } from './GrantCreditDialog'
 import { creditFailureText, readFailure, type CreditFailure } from './errorText'
 import type { LedgerEnvelope, LedgerGrant, LedgerSession } from './types'
 
 const PAGE_SIZE = 50
-
-const KNOWN_SOURCES = ['purchase', 'welcome', 'coupon', 'cms', 'partner', 'transfer'] as const
 
 interface Props {
   userId: string
@@ -110,7 +109,7 @@ export function CreditPanel({
   }
 
   const sourceLabel = (source: string): string =>
-    (KNOWN_SOURCES as readonly string[]).includes(source)
+    (GRANT_SOURCES as readonly string[]).includes(source)
       ? t(`grants.source_${source}`)
       : source
 

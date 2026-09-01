@@ -5,8 +5,13 @@
  * and BR-MONETIZACAO-046 allows exactly one implementation of that resolution.
  */
 
-/** There is no fourth value. */
-export type EntitlementState = 'unlimited' | 'metered' | 'free'
+/**
+ * There is no fourth value, and there is one owner: `lib/credit/entitlement.ts`, which
+ * the dashboard reads too. Re-exported here so this envelope stays readable on its own.
+ */
+import type { EntitlementState } from '@/lib/credit/entitlement'
+
+export type { EntitlementState }
 
 export interface LedgerGrant {
   id: string

@@ -41,7 +41,7 @@ export const UpcomingExpirationsCard = ({ expiration, locale }: { expiration: Up
       {/* USER INFO */}
       <div className="flex-1 min-w-0">
         <p className="text-xs font-black text-gray-900 dark:text-white truncate">
-          {expiration.full_name || expiration.email?.split('@')[0] || 'Unknown User'}
+          {expiration.full_name || expiration.email?.split('@')[0] || t('unknown_user')}
         </p>
         <div className="flex items-center gap-1.5 mt-0.5">
            <span className={cn(

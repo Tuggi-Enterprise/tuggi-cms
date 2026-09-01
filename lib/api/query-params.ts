@@ -33,6 +33,28 @@ export function readBoundedInt(
 }
 
 /**
+ * Optional integer query parameter, clamped to `[min, max]`, `null` when absent.
+ *
+ * For arguments whose absence is itself a value — `max_balance_minutes` means "no
+ * ceiling", not "zero". Same clamp as `readBoundedInt` for everything else: a
+ * present-but-unusable value falls back to `null` rather than to a number nobody
+ * asked for.
+ */
+export function readOptionalBoundedInt(
+  params: URLSearchParams,
+  name: string,
+  { min, max }: Omit<BoundedIntOptions, 'fallback'>
+): number | null {
+  const raw = params.get(name)
+  if (raw === null || raw.trim() === '') return null
+
+  const value = Number(raw)
+  if (!Number.isFinite(value)) return null
+
+  return Math.min(max, Math.max(min, Math.trunc(value)))
+}
+
+/**
  * Boolean query parameter. Only the literal strings decide; anything else falls
  * back, so `?onlyPending=maybe` does not read as `true` by truthiness.
  */

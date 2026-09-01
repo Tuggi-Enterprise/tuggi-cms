@@ -16,6 +16,11 @@
 
 import { getSupabaseClient } from '@/lib/core/supabase-client'
 import { nameMatchFilter } from '@/lib/shared/name-search'
+import type { EntitlementState, GrantSource } from '@/lib/credit/entitlement'
+
+// The entitlement vocabulary is owned by `lib/credit/entitlement.ts`; it is re-exported
+// here so a caller that already imports the service types does not need a second import.
+export type { EntitlementState, GrantSource }
 
 // ============================================================================
 // TRANSPORTE
@@ -294,6 +299,57 @@ export interface SubscriptionStats {
   new_subscriptions_7d: number
   churned_7d: number
 }
+
+/**
+ * Paid access after the move to hours — `core.dashboard_entitlement_overview()`.
+ *
+ * `unlimited_users` is a term with a date; `metered_users` is a balance of minutes above
+ * zero. Both are paid access, and their sum is not `total_users`: the rest is `free`.
+ * `purchased_users` and `granted_users` cut the same population by origin — who bought a
+ * pass against who was granted one (BR-MONETIZACAO-047).
+ */
+export interface EntitlementOverview {
+  total_users: number
+  unlimited_users: number
+  metered_users: number
+  free_users: number
+  purchased_users: number
+  granted_users: number
+  low_balance_users: number
+  total_balance_minutes: number
+}
+
+/**
+ * One row of `core.dashboard_metered_users()`.
+ *
+ * `state` arrives from the database resolved by `drive.get_entitlement` and is **never
+ * recomputed here** — BR-MONETIZACAO-046. `balance_minutes` is minutes and stays minutes
+ * in code; hours are a surface concern (`lib/format/duration.ts`).
+ */
+export interface MeteredUser {
+  user_id: string
+  full_name: string | null
+  email: string | null
+  nickname: string | null
+  state: EntitlementState
+  balance_minutes: number
+  minutes_granted_total: number
+  minutes_consumed_total: number
+  has_purchase: boolean
+  last_grant_source: GrantSource | null
+  last_grant_at: string | null
+  last_purchase_product_id: string | null
+  ends_at: string | null
+}
+
+/** The two reads of `/api/dashboard/entitlement`, which serve one screen. */
+export interface PaidAccessSnapshot {
+  overview: EntitlementOverview | null
+  meteredUsers: MeteredUser[]
+}
+
+/** No data: what the UI renders when the RPC does not exist yet, or failed. */
+export const EMPTY_PAID_ACCESS: PaidAccessSnapshot = { overview: null, meteredUsers: [] }
 
 export interface AppUserDetailed {
   user_id: string
@@ -780,6 +836,83 @@ class DashboardService {
   }
 
   /**
+   * Paid access in the hour model: the aggregate plus the list of who holds a balance.
+   *
+   * Slim wrapper over `core.dashboard_entitlement_overview()` and
+   * `core.dashboard_metered_users()`, served together by `/api/dashboard/entitlement` —
+   * the list carries names and e-mails, so the read goes through a route (SEC-37), never
+   * through PostgREST from the browser.
+   *
+   * **One call for both RPCs on purpose:** every screen that wants one wants the other
+   * (the Overview and the premium report), and two wrappers hitting the same route would
+   * execute both RPCs twice.
+   *
+   * **An error does not take the screen down.** The migration belongs to `data` and may
+   * not be applied: a missing RPC becomes a `null` aggregate and an empty list, which is
+   * the UI's empty state. Only when BOTH fail does the call declare itself unsuccessful —
+   * at that point there is nothing left to show.
+   *
+   * @param maxBalanceMinutes balance ceiling (`<=`) for the list. `null` means no filter.
+   */
+  static async getPaidAccess(
+    limit = 100,
+    maxBalanceMinutes: number | null = null
+  ): Promise<{ success: boolean; data?: PaidAccessSnapshot; error?: string }> {
+    try {
+      const query = new URLSearchParams({ limit: String(limit) })
+      if (maxBalanceMinutes !== null) query.set('maxBalanceMinutes', String(maxBalanceMinutes))
+
+      const { data, error } = await fetchDashboardRoute<{
+        overview: RpcResult<any[]>
+        meteredUsers: RpcResult<any[]>
+      }>(`/api/dashboard/entitlement?${query.toString()}`)
+      if (error) throw new Error(error.message)
+
+      const overviewError = data?.overview?.error?.message || null
+      const usersError = data?.meteredUsers?.error?.message || null
+      if (overviewError && usersError) {
+        return { success: false, error: overviewError, data: EMPTY_PAID_ACCESS }
+      }
+
+      const row = (data?.overview?.data?.[0] || null) as any
+      const overview: EntitlementOverview | null = row
+        ? {
+            total_users: Number(row.total_users || 0),
+            unlimited_users: Number(row.unlimited_users || 0),
+            metered_users: Number(row.metered_users || 0),
+            free_users: Number(row.free_users || 0),
+            purchased_users: Number(row.purchased_users || 0),
+            granted_users: Number(row.granted_users || 0),
+            low_balance_users: Number(row.low_balance_users || 0),
+            total_balance_minutes: Number(row.total_balance_minutes || 0),
+          }
+        : null
+
+      const meteredUsers: MeteredUser[] = (data?.meteredUsers?.data || []).map((u: any) => ({
+        user_id: u.user_id,
+        full_name: u.full_name ?? null,
+        email: u.email ?? null,
+        nickname: u.nickname ?? null,
+        // The state arrives resolved from the database (BR-MONETIZACAO-046); never inferred here.
+        state: u.state as EntitlementState,
+        balance_minutes: Number(u.balance_minutes || 0),
+        minutes_granted_total: Number(u.minutes_granted_total || 0),
+        minutes_consumed_total: Number(u.minutes_consumed_total || 0),
+        has_purchase: !!u.has_purchase,
+        last_grant_source: (u.last_grant_source ?? null) as GrantSource | null,
+        last_grant_at: u.last_grant_at ?? null,
+        last_purchase_product_id: u.last_purchase_product_id ?? null,
+        ends_at: u.ends_at ?? null,
+      }))
+
+      return { success: true, data: { overview, meteredUsers } }
+    } catch (error: any) {
+      console.error('Error fetching paid access:', error?.message || error)
+      return { success: false, error: error?.message || 'Unknown error', data: EMPTY_PAID_ACCESS }
+    }
+  }
+
+  /**
    * Usuários detalhados (27 campos: tier, provider, device, engagement) com filtros opcionais.
    * Wrapper slim de dashboard_app_users_detailed() — RPC já existente.
    */
@@ -1033,6 +1166,7 @@ export const dashboardService = {
   getWaitlistStats: () => DashboardService.getWaitlistStats(),
   getWaitlistPins: (limit?: number, onlyPending?: boolean) => DashboardService.getWaitlistPins(limit, onlyPending),
   getSubscriptionStats: () => DashboardService.getSubscriptionStats(),
+  getPaidAccess: (limit?: number, maxBalanceMinutes?: number | null) => DashboardService.getPaidAccess(limit, maxBalanceMinutes),
   getAppUsersDetailed: (limit?: number, country?: string, platform?: string) => DashboardService.getAppUsersDetailed(limit, country, platform),
   getUserDetail: (userId: string) => DashboardService.getUserDetail(userId),
   getContentQuality: () => DashboardService.getContentQuality(),

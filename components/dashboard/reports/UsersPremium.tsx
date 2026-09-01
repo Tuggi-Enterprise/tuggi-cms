@@ -5,6 +5,7 @@ import { Crown, Search, Clock, ArrowUpDown, Users, TrendingUp, TrendingDown, App
 import { useTranslations, useLocale } from 'next-intl'
 import { dashboardService, AppUserDetailed, SubscriptionStats } from '@/lib/services/dashboard-service'
 import { StatCard } from '@/components/ui/StatCard'
+import { MeteredBalances } from '@/components/dashboard/reports/MeteredBalances'
 
 const TUGGI_COLORS = { blue: '#00A8E8', purple: '#8B5CF6', orange: '#FF6F00', green: '#10B981', red: '#EF4444' }
 
@@ -46,9 +47,17 @@ export function UsersPremium() {
 
   return (
     <div className="space-y-6">
+      {/* Paid access in the hour model. Most of the paying base does not expire on a date
+          any more — it holds a balance — so this comes first: it is where the operator acts. */}
+      <MeteredBalances />
+
+      {/* Subscription by term: the other half of paid access, the one that still expires. */}
+      <h2 className="text-sm font-black uppercase tracking-widest text-gray-400 border-t border-gray-200 dark:border-gray-800 pt-8">
+        {t('labels.subscriber_management')}
+      </h2>
       {/* KPIs de assinatura */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-        <StatCard size="compact" icon={Crown} title={t('premium.title')} value={subStats?.premium_users ?? 0} color={TUGGI_COLORS.orange} isLoading={isLoading} />
+        <StatCard size="compact" icon={Crown} title={t('reports.premium.title')} value={subStats?.premium_users ?? 0} color={TUGGI_COLORS.orange} isLoading={isLoading} />
         <StatCard size="compact" icon={Users} title={t('labels.premium') + ' %'} value={`${subStats?.premium_percentage ?? 0}%`} color={TUGGI_COLORS.blue} isLoading={isLoading} />
         <StatCard size="compact" icon={TrendingUp} title={t('labels.new_subscriptions_7d')} value={subStats?.new_subscriptions_7d ?? 0} color={TUGGI_COLORS.green} isLoading={isLoading} />
         <StatCard size="compact" icon={TrendingDown} title={t('labels.churned_7d')} value={subStats?.churned_7d ?? 0} color={TUGGI_COLORS.red} isLoading={isLoading} />

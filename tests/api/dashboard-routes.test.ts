@@ -145,6 +145,14 @@ const ROUTES: DashboardRoute[] = [
     url: 'http://localhost/api/dashboard/top-generators?limit=5',
     rpcs: ['dashboard_top_generators'],
   },
+  {
+    // #656. The paid-access read: the aggregate plus the people who hold a balance. The
+    // list returns `full_name` and `email`, so it is a read about people like the seven
+    // the card named — the gate is the same, and this sweep is where that is stated.
+    module: 'app/api/dashboard/entitlement/route.ts',
+    url: 'http://localhost/api/dashboard/entitlement?limit=20&maxBalanceMinutes=299',
+    rpcs: ['dashboard_entitlement_overview', 'dashboard_metered_users'],
+  },
 ]
 
 const handlers = new Map<string, Handler>()
