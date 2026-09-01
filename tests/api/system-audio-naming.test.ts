@@ -78,9 +78,11 @@ test('build → parse é ida e volta para todas as combinações do catálogo', 
     }
   }
 
-  // 13 chaves × 12 locales × 2 gêneros. Um número aqui é o que denuncia chave
-  // removida sem querer.
-  assert.equal(combinations, 312)
+  // 14 chaves × 12 locales × 2 gêneros. Um número aqui é o que denuncia chave
+  // removida sem querer. Passou de 13 em 2026-09-01, quando `nointernet` entrou
+  // sem que `offline` saísse: o arquivo gravado continua no bucket, só perdeu o
+  // consumidor (BR-AUDIO-022 item 2.7).
+  assert.equal(combinations, 336)
 })
 
 test('o nome que o app monta hoje continua sendo aceito', () => {
@@ -131,18 +133,20 @@ test('as duas pastas são as que o app lê, e o silent.mp3 é reservado', () => 
   assert.ok(mod.RESERVED_FILES.has('silent.mp3'))
 })
 
-test('as chaves de aviso estão no catálogo — as 9 do §10 e `missedpoi` —, e as sem copy estão marcadas', () => {
+test('as chaves de aviso estão no catálogo — as 9 do §10, `missedpoi` e `nointernet` —, e as sem copy estão marcadas', () => {
   const notices = mod.SYSTEM_AUDIO_SCRIPTS.filter((s) => s.family === 'notice').map((s) => s.key)
 
-  // `missedpoi` é a única que não vem do §10: ela avisa o POI que passou sem ser
-  // narrado por falta de saldo. As outras nove são as do documento, e a lista é
-  // fechada de propósito — chave a mais aqui é arquivo a mais num bucket público.
+  // Duas não vêm do §10: `missedpoi`, que avisa o POI passado sem saldo, e
+  // `nointernet` (2026-09-01), que substituiu `offline` como aviso de queda. As
+  // outras nove são as do documento, e a lista é fechada de propósito — chave a
+  // mais aqui é arquivo a mais num bucket público.
   assert.deepEqual(notices.sort(), [
     'balance15min',
     'balance1h',
     'balanceend',
     'locationoff',
     'missedpoi',
+    'nointernet',
     'offline',
     'online',
     'passactive',
@@ -152,6 +156,23 @@ test('as chaves de aviso estão no catálogo — as 9 do §10 e `missedpoi` —,
 
   const pending = mod.SYSTEM_AUDIO_SCRIPTS.filter((s) => s.sourceText === null)
   assert.deepEqual(pending, [], 'toda chave tem copy pt-BR escrita')
+})
+
+test('`offline` continua no catálogo, sem consumidor e marcada como tal', () => {
+  // Ela NÃO se apaga: o arquivo gravado está no bucket e o CMS não remove o que
+  // não gerou nesta rodada. O que muda é o `trigger` que a tela exibe ao
+  // operador — sem ele, a única pista de que a chave saiu de uso estaria no app.
+  // Contrato: `docs/contracts/audios-de-sistema.md` §1.
+  const offline = mod.SYSTEM_AUDIO_SCRIPTS.find((s) => s.key === 'offline')
+  assert.ok(offline, 'a chave gravada não se apaga do catálogo')
+  assert.match(offline.trigger, /FORA DE USO/)
+
+  // E a substituta diz o limiar novo: 30 s, não os 60 s de antes (BR-AUDIO-024
+  // item 1, reescrito em 2026-09-01).
+  const drop = mod.SYSTEM_AUDIO_SCRIPTS.find((s) => s.key === 'nointernet')
+  assert.ok(drop, 'a chave de queda em uso é `nointernet`')
+  assert.match(drop.trigger, /30 s/)
+  assert.doesNotMatch(drop.sourceText ?? '', /salvo no seu telefone/)
 })
 
 test('as três direções existem e têm copy', () => {

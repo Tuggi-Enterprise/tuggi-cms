@@ -106,17 +106,37 @@ export const SYSTEM_AUDIO_SCRIPTS: ReadonlyArray<SystemAudioScript> = [
     trigger: 'permissão de localização revogada com sessão ativa',
   },
   {
+    // The key the app asks for when the network drops, since 2026-09-01 — it
+    // replaced `offline` below, which is now recorded and unused. Same trigger,
+    // neutral text: the drop is stated and nothing is promised about what
+    // happens next. BR-AUDIO-022 item 2.7 and BR-AUDIO-027 item 12.
+    key: 'nointernet',
+    family: 'notice',
+    sourceText:
+      'Você está sem internet agora. Sem internet, não consigo narrar os lugares do caminho.',
+    trigger: 'queda de rede persistente ≥ 30 s com sessão de guia ativa',
+  },
+  {
+    // FORA DE USO desde 2026-09-01 — o app não pede mais esta chave, e o
+    // arquivo NÃO se apaga (como `welcomeend`).
+    //
+    // O texto promete continuidade offline, e a promessa dependia de um portão:
+    // só tocava com áudio de POI em cache à frente. O portão foi revogado
+    // (BR-AUDIO-024 item 2) porque calava a estrada inteira quando não havia POI
+    // no cone, e sem ele ninguém sabe se há conteúdo salvo — BR-AUDIO-027 item
+    // 12 passou a proibir a promessa sem condição nenhuma. Substituída por
+    // `nointernet`, acima.
     key: 'offline',
     family: 'notice',
     sourceText:
       'Você está sem internet agora, mas pode seguir tranquilo. Eu continuo narrando com o conteúdo que já está salvo no seu telefone.',
-    trigger: 'offline persistente ≥ 60 s com sessão ativa',
+    trigger: 'FORA DE USO desde 2026-09-01 — substituída por `nointernet`; o app não pede mais esta chave',
   },
   {
     key: 'online',
     family: 'notice',
     sourceText: 'Sua internet voltou.',
-    trigger: 'conexão estável ≥ 30 s após episódio já anunciado',
+    trigger: 'conexão estável ≥ 30 s depois de `nointernet` ter falado no mesmo episódio',
   },
   {
     key: 'welcomestart',
