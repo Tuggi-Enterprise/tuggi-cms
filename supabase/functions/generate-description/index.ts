@@ -644,6 +644,13 @@ async function processPOIItem(
                 sources: masterResult.sourceCount ?? 0,
                 models: masterResult.modelUsed ?? null,
                 safe_mode: masterResult.grounded === false,
+                // #652 — o pedágio de grounding é 94% da conta de Gemini, e a família 3.x
+                // cobra por search QUERY executada (US$ 14/1.000) enquanto a 2.5 cobra por
+                // prompt (US$ 35/1.000). A fatura sozinha dá o total e não dá queries/prompt,
+                // que é o número que decide a família em outubro/2026 — equilíbrio em ~2,95.
+                // Fica na trilha porque ela já é payload JSON: nenhuma coluna nova.
+                search_queries: masterResult.searchQueryCount ?? 0,
+                retrieval_attempts: masterResult.retrievalAttempts ?? 0,
                 ...(venueMeta || {}),
             };
             if (!groundedOk) {

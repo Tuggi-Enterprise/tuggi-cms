@@ -179,6 +179,15 @@ interface MasterPackResult {
     // grounded=false: nenhuma fonte (NONE) → SAFE MODE genérico → needs_review.
     grounded?: boolean;
     sourceCount?: number;
+    /** #652 — search queries que o passo 1 EXECUTOU, somadas todas as tentativas de retrieval.
+     *  Não é o mesmo que `sourceCount` (fontes devolvidas) nem que `retrievalAttempts`
+     *  (chamadas feitas): é a unidade que a família 3.x cobra, US$ 14 por 1.000. Sem este
+     *  número a fatura de setembro/2026 diz o total e não diz queries/prompt, que é o que
+     *  decide a família em outubro — ponto de equilíbrio em ~2,95. */
+    searchQueryCount?: number;
+    /** #652 — quantas chamadas de retrieval rodaram (1, ou 2 quando o fallback disparou). É o
+     *  denominador de `searchQueryCount`: sem ele, duas tentativas parecem um prompt caro. */
+    retrievalAttempts?: number;
     modelUsed?: string;
     /** Latência por etapa, em ms. Quem consome é o orquestrador, que soma TTS e gravação e emite
      *  uma linha só — sem isto, "a geração está lenta" não tem onde ser medida. */
@@ -252,9 +261,20 @@ export const callGemini = async (model: string, fetchBody: any, apiKey: string):
  * uma narração" (o modelo responde de memória → alucina/confunde). Comprovado por
  * diagnóstico direto. Solução:
  *   PASSO 1 (BUSCAR): prompt de LOOKUP factual → o modelo SEMPRE busca → fatos
- *           verificados + fontes reais (ou "NONE"). Grounding é grátis (cota free).
+ *           verificados + fontes reais (ou "NONE").
  *   PASSO 2 (ESCREVER): compõe a narração no idioma/formato usando SÓ os fatos do
  *           passo 1 (sem busca) → não tem como alucinar. Se NONE → genérico curto.
+ *
+ * CUSTO DO PASSO 1 — o grounding NÃO é grátis (#652). A franquia de 1.500 buscas/dia é do
+ * tier gratuito e este projeto é pago; enquanto o comentário antigo dizia "grátis", o
+ * pedágio virou 94% da conta de Gemini de agosto/2026 (11.193 chamadas, ~US$ 392, contra
+ * ~US$ 29 de token de geração no mês inteiro). Doc oficial, conferida em 2026-09-01:
+ *   - Gemini 2.5: US$ 35 por 1.000 PROMPTS com a tool ligada.
+ *   - Gemini 3.x: US$ 14 por 1.000 SEARCH QUERIES executadas, 5.000 grátis/mês
+ *     compartilhadas pela família. Quantas o modelo executa por prompt é DECISÃO DELE — a
+ *     doc não expõe teto (não há max_searches nem search_budget), então o número se mede,
+ *     não se configura. Equilíbrio entre as duas cobranças: ~2,95 queries por prompt.
+ * O passo 2 não usa a tool e por isso não paga pedágio nenhum — só token.
  */
 /**
  * Contexto de TIPO da entidade narrada.
@@ -400,13 +420,22 @@ export const generateMasterPack = async (
         `If you cannot find reliable sources specifically about THIS place, reply with exactly: NONE`,
     ].filter(Boolean).join('\n');
 
-    // Retrieval PRECISA buscar de verdade. gemini-2.5-flash busca de forma confiável e
-    // puxa mais fontes/retrieval (preferido p/ qualidade de grounding). Testado:
-    // gemini-3.1-flash-lite NÃO dispara o google_search em POIs obscuros. 3.5-flash
-    // como fallback vivo p/ quando o 2.5-flash flapar (404 de aposentadoria em rollout).
-    const retrievalModels = ['gemini-2.5-flash', 'gemini-3.5-flash'];
+    // Retrieval PRECISA buscar de verdade. Testado: gemini-3.1-flash-lite NÃO dispara o
+    // google_search em POIs obscuros — por isso nenhum lite entra aqui.
+    //
+    // #652 — as DUAS posições ficam na família 3.x de propósito, e isso não é preferência de
+    // modelo: é o que torna a fatura de setembro/2026 legível. O pedágio de grounding tem SKU
+    // por família (2.5 cobra por prompt, 3.x cobra por search query — ver o bloco de custo no
+    // topo do pipeline), e lista misturada devolve a mesma ambiguidade de atribuição por SKU
+    // que travou a conciliação de agosto. Setembro é mês de MEDIÇÃO: `searchQueries` abaixo é
+    // o número que decide, em outubro, qual família fica. Não troque nenhum dos dois sem o
+    // card — o experimento só vale se a lista ficar parada até 2026-09-30.
+    const retrievalModels = ['gemini-3.7-flash', 'gemini-3.5-flash'];
     let facts: string | null = null;
     let sourceCount = 0;
+    // #652 — SOMA, nunca máximo nem última tentativa: o pedágio do 3.x é cobrado por search
+    // query executada, e o fallback executa um segundo lote que a fatura cobra igual.
+    let searchQueries = 0;
     let retrievalModelUsed = '';
     const startedAt = Date.now();
     const retrieveTimings: { model: string; ms: number; verdict: string }[] = [];
@@ -428,6 +457,11 @@ export const generateMasterPack = async (
         if (hasReferenceLinks) body.tools.push({ url_context: { urls: referenceLinks.slice(0, 5) } });
 
         const res = await callGemini(model, body, apiKey);
+        // #652 — contado ANTES dos portões: a query que o modelo executou já foi cobrada,
+        // mesmo quando a resposta é descartada depois por finishReason ou por veredito. Contar
+        // só o que serviu subestimaria justamente o custo do fallback, que é o que se mede.
+        const queriesThisAttempt = res.gm?.webSearchQueries?.length ?? 0;
+        searchQueries += queriesThisAttempt;
         if (!res.ok) { retrieveTimings.push({ model, ms: res.elapsedMs ?? 0, verdict: 'error' }); attempts.push(`retrieve ${model}: ${res.error}`); continue; }
         if (res.finishReason && res.finishReason !== 'STOP') { retrieveTimings.push({ model, ms: res.elapsedMs ?? 0, verdict: `finish_${res.finishReason}` }); attempts.push(`retrieve ${model}: finishReason ${res.finishReason}`); continue; }
 
@@ -442,13 +476,16 @@ export const generateMasterPack = async (
         // laço segue para o próximo modelo em vez de mandar a recusa para o passo 2.
         const verdict = judgeRetrievalOutput(txt);
         retrieveTimings.push({ model, ms: res.elapsedMs ?? 0, verdict: verdict.reason });
-        console.log(`[MasterPack][retrieve] ${model} searched=${(res.gm?.webSearchQueries?.length ?? 0) > 0} chunks=${sc} chars=${txt.length} usable=${verdict.usable} reason=${verdict.reason} bullets=${verdict.taggedBullets} ms=${res.elapsedMs ?? 0}`);
+        console.log(`[MasterPack][retrieve] ${model} queries=${queriesThisAttempt} chunks=${sc} chars=${txt.length} usable=${verdict.usable} reason=${verdict.reason} bullets=${verdict.taggedBullets} ms=${res.elapsedMs ?? 0}`);
         if (verdict.usable) { facts = txt; break; } // achou fatos → segue
         // NONE, recusa em prosa ou saída fora do contrato → tenta o próximo modelo.
     }
     const retrieveMs = retrieveTimings.reduce((a, t) => a + t.ms, 0);
 
-    // grounded = buscou com fontes reais E temos fatos. (Search é grátis na cota free.)
+    // grounded = buscou com fontes reais E temos fatos. O grounding é PAGO desde que o projeto
+    // saiu do tier gratuito (#652): 2.5 cobra US$ 35/1.000 prompts, 3.x cobra US$ 14/1.000
+    // search queries executadas — doc oficial, conferida em 2026-09-01. Quem mede o custo é
+    // `searchQueries`, não este booleano: `grounded=true` não diz quantas buscas foram pagas.
     const grounded = sourceCount > 0 && !!facts;
 
     // ─────────────────────────────────────────────────────────────────────────
@@ -604,7 +641,7 @@ export const generateMasterPack = async (
             totalMs: Date.now() - startedAt,
         };
 
-        console.log(`[MasterPack] grounded=${grounded} sources=${sourceCount} facts=${!!facts} compose=${model} descLen=${finalDescription.length}`);
+        console.log(`[MasterPack] grounded=${grounded} sources=${sourceCount} queries=${searchQueries} retrieve_attempts=${retrieveTimings.length} facts=${!!facts} compose=${model} descLen=${finalDescription.length}`);
         // Uma linha, em ms, com a etapa que gastou. `retrieve` traz UMA entrada por modelo
         // tentado: é assim que o custo do fallback aparece em vez de se diluir no total.
         console.log(`[MasterPack][timing] total_ms=${timings.totalMs} retrieve_ms=${retrieveMs} compose_ms=${composeMs} retrieve=${retrieveTimings.map((t) => `${t.model}:${t.ms}:${t.verdict}`).join(',')} compose=${composeTimings.map((t) => `${t.model}:${t.ms}`).join(',')}`);
@@ -615,6 +652,10 @@ export const generateMasterPack = async (
             usage,
             grounded,
             sourceCount,
+            searchQueryCount: searchQueries,
+            // SSOT: a contagem de tentativas é a mesma lista que o timing publica — uma entrada
+            // por chamada tentada. Um contador próprio aqui seria o segundo dono do mesmo fato.
+            retrievalAttempts: retrieveTimings.length,
             modelUsed: `retrieve:${retrievalModelUsed || 'none'} compose:${model}`,
             timings,
         };
