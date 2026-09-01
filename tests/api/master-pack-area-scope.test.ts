@@ -20,6 +20,11 @@
  * sustenta a descrição. `factScope === 'area'` é exatamente essa população, e é decisão do operador
  * em 2026-09-01 (card #653) publicá-la. O que este arquivo garante é que ela fique CONTÁVEL.
  *
+ * #655 (seção 3b) — a narração deixou de poder abrir definindo o lugar. Mora aqui porque a
+ * fronteira é a mesma que a seção 3 trava — o prompt REALMENTE enviado — e porque o risco do
+ * card era justamente a voz nova empurrar de lado a régua de verdade: os dois vão no mesmo
+ * texto ou nenhum vai.
+ *
  * #654 (seção 7) — a frase de assunto do passo 1 passou a dizer ONDE o lugar fica: cidade,
  * estado e país, e `in` no lugar de `near`. Mora aqui porque é o MESMO prompt de colheita que
  * as seções acima travam, e o interceptador de `fetch` já existe — um terceiro arquivo só
@@ -258,6 +263,54 @@ test('#653 — the widened radius is about SOURCES, never about inventing', asyn
   // nem na colheita, nem na narração.
   assert.match(gather, /never be restated as this place's own/)
   assert.match(composeSystems[0], /NEVER move an \[area\] date, number, person or event onto this place/)
+})
+
+// ── 3b. #655 — a voz de guia, e o que ela NÃO pode ter afrouxado ─────────────
+// A narração passou a ser proibida de abrir definindo o lugar ("X é um parquinho"). Isto aqui
+// não julga estilo — nenhum teste prova que o modelo obedeceu. Prova que o PEDIDO viaja no
+// prompt realmente enviado, nos três `entity_kind`, e que ele não entrou no lugar da régua de
+// verdade: a proibição de abertura por definição e as duas metades de BR-CONTEUDO-008 item 4
+// (4.c não-transferência, 4.d atribuição na própria frase) precisam estar JUNTAS no mesmo texto.
+
+test('#655 — the ban on opening by definition travels in the compose prompt actually sent, in all six languages', async () => {
+  for (const kind of ['poi', 'place', 'event'] as const) {
+    installFetch([{ text: kind === 'event' ? PLACE_FACTS : AREA_FACTS }])
+    await run(kind)
+    const compose = composeSystems[0]
+    assert.match(compose, /NEVER WITH A DEFINITION/, kind)
+    // Os seis idiomas do escopo: pt, en, es, fr, it, de. Um a um — regex frouxa aqui deixaria
+    // alguém apagar cinco e o teste continuar verde.
+    for (const pattern of ['X é um/uma', 'X is a/an/the', 'X es un/una', 'X est un/une', 'X è un/una', 'X ist ein/eine']) {
+      assert.ok(compose.includes(pattern), `${kind}: sumiu a forma proibida ${pattern}`)
+    }
+    // O [type] pode voltar depois; o que não pode é ser a porta de entrada.
+    assert.match(compose, /never as the first sentence/, kind)
+    assert.match(compose, /almost never the \[type\] bullet/, kind)
+  }
+})
+
+test('#655 — voice change did not displace BR-CONTEUDO-008 item 4: non-transfer and in-sentence attribution ride in the same prompt', async () => {
+  installFetch([{ text: AREA_FACTS }])
+  await run()
+  const compose = composeSystems[0]
+  // 4.c — não-transferência.
+  assert.match(compose, /NEVER move an \[area\] date, number, person or event onto this place/)
+  // 4.d — a atribuição mora na frase que o turista ouve, não na etiqueta.
+  assert.match(compose, /always attribute it to what it actually describes/)
+  assert.match(compose, /the street it stands on/)
+  // E a régua de verdade continua acima de tudo.
+  assert.match(compose, /Never add, invent, adjust or approximate/)
+})
+
+test('#655 — the opening rule and the no-city rule do not contradict each other', async () => {
+  installFetch([{ text: AREA_FACTS }])
+  await run()
+  const compose = composeSystems[0]
+  // A tensão é real: mandar entrar pelo fato mais forte, com colheita de entorno, empurra o
+  // modelo a abrir pelo nome da cidade — que a linha de VOICE proíbe. A linha resolve as duas.
+  assert.match(compose, /Do NOT mention standalone city or state names/)
+  assert.match(compose, /never by the city or state name/)
+  assert.match(compose, /name the setting by what it is TO THE LISTENER/)
 })
 
 // ── 4. Sem fonte nenhuma, NONE continua sendo o resultado ────────────────────
