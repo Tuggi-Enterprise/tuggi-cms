@@ -31,6 +31,12 @@ import { createSecureHeaders } from "../_shared/security-headers.ts";
 import { createAuditLogger } from "../_shared/audit-logger.ts";
 import { rebuildReadModel } from "../_shared/read-model.ts";
 import {
+    asGenerationFailure,
+    createGenerationFailureResponse,
+    GenerationFailure,
+    GenerationFailureCode,
+} from "../_shared/generation-failures.ts";
+import {
     classifyProductionRequester,
     decideContentProduction,
     createProductionRefusedResponse,
@@ -344,14 +350,18 @@ async function processPOIItem(
 
     if (lockError) {
         console.warn(
-            `${LOG_PREFIX} Failed to acquire lock, assuming race condition. Returning partial error (client will retry).`,
+            `${LOG_PREFIX} Failed to acquire lock, assuming race condition. Raising a typed failure (client will retry).`,
             lockError,
         );
-        // Ideally we would loop back to check, but for simplicity/safety we return error or wait
-        return {
-            error: "Race condition detected - please retry",
-            status: "retry",
-        };
+        // ISTO ERA UM `return { error, status: "retry" }` — e o chamador single o
+        // embrulhava em **HTTP 200 `{ success: true, data: … }`**, o lote em
+        // `status: "success"`. Objeto com a chave `error` dentro de um 200 é
+        // invisível para o app: o ramo que classifica é o `if (error)` de
+        // `invokeWithAuthRetry`, que só existe para não-2xx (contrato
+        // `docs/contracts/edge-functions.md`). Ninguém retentava porque ninguém
+        // via, e o POI ficava sem narração para a avaliação seguinte —
+        // BR-CONTEUDO-004 item 5.
+        throw new GenerationFailure(GenerationFailureCode.GENERATION_LOCKED);
     }
 
     try {
@@ -648,31 +658,60 @@ async function processPOIItem(
         }
 
         let publicUrl: string | null = null;
-        if (shouldGenerateAudio && GOOGLE_TTS_API_KEY) {
-            const audioBuffer = await generateAudioWithTTS(
-                result.description,
-                language,
-                gender,
-                GOOGLE_TTS_API_KEY,
-            );
-            const fileName = `${poi_id}-${language}-${gender}.mp3`;
-            const storagePath = `master_audio/${poi_id}/${fileName}`;
-            const { error: upErr } = await supabaseAdmin.storage.from(
-                "travel-app-audios",
-            ).upload(storagePath, audioBuffer, {
-                contentType: "audio/mpeg",
-                upsert: true,
-            });
-            if (!upErr) {
-                const { data: urlData } = supabaseAdmin.storage.from(
+        /**
+         * POR QUE A FALHA DE ÁUDIO É GUARDADA E NÃO LANÇADA AQUI.
+         *
+         * Pedimos áudio e não temos áudio: isso não é 200 (ver o `throw` no fim
+         * deste bloco `try`). Mas lançar NESTA linha jogaria fora o texto que
+         * acabou de custar uma chamada de LLM — e o passo 5 abaixo é justamente
+         * o que torna a próxima tentativa barata: com a linha gravada e
+         * `audio_url` nulo, o retry cai no caminho `cachedForAudioOnly`
+         * ("Cache Hit (Description only, audio_url missing)") e refaz **só** o
+         * TTS. Grava-se tudo, contabiliza-se tudo, e só então se responde erro.
+         *
+         * As duas causas ficam separadas porque têm donos diferentes: chave de
+         * TTS ausente é configuração nossa e some com um `secrets set`; upload
+         * recusado é o Storage. Antes, as duas eram o mesmo silêncio — o `upErr`
+         * nem log tinha.
+         */
+        let audioFailureReason: string | null = null;
+        if (shouldGenerateAudio) {
+            if (!GOOGLE_TTS_API_KEY) {
+                console.error(
+                    `${LOG_PREFIX} ❌ GOOGLE_TTS_API_KEY ausente — nenhum áudio pode ser sintetizado.`,
+                );
+                audioFailureReason = "tts_key_missing";
+            } else {
+                const audioBuffer = await generateAudioWithTTS(
+                    result.description,
+                    language,
+                    gender,
+                    GOOGLE_TTS_API_KEY,
+                );
+                const fileName = `${poi_id}-${language}-${gender}.mp3`;
+                const storagePath = `master_audio/${poi_id}/${fileName}`;
+                const { error: upErr } = await supabaseAdmin.storage.from(
                     "travel-app-audios",
-                ).getPublicUrl(storagePath);
-                publicUrl = urlData.publicUrl;
+                ).upload(storagePath, audioBuffer, {
+                    contentType: "audio/mpeg",
+                    upsert: true,
+                });
+                if (upErr) {
+                    console.error(
+                        `${LOG_PREFIX} ❌ Falha ao subir ${storagePath}: ${upErr.message}`,
+                    );
+                    audioFailureReason = "storage_upload_failed";
+                } else {
+                    const { data: urlData } = supabaseAdmin.storage.from(
+                        "travel-app-audios",
+                    ).getPublicUrl(storagePath);
+                    publicUrl = urlData.publicUrl;
+                }
             }
         }
 
         // 5. Final Update (Release Lock)
-        const { data: finalRows } = await supabaseAdmin.schema("core").from(
+        const { data: finalRows, error: finalError } = await supabaseAdmin.schema("core").from(
             "attraction_descriptions",
         ).upsert({
             attraction_id: poi_id,
@@ -689,6 +728,29 @@ async function processPOIItem(
             // Gender-independent translated name (null only if translation failed).
             ...(translatedName ? { name: translatedName } : {}),
         }, { onConflict: "attraction_id,language,gender" }).select().single();
+
+        // 5.0.-1 O UPSERT PODE FALHAR, E ELE NÃO ERA CONFERIDO.
+        //
+        // Sem esta guarda, `finalRows` voltava `null`, o `return` lá embaixo
+        // espalhava `{ ...null, status: "generated" }` — um 200 `success: true`
+        // SEM a chave `audio_url` e sem uma linha gravada —, e os passos 5.1 a
+        // 5.3 se puliam sozinhos por `finalRows?.id`. Falhar de tudo respondendo
+        // sucesso é a pior das três formas do mesmo defeito.
+        //
+        // O `throw` sai ANTES da remoção do mp3 antigo (5.0.0), e a ordem é o
+        // ponto: o banco ainda aponta para o áudio que estava no ar, então
+        // apagá-lo aqui deixaria o POI mudo por uma falha nossa. O `catch`
+        // devolve a linha de antes do lock — ela ainda está em `[PROCESSING]`,
+        // que é o filtro que a restauração usa.
+        if (finalError || !finalRows) {
+            console.error(
+                `${LOG_PREFIX} ❌ Upsert final não gravou: ${finalError?.message ?? "sem linha de retorno"}`,
+            );
+            throw new GenerationFailure(
+                GenerationFailureCode.DESCRIPTION_WRITE_FAILED,
+                finalError?.code ?? "no_row_returned",
+            );
+        }
 
         // 5.0.0 REGRA (invariante de áudio): texto novo NUNCA pode ficar pareado com
         // áudio antigo. Quando não geramos áudio novo (text-only, ou TTS falhou),
@@ -772,9 +834,42 @@ async function processPOIItem(
         }
 
         console.log(`${LOG_PREFIX} Final Upsert Score:`, scoreResult.score_overall);
+
+        // PEDIU ÁUDIO E NÃO HÁ ÁUDIO: ISSO NÃO É SUCESSO — BR-CONTEUDO-004 item 5.
+        //
+        // Aqui embaixo de propósito: o texto já está gravado, o read-model já
+        // foi reconstruído e os tokens já foram contabilizados. O que muda é só
+        // a resposta — de 200 com `audio_url: null` para 502
+        // `audio_synthesis_failed`, que é o que o app consegue classificar
+        // (`audioGenerationFailure.ts`; um 200 nunca entra no ramo `if (error)`).
+        //
+        // O `catch` abaixo NÃO desfaz nada neste ponto: a restauração e o
+        // `delete` filtram por `description = "[PROCESSING]"`, e a linha já saiu
+        // desse estado no passo 5. Era isto que fazia valer a pena gravar antes
+        // de falhar — a próxima tentativa refaz só o TTS.
+        //
+        // `shouldGenerateAudio === false` (texto puro, pedido do CMS) não passa
+        // por aqui: `audioFailureReason` só é escrito quando o áudio foi pedido.
+        if (audioFailureReason) {
+            throw new GenerationFailure(
+                GenerationFailureCode.AUDIO_SYNTHESIS_FAILED,
+                audioFailureReason,
+            );
+        }
+
         return { ...finalRows, status: "generated", last_score_overall: scoreResult.score_overall };
     } catch (e) {
         console.error(`${LOG_PREFIX} Fatal Generation Error:`, e);
+        // A falha de áudio é a única que acontece com a linha JÁ gravada: o lock
+        // saiu no passo 5 e não há nada a restaurar. Sem esta saída, o UPDATE
+        // abaixo casaria zero linhas (ele filtra por `[PROCESSING]`) e ainda
+        // assim logaria "Pre-lock content restored" — um log que mente.
+        if (
+            asGenerationFailure(e)?.code ===
+                GenerationFailureCode.AUDIO_SYNTHESIS_FAILED
+        ) {
+            throw e;
+        }
         // O LOCK SAI. O QUE ESTAVA NO AR VOLTA — ver `rowBeforeLock` no topo.
         //
         // Apagar era certo enquanto não havia nada a preservar: o `[PROCESSING]` precisa sumir
@@ -979,11 +1074,16 @@ serve(async (req) => {
                     });
                 } catch (e) {
                     console.error(`Error processing item ${item.poi_id}:`, e);
+                    // Falha tipada entra como CÓDIGO puro, o mesmo que o single
+                    // devolve em `error`. Sem isto o item traria
+                    // `"GenerationFailure: audio_synthesis_failed"` e o lote
+                    // falaria um dialeto do vocabulário do contrato.
+                    const failure = asGenerationFailure(e);
                     results.push({
                         trigger_point_id: item.trigger_point_id,
                         poi_id: item.poi_id,
                         status: "error",
-                        error: String(e),
+                        error: failure ? failure.code : String(e),
                     });
                 }
             }
@@ -1068,6 +1168,7 @@ serve(async (req) => {
         console.error(`[Generate-Description] Global Error:`, e);
 
         // 📋 LOG ERROR
+        // (o lote nunca chega aqui por falha de item: o laço trata item a item)
         await auditLogger.logFailure(
             req,
             "generate_description",
@@ -1079,6 +1180,18 @@ serve(async (req) => {
                 duration_ms: Date.now() - startTime,
             },
         );
+
+        // Falha tipada do caminho single → status e código que o app classifica,
+        // no vocabulário do gate de produção (`{ error, rule, … }`). O 500 com
+        // `String(e)` continua sendo a resposta de tudo o mais: mensagem de
+        // exceção não é código, e prometer que é seria pior do que não ter.
+        const failure = asGenerationFailure(e);
+        if (failure) {
+            return createGenerationFailureResponse(
+                failure,
+                createSecureHeaders(corsHeaders),
+            );
+        }
 
         return new Response(JSON.stringify({ error: String(e) }), {
             status: 500,
