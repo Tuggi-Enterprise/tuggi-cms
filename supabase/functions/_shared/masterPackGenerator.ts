@@ -36,6 +36,21 @@ export const charsPerSecondFor = (language: string): number =>
  *   (information / sources / search results / find / identify …) shows up near it. Alone it could
  *   open a legitimate sentence ("Não foi possível terminar a torre em pedra…").
  *
+ * SECOND PASS, 2026-09-01 (BR-CONTEUDO-008 item 1). A count over the live catalogue found 92
+ * published descriptions opening with a refusal — whole languages were walking through: German and
+ * Italian had no impersonal form, and the plain statement of absence WITHOUT an apology
+ * ("no se dispone de", "es gibt keine Informationen") had no entry at all. What entered was
+ * vocabulary only: first-person inability goes to STRONG, impersonal absence goes to WEAK and still
+ * needs a META word beside it.
+ *
+ * WHAT DID NOT CHANGE, ON PURPOSE: the OPENING anchor. `LEAD_PREFIX` was suspected of breaking on a
+ * POI name that carries quotes ('Geoffrey C. "Grof" Goodfellow Sesquicentennial Park. Unfortunately,
+ * I cannot find…'); measured against this module, it matches — the prefix is `[^\n]{0,80}?`, it
+ * never looked at quotes. Loosening the separator to `,`/`:`/`-` would buy nothing here and would
+ * start matching legitimate narration ("Museu do Ipiranga: não há informações sobre o autor do
+ * afresco"). A false positive costs a good narration and leaves the POI mute, so the tie is broken
+ * towards catching less. The refusal buried in the SECOND sentence stays out of reach by design.
+ *
  * KNOWN LIMIT, stated instead of hidden: the vocabulary covers pt/en/es/fr/it/de. A refusal written
  * in Japanese, Korean, Chinese, Russian or Thai passes this net. It is not the main line of defence
  * — `retrievalLooksUsable` is, and it works on the step 1 output, which is always English by prompt.
@@ -52,16 +67,17 @@ const STRONG_REFUSAL_LEAD = [
     // French
     "d[eé]sol[eé]", "je ne (?:peux|puis) pas", "je n(?:'|’)ai pas",
     // Italian
-    "mi dispiace", "non posso", "non sono riuscito",
+    "mi dispiace", "non posso", "non sono riuscito", "non ho (?:trovato|informazioni)",
     // German
-    "es tut mir leid", "ich kann (?:keine|nicht|leider|ihnen)",
+    "es tut mir leid", "ich (?:kann|konnte|k[oö]nnte) (?:kein|nicht|leider|ihnen)",
 ];
 const WEAK_REFUSAL_LEAD = [
     "unfortunately", "infelizmente", "lamentablemente", "desafortunadamente", "malheureusement",
     "leider", "n[aã]o (?:foi|é|e) poss[ií]vel", "no (?:fue|es) posible",
-    "il n(?:'|’)est pas possible", "non (?:è|e) possibile", "es (?:war|ist) nicht m[oö]glich",
+    "il n(?:'|’)est pas possible", "il n(?:'|’)y a (?:pas|aucun)", "non (?:è|e) possibile",
+    "es (?:war|ist) nicht m[oö]glich",
     "there (?:is|are) no", "no (?:reliable|verified|specific)", "n[aã]o h[aá]", "no hay",
-    "n[aã]o (?:existe|existem)",
+    "n[aã]o (?:existe|existem)", "no se dispone de", "es gibt kein",
 ];
 const REFUSAL_META =
     "informa(?:tion|ç|c|ci|zio)|dados|datos|donn[eé]es|daten|sources?|fontes|fuentes|quellen|" +

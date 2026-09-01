@@ -84,10 +84,74 @@ const REAL_REFUSALS: [string, string][] = [
 ]
 
 for (const [label, text] of REAL_REFUSALS) {
-  test(`#651 — recusa reconhecida: ${label}`, () => {
+  test(`#651 BR-CONTEUDO-008 item 1 — recusa reconhecida: ${label}`, () => {
     assert.equal(mod.isRefusalText(text), true, `deveria ser recusa: ${text.slice(0, 60)}`)
   })
 }
+
+// ── Second pass, 2026-09-01: absence STATED, with no apology attached ────────
+//
+// Counting the live catalogue found 92 published descriptions opening with a refusal. What walked
+// through was not the anchor — it was vocabulary. German and Italian had no impersonal form, and
+// the plain statement of absence WITHOUT an apology ("no se dispone de", "es gibt keine
+// Informationen") had no entry in any language. One per language; the first two are literal
+// production text.
+const ABSENCE_REFUSALS: [string, string][] = [
+  [
+    'pt-br — absence stated, no apology (real text)',
+    'Não há informações disponíveis sobre um local específico chamado "Pico Quinta do Caju" no Rio de Janeiro.',
+  ],
+  [
+    'it — apology followed by "non ho informazioni" (real text)',
+    "Mi dispiace, ma non ho informazioni dettagliate su un 'Cisternone' specifico vicino a Trieste, e non posso descriverlo.",
+  ],
+  [
+    'it — "non ho trovato", no apology',
+    'Non ho trovato informazioni affidabili su questo luogo specifico.',
+  ],
+  [
+    'de — first person, past tense: "ich konnte keine ... Informationen"',
+    'Ich konnte keine verlässlichen Informationen über diesen Ort finden.',
+  ],
+  [
+    'de — impersonal: "es gibt keine Informationen"',
+    'Es gibt keine Informationen über diesen spezifischen Ort in den verfügbaren Quellen.',
+  ],
+  [
+    'es — "no se dispone de": no first person, no apology',
+    'No se dispone de información específica sobre este lugar en las fuentes consultadas.',
+  ],
+  [
+    'fr — "il n\'y a pas d\'informations", same impersonal family',
+    "Il n'y a pas d'informations fiables sur ce lieu dans les sources disponibles.",
+  ],
+  [
+    'en — "there is no information"',
+    'There is no information available about this specific location in the search results.',
+  ],
+  [
+    'pt-br — "infelizmente" with the META word beside it',
+    'Infelizmente, não encontrei dados confiáveis sobre este local nas fontes consultadas.',
+  ],
+]
+
+for (const [label, text] of ABSENCE_REFUSALS) {
+  test(`#651 BR-CONTEUDO-008 item 1 — stated absence is a refusal: ${label}`, () => {
+    assert.equal(mod.isRefusalText(text), true, `deveria ser recusa: ${text.slice(0, 60)}`)
+  })
+}
+
+// A POI name carrying quotes was suspected of breaking the opening anchor. It does not:
+// `LEAD_PREFIX` never looked at quotes. This test exists so nobody "fixes" the anchor for a defect
+// it does not have — loosening the separator to `,`/`:`/`-` would cost legitimate narration.
+test('#651 BR-CONTEUDO-008 item 1 — quotes inside the POI name do not break the opening anchor', () => {
+  assert.equal(
+    mod.isRefusalText(
+      'Geoffrey C. "Grof" Goodfellow Sesquicentennial Park. Unfortunately, I cannot find specific information about this park.'
+    ),
+    true
+  )
+})
 
 test('#651 — o NONE literal continua sendo recusa, com ou sem pontuação', () => {
   for (const t of ['NONE', 'none', ' None. ', 'NONE!']) {
@@ -121,8 +185,42 @@ const REAL_NARRATIONS: [string, string][] = [
 ]
 
 for (const [label, text] of REAL_NARRATIONS) {
-  test(`#651 — narração legítima não é recusada: ${label}`, () => {
+  test(`#651 BR-CONTEUDO-008 item 1 — narração legítima não é recusada: ${label}`, () => {
     assert.equal(mod.isRefusalText(text), false, `falso positivo em: ${text.slice(0, 60)}`)
+  })
+}
+
+// ── The traps: worth more than the positives ─────────────────────────────────
+//
+// A false positive here is not noise — it discards a good narration and the POI goes mute. This
+// predicate detects the MODEL'S REFUSAL at the opening; it is not an editorial audit of the whole
+// text, and absence stated mid-narration is out of the anchor's reach by decision, not by neglect.
+const FALSE_POSITIVE_TRAPS: [string, string][] = [
+  [
+    '"não há registros" mid-sentence, with no META word beside it',
+    'Palácio da Alvorada. Não há registros do arquiteto original nos arquivos da cidade, mas a fachada conta a história sozinha.',
+  ],
+  [
+    '"infelizmente" as part of the story told, not of our search',
+    'Ponte Velha. Infelizmente para os moradores, a enchente de 1892 levou o arco central, e a reconstrução em pedra durou nove anos.',
+  ],
+  [
+    'ordinary POI opening that happens to contain the word "informações"',
+    'Centro de Informações Turísticas de Óbidos. Este posto funciona desde 1978 dentro da antiga casa do guarda da muralha.',
+  ],
+  [
+    'de — "es gibt keine" about the world, not about our search',
+    'Rathaus Marktplatz. Es gibt keine Brücke mehr über den alten Kanal, aber die Pfeiler stehen noch im Wasser.',
+  ],
+  [
+    'it — "non ho" in the voice of a character in the story',
+    'Osteria del Ponte. "Non ho fretta", diceva il vecchio oste ai viandanti, e la frase è ancora incisa sulla trave.',
+  ],
+]
+
+for (const [label, text] of FALSE_POSITIVE_TRAPS) {
+  test(`#651 BR-CONTEUDO-008 item 1 — must not match: ${label}`, () => {
+    assert.equal(mod.isRefusalText(text), false, `falso positivo em: ${text.slice(0, 70)}`)
   })
 }
 
