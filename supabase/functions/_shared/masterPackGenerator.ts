@@ -90,9 +90,58 @@ export const isRefusalText = (text: string): boolean => {
 };
 
 /** As etiquetas que o prompt de retrieval manda abrir cada bullet. É o contrato da saída. */
-export const FACT_BULLET_TAGS = ['type', 'character', 'conflict', 'sensory', 'why', 'curiosity', 'legend'] as const;
+export const FACT_BULLET_TAGS = ['type', 'character', 'conflict', 'sensory', 'why', 'curiosity', 'legend', 'area'] as const;
 const TAGGED_BULLET_RE = new RegExp("^\\s*[-*•]?\\s*\\[(?:" + FACT_BULLET_TAGS.join('|') + ")\\]", 'i');
 const ANY_BULLET_RE = /^\s*[-*•]\s+\S/;
+const AREA_BULLET_RE = /^\s*[-*•]?\s*\[area\]/i;
+
+/**
+ * WHERE THE HARVESTED MATERIAL CAME FROM — #653.
+ *
+ * `place`: every bullet is about the POI itself, which is how step 1 always worked.
+ * `area`:  EVERY bullet is `[area]` — surroundings only (street, neighbourhood, town, trade). The
+ *          narration is honest, but it is not sustained by a fact about this place.
+ * `mixed`: both.
+ *
+ * WHY IT IS A RETURNED FIELD AND NOT A GUESS DOWNSTREAM. Loosening the retrieval radius is what
+ * makes an obscure POI narratable instead of falling into SAFE MODE, but it also makes two very
+ * different kinds of content look identical in `core.attraction_descriptions` — and one of them
+ * is what BR-CONTEUDO-008 item 4 says does not sustain a description. Keeping the provenance in
+ * `generation_meta.fact_scope` is what lets that population be counted, filtered or reverted
+ * later; without it the loosening is irreversible in practice.
+ */
+export type FactScope = 'place' | 'area' | 'mixed';
+
+/** Derived from the step 1 output, never from the narration: the harvest is the only place where
+ *  provenance is still explicit. Returns `undefined` when there was no harvest at all (SAFE MODE). */
+export const scopeOfFacts = (facts: string | null | undefined): FactScope | undefined => {
+    const lines = (facts || '').split('\n').filter((l) => TAGGED_BULLET_RE.test(l) || ANY_BULLET_RE.test(l));
+    if (lines.length === 0) return undefined;
+    const area = lines.filter((l) => AREA_BULLET_RE.test(l)).length;
+    if (area === 0) return 'place';
+    return area === lines.length ? 'area' : 'mixed';
+};
+
+/**
+ * THE WIDENED RADIUS — #653. One text, used by the POI branch and by the establishment branch,
+ * because two copies of an editorial boundary is how one of them quietly stops matching the
+ * compose prompt that has to honour it.
+ *
+ * WHAT IT BUYS. In August/2026, 17.8% of 11,227 generations paid the grounding toll twice because
+ * step 1 answered NONE, and 799 of those ended in SAFE MODE — generic text, `needs_review`, not
+ * publishable. Most of the catalogue is an obscure POI with no source about itself, and the old
+ * rule threw away material that makes an honest, interesting narration.
+ *
+ * WHAT IT DOES NOT BUY. The radius of the acceptable SOURCE widened; the licence to invent did
+ * not. An `[area]` fact stays attributed to the area — moving it onto the POI is the false
+ * statement BR-CONTEUDO-008 item 4 names, and it is forbidden here and again at compose time.
+ */
+const AREA_BULLET_INSTRUCTION =
+    `- [area] Context about WHERE THIS STANDS, when the place itself is thinly documented: its street, ` +
+    `its neighbourhood, when and why this part of town was built, what this kind of place has meant here, ` +
+    `what the surrounding town is known for. Tag EVERY such bullet [area] — the tag is what keeps it ` +
+    `honest downstream. It is context, never a fact about this place: an [area] date, number, person or ` +
+    `event belongs to the street or the town, and must never be restated as this place's own.`;
 
 export interface RetrievalVerdict {
     usable: boolean;
@@ -188,6 +237,9 @@ interface MasterPackResult {
     /** #652 — quantas chamadas de retrieval rodaram (1, ou 2 quando o fallback disparou). É o
      *  denominador de `searchQueryCount`: sem ele, duas tentativas parecem um prompt caro. */
     retrievalAttempts?: number;
+    /** #653 — provenance of the harvested facts. `undefined` when nothing was harvested (SAFE
+     *  MODE), which `grounded === false` already reports. See `FactScope`. */
+    factScope?: FactScope;
     modelUsed?: string;
     /** Latência por etapa, em ms. Quem consome é o orquestrador, que soma TTS e gravação e emite
      *  uma linha só — sem isto, "a geração está lenta" não tem onde ser medida. */
@@ -284,8 +336,9 @@ export const callGemini = async (model: string, fetchBody: any, apiKey: string):
  * fala em "standing in front of this place" e busca história. Isso é certo para
  * um POI e errado para um show que acontece em três semanas ou para um hotel.
  *
- * `kind: 'poi'` (o default) mantém o prompt EXATAMENTE como sempre foi — nenhuma
- * string muda. Só event/place entram nos ramos novos.
+ * `kind: 'poi'` (o default) e `kind: 'place'` compartilham a régua de escopo; o ramo
+ * de evento tem a sua, mais estreita de propósito — uma edição não se confunde com
+ * outra, e o entorno de um festival não explica o festival (#653).
  */
 export type EntityContext = {
     kind: 'poi' | 'event' | 'place';
@@ -337,7 +390,8 @@ export const generateMasterPack = async (
     // almanaque. Continua 100% grounded (só o que as fontes dizem). Bullets etiquetados
     // por tipo p/ o compose escolher o melhor fio.
     // ── Ramos por tipo de entidade ────────────────────────────────────────────
-    // POI mantém o texto original palavra por palavra (regressão zero).
+    // #653 — POI e local passaram a aceitar material do entorno, sempre etiquetado [area].
+    // Evento não: o ramo dele continua palavra por palavra como era.
     const isEvent = entity.kind === 'event';
     const isPlace = entity.kind === 'place';
     // Evento COM POI anfitrião. Gate de tudo que é do cenário 1 — nulo para POI,
@@ -378,27 +432,29 @@ export const generateMasterPack = async (
         ]
         : isPlace
             ? [
-                `Find ONLY what the sources actually state about THIS EXACT establishment. Gather, when available:`,
+                `Find ONLY what the sources actually state. Aim at THIS EXACT establishment first; when it is thinly documented, widen to where it stands (see [area]). Gather, when available:`,
                 `- [type] What it is, when it opened, and what it is known for.`,
                 `- [character] A real person tied to it (founder, chef, owner, a notable guest) and something human about them.`,
                 `- [conflict] A transformation, a reinvention, a hard period, a change of hands.`,
                 `- [sensory] Concrete visible/audible detail the sources describe — what you notice on arriving.`,
                 `- [why] What sets it apart from others of its kind nearby.`,
                 `- [curiosity] ONE genuinely surprising detail, if the sources mention one.`,
+                AREA_BULLET_INSTRUCTION,
             ]
             : [
-                `Find ONLY what the sources actually state about THIS EXACT place. Gather, when available:`,
+                `Find ONLY what the sources actually state. Aim at THIS EXACT place first; when it is thinly documented, widen to where it stands (see [area]). Gather, when available:`,
                 `- [type] What it is, plus core dates/numbers (founding/opening year, size/capacity) — briefly.`,
                 `- [character] A real person tied to this place (founder, architect, resident, someone who changed it) and something human about them.`,
                 `- [conflict] A struggle, controversy, disaster, transformation, rivalry, or surprising change in its history.`,
                 `- [sensory] Concrete visible/audible detail the sources describe — what you notice standing here.`,
                 `- [why] What makes it significant, unusual, or a "first / only / largest".`,
                 `- [curiosity] ONE genuinely surprising detail, if the sources mention one.`,
+                AREA_BULLET_INSTRUCTION,
             ];
 
     const retrievalPrompt = [
         subjectLine,
-        `Your goal is to gather raw material for a ~${audioTarget} spoken story a great tour guide would tell — so look BEYOND dry data.`,
+        `Your goal is to gather raw material for a ~${audioTarget} spoken story a great tour guide would tell — so look BEYOND dry data. A great guide standing in front of an ordinary building does not go silent: they tell you about the street, the trade, the decade it belongs to. Be generous about what counts as usable material, and strict about what is true.`,
         ...gatherBullets,
         `- [legend] A local legend or folklore — ONLY if the sources present it as lore/myth (keep the [legend] tag so it is never told as fact). Do NOT tag uncertain-but-real history as [legend].`,
         `Rules:`,
@@ -412,12 +468,19 @@ export const generateMasterPack = async (
         `- OUT OF SCOPE, always: party politics, elections, the current holder of any elected or appointed office, investigations, lawsuits, criminal charges, corruption allegations, scandals and recent crime. Do not gather them even if the sources lead with them. Research a public building for what it IS — architecture, founding, function, what you see from here — never for who occupies it today. Consolidated, distant political history (it was a seat of government; a treaty was signed here) IS in scope.`,
         isEvent
             ? `- This is one specific event. If the sources are about the venue, the city, or a different event, do NOT include those facts. Do not confuse this edition with other editions unless the source ties them together.`
-            : `- This is one specific place. If the sources are about the surrounding town, resort, region or a different nearby place, do NOT include those facts.`,
+            // #653 — era uma proibição inteira ("do NOT include those facts"), e é ela que
+            // devolvia NONE para o POI obscuro. O que continua proibido é a CONFUSÃO — outro
+            // lugar, ou o entorno vestido de fato daqui.
+            : `- SCOPE: a source about a DIFFERENT place — a similar name elsewhere, another landmark nearby — is wrong material: drop it. A source about the SURROUNDINGS of this place is usable, and goes in as [area], never as a fact about this place. Anything you gather about the place itself comes first; [area] fills what is missing, it does not replace what exists.`,
         hasReferenceLinks ? `- The provided reference URLs are your PRIORITY source — read them first; use Google Search to complement.` : ``,
         isComplex ? `- If supported by sources, note its key internal highlights: ${membersSummary}` : ``,
         rawContext ? `- Additional hint (verify against sources): ${rawContext}` : ``,
         `Output: a short plain bullet list in English. Start each bullet with its tag in brackets, e.g. "[character] ...". No intro, no narration.`,
-        `If you cannot find reliable sources specifically about THIS place, reply with exactly: NONE`,
+        // #653 — o NONE deixou de ser a saída fácil e virou último recurso, mas continua
+        // existindo: sem fonte nenhuma, nada substitui o NONE — inventar segue fora.
+        isEvent
+            ? `NONE is the last resort, not the safe answer. Reply with exactly NONE only if the sources give you nothing usable about this event at all.`
+            : `NONE is the last resort, not the safe answer: two honest [area] bullets are worth more than NONE. Reply with exactly NONE only if the sources give you nothing usable at all — nothing about this place AND nothing about its street, neighbourhood, town or kind. Never fill the gap by inventing or by guessing what a place like this "probably" is.`,
     ].filter(Boolean).join('\n');
 
     // Retrieval PRECISA buscar de verdade. Testado: gemini-3.1-flash-lite NÃO dispara o
@@ -487,6 +550,11 @@ export const generateMasterPack = async (
     // search queries executadas — doc oficial, conferida em 2026-09-01. Quem mede o custo é
     // `searchQueries`, não este booleano: `grounded=true` não diz quantas buscas foram pagas.
     const grounded = sourceCount > 0 && !!facts;
+    // #653 — de onde veio o material. Calculado uma vez, aqui, sobre a colheita do passo 1: o
+    // passo 2 já não tem como distinguir a procedência depois de compor. `grounded` diz que HÁ
+    // lastro; isto diz de QUEM ele é, e é a única coisa que torna a população de narração por
+    // entorno contável (e reversível) depois do deploy.
+    const factScope = scopeOfFacts(facts);
 
     // ─────────────────────────────────────────────────────────────────────────
     // PASSO 2 — ESCREVER (sem busca). Usa SÓ os fatos do passo 1, no idioma/formato.
@@ -518,6 +586,10 @@ export const generateMasterPack = async (
         `LANGUAGE RULE (mandatory): Write ALL output exclusively in ${langName}, using its native script (kanji/kana, Hangul, Hanzi, Cyrillic, Thai script, etc.). Do not use English, do not romanize, do not use any other language.`,
         ``,
         `FACTUAL GROUNDING (overrides everything): You are strictly limited to the facts inside <verified_facts>. Rely ONLY on facts directly mentioned there. Never add, invent, adjust or approximate any date, number, name, statistic or event. Preserve each fact exactly — its tense, its quantities, and what each number counts. Rounding a number for speech is fine; changing its meaning is not.`,
+        // #653 — a outra ponta do raio ampliado. Colher entorno sem esta regra é como o fato da
+        // rua vira "fundado em 1890" do POI: exatamente a afirmação falsa que BR-CONTEUDO-008
+        // item 4 nomeia, e que o afrouxamento NÃO autoriza.
+        `- A bullet tagged [area] is context about the SURROUNDINGS — the street, the neighbourhood, the town, the trade — and NOT about this place. Use it to set the scene, and always attribute it to what it actually describes ("the street it stands on", "this part of town", "shops like this one"). NEVER move an [area] date, number, person or event onto this place, never say this place was founded/built/opened when only the area has a date, and never imply it already existed at the time an [area] fact describes unless a non-[area] fact says so. When in doubt, say less.`,
         `- A bullet tagged [legend] is folklore. ONLY then may you frame it as lore ("reza a lenda que...", "conta a lenda...", "legend says..."). NEVER apply legend framing to real history. If a historical fact is merely uncertain, hedge honestly instead ("segundo historiadores", "reportedly"), never call it a legend.`,
         `- Treat sensitive history — slavery, death, tragedy — with respect and directness. Never present it as a fun "legend" or a light "curiosity".`,
         `- DARK OR PAINFUL HISTORY — decide by the place's IDENTITY, not by shock value. If people come here BECAUSE of that history — the place IS a site of it (a battlefield, catacombs, a memorial, a haunted or dark-tourism landmark) — then it is the point: tell it, with gravity and respect. But if the place's real identity is something else (a park, church, beach, market, square, restaurant) and the dark event is an incidental crime or misfortune that merely happened there, do NOT make it the story. Lead with what the place IS and why someone enjoys being here, and in a short narration LEAVE the incidental dark event OUT — include it only if it is genuinely the single most interesting thing about the place, and even then briefly and never as the opening. A one-off theft at a church whose story is faith and community is a footnote to drop, not a beat to spend. Never spend a beat that dampens the desire to be here — or, for an event, the desire to attend. The test: would a visitor seek this place OUT for that story, or are they simply here for the place itself? Either way never invent — stay inside the facts; you are only choosing whether the dark thread is the place's identity or a footnote.`,
@@ -537,6 +609,7 @@ export const generateMasterPack = async (
         `6. IMAGE OVER NUMBER: tie a bare number to something the listener can picture or feel, or leave it out. Do not recite a chain of dates.`,
         `7. Vary the rhythm — mix short punches with longer flowing sentences. Warm and conversational, clear for a curious 15-year-old.`,
         `8. If the facts are thin (fewer than 3 substantive facts, or no character/conflict), tell a SHORTER, honest story. Never pad, never gush.`,
+        `9. If the only substantial material is [area] context, tell THAT story — about the street, the neighbourhood or the trade — with this place as where the listener happens to be standing, and say so plainly ("a rua onde você está", "este bairro"). A true, small story about the setting is worth telling; a grand one about a place you know nothing about is not. Still open with the name (rule 1), and still never dress area context as this place's own history.`,
         ``,
         `VOICE & TTS:`,
         `- No greetings, no "welcome". Do NOT mention standalone city or state names.`,
@@ -548,7 +621,7 @@ export const generateMasterPack = async (
         `[the narration — one thread, under ${maxChars} characters]`,
         `</master_description>`,
         `<master_facts>`,
-        `[UP TO 5 lines — only facts from <verified_facts>. Fewer is fine; never pad. Format each line: Category|Fact — no Markdown, no table headers, no pipes except as separator]`,
+        `[UP TO 5 lines — only facts from <verified_facts>. Fewer is fine; never pad. Format each line: Category|Fact — no Markdown, no table headers, no pipes except as separator. Any line that came from an [area] bullet MUST use the literal category "Area", e.g. "Area|The street was the town's first paved road, opened in 1890" — that is how a curator can still tell the setting apart from the place itself]`,
         `</master_facts>`,
         ``,
         `EXAMPLE (illustrative only — it shows the craft, not the language; YOUR output must be entirely in ${langName}):`,
@@ -580,6 +653,11 @@ export const generateMasterPack = async (
             : `\n\nThe listener is standing at "${venue.name}" (the event's venue). OPEN by grounding them at ${venue.name} by name, THEN present the event above happening HERE, with its dates. Do not invent facts about the venue.`)
         : '';
 
+    // #653 — o ramo genérico ficou como último recurso de verdade: com o raio ampliado, chegar
+    // aqui passou a significar "as fontes não deram NADA", nem sobre o lugar nem sobre a rua.
+    // O texto dele não afrouxou e não pode afrouxar — é o mesmo genérico sem fato que
+    // BR-CONTEUDO-008 item 2 já declara não publicável, divergência registrada pelo `produto`
+    // em 2026-09-01 e que não é deste card.
     const composeUser = (facts
         ? `<verified_facts poi="${poiName}">\n${facts}\n</verified_facts>\n\nBased only on the facts above, write <master_description> and <master_facts> in ${langName}.`
         : `No verified facts were found for "${poiName}". Write a SHORT, generic, atmospheric description based ONLY on its name and category — include NO date, number, founder, statistic, legend or specific claim. For <master_facts> give at most 2 generic facts, or leave it minimal.`)
@@ -641,7 +719,7 @@ export const generateMasterPack = async (
             totalMs: Date.now() - startedAt,
         };
 
-        console.log(`[MasterPack] grounded=${grounded} sources=${sourceCount} queries=${searchQueries} retrieve_attempts=${retrieveTimings.length} facts=${!!facts} compose=${model} descLen=${finalDescription.length}`);
+        console.log(`[MasterPack] grounded=${grounded} scope=${factScope ?? 'none'} sources=${sourceCount} queries=${searchQueries} retrieve_attempts=${retrieveTimings.length} facts=${!!facts} compose=${model} descLen=${finalDescription.length}`);
         // Uma linha, em ms, com a etapa que gastou. `retrieve` traz UMA entrada por modelo
         // tentado: é assim que o custo do fallback aparece em vez de se diluir no total.
         console.log(`[MasterPack][timing] total_ms=${timings.totalMs} retrieve_ms=${retrieveMs} compose_ms=${composeMs} retrieve=${retrieveTimings.map((t) => `${t.model}:${t.ms}:${t.verdict}`).join(',')} compose=${composeTimings.map((t) => `${t.model}:${t.ms}`).join(',')}`);
@@ -656,6 +734,7 @@ export const generateMasterPack = async (
             // SSOT: a contagem de tentativas é a mesma lista que o timing publica — uma entrada
             // por chamada tentada. Um contador próprio aqui seria o segundo dono do mesmo fato.
             retrievalAttempts: retrieveTimings.length,
+            factScope,
             modelUsed: `retrieve:${retrievalModelUsed || 'none'} compose:${model}`,
             timings,
         };

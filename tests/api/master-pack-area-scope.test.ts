@@ -1,0 +1,301 @@
+/**
+ * #653 — o raio do que conta como fonte aproveitável, e o que ele NÃO afrouxou.
+ *
+ * O QUE MUDOU. O passo 1 exigia fonte confiável especificamente sobre AQUELE lugar e proibia o
+ * entorno com todas as letras. Para o POI obscuro — a maior parte do acervo — isso devolvia NONE
+ * em cima de material que daria narração honesta: em agosto/2026, 2.003 de 11.227 gerações (17,8%)
+ * pagaram o pedágio de grounding duas vezes por causa disso, e 799 terminaram em SAFE MODE, texto
+ * genérico gravado com `needs_review`. Agora o entorno entra — sempre etiquetado `[area]`.
+ *
+ * O QUE ESTE TESTE TRAVA É A FRONTEIRA, NÃO O ESTILO. Nenhum teste de prompt prova que o modelo
+ * obedece; ele prova o que nós pedimos, e que ninguém removeu o pedido depois. Quatro coisas:
+ *   1. fonte só sobre o entorno é APROVEITADA em vez de virar NONE (o objetivo do card);
+ *   2. a procedência continua distinguível — `factScope` sai da colheita, não da narração;
+ *   3. as guardas do #651 seguem inteiras no prompt REALMENTE enviado (BR-CONTEUDO-006 e 007);
+ *   4. sem fonte nenhuma, NONE continua sendo o resultado, e recusa em prosa que fala do entorno
+ *      continua sendo recusa — afrouxar o raio não podia virar porta para o passo 2 narrar um
+ *      "não encontrei" (BR-CONTEUDO-008 item 1).
+ *
+ * TENSÃO REGISTRADA, não escondida: BR-CONTEUDO-008 item 4 diz que fato da cidade ou da região não
+ * sustenta a descrição. `factScope === 'area'` é exatamente essa população, e é decisão do operador
+ * em 2026-09-01 (card #653) publicá-la. O que este arquivo garante é que ela fique CONTÁVEL.
+ *
+ * Módulo Deno puro, carregado por caminho montado em tempo de execução: um import estático
+ * terminaria em `.ts` e reprovaria o `npm run type-check` do repositório inteiro.
+ *
+ * Run with: npm run test:api
+ */
+
+import { test, before, beforeEach, after } from 'node:test'
+import assert from 'node:assert/strict'
+import { resolve } from 'node:path'
+import { pathToFileURL } from 'node:url'
+
+interface MasterPackResultShape {
+  description: string
+  grounded?: boolean
+  sourceCount?: number
+  retrievalAttempts?: number
+  factScope?: 'place' | 'area' | 'mixed'
+}
+
+interface MasterPackModule {
+  generateMasterPack: (
+    poiName: string,
+    city: string,
+    rawContext: string,
+    language: string,
+    apiKey: string,
+    poiData?: unknown,
+    audioDuration?: number,
+    memberPois?: unknown[],
+    referenceLinks?: string[],
+    entity?: { kind: 'poi' | 'event' | 'place' }
+  ) => Promise<MasterPackResultShape>
+  judgeRetrievalOutput: (text: string) => {
+    usable: boolean
+    reason: 'ok' | 'empty' | 'none' | 'refusal' | 'no_bullets'
+    taggedBullets: number
+  }
+  scopeOfFacts: (facts: string | null | undefined) => 'place' | 'area' | 'mixed' | undefined
+}
+
+const MODULE_PATH = resolve(
+  import.meta.dirname,
+  '../../supabase/functions/_shared/masterPackGenerator.ts'
+)
+
+let mod: MasterPackModule
+const realFetch = globalThis.fetch
+
+before(async () => {
+  mod = (await import(pathToFileURL(MODULE_PATH).href)) as MasterPackModule
+})
+
+after(() => {
+  globalThis.fetch = realFetch
+})
+
+// ── Colheitas ────────────────────────────────────────────────────────────────
+
+/** Só o lugar em si — como o passo 1 sempre respondeu quando o POI é documentado. */
+const PLACE_FACTS = [
+  '- [type] Crêperie, opened in 1983',
+  '- [character] Founded by Michelle Faure, known as "Michou"',
+  '- [curiosity] The 1986 move was celebrated with a chocolate war',
+].join('\n')
+
+/** Só o entorno: a colheita que ANTES do #653 era jogada fora e virava NONE. */
+const AREA_FACTS = [
+  '- [area] Rua das Pedras was the first paved street in the old town, opened in 1890',
+  '- [area] This part of town grew around the fishing harbour and kept its warehouse fronts',
+].join('\n')
+
+const MIXED_FACTS = [
+  '- [type] A two-storey stone house, still a family home',
+  '- [area] The street was the first paved one in the old town, opened in 1890',
+].join('\n')
+
+const COMPOSE_OK =
+  '<master_description>Casa da Rua das Pedras. A rua onde você está foi a primeira calçada da vila.</master_description>\n' +
+  '<master_facts>Area|A rua foi a primeira calçada da vila, em 1890</master_facts>'
+
+type RetrievalStep = { text?: string; chunks?: number }
+
+let retrievalPrompts: string[] = []
+let composeSystems: string[] = []
+let calledModels: string[] = []
+
+function installFetch(script: RetrievalStep[]) {
+  let i = 0
+  globalThis.fetch = (async (url: string | URL | Request, init?: RequestInit) => {
+    const model = String(url).match(/models\/([^:]+):/)?.[1] ?? 'unknown'
+    calledModels.push(model)
+    const body = JSON.parse(String(init?.body ?? '{}'))
+    const isRetrieval = Array.isArray(body.tools)
+
+    if (!isRetrieval) {
+      composeSystems.push(String(body.system_instruction?.parts?.[0]?.text ?? ''))
+      return new Response(
+        JSON.stringify({
+          candidates: [{ finishReason: 'STOP', content: { parts: [{ text: COMPOSE_OK }] } }],
+          usageMetadata: { promptTokenCount: 10, candidatesTokenCount: 20 },
+        }),
+        { status: 200 },
+      )
+    }
+
+    retrievalPrompts.push(String(body.contents?.[0]?.parts?.[0]?.text ?? ''))
+    const step = script[i++] ?? {}
+    return new Response(
+      JSON.stringify({
+        candidates: [
+          {
+            finishReason: 'STOP',
+            content: { parts: [{ text: step.text ?? PLACE_FACTS }] },
+            groundingMetadata: {
+              webSearchQueries: ['q0'],
+              groundingChunks: Array.from({ length: step.chunks ?? 2 }, () => ({ web: {} })),
+            },
+          },
+        ],
+        usageMetadata: { promptTokenCount: 100, candidatesTokenCount: 50 },
+      }),
+      { status: 200 },
+    )
+  }) as typeof fetch
+}
+
+const run = (kind: 'poi' | 'event' | 'place' = 'poi') =>
+  mod.generateMasterPack(
+    'Casa da Rua das Pedras',
+    'Búzios, Brazil',
+    'test',
+    'pt-br',
+    'test-key',
+    undefined,
+    25,
+    [],
+    [],
+    { kind },
+  )
+
+beforeEach(() => {
+  retrievalPrompts = []
+  composeSystems = []
+  calledModels = []
+})
+
+// ── 1. O entorno é aproveitado em vez de virar NONE ──────────────────────────
+
+test('#653 — an area-only harvest passes the step 1 gate instead of being thrown away', () => {
+  const v = mod.judgeRetrievalOutput(AREA_FACTS)
+  assert.equal(v.usable, true)
+  assert.equal(v.reason, 'ok')
+  // Os dois bullets contam como etiquetados: `[area]` entrou em FACT_BULLET_TAGS, e sem isso
+  // uma colheita só de entorno cairia no ramo `no_bullets` e pagaria o segundo modelo.
+  assert.equal(v.taggedBullets, 2)
+})
+
+test('#653 — sources only about the surroundings produce a grounded narration, with ONE retrieval attempt', async () => {
+  installFetch([{ text: AREA_FACTS }])
+  const r = await run()
+  assert.equal(r.grounded, true)
+  assert.equal(r.factScope, 'area')
+  // O ponto do card é o pedágio: se o entorno ainda caísse no NONE, haveria uma segunda
+  // tentativa aqui — 17,8% das gerações de agosto/2026 eram exatamente esta linha.
+  assert.equal(r.retrievalAttempts, 1)
+})
+
+// ── 2. A procedência continua distinguível ───────────────────────────────────
+
+test('#653 — factScope separates place, area and mixed harvests', async () => {
+  assert.equal(mod.scopeOfFacts(PLACE_FACTS), 'place')
+  assert.equal(mod.scopeOfFacts(AREA_FACTS), 'area')
+  assert.equal(mod.scopeOfFacts(MIXED_FACTS), 'mixed')
+  // Sem colheita não há procedência a declarar — e `undefined` não é `'place'`, que seria a
+  // afirmação falsa de que existe fato sobre o lugar.
+  assert.equal(mod.scopeOfFacts(''), undefined)
+  assert.equal(mod.scopeOfFacts(null), undefined)
+})
+
+test('#653 — a mixed harvest is reported as mixed, not flattened into place', async () => {
+  installFetch([{ text: MIXED_FACTS }])
+  const r = await run()
+  assert.equal(r.factScope, 'mixed')
+})
+
+test('#653 — a harvest about the place itself keeps reporting place', async () => {
+  installFetch([{ text: PLACE_FACTS }])
+  const r = await run()
+  assert.equal(r.factScope, 'place')
+})
+
+// ── 3. As guardas do #651 seguem no prompt REALMENTE enviado ─────────────────
+
+test('#653 — BR-CONTEUDO-006: the private-person guard survives in both prompts actually sent', async () => {
+  installFetch([{ text: AREA_FACTS }])
+  await run()
+  const gather = retrievalPrompts[0]
+  const compose = composeSystems[0]
+  for (const [label, text] of [['harvest', gather], ['narration', compose]] as const) {
+    assert.match(text, /never (name|pronounce the name of) a (private individual|person who is not a public or historical figure)/i, label)
+    assert.match(text, /social-media post/, label)
+  }
+})
+
+test('#653 — BR-CONTEUDO-007: contemporary politics and accusations stay out of both prompts actually sent', async () => {
+  installFetch([{ text: AREA_FACTS }])
+  await run()
+  for (const [label, text] of [['harvest', retrievalPrompts[0]], ['narration', composeSystems[0]]] as const) {
+    assert.match(text, /corruption allegation/, label)
+    assert.match(text, /never (for|by) who occupies it today/, label)
+    assert.match(text, /(treaty was signed here)/, label)
+  }
+})
+
+test('#653 — the widened radius is about SOURCES, never about inventing', async () => {
+  installFetch([{ text: AREA_FACTS }])
+  await run()
+  const gather = retrievalPrompts[0]
+  // A régua que não se move: só o que a fonte diz.
+  assert.match(gather, /Never invent, guess, approximate or embellish/)
+  assert.match(gather, /Never fill the gap by inventing/)
+  // BR-CONTEUDO-008 item 4 na prática: o fato do entorno não pode ser vestido de fato daqui —
+  // nem na colheita, nem na narração.
+  assert.match(gather, /never be restated as this place's own/)
+  assert.match(composeSystems[0], /NEVER move an \[area\] date, number, person or event onto this place/)
+})
+
+// ── 4. Sem fonte nenhuma, NONE continua sendo o resultado ────────────────────
+
+test('#653 — with nothing in the sources, NONE still ends in SAFE MODE and no scope is claimed', async () => {
+  installFetch([
+    { text: 'NONE', chunks: 0 },
+    { text: 'NONE', chunks: 0 },
+  ])
+  const r = await run()
+  assert.equal(r.grounded, false)
+  assert.equal(r.factScope, undefined)
+  assert.equal(r.retrievalAttempts, 2)
+})
+
+test('#653 — a prose refusal that TALKS about the surroundings is still a refusal, not area material', async () => {
+  // String real de produção (#651). Ela cita "Alum Rock Park" — o entorno — e é justamente o
+  // formato que o raio ampliado poderia passar a aceitar por engano. Recusa não é matéria-prima:
+  // BR-CONTEUDO-008 item 1, o turista nunca ouve sobre a nossa busca.
+  const refusal =
+    "Ponderosa Woods... I'm unable to find specific information about a place called \"Ponderosa Woods\" near Alum Rock, California. My search results provide details about Alum Rock Park."
+  assert.equal(mod.judgeRetrievalOutput(refusal).usable, false)
+  assert.equal(mod.judgeRetrievalOutput(refusal).reason, 'refusal')
+
+  installFetch([{ text: refusal }, { text: AREA_FACTS }])
+  const r = await run()
+  // A recusa foi descartada e o laço foi ao segundo modelo, exatamente como antes do #653.
+  assert.equal(r.retrievalAttempts, 2)
+  assert.equal(r.factScope, 'area')
+})
+
+// ── 5. O ramo de evento não herdou o raio ────────────────────────────────────
+
+test('#653 — the event branch keeps its narrow scope: an edition is not explained by its surroundings', async () => {
+  installFetch([{ text: PLACE_FACTS }])
+  await run('event')
+  const gather = retrievalPrompts[0]
+  assert.equal(/\[area\]/.test(gather), false, 'evento não colhe entorno')
+  assert.match(gather, /This is one specific event/)
+})
+
+test('#653 — the POI branch no longer carries the blanket prohibition on the surrounding town', async () => {
+  installFetch([{ text: PLACE_FACTS }])
+  await run('poi')
+  const gather = retrievalPrompts[0]
+  assert.equal(
+    /surrounding town, resort, region or a different nearby place, do NOT include those facts/.test(gather),
+    false,
+    'a proibição inteira do entorno é o que devolvia NONE ao POI obscuro',
+  )
+  assert.match(gather, /\[area\]/)
+  // O que sobrou da régua: confundir lugar continua proibido.
+  assert.match(gather, /a source about a DIFFERENT place/i)
+})

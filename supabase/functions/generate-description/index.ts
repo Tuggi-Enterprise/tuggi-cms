@@ -651,6 +651,12 @@ async function processPOIItem(
                 // Fica na trilha porque ela já é payload JSON: nenhuma coluna nova.
                 search_queries: masterResult.searchQueryCount ?? 0,
                 retrieval_attempts: masterResult.retrievalAttempts ?? 0,
+                // #653 — "place" | "area" | "mixed": o passo 1 passou a aceitar material do
+                // ENTORNO quando o lugar não tem fonte própria, e sem esta marca as duas
+                // procedências ficam indistinguíveis na linha gravada. É ela que permite
+                // contar, filtrar ou reverter a população narrada só por contexto — sem ela o
+                // afrouxamento é irreversível na prática. Trilha JSON: nenhuma coluna nova.
+                fact_scope: masterResult.factScope ?? null,
                 ...(venueMeta || {}),
             };
             if (!groundedOk) {
