@@ -18,6 +18,109 @@ export interface GeminiUsage {
 export const charsPerSecondFor = (language: string): number =>
     /^(ja|ko|zh|cmn|yue)(-|$)/.test(language.toLowerCase()) ? 7 : 18;
 
+/**
+ * REFUSAL DETECTION — #651.
+ *
+ * WHY THIS EXISTS. Step 1 asks the model to answer `NONE` when it finds nothing, and the loop
+ * tested `txt.toUpperCase() !== 'NONE'`. When the model refuses in PROSE instead — "Não foi
+ * possível encontrar informações sobre…" — that equality passes, the refusal becomes
+ * `<verified_facts>`, and step 2 narrates the refusal to a tourist standing in front of the place.
+ * Measured on 2026-09-01, before this fix: 126 rows of `core.attraction_descriptions` opened with a
+ * refusal, ALL 126 with a synthesized mp3 and ALL 126 reachable by the app.
+ *
+ * TWO SIGNALS, ON PURPOSE.
+ * - STRONG lead: a first-person apology or inability. A tour narration never opens like this — the
+ *   HARD RULE of the compose prompt is that the literal first words are the POI name — so the lead
+ *   alone is enough.
+ * - WEAK lead ("unfortunately", "não foi possível", "there is no"): only a refusal when a META word
+ *   (information / sources / search results / find / identify …) shows up near it. Alone it could
+ *   open a legitimate sentence ("Não foi possível terminar a torre em pedra…").
+ *
+ * KNOWN LIMIT, stated instead of hidden: the vocabulary covers pt/en/es/fr/it/de. A refusal written
+ * in Japanese, Korean, Chinese, Russian or Thai passes this net. It is not the main line of defence
+ * — `retrievalLooksUsable` is, and it works on the step 1 output, which is always English by prompt.
+ */
+const STRONG_REFUSAL_LEAD = [
+    // English
+    "i(?:'|’)?m sorry", "i am sorry", "sorry[,!]? (?:but|i)", "i(?:'|’)?m (?:un)?able to",
+    "i am (?:un)?able to", "i can ?not", "i can(?:'|’)t", "i could ?n(?:'|’)?o?t find",
+    "i could not find", "i do(?: |)not have", "i don(?:'|’)t have", "as an ai",
+    // Portuguese
+    "desculpe", "sinto muito", "n[aã]o posso", "n[aã]o consigo", "n[aã]o encontrei",
+    // Spanish
+    "lo siento", "no puedo", "no he podido", "no encontr[eé]",
+    // French
+    "d[eé]sol[eé]", "je ne (?:peux|puis) pas", "je n(?:'|’)ai pas",
+    // Italian
+    "mi dispiace", "non posso", "non sono riuscito",
+    // German
+    "es tut mir leid", "ich kann (?:keine|nicht|leider|ihnen)",
+];
+const WEAK_REFUSAL_LEAD = [
+    "unfortunately", "infelizmente", "lamentablemente", "desafortunadamente", "malheureusement",
+    "leider", "n[aã]o (?:foi|é|e) poss[ií]vel", "no (?:fue|es) posible",
+    "il n(?:'|’)est pas possible", "non (?:è|e) possibile", "es (?:war|ist) nicht m[oö]glich",
+    "there (?:is|are) no", "no (?:reliable|verified|specific)", "n[aã]o h[aá]", "no hay",
+    "n[aã]o (?:existe|existem)",
+];
+const REFUSAL_META =
+    "informa(?:tion|ç|c|ci|zio)|dados|datos|donn[eé]es|daten|sources?|fontes|fuentes|quellen|" +
+    "search results|resultados|r[eé]sultats|risultati|suchergebnisse|encontr|find |finding|trouv|" +
+    "finden|identific|identify|determin|facts|fatos|hechos|fatti|request|solicita|verified|verific|" +
+    "confi[aá]ve|fiable|reliable|espec[ií]fic|specific|sp[eé]cifique|enough|suficiente";
+
+// Um prefixo curto antes da recusa é comum e não a descaracteriza: o modelo escreve o nome do POI,
+// pontua, e só então se desculpa ("Ponderosa Woods... I'm unable to find…").
+const LEAD_PREFIX = "^\\s*(?:[^\\n]{0,80}?(?:[.!?…]+|\\n)\\s*)?";
+const STRONG_RE = new RegExp(LEAD_PREFIX + "(?:" + STRONG_REFUSAL_LEAD.join("|") + ")", "i");
+const WEAK_RE = new RegExp(LEAD_PREFIX + "(?:" + WEAK_REFUSAL_LEAD.join("|") + ")", "i");
+const META_RE = new RegExp(REFUSAL_META, "i");
+
+/**
+ * O texto é uma recusa do modelo ("não achei / não posso"), em vez do conteúdo pedido?
+ * Vale para as duas pontas: a saída do passo 1 e a narração do passo 2.
+ */
+export const isRefusalText = (text: string): boolean => {
+    const t = (text || '').trim();
+    if (!t) return false;
+    if (/^none[.!…]*$/i.test(t)) return true;
+    const head = t.slice(0, 260);
+    if (STRONG_RE.test(head)) return true;
+    return WEAK_RE.test(head) && META_RE.test(head);
+};
+
+/** As etiquetas que o prompt de retrieval manda abrir cada bullet. É o contrato da saída. */
+export const FACT_BULLET_TAGS = ['type', 'character', 'conflict', 'sensory', 'why', 'curiosity', 'legend'] as const;
+const TAGGED_BULLET_RE = new RegExp("^\\s*[-*•]?\\s*\\[(?:" + FACT_BULLET_TAGS.join('|') + ")\\]", 'i');
+const ANY_BULLET_RE = /^\s*[-*•]\s+\S/;
+
+export interface RetrievalVerdict {
+    usable: boolean;
+    /** Por que foi recusada — vai para o log, e é o que permite medir a taxa depois do deploy. */
+    reason: 'ok' | 'empty' | 'none' | 'refusal' | 'no_bullets';
+    taggedBullets: number;
+}
+
+/**
+ * O portão do passo 1. Endurece o contrato que o prompt já pede — bullets etiquetados — em vez de
+ * confiar numa igualdade de string com `NONE`.
+ *
+ * A assimetria é deliberada. Falso negativo custa uma tentativa no segundo modelo, que é
+ * exatamente o que o `NONE` já fazia. Falso positivo custa uma recusa narrada para o turista, com
+ * mp3 pago. Na dúvida, recusa.
+ */
+export const judgeRetrievalOutput = (text: string): RetrievalVerdict => {
+    const t = (text || '').trim();
+    if (!t) return { usable: false, reason: 'empty', taggedBullets: 0 };
+    const lines = t.split('\n');
+    const tagged = lines.filter((l) => TAGGED_BULLET_RE.test(l)).length;
+    const bullets = lines.filter((l) => ANY_BULLET_RE.test(l)).length;
+    if (/^none[.!…]*$/i.test(t)) return { usable: false, reason: 'none', taggedBullets: tagged };
+    if (isRefusalText(t)) return { usable: false, reason: 'refusal', taggedBullets: tagged };
+    if (tagged < 1 && bullets < 2) return { usable: false, reason: 'no_bullets', taggedBullets: tagged };
+    return { usable: true, reason: 'ok', taggedBullets: tagged };
+};
+
 export interface ParsedNarration {
     description: string;
     facts_pack_json: { category: string; text: string }[];
@@ -77,6 +180,19 @@ interface MasterPackResult {
     grounded?: boolean;
     sourceCount?: number;
     modelUsed?: string;
+    /** Latência por etapa, em ms. Quem consome é o orquestrador, que soma TTS e gravação e emite
+     *  uma linha só — sem isto, "a geração está lenta" não tem onde ser medida. */
+    timings?: MasterPackTimings;
+}
+
+export interface MasterPackTimings {
+    /** Uma entrada por chamada de retrieval TENTADA, na ordem. Duas entradas = o primeiro modelo
+     *  não serviu, e o custo disso é visível. */
+    retrieve: { model: string; ms: number; verdict: string }[];
+    retrieveMs: number;
+    compose: { model: string; ms: number }[];
+    composeMs: number;
+    totalMs: number;
 }
 
 // thinking baixo (tarefas determinísticas): gemini-3* → thinkingLevel low; 2.5* → off.
@@ -94,10 +210,14 @@ export interface GeminiCallResult {
     rawText?: string;
     gm?: any;
     usage?: GeminiUsage;
+    /** Tempo de parede da chamada, em ms. Medido aqui porque é aqui que a chamada existe:
+     *  qualquer cronômetro do lado de fora mede também o que o chamador fez no meio. */
+    elapsedMs?: number;
 }
 
 // Uma chamada generateContent crua, com tratamento de erro/finishReason.
 export const callGemini = async (model: string, fetchBody: any, apiKey: string): Promise<GeminiCallResult> => {
+    const startedAt = Date.now();
     try {
         const r = await fetch(
             `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`,
@@ -105,10 +225,10 @@ export const callGemini = async (model: string, fetchBody: any, apiKey: string):
         );
         if (!r.ok) {
             const ed = await r.json().catch(() => ({ error: { message: r.statusText } }));
-            return { ok: false, error: `HTTP ${r.status} ${ed?.error?.message || r.statusText}` };
+            return { ok: false, error: `HTTP ${r.status} ${ed?.error?.message || r.statusText}`, elapsedMs: Date.now() - startedAt };
         }
         const data = await r.json();
-        if (data.error) return { ok: false, error: data.error.message };
+        if (data.error) return { ok: false, error: data.error.message, elapsedMs: Date.now() - startedAt };
         const cand = data.candidates?.[0];
         const rawText = (cand?.content?.parts || []).map((p: any) => p.text || '').join('');
         const um = data.usageMetadata || {};
@@ -118,9 +238,10 @@ export const callGemini = async (model: string, fetchBody: any, apiKey: string):
             rawText,
             gm: cand?.groundingMetadata,
             usage: { input_tokens: um.promptTokenCount ?? 0, output_tokens: um.candidatesTokenCount ?? 0, model },
+            elapsedMs: Date.now() - startedAt,
         };
     } catch (e) {
-        return { ok: false, error: e instanceof Error ? e.message : String(e) };
+        return { ok: false, error: e instanceof Error ? e.message : String(e), elapsedMs: Date.now() - startedAt };
     }
 };
 
@@ -262,6 +383,13 @@ export const generateMasterPack = async (
         `- [legend] A local legend or folklore — ONLY if the sources present it as lore/myth (keep the [legend] tag so it is never told as fact). Do NOT tag uncertain-but-real history as [legend].`,
         `Rules:`,
         `- Use ONLY what the sources actually say. Never invent, guess, approximate or embellish. If a category has nothing in the sources, SKIP it — do not fill it with generic filler.`,
+        // #651 — uma das narrações citou "uma publicação no Facebook de Julie Pruitt": pessoa
+        // privada, nome real, numa descrição turística. O corte é na COLHEITA, porque o que não
+        // for colhido não pode ser narrado.
+        `- PEOPLE: name a person ONLY if they are a public or historical figure tied to this place by a role — founder, architect, chef, recognized owner, artist, ruler, a documented historical figure. NEVER name a private individual. A social-media post, a user review, a personal blog or an individual profile is NOT a source for a person's name: if a name appears only there, drop the name and the fact with it. Never cite the platform as the source ("according to a Facebook post by ...").`,
+        // #651 — ao descrever uma prefeitura, a narração afirmou que o prefeito está sendo
+        // investigado por corrupção. Afirmação sobre pessoa viva num produto de turismo.
+        `- OUT OF SCOPE, always: party politics, elections, the current holder of any elected or appointed office, investigations, lawsuits, criminal charges, corruption allegations, scandals and recent crime. Do not gather them even if the sources lead with them. Research a public building for what it IS — architecture, founding, function, what you see from here — never for who occupies it today. Consolidated, distant political history (it was a seat of government; a treaty was signed here) IS in scope.`,
         isEvent
             ? `- This is one specific event. If the sources are about the venue, the city, or a different event, do NOT include those facts. Do not confuse this edition with other editions unless the source ties them together.`
             : `- This is one specific place. If the sources are about the surrounding town, resort, region or a different nearby place, do NOT include those facts.`,
@@ -280,6 +408,9 @@ export const generateMasterPack = async (
     let facts: string | null = null;
     let sourceCount = 0;
     let retrievalModelUsed = '';
+    const startedAt = Date.now();
+    const retrieveTimings: { model: string; ms: number; verdict: string }[] = [];
+    const composeTimings: { model: string; ms: number }[] = [];
 
     for (const model of retrievalModels) {
         const body: any = {
@@ -297,8 +428,8 @@ export const generateMasterPack = async (
         if (hasReferenceLinks) body.tools.push({ url_context: { urls: referenceLinks.slice(0, 5) } });
 
         const res = await callGemini(model, body, apiKey);
-        if (!res.ok) { attempts.push(`retrieve ${model}: ${res.error}`); continue; }
-        if (res.finishReason && res.finishReason !== 'STOP') { attempts.push(`retrieve ${model}: finishReason ${res.finishReason}`); continue; }
+        if (!res.ok) { retrieveTimings.push({ model, ms: res.elapsedMs ?? 0, verdict: 'error' }); attempts.push(`retrieve ${model}: ${res.error}`); continue; }
+        if (res.finishReason && res.finishReason !== 'STOP') { retrieveTimings.push({ model, ms: res.elapsedMs ?? 0, verdict: `finish_${res.finishReason}` }); attempts.push(`retrieve ${model}: finishReason ${res.finishReason}`); continue; }
 
         step1Usage = res.usage ?? null;
         retrievalModelUsed = model;
@@ -306,10 +437,16 @@ export const generateMasterPack = async (
         if (sc > sourceCount) sourceCount = sc;
 
         const txt = (res.rawText || '').trim();
-        console.log(`[MasterPack][retrieve] ${model} searched=${(res.gm?.webSearchQueries?.length ?? 0) > 0} chunks=${sc} chars=${txt.length}`);
-        if (txt && txt.toUpperCase() !== 'NONE') { facts = txt; break; } // achou fatos → segue
-        // NONE → tenta o próximo modelo (pode achar o que o primeiro não achou)
+        // #651 — o portão deixou de ser `txt !== 'NONE'`. Recusa em prosa e saída sem os bullets
+        // etiquetados contam como "não achei", exatamente como o NONE literal sempre contou: o
+        // laço segue para o próximo modelo em vez de mandar a recusa para o passo 2.
+        const verdict = judgeRetrievalOutput(txt);
+        retrieveTimings.push({ model, ms: res.elapsedMs ?? 0, verdict: verdict.reason });
+        console.log(`[MasterPack][retrieve] ${model} searched=${(res.gm?.webSearchQueries?.length ?? 0) > 0} chunks=${sc} chars=${txt.length} usable=${verdict.usable} reason=${verdict.reason} bullets=${verdict.taggedBullets} ms=${res.elapsedMs ?? 0}`);
+        if (verdict.usable) { facts = txt; break; } // achou fatos → segue
+        // NONE, recusa em prosa ou saída fora do contrato → tenta o próximo modelo.
     }
+    const retrieveMs = retrieveTimings.reduce((a, t) => a + t.ms, 0);
 
     // grounded = buscou com fontes reais E temos fatos. (Search é grátis na cota free.)
     const grounded = sourceCount > 0 && !!facts;
@@ -347,6 +484,11 @@ export const generateMasterPack = async (
         `- A bullet tagged [legend] is folklore. ONLY then may you frame it as lore ("reza a lenda que...", "conta a lenda...", "legend says..."). NEVER apply legend framing to real history. If a historical fact is merely uncertain, hedge honestly instead ("segundo historiadores", "reportedly"), never call it a legend.`,
         `- Treat sensitive history — slavery, death, tragedy — with respect and directness. Never present it as a fun "legend" or a light "curiosity".`,
         `- DARK OR PAINFUL HISTORY — decide by the place's IDENTITY, not by shock value. If people come here BECAUSE of that history — the place IS a site of it (a battlefield, catacombs, a memorial, a haunted or dark-tourism landmark) — then it is the point: tell it, with gravity and respect. But if the place's real identity is something else (a park, church, beach, market, square, restaurant) and the dark event is an incidental crime or misfortune that merely happened there, do NOT make it the story. Lead with what the place IS and why someone enjoys being here, and in a short narration LEAVE the incidental dark event OUT — include it only if it is genuinely the single most interesting thing about the place, and even then briefly and never as the opening. A one-off theft at a church whose story is faith and community is a footnote to drop, not a beat to spend. Never spend a beat that dampens the desire to be here — or, for an event, the desire to attend. The test: would a visitor seek this place OUT for that story, or are they simply here for the place itself? Either way never invent — stay inside the facts; you are only choosing whether the dark thread is the place's identity or a footnote.`,
+        // #651 — as duas regras abaixo moram AQUI, coladas em DARK OR PAINFUL HISTORY, e não num
+        // bloco novo: as três decidem a mesma coisa (que fio não se conta), e regra dispersa num
+        // prompt deste tamanho se contradiz.
+        `- PEOPLE — never pronounce the name of a person who is not a public or historical figure, even if the name appears inside <verified_facts>. Public or historical means tied to this place by a role a visitor could look up: founder, architect, chef, recognized owner, artist, ruler, documented historical figure. A name that reached the facts from a social-media post, a review or a personal profile belongs to a private person: drop that thread and tell a shorter story (rule 8 allows it). Never mention the platform a fact came from.`,
+        `- CONTEMPORARY POLITICS AND ACCUSATIONS ARE OUT — never narrate party politics, elections, the current occupant of an office, an investigation, a lawsuit, a criminal charge, a corruption allegation, a scandal or a recent crime, even if it sits in <verified_facts>. Tell a public building by what it IS — architecture, founding, function, what you see from here — never by who occupies it today. This does not erase history: consolidated, distant political fact (it was the seat of government; a treaty was signed here) stays narrable. The cut is on the contemporary, the personal and the accusatory — when in doubt, tell the shorter story.`,
         `- You MAY use a universal comparison to make a number vivid, but never introduce a new claim about this place.`,
         ``,
         `HOW TO TELL IT — you are telling ONE story, not reading a timeline:`,
@@ -420,6 +562,7 @@ export const generateMasterPack = async (
         };
 
         const res = await callGemini(model, body, apiKey);
+        composeTimings.push({ model, ms: res.elapsedMs ?? 0 });
         if (!res.ok) { attempts.push(`compose ${model}: ${res.error}`); lastError = new Error(res.error); continue; }
         if (res.finishReason && res.finishReason !== 'STOP') { attempts.push(`compose ${model}: finishReason ${res.finishReason}`); lastError = new Error(`compose finishReason ${res.finishReason}`); continue; }
 
@@ -432,13 +575,39 @@ export const generateMasterPack = async (
         if (!parsed) { attempts.push(`compose ${model}: extraction failed`); lastError = new Error('compose extraction failed'); continue; }
         const { description: finalDescription, facts_pack_json } = parsed;
 
+        // #651 — a segunda ponta. O passo 1 já não entrega recusa, mas o passo 2 tem recusa
+        // PRÓPRIA: com `facts` nulo ele às vezes se desculpa em vez de escrever o genérico, e
+        // ainda recusa por causa da LANGUAGE RULE. Medido em 2026-09-01: das 126 linhas de
+        // recusa gravadas, 48 nasceram já em SAFE MODE — ou seja, sem passar pelo passo 1.
+        // Recusa nunca vira linha gravada: tenta o próximo modelo, e se nenhum escrever, o
+        // `throw` do fim do arquivo deixa o POI virgem (BR-CONTEUDO-004 item 5) em vez de
+        // publicar um pedido de desculpas com mp3 pago.
+        if (isRefusalText(finalDescription)) {
+            console.warn(`[MasterPack] compose ${model}: refusal detected, discarding — "${finalDescription.slice(0, 80)}"`);
+            attempts.push(`compose ${model}: refusal`);
+            lastError = new Error('compose refused');
+            continue;
+        }
+
         const usage: GeminiUsage = {
             input_tokens: (step1Usage?.input_tokens ?? 0) + (step2Usage?.input_tokens ?? 0),
             output_tokens: (step1Usage?.output_tokens ?? 0) + (step2Usage?.output_tokens ?? 0),
             model: `${retrievalModelUsed || 'n/a'}+${model}`,
         };
 
+        const composeMs = composeTimings.reduce((a, t) => a + t.ms, 0);
+        const timings: MasterPackTimings = {
+            retrieve: retrieveTimings,
+            retrieveMs,
+            compose: composeTimings,
+            composeMs,
+            totalMs: Date.now() - startedAt,
+        };
+
         console.log(`[MasterPack] grounded=${grounded} sources=${sourceCount} facts=${!!facts} compose=${model} descLen=${finalDescription.length}`);
+        // Uma linha, em ms, com a etapa que gastou. `retrieve` traz UMA entrada por modelo
+        // tentado: é assim que o custo do fallback aparece em vez de se diluir no total.
+        console.log(`[MasterPack][timing] total_ms=${timings.totalMs} retrieve_ms=${retrieveMs} compose_ms=${composeMs} retrieve=${retrieveTimings.map((t) => `${t.model}:${t.ms}:${t.verdict}`).join(',')} compose=${composeTimings.map((t) => `${t.model}:${t.ms}`).join(',')}`);
 
         return {
             description: finalDescription,
@@ -447,10 +616,12 @@ export const generateMasterPack = async (
             grounded,
             sourceCount,
             modelUsed: `retrieve:${retrievalModelUsed || 'none'} compose:${model}`,
+            timings,
         };
     }
 
     const finalErrorMessage = `MasterPack failed: ${attempts.join(' | ')}`;
     console.error(`[MasterPack] ${finalErrorMessage}`);
+    console.log(`[MasterPack][timing] total_ms=${Date.now() - startedAt} retrieve_ms=${retrieveMs} compose_ms=${composeTimings.reduce((a, t) => a + t.ms, 0)} outcome=failed`);
     throw lastError ? new Error(finalErrorMessage) : new Error(finalErrorMessage);
 };
