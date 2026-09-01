@@ -135,12 +135,23 @@ export const scopeOfFacts = (facts: string | null | undefined): FactScope | unde
  * WHAT IT DOES NOT BUY. The radius of the acceptable SOURCE widened; the licence to invent did
  * not. An `[area]` fact stays attributed to the area — moving it onto the POI is the false
  * statement BR-CONTEUDO-008 item 4 names, and it is forbidden here and again at compose time.
+ *
+ * AND IT DOES NOT BUY THE GENERIC BACK. BR-CONTEUDO-008 item 5 applies the substitute test to the
+ * area itself: swap the street, the neighbourhood or the town and the sentence has to stop being
+ * true. Without that condition the harvest accepts "this neighbourhood is known for its
+ * restaurants" — the atmospheric generic of item 2 wearing context as a costume, and the only way
+ * the widened radius could hand the acervo back the problem it came to solve. The gate is here, at
+ * harvest, because what is not gathered cannot be narrated.
  */
 const AREA_BULLET_INSTRUCTION =
     `- [area] Context about WHERE THIS STANDS, when the place itself is thinly documented: its street, ` +
     `its neighbourhood, when and why this part of town was built, what this kind of place has meant here, ` +
     `what the surrounding town is known for. Tag EVERY such bullet [area] — the tag is what keeps it ` +
-    `honest downstream. It is context, never a fact about this place: an [area] date, number, person or ` +
+    `honest downstream. Each [area] bullet must be SPECIFIC to that street, neighbourhood or town: ` +
+    `swap it for another street, another neighbourhood or another town and the sentence must STOP ` +
+    `being true. "This neighbourhood is known for its restaurants" stays true almost anywhere — drop ` +
+    `it; "the street it stands on was the town's first paved road, in 1890" does not — keep it. ` +
+    `It is context, never a fact about this place: an [area] date, number, person or ` +
     `event belongs to the street or the town, and must never be restated as this place's own.`;
 
 export interface RetrievalVerdict {

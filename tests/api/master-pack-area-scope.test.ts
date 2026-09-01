@@ -286,6 +286,49 @@ test('#653 — the event branch keeps its narrow scope: an edition is not explai
   assert.match(gather, /This is one specific event/)
 })
 
+// ── 6. O entorno colhido tem que ser específico DAQUELE entorno ─────────────
+//
+// BR-CONTEUDO-008 item 5: o teste do substituto passou a ter granularidade — afirmação sobre o
+// entorno se testa trocando por outra rua, outro bairro ou outra cidade. Sem esta condição o item
+// 4.b devolve ao acervo o genérico atmosférico que o item 2 proíbe, com roupa de contexto.
+
+test('#653/BR-CONTEUDO-008 item 5 — the harvest prompt actually sent demands area facts specific to that area', async () => {
+  installFetch([{ text: AREA_FACTS }])
+  await run('poi')
+  const gather = retrievalPrompts[0]
+  // A condição, e não o exemplo: trocar o entorno tem que tornar a frase falsa.
+  assert.match(gather, /must be SPECIFIC to that street, neighbourhood or town/)
+  assert.match(
+    gather,
+    /swap it for another street, another neighbourhood or another town and the sentence must STOP being true/,
+  )
+  // A calibragem que o `produto` usou, nos dois sentidos — o exemplo que reprova e o que passa.
+  assert.match(gather, /This neighbourhood is known for its restaurants/)
+  assert.match(gather, /the town's first paved road, in 1890/)
+})
+
+test('#653/BR-CONTEUDO-008 item 5 — the establishment branch carries the same condition, not a second copy of it', async () => {
+  installFetch([{ text: AREA_FACTS }])
+  await run('place')
+  assert.match(retrievalPrompts[0], /must be SPECIFIC to that street, neighbourhood or town/)
+})
+
+test('#653/BR-CONTEUDO-008 item 5 — specificity did not displace the non-transference rule', async () => {
+  installFetch([{ text: AREA_FACTS }])
+  await run('poi')
+  const gather = retrievalPrompts[0]
+  // 4.c continua na mesma frase do bullet: o item 5 é condição de COLHEITA, não substituto da
+  // proibição de vestir o fato do entorno de fato do lugar.
+  assert.match(gather, /never be restated as this place's own/)
+  assert.match(gather, /Tag EVERY such bullet \[area\]/)
+})
+
+test('#653/BR-CONTEUDO-008 item 5 — the event branch stays out of it: no area, therefore no area condition', async () => {
+  installFetch([{ text: PLACE_FACTS }])
+  await run('event')
+  assert.equal(/must be SPECIFIC to that street/.test(retrievalPrompts[0]), false)
+})
+
 test('#653 — the POI branch no longer carries the blanket prohibition on the surrounding town', async () => {
   installFetch([{ text: PLACE_FACTS }])
   await run('poi')
