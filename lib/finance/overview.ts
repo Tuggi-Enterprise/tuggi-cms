@@ -29,6 +29,7 @@ import type { PlanKind } from '@/lib/clients/partner-plan'
 import type { BillingStartSource } from './billing'
 import type { FixedCostRecord } from './structure'
 import { monthlyAmountCents } from './structure'
+import { convertCents, rateOn, type FxRate } from './fx'
 
 // ── 1 · O MÊS EM CASCATA ──────────────────────────────────────────────────────────────────────
 
@@ -65,9 +66,26 @@ export interface MonthlyCascade {
   standardCostCents: number
   /** O que volta todo mês, normalizado — uma conta trimestral entra como um terço dela. */
   fixedMonthlyCents: number
-  /** Desembolsos de uma vez só DENTRO do mês. Fora da cascata, dentro da leitura. */
+  /** Desembolsos FIXOS de uma vez só DENTRO do mês. Fora da cascata, dentro da leitura. */
   oneOffCents: number
-  /** Receita − variável − fixo. O `one_off` e a taxa de impressão ficam de fora. */
+  /**
+   * Custo VARIÁVEL DA OPERAÇÃO no mês, líquido de créditos — as APIs de IA, a feira, a viagem.
+   *
+   * OUTRA LINHA QUE `variableCostCents`, E A DIFERENÇA É DE QUEM É O CUSTO. Aquele é do
+   * PARCEIRO: material entregue e avulso, o que decide se um parceiro se paga, e que por isso
+   * desce até a linha dele. Este é da OPERAÇÃO: ninguém consegue dizer de qual parceiro é o
+   * token gasto gerando um POI. Fundir os dois faria o custo do parceiro parecer maior do que
+   * ele é e a decisão de cortar um parceiro sair errada.
+   *
+   * ELE ENTRA NO RESULTADO DO MÊS, ao contrário do `one_off`: um custo variável é despesa do mês
+   * em que aconteceu, não um bem comprado uma vez.
+   */
+  operatingCostCents: number
+  /** O que NÃO saiu do caixa no mês: créditos e descontos abatidos, a preço cheio. */
+  creditCents: number
+  /** As taxas declaradas usadas para converter este mês. Vazia quando nada foi convertido. */
+  appliedRates: FxRate[]
+  /** Receita − variável do parceiro − variável da operação − fixo. `one_off` e taxa ficam fora. */
   resultCents: number
   /** Quantas linhas de consumo o mês teve. Contra o custo, diz se foi um mês de entrega. */
   deliveries: number
@@ -102,9 +120,28 @@ export function summarizeMonth(input: {
   consumption: readonly DatedConsumption[]
   costEntries: readonly DatedCostEntry[]
   fixedCosts: readonly FixedCostRecord[]
+  /** As taxas declaradas. Vazio = nada converte, e moeda diferente volta nomeada como antes. */
+  rates?: readonly FxRate[]
 }): MonthlyCascade {
   const { month, currency } = input
+  const rates = input.rates ?? []
   const ignored = new Set<string>()
+  const applied = new Map<string, FxRate>()
+
+  // A CONVERSÃO DO MÊS ACONTECE NO MÊS. `${month}-01` é a data da pergunta: o custo de julho usa a
+  // taxa que valia em julho, e uma vigência nova declarada em setembro não reescreve julho.
+  const on = `${month}-01`
+  const inReport = (cents: number, from: string): number | null => {
+    if (from === currency) return cents
+    const converted = convertCents(cents, from, currency, rates, on)
+    if (converted === null) {
+      ignored.add(from)
+      return null
+    }
+    const used = rateOn(rates, from, on)
+    if (used) applied.set(from, used)
+    return converted
+  }
 
   let variableCostCents = 0
   let standardCostCents = 0
@@ -113,50 +150,72 @@ export function summarizeMonth(input: {
 
   for (const line of input.consumption) {
     if (monthOf(line.consumedAt) !== month) continue
-    if (line.currency !== currency) {
-      ignored.add(line.currency)
-      continue
-    }
     deliveries += 1
     // `null` não é zero: a linha entra como pendência e o custo do mês vira piso.
     if (line.unitCostCents === null) {
       unpricedLines += 1
       continue
     }
-    variableCostCents += line.quantity * line.unitCostCents + line.componentCostCents
-    standardCostCents += line.standardCostCents
+    const direct = inReport(
+      line.quantity * line.unitCostCents + line.componentCostCents,
+      line.currency
+    )
+    if (direct === null) continue
+    variableCostCents += direct
+    standardCostCents += inReport(line.standardCostCents, line.currency) ?? 0
   }
 
   for (const entry of input.costEntries) {
     if (monthOf(entry.incurredAt) !== month) continue
-    if (entry.currency !== currency) {
-      ignored.add(entry.currency)
-      continue
-    }
-    variableCostCents += entry.amountCents
+    const amount = inReport(entry.amountCents, entry.currency)
+    if (amount === null) continue
+    variableCostCents += amount
   }
 
+  // O MÊS LÊ O CAIXA, E POR ISSO ABATE TODO CRÉDITO VIGENTE — inclusive o temporário. A pergunta
+  // aqui é "quanto este mês custou"; a pergunta "quanto a estrutura custa quando o crédito
+  // promocional acabar" é outra, e quem responde é `monthlyFixedCents` em `structure.ts`.
   let fixedMonthlyCents = 0
+  let operatingCostCents = 0
+  let creditCents = 0
   let oneOffCents = 0
+  const monthStart = `${month}-01`
   const monthEnd = `${month}-31`
 
   for (const cost of input.fixedCosts) {
-    if (cost.currency !== currency) {
-      ignored.add(cost.currency)
-      continue
-    }
+    const amountCents = inReport(cost.amountCents, cost.currency)
+    if (amountCents === null) continue
+    // O crédito não é um custo negativo: ele tem coluna própria, e o sinal é aplicado aqui.
+    const sign = cost.entryType === 'credit' ? -1 : 1
+
     if (cost.kind === 'recurring') {
       // Só conta o que JÁ COMEÇOU no mês lido. Uma assinatura contratada em outubro não pode
-      // aparecer no custo de agosto só por ser recorrente.
+      // aparecer no custo de agosto só por ser recorrente. E só o que AINDA VALIA nele: uma
+      // assinatura encerrada em julho não cobra em agosto, que é o que `endsAt` guarda.
       if (cost.incurredAt > monthEnd) continue
-      const monthly = monthlyAmountCents(cost)
-      if (monthly !== null) fixedMonthlyCents += monthly
+      if (cost.endsAt !== null && cost.endsAt < monthStart) continue
+      const monthly = monthlyAmountCents({ ...cost, amountCents })
+      if (monthly === null) continue
+      if (sign < 0) creditCents += monthly
+      if (cost.nature === 'fixed') fixedMonthlyCents += sign * monthly
+      else operatingCostCents += sign * monthly
       continue
     }
-    if (monthOf(cost.incurredAt) === month) oneOffCents += cost.amountCents
+
+    if (monthOf(cost.incurredAt) !== month) continue
+    if (sign < 0) creditCents += amountCents
+    // O DATADO VARIÁVEL É DESPESA DO MÊS; o datado FIXO é desembolso e fica fora da cascata. É a
+    // mesma razão de sempre: a impressora comprada em março não é conta que chega todo mês, mas
+    // os tokens gastos em março foram gastos em março.
+    if (cost.nature === 'fixed') oneOffCents += sign * amountCents
+    else operatingCostCents += sign * amountCents
   }
 
-  const fixed = Math.round(fixedMonthlyCents)
+  // Piso em zero: crédito maior que o custo que ele abate é erro de cadastro, e um custo negativo
+  // não é um número que exista. Foi o que a planilha do operador produzia em ago/2026 (−R$ 164,67)
+  // ao abater um crédito de API de IA da linha de custo FIXO.
+  const fixed = Math.max(0, Math.round(fixedMonthlyCents))
+  const operating = Math.max(0, Math.round(operatingCostCents))
 
   return {
     month,
@@ -165,11 +224,16 @@ export function summarizeMonth(input: {
     variableCostCents,
     standardCostCents,
     fixedMonthlyCents: fixed,
-    oneOffCents,
-    resultCents: input.recurringRevenueCents - variableCostCents - fixed,
+    oneOffCents: Math.max(0, oneOffCents),
+    operatingCostCents: operating,
+    creditCents: Math.round(creditCents),
+    resultCents: input.recurringRevenueCents - variableCostCents - operating - fixed,
     deliveries,
     unpricedLines,
     ignoredCurrencies: Array.from(ignored).sort(),
+    appliedRates: Array.from(applied.values()).sort((a, b) =>
+      a.currency.localeCompare(b.currency)
+    ),
   }
 }
 
@@ -225,6 +289,8 @@ export function monthlySeries(input: {
   consumption: readonly DatedConsumption[]
   costEntries: readonly DatedCostEntry[]
   fixedCosts: readonly FixedCostRecord[]
+  /** As taxas declaradas, repassadas a cada mês da série. */
+  rates?: readonly FxRate[]
 }): MonthlyPoint[] {
   const span = Math.max(1, Math.min(36, Math.round(input.months)))
   const points: MonthlyPoint[] = []
@@ -238,6 +304,7 @@ export function monthlySeries(input: {
       consumption: input.consumption,
       costEntries: input.costEntries,
       fixedCosts: input.fixedCosts,
+      rates: input.rates,
     })
     points.push({
       ...cascade,

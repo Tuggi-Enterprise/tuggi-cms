@@ -333,7 +333,7 @@ test('assinatura vencida não renova', () => {
   assert.equal(app.projectedSubscriptions, 0)
 })
 
-test('UM GRÁFICO TEM UM EIXO — outra moeda é nomeada, nunca convertida', () => {
+test('SEM TAXA DECLARADA, outra moeda é nomeada e nunca convertida', () => {
   const app = appRevenueByMonth(
     [
       event({ id: 'br', purchased_at_ms: new Date('2026-08-13').getTime() }),
@@ -370,13 +370,88 @@ test('o módulo puro não conhece Supabase, fetch nem React', () => {
   assert.ok(!/from 'react'|useState|useEffect/.test(source))
 })
 
-test('nada aqui converte moeda', () => {
-  // O CÓDIGO, NÃO A PROSA: os comentários explicam por que a conversão não existe.
+test('a conversão passa pela taxa DECLARADA, e por nenhuma outra', () => {
+  // A REGRA MUDOU EM 2026-09-02, e o teste mudou junto. Antes: "nada aqui converte moeda",
+  // porque não havia taxa declarada e converter seria inventar. Hoje há `finance.fx_rates`, e o
+  // operador pediu a conversão — dos 3 assinantes de loja, 2 estão em fuso europeu, então a
+  // linha em reais desenhava um terço da receita do app e parecia a receita inteira.
+  //
+  // O QUE NÃO MUDOU, e é o que este teste passou a travar: a taxa vem de fora, declarada, com
+  // procedência. Nada aqui busca cotação nem carrega número de câmbio no código.
   const source = readFileSync(resolve(root, 'lib/finance/app-revenue.ts'), 'utf8')
     .replace(/\/\*[\s\S]*?\*\//g, '')
     .replace(/^\s*\/\/.*$/gm, '')
 
-  assert.ok(!/exchange|fxRate|fx_rate|convertTo|toBRL|cotacao/i.test(source))
+  assert.ok(/from '\.\/fx'/.test(source), 'a taxa vem de lib/finance/fx.ts')
+  assert.ok(!/fetch\(|https?:\/\//.test(source), 'nenhuma cotação é buscada')
+  assert.ok(
+    !/rateToBrl\s*[:=]\s*[\d.]/.test(source),
+    'nenhuma taxa escrita no código — ela é uma linha do banco, com vigência e procedência'
+  )
+})
+
+test('com taxa declarada, o euro entra no eixo em reais', () => {
+  const app = appRevenueByMonth(
+    [
+      event({ id: 'br', purchased_at_ms: new Date('2026-08-13').getTime() }),
+      event({
+        id: 'it',
+        currency: 'EUR',
+        price_in_purchased_currency: 14.99,
+        purchased_at_ms: new Date('2026-08-13').getTime(),
+      }),
+    ],
+    {
+      from: '2026-08',
+      months: 2,
+      currency: 'BRL',
+      on: NOW,
+      rates: [
+        {
+          currency: 'EUR',
+          rateToBrl: 5.96,
+          effectiveFrom: '2026-01-01',
+          source: 'declarada pelo operador',
+        },
+      ],
+    }
+  )
+
+  assert.equal(app.byMonth['2026-08'], 2990 + Math.round(1499 * 5.96))
+  assert.deepEqual(app.otherCurrencies, [], 'com taxa, nada fica de fora')
+  assert.equal(app.appliedRates.length, 1, 'e a tela recebe a taxa que foi usada')
+  assert.equal(app.appliedRates[0].currency, 'EUR')
+})
+
+test('a taxa declarada DEPOIS da venda não vale para ela', () => {
+  const app = appRevenueByMonth(
+    [
+      event({
+        id: 'it',
+        currency: 'EUR',
+        price_in_purchased_currency: 14.99,
+        purchased_at_ms: new Date('2026-08-13').getTime(),
+      }),
+    ],
+    {
+      from: '2026-08',
+      months: 2,
+      currency: 'BRL',
+      on: NOW,
+      rates: [
+        {
+          currency: 'EUR',
+          rateToBrl: 5.96,
+          effectiveFrom: '2026-09-01',
+          source: 'declarada depois',
+        },
+      ],
+    }
+  )
+
+  // A taxa de setembro não reprecifica agosto: a venda volta nomeada, como se não houvesse taxa.
+  assert.equal(app.byMonth['2026-08'], 0)
+  assert.equal(app.otherCurrencies.length, 1)
 })
 
 test('o serviço lê o jsonb, e não as colunas vazias ao lado dele', () => {

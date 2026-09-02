@@ -64,6 +64,11 @@ function fixed(over: Partial<FixedCostRecord> = {}): FixedCostRecord {
     currency: over.currency ?? 'BRL',
     incurredAt: over.incurredAt ?? '2026-01-08',
     periodMonths: over.periodMonths === undefined ? 1 : over.periodMonths,
+    category: over.category ?? 'infrastructure',
+    nature: over.nature ?? 'fixed',
+    entryType: over.entryType ?? 'cost',
+    isPayroll: over.isPayroll ?? false,
+    endsAt: over.endsAt === undefined ? null : over.endsAt,
   }
 }
 
@@ -75,6 +80,7 @@ function cascade(over: Partial<Parameters<typeof summarizeMonth>[0]> = {}) {
     consumption: over.consumption ?? [line()],
     costEntries: over.costEntries ?? [],
     fixedCosts: over.fixedCosts ?? [fixed()],
+    rates: over.rates,
   })
 }
 
@@ -158,6 +164,78 @@ test('moeda diferente volta nomeada em vez de somada', () => {
   assert.equal(month.variableCostCents, 4_150)
   assert.equal(month.fixedMonthlyCents, 135_000)
   assert.deepEqual(month.ignoredCurrencies, ['EUR'])
+})
+
+test('o crédito abate o mês em vez de somar nele', () => {
+  const month = cascade({
+    fixedCosts: [
+      fixed(),
+      fixed({ id: 'fc-credit', amountCents: 35_000, entryType: 'credit' }),
+    ],
+  })
+
+  assert.equal(month.fixedMonthlyCents, 100_000, 'somá-lo daria 170.000')
+  assert.equal(month.creditCents, 35_000, 'e o que não saiu do caixa fica visível')
+})
+
+test('a assinatura encerrada não cobra no mês seguinte ao fim dela', () => {
+  const month = cascade({ fixedCosts: [fixed({ endsAt: '2026-07-31' })] })
+
+  assert.equal(month.fixedMonthlyCents, 0)
+})
+
+test('o custo variável DA OPERAÇÃO entra no resultado do mês; o desembolso fixo não', () => {
+  const month = cascade({
+    fixedCosts: [
+      fixed(),
+      fixed({
+        id: 'fc-ai',
+        kind: 'one_off',
+        nature: 'variable',
+        periodMonths: null,
+        amountCents: 213_407,
+        incurredAt: '2026-08-14',
+      }),
+      fixed({ id: 'fc-printer', kind: 'one_off', periodMonths: null, amountCents: 300_000, incurredAt: '2026-08-14' }),
+    ],
+  })
+
+  assert.equal(month.operatingCostCents, 213_407, 'os tokens gastos em agosto foram gastos em agosto')
+  assert.equal(month.oneOffCents, 300_000, 'a impressora continua fora da cascata')
+  assert.equal(month.variableCostCents, 4_150, 'e nada disso é custo de parceiro nenhum')
+  assert.equal(month.resultCents, 44_400 - 4_150 - 213_407 - 135_000)
+})
+
+test('crédito maior que o custo não vira resultado positivo por subtração', () => {
+  const month = cascade({
+    fixedCosts: [
+      fixed({ id: 'fc-ai', kind: 'one_off', nature: 'variable', periodMonths: null, amountCents: 10_000, incurredAt: '2026-08-14' }),
+      fixed({ id: 'fc-credit', kind: 'one_off', nature: 'variable', entryType: 'credit', periodMonths: null, amountCents: 90_000, incurredAt: '2026-08-14' }),
+    ],
+  })
+
+  assert.equal(month.operatingCostCents, 0, 'piso em zero: um custo negativo não existe')
+})
+
+test('o mês converte pela taxa declarada, e nomeia o que não tem taxa', () => {
+  const month = cascade({
+    fixedCosts: [
+      fixed({ id: 'fc-usd', currency: 'USD', amountCents: 4_099 }),
+      fixed({ id: 'fc-gbp', currency: 'GBP', amountCents: 9_999 }),
+    ],
+    rates: [
+      {
+        currency: 'USD',
+        rateToBrl: 5.2,
+        effectiveFrom: '2026-01-01',
+        source: 'declarada pelo operador',
+      },
+    ],
+  })
+
+  assert.equal(month.fixedMonthlyCents, Math.round(4_099 * 5.2))
+  assert.deepEqual(month.ignoredCurrencies, ['GBP'], 'a libra não virou real por palpite')
+  assert.equal(month.appliedRates.length, 1, 'e o mês diz qual taxa usou')
 })
 
 test('`monthOf` devolve `null` em vez de inventar um mês', () => {
