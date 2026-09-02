@@ -7,6 +7,11 @@
  * não a enxerga lê `Só custo` e `Se paga` do mesmo jeito, e é por isso que não existe uma versão
  * "compacta" deste componente que devolva só um ponto colorido.
  *
+ * `whitespace-nowrap` PORQUE A ALTURA DA LINHA É DELE. Numa tabela de catorze colunas o veredito
+ * é o único texto livre, e sem isto `Sem dado de retorno` quebrava em três linhas e esticava a
+ * linha inteira do parceiro para ~78px — as outras treze colunas ficavam com um número no meio
+ * de um vazio de duas linhas. Uma coluna mais larga custa menos do que 52 linhas triplicadas.
+ *
  * A DICA VIVE NO `title` E NO `aria-label` PORQUE A DIFERENÇA ENTRE DOIS VEREDITOS É CARA.
  * `Só custo` e `Retorno não medido em R$` parecem a mesma má notícia e mandam o operador para
  * atos opostos: um é um parceiro a rever, o outro é um parceiro que está funcionando por um
@@ -49,7 +54,7 @@ export function VerdictBadge({ verdict }: { verdict: FinanceVerdict }) {
 
   return (
     <span
-      className={`inline-flex min-h-[24px] items-center rounded-full px-2.5 py-1 text-xs font-semibold ring-1 ${TONE[verdict]}`}
+      className={`inline-flex min-h-[24px] items-center whitespace-nowrap rounded-full px-2.5 py-1 text-xs font-semibold ring-1 ${TONE[verdict]}`}
       title={hint}
     >
       {label}

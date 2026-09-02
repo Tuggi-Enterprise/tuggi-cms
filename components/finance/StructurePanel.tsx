@@ -23,6 +23,7 @@
 
 import { useState } from 'react'
 import { useTranslations } from 'next-intl'
+import { ArrowDown, Info } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { formatCount, formatMoney, parseMoneyToCents } from '@/lib/finance/money'
 import type { FixedCostRecord, StructureSummary } from '@/lib/finance/structure'
@@ -38,8 +39,9 @@ interface Props {
   onReload: () => void
 }
 
+/** `overflow-hidden` pelo mesmo motivo do catálogo: a faixa de formulário pintada tem canto reto. */
 const CARD =
-  'rounded-3xl border border-gray-200 bg-white/70 shadow-2xl shadow-black/5 backdrop-blur-xl dark:border-gray-800 dark:bg-gray-900/70'
+  'overflow-hidden rounded-3xl border border-gray-200 bg-white/70 shadow-2xl shadow-black/5 backdrop-blur-xl dark:border-gray-800 dark:bg-gray-900/70'
 const HEAD =
   'px-3 py-2 text-left text-[10px] font-bold uppercase tracking-widest text-gray-500 dark:text-gray-400'
 const CELL = 'px-3 py-2.5 text-sm text-gray-800 dark:text-gray-200'
@@ -50,31 +52,124 @@ export function StructurePanel({ structure, fixedCosts, products, rates, onReloa
   const t = useTranslations('Finance')
   const money = (cents: number | null) => formatMoney(cents, structure.currency)
 
+  /** Quantos pagantes ainda faltam. Subtração de dois fatos já publicados, com piso em zero. */
+  const missing =
+    structure.breakEvenPartners === null
+      ? 0
+      : Math.max(0, structure.breakEvenPartners - structure.payingPartners)
+
   return (
     <div className="space-y-6">
+      {/* O EQUILÍBRIO É A FRASE, e não a sexta caixinha de uma grade de seis. Ele é o único
+          número desta tela que manda alguém fazer alguma coisa — os outros cinco descrevem, este
+          decide — e lido como `14` solto ao lado de `R$ 3.000,00` ele não dizia de quê.
+
+          A FALTA É SUBTRAÇÃO DE DOIS FATOS JÁ PUBLICADOS, não uma segunda conta: `breakEven` é
+          quantos pagantes cobrem o fixo mensal, `paying` é quantos pagam. Piso em zero porque
+          `-2 parceiros` não quer dizer nada; quando não falta ninguém, a tela diz isso em
+          palavras em vez de imprimir um zero que se lê como erro. */}
       <section className={CARD}>
         <header className="border-b border-gray-200 px-5 py-4 dark:border-gray-800">
           <h2 className="text-sm font-semibold text-gray-900 dark:text-white">{t('structure.title')}</h2>
           <p className="mt-1 text-[11px] text-gray-600 dark:text-gray-400">{t('structure.hint')}</p>
         </header>
 
-        <dl className="grid grid-cols-2 gap-5 px-5 py-5 lg:grid-cols-3">
-          <Stat label={t('structure.monthlyFixed')} value={money(structure.monthlyFixedCents)} />
-          <Stat label={t('structure.oneOff')} value={money(structure.oneOffCents)} />
-          <Stat label={t('structure.contribution')} value={money(structure.contributionCents)} />
-          <Stat label={t('structure.operatingMargin')} value={money(structure.operatingMarginCents)} />
-          <Stat label={t('structure.avgFee')} value={money(structure.averageMonthlyFeeCents)} />
-          <Stat
-            label={t('structure.breakEven')}
-            value={formatCount(structure.breakEvenPartners)}
-            hint={`${t('structure.breakEvenHint')} · ${t('structure.paying')}: ${formatCount(structure.payingPartners)}`}
+        {structure.breakEvenPartners !== null && (
+          <div className="flex flex-col gap-5 border-b border-gray-200 px-5 py-5 dark:border-gray-800 sm:flex-row sm:items-center sm:gap-7">
+            {missing > 0 ? (
+              <>
+                <div className="flex flex-shrink-0 items-baseline gap-2.5">
+                  <span className="text-5xl font-extrabold leading-none tracking-tight text-secondary-700 tabular-nums dark:text-orange-300">
+                    {formatCount(missing)}
+                  </span>
+                  <span className="text-sm font-semibold text-gray-700 dark:text-gray-300">
+                    {t('structure.partnersUnit')}
+                  </span>
+                </div>
+                <div className="hidden w-px self-stretch bg-gray-200 dark:bg-gray-800 sm:block" />
+                <div className="min-w-0">
+                  <p className="text-sm leading-relaxed text-gray-800 dark:text-gray-200">
+                    {t('structure.breakEvenLead', { fee: money(structure.averageMonthlyFeeCents) })}
+                  </p>
+                  <p className="mt-1.5 text-[11px] text-gray-600 dark:text-gray-400">
+                    {t('structure.breakEvenMeta', {
+                      paying: formatCount(structure.payingPartners),
+                      fixed: money(structure.monthlyFixedCents),
+                    })}
+                  </p>
+                </div>
+              </>
+            ) : (
+              <div className="min-w-0">
+                <p className="text-sm font-semibold leading-relaxed text-emerald-800 dark:text-emerald-300">
+                  {t('structure.breakEvenDone')}
+                </p>
+                <p className="mt-1.5 text-[11px] text-gray-600 dark:text-gray-400">
+                  {t('structure.breakEvenMeta', {
+                    paying: formatCount(structure.payingPartners),
+                    fixed: money(structure.monthlyFixedCents),
+                  })}
+                </p>
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* A CASCATA QUE O CÓDIGO JÁ FAZ, DESENHADA. `operatingMarginCents` É
+            `contributionCents - monthlyFixedCents` — uma subtração, em `structure.ts`. Numa
+            grade de seis Stat iguais, os três apareciam como três fatos sem relação, e a relação
+            é justamente o assunto da tela: MC I é o que os parceiros deixam, MC II é o que sobra
+            depois da operação. Aqui nada é recalculado; os mesmos três campos ganham a ordem em
+            que se lêem. */}
+        <div className="flex flex-col gap-1 px-5 py-5">
+          <WaterfallRow
+            label={t('structure.contribution')}
+            hint={t('structure.mcOne')}
+            value={money(structure.contributionCents)}
+            negative={structure.contributionCents < 0}
           />
-        </dl>
+
+          <div className="flex items-center gap-2.5 px-3.5 py-1">
+            <ArrowDown className="h-4 w-4 text-gray-400 dark:text-gray-600" aria-hidden="true" />
+            <span className="text-[11px] text-gray-600 dark:text-gray-400">{t('structure.minus')}</span>
+          </div>
+
+          <WaterfallRow
+            label={t('structure.monthlyFixed')}
+            value={`-${money(structure.monthlyFixedCents)}`}
+            tone="amber"
+          />
+
+          <div className="my-3 h-px bg-gray-200 dark:bg-gray-800" />
+
+          <WaterfallRow
+            label={t('structure.operatingMargin')}
+            hint={t('structure.mcTwoHint')}
+            value={money(structure.operatingMarginCents)}
+            negative={structure.operatingMarginCents < 0}
+            emphasis
+          />
+
+          {/* O DESEMBOLSO FICA FORA DA CASCATA, e a razão é escrita ao lado em vez de virar
+              conhecimento tribal: o ponto de equilíbrio usa só o que volta todo mês. */}
+          <div className="mt-4 flex items-start gap-2.5 rounded-2xl bg-gray-50 p-3.5 dark:bg-gray-950/40">
+            <Info className="mt-0.5 h-4 w-4 flex-shrink-0 text-gray-500 dark:text-gray-400" aria-hidden="true" />
+            <p className="text-[11px] leading-relaxed text-gray-600 dark:text-gray-400">
+              <span className="font-semibold text-gray-800 dark:text-gray-200">
+                {t('structure.oneOff')}: {money(structure.oneOffCents)}.
+              </span>{' '}
+              {t('structure.oneOffAside')}
+            </p>
+          </div>
+        </div>
       </section>
 
       <section className={CARD}>
+        {/* O TÍTULO NOMEIA O CONTEÚDO, e antes nomeava o botão: o cartão lista os custos
+            fixos e traz o formulário no rodapé, mas se chamava `Registrar custo fixo`. Quem
+            olhava de cima lia um comando onde havia uma lista. */}
         <h2 className="border-b border-gray-200 px-5 py-4 text-sm font-semibold text-gray-900 dark:border-gray-800 dark:text-white">
-          {t('structure.add')}
+          {t('structure.fixedTitle')}
         </h2>
 
         <div className="overflow-x-auto">
@@ -121,14 +216,59 @@ export function StructurePanel({ structure, fixedCosts, products, rates, onReloa
   )
 }
 
-function Stat({ label, value, hint }: { label: string; value: string; hint?: string }) {
+/**
+ * UM DEGRAU DA CASCATA. Substituiu o `Stat` da grade de seis: a diferença é que aqui o rótulo e
+ * o valor ficam nas duas pontas da MESMA faixa, e as faixas se empilham na ordem em que a conta
+ * acontece. Numa grade, três números lidos em Z não têm ordem nenhuma.
+ *
+ * `negative` PINTA DE VERMELHO O QUE É NEGATIVO, e só isso — não decide o que é ruim. Uma MC II
+ * negativa é a leitura normal de quem ainda não cobriu a estrutura, e o vermelho aqui diz
+ * "abaixo de zero", não "você errou".
+ */
+function WaterfallRow({
+  label,
+  hint,
+  value,
+  tone,
+  negative,
+  emphasis,
+}: {
+  label: string
+  hint?: string
+  value: string
+  tone?: 'amber'
+  negative?: boolean
+  emphasis?: boolean
+}) {
+  const shell = emphasis
+    ? 'bg-tuggi-blue/[.06] ring-1 ring-tuggi-blue/25'
+    : tone === 'amber'
+      ? 'bg-amber-50 dark:bg-amber-950/30'
+      : 'bg-gray-50 dark:bg-gray-950/40'
+  const labelInk = emphasis
+    ? 'text-primary-800 dark:text-tuggi-blue'
+    : tone === 'amber'
+      ? 'text-amber-800 dark:text-amber-300'
+      : 'text-gray-500 dark:text-gray-400'
+  const valueInk = negative
+    ? 'text-red-700 dark:text-red-300'
+    : tone === 'amber'
+      ? 'text-amber-900 dark:text-amber-200'
+      : 'text-gray-900 dark:text-white'
+
   return (
-    <div>
-      <dt className="text-[10px] font-bold uppercase tracking-widest text-gray-500 dark:text-gray-400">
-        {label}
-      </dt>
-      <dd className="mt-1 text-lg font-semibold tabular-nums text-gray-900 dark:text-white">{value}</dd>
-      {hint && <p className="mt-0.5 text-[11px] text-gray-600 dark:text-gray-400">{hint}</p>}
+    <div className={`flex items-center justify-between gap-4 rounded-2xl px-3.5 py-3 ${shell}`}>
+      <div className="min-w-0">
+        <div className={`text-[10px] font-bold uppercase tracking-widest ${labelInk}`}>{label}</div>
+        {hint && <div className="mt-0.5 text-[11px] text-gray-600 dark:text-gray-400">{hint}</div>}
+      </div>
+      <div
+        className={`flex-shrink-0 tabular-nums ${valueInk} ${
+          emphasis ? 'text-2xl font-extrabold tracking-tight' : 'text-xl font-bold'
+        }`}
+      >
+        {value}
+      </div>
     </div>
   )
 }
@@ -182,7 +322,7 @@ function FixedCostForm({ onSaved }: { onSaved: () => void }) {
   }
 
   return (
-    <div className="flex flex-wrap items-end gap-3 border-t border-gray-200 px-5 py-4 dark:border-gray-800">
+    <div className="flex flex-wrap items-end gap-3 border-t border-gray-200 bg-gray-50/70 px-5 py-4 dark:border-gray-800 dark:bg-gray-950/40">
       <Field label={t('structure.label')} id="fixed-label">
         <input id="fixed-label" value={label} onChange={(e) => setLabel(e.target.value)} className={INPUT} />
       </Field>
@@ -301,7 +441,7 @@ function RatePanel({
             {rates.length === 0 && (
               <tr>
                 <td colSpan={3} className="px-5 py-6 text-center text-sm text-gray-600 dark:text-gray-400">
-                  {t('structure.empty')}
+                  {t('structure.rateEmpty')}
                 </td>
               </tr>
             )}
@@ -320,7 +460,7 @@ function RatePanel({
         </table>
       </div>
 
-      <div className="flex flex-wrap items-end gap-3 border-t border-gray-200 px-5 py-4 dark:border-gray-800">
+      <div className="flex flex-wrap items-end gap-3 border-t border-gray-200 bg-gray-50/70 px-5 py-4 dark:border-gray-800 dark:bg-gray-950/40">
         <Field label={t('structure.appliesTo')} id="rate-product">
           <select id="rate-product" value={appliesTo} onChange={(e) => setAppliesTo(e.target.value)} className={INPUT}>
             {products.map((product) => (

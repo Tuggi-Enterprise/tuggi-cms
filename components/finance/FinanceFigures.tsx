@@ -17,6 +17,12 @@
  *
  * `text-gray-500` E NÃO `text-gray-400` NO RÓTULO MICRO-CAPS: #9CA3AF sobre o painel mede
  * 2,51:1 e reprova SC 1.4.3 (divergência D-C, medida em 2026-08-17). #6B7280 mede 4,83:1.
+ *
+ * NÃO DESENHA O PRÓPRIO CARTÃO. Ele é a metade de baixo do cartão do trilho, separado do menu
+ * por uma linha — e não um segundo cartão flutuando dentro do primeiro. Cartão dentro de cartão
+ * dá duas bordas e duas sombras onde a leitura só precisa de uma divisória, e era o que fazia o
+ * trilho do financeiro parecer outra tela. Por isso aqui só há `p-6`: a borda, o vidro e a
+ * sombra são do cartão que o contém, em `FinancePageContent`.
  */
 
 import { useTranslations } from 'next-intl'
@@ -37,10 +43,7 @@ export function FinanceFigures({ summary, truncated }: Props) {
   const money = (cents: number) => formatMoney(cents, summary.currency)
 
   return (
-    <section
-      aria-labelledby="finance-summary"
-      className="rounded-3xl border border-gray-200 bg-white/70 p-5 shadow-2xl shadow-black/5 backdrop-blur-xl dark:border-gray-800 dark:bg-gray-900/70"
-    >
+    <section aria-labelledby="finance-summary" className="p-6">
       <h2
         id="finance-summary"
         className="mb-4 text-[10px] font-bold uppercase tracking-widest text-gray-500 dark:text-gray-400"

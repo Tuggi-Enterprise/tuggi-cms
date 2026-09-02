@@ -16,10 +16,28 @@
  * não respondeu, e sem ela um parceiro que não paga não pode ser distinguido de um que trouxe
  * quem comprou. A tela diz isso em vez de desenhar vereditos que acusariam parceiros por causa
  * de uma falha de rede.
+ *
+ * O TRILHO É O MESMO DE `/places`, `/pois` E `/users`, classe por classe: casca
+ * `p-6 lg:p-8`, linha `flex gap-8 flex-1 pt-6`, trilho `w-[18%] flex-shrink-0` com o cartão de
+ * vidro `sticky top-24`, conteúdo `w-[82%]`. Antes esta tela tinha `mx-auto max-w-[1600px]` e um
+ * trilho SEM cartão — o título e o menu ficavam soltos sobre o cinza, e era só esta tela no CMS
+ * inteiro que fazia isso.
+ *
+ * `min-w-0` NA COLUNA DE CONTEÚDO NÃO É ENFEITE. Item de flex nasce com `min-width: auto`, que
+ * é o tamanho mínimo do conteúdo — e o conteúdo aqui é uma tabela `min-w-[1100px]`. Sem
+ * `min-w-0` a coluna se recusa a encolher, cresce até 1100px, e a tabela sai pela direita da
+ * página levando o `overflow-x-auto` junto: o cartão nunca chega a rolar porque quem cedeu foi
+ * a página. Era o vazamento que aparecia na tela de Parceiros.
+ *
+ * O CARTÃO DE TÍTULO DO CONTEÚDO NÃO É `sticky`, e é a única divergência de propósito com
+ * `/places`. O `<thead>` da tabela de parceiros já é `sticky top-14` — dois grudados no topo
+ * disputariam o mesmo lugar, e o que o operador precisa ver ao rolar 52 linhas é o nome das
+ * colunas, não o nome da seção.
  */
 
 import { useCallback, useEffect, useState } from 'react'
 import { useTranslations } from 'next-intl'
+import { Coins, RefreshCw } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import type { ClientProfitability, ConsumptionRecord } from '@/lib/finance/profitability'
 import type { FinanceSummary } from '@/lib/finance/summary'
@@ -120,38 +138,82 @@ export function FinancePageContent() {
   }, [load])
 
   return (
-    <div className="min-h-screen bg-gray-50 p-6 dark:bg-gray-950 lg:p-8">
-      <div className="mx-auto flex max-w-[1600px] flex-col gap-6 lg:flex-row lg:items-start">
-        <aside className="w-full lg:sticky lg:top-24 lg:w-[18%] lg:min-w-[15rem]">
-          <div className="mb-4">
-            <h1 className="text-lg font-semibold tracking-tight text-gray-900 dark:text-white lg:text-xl">
-              {t('title')}
-            </h1>
-            <p className="mt-1 text-[11px] text-gray-600 dark:text-gray-400">{t('subtitle')}</p>
+    <div className="flex min-h-screen flex-col bg-gray-50 p-6 dark:bg-gray-950 lg:p-8">
+      <div className="flex flex-1 flex-col gap-8 pt-6 lg:flex-row">
+        <aside className="w-full flex-shrink-0 lg:w-[18%]">
+          {/* O cartão inteiro rola por dentro quando os números não cabem na janela: sem o
+              `max-h`/`overflow`, `sticky` prenderia o topo e o rodapé do trilho ficaria
+              inalcançável em telas baixas — e o rodapé é onde moram as pendências. */}
+          {/* `custom-scrollbar` sem prefixo de breakpoint de propósito: é classe de
+              `globals.css`, não utilitário do Tailwind, então `lg:custom-scrollbar` não geraria
+              regra nenhuma. Sem `overflow-y-auto` abaixo de `lg` ela simplesmente não pinta nada. */}
+          <div className="custom-scrollbar rounded-3xl border border-gray-200 bg-white/70 shadow-2xl shadow-black/5 backdrop-blur-xl dark:border-gray-800 dark:bg-gray-900/70 lg:sticky lg:top-24 lg:max-h-[calc(100vh-7rem)] lg:overflow-y-auto">
+            <div className="p-6">
+              <div className="flex items-center gap-3">
+                <div className="rounded-xl bg-tuggi-blue/10 p-2">
+                  <Coins className="h-5 w-5 text-tuggi-blue" aria-hidden="true" />
+                </div>
+                <h1 className="min-w-0 text-xl font-semibold tracking-tight text-gray-900 dark:text-white">
+                  {t('title')}
+                </h1>
+              </div>
+              <p className="mt-3 text-[11px] leading-relaxed text-gray-600 dark:text-gray-400">
+                {t('subtitle')}
+              </p>
+
+              <nav aria-label={t('title')} className="mt-5 flex flex-col gap-1">
+                {SECTIONS.map((option) => (
+                  <button
+                    key={option}
+                    type="button"
+                    onClick={() => setSection(option)}
+                    aria-current={section === option ? 'page' : undefined}
+                    className={`min-h-[36px] rounded-2xl px-3 py-2 text-left text-sm font-medium transition-colors ${
+                      section === option
+                        ? 'bg-tuggi-blue/10 text-primary-800 ring-1 ring-tuggi-blue/20 dark:text-tuggi-blue'
+                        : 'text-gray-700 hover:bg-gray-100 dark:text-gray-300 dark:hover:bg-gray-800/60'
+                    }`}
+                  >
+                    {t(`sections.${option}`)}
+                  </button>
+                ))}
+              </nav>
+            </div>
+
+            {overview && (
+              <div className="border-t border-gray-200 dark:border-gray-800">
+                <FinanceFigures summary={overview.summary} truncated={overview.truncated} />
+              </div>
+            )}
           </div>
-
-          <nav aria-label={t('title')} className="mb-4 flex flex-col gap-1">
-            {SECTIONS.map((option) => (
-              <button
-                key={option}
-                type="button"
-                onClick={() => setSection(option)}
-                aria-current={section === option ? 'page' : undefined}
-                className={`min-h-[32px] rounded-2xl px-3 py-2 text-left text-sm font-medium transition-colors ${
-                  section === option
-                    ? 'bg-tuggi-blue/10 text-primary-800 ring-1 ring-tuggi-blue/20 dark:text-tuggi-blue'
-                    : 'text-gray-700 hover:bg-gray-100 dark:text-gray-300 dark:hover:bg-gray-800/60'
-                }`}
-              >
-                {t(`sections.${option}`)}
-              </button>
-            ))}
-          </nav>
-
-          {overview && <FinanceFigures summary={overview.summary} truncated={overview.truncated} />}
         </aside>
 
-        <main className="w-full lg:w-[82%]">
+        <main className="w-full min-w-0 lg:w-[82%]">
+          <div className="mb-6 rounded-3xl border border-gray-200 bg-white/80 shadow-2xl shadow-black/5 backdrop-blur-xl dark:border-gray-800 dark:bg-gray-900/80">
+            <div className="flex items-center justify-between gap-4 p-4 pl-6">
+              <div className="min-w-0">
+                <span className="mb-1 block text-[10px] font-bold uppercase leading-none tracking-widest text-gray-500 dark:text-gray-400">
+                  {t('title')}
+                </span>
+                <h2 className="truncate text-lg font-bold leading-none text-gray-900 dark:text-white">
+                  {t(`sections.${section}`)}
+                </h2>
+              </div>
+              <Button
+                variant="outline"
+                onClick={() => void load()}
+                disabled={loading}
+                className="flex-shrink-0 gap-2"
+              >
+                <RefreshCw
+                  className={`h-3.5 w-3.5 ${loading ? 'animate-spin' : ''}`}
+                  aria-hidden="true"
+                />
+                {t('reload')}
+              </Button>
+            </div>
+          </div>
+
           {loading && (
             <p className="rounded-3xl border border-gray-200 bg-white/70 px-5 py-8 text-center text-sm text-gray-600 dark:border-gray-800 dark:bg-gray-900/70 dark:text-gray-400">
               {t('loading')}
