@@ -255,7 +255,10 @@ test('#409 · the whole esteira is Portuguese — the seam is between screens, n
  * terminal column that the working set happens to exclude.
  */
 const ENTRY_POINTS = [
-  'components/ui/Header.tsx',
+  // O catálogo do menu saiu de `components/ui/Header.tsx` em 2026-09-01: o componente passou a
+  // desenhar uma árvore que `lib/navigation/menu.ts` monta. O href de `Parcerias` mora lá agora,
+  // e é lá que esta invariante precisa olhar.
+  'lib/navigation/menu.ts',
   'components/admin/partner-proposals/ProposalReview.tsx',
   'app/[locale]/admin/partnerships/clients/[clientId]/page.tsx',
 ]

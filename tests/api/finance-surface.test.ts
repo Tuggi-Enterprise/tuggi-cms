@@ -38,6 +38,7 @@ import { readFileSync, readdirSync } from 'node:fs'
 import { resolve } from 'node:path'
 
 import { MODULES, TOGGLEABLE_MODULES, isModuleEnabled } from '@/lib/modules'
+import { buildNavTree } from '@/lib/navigation/menu'
 
 const root = resolve(import.meta.dirname, '../..')
 const read = (path: string) => readFileSync(resolve(root, path), 'utf8')
@@ -60,10 +61,16 @@ test('o módulo está registrado nos quatro lugares que decidem se ele existe', 
     'sem isto a checkbox de /admin/users não existe e a ativação não é ativação'
   )
 
-  const proxy = code('proxy.ts')
+  // O mapa prefixo→módulo saiu de `proxy.ts` em 2026-09-01 e passou a morar em
+  // `lib/navigation/access.ts`, que é o módulo que o middleware E o menu consultam.
+  const access = code('lib/navigation/access.ts')
   assert.ok(
-    /MODULE_PREFIXES[\s\S]*'\/finance':\s*MODULES\.FINANCE/.test(proxy),
-    'o middleware precisa deixar entrar quem tem o módulo, e barrar quem não tem'
+    /MODULE_PREFIXES[\s\S]*'\/finance':\s*MODULES\.FINANCE/.test(access),
+    'o portao precisa deixar entrar quem tem o módulo, e barrar quem não tem'
+  )
+  assert.ok(
+    /resolveAccess\(/.test(code('proxy.ts')),
+    'e o middleware precisa perguntar a ele, em vez de reimplementar a regra'
   )
 
   const userForm = code('components/admin/UserFormAdmin.tsx')
@@ -104,8 +111,8 @@ test('o portão da tela recusa exatamente quem a API recusa', () => {
   // O middleware delega a decisão. Se ele voltar a compará-la localmente, o piso morre sem que
   // nada mais fique vermelho — que foi exatamente como os dois portões divergiram.
   assert.ok(
-    /isModuleEnabled\(MODULE_PREFIXES\[gatedPrefix\]/.test(code('proxy.ts')),
-    'o proxy pergunta ao SSOT, não decide sozinho'
+    /isModuleEnabled\(MODULE_PREFIXES\[gatedPrefix\]/.test(code('lib/navigation/access.ts')),
+    'o portao pergunta ao SSOT de módulos, não decide sozinho'
   )
 })
 
@@ -199,23 +206,36 @@ test('a rota que CONCEDE o módulo é pelo menos tão forte quanto o módulo', (
   )
 })
 
-test('`/finance` não mora sob `/admin/*`, onde o módulo nunca decidiria nada', () => {
-  const header = code('components/ui/Header.tsx')
+test('`/finance` não mora sob a área de admin, onde o módulo nunca decidiria nada', () => {
+  // O catálogo do menu saiu do componente em 2026-09-01. `Header.tsx` desenha; quem monta a
+  // árvore é `lib/navigation/menu.ts`, e quem decide visibilidade é `canReach`.
+  const menu = code('lib/navigation/menu.ts')
 
-  assert.ok(/href: '\/finance'/.test(header))
+  assert.ok(/'\/finance'/.test(menu), 'a entrada existe')
   assert.ok(
-    !/href: '\/admin\/finance'/.test(header),
-    '`/admin/*` é barrado para todo não-admin ANTES de o módulo ser consultado'
+    !/'\/admin\/finance'/.test(menu),
+    'a área de admin é barrada para todo não-admin ANTES de o módulo ser consultado'
   )
-  // A entrada é decidida pelo entitlement, não pelo role: o dia em que um editor tiver o módulo
-  // marcado, ele precisa achar a tela — senão o módulo estaria ligado num lugar invisível.
-  assert.ok(
-    /hasFinance && renderNavItem/.test(header),
-    'a entrada do menu é gateada por `hasFinance`, nunca por `isAdmin`'
+
+  // A ENTRADA É DECIDIDA PELO ENTITLEMENT, NÃO PELO ROLE, e agora isso é provado pelo
+  // COMPORTAMENTO e não por uma expressão no texto-fonte: um editor com o módulo vê a entrada,
+  // e ela é a única que ele vê. Se alguém voltar a gatear por `isAdmin`, esta lista fica vazia.
+  const editorComModulo = buildNavTree({
+    role: 'editor',
+    enabledModules: [MODULES.FINANCE],
+  })
+  assert.deepEqual(
+    editorComModulo.primary.map((i) => i.href),
+    ['/finance'],
+    'o dia em que um editor tiver o módulo marcado, ele precisa achar a tela'
   )
-  assert.ok(
-    /isFinanceEnabled\(\{ role: userRole, enabledModules \}\)/.test(header),
-    'e `hasFinance` vem do SSOT de módulos, não de uma comparação local'
+
+  // E o menu não carrega condição de role própria: quem responde é o portao.
+  assert.ok(/canReach/.test(menu), 'a visibilidade vem de `canReach`, o mesmo que o proxy usa')
+  assert.equal(
+    /isAdmin\(/.test(menu),
+    false,
+    'um `isAdmin` aqui seria o menu decidindo sozinho de novo'
   )
 })
 

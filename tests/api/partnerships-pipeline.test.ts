@@ -528,7 +528,8 @@ test('#359 crit. 1: neither old list survives, and `Parcerias` opens the whole l
     'the conference screen moved route; it was not reopened'
   )
 
-  const header = read('components/ui/Header.tsx')
+  // O menu virou dados em `lib/navigation/menu.ts`; `components/ui/Header.tsx` só desenha.
+  const header = read('lib/navigation/menu.ts')
 
   /*
    * `Parcerias` OPENED THE WORKING SET UNTIL 2026-08-24, and criterion 1 is only half revoked.
@@ -545,7 +546,19 @@ test('#359 crit. 1: neither old list survives, and `Parcerias` opens the whole l
    * the rail. The relationship this replaces is asserted in `client-board-surface.test.ts`,
    * which fails for any link into the list carrying a `state` filter at all.
    */
-  assert.match(header, /href: CLIENT_DIRECTORY_PATH/)
+  // A FORMA mudou (`href:` virou argumento de `item(...)`), a REGRA não: o destino vem da
+  // constante e nunca de um caminho digitado à mão — três dos quatro pontos de entrada já
+  // discordaram entre si uma vez.
+  //
+  // Casa a CHAMADA, e não o arquivo: um `/CLIENT_DIRECTORY_PATH/` solto também casaria com a
+  // linha do `import`, e aí digitar `'/admin/clients'` à mão no `item(...)` passaria verde —
+  // exatamente o defeito que esta prova existe para pegar.
+  assert.match(header, /item\(CLIENT_DIRECTORY_PATH,/)
+  assert.equal(
+    header.replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '').includes("'/admin/clients'"),
+    false,
+    'o caminho do diretório nunca é escrito à mão no menu'
+  )
   assert.equal(
     /admin\/clients\?[^'"`]*state=/.test(
       header.replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '')
