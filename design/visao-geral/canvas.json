@@ -1,0 +1,89 @@
+{
+  "pages": [
+    {
+      "id": "page-1",
+      "name": "Simplificação"
+    },
+    {
+      "id": "page-2",
+      "name": "Detalhes da rodada 1"
+    }
+  ],
+  "artboards": [
+    {
+      "file": "Diagnostico.dc.html",
+      "x": 0,
+      "y": 0,
+      "w": 1240,
+      "h": 1420,
+      "title": "Hoje — e os sete achados",
+      "page": "page-1"
+    },
+    {
+      "file": "Main.dc.html",
+      "x": 1360,
+      "y": 0,
+      "w": 1240,
+      "h": 1270,
+      "title": "Proposta — três zonas",
+      "page": "page-1"
+    },
+    {
+      "file": "Projecao.dc.html",
+      "x": 0,
+      "y": 0,
+      "w": 1180,
+      "h": 760,
+      "title": "Projeção — detalhe",
+      "is_interactive": true,
+      "page": "page-2"
+    },
+    {
+      "file": "AppUsers.dc.html",
+      "x": 1300,
+      "y": 0,
+      "w": 1180,
+      "h": 760,
+      "title": "Usuários do app — detalhe",
+      "page": "page-2"
+    }
+  ],
+  "annotations": [
+    {
+      "id": "leitura",
+      "x": 0,
+      "y": -300,
+      "w": 620,
+      "page": "page-1",
+      "text": "O DIAGNÓSTICO\n\nA tela não está mal desenhada — ela está sem hierarquia. Seis cartões de mesmo peso, e as cinco perguntas do operador espalhadas por quatro deles.\n\nOs sete achados estão numerados na prancha, e o pior é o primeiro: a tela abre com uma linha de quatro zeros.\n\nNúmeros medidos em produção em 02/09/2026."
+    },
+    {
+      "id": "proposta",
+      "x": 1360,
+      "y": -300,
+      "w": 620,
+      "page": "page-1",
+      "text": "A PROPOSTA — três zonas, uma pergunta cada\n\n· O QUE ESTÁ CORRENDO: a receita do mês COMPOSTA — mensalidade de parceiros, assinaturas do app, compras de passe. Ao lado, o que está travado e o que custa.\n· A BASE QUE PRODUZ ISSO: cinco cartões — pagantes, quanto cada um paga, receita contratada, assinantes do app, quanto já foi investido.\n· O QUE VEM: um gráfico só. Os outros dois saíram.\n\nAs duas linhas do app aparecem em R$ — porque price_monthly_usd está nulo nas três faixas. O lugar existe; falta o preço."
+    },
+    {
+      "id": "cortes",
+      "x": 2060,
+      "y": -300,
+      "w": 540,
+      "page": "page-1",
+      "text": "O que saiu, e por quê\n\n· A cascata de agosto — quatro zeros que abriam a tela.\n· O gráfico de coorte — terceira leitura de tempo na mesma tela.\n· A série de nove meses — o passado é vazio de receita; o que ele tinha de contar (R$ 1.934,59 já investidos) virou um número.\n· Os cinco números do trilho — estavam duplicados.\n· Quase todo texto explicativo.\n\nNada de novo foi inventado: os números são os mesmos, em outra ordem e outro peso."
+    },
+    {
+      "id": "mantido",
+      "x": 0,
+      "y": 1520,
+      "w": 620,
+      "page": "page-1",
+      "text": "O que NÃO mudou\n\n· R$ 0,00 de custo fixo continua marcado como ausência, não como fato apurado.\n· A camada travada nunca soma com a que fatura.\n· Piso continua escrito com ≥.\n· Micro-caps em #6B7280 (4,83:1) e botões em #00719F (5,44:1).\n· Tudo em modo claro; o escuro segue os mesmos tokens."
+    }
+  ],
+  "launch": {
+    "view": "canvas",
+    "page": "page-1"
+  }
+}

@@ -27,6 +27,7 @@
  */
 
 import type { PaymentStance } from '@/lib/clients/partner-plan'
+import { invoicedThrough, type BillingStart, type BillingStartSource } from './billing'
 
 export type FinanceVerdict =
   /**
@@ -35,7 +36,14 @@ export type FinanceVerdict =
    * informado quanto realmente saiu. Nos dois casos todo total dele é um piso, não um fato.
    */
   | 'uncosted'
-  /** Sem data de início: sabe-se o custo, não por quantos meses ele cobra. */
+  /**
+   * Sem data que inicie a cobrança: sabe-se o custo, não a partir de quando ele cobra.
+   *
+   * O marco NÃO é a aprovação do parceiro nem a assinatura — é a PUBLICAÇÃO, porque é ela que a
+   * cláusula `term` põe como início da contraprestação: *"vigência e cobrança são coisas
+   * distintas"*. Um parceiro pagante ainda não publicado não deve nada, e contar receita nele
+   * seria faturar contra um marco que o contrato não reconhece.
+   */
   | 'undated'
   /** Não paga E não trouxe usuário que comprou. O "só prejuízo". */
   | 'no_return'
@@ -83,8 +91,27 @@ export interface CostEntryRecord {
 export interface ClientFinanceFacts {
   clientId: string
   clientName: string
-  /** `partner.clients.approved_at`, `YYYY-MM-DD` ou ISO. `null` é o que produz `undated`. */
+  /**
+   * `partner.clients.approved_at`, `YYYY-MM-DD` ou ISO. É QUANDO ELE ENTROU, e é o que a coorte
+   * lê — não é mais o relógio da receita, que agora é `billingStart`.
+   */
   approvedAt: string | null
+  /**
+   * A data que INICIA A COBRANÇA, com a sua origem. `null` é o que produz `undated`.
+   *
+   * Ela e `approvedAt` são fatos diferentes e foram fundidos até 2026-09-02, quando a receita
+   * era contada em meses inteiros desde a aprovação: um parceiro aprovado em 1º de agosto e
+   * publicado em 25 aparecia com um mês faturado que ninguém cobrou.
+   */
+  billingStart: BillingStart | null
+  /**
+   * Quantas faturas o horizonte prevê, ou `null` para o contrato como ele é.
+   *
+   * O instrumento em vigor é por PRAZO INDETERMINADO. Um número aqui é premissa do operador
+   * (doze, decidida em 2026-09-02) e não leitura do contrato — por isso ele entra por parâmetro
+   * em vez de ser uma constante deste arquivo.
+   */
+  horizonInvoices: number | null
   /** Decidido por `derivePartnerPlan`, nunca por uma comparação local. */
   stance: PaymentStance
   /** `partner.clients.monthly_fee_cents`. Ausente NÃO é zero — BR-B2B-017, item 6. */
@@ -169,6 +196,13 @@ export interface ClientProfitability {
   clientName: string
   /** Repetido na saída para a coorte e o filtro de mês lerem a lista sem um segundo join. */
   approvedAt: string | null
+  /** A data que iniciou a cobrança — `null` quando não há, e então o veredito é `undated`. */
+  billingStartsAt: string | null
+  /**
+   * De onde ela saiu. `signature` é a queda para `accepted_at` quando não há publicação na
+   * trilha, e ela ANTECIPA a cobrança em relação ao contrato — a tela marca a linha.
+   */
+  billingStartSource: BillingStartSource | null
   verdict: FinanceVerdict
   /** Moeda de tudo abaixo. Totais nunca cruzam moedas. */
   currency: string
@@ -176,11 +210,25 @@ export interface ClientProfitability {
   directCostCents: number
   /** A taxa simbólica de impressão, SEPARADA. Nunca somada em `directCostCents`. */
   standardCostCents: number
-  /** Mensalidade × meses inteiros desde `approvedAt`. Zero quando não paga. */
+  /**
+   * O que JÁ VENCEU, pelo calendário do contrato: dia 20, a partir do mês seguinte ao da
+   * publicação, com o proporcional na primeira fatura. Zero quando não paga ou não começou.
+   */
   revenueCents: number
   /** MC I = receita − custo direto. Negativa é o normal no começo de uma parceria. */
   marginCents: number
+  /** Faturas VENCIDAS. A primeira conta como uma, embora carregue o proporcional junto. */
   monthsBilled: number
+  /**
+   * A mensalidade que valeu — `null` quando não paga.
+   *
+   * ELA VIAJA NA SAÍDA PARA NINGUÉM PRECISAR DEDUZI-LA. `summarizeStructure` calculava a
+   * mensalidade média dividindo `revenueCents` por `monthsBilled`, e essa divisão deixou de
+   * devolver a mensalidade no dia em que a primeira fatura passou a carregar o proporcional
+   * junto: R$ 300 em duas faturas viraram R$ 150 de "média". O ponto de equilíbrio inteiro
+   * pendia dessa inferência.
+   */
+  monthlyFeeCents: number | null
   /** Meses de mensalidade para cobrir o custo. `null` quando não paga ou não custa. */
   paybackMonths: number | null
   /** Custo direto por usuário adquirido pelo QR. `null` com zero adquiridos — nunca infinito. */
@@ -200,26 +248,6 @@ export interface ClientProfitability {
   ordersAwaitingShipment: number
   /** Moedas presentes nos lançamentos e não somadas. Vazio no caso normal. */
   ignoredCurrencies: string[]
-}
-
-/**
- * Meses INTEIROS decorridos entre duas datas.
- *
- * Inteiros, e não fração: a mensalidade é cobrada por mês, e contar 2,7 meses de receita seria
- * faturar um terço de mês que ninguém cobrou. Um parceiro aprovado ontem tem zero meses de
- * receita e é isso que deve aparecer — não uma fatia proporcional que faz o payback parecer
- * adiantado.
- */
-export function wholeMonthsBetween(from: string, to: string): number {
-  const start = new Date(from)
-  const end = new Date(to)
-  if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime())) return 0
-
-  let months =
-    (end.getUTCFullYear() - start.getUTCFullYear()) * 12 +
-    (end.getUTCMonth() - start.getUTCMonth())
-  if (end.getUTCDate() < start.getUTCDate()) months -= 1
-  return months > 0 ? months : 0
 }
 
 /**
@@ -297,8 +325,18 @@ export function assessClient(facts: ClientFinanceFacts, now: string): ClientProf
   const cost = directCost(facts)
 
   const fee = facts.stance === 'paying' ? facts.monthlyFeeCents : null
-  const monthsBilled = facts.approvedAt ? wholeMonthsBetween(facts.approvedAt, now) : 0
-  const revenueCents = fee !== null && fee > 0 ? fee * monthsBilled : 0
+
+  // A RECEITA SAI DO CALENDÁRIO DO CONTRATO, e não de meses corridos desde a aprovação. Uma
+  // fatura só conta depois de VENCER: no dia 19 de setembro, quem publicou em agosto ainda não
+  // deve nada. Ver `lib/finance/billing.ts` para as três cláusulas que essa conta obedece.
+  const billed = invoicedThrough({
+    start: facts.billingStart?.at ?? null,
+    feeCents: fee,
+    horizonInvoices: facts.horizonInvoices,
+    asOf: now,
+  })
+  const monthsBilled = billed.invoices
+  const revenueCents = billed.cents
 
   const paybackMonths =
     fee !== null && fee > 0 && cost.directCostCents > 0
@@ -316,12 +354,15 @@ export function assessClient(facts: ClientFinanceFacts, now: string): ClientProf
     clientId: facts.clientId,
     clientName: facts.clientName,
     approvedAt: facts.approvedAt,
+    billingStartsAt: facts.billingStart?.at ?? null,
+    billingStartSource: facts.billingStart?.source ?? null,
     currency: cost.currency,
     directCostCents: cost.directCostCents,
     standardCostCents: cost.standardCostCents,
     revenueCents,
     marginCents: revenueCents - cost.directCostCents,
     monthsBilled,
+    monthlyFeeCents: fee !== null && fee > 0 ? fee : null,
     paybackMonths,
     cacCents,
     linkedByPartnerId: facts.linkedByPartnerId,
@@ -358,6 +399,12 @@ function decide(
   // As duas causas de custo incompleto respondem juntas: para o operador, "este número é um
   // piso" é a mesma informação, e o painel diz qual das duas está faltando.
   if (unpricedLines > 0 || facts.ordersAwaitingShipment > 0) return 'uncosted'
+
+  // SEM MARCO NÃO HÁ QUANTOS MESES ELE JÁ PAGOU. A pergunta só se faz de quem paga: um parceiro
+  // gratuito sem publicação não está com a conta incompleta, ele simplesmente não cobra — e
+  // mandá-lo para `undated` esconderia o veredito que de fato descreve a parceria dele.
+  const pays = fee !== null && fee > 0
+  if (pays && !facts.billingStart) return 'undated'
   if (!facts.approvedAt) return 'undated'
 
   if (fee === null || fee <= 0) {

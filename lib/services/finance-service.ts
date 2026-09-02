@@ -20,12 +20,15 @@
 
 import { getSupabaseService } from '@/lib/core/supabase-client'
 import { derivePartnerPlan, paymentStance } from '@/lib/clients/partner-plan'
-import { loadLiveContractTiers } from '@/lib/services/partner-contract-tier'
+import { loadLiveContractStates } from '@/lib/services/partner-contract-tier'
 import type { FinanceProduct } from '@/lib/finance/catalog'
 import type { FinancePurchase, StandardRate } from '@/lib/finance/unit-cost'
 import type { OrderRecipeOverride, RecipeLine } from '@/lib/finance/recipe'
 import type { PackagingRule } from '@/lib/finance/packaging'
 import type { FixedCostRecord } from '@/lib/finance/structure'
+import type { PartnerMixRow, PassPrice } from '@/lib/finance/overview'
+import type { BillingStart } from '@/lib/finance/billing'
+import { parseRcEvent, type RcEvent } from '@/lib/finance/app-revenue'
 import { consumesCost, planConsumption, type OrderShipment } from '@/lib/finance/consumption'
 import type { MaterialKind } from '@/lib/partner-form/fields'
 import {
@@ -607,22 +610,28 @@ export async function loadConsumption(cap = 2000): Promise<FinanceConsumptionRow
   }))
 }
 
-interface CostEntryRow {
+export interface CostEntryRow {
   clientId: string
   amountCents: number
   currency: string
+  /**
+   * `YYYY-MM-DD`. Sobe desde 2026-09-02 porque a cascata do mes precisa recortar o avulso pelo
+   * mes em que ele foi incorrido — sem ela, uma feira de marco entraria no custo de agosto.
+   */
+  incurredAt: string
 }
 
 async function loadCostEntries(): Promise<CostEntryRow[] | null> {
   const { data, error } = await finance()
     .from('client_cost_entries')
-    .select('client_id, amount_cents, currency')
+    .select('client_id, amount_cents, currency, incurred_at')
 
   if (error) return null
   return (data ?? []).map((row: Record<string, unknown>) => ({
     clientId: String(row.client_id),
     amountCents: Number(row.amount_cents),
     currency: String(row.currency ?? 'BRL'),
+    incurredAt: String(row.incurred_at ?? ''),
   }))
 }
 
@@ -829,10 +838,25 @@ async function loadOrdersAwaitingShipment(
 export interface FinanceOverview {
   clients: ClientProfitability[]
   consumption: FinanceConsumptionRow[]
+  /** Os avulsos, com a data — a cascata do mês recorta por ela. */
+  costEntries: CostEntryRow[]
+  /**
+   * O que `summarizePlanMix` lê. Sai daqui e não de uma segunda leitura porque o plano de cada
+   * parceiro já foi decidido uma vez neste laço, por `derivePartnerPlan` — decidi-lo de novo na
+   * rota seria a segunda opinião que faz um total discordar da linha.
+   */
+  partnerMix: PartnerMixRow[]
   /** Verdadeiro quando a leitura bateu no teto: todo número vira um piso, e a tela diz isso. */
   truncated: boolean
   /** Falso quando o ledger de compras não respondeu. A tela nomeia a lacuna em vez de escondê-la. */
   purchasesAnswered: boolean
+  /**
+   * Parceiros marcados como teste e retirados de TODA conta acima.
+   *
+   * Sobe contado, e não some calado: uma base que encolhe sem dizer por quê é indistinguível de
+   * uma leitura que falhou pela metade.
+   */
+  excludedPartners: number
 }
 
 /**
@@ -859,24 +883,35 @@ export async function loadFinanceOverview(
   cap = 500,
   now = new Date().toISOString().slice(0, 10)
 ): Promise<FinanceOverviewResult> {
-  const [partners, consumption, costEntries] = await Promise.all([
+  const [allPartners, consumption, costEntries, excluded] = await Promise.all([
     loadPartners(cap),
     loadConsumption(),
     loadCostEntries(),
+    loadExcludedAccounts('client'),
   ])
 
   // Sem as linhas de custo não há tela: uma lista vazia por erro afirmaria que ninguém custou
   // nada, que é a única coisa que este módulo não pode dizer por engano.
   if (consumption === null || costEntries === null) return { ok: false, reason: 'finance_unavailable' }
 
+  // AS CONTAS DE TESTE SAEM AQUI, ANTES DE QUALQUER CONTA — e não na tela.
+  //
+  // Filtrar depois deixaria o parceiro de demonstração dentro de `summarizeFinance`, do CAC e da
+  // coorte, e só sumindo da lista: a base pareceria menor do que os totais que a descrevem. Uma
+  // leitura que falhou responde lista VAZIA de exclusões (ver `loadExcludedAccounts`), e então
+  // nada é escondido — o oposto do modo de falha caro, que seria esconder parceiro por engano.
+  const partners = excluded.size > 0 ? allPartners.filter((row) => !excluded.has(row.id)) : allPartners
+  const excludedPartners = allPartners.length - partners.length
+
   const partnerIds = partners.map((partner) => partner.id)
   const catalog = await loadCatalog()
   if (!catalog) return { ok: false, reason: 'finance_unavailable' }
 
-  const [tiers, appUsers, awaitingShipment] = await Promise.all([
-    loadLiveContractTiers(partnerIds),
+  const [contracts, appUsers, awaitingShipment, billingStarts] = await Promise.all([
+    loadLiveContractStates(partnerIds),
     loadAppUserSide(partnerIds),
     loadOrdersAwaitingShipment(catalog.products),
+    loadBillingStarts(partnerIds),
   ])
 
   if (awaitingShipment === null) return { ok: false, reason: 'finance_unavailable' }
@@ -899,7 +934,10 @@ export async function loadFinanceOverview(
     entriesByClient.set(entry.clientId, lines)
   }
 
+  const partnerMix: PartnerMixRow[] = []
+
   const clients = partners.map((partner) => {
+    const contract = contracts.get(partner.id) ?? null
     // `derivePartnerPlan` é quem decide quem paga — três fontes numa ordem só, e esta é a quarta
     // superfície a lê-la em vez de comparar `monthlyFeeCents > 0` por conta própria.
     const plan = derivePartnerPlan({
@@ -910,7 +948,7 @@ export async function loadFinanceOverview(
         courtesyReason: partner.courtesyReason,
       },
       planChoice: null,
-      contractTier: tiers.get(partner.id) ?? null,
+      contractTier: contract?.tier ?? null,
     })
 
     // `null` quando o ledger não respondeu — e `null` não é zero: é o que faz o veredito de um
@@ -942,9 +980,30 @@ export async function loadFinanceOverview(
       linkedByClientId: appUsers.byClientId.get(partner.id) ?? 0,
       usersWithPurchase,
       purchasedMinutes,
+      billingStart: billingStarts.get(partner.id) ?? null,
+      // A RECEITA REALIZADA NÃO TEM HORIZONTE, e é aqui que o contrato e a premissa se separam.
+      // O instrumento é por prazo indeterminado: um parceiro com quatorze faturas vencidas
+      // faturou quatorze, e cortá-lo em doze esconderia receita que de fato entrou. Os doze são
+      // premissa do operador e vivem só na PROJEÇÃO (`projectRevenue`).
+      horizonInvoices: null,
     })
 
-    return assessClient(facts, now)
+    const assessed = assessClient(facts, now)
+
+    // A quebra por plano é montada no MESMO laço que produz a linha, com o MESMO `plan`. Um
+    // segundo `derivePartnerPlan` na rota seria uma segunda opinião sobre quem paga.
+    partnerMix.push({
+      currency: assessed.currency,
+      planKind: plan.kind,
+      monthlyFeeCents: partner.monthlyFeeCents,
+      contractStatus: contract?.status ?? null,
+      // O marco sobe junto porque a projeção precisa do calendário de CADA parceiro: a linha
+      // firme não é uma reta, é a soma de faturas que entram em meses diferentes.
+      billingStartsAt: assessed.billingStartsAt,
+      billingStartSource: assessed.billingStartSource,
+    })
+
+    return assessed
   })
 
   return {
@@ -952,8 +1011,13 @@ export async function loadFinanceOverview(
     overview: {
       clients,
       consumption,
-      truncated: partners.length >= cap,
+      costEntries,
+      partnerMix,
+      // O teto é contado sobre a leitura CRUA: cortar contas de teste depois não devolve espaço
+      // no `limit`, e dizer que a lista coube porque o filtro a encurtou seria mentira.
+      truncated: allPartners.length >= cap,
       purchasesAnswered: appUsers.purchasesAnswered,
+      excludedPartners,
     },
   }
 }
@@ -1238,4 +1302,356 @@ export async function recomputeConsumption(
   }
 
   return { updated, inserted, kept, orphans }
+}
+
+// ── O preço do passe, e as contas que não contam ──────────────────────────────────────────────
+
+/**
+ * Os preços declarados do passe.
+ *
+ * DEVOLVE LISTA VAZIA QUANDO A LEITURA FALHA, e aqui isso é seguro — o oposto de `loadConsumption`.
+ * Sem preço não há estimativa de receita do app, e a tela mostra "não declarado": uma ausência
+ * que ela já sabe desenhar. O modo de falha caro deste módulo é afirmar dinheiro que não existe,
+ * e uma lista vazia afirma exatamente nada.
+ */
+export async function loadPassPrices(): Promise<PassPrice[]> {
+  const { data, error } = await finance()
+    .from('pass_prices')
+    .select('product_id, label, price_cents, currency, effective_from, minutes, kind')
+    .order('effective_from', { ascending: false })
+
+  if (error) return []
+  return (data ?? []).map((row: Record<string, unknown>) => ({
+    productId: String(row.product_id),
+    label: String(row.label ?? row.product_id),
+    priceCents: Number(row.price_cents),
+    currency: String(row.currency ?? 'BRL'),
+    effectiveFrom: String(row.effective_from),
+    minutes: row.minutes === null || row.minutes === undefined ? null : Number(row.minutes),
+    kind: row.kind === 'subscription' ? 'subscription' : 'pass',
+  }))
+}
+
+/**
+ * Declara um preço — INSERE, nunca reescreve.
+ *
+ * Mudar o preço é uma linha nova com vigência posterior, pelo mesmo motivo de `units_yield` ser
+ * fato da compra: o passe de R$ 29,90 de hoje não pode reprecificar a compra de junho. O
+ * `unique (product_id, effective_from)` recusa duas versões do mesmo dia, e é isso que o 409 da
+ * rota traduz.
+ */
+export async function createPassPrice(input: {
+  productId: string
+  label: string
+  priceCents: number
+  currency: string
+  effectiveFrom: string
+  minutes: number | null
+  notes?: string | null
+  createdBy?: string | null
+}): Promise<{ ok: boolean; conflict?: boolean }> {
+  const { error } = await finance()
+    .from('pass_prices')
+    .insert({
+      product_id: input.productId,
+      label: input.label,
+      price_cents: input.priceCents,
+      currency: input.currency,
+      effective_from: input.effectiveFrom,
+      minutes: input.minutes,
+      notes: input.notes ?? null,
+      created_by: input.createdBy ?? null,
+    })
+
+  if (!error) return { ok: true }
+  // 23505 é a violação de unicidade: já existe preço deste passe nesta data.
+  return { ok: false, conflict: (error as { code?: string }).code === '23505' }
+}
+
+/** Uma marca viva de conta de teste, como a tela a lista. */
+export interface ExcludedAccountRow {
+  id: string
+  kind: 'app_user' | 'client'
+  subjectId: string
+  reason: string
+  createdAt: string
+  createdBy: string | null
+}
+
+/**
+ * Os ids marcados como teste, vivos.
+ *
+ * VAZIO QUANDO A LEITURA FALHA, e a direção da falha é escolhida. Uma exclusão que não carregou
+ * faz um parceiro de teste voltar a contar — visível, conferível, corrigível. O contrário —
+ * assumir que tudo está excluído — sumiria com a base inteira e pareceria uma empresa sem
+ * clientes.
+ */
+export async function loadExcludedAccounts(kind: 'app_user' | 'client'): Promise<Set<string>> {
+  const { data, error } = await finance()
+    .from('excluded_accounts')
+    .select('subject_id')
+    .eq('kind', kind)
+    .is('removed_at', null)
+
+  if (error) return new Set()
+  return new Set((data ?? []).map((row: Record<string, unknown>) => String(row.subject_id)))
+}
+
+/** As marcas vivas, com quem marcou e por quê — a lista que a tela mostra. */
+export async function listExcludedAccounts(): Promise<ExcludedAccountRow[]> {
+  const { data, error } = await finance()
+    .from('excluded_accounts')
+    .select('id, kind, subject_id, reason, created_at, created_by')
+    .is('removed_at', null)
+    .order('created_at', { ascending: false })
+
+  if (error) return []
+  return (data ?? []).map((row: Record<string, unknown>) => ({
+    id: String(row.id),
+    kind: row.kind === 'app_user' ? 'app_user' : 'client',
+    subjectId: String(row.subject_id),
+    reason: String(row.reason ?? ''),
+    createdAt: String(row.created_at),
+    createdBy: (row.created_by as string | null) ?? null,
+  }))
+}
+
+/**
+ * Marca uma conta como teste.
+ *
+ * O `unique` parcial de `excluded_accounts` só vale entre as marcas VIVAS, então marcar de novo
+ * algo que já está marcado é 409 e não um segundo registro — e uma conta pode voltar à lista
+ * depois de ter saído dela.
+ */
+export async function excludeAccount(input: {
+  kind: 'app_user' | 'client'
+  subjectId: string
+  reason: string
+  createdBy?: string | null
+}): Promise<{ ok: boolean; conflict?: boolean }> {
+  const { error } = await finance()
+    .from('excluded_accounts')
+    .insert({
+      kind: input.kind,
+      subject_id: input.subjectId,
+      reason: input.reason,
+      created_by: input.createdBy ?? null,
+    })
+
+  if (!error) return { ok: true }
+  return { ok: false, conflict: (error as { code?: string }).code === '23505' }
+}
+
+/**
+ * Desfaz uma marca — ESCREVE `removed_at`, não apaga a linha.
+ *
+ * Uma conta que volta a contar sem deixar rastro é a mesma classe de defeito que `delete` numa
+ * tabela de lançamento: o total muda e ninguém consegue dizer por quê. Por isso a tabela nem tem
+ * `grant delete`.
+ */
+export async function restoreAccount(
+  id: string,
+  removedBy?: string | null
+): Promise<boolean> {
+  const { data, error } = await finance()
+    .from('excluded_accounts')
+    .update({ removed_at: new Date().toISOString(), removed_by: removedBy ?? null })
+    .eq('id', id)
+    .is('removed_at', null)
+    .select('id')
+
+  return !error && (data ?? []).length > 0
+}
+
+// ── O marco que inicia a cobrança ─────────────────────────────────────────────────────────────
+
+/**
+ * A data que INICIA A COBRANÇA de cada parceiro — quatro fontes, da mais firme para a menos.
+ *
+ * O CONTRATO MANDA LER A PUBLICAÇÃO: *"a contraprestação mensal somente começa a correr na data
+ * da publicação, no aplicativo"*. Assinar não cobra; aprovar o parceiro muito menos — e era de
+ * `approved_at` que a receita saía até 2026-09-02, em meses corridos.
+ *
+ * MAS O CARIMBO DE PUBLICAÇÃO NÃO EXISTE NOS PARCEIROS ANTIGOS, e isso foi medido em 2026-09-02:
+ * os 7 pagantes têm `attractions.approved = true` e `approved_at` NULO, e `core.audit_logs` tem
+ * ZERO linhas de `PUBLISH_PARTNER_PLACE` em 37.575. `setApproved` carimba desde agosto de 2026;
+ * quem subiu antes não deixou data.
+ *
+ * DAÍ A TERCEIRA FONTE, E ELA É DECISÃO DO OPERADOR (2026-09-02): *"eles já estão liberados no
+ * app desde o cadastro e liberação, esses dias serão contados"*. `partner.clients.approved_at` é
+ * o dia da liberação, e é o marco mais próximo da publicação que este banco guarda.
+ *
+ * A ASSINATURA CAIU PARA ÚLTIMO LUGAR, e a ordem importa. O aceite vem DEPOIS da liberação: com
+ * ele à frente, um parceiro liberado em agosto que assinasse em outubro começaria a faturar em
+ * novembro, apagando dois meses que a Tuggi já entregou. Ela sobra só para quem não tem nem
+ * liberação registrada.
+ */
+export async function loadBillingStarts(
+  clientIds: string[]
+): Promise<Map<string, BillingStart>> {
+  const starts = new Map<string, BillingStart>()
+  if (clientIds.length === 0) return starts
+
+  const core = getSupabaseService().schema('core')
+  const partner = getSupabaseService().schema('partner')
+
+  // 1 · O carimbo da publicação, e os lugares de cada parceiro. A trilha guarda o id do LUGAR,
+  //     não o do parceiro, então este passo serve às duas primeiras fontes.
+  const placeOwner = new Map<string, string>()
+  for (const batch of chunk(clientIds)) {
+    const { data } = await core
+      .from('attractions')
+      .select('id, partner_client_id, approved, approved_at')
+      .in('partner_client_id', batch)
+
+    for (const row of (data ?? []) as {
+      id: string
+      partner_client_id: string | null
+      approved: boolean | null
+      approved_at: string | null
+    }[]) {
+      if (!row.id || !row.partner_client_id) continue
+      placeOwner.set(row.id, row.partner_client_id)
+
+      // O MAIS ANTIGO de todos os lugares do parceiro. Um segundo ponto publicado depois não
+      // recomeça a cobrança dele — a primeira vez que algo dele foi ao ar é que a começou.
+      if (row.approved === true && row.approved_at) {
+        const at = String(row.approved_at).slice(0, 10)
+        const known = starts.get(row.partner_client_id)
+        if (!known || at < known.at) {
+          starts.set(row.partner_client_id, { at, source: 'publication' })
+        }
+      }
+    }
+  }
+
+  // 2 · A trilha, para quem não tem carimbo. Ordem CRESCENTE: a primeira publicação é a que
+  //     começou a cobrar, e um lugar tirado do ar e recolocado não reinicia o relógio.
+  const withoutStamp = Array.from(placeOwner.entries())
+    .filter(([, clientId]) => !starts.has(clientId))
+    .map(([placeId]) => placeId)
+
+  for (const batch of chunk(withoutStamp)) {
+    const { data } = await core
+      .from('audit_logs')
+      .select('entity_id, created_at')
+      .eq('action', 'PUBLISH_PARTNER_PLACE')
+      .in('entity_id', batch)
+      .order('created_at', { ascending: true })
+
+    for (const row of (data ?? []) as { entity_id: string | null; created_at: string }[]) {
+      const clientId = row.entity_id ? placeOwner.get(row.entity_id) : undefined
+      if (!clientId || starts.has(clientId)) continue
+      starts.set(clientId, { at: String(row.created_at).slice(0, 10), source: 'publication' })
+    }
+  }
+
+  // 3 · A liberação do parceiro. É onde quase todo mundo cai hoje.
+  const missing = clientIds.filter((id) => !starts.has(id))
+  if (missing.length === 0) return starts
+
+  for (const batch of chunk(missing)) {
+    const { data } = await partner
+      .from('clients')
+      .select('id, approved_at')
+      .in('id', batch)
+      .not('approved_at', 'is', null)
+
+    for (const row of (data ?? []) as { id: string; approved_at: string }[]) {
+      if (!row.id || starts.has(row.id)) continue
+      starts.set(row.id, { at: String(row.approved_at).slice(0, 10), source: 'liberation' })
+    }
+  }
+
+  // 4 · O aceite do contrato vivo, para quem não tem nem liberação.
+  const stillMissing = clientIds.filter((id) => !starts.has(id))
+  if (stillMissing.length === 0) return starts
+
+  const liveContract = new Map<string, string>()
+  for (const batch of chunk(stillMissing)) {
+    const { data } = await partner
+      .from('partner_contracts')
+      .select('id, client_id, created_at')
+      .in('client_id', batch)
+      .is('superseded_by', null)
+      .order('created_at', { ascending: false })
+
+    for (const row of (data ?? []) as { id: string; client_id: string }[]) {
+      if (row.id && row.client_id && !liveContract.has(row.client_id)) {
+        liveContract.set(row.client_id, row.id)
+      }
+    }
+  }
+
+  const contractOwner = new Map<string, string>()
+  for (const [clientId, contractId] of liveContract) contractOwner.set(contractId, clientId)
+
+  for (const batch of chunk(Array.from(contractOwner.keys()))) {
+    const { data } = await partner
+      .from('partner_contract_acceptances')
+      .select('contract_id, accepted_at')
+      .in('contract_id', batch)
+
+    for (const row of (data ?? []) as { contract_id: string; accepted_at: string }[]) {
+      const clientId = contractOwner.get(row.contract_id)
+      if (!clientId || starts.has(clientId)) continue
+      starts.set(clientId, { at: String(row.accepted_at).slice(0, 10), source: 'signature' })
+    }
+  }
+
+  return starts
+}
+
+/**
+ * OS EVENTOS DO REVENUECAT — a fonte da receita do app.
+ *
+ * LÊ O JSONB, E NÃO AS COLUNAS AO LADO DELE. `drive.subscription_history` tem `price_local`,
+ * `price_local_currency` e `environment` como colunas próprias, e elas estão NULAS em 100% das
+ * linhas (medido em 2026-09-02, 201 linhas). O que a EF `app-revenuecat-webhook` de fato grava é
+ * o payload inteiro em `metadata.full_event` — e ali está tudo: valor, moeda, país, ambiente,
+ * loja, produto e o parceiro que trouxe a pessoa.
+ *
+ * A LEITURA FOI CONFERIDA CONTRA O PAINEL DO REVENUECAT em 2026-09-02: 9 de 9 transações pagas,
+ * US$ 77,44 bruto, valor idêntico linha a linha.
+ *
+ * Devolve lista vazia quando a leitura falha. Sem evento não há receita de app, e a tela mostra
+ * zero — inventar transação é o que não pode acontecer.
+ */
+export async function loadRcEvents(limit = 5000): Promise<RcEvent[]> {
+  const { data, error } = await getSupabaseService()
+    .schema('drive')
+    .from('subscription_history')
+    .select('metadata')
+    .order('created_at', { ascending: false })
+    .limit(limit)
+
+  if (error) return []
+
+  const events: RcEvent[] = []
+  for (const row of (data ?? []) as { metadata: unknown }[]) {
+    const event = parseRcEvent(row.metadata)
+    if (event) events.push(event)
+  }
+  return events
+}
+
+/**
+ * A taxa de comissão de cada parceiro, como fração.
+ *
+ * `core.clients.commission_rate` é o único lugar onde ela existe, e o contrato a congela no
+ * instrumento assinado. Parceiro sem taxa NÃO entra no mapa: `commissionByPartner` o nomeia em
+ * vez de aplicar zero, porque zero sobre receita real é uma dívida que some.
+ */
+export async function loadCommissionRates(): Promise<Map<string, number>> {
+  const rates = new Map<string, number>()
+  const { data, error } = await getSupabaseService()
+    .schema('core')
+    .from('clients')
+    .select('id, commission_rate')
+
+  if (error) return rates
+  for (const row of (data ?? []) as { id: string; commission_rate: number | null }[]) {
+    if (row.id && typeof row.commission_rate === 'number') rates.set(row.id, row.commission_rate)
+  }
+  return rates
 }

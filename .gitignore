@@ -119,3 +119,6 @@ scripts/qa/*.local.json
 # a partir delas pelo seed do skill e carrega ~2,5 MB do editor embutido.
 design/*.html
 !design/*.dc.html
+# A mesma regra nas subpastas, que a de cima nao alcanca.
+design/**/*.html
+!design/**/*.dc.html

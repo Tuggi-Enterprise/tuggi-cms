@@ -123,10 +123,17 @@ export function summarizeStructure(
       continue
     }
     contributionCents += client.marginCents
-    // Quem paga é quem tem meses faturados e receita — a decisão de "paga ou não" já foi tomada
-    // por `derivePartnerPlan` lá atrás, e não é refeita aqui com uma segunda comparação.
-    if (client.revenueCents > 0 && client.monthsBilled > 0) {
-      fees.push(client.revenueCents / client.monthsBilled)
+    // A MENSALIDADE É LIDA, NÃO DEDUZIDA. Isto dividia `revenueCents` por `monthsBilled`, e a
+    // divisão parou de devolver a mensalidade quando a primeira fatura passou a carregar o
+    // proporcional da publicação junto (`lib/finance/billing.ts`): duas faturas de R$ 100 com um
+    // mês proporcional somam R$ 300, e a "média" saía R$ 150. O ponto de equilíbrio inteiro
+    // pendia disso.
+    //
+    // E quem paga continua sendo decidido por `derivePartnerPlan` lá atrás: `monthlyFeeCents` só
+    // existe em quem ele já julgou pagante. Um pagante cuja cobrança ainda não começou entra na
+    // média — ele tem mensalidade contratada, e é dela que o equilíbrio precisa.
+    if (client.monthlyFeeCents !== null && client.monthlyFeeCents > 0) {
+      fees.push(client.monthlyFeeCents)
     }
   }
 

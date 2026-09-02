@@ -116,6 +116,14 @@ export type AuditAction =
   | 'DELETE_FINANCE_RULE'
   | 'RECOMPUTE_FINANCE_CONSUMPTION'
   | 'UPDATE_FINANCE_CATALOG'
+  // O preco declarado do passe e as contas de teste. Os dois mudam numero financeiro sem tocar
+  // em lancamento nenhum: o primeiro e a unica fonte de receita do app que o CMS enxerga
+  // (BR-MONETIZACAO-048), e o segundo tira uma conta inteira de toda soma da Visao geral.
+  // `RESTORE` existe porque desfazer e escrever `removed_at`, nunca apagar a linha — e uma conta
+  // que volta a contar muda o total tanto quanto uma que saiu.
+  | 'CREATE_FINANCE_PASS_PRICE'
+  | 'CREATE_FINANCE_EXCLUSION'
+  | 'RESTORE_FINANCE_EXCLUSION'
 
 export type AuditEntity = 'USER' | 'POI' | 'AUTH' | 'CLIENT' | 'PARTNER_PROPOSAL' | 'FINANCE'
 

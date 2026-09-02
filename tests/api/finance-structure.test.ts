@@ -41,6 +41,11 @@ function facts(over: Partial<ClientFinanceFacts> = {}): ClientFinanceFacts {
     clientId: over.clientId ?? 'client-1',
     clientName: over.clientName ?? 'Baires Bistrô',
     approvedAt: over.approvedAt === undefined ? '2026-06-01' : over.approvedAt,
+    billingStart:
+      over.billingStart === undefined
+        ? ({ at: '2026-06-01', source: 'publication' } as const)
+        : over.billingStart,
+    horizonInvoices: over.horizonInvoices === undefined ? null : over.horizonInvoices,
     stance: over.stance ?? 'paying',
     monthlyFeeCents: over.monthlyFeeCents === undefined ? 10_000 : over.monthlyFeeCents,
     consumption: over.consumption ?? [
