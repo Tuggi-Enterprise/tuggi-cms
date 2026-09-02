@@ -4,7 +4,7 @@ import { useEffect, useState } from 'react'
 import { AlertCircle, Check } from 'lucide-react'
 import { CmsUser } from '@/lib/supabase'
 import { Client } from '@/types/clients'
-import { TOGGLEABLE_MODULES, MODULES } from '@/lib/modules'
+import { TOGGLEABLE_MODULES, MODULES, MODULE_MIN_ROLES, type ModuleId } from '@/lib/modules'
 
 const MODULE_LABELS: Record<string, string> = {
   [MODULES.EVENTS]: 'Events',
@@ -28,6 +28,22 @@ export function UserFormAdmin({ user, onSubmit, onCancel, isLoading = false }: U
     is_active: user?.is_active ?? true,
     client_id: user?.client_id || '',
     enabled_modules: (user?.enabled_modules || []) as string[]
+  })
+
+  /**
+   * Os módulos que a role escolhida ALCANÇA. `MODULE_MIN_ROLES` é o mesmo piso que
+   * `isModuleEnabled` aplica no middleware e nas API routes: a tela não oferece o que o portão
+   * vai recusar, e o PATCH não recebe o que a tela não ofereceu.
+   *
+   * A segunda metade importa tanto quanto a primeira. Um `client` que já tenha `finance` gravado
+   * de antes desta regra continuaria mandando o valor no payload — e o admin tomaria 400 ao
+   * editar o nome dele, sem checkbox nenhuma para desmarcar. Filtrando no envio, o primeiro save
+   * limpa o entitlement órfão em vez de travar a tela.
+   */
+  const reachableModules: ModuleId[] = TOGGLEABLE_MODULES.filter((mod) => {
+    if (formData.role === 'admin') return true
+    const minRoles: readonly string[] | undefined = MODULE_MIN_ROLES[mod]
+    return !minRoles || minRoles.includes(formData.role)
   })
 
   const [clients, setClients] = useState<Client[]>([])
@@ -94,7 +110,9 @@ export function UserFormAdmin({ user, onSubmit, onCancel, isLoading = false }: U
         email: formData.email,
         full_name: formData.full_name,
         is_active: formData.is_active,
-        enabled_modules: formData.enabled_modules
+        enabled_modules: formData.enabled_modules.filter((mod) =>
+          (reachableModules as string[]).includes(mod)
+        )
       } : formData
 
       const response = await fetch(endpoint, {
@@ -289,7 +307,7 @@ export function UserFormAdmin({ user, onSubmit, onCancel, isLoading = false }: U
           Enable CMS sections for this user. Admins have access to all modules automatically.
         </p>
         <div className="flex flex-wrap gap-6">
-          {TOGGLEABLE_MODULES.map((mod) => (
+          {reachableModules.map((mod) => (
             <label key={mod} className="flex items-center gap-2 cursor-pointer">
               <input
                 type="checkbox"

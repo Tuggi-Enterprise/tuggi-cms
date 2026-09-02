@@ -110,6 +110,58 @@ export interface ClientFinanceFacts {
   usersWithPurchase: number | null
   /** Minutos comprados pelos adquiridos. `null` quando a leitura não respondeu. */
   purchasedMinutes: number | null
+  /**
+   * As duas colunas acima passaram pelo piso de k e o que sobrou delas é PISO, não fato.
+   *
+   * Quem aplica é `suppressSmallCohortPurchases`, no servidor. Chega aqui só para a tela poder
+   * escrever `≥ 1` em vez de `1` — um piso vestido de fato é a única coisa que este módulo não
+   * pode dizer por engano.
+   */
+  purchaseSuppressed?: boolean
+}
+
+/** O k de `suppressSmallCohortPurchases`. O mesmo de `core.coordinator_city_breakdown`. */
+export const PURCHASE_MIN_COHORT = 5
+
+/**
+ * O piso de k-anonimato das colunas de compra.
+ *
+ * "AGREGADO" NÃO É "ANÔNIMO" QUANDO N É PEQUENO. Um parceiro com 1 usuário adquirido e 1
+ * comprador não publica uma estatística: publica a compra de UMA pessoa identificável, ao lado
+ * do nome do bar onde ela esteve. `core.coordinator_city_breakdown` já enfrentou exatamente
+ * isso e resolveu com k=5 — este é o mesmo piso, sobre o mesmo tipo de dado.
+ *
+ * O QUE SOBREVIVE E POR QUÊ. `usersWithPurchase` colapsa em `0` / `≥1` e os minutos somem. Não é
+ * arbitrário: `decide()` lê desta coluna APENAS o booleano `> 0`, então o veredito sai idêntico
+ * com o valor colapsado — nenhum parceiro muda de julgamento por causa do piso. Os minutos, ao
+ * contrário, são a coluna que mais identifica e a única que não decide nada em lugar nenhum.
+ *
+ * SÓ SUPRIME O QUE HÁ PARA ESCONDER. Com `usersWithPurchase` em `0` não existe pessoa exposta, e
+ * marcar essa linha como suprimida faria o total da tela virar piso sem que nada tivesse sido
+ * escondido. Com `null`, a leitura não respondeu e não há o que suprimir — `null` continua sendo
+ * ausência de leitura, nunca zero, nunca "omitido".
+ */
+export function suppressSmallCohortPurchases<T extends PurchaseCohort>(
+  facts: T,
+  k: number = PURCHASE_MIN_COHORT
+): T & { purchaseSuppressed: boolean } {
+  const hasSomethingToHide = facts.usersWithPurchase !== null && facts.usersWithPurchase > 0
+  if (!hasSomethingToHide || facts.linkedByPartnerId >= k) {
+    return { ...facts, purchaseSuppressed: false }
+  }
+  return {
+    ...facts,
+    usersWithPurchase: 1,
+    purchasedMinutes: null,
+    purchaseSuppressed: true,
+  }
+}
+
+/** O mínimo que `suppressSmallCohortPurchases` precisa ler. */
+export interface PurchaseCohort {
+  linkedByPartnerId: number
+  usersWithPurchase: number | null
+  purchasedMinutes: number | null
 }
 
 export interface ClientProfitability {
@@ -137,6 +189,11 @@ export interface ClientProfitability {
   linkedByClientId: number
   usersWithPurchase: number | null
   purchasedMinutes: number | null
+  /**
+   * As duas colunas acima são PISO, não fato — o parceiro tem menos de `PURCHASE_MIN_COHORT`
+   * adquiridos e o valor foi colapsado. A tela escreve `≥ 1` quando isto é verdade.
+   */
+  purchaseSuppressed: boolean
   /** Linhas consumidas sem preço. Enquanto houver uma, o veredito é `uncosted`. */
   unpricedLines: number
   /** Pedidos despachados sem quantidade enviada. Mesma consequência, causa diferente. */
@@ -271,6 +328,7 @@ export function assessClient(facts: ClientFinanceFacts, now: string): ClientProf
     linkedByClientId: facts.linkedByClientId,
     usersWithPurchase: facts.usersWithPurchase,
     purchasedMinutes: facts.purchasedMinutes,
+    purchaseSuppressed: facts.purchaseSuppressed ?? false,
     unpricedLines: cost.unpricedLines,
     ordersAwaitingShipment: facts.ordersAwaitingShipment,
     ignoredCurrencies: cost.ignoredCurrencies,

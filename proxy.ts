@@ -3,6 +3,7 @@ import { NextResponse } from 'next/server'
 import type { NextRequest } from 'next/server'
 import createMiddleware from 'next-intl/middleware';
 import { isAdmin, isClient, isPublicPath, ALLOWED_CLIENT_PATHS } from './lib/roles'
+import { MODULES, isModuleEnabled, type ModuleId } from './lib/modules'
 
 import { routing } from './navigation';
 
@@ -103,20 +104,28 @@ export async function proxy(req: NextRequest) {
         return res;
       }
 
-      // Module-gated routes (/events, /places): any non-admin whose account has
-      // the module enabled may enter, regardless of role. Entitlement lives in
-      // core.cms_users.enabled_modules (admins already returned above and see all).
-      const MODULE_PREFIXES: Record<string, string> = {
-        '/events': 'events',
-        '/places': 'places',
-        // `/finance` mora na raiz e NÃO sob `/admin`: este bloco é a única porta que deixa um
-        // não-admin entrar por entitlement, e a área de admin bounça quem não é admin.
-        '/finance': 'finance',
+      // Rotas com portão de módulo. Este bloco só MAPEIA prefixo para módulo — quem decide é
+      // `isModuleEnabled`, o mesmo SSOT que a navegação e o `requireModule` das API routes
+      // consultam. Entitlement (`core.cms_users.enabled_modules`) e piso de role vivem lá.
+      //
+      // POR QUE A REGRA NÃO MORA AQUI: a divergência que isto corrigiu era exatamente essa. O
+      // bloco decidia por conta própria, só por entitlement, e um `client` — que é um PARCEIRO,
+      // o próprio sujeito dos números — com `finance` marcado entrava e via a API responder 403
+      // em cada painel. Dois portões, duas respostas. Agora é um.
+      const MODULE_PREFIXES: Record<string, ModuleId> = {
+        '/events': MODULES.EVENTS,
+        '/places': MODULES.PLACES,
+        // `/finance` mora na raiz e NÃO sob a área de admin: este bloco é a única porta que
+        // deixa um não-admin entrar por entitlement, e a área de admin bounça quem não é admin.
+        '/finance': MODULES.FINANCE,
       }
       const gatedPrefix = Object.keys(MODULE_PREFIXES).find(p => pathWithoutLocale.startsWith(p))
       if (gatedPrefix) {
-        const mods: string[] = cmsUser.enabled_modules || []
-        if (mods.includes(MODULE_PREFIXES[gatedPrefix])) {
+        const entitlements = {
+          role: cmsUser.role,
+          enabledModules: (cmsUser.enabled_modules ?? []) as string[],
+        }
+        if (isModuleEnabled(MODULE_PREFIXES[gatedPrefix], entitlements)) {
           return res;
         }
         return NextResponse.redirect(new URL(`/${locale}/unauthorized`, req.url));
@@ -124,7 +133,7 @@ export async function proxy(req: NextRequest) {
 
       // Client check
       if (isClient(cmsUser.role)) {
-        // A Overview (/dashboard e /dashboard/reports/*) é GLOBAL por construção: das 14
+        // A Overview (/dashboard e as páginas sob /dashboard/reports) é GLOBAL por construção: das 14
         // chamadas que dispara, 10 não têm parâmetro de dono (inventory_funnel,
         // recent_app_users, top_visited_pois...). Client não entra — vai para o painel dele.
         // Redirect em vez de /unauthorized porque isto não é falta de permissão, é lugar errado.

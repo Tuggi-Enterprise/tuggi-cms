@@ -7,7 +7,7 @@
  * Regra: admin é onipotente (vê tudo, ignora o array). Demais roles precisam do
  * módulo em `enabledModules` (coluna core.cms_users.enabled_modules).
  */
-import { isAdmin } from '@/lib/roles'
+import { isAdmin, type Role } from '@/lib/roles'
 
 export const MODULES = {
   EVENTS: 'events',
@@ -29,6 +29,26 @@ export type ModuleId = (typeof MODULES)[keyof typeof MODULES]
  */
 export const TOGGLEABLE_MODULES: ModuleId[] = [MODULES.EVENTS, MODULES.PLACES, MODULES.FINANCE]
 
+/**
+ * Piso de role por módulo — a entitlement diz QUAL módulo, isto diz QUEM pode usá-lo.
+ *
+ * Um módulo ausente daqui aceita qualquer role com a checkbox marcada, que é como `events` e
+ * `places` sempre funcionaram. Quem entra aqui declara que a checkbox sozinha não basta.
+ *
+ * `FINANCE` exige `editor` porque as rotas de `app/api/finance` exigem
+ * `withAuth({ roles: ['admin','editor'] })`. Sem este piso os dois portões discordavam: um
+ * `client` — que é um PARCEIRO, o próprio sujeito dos números — com `finance` marcado passava
+ * pelo middleware, carregava a tela e via a API responder 403 em cada painel. O dado nunca
+ * vazou; o desenho é que tinha duas respostas para a mesma pergunta.
+ *
+ * O piso mora AQUI e não no middleware de propósito: navegação, `requireModule` e o proxy
+ * derivam todos de `isModuleEnabled`, e um piso guardado em qualquer um deles seria o quinto
+ * lugar a decidir sozinho — o defeito de novo, com outro nome.
+ */
+export const MODULE_MIN_ROLES: Partial<Record<ModuleId, readonly Role[]>> = {
+  [MODULES.FINANCE]: ['editor'],
+}
+
 export interface Entitlements {
   role?: string | null
   enabledModules?: string[] | null
@@ -40,5 +60,7 @@ export interface Entitlements {
  */
 export function isModuleEnabled(mod: ModuleId, e?: Entitlements): boolean {
   if (isAdmin(e?.role)) return true
-  return (e?.enabledModules ?? []).includes(mod)
+  if (!(e?.enabledModules ?? []).includes(mod)) return false
+  const minRoles = MODULE_MIN_ROLES[mod]
+  return !minRoles || minRoles.includes((e?.role ?? '') as Role)
 }

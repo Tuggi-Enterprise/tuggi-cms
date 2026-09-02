@@ -1,92 +1,110 @@
 /**
- * GET /api/admin/users/[userId] - Get user details
- * PATCH /api/admin/users/[userId] - Update user (except role and client_id)
- * DELETE /api/admin/users/[userId] - Delete user
+ * GET/PATCH/DELETE /api/admin/users/{userId} — a ficha de um usuário do CMS.
+ *
+ * ESTA É A ROTA QUE CONCEDE MÓDULO. `enabled_modules` sai daqui e de nenhum outro lugar: o POST
+ * irmão nem sequer aceita o campo. Ela decide, portanto, quem entra em `/finance` — e por isso
+ * precisa ser pelo menos tão forte quanto o portão que ela abre.
+ *
+ * POR QUE `withAuth` E NÃO `getSession()`: até 2026-09-01 a autorização daqui saía de
+ * `supabaseAuth.auth.getSession()`, que lê o cookie da requisição sem falar com o servidor de
+ * Auth. O cabeçalho de `lib/auth-middleware.ts` diz em palavras por que isso não pode embasar
+ * autorização, e o efeito prático era concreto: uma sessão revogada no painel seguia concedendo
+ * módulo até o cookie expirar. `withAuth` usa `getUser()`, que revalida a cada chamada.
+ *
+ * NADA DISSO ERA PEGO POR CI. `npm run check:routes` reporta rotas sem `withAuth`, mas não está
+ * em `check-all`, nem em `pre-build`, nem em `.github/workflows/deploy-producao.yml` — 118 dos
+ * 171 arquivos de rota ainda exportam função simples. Corrigir esta não corrige aquelas.
  */
 
-import { NextRequest, NextResponse } from 'next/server'
-import { getSupabaseRouteHandler } from '@/lib/core/supabase-client'
-import { createClient } from '@supabase/supabase-js'
-import { cookies } from 'next/headers'
+import { NextResponse } from 'next/server'
+import { withAuth } from '@/lib/auth-middleware'
 import { logAuditEvent } from '@/lib/services/audit-service'
+import { MODULE_MIN_ROLES, TOGGLEABLE_MODULES, type ModuleId } from '@/lib/modules'
 
-import { getSupabaseService } from '@/lib/core/supabase-client'
+/** Campos que o PATCH aceita. `role` e `client_id` são imutáveis após a criação. */
+const ALLOWED_FIELDS = ['email', 'full_name', 'is_active', 'enabled_modules'] as const
 
-async function getAdminUser(request: NextRequest) {
-  const cookieStore = await cookies()
-  const supabaseAuth = getSupabaseRouteHandler(cookieStore)
-  
-  const { data: { session }, error: authError } = await supabaseAuth.auth.getSession()
-  if (authError || !session) {
-    return null
+/**
+ * `enabled_modules` é uma coluna de texto: sem isto, qualquer string entrava.
+ *
+ * Duas recusas, e a segunda é a que importa. A primeira barra o módulo que não existe —
+ * `['finanace']` gravava em silêncio e a checkbox voltava desmarcada sem explicação. A segunda
+ * barra o módulo que existe mas que a role do alvo não alcança: gravar `finance` num `client`
+ * cria um entitlement que `isModuleEnabled` recusa em toda porta, ou seja, uma permissão que a
+ * tela de admin mostra ligada e que não liga nada.
+ *
+ * O piso vem de `MODULE_MIN_ROLES`, e não de uma lista local, porque é o mesmo piso que o
+ * middleware e o `requireModule` aplicam. Uma segunda cópia aqui seria a divergência de novo.
+ */
+function validateModules(value: unknown, targetRole: string): string[] | { error: string } {
+  if (!Array.isArray(value) || value.some((m) => typeof m !== 'string')) {
+    return { error: 'enabled_modules must be an array of strings' }
   }
 
-  const { data: cmsUser, error: cmsError } = await supabaseAuth
-    .schema('core')
-    .from('cms_users')
-    .select('id, email, role, is_active')
-    .eq('email', session.user.email as string)
-    .eq('is_active', true)
-    .single()
+  const mods = Array.from(new Set(value as string[]))
 
-  if (cmsError || !cmsUser || cmsUser.role !== 'admin') {
-    return null
+  const unknown = mods.filter((m) => !TOGGLEABLE_MODULES.includes(m as ModuleId))
+  if (unknown.length > 0) {
+    return { error: `Unknown module(s): ${unknown.join(', ')}` }
   }
 
-  return { cmsUser, supabaseAuth }
+  // Admin ignora o array por código, então o piso não se aplica a ele.
+  if (targetRole !== 'admin') {
+    const outOfReach = mods.filter((m) => {
+      const minRoles: readonly string[] | undefined = MODULE_MIN_ROLES[m as ModuleId]
+      return !!minRoles && !minRoles.includes(targetRole)
+    })
+    if (outOfReach.length > 0) {
+      return {
+        error: `Module(s) not available to role '${targetRole}': ${outOfReach.join(', ')}`,
+      }
+    }
+  }
+
+  return mods
 }
 
-export async function GET(
-  request: NextRequest,
-  { params }: { params: Promise<{ userId: string }> }
-) {
-  try {
-    const adminData = await getAdminUser(request)
-    if (!adminData) {
-      return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
+export const GET = withAuth<{ userId: string }>(
+  { roles: ['admin'] },
+  async (_req, ctx, auth) => {
+    const params = await ctx.params
+    const userId = params?.userId
+    if (!userId) {
+      return NextResponse.json({ error: 'Missing userId' }, { status: 400 })
     }
 
-    const { supabaseAuth } = adminData
-    const { userId } = await params
-
-    // Get user
-    const { data: user, error: userError } = await supabaseAuth
+    const { data: user, error } = await auth.supabase
       .schema('core')
       .from('cms_users')
-      .select('id, email, full_name, role, is_active, client_id, created_at')
+      .select('id, email, full_name, role, is_active, client_id, enabled_modules, created_at')
       .eq('id', userId)
       .single()
 
-    if (userError || !user) {
+    if (error || !user) {
       return NextResponse.json({ error: 'User not found' }, { status: 404 })
     }
 
-    return NextResponse.json({
-      success: true,
-      user
-    })
-  } catch (error) {
-    console.error('❌ Error fetching user:', error)
-    return NextResponse.json({ error: 'Internal server error' }, { status: 500 })
+    return NextResponse.json({ success: true, user })
   }
-}
+)
 
-export async function PATCH(
-  request: NextRequest,
-  { params }: { params: Promise<{ userId: string }> }
-) {
-  try {
-    const adminData = await getAdminUser(request)
-    if (!adminData) {
-      return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
+export const PATCH = withAuth<{ userId: string }>(
+  { roles: ['admin'] },
+  async (req, ctx, auth) => {
+    const params = await ctx.params
+    const userId = params?.userId
+    if (!userId) {
+      return NextResponse.json({ error: 'Missing userId' }, { status: 400 })
     }
 
-    const { supabaseAuth } = adminData
-    const { userId } = await params
-    const body = await request.json()
+    let body: Record<string, unknown>
+    try {
+      body = await req.json()
+    } catch {
+      return NextResponse.json({ error: 'Invalid JSON body' }, { status: 400 })
+    }
 
-    // Get current user
-    const { data: currentUser, error: fetchError } = await supabaseAuth
+    const { data: currentUser, error: fetchError } = await auth.supabase
       .schema('core')
       .from('cms_users')
       .select('*')
@@ -97,7 +115,8 @@ export async function PATCH(
       return NextResponse.json({ error: 'User not found' }, { status: 404 })
     }
 
-    // Prevent updating role and client_id (role and client_id are immutable)
+    // `role` e `client_id` são imutáveis após a criação — e a imutabilidade da role é o que
+    // deixa a validação de módulos abaixo confiar em `currentUser.role` como a role do alvo.
     if ('role' in body || 'client_id' in body) {
       return NextResponse.json(
         { error: 'Cannot update role or client_id after user creation' },
@@ -105,12 +124,8 @@ export async function PATCH(
       )
     }
 
-    // Allowed fields to update (role and client_id stay immutable; enabled_modules
-    // is the per-user module entitlement toggled by admins — see lib/modules).
-    const allowedFields = ['email', 'full_name', 'is_active', 'enabled_modules']
-    const updateData: any = {}
-
-    for (const field of allowedFields) {
+    const updateData: Record<string, unknown> = {}
+    for (const field of ALLOWED_FIELDS) {
       if (field in body) {
         updateData[field] = body[field]
       }
@@ -120,9 +135,16 @@ export async function PATCH(
       return NextResponse.json({ error: 'No fields to update' }, { status: 400 })
     }
 
-    // Check if email is being changed and if it's unique
+    if ('enabled_modules' in updateData) {
+      const checked = validateModules(updateData.enabled_modules, currentUser.role)
+      if (!Array.isArray(checked)) {
+        return NextResponse.json({ error: checked.error }, { status: 400 })
+      }
+      updateData.enabled_modules = checked
+    }
+
     if ('email' in updateData && updateData.email !== currentUser.email) {
-      const { count: emailCount } = await supabaseAuth
+      const { count: emailCount } = await auth.supabase
         .schema('core')
         .from('cms_users')
         .select('id', { count: 'exact' })
@@ -133,14 +155,10 @@ export async function PATCH(
       }
     }
 
-    // Update cms_user
-    const { data: user, error: updateError } = await supabaseAuth
+    const { data: user, error: updateError } = await auth.supabase
       .schema('core')
       .from('cms_users')
-      .update({
-        ...updateData,
-        updated_at: new Date().toISOString()
-      })
+      .update({ ...updateData, updated_at: new Date().toISOString() })
       .eq('id', userId)
       .select()
       .single()
@@ -149,45 +167,41 @@ export async function PATCH(
       return NextResponse.json({ error: updateError.message }, { status: 500 })
     }
 
+    // Os módulos concedidos entram na descrição: "campos alterados: enabled_modules" não diz se
+    // alguém ganhou ou perdeu o Financeiro, que é a única coisa que se quer saber deste log.
     const updatedFields = Object.keys(updateData)
+    const modulesNote =
+      'enabled_modules' in updateData
+        ? ` (modules: ${(updateData.enabled_modules as string[]).join('+') || 'none'})`
+        : ''
+
     await logAuditEvent({
-      request,
+      request: req,
       action: 'UPDATE_PROFILE',
       entity: 'USER',
       entityId: userId,
-      userId: adminData.cmsUser.id,
-      userEmail: adminData.cmsUser.email ?? null,
-      description: `Updated CMS user fields: ${updatedFields.join(', ')}`
+      userId: auth.user.id,
+      userEmail: auth.cmsUser.email ?? null,
+      description: `Updated CMS user fields: ${updatedFields.join(', ')}${modulesNote}`,
     })
 
-    return NextResponse.json({
-      success: true,
-      user
-    })
-  } catch (error) {
-    console.error('❌ Error updating user:', error)
-    return NextResponse.json({ error: 'Internal server error' }, { status: 500 })
+    return NextResponse.json({ success: true, user })
   }
-}
+)
 
-export async function DELETE(
-  request: NextRequest,
-  { params }: { params: Promise<{ userId: string }> }
-) {
-  try {
-    const adminData = await getAdminUser(request)
-    if (!adminData) {
-      return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
+export const DELETE = withAuth<{ userId: string }>(
+  { roles: ['admin'] },
+  async (req, ctx, auth) => {
+    const params = await ctx.params
+    const userId = params?.userId
+    if (!userId) {
+      return NextResponse.json({ error: 'Missing userId' }, { status: 400 })
     }
 
-    const { supabaseAuth } = adminData
-    const { userId } = await params
-
-    // Get user to check auth user ID
-    const { data: user, error: userError } = await supabaseAuth
+    const { data: user, error: userError } = await auth.supabase
       .schema('core')
       .from('cms_users')
-      .select('*')
+      .select('id, email')
       .eq('id', userId)
       .single()
 
@@ -195,8 +209,7 @@ export async function DELETE(
       return NextResponse.json({ error: 'User not found' }, { status: 404 })
     }
 
-    // Delete cms_user
-    const { error: deleteError } = await supabaseAuth
+    const { error: deleteError } = await auth.supabase
       .schema('core')
       .from('cms_users')
       .delete()
@@ -206,22 +219,15 @@ export async function DELETE(
       return NextResponse.json({ error: deleteError.message }, { status: 500 })
     }
 
-    // Try to delete auth user if it exists (with same ID)
-    try {
-      const supabaseService = getSupabaseService()
-        // Note: We can't directly delete by ID through service role easily
-        // The auth user should cascade delete via FK, or admin can manually delete from Auth UI
-        console.log(`✅ Deleted cms_user: ${userId}. Auth user deletion should be handled separately or cascaded.`)
-    } catch (e) {
-      console.error('Note: Auth user cleanup may need manual action:', e)
-    }
+    // A conta de Auth NÃO é apagada aqui, e isso é de antes desta rodada: a linha de
+    // `core.cms_users` é o que dá acesso ao CMS, e sem ela o login não leva a lugar nenhum.
+    // Remover a conta de Auth é ato separado, feito no painel.
+    //
+    // ESTE ATO SEGUE SEM AUDITORIA, como já estava. `AuditAction` não tem valor para "apagou um
+    // usuário do CMS", e inventar um aqui seria arriscar um `insert` recusado por constraint em
+    // `core.audit_logs.action` — e `logAuditEvent` engole o erro. Um log que falha em silêncio é
+    // pior que a ausência declarada dele. Auditar isto pede a ação nova E a migration, juntas.
 
-    return NextResponse.json({
-      success: true,
-      message: 'User deleted successfully'
-    })
-  } catch (error) {
-    console.error('❌ Error deleting user:', error)
-    return NextResponse.json({ error: 'Internal server error' }, { status: 500 })
+    return NextResponse.json({ success: true, message: 'User deleted successfully' })
   }
-}
+)

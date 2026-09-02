@@ -30,6 +30,7 @@ import { consumesCost, planConsumption, type OrderShipment } from '@/lib/finance
 import type { MaterialKind } from '@/lib/partner-form/fields'
 import {
   assessClient,
+  suppressSmallCohortPurchases,
   type ClientFinanceFacts,
   type ClientProfitability,
   type ConsumptionRecord,
@@ -921,7 +922,14 @@ export async function loadFinanceOverview(
       ? appUsers.purchasersByPartner.get(partner.id) ?? 0
       : null
 
-    const facts: ClientFinanceFacts = {
+    // O PISO DE k É APLICADO AQUI, NO SERVIDOR, E NÃO NO COMPONENTE. Suprimir na tela deixaria o
+    // valor exato viajando na resposta da API, onde qualquer um com o cookie de um editor o lê
+    // com o DevTools aberto — a supressão só é supressão antes de sair da máquina.
+    //
+    // É a última coisa a acontecer antes do veredito, de propósito: assim nenhum campo montado
+    // acima pode escapar dela por ordem de código. Quando a RPC de 2.1 chegar com o piso DENTRO
+    // dela, esta chamada vira redundante e inofensiva — ela nunca suprime o que já está suprimido.
+    const facts: ClientFinanceFacts = suppressSmallCohortPurchases({
       clientId: partner.id,
       clientName: partner.name,
       approvedAt: partner.approvedAt,
@@ -934,7 +942,7 @@ export async function loadFinanceOverview(
       linkedByClientId: appUsers.byClientId.get(partner.id) ?? 0,
       usersWithPurchase,
       purchasedMinutes,
-    }
+    })
 
     return assessClient(facts, now)
   })

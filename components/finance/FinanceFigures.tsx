@@ -85,8 +85,17 @@ export function FinanceFigures({ summary, truncated }: Props) {
         <Figure
           icon={<Coins className="h-4 w-4 text-sky-600" aria-hidden="true" />}
           label={t('summary.purchasers')}
-          value={summary.usersWithPurchase === null ? '—' : floor(summary.usersWithPurchase)}
-          hint={`${t('summary.minutes')}: ${formatDurationOrDash(summary.purchasedMinutes)} — ${t('summary.minutesHint')}`}
+          value={
+            summary.usersWithPurchase === null
+              ? '—'
+              : summary.purchaseIsFloor
+                ? `≥ ${floor(summary.usersWithPurchase)}`
+                : floor(summary.usersWithPurchase)
+          }
+          hint={
+            `${t('summary.minutes')}: ${formatDurationOrDash(summary.purchasedMinutes)} — ` +
+            (summary.purchaseIsFloor ? t('summary.suppressed') : t('summary.minutesHint'))
+          }
         />
 
         {summary.ordersAwaitingShipment > 0 && (

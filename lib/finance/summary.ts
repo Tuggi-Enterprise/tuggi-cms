@@ -48,6 +48,16 @@ export interface FinanceSummary {
   usersWithPurchase: number | null
   /** `null` quando nenhuma leitura respondeu — nunca zero por ausência. */
   purchasedMinutes: number | null
+  /**
+   * Ao menos um parceiro teve as colunas de compra colapsadas pelo piso de k, então os dois
+   * totais acima são PISO e não fato: há compradores contados como `1` que podem ser vários, e
+   * há minutos que não entraram na soma.
+   *
+   * Existe porque a alternativa era pior. Somar valores suprimidos e imprimir o resultado com
+   * cara de total exato é o "piso vestido de fato" que este módulo inteiro existe para impedir —
+   * o mesmo motivo de `uncosted` responder antes de `no_return`.
+   */
+  purchaseIsFloor: boolean
   /** Custo direto total ÷ adquiridos. `null` com zero adquiridos — nunca infinito. */
   cacCents: number | null
   ignoredCurrencies: string[]
@@ -95,6 +105,7 @@ export function summarizeFinance(
     teamUsers: 0,
     usersWithPurchase: null,
     purchasedMinutes: null,
+    purchaseIsFloor: false,
     cacCents: null,
     ignoredCurrencies: [],
   }
@@ -117,6 +128,9 @@ export function summarizeFinance(
     if (client.purchasedMinutes !== null) {
       summary.purchasedMinutes = (summary.purchasedMinutes ?? 0) + client.purchasedMinutes
     }
+    // Um parceiro suprimido basta: a partir dele os dois totais são piso, e a tela precisa
+    // dizer `≥` em vez de imprimir a soma como se fosse a conta fechada.
+    if (client.purchaseSuppressed) summary.purchaseIsFloor = true
     for (const other of client.ignoredCurrencies) ignored.add(other)
 
     if (client.currency !== currency) {

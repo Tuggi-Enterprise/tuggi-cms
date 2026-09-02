@@ -3420,7 +3420,8 @@
       "cac": "Custo por aquisição",
       "unpriced": "Linhas sem preço",
       "awaitingShipment": "Pedidos sem envio informado",
-      "awaitingShipmentHint": "Nenhum custo é lançado sobre eles até alguém dizer quanto saiu"
+      "awaitingShipmentHint": "Nenhum custo é lançado sobre eles até alguém dizer quanto saiu",
+      "suppressed": "Piso, não total: parceiros com menos de 5 adquiridos tiveram a compra omitida para não identificar uma pessoa"
     },
     "verdict": {
       "uncosted": "Custo incompleto",
@@ -3462,7 +3463,8 @@
       "filterVerdict": "Situação",
       "filterCohort": "Coorte",
       "undatedCohort": "Sem data",
-      "awaitingShipment": "Sem envio"
+      "awaitingShipment": "Sem envio",
+      "suppressed": "Menos de 5 usuários adquiridos: o número exato identificaria uma pessoa, então a coluna mostra apenas o piso e os minutos são omitidos"
     },
     "catalog": {
       "product": "Produto",
