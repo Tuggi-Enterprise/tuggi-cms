@@ -41,12 +41,12 @@ import {
   Store,
   Network,
   Volume2,
-  Package
-} from 'lucide-react'
+  Package, Coins } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { isMarketingEnabled } from '@/lib/modules/marketing'
 import { isEventsEnabled } from '@/lib/modules/events'
 import { isPlacesEnabled } from '@/lib/modules/places'
+import { isFinanceEnabled } from '@/lib/modules/finance'
 import { CLIENT_DIRECTORY_PATH } from '@/lib/clients/directory-filter'
 import { TuggiLogo } from './TuggiLogo'
 import { LanguageSwitcher } from './LanguageSwitcher'
@@ -134,6 +134,13 @@ export function Header({ className }: { className?: string }) {
   // Module entitlements (mounted-gated to avoid hydration mismatch).
   const hasEvents = mounted && isEventsEnabled({ role: userRole, enabledModules })
   const hasPlaces = mounted && isPlacesEnabled({ role: userRole, enabledModules })
+  // O Financeiro NÃO entra na categoria `admin` do array acima, e a diferença é real: aquelas
+  // entradas ficam todas sob `/admin` ou `/dashboard`, que o middleware fecha para não-admin, e
+  // por isso o menu as esconde com `isAdmin`. `/finance` é gateado por MÓDULO — a mesma porta de
+  // `/events` e `/places` — então quem decide é `enabled_modules`, não o role. Hoje ninguém além
+  // do admin tem a checkbox marcada, mas no dia em que um editor tiver, a entrada precisa
+  // aparecer para ele, ou o módulo estaria ligado numa tela que ele não consegue achar.
+  const hasFinance = mounted && isFinanceEnabled({ role: userRole, enabledModules })
 
   useEffect(() => {
     setMounted(true)
@@ -266,6 +273,14 @@ export function Header({ className }: { className?: string }) {
               { name: 'Minha rede', href: '/clients/coordinator', icon: Network, category: 'main' },
               pathname.startsWith('/clients/coordinator')
             )}
+            {/* Financeiro: entrada de topo e não item de dropdown `admin`, porque ela é gateada
+                por módulo e o dropdown `admin` inteiro só existe para admin. Rótulo literal,
+                como `Material` e `Parcerias`: o namespace `Finance` só existe em `pt.json`, e
+                uma chave de `Navigation` ausente em `en`/`es` quebraria o menu nesses idiomas. */}
+            {hasFinance && renderNavItem(
+              { name: 'Financeiro', href: '/finance', icon: Coins, category: 'main' },
+              pathname.startsWith('/finance')
+            )}
             {/* Gestão de Pontos (POIs/Rotas): coordenador gerencia afiliados, não POIs —
                 some inteiro para ele. Cliente comum gerencia POIs e continua vendo.
                 /trail-visualization é admin-only; events/places seguem gated por módulo. */}
@@ -307,6 +322,7 @@ export function Header({ className }: { className?: string }) {
                   ? renderNavItem({ name: t('dashboard'), href: '/dashboard', icon: LayoutDashboard, category: 'main' }, pathname === '/dashboard', () => setIsMobileMenuOpen(false))
                   : (!isCoordinator && renderNavItem({ name: t('dashboard'), href: '/clients/dashboard', icon: LayoutDashboard, category: 'main' }, pathname.startsWith('/clients/dashboard'), () => setIsMobileMenuOpen(false)))}
                 {(isCoordinator || isAdmin) && renderNavItem({ name: 'Minha rede', href: '/clients/coordinator', icon: Network, category: 'main' }, pathname.startsWith('/clients/coordinator'), () => setIsMobileMenuOpen(false))}
+                {hasFinance && renderNavItem({ name: 'Financeiro', href: '/finance', icon: Coins, category: 'main' }, pathname.startsWith('/finance'), () => setIsMobileMenuOpen(false))}
               </div>
               {!isCoordinator && (
                 <div>

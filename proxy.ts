@@ -106,7 +106,13 @@ export async function proxy(req: NextRequest) {
       // Module-gated routes (/events, /places): any non-admin whose account has
       // the module enabled may enter, regardless of role. Entitlement lives in
       // core.cms_users.enabled_modules (admins already returned above and see all).
-      const MODULE_PREFIXES: Record<string, string> = { '/events': 'events', '/places': 'places' }
+      const MODULE_PREFIXES: Record<string, string> = {
+        '/events': 'events',
+        '/places': 'places',
+        // `/finance` mora na raiz e NÃO sob `/admin`: este bloco é a única porta que deixa um
+        // não-admin entrar por entitlement, e a área de admin bounça quem não é admin.
+        '/finance': 'finance',
+      }
       const gatedPrefix = Object.keys(MODULE_PREFIXES).find(p => pathWithoutLocale.startsWith(p))
       if (gatedPrefix) {
         const mods: string[] = cmsUser.enabled_modules || []

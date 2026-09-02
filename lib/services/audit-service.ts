@@ -97,8 +97,27 @@ export type AuditAction =
  * client that the act happened to. Two entities and not one,
  * because "who changed this client" and "what happened to this proposal" are two questions
  * the audit page is asked separately.
- */
-export type AuditEntity = 'USER' | 'POI' | 'AUTH' | 'CLIENT' | 'PARTNER_PROPOSAL'
+ */  // Financeiro (#módulo finance). Todo lançamento de dinheiro é auditado porque nenhuma das
+  // tabelas de `finance` tem coluna de autoria própria além de `created_by`, e porque um preço
+  // de compra reescreve o custo de todo parceiro que consumir depois dele: quem cadastrou e
+  // quando é a única forma de reconstituir por que um total mudou de um dia para o outro.
+  // As tabelas de lançamento não aceitam `delete` no grant, então não existe ação de exclusão.
+  | 'CREATE_FINANCE_PURCHASE'
+  | 'CREATE_FINANCE_FIXED_COST'
+  | 'CREATE_FINANCE_CLIENT_COST'
+  | 'CREATE_FINANCE_SHIPMENT'
+  // A compra é o único registro de `finance` que se edita e se apaga, porque é o registro de uma
+  // NOTA e não um custo apurado — ver `20260901_04_finance_purchase_edit.sql`. Por isso os dois
+  // atos são auditados: eles mudam o custo por peça de tudo que for derivado daqui em diante.
+  | 'UPDATE_FINANCE_PURCHASE'
+  | 'DELETE_FINANCE_PURCHASE'
+  // Apagar uma regra de receita ou embalagem, e recalcular o custo de um pedido. Os dois mudam
+  // dinheiro já apurado ou o que será apurado, e nenhum tem oposto — por isso deixam rastro.
+  | 'DELETE_FINANCE_RULE'
+  | 'RECOMPUTE_FINANCE_CONSUMPTION'
+  | 'UPDATE_FINANCE_CATALOG'
+
+export type AuditEntity = 'USER' | 'POI' | 'AUTH' | 'CLIENT' | 'PARTNER_PROPOSAL' | 'FINANCE'
 
 interface AuditLogInput {
   request: NextRequest

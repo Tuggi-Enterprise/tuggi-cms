@@ -20,6 +20,8 @@ import { NextIntlClientProvider, useLocale, useMessages } from 'next-intl'
 import { useSessionContext, useSupabaseClient } from '@supabase/auth-helpers-react'
 import ptMessages from '@/messages/pt.json'
 import { MaterialBoard } from '@/components/admin/materials/MaterialBoard'
+import { ShipmentDialog } from '@/components/admin/materials/ShipmentDialog'
+import { consumesCost } from '@/lib/finance/consumption'
 import type { MaterialMoveStatus, MaterialQueueOrder } from '@/lib/materials/order-queue'
 
 export function AdminMaterialsPageContent() {
@@ -92,7 +94,42 @@ export function AdminMaterialsPageContent() {
     if (authorized) void load()
   }, [authorized, load])
 
-  const move = useCallback(
+  /**
+   * O CUSTO DEPENDE DE QUANTO SAIU, e só aqui alguém sabe.
+   *
+   * `material_order_items.quantity` é o que o parceiro PEDIU. Custear por ele superestima todo
+   * parceiro que recebeu menos — *"não é pq um parceiro pediu 40 displays, que enviamos os 40"*
+   * (operador, 2026-09-01). Então os dois status que gastam dinheiro passam por um diálogo, e o
+   * envio é gravado ANTES do PATCH, para já estar lá quando `setMaterialOrderStatus` calcular.
+   *
+   * O CATÁLOGO É CARREGADO EM SEGUNDO PLANO E A FALHA DELE NÃO TRAVA A ESTEIRA. Sem ele o
+   * pedido anda como sempre andou e fica pendente no Financeiro, que é o conserto previsto —
+   * parar de despachar material porque um relatório não carregou seria a troca errada.
+   */
+  const [productByKind, setProductByKind] = useState<Record<string, { id: string; name: string }>>({})
+  const [pending, setPending] = useState<{ order: MaterialQueueOrder; status: MaterialMoveStatus } | null>(null)
+
+  useEffect(() => {
+    if (!authorized) return
+    void (async () => {
+      try {
+        const response = await fetch('/api/finance/catalog')
+        if (!response.ok) return
+        const payload = (await response.json()) as {
+          products: { id: string; name: string; materialKind: string | null }[]
+        }
+        const map: Record<string, { id: string; name: string }> = {}
+        for (const product of payload.products ?? []) {
+          if (product.materialKind) map[product.materialKind] = { id: product.id, name: product.name }
+        }
+        setProductByKind(map)
+      } catch {
+        // Silêncio deliberado: o financeiro é opcional para despachar material.
+      }
+    })()
+  }, [authorized])
+
+  const patch = useCallback(
     async (order: MaterialQueueOrder, status: MaterialMoveStatus) => {
       setBusy(true)
       try {
@@ -110,6 +147,50 @@ export function AdminMaterialsPageContent() {
       await load()
     },
     [load]
+  )
+
+  const move = useCallback(
+    (order: MaterialQueueOrder, status: MaterialMoveStatus) => {
+      // Quais status gastam dinheiro é decisão de `lib/finance/consumption.ts`, e esta linha
+      // não repete os dois nomes. Sem produto no catálogo para nenhum item do pedido, não há o
+      // que perguntar — o pedido anda e o Financeiro cobra o cadastro.
+      const askable =
+        consumesCost(status as never) &&
+        order.items.some((item) => productByKind[item.kind] !== undefined)
+
+      if (askable) {
+        setPending({ order, status })
+        return
+      }
+      void patch(order, status)
+    },
+    [patch, productByKind]
+  )
+
+  const confirmShipment = useCallback(
+    async (lines: { productId: string; quantity: number; requestedQuantity: number }[]) => {
+      if (!pending) return
+      const { order, status } = pending
+      setBusy(true)
+      try {
+        const response = await fetch('/api/finance/shipments', {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ orderId: order.id, lines }),
+        })
+        // O envio não gravou: NÃO move o pedido. Mover agora produziria exatamente o pedido
+        // custeado por ninguém que este diálogo existe para acabar, e sem nenhum aviso.
+        if (!response.ok) return
+      } catch {
+        return
+      } finally {
+        setBusy(false)
+      }
+
+      setPending(null)
+      await patch(order, status)
+    },
+    [pending, patch]
   )
 
   if (checking) {
@@ -153,7 +234,15 @@ export function AdminMaterialsPageContent() {
         truncated={truncated}
         busy={busy}
         onReload={() => void load()}
-        onMove={(order, status) => void move(order, status)}
+        onMove={(order, status) => move(order, status)}
+      />
+      <ShipmentDialog
+        order={pending?.order ?? null}
+        status={pending?.status ?? null}
+        productByKind={productByKind}
+        busy={busy}
+        onCancel={() => setPending(null)}
+        onConfirm={(lines) => void confirmShipment(lines)}
       />
     </NextIntlClientProvider>
   )

@@ -18,6 +18,9 @@
  */
 
 import { getSupabaseService } from '@/lib/core/supabase-client'
+import { loadLiveContractTiers } from '@/lib/services/partner-contract-tier'
+import { consumesCost } from '@/lib/finance/consumption'
+import { recordConsumption } from '@/lib/services/finance-service'
 import { derivePartnerPlan, paymentStance, type PaymentStance } from '@/lib/clients/partner-plan'
 import type { ContractTier } from '@/lib/contract/snapshot'
 import { MATERIAL_KINDS, type MaterialKind } from '@/lib/partner-form/fields'
@@ -181,7 +184,27 @@ export async function setMaterialOrderStatus(
     .in('status', statusesThatMayBecome(status))
     .select('id')
 
-  return !error && Array.isArray(data) && data.length > 0
+  const moved = !error && Array.isArray(data) && data.length > 0
+  if (!moved) return false
+
+  // O CUSTO NASCE AQUI, E NÃO NA TELA. Duas rotas avançam um pedido (a fila e a ficha do
+  // parceiro), e pendurar a gravação nelas seria dois lugares para esquecer — o custo do
+  // parceiro passaria a depender de por qual tela o cartão foi arrastado.
+  //
+  // Só `dispatched` e `fulfilled` custam, e quem sabe disso é `consumesCost`, em
+  // `lib/finance/consumption.ts`. Esta linha não repete os dois nomes.
+  //
+  // A FALHA DO FINANCEIRO NÃO DESFAZ O MOVIMENTO. O pedido já andou, e é o ato do operador; o
+  // `unique (order_id, product_id)` deixa o backfill completar a linha depois sem duplicar.
+  // Recusar o avanço porque um relatório não gravou pararia a operação de material.
+  if (consumesCost(status)) {
+    const recorded = await recordConsumption(orderId, status)
+    if (!recorded) {
+      console.error('[finance] consumption not recorded for order', orderId, status)
+    }
+  }
+
+  return true
 }
 
 /**
@@ -220,7 +243,7 @@ export async function loadMaterialOrderQueue(cap = 500): Promise<MaterialQueueOr
 
   const clients = await loadOrderClients(clientIds)
   const places = await loadOrderPlaces(clientIds, clients)
-  const tiers = await loadOrderContractTiers(clientIds)
+  const tiers = await loadLiveContractTiers(clientIds)
 
   return rows.map((row) => {
     const client = clients.get(row.client_id)
@@ -264,29 +287,6 @@ function stanceOf(client: OrderClient | undefined, contractTier: ContractTier | 
     contractTier,
   })
   return paymentStance(plan.kind)
-}
-
-/**
- * The tier of each partner's LIVE contract — the one that was not superseded.
- *
- * One read for the whole board, newest first: the first row seen for a client is the live one,
- * the same rule `loadLiveContracts` follows in the partnership pipeline. A partner with no
- * contract answers `null`, which is what tells `derivePartnerPlan` to fall back to the record.
- */
-async function loadOrderContractTiers(ids: string[]): Promise<Map<string, ContractTier | null>> {
-  const tiers = new Map<string, ContractTier | null>()
-  const { data } = await service()
-    .from('partner_contracts')
-    .select('client_id, tier, created_at')
-    .in('client_id', ids)
-    .is('superseded_by', null)
-    .order('created_at', { ascending: false })
-
-  for (const row of (data ?? []) as { client_id: string; tier: string | null }[]) {
-    if (!row.client_id || tiers.has(row.client_id)) continue
-    tiers.set(row.client_id, row.tier === 'free' || row.tier === 'paid' ? row.tier : null)
-  }
-  return tiers
 }
 
 const NO_DESTINATION: MaterialDestination = {

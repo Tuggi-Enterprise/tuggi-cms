@@ -13,12 +13,21 @@ export const MODULES = {
   EVENTS: 'events',
   PLACES: 'places',
   MARKETING: 'marketing',
+  FINANCE: 'finance',
 } as const
 
 export type ModuleId = (typeof MODULES)[keyof typeof MODULES]
 
-/** Módulos que um admin pode ligar/desligar por usuário na tela de admin. */
-export const TOGGLEABLE_MODULES: ModuleId[] = [MODULES.EVENTS, MODULES.PLACES]
+/**
+ * Módulos que um admin pode ligar/desligar por usuário na tela de admin.
+ *
+ * `FINANCE` entra aqui e não numa lista à parte de propósito. As rotas dele aceitam
+ * `['admin','editor']` e chamam `requireModule`, então quem decide de verdade é esta checkbox —
+ * e como nenhum editor tem `finance` marcado, hoje o módulo é só do admin. Se as rotas
+ * aceitassem apenas `admin`, a checkbox seria uma chave que não liga nada, porque admin ignora
+ * o array por código.
+ */
+export const TOGGLEABLE_MODULES: ModuleId[] = [MODULES.EVENTS, MODULES.PLACES, MODULES.FINANCE]
 
 export interface Entitlements {
   role?: string | null
