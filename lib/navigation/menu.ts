@@ -102,10 +102,25 @@ export interface NavGroup {
   sections: NavSection[]
 }
 
+/** Uma posição na barra: ou um link direto, ou um dropdown. */
+export type NavEntry =
+  | { kind: 'link'; item: NavItem }
+  | { kind: 'group'; group: NavGroup }
+
+/**
+ * A barra, em dois blocos separados por um traço vertical.
+ *
+ * `basic` é onde o operador começa o dia: a visão geral, a rede dele, os números.
+ * `modules` são as áreas em que ele trabalha.
+ *
+ * ATENÇÃO AO NOME: `modules` é o vocabulário do operador para "as áreas do produto", e NÃO é o
+ * conjunto de `lib/modules`. `points`, `partners` e `system` não têm entitlement nenhum — só
+ * `marketing` e `finance` (e, dentro de `points`, `events` e `places`) são gateados por módulo.
+ * Quem decide entitlement continua sendo `isModuleEnabled`, nunca esta divisão.
+ */
 export interface NavTree {
-  /** Links soltos na barra, antes dos grupos. */
-  primary: NavItem[]
-  groups: NavGroup[]
+  basic: NavEntry[]
+  modules: NavEntry[]
 }
 
 export interface NavContext extends AccessContext {
@@ -121,16 +136,41 @@ const item = (href: string, labelKey: string, icon: LucideIcon): NavItem => ({ h
  * condicionalmente — é o que deixa `navigation.test.ts` provar, para cada role, o conjunto exato
  * que sobra: a prova precisa saber o que foi retirado, não só o que ficou.
  */
-function catalogue(): { primary: NavItem[]; groups: NavGroup[] } {
+function catalogue(): { basic: NavEntry[]; modules: NavEntry[] } {
+  const link = (i: NavItem): NavEntry => ({ kind: 'link', item: i })
+  const group = (g: NavGroup): NavEntry => ({ kind: 'group', group: g })
+
   return {
-    primary: [
-      item('/dashboard', 'dashboard', LayoutDashboard),
-      item(CLIENT_HOME, 'dashboard', LayoutDashboard),
-      item('/clients/coordinator', 'my_network', Network),
-      item('/finance', 'finance', Coins),
+    // O BLOCO BÁSICO — o que se olha, não onde se trabalha. `Relatórios` mora aqui e não do
+    // outro lado porque ele é leitura sobre a operação inteira, e não uma área de trabalho.
+    basic: [
+      link(item('/dashboard', 'dashboard', LayoutDashboard)),
+      link(item(CLIENT_HOME, 'dashboard', LayoutDashboard)),
+      link(item('/clients/coordinator', 'my_network', Network)),
+      group({
+        id: 'reports',
+        labelKey: 'reports',
+        sections: [
+          {
+            items: [
+              item('/dashboard/realtime', 'realtime', Activity),
+              item('/dashboard/reports/catalog', 'catalog', Database),
+              item('/dashboard/reports/geography', 'geography', MapPin),
+              item('/dashboard/reports/acquisition', 'acquisition', BarChart3),
+              item('/dashboard/reports/engagement', 'engagement', Activity),
+              // "Base de Usuários" e não "Usuários": é RELATÓRIO. O rótulo antigo era o mesmo
+              // literal de outros dois destinos — o dropdown de topo e `/admin/users` — e a
+              // barra não mostra o pai quando o painel está fechado.
+              item('/dashboard/reports/users', 'user_base', Users),
+            ],
+          },
+        ],
+      }),
     ],
-    groups: [
-      {
+    // AS ÁREAS DE TRABALHO. `Financeiro` é um link e não um dropdown porque tem um destino só;
+    // fica entre `Marketing` e `Sistema` por ordem do operador.
+    modules: [
+      group({
         id: 'points',
         labelKey: 'points',
         sections: [
@@ -163,8 +203,8 @@ function catalogue(): { primary: NavItem[]; groups: NavGroup[] } {
             ],
           },
         ],
-      },
-      {
+      }),
+      group({
         id: 'partners',
         labelKey: 'partners',
         sections: [
@@ -176,8 +216,8 @@ function catalogue(): { primary: NavItem[]; groups: NavGroup[] } {
             ],
           },
         ],
-      },
-      {
+      }),
+      group({
         id: 'marketing',
         labelKey: 'marketing',
         sections: [
@@ -188,27 +228,9 @@ function catalogue(): { primary: NavItem[]; groups: NavGroup[] } {
             ],
           },
         ],
-      },
-      {
-        id: 'reports',
-        labelKey: 'reports',
-        sections: [
-          {
-            items: [
-              item('/dashboard/realtime', 'realtime', Activity),
-              item('/dashboard/reports/catalog', 'catalog', Database),
-              item('/dashboard/reports/geography', 'geography', MapPin),
-              item('/dashboard/reports/acquisition', 'acquisition', BarChart3),
-              item('/dashboard/reports/engagement', 'engagement', Activity),
-              // "Base de Usuários" e não "Usuários": é RELATÓRIO. O rótulo antigo era o mesmo
-              // literal de outros dois destinos — o dropdown de topo e `/admin/users` — e a
-              // barra não mostra o pai quando o painel está fechado.
-              item('/dashboard/reports/users', 'user_base', Users),
-            ],
-          },
-        ],
-      },
-      {
+      }),
+      link(item('/finance', 'finance', Coins)),
+      group({
         id: 'system',
         labelKey: 'system',
         sections: [
@@ -226,7 +248,7 @@ function catalogue(): { primary: NavItem[]; groups: NavGroup[] } {
             ],
           },
         ],
-      },
+      }),
     ],
   }
 }
@@ -247,7 +269,8 @@ export function buildNavTree(ctx: NavContext): NavTree {
   // condição esperta aqui trocaria o comportamento de um admin que também é coordenador, que é
   // raro o bastante para ninguém notar e real o bastante para acontecer.
   const seesGlobalOverview = canReach('/dashboard', ctx) // na prática, admin
-  const primary = all.primary.filter((i) => {
+
+  const keepLink = (i: NavItem): boolean => {
     if (!reachable(i)) return false
     switch (i.href) {
       // A Overview global é de quem o portão deixa entrar nela, coordenador ou não.
@@ -263,30 +286,36 @@ export function buildNavTree(ctx: NavContext): NavTree {
       default:
         return true
     }
-  })
+  }
 
-  const groups = all.groups
+  const keepGroup = (group: NavGroup): NavGroup | null => {
     // O COORDENADOR NÃO GERENCIA PONTOS, e isso é decisão de produto, não consequência do
     // portão: `canReach` deixaria ele entrar em `/pois` e `/routes` como qualquer `client`.
     // `lib/hooks/useCmsUser.ts` diz a mesma coisa do outro lado — `canManagePois` é
     // `canEdit && !isCoordinator`, ou seja, ele chegaria numa tela onde não pode criar nem
     // editar nada. Oferecer a porta de uma sala onde ele não age é pior que não oferecer.
-    .filter((group) => group.id !== 'points' || !ctx.isCoordinator)
-    .map((group) => ({
-      ...group,
-      sections: group.sections
-        .map((section) => ({ ...section, items: section.items.filter(reachable) }))
-        .filter((section) => section.items.length > 0),
-    }))
-    .filter((group) => group.sections.length > 0)
-    .map((group) => {
-      // Cabeçalho de seção só serve quando há mais de uma seção para separar. Para um `client`,
-      // `Pontos` colapsa em dois itens e um título acima deles seria mobília sem função.
-      if (group.sections.length === 1) {
-        return { ...group, sections: [{ items: group.sections[0].items }] }
-      }
-      return group
+    if (group.id === 'points' && ctx.isCoordinator) return null
+
+    const sections = group.sections
+      .map((section) => ({ ...section, items: section.items.filter(reachable) }))
+      .filter((section) => section.items.length > 0)
+
+    // Um grupo vazio na barra é pior que a ausência dele: abre um painel em branco e o operador
+    // conclui que a ferramenta quebrou.
+    if (sections.length === 0) return null
+
+    // Cabeçalho de seção só serve quando há mais de uma seção para separar. Para um `client`,
+    // `Pontos` colapsa em dois itens e um título acima deles seria mobília sem função.
+    if (sections.length === 1) return { ...group, sections: [{ items: sections[0].items }] }
+    return { ...group, sections }
+  }
+
+  const prune = (entries: NavEntry[]): NavEntry[] =>
+    entries.flatMap((entry): NavEntry[] => {
+      if (entry.kind === 'link') return keepLink(entry.item) ? [entry] : []
+      const group = keepGroup(entry.group)
+      return group ? [{ kind: 'group' as const, group }] : []
     })
 
-  return { primary, groups }
+  return { basic: prune(all.basic), modules: prune(all.modules) }
 }
