@@ -750,12 +750,20 @@ interface AppUserSide {
   purchasersByPartner: Map<string, number>
   minutesByPartner: Map<string, number>
   /**
-   * Se o ledger de compras respondeu.
+   * Os parceiros cujo número a PRÓPRIA RPC já colapsou pelo piso de k.
    *
-   * Ele é um sinal SEPARADO do resto, e não um erro, porque `drive.time_credit_grants` nega
-   * SELECT até ao `service_role` (medido em 2026-09-01) e não existe RPC com escopo por
-   * parceiro. Enquanto for `false`, `usersWithPurchase` sobe como `null` e o veredito de quem
-   * não paga é `unknown_return` — a tela diz "não sei" em vez de acusar por permissão.
+   * Ele sobe porque o piso de lá e o daqui podem divergir um dia: se o time `data` levantar o k
+   * da função, este módulo continuaria achando que 1 é exato e imprimiria um piso com cara de
+   * fato — que é a única coisa que a supressão inteira existe para impedir. Com o conjunto,
+   * "foi omitido lá" é respeitado aqui sem este lado precisar adivinhar o k do outro.
+   */
+  suppressedPartners: Set<string>
+  /**
+   * Se a leitura de compras respondeu.
+   *
+   * Ele é um sinal SEPARADO do resto, e não um erro. Enquanto for `false`, `usersWithPurchase`
+   * sobe como `null` e o veredito de quem não paga é `unknown_return` — a tela diz "não sei" em
+   * vez de acusar por permissão.
    */
   purchasesAnswered: boolean
 }
@@ -768,10 +776,24 @@ interface AppUserSide {
  * estabelecimento — dono, gerente, garçom. Somá-los inflaria a aquisição com os próprios
  * funcionários do parceiro, e o CAC cairia exatamente nos parceiros que não adquiriram ninguém.
  *
- * A COMPRA VEM DO LEDGER E FICA EM MINUTOS. `drive.time_credit_grants.source = 'purchase'` diz
- * QUEM comprou e QUANTOS minutos; não existe valor em dinheiro em lugar nenhum do fluxo do
- * usuário do app (BR-MONETIZACAO-048, e o catálogo de preços é `drive.product_grant_map`, fora
- * deste repositório). Então o que sobe para a tela é contagem e minutos, rotulados como tal.
+ * A COMPRA VEM DE UMA RPC, E NÃO DO LEDGER — desde 2026-09-02, e a diferença é de permissão.
+ * `drive.time_credit_grants` nega `SELECT` ao `service_role`, e a negação é deliberada: aquele
+ * ledger registra QUEM concedeu cada crédito e foi desenhado para ser tocado por uma pessoa
+ * nomeada, nunca por uma conta de serviço. Este módulo nasceu lendo `null` ali e dizendo
+ * "não sei" no lugar de um veredito.
+ *
+ * `drive.partner_purchase_summary(uuid[])` é a janela em vez da chave: ela roda com o privilégio
+ * do dono, lê o ledger por dentro e devolve DOIS NÚMEROS por parceiro. Nenhuma linha do ledger
+ * atravessa. O pedido, com o porquê de cada decisão dela, está em
+ * `supabase/requests/partner_purchase_summary.sql`; foi aplicada pelo time `data` em 2026-09-02.
+ *
+ * ELA DEVOLVE UMA LINHA POR PARCEIRO PEDIDO, INCLUSIVE OS DE ZERO, e é disso que depende a
+ * distinção inteira: parceiro ausente da resposta seria "não sei", presente com `0` é "não trouxe
+ * comprador". Conferido em 2026-09-02: 52 parceiros pedidos, 52 linhas de volta.
+ *
+ * FICA EM MINUTOS. Não existe valor em dinheiro em lugar nenhum do fluxo do usuário do app
+ * (BR-MONETIZACAO-048, e o catálogo de preços é `drive.product_grant_map`, fora deste
+ * repositório). Então o que sobe para a tela é contagem e minutos, rotulados como tal.
  *
  * Devolve `null` quando o banco recusa. Ver o cabeçalho: um erro aqui não pode virar zero.
  */
@@ -781,6 +803,7 @@ async function loadAppUserSide(partnerIds: string[]): Promise<AppUserSide | null
     byClientId: new Map(),
     purchasersByPartner: new Map(),
     minutesByPartner: new Map(),
+    suppressedPartners: new Set(),
     purchasesAnswered: true,
   }
   if (partnerIds.length === 0) return empty
@@ -798,50 +821,45 @@ async function loadAppUserSide(partnerIds: string[]): Promise<AppUserSide | null
     profiles.push(...((data ?? []) as Record<string, string | null>[]))
   }
 
-  const acquiredBy = new Map<string, string>()
   for (const row of profiles) {
     const partnerId = row.partner_id
     const clientId = row.client_id
     if (partnerId) {
       empty.byPartnerId.set(partnerId, (empty.byPartnerId.get(partnerId) ?? 0) + 1)
-      if (row.id) acquiredBy.set(row.id, partnerId)
     }
     if (clientId) empty.byClientId.set(clientId, (empty.byClientId.get(clientId) ?? 0) + 1)
   }
 
-  const acquiredIds = Array.from(acquiredBy.keys())
-  if (acquiredIds.length === 0) return empty
+  // A RPC É CHAMADA POR LOTE DE PARCEIROS, e não por usuário. É a mesma razão de `chunk` existir
+  // no resto deste arquivo: uma lista longa de uuids na querystring estoura o limite do PostgREST.
+  // Ela também é a leitura que substituiu uma chamada POR USUÁRIO — 40 idas ao banco viraram 1.
+  const summaries: Record<string, unknown>[] = []
+  for (const batch of chunk(partnerIds)) {
+    const { data, error } = await drive.rpc('partner_purchase_summary', { p_partner_ids: batch })
 
-  const grants: Record<string, string | number | null>[] = []
-  for (const batch of chunk(acquiredIds)) {
-    const { data, error } = await drive
-      .from('time_credit_grants')
-      .select('user_id, minutes_granted')
-      .eq('source', 'purchase')
-      .in('user_id', batch)
-
-    // Sem permissão no ledger a tela NÃO cai: ela perde a distinção entre "não trouxe ninguém"
-    // e "trouxe quem comprou", e diz isso. O custo — que é o motivo do módulo — continua inteiro.
+    // Sem a RPC a tela NÃO cai: ela perde a distinção entre "não trouxe ninguém" e "trouxe quem
+    // comprou", e diz isso. O custo — que é o motivo do módulo — continua inteiro.
     if (error) return { ...empty, purchasesAnswered: false }
-    grants.push(...((data ?? []) as Record<string, string | number | null>[]))
+    summaries.push(...((data ?? []) as Record<string, unknown>[]))
   }
 
-  const purchasers = new Map<string, Set<string>>()
-  for (const row of grants) {
-    const userId = typeof row.user_id === 'string' ? row.user_id : null
-    if (!userId) continue
-    const partnerId = acquiredBy.get(userId)
+  for (const row of summaries) {
+    const partnerId = typeof row.partner_id === 'string' ? row.partner_id : null
     if (!partnerId) continue
 
-    const seen = purchasers.get(partnerId) ?? new Set<string>()
-    seen.add(userId)
-    purchasers.set(partnerId, seen)
+    empty.purchasersByPartner.set(
+      partnerId,
+      typeof row.users_with_purchase === 'number' ? row.users_with_purchase : 0
+    )
 
-    const minutes = typeof row.minutes_granted === 'number' ? row.minutes_granted : 0
-    empty.minutesByPartner.set(partnerId, (empty.minutesByPartner.get(partnerId) ?? 0) + minutes)
-  }
-  for (const [partnerId, users] of purchasers) {
-    empty.purchasersByPartner.set(partnerId, users.size)
+    // MINUTO SÓ ENTRA SE VEIO NÚMERO. `null` ali significa "omitido pelo piso de k", e o chamador
+    // já traduz a AUSÊNCIA no mapa em `null` — escrever 0 aqui trocaria "omitido" por "nenhum
+    // minuto", que é a confusão entre null e zero que este módulo inteiro recusa.
+    if (typeof row.purchased_minutes === 'number') {
+      empty.minutesByPartner.set(partnerId, row.purchased_minutes)
+    }
+
+    if (row.suppressed === true) empty.suppressedPartners.add(partnerId)
   }
 
   return empty
@@ -1012,7 +1030,7 @@ export async function loadFinanceOverview(
       contractTier: contract?.tier ?? null,
     })
 
-    // `null` quando o ledger não respondeu — e `null` não é zero: é o que faz o veredito de um
+    // `null` quando a leitura não respondeu — e `null` não é zero: é o que faz o veredito de um
     // parceiro não pagante ser `unknown_return` em vez de uma acusação de prejuízo.
     const purchasedMinutes = appUsers.purchasesAnswered
       ? appUsers.minutesByPartner.get(partner.id) ?? null
@@ -1026,9 +1044,13 @@ export async function loadFinanceOverview(
     // com o DevTools aberto — a supressão só é supressão antes de sair da máquina.
     //
     // É a última coisa a acontecer antes do veredito, de propósito: assim nenhum campo montado
-    // acima pode escapar dela por ordem de código. Quando a RPC de 2.1 chegar com o piso DENTRO
-    // dela, esta chamada vira redundante e inofensiva — ela nunca suprime o que já está suprimido.
-    const facts: ClientFinanceFacts = suppressSmallCohortPurchases({
+    // acima pode escapar dela por ordem de código.
+    //
+    // A RPC JÁ APLICA O MESMO PISO, e desde 2026-09-02 esta chamada é a SEGUNDA. Ela continua por
+    // dois motivos: é defesa em profundidade se um dia a resposta vier de outra fonte, e ela é
+    // idempotente — nunca suprime o que já está suprimido, porque só age sobre um valor maior que
+    // zero numa coorte menor que k, e o que veio suprimido de lá já chega colapsado em 1.
+    const cohort = suppressSmallCohortPurchases({
       clientId: partner.id,
       clientName: partner.name,
       approvedAt: partner.approvedAt,
@@ -1048,6 +1070,17 @@ export async function loadFinanceOverview(
       // premissa do operador e vivem só na PROJEÇÃO (`projectRevenue`).
       horizonInvoices: null,
     })
+
+    // O PISO DA RPC MANDA JUNTO COM O DAQUI, E NÃO NO LUGAR DELE. Os dois usam k=5 hoje e
+    // concordam sempre; se o time `data` levantar o k de lá, este lado continuaria achando que
+    // `1` é exato e a tela imprimiria um piso com cara de fato. O `||` é o que garante que
+    // "omitido em algum lugar" chega à tela como omitido — que é a razão de `suppressed` viajar
+    // na resposta da função.
+    const facts: ClientFinanceFacts = {
+      ...cohort,
+      purchaseSuppressed:
+        cohort.purchaseSuppressed || appUsers.suppressedPartners.has(partner.id),
+    }
 
     const assessed = assessClient(facts, now)
 
