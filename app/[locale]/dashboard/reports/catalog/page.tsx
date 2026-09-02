@@ -64,7 +64,7 @@ export default function CatalogReportPage() {
   const languagesBreakdown = content?.languagesBreakdown || []
 
   return (
-    <div className="p-4 lg:p-6 space-y-4 min-h-screen bg-[#F0F2F5] dark:bg-gray-950">
+    <div className="cms-width p-4 lg:p-6 space-y-4 min-h-screen bg-[#F0F2F5] dark:bg-gray-950">
       <div>
         <h1 className="text-2xl font-bold text-gray-900 dark:text-white flex items-center">
           <Database className="mr-3 h-8 w-8 text-tuggi-blue" />

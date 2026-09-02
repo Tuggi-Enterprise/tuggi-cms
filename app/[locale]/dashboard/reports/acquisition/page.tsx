@@ -86,7 +86,7 @@ export default function AcquisitionReportPage() {
   const coverage = hasOriginCoverage(month)
 
   return (
-    <div className="p-6 lg:p-8 space-y-6 min-h-screen bg-gray-50 dark:bg-gray-950">
+    <div className="cms-width p-6 lg:p-8 space-y-6 min-h-screen bg-gray-50 dark:bg-gray-950">
       {/* cabeçalho + filtro de mês */}
       <div className="flex flex-wrap items-start justify-between gap-4">
         <div>

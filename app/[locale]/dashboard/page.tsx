@@ -223,7 +223,7 @@ export default function DashboardPage() {
   const consumedMinutes = consumedMinutesTotal(paidAccess.overview)
 
   return (
-    <div className="min-h-screen bg-[#F0F2F5] dark:bg-gray-950 p-4 lg:p-6 flex flex-col gap-4 animate-in fade-in duration-500">
+    <div className="cms-width min-h-screen bg-[#F0F2F5] dark:bg-gray-950 p-4 lg:p-6 flex flex-col gap-4 animate-in fade-in duration-500">
 
       {/* 1. HERO KPI ROW (6) — cada card é drill-down pro report */}
       <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3">

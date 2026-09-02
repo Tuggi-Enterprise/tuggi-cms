@@ -207,7 +207,7 @@ export default function TrailVisualizationPage() {
   }
 
   return (
-    <div className="p-6 space-y-6 bg-tuggi-background min-h-screen">
+    <div className="cms-width p-6 space-y-6 bg-tuggi-background min-h-screen">
       {/* Header */}
       <div className="flex justify-between items-start">
         <div>

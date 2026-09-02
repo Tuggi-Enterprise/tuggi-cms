@@ -263,7 +263,7 @@ export function ContractManager({
   const signed = Boolean(state.acceptance)
 
   return (
-    <div className="min-h-screen bg-gray-50 p-6 dark:bg-gray-950 lg:p-8">
+    <div className="cms-width min-h-screen bg-gray-50 p-6 dark:bg-gray-950 lg:p-8">
       <div className="mx-auto max-w-4xl space-y-6">
       {/* Whoever sent the operator here says so, and takes them back. Without it the only way
           out of a page reached from the pipeline was the browser's button. */}

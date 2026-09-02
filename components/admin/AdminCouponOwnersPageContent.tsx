@@ -125,7 +125,7 @@ function AdminCouponOwnersContent() {
   const totalDays = owners.reduce((s, o) => s + Number(o.days_granted_total), 0);
 
   return (
-    <div className="min-h-screen bg-gray-50/50">
+    <div className="cms-width min-h-screen bg-gray-50/50">
       <Container className="py-8">
         <div className="mb-6 flex flex-wrap items-center justify-between gap-3">
           <div>

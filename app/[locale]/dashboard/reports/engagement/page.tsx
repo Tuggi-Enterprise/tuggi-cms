@@ -58,7 +58,7 @@ export default function EngagementReportPage() {
   const visitsPerUser = ratio(visits, users)                         // consumo médio por usuário (base total)
 
   return (
-    <div className="p-6 lg:p-8 space-y-6 min-h-screen bg-gray-50 dark:bg-gray-950">
+    <div className="cms-width p-6 lg:p-8 space-y-6 min-h-screen bg-gray-50 dark:bg-gray-950">
       <div className="flex justify-between items-center">
         <div>
           <h1 className="text-2xl font-bold text-gray-900 dark:text-white flex items-center">

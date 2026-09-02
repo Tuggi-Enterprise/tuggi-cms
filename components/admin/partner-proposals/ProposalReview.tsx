@@ -358,7 +358,7 @@ export function ProposalReview({ locale, submissionId }: ProposalReviewProps) {
   return (
     // The frame of `/pois`, which is the CMS's: page ground, generous padding, and every panel
     // a glass card. The INK is not `/pois`'s — see the note in `surface.ts`.
-    <div className="min-h-screen bg-gray-50 p-6 dark:bg-gray-950 lg:p-8">
+    <div className="cms-width min-h-screen bg-gray-50 p-6 dark:bg-gray-950 lg:p-8">
       <div className="mx-auto w-full max-w-6xl">
         {/* Sticky, so promoting a long proposal never asks the operator to scroll back. */}
         <header className={`${CARD} sticky top-0 z-30 mb-6 px-6 py-4`}>

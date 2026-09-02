@@ -215,3 +215,27 @@
 .animate-spin-slow {
   animation: spin-slow 3s linear infinite;
 }
+
+/* ── O TETO DE LARGURA DO CMS ──────────────────────────────────────────────
+   Decidido em 2026-09-02: nenhuma tela do CMS tinha largura máxima, e num monitor largo o
+   conteúdo esticava até a borda — rótulo colado à esquerda, número colado à direita, um deserto
+   no meio. 1600px porque a tabela mais larga do sistema é `min-w-[1100px]` e, com um trilho de
+   18% e o `gap-8`, ela só cabe a partir de ~1440px de página: travar em 1280 (o `max-w-7xl` do
+   Header) poria essa tabela em rolagem permanente num monitor onde sobrava espaço.
+
+   O TETO VAI NOS FILHOS, E NÃO NA CASCA. A casca é quem pinta o fundo e precisa ir de ponta a
+   ponta: com `max-width` nela, o cinza pararia em 1600px e o resto da janela cairia no fundo do
+   `<main>` do layout — duas cinzas quase iguais, com uma emenda bem no meio da tela.
+
+   `:where()` ZERA A ESPECIFICIDADE, e é a peça que faz isto conviver com o Tailwind. Sem ele,
+   esta regra viria DEPOIS de `@tailwind utilities` no arquivo e ganharia todo empate — um filho
+   com `max-w-4xl` (o contrato) ou `max-w-5xl` (as abas do parceiro) seria alargado para 1600 e
+   perderia uma medida de leitura escolhida de propósito. Com especificidade 0, qualquer `max-w-*`
+   escrito num filho ganha desta regra, e ela só vale para quem não pediu largura nenhuma.
+
+   E NÃO ESTÁ EM `@layer components` porque de lá o Tailwind só emite o que ele reconhece como
+   classe usada; em CSS puro, a regra existe sempre. */
+:where(.cms-width) > * {
+  max-width: 1600px;
+  margin-inline: auto;
+}
