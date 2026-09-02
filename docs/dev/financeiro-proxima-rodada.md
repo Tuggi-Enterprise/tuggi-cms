@@ -19,7 +19,7 @@ CAC e coorte por mês de aprovação.
 | `lib/finance/*` | as regras, puras, sem banco — 93 casos em `tests/api/finance-*.test.ts` |
 | `lib/services/finance-service.ts` | as leituras e escritas; **não decide nada** |
 | `app/api/finance/**` | 5 rotas, `withAuth({roles:['admin','editor']})` + `requireModule` |
-| `supabase/migrations/20260901_01..08` | schema `finance`, **todas aplicadas à mão no painel** |
+| `supabase/migrations/20260901_01..09` | schema `finance`, **todas aplicadas à mão no painel** (a 09 em 2026-09-02) |
 | `scripts/finance-backfill-consumption.ts` | preenche o que falta; `--recompute` corrige |
 
 ### Estado dos dados em 2026-09-01
@@ -149,10 +149,21 @@ Ela também aceita `enabled_modules` sem validar contra `MODULES`.
 5. **`logAuditEvent` é best-effort** e `sanitizeDescription` apaga a descrição inteira se casar
    `/password|token|secret/i`. Um fornecedor "Token Papelaria" some do log de um lançamento de
    dinheiro. O commit afirma "todo lançamento é auditado"; na prática é "quase sempre".
-6. **ESCRITA, FALTA APLICAR (rodada 2).** `supabase/migrations/20260901_09_finance_consumption_invoker.sql`
-   troca por `security invoker` + `set search_path = ''`, com o corpo idêntico linha por linha.
-   **Ela ainda não foi aplicada no painel** — nenhum código depende disso, então dá para levá-la
-   junto com a migration da tela de Envios (2.5) e abrir o painel uma vez só. Texto original:
+6. **FEITO E APLICADO (rodada 2, aplicada em 2026-09-02).**
+   `supabase/migrations/20260901_09_finance_consumption_invoker.sql` trocou por
+   `security invoker` + `set search_path = ''`, com o corpo idêntico linha por linha.
+
+   **Verificado em produção sem escrever nada.** A troca só falha em tempo de EXECUÇÃO, e o
+   chamador engole o erro (`if (writeError) return null`, `finance-service.ts:1061`) — um
+   defeito ali pararia de gravar custo em silêncio. Chamar com `p_lines: []` não serviria: a
+   função retorna 0 antes do INSERT, e o PL/pgSQL só planeja um comando na primeira vez que o
+   executa, então o `insert into finance.material_consumption` nunca seria resolvido — que é
+   justamente o que o `search_path` vazio poderia quebrar. O teste usou um par
+   `(order_id, product_id)` JÁ EXISTENTE: o INSERT foi planejado e executado, o
+   `on conflict do nothing` gravou zero linhas, a função devolveu 0, e a tabela seguiu com 57
+   linhas antes e depois. Se precisar repetir, o roteiro está aqui neste parágrafo.
+
+   Texto original:
    **`finance.record_material_consumption`**: `security definer` é desnecessário (o único grantee é
    `service_role`, que já tem `insert`), e o `search_path` inclui `public`. Trocar por
    `security invoker`, ou `set search_path = ''` com nomes qualificados. Não é explorável hoje.

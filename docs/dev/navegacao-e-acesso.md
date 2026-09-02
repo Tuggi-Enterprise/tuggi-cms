@@ -90,6 +90,7 @@ alcançável por URL; nada foi apagado.
 
 | # | O quê | Onde |
 | :-- | :-- | :-- |
+| S0 | `finance.record_material_consumption` deixou de ser `security definer` e fechou o `search_path`. Migration `20260901_09`, **aplicada no painel em 2026-09-02** e verificada em produção sem escrever nada | `2b7c58b` + painel |
 | S1 | `/api/pois/bulk-garbage` apagava POIs em massa sem checar role. O docstring dizia "only system admins"; o código nunca comparava. A UI era a única barreira | commit `cd50b5e` |
 | S2 | `/api/migration/{migrate-batch,migrate-stream,list-candidates}` disparavam o pipeline (escrita, LLM/TTS, leitura de `homolog`) só com "existe sessão" | commit `cd50b5e` |
 | S3 | Menu e portão discordavam para `editor` e `viewer` | esta rodada |
