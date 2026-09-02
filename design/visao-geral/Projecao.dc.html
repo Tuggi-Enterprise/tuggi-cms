@@ -1,0 +1,157 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap">
+  <style>
+    body { margin: 0; font-family: Inter, "Helvetica Neue", Arial, sans-serif; }
+    a { color: #00719F; } a:hover { color: #0085BA; }
+    .mc { font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: .1em; color: #6B7280; }
+    .num { font-variant-numeric: tabular-nums; }
+    .card { border-radius: 24px; border: 1px solid #E5E7EB; background: rgba(255,255,255,.7); box-shadow: 0 25px 50px -12px rgba(0,0,0,.05); }
+    .field { display: flex; align-items: center; gap: 10px; border: 1px solid #8A8A8A; border-radius: 14px; padding: 8px 14px; background: #fff; }
+  </style>
+</helmet>
+
+<div style="position: relative; width: 1180px; height: 760px; background: #F9FAFB; box-sizing: border-box; padding: 32px; display: flex; flex-direction: column; gap: 16px">
+
+  <div style="display: flex; align-items: center; gap: 10px">
+    <span style="display: inline-flex; align-items: center; border-radius: 999px; background: rgba(0,168,232,.1); color: #00719F; padding: 5px 12px; font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: .08em">Proposta</span>
+    <span style="font-size: 15px; font-weight: 600; color: #1F2937">Os próximos seis meses — a curva firme, e a premissa que é sua</span>
+  </div>
+
+  <div class="card" style="flex-grow: 1; min-height: 0; overflow: hidden; display: flex; flex-direction: column">
+
+    <div style="border-bottom: 1px solid #E5E7EB; padding: 16px 24px; display: flex; align-items: center; gap: 20px">
+      <div style="flex-grow: 1; min-width: 0">
+        <div style="font-size: 14px; font-weight: 600; color: #111827">Projeção de receita</div>
+        <p style="margin: 3px 0 0; font-size: 11px; line-height: 1.55; color: #4B5563">A parte sólida é contrato assinado e vivo. A parte hachurada é o que a sua premissa produz — e ela fica escrita ao lado do gráfico, nunca embutida no número.</p>
+      </div>
+      <div class="field">
+        <span class="mc" style="letter-spacing: .06em">Novos pagantes/mês</span>
+        <span class="num" style="font-size: 15px; font-weight: 700; color: #111827">{{novos}}</span>
+      </div>
+      <div class="field">
+        <span class="mc" style="letter-spacing: .06em">Churn/mês</span>
+        <span class="num" style="font-size: 15px; font-weight: 700; color: #111827">{{churnLabel}}</span>
+      </div>
+    </div>
+
+    <div style="padding: 24px 28px; display: flex; gap: 28px; flex-grow: 1; min-height: 0">
+
+      <div style="flex-grow: 1; min-width: 0; display: flex; flex-direction: column">
+
+        <div style="position: relative; display: flex; align-items: flex-end; gap: 24px; height: 210px; border-bottom: 1px solid #D1D5DB; padding-top: 22px">
+
+          <div style="position: absolute; left: 0; right: 0; bottom: {{custoH}}px; border-top: 2px dashed #B45309; pointer-events: none"></div>
+          <div style="position: absolute; right: 0; bottom: {{custoLabelH}}px; font-size: 10px; font-weight: 700; color: #78350F; background: #FFFBEB; padding: 2px 8px; border-radius: 999px; border: 1px solid #FDE68A">custo mensal {{custoLabel}}</div>
+
+          <sc-for list="{{meses}}" as="m" hint-placeholder-count="6">
+            <div style="flex: 1 1 0; display: flex; flex-direction: column; justify-content: flex-end; align-items: stretch; gap: 3px; min-width: 0">
+              <div style="text-align: center; font-size: 11px; font-weight: 600; color: {{m.tint}}" class="num">{{m.total}}</div>
+              <div style="height: {{m.hExtra}}px; background: repeating-linear-gradient(45deg, #00A8E8 0 4px, #CDEBF9 4px 8px); border-radius: 5px 5px 0 0"></div>
+              <div style="height: {{m.hFirme}}px; background: #00719F"></div>
+            </div>
+          </sc-for>
+        </div>
+
+        <div style="display: flex; gap: 24px; margin-top: 8px">
+          <sc-for list="{{meses}}" as="m" hint-placeholder-count="6">
+            <div style="flex: 1 1 0; text-align: center; font-size: 11px; font-weight: {{m.weight}}; color: {{m.tint}}">{{m.label}}</div>
+          </sc-for>
+        </div>
+
+        <div style="display: flex; gap: 20px; margin-top: 20px; align-items: center">
+          <div style="display: flex; align-items: center; gap: 7px"><span style="width: 12px; height: 12px; border-radius: 3px; background: #00719F"></span><span style="font-size: 12px; color: #374151">Contratado hoje — R$ 444,00, 3 contratos assinados</span></div>
+          <div style="display: flex; align-items: center; gap: 7px"><span style="width: 12px; height: 12px; border-radius: 3px; background: repeating-linear-gradient(45deg, #00A8E8 0 3px, #CDEBF9 3px 6px)"></span><span style="font-size: 12px; color: #374151">Sob premissa</span></div>
+          <div style="display: flex; align-items: center; gap: 7px"><span style="width: 14px; height: 0; border-top: 2px dashed #B45309"></span><span style="font-size: 12px; color: #374151">Custo mensal</span></div>
+        </div>
+      </div>
+
+      <div style="width: 300px; flex-shrink: 0; display: flex; flex-direction: column; gap: 14px">
+
+        <div style="border-radius: 18px; background: #F9FAFB; padding: 18px 20px">
+          <div class="mc">O cruzamento</div>
+          <div style="font-size: 26px; font-weight: 800; color: #CC5200; letter-spacing: -.025em; margin-top: 6px">{{cruzamento}}</div>
+          <p style="margin: 8px 0 0; font-size: 12px; line-height: 1.65; color: #374151">{{cruzamentoTexto}}</p>
+        </div>
+
+        <div style="border-radius: 18px; background: #fff; box-shadow: inset 0 0 0 1px #E5E7EB; padding: 18px 20px">
+          <div class="mc" style="margin-bottom: 10px">A premissa, escrita</div>
+          <div style="display: flex; flex-direction: column; gap: 8px; font-size: 12px; color: #374151; line-height: 1.5">
+            <div style="display: flex; justify-content: space-between; gap: 10px"><span>Novos pagantes por mês</span><strong class="num" style="font-weight: 600">{{novos}}</strong></div>
+            <div style="display: flex; justify-content: space-between; gap: 10px"><span>Churn mensal</span><strong class="num" style="font-weight: 600">{{churnLabel}}</strong></div>
+            <div style="display: flex; justify-content: space-between; gap: 10px"><span>Mensalidade média</span><strong class="num" style="font-weight: 600">R$ 148,00</strong></div>
+            <div style="display: flex; justify-content: space-between; gap: 10px"><span>Kit de material por novo</span><strong class="num" style="font-weight: 600">R$ 37,00</strong></div>
+            <div style="display: flex; justify-content: space-between; gap: 10px"><span>Custo fixo mensal</span><strong class="num" style="font-weight: 600">R$ 2.516,00</strong></div>
+          </div>
+        </div>
+
+        <div style="border-radius: 18px; background: #FFFBEB; padding: 14px 18px; display: flex; gap: 10px">
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#B45309" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="flex-shrink:0;margin-top:2px"><circle cx="12" cy="12" r="10"></circle><path d="M12 16v-4"></path><path d="M12 8h.01"></path></svg>
+          <div style="font-size: 11px; line-height: 1.6; color: #78350F">A compra de minutos no app <strong style="font-weight: 600">não é extrapolada aqui</strong>. Ela depende de um preço declarado, e um preço declarado não vira tendência.</div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+</x-dc>
+
+<script data-dc-script data-props='{"novos":{"editor":"int","default":4,"min":0,"max":12,"section":"Premissa"},"churn":{"editor":"range","default":2,"min":0,"max":12,"step":1,"unit":"%","section":"Premissa"},"$preview":{"width":1180,"height":760}}'>
+class Component extends DCLogic {
+  renderVals() {
+    const novos = Math.max(0, this.props.novos ?? 4);
+    const churn = (this.props.churn ?? 2) / 100;
+    const TICKET = 148, FIXO = 2516, KIT = 37, FIRME = 444, H = 168;
+    const labels = ['out/26', 'nov/26', 'dez/26', 'jan/27', 'fev/27', 'mar/27'];
+    const nomes = ['outubro de 2026', 'novembro de 2026', 'dezembro de 2026', 'janeiro de 2027', 'fevereiro de 2027', 'março de 2027'];
+
+    const money = (v) => 'R$ ' + Math.round(v).toLocaleString('pt-BR');
+    const custo = FIXO + novos * KIT;
+
+    let pagantes = 3;
+    const totais = [];
+    for (let i = 0; i < 6; i++) {
+      pagantes = pagantes * (1 - churn) + novos;
+      totais.push(Math.round(pagantes * TICKET));
+    }
+
+    const teto = Math.max(custo, ...totais) * 1.12;
+    const px = (v) => Math.max(0, Math.round((v / teto) * H));
+    const hFirme = px(FIRME);
+
+    let cruzou = -1;
+    for (let i = 0; i < 6; i++) if (cruzou < 0 && totais[i] >= custo) cruzou = i;
+
+    const meses = totais.map((total, i) => ({
+      label: labels[i],
+      total: money(total),
+      hFirme: hFirme,
+      hExtra: Math.max(0, px(total) - hFirme),
+      tint: i === cruzou ? '#CC5200' : '#4B5563',
+      weight: i === cruzou ? '700' : '500',
+    }));
+
+    return {
+      novos,
+      churnLabel: (this.props.churn ?? 2) + '%',
+      meses,
+      custoH: px(custo),
+      custoLabelH: px(custo) + 6,
+      custoLabel: money(custo),
+      cruzamento: cruzou < 0 ? 'não cruza em 6 meses' : nomes[cruzou],
+      cruzamentoTexto:
+        cruzou < 0
+          ? 'Com esta premissa a receita não alcança o custo dentro da janela. A curva firme de R$ 444,00 sozinha não cruza nunca.'
+          : 'é quando a receita cobre o custo, sob a premissa acima. A curva firme de R$ 444,00 sozinha não cruza nunca.',
+    };
+  }
+}
+</script>
+</body>
+</html>

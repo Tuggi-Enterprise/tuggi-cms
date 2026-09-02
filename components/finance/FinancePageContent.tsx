@@ -48,13 +48,18 @@ import type { StandardRate } from '@/lib/finance/unit-cost'
 import type { FinancePurchaseRow } from '@/lib/services/finance-service'
 import type { RecipeLine } from '@/lib/finance/recipe'
 import type { PackagingRule } from '@/lib/finance/packaging'
+import type { MonthlyCascade, MonthlyPoint, PlanMix } from '@/lib/finance/overview'
 import { FinanceFigures } from './FinanceFigures'
+import { OverviewPanel, type ProjectionBase } from './OverviewPanel'
 import { ClientProfitabilityTable } from './ClientProfitabilityTable'
 import { CatalogPanel, type UnitCostView } from './CatalogPanel'
 import { StructurePanel } from './StructurePanel'
 
-type Section = 'partners' | 'catalog' | 'structure'
-const SECTIONS: readonly Section[] = ['partners', 'catalog', 'structure']
+// A Visão geral entra PRIMEIRO, e é a única seção que junta os dois lados do negócio — a
+// mensalidade do parceiro e a compra do turista. As outras três respondem por um parceiro, por um
+// produto e pela operação; nenhuma respondia "quanto entra, quanto sai, e quando isso vira".
+type Section = 'overview' | 'partners' | 'catalog' | 'structure'
+const SECTIONS: readonly Section[] = ['overview', 'partners', 'catalog', 'structure']
 
 interface ClientsPayload {
   clients: ClientProfitability[]
@@ -63,6 +68,15 @@ interface ClientsPayload {
   cohorts: CohortReport
   structure: StructureSummary
   fixedCosts: FixedCostRecord[]
+  /** A cascata do mês fechado. Computada sobre a MESMA lista que a tabela desenha. */
+  month: MonthlyCascade
+  /** Dois meses para trás, o vigente e seis para a frente. */
+  series: MonthlyPoint[]
+  appOtherCurrencies: { currency: string; grossCents: number }[]
+  mix: PlanMix
+  projectionBase: ProjectionBase
+  /** Parceiros marcados como teste e retirados de toda conta acima. Contados, não sumidos. */
+  excludedPartners: number
   truncated: boolean
   purchasesAnswered: boolean
 }
@@ -82,7 +96,7 @@ interface PurchasesPayload {
 
 export function FinancePageContent() {
   const t = useTranslations('Finance')
-  const [section, setSection] = useState<Section>('partners')
+  const [section, setSection] = useState<Section>('overview')
   const [overview, setOverview] = useState<ClientsPayload | null>(null)
   const [catalog, setCatalog] = useState<CatalogPayload | null>(null)
   const [purchases, setPurchases] = useState<PurchasesPayload | null>(null)
@@ -249,6 +263,22 @@ export function FinancePageContent() {
                 >
                   {t('purchasesUnavailable')}
                 </div>
+              )}
+
+              {section === 'overview' && (
+                <OverviewPanel
+                  month={overview.month}
+                  series={overview.series}
+                  appOtherCurrencies={overview.appOtherCurrencies}
+                  mix={overview.mix}
+                  projectionBase={overview.projectionBase}
+                  summary={overview.summary}
+                  cohorts={overview.cohorts}
+                  structure={overview.structure}
+                  excludedPartners={overview.excludedPartners}
+                  truncated={overview.truncated}
+                  purchasesAnswered={overview.purchasesAnswered}
+                />
               )}
 
               {section === 'partners' && <ClientProfitabilityTable clients={overview.clients} />}

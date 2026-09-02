@@ -3388,6 +3388,7 @@
     "title": "Financeiro",
     "subtitle": "O que cada parceiro custou, o que ele paga, e se a conta fecha",
     "sections": {
+      "overview": "Visão geral",
       "partners": "Parceiros",
       "catalog": "Catálogo e compras",
       "structure": "Estrutura"
@@ -3588,6 +3589,105 @@
       "required": "Obrigatório",
       "errorCode": "Não foi possível salvar ({code})."
     },
-    "purchasesUnavailable": "O registro de compras dos usuários do app não respondeu, então quem comprou não pôde ser lido. Os custos abaixo estão completos; o que falta é distinguir um parceiro que não trouxe ninguém de um que trouxe quem comprou — por isso esses aparecem como “Sem dado de retorno”."
+    "purchasesUnavailable": "O registro de compras dos usuários do app não respondeu, então quem comprou não pôde ser lido. Os custos abaixo estão completos; o que falta é distinguir um parceiro que não trouxe ninguém de um que trouxe quem comprou — por isso esses aparecem como “Sem dado de retorno”.",
+    "overview": {
+      "month": {
+        "title": "O mês — {month}",
+        "accrual": "contratado, por competência",
+        "revenue": "Receita recorrente",
+        "revenueHint": "{count} pagantes · ticket {fee}",
+        "variable": "Custo variável",
+        "variableHint": "{count} entregas",
+        "fixed": "Custo fixo mensal",
+        "result": "Resultado do mês",
+        "standard": "Taxa de impressão: {value}",
+        "oneOff": "Desembolso único: {value}",
+        "floor": "{count} linhas sem preço — o custo é piso",
+        "inProgress": "mês em curso",
+        "variableSoFar": "{count} entregas até agora"
+      },
+      "base": {
+        "title": "Base de clientes",
+        "partners": "parceiros",
+        "paying": "Pagantes",
+        "courtesy": "Cortesia",
+        "free": "Gratuito",
+        "undeclared": "Sem plano",
+        "terminated": "Encerrados",
+        "breakEven": "pagantes faltam, a {fee}, para cobrir {fixed} de estrutura.",
+        "uncommitted": "{value} aguardando aceite, fora dos {committed} firmes.",
+        "joined": "Entraram por mês",
+        "noCohorts": "Nenhum com data de aprovação.",
+        "undated": "{count} sem data de aprovação, fora do gráfico."
+      },
+      "app": {
+        "title": "Usuários do app",
+        "requiresAdmin": "Exige perfil de administrador.",
+        "failed": "A leitura do app não respondeu.",
+        "excludedNotice": "{count} contas de teste ainda no agregado do app.",
+        "realized": "Já entrou",
+        "recurring": "Recorrente",
+        "transactions": "{count} cobranças",
+        "subscriptions": "{count} assinaturas vivas",
+        "usdBridge": "Líquido em dólar",
+        "usdHint": "{gross} bruto · conversão do próprio RevenueCat",
+        "sandbox": "{count} cobranças de teste fora da conta"
+      },
+      "acquisition": {
+        "title": "Aquisição",
+        "acquired": "Vieram pelo QR",
+        "teamHint": "equipe: {count}",
+        "cac": "Custo por aquisição",
+        "cacHint": "custo direto ÷ adquiridos",
+        "conversion": "Compraram",
+        "of": "de {count}",
+        "conversionUnknown": "Registro de compras não respondeu.",
+        "excluded": "{count} parceiros de teste fora da conta."
+      },
+      "projection": {
+        "title": "Os próximos seis meses",
+        "newPerMonth": "Novos pagantes/mês",
+        "churn": "Churn/mês",
+        "cost": "custo {value}",
+        "committed": "Calendário assinado",
+        "premise": "Sob premissa",
+        "costLegend": "Custo mensal",
+        "crossing": "O cruzamento",
+        "noCrossing": "não cruza em 6 meses",
+        "crossingHint": "sob {count} novos pagantes/mês.",
+        "inert": "Sem pagante não há ticket para projetar.",
+        "written": "A premissa",
+        "averageFee": "Mensalidade média",
+        "kit": "Kit por novo",
+        "fixed": "Custo fixo mensal",
+        "noB2c": "Compra de minutos não é extrapolada.",
+        "exact": "{month}: previsão exata, só calendário assinado.",
+        "pendingTitle": "Aguardando aceite",
+        "pendingHint": "Entra no calendário no mês seguinte ao aceite.",
+        "noFixedCost": "Nenhum custo fixo lançado — o cruzamento é otimista."
+      },
+      "pendings": {
+        "title": "O que torna todo número um piso",
+        "none": "Nenhuma pendência.",
+        "unpricedEffect": "Material consumido sem compra cadastrada.",
+        "suppressed": "Compras omitidas por coorte pequena",
+        "purchases": "Compras por parceiro não responderam",
+        "truncated": "A leitura bateu no teto",
+        "noBillingStart": "pagantes sem cobrança iniciada",
+        "noBillingStartEffect": "Sem publicação nem liberação registrada.",
+        "approximate": "marcos sem carimbo de publicação",
+        "approximateEffect": "Contados da liberação ou do aceite. Receita aproximada."
+      },
+      "series": {
+        "title": "Receita e custo, mês a mês",
+        "toInvoice": "A faturar",
+        "blocked": "Amarrada sem contrato",
+        "clientCost": "Custo dos clientes",
+        "fixedCost": "Custo mensal",
+        "hint": "A camada amarrada é o que sai se o contrato for aceito antes do dia 20. Desembolso único fica fora.",
+        "app": "App",
+        "otherCurrencies": "Fora do eixo: {list}"
+      }
+    }
   }
 }

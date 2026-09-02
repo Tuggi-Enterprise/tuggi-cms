@@ -2350,6 +2350,7 @@
     "title": "Finanzas",
     "subtitle": "Lo que costó cada socio, lo que paga, y si la cuenta cierra",
     "sections": {
+      "overview": "Visión general",
       "partners": "Socios",
       "catalog": "Catálogo y compras",
       "structure": "Estructura"
@@ -2550,6 +2551,105 @@
       "required": "Obligatorio",
       "errorCode": "No se pudo guardar ({code})."
     },
-    "purchasesUnavailable": "El registro de compras de los usuarios de la app no respondió, así que no se pudo leer quién compró. Los costes de abajo están completos; lo que falta es distinguir un socio que no trajo a nadie de uno que trajo a quien compró — por eso esos aparecen como “Sin dato de retorno”."
+    "purchasesUnavailable": "El registro de compras de los usuarios de la app no respondió, así que no se pudo leer quién compró. Los costes de abajo están completos; lo que falta es distinguir un socio que no trajo a nadie de uno que trajo a quien compró — por eso esos aparecen como “Sin dato de retorno”.",
+    "overview": {
+      "month": {
+        "title": "El mes — {month}",
+        "accrual": "contratado, por devengo",
+        "revenue": "Ingreso recurrente",
+        "revenueHint": "{count} pagadores · cuota {fee}",
+        "variable": "Coste variable",
+        "variableHint": "{count} entregas",
+        "fixed": "Coste fijo mensual",
+        "result": "Resultado del mes",
+        "standard": "Tasa de impresión: {value}",
+        "oneOff": "Desembolso único: {value}",
+        "floor": "{count} líneas sin precio — el coste es un suelo",
+        "inProgress": "mes en curso",
+        "variableSoFar": "{count} entregas hasta ahora"
+      },
+      "base": {
+        "title": "Base de clientes",
+        "partners": "socios",
+        "paying": "Pagadores",
+        "courtesy": "Cortesía",
+        "free": "Gratuito",
+        "undeclared": "Sin plan",
+        "terminated": "Terminados",
+        "breakEven": "pagadores faltan, a {fee}, para cubrir {fixed} de estructura.",
+        "uncommitted": "{value} esperando aceptación, fuera de los {committed} firmes.",
+        "joined": "Entraron por mes",
+        "noCohorts": "Ninguno con fecha de aprobación.",
+        "undated": "{count} sin fecha de aprobación, fuera del gráfico."
+      },
+      "app": {
+        "title": "Usuarios de la app",
+        "requiresAdmin": "Exige perfil de administrador.",
+        "failed": "El lado de la app no respondió.",
+        "excludedNotice": "{count} cuentas de prueba aún en el agregado.",
+        "realized": "Ya entró",
+        "recurring": "Recurrente",
+        "transactions": "{count} cobros",
+        "subscriptions": "{count} suscripciones vivas",
+        "usdBridge": "Neto en dólares",
+        "usdHint": "{gross} bruto · conversión del propio RevenueCat",
+        "sandbox": "{count} cobros de prueba fuera de la cuenta"
+      },
+      "acquisition": {
+        "title": "Adquisición",
+        "acquired": "Llegaron por el QR",
+        "teamHint": "equipo: {count}",
+        "cac": "Coste por adquisición",
+        "cacHint": "coste directo ÷ adquiridos",
+        "conversion": "Compraron",
+        "of": "de {count}",
+        "conversionUnknown": "El registro de compras no respondió.",
+        "excluded": "{count} socios de prueba fuera de la cuenta."
+      },
+      "projection": {
+        "title": "Los próximos seis meses",
+        "newPerMonth": "Nuevos pagadores/mes",
+        "churn": "Churn/mes",
+        "cost": "coste {value}",
+        "committed": "Calendario firmado",
+        "premise": "Bajo premisa",
+        "costLegend": "Coste mensual",
+        "crossing": "El cruce",
+        "noCrossing": "no cruza en 6 meses",
+        "crossingHint": "bajo {count} nuevos pagadores al mes.",
+        "inert": "Sin pagador no hay cuota que proyectar.",
+        "written": "La premisa",
+        "averageFee": "Cuota media",
+        "kit": "Kit por nuevo",
+        "fixed": "Coste fijo mensual",
+        "noB2c": "La compra de minutos no se extrapola.",
+        "exact": "{month}: previsión exacta, solo calendario firmado.",
+        "pendingTitle": "Esperando aceptación",
+        "pendingHint": "Entra en el calendario el mes siguiente a la aceptación.",
+        "noFixedCost": "Ningún coste fijo registrado — el cruce es optimista."
+      },
+      "pendings": {
+        "title": "Lo que hace que todo número sea un suelo",
+        "none": "Nada pendiente.",
+        "unpricedEffect": "Material consumido sin compra registrada.",
+        "suppressed": "Compras omitidas por cohorte pequeña",
+        "purchases": "Compras por socio no respondieron",
+        "truncated": "La lectura llegó al tope",
+        "noBillingStart": "pagadores sin cobro iniciado",
+        "noBillingStartEffect": "Sin publicación ni liberación registrada.",
+        "approximate": "marcos sin sello de publicación",
+        "approximateEffect": "Contados desde la liberación o la aceptación. Ingreso aproximado."
+      },
+      "series": {
+        "title": "Ingreso y coste, mes a mes",
+        "toInvoice": "A facturar",
+        "blocked": "Bloqueada sin contrato",
+        "clientCost": "Coste de los clientes",
+        "fixedCost": "Coste mensual",
+        "hint": "La capa bloqueada es lo que sale si el contrato se acepta antes del día 20. El desembolso único queda fuera.",
+        "app": "App",
+        "otherCurrencies": "Fuera del eje: {list}"
+      }
+    }
   }
 }

@@ -25,7 +25,6 @@ import { resolve } from 'node:path'
 import {
   assessClient,
   suppressSmallCohortPurchases,
-  wholeMonthsBetween,
   PURCHASE_MIN_COHORT,
   type ClientFinanceFacts,
   type ConsumptionRecord,
@@ -62,6 +61,15 @@ function facts(over: Partial<ClientFinanceFacts> = {}): ClientFinanceFacts {
     clientId: over.clientId ?? 'client-1',
     clientName: over.clientName ?? 'Baires Bistrô',
     approvedAt: over.approvedAt === undefined ? '2026-06-01' : over.approvedAt,
+    // O MARCO DA COBRANÇA, que não é a aprovação. Publicado em 1º de junho: primeira fatura
+    // em 20 de julho, carregando junho inteiro de proporcional junto.
+    billingStart:
+      over.billingStart === undefined
+        ? ({ at: '2026-06-01', source: 'publication' } as const)
+        : over.billingStart,
+    // Receita REALIZADA não tem horizonte: o contrato é por prazo indeterminado, e os doze
+    // meses são premissa da projeção, não leitura do instrumento.
+    horizonInvoices: over.horizonInvoices === undefined ? null : over.horizonInvoices,
     stance: over.stance ?? 'paying',
     monthlyFeeCents: over.monthlyFeeCents === undefined ? 10_000 : over.monthlyFeeCents,
     consumption: over.consumption ?? [line()],
@@ -162,11 +170,36 @@ test('um parceiro suprimido torna o total do topo um piso, e a tela precisa sabe
   assert.equal(limpo.purchaseIsFloor, false, 'sem supressão, o total é o total')
 })
 
-test('meses inteiros: o mês parcial não é faturado', () => {
-  assert.equal(wholeMonthsBetween('2026-06-01', '2026-09-01'), 3)
-  assert.equal(wholeMonthsBetween('2026-06-15', '2026-09-01'), 2, 'faltam 14 dias para o terceiro')
-  assert.equal(wholeMonthsBetween('2026-08-31', '2026-09-01'), 0, 'um dia não é um mês')
-  assert.equal(wholeMonthsBetween('2026-12-01', '2026-09-01'), 0, 'o futuro não fatura')
+test('o relógio da receita é o CALENDÁRIO do contrato, não meses desde a aprovação', () => {
+  // Aprovado em 1º de junho e publicado só em 25 de agosto: pela regra antiga isto valia três
+  // meses faturados. Pelo contrato, a primeira fatura ainda nem venceu — ela vence dia 20 de
+  // setembro, e em 1º de setembro o parceiro não deve nada.
+  const tarde = assessClient(
+    facts({ billingStart: { at: '2026-08-25', source: 'publication' } }),
+    NOW
+  )
+
+  assert.equal(tarde.monthsBilled, 0, 'o primeiro vencimento é 20/09 e ainda não chegou')
+  assert.equal(tarde.revenueCents, 0)
+  assert.equal(tarde.billingStartsAt, '2026-08-25')
+  assert.equal(tarde.billingStartSource, 'publication')
+})
+
+test('pagante sem marco de cobrança é `undated` — o contrato só cobra da publicação', () => {
+  const semMarco = assessClient(facts({ billingStart: null }), NOW)
+
+  assert.equal(semMarco.verdict, 'undated')
+  assert.equal(semMarco.revenueCents, 0, 'não há primeira fatura para contar')
+  assert.equal(semMarco.billingStartsAt, null)
+})
+
+test('o marco vindo da assinatura viaja MARCADO até a tela', () => {
+  const aproximado = assessClient(
+    facts({ billingStart: { at: '2026-06-01', source: 'signature' } }),
+    NOW
+  )
+
+  assert.equal(aproximado.billingStartSource, 'signature')
 })
 
 test('paga e o acumulado já cobriu o custo — `profitable`', () => {
@@ -174,7 +207,8 @@ test('paga e o acumulado já cobriu o custo — `profitable`', () => {
 
   assert.equal(result.verdict, 'profitable')
   assert.equal(result.directCostCents, 15_600)
-  assert.equal(result.monthsBilled, 3)
+  // Duas faturas VENCIDAS (20/07 e 20/08), e a primeira levou junho inteiro de proporcional.
+  assert.equal(result.monthsBilled, 2)
   assert.equal(result.revenueCents, 30_000)
   assert.equal(result.marginCents, 14_400)
   assert.equal(result.paybackMonths, 2, 'R$ 156 a R$ 100/mês se paga no segundo mês')
@@ -238,8 +272,8 @@ test('uma linha sem preço torna todo total um piso — `uncosted` responde prim
   assert.equal(result.directCostCents, 15_600, 'a linha sem preço não soma zero: ela não soma')
 })
 
-test('sem data de aprovação não há meses — `undated`, e não payback zero', () => {
-  const result = assessClient(facts({ approvedAt: null }), NOW)
+test('sem data de entrada, `undated` — e não payback zero', () => {
+  const result = assessClient(facts({ approvedAt: null, billingStart: null }), NOW)
 
   assert.equal(result.verdict, 'undated')
   assert.equal(result.monthsBilled, 0)

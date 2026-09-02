@@ -2431,6 +2431,7 @@
     "title": "Finance",
     "subtitle": "What each partner cost, what they pay, and whether it adds up",
     "sections": {
+      "overview": "Overview",
       "partners": "Partners",
       "catalog": "Catalog and purchases",
       "structure": "Structure"
@@ -2631,6 +2632,105 @@
       "required": "Required",
       "errorCode": "Could not save ({code})."
     },
-    "purchasesUnavailable": "The purchase record of the app users did not answer, so who purchased could not be read. The costs below are complete; what is missing is telling apart a partner who brought no one from one who brought someone who purchased — which is why those show up as “No return data”."
+    "purchasesUnavailable": "The purchase record of the app users did not answer, so who purchased could not be read. The costs below are complete; what is missing is telling apart a partner who brought no one from one who brought someone who purchased — which is why those show up as “No return data”.",
+    "overview": {
+      "month": {
+        "title": "The month — {month}",
+        "accrual": "contracted, accrual basis",
+        "revenue": "Recurring revenue",
+        "revenueHint": "{count} payers · fee {fee}",
+        "variable": "Variable cost",
+        "variableHint": "{count} deliveries",
+        "fixed": "Monthly fixed cost",
+        "result": "Result of the month",
+        "standard": "Printing rate: {value}",
+        "oneOff": "One-off outlay: {value}",
+        "floor": "{count} lines with no price — cost is a floor",
+        "inProgress": "month in progress",
+        "variableSoFar": "{count} deliveries so far"
+      },
+      "base": {
+        "title": "Client base",
+        "partners": "partners",
+        "paying": "Paying",
+        "courtesy": "Courtesy",
+        "free": "Free",
+        "undeclared": "No plan",
+        "terminated": "Terminated",
+        "breakEven": "more payers, at {fee}, would cover {fixed} of structure.",
+        "uncommitted": "{value} awaiting acceptance, outside the {committed} firm.",
+        "joined": "Joined by month",
+        "noCohorts": "None with an approval date.",
+        "undated": "{count} with no approval date, off the chart."
+      },
+      "app": {
+        "title": "App users",
+        "requiresAdmin": "Requires an administrator profile.",
+        "failed": "The app side did not answer.",
+        "excludedNotice": "{count} test accounts still in the app aggregate.",
+        "realized": "Already in",
+        "recurring": "Recurring",
+        "transactions": "{count} charges",
+        "subscriptions": "{count} live subscriptions",
+        "usdBridge": "Net in dollars",
+        "usdHint": "{gross} gross · RevenueCat's own conversion",
+        "sandbox": "{count} test charges out of the count"
+      },
+      "acquisition": {
+        "title": "Acquisition",
+        "acquired": "Came through the QR",
+        "teamHint": "staff: {count}",
+        "cac": "Cost per acquisition",
+        "cacHint": "direct cost ÷ acquired",
+        "conversion": "Purchased",
+        "of": "of {count}",
+        "conversionUnknown": "Purchase ledger did not answer.",
+        "excluded": "{count} test partners out of the count."
+      },
+      "projection": {
+        "title": "The next six months",
+        "newPerMonth": "New payers/month",
+        "churn": "Churn/month",
+        "cost": "cost {value}",
+        "committed": "Signed schedule",
+        "premise": "Under premise",
+        "costLegend": "Monthly cost",
+        "crossing": "The crossing",
+        "noCrossing": "does not cross in 6 months",
+        "crossingHint": "under {count} new payers a month.",
+        "inert": "No payer, so no fee to project.",
+        "written": "The premise",
+        "averageFee": "Average fee",
+        "kit": "Kit per new partner",
+        "fixed": "Monthly fixed cost",
+        "noB2c": "App purchases are not extrapolated.",
+        "exact": "{month}: exact forecast, signed schedule only.",
+        "pendingTitle": "Awaiting acceptance",
+        "pendingHint": "Enters the schedule the month after acceptance.",
+        "noFixedCost": "No fixed cost recorded — the crossing is optimistic."
+      },
+      "pendings": {
+        "title": "What makes every number a floor",
+        "none": "Nothing pending.",
+        "unpricedEffect": "Material consumed with no purchase on record.",
+        "suppressed": "Purchases omitted for a small cohort",
+        "purchases": "Per-partner purchases did not answer",
+        "truncated": "The read hit the cap",
+        "noBillingStart": "payers with billing not started",
+        "noBillingStartEffect": "No publication or liberation on record.",
+        "approximate": "markers with no publication stamp",
+        "approximateEffect": "Counted from liberation or acceptance. Revenue is approximate."
+      },
+      "series": {
+        "title": "Revenue and cost, month by month",
+        "toInvoice": "To invoice",
+        "blocked": "Blocked, no contract",
+        "clientCost": "Client cost",
+        "fixedCost": "Monthly cost",
+        "hint": "The blocked layer is what goes out if the contract is accepted before the 20th. One-off outlay is excluded.",
+        "app": "App",
+        "otherCurrencies": "Off the axis: {list}"
+      }
+    }
   }
 }
