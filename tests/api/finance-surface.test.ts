@@ -506,3 +506,64 @@ test('o rótulo micro-caps do financeiro usa a tinta que passa AA', () => {
     assert.deepEqual(offenders, [], `${file}: rótulo de 10px em text-gray-400 reprova AA`)
   }
 })
+
+test('a compra do app chega por RPC, e o ledger não é lido linha a linha', () => {
+  const service = code('lib/services/finance-service.ts')
+
+  // `drive.time_credit_grants` nega SELECT ao `service_role`, e a negação é deliberada: o ledger
+  // registra QUEM concedeu cada crédito e foi desenhado para uma pessoa nomeada, nunca para uma
+  // conta de serviço. Voltar a lê-lo daqui é voltar a `purchasesAnswered: false` e ao veredito
+  // "Sem dado de retorno" em todo parceiro que não paga.
+  assert.ok(
+    !/from\('time_credit_grants'\)/.test(service),
+    'o ledger não é lido direto: a janela é drive.partner_purchase_summary'
+  )
+  assert.ok(
+    /rpc\('partner_purchase_summary'/.test(service),
+    'a compra por parceiro vem da RPC aplicada em 2026-09-02'
+  )
+
+  // O PEDIDO VIAJA COM O CÓDIGO. A função vive noutro repositório; sem o arquivo aqui, o porquê
+  // de cada decisão dela (uma linha por parceiro, piso de k dentro, `suppressed` na resposta)
+  // some no dia em que alguém precisar alterá-la.
+  const request = read('supabase/requests/partner_purchase_summary.sql')
+  assert.ok(/security definer/i.test(request))
+  assert.ok(/set search_path = ''/.test(request), 'definer sem search_path vazio é sequestrável')
+  assert.ok(
+    !/grant execute[^;]*to (anon|authenticated|public)/i.test(request),
+    'só o service_role executa'
+  )
+})
+
+test('minuto omitido pelo piso continua `null`, e nunca vira zero', () => {
+  const service = code('lib/services/finance-service.ts')
+  const reader = service.slice(
+    service.indexOf('for (const row of summaries)'),
+    service.indexOf('return empty', service.indexOf('for (const row of summaries)'))
+  )
+
+  assert.ok(reader.length > 0, 'a leitura da RPC existe e é onde os minutos entram')
+  // `purchased_minutes` volta `null` quando a coorte é pequena. Escrever 0 no mapa trocaria
+  // "omitido" por "nenhum minuto" — a confusão entre null e zero que este módulo inteiro recusa.
+  assert.ok(
+    /typeof row\.purchased_minutes === 'number'/.test(reader),
+    'o minuto só entra no mapa quando veio número'
+  )
+  assert.ok(
+    !/purchased_minutes \?\? 0/.test(reader),
+    'nenhum fallback para zero na coluna que o piso omite'
+  )
+})
+
+test('o piso da RPC e o daqui se somam, e um não substitui o outro', () => {
+  const service = code('lib/services/finance-service.ts')
+
+  assert.ok(
+    /suppressSmallCohortPurchases\(/.test(service),
+    'o piso local continua: a RPC pode um dia não ser a fonte'
+  )
+  assert.ok(
+    /suppressedPartners\.has\(/.test(service),
+    'e o piso que a RPC já aplicou é respeitado, sem este lado adivinhar o k do outro'
+  )
+})
