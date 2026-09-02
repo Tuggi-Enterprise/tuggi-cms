@@ -224,8 +224,13 @@ test('`/finance` não mora sob a área de admin, onde o módulo nunca decidiria 
     role: 'editor',
     enabledModules: [MODULES.FINANCE],
   })
+  const hrefs = [...editorComModulo.basic, ...editorComModulo.modules].flatMap((entry) =>
+    entry.kind === 'link'
+      ? [entry.item.href]
+      : entry.group.sections.flatMap((s) => s.items.map((i) => i.href))
+  )
   assert.deepEqual(
-    editorComModulo.primary.map((i) => i.href),
+    hrefs,
     ['/finance'],
     'o dia em que um editor tiver o módulo marcado, ele precisa achar a tela'
   )

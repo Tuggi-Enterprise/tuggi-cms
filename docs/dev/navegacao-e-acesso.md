@@ -44,9 +44,22 @@ dois cliques lá dentro, entre um importador de OSM e um log de auditoria.
 ANTES   Dashboard | Minha rede | Financeiro | Gestão de Pontos ▾ | Marketing ▾
                               | Relatórios ▾ | Usuários ▾ | Admin ▾ (10 itens)
 
-DEPOIS  Dashboard | Minha rede | Financeiro | Pontos ▾ | Parceiros ▾ | Marketing ▾
-                              | Relatórios ▾ | Sistema ▾
+DEPOIS  Dashboard  Minha rede  Relatórios ▾  │  Pontos ▾  Parceiros ▾  Marketing ▾
+                                              │  Financeiro  Sistema ▾
+        └─ o que se OLHA ─────────────────┘  └─ onde se TRABALHA ────────────────┘
 ```
+
+**A barra tem dois blocos, separados por um traço** (ordem definida pelo operador em
+2026-09-02). À esquerda o que se consulta: a visão geral, a rede, os números. À direita as
+áreas em que se trabalha. `Relatórios` mora à esquerda porque é leitura sobre a operação
+inteira, e não uma área; `Financeiro` é link e não dropdown porque tem um destino só.
+
+O traço só aparece quando existem os dois lados — um `editor` com o módulo financeiro tem
+apenas o bloco da direita, e um coordenador apenas o da esquerda.
+
+**Cuidado com o nome `modules` no código**: é o vocabulário do operador para "as áreas do
+produto", e NÃO é o conjunto de `lib/modules`. `points`, `partners` e `system` não têm
+entitlement nenhum. Quem decide entitlement continua sendo `isModuleEnabled`.
 
 - **Pontos** — três seções nomeadas: *Publicar* (POIs, Eventos, Locais, Rotas, Áudios de
   Sistema), *Ingestão* (OSM, Busca, Processamento), *Diagnóstico* (Mapa de Gatilhos, Trilhas,
@@ -170,8 +183,8 @@ que se disfarça de `ERR_ASSERTION` em vez de erro de módulo, então custa temp
 
 ```
 npx tsc --noEmit --skipLibCheck --incremental false      # 0 erros
-npx eslint app components lib scripts tests proxy.ts     # 0 erros (2546 warnings; era 2557)
-npx tsx --test tests/api/navigation.test.ts              # 23
+npx eslint app components lib scripts tests proxy.ts     # 0 erros (2547 warnings; era 2557)
+npx tsx --test tests/api/navigation.test.ts              # 25
 npx tsx --test tests/api/privileged-routes.test.ts       #  3
 npx tsx --experimental-test-module-mocks --test tests/api/finance-*.test.ts   # 100
 ```

@@ -31,7 +31,13 @@ import { useTranslations } from 'next-intl'
 import { LogOut, Menu, X, Moon, Sun, ChevronDown } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { useCmsUser } from '@/lib/hooks/useCmsUser'
-import { buildNavTree, type NavGroup, type NavItem } from '@/lib/navigation/menu'
+import {
+  buildNavTree,
+  type NavEntry,
+  type NavGroup,
+  type NavItem,
+  type NavTree,
+} from '@/lib/navigation/menu'
 import { TuggiLogo } from './TuggiLogo'
 import { LanguageSwitcher } from './LanguageSwitcher'
 
@@ -60,9 +66,11 @@ export function Header({ className }: { className?: string }) {
 
   // Enquanto a identidade não chegou, a árvore é vazia — e vazia é a resposta certa: renderizar
   // um palpite e corrigir depois é o que produzia o "Dashboard" quebrado para quem não é client.
-  const tree = isLoading
-    ? { primary: [], groups: [] }
+  const tree: NavTree = isLoading
+    ? { basic: [], modules: [] }
     : buildNavTree({ role, enabledModules, isCoordinator })
+
+  const allEntries = [...tree.basic, ...tree.modules]
 
   /**
    * O item aceso é o de href MAIS LONGO que contém o caminho atual.
@@ -70,10 +78,11 @@ export function Header({ className }: { className?: string }) {
    * O desempate importa: `/dashboard/reports/users` e `/dashboard` casariam os dois, e sem a
    * regra do mais longo o grupo errado acenderia.
    */
-  const everyHref = [
-    ...tree.primary.map((i) => i.href),
-    ...tree.groups.flatMap((g) => g.sections.flatMap((s) => s.items.map((i) => i.href))),
-  ]
+  const everyHref = allEntries.flatMap((entry) =>
+    entry.kind === 'link'
+      ? [entry.item.href]
+      : entry.group.sections.flatMap((s) => s.items.map((i) => i.href))
+  )
   const activeHref = everyHref
     .filter((href) => contains(pathname, href))
     .sort((a, b) => b.length - a.length)[0]
@@ -131,6 +140,53 @@ export function Header({ className }: { className?: string }) {
     )
   }
 
+  /** Um bloco da gaveta: os links soltos primeiro, cada dropdown como uma seção titulada. */
+  const renderMobileBlock = (entries: NavEntry[]) => {
+    const close = () => setIsMobileMenuOpen(false)
+    return entries.map((entry) =>
+      entry.kind === 'link' ? (
+        <div key={entry.item.href} className="space-y-1">
+          {navLink(entry.item, close)}
+        </div>
+      ) : (
+        <div key={entry.group.id}>
+          <h4 className="px-3 py-2 text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider">
+            {t(entry.group.labelKey)}
+          </h4>
+          {entry.group.sections.map((section, index) => (
+            <div key={section.labelKey ?? index} className="space-y-1">
+              {section.labelKey && (
+                <p className="px-3 pt-2 text-[11px] font-medium text-gray-400 dark:text-gray-500">
+                  {t(section.labelKey)}
+                </p>
+              )}
+              {section.items.map((item) => navLink(item, close))}
+            </div>
+          ))}
+        </div>
+      )
+    )
+  }
+
+  /** Uma posição da barra: link direto ou dropdown. Os dois blocos usam a MESMA função. */
+  const renderEntry = (entry: NavEntry) => {
+    if (entry.kind === 'link') return navLink(entry.item)
+    const group = entry.group
+    return (
+      <Dropdown
+        key={group.id}
+        group={group}
+        label={t(group.labelKey)}
+        isOpen={openDropdown === group.id}
+        isActive={groupIsActive(group)}
+        activeHref={activeHref}
+        onToggle={() => setOpenDropdown(openDropdown === group.id ? null : group.id)}
+        onClose={() => setOpenDropdown(null)}
+        t={t}
+      />
+    )
+  }
+
   return (
     <header
       className={cn(
@@ -150,23 +206,13 @@ export function Header({ className }: { className?: string }) {
           </div>
 
           <nav className="hidden lg:flex items-center space-x-1" aria-label={t('main_navigation')}>
-            {tree.primary.map((item) => navLink(item))}
-            {tree.primary.length > 0 && tree.groups.length > 0 && (
+            {tree.basic.map(renderEntry)}
+            {/* O traço separa o que se OLHA do que se TRABALHA. Só aparece quando há os dois
+                lados: para um `client`, que não tem relatórios, ele seria uma divisão de nada. */}
+            {tree.basic.length > 0 && tree.modules.length > 0 && (
               <div className="h-6 w-px bg-gray-200 dark:bg-gray-800 mx-2" aria-hidden="true" />
             )}
-            {tree.groups.map((group) => (
-              <Dropdown
-                key={group.id}
-                group={group}
-                label={t(group.labelKey)}
-                isOpen={openDropdown === group.id}
-                isActive={groupIsActive(group)}
-                activeHref={activeHref}
-                onToggle={() => setOpenDropdown(openDropdown === group.id ? null : group.id)}
-                onClose={() => setOpenDropdown(null)}
-                t={t}
-              />
-            ))}
+            {tree.modules.map(renderEntry)}
           </nav>
 
           <div className="flex items-center space-x-1">
@@ -220,30 +266,14 @@ export function Header({ className }: { className?: string }) {
           className="lg:hidden border-t border-tuggi-border/50 dark:border-gray-700/50 bg-white/95 dark:bg-gray-900/95 backdrop-blur-sm"
         >
           <nav className="px-2 pt-2 pb-3 space-y-4" aria-label={t('main_navigation')}>
-              {tree.primary.length > 0 && (
-                <div className="space-y-1">
-                  {tree.primary.map((item) => navLink(item, () => setIsMobileMenuOpen(false)))}
-                </div>
-              )}
-              {tree.groups.map((group) => (
-                <div key={group.id}>
-                  <h4 className="px-3 py-2 text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider">
-                    {t(group.labelKey)}
-                  </h4>
-                  {group.sections.map((section, index) => (
-                    <div key={section.labelKey ?? index} className="space-y-1">
-                      {section.labelKey && (
-                        <p className="px-3 pt-2 text-[11px] font-medium text-gray-400 dark:text-gray-500">
-                          {t(section.labelKey)}
-                        </p>
-                      )}
-                      {section.items.map((item) =>
-                        navLink(item, () => setIsMobileMenuOpen(false))
-                      )}
-                    </div>
-                  ))}
-                </div>
-              ))}
+            {/* Mesma ORDEM da barra, e o traço vira uma linha entre os dois blocos. Na gaveta
+                todo dropdown já vem aberto: não há hover no celular, e esconder atrás de um
+                segundo toque o que cabe na rolagem só adiciona um passo. */}
+            {renderMobileBlock(tree.basic)}
+            {tree.basic.length > 0 && tree.modules.length > 0 && (
+              <div className="border-t border-gray-200 dark:border-gray-800 pt-2" aria-hidden="true" />
+            )}
+            {renderMobileBlock(tree.modules)}
           </nav>
         </div>
       </div>

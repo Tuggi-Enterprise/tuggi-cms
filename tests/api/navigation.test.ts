@@ -33,7 +33,12 @@ import { readFileSync, existsSync } from 'node:fs'
 import { resolve } from 'node:path'
 
 import { resolveAccess, canReach, CLIENT_HOME } from '@/lib/navigation/access'
-import { buildNavTree, type NavContext, type NavItem } from '@/lib/navigation/menu'
+import {
+  buildNavTree,
+  type NavContext,
+  type NavEntry,
+  type NavItem,
+} from '@/lib/navigation/menu'
 import { MODULES } from '@/lib/modules'
 
 const root = resolve(import.meta.dirname, '../..')
@@ -52,18 +57,30 @@ const CLIENT: NavContext = { role: 'client', enabledModules: [] }
 const EDITOR: NavContext = { role: 'editor', enabledModules: [] }
 const VIEWER: NavContext = { role: 'viewer', enabledModules: [] }
 
+/** As duas metades da barra, na ordem em que aparecem. */
+function entries(ctx: NavContext) {
+  const tree = buildNavTree(ctx)
+  return [...tree.basic, ...tree.modules]
+}
+
 /** Todo href que a árvore oferece, achatado. */
 function hrefs(ctx: NavContext): string[] {
-  const tree = buildNavTree(ctx)
-  return [
-    ...tree.primary.map((i) => i.href),
-    ...tree.groups.flatMap((g) => g.sections.flatMap((s) => s.items.map((i) => i.href))),
-  ]
+  return entries(ctx).flatMap((entry) =>
+    entry.kind === 'link'
+      ? [entry.item.href]
+      : entry.group.sections.flatMap((s) => s.items.map((i) => i.href))
+  )
 }
 
 function allItems(ctx: NavContext): NavItem[] {
-  const tree = buildNavTree(ctx)
-  return [...tree.primary, ...tree.groups.flatMap((g) => g.sections.flatMap((s) => s.items))]
+  return entries(ctx).flatMap((entry) =>
+    entry.kind === 'link' ? [entry.item] : entry.group.sections.flatMap((s) => s.items)
+  )
+}
+
+/** Os grupos (dropdowns) que sobraram, em ordem. */
+function groups(ctx: NavContext) {
+  return entries(ctx).flatMap((e) => (e.kind === 'group' ? [e.group] : []))
 }
 
 // ── A invariante ──────────────────────────────────────────────────────────────────────────
@@ -109,7 +126,7 @@ test('um editor SEM módulo nenhum não recebe menu de navegação', () => {
 test('um editor COM o módulo financeiro recebe exatamente uma entrada', () => {
   const ctx: NavContext = { role: 'editor', enabledModules: [MODULES.FINANCE] }
   assert.deepEqual(hrefs(ctx), ['/finance'])
-  assert.equal(buildNavTree(ctx).groups.length, 0, 'nenhum grupo abre painel em branco')
+  assert.equal(groups(ctx).length, 0, 'nenhum grupo abre painel em branco')
 })
 
 // ── O que cada role vê ────────────────────────────────────────────────────────────────────
@@ -140,7 +157,7 @@ test('o coordenador usa `Minha rede`, e não recebe um Dashboard além dela', ()
   // mesmo do outro lado (`canManagePois = canEdit && !isCoordinator`), então oferecer o grupo
   // seria a porta de uma sala onde ele não age.
   assert.equal(
-    buildNavTree(coord).groups.some((g) => g.id === 'points'),
+    groups(coord).some((g) => g.id === 'points'),
     false,
     'o grupo Pontos some inteiro para o coordenador'
   )
@@ -238,7 +255,7 @@ test('prefixo é SEGMENTO, não pedaço de string', () => {
 
 test('nenhum grupo chega à barra sem item dentro', () => {
   for (const ctx of [ADMIN, CLIENT, EDITOR, VIEWER]) {
-    for (const group of buildNavTree(ctx).groups) {
+    for (const group of groups(ctx)) {
       assert.ok(group.sections.length > 0, `${ctx.role}: grupo ${group.id} sem seção`)
       for (const section of group.sections) {
         assert.ok(section.items.length > 0, `${ctx.role}: seção vazia em ${group.id}`)
@@ -248,7 +265,7 @@ test('nenhum grupo chega à barra sem item dentro', () => {
 })
 
 test('cabeçalho de seção só existe quando há mais de uma seção para separar', () => {
-  for (const group of buildNavTree(CLIENT).groups) {
+  for (const group of groups(CLIENT)) {
     if (group.sections.length === 1) {
       assert.equal(
         group.sections[0].labelKey,
@@ -258,7 +275,7 @@ test('cabeçalho de seção só existe quando há mais de uma seção para separ
     }
   }
   // Para o admin, `Pontos` tem as três seções e todas nomeadas.
-  const points = buildNavTree(ADMIN).groups.find((g) => g.id === 'points')
+  const points = groups(ADMIN).find((g) => g.id === 'points')
   assert.ok(points, 'o grupo de pontos existe para o admin')
   assert.equal(points!.sections.length, 3)
   for (const section of points!.sections) {
@@ -267,15 +284,57 @@ test('cabeçalho de seção só existe quando há mais de uma seção para separ
 })
 
 test('`Admin` deixou de ser um grupo — permissão não é assunto', () => {
-  const ids = buildNavTree(ADMIN).groups.map((g) => g.id)
+  const ids = groups(ADMIN).map((g) => g.id)
   assert.equal(ids.includes('admin'), false)
-  assert.deepEqual(ids, ['points', 'partners', 'marketing', 'reports', 'system'])
+  assert.deepEqual(ids, ['reports', 'points', 'partners', 'marketing', 'system'])
+})
+
+test('a barra tem dois blocos, e a ordem dentro deles é a que o operador pediu', () => {
+  // O que se OLHA à esquerda, o que se TRABALHA à direita, com um traço entre os dois.
+  const rotulo = (e: NavEntry) => (e.kind === 'link' ? e.item.labelKey : e.group.labelKey)
+  const tree = buildNavTree(ADMIN)
+
+  assert.deepEqual(tree.basic.map(rotulo), ['dashboard', 'my_network', 'reports'])
+  assert.deepEqual(tree.modules.map(rotulo), [
+    'points',
+    'partners',
+    'marketing',
+    'finance',
+    'system',
+  ])
+
+  // `Financeiro` é LINK e não dropdown: um destino só, e um painel com um item dentro é um
+  // clique a mais para chegar no mesmo lugar.
+  const finance = tree.modules.find((e) => rotulo(e) === 'finance')
+  assert.equal(finance?.kind, 'link')
+
+  // `Relatórios` é dropdown e está do lado de cá: é leitura sobre a operação, não uma área
+  // de trabalho.
+  assert.equal(tree.basic.find((e) => rotulo(e) === 'reports')?.kind, 'group')
+})
+
+test('o traço só existe quando há os dois lados', () => {
+  // Um `editor` com o módulo financeiro tem `modules` e não tem `basic`: separar um bloco de
+  // nada desenharia uma divisão que não divide.
+  const editorFinance = buildNavTree({ role: 'editor', enabledModules: [MODULES.FINANCE] })
+  assert.deepEqual(editorFinance.basic, [])
+  assert.equal(editorFinance.modules.length, 1)
+
+  // O `client` tem os dois: o painel dele à esquerda, `Pontos` à direita.
+  const client = buildNavTree(CLIENT)
+  assert.ok(client.basic.length > 0)
+  assert.ok(client.modules.length > 0)
+
+  // E o coordenador fica só com o bloco básico — ele não gerencia pontos.
+  const coord = buildNavTree({ role: 'client', enabledModules: [], isCoordinator: true })
+  assert.ok(coord.basic.length > 0)
+  assert.deepEqual(coord.modules, [])
 })
 
 test('a barra não passa de 8 elementos para ninguém', () => {
   for (const ctx of [ADMIN, CLIENT, EDITOR, VIEWER]) {
     const tree = buildNavTree(ctx)
-    const width = tree.primary.length + tree.groups.length
+    const width = tree.basic.length + tree.modules.length
     assert.ok(width <= 8, `role=${ctx.role}: ${width} elementos na barra`)
   }
 })
@@ -287,8 +346,8 @@ test('toda chave de rótulo existe nos três idiomas', () => {
   const tree = buildNavTree(ADMIN)
   const keys = [
     ...allItems(ADMIN).map((i) => i.labelKey),
-    ...tree.groups.map((g) => g.labelKey),
-    ...tree.groups.flatMap((g) => g.sections.map((s) => s.labelKey).filter(Boolean)),
+    ...groups(ADMIN).map((g) => g.labelKey),
+    ...groups(ADMIN).flatMap((g) => g.sections.map((s) => s.labelKey).filter(Boolean)),
   ] as string[]
 
   assert.ok(keys.length > 0)
