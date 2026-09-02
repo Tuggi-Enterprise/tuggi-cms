@@ -19,7 +19,7 @@ export default function UsersReportPage() {
   ]
 
   return (
-    <div className="p-6 lg:p-8 space-y-6 min-h-screen bg-gray-50 dark:bg-gray-950">
+    <div className="cms-width p-6 lg:p-8 space-y-6 min-h-screen bg-gray-50 dark:bg-gray-950">
       <div>
         <h1 className="text-2xl font-bold text-gray-900 dark:text-white flex items-center">
           <Users className="mr-3 h-8 w-8 text-tuggi-purple" />

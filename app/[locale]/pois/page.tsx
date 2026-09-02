@@ -845,7 +845,7 @@ function POIListWithSearchParams() {
   }, [selectedPoi])
 
   return (
-    <div className="min-h-screen bg-gray-50 dark:bg-gray-950 p-6 lg:p-8 flex flex-col">
+    <div className="cms-width min-h-screen bg-gray-50 dark:bg-gray-950 p-6 lg:p-8 flex flex-col">
       <div className="flex gap-8 flex-1 pt-6">
         {/* Left Column - Filters Sidebar */}
         <div className="w-[18%] flex-shrink-0">

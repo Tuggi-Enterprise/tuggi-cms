@@ -84,7 +84,7 @@ function AdminCouponsContent() {
   };
 
   return (
-    <div className="min-h-screen bg-gray-50/50">
+    <div className="cms-width min-h-screen bg-gray-50/50">
       <Container className="py-8">
         <CouponsListAdmin
           onCreateNew={openCreate}

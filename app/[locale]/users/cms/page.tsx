@@ -316,7 +316,7 @@ export default function CMSUsersPage() {
   }
 
   return (
-    <div className="min-h-screen bg-gray-50 dark:bg-gray-950 p-6 lg:p-8">
+    <div className="cms-width min-h-screen bg-gray-50 dark:bg-gray-950 p-6 lg:p-8">
       {/* Header */}
       <div className="flex flex-col lg:flex-row justify-between items-start lg:items-center mb-8 gap-4">
         <div>

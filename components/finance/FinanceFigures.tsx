@@ -37,6 +37,16 @@ interface Props {
   truncated: boolean
 }
 
+/**
+ * O TRILHO CARREGA O NÚMERO; O PORQUÊ É DO CARTÃO. Decidido em 2026-09-02, depois de contar as
+ * cópias: na Visão geral, quatro dos sete itens de "O que torna todo número um piso" repetiam o
+ * que este trilho já dizia — dois deles PALAVRA POR PALAVRA, visíveis ao mesmo tempo na tela.
+ *
+ * A divisão que ficou: aqui mora o fato (quantos pedidos, quantas linhas, quantos compradores, e
+ * o `≥` quando é piso); lá mora a consequência, uma vez só, sob um título que a nomeia. O trilho
+ * fica visível nas quatro seções e o cartão só na Visão geral — por isso o que é permanente aqui
+ * é o número, que se lê de relance, e não a frase, que se lê uma vez.
+ */
 export function FinanceFigures({ summary, truncated }: Props) {
   const t = useTranslations('Finance')
   const floor = (value: number) => (truncated ? t('atLeast', { count: value }) : formatCount(value))
@@ -95,10 +105,10 @@ export function FinanceFigures({ summary, truncated }: Props) {
                 ? `≥ ${floor(summary.usersWithPurchase)}`
                 : floor(summary.usersWithPurchase)
           }
-          hint={
-            `${t('summary.minutes')}: ${formatDurationOrDash(summary.purchasedMinutes)} — ` +
-            (summary.purchaseIsFloor ? t('summary.suppressed') : t('summary.minutesHint'))
-          }
+          // O `≥` NO VALOR JÁ DIZ QUE É PISO; o PORQUÊ dele é do cartão "O que torna todo número
+          // um piso", que fica logo ao lado na Visão geral. Aqui a frase inteira de `suppressed`
+          // aparecia palavra por palavra, a trinta centímetros da outra cópia dela.
+          hint={`${t('summary.minutes')}: ${formatDurationOrDash(summary.purchasedMinutes)} — ${t('summary.minutesHint')}`}
         />
 
         {summary.ordersAwaitingShipment > 0 && (
@@ -106,7 +116,6 @@ export function FinanceFigures({ summary, truncated }: Props) {
             icon={<AlertTriangle className="h-4 w-4 text-amber-600" aria-hidden="true" />}
             label={t('summary.awaitingShipment')}
             value={formatCount(summary.ordersAwaitingShipment)}
-            hint={t('summary.awaitingShipmentHint')}
           />
         )}
 
@@ -117,7 +126,6 @@ export function FinanceFigures({ summary, truncated }: Props) {
             icon={<AlertTriangle className="h-4 w-4 text-amber-600" aria-hidden="true" />}
             label={t('summary.unpriced')}
             value={formatCount(summary.unpricedLines)}
-            hint={t('verdictHint.uncosted')}
           />
         )}
       </div>

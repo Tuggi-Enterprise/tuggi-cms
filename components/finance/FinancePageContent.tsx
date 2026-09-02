@@ -19,9 +19,16 @@
  *
  * O TRILHO É O MESMO DE `/places`, `/pois` E `/users`, classe por classe: casca
  * `p-6 lg:p-8`, linha `flex gap-8 flex-1 pt-6`, trilho `w-[18%] flex-shrink-0` com o cartão de
- * vidro `sticky top-24`, conteúdo `w-[82%]`. Antes esta tela tinha `mx-auto max-w-[1600px]` e um
- * trilho SEM cartão — o título e o menu ficavam soltos sobre o cinza, e era só esta tela no CMS
- * inteiro que fazia isso.
+ * vidro `sticky top-24`, conteúdo `w-[82%]`. Antes esta tela tinha um trilho SEM cartão — o
+ * título e o menu ficavam soltos sobre o cinza, e era só esta tela no CMS inteiro que fazia isso.
+ *
+ * `cms-width` DÁ O TETO DE 1600px, e ele é do CMS inteiro desde 2026-09-02 — a regra mora em
+ * `app/globals.css`, com o porquê de 1600 e o porquê de `:where()` escritos lá. Esta tela foi a
+ * primeira a receber o teto porque foi nela que a falta dele aparecia: as outras GASTAM a largura
+ * extra (`/places` vira `2xl:grid-cols-5`, e num monitor largo cabem mais cartões), enquanto esta
+ * empilha FAIXAS de largura total — a cascata, as tabelas, o "para onde vai o dinheiro" —, e
+ * nelas a largura extra não vira conteúdo nenhum: vira vazio entre o rótulo, colado à esquerda,
+ * e o número, colado à direita.
  *
  * `min-w-0` NA COLUNA DE CONTEÚDO NÃO É ENFEITE. Item de flex nasce com `min-width: auto`, que
  * é o tamanho mínimo do conteúdo — e o conteúdo aqui é uma tabela `min-w-[1100px]`. Sem
@@ -152,7 +159,7 @@ export function FinancePageContent() {
   }, [load])
 
   return (
-    <div className="flex min-h-screen flex-col bg-gray-50 p-6 dark:bg-gray-950 lg:p-8">
+    <div className="cms-width flex min-h-screen flex-col bg-gray-50 p-6 dark:bg-gray-950 lg:p-8">
       <div className="flex flex-1 flex-col gap-8 pt-6 lg:flex-row">
         <aside className="w-full flex-shrink-0 lg:w-[18%]">
           {/* O cartão inteiro rola por dentro quando os números não cabem na janela: sem o
@@ -248,21 +255,34 @@ export function FinancePageContent() {
 
           {!loading && !error && overview && (
             <>
-              {overview.truncated && (
+              {/* NA VISÃO GERAL ESTA LINHA NÃO APARECE, porque lá o cartão "O que torna todo
+                  número um piso" já a carrega — e o teto é literalmente o assunto daquele cartão.
+                  Nas outras três seções o cartão não existe, e sem esta linha o operador leria
+                  uma tabela cortada sem saber que ela foi cortada. */}
+              {overview.truncated && section !== 'overview' && (
                 <p role="status" className="mb-4 text-[11px] text-amber-800 dark:text-amber-300">
                   {t('truncated')}
                 </p>
               )}
 
-              {/* A lacuna é nomeada acima da tabela, e não escondida atrás de um travessão numa
-                  coluna: ela muda o que o veredito de TODO parceiro não pagante significa. */}
-              {!overview.purchasesAnswered && (
-                <div
-                  role="status"
-                  className="mb-4 rounded-3xl border border-amber-300 bg-amber-50 px-5 py-3 text-[11px] text-amber-900 dark:border-amber-900 dark:bg-amber-950/40 dark:text-amber-200"
-                >
+              {/* ELA MORA ONDE MORA A COLUNA QUE ELA EXPLICA, e não no topo das quatro seções.
+                  A lacuna continua sendo nomeada acima da tabela, e não escondida atrás de um
+                  travessão numa coluna: ela muda o que o veredito de TODO parceiro não pagante
+                  significa, e ninguém passa o mouse em 52 linhas para descobrir isso.
+
+                  O QUE MUDOU, EM 2026-09-02: ela deixou de ser um cartão âmbar sobre Catálogo e
+                  Estrutura, que não têm nada a ver com compra de app. O aviso é PERMANENTE — fica
+                  até a RPC de compras existir (§2.1 de `financeiro-proxima-rodada.md`) — e um
+                  cartão permanente em toda tela é como o operador aprende a não ler cartão âmbar
+                  nenhum, inclusive os que aparecem uma vez só.
+
+                  As outras duas cópias seguem: `Pendências`, na Visão geral, é onde "o que está
+                  incompleto" já mora por desenho; e o `title`/`aria-label` de cada `VerdictBadge`
+                  explica a linha em que o operador parou. */}
+              {section === 'partners' && !overview.purchasesAnswered && (
+                <p role="status" className="mb-4 text-[11px] text-amber-800 dark:text-amber-300">
                   {t('purchasesUnavailable')}
-                </div>
+                </p>
               )}
 
               {section === 'overview' && (

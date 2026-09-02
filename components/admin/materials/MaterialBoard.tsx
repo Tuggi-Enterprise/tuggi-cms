@@ -138,7 +138,7 @@ export function MaterialBoard({
   }
 
   return (
-    <div className="flex min-h-screen flex-col bg-gray-50 p-4 dark:bg-gray-950 lg:p-8">
+    <div className="cms-width flex min-h-screen flex-col bg-gray-50 p-4 dark:bg-gray-950 lg:p-8">
       <div className="flex flex-1 flex-col gap-6 pt-2 lg:flex-row lg:gap-8 lg:pt-6">
         {/* ── The rail: the numbers, read without moving the eye off the board ───────────── */}
         <div className="hidden w-[18%] flex-shrink-0 lg:block">

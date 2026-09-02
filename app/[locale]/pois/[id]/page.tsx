@@ -215,7 +215,7 @@ export default function POIPage() {
   }
 
   return (
-    <div className="min-h-screen bg-tuggi-background">
+    <div className="cms-width min-h-screen bg-tuggi-background">
       {/* Header with back button */}
       <div className="fixed top-4 left-4 z-50">
         <button
