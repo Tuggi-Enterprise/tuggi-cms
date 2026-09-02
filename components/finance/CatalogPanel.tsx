@@ -20,9 +20,9 @@
  * conta o que já foi pago e ainda não saiu — capital parado, e a resposta a "comprei demais?".
  */
 
-import { useMemo, useState } from 'react'
+import { Fragment, useMemo, useState } from 'react'
 import { useTranslations } from 'next-intl'
-import { AlertTriangle } from 'lucide-react'
+import { AlertTriangle, ChevronDown, ChevronRight } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { formatCount, formatMoney, parseMoneyToCents } from '@/lib/finance/money'
 import { summarizeStock } from '@/lib/finance/summary'
@@ -50,8 +50,14 @@ interface Props {
   onReload: () => void
 }
 
+/**
+ * `overflow-hidden` PORQUE A FAIXA DE FORMULÁRIO É PINTADA. Ela é o último filho do cartão e tem
+ * canto reto; sem o recorte, o retângulo dela aparecia por baixo do `rounded-3xl` nos dois
+ * cantos de baixo. Recortar no cartão resolve para toda faixa, presente e futura, em vez de
+ * pedir um `rounded-b-3xl` que alguém esquece na próxima.
+ */
 const CARD =
-  'rounded-3xl border border-gray-200 bg-white/70 shadow-2xl shadow-black/5 backdrop-blur-xl dark:border-gray-800 dark:bg-gray-900/70'
+  'overflow-hidden rounded-3xl border border-gray-200 bg-white/70 shadow-2xl shadow-black/5 backdrop-blur-xl dark:border-gray-800 dark:bg-gray-900/70'
 const HEAD =
   'px-3 py-2 text-left text-[10px] font-bold uppercase tracking-widest text-gray-500 dark:text-gray-400'
 const CELL = 'px-3 py-2.5 text-sm text-gray-800 dark:text-gray-200'
@@ -60,12 +66,14 @@ const INPUT =
 
 export function CatalogPanel(props: Props) {
   const t = useTranslations('Finance')
+  const [open, setOpen] = useState<string | null>(null)
   const stock = useMemo(
     () => summarizeStock(props.products, props.purchases, props.consumption),
     [props.products, props.purchases, props.consumption]
   )
   const costOf = (productId: string) =>
     props.unitCosts.find((cost) => cost.productId === productId) ?? null
+  const nameOf = (id: string) => props.products.find((product) => product.id === id)?.name ?? id
 
   return (
     <div className="space-y-6">
@@ -84,11 +92,17 @@ export function CatalogPanel(props: Props) {
         </div>
       )}
 
-      {/* UMA TABELA POR PRODUTO, E NÃO DUAS. O catálogo mostrava produto, papel e unidade de
-          compra numa tabela, e comprado-consumido-estoque em outra — as duas com uma linha por
-          produto. Papel e unidade de compra não respondem pergunta nenhuma que alguém faça
-          olhando para elas; o custo por peça e o que sobrou, sim. Duas tabelas com a mesma chave
-          são duas leituras do mesmo assunto, e o operador tinha de cruzá-las de olho. */}
+      {/* UMA TABELA POR PRODUTO, E NÃO CINCO. O catálogo já havia fundido duas tabelas com a
+          mesma chave — produto+papel e comprado-consumido-estoque — pelo argumento de que duas
+          leituras do mesmo assunto obrigam o operador a cruzá-las de olho. Faltavam três: a
+          receita, a embalagem e as compras também são por produto, e estavam em cartões
+          separados mais abaixo. Aqui o argumento vai até o fim: a linha ABRE e mostra o que
+          aquele produto leva junto, em que ele viaja (quando ELE é a embalagem) e as compras que
+          formaram o custo por peça daquela mesma linha.
+
+          OS FORMULÁRIOS FICARAM ONDE ESTAVAM, e é deliberado: cadastrar receita, embalagem ou
+          compra começa escolhendo um produto de uma lista, então eles pertencem a um lugar que
+          vê o catálogo inteiro — não à linha de um produto só. */}
       <section className={CARD}>
         <h2 className="border-b border-gray-200 px-5 py-4 text-sm font-semibold text-gray-900 dark:border-gray-800 dark:text-white">
           {t('catalog.stockTitle')}
@@ -97,54 +111,105 @@ export function CatalogPanel(props: Props) {
           <table className="w-full min-w-[640px] border-collapse">
             <thead>
               <tr>
+                <th scope="col" className={`${HEAD} w-10`}><span className="sr-only">{t('catalog.product')}</span></th>
                 <th scope="col" className={HEAD}>{t('catalog.product')}</th>
-                <th scope="col" className={HEAD}>{t('catalog.unitCost')}</th>
-                <th scope="col" className={HEAD}>{t('catalog.purchased')}</th>
-                <th scope="col" className={HEAD}>{t('catalog.consumed')}</th>
-                <th scope="col" className={HEAD}>{t('catalog.remaining')}</th>
+                <th scope="col" className={`${HEAD} text-right`}>{t('catalog.unitCost')}</th>
+                <th scope="col" className={`${HEAD} text-right`}>{t('catalog.purchased')}</th>
+                <th scope="col" className={`${HEAD} text-right`}>{t('catalog.consumed')}</th>
+                <th scope="col" className={`${HEAD} text-right`}>{t('catalog.remaining')}</th>
               </tr>
             </thead>
             <tbody>
               {stock.map((line) => {
                 const cost = costOf(line.productId)
+                const product = props.products.find((item) => item.id === line.productId)
+                const expanded = open === line.productId
                 return (
-                  <tr key={line.productId} className="border-t border-gray-100 dark:border-gray-800">
-                    <th scope="row" className={`${CELL} text-left font-medium text-gray-900 dark:text-white`}>
-                      {line.name}
-                    </th>
-                    <td className={`${CELL} tabular-nums`}>
-                      {/* `null` imprime a razão, não `R$ 0,00`: sem compra não há custo, e zero
-                          diria que a peça saiu de graça. */}
-                      {cost?.centsExact == null || !cost.currency ? (
-                        <span className="text-gray-600 dark:text-gray-400">{t('catalog.noPrice')}</span>
-                      ) : (
-                        formatMoney(Math.round(cost.centsExact), cost.currency)
-                      )}
-                    </td>
-                    <td className={`${CELL} tabular-nums`}>{formatCount(line.purchasedPieces)}</td>
-                    <td className={`${CELL} tabular-nums`}>{formatCount(line.consumedPieces)}</td>
-                    {/* Negativo é informação e não erro: saiu mais do que se registrou ter comprado. */}
-                    <td
-                      className={`${CELL} tabular-nums font-semibold ${
-                        line.remainingPieces < 0 ? 'text-red-700 dark:text-red-300' : ''
+                  <Fragment key={line.productId}>
+                    <tr
+                      className={`border-t border-gray-100 dark:border-gray-800 ${
+                        expanded ? 'bg-tuggi-blue/[.04]' : 'hover:bg-gray-50/70 dark:hover:bg-gray-800/40'
                       }`}
                     >
-                      {formatCount(line.remainingPieces)}
-                    </td>
-                  </tr>
+                      <td className={`${CELL} text-center`}>
+                        <button
+                          type="button"
+                          onClick={() => setOpen(expanded ? null : line.productId)}
+                          aria-expanded={expanded}
+                          title={t(expanded ? 'catalog.collapse' : 'catalog.expand', { product: line.name })}
+                          className="inline-flex min-h-[24px] min-w-[24px] items-center justify-center rounded-lg text-gray-500 transition-colors hover:bg-gray-100 hover:text-gray-900 dark:text-gray-400 dark:hover:bg-gray-800 dark:hover:text-white"
+                        >
+                          {expanded ? (
+                            <ChevronDown className="h-4 w-4 text-primary-800 dark:text-tuggi-blue" aria-hidden="true" />
+                          ) : (
+                            <ChevronRight className="h-4 w-4" aria-hidden="true" />
+                          )}
+                        </button>
+                      </td>
+                      <th scope="row" className={`${CELL} text-left font-medium text-gray-900 dark:text-white`}>
+                        {line.name}
+                        {product && (
+                          <span className="ml-2 inline-flex rounded-full bg-gray-100 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider text-gray-600 dark:bg-gray-800 dark:text-gray-300">
+                            {t(product.role === 'deliverable' ? 'catalog.roleDeliverableTag' : 'catalog.roleComponentTag')}
+                          </span>
+                        )}
+                      </th>
+                      <td className={`${CELL} text-right tabular-nums`}>
+                        {/* `null` imprime a razão, não `R$ 0,00`: sem compra não há custo, e zero
+                            diria que a peça saiu de graça. */}
+                        {cost?.centsExact == null || !cost.currency ? (
+                          <span className="font-semibold text-amber-700 dark:text-amber-300">{t('catalog.noPrice')}</span>
+                        ) : (
+                          formatMoney(Math.round(cost.centsExact), cost.currency)
+                        )}
+                      </td>
+                      <td className={`${CELL} text-right tabular-nums`}>{formatCount(line.purchasedPieces)}</td>
+                      <td className={`${CELL} text-right tabular-nums`}>{formatCount(line.consumedPieces)}</td>
+                      {/* Negativo é informação e não erro: saiu mais do que se registrou ter comprado. */}
+                      <td
+                        className={`${CELL} text-right tabular-nums font-semibold ${
+                          line.remainingPieces < 0 ? 'text-red-700 dark:text-red-300' : ''
+                        }`}
+                      >
+                        {formatCount(line.remainingPieces)}
+                      </td>
+                    </tr>
+
+                    {expanded && (
+                      <tr className="border-t border-gray-100 bg-tuggi-blue/[.04] dark:border-gray-800">
+                        <td />
+                        <td colSpan={5} className="px-3 pb-5 pr-5">
+                          <ProductDetail
+                            productId={line.productId}
+                            recipes={props.recipes}
+                            packaging={props.packaging}
+                            purchases={props.purchases}
+                            nameOf={nameOf}
+                            onSaved={props.onReload}
+                          />
+                        </td>
+                      </tr>
+                    )}
+                  </Fragment>
                 )
               })}
             </tbody>
           </table>
         </div>
-      </section>
-      <RecipePanel products={props.products} recipes={props.recipes} onSaved={props.onReload} />
 
-      <PackagingPanel
-        products={props.products}
-        packaging={props.packaging}
-        onSaved={props.onReload}
-      />
+        {/* O CADASTRO DE PRODUTO MORA NO RODAPÉ DESTA TABELA, e ficou órfão até agora:
+            `NewProductForm` existia completo, com a rota `POST /api/finance/catalog` do outro
+            lado, e não era renderizado em lugar nenhum — o operador não tinha como criar
+            produto pela tela. Como receita, embalagem, compra e taxa TODAS escolhem um produto
+            de uma lista, o catálogo vazio travava o módulo inteiro numa tela sem saída. */}
+        <NewProductForm
+          unmappedMaterialKinds={props.unmappedMaterialKinds}
+          onSaved={props.onReload}
+        />
+      </section>
+      <RecipePanel products={props.products} onSaved={props.onReload} />
+
+      <PackagingPanel products={props.products} onSaved={props.onReload} />
 
       <PurchasePanel products={props.products} purchases={props.purchases} onSaved={props.onReload} />
 
@@ -152,13 +217,183 @@ export function CatalogPanel(props: Props) {
   )
 }
 
+/**
+ * O QUE A LINHA ABERTA MOSTRA — as três coisas que estavam em três cartões separados.
+ *
+ * A EMBALAGEM SÓ APARECE PARA QUEM É EMBALAGEM. `PackagingRule.productId` é o produto que É o
+ * envelope, e a regra vale para o ENVIO inteiro, não para um entregável específico. Desenhá-la
+ * dentro do display diria "displays viajam de 50 em 50", que é diferente de "cada 50 itens
+ * ENTREGUES viajam em 1 envelope" — e a diferença aparece no dia em que um pedido leva display
+ * e adesivo juntos.
+ *
+ * AS FRASES SÃO AS MESMAS DOS FORMULÁRIOS (`recipeSentence`, `packagingSentence`). Foram escritas
+ * para pegar o erro de quantidade invertida quando lidas em voz alta — em 2026-09-01, "1 envelope
+ * a cada 50 displays" virou "cada display leva 50 envelopes", R$ 1.500,00 num pedido de R$ 207,50.
+ * Repetir a mesma frase na leitura e na escrita é o que deixa o erro visível dos dois lados.
+ *
+ * A VIGÊNCIA VIAJA JUNTO DE CADA LINHA porque uma receita nunca é editada, só sucedida: duas
+ * linhas do mesmo par são dois fatos, e sem a data elas seriam uma contradição.
+ */
+function ProductDetail({
+  productId,
+  recipes,
+  packaging,
+  purchases,
+  nameOf,
+  onSaved,
+}: {
+  productId: string
+  recipes: RecipeLine[]
+  packaging: PackagingRule[]
+  purchases: FinancePurchaseRow[]
+  nameOf: (id: string) => string
+  onSaved: () => void
+}) {
+  const t = useTranslations('Finance')
+
+  /**
+   * O `Array.isArray` NÃO É PARANOIA DE TIPO — é o modo de falha. `finance-service.ts` garante as
+   * três chaves (a leitura que falha vira 503 antes de chegar aqui), então uma delas faltando é
+   * BUG, não estado. Só que o custo de espalhar `undefined` era a TELA INTEIRA em branco: o
+   * `[...packaging]` estourava `packaging is not iterable`, o React desmontava a árvore, e o
+   * operador ficava olhando um retângulo cinza sem nenhuma pista. Degradar para lista vazia
+   * mantém em pé o custo por peça, o estoque e as compras — que continuam corretos — em vez de
+   * levar tudo junto por causa de uma chave.
+   */
+  const list = <T,>(value: T[] | undefined): T[] => (Array.isArray(value) ? value : [])
+
+  const carries = list(recipes)
+    .filter((line) => line.parentProductId === productId)
+    .sort((a, b) => b.effectiveFrom.localeCompare(a.effectiveFrom))
+  const asPackaging = list(packaging)
+    .filter((rule) => rule.productId === productId)
+    .sort((a, b) => b.effectiveFrom.localeCompare(a.effectiveFrom))
+  const bought = list(purchases)
+    .filter((purchase) => purchase.productId === productId)
+    .sort((a, b) => b.purchasedAt.localeCompare(a.purchasedAt))
+
+  if (carries.length === 0 && asPackaging.length === 0 && bought.length === 0) {
+    return (
+      <p className="rounded-2xl bg-white/70 px-4 py-3 text-[11px] text-gray-600 dark:bg-gray-900/60 dark:text-gray-400">
+        {t('catalog.noRelations')}
+      </p>
+    )
+  }
+
+  return (
+    <div className="flex flex-col gap-5 rounded-2xl bg-white/70 p-4 dark:bg-gray-900/60">
+      {carries.length > 0 && (
+        <div>
+          <div className="mb-2 text-[10px] font-bold uppercase tracking-widest text-gray-500 dark:text-gray-400">
+            {t('catalog.carriesTitle')}
+          </div>
+          <ul className="flex flex-col gap-2">
+            {carries.map((line) => (
+              <li
+                key={`${line.componentProductId}-${line.effectiveFrom}`}
+                className="flex flex-wrap items-center gap-x-3 gap-y-1 text-sm text-gray-800 dark:text-gray-200"
+              >
+                <span>
+                  {t('catalog.recipeSentence', {
+                    parent: nameOf(line.parentProductId),
+                    quantity: line.quantity,
+                    component: nameOf(line.componentProductId),
+                  })}
+                </span>
+                <span className="text-[11px] tabular-nums text-gray-600 dark:text-gray-400">
+                  {t('catalog.since', { date: line.effectiveFrom })}
+                </span>
+                <RuleDelete
+                  query={new URLSearchParams({
+                    kind: 'recipe',
+                    parentProductId: line.parentProductId,
+                    componentProductId: line.componentProductId,
+                    effectiveFrom: line.effectiveFrom,
+                  }).toString()}
+                  onDone={onSaved}
+                />
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+
+      {asPackaging.length > 0 && (
+        <div>
+          <div className="mb-2 text-[10px] font-bold uppercase tracking-widest text-gray-500 dark:text-gray-400">
+            {t('catalog.travelsTitle')}
+          </div>
+          <ul className="flex flex-col gap-2">
+            {asPackaging.map((rule) => (
+              <li
+                key={rule.effectiveFrom}
+                className="flex flex-wrap items-center gap-x-3 gap-y-1 text-sm text-gray-800 dark:text-gray-200"
+              >
+                <span>
+                  {t('catalog.packagingSentence', {
+                    capacity: rule.capacity,
+                    product: nameOf(rule.productId),
+                  })}
+                </span>
+                <span className="text-[11px] tabular-nums text-gray-600 dark:text-gray-400">
+                  {t('catalog.since', { date: rule.effectiveFrom })}
+                </span>
+                <RuleDelete
+                  query={new URLSearchParams({
+                    kind: 'packaging',
+                    productId: rule.productId,
+                    effectiveFrom: rule.effectiveFrom,
+                  }).toString()}
+                  onDone={onSaved}
+                />
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+
+      {bought.length > 0 && (
+        <div>
+          <div className="mb-2 text-[10px] font-bold uppercase tracking-widest text-gray-500 dark:text-gray-400">
+            {t('catalog.formedTitle')}
+          </div>
+          <div className="overflow-x-auto rounded-xl border border-gray-200 dark:border-gray-800">
+            <table className="w-full min-w-[640px] border-collapse bg-white dark:bg-gray-900">
+              <thead>
+                <tr>
+                  <th scope="col" className={HEAD}>{t('catalog.date')}</th>
+                  <th scope="col" className={HEAD}>{t('catalog.product')}</th>
+                  <th scope="col" className={HEAD}>{t('catalog.units')}</th>
+                  <th scope="col" className={HEAD}>{t('catalog.pieces')}</th>
+                  <th scope="col" className={HEAD}>{t('catalog.total')}</th>
+                  <th scope="col" className={HEAD}>{t('catalog.freight')}</th>
+                  <th scope="col" className={HEAD}>{t('catalog.supplier')}</th>
+                  <th scope="col" className={HEAD}>{' '}</th>
+                </tr>
+              </thead>
+              <tbody>
+                {bought.map((purchase) => (
+                  <PurchaseRow
+                    key={purchase.id}
+                    purchase={purchase}
+                    productName={nameOf(purchase.productId)}
+                    onSaved={onSaved}
+                  />
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}
+
 function RecipePanel({
   products,
-  recipes,
   onSaved,
 }: {
   products: FinanceProduct[]
-  recipes: RecipeLine[]
   onSaved: () => void
 }) {
   const t = useTranslations('Finance')
@@ -210,49 +445,8 @@ function RecipePanel({
         </p>
       </header>
 
-      <div className="overflow-x-auto">
-        <table className="w-full min-w-[560px] border-collapse">
-          <thead>
-            <tr>
-              <th scope="col" className={HEAD}>{t('catalog.parent')}</th>
-              <th scope="col" className={HEAD}>{t('catalog.component')}</th>
-              <th scope="col" className={HEAD}>{t('catalog.quantity')}</th>
-              <th scope="col" className={HEAD}>{t('catalog.effectiveFrom')}</th>
-              <th scope="col" className={HEAD}>{' '}</th>
-            </tr>
-          </thead>
-          <tbody>
-            {[...recipes]
-              .sort((a, b) => b.effectiveFrom.localeCompare(a.effectiveFrom))
-              .map((line) => (
-                <tr
-                  key={`${line.parentProductId}-${line.componentProductId}-${line.effectiveFrom}`}
-                  className="border-t border-gray-100 dark:border-gray-800"
-                >
-                  <th scope="row" className={`${CELL} text-left font-medium text-gray-900 dark:text-white`}>
-                    {name(line.parentProductId)}
-                  </th>
-                  <td className={CELL}>{name(line.componentProductId)}</td>
-                  <td className={`${CELL} tabular-nums`}>{line.quantity}</td>
-                  <td className={`${CELL} tabular-nums`}>{line.effectiveFrom}</td>
-                  <td className={CELL}>
-                    <RuleDelete
-                      query={new URLSearchParams({
-                        kind: 'recipe',
-                        parentProductId: line.parentProductId,
-                        componentProductId: line.componentProductId,
-                        effectiveFrom: line.effectiveFrom,
-                      }).toString()}
-                      onDone={onSaved}
-                    />
-                  </td>
-                </tr>
-              ))}
-          </tbody>
-        </table>
-      </div>
 
-      <div className="flex flex-wrap items-end gap-3 border-t border-gray-200 px-5 py-4 dark:border-gray-800">
+      <div className="flex flex-wrap items-end gap-3 border-t border-gray-200 bg-gray-50/70 px-5 py-4 dark:border-gray-800 dark:bg-gray-950/40">
         <Field label={t('catalog.parent')} id="recipe-parent">
           <select id="recipe-parent" value={parent} onChange={(e) => setParent(e.target.value)} className={INPUT}>
             {deliverables.map((product) => (
@@ -385,8 +579,6 @@ function PurchasePanel({
     onSaved()
   }
 
-  const name = (id: string) => products.find((candidate) => candidate.id === id)?.name ?? id
-
   /**
    * O rendimento que a ÚLTIMA compra deste produto teve.
    *
@@ -413,6 +605,15 @@ function PurchasePanel({
         {t('catalog.purchasesTitle')}
       </h2>
 
+      {/* ESTA LISTA VOLTOU DEPOIS DE EU TER REMOVIDO ERRADO. A fusão do catálogo levou receita,
+          embalagem e compras para dentro da linha do produto, e nas outras duas estava certo:
+          são POR PRODUTO, e a linha do produto é o lugar delas. Compras não — esta tabela é
+          CRONOLÓGICA e atravessa o catálogo inteiro, e sem ela a pergunta "o que a gente comprou
+          nas últimas semanas" só teria resposta abrindo produto por produto.
+
+          NÃO É A MESMA TABELA QUE A DA LINHA ABERTA, e por isso as duas existem: lá a chave é o
+          produto e a pergunta é "por que esta peça custa R$ 4,17"; aqui a chave é a data e a
+          pergunta é "o que saiu do caixa". Duas chaves, duas leituras. */}
       <div className="overflow-x-auto">
         <table className="w-full min-w-[720px] border-collapse">
           <thead>
@@ -441,7 +642,7 @@ function PurchasePanel({
                 <PurchaseRow
                   key={purchase.id}
                   purchase={purchase}
-                  productName={name(purchase.productId)}
+                  productName={products.find((p) => p.id === purchase.productId)?.name ?? purchase.productId}
                   onSaved={onSaved}
                 />
               ))}
@@ -449,7 +650,8 @@ function PurchasePanel({
         </table>
       </div>
 
-      <div className="flex flex-wrap items-end gap-3 border-t border-gray-200 px-5 py-4 dark:border-gray-800">
+
+      <div className="flex flex-wrap items-end gap-3 border-t border-gray-200 bg-gray-50/70 px-5 py-4 dark:border-gray-800 dark:bg-gray-950/40">
         <Field label={t('catalog.product')} id="purchase-product">
           <select
             id="purchase-product"
@@ -807,7 +1009,7 @@ function NewProductForm({
 
   if (!open) {
     return (
-      <div className="border-t border-gray-200 px-5 py-4 dark:border-gray-800">
+      <div className="border-t border-gray-200 bg-gray-50/70 px-5 py-4 dark:border-gray-800 dark:bg-gray-950/40">
         <Button variant="cta" size="sm" onClick={() => setOpen(true)}>
           {t('catalog.productAdd')}
         </Button>
@@ -816,7 +1018,7 @@ function NewProductForm({
   }
 
   return (
-    <div className="flex flex-wrap items-end gap-3 border-t border-gray-200 px-5 py-4 dark:border-gray-800">
+    <div className="flex flex-wrap items-end gap-3 border-t border-gray-200 bg-gray-50/70 px-5 py-4 dark:border-gray-800 dark:bg-gray-950/40">
       <Field label={t('catalog.productName')} id="new-product-name">
         <input
           id="new-product-name"
@@ -890,11 +1092,9 @@ function NewProductForm({
  */
 function PackagingPanel({
   products,
-  packaging,
   onSaved,
 }: {
   products: FinanceProduct[]
-  packaging: PackagingRule[]
   onSaved: () => void
 }) {
   const t = useTranslations('Finance')
@@ -944,55 +1144,8 @@ function PackagingPanel({
         </p>
       </header>
 
-      <div className="overflow-x-auto">
-        <table className="w-full min-w-[480px] border-collapse">
-          <thead>
-            <tr>
-              <th scope="col" className={HEAD}>{t('catalog.packagingProduct')}</th>
-              <th scope="col" className={HEAD}>{t('catalog.packagingCapacity')}</th>
-              <th scope="col" className={HEAD}>{t('catalog.effectiveFrom')}</th>
-              <th scope="col" className={HEAD}>{' '}</th>
-            </tr>
-          </thead>
-          <tbody>
-            {packaging.length === 0 && (
-              <tr>
-                <td colSpan={4} className="px-5 py-6 text-center text-sm text-gray-600 dark:text-gray-400">
-                  {t('catalog.packagingEmpty')}
-                </td>
-              </tr>
-            )}
-            {[...packaging]
-              .sort((a, b) => b.effectiveFrom.localeCompare(a.effectiveFrom))
-              .map((rule) => (
-                <tr
-                  key={`${rule.productId}-${rule.effectiveFrom}`}
-                  className="border-t border-gray-100 dark:border-gray-800"
-                >
-                  <th scope="row" className={`${CELL} text-left font-medium text-gray-900 dark:text-white`}>
-                    {name(rule.productId)}
-                  </th>
-                  <td className={`${CELL} tabular-nums`}>
-                    {t('catalog.packagingEvery', { count: rule.capacity })}
-                  </td>
-                  <td className={`${CELL} tabular-nums`}>{rule.effectiveFrom}</td>
-                  <td className={CELL}>
-                    <RuleDelete
-                      query={new URLSearchParams({
-                        kind: 'packaging',
-                        productId: rule.productId,
-                        effectiveFrom: rule.effectiveFrom,
-                      }).toString()}
-                      onDone={onSaved}
-                    />
-                  </td>
-                </tr>
-              ))}
-          </tbody>
-        </table>
-      </div>
 
-      <div className="flex flex-wrap items-end gap-3 border-t border-gray-200 px-5 py-4 dark:border-gray-800">
+      <div className="flex flex-wrap items-end gap-3 border-t border-gray-200 bg-gray-50/70 px-5 py-4 dark:border-gray-800 dark:bg-gray-950/40">
         <Field label={t('catalog.packagingProduct')} id="packaging-product">
           <select
             id="packaging-product"

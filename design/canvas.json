@@ -1,0 +1,67 @@
+{
+  "artboards": [
+    { "file": "Diagnostico.dc.html", "x": 0, "y": 0, "w": 1440, "h": 940, "title": "Hoje — Parceiros" },
+    { "file": "Main.dc.html", "x": 1600, "y": 0, "w": 1440, "h": 940, "title": "Proposta — Parceiros" },
+    { "file": "Estrutura.dc.html", "x": 0, "y": 1180, "w": 1180, "h": 860, "title": "Proposta — Estrutura" },
+    { "file": "Catalogo.dc.html", "x": 1600, "y": 1180, "w": 1180, "h": 820, "title": "Proposta — Catálogo" }
+  ],
+  "annotations": [
+    {
+      "id": "leitura",
+      "x": 0,
+      "y": -260,
+      "w": 640,
+      "text": "AVALIAÇÃO — módulo Financeiro\n\nA tela não está mal desenhada; ela está indiferenciada. Todas as 14 colunas têm o mesmo peso, e 49 dos 52 parceiros são zero. Os três que custam dinheiro somem no meio dos zeros.\n\nÀ esquerda o que existe hoje, à direita a proposta. Embaixo, as outras duas seções."
+    },
+    {
+      "id": "p1",
+      "x": 700,
+      "y": -260,
+      "w": 420,
+      "text": "1 · Não dá para ordenar\n\n52 linhas, 14 colunas, e os únicos controles são dois selects. A pergunta do operador é \"quem me custou mais\", e ela exige varrer a coluna de custo com o olho."
+    },
+    {
+      "id": "p2",
+      "x": 1160,
+      "y": -260,
+      "w": 420,
+      "text": "2 · Não há soma\n\nFiltre por \"Só custo\" e o trilho continua dizendo 52 parceiros e R$ 1.934,59. O recorte na tela nunca tem total próprio — o operador filtra e depois soma na calculadora."
+    },
+    {
+      "id": "p3",
+      "x": 0,
+      "y": 1000,
+      "w": 640,
+      "text": "3 · O trilho responde por 52, a tabela mostra o recorte\n\nOs números do trilho vêm de summarizeFinance sobre a lista inteira e nunca reagem ao filtro. Não é bug — é a decisão de manter um total estável. Mas então o recorte precisa da própria soma, no rodapé da tabela (é o que a proposta faz)."
+    },
+    {
+      "id": "proposta-parceiros",
+      "x": 1600,
+      "y": 1000,
+      "w": 700,
+      "text": "PROPOSTA — Parceiros\n\n· Cabeçalho em dois níveis: Custo | Retorno | Aquisição | Pendência. As 14 colunas continuam lá, mas param de competir entre si.\n· Zero em cinza-400, valor real em cinza-900. É o que faz R$ 222,05 saltar de uma coluna de zeros — sem esconder nada.\n· Ordenação por clique no cabeçalho (seta em Custo direto).\n· Rodapé que soma o que está filtrado.\n· Chips de recorte no lugar de dois selects, cada um com a contagem: o operador vê quantos são ANTES de clicar."
+    },
+    {
+      "id": "proposta-estrutura",
+      "x": 0,
+      "y": 2100,
+      "w": 640,
+      "text": "PROPOSTA — Estrutura\n\nHoje são seis Stat iguais numa grade. Mas o código descreve uma CASCATA: MC I = margem dos parceiros, menos o fixo mensal, igual a MC II. Desenhá-la como cascata é só mostrar o que a lógica já faz.\n\nE o ponto de equilíbrio — o número que de fato decide algo — vira frase, não caixinha: \"faltam 14 parceiros pagantes\". Os desembolsos do ano ficam FORA da cascata, com a razão escrita ao lado."
+    },
+    {
+      "id": "proposta-catalogo",
+      "x": 1600,
+      "y": 2060,
+      "w": 640,
+      "text": "PROPOSTA — Catálogo\n\nHoje são cinco cartões empilhados (estoque, receita, embalagem, compras, produto) e todos têm a mesma chave: o produto. O operador cruza as cinco de olho.\n\nÉ o mesmo argumento que o código já usou uma vez, ao fundir duas tabelas em \"Custo e estoque por produto\" — aqui ele só vai até o fim: uma linha por produto, que ABRE e mostra o que leva junto, em que viaja e as compras que formaram o custo.\n\nAs relações viram frase (\"Cada 1 Display leva 1 QR code\"), que é como as traduções já as escrevem."
+    },
+    {
+      "id": "fora",
+      "x": 2400,
+      "y": 2060,
+      "w": 560,
+      "text": "O que NÃO mexi\n\n· Nenhuma coluna cortada — cada uma responde uma pergunta que foi feita.\n· Veredito continua TEXTO e não cor sozinha (DS-A11Y-003).\n· Custo direto e taxa de impressão seguem em colunas separadas, nunca somados.\n· Minutos nunca viram dinheiro.\n· Tudo em modo claro; o escuro segue os mesmos tokens."
+    }
+  ],
+  "launch": { "view": "canvas" }
+}

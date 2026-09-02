@@ -114,3 +114,8 @@ db-clone/
 scripts/qa/*.local.json
 .vercel
 .env*
+
+# Canvas de design: as fontes .dc.html sao versionadas, o HTML sempre e regerado
+# a partir delas pelo seed do skill e carrega ~2,5 MB do editor embutido.
+design/*.html
+!design/*.dc.html
