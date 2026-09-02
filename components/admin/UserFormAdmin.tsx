@@ -9,6 +9,7 @@ import { TOGGLEABLE_MODULES, MODULES } from '@/lib/modules'
 const MODULE_LABELS: Record<string, string> = {
   [MODULES.EVENTS]: 'Events',
   [MODULES.PLACES]: 'Places',
+  [MODULES.FINANCE]: 'Financeiro',
 }
 
 interface UserFormAdminProps {
