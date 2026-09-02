@@ -222,11 +222,18 @@ test('the number without a subtitle grows, and still does not set the row height
 /**
  * THE CEILING THE BIGGER NUMBER BUYS, measured instead of assumed.
  *
- * A wider glyph run is the price of a taller one: at `text-4xl` a count fits six digits in the
- * 169px a sixth of the row leaves, and `CONSUMIDO` — kept at `text-2xl` precisely because of
- * this — fits a four-digit hour total, which is where the product is heading and `formatDuration`
- * does not group thousands. Both are far above today's screen. If either stops being true the
- * card wraps, the card grows, and the row goes back to the complaint that opened #658.
+ * A wider glyph run is the price of a taller one. At `text-3xl` a count fits seven digits in the
+ * 169px a sixth of the row leaves; at the `text-4xl` this size replaced on 2026-09-02 it fitted
+ * six, and CURADORIA APROVADA had already passed that ceiling with `2.644.825` — it only escaped
+ * wrapping because the row went to 1600px the same day. `CONSUMIDO`, kept at `text-2xl` precisely
+ * because of this, fits a four-digit hour total, which is where the product is heading and
+ * `formatDuration` does not group thousands. If either stops being true the card wraps, the card
+ * grows, and the row goes back to the complaint that opened #658.
+ *
+ * The assertions below are RELATIONAL on purpose — nothing here hardcodes 30px or 36px. A size
+ * the operator changes by eye should not turn a geometry suite red; what must stay true is that
+ * the number without a subtitle is bigger than the split's, that neither wraps, and that the row
+ * stays level.
  */
 test('the row stays level at the biggest numbers it is claimed to survive', async ({
   mount,

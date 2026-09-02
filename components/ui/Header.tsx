@@ -194,7 +194,17 @@ export function Header({ className }: { className?: string }) {
         className
       )}
     >
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+      {/* O CABEÇALHO USA O MESMO MECANISMO DAS PÁGINAS, e não um número parecido.
+          Ele travava em `max-w-7xl` (1280px) enquanto o conteúdo das telas passou a travar em
+          1600px (`cms-width`, 2026-09-02): numa tela de 1920, o logo ficava 160px à direita de
+          onde o primeiro card começava. Enquanto o conteúdo era full-bleed isso não aparecia —
+          não havia caixa com que comparar —, e no dia em que passou a haver, as duas caixas
+          centralizadas de larguras diferentes leram como página desalinhada.
+
+          Repetir `max-w-[1600px]` aqui alinharia HOJE e desalinharia no dia em que alguém
+          mudasse o número num lugar só. Usando `cms-width`, o alinhamento é por construção: a
+          mesma regra governa as duas caixas, e o número mora em `app/globals.css`. */}
+      <div className="cms-width px-4 sm:px-6 lg:px-8">
         <div className="flex items-center justify-between h-14">
           <div className="flex-shrink-0 flex items-center">
             <TuggiLogo size="sm" showText={true} />
