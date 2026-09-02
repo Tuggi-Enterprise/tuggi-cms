@@ -236,6 +236,14 @@
    E NÃO ESTÁ EM `@layer components` porque de lá o Tailwind só emite o que ele reconhece como
    classe usada; em CSS puro, a regra existe sempre. */
 :where(.cms-width) > * {
+  /* `width: 100%` NÃO É REDUNDÂNCIA — é a linha que faz isto funcionar dentro de um flex.
+     Num contêiner `flex flex-col`, `margin-inline: auto` CANCELA o `align-items: stretch`: a
+     margem automática come o espaço livre e o filho passa a se dimensionar pelo próprio
+     conteúdo. O resultado, medido no dashboard em 2026-09-02, era cada faixa com uma largura
+     diferente — a fileira de KPIs a 1512px, a do mapa a 1600, as três colunas de acesso pago a
+     1216 — todas centralizadas e nenhuma alinhada com a outra. Com `width: 100%` o filho volta a
+     pedir a largura inteira, e o `max-width` é quem o para em 1600. */
+  width: 100%;
   max-width: 1600px;
   margin-inline: auto;
 }
