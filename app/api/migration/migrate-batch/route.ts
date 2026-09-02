@@ -1,6 +1,5 @@
-import { NextRequest, NextResponse } from 'next/server'
-import { getSupabaseRouteHandler } from '@/lib/core/supabase-client'
-import { cookies } from 'next/headers'
+import { NextResponse } from 'next/server'
+import { withAuth } from '@/lib/auth-middleware'
 import { getSupabase } from '@/lib/core/supabase-client'
 import { PoiMigrationPipeline, PipelineOptions } from '@/lib/services/poi-migration-pipeline'
 import { MigrationService } from '@/lib/services/migration-service'
@@ -45,20 +44,21 @@ interface BatchMigrationResult {
  * POST /api/migration/migrate-batch
  */
 export const dynamic = 'force-dynamic';
-export async function POST(request: NextRequest) {
+/**
+ * PORTÃO: `withAuth({ roles: ['admin'] })`, desde 2026-09-01.
+ *
+ * Antes, a Única checagem era "existe sessão" — nenhuma linha deste arquivo lia `role` nem
+ * `cms_users`. Logo abaixo, o módulo instancia `getSupabase('service')`. Ou seja: qualquer conta
+ * do CMS com sessão (um `client`, que é um parceiro) disparava o pipeline de migração — escrita
+ * em `core.attractions`, geração de descrição e áudio com custo de LLM/TTS, leitura do schema
+ * `homolog` inteiro. A tela `/poi-processing` é admin-only pelo proxy; a API que ela consome
+ * não era, e o proxy não cobre `/api`.
+ *
+ * `withAuth` também troca `getSession()` por `getUser()`, que revalida o JWT contra o servidor
+ * de Auth — ver o cabeçalho de `lib/auth-middleware.ts`.
+ */
+export const POST = withAuth({ roles: ['admin'] }, async (request) => {
   try {
-    // Authentication check
-    const cookieStore = await cookies()
-    const supabaseAuth = getSupabaseRouteHandler(cookieStore)
-    const { data: { session }, error: authError } = await supabaseAuth.auth.getSession()
-
-    if (authError || !session) {
-      return NextResponse.json(
-        { error: 'Unauthorized - Authentication required' },
-        { status: 401 }
-      )
-    }
-
     const body: BatchMigrationRequest = await request.json()
     const {
       filters = {},
@@ -273,6 +273,4 @@ export async function POST(request: NextRequest) {
       { status: 500 }
     )
   }
-}
-
-
+})
