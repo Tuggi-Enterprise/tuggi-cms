@@ -24,7 +24,9 @@ import { resolve } from 'node:path'
 
 import {
   assessClient,
+  suppressSmallCohortPurchases,
   wholeMonthsBetween,
+  PURCHASE_MIN_COHORT,
   type ClientFinanceFacts,
   type ConsumptionRecord,
 } from '@/lib/finance/profitability'
@@ -71,6 +73,94 @@ function facts(over: Partial<ClientFinanceFacts> = {}): ClientFinanceFacts {
     purchasedMinutes: over.purchasedMinutes === undefined ? 1_800 : over.purchasedMinutes,
   }
 }
+
+test('o piso de k esconde a compra de uma pessoa identificável, e só ela', () => {
+  assert.equal(PURCHASE_MIN_COHORT, 5, 'o mesmo k de `core.coordinator_city_breakdown`')
+
+  // 1 adquirido, 1 comprador: isto não é uma estatística, é a compra de UMA pessoa ao lado do
+  // nome do bar onde ela esteve.
+  const exposto = suppressSmallCohortPurchases(
+    facts({ linkedByPartnerId: 1, usersWithPurchase: 1, purchasedMinutes: 600 })
+  )
+  assert.equal(exposto.purchaseSuppressed, true)
+  assert.equal(exposto.usersWithPurchase, 1, 'colapsa em ≥1, e a tela escreve o ≥')
+  assert.equal(exposto.purchasedMinutes, null, 'os minutos são a coluna que mais identifica')
+
+  // Colapsa a MAGNITUDE, não a presença: 4 compradores em 4 adquiridos também vira ≥1.
+  const quatro = suppressSmallCohortPurchases(
+    facts({ linkedByPartnerId: 4, usersWithPurchase: 4, purchasedMinutes: 2_400 })
+  )
+  assert.equal(quatro.usersWithPurchase, 1)
+  assert.equal(quatro.purchasedMinutes, null)
+
+  // No piso, passa inteiro: k é 5, e 5 não é menos que 5.
+  const noPiso = suppressSmallCohortPurchases(
+    facts({ linkedByPartnerId: 5, usersWithPurchase: 2, purchasedMinutes: 900 })
+  )
+  assert.equal(noPiso.purchaseSuppressed, false)
+  assert.equal(noPiso.usersWithPurchase, 2)
+  assert.equal(noPiso.purchasedMinutes, 900)
+
+  // Sem comprador não há pessoa exposta. Marcar esta linha como suprimida faria o total da tela
+  // virar piso sem que nada tivesse sido escondido.
+  const semCompra = suppressSmallCohortPurchases(
+    facts({ linkedByPartnerId: 1, usersWithPurchase: 0, purchasedMinutes: 0 })
+  )
+  assert.equal(semCompra.purchaseSuppressed, false)
+  assert.equal(semCompra.usersWithPurchase, 0)
+
+  // `null` é ausência de leitura e continua sendo. Suprimir aqui transformaria "não sei" em
+  // "omiti", que são coisas diferentes e mandam o operador para atos diferentes.
+  const semLeitura = suppressSmallCohortPurchases(
+    facts({ linkedByPartnerId: 1, usersWithPurchase: null, purchasedMinutes: null })
+  )
+  assert.equal(semLeitura.purchaseSuppressed, false)
+  assert.equal(semLeitura.usersWithPurchase, null)
+})
+
+test('o piso de k não muda veredito nenhum — é essa a razão de ele poder existir', () => {
+  const base = { stance: 'not_paying' as const, monthlyFeeCents: null, linkedByPartnerId: 1 }
+
+  // `decide()` lê desta coluna apenas o booleano `> 0`. Com 3 ou com ≥1 colapsado, o veredito é
+  // o mesmo — o piso destrói a magnitude e não toca no julgamento do parceiro.
+  const cru = assessClient(facts({ ...base, usersWithPurchase: 3, purchasedMinutes: 1_800 }), NOW)
+  const suprimido = assessClient(
+    suppressSmallCohortPurchases(facts({ ...base, usersWithPurchase: 3, purchasedMinutes: 1_800 })),
+    NOW
+  )
+  assert.equal(cru.verdict, 'non_monetary_return')
+  assert.equal(suprimido.verdict, cru.verdict, 'o veredito sobrevive intacto ao piso')
+  assert.equal(suprimido.purchaseSuppressed, true)
+  assert.equal(cru.purchaseSuppressed, false, 'sem passar pelo piso, a linha não se diz suprimida')
+
+  // E quem não comprou segue acusado de não ter rendido, não de ter sido omitido.
+  const semRetorno = assessClient(
+    suppressSmallCohortPurchases(facts({ ...base, usersWithPurchase: 0, purchasedMinutes: 0 })),
+    NOW
+  )
+  assert.equal(semRetorno.verdict, 'no_return')
+})
+
+test('um parceiro suprimido torna o total do topo um piso, e a tela precisa saber', () => {
+  const suprimido = assessClient(
+    suppressSmallCohortPurchases(
+      facts({ clientId: 'a', linkedByPartnerId: 1, usersWithPurchase: 1, purchasedMinutes: 600 })
+    ),
+    NOW
+  )
+  const inteiro = assessClient(
+    facts({ clientId: 'b', linkedByPartnerId: 20, usersWithPurchase: 4, purchasedMinutes: 2_400 }),
+    NOW
+  )
+
+  const misto = summarizeFinance([suprimido, inteiro])
+  assert.equal(misto.purchaseIsFloor, true, 'um parceiro suprimido basta para o total virar piso')
+  assert.equal(misto.usersWithPurchase, 5, '1 colapsado + 4 — e por isso é piso, não fato')
+  assert.equal(misto.purchasedMinutes, 2_400, 'os 600 minutos suprimidos não entram na soma')
+
+  const limpo = summarizeFinance([inteiro])
+  assert.equal(limpo.purchaseIsFloor, false, 'sem supressão, o total é o total')
+})
 
 test('meses inteiros: o mês parcial não é faturado', () => {
   assert.equal(wholeMonthsBetween('2026-06-01', '2026-09-01'), 3)

@@ -6,12 +6,18 @@
  * caminho para a mesma linha — e o `unique (order_id, product_id)` só protege contra duplicata,
  * não contra dois números diferentes de origens diferentes.
  *
- * OS DOIS PORTÕES, E POR QUE SÃO DOIS. `withAuth` prova quem é (obrigatório em toda rota —
- * `scripts/check-route-policies.ts` falha o build sem ele) e `requireModule` prova que o módulo
+ * OS DOIS PORTÕES, E POR QUE SÃO DOIS. `withAuth` prova quem é e `requireModule` prova que o módulo
  * está ligado para esta pessoa. O role aceito é `['admin','editor']` de propósito: com só
  * `admin`, o segundo portão nunca decidiria nada, porque admin ignora `enabled_modules` por
  * código — e a ativação viraria uma chave que não liga nada. Hoje nenhum editor tem `finance`
  * marcado, então o efeito é "só admin", que é o pedido; ampliar é uma checkbox em `/admin/users`.
+ *
+ * O QUE NÃO GARANTE ISSO: `npm run check:routes`. Ele REPORTA rotas sem `withAuth`, mas não
+ * trava build nenhum — não está em `check-all`, nem em `pre-build`, nem no workflow de deploy, e
+ * 118 dos 171 arquivos de rota do repositório ainda exportam função simples. Quem trava os dois
+ * portões DESTE módulo é `tests/api/finance-surface.test.ts`, que conta um `withAuth` e um
+ * `requireModule` por método exportado. Uma frase anterior aqui dizia que o script falhava o
+ * build; não falhava, e a correção está registrada em `docs/dev/financeiro-proxima-rodada.md`.
  *
  * 503 E NÃO UM QUADRO PELA METADE. `loadFinanceOverview` devolve `null` quando o lado do usuário
  * do app não responde, e é ele quem separa `não paga e não trouxe ninguém` de `não paga mas

@@ -14,6 +14,9 @@
  *  · pôr `/finance` sob `/admin/*`, onde o middleware barra todo não-admin antes do módulo;
  *  · esconder a entrada do menu atrás de `isAdmin` em vez do entitlement;
  *  · esquecer `finance` em `MODULES`, em `TOGGLEABLE_MODULES` ou em `MODULE_PREFIXES`;
+ *  · deixar um `client` ou `viewer` com a checkbox marcada entrar em `/finance` — o portão da
+ *    tela tem de recusar quem a API recusa, e um `client` É o parceiro medido pela tela;
+ *  · o middleware voltar a decidir o entitlement por conta própria, fora de `isModuleEnabled`;
  *  · somar a taxa padrão dentro do custo direto na tela;
  *  · uma tabela de LANÇAMENTO com `delete` no grant, em qualquer migration;
  *  · tirar o `delete` de `finance.purchases`, que é a exceção declarada — uma nota errada não
@@ -34,7 +37,8 @@ import assert from 'node:assert/strict'
 import { readFileSync, readdirSync } from 'node:fs'
 import { resolve } from 'node:path'
 
-import { MODULES, TOGGLEABLE_MODULES } from '@/lib/modules'
+import { MODULES, TOGGLEABLE_MODULES, isModuleEnabled } from '@/lib/modules'
+import { buildNavTree } from '@/lib/navigation/menu'
 
 const root = resolve(import.meta.dirname, '../..')
 const read = (path: string) => readFileSync(resolve(root, path), 'utf8')
@@ -57,10 +61,16 @@ test('o módulo está registrado nos quatro lugares que decidem se ele existe', 
     'sem isto a checkbox de /admin/users não existe e a ativação não é ativação'
   )
 
-  const proxy = code('proxy.ts')
+  // O mapa prefixo→módulo saiu de `proxy.ts` em 2026-09-01 e passou a morar em
+  // `lib/navigation/access.ts`, que é o módulo que o middleware E o menu consultam.
+  const access = code('lib/navigation/access.ts')
   assert.ok(
-    /MODULE_PREFIXES[\s\S]*'\/finance':\s*'finance'/.test(proxy),
-    'o middleware precisa deixar entrar quem tem o módulo, e barrar quem não tem'
+    /MODULE_PREFIXES[\s\S]*'\/finance':\s*MODULES\.FINANCE/.test(access),
+    'o portao precisa deixar entrar quem tem o módulo, e barrar quem não tem'
+  )
+  assert.ok(
+    /resolveAccess\(/.test(code('proxy.ts')),
+    'e o middleware precisa perguntar a ele, em vez de reimplementar a regra'
   )
 
   const userForm = code('components/admin/UserFormAdmin.tsx')
@@ -70,23 +80,162 @@ test('o módulo está registrado nos quatro lugares que decidem se ele existe', 
   )
 })
 
-test('`/finance` não mora sob `/admin/*`, onde o módulo nunca decidiria nada', () => {
-  const header = code('components/ui/Header.tsx')
+test('o portão da tela recusa exatamente quem a API recusa', () => {
+  const finance = (role: string) =>
+    isModuleEnabled(MODULES.FINANCE, { role, enabledModules: ['finance'] })
 
-  assert.ok(/href: '\/finance'/.test(header))
-  assert.ok(
-    !/href: '\/admin\/finance'/.test(header),
-    '`/admin/*` é barrado para todo não-admin ANTES de o módulo ser consultado'
+  assert.equal(finance('admin'), true, 'admin ignora o array por código')
+  assert.equal(finance('editor'), true, "'editor' é o que `withAuth` das rotas aceita")
+  assert.equal(
+    finance('client'),
+    false,
+    'um `client` É um parceiro — o próprio sujeito dos números da tela'
   )
-  // A entrada é decidida pelo entitlement, não pelo role: o dia em que um editor tiver o módulo
-  // marcado, ele precisa achar a tela — senão o módulo estaria ligado num lugar invisível.
+  assert.equal(finance('viewer'), false)
+
+  // O piso é POR MÓDULO, nunca global: `events` e `places` sempre aceitaram qualquer não-admin
+  // com a checkbox marcada, e endurecê-los expulsaria usuário que hoje entra — sem defeito que
+  // tenha pedido isso.
+  assert.equal(
+    isModuleEnabled(MODULES.EVENTS, { role: 'viewer', enabledModules: ['events'] }),
+    true
+  )
+  assert.equal(
+    isModuleEnabled(MODULES.PLACES, { role: 'client', enabledModules: ['places'] }),
+    true
+  )
+
+  // E o piso não concede nada sozinho: sem a checkbox, `editor` continua de fora.
+  assert.equal(isModuleEnabled(MODULES.FINANCE, { role: 'editor', enabledModules: [] }), false)
+
+  // O middleware delega a decisão. Se ele voltar a compará-la localmente, o piso morre sem que
+  // nada mais fique vermelho — que foi exatamente como os dois portões divergiram.
   assert.ok(
-    /hasFinance && renderNavItem/.test(header),
-    'a entrada do menu é gateada por `hasFinance`, nunca por `isAdmin`'
+    /isModuleEnabled\(MODULE_PREFIXES\[gatedPrefix\]/.test(code('lib/navigation/access.ts')),
+    'o portao pergunta ao SSOT de módulos, não decide sozinho'
+  )
+})
+
+test('a RPC de consumo roda como quem chama, não como quem a criou', () => {
+  const files = readdirSync(resolve(root, 'supabase/migrations'))
+    .filter((file) => file.includes('finance'))
+    .sort()
+
+  // A ÚLTIMA definição é a que vale no banco. Procurar a string nas migrations concatenadas
+  // acharia o `security definer` da `01`, que a `09` já substituiu — e o teste passaria a
+  // reprovar a correção em vez do defeito.
+  const defining = files.filter((file) =>
+    /create or replace function finance\.record_material_consumption/i.test(
+      read(`supabase/migrations/${file}`)
+    )
+  )
+  assert.ok(defining.length > 0, 'a RPC de consumo é definida em alguma migration')
+
+  // Comentários de SQL são `--`, que `code()` não remove: sem tirá-los, a prova bate na prosa
+  // que explica a correção.
+  const sql = read(`supabase/migrations/${defining[defining.length - 1]}`).replace(
+    /^\s*--.*$/gm,
+    ''
+  )
+
+  assert.ok(
+    !/security definer/i.test(sql),
+    'o único grantee é `service_role`, que já tem `insert` próprio: o definer não concedia nada ' +
+      'e só ampliava o alcance de um defeito futuro'
+  )
+  assert.ok(/security invoker/i.test(sql), 'ela roda com os privilégios de quem chama')
+  assert.ok(
+    /set search_path = ''/.test(sql),
+    'caminho vazio: nada resolve por nome curto, e não sobra nome ambíguo para sequestrar'
+  )
+})
+
+test('o piso de k é aplicado no servidor, e o componente só o desenha', () => {
+  const service = code('lib/services/finance-service.ts')
+  assert.ok(
+    /suppressSmallCohortPurchases\(\{/.test(service),
+    'suprimir na tela deixaria o valor exato viajando na resposta da API, onde qualquer um com ' +
+      'o cookie de um editor o lê com o DevTools aberto'
+  )
+
+  // A tela LÊ a marca e não a recalcula: um segundo lugar decidindo o que é identificável é a
+  // mesma divergência de portões que este arquivo já trava em `/finance`.
+  for (const path of [
+    'components/finance/ClientProfitabilityTable.tsx',
+    'components/finance/FinanceFigures.tsx',
+  ]) {
+    const view = code(path)
+    assert.ok(
+      /purchase(Suppressed|IsFloor)/.test(view),
+      `${path}: a tela precisa distinguir o piso do fato`
+    )
+    assert.ok(
+      !/PURCHASE_MIN_COHORT|linkedByPartnerId\s*<\s*5/.test(view),
+      `${path}: o componente não reimplementa o piso — ele já chegou aplicado`
+    )
+  }
+})
+
+test('a rota que CONCEDE o módulo é pelo menos tão forte quanto o módulo', () => {
+  // Esta rota não é do financeiro, mas é a que escreve `enabled_modules` — e portanto a que
+  // decide quem entra em `/finance`. Um portão de entrada mais fraco que a sala torna a força
+  // da sala decorativa, e é por isso que a invariante mora aqui e não num arquivo distante.
+  const grant = code('app/api/admin/users/[userId]/route.ts')
+
+  const methods = grant.match(/export const (GET|POST|PATCH|PUT|DELETE)/g) ?? []
+  const gates = grant.match(/withAuth<\{ userId: string \}>\(/g) ?? []
+  assert.ok(methods.length >= 3, 'a rota exporta GET, PATCH e DELETE')
+  assert.equal(gates.length, methods.length, 'um withAuth por método exportado')
+
+  assert.ok(
+    !/getSession\(\)/.test(grant),
+    '`getSession()` lê o cookie sem falar com o Auth: o cabeçalho de `lib/auth-middleware.ts` ' +
+      'diz em palavras que ele não pode embasar autorização, e uma sessão revogada seguia ' +
+      'concedendo módulo até o cookie expirar'
+  )
+
+  assert.ok(
+    /TOGGLEABLE_MODULES/.test(grant),
+    '`enabled_modules` é coluna de texto: sem validar contra o catálogo, `finanace` grava em ' +
+      'silêncio e a checkbox volta desmarcada sem explicação'
   )
   assert.ok(
-    /isFinanceEnabled\(\{ role: userRole, enabledModules \}\)/.test(header),
-    'e `hasFinance` vem do SSOT de módulos, não de uma comparação local'
+    /MODULE_MIN_ROLES/.test(grant),
+    'e sem o piso de role a rota grava `finance` num `client` — um entitlement que toda porta ' +
+      'recusa, mostrado como ligado na tela de admin'
+  )
+})
+
+test('`/finance` não mora sob a área de admin, onde o módulo nunca decidiria nada', () => {
+  // O catálogo do menu saiu do componente em 2026-09-01. `Header.tsx` desenha; quem monta a
+  // árvore é `lib/navigation/menu.ts`, e quem decide visibilidade é `canReach`.
+  const menu = code('lib/navigation/menu.ts')
+
+  assert.ok(/'\/finance'/.test(menu), 'a entrada existe')
+  assert.ok(
+    !/'\/admin\/finance'/.test(menu),
+    'a área de admin é barrada para todo não-admin ANTES de o módulo ser consultado'
+  )
+
+  // A ENTRADA É DECIDIDA PELO ENTITLEMENT, NÃO PELO ROLE, e agora isso é provado pelo
+  // COMPORTAMENTO e não por uma expressão no texto-fonte: um editor com o módulo vê a entrada,
+  // e ela é a única que ele vê. Se alguém voltar a gatear por `isAdmin`, esta lista fica vazia.
+  const editorComModulo = buildNavTree({
+    role: 'editor',
+    enabledModules: [MODULES.FINANCE],
+  })
+  assert.deepEqual(
+    editorComModulo.primary.map((i) => i.href),
+    ['/finance'],
+    'o dia em que um editor tiver o módulo marcado, ele precisa achar a tela'
+  )
+
+  // E o menu não carrega condição de role própria: quem responde é o portao.
+  assert.ok(/canReach/.test(menu), 'a visibilidade vem de `canReach`, o mesmo que o proxy usa')
+  assert.equal(
+    /isAdmin\(/.test(menu),
+    false,
+    'um `isAdmin` aqui seria o menu decidindo sozinho de novo'
   )
 })
 

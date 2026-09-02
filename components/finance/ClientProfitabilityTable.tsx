@@ -178,8 +178,19 @@ export function ClientProfitabilityTable({ clients }: { clients: ClientProfitabi
                 <td className={`${NUM} text-gray-600 dark:text-gray-400`}>
                   {formatCount(client.linkedByClientId)}
                 </td>
-                <td className={NUM}>{formatCount(client.usersWithPurchase)}</td>
-                <td className={NUM}>{formatDurationOrDash(client.purchasedMinutes)}</td>
+                {/* `≥` E NÃO O NÚMERO: com menos de `PURCHASE_MIN_COHORT` adquiridos, a coluna
+                    de compras identificaria uma pessoa ao lado do nome do bar onde ela esteve, e
+                    o servidor colapsou o valor. O que chega aqui é um piso, e escrevê-lo como
+                    `1` seco seria afirmar que é exatamente um. Os minutos somem inteiros — são a
+                    coluna que mais identifica e a única que não decide veredito nenhum. */}
+                <td className={NUM} title={client.purchaseSuppressed ? t('table.suppressed') : undefined}>
+                  {client.purchaseSuppressed
+                    ? `≥ ${formatCount(client.usersWithPurchase)}`
+                    : formatCount(client.usersWithPurchase)}
+                </td>
+                <td className={NUM} title={client.purchaseSuppressed ? t('table.suppressed') : undefined}>
+                  {formatDurationOrDash(client.purchasedMinutes)}
+                </td>
                 {/* A pendência fica na linha do parceiro porque é dela que o veredito
                     `Custo incompleto` vem — sem a coluna, o operador leria o veredito sem saber
                     qual das duas causas atacar. */}

@@ -2,7 +2,8 @@ import { createServerClient } from '@supabase/ssr'
 import { NextResponse } from 'next/server'
 import type { NextRequest } from 'next/server'
 import createMiddleware from 'next-intl/middleware';
-import { isAdmin, isClient, isPublicPath, ALLOWED_CLIENT_PATHS } from './lib/roles'
+import { isPublicPath } from './lib/roles'
+import { resolveAccess } from './lib/navigation/access'
 
 import { routing } from './navigation';
 
@@ -98,44 +99,33 @@ export async function proxy(req: NextRequest) {
         return NextResponse.redirect(new URL(`/${locale}/unauthorized`, req.url))
       }
 
-      // Admin check
-      if (isAdmin(cmsUser.role)) {
+      // QUEM ENTRA ONDE é decidido por `resolveAccess`, em `lib/navigation/access.ts`, e
+      // não aqui. Este arquivo cuida de locale, sessão e identidade; a regra de acesso é a
+      // mesma que `buildNavTree` consulta para decidir o que aparece no menu.
+      //
+      // POR QUE FOI EXTRAÍDA: enquanto a regra morava neste bloco, o menu a reimplementava com
+      // condições próprias, e as duas discordavam. Um `editor` via "Dashboard", "Pontos de
+      // Interesse" e "Rotas Customizadas" no menu, e os três respondiam `/unauthorized` daqui
+      // — porque `ALLOWED_CLIENT_PATHS` só é consultada dentro do ramo `client`, e editor não
+      // é client. Um item de menu que aponta para onde o usuário não entra é um defeito que
+      // nenhuma revisão de layout pega, porque ele só aparece depois do clique.
+      //
+      // O COMPORTAMENTO É O MESMO, linha por linha: admin passa; prefixo de módulo pergunta a
+      // `isModuleEnabled`; `client` vai da Overview global para o painel dele e só alcança a
+      // lista permitida; qualquer outro role não entra. `tests/api/navigation.test.ts` prova a
+      // tabela inteira sem banco e sem mock de módulo.
+      const decision = resolveAccess(pathWithoutLocale, {
+        role: cmsUser.role,
+        enabledModules: (cmsUser.enabled_modules ?? []) as string[],
+      })
+
+      if (decision.kind === 'allow') {
         return res;
       }
 
-      // Module-gated routes (/events, /places): any non-admin whose account has
-      // the module enabled may enter, regardless of role. Entitlement lives in
-      // core.cms_users.enabled_modules (admins already returned above and see all).
-      const MODULE_PREFIXES: Record<string, string> = {
-        '/events': 'events',
-        '/places': 'places',
-        // `/finance` mora na raiz e NÃO sob `/admin`: este bloco é a única porta que deixa um
-        // não-admin entrar por entitlement, e a área de admin bounça quem não é admin.
-        '/finance': 'finance',
-      }
-      const gatedPrefix = Object.keys(MODULE_PREFIXES).find(p => pathWithoutLocale.startsWith(p))
-      if (gatedPrefix) {
-        const mods: string[] = cmsUser.enabled_modules || []
-        if (mods.includes(MODULE_PREFIXES[gatedPrefix])) {
-          return res;
-        }
-        return NextResponse.redirect(new URL(`/${locale}/unauthorized`, req.url));
-      }
-
-      // Client check
-      if (isClient(cmsUser.role)) {
-        // A Overview (/dashboard e /dashboard/reports/*) é GLOBAL por construção: das 14
-        // chamadas que dispara, 10 não têm parâmetro de dono (inventory_funnel,
-        // recent_app_users, top_visited_pois...). Client não entra — vai para o painel dele.
-        // Redirect em vez de /unauthorized porque isto não é falta de permissão, é lugar errado.
-        if (pathWithoutLocale === '/dashboard' || pathWithoutLocale.startsWith('/dashboard/')) {
-          return NextResponse.redirect(new URL(`/${locale}/clients/dashboard`, req.url));
-        }
-        // Check allowed paths for client
-        if (pathWithoutLocale.startsWith('/pois') || pathWithoutLocale.startsWith('/clients') || pathWithoutLocale.startsWith('/routes') || ALLOWED_CLIENT_PATHS.includes(pathWithoutLocale)) {
-          return res;
-        }
-        return NextResponse.redirect(new URL(`/${locale}/unauthorized`, req.url));
+      if (decision.kind === 'redirect') {
+        // Não é falta de permissão, é lugar errado — por isso redirect e não `/unauthorized`.
+        return NextResponse.redirect(new URL(`/${locale}${decision.to}`, req.url));
       }
 
       return NextResponse.redirect(new URL(`/${locale}/unauthorized`, req.url));

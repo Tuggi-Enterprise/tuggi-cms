@@ -49,9 +49,14 @@ export function LanguageSwitcher() {
         onClick={() => setIsOpen(!isOpen)}
         className="flex items-center space-x-2 p-2 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors"
         disabled={isPending}
-        title="Switch Language"
+        aria-label={t('switch_language')}
+        aria-expanded={isOpen}
+        title={t('switch_language')}
       >
-        <Globe className="h-4 w-4 text-gray-600 dark:text-gray-400" />
+        {/* O nome acessível vinha por acidente: em desktop, do span `PT` abaixo; em celular
+            aquele span é `hidden`, e sobrava o `title` — escrito em inglês, fixo. O `t` deste
+            arquivo já existia e nunca era usado. */}
+        <Globe className="h-4 w-4 text-gray-600 dark:text-gray-400" aria-hidden="true" />
         <span className="text-sm font-medium text-gray-700 dark:text-gray-300 hidden md:inline">
           {currentLang.code.toUpperCase()}
         </span>
