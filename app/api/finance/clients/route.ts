@@ -33,7 +33,7 @@ import { requireModule } from '@/lib/modules/requireModule'
 import { loadFinanceOverview } from '@/lib/services/finance-service'
 import { summarizeCohorts } from '@/lib/finance/cohort'
 import { summarizeFinance } from '@/lib/finance/summary'
-import { loadFixedCosts } from '@/lib/services/finance-service'
+import { loadFixedCosts, loadFxRates } from '@/lib/services/finance-service'
 import { summarizeStructure } from '@/lib/finance/structure'
 import { monthlySeries, summarizeMonth, summarizePlanMix } from '@/lib/finance/overview'
 import { billingSchedule } from '@/lib/finance/billing'
@@ -112,6 +112,10 @@ export const GET = withRateLimit(60, 60_000)(
 
     const overview = result.overview
     const fixedCosts = await loadFixedCosts()
+    // A TAXA DECLARADA CHEGA UMA VEZ E ATRAVESSA TUDO. Se cada leitura buscasse a sua, duas
+    // superfícies da mesma tela poderiam converter o mesmo custo por números diferentes — a
+    // mesma razão de `summarizeFinance` calcular sobre a lista que a tabela desenha.
+    const fxRates = await loadFxRates()
     // O ano corrente é a janela dos desembolsos de uma vez só. Os recorrentes não dependem dela:
     // eles entram por serem recorrentes, desde que já tenham começado.
     const window = { from: `${today.slice(0, 4)}-01-01`, to: today }
@@ -140,6 +144,7 @@ export const GET = withRateLimit(60, 60_000)(
       months: SERIES_MONTHS,
       currency: mix.currency,
       on: today,
+      rates: fxRates,
     })
 
     const month = summarizeMonth({
@@ -149,6 +154,7 @@ export const GET = withRateLimit(60, 60_000)(
       consumption: overview.consumption,
       costEntries: overview.costEntries,
       fixedCosts,
+      rates: fxRates,
     })
 
     return NextResponse.json({
@@ -161,9 +167,11 @@ export const GET = withRateLimit(60, 60_000)(
         quantity: row.quantity,
         components: row.components ?? [],
       })),
-      summary: summarizeFinance(overview.clients),
+      summary: summarizeFinance(overview.clients, 'BRL', { rates: fxRates, on: today }),
       cohorts: summarizeCohorts(overview.clients),
-      structure: summarizeStructure(fixedCosts, overview.clients, window),
+      structure: summarizeStructure(fixedCosts, overview.clients, window, 'BRL', fxRates),
+      // A taxa sobe para a tela poder dizer que o total foi convertido, e por quanto.
+      fxRates,
       fixedCosts,
       month,
       mix,
@@ -226,6 +234,7 @@ export const GET = withRateLimit(60, 60_000)(
           ),
         },
         appByMonth: app.byMonth,
+        rates: fxRates,
         consumption: overview.consumption,
         costEntries: overview.costEntries,
         fixedCosts,

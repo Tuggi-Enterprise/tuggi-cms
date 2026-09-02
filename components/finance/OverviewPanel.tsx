@@ -183,7 +183,7 @@ export function OverviewPanel({
   const seriesCeiling = useMemo(() => {
     const values = series.flatMap((row) => [
       row.recurringRevenueCents + row.revenueBlockedCents + row.appRevenueCents,
-      row.variableCostCents + row.fixedMonthlyCents,
+      row.variableCostCents + row.operatingCostCents + row.fixedMonthlyCents,
     ])
     return Math.max(1, ...values)
   }, [series])
@@ -233,6 +233,21 @@ export function OverviewPanel({
                 : t('overview.month.variableHint', { count: month.deliveries })
             }
           />
+          {/* O CUSTO VARIÁVEL DA OPERAÇÃO SÓ APARECE QUANDO EXISTE. Ele é outra linha que o
+              variável acima, e a diferença é de quem é o custo: aquele é do PARCEIRO e desce até a
+              linha dele; este é da operação, e ninguém consegue dizer de qual parceiro é o token
+              gasto gerando um POI. Num mês sem custo desses, um degrau de R$ 0,00 no meio da
+              cascata só faria o operador procurar o que ele significa. */}
+          {month.operatingCostCents > 0 && (
+            <>
+              <Operator symbol="−" />
+              <Step
+                label={t('overview.month.operating')}
+                value={money(month.operatingCostCents)}
+                hint={t('overview.month.operatingHint')}
+              />
+            </>
+          )}
           <Operator symbol="−" />
           <Step label={t('overview.month.fixed')} value={money(month.fixedMonthlyCents)} tone="amber" />
           <Operator symbol="=" />
@@ -248,6 +263,25 @@ export function OverviewPanel({
         <div className="flex flex-col gap-2 border-t border-gray-100 px-5 py-3 text-[11px] text-gray-600 dark:border-gray-800 dark:text-gray-400 lg:flex-row lg:gap-8">
           <span>{t('overview.month.standard', { value: money(month.standardCostCents) })}</span>
           <span>{t('overview.month.oneOff', { value: money(month.oneOffCents) })}</span>
+          {/* O QUE NÃO SAIU DO CAIXA fica ao lado do que saiu. Um crédito invisível faz a conta
+              do mês parecer barata sem dizer até quando ela será. */}
+          {month.creditCents > 0 && (
+            <span className="text-emerald-700 dark:text-emerald-300">
+              {t('overview.month.credit', { value: money(month.creditCents) })}
+            </span>
+          )}
+          {/* O MÊS TAMBÉM DIZ QUE CONVERTEU. A cascata acima pode embutir conta em dólar e
+              assinatura em euro a uma PREMISSA declarada; sem esta linha, ela passaria por um
+              número nascido em reais. */}
+          {month.appliedRates.length > 0 && (
+            <span>
+              {t('overview.month.fx', {
+                pairs: month.appliedRates
+                  .map((rate) => `${rate.currency} ${money(Math.round(rate.rateToBrl * 100))}`)
+                  .join(' · '),
+              })}
+            </span>
+          )}
           {month.unpricedLines > 0 && (
             <span className="text-amber-800 dark:text-amber-300">
               {t('overview.month.floor', { count: month.unpricedLines })}
@@ -309,6 +343,14 @@ export function OverviewPanel({
                         className="rounded-t bg-gray-400 dark:bg-gray-500"
                         style={{ height: `${height(row.fixedMonthlyCents)}px` }}
                         title={money(row.fixedMonthlyCents)}
+                      />
+                      {/* O VARIÁVEL DA OPERAÇÃO EMPILHA COM O DO PARCEIRO, em tinta própria:
+                          os dois são custo do mês, e nenhum dos dois é do outro. Sem esta faixa
+                          a barra ficaria menor do que o custo que a barra existe para mostrar. */}
+                      <div
+                        className="bg-amber-500/70"
+                        style={{ height: `${height(row.operatingCostCents)}px` }}
+                        title={money(row.operatingCostCents)}
                       />
                       <div
                         className="bg-amber-600"

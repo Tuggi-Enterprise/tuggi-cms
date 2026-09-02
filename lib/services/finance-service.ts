@@ -26,6 +26,15 @@ import type { FinancePurchase, StandardRate } from '@/lib/finance/unit-cost'
 import type { OrderRecipeOverride, RecipeLine } from '@/lib/finance/recipe'
 import type { PackagingRule } from '@/lib/finance/packaging'
 import type { FixedCostRecord } from '@/lib/finance/structure'
+import type { FxRate } from '@/lib/finance/fx'
+import {
+  isCostCategory,
+  isCostEntryType,
+  isCostNature,
+  type CostCategory,
+  type CostEntryType,
+  type CostNature,
+} from '@/lib/finance/cost-taxonomy'
 import type { PartnerMixRow, PassPrice } from '@/lib/finance/overview'
 import type { BillingStart } from '@/lib/finance/billing'
 import { parseRcEvent, type RcEvent } from '@/lib/finance/app-revenue'
@@ -220,7 +229,9 @@ export async function saveOrderShipment(input: {
 export async function loadFixedCosts(): Promise<FixedCostRecord[]> {
   const { data } = await finance()
     .from('fixed_costs')
-    .select('id, label, kind, amount_cents, currency, incurred_at, period_months')
+    // UMA STRING SÓ, e não uma concatenação: o tipo de `select` é inferido do LITERAL, e um
+    // `'a' + 'b'` quebrado em duas linhas faz o supabase-js devolver `GenericStringError`.
+    .select('id, label, kind, amount_cents, currency, incurred_at, period_months, category, nature, entry_type, is_payroll, ends_at')
     .order('incurred_at', { ascending: false })
 
   return (data ?? []).map((row: Record<string, unknown>) => ({
@@ -231,6 +242,18 @@ export async function loadFixedCosts(): Promise<FixedCostRecord[]> {
     currency: String(row.currency),
     incurredAt: String(row.incurred_at),
     periodMonths: row.period_months === null ? null : Number(row.period_months),
+    // O VOCABULÁRIO É CONFERIDO NA LEITURA, e não assumido. A coluna nasceu com `default 'other'`
+    // e o CHECK do banco guarda o resto, mas uma linha escrita por fora (painel, script) não pode
+    // virar uma categoria que o TypeScript jura existir. O que não bate cai em `other` — que se
+    // lê como "ninguém classificou", e não como uma classificação.
+    category: isCostCategory(row.category) ? row.category : 'other',
+    // Já `nature` e `entryType` NÃO têm um valor neutro para onde cair: um crédito lido como
+    // custo dobraria a conta em vez de zerá-la. O default do banco é o mesmo que o daqui, e a
+    // igualdade entre os dois é o que torna a leitura previsível.
+    nature: isCostNature(row.nature) ? row.nature : 'fixed',
+    entryType: isCostEntryType(row.entry_type) ? row.entry_type : 'cost',
+    isPayroll: row.is_payroll === true,
+    endsAt: row.ends_at === null || row.ends_at === undefined ? null : String(row.ends_at),
   }))
 }
 
@@ -527,6 +550,34 @@ export async function createClientCostEntry(input: {
   return { ok: true, id: String((data as { id: string }).id) }
 }
 
+/**
+ * AS TAXAS DECLARADAS — a premissa de câmbio, com procedência.
+ *
+ * UMA LINHA COM TAXA INVÁLIDA É DESCARTADA, e não corrigida. `numeric` volta do PostgREST como
+ * texto, e um `Number()` que devolvesse `NaN` viraria uma conversão silenciosa para lixo: a
+ * Supabase custaria `NaN` reais, e `NaN` soma com tudo sem estourar nada. Sem a linha, a moeda
+ * volta nomeada em `ignoredCurrencies` — que é exatamente o que "não sei converter" quer dizer.
+ */
+export async function loadFxRates(): Promise<FxRate[]> {
+  const { data } = await finance()
+    .from('fx_rates')
+    .select('currency, rate_to_brl, effective_from, source')
+    .order('effective_from', { ascending: false })
+
+  const rates: FxRate[] = []
+  for (const row of (data ?? []) as Record<string, unknown>[]) {
+    const rateToBrl = Number(row.rate_to_brl)
+    if (!Number.isFinite(rateToBrl) || rateToBrl <= 0) continue
+    rates.push({
+      currency: String(row.currency),
+      rateToBrl,
+      effectiveFrom: String(row.effective_from),
+      source: String(row.source ?? ''),
+    })
+  }
+  return rates
+}
+
 export async function createFixedCost(input: {
   label: string
   kind: 'one_off' | 'recurring'
@@ -534,6 +585,11 @@ export async function createFixedCost(input: {
   currency: string
   incurredAt: string
   periodMonths: number | null
+  category: CostCategory
+  nature: CostNature
+  entryType: CostEntryType
+  isPayroll: boolean
+  endsAt: string | null
   notes?: string | null
   createdBy?: string | null
 }): Promise<WriteOutcome> {
@@ -546,6 +602,11 @@ export async function createFixedCost(input: {
       currency: input.currency,
       incurred_at: input.incurredAt,
       period_months: input.kind === 'recurring' ? input.periodMonths : null,
+      category: input.category,
+      nature: input.nature,
+      entry_type: input.entryType,
+      is_payroll: input.isPayroll,
+      ends_at: input.endsAt,
       notes: input.notes ?? null,
       created_by: input.createdBy ?? null,
     })

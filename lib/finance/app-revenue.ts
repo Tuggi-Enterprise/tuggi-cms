@@ -31,6 +31,8 @@
  * Puro: sem fetch, sem Supabase, sem React. Provado por `tests/api/finance-app-revenue.test.ts`.
  */
 
+import { convertCents, rateOn, type FxRate } from './fx'
+
 /** Os tipos de evento que representam DINHEIRO ENTRANDO. Os demais mudam estado, não caixa. */
 export const PAID_EVENT_TYPES: readonly string[] = [
   'INITIAL_PURCHASE',
@@ -370,10 +372,12 @@ function monthOf(iso: string): string {
 export interface AppMonthly {
   /** Mês → centavos, na moeda pedida. Passado é cobrança feita; futuro é renovação prevista. */
   byMonth: Record<string, number>
-  /** O que ficou de fora por ser de outra moeda. Nomeado, nunca convertido. */
+  /** O que ficou de fora por NÃO TER TAXA DECLARADA. Nomeado, nunca convertido por palpite. */
   otherCurrencies: RevenueLine[]
   /** Assinaturas vivas que a projeção fez renovar. */
   projectedSubscriptions: number
+  /** As taxas declaradas que esta leitura usou. Vazia quando nada foi convertido. */
+  appliedRates: FxRate[]
 }
 
 /**
@@ -388,14 +392,48 @@ export interface AppMonthly {
  * some do futuro — não tem vencimento, então não há o que rolar. É a mesma regra que separa
  * `realized` de `recurring`, aplicada ao tempo.
  *
- * UMA MOEDA POR VEZ. O gráfico tem um eixo, e euro não vira real. O que não é da moeda pedida
- * volta em `otherCurrencies`, com o total, para a tela nomear em vez de somar — cinco das nove
- * vendas de 2026-09-02 eram fora do Brasil, e um total único em reais não descreveria isso.
+ * O EURO VIRA REAL — PELA TAXA DECLARADA, e isto MUDOU em 2026-09-02 por decisão do operador.
+ *
+ * Antes, o gráfico tinha um eixo e uma moeda só: tudo que não fosse a moeda pedida ia para
+ * `otherCurrencies`, nomeado em vez de somado, porque converter exigiria uma taxa que ninguém
+ * tinha declarado. Aqui isso doía mais do que em qualquer outro lugar do módulo: dos 3 assinantes
+ * de loja ativos, 2 estão em fuso europeu, então a linha em reais desenhava um TERÇO da receita
+ * do app e parecia a receita inteira.
+ *
+ * Com `finance.fx_rates`, a taxa existe, tem procedência e não oscila (`lib/finance/fx.ts`). O que
+ * segue voltando em `otherCurrencies` é só a moeda SEM taxa declarada — e essa continua nomeada,
+ * nunca somada, porque a regra que não mudou é a que importa: nada aqui inventa câmbio.
+ *
+ * A RENOVAÇÃO É CONVERTIDA NO MÊS EM QUE ELA VENCE, e não no da compra que a originou. O preço
+ * da loja está em euro; se o operador declarar outra vigência, a renovação de março usa a taxa de
+ * março. Com uma taxa fixa os dois caminhos dão o mesmo número — a diferença só aparece quando
+ * existir uma segunda vigência, e aí ela importa.
  */
 export function appRevenueByMonth(
   events: readonly RcEvent[],
-  input: { from: string; months: number; currency: string; on: string }
+  input: {
+    from: string
+    months: number
+    currency: string
+    on: string
+    /** As taxas declaradas. Vazio = nada converte, e a moeda volta nomeada como antes. */
+    rates?: readonly FxRate[]
+  }
 ): AppMonthly {
+  const rates = input.rates ?? []
+  const applied = new Map<string, FxRate>()
+
+  /** O valor da cobrança na moeda do gráfico, ou `null` quando falta taxa. */
+  const inReport = (event: RcEvent, on: string): number | null => {
+    const gross = cents(event.priceLocal)
+    if (event.currency === input.currency) return gross
+    const converted = convertCents(gross, event.currency, input.currency, rates, on)
+    if (converted === null) return null
+    const used = rateOn(rates, event.currency, on)
+    if (used) applied.set(event.currency, used)
+    return converted
+  }
+
   const byMonth: Record<string, number> = {}
   const others = new Map<string, RevenueLine>()
   const seen = new Set<string>()
@@ -420,14 +458,15 @@ export function appRevenueByMonth(
     if (!PAID_EVENT_TYPES.includes(event.type)) continue
     if (event.periodType === 'TRIAL' || !(event.priceLocal > 0)) continue
 
-    if (event.currency !== input.currency) {
+    // O que JÁ foi cobrado, no mês em que foi — convertido pela taxa que valia naquele dia.
+    const month = monthOf(event.purchasedAt)
+    const amount = inReport(event, event.purchasedAt.slice(0, 10))
+    if (amount === null) {
+      // Sem taxa declarada, a venda não entra no eixo: ela volta nomeada, com o total dela.
       addTo(others, event)
       continue
     }
-
-    // O que JÁ foi cobrado, no mês em que foi.
-    const month = monthOf(event.purchasedAt)
-    if (month in byMonth) byMonth[month] += cents(event.priceLocal)
+    if (month in byMonth) byMonth[month] += amount
 
     // A assinatura viva de cada pessoa, para rolar as renovações.
     if (!event.expiresAt || event.expiresAt.slice(0, 10) < input.on) continue
@@ -447,7 +486,10 @@ export function appRevenueByMonth(
     for (let guard = 0; guard < 64; guard += 1) {
       const month = new Date(due).toISOString().slice(0, 7)
       if (month > last) break
-      if (month in byMonth) byMonth[month] += cents(event.priceLocal)
+      // Convertida NO MÊS DO VENCIMENTO: o preço está em euro, e é a taxa daquele mês que diz
+      // quanto ele vale em real.
+      const renewal = inReport(event, `${month}-01`)
+      if (month in byMonth && renewal !== null) byMonth[month] += renewal
       due += days * 86_400_000
     }
   }
@@ -456,5 +498,8 @@ export function appRevenueByMonth(
     byMonth,
     otherCurrencies: sorted(others),
     projectedSubscriptions: projected,
+    appliedRates: Array.from(applied.values()).sort((a, b) =>
+      a.currency.localeCompare(b.currency)
+    ),
   }
 }

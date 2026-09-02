@@ -16,6 +16,7 @@
 import type { FinanceProduct } from './catalog'
 import type { FinancePurchase } from './unit-cost'
 import type { ClientProfitability, ConsumptionRecord, FinanceVerdict } from './profitability'
+import { convertCents, type FxRate } from './fx'
 
 const VERDICTS: readonly FinanceVerdict[] = [
   'uncosted',
@@ -73,9 +74,23 @@ function emptyVerdicts(): Record<FinanceVerdict, number> {
   )
 }
 
+/**
+ * `rates` E `on` VIAJAM JUNTOS, num objeto só.
+ *
+ * Uma taxa sem a data em que ela é lida não converte nada: `rateOn` precisa saber QUANDO, e este
+ * módulo é puro — ele não lê o relógio, pelo mesmo motivo de `appRevenueByMonth` receber `on`
+ * injetado: um resultado que muda sozinho entre duas execuções do mesmo teste não é demonstrável.
+ */
+export interface FxContext {
+  rates: readonly FxRate[]
+  /** `YYYY-MM-DD` — a data em que a taxa é lida. */
+  on: string
+}
+
 export function summarizeFinance(
   clients: readonly ClientProfitability[],
-  fallbackCurrency = 'BRL'
+  fallbackCurrency = 'BRL',
+  fx?: FxContext
 ): FinanceSummary {
   const tally = new Map<string, number>()
   for (const client of clients) tally.set(client.currency, (tally.get(client.currency) ?? 0) + 1)
@@ -133,14 +148,26 @@ export function summarizeFinance(
     if (client.purchaseSuppressed) summary.purchaseIsFloor = true
     for (const other of client.ignoredCurrencies) ignored.add(other)
 
-    if (client.currency !== currency) {
+    // O DINHEIRO SE CONVERTE PELA TAXA DECLARADA, e o mesmo número que a Estrutura usa — se só
+    // uma das duas convertesse, a "soma das margens" de lá discordaria do total daqui sobre a
+    // MESMA lista de parceiros, que é exatamente o que este arquivo existe para impedir.
+    // Sem taxa declarada, a moeda volta nomeada e fica fora de toda soma, como sempre esteve.
+    const inReport = (cents: number): number | null =>
+      client.currency === currency
+        ? cents
+        : fx
+          ? convertCents(cents, client.currency, currency, fx.rates, fx.on)
+          : null
+
+    const direct = inReport(client.directCostCents)
+    if (direct === null) {
       ignored.add(client.currency)
       continue
     }
-    summary.directCostCents += client.directCostCents
-    summary.standardCostCents += client.standardCostCents
-    summary.revenueCents += client.revenueCents
-    summary.marginCents += client.marginCents
+    summary.directCostCents += direct
+    summary.standardCostCents += inReport(client.standardCostCents) ?? 0
+    summary.revenueCents += inReport(client.revenueCents) ?? 0
+    summary.marginCents += inReport(client.marginCents) ?? 0
   }
 
   summary.cacCents =
