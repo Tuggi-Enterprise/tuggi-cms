@@ -12,8 +12,8 @@
       "reset": "Resetar",
       "saving": "Salvando...",
       "generating": "Gerando...",
-      "approve": "Aprobar",
-      "reject": "Rechazar",
+      "approve": "Aprovar",
+      "reject": "Rejeitar",
       "export": "Exportar",
       "download_list": "Baixar Lista"
     },
@@ -3393,6 +3393,7 @@
       "structure": "Estrutura"
     },
     "loading": "Carregando…",
+    "reload": "Atualizar",
     "errors": {
       "load": "Não foi possível carregar o financeiro.",
       "appUsers": "A leitura dos usuários do app não respondeu. Sem ela não há aquisição nem custo por aquisição, e a coluna de usuários seria um zero inventado.",
@@ -3461,7 +3462,15 @@
       "filterCohort": "Coorte",
       "undatedCohort": "Sem data",
       "awaitingShipment": "Sem envio",
-      "suppressed": "Menos de 5 usuários adquiridos: o número exato identificaria uma pessoa, então a coluna mostra apenas o piso e os minutos são omitidos"
+      "suppressed": "Menos de 5 usuários adquiridos: o número exato identificaria uma pessoa, então a coluna mostra apenas o piso e os minutos são omitidos",
+      "groupCost": "Custo",
+      "groupReturn": "Retorno",
+      "groupAcquisition": "Aquisição",
+      "groupPending": "Pendência",
+      "totals": "Soma dos {count} filtrados",
+      "showing": "{shown} de {total}",
+      "sortBy": "Ordenar por {column}",
+      "totalsIgnored": "Fora da soma: {currencies}"
     },
     "catalog": {
       "product": "Produto",
@@ -3525,7 +3534,17 @@
       "packagingEmpty": "Nenhuma embalagem cadastrada — os envios não estão custando embalagem.",
       "recipeSentence": "Cada 1 {parent} leva {quantity} {component}.",
       "packagingSentence": "Cada {capacity} itens entregues viajam em 1 {product}.",
-      "ruleDeleteWarning": "O custo já lançado com esta regra não é desfeito — ele guarda o que a regra dizia no dia."
+      "ruleDeleteWarning": "O custo já lançado com esta regra não é desfeito — ele guarda o que a regra dizia no dia.",
+      "expand": "Abrir {product}",
+      "collapse": "Fechar {product}",
+      "carriesTitle": "O que leva junto",
+      "travelsTitle": "Em que viaja",
+      "formedTitle": "Compras que formaram este custo",
+      "noRelations": "Nada cadastrado para este produto ainda.",
+      "roleDeliverableTag": "Entregue",
+      "roleComponentTag": "Componente",
+      "perPiece": "{unit} / peça",
+      "since": "desde {date}"
     },
     "structure": {
       "title": "Estrutura",
@@ -3550,7 +3569,18 @@
       "rateHint": "Um valor simbólico por peça produzida. Aparece ao lado do custo direto e nunca dentro dele.",
       "rateAdd": "Cadastrar taxa",
       "appliesTo": "Aplica-se a",
-      "empty": "Nenhum custo fixo registrado."
+      "empty": "Nenhum custo fixo registrado.",
+      "waterfallTitle": "Da margem dos parceiros até a operação",
+      "mcOne": "MC I · a soma das margens dos parceiros",
+      "mcTwoHint": "MC II · o número que decide",
+      "minus": "menos o que a operação custa todo mês",
+      "breakEvenLead": "é o que falta para a estrutura se pagar, na mensalidade média de {fee} de quem paga hoje.",
+      "breakEvenMeta": "Pagantes hoje: {paying} · fixo mensal de {fixed}",
+      "breakEvenDone": "A estrutura já se paga com quem assina hoje.",
+      "oneOffAside": "Ficam fora da cascata de propósito — uma impressora comprada uma vez não é conta que chega todo mês, e diluí-la por vida útil trocaria um fato por um chute.",
+      "partnersUnit": "parceiros pagantes",
+      "fixedTitle": "Custos fixos",
+      "rateEmpty": "Nenhuma taxa cadastrada."
     },
     "form": {
       "cancel": "Cancelar",
