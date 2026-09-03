@@ -1143,12 +1143,6 @@
     "content_summary": "{desc} desc · {tp} TP",
     "empty": "No events found."
   },
-  "PartnerProposals": {
-    "promotion": {
-      "failedNothingWritten": "The client record may have been created or updated, and the proposal is still pending in the queue. Open the client record before promoting again. Promoting without checking creates a second record.",
-      "failedNotPromotable": "Another operator has already promoted or discarded this proposal, and this click may still have written the client record. Check the client record, then reload the page."
-    }
-  },
   "PlaceManagement": {
     "title": "Places",
     "subtitle": "Manage venues, restaurants, hotels and commerce",

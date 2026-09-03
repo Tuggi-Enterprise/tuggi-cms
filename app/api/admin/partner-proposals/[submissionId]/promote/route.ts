@@ -7,11 +7,19 @@
  * keeps `commission_rate`, `slug`, `iban` and the rest of `PROMOTION_NEVER_WRITES` out of
  * reach without a denylist doing the work (DS-COMPONENTE-018).
  *
- * `industry` is the one editable value, and it arrives from the operator: the category id is
- * English (`restaurant`) and the column is free text read by people, so the panel pre-fills
- * it with the Portuguese label the partner saw and lets the operator adjust it. It is not
- * read from `messages/pt.json` here — the copy has one owner, the panel, and the operator can
- * always see what will be written before it is written.
+ * THE EDITED VALUES ARRIVE IN `overrides`, AND THEY ARE NOT TRUSTED. The body may name any
+ * column; only the ones `PROMOTION_MAP` marks `editable` are honoured, by
+ * `resolvePromotionWrite` and not by anything here. `industry` is one of them and also the
+ * only one that feeds the plan itself: the category id is English (`restaurant`) and the
+ * column is free text read by people, so the panel pre-fills it with the Portuguese label the
+ * partner saw. It is not read from `messages/pt.json` here — the copy has one owner, the
+ * panel, and the operator always sees what will be written before it is written.
+ *
+ * LENGTH IS CHECKED HERE TOO, AGAINST THE SAME MAP THE PANEL USES (#679). The panel blocks the
+ * button, and this refuses the body: `service_role` ignores RLS and this route is the only
+ * barrier left, so "the screen already checked" is not a check. A value that does not fit its
+ * column comes back `400 too_long` naming the column and the limit — it is a filling mistake
+ * the operator can fix, and it used to be a 503 that said the write might have happened.
  */
 
 import { NextResponse } from 'next/server'
@@ -23,12 +31,26 @@ import {
 } from '@/lib/services/partner-proposal-admin-service'
 import {
   buildPromotionPlan,
+  lengthViolations,
   resolvePromotionWrite,
   summarizePromotion,
 } from '@/lib/partner-form/promotion'
 
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
-const INDUSTRY_MAX = 120
+
+/**
+ * The typed values, filtered to strings. Not filtered by column: `resolvePromotionWrite` reads
+ * only the columns the plan produced and only the ones the map calls editable, so a key nobody
+ * promotes is a key nobody reads.
+ */
+function readOverrides(value: unknown): Record<string, string> {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return {}
+  const overrides: Record<string, string> = {}
+  for (const [key, entry] of Object.entries(value as Record<string, unknown>)) {
+    if (typeof entry === 'string') overrides[key] = entry
+  }
+  return overrides
+}
 
 export const POST = withRateLimit(20, 60_000)(
   withAuth<{ submissionId: string }>({ roles: ['admin'] }, async (req, ctx, auth) => {
@@ -49,10 +71,7 @@ export const POST = withRateLimit(20, 60_000)(
       ? body.approved.filter((column): column is string => typeof column === 'string')
       : []
 
-    const industry = typeof body.industry === 'string' ? body.industry.trim() : ''
-    if (industry.length > INDUSTRY_MAX) {
-      return NextResponse.json({ error: 'invalid_industry' }, { status: 400 })
-    }
+    const overrides = readOverrides(body.overrides)
 
     const detail = await loadProposalDetail(submissionId)
     if (!detail) {
@@ -76,11 +95,22 @@ export const POST = withRateLimit(20, 60_000)(
     // at an arbitrary client record would be the same door with none of the reason.
     const target = detail.client
 
-    const plan = buildPromotionPlan(answers, target, { categoryLabel: industry })
-    const write = resolvePromotionWrite(plan, { approved })
+    const plan = buildPromotionPlan(answers, target, { categoryLabel: overrides.industry ?? '' })
+    const write = resolvePromotionWrite(plan, { approved, overrides })
 
     if (write.written.length === 0) {
       return NextResponse.json({ error: 'nothing_to_write' }, { status: 400 })
+    }
+
+    // A VALUE THAT DOES NOT FIT IS A FILLING MISTAKE, and it is answered before anything is
+    // written. One column at a time — the operator fixes what is named, and naming all of them
+    // at once is a list nobody reads on a screen that already shows the field.
+    const [violation] = lengthViolations(write.updates)
+    if (violation) {
+      return NextResponse.json(
+        { error: 'too_long', column: violation.column, limit: violation.limit },
+        { status: 400 }
+      )
     }
 
     const outcome = await promoteProposal({
@@ -95,7 +125,16 @@ export const POST = withRateLimit(20, 60_000)(
     })
 
     if (!outcome.ok) {
-      const status = outcome.reason === 'not_promotable' ? 409 : 503
+      // THREE OUTCOMES, THREE ANSWERS — and until #679 they were one. `write_failed` covered a
+      // value that did not fit, a client write that wrote nothing and a claim that failed over a
+      // client already on disk, and the screen said the same sentence to all three: "the record
+      // may have been created". For two of them that sentence is false, and it sent the operator
+      // to look for a record that does not exist before promoting again.
+      //
+      // `clientWritten` is the fact that separates the last two, and it is the outcome's own
+      // `clientId` — never a guess by the screen.
+      const status =
+        outcome.reason === 'not_promotable' ? 409 : outcome.reason === 'too_long' ? 400 : 503
       console.error(`[partner-proposals] promotion refused: ${outcome.reason}`)
 
       // THE RESIDUE GETS A ROW. The client is written before the claim (BR-B2B-026: the claim
@@ -123,7 +162,10 @@ export const POST = withRateLimit(20, 60_000)(
         })
       }
 
-      return NextResponse.json({ error: outcome.reason }, { status })
+      return NextResponse.json(
+        { error: outcome.reason, clientWritten: outcome.clientId !== null },
+        { status }
+      )
     }
 
     await logAuditEvent({

@@ -37,8 +37,25 @@
  *
  * So the table survives for `conflict` rows and nothing else. The fills are one sentence with
  * the count, and the list is one disclosure away for the operator who wants to read it before
- * an irreversible write. `Ramo` comes out of the table entirely: it is the one value this panel
- * lets somebody type, and a text input in the third cell of row five is where it went unnoticed.
+ * an irreversible write.
+ *
+ * EVERY VALUE THE PARTNER TYPED IS NOW EDITABLE, AND THE INPUT LIVES WHERE THE VALUE LIVES
+ * (#679). `Ramo` used to be the only one and had a field of its own above the table; with
+ * twelve editable columns that block would be the wall this panel spent a rewrite removing, so
+ * the input replaces the value in the list it was already in — the disclosure for a fill, the
+ * `Da proposta` cell for a conflict. The operator who has nothing to correct sees the same
+ * screen as before; the one who does finds the field where the wrong value already is.
+ *
+ * WHAT IS EDITED IS THE CLIENT RECORD, NEVER THE PROPOSAL. `partner.partner_form_submissions`
+ * keeps what the partner sent, and that is what makes it auditable — the panel says so out loud
+ * (`promotion.editHint`) because an input that silently rewrote the inbox would be the same
+ * screen.
+ *
+ * A VALUE THAT DOES NOT FIT ITS COLUMN NEVER REACHES THE ROUTE. `CLIENT_COLUMN_LIMITS` is the
+ * width of `partner.clients`, the button goes dead while anything exceeds it, and the field
+ * says which one and by which limit. Before #679 that was a 503: `varchar(255)` refused a
+ * 300-character `website`, the proposal stayed in the queue with no path out of it, and the
+ * screen told the operator the record might have been written.
  */
 
 import { useMemo, useState } from 'react'
@@ -51,12 +68,28 @@ import { Label } from '@/components/ui/label'
 import {
   PROMOTION_NEVER_WRITES,
   buildPromotionPlan,
+  lengthViolations,
+  resolvePromotionWrite,
   summarizePromotion,
+  type PromotionEntry,
 } from '@/lib/partner-form/promotion'
 import type { ProposalDetail } from './types'
 import { CARD } from './surface'
 
-type Failure = 'write' | 'not_promotable' | 'network' | 'nothing' | null
+/**
+ * `client_written` and `nothing_written` are the same HTTP failure told apart by one fact the
+ * server sends — whether a row landed in `partner.clients`. They were one message until #679,
+ * and it was the pessimistic one: an operator whose write failed clean was sent to check a
+ * record that had never existed, and told that promoting again would create a duplicate.
+ */
+type Failure =
+  | 'too_long'
+  | 'nothing_written'
+  | 'client_written'
+  | 'not_promotable'
+  | 'network'
+  | 'nothing'
+  | null
 
 interface PromotionPanelProps {
   detail: ProposalDetail
@@ -69,21 +102,105 @@ interface PromotionPanelProps {
 export function PromotionPanel({ detail, categoryLabel, onClose, onPromoted }: PromotionPanelProps) {
   const t = useTranslations('PartnerProposals')
 
-  const [industry, setIndustry] = useState(categoryLabel)
+  /**
+   * ONLY WHAT THE OPERATOR ACTUALLY TYPED. An untouched column is absent here and the plan's
+   * own value answers for it, so there is no second copy of the proposal to keep in step — and
+   * `industry` is in the same bag as the rest, though it is also the plan's `categoryLabel`:
+   * the category id is English and the proposed value only exists because the panel translates
+   * it, so the plan has to be rebuilt with what the operator left in the field.
+   */
+  const [overrides, setOverrides] = useState<Record<string, string>>({})
   const [approved, setApproved] = useState<string[]>([])
   const [submitting, setSubmitting] = useState(false)
   const [failure, setFailure] = useState<Failure>(null)
+  /** The column and limit of a `too_long` the SERVER refused — see `promote`. */
+  const [refused, setRefused] = useState<{ column: string; limit: number } | null>(null)
   /** The fills, which are a count by default and a list for whoever asks. */
   const [fillsOpen, setFillsOpen] = useState(false)
 
   const client = detail.client
+  const industry = overrides.industry ?? categoryLabel
 
   const plan = useMemo(
     () => buildPromotionPlan(detail.submission.answers, client, { categoryLabel: industry }),
     [detail.submission.answers, client, industry]
   )
 
-  const summary = summarizePromotion(plan, { approved })
+  const summary = summarizePromotion(plan, { approved, overrides })
+
+  /** What the operator sees in the field, and exactly what the button will write. */
+  const valueOf = (entry: PromotionEntry) => overrides[entry.column] ?? entry.proposed
+
+  /**
+   * THE SAME MAP THE ROUTE REFUSES BY. Run on the resolved write and not on the proposal:
+   * what does not fit is what is about to be inserted, and the operator just typed it.
+   */
+  const violations = lengthViolations(
+    resolvePromotionWrite(plan, { approved, overrides }).updates
+  )
+  const limitOf = new Map(violations.map((violation) => [violation.column, violation.limit]))
+
+  /** The value of every editable column of the plan, typed or pre-filled — what the body says. */
+  function editedValues(): Record<string, string> {
+    const values: Record<string, string> = {}
+    for (const entry of plan.entries) {
+      if (entry.editable) values[entry.column] = valueOf(entry)
+    }
+    return values
+  }
+
+  function setOverride(column: string, value: string) {
+    setOverrides((current) => ({ ...current, [column]: value }))
+    setFailure(null)
+    setRefused(null)
+  }
+
+  /**
+   * The field of a value somebody may retype — an `<Input>` under the label the list already
+   * prints, the same pair the panel used for `Ramo` alone. A column over its limit says so
+   * under its own field and the input carries `aria-invalid`, so the block is never something
+   * only the dead button knows about.
+   *
+   * A FUNCTION THAT RETURNS JSX, NOT A COMPONENT DECLARED IN A RENDER. A component defined
+   * inside `PromotionPanel` is a new type on every render, so React would unmount and remount
+   * the input at each keystroke and the caret would leave the field after one character.
+   */
+  function editableValue(entry: PromotionEntry, hint?: string) {
+    const id = `promotion-value-${entry.column}`
+    const limit = limitOf.get(entry.column)
+    const described = [hint ? `${id}-hint` : null, limit ? `${id}-error` : null]
+      .filter(Boolean)
+      .join(' ')
+
+    return (
+      <>
+        <Input
+          id={id}
+          className="mt-1"
+          value={valueOf(entry)}
+          onChange={(event) => setOverride(entry.column, event.target.value)}
+          aria-invalid={limit ? true : undefined}
+          aria-describedby={described || undefined}
+        />
+        {hint && (
+          <span id={`${id}-hint`} className="mt-1 block text-xs text-gray-700 dark:text-gray-400">
+            {hint}
+          </span>
+        )}
+        {limit && (
+          <span
+            id={`${id}-error`}
+            className="mt-1 block text-xs font-medium text-destructive"
+          >
+            {t('promotion.failedTooLong', {
+              field: t(`promotion.fields.${entry.column}`),
+              limit,
+            })}
+          </span>
+        )}
+      </>
+    )
+  }
 
   /**
    * The plan split by what it ASKS OF A PERSON. A `conflict` is a decision and gets a row with a
@@ -93,13 +210,17 @@ export function PromotionPanel({ detail, categoryLabel, onClose, onPromoted }: P
    * client whose record happens to be empty is all fills too, and it deserves the same screen as
    * a new one.
    *
-   * THE EDITABLE COLUMN STAYS IN ITS LIST. It gets an input of its own above, because it is the
-   * one value somebody types — but it is written like any other column, so taking it out of the
-   * count made the panel say `14 campos vão ser preenchidos` above a button reading `Gravar 15
-   * campos`. Two numbers for one write is worse than the input appearing twice.
+   * AN EDITABLE COLUMN STAYS IN ITS LIST, and the input is what its value cell holds. Pulling
+   * the editable ones into a block of their own made the panel say `14 campos vão ser
+   * preenchidos` above a button reading `Gravar 15 campos`; two numbers for one write is the
+   * defect, and it is the reason the fields were never a section apart.
    */
   const conflicts = plan.entries.filter((entry) => entry.decision === 'conflict')
   const fills = plan.entries.filter((entry) => entry.decision === 'fill')
+
+  /** The disclosure cannot be shut over the field that is blocking the button. */
+  const fillIsOverLimit = fills.some((entry) => limitOf.has(entry.column))
+  const showFills = fillsOpen || fillIsOverLimit
 
   const targetName =
     client?.name ?? detail.submission.answers.trade_name ?? t('review.noTradeName')
@@ -117,6 +238,12 @@ export function PromotionPanel({ detail, categoryLabel, onClose, onPromoted }: P
       setFailure('nothing')
       return
     }
+    // The button is already disabled while anything is over its limit; this is the same rule
+    // stated where it cannot be clicked past.
+    if (violations.length > 0) {
+      setFailure('too_long')
+      return
+    }
     setSubmitting(true)
     setFailure(null)
 
@@ -126,7 +253,11 @@ export function PromotionPanel({ detail, categoryLabel, onClose, onPromoted }: P
         {
           method: 'POST',
           headers: { 'content-type': 'application/json' },
-          body: JSON.stringify({ approved, industry }),
+          // EVERY EDITABLE VALUE TRAVELS, TYPED OR NOT. The server rebuilds the plan from the
+          // database and has no copy of the category labels, so `industry` has to be in here
+          // for the column to exist at all — and sending the resolved value of each editable
+          // column is what makes the body say plainly what the operator is asking to write.
+          body: JSON.stringify({ approved, overrides: editedValues() }),
         }
       )
 
@@ -136,7 +267,24 @@ export function PromotionPanel({ detail, categoryLabel, onClose, onPromoted }: P
       }
 
       const payload = await response.json().catch(() => ({}))
-      setFailure(payload?.error === 'not_promotable' ? 'not_promotable' : 'write')
+      const error = payload?.error
+
+      if (error === 'too_long') {
+        // The screen already blocks this; getting here means the database knows a narrower
+        // column than `CLIENT_COLUMN_LIMITS` does, and the answer names which one.
+        setRefused(
+          typeof payload?.column === 'string' && typeof payload?.limit === 'number'
+            ? { column: payload.column, limit: payload.limit }
+            : null
+        )
+        setFailure('too_long')
+      } else if (error === 'not_promotable') {
+        setFailure('not_promotable')
+      } else {
+        // THE ONE FACT THAT DECIDES THE SENTENCE. `clientWritten` is the outcome's own client
+        // id, so "nothing was written" is stated only when nothing was.
+        setFailure(payload?.clientWritten === true ? 'client_written' : 'nothing_written')
+      }
     } catch {
       // The request never came back with an answer. The write is not idempotent, so this
       // case never gets a "try again" button — it gets the instruction to go and look.
@@ -155,25 +303,11 @@ export function PromotionPanel({ detail, categoryLabel, onClose, onPromoted }: P
         {plan.creating ? t('promotion.createTitle') : t('promotion.updateTitle', { name: targetName })}
       </h2>
 
-      {/* THE ONE VALUE SOMEBODY TYPES, out of the table and into a field of its own. It was the
-          third cell of a row in the middle of fifteen, wearing the same weight as fourteen
-          read-only values, and it is the only thing on this panel a person can change. */}
+      {/* WHAT THE EDITING IS AND IS NOT. The operator corrects what goes to the client record;
+          the proposal keeps what the partner sent, and it is the auditable copy of it. Stated
+          once, at the top, because every field below is an input. */}
       {plan.entries.some((entry) => entry.editable) && (
-        <div className="mt-4 max-w-md">
-          <Label htmlFor="promotion-industry" className="text-sm font-medium text-gray-900 dark:text-white">
-            {t('promotion.industryLabel')}
-          </Label>
-          <Input
-            id="promotion-industry"
-            className="mt-1"
-            value={industry}
-            onChange={(event) => setIndustry(event.target.value)}
-            aria-describedby="promotion-industry-hint"
-          />
-          <span id="promotion-industry-hint" className="mt-1 block text-xs text-gray-700 dark:text-gray-400">
-            {t('promotion.industryHint')}
-          </span>
-        </div>
+        <p className="mt-2 text-sm text-gray-800 dark:text-gray-300">{t('promotion.editHint')}</p>
       )}
 
       {/* THE DECISION, and the only part of the plan that ever needed a table. A divergent field
@@ -208,7 +342,21 @@ export function PromotionPanel({ detail, categoryLabel, onClose, onPromoted }: P
                       {t(`promotion.fields.${entry.column}`)}
                     </td>
                     <td className="px-2 py-2 text-gray-700 dark:text-gray-400">{entry.current}</td>
-                    <td className="px-2 py-2 text-gray-900 dark:text-white">{entry.proposed}</td>
+                    {/* THE CELL THE OPERATOR CAN CORRECT. The row already names the field in the
+                        first cell, so the input takes that name — a `<Label>` in a table cell
+                        would repeat the column header for every row. */}
+                    <td className="px-2 py-2 text-gray-900 dark:text-white">
+                      {entry.editable ? (
+                        <div className="min-w-[12rem]">
+                          <Label htmlFor={`promotion-value-${entry.column}`} className="sr-only">
+                            {`${t(`promotion.fields.${entry.column}`)} — ${t('promotion.columns.proposed')}`}
+                          </Label>
+                          {editableValue(entry)}
+                        </div>
+                      ) : (
+                        entry.proposed
+                      )}
+                    </td>
                     <td className="px-2 py-2">
                       <label className="flex items-center gap-2 text-xs font-medium text-gray-900 dark:text-white">
                         <Checkbox
@@ -235,36 +383,58 @@ export function PromotionPanel({ detail, categoryLabel, onClose, onPromoted }: P
           <p className="text-sm text-gray-900 dark:text-white">
             {t('promotion.fillsSummary', { count: fills.length })}
           </p>
+          {/* A VALUE OVER ITS LIMIT KEEPS THE LIST OPEN. The field that blocks the button is in
+              here, and a disclosure that can be shut over it hides the only place the operator
+              can fix it. */}
           <button
             type="button"
             onClick={() => setFillsOpen((value) => !value)}
-            aria-expanded={fillsOpen}
+            aria-expanded={showFills}
             aria-controls="promotion-fills"
-            className="mt-2 inline-flex items-center gap-1 text-sm font-medium text-primary-800 underline underline-offset-4 dark:text-tuggi-blue"
+            disabled={fillIsOverLimit}
+            className="mt-2 inline-flex items-center gap-1 text-sm font-medium text-primary-800 underline underline-offset-4 disabled:no-underline disabled:opacity-60 dark:text-tuggi-blue"
           >
-            {fillsOpen ? (
+            {showFills ? (
               <ChevronDown className="h-4 w-4" aria-hidden="true" />
             ) : (
               <ChevronRight className="h-4 w-4" aria-hidden="true" />
             )}
-            {fillsOpen ? t('promotion.fillsHide') : t('promotion.fillsShow')}
+            {showFills ? t('promotion.fillsHide') : t('promotion.fillsShow')}
           </button>
 
-          {fillsOpen && (
-            <dl id="promotion-fills" className="mt-3 grid gap-x-6 gap-y-2 border-t border-gray-100 pt-3 dark:border-gray-800 sm:grid-cols-2">
+          {showFills && (
+            <div id="promotion-fills" className="mt-3 grid gap-x-6 gap-y-3 border-t border-gray-100 pt-3 dark:border-gray-800 sm:grid-cols-2">
               {fills.map((entry) => (
                 <div key={entry.column}>
-                  <dt className="text-xs text-gray-700 dark:text-gray-400">
-                    {t(`promotion.fields.${entry.column}`)}
-                  </dt>
-                  {/* The live value for the one column somebody can type, never the plan's
-                      original: this list is a review of what the button is about to write. */}
-                  <dd className="break-words text-sm text-gray-900 dark:text-white">
-                    {entry.editable ? industry : entry.proposed}
-                  </dd>
+                  {/* The live value, never the plan's original: this list is a review of what
+                      the button is about to write, and for an editable column it is the field
+                      where the value is corrected. */}
+                  {entry.editable ? (
+                    <>
+                      <Label
+                        htmlFor={`promotion-value-${entry.column}`}
+                        className="text-xs text-gray-700 dark:text-gray-400"
+                      >
+                        {t(`promotion.fields.${entry.column}`)}
+                      </Label>
+                      {editableValue(
+                        entry,
+                        entry.column === 'industry' ? t('promotion.industryHint') : undefined
+                      )}
+                    </>
+                  ) : (
+                    <>
+                      <span className="block text-xs text-gray-700 dark:text-gray-400">
+                        {t(`promotion.fields.${entry.column}`)}
+                      </span>
+                      <p className="break-words text-sm text-gray-900 dark:text-white">
+                        {entry.proposed}
+                      </p>
+                    </>
+                  )}
                 </div>
               ))}
-            </dl>
+            </div>
           )}
         </div>
       )}
@@ -299,7 +469,10 @@ export function PromotionPanel({ detail, categoryLabel, onClose, onPromoted }: P
         </p>
       </div>
 
-      {failure && (
+      {/* THE REASON IS NEXT TO THE BUTTON, ALWAYS. The field says which value does not fit and
+          this says why the promotion is not going to happen — a dead button whose explanation is
+          three sections up is a button the operator clicks again. */}
+      {(failure || violations.length > 0) && (
         <div
           className="mt-3 rounded-md border border-destructive/40 bg-destructive/5 p-3 text-sm text-gray-900 dark:text-white"
           role="alert"
@@ -308,12 +481,33 @@ export function PromotionPanel({ detail, categoryLabel, onClose, onPromoted }: P
             <AlertTriangle className="h-4 w-4" aria-hidden="true" />
             {failure === 'network' ? t('promotion.failedNetworkTitle') : t('promotion.failedTitle')}
           </p>
-          <p className="mt-1">
-            {failure === 'network' && t('promotion.failedNetworkBody')}
-            {failure === 'not_promotable' && t('promotion.failedNotPromotable')}
-            {failure === 'write' && t('promotion.failedNothingWritten')}
-            {failure === 'nothing' && t('promotion.nothingToWrite')}
-          </p>
+          <div className="mt-1">
+            {violations.map((violation) => (
+              <p key={violation.column}>
+                {t('promotion.failedTooLong', {
+                  field: t(`promotion.fields.${violation.column}`),
+                  limit: violation.limit,
+                })}
+              </p>
+            ))}
+            {/* The server refused a length the screen let through: the column it names is not
+                one this panel knows a limit for, so it is stated on its own. */}
+            {violations.length === 0 && failure === 'too_long' && (
+              <p>
+                {refused
+                  ? t('promotion.failedTooLong', {
+                      field: t(`promotion.fields.${refused.column}`),
+                      limit: refused.limit,
+                    })
+                  : t('promotion.failedNothingWritten')}
+              </p>
+            )}
+            {failure === 'network' && <p>{t('promotion.failedNetworkBody')}</p>}
+            {failure === 'not_promotable' && <p>{t('promotion.failedNotPromotable')}</p>}
+            {failure === 'nothing_written' && <p>{t('promotion.failedNothingWritten')}</p>}
+            {failure === 'client_written' && <p>{t('promotion.failedClientWritten')}</p>}
+            {failure === 'nothing' && <p>{t('promotion.nothingToWrite')}</p>}
+          </div>
         </div>
       )}
 
@@ -322,7 +516,7 @@ export function PromotionPanel({ detail, categoryLabel, onClose, onPromoted }: P
           type="button"
           variant="cta"
           onClick={promote}
-          disabled={submitting || summary.total === 0}
+          disabled={submitting || summary.total === 0 || violations.length > 0}
         >
           {submitting ? (
             <>

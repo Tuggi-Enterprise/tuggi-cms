@@ -329,7 +329,19 @@ export type PromotionOutcome =
        */
       materialOrder: string | null | 'failed'
     }
-  | { ok: false; reason: 'not_promotable' | 'write_failed'; clientId: string | null }
+  | {
+      ok: false
+      /**
+       * `too_long` is the one the caller can turn into an instruction: a value did not fit its
+       * column, nothing was written, and the operator can shorten it and promote again. The
+       * route checks the lengths before it gets here (`lengthViolations`), so this value only
+       * appears when the database knows a narrower column than `CLIENT_COLUMN_LIMITS` does —
+       * which is the drift that produced #679 in the first place, and it must not come back as
+       * "the write may have happened".
+       */
+      reason: 'not_promotable' | 'write_failed' | 'too_long'
+      clientId: string | null
+    }
 
 export interface PromotionCommand {
   submissionId: string
@@ -502,7 +514,19 @@ export const PROMOTED_CLIENT_TYPE: ClientType = 'venue'
 
 type ClientWriteOutcome =
   | { ok: true; clientId: string; created: boolean }
-  | { ok: false; reason: 'write_failed' }
+  | { ok: false; reason: 'write_failed' | 'too_long' }
+
+/**
+ * `22001` is `string_data_right_truncation` — a value wider than the column it was aimed at.
+ *
+ * THE CODE TRAVELS, THE MESSAGE DOES NOT. PostgREST hands back `value too long for type
+ * character varying(255)` with no column name and, on some statements, with the value itself
+ * inside it — and the value here is the partner's address, e-mail or phone. The caller gets a
+ * typed reason and the screen gets a sentence of its own (CLAUDE.md: log without PII).
+ */
+function isTooLong(error: { code?: string } | null): boolean {
+  return error?.code === '22001'
+}
 
 /**
  * THE TIER THE ESTABLISHMENT CHOSE IS A DECISION, NOT A REQUEST — and this is where it stops
@@ -542,7 +566,7 @@ async function writeClient(command: PromotionCommand): Promise<ClientWriteOutcom
       .eq('id', command.clientId)
       .select('id')
 
-    if (error) return { ok: false, reason: 'write_failed' }
+    if (error) return { ok: false, reason: isTooLong(error) ? 'too_long' : 'write_failed' }
     if (!data || data.length === 0) return { ok: false, reason: 'write_failed' }
     return { ok: true, clientId: command.clientId, created: false }
   }
@@ -560,7 +584,7 @@ async function writeClient(command: PromotionCommand): Promise<ClientWriteOutcom
     .select('id')
     .single()
 
-  if (error || !data) return { ok: false, reason: 'write_failed' }
+  if (error || !data) return { ok: false, reason: isTooLong(error) ? 'too_long' : 'write_failed' }
   return { ok: true, clientId: (data as { id: string }).id, created: true }
 }
 

@@ -698,7 +698,7 @@ test('DS-COMPONENTE-018: promoting without ticking leaves the divergent column a
     },
   })
 
-  const response = await PROMOTE(request('POST', { approved: [], industry: 'Restaurante' }), proposalContext)
+  const response = await PROMOTE(request('POST', { approved: [], overrides: { industry: 'Restaurante' } }), proposalContext)
   const payload = await response.json()
 
   assert.equal(response.status, 200)
@@ -720,7 +720,7 @@ test('DS-COMPONENTE-018: ticking the column is what writes it — end to end', a
   })
 
   const response = await PROMOTE(
-    request('POST', { approved: ['city'], industry: 'Restaurante' }),
+    request('POST', { approved: ['city'], overrides: { industry: 'Restaurante' } }),
     proposalContext
   )
 
@@ -741,7 +741,7 @@ test('DS-COMPONENTE-018: the body cannot name a column the plan did not produce'
   await PROMOTE(
     request('POST', {
       approved: ['commission_rate', 'status', 'slug', 'iban'],
-      industry: 'Restaurante',
+      overrides: { industry: 'Restaurante' },
       commission_rate: 99,
       slug: 'roubado',
     }),
@@ -765,7 +765,7 @@ test('BR-B2B-026: no statement ever writes `promoted` without the destination in
   // splits the trail across two statements is red here even if it splits it the other way round.
   state = freshState()
 
-  const response = await PROMOTE(request('POST', { approved: [], industry: 'Restaurante' }), proposalContext)
+  const response = await PROMOTE(request('POST', { approved: [], overrides: { industry: 'Restaurante' } }), proposalContext)
   assert.equal(response.status, 200)
 
   const writes = submissionWrites()
@@ -794,7 +794,7 @@ test('BR-B2B-026: no statement ever writes `promoted` without the destination in
 test('BR-B2B-026: a promotion that CREATES the client writes it before the claim, and claims in one statement', async () => {
   state = freshState()
 
-  const response = await PROMOTE(request('POST', { approved: [], industry: 'Restaurante' }), proposalContext)
+  const response = await PROMOTE(request('POST', { approved: [], overrides: { industry: 'Restaurante' } }), proposalContext)
   const payload = await response.json()
 
   assert.equal(response.status, 200)
@@ -828,7 +828,7 @@ test('BR-B2B-026: a promotion onto an EXISTING client claims in one statement to
     },
   })
 
-  const response = await PROMOTE(request('POST', { approved: ['city'], industry: 'Restaurante' }), proposalContext)
+  const response = await PROMOTE(request('POST', { approved: ['city'], overrides: { industry: 'Restaurante' } }), proposalContext)
 
   assert.equal(response.status, 200)
   assert.equal(state.clients[0].city, 'São Vicente', 'the ticked column was written')
@@ -853,7 +853,7 @@ test('#341: a promotion that fails to write the client never claims the proposal
   })
   state.clientWriteFails = true
 
-  const response = await PROMOTE(request('POST', { approved: [], industry: 'Restaurante' }), proposalContext)
+  const response = await PROMOTE(request('POST', { approved: [], overrides: { industry: 'Restaurante' } }), proposalContext)
   const payload = await response.json()
 
   assert.equal(response.status, 503)
@@ -900,7 +900,7 @@ test('BR-B2B-026: a proposal somebody already promoted cannot be promoted again'
   // the UPDATE, so a second click matches no row.
   state = freshState({ submission: { status: 'promoted' } })
 
-  const response = await PROMOTE(request('POST', { approved: [], industry: 'Restaurante' }), proposalContext)
+  const response = await PROMOTE(request('POST', { approved: [], overrides: { industry: 'Restaurante' } }), proposalContext)
   const payload = await response.json()
 
   assert.equal(response.status, 409)
@@ -915,7 +915,7 @@ test('BR-B2B-020: a promotion that creates a record creates a `venue` — end to
   // creates is one. The mutation: put `'partner'` back in `writeClient` and this is red.
   state = freshState()
 
-  const response = await PROMOTE(request('POST', { approved: [], industry: 'Restaurante' }), proposalContext)
+  const response = await PROMOTE(request('POST', { approved: [], overrides: { industry: 'Restaurante' } }), proposalContext)
 
   assert.equal(response.status, 200)
   assert.equal(state.clients.length, 1)
@@ -936,7 +936,7 @@ test('BR-B2B-020: a promotion onto a record that already exists does not re-clas
   })
 
   await PROMOTE(
-    request('POST', { approved: ['name'], industry: 'Restaurante', client_type: 'venue' }),
+    request('POST', { approved: ['name'], overrides: { industry: 'Restaurante' }, client_type: 'venue' }),
     proposalContext
   )
 
@@ -957,7 +957,7 @@ test('#341: a proposal whose CNPJ is already a client promotes into that record,
   assert.equal(detail.client?.id, CLIENT_ID, 'the panel compares against the record that exists')
 
   const response = await PROMOTE(
-    request('POST', { approved: [], industry: 'Restaurante' }),
+    request('POST', { approved: [], overrides: { industry: 'Restaurante' } }),
     proposalContext
   )
 
@@ -1156,7 +1156,7 @@ test('#341: promoting and discarding each leave a row in the trail', async () =>
       tax_id: '12ABC34501DE35',
     },
   })
-  await PROMOTE(request('POST', { approved: [], industry: 'Restaurante' }), proposalContext)
+  await PROMOTE(request('POST', { approved: [], overrides: { industry: 'Restaurante' } }), proposalContext)
 
   const promotion = state.audit_logs.find((row) => row.action === 'PROMOTE_PARTNER_PROPOSAL')
   assert.ok(promotion, 'the promotion is audited')
@@ -1178,7 +1178,7 @@ test('BR-B2B-026: a claim that fails after the client was written leaves a row n
   state = freshState()
   state.claimFails = true
 
-  const response = await PROMOTE(request('POST', { approved: [], industry: 'Restaurante' }), proposalContext)
+  const response = await PROMOTE(request('POST', { approved: [], overrides: { industry: 'Restaurante' } }), proposalContext)
   const payload = await response.json()
 
   assert.equal(response.status, 503, 'the operator is still told the promotion did not happen')
@@ -1208,7 +1208,7 @@ test('BR-B2B-026: a promotion whose client write failed leaves NO audit row — 
   state = freshState()
   state.clientWriteFails = true
 
-  const response = await PROMOTE(request('POST', { approved: [], industry: 'Restaurante' }), proposalContext)
+  const response = await PROMOTE(request('POST', { approved: [], overrides: { industry: 'Restaurante' } }), proposalContext)
 
   assert.equal(response.status, 503)
   assert.equal(state.clients.length, 0)
@@ -1225,7 +1225,7 @@ test('BR-B2B-026: a promotion that goes through records the promotion and nothin
     },
   })
 
-  const response = await PROMOTE(request('POST', { approved: [], industry: 'Restaurante' }), proposalContext)
+  const response = await PROMOTE(request('POST', { approved: [], overrides: { industry: 'Restaurante' } }), proposalContext)
   assert.equal(response.status, 200)
 
   assert.ok(state.audit_logs.find((row) => row.action === 'PROMOTE_PARTNER_PROPOSAL'))
@@ -1268,7 +1268,7 @@ test('BR-B2B-026: no promotion trail carries a value the partner typed — uuids
 
   for (const scenario of scenarios) {
     scenario()
-    await PROMOTE(request('POST', { approved: [], industry: 'Restaurante' }), proposalContext)
+    await PROMOTE(request('POST', { approved: [], overrides: { industry: 'Restaurante' } }), proposalContext)
 
     for (const row of state.audit_logs) {
       for (const needle of needles) {
@@ -1741,7 +1741,10 @@ test('a promoção só pede ato onde existe divergência', () => {
   )
   // Os vazios são uma frase com a contagem, e a lista fica a um clique — a gravação não desfaz.
   assert.match(panel, /promotion\.fillsSummary/)
-  assert.match(panel, /aria-expanded=\{fillsOpen\}/)
+  // #679: a divulgação continua sendo estado do operador; `showFills` é `fillsOpen` mais o caso
+  // em que um valor estourou o limite da coluna e a lista não pode ser fechada por cima dele.
+  assert.match(panel, /aria-expanded=\{showFills\}/)
+  assert.match(panel, /const showFills = fillsOpen \|\| fillIsOverLimit/)
   // E a legenda que repetia a mesma frase quinze vezes não existe mais em lugar nenhum.
   assert.equal('fillBadge' in copy.promotion, false, 'fillBadge sobreviveu ao controle que a exibia')
   assert.equal(panel.indexOf('fillBadge') >= 0, false)

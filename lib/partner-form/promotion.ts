@@ -69,8 +69,84 @@ export type PromotionSource =
 export interface PromotionTarget {
   column: PromotableColumn
   source: PromotionSource
-  /** The operator may adjust the value before it is written. Only `industry` today. */
+  /**
+   * The operator may adjust the value before it is written.
+   *
+   * EVERY FREE-TEXT ANSWER IS EDITABLE, and the three that are not say why on their own line
+   * below. What the partner typed lands in a column with a width, and until #679 the only way
+   * to make a 300-character `website` fit a `varchar(255)` was to not promote the proposal at
+   * all: the INSERT came back `22001`, the screen said the write "may have happened", and the
+   * proposal sat in the queue with no path out of it (BR-B2B-026, item 4 — the conference is
+   * where the team fixes what the form brought).
+   *
+   * Editing here NEVER touches `partner.partner_form_submissions.answers`. What the partner
+   * sent stays exactly as it was sent, and it is the auditable record of the proposal; this
+   * flag governs the value that goes to `partner.clients` and nothing else.
+   */
   editable?: boolean
+}
+
+/**
+ * THE WIDTH OF EACH COLUMN OF `partner.clients`, and the only place this repository states it.
+ *
+ * Read off the versioned schema — `core.clients` in
+ * `db-tuggiApp/supabase/migrations/20260719000000_baseline_remote_schema.sql`, moved to the
+ * `partner` schema by `20260819150000_dominio_de_parceiro_muda_para_o_schema_partner.sql` with
+ * `ALTER TABLE ... SET SCHEMA`, which carries the column types over untouched. No migration
+ * since then alters any of these types.
+ *
+ * `null` is not "no limit measured": it is `text`, which has no width at all. `social_handle`
+ * is the only one, and it is `text` in the baseline.
+ *
+ * THE SAME NUMBER SERVES THE SCREEN AND THE ROUTE (CLAUDE.md §6). The panel blocks the promote
+ * button against this map and the route refuses the body against the same map — a second copy
+ * of `255` is how the two start disagreeing, and a disagreement here is either a 503 the
+ * operator cannot explain or a screen that blocks a value the database would have accepted.
+ */
+export const CLIENT_COLUMN_LIMITS: Readonly<Record<PromotableColumn, number | null>> = {
+  name: 255,
+  company_name: 255,
+  tax_id: 50,
+  tax_id_type: 20,
+  industry: 100,
+  address: 500,
+  city: 100,
+  state: 100,
+  postal_code: 20,
+  country: 100,
+  website: 255,
+  social_handle: null,
+  legal_representative_name: 255,
+  legal_representative_role: 100,
+  email: 255,
+  phone: 20,
+}
+
+export interface LengthViolation {
+  column: PromotableColumn
+  limit: number
+  length: number
+}
+
+/**
+ * Which of the values about to be written do not fit their column.
+ *
+ * It runs on the RESOLVED write and not on the plan, because what the operator typed is what
+ * gets inserted — checking the proposal's original value would pass a promotion the database
+ * then refuses, which is the whole defect of #679.
+ */
+export function lengthViolations(
+  updates: Partial<Record<PromotableColumn, string>>
+): LengthViolation[] {
+  const violations: LengthViolation[] = []
+
+  for (const [column, value] of Object.entries(updates) as [PromotableColumn, string][]) {
+    const limit = CLIENT_COLUMN_LIMITS[column]
+    if (limit == null || typeof value !== 'string') continue
+    if (value.length > limit) violations.push({ column, limit, length: value.length })
+  }
+
+  return violations
 }
 
 /**
@@ -78,28 +154,41 @@ export interface PromotionTarget {
  * matters: it is the order the panel lists the decisions in, and it follows the form.
  */
 export const PROMOTION_MAP: readonly PromotionTarget[] = [
-  { column: 'name', source: { kind: 'field', field: 'trade_name' } },
-  { column: 'company_name', source: { kind: 'field', field: 'legal_name' } },
+  { column: 'name', source: { kind: 'field', field: 'trade_name' }, editable: true },
+  { column: 'company_name', source: { kind: 'field', field: 'legal_name' }, editable: true },
+  // NOT editable, and it is the identity of the proposal. `tax_id` is what says this promotion
+  // lands on THIS company: it is the duplicate control of BR-B2B-028, the key behind
+  // `clients_tax_id_normalized_uk`, and the value the panel showed the operator when it offered
+  // the existing record. A promotion that may retype it is a promotion that can be pointed at
+  // another company than the one that filled the form, with the proposal still saying otherwise.
   { column: 'tax_id', source: { kind: 'field', field: 'tax_id' } },
+  // A constant of the surface, not an answer: nothing to correct.
   { column: 'tax_id_type', source: { kind: 'constant', value: 'CNPJ' } },
   { column: 'industry', source: { kind: 'category' }, editable: true },
-  { column: 'address', source: { kind: 'address' } },
-  { column: 'city', source: { kind: 'field', field: 'city' } },
+  { column: 'address', source: { kind: 'address' }, editable: true },
+  { column: 'city', source: { kind: 'field', field: 'city' }, editable: true },
+  // NOT editable: `state` and `country` are the CATALOGUE's canonical, produced by
+  // `location-normalize` and not by the form — see `proposedValue`. Typed by hand they become a
+  // second dialect of the same fact, and the measurement is on that function: an equality filter
+  // on `country AND state AND city` returned zero for 11 of 16 clients the day the raw values
+  // were written.
   { column: 'state', source: { kind: 'canonical_state' } },
-  { column: 'postal_code', source: { kind: 'field', field: 'postal_code' } },
+  { column: 'postal_code', source: { kind: 'field', field: 'postal_code' }, editable: true },
   { column: 'country', source: { kind: 'canonical_country' } },
-  { column: 'website', source: { kind: 'field', field: 'website' } },
-  { column: 'social_handle', source: { kind: 'field', field: 'instagram' } },
+  { column: 'website', source: { kind: 'field', field: 'website' }, editable: true },
+  { column: 'social_handle', source: { kind: 'field', field: 'instagram' }, editable: true },
   {
     column: 'legal_representative_name',
     source: { kind: 'field', field: 'representative_name' },
+    editable: true,
   },
   {
     column: 'legal_representative_role',
     source: { kind: 'field', field: 'representative_role' },
+    editable: true,
   },
-  { column: 'email', source: { kind: 'field', field: 'representative_email' } },
-  { column: 'phone', source: { kind: 'field', field: 'representative_phone' } },
+  { column: 'email', source: { kind: 'field', field: 'representative_email' }, editable: true },
+  { column: 'phone', source: { kind: 'field', field: 'representative_phone' }, editable: true },
 ]
 
 /**
@@ -278,7 +367,11 @@ export interface PromotionRequest {
    * either way, and a column that is not in the plan is not written at all.
    */
   approved: readonly string[]
-  /** Values typed in the panel. Honoured only where the plan says the entry is editable. */
+  /**
+   * Values typed in the panel. Honoured only where the plan says the entry is editable, so a
+   * body naming `state`, `country` or `tax_id` changes nothing — the decision of what may be
+   * retyped is `PROMOTION_MAP`'s, on the server, and never the caller's.
+   */
   overrides?: Record<string, string>
 }
 

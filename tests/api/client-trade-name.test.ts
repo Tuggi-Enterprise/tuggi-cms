@@ -42,8 +42,10 @@ function code(path: string): string {
 test('o formulário grava o fantasia em `name` e a razão social em `company_name`', () => {
   const promotion = code('lib/partner-form/promotion.ts')
 
-  assert.match(promotion, /\{ column: 'name', source: \{ kind: 'field', field: 'trade_name' \} \}/)
-  assert.match(promotion, /\{ column: 'company_name', source: \{ kind: 'field', field: 'legal_name' \} \}/)
+  // O que a asserção guarda é PARA QUAL COLUNA cada resposta vai; o que mais o alvo declara
+  // (`editable`, #679) é outra decisão e não pode prender esta.
+  assert.match(promotion, /\{ column: 'name', source: \{ kind: 'field', field: 'trade_name' \}/)
+  assert.match(promotion, /\{ column: 'company_name', source: \{ kind: 'field', field: 'legal_name' \}/)
 })
 
 test('o contrato imprime `company_name` como razão social — é ele quem decide de quem é o nome', () => {
