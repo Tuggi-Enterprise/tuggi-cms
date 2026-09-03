@@ -56,6 +56,12 @@ export const GET = withRateLimit(60, 60_000)(
     if (!gate.ok) return gate.response
 
     const prices = await loadPassPrices()
+    // O CATÁLOGO RECUSADO NÃO VIRA "nenhum preço declarado". A tela nomeia produto sem preço como
+    // pendência, e com `[]` por erro TODOS virariam pendência — mandando o operador cadastrar
+    // preços que já existem.
+    if (prices === null) {
+      return NextResponse.json({ error: 'finance_unavailable' }, { status: 503 })
+    }
 
     if (auth.cmsUser.role !== 'admin') {
       // O preço declarado NÃO é dado sobre pessoas, então ele sobe mesmo aqui: o editor consegue
@@ -72,6 +78,13 @@ export const GET = withRateLimit(60, 60_000)(
       loadRcEvents(),
       loadCommissionRates(),
     ])
+
+    // AS TRÊS LEITURAS QUE VIRAM NÚMERO PRECISAM TER RESPONDIDO. Sem os eventos, a receita do app
+    // é R$ 0,00; sem as exclusões, as contas de teste voltam para dentro dela; sem as comissões, o
+    // líquido vira o bruto. Os três erros caem para o lado otimista, que é o pior lado.
+    if (rcEvents === null || excluded === null || rates === null) {
+      return NextResponse.json({ error: 'finance_unavailable' }, { status: 503 })
+    }
 
     const today = new Date().toISOString().slice(0, 10)
 

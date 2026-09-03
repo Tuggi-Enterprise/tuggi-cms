@@ -813,8 +813,18 @@ test('nenhuma leitura nova pode descartar `error` e devolver vazio', () => {
     bounds.push({ name: match[1], at: match.index ?? 0 })
   }
 
+  // DUAS FORMAS DO MESMO DEFEITO, e a segunda escapou da primeira varredura em 2026-09-03:
+  //
+  //   `const { data } = await ...`      — o erro nem é lido
+  //   `if (error) return []` / `new Set()` / `new Map()` / `{}`  — o erro é lido e DESCARTADO
+  //
+  // A segunda é pior, porque alguém a escreveu de propósito. Ela existia em cinco funções
+  // (`loadRcEvents`, `loadExcludedAccounts`, `loadCommissionRates`, `loadPassPrices`,
+  // `listExcludedAccounts`) enquanto a suite passava 228/228 verde.
+  const SWALLOWS = /const \{ data \} = await|if \(error\) return (\[\]|new Set\(\)|new Map\(\)|\{\}|rates|starts)/g
+
   const offenders = new Set<string>()
-  for (const match of source.matchAll(/const \{ data \} = await/g)) {
+  for (const match of source.matchAll(SWALLOWS)) {
     const at = match.index ?? 0
     let owner = '(topo do arquivo)'
     for (const bound of bounds) {
