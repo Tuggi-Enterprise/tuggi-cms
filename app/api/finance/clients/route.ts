@@ -155,6 +155,11 @@ export const GET = withRateLimit(60, 60_000)(
     // `admin` como o agregado de contas: o evento do RevenueCat não é dado sobre pessoa, é o
     // registro de uma venda — e sem ele metade do negócio some do gráfico.
     const rcEvents = await loadRcEvents()
+    // Sem os eventos, a camada do app some do gráfico e da projeção, e a tela afirma que ninguém
+    // comprou nada — receita zero por erro é o gêmeo do custo zero por erro.
+    if (rcEvents === null) {
+      return NextResponse.json({ error: 'finance_unavailable' }, { status: 503 })
+    }
 
     const mix = summarizePlanMix(overview.partnerMix)
     const currentMonth = today.slice(0, 7)

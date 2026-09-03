@@ -1253,6 +1253,10 @@ export async function loadFinanceOverview(
   // E sem os parceiros também não: zero parceiro por erro afirma que a empresa não tem cliente.
   if (allPartners === null) return { ok: false, reason: 'partners_unavailable' }
 
+  // Nem sem a lista de exclusões: um conjunto vazio por erro faz as contas de teste voltarem para
+  // dentro de TODO número, e uma base que cresce sozinha não parece defeito para ninguém.
+  if (excluded === null) return { ok: false, reason: 'finance_unavailable' }
+
   // AS CONTAS DE TESTE SAEM AQUI, ANTES DE QUALQUER CONTA — e não na tela.
   //
   // Filtrar depois deixaria o parceiro de demonstração dentro de `summarizeFinance`, do CAC e da
@@ -1694,13 +1698,21 @@ export async function recomputeConsumption(
  * que ela já sabe desenhar. O modo de falha caro deste módulo é afirmar dinheiro que não existe,
  * e uma lista vazia afirma exatamente nada.
  */
-export async function loadPassPrices(): Promise<PassPrice[]> {
+/**
+ * O CATÁLOGO DE PREÇOS DECLARADO, OU `null`.
+ *
+ * Sem ele a tela nomeia os produtos sem preço e a estimativa não sai — pendência visível, e não
+ * número falso. Mas a CAUSA muda o que o operador faz: "ninguém declarou preço" manda cadastrar;
+ * "não consegui ler" manda olhar a migração. Foi exatamente o que aconteceu com as taxas de
+ * câmbio em 2026-09-03, e é o mesmo remédio.
+ */
+export async function loadPassPrices(): Promise<PassPrice[] | null> {
   const { data, error } = await finance()
     .from('pass_prices')
     .select('product_id, label, price_cents, currency, effective_from, minutes, kind')
     .order('effective_from', { ascending: false })
 
-  if (error) return []
+  if (error) return null
   return (data ?? []).map((row: Record<string, unknown>) => ({
     productId: String(row.product_id),
     label: String(row.label ?? row.product_id),
@@ -1766,26 +1778,43 @@ export interface ExcludedAccountRow {
  * assumir que tudo está excluído — sumiria com a base inteira e pareceria uma empresa sem
  * clientes.
  */
-export async function loadExcludedAccounts(kind: 'app_user' | 'client'): Promise<Set<string>> {
+/**
+ * AS CONTAS QUE NÃO CONTAM, OU `null`.
+ *
+ * UM CONJUNTO VAZIO POR ERRO FAZ AS CONTAS DE TESTE VOLTAREM para dentro de todo número — base,
+ * MRR, CAC, coortes — sem nada na tela dizendo por quê. A migração que criou esta tabela escreveu
+ * a versão inversa deste raciocínio ("uma base que encolhe sem dizer por quê é indistinguível de
+ * uma leitura que falhou pela metade"); uma base que CRESCE sozinha é a mesma coisa ao contrário,
+ * e mais difícil de notar, porque número maior não parece defeito.
+ */
+export async function loadExcludedAccounts(
+  kind: 'app_user' | 'client'
+): Promise<Set<string> | null> {
   const { data, error } = await finance()
     .from('excluded_accounts')
     .select('subject_id')
     .eq('kind', kind)
     .is('removed_at', null)
 
-  if (error) return new Set()
+  if (error) return null
   return new Set((data ?? []).map((row: Record<string, unknown>) => String(row.subject_id)))
 }
 
 /** As marcas vivas, com quem marcou e por quê — a lista que a tela mostra. */
-export async function listExcludedAccounts(): Promise<ExcludedAccountRow[]> {
+/**
+ * A LISTA DE CONTAS MARCADAS, OU `null` — a tela de gestão, não a do cálculo.
+ *
+ * `[]` por erro diria "nenhuma conta excluída" a quem está olhando exatamente para conferir
+ * quais estão. Nenhum total muda, mas a resposta é falsa.
+ */
+export async function listExcludedAccounts(): Promise<ExcludedAccountRow[] | null> {
   const { data, error } = await finance()
     .from('excluded_accounts')
     .select('id, kind, subject_id, reason, created_at, created_by')
     .is('removed_at', null)
     .order('created_at', { ascending: false })
 
-  if (error) return []
+  if (error) return null
   return (data ?? []).map((row: Record<string, unknown>) => ({
     id: String(row.id),
     kind: row.kind === 'app_user' ? 'app_user' : 'client',
@@ -2009,7 +2038,14 @@ export async function loadBillingStarts(
  * Devolve lista vazia quando a leitura falha. Sem evento não há receita de app, e a tela mostra
  * zero — inventar transação é o que não pode acontecer.
  */
-export async function loadRcEvents(limit = 5000): Promise<RcEvent[]> {
+/**
+ * OS EVENTOS DE VENDA DO APP, OU `null`.
+ *
+ * `[]` POR ERRO DESENHA RECEITA ZERO. Esta é a única fonte de receita do lado do turista: sem ela
+ * o gráfico do mês perde a camada do app inteira, a projeção some, e a tela afirma que ninguém
+ * comprou nada. É o defeito de `loadPartners` do outro lado do negócio.
+ */
+export async function loadRcEvents(limit = 5000): Promise<RcEvent[] | null> {
   const { data, error } = await getSupabaseService()
     .schema('drive')
     .from('subscription_history')
@@ -2017,7 +2053,7 @@ export async function loadRcEvents(limit = 5000): Promise<RcEvent[]> {
     .order('created_at', { ascending: false })
     .limit(limit)
 
-  if (error) return []
+  if (error) return null
 
   const events: RcEvent[] = []
   for (const row of (data ?? []) as { metadata: unknown }[]) {
@@ -2034,14 +2070,21 @@ export async function loadRcEvents(limit = 5000): Promise<RcEvent[]> {
  * instrumento assinado. Parceiro sem taxa NÃO entra no mapa: `commissionByPartner` o nomeia em
  * vez de aplicar zero, porque zero sobre receita real é uma dívida que some.
  */
-export async function loadCommissionRates(): Promise<Map<string, number>> {
+/**
+ * A COMISSÃO POR CLIENTE, OU `null`.
+ *
+ * UM MAPA VAZIO POR ERRO SUPERESTIMA A RECEITA: comissão é o que se paga a quem trouxe a venda, e
+ * sem ela o líquido volta a ser o bruto. O erro cai sempre para o lado otimista, que é o pior
+ * lado para um erro cair.
+ */
+export async function loadCommissionRates(): Promise<Map<string, number> | null> {
   const rates = new Map<string, number>()
   const { data, error } = await getSupabaseService()
     .schema('core')
     .from('clients')
     .select('id, commission_rate')
 
-  if (error) return rates
+  if (error) return null
   for (const row of (data ?? []) as { id: string; commission_rate: number | null }[]) {
     if (row.id && typeof row.commission_rate === 'number') rates.set(row.id, row.commission_rate)
   }

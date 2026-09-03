@@ -41,7 +41,13 @@ export const GET = withRateLimit(60, 60_000)(
     const gate = await requireModule(MODULES.FINANCE, await cookies())
     if (!gate.ok) return gate.response
 
-    return NextResponse.json({ accounts: await listExcludedAccounts() })
+    const accounts = await listExcludedAccounts()
+    // Lista vazia por erro diria "nenhuma conta excluída" a quem abriu a tela exatamente para
+    // conferir quais estão. Nenhum total muda, e mesmo assim a resposta seria falsa.
+    if (accounts === null) {
+      return NextResponse.json({ error: 'finance_unavailable' }, { status: 503 })
+    }
+    return NextResponse.json({ accounts })
   })
 )
 
