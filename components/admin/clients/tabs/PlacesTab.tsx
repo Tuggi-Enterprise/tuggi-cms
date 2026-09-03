@@ -28,6 +28,14 @@
  * adopts it (`../places/link`), and choosing among several is an act on the place itself,
  * below.
  *
+ * N LOCAIS, E A BUSCA NÃO MORA MAIS NO ESTADO VAZIO — BR-B2B-033, item 3. Um CNPJ pode ter mais
+ * de um endereço, e cada endereço é um local próprio; o banco aceita (`partner_client_id` é
+ * coluna do POI) e a rota `../places/link` também (`verdictFor` só recusa o local de OUTRO
+ * cliente). Quem revertia para 1 : 1 era esta tela: o `PlaceLinkPanel` estava dentro do bloco
+ * `places.length === 0`, então o cliente com um local perdia a única porta para o segundo (#685).
+ * O painel é UM, renderizado nos dois estados; criar a partir da proposta continua só no vazio,
+ * pelo motivo escrito ao lado do botão.
+ *
  * THE `Partnerships` NAMESPACE TRAVELS WITH IT. That copy lives only in `messages/pt.json`
  * (spec §2), and an absent key in next-intl renders THE KEY NAME on screen — so an operator on
  * `/en/` would read `Partnerships.pendencies...` instead of a pendency. The provider below
@@ -184,62 +192,80 @@ function PartnerPlaces({ clientId, locale }: { clientId?: string; locale: string
         </div>
       )}
 
-      {!loading && !failed && detail && detail.places.length === 0 && (
-        <div className="text-sm">
-          <p className="font-semibold text-gray-900 dark:text-white">{t('pendencies.emptyTitle')}</p>
-          <p className="mt-1 text-gray-800 dark:text-gray-300">{t('pendencies.emptyBody')}</p>
-          {createFailed && (
-            <p role="alert" className="mt-3 text-gray-900 dark:text-white">
-              {t('clientPlaces.createFailed')}
-            </p>
-          )}
+      {!loading && !failed && detail && (
+        <>
+          {detail.places.length === 0 && (
+            <div className="text-sm">
+              <p className="font-semibold text-gray-900 dark:text-white">{t('pendencies.emptyTitle')}</p>
+              <p className="mt-1 text-gray-800 dark:text-gray-300">{t('pendencies.emptyBody')}</p>
+              {createFailed && (
+                <p role="alert" className="mt-3 text-gray-900 dark:text-white">
+                  {t('clientPlaces.createFailed')}
+                </p>
+              )}
 
-          {/* The client that already points at a POI, above the search — see the card. */}
-          {detail.welcomeDivergence && (
-            <div className="mt-4">
-              <WelcomeDivergenceCard
-                clientId={clientId}
-                locale={locale}
-                divergence={detail.welcomeDivergence}
-                onLinked={load}
-              />
+              {/* The client that already points at a POI, above the search — see the card. */}
+              {detail.welcomeDivergence && (
+                <div className="mt-4">
+                  <WelcomeDivergenceCard
+                    clientId={clientId}
+                    locale={locale}
+                    divergence={detail.welcomeDivergence}
+                    onLinked={load}
+                  />
+                </div>
+              )}
             </div>
           )}
-          {/* SEARCH BEFORE CREATE, and the order is the fix: three of three clients who used
+
+          {detail.places.length > 0 && (
+            <div className="space-y-5">
+              {detail.places.map((place) => (
+                <Place
+                  key={place.readiness.place.attractionId}
+                  place={place}
+                  placeHref={placeHref}
+                  clientId={clientId}
+                  isWelcome={place.readiness.place.attractionId === detail.client.welcomePoiId}
+                  /* Onde há escolha a fazer — e não é só "mais de um local". Com o vínculo desfeito,
+                     `welcome_poi_id` é limpo (ver a rota `../places/unlink`), e um cliente que
+                     voltou a ter UM local ficava sem crachá e sem botão: ninguém saudava o turista
+                     em `/d/{slug}` e a tela não dizia como consertar. */
+                  canChooseWelcome={detail.places.length > 1 || !detail.client.welcomePoiId}
+                  onWelcomeChanged={load}
+                  onUnlinked={load}
+                />
+              ))}
+            </div>
+          )}
+
+          {/* UM PAINEL, NOS DOIS ESTADOS — BR-B2B-033, item 3: um cliente tem N locais, e o
+              segundo endereço do mesmo CNPJ entra pela mesma porta que o primeiro. Este bloco
+              vivia DENTRO do estado vazio, então o cliente com um local não tinha porta
+              nenhuma: a regra 1 : N estava no banco e na rota, e a tela a revertia para 1 : 1.
+
+              SEARCH BEFORE CREATE, and the order is the fix: three of three clients who used
               the create button ended up with an empty second row beside the establishment
               already published (`lib/partnerships/place-link`). */}
           <div className="mt-4">
             <PlaceLinkPanel clientId={clientId} locale={locale} onLinked={load} />
           </div>
 
-          <div className="mt-4">
-            <p className="mb-2 text-xs text-gray-700 dark:text-gray-300">{t('placeLink.orCreate')}</p>
-            <Button type="button" variant="outline" disabled={creating} onClick={() => void create()}>
-              {creating ? t('clientPlaces.creating') : t('pendencies.emptyCreate')}
-            </Button>
-          </div>
-        </div>
-      )}
-
-      {!loading && !failed && detail && detail.places.length > 0 && (
-        <div className="space-y-5">
-          {detail.places.map((place) => (
-            <Place
-              key={place.readiness.place.attractionId}
-              place={place}
-              placeHref={placeHref}
-              clientId={clientId}
-              isWelcome={place.readiness.place.attractionId === detail.client.welcomePoiId}
-              /* Onde há escolha a fazer — e não é só "mais de um local". Com o vínculo desfeito,
-                 `welcome_poi_id` é limpo (ver a rota `../places/unlink`), e um cliente que
-                 voltou a ter UM local ficava sem crachá e sem botão: ninguém saudava o turista
-                 em `/d/{slug}` e a tela não dizia como consertar. */
-              canChooseWelcome={detail.places.length > 1 || !detail.client.welcomePoiId}
-              onWelcomeChanged={load}
-              onUnlinked={load}
-            />
-          ))}
-        </div>
+          {/* CRIAR CONTINUA SÓ NO ESTADO VAZIO, e isso não é esquecimento: o prefill sai da
+              proposta promovida do cliente (`provisionPartnerPlace`), e um cliente pode ter mais
+              de uma promovida — a promoção reconhece o CNPJ e atualiza o cadastro existente
+              (BR-B2B-028, item 2). QUAL proposta alimenta o segundo local é decisão em aberto,
+              não implementação, e o guard `already_provisioned` do serviço segue de pé. O
+              segundo local se vincula pelo catálogo, acima. */}
+          {detail.places.length === 0 && (
+            <div className="mt-4 text-sm">
+              <p className="mb-2 text-xs text-gray-700 dark:text-gray-300">{t('placeLink.orCreate')}</p>
+              <Button type="button" variant="outline" disabled={creating} onClick={() => void create()}>
+                {creating ? t('clientPlaces.creating') : t('pendencies.emptyCreate')}
+              </Button>
+            </div>
+          )}
+        </>
       )}
 
       {/* The pipeline is where the place is PUBLISHED or REFUSED — that decision belongs to the

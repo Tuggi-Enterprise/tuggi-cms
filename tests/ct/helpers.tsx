@@ -23,6 +23,7 @@ import { QueryProvider } from '@/components/providers/QueryProvider'
 import { AppUserLink } from '@/components/dashboard/AppUserLink'
 import { ClientDirectory } from '@/components/admin/clients/ClientDirectory'
 import { ClientBoard } from '@/components/admin/clients/ClientBoard'
+import { PlacesTab } from '@/components/admin/clients/tabs/PlacesTab'
 import { StatCard } from '@/components/ui/StatCard'
 import { formatDuration } from '@/lib/format/duration'
 import { useClientDirectory } from '@/lib/hooks/use-client-directory'
@@ -48,6 +49,20 @@ export function Wrapper({ children }: { children: React.ReactNode }) {
     >
       <QueryProvider>{children}</QueryProvider>
     </NextIntlClientProvider>
+  )
+}
+
+/**
+ * A aba `Locais` da ficha do cliente, montada como o `ClientEditorModal` a monta — #685.
+ *
+ * Ela lê tudo de `GET /api/admin/partnerships/clients/{id}` e não recebe nada por prop além do
+ * id, então a fixture desta suíte é `page.route`, não um objeto passado aqui. Os outros campos
+ * de `ClientEditorTabProps` existem porque o contrato da aba é compartilhado com `ProfileTab`;
+ * esta aba não lê nenhum deles.
+ */
+export function PlacesTabHarness({ clientId }: { clientId: string }) {
+  return (
+    <PlacesTab client={null} edited={{}} updateField={() => {}} canEdit={false} clientId={clientId} />
   )
 }
 

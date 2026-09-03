@@ -375,6 +375,36 @@ export function detailReadyToPublish(): PartnershipDetail {
 }
 
 /**
+ * O MESMO CNPJ COM DOIS ENDEREÇOS — BR-B2B-033, item 3, que é a cardinalidade declarada pelo
+ * operador e a que o painel tinha revertido para 1 : 1 (#685).
+ *
+ * O segundo local é o que o operador acabou de achar no catálogo e vincular: já aprovado e com
+ * ponto no mapa, porque o caminho ordinário é adotar o estabelecimento que já está publicado —
+ * criar é a exceção (`lib/partnerships/place-link`).
+ */
+export const SECOND_PLACE_FACTS: PartnerPlaceFacts = {
+  attractionId: 'attr-0007',
+  name: 'Pousada Vista Mar — Unidade Centro',
+  city: 'Ubatuba',
+  region: 'SP',
+  entityKind: 'place',
+  approved: true,
+  isActive: true,
+  latitude: -23.44,
+  longitude: -45.08,
+  showInMap: true,
+  activeTriggerPointCount: 1,
+  audioDescriptionCount: 1,
+  hasBoundary: true,
+}
+
+export function detailWithSecondPlace(): PartnershipDetail {
+  const base = detailReadyToPublish()
+  const fee: PartnerFee = { monthlyFeeCents: 24900, isCourtesy: false, courtesyReason: null }
+  return { ...base, places: base.places.concat(partnerPlace(SECOND_PLACE_FACTS, fee)) }
+}
+
+/**
  * One proposal on the conference screen, with the two acts still available.
  *
  * `submitted` and not `promoted` on purpose: it is the state that renders the most surface at
