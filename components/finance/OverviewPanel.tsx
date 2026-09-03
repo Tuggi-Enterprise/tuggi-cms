@@ -118,7 +118,7 @@ const DEFAULT_CHURN_PERCENT = 2
  * viewBox — um container de altura fixa que exclui a faixa do eixo é o defeito que o guia de
  * dataviz descreve como "o gráfico cabe, os rótulos não, e o cartão ganha uma rolagem minúscula".
  */
-const PLOT = { left: 56, right: 880, top: 24, bottom: 250 } as const
+const PLOT = { left: 56, right: 880, top: 34, bottom: 250 } as const
 
 export function OverviewPanel({
   month,
@@ -420,6 +420,36 @@ export function OverviewPanel({
                   </text>
                 </g>
               ))}
+
+              {/* A RÉGUA DO MÊS CORRENTE — pedida pelo operador em 2026-09-03, "para guiar".
+                  Ela guia duas coisas: onde ele está, e ONDE A SÉRIE MUDA DE NATUREZA. À
+                  esquerda é fatura que já venceu; à direita é o calendário de cobrança de quem
+                  já assinou — `realized` na série, e até hoje o gráfico desenhava os dois lados
+                  iguais.
+
+                  ELA É SÓLIDA E FICA ATRÁS DOS DADOS, e a do mouse é tracejada e fica na frente:
+                  duas réguas verticais com o mesmo traço seriam indistinguíveis, e a do mouse
+                  passaria por cima desta a cada movimento sem ninguém notar a diferença. */}
+              <line
+                x1={xOf(currentIndex)}
+                y1={PLOT.top}
+                x2={xOf(currentIndex)}
+                y2={PLOT.bottom}
+                strokeWidth={1}
+                className="stroke-gray-300 dark:stroke-gray-700"
+              />
+              {/* A palavra faz o trabalho que um tracejado no lado direito faria — e o tracejado
+                  já tem dono nesta faixa: ele é o teto da receita amarrada. Uma segunda gramática
+                  de traço obrigaria a decodificar qual é qual. */}
+              {currentIndex < series.length - 1 && (
+                <text
+                  x={xOf(currentIndex) + 6}
+                  y={PLOT.top - 8}
+                  className="fill-gray-400 text-[10px] dark:fill-gray-500"
+                >
+                  {t('overview.series.projectedFrom')}
+                </text>
+              )}
 
               {/* A FAIXA DO RESULTADO. Ela fecha entre a receita que FATURA e o custo — nunca
                   entre o teto tracejado e o custo, que pintaria de lucro uma assinatura que

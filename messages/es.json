@@ -2362,7 +2362,7 @@
       "appUsers": "La lectura de los usuarios de la app no respondió. Sin ella no hay adquisición ni coste por adquisición, y la columna de usuarios sería un cero inventado.",
       "retry": "Intentar de nuevo",
       "finance": "No se pudo leer el esquema `finance`. Tiene que estar en la lista de esquemas expuestos de la API de Supabase (Settings → API → Exposed schemas) para que el CMS alcance las tablas de coste. Mientras no lo esté, no se muestra nada — un coste cero aquí diría que los socios salieron gratis.",
-      "fixedCosts": "La lectura de los costos de la operación no respondió. Mientras no responda, no se muestra nada — un costo cero aquí diría que la operación no cuesta nada. La causa más común es una migración de `finance` aún no aplicada en el panel de Supabase."
+      "fixedCosts": "La lectura de los costes de la operación no respondió. Mientras no responda, no se muestra nada — un coste cero aquí diría que la operación no cuesta nada. La causa más común es una migración de `finance` aún no aplicada en el panel de Supabase."
     },
     "atLeast": "≥ {count}",
     "truncated": "La lectura llegó al tope: todo número de abajo es un mínimo.",
@@ -2535,7 +2535,7 @@
       "natureFixed": "Fijo",
       "natureVariable": "Variable",
       "entryType": "Registro",
-      "entryCost": "Costo",
+      "entryCost": "Coste",
       "entryCredit": "Crédito",
       "payroll": "Entra en la base del fator R",
       "payrollShort": "Nómina",
@@ -2547,24 +2547,24 @@
       "monthlyGross": "Precio completo",
       "monthlyCredits": "Créditos y descuentos",
       "monthlyNet": "Sale de caja",
-      "monthlyStructural": "Costo estructural",
+      "monthlyStructural": "Coste estructural",
       "structuralHint": "Sin los beneficios temporales. Es el que sigue existiendo el día en que se acabe el crédito promocional — y es contra él que se mide el punto de equilibrio.",
       "variableMonthly": "Variable recurrente",
       "payrollBase": "Base del fator R",
       "payrollHint": "Nómina ÷ ingreso bruto de 12 meses. Superando el 28%, el Simples pasa del Anexo V (15,5% inicial) al Anexo III (6%).",
       "windowTitle": "En el período",
       "windowHint": "Lo que ocurrió en una fecha, y no cada mes.",
-      "variableWindow": "Costo variable",
+      "variableWindow": "Coste variable",
       "creditsWindow": "Créditos aplicados",
-      "variableAside": "El costo variable queda fuera del punto de equilibrio: crece junto con lo que traen los socios, y por eso ya está del otro lado, dentro del margen.",
+      "variableAside": "El coste variable queda fuera del punto de equilibrio: crece junto con lo que traen los socios, y por eso ya está del otro lado, dentro del margen.",
       "whereTitle": "Adónde va el dinero",
       "whereHint": "Dos columnas porque son dos preguntas. Sumarlas daría un número que no es ni tasa mensual ni desembolso del período.",
       "colMonthly": "Cada mes",
       "colWindow": "En el período",
-      "whereEmpty": "Ningún costo de la operación registrado todavía.",
+      "whereEmpty": "Ningún coste de la operación registrado todavía.",
       "fxTitle": "Convertido a la tasa declarada:",
       "fxPair": "{currency} 1 = {value}",
-      "fxAside": "Es una premisa de planificación, no la cotización de hoy — fija a propósito, para que el costo fijo no oscile con el cambio.",
+      "fxAside": "Es una premisa de planificación, no la cotización de hoy — fija a propósito, para que el coste fijo no oscile con el cambio.",
       "fxMissing": "Sin tasa declarada, quedó fuera de toda suma: {currencies}.",
       "monthFilter": "Mes",
       "wholeYear": "Año corriente",
@@ -2575,10 +2575,10 @@
       "confirm": "Confirmar",
       "cancel": "Cancelar",
       "voidReason": "Por qué esta línea no debería existir",
-      "endHint": "Finalizar dice que el costo TERMINÓ en esta fecha. Sigue contando en cada mes en que valió — así se registra una suscripción cancelada o un precio que cambió de nivel.",
+      "endHint": "Finalizar dice que el coste TERMINÓ en esta fecha. Sigue contando en cada mes en que valió — así se registra una suscripción cancelada o un precio que cambió de nivel.",
       "voidHint": "Eliminar dice que la línea fue un ERROR: sale de toda cuenta, en todo mes. La línea no se borra — queda marcada, con quién la eliminó y por qué, y se puede deshacer.",
       "amend": "Editar",
-      "amendHint": "Editar cambia el contenido de la línea y guarda en el registro quién cambió qué, de qué valor a cuál. Si el costo TERMINÓ, usa Finalizar; si la línea no debería existir, usa Eliminar — son tres hechos distintos.",
+      "amendHint": "Editar cambia el contenido de la línea y guarda en el registro quién cambió qué, de qué valor a cuál. Si el coste TERMINÓ, usa Finalizar; si la línea no debería existir, usa Eliminar — son tres hechos distintos.",
       "fxUnreadable": "La lectura de las tasas de cambio fue RECHAZADA — y eso es distinto de no haber tasa declarada. Hasta que responda, estas monedas quedan fuera de toda suma: {currencies}. La causa más común es la migración `finance.fx_rates` aún no aplicada en el panel."
     },
     "form": {
@@ -2602,7 +2602,7 @@
         "floor": "{count} líneas sin precio — el coste es un suelo",
         "inProgress": "mes en curso",
         "variableSoFar": "{count} entregas hasta ahora",
-        "operating": "Costo variable de la operación",
+        "operating": "Coste variable de la operación",
         "operatingHint": "APIs, campañas, viajes — de la operación, y de ningún socio",
         "credit": "Créditos aplicados: {value}",
         "fx": "Convertido a {pairs}"
@@ -2623,7 +2623,7 @@
       },
       "app": {
         "title": "Usuarios de la app",
-        "requiresAdmin": "Exige perfil de administrador.",
+        "requiresAdmin": "Requiere perfil de administrador.",
         "failed": "El lado de la app no respondió.",
         "excludedNotice": "{count} cuentas de prueba aún en el agregado.",
         "realized": "Ya entró",
@@ -2680,7 +2680,7 @@
         "approximateEffect": "Contados desde la liberación o la aceptación. Ingreso aproximado."
       },
       "series": {
-        "title": "Ingreso y coste, mes a mes",
+        "title": "Ingresos y costes, mes a mes",
         "toInvoice": "A facturar",
         "blocked": "Bloqueada sin contrato",
         "clientCost": "Coste de los clientes",
@@ -2688,11 +2688,12 @@
         "hint": "La capa bloqueada es lo que sale si el contrato se acepta antes del día 20. El desembolso único queda fuera.",
         "app": "App",
         "otherCurrencies": "Fuera del eje: {list}",
-        "costLine": "Costo",
-        "revenueLine": "Ingreso",
+        "costLine": "Costes",
+        "revenueLine": "Ingresos",
         "result": "Resultado",
         "projected": "previsto",
-        "emptyMonth": "Nada registrado este mes."
+        "emptyMonth": "Nada registrado este mes.",
+        "projectedFrom": "previsto →"
       }
     },
     "costCategories": {
