@@ -35,7 +35,7 @@ import { summarizeCohorts } from '@/lib/finance/cohort'
 import { summarizeFinance } from '@/lib/finance/summary'
 import { loadFixedCosts, loadFxRates } from '@/lib/services/finance-service'
 import { summarizeStructure } from '@/lib/finance/structure'
-import { monthlySeries, summarizeMonth, summarizePlanMix } from '@/lib/finance/overview'
+import { lastDayOfMonth, monthlySeries, summarizeMonth, summarizePlanMix } from '@/lib/finance/overview'
 import { billingSchedule } from '@/lib/finance/billing'
 import { appRevenueByMonth } from '@/lib/finance/app-revenue'
 import { loadRcEvents } from '@/lib/services/finance-service'
@@ -99,8 +99,11 @@ function shiftMonth(month: string, count: number): string {
   return `${year + Math.floor(index / 12)}-${String((((index % 12) + 12) % 12) + 1).padStart(2, '0')}`
 }
 
+/** `YYYY-MM`. O filtro de mês da aba Estrutura; ausente lê o ano corrente. */
+const MONTH = /^\d{4}-(0[1-9]|1[0-2])$/
+
 export const GET = withRateLimit(60, 60_000)(
-  withAuth({ roles: ['admin', 'editor'] }, async () => {
+  withAuth({ roles: ['admin', 'editor'] }, async (req) => {
     const gate = await requireModule(MODULES.FINANCE, await cookies())
     if (!gate.ok) return gate.response
 
@@ -111,14 +114,39 @@ export const GET = withRateLimit(60, 60_000)(
     if (!result.ok) return NextResponse.json({ error: result.reason }, { status: 503 })
 
     const overview = result.overview
+
+    // A LEITURA DE CUSTO NÃO PODE CAIR PARA LISTA VAZIA. Sem ela não há custo de estrutura, e
+    // desenhar a tela diria que a operação não custa nada — a mesma razão pela qual
+    // `loadConsumption` derruba a resposta em vez de devolver zero.
     const fixedCosts = await loadFixedCosts()
+    if (fixedCosts === null) {
+      return NextResponse.json({ error: 'fixed_costs_unavailable' }, { status: 503 })
+    }
+    // O MÊS PEDIDO, OU O ANO CORRENTE. O parâmetro só move a JANELA da aba Estrutura: coortes,
+    // série e projeção têm calendário próprio e não olham para ela.
+    const asked = new URL(req.url).searchParams.get('month')
+    const askedMonth = asked !== null && MONTH.test(asked) ? asked : null
     // A TAXA DECLARADA CHEGA UMA VEZ E ATRAVESSA TUDO. Se cada leitura buscasse a sua, duas
     // superfícies da mesma tela poderiam converter o mesmo custo por números diferentes — a
     // mesma razão de `summarizeFinance` calcular sobre a lista que a tabela desenha.
-    const fxRates = await loadFxRates()
+    //
+    // A LEITURA RECUSADA NÃO DERRUBA A TELA, mas também não se disfarça de "nenhuma taxa": sem
+    // taxa, o módulo tem um caminho honesto e previsto — a moeda volta nomeada em
+    // `ignoredCurrencies` e fica fora de toda soma. O que muda é o que o operador faz a seguir:
+    // declarar uma taxa, ou aplicar a migração que cria a tabela. Por isso o motivo sobe.
+    const loadedRates = await loadFxRates()
+    const fxRates = loadedRates ?? []
+    const fxUnavailable = loadedRates === null
     // O ano corrente é a janela dos desembolsos de uma vez só. Os recorrentes não dependem dela:
     // eles entram por serem recorrentes, desde que já tenham começado.
-    const window = { from: `${today.slice(0, 4)}-01-01`, to: today }
+    //
+    // COM UM MÊS PEDIDO, A JANELA É ELE — E A TAXA MENSAL PASSA A SER LIDA NO FIM DAQUELE MÊS.
+    // É o que torna o filtro uma leitura histórica de verdade e não um recorte cosmético: em
+    // agosto de 2026 a Supabase custava US$ 40,99 e a assinatura anterior, de US$ 32,49, já tinha
+    // encerrado — `summarizeStructure` lê a vigência em `window.to` e responde o que valia lá.
+    const window = askedMonth
+      ? { from: `${askedMonth}-01`, to: lastDayOfMonth(askedMonth) }
+      : { from: `${today.slice(0, 4)}-01-01`, to: today }
 
     // UMA LEITURA, VÁRIAS SUPERFÍCIES. A cascata do mês, a quebra por plano e a base da projeção
     // saem da MESMA lista que a tabela desenha — não existe uma segunda consulta com quem elas
@@ -170,8 +198,12 @@ export const GET = withRateLimit(60, 60_000)(
       summary: summarizeFinance(overview.clients, 'BRL', { rates: fxRates, on: today }),
       cohorts: summarizeCohorts(overview.clients),
       structure: summarizeStructure(fixedCosts, overview.clients, window, 'BRL', fxRates),
+      // A JANELA SOBE JUNTO. Sem ela, a tela imprimiria "no período" sem dizer qual — e o
+      // operador que filtrou agosto veria os mesmos rótulos de quando não havia filtro.
+      structureWindow: window,
       // A taxa sobe para a tela poder dizer que o total foi convertido, e por quanto.
       fxRates,
+      fxUnavailable,
       fixedCosts,
       month,
       mix,

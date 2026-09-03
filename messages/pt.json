@@ -3399,7 +3399,8 @@
       "load": "Não foi possível carregar o financeiro.",
       "appUsers": "A leitura dos usuários do app não respondeu. Sem ela não há aquisição nem custo por aquisição, e a coluna de usuários seria um zero inventado.",
       "retry": "Tentar de novo",
-      "finance": "Não foi possível ler o schema `finance`. Ele precisa estar na lista de schemas expostos da API do Supabase (Settings → API → Exposed schemas) para o CMS alcançar as tabelas de custo. Enquanto não estiver, nada é mostrado — um custo zero aqui diria que os parceiros saíram de graça."
+      "finance": "Não foi possível ler o schema `finance`. Ele precisa estar na lista de schemas expostos da API do Supabase (Settings → API → Exposed schemas) para o CMS alcançar as tabelas de custo. Enquanto não estiver, nada é mostrado — um custo zero aqui diria que os parceiros saíram de graça.",
+      "fixedCosts": "A leitura dos custos da operação não respondeu. Enquanto ela não responder, nada é mostrado — um custo zero aqui diria que a operação não custa nada. A causa mais comum é uma migração de `finance` ainda não aplicada no painel do Supabase."
     },
     "atLeast": "≥ {count}",
     "truncated": "A leitura bateu no teto: todo número abaixo é um piso.",
@@ -3602,7 +3603,21 @@
       "fxTitle": "Convertido à taxa declarada:",
       "fxPair": "{currency} 1 = {value}",
       "fxAside": "É uma premissa de planejamento, não a cotação de hoje — fixa de propósito, para o custo fixo não oscilar junto com o câmbio.",
-      "fxMissing": "Sem taxa declarada, ficou de fora de toda soma: {currencies}."
+      "fxMissing": "Sem taxa declarada, ficou de fora de toda soma: {currencies}.",
+      "monthFilter": "Mês",
+      "wholeYear": "Ano corrente",
+      "windowRange": "De {from} a {to}.",
+      "actions": "Ações",
+      "end": "Encerrar",
+      "void": "Remover",
+      "confirm": "Confirmar",
+      "cancel": "Cancelar",
+      "voidReason": "Por que esta linha não deveria existir",
+      "endHint": "Encerrar diz que o custo ACABOU nesta data. Ele continua contando em todo mês em que valeu — é assim que se registra uma assinatura cancelada, ou um preço que mudou de patamar.",
+      "voidHint": "Remover diz que a linha foi um ERRO: ela sai de toda conta, em todo mês. A linha não é apagada — fica marcada, com quem removeu e por quê, e dá para desfazer.",
+      "amend": "Editar",
+      "amendHint": "Corrigir troca o conteúdo da linha e guarda no log quem mudou o quê, de qual valor para qual. Se o custo ACABOU, use Encerrar; se a linha não deveria existir, use Remover — são três fatos diferentes.",
+      "fxUnreadable": "A leitura das taxas de câmbio foi RECUSADA — e isso é diferente de não haver taxa declarada. Enquanto não responder, estas moedas ficam fora de toda soma: {currencies}. A causa mais comum é a migração `finance.fx_rates` ainda não aplicada no painel."
     },
     "form": {
       "cancel": "Cancelar",

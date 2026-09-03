@@ -137,6 +137,7 @@ export const OVERVIEW = {
     },
   ],
   truncated: false,
+  fxUnavailable: false,
 }
 
 export const CATALOG = {

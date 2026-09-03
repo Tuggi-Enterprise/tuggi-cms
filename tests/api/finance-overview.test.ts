@@ -22,6 +22,7 @@ import { readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
 
 import {
+  lastDayOfMonth,
   monthOf,
   monthlySeries,
   projectRevenue,
@@ -236,6 +237,16 @@ test('o mês converte pela taxa declarada, e nomeia o que não tem taxa', () => 
   assert.equal(month.fixedMonthlyCents, Math.round(4_099 * 5.2))
   assert.deepEqual(month.ignoredCurrencies, ['GBP'], 'a libra não virou real por palpite')
   assert.equal(month.appliedRates.length, 1, 'e o mês diz qual taxa usou')
+})
+
+test('`lastDayOfMonth` conhece o calendário, e não chuta 31', () => {
+  assert.equal(lastDayOfMonth('2026-08'), '2026-08-31')
+  assert.equal(lastDayOfMonth('2026-04'), '2026-04-30')
+  assert.equal(lastDayOfMonth('2026-02'), '2026-02-28')
+  // O ano bissexto é a razão de a função existir em vez de um `-31` na string: com ele, a
+  // janela de fevereiro de 2028 perderia o dia 29.
+  assert.equal(lastDayOfMonth('2028-02'), '2028-02-29')
+  assert.equal(lastDayOfMonth('2026-12'), '2026-12-31', 'dezembro não vira janeiro')
 })
 
 test('`monthOf` devolve `null` em vez de inventar um mês', () => {
