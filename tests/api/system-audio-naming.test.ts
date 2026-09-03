@@ -78,11 +78,11 @@ test('build → parse é ida e volta para todas as combinações do catálogo', 
     }
   }
 
-  // 14 chaves × 12 locales × 2 gêneros. Um número aqui é o que denuncia chave
-  // removida sem querer. Passou de 13 em 2026-09-01, quando `nointernet` entrou
-  // sem que `offline` saísse: o arquivo gravado continua no bucket, só perdeu o
-  // consumidor (BR-AUDIO-022 item 2.7).
-  assert.equal(combinations, 336)
+  // 13 chaves × 12 locales × 2 gêneros. Um número aqui é o que denuncia chave
+  // removida sem querer. Foi a 14 em 2026-09-01, quando `nointernet` entrou ao
+  // lado de `offline`, e voltou a 13 em 2026-09-02 com a reversão: a chave de
+  // queda é `offline` e é uma só (BR-AUDIO-022 item 2.7).
+  assert.equal(combinations, 312)
 })
 
 test('o nome que o app monta hoje continua sendo aceito', () => {
@@ -133,20 +133,18 @@ test('as duas pastas são as que o app lê, e o silent.mp3 é reservado', () => 
   assert.ok(mod.RESERVED_FILES.has('silent.mp3'))
 })
 
-test('as chaves de aviso estão no catálogo — as 9 do §10, `missedpoi` e `nointernet` —, e as sem copy estão marcadas', () => {
+test('BR-AUDIO-022 item 2 — the notice catalogue is the nine keys of §10 plus `missedpoi`, and every key has copy', () => {
   const notices = mod.SYSTEM_AUDIO_SCRIPTS.filter((s) => s.family === 'notice').map((s) => s.key)
 
-  // Duas não vêm do §10: `missedpoi`, que avisa o POI passado sem saldo, e
-  // `nointernet` (2026-09-01), que substituiu `offline` como aviso de queda. As
-  // outras nove são as do documento, e a lista é fechada de propósito — chave a
-  // mais aqui é arquivo a mais num bucket público.
+  // One key does not come from §10: `missedpoi`, which reports the POI passed
+  // with no balance. The other nine are the document's, and the list is closed on
+  // purpose — one key too many here is one file too many in a public bucket.
   assert.deepEqual(notices.sort(), [
     'balance15min',
     'balance1h',
     'balanceend',
     'locationoff',
     'missedpoi',
-    'nointernet',
     'offline',
     'online',
     'passactive',
@@ -158,21 +156,29 @@ test('as chaves de aviso estão no catálogo — as 9 do §10, `missedpoi` e `no
   assert.deepEqual(pending, [], 'toda chave tem copy pt-BR escrita')
 })
 
-test('`offline` continua no catálogo, sem consumidor e marcada como tal', () => {
-  // Ela NÃO se apaga: o arquivo gravado está no bucket e o CMS não remove o que
-  // não gerou nesta rodada. O que muda é o `trigger` que a tela exibe ao
-  // operador — sem ele, a única pista de que a chave saiu de uso estaria no app.
-  // Contrato: `docs/contracts/audios-de-sistema.md` §1.
-  const offline = mod.SYSTEM_AUDIO_SCRIPTS.find((s) => s.key === 'offline')
-  assert.ok(offline, 'a chave gravada não se apaga do catálogo')
-  assert.match(offline.trigger, /FORA DE USO/)
-
-  // E a substituta diz o limiar novo: 30 s, não os 60 s de antes (BR-AUDIO-024
-  // item 1, reescrito em 2026-09-01).
-  const drop = mod.SYSTEM_AUDIO_SCRIPTS.find((s) => s.key === 'nointernet')
-  assert.ok(drop, 'a chave de queda em uso é `nointernet`')
+test('BR-AUDIO-022 item 2.7 — `offline` is the live drop key, and `nointernet` does not exist', () => {
+  // The swap to `nointernet` was written on 2026-09-01 and reverted by the
+  // operator on 2026-09-02: the promise in the recorded clip is true for whoever
+  // downloaded the offline area (BR-MONETIZACAO-019), and the replacement was
+  // never recorded — `nointernet_*.mp3` answered 400 in the bucket, so the drop
+  // was silent in the field. What this screen shows the curator is the `trigger`,
+  // and a `trigger` saying the key is out of use is how the swap survives a
+  // reversal. Contract: `docs/contracts/audios-de-sistema.md` §1.
+  const drop = mod.SYSTEM_AUDIO_SCRIPTS.find((s) => s.key === 'offline')
+  assert.ok(drop, 'a chave de queda é `offline`')
+  assert.doesNotMatch(drop.trigger, /FORA DE USO/)
+  // The threshold is 30 s, not the 60 s of before (BR-AUDIO-024 item 1).
   assert.match(drop.trigger, /30 s/)
-  assert.doesNotMatch(drop.sourceText ?? '', /salvo no seu telefone/)
+  // The recorded sentence is the one in the bucket, promise included — the
+  // accepted distance is BR-AUDIO-027, `Divergência 2`. A catalogue that stopped
+  // matching the recording is how the CMS regenerates over a good file.
+  assert.match(drop.sourceText ?? '', /salvo no seu telefone/)
+
+  assert.equal(
+    mod.SYSTEM_AUDIO_SCRIPTS.find((s) => s.key === 'nointernet'),
+    undefined,
+    'a chave nunca foi gravada e não volta ao catálogo'
+  )
 })
 
 test('as três direções existem e têm copy', () => {
