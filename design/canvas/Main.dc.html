@@ -1,0 +1,131 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap">
+  <style>
+    body { margin: 0; font-family: Inter, system-ui, sans-serif; background: #F7F9FA; }
+    a { color: #00719F; } a:hover { color: #005A80; }
+    .tnum { font-variant-numeric: tabular-nums; }
+  </style>
+</helmet>
+
+<div style="padding: 24px; background: #F7F9FA;">
+  <div style="background: #FFFFFF; border: 1px solid #E5E7EB; border-radius: 24px; box-shadow: 0 25px 50px -12px rgba(0,0,0,0.05); overflow: hidden;">
+
+    <div style="display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; padding: 16px 20px; border-bottom: 1px solid #F3F4F6;">
+      <div>
+        <h2 style="margin: 0; font-size: 14px; font-weight: 600; color: #111827;">Receita e custo, mês a mês</h2>
+        <p style="margin: 4px 0 0; font-size: 11px; color: #4B5563;">A distância entre as duas linhas é o resultado do mês.</p>
+      </div>
+      <div style="display: flex; align-items: center; gap: 6px; padding: 4px 10px; border-radius: 999px; background: #FEF2F2;">
+        <span style="font-size: 10px; font-weight: 700; letter-spacing: 0.1em; text-transform: uppercase; color: #B91C1C;">No vermelho os 12 meses</span>
+      </div>
+    </div>
+
+    <div style="padding: 12px 20px 4px;">
+      <svg viewBox="0 0 1072 336" width="100%" height="336" role="img" aria-label="Receita e custo por mês, de julho de 2026 a junho de 2027">
+        <!-- grade recessiva: quatro passos, rotulados, sem moldura -->
+        <g stroke="#F3F4F6" stroke-width="1">
+          <line x1="72" y1="300" x2="940" y2="300" stroke="#E5E7EB" />
+          <line x1="72" y1="239" x2="940" y2="239" />
+          <line x1="72" y1="178" x2="940" y2="178" />
+          <line x1="72" y1="117" x2="940" y2="117" />
+          <line x1="72" y1="56"  x2="940" y2="56" />
+        </g>
+        <g font-size="10" fill="#9CA3AF" text-anchor="end" class="tnum">
+          <text x="62" y="303">0</text>
+          <text x="62" y="242">1.400</text>
+          <text x="62" y="181">2.800</text>
+          <text x="62" y="120">4.200</text>
+          <text x="62" y="59">5.600</text>
+        </g>
+
+        <!-- A FAIXA ENTRE AS LINHAS É O ASSUNTO: pintada, ela responde a pergunta sem
+             que ninguém precise subtrair dois números com os olhos. -->
+        <path d="M72,300 L150.9,288.6 L229.8,234.6 L308.7,234.6 L387.6,234.6 L466.5,234.6 L545.4,234.6 L624.3,234.6 L703.2,234.6 L782.1,234.6 L861,234.6 L940,234.6 L940,220.5 L861,220.5 L782.1,220.5 L703.2,220.5 L624.3,220.5 L545.4,220.5 L466.5,220.5 L387.6,220.5 L308.7,220.5 L229.8,217.7 L150.9,61.5 L72,220.5 Z"
+              fill="#B91C1C" fill-opacity="0.08" />
+
+        <!-- custo -->
+        <polyline points="72,220.5 150.9,61.5 229.8,217.7 308.7,220.5 387.6,220.5 466.5,220.5 545.4,220.5 624.3,220.5 703.2,220.5 782.1,220.5 861,220.5 940,220.5"
+                  fill="none" stroke="#D97706" stroke-width="2" stroke-linejoin="round" stroke-linecap="round" />
+        <!-- receita -->
+        <polyline points="72,300 150.9,288.6 229.8,234.6 308.7,234.6 387.6,234.6 466.5,234.6 545.4,234.6 624.3,234.6 703.2,234.6 782.1,234.6 861,234.6 940,234.6"
+                  fill="none" stroke="#00719F" stroke-width="2" stroke-linejoin="round" stroke-linecap="round" />
+
+        <!-- o pico de agosto ganha marcador, porque ele é o fato que decide a escala -->
+        <circle cx="150.9" cy="61.5" r="4.5" fill="#FFFFFF" stroke="#D97706" stroke-width="2" />
+        <circle cx="229.8" cy="234.6" r="4.5" fill="#FFFFFF" stroke="#00719F" stroke-width="2" />
+
+        <!-- RÓTULOS DIRETOS NAS PONTAS: duas séries, nomeadas onde terminam.
+             Nenhuma caixa de legenda, nenhum pareamento de cor a fazer. -->
+        <text x="950" y="218" font-size="11" font-weight="600" fill="#B45309">Custo</text>
+        <text x="950" y="232" font-size="11" fill="#6B7280" class="tnum">R$ 1.823,95</text>
+        <text x="950" y="253" font-size="11" font-weight="600" fill="#00719F">Receita</text>
+        <text x="950" y="267" font-size="11" fill="#6B7280" class="tnum">R$ 1.500,00</text>
+
+        <!-- o único valor rotulado dentro do plot é o extremo, que a escala explica -->
+        <text x="150.9" y="50" font-size="11" font-weight="600" fill="#B45309" text-anchor="middle" class="tnum">R$ 5.474,03</text>
+
+        <!-- eixo dos meses -->
+        <g font-size="10" fill="#9CA3AF" text-anchor="middle">
+          <text x="72" y="320">07</text>
+          <text x="150.9" y="320">08</text>
+          <text x="229.8" y="320" font-weight="700" fill="#111827">09</text>
+          <text x="308.7" y="320">10</text>
+          <text x="387.6" y="320">11</text>
+          <text x="466.5" y="320">12</text>
+          <text x="545.4" y="320">01</text>
+          <text x="624.3" y="320">02</text>
+          <text x="703.2" y="320">03</text>
+          <text x="782.1" y="320">04</text>
+          <text x="861" y="320">05</text>
+          <text x="940" y="320">06</text>
+        </g>
+
+        <!-- HOVER: a composição do mês, onde ela pertence. Desenhado em repouso sobre
+             setembro para mostrar o que o operador vê ao passar o mouse. -->
+        <line x1="229.8" y1="56" x2="229.8" y2="300" stroke="#9CA3AF" stroke-width="1" stroke-dasharray="3 3" />
+        <g transform="translate(246, 86)">
+          <rect width="216" height="130" rx="10" fill="#FFFFFF" stroke="#E5E7EB" />
+          <text x="12" y="21" font-size="10" font-weight="700" fill="#6B7280" letter-spacing="0.08em">SETEMBRO DE 2026</text>
+          <line x1="12" y1="30" x2="204" y2="30" stroke="#F3F4F6" />
+
+          <circle cx="17" cy="45" r="3.5" fill="#00719F" />
+          <text x="28" y="48" font-size="11" fill="#374151">A faturar</text>
+          <text x="204" y="48" font-size="11" fill="#111827" text-anchor="end" class="tnum">R$ 1.360,76</text>
+
+          <circle cx="17" cy="63" r="3.5" fill="#CC5200" />
+          <text x="28" y="66" font-size="11" fill="#374151">App</text>
+          <text x="204" y="66" font-size="11" fill="#111827" text-anchor="end" class="tnum">R$ 139,24</text>
+
+          <circle cx="17" cy="85" r="3.5" fill="#D97706" />
+          <text x="28" y="88" font-size="11" fill="#374151">Custo dos clientes</text>
+          <text x="204" y="88" font-size="11" fill="#111827" text-anchor="end" class="tnum">R$ 65,42</text>
+
+          <circle cx="17" cy="103" r="3.5" fill="#9CA3AF" />
+          <text x="28" y="106" font-size="11" fill="#374151">Custo mensal</text>
+          <text x="204" y="106" font-size="11" fill="#111827" text-anchor="end" class="tnum">R$ 1.823,95</text>
+
+          <line x1="12" y1="114" x2="204" y2="114" stroke="#F3F4F6" />
+          <text x="12" y="127" font-size="11" font-weight="700" fill="#B91C1C">Resultado</text>
+          <text x="204" y="127" font-size="11" font-weight="700" fill="#B91C1C" text-anchor="end" class="tnum">−R$ 389,37</text>
+        </g>
+      </svg>
+    </div>
+
+    <div style="padding: 10px 20px 14px; border-top: 1px solid #F3F4F6;">
+      <p style="margin: 0; font-size: 11px; color: #4B5563;">
+        Até o mês corrente a linha é fatura vencida; daí em diante, o calendário de cobrança de quem já assinou.
+      </p>
+    </div>
+  </div>
+</div>
+</x-dc>
+</body>
+</html>

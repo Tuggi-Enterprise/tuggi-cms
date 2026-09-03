@@ -37,7 +37,7 @@ import {
   Users,
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
-import { formatCount, formatMoney } from '@/lib/finance/money'
+import { formatCount, formatMoney, formatMoneyCompact } from '@/lib/finance/money'
 import { formatDurationOrDash } from '@/lib/format/duration'
 import {
   projectRevenue,
@@ -110,6 +110,16 @@ interface Props {
 const DEFAULT_NEW_PER_MONTH = 4
 const DEFAULT_CHURN_PERCENT = 2
 
+/**
+ * A CAIXA DO PLOT, em unidades do `viewBox` — 1000×300, escalado por CSS.
+ *
+ * `right` para em 880 e não em 1000 porque os rótulos de ponta moram nos 120 que sobram: é o que
+ * dispensa a caixa de legenda. `bottom` para em 250 para o eixo dos meses caber DENTRO do
+ * viewBox — um container de altura fixa que exclui a faixa do eixo é o defeito que o guia de
+ * dataviz descreve como "o gráfico cabe, os rótulos não, e o cartão ganha uma rolagem minúscula".
+ */
+const PLOT = { left: 56, right: 880, top: 24, bottom: 250 } as const
+
 export function OverviewPanel({
   month,
   series,
@@ -179,7 +189,7 @@ export function OverviewPanel({
   )
 
   // O teto da série é o maior valor DESENHADO — receita ou custo. Escalar só pela receita
-  // esconderia a barra de custo fora do quadro justamente quando ela é a notícia.
+  // esconderia a linha de custo fora do quadro justamente quando ela é a notícia.
   const seriesCeiling = useMemo(() => {
     const values = series.flatMap((row) => [
       row.recurringRevenueCents + row.revenueBlockedCents + row.appRevenueCents,
@@ -187,6 +197,65 @@ export function OverviewPanel({
     ])
     return Math.max(1, ...values)
   }, [series])
+
+  /** Qual mês o mouse está lendo. `null` = nenhum, e aí o quadro mostra o mês corrente. */
+  const [hovered, setHovered] = useState<number | null>(null)
+
+  const chart = useMemo(() => {
+    const months = Math.max(1, series.length)
+    const stepX = months > 1 ? (PLOT.right - PLOT.left) / (months - 1) : 0
+    const xOf = (index: number) => PLOT.left + index * stepX
+    const yOf = (cents: number) =>
+      PLOT.bottom - (Math.max(0, cents) / seriesCeiling) * (PLOT.bottom - PLOT.top)
+
+    const revenueAt = (row: MonthlyPoint) => row.recurringRevenueCents + row.appRevenueCents
+    const ceilingAt = (row: MonthlyPoint) => revenueAt(row) + row.revenueBlockedCents
+    const costAt = (row: MonthlyPoint) =>
+      row.variableCostCents + row.operatingCostCents + row.fixedMonthlyCents
+
+    const path = (pick: (row: MonthlyPoint) => number) =>
+      series.map((row, index) => `${xOf(index)},${yOf(pick(row))}`).join(' ')
+
+    // A FAIXA FECHA ENTRE RECEITA E CUSTO: ida pela receita, volta pelo custo. É um polígono só,
+    // e não uma área por mês — a cor precisa correr contínua para se ler como distância.
+    const forward = series.map((row, index) => `${xOf(index)},${yOf(revenueAt(row))}`)
+    const back = series
+      .map((row, index) => `${xOf(index)},${yOf(costAt(row))}`)
+      .reverse()
+    const resultBand = `M${forward.join(' L')} L${back.join(' L')} Z`
+
+    const last = series[series.length - 1]
+    // Os dois rótulos de ponta não podem colidir: quando as linhas terminam perto, o de baixo
+    // desce o suficiente para os dois caberem. Empilhá-los sem afastar os desligaria das linhas.
+    const revenueEnd = yOf(revenueAt(last))
+    const costEnd = yOf(costAt(last))
+    const apart = Math.abs(revenueEnd - costEnd) < 16
+
+    return {
+      stepX,
+      xOf,
+      yOf,
+      revenueAt,
+      costAt,
+      revenueLine: path(revenueAt),
+      revenueCeilingLine: path(ceilingAt),
+      costLine: path(costAt),
+      resultBand,
+      hasBlocked: series.some((row) => row.revenueBlockedCents > 0),
+      endLabels: {
+        cost: apart && costEnd > revenueEnd ? costEnd + 12 : costEnd + 4,
+        revenue: apart && revenueEnd > costEnd ? revenueEnd + 12 : revenueEnd + 4,
+      },
+    }
+  }, [series, seriesCeiling])
+
+  const { stepX, xOf, yOf, revenueAt, costAt, revenueLine, revenueCeilingLine, costLine, resultBand, hasBlocked, endLabels } = chart
+
+  /** O mês corrente na série. Ele é o marcado sem mouse, e o padrão do quadro. */
+  const currentIndex = Math.max(
+    0,
+    series.findIndex((row) => row.month === projectionBase.from)
+  )
 
   const pendings = [
     summary.ordersAwaitingShipment,
@@ -291,86 +360,175 @@ export function OverviewPanel({
       </Card>
 
       {/* ── FAIXA 1b · RECEITA E CUSTO, MÊS A MÊS ─────────────────────────────────────────── */}
-      <Card>
-        <CardHead
-          title={t('overview.series.title')}
-          aside={
-            <div className="flex flex-wrap gap-x-4 gap-y-1.5">
-              <LegendMark className="bg-primary-800" label={t('overview.series.toInvoice')} />
-              <LegendMark className="bg-secondary-700" label={t('overview.series.app')} />
-              <LegendMark
-                className="bg-[repeating-linear-gradient(45deg,#00719F_0_3px,rgba(0,113,159,0.2)_3px_6px)]"
-                label={t('overview.series.blocked')}
-              />
-              <LegendMark className="bg-amber-600" label={t('overview.series.clientCost')} />
-              <LegendMark className="bg-gray-400 dark:bg-gray-500" label={t('overview.series.fixedCost')} />
-            </div>
-          }
-        />
+      {/*
+        DE BARRAS EMPILHADAS PARA LINHAS, em 2026-09-03, e o pedido do operador foi literal:
+        "ficou uma salada para explicar e entender, preciso olhar 3 lugares — o gráfico, daí a
+        legenda de cores, e depois os valores".
 
-        <div className="overflow-x-auto p-5">
-          <div className="flex min-w-[680px] items-end gap-3">
-            {series.map((row) => {
-              const height = (value: number) => Math.round((value / seriesCeiling) * 148)
-              return (
-                <div key={row.month} className="flex min-w-0 flex-1 flex-col items-center gap-1.5">
-                  <div className="flex h-[148px] w-full items-end justify-center gap-1.5">
-                    {/* RECEITA: o que a fatura emite em cima do que só falta assinar. As duas
-                        empilham porque são o mesmo dinheiro em dois estados — nunca somadas
-                        num total único, que prometeria a assinatura que ainda não veio. */}
-                    <div className="flex w-1/2 flex-col justify-end">
-                      <div
-                        className="rounded-t bg-[repeating-linear-gradient(45deg,#00719F_0_3px,rgba(0,113,159,0.2)_3px_6px)]"
-                        style={{ height: `${height(row.revenueBlockedCents)}px` }}
-                        title={money(row.revenueBlockedCents)}
-                      />
-                      {/* O APP É CAMADA PRÓPRIA. Dois negócios de naturezas diferentes: contrato
-                          assinado com vencimento no dia 20, e cobrança de loja num ciclo dela. */}
-                      <div
-                        className="bg-secondary-700"
-                        style={{ height: `${height(row.appRevenueCents)}px` }}
-                        title={money(row.appRevenueCents)}
-                      />
-                      <div
-                        className="bg-primary-800"
-                        style={{ height: `${height(row.recurringRevenueCents)}px` }}
-                        title={money(row.recurringRevenueCents)}
-                      />
-                    </div>
-                    {/* CUSTO: o material que os trouxe, e a estrutura que volta todo mês. */}
-                    <div className="flex w-1/2 flex-col justify-end">
-                      <div
-                        className="rounded-t bg-gray-400 dark:bg-gray-500"
-                        style={{ height: `${height(row.fixedMonthlyCents)}px` }}
-                        title={money(row.fixedMonthlyCents)}
-                      />
-                      {/* O VARIÁVEL DA OPERAÇÃO EMPILHA COM O DO PARCEIRO, em tinta própria:
-                          os dois são custo do mês, e nenhum dos dois é do outro. Sem esta faixa
-                          a barra ficaria menor do que o custo que a barra existe para mostrar. */}
-                      <div
-                        className="bg-amber-500/70"
-                        style={{ height: `${height(row.operatingCostCents)}px` }}
-                        title={money(row.operatingCostCents)}
-                      />
-                      <div
-                        className="bg-amber-600"
-                        style={{ height: `${height(row.variableCostCents)}px` }}
-                        title={money(row.variableCostCents)}
-                      />
-                    </div>
-                  </div>
-                  <span
-                    className={`text-[10px] ${
-                      row.month === projectionBase.from
-                        ? 'font-bold text-gray-900 dark:text-white'
-                        : 'text-gray-500 dark:text-gray-400'
-                    }`}
+        Ele estava certo, e o guia de dataviz nomeia a causa: com CINCO séries na legenda a
+        identidade passa a depender de parear cor, e uma faixa de valores solta embaixo do eixo
+        não é leitura — é um terceiro lugar. A resposta não era rotular mais, era desenhar menos.
+
+        A DISTÂNCIA ENTRE AS LINHAS É O ASSUNTO, e ela é pintada. A pergunta desta faixa é "em que
+        mês eu ganho mais do que gasto?", e com a área tingida ninguém subtrai dois números com os
+        olhos: a cor responde antes da leitura.
+
+        TRÊS LINHAS, TRÊS RÓTULOS NAS PONTAS, NENHUMA CAIXA DE LEGENDA. O guia dispensa a legenda
+        quando as séries são poucas e nomeadas onde terminam — e uma legenda que se lê uma vez, na
+        ponta da linha que ela nomeia, não é um segundo lugar para olhar.
+
+        A RECEITA CONTINUA SENDO DUAS COISAS, e é por isso que são duas linhas do MESMO azul e não
+        uma soma. A regra é a que as barras já defendiam: fatura emitida e assinatura pendente são
+        o mesmo dinheiro em dois estados, e somá-las num total único prometeria o contrato que
+        ainda não veio. A sólida é o que a cobrança emite; a tracejada é o teto se todos assinarem,
+        e o vão entre elas é exatamente o que está preso na assinatura.
+
+        E A COMPOSIÇÃO NÃO SUMIU — ela mudou de lugar. As seis parcelas do mês vivem no quadro que
+        abre ao passar o mouse, que é onde uma quebra de seis linhas cabe sem disputar espaço com
+        as outras onze colunas.
+      */}
+      <Card>
+        <CardHead title={t('overview.series.title')} />
+
+        <div className="overflow-x-auto px-5 pb-2 pt-4">
+          <div className="min-w-[680px]">
+            <svg
+              viewBox="0 0 1000 300"
+              className="w-full"
+              role="img"
+              aria-label={t('overview.series.title')}
+            >
+              {/* A GRADE É RECESSIVA e carrega os valores que ninguém rotulou. Quatro passos:
+                  menos que isso obriga a estimar, mais vira hachura. */}
+              {[0, 0.25, 0.5, 0.75, 1].map((step) => (
+                <g key={step}>
+                  <line
+                    x1={PLOT.left}
+                    y1={yOf(step * seriesCeiling)}
+                    x2={PLOT.right}
+                    y2={yOf(step * seriesCeiling)}
+                    className={step === 0 ? 'stroke-gray-300 dark:stroke-gray-700' : 'stroke-gray-100 dark:stroke-gray-800'}
+                    strokeWidth={1}
+                  />
+                  <text
+                    x={PLOT.left - 8}
+                    y={yOf(step * seriesCeiling) + 3}
+                    textAnchor="end"
+                    className="fill-gray-400 text-[10px] tabular-nums dark:fill-gray-500"
                   >
-                    {row.month.slice(5)}
-                  </span>
-                </div>
-              )
-            })}
+                    {formatMoneyCompact(Math.round(step * seriesCeiling))}
+                  </text>
+                </g>
+              ))}
+
+              {/* A FAIXA DO RESULTADO. Ela fecha entre a receita que FATURA e o custo — nunca
+                  entre o teto tracejado e o custo, que pintaria de lucro uma assinatura que
+                  ninguém deu. */}
+              <path d={resultBand} className="fill-red-600/[0.07] dark:fill-red-500/10" />
+
+              {/* custo */}
+              <polyline
+                points={costLine}
+                fill="none"
+                strokeWidth={2}
+                strokeLinejoin="round"
+                strokeLinecap="round"
+                className="stroke-amber-600"
+              />
+              {/* o teto da receita: o que entra SE todos assinarem. Tracejado porque é condição,
+                  não fato — e no mesmo azul porque é o mesmo dinheiro. */}
+              {hasBlocked && (
+                <polyline
+                  points={revenueCeilingLine}
+                  fill="none"
+                  strokeWidth={1.5}
+                  strokeDasharray="4 3"
+                  strokeLinejoin="round"
+                  className="stroke-primary-800/60 dark:stroke-tuggi-blue/60"
+                />
+              )}
+              {/* a receita que a cobrança emite */}
+              <polyline
+                points={revenueLine}
+                fill="none"
+                strokeWidth={2}
+                strokeLinejoin="round"
+                strokeLinecap="round"
+                className="stroke-primary-800 dark:stroke-tuggi-blue"
+              />
+
+              {/* RÓTULOS DIRETOS NA PONTA — a legenda, onde a linha termina. */}
+              <text x={PLOT.right + 10} y={endLabels.cost} className="fill-amber-700 text-[11px] font-semibold dark:fill-amber-400">
+                {t('overview.series.costLine')}
+              </text>
+              <text x={PLOT.right + 10} y={endLabels.revenue} className="fill-primary-800 text-[11px] font-semibold dark:fill-tuggi-blue">
+                {t('overview.series.revenueLine')}
+              </text>
+
+              {/* A COLUNA INTEIRA É O ALVO DO MOUSE, e não a linha de 2px. O guia pede alvo maior
+                  que a marca; aqui ele é a fatia do mês inteira, de cima a baixo. */}
+              {series.map((row, index) => (
+                <rect
+                  key={row.month}
+                  x={xOf(index) - stepX / 2}
+                  y={PLOT.top}
+                  width={stepX}
+                  height={PLOT.bottom - PLOT.top}
+                  fill="transparent"
+                  onMouseEnter={() => setHovered(index)}
+                  onMouseLeave={() => setHovered(null)}
+                />
+              ))}
+
+              {hovered !== null && (
+                <line
+                  x1={xOf(hovered)}
+                  y1={PLOT.top}
+                  x2={xOf(hovered)}
+                  y2={PLOT.bottom}
+                  strokeWidth={1}
+                  strokeDasharray="3 3"
+                  className="stroke-gray-400 dark:stroke-gray-500"
+                />
+              )}
+
+              {/* o mês corrente fica marcado mesmo sem mouse: é a coluna que decide */}
+              <circle
+                cx={xOf(currentIndex)}
+                cy={yOf(revenueAt(series[currentIndex]))}
+                r={4}
+                className="fill-white stroke-primary-800 dark:fill-gray-900 dark:stroke-tuggi-blue"
+                strokeWidth={2}
+              />
+              <circle
+                cx={xOf(currentIndex)}
+                cy={yOf(costAt(series[currentIndex]))}
+                r={4}
+                className="fill-white stroke-amber-600 dark:fill-gray-900"
+                strokeWidth={2}
+              />
+
+              {series.map((row, index) => (
+                <text
+                  key={row.month}
+                  x={xOf(index)}
+                  y={PLOT.bottom + 20}
+                  textAnchor="middle"
+                  className={`text-[10px] ${
+                    row.month === projectionBase.from
+                      ? 'fill-gray-900 font-bold dark:fill-white'
+                      : 'fill-gray-400 dark:fill-gray-500'
+                  }`}
+                >
+                  {row.month.slice(5)}
+                </text>
+              ))}
+            </svg>
+
+            {/* O QUADRO DO MÊS. Ele fica FORA do svg, num bloco de altura fixa: dentro dele um
+                `foreignObject` que aparece e some faria a faixa pular a cada movimento do mouse.
+                Sem mouse ele mostra o mês corrente — a tela responde antes de alguém interagir. */}
+            <MonthBreakdown row={series[hovered ?? currentIndex]} currency={mix.currency} />
           </div>
         </div>
 
@@ -855,6 +1013,168 @@ export function OverviewPanel({
 }
 
 // ── As peças ──────────────────────────────────────────────────────────────────────────────────
+
+/**
+ * O QUADRO DO MÊS — de que lado cada parcela está, dito pela ESTRUTURA e não pela cor.
+ *
+ * ELE NASCEU COM SEIS BOLINHAS COLORIDAS E ESTAVA ERRADO. O operador perguntou: "o app é receita
+ * do app ou custo do app?" — e a pergunta era justa, porque `App` vinha pintado de `#CC5200`, um
+ * laranja queimado, ao lado de um custo em `#D97706`. A cor dizia custo; o dado era receita.
+ *
+ * E A MEDIÇÃO ERA PIOR QUE A CONFUSÃO. Rodado o validador de paleta do guia de dataviz sobre as
+ * seis, em 2026-09-03:
+ *
+ *   FAIL  visão normal    `#9CA3AF` (custo mensal) ↔ `#7FB8CF` (amarrada)  ΔE 6,5 — o piso é 15
+ *   FAIL  CVD             ΔE 4,7 em deuteranopia
+ *   RELIEF contraste      três das seis abaixo de 3:1 sobre o fundo
+ *
+ * Duas parcelas de LADOS OPOSTOS da conta que o olho não separa, nem com visão de cores completa.
+ *
+ * A CAUSA É ANTERIOR À COR: o gráfico passou a ter TRÊS marcas — a linha que fatura, o teto
+ * tracejado e o custo. Seis bolinhas apontavam para seis marcas que não existem mais; eram sobra
+ * da era das barras empilhadas. Repintá-las seria escolher cores para nada.
+ *
+ * ENTÃO A FILIAÇÃO VIROU LAYOUT. Duas colunas com título — Receita e Custo — e a parcela pertence
+ * ao lado em que ela está escrita. Sobram DUAS chaves, uma por coluna, e cada uma corresponde a
+ * uma linha que existe no gráfico. Medidas: ΔE 30,6 em visão normal, 21,2 em protanopia,
+ * contraste acima de 3:1 nas duas.
+ *
+ * A AMARRADA FICA FORA DO SUBTOTAL DA RECEITA, com o traço da linha tracejada. É a mesma regra
+ * que o gráfico desenha: ela é o teto se todos assinarem, não o que a cobrança emite, e somá-la
+ * ao subtotal prometeria o contrato que ainda não veio.
+ *
+ * `null` E ZERO CONTINUAM DIFERENTES: parcela em zero some da lista, em vez de imprimir R$ 0,00
+ * seis vezes num mês que ainda não aconteceu.
+ */
+function MonthBreakdown({ row, currency }: { row: MonthlyPoint; currency: string }) {
+  const t = useTranslations('Finance')
+  const money = (cents: number) => formatMoney(cents, currency)
+
+  const revenue = row.recurringRevenueCents + row.appRevenueCents
+  const cost = row.variableCostCents + row.operatingCostCents + row.fixedMonthlyCents
+  const result = revenue - cost
+
+  const revenueLines = [
+    { key: 'toInvoice', label: t('overview.series.toInvoice'), value: row.recurringRevenueCents },
+    { key: 'app', label: t('overview.series.app'), value: row.appRevenueCents },
+  ].filter((line) => line.value > 0)
+
+  const costLines = [
+    { key: 'clientCost', label: t('overview.series.clientCost'), value: row.variableCostCents },
+    { key: 'operating', label: t('overview.month.operating'), value: row.operatingCostCents },
+    { key: 'fixedCost', label: t('overview.series.fixedCost'), value: row.fixedMonthlyCents },
+  ].filter((line) => line.value > 0)
+
+  const empty = revenueLines.length === 0 && costLines.length === 0 && row.revenueBlockedCents === 0
+
+  return (
+    <div className="mt-3 min-h-[124px] rounded-2xl bg-gray-50 px-4 py-3 dark:bg-gray-950/40">
+      <div className="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1">
+        <span className="text-[10px] font-bold uppercase tracking-widest text-gray-500 dark:text-gray-400">
+          {row.month}
+          {!row.realized && ` · ${t('overview.series.projected')}`}
+        </span>
+        <span
+          className={`text-sm font-bold tabular-nums ${
+            result < 0 ? 'text-red-700 dark:text-red-300' : 'text-emerald-800 dark:text-emerald-300'
+          }`}
+        >
+          {t('overview.series.result')}: {money(result)}
+        </span>
+      </div>
+
+      {empty ? (
+        <p className="mt-2 text-[11px] text-gray-600 dark:text-gray-400">
+          {t('overview.series.emptyMonth')}
+        </p>
+      ) : (
+        <div className="mt-2 grid gap-x-8 gap-y-3 sm:grid-cols-2">
+          <BreakdownGroup
+            title={t('overview.series.revenueLine')}
+            total={money(revenue)}
+            swatch={
+              <span
+                className="h-0.5 w-4 flex-shrink-0 rounded-full bg-primary-800 dark:bg-tuggi-blue"
+                aria-hidden="true"
+              />
+            }
+            lines={revenueLines.map((line) => ({ ...line, value: money(line.value) }))}
+            /* A AMARRADA ENTRA COMO NOTA, e não como linha do subtotal: no gráfico ela é o
+               tracejado acima da receita, e aqui ela é a mesma coisa dita em palavras. */
+            aside={
+              row.revenueBlockedCents > 0 ? (
+                <div className="mt-1.5 flex items-center justify-between gap-3 border-t border-dashed border-gray-300 pt-1.5 dark:border-gray-700">
+                  <span className="flex min-w-0 items-center gap-1.5 text-[11px] text-gray-600 dark:text-gray-400">
+                    <span
+                      className="h-0 w-4 flex-shrink-0 border-t border-dashed border-primary-800/70 dark:border-tuggi-blue/70"
+                      aria-hidden="true"
+                    />
+                    <span className="truncate">{t('overview.series.blocked')}</span>
+                  </span>
+                  <span className="flex-shrink-0 text-[11px] tabular-nums text-gray-600 dark:text-gray-400">
+                    {money(row.revenueBlockedCents)}
+                  </span>
+                </div>
+              ) : null
+            }
+          />
+          <BreakdownGroup
+            title={t('overview.series.costLine')}
+            total={money(cost)}
+            swatch={
+              <span className="h-0.5 w-4 flex-shrink-0 rounded-full bg-amber-600" aria-hidden="true" />
+            }
+            lines={costLines.map((line) => ({ ...line, value: money(line.value) }))}
+          />
+        </div>
+      )}
+    </div>
+  )
+}
+
+/** Uma coluna do quadro: título com a chave da linha, o subtotal, e as parcelas embaixo. */
+function BreakdownGroup({
+  title,
+  total,
+  swatch,
+  lines,
+  aside,
+}: {
+  title: string
+  total: string
+  swatch: React.ReactNode
+  lines: { key: string; label: string; value: string }[]
+  aside?: React.ReactNode
+}) {
+  return (
+    <div className="min-w-0">
+      <div className="flex items-baseline justify-between gap-3 border-b border-gray-200 pb-1 dark:border-gray-800">
+        <span className="flex items-center gap-2 text-[10px] font-bold uppercase tracking-widest text-gray-600 dark:text-gray-300">
+          {swatch}
+          {title}
+        </span>
+        <span className="text-[11px] font-semibold tabular-nums text-gray-900 dark:text-white">
+          {total}
+        </span>
+      </div>
+      <div className="mt-1 space-y-0.5">
+        {lines.map((line) => (
+          <div key={line.key} className="flex items-center justify-between gap-3">
+            {/* SEM BOLINHA. A parcela pertence ao lado em que está escrita, e uma cor a mais
+                aqui seria uma cor para decodificar sem nada no gráfico do outro lado. */}
+            <span className="min-w-0 truncate text-[11px] text-gray-700 dark:text-gray-300">
+              {line.label}
+            </span>
+            <span className="flex-shrink-0 text-[11px] tabular-nums text-gray-900 dark:text-white">
+              {line.value}
+            </span>
+          </div>
+        ))}
+      </div>
+      {aside}
+    </div>
+  )
+}
 
 function Card({ children, className = '' }: { children: React.ReactNode; className?: string }) {
   return (

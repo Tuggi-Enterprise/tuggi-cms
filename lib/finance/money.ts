@@ -29,6 +29,42 @@ export function formatMoney(cents: number | null, currency: string): string {
   }
 }
 
+/**
+ * DINHEIRO COMPACTO — para a faixa de valores sob o gráfico, onde a coluna tem 45px.
+ *
+ * POR QUE COMPACTO E NÃO EXATO. Doze meses × duas barras são vinte e quatro números lado a lado;
+ * `R$ 1.823,95` mede o dobro da coluna e ou quebra em duas linhas ou vaza sobre o vizinho. O
+ * guia de dataviz é explícito: um rótulo que não cabe não é cortado — ele é medido antes, e o
+ * valor exato vai para o hover e para a tabela. Nada fica escondido; muda o lugar.
+ *
+ * SEM SÍMBOLO DE MOEDA. Repetido vinte e quatro vezes ele vira ruído, e a moeda é uma só na
+ * série inteira — quem a nomeia é o rótulo da linha, uma vez.
+ *
+ * `mil` E `mi`, e não `K` e `M`: a tela fala português, e `1,8K` é convenção de outro idioma.
+ *
+ * ZERO IMPRIME `—`, e não `0`. Numa faixa de doze meses, metade deles ainda não aconteceu; um
+ * zero em toda a metade direita se lê como "custou zero" em vez de "ainda não".
+ */
+export function formatMoneyCompact(cents: number | null): string {
+  if (cents === null || !Number.isFinite(cents) || cents === 0) return '—'
+
+  const value = cents / 100
+  const abs = Math.abs(value)
+  const sign = value < 0 ? '-' : ''
+
+  if (abs >= 1_000_000) {
+    return `${sign}${(abs / 1_000_000).toFixed(1).replace('.', ',')} mi`
+  }
+  if (abs >= 1_000) {
+    // Uma casa até 10 mil, nenhuma acima: `9,4 mil` e `26 mil` têm a mesma largura, e a décima
+    // parte de dez mil reais não decide nada nesta faixa.
+    return abs >= 10_000
+      ? `${sign}${Math.round(abs / 1_000)} mil`
+      : `${sign}${(abs / 1_000).toFixed(1).replace('.', ',')} mil`
+  }
+  return `${sign}${Math.round(abs)}`
+}
+
 /** Um número, ou `—`. O mesmo contrato de ausência, para contagens. */
 export function formatCount(value: number | null): string {
   return value === null || !Number.isFinite(value) ? '—' : new Intl.NumberFormat('pt-BR').format(value)

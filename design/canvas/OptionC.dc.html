@@ -1,0 +1,128 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap">
+  <style>
+    body { margin: 0; font-family: Inter, system-ui, sans-serif; background: #F7F9FA; }
+    a { color: #00719F; } a:hover { color: #005A80; }
+    .tnum { font-variant-numeric: tabular-nums; }
+  </style>
+</helmet>
+
+<div style="padding: 24px; background: #F7F9FA;">
+  <div style="background: #FFFFFF; border: 1px solid #E5E7EB; border-radius: 24px; box-shadow: 0 25px 50px -12px rgba(0,0,0,0.05); overflow: hidden;">
+
+    <div style="display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; padding: 16px 20px; border-bottom: 1px solid #F3F4F6;">
+      <div>
+        <h2 style="margin: 0; font-size: 14px; font-weight: 600; color: #111827;">Receita e custo, mês a mês</h2>
+        <p style="margin: 4px 0 0; font-size: 11px; color: #4B5563;">Duas barras por mês, cada uma com o seu total.</p>
+      </div>
+      <!-- DUAS SÉRIES EM VEZ DE CINCO, e nomeadas dentro do próprio par de barras do
+           primeiro mês — a legenda vira uma referência, não uma tabela de decodificação. -->
+      <div style="display: flex; align-items: center; gap: 14px;">
+        <span style="display: flex; align-items: center; gap: 6px; font-size: 11px; color: #374151;">
+          <span style="width: 10px; height: 10px; border-radius: 2px; background: #00719F;"></span>Receita
+        </span>
+        <span style="display: flex; align-items: center; gap: 6px; font-size: 11px; color: #374151;">
+          <span style="width: 10px; height: 10px; border-radius: 2px; background: #D97706;"></span>Custo
+        </span>
+      </div>
+    </div>
+
+    <div style="padding: 12px 20px 4px;">
+      <svg viewBox="0 0 1072 336" width="100%" height="336" role="img" aria-label="Receita e custo por mês, barras lado a lado">
+        <g stroke="#F3F4F6" stroke-width="1">
+          <line x1="80" y1="240" x2="1000" y2="240" />
+          <line x1="80" y1="180" x2="1000" y2="180" />
+          <line x1="80" y1="120" x2="1000" y2="120" />
+          <line x1="80" y1="60"  x2="1000" y2="60" />
+        </g>
+        <line x1="80" y1="300" x2="1000" y2="300" stroke="#E5E7EB" stroke-width="1" />
+        <g font-size="10" fill="#9CA3AF" text-anchor="end" class="tnum">
+          <text x="72" y="303">0</text>
+          <text x="72" y="243">1.400</text>
+          <text x="72" y="183">2.800</text>
+          <text x="72" y="123">4.200</text>
+          <text x="72" y="63">5.600</text>
+        </g>
+
+        <!-- BARRAS SÓLIDAS, NÃO EMPILHADAS. O total é a altura, e ele é o que se compara;
+             as três parcelas de cada lado viram hover. Um par por mês, 2px de vão entre
+             as duas barras e 76px de coluna. -->
+        <!-- jul: receita 0 (nada a desenhar), custo 1823,95 -> h 79 -->
+        <path d="M113,300 v-75 a4,4 0 0 1 4,-4 h20 a4,4 0 0 1 4,4 v75 Z" fill="#D97706" />
+        <text x="127" y="212" font-size="10" fill="#B45309" text-anchor="middle" class="tnum">1.824</text>
+        <text x="99" y="296" font-size="10" fill="#D1D5DB" text-anchor="middle">—</text>
+
+        <!-- ago: receita 261,22 -> h 11 | custo 5474,03 -> h 235 -->
+        <path d="M175,300 v-7 a4,4 0 0 1 4,-4 h20 a4,4 0 0 1 4,4 v7 Z" fill="#00719F" />
+        <path d="M207,300 v-231 a4,4 0 0 1 4,-4 h20 a4,4 0 0 1 4,4 v231 Z" fill="#D97706" />
+        <text x="221" y="56" font-size="10" font-weight="700" fill="#B45309" text-anchor="middle" class="tnum">5.474</text>
+        <text x="189" y="278" font-size="10" fill="#00719F" text-anchor="middle" class="tnum">261</text>
+
+        <!-- set: receita 1500 -> h 64 | custo 1889,37 -> h 81 -->
+        <path d="M251,300 v-60 a4,4 0 0 1 4,-4 h20 a4,4 0 0 1 4,4 v60 Z" fill="#00719F" />
+        <path d="M283,300 v-77 a4,4 0 0 1 4,-4 h20 a4,4 0 0 1 4,4 v77 Z" fill="#D97706" />
+        <text x="265" y="227" font-size="10" font-weight="700" fill="#00719F" text-anchor="middle" class="tnum">1.500</text>
+        <text x="297" y="210" font-size="10" font-weight="700" fill="#B45309" text-anchor="middle" class="tnum">1.889</text>
+
+        <!-- out a jun: receita 1500 | custo 1823,95 -->
+        <g>
+          <path d="M327,300 v-60 a4,4 0 0 1 4,-4 h20 a4,4 0 0 1 4,4 v60 Z" fill="#00719F" />
+          <path d="M359,300 v-75 a4,4 0 0 1 4,-4 h20 a4,4 0 0 1 4,4 v75 Z" fill="#D97706" />
+          <path d="M403,300 v-60 a4,4 0 0 1 4,-4 h20 a4,4 0 0 1 4,4 v60 Z" fill="#00719F" />
+          <path d="M435,300 v-75 a4,4 0 0 1 4,-4 h20 a4,4 0 0 1 4,4 v75 Z" fill="#D97706" />
+          <path d="M479,300 v-60 a4,4 0 0 1 4,-4 h20 a4,4 0 0 1 4,4 v60 Z" fill="#00719F" />
+          <path d="M511,300 v-75 a4,4 0 0 1 4,-4 h20 a4,4 0 0 1 4,4 v75 Z" fill="#D97706" />
+          <path d="M555,300 v-60 a4,4 0 0 1 4,-4 h20 a4,4 0 0 1 4,4 v60 Z" fill="#00719F" />
+          <path d="M587,300 v-75 a4,4 0 0 1 4,-4 h20 a4,4 0 0 1 4,4 v75 Z" fill="#D97706" />
+          <path d="M631,300 v-60 a4,4 0 0 1 4,-4 h20 a4,4 0 0 1 4,4 v60 Z" fill="#00719F" />
+          <path d="M663,300 v-75 a4,4 0 0 1 4,-4 h20 a4,4 0 0 1 4,4 v75 Z" fill="#D97706" />
+          <path d="M707,300 v-60 a4,4 0 0 1 4,-4 h20 a4,4 0 0 1 4,4 v60 Z" fill="#00719F" />
+          <path d="M739,300 v-75 a4,4 0 0 1 4,-4 h20 a4,4 0 0 1 4,4 v75 Z" fill="#D97706" />
+          <path d="M783,300 v-60 a4,4 0 0 1 4,-4 h20 a4,4 0 0 1 4,4 v60 Z" fill="#00719F" />
+          <path d="M815,300 v-75 a4,4 0 0 1 4,-4 h20 a4,4 0 0 1 4,4 v75 Z" fill="#D97706" />
+          <path d="M859,300 v-60 a4,4 0 0 1 4,-4 h20 a4,4 0 0 1 4,4 v60 Z" fill="#00719F" />
+          <path d="M891,300 v-75 a4,4 0 0 1 4,-4 h20 a4,4 0 0 1 4,4 v75 Z" fill="#D97706" />
+          <path d="M935,300 v-60 a4,4 0 0 1 4,-4 h20 a4,4 0 0 1 4,4 v60 Z" fill="#00719F" />
+          <path d="M967,300 v-75 a4,4 0 0 1 4,-4 h20 a4,4 0 0 1 4,4 v75 Z" fill="#D97706" />
+        </g>
+
+        <!-- O CUSTO DA FORMA APARECE AQUI: nove pares repetidos deixam 76px por coluna e
+             dois números por coluna não cabem lado a lado. Só o mês corrente e o extremo
+             ficam rotulados; o resto vive no hover. -->
+        <text x="663" y="216" font-size="10" fill="#9CA3AF" text-anchor="middle">valores no hover</text>
+
+        <g font-size="10" fill="#9CA3AF" text-anchor="middle">
+          <text x="127" y="322">07</text>
+          <text x="203" y="322">08</text>
+          <text x="279" y="322" font-weight="700" fill="#111827">09</text>
+          <text x="355" y="322">10</text>
+          <text x="431" y="322">11</text>
+          <text x="507" y="322">12</text>
+          <text x="583" y="322">01</text>
+          <text x="659" y="322">02</text>
+          <text x="735" y="322">03</text>
+          <text x="811" y="322">04</text>
+          <text x="887" y="322">05</text>
+          <text x="963" y="322">06</text>
+        </g>
+      </svg>
+    </div>
+
+    <div style="padding: 10px 20px 14px; border-top: 1px solid #F3F4F6;">
+      <p style="margin: 0; font-size: 11px; color: #4B5563;">
+        O resultado do mês não é desenhado — quem compara as duas alturas é o operador.
+      </p>
+    </div>
+  </div>
+</div>
+</x-dc>
+</body>
+</html>

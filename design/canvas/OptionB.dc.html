@@ -1,0 +1,126 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap">
+  <style>
+    body { margin: 0; font-family: Inter, system-ui, sans-serif; background: #F7F9FA; }
+    a { color: #00719F; } a:hover { color: #005A80; }
+    .tnum { font-variant-numeric: tabular-nums; }
+  </style>
+</helmet>
+
+<div style="padding: 24px; background: #F7F9FA;">
+  <div style="background: #FFFFFF; border: 1px solid #E5E7EB; border-radius: 24px; box-shadow: 0 25px 50px -12px rgba(0,0,0,0.05); overflow: hidden;">
+
+    <div style="display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; padding: 16px 20px; border-bottom: 1px solid #F3F4F6;">
+      <div>
+        <h2 style="margin: 0; font-size: 14px; font-weight: 600; color: #111827;">Resultado do mês</h2>
+        <p style="margin: 4px 0 0; font-size: 11px; color: #4B5563;">Receita menos custo. Acima da linha, o mês se paga.</p>
+      </div>
+      <div style="display: flex; align-items: center; gap: 6px; padding: 4px 10px; border-radius: 999px; background: #FEF2F2;">
+        <span style="font-size: 10px; font-weight: 700; letter-spacing: 0.1em; text-transform: uppercase; color: #B91C1C;">Nenhum mês acima da linha</span>
+      </div>
+    </div>
+
+    <div style="padding: 12px 20px 4px;">
+      <svg viewBox="0 0 1072 336" width="100%" height="336" role="img" aria-label="Resultado por mês, de julho de 2026 a junho de 2027">
+        <!-- UMA SÉRIE, ZERO LEGENDA. O título nomeia o que está plotado, e o sinal
+             carrega a leitura: a linha do zero é o único referencial de que se precisa. -->
+        <g stroke="#F3F4F6" stroke-width="1">
+          <line x1="88" y1="152" x2="1000" y2="152" />
+          <line x1="88" y1="228" x2="1000" y2="228" />
+          <line x1="88" y1="304" x2="1000" y2="304" />
+        </g>
+        <g font-size="10" fill="#9CA3AF" text-anchor="end" class="tnum">
+          <text x="80" y="155">−2.000</text>
+          <text x="80" y="231">−4.000</text>
+          <text x="80" y="307">−6.000</text>
+        </g>
+
+        <!-- A LINHA DO ZERO É A MAIS FORTE DO DESENHO, porque ela é a pergunta.
+             Tudo abaixo dela é prejuízo, e não há nada acima para comparar. -->
+        <line x1="88" y1="76" x2="1000" y2="76" stroke="#111827" stroke-width="1.5" />
+        <text x="80" y="79" font-size="10" font-weight="700" fill="#111827" text-anchor="end" class="tnum">0</text>
+
+        <!-- barras: topo ancorado no zero, canto arredondado só na ponta livre -->
+        <g fill="#B91C1C" fill-opacity="0.85">
+          <path d="M99,76 h56 v58 a4,4 0 0 1 -4,4 h-48 a4,4 0 0 1 -4,-4 Z" />
+          <path d="M175,76 h56 v194 a4,4 0 0 1 -4,4 h-48 a4,4 0 0 1 -4,-4 Z" />
+          <path d="M251,76 h56 v8 a4,4 0 0 1 -4,4 h-48 a4,4 0 0 1 -4,-4 Z" />
+        </g>
+        <g fill="#DC2626" fill-opacity="0.55">
+          <path d="M327,76 h56 v4 a4,4 0 0 1 -4,4 h-48 a4,4 0 0 1 -4,-4 Z" />
+          <path d="M403,76 h56 v4 a4,4 0 0 1 -4,4 h-48 a4,4 0 0 1 -4,-4 Z" />
+          <path d="M479,76 h56 v4 a4,4 0 0 1 -4,4 h-48 a4,4 0 0 1 -4,-4 Z" />
+          <path d="M555,76 h56 v4 a4,4 0 0 1 -4,4 h-48 a4,4 0 0 1 -4,-4 Z" />
+          <path d="M631,76 h56 v4 a4,4 0 0 1 -4,4 h-48 a4,4 0 0 1 -4,-4 Z" />
+          <path d="M707,76 h56 v4 a4,4 0 0 1 -4,4 h-48 a4,4 0 0 1 -4,-4 Z" />
+          <path d="M783,76 h56 v4 a4,4 0 0 1 -4,4 h-48 a4,4 0 0 1 -4,-4 Z" />
+          <path d="M859,76 h56 v4 a4,4 0 0 1 -4,4 h-48 a4,4 0 0 1 -4,-4 Z" />
+          <path d="M935,76 h56 v4 a4,4 0 0 1 -4,4 h-48 a4,4 0 0 1 -4,-4 Z" />
+        </g>
+
+        <!-- UM VALOR POR MÊS, e cabem os doze: uma barra por coluna deixa 76px para
+             cada número, contra os 45px que duas barras empilhadas deixavam. -->
+        <g font-size="10" fill="#6B7280" text-anchor="middle" class="tnum">
+          <text x="127" y="152">−1.824</text>
+          <text x="203" y="288" font-weight="700" fill="#B91C1C">−5.213</text>
+          <text x="279" y="106" font-weight="700" fill="#111827">−389</text>
+          <text x="355" y="102">−324</text>
+          <text x="431" y="102">−324</text>
+          <text x="507" y="102">−324</text>
+          <text x="583" y="102">−324</text>
+          <text x="659" y="102">−324</text>
+          <text x="735" y="102">−324</text>
+          <text x="811" y="102">−324</text>
+          <text x="887" y="102">−324</text>
+          <text x="963" y="102">−324</text>
+        </g>
+
+        <g font-size="10" fill="#9CA3AF" text-anchor="middle">
+          <text x="127" y="326">07</text>
+          <text x="203" y="326">08</text>
+          <text x="279" y="326" font-weight="700" fill="#111827">09</text>
+          <text x="355" y="326">10</text>
+          <text x="431" y="326">11</text>
+          <text x="507" y="326">12</text>
+          <text x="583" y="326">01</text>
+          <text x="659" y="326">02</text>
+          <text x="735" y="326">03</text>
+          <text x="811" y="326">04</text>
+          <text x="887" y="326">05</text>
+          <text x="963" y="326">06</text>
+        </g>
+
+        <!-- a composição continua a um passo de distância, no hover -->
+        <g transform="translate(300, 130)">
+          <rect width="212" height="112" rx="10" fill="#FFFFFF" stroke="#E5E7EB" />
+          <text x="12" y="21" font-size="10" font-weight="700" fill="#6B7280" letter-spacing="0.08em">SETEMBRO DE 2026</text>
+          <line x1="12" y1="30" x2="200" y2="30" stroke="#F3F4F6" />
+          <text x="12" y="48" font-size="11" fill="#374151">Receita</text>
+          <text x="200" y="48" font-size="11" fill="#00719F" font-weight="600" text-anchor="end" class="tnum">R$ 1.500,00</text>
+          <text x="12" y="68" font-size="11" fill="#374151">Custo</text>
+          <text x="200" y="68" font-size="11" fill="#B45309" font-weight="600" text-anchor="end" class="tnum">−R$ 1.889,37</text>
+          <line x1="12" y1="79" x2="200" y2="79" stroke="#F3F4F6" />
+          <text x="12" y="97" font-size="11" font-weight="700" fill="#B91C1C">Resultado</text>
+          <text x="200" y="97" font-size="11" font-weight="700" fill="#B91C1C" text-anchor="end" class="tnum">−R$ 389,37</text>
+        </g>
+      </svg>
+    </div>
+
+    <div style="padding: 10px 20px 14px; border-top: 1px solid #F3F4F6;">
+      <p style="margin: 0; font-size: 11px; color: #4B5563;">
+        A composição — a faturar, app, custo dos clientes, custo mensal — abre ao passar o mouse.
+      </p>
+    </div>
+  </div>
+</div>
+</x-dc>
+</body>
+</html>

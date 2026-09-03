@@ -3725,7 +3725,12 @@
         "fixedCost": "Custo mensal",
         "hint": "A camada amarrada é o que sai se o contrato for aceito antes do dia 20. Desembolso único fica fora.",
         "app": "App",
-        "otherCurrencies": "Fora do eixo: {list}"
+        "otherCurrencies": "Fora do eixo: {list}",
+        "costLine": "Custo",
+        "revenueLine": "Receita",
+        "result": "Resultado",
+        "projected": "previsto",
+        "emptyMonth": "Nada lançado neste mês."
       }
     },
     "costCategories": {
