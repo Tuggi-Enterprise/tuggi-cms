@@ -180,7 +180,11 @@ export function summarizeMonth(input: {
   let creditCents = 0
   let oneOffCents = 0
   const monthStart = `${month}-01`
-  const monthEnd = `${month}-31`
+  // `${month}-31` funcionava por comparação de string e ficou aqui depois de `lastDayOfMonth`
+  // nascer, no mesmo arquivo, com um comentário explicando por que aquilo é frágil. O QA notou a
+  // incoerência em 2026-09-03: um helper que o próprio módulo não usa é um helper que ninguém vai
+  // usar.
+  const monthEnd = lastDayOfMonth(month)
 
   for (const cost of input.fixedCosts) {
     const amountCents = inReport(cost.amountCents, cost.currency)
@@ -316,6 +320,23 @@ export function monthlySeries(input: {
   }
 
   return points
+}
+
+/**
+ * O ÚLTIMO DIA DE UM MÊS — sem chutar 31.
+ *
+ * `${month}-31` como fim de janela funciona por acidente na comparação de string: `2026-02-15`
+ * é menor que `2026-02-31`, então fevereiro inteiro entra. Ele para de funcionar no instante em
+ * que a data é comparada com uma data de verdade, e 31 de fevereiro não existe em `Date` nenhuma.
+ *
+ * O dia ZERO do mês seguinte é o último do atual, e `Date.UTC` mantém o fuso fora da conta — no
+ * horário de Brasília, `new Date(2026, 8, 0)` local devolveria o dia anterior ao esperado quando
+ * convertido para ISO.
+ */
+export function lastDayOfMonth(month: string): string {
+  const year = Number(month.slice(0, 4))
+  const index = Number(month.slice(5, 7))
+  return new Date(Date.UTC(year, index, 0)).toISOString().slice(0, 10)
 }
 
 /** O mês seguinte, sem passar por `Date` — dezembro vira janeiro do ano seguinte. */

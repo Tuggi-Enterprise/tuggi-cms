@@ -21,7 +21,7 @@
  * exatamente o que ela não é — ela viaja em coluna própria até a tabela.
  */
 
-import { useState } from 'react'
+import { useMemo, useState } from 'react'
 import { useTranslations } from 'next-intl'
 import { ArrowDown, Info } from 'lucide-react'
 import { Button } from '@/components/ui/button'
@@ -41,9 +41,16 @@ import { Field } from './CatalogPanel'
 
 interface Props {
   structure: StructureSummary
+  /** A janela que o servidor usou. `null` de mês significa o ano corrente. */
+  structureWindow: { from: string; to: string }
   fixedCosts: FixedCostRecord[]
   products: FinanceProduct[]
   rates: StandardRate[]
+  /** `YYYY-MM` filtrado, ou `null` para o ano corrente. */
+  month: string | null
+  /** A leitura das taxas foi recusada. Diferente de não haver taxa declarada. */
+  fxUnavailable: boolean
+  onMonthChange: (month: string | null) => void
   onReload: () => void
 }
 
@@ -56,9 +63,25 @@ const CELL = 'px-3 py-2.5 text-sm text-gray-800 dark:text-gray-200'
 const INPUT =
   'min-h-[32px] w-full rounded-lg border border-gray-300 bg-white px-2 py-1 text-sm text-gray-900 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-100'
 
-export function StructurePanel({ structure, fixedCosts, products, rates, onReload }: Props) {
+export function StructurePanel({
+  structure,
+  structureWindow,
+  fixedCosts,
+  products,
+  rates,
+  month,
+  fxUnavailable,
+  onMonthChange,
+  onReload,
+}: Props) {
   const t = useTranslations('Finance')
   const money = (cents: number | null) => formatMoney(cents, structure.currency)
+  /** Qual linha está sendo encerrada ou removida. Uma por vez: duas confirmações abertas ao
+      mesmo tempo é como alguém confirma a errada. */
+  const [acting, setActing] = useState<{
+    id: string
+    action: 'amend' | 'end' | 'void'
+  } | null>(null)
 
   /** Quantos pagantes ainda faltam. Subtração de dois fatos já publicados, com piso em zero. */
   const missing =
@@ -179,7 +202,14 @@ export function StructurePanel({ structure, fixedCosts, products, rates, onReloa
         </div>
       </section>
 
-      <OperationCost structure={structure} />
+      <OperationCost
+        structure={structure}
+        structureWindow={structureWindow}
+        fixedCosts={fixedCosts}
+        month={month}
+        fxUnavailable={fxUnavailable}
+        onMonthChange={onMonthChange}
+      />
 
       <section className={CARD}>
         {/* O TÍTULO NOMEIA O CONTEÚDO, e antes nomeava o botão: o cartão lista os custos
@@ -198,12 +228,13 @@ export function StructurePanel({ structure, fixedCosts, products, rates, onReloa
                 <th scope="col" className={HEAD}>{t('structure.amount')}</th>
                 <th scope="col" className={HEAD}>{t('structure.periodMonths')}</th>
                 <th scope="col" className={HEAD}>{t('structure.date')}</th>
+                <th scope="col" className={`${HEAD} text-right`}>{t('structure.actions')}</th>
               </tr>
             </thead>
             <tbody>
               {fixedCosts.length === 0 && (
                 <tr>
-                  <td colSpan={5} className="px-5 py-6 text-center text-sm text-gray-600 dark:text-gray-400">
+                  <td colSpan={6} className="px-5 py-6 text-center text-sm text-gray-600 dark:text-gray-400">
                     {t('structure.empty')}
                   </td>
                 </tr>
@@ -213,7 +244,7 @@ export function StructurePanel({ structure, fixedCosts, products, rates, onReloa
                   decide (crédito ou custo) seria o primeiro a sair da tela. Só o que difere do
                   comum ganha tinta: crédito e folha são exceção e aparecem pintados; custo fixo
                   é o caso normal e fica em cinza. */}
-              {fixedCosts.map((cost) => (
+              {fixedCosts.flatMap((cost) => [
                 <tr key={cost.id} className="border-t border-gray-100 dark:border-gray-800">
                   <th scope="row" className={`${CELL} text-left font-medium text-gray-900 dark:text-white`}>
                     <div>{cost.label}</div>
@@ -252,8 +283,68 @@ export function StructurePanel({ structure, fixedCosts, products, rates, onReloa
                       <span className="text-gray-500 dark:text-gray-400"> → {cost.endsAt}</span>
                     )}
                   </td>
-                </tr>
-              ))}
+                  {/* ENCERRAR SÓ APARECE NO RECORRENTE QUE AINDA VALE. Um desembolso de uma vez
+                      só não tem "até quando" — para ele, a única correção possível é remover. E
+                      uma linha já encerrada não se encerra de novo: o botão sumindo é como a
+                      tela diz que aquilo já foi feito. */}
+                  <td className={`${CELL} text-right`}>
+                    <div className="flex justify-end gap-1.5">
+                      {/* EDITAR VEM PRIMEIRO porque é o que se faz na maioria das vezes: o
+                          valor saiu errado, a data saiu errada. Remover é a exceção, e fica na
+                          ponta, em vermelho. */}
+                      <button
+                        type="button"
+                        onClick={() => setActing({ id: cost.id, action: 'amend' })}
+                        className="min-h-[24px] rounded-lg px-2 py-0.5 text-[11px] font-medium text-primary-800 hover:bg-tuggi-blue/10 dark:text-tuggi-blue dark:hover:bg-tuggi-blue/10"
+                      >
+                        {t('structure.amend')}
+                      </button>
+                      {cost.kind === 'recurring' && !cost.endsAt && (
+                        <button
+                          type="button"
+                          onClick={() => setActing({ id: cost.id, action: 'end' })}
+                          className="min-h-[24px] rounded-lg px-2 py-0.5 text-[11px] font-medium text-gray-700 hover:bg-gray-100 dark:text-gray-300 dark:hover:bg-gray-800"
+                        >
+                          {t('structure.end')}
+                        </button>
+                      )}
+                      <button
+                        type="button"
+                        onClick={() => setActing({ id: cost.id, action: 'void' })}
+                        className="min-h-[24px] rounded-lg px-2 py-0.5 text-[11px] font-medium text-red-700 hover:bg-red-50 dark:text-red-300 dark:hover:bg-red-950/40"
+                      >
+                        {t('structure.void')}
+                      </button>
+                    </div>
+                  </td>
+                </tr>,
+                acting?.id === cost.id ? (
+                  <tr key={`${cost.id}-acting`} className="bg-gray-50 dark:bg-gray-950/40">
+                    <td colSpan={6} className="px-5 py-3">
+                      {acting.action === 'amend' ? (
+                        <CostAmendForm
+                          cost={cost}
+                          onDone={() => {
+                            setActing(null)
+                            onReload()
+                          }}
+                          onCancel={() => setActing(null)}
+                        />
+                      ) : (
+                        <CostAction
+                          cost={cost}
+                          action={acting.action}
+                          onDone={() => {
+                            setActing(null)
+                            onReload()
+                          }}
+                          onCancel={() => setActing(null)}
+                        />
+                      )}
+                    </td>
+                  </tr>
+                ) : null,
+              ])}
             </tbody>
           </table>
         </div>
@@ -278,20 +369,84 @@ export function StructurePanel({ structure, fixedCosts, products, rates, onReloa
  * o operador procurar a diferença entre elas. Com crédito, é a leitura mais importante da tela:
  * ela responde quanto a empresa vai pagar no dia em que o benefício acabar.
  */
-function OperationCost({ structure }: { structure: StructureSummary }) {
+function OperationCost({
+  structure,
+  structureWindow,
+  fixedCosts,
+  month,
+  fxUnavailable,
+  onMonthChange,
+}: {
+  structure: StructureSummary
+  structureWindow: { from: string; to: string }
+  fixedCosts: FixedCostRecord[]
+  month: string | null
+  fxUnavailable: boolean
+  onMonthChange: (month: string | null) => void
+}) {
   const t = useTranslations('Finance')
   const money = (cents: number) => formatMoney(cents, structure.currency)
   const hasCredit = structure.monthlyFixedCreditCents > 0
 
+  /**
+   * OS MESES QUE EXISTEM, e não os doze do calendário.
+   *
+   * A lista sai do PRIMEIRO custo cadastrado até o mês corrente. Oferecer meses anteriores ao
+   * primeiro lançamento seria oferecer telas que só podem responder R$ 0,00 — e um zero que vem
+   * de "não havia nada ainda" se lê igual a um zero que vem de "não gastamos nada".
+   */
+  const months = useMemo(() => {
+    const first = fixedCosts.reduce<string | null>(
+      (min, cost) => (min === null || cost.incurredAt < min ? cost.incurredAt : min),
+      null
+    )
+    if (first === null) return []
+    const out: string[] = []
+    const last = new Date().toISOString().slice(0, 7)
+    // O TETO CORTA O COMEÇO, E NÃO O FIM. Com `guard < 120` sobre um cursor que anda do mais
+    // antigo para o mais novo, um custo de dez anos atrás faria a lista PARAR antes do mês
+    // corrente — o operador perderia justamente os meses que ele usa. Começando pelo limite,
+    // o que se perde é o passado remoto, que é o que ninguém abre. QA, 2026-09-03.
+    let cursor = monthsBefore(last, 119) > first.slice(0, 7) ? monthsBefore(last, 119) : first.slice(0, 7)
+    for (let guard = 0; guard < 120 && cursor <= last; guard += 1) {
+      out.push(cursor)
+      const year = Number(cursor.slice(0, 4))
+      const index = Number(cursor.slice(5, 7))
+      cursor = index >= 12 ? `${year + 1}-01` : `${year}-${String(index + 1).padStart(2, '0')}`
+    }
+    return out.reverse()
+  }, [fixedCosts])
+
   return (
     <section className={CARD}>
-      <header className="border-b border-gray-200 px-5 py-4 dark:border-gray-800">
-        <h2 className="text-sm font-semibold text-gray-900 dark:text-white">
-          {t('structure.whereTitle')}
-        </h2>
-        <p className="mt-1 text-[11px] text-gray-600 dark:text-gray-400">
-          {t('structure.whereHint')}
-        </p>
+      <header className="flex flex-wrap items-start justify-between gap-3 border-b border-gray-200 px-5 py-4 dark:border-gray-800">
+        <div className="min-w-0">
+          <h2 className="text-sm font-semibold text-gray-900 dark:text-white">
+            {t('structure.whereTitle')}
+          </h2>
+          <p className="mt-1 text-[11px] text-gray-600 dark:text-gray-400">
+            {t('structure.whereHint')}
+          </p>
+        </div>
+        {/* O SELETOR MOVE A JANELA NO SERVIDOR, e é por isso que ele muda as duas colunas e não
+            só a da direita: com um mês pedido, a TAXA MENSAL passa a ser lida no fim daquele mês.
+            Filtrar agosto de 2026 mostra a Supabase a US$ 40,99 e não a US$ 32,49 que já tinha
+            encerrado — é leitura histórica, não recorte de uma soma já feita. */}
+        {months.length > 0 && (
+          <label className="flex flex-shrink-0 items-center gap-2 text-[11px] font-medium text-gray-700 dark:text-gray-300">
+            {t('structure.monthFilter')}
+            <select
+              value={month ?? ''}
+              onChange={(e) => onMonthChange(e.target.value === '' ? null : e.target.value)}
+              className={`${INPUT} max-w-[10rem]`}
+            >
+              <option value="">{t('structure.wholeYear')}</option>
+              {months.map((option) => (
+                <option key={option} value={option}>{option}</option>
+              ))}
+            </select>
+          </label>
+        )}
       </header>
 
       <div className="grid gap-6 px-5 py-5 sm:grid-cols-2">
@@ -342,7 +497,12 @@ function OperationCost({ structure }: { structure: StructureSummary }) {
           <h3 className="text-[10px] font-bold uppercase tracking-widest text-gray-500 dark:text-gray-400">
             {t('structure.windowTitle')}
           </h3>
+          {/* A JANELA É NOMEADA, e não deixada implícita. Com o filtro em agosto, "no período"
+              sem dizer qual período é a mesma frase de quando não havia filtro nenhum. */}
           <p className="mt-1 text-[11px] text-gray-600 dark:text-gray-400">
+            {t('structure.windowRange', { from: structureWindow.from, to: structureWindow.to })}
+          </p>
+          <p className="mt-0.5 text-[11px] text-gray-600 dark:text-gray-400">
             {t('structure.windowHint')}
           </p>
           <div className="mt-3 space-y-px">
@@ -440,15 +600,30 @@ function OperationCost({ structure }: { structure: StructureSummary }) {
               {rate.currency} · {rate.effectiveFrom} · {rate.source}
             </p>
           ))}
+          {/* DUAS CAUSAS, DUAS FRASES. "Ninguém declarou taxa" manda o operador cadastrar uma;
+              "não consegui ler as taxas" manda para outro lugar — quase sempre uma migração que
+              não foi aplicada. O total é o mesmo nos dois casos, e a moeda fica de fora nos dois;
+              o que muda é o que fazer a seguir. */}
           {structure.ignoredCurrencies.length > 0 && (
             <p className="text-[11px] text-amber-800 dark:text-amber-300">
-              {t('structure.fxMissing', { currencies: structure.ignoredCurrencies.join(', ') })}
+              {fxUnavailable
+                ? t('structure.fxUnreadable', {
+                    currencies: structure.ignoredCurrencies.join(', '),
+                  })
+                : t('structure.fxMissing', { currencies: structure.ignoredCurrencies.join(', ') })}
             </p>
           )}
         </div>
       )}
     </section>
   )
+}
+
+/** `YYYY-MM` deslocado N meses para trás, sem passar por `Date`. */
+function monthsBefore(month: string, count: number): string {
+  const year = Number(month.slice(0, 4))
+  const index = Number(month.slice(5, 7)) - 1 - count
+  return `${year + Math.floor(index / 12)}-${String((((index % 12) + 12) % 12) + 1).padStart(2, '0')}`
 }
 
 /** Uma leitura compacta: rótulo à esquerda, número à direita, e a razão embaixo quando há uma. */
@@ -549,6 +724,282 @@ function WaterfallRow({
       >
         {value}
       </div>
+    </div>
+  )
+}
+
+/**
+ * CORRIGIR UMA LINHA — o valor estava errado, a data estava errada, a categoria estava errada.
+ *
+ * ELE MANDA SÓ O QUE MUDOU, e não o formulário inteiro. Reenviar dez campos iguais encheria o log
+ * de auditoria de linhas que não dizem nada — e um log que ninguém lê é um log que não existe. O
+ * servidor também compara antes de gravar, então isto é a primeira de duas redes; a daqui é a que
+ * evita a viagem.
+ *
+ * `kind` E `entryType` NÃO APARECEM AQUI, pelo mesmo motivo de não estarem na rota: trocar custo
+ * por crédito inverte o sinal da linha, e trocar recorrente por datado muda a forma dela. Nos dois
+ * casos o que se quer é OUTRA linha — e para isso existem remover e cadastrar.
+ */
+function CostAmendForm({
+  cost,
+  onDone,
+  onCancel,
+}: {
+  cost: FixedCostRecord
+  onDone: () => void
+  onCancel: () => void
+}) {
+  const t = useTranslations('Finance')
+  const [label, setLabel] = useState(cost.label)
+  const [amount, setAmount] = useState((cost.amountCents / 100).toFixed(2).replace('.', ','))
+  const [currency, setCurrency] = useState(cost.currency)
+  const [date, setDate] = useState(cost.incurredAt)
+  const [category, setCategory] = useState<CostCategory>(cost.category)
+  const [nature, setNature] = useState<CostNature>(cost.nature)
+  const [period, setPeriod] = useState(String(cost.periodMonths ?? 1))
+  const [isPayroll, setIsPayroll] = useState(cost.isPayroll)
+  const [saving, setSaving] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+
+  const amountCents = parseMoneyToCents(amount)
+  const badAmount = amount.trim() !== '' && amountCents === null
+
+  async function save() {
+    if (amountCents === null) {
+      setError(t('catalog.invalidAmount'))
+      return
+    }
+
+    const patch: Record<string, unknown> = {}
+    if (label !== cost.label) patch.label = label
+    if (amountCents !== cost.amountCents) patch.amountCents = amountCents
+    if (currency !== cost.currency) patch.currency = currency
+    if (date !== cost.incurredAt) patch.incurredAt = date
+    if (category !== cost.category) patch.category = category
+    if (nature !== cost.nature) patch.nature = nature
+    if (isPayroll !== cost.isPayroll) patch.isPayroll = isPayroll
+    if (cost.kind === 'recurring' && Number(period) !== cost.periodMonths) {
+      patch.periodMonths = Number(period)
+    }
+
+    if (Object.keys(patch).length === 0) {
+      onCancel()
+      return
+    }
+
+    setSaving(true)
+    setError(null)
+    const response = await fetch('/api/finance/fixed-costs', {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ id: cost.id, action: 'amend', patch }),
+    })
+    setSaving(false)
+    if (!response.ok) {
+      const body = (await response.json().catch(() => ({}))) as { error?: string }
+      setError(body.error ? t('form.errorCode', { code: body.error }) : t('form.error'))
+      return
+    }
+    onDone()
+  }
+
+  return (
+    <div className="flex flex-wrap items-end gap-3">
+      <Field label={t('structure.label')} id={`amend-label-${cost.id}`}>
+        <input
+          id={`amend-label-${cost.id}`}
+          value={label}
+          onChange={(e) => setLabel(e.target.value)}
+          className={`${INPUT} min-w-[14rem]`}
+        />
+      </Field>
+      <Field label={t('structure.amount')} id={`amend-amount-${cost.id}`}>
+        <input
+          id={`amend-amount-${cost.id}`}
+          inputMode="decimal"
+          value={amount}
+          onChange={(e) => setAmount(e.target.value)}
+          className={`${INPUT} max-w-[8rem]`}
+        />
+      </Field>
+      <Field label={t('catalog.currency')} id={`amend-currency-${cost.id}`}>
+        <input
+          id={`amend-currency-${cost.id}`}
+          value={currency}
+          onChange={(e) => setCurrency(e.target.value.toUpperCase())}
+          maxLength={3}
+          className={`${INPUT} max-w-[5rem]`}
+        />
+      </Field>
+      <Field label={t('structure.date')} id={`amend-date-${cost.id}`}>
+        <input
+          id={`amend-date-${cost.id}`}
+          type="date"
+          value={date}
+          onChange={(e) => setDate(e.target.value)}
+          className={INPUT}
+        />
+      </Field>
+      {cost.kind === 'recurring' && (
+        <Field label={t('structure.periodMonths')} id={`amend-period-${cost.id}`}>
+          <input
+            id={`amend-period-${cost.id}`}
+            type="number"
+            min={1}
+            value={period}
+            onChange={(e) => setPeriod(e.target.value)}
+            className={`${INPUT} max-w-[6rem]`}
+          />
+        </Field>
+      )}
+      <Field label={t('structure.category')} id={`amend-category-${cost.id}`}>
+        <select
+          id={`amend-category-${cost.id}`}
+          value={category}
+          onChange={(e) => setCategory(e.target.value as CostCategory)}
+          className={INPUT}
+        >
+          {COST_CATEGORIES.map((option) => (
+            <option key={option} value={option}>{t(`costCategories.${option}`)}</option>
+          ))}
+        </select>
+      </Field>
+      <Field label={t('structure.nature')} id={`amend-nature-${cost.id}`}>
+        <select
+          id={`amend-nature-${cost.id}`}
+          value={nature}
+          onChange={(e) => setNature(e.target.value as CostNature)}
+          className={INPUT}
+        >
+          <option value="fixed">{t('structure.natureFixed')}</option>
+          <option value="variable">{t('structure.natureVariable')}</option>
+        </select>
+      </Field>
+      {cost.entryType === 'cost' && (
+        <label className="flex min-h-[32px] items-center gap-2 self-end pb-1 text-[11px] font-medium text-gray-700 dark:text-gray-300">
+          <input
+            type="checkbox"
+            checked={isPayroll}
+            onChange={(e) => setIsPayroll(e.target.checked)}
+            className="h-4 w-4 rounded border-gray-300 dark:border-gray-700"
+          />
+          {t('structure.payroll')}
+        </label>
+      )}
+      <Button variant="cta" onClick={save} disabled={saving || !label || amountCents === null}>
+        {saving ? t('catalog.saving') : t('structure.confirm')}
+      </Button>
+      <Button variant="ghost" onClick={onCancel} disabled={saving}>
+        {t('structure.cancel')}
+      </Button>
+      <p className="w-full text-[11px] leading-relaxed text-gray-600 dark:text-gray-400">
+        {t('structure.amendHint')}
+      </p>
+      {badAmount && (
+        <p className="w-full text-[11px] text-red-700 dark:text-red-300">
+          {t('catalog.invalidAmount')}
+        </p>
+      )}
+      {error && <p className="w-full text-[11px] text-red-700 dark:text-red-300">{error}</p>}
+    </div>
+  )
+}
+
+/**
+ * ENCERRAR OU REMOVER — a confirmação que pergunta a coisa certa para cada verbo.
+ *
+ * SÃO DOIS FATOS DIFERENTES E POR ISSO DOIS FORMULÁRIOS. Encerrar pergunta UMA DATA: até quando
+ * o custo valeu. Remover pergunta UM MOTIVO: por que a linha não deveria existir. Um diálogo
+ * genérico de "tem certeza?" não conseguiria coletar nem uma coisa nem outra, e a diferença
+ * entre os dois é justamente o que impede o histórico de ser reescrito por engano.
+ *
+ * O MOTIVO É OBRIGATÓRIO ATÉ O BOTÃO, e não só na rota. Um total que muda entre duas leituras
+ * precisa ter explicação para quem reabrir o relatório no mês que vem — e a hora de escrevê-la é
+ * a hora em que quem removeu ainda sabe por quê.
+ */
+function CostAction({
+  cost,
+  action,
+  onDone,
+  onCancel,
+}: {
+  cost: FixedCostRecord
+  action: 'end' | 'void'
+  onDone: () => void
+  onCancel: () => void
+}) {
+  const t = useTranslations('Finance')
+  const [endsAt, setEndsAt] = useState(new Date().toISOString().slice(0, 10))
+  const [reason, setReason] = useState('')
+  const [saving, setSaving] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+
+  const ready = action === 'end' ? endsAt >= cost.incurredAt : reason.trim().length > 0
+
+  async function submit() {
+    setSaving(true)
+    setError(null)
+    const response = await fetch('/api/finance/fixed-costs', {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(
+        action === 'end'
+          ? { id: cost.id, action: 'end', endsAt }
+          : { id: cost.id, action: 'void', reason }
+      ),
+    })
+    setSaving(false)
+    if (!response.ok) {
+      const body = (await response.json().catch(() => ({}))) as { error?: string }
+      setError(body.error ? t('form.errorCode', { code: body.error }) : t('form.error'))
+      return
+    }
+    onDone()
+  }
+
+  return (
+    <div className="flex flex-wrap items-end gap-3">
+      {action === 'end' ? (
+        <>
+          <Field label={t('structure.endsAt')} id={`end-${cost.id}`}>
+            <input
+              id={`end-${cost.id}`}
+              type="date"
+              min={cost.incurredAt}
+              value={endsAt}
+              onChange={(e) => setEndsAt(e.target.value)}
+              className={INPUT}
+            />
+          </Field>
+          <p className="max-w-md flex-1 text-[11px] leading-relaxed text-gray-600 dark:text-gray-400">
+            {t('structure.endHint')}
+          </p>
+        </>
+      ) : (
+        <>
+          <Field label={t('structure.voidReason')} id={`reason-${cost.id}`}>
+            <input
+              id={`reason-${cost.id}`}
+              value={reason}
+              onChange={(e) => setReason(e.target.value)}
+              maxLength={200}
+              className={`${INPUT} min-w-[16rem]`}
+            />
+          </Field>
+          <p className="max-w-md flex-1 text-[11px] leading-relaxed text-amber-800 dark:text-amber-300">
+            {t('structure.voidHint')}
+          </p>
+        </>
+      )}
+      <Button variant="cta" onClick={submit} disabled={saving || !ready}>
+        {saving ? t('catalog.saving') : t('structure.confirm')}
+      </Button>
+      <Button variant="ghost" onClick={onCancel} disabled={saving}>
+        {t('structure.cancel')}
+      </Button>
+      {error && (
+        <p className="w-full text-[11px] text-red-700 dark:text-red-300">{error}</p>
+      )}
     </div>
   )
 }

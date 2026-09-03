@@ -2361,7 +2361,8 @@
       "load": "No se pudo cargar el módulo de finanzas.",
       "appUsers": "La lectura de los usuarios de la app no respondió. Sin ella no hay adquisición ni coste por adquisición, y la columna de usuarios sería un cero inventado.",
       "retry": "Intentar de nuevo",
-      "finance": "No se pudo leer el esquema `finance`. Tiene que estar en la lista de esquemas expuestos de la API de Supabase (Settings → API → Exposed schemas) para que el CMS alcance las tablas de coste. Mientras no lo esté, no se muestra nada — un coste cero aquí diría que los socios salieron gratis."
+      "finance": "No se pudo leer el esquema `finance`. Tiene que estar en la lista de esquemas expuestos de la API de Supabase (Settings → API → Exposed schemas) para que el CMS alcance las tablas de coste. Mientras no lo esté, no se muestra nada — un coste cero aquí diría que los socios salieron gratis.",
+      "fixedCosts": "La lectura de los costos de la operación no respondió. Mientras no responda, no se muestra nada — un costo cero aquí diría que la operación no cuesta nada. La causa más común es una migración de `finance` aún no aplicada en el panel de Supabase."
     },
     "atLeast": "≥ {count}",
     "truncated": "La lectura llegó al tope: todo número de abajo es un mínimo.",
@@ -2564,7 +2565,21 @@
       "fxTitle": "Convertido a la tasa declarada:",
       "fxPair": "{currency} 1 = {value}",
       "fxAside": "Es una premisa de planificación, no la cotización de hoy — fija a propósito, para que el costo fijo no oscile con el cambio.",
-      "fxMissing": "Sin tasa declarada, quedó fuera de toda suma: {currencies}."
+      "fxMissing": "Sin tasa declarada, quedó fuera de toda suma: {currencies}.",
+      "monthFilter": "Mes",
+      "wholeYear": "Año corriente",
+      "windowRange": "De {from} a {to}.",
+      "actions": "Acciones",
+      "end": "Finalizar",
+      "void": "Eliminar",
+      "confirm": "Confirmar",
+      "cancel": "Cancelar",
+      "voidReason": "Por qué esta línea no debería existir",
+      "endHint": "Finalizar dice que el costo TERMINÓ en esta fecha. Sigue contando en cada mes en que valió — así se registra una suscripción cancelada o un precio que cambió de nivel.",
+      "voidHint": "Eliminar dice que la línea fue un ERROR: sale de toda cuenta, en todo mes. La línea no se borra — queda marcada, con quién la eliminó y por qué, y se puede deshacer.",
+      "amend": "Editar",
+      "amendHint": "Editar cambia el contenido de la línea y guarda en el registro quién cambió qué, de qué valor a cuál. Si el costo TERMINÓ, usa Finalizar; si la línea no debería existir, usa Eliminar — son tres hechos distintos.",
+      "fxUnreadable": "La lectura de las tasas de cambio fue RECHAZADA — y eso es distinto de no haber tasa declarada. Hasta que responda, estas monedas quedan fuera de toda suma: {currencies}. La causa más común es la migración `finance.fx_rates` aún no aplicada en el panel."
     },
     "form": {
       "cancel": "Cancelar",

@@ -74,6 +74,8 @@ interface ClientsPayload {
   summary: FinanceSummary
   cohorts: CohortReport
   structure: StructureSummary
+  /** A janela que o servidor de fato usou. A tela nomeia o período em vez de dizer "no período". */
+  structureWindow: { from: string; to: string }
   fixedCosts: FixedCostRecord[]
   /** A cascata do mês fechado. Computada sobre a MESMA lista que a tabela desenha. */
   month: MonthlyCascade
@@ -86,6 +88,8 @@ interface ClientsPayload {
   excludedPartners: number
   truncated: boolean
   purchasesAnswered: boolean
+  /** A leitura das taxas foi RECUSADA — diferente de não haver taxa declarada. */
+  fxUnavailable: boolean
 }
 
 interface CatalogPayload {
@@ -104,6 +108,10 @@ interface PurchasesPayload {
 export function FinancePageContent() {
   const t = useTranslations('Finance')
   const [section, setSection] = useState<Section>('overview')
+  // O MÊS DA ESTRUTURA MORA AQUI, e não dentro do painel, porque quem busca é esta casca: o
+  // recorte é aplicado no SERVIDOR (`summarizeStructure` lê a vigência no fim da janela), e um
+  // filtro que o navegador aplicasse sobre o total já somado não conseguiria refazer essa leitura.
+  const [structureMonth, setStructureMonth] = useState<string | null>(null)
   const [overview, setOverview] = useState<ClientsPayload | null>(null)
   const [catalog, setCatalog] = useState<CatalogPayload | null>(null)
   const [purchases, setPurchases] = useState<PurchasesPayload | null>(null)
@@ -115,7 +123,7 @@ export function FinancePageContent() {
     setError(null)
     try {
       const [clientsResponse, catalogResponse, purchasesResponse] = await Promise.all([
-        fetch('/api/finance/clients'),
+        fetch(structureMonth ? `/api/finance/clients?month=${structureMonth}` : '/api/finance/clients'),
         fetch('/api/finance/catalog'),
         fetch('/api/finance/purchases'),
       ])
@@ -131,7 +139,12 @@ export function FinancePageContent() {
             ? t('errors.finance')
             : reason === 'app_users_unavailable'
               ? t('errors.appUsers')
-              : t('errors.load')
+              : // A TERCEIRA CAUSA MANDA PARA UM TERCEIRO LUGAR: não é o schema fora do ar nem a
+                // leitura de perfis, é a tabela de custo recusando a consulta — quase sempre uma
+                // migração que ainda não foi aplicada no painel.
+                reason === 'fixed_costs_unavailable'
+                ? t('errors.fixedCosts')
+                : t('errors.load')
         )
         return
       }
@@ -152,7 +165,7 @@ export function FinancePageContent() {
     } finally {
       setLoading(false)
     }
-  }, [t])
+  }, [t, structureMonth])
 
   useEffect(() => {
     void load()
@@ -319,9 +332,13 @@ export function FinancePageContent() {
               {section === 'structure' && catalog && (
                 <StructurePanel
                   structure={overview.structure}
+                  structureWindow={overview.structureWindow}
                   fixedCosts={overview.fixedCosts}
                   products={catalog.products}
                   rates={catalog.rates}
+                  month={structureMonth}
+                  fxUnavailable={overview.fxUnavailable}
+                  onMonthChange={setStructureMonth}
                   onReload={() => void load()}
                 />
               )}

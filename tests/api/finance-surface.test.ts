@@ -407,9 +407,15 @@ test('nenhuma leitura de custo transforma um erro do banco em lista vazia', () =
 
   // E a gravação do custo recusa escrever quando não pôde ler o preço: o `unique` tornaria a
   // linha sem preço permanente, e um erro de dois segundos congelaria o custo para sempre.
+  //
+  // `overrides` ENTROU NA GUARDA em 2026-09-03. Ele era a única das quatro leituras que ficava
+  // de fora, e a consequência era pior que uma linha sem preço: o plano rodava com a receita
+  // PADRÃO em vez da específica do pedido, gravando um custo ERRADO que o `unique` congela.
   assert.ok(
-    /if \(!catalog \|\| !purchases \|\| shipments === null\) return null/.test(service),
-    'recordConsumption não grava nada quando catálogo, compras ou envios não responderam'
+    /if \(!catalog \|\| !purchases \|\| shipments === null \|\| overrides === null\) return null/.test(
+      service
+    ),
+    'recordConsumption não grava nada quando catálogo, compras, envios OU overrides não responderam'
   )
 })
 
@@ -566,4 +572,311 @@ test('o piso da RPC e o daqui se somam, e um não substitui o outro', () => {
     /suppressedPartners\.has\(/.test(service),
     'e o piso que a RPC já aplicou é respeitado, sem este lado adivinhar o k do outro'
   )
+})
+
+test('encerrar e remover são dois fatos, e o módulo não os funde num verbo só', () => {
+  const service = code('lib/services/finance-service.ts')
+
+  // Encerrar grava UMA coluna. Se ele reescrevesse valor ou data de início, uma assinatura
+  // cancelada apagaria o custo que ela de fato teve nos meses em que valeu.
+  const ending = service.slice(
+    service.indexOf('export async function endFixedCost'),
+    service.indexOf('export async function voidFixedCost')
+  )
+  assert.ok(ending.length > 0, 'endFixedCost existe')
+  assert.ok(/update\(\{ ends_at: endsAt \}\)/.test(ending), 'encerrar toca ends_at e nada mais')
+  assert.ok(!/amount_cents|incurred_at|currency/.test(ending), 'e não reescreve o que foi pago')
+
+  // Remover NÃO apaga. Uma linha de dinheiro que some sem rastro é indistinguível de uma leitura
+  // que falhou pela metade — é a mesma decisão de `finance.excluded_accounts`.
+  const voiding = service.slice(
+    service.indexOf('export async function voidFixedCost'),
+    service.indexOf('export async function restoreFixedCost')
+  )
+  assert.ok(/voided_at/.test(voiding) && /void_reason: reason/.test(voiding))
+  assert.ok(!/\.delete\(\)/.test(voiding), 'remover marca, nunca apaga')
+
+  // E desfazer existe, para remover não ser porta de mão única.
+  assert.ok(/export async function restoreFixedCost/.test(service))
+})
+
+test('a linha removida sai de TODA conta, e a filtragem mora na única leitura', () => {
+  const service = code('lib/services/finance-service.ts')
+  const loader = service.slice(
+    service.indexOf('export async function loadFixedCosts'),
+    service.indexOf('export async function loadStandardRates') > 0
+      ? service.indexOf('export async function loadStandardRates')
+      : service.indexOf('export async function createProduct')
+  )
+
+  assert.ok(
+    /\.is\('voided_at', null\)/.test(loader),
+    'filtrar na leitura é o que dispensa toda superfície de lembrar da regra'
+  )
+})
+
+test('o schema não concede `delete` em custo, nem antes nem depois do ciclo de vida', () => {
+  // OS COMENTÁRIOS SAEM ANTES DA BUSCA. Estas migrações explicam em prosa por que `delete` fica
+  // de fora, e procurar a palavra no arquivo inteiro encontraria a explicação em vez do grant —
+  // um teste que falha por causa do comentário que o defende é um teste que some.
+  const sql = (path: string) => read(path).replace(/^\s*--.*$/gm, '')
+  const schema = sql('supabase/migrations/20260901_01_finance_schema.sql')
+  const lifecycle = sql('supabase/migrations/20260903_02_finance_cost_lifecycle.sql')
+
+  assert.ok(
+    !/grant[^;]*delete[^;]*on finance\.fixed_costs/i.test(schema),
+    'custo fixo nunca teve delete'
+  )
+  assert.ok(!/grant[^;]*delete/i.test(lifecycle), 'e o ciclo de vida não abriu a exceção')
+  // O motivo é obrigatório junto com a marca, e proibido sem ela.
+  assert.ok(/fixed_costs_void_ck/.test(lifecycle))
+  assert.ok(/length\(btrim\(void_reason\)\) > 0/.test(lifecycle))
+})
+
+test('a rota de custo não expõe DELETE', () => {
+  const route = code('app/api/finance/fixed-costs/route.ts')
+
+  assert.ok(!/export const DELETE/.test(route))
+  assert.ok(/export const PATCH/.test(route), 'a correção entra por PATCH, com verbo declarado')
+  // O motivo é exigido na rota também, e não só no banco: o 400 chega antes da viagem.
+  assert.ok(/invalid_reason/.test(route))
+})
+
+test('o filtro de mês move a janela no servidor, e valida o formato', () => {
+  const route = code('app/api/finance/clients/route.ts')
+
+  assert.ok(/searchParams\.get\('month'\)/.test(route))
+  assert.ok(/MONTH\.test\(asked\)/.test(route), 'um mês inventado cai no padrão, não em 500')
+  assert.ok(
+    /structureWindow: window/.test(route),
+    'a janela sobe junto: a tela nomeia o período em vez de dizer "no período"'
+  )
+})
+
+test('corrigir lê o ANTES, e é isso que torna a correção auditável', () => {
+  const service = code('lib/services/finance-service.ts')
+  const amend = service.slice(
+    service.indexOf('export async function amendFixedCost'),
+    service.indexOf('export async function endFixedCost')
+  )
+
+  assert.ok(amend.length > 0, 'amendFixedCost existe')
+  // A leitura tem de vir ANTES do update: depois dele o valor anterior não existe em lugar
+  // nenhum, porque esta tabela não versiona linha.
+  assert.ok(
+    amend.indexOf('.select(') < amend.indexOf('.update('),
+    'sem o ANTES, o log diria que alguém mexeu sem dizer no quê'
+  )
+  assert.ok(/diff\.push/.test(amend), 'e o diff é o que o log escreve')
+
+  // `kind` e `entryType` ficam fora: trocar custo por crédito inverte o sinal da linha, e trocar
+  // recorrente por datado muda a forma dela. Nos dois casos o que se quer é OUTRA linha.
+  const table = service.slice(
+    service.indexOf('const AMENDABLE'),
+    service.indexOf('export async function amendFixedCost')
+  )
+  assert.ok(!/entry_type/.test(table), 'correção não vira crédito')
+  assert.ok(!/\bkind\b/.test(table), 'correção não troca a cadência')
+})
+
+test('o campo que não mudou não entra no log', () => {
+  const service = code('lib/services/finance-service.ts')
+  const amend = service.slice(
+    service.indexOf('export async function amendFixedCost'),
+    service.indexOf('export async function endFixedCost')
+  )
+
+  // Um log que lista dez campos porque o formulário reenviou todos é um log que ninguém lê.
+  assert.ok(/if \(String\(was\) === String\(now\)\) continue/.test(amend))
+})
+
+test('a rota de correção não é mais permissiva que a de cadastro', () => {
+  const route = code('app/api/finance/fixed-costs/route.ts')
+  const amend = route.slice(route.indexOf("if (action === 'amend')"), route.indexOf("action === 'end'"))
+
+  // Cada guarda do POST aparece de novo aqui. Uma rota de correção frouxa é a porta pela qual
+  // entra o que a de criação recusou.
+  //
+  // A MOEDA É A EXCEÇÃO, e ela é MAIS estrita que a do cadastro: `toCurrency('')` devolve o
+  // default `'BRL'`, que é certo em quem cadastra sem informar e é defeito em quem corrige — o
+  // campo apagado para redigitar transformaria US$ 40,99 em R$ 40,99. Por isso `CURRENCY.test`
+  // direto, e não o helper com fallback.
+  for (const guard of ['toAmountCents', 'CURRENCY.test', 'toIsoDate', 'isCostCategory', 'isCostNature']) {
+    assert.ok(amend.includes(guard), `a correção precisa validar com ${guard}`)
+  }
+  assert.ok(/empty_patch/.test(amend), 'uma correção sem campo nenhum é 400, não um no-op silencioso')
+})
+
+test('o log de auditoria não apaga a si mesmo por causa de um nome', () => {
+  const audit = code('lib/services/audit-service.ts')
+
+  // Era `/token/i` contra a descrição INTEIRA, trocando tudo por "Sensitive details omitted": um
+  // fornecedor "Token Papelaria", ou uma assinatura do 1Password na linha de ferramentas, apagava
+  // o registro que provava quem mexeu no dinheiro.
+  assert.ok(
+    !/Sensitive details omitted/.test(audit),
+    'a descrição inteira não é mais descartada'
+  )
+  assert.ok(
+    /\[omitido\]/.test(audit),
+    'o valor é redigido no lugar, e a descrição sobrevive'
+  )
+  // A forma de um vazamento é uma atribuição, e é ela que o padrão persegue.
+  assert.ok(/\[:=\]/.test(audit), 'o padrão exige separador de atribuição')
+})
+
+test('as quatro ações de custo têm verbo próprio no log', () => {
+  const audit = code('lib/services/audit-service.ts')
+
+  for (const action of [
+    'CREATE_FINANCE_FIXED_COST',
+    'AMEND_FINANCE_FIXED_COST',
+    'END_FINANCE_FIXED_COST',
+    'VOID_FINANCE_FIXED_COST',
+    'RESTORE_FINANCE_FIXED_COST',
+  ]) {
+    assert.ok(audit.includes(action), `falta ${action} em AuditAction`)
+  }
+
+  // Um verbo só tornaria o log incapaz de responder QUAL das quatro coisas aconteceu — e as
+  // quatro afirmam coisas diferentes sobre o mundo.
+  const route = code('app/api/finance/fixed-costs/route.ts')
+  assert.equal(
+    (route.match(/logAuditEvent\(/g) ?? []).length,
+    5,
+    'cadastrar, corrigir, encerrar, remover e restaurar: todas auditadas'
+  )
+})
+
+test('NENHUMA leitura de custo cai para lista vazia quando o banco recusa', () => {
+  const service = code('lib/services/finance-service.ts')
+
+  // A invariante nº 6 do módulo, e ela cobrou o preço em 2026-09-03: `loadFixedCosts` fazia
+  // `data ?? []` sem olhar `error`. O `.is(voided_at, null)` subiu antes da migração que cria a
+  // coluna, o PostgREST recusou, e a tela desenhou R$ 0,00 de custo estrutural e "Nenhum custo
+  // fixo registrado" sobre um banco com dezesseis linhas.
+  // O recorte vai da assinatura até a PRÓXIMA exportação, e não até um nome fixo: `loadPurchases`
+  // fica ANTES desta função no arquivo, e um `indexOf` dele devolvia uma fatia vazia — um teste
+  // que passa por medir nada é pior do que teste nenhum.
+  const from = service.indexOf('export async function loadFixedCosts')
+  const next = service.indexOf('\nexport ', from + 1)
+  const loader = service.slice(from, next > 0 ? next : service.length)
+
+  assert.ok(loader.length > 200, 'o recorte precisa conter a função, e não uma fatia vazia')
+
+  assert.ok(/if \(error\) return null/.test(loader), 'o erro derruba a leitura, e nunca vira []')
+  assert.ok(
+    /Promise<FixedCostRecord\[\] \| null>/.test(loader),
+    'e o tipo obriga quem chama a decidir o que fazer com a ausência'
+  )
+
+  // As duas portas por onde ela sai têm de traduzir a ausência em 503, e não em tela vazia.
+  for (const path of ['app/api/finance/clients/route.ts', 'app/api/finance/fixed-costs/route.ts']) {
+    const route = code(path)
+    assert.ok(
+      /fixed_costs_unavailable/.test(route),
+      `${path}: a leitura recusada precisa de motivo próprio`
+    )
+  }
+
+  // E a tela precisa saber dizer o que houve, senão o 503 vira "não foi possível carregar" e o
+  // operador procura no lugar errado.
+  const pt = JSON.parse(read('messages/pt.json')) as { Finance: { errors: Record<string, string> } }
+  assert.ok(pt.Finance.errors.fixedCosts, 'a terceira causa tem mensagem própria')
+})
+
+/**
+ * A INVARIANTE Nº 6, VARRIDA EM VEZ DE ENUMERADA.
+ *
+ * O teste que já existia listava cinco nomes de função. Ele passava verde enquanto
+ * `loadFixedCosts`, `loadFxRates`, `loadPartners` e `loadOrderOverrides` — as quatro que o QA
+ * encontrou em 2026-09-03 — descartavam `error` e devolviam lista vazia. Uma lista branca não
+ * pega a PRÓXIMA leitura que alguém escrever; só pega as que já se sabia.
+ *
+ * Este varre o anti-padrão. A exceção é nomeada, e nomear custa escrever o porquê.
+ */
+test('nenhuma leitura nova pode descartar `error` e devolver vazio', () => {
+  const source = read('lib/services/finance-service.ts')
+
+  // As funções onde `const { data } = await` é seguro, com o motivo de cada uma. Entrar aqui
+  // exige que a ausência da leitura vire PENDÊNCIA VISÍVEL, e nunca um zero com cara de fato.
+  const ALLOWED = new Map([
+    [
+      'loadBillingStarts',
+      'sem marco a cobrança fica `undated` e o parceiro entra em payingWithoutBillingStart',
+    ],
+  ])
+
+  // Onde cada função começa, para dizer a qual delas pertence cada ocorrência.
+  const bounds: { name: string; at: number }[] = []
+  for (const match of source.matchAll(/^(?:export )?async function (\w+)/gm)) {
+    bounds.push({ name: match[1], at: match.index ?? 0 })
+  }
+
+  const offenders = new Set<string>()
+  for (const match of source.matchAll(/const \{ data \} = await/g)) {
+    const at = match.index ?? 0
+    let owner = '(topo do arquivo)'
+    for (const bound of bounds) {
+      if (bound.at < at) owner = bound.name
+      else break
+    }
+    if (!ALLOWED.has(owner)) offenders.add(owner)
+  }
+
+  assert.deepEqual(
+    Array.from(offenders).sort(),
+    [],
+    'estas leituras descartam `error` e devolvem vazio — uma lista vazia por erro AFIRMA que não ' +
+      'há custo, ou parceiro, ou receita. Devolva `null` e faça quem chama decidir; se a ausência ' +
+      'de fato só produzir pendência visível, acrescente a função à allowlist COM o motivo.'
+  )
+})
+
+test('o CHECK de remoção recusa o que promete recusar', () => {
+  const fix = read('supabase/migrations/20260903_03_finance_void_reason_ck.sql')
+
+  // `voided_at is not null AND length(btrim(NULL)) > 0` avalia NULL, e um CHECK que avalia NULL
+  // PASSA. Sem `void_reason is not null` antes do `length`, o banco aceitava remoção sem motivo —
+  // o contrário do que dois comentários do repositório afirmavam. QA, 2026-09-03.
+  const constraint = fix.slice(fix.indexOf('add constraint fixed_costs_void_ck'))
+  assert.ok(
+    constraint.indexOf('void_reason is not null') < constraint.indexOf('length(btrim(void_reason))'),
+    'a checagem de nulo precisa vir ANTES do length, senão o ramo inteiro avalia NULL e passa'
+  )
+})
+
+test('encerrar só alcança recorrente, e a guarda está na escrita', () => {
+  const service = code('lib/services/finance-service.ts')
+  const ending = service.slice(
+    service.indexOf('export async function endFixedCost'),
+    service.indexOf('export async function voidFixedCost')
+  )
+
+  // Não existe CHECK no banco proibindo `ends_at` num `one_off` — o QA conferiu todas as
+  // migrações de `finance` em 2026-09-03. A guarda é esta, e ela devolve zero linha.
+  assert.ok(/\.eq\('kind', 'recurring'\)/.test(ending))
+
+  const route = code('app/api/finance/fixed-costs/route.ts')
+  // E zero linha vira 404, não 503: a linha não existe no estado pedido, o banco não caiu.
+  assert.ok(/not_found' \? 404 : 503/.test(route))
+})
+
+test('restaurar só alcança o que estava removido', () => {
+  const service = code('lib/services/finance-service.ts')
+  const restoring = service.slice(service.indexOf('export async function restoreFixedCost'))
+
+  // Sem esta guarda, um PATCH numa linha VIVA devolvia sucesso e o log gravava "Remoção desfeita"
+  // sobre uma linha que nunca saiu — um log que afirma um fato que não aconteceu.
+  assert.ok(/\.not\('voided_at', 'is', null\)/.test(restoring))
+})
+
+test('corrigir não troca a moeda pelo default de quem cadastra', () => {
+  const route = code('app/api/finance/fixed-costs/route.ts')
+  const amend = route.slice(route.indexOf("if (action === 'amend')"), route.indexOf("action === 'end'"))
+
+  // `toCurrency('')` devolve 'BRL' — certo na criação, defeito na correção: apagar o campo para
+  // redigitar transformaria US$ 40,99 em R$ 40,99 com o valor intacto. QA, 2026-09-03.
+  assert.ok(!/toCurrency\(fields\.currency\)/.test(amend), 'a correção não usa o default')
+  assert.ok(/CURRENCY\.test\(/.test(amend), 'ela exige ISO 4217 explícito')
 })

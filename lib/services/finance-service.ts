@@ -165,12 +165,25 @@ export async function loadPurchases(): Promise<FinancePurchaseRow[] | null> {
   }))
 }
 
-export async function loadOrderOverrides(orderIds: string[]): Promise<OrderRecipeOverride[]> {
+export async function loadOrderOverrides(
+  orderIds: string[]
+): Promise<OrderRecipeOverride[] | null> {
   if (orderIds.length === 0) return []
-  const { data } = await finance()
+  const { data, error } = await finance()
     .from('order_recipe_override')
     .select('order_id, parent_product_id, component_product_id, quantity')
     .in('order_id', orderIds)
+
+  // `null` E NÃO `[]`, e aqui a diferença é PERMANENTE. Uma leitura recusada devolvia lista
+  // vazia, `planConsumption` rodava com a receita PADRÃO em vez da específica do pedido, e a
+  // linha era gravada em `material_consumption` com custo unitário e snapshot errados. O
+  // `unique (order_id, product_id)` então a congela: a segunda transição não corrige, ela é
+  // ignorada por `on conflict do nothing`.
+  //
+  // É exatamente o desastre que o cabeçalho de `loadCatalog` descreve para justificar o `null`
+  // dele — e esta era a única das quatro leituras de `recordConsumption` que ficava de fora da
+  // guarda. Apontado pelo QA em 2026-09-03.
+  if (error) return null
 
   return (data ?? []).map((row: Record<string, unknown>) => ({
     orderId: String(row.order_id),
@@ -226,13 +239,28 @@ export async function saveOrderShipment(input: {
   return !error
 }
 
-export async function loadFixedCosts(): Promise<FixedCostRecord[]> {
-  const { data } = await finance()
+export async function loadFixedCosts(): Promise<FixedCostRecord[] | null> {
+  const { data, error } = await finance()
     .from('fixed_costs')
     // UMA STRING SÓ, e não uma concatenação: o tipo de `select` é inferido do LITERAL, e um
     // `'a' + 'b'` quebrado em duas linhas faz o supabase-js devolver `GenericStringError`.
     .select('id, label, kind, amount_cents, currency, incurred_at, period_months, category, nature, entry_type, is_payroll, ends_at')
+    // A LINHA REMOVIDA SAI DE TODA CONTA, EM TODO MÊS. É o que a separa de `ends_at`: aquela diz
+    // que um custo real acabou numa data e segue contando nos meses em que valeu; esta diz que a
+    // linha foi um erro e nunca deveria ter contado. Filtrar aqui, na única leitura, é o que
+    // garante que nenhuma superfície do módulo precise lembrar da regra.
+    .is('voided_at', null)
     .order('incurred_at', { ascending: false })
+
+  // `null` QUANDO O BANCO RECUSA — e nunca uma lista vazia. É a invariante nº 6 deste módulo, e
+  // ela cobrou o preço em 2026-09-03: o `.is('voided_at', null)` acima subiu antes da migração
+  // que cria a coluna, o PostgREST recusou a consulta, e `data ?? []` transformou "não consegui
+  // ler" em "não há custo nenhum". A tela desenhou R$ 0,00 de custo estrutural, R$ 0,00 de
+  // desembolso e "Nenhum custo fixo registrado" sobre um banco com dezesseis linhas.
+  //
+  // Uma lista vazia por erro AFIRMA que a operação não custa nada. É a única coisa que este
+  // módulo não pode dizer por engano, e era a última leitura de custo que ainda podia dizê-la.
+  if (error) return null
 
   return (data ?? []).map((row: Record<string, unknown>) => ({
     id: String(row.id),
@@ -259,7 +287,14 @@ export async function loadFixedCosts(): Promise<FixedCostRecord[]> {
 
 // ── Escritas ──────────────────────────────────────────────────────────────────────────────────
 
-export type WriteOutcome = { ok: true; id: string } | { ok: false; reason: 'write_failed' }
+/**
+ * `not_found` é 404, `write_failed` é 503, e a diferença importa para quem lê o erro. Uma linha
+ * que não existe — ou que não está no estado que a ação exige — não é um banco fora do ar, e
+ * responder "serviço indisponível" manda o operador procurar uma falha que não houve.
+ */
+export type WriteOutcome =
+  | { ok: true; id: string }
+  | { ok: false; reason: 'write_failed' | 'not_found' }
 
 export async function createPurchase(input: {
   productId: string
@@ -558,11 +593,22 @@ export async function createClientCostEntry(input: {
  * Supabase custaria `NaN` reais, e `NaN` soma com tudo sem estourar nada. Sem a linha, a moeda
  * volta nomeada em `ignoredCurrencies` — que é exatamente o que "não sei converter" quer dizer.
  */
-export async function loadFxRates(): Promise<FxRate[]> {
-  const { data } = await finance()
+export async function loadFxRates(): Promise<FxRate[] | null> {
+  const { data, error } = await finance()
     .from('fx_rates')
     .select('currency, rate_to_brl, effective_from, source')
     .order('effective_from', { ascending: false })
+
+  // `null` NÃO É LISTA VAZIA, e aqui os dois se pareciam demais. Lista vazia significa "ninguém
+  // declarou taxa" — um estado legítimo e previsto: a moeda estrangeira volta nomeada em
+  // `ignoredCurrencies` e a tela manda o operador declarar uma. `null` significa "não consegui
+  // ler", e mandaria o mesmo operador declarar uma taxa numa tabela que pode nem existir.
+  //
+  // Foi o que aconteceu em 2026-09-03: `finance.fx_rates` ainda não tinha sido criada, este
+  // `error` foi descartado, e o custo fixo mensal apareceu R$ 213,15 menor porque a Supabase em
+  // dólar saiu calada da soma. O total não mentia — `ignoredCurrencies` nomeava o USD —, mas a
+  // CAUSA estava trocada, e é ela que decide o que o operador faz a seguir.
+  if (error) return null
 
   const rates: FxRate[] = []
   for (const row of (data ?? []) as Record<string, unknown>[]) {
@@ -614,6 +660,219 @@ export async function createFixedCost(input: {
     .single()
 
   if (error || !data) return { ok: false, reason: 'write_failed' }
+  return { ok: true, id: String((data as { id: string }).id) }
+}
+
+/** O que uma correção pode tocar. `kind` e `entryType` NÃO estão aqui — ver `amendFixedCost`. */
+export interface FixedCostAmendment {
+  label?: string
+  amountCents?: number
+  currency?: string
+  incurredAt?: string
+  category?: CostCategory
+  nature?: CostNature
+  isPayroll?: boolean
+  periodMonths?: number | null
+  endsAt?: string | null
+  notes?: string | null
+}
+
+/** O que mudou numa correção, campo a campo. É o que o log de auditoria escreve. */
+export interface FixedCostDiff {
+  field: string
+  from: string
+  to: string
+}
+
+/** As colunas do banco por campo da correção. Uma tabela em vez de dez `if`. */
+const AMENDABLE: Record<keyof FixedCostAmendment, string> = {
+  label: 'label',
+  amountCents: 'amount_cents',
+  currency: 'currency',
+  incurredAt: 'incurred_at',
+  category: 'category',
+  nature: 'nature',
+  isPayroll: 'is_payroll',
+  periodMonths: 'period_months',
+  endsAt: 'ends_at',
+  notes: 'notes',
+}
+
+/**
+ * CORRIGIR UM CUSTO — o valor estava errado, a data estava errada, a categoria estava errada.
+ *
+ * POR QUE CORRIGIR E NÃO LANÇAR O OPOSTO. Contra-lançamento é para FATO: ele afirma que
+ * aconteceram duas coisas, o gasto e a devolução. Um erro de digitação não é um gasto que
+ * aconteceu, e cancelá-lo com um crédito deixaria o PREÇO CHEIO errado para sempre — que é
+ * exatamente a pergunta que o par custo/crédito existe para responder ("quanto isto custa quando
+ * o benefício acabar?"). Além disso, trocaria um mês errado por dois: o erro em julho e a
+ * correção em setembro.
+ *
+ * A regra que separa as duas está no fechamento do período: estorna-se quando alguém JÁ AGIU
+ * sobre aquele mês — declarou ao contador, à Receita, a um sócio. Nada aqui é publicado para
+ * terceiros a partir destas linhas, e por isso corrigir dá UM número certo em vez de dois
+ * errados que se cancelam. Onde a regra é a outra, o schema já a impõe: `material_consumption`
+ * registra fato do mundo e não tem `delete`.
+ *
+ * `kind` E `entryType` FICAM DE FORA, e a exclusão é a decisão. Trocar `cost` por `credit` inverte
+ * o sinal da linha; trocar `recurring` por `one_off` muda a forma dela. Nos dois casos o que se
+ * quer não é a mesma linha corrigida, é OUTRA linha — e para isso existem remover e cadastrar.
+ * Uma correção que pode virar qualquer coisa deixa de ser correção e vira um `UPDATE` cru.
+ *
+ * DEVOLVE O DIFF, e é ele que torna a correção auditável: sem o ANTES, o log diria que alguém
+ * mexeu sem dizer no quê, e um total que mudou entre duas leituras ficaria sem explicação.
+ */
+export async function amendFixedCost(
+  id: string,
+  patch: FixedCostAmendment
+): Promise<
+  { ok: true; id: string; diff: FixedCostDiff[] } | { ok: false; reason: string }
+> {
+  // A LEITURA VEM PRIMEIRO, e não é luxo: é a única chance de saber o ANTES. Depois do `update`
+  // ele não existe em lugar nenhum — esta tabela não versiona linha.
+  const { data: before, error: readError } = await finance()
+    .from('fixed_costs')
+    .select('label, amount_cents, currency, incurred_at, category, nature, is_payroll, period_months, ends_at, notes')
+    .eq('id', id)
+    .is('voided_at', null)
+    .single()
+
+  if (readError || !before) return { ok: false, reason: 'not_found' }
+
+  const previous = before as Record<string, unknown>
+
+  // A COERÊNCIA DE DATAS SÓ DÁ PARA CONFERIR AQUI, e é por isso que ela não mora na rota: a
+  // comparação precisa do valor que a correção NÃO mandou. Trocar só a data de início pode
+  // deixá-la depois de uma vigência já gravada, e trocar só a vigência pode deixá-la antes do
+  // início — nos dois casos o `CHECK` do banco recusa, e sem esta guarda o erro voltava como 503,
+  // isto é, "o banco caiu", quando o que houve foi um pedido incoerente. QA, 2026-09-03.
+  const nextIncurred = patch.incurredAt ?? String(previous.incurred_at)
+  const nextEnds = patch.endsAt !== undefined ? patch.endsAt : (previous.ends_at as string | null)
+  if (nextEnds !== null && nextEnds < nextIncurred) {
+    return { ok: false, reason: 'invalid_ends_at' }
+  }
+
+  const changes: Record<string, unknown> = {}
+  const diff: FixedCostDiff[] = []
+
+  for (const [field, column] of Object.entries(AMENDABLE)) {
+    const asked = patch[field as keyof FixedCostAmendment]
+    if (asked === undefined) continue
+
+    // SÓ O QUE DE FATO MUDOU ENTRA NO DIFF. Um log que lista dez campos porque o formulário
+    // reenviou todos é um log que ninguém lê — e o que importa é o campo que mudou.
+    const was = previous[column] ?? null
+    const now = asked ?? null
+    if (String(was) === String(now)) continue
+
+    changes[column] = now
+    diff.push({ field, from: was === null ? '—' : String(was), to: now === null ? '—' : String(now) })
+  }
+
+  if (diff.length === 0) return { ok: true, id, diff }
+
+  const { data, error } = await finance()
+    .from('fixed_costs')
+    .update(changes)
+    .eq('id', id)
+    .is('voided_at', null)
+    .select('id')
+    .single()
+
+  if (error || !data) return { ok: false, reason: 'write_failed' }
+  return { ok: true, id: String((data as { id: string }).id), diff }
+}
+
+/**
+ * ENCERRAR UM CUSTO RECORRENTE — a assinatura acabou, e o histórico fica.
+ *
+ * É UM `UPDATE` DE UMA COLUNA SÓ, e de propósito. Encerrar não reescreve valor, moeda nem data de
+ * início: o custo foi aquilo até aquele dia. Quem quer registrar que o PREÇO mudou não encerra —
+ * encerra e abre linha nova, como a Supabase de US$ 32,49 para US$ 40,99.
+ */
+export async function endFixedCost(id: string, endsAt: string): Promise<WriteOutcome> {
+  const { data, error } = await finance()
+    .from('fixed_costs')
+    .update({ ends_at: endsAt })
+    .eq('id', id)
+    // ENCERRAR SÓ ALCANÇA O RECORRENTE, e a guarda mora aqui porque o banco NÃO a tem: o único
+    // CHECK sobre `ends_at` compara com `incurred_at`, e nada impede a coluna num `one_off`. O
+    // comentário da rota afirmava o contrário — o QA conferiu as migrações em 2026-09-03 e
+    // mostrou que não existe. Sem isto, um PATCH gravava "encerrado em X" num desembolso único e
+    // o log afirmava um fato impossível.
+    .eq('kind', 'recurring')
+    // Uma linha já removida não se encerra: seriam dois estados contraditórios na mesma linha,
+    // e o `voided_at` venceria em toda leitura de qualquer jeito.
+    .is('voided_at', null)
+    .select('id')
+    .single()
+
+  // `PGRST116` é "a consulta não devolveu linha": o id não existe, ou a linha não estava no
+  // estado que esta ação exige. Isso é 404 e não 503 — devolver "serviço indisponível" mandaria
+  // o operador procurar uma falha de banco que não houve.
+  if (error?.code === 'PGRST116' || !data) return { ok: false, reason: 'not_found' }
+  if (error) return { ok: false, reason: 'write_failed' }
+  return { ok: true, id: String((data as { id: string }).id) }
+}
+
+/**
+ * REMOVER UM CUSTO — a linha foi um erro, e sai de toda conta.
+ *
+ * NÃO APAGA, MARCA, pelo mesmo motivo de `finance.excluded_accounts`: uma linha de dinheiro que
+ * some sem rastro é indistinguível de uma leitura que falhou pela metade. Quem reabrir o
+ * relatório de agosto no mês que vem e achar outro total precisa poder ver que alguém corrigiu um
+ * erro — com o nome de quem corrigiu e o motivo.
+ *
+ * A RAZÃO É OBRIGATÓRIA e o CHECK do banco a exige junto com a marca. "Por que esta linha não
+ * conta" é a informação.
+ */
+export async function voidFixedCost(
+  id: string,
+  reason: string,
+  voidedBy: string | null
+): Promise<WriteOutcome> {
+  const { data, error } = await finance()
+    .from('fixed_costs')
+    .update({ voided_at: new Date().toISOString(), voided_by: voidedBy, void_reason: reason })
+    .eq('id', id)
+    .is('voided_at', null)
+    .select('id')
+    .single()
+
+  // `PGRST116` é "a consulta não devolveu linha": o id não existe, ou a linha não estava no
+  // estado que esta ação exige. Isso é 404 e não 503 — devolver "serviço indisponível" mandaria
+  // o operador procurar uma falha de banco que não houve.
+  if (error?.code === 'PGRST116' || !data) return { ok: false, reason: 'not_found' }
+  if (error) return { ok: false, reason: 'write_failed' }
+  return { ok: true, id: String((data as { id: string }).id) }
+}
+
+/**
+ * DESFAZER A REMOÇÃO — limpar a marca, e não inserir de novo.
+ *
+ * Existe para que remover não seja uma porta de mão única. Sem ele, um clique errado só se
+ * conserta abrindo o banco — que é exatamente a fricção que este par de rotas veio tirar.
+ *
+ * O rastro do que aconteceu não se perde com a marca: as duas transições são auditadas.
+ */
+export async function restoreFixedCost(id: string): Promise<WriteOutcome> {
+  const { data, error } = await finance()
+    .from('fixed_costs')
+    .update({ voided_at: null, voided_by: null, void_reason: null })
+    .eq('id', id)
+    // SÓ RESTAURA O QUE ESTAVA REMOVIDO. Sem esta linha, um PATCH numa linha VIVA fazia um
+    // `update` que não mudava nada, devolvia sucesso, e o log gravava "Remoção desfeita: a linha
+    // volta a contar" sobre uma linha que nunca saiu. Um log de auditoria que afirma um fato que
+    // não aconteceu é pior do que log nenhum. Apontado pelo QA em 2026-09-03.
+    .not('voided_at', 'is', null)
+    .select('id')
+    .single()
+
+  // `PGRST116` é "a consulta não devolveu linha": o id não existe, ou a linha não estava no
+  // estado que esta ação exige. Isso é 404 e não 503 — devolver "serviço indisponível" mandaria
+  // o operador procurar uma falha de banco que não houve.
+  if (error?.code === 'PGRST116' || !data) return { ok: false, reason: 'not_found' }
+  if (error) return { ok: false, reason: 'write_failed' }
   return { ok: true, id: String((data as { id: string }).id) }
 }
 
@@ -705,13 +964,27 @@ interface PartnerRow {
   courtesyReason: string | null
 }
 
-async function loadPartners(cap: number): Promise<PartnerRow[]> {
-  const { data } = await getSupabaseService()
+/**
+ * OS PARCEIROS, OU `null` — e nunca uma lista vazia por erro.
+ *
+ * É O GÊMEO DO DEFEITO DE CUSTO, do lado da receita. Com `[]` devolvido por engano, a rota
+ * respondia 200 e a tela desenhava zero parceiros, MRR de R$ 0,00, coortes vazias e um ponto de
+ * equilíbrio pedindo N parceiros — sobre uma base com sete pagantes. Nenhum aviso, nenhum erro:
+ * só uma empresa que aparentemente não tem clientes.
+ *
+ * `loadFinanceOverview` já derrubava a resposta por consumo, avulsos, catálogo, envios e usuários
+ * do app. Esta era a única leitura estrutural que faltava na guarda. Apontado pelo QA em
+ * 2026-09-03.
+ */
+async function loadPartners(cap: number): Promise<PartnerRow[] | null> {
+  const { data, error } = await getSupabaseService()
     .schema('partner')
     .from('clients')
     .select('id, name, company_name, approved_at, monthly_fee_cents, is_courtesy, courtesy_reason')
     .order('created_at', { ascending: false })
     .limit(cap)
+
+  if (error) return null
 
   return (data ?? []).map((row: Record<string, unknown>) => ({
     id: String(row.id),
@@ -943,10 +1216,14 @@ export interface FinanceOverview {
  *
  * `finance_unavailable` é o schema `finance` fora do ar — sem ele não há custo nenhum, e desenhar
  * a tela diria que todo parceiro é de graça. `app_users_unavailable` é `drive.profiles` — sem ele
- * não há aquisição nem CAC. A falta de PERMISSÃO no ledger de compras não está aqui: ela não
+ * não há aquisição nem CAC. `partners_unavailable` é `partner.clients` — sem ele a tela diria que
+ * a empresa não tem cliente nenhum, que é a mesma mentira pelo outro lado. A falta de PERMISSÃO no ledger de compras não está aqui: ela não
  * derruba nada, vira `purchasesAnswered: false` e o veredito `unknown_return`.
  */
-export type FinanceOverviewFailure = 'finance_unavailable' | 'app_users_unavailable'
+export type FinanceOverviewFailure =
+  | 'finance_unavailable'
+  | 'app_users_unavailable'
+  | 'partners_unavailable'
 
 export type FinanceOverviewResult =
   | { ok: true; overview: FinanceOverview }
@@ -972,6 +1249,9 @@ export async function loadFinanceOverview(
   // Sem as linhas de custo não há tela: uma lista vazia por erro afirmaria que ninguém custou
   // nada, que é a única coisa que este módulo não pode dizer por engano.
   if (consumption === null || costEntries === null) return { ok: false, reason: 'finance_unavailable' }
+
+  // E sem os parceiros também não: zero parceiro por erro afirma que a empresa não tem cliente.
+  if (allPartners === null) return { ok: false, reason: 'partners_unavailable' }
 
   // AS CONTAS DE TESTE SAEM AQUI, ANTES DE QUALQUER CONTA — e não na tela.
   //
@@ -1174,7 +1454,10 @@ export async function recordConsumption(
   // com `unit_cost_cents` nulo, e o `unique (order_id, product_id)` a tornaria PERMANENTE: um
   // erro de leitura de dois segundos congelaria o custo daquele pedido em "não sei" para sempre.
   // O pedido já avançou de status; a linha entra depois, pelo backfill, que é repetível.
-  if (!catalog || !purchases || shipments === null) return null
+  // `overrides` ENTRA NA GUARDA. Sem ela, uma leitura recusada virava lista vazia, o plano
+  // rodava com a receita PADRÃO e gravava um custo errado que o `unique (order_id, product_id)`
+  // congela para sempre. Apontado pelo QA em 2026-09-03.
+  if (!catalog || !purchases || shipments === null || overrides === null) return null
   const { products, recipes, rates, packaging } = catalog
 
   const plan = planConsumption({
@@ -1308,7 +1591,10 @@ export async function recomputeConsumption(
     loadOrderOverrides([orderId]),
     loadOrderShipments([orderId]),
   ])
-  if (!catalog || !purchases || shipments === null) return null
+  // `overrides` ENTRA NA GUARDA. Sem ela, uma leitura recusada virava lista vazia, o plano
+  // rodava com a receita PADRÃO e gravava um custo errado que o `unique (order_id, product_id)`
+  // congela para sempre. Apontado pelo QA em 2026-09-03.
+  if (!catalog || !purchases || shipments === null || overrides === null) return null
 
   const plan = planConsumption({
     orderId,
@@ -1579,6 +1865,18 @@ export async function restoreAccount(
  * ele à frente, um parceiro liberado em agosto que assinasse em outubro começaria a faturar em
  * novembro, apagando dois meses que a Tuggi já entregou. Ela sobra só para quem não tem nem
  * liberação registrada.
+ *
+ * AS CINCO LEITURAS ABAIXO DESCARTAM `error` DE PROPÓSITO, e esta é a única função de
+ * `finance-service.ts` onde isso é seguro — conferido pelo QA em 2026-09-03 e travado por
+ * `tests/api/finance-surface.test.ts`.
+ *
+ * O motivo: a ausência aqui NÃO VIRA NÚMERO. Sem marco de cobrança, `billingStart` fica `null`,
+ * `assessClient` devolve o veredito `undated` e `summarizePlanMix` incrementa
+ * `payingWithoutBillingStart` — ou seja, a falha aparece como PENDÊNCIA NOMEADA na tela, que é
+ * o que se queria. Nas outras leituras do arquivo, a mesma omissão produziria um zero com cara
+ * de fato, e por isso todas elas devolvem `null`.
+ *
+ * Se um dia esta função passar a alimentar um TOTAL, ela entra na regra das outras.
  */
 export async function loadBillingStarts(
   clientIds: string[]

@@ -104,6 +104,15 @@ export type AuditAction =
   // As tabelas de lançamento não aceitam `delete` no grant, então não existe ação de exclusão.
   | 'CREATE_FINANCE_PURCHASE'
   | 'CREATE_FINANCE_FIXED_COST'
+  // Encerrar, remover e corrigir são três fatos diferentes, e por isso três ações no log: um
+  // verbo só o tornaria incapaz de responder qual das três aconteceu.
+  | 'AMEND_FINANCE_FIXED_COST'
+  // Encerrar e remover são dois fatos, e por isso são duas ações aqui também: uma diz que
+  // um custo real acabou, a outra que a linha foi um erro. Um verbo só tornaria o log
+  // incapaz de responder qual das duas coisas aconteceu.
+  | 'END_FINANCE_FIXED_COST'
+  | 'VOID_FINANCE_FIXED_COST'
+  | 'RESTORE_FINANCE_FIXED_COST'
   | 'CREATE_FINANCE_CLIENT_COST'
   | 'CREATE_FINANCE_SHIPMENT'
   // A compra é o único registro de `finance` que se edita e se apaga, porque é o registro de uma
@@ -137,12 +146,31 @@ interface AuditLogInput {
   entityId?: string | null
 }
 
-const SENSITIVE_PATTERNS = [/password/i, /token/i, /secret/i]
+/**
+ * O SEGREDO É O VALOR, NÃO A PALAVRA — e é por isso que só o valor é apagado.
+ *
+ * Antes de 2026-09-03 isto era `[/password/i, /token/i, /secret/i]` testado contra a descrição
+ * INTEIRA, e qualquer acerto trocava a descrição toda por "Sensitive details omitted". O efeito
+ * era o contrário do pretendido: um fornecedor chamado "Token Papelaria", ou uma assinatura do
+ * 1Password na linha de ferramentas, apagava o próprio registro de auditoria que provava quem
+ * mexeu no dinheiro. O log ficava mais fraco justamente por causa de um nome inocente.
+ *
+ * A FORMA DE UM VAZAMENTO É UMA ATRIBUIÇÃO: `token: abc123`, `password=hunter2`. É ela que este
+ * padrão persegue — a palavra-chave, o separador `:` ou `=`, e o valor logo depois. O valor sai;
+ * a palavra fica, para o log continuar dizendo que houve um segredo ali.
+ *
+ * E UMA MENÇÃO SOLTA NÃO É VAZAMENTO. "Token Papelaria" não tem separador, não casa, e sobrevive
+ * inteira. A troca é deliberada: sem separador, o que se perderia era um registro legítimo, e
+ * com separador, o que se perde é o segredo.
+ *
+ * Nenhuma descrição deste repositório é montada com texto livre de fora — todas saem de campos
+ * já validados. Este padrão é a rede sob o dia em que alguma passar a ser.
+ */
+const SENSITIVE_ASSIGNMENT = /\b(password|senha|token|secret|api[_-]?key)\b\s*[:=]\s*\S+/gi
 
 function sanitizeDescription(description: string): string {
   if (!description) return ''
-  const hasSensitive = SENSITIVE_PATTERNS.some((pattern) => pattern.test(description))
-  return hasSensitive ? 'Sensitive details omitted' : description
+  return description.replace(SENSITIVE_ASSIGNMENT, (_match, keyword: string) => `${keyword}: [omitido]`)
 }
 
 export function getRequestIp(request: NextRequest): string {

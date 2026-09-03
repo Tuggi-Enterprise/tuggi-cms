@@ -2442,7 +2442,8 @@
       "load": "Finance could not be loaded.",
       "appUsers": "The app users read did not answer. Without it there is no acquisition and no cost per acquisition, and the users column would be an invented zero.",
       "retry": "Try again",
-      "finance": "The `finance` schema could not be read. It has to be on the exposed schemas list of the Supabase API (Settings → API → Exposed schemas) for the CMS to reach the cost tables. Until it is, nothing is shown — a zero cost here would say the partners came for free."
+      "finance": "The `finance` schema could not be read. It has to be on the exposed schemas list of the Supabase API (Settings → API → Exposed schemas) for the CMS to reach the cost tables. Until it is, nothing is shown — a zero cost here would say the partners came for free.",
+      "fixedCosts": "The operating-cost read did not answer. Nothing is shown until it does — a zero here would claim the operation costs nothing. The usual cause is a `finance` migration not yet applied in the Supabase panel."
     },
     "atLeast": "≥ {count}",
     "truncated": "The read hit the ceiling: every number below is a floor.",
@@ -2645,7 +2646,21 @@
       "fxTitle": "Converted at the declared rate:",
       "fxPair": "{currency} 1 = {value}",
       "fxAside": "A planning assumption, not today's quote — fixed on purpose, so fixed cost does not swing with the exchange rate.",
-      "fxMissing": "No declared rate, so it stayed out of every total: {currencies}."
+      "fxMissing": "No declared rate, so it stayed out of every total: {currencies}.",
+      "monthFilter": "Month",
+      "wholeYear": "Current year",
+      "windowRange": "From {from} to {to}.",
+      "actions": "Actions",
+      "end": "End",
+      "void": "Remove",
+      "confirm": "Confirm",
+      "cancel": "Cancel",
+      "voidReason": "Why this line should not exist",
+      "endHint": "Ending says the cost STOPPED on this date. It keeps counting in every month it was valid — this is how a cancelled subscription or a repriced plan is recorded.",
+      "voidHint": "Removing says the line was a MISTAKE: it leaves every total, in every month. The line is not deleted — it is marked, with who removed it and why, and it can be undone.",
+      "amend": "Edit",
+      "amendHint": "Editing changes the line and records in the log who changed what, from which value to which. If the cost ENDED, use End; if the line should not exist, use Remove — they are three different facts.",
+      "fxUnreadable": "The exchange-rate read was REFUSED — which is not the same as having no declared rate. Until it answers, these currencies stay out of every total: {currencies}. The usual cause is the `finance.fx_rates` migration not yet applied in the panel."
     },
     "form": {
       "cancel": "Cancel",
