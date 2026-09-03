@@ -17,6 +17,7 @@
  */
 
 import { test, expect } from '@playwright/experimental-ct-react'
+import AxeBuilder from '@axe-core/playwright'
 import { PromotionHarness, Wrapper } from './helpers'
 import { proposalUnderConference } from './fixtures/partnerships'
 import type { ProposalDetail } from '@/components/admin/partner-proposals/types'
@@ -95,6 +96,31 @@ test.describe('DS-COMPONENTE-018 — o valor que não cabe é barrado na tela', 
     await field.pressSequentially('https://brendi.com.br')
 
     await expect(field).toHaveValue('https://brendi.com.br')
+  })
+
+  test('DS-COMPONENTE-018: o painel cheio de campos continua sem violação de axe', async ({
+    mount,
+    page,
+  }) => {
+    // O painel virou um formulário: doze inputs, um deles em célula de tabela e um em estado de
+    // erro. Cada rótulo tem que continuar amarrado ao seu campo, e o erro tem que ser anunciado.
+    await mount(
+      <Wrapper>
+        <PromotionHarness
+          detail={proposalWith({ website: LONG_WEBSITE, instagram: '@mangia' })}
+        />
+      </Wrapper>
+    )
+
+    const results = await new AxeBuilder({ page })
+      .include('#root')
+      .withTags(['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa', 'wcag22aa'])
+      .analyze()
+
+    expect(
+      results.violations.map((violation) => `${violation.id}: ${violation.help}`),
+      'axe reprovou o painel de promoção'
+    ).toEqual([])
   })
 
   test('DS-COMPONENTE-018: o que a edição não faz está escrito na tela', async ({ mount }) => {
