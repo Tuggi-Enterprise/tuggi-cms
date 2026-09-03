@@ -1,0 +1,45 @@
+{
+  "artboards": [
+    { "file": "Main.dc.html", "x": 0, "y": 0, "w": 1120, "h": 470, "title": "A · Duas linhas, e a faixa entre elas" },
+    { "file": "OptionB.dc.html", "x": 0, "y": 640, "w": 1120, "h": 470, "title": "B · A barra é o resultado" },
+    { "file": "OptionC.dc.html", "x": 0, "y": 1280, "w": 1120, "h": 470, "title": "C · Duas barras sólidas, lado a lado" }
+  ],
+  "annotations": [
+    {
+      "id": "problema",
+      "x": -420,
+      "y": 0,
+      "w": 340,
+      "text": "O PROBLEMA DE HOJE\n\nCinco séries na legenda, duas barras empilhadas por mês e uma faixa de valores solta embaixo.\n\nPara entender um mês o operador olha em três lugares e faz o pareamento de cor na cabeça.\n\nA pergunta que o gráfico responde é uma só: em que mês eu ganho mais do que gasto?"
+    },
+    {
+      "id": "opcao-a",
+      "x": -420,
+      "y": 250,
+      "w": 340,
+      "text": "A · DUAS LINHAS\n\nA faixa pintada ENTRE as linhas é o resultado — ninguém subtrai nada com os olhos. Duas séries, nomeadas na ponta: nenhuma caixa de legenda.\n\nMostra o nível de cada lado E a distância entre eles.\n\nTroca: o pico de agosto (R$ 5.474) comprime os outros onze meses. É a escala dizendo a verdade, mas custa leitura no resto do ano."
+    },
+    {
+      "id": "opcao-b",
+      "x": -420,
+      "y": 890,
+      "w": 340,
+      "text": "B · A BARRA É O RESULTADO\n\nUma série. Zero legenda. A linha do zero é a pergunta, e o sinal é a resposta.\n\nCabem os doze valores: uma barra por coluna deixa 76px, contra os 45px de duas barras empilhadas.\n\nTroca: some o NÍVEL. Um mês de −324 com receita de 1.500 lê igual a um com receita de 150.000. Só o saldo sobrevive."
+    },
+    {
+      "id": "opcao-c",
+      "x": -420,
+      "y": 1530,
+      "w": 340,
+      "text": "C · DUAS BARRAS SÓLIDAS\n\nO mais perto do que já existe: mantém as barras, mas de cinco séries para duas — o total é a altura, as parcelas vão para o hover.\n\nTroca: ainda são dois lugares (gráfico + legenda), e o resultado do mês continua sendo uma subtração que o operador faz sozinho. Os valores não cabem em todos os meses."
+    },
+    {
+      "id": "comum",
+      "x": 1200,
+      "y": 640,
+      "w": 320,
+      "text": "O QUE AS TRÊS COMPARTILHAM\n\nA composição sai do gráfico e vai para o hover — as parcelas de receita e de custo, do mês sob o cursor, num quadro só.\n\nEstá desenhada em repouso sobre setembro nas três, para dar de ver o que o operador encontra.\n\nHoje isso é o `title` nativo do navegador, faixa por faixa. Qualquer uma das três precisa do quadro próprio."
+    }
+  ],
+  "launch": { "view": "canvas" }
+}

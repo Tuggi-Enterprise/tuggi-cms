@@ -2687,7 +2687,12 @@
         "fixedCost": "Coste mensual",
         "hint": "La capa bloqueada es lo que sale si el contrato se acepta antes del día 20. El desembolso único queda fuera.",
         "app": "App",
-        "otherCurrencies": "Fuera del eje: {list}"
+        "otherCurrencies": "Fuera del eje: {list}",
+        "costLine": "Costo",
+        "revenueLine": "Ingreso",
+        "result": "Resultado",
+        "projected": "previsto",
+        "emptyMonth": "Nada registrado este mes."
       }
     },
     "costCategories": {

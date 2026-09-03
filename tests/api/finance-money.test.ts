@@ -13,7 +13,7 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 
-import { parseMoneyToCents } from '@/lib/finance/money'
+import { formatMoneyCompact, parseMoneyToCents } from '@/lib/finance/money'
 
 test('o teclado brasileiro', () => {
   assert.equal(parseMoneyToCents('1.000,00'), 100_000, 'o que quebrava com 400')
@@ -52,4 +52,36 @@ test('o que não é valor devolve `null`, e nunca um número inventado', () => {
 test('mais de duas casas é recusado, não arredondado', () => {
   assert.equal(parseMoneyToCents('1,005'), null)
   assert.equal(parseMoneyToCents('1,00'), 100)
+})
+
+// ── A FAIXA DE VALORES SOB O GRÁFICO ──────────────────────────────────────────────
+
+test('o valor compacto cabe na coluna, e não inventa precião que ela não mostra', () => {
+  assert.equal(formatMoneyCompact(182_395), '1,8 mil')
+  assert.equal(formatMoneyCompact(2_612_200), '26 mil', 'acima de dez mil a decima nao decide nada')
+  assert.equal(formatMoneyCompact(940_000), '9,4 mil')
+  assert.equal(formatMoneyCompact(2_990), '30')
+  assert.equal(formatMoneyCompact(150_000_000), '1,5 mi')
+})
+
+test('zero imprime travessão, porque metade dos meses ainda não aconteceu', () => {
+  // Numa faixa de doze meses, um `0` na metade direita se le como "custou zero" em vez de
+  // "ainda nao chegou". E a mesma regra de `formatMoney` para `null`.
+  assert.equal(formatMoneyCompact(0), '—')
+  assert.equal(formatMoneyCompact(null), '—')
+  assert.equal(formatMoneyCompact(Number.NaN), '—')
+})
+
+test('o negativo mantém o sinal, e a magnitude não muda de regra', () => {
+  assert.equal(formatMoneyCompact(-182_395), '-1,8 mil')
+  assert.equal(formatMoneyCompact(-2_990), '-30')
+})
+
+test('o compacto NÃO leva símbolo de moeda', () => {
+  // Repetido vinte e quatro vezes na faixa ele vira ruido, e a serie tem uma moeda so: quem a
+  // nomeia e o rotulo da linha, uma vez. O guia de dataviz chama isso de "text tokens" - o
+  // numero nao carrega identidade, quem carrega e a marca ao lado dele.
+  for (const cents of [182_395, 2_990, 150_000_000, -1_000]) {
+    assert.ok(!/R\$|€|US\$/.test(formatMoneyCompact(cents)), `${cents} nao pode trazer moeda`)
+  }
 })

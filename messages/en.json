@@ -2768,7 +2768,12 @@
         "fixedCost": "Monthly cost",
         "hint": "The blocked layer is what goes out if the contract is accepted before the 20th. One-off outlay is excluded.",
         "app": "App",
-        "otherCurrencies": "Off the axis: {list}"
+        "otherCurrencies": "Off the axis: {list}",
+        "costLine": "Cost",
+        "revenueLine": "Revenue",
+        "result": "Result",
+        "projected": "projected",
+        "emptyMonth": "Nothing recorded this month."
       }
     },
     "costCategories": {
