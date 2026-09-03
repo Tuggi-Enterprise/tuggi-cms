@@ -3730,7 +3730,8 @@
         "revenueLine": "Receita",
         "result": "Resultado",
         "projected": "previsto",
-        "emptyMonth": "Nada lançado neste mês."
+        "emptyMonth": "Nada lançado neste mês.",
+        "projectedFrom": "previsto →"
       }
     },
     "costCategories": {

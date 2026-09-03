@@ -2773,7 +2773,8 @@
         "revenueLine": "Revenue",
         "result": "Result",
         "projected": "projected",
-        "emptyMonth": "Nothing recorded this month."
+        "emptyMonth": "Nothing recorded this month.",
+        "projectedFrom": "projected →"
       }
     },
     "costCategories": {
@@ -2799,7 +2800,7 @@
       "design_tools": "Design (Figma / Adobe)",
       "video_audio_editing": "Video and audio editing",
       "stock_assets": "Stock images, audio and fonts",
-      "pro_labore": "Owners draw (pró-labore)",
+      "pro_labore": "Owner's draw (pró-labore)",
       "clt_salaries": "CLT salaries",
       "fgts": "FGTS",
       "vacation_13th": "Vacation and 13th salary (accrual)",
