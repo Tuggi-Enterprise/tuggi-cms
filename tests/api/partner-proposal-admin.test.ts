@@ -15,10 +15,12 @@ import { readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
 
 import {
+  CLIENT_COLUMN_LIMITS,
   PROMOTION_MAP,
   PROMOTION_NEVER_WRITES,
   buildPromotionPlan,
   joinAddress,
+  lengthViolations,
   promotionAllowlistIsClosed,
   resolvePromotionWrite,
   summarizePromotion,
@@ -346,6 +348,8 @@ interface FakeState {
   statements: FakeStatement[]
   /** Set to make the write against `partner.clients` fail, for the rollback case. */
   clientWriteFails: boolean
+  /** The error that failure carries. Absent means the connection dropped (#679). */
+  clientWriteFailsAs?: { code: string; message: string }
   /**
    * Set to make the CLAIM fail — the second statement, after the client is already written.
    * This is the residue the write order accepts, and the only case in which a record with
@@ -405,7 +409,12 @@ function createFakeService(current: () => FakeState) {
 
     const apply = (): { data: Record<string, any>[]; error: any } => {
       if (key === 'clients' && current().clientWriteFails && operation !== 'select') {
-        return { data: [], error: { code: '08006', message: 'connection lost' } }
+        // The SQLSTATE is part of the fixture since #679: `22001` is the one the promotion has
+        // to tell apart from a broken connection, and the default stays the connection.
+        return {
+          data: [],
+          error: current().clientWriteFailsAs ?? { code: '08006', message: 'connection lost' },
+        }
       }
 
       if (operation !== 'select') {
@@ -1282,9 +1291,268 @@ test('BR-B2B-026: no promotion trail carries a value the partner typed — uuids
   }
 })
 
+/* -------------------------------------------------------------------------- */
+/* #679 — o operador corrige o valor, e a recusa diz o que aconteceu           */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * A URL DO CARD, e ela é o caso inteiro: 300 caracteres de `utm_*` e `fbclid` contra um
+ * `varchar(255)`. Montada aqui e não colada porque o que importa é o comprimento.
+ */
+const LONG_WEBSITE = `https://pedido.brendi.com.br/mangiacabofrio?${'utm_source=meta&fbclid=IwAR0abcdefgh&'.repeat(7)}`
+
+test('BR-B2B-026: toda coluna que a promoção escreve carrega a largura de `partner.clients`', () => {
+  for (const target of PROMOTION_MAP) {
+    const limit = CLIENT_COLUMN_LIMITS[target.column]
+    assert.ok(
+      limit === null || (Number.isInteger(limit) && limit > 0),
+      `${target.column} não tem largura nem está declarada como \`text\``
+    )
+  }
+
+  // `social_handle` é a única `text` do mapa; o resto é `varchar` e tem número.
+  assert.deepEqual(
+    PROMOTION_MAP.filter((target) => CLIENT_COLUMN_LIMITS[target.column] === null).map(
+      (target) => target.column
+    ),
+    ['social_handle']
+  )
+})
+
+test('DS-COMPONENTE-018: o valor que não cabe é nomeado com a coluna e o limite — o caso do card', () => {
+  assert.ok(LONG_WEBSITE.length > 255, 'a fixture precisa estourar o limite para provar algo')
+
+  const plan = buildPromotionPlan(answers({ website: LONG_WEBSITE }), null, {
+    categoryLabel: 'Restaurante',
+  })
+  const [violation] = lengthViolations(resolvePromotionWrite(plan, { approved: [] }).updates)
+
+  assert.equal(violation?.column, 'website')
+  assert.equal(violation?.limit, 255)
+  assert.equal(violation?.length, LONG_WEBSITE.length)
+})
+
+test('#679: o que é medido é o que o operador digitou, não o que o parceiro mandou', () => {
+  // A MUTAÇÃO QUE ISTO PEGA: medir `entry.proposed` em vez do write resolvido. Nos dois sentidos
+  // — o valor longo que o operador encurtou passa, o curto que ele alongou não.
+  const longPlan = buildPromotionPlan(answers({ website: LONG_WEBSITE }), null, {})
+  assert.deepEqual(
+    lengthViolations(
+      resolvePromotionWrite(longPlan, {
+        approved: [],
+        overrides: { website: 'https://brendi.com.br/mangia' },
+      }).updates
+    ),
+    []
+  )
+
+  const shortPlan = buildPromotionPlan(answers({ website: 'https://brendi.com.br' }), null, {})
+  assert.equal(
+    lengthViolations(
+      resolvePromotionWrite(shortPlan, { approved: [], overrides: { website: LONG_WEBSITE } })
+        .updates
+    )[0]?.column,
+    'website'
+  )
+})
+
+test('DS-COMPONENTE-018: identidade e canônico do catálogo não se redigitam — o override não os alcança', () => {
+  const plan = buildPromotionPlan(answers({ website: 'https://cantina.com.br' }), null, {
+    categoryLabel: 'Restaurante',
+  })
+  const write = resolvePromotionWrite(plan, {
+    approved: [],
+    overrides: {
+      tax_id: '99999999999999',
+      tax_id_type: 'CPF',
+      state: 'RJ',
+      country: 'BR',
+      website: 'https://brendi.com.br',
+    },
+  })
+
+  assert.equal(write.updates.tax_id, answers().tax_id, 'o CNPJ da proposta foi redigitado')
+  assert.equal(write.updates.tax_id_type, 'CNPJ')
+  assert.notEqual(write.updates.state, 'RJ', 'o estado saiu do canônico do catálogo')
+  assert.notEqual(write.updates.country, 'BR', 'o país saiu do canônico do catálogo')
+  // E o que É editável continua editável.
+  assert.equal(write.updates.website, 'https://brendi.com.br')
+})
+
+test('#679: um valor que não cabe é recusado antes de qualquer escrita — ponta a ponta', async () => {
+  state = freshState()
+  state.submissions[0].answers = { ...state.submissions[0].answers, website: LONG_WEBSITE }
+
+  const response = await PROMOTE(
+    request('POST', { approved: [], overrides: { industry: 'Restaurante' } }),
+    proposalContext
+  )
+  const payload = await response.json()
+
+  assert.equal(response.status, 400, 'erro de preenchimento não é 503')
+  assert.equal(payload.error, 'too_long')
+  assert.equal(payload.column, 'website', 'a resposta nomeia a coluna')
+  assert.equal(payload.limit, 255, 'e o limite')
+  assert.equal(state.clients.length, 0, 'nada foi gravado')
+  assert.equal(state.submissions[0].status, 'submitted', 'a proposta continua na fila')
+  assert.equal(state.audit_logs.length, 0, 'nenhum ato aconteceu, nenhum ato foi registrado')
+})
+
+test('BR-B2B-026: o operador encurta o valor e a promoção passa, com o que ele digitou', async () => {
+  state = freshState()
+  state.submissions[0].answers = { ...state.submissions[0].answers, website: LONG_WEBSITE }
+
+  const response = await PROMOTE(
+    request('POST', {
+      approved: [],
+      overrides: { industry: 'Restaurante', website: 'https://brendi.com.br/mangia' },
+    }),
+    proposalContext
+  )
+
+  assert.equal(response.status, 200)
+  assert.equal(state.clients[0].website, 'https://brendi.com.br/mangia')
+  // A REGRESSÃO DE SEMPRE, junto: o registro nasce `venue` e a proposta vira `promoted`.
+  assert.equal(state.clients[0].client_type, 'venue')
+  assert.equal(state.submissions[0].status, 'promoted')
+  assert.equal(state.submissions[0].promoted_client_id, state.clients[0].id)
+})
+
+test('BR-B2B-026: a edição no painel não reescreve o que o parceiro enviou', async () => {
+  state = freshState()
+  state.submissions[0].answers = { ...state.submissions[0].answers, website: LONG_WEBSITE }
+
+  await PROMOTE(
+    request('POST', {
+      approved: [],
+      overrides: {
+        industry: 'Cantina',
+        website: 'https://brendi.com.br/mangia',
+        name: 'Mangia Cabo Frio',
+        phone: '+55 22 90000-0000',
+      },
+    }),
+    proposalContext
+  )
+
+  // O inbox é o que torna a proposta auditável: ele guarda o que chegou, não o que a equipe
+  // corrigiu. O cliente recebe o corrigido; a submissão, nada.
+  assert.equal(state.submissions[0].answers.website, LONG_WEBSITE)
+  assert.equal(state.submissions[0].answers.trade_name, answers().trade_name)
+  assert.equal(state.submissions[0].answers.representative_phone, answers().representative_phone)
+
+  const rewrote = submissionWrites().filter(
+    (statement) => statement.payload && 'answers' in statement.payload
+  )
+  assert.deepEqual(rewrote, [], 'alguma escrita da promoção mexeu no `answers` da submissão')
+
+  assert.equal(state.clients[0].website, 'https://brendi.com.br/mangia')
+  assert.equal(state.clients[0].name, 'Mangia Cabo Frio')
+})
+
+test('#679: escrita do cliente que falhou não gravou nada, e a resposta diz isso', async () => {
+  state = freshState()
+  state.clientWriteFails = true
+
+  const response = await PROMOTE(
+    request('POST', { approved: [], overrides: { industry: 'Restaurante' } }),
+    proposalContext
+  )
+  const payload = await response.json()
+
+  assert.equal(response.status, 503)
+  assert.equal(payload.error, 'write_failed')
+  assert.equal(payload.clientWritten, false, 'a tela não pode ser mandada procurar uma ficha')
+  assert.equal(state.clients.length, 0)
+  assert.equal(state.submissions[0].status, 'submitted')
+})
+
+test('BR-B2B-026: reivindicação que falhou sobre um cliente já gravado diz que ele existe', async () => {
+  state = freshState()
+  state.claimFails = true
+
+  const response = await PROMOTE(
+    request('POST', { approved: [], overrides: { industry: 'Restaurante' } }),
+    proposalContext
+  )
+  const payload = await response.json()
+
+  assert.equal(payload.clientWritten, true, 'aqui a ficha existe, e é a única vez que existe')
+  assert.equal(state.clients.length, 1)
+})
+
+test('#679: um `22001` que escapa da tela volta como tamanho, nunca como "pode ter gravado"', async () => {
+  state = freshState()
+  state.clientWriteFails = true
+  state.clientWriteFailsAs = {
+    code: '22001',
+    message: 'value too long for type character varying(255)',
+  }
+
+  const response = await PROMOTE(
+    request('POST', { approved: [], overrides: { industry: 'Restaurante' } }),
+    proposalContext
+  )
+  const payload = await response.json()
+
+  assert.equal(response.status, 400)
+  assert.equal(payload.error, 'too_long')
+  assert.equal(payload.clientWritten, false)
+  // A COLUNA NÃO VIAJA, e é de propósito: o Postgres não a nomeia, e a mensagem crua carrega o
+  // valor — que aqui é endereço, e-mail ou telefone de uma pessoa.
+  assert.equal(payload.column, undefined)
+  assert.equal(JSON.stringify(payload).indexOf('character varying'), -1)
+})
+
+test('#679: a tela e a rota medem pelo mesmo mapa — não existe um segundo `255`', () => {
+  const panel = readFileSync(
+    resolve(REPO_ROOT, 'components/admin/partner-proposals/PromotionPanel.tsx'),
+    'utf8'
+  )
+  const route = readFileSync(
+    resolve(REPO_ROOT, 'app/api/admin/partner-proposals/[submissionId]/promote/route.ts'),
+    'utf8'
+  )
+
+  for (const [name, source] of [
+    ['o painel', panel],
+    ['a rota', route],
+  ] as const) {
+    assert.ok(source.indexOf('lengthViolations') >= 0, `${name} não mede o tamanho`)
+    assert.equal(
+      /INDUSTRY_MAX|=\s*255\b|=\s*100\b/.test(source),
+      false,
+      `${name} redeclarou a largura de uma coluna`
+    )
+  }
+
+  // E o botão morre enquanto algo estoura — a barreira não é só do servidor.
+  assert.match(panel, /disabled=\{submitting \|\| summary\.total === 0 \|\| violations\.length > 0\}/)
+})
+
 // ── The copy ──
 
 const copy = JSON.parse(readFileSync(resolve(REPO_ROOT, 'messages/pt.json'), 'utf8')).PartnerProposals
+
+test('#679: cada desfecho da promoção tem a sua frase, e a pessimista é a única que manda conferir', () => {
+  const promotion = copy.promotion
+
+  // NADA FOI GRAVADO significa nada foi gravado: sem "pode ter sido", sem duplicata a temer.
+  assert.match(promotion.failedNothingWritten, /[Nn]ada foi gravado/)
+  assert.equal(/pode ter sido/.test(promotion.failedNothingWritten), false)
+  assert.equal(/segundo registro/.test(promotion.failedNothingWritten), false)
+
+  // E o texto que era dito aos três casos sobreviveu inteiro no único em que é verdadeiro.
+  assert.match(promotion.failedClientWritten, /pode ter sido criado ou atualizado/)
+  assert.match(promotion.failedClientWritten, /segundo registro/)
+
+  // O tamanho nomeia o campo e o limite — uma frase sem os dois não diz o que corrigir.
+  assert.match(promotion.failedTooLong, /\{field\}/)
+  assert.match(promotion.failedTooLong, /\{limit\}/)
+
+  // E a tela diz o que a edição NÃO faz, porque o inbox é o que torna a proposta auditável.
+  assert.match(promotion.editHint, /proposta/)
+})
 
 test('DS-COPY-014: no confirmation button is called `Confirmar` — the control names the effect', () => {
   const serialized = JSON.stringify(copy)

@@ -23,6 +23,8 @@ import { QueryProvider } from '@/components/providers/QueryProvider'
 import { AppUserLink } from '@/components/dashboard/AppUserLink'
 import { ClientDirectory } from '@/components/admin/clients/ClientDirectory'
 import { ClientBoard } from '@/components/admin/clients/ClientBoard'
+import { PromotionPanel } from '@/components/admin/partner-proposals/PromotionPanel'
+import type { ProposalDetail } from '@/components/admin/partner-proposals/types'
 import { StatCard } from '@/components/ui/StatCard'
 import { formatDuration } from '@/lib/format/duration'
 import { useClientDirectory } from '@/lib/hooks/use-client-directory'
@@ -215,5 +217,30 @@ export function DashboardKpiRowHarness({
         </a>
       </div>
     </div>
+  )
+}
+
+/**
+ * The promotion panel on its own — #679.
+ *
+ * `ProposalReview` reaches it through a fetch and a click; what this suite asks about is the
+ * panel's own behaviour when a value does not fit its column, so the panel is mounted with the
+ * proposal it would have loaded. The two callbacks are the host's and do nothing here: nothing
+ * in these assertions closes the panel or promotes anything.
+ */
+export function PromotionHarness({
+  detail,
+  categoryLabel = 'Restaurante',
+}: {
+  detail: ProposalDetail
+  categoryLabel?: string
+}) {
+  return (
+    <PromotionPanel
+      detail={detail}
+      categoryLabel={categoryLabel}
+      onClose={() => {}}
+      onPromoted={() => {}}
+    />
   )
 }
