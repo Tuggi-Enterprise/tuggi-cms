@@ -53,9 +53,14 @@
  *
  * A VALUE THAT DOES NOT FIT ITS COLUMN NEVER REACHES THE ROUTE. `CLIENT_COLUMN_LIMITS` is the
  * width of `partner.clients`, the button goes dead while anything exceeds it, and the field
- * says which one and by which limit. Before #679 that was a 503: `varchar(255)` refused a
- * 300-character `website`, the proposal stayed in the queue with no path out of it, and the
- * screen told the operator the record might have been written.
+ * says which one, com QUANTOS caracteres e por qual limite. Before #679 that was a 503:
+ * `varchar(255)` refused a 300-character `website`, the proposal stayed in the queue with no
+ * path out of it, and the screen told the operator the record might have been written.
+ *
+ * E PREVENIR NÃO É RELATAR UMA FALHA. O mesmo bloco vermelho serve dois estados: o valor que já
+ * chegou estourado da proposta — sem clique nenhum — e a escrita que o servidor recusou. Com o
+ * título de falha nos dois, o painel anunciava `Não foi possível promover` a quem ainda não
+ * tinha tentado. `blockedTitle` é o estado sem `failure`; `failedTitle` fica para o que falhou.
  */
 
 import { useMemo, useState } from 'react'
@@ -71,6 +76,7 @@ import {
   lengthViolations,
   resolvePromotionWrite,
   summarizePromotion,
+  type PromotableColumn,
   type PromotionEntry,
 } from '@/lib/partner-form/promotion'
 import type { ProposalDetail } from './types'
@@ -135,10 +141,28 @@ export function PromotionPanel({ detail, categoryLabel, onClose, onPromoted }: P
    * THE SAME MAP THE ROUTE REFUSES BY. Run on the resolved write and not on the proposal:
    * what does not fit is what is about to be inserted, and the operator just typed it.
    */
-  const violations = lengthViolations(
-    resolvePromotionWrite(plan, { approved, overrides }).updates
-  )
-  const limitOf = new Map(violations.map((violation) => [violation.column, violation.limit]))
+  const resolved = resolvePromotionWrite(plan, { approved, overrides })
+  const violations = lengthViolations(resolved.updates)
+  /**
+   * A VIOLAÇÃO INTEIRA, e não só o limite. `lengthViolations` já devolve `length`, e a frase que
+   * esconde o excesso manda o operador cortar às cegas: numa URL de 300 caracteres contra
+   * `varchar(255)`, saber que sobram 45 é a diferença entre uma edição e várias tentativas.
+   */
+  const violationOf = new Map(violations.map((violation) => [violation.column, violation]))
+
+  /**
+   * A RECUSA DO SERVIDOR, com o tamanho junto. A resposta da rota traz coluna e limite; o
+   * comprimento é o do valor que ESTA tela mandou gravar, lido da mesma escrita resolvida — não
+   * uma segunda cópia do que o operador digitou. Sem esse valor não há frase com número, e o
+   * bloco cai no texto de "nada foi gravado", exatamente como já caía sem `refused`.
+   */
+  const refusedValue = refused
+    ? resolved.updates[refused.column as PromotableColumn]
+    : undefined
+  const refusedTooLong =
+    refused && typeof refusedValue === 'string'
+      ? { ...refused, length: refusedValue.length }
+      : null
 
   /** The value of every editable column of the plan, typed or pre-filled — what the body says. */
   function editedValues(): Record<string, string> {
@@ -167,8 +191,8 @@ export function PromotionPanel({ detail, categoryLabel, onClose, onPromoted }: P
    */
   function editableValue(entry: PromotionEntry, hint?: string) {
     const id = `promotion-value-${entry.column}`
-    const limit = limitOf.get(entry.column)
-    const described = [hint ? `${id}-hint` : null, limit ? `${id}-error` : null]
+    const violation = violationOf.get(entry.column)
+    const described = [hint ? `${id}-hint` : null, violation ? `${id}-error` : null]
       .filter(Boolean)
       .join(' ')
 
@@ -179,7 +203,7 @@ export function PromotionPanel({ detail, categoryLabel, onClose, onPromoted }: P
           className="mt-1"
           value={valueOf(entry)}
           onChange={(event) => setOverride(entry.column, event.target.value)}
-          aria-invalid={limit ? true : undefined}
+          aria-invalid={violation ? true : undefined}
           aria-describedby={described || undefined}
         />
         {hint && (
@@ -187,14 +211,15 @@ export function PromotionPanel({ detail, categoryLabel, onClose, onPromoted }: P
             {hint}
           </span>
         )}
-        {limit && (
+        {violation && (
           <span
             id={`${id}-error`}
             className="mt-1 block text-xs font-medium text-destructive"
           >
             {t('promotion.failedTooLong', {
               field: t(`promotion.fields.${entry.column}`),
-              limit,
+              length: violation.length,
+              limit: violation.limit,
             })}
           </span>
         )}
@@ -219,7 +244,7 @@ export function PromotionPanel({ detail, categoryLabel, onClose, onPromoted }: P
   const fills = plan.entries.filter((entry) => entry.decision === 'fill')
 
   /** The disclosure cannot be shut over the field that is blocking the button. */
-  const fillIsOverLimit = fills.some((entry) => limitOf.has(entry.column))
+  const fillIsOverLimit = fills.some((entry) => violationOf.has(entry.column))
   const showFills = fillsOpen || fillIsOverLimit
 
   const targetName =
@@ -477,27 +502,38 @@ export function PromotionPanel({ detail, categoryLabel, onClose, onPromoted }: P
           className="mt-3 rounded-md border border-destructive/40 bg-destructive/5 p-3 text-sm text-gray-900 dark:text-white"
           role="alert"
         >
+          {/* PREVENIR NÃO É RELATAR. O bloco também aparece com NENHUMA tentativa feita — basta
+              a proposta trazer um valor que não cabe —, e anunciar `Não foi possível promover`
+              sobre um clique que ninguém deu é relatar uma falha que não aconteceu. O título da
+              falha fica para quando houve falha; sem `failure`, o que existe é um bloqueio. */}
           <p className="flex items-center gap-2 font-semibold">
             <AlertTriangle className="h-4 w-4" aria-hidden="true" />
-            {failure === 'network' ? t('promotion.failedNetworkTitle') : t('promotion.failedTitle')}
+            {failure === null
+              ? t('promotion.blockedTitle')
+              : failure === 'network'
+                ? t('promotion.failedNetworkTitle')
+                : t('promotion.failedTitle')}
           </p>
           <div className="mt-1">
             {violations.map((violation) => (
               <p key={violation.column}>
                 {t('promotion.failedTooLong', {
                   field: t(`promotion.fields.${violation.column}`),
+                  length: violation.length,
                   limit: violation.limit,
                 })}
               </p>
             ))}
             {/* The server refused a length the screen let through: the column it names is not
-                one this panel knows a limit for, so it is stated on its own. */}
+                one this panel knows a limit for, so it is stated on its own — com o tamanho lido
+                da própria escrita que saiu daqui, que é o valor que o banco recusou. */}
             {violations.length === 0 && failure === 'too_long' && (
               <p>
-                {refused
+                {refusedTooLong
                   ? t('promotion.failedTooLong', {
-                      field: t(`promotion.fields.${refused.column}`),
-                      limit: refused.limit,
+                      field: t(`promotion.fields.${refusedTooLong.column}`),
+                      length: refusedTooLong.length,
+                      limit: refusedTooLong.limit,
                     })
                   : t('promotion.failedNothingWritten')}
               </p>

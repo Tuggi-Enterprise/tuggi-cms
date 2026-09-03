@@ -50,12 +50,61 @@ test.describe('DS-COMPONENTE-018 — o valor que não cabe é barrado na tela', 
 
     // O CAMPO É NOMEADO, com o limite junto — "não foi possível promover" sozinho não diz o que
     // corrigir, e foi exatamente isso que o operador viu em 2026-09-03.
+    //
+    // E O EXCESSO VEM JUNTO. O limite sem o tamanho manda cortar às cegas: nesta URL sobram 45
+    // caracteres, e é esse número que decide se o operador apaga um `utm_` ou reescreve tudo.
     await expect(
-      component.getByText(/Site não cabe no cadastro: o limite é de 255 caracteres/).first()
+      component
+        .getByText(
+          new RegExp(
+            `Site não cabe no cadastro: tem ${LONG_WEBSITE.length} caracteres e o limite é 255`
+          )
+        )
+        .first()
     ).toBeVisible()
 
     // E a promoção não é oferecida enquanto o valor não couber.
     await expect(component.getByRole('button', { name: /^Gravar/ })).toBeDisabled()
+  })
+
+  test('#679: sem clique nenhum, o bloco anuncia BLOQUEIO — não uma falha que não houve', async ({
+    mount,
+  }) => {
+    // O bloco vermelho aparece só de ABRIR o painel sobre um valor que já vem estourado da
+    // proposta, e dizia `Não foi possível promover.` sobre um botão que ninguém apertou.
+    // Prevenção não é relato de falha.
+    const component = await mount(
+      <Wrapper>
+        <PromotionHarness detail={proposalWith({ website: LONG_WEBSITE })} />
+      </Wrapper>
+    )
+
+    await expect(component.getByText('Falta corrigir um valor antes de promover.')).toBeVisible()
+    await expect(component.getByText('Não foi possível promover.')).toHaveCount(0)
+  })
+
+  test('#679: a falha que de fato aconteceu continua com o título de falha', async ({
+    mount,
+    page,
+  }) => {
+    // A outra ponta da mesma condição: com a escrita recusada pelo servidor houve falha, e é a
+    // frase de falha que tem que aparecer — trocar as duas era só mover o defeito de lado.
+    await page.route('**/api/admin/partner-proposals/*/promote', (route) =>
+      route.fulfill({ status: 503, json: { error: 'write_failed', clientWritten: false } })
+    )
+
+    const component = await mount(
+      <Wrapper>
+        <PromotionHarness detail={proposalWith({ website: 'https://brendi.com.br/mangia' })} />
+      </Wrapper>
+    )
+
+    await component.getByRole('button', { name: /^Gravar/ }).click()
+
+    await expect(component.getByText('Não foi possível promover.')).toBeVisible()
+    await expect(component.getByText('Falta corrigir um valor antes de promover.')).toHaveCount(0)
+    // E a frase honesta do desfecho, que é o resto do card: nada foi gravado.
+    await expect(component.getByText(/Nada foi gravado/)).toBeVisible()
   })
 
   test('BR-B2B-026: o operador encurta o valor no próprio painel e o botão volta', async ({

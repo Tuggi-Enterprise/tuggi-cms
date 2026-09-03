@@ -1546,9 +1546,17 @@ test('#679: cada desfecho da promoção tem a sua frase, e a pessimista é a ún
   assert.match(promotion.failedClientWritten, /pode ter sido criado ou atualizado/)
   assert.match(promotion.failedClientWritten, /segundo registro/)
 
-  // O tamanho nomeia o campo e o limite — uma frase sem os dois não diz o que corrigir.
+  // O tamanho nomeia o campo, o excesso e o limite — sem os três a frase manda cortar às cegas,
+  // e `{length}` só existe na tela porque `lengthViolations` já o devolve.
   assert.match(promotion.failedTooLong, /\{field\}/)
+  assert.match(promotion.failedTooLong, /\{length\}/)
   assert.match(promotion.failedTooLong, /\{limit\}/)
+
+  // PREVENIR NÃO É RELATAR: o painel aberto sobre um valor estourado anuncia bloqueio, e o
+  // título de falha fica para o que de fato falhou. Duas frases, porque são dois fatos.
+  assert.equal(typeof promotion.blockedTitle, 'string')
+  assert.notEqual(promotion.blockedTitle, promotion.failedTitle)
+  assert.equal(/[Nn]ão foi possível/.test(promotion.blockedTitle), false)
 
   // E a tela diz o que a edição NÃO faz, porque o inbox é o que torna a proposta auditável.
   assert.match(promotion.editHint, /proposta/)
