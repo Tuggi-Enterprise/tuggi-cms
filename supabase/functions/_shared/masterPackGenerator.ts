@@ -556,14 +556,24 @@ export const generateMasterPack = async (
     // Retrieval PRECISA buscar de verdade. Testado: gemini-3.1-flash-lite NÃO dispara o
     // google_search em POIs obscuros — por isso nenhum lite entra aqui.
     //
-    // #652 — as DUAS posições ficam na família 3.x de propósito, e isso não é preferência de
-    // modelo: é o que torna a fatura de setembro/2026 legível. O pedágio de grounding tem SKU
-    // por família (2.5 cobra por prompt, 3.x cobra por search query — ver o bloco de custo no
-    // topo do pipeline), e lista misturada devolve a mesma ambiguidade de atribuição por SKU
-    // que travou a conciliação de agosto. Setembro é mês de MEDIÇÃO: `searchQueries` abaixo é
-    // o número que decide, em outubro, qual família fica. Não troque nenhum dos dois sem o
-    // card — o experimento só vale se a lista ficar parada até 2026-09-30.
-    const retrievalModels = ['gemini-3.7-flash', 'gemini-3.5-flash'];
+    // #717 — 2.5 na frente, 3.x atrás, e a mistura é deliberada. O experimento do #652 mediu o
+    // que prometeu (2,76 buscas por descrição no 3.7 contra 17,5 no 3.5) e mostrou que a régua
+    // tinha mudado de lugar: nos 8 primeiros dias de setembro/2026 o pedágio de busca foi ~R$ 62
+    // de uma fatura de R$ 840,11. O custo virou RACIOCÍNIO, e `buildThinkingConfig` diz por quê —
+    // toda a família 3.x pensa em cada chamada e o 2.5 roda com `thinkingBudget: 0`. Ponta a
+    // ponta, com o fallback de cada mês dentro: R$ 0,139 por descrição em agosto (2.5→3.5)
+    // contra R$ 0,397 em setembro (3.7→3.5).
+    //
+    // O 3.7 fica no fallback porque o 3.5 é o pior dos três em toda métrica medida — 5,20 fontes
+    // por POI contra 7,40 do 2.5, 17,5 buscas por descrição, 29% de safe mode quando serviu de
+    // fallback. Os ~13% de retry que o 2.5 provoca eram baratos de evitar e caros de atender.
+    //
+    // O item 1 do #652 recusava lista misturada para manter a fatura legível por SKU, e estava
+    // certo enquanto a atribuição dependia da fatura. Com o #716, `retrieve_usage` e
+    // `compose_usage` gravam custo por estágio e por modelo em cada linha gerada: a atribuição
+    // vem do banco, no dia, por POI. Trocar a ordem daqui sem olhar aqueles dois campos é voltar
+    // a decidir por estimativa.
+    const retrievalModels = ['gemini-2.5-flash', 'gemini-3.7-flash'];
     let facts: string | null = null;
     let sourceCount = 0;
     // #652 — SOMA, nunca máximo nem última tentativa: o pedágio do 3.x é cobrado por search

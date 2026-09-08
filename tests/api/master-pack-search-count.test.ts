@@ -223,16 +223,33 @@ test('#652 — o compose não entra na conta do pedágio: ele não liga a tool',
   assert.equal(calledModels.length, 2)
 })
 
-// ── A integridade do experimento de setembro ─────────────────────────────────
+// ── A ordem do retrieval ─────────────────────────────────────────────────────
 
-test('#652 — as duas posições do retrieval são 3.x, para o pedágio cair num SKU só', async () => {
-  // Lista misturada devolve a ambiguidade de atribuição por SKU que travou a conciliação de
-  // agosto/2026 — a fatura deixa de ser legível e a medição não conclui nada.
+test('#717 — o 2.5 vem primeiro e o 3.7 é o fallback, nesta ordem', async () => {
+  // O experimento do #652 rodou setembro/2026 com as duas posições em 3.x e encerrou em
+  // 2026-09-08, antes do prazo, porque o número que ele esperava chegou e disse outra coisa:
+  // o pedágio de busca virou ~R$ 62 de uma fatura de R$ 840,11, e o custo passou a ser
+  // raciocínio. O 2.5 roda com `thinkingBudget: 0` e a família 3.x pensa em toda chamada, então
+  // a ordem AQUI é o que separa R$ 0,139 de R$ 0,397 por descrição.
+  //
+  // A ordem inversa não é uma variação de gosto: põe o modelo que pensa no caminho de 100% das
+  // descrições em vez de no dos ~13% que caem no fallback.
   installFetch([{ queries: 1, text: 'NONE', chunks: 0 }, { queries: 1 }])
   await run()
-  const retrieval = calledModels.slice(0, 2)
-  assert.deepEqual(retrieval, ['gemini-3.7-flash', 'gemini-3.5-flash'])
-  for (const m of retrieval) assert.match(m, /^gemini-3\./, m)
+  assert.deepEqual(calledModels.slice(0, 2), ['gemini-2.5-flash', 'gemini-3.7-flash'])
+})
+
+test('#717 — o 3.5-flash saiu do retrieval, e não volta por descuido', async () => {
+  // Ele foi o fallback dos dois meses e é o pior dos três em toda métrica medida: 5,20 fontes
+  // por POI contra 7,40 do 2.5, 17,5 buscas por descrição contra 2,76 do 3.7, e 29% de safe
+  // mode nos casos em que serviu. Os 13,1% de fallback de agosto custaram R$ 1.160,85 — 81% da
+  // conta de descrição do mês — por caírem nele.
+  installFetch([{ queries: 1, text: 'NONE', chunks: 0 }, { queries: 1 }])
+  await run()
+  assert.ok(
+    !calledModels.includes('gemini-3.5-flash'),
+    `gemini-3.5-flash voltou ao retrieval: ${calledModels.join(', ')}`,
+  )
 })
 
 test('#652 — o compose fica em 2.5: sem grounding, 3.x só encareceria o token', async () => {
