@@ -659,6 +659,14 @@ async function processPOIItem(
                 // Fica na trilha porque ela já é payload JSON: nenhuma coluna nova.
                 search_queries: masterResult.searchQueryCount ?? 0,
                 retrieval_attempts: masterResult.retrievalAttempts ?? 0,
+                // #716 — o custo por estágio, que `llm_model` não consegue dizer. Aquela coluna
+                // guarda o par colado `retrieve+compose` com os tokens SOMADOS, e desde que os
+                // dois estágios passaram a rodar em famílias diferentes (#652) o par não permite
+                // atribuir gasto a modelo nenhum — os preços por token diferem em 5×.
+                // `thinking` vem separado porque é ele que explodiu a fatura de setembro/2026:
+                // é cobrado como output e não aparecia em lugar nenhum.
+                retrieve_usage: masterResult.retrieveUsage ?? null,
+                compose_usage: masterResult.composeUsage ?? null,
                 // #653 — "place" | "area" | "mixed": o passo 1 passou a aceitar material do
                 // ENTORNO quando o lugar não tem fonte própria, e sem esta marca as duas
                 // procedências ficam indistinguíveis na linha gravada. É ela que permite

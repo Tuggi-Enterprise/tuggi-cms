@@ -143,7 +143,10 @@ const runGeminiPromptWithUsage = async (
             const usageMeta = data.usageMetadata || {};
             const usage: GeminiUsage = {
                 input_tokens: usageMeta.promptTokenCount ?? 0,
-                output_tokens: usageMeta.candidatesTokenCount ?? 0,
+                // #716 — raciocínio é cobrado na SKU de output. O flash-lite da tradução não
+                // pensa hoje, mas o campo mentiria no dia em que o modelo mudar, e é a mesma
+                // coluna `output_tokens` que a conta de custo lê.
+                output_tokens: (usageMeta.candidatesTokenCount ?? 0) + (usageMeta.thoughtsTokenCount ?? 0),
                 model,
             };
 

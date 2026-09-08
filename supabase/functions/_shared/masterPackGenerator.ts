@@ -5,9 +5,29 @@ import { getLanguageName } from './translationUtility.ts';
 
 export interface GeminiUsage {
     input_tokens: number;
+    /** Tokens de saída COBRADOS: `candidatesTokenCount` + `thoughtsTokenCount`. O Gemini fatura
+     *  raciocínio na mesma SKU de output, e gravar só `candidates` foi o que fez a fatura de
+     *  setembro/2026 cobrar ~12× o que este campo registrava (#716). Comparar `output_tokens`
+     *  entre linhas anteriores e posteriores a este card compara réguas diferentes. */
     output_tokens: number;
+    /** A parcela de `output_tokens` que é raciocínio. Redundante de propósito: sem ela não dá
+     *  para dizer se um modelo ficou caro por escrever mais ou por pensar mais, e é essa a
+     *  diferença entre as famílias que o #652 compara. */
+    thinking_tokens: number;
     model: string;
 }
+
+/** #716 — SOMA, nunca "última tentativa". Os tokens de uma chamada descartada por
+ *  `finishReason`, por recusa ou por extração falha JÁ FORAM COBRADOS, e o laço de retrieval
+ *  descartava o usage delas ao reatribuir. É a mesma regra que `searchQueries` segue desde o
+ *  #652, aplicada ao token: contar só o que serviu subestima justamente o custo do fallback.
+ *  `model` guarda o modelo da chamada mais recente — o que serviu, quando alguma serviu. */
+const addUsage = (acc: GeminiUsage | null, u: GeminiUsage | undefined, model: string): GeminiUsage => ({
+    input_tokens: (acc?.input_tokens ?? 0) + (u?.input_tokens ?? 0),
+    output_tokens: (acc?.output_tokens ?? 0) + (u?.output_tokens ?? 0),
+    thinking_tokens: (acc?.thinking_tokens ?? 0) + (u?.thinking_tokens ?? 0),
+    model,
+});
 
 /**
  * Speech characters per second, by script. Latin/Cyrillic run ~18, but in CJK (ja/ko/zh) each
@@ -264,6 +284,13 @@ interface MasterPackResult {
     /** #652 — quantas chamadas de retrieval rodaram (1, ou 2 quando o fallback disparou). É o
      *  denominador de `searchQueryCount`: sem ele, duas tentativas parecem um prompt caro. */
     retrievalAttempts?: number;
+    /** #716 — o usage de CADA estágio, separado. `usage` continua sendo a soma dos dois, e
+     *  `usage.model` continua sendo o par colado `retrieve+compose`: com retrieval e compose em
+     *  famílias diferentes, aquele par não permite dizer qual dos dois gastou o quê, e os preços
+     *  por token diferem em 5×. Sem esta separação, atribuir custo por modelo depende do
+     *  relatório por SKU da fatura — que chega um mês depois e não separa por POI. */
+    retrieveUsage?: GeminiUsage | null;
+    composeUsage?: GeminiUsage | null;
     /** #653 — provenance of the harvested facts. `undefined` when nothing was harvested (SAFE
      *  MODE), which `grounded === false` already reports. See `FactScope`. */
     factScope?: FactScope;
@@ -325,7 +352,14 @@ export const callGemini = async (model: string, fetchBody: any, apiKey: string):
             finishReason: cand?.finishReason ?? null,
             rawText,
             gm: cand?.groundingMetadata,
-            usage: { input_tokens: um.promptTokenCount ?? 0, output_tokens: um.candidatesTokenCount ?? 0, model },
+            // #716 — `thoughtsTokenCount` entra no output porque é assim que a fatura cobra.
+            // Fora daqui o número não existe: `usageMetadata` é o único lugar que o reporta.
+            usage: {
+                input_tokens: um.promptTokenCount ?? 0,
+                output_tokens: (um.candidatesTokenCount ?? 0) + (um.thoughtsTokenCount ?? 0),
+                thinking_tokens: um.thoughtsTokenCount ?? 0,
+                model,
+            },
             elapsedMs: Date.now() - startedAt,
         };
     } catch (e) {
@@ -561,10 +595,12 @@ export const generateMasterPack = async (
         // só o que serviu subestimaria justamente o custo do fallback, que é o que se mede.
         const queriesThisAttempt = res.gm?.webSearchQueries?.length ?? 0;
         searchQueries += queriesThisAttempt;
+        // #716 — o token segue a mesma porta que a busca: contado ANTES dos portões, porque a
+        // chamada já foi cobrada mesmo quando a resposta é descartada logo abaixo.
+        step1Usage = addUsage(step1Usage, res.usage, model);
         if (!res.ok) { retrieveTimings.push({ model, ms: res.elapsedMs ?? 0, verdict: 'error' }); attempts.push(`retrieve ${model}: ${res.error}`); continue; }
         if (res.finishReason && res.finishReason !== 'STOP') { retrieveTimings.push({ model, ms: res.elapsedMs ?? 0, verdict: `finish_${res.finishReason}` }); attempts.push(`retrieve ${model}: finishReason ${res.finishReason}`); continue; }
 
-        step1Usage = res.usage ?? null;
         retrievalModelUsed = model;
         const sc = res.gm?.groundingChunks?.length ?? 0;
         if (sc > sourceCount) sourceCount = sc;
@@ -714,12 +750,14 @@ export const generateMasterPack = async (
 
         const res = await callGemini(model, body, apiKey);
         composeTimings.push({ model, ms: res.elapsedMs ?? 0 });
+        // #716 — mesma regra do retrieval: a recusa e a extração falha descartam o TEXTO, não a
+        // cobrança. O compose tenta dois modelos, e sem isto o primeiro sai de graça na conta.
+        step2Usage = addUsage(step2Usage, res.usage, model);
         if (!res.ok) { attempts.push(`compose ${model}: ${res.error}`); lastError = new Error(res.error); continue; }
         if (res.finishReason && res.finishReason !== 'STOP') { attempts.push(`compose ${model}: finishReason ${res.finishReason}`); lastError = new Error(`compose finishReason ${res.finishReason}`); continue; }
 
         const rawText = res.rawText || '';
         if (!rawText) { attempts.push(`compose ${model}: empty`); lastError = new Error('compose empty'); continue; }
-        step2Usage = res.usage ?? null;
 
         // Tag extraction + the "Category|Fact" line fallback, shared with the partner generator.
         const parsed = parseNarrationOutput(rawText);
@@ -743,6 +781,7 @@ export const generateMasterPack = async (
         const usage: GeminiUsage = {
             input_tokens: (step1Usage?.input_tokens ?? 0) + (step2Usage?.input_tokens ?? 0),
             output_tokens: (step1Usage?.output_tokens ?? 0) + (step2Usage?.output_tokens ?? 0),
+            thinking_tokens: (step1Usage?.thinking_tokens ?? 0) + (step2Usage?.thinking_tokens ?? 0),
             model: `${retrievalModelUsed || 'n/a'}+${model}`,
         };
 
@@ -766,6 +805,8 @@ export const generateMasterPack = async (
             usage,
             grounded,
             sourceCount,
+            retrieveUsage: step1Usage,
+            composeUsage: step2Usage,
             searchQueryCount: searchQueries,
             // SSOT: a contagem de tentativas é a mesma lista que o timing publica — uma entrada
             // por chamada tentada. Um contador próprio aqui seria o segundo dono do mesmo fato.
