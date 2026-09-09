@@ -51,7 +51,8 @@ import { operatorLabel } from '@/lib/services/operator-label'
 import {
   NO_CONFERENCE,
   getClientConference,
-  getClientConferences,
+  toClientConference,
+  type ClientConference,
 } from '@/lib/services/client-conference-service'
 import {
   derivePipelineState,
@@ -242,34 +243,100 @@ export interface ClientDirectory {
 const DIRECTORY_CLIENT_CAP = 1000
 const DIRECTORY_SUBMISSION_CAP = 1000
 
+/**
+ * ── TWO CALLS, WHERE THERE WERE TEN ────────────────────────────────────────────────────────────
+ *
+ * This function used to fan out into ten PostgREST requests, six of them in series, and the SQL
+ * was never the cost: measured on 2026-09-09, 8,1 ms of execution against 25,5 ms of planning,
+ * behind a median round trip of 201 ms. Transport was roughly 25× the query.
+ *
+ * IT ALSO HAD A CEILING NOBODY WOULD HAVE SEEN COMING. Three of those requests passed the whole
+ * list of client ids through `.in('id', ids)`, which `supabase-js` serialises into the query
+ * string of a `GET`. Measured against this project's own gateway: 580 ids answers `200`, 581
+ * answers `400`, 2000 answers `414`. And all three callers swallow the error — `if (error ||
+ * !data) return map`. Past about 575 clients the screen would not have been slow; it would have
+ * rendered every partner as having no contract, no conference and no place, dropped the whole
+ * board into its first columns, and said nothing.
+ *
+ * So the reads are two RPCs and the lists are gone from the URL. WHAT DID NOT MOVE IS THE RULE:
+ * `derivePipelineState`, `buildPlaceReadiness`, `currentRefusal` and `buildDirectoryView` are
+ * still TypeScript, still pure, still where their tests are. The database answers with facts.
+ *
+ * The two identities stay apart for the reason this module already wrote down: `partner` is read
+ * with `service_role`, which is what those five reads already used, and `core.attractions` is
+ * read with the OPERATOR's client — an unapproved place is visible through the `CMS admins can
+ * read attractions` policy, and asking with `service_role` would answer for an identity that is
+ * not the one on the screen.
+ */
+interface DirectoryPayload {
+  submissions: SubmissionRow[]
+  clients: Record<string, unknown>[]
+  contracts: {
+    client_id: string
+    status: ContractStatus
+    tier: ContractTier | null
+    signed_at: string | null
+    signer_name: string | null
+  }[]
+  conferences: {
+    client_id: string
+    documents_seen: unknown
+    reviewed_at: string | null
+    reviewed_by: string | null
+  }[]
+  refusals: TriageRefusalRow[]
+  truncated: boolean
+}
+
+const EMPTY_PAYLOAD: DirectoryPayload = {
+  submissions: [],
+  clients: [],
+  contracts: [],
+  conferences: [],
+  refusals: [],
+  truncated: false,
+}
+
+async function loadDirectoryPayload(): Promise<DirectoryPayload> {
+  const { data, error } = await service().rpc('cms_client_directory', {
+    submission_limit: DIRECTORY_SUBMISSION_CAP,
+    client_limit: DIRECTORY_CLIENT_CAP,
+  })
+  if (error || !data) {
+    // Louder than the reads it replaces, which returned an empty map and let the screen render a
+    // confident wrong answer. There is one call now, so there is one thing to say about it.
+    console.error('[partnerships] client directory read failed:', error)
+    return EMPTY_PAYLOAD
+  }
+  return { ...EMPTY_PAYLOAD, ...(data as Partial<DirectoryPayload>) }
+}
+
 export async function loadClientDirectory(operator: SupabaseClient): Promise<ClientDirectory> {
-  const [submissionsResult, clients] = await Promise.all([
-    service()
-      .from('partner_form_submissions')
-      .select(SUBMISSION_COLUMNS)
-      .order('submitted_at', { ascending: false })
-      .limit(DIRECTORY_SUBMISSION_CAP),
-    loadAllClients(DIRECTORY_CLIENT_CAP),
+  const [payload, placeRows] = await Promise.all([
+    loadDirectoryPayload(),
+    loadAllPartnerPlaces(operator),
   ])
 
-  const submissions = (submissionsResult.error ? [] : submissionsResult.data ?? []) as unknown as SubmissionRow[]
-  const clientIds = Array.from(clients.keys())
+  const submissions = payload.submissions
+  const clients = indexClients(payload.clients, new Map<string, PipelineClient>())
 
-  const [contracts, places, conferences] = await Promise.all([
-    loadLiveContracts(clientIds),
-    loadPartnerPlaces(clientIds, operator),
-    // ONE read for the whole queue, and it reads the CLIENT. Deriving the state from the
-    // proposal annotation — which is what happened until 2026-08-21 — made this list and the
-    // detail answer differently about the same client, and pinned every client that was never
-    // a proposal at `in_conference` for a step neither screen could complete.
-    getClientConferences(clientIds),
-  ])
+  const contracts = indexLiveContracts(payload.contracts)
+  const places = groupPlacesByClient(placeRows)
+  // The conference reads the CLIENT and never the proposal annotation. Deriving it from the
+  // annotation — which is what happened until 2026-08-21 — made this list and the detail answer
+  // differently about the same client, and pinned every client that was never a proposal at
+  // `in_conference` for a step neither screen could complete.
+  const conferences = indexConferences(payload.conferences)
 
-  // One read for the whole queue, and it is the only extra round trip the `Triagem` column
-  // costs. Per row it would be N+1 over a screen the operator reloads all day.
-  const refusals = await loadRefusalStamps(
-    Array.from(places.values()).flat().map((row) => row.attractionId)
-  )
+  /**
+   * WHICH REFUSAL IS IN FORCE IS DECIDED HERE, and that is why the function returns them all.
+   *
+   * The first cut of `cms_client_directory` picked the current one in SQL, with
+   * `DISTINCT ON (attraction_id) ORDER BY decided_at DESC` — which is, word for word, what
+   * `currentRefusal` does. Two implementations of one decision is the defect CLAUDE.md §6 names,
+   * and the cheap way out was not a parity test: it was not having the second implementation.
+   */
+  const refusals = indexRefusals(payload.refusals)
 
   const duplicates = countPendingDuplicates(submissions)
 
@@ -400,10 +467,90 @@ export async function loadClientDirectory(operator: SupabaseClient): Promise<Cli
     })
   }
 
-  return {
-    rows,
-    truncated:
-      submissions.length >= DIRECTORY_SUBMISSION_CAP || clients.size >= DIRECTORY_CLIENT_CAP,
+  // The caps are applied inside `cms_client_directory`, so whether they bit is its answer to
+  // give. Recomputing it here from the lengths it returned would be the same arithmetic in two
+  // places, disagreeing the first time one of the two limits changes.
+  return { rows, truncated: payload.truncated }
+}
+
+/**
+ * ── ADAPTERS ──────────────────────────────────────────────────────────────────────────────────
+ *
+ * What `cms_client_directory` answers, in the shapes the derivation already expects. They are
+ * the seam and nothing else: no decision is taken here that was not already taken by the reads
+ * these replace, which is what makes the change reviewable against the old code line by line.
+ */
+
+/** The live contract per client. The function already picked it; this only reshapes it. */
+function indexLiveContracts(rows: DirectoryPayload['contracts']): Map<string, PipelineContract> {
+  const map = new Map<string, PipelineContract>()
+  for (const row of rows) {
+    map.set(row.client_id, {
+      status: row.status,
+      tier: row.tier ?? null,
+      signed: row.status === 'signed',
+      signedAt: row.signed_at ?? null,
+      signerName: row.signer_name ?? null,
+    })
+  }
+  return map
+}
+
+function indexConferences(rows: DirectoryPayload['conferences']): Map<string, ClientConference> {
+  const map = new Map<string, ClientConference>()
+  for (const row of rows) {
+    map.set(row.client_id, toClientConference(row.documents_seen, row.reviewed_at, row.reviewed_by))
+  }
+  return map
+}
+
+/**
+ * The refusal IN FORCE per place, chosen by `currentRefusal` — the one rule, in the one language
+ * it is proven in. `id` travels because the act that stops the clock posts it.
+ */
+function indexRefusals(
+  rows: TriageRefusalRow[]
+): Map<string, { id: string; decidedAt: string; communicatedAt: string | null }> {
+  const map = new Map<string, { id: string; decidedAt: string; communicatedAt: string | null }>()
+  const byAttraction = new Map<string, TriageRefusal[]>()
+  for (const row of rows) {
+    const refusal = toRefusal(row)
+    byAttraction.set(refusal.attractionId, (byAttraction.get(refusal.attractionId) ?? []).concat(refusal))
+  }
+  for (const [attractionId, list] of byAttraction) {
+    const current = currentRefusal(list)
+    if (!current) continue
+    map.set(attractionId, {
+      id: current.id,
+      decidedAt: current.decidedAt,
+      communicatedAt: current.communicatedAt,
+    })
+  }
+  return map
+}
+
+function groupPlacesByClient(rows: PartnerPlaceRow[]): Map<string, PartnerPlaceRow[]> {
+  const map = new Map<string, PartnerPlaceRow[]>()
+  for (const row of rows) {
+    map.set(row.partnerClientId, (map.get(row.partnerClientId) ?? []).concat(row))
+  }
+  return map
+}
+
+/**
+ * Every partner place, in one call and with no list of ids in the URL — see the note on
+ * `loadClientDirectory`. Asked with the OPERATOR's client, and the failure is the same honest
+ * degradation the four-query version chose: no places rather than a wrong state.
+ */
+async function loadAllPartnerPlaces(operator: SupabaseClient): Promise<PartnerPlaceRow[]> {
+  try {
+    return await placeService.listAllPartnerPlaces(operator)
+  } catch (error) {
+    // A failed place lookup is NOT "no places": deriving `Contrato assinado` from a read that
+    // did not answer would tell the operator to create a place that already exists. The queue
+    // degrades to the states before the place, and the error is in the log, not on a badge.
+    console.error('[partnerships] partner place lookup failed:', error)
+    return []
   }
 }
 
@@ -704,47 +851,6 @@ async function loadPublicationTrail(
   return map
 }
 
-/**
- * The refusal in force for each place, identified and stamped — what the 72h clock reads
- * (BR-B2B-010, item 4), and what the act that stops it needs.
- *
- * No operator name is resolved here: the queue asks for up to 500 rows and each name is an Auth
- * Admin round trip. The detail asks for the name through `loadCurrentRefusals`, where there is
- * one partnership on the screen.
- */
-async function loadRefusalStamps(
-  attractionIds: string[]
-): Promise<Map<string, { id: string; decidedAt: string; communicatedAt: string | null }>> {
-  // `id` COSTS NOTHING AND WAS THE MISSING PIECE. `currentRefusal` already hands back the whole
-  // row, so carrying its id is a field and not a read — and without it the board could not name
-  // WHICH round it was communicating, which is the one thing the route refuses to guess.
-  const map = new Map<string, { id: string; decidedAt: string; communicatedAt: string | null }>()
-  if (attractionIds.length === 0) return map
-
-  let rows: Map<string, TriageRefusalRow[]>
-  try {
-    rows = await triageRefusalService.listByAttractions(attractionIds)
-  } catch (error) {
-    // A refusal lookup that did not answer is NOT "nobody was refused": the clock would then
-    // read `venceu há 2 dias` for a partnership somebody closed properly. No refusal in the map
-    // means the column falls back to the clock, which is the honest degradation, and the error
-    // is in the log rather than on a badge.
-    console.error('[partnerships] triage refusal lookup failed:', error)
-    return map
-  }
-
-  for (const [attractionId, list] of rows) {
-    const current = currentRefusal(list.map(toRefusal))
-    if (current) {
-      map.set(attractionId, {
-        id: current.id,
-        decidedAt: current.decidedAt,
-        communicatedAt: current.communicatedAt,
-      })
-    }
-  }
-  return map
-}
 
 /** The refusal in force, whole, with the name of whoever decided it — one partnership's worth. */
 async function loadCurrentRefusals(attractionIds: string[]): Promise<Map<string, TriageRefusal>> {
@@ -803,17 +909,6 @@ async function loadClients(ids: string[]): Promise<Map<string, PipelineClient>> 
   return indexClients(data as unknown as Record<string, unknown>[], map)
 }
 
-/** Every client, for the directory — the queue asks by id, the directory asks for all of them. */
-async function loadAllClients(limit: number): Promise<Map<string, PipelineClient>> {
-  const map = new Map<string, PipelineClient>()
-  const { data, error } = await service()
-    .from('clients')
-    .select(CLIENT_COLUMNS)
-    .order('created_at', { ascending: false })
-    .limit(limit)
-  if (error || !data) return map
-  return indexClients(data as unknown as Record<string, unknown>[], map)
-}
 
 function indexClients(
   rows: Record<string, unknown>[],

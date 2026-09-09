@@ -63,7 +63,10 @@ test('a client no proposal claims is still a row — the half the queue could no
   const service = read(SERVICE)
   const directory = service.slice(service.indexOf('export async function loadClientDirectory'))
 
-  assert.match(directory, /loadAllClients\(DIRECTORY_CLIENT_CAP\)/, 'every client, not only the promoted ones')
+  // Every client, not only the promoted ones. The cap is the directory's, and the function
+  // applies it — `cms_client_directory` selects `partner.clients` whole under `client_limit`.
+  assert.match(service, /client_limit: DIRECTORY_CLIENT_CAP/, 'every client, not only the promoted ones')
+  assert.match(directory, /indexClients\(payload\.clients/)
   assert.match(directory, /const claimed = new Set\(/)
   assert.match(directory, /if \(claimed\.has\(client\.id\)\) continue/)
   // Its state comes from the same pure function, fed by the client's OWN conference.
@@ -89,6 +92,22 @@ test('the directory decides with country and client_type, and says so in its col
       `\`${column}\` is a filter of the rail and must be read`
     )
   }
+})
+
+test('the columns the rail filters by are the ones the directory function selects', () => {
+  // `CLIENT_COLUMNS` above is the DETAIL path's allowlist; the list reads through
+  // `partner.cms_client_directory`, whose own `SELECT` is the allowlist for this screen. A
+  // column dropped there is a facet that silently stops offering options — the failure mode is
+  // an empty dimension, which looks exactly like a dimension nobody filled in.
+  const sql = read('supabase/migrations/20260909_02_client_directory_refusals_ssot.sql')
+  const cte = /c AS \(\s*SELECT([\s\S]*?)FROM partner\.clients/.exec(sql)
+  assert.ok(cte, 'the client CTE is still readable from the migration')
+  for (const column of ['country', 'client_type', 'city', 'state', 'status', 'monthly_fee_cents']) {
+    assert.ok(cte![1].indexOf(column) >= 0, `\`${column}\` decides a facet and must be selected`)
+  }
+
+  // And the refusal travels with its id, which the act that stops the 72h clock posts.
+  assert.match(sql, /'id',\s+x\.id/)
 })
 
 test('the endpoint returns the rows whole — filtering there would make the counts lie', () => {
@@ -213,4 +232,119 @@ test('the search box types locally and reaches the URL once the typing stops', (
   assert.equal(rail.indexOf("set('search', event.target.value)"), -1)
   assert.match(rail, /<SearchField/)
   assert.match(rail, /onCommit=\{\(next\) => set\('search', next\)\}/)
+})
+
+// ── O que abre por cima da lista é um diálogo, e há um só jeito de sê-lo ──────────────────────
+
+test('the client record is a dialog, and the sheet beside it uses the same four behaviours', () => {
+  const modal = read('components/admin/clients/ClientEditorModal.tsx')
+  const rail = read('components/admin/clients/DirectoryFilterRail.tsx')
+  const shell = read('lib/hooks/use-dialog-shell.ts')
+
+  // The record covers the list. Until 2026-09-09 it carried none of this: a screen reader read
+  // the board behind it as part of the same document, and `Escape` did nothing.
+  assert.match(modal, /role="dialog"/)
+  assert.match(modal, /aria-modal="true"/)
+  // Named by the header's own `h2` rather than by a second copy of the partner's name.
+  assert.match(modal, /aria-labelledby=\{titleId\}/)
+  assert.match(modal, /id=\{titleId\}/)
+
+  // ONE implementation of the four behaviours, for both surfaces. The sheet had three of them
+  // written inline and the record had none — which is how the screen ended up with the correct
+  // pattern next to the missing one.
+  for (const [name, source] of [['modal', modal], ['rail', rail]] as const) {
+    assert.match(source, /useDialogShell\(/, `${name} has to go through the one hook`)
+  }
+  assert.equal(
+    rail.indexOf("document.body.style.overflow = 'hidden'"),
+    -1,
+    'the inline copy is gone, or the two drift'
+  )
+
+  // And the hook owes all four, including the one neither surface had: focus goes back to
+  // whatever opened the dialog, or the operator is returned to the top of the document.
+  assert.match(shell, /document\.body\.style\.overflow = 'hidden'/)
+  assert.match(shell, /event\.key === 'Escape'/)
+  assert.match(shell, /initialFocusRef\.current\?\.focus\(\)/)
+  assert.match(shell, /if \(opener\?\.isConnected\) opener\.focus\(\)/)
+
+  // No hand-rolled Tab trap: `aria-modal` is what makes the outside inert, and a trap that gets
+  // a corner wrong locks the keyboard in with no way out.
+  assert.equal(shell.indexOf("'Tab'"), -1)
+})
+
+// ── O painel de filtros: campo de seleção, contagem na opção, fichas do lado de fora ─────────
+
+test('every dimension is a native select, in four sections, work first', () => {
+  const rail = read('components/admin/clients/DirectoryFilterRail.tsx')
+
+  // Queixa 5 do operador em 2026-09-09. O custo do painel antigo era VERTICAL e crescia com o
+  // número de VALORES: `cidade` sozinha imprimia quatro botões para uma cidade real.
+  assert.match(rail, /<select/)
+  assert.equal(rail.indexOf('FacetOptionButton'), -1, 'a pilha de botões saiu inteira')
+
+  // Nativo, e não uma caixa de listagem própria: teclado, digitação por primeiras letras e o
+  // seletor do sistema no telefone vêm de graça — e é por isso que `mais N` e a procura interna
+  // do desenho anterior não existem.
+  assert.equal(rail.indexOf('role="listbox"'), -1)
+
+  // Quatro seções, e `Trabalho` primeiro. `Em andamento` era a primeira opção da ÚLTIMA seção.
+  const sections = /const SECTIONS: PanelSection\[\] = \[([\s\S]*?)\n\]/.exec(rail)
+  assert.ok(sections, 'as seções são declaradas em um lugar só')
+  const ids = Array.from(sections![1].matchAll(/id: '(\w+)'/g)).map((match) => match[1])
+  assert.deepEqual(ids, ['work', 'commercial', 'where', 'type'])
+
+  // `Estado da parceria` separa recorte de etapa, ou `Em andamento` lê como uma décima primeira
+  // etapa.
+  assert.match(rail, /<optgroup label=\{t\('stateGroups\.cuts'\)\}>/)
+  assert.match(rail, /<optgroup label=\{t\('stateGroups\.stage'\)\}>/)
+})
+
+test('the count is inside the option, including the one that does not filter', () => {
+  const rail = read('components/admin/clients/DirectoryFilterRail.tsx')
+  assert.match(rail, /return `\$\{label\} \(\$\{count\}\)`/)
+  // `Todas as cidades (36)` — a resposta de "quanto tem no total" tem de existir ANTES da
+  // escolha, que é o que o controle fechado esconderia.
+  assert.match(rail, /withCount\(t\(`allOf\.\$\{key\}`\), totalOf\(view\.facets\[key\]\)\)/)
+
+  const directory = messages('pt').Clients.directory
+  for (const key of ['country', 'region', 'city', 'clientType', 'status', 'contract', 'plan']) {
+    assert.equal(typeof directory.allOf[key], 'string', `\`${key}\` não tem opção neutra`)
+  }
+  for (const id of ['work', 'commercial', 'where', 'type']) {
+    assert.equal(typeof directory.sections[id], 'string', `a seção \`${id}\` não tem nome`)
+  }
+})
+
+test('what is applied stays visible without opening anything', () => {
+  // A única perda real do controle fechado: no painel antigo a opção ligada ficava sublinhada e
+  // em negrito, e o operador via tudo de relance. Por isso a linha de fichas é obrigatória.
+  const chips = read('components/admin/clients/ActiveFilterChips.tsx')
+
+  // Dimensão E valor: `Minas` sozinho não diz se é o estado do cadastro ou o da parceria.
+  assert.match(chips, /\$\{t\(`filters\.\$\{key\}`\)\}: \$\{valueLabel\(key, String\(value\)\)\}/)
+  // A busca conta como ficha, pela mesma razão que conta em `activeFilterCount`.
+  assert.match(chips, /activeFilters\.searchLabel/)
+  // Remover devolve o campo a "todas" — e `state` é a única dimensão cujo "sem filtro" é um valor.
+  assert.match(chips, /key === 'state' \? 'all' : null/)
+
+  // As duas vistas mostram a linha, e ela leva a contagem do resultado.
+  for (const view of ['ClientBoard', 'ClientDirectory']) {
+    const source = read(`components/admin/clients/${view}.tsx`)
+    assert.match(source, /<ActiveFilterChips/, `${view} tem de mostrar o que está aplicado`)
+    assert.match(source, /result=\{[cp]?t?\(?'?results'?/, `${view} leva a contagem para a linha`)
+  }
+})
+
+test('the board has no rail, which is what gives it back its columns', () => {
+  const board = read('components/admin/clients/ClientBoard.tsx')
+  // `cms-width` limita a página a 1600px e o trilho tomava 18% dela, então a área de raias ficava
+  // presa em ~1280px em QUALQUER monitor — 4 das 8 colunas. Bancada que rola de lado não quer
+  // medida de leitura.
+  assert.equal(board.indexOf('<DirectoryFilterRail'), -1)
+  assert.match(board, /<DirectoryFilterSheet[\s\S]*?everyWidth/)
+  assert.equal(board.indexOf('lg:w-[82%]'), -1)
+
+  // Na tabela o trilho fica, como na `/pois`.
+  assert.match(read('components/admin/clients/ClientDirectory.tsx'), /<DirectoryFilterRail/)
 })

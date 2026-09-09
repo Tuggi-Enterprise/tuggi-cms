@@ -16,13 +16,14 @@
  *   ?clientId={id}&tab=...    → deep-link para uma aba específica
  */
 
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useId, useMemo, useRef, useState } from 'react'
 import {
   X, Save, Loader2, Building2, Scale, Users, MapPin, Gift, AlertTriangle, Plus, Edit, Smartphone,
   FileSignature, Handshake,
 } from 'lucide-react'
 import { useTranslations } from 'next-intl'
 import { cn } from '@/lib/utils'
+import { useDialogShell } from '@/lib/hooks/use-dialog-shell'
 import { taxConfigFor } from '@/components/admin/clients/shared/countries'
 import { ApprovalHeaderControls } from '@/components/admin/clients/shared/ApprovalHeaderControls'
 import { ProfileTab } from '@/components/admin/clients/tabs/ProfileTab'
@@ -87,6 +88,9 @@ export function ClientEditorModal({
   onSaved,
 }: ClientEditorModalProps) {
   const t = useTranslations('Clients.editor')
+  const titleId = useId()
+  /** Focus lands on `Fechar` and not on a field — a phone would raise the keyboard over the record. */
+  const closeRef = useDialogShell(isOpen, onClose) as React.RefObject<HTMLButtonElement | null>
   const tTabs = useTranslations('Clients.editor.tabs')
   const isEditing = mode === 'edit' && Boolean(clientId)
   const [activeTab, setActiveTab] = useState<ClientEditorTab>(initialTab)
@@ -264,6 +268,20 @@ export function ClientEditorModal({
     >
       <div
         /*
+         * IT IS A DIALOG, AND IT SAYS SO. The record opens over the list and covers it, and until
+         * 2026-09-09 it carried no `role`, no `aria-modal`, no `Escape` and returned focus
+         * nowhere — while `DirectoryFilterSheet`, on the same screen, did three of the four.
+         * `aria-modal` is what makes the list behind inert for a screen reader; the rest is
+         * `useDialogShell`.
+         *
+         * NAMED BY THE HEADER'S OWN `h2`, which already prints the partner's trade name. A
+         * separate `aria-label` would be a second copy of the name, free to drift from the one
+         * on screen.
+         */
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby={titleId}
+        /*
          * FULL WIDTH ON A PHONE, and 85vw only where 15% of the screen is a usable amount of
          * list to leave behind. On a 390px viewport the old `w-[85vw]` left a 58px sliver of
          * board nobody can read or tap, and spent it out of the record — which is the surface
@@ -293,7 +311,10 @@ export function ClientEditorModal({
               {isEditing ? <Edit className="h-5 w-5 text-tuggi-blue" /> : <Plus className="h-5 w-5 text-tuggi-blue" />}
             </div>
             <div className="min-w-0">
-              <h2 className="font-bold text-gray-900 dark:text-white truncate text-base leading-tight">
+              <h2
+                id={titleId}
+                className="font-bold text-gray-900 dark:text-white truncate text-base leading-tight"
+              >
                 {headerName}
               </h2>
               {isEditing && client && (
@@ -323,6 +344,7 @@ export function ClientEditorModal({
           )}
 
           <button
+            ref={closeRef}
             onClick={onClose}
             aria-label={t('close')}
             className="order-2 shrink-0 min-h-[44px] min-w-[44px] flex items-center justify-center p-2 hover:bg-gray-100 dark:hover:bg-gray-800 rounded-xl transition-all text-gray-400 hover:text-gray-700 dark:hover:text-gray-200 lg:order-3 lg:min-h-0 lg:min-w-0"

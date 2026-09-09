@@ -36,7 +36,6 @@ import {
 } from '@dnd-kit/core'
 import { Button } from '@/components/ui/button'
 import {
-  DirectoryFilterRail,
   DirectoryFilterSheet,
 } from '@/components/admin/clients/DirectoryFilterRail'
 import { BoardCard, deriveTriageOf } from '@/components/admin/clients/board/BoardCard'
@@ -60,6 +59,7 @@ import {
   type DirectoryFilters,
 } from '@/lib/clients/directory-filter'
 import { rowKey } from '@/components/admin/clients/board/row-text'
+import { ActiveFilterChips } from '@/components/admin/clients/ActiveFilterChips'
 import { formatDeadline } from '@/components/admin/partner-proposals/format'
 import type { ActOutcome } from '@/lib/hooks/use-board-acts'
 import type { ClientDirectoryRow } from '@/lib/services/partnership-service'
@@ -337,16 +337,19 @@ export function ClientBoard({
   return (
     <div className="cms-width flex min-h-screen flex-col bg-gray-50 p-4 dark:bg-gray-950 lg:p-8">
       <div className="flex flex-1 flex-col gap-6 pt-2 lg:flex-row lg:gap-8 lg:pt-6">
-        <DirectoryFilterRail
-          view={board.directory}
-          filters={filters}
-          onFiltersChange={onFiltersChange}
-          working={working}
-        />
-
         {/* `w-full` under `lg`, and the old percentage above it. `18% + 82% + gap-8 + p-6` came
             to more than a phone has, which is what pushed the whole board past the right edge. */}
-        <div className="w-full min-w-0 lg:w-[82%]">
+        {/*
+          THE BOARD HAS NO RAIL, and that is what gives it back its columns.
+
+          `cms-width` caps the page at 1600px and the rail took `18%` of it, so the lane area was
+          pinned at about 1280px on EVERY monitor — four of the eight columns, whatever the screen.
+          A workbench that scrolls sideways is not a reading surface and does not want a reading
+          measure. The panel is the same one, in `DirectoryFilterSheet`, which loses its
+          `lg:hidden` and now serves both widths; what stays visible is the chip line, which is
+          the part the operator has to see without opening anything.
+        */}
+        <div className="w-full min-w-0">
           <div className="sticky top-0 z-30 mb-4 rounded-3xl border border-gray-200 bg-white/80 shadow-2xl shadow-black/5 backdrop-blur-xl dark:border-gray-800 dark:bg-gray-900/80 lg:mb-6">
             <div className="flex flex-wrap items-center justify-between gap-3 p-3 lg:gap-4 lg:p-4">
               <div className="flex flex-wrap items-center gap-3 lg:gap-8 lg:pl-2">
@@ -362,10 +365,6 @@ export function ClientBoard({
                 </div>
 
                 <div className="hidden h-8 w-px bg-gray-200 dark:bg-gray-800 lg:block" aria-hidden="true" />
-
-                <span className="text-sm text-gray-900 dark:text-gray-200">
-                  {c('results', { count: board.directory.rows.length, total: rows.length })}
-                </span>
 
                 {/* Counted over the WHOLE set and never over the filtered one: it is the count
                     the operator clicks to REACH those rows (BR-B2B-010, item 4). */}
@@ -391,6 +390,7 @@ export function ClientBoard({
                   filters={filters}
                   onFiltersChange={onFiltersChange}
                   working={working}
+                  everyWidth
                 />
                 {viewSwitch}
                 {onCreateNew && (
@@ -400,6 +400,16 @@ export function ClientBoard({
                 )}
               </div>
             </div>
+          </div>
+
+          {/* The board has no rail, so this line is the ONLY place the operator sees what is
+              applied. It carries the result count too, which used to sit in the header bar. */}
+          <div className="mb-4">
+            <ActiveFilterChips
+              filters={filters}
+              onFiltersChange={onFiltersChange}
+              result={c('results', { count: board.directory.rows.length, total: rows.length })}
+            />
           </div>
 
           {truncated && (

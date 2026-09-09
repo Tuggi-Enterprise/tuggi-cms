@@ -31,7 +31,7 @@ import {
   type PipelineState,
 } from '@/lib/partnerships/pipeline'
 import { planFacetValue } from '@/lib/clients/partner-plan'
-import { namePattern } from '@/lib/shared/name-search'
+import { nameKey, namePattern } from '@/lib/shared/name-search'
 import type { ClientDirectoryRow } from '@/lib/services/partnership-service'
 
 /**
@@ -179,9 +179,22 @@ const MATCHERS: Record<FacetKey | 'search' | 'onlyLate', (row: ClientDirectoryRo
     const pattern = searchPattern(filters.search.trim())
     return pattern === null || pattern.test(haystack(row))
   },
-  country: (row, filters) => filters.country === null || row.country === filters.country,
-  region: (row, filters) => filters.region === null || row.region === filters.region,
-  city: (row, filters) => filters.city === null || row.city === filters.city,
+  /**
+   * ── WHERE, AND FOUR BUTTONS FOR ONE CITY ────────────────────────────────────────────────────
+   *
+   * `país`, `estado` and `cidade` are FREE TEXT in the registration, so the same place arrives
+   * spelled several ways. Measured on 2026-09-09: 41 proposals, every one of them Cabo Frio,
+   * offered as four options — `Cabo Frio` (36), `Cabo FrioCabo Frio` (3), `Cabo frio` (1) and
+   * `CABO FRIO` (1). An operator who picks one is told the other five rows do not exist.
+   *
+   * So the comparison folds, by the same rule the rest of the CMS compares names with
+   * (`nameKey`, twin of `core.name_search_key`). What travels in the URL is the SPELLING and not
+   * the folded key — `?city=Cabo+Frio` stays readable, and a link somebody sent with
+   * `?city=CABO+FRIO` keeps working, which the exact comparison could not promise.
+   */
+  country: (row, filters) => sameName(row.country, filters.country),
+  region: (row, filters) => sameName(row.region, filters.region),
+  city: (row, filters) => sameName(row.city, filters.city),
   clientType: (row, filters) => filters.clientType === null || row.clientType === filters.clientType,
   status: (row, filters) => filters.status === null || row.status === filters.status,
   contract: (row, filters) => filters.contract === null || row.contract === filters.contract,
@@ -193,6 +206,34 @@ const MATCHERS: Record<FacetKey | 'search' | 'onlyLate', (row: ClientDirectoryRo
   },
   onlyLate: (row, filters) => !filters.onlyLate || isLate(row),
 }
+
+/**
+ * Which spelling represents a group. Ties break on the alphabet rather than on insertion order,
+ * so the rail does not reorder itself between two reads of the same data.
+ */
+function mostUsedSpelling(spellings: Map<string, number>): string {
+  let best = ''
+  let bestCount = -1
+  for (const [spelling, count] of spellings) {
+    if (count > bestCount || (count === bestCount && spelling.localeCompare(best) < 0)) {
+      best = spelling
+      bestCount = count
+    }
+  }
+  return best
+}
+
+/** One dimension of place: absent filter matches everything, present one matches by fold. */
+function sameName(value: string | null, filter: string | null): boolean {
+  return filter === null || nameKey(value ?? '') === nameKey(filter)
+}
+
+/**
+ * The dimensions whose options are grouped by folded name rather than by raw string. The other
+ * five are closed vocabularies — `status`, `contract`, `plan`, `clientType` and `state` come from
+ * unions, not from somebody typing, and folding them would only hide a bug.
+ */
+const FOLDED_FACETS: FacetKey[] = ['country', 'region', 'city']
 
 const ALL_KEYS = Object.keys(MATCHERS) as (keyof typeof MATCHERS)[]
 
@@ -237,15 +278,26 @@ export function buildDirectoryView(
 
   const facets = {} as Facets
   for (const key of FACET_KEYS) {
-    const counts = new Map<string, number>()
+    const folded = FOLDED_FACETS.indexOf(key) >= 0
+    /**
+     * ONE OPTION PER PLACE, whatever it was typed like. The group is the folded name; the label
+     * is the spelling MOST ROWS USED, because the option has to be recognisable — printing
+     * `cabo frio` in lower case would fix the count and break the reading. The count is the whole
+     * group's, which is the number the operator is deciding with.
+     */
+    const groups = new Map<string, { count: number; spellings: Map<string, number> }>()
     for (const row of rows) {
       if (!matches(row, filters, key)) continue
       const value = valueOf(row, key)
       if (value === null || value === '') continue
-      counts.set(value, (counts.get(value) ?? 0) + 1)
+      const groupKey = folded ? nameKey(value) : value
+      const group = groups.get(groupKey) ?? { count: 0, spellings: new Map<string, number>() }
+      group.count += 1
+      group.spellings.set(value, (group.spellings.get(value) ?? 0) + 1)
+      groups.set(groupKey, group)
     }
-    facets[key] = Array.from(counts.entries())
-      .map(([value, count]) => ({ value, count }))
+    facets[key] = Array.from(groups.values())
+      .map((group) => ({ value: mostUsedSpelling(group.spellings), count: group.count }))
       // Most rows first, then alphabetically — a rail an operator scans top-down.
       .sort((a, b) => (b.count - a.count) || a.value.localeCompare(b.value))
   }

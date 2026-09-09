@@ -29,6 +29,7 @@
  */
 
 import { useEffect, useId, useRef, useState } from 'react'
+import { useDialogShell } from '@/lib/hooks/use-dialog-shell'
 import { createPortal } from 'react-dom'
 import { useTranslations } from 'next-intl'
 import { Filter, RotateCcw, Search, X } from 'lucide-react'
@@ -40,16 +41,25 @@ import {
   type FacetKey,
 } from '@/lib/clients/directory-filter'
 
-/** The rail, in the order an operator narrows: where, then who, then how far along. */
-const FACETS: FacetKey[] = [
-  'country',
-  'region',
-  'city',
-  'clientType',
-  'status',
-  'contract',
-  'plan',
-  'state',
+/**
+ * THE PANEL, IN THE ORDER THE OPERATOR WORKS — not in the order the columns happen to sit in the
+ * table. `Estado da parceria` carries the cut between queue and archive and is what the screen is
+ * opened to use; it was the last control of the last section.
+ *
+ * `onlyLate` is a checkbox and not a dimension, so it is named on the section rather than in the
+ * facet list — it belongs with the work and nowhere else.
+ */
+interface PanelSection {
+  id: 'work' | 'commercial' | 'where' | 'type'
+  facets: FacetKey[]
+  onlyLate?: boolean
+}
+
+const SECTIONS: PanelSection[] = [
+  { id: 'work', facets: ['state'], onlyLate: true },
+  { id: 'commercial', facets: ['plan', 'contract', 'status'] },
+  { id: 'where', facets: ['country', 'region', 'city'] },
+  { id: 'type', facets: ['clientType'] },
 ]
 
 interface DirectoryFilterRailProps {
@@ -92,44 +102,38 @@ export function DirectoryFilterRail({
 /**
  * The phone's door to the same panel: a button, and the sheet it opens.
  *
- * `lg:hidden` — above the breakpoint the rail is already on screen and a second way in would be
- * two controls for one state. The trigger belongs in the sticky header of whichever view mounts
- * it, which is why this is a component the caller places rather than a fragment of the rail.
+ * `lg:hidden` BY DEFAULT, and `everyWidth` in the board. In the TABLE the rail is on screen above
+ * the breakpoint and a second way in would be two controls for one state. The BOARD has no rail
+ * at any width — a 288px lane there costs a whole column of the workbench (DS-LAYOUT-014) — so
+ * this is its only door to the panel, at every width.
+ *
+ * The trigger belongs in the sticky header of whichever view mounts it, which is why this is a
+ * component the caller places rather than a fragment of the rail.
  */
 export function DirectoryFilterSheet({
   view,
   filters,
   onFiltersChange,
   working,
-}: DirectoryFilterRailProps) {
+  everyWidth,
+}: DirectoryFilterRailProps & { everyWidth?: boolean }) {
   const t = useTranslations('Clients.directory')
   const [open, setOpen] = useState(false)
   const panelId = useId()
-  const closeRef = useRef<HTMLButtonElement | null>(null)
   const active = activeFilterCount(filters)
 
   /**
-   * A sheet over the list must not let the list behind it scroll, and must give the keyboard
-   * somewhere to land. Focus goes to `Fechar` rather than to the search field: opening the
-   * sheet on a phone with focus in a text input raises the software keyboard over the facets
-   * the operator came here to read.
+   * Scroll lock, `Escape`, focus in and focus back — the four this sheet had three of, written
+   * inline, until the client record needed the same four and had none. One hook now
+   * (`useDialogShell`), and the fourth — returning focus to the `Filtros` button — comes free.
+   *
+   * Focus goes to `Fechar` rather than to the search field: opening the sheet on a phone with
+   * focus in a text input raises the software keyboard over the facets the operator came here
+   * to read.
    */
-  useEffect(() => {
-    if (!open) return
-    const previous = document.body.style.overflow
-    document.body.style.overflow = 'hidden'
-    closeRef.current?.focus()
-
-    const onKey = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') setOpen(false)
-    }
-    document.addEventListener('keydown', onKey)
-
-    return () => {
-      document.body.style.overflow = previous
-      document.removeEventListener('keydown', onKey)
-    }
-  }, [open])
+  const closeRef = useDialogShell(open, () =>
+    setOpen(false)
+  ) as React.RefObject<HTMLButtonElement | null>
 
   return (
     <>
@@ -138,7 +142,9 @@ export function DirectoryFilterSheet({
         onClick={() => setOpen(true)}
         aria-expanded={open}
         aria-controls={panelId}
-        className="inline-flex min-h-[44px] items-center gap-2 rounded-xl border border-gray-200 px-3 py-2 text-sm font-medium text-primary-800 dark:border-gray-700 dark:text-tuggi-blue lg:hidden"
+        className={`inline-flex min-h-[44px] items-center gap-2 rounded-xl border border-gray-200 px-3 py-2 text-sm font-medium text-primary-800 dark:border-gray-700 dark:text-tuggi-blue ${
+          everyWidth ? '' : 'lg:hidden'
+        }`}
       >
         <Filter className="h-4 w-4" aria-hidden="true" />
         {/* The count is IN the accessible name and not only beside it: `Filtros` followed by a
@@ -158,7 +164,7 @@ export function DirectoryFilterSheet({
         LAST dimension rather than the first thing it can find.
       */}
       {open && typeof document !== 'undefined' && createPortal(
-        <div className="fixed inset-0 z-[60] flex flex-col justify-end lg:hidden">
+        <div className={`fixed inset-0 z-[60] flex flex-col justify-end ${everyWidth ? '' : 'lg:hidden'}`}>
           <button
             type="button"
             aria-label={t('close')}
@@ -326,6 +332,8 @@ function FilterPanel({
 }: DirectoryFilterRailProps & { headless?: boolean }) {
   const t = useTranslations('Clients.directory')
   const p = useTranslations('Partnerships')
+  /** `FilterPanel` is mounted twice — rail and sheet — so every id it prints has to differ. */
+  const suffix = headless ? '-sheet' : ''
 
   function set<K extends keyof DirectoryFilters>(key: K, value: DirectoryFilters[K]) {
     onFiltersChange({ ...filters, [key]: value })
@@ -378,7 +386,7 @@ function FilterPanel({
       )}
 
       <div className="mb-6">
-        <label htmlFor={`directory-search${headless ? '-sheet' : ''}`} className="sr-only">
+        <label htmlFor={`directory-search${suffix}`} className="sr-only">
           {t('searchLabel')}
         </label>
         <div className="group relative">
@@ -396,7 +404,7 @@ function FilterPanel({
             phone breakpoint, where no browser does this.
           */}
           <SearchField
-            id={`directory-search${headless ? '-sheet' : ''}`}
+            id={`directory-search${suffix}`}
             value={filters.search}
             placeholder={t('searchPlaceholder')}
             onCommit={(next) => set('search', next)}
@@ -405,124 +413,173 @@ function FilterPanel({
       </div>
 
       <div className="space-y-5">
-        {FACETS.map((key) => {
-          const options = view.facets[key]
-          // A dimension nobody filled in is not a filter — it is noise with a heading.
-          if (options.length === 0) return null
-          const selected = filters[key] as string | null
+        {/*
+          FOUR SECTIONS, AND THE WORK COMES FIRST.
+
+          The order used to be `país, estado, cidade, tipo, situação, contrato, plano, estado da
+          parceria`, which put `Em andamento` — the cut that separates the queue from the archive,
+          and the most used control on the screen — as the first option of the LAST section. What
+          the operator reaches for most was the furthest thing down.
+        */}
+        {SECTIONS.map((section) => {
+          const fields = section.facets.filter((key) => view.facets[key].length > 0)
+          // A section whose every dimension is empty is a heading with nothing under it.
+          if (fields.length === 0 && !section.onlyLate) return null
 
           return (
-            <section key={key} aria-labelledby={`facet-${key}${headless ? '-sheet' : ''}`}>
+            <section key={section.id} aria-labelledby={`section-${section.id}${suffix}`}>
               <h3
-                id={`facet-${key}${headless ? '-sheet' : ''}`}
+                id={`section-${section.id}${suffix}`}
                 className="mb-3 px-1 text-[10px] font-bold uppercase tracking-widest text-gray-500 dark:text-gray-400"
               >
-                {t(`filters.${key}`)}
+                {t(`sections.${section.id}`)}
               </h3>
-              <ul className="space-y-1">
-                {/*
-                  THE WORKING SET, and it is the one thing `/admin/partnerships` had that
-                  this list did not. A list that shows `Publicado`, `Descartado` and
-                  `Recusado na triagem` alongside what still needs doing is noise the
-                  operator learns to ignore (criterion 4, DS-COPY-020, point 5). An
-                  option and not the default: this is the client list too, and somebody
-                  fixing the fiscal data of a partner already on air must find them.
-                */}
-                {key === 'state' && (
-                  <li>
-                    <FacetOptionButton
-                      label={p('queue.inProgress')}
-                      count={working}
-                      active={filters.state === 'in_progress'}
-                      onToggle={() =>
-                        set('state', filters.state === 'in_progress' ? 'all' : 'in_progress')
-                      }
-                    />
-                  </li>
-                )}
-                {options.map((option) => (
-                  <li key={option.value}>
-                    <FacetOptionButton
-                      label={optionLabel(key, option.value)}
-                      count={option.count}
-                      active={selected === option.value}
-                      onToggle={() =>
-                        // Clearing a dimension means `null` for every one of them EXCEPT
-                        // `state`, whose "no filter" value is `all` — `null` is not one
-                        // of its values, and setting it matched no row at all.
-                        set(
-                          key as keyof DirectoryFilters,
-                          (selected === option.value
-                            ? key === 'state'
-                              ? 'all'
-                              : null
-                            : option.value) as never
-                        )
-                      }
-                    />
-                  </li>
+
+              <div className="space-y-3">
+                {fields.map((key) => (
+                  <FacetSelect
+                    key={key}
+                    id={`facet-${key}${suffix}`}
+                    label={t(`filters.${key}`)}
+                    value={(filters[key] as string | null) ?? ''}
+                    onChange={(next) =>
+                      // Clearing a dimension means `null` for every one of them EXCEPT `state`,
+                      // whose "no filter" value is `all` — `null` is not one of its values, and
+                      // setting it matched no row at all.
+                      set(
+                        key as keyof DirectoryFilters,
+                        (next === '' ? (key === 'state' ? 'all' : null) : next) as never
+                      )
+                    }
+                  >
+                    {key === 'state' ? (
+                      <>
+                        {/*
+                          THE CUTS ARE NOT A STAGE, and an `<optgroup>` is what says so without a
+                          word. `Em andamento` is the working set — the one thing
+                          `/admin/partnerships` had that this list did not — and `Todos` is the
+                          absence of the filter. Listing either among the ten stages reads as an
+                          eleventh stage.
+                        */}
+                        <optgroup label={t('stateGroups.cuts')}>
+                          <option value="in_progress">
+                            {withCount(p('queue.inProgress'), working)}
+                          </option>
+                          <option value="">{p('queue.allStates')}</option>
+                        </optgroup>
+                        <optgroup label={t('stateGroups.stage')}>
+                          {view.facets.state.map((option) => (
+                            <option key={option.value} value={option.value}>
+                              {withCount(optionLabel('state', option.value), option.count)}
+                            </option>
+                          ))}
+                        </optgroup>
+                      </>
+                    ) : (
+                      <>
+                        {/*
+                          THE COUNT IS ON THE NEUTRAL OPTION TOO. `Todas as cidades (36)` is what
+                          lets the operator read the size of the whole before narrowing it — the
+                          question a closed control otherwise answers only after the choice.
+                        */}
+                        <option value="">
+                          {withCount(t(`allOf.${key}`), totalOf(view.facets[key]))}
+                        </option>
+                        {view.facets[key].map((option) => (
+                          <option key={option.value} value={option.value}>
+                            {withCount(optionLabel(key, option.value), option.count)}
+                          </option>
+                        ))}
+                      </>
+                    )}
+                  </FacetSelect>
                 ))}
-              </ul>
+
+                {section.onlyLate && (
+                  <label className="flex min-h-[44px] cursor-pointer items-center gap-2">
+                    <input
+                      type="checkbox"
+                      checked={filters.onlyLate}
+                      onChange={(event) => set('onlyLate', event.target.checked)}
+                      className="h-4 w-4 rounded border-gray-300 text-primary-800 focus:ring-primary-800"
+                    />
+                    <span className="text-sm text-gray-900 dark:text-gray-200">
+                      {t('filters.onlyLate')}
+                    </span>
+                  </label>
+                )}
+              </div>
             </section>
           )
         })}
-
-        <div className="border-t border-gray-100 pt-4 dark:border-gray-800">
-          <label className="flex min-h-[44px] cursor-pointer items-center gap-2">
-            <input
-              type="checkbox"
-              checked={filters.onlyLate}
-              onChange={(event) => set('onlyLate', event.target.checked)}
-              className="h-4 w-4 rounded border-gray-300 text-primary-800 focus:ring-primary-800"
-            />
-            <span className="text-sm text-gray-900 dark:text-gray-200">
-              {t('filters.onlyLate')}
-            </span>
-          </label>
-        </div>
       </div>
     </>
   )
 }
 
 /**
- * One option of the rail: the label, and the count it would open.
+ * THE COUNT GOES INSIDE THE OPTION, and that is the whole reason a closed control can replace the
+ * open list without losing what the list was good for.
  *
- * `text-primary-800` on light and `text-tuggi-blue` on dark, which is not an inconsistency —
- * it is the same measurement read on two surfaces. The brand blue is 2.70:1 on white and fails
- * SC 1.4.3; on `gray-900` it is 6.57:1 and passes comfortably. The token that fails as ink in
- * daylight is the one that works at night.
+ * The operator reads the panel to decide `vale a pena filtrar por Cabo Frio?`, and that answer has
+ * to exist BEFORE the choice. Beside the field it would describe the value already chosen; on the
+ * result line it answers `quanto sobrou`, which is the after. Inside the option it is also read
+ * aloud as part of the accessible name — `Cabo Frio, 41` — with no `aria-*` at all.
  *
- * `min-h-[44px]` AND NOT `min-h-[24px]`. 24px is the floor WCAG 2.2 SC 2.5.8 sets for a pointer
- * target, and it was enough while this list only ever met a mouse. A facet is now tapped with a
- * thumb, and a 24px row in a list of 24px rows is the shape that opens `Brasil` when the finger
- * meant `Portugal`. 44px is the size both platform guidelines name and costs nothing here: the
- * options are stacked, so the height comes out of whitespace the rail already had.
+ * Identity first and count as a suffix, because truncation eats the end (DS-COMPONENTE-065).
+ * It is the literal precedent of `/pois`, which already labels a country `${name} (${total})`.
  */
-function FacetOptionButton({
+function withCount(label: string, count: number): string {
+  return `${label} (${count})`
+}
+
+/** How many rows a dimension holds in total — the count the neutral option carries. */
+function totalOf(options: { count: number }[]): number {
+  return options.reduce((sum, option) => sum + option.count, 0)
+}
+
+/**
+ * ONE DIMENSION, AS A NATIVE `<select>`.
+ *
+ * Native, and not a custom listbox: it brings keyboard navigation, type-ahead by first letters,
+ * the platform's own scrolling and — on a phone — the operating system's picker, none of which a
+ * hand-rolled control gets right for free. That is also why the `mais N` and the per-facet search
+ * box of the earlier design are gone: they were mechanisms for problems the control already
+ * solves.
+ *
+ * `text-base` and not `text-sm` below the phone breakpoint, for the same reason the search field
+ * carries it: Safari on iOS zooms the whole page when a focused control measures under 16px.
+ */
+function FacetSelect({
+  id,
   label,
-  count,
-  active,
-  onToggle,
+  value,
+  onChange,
+  children,
 }: {
+  id: string
   label: string
-  count: number
-  active: boolean
-  onToggle: () => void
+  value: string
+  onChange: (next: string) => void
+  children: React.ReactNode
 }) {
   return (
-    <button
-      type="button"
-      aria-pressed={active}
-      onClick={onToggle}
-      className={`flex min-h-[44px] w-full items-center justify-between gap-2 rounded-lg px-1 py-1 text-left text-sm underline-offset-4 transition-colors hover:underline lg:min-h-[32px] ${
-        active
-          ? 'font-semibold text-gray-900 underline dark:text-white'
-          : 'text-primary-800 dark:text-tuggi-blue'
-      }`}
-    >
-      <span className="truncate">{label}</span>
-      <span className="shrink-0 text-xs text-gray-500 dark:text-gray-400">{count}</span>
-    </button>
+    <div>
+      <label
+        htmlFor={id}
+        className="mb-1 block px-1 text-xs font-medium text-gray-600 dark:text-gray-400"
+      >
+        {label}
+      </label>
+      <select
+        id={id}
+        value={value}
+        onChange={(event) => onChange(event.target.value)}
+        className="w-full rounded-xl border border-gray-200 bg-gray-50/50 px-3 py-2.5 text-base outline-none transition-all focus:border-transparent focus:ring-2 focus:ring-primary-800 dark:border-gray-700 dark:bg-gray-800/50 dark:text-white sm:text-sm"
+      >
+        {children}
+      </select>
+    </div>
   )
 }
+

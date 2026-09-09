@@ -102,31 +102,24 @@ function knownKinds(stored: string[] | null): PartnerDocumentKind[] {
   )
 }
 
+
 /**
- * The same read for a whole screen, in one round trip.
- *
- * The queue derives a pipeline state per row, and the conference is one of its inputs. Reading
- * it per row would be N+1 over a list the operator reloads all day; reading it from the proposal
- * instead — which is what the queue did until 2026-08-21 — makes the list and the detail answer
- * differently about the same client.
+ * One stored row, as the pipeline reads it — exported because the client directory now gets the
+ * same row out of `partner.cms_client_directory` instead of out of this table directly, and the
+ * kinds it does not recognise have to be dropped by the SAME rule in both paths. `knownKinds` is
+ * that rule; a second caller reimplementing it is how a document kind we retired would come back
+ * to life on one screen only.
  */
-export async function getClientConferences(
-  clientIds: string[]
-): Promise<Map<string, ClientConference>> {
-  const found = new Map<string, ClientConference>()
-  if (clientIds.length === 0) return found
-
-  const { data, error } = await service().from(TABLE).select(COLUMNS).in('client_id', clientIds)
-  if (error || !data) return found
-
-  for (const row of data as unknown as Record<string, unknown>[]) {
-    found.set(String(row.client_id), {
-      conference: { documentsSeen: knownKinds(row.documents_seen as string[] | null) },
-      reviewedAt: (row.reviewed_at as string | null) ?? null,
-      reviewedBy: (row.reviewed_by as string | null) ?? null,
-    })
+export function toClientConference(
+  documentsSeen: unknown,
+  reviewedAt: unknown,
+  reviewedBy: unknown
+): ClientConference {
+  return {
+    conference: { documentsSeen: knownKinds(documentsSeen as string[] | null) },
+    reviewedAt: (reviewedAt as string | null) ?? null,
+    reviewedBy: (reviewedBy as string | null) ?? null,
   }
-  return found
 }
 
 /**

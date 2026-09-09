@@ -140,3 +140,43 @@ export function nameMatchFilter(columns: string[], term: string): string {
   const pattern = namePattern(term)
   return columns.map((column) => `${column}.imatch.${pattern}`).join(',')
 }
+
+/**
+ * THE COMPARISON KEY OF A NAME — the JavaScript twin of `core.name_search_key`.
+ *
+ * `namePattern` above answers *"does this row match what was typed?"*. This answers a different
+ * question the CMS also asks: *"are these two spellings the same name?"* — which is what a facet
+ * needs before it can offer ONE option per place instead of one per spelling. Measured on the
+ * partnership pipeline on 2026-09-09: 41 proposals, all of them Cabo Frio, offered as four
+ * options — `Cabo Frio` (36), `Cabo FrioCabo Frio` (3), `Cabo frio` (1) and `CABO FRIO` (1). An
+ * operator who picks one concludes the other rows do not exist, which is the same ending that
+ * produced three of three partner duplicates on 2026-08-23.
+ *
+ * IT IS A TWIN AND NOT A NEW RULE. `core.name_search_key` already exists, is `IMMUTABLE`, and is
+ * indexed with trigram on `core.attractions`; a facet grouped by a DIFFERENT folding than the one
+ * the database groups by is two answers to one question. `tests/api/name-search.test.ts` holds
+ * the parity, exactly as it already does for the pattern.
+ *
+ * `unaccent` is deliberately not involved on either side — the extension is not installed on this
+ * project, which is why the SQL spells the folding out with `translate` and this spells it out
+ * with the same two strings.
+ */
+const ACCENTED = 'áàâãäåāªçéèêëēíìîïīñóòôõöøōºúùûüūýÿ'
+const PLAIN = 'aaaaaaaaceeeeeiiiiinoooooooouuuuuyy'
+
+export function nameKey(term: string): string {
+  return (
+    term
+      .toLowerCase()
+      // Combining marks first, so a value stored decomposed becomes the bare letter and the
+      // table below has nothing left to do to it. Same order as the SQL.
+      .replace(/[\u0300-\u036f]/g, '')
+      .replace(/./g, (character) => {
+        const index = ACCENTED.indexOf(character)
+        return index >= 0 ? PLAIN[index] : character
+      })
+      // Punctuation, double space, hyphen, apostrophe: a run becomes ONE space.
+      .replace(/[^a-z0-9]+/g, ' ')
+      .trim()
+  )
+}

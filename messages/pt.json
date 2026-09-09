@@ -2161,7 +2161,30 @@
       "paginationLabel": "Páginas da lista",
       "previousPage": "Página anterior",
       "nextPage": "Próxima página",
-      "goToPage": "Ir para a página {page}"
+      "goToPage": "Ir para a página {page}",
+      "sections": {
+        "work": "Trabalho",
+        "commercial": "Comercial",
+        "where": "Onde",
+        "type": "Tipo"
+      },
+      "allOf": {
+        "country": "Todos os países",
+        "region": "Todos os estados",
+        "city": "Todas as cidades",
+        "clientType": "Todos os tipos",
+        "status": "Todas as situações",
+        "contract": "Todos os contratos",
+        "plan": "Todos os planos"
+      },
+      "stateGroups": {
+        "cuts": "Recortes",
+        "stage": "Etapa"
+      },
+      "activeFilters": {
+        "searchLabel": "Busca",
+        "remove": "Remover o filtro {label}"
+      }
     },
     "editor": {
       "header": {

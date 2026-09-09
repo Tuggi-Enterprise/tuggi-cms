@@ -382,3 +382,101 @@ test('the facet counts read the same search the table does', () => {
     'Portugal has nobody left once the term is applied, so it is not an option'
   )
 })
+
+// ── Uma opção por lugar, e não uma por grafia ────────────────────────────────────────────────
+//
+// Medido em 2026-09-09: 41 propostas, TODAS de Cabo Frio, oferecidas como quatro opções —
+// `Cabo Frio` (36), `Cabo FrioCabo Frio` (3), `Cabo frio` (1) e `CABO FRIO` (1). O operador
+// escolhe uma e conclui que as outras cinco linhas não existem, que é o mesmo desfecho que
+// produziu 3 de 3 duplicatas de parceiro em 2026-08-23.
+
+const CABO_FRIO_SPELLINGS = ['Cabo Frio', 'Cabo Frio', 'Cabo Frio', 'CABO FRIO', 'Cabo frio']
+
+test('the city facet offers one option per place, with the whole count', () => {
+  const rows = CABO_FRIO_SPELLINGS.map((city) => row({ city }))
+  const { facets } = buildDirectoryView(rows, EMPTY_FILTERS)
+
+  assert.equal(facets.city.length, 1, 'four spellings are one city')
+  assert.equal(facets.city[0].count, 5, 'and the count is everybody, not the biggest group')
+})
+
+test('the option shows the spelling most rows used, never the folded key', () => {
+  const rows = CABO_FRIO_SPELLINGS.map((city) => row({ city }))
+  const { facets } = buildDirectoryView(rows, EMPTY_FILTERS)
+  // Grouping by `cabo frio` must not print `cabo frio`: the count would be right and the option
+  // unrecognisable.
+  assert.equal(facets.city[0].value, 'Cabo Frio')
+})
+
+test('choosing the option opens every spelling it absorbed', () => {
+  const rows = CABO_FRIO_SPELLINGS.map((city, index) => row({ city, name: `Row ${index}` }))
+  const view = buildDirectoryView(rows, { ...EMPTY_FILTERS, city: 'Cabo Frio' })
+  assert.equal(view.rows.length, 5, 'the option has to open exactly what it promised')
+})
+
+test('a link written with another spelling keeps working', () => {
+  // The URL carries the SPELLING and not the folded key, so `?city=Cabo+Frio` stays readable —
+  // and an older link somebody sent with a different casing still resolves.
+  const rows = CABO_FRIO_SPELLINGS.map((city) => row({ city }))
+  for (const typed of ['CABO FRIO', 'cabo frio', 'Cabo  Frio']) {
+    assert.equal(
+      buildDirectoryView(rows, { ...EMPTY_FILTERS, city: typed }).rows.length,
+      5,
+      `${typed} has to reach the same rows`
+    )
+  }
+})
+
+test('accents fold in the facet exactly as they do in the search', () => {
+  const rows = [
+    row({ city: 'São Paulo' }),
+    row({ city: 'São Paulo' }),
+    row({ city: 'Sao Paulo' }),
+    row({ city: 'Santos' }),
+  ]
+  const { facets } = buildDirectoryView(rows, EMPTY_FILTERS)
+  assert.deepEqual(
+    facets.city.map((option) => [option.value, option.count]),
+    [['São Paulo', 3], ['Santos', 1]],
+    'the accent is not a different city, and the majority spelling is the one shown'
+  )
+})
+
+test('a tie between two spellings resolves the same way on every read', () => {
+  // With one row each there IS no majority, and the module does not pretend there is: the
+  // tie breaks on the alphabet, so the panel does not reorder itself between two reads of the
+  // same data. Which of the two wins is arbitrary; that it is STABLE is not.
+  const rows = [row({ city: 'São Paulo' }), row({ city: 'Sao Paulo' })]
+  const first = buildDirectoryView(rows, EMPTY_FILTERS).facets.city
+  const again = buildDirectoryView(rows.slice().reverse(), EMPTY_FILTERS).facets.city
+
+  assert.deepEqual(first, again, 'row order must not decide the label')
+  assert.equal(first.length, 1)
+  assert.equal(first[0].count, 2)
+})
+
+test('the closed vocabularies are NOT folded — hiding a bug is not consolidation', () => {
+  // `status`, `contract`, `plan`, `clientType` and `state` come from unions, not from somebody
+  // typing. Folding them would only ever merge two values that should never have coexisted.
+  const rows = [row({ status: 'approved' }), row({ status: 'pending' })]
+  const { facets } = buildDirectoryView(rows, EMPTY_FILTERS)
+  assert.equal(facets.status.length, 2)
+})
+
+test('the facet count still excludes only its own dimension', () => {
+  // The guarantee the whole module exists for, restated against the grouped options: a count is
+  // the number of rows that option opens WITH the other filters applied.
+  const rows = [
+    row({ city: 'Cabo Frio', country: 'Brazil' }),
+    row({ city: 'CABO FRIO', country: 'Brazil' }),
+    row({ city: 'Cabo Frio', country: 'Portugal' }),
+  ]
+  const view = buildDirectoryView(rows, { ...EMPTY_FILTERS, country: 'Brazil' })
+  assert.deepEqual(
+    view.facets.city.map((option) => [option.value, option.count]),
+    [['Cabo Frio', 2]],
+    'the third row is Portugal and must not be counted'
+  )
+  // And the country dimension still counts both, because it is the one being excluded.
+  assert.equal(view.facets.country.length, 2)
+})

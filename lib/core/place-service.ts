@@ -107,6 +107,59 @@ export const PLACE_PARTNER_OWNER_COLUMN = 'partner_client_id'
 export type PartnerPlaceRow = PartnerPlaceFacts & { partnerClientId: string }
 
 /**
+ * The flat shape both readers of a partner place arrive at — the four-query version and the
+ * one-call RPC. It exists so `toPartnerPlaceRow` below is the ONE place that decides what an
+ * absent value means, which is the part that is easy to get subtly different in two readers and
+ * impossible to notice afterwards.
+ */
+interface PartnerPlaceFactsRow {
+  attraction_id: string
+  partner_client_id: string
+  name: string | null
+  city: string | null
+  state: string | null
+  entity_kind: string | null
+  approved: boolean | null
+  is_active: boolean | null
+  latitude: number | null
+  longitude: number | null
+  show_in_map: boolean | null
+  boundary_type: string | null
+  boundary_area_m2: number | null
+  has_active_trigger_point: boolean
+  has_audio_description: boolean
+}
+
+/** What every absent value means. Written once, for both readers. */
+function toPartnerPlaceRow(row: Omit<PartnerPlaceFactsRow, 'attraction_id'> & { id: string }): PartnerPlaceRow {
+  return {
+    attractionId: row.id,
+    name: row.name ?? '',
+    city: row.city,
+    region: row.state,
+    // `cms_create_place` writes `'place'`, so that is what a partner's place is; a POI the team
+    // catalogued by hand and linked afterwards is `'poi'`. Unknown reads as `'place'` — never as
+    // `'poi'`, because `'poi'` is the predicate with the EXTRA condition and guessing it would
+    // invent a pendency.
+    entityKind: row.entity_kind ?? 'place',
+    approved: row.approved === true,
+    // Absent reads as active: `core.attractions.is_active` is NOT NULL with a default of true,
+    // and answering `false` for a missing value would report every place as out of the app.
+    isActive: row.is_active !== false,
+    latitude: row.latitude ?? null,
+    longitude: row.longitude ?? null,
+    // No coordinate row at all reads `true`, exactly like the read model's
+    // `COALESCE(attraction_coordinate.show_in_map, true)`. What hides such a place is the absent
+    // coordinate, and that is already its own pendency.
+    showInMap: row.show_in_map ?? true,
+    activeTriggerPointCount: row.has_active_trigger_point ? 1 : 0,
+    audioDescriptionCount: row.has_audio_description ? 1 : 0,
+    hasBoundary: (row.boundary_type ?? null) !== null || (row.boundary_area_m2 ?? null) !== null,
+    partnerClientId: row.partner_client_id,
+  }
+}
+
+/**
  * How many rows of a child table one bulk lookup will read before it stops trusting itself.
  * A POI can carry hundreds of trigger points, so a single greedy row could starve the others
  * out of the page and make this module report "no trigger point" for a place that has one —
@@ -356,35 +409,58 @@ export const placeService = {
 
     return rows.map((row) => {
       const coordinate = byId.get(row.id)
-      return {
-        attractionId: row.id,
-        name: row.name ?? '',
+      return toPartnerPlaceRow({
+        id: row.id,
+        name: row.name,
         city: row.city,
-        region: row.state,
-        // `cms_create_place` writes `'place'`, so that is what a partner's place is; a POI the
-        // team catalogued by hand and linked afterwards is `'poi'`. Unknown reads as `'place'`
-        // — never as `'poi'`, because `'poi'` is the predicate with the EXTRA condition and
-        // guessing it would invent a pendency.
-        entityKind: row.entity_kind ?? 'place',
-        approved: row.approved === true,
-        // Absent reads as active: `core.attractions.is_active` is NOT NULL with a default of
-        // true, and answering `false` for a missing value would report every place as out of
-        // the app.
-        isActive: row.is_active !== false,
+        state: row.state,
+        entity_kind: row.entity_kind,
+        approved: row.approved,
+        is_active: row.is_active,
+        partner_client_id: row.partner_client_id,
         latitude: coordinate?.latitude ?? null,
         longitude: coordinate?.longitude ?? null,
-        // No coordinate row at all reads `true`, exactly like the read model's
-        // `COALESCE(attraction_coordinate.show_in_map, true)`. What hides such a place is the
-        // absent coordinate, and that is already its own pendency.
-        showInMap: coordinate?.show_in_map ?? true,
-        activeTriggerPointCount: withTriggerPoint.has(row.id) ? 1 : 0,
-        audioDescriptionCount: withAudio.has(row.id) ? 1 : 0,
-        hasBoundary:
-          (coordinate?.boundary_type ?? null) !== null ||
-          (coordinate?.boundary_area_m2 ?? null) !== null,
-        partnerClientId: row.partner_client_id,
-      }
+        show_in_map: coordinate?.show_in_map ?? null,
+        boundary_type: coordinate?.boundary_type ?? null,
+        boundary_area_m2: coordinate?.boundary_area_m2 ?? null,
+        has_active_trigger_point: withTriggerPoint.has(row.id),
+        has_audio_description: withAudio.has(row.id),
+      })
     })
+  },
+
+  /**
+   * EVERY partner place in one call — what the client directory reads.
+   *
+   * `listByPartnerClient` above asks for a LIST of client ids, and that list travels in the
+   * query string of a `GET`: measured against this project's gateway on 2026-09-09, 580 ids is
+   * `200` and 581 is `400`. Past that the directory would render every partner as having no
+   * place at all, in silence, because the caller swallows the error. There is no list here —
+   * the predicate is `partner_client_id IS NOT NULL` — so there is no ceiling.
+   *
+   * It also collapses the four round trips this file makes (`attractions`, `attraction_coordinate`
+   * and the two `anyChildRow` sweeps) into one, and with them the `CHILD_ROW_CAP` that would
+   * have started firing one query per place at around 985 clients.
+   *
+   * THE FUNCTION IS `SECURITY DEFINER` AND CARRIES THE GATE IN ITS BODY. `DEFINER` skips RLS, so
+   * `core.is_active_cms_admin()` is written into the `WHERE` — the ADMIN gate of the
+   * `CMS admins can read attractions` policy. Not the whole policy: three permissive `SELECT`
+   * policies add up in an OR there, and this asks only for the first, so the function answers a
+   * STRICTER set than the table would. That is the safe direction, and calling it "the same
+   * gate" was a name that lied (security-reviewer, 2026-09-09).
+   *
+   * `db` IS REQUIRED AND NOT OPTIONAL. Every other reader in this file takes it optional and
+   * falls back to the default client; here that fallback would silently answer with an identity
+   * that is not the operator's. It fails closed — no JWT means the gate is `false` and the
+   * answer is zero rows — but zero rows is exactly the shape of "this partner has no place",
+   * which is the wrong thing to be quiet about.
+   */
+  async listAllPartnerPlaces(db: SupabaseClient): Promise<PartnerPlaceRow[]> {
+    const { data, error } = await client(db).schema('core').rpc('cms_partner_places')
+    if (error) throw new Error(error.message)
+    return ((data ?? []) as PartnerPlaceFactsRow[]).map((row) =>
+      toPartnerPlaceRow({ ...row, id: row.attraction_id })
+    )
   },
 
   /**

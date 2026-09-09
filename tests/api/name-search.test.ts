@@ -19,7 +19,7 @@ import assert from 'node:assert/strict'
 import { existsSync, readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
 
-import { namePattern, nameMatchFilter } from '@/lib/shared/name-search'
+import { nameKey, namePattern, nameMatchFilter } from '@/lib/shared/name-search'
 
 const root = resolve(import.meta.dirname, '../..')
 const read = (path: string) => readFileSync(resolve(root, path), 'utf8')
@@ -198,4 +198,58 @@ test('the SQL half exists, and it folds the same characters', { skip: sqlHalfAva
   ]) {
     assert.ok(swap.indexOf(fn) >= 0, `${fn} must be migrated with the others`)
   }
+})
+
+// ── `nameKey`, e a paridade dele com `core.name_search_key` ──────────────────────────────────
+//
+// `namePattern` responde "esta linha casa com o que foi digitado?". `nameKey` responde outra
+// pergunta que o CMS também faz: "estas duas grafias são o mesmo nome?" — que é o que uma faceta
+// precisa antes de oferecer UMA opção por lugar em vez de uma por grafia. Medido na esteira em
+// 2026-09-09: 41 propostas, todas de Cabo Frio, oferecidas como quatro opções.
+
+test('nameKey folds case, accent and punctuation the way a facet needs', () => {
+  // As quatro grafias medidas em `partner.partner_form_submissions`.
+  for (const spelling of ['Cabo Frio', 'CABO FRIO', 'Cabo frio', 'Cabo  Frio']) {
+    assert.equal(nameKey(spelling), 'cabo frio', `${spelling} is the same city`)
+  }
+  assert.equal(nameKey('São Paulo'), nameKey('Sao Paulo'))
+  assert.equal(nameKey('Búzios'), 'buzios')
+  // Decomposed, exactly as `Faella Bistrô` is stored.
+  assert.equal(nameKey('Faella Bistro\u0302'), 'faella bistro')
+  assert.equal(nameKey("Bar do Zé"), 'bar do ze')
+  assert.equal(nameKey('  Cabo-Frio!  '), 'cabo frio', 'punctuation runs collapse, edges trim')
+})
+
+test('nameKey does NOT merge names that are genuinely different', () => {
+  // The omission is the point, and it is the same one `namePattern` makes: no stemming, no fuzzy
+  // matching, no reordering. A facet that merged two towns would be worse than four spellings.
+  assert.notEqual(nameKey('Cabo Frio'), nameKey('Cabo'))
+  assert.notEqual(nameKey('São Paulo'), nameKey('São Pedro'))
+  assert.notEqual(nameKey('Cabo FrioCabo Frio'), nameKey('Cabo Frio'))
+})
+
+test('nameKey is the same folding `core.name_search_key` applies', { skip: !sqlHalfAvailable }, () => {
+  // The parity that keeps a facet grouped in the browser agreeing with anything grouped in the
+  // database — including the RPC the `data` may serve these options from later.
+  const sql = read(KEY_MIGRATION)
+  const table = /translate\([\s\S]*?'([^']+)',\s*\n\s*'([^']+)'/.exec(sql)
+  assert.ok(table, 'the fold table is still readable from the migration')
+
+  const [, accented, plain] = table!
+  assert.equal(accented.length, plain.length, 'the SQL table has to be aligned')
+  // Every character the SQL folds, the TypeScript folds the same way. This is the exact defect
+  // the migration itself documents: an earlier table shipped with the destination MISALIGNED and
+  // turned `josé café` into `josc cafc`.
+  for (let index = 0; index < accented.length; index += 1) {
+    assert.equal(
+      nameKey(accented[index]),
+      plain[index],
+      `\`${accented[index]}\` must fold to \`${plain[index]}\``
+    )
+  }
+
+  // And the two other steps, in the same order the SQL runs them.
+  assert.match(sql, /regexp_replace\(lower\(term\)/)
+  assert.match(sql, /'\[\^a-z0-9\]\+', ' ', 'g'/)
+  assert.match(sql, /btrim\(/)
 })

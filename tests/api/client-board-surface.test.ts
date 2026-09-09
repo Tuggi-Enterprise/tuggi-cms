@@ -223,6 +223,9 @@ test('#409 · the whole esteira is Portuguese — the seam is between screens, n
     .filter(Boolean)
     .sort()
   assert.deepEqual(readers, [
+    // The chip line renders the applied filters, so it speaks the same pt-only vocabulary the
+    // panel that set them does.
+    'components/admin/clients/ActiveFilterChips.tsx',
     'components/admin/clients/ClientBoard.tsx',
     'components/admin/clients/ClientDirectory.tsx',
     'components/admin/clients/DirectoryFilterRail.tsx',

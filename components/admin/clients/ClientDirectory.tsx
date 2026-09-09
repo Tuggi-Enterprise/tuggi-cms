@@ -38,6 +38,7 @@ import {
   DirectoryFilterRail,
   DirectoryFilterSheet,
 } from '@/components/admin/clients/DirectoryFilterRail'
+import { ActiveFilterChips } from '@/components/admin/clients/ActiveFilterChips'
 import { formatDate } from '@/components/admin/partner-proposals/format'
 import { idleFor, placeLine, planLine, rowKey, whatIsMissing } from '@/components/admin/clients/board/row-text'
 import { derivePartnerPlan, paymentStance } from '@/lib/clients/partner-plan'
@@ -194,8 +195,6 @@ export function ClientDirectory({
 
                 <div className="hidden h-8 w-px bg-gray-200 dark:bg-gray-800 lg:block" aria-hidden="true" />
 
-                <Stat label={t('columns.name')} value={t('results', { count: view.rows.length, total: rows.length })} />
-
                 {/* The broken 72-hour promise (BR-B2B-010, item 4), counted over the WHOLE set
                     and never over the filtered one: it is the count the operator clicks to
                     REACH those rows. */}
@@ -230,6 +229,17 @@ export function ClientDirectory({
                 )}
               </div>
             </div>
+          </div>
+
+          {/* WHAT IS APPLIED, AND HOW MUCH IT LEFT — one line, always present. The count used to
+              sit in the header bar; it moved here so the size of the result and the reasons for
+              it read as one sentence instead of two controls that happen to agree. */}
+          <div className="mb-4">
+            <ActiveFilterChips
+              filters={filters}
+              onFiltersChange={onFiltersChange}
+              result={t('results', { count: view.rows.length, total: rows.length })}
+            />
           </div>
 
           {truncated && (
@@ -429,25 +439,6 @@ export function ClientDirectory({
   )
 }
 
-/**
- * A figure in the sticky bar, in the shape `/pois` uses: micro-caps label over the value.
- *
- * WITH ONE CORRECTION TO THE PATTERN. `/pois` paints these labels `text-gray-400` (#9CA3AF),
- * which measures 2.51:1 at 10px bold on the panel — SC 1.4.3 asks 4.5:1, and 10px is not large
- * text under any reading. `text-gray-500` (#6B7280) is 4.83:1 and is the same label at the same
- * weight. Caught by `axe-core` in `tests/ct/partnerships-a11y.spec.tsx` the moment this screen
- * adopted the idiom; reported to `design` as a finding about the pattern, not about this file.
- */
-function Stat({ label, value }: { label: string; value: string }) {
-  return (
-    <div className="flex flex-col">
-      <span className="mb-1 text-[10px] font-bold uppercase leading-none tracking-widest text-gray-500 dark:text-gray-400">
-        {label}
-      </span>
-      <span className="text-lg font-bold leading-none text-gray-900 dark:text-white">{value}</span>
-    </div>
-  )
-}
 
 /**
  * The pager — the range in words, and the numbers that move it.
