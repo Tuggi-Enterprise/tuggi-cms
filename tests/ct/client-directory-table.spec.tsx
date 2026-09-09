@@ -81,7 +81,12 @@ test.describe('#409 — the table answers who pays', () => {
     await expect(page.getByRole('cell', { name: 'venue' })).toHaveCount(0)
 
     const paying = page.getByRole('row').filter({ hasText: 'Paga por mês' })
-    await expect(paying).toContainText(STANCE.paying)
+    // SINCE 2026-08-26 THE BADGE IS A SYMBOL and carries no word, so `Pagante` lives in its
+    // accessible name and not in the cell's text. This assertion read `toContainText` and had
+    // been failing ever since — a guard that is always red guards nothing. What DS-A11Y-003
+    // actually demands is that the state never be colour alone, and it is not: the name is on
+    // the symbol and the money is spelled out in the line under it.
+    await expect(paying.getByRole('img', { name: STANCE.paying })).toBeVisible()
     await expect(paying).toContainText('R$ 149,00')
 
     /*
@@ -91,11 +96,14 @@ test.describe('#409 — the table answers who pays', () => {
      * BR-B2B-017, item 6, refuses to publish.
      */
     const courtesy = page.getByRole('row').filter({ hasText: 'Cortesia declarada' })
-    await expect(courtesy).toContainText(STANCE.not_paying)
+    await expect(courtesy.getByRole('img', { name: STANCE.not_paying })).toBeVisible()
     await expect(courtesy).toContainText(PLAN.courtesy)
 
+    // The badge says `Não pagante` about both, which is true of the money; the LINE under it is
+    // what keeps a courtesy somebody decided apart from a registration nobody filled in — and
+    // that distinction is the reason the line may never be dropped in favour of the symbol.
     const undeclared = page.getByRole('row').filter({ hasText: 'Ninguém declarou' })
-    await expect(undeclared).toContainText(STANCE.not_paying)
+    await expect(undeclared.getByRole('img', { name: STANCE.not_paying })).toBeVisible()
     await expect(undeclared).toContainText(PLAN.undeclared)
   })
 
@@ -196,7 +204,11 @@ test.describe('#409 — the table pages what it holds', () => {
     await expect(page.getByText('Mostrando 26–43 de 43').first()).toBeVisible()
 
     // Búzios has three rows — one page. The operator is on page 2.
-    await page.getByRole('button', { name: /^Búzios/ }).first().click()
+    //
+    // The dimension is a native `<select>` now (DS-LAYOUT-015): the panel's height no longer
+    // grows with the number of values, which is what made the old stack of buttons unusable once
+    // a facet held more than a handful. The count still travels inside the option.
+    await page.getByLabel(DIRECTORY.filters.city).selectOption({ label: 'Búzios (3)' })
 
     await expect(page.getByText('Mostrando 1–3 de 3').first()).toBeVisible()
     await expect(page.getByRole('row')).toHaveCount(4)

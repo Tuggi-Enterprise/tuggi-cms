@@ -207,18 +207,30 @@ test('#409 — the rail filters by what decides the money, and a proposal is not
     </Wrapper>
   )
 
-  const rail = page.getByRole('region', { name: ptMessages.Clients.directory.filters.plan })
-  const VALUES = ptMessages.Clients.directory.planValues
+  const DIRECTORY = ptMessages.Clients.directory
+  const VALUES = DIRECTORY.planValues
 
-  // Three registrations, one of each — and the proposal answers nothing, so no option counts it.
+  // The board has no rail at any width (DS-LAYOUT-014), so the panel is reached through the
+  // sheet — which is now the door at every width and not only on a phone.
+  await page.getByRole('button', { name: DIRECTORY.filtersTitle, exact: true }).click()
+  const plan = page
+    .getByRole('dialog', { name: DIRECTORY.filtersTitle })
+    .getByLabel(DIRECTORY.filters.plan)
+
+  /*
+   * THE COUNT IS INSIDE THE OPTION, which is what lets a closed control replace the open list
+   * without losing what the list was good for (DS-LAYOUT-015, point 2): the operator reads the
+   * size of a narrowing BEFORE choosing it. Three registrations, one of each — and the proposal
+   * answers nothing, so no option counts it.
+   */
   for (const [label, count] of [[VALUES.paid, 2], [VALUES.courtesy, 1], [VALUES.undeclared, 1]] as const) {
-    await expect(rail.getByRole('button', { name: new RegExp(`^${label}`) })).toContainText(
-      String(count)
-    )
+    await expect(plan.getByRole('option', { name: `${label} (${count})` })).toHaveCount(1)
   }
+  // And on the option that does not filter, too — the size of the whole, before any choice.
+  await expect(plan.getByRole('option', { name: `${DIRECTORY.allOf.plan} (4)` })).toHaveCount(1)
 
-  // Clicking one narrows the board to it.
-  await rail.getByRole('button', { name: new RegExp(`^${VALUES.undeclared}`) }).click()
+  // Choosing one narrows the board behind the sheet.
+  await plan.selectOption('undeclared')
   await expect(page.getByRole('article', { name: 'Ninguém declarou' })).toBeVisible()
   await expect(page.getByRole('article', { name: 'Paga por mês' })).toHaveCount(0)
 })

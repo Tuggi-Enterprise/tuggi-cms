@@ -121,9 +121,10 @@ test.describe('#409 — the facets on a phone', () => {
       </Wrapper>
     )
 
-    // The search field is the rail's, and it exists in the DOM twice — once hidden in the rail,
-    // once in the sheet. Neither is VISIBLE until the sheet opens, which is the claim.
-    await expect(page.getByPlaceholder(DIRECTORY.searchPlaceholder)).toHaveCount(1)
+    // The BOARD has no rail at any width now (DS-LAYOUT-014): a 288px lane costs it a whole
+    // column of the workbench, so the panel lives only in the sheet. Nothing of it is on screen
+    // until the sheet opens; what IS on screen is the door to it.
+    await expect(page.getByPlaceholder(DIRECTORY.searchPlaceholder)).toHaveCount(0)
     await expect(page.getByRole('button', { name: DIRECTORY.filtersTitle, exact: true })).toBeVisible()
   })
 
@@ -139,11 +140,13 @@ test.describe('#409 — the facets on a phone', () => {
     const sheet = page.getByRole('dialog', { name: DIRECTORY.filtersTitle })
     await expect(sheet).toBeVisible()
 
-    // `Em andamento` is the working set — the one facet option that exists whatever the fixture
-    // holds, because `DirectoryFilterRail` renders it unconditionally above `state`.
-    const working = sheet.getByRole('button', { name: /Em andamento/ })
-    await working.click()
-    await expect(working).toHaveAttribute('aria-pressed', 'true')
+    // `Em andamento` is the working set — the one option that exists whatever the fixture holds,
+    // because the panel renders it unconditionally in the `Recortes` group of `Estado da
+    // parceria`. It is an `<option>` of a native `<select>` now, not a button: the dimension is
+    // one control whose height no longer grows with the number of values (DS-LAYOUT-015).
+    const state = sheet.getByLabel(DIRECTORY.filters.state)
+    await state.selectOption('in_progress')
+    await expect(state).toHaveValue('in_progress')
 
     // The trigger now carries the count, which is the whole reason it carries one: with the
     // sheet closed, this is the only thing on screen that says a filter is on.
