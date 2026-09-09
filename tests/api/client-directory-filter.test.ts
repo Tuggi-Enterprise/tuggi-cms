@@ -383,12 +383,12 @@ test('the facet counts read the same search the table does', () => {
   )
 })
 
-// ── Uma opção por lugar, e não uma por grafia ────────────────────────────────────────────────
+// ── One option per place, and not one per spelling ───────────────────────────────────────────
 //
-// Medido em 2026-09-09: 41 propostas, TODAS de Cabo Frio, oferecidas como quatro opções —
-// `Cabo Frio` (36), `Cabo FrioCabo Frio` (3), `Cabo frio` (1) e `CABO FRIO` (1). O operador
-// escolhe uma e conclui que as outras cinco linhas não existem, que é o mesmo desfecho que
-// produziu 3 de 3 duplicatas de parceiro em 2026-08-23.
+// Measured on 2026-09-09: 41 proposals, ALL of them Cabo Frio, offered as four options —
+// `Cabo Frio` (36), `Cabo FrioCabo Frio` (3), `Cabo frio` (1) and `CABO FRIO` (1). The operator
+// picks one and concludes the other five rows do not exist, which is the same ending that
+// produced three of three partner duplicates on 2026-08-23.
 
 const CABO_FRIO_SPELLINGS = ['Cabo Frio', 'Cabo Frio', 'Cabo Frio', 'CABO FRIO', 'Cabo frio']
 
@@ -481,15 +481,15 @@ test('the facet count still excludes only its own dimension', () => {
   assert.equal(view.facets.country.length, 2)
 })
 
-// ── O `RJ` do formulário e o `Rio de Janeiro` do cadastro são o mesmo estado ──────────────────
+// ── The form's `RJ` and the registration's `Rio de Janeiro` are one state ─────────────────────
 
 test('the state of a proposal is canonicalised, so the rail offers one Rio de Janeiro', () => {
-  // Medido em 2026-09-09: `partner.clients.state` já vinha canônico (`Rio de Janeiro`, 41),
-  // porque a promoção passa por `location-normalize`. O FORMULÁRIO nunca passou: 41 de 41
-  // propostas carregam `RJ`. A faceta oferecia dois lugares para um.
+  // Measured on 2026-09-09: `partner.clients.state` already came canonical (`Rio de Janeiro`, 41)
+  // because promotion runs through `location-normalize`. The FORM never did: 41 of 41 proposals
+  // carry `RJ`, and the facet offered two places for one.
   //
-  // `nameKey` NÃO resolve isto e não deveria: `RJ` e `Rio de Janeiro` são nomes diferentes, não
-  // duas grafias do mesmo. Quem resolve é o normalizador, no ponto de junção.
+  // `nameKey` does NOT solve this and should not: `RJ` and `Rio de Janeiro` are different names,
+  // not two spellings of one. What solves it is the normaliser, at the seam.
   const rows = [
     row({ name: 'Da proposta', region: 'Rio de Janeiro', country: 'Brazil' }),
     row({ name: 'Do cadastro', region: 'Rio de Janeiro', country: 'Brazil' }),

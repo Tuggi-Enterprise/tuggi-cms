@@ -408,7 +408,8 @@ export function ClientBoard({
             <ActiveFilterChips
               filters={filters}
               onFiltersChange={onFiltersChange}
-              result={c('results', { count: board.directory.rows.length, total: rows.length })}
+              count={board.directory.rows.length}
+              total={rows.length}
             />
           </div>
 

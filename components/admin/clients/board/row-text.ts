@@ -16,6 +16,8 @@ import type { useTranslations } from 'next-intl'
 import { daysUntil } from '@/lib/partner-form/regularity'
 import { derivePartnerPlan, type PartnerPlan } from '@/lib/clients/partner-plan'
 import { formatMonthlyFee } from '@/lib/partnerships/publish-plan'
+import { COLUMN_STATES, type BoardAct, type BoardColumnId } from '@/lib/clients/board-transitions'
+import { nameKey } from '@/lib/shared/name-search'
 import type { ClientDirectoryRow } from '@/lib/services/partnership-service'
 
 type Translator = ReturnType<typeof useTranslations>
@@ -26,7 +28,19 @@ export function rowKey(row: ClientDirectoryRow): string {
 }
 
 export function placeLine(row: ClientDirectoryRow): string {
-  const parts = [row.city, row.region, row.country].filter(Boolean)
+  /*
+   * TWO PARTS AT MOST, MOST SPECIFIC FIRST (DS-COMPONENTE-080).
+   *
+   * Three shapes shared one screen — seen in the production screenshot of 2026-09-09: a card with
+   * no line at all, one reading `Cabo Frio / Rio de Janeiro`, and a third reading
+   * `Cabo Frio / Rio de Janeiro / Brazil`. The country is what goes: on a mostly domestic base it
+   * does not discriminate, and it is the only ENGLISH text on the screen — `Brazil` is the
+   * canonical form from `lib/shared/location-normalize`, written to compare and not to read.
+   *
+   * It does not vanish from the product: it takes the second slot when it is the second part that
+   * exists (a partner with no region, or no city), which is exactly where it discriminates.
+   */
+  const parts = [row.city, row.region, row.country].filter(Boolean).slice(0, 2)
   return parts.length > 0 ? parts.join(' / ') : '—'
 }
 
@@ -86,7 +100,16 @@ export function idleFor(since: string | null, p: Translator): string {
  */
 export function planLine(row: ClientDirectoryRow, t: Translator): string {
   const plan = derivePartnerPlan(row)
+  const source = sourceOf(plan, t)
+  const value = planValue(plan, t)
+  // ONE FUNCTION, ONE SENTENCE, TWO VIEWS. The provenance took a whole line on the card and the
+  // table did not print it at all — one fact in two places, in two shapes, one of them missing.
+  // It never leaves: it is what stops an operator planning around a number nobody priced.
+  return source ? t('plan.withSource', { line: value, source }) : value
+}
 
+/** The value alone. Private: everything outside reads the whole sentence. */
+function planValue(plan: PartnerPlan, t: Translator): string {
   switch (plan.kind) {
     case 'paid':
       return t('plan.paid', { value: formatMonthlyFee(plan.feeCents ?? 0) })
@@ -110,7 +133,7 @@ export function planLine(row: ClientDirectoryRow, t: Translator): string {
  * is the more useful thing to print, so it wins the slot. `requested` says nothing here: the
  * sentence already opens with `Pediu`, and repeating `na proposta` under it is prose.
  */
-export function planSource(plan: PartnerPlan, t: Translator): string | null {
+function sourceOf(plan: PartnerPlan, t: Translator): string | null {
   if (plan.kind === 'courtesy' && plan.courtesyReason) {
     return t('plan.courtesyReason', { reason: plan.courtesyReason })
   }
@@ -130,3 +153,70 @@ export function planDivergence(plan: PartnerPlan, t: Translator): string | null 
   if (plan.divergence === 'free_choice_paid_registration') return t('plan.divergesFreeChoice')
   return null
 }
+
+/**
+ * ── WHAT THE CARD DOES NOT HAVE TO REPEAT ─────────────────────────────────────────────────────
+ *
+ * `DS-COMPONENTE-079`: a field whose value is the same on every card of the group lives in the
+ * group heading, once. Repeated on the card it takes the line a discriminating field would.
+ *
+ * The rule demands PROOF FROM DATA rather than opinion, and the two functions below are that
+ * proof, run at render time — not a hand-written list of columns that ages on the first new one.
+ */
+
+/**
+ * The state, when it says something the column heading does not.
+ *
+ * Measured on 2026-09-09: 7 of the 8 columns host EXACTLY ONE state, and in 6 of them
+ * `Partnerships.states.<state>` is byte for byte `Clients.board.columns.<column>` — the card
+ * printed `Cliente criado` inside the `Cliente criado` column. The two that discriminate remain:
+ * `conference` (`Em conferência` is not `Conferência de documentos`) and `closed`, which hosts two.
+ *
+ * Point 3 of the rule is what this implements literally: the line comes back exactly where it
+ * discriminates. Point 2 holds outside this function — the `<article>`'s accessible name carries
+ * the state, so nothing is lost to a screen reader.
+ */
+export function stateUnlessColumnSaysIt(
+  row: ClientDirectoryRow,
+  column: BoardColumnId,
+  p: Translator,
+  c: Translator
+): string | null {
+  const states = COLUMN_STATES[column] ?? []
+  const label = p(`states.${row.state}`)
+  // Two conditions, both of data: the column hosts a single state, AND the label is the same
+  // text. Either one failing gives the line back to the card.
+  if (states.length === 1 && label === c(`columns.${column}`)) return null
+  return label
+}
+
+/**
+ * The next step, when the card's own button no longer says it.
+ *
+ * Measured the same day: in 4 of the 7 steps the text IS the act's label — `Registrar a
+ * conferência`, `Criar o local` and `Publicar o local` are byte for byte identical, and
+ * `Comunicar a recusa ao parceiro` contains `Comunicar a recusa`. A card that writes the action
+ * and then draws a button with the same action spends two lines on one decision.
+ *
+ * WHERE THEY DIVERGE THE LINE STAYS, and that case is what stops this becoming "no button, no
+ * line": in `Proposta recebida` the step is `Conferir a regularidade` — the work — and the button
+ * is `Registrar a conferência` — stamping that the work was done. Two different things, both owed
+ * to the screen.
+ *
+ * The comparison folds case, accent and punctuation through `nameKey`, the same ruler the rest of
+ * the CMS decides name identity with — never a local `toLowerCase()` that would drift from it.
+ */
+export function stepUnlessActSaysIt(
+  row: ClientDirectoryRow,
+  act: BoardAct | null,
+  p: Translator,
+  t: Translator
+): string | null {
+  const step = whatIsMissing(row, p)
+  if (!act) return step
+  const spoken = nameKey(t(`acts.${act}`))
+  // `includes` and not equality: the step may be the act plus a complement (`… ao parceiro`), and
+  // the button still says the same thing.
+  return nameKey(step).includes(spoken) ? null : step
+}
+

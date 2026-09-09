@@ -41,11 +41,18 @@ const CHIP_FACETS: FacetKey[] = [
 interface ActiveFilterChipsProps {
   filters: DirectoryFilters
   onFiltersChange: (next: DirectoryFilters) => void
-  /** `{count} de {total}` — the size of what is on screen, which is what the chips explain. */
-  result: string
+  /** How many rows the filters left. */
+  count: number
+  /** How many exist in all. */
+  total: number
 }
 
-export function ActiveFilterChips({ filters, onFiltersChange, result }: ActiveFilterChipsProps) {
+export function ActiveFilterChips({
+  filters,
+  onFiltersChange,
+  count,
+  total,
+}: ActiveFilterChipsProps) {
   const t = useTranslations('Clients.directory')
   const p = useTranslations('Partnerships')
 
@@ -57,6 +64,18 @@ export function ActiveFilterChips({ filters, onFiltersChange, result }: ActiveFi
     if (key === 'status') return t(`statusValues.${value}`)
     return value
   }
+
+  /**
+   * `53 de 53` IS NOT PRINTED — `DS-LAYOUT-016`. A fraction that cannot move stops being status:
+   * with no filter applied, `{n} de {total}` where `n === total` only takes the line. Seen on the
+   * production screenshot of 2026-09-09, printed three centimetres above a second count.
+   *
+   * THE RULE LIVES HERE and not in each view, because the board and the table render this same
+   * line. It does NOT apply to the board's own count below it (`19 de 24 visíveis`): that one is
+   * the WINDOW and is undone by `Ver mais`, while this one is undone by `Limpar filtros`. Two
+   * fractions with different undoers are not redundancy.
+   */
+  const result = count < total ? t('results', { count, total }) : null
 
   const chips: { key: string; label: string; clear: () => void }[] = []
 
@@ -90,7 +109,7 @@ export function ActiveFilterChips({ filters, onFiltersChange, result }: ActiveFi
 
   return (
     <div className="flex flex-wrap items-center gap-2 text-xs">
-      <span className="font-medium text-gray-900 dark:text-gray-200">{result}</span>
+      {result && <span className="font-medium text-gray-900 dark:text-gray-200">{result}</span>}
 
       {chips.map((chip) => (
         <span

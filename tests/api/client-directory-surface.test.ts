@@ -234,7 +234,7 @@ test('the search box types locally and reaches the URL once the typing stops', (
   assert.match(rail, /onCommit=\{\(next\) => set\('search', next\)\}/)
 })
 
-// ── O que abre por cima da lista é um diálogo, e há um só jeito de sê-lo ──────────────────────
+// ── What covers the list is a dialog, and there is one way of being one ──────────────────────
 
 test('the client record is a dialog, and the sheet beside it uses the same four behaviours', () => {
   const modal = read('components/admin/clients/ClientEditorModal.tsx')
@@ -273,29 +273,28 @@ test('the client record is a dialog, and the sheet beside it uses the same four 
   assert.equal(shell.indexOf("'Tab'"), -1)
 })
 
-// ── O painel de filtros: campo de seleção, contagem na opção, fichas do lado de fora ─────────
+// ── The filter panel: a select, the count inside the option, chips outside ───────────────────
 
 test('every dimension is a native select, in four sections, work first', () => {
   const rail = read('components/admin/clients/DirectoryFilterRail.tsx')
 
-  // Queixa 5 do operador em 2026-09-09. O custo do painel antigo era VERTICAL e crescia com o
-  // número de VALORES: `cidade` sozinha imprimia quatro botões para uma cidade real.
+  // The operator's fifth complaint, 2026-09-09. The old panel's cost was VERTICAL and grew with
+  // the number of VALUES: `cidade` alone printed four buttons for one real city.
   assert.match(rail, /<select/)
   assert.equal(rail.indexOf('FacetOptionButton'), -1, 'a pilha de botões saiu inteira')
 
-  // Nativo, e não uma caixa de listagem própria: teclado, digitação por primeiras letras e o
-  // seletor do sistema no telefone vêm de graça — e é por isso que `mais N` e a procura interna
-  // do desenho anterior não existem.
+  // Native, and not a hand-rolled listbox: keyboard, type-ahead and the phone's system picker
+  // come free — which is why the earlier design's `mais N` and per-facet search do not exist.
   assert.equal(rail.indexOf('role="listbox"'), -1)
 
-  // Quatro seções, e `Trabalho` primeiro. `Em andamento` era a primeira opção da ÚLTIMA seção.
+  // Four sections, work first. `Em andamento` used to be the first option of the LAST section.
   const sections = /const SECTIONS: PanelSection\[\] = \[([\s\S]*?)\n\]/.exec(rail)
   assert.ok(sections, 'as seções são declaradas em um lugar só')
   const ids = Array.from(sections![1].matchAll(/id: '(\w+)'/g)).map((match) => match[1])
   assert.deepEqual(ids, ['work', 'commercial', 'where', 'type'])
 
-  // `Estado da parceria` separa recorte de etapa, ou `Em andamento` lê como uma décima primeira
-  // etapa.
+  // `Estado da parceria` keeps the cuts apart from the stages, or `Em andamento` reads as an
+  // eleventh stage.
   assert.match(rail, /<optgroup label=\{t\('stateGroups\.cuts'\)\}>/)
   assert.match(rail, /<optgroup label=\{t\('stateGroups\.stage'\)\}>/)
 })
@@ -303,8 +302,8 @@ test('every dimension is a native select, in four sections, work first', () => {
 test('the count is inside the option, including the one that does not filter', () => {
   const rail = read('components/admin/clients/DirectoryFilterRail.tsx')
   assert.match(rail, /return `\$\{label\} \(\$\{count\}\)`/)
-  // `Todas as cidades (36)` — a resposta de "quanto tem no total" tem de existir ANTES da
-  // escolha, que é o que o controle fechado esconderia.
+  // `Todas as cidades (36)` — the answer to "how many in total" has to exist BEFORE the choice,
+  // which is what a closed control would otherwise hide.
   assert.match(rail, /withCount\(t\(`allOf\.\$\{key\}`\), totalOf\(view\.facets\[key\]\)\)/)
 
   const directory = messages('pt').Clients.directory
@@ -317,35 +316,40 @@ test('the count is inside the option, including the one that does not filter', (
 })
 
 test('what is applied stays visible without opening anything', () => {
-  // A única perda real do controle fechado: no painel antigo a opção ligada ficava sublinhada e
-  // em negrito, e o operador via tudo de relance. Por isso a linha de fichas é obrigatória.
+  // The only real loss of the closed control: in the old panel the chosen option sat underlined
+  // and bold, and the operator saw everything at a glance. Hence the chip line is obligatory.
   const chips = read('components/admin/clients/ActiveFilterChips.tsx')
 
-  // Dimensão E valor: `Minas` sozinho não diz se é o estado do cadastro ou o da parceria.
+  // Dimension AND value: `Minas` alone does not say whether it is the registration's state.
   assert.match(chips, /\$\{t\(`filters\.\$\{key\}`\)\}: \$\{valueLabel\(key, String\(value\)\)\}/)
-  // A busca conta como ficha, pela mesma razão que conta em `activeFilterCount`.
+  // The search counts as a chip, for the same reason it counts in `activeFilterCount`.
   assert.match(chips, /activeFilters\.searchLabel/)
-  // Remover devolve o campo a "todas" — e `state` é a única dimensão cujo "sem filtro" é um valor.
+  // Removing returns the field to "all" — and `state` is the one dimension whose "no filter" is
+  // a value.
   assert.match(chips, /key === 'state' \? 'all' : null/)
 
-  // As duas vistas mostram a linha, e ela leva a contagem do resultado.
+  // Both views render the line, and it carries the result count.
   for (const view of ['ClientBoard', 'ClientDirectory']) {
     const source = read(`components/admin/clients/${view}.tsx`)
     assert.match(source, /<ActiveFilterChips/, `${view} tem de mostrar o que está aplicado`)
-    assert.match(source, /result=\{[cp]?t?\(?'?results'?/, `${view} leva a contagem para a linha`)
+    // The count travels as NUMBERS and not as a finished sentence: `DS-LAYOUT-016` — a fraction
+    // that cannot move is not printed — lives inside the component so it holds for both views at
+    // once. Handing over the composed sentence would give the decision back to each caller.
+    assert.match(source, /count=\{/, `${view} leva a contagem para a linha`)
+    assert.match(source, /total=\{rows\.length\}/, `${view} diz de quantas é a fração`)
   }
 })
 
 test('the board has no rail, which is what gives it back its columns', () => {
   const board = read('components/admin/clients/ClientBoard.tsx')
-  // `cms-width` limita a página a 1600px e o trilho tomava 18% dela, então a área de raias ficava
-  // presa em ~1280px em QUALQUER monitor — 4 das 8 colunas. Bancada que rola de lado não quer
-  // medida de leitura.
+  // `cms-width` caps the page at 1600px and the rail took 18% of it, so the lane area was pinned
+  // at ~1280px on EVERY monitor — four of the eight columns. A workbench that scrolls sideways
+  // does not want a reading measure.
   assert.equal(board.indexOf('<DirectoryFilterRail'), -1)
   assert.match(board, /<DirectoryFilterSheet[\s\S]*?everyWidth/)
   assert.equal(board.indexOf('lg:w-[82%]'), -1)
 
-  // Na tabela o trilho fica, como na `/pois`.
+  // In the table the rail stays, as in `/pois`.
   assert.match(read('components/admin/clients/ClientDirectory.tsx'), /<DirectoryFilterRail/)
 })
 
@@ -353,20 +357,34 @@ test('the directory canonicalises the state it reads from the form', () => {
   const service = read(SERVICE)
   const directory = service.slice(service.indexOf('export async function loadClientDirectory'))
 
-  // `answers.state` é o que a pessoa preencheu — `RJ` em 41 de 41 propostas, medido antes da
-  // normalização de 2026-09-09 — e `clients.state` já vem canônico da promoção. Sem isto a
-  // faceta `Estado` oferecia `RJ (41)` e `Rio de Janeiro (1)` como dois lugares.
+  // `answers.state` is what the person filled in — `RJ` on 41 of 41 proposals, measured before
+  // the normalisation of 2026-09-09 — and `clients.state` already comes canonical from promotion.
+  // Without this the `Estado` facet offered `RJ (41)` and `Rio de Janeiro (1)` as two places.
   //
-  // A BASE FOI NORMALIZADA NO MESMO DIA e isto NÃO virou supérfluo: o formulário continua
-  // gravando `RJ`, então sem esta linha a próxima proposta reabre a divergência. Normalizar o
-  // dado é higiene de uma vez; normalizar na leitura é o que segura as que ainda vão chegar.
+  // THE BASE WAS NORMALISED THE SAME DAY and this did NOT become redundant: the form still writes
+  // `RJ`, so without this line the next proposal reopens the divergence. Normalising the data is
+  // hygiene done once; normalising on read is what holds the ones still to arrive.
   assert.match(directory, /normalizeState\(client\?\.country, answers\.state, answers\.city\)/)
-  // As duas formas de linha passam pela MESMA função, ou voltam a divergir.
+  // Both row shapes go through the SAME function, or they drift apart again.
   assert.match(directory, /normalizeState\(client\.country, client\.region, client\.city\)/)
 
-  // E a leitura NÃO escreve. Corrigir dado gravado é decisão de operação, executada no painel
-  // pelo humano (CLAUDE.md §3) — nunca um `UPDATE` escondido dentro de um `GET` que a tela
-  // dispara a cada carregamento.
+  // And the read does NOT write. Correcting stored data is an operations decision, run in the
+  // panel by the human (CLAUDE.md §3) — never an `UPDATE` hidden inside a `GET` the screen fires
+  // on every load.
   assert.equal(service.indexOf('jsonb_set'), -1)
   assert.equal(service.indexOf('.update('), -1)
+})
+
+test('a fraction that cannot move is not printed', () => {
+  // Seen on the production screenshot of 2026-09-09: `53 de 53` printed three centimetres above
+  // `19 de 53 parcerias visíveis no quadro`, with no filter applied. Status that never changes
+  // stops being status (DS-LAYOUT-016).
+  const chips = read('components/admin/clients/ActiveFilterChips.tsx')
+  assert.match(chips, /count < total \? t\('results'/)
+
+  // And it does NOT apply to the board's count: that one is the WINDOW, and it moves with
+  // `Ver mais`. Two fractions with different undoers are not one thing said twice.
+  const board = read('components/admin/clients/ClientBoard.tsx')
+  assert.match(board, /boardTotalWindowed/)
+  assert.match(board, /boardTotal/)
 })

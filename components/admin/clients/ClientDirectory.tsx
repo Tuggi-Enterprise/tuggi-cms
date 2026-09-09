@@ -238,7 +238,8 @@ export function ClientDirectory({
             <ActiveFilterChips
               filters={filters}
               onFiltersChange={onFiltersChange}
-              result={t('results', { count: view.rows.length, total: rows.length })}
+              count={view.rows.length}
+              total={rows.length}
             />
           </div>
 

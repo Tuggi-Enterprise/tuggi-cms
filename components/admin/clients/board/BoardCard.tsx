@@ -21,18 +21,23 @@ import Link from 'next/link'
 import { X } from 'lucide-react'
 import { useTranslations } from 'next-intl'
 import { deriveTriageStatus, type TriageStatus } from '@/lib/partnerships/triage'
-import { triageDeadlineText, triageText } from '@/components/admin/partnerships/triage-text'
+import { triageText } from '@/components/admin/partnerships/triage-text'
 import {
   idleFor,
   placeLine,
   planDivergence,
   planLine,
-  planSource,
   rowKey,
-  whatIsMissing,
+  stateUnlessColumnSaysIt,
+  stepUnlessActSaysIt,
 } from '@/components/admin/clients/board/row-text'
 import { derivePartnerPlan, paymentStance, type PaymentStance } from '@/lib/clients/partner-plan'
-import { nextAct, type BoardAct, type BoardColumnId } from '@/lib/clients/board-transitions'
+import {
+  isTerminalColumn,
+  nextAct,
+  type BoardAct,
+  type BoardColumnId,
+} from '@/lib/clients/board-transitions'
 import type { ClientDirectoryRow } from '@/lib/services/partnership-service'
 
 /**
@@ -115,20 +120,30 @@ export function BoardCard({
   // `aria-describedby` points at.
   const noticeId = `board-notice-${rowKey(row)}`
   const where = placeLine(row)
-  const deadline = triageDeadlineText(triage)
   // `not_started` and `closed` are not news on a card: the first is a clock that has not begun,
   // the second is one that stopped. Printing either would make every card carry a triage line.
   const showClock = triage.kind !== 'not_started' && triage.kind !== 'closed'
-  const overdue = deadline !== null && triage.kind.indexOf('overdue') === 0
+  /**
+   * WHAT THE COLUMN ALREADY SAYS IS NOT REPEATED HERE (DS-COMPONENTE-079). Both decisions are
+   * MEASURED in `row-text` rather than hand-written: in 6 of the 8 columns the state label is
+   * byte for byte the heading, and in 4 of the 7 steps the text is the label of the button below.
+   */
+  const stateLine = stateUnlessColumnSaysIt(row, column, p, t)
+  const stepLine = stepUnlessActSaysIt(row, act, p, t)
   const plan = derivePartnerPlan(row)
-  const planNote = planSource(plan, t)
   const divergence = planDivergence(plan, t)
   const stance = paymentStance(plan.kind)
 
   return (
     <article
       {...dragHandleProps}
-      aria-label={name}
+      /*
+       * THE STATE TRAVELS IN THE ACCESSIBLE NAME, always — including when the visible line goes
+       * because the column already says it. That is point 2 of `DS-COMPONENTE-079`: somebody on a
+       * screen reader does not walk the column to find out where the card sits, and position on
+       * its own is not an answer.
+       */
+      aria-label={`${name} — ${p(`states.${row.state}`)}`}
       className={`rounded-2xl border border-l-4 border-gray-200 bg-white p-3 text-sm shadow-sm transition-shadow dark:border-gray-800 dark:bg-gray-900 ${
         STANCE_STRIPE[stance]
       } ${dragging ? 'opacity-50' : 'hover:shadow-md'}`}
@@ -140,53 +155,83 @@ export function BoardCard({
       {/* A registration with no city printed `—` on a line of its own — a placeholder is only
           worth a line when its absence is news, and here it is not. */}
       {where !== '—' && (
-        <p className="mt-0.5 text-xs text-gray-500 dark:text-gray-400">{where}</p>
+        <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">{where}</p>
       )}
 
-      {/* The state in words — the card is readable with the column heading out of view. */}
-      <p className="mt-2 font-medium text-gray-900 dark:text-gray-100">{p(`states.${row.state}`)}</p>
-      <p className="text-xs text-gray-800 dark:text-gray-300">{whatIsMissing(row, p)}</p>
+      {/*
+        THE STATE, where it discriminates. Gone from the 6 columns whose label is the heading — the
+        card printed `Cliente criado` inside the `Cliente criado` column — and kept in
+        `Conferência de documentos` (`Em conferência` is another text) and in `Encerrados`, which
+        hosts two states.
+      */}
+      {stateLine && (
+        <p className="mt-1 font-medium text-gray-900 dark:text-gray-100">{stateLine}</p>
+      )}
+
+      {/* THE STEP, when the button does not say it. `Criar o local` written here and drawn on the
+          button right below is two lines for one decision. */}
+      {stepLine && (
+        <p className="mt-1 text-xs text-gray-800 dark:text-gray-300">{stepLine}</p>
+      )}
 
       {/* WHO PAYS, AND WHO SAID SO. The source travels with the value because three people can
           answer this and they answer differently (`lib/clients/partner-plan`): `R$ 149,00 por
           mês` read off a proposal nobody has priced is a number an operator would plan around.
           A disagreement between the signed contract and the registration is the one thing here
           worth an accent, and it gets a border rather than colour alone (DS-A11Y-003). */}
-      <p className="mt-2 text-xs text-gray-900 dark:text-gray-200">
-        {planLine(row, t)}
-        {planNote && <span className="block text-gray-500 dark:text-gray-400">{planNote}</span>}
-      </p>
+      {/* The provenance travels INSIDE the line now (`planLine` composes the whole sentence)
+          instead of spending a second line on `no cadastro`. It never leaves: the button beside it
+          generates a contract with this number, so a value nobody priced is a pendency, not a fact. */}
+      <p className="mt-1 text-xs text-gray-900 dark:text-gray-200">{planLine(row, t)}</p>
 
       {divergence && (
-        <p className="mt-1 rounded-lg border border-secondary-700 px-2 py-1 text-[11px] text-gray-900 dark:text-gray-200">
+        <p className="mt-1 rounded-lg border border-secondary-700 px-2 py-1 text-xs text-gray-900 dark:text-gray-200">
           {divergence}
         </p>
       )}
 
-      {/* EVERY NUMBER IS NAMED. The table carries these under column headings; a card has none,
-          and the first cut stacked `82 dias`, `venceu há 79 dias` and `04/06, 22h15` with
-          nothing to say which was which. `Parado há` and `Triagem` are the same two words the
-          table's headings use, so the two views read the same figure the same way. */}
-      <p className="mt-2 text-xs text-gray-500 dark:text-gray-400">
-        {t('idleLine', { value: idleFor(row.since, p) })}
-      </p>
+      {/*
+        ONE CLOCK PER CARD (DS-COMPONENTE-080, point 2).
 
-      {showClock && (
+        Two counters ran over the same item and the card printed both, plus the deadline's absolute
+        instant on a third line. What wins is the one with a DEADLINE PROMISED TO SOMEBODY OUTSIDE
+        the company — the triage, BR-B2B-010 item 4 — and the internal one (`Parado há`) goes while
+        it runs. It is `DS-COPY-020` point 5 applied to the clock instead of to the step.
+
+        WHAT THE OPERATOR LOSES IS MAGNITUDE, NOT RANKING: `compareRows` already orders the column
+        by overdue triage and then by oldest `since`, and `buildBoardView` walks `directory.rows`
+        in that order — so the queue still says which to pick first. The magnitude is in the table,
+        with the absolute date under it, and `Abrir` is the control that leads there.
+
+        THE ABSOLUTE INSTANT LEAVES THE CARD and `DS-COPY-025` point 5 stays whole: what it forbids
+        is the instant living ONLY in a `title`, unreachable by keyboard. It is still on screen, in
+        the table's `Triagem` column, which is the record view of this same queue.
+      */}
+      {showClock ? (
         <p className="mt-1 text-xs text-gray-900 dark:text-gray-200">
           {p('triage.headerLine', { value: triageText(triage, p) })}
-          {deadline && (
-            <span className="block text-gray-500 dark:text-gray-400">
-              {t(overdue ? 'deadlineLine' : 'deadlineAheadLine', { deadline })}
-            </span>
-          )}
         </p>
+      ) : (
+        // A terminal column has no clock at all: an archive ordered by recency has nothing to urge.
+        !isTerminalColumn(column) && (
+          <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
+            {t('idleLine', { value: idleFor(row.since, p) })}
+          </p>
+        )
       )}
 
-      {/* A proposal nobody promoted has no registration behind it, and the card says so rather
-          than looking like a client that lost its data. Border carries the accent: #CC5200 is
-          4.16:1, which clears SC 1.4.11's 3:1 as a border and misses SC 1.4.3's 4.5:1 as ink. */}
-      {row.clientId === null && (
-        <span className="mt-2 inline-block rounded-full border border-secondary-700 px-2 py-0.5 text-xs text-gray-900 dark:text-gray-200">
+      {/*
+        THE BADGE ONLY WHERE IT DISCRIMINATES, on the same proof from data as `DS-COMPONENTE-079`:
+        `derivePipelineState` returns `proposal_received` and `in_conference` IF AND ONLY IF
+        `clientId` is null, so across both proposal columns the badge is constant and was spending
+        28px on every card. `Encerrados` hosts `discarded` and `refused_at_triage` — a discarded
+        proposal and a refused client — and there it is the only thing telling the two apart.
+
+        The border carries the accent: #CC5200 is 4.16:1, which clears SC 1.4.11's 3:1 as a border
+        and misses SC 1.4.3's 4.5:1 as ink.
+      */}
+      {row.clientId === null && isTerminalColumn(column) && (
+        <span className="mt-1 inline-block rounded-full border border-secondary-700 px-2 py-0.5 text-xs text-gray-900 dark:text-gray-200">
           {c('proposalBadge')}
         </span>
       )}
@@ -195,7 +240,7 @@ export function BoardCard({
         <Link
           href={hrefFor(row)}
           aria-label={c('openNamed', { name })}
-          className="text-xs font-medium text-primary-800 underline underline-offset-4 dark:text-tuggi-blue"
+          className="inline-flex min-h-[24px] items-center text-xs font-medium text-primary-800 underline underline-offset-4 dark:text-tuggi-blue"
         >
           {c('open')}
         </Link>
@@ -207,7 +252,7 @@ export function BoardCard({
             // The message stays reachable from the control that produced it: coming back with
             // `Tab` reads the reason again, without moving focus when it appeared.
             aria-describedby={notice ? noticeId : undefined}
-            className="rounded-lg border border-primary-800 px-2 py-1 text-xs font-medium text-primary-800 transition-colors hover:bg-primary-800/5 dark:border-tuggi-blue dark:text-tuggi-blue"
+            className="inline-flex min-h-[24px] items-center rounded-lg border border-primary-800 px-2 py-1 text-xs font-medium text-primary-800 transition-colors hover:bg-primary-800/5 dark:border-tuggi-blue dark:text-tuggi-blue"
           >
             {t(`acts.${act}`)}
           </button>
@@ -229,7 +274,7 @@ export function BoardCard({
         <div
           id={noticeId}
           role={notice.tone === 'refused' ? 'alert' : 'status'}
-          className="mt-2 flex items-start justify-between gap-2 rounded-xl border border-secondary-700 px-2 py-1 text-[11px] text-gray-900 dark:text-gray-200"
+          className="mt-1 flex items-start justify-between gap-2 rounded-xl border border-secondary-700 px-2 py-1 text-xs text-gray-900 dark:text-gray-200"
         >
           <span>{notice.message}</span>
           {notice.tone === 'refused' && onDismissNotice && (

@@ -113,8 +113,20 @@ test('#409 — a card carries its state in words, so the column is never the onl
     </Wrapper>
   )
 
-  const card = page.getByRole('article', { name: 'Padaria Boa Vista' })
-  await expect(card).toContainText(ptMessages.Partnerships.states.contract_sent)
+  /*
+   * A GARANTIA MUDOU DE CANAL, NÃO DE EXISTÊNCIA — `DS-COMPONENTE-079`.
+   *
+   * A linha visível do estado saía repetida do título da coluna em 6 das 8 colunas: o cartão
+   * imprimia `Contrato enviado` dentro da coluna `Contrato enviado`. O que a coluna não carrega,
+   * e por isso não pode sair, é o NOME ACESSÍVEL — quem lê com leitor de tela não percorre a
+   * coluna para descobrir onde o cartão está.
+   */
+  const card = page.getByRole('article', {
+    name: `Padaria Boa Vista — ${ptMessages.Partnerships.states.contract_sent}`,
+  })
+  await expect(card).toBeVisible()
+  // E o passo continua visível aqui, porque `Cobrar a assinatura do parceiro` não é o rótulo de
+  // botão nenhum — nesta coluna quem assina é o parceiro e não há ato a disparar.
   await expect(card).toContainText(ptMessages.Partnerships.nextSteps.contract_sent)
 })
 
@@ -129,11 +141,22 @@ test('#409 — every figure on a card is named: `Parado há` and `Triagem`, neve
     </Wrapper>
   )
 
-  // The table carries these under column headings; a card has none, and the first cut stacked
-  // `82 dias`, `venceu há 79 dias` and `04/06, 22h15` with nothing to say which was which.
+  /*
+   * TODO NÚMERO CONTINUA NOMEADO, e agora há UM relógio — `DS-COMPONENTE-080`, ponto 2.
+   *
+   * A tabela carrega estes sob cabeçalho de coluna; o cartão não tem nenhum, e a primeira versão
+   * empilhava `82 dias`, `venceu há 79 dias` e `04/06, 22h15` sem dizer qual era qual. O corte
+   * escolhe o relógio com PRAZO PROMETIDO A ALGUÉM DE FORA: com a triagem correndo ela manda e
+   * `Parado há` sai. O operador perde a magnitude e não o ranking, porque `compareRows` já ordena
+   * a coluna por triagem vencida e `buildBoardView` percorre as linhas nessa ordem.
+   */
   const card = page.getByRole('article', { name: 'Bar do Mirante' })
-  await expect(card).toContainText('Parado há')
   await expect(card).toContainText('Triagem:')
+  await expect(card).not.toContainText('Parado há')
+
+  // E o instante absoluto do prazo sai do cartão — ele segue na tabela, que é a vista de registro
+  // desta mesma fila. `DS-COPY-025` ponto 5 proíbe o instante viver só num `title`, e não vive.
+  await expect(card).not.toContainText('Prazo era')
 })
 
 test('#409 — a registration with no city does not print a placeholder on a line of its own', async ({
