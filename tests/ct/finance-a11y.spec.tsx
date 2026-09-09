@@ -30,6 +30,9 @@ import { FinanceWrapper as Wrapper } from './finance-helpers'
 // mesmas: duas cópias divergem, e aí as duas suítes passam a falar de telas diferentes — foi
 // assim que `packaging` existia numa e faltava na outra.
 import { mockAll } from './finance-fixtures'
+import ptMessages from '@/messages/pt.json'
+
+const SECTIONS = ptMessages.Finance.sections
 
 /** Nenhuma violação de `axe` nas regras de A e AA. */
 async function expectAxeClean(page: Page) {
@@ -56,6 +59,10 @@ test.describe('as três seções passam no axe', () => {
         <FinancePageContent />
       </Wrapper>
     )
+    // `Visão geral` é a seção que abre — ela é a única que junta os dois lados do negócio, e
+    // entrou na frente depois que este teste foi escrito. `Parceiros` é uma escolha agora, e
+    // este teste é sobre ela.
+    await component.getByRole('button', { name: SECTIONS.partners }).click()
     await expect(component.getByText('Baires Bistrô')).toBeVisible()
     await expectAxeClean(page)
   })
@@ -103,6 +110,7 @@ test('DS-A11Y-003: o veredito é texto, e a diferença entre dois vereditos cheg
   // e um `button` que age — e quem usa leitor ouve a diferença ("Se paga, botão, não pressionado"
   // contra "Se paga — A mensalidade acumulada já cobriu o custo"). O que este teste guarda é o
   // veredito da LINHA, então é nele que ele encosta.
+  await component.getByRole('button', { name: SECTIONS.partners }).click()
   const rows = component.locator('tbody')
   await expect(rows.getByText('Se paga')).toBeVisible()
   await expect(rows.getByText('Só custo')).toBeVisible()
@@ -130,6 +138,7 @@ test('ausência imprime travessão, nunca R$ 0,00 nem zero', async ({ mount, pag
   // `<span class="sr-only"> — {hint}</span>`, e busca por substring casava com ela: cinco
   // resultados para quatro ausências. Exato faz a asserção dizer o que ela pretende — células
   // cujo conteúdo INTEIRO é o travessão.
+  await component.getByRole('button', { name: SECTIONS.partners }).click()
   const row = component.locator('tr', { hasText: 'Pousada do Alto' })
   await expect(row.getByText('—', { exact: true })).toHaveCount(4)
 })

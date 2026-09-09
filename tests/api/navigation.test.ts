@@ -363,15 +363,17 @@ test('toda chave de rótulo existe nos três idiomas', () => {
 })
 
 test('o rótulo fala a língua da tela que ele abre', () => {
-  // DECISÃO, e não esquecimento. `finance`, `materials` e `partnerships` carregam o MESMO valor
-  // em português nos três idiomas porque os namespaces `Finance`, `Materials` e `Partnerships`
-  // só existem em `pt.json` — as telas são em português. Traduzir o rótulo prometeria uma
-  // tradução que a tela não entrega, e quem chegasse lá em `en` acharia que quebrou.
+  // DECISÃO, e não esquecimento. `materials` e `partnerships` carregam o MESMO valor em português
+  // nos três idiomas porque os namespaces `Materials` e `Partnerships` só existem em `pt.json` —
+  // as telas são em português. Traduzir o rótulo prometeria uma tradução que a tela não entrega,
+  // e quem chegasse lá em `en` acharia que quebrou.
   //
-  // Este teste é o que impede a decisão de virar um acidente silencioso: no dia em que aqueles
-  // namespaces existirem em `en`/`es`, ele fica vermelho e cobra a tradução do rótulo junto.
-  const PT_ONLY = { finance: 'Financeiro', materials: 'Material', partnerships: 'Parcerias' }
-  const namespaces = ['Finance', 'Materials', 'Partnerships'] as const
+  // Este teste é o que impede a decisão de virar um acidente silencioso, e ele funcionou duas
+  // vezes em 2026-09-09: `Finance` GANHOU tradução de verdade (19 chaves em `en` e `es`) e saiu
+  // desta lista com o rótulo dele; e os rótulos de `materials` e `partnerships` tinham sido
+  // traduzidos numa passada de i18n sem que as telas fossem, e voltaram ao português.
+  const PT_ONLY = { materials: 'Material', partnerships: 'Parcerias' }
+  const namespaces = ['Materials', 'Partnerships'] as const
 
   for (const locale of ['en', 'es']) {
     const file = messages(locale)

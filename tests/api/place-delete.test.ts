@@ -207,8 +207,18 @@ test('#409 · a lixeira lê o cms_user com `service_role`, para a função poder
     assert.match(call, /supabaseService/, `${route}: o cms_user tem de ser lido com service_role`)
     assert.doesNotMatch(call, /await supabaseAuth\s*$/, `${route}: nunca com o client do operador`)
 
-    // E o e-mail continua vindo da SESSÃO, não do corpo do pedido: quem diz quem é o chamador é
-    // o cookie. Um `p_email` que viesse do body seria a mesma falha, uma camada acima.
-    assert.match(source, /p_email: session\.user\.email/)
+    /*
+     * E O E-MAIL CONTINUA VINDO DA IDENTIDADE AUTENTICADA, nunca do corpo do pedido. Um
+     * `p_email` que viesse do body seria a mesma falha desta rota, uma camada acima.
+     *
+     * DUAS FORMAS SÃO ACEITAS, e a segunda é a mais forte. `session.user.email` vem de
+     * `getSession()`, que lê o cookie e não o revalida; `auth.cmsUser.email` vem do `withAuth`,
+     * que usa `getUser()` e revalida contra o servidor de auth — é para onde a rota em massa
+     * migrou. Esta asserção exigia só a primeira e ficou vermelha ao cobrar a versão FRACA da
+     * garantia que ela existe para proteger.
+     */
+    assert.match(source, /p_email: (session\.user\.email|auth\.cmsUser\.email)/)
+    // O que segue proibido nas duas formas: o e-mail sair do corpo do pedido.
+    assert.doesNotMatch(source, /p_email: (body|payload|request)\b/)
   }
 })

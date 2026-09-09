@@ -68,7 +68,19 @@ import { StructurePanel } from './StructurePanel'
 type Section = 'overview' | 'partners' | 'catalog' | 'structure'
 const SECTIONS: readonly Section[] = ['overview', 'partners', 'catalog', 'structure']
 
-interface ClientsPayload {
+/**
+ * ── OS TRÊS CONTRATOS DE REDE DESTA TELA, EXPORTADOS ──────────────────────────────────────────
+ *
+ * Exportados porque `tests/ct/finance-fixtures.ts` os TIPA, e é isso que impede o que aconteceu:
+ * o fixture declarava 5 chaves enquanto `ClientsPayload` já exigia 15 — `month`, `series`, `mix`,
+ * `projectionBase`, `fixedCosts` e `structureWindow` nasceram depois e nunca entraram nele. A
+ * tela então quebrava no mount e as nove asserções do módulo ficaram vermelhas por meses sem
+ * contar isso a ninguém.
+ *
+ * Com o fixture tipado, uma chave nova aqui é erro de `tsc` lá — que é o único jeito de um
+ * fixture não envelhecer em silêncio.
+ */
+export interface ClientsPayload {
   clients: ClientProfitability[]
   consumption: ConsumptionRecord[]
   summary: FinanceSummary
@@ -92,7 +104,7 @@ interface ClientsPayload {
   fxUnavailable: boolean
 }
 
-interface CatalogPayload {
+export interface CatalogPayload {
   products: FinanceProduct[]
   recipes: RecipeLine[]
   packaging: PackagingRule[]
@@ -100,7 +112,7 @@ interface CatalogPayload {
   unmappedMaterialKinds: string[]
 }
 
-interface PurchasesPayload {
+export interface PurchasesPayload {
   purchases: FinancePurchaseRow[]
   unitCosts: UnitCostView[]
 }
