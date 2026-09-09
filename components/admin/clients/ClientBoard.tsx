@@ -20,7 +20,7 @@
  * everything the pipeline knows about itself, `Publicado` included.
  */
 
-import { useCallback, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import { useTranslations } from 'next-intl'
 import {
   DndContext,
@@ -60,6 +60,8 @@ import {
   type DirectoryFilters,
 } from '@/lib/clients/directory-filter'
 import { rowKey } from '@/components/admin/clients/board/row-text'
+import { formatDeadline } from '@/components/admin/partner-proposals/format'
+import type { ActOutcome } from '@/lib/hooks/use-board-acts'
 import type { ClientDirectoryRow } from '@/lib/services/partnership-service'
 import type { TriageStatus } from '@/lib/partnerships/triage'
 
@@ -75,7 +77,13 @@ interface ClientBoardProps {
   loading: boolean
   failed: boolean
   /** What a card's act does. The board decides WHICH act; the host performs it. */
-  onAct: (row: ClientDirectoryRow, act: BoardAct) => void
+  onAct: (row: ClientDirectoryRow, act: BoardAct) => Promise<ActOutcome>
+  /**
+   * Where `Abrir` on a card points — composed by the host, which is the only thing that can see
+   * the filters and the view the operator has applied. Same shape and same reason as
+   * `seeAllHref` below.
+   */
+  hrefFor: (row: ClientDirectoryRow) => string
   viewSwitch?: React.ReactNode
 }
 
@@ -89,6 +97,7 @@ export function ClientBoard({
   loading,
   failed,
   onAct,
+  hrefFor,
   viewSwitch,
 }: ClientBoardProps) {
   const t = useTranslations('Clients.board')
@@ -166,7 +175,30 @@ export function ClientBoard({
    * board's whole claim is that it cannot be out of step with it.
    */
   const [dragging, setDragging] = useState<ClientDirectoryRow | null>(null)
-  const [refusal, setRefusal] = useState<{ key: string; message: string } | null>(null)
+  /**
+   * WHAT THE LAST ACT ANSWERED, on the card it answered about.
+   *
+   * One at a time and keyed by row: two notices on a board the operator scans is two things to
+   * dismiss, and the second act is the answer to the first anyway. It used to be `refusal` and
+   * only a DRAG could set it — a refused click painted nothing at all, which is how two acts
+   * stayed broken in production without a report (2026-09-09).
+   */
+  const [notice, setNotice] = useState<
+    { key: string; message: string; tone: 'refused' | 'done' } | null
+  >(null)
+
+  /**
+   * A SUCCESS CLEARS ITSELF, A REFUSAL DOES NOT.
+   *
+   * `Contrato enviado ao parceiro` is news about something that already finished; leaving it
+   * under the card competes with the next one. A refusal describes a state that is still true,
+   * so it stays until another act, a re-read that changes the row, or the `✕`.
+   */
+  useEffect(() => {
+    if (notice?.tone !== 'done') return
+    const timer = setTimeout(() => setNotice(null), 4000)
+    return () => clearTimeout(timer)
+  }, [notice])
 
   const sensors = useSensors(
     // A few pixels of travel before a drag starts, so clicking `Abrir` on a card is a click.
@@ -186,10 +218,66 @@ export function ClientBoard({
     [t]
   )
 
+  /**
+   * THE SENTENCE FOR ONE OUTCOME, and the fallback is deliberate.
+   *
+   * A refusal code the copy does not know is a DEFECT, not a message: printing `link_failed` at
+   * an operator spends the most expensive line of the card on a word they cannot act on. So the
+   * generic sentence renders and the code goes to the console, where it belongs. `unknown` talks
+   * about a FAILURE and never about a rule, so it cannot be mistaken for a legitimate refusal.
+   */
+  const sentence = useCallback(
+    (outcome: ActOutcome, act: BoardAct): string | null => {
+      if (outcome.kind === 'navigated') return null
+      if (outcome.kind === 'done') {
+        return t.has(`acted.${act}`) ? t(`acted.${act}`) : null
+      }
+      if (outcome.kind === 'failed') return t('blocked.unknown')
+
+      // The one sentence that names a fact from the answer instead of only the code. The stamp
+      // is printed by the same helper the `Triagem` column uses, so the two read alike
+      // (DS-COPY-025, point 1); the route may answer without one, and there is a variant for it.
+      if (outcome.reason === 'already_communicated') {
+        const at = outcome.detail?.communicatedAt
+        return typeof at === 'string'
+          ? t('blocked.already_communicated', { date: formatDeadline(at) })
+          : t('blocked.already_communicated_undated')
+      }
+
+      if (!t.has(`blocked.${outcome.reason}`)) {
+        console.warn('[board] act refused with an unnamed reason:', act, outcome.reason)
+        return t('blocked.unknown')
+      }
+      return t(`blocked.${outcome.reason}`)
+    },
+    [t]
+  )
+
+  /**
+   * THE ACT, AND WHAT IT ANSWERED. The host used to call `void acts.run(...)` and the board typed
+   * `onAct` as `=> void`, so every outcome was discarded — see the note on `notice`.
+   */
+  const runAct = useCallback(
+    async (row: ClientDirectoryRow, act: BoardAct) => {
+      setNotice(null)
+      const outcome = await onAct(row, act)
+      const message = sentence(outcome, act)
+      if (!message) return
+      setNotice({
+        key: rowKey(row),
+        message,
+        tone: outcome.kind === 'done' ? 'done' : 'refused',
+      })
+    },
+    [onAct, sentence]
+  )
+
+  const dismissNotice = useCallback(() => setNotice(null), [])
+
   const onDragStart = useCallback(
     (event: DragStartEvent) => {
       const key = String(event.active.id)
-      setRefusal(null)
+      setNotice(null)
       setDragging(rows.find((row) => rowKey(row) === key) ?? null)
     },
     [rows]
@@ -211,7 +299,7 @@ export function ClientBoard({
         return
       }
       if (plan.kind === 'noop') return
-      setRefusal({ key: rowKey(row), message: explain(plan, row, to) })
+      setNotice({ key: rowKey(row), message: explain(plan, row, to), tone: 'refused' })
     },
     [dragging, explain, onAct]
   )
@@ -339,9 +427,11 @@ export function ClientBoard({
                     <BoardCard
                       row={row}
                       column="curation"
-                      locale={locale}
+                      hrefFor={hrefFor}
                       triage={triage.get(rowKey(row)) ?? NOT_STARTED}
-                      onAct={onAct}
+                      onAct={runAct}
+                      notice={notice?.key === rowKey(row) ? notice : null}
+                      onDismissNotice={dismissNotice}
                     />
                   </div>
                 ))}
@@ -426,10 +516,11 @@ export function ClientBoard({
                           key={rowKey(row)}
                           row={row}
                           column={column.id}
-                          locale={locale}
+                          hrefFor={hrefFor}
                           triage={triage.get(rowKey(row)) ?? NOT_STARTED}
-                          onAct={onAct}
-                          refusal={refusal?.key === rowKey(row) ? refusal.message : null}
+                          onAct={runAct}
+                          notice={notice?.key === rowKey(row) ? notice : null}
+                          onDismissNotice={dismissNotice}
                         />
                       ))}
                     </DroppableColumn>
@@ -444,9 +535,9 @@ export function ClientBoard({
                       <BoardCard
                         row={dragging}
                         column={columnOf(dragging.state) ?? 'client'}
-                        locale={locale}
+                        hrefFor={hrefFor}
                         triage={triage.get(rowKey(dragging)) ?? NOT_STARTED}
-                        onAct={onAct}
+                        onAct={runAct}
                       />
                     </div>
                   )}
@@ -478,9 +569,11 @@ export function ClientBoard({
                           key={rowKey(row)}
                           row={row}
                           column={column.id}
-                          locale={locale}
+                          hrefFor={hrefFor}
                           triage={triage.get(rowKey(row)) ?? NOT_STARTED}
-                          onAct={onAct}
+                          onAct={runAct}
+                          notice={notice?.key === rowKey(row) ? notice : null}
+                          onDismissNotice={dismissNotice}
                         />
                       ))}
                     </BoardColumn>
@@ -518,17 +611,19 @@ export function ClientBoard({
 function DraggableCard({
   row,
   column,
-  locale,
   triage,
   onAct,
-  refusal,
+  hrefFor,
+  notice,
+  onDismissNotice,
 }: {
   row: ClientDirectoryRow
   column: BoardColumnId
-  locale: string
   triage: TriageStatus
   onAct: (row: ClientDirectoryRow, act: BoardAct) => void
-  refusal: string | null
+  hrefFor: (row: ClientDirectoryRow) => string
+  notice: { message: string; tone: 'refused' | 'done' } | null
+  onDismissNotice: () => void
 }) {
   const { attributes, listeners, setNodeRef, isDragging } = useDraggable({ id: rowKey(row) })
 
@@ -544,9 +639,11 @@ function DraggableCard({
       <BoardCard
         row={row}
         column={column}
-        locale={locale}
         triage={triage}
         onAct={onAct}
+        hrefFor={hrefFor}
+        notice={notice}
+        onDismissNotice={onDismissNotice}
         dragHandleProps={{
           ...listeners,
           tabIndex,
@@ -555,16 +652,9 @@ function DraggableCard({
         }}
         dragging={isDragging}
       />
-      {/* Why the card came back. `role="status"` so it is announced rather than only seen —
-          a drag that silently reverts reads as a broken screen. */}
-      {refusal && (
-        <p
-          role="status"
-          className="mt-1 rounded-xl border border-secondary-700 px-2 py-1 text-[11px] text-gray-900 dark:text-gray-200"
-        >
-          {refusal}
-        </p>
-      )}
+      {/* The notice used to be rendered HERE, which is why it only ever existed on a desktop
+          column: the curation lane, the drag overlay and the phone's stacked column render
+          `BoardCard` without this wrapper. It lives inside the card now. */}
     </div>
   )
 }

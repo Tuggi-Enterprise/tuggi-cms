@@ -184,3 +184,33 @@ test('the rail speaks the esteira’s language, and the esteira is Portuguese', 
     assert.equal('directory' in messages(locale).Clients, false, `${locale} must not fork the rail`)
   }
 })
+
+// ── The search field does not write the URL once per keystroke ────────────────────────────────
+
+test('the search box types locally and reaches the URL once the typing stops', () => {
+  // Reported on 2026-09-09: "a busca é lenta e não responde corretamente". Bound straight to
+  // `filters.search`, every character ran `router.replace()` — an App Router navigation each
+  // fetching the route's RSC payload — so letters arrived late and out of order.
+  const rail = readFileSync(
+    resolve(import.meta.dirname, '../../components/admin/clients/DirectoryFilterRail.tsx'),
+    'utf8'
+  )
+
+  // The field holds its own letters...
+  assert.match(rail, /const \[text, setText\] = useState\(value\)/)
+  assert.match(rail, /onChange=\{\(event\) => setText\(event\.target\.value\)\}/)
+  // ...and commits on a timer, through a ref — as a dependency the callback is rebuilt every
+  // render, the timer restarts, and the term would never be committed at all.
+  assert.match(rail, /setTimeout\(\(\) => commit\.current\(text\), 250\)/)
+  // The URL still wins when it changes from anywhere else, or the rail and the sheet would
+  // disagree about what is typed in the one filter they share. Adjusted during render rather
+  // than in an effect, which would paint the stale term once first.
+  assert.match(rail, /if \(known !== value\) \{/)
+
+  // And nothing writes the filter straight from a keystroke any more. `filters.search` is still
+  // handed to the field — it is the value the URL owns — but it reaches it as a prop to sync
+  // from, not as the input's bound value.
+  assert.equal(rail.indexOf("set('search', event.target.value)"), -1)
+  assert.match(rail, /<SearchField/)
+  assert.match(rail, /onCommit=\{\(next\) => set\('search', next\)\}/)
+})

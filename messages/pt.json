@@ -2495,7 +2495,30 @@
         "no_place": "Não há local para publicar. Crie o local primeiro.",
         "blocking_pendencies": "O local tem {count} pendência(s) que impedem a publicação.",
         "places_unresolved": "Ainda há local sem publicar nem recusar.",
-        "not_closable": "Não dá para encerrar por aqui. Use a ficha do cliente."
+        "not_closable": "Não dá para encerrar por aqui. Use a ficha do cliente.",
+        "client_not_found": "O cadastro deste cliente não foi encontrado. Recarregue a lista para ver se ele ainda existe.",
+        "contract_not_found": "Ainda não existe contrato gerado para este cliente. Gere o contrato antes de enviar.",
+        "client_without_email": "O cadastro não tem e-mail para receber o contrato. Preencha o e-mail na aba Perfil e envie de novo.",
+        "not_found": "O contrato saiu da tela enquanto você clicava. Recarregue a lista e veja em que pé ele está.",
+        "already_signed": "O parceiro já assinou este contrato. Não há o que reenviar.",
+        "checklist_incomplete": "{count, plural, one {Falta # item para gerar o contrato.} other {Faltam # itens para gerar o contrato.}} O primeiro é {label}, na {where}.",
+        "invalid_client_id": "Este cliente não tem identificador válido. Recarregue a lista.",
+        "lookup_failed": "Não deu para conferir se este cliente já tem local. Tente de novo em instantes.",
+        "create_failed": "O local não chegou a ser criado. Tente de novo em instantes.",
+        "link_failed": "O local foi criado, mas não ficou vinculado a este cliente. Abra a aba Locais e confira antes de repetir.",
+        "no_promoted_proposal": "Este cliente não veio de uma proposta, então não há formulário de onde criar o local. Crie o local pela aba Locais.",
+        "nothing_to_prefill": "A proposta não trouxe dados suficientes para criar o local. Crie o local pela aba Locais.",
+        "already_provisioned": "Este cliente já tem local vinculado. Ele está na aba Locais.",
+        "invalid_place_id": "O pedido saiu incompleto desta tela. Recarregue a página e tente de novo.",
+        "invalid_body": "O pedido saiu incompleto desta tela. Recarregue a página e tente de novo.",
+        "invalid_refusal_id": "O pedido saiu incompleto desta tela. Recarregue a página e tente de novo.",
+        "place_not_linked": "Este local não está mais vinculado a este cliente. Recarregue a lista.",
+        "refusal_not_found": "A recusa que você tentou comunicar não existe mais. Recarregue a lista.",
+        "already_communicated": "Esta recusa já tinha sido comunicada em {date}. Nada mudou.",
+        "already_communicated_undated": "Esta recusa já tinha sido comunicada. Nada mudou.",
+        "write_failed": "Não deu para registrar a comunicação. O relógio das 72 horas continua correndo.",
+        "unknown": "Não deu para completar. Tente de novo, e se repetir recarregue a página.",
+        "unknown_action": "O pedido saiu incompleto desta tela. Recarregue a página e tente de novo."
       },
       "backwards": "O fluxo anda para a frente. Para desfazer, abra a ficha.",
       "notAdjacent": "Falta a etapa {column} antes desta.",
@@ -2505,7 +2528,13 @@
       "windowCount": "{shown} de {total} nesta coluna",
       "boardTotal": "{total, plural, one {# parceria no quadro} other {# parcerias no quadro}}",
       "boardTotalWindowed": "{shown} de {total} parcerias visíveis no quadro",
-      "columnsLabel": "Colunas do quadro"
+      "columnsLabel": "Colunas do quadro",
+      "acted": {
+        "send_contract": "Contrato enviado ao parceiro.",
+        "create_place": "Local criado. Ele está na curadoria.",
+        "communicate_refusal": "Recusa comunicada. O relógio parou."
+      },
+      "dismissRefusal": "Dispensar este aviso"
     },
     "stance": {
       "paying": "Pagante",

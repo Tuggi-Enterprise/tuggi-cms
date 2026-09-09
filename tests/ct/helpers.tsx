@@ -23,6 +23,8 @@ import { QueryProvider } from '@/components/providers/QueryProvider'
 import { AppUserLink } from '@/components/dashboard/AppUserLink'
 import { ClientDirectory } from '@/components/admin/clients/ClientDirectory'
 import { ClientBoard } from '@/components/admin/clients/ClientBoard'
+import { recordHref } from '@/lib/clients/record-href'
+import type { ClientDirectoryRow } from '@/lib/services/partnership-service'
 import { StatCard } from '@/components/ui/StatCard'
 import { formatDuration } from '@/lib/format/duration'
 import { useClientDirectory } from '@/lib/hooks/use-client-directory'
@@ -66,18 +68,27 @@ function useHarnessFilters(initial: DirectoryFilters) {
   return useState<DirectoryFilters>(initial)
 }
 
+/**
+ * What `Abrir` points at in a mount. The host composes this from the URL it can see; there is no
+ * router here, so the harness plays it with the one composer the host uses — which is also what
+ * keeps these tests honest about the filters surviving (`tests/api/client-record-href.test.ts`
+ * owns that guarantee; here it only has to be a real address).
+ */
+const harnessHref = (row: ClientDirectoryRow) =>
+  recordHref('pt', new URLSearchParams(), row.target)
+
 export function DirectoryHarness({ initial = EMPTY_FILTERS }: { initial?: DirectoryFilters }) {
   const [filters, setFilters] = useHarnessFilters(initial)
   const directory = useClientDirectory()
   return (
     <ClientDirectory
-      locale="pt"
       filters={filters}
       onFiltersChange={setFilters}
       rows={directory.rows}
       truncated={directory.truncated}
       loading={directory.loading}
       failed={directory.failed}
+      hrefFor={harnessHref}
     />
   )
 }
@@ -88,13 +99,14 @@ export function BoardHarness({ initial = EMPTY_FILTERS }: { initial?: DirectoryF
   return (
     <ClientBoard
       locale="pt"
+      hrefFor={harnessHref}
       filters={filters}
       onFiltersChange={setFilters}
       rows={directory.rows}
       truncated={directory.truncated}
       loading={directory.loading}
       failed={directory.failed}
-      onAct={() => {}}
+      onAct={async () => ({ kind: 'navigated' })}
     />
   )
 }

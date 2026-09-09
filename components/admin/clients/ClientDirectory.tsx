@@ -69,7 +69,6 @@ const NOT_STARTED: TriageStatus = { kind: 'not_started' }
 const PAGE_SIZE = 25
 
 interface ClientDirectoryProps {
-  locale: string
   /**
    * THE FILTERS ARE THE URL'S, and this component does not know that.
    *
@@ -90,12 +89,17 @@ interface ClientDirectoryProps {
   truncated: boolean
   loading: boolean
   failed: boolean
+  /**
+   * Where `Abrir` on a row points — composed by the host, the only thing that can see the
+   * filters this table is currently showing. A row that carried a finished path was what reset
+   * `Quadro/Tabela` and every facet the moment the operator opened a client.
+   */
+  hrefFor: (row: ClientDirectoryRow) => string
   /** The Quadro/Tabela control, rendered by the host so both views carry the same one. */
   viewSwitch?: React.ReactNode
 }
 
 export function ClientDirectory({
-  locale,
   filters,
   onFiltersChange,
   onCreateNew,
@@ -103,6 +107,7 @@ export function ClientDirectory({
   truncated,
   loading,
   failed,
+  hrefFor,
   viewSwitch,
 }: ClientDirectoryProps) {
   const t = useTranslations('Clients.directory')
@@ -376,7 +381,7 @@ export function ClientDirectory({
                             </td>
                             <td className="px-4 py-4">
                               <Link
-                                href={`/${locale}${row.href}`}
+                                href={hrefFor(row)}
                                 aria-label={t('openNamed', { name })}
                                 className="inline-flex min-h-[24px] items-center text-sm font-medium text-primary-800 underline underline-offset-4 dark:text-tuggi-blue"
                               >

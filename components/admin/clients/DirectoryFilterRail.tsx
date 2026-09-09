@@ -236,6 +236,81 @@ export function DirectoryFilterSheet({
 }
 
 /**
+ * THE SEARCH BOX, AND WHY IT KEEPS ITS OWN COPY OF THE TERM.
+ *
+ * The operator's first complaint about this screen, on 2026-09-09, was that the search "é lenta e
+ * não responde corretamente". The field was bound straight to `filters.search`, which lives in
+ * the URL, so every keystroke ran `router.replace()` — an App Router navigation, one per
+ * character, each fetching the route's RSC payload. Characters arrived late and out of order
+ * because the value on screen was whatever the last navigation had committed.
+ *
+ * So the letters are LOCAL and the URL is the destination, reached once the typing stops. The
+ * URL stays the owner of the filter — `Minas, sem contrato` has to remain a link somebody can
+ * send (DS-LAYOUT-003) — it simply stops being written mid-word.
+ *
+ * The other half of that complaint was the MATCHING, and it is fixed where it belongs, in
+ * `lib/clients/directory-filter`: the predicate now reuses `namePattern` instead of comparing
+ * bytes, so `buzios` finds `Búzios`.
+ */
+function SearchField({
+  id,
+  value,
+  placeholder,
+  onCommit,
+}: {
+  id: string
+  value: string
+  placeholder: string
+  onCommit: (next: string) => void
+}) {
+  const [text, setText] = useState(value)
+  const [known, setKnown] = useState(value)
+
+  /**
+   * The URL still wins when it changes from anywhere else: `Limpar filtros`, a link somebody
+   * pasted, or the other mounting of this panel — the rail and the sheet are two boxes over one
+   * filter and must not disagree about what is typed in it.
+   *
+   * ADJUSTED DURING RENDER AND NOT IN AN EFFECT. React re-runs this component immediately, before
+   * anything paints and without re-rendering a child in between; the effect version renders the
+   * stale term once first, which is the cascading render `react-hooks/set-state-in-effect`
+   * warns about.
+   */
+  if (known !== value) {
+    setKnown(value)
+    setText(value)
+  }
+
+  /**
+   * `onCommit` is rebuilt on every render of the panel — it closes over `filters` — so it is
+   * held in a ref rather than declared as a dependency. As a dependency it would restart the
+   * timer on every render and the term would never be committed at all. The ref is written in an
+   * effect, because a ref written during render is one React may not have committed yet.
+   */
+  const commit = useRef(onCommit)
+  useEffect(() => {
+    commit.current = onCommit
+  })
+
+  useEffect(() => {
+    if (text === value) return
+    const timer = setTimeout(() => commit.current(text), 250)
+    return () => clearTimeout(timer)
+  }, [text, value])
+
+  return (
+    <input
+      id={id}
+      type="text"
+      value={text}
+      placeholder={placeholder}
+      onChange={(event) => setText(event.target.value)}
+      className="w-full rounded-xl border border-gray-200 bg-gray-50/50 py-3 pl-10 pr-4 text-base outline-none transition-all focus:border-transparent focus:ring-2 focus:ring-primary-800 dark:border-gray-700 dark:bg-gray-800/50 dark:text-white sm:text-sm"
+    />
+  )
+}
+
+/**
  * The facets themselves — one implementation, two containers.
  *
  * `headless` drops the panel's own heading, which the sheet already prints in its title bar.
@@ -320,13 +395,11 @@ function FilterPanel({
             carried is exactly the trigger. `sm:text-sm` restores the smaller face above the
             phone breakpoint, where no browser does this.
           */}
-          <input
+          <SearchField
             id={`directory-search${headless ? '-sheet' : ''}`}
-            type="text"
             value={filters.search}
             placeholder={t('searchPlaceholder')}
-            onChange={(event) => set('search', event.target.value)}
-            className="w-full rounded-xl border border-gray-200 bg-gray-50/50 py-3 pl-10 pr-4 text-base outline-none transition-all focus:border-transparent focus:ring-2 focus:ring-primary-800 dark:border-gray-700 dark:bg-gray-800/50 dark:text-white sm:text-sm"
+            onCommit={(next) => set('search', next)}
           />
         </div>
       </div>

@@ -50,7 +50,7 @@ function row(overrides: Partial<ClientDirectoryRow> = {}): ClientDirectoryRow {
     submissionId: 'sub-1',
     clientId: 'client-1',
     state: 'client_created',
-    href: '/admin/clients?clientId=client-1',
+    target: { kind: 'client', clientId: 'client-1', tab: 'partnership' },
     name: 'Cantina do Zé',
     taxId: null,
     city: null,

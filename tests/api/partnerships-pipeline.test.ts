@@ -38,7 +38,7 @@ import {
   PIPELINE_STATES,
   conferenceStarted,
   derivePipelineState,
-  detailPath,
+  detailTarget,
 } from '@/lib/partnerships/pipeline'
 import { EMPTY_CONFERENCE, type ConferenceRecord } from '@/lib/partner-form/regularity'
 import { PUBLIC_PATH_PREFIXES } from '@/lib/roles'
@@ -478,22 +478,37 @@ test('#359 crit. 4: the default filter is `Em andamento` and carries no terminal
   assert.equal(PIPELINE_STATES.indexOf('discarded') >= 0, true, 'but it is filterable by name')
 })
 
-test('#359 · spec §2: the identity of the row changes halfway, and so does the route', () => {
-  assert.equal(
-    detailPath('proposal_received', { submissionId: SUBMISSION_ID, clientId: null }),
-    `/admin/partnerships/proposals/${SUBMISSION_ID}`
+test('#359 \u00b7 spec \u00a72: the identity of the row changes halfway, and so does the target', () => {
+  assert.deepEqual(
+    detailTarget('proposal_received', { submissionId: SUBMISSION_ID, clientId: null }),
+    { kind: 'proposal', submissionId: SUBMISSION_ID }
   )
   // From the client onwards the object is the client, and the client record is where the five
-  // bands live now — the same header, one click from the fiscal data and the contract.
-  assert.equal(
-    detailPath('contract_signed', { submissionId: SUBMISSION_ID, clientId: CLIENT_ID }),
-    `/admin/clients?clientId=${CLIENT_ID}&tab=partnership`
+  // bands live now \u2014 the same header, one click from the fiscal data and the contract.
+  assert.deepEqual(
+    detailTarget('contract_signed', { submissionId: SUBMISSION_ID, clientId: CLIENT_ID }),
+    { kind: 'client', clientId: CLIENT_ID, tab: 'partnership' }
   )
-  assert.equal(
-    detailPath('discarded', { submissionId: SUBMISSION_ID, clientId: CLIENT_ID }),
-    `/admin/partnerships/proposals/${SUBMISSION_ID}`,
+  assert.deepEqual(
+    detailTarget('discarded', { submissionId: SUBMISSION_ID, clientId: CLIENT_ID }),
+    { kind: 'proposal', submissionId: SUBMISSION_ID },
     'a discarded proposal keeps pointing at where its reason and its restore control live'
   )
+})
+
+test('#359 \u00b7 the target is an object, so no address is built where the filters cannot be seen', () => {
+  // The regression this guards: `detailTarget` used to return a finished
+  // `/admin/clients?clientId=X&tab=partnership`, a query composed from nothing, which dropped
+  // `view` and all ten filter keys the operator had applied. Composing the address is
+  // `lib/clients/record-href`'s job because only the host can see them.
+  for (const state of PIPELINE_STATES) {
+    const target = detailTarget(state, { submissionId: SUBMISSION_ID, clientId: CLIENT_ID })
+    assert.equal(
+      typeof target,
+      'object',
+      `${state} must answer with the object it opens, never with a path`
+    )
+  }
 })
 
 // ── The routes and the screens, statically — criteria 1, 2, 18, 29, 30 to 34, 36 ─────────────

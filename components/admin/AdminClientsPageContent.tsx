@@ -24,6 +24,8 @@ import { ClientEditorModal, type ClientEditorTab } from '@/components/admin/clie
 import { useSupabaseClient, useSessionContext } from '@supabase/auth-helpers-react'
 import { RETURN_TO_PARAM, parseReturnTo } from '@/lib/navigation/return-to'
 import { applyFilters, parseFilters, type DirectoryFilters } from '@/lib/clients/directory-filter'
+import { recordHref } from '@/lib/clients/record-href'
+import type { ClientDirectoryRow } from '@/lib/services/partnership-service'
 
 function AdminClientsContent() {
   const router = useRouter()
@@ -96,14 +98,38 @@ function AdminClientsContent() {
 
   const navigate = useCallback((href: string) => router.push(href), [router])
 
+  /**
+   * WHERE `Abrir` POINTS, and it is one composer for the link and for the act.
+   *
+   * The operator reported two defects on 2026-09-09 — the Quadro/Tabela choice resetting when a
+   * client was opened, and the filters resetting too — and they were the same line: the row
+   * carried a finished path built from nothing, so `view` and all ten filter keys were dropped
+   * on the way in. `openRecord` right below already did this correctly, and was simply not what
+   * the link used. Two ways to open one record, and the wrong one was the one under the cursor.
+   *
+   * It stays an `href` and does not become an `onClick`: the operator middle-clicks `Abrir` to
+   * put a second partner in another tab while keeping the queue on screen.
+   */
+  const hrefFor = useCallback(
+    (row: ClientDirectoryRow) =>
+      recordHref(locale, new URLSearchParams(searchParams.toString()), row.target),
+    [locale, searchParams]
+  )
+
   const openRecord = useCallback(
     (id: string, tab: string) => {
-      const params = new URLSearchParams(searchParams.toString())
-      params.set('clientId', id)
-      params.set('tab', tab)
-      router.push(`/admin/clients?${params.toString()}`, { scroll: false })
+      // The same composer the link uses — an act that opens the record must not land the
+      // operator somewhere the link would not have.
+      router.push(
+        recordHref(locale, new URLSearchParams(searchParams.toString()), {
+          kind: 'client',
+          clientId: id,
+          tab: tab as 'partnership',
+        }),
+        { scroll: false }
+      )
     },
-    [router, searchParams]
+    [router, locale, searchParams]
   )
 
   const acts = useBoardActs({
@@ -245,12 +271,12 @@ function AdminClientsContent() {
             truncated={directory.truncated}
             loading={directory.loading}
             failed={directory.failed}
-            onAct={(row, act) => void acts.run(row, act)}
+            onAct={(row, act) => acts.run(row, act)}
+            hrefFor={hrefFor}
             viewSwitch={viewSwitch}
           />
         ) : (
           <ClientDirectory
-            locale={locale}
             filters={filters}
             onFiltersChange={writeFilters}
             onCreateNew={startCreateNew}
@@ -258,6 +284,7 @@ function AdminClientsContent() {
             truncated={directory.truncated}
             loading={directory.loading}
             failed={directory.failed}
+            hrefFor={hrefFor}
             viewSwitch={viewSwitch}
           />
         )}

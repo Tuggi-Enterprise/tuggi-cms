@@ -295,3 +295,82 @@ test('#409 · the destination is one constant, not four strings that drift', () 
     )
   }
 })
+
+// ── The act ANSWERS, and two acts that never worked ──────────────────────────────────────────
+//
+// Reported by the operator on 2026-09-09 as "a abertura de um cliente" and nothing else — the
+// two broken acts were NOT reported, because a refused click painted nothing at all. `onAct` was
+// typed `=> void` and the host called `void acts.run(...)`, so every `ActOutcome` was discarded
+// and the nine sentences of `blocked` could only be reached by a refused DRAG.
+
+const COMMUNICATE_ROUTE =
+  'app/api/admin/partnerships/clients/[clientId]/places/[attractionId]/triage-refusal/communicate/route.ts'
+const PLACES_ROUTE = 'app/api/admin/partnerships/clients/[clientId]/places/route.ts'
+const PROVISIONING = 'lib/services/partner-place-provisioning.ts'
+
+test('#409 · the outcome of an act reaches the screen — it is not thrown away', () => {
+  // The host awaits instead of voiding, and the board's prop says so in its type.
+  assert.equal(code(HOST).indexOf('void acts.run'), -1, 'the outcome may not be discarded')
+  assert.match(code(BOARD), /onAct: \(row: ClientDirectoryRow, act: BoardAct\) => Promise<ActOutcome>/)
+
+  // And the card renders it. It lives in the CARD and not in the drag layer: the curation lane,
+  // the drag overlay and the phone's stacked column all render `BoardCard` unwrapped, so a
+  // notice in the wrapper is a notice the phone never sees.
+  const card = code(CARD)
+  assert.match(card, /notice\?: \{ message: string; tone: 'refused' \| 'done' \} \| null/)
+  assert.match(card, /role=\{notice\.tone === 'refused' \? 'alert' : 'status'\}/)
+  assert.match(card, /aria-describedby=\{notice \? noticeId : undefined\}/)
+})
+
+test('#409 · communicating a refusal names WHICH refusal, or the route answers 400 every time', () => {
+  // The route refuses to derive the current round on purpose: deriving it there would stamp a
+  // round the operator was not looking at when a second one arrived meanwhile.
+  assert.match(code(COMMUNICATE_ROUTE), /body\.refusalId/)
+  assert.match(code(ACTS), /refusalId: owed\.refusal\.id/)
+
+  // Which only works because the row carries the id. It used to project two stamps and no
+  // identity, and that is what made the act post `{}`.
+  assert.match(code('lib/partnerships/triage.ts'), /'id' \| 'decidedAt' \| 'communicatedAt'/)
+  assert.match(code('lib/services/partnership-service.ts'), /id: current\.id/)
+})
+
+test('#409 · a 200 that created nothing is a refusal, not a success', () => {
+  // `provisionPartnerPlace` skips as often as it creates, and the route wraps both in `ok: true`.
+  assert.match(code(PLACES_ROUTE), /NextResponse\.json\(\{ ok: true, place: outcome \}\)/)
+  assert.match(code(ACTS), /place\?\.status === 'skipped'/)
+})
+
+test('#409 · every reason these three routes can answer with has a sentence', () => {
+  const blocked = messages('pt').Clients.board.blocked
+
+  // Read from the ROUTES rather than from a list here, so a new refusal code cannot ship
+  // without its copy. `unknown` is the deliberate floor and is asserted separately.
+  const codes = new Set<string>()
+  for (const route of [COMMUNICATE_ROUTE, PLACES_ROUTE, 'app/api/admin/clients/[clientId]/contract/route.ts']) {
+    for (const match of code(route).matchAll(/error: '(\w+)'/g)) codes.add(match[1])
+  }
+  // Plus the three the provisioning skips with, which never become an `error:` — they arrive
+  // inside a successful body, which is exactly what made them invisible.
+  for (const match of code(PROVISIONING).matchAll(/status: 'skipped', reason: '(\w+)'/g)) {
+    codes.add(match[1])
+  }
+
+  assert.ok(codes.size >= 12, `only ${codes.size} reason codes found — the ruler stopped reading`)
+  for (const reason of codes) {
+    // `unknown_action` and `invalid_body` of the contract route are unreachable from a card, but
+    // a sentence for a code the board cannot show costs one line and removes a whole class of
+    // "which of these can actually happen" from the next reader.
+    assert.equal(typeof blocked[reason], 'string', `\`${reason}\` has no copy in Clients.board.blocked`)
+  }
+
+  // The floor, the dismissal, and a sentence for each act that fires a request.
+  assert.equal(typeof blocked.unknown, 'string', 'the generic failure has no sentence')
+  assert.equal(typeof messages('pt').Clients.board.dismissRefusal, 'string')
+  for (const act of ['send_contract', 'create_place', 'communicate_refusal']) {
+    assert.equal(
+      typeof messages('pt').Clients.board.acted[act],
+      'string',
+      `\`${act}\` succeeds without saying so`
+    )
+  }
+})

@@ -103,8 +103,16 @@ export interface PlaceTriageOutcome {
   attractionId: string
   /** `PlaceReadiness.published` — the visibility predicate of the place's own `entity_kind`. */
   published: boolean
-  /** The refusal in force, if any. Many rows per place is by design (BR-B2B-011, item 5). */
-  refusal: Pick<TriageRefusal, 'decidedAt' | 'communicatedAt'> | null
+  /**
+   * The refusal in force, if any. Many rows per place is by design (BR-B2B-011, item 5).
+   *
+   * `id` TRAVELS FOR THE SAME REASON `attractionId` DOES, one field up: the clock does not read
+   * it, and everything that ACTS on the clock needs it. Communicating a refusal is a call on ONE
+   * round, and the route will not derive which — deriving it there would stamp a round the
+   * operator was not looking at when a second one arrived meanwhile. Without it on the row, the
+   * board's `Comunicar a recusa` posted no id and answered 400 on every click.
+   */
+  refusal: Pick<TriageRefusal, 'id' | 'decidedAt' | 'communicatedAt'> | null
 }
 
 /**

@@ -186,9 +186,22 @@ export function derivePipelineState(input: PipelineInput): PipelineState {
 }
 
 /**
- * Where `Abrir` goes, without the locale prefix. States 1 and 2 are about the submission;
- * everything from the client onwards is about the client. A discarded proposal keeps pointing
- * at the submission, which is where its reason and the restore control live.
+ * WHAT `Abrir` OPENS — the object, and never the address.
+ *
+ * This used to return a finished path, `/admin/clients?clientId=X&tab=partnership`, and that
+ * string was a query built from nothing: it carried the record and dropped everything else the
+ * operator had on screen. `view=table` went, and so did the search, the country, the pipeline
+ * state — so opening a card from a filtered board and coming back landed on an unfiltered
+ * board in the other view. The list has one set of filters and they live in the URL; a module
+ * with no access to that URL cannot be the one writing it.
+ *
+ * So the decision that IS this module's — which of the two objects a row is about — comes back
+ * as the object, and the caller composes the address around the parameters it already holds.
+ * `lib/clients/record-href` is the one composer, shared by the link and by `openRecord`.
+ *
+ * States 1 and 2 are about the submission; everything from the client onwards is about the
+ * client. A discarded proposal keeps pointing at the submission, which is where its reason and
+ * the restore control live.
  *
  * FROM THE CLIENT ONWARDS IT IS THE CLIENT RECORD, and no longer a screen of its own. The five
  * bands are a TAB of `/admin/clients` now, carrying the same header — state, next step and the
@@ -197,12 +210,16 @@ export function derivePipelineState(input: PipelineInput): PipelineState {
  * changes away from them. `/admin/partnerships/clients/{id}` still answers, for the links
  * already out there.
  */
-export function detailPath(
+export type DetailTarget =
+  | { kind: 'client'; clientId: string; tab: 'partnership' }
+  | { kind: 'proposal'; submissionId: string }
+
+export function detailTarget(
   state: PipelineState,
   ids: { submissionId: string; clientId: string | null }
-): string {
+): DetailTarget {
   if (ids.clientId && state !== 'discarded') {
-    return `/admin/clients?clientId=${ids.clientId}&tab=partnership`
+    return { kind: 'client', clientId: ids.clientId, tab: 'partnership' }
   }
-  return `/admin/partnerships/proposals/${ids.submissionId}`
+  return { kind: 'proposal', submissionId: ids.submissionId }
 }

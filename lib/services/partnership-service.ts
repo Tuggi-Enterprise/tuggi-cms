@@ -55,7 +55,8 @@ import {
 } from '@/lib/services/client-conference-service'
 import {
   derivePipelineState,
-  detailPath,
+  detailTarget,
+  type DetailTarget,
   type PipelineState,
 } from '@/lib/partnerships/pipeline'
 import type { PartnerAnswers } from '@/lib/partner-form/schema'
@@ -190,8 +191,12 @@ export interface ClientDirectoryRow {
   /** The record the row opens, or `null` while the proposal has not been promoted. */
   clientId: string | null
   state: PipelineState
-  /** Where `Abrir` goes, without the locale prefix. */
-  href: string
+  /**
+   * WHAT `Abrir` opens — the object, not the address. The URL is composed by
+   * `lib/clients/record-href`, which is the only thing that can see the filters the operator
+   * has applied; a row that carried a finished path dropped every one of them.
+   */
+  target: DetailTarget
   name: string | null
   taxId: string | null
   city: string | null
@@ -316,7 +321,7 @@ export async function loadClientDirectory(operator: SupabaseClient): Promise<Cli
       submissionId: row.id,
       clientId: client?.id ?? null,
       state,
-      href: detailPath(state, { submissionId: row.id, clientId: client?.id ?? null }),
+      target: detailTarget(state, { submissionId: row.id, clientId: client?.id ?? null }),
       // What the partner wrote wins over the registration while both exist: the proposal is
       // the name the operator is about to recognise in the queue.
       name: answers.trade_name ?? client?.name ?? null,
@@ -372,7 +377,9 @@ export async function loadClientDirectory(operator: SupabaseClient): Promise<Cli
         refusedPlaceCount: outcomes.filter(isRefusedAtTriage).length,
         uncommunicatedRefusal: hasUncommunicatedRefusal(outcomes),
       }),
-      href: `/admin/clients?clientId=${client.id}`,
+      // A registration nobody proposed still opens the record, and still through the one
+      // composer: the second hand-built query string was the same defect as the first.
+      target: { kind: 'client', clientId: client.id, tab: 'partnership' },
       name: client.name ?? client.companyName ?? null,
       taxId: client.taxId,
       city: client.city,
@@ -698,8 +705,8 @@ async function loadPublicationTrail(
 }
 
 /**
- * The two stamps of the refusal in force for each place — what the 72h clock reads
- * (BR-B2B-010, item 4).
+ * The refusal in force for each place, identified and stamped — what the 72h clock reads
+ * (BR-B2B-010, item 4), and what the act that stops it needs.
  *
  * No operator name is resolved here: the queue asks for up to 500 rows and each name is an Auth
  * Admin round trip. The detail asks for the name through `loadCurrentRefusals`, where there is
@@ -707,8 +714,11 @@ async function loadPublicationTrail(
  */
 async function loadRefusalStamps(
   attractionIds: string[]
-): Promise<Map<string, { decidedAt: string; communicatedAt: string | null }>> {
-  const map = new Map<string, { decidedAt: string; communicatedAt: string | null }>()
+): Promise<Map<string, { id: string; decidedAt: string; communicatedAt: string | null }>> {
+  // `id` COSTS NOTHING AND WAS THE MISSING PIECE. `currentRefusal` already hands back the whole
+  // row, so carrying its id is a field and not a read — and without it the board could not name
+  // WHICH round it was communicating, which is the one thing the route refuses to guess.
+  const map = new Map<string, { id: string; decidedAt: string; communicatedAt: string | null }>()
   if (attractionIds.length === 0) return map
 
   let rows: Map<string, TriageRefusalRow[]>
@@ -727,6 +737,7 @@ async function loadRefusalStamps(
     const current = currentRefusal(list.map(toRefusal))
     if (current) {
       map.set(attractionId, {
+        id: current.id,
         decidedAt: current.decidedAt,
         communicatedAt: current.communicatedAt,
       })

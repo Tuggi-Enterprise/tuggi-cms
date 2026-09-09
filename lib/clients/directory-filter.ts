@@ -31,6 +31,7 @@ import {
   type PipelineState,
 } from '@/lib/partnerships/pipeline'
 import { planFacetValue } from '@/lib/clients/partner-plan'
+import { namePattern } from '@/lib/shared/name-search'
 import type { ClientDirectoryRow } from '@/lib/services/partnership-service'
 
 /**
@@ -114,12 +115,46 @@ function isLate(row: ClientDirectoryRow): boolean {
   return isTriageOverdue(deriveTriageStatus(row.triage))
 }
 
-/** The searchable text of a row — name, CNPJ and place, the three an operator types. */
+/**
+ * The searchable text of a row — name, CNPJ and place, the three an operator types.
+ *
+ * THE TAX ID TRAVELS TWICE, and the second copy is not redundancy. `namePattern` opens a hole
+ * wherever the TYPED term has a separator, which is what makes `12.345.678/0001-90` find a value
+ * stored as digits. It does nothing for the opposite direction — digits typed against a value
+ * stored as `12.345.678/0001-90` — because the term carries no separator to open a hole with.
+ * Registrations hold both spellings, so the digits go in as well and either way of typing finds
+ * either way of storing.
+ */
 function haystack(row: ClientDirectoryRow): string {
-  return [row.name, row.taxId, row.city, row.region, row.country]
+  const digits = row.taxId ? row.taxId.replace(/\D/g, '') : null
+  return [row.name, row.taxId, digits, row.city, row.region, row.country]
     .filter(Boolean)
     .join(' ')
-    .toLowerCase()
+}
+
+/**
+ * THE TERM, COMPILED ONCE PER TERM AND NOT ONCE PER ROW.
+ *
+ * `matches` runs the search predicate for every row and again for every facet, so a `RegExp`
+ * built inside it would be compiled about nine times per row — 4.500 compiles for 500 clients on
+ * a single keystroke. The cache holds ONE entry because there is one search box: the term the
+ * operator is typing now.
+ *
+ * The module stays pure in the way that matters — same rows and same filters, same answer — and
+ * `tests/api/client-directory-filter.test.ts` still proves it with no browser and no database.
+ */
+let compiledTerm: string | null = null
+let compiled: RegExp | null = null
+
+function searchPattern(term: string): RegExp | null {
+  if (term === '') return null
+  if (term !== compiledTerm) {
+    compiledTerm = term
+    // `namePattern` emits character classes and `.?.?.?` holes — no comma, no parenthesis, no
+    // backslash — so the same string Postgres reads as `~*` is a valid JavaScript regex.
+    compiled = new RegExp(namePattern(term), 'i')
+  }
+  return compiled
 }
 
 /**
@@ -127,9 +162,22 @@ function haystack(row: ClientDirectoryRow): string {
  * keep the rest — the alternative is a second predicate that drifts from this one.
  */
 const MATCHERS: Record<FacetKey | 'search' | 'onlyLate', (row: ClientDirectoryRow, filters: DirectoryFilters) => boolean> = {
+  /**
+   * ONE SEARCH RULE FOR THE WHOLE CMS, and this list was comparing bytes.
+   *
+   * `toLowerCase()` plus `indexOf` fails on exactly the three ways an operator misses a row that
+   * is sitting in front of them, all measured on real rows on 2026-08-23 and written down in
+   * `lib/shared/name-search`: ACCENT (`buzios` never found `Búzios`, and a name stored decomposed
+   * was not even found by typing the accent), CASE for the `LIKE` spellings, and PUNCTUATION —
+   * `12.345.678/0001-90` typed against a `taxId` stored as digits. Three of three partner
+   * duplicates came from that first one, on this very screen's sibling.
+   *
+   * So the rule is not reimplemented here: `namePattern` is the one that already exists, shared
+   * with `core.name_search_pattern` in SQL under a parity test.
+   */
   search: (row, filters) => {
-    const needle = filters.search.trim().toLowerCase()
-    return needle === '' || haystack(row).indexOf(needle) >= 0
+    const pattern = searchPattern(filters.search.trim())
+    return pattern === null || pattern.test(haystack(row))
   },
   country: (row, filters) => filters.country === null || row.country === filters.country,
   region: (row, filters) => filters.region === null || row.region === filters.region,

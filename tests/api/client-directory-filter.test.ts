@@ -41,7 +41,7 @@ function row(overrides: Partial<ClientDirectoryRow>): ClientDirectoryRow {
     submissionId: null,
     clientId: 'c1',
     state: 'client_created',
-    href: '/admin/clients?clientId=c1',
+    target: { kind: 'client', clientId: 'c1', tab: 'partnership' },
     name: 'Cliente',
     taxId: null,
     city: null,
@@ -313,4 +313,72 @@ test('every number is inside the range, and none repeats', () => {
       assert.ok(numbers.indexOf(page) >= 0, `page ${page} of ${pageCount} lost the current page`)
     }
   }
+})
+
+// ── The search, and the three ways it used to miss a row sitting in front of the operator ────
+//
+// Reported on 2026-09-09: "a busca é lenta e não responde corretamente quando buscamos". The
+// slowness was the URL being written once per keystroke and is fixed in `DirectoryFilterRail`;
+// THIS is the other half. The predicate compared bytes — `toLowerCase()` plus `indexOf` — and
+// the CMS already had one rule for searching by name, with the three failures measured on real
+// rows on 2026-08-23 (`lib/shared/name-search`). Three of three partner duplicates came from the
+// first of them.
+
+function found(rows: ClientDirectoryRow[], search: string): string[] {
+  return buildDirectoryView(rows, { ...EMPTY_FILTERS, search }).rows.map((r) => r.name ?? '')
+}
+
+test('the search is blind to accent — `buzios` finds `Búzios`', () => {
+  const rows = [row({ name: 'Pousada Búzios' }), row({ name: 'Bar do Centro' })]
+  assert.deepEqual(found(rows, 'buzios'), ['Pousada Búzios'])
+  // And the other direction: typing the accent still finds it.
+  assert.deepEqual(found(rows, 'búzios'), ['Pousada Búzios'])
+})
+
+test('the search finds a name stored DECOMPOSED, which is what `ILIKE` could not', () => {
+  // `ô` as `o` + U+0302 — how `Faella Bistrô` is actually stored. Neither `%Bistrô%` (typed NFC)
+  // nor `%Bistro%` matched it, and the only button left to the operator was `Criar um local novo`.
+  const decomposed = 'Faella Bistro\u0302'
+  const rows = [row({ name: decomposed })]
+  assert.equal(found(rows, 'Bistro').length, 1, 'without the accent')
+  assert.equal(found(rows, 'Bistrô').length, 1, 'and with it, typed NFC')
+})
+
+test('the search is blind to case', () => {
+  const rows = [row({ name: 'CABO FRIO Turismo' })]
+  assert.equal(found(rows, 'cabo frio').length, 1)
+})
+
+test('a CNPJ typed with punctuation finds one stored as digits, and the reverse', () => {
+  const formatted = row({ name: 'Com pontuação', taxId: '12.345.678/0001-90' })
+  const raw = row({ name: 'Sem pontuação', taxId: '98765432000155' })
+
+  assert.deepEqual(found([formatted], '12345678000190'), ['Com pontuação'])
+  assert.deepEqual(found([raw], '98.765.432/0001-55'), ['Sem pontuação'])
+})
+
+test('the search still spans name, place and tax id — and still narrows', () => {
+  const rows = [
+    row({ name: 'Cantina', city: 'Cabo Frio' }),
+    row({ name: 'Padaria', city: 'Santos' }),
+  ]
+  assert.deepEqual(found(rows, 'cabo'), ['Cantina'])
+  assert.equal(found(rows, 'nada disso').length, 0, 'a term nobody matches still empties the list')
+})
+
+test('the facet counts read the same search the table does', () => {
+  // The defect this whole module exists to prevent, now reachable through the search too: a
+  // count that ignored the term would promise rows the table would not show.
+  const rows = [
+    row({ name: 'Búzios A', country: 'Brazil' }),
+    row({ name: 'Búzios B', country: 'Brazil' }),
+    row({ name: 'Outro', country: 'Portugal' }),
+  ]
+  const view = buildDirectoryView(rows, { ...EMPTY_FILTERS, search: 'buzios' })
+  assert.equal(view.rows.length, 2)
+  assert.deepEqual(
+    view.facets.country.map((option) => [option.value, option.count]),
+    [['Brazil', 2]],
+    'Portugal has nobody left once the term is applied, so it is not an option'
+  )
 })

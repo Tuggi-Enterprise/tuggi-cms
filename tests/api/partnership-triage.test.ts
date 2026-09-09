@@ -47,7 +47,7 @@ import {
   PIPELINE_STATES,
   TERMINAL_STATES,
   derivePipelineState,
-  detailPath,
+  detailTarget,
 } from '@/lib/partnerships/pipeline'
 import { formatClockTime, formatDeadline } from '@/components/admin/partner-proposals/format'
 import { EMPTY_CONFERENCE } from '@/lib/partner-form/regularity'
@@ -698,11 +698,11 @@ test('#377 · DS-COPY-020 point 5: the overdue counter and the default filter ca
   }
 })
 
-test('#377 · the refused row opens the CLIENT detail, where the refusal is', () => {
+test('#377 \u00b7 the refused row opens the CLIENT detail, where the refusal is', () => {
   // The client detail is a tab of the record now; the refusal is still band 4, unmoved.
-  assert.equal(
-    detailPath('refused_at_triage', { submissionId: 'sub-1', clientId: CLIENT_ID }),
-    `/admin/clients?clientId=${CLIENT_ID}&tab=partnership`
+  assert.deepEqual(
+    detailTarget('refused_at_triage', { submissionId: 'sub-1', clientId: CLIENT_ID }),
+    { kind: 'client', clientId: CLIENT_ID, tab: 'partnership' }
   )
 })
 

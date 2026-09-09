@@ -18,6 +18,7 @@
  */
 
 import Link from 'next/link'
+import { X } from 'lucide-react'
 import { useTranslations } from 'next-intl'
 import { deriveTriageStatus, type TriageStatus } from '@/lib/partnerships/triage'
 import { triageDeadlineText, triageText } from '@/components/admin/partnerships/triage-text'
@@ -27,6 +28,7 @@ import {
   planDivergence,
   planLine,
   planSource,
+  rowKey,
   whatIsMissing,
 } from '@/components/admin/clients/board/row-text'
 import { derivePartnerPlan, paymentStance, type PaymentStance } from '@/lib/clients/partner-plan'
@@ -69,10 +71,24 @@ const STANCE_STRIPE: Record<PaymentStance, string> = {
 interface BoardCardProps {
   row: ClientDirectoryRow
   column: BoardColumnId
-  locale: string
+  /**
+   * Where `Abrir` points. Handed in rather than built here, because the address has to carry
+   * the filters the operator has applied and this card cannot see them — same reason
+   * `seeAllHref` is a prop on `BoardColumn`. `lib/clients/record-href` is the composer.
+   */
+  hrefFor: (row: ClientDirectoryRow) => string
   /** The clock, derived once for the whole board so two cards cannot disagree about a deadline. */
   triage: TriageStatus
   onAct: (row: ClientDirectoryRow, act: BoardAct) => void
+  /**
+   * WHAT THE LAST ACT ON THIS CARD ANSWERED, and it lives here rather than in the drag layer
+   * because the card is rendered in four places — the curation lane, a column, the drag overlay
+   * and the phone's stacked column — and only one of those was ever wrapped by the draggable. A
+   * refusal that only exists on a desktop column is a refusal the phone never sees.
+   */
+  notice?: { message: string; tone: 'refused' | 'done' } | null
+  /** Takes the notice down. Only refusals offer it; a success clears itself. */
+  onDismissNotice?: () => void
   /** Handed in by the drag layer. Absent while the board is a plain list of columns. */
   dragHandleProps?: React.HTMLAttributes<HTMLElement>
   dragging?: boolean
@@ -81,9 +97,11 @@ interface BoardCardProps {
 export function BoardCard({
   row,
   column,
-  locale,
+  hrefFor,
   triage,
   onAct,
+  notice,
+  onDismissNotice,
   dragHandleProps,
   dragging,
 }: BoardCardProps) {
@@ -93,6 +111,9 @@ export function BoardCard({
 
   const act = nextAct(row, column)
   const name = row.name || c('noName')
+  // Tied to the row and not to a counter: two cards on screen must never share the id that
+  // `aria-describedby` points at.
+  const noticeId = `board-notice-${rowKey(row)}`
   const where = placeLine(row)
   const deadline = triageDeadlineText(triage)
   // `not_started` and `closed` are not news on a card: the first is a clock that has not begun,
@@ -172,7 +193,7 @@ export function BoardCard({
 
       <div className="mt-3 flex items-center justify-between gap-2">
         <Link
-          href={`/${locale}${row.href}`}
+          href={hrefFor(row)}
           aria-label={c('openNamed', { name })}
           className="text-xs font-medium text-primary-800 underline underline-offset-4 dark:text-tuggi-blue"
         >
@@ -183,12 +204,46 @@ export function BoardCard({
           <button
             type="button"
             onClick={() => onAct(row, act)}
+            // The message stays reachable from the control that produced it: coming back with
+            // `Tab` reads the reason again, without moving focus when it appeared.
+            aria-describedby={notice ? noticeId : undefined}
             className="rounded-lg border border-primary-800 px-2 py-1 text-xs font-medium text-primary-800 transition-colors hover:bg-primary-800/5 dark:border-tuggi-blue dark:text-tuggi-blue"
           >
             {t(`acts.${act}`)}
           </button>
         )}
       </div>
+
+      {/*
+        WHAT THE ACT ANSWERED.
+
+        `alert` for a refusal and `status` for a success, and the asymmetry is the point: a
+        refusal answers a deliberate click and must not queue behind what the re-read announces,
+        while a success is news the operator may read whenever. Neither moves focus.
+
+        A refusal STAYS — it describes a state that is still true, and a pendency with an expiry
+        date is the one that gets lost while the operator looks at another column. A success
+        clears itself, which the board does by taking the notice away.
+      */}
+      {notice && (
+        <div
+          id={noticeId}
+          role={notice.tone === 'refused' ? 'alert' : 'status'}
+          className="mt-2 flex items-start justify-between gap-2 rounded-xl border border-secondary-700 px-2 py-1 text-[11px] text-gray-900 dark:text-gray-200"
+        >
+          <span>{notice.message}</span>
+          {notice.tone === 'refused' && onDismissNotice && (
+            <button
+              type="button"
+              onClick={onDismissNotice}
+              aria-label={t('dismissRefusal')}
+              className="-mr-1 -mt-0.5 shrink-0 rounded p-1 text-gray-500 hover:bg-gray-100 dark:text-gray-400 dark:hover:bg-gray-800"
+            >
+              <X className="h-3 w-3" aria-hidden="true" />
+            </button>
+          )}
+        </div>
+      )}
     </article>
   )
 }
