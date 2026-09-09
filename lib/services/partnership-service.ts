@@ -60,6 +60,7 @@ import {
   type DetailTarget,
   type PipelineState,
 } from '@/lib/partnerships/pipeline'
+import { normalizeState } from '@/lib/shared/location-normalize'
 import type { PartnerAnswers } from '@/lib/partner-form/schema'
 import type { ContractState, ContractStatus } from '@/lib/contract/status'
 import type { ContractTier } from '@/lib/contract/snapshot'
@@ -394,7 +395,24 @@ export async function loadClientDirectory(operator: SupabaseClient): Promise<Cli
       name: answers.trade_name ?? client?.name ?? null,
       taxId: answers.tax_id ?? client?.taxId ?? null,
       city: answers.city ?? client?.city ?? null,
-      region: answers.state ?? client?.region ?? null,
+      /**
+       * THE STATE IS CANONICALISED HERE, and it is the proposal's value that needs it.
+       *
+       * `partner.clients.state` already comes through `location-normalize` on promotion, so the
+       * registrations read `Rio de Janeiro`. The FORM never did: 41 of 41 proposals carry `RJ`,
+       * because that is what the person typed and nothing normalised it on the way in. The rail
+       * ended up offering `RJ (41)` and `Rio de Janeiro (1)` as two different places.
+       *
+       * NOT REWRITTEN IN THE DATABASE, and the distinction is the point: `Cabo FrioCabo Frio` is
+       * a value NOBODY typed and gets cleaned; `RJ` is a legitimate abbreviation somebody chose,
+       * and `answers` is the record of what they submitted. Canonicalising at the seam fixes
+       * every proposal already stored AND every one still to arrive, without touching either.
+       *
+       * `normalizeState` needs the country to know which map to read, and the country only
+       * exists once the proposal is a client. The one proposal still unpromoted keeps `RJ` —
+       * honest, because without a country `RJ` is not provably Rio de Janeiro.
+       */
+      region: normalizeState(client?.country, answers.state, answers.city) ?? client?.region ?? null,
       country: client?.country ?? null,
       clientType: client?.clientType ?? null,
       status: client?.status ?? null,
@@ -450,7 +468,10 @@ export async function loadClientDirectory(operator: SupabaseClient): Promise<Cli
       name: client.name ?? client.companyName ?? null,
       taxId: client.taxId,
       city: client.city,
-      region: client.region,
+      // Already canonical on this side — `location-normalize` runs on promotion — and passed
+      // through the same function anyway, so the two row shapes cannot drift into offering the
+      // same state under two spellings. It is idempotent.
+      region: normalizeState(client.country, client.region, client.city),
       country: client.country,
       clientType: client.clientType,
       status: client.status,

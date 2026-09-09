@@ -215,7 +215,7 @@ test('#409 — the rail filters by what decides the money, and a proposal is not
   await page.getByRole('button', { name: DIRECTORY.filtersTitle, exact: true }).click()
   const plan = page
     .getByRole('dialog', { name: DIRECTORY.filtersTitle })
-    .getByLabel(DIRECTORY.filters.plan)
+    .getByLabel(DIRECTORY.filters.plan, { exact: true })
 
   /*
    * THE COUNT IS INSIDE THE OPTION, which is what lets a closed control replace the open list

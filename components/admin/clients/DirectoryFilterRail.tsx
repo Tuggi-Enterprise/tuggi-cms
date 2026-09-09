@@ -363,9 +363,17 @@ function FilterPanel({
   return (
     <>
       {headless ? (
-        // The sheet's title bar already names the panel, so what is left here is the one
-        // control that has nowhere else to be. It keeps its place on the right so the two
-        // renderings put `Limpar` under the same thumb.
+        /*
+          `Limpar filtros` EXISTS HERE AND NOT IN THE RAIL.
+          
+          It used to be in both, and once the chip line arrived (DS-LAYOUT-015, point 5) that made
+          THREE controls doing one thing on the table: this icon, the chip line's own word, and
+          the empty state's call to action. The chip line is where the spec puts it, and on the
+          table it is on screen right next to the panel.
+          
+          The sheet keeps it because the sheet COVERS the chip line: closing the sheet to clear a
+          filter and reopening it to set another is the loop this button removes.
+        */
         clearControl && <div className="mb-4 flex justify-end">{clearControl}</div>
       ) : (
         <div className="mb-6 flex items-center justify-between">
@@ -381,7 +389,6 @@ function FilterPanel({
               {t('filtersTitle')}
             </h2>
           </div>
-          {clearControl}
         </div>
       )}
 
@@ -465,7 +472,15 @@ function FilterPanel({
                           <option value="in_progress">
                             {withCount(p('queue.inProgress'), working)}
                           </option>
-                          <option value="">{p('queue.allStates')}</option>
+                          {/*
+                            `all` AND NOT THE EMPTY STRING. `state` is the one dimension whose
+                            "no filter" is a VALUE — `null` matches no row at all. With an empty
+                            option here the select committed `''`, the panel wrote `all`, React
+                            re-rendered with a value no option carried, and the browser fell back
+                            to the first one: clearing the dimension snapped the operator to
+                            `Em andamento`.
+                          */}
+                          <option value="all">{p('queue.allStates')}</option>
                         </optgroup>
                         <optgroup label={t('stateGroups.stage')}>
                           {view.facets.state.map((option) => (

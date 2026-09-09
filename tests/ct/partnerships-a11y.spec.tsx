@@ -24,6 +24,10 @@ import { PartnershipDetail } from '@/components/admin/partnerships/PartnershipDe
 import { ProposalReview } from '@/components/admin/partner-proposals/ProposalReview'
 import { ContractManager } from '@/components/admin/contract/ContractManager'
 import { DirectoryHarness, Wrapper } from './helpers'
+import ptMessages from '@/messages/pt.json'
+
+const DIRECTORY = ptMessages.Clients.directory
+const PARTNERSHIPS = ptMessages.Partnerships
 import {
   QUEUE_ROWS_IN_PROGRESS,
   LONG_ESTABLISHMENT_NAME,
@@ -95,8 +99,10 @@ test.describe('criterion 7 (DS-COMPONENTE-002) — the four states of the queue'
     await component.getByLabel('Buscar').fill('nome-que-nao-existe-em-nenhuma-linha')
     await expect(component.getByText('Nenhum cliente com esses filtros.')).toBeVisible()
     await expect(component.getByText('Nenhum cliente cadastrado ainda.')).toHaveCount(0)
-    // Two, legitimately: the filter rail's own `Limpar filtros` (always present while
-    // `filtering` is true) and the empty-state's own call to action.
+    // Two, legitimately: the chip line's (DS-LAYOUT-015, point 5 — it sits with what is applied
+    // and with the count) and the empty state's own call to action. The rail used to carry a
+    // third, which the chip line made redundant on this view; the SHEET keeps one, because it
+    // covers the chip line while it is open.
     await expect(component.getByRole('button', { name: 'Limpar filtros' })).toHaveCount(2)
   })
 
@@ -450,24 +456,40 @@ test('criterion 27 — the queue: filters, the state counters, and each row\'s "
   await expect(component.getByLabel('Buscar')).toHaveValue('Cantina')
   await component.getByLabel('Buscar').fill('')
 
-  // The state filter is the rail now, not a <select>: every option is a real <button>, so it
-  // is in the default Tab order and activates on Enter/Space — never a <div onClick>. Same
-  // guarantee the queue's counters carried (spec §6.1), on the control that replaced them.
-  const working = component.getByRole('button', { name: /Em andamento \d/ })
-  await working.focus()
-  await expect(working).toBeFocused()
-  await page.keyboard.press('Enter')
-  await expect(working).toHaveAttribute('aria-pressed', 'true')
+  /*
+   * The state filter is a NATIVE `<select>` now (DS-LAYOUT-015). The guarantee the queue's
+   * counters carried (spec §6.1) is the same and is now the platform's: a real form control is
+   * in the default Tab order, opens and commits from the keyboard, and answers type-ahead —
+   * none of which a `<div onClick>` or a hand-rolled listbox gets right for free.
+   *
+   * What is asserted is the label, the focus, and that a keyboard change actually narrows the
+   * list. The count travels INSIDE each option, so it is part of the name a screen reader reads.
+   */
+  // `exact` because the chip that appears once a filter is set carries the dimension name in
+  // its own `aria-label` (`Remover o filtro Estado da parceria: …`) — which is the chip line
+  // working, not a collision to route around.
+  const state = component.getByLabel(DIRECTORY.filters.state, { exact: true })
+  await state.focus()
+  await expect(state).toBeFocused()
 
-  // And one concrete state, with the count it opens beside it.
-  const oneState = component.getByRole('button', { name: /Proposta recebida \d/ })
-  await oneState.focus()
-  await expect(oneState).toBeFocused()
-  await page.keyboard.press('Enter')
-  await expect(oneState).toHaveAttribute('aria-pressed', 'true')
-  // Pressing it again clears the dimension — the rail toggles, it does not trap.
-  await page.keyboard.press('Enter')
-  await expect(oneState).toHaveAttribute('aria-pressed', 'false')
+  await state.selectOption('in_progress')
+  await expect(state).toHaveValue('in_progress')
+  await expect(
+    component.getByRole('option', { name: new RegExp(`^${PARTNERSHIPS.queue.inProgress} \\(\\d`) })
+  ).toHaveCount(1)
+
+  // And one concrete state, with the count it opens inside its own name.
+  await state.selectOption('proposal_received')
+  await expect(state).toHaveValue('proposal_received')
+
+  // Back to `Todos` — the dimension clears from the keyboard too, it does not trap.
+  //
+  // `all` and not the empty string: `state` is the one dimension whose "no filter" is a VALUE,
+  // because `null` matches no row at all. The first cut of this panel gave the option an empty
+  // value, and clearing snapped the select back to `Em andamento` — this assertion is what
+  // caught it.
+  await state.selectOption('all')
+  await expect(state).toHaveValue('all')
 
   // Every row's `Abrir` is a real link (keyboard-focusable) with the whole establishment name
   // in its accessible name — the column itself may truncate (spec §6.1), the control that
@@ -479,5 +501,11 @@ test('criterion 27 — the queue: filters, the state counters, and each row\'s "
   await expect(openLink).toBeVisible()
   await openLink.focus()
   await expect(openLink).toBeFocused()
-  await expect(openLink).toHaveAttribute('href', '/pt/admin/partnerships/proposals/sub-0001')
+  // A PROPOSAL IS A PAGE AND NOT A DRAWER, so the list does not stay behind it and the way back
+  // has to be declared (DS-LAYOUT-006, point 2). It used to carry nothing and the only way back
+  // was the browser's button — the same defect the record had, one screen further along.
+  await expect(openLink).toHaveAttribute(
+    'href',
+    '/pt/admin/partnerships/proposals/sub-0001?returnTo=%2Fadmin%2Fclients'
+  )
 })

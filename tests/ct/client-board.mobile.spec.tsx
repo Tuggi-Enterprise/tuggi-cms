@@ -144,7 +144,7 @@ test.describe('#409 — the facets on a phone', () => {
     // because the panel renders it unconditionally in the `Recortes` group of `Estado da
     // parceria`. It is an `<option>` of a native `<select>` now, not a button: the dimension is
     // one control whose height no longer grows with the number of values (DS-LAYOUT-015).
-    const state = sheet.getByLabel(DIRECTORY.filters.state)
+    const state = sheet.getByLabel(DIRECTORY.filters.state, { exact: true })
     await state.selectOption('in_progress')
     await expect(state).toHaveValue('in_progress')
 

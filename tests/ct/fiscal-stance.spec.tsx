@@ -68,7 +68,19 @@ function mountTab(overrides: Partial<Client>, editing: boolean) {
   )
 }
 
-const badge = (page: Page, label: string) => page.getByText(label, { exact: true })
+/**
+ * The badge, located by its NAME and not by its text.
+ *
+ * SINCE 2026-08-26 IT IS A SYMBOL: a 24px circle carrying an icon, with the word in `aria-label`
+ * and `title`. `getByText` had nothing to find from that day on, and these nine assertions have
+ * been red ever since without telling anybody — a guard that never goes green guards nothing.
+ *
+ * The guarantee did not change and this is the honest way to state it. DS-A11Y-003 asks that the
+ * stance never depend on colour alone, and it does not: the word IS the accessible name, which
+ * is what a screen reader announces and what `title` shows a mouse. The tests below still measure
+ * the ink, still check the icon is decorative, and still run axe over it.
+ */
+const badge = (page: Page, label: string) => page.getByRole('img', { name: label, exact: true })
 
 // ── The three registration states, in the two words the operator chose ───────────────────────
 

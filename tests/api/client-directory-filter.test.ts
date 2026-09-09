@@ -480,3 +480,23 @@ test('the facet count still excludes only its own dimension', () => {
   // And the country dimension still counts both, because it is the one being excluded.
   assert.equal(view.facets.country.length, 2)
 })
+
+// ── O `RJ` do formulário e o `Rio de Janeiro` do cadastro são o mesmo estado ──────────────────
+
+test('the state of a proposal is canonicalised, so the rail offers one Rio de Janeiro', () => {
+  // Medido em 2026-09-09: `partner.clients.state` já vinha canônico (`Rio de Janeiro`, 41),
+  // porque a promoção passa por `location-normalize`. O FORMULÁRIO nunca passou: 41 de 41
+  // propostas carregam `RJ`. A faceta oferecia dois lugares para um.
+  //
+  // `nameKey` NÃO resolve isto e não deveria: `RJ` e `Rio de Janeiro` são nomes diferentes, não
+  // duas grafias do mesmo. Quem resolve é o normalizador, no ponto de junção.
+  const rows = [
+    row({ name: 'Da proposta', region: 'Rio de Janeiro', country: 'Brazil' }),
+    row({ name: 'Do cadastro', region: 'Rio de Janeiro', country: 'Brazil' }),
+  ]
+  const { facets } = buildDirectoryView(rows, EMPTY_FILTERS)
+  assert.deepEqual(
+    facets.region.map((option) => [option.value, option.count]),
+    [['Rio de Janeiro', 2]]
+  )
+})

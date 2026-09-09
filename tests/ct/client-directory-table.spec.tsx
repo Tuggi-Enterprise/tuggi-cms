@@ -208,7 +208,7 @@ test.describe('#409 — the table pages what it holds', () => {
     // The dimension is a native `<select>` now (DS-LAYOUT-015): the panel's height no longer
     // grows with the number of values, which is what made the old stack of buttons unusable once
     // a facet held more than a handful. The count still travels inside the option.
-    await page.getByLabel(DIRECTORY.filters.city).selectOption({ label: 'Búzios (3)' })
+    await page.getByLabel(DIRECTORY.filters.city, { exact: true }).selectOption({ label: 'Búzios (3)' })
 
     await expect(page.getByText('Mostrando 1–3 de 3').first()).toBeVisible()
     await expect(page.getByRole('row')).toHaveCount(4)

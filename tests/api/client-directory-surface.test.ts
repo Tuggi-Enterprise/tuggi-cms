@@ -348,3 +348,20 @@ test('the board has no rail, which is what gives it back its columns', () => {
   // Na tabela o trilho fica, como na `/pois`.
   assert.match(read('components/admin/clients/ClientDirectory.tsx'), /<DirectoryFilterRail/)
 })
+
+test('the directory canonicalises the state it reads from the form', () => {
+  const service = read(SERVICE)
+  const directory = service.slice(service.indexOf('export async function loadClientDirectory'))
+
+  // `answers.state` é o que a pessoa preencheu — `RJ` em 41 de 41 propostas — e `clients.state`
+  // já vem canônico da promoção. Sem isto a faceta `Estado` oferece `RJ (41)` e
+  // `Rio de Janeiro (1)` como dois lugares.
+  assert.match(directory, /normalizeState\(client\?\.country, answers\.state, answers\.city\)/)
+  // As duas formas de linha passam pela MESMA função, ou voltam a divergir.
+  assert.match(directory, /normalizeState\(client\.country, client\.region, client\.city\)/)
+
+  // NÃO se reescreve o que a pessoa enviou: `answers` é o registro da submissão. O que se
+  // reescreve é `Cabo FrioCabo Frio`, que ninguém digitou — e isso é um comando no painel, não
+  // código (docs/dev/limpeza-city-duplicada-proposta-parceria.md).
+  assert.equal(service.indexOf("jsonb_set"), -1)
+})
