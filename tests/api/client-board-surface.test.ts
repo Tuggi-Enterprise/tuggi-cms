@@ -144,18 +144,39 @@ test('#409 · every column, act and refusal reason has Portuguese copy', () => {
   }
 })
 
-test('#409 · the money line names its source, and the rail filters what decides the money', () => {
+test('#409 · the money line says the money, and the rail filters what decides it', () => {
   const board = messages('pt').Clients.board.plan
   const directory = messages('pt').Clients.directory
 
-  // Every shape `planLine` can produce has copy, and each one that is not self-describing
-  // carries where the answer came from.
+  // Every shape `planLine` can produce has copy.
   for (const key of ['paid', 'courtesy', 'undeclared', 'free', 'requestedMapOnly', 'requestedMapAndDescription', 'requestedNone']) {
     assert.equal(typeof board[key], 'string', `plan.${key} is missing`)
   }
-  for (const key of ['fromContract', 'fromRegistration', 'courtesyReason', 'divergesFree', 'divergesUndeclared']) {
+
+  /*
+   * THE PROVENANCE IS GONE, AND ITS COPY WITH IT.
+   *
+   * `(em contrato)`, `(no cadastro)` and `(escolha do parceiro)` lived beside the value — first on
+   * a line of their own, then folded into it. The operator cut them on 2026-09-09 having seen the
+   * screen: they do not change the choice between this card and the next, which is the only
+   * question a queue card answers.
+   *
+   * A key nobody reads is an orphan (CLAUDE.md §6), so this asserts they are GONE rather than
+   * leaving five strings translated into a screen that never prints them.
+   */
+  for (const key of ['fromContract', 'fromRegistration', 'fromChoice', 'withSource', 'courtesyReason']) {
+    assert.equal(board[key], undefined, `plan.${key} is an orphan and must not survive`)
+  }
+
+  // What the provenance was standing in for keeps its own line, and says the whole fact in words.
+  for (const key of ['divergesFree', 'divergesUndeclared', 'divergesFreeChoice']) {
     assert.equal(typeof board[key], 'string', `plan.${key} is missing`)
   }
+
+  // And the money names itself: no label in front of a value that carries `R$` and `/mês`. Every
+  // OTHER figure on the card is still named, because a card has no column heading to do it.
+  assert.equal(board.paid.indexOf('Plano'), -1, 'the value does not need a word saying it is one')
+  assert.match(board.paid, /\{value\}/)
 
   // The rail offers the REGISTRATION's three states — the reading that decides whether
   // publishing may be offered (BR-B2B-017, item 6) — and not the contract's tier.

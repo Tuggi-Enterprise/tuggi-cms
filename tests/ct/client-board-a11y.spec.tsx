@@ -196,26 +196,34 @@ test('#409 — the card says who pays AND who said so', async ({ mount, page }) 
   await expect(asked).toContainText(PLAN.requestedMapAndDescription)
   await expect(asked).not.toContainText('R$')
 
-  // The registration: the value, and where it came from.
+  /*
+   * THE VALUE, AND NOTHING AROUND IT.
+   *
+   * The card carried the provenance — `(em contrato)`, `(no cadastro)` — and the `Plano:` label.
+   * The operator cut both on 2026-09-09, having seen the screen: the card is a quick read for
+   * somebody who already knows the system, and money names itself. What the provenance guarded is
+   * guarded better by `planDivergence`, asserted below in words.
+   */
   const paid = page.getByRole('article', { name: 'Paga por mês' })
   await expect(paid).toContainText('R$ 149,00')
-  await expect(paid).toContainText(PLAN.fromRegistration)
+  await expect(paid).not.toContainText('Plano:')
 
-  // A courtesy prints its REASON rather than the source: an unexplained discount is the thing
-  // BR-B2B-017 item 6 forbids, so the reason is the more useful line.
+  // A courtesy is `Cortesia` and nothing else here. BR-B2B-017 item 6 requires the reason to be
+  // RECORDED, and it is — in the client's record, which `Abrir` opens.
   const courtesy = page.getByRole('article', { name: 'Cortesia declarada' })
   await expect(courtesy).toContainText(PLAN.courtesy)
-  await expect(courtesy).toContainText('patrocínio do festival')
+  await expect(courtesy).not.toContainText('patrocínio do festival')
 
   // Undeclared is a STATE and is shown, because it is what refuses the publication.
   await expect(page.getByRole('article', { name: 'Ninguém declarou' })).toContainText(
     PLAN.undeclared
   )
 
-  // And a registration edited after the contract was signed says so.
+  // And a registration edited after the contract was signed says so — IN WORDS, in its own
+  // bordered line. This is the case the provenance was standing in for, and it never needed to:
+  // `O contrato não cobra e o cadastro cobra` is the whole fact, not a qualifier to infer from.
   const drifted = page.getByRole('article', { name: 'Contrato divergente' })
   await expect(drifted).toContainText(PLAN.free)
-  await expect(drifted).toContainText(PLAN.fromContract)
   await expect(drifted).toContainText(PLAN.divergesFree)
 })
 

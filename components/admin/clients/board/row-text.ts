@@ -100,20 +100,31 @@ export function idleFor(since: string | null, p: Translator): string {
  */
 export function planLine(row: ClientDirectoryRow, t: Translator): string {
   const plan = derivePartnerPlan(row)
-  const source = sourceOf(plan, t)
-  const value = planValue(plan, t)
-  // ONE FUNCTION, ONE SENTENCE, TWO VIEWS. The provenance took a whole line on the card and the
-  // table did not print it at all — one fact in two places, in two shapes, one of them missing.
-  // It never leaves: it is what stops an operator planning around a number nobody priced.
-  return source ? t('plan.withSource', { line: value, source }) : value
-}
-
-/** The value alone. Private: everything outside reads the whole sentence. */
-function planValue(plan: PartnerPlan, t: Translator): string {
+  /*
+   * THE VALUE, AND NOT WHERE IT CAME FROM.
+   *
+   * This carried the provenance — `(em contrato)`, `(no cadastro)`, `(escolha do parceiro)` — first
+   * on a line of its own and then folded into this one. The operator saw it rendered and cut it on
+   * 2026-09-09: *"essa informação é desnecessária"*. It does not change the choice between this
+   * card and the next, which is the only question a queue card answers (DS-COMPONENTE-080, point 1).
+   *
+   * AND THE RISK IT GUARDED IS GUARDED BETTER ELSEWHERE. What made the provenance look load-bearing
+   * is the case where the contract and the registration DISAGREE — and that case has its own line,
+   * `planDivergence`, in a bordered box that names the disagreement in words instead of leaving the
+   * operator to infer it from a two-word qualifier.
+   *
+   * THE `Plano:` LABEL WENT WITH IT, same day and same reason. The card carries no column heading,
+   * which is why every OTHER figure on it is named (`Parado há`, `Triagem`) — but money names
+   * itself: `R$ 149,00/mês` cannot be read as anything else, and the operator reading this queue
+   * all day already knows what the slot is. What is not money keeps a word that says so.
+   */
   switch (plan.kind) {
     case 'paid':
       return t('plan.paid', { value: formatMonthlyFee(plan.feeCents ?? 0) })
     case 'courtesy':
+      // The REASON is not on the card either. `BR-B2B-017`, item 6, requires a courtesy to carry
+      // one — recorded, which it is, in the client's record. The card is a quick read for
+      // somebody who already knows the system, and `Cortesia` is the whole of what it decides.
       return t('plan.courtesy')
     case 'free':
       return t('plan.free')
@@ -126,25 +137,6 @@ function planValue(plan: PartnerPlan, t: Translator): string {
   }
 }
 
-/**
- * The second line under it: the reason of a courtesy, or where the answer came from.
- *
- * A courtesy without its reason is an unexplained discount (BR-B2B-017, item 6) and the reason
- * is the more useful thing to print, so it wins the slot. `requested` says nothing here: the
- * sentence already opens with `Pediu`, and repeating `na proposta` under it is prose.
- */
-function sourceOf(plan: PartnerPlan, t: Translator): string | null {
-  if (plan.kind === 'courtesy' && plan.courtesyReason) {
-    return t('plan.courtesyReason', { reason: plan.courtesyReason })
-  }
-  if (plan.source === 'contract') return t('plan.fromContract')
-  if (plan.source === 'registration') return t('plan.fromRegistration')
-  // The free tier the establishment itself asked for: `escolha do parceiro`, not `em contrato`,
-  // because nobody has signed anything yet and saying otherwise would name a document that does
-  // not exist.
-  if (plan.source === 'proposal' && plan.kind === 'free') return t('plan.fromChoice')
-  return null
-}
 
 /** What the registration and the contract disagree about, in one sentence. */
 export function planDivergence(plan: PartnerPlan, t: Translator): string | null {
