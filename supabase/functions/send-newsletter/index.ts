@@ -766,9 +766,10 @@ Deno.serve(async (req) => {
     }
 
     // ---- /process-scheduled (cron) ----
-    // `requireAdmin` above already gated this: the caller is the Vault's SERVICE_ROLE_KEY, sent
-    // by `marketing.trigger_process_scheduled_newsletters` (`net.http_post`), and it lands on
-    // the machine-key bypass. See `isOwnMachineKey` for why BOTH generations of key are accepted.
+    // `requireAdmin` above already gated this: the caller is the Vault's `ef_secret_key`, sent by
+    // `marketing.trigger_process_scheduled_newsletters` (`net.http_post`), and it lands on the
+    // machine-key bypass. See `isOwnMachineKey` for the set of names accepted, and for why the
+    // `SERVICE_ROLE_KEY` the migration files name is not one of them.
     if (path === '/process-scheduled') {
       const { data: due, error } = await supabase
         .schema('marketing').from('newsletter_campaigns')

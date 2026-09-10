@@ -18,12 +18,17 @@ Isso **não** abre a função. A autorização passou a ser do corpo (`requireAd
 dá para desligar o gateway — a ordem anterior era a inversa, com o gateway aparentando proteger
 enquanto a chave publicável o atravessava.
 
-As outras duas:
+As outras três:
 
 ```bash
 supabase functions deploy firebase-push-notification   # verify_jwt padrão, tudo bem
 supabase functions deploy resend-webhook --no-verify-jwt   # já era assim
+supabase functions deploy send-transactional           # verify_jwt padrão, e é para continuar
 ```
+
+**`send-transactional` NÃO leva `--no-verify-jwt`.** A flag existe para a rota que o Gmail chama
+sem chave nenhuma; aqui não há rota anônima — `/health` é a única fora do portão e não diz nada.
+Desligar o gateway numa função que não precisa disso só remove uma barreira.
 
 ## 2. Ordem, e por que ela é frouxa de propósito
 
@@ -65,7 +70,29 @@ homologação que precise mandar e-mail apontando para outro lugar.
   unfurl de mensageiro — grava um descadastro que ninguém pediu. Card do `tuggi-enterprise`.
   Esta fatia contornou o problema (o cabeçalho aponta para a EF, que só aceita POST), mas o
   link visível no rodapé continua sendo essa página.
-- **`send-transactional` continua sem autorização.** Todos os chamadores dela já apresentam
-  chave de máquina — conferido em 2026-09-10, está na tabela de `docs/contracts/edge-functions.md`,
-  seção `send-transactional`, item 5. A armadilha para quem fechar: a chave do servidor Next
-  (`SUPABASE_SECRET_KEY`) é uma **terceira** chave, que `isOwnMachineKey` ainda não conhece.
+- ~~**`send-transactional` continua sem autorização.**~~ **Fechada em 2026-09-10**, no mesmo
+  branch. `isOwnMachineKey` passou a aceitar **duas** entradas nomeadas de `SUPABASE_SECRET_KEYS`
+  — `ef_secret_key` e `cms_secret_key` —, que é a armadilha registrada aqui: o
+  `SUPABASE_SECRET_KEY` do servidor Next é uma terceira string. Contrato atualizado em
+  `docs/contracts/edge-functions.md`, seção `send-transactional`, item 5.
+- **Enviar a mensagem de proposta pelo botão passou a ser possível, e continua não sendo feito.**
+  `components/admin/partner-proposals/OutboundMessage.tsx` só oferece "Copiar mensagem", e o
+  comentário no topo do arquivo diz que é porque a EF não autorizava ninguém. Esse motivo
+  acabou. Automatizar o envio é **mudança de escopo** (quem manda, para quem, com que consentimento
+  e com qual registro), então é card do `produto`, não efeito colateral deste. O comentário do
+  arquivo fica desatualizado até lá — está anotado aqui para que a correção venha junto da
+  decisão, e não antes dela.
+
+## 5. Conferência de 30 segundos depois do deploy de `send-transactional`
+
+O que pode dar errado é **uma coisa só**: se o `SUPABASE_SECRET_KEY` da Vercel de produção não
+for nem `cms_secret_key` nem `ef_secret_key`, o portão responde 401 ao e-mail de contrato e
+**ninguém vê** — `sendTransactionalEmail` não lança, só escreve `[transactional] ... refused` no
+log do servidor.
+
+Medido no `.env` local em 2026-09-10: prefixo `sb_secret_SSfsg…`, que é o `cms_secret_key` da
+listagem da Management API. **Compare esse prefixo com o da Vercel** — prefixo não é segredo. Se
+bater, não há nada a fazer. Se for um quinto valor, o conserto é apontar a Vercel para uma das
+duas chaves conhecidas, não afrouxar o portão.
+
+Depois do deploy, mande um contrato de teste pelo painel e confirme que o e-mail chegou.

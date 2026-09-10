@@ -71,3 +71,49 @@ export function getSecretKey(): string {
 
   return Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') || '';
 }
+
+/**
+ * Name of the secret key the CMS's NEXT SERVER carries, inside the same map.
+ *
+ * It is NOT `SECRET_KEY_NAME`: `lib/core/supabase-client.ts` builds `getSupabaseService()`
+ * with the `SUPABASE_SECRET_KEY` of the Next environment, and that value is a DIFFERENT one
+ * of the project's four secret keys — measured 2026-09-01 by `qa` against the Management API
+ * listing, and again in the CMS `.env` on 2026-09-10, prefix `sb_secret_SSfsg…`. A gate that
+ * only knows `ef_secret_key` answers 401 to it, which is `send-transactional` refusing the
+ * partner contract e-mail without anyone noticing: `sendTransactionalEmail` never throws.
+ *
+ * `default` and `app_secret_key` are the other two and are deliberately NOT here — no caller
+ * presents them, and the one named for the app is the one that would sit closest to a binary.
+ */
+export const CMS_SERVER_KEY_NAME = 'cms_secret_key';
+
+/**
+ * Is this bearer token one of OUR OWN secret keys?
+ *
+ * The set is closed and NAMED — `ef_secret_key` (the machines: EF→EF and the database's
+ * `net.http_post`) plus `cms_secret_key` (the Next server). Both are resolved from the
+ * `SUPABASE_SECRET_KEYS` the runtime already injects, so recognising the second one costs no
+ * new secret and no new configuration.
+ *
+ * WHY ADDING THE SECOND NAME GRANTS NOTHING. Every one of these keys already reaches PostgREST
+ * as `service_role` and ignores RLS on every table: whoever holds one owns the base, gate or no
+ * gate. What the gate exists to stop is the PUBLISHABLE key — the one shipped inside the app
+ * binary and served in the site's JS — and that one is not in this map.
+ *
+ * The legacy `SUPABASE_SERVICE_ROLE_KEY` is reachable here ONLY through `getSecretKey()`'s
+ * noisy #155 fallback, which fires when the configured name is missing. It is not a member of
+ * this set on its own: it is the key that leaked.
+ */
+export function isOwnSecretKey(token: string): boolean {
+  const candidate = token.trim();
+  if (!candidate) return false;
+
+  const map = readSecretKeyMap();
+  const named = map?.[CMS_SERVER_KEY_NAME];
+
+  const accepted = [getSecretKey(), typeof named === 'string' ? named : '']
+    .map((k) => k.trim())
+    .filter((k) => k.length > 0);
+
+  return accepted.includes(candidate);
+}

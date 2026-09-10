@@ -29,17 +29,26 @@
 // secret token has nothing left to compose. A caller that still asks for the type now gets
 // `unknown type`, which is the truth — see docs/contracts/edge-functions.md.
 //
-// NO LINK IN THESE E-MAILS COMES FROM THE CALLER. This function is reachable with the
-// publishable key (it has no authorization of its own until #346), so any href it accepts
-// from the body is an open phishing kit signed with our SPF/DKIM/DMARC — and the audience
-// here is exactly the partner we ask for CNPJ, alvará and a contrato social carrying the
-// CPF and RG of the members. Every `href` below is composed from an origin of ours plus a
-// value whose shape is verified. `data.url` and `data.app_url` are ignored on purpose.
+// AUTHORIZATION (#346, 2026-09-10). `POST /send` reads `Authorization` and goes through
+// `requireAdmin` of `_shared/auth-middleware.ts` — the same gate the three Marketing functions
+// and ~15 content functions use. Until then it read no header at all, and the gateway's
+// `verify_jwt` is satisfied by the PUBLISHABLE key, which ships inside the app binary and is
+// served in the site's JS: anyone holding it could send "seu contrato de parceria está pronto
+// para assinar" to any address, signed with our SPF/DKIM/DMARC, on our reputation and our
+// Resend quota — the same 10 req/s per team that account confirmation runs in.
+//
+// NO LINK IN THESE E-MAILS COMES FROM THE CALLER, and that stays true after the gate. The
+// audience here is exactly the partner we ask for CNPJ, alvará and a contrato social carrying
+// the CPF and RG of the members, so an href taken from the body would be a phishing kit signed
+// with our DKIM even for an authorized caller. Every `href` below is composed from an origin of
+// ours plus a value whose shape is verified. `data.url` and `data.app_url` are ignored on
+// purpose, and `tests/api/edge-transactional-links.test.ts` proves it by mutation.
 
 import {
   partnerStrings,
   type PartnerEvent,
 } from '../_shared/partner-i18n.ts';
+import { requireAdmin } from '../_shared/auth-middleware.ts';
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -298,10 +307,12 @@ function renderContractSign(data: Record<string, unknown>): {
  * #342 — the copy of the signed contract.
  *
  * It carries a LINK back to the same page, which serves the archived PDF, and NOT an
- * attachment. This function has no authorization of its own until #346, so an attachment
- * parameter here would let any holder of the publishable key send an arbitrary file with
- * our DKIM on it. The `design` copy says the PDF is attached; the narrowing and its reason
- * are registered in #342.
+ * attachment. The reason was that any holder of the publishable key could reach this function
+ * and send an arbitrary file with our DKIM on it; #346 closed that, and the narrowing STAYS
+ * anyway — a body-supplied attachment is a file we sign without ever having read it, and the
+ * link already serves the archived PDF from an origin of ours. Restoring the attachment is a
+ * card of its own, not a side effect of the gate. The `design` copy says the PDF is attached;
+ * the narrowing and its reason are registered in #342.
  */
 function renderContractSigned(data: Record<string, unknown>): {
   subject: string;
@@ -344,9 +355,40 @@ const EVENT_BY_TYPE: Record<string, PartnerEvent> = {
 Deno.serve(async (req: Request) => {
   if (req.method === 'OPTIONS') return new Response('ok', { headers: corsHeaders });
 
+  const requestId = crypto.randomUUID();
   const url = new URL(req.url);
   const path = url.pathname.replace(/.*\/send-transactional/, '') || '/';
   if (path === '/health') return json({ status: 'ok' });
+
+  // ---- AUTHORIZATION (#346) — everything but /health ----
+  //
+  // The gate sits ABOVE the 404 on purpose: an unauthorized caller learns nothing about which
+  // paths exist, and no route added later can land in front of it by accident.
+  //
+  // WHO PASSES, mapped before the gate was written, because gating without the map takes the
+  // partner e-mail down in silence — `sendTransactionalEmail` never throws and only logs:
+  //
+  //  - the CMS's Next server: `lib/services/transactional-email.ts`, `sendTransactionalEmail`,
+  //    invoked by `app/api/admin/clients/[clientId]/contract/route.ts` (`sendSigningEmail`) and
+  //    `lib/services/partner-contract-service.ts` (`sendSignedCopy`). It carries the
+  //    `SUPABASE_SECRET_KEY` of the Next environment, which is `cms_secret_key` and NOT the
+  //    `ef_secret_key` — this is why `isOwnMachineKey` had to learn a second NAME (#346);
+  //  - the database, by `net.http_post`: the new-partner team alert and
+  //    `dispatch_partner_user_notification`, which post with the Vault's `ef_secret_key`
+  //    (measured 2026-09-10; the Vault holds no `SERVICE_ROLE_KEY` entry at all, so a function
+  //    still reading that name already resolves NULL and skips its own send);
+  //  - a CMS operator with role admin/super_admin, for anything driven from the panel.
+  //
+  // Nobody else calls it: `grep` across tuggi-cms, tuggi-drive-v2 and tuggi-enterprise on
+  // 2026-09-10 found no browser and no other-repo caller.
+  const auth = await requireAdmin(req, { ...corsHeaders, 'Content-Type': 'application/json' });
+  if (auth instanceof Response) {
+    console.warn(`[${requestId}] ⛔ refused ${path}: ${auth.status}`);
+    return auth;
+  }
+  // The ROLE and not the e-mail: this log is read to tell a machine caller from an operator, and
+  // an address in it would be personal data in a place that keeps it for as long as the logs do.
+  console.log(`[${requestId}] 🔓 authorized as ${auth.role ?? 'none'}`);
 
   if (path !== '/send' || req.method !== 'POST') {
     return json({ error: 'not_found' }, 404);

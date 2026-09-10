@@ -105,7 +105,7 @@ test('#346: the push function gates everything but /health', () => {
 
 // --- The machine callers keep working ----------------------------------------
 
-test('#346: the machine bypass accepts ef_secret_key, and ONLY that', () => {
+test('#346: the machine bypass is a NAMED set of our own secret keys', () => {
   // This assertion used to demand the opposite — that `SUPABASE_SERVICE_ROLE_KEY` be accepted
   // too, "or the database stops being able to call". That came from reading the migration FILES,
   // which say the cron drains and the partner push post with the Vault's SERVICE_ROLE_KEY.
@@ -114,8 +114,15 @@ test('#346: the machine bypass accepts ef_secret_key, and ONLY that', () => {
   // and `SUPABASE_URL`, and `pg_get_functiondef` of all three callers reads `ef_secret_key`. The
   // database is AHEAD of `supabase/migrations/`, so the file is not the fact — and the test that
   // pinned the file pinned an open gate onto the key `_shared/secret-key.ts` calls leaked (#155).
+  //
+  // It also used to say "and ONLY that". Closing the THIRD function of #346 added a second NAME
+  // to the set — `cms_secret_key`, the Next server's `SUPABASE_SECRET_KEY`, which is the caller
+  // `send-transactional` has and these two do not. It is a second named entry of
+  // `SUPABASE_SECRET_KEYS`, never a loosened comparison, and it grants nothing: that key already
+  // reaches PostgREST as `service_role`. The set itself is asserted, executably, in
+  // `marketing-ef-transactional-authorization.test.ts`.
   assert.match(middleware, /export function isOwnMachineKey\(/, 'isOwnMachineKey is gone')
-  assert.match(middleware, /getSecretKey\(\)/, 'the ef_secret_key is not accepted')
+  assert.match(middleware, /isOwnSecretKey\(token\)/, 'the middleware re-declared the comparison')
   // The pattern is the ENV READ, not the name: the docblock above `isOwnMachineKey` explains at
   // length why the legacy key is not accepted, and a bare-name assertion would fail on the
   // explanation itself — which is how this assertion first failed.

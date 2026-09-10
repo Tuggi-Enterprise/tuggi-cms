@@ -103,9 +103,12 @@ Deno.serve(async (req) => {
     // that ships inside the app binary and the site's JS.
     //
     // `requireAdmin` lets our own machine keys through (`isOwnMachineKey`), which is what keeps
-    // the callers that are not people working: `daily-gamification-orchestrator` (EF-to-EF, the
-    // `ef_secret_key`), and the database — `core.notify_partner_event` and
-    // `core.trigger_process_scheduled_notifications` post with the Vault's SERVICE_ROLE_KEY.
+    // the callers that are not people working: `daily-gamification-orchestrator` (EF-to-EF) and
+    // the database — `core.notify_partner_event` and
+    // `core.trigger_process_scheduled_notifications` — all of them carrying the `ef_secret_key`
+    // from the Vault. The migration FILES say the database posts with a `SERVICE_ROLE_KEY`; the
+    // Vault has no such entry, so a function that still read that name would resolve a null key
+    // and never reach us at all. See `isOwnMachineKey` for the measurement.
     if (path !== '/health') {
       const auth = await requireAdmin(req, { ...corsHeaders, 'Content-Type': 'application/json' });
       if (auth instanceof Response) {

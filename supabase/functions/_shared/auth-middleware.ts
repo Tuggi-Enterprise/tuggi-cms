@@ -28,6 +28,7 @@
 
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { getSecretKey } from './supabase-client.ts';
+import { isOwnSecretKey } from './secret-key.ts';
 
 // =====================================
 // TYPES
@@ -191,33 +192,35 @@ export async function validateAuthHeader(
 }
 
 /**
- * Is this bearer token OUR machine key?
+ * Is this bearer token one of OUR machine keys?
  *
- * One key, `getSecretKey()` — the `ef_secret_key` entry of `SUPABASE_SECRET_KEYS` (#155). It is
- * what Edge Function → Edge Function calls carry, and it is also what the DATABASE carries.
+ * The set is closed, named, and lives in `_shared/secret-key.ts` — the module that owns key
+ * resolution — so it can be executed by a test without dragging the esm.sh imports of this
+ * file into Node. Two names are in it, and each has exactly one kind of caller:
+ *
+ *   - `ef_secret_key`  — Edge Function → Edge Function, and the DATABASE's `net.http_post`;
+ *   - `cms_secret_key` — the CMS's Next server, i.e. `getSupabaseService()` in
+ *     `lib/core/supabase-client.ts`, which is what `send-transactional` is reached by (#346).
  *
  * This function first accepted `SUPABASE_SERVICE_ROLE_KEY` too, on the reasoning that the
  * database's `net.http_post` calls read `SERVICE_ROLE_KEY` from the Vault — which is what the
  * migration FILES say. Measured against production on 2026-09-10, they don't:
  *
  *   - `vault.decrypted_secrets` holds exactly two entries, `ef_secret_key` and `SUPABASE_URL`.
- *     There is no `SERVICE_ROLE_KEY` in the Vault at all.
+ *     There is no `SERVICE_ROLE_KEY` in the Vault at all, so a database function that still
+ *     reads that name resolves NULL and skips its own send — gating it changes nothing.
  *   - `pg_get_functiondef` of all three callers — `core.trigger_process_scheduled_notifications`,
  *     `marketing.trigger_process_scheduled_newsletters`, `core.dispatch_partner_user_notification`
  *     — reads `name = 'ef_secret_key'`. The `SERVICE_ROLE_KEY` in them is `RAISE WARNING` text.
  *
  * The database is ahead of `supabase/migrations/`, so the file is not the fact: read the live
  * definition before concluding anything about a function. Accepting the legacy key here bought
- * no caller and widened the gate to the very key `_shared/secret-key.ts` calls leaked.
+ * no caller and widened the gate to the very key `_shared/secret-key.ts` calls leaked — which
+ * is why the second name added for #346 is a NAMED entry of `SUPABASE_SECRET_KEYS` and not a
+ * loosened comparison.
  */
 export function isOwnMachineKey(token: string): boolean {
-  const candidate = token.trim();
-  if (!candidate) return false;
-
-  const key = getSecretKey().trim();
-  if (!key) return false;
-
-  return key === candidate;
+  return isOwnSecretKey(token);
 }
 
 /**
@@ -270,7 +273,7 @@ export async function requireAuth(
  *
  * Who passes:
  *  - our own machine keys (`isOwnMachineKey`), i.e. the cron drains, the partner-notification
- *    trigger and EF-to-EF calls. `role` is `service_role`;
+ *    trigger, EF-to-EF calls and the CMS's own Next server. `role` is `service_role`;
  *  - a CMS user whose `core.cms_users` row is active AND whose role is admin/super_admin.
  *
  * Everyone else — no header, an app user's JWT, a publishable key — gets 401 or 403.
