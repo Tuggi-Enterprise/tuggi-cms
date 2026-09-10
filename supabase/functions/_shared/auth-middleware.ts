@@ -121,10 +121,9 @@ export async function validateAuthHeader(
       };
     }
 
-    // 3.1 Check if token is the service role key (Internal Bypass)
-    // Trim to avoid issues with newlines/spaces from Vault or Env variables
-    if (token.trim() === supabaseServiceKey?.trim()) {
-      console.log("✅ [Auth] Validated via SERVICE_ROLE_KEY (Internal Bypass)");
+    // 3.1 Check if token is one of our own machine keys (Internal Bypass)
+    if (isOwnMachineKey(token)) {
+      console.log("✅ [Auth] Validated via machine key (Internal Bypass)");
       return {
         valid: true,
         userId: "00000000-0000-0000-0000-000000000000",
@@ -192,6 +191,36 @@ export async function validateAuthHeader(
 }
 
 /**
+ * Is this bearer token OUR machine key?
+ *
+ * One key, `getSecretKey()` — the `ef_secret_key` entry of `SUPABASE_SECRET_KEYS` (#155). It is
+ * what Edge Function → Edge Function calls carry, and it is also what the DATABASE carries.
+ *
+ * This function first accepted `SUPABASE_SERVICE_ROLE_KEY` too, on the reasoning that the
+ * database's `net.http_post` calls read `SERVICE_ROLE_KEY` from the Vault — which is what the
+ * migration FILES say. Measured against production on 2026-09-10, they don't:
+ *
+ *   - `vault.decrypted_secrets` holds exactly two entries, `ef_secret_key` and `SUPABASE_URL`.
+ *     There is no `SERVICE_ROLE_KEY` in the Vault at all.
+ *   - `pg_get_functiondef` of all three callers — `core.trigger_process_scheduled_notifications`,
+ *     `marketing.trigger_process_scheduled_newsletters`, `core.dispatch_partner_user_notification`
+ *     — reads `name = 'ef_secret_key'`. The `SERVICE_ROLE_KEY` in them is `RAISE WARNING` text.
+ *
+ * The database is ahead of `supabase/migrations/`, so the file is not the fact: read the live
+ * definition before concluding anything about a function. Accepting the legacy key here bought
+ * no caller and widened the gate to the very key `_shared/secret-key.ts` calls leaked.
+ */
+export function isOwnMachineKey(token: string): boolean {
+  const candidate = token.trim();
+  if (!candidate) return false;
+
+  const key = getSecretKey().trim();
+  if (!key) return false;
+
+  return key === candidate;
+}
+
+/**
  * Helper function that returns either an AuthUser object or an error Response
  * Useful for cleaner code in handlers
  *
@@ -221,6 +250,66 @@ export async function requireAuth(
         status: result.statusCode || 401,
         headers,
       },
+    );
+  }
+
+  return {
+    userId: result.userId!,
+    email: result.email!,
+    role: result.role,
+  };
+}
+
+/**
+ * `requireAuth` plus the role gate — for routes whose blast radius is the WHOLE BASE.
+ *
+ * Sending a broadcast push, or a campaign, or a single e-mail signed with our SPF/DKIM/DMARC,
+ * is not something an authenticated *tourist* may do. Until #346 these routes read no
+ * `Authorization` at all, and `verify_jwt` is satisfied by the publishable key — the one shipped
+ * inside the app binary and the site's JS.
+ *
+ * Who passes:
+ *  - our own machine keys (`isOwnMachineKey`), i.e. the cron drains, the partner-notification
+ *    trigger and EF-to-EF calls. `role` is `service_role`;
+ *  - a CMS user whose `core.cms_users` row is active AND whose role is admin/super_admin.
+ *
+ * Everyone else — no header, an app user's JWT, a publishable key — gets 401 or 403.
+ */
+export async function requireAdmin(
+  request: Request,
+  corsHeaders?: Record<string, string>,
+): Promise<AuthUser | Response> {
+  const headers = corsHeaders || {
+    "Access-Control-Allow-Origin": "*",
+    "Access-Control-Allow-Headers":
+      "authorization, x-client-info, apikey, content-type",
+    "Content-Type": "application/json",
+  };
+
+  const result = await validateAuthHeader(request);
+
+  if (!result.valid) {
+    return new Response(
+      JSON.stringify({
+        error: result.error || "Unauthorized",
+        timestamp: new Date().toISOString(),
+      }),
+      { status: result.statusCode || 401, headers },
+    );
+  }
+
+  // The machine bypass sets `role: 'service_role'`, which is not a cms_users role and so is
+  // not covered by `isAdmin`. It is a higher privilege, not a lower one.
+  if (result.role !== "service_role" && !isAdmin(result.role)) {
+    console.warn(
+      `⛔ [Auth] Forbidden: ${result.email} has role ${result.role ?? "(none)"}`,
+    );
+    return new Response(
+      JSON.stringify({
+        error: "Forbidden - Admin only",
+        timestamp: new Date().toISOString(),
+      }),
+      { status: 403, headers },
     );
   }
 

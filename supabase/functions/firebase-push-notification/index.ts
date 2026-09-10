@@ -11,6 +11,69 @@ import {
   sampledSendOrder,
   shouldAbortForBadPayload,
 } from '../_shared/fcm-errors.ts';
+import { requireAdmin } from '../_shared/auth-middleware.ts';
+
+/**
+ * PER-LANGUAGE COPY — the payload this function accepts, and what it promises.
+ *
+ * `notification.title`/`body` stay the single-language form and are unchanged. When the caller
+ * ALSO sends `localized`, it is a map of language code to copy:
+ *
+ *   {
+ *     type: 'broadcast',
+ *     filters: { ...AudienceFilters },              // `language` is set by us, per pass
+ *     notification: { title, body, data: { type: '…' } },
+ *     localized: { pt: { title, body }, en: { title, body }, it: { title, body } }
+ *   }
+ *
+ * What it does depends on the send type, and the difference is structural, not a choice:
+ *
+ *  - `type: 'user'` — ONE message, so `lang` picks one entry: `localized[lang] ?? notification`.
+ *  - `type: 'broadcast'` — a broadcast is one FCM message per token but one COPY per message, so
+ *    a mixed-language audience cannot be served by a single pass. The function runs ONE PASS PER
+ *    KEY of `localized`, each narrowing `filters.language` to that key
+ *    (`core.build_audience_filter` allowlists `language`), and logs one row per pass.
+ *
+ * A LANGUAGE THAT IS NOT A KEY RECEIVES NOTHING. There is deliberately no silent fallback to
+ * `notification`: `core.build_audience_filter` has no "everything else" operator, so a fallback
+ * pass could only be "the whole base again", which would double-send everyone already covered.
+ * Which languages go out is the composer's decision and it is visible in the result.
+ *
+ * The copy itself is the `design`'s (§1) — this function only carries it.
+ */
+interface LocalizedCopy {
+  title: string;
+  body?: string;
+}
+
+function pickLocalized(
+  notification: any,
+  localized: Record<string, LocalizedCopy> | undefined,
+  lang: string | undefined
+): any {
+  const key = (lang || '').slice(0, 2).toLowerCase();
+  const copy = key && localized ? localized[key] : undefined;
+  if (!copy?.title) return notification;
+  return { ...notification, title: copy.title, body: copy.body ?? notification?.body };
+}
+
+/**
+ * FCM's `data` map is `map<string, string>` — every value must be a string.
+ *
+ * A number or a boolean in there makes FCM answer INVALID_ARGUMENT for EVERY token, which is the
+ * failure `shouldAbortForBadPayload` exists to stop after a sample. The CMS composer is now
+ * sending `data.type` along with whatever else the operator typed, so the coercion happens here,
+ * once, instead of being a class of outage waiting on a composer field.
+ */
+function stringifyData(data: unknown): Record<string, string> {
+  const out: Record<string, string> = {};
+  if (!data || typeof data !== 'object') return out;
+  for (const [k, v] of Object.entries(data as Record<string, unknown>)) {
+    if (v === null || v === undefined) continue;
+    out[k] = typeof v === 'string' ? v : JSON.stringify(v);
+  }
+  return out;
+}
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -30,6 +93,27 @@ Deno.serve(async (req) => {
     const url = new URL(req.url);
     const path = url.pathname.replace(/.*\/firebase-push-notification/, '') || '/';
     console.log(`[${requestId}] 📍 Path: ${path}`);
+
+    // ---- AUTHORIZATION (#346) — everything but /health ----
+    //
+    // A POST to `/send` with `type: 'broadcast'` and `filters: {}` resolves
+    // `core.get_audience_push_tokens({})`, which is THE WHOLE BASE, with an arbitrary title,
+    // body and deeplink, and writes a row into every user's inbox. Until now this route read no
+    // `Authorization` at all, and the gateway's `verify_jwt` is satisfied by the publishable key
+    // that ships inside the app binary and the site's JS.
+    //
+    // `requireAdmin` lets our own machine keys through (`isOwnMachineKey`), which is what keeps
+    // the callers that are not people working: `daily-gamification-orchestrator` (EF-to-EF, the
+    // `ef_secret_key`), and the database — `core.notify_partner_event` and
+    // `core.trigger_process_scheduled_notifications` post with the Vault's SERVICE_ROLE_KEY.
+    if (path !== '/health') {
+      const auth = await requireAdmin(req, { ...corsHeaders, 'Content-Type': 'application/json' });
+      if (auth instanceof Response) {
+        console.warn(`[${requestId}] ⛔ refused ${path}: ${auth.status}`);
+        return auth;
+      }
+      console.log(`[${requestId}] 🔓 authorized as ${auth.email} (${auth.role ?? 'none'})`);
+    }
 
     // Get environment variables inside handler to be safe
     const FIREBASE_PROJECT_ID = (Deno.env.get('FIREBASE_PROJECT_ID') ?? '').trim();
@@ -153,7 +237,8 @@ Deno.serve(async (req) => {
           body: notification.body,
           ...(notification.imageUrl && { image: notification.imageUrl }),
         },
-        data: notification.data || {},
+        // Coerced, because FCM's data map takes strings only — see `stringifyData`.
+        data: stringifyData(notification.data),
         android: {
           priority: priority === 'high' ? 'high' : 'normal',
           ttl: `${ttl}s`,
@@ -273,7 +358,27 @@ Deno.serve(async (req) => {
     };
 
     // Logging helper
-    const logResult = async (type: string, notification: any, userIds: string[], topic: string | undefined, status: string, stats: any) => {
+    //
+    // `stats.success` and `stats.failure` are counted token by token in `sendNotification` and,
+    // until 2026-09-10, went nowhere but `console.log`; the audience `filters` were dropped too.
+    // The consequence was a history that showed "All Users" for EVERY broadcast, segmented or
+    // not, with no counts beside it — a log that cannot answer "did it arrive?" is decoration.
+    //
+    // ⚠️ The four columns below are NEW and belong to the `data` agent (§2). Until that
+    //    migration runs, `notification_logs` has no `success_count`, `failure_count`,
+    //    `recipient_count` or `audience_filters`, and PostgREST rejects the WHOLE insert with
+    //    PGRST204 — which would lose the log row that exists today. So the insert falls back to
+    //    the old shape when it sees that code, loudly, instead of failing the send.
+    const logResult = async (
+      type: string,
+      notification: any,
+      userIds: string[],
+      topic: string | undefined,
+      status: string,
+      stats: any,
+      audienceFilters?: Record<string, unknown> | null,
+      recipientCount?: number
+    ) => {
       console.log(`[${requestId}] 📝 Logging result to marketing.notification_logs...`);
       try {
         // Ensure userIds are valid UUIDs to avoid DB errors
@@ -289,17 +394,43 @@ Deno.serve(async (req) => {
           user_ids: validUserIds,
           topic: topic || null,
           status,
+          success_count: stats?.success ?? 0,
+          failure_count: stats?.failure ?? 0,
+          // How many devices the audience resolved to — NOT `user_ids.length`, which counts
+          // inbox rows and is empty for a topic send.
+          recipient_count: recipientCount ?? null,
+          audience_filters: audienceFilters ?? null,
           sent_at: new Date().toISOString()
         };
 
         console.log(`[${requestId}] 📄 Log payload:`, JSON.stringify(logData));
 
-        const { data: insertData, error } = await supabase
+        let { data: insertData, error } = await supabase
           .schema('marketing')
           .from('notification_logs')
           .insert(logData)
           .select();
-        
+
+        if (error?.code === 'PGRST204') {
+          console.error(
+            `[${requestId}] 🚨 notification_logs is missing the count columns — the migration for ` +
+            'success_count/failure_count/recipient_count/audience_filters has not run. ' +
+            `Logging without them. counts=${logData.success_count}/${logData.failure_count}`
+          );
+          const {
+            success_count: _s,
+            failure_count: _f,
+            recipient_count: _r,
+            audience_filters: _a,
+            ...legacy
+          } = logData;
+          ({ data: insertData, error } = await supabase
+            .schema('marketing')
+            .from('notification_logs')
+            .insert(legacy)
+            .select());
+        }
+
         if (error) {
           console.error(`[${requestId}] ❌ Supabase log error:`, JSON.stringify(error));
         } else {
@@ -329,9 +460,105 @@ Deno.serve(async (req) => {
         console.log(`[${requestId}] 🌐 Localized push template=${event} lang=${lang}`);
       }
 
+      // Caller-supplied per-language copy, for the sends that are not a partner template. One
+      // message, so `lang` picks one entry; a missing entry keeps `notification` as written.
+      // A broadcast does NOT come through here — see the per-language pass loop below.
+      if (body.localized && type !== 'broadcast') {
+        notification = pickLocalized(notification, body.localized, lang);
+      }
+
+      const localized: Record<string, LocalizedCopy> | undefined = body.localized;
+      const localizedLangs = localized ? Object.keys(localized) : [];
+
       let tokens = [];
       let stats;
       let broadcastUserIds: string[] = [];
+
+      /**
+       * One broadcast pass: resolve the audience for `passFilters`, mirror it into the inbox,
+       * and send. Extracted so the per-language loop and the single-copy path are the SAME code
+       * — a second copy of the audience/inbox/send sequence is exactly the kind of drift §6
+       * warns about.
+       */
+      const runBroadcastPass = async (passFilters: Record<string, unknown>, notif: any) => {
+        const { data: audienceTokens, error: audienceErr } = await supabase
+          .schema('core')
+          .rpc('get_audience_push_tokens', { p_filters: passFilters });
+        if (audienceErr) throw audienceErr;
+
+        const passTokens: string[] = audienceTokens || [];
+        console.log(`[${requestId}] 🎯 broadcast audience=${passTokens.length} filters=${JSON.stringify(passFilters)}`);
+
+        let passUserIds: string[] = [];
+        if (body.persist !== false && notif?.title) {
+          const notifType = notif?.data?.type ?? data?.type ?? 'generic';
+          const deeplink = resolveDeeplink(notif?.data, data);
+          const { data: inboxIds, error: inboxErr } = await supabase
+            .schema('core')
+            .rpc('broadcast_persist_inbox', {
+              p_filters: passFilters,
+              p_type: notifType,
+              p_title: notif.title,
+              p_body: notif.body ?? null,
+              p_data: notif.data ?? {},
+              p_deeplink: deeplink,
+            });
+          if (inboxErr) {
+            console.error(`[${requestId}] ⚠️ broadcast inbox persist failed:`, JSON.stringify(inboxErr));
+          } else {
+            passUserIds = inboxIds || [];
+            console.log(`[${requestId}] 📥 ${passUserIds.length} broadcast inbox rows persisted`);
+          }
+        }
+
+        const passStats = await sendNotification(passTokens, notif, priority, ttl);
+        return { tokens: passTokens, userIds: passUserIds, stats: passStats };
+      };
+
+      // ---- Per-language broadcast: one pass per key of `localized` ----
+      //
+      // See the `LocalizedCopy` note at the top for why this is N passes and not one message:
+      // a broadcast carries ONE copy, so a mixed-language audience needs one narrowed pass per
+      // language. Each pass logs its own `notification_logs` row, with its own filters and its
+      // own counts — which is the only way the history can say what actually went where.
+      if (type === 'broadcast' && localizedLangs.length > 0) {
+        const passes: any[] = [];
+        let aborted: string | null = null;
+
+        for (const lang of localizedLangs) {
+          const passFilters = { ...(filters ?? {}), language: lang };
+          const notif = pickLocalized(notification, localized, lang);
+          const pass = await runBroadcastPass(passFilters, notif);
+
+          const passStatus = pass.stats.aborted
+            ? 'failed'
+            : pass.stats.success > 0
+              ? (pass.stats.failure > 0 ? 'partial' : 'sent')
+              : 'failed';
+          await logResult(
+            type, notif, pass.userIds, topic, passStatus, pass.stats, passFilters, pass.tokens.length
+          );
+          passes.push({
+            language: lang,
+            recipients: pass.tokens.length,
+            success: pass.stats.success,
+            failure: pass.stats.failure,
+            status: passStatus,
+            ...(pass.stats.aborted ? { aborted: pass.stats.aborted } : {}),
+          });
+          // A payload FCM refuses is refused in every language: stop instead of repeating it.
+          if (pass.stats.aborted) { aborted = pass.stats.aborted; break; }
+        }
+
+        if (aborted) {
+          return new Response(JSON.stringify({
+            success: false, error: 'FCM_PAYLOAD_REJECTED', message: aborted, requestId, passes,
+          }), { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
+        }
+        return new Response(JSON.stringify({ success: true, passes }), {
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+        });
+      }
 
       if (type === 'user') {
         // Persist one inbox row per recipient — the Notification Center mirrors
@@ -421,40 +648,10 @@ Deno.serve(async (req) => {
         // language/tier filters are applied via the profiles JOIN — fcm_tokens has
         // no platform column. Empty filters → whole base. SSOT shared with the
         // estimate + newsletter RPCs (core.build_audience_filter).
-        const { data: audienceTokens, error: audienceErr } = await supabase
-          .schema('core')
-          .rpc('get_audience_push_tokens', { p_filters: filters ?? {} });
-        if (audienceErr) throw audienceErr;
-
-        tokens = audienceTokens || [];
-        console.log(`[${requestId}] 🎯 broadcast audience=${tokens.length} filters=${JSON.stringify(filters ?? {})}`);
-
-        // Mirror the broadcast into the inbox (drive.user_notifications) — the SSOT
-        // the app's Notification Center + unread badge read from. One row per
-        // audience user, inserted set-based in SQL; returns the user_ids so the
-        // log records who was targeted. Same audience/filter as the token resolver.
-        if (body.persist !== false && notification?.title) {
-          const notifType = notification?.data?.type ?? data?.type ?? 'generic';
-          const deeplink = resolveDeeplink(notification?.data, data);
-          const { data: inboxIds, error: inboxErr } = await supabase
-            .schema('core')
-            .rpc('broadcast_persist_inbox', {
-              p_filters: filters ?? {},
-              p_type: notifType,
-              p_title: notification.title,
-              p_body: notification.body ?? null,
-              p_data: notification.data ?? {},
-              p_deeplink: deeplink,
-            });
-          if (inboxErr) {
-            console.error(`[${requestId}] ⚠️ broadcast inbox persist failed:`, JSON.stringify(inboxErr));
-          } else {
-            broadcastUserIds = inboxIds || [];
-            console.log(`[${requestId}] 📥 ${broadcastUserIds.length} broadcast inbox rows persisted`);
-          }
-        }
-
-        stats = await sendNotification(tokens, notification, priority, ttl);
+        const pass = await runBroadcastPass(filters ?? {}, notification);
+        tokens = pass.tokens;
+        broadcastUserIds = pass.userIds;
+        stats = pass.stats;
       } else if (type === 'topic') {
         // Topic send (direct call to FCM)
         const accessToken = await createAccessToken();
@@ -474,8 +671,26 @@ Deno.serve(async (req) => {
       const logUserIds = type === 'broadcast' ? broadcastUserIds : userIds;
       // An aborted run is a failure even if the first tokens went through: the
       // audience was NOT reached and the log must not claim it was.
-      const sendStatus = !stats.aborted && stats.success > 0 ? 'sent' : 'failed';
-      await logResult(type, notification, logUserIds, topic, sendStatus, stats);
+      // `partial` is new in `20260910_02_notification_logs_counters.sql`, and it exists because
+      // "some devices got it" is neither `sent` nor `failed`. An ABORTED run is never partial:
+      // the audience was not reached and the log must not suggest a judgement call about it.
+      const sendStatus = stats.aborted
+        ? 'failed'
+        : stats.success > 0
+          ? (stats.failure > 0 ? 'partial' : 'sent')
+          : 'failed';
+      await logResult(
+        type,
+        notification,
+        logUserIds,
+        topic,
+        sendStatus,
+        stats,
+        // The history showed "All Users" for every broadcast because the segment was never
+        // written down. A `user`/`topic` send has no audience filter, and null says so.
+        type === 'broadcast' ? (filters ?? {}) : null,
+        type === 'topic' ? 1 : tokens.length
+      );
 
       if (stats.aborted) {
         // 400, not 500: the request is what FCM refused, so retrying it
@@ -631,7 +846,11 @@ Deno.serve(async (req) => {
             // Same rule as /send: an aborted run never counts as sent. Only this
             // item is abandoned — each pending row carries its own payload, so a
             // payload FCM refuses says nothing about the next one in the batch.
-            const itemStatus = !stats.aborted && stats.success > 0 ? 'sent' : 'failed';
+            const itemStatus = stats.aborted
+                ? 'failed'
+                : stats.success > 0
+                  ? (stats.failure > 0 ? 'partial' : 'sent')
+                  : 'failed';
 
             // Mark as sent
             await supabase.schema('marketing').from('scheduled_notifications')
@@ -644,7 +863,16 @@ Deno.serve(async (req) => {
 
             // Log the result
             const schedLogUserIds = item.type === 'broadcast' ? scheduledBroadcastIds : item.user_ids;
-            await logResult(item.type, { title: item.title, body: item.body, data: item.data }, schedLogUserIds, item.topic, itemStatus, stats);
+            await logResult(
+                item.type,
+                { title: item.title, body: item.body, data: item.data },
+                schedLogUserIds,
+                item.topic,
+                itemStatus,
+                stats,
+                item.type === 'broadcast' ? (item.audience_filters ?? {}) : null,
+                item.type === 'topic' ? 1 : tokens.length
+            );
             results.push({ id: item.id, status: itemStatus, ...(stats.aborted ? { aborted: stats.aborted } : {}) });
 
         } catch (e) {
