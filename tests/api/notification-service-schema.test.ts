@@ -167,7 +167,17 @@ test('getLogs calls core.get_notification_logs', async () => {
   const request = onlyRequest()
   assert.equal(request.path, '/rest/v1/rpc/get_notification_logs')
   assert.equal(request.contentProfile, SCHEMA)
-  assert.equal(request.body && (request.body as any).p_limit, 50)
+  /**
+   * The argument list widened on 2026-09-10 and the default page shrank from 50 to 25: the
+   * search used to filter, in the browser, the 50 rows it had already loaded, so campaign 51
+   * was unreachable and the box said nothing about it. Paging and search are the RPC's now
+   * (`core.get_notification_logs(p_limit, p_offset, p_search)`). What this file owns is
+   * unchanged and still asserted above — the call carries `Content-Profile: core`.
+   */
+  const body = request.body as any
+  assert.equal(body.p_limit, 25)
+  assert.equal(body.p_offset, 0)
+  assert.equal(body.p_search, null)
   assert.equal(logs.length, 1)
 })
 

@@ -67,6 +67,29 @@ export const NewsletterService = {
     return json.campaign;
   },
 
+  /**
+   * Calls off a scheduled campaign. STATUS, NEVER `DELETE`: the schedule is the only undo window
+   * this module has, and a deleted row takes with it what was going to be sent, to whom, and who
+   * stopped it (CLAUDE.md §3). `deleteCampaign` below stays for a draft nobody ever sent.
+   *
+   * IT VERIFIES WHAT CAME BACK, and that is not belt-and-braces. `PATCH /campaigns/[id]` copies
+   * an ALLOWLIST of fields — `name`, `default_language`, `content`, `audience_filters` — and
+   * `status` is not in it as of 2026-09-10. A field outside the list is dropped silently and the
+   * route still answers 200 with the untouched row, so without this check the operator would
+   * read "cancelled" on a campaign the cron is still going to send. The route is owned by
+   * another branch; until `status` joins that allowlist this throws instead of lying.
+   */
+  async cancelCampaign(id: string): Promise<NewsletterCampaign> {
+    const campaign = await this.updateCampaign(id, { status: 'cancelled' } as Partial<NewsletterCampaignInput>);
+    if (campaign?.status !== 'cancelled') {
+      throw new Error(
+        'The campaign was not cancelled: PATCH /api/admin/marketing/campaigns/[id] dropped ' +
+          '`status` (it is not in the route allowlist).'
+      );
+    }
+    return campaign;
+  },
+
   async deleteCampaign(id: string): Promise<void> {
     const res = await fetch(`/api/admin/marketing/campaigns/${id}`, { method: 'DELETE' });
     if (!res.ok) throw new Error(await res.text());

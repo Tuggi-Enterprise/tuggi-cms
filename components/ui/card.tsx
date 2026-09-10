@@ -28,19 +28,30 @@ const CardHeader = React.forwardRef<
 ))
 CardHeader.displayName = "CardHeader"
 
-const CardTitle = React.forwardRef<
-  HTMLParagraphElement,
-  React.HTMLAttributes<HTMLHeadingElement>
->(({ className, ...props }, ref) => (
-  <h3
-    ref={ref}
-    className={cn(
-      "text-2xl font-semibold leading-none tracking-tight",
-      className
-    )}
-    {...props}
-  />
-))
+/**
+ * `as` exists because the heading LEVEL is not the card's to decide.
+ *
+ * The tag was always `h3`. On a screen whose own title is the `h1`, every card title then
+ * skipped a level — `heading-order`, which axe-core reports and a screen-reader user navigates
+ * by. The default stays `h3` so nothing that already renders moves; a screen that owns its
+ * outline says so (`<CardTitle as="h2">`).
+ */
+type CardTitleProps = React.HTMLAttributes<HTMLHeadingElement> & {
+  as?: 'h1' | 'h2' | 'h3' | 'h4' | 'h5' | 'h6'
+}
+
+const CardTitle = React.forwardRef<HTMLHeadingElement, CardTitleProps>(
+  ({ className, as: Tag = "h3", ...props }, ref) => (
+    <Tag
+      ref={ref}
+      className={cn(
+        "text-2xl font-semibold leading-none tracking-tight",
+        className
+      )}
+      {...props}
+    />
+  )
+)
 CardTitle.displayName = "CardTitle"
 
 const CardDescription = React.forwardRef<

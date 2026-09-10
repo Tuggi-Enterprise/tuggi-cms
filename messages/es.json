@@ -929,6 +929,175 @@
         "link_error": "Error al actualizar el vínculo de cliente"
       }
     },
+    "Notifications": {
+      "title": "Notificaciones push",
+      "subtitle": "Redacta, programa y sigue las campañas push de la aplicación.",
+      "tabs": {
+        "broadcast": "Broadcast",
+        "direct": "Envío directo (CRM)",
+        "templates": "Plantillas",
+        "history": "Historial"
+      },
+      "direct": {
+        "title": "Seleccionar clientes para el envío",
+        "selected": "SELECCIONADO(S)",
+        "search_placeholder": "Buscar por apodo, nombre o correo...",
+        "no_clients": "Ningún cliente seleccionado",
+        "target_summary": "Resumen del destino",
+        "recipients_label": "Destinatarios",
+        "bypass_hint": "Entrega directa, sin programación",
+        "more_clients": "+ {count} cliente(s)"
+      },
+      "content": {
+        "title": "Contenido de la notificación",
+        "label_title": "Título",
+        "label_body": "Cuerpo del mensaje",
+        "label_image": "URL de la imagen (opcional)",
+        "label_badge": "Contador del badge (icono de la app)",
+        "placeholder_title": "Ej.: ¡Una oferta personalizada para ti! 🎁",
+        "placeholder_body": "Escribe el contenido principal de la notificación...",
+        "placeholder_badge": "0 para borrar, 1+ para mostrar un número",
+        "editing_language": "Idioma en edición",
+        "default_language": "Idioma principal",
+        "default_language_hint": "El push sale una vez por idioma completado, filtrado por el idioma del perfil. Quien usa la app en un idioma que dejaste vacío no recibe nada.",
+        "language_filled": "completo",
+        "language_empty": "vacío",
+        "campaign_type_label": "Clave de la campaña",
+        "campaign_type_placeholder": "ej.: promo_verano_2026",
+        "campaign_type_hint": "Va en data.type y es lo que separa esta campaña de las demás en el informe. Sin ella todas son la misma línea.",
+        "campaign_type_required": "La clave de la campaña es obligatoria."
+      },
+      "scheduling": {
+        "title": "Programación",
+        "label_date": "Fecha y hora",
+        "status_immediate": "Se enviará de inmediato",
+        "status_scheduled": "Programado para ",
+        "tz_hint": "Zona horaria de tu ordenador ({tz})."
+      },
+      "advanced": {
+        "title": "Ajustes avanzados",
+        "hint": "Deep link, badge y prioridad. Casi nunca hace falta tocarlo.",
+        "label_link": "Deep link (URL o ruta)",
+        "placeholder_link": "ej.: /ruta/123 o https://...",
+        "label_priority": "Prioridad alta",
+        "priority_hint": "Solo para mensajes urgentes. Firebase degrada a quien abusa, y el castigo alcanza a todos los push de la app, incluido el diario."
+      },
+      "preview": {
+        "title": "Vista previa en vivo",
+        "app_name": "Tuggi App",
+        "now": "Ahora",
+        "placeholder_title": "Título de la notificación",
+        "placeholder_body": "Escribe un mensaje para ver cómo llega al dispositivo del usuario...",
+        "truncated": "El dispositivo corta aquí: 1 línea de título y 2 de cuerpo. Lo que pase de ahí solo aparece si la persona lo despliega.",
+        "language_note": "Vista previa de {lang}."
+      },
+      "actions": {
+        "send_now": "Enviar ahora",
+        "send_direct": "Enviar push directo",
+        "schedule": "Programar",
+        "sending": "Enviando...",
+        "footer": "Entrega vía Firebase FCM"
+      },
+      "confirm": {
+        "title": "Confirmar el envío",
+        "title_schedule": "Confirmar la programación",
+        "irreversible": "No hay vuelta atrás: cada destinatario recibe una línea permanente en la bandeja de la app, y ninguna pantalla borra esa línea.",
+        "recipients_label": "Destinatarios",
+        "whole_base": "Base completa — sin ningún filtro",
+        "filters_label": "Filtros",
+        "content_label": "Lo que se va a enviar",
+        "languages_label": "Idiomas completados",
+        "type_label": "Clave de la campaña",
+        "priority_warning": "Sale con prioridad alta. Confirma que el mensaje es urgente.",
+        "gate_label": "Escribe {count} para desbloquear el envío",
+        "gate_placeholder": "número de destinatarios",
+        "gate_hint": "Es el número que aparece arriba.",
+        "cancel": "Cancelar",
+        "close": "Cerrar",
+        "send": "Enviar a {count}",
+        "schedule": "Programar para {count}",
+        "blocked_estimate": "La estimación de audiencia no volvió. Sin saber a cuántas personas, el envío queda bloqueado.",
+        "blocked_zero": "Ningún destinatario coincide con estos filtros. No hay nada que enviar."
+      },
+      "messages": {
+        "select_client": "Selecciona al menos un cliente.",
+        "sent_broadcast": "{accepted} tokens aceptados por FCM, {failed} rechazados.",
+        "sent_direct": "Enviado a {count} cliente(s): {accepted} tokens aceptados, {failed} rechazados.",
+        "scheduled": "Campaña programada.",
+        "no_tokens": "El mensaje se procesó, pero no se encontró ningún dispositivo activo. Comprueba que el cliente autorizó las notificaciones en la app.",
+        "partial": "{ok} de {total} idiomas enviados. Fallos: {errors}"
+      },
+      "history": {
+        "title": "Historial",
+        "subtitle": "Campañas ya enviadas y lo que respondió FCM.",
+        "search_placeholder": "Buscar en el historial...",
+        "refresh": "Recargar",
+        "empty_title": "Ninguna campaña en el historial",
+        "empty_body": "Las campañas enviadas aparecen aquí.",
+        "recipients": "Destinatarios",
+        "whole_base": "Base completa",
+        "topic": "Tema: {topic}",
+        "direct_clients": "{count} cliente(s)",
+        "results": "Resultado",
+        "accepted": "{accepted} enviados · {failed} fallaron",
+        "no_counts": "Sin recuento registrado",
+        "fcm_caveat": "«Enviados» es lo que FCM aceptó — no entregado ni abierto.",
+        "campaign_type": "Campaña",
+        "status": {
+          "sent": "enviado",
+          "failed": "falló"
+        ,
+          "partial": "parcial"
+        },
+        "prev": "Anterior",
+        "next": "Siguiente",
+        "page": "Página {page}",
+        "load_failed": "No se pudo cargar el historial: {error}"
+      },
+      "scheduled": {
+        "title": "Programadas",
+        "subtitle": "Cola de {count} campaña(s) esperando su hora.",
+        "empty": "Nada programado.",
+        "at": "{datetime}",
+        "tz_note": "Horas en la zona de tu ordenador ({tz}).",
+        "audience": "Audiencia",
+        "whole_base": "Base completa",
+        "cancel": "Cancelar",
+        "cancelling": "Cancelando...",
+        "cancelled": "Campaña cancelada.",
+        "cancel_failed": "No se pudo cancelar: {error}",
+        "overdue": "Pasó su hora y sigue pendiente — el cron no se ejecutó.",
+        "load_failed": "No se pudo cargar la cola: {error}",
+        "unavailable": "La cola de programadas todavía no está disponible: {error}"
+      },
+      "templates": {
+        "title": "Plantillas de notificación",
+        "subtitle": "Mensajes reutilizables, para no reescribir la misma campaña.",
+        "new": "Nueva plantilla",
+        "create_title": "Crear plantilla",
+        "edit_title": "Editar plantilla",
+        "label_name": "Nombre interno",
+        "placeholder_name": "ej.: Bienvenida",
+        "label_title": "Título de la notificación",
+        "label_body": "Cuerpo del mensaje",
+        "label_image": "URL de la imagen (opcional)",
+        "save": "Guardar",
+        "cancel": "Cancelar",
+        "load": "Cargar",
+        "edit": "Editar",
+        "delete": "Eliminar",
+        "badge": "Plantilla",
+        "has_image": "Contiene una imagen",
+        "required_fields": "Rellena nombre, título y cuerpo.",
+        "save_failed": "No se pudo guardar la plantilla: {error}",
+        "delete_failed": "No se pudo eliminar la plantilla: {error}",
+        "delete_confirm": "¿Eliminar esta plantilla? No hay forma de deshacerlo.",
+        "empty_title": "Ninguna plantilla",
+        "empty_body": "Crea la primera plantilla para reutilizar campañas habituales.",
+        "empty_cta": "Crear plantilla",
+        "load_failed": "No se pudieron cargar las plantillas: {error}"
+      }
+    },
     "Marketing": {
       "title": "Marketing",
       "subtitle": "Newsletters y notificaciones push",
@@ -942,7 +1111,9 @@
           "translated": "Traducciones generadas.",
           "sent": "Enviada a {count} destinatarios.",
           "scheduled": "Campaña programada.",
-          "testSent": "Prueba enviada a {email}."
+          "testSent": "Prueba enviada a {email}.",
+          "draftSaved": "Borrador guardado.",
+          "cancelled": "Envío cancelado."
         },
         "tabs": {
           "compose": "Componer",
@@ -976,7 +1147,12 @@
           "heroAltPlaceholder": "Describe la imagen (se muestra si no carga)",
           "tokensHint": "Personaliza con '{{first_name}}' o '{{name}}' — sin nombre usamos “viajero”.",
           "content": "Contenido (bloques)",
-          "scheduleTzHint": "Se enviará a la hora elegida, en tu zona horaria ({tz})."
+          "scheduleTzHint": "Se enviará a la hora elegida, en tu zona horaria ({tz}).",
+          "saveDraft": "Guardar borrador",
+          "scheduleLabel": "Fecha y hora del envío",
+          "requiresSubject": "Escribí el asunto y al menos un bloque en el idioma base para habilitar el envío.",
+          "autoTranslated": "Traducido automáticamente — sin revisar",
+          "autoTranslatedBadge": "sin revisar"
         },
         "preview": {
           "empty": "Nada para previsualizar todavía.",
@@ -990,14 +1166,24 @@
           "opened": "Abiertos",
           "clicked": "Clics",
           "openRate": "Tasa de apertura",
-          "loading": "Cargando..."
+          "loading": "Cargando...",
+          "scheduledTitle": "Programados",
+          "scheduledEmpty": "Nada programado.",
+          "sentTitle": "Historial",
+          "cancel": "Cancelar envío",
+          "cancelling": "Cancelando…",
+          "overdue": "Pasó la hora y sigue programada — el cron puede estar parado.",
+          "audience": "Audiencia",
+          "wholeBase": "base entera",
+          "cancelFailed": "No se pudo cancelar: {reason}"
         },
         "status": {
           "draft": "Borrador",
           "scheduled": "Programada",
           "sending": "Enviando",
           "sent": "Enviada",
-          "failed": "Falló"
+          "failed": "Falló",
+          "cancelled": "Cancelada"
         },
         "blocks": {
           "empty": "Aún no hay bloques. Agrega uno abajo.",
@@ -1019,10 +1205,93 @@
           "buttonVariant": {
             "primary": "Azul",
             "accent": "Naranja"
-          }
+          },
+          "moveUp": "Mover hacia arriba",
+          "moveDown": "Mover hacia abajo",
+          "remove": "Quitar bloque"
         },
         "title": "Newsletter",
-        "subtitle": "Crea, traduce y envía emails a tus usuarios"
+        "subtitle": "Crea, traduce y envía emails a tus usuarios",
+        "sections": {
+          "content": "Contenido del e-mail",
+          "delivery": "Audiencia y envío"
+        },
+        "locked": {
+          "title": "Campaña ya enviada",
+          "body": "Una campaña que está enviando o ya salió no se edita — lo que salió, salió. Duplicala para seguir desde acá.",
+          "duplicate": "Duplicar"
+        },
+        "confirm": {
+          "title": "Confirmar el disparo",
+          "subtitle": "Esto sale a la base ahora y no tiene vuelta atrás.",
+          "scheduleTitle": "Confirmar la programación",
+          "scheduleSubtitle": "Queda programada para {when}. Podés cancelarla en el historial hasta esa hora.",
+          "recipients": "destinatarios",
+          "campaign": "Campaña",
+          "subject": "Asunto",
+          "noSubject": "(sin asunto)",
+          "filters": "Filtros",
+          "wholeBase": "Base entera — ningún filtro activo.",
+          "languageFallback": "{count} destinatarios no tienen contenido en su idioma y lo van a recibir en {language}.",
+          "languageFallbackUnknown": "Quien no tenga contenido en su idioma lo recibe en {language}.",
+          "unreviewed": "Idiomas traducidos por IA y todavía sin revisar: {languages}.",
+          "typeToConfirm": "Escribí {count} para confirmar",
+          "blocked": "Sin estimación de audiencia no hay nada que confirmar.",
+          "blockedZero": "La estimación es cero — ningún destinatario coincide con estos filtros.",
+          "cancel": "Volver",
+          "send": "Enviar ahora",
+          "schedule": "Programar"
+        }
+      },
+      "Audience": {
+        "title": "Audiencia",
+        "emailBase": "Base de e-mail",
+        "pushBase": "Base de push",
+        "targeted": "Segmentados",
+        "estimate": {
+          "calculating": "Calculando…",
+          "recipients": "{count} destinatarios",
+          "failed": "Falló el cálculo"
+        },
+        "error": {
+          "title": "No se pudo calcular la audiencia.",
+          "hint": "El envío queda bloqueado hasta que el conteo vuelva."
+        },
+        "platform": {
+          "label": "Plataforma",
+          "all": "Todas las plataformas",
+          "ios": "Apple iOS",
+          "android": "Google Android"
+        },
+        "tier": {
+          "label": "Plan de suscripción",
+          "all": "Todos los usuarios",
+          "loading": "Cargando planes…",
+          "failed": "No se pudieron cargar los planes."
+        },
+        "language": {
+          "label": "Idioma del usuario",
+          "all": "Cualquier idioma",
+          "pt": "Portugués",
+          "en": "Inglés",
+          "es": "Español",
+          "it": "Italiano",
+          "fr": "Francés"
+        },
+        "onboarding": {
+          "label": "Completaron el onboarding",
+          "help": "Una marca de conclusión en el perfil. No indica uso reciente — para eso usá Actividad."
+        },
+        "activity": {
+          "title": "Actividad",
+          "createdAfter": "Cuenta creada después de",
+          "createdBefore": "Cuenta creada antes de",
+          "lastActiveAfter": "Activo después de",
+          "appVersionLt": "Versión del app menor que",
+          "appVersionPlaceholder": "Ej.: 2.4.0",
+          "pending": "“Desapareció desde” (quien dejó de usar) depende de una migration todavía no aplicada, por eso no está acá."
+        },
+        "demographicsBlocked": "Segmentar una campaña por nación de origen o por tipo de conductor lo rechaza la base (TGU43). La encuesta de perfil existe para decidir qué producir, y la BR-USUARIO-043 ítem 5b no autoriza ese uso."
       }
     },
     "Unsubscribe": {

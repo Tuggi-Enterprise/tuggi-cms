@@ -942,67 +942,173 @@
       }
     },
     "Notifications": {
-      "title": "Push Notifications",
-      "subtitle": "Create, schedule and manage push notifications for your application users.",
+      "title": "Push notifications",
+      "subtitle": "Compose, schedule and follow the app's push campaigns.",
       "tabs": {
         "broadcast": "Broadcast",
-        "direct": "Direct Push (CRM)",
+        "direct": "Direct push (CRM)",
         "templates": "Templates",
         "history": "History"
       },
       "direct": {
-        "title": "Select Clients for Envoys",
+        "title": "Select clients to send to",
         "selected": "SELECTED",
-        "search_placeholder": "Search by nickname, name or email...",
-        "no_clients": "No clients selected",
-        "target_summary": "Target Summary",
-        "recipients_label": "Target Recipients",
-        "bypass_hint": "Direct Delivery Bypass Scheduling"
+        "search_placeholder": "Search by nickname, name or e-mail...",
+        "no_clients": "No client selected",
+        "target_summary": "Target summary",
+        "recipients_label": "Target recipients",
+        "bypass_hint": "Direct delivery, no scheduling",
+        "more_clients": "+ {count} client(s)"
       },
       "content": {
-        "title": "Notification Content",
+        "title": "Notification content",
         "label_title": "Title",
-        "label_body": "Message Body",
-        "label_image": "Image URL (Optional)",
-        "label_badge": "Badge Count (App Icon)",
-        "placeholder_title": "e.g. Personalized offer for you! 🎁",
-        "placeholder_body": "Enter the main content of your notification...",
-        "placeholder_badge": "0 to reset, 1+ to show number"
+        "label_body": "Message body",
+        "label_image": "Image URL (optional)",
+        "label_badge": "Badge count (app icon)",
+        "placeholder_title": "e.g. A personalised offer for you! 🎁",
+        "placeholder_body": "Write the main content of the notification...",
+        "placeholder_badge": "0 to clear, 1+ to show a number",
+        "editing_language": "Language being edited",
+        "default_language": "Primary language",
+        "default_language_hint": "The push goes out once per filled language, filtered by the profile's language. Anyone using the app in a language you left empty gets nothing.",
+        "language_filled": "filled",
+        "language_empty": "empty",
+        "campaign_type_label": "Campaign key",
+        "campaign_type_placeholder": "e.g. summer_promo_2026",
+        "campaign_type_hint": "Goes into data.type and is what separates this campaign from the others in the report. Without it they all become one line.",
+        "campaign_type_required": "The campaign key is required."
       },
       "scheduling": {
-        "title": "Scheduling Settings",
-        "label_date": "Scheduled Date & Time",
+        "title": "Scheduling",
+        "label_date": "Date and time",
         "status_immediate": "Will be sent immediately",
-        "status_scheduled": "Scheduled for "
+        "status_scheduled": "Scheduled for ",
+        "tz_hint": "Your computer's time zone ({tz})."
       },
       "advanced": {
-        "title": "Advanced Settings",
-        "label_link": "Deep Link (URL/Route)",
+        "title": "Advanced settings",
+        "hint": "Deep link, badge and priority. Rarely needs touching.",
+        "label_link": "Deep link (URL or route)",
         "placeholder_link": "e.g. /trail/123 or https://...",
-        "label_priority": "High Priority",
-        "priority_hint": "Deliver immediately, bypass battery mode"
+        "label_priority": "High priority",
+        "priority_hint": "Urgent messages only. Firebase deprioritises apps that overuse it, and the penalty hits every push the app sends, the daily one included.",
+        "priority_hint_short": "Urgent messages only."
       },
       "preview": {
-        "title": "Live Preview",
+        "title": "Live preview",
         "app_name": "Tuggi App",
         "now": "Now",
-        "placeholder_title": "Notification Title",
-        "placeholder_body": "Type a message to see how it looks on your users devices..."
+        "placeholder_title": "Notification title",
+        "placeholder_body": "Write a message to see how it lands on the user's device...",
+        "truncated": "The device cuts here: 1 line of title and 2 of body. Anything past that only shows if the person expands it.",
+        "language_note": "Preview of {lang}."
       },
       "actions": {
-        "send_now": "Send Now",
-        "send_direct": "Send Direct Push",
+        "send_now": "Send now",
+        "send_direct": "Send direct push",
         "schedule": "Schedule",
         "sending": "Sending...",
-        "footer": "Secure Delivery via Firebase FCM"
+        "footer": "Delivered through Firebase FCM"
       },
-      "alerts": {
-        "select_client": "Please select at least one client to send the notification.",
-        "success_broadcast": "Broadcast Notification Sent Successfully!",
-        "success_scheduled": "Notification Scheduled Successfully!",
-        "success_direct": "Notification sent to {count} client(s)!",
-        "error_send": "Failed to send notification. Please check your configuration.",
-        "no_tokens_found": "Warning: The message was processed, but we couldn't find any active devices (tokens) for the selected user(s). Check if the client has enabled notifications in the app."
+      "confirm": {
+        "title": "Confirm send",
+        "title_schedule": "Confirm scheduling",
+        "irreversible": "There is no undo: every recipient gets a permanent row in the app's inbox, and no screen removes that row.",
+        "recipients_label": "Recipients",
+        "whole_base": "Whole base — no filter applied",
+        "filters_label": "Filters",
+        "content_label": "What will be sent",
+        "languages_label": "Languages filled in",
+        "type_label": "Campaign key",
+        "priority_warning": "This goes out as high priority. Confirm the message is urgent.",
+        "gate_label": "Type {count} to unlock the send",
+        "gate_placeholder": "number of recipients",
+        "gate_hint": "It is the number shown above.",
+        "cancel": "Cancel",
+        "close": "Close",
+        "send": "Send to {count}",
+        "schedule": "Schedule for {count}",
+        "blocked_estimate": "The audience estimate did not come back. Sending is blocked while the count is unknown.",
+        "blocked_zero": "No recipient matches these filters. There is nothing to send."
+      },
+      "messages": {
+        "select_client": "Select at least one client.",
+        "sent_broadcast": "{accepted} tokens accepted by FCM, {failed} rejected.",
+        "sent_direct": "Sent to {count} client(s): {accepted} tokens accepted, {failed} rejected.",
+        "scheduled": "Campaign scheduled.",
+        "no_tokens": "The message was processed, but no active device was found. Check that the client allowed notifications in the app.",
+        "partial": "{ok} of {total} languages sent. Failures: {errors}"
+      },
+      "history": {
+        "title": "History",
+        "subtitle": "Campaigns already sent and what FCM answered.",
+        "search_placeholder": "Search the history...",
+        "refresh": "Reload",
+        "empty_title": "No campaign in the history",
+        "empty_body": "Sent campaigns show up here.",
+        "recipients": "Recipients",
+        "whole_base": "Whole base",
+        "topic": "Topic: {topic}",
+        "direct_clients": "{count} client(s)",
+        "results": "Result",
+        "accepted": "{accepted} sent · {failed} failed",
+        "no_counts": "No count recorded",
+        "fcm_caveat": "“Sent” is what FCM accepted — not delivered, not opened.",
+        "campaign_type": "Campaign",
+        "status": {
+          "sent": "sent",
+          "failed": "failed"
+        ,
+          "partial": "partial"
+        },
+        "prev": "Previous",
+        "next": "Next",
+        "page": "Page {page}",
+        "load_failed": "Could not load the history: {error}"
+      },
+      "scheduled": {
+        "title": "Scheduled",
+        "subtitle": "Queue of {count} campaign(s) waiting for their time.",
+        "empty": "Nothing scheduled.",
+        "at": "{datetime}",
+        "tz_note": "Times in your computer's zone ({tz}).",
+        "audience": "Audience",
+        "whole_base": "Whole base",
+        "cancel": "Cancel",
+        "cancelling": "Cancelling...",
+        "cancelled": "Campaign cancelled.",
+        "cancel_failed": "Could not cancel: {error}",
+        "overdue": "Past its time and still pending — the cron did not run.",
+        "load_failed": "Could not load the queue: {error}",
+        "unavailable": "The scheduled queue is not available yet: {error}"
+      },
+      "templates": {
+        "title": "Notification templates",
+        "subtitle": "Reusable messages, so the same campaign is not rewritten.",
+        "new": "New template",
+        "create_title": "Create template",
+        "edit_title": "Edit template",
+        "label_name": "Internal name",
+        "placeholder_name": "e.g. Welcome",
+        "label_title": "Notification title",
+        "label_body": "Message body",
+        "label_image": "Image URL (optional)",
+        "save": "Save",
+        "cancel": "Cancel",
+        "load": "Load",
+        "edit": "Edit",
+        "delete": "Delete",
+        "badge": "Template",
+        "has_image": "Contains an image",
+        "required_fields": "Fill in name, title and body.",
+        "save_failed": "Could not save the template: {error}",
+        "delete_failed": "Could not delete the template: {error}",
+        "delete_confirm": "Delete this template? There is no undo.",
+        "empty_title": "No template",
+        "empty_body": "Create the first template to reuse common campaigns.",
+        "empty_cta": "Create template",
+        "load_failed": "Could not load the templates: {error}"
       }
     },
     "Marketing": {
@@ -1018,7 +1124,9 @@
           "translated": "Translations generated.",
           "sent": "Sent to {count} recipients.",
           "scheduled": "Campaign scheduled.",
-          "testSent": "Test sent to {email}."
+          "testSent": "Test sent to {email}.",
+          "draftSaved": "Draft saved.",
+          "cancelled": "Send cancelled."
         },
         "tabs": {
           "compose": "Compose",
@@ -1052,7 +1160,12 @@
           "heroAltPlaceholder": "Describe the image (shown if it fails to load)",
           "tokensHint": "Personalize with '{{first_name}}' or '{{name}}' — no name falls back to “traveler”.",
           "content": "Content (blocks)",
-          "scheduleTzHint": "Will be sent at the chosen time, in your timezone ({tz})."
+          "scheduleTzHint": "Will be sent at the chosen time, in your timezone ({tz}).",
+          "saveDraft": "Save draft",
+          "scheduleLabel": "Send date and time",
+          "requiresSubject": "Write the subject and at least one block in the base language to unlock sending.",
+          "autoTranslated": "Machine translated — not reviewed",
+          "autoTranslatedBadge": "not reviewed"
         },
         "preview": {
           "empty": "Nothing to preview yet.",
@@ -1066,14 +1179,24 @@
           "opened": "Opened",
           "clicked": "Clicks",
           "openRate": "Open rate",
-          "loading": "Loading..."
+          "loading": "Loading...",
+          "scheduledTitle": "Scheduled",
+          "scheduledEmpty": "Nothing scheduled.",
+          "sentTitle": "History",
+          "cancel": "Cancel send",
+          "cancelling": "Cancelling…",
+          "overdue": "Past its time and still scheduled — the cron may be stopped.",
+          "audience": "Audience",
+          "wholeBase": "whole base",
+          "cancelFailed": "Could not cancel: {reason}"
         },
         "status": {
           "draft": "Draft",
           "scheduled": "Scheduled",
           "sending": "Sending",
           "sent": "Sent",
-          "failed": "Failed"
+          "failed": "Failed",
+          "cancelled": "Cancelled"
         },
         "blocks": {
           "empty": "No blocks yet. Add one below.",
@@ -1095,10 +1218,93 @@
           "buttonVariant": {
             "primary": "Blue",
             "accent": "Orange"
-          }
+          },
+          "moveUp": "Move up",
+          "moveDown": "Move down",
+          "remove": "Remove block"
         },
         "title": "Newsletter",
-        "subtitle": "Create, translate and send emails to your users"
+        "subtitle": "Create, translate and send emails to your users",
+        "sections": {
+          "content": "E-mail content",
+          "delivery": "Audience and delivery"
+        },
+        "locked": {
+          "title": "Campaign already sent",
+          "body": "A campaign that is sending or sent cannot be edited — what went out, went out. Duplicate it to start from here.",
+          "duplicate": "Duplicate"
+        },
+        "confirm": {
+          "title": "Confirm the send",
+          "subtitle": "This goes out to the base now, and there is no undo.",
+          "scheduleTitle": "Confirm the schedule",
+          "scheduleSubtitle": "Scheduled for {when}. You can cancel it from the history until then.",
+          "recipients": "recipients",
+          "campaign": "Campaign",
+          "subject": "Subject",
+          "noSubject": "(no subject)",
+          "filters": "Filters",
+          "wholeBase": "Whole base — no filter is active.",
+          "languageFallback": "{count} recipients have no content in their own language and will get {language}.",
+          "languageFallbackUnknown": "Anyone without content in their own language gets {language}.",
+          "unreviewed": "Machine-translated and still unreviewed: {languages}.",
+          "typeToConfirm": "Type {count} to confirm",
+          "blocked": "Without an audience estimate there is nothing to confirm.",
+          "blockedZero": "The estimate is zero — no recipient matches these filters.",
+          "cancel": "Back",
+          "send": "Send now",
+          "schedule": "Schedule"
+        }
+      },
+      "Audience": {
+        "title": "Audience",
+        "emailBase": "E-mail base",
+        "pushBase": "Push base",
+        "targeted": "Targeted",
+        "estimate": {
+          "calculating": "Calculating…",
+          "recipients": "{count} recipients",
+          "failed": "Estimate failed"
+        },
+        "error": {
+          "title": "The audience could not be estimated.",
+          "hint": "Sending stays blocked until the count comes back."
+        },
+        "platform": {
+          "label": "Platform",
+          "all": "All platforms",
+          "ios": "Apple iOS",
+          "android": "Google Android"
+        },
+        "tier": {
+          "label": "Subscription plan",
+          "all": "Every user",
+          "loading": "Loading plans…",
+          "failed": "The plans could not be loaded."
+        },
+        "language": {
+          "label": "User language",
+          "all": "Any language",
+          "pt": "Portuguese",
+          "en": "English",
+          "es": "Spanish",
+          "it": "Italian",
+          "fr": "French"
+        },
+        "onboarding": {
+          "label": "Completed onboarding",
+          "help": "A completion flag on the profile. It is not a sign of recent use — use Activity for that."
+        },
+        "activity": {
+          "title": "Activity",
+          "createdAfter": "Account created after",
+          "createdBefore": "Account created before",
+          "lastActiveAfter": "Active after",
+          "appVersionLt": "App version below",
+          "appVersionPlaceholder": "e.g. 2.4.0",
+          "pending": "“Gone since” (people who stopped using the app) depends on a migration that is not applied yet, so it is not here."
+        },
+        "demographicsBlocked": "Targeting a campaign by home nation or by driver type is refused by the database (TGU43). The profile survey exists to decide what to produce, and BR-USUARIO-043 item 5b does not authorize that use."
       }
     },
     "Unsubscribe": {

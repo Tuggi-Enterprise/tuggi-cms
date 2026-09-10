@@ -62,9 +62,12 @@ export function BlockEditor({ blocks, onChange }: Props) {
           <div className="flex items-center justify-between mb-2">
             <span className="text-xs font-semibold uppercase tracking-wide text-gray-500">{t(`types.${b.type}`)}</span>
             <div className="flex items-center gap-1">
-              <button onClick={() => move(i, -1)} disabled={i === 0} className="p-1 text-gray-400 hover:text-gray-700 disabled:opacity-30"><ArrowUp size={15} /></button>
-              <button onClick={() => move(i, 1)} disabled={i === blocks.length - 1} className="p-1 text-gray-400 hover:text-gray-700 disabled:opacity-30"><ArrowDown size={15} /></button>
-              <button onClick={() => remove(i)} className="p-1 text-gray-400 hover:text-red-600"><Trash2 size={15} /></button>
+              {/* The three of them were icon-only and NAMELESS: `button-name`, a `critical` in
+                  axe, and for anyone not looking at the screen three buttons that announce
+                  nothing on every block of the e-mail. */}
+              <button type="button" aria-label={t('moveUp')} onClick={() => move(i, -1)} disabled={i === 0} className="p-1 text-gray-400 hover:text-gray-700 disabled:opacity-30"><ArrowUp size={15} /></button>
+              <button type="button" aria-label={t('moveDown')} onClick={() => move(i, 1)} disabled={i === blocks.length - 1} className="p-1 text-gray-400 hover:text-gray-700 disabled:opacity-30"><ArrowDown size={15} /></button>
+              <button type="button" aria-label={t('remove')} onClick={() => remove(i)} className="p-1 text-gray-400 hover:text-red-600"><Trash2 size={15} /></button>
             </div>
           </div>
 

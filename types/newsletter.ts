@@ -35,7 +35,28 @@ export interface NewsletterContent {
 /** Mapa idioma → conteúdo (ex.: { pt: {...}, en: {...} }). */
 export type NewsletterContentByLanguage = Partial<Record<NewsletterLanguage, NewsletterContent>>;
 
-export type NewsletterStatus = 'draft' | 'scheduled' | 'sending' | 'sent' | 'failed';
+/**
+ * `cancelled` is what a scheduled campaign becomes when the operator calls it off. It is a
+ * STATUS and never a `DELETE`: the schedule is the only undo window this module has, and a row
+ * that disappears takes with it what was going to be sent, to whom, and who stopped it
+ * (CLAUDE.md §3).
+ */
+/**
+ * `partial` é um desfecho, não um enfeite: a campanha do Iceland alcançou 300 de 500 e ficou
+ * gravada como `sent`, indistinguível de uma que alcançou todo mundo. Ele existe porque pede uma
+ * ação diferente — reenviar para quem falhou, não para a base.
+ *
+ * O vocabulário é o do banco: `20260910_04_newsletter_campaign_progress.sql` põe um CHECK em
+ * `status` com exatamente estes sete valores. Sinônimo aqui vira 23514 lá.
+ */
+export type NewsletterStatus =
+  | 'draft'
+  | 'scheduled'
+  | 'sending'
+  | 'sent'
+  | 'partial'
+  | 'failed'
+  | 'cancelled';
 
 export interface NewsletterCampaign {
   id: string;
@@ -44,6 +65,15 @@ export interface NewsletterCampaign {
   content: NewsletterContentByLanguage;
   audience_filters: AudienceFilters;
   status: NewsletterStatus;
+  /**
+   * O disparo, em números. Colunas de `20260910_04_newsletter_campaign_progress.sql`:
+   * `recipient_count` é o denominador gravado antes do primeiro lote, e o CHECK do banco garante
+   * `sent_count + failed_count <= recipient_count`.
+   */
+  recipient_count?: number | null;
+  sent_count?: number | null;
+  failed_count?: number | null;
+  started_at?: string | null;
   scheduled_for: string | null;
   sent_at: string | null;
   created_by: string | null;
@@ -62,8 +92,11 @@ export interface NewsletterCampaignStats {
   total: number;
   delivered: number;
   opened: number;
+  /** Contado por `click_count > 0`, nunca por `status = 'clicked'` — ver `computeStats`. */
   clicked: number;
   bounced: number;
+  /** Destinatários desta campanha que se descadastraram depois do disparo dela. */
+  unsubscribed: number;
   open_rate: number; // opened / delivered
 }
 
