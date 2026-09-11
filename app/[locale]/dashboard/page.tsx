@@ -28,6 +28,7 @@ import { LowBalanceCard } from '@/components/dashboard/LowBalanceCard'
 import { PaidAccessCard } from '@/components/dashboard/PaidAccessCard'
 import { WaitlistDemandList } from '@/components/dashboard/WaitlistDemandList'
 import { GoogleMapComponent } from '@/components/ui/GoogleMapComponent'
+import { MapLegendItem } from '@/components/dashboard/MapLegendItem'
 
 // recharts is the single heaviest dependency of this route's initial JS and only one widget
 // uses it. ssr: false keeps it out of the server render too — the chart has no SEO value in an
@@ -348,13 +349,13 @@ export default function DashboardPage() {
             )}
             {/* Legend — colour is the entitlement state; the ring and the opacity are presence */}
             <div className="absolute bottom-3 left-3 z-10 grid grid-cols-2 gap-x-3 gap-y-1.5 bg-white/90 dark:bg-gray-900/90 backdrop-blur-sm rounded-lg border border-gray-200 dark:border-gray-800 px-3 py-2 shadow-sm pointer-events-none">
-              <LegendItem color={ENTITLEMENT_COLOR.unlimited} label={t('labels.unlimited_access')} />
-              <LegendItem color={ENTITLEMENT_COLOR.metered} label={t('labels.metered_access')} />
-              <LegendItem color={ENTITLEMENT_COLOR.free} label={t('labels.free_access')} />
-              <LegendItem color={TUGGI_COLORS.green} label={t('labels.active_now')} pulse />
-              <LegendItem color={TUGGI_COLORS.red} label={t('labels.demand')} />
-              <LegendItem color={CHART_NEUTRAL} label={t('labels.signal_archived')} dim />
-              <LegendItem color={CHART_NEUTRAL} label={t('labels.guide_on')} ring />
+              <MapLegendItem color={ENTITLEMENT_COLOR.unlimited} label={t('labels.unlimited_access')} />
+              <MapLegendItem color={ENTITLEMENT_COLOR.metered} label={t('labels.metered_access')} />
+              <MapLegendItem color={ENTITLEMENT_COLOR.free} label={t('labels.free_access')} />
+              <MapLegendItem color={TUGGI_COLORS.green} label={t('labels.active_now')} pulse />
+              <MapLegendItem color={TUGGI_COLORS.red} label={t('labels.demand')} />
+              <MapLegendItem color={CHART_NEUTRAL} label={t('labels.signal_archived')} dim />
+              <MapLegendItem color={CHART_NEUTRAL} label={t('labels.guide_on')} ring />
             </div>
           </div>
         </WidgetCard>
@@ -464,24 +465,3 @@ export default function DashboardPage() {
   )
 }
 
-/**
- * One row of the map legend. `ring` and `dim` exist because two of the pin's channels are not
- * colour: the guide being on is the big pin with a halo, and an archived position is the half
- * opacity (`components/ui/GoogleMapComponent.tsx`, `buildIcon`). A solid dot for either would
- * claim there is a "guide" colour and an "archived" colour, and there is neither.
- */
-function LegendItem({ color, label, pulse, ring, dim }: { color: string; label: string; pulse?: boolean; ring?: boolean; dim?: boolean }) {
-  return (
-    <div className="flex items-center gap-2">
-      <span
-        className={`w-2.5 h-2.5 rounded-full shrink-0 ${pulse ? 'animate-pulse' : ''}`}
-        style={
-          ring
-            ? { backgroundColor: color, boxShadow: `0 0 0 3px ${color}40` }
-            : { backgroundColor: color, opacity: dim ? 0.45 : 1 }
-        }
-      />
-      <span className="text-[10px] font-black uppercase tracking-tight text-gray-600 dark:text-gray-300">{label}</span>
-    </div>
-  )
-}

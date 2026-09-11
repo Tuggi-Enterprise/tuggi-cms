@@ -7,8 +7,12 @@ import { dashboardService, WaitlistStats, WaitlistPin, UserLocationPin } from '@
 import { StatCard } from '@/components/ui/StatCard'
 import { GoogleMapComponent } from '@/components/ui/GoogleMapComponent'
 import { WaitlistDemandList } from '@/components/dashboard/WaitlistDemandList'
+import { MapLegendItem } from '@/components/dashboard/MapLegendItem'
+import { CHART_COLORS, CHART_NEUTRAL, ENTITLEMENT_COLOR } from '@/lib/constants/chart-colors'
+import { userPinAppearance } from '@/lib/dashboard/map-pin'
+import { appUserLabel } from '@/lib/format/user-identity'
 
-const TUGGI_COLORS = { blue: '#00A8E8', orange: '#FF6F00', green: '#10B981', purple: '#8B5CF6', red: '#EF4444' }
+const TUGGI_COLORS = CHART_COLORS
 
 type Layer = 'demand' | 'base' | 'both'
 
@@ -37,7 +41,15 @@ export function GeoDemand() {
 
   const markers = useMemo(() => {
     const demand = demandPins.map(p => ({ id: `w-${p.id}`, position: { lat: p.latitude, lng: p.longitude }, title: `${t('labels.demand')}${p.country ? ` · ${p.country}` : ''}`, color: TUGGI_COLORS.red }))
-    const base = userPins.map(p => ({ id: `u-${p.user_id}`, position: { lat: p.latitude, lng: p.longitude }, title: p.nickname || 'User', color: p.is_premium ? TUGGI_COLORS.orange : TUGGI_COLORS.blue }))
+    // The second consumer of `dashboard_user_location_pins`, and it carried the same two
+    // defects the Overview map had until #732: `is_premium` merges `unlimited` with `metered`
+    // (BR-MONETIZACAO-046), and a missing `nickname` fell back to the word "User", which names
+    // nobody (BR-USUARIO-042). Same RPC, same owner of the answer — `lib/dashboard/map-pin.ts`.
+    // This map has no presence layer, so it reads the colour and the dimming and stops there.
+    const base = userPins.map(p => {
+      const look = userPinAppearance(p)
+      return { id: `u-${p.user_id}`, position: { lat: p.latitude, lng: p.longitude }, title: appUserLabel(p), color: look.color, dimmed: look.dimmed }
+    })
     if (layer === 'demand') return demand
     if (layer === 'base') return base
     return [...base, ...demand]
@@ -74,9 +86,11 @@ export function GeoDemand() {
               <GoogleMapComponent center={mapCenter} zoom={4} markers={markers} className="w-full h-full" height="100%" enableDrawing={false} showDrawingButton={false} />
             </div>
             <div className="absolute bottom-3 left-3 z-10 flex flex-col gap-1.5 bg-white/90 dark:bg-gray-900/90 backdrop-blur-sm rounded-lg border border-gray-200 dark:border-gray-800 px-3 py-2 shadow-sm pointer-events-none">
-              {(layer === 'base' || layer === 'both') && <LegendItem color={TUGGI_COLORS.blue} label={t('labels.users')} />}
-              {(layer === 'base' || layer === 'both') && <LegendItem color={TUGGI_COLORS.orange} label={t('labels.premium')} />}
-              {(layer === 'demand' || layer === 'both') && <LegendItem color={TUGGI_COLORS.red} label={t('labels.demand')} />}
+              {(layer === 'base' || layer === 'both') && <MapLegendItem color={ENTITLEMENT_COLOR.unlimited} label={t('labels.unlimited_access')} />}
+              {(layer === 'base' || layer === 'both') && <MapLegendItem color={ENTITLEMENT_COLOR.metered} label={t('labels.metered_access')} />}
+              {(layer === 'base' || layer === 'both') && <MapLegendItem color={ENTITLEMENT_COLOR.free} label={t('labels.free_access')} />}
+              {(layer === 'base' || layer === 'both') && <MapLegendItem color={CHART_NEUTRAL} label={t('labels.signal_archived')} dim />}
+              {(layer === 'demand' || layer === 'both') && <MapLegendItem color={TUGGI_COLORS.red} label={t('labels.demand')} />}
             </div>
           </div>
         </div>
@@ -95,13 +109,5 @@ export function GeoDemand() {
   )
 }
 
-function LegendItem({ color, label }: { color: string; label: string }) {
-  return (
-    <div className="flex items-center gap-2">
-      <span className="w-2.5 h-2.5 rounded-full" style={{ backgroundColor: color }} />
-      <span className="text-[10px] font-black uppercase tracking-tight text-gray-600 dark:text-gray-300">{label}</span>
-    </div>
-  )
-}
 
 export default GeoDemand
