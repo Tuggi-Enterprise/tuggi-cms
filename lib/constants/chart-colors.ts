@@ -42,4 +42,15 @@ export const ENTITLEMENT_COLOR: Record<EntitlementState, string> = {
 /** Cinza para o que não é uma categoria de verdade: lacuna de dado, teste interno. */
 export const CHART_NEUTRAL = '#a5a39c'
 
+/**
+ * Chrome grey: the legend sample that teaches a **treatment** (the hollow pin, the halo of the
+ * guide being on), never a category.
+ *
+ * It exists because `CHART_NEUTRAL` is already spoken for on the map — it is the colour of
+ * `unknown`, the column that did not arrive. One grey for both made the legend teach "grey =
+ * archived" while the map said "grey = hole in the data" (DS-MAPA-028). This is the `gray-500`
+ * of the legend's own label, deliberately **outside** the pin palette.
+ */
+export const CHROME_GRAY = '#6B7280'
+
 export default CHART_COLORS

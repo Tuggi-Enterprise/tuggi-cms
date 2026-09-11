@@ -8,7 +8,7 @@ import { StatCard } from '@/components/ui/StatCard'
 import { GoogleMapComponent } from '@/components/ui/GoogleMapComponent'
 import { WaitlistDemandList } from '@/components/dashboard/WaitlistDemandList'
 import { MapLegendItem } from '@/components/dashboard/MapLegendItem'
-import { CHART_COLORS, CHART_NEUTRAL, ENTITLEMENT_COLOR } from '@/lib/constants/chart-colors'
+import { CHART_COLORS, CHROME_GRAY, ENTITLEMENT_COLOR } from '@/lib/constants/chart-colors'
 import { userPinAppearance } from '@/lib/dashboard/map-pin'
 import { appUserLabel } from '@/lib/format/user-identity'
 
@@ -89,7 +89,7 @@ export function GeoDemand() {
               {(layer === 'base' || layer === 'both') && <MapLegendItem color={ENTITLEMENT_COLOR.unlimited} label={t('labels.unlimited_access')} />}
               {(layer === 'base' || layer === 'both') && <MapLegendItem color={ENTITLEMENT_COLOR.metered} label={t('labels.metered_access')} />}
               {(layer === 'base' || layer === 'both') && <MapLegendItem color={ENTITLEMENT_COLOR.free} label={t('labels.free_access')} />}
-              {(layer === 'base' || layer === 'both') && <MapLegendItem color={CHART_NEUTRAL} label={t('labels.signal_archived')} dim />}
+              {(layer === 'base' || layer === 'both') && <MapLegendItem color={CHROME_GRAY} label={t('labels.signal_archived')} dim />}
               {(layer === 'demand' || layer === 'both') && <MapLegendItem color={TUGGI_COLORS.red} label={t('labels.demand')} />}
             </div>
           </div>

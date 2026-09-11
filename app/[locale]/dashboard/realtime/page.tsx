@@ -8,6 +8,10 @@ import { getSupabaseClient } from '@/lib/core/supabase-client'
 import { RecentVisitCard, RecentVisit } from '@/components/dashboard/RecentVisitCard'
 import { GoogleMapComponent } from '@/components/ui/GoogleMapComponent' // Fixed import
 import { livePinAppearance } from '@/lib/dashboard/map-pin'
+// "What happened in the last stretch?" — the feed window, sized by the list of POIs it fills
+// and not by presence. It is a named constant and not a `600` in the call because a window is
+// a question with a name (DS-MAPA-026).
+import { RADAR_FEED_WINDOW_SEC } from '@/lib/dashboard/time-windows'
 import { appUserLabel } from '@/lib/format/user-identity'
 
 export default function RealtimeDashboard() {
@@ -28,7 +32,7 @@ export default function RealtimeDashboard() {
     try {
       if (!isBackground) setIsLoading(true)
       
-      const result = await dashboardService.getRealtimeActivity(600) // janela em segundos = 10 min (radar operacional)
+      const result = await dashboardService.getRealtimeActivity(RADAR_FEED_WINDOW_SEC)
       
       if (!result.success || !result.data) {
         throw new Error(result.error || 'Failed to load realtime dashboard')

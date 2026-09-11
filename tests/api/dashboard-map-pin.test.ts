@@ -8,10 +8,10 @@
  *    `is_premium`, which merges `unlimited` with `metered`, and 68 of the 73 pins holding a
  *    canonical entitlement rendered as non-paying. A missing state is grey, never `free`:
  *    the rule says an unknown entitlement never becomes `free` by omission.
- * 2. **Freshness is a cut, and the cut has one owner.** `LIVE_SIGNAL_MAX_AGE_SECONDS` is
- *    provisional and belongs to `design` (`docs/contracts/banco-para-cms.md`, Part 6, item
- *    1); these tests are written against the constant, never against `300`, so the day the
- *    decision arrives the suite moves with it instead of failing.
+ * 2. **Freshness is a cut, and the cut has one owner.** `LIVE_SIGNAL_MAX_AGE_SECONDS` lives in
+ *    `lib/dashboard/time-windows.ts` with the four ties that hold its value (DS-MAPA-026);
+ *    these tests are written against the constant, never against `300`, so the day the value
+ *    moves the suite moves with it instead of failing.
  * 3. **"The guide is on" is `guide_active` and nothing else.** `guide_state` outlives the
  *    session that carries it (#731: 750 orphan heartbeats in 30 days), so a test that lets
  *    it light up the pin would be pinning the defect.
@@ -23,7 +23,6 @@ import { test } from 'node:test'
 import assert from 'node:assert/strict'
 
 import {
-  LIVE_SIGNAL_MAX_AGE_SECONDS,
   entitlementPinColor,
   livePinAppearance,
   minutesSinceIso,
@@ -31,6 +30,7 @@ import {
   signalFreshness,
   userPinAppearance,
 } from '@/lib/dashboard/map-pin'
+import { LIVE_SIGNAL_MAX_AGE_SECONDS } from '@/lib/dashboard/time-windows'
 import { CHART_NEUTRAL, ENTITLEMENT_COLOR } from '@/lib/constants/chart-colors'
 import { ENTITLEMENT_STATES } from '@/lib/credit/entitlement'
 

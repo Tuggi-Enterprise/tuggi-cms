@@ -5,6 +5,7 @@ import { Wrapper, Status } from '@googlemaps/react-wrapper'
 
 import { GOOGLE_MAPS_LIBRARIES, GOOGLE_MAPS_VERSION, BOUNDARY_COLOR } from '@/lib/maps-config'
 import { createPolygonDrawer, type PolygonDrawer } from '@/lib/maps/polygon-draw'
+import { PIN_GEOMETRY, pinSvg } from '@/lib/dashboard/map-pin-icon'
 
 const LIBRARIES = GOOGLE_MAPS_LIBRARIES
 
@@ -29,11 +30,13 @@ interface GoogleMapComponentProps {
     title: string
     description?: string
     color?: string
-    /** Marks the pin as the state that must stand out — bigger pin, animation and top of the stack. The colour stays `color`. */
+    /** Marks the pin as the state that must stand out — bigger pin, halo and top of the stack, all static (DS-MAPA-027). The colour stays `color`. */
     active?: boolean
     /**
-     * Half opacity, for a pin showing an **archived** position: it is still information, but
-     * it is not presence, and without this the map asserts that everybody is there right now.
+     * The **hollow** pin, for a position that is **archive**: same shape, same size, same
+     * anchor, white fill, and `color` at full strength in the stroke (DS-MAPA-028). It is
+     * still information, but it is not presence — and without it the map asserts that
+     * everybody is there right now.
      */
     dimmed?: boolean
     /**
@@ -262,22 +265,18 @@ const MapComponent: React.FC<Omit<GoogleMapComponentProps, 'height' | 'className
     // marker. Until #732 an active marker was hardcoded green and erased any colour it was
     // given — the "guide is on" pin has to stand out AND keep saying the entitlement state,
     // which are two different facts. `dimmed` is the third channel: an archived position does
-    // not leave the map, it loses presence.
+    // not leave the map, it becomes the hollow pin (DS-MAPA-028).
+    //
+    // The drawing itself is `lib/dashboard/map-pin-icon.ts` — pure strings, testable without a
+    // `google.maps` namespace. What stays here is the only part that needs the SDK loaded.
     const buildIcon = (isActive: boolean, color?: string, dimmed?: boolean): google.maps.Icon => {
       const markerColor = color || (isActive ? '#10B981' : '#FF6F00')
-      const opacity = dimmed === true ? 0.45 : 1
-      const activeSvg = `
-        <svg width="32" height="32" viewBox="0 0 32 32" opacity="${opacity}" xmlns="http://www.w3.org/2000/svg">
-          <circle cx="16" cy="16" r="13" fill="${markerColor}" fill-opacity="0.25"/>
-          <circle cx="16" cy="16" r="7" fill="${markerColor}" stroke="#ffffff" stroke-width="2.5"/>
-        </svg>`
-      const baseSvg = `
-        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" opacity="${opacity}" xmlns="http://www.w3.org/2000/svg">
-          <path d="M12 2C8.13 2 5 5.13 5 9c0 5.25 7 13 7 13s7-7.75 7-13c0-3.87-3.13-7-7-7zm0 9.5c-1.38 0-2.5-1.12-2.5-2.5s1.12-2.5 2.5-2.5 2.5 1.12 2.5 2.5-1.12 2.5-2.5 2.5z" fill="${markerColor}"/>
-        </svg>`
-      return isActive
-        ? { url: 'data:image/svg+xml;base64,' + btoa(activeSvg), scaledSize: new google.maps.Size(32, 32), anchor: new google.maps.Point(16, 16) }
-        : { url: 'data:image/svg+xml;base64,' + btoa(baseSvg), scaledSize: new google.maps.Size(24, 24), anchor: new google.maps.Point(12, 24) }
+      const { size, anchor } = isActive ? PIN_GEOMETRY.active : PIN_GEOMETRY.base
+      return {
+        url: 'data:image/svg+xml;base64,' + btoa(pinSvg(markerColor, { active: isActive, dimmed })),
+        scaledSize: new google.maps.Size(size, size),
+        anchor: new google.maps.Point(anchor.x, anchor.y),
+      }
     }
 
     // Desliza o pin da posição atual até a nova (ease-out ~700ms). Snap em micro-movimento
@@ -326,8 +325,10 @@ const MapComponent: React.FC<Omit<GoogleMapComponentProps, 'height' | 'className
           position: markerData.position,
           map,
           title: markerData.title,
+          // Emphasis is static (DS-MAPA-027): size, halo, white outline and the top of the
+          // stack. No `animation` — BOUNCE runs until it is explicitly set to `null`, and it
+          // walks the marker off the coordinate this map exists to state.
           zIndex: isActive ? 1000 : 1,
-          animation: isActive ? google.maps.Animation.BOUNCE : undefined,
           draggable: markerData.draggable === true,
           icon,
         })
@@ -359,7 +360,6 @@ const MapComponent: React.FC<Omit<GoogleMapComponentProps, 'height' | 'className
         existing.setIcon(icon)
         existing.setZIndex(isActive ? 1000 : 1)
         existing.setTitle(markerData.title)
-        existing.setAnimation(isActive ? google.maps.Animation.BOUNCE : null)
         // Reaplicado no update: um marcador que virou arrastável depois de montado ficaria
         // preso, e o operador não teria como saber que o pino deveria se mover.
         existing.setDraggable(markerData.draggable === true)

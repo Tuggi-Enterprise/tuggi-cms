@@ -14,7 +14,14 @@ import { readBoundedInt } from '@/lib/api/query-params'
 
 export const dynamic = 'force-dynamic'
 
-/** One minute to one day: the radar is a live view, not a history query. */
+/**
+ * One minute to one day: the radar is a live view, not a history query.
+ *
+ * `fallback` is **not** one of the three named windows of DS-MAPA-026 and must not be read as
+ * one: it is what an HTTP boundary owes a request that omits the parameter, and every caller
+ * inside the CMS passes its own window (`lib/dashboard/time-windows.ts`). Empty is not zero —
+ * `Number('')` is 0, which would turn a missing window into "return nothing".
+ */
 const WINDOW_SECONDS = { fallback: 120, min: 60, max: 86_400 }
 
 export const GET = withAuth({ roles: ['admin'] }, async (req: NextRequest, _ctx, auth) => {

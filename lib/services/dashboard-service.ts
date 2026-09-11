@@ -1286,10 +1286,13 @@ class DashboardService {
   }
 
   /**
-   * Busca atividade ao vivo. windowSeconds = janela de presença ("online agora"):
-   * usuário é ativo se teve ping em user_location_history nos últimos N segundos.
+   * Live activity. `windowSeconds` is **required** and has no default (DS-MAPA-026): the two
+   * callers ask different questions of this RPC — the Overview asks which coordinate to draw,
+   * the Radar asks what happened in the last stretch — and a default here was a fourth number
+   * nobody passed, sitting between the two, waiting to be wrong. The windows are named in
+   * `lib/dashboard/time-windows.ts`.
    */
-  static async getRealtimeActivity(windowSeconds = 120): Promise<{
+  static async getRealtimeActivity(windowSeconds: number): Promise<{
     success: boolean;
     data?: {
       // `nickname` arrives as of migration `20260911120000` (contract, Part 6), and it is the
@@ -1367,7 +1370,7 @@ export const dashboardService = {
   getInventoryFunnel: () => DashboardService.getInventoryFunnel(),
   getUserAnalytics: (ownerId?: string) => DashboardService.getUserAnalytics(ownerId),
   getMigrationMetrics: () => DashboardService.getMigrationMetrics(),
-  getRealtimeActivity: (windowSeconds?: number) => DashboardService.getRealtimeActivity(windowSeconds),
+  getRealtimeActivity: (windowSeconds: number) => DashboardService.getRealtimeActivity(windowSeconds),
   clearCache: () => DashboardService.clearCache(),
   getCacheStats: () => DashboardService.getCacheStats()
 }

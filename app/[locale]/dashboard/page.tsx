@@ -16,10 +16,14 @@ import {
   UserLocationPin, WaitlistPin, PaidAccessSnapshot, consumedMinutesTotal,
 } from '@/lib/services/dashboard-service'
 import { LOW_BALANCE_CEILING_MINUTES } from '@/lib/credit/entitlement'
-import { CHART_COLORS, CHART_NEUTRAL, ENTITLEMENT_COLOR } from '@/lib/constants/chart-colors'
+import { CHART_COLORS, CHROME_GRAY, ENTITLEMENT_COLOR } from '@/lib/constants/chart-colors'
 import {
   userPinAppearance, livePinAppearance, signalAgeMinutes, minutesSinceIso,
 } from '@/lib/dashboard/map-pin'
+// "Which coordinate do I draw?" — not a liveness window, which is exactly why it is not named
+// like one and does not live here: the three windows of the panel sit together, each with its
+// own question (DS-MAPA-026).
+import { POSITION_SOURCE_WINDOW_SEC } from '@/lib/dashboard/time-windows'
 import { formatDuration } from '@/lib/format/duration'
 import { appUserLabel } from '@/lib/format/user-identity'
 import { RecentVisitCard } from '@/components/dashboard/RecentVisitCard'
@@ -40,12 +44,6 @@ const UserGrowthChart = dynamic(
 
 // The same five hex values that used to be declared here, now read from their owner (CLAUDE.md §6).
 const TUGGI_COLORS = CHART_COLORS
-
-// Janela de "online agora" em SEGUNDOS: usuário é ativo se teve ping nos últimos N seg.
-// Ping de background ~30s → 90s tolera 2 pings perdidos sem falso-online, e derruba um
-// app fechado em ~90s. NÃO há evento de "offline" — é inferência por recência do ping.
-// O polling abaixo (60s) deve ser ≤ janela pra a UI refletir o offline a tempo.
-const REALTIME_WINDOW_SEC = 90
 
 type ActiveUser = { user_id: string; nickname: string | null; lat: number; lng: number; timestamp: string }
 
@@ -96,7 +94,7 @@ export default function DashboardPage() {
 
   // Refresh leve só do "ao vivo" (ativos no mapa + feed de POIs), sem recarregar o resto.
   const fetchRealtime = useCallback(async () => {
-    const res = await dashboardService.getRealtimeActivity(REALTIME_WINDOW_SEC)
+    const res = await dashboardService.getRealtimeActivity(POSITION_SOURCE_WINDOW_SEC)
     if (res.success && res.data) setActiveUsers(res.data.active_users || [])
   }, [])
 
@@ -347,15 +345,26 @@ export default function DashboardPage() {
                 </span>
               </div>
             )}
-            {/* Legend — colour is the entitlement state; the ring and the opacity are presence */}
-            <div className="absolute bottom-3 left-3 z-10 grid grid-cols-2 gap-x-3 gap-y-1.5 bg-white/90 dark:bg-gray-900/90 backdrop-blur-sm rounded-lg border border-gray-200 dark:border-gray-800 px-3 py-2 shadow-sm pointer-events-none">
+            {/*
+              Legend — two axes, one per column, and the grid fills BY COLUMN (`grid-flow-col`
+              over five rows) so that reading down a column is reading one question. Filling by
+              row interleaved them: "free" landed beside "active now", and "guide on" sat alone
+              on a fourth line.
+
+              Column 1 is WHO (the entitlement palette, plus the two pins that are not an
+              entitlement). Column 2 is the STATE of the pin, and its samples wear `CHROME_GRAY`
+              — never `CHART_NEUTRAL`, which on this very map means `unknown` (DS-MAPA-028).
+              `unknown` gets no row: `entitlement_state` is non-null in the contract, so grey is
+              a defensive branch, not a state, and legending a hole in the data is noise.
+            */}
+            <div className="absolute bottom-3 left-3 z-10 grid grid-rows-5 grid-flow-col gap-x-3 gap-y-1.5 bg-white/90 dark:bg-gray-900/90 backdrop-blur-sm rounded-lg border border-gray-200 dark:border-gray-800 px-3 py-2 shadow-sm pointer-events-none">
               <MapLegendItem color={ENTITLEMENT_COLOR.unlimited} label={t('labels.unlimited_access')} />
               <MapLegendItem color={ENTITLEMENT_COLOR.metered} label={t('labels.metered_access')} />
               <MapLegendItem color={ENTITLEMENT_COLOR.free} label={t('labels.free_access')} />
-              <MapLegendItem color={TUGGI_COLORS.green} label={t('labels.active_now')} pulse />
+              <MapLegendItem color={TUGGI_COLORS.green} label={t('labels.active_now')} />
               <MapLegendItem color={TUGGI_COLORS.red} label={t('labels.demand')} />
-              <MapLegendItem color={CHART_NEUTRAL} label={t('labels.signal_archived')} dim />
-              <MapLegendItem color={CHART_NEUTRAL} label={t('labels.guide_on')} ring />
+              <MapLegendItem color={CHROME_GRAY} label={t('labels.guide_on')} ring />
+              <MapLegendItem color={CHROME_GRAY} label={t('labels.signal_archived')} dim />
             </div>
           </div>
         </WidgetCard>

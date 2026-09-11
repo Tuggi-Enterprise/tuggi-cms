@@ -7,9 +7,14 @@
  *
  * | question | channel |
  * | :-- | :-- |
- * | is the guide on RIGHT NOW? | `active` — big circle, bounce, top of the stack |
+ * | is the guide on RIGHT NOW? | `active` — bigger pin, halo, top of the stack |
  * | what is this person worth? | `color` — the entitlement state |
- * | is this position now, or is it archive? | `dimmed` — opacity |
+ * | is this position now, or is it archive? | `dimmed` — filled pin vs. hollow pin |
+ *
+ * The three channels are orthogonal on purpose, and two of them are not free choices:
+ * emphasis is **static** (DS-MAPA-027 — no animation loop on an operation map) and the
+ * temporal state is drawn by **shape**, never by opacity, because opacity would destroy the
+ * colour that carries the first fact (DS-MAPA-028).
  *
  * Before #732 the panel answered the second one with `is_premium` and answered neither of the
  * other two. `dashboard_user_location_pins` returned position with no temporal predicate at
@@ -25,20 +30,7 @@
 import { CHART_COLORS, CHART_NEUTRAL, ENTITLEMENT_COLOR } from '@/lib/constants/chart-colors'
 import { ENTITLEMENT_STATES } from '@/lib/credit/entitlement'
 import type { EntitlementState } from '@/lib/credit/entitlement'
-
-/**
- * How many seconds old a signal may be and still count as "live" on the map.
- *
- * **PROVISIONAL — this number belongs to `design`, not to this file.** The database function
- * returns `last_signal_age_seconds` and deliberately says nothing else (Part 6, item 1): the
- * cut between "live" and "archived" is a screen decision. Until it is made, the default is
- * the ceiling of the `drive.insert_location_batch` clamp — 5 minutes, the same slack the
- * database already grants a fast device clock — chosen because it is the only number that
- * already exists on this boundary, not because it is the right one. When `design` decides,
- * **this value** changes and nothing else: no other file in the CMS compares signal age
- * (CLAUDE.md §6).
- */
-export const LIVE_SIGNAL_MAX_AGE_SECONDS = 300
+import { LIVE_SIGNAL_MAX_AGE_SECONDS } from '@/lib/dashboard/time-windows'
 
 /** `never` means the user has never emitted a signal (`last_signal_at IS NULL`) — 30 of the 378 measured pins. */
 export type SignalFreshness = 'live' | 'archived' | 'never'
@@ -55,9 +47,9 @@ export interface MapPinFacts {
 export interface MapPinAppearance {
   /** Marker colour. */
   color: string
-  /** Big circle, bounce and top of the stack. Reserved for the guide being on. */
+  /** Bigger pin, halo and top of the stack — all static (DS-MAPA-027). Reserved for the guide being on. */
   active: boolean
-  /** Half opacity: this position is archive, not presence. */
+  /** Hollow pin: this position is archive, not presence. The colour survives in the stroke (DS-MAPA-028). */
   dimmed: boolean
   tone: PinTone
   freshness: SignalFreshness
@@ -143,7 +135,9 @@ export function userPinAppearance(pin: MapPinFacts, hasLivePing = false): MapPin
     // showing up in the presence RPC, which is fresher than any column of this pin — the
     // position being drawn is that one. The guide being on is presence the database itself
     // declared (an open session): dimming that pin would say "not here" about someone the
-    // database just said is on the road.
+    // database just said is on the road. That last clause is also an invariant the icon
+    // builder leans on: `active && dimmed` never leaves this function, so "hollow" is only
+    // ever asked of the base pin (DS-MAPA-028).
     dimmed: !guideOn && !hasLivePing && freshness !== 'live',
     tone: isEntitlementState(pin.entitlement_state) ? pin.entitlement_state : 'unknown',
     freshness,

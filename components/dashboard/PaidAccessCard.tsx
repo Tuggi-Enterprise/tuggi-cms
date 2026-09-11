@@ -4,7 +4,7 @@ import { CreditCard, Gift, Hourglass, Infinity as InfinityIcon, Wallet } from 'l
 import { useTranslations } from 'next-intl'
 import type { EntitlementOverview } from '@/lib/services/dashboard-service'
 import { formatDuration } from '@/lib/format/duration'
-import { CHART_COLORS, ENTITLEMENT_COLOR } from '@/lib/constants/chart-colors'
+import { CHART_NEUTRAL, ENTITLEMENT_COLOR } from '@/lib/constants/chart-colors'
 
 /**
  * The paid-access block of the Overview, in the hour model.
@@ -34,12 +34,18 @@ export const PaidAccessCard = ({ overview }: { overview: EntitlementOverview | n
   const rows = [
     // The two entitlement rows read their colour from `ENTITLEMENT_COLOR`: the map pin right
     // beside this card paints the same states (#732), and the screen cannot disagree with
-    // itself about which colour means `unlimited`. The other two rows are grant origin, not
-    // state, and they only stopped being raw hex.
+    // itself about which colour means `unlimited`.
+    //
+    // The other two rows are **grant origin**, not entitlement state, so they carry no colour
+    // from that palette: they are `CHART_NEUTRAL`, and the `CreditCard` / `Gift` glyphs are
+    // what tells them apart. They were blue and green, which are the two worst hexes available
+    // here — in the map legend one scroll away, blue means `free` (does not pay) while this row
+    // means "from purchase" (paid), and green means a pin that is live right now. One meaning
+    // per colour per screen (DS-MAPA-028).
     { key: 'unlimited', label: t('unlimited_access'), value: overview.unlimited_users, icon: InfinityIcon, color: ENTITLEMENT_COLOR.unlimited },
     { key: 'metered', label: t('metered_access'), value: overview.metered_users, icon: Hourglass, color: ENTITLEMENT_COLOR.metered },
-    { key: 'purchased', label: t('from_purchase'), value: overview.purchased_users, icon: CreditCard, color: CHART_COLORS.blue },
-    { key: 'granted', label: t('from_grant'), value: overview.granted_users, icon: Gift, color: CHART_COLORS.green },
+    { key: 'purchased', label: t('from_purchase'), value: overview.purchased_users, icon: CreditCard, color: CHART_NEUTRAL },
+    { key: 'granted', label: t('from_grant'), value: overview.granted_users, icon: Gift, color: CHART_NEUTRAL },
   ]
 
   return (
