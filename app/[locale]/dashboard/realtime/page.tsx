@@ -7,9 +7,11 @@ import { dashboardService } from '@/lib/services/dashboard-service'
 import { getSupabaseClient } from '@/lib/core/supabase-client'
 import { RecentVisitCard, RecentVisit } from '@/components/dashboard/RecentVisitCard'
 import { GoogleMapComponent } from '@/components/ui/GoogleMapComponent' // Fixed import
+import { livePinAppearance } from '@/lib/dashboard/map-pin'
+import { appUserLabel } from '@/lib/format/user-identity'
 
 export default function RealtimeDashboard() {
-  const [activeUsers, setActiveUsers] = useState<Array<{ user_id: string; lat: number; lng: number; timestamp: string }>>([])
+  const [activeUsers, setActiveUsers] = useState<Array<{ user_id: string; nickname: string | null; lat: number; lng: number; timestamp: string }>>([])
   const [activePois, setActivePois] = useState<RecentVisit[]>([])
   const [isLoading, setIsLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
@@ -84,13 +86,16 @@ export default function RealtimeDashboard() {
     }
   }, [fetchRealtimeData])
 
-  // Process map markers
+  // Process map markers. Every pin here is a live ping with no entitlement column, which is
+  // exactly `livePinAppearance` — the same green the Overview map gives that pin, instead of
+  // the blue that means `free` two screens over. The title was the literal 'Active User',
+  // which named nobody; `nickname` reaches this RPC as of migration `20260911120000` and the
+  // fallback belongs to `appUserLabel` (BR-USUARIO-042).
   const mapMarkers = activeUsers.map(u => ({
     id: u.user_id,
     position: { lat: u.lat, lng: u.lng },
-    title: 'Active User',
-    // Using a subtle blue dot for user locations
-    color: '#00A8E8'
+    title: appUserLabel(u),
+    color: livePinAppearance().color,
   }))
 
   const mapCenter = activeUsers.length > 0 
