@@ -30,6 +30,22 @@ export const CATEGORIES = [
   "man_made=water_tower",
   "aeroway=aerodrome",
   "aerialway",
+  // A cascata no OSM é waterway=waterfall, não natural=waterfall (zero ocorrências na Islândia,
+  // 447 nomeadas no primeiro tag). Sem `waterway` aqui o Stage 1 do osmium descartava a categoria
+  // inteira antes de o filtro elite ver qualquer coisa — Seljalandsfoss inclusive.
+  "waterway=waterfall",
+  // Campos de lava nomeados (Eldhraun, Berserkjahraun): feição de paisagem própria da Islândia,
+  // sob a chave `geological`, que nenhuma outra categoria alcança.
+  "geological=volcanic_lava_field",
+  // Passos de montanha (Fimmvörðuháls, Námaskarð): topônimos de travessia, sempre com nome
+  // próprio e frequentemente com wiki — nenhuma outra chave os alcança.
+  "mountain_pass",
+  // Pontes-marco (Ölfusárbrú, Borgarfjarðarbrú). Só passavam por acidente, quando alguém
+  // também as marcava com tourism=attraction.
+  "man_made=bridge",
+  // Barragens e corredeiras nomeadas; `waterway` já entra aqui pelas cascatas.
+  "waterway=dam",
+  "waterway=rapids",
   "historic=city_gate",
   "historic=fort",
   "historic=castle",
@@ -171,7 +187,12 @@ export const FILTER_CONFIG = {
   ],
 
   ACCOMMODATION_TYPES: [
-    "hotel", "motel", "guest_house", "hostel", "apartment", "chalet", "alpine_hut"
+    "hotel", "motel", "guest_house", "hostel", "apartment", "chalet", "alpine_hut",
+    // camp_site/caravan_site já estavam no TAG_BLOCKLIST, mas lá uma `description` qualquer conta
+    // como fama e os liberava: os 38 campings da Islândia passaram todos por uma descrição
+    // boilerplate ("part of the Icelandic Camping Card Project"). Aqui valem a mesma regra dos
+    // hotéis — só entram com wikipedia/wikidata/heritage/historic.
+    "camp_site", "caravan_site"
   ],
 
   GENERIC_PARK_NAMES: [

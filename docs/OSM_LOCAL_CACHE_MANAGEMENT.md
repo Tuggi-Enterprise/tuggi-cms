@@ -74,6 +74,19 @@ Ao buscar dados geográficos para um POI, o sistema segue esta ordem:
 
 ---
 
+## ⚠️ `better-sqlite3`: não suba para a 13.x
+
+O `local_osm.db` depende do binário nativo do `better-sqlite3`, e o pacote só funciona onde há
+prebuild — não há MSVC nas máquinas de desenvolvimento, então o node-gyp não compila do fonte.
+
+- **12.x**: publica prebuild para Node 18, 20, 22 e 23. É onde estamos (`^12.8.0`).
+- **13.x**: publica **zero** prebuilds. Instalar quebra o `manage-osm.ts` com
+  `Could not locate the bindings file`.
+
+Histórico: a 12.11.1 deixou de publicar prebuild para **Node 20**, e enquanto a equipe estava
+nessa versão o range precisou ficar fixo em 12.8.0. Com a migração para o **Node 22** isso deixou
+de importar — a 12.11.1 tem prebuild para o ABI 127 e o range voltou a ser `^12.8.0`.
+
 ## 💡 Dicas de Uso
 
 - **Migrações Batch**: Sempre importe o PBF da região antes de rodar o `migrate-pois-batch.ts`. Isso evita 504 (Gateway Timeout) e 429 (Too Many Requests) das APIs públicas.

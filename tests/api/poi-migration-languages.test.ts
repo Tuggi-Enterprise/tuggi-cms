@@ -103,7 +103,7 @@ describe('multi-language audio step (#157, BR-IDIOMA-001)', () => {
       'male'
     )
 
-    assert.equal(step.success, true, step.error)
+    assert.equal(step.success, true, step.error ?? 'the step failed without reporting an error')
     assert.deepEqual(
       requests.map(r => r.targetLanguage),
       ['en-us', 'fr-fr', 'de-de'],

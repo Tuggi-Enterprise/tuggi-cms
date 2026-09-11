@@ -117,6 +117,8 @@ const COUNTRY_ALIASES: Record<string, string> = {
   no: 'Norway', norway: 'Norway', noruega: 'Norway', norge: 'Norway',
   dk: 'Denmark', denmark: 'Denmark', dinamarca: 'Denmark', danmark: 'Denmark',
   fi: 'Finland', finland: 'Finland', finlandia: 'Finland', suomi: 'Finland',
+  // slug('Ísland') cai em 'island' — os acentos já saem no slug().
+  is: 'Iceland', iceland: 'Iceland', islandia: 'Iceland', island: 'Iceland',
   pl: 'Poland', poland: 'Poland', polonia: 'Poland', polska: 'Poland',
   ro: 'Romania', romania: 'Romania', romenia: 'Romania',
   hu: 'Hungary', hungary: 'Hungary', hungria: 'Hungary', magyarorszag: 'Hungary',
