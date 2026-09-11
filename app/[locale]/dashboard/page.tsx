@@ -13,7 +13,7 @@ import { StatCard } from '@/components/ui/StatCard'
 import { WidgetCard, SectionHeader } from '@/components/dashboard/WidgetCard'
 import {
   dashboardService, DashboardStats, EMPTY_DASHBOARD_STATS, EMPTY_PAID_ACCESS,
-  UserLocationPin, WaitlistPin, PaidAccessSnapshot, consumedMinutesTotal,
+  UserLocationPin, WaitlistPin, PaidAccessSnapshot, consumedMinutesTotal, paidAccessTotal,
 } from '@/lib/services/dashboard-service'
 import { LOW_BALANCE_CEILING_MINUTES } from '@/lib/credit/entitlement'
 import { CHART_COLORS, CHROME_GRAY, ENTITLEMENT_COLOR } from '@/lib/constants/chart-colors'
@@ -270,7 +270,7 @@ export default function DashboardPage() {
             size="compact"
             icon={ShieldCheck}
             title={t('labels.paid_access')}
-            value={paidAccess.overview ? paidAccess.overview.unlimited_users + paidAccess.overview.metered_users : '—'}
+            value={paidAccessTotal(paidAccess.overview) ?? '—'}
             color={TUGGI_COLORS.orange}
             isLoading={isLoading}
           />

@@ -3,7 +3,7 @@
 import { useState, useEffect, useMemo } from 'react'
 import { Users, Crown, Search, CheckCircle, Zap } from 'lucide-react'
 import { useTranslations, useLocale } from 'next-intl'
-import { dashboardService, AppUserDetailed } from '@/lib/services/dashboard-service'
+import { dashboardService, AppUserDetailed, EntitlementOverview, paidAccessTotal } from '@/lib/services/dashboard-service'
 import { StatCard } from '@/components/ui/StatCard'
 import { AppUserLink } from '@/components/dashboard/AppUserLink'
 import { appUserInitial } from '@/lib/format/user-identity'
@@ -25,7 +25,11 @@ const TUGGI_COLORS = { blue: '#00A8E8', purple: '#8B5CF6', orange: '#FF6F00', gr
  */
 export function UsersAll() {
   const [users, setUsers] = useState<AppUserDetailed[]>([])
-  const [analytics, setAnalytics] = useState<{ totalUsers: number; activeUsers30d: number; totalPremiumUsers: number } | null>(null)
+  const [analytics, setAnalytics] = useState<{ totalUsers: number; activeUsers30d: number } | null>(null)
+  // Two states and not one: a `null` aggregate is a legitimate answer (the RPC belongs to
+  // `data` and may be missing), so "not loaded yet" cannot be inferred from the value.
+  const [paidOverview, setPaidOverview] = useState<EntitlementOverview | null>(null)
+  const [paidLoaded, setPaidLoaded] = useState(false)
   const [countryOptions, setCountryOptions] = useState<string[]>([])
   const [country, setCountry] = useState('')
   const [platform, setPlatform] = useState('')
@@ -34,11 +38,20 @@ export function UsersAll() {
   const t = useTranslations('Pages.Dashboard')
   const locale = useLocale()
 
-  // KPIs autoritativos (total real 209, MAU 30d por login, premium) — mesma fonte da Overview.
-  // Independem do limite/filtro da lista abaixo.
+  // Authoritative KPIs, the same source the Overview reads, independent of the list's limit
+  // and filter below.
+  //
+  // Who pays comes from `getPaidAccess` — the canonical entitlement — and **not** from the
+  // tier count of `dashboard_user_analytics`: this card said **5** while the Overview KPI one
+  // click away said **73**, because whoever buys a pack of hours gets no tier (#735,
+  // BR-MONETIZACAO-046). The list is not wanted here, only the aggregate, hence the limit of 1.
   useEffect(() => {
     dashboardService.getUserAnalytics().then((res) => {
       if (res.success && res.data) setAnalytics(res.data)
+    })
+    dashboardService.getPaidAccess(1, null).then((res) => {
+      setPaidOverview(res.data?.overview ?? null)
+      setPaidLoaded(true)
     })
   }, [])
 
@@ -75,7 +88,8 @@ export function UsersAll() {
     <div className="space-y-6">
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
         <StatCard size="compact" icon={Users} title={t('labels.users')} value={analytics?.totalUsers ?? 0} color={TUGGI_COLORS.purple} isLoading={!analytics} />
-        <StatCard size="compact" icon={Crown} title={t('labels.premium')} value={analytics?.totalPremiumUsers ?? 0} color={TUGGI_COLORS.orange} isLoading={!analytics} />
+        {/* With no aggregate, an em dash: zero would claim that nobody pays. */}
+        <StatCard size="compact" icon={Crown} title={t('labels.paid_access')} value={paidAccessTotal(paidOverview) ?? '—'} color={TUGGI_COLORS.orange} isLoading={!paidLoaded} />
         <StatCard size="compact" icon={Zap} title={t('labels.active_30d')} value={analytics?.activeUsers30d ?? 0} color={TUGGI_COLORS.green} isLoading={!analytics} />
         <StatCard size="compact" icon={CheckCircle} title={t('labels.onboarding_completed')} value={`${onboardedPct}%`} color={TUGGI_COLORS.blue} isLoading={isLoading} />
       </div>

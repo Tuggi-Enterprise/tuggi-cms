@@ -3,7 +3,7 @@
 import { useState, useEffect, useMemo } from 'react'
 import { Crown, Search, Clock, ArrowUpDown, Users, TrendingUp, TrendingDown, Apple, Smartphone, CreditCard } from 'lucide-react'
 import { useTranslations, useLocale } from 'next-intl'
-import { dashboardService, AppUserDetailed, SubscriptionStats } from '@/lib/services/dashboard-service'
+import { dashboardService, AppUserDetailed, EntitlementOverview, SubscriptionStats, paidAccessTotal } from '@/lib/services/dashboard-service'
 import { StatCard } from '@/components/ui/StatCard'
 import { MeteredBalances } from '@/components/dashboard/reports/MeteredBalances'
 import { appUserInitial } from '@/lib/format/user-identity'
@@ -23,6 +23,7 @@ const TUGGI_COLORS = { blue: '#00A8E8', purple: '#8B5CF6', orange: '#FF6F00', gr
 export function UsersPremium() {
   const [users, setUsers] = useState<AppUserDetailed[]>([])
   const [subStats, setSubStats] = useState<SubscriptionStats | null>(null)
+  const [paidOverview, setPaidOverview] = useState<EntitlementOverview | null>(null)
   const [isLoading, setIsLoading] = useState(true)
   const [searchTerm, setSearchTerm] = useState('')
   const t = useTranslations('Pages.Dashboard')
@@ -31,16 +32,29 @@ export function UsersPremium() {
   useEffect(() => {
     const load = async () => {
       setIsLoading(true)
-      const [usersRes, statsRes] = await Promise.all([
+      // `getPaidAccess` with a limit of 1: only the aggregate is wanted here — the list of
+      // metered balances is `MeteredBalances`' business, right above on this same screen.
+      // It is what answers "how many pay", and `dashboard_subscription_stats` is not: its
+      // `premium_users` counts `subscription_tier_id`, which measured 5 against 73 (#735).
+      const [usersRes, statsRes, paidRes] = await Promise.all([
         dashboardService.getAppUsersDetailed(200),
         dashboardService.getSubscriptionStats(),
+        dashboardService.getPaidAccess(1, null),
       ])
       if (usersRes.success && usersRes.data) setUsers(usersRes.data.filter(u => u.is_premium))
       if (statsRes.success && statsRes.data) setSubStats(statsRes.data)
+      setPaidOverview(paidRes.data?.overview ?? null)
       setIsLoading(false)
     }
     load()
   }, [])
+
+  // Share of the base that pays, over the same numerator the card above prints — never over
+  // the tier count, which is the divergence #735 exists to close. One decimal, matching the
+  // `ROUND(..., 1)` the RPC used to return.
+  const paidShare = paidOverview && paidOverview.total_users > 0
+    ? Math.round(((paidAccessTotal(paidOverview) ?? 0) / paidOverview.total_users) * 1000) / 10
+    : null
 
   const providerData = subStats ? [
     { name: 'Apple', value: subStats.apple_subscriptions, icon: Apple, color: '#1A1A1A' },
@@ -68,8 +82,10 @@ export function UsersPremium() {
       </h2>
       {/* KPIs de assinatura */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-        <StatCard size="compact" icon={Crown} title={t('reports.premium.title')} value={subStats?.premium_users ?? 0} color={TUGGI_COLORS.orange} isLoading={isLoading} />
-        <StatCard size="compact" icon={Users} title={t('labels.premium') + ' %'} value={`${subStats?.premium_percentage ?? 0}%`} color={TUGGI_COLORS.blue} isLoading={isLoading} />
+        {/* Who pays, and the share of the base they are — both from the canonical entitlement
+            (BR-MONETIZACAO-046). With no aggregate, an em dash: zero would claim nobody pays. */}
+        <StatCard size="compact" icon={Crown} title={t('labels.paid_access')} value={paidAccessTotal(paidOverview) ?? '—'} color={TUGGI_COLORS.orange} isLoading={isLoading} />
+        <StatCard size="compact" icon={Users} title={t('labels.paid_access') + ' %'} value={paidShare == null ? '—' : `${paidShare}%`} color={TUGGI_COLORS.blue} isLoading={isLoading} />
         <StatCard size="compact" icon={TrendingUp} title={t('labels.new_subscriptions_7d')} value={subStats?.new_subscriptions_7d ?? 0} color={TUGGI_COLORS.green} isLoading={isLoading} />
         <StatCard size="compact" icon={TrendingDown} title={t('labels.churned_7d')} value={subStats?.churned_7d ?? 0} color={TUGGI_COLORS.red} isLoading={isLoading} />
       </div>

@@ -129,7 +129,6 @@ export interface DashboardStats {
   totalAudioPlays: number
   avgTripDuration: string
   tripsByPlatform: Array<{ platform: string; count: number }>
-  totalPremiumUsers: number
   upcomingExpirations: UpcomingExpiration[]
 
   // Temporal Data (últimos 30 dias - rolling window)
@@ -220,7 +219,6 @@ export const EMPTY_DASHBOARD_STATS: DashboardStats = {
   totalAudioPlays: 0,
   avgTripDuration: '0 min',
   tripsByPlatform: [],
-  totalPremiumUsers: 0,
   upcomingExpirations: [],
   mauHistory: [],
   userGrowth: [],
@@ -347,6 +345,18 @@ export interface WaitlistPin {
   created_at: string
 }
 
+/**
+ * `core.dashboard_subscription_stats()` — subscription **by term**, one row.
+ *
+ * **`free_users`, `premium_users` and `premium_percentage` count by `subscription_tier_id`,
+ * and that is not the same question as "who pays the Tuggi" (#735).** Whoever buys a pack of
+ * hours gets no tier, so the function measured **5** paying users against the **73** that hold
+ * a canonical entitlement — 68 of them (93 %) invisible. They stay typed because the RPC
+ * returns them and the shape must not lie about it, but **no surface labels them "Premium" or
+ * paid access**: the count of who pays comes from `EntitlementOverview` via `paidAccessTotal`
+ * (BR-MONETIZACAO-046). What these three legitimately answer is "how many hold a subscription
+ * tier", and any screen printing them owes them that label.
+ */
 export interface SubscriptionStats {
   total_users: number
   free_users: number
@@ -388,6 +398,23 @@ export interface EntitlementOverview {
    */
   consumed_minutes_paid: number | null
   consumed_minutes_granted: number | null
+}
+
+/**
+ * How many people pay the Tuggi — the single owner of that sum (BR-MONETIZACAO-046).
+ *
+ * `unlimited` is a term with a date, `metered` is a balance of minutes above zero, and both
+ * are paid access. The addition was inline in the Overview KPI and in `PaidAccessCard`, and
+ * the two reports beside them were answering the same question from `subscription_tier_id`,
+ * which is a different population: **5** against **73** (#735). One sum, one owner, and every
+ * surface that prints "who pays" reads it from here.
+ *
+ * `null` when there is no aggregate — the RPC belongs to `data` and may be missing. It is not
+ * zero: zero would claim that nobody pays.
+ */
+export function paidAccessTotal(overview: EntitlementOverview | null): number | null {
+  if (!overview) return null
+  return overview.unlimited_users + overview.metered_users
 }
 
 /**
@@ -698,7 +725,6 @@ class DashboardService {
         totalAudioPlays: Number(userAnalytics.total_audio_plays || 0),
         avgTripDuration: userAnalytics.avg_trip_duration || '0 min',
         tripsByPlatform: userAnalytics.trips_by_platform || [],
-        totalPremiumUsers: Number(userAnalytics.total_premium_users || 0),
         upcomingExpirations: userAnalytics.upcoming_expirations || [],
         
         // Temporal Data (já vem em ordem ASC do SQL)
@@ -1192,10 +1218,15 @@ class DashboardService {
   }
 
   /**
-   * Métricas autoritativas de usuário (mesma fonte da Overview): total real (209),
-   * MAU 30d (login nos últimos 30 dias) e premium. NÃO depende do limite da lista.
+   * Authoritative user metrics, the same source the Overview reads: real total and MAU 30d
+   * (a login in the last 30 days). It does not depend on the list's limit.
+   *
+   * It used to carry `totalPremiumUsers`, block 11 of `core.dashboard_user_analytics`, which
+   * counts `subscription_tier_id` — and that is how `/dashboard/reports/users` printed **5**
+   * one click away from the Overview's **73** (#735). The column has no reader here any more:
+   * who pays is `paidAccessTotal(getPaidAccess().overview)` (BR-MONETIZACAO-046).
    */
-  static async getUserAnalytics(ownerId?: string): Promise<{ success: boolean; data?: { totalUsers: number; activeUsers30d: number; totalPremiumUsers: number }; error?: string }> {
+  static async getUserAnalytics(ownerId?: string): Promise<{ success: boolean; data?: { totalUsers: number; activeUsers30d: number }; error?: string }> {
     try {
       const supabase = getSupabaseClient()
       const res = ownerId
@@ -1208,7 +1239,6 @@ class DashboardService {
         data: {
           totalUsers: Number(row.total_users || 0),
           activeUsers30d: Number(row.active_users_30d || 0),
-          totalPremiumUsers: Number(row.total_premium_users || 0),
         },
       }
     } catch (error: any) {

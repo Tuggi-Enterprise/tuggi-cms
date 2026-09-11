@@ -2,7 +2,7 @@
 
 import { CreditCard, Gift, Hourglass, Infinity as InfinityIcon, Wallet } from 'lucide-react'
 import { useTranslations } from 'next-intl'
-import type { EntitlementOverview } from '@/lib/services/dashboard-service'
+import { paidAccessTotal, type EntitlementOverview } from '@/lib/services/dashboard-service'
 import { formatDuration } from '@/lib/format/duration'
 import { CHART_NEUTRAL, ENTITLEMENT_COLOR } from '@/lib/constants/chart-colors'
 
@@ -29,7 +29,8 @@ export const PaidAccessCard = ({ overview }: { overview: EntitlementOverview | n
     )
   }
 
-  const paid = overview.unlimited_users + overview.metered_users
+  // The denominator of every bar: who pays, from the one owner of that sum (#735).
+  const paid = paidAccessTotal(overview) ?? 0
 
   const rows = [
     // The two entitlement rows read their colour from `ENTITLEMENT_COLOR`: the map pin right
