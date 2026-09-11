@@ -1,31 +1,30 @@
-import { redirect } from 'next/navigation'
-import { getSupabaseServerComponent } from '@/lib/core/supabase-client'
-import { cookies } from 'next/headers'
+import { requireAccess } from '@/lib/navigation/server-guard'
 import { ClientDashboard } from '@/components/clients/ClientDashboard'
 
 export const metadata = {
   title: 'My Clients - Tuggi CMS'
 }
 
-export default async function MyClientsPage() {
-  const supabase = getSupabaseServerComponent(await cookies())
-  const { data: { user } } = await supabase.auth.getUser()
-
-  if (!user) {
-    redirect('/login')
-  }
-
-  // Verify client or admin role
-  const { data: cmsUser } = await supabase
-    .schema('core')
-    .from('cms_users')
-    .select('role')
-    .eq('email', user.email)
-    .single()
-
-  if (cmsUser?.role !== 'client' && cmsUser?.role !== 'admin') {
-    redirect('/unauthorized')
-  }
+/**
+ * ESTA PÁGINA DIZIA QUE ACEITAVA `client`, E NENHUM `client` JAMAIS CHEGOU AQUI.
+ *
+ * O teste era uma comparação de papel com literal, escrita à mão — a segunda definição de
+ * "quem entra", divergente da régua desde 2026-07-17, quando `/dashboard` saiu de
+ * `ALLOWED_CLIENT_PATHS` e o portão passou a mandar todo `client` de `/dashboard/*` para
+ * `/clients/dashboard`. A comparação com literal não abria porta nenhuma: só fazia o arquivo
+ * mentir sobre o público dele (#733, CLAUDE.md §6).
+ *
+ * Agora a pergunta é uma só, e é a mesma do proxy e do layout. Se a decisão de produto for
+ * que o parceiro deve ter esta tela, ela não volta por um `if` aqui: volta por
+ * `ALLOWED_CLIENT_PATHS` — e, por BR-CMS-002, sob `/clients/`, que é a árvore dele.
+ */
+export default async function MyClientsPage({
+  params,
+}: {
+  params: Promise<{ locale: string }>
+}) {
+  const { locale } = await params
+  await requireAccess('/dashboard/my-clients', locale)
 
   return (
     <div className="space-y-6">
