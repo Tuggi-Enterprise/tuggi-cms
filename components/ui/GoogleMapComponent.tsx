@@ -29,8 +29,13 @@ interface GoogleMapComponentProps {
     title: string
     description?: string
     color?: string
-    /** Marca o usuário como ativo agora — pin maior, cor de destaque e animação (pulse). */
+    /** Marks the pin as the state that must stand out — bigger pin, animation and top of the stack. The colour stays `color`. */
     active?: boolean
+    /**
+     * Half opacity, for a pin showing an **archived** position: it is still information, but
+     * it is not presence, and without this the map asserts that everybody is there right now.
+     */
+    dimmed?: boolean
     /**
      * Deixa o pino ser arrastado. Padrão `false`: quase todo mapa aqui MOSTRA posição, e um pino
      * que se move sob o cursor num mapa de leitura é um dado alterado por acidente.
@@ -252,15 +257,22 @@ const MapComponent: React.FC<Omit<GoogleMapComponentProps, 'height' | 'className
     const store = markersRef.current
 
     // Ícone (data-URI SVG) para o estado atual do marcador.
-    const buildIcon = (isActive: boolean, color?: string): google.maps.Icon => {
-      const markerColor = isActive ? '#10B981' : (color || '#FF6F00')
+    //
+    // `active` sets the SIZE and the emphasis; the COLOUR always belongs to whoever built the
+    // marker. Until #732 an active marker was hardcoded green and erased any colour it was
+    // given — the "guide is on" pin has to stand out AND keep saying the entitlement state,
+    // which are two different facts. `dimmed` is the third channel: an archived position does
+    // not leave the map, it loses presence.
+    const buildIcon = (isActive: boolean, color?: string, dimmed?: boolean): google.maps.Icon => {
+      const markerColor = color || (isActive ? '#10B981' : '#FF6F00')
+      const opacity = dimmed === true ? 0.45 : 1
       const activeSvg = `
-        <svg width="32" height="32" viewBox="0 0 32 32" xmlns="http://www.w3.org/2000/svg">
+        <svg width="32" height="32" viewBox="0 0 32 32" opacity="${opacity}" xmlns="http://www.w3.org/2000/svg">
           <circle cx="16" cy="16" r="13" fill="${markerColor}" fill-opacity="0.25"/>
           <circle cx="16" cy="16" r="7" fill="${markerColor}" stroke="#ffffff" stroke-width="2.5"/>
         </svg>`
       const baseSvg = `
-        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" opacity="${opacity}" xmlns="http://www.w3.org/2000/svg">
           <path d="M12 2C8.13 2 5 5.13 5 9c0 5.25 7 13 7 13s7-7.75 7-13c0-3.87-3.13-7-7-7zm0 9.5c-1.38 0-2.5-1.12-2.5-2.5s1.12-2.5 2.5-2.5 2.5 1.12 2.5 2.5-1.12 2.5-2.5 2.5z" fill="${markerColor}"/>
         </svg>`
       return isActive
@@ -306,7 +318,7 @@ const MapComponent: React.FC<Omit<GoogleMapComponentProps, 'height' | 'className
     // 2) Cria os novos; reaproveita e move os que já existem.
     markers.forEach(markerData => {
       const isActive = markerData.active === true
-      const icon = buildIcon(isActive, markerData.color)
+      const icon = buildIcon(isActive, markerData.color, markerData.dimmed)
       const existing = store.get(markerData.id)
 
       if (!existing) {

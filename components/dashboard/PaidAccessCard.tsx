@@ -4,6 +4,7 @@ import { CreditCard, Gift, Hourglass, Infinity as InfinityIcon, Wallet } from 'l
 import { useTranslations } from 'next-intl'
 import type { EntitlementOverview } from '@/lib/services/dashboard-service'
 import { formatDuration } from '@/lib/format/duration'
+import { CHART_COLORS, ENTITLEMENT_COLOR } from '@/lib/constants/chart-colors'
 
 /**
  * The paid-access block of the Overview, in the hour model.
@@ -31,10 +32,14 @@ export const PaidAccessCard = ({ overview }: { overview: EntitlementOverview | n
   const paid = overview.unlimited_users + overview.metered_users
 
   const rows = [
-    { key: 'unlimited', label: t('unlimited_access'), value: overview.unlimited_users, icon: InfinityIcon, color: '#8B5CF6' },
-    { key: 'metered', label: t('metered_access'), value: overview.metered_users, icon: Hourglass, color: '#FF6F00' },
-    { key: 'purchased', label: t('from_purchase'), value: overview.purchased_users, icon: CreditCard, color: '#00A8E8' },
-    { key: 'granted', label: t('from_grant'), value: overview.granted_users, icon: Gift, color: '#10B981' },
+    // The two entitlement rows read their colour from `ENTITLEMENT_COLOR`: the map pin right
+    // beside this card paints the same states (#732), and the screen cannot disagree with
+    // itself about which colour means `unlimited`. The other two rows are grant origin, not
+    // state, and they only stopped being raw hex.
+    { key: 'unlimited', label: t('unlimited_access'), value: overview.unlimited_users, icon: InfinityIcon, color: ENTITLEMENT_COLOR.unlimited },
+    { key: 'metered', label: t('metered_access'), value: overview.metered_users, icon: Hourglass, color: ENTITLEMENT_COLOR.metered },
+    { key: 'purchased', label: t('from_purchase'), value: overview.purchased_users, icon: CreditCard, color: CHART_COLORS.blue },
+    { key: 'granted', label: t('from_grant'), value: overview.granted_users, icon: Gift, color: CHART_COLORS.green },
   ]
 
   return (

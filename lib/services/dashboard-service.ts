@@ -288,6 +288,15 @@ export interface HeatmapPoint {
   weight: number
 }
 
+/**
+ * One row of `core.dashboard_user_location_pins` — 18 columns since migration
+ * `20260911120000` (`docs/contracts/banco-para-cms.md`, Part 6).
+ *
+ * The first 8 are the ones that were always there, same name, same order, same types. The 10
+ * at the end answer the two questions the pin could not: **how old this position is** and
+ * **whether the guide is on right now**. Turning them into pixels is `lib/dashboard/map-pin.ts`,
+ * not this interface.
+ */
 export interface UserLocationPin {
   user_id: string
   latitude: number
@@ -296,7 +305,28 @@ export interface UserLocationPin {
   nickname: string | null
   last_platform: string | null
   last_sign_in_at: string | null
+  /**
+   * Exactly `entitlement_state <> 'free'`, kept for compatibility only. **Prefer
+   * `entitlement_state`**: this boolean merges `unlimited` with `metered`, and that is what
+   * made whoever bought a minute pack show up as non-paying (BR-MONETIZACAO-046).
+   */
   is_premium: boolean
+  /** The greater of the last heartbeat and the last location ping. `null` = never emitted a signal. */
+  last_signal_at: string | null
+  /** Age in seconds. **May be negative by up to 5 min** — see `signalFreshness`. */
+  last_signal_age_seconds: number | null
+  last_signal_source: 'heartbeat' | 'location_ping' | null
+  /** The three states of BR-MONETIZACAO-046, resolved by `drive.entitlement_state_of`. */
+  entitlement_state: 'unlimited' | 'metered' | 'free'
+  /** `EXISTS` of a guide session with `end_time IS NULL`, and nothing else. Do not rebuild it from `guide_state`. */
+  guide_active: boolean
+  guide_session_id: string | null
+  guide_session_started_at: string | null
+  /** **Server** clock (`route_trail.server_received_at`) of the open session. */
+  guide_last_signal_at: string | null
+  /** The last `guide_state` of that same open session — `active`/`paused`. `null` outside a session. */
+  guide_state: string | null
+  guide_state_at: string | null
 }
 
 export interface WaitlistStats {
@@ -1262,7 +1292,10 @@ class DashboardService {
   static async getRealtimeActivity(windowSeconds = 120): Promise<{
     success: boolean;
     data?: {
-      active_users: Array<{ user_id: string; lat: number; lng: number; timestamp: string }>;
+      // `nickname` arrives as of migration `20260911120000` (contract, Part 6), and it is the
+      // key that lets the green pin be named by `appUserLabel` the way the blue one already
+      // was. Null is possible by type; `appUserLabel` owns the fallback (BR-USUARIO-042).
+      active_users: Array<{ user_id: string; nickname: string | null; lat: number; lng: number; timestamp: string }>;
       // `visit_source` é opcional enquanto `core.dashboard_realtime_activity` não
       // devolver a coluna — SQL pendente em docs/dev/radar-visit-source.md. O cartão
       // omite o selo de engajamento no que chegar sem ela.

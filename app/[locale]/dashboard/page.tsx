@@ -16,6 +16,10 @@ import {
   UserLocationPin, WaitlistPin, PaidAccessSnapshot, consumedMinutesTotal,
 } from '@/lib/services/dashboard-service'
 import { LOW_BALANCE_CEILING_MINUTES } from '@/lib/credit/entitlement'
+import { CHART_COLORS, CHART_NEUTRAL, ENTITLEMENT_COLOR } from '@/lib/constants/chart-colors'
+import {
+  userPinAppearance, livePinAppearance, signalAgeMinutes, minutesSinceIso,
+} from '@/lib/dashboard/map-pin'
 import { formatDuration } from '@/lib/format/duration'
 import { appUserLabel } from '@/lib/format/user-identity'
 import { RecentVisitCard } from '@/components/dashboard/RecentVisitCard'
@@ -33,13 +37,8 @@ const UserGrowthChart = dynamic(
   { ssr: false, loading: () => <div className="h-full w-full animate-pulse rounded-xl bg-gray-100 dark:bg-gray-800/60" /> }
 )
 
-const TUGGI_COLORS = {
-  blue: '#00A8E8',
-  orange: '#FF6F00',
-  green: '#10B981',
-  purple: '#8B5CF6',
-  red: '#EF4444',
-}
+// The same five hex values that used to be declared here, now read from their owner (CLAUDE.md §6).
+const TUGGI_COLORS = CHART_COLORS
 
 // Janela de "online agora" em SEGUNDOS: usuário é ativo se teve ping nos últimos N seg.
 // Ping de background ~30s → 90s tolera 2 pings perdidos sem falso-online, e derruba um
@@ -47,7 +46,7 @@ const TUGGI_COLORS = {
 // O polling abaixo (60s) deve ser ≤ janela pra a UI refletir o offline a tempo.
 const REALTIME_WINDOW_SEC = 90
 
-type ActiveUser = { user_id: string; lat: number; lng: number; timestamp: string }
+type ActiveUser = { user_id: string; nickname: string | null; lat: number; lng: number; timestamp: string }
 
 export default function DashboardPage() {
   const [stats, setStats] = useState<DashboardStats>(EMPTY_DASHBOARD_STATS)
@@ -136,8 +135,26 @@ export default function DashboardPage() {
     }
   }, [fetchData, fetchRealtime])
 
-  // Markers do mapa, com cores distintas por tipo:
-  //   🔵 usuário · 🟠 premium · 🟢 ativo agora · 🔴 demanda (waitlist)
+  // What the pin says on hover: who this is, and **how old** what it shows is. It goes in the
+  // marker's native `title`, which is plain text — the InfoWindow of `GoogleMapComponent`
+  // builds HTML by interpolation, and `nickname` is typed by the tourist.
+  const pinTitle = useCallback((label: string, p: UserLocationPin) => {
+    if (p.guide_active) {
+      const since = minutesSinceIso(p.guide_session_started_at)
+      return since == null
+        ? `${label} · ${t('labels.guide_on')}`
+        : `${label} · ${t('labels.guide_on_since', { duration: formatDuration(since) })}`
+    }
+    const age = signalAgeMinutes(p.last_signal_age_seconds)
+    if (age == null) return `${label} · ${t('labels.signal_never')}`
+    if (age === 0) return `${label} · ${t('labels.signal_now')}`
+    return `${label} · ${t('labels.signal_age', { duration: formatDuration(age) })}`
+  }, [t])
+
+  // Map markers. Three channels, three questions (`lib/dashboard/map-pin.ts`):
+  //   colour = entitlement state (orange unlimited · purple metered · blue free · grey unknown)
+  //   big pulsing pin = the guide is on NOW · half opacity = archived position
+  //   green = live with no profile position · red = demand (waitlist)
   const mapMarkers = useMemo(() => {
     // Índice dos ativos AGORA → posição AO VIVO (RPC de presença). Para um usuário ativo, essa é
     // a FONTE DA VERDADE da posição; o snapshot em userPins (última localização salva) envelhece
@@ -147,26 +164,36 @@ export default function DashboardPage() {
 
     const markers = userPins.map(p => {
       const live = liveById.get(p.user_id)
+      // The colour comes from `entitlement_state`, never from `is_premium`: that boolean
+      // merges `unlimited` with `metered` and made 68 of the 73 pins holding a canonical
+      // entitlement render as non-paying (BR-MONETIZACAO-046). The emphasis comes from
+      // `guide_active` and nothing else — `guide_state` outlives a closed session (#731), so
+      // rebuilding the boolean from it would bring that defect along.
+      const look = userPinAppearance(p, !!live)
       return {
         id: `u-${p.user_id}`,
         position: live ? { lat: live.lat, lng: live.lng } : { lat: p.latitude, lng: p.longitude },
         // The pin names the tourist by `nickname`, falling back to the truncated `user_id`
         // — BR-USUARIO-042. It used to fall back to the word "User", which named nobody.
-        title: appUserLabel(p),
-        color: p.is_premium ? TUGGI_COLORS.orange : TUGGI_COLORS.blue,
-        active: !!live,
+        title: pinTitle(appUserLabel(p), p),
+        color: look.color,
+        active: look.active,
+        dimmed: look.dimmed,
       }
     })
-    // Ativos sem pin de base (têm trail mas profiles.lat/lng nulo)
+    // Live users with no base pin (they have a trail but a null profiles.lat/lng). Named now
+    // that `dashboard_realtime_activity` returns `nickname` — the same fallback as the blue pin.
     const known = new Set(userPins.map(p => p.user_id))
     for (const u of activeUsers) {
       if (!known.has(u.user_id)) {
+        const look = livePinAppearance()
         markers.push({
           id: `a-${u.user_id}`,
           position: { lat: u.lat, lng: u.lng },
-          title: appUserLabel(u),
-          color: TUGGI_COLORS.green,
-          active: true,
+          title: `${appUserLabel(u)} · ${t('labels.active_now')}`,
+          color: look.color,
+          active: look.active,
+          dimmed: look.dimmed,
         })
       }
     }
@@ -178,10 +205,11 @@ export default function DashboardPage() {
         title: `${t('labels.demand')}${w.country ? ` · ${w.country}` : ''}`,
         color: TUGGI_COLORS.red,
         active: false,
+        dimmed: false,
       })
     }
     return markers
-  }, [userPins, activeUsers, waitlistPins, t])
+  }, [userPins, activeUsers, waitlistPins, pinTitle, t])
 
   // Running out means depending on the balance NOW: an `unlimited` user with a low
   // balance is at no risk — their balance is idle until the term ends
@@ -318,12 +346,15 @@ export default function DashboardPage() {
                 </span>
               </div>
             )}
-            {/* Legenda — cores por tipo de pin */}
-            <div className="absolute bottom-3 left-3 z-10 flex flex-col gap-1.5 bg-white/90 dark:bg-gray-900/90 backdrop-blur-sm rounded-lg border border-gray-200 dark:border-gray-800 px-3 py-2 shadow-sm pointer-events-none">
-              <LegendItem color={TUGGI_COLORS.blue} label={t('labels.users')} />
-              <LegendItem color={TUGGI_COLORS.orange} label={t('labels.premium')} />
+            {/* Legend — colour is the entitlement state; the ring and the opacity are presence */}
+            <div className="absolute bottom-3 left-3 z-10 grid grid-cols-2 gap-x-3 gap-y-1.5 bg-white/90 dark:bg-gray-900/90 backdrop-blur-sm rounded-lg border border-gray-200 dark:border-gray-800 px-3 py-2 shadow-sm pointer-events-none">
+              <LegendItem color={ENTITLEMENT_COLOR.unlimited} label={t('labels.unlimited_access')} />
+              <LegendItem color={ENTITLEMENT_COLOR.metered} label={t('labels.metered_access')} />
+              <LegendItem color={ENTITLEMENT_COLOR.free} label={t('labels.free_access')} />
               <LegendItem color={TUGGI_COLORS.green} label={t('labels.active_now')} pulse />
               <LegendItem color={TUGGI_COLORS.red} label={t('labels.demand')} />
+              <LegendItem color={CHART_NEUTRAL} label={t('labels.signal_archived')} dim />
+              <LegendItem color={CHART_NEUTRAL} label={t('labels.guide_on')} ring />
             </div>
           </div>
         </WidgetCard>
@@ -433,12 +464,22 @@ export default function DashboardPage() {
   )
 }
 
-function LegendItem({ color, label, pulse }: { color: string; label: string; pulse?: boolean }) {
+/**
+ * One row of the map legend. `ring` and `dim` exist because two of the pin's channels are not
+ * colour: the guide being on is the big pin with a halo, and an archived position is the half
+ * opacity (`components/ui/GoogleMapComponent.tsx`, `buildIcon`). A solid dot for either would
+ * claim there is a "guide" colour and an "archived" colour, and there is neither.
+ */
+function LegendItem({ color, label, pulse, ring, dim }: { color: string; label: string; pulse?: boolean; ring?: boolean; dim?: boolean }) {
   return (
     <div className="flex items-center gap-2">
       <span
-        className={`w-2.5 h-2.5 rounded-full ${pulse ? 'animate-pulse' : ''}`}
-        style={{ backgroundColor: color }}
+        className={`w-2.5 h-2.5 rounded-full shrink-0 ${pulse ? 'animate-pulse' : ''}`}
+        style={
+          ring
+            ? { backgroundColor: color, boxShadow: `0 0 0 3px ${color}40` }
+            : { backgroundColor: color, opacity: dim ? 0.45 : 1 }
+        }
       />
       <span className="text-[10px] font-black uppercase tracking-tight text-gray-600 dark:text-gray-300">{label}</span>
     </div>
