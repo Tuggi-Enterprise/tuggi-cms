@@ -464,7 +464,6 @@
         "row": {
           "notable_triggers": "Disparos en POI notable",
           "of_total": "{count} de {total}",
-          "indeterminate": "Visitas sin trigger point",
           "sessions_with_trail": "Sesiones con recorrido",
           "sessions_charged": "Sesiones con cobro",
           "rank_official": "Posición — todas las cuentas",

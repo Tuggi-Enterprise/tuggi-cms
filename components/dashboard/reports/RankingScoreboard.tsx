@@ -570,7 +570,7 @@ export function RankingScoreboard({
                                 })}
                               />
                               <Detail
-                                label={t('row.indeterminate')}
+                                label={t('kpi.indeterminate')}
                                 value={String(row.visits_indeterminate)}
                               />
                               {/* Same key as the indicator: one caveat, one redaction. */}

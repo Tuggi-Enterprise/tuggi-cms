@@ -475,7 +475,6 @@
         "row": {
           "notable_triggers": "Triggers on notable POI",
           "of_total": "{count} of {total}",
-          "indeterminate": "Visits with no trigger point",
           "sessions_with_trail": "Sessions with trail",
           "sessions_charged": "Sessions with charge",
           "rank_official": "Position — all accounts",

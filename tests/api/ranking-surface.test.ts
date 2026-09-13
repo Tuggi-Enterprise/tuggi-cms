@@ -300,6 +300,22 @@ test('DS-COPY-062 items 3 and 4: the free-tier caveat is part of the label, from
   const component = source('components/dashboard/reports/RankingScoreboard.tsx')
   const uses = component.match(/t\('kpi\.manual_listens'\)/g) ?? []
   assert.equal(uses.length, 2, 'the indicator and the expanded row read the same key')
+
+  // `Visitas sem trigger point` had the same two-redaction problem, one key each — the card and
+  // the expanded row now read `kpi.indeterminate`, and `row.indeterminate` is gone.
+  for (const locale of LOCALES) {
+    const ranking = messages(locale).Pages.Dashboard.ranking
+    assert.equal(
+      'indeterminate' in ranking.row,
+      false,
+      `${locale}: the indeterminate label has one owner, and it is the indicator's key`
+    )
+  }
+  assert.equal(
+    (component.match(/t\('kpi\.indeterminate'\)/g) ?? []).length,
+    2,
+    'the indicator and the expanded row read the same key'
+  )
 })
 
 test('DS-COPY-062 items 1 and 2: the fragile labels never borrow a neighbour’s word', () => {
