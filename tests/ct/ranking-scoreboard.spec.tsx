@@ -20,6 +20,7 @@ import AxeBuilder from '@axe-core/playwright'
 import { DashboardWrapper } from './helpers'
 import { RankingScoreboardHarness } from './ranking-helpers'
 import { ROWS, WEEK_BEFORE_METER, scrollingRows } from './ranking-fixtures'
+import { UNKNOWN_VALUE } from '@/lib/format/unknown'
 import ptMessages from '@/messages/pt.json'
 import esMessages from '@/messages/es.json'
 
@@ -341,4 +342,83 @@ test('#755: `42501` gets the phrase that names the cause, and any other code get
 
   await expect(page.getByText(RANKING.error.title)).toBeVisible()
   await expect(page.getByText(RANKING.error.forbidden)).toHaveCount(0)
+})
+
+// ── The read that did not happen, and the one that happened and came back empty ───────────
+
+/**
+ * #741, SEEN IN THE FIELD — the read failed and everything above the red band kept counting.
+ *
+ * The views were not applied yet, the route answered an error, and the screen printed six
+ * indicators at `0`, three chips at `0` and the amber band describing the population of a read
+ * that never happened. `DS-COMPONENTE-084` item 1 at the level of the screen: `0` is a
+ * measurement, and a failed read made none.
+ *
+ * THE TWO TESTS ARE ONE CLAIM, and neither half alone states it: the failure prints `—` and no
+ * count, AND a read that came back with nothing still prints `0` and still raises the band —
+ * because that `0` is the answer. A suite with only the first half passes on a screen that
+ * stopped counting altogether.
+ */
+test('DS-COMPONENTE-084 item 1 · DS-COPY-062: a failed read prints `—` and counts nothing', async ({
+  mount,
+  page,
+}) => {
+  await mount(
+    <DashboardWrapper>
+      <RankingScoreboardHarness
+        rows={[]}
+        internalAccounts={0}
+        error={{ message: 'relation "core.ranking_scoreboard" does not exist', code: '42P01' }}
+      />
+    </DashboardWrapper>
+  )
+
+  // The band that IS right stays right: it is what the whole screen now hangs on.
+  await expect(page.getByText(RANKING.error.title)).toBeVisible()
+  await expect(page.getByRole('button', { name: RANKING.error.retry })).toBeVisible()
+
+  // The six indicators of a week — the five fixed ones plus the streak. Not one of them `0`,
+  // and no subtitle either: `0 pts · 0 pts` is a reading of a reading.
+  await expect(page.getByText(UNKNOWN_VALUE, { exact: true })).toHaveCount(6)
+  await expect(page.getByText('0 pts · 0 pts')).toHaveCount(0)
+  await expect(page.getByText(RANKING.kpi.manual_listens_subtitle)).toHaveCount(0)
+  await expect(page.getByText(RANKING.kpi.charged_without_trigger_subtitle)).toHaveCount(0)
+
+  // The chip keeps the filter — it is the operator's, not the server's — and drops the number:
+  // its accessible name becomes the label alone, with nothing after it.
+  for (const label of [RANKING.filters.all, RANKING.filters.scored]) {
+    await expect(page.getByRole('button', { name: label, exact: true })).toBeVisible()
+    await expect(page.getByRole('button', { name: `${label} 0`, exact: true })).toHaveCount(0)
+  }
+
+  // Two sentences describe the RESULT of the internal filter, and with no read they describe
+  // nothing: `internalAccounts` is `0` for want of an answer, not for want of a marked account.
+  await expect(page.getByText(RANKING.internal.none_marked)).toHaveCount(0)
+  await page.getByTestId('include-internal').check()
+  await expect(page.getByText(RANKING.internal.aggregates_note)).toHaveCount(0)
+})
+
+test('DS-COMPONENTE-084 item 1: a read that answered nothing keeps its `0`, and its band', async ({
+  mount,
+  page,
+}) => {
+  await mount(
+    <DashboardWrapper>
+      <RankingScoreboardHarness rows={[]} internalAccounts={0} error={null} />
+    </DashboardWrapper>
+  )
+
+  await expect(page.getByText(RANKING.error.title)).toHaveCount(0)
+
+  // Nobody scored in the week IS a measurement, and the indicators say so.
+  await expect(page.getByRole('button', { name: `${RANKING.filters.all} 0`, exact: true })).toBeVisible()
+  await expect(page.getByText('0 pts · 0 pts')).toBeVisible()
+  await expect(page.getByText(RANKING.kpi.manual_listens_subtitle)).toBeVisible()
+
+  // The one dash a successful empty read prints: the ratio, whose denominator is zero
+  // (`DS-COMPONENTE-084` item 2 — never `∞`, never `0`).
+  await expect(page.getByText(UNKNOWN_VALUE, { exact: true })).toHaveCount(1)
+
+  // And the band still has a read to be a condition of.
+  await expect(page.getByText(RANKING.internal.none_marked)).toBeVisible()
 })

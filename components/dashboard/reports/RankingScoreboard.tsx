@@ -137,6 +137,20 @@ export function RankingScoreboard({
   const [chip, setChip] = useState<ChipKey>('all')
   const [expanded, setExpanded] = useState<string | null>(null)
 
+  /**
+   * DID THE READ HAPPEN? Everything on this screen that quantifies the read hangs on this one
+   * answer, and nothing else can answer it: `rows` arrives EMPTY in BOTH cases — the page hands
+   * down `payload?.rows ?? []`, so a failure and a period where nobody scored produce the same
+   * array. The failure survives only in `error`, which is why the distinction is made here, once,
+   * and named — not rediscovered as `rows.length === 0` further down, where it is already lost.
+   *
+   * Zero is a measurement; a read that failed made none. This is `DS-COMPONENTE-084` item 1 read
+   * at the level of the whole screen instead of one column: the six indicators printing `0` over
+   * a red band that says the scoreboard could not be loaded is the screen asserting *nobody
+   * scored* when the truth is *I do not know* — spec §7.3, and the field defect of #741.
+   */
+  const didRead = error === null
+
   /** The streak belongs to the weekly cycle; in a rolling window it is `1.0` by construction. */
   const isWeek = period?.kind === 'week'
   const coverage = period ? meteringCoverage(period.start, period.end) : 'full'
@@ -207,6 +221,20 @@ export function RankingScoreboard({
   const minutes = (value: number) => (hasMeter ? formatDuration(value) : UNKNOWN_VALUE)
   const points = (value: number | null | undefined) => formatPoints(value, locale)
 
+  /**
+   * The same absence the no-meter period already prints, for the same reason and with the same
+   * character: a quantity the read did not produce is `—`. One treatment, not two.
+   */
+  const measured = (value: string | number) => (didRead ? value : UNKNOWN_VALUE)
+
+  /**
+   * A `subtitle` explains a number, so with no number it has nothing to explain — and every one
+   * of them here is itself a reading (`0 pts · 0 pts`, the platform split). The em dash goes
+   * alone: no phrase exists yet for *why* it is a dash on failure, and inventing one is the
+   * `design`'s call, not this component's.
+   */
+  const note = (text: string) => (didRead ? text : undefined)
+
   const columnCount = 12 + (isWeek ? 0 : -1) + (includeInternal ? 1 : 0)
 
   return (
@@ -222,7 +250,7 @@ export function RankingScoreboard({
           no coloured band, so it does not compete with the two amber ones this screen can
           raise. */}
       <div className="space-y-1.5">
-        {includeInternal && (
+        {didRead && includeInternal && (
           <p className="text-[11px] text-gray-500 dark:text-gray-400">
             {t('internal.aggregates_note')}
           </p>
@@ -234,10 +262,10 @@ export function RankingScoreboard({
             isLoading={isLoading}
             color={TUGGI_COLORS.blue}
             label={t('kpi.accounts_scored')}
-            value={summary.accountsScored}
-            subtitle={summary.byPlatform
-              .map((entry) => `${entry.accounts} ${entry.platform}`)
-              .join(' · ')}
+            value={measured(summary.accountsScored)}
+            subtitle={note(
+              summary.byPlatform.map((entry) => `${entry.accounts} ${entry.platform}`).join(' · ')
+            )}
           />
           <StatCard
             icon={Scale}
@@ -245,15 +273,17 @@ export function RankingScoreboard({
             isLoading={isLoading}
             color={TUGGI_COLORS.purple}
             label={t('kpi.ratio')}
-            value={hasMeter ? formatRatio(summary.triggerToMinuteRatio, locale) : UNKNOWN_VALUE}
-            subtitle={
+            value={measured(
+              hasMeter ? formatRatio(summary.triggerToMinuteRatio, locale) : UNKNOWN_VALUE
+            )}
+            subtitle={note(
               hasMeter
                 ? t('kpi.ratio_subtitle', {
                     triggers: points(summary.pointsFromTriggers),
                     minutes: points(summary.pointsFromMinutes),
                   })
                 : t('kpi.no_meter')
-            }
+            )}
           />
           {isWeek && (
             <StatCard
@@ -262,8 +292,8 @@ export function RankingScoreboard({
               isLoading={isLoading}
               color={TUGGI_COLORS.orange}
               label={t('kpi.streak')}
-              value={t('kpi.accounts', { count: summary.streakAccounts })}
-              subtitle={t('kpi.streak_subtitle', { days: summary.maxStoryDays })}
+              value={measured(t('kpi.accounts', { count: summary.streakAccounts }))}
+              subtitle={note(t('kpi.streak_subtitle', { days: summary.maxStoryDays }))}
             />
           )}
           <StatCard
@@ -272,10 +302,12 @@ export function RankingScoreboard({
             isLoading={isLoading}
             color={TUGGI_COLORS.red}
             label={t('kpi.charged_without_trigger')}
-            value={hasMeter ? t('kpi.accounts', { count: summary.chargedWithoutTrigger }) : UNKNOWN_VALUE}
-            subtitle={
+            value={measured(
+              hasMeter ? t('kpi.accounts', { count: summary.chargedWithoutTrigger }) : UNKNOWN_VALUE
+            )}
+            subtitle={note(
               hasMeter ? t('kpi.charged_without_trigger_subtitle') : t('kpi.no_meter')
-            }
+            )}
           />
           {/* The caveat is PART OF THE LABEL and comes from the same key the expanded row reads —
               `DS-COPY-062` items 3 and 4. Manual listening by a paying account records no visit at
@@ -286,8 +318,8 @@ export function RankingScoreboard({
             isLoading={isLoading}
             color={TUGGI_COLORS.green}
             label={t('kpi.manual_listens')}
-            value={summary.manualListens}
-            subtitle={t('kpi.manual_listens_subtitle')}
+            value={measured(summary.manualListens)}
+            subtitle={note(t('kpi.manual_listens_subtitle'))}
           />
           {/* No percentage here, ever: `trigger_points_fired` is deduplicated by (session, POI) and
               this count is not, so the two do not form a fraction (`DS-COMPONENTE-084` item 2). */}
@@ -297,16 +329,21 @@ export function RankingScoreboard({
             isLoading={isLoading}
             color={TUGGI_COLORS.blue}
             label={t('kpi.indeterminate')}
-            value={summary.visitsIndeterminate}
-            subtitle={t('kpi.indeterminate_subtitle')}
+            value={measured(summary.visitsIndeterminate)}
+            subtitle={note(t('kpi.indeterminate_subtitle'))}
           />
         </StatCardRow>
       </div>
 
       {/* THE STATE THAT MUST NOT PASS IN SILENCE. The switch is off and it is removing nobody:
           without this band the screen shows an unfiltered scoreboard wearing the face of a
-          filtered one. A band and not a tooltip — it is a condition of the whole reading. */}
-      {!includeInternal && internalAccounts === 0 && (
+          filtered one. A band and not a tooltip — it is a condition of the whole reading.
+
+          IT NEEDS A READING TO BE A CONDITION OF. `internalAccounts` also arrives `0` when the
+          request failed, and the sentence — *no marked account appears in THIS READ* — then
+          describes a read that never happened; the two above it do the same. Both say `0` for
+          the same reason the indicators did, and `0` from a failed read is not a finding. */}
+      {didRead && !includeInternal && internalAccounts === 0 && (
         <p className="flex items-start gap-2 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-xs text-amber-700 dark:border-amber-900/50 dark:bg-amber-900/20 dark:text-amber-300">
           <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" aria-hidden="true" />
           {t('internal.none_marked')}
@@ -336,21 +373,29 @@ export function RankingScoreboard({
       )}
 
       <section className="overflow-hidden rounded-3xl border border-gray-200 bg-white/70 shadow-2xl shadow-black/5 backdrop-blur-xl dark:border-gray-800 dark:bg-gray-900/70">
+        {/* A CHIP WITH A NUMBER IS AN ASSERTION, and the number is a count of the read. With no
+            read the chips stay — they are the filter, and the filter is the operator's, not the
+            server's — but they count nothing. `Todas: 0` under a red band is the same lie the
+            indicators were telling. */}
         <header className="flex flex-wrap items-center gap-2 border-b border-gray-200 px-5 py-4 dark:border-gray-800">
-          <FilterChip active={chip === 'all'} onClick={() => setChip('all')} count={counts.all}>
+          <FilterChip
+            active={chip === 'all'}
+            onClick={() => setChip('all')}
+            count={didRead ? counts.all : undefined}
+          >
             {t('filters.all')}
           </FilterChip>
           <FilterChip
             active={chip === 'scored'}
             onClick={() => setChip('scored')}
-            count={counts.scored}
+            count={didRead ? counts.scored : undefined}
           >
             {t('filters.scored')}
           </FilterChip>
           <FilterChip
             active={chip === 'charged_without_trigger'}
             onClick={() => setChip('charged_without_trigger')}
-            count={counts.charged_without_trigger}
+            count={didRead ? counts.charged_without_trigger : undefined}
           >
             {t('filters.charged_without_trigger')}
           </FilterChip>

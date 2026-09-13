@@ -225,9 +225,15 @@ export default function RankingReportPage() {
               className="h-4 w-4 rounded border-gray-300 text-tuggi-blue focus:ring-tuggi-blue dark:border-gray-700"
             />
             {tr('internal.toggle')}
-            <span className="text-gray-500 dark:text-gray-400">
-              {tr('internal.marked', { count: payload?.internalAccounts ?? 0 })}
-            </span>
+            {/* The SWITCH does not depend on the response and stays live (spec §7.1); the count
+                beside it does — it reads `N contas marcadas nesta consulta`, and with the read
+                failed there is no consulta, while `?? 0` asserts one anyway (#741). The switch
+                without the count is honest; the count is the sentence that has to go. */}
+            {!scoreboardError && (
+              <span className="text-gray-500 dark:text-gray-400">
+                {tr('internal.marked', { count: payload?.internalAccounts ?? 0 })}
+              </span>
+            )}
           </label>
         </div>
       </div>

@@ -192,7 +192,12 @@ export function FilterChip({
   children,
 }: {
   active: boolean
-  count: number
+  /**
+   * How many rows the chip would keep. **Omit it when there is no count to state** — a chip that
+   * prints `0` after a failed read asserts a measurement nobody made (#741, `DS-COMPONENTE-084`
+   * item 1). Omitting is not `0`: the chip renders with no number at all.
+   */
+  count?: number
   onClick: () => void
   children: ReactNode
 }) {
@@ -208,7 +213,9 @@ export function FilterChip({
       }`}
     >
       {children}
-      <span className={active ? 'opacity-70' : 'text-gray-500 dark:text-gray-400'}>{count}</span>
+      {count !== undefined && (
+        <span className={active ? 'opacity-70' : 'text-gray-500 dark:text-gray-400'}>{count}</span>
+      )}
     </button>
   )
 }
