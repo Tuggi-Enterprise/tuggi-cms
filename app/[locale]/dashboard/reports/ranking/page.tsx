@@ -38,10 +38,12 @@ import {
   parsePeriodParam,
   periodBounds,
   periodKey,
+  weekOfSelection,
   type PeriodKind,
-  type PeriodOption,
+  type PeriodSelection,
   type SessionMeteringRow,
 } from '@/lib/ranking/scoreboard'
+import { UNKNOWN_VALUE } from '@/lib/format/unknown'
 
 type Tab = 'scoreboard' | 'metering'
 
@@ -112,7 +114,7 @@ export default function RankingReportPage() {
 
   /** The URL carries the reading, so it can be pasted — `reports/users` already does it with `?tab=`. */
   const syncUrl = useCallback(
-    (next: { tab: Tab; period: { kind: PeriodKind; start: string | null } }) => {
+    (next: { tab: Tab; period: PeriodSelection }) => {
       const params = new URLSearchParams()
       if (next.tab === 'metering') params.set('tab', 'metering')
       params.set('period', next.period.kind)
@@ -130,11 +132,23 @@ export default function RankingReportPage() {
     [options, period]
   )
 
+  /**
+   * The label of ANY period, and it takes the selection — `{ kind, start }` — rather than an
+   * option out of the reading.
+   *
+   * It used to take a `PeriodOption`, which only exists after the round trip, and the selected
+   * period fell back to `tr(\`period.${period.kind}\`)` while the reading was in flight. For a
+   * week that is a key with two parameters called with none, and the screen died on the first
+   * paint of a pasted `?period=week` (#741). Now there is no second path to label a period: the
+   * two rolling keys take no parameters, the week keys take their two ALWAYS, and no future
+   * parameterised key can fall into the same hole.
+   */
   const label = useCallback(
-    (option: PeriodOption) => {
-      if (option.kind !== 'week') return tr(`period.${option.kind}`)
+    (selection: PeriodSelection) => {
+      if (selection.kind !== 'week') return tr(`period.${selection.kind}`)
 
-      const { start, endInclusive } = periodBounds(option)
+      const week = weekOfSelection(selection)
+      const bounds = week && periodBounds(week)
       // UTC in the formatter AND in the label: the boundary of the week is UTC by decision, with
       // a known edge (22h in São Paulo counts on the next UTC day). While the timezone is an open
       // question for the operator, the marker is what stops the screen claiming a zone it does
@@ -145,15 +159,15 @@ export default function RankingReportPage() {
         timeZone: 'UTC',
       })
 
-      return tr(isCurrentPeriod(option) ? 'period.week_current' : 'period.week', {
-        start: date.format(start),
-        end: date.format(endInclusive),
+      return tr(week && isCurrentPeriod(week) ? 'period.week_current' : 'period.week', {
+        start: bounds ? date.format(bounds.start) : UNKNOWN_VALUE,
+        end: bounds ? date.format(bounds.endInclusive) : UNKNOWN_VALUE,
       })
     },
     [locale, tr]
   )
 
-  const selectedLabel = selected ? label(selected) : tr(`period.${period.kind}`)
+  const selectedLabel = label(period)
 
   const openSessions = (row: { user_id: string; nickname: string | null }) => {
     setPersonFilter({ userId: row.user_id, label: appUserLabel(row) })
@@ -201,10 +215,14 @@ export default function RankingReportPage() {
               }}
               className="min-h-[28px] rounded-lg border border-gray-300 bg-white px-2 py-1 text-xs text-gray-900 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-100"
             >
-              {/* No aggregating option exists, and that is the rule, not an omission. */}
-              {options.length === 0 && (
-                <option value={periodKey(period)}>{selectedLabel}</option>
-              )}
+              {/* No aggregating option exists, and that is the rule, not an omission.
+
+                  The selection gets an option of its own whenever the reading does not contain
+                  it — before the read lands, and for a week that is older than the 13-week
+                  horizon the view serves. Without it the `<select>` has a `value` that matches
+                  no option, and the browser shows the FIRST one: the control would say
+                  `Últimos 30 dias` over a table filtered by the week in the URL. */}
+              {selected === null && <option value={periodKey(period)}>{selectedLabel}</option>}
               {options.map((option) => (
                 <option key={periodKey(option)} value={periodKey(option)}>
                   {label(option)}

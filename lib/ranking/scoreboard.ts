@@ -106,12 +106,26 @@ export interface PeriodOption {
 }
 
 /**
+ * THE SELECTION — what the operator asked for, which is not the same thing as what the reading
+ * brought back.
+ *
+ * A `week` carries its `start`; the two rolling windows carry `null`, because their boundary is
+ * "now minus N days" and nobody pastes it. Everything the screen prints about the SELECTED period
+ * comes out of this shape, and never out of `periods`: the reading takes a round trip to arrive
+ * and the label has to exist before it does (#741).
+ */
+export interface PeriodSelection {
+  kind: PeriodKind
+  start: string | null
+}
+
+/**
  * The period as it travels in the URL and as a `<select>` value.
  *
  * The operator has to be able to paste the address of the week he is checking (spec §2.1), and
  * the round trip has to be lossless — hence one string that carries both halves.
  */
-export function periodKey(period: { kind: PeriodKind; start: string | null }): string {
+export function periodKey(period: PeriodSelection): string {
   return period.kind === 'week' ? `week:${period.start ?? ''}` : period.kind
 }
 
@@ -119,13 +133,17 @@ export function periodKey(period: { kind: PeriodKind; start: string | null }): s
  * `?period=rolling_30d` / `?period=week&start=2026-08-31` → the selection, or the default.
  *
  * A `week` with no `start` falls back to the default rather than to "the first week we find":
- * guessing which week the operator meant is the one answer that looks right and is not.
+ * guessing which week the operator meant is the one answer that looks right and is not. A `start`
+ * that is not a readable instant is the same case — `?start=terça` names no week, and letting it
+ * through produced a selection that matched nothing and printed a label with no dates in it.
  */
 export function parsePeriodParam(
   period: string | null | undefined,
   start: string | null | undefined
-): { kind: PeriodKind; start: string | null } {
-  if (period === 'week' && start) return { kind: 'week', start }
+): PeriodSelection {
+  if (period === 'week' && start && Number.isFinite(new Date(start).getTime())) {
+    return { kind: 'week', start }
+  }
   if (period === 'rolling_90d') return { kind: 'rolling_90d', start: null }
   if (period === 'rolling_30d') return { kind: 'rolling_30d', start: null }
   return { kind: DEFAULT_PERIOD_KIND, start: null }
@@ -172,7 +190,7 @@ export function periodOptions(rows: Pick<RankingRow, 'period_kind' | 'period_sta
  */
 export function rowsForPeriod(
   rows: RankingRow[],
-  period: { kind: PeriodKind; start: string | null }
+  period: PeriodSelection
 ): RankingRow[] {
   return rows.filter((row) => matchesPeriod(row.period_kind, row.period_start, period))
 }
@@ -188,7 +206,7 @@ export function rowsForPeriod(
 export function matchesPeriod(
   kind: PeriodKind,
   start: string,
-  period: { kind: PeriodKind; start: string | null }
+  period: PeriodSelection
 ): boolean {
   if (kind !== period.kind) return false
   if (period.kind !== 'week' || period.start === null) return true
@@ -355,7 +373,40 @@ export function periodBounds(period: Pick<PeriodOption, 'start' | 'end'>): {
   endInclusive: Date
 } {
   const end = new Date(period.end)
-  return { start: new Date(period.start), endInclusive: new Date(end.getTime() - 86_400_000) }
+  return { start: new Date(period.start), endInclusive: new Date(end.getTime() - DAY_MS) }
+}
+
+const DAY_MS = 86_400_000
+
+/**
+ * The ISO week is SEVEN days, Monday 00:00 UTC to Monday 00:00 UTC — contract, Parte 7. It is a
+ * definition and not a tunable, which is what makes `end` a consequence of `start` rather than a
+ * second fact that could disagree with the view.
+ */
+const WEEK_MS = 7 * DAY_MS
+
+/**
+ * The selected week as a full period — derived from the SELECTION, never from the reading.
+ *
+ * This is what #741 broke: the label of the selected period was looked up in `periods`, which is
+ * empty until the read lands, so reloading on a week rendered `period.week` — a key with two
+ * parameters — with none of them. The week the operator asked for is entirely described by its
+ * `start`, so nothing about labelling it has to wait for a round trip.
+ *
+ * `null` for the two rolling windows (they have no boundary to print) and for a selection whose
+ * `start` is not a readable instant, which `parsePeriodParam` already refuses to produce.
+ */
+export function weekOfSelection(selection: PeriodSelection): PeriodOption | null {
+  if (selection.kind !== 'week' || !selection.start) return null
+
+  const start = new Date(selection.start)
+  if (!Number.isFinite(start.getTime())) return null
+
+  return {
+    kind: 'week',
+    start: selection.start,
+    end: new Date(start.getTime() + WEEK_MS).toISOString(),
+  }
 }
 
 /** The period that contains `now` — the current week is the only one that is still half done. */
