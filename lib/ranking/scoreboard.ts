@@ -174,11 +174,28 @@ export function rowsForPeriod(
   rows: RankingRow[],
   period: { kind: PeriodKind; start: string | null }
 ): RankingRow[] {
-  return rows.filter((row) => {
-    if (row.period_kind !== period.kind) return false
-    if (period.kind !== 'week') return true
-    return period.start === null || row.period_start === period.start
-  })
+  return rows.filter((row) => matchesPeriod(row.period_kind, row.period_start, period))
+}
+
+/**
+ * Does this (kind, start) pair answer the selection?
+ *
+ * The start is compared as an INSTANT and not as a string. The URL is meant to be pasted by the
+ * operator, and `?start=2026-08-31` is the same Monday as the `2026-08-31T00:00:00+00:00` the
+ * view returned — a string comparison would answer "nobody scored" to a question that has an
+ * answer, which is the one failure mode this screen must not have.
+ */
+export function matchesPeriod(
+  kind: PeriodKind,
+  start: string,
+  period: { kind: PeriodKind; start: string | null }
+): boolean {
+  if (kind !== period.kind) return false
+  if (period.kind !== 'week' || period.start === null) return true
+
+  const left = new Date(start).getTime()
+  const right = new Date(period.start).getTime()
+  return Number.isFinite(left) && left === right
 }
 
 /**

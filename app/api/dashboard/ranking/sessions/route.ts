@@ -50,7 +50,9 @@ const ROW_CEILING = 5000
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
 
 export const GET = withAuth({ roles: ['admin'] }, async (req: NextRequest) => {
-  const userId = req.nextUrl.searchParams.get('userId')
+  // `new URL(req.url)`, not `req.nextUrl`: the handler has to work for any `Request` the
+  // runtime hands it, and the sibling route reads its parameters the same way.
+  const userId = new URL(req.url).searchParams.get('userId')
 
   if (userId !== null && !UUID.test(userId)) {
     return NextResponse.json({ error: 'userId must be a uuid' }, { status: 400 })

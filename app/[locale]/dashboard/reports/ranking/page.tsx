@@ -33,6 +33,7 @@ import { rankingService, type ScoreboardPayload } from '@/lib/services/ranking-s
 import { appUserLabel } from '@/lib/format/user-identity'
 import {
   isCurrentPeriod,
+  matchesPeriod,
   parsePeriodParam,
   periodBounds,
   periodKey,
@@ -122,11 +123,7 @@ export default function RankingReportPage() {
   const options = useMemo(() => payload?.periods ?? [], [payload])
 
   const selected = useMemo(
-    () =>
-      options.find(
-        (option) =>
-          option.kind === period.kind && (period.kind !== 'week' || option.start === period.start)
-      ) ?? null,
+    () => options.find((option) => matchesPeriod(option.kind, option.start, period)) ?? null,
     [options, period]
   )
 

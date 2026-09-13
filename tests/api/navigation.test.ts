@@ -208,6 +208,8 @@ test('o catálogo do admin é exatamente este — apagar um destino tem de doer'
     '/dashboard/reports/catalog',
     '/dashboard/reports/engagement',
     '/dashboard/reports/geography',
+    // O placar de pontuação (#741), irmão de `Base de Usuários` no grupo de relatórios.
+    '/dashboard/reports/ranking',
     '/dashboard/reports/users',
     '/dashboard/system-audio',
     '/events',

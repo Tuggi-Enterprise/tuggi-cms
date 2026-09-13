@@ -1,0 +1,302 @@
+/**
+ * #741 — the two ranking reads, and WHICH CLIENT issues them.
+ *
+ * Four things are pinned here, and each one is a way the card could regress:
+ *
+ * 1. the read reaches PostgREST with the SERVICE client, never with the operator's session
+ *    client. `core.ranking_scoreboard` and `core.ranking_session_metering` grant `SELECT` to
+ *    `service_role` alone; `auth.supabase` arrives as `authenticated`, which in `drive` is every
+ *    logged-in tourist, and the answer is `42501` (`docs/contracts/banco-para-cms.md`, Parte 7).
+ *    The views carry the nominal scoreboard of 538 people — BR-USUARIO-042 item 5;
+ * 2. the gate still runs first: anonymous is 401, a non-admin CMS user is 403, and in both cases
+ *    NO query leaves the server;
+ * 3. the rows that leave the route belong to exactly one period. Mixing `week` with a rolling
+ *    window counts the same visit several times, and the contract names it as the number-one
+ *    suspect when the screen disagrees with the reference measurement;
+ * 4. a caller cannot turn the drill-down into an arbitrary filter: `?userId=` is a uuid or a 400.
+ *
+ * Run with: npm run test:api
+ */
+
+import { test, before, beforeEach, mock } from 'node:test'
+import assert from 'node:assert/strict'
+import { resolve } from 'node:path'
+
+const REPO_ROOT = resolve(import.meta.dirname, '../..')
+
+interface Query {
+  /** `service` or `session` — the whole point of the file. */
+  client: 'service' | 'session'
+  relation: string
+  eq: { column: string; value: unknown }[]
+}
+
+interface Scenario {
+  user: { id: string; email: string } | null
+  cmsUser: { email: string; role: string; is_active: boolean } | null
+  queries: Query[]
+  rows: unknown[]
+  /** What PostgREST says the total is, so a truncated read can be simulated. */
+  count: number | null
+}
+
+let scenario: Scenario
+
+const ADMIN = { id: 'auth-user-1', email: 'admin@tuggi.app' }
+
+/** A row of `core.ranking_scoreboard` with every column the route names. */
+function scoreboardRow(overrides: Record<string, unknown> = {}) {
+  return {
+    period_kind: 'rolling_30d',
+    period_start: '2026-08-14T00:00:00+00:00',
+    period_end: '2026-09-13T00:00:00+00:00',
+    user_id: '11111111-1111-4111-8111-111111111111',
+    nickname: 'hoppy-otter',
+    platform: 'ios',
+    excluded_from_metrics: false,
+    trigger_points_fired: 45,
+    trigger_points_notable: 12,
+    visits_indeterminate: 3,
+    visits_manual: 0,
+    charged_minutes: 143,
+    story_days: 4,
+    has_full_week_streak: false,
+    streak_multiplier: 1,
+    points_from_triggers: 45,
+    points_from_minutes: 4.29,
+    points_official: 49.29,
+    rank_official: 1,
+    rank_excluding_internal: 1,
+    points_notable_weighted: 57,
+    rank_notable_weighted: 1,
+    trail_span_minutes: 4022,
+    metering_gap_minutes: 3879,
+    sessions_with_trail: 6,
+    sessions_charged: 2,
+    ...overrides,
+  }
+}
+
+/**
+ * A client that records the relation it was asked for and answers the scenario's rows.
+ *
+ * `cms_users` is the gate's own lookup and is served by the session client, as it must be: the
+ * gate proves WHO is asking with the operator's JWT. Any other relation reached through the
+ * session client is the defect this file exists to catch.
+ */
+function createClient(kind: 'service' | 'session') {
+  const cmsUsers: any = {
+    select: () => cmsUsers,
+    eq: () => cmsUsers,
+    maybeSingle: async () => ({ data: scenario.cmsUser, error: null }),
+  }
+
+  return {
+    auth: {
+      getUser: async () => ({
+        data: { user: scenario.user },
+        error: scenario.user ? null : { message: 'Auth session missing!' },
+      }),
+    },
+    schema: () => ({
+      from: (relation: string) => {
+        if (relation === 'cms_users' && kind === 'session') return cmsUsers
+
+        const query: Query = { client: kind, relation, eq: [] }
+        scenario.queries.push(query)
+
+        const chain: any = {
+          select: () => chain,
+          order: () => chain,
+          limit: () => chain,
+          eq: (column: string, value: unknown) => {
+            query.eq.push({ column, value })
+            return chain
+          },
+          then: (onFulfilled: (result: unknown) => unknown) =>
+            Promise.resolve({
+              data: scenario.rows,
+              error: null,
+              count: scenario.count ?? scenario.rows.length,
+            }).then(onFulfilled),
+        }
+        return chain
+      },
+    }),
+  }
+}
+
+const handlers = new Map<string, (req: any, ctx?: any) => Promise<Response>>()
+
+const SCOREBOARD = 'app/api/dashboard/ranking/route.ts'
+const SESSIONS = 'app/api/dashboard/ranking/sessions/route.ts'
+
+before(async () => {
+  mock.module('next/headers', {
+    namedExports: { cookies: async () => ({ get: () => undefined, getAll: () => [] }) },
+  })
+
+  mock.module('@/lib/core/supabase-client', {
+    namedExports: {
+      getSupabaseRouteHandler: () => createClient('session'),
+      getSupabaseService: () => createClient('service'),
+      getSupabaseClient: () => createClient('session'),
+    },
+  })
+
+  // Not `module`: Next's lint forbids assigning that identifier anywhere in the repo.
+  for (const routeModule of [SCOREBOARD, SESSIONS]) {
+    const loaded = await import(resolve(REPO_ROOT, routeModule))
+    handlers.set(routeModule, loaded.GET)
+  }
+})
+
+beforeEach(() => {
+  scenario = { user: null, cmsUser: null, queries: [], rows: [], count: null }
+})
+
+function asAdmin(): void {
+  scenario.user = ADMIN
+  scenario.cmsUser = { email: ADMIN.email, role: 'admin', is_active: true }
+}
+
+function request(url: string): any {
+  return new Request(url)
+}
+
+for (const [routeModule, url] of [
+  [SCOREBOARD, 'http://localhost/api/dashboard/ranking?period=rolling_30d'],
+  [SESSIONS, 'http://localhost/api/dashboard/ranking/sessions'],
+] as const) {
+  test(`#741: ${routeModule} refuses an anonymous caller with 401`, async () => {
+    const response = await handlers.get(routeModule)!(request(url))
+
+    assert.equal(response.status, 401)
+    assert.deepEqual(scenario.queries, [], 'no read may leave the server without a session')
+  })
+
+  test(`#741: ${routeModule} refuses a non-admin CMS user with 403`, async () => {
+    scenario.user = ADMIN
+    scenario.cmsUser = { email: ADMIN.email, role: 'editor', is_active: true }
+
+    const response = await handlers.get(routeModule)!(request(url))
+
+    assert.equal(response.status, 403)
+    assert.deepEqual(scenario.queries, [], 'the handler must not run for an insufficient role')
+  })
+
+  test(`#741: ${routeModule} reads the view with the SERVICE client, never the session one`, async () => {
+    asAdmin()
+    scenario.rows = [scoreboardRow()]
+
+    const response = await handlers.get(routeModule)!(request(url))
+
+    assert.equal(response.status, 200)
+    assert.equal(scenario.queries.length, 1)
+    assert.equal(
+      scenario.queries[0].client,
+      'service',
+      'the views answer service_role alone; the session client would come back 42501'
+    )
+    assert.match(scenario.queries[0].relation, /^ranking_/)
+  })
+}
+
+test('#741: the scoreboard answers rows of EXACTLY one period', async () => {
+  asAdmin()
+  scenario.rows = [
+    scoreboardRow({ period_kind: 'rolling_30d' }),
+    scoreboardRow({ period_kind: 'rolling_90d', user_id: '22222222-2222-4222-8222-222222222222' }),
+    scoreboardRow({
+      period_kind: 'week',
+      period_start: '2026-08-31T00:00:00+00:00',
+      period_end: '2026-09-07T00:00:00+00:00',
+      user_id: '33333333-3333-4333-8333-333333333333',
+    }),
+  ]
+
+  const response = await handlers
+    .get(SCOREBOARD)!(request(`http://localhost/api/dashboard/ranking?period=week&start=${encodeURIComponent('2026-08-31T00:00:00+00:00')}`))
+  const body = await response.json()
+
+  assert.equal(body.data.rows.length, 1)
+  assert.equal(body.data.rows[0].period_kind, 'week')
+  assert.equal(body.data.period.kind, 'week')
+  // The `<select>` still knows about every period the view produced: it is built from the data,
+  // never from a calendar in the browser.
+  assert.deepEqual(
+    body.data.periods.map((option: { kind: string }) => option.kind),
+    ['rolling_30d', 'rolling_90d', 'week']
+  )
+})
+
+test('#741: an unusable period parameter falls back to the 30-day window, never to "all"', async () => {
+  asAdmin()
+  scenario.rows = [scoreboardRow()]
+
+  // `week` with no `start`: guessing which week the operator meant is the answer that looks
+  // right and is not. Summing periods is not an option that exists (`DS-COMPONENTE-082` item 1).
+  const response = await handlers
+    .get(SCOREBOARD)!(request('http://localhost/api/dashboard/ranking?period=week'))
+  const body = await response.json()
+
+  assert.equal(body.data.period.kind, 'rolling_30d')
+  assert.equal(body.data.rows.length, 1)
+})
+
+test('#741: the count of marked accounts is taken over the whole view, not over the served period', async () => {
+  asAdmin()
+  scenario.rows = [
+    scoreboardRow({ excluded_from_metrics: false }),
+    scoreboardRow({
+      period_kind: 'week',
+      user_id: '44444444-4444-4444-8444-444444444444',
+      excluded_from_metrics: true,
+    }),
+  ]
+
+  const response = await handlers
+    .get(SCOREBOARD)!(request('http://localhost/api/dashboard/ranking?period=rolling_30d'))
+  const body = await response.json()
+
+  assert.equal(body.data.rows.length, 1, 'the served period still holds one row')
+  assert.equal(
+    body.data.internalAccounts,
+    1,
+    'the warning band answers "is the filter removing anybody", which must not flicker with the period'
+  )
+})
+
+test('#741: a truncated read is refused, not served', async () => {
+  asAdmin()
+  scenario.rows = [scoreboardRow()]
+  // PostgREST would cut the answer at its own `max-rows` without saying so, and a scoreboard
+  // missing rows looks exactly like a scoreboard.
+  scenario.count = 900
+
+  const response = await handlers
+    .get(SCOREBOARD)!(request('http://localhost/api/dashboard/ranking'))
+
+  assert.equal(response.status, 502)
+})
+
+test('#741: the session drill-down takes a uuid or a 400, and filters by that user', async () => {
+  asAdmin()
+  scenario.rows = []
+
+  const refused = await handlers
+    .get(SESSIONS)!(request('http://localhost/api/dashboard/ranking/sessions?userId=1%20or%201=1'))
+  assert.equal(refused.status, 400)
+  assert.equal(scenario.queries.length, 0, 'a malformed filter never becomes a query')
+
+  const accepted = await handlers
+    .get(SESSIONS)!(
+    request(
+      'http://localhost/api/dashboard/ranking/sessions?userId=11111111-1111-4111-8111-111111111111'
+    )
+  )
+  assert.equal(accepted.status, 200)
+  assert.deepEqual(scenario.queries[0].eq, [
+    { column: 'user_id', value: '11111111-1111-4111-8111-111111111111' },
+  ])
+})
