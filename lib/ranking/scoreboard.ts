@@ -111,8 +111,8 @@ export interface PeriodOption {
  * The operator has to be able to paste the address of the week he is checking (spec §2.1), and
  * the round trip has to be lossless — hence one string that carries both halves.
  */
-export function periodKey(period: Pick<PeriodOption, 'kind' | 'start'>): string {
-  return period.kind === 'week' ? `week:${period.start}` : period.kind
+export function periodKey(period: { kind: PeriodKind; start: string | null }): string {
+  return period.kind === 'week' ? `week:${period.start ?? ''}` : period.kind
 }
 
 /**
@@ -191,7 +191,10 @@ export function rowsForPeriod(
  * The mark means "does not enter the aggregates", never "does not play" — the marked account
  * keeps `points_official` and `rank_official`, and the switch brings its row back.
  */
-export function visibleRows(rows: RankingRow[], includeInternal: boolean): RankingRow[] {
+export function visibleRows<T extends { excluded_from_metrics: boolean }>(
+  rows: T[],
+  includeInternal: boolean
+): T[] {
   return includeInternal ? rows : rows.filter((row) => !row.excluded_from_metrics)
 }
 
@@ -322,4 +325,36 @@ export function formatPoints(value: number | null | undefined, locale: string): 
 export function formatRatio(ratio: number | null, locale: string): string {
   if (ratio == null || !Number.isFinite(ratio)) return UNKNOWN_VALUE
   return `${new Intl.NumberFormat(locale, { maximumFractionDigits: 1 }).format(ratio)} : 1`
+}
+
+/**
+ * The two dates a week label prints, and the second one is NOT `period_end`.
+ *
+ * `period_end` is exclusive (contract, Parte 7): the week of 31/08 ends at 07/09 00:00 UTC, and
+ * a label reading `31/08 – 07/09` would claim a day the period does not contain.
+ */
+export function periodBounds(period: Pick<PeriodOption, 'start' | 'end'>): {
+  start: Date
+  endInclusive: Date
+} {
+  const end = new Date(period.end)
+  return { start: new Date(period.start), endInclusive: new Date(end.getTime() - 86_400_000) }
+}
+
+/** The period that contains `now` — the current week is the only one that is still half done. */
+export function isCurrentPeriod(period: Pick<PeriodOption, 'start' | 'end'>, now = Date.now()): boolean {
+  return new Date(period.start).getTime() <= now && now < new Date(period.end).getTime()
+}
+
+/**
+ * How many accounts carry the #740 mark in everything the view returned.
+ *
+ * It is counted over the WHOLE view and not over the selected period on purpose: the question
+ * the number answers is "is the filter removing anybody at all", and a marked account that was
+ * quiet last week would make the answer flicker with the period.
+ */
+export function countInternalAccounts(rows: Pick<RankingRow, 'user_id' | 'excluded_from_metrics'>[]): number {
+  const marked = new Set<string>()
+  for (const row of rows) if (row.excluded_from_metrics) marked.add(row.user_id)
+  return marked.size
 }

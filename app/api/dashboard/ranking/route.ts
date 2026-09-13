@@ -25,6 +25,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { withAuth } from '@/lib/auth-middleware'
 import { getSupabaseService } from '@/lib/core/supabase-client'
 import {
+  countInternalAccounts,
   parsePeriodParam,
   periodOptions,
   rowsForPeriod,
@@ -111,6 +112,9 @@ export const GET = withAuth({ roles: ['admin'] }, async (req: NextRequest) => {
     data: {
       periods: periodOptions(rows),
       period,
+      // Counted over the whole view, not over the served period: it answers "is the filter
+      // removing anybody at all", which must not flicker when the operator changes the week.
+      internalAccounts: countInternalAccounts(rows),
       rows: rowsForPeriod(rows, period),
     },
   })

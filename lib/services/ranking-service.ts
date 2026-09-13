@@ -22,6 +22,8 @@ export interface ScoreboardPayload {
   periods: PeriodOption[]
   /** The period the route actually served, after falling back on an unusable parameter. */
   period: { kind: PeriodKind; start: string | null }
+  /** Accounts carrying the #740 mark anywhere in the view — `0` is the state that must warn. */
+  internalAccounts: number
   /** Rows of EXACTLY that period. */
   rows: RankingRow[]
 }
