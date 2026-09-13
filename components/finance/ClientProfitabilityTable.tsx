@@ -41,9 +41,20 @@
  * encolhe abaixo do próprio conteúdo, e sem aquilo quem cede é a página.
  */
 
-import { useCallback, useMemo, useState } from 'react'
+import { useMemo, useState } from 'react'
 import { useTranslations } from 'next-intl'
-import { ArrowDown, ArrowUp, ChevronsUpDown } from 'lucide-react'
+import {
+  CELL,
+  DIM,
+  DenseTableScroller,
+  EDGE,
+  FilterChip,
+  GROUP,
+  HEAD,
+  HEAD_NUM,
+  NUM,
+  SortHead,
+} from '@/components/ui/dense-table'
 import { formatDurationOrDash } from '@/lib/format/duration'
 import { formatCount, formatMoney } from '@/lib/finance/money'
 import { cohortMonth } from '@/lib/finance/cohort'
@@ -61,40 +72,10 @@ const VERDICTS: readonly FinanceVerdict[] = [
 ]
 
 /**
- * O `sticky` DESTE CABEÇALHO NÃO FUNCIONAVA, e a causa é uma regra do CSS que não se vê lendo a
- * classe. A tabela vivia dentro de `overflow-x-auto`, e declarar overflow num eixo faz o OUTRO
- * computar de `visible` para `auto`: o wrapper virava container de rolagem TAMBÉM na vertical,
- * e `top-0` passou a se medir contra algo que não rola. Dar altura ao container é o que faz o
- * cabeçalho grudar de verdade — por isso `top-0` e não `top-14`: o vizinho de cima agora é o
- * topo do cartão, não o `Header` de `h-14` do CMS.
- *
- * São DUAS faixas grudadas, e por isso a de grupos tem altura fixa (`h-7` = 28px) e a de baixo
- * gruda em `top-7`. Uma altura implícita aqui viraria uma sobreposição de 2px que ninguém
- * consegue explicar depois.
+ * As classes das duas faixas grudadas, do recuo e da régua de grupo vêm de
+ * `components/ui/dense-table.tsx` desde `DS-COMPONENTE-081` (#741): `top-7` do `HEAD` só está
+ * certo porque `GROUP` tem `h-7`, e dois números que só valem juntos têm um dono só.
  */
-const GROUP =
-  'sticky top-0 z-20 h-7 bg-white/95 px-3 text-left text-[10px] font-bold uppercase tracking-widest backdrop-blur dark:bg-gray-900/95'
-const HEAD =
-  'sticky top-7 z-10 bg-white/95 px-3 py-2.5 text-left text-[10px] font-bold uppercase tracking-widest text-gray-500 backdrop-blur dark:bg-gray-900/95 dark:text-gray-400'
-/** Dinheiro e contagem alinham à direita — é o que deixa a vírgula embaixo da vírgula. */
-const HEAD_NUM = `${HEAD} text-right`
-const CELL = 'px-3 py-2.5 text-sm text-gray-800 dark:text-gray-200 align-middle'
-const NUM = `${CELL} text-right tabular-nums whitespace-nowrap`
-/**
- * A TINTA DO ZERO — `text-gray-500`, e a primeira tentativa foi `text-gray-400`.
- *
- * #9CA3AF sobre o painel mede 2,51:1 e reprova SC 1.4.3; #6B7280 mede 4,83:1. É a MESMA
- * divergência (D-C) que `FinanceFigures` já carrega escrita no topo, e que um teste deste módulo
- * varre em todo rótulo de 10px — eu recuei o zero usando exatamente a cor que o módulo já tinha
- * medido e recusado. O `axe` pegou em dois nós na primeira passada com navegador.
- *
- * Recuar não é apagar: entre `text-gray-800` do valor e `text-gray-500` do zero ainda há degrau
- * suficiente para os três números que importam saltarem de uma coluna de 49 zeros. No escuro o
- * par inverte para `dark:text-gray-400`, que sobre gray-900 passa com folga.
- */
-const DIM = 'text-gray-500 dark:text-gray-400'
-/** Onde um grupo começa, e o único lugar onde a régua vertical aparece. */
-const EDGE = 'border-l border-gray-200 dark:border-gray-800'
 
 type SortKey =
   | 'clientName'
@@ -178,26 +159,7 @@ export function ClientProfitabilityTable({ clients }: { clients: ClientProfitabi
     )
   }
 
-  /**
-   * Existe tabela à direita do que se vê? O degradê da borda responde isso, e responder errado é
-   * pior que não responder: prometer coluna onde não há treina o operador a ignorar a pista.
-   *
-   * `useCallback` como ref MEDE NA MONTAGEM. Sem isso o degradê só apareceria depois do primeiro
-   * scroll — exatamente o gesto que ele existe para provocar. A folga de 2px é do arredondamento
-   * de zoom do navegador, que faz `scrollLeft + clientWidth` parar meio pixel antes do fim.
-   */
-  const [more, setMore] = useState(false)
-  const update = useCallback((el: HTMLDivElement) => {
-    setMore(el.scrollLeft + el.clientWidth < el.scrollWidth - 2)
-  }, [])
-  const measure = useCallback(
-    (el: HTMLDivElement | null) => {
-      if (el) update(el)
-    },
-    [update]
-  )
-
-  /** Fecha `sort`/`toggle`/`t` sobre o `SortHead` de módulo, que é onde ele precisa morar. */
+  /** Fecha `sort`/`toggle`/`t` sobre o `SortHead` compartilhado (`DS-COMPONENTE-081`). */
   const head = (column: SortKey, label: string, className: string) => (
     <SortHead
       column={column}
@@ -281,24 +243,8 @@ export function ClientProfitabilityTable({ clients }: { clients: ClientProfitabi
           tabela, e catorze colunas não cabem em 870px — seis sumiam do lado direito, incluindo os
           grupos `Aquisição` e `Pendência` INTEIROS, e a tabela simplesmente terminava no meio de
           uma coluna como se aquilo fosse o fim. O degradê é a única pista de que ainda há tabela
-          ali: `pointer-events-none` para não roubar o clique, e some quando a rolagem chega ao
-          fim porque aí não há mais nada para prometer.
-
-          NÃO DÁ PARA RESOLVER ENCOLHENDO. Catorze colunas em 870px dariam 62px por coluna, e
-          `R$ 1.934,59` não cabe em 62px. Rolagem horizontal aqui é a decisão certa; o que estava
-          errado era ela ser invisível. */}
-      <div className="relative">
-        <div
-          aria-hidden="true"
-          className={`pointer-events-none absolute inset-y-0 right-0 z-30 w-12 bg-gradient-to-l from-white/95 to-transparent transition-opacity dark:from-gray-900/95 ${
-            more ? 'opacity-100' : 'opacity-0'
-          }`}
-        />
-        <div
-          ref={measure}
-          onScroll={(event) => update(event.currentTarget)}
-          className="custom-scrollbar max-h-[calc(100vh-19rem)] overflow-auto"
-        >
+          ali, e desde `DS-COMPONENTE-081` ele é do `DenseTableScroller`. */}
+      <DenseTableScroller>
         <table className="w-full min-w-[1120px] border-collapse">
           <thead>
             <tr>
@@ -463,97 +409,7 @@ export function ClientProfitabilityTable({ clients }: { clients: ClientProfitabi
             </tfoot>
           )}
         </table>
-        </div>
-      </div>
+      </DenseTableScroller>
     </section>
-  )
-}
-
-/**
- * UM CABEÇALHO QUE ORDENA. Mora NO MÓDULO e não dentro de `ClientProfitabilityTable`: um
- * componente declarado no corpo de outro é um tipo novo a cada render, e o React desmonta e
- * remonta a subárvore inteira em vez de atualizá-la — aqui isso significaria catorze botões
- * recriados a cada clique de ordenação, perdendo o foco do teclado no caminho.
- *
- * O ÍCONE DIZ O ESTADO E `aria-sort` DIZ O MESMO. Três estados, três desenhos: sem ordem, e as
- * duas direções. Cor sozinha não distinguiria as duas últimas.
- */
-function SortHead({
-  column,
-  label,
-  className,
-  sort,
-  onToggle,
-  title,
-}: {
-  column: SortKey
-  label: string
-  className: string
-  sort: { key: SortKey; dir: 1 | -1 } | null
-  onToggle: (key: SortKey) => void
-  title: string
-}) {
-  const active = sort !== null && sort.key === column
-  const descending = active && sort.dir === -1
-  const Icon = !active ? ChevronsUpDown : descending ? ArrowDown : ArrowUp
-
-  return (
-    <th
-      scope="col"
-      className={className}
-      aria-sort={!active ? 'none' : descending ? 'descending' : 'ascending'}
-    >
-      {/* O ÍCONE INATIVO NÃO OCUPA LARGURA. Treze setas `ChevronsUpDown` sempre visíveis custavam
-          ~20px de coluna cada — perto de 220px numa tabela que já não cabe em tela de notebook —
-          e ainda enchiam o cabeçalho de ruído onde o operador procura o nome da coluna. Fora do
-          hover e sem ordem ativa ele é `w-0 opacity-0`: some do fluxo em vez de só ficar
-          transparente, que é a diferença entre recuperar a largura e não recuperar nada. */}
-      <button
-        type="button"
-        onClick={() => onToggle(column)}
-        title={title}
-        className={`group inline-flex min-h-[24px] items-center gap-1 uppercase tracking-widest transition-colors hover:text-gray-900 dark:hover:text-white ${
-          active ? 'text-gray-900 dark:text-white' : ''
-        } ${className.includes('text-right') ? 'flex-row-reverse' : ''}`}
-      >
-        {label}
-        <Icon
-          className={`h-3 shrink-0 transition-all ${
-            active
-              ? 'w-3 text-primary-800 opacity-100 dark:text-tuggi-blue'
-              : 'w-0 opacity-0 group-hover:w-3 group-hover:opacity-100 group-focus-visible:w-3 group-focus-visible:opacity-100'
-          }`}
-          aria-hidden="true"
-        />
-      </button>
-    </th>
-  )
-}
-
-function FilterChip({
-  active,
-  count,
-  onClick,
-  children,
-}: {
-  active: boolean
-  count: number
-  onClick: () => void
-  children: React.ReactNode
-}) {
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      aria-pressed={active}
-      className={`inline-flex min-h-[28px] items-center gap-1.5 whitespace-nowrap rounded-full border px-3 py-1 text-xs font-semibold transition-colors ${
-        active
-          ? 'border-tuggi-blue/35 bg-tuggi-blue/10 text-primary-800 dark:text-tuggi-blue'
-          : 'border-gray-200 bg-white text-gray-700 hover:border-gray-300 dark:border-gray-700 dark:bg-gray-900 dark:text-gray-300'
-      }`}
-    >
-      {children}
-      <span className={active ? 'opacity-70' : 'text-gray-500 dark:text-gray-400'}>{count}</span>
-    </button>
   )
 }

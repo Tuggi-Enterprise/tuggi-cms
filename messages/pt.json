@@ -99,7 +99,8 @@
     "partnerships": "Parcerias",
     "main_navigation": "Navegação principal",
     "menu": "Menu",
-    "switch_language": "Trocar idioma"
+    "switch_language": "Trocar idioma",
+    "ranking": "Placar"
   },
   "Pages": {
     "Login": {
@@ -398,6 +399,133 @@
           "country_hint": "O catálogo de fronteiras tem sete países. Contas nascidas fora deles ficam sem país mesmo tendo coordenada.",
           "platform_unknown": "Não registrado",
           "platform_hint": "Sistema do aparelho com que a conta foi criada, não o atual."
+        },
+        "ranking": {
+          "title": "Placar de pontuação",
+          "subtitle": "Como a pontuação ordena as contas, e o que os números de comparação mudariam."
+        }
+      },
+      "ranking": {
+        "tabs": {
+          "scoreboard": "Placar",
+          "metering": "Medição de sessão"
+        },
+        "period": {
+          "label": "Período",
+          "rolling_30d": "Últimos 30 dias",
+          "rolling_90d": "Últimos 90 dias",
+          "week": "Semana de {start} a {end} · UTC",
+          "week_current": "Semana de {start} a {end} (corrente) · UTC"
+        },
+        "internal": {
+          "toggle": "Incluir contas internas",
+          "marked": "{count} contas marcadas",
+          "badge": "INTERNA",
+          "aggregates_note": "Os indicadores sempre ignoram contas internas.",
+          "none_marked": "O filtro de contas internas está ligado e não está removendo ninguém: nenhuma conta está marcada hoje. A marca é a coluna excluded_from_metrics de drive.profiles, e quem marca é o operador."
+        },
+        "kpi": {
+          "accounts_scored": "Contas que pontuaram",
+          "ratio": "Disparo ÷ minuto",
+          "ratio_subtitle": "{triggers} pts · {minutes} pts",
+          "streak": "Sequência de 7 dias",
+          "accounts": "{count} contas",
+          "streak_subtitle": "máximo no período: {days} de 7 dias",
+          "charged_without_trigger": "Cobrado sem disparo",
+          "charged_without_trigger_subtitle": "tiveram minuto cobrado e nenhum disparo",
+          "manual_listens": "Escuta manual · só tier gratuito",
+          "manual_listens_subtitle": "quem paga não grava visita",
+          "indeterminate": "Visitas sem trigger point",
+          "indeterminate_subtitle": "área ou id perdido — indistinguíveis",
+          "no_meter": "sem medidor no período"
+        },
+        "group": {
+          "official": "Placar oficial",
+          "notable": "Comparação · peso 2 em POI notável (posição entre todas as contas)",
+          "time": "Comparação · tempo",
+          "session_time": "Tempo",
+          "session": "Sessão"
+        },
+        "table": {
+          "rank": "#",
+          "rank_excluding_internal": "sem internas",
+          "person": "Pessoa",
+          "platform": "Plataforma",
+          "points": "Pontos",
+          "triggers": "Disparos",
+          "points_from_minutes": "Pts por minuto",
+          "streak": "Sequência",
+          "notable_points": "Pts peso 2",
+          "rank_delta": "Δ posição",
+          "charged": "Cobrado",
+          "trail_span": "Intervalo de sinal",
+          "gap": "Diferença",
+          "sort_by": "Ordenar por {column}",
+          "totals": "{count} linhas",
+          "expand": "Abrir os detalhes de {person}",
+          "collapse": "Fechar os detalhes de {person}",
+          "delta_up": "subiu {count} posições com o peso 2",
+          "delta_down": "caiu {count} posições com o peso 2",
+          "delta_same": "não mudou de posição com o peso 2",
+          "delta_unknown": "não ranqueia com o peso 2",
+          "open_sessions": "ver as sessões de {person}"
+        },
+        "row": {
+          "notable_triggers": "Disparos em POI notável",
+          "of_total": "{count} de {total}",
+          "indeterminate": "Visitas sem trigger point",
+          "sessions_with_trail": "Sessões com trilha",
+          "sessions_charged": "Sessões com cobrança",
+          "rank_official": "Posição — todas as contas",
+          "rank_notable": "Posição — peso 2",
+          "user_id": "Identificador",
+          "copy": "Copiar",
+          "copied": "Copiado",
+          "see_sessions": "ver as sessões desta conta"
+        },
+        "caption": {
+          "span": "<b>Intervalo de sinal</b> é o tempo entre o primeiro e o último sinal da sessão — não é tempo de guia nem tempo cobrado; sessão aberta com sinal esparso o infla sem consumir saldo.",
+          "platform": "<b>Plataforma vazia</b> = a conta entrou no período só por cobrança ou trilha.",
+          "sorting": "Posições e pontos vêm da consulta; ordenar a tabela não os recalcula.",
+          "closing": "<b>Encerramento</b> é o texto cru do cliente ou do fechamento automático."
+        },
+        "meter": {
+          "none": "O medidor de minutos não existia neste período: o ledger de consumo começa em 18/08/2026, 20:41 UTC. As colunas de minuto não valem zero — não há medição.",
+          "partial": "O medidor só existe a partir de 18/08/2026; parte desta janela é anterior a ele."
+        },
+        "filters": {
+          "all": "Todas",
+          "scored": "Pontuaram",
+          "charged_without_trigger": "Cobrado sem disparo",
+          "charged": "Com cobrança",
+          "gap_over_60": "Diferença acima de 60 min"
+        },
+        "empty": {
+          "period": "Ninguém pontuou em {period}.",
+          "filtered": "Nenhuma conta neste filtro em {period}.",
+          "clear": "limpar o filtro",
+          "sessions": "Nenhuma sessão no horizonte de 13 semanas."
+        },
+        "error": {
+          "title": "Não foi possível carregar o placar.",
+          "forbidden": "O banco recusou a leitura (42501): as views do placar só respondem ao cliente de serviço, e a rota pediu com o cliente da sessão.",
+          "retry": "tentar de novo"
+        },
+        "metering": {
+          "title": "Medição de sessão",
+          "session_start": "Início",
+          "guide_active": "Guia ligado",
+          "trail_points": "Pontos de trilha",
+          "closing": "Encerramento",
+          "session_id": "Sessão",
+          "session_end": "Fim",
+          "session_end_note": "pode avançar por fila offline",
+          "first_signal": "Primeiro sinal",
+          "last_signal": "Último sinal",
+          "first_charge": "Primeira cobrança",
+          "last_charge": "Última cobrança",
+          "filtered_by_person": "Sessões de {person}",
+          "clear_person": "ver todas as sessões"
         }
       }
     },
@@ -1055,8 +1183,7 @@
         "campaign_type": "Campanha",
         "status": {
           "sent": "enviado",
-          "failed": "falhou"
-        ,
+          "failed": "falhou",
           "partial": "parcial"
         },
         "prev": "Anterior",

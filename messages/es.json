@@ -99,7 +99,8 @@
     "partnerships": "Parcerias",
     "main_navigation": "Navegación principal",
     "menu": "Menú",
-    "switch_language": "Cambiar idioma"
+    "switch_language": "Cambiar idioma",
+    "ranking": "Marcador"
   },
   "Pages": {
     "Login": {
@@ -389,6 +390,133 @@
           "country_hint": "El catálogo de fronteras tiene siete países. Las cuentas nacidas fuera quedan sin país aunque tengan coordenada.",
           "platform_unknown": "No registrado",
           "platform_hint": "Sistema del dispositivo con el que se creó la cuenta, no el actual."
+        },
+        "ranking": {
+          "title": "Marcador de puntuación",
+          "subtitle": "Cómo la puntuación ordena las cuentas, y qué cambiarían los números de comparación."
+        }
+      },
+      "ranking": {
+        "tabs": {
+          "scoreboard": "Marcador",
+          "metering": "Medición de sesión"
+        },
+        "period": {
+          "label": "Período",
+          "rolling_30d": "Últimos 30 días",
+          "rolling_90d": "Últimos 90 días",
+          "week": "Semana del {start} al {end} · UTC",
+          "week_current": "Semana del {start} al {end} (actual) · UTC"
+        },
+        "internal": {
+          "toggle": "Incluir cuentas internas",
+          "marked": "{count} cuentas marcadas",
+          "badge": "INTERNA",
+          "aggregates_note": "Los indicadores siempre ignoran las cuentas internas.",
+          "none_marked": "El filtro de cuentas internas está activo y no está quitando a nadie: hoy ninguna cuenta está marcada. La marca es la columna excluded_from_metrics de drive.profiles, y quien marca es el operador."
+        },
+        "kpi": {
+          "accounts_scored": "Cuentas que puntuaron",
+          "ratio": "Disparo ÷ minuto",
+          "ratio_subtitle": "{triggers} pts · {minutes} pts",
+          "streak": "Racha de 7 días",
+          "accounts": "{count} cuentas",
+          "streak_subtitle": "máximo en el período: {days} de 7 días",
+          "charged_without_trigger": "Cobrado sin disparo",
+          "charged_without_trigger_subtitle": "tuvieron minuto cobrado y ningún disparo",
+          "manual_listens": "Escucha manual · solo nivel gratuito",
+          "manual_listens_subtitle": "quien paga no registra visita",
+          "indeterminate": "Visitas sin trigger point",
+          "indeterminate_subtitle": "área o id perdido — indistinguibles",
+          "no_meter": "sin medidor en el período"
+        },
+        "group": {
+          "official": "Marcador oficial",
+          "notable": "Comparación · peso 2 en POI notable (posición entre todas las cuentas)",
+          "time": "Comparación · tiempo",
+          "session_time": "Tiempo",
+          "session": "Sesión"
+        },
+        "table": {
+          "rank": "#",
+          "rank_excluding_internal": "sin internas",
+          "person": "Persona",
+          "platform": "Plataforma",
+          "points": "Puntos",
+          "triggers": "Disparos",
+          "points_from_minutes": "Pts por minuto",
+          "streak": "Racha",
+          "notable_points": "Pts peso 2",
+          "rank_delta": "Δ posición",
+          "charged": "Cobrado",
+          "trail_span": "Intervalo de señal",
+          "gap": "Diferencia",
+          "sort_by": "Ordenar por {column}",
+          "totals": "{count} filas",
+          "expand": "Abrir los detalles de {person}",
+          "collapse": "Cerrar los detalles de {person}",
+          "delta_up": "subió {count} posiciones con el peso 2",
+          "delta_down": "bajó {count} posiciones con el peso 2",
+          "delta_same": "no cambió de posición con el peso 2",
+          "delta_unknown": "no clasifica con el peso 2",
+          "open_sessions": "ver las sesiones de {person}"
+        },
+        "row": {
+          "notable_triggers": "Disparos en POI notable",
+          "of_total": "{count} de {total}",
+          "indeterminate": "Visitas sin trigger point",
+          "sessions_with_trail": "Sesiones con recorrido",
+          "sessions_charged": "Sesiones con cobro",
+          "rank_official": "Posición — todas las cuentas",
+          "rank_notable": "Posición — peso 2",
+          "user_id": "Identificador",
+          "copy": "Copiar",
+          "copied": "Copiado",
+          "see_sessions": "ver las sesiones de esta cuenta"
+        },
+        "caption": {
+          "span": "<b>Intervalo de señal</b> es el tiempo entre la primera y la última señal de la sesión — no es tiempo de guía ni tiempo cobrado; una sesión abierta con señal dispersa lo infla sin consumir saldo.",
+          "platform": "<b>Plataforma vacía</b> = la cuenta entró en el período solo por cobro o por recorrido.",
+          "sorting": "Las posiciones y los puntos vienen de la consulta; ordenar la tabla no los recalcula.",
+          "closing": "<b>Cierre</b> es el texto crudo del cliente o del cierre automático."
+        },
+        "meter": {
+          "none": "El medidor de minutos no existía en este período: el ledger de consumo empieza el 18/08/2026, 20:41 UTC. Las columnas de minuto no valen cero — no hay medición.",
+          "partial": "El medidor solo existe desde el 18/08/2026; parte de esta ventana es anterior a él."
+        },
+        "filters": {
+          "all": "Todas",
+          "scored": "Puntuaron",
+          "charged_without_trigger": "Cobrado sin disparo",
+          "charged": "Con cobro",
+          "gap_over_60": "Diferencia superior a 60 min"
+        },
+        "empty": {
+          "period": "Nadie puntuó en {period}.",
+          "filtered": "Ninguna cuenta en este filtro en {period}.",
+          "clear": "limpiar el filtro",
+          "sessions": "Ninguna sesión en el horizonte de 13 semanas."
+        },
+        "error": {
+          "title": "No se pudo cargar el marcador.",
+          "forbidden": "La base rechazó la lectura (42501): las vistas del marcador solo responden al cliente de servicio, y la ruta preguntó con el cliente de sesión.",
+          "retry": "intentar de nuevo"
+        },
+        "metering": {
+          "title": "Medición de sesión",
+          "session_start": "Inicio",
+          "guide_active": "Guía encendida",
+          "trail_points": "Puntos de recorrido",
+          "closing": "Cierre",
+          "session_id": "Sesión",
+          "session_end": "Fin",
+          "session_end_note": "puede avanzar por cola sin conexión",
+          "first_signal": "Primera señal",
+          "last_signal": "Última señal",
+          "first_charge": "Primer cobro",
+          "last_charge": "Último cobro",
+          "filtered_by_person": "Sesiones de {person}",
+          "clear_person": "ver todas las sesiones"
         }
       }
     },
@@ -1045,8 +1173,7 @@
         "campaign_type": "Campaña",
         "status": {
           "sent": "enviado",
-          "failed": "falló"
-        ,
+          "failed": "falló",
           "partial": "parcial"
         },
         "prev": "Anterior",

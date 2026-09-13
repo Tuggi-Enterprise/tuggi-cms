@@ -64,6 +64,35 @@ export function formatDurationOrDash(minutes: number | null | undefined): string
   return minutes == null ? UNKNOWN_VALUE : formatDuration(minutes)
 }
 
+/**
+ * A DIFFERENCE, WITH ITS SIGN IN BOTH DIRECTIONS — `DS-COMPONENTE-084` item 3.
+ *
+ * `formatDuration` treats anything `<= 0` as `0 min` **on purpose**: its callers are looking at
+ * a balance, and a balance below zero is not a thing the tourist can hold. A difference is the
+ * other kind of number. `core.ranking_scoreboard.metering_gap_minutes` is
+ * `trail_span_minutes − charged_minutes` (`docs/contracts/banco-para-cms.md`, Parte 7) and it
+ * IS negative whenever the meter charged more than the trail spans — printing `0 min` there
+ * would erase the sign in silence, which is the one thing the column exists to show.
+ *
+ * The `+` on positives is not decoration. It sits in a column where `—` also appears, meaning
+ * "I do not have this" (`lib/format/unknown.ts`), so the explicit sign is what distinguishes a
+ * measured value from an absence at a glance.
+ *
+ * The minus is U+2212 MINUS SIGN, not the hyphen: at 11px in a `tabular-nums` column the hyphen
+ * reads as a dash, and a dash already means something else here.
+ *
+ * The shape of the magnitude is NOT re-derived — it is `formatDuration`, so the day `5 h 20 min`
+ * changes, it changes here too (CLAUDE.md §6, SSOT).
+ */
+export function formatSignedDuration(minutes: number | null | undefined): string {
+  if (minutes == null || !Number.isFinite(minutes)) return UNKNOWN_VALUE
+
+  const whole = Math.trunc(minutes)
+  if (whole === 0) return formatDuration(0)
+
+  return whole > 0 ? `+${formatDuration(whole)}` : `−${formatDuration(-whole)}`
+}
+
 /** Splits whole minutes into the two fields of the quantity control (spec §2). */
 export function splitDuration(minutes: number): { hours: number; minutes: number } {
   const whole = Math.max(0, Math.trunc(minutes))

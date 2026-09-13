@@ -73,6 +73,7 @@ import {
   Smartphone,
   Store,
   Target,
+  Trophy,
   Upload,
   UserCog,
   Users,
@@ -162,6 +163,9 @@ function catalogue(): { basic: NavEntry[]; modules: NavEntry[] } {
               // literal de outros dois destinos — o dropdown de topo e `/admin/users` — e a
               // barra não mostra o pai quando o painel está fechado.
               item('/dashboard/reports/users', 'user_base', Users),
+              // O placar de pontuação (#741). Depois de `Base de Usuários` porque é leitura
+              // SOBRE a mesma base, com uma régua a mais: quem pontuou no período.
+              item('/dashboard/reports/ranking', 'ranking', Trophy),
             ],
           },
         ],

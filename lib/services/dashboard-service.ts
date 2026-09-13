@@ -15,6 +15,7 @@
  */
 
 import { getSupabaseClient } from '@/lib/core/supabase-client'
+import { fetchDashboardRoute, type RpcResult } from '@/lib/api/dashboard-fetch'
 import { nameMatchFilter } from '@/lib/shared/name-search'
 import { ENTITLEMENT_STATES } from '@/lib/credit/entitlement'
 import type { EntitlementState, GrantSource } from '@/lib/credit/entitlement'
@@ -38,33 +39,11 @@ export type { EntitlementState, GrantSource }
  * (`getSupabaseClient()`), que carimba o JWT do operador. O que sumiu foi o
  * `getSupabase('server')` — chave publicável sem sessão, ou seja, `anon`.
  */
-interface RpcResult<T> {
-  data: T | null
-  error: { message: string } | null
-}
-
 /**
- * GET numa rota do próprio CMS, com o cookie de sessão.
- *
- * Caminho relativo de propósito: estas chamadas são de tela, e uma execução no
- * servidor tem de falhar alto em vez de escolher outra identidade sozinha — foi
- * exatamente o `typeof window ? ... : anon` que produziu as 269 chamadas anônimas.
+ * Transport and result shape live in `lib/api/dashboard-fetch.ts` since #741: a second service
+ * (`ranking-service.ts`) needed the same `fetch`, and copying it would be a second definition
+ * of how this repo talks to its own routes (CLAUDE.md §6).
  */
-async function fetchDashboardRoute<T>(path: string): Promise<RpcResult<T>> {
-  if (typeof window === 'undefined') {
-    return { data: null, error: { message: `${path} requires the operator session; it has no server-side caller` } }
-  }
-
-  const response = await fetch(path, { credentials: 'same-origin' })
-  const body = await response.json().catch(() => null)
-
-  if (!response.ok) {
-    const message = (body && typeof body.error === 'string' && body.error) || `HTTP ${response.status}`
-    return { data: null, error: { message } }
-  }
-
-  return { data: (body?.data ?? null) as T | null, error: null }
-}
 
 /**
  * A numeric column that may not exist yet, kept apart from a measured zero.

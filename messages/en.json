@@ -99,7 +99,8 @@
     "partnerships": "Parcerias",
     "main_navigation": "Main navigation",
     "menu": "Menu",
-    "switch_language": "Switch language"
+    "switch_language": "Switch language",
+    "ranking": "Scoreboard"
   },
   "Pages": {
     "Login": {
@@ -400,6 +401,133 @@
           "country_hint": "The boundary catalogue holds seven countries. Accounts born elsewhere have no country even with a coordinate.",
           "platform_unknown": "Not recorded",
           "platform_hint": "The system of the device the account was created on, not the current one."
+        },
+        "ranking": {
+          "title": "Scoring scoreboard",
+          "subtitle": "How the scoring orders the accounts, and what the comparison numbers would change."
+        }
+      },
+      "ranking": {
+        "tabs": {
+          "scoreboard": "Scoreboard",
+          "metering": "Session metering"
+        },
+        "period": {
+          "label": "Period",
+          "rolling_30d": "Last 30 days",
+          "rolling_90d": "Last 90 days",
+          "week": "Week of {start} to {end} · UTC",
+          "week_current": "Week of {start} to {end} (current) · UTC"
+        },
+        "internal": {
+          "toggle": "Include internal accounts",
+          "marked": "{count} accounts marked",
+          "badge": "INTERNAL",
+          "aggregates_note": "The indicators always ignore internal accounts.",
+          "none_marked": "The internal-account filter is on and is removing nobody: no account is marked today. The mark is the excluded_from_metrics column of drive.profiles, and the operator is who sets it."
+        },
+        "kpi": {
+          "accounts_scored": "Accounts that scored",
+          "ratio": "Trigger ÷ minute",
+          "ratio_subtitle": "{triggers} pts · {minutes} pts",
+          "streak": "7-day streak",
+          "accounts": "{count} accounts",
+          "streak_subtitle": "highest in the period: {days} of 7 days",
+          "charged_without_trigger": "Charged with no trigger",
+          "charged_without_trigger_subtitle": "had a charged minute and no trigger fired",
+          "manual_listens": "Manual listens · free tier only",
+          "manual_listens_subtitle": "a paying account records no visit",
+          "indeterminate": "Visits with no trigger point",
+          "indeterminate_subtitle": "area or lost id — indistinguishable",
+          "no_meter": "no meter in the period"
+        },
+        "group": {
+          "official": "Official scoreboard",
+          "notable": "Comparison · weight 2 on notable POI (position among all accounts)",
+          "time": "Comparison · time",
+          "session_time": "Time",
+          "session": "Session"
+        },
+        "table": {
+          "rank": "#",
+          "rank_excluding_internal": "no internals",
+          "person": "Person",
+          "platform": "Platform",
+          "points": "Points",
+          "triggers": "Triggers",
+          "points_from_minutes": "Points from minutes",
+          "streak": "Streak",
+          "notable_points": "Weight-2 pts",
+          "rank_delta": "Δ position",
+          "charged": "Charged",
+          "trail_span": "Signal span",
+          "gap": "Difference",
+          "sort_by": "Sort by {column}",
+          "totals": "{count} rows",
+          "expand": "Open the details of {person}",
+          "collapse": "Close the details of {person}",
+          "delta_up": "moved up {count} positions with weight 2",
+          "delta_down": "moved down {count} positions with weight 2",
+          "delta_same": "did not change position with weight 2",
+          "delta_unknown": "does not rank with weight 2",
+          "open_sessions": "see the sessions of {person}"
+        },
+        "row": {
+          "notable_triggers": "Triggers on notable POI",
+          "of_total": "{count} of {total}",
+          "indeterminate": "Visits with no trigger point",
+          "sessions_with_trail": "Sessions with trail",
+          "sessions_charged": "Sessions with charge",
+          "rank_official": "Position — all accounts",
+          "rank_notable": "Position — weight 2",
+          "user_id": "Identifier",
+          "copy": "Copy",
+          "copied": "Copied",
+          "see_sessions": "see the sessions of this account"
+        },
+        "caption": {
+          "span": "<b>Signal span</b> is the time between the first and the last signal of the session — it is neither guide time nor charged time; a session left open with sparse signal inflates it without consuming any balance.",
+          "platform": "<b>Empty platform</b> = the account entered the period only by charge or by trail.",
+          "sorting": "Positions and points come from the query; sorting the table does not recompute them.",
+          "closing": "<b>Closing</b> is the raw text of the client or of the automatic close."
+        },
+        "meter": {
+          "none": "The minute meter did not exist in this period: the consumption ledger starts on 2026-08-18, 20:41 UTC. The minute columns are not zero — there is no measurement.",
+          "partial": "The meter only exists from 2026-08-18; part of this window is earlier than it."
+        },
+        "filters": {
+          "all": "All",
+          "scored": "Scored",
+          "charged_without_trigger": "Charged with no trigger",
+          "charged": "With charge",
+          "gap_over_60": "Difference above 60 min"
+        },
+        "empty": {
+          "period": "Nobody scored in {period}.",
+          "filtered": "No account in this filter in {period}.",
+          "clear": "clear the filter",
+          "sessions": "No session in the 13-week horizon."
+        },
+        "error": {
+          "title": "The scoreboard could not be loaded.",
+          "forbidden": "The database refused the read (42501): the scoreboard views only answer the service client, and the route asked with the session client.",
+          "retry": "try again"
+        },
+        "metering": {
+          "title": "Session metering",
+          "session_start": "Start",
+          "guide_active": "Guide on",
+          "trail_points": "Trail points",
+          "closing": "Closing",
+          "session_id": "Session",
+          "session_end": "End",
+          "session_end_note": "may move forward by the offline queue",
+          "first_signal": "First signal",
+          "last_signal": "Last signal",
+          "first_charge": "First charge",
+          "last_charge": "Last charge",
+          "filtered_by_person": "Sessions of {person}",
+          "clear_person": "see every session"
         }
       }
     },
@@ -1058,8 +1186,7 @@
         "campaign_type": "Campaign",
         "status": {
           "sent": "sent",
-          "failed": "failed"
-        ,
+          "failed": "failed",
           "partial": "partial"
         },
         "prev": "Previous",
