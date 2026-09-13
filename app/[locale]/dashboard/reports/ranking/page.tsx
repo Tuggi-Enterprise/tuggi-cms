@@ -30,6 +30,7 @@ import { ReportTabs } from '@/components/dashboard/ReportTabs'
 import { RankingScoreboard } from '@/components/dashboard/reports/RankingScoreboard'
 import { RankingSessionMetering } from '@/components/dashboard/reports/RankingSessionMetering'
 import { rankingService, type ScoreboardPayload } from '@/lib/services/ranking-service'
+import type { RpcError } from '@/lib/api/dashboard-fetch'
 import { appUserLabel } from '@/lib/format/user-identity'
 import {
   isCurrentPeriod,
@@ -60,11 +61,11 @@ export default function RankingReportPage() {
   const [includeInternal, setIncludeInternal] = useState(false)
 
   const [payload, setPayload] = useState<ScoreboardPayload | null>(null)
-  const [scoreboardError, setScoreboardError] = useState<string | null>(null)
+  const [scoreboardError, setScoreboardError] = useState<RpcError | null>(null)
   const [isLoadingScoreboard, setIsLoadingScoreboard] = useState(true)
 
   const [sessions, setSessions] = useState<SessionMeteringRow[]>([])
-  const [sessionsError, setSessionsError] = useState<string | null>(null)
+  const [sessionsError, setSessionsError] = useState<RpcError | null>(null)
   const [isLoadingSessions, setIsLoadingSessions] = useState(false)
   const [personFilter, setPersonFilter] = useState<{ userId: string; label: string } | null>(null)
 
@@ -78,7 +79,9 @@ export default function RankingReportPage() {
       const { data, error } = await rankingService.getScoreboard(period)
       if (cancelled) return
       setPayload(data)
-      setScoreboardError(error?.message ?? null)
+      // The WHOLE failure goes down, not its text: the phrase that names `42501` is chosen by
+      // the SQLSTATE, which a `PostgrestError` keeps in `code` and never in `message` (#755).
+      setScoreboardError(error)
       setIsLoadingScoreboard(false)
     }
 
@@ -97,7 +100,7 @@ export default function RankingReportPage() {
       const { data, error } = await rankingService.getSessionMetering(personFilter?.userId ?? null)
       if (cancelled) return
       setSessions(data?.rows ?? [])
-      setSessionsError(error?.message ?? null)
+      setSessionsError(error)
       setIsLoadingSessions(false)
     }
 
@@ -210,28 +213,22 @@ export default function RankingReportPage() {
             </select>
           </label>
 
-          <div className="flex flex-col gap-0.5">
-            <label className="flex items-center gap-2 text-[11px] font-medium text-gray-600 dark:text-gray-400">
-              <input
-                type="checkbox"
-                checked={includeInternal}
-                onChange={(event) => setIncludeInternal(event.target.checked)}
-                className="h-4 w-4 rounded border-gray-300 text-tuggi-blue focus:ring-tuggi-blue dark:border-gray-700"
-              />
-              {tr('internal.toggle')}
-              <span className="text-gray-500 dark:text-gray-400">
-                {tr('internal.marked', { count: payload?.internalAccounts ?? 0 })}
-              </span>
-            </label>
-            {/* The indicators keep ignoring internal accounts even when the rows come back —
-                contract, Parte 7 — and a population restriction is part of the label
-                (`DS-COPY-062` item 3), so it is said where it applies. */}
-            {includeInternal && (
-              <span className="text-[11px] text-gray-500 dark:text-gray-400">
-                {tr('internal.aggregates_note')}
-              </span>
-            )}
-          </div>
+          {/* The line that says the indicators ignore internal accounts is NOT here any more:
+              it is the ruler of the six numbers, so it lives glued to them, inside
+              `RankingScoreboard` right above `StatCardRow` (#753, `DS-COPY-062` item 3). Next
+              to this switch it sat ~200px from the contradiction it explains. */}
+          <label className="flex items-center gap-2 text-[11px] font-medium text-gray-600 dark:text-gray-400">
+            <input
+              type="checkbox"
+              checked={includeInternal}
+              onChange={(event) => setIncludeInternal(event.target.checked)}
+              className="h-4 w-4 rounded border-gray-300 text-tuggi-blue focus:ring-tuggi-blue dark:border-gray-700"
+            />
+            {tr('internal.toggle')}
+            <span className="text-gray-500 dark:text-gray-400">
+              {tr('internal.marked', { count: payload?.internalAccounts ?? 0 })}
+            </span>
+          </label>
         </div>
       </div>
 

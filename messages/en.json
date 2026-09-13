@@ -421,17 +421,17 @@
         },
         "internal": {
           "toggle": "Include internal accounts",
-          "marked": "{count} accounts marked",
+          "marked": "{count, plural, one {# account marked in this read} other {# accounts marked in this read}}",
           "badge": "INTERNAL",
           "aggregates_note": "The indicators always ignore internal accounts.",
-          "none_marked": "The internal-account filter is on and is removing nobody: no account is marked today. The mark is the excluded_from_metrics column of drive.profiles, and the operator is who sets it."
+          "none_marked": "The internal-account filter is on and is removing nobody: no marked account appears in this read. The mark is the excluded_from_metrics column of drive.profiles — a marked account with no activity in the read's horizon would not show up here either."
         },
         "kpi": {
           "accounts_scored": "Accounts that scored",
           "ratio": "Trigger ÷ minute",
           "ratio_subtitle": "{triggers} pts · {minutes} pts",
           "streak": "7-day streak",
-          "accounts": "{count} accounts",
+          "accounts": "{count, plural, one {# account} other {# accounts}}",
           "streak_subtitle": "highest in the period: {days} of 7 days",
           "charged_without_trigger": "Charged with no trigger",
           "charged_without_trigger_subtitle": "had a charged minute and no trigger fired",
@@ -443,7 +443,7 @@
         },
         "group": {
           "official": "Official scoreboard",
-          "notable": "Comparison · weight 2 on notable POI (position among all accounts)",
+          "notable": "Comparison · weight 2",
           "time": "Comparison · time",
           "session_time": "Time",
           "session": "Session"
@@ -463,7 +463,7 @@
           "trail_span": "Signal span",
           "gap": "Difference",
           "sort_by": "Sort by {column}",
-          "totals": "{count} rows",
+          "totals": "{count, plural, one {# row} other {# rows}}",
           "expand": "Open the details of {person}",
           "collapse": "Close the details of {person}",
           "delta_up": "moved up {count} positions with weight 2",
@@ -488,6 +488,7 @@
         "caption": {
           "span": "<b>Signal span</b> is the time between the first and the last signal of the session — it is neither guide time nor charged time; a session left open with sparse signal inflates it without consuming any balance.",
           "platform": "<b>Empty platform</b> = the account entered the period only by charge or by trail.",
+          "notable": "<b>Comparison · weight 2</b> ranks among all accounts, marked ones included; the Δ compares with the official position, which comes from the same population.",
           "sorting": "Positions and points come from the query; sorting the table does not recompute them.",
           "closing": "<b>Closing</b> is the raw text of the client or of the automatic close."
         },

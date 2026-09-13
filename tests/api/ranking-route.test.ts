@@ -38,6 +38,8 @@ interface Scenario {
   rows: unknown[]
   /** What PostgREST says the total is, so a truncated read can be simulated. */
   count: number | null
+  /** What PostgREST refused with. A `PostgrestError` keeps the SQLSTATE in `code` (#755). */
+  error: { message: string; code?: string } | null
 }
 
 let scenario: Scenario
@@ -115,8 +117,8 @@ function createClient(kind: 'service' | 'session') {
           },
           then: (onFulfilled: (result: unknown) => unknown) =>
             Promise.resolve({
-              data: scenario.rows,
-              error: null,
+              data: scenario.error ? null : scenario.rows,
+              error: scenario.error,
               count: scenario.count ?? scenario.rows.length,
             }).then(onFulfilled),
         }
@@ -152,7 +154,7 @@ before(async () => {
 })
 
 beforeEach(() => {
-  scenario = { user: null, cmsUser: null, queries: [], rows: [], count: null }
+  scenario = { user: null, cmsUser: null, queries: [], rows: [], count: null, error: null }
 })
 
 function asAdmin(): void {
@@ -300,3 +302,32 @@ test('#741: the session drill-down takes a uuid or a 400, and filters by that us
     { column: 'user_id', value: '11111111-1111-4111-8111-111111111111' },
   ])
 })
+
+/**
+ * #755 — THE SQLSTATE LEAVES THE ROUTE, because it is what picks the sentence.
+ *
+ * `permission denied for view ranking_scoreboard` does not contain the number, and the screen
+ * used to ask `message.includes('42501')` — a question that was never true, which left
+ * `error.forbidden` unreachable in the three languages. The grant of Parte 7 is exactly what
+ * `42501` reports, so this is the failure the screen most needs to name.
+ */
+for (const [routeModule, url] of [
+  [SCOREBOARD, 'http://localhost/api/dashboard/ranking?period=rolling_30d'],
+  [SESSIONS, 'http://localhost/api/dashboard/ranking/sessions'],
+] as const) {
+  test(`#755: ${routeModule} carries the SQLSTATE of a refused read, not only its message`, async () => {
+    asAdmin()
+    scenario.error = { message: 'permission denied for view ranking_scoreboard', code: '42501' }
+
+    const response = await handlers.get(routeModule)!(request(url))
+    const body = (await response.json()) as { error: string; code?: string }
+
+    assert.equal(response.status, 502)
+    assert.equal(body.code, '42501', 'the screen chooses its phrase by the code, never by the text')
+    assert.equal(
+      body.error.includes('42501'),
+      false,
+      'the message never carries the number — that is the whole reason `code` travels'
+    )
+  })
+}

@@ -19,6 +19,7 @@ import { useState } from 'react'
 import { NextIntlClientProvider, useTranslations } from 'next-intl'
 import { CheckCircle, Play, ShieldCheck, Timer, Users, Zap } from 'lucide-react'
 import ptMessages from '@/messages/pt.json'
+import esMessages from '@/messages/es.json'
 import { QueryProvider } from '@/components/providers/QueryProvider'
 import { AppUserLink } from '@/components/dashboard/AppUserLink'
 import { ClientDirectory } from '@/components/admin/clients/ClientDirectory'
@@ -121,13 +122,27 @@ export function BoardHarness({ initial = EMPTY_FILTERS }: { initial?: DirectoryF
  * would pass against the literal string `Pages.AppUsers.modal.hours`. Naming the three
  * namespaces makes the absence of one a failure instead of a coincidence.
  */
-export function DashboardWrapper({ children }: { children: React.ReactNode }) {
+export function DashboardWrapper({
+  children,
+  locale = 'pt',
+}: {
+  children: React.ReactNode
+  /**
+   * THE LANGUAGE IS A PARAMETER because one claim of this suite is geometric and only `es`
+   * breaks it: the label of the comparison group is the longest string of the header there, and
+   * the band of groups grew to 74px against the 28px the band of column names sticks to (#752).
+   * A measurement taken only in `pt` goes green while the operator reading Spanish sees no
+   * column name at all.
+   */
+  locale?: 'pt' | 'es'
+}) {
+  const file = locale === 'es' ? esMessages : ptMessages
   return (
     <NextIntlClientProvider
-      locale="pt"
+      locale={locale}
       messages={{
-        Pages: { AppUsers: ptMessages.Pages.AppUsers, Dashboard: ptMessages.Pages.Dashboard },
-        Common: ptMessages.Common,
+        Pages: { AppUsers: file.Pages.AppUsers, Dashboard: file.Pages.Dashboard },
+        Common: file.Common,
       }}
     >
       <QueryProvider>{children}</QueryProvider>

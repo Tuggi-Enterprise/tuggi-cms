@@ -60,6 +60,7 @@ import {
   type SortState,
 } from '@/components/ui/dense-table'
 import { StatCard, StatCardRow } from '@/components/ui/StatCard'
+import type { RpcError } from '@/lib/api/dashboard-fetch'
 import { AppUserLink } from '@/components/dashboard/AppUserLink'
 import { formatDuration, formatSignedDuration } from '@/lib/format/duration'
 import { UNKNOWN_VALUE } from '@/lib/format/unknown'
@@ -108,7 +109,12 @@ export interface RankingScoreboardProps {
   /** Accounts carrying the #740 mark. `0` is the state that must warn. */
   internalAccounts: number
   isLoading: boolean
-  error: string | null
+  /**
+   * The failure AS IT CAME, code included. It used to be the message alone, and the screen asked
+   * `message.includes('42501')` — a question a `PostgrestError` never answers, because the
+   * SQLSTATE lives in `code` (#755).
+   */
+  error: RpcError | null
   onRetry: () => void
   onOpenSessions: (row: RankingRow) => void
 }
@@ -205,80 +211,97 @@ export function RankingScoreboard({
 
   return (
     <div className="space-y-6">
-      <StatCardRow columns={6}>
-        <StatCard
-          icon={Users}
-          size="compact"
-          isLoading={isLoading}
-          color={TUGGI_COLORS.blue}
-          label={t('kpi.accounts_scored')}
-          value={summary.accountsScored}
-          subtitle={summary.byPlatform
-            .map((entry) => `${entry.accounts} ${entry.platform}`)
-            .join(' · ')}
-        />
-        <StatCard
-          icon={Scale}
-          size="compact"
-          isLoading={isLoading}
-          color={TUGGI_COLORS.purple}
-          label={t('kpi.ratio')}
-          value={hasMeter ? formatRatio(summary.triggerToMinuteRatio, locale) : UNKNOWN_VALUE}
-          subtitle={
-            hasMeter
-              ? t('kpi.ratio_subtitle', {
-                  triggers: points(summary.pointsFromTriggers),
-                  minutes: points(summary.pointsFromMinutes),
-                })
-              : t('kpi.no_meter')
-          }
-        />
-        {isWeek && (
+      {/* THE RULER OF THE SIX NUMBERS BELOW, AND IT LIVES GLUED TO THEM — `DS-COPY-062` item 3.
+          It used to sit inside the switch block, ~200px away in the top-right corner, while the
+          contradiction it explains (`Contas que pontuaram: 2` against the chip `Todas: 3`) was
+          down here. A population restriction is part of the label, which means next to the
+          quantity and not once somewhere on the screen.
+
+          With the switch off it does not exist: the two populations coincide and the line would
+          be noise in every normal reading of the screen. It is not a warning either — no icon,
+          no coloured band, so it does not compete with the two amber ones this screen can
+          raise. */}
+      <div className="space-y-1.5">
+        {includeInternal && (
+          <p className="text-[11px] text-gray-500 dark:text-gray-400">
+            {t('internal.aggregates_note')}
+          </p>
+        )}
+        <StatCardRow columns={6}>
           <StatCard
-            icon={Flame}
+            icon={Users}
             size="compact"
             isLoading={isLoading}
-            color={TUGGI_COLORS.orange}
-            label={t('kpi.streak')}
-            value={t('kpi.accounts', { count: summary.streakAccounts })}
-            subtitle={t('kpi.streak_subtitle', { days: summary.maxStoryDays })}
+            color={TUGGI_COLORS.blue}
+            label={t('kpi.accounts_scored')}
+            value={summary.accountsScored}
+            subtitle={summary.byPlatform
+              .map((entry) => `${entry.accounts} ${entry.platform}`)
+              .join(' · ')}
           />
-        )}
-        <StatCard
-          icon={Clock}
-          size="compact"
-          isLoading={isLoading}
-          color={TUGGI_COLORS.red}
-          label={t('kpi.charged_without_trigger')}
-          value={hasMeter ? t('kpi.accounts', { count: summary.chargedWithoutTrigger }) : UNKNOWN_VALUE}
-          subtitle={
-            hasMeter ? t('kpi.charged_without_trigger_subtitle') : t('kpi.no_meter')
-          }
-        />
-        {/* The caveat is PART OF THE LABEL and comes from the same key the expanded row reads —
-            `DS-COPY-062` items 3 and 4. Manual listening by a paying account records no visit at
-            all (two independent gates in the app), so this number measures one tier. */}
-        <StatCard
-          icon={Headphones}
-          size="compact"
-          isLoading={isLoading}
-          color={TUGGI_COLORS.green}
-          label={t('kpi.manual_listens')}
-          value={summary.manualListens}
-          subtitle={t('kpi.manual_listens_subtitle')}
-        />
-        {/* No percentage here, ever: `trigger_points_fired` is deduplicated by (session, POI) and
-            this count is not, so the two do not form a fraction (`DS-COMPONENTE-084` item 2). */}
-        <StatCard
-          icon={MapPin}
-          size="compact"
-          isLoading={isLoading}
-          color={TUGGI_COLORS.blue}
-          label={t('kpi.indeterminate')}
-          value={summary.visitsIndeterminate}
-          subtitle={t('kpi.indeterminate_subtitle')}
-        />
-      </StatCardRow>
+          <StatCard
+            icon={Scale}
+            size="compact"
+            isLoading={isLoading}
+            color={TUGGI_COLORS.purple}
+            label={t('kpi.ratio')}
+            value={hasMeter ? formatRatio(summary.triggerToMinuteRatio, locale) : UNKNOWN_VALUE}
+            subtitle={
+              hasMeter
+                ? t('kpi.ratio_subtitle', {
+                    triggers: points(summary.pointsFromTriggers),
+                    minutes: points(summary.pointsFromMinutes),
+                  })
+                : t('kpi.no_meter')
+            }
+          />
+          {isWeek && (
+            <StatCard
+              icon={Flame}
+              size="compact"
+              isLoading={isLoading}
+              color={TUGGI_COLORS.orange}
+              label={t('kpi.streak')}
+              value={t('kpi.accounts', { count: summary.streakAccounts })}
+              subtitle={t('kpi.streak_subtitle', { days: summary.maxStoryDays })}
+            />
+          )}
+          <StatCard
+            icon={Clock}
+            size="compact"
+            isLoading={isLoading}
+            color={TUGGI_COLORS.red}
+            label={t('kpi.charged_without_trigger')}
+            value={hasMeter ? t('kpi.accounts', { count: summary.chargedWithoutTrigger }) : UNKNOWN_VALUE}
+            subtitle={
+              hasMeter ? t('kpi.charged_without_trigger_subtitle') : t('kpi.no_meter')
+            }
+          />
+          {/* The caveat is PART OF THE LABEL and comes from the same key the expanded row reads —
+              `DS-COPY-062` items 3 and 4. Manual listening by a paying account records no visit at
+              all (two independent gates in the app), so this number measures one tier. */}
+          <StatCard
+            icon={Headphones}
+            size="compact"
+            isLoading={isLoading}
+            color={TUGGI_COLORS.green}
+            label={t('kpi.manual_listens')}
+            value={summary.manualListens}
+            subtitle={t('kpi.manual_listens_subtitle')}
+          />
+          {/* No percentage here, ever: `trigger_points_fired` is deduplicated by (session, POI) and
+              this count is not, so the two do not form a fraction (`DS-COMPONENTE-084` item 2). */}
+          <StatCard
+            icon={MapPin}
+            size="compact"
+            isLoading={isLoading}
+            color={TUGGI_COLORS.blue}
+            label={t('kpi.indeterminate')}
+            value={summary.visitsIndeterminate}
+            subtitle={t('kpi.indeterminate_subtitle')}
+          />
+        </StatCardRow>
+      </div>
 
       {/* THE STATE THAT MUST NOT PASS IN SILENCE. The switch is off and it is removing nobody:
           without this band the screen shows an unfiltered scoreboard wearing the face of a
@@ -301,7 +324,7 @@ export function RankingScoreboard({
           the screen asserting "nobody scored" when the truth is "I do not know". */}
       {error && (
         <div className="flex flex-wrap items-center gap-3 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-xs text-red-700 dark:border-red-900/50 dark:bg-red-900/20 dark:text-red-300">
-          <span>{error.includes('42501') ? t('error.forbidden') : t('error.title')}</span>
+          <span>{error.code === '42501' ? t('error.forbidden') : t('error.title')}</span>
           <button
             type="button"
             onClick={onRetry}
@@ -340,6 +363,14 @@ export function RankingScoreboard({
             <caption className="px-3 py-2 text-left text-[11px] text-gray-600 dark:text-gray-400">
               {t.rich('caption.span', { b: (chunks) => <strong>{chunks}</strong> })}{' '}
               {t.rich('caption.platform', { b: (chunks) => <strong>{chunks}</strong> })}{' '}
+              {/* THE POPULATION OF THE COMPARISON LIVES HERE, and not in the group label —
+                  `DS-COMPONENTE-083` item 3, amended 2026-09-13. The band of groups has a fixed
+                  28px and the band of column names sticks 28px below it: a label carrying
+                  `(posição entre todas as contas)` wrapped and hid the thirteen column names
+                  (#752). The caption is where a reading a single column cannot sustain belongs,
+                  and a screen reader gets it BEFORE any cell. The declaration is mandatory —
+                  without it the delta of column 9 has a baseline nobody stated (item 2). */}
+              {t.rich('caption.notable', { b: (chunks) => <strong>{chunks}</strong> })}{' '}
               {t('caption.sorting')}
             </caption>
             <thead>

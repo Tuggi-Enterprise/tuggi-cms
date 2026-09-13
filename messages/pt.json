@@ -419,17 +419,17 @@
         },
         "internal": {
           "toggle": "Incluir contas internas",
-          "marked": "{count} contas marcadas",
+          "marked": "{count, plural, one {# conta marcada nesta consulta} other {# contas marcadas nesta consulta}}",
           "badge": "INTERNA",
           "aggregates_note": "Os indicadores sempre ignoram contas internas.",
-          "none_marked": "O filtro de contas internas está ligado e não está removendo ninguém: nenhuma conta está marcada hoje. A marca é a coluna excluded_from_metrics de drive.profiles, e quem marca é o operador."
+          "none_marked": "O filtro de contas internas está ligado e não está removendo ninguém: nenhuma conta marcada aparece nesta consulta. A marca é a coluna excluded_from_metrics de drive.profiles — uma conta marcada sem atividade no horizonte da consulta também não apareceria aqui."
         },
         "kpi": {
           "accounts_scored": "Contas que pontuaram",
           "ratio": "Disparo ÷ minuto",
           "ratio_subtitle": "{triggers} pts · {minutes} pts",
           "streak": "Sequência de 7 dias",
-          "accounts": "{count} contas",
+          "accounts": "{count, plural, one {# conta} other {# contas}}",
           "streak_subtitle": "máximo no período: {days} de 7 dias",
           "charged_without_trigger": "Cobrado sem disparo",
           "charged_without_trigger_subtitle": "tiveram minuto cobrado e nenhum disparo",
@@ -441,7 +441,7 @@
         },
         "group": {
           "official": "Placar oficial",
-          "notable": "Comparação · peso 2 em POI notável (posição entre todas as contas)",
+          "notable": "Comparação · peso 2",
           "time": "Comparação · tempo",
           "session_time": "Tempo",
           "session": "Sessão"
@@ -461,7 +461,7 @@
           "trail_span": "Intervalo de sinal",
           "gap": "Diferença",
           "sort_by": "Ordenar por {column}",
-          "totals": "{count} linhas",
+          "totals": "{count, plural, one {# linha} other {# linhas}}",
           "expand": "Abrir os detalhes de {person}",
           "collapse": "Fechar os detalhes de {person}",
           "delta_up": "subiu {count} posições com o peso 2",
@@ -486,6 +486,7 @@
         "caption": {
           "span": "<b>Intervalo de sinal</b> é o tempo entre o primeiro e o último sinal da sessão — não é tempo de guia nem tempo cobrado; sessão aberta com sinal esparso o infla sem consumir saldo.",
           "platform": "<b>Plataforma vazia</b> = a conta entrou no período só por cobrança ou trilha.",
+          "notable": "<b>Comparação · peso 2</b> posiciona entre todas as contas, marcadas incluídas; o Δ compara com a posição oficial, que sai da mesma população.",
           "sorting": "Posições e pontos vêm da consulta; ordenar a tabela não os recalcula.",
           "closing": "<b>Encerramento</b> é o texto cru do cliente ou do fechamento automático."
         },

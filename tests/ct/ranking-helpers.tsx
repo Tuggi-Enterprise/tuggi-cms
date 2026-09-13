@@ -10,6 +10,7 @@
 
 import { useState } from 'react'
 import { RankingScoreboard } from '@/components/dashboard/reports/RankingScoreboard'
+import type { RpcError } from '@/lib/api/dashboard-fetch'
 import type { PeriodOption, RankingRow } from '@/lib/ranking/scoreboard'
 import { ROWS, WEEK } from './ranking-fixtures'
 
@@ -17,10 +18,13 @@ export function RankingScoreboardHarness({
   rows = ROWS,
   period = WEEK,
   internalAccounts = 1,
+  error = null,
 }: {
   rows?: RankingRow[]
   period?: PeriodOption
   internalAccounts?: number
+  /** The failure as `fetchDashboardRoute` hands it over — `code` is what names `42501` (#755). */
+  error?: RpcError | null
 }) {
   /** The page's initial state, reproduced: the switch is born OFF. */
   const [includeInternal, setIncludeInternal] = useState(false)
@@ -43,7 +47,7 @@ export function RankingScoreboardHarness({
         includeInternal={includeInternal}
         internalAccounts={internalAccounts}
         isLoading={false}
-        error={null}
+        error={error}
         onRetry={() => {}}
         onOpenSessions={() => {}}
       />

@@ -11,6 +11,7 @@
  */
 
 import { test } from 'node:test'
+import { createTranslator } from 'next-intl'
 import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
@@ -346,5 +347,117 @@ test('#741: the report title and the menu label exist in the three languages', (
     assert.equal(typeof file.Navigation.ranking, 'string')
     assert.equal(typeof file.Pages.Dashboard.reports.ranking.title, 'string')
     assert.equal(typeof file.Pages.Dashboard.reports.ranking.subtitle, 'string')
+  }
+})
+
+// ── The band that must not lie, and the counts that must agree in number ──────────────────
+
+/**
+ * #754 — THE FAIXA AFFIRMS WHAT WAS COUNTED, AND NOTHING ELSE (spec §2.2, amended 2026-09-13).
+ *
+ * `N` is `countInternalAccounts` over the rows the VIEW returned, which is the right count for
+ * "is the filter removing anybody from this scoreboard?" — and it is the count the operator's
+ * decision kept, because the alternative costs an extra read of `drive.profiles` per load. What
+ * was wrong was the sentence: "nenhuma conta está marcada" is a claim about `drive.profiles`,
+ * and a marked account with no activity in the horizon leaves `N = 0` with #740 applied. The
+ * band exists to stop the screen from showing an unfiltered scoreboard wearing the face of a
+ * filtered one; it cannot be the place where the screen lies.
+ */
+test('#754: the band claims only what the read counted, never the state of drive.profiles', () => {
+  const FORBIDDEN = [
+    'nenhuma conta está marcada',
+    'no account is marked',
+    'ninguna cuenta está marcada',
+  ]
+  const SCOPED = { pt: 'nesta consulta', en: 'in this read', es: 'en esta consulta' }
+
+  for (const locale of LOCALES) {
+    const internal = messages(locale).Pages.Dashboard.ranking.internal
+    const band = internal.none_marked.toLowerCase()
+
+    for (const claim of FORBIDDEN) {
+      assert.equal(band.includes(claim), false, `${locale}: the read cannot assert "${claim}"`)
+    }
+    assert.ok(band.includes(SCOPED[locale]), `${locale}: the band names the population it counted`)
+    // Where the mark is put stays in the sentence: the operator has to know where to go.
+    assert.ok(band.includes('excluded_from_metrics'), `${locale}: the mark keeps its address`)
+    assert.ok(
+      internal.marked.includes(SCOPED[locale]),
+      `${locale}: "N marked" is scoped to the same read the band is`
+    )
+  }
+})
+
+test('#754: with a count of one, the three counted labels print the singular', () => {
+  const expected = {
+    pt: {
+      'internal.marked': ['1 conta marcada nesta consulta', '2 contas marcadas nesta consulta'],
+      'kpi.accounts': ['1 conta', '2 contas'],
+      'table.totals': ['1 linha', '2 linhas'],
+    },
+    en: {
+      'internal.marked': ['1 account marked in this read', '2 accounts marked in this read'],
+      'kpi.accounts': ['1 account', '2 accounts'],
+      'table.totals': ['1 row', '2 rows'],
+    },
+    es: {
+      'internal.marked': ['1 cuenta marcada en esta consulta', '2 cuentas marcadas en esta consulta'],
+      'kpi.accounts': ['1 cuenta', '2 cuentas'],
+      'table.totals': ['1 fila', '2 filas'],
+    },
+  }
+
+  for (const locale of LOCALES) {
+    // The SAME formatter the screen uses: the plural is ICU, resolved by `next-intl`, and a
+    // hand-rolled `count === 1 ? a : b` in the component would be a second ruler for grammar.
+    const t = createTranslator({
+      locale,
+      messages: messages(locale),
+      namespace: 'Pages.Dashboard.ranking',
+    })
+
+    for (const [key, [one, two]] of Object.entries(expected[locale])) {
+      assert.equal(t(key as never, { count: 1 } as never), one, `${locale}: ${key} at one`)
+      assert.equal(t(key as never, { count: 2 } as never), two, `${locale}: ${key} at two`)
+    }
+  }
+})
+
+// ── The refusal the screen is allowed to name ─────────────────────────────────────────────
+
+/**
+ * #755 — `42501` IS READ FROM `code`, NEVER FROM THE MESSAGE.
+ *
+ * `PostgrestError` carries the SQLSTATE in `code` and the prose in `message` — `permission
+ * denied for view ranking_scoreboard`, with no number in it — so `message.includes('42501')`
+ * was a branch that could not be taken and `error.forbidden` was an orphan key in the three
+ * languages. `lib/credit/errors.ts` · `classifyLedgerError` is the repo's own precedent.
+ */
+test('#755: the two ranking screens pick the phrase by the SQLSTATE, not by the message text', () => {
+  for (const file of [
+    'components/dashboard/reports/RankingScoreboard.tsx',
+    'components/dashboard/reports/RankingSessionMetering.tsx',
+  ]) {
+    const component = source(file)
+    assert.match(
+      component,
+      /error\.code === '42501'/,
+      `${file}: the code is what names the refusal`
+    )
+    assert.equal(
+      /error\.includes\(/.test(component),
+      false,
+      `${file}: the message never carries the number, so matching its text is a dead branch`
+    )
+    assert.match(component, /t\('error\.forbidden'\)/, `${file}: the phrase has a caller again`)
+  }
+
+  // And the routes are what put it in the body — without this the screens would compare
+  // `undefined` forever.
+  for (const route of [
+    'app/api/dashboard/ranking/route.ts',
+    'app/api/dashboard/ranking/sessions/route.ts',
+  ]) {
+    assert.match(source(route), /code: error\.code/, `${route}: the SQLSTATE leaves the route`)
   }
 })

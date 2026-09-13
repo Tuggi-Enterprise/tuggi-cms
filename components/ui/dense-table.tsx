@@ -29,9 +29,19 @@ import { ArrowDown, ArrowUp, ChevronsUpDown } from 'lucide-react'
  *
  * São DUAS faixas grudadas, e por isso a de grupos tem altura fixa (`h-7` = 28px) e a de baixo
  * gruda em `top-7`.
+ *
+ * `whitespace-nowrap` É O QUE TORNA ESSES 28px VERDADE — `DS-COMPONENTE-081`, cláusula 2.
+ * `h-7` numa célula de tabela é altura MÍNIMA, não teto: rótulo que quebra em duas linhas empurra
+ * a faixa de grupos para baixo e deixa a de colunas grudada onde estava, POR BAIXO dela (`GROUP`
+ * tem `z-20` e `HEAD` tem `z-10`). Medido em Chromium a 1280px com a tabela rolada, antes desta
+ * classe: 38px de faixa em `pt` e 74px em `es` com o interruptor ligado, contra os 28px do
+ * encaixe — os treze nomes de coluna do placar sumiram inteiros. Com `nowrap` a invariante é
+ * estrutural, aqui, e não disciplina de quem escreve o rótulo; rótulo que não couber alarga a
+ * tabela, que já rola na horizontal por decisão. `tests/ct/ranking-scoreboard.spec.tsx` mede a
+ * faixa em `pt` e em `es` com o interruptor ligado — é o único jeito de isso não voltar calado.
  */
 export const GROUP =
-  'sticky top-0 z-20 h-7 bg-white/95 px-3 text-left text-[10px] font-bold uppercase tracking-widest backdrop-blur dark:bg-gray-900/95'
+  'sticky top-0 z-20 h-7 whitespace-nowrap bg-white/95 px-3 text-left text-[10px] font-bold uppercase tracking-widest backdrop-blur dark:bg-gray-900/95'
 export const HEAD =
   'sticky top-7 z-10 bg-white/95 px-3 py-2.5 text-left text-[10px] font-bold uppercase tracking-widest text-gray-500 backdrop-blur dark:bg-gray-900/95 dark:text-gray-400'
 /** Dinheiro e contagem alinham à direita — é o que deixa a vírgula embaixo da vírgula. */

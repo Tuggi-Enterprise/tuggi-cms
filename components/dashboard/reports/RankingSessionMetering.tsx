@@ -37,6 +37,7 @@ import {
   type SortState,
 } from '@/components/ui/dense-table'
 import { AppUserLink } from '@/components/dashboard/AppUserLink'
+import type { RpcError } from '@/lib/api/dashboard-fetch'
 import { formatDuration, formatSignedDuration } from '@/lib/format/duration'
 import { UNKNOWN_VALUE } from '@/lib/format/unknown'
 import { appUserLabel } from '@/lib/format/user-identity'
@@ -61,7 +62,8 @@ export interface RankingSessionMeteringProps {
   /** The same switch that governs the scoreboard: the #740 mark means the same thing in both. */
   includeInternal: boolean
   isLoading: boolean
-  error: string | null
+  /** The failure as it came, `code` included — the SQLSTATE is what names `42501` (#755). */
+  error: RpcError | null
   onRetry: () => void
   /** Set when the operator arrived from a row of tab 1. */
   personFilter: { userId: string; label: string } | null
@@ -150,7 +152,7 @@ export function RankingSessionMetering({
     <div className="space-y-6">
       {error && (
         <div className="flex flex-wrap items-center gap-3 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-xs text-red-700 dark:border-red-900/50 dark:bg-red-900/20 dark:text-red-300">
-          <span>{error.includes('42501') ? t('error.forbidden') : t('error.title')}</span>
+          <span>{error.code === '42501' ? t('error.forbidden') : t('error.title')}</span>
           <button
             type="button"
             onClick={onRetry}

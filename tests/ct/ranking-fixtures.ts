@@ -91,3 +91,22 @@ export const ROWS: RankingRow[] = [
     metering_gap_minutes: -12,
   }),
 ]
+
+/**
+ * ENOUGH ROWS TO MAKE THE TABLE SCROLL, which is the only state where the geometry of the two
+ * sticky bands exists at all: with `scrollTop = 0` a band that covers the one below it looks
+ * exactly like a band that does not. 31 rows and `scrollTop = 400` are the numbers the design
+ * measured at 1280 × 800 in Chromium (#752).
+ */
+export function scrollingRows(total = 31): RankingRow[] {
+  return Array.from({ length: total }, (_, index) =>
+    row({
+      user_id: `${String(index + 1).padStart(8, '0')}-1111-4111-8111-111111111111`,
+      nickname: `runner-${index + 1}`,
+      platform: index % 2 === 0 ? 'ios' : 'android',
+      rank_official: index + 1,
+      rank_excluding_internal: index + 1,
+      rank_notable_weighted: total - index,
+    })
+  )
+}

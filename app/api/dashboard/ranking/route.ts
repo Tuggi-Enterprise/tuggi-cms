@@ -93,7 +93,11 @@ export const GET = withAuth({ roles: ['admin'] }, async (req: NextRequest) => {
     // No row, no nickname, no id: the message of a PostgREST error can carry the value that
     // failed, and this read is about people (BR-USUARIO-042).
     console.error('[dashboard/ranking] select failed:', error.message)
-    return NextResponse.json({ error: error.message }, { status: 502 })
+    // THE SQLSTATE TRAVELS, and it is the half the screen needs: a `PostgrestError` carries the
+    // number in `code` and never inside `message`, so a screen matching the text could not tell
+    // `42501` — the grant this route depends on — from any other failure (#755). Still no row,
+    // no nickname, no id: the code is five characters of PostgreSQL vocabulary, not PII.
+    return NextResponse.json({ error: error.message, code: error.code }, { status: 502 })
   }
 
   // The generated row type of a view the repo has no schema types for is `GenericStringError`;

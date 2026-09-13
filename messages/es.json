@@ -410,17 +410,17 @@
         },
         "internal": {
           "toggle": "Incluir cuentas internas",
-          "marked": "{count} cuentas marcadas",
+          "marked": "{count, plural, one {# cuenta marcada en esta consulta} other {# cuentas marcadas en esta consulta}}",
           "badge": "INTERNA",
           "aggregates_note": "Los indicadores siempre ignoran las cuentas internas.",
-          "none_marked": "El filtro de cuentas internas está activo y no está quitando a nadie: hoy ninguna cuenta está marcada. La marca es la columna excluded_from_metrics de drive.profiles, y quien marca es el operador."
+          "none_marked": "El filtro de cuentas internas está activo y no está quitando a nadie: ninguna cuenta marcada aparece en esta consulta. La marca es la columna excluded_from_metrics de drive.profiles — una cuenta marcada sin actividad en el horizonte de la consulta tampoco aparecería aquí."
         },
         "kpi": {
           "accounts_scored": "Cuentas que puntuaron",
           "ratio": "Disparo ÷ minuto",
           "ratio_subtitle": "{triggers} pts · {minutes} pts",
           "streak": "Racha de 7 días",
-          "accounts": "{count} cuentas",
+          "accounts": "{count, plural, one {# cuenta} other {# cuentas}}",
           "streak_subtitle": "máximo en el período: {days} de 7 días",
           "charged_without_trigger": "Cobrado sin disparo",
           "charged_without_trigger_subtitle": "tuvieron minuto cobrado y ningún disparo",
@@ -432,7 +432,7 @@
         },
         "group": {
           "official": "Marcador oficial",
-          "notable": "Comparación · peso 2 en POI notable (posición entre todas las cuentas)",
+          "notable": "Comparación · peso 2",
           "time": "Comparación · tiempo",
           "session_time": "Tiempo",
           "session": "Sesión"
@@ -452,7 +452,7 @@
           "trail_span": "Intervalo de señal",
           "gap": "Diferencia",
           "sort_by": "Ordenar por {column}",
-          "totals": "{count} filas",
+          "totals": "{count, plural, one {# fila} other {# filas}}",
           "expand": "Abrir los detalles de {person}",
           "collapse": "Cerrar los detalles de {person}",
           "delta_up": "subió {count} posiciones con el peso 2",
@@ -477,6 +477,7 @@
         "caption": {
           "span": "<b>Intervalo de señal</b> es el tiempo entre la primera y la última señal de la sesión — no es tiempo de guía ni tiempo cobrado; una sesión abierta con señal dispersa lo infla sin consumir saldo.",
           "platform": "<b>Plataforma vacía</b> = la cuenta entró en el período solo por cobro o por recorrido.",
+          "notable": "<b>Comparación · peso 2</b> posiciona entre todas las cuentas, marcadas incluidas; el Δ compara con la posición oficial, que sale de la misma población.",
           "sorting": "Las posiciones y los puntos vienen de la consulta; ordenar la tabla no los recalcula.",
           "closing": "<b>Cierre</b> es el texto crudo del cliente o del cierre automático."
         },

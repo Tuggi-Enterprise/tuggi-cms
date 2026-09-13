@@ -71,7 +71,8 @@ export const GET = withAuth({ roles: ['admin'] }, async (req: NextRequest) => {
 
   if (error) {
     console.error('[dashboard/ranking/sessions] select failed:', error.message)
-    return NextResponse.json({ error: error.message }, { status: 502 })
+    // The SQLSTATE travels with the message — same reason as the scoreboard route (#755).
+    return NextResponse.json({ error: error.message, code: error.code }, { status: 502 })
   }
 
   // The generated row type of a view the repo has no schema types for is `GenericStringError`;
