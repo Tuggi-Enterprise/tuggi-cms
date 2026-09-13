@@ -23,13 +23,17 @@ import {
   aggregateRows,
   formatRatio,
   matchesPeriod,
+  parsePeriodKey,
   parsePeriodParam,
   periodBounds,
+  periodKey,
   periodOptions,
   rankDelta,
   rowsForPeriod,
   summarize,
   visibleRows,
+  weekOfSelection,
+  type PeriodSelection,
   type RankingRow,
 } from '../../lib/ranking/scoreboard'
 
@@ -182,6 +186,80 @@ test('#741: the `<select>` offers the two rolling windows then the weeks, newest
       'week:2026-08-24',
     ]
   )
+})
+
+/**
+ * THE KEY OF THE `<select>`, AND THE COLONS INSIDE IT.
+ *
+ * The view returns the week's start as a full ISO instant, so its key is
+ * `week:2026-08-17T00:00:00+00:00` — FOUR colons. The `<select>` cut it with `split(':')` and
+ * destructured two pieces, keeping `2026-08-17T00`: not a readable instant, so the selection fell
+ * back to `rolling_30d` and the table answered the same numbers for every week, while the label
+ * printed `Semana de — a —` (#741).
+ */
+test('#741: the key of a period survives the round trip, colons and all', () => {
+  const selections: PeriodSelection[] = [
+    // The format the view actually returns — the offset is part of it.
+    { kind: 'week', start: '2026-08-17T00:00:00+00:00' },
+    { kind: 'rolling_30d', start: null },
+    { kind: 'rolling_90d', start: null },
+  ]
+
+  for (const selection of selections) {
+    assert.deepEqual(
+      parsePeriodKey(periodKey(selection)),
+      selection,
+      `${periodKey(selection)} does not come back as it went`
+    )
+  }
+})
+
+test('#741: the week key of the `<select>` never lands on the default window', () => {
+  const selection = parsePeriodKey('week:2026-08-17T00:00:00+00:00')
+
+  // The regression itself: picking a week and being served the 30-day window.
+  assert.notEqual(selection.kind, 'rolling_30d')
+  assert.deepEqual(selection, { kind: 'week', start: '2026-08-17T00:00:00+00:00' })
+
+  // A key that names no period, and a week with no start, DO fall back — the same ruler
+  // `parsePeriodParam` already applies, because guessing which week was meant is the one answer
+  // that looks right and is not.
+  assert.deepEqual(parsePeriodKey('week:'), { kind: 'rolling_30d', start: null })
+  assert.deepEqual(parsePeriodKey('week:terça'), { kind: 'rolling_30d', start: null })
+  assert.deepEqual(parsePeriodKey('all'), { kind: 'rolling_30d', start: null })
+
+  // And the screen reads the key through its owner. This assertion is on the SOURCE because the
+  // defect lived in an `onChange` that no test without a DOM can fire, and the shape of the
+  // mistake — cutting the key at the call site — is exactly what is worth forbidding.
+  const page = source('app/[locale]/dashboard/reports/ranking/page.tsx')
+  assert.ok(page.includes('parsePeriodKey(event.target.value)'), 'the `<select>` parses the key')
+  assert.ok(!page.includes("split(':')"), 'an ISO instant carries colons; the naive split is back')
+})
+
+test('#741: the week picked in the `<select>` is labelled with two dates, never with the em dash', () => {
+  const week = weekOfSelection(parsePeriodKey('week:2026-08-17T00:00:00+00:00'))
+  assert.ok(week, 'an unreadable start produces no week, and no week produces no dates')
+
+  const bounds = periodBounds(week)
+  const date = new Intl.DateTimeFormat('pt', {
+    day: '2-digit',
+    month: '2-digit',
+    timeZone: 'UTC',
+  })
+
+  const t = createTranslator({
+    locale: 'pt',
+    messages: messages('pt'),
+    namespace: 'Pages.Dashboard.ranking',
+  })
+  const label = t('period.week' as never, {
+    start: date.format(bounds.start),
+    end: date.format(bounds.endInclusive),
+  } as never)
+
+  // The end is INCLUSIVE: the week of 17/08 ends on 23/08 (contract, Parte 7).
+  assert.equal(label, 'Semana de 17/08 a 23/08 · UTC')
+  assert.ok(!label.includes(UNKNOWN_VALUE), 'the label printed `—` on both ends before the fix')
 })
 
 // ── The internal-account mark ─────────────────────────────────────────────────────────────

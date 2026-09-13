@@ -35,11 +35,11 @@ import { appUserLabel } from '@/lib/format/user-identity'
 import {
   isCurrentPeriod,
   matchesPeriod,
+  parsePeriodKey,
   parsePeriodParam,
   periodBounds,
   periodKey,
   weekOfSelection,
-  type PeriodKind,
   type PeriodSelection,
   type SessionMeteringRow,
 } from '@/lib/ranking/scoreboard'
@@ -208,8 +208,10 @@ export default function RankingReportPage() {
             <select
               value={periodKey(period)}
               onChange={(event) => {
-                const [kind, start] = event.target.value.split(':')
-                const next = { kind: kind as PeriodKind, start: start ?? null }
+                // The key is read by its OWNER and never cut open here: the week carries an ISO
+                // instant, whose own colons made a split of the key keep `2026-08-17T00` as the
+                // start — unreadable, so every week picked fell into the default window (#741).
+                const next = parsePeriodKey(event.target.value)
                 setPeriod(next)
                 syncUrl({ tab, period: next })
               }}

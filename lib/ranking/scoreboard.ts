@@ -150,6 +150,30 @@ export function parsePeriodParam(
 }
 
 /**
+ * The INVERSE of `periodKey` — the only way back from a key to a selection.
+ *
+ * The key carries an ISO instant, and an ISO instant has colons of its own:
+ * `week:2026-08-17T00:00:00+00:00` splits into FIVE pieces, not two. The `<select>` used to take
+ * the first two, kept `2026-08-17T00` as the start — which is not a readable instant — and every
+ * week the operator picked silently became the default window (#741). So cutting the key is not
+ * something a call site gets to improvise: it is cut here, at the first colon only, and the
+ * format has one owner (CLAUDE.md §6).
+ *
+ * What is a valid selection is NOT decided a second time here: the halves go to
+ * `parsePeriodParam`, so a key with an unknown kind, a `week` with no start and a `week` whose
+ * start is illegible all fall back to the default by the same ruler the URL already uses.
+ *
+ * `parsePeriodKey(periodKey(period))` returns `period` for every selection `periodKey` can
+ * produce.
+ */
+export function parsePeriodKey(key: string): PeriodSelection {
+  const cut = key.indexOf(':')
+  const kind = cut === -1 ? key : key.slice(0, cut)
+  const start = cut === -1 ? null : key.slice(cut + 1)
+  return parsePeriodParam(kind, start)
+}
+
+/**
  * The periods the view returned, in the order the `<select>` shows them (spec §2.1): the two
  * rolling windows first, then the 13 ISO weeks from the most recent backwards.
  *
