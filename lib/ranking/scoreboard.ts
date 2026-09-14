@@ -275,6 +275,15 @@ export interface RankingSummary {
   accountsScored: number
   /** Platform split of the accounts that scored, for the subtitle `9 iOS · 4 Android`. */
   byPlatform: { platform: string; accounts: number }[]
+  /**
+   * Accounts that scored carrying NO platform — the third term of that subtitle.
+   *
+   * `platform` is `null` when the account entered the period only by charge (contract, Parte 7),
+   * so `byPlatform` counts fewer accounts than `accountsScored` and the split read as a sum that
+   * does not close: `33 android · 31 ios` under a card saying `82`. The three numbers were always
+   * right; what was missing was the term that makes them add up (#741).
+   */
+  platformUnknown: number
   pointsFromTriggers: number
   pointsFromMinutes: number
   /** Triggers ÷ minutes, both in POINTS — same ruler. `null` when the denominator is zero. */
@@ -304,8 +313,12 @@ export function summarize(rows: RankingRow[]): RankingSummary {
   const scored = rows.filter((row) => row.points_official > 0)
 
   const platforms = new Map<string, number>()
+  let platformUnknown = 0
   for (const row of scored) {
-    if (!row.platform) continue
+    if (!row.platform) {
+      platformUnknown += 1
+      continue
+    }
     platforms.set(row.platform, (platforms.get(row.platform) ?? 0) + 1)
   }
 
@@ -317,6 +330,7 @@ export function summarize(rows: RankingRow[]): RankingSummary {
     byPlatform: Array.from(platforms.entries())
       .map(([platform, accounts]) => ({ platform, accounts }))
       .sort((a, b) => b.accounts - a.accounts || a.platform.localeCompare(b.platform)),
+    platformUnknown,
     pointsFromTriggers,
     pointsFromMinutes,
     triggerToMinuteRatio: pointsFromMinutes > 0 ? pointsFromTriggers / pointsFromMinutes : null,

@@ -312,6 +312,117 @@ test('#741: the indicators count what the contract says they count', () => {
   assert.equal(Math.round((summary.triggerToMinuteRatio ?? 0) * 10) / 10, 11.6)
 })
 
+/**
+ * #741 — THE PLATFORM SPLIT IS A SUM, AND A SUM THAT DOES NOT CLOSE IS A MISSING TERM.
+ *
+ * The subtitle read `33 android · 31 ios` under a card saying `82`, and the 18 that were nowhere
+ * are the accounts that entered the period only by charge: no visit, so no platform (contract,
+ * Parte 7). None of the three numbers was wrong — the third term of the split did not exist.
+ */
+test('#741: the platform split of the accounts that scored adds up to the card above it', () => {
+  const rows = [
+    row({ user_id: 'a', platform: 'android', points_official: 45 }),
+    row({ user_id: 'b', platform: 'ios', points_official: 7 }),
+    // Entered the period only by charge: it scored, and it has no platform to be counted under.
+    row({ user_id: 'c', platform: null, points_official: 1.5 }),
+    row({ user_id: 'd', platform: null, points_official: 0.9 }),
+    // Zero points is not an account that scored, in any of the three terms.
+    row({ user_id: 'e', platform: null, points_official: 0 }),
+    row({ user_id: 'f', platform: 'ios', points_official: 0 }),
+  ]
+
+  const summary = summarize(rows)
+
+  assert.equal(summary.platformUnknown, 2)
+  assert.deepEqual(summary.byPlatform, [
+    { platform: 'android', accounts: 1 },
+    { platform: 'ios', accounts: 1 },
+  ])
+
+  const named = summary.byPlatform.reduce((total, entry) => total + entry.accounts, 0)
+  assert.equal(
+    named + summary.platformUnknown,
+    summary.accountsScored,
+    'the split under the card has to add up to the card'
+  )
+})
+
+test('DS-COPY-062: `Pts de minuto` names a total, and the indeterminate label names a defect of record', () => {
+  const expected = {
+    pt: { minutes: 'Pts de minuto', indeterminate: 'Visitas sem trigger point identificado' },
+    en: { minutes: 'Pts from minutes', indeterminate: 'Visits with no identified trigger point' },
+    es: { minutes: 'Pts de minuto', indeterminate: 'Visitas sin trigger point identificado' },
+  }
+
+  for (const locale of LOCALES) {
+    const ranking = messages(locale).Pages.Dashboard.ranking
+
+    // The column renders `points_from_minutes`, which is a TOTAL — the rate is `0,03` by
+    // construction and the same in every row. `Pts por minuto` made `38,28` over `21 h 16 min`
+    // read as a rate of 38,28 (#741).
+    assert.equal(ranking.table.points_from_minutes, expected[locale].minutes)
+    for (const word of ['por minuto', 'per minute', 'por minuto']) {
+      assert.equal(
+        ranking.table.points_from_minutes.toLowerCase().includes(word),
+        false,
+        `${locale}: the column prints a total, not a rate`
+      )
+    }
+
+    // `visits_indeterminate` is boundary ∪ lost id and the two are indistinguishable (contract,
+    // Parte 7, fact 1): the trigger point may well have fired and lost its id. `Visitas sem
+    // trigger point` told the operator to widen a polygon to fix a defect of record.
+    assert.equal(ranking.kpi.indeterminate, expected[locale].indeterminate)
+
+    // The Δ is measured against `rank_official`, and the `#` column is `rank_excluding_internal`:
+    // the two agree only while no account is marked, and the operator marks one the same day.
+    assert.ok(
+      /oficial|official/.test(ranking.table.rank_delta),
+      `${locale}: the delta names its baseline`
+    )
+  }
+})
+
+test('DS-COMPONENTE-083 item 1: the delta has no valence — it is a permutation of sum zero', () => {
+  const component = source('components/dashboard/reports/RankingScoreboard.tsx')
+  const cell = component.slice(component.indexOf('function RankDeltaCell'))
+
+  // Every `↗` implies a `↘` in the same table. Green and red on that turn the reordering into a
+  // verdict on the weight 2, on the screen where the operator decides whether to adopt it.
+  for (const tint of ['emerald', 'text-red-700']) {
+    assert.equal(cell.includes(tint), false, `the delta cell still paints a direction (${tint})`)
+  }
+
+  // The direction survives where it always did: glyph, magnitude and the sentence in words.
+  assert.match(cell, /ArrowUpRight/)
+  assert.match(cell, /table\.delta_up/)
+  assert.match(cell, /table\.delta_down/)
+})
+
+/**
+ * #741 — ONE VALUE, ONE PRINTING. The `Pts de minuto` cell carried `charged_minutes` on a second
+ * line: the same number the `Cobrado` column prints two columns to the right, without a label and
+ * inside the `Placar oficial` group instead of the time one (CLAUDE.md §6).
+ */
+test('#741: the minute-points column prints points, and the charged minutes only in their own column', () => {
+  const component = source('components/dashboard/reports/RankingScoreboard.tsx')
+  const body = component.slice(
+    component.indexOf('points(row.points_from_minutes)'),
+    component.indexOf('<RankDeltaCell')
+  )
+
+  assert.equal(
+    body.includes('minutes(row.charged_minutes)'),
+    false,
+    'the charged minutes are back under the points column'
+  )
+  assert.equal(
+    (component.match(/minutes\(row\.charged_minutes\)/g) ?? []).length,
+    1,
+    'exactly one cell prints the charged minutes of a row, and it is the `Cobrado` column'
+  )
+})
+
 test('DS-COMPONENTE-084 item 2: a zero denominator is unknown, never `∞`, `0` or `100 %`', () => {
   const summary = summarize([row({ points_from_minutes: 0, charged_minutes: 0 })])
 

@@ -263,8 +263,19 @@ export function RankingScoreboard({
             color={TUGGI_COLORS.blue}
             label={t('kpi.accounts_scored')}
             value={measured(summary.accountsScored)}
+            /* THE SPLIT IS A SUM, SO IT HAS TO CLOSE — `33 android · 31 ios` under a card saying
+               `82` reads as 18 accounts lost somewhere. They are the accounts that entered the
+               period only by charge, which carry no platform (contract, Parte 7), and the
+               `<caption>` already says what an empty platform means: the third term needs no
+               second explanation, only a number. It is omitted at zero, where the two terms
+               already add up and the word would be noise. */
             subtitle={note(
-              summary.byPlatform.map((entry) => `${entry.accounts} ${entry.platform}`).join(' · ')
+              [
+                ...summary.byPlatform.map((entry) => `${entry.accounts} ${entry.platform}`),
+                ...(summary.platformUnknown > 0
+                  ? [t('kpi.platform_unknown', { count: summary.platformUnknown })]
+                  : []),
+              ].join(' · ')
             )}
           />
           <StatCard
@@ -559,11 +570,14 @@ export function RankingScoreboard({
                           {points(row.points_official)}
                         </td>
                         <td className={NUM}>{points(row.trigger_points_fired)}</td>
+                        {/* THE COLUMN PRINTS POINTS, AND ONLY POINTS. It used to carry
+                            `charged_minutes` on a second line — the same value the `Cobrado`
+                            column prints two columns to the right, with no label of its own and
+                            inside the `Placar oficial` group instead of the time one. Two
+                            printings of one fact, and at zero the cell read `0` over `0 min`
+                            (#741, CLAUDE.md §6). */}
                         <td className={NUM}>
                           {hasMeter ? points(row.points_from_minutes) : UNKNOWN_VALUE}
-                          <span className={`block text-[11px] ${DIM}`}>
-                            {minutes(row.charged_minutes)}
-                          </span>
                         </td>
                         {isWeek && (
                           <td className={NUM}>
@@ -740,10 +754,15 @@ function RankDeltaCell({ row }: { row: RankingRow }) {
   const up = delta > 0
   const Icon = up ? ArrowUpRight : ArrowDownRight
 
+  /* NO VALENCE, IN EITHER DIRECTION — the delta is a permutation of sum zero: every `↗` in the
+     table implies a `↘` somewhere else in it, by construction. Green for one and red for the
+     other turns the reordering into a verdict on the weight 2, on the very screen where the
+     operator is deciding whether to adopt the weight 2 (#741, `DS-COMPONENTE-083` item 1). The
+     glyph, the magnitude and the `aria-label` still carry the direction. */
   return (
     <span
       role="img"
-      className={`inline-flex items-center gap-0.5 ${up ? 'text-emerald-700 dark:text-emerald-400' : 'text-red-700 dark:text-red-400'}`}
+      className="inline-flex items-center gap-0.5 text-gray-700 dark:text-gray-300"
       aria-label={
         up
           ? t('table.delta_up', { count: delta })
