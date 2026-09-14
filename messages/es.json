@@ -445,6 +445,7 @@
           "rank": "#",
           "rank_excluding_internal": "sin internas",
           "person": "Persona",
+          "country": "País explorado",
           "platform": "Plataforma",
           "points": "Puntos",
           "triggers": "Disparos",
@@ -482,6 +483,7 @@
           "span": "<b>Intervalo de señal</b> es el tiempo entre la primera y la última señal de la sesión — no es tiempo de guía ni tiempo cobrado; una sesión abierta con señal dispersa lo infla sin consumir saldo.",
           "span_in_period": "<b>Intervalo de señal en el período</b> es la parte del intervalo entre la primera y la última señal de cada sesión que cayó dentro del período seleccionado, sumada — no es tiempo de guía ni tiempo cobrado; una sesión abierta con señal dispersa lo infla sin consumir saldo. Las sesiones de la misma cuenta que se solapan suman dos veces el mismo reloj, así que el total puede superar la duración del período.",
           "platform": "<b>Plataforma vacía</b> = la cuenta entró en el período solo por cobro o por recorrido.",
+          "country": "<b>País explorado</b> es el país predominante de las visitas del período — no es la residencia ni la nacionalidad de la cuenta. Vacío = ninguna visita del período trajo un país reconocible, incluso cuando la cuenta entró solo por cobro o por recorrido.",
           "notable": "<b>Comparación · peso 2</b> posiciona entre todas las cuentas, marcadas incluidas; el Δ compara con la posición oficial, que sale de la misma población.",
           "sorting": "Las posiciones y los puntos vienen de la consulta; ordenar la tabla no los recalcula.",
           "closing": "<b>Cierre</b> es el texto crudo del cliente o del cierre automático."

@@ -20,6 +20,7 @@ import { NextIntlClientProvider, useTranslations } from 'next-intl'
 import { CheckCircle, Play, ShieldCheck, Timer, Users, Zap } from 'lucide-react'
 import ptMessages from '@/messages/pt.json'
 import esMessages from '@/messages/es.json'
+import enMessages from '@/messages/en.json'
 import { QueryProvider } from '@/components/providers/QueryProvider'
 import { AppUserLink } from '@/components/dashboard/AppUserLink'
 import { ClientDirectory } from '@/components/admin/clients/ClientDirectory'
@@ -133,10 +134,15 @@ export function DashboardWrapper({
    * the band of groups grew to 74px against the 28px the band of column names sticks to (#752).
    * A measurement taken only in `pt` goes green while the operator reading Spanish sees no
    * column name at all.
+   *
+   * `en` joined for the same reason and a different string: the width budget of the scoreboard is
+   * checked in the three published languages (spec §9, critério 24), and `Explored country` is
+   * not the longest of the three in any obvious way — which is exactly why it gets measured
+   * instead of argued.
    */
-  locale?: 'pt' | 'es'
+  locale?: 'pt' | 'es' | 'en'
 }) {
-  const file = locale === 'es' ? esMessages : ptMessages
+  const file = locale === 'es' ? esMessages : locale === 'en' ? enMessages : ptMessages
   return (
     <NextIntlClientProvider
       locale={locale}

@@ -456,6 +456,7 @@
           "rank": "#",
           "rank_excluding_internal": "no internals",
           "person": "Person",
+          "country": "Explored country",
           "platform": "Platform",
           "points": "Points",
           "triggers": "Triggers",
@@ -493,6 +494,7 @@
           "span": "<b>Signal span</b> is the time between the first and the last signal of the session — it is neither guide time nor charged time; a session left open with sparse signal inflates it without consuming any balance.",
           "span_in_period": "<b>Signal span in period</b> is the part of each session's first-to-last-signal interval that fell inside the selected period, summed — it is neither guide time nor charged time; a session left open with sparse signal inflates it without consuming any balance. Overlapping sessions from the same account count the same clock twice, so the total can exceed the period's own duration.",
           "platform": "<b>Empty platform</b> = the account entered the period only by charge or by trail.",
+          "country": "<b>Explored country</b> is the predominant country of the period's visits — it is neither the account's residence nor its nationality. Empty = no visit in the period carried a recognizable country, including when the account entered only by charge or by trail.",
           "notable": "<b>Comparison · weight 2</b> ranks among all accounts, marked ones included; the Δ compares with the official position, which comes from the same population.",
           "sorting": "Positions and points come from the query; sorting the table does not recompute them.",
           "closing": "<b>Closing</b> is the raw text of the client or of the automatic close."

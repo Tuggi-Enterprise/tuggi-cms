@@ -28,7 +28,7 @@ export const DEFAULT_PERIOD_KIND: PeriodKind = 'rolling_30d'
 
 export const PERIOD_KINDS: readonly PeriodKind[] = ['week', 'rolling_30d', 'rolling_90d']
 
-/** One line per (account × period) — `core.ranking_scoreboard`, 26 columns. */
+/** One line per (account × period) — `core.ranking_scoreboard`, 27 columns. */
 export interface RankingRow {
   period_kind: PeriodKind
   /** Inclusive, UTC. */
@@ -70,6 +70,18 @@ export interface RankingRow {
   metering_gap_minutes: number
   sessions_with_trail: number
   sessions_charged: number
+  /**
+   * Column 27 — ISO 3166-1 alpha-2, UPPERCASE, or `null`. NEVER a country name: the migration
+   * `20260913150000` asserts `^[A-Z]{2}$` on its own output and refuses to apply otherwise
+   * (contract `banco-para-cms.md`, Parte 7).
+   *
+   * **`null` means "does not resolve", not "explored nothing".** Same ruler as `platform`
+   * (`mode() WITHIN GROUP` over the period's visits), so the rows that carry one carry the
+   * other — 317 of 582 measured; the other 265 entered the period only by charge or by trail
+   * and have no visit to take a country from. `mode()` ignores nulls, so an account with one
+   * resolvable visit among nine unresolvable ones still gets a code.
+   */
+  top_country_code: string | null
 }
 
 /** One line per trip session — `core.ranking_session_metering`, 20 columns. */

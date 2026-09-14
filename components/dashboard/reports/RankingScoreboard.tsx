@@ -36,7 +36,7 @@
  * line of the visible block, because it answers a click the operator has already made.
  */
 
-import { Fragment, useMemo, useState } from 'react'
+import { Fragment, useMemo, useState, type ReactNode } from 'react'
 import { useLocale, useTranslations } from 'next-intl'
 import {
   AlertTriangle,
@@ -68,6 +68,7 @@ import {
 import { StatCard, StatCardRow } from '@/components/ui/StatCard'
 import type { RpcError } from '@/lib/api/dashboard-fetch'
 import { AppUserLink } from '@/components/dashboard/AppUserLink'
+import { CountryFlag } from '@/components/ui/CountryFlag'
 import { formatDuration, formatSignedDuration } from '@/lib/format/duration'
 import { UNKNOWN_VALUE } from '@/lib/format/unknown'
 import { appUserLabel } from '@/lib/format/user-identity'
@@ -288,12 +289,17 @@ export function RankingScoreboard({
   const note = (text: string) => (didRead ? text : undefined)
 
   /**
-   * `#`, `Pessoa`, and the nine or ten value columns. `Plataforma` is NOT among them: it spent
-   * ~110px on the width of its own header — the data is `android`/`ios` — and at 1152px it was
-   * pushing `Diferença`, and with it the whole `Comparação · tempo` group, off the screen (#741).
-   * The fact keeps two homes on this screen: the `Contas que pontuaram` card and the expanded row.
+   * `#`, `Pessoa`, `País explorado`, and the nine or ten value columns. `Plataforma` is NOT among
+   * them: it spent ~110px on the width of its own header — the data is `android`/`ios` — and at
+   * 1152px it was pushing `Diferença`, and with it the whole `Comparação · tempo` group, off the
+   * screen (#741). The fact keeps two homes on this screen: the `Contas que pontuaram` card and
+   * the expanded row.
+   *
+   * The country column took part of that slot and not all of it: its header wraps in two lines,
+   * so the width it imposes is `explorado` / `Explored`, and its cell is a single glyph
+   * (spec §4.7, critério 24 — the natural width stays under 1131px in the three languages).
    */
-  const columnCount = 11 + (isWeek ? 0 : -1) + (includeInternal ? 1 : 0)
+  const columnCount = 12 + (isWeek ? 0 : -1) + (includeInternal ? 1 : 0)
 
   return (
     <div className="space-y-6">
@@ -518,7 +524,9 @@ export function RankingScoreboard({
             session with sparse signal inflates the span without consuming balance, the operator
             reads a revenue leak that does not exist.
 
-            FOUR declarations, not three: `caption.sorting` answers the wrong conclusion a click on
+            FIVE declarations: `caption.country` is the third, and it is the one that keeps a
+            column of countries next to a column of people from being read as an attribute of the
+            person (§6.7). `caption.sorting` is the fifth and answers the wrong conclusion a click on
             a column head invites — `#` is a value and sorting does not renumber it
             (`DS-COMPONENTE-082` item 3) — so leaving it only in the `sr-only` caption put the one
             sentence about the interaction out of reach of whoever performs the interaction.
@@ -539,6 +547,14 @@ export function RankingScoreboard({
               period boundary in the middle. */}
           <p>{t.rich('caption.span_in_period', { b: (chunks) => <strong>{chunks}</strong> })}</p>
           <p>{t.rich('caption.platform', { b: (chunks) => <strong>{chunks}</strong> })}</p>
+          {/* THE COLUMN THAT ANSWERS NEXT TO A QUESTION THE PRODUCT CANNOT ANSWER — the label
+              already says `País explorado` and never `País`, and this is where the denial lives:
+              it is not residence and it is not nationality (`DS-COMPONENTE-086` item 5,
+              BR-USUARIO-043 item 9). The two words appear here to be REFUSED, which is the only
+              place on the screen they may appear (spec §9, critério 24). The sentence also says
+              what empty means, because `null` is "does not resolve" and this table spells "zero"
+              a different way everywhere else. */}
+          <p>{t.rich('caption.country', { b: (chunks) => <strong>{chunks}</strong> })}</p>
           {/* THE POPULATION OF THE COMPARISON LIVES HERE, and not in the group label — the band
               of groups has a fixed 28px and the band of column names sticks 28px below it, so a
               label carrying `(posição entre todas as contas)` wrapped and hid the thirteen column
@@ -553,19 +569,22 @@ export function RankingScoreboard({
               viewports, not the natural width, and keeping the old one would spend on nothing the
               ~110px the column gave back. */}
           <table className="w-full min-w-[930px] border-collapse">
-            {/* Same four declarations, same order, for whoever does not see the block above —
+            {/* Same five declarations, same order, for whoever does not see the block above —
                 a `<caption>` is what a screen reader announces before the first cell. */}
             <caption className="sr-only">
               {t.rich('caption.span_in_period', { b: (chunks) => <strong>{chunks}</strong> })}{' '}
               {t.rich('caption.platform', { b: (chunks) => <strong>{chunks}</strong> })}{' '}
+              {t.rich('caption.country', { b: (chunks) => <strong>{chunks}</strong> })}{' '}
               {t.rich('caption.notable', { b: (chunks) => <strong>{chunks}</strong> })}{' '}
               {t('caption.sorting')}
             </caption>
             <thead>
               <tr>
+                {/* The block with no group: `#`, optionally `sem internas`, `Pessoa` and
+                    `País explorado` — identity, never score. */}
                 <th
                   className={`${GROUP} text-gray-500 dark:text-gray-400`}
-                  colSpan={includeInternal ? 3 : 2}
+                  colSpan={includeInternal ? 4 : 3}
                 />
                 <th
                   className={`${GROUP} ${EDGE} text-primary-800 dark:text-tuggi-blue`}
@@ -603,6 +622,12 @@ export function RankingScoreboard({
                 )}
                 <th scope="col" className={HEAD}>
                   {t('table.person')}
+                </th>
+                {/* NOT SORTABLE, and the omission is the same one `Plataforma` had: categorical
+                    over 13 rows, and §4.3 does not list it. The header is allowed to wrap — that
+                    is what keeps the width at `explorado` and not at `País explorado`. */}
+                <th scope="col" className={HEAD}>
+                  {t('table.country')}
                 </th>
                 {head('points_official', t('table.points'), `${HEAD_NUM} ${EDGE}`)}
                 {head('trigger_points_fired', t('table.triggers'), HEAD_NUM)}
@@ -701,6 +726,13 @@ export function RankingScoreboard({
                           )}
                         </th>
 
+                        {/* One glyph, and the name as text under it — `DS-COMPONENTE-086`. No
+                            `tabindex`: the name that a keyboard reaches is the one in the expanded
+                            row, through the chevron that is already a tab stop (item 3). */}
+                        <td className={`${CELL} whitespace-nowrap`}>
+                          <CountryFlag code={row.top_country_code} />
+                        </td>
+
                         {/* The only column carrying typographic weight: it is the scoreboard. */}
                         <td className={`${NUM} ${EDGE} font-semibold text-gray-900 dark:text-white`}>
                           {points(row.points_official)}
@@ -764,6 +796,16 @@ export function RankingScoreboard({
                               <Detail
                                 label={t('table.platform')}
                                 value={row.platform ?? UNKNOWN_VALUE}
+                              />
+                              {/* THE NAME IN FULL, and it is not redundancy with the cell above:
+                                  it is the third of the three routes to the name — the one for
+                                  whoever navigates by keyboard without a screen reader, and the
+                                  only one that does not depend on the font painting the flag
+                                  (`DS-COMPONENTE-086` items 2 and 3). Same key as the column
+                                  header: one quantity, one redaction (`DS-COPY-062` item 4). */}
+                              <Detail
+                                label={t('table.country')}
+                                value={<CountryFlag code={row.top_country_code} withName />}
                               />
                               <Detail
                                 label={t('row.notable_triggers')}
@@ -840,7 +882,7 @@ export function RankingScoreboard({
                   <th
                     scope="row"
                     className={`${CELL} text-left font-bold text-gray-900 dark:text-white`}
-                    colSpan={includeInternal ? 3 : 2}
+                    colSpan={includeInternal ? 4 : 3}
                   >
                     {t('table.totals', { count: totals.rowCount })}
                   </th>
@@ -933,7 +975,7 @@ function RankDeltaCell({ row }: { row: RankingRow }) {
   )
 }
 
-function Detail({ label, value }: { label: string; value: string }) {
+function Detail({ label, value }: { label: string; value: ReactNode }) {
   return (
     <div>
       <dt className="font-semibold text-gray-500 dark:text-gray-400">{label}</dt>

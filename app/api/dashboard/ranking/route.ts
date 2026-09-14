@@ -65,6 +65,10 @@ const COLUMNS = [
   'metering_gap_minutes',
   'sessions_with_trail',
   'sessions_charged',
+  // Column 27, added by `20260913150000`. Named here like the other 26 precisely because the
+  // view gained it after this route existed: alpha-2 or `null`, never a country name, and the
+  // screen is what decides what `null` prints (contract, Parte 7 · `DS-COMPONENTE-086`).
+  'top_country_code',
 ].join(',')
 
 /**

@@ -23,6 +23,7 @@ import { ROWS, WEEK_ACROSS_METER, WEEK_BEFORE_METER, scrollingRows } from './ran
 import { UNKNOWN_VALUE } from '@/lib/format/unknown'
 import ptMessages from '@/messages/pt.json'
 import esMessages from '@/messages/es.json'
+import enMessages from '@/messages/en.json'
 
 const RANKING = ptMessages.Pages.Dashboard.ranking
 
@@ -589,7 +590,7 @@ const plain = (text: string) => text.replace(/<\/?b>/g, '')
  * before the first cell. Deleting either half to "clean up the duplication" brings a defect
  * back, and this test is what says so out loud.
  */
-test('#741 · DS-COMPONENTE-083 item 3 · DS-COMPONENTE-082 item 3: the four declarations survive the scroll, and a screen reader still gets them before the first cell', async ({
+test('#741 · DS-COMPONENTE-083 item 3 · DS-COMPONENTE-082 item 3: the five declarations survive the scroll, and a screen reader still gets them before the first cell', async ({
   mount,
   page,
 }) => {
@@ -606,14 +607,17 @@ test('#741 · DS-COMPONENTE-083 item 3 · DS-COMPONENTE-082 item 3: the four dec
   const defined = [
     RANKING.caption.span_in_period,
     RANKING.caption.platform,
+    // Third since #741's country column: it is what stops `País explorado` next to a person's
+    // name from being read as residence or nationality (`DS-COMPONENTE-086` item 5).
+    RANKING.caption.country,
     RANKING.caption.notable,
   ].map(plain)
-  // The fourth defines no term, so it carries no `<b>` and gets no `<strong>`.
+  // The fifth defines no term, so it carries no `<b>` and gets no `<strong>`.
   const facts = [...defined, RANKING.caption.sorting]
   const legend = page.getByTestId('ranking-legend')
   const lines = legend.locator('p')
 
-  await expect(lines).toHaveCount(4)
+  await expect(lines).toHaveCount(5)
   for (const [index, fact] of facts.entries()) {
     await expect(lines.nth(index)).toHaveText(fact)
     // The term opens the line in bold: sentences of the same weight are a paragraph.
@@ -637,7 +641,7 @@ test('#741 · DS-COMPONENTE-083 item 3 · DS-COMPONENTE-082 item 3: the four dec
   )
   await expect(legend).toBeInViewport()
 
-  // And the same four, in the same order, for whoever does not see them — the sentence about
+  // And the same five, in the same order, for whoever does not see them — the sentence about
   // sorting last, which is where the caption has always carried it.
   const caption = page.locator('table caption')
   await expect(caption).toHaveClass(/sr-only/)
@@ -683,13 +687,27 @@ test('#741: `Plataforma` is no longer a column, and the fact is in the expanded 
   await expect(details.getByText('ios', { exact: true })).toBeVisible()
 })
 
-test('#741: with the column gone, the `Comparação · tempo` group is on screen at 1152px', async ({
+/**
+ * AND THE WIDTH THIS PROMISE HOLDS AT MOVED WITH #741's COUNTRY COLUMN — 1152px → 1280px.
+ *
+ * This test was written at 1152px, in the window between `Plataforma` leaving the table and
+ * `País explorado` entering it. Measured in this harness, same fixture: the table's natural
+ * width was 1267px with `Plataforma`, 1162px with neither, and 1260px with the country column —
+ * so the group is on screen from ~1182px up, not from 1152px. That is the spec's own arithmetic
+ * and not a surprise: §4.7 grants the new column "part of what `Plataforma` freed, and less than
+ * `Plataforma` occupied", and says in the same paragraph that the `Comparação · tempo` group
+ * "already falls off below ~1200px, and it is what pays for any excess".
+ *
+ * 1280px is the viewport criteria 19 and 24 are both measured at, so the guarantee is asserted
+ * where the design states it. What the move does NOT do is make the assertion weaker in kind:
+ * the claim is still that the last column of the time group is fully on screen, and that a
+ * gradient promising "there is more" is never covering three whole columns of time.
+ */
+test('#741: with `Plataforma` gone and `País explorado` in, the `Comparação · tempo` group is on screen at 1280px', async ({
   mount,
   page,
 }) => {
-  // The width the design measured the cut at: `Diferença` was outside, and the gradient promises
-  // "there is more", never "there are three columns of time".
-  await page.setViewportSize({ width: 1152, height: 800 })
+  await page.setViewportSize({ width: 1280, height: 800 })
 
   await mount(
     <DashboardWrapper>
@@ -708,7 +726,175 @@ test('#741: with the column gone, the `Comparação · tempo` group is on screen
   ).toBeLessThanOrEqual(Math.round(viewport.x + viewport.width))
 
   // The mechanism, and the reason the gradient is honest here: nothing is left to the right.
-  // `DS-COMPONENTE-081` keeps the horizontal scroll for the widths where it is still needed.
+  // `DS-COMPONENTE-081` keeps the horizontal scroll for the widths where it is still needed —
+  // and with the switch ON it is needed again at this very viewport, which is the trade §4.7
+  // priced and accepted.
   const overflow = await scroller.evaluate((element) => element.scrollWidth - element.clientWidth)
   expect(overflow, 'the table still overflows at the width the design measured').toBeLessThanOrEqual(2)
 })
+
+/**
+ * #741 · `DS-COMPONENTE-086` — THE COLUMN OF COUNTRY, AND THE THREE ROUTES TO THE NAME.
+ *
+ * The arithmetic of the flag and the guard in front of `Intl.DisplayNames` are proved without a
+ * browser in `tests/api/ranking-country-flag.test.ts`. What only a browser answers is the claim
+ * of criterion 23: the glyph is NOT the carrier of the name. So the assertions below are about
+ * text nodes and about the accessibility tree — never about the emoji rendering, which is exactly
+ * the thing a Windows machine does not do and which the design accepted (item 2).
+ */
+test('#741 · DS-COMPONENTE-086 item 2: the name reaches the sr-only node and the title, and the flag is hidden', async ({
+  mount,
+  page,
+}) => {
+  await mount(
+    <DashboardWrapper>
+      <RankingScoreboardHarness />
+    </DashboardWrapper>
+  )
+
+  await expect(
+    page.getByRole('columnheader', { name: RANKING.table.country, exact: true })
+  ).toBeVisible()
+
+  const first = page.locator('tbody tr').first()
+  const cell = first.locator('td').filter({ hasText: 'Brasil' }).first()
+
+  // The pointer got what the operator asked for.
+  await expect(cell.locator('span[title="Brasil"]')).toHaveCount(1)
+  // The screen reader gets the name as text, and the glyph is out of the tree — otherwise it
+  // announces the country twice.
+  await expect(cell.locator('.sr-only')).toHaveText('Brasil')
+  await expect(cell.locator('[aria-hidden="true"]')).toHaveCount(1)
+  // And nothing in the cell is a tab stop (item 3).
+  await expect(cell.locator('[tabindex], button, a')).toHaveCount(0)
+  // The hidden node holds the flag ALONE: concatenated to the name it would be announced as
+  // "flag of Brazil, Brazil" — the thing `aria-hidden` is here to prevent.
+  const flag = String.fromCodePoint(0x1f1e7, 0x1f1f7)
+  await expect(cell.locator('[aria-hidden="true"]')).toHaveText(flag)
+})
+
+test('#741 · DS-COMPONENTE-086 item 6: an account whose country does not resolve prints the em dash', async ({
+  mount,
+  page,
+}) => {
+  await mount(
+    <DashboardWrapper>
+      <RankingScoreboardHarness />
+    </DashboardWrapper>
+  )
+
+  // `quiet-tapir` entered the period with no visit carrying a recognizable country: `null` is
+  // "does not resolve", and this table spells "zero" a different way everywhere else.
+  const tapir = page.locator('tbody tr').filter({ hasText: 'quiet-tapir' }).first()
+  // With the switch off the row is `<td>#</td><th>Pessoa</th><td>País explorado</td>…`, so the
+  // country cell is the second `td` — asserting by position is what proves it is THIS column
+  // printing the dash and not some other one that happens to have none.
+  const country = tapir.locator('td').nth(1)
+  await expect(country).toHaveText(UNKNOWN_VALUE)
+  await expect(country.locator('[title], [aria-hidden="true"]')).toHaveCount(0)
+})
+
+test('#741 · DS-COMPONENTE-086 item 3: the expanded row carries the name in full, for the keyboard', async ({
+  mount,
+  page,
+}) => {
+  await mount(
+    <DashboardWrapper>
+      <RankingScoreboardHarness />
+    </DashboardWrapper>
+  )
+
+  const first = page.locator('tbody tr').first()
+  await first.getByRole('button', { name: /Abrir os detalhes/ }).click()
+
+  const details = page.locator('tbody tr').nth(1)
+  // Same key as the column header — one quantity, one redaction (`DS-COPY-062` item 4).
+  await expect(details.getByText(RANKING.table.country, { exact: true })).toBeVisible()
+  // The name in full, as a text node of the row: this is the route that does not need a pointer
+  // and does not need the font to paint a flag.
+  await expect(details.getByText('Brasil', { exact: true })).toBeVisible()
+})
+
+/**
+ * #741 — CRITÉRIO 24: THE COLUMN FITS THE BUDGET IT WAS GIVEN, IN THE THREE LANGUAGES.
+ *
+ * WHAT THE SPEC ASKS AND WHAT THIS HARNESS CAN ANSWER ARE TWO DIFFERENT RULERS, and the
+ * difference is a font. Spec §9, critério 24 sets an ABSOLUTE ceiling — natural width ≤ 1131px
+ * at 1280px with the switch on — measured by the design on the real screen, which ships
+ * `Inter` through `next/font` (`app/[locale]/layout.tsx`). A component mount has no Next font
+ * pipeline and no network, so it paints in the browser's default sans and every header is a few
+ * per cent wider. Measured here, in one session, same fixture, same viewport, switch on:
+ *
+ * | state | pt | es | en |
+ * | :-- | --: | --: | --: |
+ * | with `Plataforma` (51cac9e^) | 1267 | 1244 | 1267 |
+ * | `Plataforma` out (e43f080) | 1162 | 1139 | 1162 |
+ * | with `País explorado` (this commit) | 1260 | 1236 | 1256 |
+ *
+ * The baseline ALONE is 1162 in `pt`, above the spec's ceiling with no country column in the
+ * table at all — so asserting 1131 here would not measure this commit, it would measure the
+ * absence of Inter. What IS font-independent is the budget the spec actually granted the column
+ * (§4.7): it spends part of what `Plataforma` freed and LESS than `Plataforma` occupied. That is
+ * what these two assertions pin, and they fail the moment the column starts costing more than
+ * the one it replaced — which is the failure critério 24 exists to prevent. The absolute number
+ * is reported back to the `design` with these measurements.
+ */
+
+/** What `Plataforma` occupied, measured at 51cac9e^ in the three languages: 105px. */
+const PLATFORM_COLUMN_PX = 105
+/** And the width of the whole table while it still did — the ceiling the column inherits. */
+const WIDTH_WITH_PLATFORM_PX = { pt: 1267, es: 1244, en: 1267 } as const
+
+for (const locale of ['pt', 'es', 'en'] as const) {
+  const file = locale === 'es' ? esMessages : locale === 'en' ? enMessages : ptMessages
+
+  test(`#741 · DS-COMPONENTE-086 · critério 24: in ${locale}, the country column costs less than the one it replaced`, async ({
+    mount,
+    page,
+  }) => {
+    // The viewport of critério 19 and of critério 24, and the switch ON is the worst case: it
+    // adds the `sem internas` column.
+    await page.setViewportSize({ width: 1280, height: 800 })
+
+    await mount(
+      <DashboardWrapper locale={locale}>
+        <RankingScoreboardHarness />
+      </DashboardWrapper>
+    )
+
+    await page.getByTestId('include-internal').check()
+
+    // THE NATURAL WIDTH IS NOT `scrollWidth`. The table is `w-full`, so inside a viewport wider
+    // than its content it stretches and `scrollWidth` answers the width of the CONTAINER. What
+    // the design calls natural is the width the table refuses to go below, which is what the
+    // scroller has to carry: squeeze the host and read the table back.
+    const natural = await page.locator('table').evaluate((element) => {
+      const table = element as HTMLElement
+      const host = element.closest('.custom-scrollbar')!.parentElement as HTMLElement
+      const previousHost = host.style.width
+      const previousTable = table.style.width
+      host.style.width = '320px'
+      table.style.width = 'min-content'
+      const width = table.getBoundingClientRect().width
+      host.style.width = previousHost
+      table.style.width = previousTable
+      return width
+    })
+
+    expect(
+      Math.round(natural),
+      `${locale}: the table is wider than it was WITH \`Plataforma\` — the column is spending more than it was given`
+    ).toBeLessThanOrEqual(WIDTH_WITH_PLATFORM_PX[locale])
+
+    const header = page.getByRole('columnheader', {
+      name: file.Pages.Dashboard.ranking.table.country,
+      exact: true,
+    })
+    const column = (await header.boundingBox())!
+
+    expect(
+      Math.round(column.width),
+      `${locale}: the header stopped wrapping, or the cell stopped being one glyph`
+    ).toBeLessThanOrEqual(PLATFORM_COLUMN_PX)
+  })
+}

@@ -72,6 +72,7 @@ function row(overrides: Partial<RankingRow> = {}): RankingRow {
     metering_gap_minutes: 60,
     sessions_with_trail: 2,
     sessions_charged: 1,
+    top_country_code: 'BR',
     ...overrides,
   }
 }
@@ -647,7 +648,7 @@ test('DS-COMPONENTE-083 item 2: the delta compares two positions of the SAME pop
 })
 
 /**
- * #741 — THE FOUR DECLARATIONS ARE RENDERED TWICE ON PURPOSE (`DS-COMPONENTE-083` item 3).
+ * #741 — THE FIVE DECLARATIONS ARE RENDERED TWICE ON PURPOSE (`DS-COMPONENTE-083` item 3).
  *
  * The `<caption>` was inside `DenseTableScroller`, which is `overflow-auto`, so the declaration
  * left the screen on the first vertical scroll while the header bands stayed glued. It now has
@@ -656,12 +657,12 @@ test('DS-COMPONENTE-083 item 2: the delta compares two positions of the SAME pop
  * will see the same key twice and read it as duplication — it is not, and the geometry is proved
  * in `tests/ct/ranking-scoreboard.spec.tsx`.
  *
- * `caption.sorting` is the fourth, and it was the one left behind in the extraction: it is the
+ * `caption.sorting` is the last of them, and it was the one left behind in the extraction: it is the
  * sentence that stops the wrong conclusion a click on a column head invites — `#` does not
  * renumber (`DS-COMPONENTE-082` item 3) — so hiding it from the eye kept it from the only person
  * who can reach it. It defines no term, so it is `t`, not `t.rich`.
  */
-test('#741 · DS-COMPONENTE-083 item 3 · DS-COMPONENTE-082 item 3: the four declarations are both visible and in the `sr-only` caption', () => {
+test('#741 · DS-COMPONENTE-083 item 3 · DS-COMPONENTE-082 item 3: the five declarations are both visible and in the `sr-only` caption', () => {
   const component = source('components/dashboard/reports/RankingScoreboard.tsx')
 
   assert.match(
@@ -670,7 +671,12 @@ test('#741 · DS-COMPONENTE-083 item 3 · DS-COMPONENTE-082 item 3: the four dec
     'the caption is what a screen reader gets before the first cell'
   )
 
-  for (const key of ['caption.span_in_period', 'caption.platform', 'caption.notable']) {
+  for (const key of [
+    'caption.span_in_period',
+    'caption.platform',
+    'caption.country',
+    'caption.notable',
+  ]) {
     assert.equal(
       (component.match(new RegExp(`t\\.rich\\('${key.replace('.', '\\.')}'`, 'g')) ?? []).length,
       2,

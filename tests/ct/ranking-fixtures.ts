@@ -61,6 +61,8 @@ function row(overrides: Partial<RankingRow> = {}): RankingRow {
     metering_gap_minutes: 3879,
     sessions_with_trail: 6,
     sessions_charged: 2,
+    /** Alpha-2, as the view guarantees it — one of the 15 codes the screen sees today. */
+    top_country_code: 'BR',
     ...overrides,
   }
 }
@@ -75,6 +77,7 @@ export const ROWS: RankingRow[] = [
     user_id: '99999999-9999-4999-8999-999999999999',
     nickname: 'tuggi-operator',
     excluded_from_metrics: true,
+    top_country_code: 'PT',
     trigger_points_fired: 120,
     points_from_triggers: 120,
     points_official: 124.29,
@@ -96,6 +99,9 @@ export const ROWS: RankingRow[] = [
     rank_excluding_internal: 2,
     points_notable_weighted: 8,
     rank_notable_weighted: 2,
+    // The account that entered the period without a visit whose country resolves: `null` is
+    // "does not resolve", and the cell prints the em dash (`DS-COMPONENTE-086` item 6).
+    top_country_code: null,
     trail_span_minutes: 12,
     // Charged more than the trail spans: the difference IS negative, and the column has to say
     // so instead of printing `0 min` (`DS-COMPONENTE-084` item 3).
@@ -115,6 +121,9 @@ export function scrollingRows(total = 31): RankingRow[] {
       user_id: `${String(index + 1).padStart(8, '0')}-1111-4111-8111-111111111111`,
       nickname: `runner-${index + 1}`,
       platform: index % 2 === 0 ? 'ios' : 'android',
+      // The country travels with the platform, because the view's ruler is the same one: the
+      // rows that have a platform are the rows that have a country (contract, Parte 7).
+      top_country_code: index % 3 === 0 ? 'BR' : index % 3 === 1 ? 'ES' : 'US',
       rank_official: index + 1,
       rank_excluding_internal: index + 1,
       rank_notable_weighted: total - index,
