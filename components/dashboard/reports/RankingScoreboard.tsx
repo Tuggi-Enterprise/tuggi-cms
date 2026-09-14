@@ -22,8 +22,9 @@
  * meter debited, `Intervalo de sinal` is first-to-last signal, and `Diferença` is the distance
  * between them, which IS the measure of the BR-MONETIZACAO-049 divergence and which can be
  * negative. A session left open with sparse signal inflates the span without consuming any
- * balance — 4.022 minutes against 143 charged in one measured account — so the `<caption>` says
- * so before any cell is read.
+ * balance — 4.022 minutes against 143 charged in one measured account — so the three readings a
+ * single column cannot sustain are declared ABOVE the scroller, where they stay while the body
+ * scrolls, and repeated in an `sr-only` `<caption>` that a screen reader gets before any cell.
  *
  * `#` IS A VALUE, NEVER THE INDEX OF THE ROW (`DS-COMPONENTE-082` item 3). Sorting by
  * `Diferença` puts somebody else on top and her `#` stays hers; renumbering would create a
@@ -281,7 +282,13 @@ export function RankingScoreboard({
    */
   const note = (text: string) => (didRead ? text : undefined)
 
-  const columnCount = 12 + (isWeek ? 0 : -1) + (includeInternal ? 1 : 0)
+  /**
+   * `#`, `Pessoa`, and the nine or ten value columns. `Plataforma` is NOT among them: it spent
+   * ~110px on the width of its own header — the data is `android`/`ios` — and at 1152px it was
+   * pushing `Diferença`, and with it the whole `Comparação · tempo` group, off the screen (#741).
+   * The fact keeps two homes on this screen: the `Contas que pontuaram` card and the expanded row.
+   */
+  const columnCount = 11 + (isWeek ? 0 : -1) + (includeInternal ? 1 : 0)
 
   return (
     <div className="space-y-6">
@@ -334,9 +341,9 @@ export function RankingScoreboard({
             value={measured(summary.accountsScored)}
             /* THE SPLIT IS A SUM, SO IT HAS TO CLOSE — `33 android · 31 ios` under a card saying
                `82` reads as 18 accounts lost somewhere. They are the accounts that entered the
-               period only by charge, which carry no platform (contract, Parte 7), and the
-               `<caption>` already says what an empty platform means: the third term needs no
-               second explanation, only a number. It is omitted at zero, where the two terms
+               period only by charge, which carry no platform (contract, Parte 7), and
+               `caption.platform` already says what an empty platform means: the third term needs
+               no second explanation, only a number. It is omitted at zero, where the two terms
                already add up and the word would be noise. */
             subtitle={note(
               [
@@ -497,20 +504,42 @@ export function RankingScoreboard({
           </FilterChip>
         </header>
 
+        {/* THE DECLARATION IS READ WHERE THE CELLS ARE — `DS-COMPONENTE-083` item 3, amended
+            2026-09-13, plus the measurement of #741: the same three readings inside the
+            `<caption>` sat INSIDE the scroller, 66px tall up to a 1280px viewport, and left the
+            screen on the first vertical scroll while the two header bands stayed glued. The one
+            that costs money is `Intervalo de sinal`: sorting by `Diferença` — the sortable column
+            of the biggest numbers — puts `+67 h` rows on top, and without the sentence that says
+            an open session with sparse signal inflates the span without consuming balance, the
+            operator reads a revenue leak that does not exist.
+
+            One `<p>` per fact, the term in bold opening the line, and the SAME keys the caption
+            below carries. The repetition is deliberate: the block is for the eye and the
+            `sr-only` caption is for the screen reader, which gets it before any cell — deleting
+            either half to "clean up the duplication" brings back one of the two defects. */}
+        <div
+          data-testid="ranking-legend"
+          className="space-y-0.5 border-b border-gray-200 px-5 py-2.5 text-[11px] leading-snug text-gray-600 dark:border-gray-800 dark:text-gray-400"
+        >
+          <p>{t.rich('caption.span', { b: (chunks) => <strong>{chunks}</strong> })}</p>
+          <p>{t.rich('caption.platform', { b: (chunks) => <strong>{chunks}</strong> })}</p>
+          {/* THE POPULATION OF THE COMPARISON LIVES HERE, and not in the group label — the band
+              of groups has a fixed 28px and the band of column names sticks 28px below it, so a
+              label carrying `(posição entre todas as contas)` wrapped and hid the thirteen column
+              names (#752). Without this line the delta has a baseline nobody stated (item 2). */}
+          <p>{t.rich('caption.notable', { b: (chunks) => <strong>{chunks}</strong> })}</p>
+        </div>
+
         <DenseTableScroller>
-          <table className="w-full min-w-[1040px] border-collapse">
-            {/* The caption is REAL and visible, and it comes before any cell for a screen reader:
-                it holds the three readings a single column cannot sustain on its own. */}
-            <caption className="px-3 py-2 text-left text-[11px] text-gray-600 dark:text-gray-400">
+          {/* The floor dropped with the `Plataforma` column: the width is a floor for narrow
+              viewports, not the natural width, and keeping the old one would spend on nothing the
+              ~110px the column gave back. */}
+          <table className="w-full min-w-[930px] border-collapse">
+            {/* Same three declarations, same order, for whoever does not see the block above —
+                a `<caption>` is what a screen reader announces before the first cell. */}
+            <caption className="sr-only">
               {t.rich('caption.span', { b: (chunks) => <strong>{chunks}</strong> })}{' '}
               {t.rich('caption.platform', { b: (chunks) => <strong>{chunks}</strong> })}{' '}
-              {/* THE POPULATION OF THE COMPARISON LIVES HERE, and not in the group label —
-                  `DS-COMPONENTE-083` item 3, amended 2026-09-13. The band of groups has a fixed
-                  28px and the band of column names sticks 28px below it: a label carrying
-                  `(posição entre todas as contas)` wrapped and hid the thirteen column names
-                  (#752). The caption is where a reading a single column cannot sustain belongs,
-                  and a screen reader gets it BEFORE any cell. The declaration is mandatory —
-                  without it the delta of column 9 has a baseline nobody stated (item 2). */}
               {t.rich('caption.notable', { b: (chunks) => <strong>{chunks}</strong> })}{' '}
               {t('caption.sorting')}
             </caption>
@@ -518,7 +547,7 @@ export function RankingScoreboard({
               <tr>
                 <th
                   className={`${GROUP} text-gray-500 dark:text-gray-400`}
-                  colSpan={includeInternal ? 4 : 3}
+                  colSpan={includeInternal ? 3 : 2}
                 />
                 <th
                   className={`${GROUP} ${EDGE} text-primary-800 dark:text-tuggi-blue`}
@@ -556,9 +585,6 @@ export function RankingScoreboard({
                 )}
                 <th scope="col" className={HEAD}>
                   {t('table.person')}
-                </th>
-                <th scope="col" className={HEAD}>
-                  {t('table.platform')}
                 </th>
                 {head('points_official', t('table.points'), `${HEAD_NUM} ${EDGE}`)}
                 {head('trigger_points_fired', t('table.triggers'), HEAD_NUM)}
@@ -656,7 +682,6 @@ export function RankingScoreboard({
                             </span>
                           )}
                         </th>
-                        <td className={CELL}>{row.platform ?? UNKNOWN_VALUE}</td>
 
                         {/* The only column carrying typographic weight: it is the scoreboard. */}
                         <td className={`${NUM} ${EDGE} font-semibold text-gray-900 dark:text-white`}>
@@ -714,6 +739,14 @@ export function RankingScoreboard({
                         <tr className="bg-tuggi-blue/[.04]">
                           <td colSpan={columnCount} className="px-5 py-4">
                             <dl className="grid grid-cols-1 gap-x-8 gap-y-2 text-xs sm:grid-cols-2 lg:grid-cols-3">
+                              {/* The column left the table for the width of the time group; the
+                                  fact did not leave the screen. Empty here means what the block
+                                  above already says it means: the account entered the period only
+                                  by charge or by trail. */}
+                              <Detail
+                                label={t('table.platform')}
+                                value={row.platform ?? UNKNOWN_VALUE}
+                              />
                               <Detail
                                 label={t('row.notable_triggers')}
                                 value={t('row.of_total', {
@@ -789,7 +822,7 @@ export function RankingScoreboard({
                   <th
                     scope="row"
                     className={`${CELL} text-left font-bold text-gray-900 dark:text-white`}
-                    colSpan={includeInternal ? 4 : 3}
+                    colSpan={includeInternal ? 3 : 2}
                   >
                     {t('table.totals', { count: totals.rowCount })}
                   </th>

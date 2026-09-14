@@ -646,6 +646,43 @@ test('DS-COMPONENTE-083 item 2: the delta compares two positions of the SAME pop
   )
 })
 
+/**
+ * #741 — THE THREE DECLARATIONS ARE RENDERED TWICE ON PURPOSE (`DS-COMPONENTE-083` item 3).
+ *
+ * The `<caption>` was inside `DenseTableScroller`, which is `overflow-auto`, so the declaration
+ * left the screen on the first vertical scroll while the header bands stayed glued. It now has
+ * two call sites: a visible block above the scroller, for the eye, and an `sr-only` `<caption>`,
+ * which is what a screen reader announces before the first cell. Whoever reads this file next
+ * will see the same key twice and read it as duplication — it is not, and the geometry is proved
+ * in `tests/ct/ranking-scoreboard.spec.tsx`.
+ */
+test('#741 · DS-COMPONENTE-083 item 3: the declaration is both visible and in the `sr-only` caption', () => {
+  const component = source('components/dashboard/reports/RankingScoreboard.tsx')
+
+  assert.match(
+    component,
+    /<caption className="sr-only">/,
+    'the caption is what a screen reader gets before the first cell'
+  )
+
+  for (const key of ['caption.span', 'caption.platform', 'caption.notable']) {
+    assert.equal(
+      (component.match(new RegExp(`t\\.rich\\('${key.replace('.', '\\.')}'`, 'g')) ?? []).length,
+      2,
+      `${key}: one call site is the visible block and the other is the caption — neither is spare`
+    )
+  }
+
+  // `Plataforma` left the table for the width of the `Comparação · tempo` group, and landed in
+  // the expanded row: the key keeps a caller, and the fact keeps a home.
+  assert.match(component, /label=\{t\('table\.platform'\)\}/, 'the expanded row names the fact')
+  assert.equal(
+    /\{t\('table\.platform'\)\}\s*<\/th>/.test(component),
+    false,
+    'the platform is no longer a column of the table'
+  )
+})
+
 // ── The copy ──────────────────────────────────────────────────────────────────────────────
 
 test('DS-COPY-062: the three languages carry exactly the same ranking keys', () => {

@@ -560,3 +560,139 @@ test('#741: a week older than the horizon says so, instead of answering that nob
   // is before the ledger, so the minute axis is unknown — not `full` for want of an option.
   await expect(page.getByText(RANKING.meter.none)).toBeVisible()
 })
+
+// ── The declaration, where the cells are read ─────────────────────────────────────────────
+
+/** The three facts arrive as ICU with `<b>` in them; on screen the bold is a `<strong>`. */
+const plain = (text: string) => text.replace(/<\/?b>/g, '')
+
+/**
+ * #741 — `DS-COMPONENTE-083` ITEM 3, AND WHY A `<caption>` ALONE WAS NOT ENOUGH.
+ *
+ * The three declarations lived inside `DenseTableScroller`, which is `overflow-auto`: 66px tall
+ * up to a 1280px viewport, and gone on the first vertical scroll while the two header bands
+ * stayed glued. The one that costs money is `Intervalo de sinal` — sorting by `Diferença`, the
+ * sortable column of the biggest numbers, puts `+67 h` rows on top, and a scoreboard that shows
+ * them with no sentence saying an open session with sparse signal inflates the span without
+ * consuming balance reads as *we are failing to charge 67 hours*.
+ *
+ * THE TWO HALVES ARE ONE CLAIM: a visible block the scroll cannot take away, and an `sr-only`
+ * `<caption>` with the same keys in the same order, which is what a screen reader announces
+ * before the first cell. Deleting either half to "clean up the duplication" brings a defect
+ * back, and this test is what says so out loud.
+ */
+test('#741 · DS-COMPONENTE-083 item 3: the three declarations survive the scroll, and a screen reader still gets them before the first cell', async ({
+  mount,
+  page,
+}) => {
+  await page.setViewportSize({ width: 1280, height: 800 })
+
+  await mount(
+    <DashboardWrapper>
+      <RankingScoreboardHarness rows={scrollingRows()} />
+    </DashboardWrapper>
+  )
+
+  const facts = [RANKING.caption.span, RANKING.caption.platform, RANKING.caption.notable].map(plain)
+  const legend = page.getByTestId('ranking-legend')
+  const lines = legend.locator('p')
+
+  await expect(lines).toHaveCount(3)
+  for (const [index, fact] of facts.entries()) {
+    await expect(lines.nth(index)).toHaveText(fact)
+    // The term opens the line in bold: three sentences of the same weight are a paragraph.
+    await expect(lines.nth(index).locator('strong')).toHaveCount(1)
+  }
+
+  // It is ABOVE the scroller, which is the whole point: what moves is the body.
+  const scroller = page.locator('.custom-scrollbar')
+  const before = (await legend.boundingBox())!
+  const viewport = (await scroller.boundingBox())!
+  expect(Math.round(before.y + before.height)).toBeLessThanOrEqual(Math.round(viewport.y) + 1)
+
+  await scroller.evaluate((element) => {
+    element.scrollTop = 400
+  })
+  await expect.poll(() => scroller.evaluate((element) => element.scrollTop)).toBeGreaterThan(0)
+
+  const after = (await legend.boundingBox())!
+  expect(Math.round(after.y), 'the block moved with the body it is supposed to outlive').toBe(
+    Math.round(before.y)
+  )
+  await expect(legend).toBeInViewport()
+
+  // And the same three, in the same order, for whoever does not see them — plus the sentence
+  // about sorting, which the caption has always carried last.
+  const caption = page.locator('table caption')
+  await expect(caption).toHaveClass(/sr-only/)
+  const spoken = (await caption.textContent()) ?? ''
+  let cursor = -1
+  for (const fact of [...facts, RANKING.caption.sorting]) {
+    const at = spoken.indexOf(fact)
+    expect(at, `the caption no longer declares "${fact.slice(0, 28)}…"`).toBeGreaterThan(cursor)
+    cursor = at
+  }
+})
+
+/**
+ * #741 — THE COLUMN THAT COST THE TIME GROUP ITS PLACE ON SCREEN.
+ *
+ * `Plataforma` spent ~110px on the width of its own header, not on its data (`android`/`ios`),
+ * and below ~1200px it pushed `Diferença` — and with it the whole `Comparação · tempo` group —
+ * past the right edge, where the operator has no way of knowing the group exists. The fact keeps
+ * two homes on the screen: the `Contas que pontuaram` card and the expanded row.
+ */
+test('#741: `Plataforma` is no longer a column, and the fact is in the expanded row', async ({
+  mount,
+  page,
+}) => {
+  await mount(
+    <DashboardWrapper>
+      <RankingScoreboardHarness />
+    </DashboardWrapper>
+  )
+
+  await expect(
+    page.getByRole('columnheader', { name: RANKING.table.platform, exact: true })
+  ).toHaveCount(0)
+
+  const first = page.locator('tbody tr').first()
+  await expect(first).toContainText('hoppy-otter')
+  await expect(first.locator('td').filter({ hasText: 'ios' })).toHaveCount(0)
+
+  await first.getByRole('button', { name: /Abrir os detalhes/ }).click()
+
+  const details = page.locator('tbody tr').nth(1)
+  await expect(details.getByText(RANKING.table.platform, { exact: true })).toBeVisible()
+  await expect(details.getByText('ios', { exact: true })).toBeVisible()
+})
+
+test('#741: with the column gone, the `Comparação · tempo` group is on screen at 1152px', async ({
+  mount,
+  page,
+}) => {
+  // The width the design measured the cut at: `Diferença` was outside, and the gradient promises
+  // "there is more", never "there are three columns of time".
+  await page.setViewportSize({ width: 1152, height: 800 })
+
+  await mount(
+    <DashboardWrapper>
+      <RankingScoreboardHarness />
+    </DashboardWrapper>
+  )
+
+  const scroller = page.locator('.custom-scrollbar')
+  const gap = page.getByRole('columnheader', { name: RANKING.table.gap, exact: true })
+  const column = (await gap.boundingBox())!
+  const viewport = (await scroller.boundingBox())!
+
+  expect(
+    Math.round(column.x + column.width),
+    'the last column of the time group is past the right edge'
+  ).toBeLessThanOrEqual(Math.round(viewport.x + viewport.width))
+
+  // The mechanism, and the reason the gradient is honest here: nothing is left to the right.
+  // `DS-COMPONENTE-081` keeps the horizontal scroll for the widths where it is still needed.
+  const overflow = await scroller.evaluate((element) => element.scrollWidth - element.clientWidth)
+  expect(overflow, 'the table still overflows at the width the design measured').toBeLessThanOrEqual(2)
+})
