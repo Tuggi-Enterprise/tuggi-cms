@@ -19,16 +19,21 @@
  * populations (item 2).
  *
  * THREE TIME QUANTITIES, THREE NAMES, ONE GROUP — `DS-COPY-062` item 1. `Cobrado` is what the
- * meter debited, `Intervalo de sinal` is first-to-last signal, and `Diferença` is the distance
- * between them, which IS the measure of the BR-MONETIZACAO-049 divergence and which can be
- * negative. A session left open with sparse signal inflates the span without consuming any
- * balance — 4.022 minutes against 143 charged in one measured account — so the three readings a
- * single column cannot sustain are declared ABOVE the scroller, where they stay while the body
- * scrolls, and repeated in an `sr-only` `<caption>` that a screen reader gets before any cell.
+ * meter debited, `Intervalo de sinal no período` is the part of each session's first-to-last
+ * signal that fell INSIDE the selected period, and `Diferença` is the distance between them,
+ * which IS the measure of the BR-MONETIZACAO-049 divergence and which can be negative. The two
+ * parcels only subtract because the view clips the span to the period (contract
+ * `banco-para-cms.md`, Parte 7) — before that they were allocated by different rulers and the
+ * column measured the calendar boundary. A session left open with sparse signal still inflates
+ * the span without consuming any balance — 4.022 minutes against 143 charged in one measured
+ * account — so the readings a single column cannot sustain are declared ABOVE the scroller,
+ * where they stay while the body scrolls, and repeated in an `sr-only` `<caption>` that a screen
+ * reader gets before any cell.
  *
  * `#` IS A VALUE, NEVER THE INDEX OF THE ROW (`DS-COMPONENTE-082` item 3). Sorting by
  * `Diferença` puts somebody else on top and her `#` stays hers; renumbering would create a
- * second ruler of position on the same screen.
+ * second ruler of position on the same screen — and the sentence that says so is the fourth
+ * line of the visible block, because it answers a click the operator has already made.
  */
 
 import { Fragment, useMemo, useState } from 'react'
@@ -505,29 +510,42 @@ export function RankingScoreboard({
         </header>
 
         {/* THE DECLARATION IS READ WHERE THE CELLS ARE — `DS-COMPONENTE-083` item 3, amended
-            2026-09-13, plus the measurement of #741: the same three readings inside the
-            `<caption>` sat INSIDE the scroller, 66px tall up to a 1280px viewport, and left the
-            screen on the first vertical scroll while the two header bands stayed glued. The one
-            that costs money is `Intervalo de sinal`: sorting by `Diferença` — the sortable column
-            of the biggest numbers — puts `+67 h` rows on top, and without the sentence that says
-            an open session with sparse signal inflates the span without consuming balance, the
-            operator reads a revenue leak that does not exist.
+            2026-09-13, plus the measurement of #741: the same readings inside the `<caption>` sat
+            INSIDE the scroller, 66px tall up to a 1280px viewport, and left the screen on the
+            first vertical scroll while the two header bands stayed glued. The one that costs money
+            is `Intervalo de sinal no período`: sorting by `Diferença` — the sortable column of the
+            biggest numbers — puts `+67 h` rows on top, and without the sentence that says an open
+            session with sparse signal inflates the span without consuming balance, the operator
+            reads a revenue leak that does not exist.
+
+            FOUR declarations, not three: `caption.sorting` answers the wrong conclusion a click on
+            a column head invites — `#` is a value and sorting does not renumber it
+            (`DS-COMPONENTE-082` item 3) — so leaving it only in the `sr-only` caption put the one
+            sentence about the interaction out of reach of whoever performs the interaction.
 
             One `<p>` per fact, the term in bold opening the line, and the SAME keys the caption
-            below carries. The repetition is deliberate: the block is for the eye and the
-            `sr-only` caption is for the screen reader, which gets it before any cell — deleting
-            either half to "clean up the duplication" brings back one of the two defects. */}
+            below carries, in the same order. The repetition is deliberate: the block is for the
+            eye and the `sr-only` caption is for the screen reader, which gets it before any cell —
+            deleting either half to "clean up the duplication" brings back one of the defects. */}
         <div
           data-testid="ranking-legend"
           className="space-y-0.5 border-b border-gray-200 px-5 py-2.5 text-[11px] leading-snug text-gray-600 dark:border-gray-800 dark:text-gray-400"
         >
-          <p>{t.rich('caption.span', { b: (chunks) => <strong>{chunks}</strong> })}</p>
+          {/* NOT `caption.span`: since the trail span is CLIPPED to the period (contract
+              `banco-para-cms.md`, Parte 7), what the column sums is the part of each session's
+              interval that fell inside the selected period — and overlapping sessions of one
+              account can push the total past the period's own duration. `caption.span` keeps its
+              consumer in `RankingSessionMetering`, where the row IS the session and there is no
+              period boundary in the middle. */}
+          <p>{t.rich('caption.span_in_period', { b: (chunks) => <strong>{chunks}</strong> })}</p>
           <p>{t.rich('caption.platform', { b: (chunks) => <strong>{chunks}</strong> })}</p>
           {/* THE POPULATION OF THE COMPARISON LIVES HERE, and not in the group label — the band
               of groups has a fixed 28px and the band of column names sticks 28px below it, so a
               label carrying `(posição entre todas as contas)` wrapped and hid the thirteen column
               names (#752). Without this line the delta has a baseline nobody stated (item 2). */}
           <p>{t.rich('caption.notable', { b: (chunks) => <strong>{chunks}</strong> })}</p>
+          {/* No `<b>`: the sentence has no term to define, it denies a consequence. */}
+          <p>{t('caption.sorting')}</p>
         </div>
 
         <DenseTableScroller>
@@ -535,10 +553,10 @@ export function RankingScoreboard({
               viewports, not the natural width, and keeping the old one would spend on nothing the
               ~110px the column gave back. */}
           <table className="w-full min-w-[930px] border-collapse">
-            {/* Same three declarations, same order, for whoever does not see the block above —
+            {/* Same four declarations, same order, for whoever does not see the block above —
                 a `<caption>` is what a screen reader announces before the first cell. */}
             <caption className="sr-only">
-              {t.rich('caption.span', { b: (chunks) => <strong>{chunks}</strong> })}{' '}
+              {t.rich('caption.span_in_period', { b: (chunks) => <strong>{chunks}</strong> })}{' '}
               {t.rich('caption.platform', { b: (chunks) => <strong>{chunks}</strong> })}{' '}
               {t.rich('caption.notable', { b: (chunks) => <strong>{chunks}</strong> })}{' '}
               {t('caption.sorting')}
@@ -595,7 +613,7 @@ export function RankingScoreboard({
                   {t('table.rank_delta')}
                 </th>
                 {head('charged_minutes', t('table.charged'), `${HEAD_NUM} ${EDGE}`)}
-                {head('trail_span_minutes', t('table.trail_span'), HEAD_NUM)}
+                {head('trail_span_minutes', t('table.trail_span_in_period'), HEAD_NUM)}
                 {head('metering_gap_minutes', t('table.gap'), HEAD_NUM)}
               </tr>
             </thead>

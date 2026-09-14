@@ -422,7 +422,7 @@
           "platform_unknown": "{count} sin plataforma",
           "ratio": "Disparo ÷ minuto",
           "ratio_subtitle": "{triggers} pts de disparo · {minutes} pts de minuto",
-          "ratio_partial": "{triggers} pts de disparo · {minutes} pts de minuto\nEl medidor solo cubre parte de la ventana — la razón mezclaría dos ventanas.",
+          "ratio_partial": "{triggers} pts de disparo · {minutes} pts de minuto, como mínimo\nEl medidor solo cubre parte de la ventana — la razón mezclaría dos ventanas.",
           "streak": "Racha de 7 días",
           "accounts": "{count, plural, one {# cuenta} other {# cuentas}}",
           "streak_subtitle": "máximo en el período: {days} de 7 días",
@@ -454,6 +454,7 @@
           "rank_delta": "Δ vs. oficial",
           "charged": "Cobrado",
           "trail_span": "Intervalo de señal",
+          "trail_span_in_period": "Intervalo de señal en el período",
           "gap": "Diferencia",
           "sort_by": "Ordenar por {column}",
           "totals": "{count, plural, one {# fila} other {# filas}}",
@@ -468,7 +469,7 @@
         "row": {
           "notable_triggers": "Disparos en POI notable",
           "of_total": "{count} de {total}",
-          "sessions_with_trail": "Sesiones con recorrido",
+          "sessions_with_trail": "Sesiones con recorrido que tocaron el período",
           "sessions_charged": "Sesiones con cobro",
           "rank_official": "Posición — todas las cuentas",
           "rank_notable": "Posición — peso 2",
@@ -479,6 +480,7 @@
         },
         "caption": {
           "span": "<b>Intervalo de señal</b> es el tiempo entre la primera y la última señal de la sesión — no es tiempo de guía ni tiempo cobrado; una sesión abierta con señal dispersa lo infla sin consumir saldo.",
+          "span_in_period": "<b>Intervalo de señal en el período</b> es la parte del intervalo entre la primera y la última señal de cada sesión que cayó dentro del período seleccionado, sumada — no es tiempo de guía ni tiempo cobrado; una sesión abierta con señal dispersa lo infla sin consumir saldo. Las sesiones de la misma cuenta que se solapan suman dos veces el mismo reloj, así que el total puede superar la duración del período.",
           "platform": "<b>Plataforma vacía</b> = la cuenta entró en el período solo por cobro o por recorrido.",
           "notable": "<b>Comparación · peso 2</b> posiciona entre todas las cuentas, marcadas incluidas; el Δ compara con la posición oficial, que sale de la misma población.",
           "sorting": "Las posiciones y los puntos vienen de la consulta; ordenar la tabla no los recalcula.",

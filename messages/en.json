@@ -433,7 +433,7 @@
           "platform_unknown": "{count} with no platform",
           "ratio": "Trigger ÷ minute",
           "ratio_subtitle": "{triggers} pts from triggers · {minutes} pts from minutes",
-          "ratio_partial": "{triggers} pts from triggers · {minutes} pts from minutes\nThe meter covers only part of the window — the ratio would mix two windows.",
+          "ratio_partial": "{triggers} pts from triggers · {minutes} pts from minutes, at least\nThe meter covers only part of the window — the ratio would mix two windows.",
           "streak": "7-day streak",
           "accounts": "{count, plural, one {# account} other {# accounts}}",
           "streak_subtitle": "highest in the period: {days} of 7 days",
@@ -465,6 +465,7 @@
           "rank_delta": "Δ vs. official",
           "charged": "Charged",
           "trail_span": "Signal span",
+          "trail_span_in_period": "Signal span in period",
           "gap": "Difference",
           "sort_by": "Sort by {column}",
           "totals": "{count, plural, one {# row} other {# rows}}",
@@ -479,7 +480,7 @@
         "row": {
           "notable_triggers": "Triggers on notable POI",
           "of_total": "{count} of {total}",
-          "sessions_with_trail": "Sessions with trail",
+          "sessions_with_trail": "Sessions with trail that touched the period",
           "sessions_charged": "Sessions with charge",
           "rank_official": "Position — all accounts",
           "rank_notable": "Position — weight 2",
@@ -490,6 +491,7 @@
         },
         "caption": {
           "span": "<b>Signal span</b> is the time between the first and the last signal of the session — it is neither guide time nor charged time; a session left open with sparse signal inflates it without consuming any balance.",
+          "span_in_period": "<b>Signal span in period</b> is the part of each session's first-to-last-signal interval that fell inside the selected period, summed — it is neither guide time nor charged time; a session left open with sparse signal inflates it without consuming any balance. Overlapping sessions from the same account count the same clock twice, so the total can exceed the period's own duration.",
           "platform": "<b>Empty platform</b> = the account entered the period only by charge or by trail.",
           "notable": "<b>Comparison · weight 2</b> ranks among all accounts, marked ones included; the Δ compares with the official position, which comes from the same population.",
           "sorting": "Positions and points come from the query; sorting the table does not recompute them.",

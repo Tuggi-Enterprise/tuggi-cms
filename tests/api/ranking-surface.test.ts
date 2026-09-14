@@ -647,7 +647,7 @@ test('DS-COMPONENTE-083 item 2: the delta compares two positions of the SAME pop
 })
 
 /**
- * #741 — THE THREE DECLARATIONS ARE RENDERED TWICE ON PURPOSE (`DS-COMPONENTE-083` item 3).
+ * #741 — THE FOUR DECLARATIONS ARE RENDERED TWICE ON PURPOSE (`DS-COMPONENTE-083` item 3).
  *
  * The `<caption>` was inside `DenseTableScroller`, which is `overflow-auto`, so the declaration
  * left the screen on the first vertical scroll while the header bands stayed glued. It now has
@@ -655,8 +655,13 @@ test('DS-COMPONENTE-083 item 2: the delta compares two positions of the SAME pop
  * which is what a screen reader announces before the first cell. Whoever reads this file next
  * will see the same key twice and read it as duplication — it is not, and the geometry is proved
  * in `tests/ct/ranking-scoreboard.spec.tsx`.
+ *
+ * `caption.sorting` is the fourth, and it was the one left behind in the extraction: it is the
+ * sentence that stops the wrong conclusion a click on a column head invites — `#` does not
+ * renumber (`DS-COMPONENTE-082` item 3) — so hiding it from the eye kept it from the only person
+ * who can reach it. It defines no term, so it is `t`, not `t.rich`.
  */
-test('#741 · DS-COMPONENTE-083 item 3: the declaration is both visible and in the `sr-only` caption', () => {
+test('#741 · DS-COMPONENTE-083 item 3 · DS-COMPONENTE-082 item 3: the four declarations are both visible and in the `sr-only` caption', () => {
   const component = source('components/dashboard/reports/RankingScoreboard.tsx')
 
   assert.match(
@@ -665,13 +670,19 @@ test('#741 · DS-COMPONENTE-083 item 3: the declaration is both visible and in t
     'the caption is what a screen reader gets before the first cell'
   )
 
-  for (const key of ['caption.span', 'caption.platform', 'caption.notable']) {
+  for (const key of ['caption.span_in_period', 'caption.platform', 'caption.notable']) {
     assert.equal(
       (component.match(new RegExp(`t\\.rich\\('${key.replace('.', '\\.')}'`, 'g')) ?? []).length,
       2,
       `${key}: one call site is the visible block and the other is the caption — neither is spare`
     )
   }
+
+  assert.equal(
+    (component.match(/t\('caption\.sorting'\)/g) ?? []).length,
+    2,
+    'the sorting sentence is read by the eye AND announced before the first cell'
+  )
 
   // `Plataforma` left the table for the width of the `Comparação · tempo` group, and landed in
   // the expanded row: the key keeps a caller, and the fact keeps a home.
@@ -681,6 +692,130 @@ test('#741 · DS-COMPONENTE-083 item 3: the declaration is both visible and in t
     false,
     'the platform is no longer a column of the table'
   )
+})
+
+/**
+ * #741 — THE SPAN IS CLIPPED TO THE PERIOD, AND TWO SCREENS DO NOT MEAN THE SAME BY IT.
+ *
+ * Migration `20260913140000` (contract `banco-para-cms.md`, Parte 7) made `trail_span_minutes` of
+ * `core.ranking_scoreboard` the part of each session's span that fell INSIDE the period, and
+ * `sessions_with_trail` the sessions that TOUCHED it. The shape of the read did not change, so
+ * nothing broke: what changed is what the number means, and a label that kept saying `Intervalo
+ * de sinal` would be the screen asserting a session-wide quantity it no longer shows.
+ *
+ * `core.ranking_session_metering` was NOT touched, on purpose — there the row is the session, the
+ * two quantities come from that one session, and there is no period boundary in the middle to
+ * misalign the rulers. So `table.trail_span` keeps exactly one consumer, and the two keys are not
+ * redundant: they name two different measurements that happen to share a column name in SQL.
+ */
+test('#741: the scoreboard says `no período` and the session screen does not — one key each', () => {
+  const scoreboard = source('components/dashboard/reports/RankingScoreboard.tsx')
+  const metering = source('components/dashboard/reports/RankingSessionMetering.tsx')
+
+  assert.match(
+    scoreboard,
+    /t\('table\.trail_span_in_period'\)/,
+    'the scoreboard column is the clipped one, and says so'
+  )
+  assert.equal(
+    /t\('table\.trail_span'\)/.test(scoreboard),
+    false,
+    'the unqualified label would claim the whole session on a clipped column'
+  )
+  assert.match(
+    metering,
+    /t\('table\.trail_span'\)/,
+    'the row IS the session there: the old key keeps its consumer, and is not dead'
+  )
+  assert.equal(
+    /trail_span_in_period/.test(metering),
+    false,
+    '`ranking_session_metering` has no period to clip to (contract, Parte 7)'
+  )
+
+  // Same split in the declaration: the long sentence about the clipping belongs to the
+  // scoreboard, and the session screen keeps the one that describes a whole session.
+  assert.equal(
+    /caption\.span_in_period/.test(metering),
+    false,
+    'the session screen declares a session, not a slice of a period'
+  )
+  assert.match(metering, /t\.rich\('caption\.span'/, '`caption.span` keeps its consumer too')
+  assert.equal(
+    /t\.rich\('caption\.span'/.test(scoreboard),
+    false,
+    'the scoreboard would be declaring the quantity it stopped showing'
+  )
+})
+
+test('#741: the clipped labels name the clipping, in the three languages', () => {
+  const expected = {
+    pt: {
+      'table.trail_span_in_period': 'Intervalo de sinal no período',
+      'row.sessions_with_trail': 'Sessões com trilha que tocaram o período',
+    },
+    en: {
+      'table.trail_span_in_period': 'Signal span in period',
+      'row.sessions_with_trail': 'Sessions with trail that touched the period',
+    },
+    es: {
+      'table.trail_span_in_period': 'Intervalo de señal en el período',
+      'row.sessions_with_trail': 'Sesiones con recorrido que tocaron el período',
+    },
+  }
+
+  for (const locale of LOCALES) {
+    const ranking = messages(locale).Pages.Dashboard.ranking
+    assert.equal(ranking.table.trail_span_in_period, expected[locale]['table.trail_span_in_period'])
+    // `com trilha` is what separates it from `sessions_charged`, which did NOT change ruler.
+    assert.equal(ranking.row.sessions_with_trail, expected[locale]['row.sessions_with_trail'])
+    assert.notEqual(
+      ranking.row.sessions_charged,
+      ranking.row.sessions_with_trail,
+      `${locale}: the two counts answer different questions and are not interchangeable`
+    )
+
+    // The overlap is not decoration: the contract measured 3 simultaneous sessions summing
+    // 15.653,8 min in a week of 10.080, so the total CAN exceed the period. Without the
+    // sentence, that reading is a defect report.
+    const declaration = ranking.caption.span_in_period as string
+    assert.ok(
+      declaration.startsWith(`<b>${expected[locale]['table.trail_span_in_period']}</b>`),
+      `${locale}: the declaration opens with the term the column head prints`
+    )
+    assert.ok(
+      /sobrep|solap|overlap/i.test(declaration),
+      `${locale}: the declaration says the same clock can be counted twice`
+    )
+  }
+})
+
+/**
+ * `DS-COMPONENTE-084` item 2, clause of 2026-09-13 — what depends on a PARTIAL instrument is
+ * printed as a floor, never as a total. The trigger axis is measured over the whole window; the
+ * minute axis only from the ledger onwards, so `pts de minuto` under partial coverage is the
+ * minimum measured, and the card that prints no fraction still must not print it as the total.
+ */
+test('#741 · DS-COMPONENTE-084 item 2: under partial coverage the minute total is marked as a floor', () => {
+  const FLOOR = { pt: ', no mínimo', en: ', at least', es: ', como mínimo' }
+
+  for (const locale of LOCALES) {
+    const kpi = messages(locale).Pages.Dashboard.ranking.kpi
+    const [totals] = (kpi.ratio_partial as string).split('\n')
+
+    assert.ok(totals.endsWith(FLOOR[locale]), `${locale}: the floor mark closes the two totals`)
+    assert.ok(
+      totals.startsWith(kpi.ratio_subtitle),
+      `${locale}: the floor is the ONLY difference — the two totals are the same reading`
+    )
+    // Full coverage measures both axes over the same window: marking it a floor there would be
+    // the screen refusing a measurement it made.
+    assert.equal(
+      (kpi.ratio_subtitle as string).includes(FLOOR[locale]),
+      false,
+      `${locale}: with the whole window instrumented the total is a total`
+    )
+  }
 })
 
 // ── The copy ──────────────────────────────────────────────────────────────────────────────
@@ -773,10 +908,15 @@ test('DS-COPY-062 item 1: `Intervalo de sinal` is named for what it measures', (
   const BORROWED = ['tempo', 'uso', 'duração', 'duration', 'usage', 'tiempo', 'duración']
 
   for (const locale of LOCALES) {
-    const label = messages(locale).Pages.Dashboard.ranking.table.trail_span
-    assert.equal(label, expected[locale])
-    for (const word of BORROWED) {
-      assert.equal(label.toLowerCase().includes(word), false, `${locale}: ${word} in the label`)
+    const table = messages(locale).Pages.Dashboard.ranking.table
+    assert.equal(table.trail_span, expected[locale])
+    // The clipped one is the same name plus the scope, and the sweep covers it too: it is the
+    // label the scoreboard actually prints (#741).
+    for (const label of [table.trail_span, table.trail_span_in_period] as string[]) {
+      assert.ok(label.startsWith(expected[locale]), `${locale}: the two labels share one name`)
+      for (const word of BORROWED) {
+        assert.equal(label.toLowerCase().includes(word), false, `${locale}: ${word} in the label`)
+      }
     }
   }
 })

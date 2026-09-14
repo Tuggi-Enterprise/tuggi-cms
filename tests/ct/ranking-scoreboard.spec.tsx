@@ -502,8 +502,10 @@ test('#741: with the meter covering only part of the window, the ratio card prin
   // denominator measured over part of it comes out high by the part that is missing.
   await expect(page.getByText(/: 1$/)).toHaveCount(0)
   // The subtitle is one text node with a deliberate break in it (`whitespace-pre-line`), so the
-  // sentence is matched inside it, and the two totals it would have divided come first.
-  await expect(page.getByText('52 pts de disparo · 4,29 pts de minuto')).toBeVisible()
+  // sentence is matched inside it, and the two totals it would have divided come first. The
+  // minute total is the one that depends on the partial instrument, so it prints as a FLOOR and
+  // never as a total — `DS-COMPONENTE-084` item 2, clause of 2026-09-13.
+  await expect(page.getByText('52 pts de disparo · 4,29 pts de minuto, no mínimo')).toBeVisible()
   await expect(page.getByText(RANKING.kpi.ratio_partial.split('\n')[1])).toBeVisible()
 })
 
@@ -569,19 +571,25 @@ const plain = (text: string) => text.replace(/<\/?b>/g, '')
 /**
  * #741 — `DS-COMPONENTE-083` ITEM 3, AND WHY A `<caption>` ALONE WAS NOT ENOUGH.
  *
- * The three declarations lived inside `DenseTableScroller`, which is `overflow-auto`: 66px tall
- * up to a 1280px viewport, and gone on the first vertical scroll while the two header bands
- * stayed glued. The one that costs money is `Intervalo de sinal` — sorting by `Diferença`, the
+ * The declarations lived inside `DenseTableScroller`, which is `overflow-auto`: 66px tall up to a
+ * 1280px viewport, and gone on the first vertical scroll while the two header bands stayed glued.
+ * The one that costs money is `Intervalo de sinal no período` — sorting by `Diferença`, the
  * sortable column of the biggest numbers, puts `+67 h` rows on top, and a scoreboard that shows
  * them with no sentence saying an open session with sparse signal inflates the span without
  * consuming balance reads as *we are failing to charge 67 hours*.
+ *
+ * FOUR, NOT THREE. `caption.sorting` — *sorting the table does not recompute positions and
+ * points* — stayed in the `sr-only` caption alone when the block was extracted, which put the
+ * only sentence about the interaction out of reach of whoever performs it. It is the sentence
+ * that blocks the likeliest wrong conclusion from a click on a column head: `#` is a value and
+ * does not renumber (`DS-COMPONENTE-082` item 3).
  *
  * THE TWO HALVES ARE ONE CLAIM: a visible block the scroll cannot take away, and an `sr-only`
  * `<caption>` with the same keys in the same order, which is what a screen reader announces
  * before the first cell. Deleting either half to "clean up the duplication" brings a defect
  * back, and this test is what says so out loud.
  */
-test('#741 · DS-COMPONENTE-083 item 3: the three declarations survive the scroll, and a screen reader still gets them before the first cell', async ({
+test('#741 · DS-COMPONENTE-083 item 3 · DS-COMPONENTE-082 item 3: the four declarations survive the scroll, and a screen reader still gets them before the first cell', async ({
   mount,
   page,
 }) => {
@@ -593,15 +601,23 @@ test('#741 · DS-COMPONENTE-083 item 3: the three declarations survive the scrol
     </DashboardWrapper>
   )
 
-  const facts = [RANKING.caption.span, RANKING.caption.platform, RANKING.caption.notable].map(plain)
+  // The span declaration is the one of the CLIPPED column — `caption.span` describes a whole
+  // session and belongs to `RankingSessionMetering`, where the row is the session.
+  const defined = [
+    RANKING.caption.span_in_period,
+    RANKING.caption.platform,
+    RANKING.caption.notable,
+  ].map(plain)
+  // The fourth defines no term, so it carries no `<b>` and gets no `<strong>`.
+  const facts = [...defined, RANKING.caption.sorting]
   const legend = page.getByTestId('ranking-legend')
   const lines = legend.locator('p')
 
-  await expect(lines).toHaveCount(3)
+  await expect(lines).toHaveCount(4)
   for (const [index, fact] of facts.entries()) {
     await expect(lines.nth(index)).toHaveText(fact)
-    // The term opens the line in bold: three sentences of the same weight are a paragraph.
-    await expect(lines.nth(index).locator('strong')).toHaveCount(1)
+    // The term opens the line in bold: sentences of the same weight are a paragraph.
+    await expect(lines.nth(index).locator('strong')).toHaveCount(index < defined.length ? 1 : 0)
   }
 
   // It is ABOVE the scroller, which is the whole point: what moves is the body.
@@ -621,13 +637,13 @@ test('#741 · DS-COMPONENTE-083 item 3: the three declarations survive the scrol
   )
   await expect(legend).toBeInViewport()
 
-  // And the same three, in the same order, for whoever does not see them — plus the sentence
-  // about sorting, which the caption has always carried last.
+  // And the same four, in the same order, for whoever does not see them — the sentence about
+  // sorting last, which is where the caption has always carried it.
   const caption = page.locator('table caption')
   await expect(caption).toHaveClass(/sr-only/)
   const spoken = (await caption.textContent()) ?? ''
   let cursor = -1
-  for (const fact of [...facts, RANKING.caption.sorting]) {
+  for (const fact of facts) {
     const at = spoken.indexOf(fact)
     expect(at, `the caption no longer declares "${fact.slice(0, 28)}…"`).toBeGreaterThan(cursor)
     cursor = at
