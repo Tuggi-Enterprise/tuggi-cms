@@ -262,6 +262,91 @@ test('#741: the week picked in the `<select>` is labelled with two dates, never 
   assert.ok(!label.includes(UNKNOWN_VALUE), 'the label printed `—` on both ends before the fix')
 })
 
+// ── The period the numbers belong to ──────────────────────────────────────────────────────
+
+/**
+ * #741 — THE SCREEN STAMPS THE PERIOD THE QUERY SERVED, NOT THE ONE IT ASKED FOR.
+ *
+ * `ScoreboardPayload.period` is, by its own comment, *the period the route actually served, after
+ * falling back on an unusable parameter* — and the page read it nowhere. The only place a period
+ * appeared was the `<select>` the operator had just operated, and a control reads as "what I
+ * asked for". That is how three different weeks could be read one after another showing the same
+ * numbers with nothing on the screen to denounce it (defect fixed in 53d674a).
+ */
+test('#741: the page hands the scoreboard the period the query answered, not the one in state', () => {
+  const page = source('app/[locale]/dashboard/reports/ranking/page.tsx')
+
+  assert.match(page, /payload\.period/, 'the served period is read out of the payload')
+  assert.match(page, /served=\{served\}/, 'and it reaches the scoreboard')
+  // The asked-for period keeps travelling too: the two are compared, so neither can be dropped.
+  assert.match(page, /selection=\{period\}/)
+
+  const component = source('components/dashboard/reports/RankingScoreboard.tsx')
+  assert.match(component, /t\('period\.stamp'/, 'the stamp exists')
+  assert.match(
+    component,
+    /period: served\.label/,
+    'and it prints the SERVED label — `periodLabel` is the question, not the answer'
+  )
+  assert.match(component, /t\('period\.served_differs'/, 'a divergence is named, not swallowed')
+})
+
+test('#741: the stamp prints one period and one count, in the three languages', () => {
+  const expected = {
+    pt: ['Últimos 30 dias · 145 contas no período', 'Últimos 30 dias · 1 conta no período'],
+    en: ['Last 30 days · 145 accounts in the period', 'Last 30 days · 1 account in the period'],
+    es: ['Últimos 30 días · 145 cuentas en el período', 'Últimos 30 días · 1 cuenta en el período'],
+  }
+
+  for (const locale of LOCALES) {
+    const t = createTranslator({
+      locale,
+      messages: messages(locale),
+      namespace: 'Pages.Dashboard.ranking',
+    })
+    const period = t(`period.rolling_30d` as never)
+
+    assert.equal(t('period.stamp' as never, { period, count: 145 } as never), expected[locale][0])
+    assert.equal(t('period.stamp' as never, { period, count: 1 } as never), expected[locale][1])
+  }
+})
+
+/**
+ * #741 — A WEEK OUTSIDE THE HORIZON IS NOT AN EMPTY WEEK.
+ *
+ * The view serves the 13 most recent weeks and rolls every Monday; the URL of this screen is made
+ * to be pasted, so a link saved months ago lands exactly here. The selection matches no option,
+ * and both things that hung on the option answered as if it existed: the table said *nobody
+ * scored in that week* — a measurement over a period the query never looked at — and the meter
+ * fell back on `'full'`, asserting an instrument for a window nobody placed in time.
+ */
+test('#741: a week older than the horizon is named as such, and still knows about the meter', () => {
+  const component = source('components/dashboard/reports/RankingScoreboard.tsx')
+
+  assert.match(component, /empty\.out_of_horizon/, 'the out-of-horizon week has its own sentence')
+  assert.match(
+    component,
+    /period \?\? weekOfSelection\(selection\)/,
+    'with no option to read, the meter reads the selection — it does not assume `full`'
+  )
+
+  // The selection describes the week entirely, which is what makes that possible without a read.
+  const week = weekOfSelection({ kind: 'week', start: '2026-07-06T00:00:00+00:00' })
+  assert.ok(week)
+  assert.equal(week.end, '2026-07-13T00:00:00.000Z')
+  assert.equal(meteringCoverage(week.start, week.end), 'none', 'a week before the ledger exists')
+
+  // And a rolling window has nothing to derive: its boundary is "now minus N days" and only the
+  // view knows it — deriving it here would be a second owner of a window the view defines.
+  assert.equal(weekOfSelection({ kind: 'rolling_30d', start: null }), null)
+
+  for (const locale of LOCALES) {
+    const sentence = messages(locale).Pages.Dashboard.ranking.empty.out_of_horizon
+    assert.equal(typeof sentence, 'string')
+    assert.ok(/13/.test(sentence), `${locale}: the horizon says how many weeks it serves`)
+  }
+})
+
 // ── The internal-account mark ─────────────────────────────────────────────────────────────
 
 test('#740: the mark hides the ROW only when asked, and never leaves the aggregates', () => {
@@ -347,6 +432,63 @@ test('#741: the platform split of the accounts that scored adds up to the card a
   )
 })
 
+/**
+ * #741 — THE FOOTER TOTALS THE COLUMN THE SCREEN IS ABOUT.
+ *
+ * `Pontos` and `Pts peso 2` were EMPTY cells between five bold totals, so the comparison this
+ * screen exists to make — *does the weight 2 change the total?* — had no answer on it. And an
+ * empty cell under the column that carries the ink reads as zero, on a table that spells absence
+ * `—` in every other cell.
+ */
+test('#741: the footer sums the two point columns, and only the columns that sum', () => {
+  const summary = summarize([
+    row({ user_id: 'a', points_official: 49.29, points_notable_weighted: 57 }),
+    row({ user_id: 'b', points_official: 7, points_notable_weighted: 8 }),
+  ])
+
+  assert.equal(summary.pointsOfficial, 56.29)
+  assert.equal(summary.pointsNotableWeighted, 65)
+
+  const component = source('components/dashboard/reports/RankingScoreboard.tsx')
+  const footer = component.slice(component.indexOf('<tfoot'), component.indexOf('</tfoot>'))
+
+  assert.match(footer, /points\(totals\.pointsOfficial\)/, 'the scoreboard column has a total')
+  assert.match(footer, /points\(totals\.pointsNotableWeighted\)/, 'and so does the comparison')
+  // The comparison keeps its grey: the total of a deferred weight is not the score.
+  assert.match(footer, /\$\{DIM\}[^}]*\}>\s*\{points\(totals\.pointsNotableWeighted\)/)
+  // A delta is a permutation of sum zero and a streak is a fraction of seven days: neither sums,
+  // and a `0` under either would look like a finding. Those two cells stay empty, and they are
+  // the only two left in the footer.
+  assert.equal((footer.match(/<td className=\{NUM\} \/>/g) ?? []).length, 2)
+  assert.equal(footer.includes('<td className={`${NUM} ${EDGE}`} />'), false)
+})
+
+/**
+ * #741 — A COUNT SURVIVES THE PERIOD IT WAS COUNTED IN, unless something says otherwise.
+ *
+ * The page only calls `setPayload` after the `await`, so while a new period is loading `rows` is
+ * still the one that left. The cards and the table go to skeleton; the chips kept printing
+ * `Todas 145` — the previous period's number, in the exact gesture of changing the period.
+ */
+test('#741: the chips drop their count while another period is in flight', () => {
+  const component = source('components/dashboard/reports/RankingScoreboard.tsx')
+  const header = component.slice(
+    component.indexOf('<FilterChip'),
+    component.indexOf('</header>')
+  )
+
+  assert.equal(
+    (header.match(/didRead && !isLoading \? counts\./g) ?? []).length,
+    3,
+    'the three chips count only a read that both happened and finished'
+  )
+  assert.equal(
+    /count=\{didRead \? counts\./.test(header),
+    false,
+    'a chip counting through the load prints the period that left'
+  )
+})
+
 test('DS-COPY-062: `Pts de minuto` names a total, and the indeterminate label names a defect of record', () => {
   const expected = {
     pt: { minutes: 'Pts de minuto', indeterminate: 'Visitas sem trigger point identificado' },
@@ -429,6 +571,62 @@ test('DS-COMPONENTE-084 item 2: a zero denominator is unknown, never `∞`, `0` 
   assert.equal(summary.triggerToMinuteRatio, null)
   assert.equal(formatRatio(null, 'pt'), UNKNOWN_VALUE)
   assert.equal(formatRatio(11.62, 'pt'), '11,6 : 1')
+})
+
+/**
+ * #741 — PARTIAL COVERAGE IS NOT A FRACTION.
+ *
+ * `meteringCoverage` has three answers and the screen had two: `const hasMeter = coverage !==
+ * 'none'` flattened `partial` into `full` in every number and kept the distinction only in the
+ * amber band. The ratio is the number the operator uses to decide the weight of `0,03/min`, and
+ * over a window the meter only half covers it divides a numerator measured over 30 days by a
+ * denominator measured over 25 — today, on the DEFAULT period of the screen.
+ */
+test('#741: the ratio card refuses to divide two windows of different length', () => {
+  // The default period of the screen, as it stands today: the ledger opens 2026-08-18 20:41 UTC,
+  // and 16,2% of `[14/08, 13/09)` is earlier than that.
+  assert.equal(meteringCoverage('2026-08-14T00:00:00Z', '2026-09-13T00:00:00Z'), 'partial')
+  assert.equal(meteringCoverage('2026-06-15T00:00:00Z', '2026-09-13T00:00:00Z'), 'partial')
+
+  const component = source('components/dashboard/reports/RankingScoreboard.tsx')
+  const card = component.slice(
+    component.indexOf("label={t('kpi.ratio')}"),
+    component.indexOf("label={t('kpi.streak')}")
+  )
+
+  assert.match(card, /coverage === 'full'/, 'the fraction is printed for `full` and nothing else')
+  assert.equal(
+    card.includes('hasMeter'),
+    false,
+    '`hasMeter` is the two-answer question, and it is what flattened `partial` into `full`'
+  )
+  assert.match(card, /kpi\.ratio_partial/, 'the two totals are named where the fraction was')
+})
+
+test('#741: with no fraction to print, the subtitle names the two numbers it would have divided', () => {
+  const expected = {
+    pt: '52 pts de disparo · 4,5 pts de minuto',
+    en: '52 pts from triggers · 4,5 pts from minutes',
+    es: '52 pts de disparo · 4,5 pts de minuto',
+  }
+
+  for (const locale of LOCALES) {
+    const t = createTranslator({
+      locale,
+      messages: messages(locale),
+      namespace: 'Pages.Dashboard.ranking',
+    })
+    const args = { triggers: '52', minutes: '4,5' } as never
+
+    // Two anonymous `pts` on a card labelled `Disparo ÷ minuto` were readable only as the two
+    // sides of that division; with the division gone they have to say which is which.
+    assert.equal(t('kpi.ratio_subtitle' as never, args), expected[locale])
+
+    const partial = t('kpi.ratio_partial' as never, args) as string
+    assert.ok(partial.startsWith(expected[locale]), `${locale}: the two totals come first`)
+    // The break is deliberate — `StatCard` renders the subtitle with `whitespace-pre-line`.
+    assert.ok(partial.includes('\n'), `${locale}: the reason gets a line of its own`)
+  }
 })
 
 test('DS-COMPONENTE-083 item 2: the delta compares two positions of the SAME population', () => {

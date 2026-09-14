@@ -286,6 +286,18 @@ export interface RankingSummary {
   platformUnknown: number
   pointsFromTriggers: number
   pointsFromMinutes: number
+  /**
+   * THE SCOREBOARD, SUMMED — the column the footer exists to total.
+   *
+   * It is a sum of a number the view computed, never a re-derivation of it: `points_official` is
+   * `(triggers + minutes) × streak` and the migration asserts that row by row (CLAUDE.md §6).
+   * Without this the footer left the two point columns EMPTY between five bold totals, and an
+   * empty cell under the column carrying the ink reads as zero on a screen that spells absence
+   * `—` everywhere else (#741).
+   */
+  pointsOfficial: number
+  /** The same total for the comparison, so the question *does the weight 2 change it?* has an answer. */
+  pointsNotableWeighted: number
   /** Triggers ÷ minutes, both in POINTS — same ruler. `null` when the denominator is zero. */
   triggerToMinuteRatio: number | null
   streakAccounts: number
@@ -333,6 +345,8 @@ export function summarize(rows: RankingRow[]): RankingSummary {
     platformUnknown,
     pointsFromTriggers,
     pointsFromMinutes,
+    pointsOfficial: sum(rows, (row) => row.points_official),
+    pointsNotableWeighted: sum(rows, (row) => row.points_notable_weighted),
     triggerToMinuteRatio: pointsFromMinutes > 0 ? pointsFromTriggers / pointsFromMinutes : null,
     streakAccounts: rows.filter((row) => row.has_full_week_streak).length,
     maxStoryDays: rows.reduce((max, row) => Math.max(max, row.story_days), 0),

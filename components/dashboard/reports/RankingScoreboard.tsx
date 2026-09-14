@@ -71,10 +71,13 @@ import {
   compareNullable,
   formatPoints,
   formatRatio,
+  matchesPeriod,
   rankDelta,
   summarize,
   visibleRows,
+  weekOfSelection,
   type PeriodOption,
+  type PeriodSelection,
   type RankingRow,
 } from '@/lib/ranking/scoreboard'
 
@@ -105,6 +108,24 @@ export interface RankingScoreboardProps {
   period: PeriodOption | null
   /** The label of the selected period, as the `<select>` prints it. Used by empty and by banners. */
   periodLabel: string
+  /**
+   * WHAT THE OPERATOR ASKED FOR — `{ kind, start }`, which exists before any round trip.
+   *
+   * `period` is the matching option OUT OF THE READING, and it is `null` for a week older than
+   * the 13-week horizon the view serves. The selection is not: a week is entirely described by
+   * its start, which is what lets the meter and the empty state keep answering when the reading
+   * brought back no period to hang them on (#741).
+   */
+  selection: PeriodSelection
+  /**
+   * WHAT THE QUERY ANSWERED, with the label it prints — `null` until the read lands.
+   *
+   * The route falls back on an unusable parameter, so the period served is not always the period
+   * asked for, and every number on this screen belongs to the served one. Nothing on the screen
+   * used to say which: the only place a period appeared was the `<select>` the operator had just
+   * operated, and a control reads as *what I asked for*, never as *what I got*.
+   */
+  served: { period: PeriodSelection; label: string } | null
   includeInternal: boolean
   /** Accounts carrying the #740 mark. `0` is the state that must warn. */
   internalAccounts: number
@@ -123,6 +144,8 @@ export function RankingScoreboard({
   rows,
   period,
   periodLabel,
+  selection,
+  served,
   includeInternal,
   internalAccounts,
   isLoading,
@@ -153,8 +176,31 @@ export function RankingScoreboard({
 
   /** The streak belongs to the weekly cycle; in a rolling window it is `1.0` by construction. */
   const isWeek = period?.kind === 'week'
-  const coverage = period ? meteringCoverage(period.start, period.end) : 'full'
+
+  /**
+   * NO PERIOD IS NOT "THE METER WAS THERE". `coverage` used to fall back on `'full'` whenever the
+   * reading had no option to match the selection — which is exactly the case of a week older than
+   * the 13-week horizon, the case of a pasted link months old. The screen then printed minutes
+   * for a window it could not place in time.
+   *
+   * The selection describes the week on its own (`weekOfSelection`), so the meter has an answer
+   * without the round trip. For a rolling window there is nothing to derive — its boundary is
+   * "now minus N days" and only the view knows it — and re-deriving it here would be a second
+   * owner of a window the view defines (CLAUDE.md §6); that case only exists while the read is in
+   * flight, where the table is a skeleton anyway.
+   */
+  const meteredPeriod = period ?? weekOfSelection(selection)
+  const coverage = meteredPeriod
+    ? meteringCoverage(meteredPeriod.start, meteredPeriod.end)
+    : 'full'
   const hasMeter = coverage !== 'none'
+
+  /**
+   * The query answered a period other than the one asked for — the route falls back on an
+   * unusable parameter, and the fallback is silent by design (`parsePeriodParam`).
+   */
+  const servedDiffers =
+    served !== null && !matchesPeriod(served.period.kind, served.period.start ?? '', selection)
 
   const shown = useMemo(() => visibleRows(rows, includeInternal), [rows, includeInternal])
 
@@ -249,7 +295,30 @@ export function RankingScoreboard({
           be noise in every normal reading of the screen. It is not a warning either — no icon,
           no coloured band, so it does not compete with the two amber ones this screen can
           raise. */}
+      {/* THE QUERY ANSWERED SOMETHING ELSE, AND IT IS A CONDITION OF EVERY NUMBER BELOW — so it
+          comes before all of them, and not next to the one it happens to contradict. */}
+      {didRead && servedDiffers && !isLoading && served && (
+        <p className="flex items-start gap-2 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-xs text-amber-700 dark:border-amber-900/50 dark:bg-amber-900/20 dark:text-amber-300">
+          <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" aria-hidden="true" />
+          {t('period.served_differs', { pedido: periodLabel, servido: served.label })}
+        </p>
+      )}
+
       <div className="space-y-1.5">
+        {/* THE PERIOD THE NUMBERS BELONG TO, PRINTED WHERE THEY ARE — and it is the period the
+            QUERY SERVED, not the one the `<select>` shows. The control is the operator's own
+            gesture and reads as "what I asked for"; nothing on the screen said what came back,
+            which is how three different weeks could be read one after another showing the same
+            numbers with nothing to denounce it (#741, fixed in 53d674a).
+
+            It needs a read to stamp: with none served, or with another one in flight, the period
+            and the count would be the previous answer wearing the face of the new one — the same
+            defect the chips below had. */}
+        {didRead && served && !isLoading && (
+          <p className="text-[11px] font-medium text-gray-600 dark:text-gray-300">
+            {t('period.stamp', { period: served.label, count: rows.length })}
+          </p>
+        )}
         {didRead && includeInternal && (
           <p className="text-[11px] text-gray-500 dark:text-gray-400">
             {t('internal.aggregates_note')}
@@ -284,16 +353,32 @@ export function RankingScoreboard({
             isLoading={isLoading}
             color={TUGGI_COLORS.purple}
             label={t('kpi.ratio')}
+            /* PARTIAL COVERAGE IS NOT A FRACTION. The numerator is measured over the whole
+               window and the denominator only from the ledger's first row onwards (the date has
+               one owner, `lib/ranking/metering.ts`), so the ratio would divide two windows of
+               different length — today `rolling_30d`, the DEFAULT period of this screen, has
+               16,2% of its window with no instrument and `rolling_90d` has 72%, which comes out
+               ~3,5× high. The screen used to flatten `partial` into `full` in every number and
+               keep the distinction only in the amber band, on the one number the operator uses
+               to decide the weight of `0,03/min`.
+
+               What replaces the fraction is not silence: the two totals it would have divided
+               are named, which is the reading he can still make. */
             value={measured(
-              hasMeter ? formatRatio(summary.triggerToMinuteRatio, locale) : UNKNOWN_VALUE
+              coverage === 'full' ? formatRatio(summary.triggerToMinuteRatio, locale) : UNKNOWN_VALUE
             )}
             subtitle={note(
-              hasMeter
+              coverage === 'full'
                 ? t('kpi.ratio_subtitle', {
                     triggers: points(summary.pointsFromTriggers),
                     minutes: points(summary.pointsFromMinutes),
                   })
-                : t('kpi.no_meter')
+                : coverage === 'partial'
+                  ? t('kpi.ratio_partial', {
+                      triggers: points(summary.pointsFromTriggers),
+                      minutes: points(summary.pointsFromMinutes),
+                    })
+                  : t('kpi.no_meter')
             )}
           />
           {isWeek && (
@@ -392,21 +477,21 @@ export function RankingScoreboard({
           <FilterChip
             active={chip === 'all'}
             onClick={() => setChip('all')}
-            count={didRead ? counts.all : undefined}
+            count={didRead && !isLoading ? counts.all : undefined}
           >
             {t('filters.all')}
           </FilterChip>
           <FilterChip
             active={chip === 'scored'}
             onClick={() => setChip('scored')}
-            count={didRead ? counts.scored : undefined}
+            count={didRead && !isLoading ? counts.scored : undefined}
           >
             {t('filters.scored')}
           </FilterChip>
           <FilterChip
             active={chip === 'charged_without_trigger'}
             onClick={() => setChip('charged_without_trigger')}
-            count={didRead ? counts.charged_without_trigger : undefined}
+            count={didRead && !isLoading ? counts.charged_without_trigger : undefined}
           >
             {t('filters.charged_without_trigger')}
           </FilterChip>
@@ -498,9 +583,17 @@ export function RankingScoreboard({
                     colSpan={columnCount}
                     className="px-5 py-8 text-center text-sm text-gray-600 dark:text-gray-400"
                   >
-                    {chip === 'all'
-                      ? t('empty.period', { period: periodLabel })
-                      : t('empty.filtered', { period: periodLabel })}
+                    {/* A WEEK OUTSIDE THE HORIZON IS NOT AN EMPTY WEEK. The view serves the 13
+                        most recent weeks and rolls every Monday, and the URL of this screen is
+                        made to be pasted — a link saved months ago lands exactly here. Answering
+                        `Ninguém pontuou em Semana de X a Y` asserts a measurement over a period
+                        the query never looked at, and sends the operator to read a scoring
+                        design that was never served to him (#741). */}
+                    {chip !== 'all'
+                      ? t('empty.filtered', { period: periodLabel })
+                      : didRead && period === null && selection.kind === 'week'
+                        ? t('empty.out_of_horizon')
+                        : t('empty.period', { period: periodLabel })}
                     {chip !== 'all' && (
                       <button
                         type="button"
@@ -700,13 +793,27 @@ export function RankingScoreboard({
                   >
                     {t('table.totals', { count: totals.rowCount })}
                   </th>
-                  <td className={`${NUM} ${EDGE}`} />
+                  {/* THE FOOTER TOTALS THE COLUMN THE SCREEN IS ABOUT. It used to leave `Pontos`
+                      and `Pts peso 2` EMPTY between five bold totals, so the comparison this
+                      screen exists to make — does the weight 2 change the total? — had no answer
+                      on it; and an empty cell under the column carrying the ink reads as zero on
+                      a table that spells absence `—` everywhere else (#741). The comparison keeps
+                      its grey: the total of a deferred weight is not the score
+                      (`DS-COMPONENTE-083` item 3). */}
+                  <td className={`${NUM} ${EDGE} font-bold text-gray-900 dark:text-white`}>
+                    {points(totals.pointsOfficial)}
+                  </td>
                   <td className={`${NUM} font-bold`}>{points(totals.triggerPointsFired)}</td>
                   <td className={`${NUM} font-bold`}>
                     {hasMeter ? points(totals.pointsFromMinutes) : UNKNOWN_VALUE}
                   </td>
+                  {/* The streak is a multiplier and a fraction of seven days: neither sums. */}
                   {isWeek && <td className={NUM} />}
-                  <td className={`${NUM} ${EDGE}`} />
+                  <td className={`${NUM} ${EDGE} ${DIM}`}>
+                    {points(totals.pointsNotableWeighted)}
+                  </td>
+                  {/* A permutation does not add up either: the deltas of a table sum to zero by
+                      construction, and a `0` there would look like a finding. */}
                   <td className={NUM} />
                   <td className={`${NUM} ${EDGE} font-bold`}>{minutes(totals.chargedMinutes)}</td>
                   <td className={`${NUM} font-bold`}>

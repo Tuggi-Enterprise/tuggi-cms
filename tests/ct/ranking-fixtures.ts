@@ -15,6 +15,17 @@ export const WEEK: PeriodOption = {
   end: '2026-09-07T00:00:00+00:00',
 }
 
+/**
+ * A week that STRADDLES the first row of the ledger: part of it has an instrument and part does
+ * not. It is the shape of `rolling_30d` today, which is this screen's default period — the state
+ * the screen used to flatten into `full` everywhere except the amber band (#741).
+ */
+export const WEEK_ACROSS_METER: PeriodOption = {
+  kind: 'week',
+  start: '2026-08-17T00:00:00+00:00',
+  end: '2026-08-24T00:00:00+00:00',
+}
+
 /** A week BEFORE 2026-08-18 20:41 UTC: the minute axis has no instrument in it. */
 export const WEEK_BEFORE_METER: PeriodOption = {
   kind: 'week',

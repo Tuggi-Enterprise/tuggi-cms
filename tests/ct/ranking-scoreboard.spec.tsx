@@ -19,7 +19,7 @@ import type { Page } from '@playwright/test'
 import AxeBuilder from '@axe-core/playwright'
 import { DashboardWrapper } from './helpers'
 import { RankingScoreboardHarness } from './ranking-helpers'
-import { ROWS, WEEK_BEFORE_METER, scrollingRows } from './ranking-fixtures'
+import { ROWS, WEEK_ACROSS_METER, WEEK_BEFORE_METER, scrollingRows } from './ranking-fixtures'
 import { UNKNOWN_VALUE } from '@/lib/format/unknown'
 import ptMessages from '@/messages/pt.json'
 import esMessages from '@/messages/es.json'
@@ -380,7 +380,7 @@ test('DS-COMPONENTE-084 item 1 · DS-COPY-062: a failed read prints `—` and co
   // The six indicators of a week — the five fixed ones plus the streak. Not one of them `0`,
   // and no subtitle either: `0 pts · 0 pts` is a reading of a reading.
   await expect(page.getByText(UNKNOWN_VALUE, { exact: true })).toHaveCount(6)
-  await expect(page.getByText('0 pts · 0 pts')).toHaveCount(0)
+  await expect(page.getByText('0 pts de disparo · 0 pts de minuto')).toHaveCount(0)
   await expect(page.getByText(RANKING.kpi.manual_listens_subtitle)).toHaveCount(0)
   await expect(page.getByText(RANKING.kpi.charged_without_trigger_subtitle)).toHaveCount(0)
 
@@ -412,7 +412,7 @@ test('DS-COMPONENTE-084 item 1: a read that answered nothing keeps its `0`, and 
 
   // Nobody scored in the week IS a measurement, and the indicators say so.
   await expect(page.getByRole('button', { name: `${RANKING.filters.all} 0`, exact: true })).toBeVisible()
-  await expect(page.getByText('0 pts · 0 pts')).toBeVisible()
+  await expect(page.getByText('0 pts de disparo · 0 pts de minuto')).toBeVisible()
   await expect(page.getByText(RANKING.kpi.manual_listens_subtitle)).toBeVisible()
 
   // The one dash a successful empty read prints: the ratio, whose denominator is zero
@@ -421,4 +421,142 @@ test('DS-COMPONENTE-084 item 1: a read that answered nothing keeps its `0`, and 
 
   // And the band still has a read to be a condition of.
   await expect(page.getByText(RANKING.internal.none_marked)).toBeVisible()
+})
+
+// ── The period the numbers belong to ──────────────────────────────────────────────────────
+
+/**
+ * #741 — THE SCREEN STAMPS WHAT THE QUERY ANSWERED.
+ *
+ * The `<select>` is the only place a period appeared, and a control the operator has just
+ * operated reads as *what I asked for*, never as *what I got*. `ScoreboardPayload.period` — the
+ * period the route actually served — was read nowhere on the screen.
+ */
+test('#741: the stamp above the cards prints the served period and how many accounts it holds', async ({
+  mount,
+  page,
+}) => {
+  await mount(
+    <DashboardWrapper>
+      <RankingScoreboardHarness />
+    </DashboardWrapper>
+  )
+
+  // Three accounts came back for the period; the switch is off and two of them render, which is
+  // exactly why the stamp counts the READ and the line below it says the indicators do not.
+  await expect(
+    page.getByText(
+      RANKING.period.stamp
+        .replace('{period}', 'Semana de 31/08 a 06/09 · UTC')
+        .replace(/\{count.*\}/, '3 contas no período')
+    )
+  ).toBeVisible()
+
+  await expect(page.getByText(RANKING.period.served_differs.slice(0, 12))).toHaveCount(0)
+})
+
+test('#741: a period other than the one asked for raises a band, and the stamp names the one served', async ({
+  mount,
+  page,
+}) => {
+  await mount(
+    <DashboardWrapper>
+      <RankingScoreboardHarness
+        periodLabel="Semana de 17/08 a 23/08 · UTC"
+        selection={{ kind: 'week', start: '2026-08-17T00:00:00+00:00' }}
+        served={{ period: { kind: 'rolling_30d', start: null }, label: 'Últimos 30 dias' }}
+      />
+    </DashboardWrapper>
+  )
+
+  // The route falls back silently on an unusable parameter; the screen is where that stops being
+  // silent — and the numbers below belong to the period it fell back to.
+  await expect(
+    page.getByText(
+      RANKING.period.served_differs
+        .replace('{pedido}', 'Semana de 17/08 a 23/08 · UTC')
+        .replace('{servido}', 'Últimos 30 dias')
+    )
+  ).toBeVisible()
+  await expect(page.getByText(/Últimos 30 dias · 3 contas no período/)).toBeVisible()
+})
+
+/**
+ * #741 — `partial` USED TO BE `full` IN EVERY NUMBER. `const hasMeter = coverage !== 'none'` is a
+ * two-answer question asked of a three-answer function, and the ratio is the number the operator
+ * uses to decide the weight of `0,03/min`.
+ */
+test('#741: with the meter covering only part of the window, the ratio card prints no fraction', async ({
+  mount,
+  page,
+}) => {
+  await mount(
+    <DashboardWrapper>
+      <RankingScoreboardHarness period={WEEK_ACROSS_METER} periodLabel="Semana de 17/08 a 23/08 · UTC" />
+    </DashboardWrapper>
+  )
+
+  await expect(page.getByText(RANKING.meter.partial)).toBeVisible()
+
+  // A ratio always ends in `: 1`, and dividing a numerator measured over the whole window by a
+  // denominator measured over part of it comes out high by the part that is missing.
+  await expect(page.getByText(/: 1$/)).toHaveCount(0)
+  // The subtitle is one text node with a deliberate break in it (`whitespace-pre-line`), so the
+  // sentence is matched inside it, and the two totals it would have divided come first.
+  await expect(page.getByText('52 pts de disparo · 4,29 pts de minuto')).toBeVisible()
+  await expect(page.getByText(RANKING.kpi.ratio_partial.split('\n')[1])).toBeVisible()
+})
+
+test('#741: the footer totals the two point columns, and leaves the two that do not sum empty', async ({
+  mount,
+  page,
+}) => {
+  await mount(
+    <DashboardWrapper>
+      <RankingScoreboardHarness />
+    </DashboardWrapper>
+  )
+
+  // 49,29 + 7 over the two rows the filter leaves: the answer to *does the weight 2 change the
+  // total?* (65 against 56,29) now exists on the screen that exists to ask it.
+  // The week has a streak column, so the cells are: Pontos, Disparos, Pts de minuto, Sequência,
+  // Pts peso 2, Δ vs. oficial, Cobrado, Intervalo, Diferença.
+  const cells = page.locator('tfoot td')
+  await expect(cells.nth(0)).toHaveText('56,29')
+  await expect(cells.nth(4)).toHaveText('65')
+
+  // The delta is a permutation of sum zero and the streak is a fraction of seven days.
+  await expect(cells.nth(3)).toHaveText('')
+  await expect(cells.nth(5)).toHaveText('')
+})
+
+/**
+ * #741 — A WEEK OUTSIDE THE HORIZON IS NOT AN EMPTY WEEK. The view serves the 13 most recent
+ * weeks and rolls every Monday; the URL is made to be pasted, so a link saved months ago lands
+ * here and got told *nobody scored* — a measurement over a period nobody looked at.
+ */
+test('#741: a week older than the horizon says so, instead of answering that nobody scored', async ({
+  mount,
+  page,
+}) => {
+  await mount(
+    <DashboardWrapper>
+      <RankingScoreboardHarness
+        rows={[]}
+        period={null}
+        periodLabel="Semana de 05/01 a 11/01 · UTC"
+        selection={{ kind: 'week', start: '2026-01-05T00:00:00+00:00' }}
+        served={{ period: { kind: 'week', start: '2026-01-05T00:00:00+00:00' }, label: 'Semana de 05/01 a 11/01 · UTC' }}
+      />
+    </DashboardWrapper>
+  )
+
+  await expect(page.getByText(RANKING.empty.out_of_horizon)).toBeVisible()
+  await expect(
+    page.getByText(RANKING.empty.period.replace('{period}', 'Semana de 05/01 a 11/01 · UTC'))
+  ).toHaveCount(0)
+
+  // And the meter is answered from the selection, which describes the week on its own: January
+  // is before the ledger, so the minute axis is unknown — not `full` for want of an option.
+  await expect(page.getByText(RANKING.meter.none)).toBeVisible()
 })

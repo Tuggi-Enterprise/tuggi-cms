@@ -169,6 +169,20 @@ export default function RankingReportPage() {
 
   const selectedLabel = label(period)
 
+  /**
+   * THE PERIOD THE QUERY SERVED, which is not always the one the operator asked for.
+   *
+   * The route parses the parameter with the same ruler the screen does and falls back silently on
+   * an unusable one (`parsePeriodParam`), then answers which period it settled on. This page read
+   * that field nowhere: it labelled every number by the period in STATE — the request — so a
+   * fallback, a stale response or a request still in flight all wore the label of the question.
+   * `payload.period` is the answer, and the scoreboard stamps the answer (#741).
+   */
+  const served = useMemo(
+    () => (payload ? { period: payload.period, label: label(payload.period) } : null),
+    [payload, label]
+  )
+
   const openSessions = (row: { user_id: string; nickname: string | null }) => {
     setPersonFilter({ userId: row.user_id, label: appUserLabel(row) })
     setTab('metering')
@@ -263,6 +277,8 @@ export default function RankingReportPage() {
           rows={payload?.rows ?? []}
           period={selected}
           periodLabel={selectedLabel}
+          selection={period}
+          served={served}
           includeInternal={includeInternal}
           internalAccounts={payload?.internalAccounts ?? 0}
           isLoading={isLoadingScoreboard}

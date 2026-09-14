@@ -406,7 +406,9 @@
           "rolling_30d": "Últimos 30 días",
           "rolling_90d": "Últimos 90 días",
           "week": "Semana del {start} al {end} · UTC",
-          "week_current": "Semana del {start} al {end} (actual) · UTC"
+          "week_current": "Semana del {start} al {end} (actual) · UTC",
+          "stamp": "{period} · {count, plural, one {# cuenta en el período} other {# cuentas en el período}}",
+          "served_differs": "Pediste {pedido}. La consulta respondió {servido} — los números de abajo son del período que la consulta sirvió."
         },
         "internal": {
           "toggle": "Incluir cuentas internas",
@@ -419,7 +421,8 @@
           "accounts_scored": "Cuentas que puntuaron",
           "platform_unknown": "{count} sin plataforma",
           "ratio": "Disparo ÷ minuto",
-          "ratio_subtitle": "{triggers} pts · {minutes} pts",
+          "ratio_subtitle": "{triggers} pts de disparo · {minutes} pts de minuto",
+          "ratio_partial": "{triggers} pts de disparo · {minutes} pts de minuto\nEl medidor solo cubre parte de la ventana — la razón mezclaría dos ventanas.",
           "streak": "Racha de 7 días",
           "accounts": "{count, plural, one {# cuenta} other {# cuentas}}",
           "streak_subtitle": "máximo en el período: {days} de 7 días",
@@ -494,6 +497,7 @@
         },
         "empty": {
           "period": "Nadie puntuó en {period}.",
+          "out_of_horizon": "Esta semana está fuera del horizonte de la consulta: el marcador sirve las 13 semanas más recientes. Elige una semana de la lista.",
           "filtered": "Ninguna cuenta en este filtro en {period}.",
           "clear": "limpiar el filtro",
           "sessions": "Ninguna sesión en el horizonte de 13 semanas."

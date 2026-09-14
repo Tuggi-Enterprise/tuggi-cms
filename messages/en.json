@@ -417,7 +417,9 @@
           "rolling_30d": "Last 30 days",
           "rolling_90d": "Last 90 days",
           "week": "Week of {start} to {end} · UTC",
-          "week_current": "Week of {start} to {end} (current) · UTC"
+          "week_current": "Week of {start} to {end} (current) · UTC",
+          "stamp": "{period} · {count, plural, one {# account in the period} other {# accounts in the period}}",
+          "served_differs": "You asked for {pedido}. The query answered {servido} — the numbers below are the period the query served."
         },
         "internal": {
           "toggle": "Include internal accounts",
@@ -430,7 +432,8 @@
           "accounts_scored": "Accounts that scored",
           "platform_unknown": "{count} with no platform",
           "ratio": "Trigger ÷ minute",
-          "ratio_subtitle": "{triggers} pts · {minutes} pts",
+          "ratio_subtitle": "{triggers} pts from triggers · {minutes} pts from minutes",
+          "ratio_partial": "{triggers} pts from triggers · {minutes} pts from minutes\nThe meter covers only part of the window — the ratio would mix two windows.",
           "streak": "7-day streak",
           "accounts": "{count, plural, one {# account} other {# accounts}}",
           "streak_subtitle": "highest in the period: {days} of 7 days",
@@ -505,6 +508,7 @@
         },
         "empty": {
           "period": "Nobody scored in {period}.",
+          "out_of_horizon": "This week is outside the query's horizon: the scoreboard serves the 13 most recent weeks. Pick a week from the list.",
           "filtered": "No account in this filter in {period}.",
           "clear": "clear the filter",
           "sessions": "No session in the 13-week horizon."
