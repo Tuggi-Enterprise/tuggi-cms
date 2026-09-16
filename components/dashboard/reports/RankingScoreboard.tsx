@@ -80,7 +80,6 @@ import { RankSeal } from '@/components/ui/RankSeal'
 import { formatDuration, formatSignedDuration } from '@/lib/format/duration'
 import { UNKNOWN_VALUE } from '@/lib/format/unknown'
 import { appUserLabel } from '@/lib/format/user-identity'
-import { RankingKmCalibration } from '@/components/dashboard/reports/RankingKmCalibration'
 import { ENTITLEMENT_LEDGER_START, kmCoverage, meteringCoverage } from '@/lib/ranking/metering'
 import {
   PODIUM_POINTS_FLOOR,
@@ -97,7 +96,6 @@ import {
   rankSeal,
   summarize,
   visibleRows,
-  type KmCalibrationSeries,
   type PeriodOption,
   type PeriodSelection,
   type RankingRow,
@@ -127,8 +125,6 @@ type ChipKey = 'all' | 'scored' | 'charged_without_trigger'
 export interface RankingScoreboardProps {
   /** Rows of EXACTLY one period — the route filtered them, and nothing here re-filters by period. */
   rows: RankingRow[]
-  /** The 13 weeks of the calibration panel — the SAME series whatever period is selected (§3.2). */
-  calibration: KmCalibrationSeries
   period: PeriodOption | null
   /** The label of the selected period, as the `<select>` prints it. Used by empty and by banners. */
   periodLabel: string
@@ -162,13 +158,10 @@ export interface RankingScoreboardProps {
   error: RpcError | null
   onRetry: () => void
   onOpenSessions: (row: RankingRow) => void
-  /** Clicking a week of the calibration panel selects it in the `<select>` and in the URL (§9, 36). */
-  onSelectWeek: (start: string) => void
 }
 
 export function RankingScoreboard({
   rows,
-  calibration,
   period,
   periodLabel,
   selection,
@@ -179,7 +172,6 @@ export function RankingScoreboard({
   error,
   onRetry,
   onOpenSessions,
-  onSelectWeek,
 }: RankingScoreboardProps) {
   const t = useTranslations('Pages.Dashboard.ranking')
   const locale = useLocale()
@@ -483,8 +475,9 @@ export function RankingScoreboard({
             )}
             /* THE TWO TOTALS ALWAYS PRINT; THE FRACTION DOES NOT — `DS-COMPONENTE-084` item 2
                forbids the fraction, never the totals. Under partial or floor coverage the km
-               side carries the floor word, which is the same one the calibration panel tags a
-               floor week with (`DS-COPY-062` item 4: one caveat, one redaction). */
+               side carries the floor word — `calibration.floor`, whose only consumer this became
+               when the panel of §3.2 left the screen (§11.1). The key survived the removal of its
+               namespace precisely because this `subtitle` and the cell mark still say `(piso)`. */
             subtitle={note(
               t('kpi.ratio_subtitle', {
                 triggers: points(summary.pointsFromTriggers),
@@ -602,15 +595,6 @@ export function RankingScoreboard({
             {t('error.retry')}
           </button>
         </div>
-      )}
-
-      {/* THE SERIES SITS BETWEEN THE INDICATORS AND THE TABLE, AND IT DOES NOT FOLLOW THE PERIOD:
-          it is always the 13 weeks of the horizon, because the question it answers — *is 0,11
-          calibrated?* — is about the axis and not about the week the operator happens to be
-          reading (spec §3.2, §9 critério 31). It costs no second read: the route aggregated it
-          from the rows of the single read. */}
-      {didRead && !isLoading && (
-        <RankingKmCalibration series={calibration} onSelectWeek={onSelectWeek} />
       )}
 
       <section className="overflow-hidden rounded-3xl border border-gray-200 bg-white/70 shadow-2xl shadow-black/5 backdrop-blur-xl dark:border-gray-800 dark:bg-gray-900/70">

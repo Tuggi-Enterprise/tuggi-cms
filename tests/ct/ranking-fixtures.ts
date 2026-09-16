@@ -6,7 +6,7 @@
  * and `finance-fixtures.ts` already use.
  */
 
-import { kmCalibrationSeries, type PeriodOption, type RankingRow } from '@/lib/ranking/scoreboard'
+import type { PeriodOption, RankingRow } from '@/lib/ranking/scoreboard'
 
 /** A week of the meter's era. Three accounts, one of them marked as internal. */
 export const WEEK: PeriodOption = {
@@ -157,7 +157,7 @@ export function scrollingRows(total = 31): RankingRow[] {
 }
 
 /* ------------------------------------------------------------------------------------------- *
- * #742 — THE TWO COMPOSED CYCLES AND THE CALIBRATION SERIES.
+ * #742 — THE TWO COMPOSED CYCLES.
  * ------------------------------------------------------------------------------------------- */
 
 /** September 2026, a full calendar month — `[1st, 1st of October)`, UTC (**BR-RANKING-005**). */
@@ -229,74 +229,64 @@ export const YEAR_ROWS: RankingRow[] = MONTH_ROWS.map((entry) => ({
   podium_components: entry.podium_components === null ? null : 2,
 }))
 
-/**
- * THE 13 WEEKS OF THE HORIZON, AND EIGHT OF THEM ARE BELOW THE KM BOUNDARY — the same 8/13 split
- * production has (contract, Parte 7; spec §7.7). The horizon starts on Monday 2026-06-22, so the
- * week of 10/08 straddles `ENTITLEMENT_LEDGER_START` (13/08) and the five from 17/08 on are the
- * measured ones.
- */
-const HORIZON_START = Date.UTC(2026, 5, 22)
-const WEEK_MS = 7 * 86_400_000
-
-export const CALIBRATION_WEEKS = Array.from({ length: 13 }, (_, index) => ({
-  start: new Date(HORIZON_START + index * WEEK_MS).toISOString(),
-  end: new Date(HORIZON_START + (index + 1) * WEEK_MS).toISOString(),
-}))
-
-/** The week where the km axis HANDS FIRST PLACE to somebody who delivered less history. */
-export const FLIPPED_WEEK_INDEX = 10
+/* ------------------------------------------------------------------------------------------- *
+ * #742 · §11 — THE SHAPE THE OPERATOR ACTUALLY MET, AND THE REASON THE SCREEN WAS REDESIGNED.
+ * ------------------------------------------------------------------------------------------- */
 
 /**
- * Two accounts per week plus the internal one — and the internal one holds a thousand points on
- * purpose: the panel is an aggregate, aggregates never follow the switch (spec §2.2), so if it
- * ever did, every share in the series would move at once.
+ * SIXTEEN ACCOUNTS, ELEVEN OF THEM ZERO IN EVERY CELL — the reading of the current week in
+ * production on 2026-09-16, and the measurement §11 opens with.
+ *
+ * It is a fixture of its own and not `scrollingRows`, because the defect it exists to measure is
+ * not the scroll: it is that the five rows that ARE the scoreboard sit under eleven that are not,
+ * and that the chip `Todas` was the default. A fixture where every row scores cannot fail the
+ * geometric criterion, and cannot show a dimmed row either.
  */
-export function calibrationRows(): RankingRow[] {
-  return CALIBRATION_WEEKS.flatMap((week, index) => {
-    const flips = index === FLIPPED_WEEK_INDEX
-    const base = {
-      period_kind: 'week' as const,
-      period_start: week.start,
-      period_end: week.end,
-    }
-
-    return [
-      row({
-        ...base,
-        trigger_points_fired: 10,
-        points_from_triggers: 10,
-        points_from_km: flips ? 2 : 6,
-        points_official: flips ? 12 : 16,
-        rank_official: flips ? 2 : 1,
-        rank_excluding_internal: flips ? 2 : 1,
-      }),
-      row({
-        ...base,
-        user_id: '22222222-2222-4222-8222-222222222222',
-        nickname: 'quiet-tapir',
-        platform: 'android',
-        trigger_points_fired: 8,
-        points_from_triggers: 8,
-        points_from_km: flips ? 5 : 1,
-        points_official: flips ? 13 : 9,
-        rank_official: flips ? 1 : 2,
-        rank_excluding_internal: flips ? 1 : 2,
-      }),
-      row({
-        ...base,
-        user_id: '99999999-9999-4999-8999-999999999999',
-        nickname: 'tuggi-operator',
-        excluded_from_metrics: true,
-        trigger_points_fired: 500,
-        points_from_triggers: 500,
-        points_from_km: 500,
-        points_official: 1000,
-        rank_official: 1,
-        rank_excluding_internal: null,
-      }),
-    ]
-  })
-}
-
-/** The series exactly as the route builds it — the real function, never a hand-written literal. */
-export const CALIBRATION = kmCalibrationSeries(calibrationRows())
+export const FIELD_ROWS: RankingRow[] = [
+  ...Array.from({ length: 5 }, (_, index) =>
+    row({
+      user_id: `${String(index + 1).padStart(8, '0')}-2222-4222-8222-222222222222`,
+      nickname: `scorer-${index + 1}`,
+      platform: index % 2 === 0 ? 'ios' : 'android',
+      top_country_code: index % 2 === 0 ? 'BR' : 'PT',
+      trigger_points_fired: 45 - index * 8,
+      points_from_triggers: 45 - index * 8,
+      km_with_entitlement: 39 - index * 6,
+      points_from_km: Number(((39 - index * 6) * 0.11).toFixed(2)),
+      points_official: Number((45 - index * 8 + (39 - index * 6) * 0.11).toFixed(2)),
+      rank_official: index + 1,
+      rank_excluding_internal: index + 1,
+      points_notable_weighted: 57 - index * 9,
+      rank_notable_weighted: index === 0 ? 2 : index === 1 ? 1 : index + 1,
+      story_days: 4 - index,
+    })
+  ),
+  ...Array.from({ length: 11 }, (_, index) =>
+    row({
+      user_id: `${String(index + 6).padStart(8, '0')}-3333-4333-8333-333333333333`,
+      nickname: `silent-${index + 1}`,
+      platform: null,
+      top_country_code: null,
+      trigger_points_fired: 0,
+      trigger_points_notable: 0,
+      visits_indeterminate: 0,
+      visits_manual: 0,
+      charged_minutes: 0,
+      story_days: 0,
+      has_full_week_streak: false,
+      streak_multiplier: 1,
+      points_from_triggers: 0,
+      km_with_entitlement: 0,
+      points_from_km: 0,
+      points_official: 0,
+      rank_official: index + 6,
+      rank_excluding_internal: index + 6,
+      points_notable_weighted: 0,
+      rank_notable_weighted: index + 6,
+      trail_span_minutes: 0,
+      metering_gap_minutes: 0,
+      sessions_with_trail: 0,
+      sessions_charged: 0,
+    })
+  ),
+]

@@ -39,14 +39,12 @@ import {
   formatMonthOfCycle,
   hasAnchoredStart,
   isComposedCycle,
-  kmCalibrationSeries,
   parsePeriodKey,
   parsePeriodParam,
   periodKey,
   periodNature,
   periodOfSelection,
   sealCycle,
-  winnerWithoutKm,
   yearOfCycle,
   type PeriodKind,
   type PeriodSelection,
@@ -61,7 +59,6 @@ const messages = (locale: string) =>
 const LOCALES = ['pt', 'en', 'es'] as const
 
 const SCOREBOARD = 'components/dashboard/reports/RankingScoreboard.tsx'
-const PANEL = 'components/dashboard/reports/RankingKmCalibration.tsx'
 const PAGE = 'app/[locale]/dashboard/reports/ranking/page.tsx'
 const ROUTE = 'app/api/dashboard/ranking/route.ts'
 
@@ -338,11 +335,6 @@ test('#742 · BR-RANKING-005: the composed cycles get their own head, row and fo
   // The route reads column 31 rather than deriving it: deriving would cost a second read of a
   // ~2,8 s view and a second podium ruler in the browser (spec §10 item 2, CLAUDE.md §6).
   assert.match(source(ROUTE), /'podium_components'/)
-  assert.equal(
-    /points_official >= PODIUM_POINTS_FLOOR/.test(source(PANEL)),
-    false,
-    'the podium ruler does not get a second home in the browser'
-  )
 })
 
 /**
@@ -435,9 +427,6 @@ test('#742 · DS-COMPONENTE-084 item 1: the km boundary is five days older than 
     false,
     'nor is the kilometre of the expanded row'
   )
-  // The panel knows only the km boundary; the minute one does not reach it at all.
-  assert.equal(source(PANEL).includes('meteringCoverage'), false)
-
   // And the two functions are two callers of one body, not two copies of the comparison.
   const metering = source('lib/ranking/metering.ts')
   assert.equal((metering.match(/if \(end <= boundary\) return 'none'/g) ?? []).length, 1)
@@ -469,208 +458,6 @@ test('#742 · DS-COMPONENTE-084 item 1: the km bands carry `{date}`, never a dat
   const component = source(SCOREBOARD)
   assert.match(component, /kmCov === 'none' \? 'meter\.km_floor' : 'meter\.km_partial'/)
   assert.match(component, /format\(new Date\(ENTITLEMENT_LEDGER_START\)\)/)
-})
-
-// ── The calibration panel ──────────────────────────────────────────────────────────────────
-
-/** Thirteen ISO weeks from Monday 2026-06-22 — the same 8/13 floor split production has. */
-const HORIZON_START = Date.UTC(2026, 5, 22)
-const WEEK_MS = 7 * 86_400_000
-const weekAt = (index: number) => ({
-  period_start: new Date(HORIZON_START + index * WEEK_MS).toISOString(),
-  period_end: new Date(HORIZON_START + (index + 1) * WEEK_MS).toISOString(),
-})
-
-/**
- * #742 · DS-COMPONENTE-083 item 2 — WHO WOULD HAVE WON WITHOUT THE KM (criterion 35).
- *
- * The same rows, the same population, one term removed: `points_from_triggers × streak_multiplier`
- * is the official formula of **BR-RANKING-004** without the kilometre. It is not a second
- * scoreboard and it recomputes no score — comparing two orders of one population is what
- * `DS-COMPONENTE-083` item 2 demands of any comparison on this screen.
- */
-test('#742 · DS-COMPONENTE-083 item 2: `1º sem o km` answers `=`, a name, or nothing at all', () => {
-  const alice = { user_id: 'a', nickname: 'hoppy-otter' }
-  const bob = { user_id: 'b', nickname: 'quiet-tapir' }
-
-  // The km does not move first place: the same account leads both orders.
-  assert.deepEqual(
-    winnerWithoutKm([
-      row({ ...alice, points_from_triggers: 10, points_from_km: 6, points_official: 16 }),
-      row({ ...bob, points_from_triggers: 8, points_from_km: 1, points_official: 9 }),
-    ]),
-    { outcome: 'unchanged' }
-  )
-
-  // The km HANDS first place to somebody who delivered less history — the case the whole panel
-  // exists for: it happened in 2 of the 11 weeks with a winner.
-  assert.deepEqual(
-    winnerWithoutKm([
-      row({ ...alice, points_from_triggers: 10, points_from_km: 2, points_official: 12 }),
-      row({ ...bob, points_from_triggers: 8, points_from_km: 5, points_official: 13 }),
-    ]),
-    { outcome: 'changed', user_id: 'a', nickname: 'hoppy-otter' }
-  )
-
-  // A TIE AT THE TOP OF EITHER SIDE HAS NO ANSWER. Two first places have no "who would win".
-  assert.deepEqual(
-    winnerWithoutKm([
-      row({ ...alice, points_from_triggers: 10, points_from_km: 1, points_official: 11 }),
-      row({ ...bob, points_from_triggers: 10, points_from_km: 1, points_official: 11 }),
-    ]),
-    { outcome: 'unknown' },
-    'tied officially'
-  )
-  assert.deepEqual(
-    winnerWithoutKm([
-      row({ ...alice, points_from_triggers: 9, points_from_km: 3, points_official: 12 }),
-      row({ ...bob, points_from_triggers: 9, points_from_km: 1, points_official: 10 }),
-    ]),
-    { outcome: 'unknown' },
-    'tied without the km'
-  )
-
-  // NOBODY SCORED: since `20260916120000` the week ranks the whole roster with the zeros tied at
-  // the end, so a zero must never be read as a leader (**BR-RANKING-001**).
-  assert.deepEqual(
-    winnerWithoutKm([
-      row({ ...alice, points_from_triggers: 0, points_from_km: 0, points_official: 0 }),
-      row({ ...bob, points_from_triggers: 0, points_from_km: 0, points_official: 0 }),
-    ]),
-    { outcome: 'unknown' }
-  )
-
-  // The streak multiplier is INSIDE the counterfactual, because it is inside the formula: an
-  // account with fewer triggers and a full week can lead the order without the km.
-  assert.deepEqual(
-    winnerWithoutKm([
-      row({ ...alice, points_from_triggers: 10, points_from_km: 10, streak_multiplier: 1, points_official: 20 }),
-      row({
-        ...bob,
-        points_from_triggers: 8,
-        points_from_km: 0,
-        has_full_week_streak: true,
-        streak_multiplier: 1.5,
-        points_official: 12,
-      }),
-    ]),
-    { outcome: 'changed', user_id: 'b', nickname: 'quiet-tapir' }
-  )
-})
-
-/**
- * #742 · DS-COMPONENTE-084 item 2 — THE SERIES, THE FLOOR WEEKS AND THE FOOTER (criteria 32, 33
- * and 34).
- *
- * **The footer does NOT match the 25,6 % of the contract, and that is the correct behaviour**: the
- * contract measures the 13 weeks, the footer measures the ones with an instrument, and eight of
- * the thirteen are below the boundary. The test states the rule of composition, never the number
- * — whoever tests it against the contract's figure opens a ticket against correct behaviour.
- */
-test('#742 · DS-COMPONENTE-084 item 2: the panel floors eight weeks and totals only the five with an instrument', () => {
-  const rows: RankingRow[] = Array.from({ length: 13 }, (_, index) => [
-    row({
-      ...weekAt(index),
-      user_id: 'a',
-      nickname: 'hoppy-otter',
-      points_from_triggers: 10,
-      // A FLOOR WEEK UNDERCOUNTS THE KM BY CONSTRUCTION — with no grant ledger the only access
-      // readable in the past is the subscription in force today, 12,8 % of the profiles. It is
-      // exactly that undercount that makes a 13-week average a number that happened in no week.
-      points_from_km: index < 8 ? 1 : 6,
-      points_official: index < 8 ? 11 : 16,
-    }),
-    row({
-      ...weekAt(index),
-      user_id: 'b',
-      nickname: 'quiet-tapir',
-      points_from_triggers: 8,
-      points_from_km: index < 8 ? 0 : 1,
-      points_official: index < 8 ? 8 : 9,
-    }),
-    // THE INTERNAL ACCOUNT, holding a hundred times the points of the other two: the panel is an
-    // aggregate, and an aggregate never follows the switch (spec §2.2, contract Parte 7). If it
-    // ever did, every share in the series would move at once.
-    row({
-      ...weekAt(index),
-      user_id: 'z',
-      nickname: 'tuggi-operator',
-      excluded_from_metrics: true,
-      points_from_triggers: 1000,
-      points_from_km: 1000,
-      points_official: 2000,
-    }),
-  ]).flat()
-
-  const series = kmCalibrationSeries(rows)
-
-  assert.equal(series.weeks.length, 13, 'the whole horizon, whatever period is selected')
-  assert.equal(series.weeks.filter((week) => week.isFloor).length, 8)
-  assert.equal(series.measuredWeeks, 5)
-
-  // Chronological, oldest first: the panel is read as time passing, and the instrument appears
-  // partway through it.
-  assert.deepEqual(
-    [...series.weeks].map((week) => week.start),
-    [...series.weeks].map((week) => week.start).sort((left, right) => left.localeCompare(right))
-  )
-
-  const floored = series.weeks[0]
-  assert.equal(floored.isFloor, true)
-  assert.equal(floored.kmShare, null, 'a share over partial coverage is a number with no referent')
-  assert.deepEqual(floored.winnerWithoutKm, { outcome: 'unknown' }, 'and neither does the winner')
-  // The VALUE still prints: the instrument is incomplete, not absent — *at least this*, never
-  // *I do not know* (`DS-COMPONENTE-084` item 1, cláusula de 2026-09-16).
-  assert.equal(floored.pointsFromKm, 1, 'the floor value prints, and it is smaller than the truth')
-
-  const measured = series.weeks[12]
-  assert.equal(measured.isFloor, false)
-  assert.equal(measured.kmShare, 7 / 25)
-  assert.deepEqual(measured.winnerWithoutKm, { outcome: 'unchanged' })
-
-  // THE FOOTER IS THE FIVE MEASURED WEEKS AND NOTHING ELSE — the rule, not the number.
-  assert.equal(series.pointsFromTriggers, 5 * 18)
-  assert.equal(series.pointsFromKm, 5 * 7)
-  assert.equal(series.kmShare, 35 / 125)
-  assert.notEqual(
-    series.kmShare,
-    series.weeks.reduce((total, week) => total + week.pointsFromKm, 0) /
-      series.weeks.reduce((total, week) => total + week.pointsFromKm + week.pointsFromTriggers, 0),
-    'the footer is NOT the average over the 13 weeks, and that is the point'
-  )
-
-  // The internal account is out in both states, because the panel never sees the switch at all.
-  assert.equal(source(PANEL).includes('includeInternal'), false)
-  assert.match(source('lib/ranking/scoreboard.ts'), /aggregateRows\(rows\.filter\(\(row\) => row\.period_kind === 'week'\)\)/)
-})
-
-/**
- * #742 — ONE READ PER SCREEN LOAD, AND THE SERIES COMES OUT OF IT (criterion 31).
- *
- * The view costs ~2,8 s against a `statement_timeout` of 8 s that `service_role` does not override
- * (contract, Parte 7), and the first read of a session with a cold buffer measured 4.043 ms. A
- * second request for the panel would double that on every load.
- */
-test('#742: the calibration series is aggregated in the route, on the rows of the single read', () => {
-  const route = source(ROUTE)
-
-  assert.equal(
-    (route.match(/\.from\('ranking_scoreboard'\)/g) ?? []).length,
-    1,
-    'one read of the view per screen load, never two'
-  )
-  assert.match(route, /calibration: kmCalibrationSeries\(rows\)/)
-
-  // And the browser never asks for it: the panel takes the series as a prop and owns no fetch.
-  const panel = source(PANEL)
-  assert.equal(panel.includes('fetch('), false)
-  assert.equal(panel.includes('rankingService'), false)
-
-  // Clicking a week is a PERIOD CHANGE and goes through the same two places every other one does
-  // — the state the `<select>` reads and the URL (criterion 36).
-  const page = source(PAGE)
-  assert.match(page, /const selectWeek = \(start: string\) => \{/)
-  assert.match(page, /setPeriod\(next\)\s*\n\s*syncUrl\(\{ tab, period: next \}\)/)
 })
 
 // ── The copy ───────────────────────────────────────────────────────────────────────────────

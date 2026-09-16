@@ -51,20 +51,6 @@ import { UNKNOWN_VALUE } from '@/lib/format/unknown'
 
 type Tab = 'scoreboard' | 'metering'
 
-/**
- * The series of a read that has not landed — or has failed. It is a CONSTANT and not `?? {…}`
- * inline because a fresh object on every render would remount the panel; and it is empty rather
- * than zeroed because the panel's own guard is `weeks.length === 0` (a footer reading
- * `0 semanas com instrumento` would assert a measurement nobody made).
- */
-const EMPTY_CALIBRATION = {
-  weeks: [],
-  measuredWeeks: 0,
-  pointsFromTriggers: 0,
-  pointsFromKm: 0,
-  kmShare: null,
-}
-
 export default function RankingReportPage() {
   const t = useTranslations('Pages.Dashboard')
   const tr = useTranslations('Pages.Dashboard.ranking')
@@ -235,19 +221,6 @@ export default function RankingReportPage() {
     [payload, label]
   )
 
-  /**
-   * A WEEK OF THE CALIBRATION PANEL BECOMES THE SELECTED PERIOD — spec §9, critério 36.
-   *
-   * It goes through the SAME two places every other period change goes through — the state the
-   * `<select>` reads and the URL — so the panel cannot become a third way of choosing a period
-   * that the address bar does not know about.
-   */
-  const selectWeek = (start: string) => {
-    const next: PeriodSelection = { kind: 'week', start }
-    setPeriod(next)
-    syncUrl({ tab, period: next })
-  }
-
   const openSessions = (row: { user_id: string; nickname: string | null }) => {
     setPersonFilter({ userId: row.user_id, label: appUserLabel(row) })
     setTab('metering')
@@ -350,9 +323,6 @@ export default function RankingReportPage() {
       {tab === 'scoreboard' ? (
         <RankingScoreboard
           rows={payload?.rows ?? []}
-          /* EMPTY IS NOT ZERO HERE EITHER: with no read there is no series, and the panel refuses
-             to render rather than printing a footer that counts weeks nobody measured. */
-          calibration={payload?.calibration ?? EMPTY_CALIBRATION}
           period={selected}
           periodLabel={selectedLabel}
           selection={period}
@@ -363,7 +333,6 @@ export default function RankingReportPage() {
           error={scoreboardError}
           onRetry={() => setReloadToken((token) => token + 1)}
           onOpenSessions={openSessions}
-          onSelectWeek={selectWeek}
         />
       ) : (
         <RankingSessionMetering

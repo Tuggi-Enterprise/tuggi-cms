@@ -9,33 +9,18 @@
  */
 
 import { useState } from 'react'
+import { useTranslations } from 'next-intl'
+import { Gauge, Trophy } from 'lucide-react'
+import { ReportTabs } from '@/components/dashboard/ReportTabs'
 import { RankingScoreboard } from '@/components/dashboard/reports/RankingScoreboard'
 import type { RpcError } from '@/lib/api/dashboard-fetch'
 import { hasAnchoredStart } from '@/lib/ranking/scoreboard'
 import type {
-  KmCalibrationSeries,
   PeriodOption,
   PeriodSelection,
   RankingRow,
 } from '@/lib/ranking/scoreboard'
-import { ROWS, WEEK } from './ranking-fixtures'
-
-/**
- * NO PANEL UNLESS THE TEST ASKS FOR ONE — and that is a decision about the bench, not a shortcut.
- *
- * Since #742 the screen carries TWO dense tables, and the calibration panel renders FIRST: a bare
- * `table`, `tbody tr` or `.custom-scrollbar` in a spec about the scoreboard would reach the panel
- * instead. The harness therefore hands down an EMPTY series by default — the panel's own guard is
- * `weeks.length === 0` — so `ranking-scoreboard.spec.tsx` keeps measuring the table it is about,
- * and `ranking-cycles.spec.tsx` passes `CALIBRATION` explicitly to measure the panel.
- */
-const NO_CALIBRATION: KmCalibrationSeries = {
-  weeks: [],
-  measuredWeeks: 0,
-  pointsFromTriggers: 0,
-  pointsFromKm: 0,
-  kmShare: null,
-}
+import { FIELD_ROWS, ROWS, WEEK } from './ranking-fixtures'
 
 const WEEK_LABEL = 'Semana de 31/08 a 06/09 · UTC'
 
@@ -48,7 +33,6 @@ function selectionOf(period: PeriodOption): PeriodSelection {
 
 export function RankingScoreboardHarness({
   rows = ROWS,
-  calibration = NO_CALIBRATION,
   period = WEEK,
   /** What the operator ASKED for. Defaults to the selection the served option came from. */
   selection,
@@ -60,7 +44,6 @@ export function RankingScoreboardHarness({
   error = null,
 }: {
   rows?: RankingRow[]
-  calibration?: KmCalibrationSeries
   /** `null` is the week older than the 13-week horizon: the reading has no option for it. */
   period?: PeriodOption | null
   selection?: PeriodSelection
@@ -73,13 +56,6 @@ export function RankingScoreboardHarness({
 }) {
   /** The page's initial state, reproduced: the switch is born OFF. */
   const [includeInternal, setIncludeInternal] = useState(false)
-
-  /**
-   * The week the panel asked for, held HERE because the page holds it: clicking a week of the
-   * calibration panel is a period change, and the assertion of critério 36 is that the selection
-   * travels — not that a prop was called. Playwright reads it out of the DOM.
-   */
-  const [selectedWeek, setSelectedWeek] = useState<string | null>(null)
 
   const asked = selection ?? selectionOf(period ?? WEEK)
   const answered =
@@ -96,10 +72,8 @@ export function RankingScoreboardHarness({
         />
         Incluir contas internas
       </label>
-      <span data-testid="selected-week">{selectedWeek ?? ''}</span>
       <RankingScoreboard
         rows={rows}
-        calibration={calibration}
         period={period}
         periodLabel={periodLabel}
         selection={asked}
@@ -110,7 +84,103 @@ export function RankingScoreboardHarness({
         error={error}
         onRetry={() => {}}
         onOpenSessions={() => {}}
-        onSelectWeek={setSelectedWeek}
+      />
+    </div>
+  )
+}
+
+/**
+ * THE WHOLE PAGE, AS THE OPERATOR MEETS IT — the bench of §11's single criterion.
+ *
+ * The criterion is geometric (`getBoundingClientRect().bottom ≤ 900` at 1440 × 900) and geometry
+ * is a property of the PAGE, not of the scoreboard: the header, the tabs row and the period
+ * control are above every pixel the criterion counts, so measuring `RankingScoreboard` alone
+ * would answer a question nobody asked. There is no page navigation to be had here —
+ * `playwright-ct.config.ts` says why — so this reproduces the frame of
+ * `app/[locale]/dashboard/reports/ranking/page.tsx`: the same wrapper classes, the same `h1`, the
+ * same `ReportTabs`, the same `<select>` and the same switch.
+ *
+ * IT IS A REPRODUCTION, AND THAT IS ITS ONE WEAKNESS. The four classes §11.2 changed in the page
+ * — `space-y-4`, `p-6`, `text-lg`, `h-5 w-5` — are pinned against the page's own source in
+ * `tests/api/ranking-surface.test.ts`, so the frame cannot drift here while the page keeps the
+ * old one and the measurement keeps going green.
+ */
+export function RankingPageHarness({
+  rows = FIELD_ROWS,
+  period = WEEK,
+  periodLabel = WEEK_LABEL,
+  internalAccounts = 0,
+}: {
+  rows?: RankingRow[]
+  period?: PeriodOption | null
+  periodLabel?: string
+  internalAccounts?: number
+}) {
+  const t = useTranslations('Pages.Dashboard')
+  const tr = useTranslations('Pages.Dashboard.ranking')
+  const [includeInternal, setIncludeInternal] = useState(false)
+
+  const asked = selectionOf(period ?? WEEK)
+  const served = { period: asked, label: periodLabel }
+
+  return (
+    <div className="cms-width p-6 lg:p-8 space-y-6 min-h-screen bg-gray-50">
+      <div>
+        <h1 className="text-2xl font-bold text-gray-900 flex items-center">
+          <Trophy className="mr-3 h-8 w-8 text-tuggi-purple" />
+          {t('reports.ranking.title')}
+        </h1>
+        <p className="text-gray-500">{t('reports.ranking.subtitle')}</p>
+      </div>
+
+      <div className="flex flex-wrap items-center gap-4">
+        <ReportTabs
+          tabs={[
+            { key: 'scoreboard', label: tr('tabs.scoreboard'), icon: Trophy },
+            { key: 'metering', label: tr('tabs.metering'), icon: Gauge },
+          ]}
+          active="scoreboard"
+          onChange={() => {}}
+        />
+        <div className="ml-auto flex flex-wrap items-center gap-4">
+          <label className="flex items-center gap-2 text-[11px] font-medium text-gray-600">
+            {tr('period.label')}
+            <select
+              value="scoreboard"
+              onChange={() => {}}
+              className="min-h-[28px] rounded-lg border border-gray-300 bg-white px-2 py-1 text-xs text-gray-900"
+            >
+              <option value="scoreboard">{periodLabel}</option>
+            </select>
+          </label>
+          <label className="flex items-center gap-2 text-[11px] font-medium text-gray-600">
+            <input
+              type="checkbox"
+              data-testid="include-internal"
+              checked={includeInternal}
+              onChange={(event) => setIncludeInternal(event.target.checked)}
+              className="h-4 w-4 rounded border-gray-300"
+            />
+            {tr('internal.toggle')}
+            <span className="text-gray-500">
+              {tr('internal.marked', { count: internalAccounts })}
+            </span>
+          </label>
+        </div>
+      </div>
+
+      <RankingScoreboard
+        rows={rows}
+        period={period}
+        periodLabel={periodLabel}
+        selection={asked}
+        served={served}
+        includeInternal={includeInternal}
+        internalAccounts={internalAccounts}
+        isLoading={false}
+        error={null}
+        onRetry={() => {}}
+        onOpenSessions={() => {}}
       />
     </div>
   )

@@ -555,16 +555,7 @@
           "clear_person": "see every session"
         },
         "calibration": {
-          "title": "Calibration of the km axis, week by week",
-          "week": "Week",
-          "trigger_points": "Pts from triggers",
-          "km_share": "Km share",
-          "winner_without_km": "1st without km",
-          "winner_unchanged": "km did not change first place",
-          "open_week": "Open the week of {week}",
-          "floor": "floor",
-          "totals": "{count, plural, one {# week with instrument} other {# weeks with instrument}}",
-          "caption": "The series is always the 13 weeks of the horizon, whatever period is selected, and it ignores internal accounts in both states of the switch. <b>Km share</b> is how much of that week's scoreboard came from the km axis. <b>1st without km</b> reorders the same week by the score without that axis and prints who would win; <b>=</b> means the km did not change first place. A week with no instrument answers neither of the two."
+          "floor": "floor"
         }
       }
     },

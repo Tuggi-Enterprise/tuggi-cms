@@ -12,7 +12,6 @@ import { fetchDashboardRoute, type RpcResult } from '@/lib/api/dashboard-fetch'
 import {
   hasAnchoredStart,
   periodKey,
-  type KmCalibrationSeries,
   type PeriodKind,
   type PeriodOption,
   type RankingRow,
@@ -28,13 +27,6 @@ export interface ScoreboardPayload {
   internalAccounts: number
   /** Rows of EXACTLY that period. */
   rows: RankingRow[]
-  /**
-   * THE 13 WEEKS OF THE CALIBRATION PANEL, aggregated in the route — the same series whatever
-   * period is selected (spec §3.2). It travels in THIS payload and not in a second request
-   * because the route already reads the whole view once, and a second read would cost another
-   * ~2,8 s of a view whose ceiling is an 8 s `statement_timeout` (contract, Parte 7).
-   */
-  calibration: KmCalibrationSeries
 }
 
 export const rankingService = {
@@ -69,4 +61,4 @@ export const rankingService = {
 
 /** Re-exported so a component that already imports the service does not need a second import. */
 export { periodKey }
-export type { KmCalibrationSeries, PeriodOption, RankingRow, SessionMeteringRow, PeriodKind }
+export type { PeriodOption, RankingRow, SessionMeteringRow, PeriodKind }

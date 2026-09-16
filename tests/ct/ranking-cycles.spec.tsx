@@ -1,10 +1,13 @@
 /**
- * #742 — THE COMPOSED CYCLES AND THE CALIBRATION PANEL, IN A BROWSER.
+ * #742 — THE COMPOSED CYCLES, IN A BROWSER.
  *
- * Spec `docs/design/spec-placar-cms-2026-09.md`, §9 criteria 28 to 36. What is proved here is the
- * part of the entry that only a DOM answers: which columns exist, what a cell prints, and that a
- * click on the panel changes the selected period. The arithmetic, the two instrument boundaries
- * and the copy are in `tests/api/ranking-composed-cycles.test.ts`.
+ * Spec `docs/design/spec-placar-cms-2026-09.md`, §9 criteria 28 to 30. What is proved here is the
+ * part of the entry that only a DOM answers: which columns exist and what a cell prints. The
+ * arithmetic, the two instrument boundaries and the copy are in
+ * `tests/api/ranking-composed-cycles.test.ts`.
+ *
+ * Criteria 31 to 36 measured the calibration panel, which left the screen in §11.1: the tests that
+ * cited them left the suite in the same commit, as §9 requires.
  *
  * THE CLAIM AT THE CENTRE: in `month` and `year` the same column name carries a DIFFERENT
  * quantity (**BR-RANKING-005**), and the only way that does not become a misreading is the table
@@ -21,8 +24,6 @@ import AxeBuilder from '@axe-core/playwright'
 import { DashboardWrapper } from './helpers'
 import { RankingScoreboardHarness } from './ranking-helpers'
 import {
-  CALIBRATION,
-  CALIBRATION_WEEKS,
   MONTH,
   MONTH_ROWS,
   YEAR,
@@ -38,10 +39,9 @@ const RANKING = ptMessages.Pages.Dashboard.ranking
 const COLUMN_NAMES = 'table thead tr:nth-child(2) th'
 
 /**
- * THE SCOREBOARD'S OWN SECTION, and it has to be said out loud: since #742 there are TWO dense
- * tables on this screen and the calibration panel renders FIRST, so a bare `tbody tr` reaches the
- * panel's thirteen weeks and not the scoreboard's rows. The filter chips exist only in the
- * scoreboard's header, which is what tells the two apart.
+ * THE SCOREBOARD'S OWN SECTION. It stopped being ambiguous when the calibration panel left the
+ * screen (§11.1) and only one dense table remains — but the locator stays, because it says WHICH
+ * table the assertion is about instead of relying on there being exactly one.
  */
 const scoreboardOf = (page: import('@playwright/test').Page) =>
   page.locator('section').filter({ hasText: RANKING.filters.all })
@@ -180,93 +180,6 @@ test('#742 · BR-RANKING-005: the `<caption>` of a composed cycle declares what 
   await expect(legend).not.toContainText('Intervalo de sinal no período')
 })
 
-// ── The calibration panel ──────────────────────────────────────────────────────────────────
-
-test('#742 · DS-COMPONENTE-084 item 2: the panel prints the 13 weeks, tags the eight floors and totals the five measured', async ({
-  mount,
-  page,
-}) => {
-  await mount(
-    <DashboardWrapper>
-      <RankingScoreboardHarness calibration={CALIBRATION} />
-    </DashboardWrapper>
-  )
-
-  const panel = page.getByTestId('ranking-km-calibration')
-  await expect(panel).toBeVisible()
-
-  // THE WHOLE HORIZON, whatever period is selected — the question the panel answers is about the
-  // axis and not about the week the operator happens to be reading.
-  await expect(panel.locator('tbody tr')).toHaveCount(CALIBRATION_WEEKS.length)
-
-  // Eight of the thirteen are below `ENTITLEMENT_LEDGER_START`, and the floor is marked ON the
-  // value rather than instead of it: the instrument is incomplete, not absent.
-  await expect(panel.getByText(RANKING.calibration.floor, { exact: true })).toHaveCount(8)
-
-  // A floor week answers neither the share nor the counterfactual.
-  const firstWeek = panel.locator('tbody tr').first()
-  await expect(firstWeek.locator('td').nth(2)).toHaveText(UNKNOWN_VALUE)
-  await expect(firstWeek.locator('td').nth(3)).toHaveText(UNKNOWN_VALUE)
-
-  // And the footer says how many weeks it summed — it does NOT match the 25,6 % of the contract,
-  // and that is the correct behaviour (spec §9 critério 34).
-  await expect(panel.locator('tfoot')).toContainText('5 semanas com instrumento')
-})
-
-test('#742 · DS-COMPONENTE-083 item 2: `1º sem o km` says `=`, or names who would have won', async ({
-  mount,
-  page,
-}) => {
-  await mount(
-    <DashboardWrapper>
-      <RankingScoreboardHarness calibration={CALIBRATION} />
-    </DashboardWrapper>
-  )
-
-  const panel = page.getByTestId('ranking-km-calibration')
-
-  // THE WEEK WHERE THE KM DECIDED THE WINNER. Officially `quiet-tapir` leads it (13 against 12)
-  // because the kilometre carried her; without that axis `hoppy-otter` leads on history alone
-  // (10 against 8), and the cell names HIM — the counterfactual, not the champion.
-  await expect(panel.getByText('hoppy-otter', { exact: true })).toHaveCount(1)
-  await expect(panel.getByLabel(RANKING.calibration.winner_unchanged)).toHaveCount(4)
-})
-
-test('#742: the panel never follows the internal-account switch', async ({ mount, page }) => {
-  await mount(
-    <DashboardWrapper>
-      <RankingScoreboardHarness calibration={CALIBRATION} />
-    </DashboardWrapper>
-  )
-
-  const panel = page.getByTestId('ranking-km-calibration')
-  const totals = panel.locator('tfoot')
-  const before = await totals.textContent()
-
-  await page.getByTestId('include-internal').check()
-
-  // The internal account holds a thousand points per week in the fixture: if the panel ever
-  // followed the switch, every number in this footer would move at once (spec §2.2).
-  await expect(totals).toHaveText(before ?? '')
-})
-
-test('#742: clicking a week of the panel selects that week', async ({ mount, page }) => {
-  await mount(
-    <DashboardWrapper>
-      <RankingScoreboardHarness calibration={CALIBRATION} />
-    </DashboardWrapper>
-  )
-
-  const panel = page.getByTestId('ranking-km-calibration')
-  await panel.locator('tbody tr').last().getByRole('button').click()
-
-  // The panel is a way INTO the scoreboard, and a period change travels through the state the
-  // `<select>` reads and through the URL — never through a third path of its own.
-  await expect(page.getByTestId('selected-week')).toHaveText(
-    CALIBRATION_WEEKS[CALIBRATION_WEEKS.length - 1].start
-  )
-})
-
 /**
  * #742 · spec §9 critério 16 — THE TWO NEW SURFACES PASS `axe`.
  *
@@ -287,16 +200,6 @@ async function expectNoViolations(page: Page) {
     results.violations.map((v) => `${v.id} (${v.nodes.length}): ${v.help}`).join(' · ')
   ).toEqual([])
 }
-
-test('#742: the calibration panel passes axe', async ({ mount, page }) => {
-  await mount(
-    <DashboardWrapper>
-      <RankingScoreboardHarness calibration={CALIBRATION} />
-    </DashboardWrapper>
-  )
-
-  await expectNoViolations(page)
-})
 
 test('#742: a composed cycle passes axe, with the switch off and on', async ({ mount, page }) => {
   await mount(

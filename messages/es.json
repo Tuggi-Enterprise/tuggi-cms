@@ -544,16 +544,7 @@
           "clear_person": "ver todas las sesiones"
         },
         "calibration": {
-          "title": "Calibración del eje de km, semana a semana",
-          "week": "Semana",
-          "trigger_points": "Pts de disparo",
-          "km_share": "Parte del km",
-          "winner_without_km": "1º sin el km",
-          "winner_unchanged": "el km no cambió el primer puesto",
-          "open_week": "Ver la semana de {week}",
-          "floor": "piso",
-          "totals": "{count, plural, one {# semana con instrumento} other {# semanas con instrumento}}",
-          "caption": "La serie es siempre las 13 semanas del horizonte, cualquiera que sea el período seleccionado, e ignora las cuentas internas en los dos estados del interruptor. <b>Parte del km</b> es cuánto del marcador de esa semana vino del eje de km. <b>1º sin el km</b> reordena la misma semana por la puntuación sin ese eje e imprime quién ganaría; <b>=</b> significa que el km no cambió el primer puesto. Una semana sin instrumento no responde ninguna de las dos."
+          "floor": "piso"
         }
       }
     },

@@ -553,16 +553,7 @@
           "clear_person": "ver todas as sessões"
         },
         "calibration": {
-          "title": "Calibração do eixo de km, semana a semana",
-          "week": "Semana",
-          "trigger_points": "Pts de disparo",
-          "km_share": "Fatia do km",
-          "winner_without_km": "1º sem o km",
-          "winner_unchanged": "o km não mudou o primeiro lugar",
-          "open_week": "Ver a semana de {week}",
-          "floor": "piso",
-          "totals": "{count, plural, one {# semana com instrumento} other {# semanas com instrumento}}",
-          "caption": "A série é sempre as 13 semanas do horizonte, qualquer que seja o período selecionado, e ignora contas internas nos dois estados do interruptor. <b>Fatia do km</b> é quanto do placar daquela semana veio do eixo de km. <b>1º sem o km</b> reordena a mesma semana pela pontuação sem esse eixo e imprime quem venceria; <b>=</b> significa que o km não mudou o primeiro lugar. Semana sem instrumento não responde nenhuma das duas."
+          "floor": "piso"
         }
       }
     },

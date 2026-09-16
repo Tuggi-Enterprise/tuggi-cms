@@ -31,7 +31,6 @@ import { getSupabaseService } from '@/lib/core/supabase-client'
 import {
   accountRows,
   countInternalAccounts,
-  kmCalibrationSeries,
   parsePeriodParam,
   periodOptions,
   rowsForPeriod,
@@ -152,11 +151,6 @@ export const GET = withAuth({ roles: ['admin'] }, async (req: NextRequest) => {
     data: {
       periods: periodOptions(rows),
       period,
-      // THE CALIBRATION SERIES IS AGGREGATED HERE, ON THE ROWS ALREADY IN HAND — spec §3.2 and
-      // §9 critério 31. It is the same 13 weeks whatever period was asked for, so it cannot be a
-      // second request: the view is ~2,8 s against an 8 s `statement_timeout`, and 350 weekly
-      // rows crossing the wire for the browser to add up would be the same cost paid twice.
-      calibration: kmCalibrationSeries(rows),
       // Counted over the whole view, not over the served period: it answers "is the filter
       // removing anybody at all", which must not flicker when the operator changes the week.
       internalAccounts: countInternalAccounts(rows),
