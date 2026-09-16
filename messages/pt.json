@@ -429,9 +429,8 @@
         "kpi": {
           "accounts_scored": "Contas que pontuaram",
           "platform_unknown": "{count} sem plataforma",
-          "ratio": "Disparo ÷ minuto",
-          "ratio_subtitle": "{triggers} pts de disparo · {minutes} pts de minuto",
-          "ratio_partial": "{triggers} pts de disparo · {minutes} pts de minuto, no mínimo\nO medidor só cobre parte da janela — a razão misturaria duas janelas.",
+          "ratio": "Disparo ÷ km",
+          "ratio_subtitle": "{triggers} pts de disparo · {km} pts de km",
           "streak": "Sequência de 7 dias",
           "accounts": "{count, plural, one {# conta} other {# contas}}",
           "streak_subtitle": "máximo no período: {days} de 7 dias",
@@ -459,7 +458,7 @@
           "platform": "Plataforma",
           "points": "Pontos",
           "triggers": "Disparos",
-          "points_from_minutes": "Pts de minuto",
+          "points_from_km": "Pts de km",
           "streak": "Sequência",
           "notable_points": "Pts peso 2",
           "rank_delta": "Δ vs. oficial",
@@ -480,6 +479,7 @@
         "row": {
           "notable_triggers": "Disparos em POI notável",
           "of_total": "{count} de {total}",
+          "km_with_entitlement": "Km com o guia ligado e com direito",
           "sessions_with_trail": "Sessões com trilha que tocaram o período",
           "sessions_charged": "Sessões com cobrança",
           "rank_official": "Posição — todas as contas",
@@ -494,6 +494,7 @@
           "span_in_period": "<b>Intervalo de sinal no período</b> é a parte do intervalo entre o primeiro e o último sinal de cada sessão que caiu dentro do período selecionado, somada — não é tempo de guia nem tempo cobrado; sessão aberta com sinal esparso o infla sem consumir saldo. Sessões da mesma conta que se sobrepõem somam duas vezes o mesmo relógio, então o total pode passar da duração do período.",
           "platform": "<b>Plataforma vazia</b> = a conta entrou no período só por cobrança ou trilha.",
           "country": "<b>País explorado</b> é o país predominante das visitas do período — não é a residência nem a nacionalidade da conta. Vazio = nenhuma visita do período trouxe país reconhecível, inclusive quando a conta entrou só por cobrança ou trilha.",
+          "km": "<b>Pts de km</b> conta o quilômetro percorrido com o guia ligado e com direito de acesso, com o ruído de GPS descartado — não é a distância da viagem: o quilômetro rodado sem direito fica de fora.",
           "notable": "<b>Comparação · peso 2</b> posiciona entre todas as contas, marcadas incluídas; o Δ compara com a posição oficial, que sai da mesma população.",
           "sorting": "Posições e pontos vêm da consulta; ordenar a tabela não os recalcula.",
           "closing": "<b>Encerramento</b> é o texto cru do cliente ou do fechamento automático."

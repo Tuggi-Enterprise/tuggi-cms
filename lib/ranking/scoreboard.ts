@@ -12,10 +12,19 @@
  * the same visit several times. Rows reach a component only through `rowsForPeriod`, and every
  * aggregate takes the output of that function.
  *
- * NOTHING HERE RE-DERIVES A SCORE. `points_official` is `(triggers + minutes) × streak` and the
- * migration asserts that row by row; recomputing it here would be a second ruler for the same
- * fact (CLAUDE.md §6). What this module computes is what the SCREEN adds up — sums and counts
- * over rows of one period — never a point.
+ * NOTHING HERE RE-DERIVES A SCORE. `points_official` is `(triggers + km × 0,11) × streak` since
+ * `20260916130000` (**BR-RANKING-004**), and the migration asserts that row by row; recomputing
+ * it here would be a second ruler for the same fact (CLAUDE.md §6). What this module computes is
+ * what the SCREEN adds up — sums and counts over rows of one period — never a point.
+ *
+ * THE MINUTE AXIS LEFT THE SCORE AND THE MEASURE STAYED, and they are two different things:
+ * `points_from_minutes` is `0` constant, while `charged_minutes` did not move a digit. The axis
+ * left because a charged minute measures the MODE OF BILLING and not behaviour — the balance is
+ * inert during `unlimited` (BR-MONETIZACAO-051), so five of the six subscribers of the base have
+ * no consumption row at all and the old formula punished whoever subscribes (BR-RANKING-004
+ * item 2). The measure stayed because it is still the calibration instrument of
+ * BR-MONETIZACAO-049. Summing `points_from_triggers + points_from_minutes` to check a total is
+ * the error this file is now shaped to make impossible: the parcel is `points_from_km`.
  */
 
 import { UNKNOWN_VALUE } from '@/lib/format/unknown'
@@ -34,7 +43,16 @@ export const DEFAULT_PERIOD_KIND: PeriodKind = 'rolling_30d'
 
 export const PERIOD_KINDS: readonly PeriodKind[] = ['week', 'rolling_30d', 'rolling_90d']
 
-/** One line per (account × period) — `core.ranking_scoreboard`, 27 columns. */
+/**
+ * One line per (account × period) — `core.ranking_scoreboard`, **30 columns** since
+ * `20260916130000` (`docs/contracts/banco-para-cms.md`, Parte 7).
+ *
+ * This type carries the 29 the screen reads. The one left out is `in_roster` (column 28,
+ * `20260916120000`): what the roster changed for this screen is that a closed week now ranks
+ * every row it serves, zeros tied at the end, and the answer to THAT is the podium floor below
+ * (`PODIUM_POINTS_FLOOR`, BR-RANKING-003) — not a column. Naming it here would add a field
+ * nobody reads.
+ */
 export interface RankingRow {
   period_kind: PeriodKind
   /** Inclusive, UTC. */
@@ -61,7 +79,16 @@ export interface RankingRow {
   has_full_week_streak: boolean
   streak_multiplier: number
   points_from_triggers: number
+  /**
+   * **`0` CONSTANT since `20260916130000`** — the minute axis is out of the score
+   * (BR-RANKING-004 item 2). The column survives only so the CMS published before that deploy
+   * keeps reading (contract, Parte 7), and its removal is a card of its own.
+   *
+   * **Do not add it to anything.** `points_from_triggers + points_from_minutes` stopped being a
+   * total the day the formula changed; the parcel that closes it is `points_from_km`.
+   */
   points_from_minutes: number
+  /** `(points_from_triggers + points_from_km) × streak_multiplier`, 4 decimals, asserted row by row by the migration. */
   points_official: number
   /** Position among ALL accounts. `null` at zero points. */
   rank_official: number | null
@@ -88,6 +115,28 @@ export interface RankingRow {
    * resolvable visit among nine unresolvable ones still gets a code.
    */
   top_country_code: string | null
+  /**
+   * COLUMN 29 — **NOT "KILOMETRES DRIVEN", and no label on this screen may say it is.**
+   *
+   * It is the kilometre driven **with the guide on AND with entitlement to turn it on**, with
+   * GPS noise filtered out (BR-RANKING-004 items 4, 6 and 7). The distance between that and a
+   * trip's distance is not marginal and was measured: **17,2% of the kilometres driven with the
+   * guide on in the four weeks before 2026-09-16 were driven with no entitlement** and are not
+   * here, and 34,6% of the raw kilometre is GPS artefact that the view discards. Calling the
+   * column `Km rodados` would promise the operator a quantity it does not measure, on the screen
+   * where he decides a prize.
+   *
+   * **`sessions_with_trail = 0` does not mean "did not move".** `route_trail.server_received_at`
+   * is 100% null in 37,5% of the sessions, and 23 (account, period) pairs carry
+   * `km_with_entitlement > 0` with `sessions_with_trail = 0` (contract, Parte 7).
+   */
+  km_with_entitlement: number
+  /**
+   * COLUMN 30 — `km_with_entitlement × 0,11`, 4 decimals. The coefficient lives in
+   * BR-RANKING-004 item 3 and is worth 24,6% of the scoreboard; the screen SUMS this column and
+   * never multiplies anything by 0,11.
+   */
+  points_from_km: number
 }
 
 /**
@@ -126,7 +175,7 @@ export function accountRows(rows: ScoreboardReadRow[]): RankingRow[] {
   return rows.filter((row): row is RankingRow => row.user_id != null)
 }
 
-/** One line per trip session — `core.ranking_session_metering`, 20 columns. */
+/** One line per trip session — `core.ranking_session_metering`, 19 columns (contract, Parte 7). */
 export interface SessionMeteringRow {
   trip_session_id: string
   user_id: string
@@ -339,7 +388,12 @@ export interface RankingSummary {
    */
   platformUnknown: number
   pointsFromTriggers: number
-  pointsFromMinutes: number
+  /**
+   * THE OTHER AXIS OF THE SCORE, IN POINTS — the sum of `points_from_km`, which is what replaced
+   * `pointsFromMinutes` here (BR-RANKING-004). It is a sum of a column the view computed: the
+   * screen never multiplies kilometres by the coefficient.
+   */
+  pointsFromKm: number
   /**
    * THE SCOREBOARD, SUMMED — the column the footer exists to total.
    *
@@ -352,8 +406,12 @@ export interface RankingSummary {
   pointsOfficial: number
   /** The same total for the comparison, so the question *does the weight 2 change it?* has an answer. */
   pointsNotableWeighted: number
-  /** Triggers ÷ minutes, both in POINTS — same ruler. `null` when the denominator is zero. */
-  triggerToMinuteRatio: number | null
+  /**
+   * Triggers ÷ kilometres, **both in POINTS** — one ruler, and the two parcels that make up
+   * `points_official`. `null` when the denominator is zero: a period where nobody drove with
+   * entitlement divides by nothing, and `∞` is not a reading (`DS-COMPONENTE-084` item 2).
+   */
+  triggerToKmRatio: number | null
   streakAccounts: number
   maxStoryDays: number
   /** `charged_minutes > 0 AND trigger_points_fired = 0` — the #743 population, seen from revenue. */
@@ -389,7 +447,7 @@ export function summarize(rows: RankingRow[]): RankingSummary {
   }
 
   const pointsFromTriggers = sum(rows, (row) => row.points_from_triggers)
-  const pointsFromMinutes = sum(rows, (row) => row.points_from_minutes)
+  const pointsFromKm = sum(rows, (row) => row.points_from_km)
 
   return {
     accountsScored: scored.length,
@@ -398,10 +456,10 @@ export function summarize(rows: RankingRow[]): RankingSummary {
       .sort((a, b) => b.accounts - a.accounts || a.platform.localeCompare(b.platform)),
     platformUnknown,
     pointsFromTriggers,
-    pointsFromMinutes,
+    pointsFromKm,
     pointsOfficial: sum(rows, (row) => row.points_official),
     pointsNotableWeighted: sum(rows, (row) => row.points_notable_weighted),
-    triggerToMinuteRatio: pointsFromMinutes > 0 ? pointsFromTriggers / pointsFromMinutes : null,
+    triggerToKmRatio: pointsFromKm > 0 ? pointsFromTriggers / pointsFromKm : null,
     streakAccounts: rows.filter((row) => row.has_full_week_streak).length,
     maxStoryDays: rows.reduce((max, row) => Math.max(max, row.story_days), 0),
     chargedWithoutTrigger: rows.filter(
@@ -460,6 +518,23 @@ export function compareNullable(left: number | null, right: number | null, dir: 
 export function formatPoints(value: number | null | undefined, locale: string): string {
   if (value == null || !Number.isFinite(value)) return UNKNOWN_VALUE
   return new Intl.NumberFormat(locale, { maximumFractionDigits: 2 }).format(value)
+}
+
+/**
+ * The entitled kilometre as the operator reads it — `39 km`, `1.204,5 km`.
+ *
+ * The unit comes from `Intl`, so it is the locale's own and not a string glued to a number; the
+ * view carries three decimals (metre resolution) and the screen shows one, because nobody
+ * calibrates a coefficient on a metre. The QUANTITY it prints is the one column 29 measures —
+ * guide on and entitled — and what it is not is said where the column is read, never here.
+ */
+export function formatKilometres(value: number | null | undefined, locale: string): string {
+  if (value == null || !Number.isFinite(value)) return UNKNOWN_VALUE
+  return new Intl.NumberFormat(locale, {
+    style: 'unit',
+    unit: 'kilometer',
+    maximumFractionDigits: 1,
+  }).format(value)
 }
 
 /** The ratio of indicator 2, `11,6 : 1`. A zero denominator is UNKNOWN — never `∞`, `0` or `100 %`. */

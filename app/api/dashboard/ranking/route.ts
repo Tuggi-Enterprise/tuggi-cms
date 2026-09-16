@@ -16,9 +16,13 @@
  *
  * WHY THE WHOLE VIEW COMES BACK AND THE PERIOD IS FILTERED HERE: the `<select>` of periods is
  * built from the periods the view actually produced, not from a calendar in the browser, and
- * asking twice would run a 443 ms view twice per screen. The rows that leave this route are
- * already of exactly ONE period — `DS-COMPONENTE-082` item 1, and the contract's number-one
- * suspect when the screen disagrees with the reference measurement.
+ * asking twice would run the view twice per screen. THAT CEILING GOT REAL with the kilometre
+ * axis: the view went from ~400 ms to **~3,2 s**, against a `statement_timeout` of 8 s that
+ * `service_role` does not override (contract, Parte 7) — one read per screen load, never two.
+ *
+ * The rows that leave this route are already of exactly ONE period — `DS-COMPONENTE-082` item 1,
+ * and the contract's number-one suspect when the screen disagrees with the reference
+ * measurement.
  */
 
 import { NextRequest, NextResponse } from 'next/server'
@@ -36,8 +40,12 @@ import {
 export const dynamic = 'force-dynamic'
 
 /**
- * Every column of the view, named. `select('*')` would make a column added by `data` arrive
- * here unannounced, and the screen's job is to know what each number means.
+ * The columns the screen reads, each one named. `select('*')` would make a column added by
+ * `data` arrive here unannounced, and the screen's job is to know what each number means.
+ *
+ * TWENTY-NINE OF THE VIEW'S THIRTY. The one not named is `in_roster` (column 28): the screen has
+ * no roster treatment of its own — see `RankingRow` — and a column nobody reads does not belong
+ * in a read that costs ~3,2 s.
  */
 const COLUMNS = [
   'period_kind',
@@ -70,15 +78,23 @@ const COLUMNS = [
   // view gained it after this route existed: alpha-2 or `null`, never a country name, and the
   // screen is what decides what `null` prints (contract, Parte 7 · `DS-COMPONENTE-086`).
   'top_country_code',
+  // Columns 29 and 30, born with `20260916130000` (**BR-RANKING-004**). They are the axis that
+  // replaced the minute one in `points_official`: 29 is the kilometre driven with the guide on
+  // AND with entitlement — never "kilometres driven" — and 30 is that kilometre at 0,11 point.
+  // `points_from_minutes` (17) stays on the list because the view still emits it and the type
+  // still declares it; it is `0` constant and nothing on the screen adds it to anything.
+  'km_with_entitlement',
+  'points_from_km',
 ].join(',')
 
 /**
  * The ceiling, and what happens when it is reached.
  *
  * The whole view is ~180 rows for 90 days, ~145 for 30 and 30 to 35 per week over a 13-week
- * horizon — around 800 (contract, measured 2026-09-13). The ceiling is generous, and a
- * truncated read is refused rather than served: a scoreboard missing rows looks exactly like a
- * scoreboard, and PostgREST's own `max-rows` would cut it without saying so.
+ * horizon — 652 rows measured on 2026-09-16, after the roster and the kilometre axis added 95
+ * between them (contract, Parte 7). The ceiling is generous, and a truncated read is refused
+ * rather than served: a scoreboard missing rows looks exactly like a scoreboard, and PostgREST's
+ * own `max-rows` would cut it without saying so.
  */
 const ROW_CEILING = 5000
 

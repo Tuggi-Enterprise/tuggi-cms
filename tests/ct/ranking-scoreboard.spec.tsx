@@ -381,7 +381,7 @@ test('DS-COMPONENTE-084 item 1 · DS-COPY-062: a failed read prints `—` and co
   // The six indicators of a week — the five fixed ones plus the streak. Not one of them `0`,
   // and no subtitle either: `0 pts · 0 pts` is a reading of a reading.
   await expect(page.getByText(UNKNOWN_VALUE, { exact: true })).toHaveCount(6)
-  await expect(page.getByText('0 pts de disparo · 0 pts de minuto')).toHaveCount(0)
+  await expect(page.getByText('0 pts de disparo · 0 pts de km')).toHaveCount(0)
   await expect(page.getByText(RANKING.kpi.manual_listens_subtitle)).toHaveCount(0)
   await expect(page.getByText(RANKING.kpi.charged_without_trigger_subtitle)).toHaveCount(0)
 
@@ -413,7 +413,7 @@ test('DS-COMPONENTE-084 item 1: a read that answered nothing keeps its `0`, and 
 
   // Nobody scored in the week IS a measurement, and the indicators say so.
   await expect(page.getByRole('button', { name: `${RANKING.filters.all} 0`, exact: true })).toBeVisible()
-  await expect(page.getByText('0 pts de disparo · 0 pts de minuto')).toBeVisible()
+  await expect(page.getByText('0 pts de disparo · 0 pts de km')).toBeVisible()
   await expect(page.getByText(RANKING.kpi.manual_listens_subtitle)).toBeVisible()
 
   // The one dash a successful empty read prints: the ratio, whose denominator is zero
@@ -483,11 +483,16 @@ test('#741: a period other than the one asked for raises a band, and the stamp n
 })
 
 /**
- * #741 — `partial` USED TO BE `full` IN EVERY NUMBER. `const hasMeter = coverage !== 'none'` is a
- * two-answer question asked of a three-answer function, and the ratio is the number the operator
- * uses to decide the weight of `0,03/min`.
+ * #749 · BR-RANKING-004 — THE METER STOPPED BEING A CONDITION OF THE SCORE, AND STAYED ONE OF THE
+ * TIME COLUMNS.
+ *
+ * This card used to divide trigger points by MINUTE points, so a window the ledger covers only in
+ * part could not carry a fraction at all. Since `20260916130000` the denominator is the kilometre
+ * axis, which the view computes for every period it serves: the fraction is printed, and the
+ * amber band still warns — about `Cobrado`, `Intervalo` and `Diferença`, which are what the
+ * ledger's boundary was always about.
  */
-test('#741: with the meter covering only part of the window, the ratio card prints no fraction', async ({
+test('#749: with the meter covering only part of the window, the score ratio is printed and the band still warns', async ({
   mount,
   page,
 }) => {
@@ -499,15 +504,9 @@ test('#741: with the meter covering only part of the window, the ratio card prin
 
   await expect(page.getByText(RANKING.meter.partial)).toBeVisible()
 
-  // A ratio always ends in `: 1`, and dividing a numerator measured over the whole window by a
-  // denominator measured over part of it comes out high by the part that is missing.
-  await expect(page.getByText(/: 1$/)).toHaveCount(0)
-  // The subtitle is one text node with a deliberate break in it (`whitespace-pre-line`), so the
-  // sentence is matched inside it, and the two totals it would have divided come first. The
-  // minute total is the one that depends on the partial instrument, so it prints as a FLOOR and
-  // never as a total — `DS-COMPONENTE-084` item 2, clause of 2026-09-13.
-  await expect(page.getByText('52 pts de disparo · 4,29 pts de minuto, no mínimo')).toBeVisible()
-  await expect(page.getByText(RANKING.kpi.ratio_partial.split('\n')[1])).toBeVisible()
+  // 52 pts of trigger over 4,29 pts of km — the two parcels of `points_official`, one ruler.
+  await expect(page.getByText('12,1 : 1')).toBeVisible()
+  await expect(page.getByText('52 pts de disparo · 4,29 pts de km')).toBeVisible()
 })
 
 test('#741: the footer totals the two point columns, and leaves the two that do not sum empty', async ({
@@ -522,7 +521,7 @@ test('#741: the footer totals the two point columns, and leaves the two that do 
 
   // 49,29 + 7 over the two rows the filter leaves: the answer to *does the weight 2 change the
   // total?* (65 against 56,29) now exists on the screen that exists to ask it.
-  // The week has a streak column, so the cells are: Pontos, Disparos, Pts de minuto, Sequência,
+  // The week has a streak column, so the cells are: Pontos, Disparos, Pts de km, Sequência,
   // Pts peso 2, Δ vs. oficial, Cobrado, Intervalo, Diferença.
   const cells = page.locator('tfoot td')
   await expect(cells.nth(0)).toHaveText('56,29')
@@ -579,7 +578,7 @@ const plain = (text: string) => text.replace(/<\/?b>/g, '')
  * them with no sentence saying an open session with sparse signal inflates the span without
  * consuming balance reads as *we are failing to charge 67 hours*.
  *
- * FOUR, NOT THREE. `caption.sorting` — *sorting the table does not recompute positions and
+ * THE LAST OF THEM IS `caption.sorting`, AND IT IS THE ONE THAT ALMOST STAYED HIDDEN. — *sorting the table does not recompute positions and
  * points* — stayed in the `sr-only` caption alone when the block was extracted, which put the
  * only sentence about the interaction out of reach of whoever performs it. It is the sentence
  * that blocks the likeliest wrong conclusion from a click on a column head: `#` is a value and
@@ -590,7 +589,7 @@ const plain = (text: string) => text.replace(/<\/?b>/g, '')
  * before the first cell. Deleting either half to "clean up the duplication" brings a defect
  * back, and this test is what says so out loud.
  */
-test('#741 · DS-COMPONENTE-083 item 3 · DS-COMPONENTE-082 item 3: the five declarations survive the scroll, and a screen reader still gets them before the first cell', async ({
+test('#741 · DS-COMPONENTE-083 item 3 · DS-COMPONENTE-082 item 3: the six declarations survive the scroll, and a screen reader still gets them before the first cell', async ({
   mount,
   page,
 }) => {
@@ -610,14 +609,18 @@ test('#741 · DS-COMPONENTE-083 item 3 · DS-COMPONENTE-082 item 3: the five dec
     // Third since #741's country column: it is what stops `País explorado` next to a person's
     // name from being read as residence or nationality (`DS-COMPONENTE-086` item 5).
     RANKING.caption.country,
+    // Fifth since the kilometre axis (**BR-RANKING-004**): `Pts de km` is not every kilometre —
+    // 17,2% of the kilometre driven with the guide on had no entitlement and is not in it — and
+    // on a screen that decides a prize the number alone reads as the distance of the trip.
+    RANKING.caption.km,
     RANKING.caption.notable,
   ].map(plain)
-  // The fifth defines no term, so it carries no `<b>` and gets no `<strong>`.
+  // The sixth defines no term, so it carries no `<b>` and gets no `<strong>`.
   const facts = [...defined, RANKING.caption.sorting]
   const legend = page.getByTestId('ranking-legend')
   const lines = legend.locator('p')
 
-  await expect(lines).toHaveCount(5)
+  await expect(lines).toHaveCount(6)
   for (const [index, fact] of facts.entries()) {
     await expect(lines.nth(index)).toHaveText(fact)
     // The term opens the line in bold: sentences of the same weight are a paragraph.
@@ -641,7 +644,7 @@ test('#741 · DS-COMPONENTE-083 item 3 · DS-COMPONENTE-082 item 3: the five dec
   )
   await expect(legend).toBeInViewport()
 
-  // And the same five, in the same order, for whoever does not see them — the sentence about
+  // And the same six, in the same order, for whoever does not see them — the sentence about
   // sorting last, which is where the caption has always carried it.
   const caption = page.locator('table caption')
   await expect(caption).toHaveClass(/sr-only/)

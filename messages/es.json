@@ -420,9 +420,8 @@
         "kpi": {
           "accounts_scored": "Cuentas que puntuaron",
           "platform_unknown": "{count} sin plataforma",
-          "ratio": "Disparo ÷ minuto",
-          "ratio_subtitle": "{triggers} pts de disparo · {minutes} pts de minuto",
-          "ratio_partial": "{triggers} pts de disparo · {minutes} pts de minuto, como mínimo\nEl medidor solo cubre parte de la ventana — la razón mezclaría dos ventanas.",
+          "ratio": "Disparo ÷ km",
+          "ratio_subtitle": "{triggers} pts de disparo · {km} pts de km",
           "streak": "Racha de 7 días",
           "accounts": "{count, plural, one {# cuenta} other {# cuentas}}",
           "streak_subtitle": "máximo en el período: {days} de 7 días",
@@ -450,7 +449,7 @@
           "platform": "Plataforma",
           "points": "Puntos",
           "triggers": "Disparos",
-          "points_from_minutes": "Pts de minuto",
+          "points_from_km": "Pts de km",
           "streak": "Racha",
           "notable_points": "Pts peso 2",
           "rank_delta": "Δ vs. oficial",
@@ -471,6 +470,7 @@
         "row": {
           "notable_triggers": "Disparos en POI notable",
           "of_total": "{count} de {total}",
+          "km_with_entitlement": "Km con la guía encendida y con derecho",
           "sessions_with_trail": "Sesiones con recorrido que tocaron el período",
           "sessions_charged": "Sesiones con cobro",
           "rank_official": "Posición — todas las cuentas",
@@ -485,6 +485,7 @@
           "span_in_period": "<b>Intervalo de señal en el período</b> es la parte del intervalo entre la primera y la última señal de cada sesión que cayó dentro del período seleccionado, sumada — no es tiempo de guía ni tiempo cobrado; una sesión abierta con señal dispersa lo infla sin consumir saldo. Las sesiones de la misma cuenta que se solapan suman dos veces el mismo reloj, así que el total puede superar la duración del período.",
           "platform": "<b>Plataforma vacía</b> = la cuenta entró en el período solo por cobro o por recorrido.",
           "country": "<b>País explorado</b> es el país predominante de las visitas del período — no es la residencia ni la nacionalidad de la cuenta. Vacío = ninguna visita del período trajo un país reconocible, incluso cuando la cuenta entró solo por cobro o por recorrido.",
+          "km": "<b>Pts de km</b> cuenta los kilómetros recorridos con la guía encendida y con derecho de acceso, con el ruido de GPS descartado — no es la distancia del viaje: el kilómetro recorrido sin derecho queda fuera.",
           "notable": "<b>Comparación · peso 2</b> posiciona entre todas las cuentas, marcadas incluidas; el Δ compara con la posición oficial, que sale de la misma población.",
           "sorting": "Las posiciones y los puntos vienen de la consulta; ordenar la tabla no los recalcula.",
           "closing": "<b>Cierre</b> es el texto crudo del cliente o del cierre automático."

@@ -670,8 +670,11 @@ function weekOfScores(scores: number[]): RankingRow[] {
     return {
       ...row,
       points_official: scores[index],
+      // The whole score on the trigger axis, and the kilometre axis at zero: the floor of
+      // `BR-RANKING-003` is asked of `points_official`, and `BR-RANKING-004` is what that number
+      // is made of — a roster line that drove nothing still has a position.
       points_from_triggers: scores[index],
-      points_from_minutes: 0,
+      points_from_km: 0,
       rank_official: rank,
       rank_excluding_internal: rank,
     }

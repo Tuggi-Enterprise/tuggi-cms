@@ -46,7 +46,14 @@ let scenario: Scenario
 
 const ADMIN = { id: 'auth-user-1', email: 'admin@tuggi.app' }
 
-/** A row of `core.ranking_scoreboard` with every column the route names. */
+/**
+ * A row of `core.ranking_scoreboard` with every column the route names.
+ *
+ * The score is the one of **BR-RANKING-004** since `20260916130000`: `points_from_minutes` is `0`
+ * constant and the parcel that closes `points_official` is `points_from_km` — 39 entitled km at
+ * 0,11 is the 4,29 the 143 charged minutes used to be worth, so `45 + 4,29 = 49,29` still holds
+ * with the axis underneath it replaced.
+ */
 function scoreboardRow(overrides: Record<string, unknown> = {}) {
   return {
     period_kind: 'rolling_30d',
@@ -65,7 +72,7 @@ function scoreboardRow(overrides: Record<string, unknown> = {}) {
     has_full_week_streak: false,
     streak_multiplier: 1,
     points_from_triggers: 45,
-    points_from_minutes: 4.29,
+    points_from_minutes: 0,
     points_official: 49.29,
     rank_official: 1,
     rank_excluding_internal: 1,
@@ -75,6 +82,8 @@ function scoreboardRow(overrides: Record<string, unknown> = {}) {
     metering_gap_minutes: 3879,
     sessions_with_trail: 6,
     sessions_charged: 2,
+    km_with_entitlement: 39,
+    points_from_km: 4.29,
     ...overrides,
   }
 }
@@ -312,6 +321,8 @@ test('#741 · BR-RANKING-001: the ghost row of null user_id reaches neither the 
     story_days: 0,
     points_from_triggers: 0,
     points_from_minutes: 0,
+    km_with_entitlement: 0,
+    points_from_km: 0,
     points_official: 0,
     rank_official: null,
     rank_excluding_internal: null,
