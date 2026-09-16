@@ -51,7 +51,13 @@ function row(overrides: Partial<RankingRow> = {}): RankingRow {
     has_full_week_streak: false,
     streak_multiplier: 1,
     points_from_triggers: 45,
-    points_from_minutes: 4.29,
+    /**
+     * `0` CONSTANT, as the view emits it since `20260916130000`: the minute axis is out of the
+     * score (**BR-RANKING-004** item 2) and `charged_minutes` above is untouched. A fixture that
+     * kept the old 4,29 here would be the only place in the repository where the removed axis
+     * still scores.
+     */
+    points_from_minutes: 0,
     points_official: 49.29,
     rank_official: 1,
     rank_excluding_internal: 1,
@@ -63,6 +69,16 @@ function row(overrides: Partial<RankingRow> = {}): RankingRow {
     sessions_charged: 2,
     /** Alpha-2, as the view guarantees it — one of the 15 codes the screen sees today. */
     top_country_code: 'BR',
+    /**
+     * THE AXIS THAT REPLACED THE MINUTE ONE — **BR-RANKING-004**. Not "kilometres driven": it is
+     * the kilometre with the guide on AND with entitlement, GPS noise filtered.
+     *
+     * 39 km × 0,11 = 4,29 points, which is exactly what the 143 charged minutes used to be worth
+     * at 0,03 — so `points_official` stays 49,29 and every number the seal tests pin keeps its
+     * meaning while the axis under it changes.
+     */
+    km_with_entitlement: 39,
+    points_from_km: 4.29,
     ...overrides,
   }
 }
@@ -92,7 +108,9 @@ export const ROWS: RankingRow[] = [
     platform: 'android',
     trigger_points_fired: 7,
     points_from_triggers: 7,
-    points_from_minutes: 0,
+    // Fired seven times and drove no entitled kilometre: the score is the trigger axis alone.
+    km_with_entitlement: 0,
+    points_from_km: 0,
     charged_minutes: 0,
     points_official: 7,
     rank_official: 3,

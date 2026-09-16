@@ -46,7 +46,14 @@ let scenario: Scenario
 
 const ADMIN = { id: 'auth-user-1', email: 'admin@tuggi.app' }
 
-/** A row of `core.ranking_scoreboard` with every column the route names. */
+/**
+ * A row of `core.ranking_scoreboard` with every column the route names.
+ *
+ * The score is the one of **BR-RANKING-004** since `20260916130000`: `points_from_minutes` is `0`
+ * constant and the parcel that closes `points_official` is `points_from_km` — 39 entitled km at
+ * 0,11 is the 4,29 the 143 charged minutes used to be worth, so `45 + 4,29 = 49,29` still holds
+ * with the axis underneath it replaced.
+ */
 function scoreboardRow(overrides: Record<string, unknown> = {}) {
   return {
     period_kind: 'rolling_30d',
@@ -65,7 +72,7 @@ function scoreboardRow(overrides: Record<string, unknown> = {}) {
     has_full_week_streak: false,
     streak_multiplier: 1,
     points_from_triggers: 45,
-    points_from_minutes: 4.29,
+    points_from_minutes: 0,
     points_official: 49.29,
     rank_official: 1,
     rank_excluding_internal: 1,
@@ -75,6 +82,8 @@ function scoreboardRow(overrides: Record<string, unknown> = {}) {
     metering_gap_minutes: 3879,
     sessions_with_trail: 6,
     sessions_charged: 2,
+    km_with_entitlement: 39,
+    points_from_km: 4.29,
     ...overrides,
   }
 }
@@ -280,6 +289,89 @@ test('#741: a truncated read is refused, not served', async () => {
     .get(SCOREBOARD)!(request('http://localhost/api/dashboard/ranking'))
 
   assert.equal(response.status, 502)
+})
+
+/**
+ * #741 · BR-RANKING-001 — THE GHOST ROW OF `user_id` NULL NEVER LEAVES THE ROUTE.
+ *
+ * `core.ranking_scoreboard` emits one row per period with `user_id` null, `nickname` null and
+ * every quantity at zero: two source tables carry rows whose `user_id` is nullable and null, and
+ * the `LEFT JOIN … USING (user_id)` never match. The row always existed; `20260916120000` made it
+ * VISIBLE, because in `week` it now receives `rank_official` and reaches the screen with a
+ * position and no nickname. `docs/contracts/banco-para-cms.md`, Parte 7, "A linha fantasma de
+ * `user_id` nulo", makes the filter an obligation of the screen — *"não é opcional"*.
+ *
+ * The three outputs of this route are pinned at once, because the row has to disappear from all
+ * of them: the table, the `<select>` of periods — a period whose only row is the ghost is a period
+ * with nobody in it — and the count of marked accounts.
+ *
+ * AND THE ANSWER IS STILL 200: PostgREST counted the ghost, so filtering it before the truncation
+ * guard would make every request read as a truncated one.
+ */
+test('#741 · BR-RANKING-001: the ghost row of null user_id reaches neither the table, nor the periods, nor the count', async () => {
+  asAdmin()
+  const ghost = {
+    user_id: null,
+    nickname: null,
+    trigger_points_fired: 0,
+    trigger_points_notable: 0,
+    visits_indeterminate: 0,
+    visits_manual: 0,
+    charged_minutes: 0,
+    story_days: 0,
+    points_from_triggers: 0,
+    points_from_minutes: 0,
+    km_with_entitlement: 0,
+    points_from_km: 0,
+    points_official: 0,
+    rank_official: null,
+    rank_excluding_internal: null,
+    points_notable_weighted: 0,
+    rank_notable_weighted: null,
+    trail_span_minutes: 0,
+    metering_gap_minutes: 0,
+    sessions_with_trail: 0,
+    sessions_charged: 0,
+  }
+
+  scenario.rows = [
+    scoreboardRow(),
+    scoreboardRow({ excluded_from_metrics: true, user_id: '44444444-4444-4444-8444-444444444444' }),
+    // The ghost of the served period — the row the operator sees with no nickname.
+    scoreboardRow({ period_kind: 'rolling_30d', ...ghost }),
+    // The ghost of a week NOBODY played: the only row of that period, and the one that turns into
+    // an option leading to an empty table.
+    scoreboardRow({
+      period_kind: 'week',
+      period_start: '2026-08-31T00:00:00+00:00',
+      period_end: '2026-09-07T00:00:00+00:00',
+      // In `week` this is the row that now carries a position, tied at the end.
+      ...ghost,
+      rank_official: 537,
+    }),
+  ]
+
+  const response = await handlers
+    .get(SCOREBOARD)!(request('http://localhost/api/dashboard/ranking?period=rolling_30d'))
+  const body = await response.json()
+
+  assert.equal(response.status, 200, 'the guard compares the READ with the count, before our filter')
+  assert.equal(body.data.rows.length, 2, 'the two accounts of the period, and nothing else')
+  assert.equal(
+    body.data.rows.every((row: { user_id: string | null }) => row.user_id != null),
+    true,
+    'a row with no account has no nickname to show'
+  )
+  assert.deepEqual(
+    body.data.periods.map((option: { kind: string }) => option.kind),
+    ['rolling_30d'],
+    'the week whose only row is the ghost is a week with nobody in it, and offering it is the screen inventing a period'
+  )
+  assert.equal(
+    body.data.internalAccounts,
+    1,
+    'the marked population is counted in ACCOUNTS; the ghost is not one'
+  )
 })
 
 test('#741: the session drill-down takes a uuid or a 400, and filters by that user', async () => {

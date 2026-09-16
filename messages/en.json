@@ -431,9 +431,8 @@
         "kpi": {
           "accounts_scored": "Accounts that scored",
           "platform_unknown": "{count} with no platform",
-          "ratio": "Trigger ÷ minute",
-          "ratio_subtitle": "{triggers} pts from triggers · {minutes} pts from minutes",
-          "ratio_partial": "{triggers} pts from triggers · {minutes} pts from minutes, at least\nThe meter covers only part of the window — the ratio would mix two windows.",
+          "ratio": "Trigger ÷ km",
+          "ratio_subtitle": "{triggers} pts from triggers · {km} pts from km",
           "streak": "7-day streak",
           "accounts": "{count, plural, one {# account} other {# accounts}}",
           "streak_subtitle": "highest in the period: {days} of 7 days",
@@ -455,12 +454,13 @@
         "table": {
           "rank": "#",
           "rank_excluding_internal": "no internals",
+          "seal": "{rank, selectordinal, one {#st} two {#nd} few {#rd} other {#th}} place",
           "person": "Person",
           "country": "Explored country",
           "platform": "Platform",
           "points": "Points",
           "triggers": "Triggers",
-          "points_from_minutes": "Pts from minutes",
+          "points_from_km": "Pts from km",
           "streak": "Streak",
           "notable_points": "Weight-2 pts",
           "rank_delta": "Δ vs. official",
@@ -481,6 +481,7 @@
         "row": {
           "notable_triggers": "Triggers on notable POI",
           "of_total": "{count} of {total}",
+          "km_with_entitlement": "Km with the guide on and with entitlement",
           "sessions_with_trail": "Sessions with trail that touched the period",
           "sessions_charged": "Sessions with charge",
           "rank_official": "Position — all accounts",
@@ -495,6 +496,7 @@
           "span_in_period": "<b>Signal span in period</b> is the part of each session's first-to-last-signal interval that fell inside the selected period, summed — it is neither guide time nor charged time; a session left open with sparse signal inflates it without consuming any balance. Overlapping sessions from the same account count the same clock twice, so the total can exceed the period's own duration.",
           "platform": "<b>Empty platform</b> = the account entered the period only by charge or by trail.",
           "country": "<b>Explored country</b> is the predominant country of the period's visits — it is neither the account's residence nor its nationality. Empty = no visit in the period carried a recognizable country, including when the account entered only by charge or by trail.",
+          "km": "<b>Pts from km</b> counts the kilometres driven with the guide on and with entitlement to turn it on, GPS noise discarded — it is not the distance of the trip: kilometres driven with no entitlement stay out.",
           "notable": "<b>Comparison · weight 2</b> ranks among all accounts, marked ones included; the Δ compares with the official position, which comes from the same population.",
           "sorting": "Positions and points come from the query; sorting the table does not recompute them.",
           "closing": "<b>Closing</b> is the raw text of the client or of the automatic close."

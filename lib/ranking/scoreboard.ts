@@ -12,13 +12,28 @@
  * the same visit several times. Rows reach a component only through `rowsForPeriod`, and every
  * aggregate takes the output of that function.
  *
- * NOTHING HERE RE-DERIVES A SCORE. `points_official` is `(triggers + minutes) × streak` and the
- * migration asserts that row by row; recomputing it here would be a second ruler for the same
- * fact (CLAUDE.md §6). What this module computes is what the SCREEN adds up — sums and counts
- * over rows of one period — never a point.
+ * NOTHING HERE RE-DERIVES A SCORE. `points_official` is `(triggers + km × 0,11) × streak` since
+ * `20260916130000` (**BR-RANKING-004**), and the migration asserts that row by row; recomputing
+ * it here would be a second ruler for the same fact (CLAUDE.md §6). What this module computes is
+ * what the SCREEN adds up — sums and counts over rows of one period — never a point.
+ *
+ * THE MINUTE AXIS LEFT THE SCORE AND THE MEASURE STAYED, and they are two different things:
+ * `points_from_minutes` is `0` constant, while `charged_minutes` did not move a digit. The axis
+ * left because a charged minute measures the MODE OF BILLING and not behaviour — the balance is
+ * inert during `unlimited` (BR-MONETIZACAO-051), so five of the six subscribers of the base have
+ * no consumption row at all and the old formula punished whoever subscribes (BR-RANKING-004
+ * item 2). The measure stayed because it is still the calibration instrument of
+ * BR-MONETIZACAO-049. Summing `points_from_triggers + points_from_minutes` to check a total is
+ * the error this file is now shaped to make impossible: the parcel is `points_from_km`.
  */
 
 import { UNKNOWN_VALUE } from '@/lib/format/unknown'
+/**
+ * TYPE-ONLY, and it is the seal's own vocabulary — the drawing owns what `1 | 2 | 3` and
+ * `week | month | year` mean (spec §7, "API do componente"). Redeclaring the two unions here
+ * would be a second owner of the seal's API, and the import is erased at build (CLAUDE.md §6).
+ */
+import type { SealCycle, SealPosition } from '@/components/ui/RankSeal'
 
 /** `week` is the game's cycle; the two rolling windows are calibration (contract, Parte 7). */
 export type PeriodKind = 'week' | 'rolling_30d' | 'rolling_90d'
@@ -28,7 +43,16 @@ export const DEFAULT_PERIOD_KIND: PeriodKind = 'rolling_30d'
 
 export const PERIOD_KINDS: readonly PeriodKind[] = ['week', 'rolling_30d', 'rolling_90d']
 
-/** One line per (account × period) — `core.ranking_scoreboard`, 27 columns. */
+/**
+ * One line per (account × period) — `core.ranking_scoreboard`, **30 columns** since
+ * `20260916130000` (`docs/contracts/banco-para-cms.md`, Parte 7).
+ *
+ * This type carries the 29 the screen reads. The one left out is `in_roster` (column 28,
+ * `20260916120000`): what the roster changed for this screen is that a closed week now ranks
+ * every row it serves, zeros tied at the end, and the answer to THAT is the podium floor below
+ * (`PODIUM_POINTS_FLOOR`, BR-RANKING-003) — not a column. Naming it here would add a field
+ * nobody reads.
+ */
 export interface RankingRow {
   period_kind: PeriodKind
   /** Inclusive, UTC. */
@@ -55,7 +79,16 @@ export interface RankingRow {
   has_full_week_streak: boolean
   streak_multiplier: number
   points_from_triggers: number
+  /**
+   * **`0` CONSTANT since `20260916130000`** — the minute axis is out of the score
+   * (BR-RANKING-004 item 2). The column survives only so the CMS published before that deploy
+   * keeps reading (contract, Parte 7), and its removal is a card of its own.
+   *
+   * **Do not add it to anything.** `points_from_triggers + points_from_minutes` stopped being a
+   * total the day the formula changed; the parcel that closes it is `points_from_km`.
+   */
   points_from_minutes: number
+  /** `(points_from_triggers + points_from_km) × streak_multiplier`, 4 decimals, asserted row by row by the migration. */
   points_official: number
   /** Position among ALL accounts. `null` at zero points. */
   rank_official: number | null
@@ -82,9 +115,67 @@ export interface RankingRow {
    * resolvable visit among nine unresolvable ones still gets a code.
    */
   top_country_code: string | null
+  /**
+   * COLUMN 29 — **NOT "KILOMETRES DRIVEN", and no label on this screen may say it is.**
+   *
+   * It is the kilometre driven **with the guide on AND with entitlement to turn it on**, with
+   * GPS noise filtered out (BR-RANKING-004 items 4, 6 and 7). The distance between that and a
+   * trip's distance is not marginal and was measured: **17,2% of the kilometres driven with the
+   * guide on in the four weeks before 2026-09-16 were driven with no entitlement** and are not
+   * here, and 34,6% of the raw kilometre is GPS artefact that the view discards. Calling the
+   * column `Km rodados` would promise the operator a quantity it does not measure, on the screen
+   * where he decides a prize.
+   *
+   * **`sessions_with_trail = 0` does not mean "did not move".** `route_trail.server_received_at`
+   * is 100% null in 37,5% of the sessions, and 23 (account, period) pairs carry
+   * `km_with_entitlement > 0` with `sessions_with_trail = 0` (contract, Parte 7).
+   */
+  km_with_entitlement: number
+  /**
+   * COLUMN 30 — `km_with_entitlement × 0,11`, 4 decimals. The coefficient lives in
+   * BR-RANKING-004 item 3 and is worth 24,6% of the scoreboard; the screen SUMS this column and
+   * never multiplies anything by 0,11.
+   */
+  points_from_km: number
 }
 
-/** One line per trip session — `core.ranking_session_metering`, 20 columns. */
+/**
+ * THE VIEW'S ROW AS IT COMES OFF THE WIRE — where `user_id` can be NULL.
+ *
+ * `core.ranking_scoreboard` emits ONE ROW PER PERIOD with `user_id` null, `nickname` null and
+ * every quantity at zero: `drive.poi_visits` and `drive.time_credit_consumption` carry rows whose
+ * `user_id` is nullable and null, they enter the view's key, and the `LEFT JOIN … USING (user_id)`
+ * never match — `NULL = NULL` is unknown, not true. The row ALWAYS existed; what changed with
+ * `20260916120000` (BR-RANKING-001) is that in `period_kind = 'week'` it now receives
+ * `rank_official`, tied at the end, so it reaches the screen with a position and no nickname.
+ *
+ * Fixing it belongs to the WRITER of those two tables and is a card of its own: removing the row
+ * in the database would change the count of the rolling windows, which #741 requires not to move.
+ *
+ * `RankingRow` is therefore what the SCREEN sees — an account — and this type is what the read
+ * brings. `accountRows` is the only crossing between the two.
+ */
+export type ScoreboardReadRow = Omit<RankingRow, 'user_id'> & { user_id: string | null }
+
+/**
+ * The rows that belong to an ACCOUNT — `docs/contracts/banco-para-cms.md`, Parte 7, "A linha
+ * fantasma de `user_id` nulo": *"A tela filtra `user_id IS NOT NULL`; não é opcional, porque a
+ * linha não tem apelido para mostrar."*
+ *
+ * It is a function and not three inline `.filter()` calls because the ghost row has to disappear
+ * from EVERY output of the read at once — the table, the count of marked accounts and the list of
+ * periods (CLAUDE.md §6). A period whose only row is the ghost is a period with nobody in it, and
+ * an option in the `<select>` leading to an empty table would be the screen inventing a period.
+ *
+ * The ruler is `user_id` alone. The ghost also carries `in_roster = false`, but the migration
+ * asserts that a roster row ALWAYS has an account, so the second half would narrow nothing and
+ * would be a second ruler for the same fact.
+ */
+export function accountRows(rows: ScoreboardReadRow[]): RankingRow[] {
+  return rows.filter((row): row is RankingRow => row.user_id != null)
+}
+
+/** One line per trip session — `core.ranking_session_metering`, 19 columns (contract, Parte 7). */
 export interface SessionMeteringRow {
   trip_session_id: string
   user_id: string
@@ -297,7 +388,12 @@ export interface RankingSummary {
    */
   platformUnknown: number
   pointsFromTriggers: number
-  pointsFromMinutes: number
+  /**
+   * THE OTHER AXIS OF THE SCORE, IN POINTS — the sum of `points_from_km`, which is what replaced
+   * `pointsFromMinutes` here (BR-RANKING-004). It is a sum of a column the view computed: the
+   * screen never multiplies kilometres by the coefficient.
+   */
+  pointsFromKm: number
   /**
    * THE SCOREBOARD, SUMMED — the column the footer exists to total.
    *
@@ -310,8 +406,12 @@ export interface RankingSummary {
   pointsOfficial: number
   /** The same total for the comparison, so the question *does the weight 2 change it?* has an answer. */
   pointsNotableWeighted: number
-  /** Triggers ÷ minutes, both in POINTS — same ruler. `null` when the denominator is zero. */
-  triggerToMinuteRatio: number | null
+  /**
+   * Triggers ÷ kilometres, **both in POINTS** — one ruler, and the two parcels that make up
+   * `points_official`. `null` when the denominator is zero: a period where nobody drove with
+   * entitlement divides by nothing, and `∞` is not a reading (`DS-COMPONENTE-084` item 2).
+   */
+  triggerToKmRatio: number | null
   streakAccounts: number
   maxStoryDays: number
   /** `charged_minutes > 0 AND trigger_points_fired = 0` — the #743 population, seen from revenue. */
@@ -347,7 +447,7 @@ export function summarize(rows: RankingRow[]): RankingSummary {
   }
 
   const pointsFromTriggers = sum(rows, (row) => row.points_from_triggers)
-  const pointsFromMinutes = sum(rows, (row) => row.points_from_minutes)
+  const pointsFromKm = sum(rows, (row) => row.points_from_km)
 
   return {
     accountsScored: scored.length,
@@ -356,10 +456,10 @@ export function summarize(rows: RankingRow[]): RankingSummary {
       .sort((a, b) => b.accounts - a.accounts || a.platform.localeCompare(b.platform)),
     platformUnknown,
     pointsFromTriggers,
-    pointsFromMinutes,
+    pointsFromKm,
     pointsOfficial: sum(rows, (row) => row.points_official),
     pointsNotableWeighted: sum(rows, (row) => row.points_notable_weighted),
-    triggerToMinuteRatio: pointsFromMinutes > 0 ? pointsFromTriggers / pointsFromMinutes : null,
+    triggerToKmRatio: pointsFromKm > 0 ? pointsFromTriggers / pointsFromKm : null,
     streakAccounts: rows.filter((row) => row.has_full_week_streak).length,
     maxStoryDays: rows.reduce((max, row) => Math.max(max, row.story_days), 0),
     chargedWithoutTrigger: rows.filter(
@@ -420,6 +520,23 @@ export function formatPoints(value: number | null | undefined, locale: string): 
   return new Intl.NumberFormat(locale, { maximumFractionDigits: 2 }).format(value)
 }
 
+/**
+ * The entitled kilometre as the operator reads it — `39 km`, `1.204,5 km`.
+ *
+ * The unit comes from `Intl`, so it is the locale's own and not a string glued to a number; the
+ * view carries three decimals (metre resolution) and the screen shows one, because nobody
+ * calibrates a coefficient on a metre. The QUANTITY it prints is the one column 29 measures —
+ * guide on and entitled — and what it is not is said where the column is read, never here.
+ */
+export function formatKilometres(value: number | null | undefined, locale: string): string {
+  if (value == null || !Number.isFinite(value)) return UNKNOWN_VALUE
+  return new Intl.NumberFormat(locale, {
+    style: 'unit',
+    unit: 'kilometer',
+    maximumFractionDigits: 1,
+  }).format(value)
+}
+
 /** The ratio of indicator 2, `11,6 : 1`. A zero denominator is UNKNOWN — never `∞`, `0` or `100 %`. */
 export function formatRatio(ratio: number | null, locale: string): string {
   if (ratio == null || !Number.isFinite(ratio)) return UNKNOWN_VALUE
@@ -476,6 +593,104 @@ export function weekOfSelection(selection: PeriodSelection): PeriodOption | null
 /** The period that contains `now` — the current week is the only one that is still half done. */
 export function isCurrentPeriod(period: Pick<PeriodOption, 'start' | 'end'>, now = Date.now()): boolean {
   return new Date(period.start).getTime() <= now && now < new Date(period.end).getTime()
+}
+
+/**
+ * MAY THIS PERIOD WEAR A SEAL AT ALL? — `DS-COMPONENTE-088`, spec §5.1.
+ *
+ * Two refusals, and each one exists because of a way the screen could lie:
+ *
+ * 1. **The cycle has to have CLOSED.** `period_end` is exclusive (contract, Parte 7), so
+ *    `period_end <= now` is exactly "the week is over". The roster is a minimum of ten from
+ *    Monday on (`BR-RANKING-001`), which means a podium exists at 8 a.m. on Monday with 0,3
+ *    point — a gold seal there stops meaning anything by Tuesday.
+ * 2. **A rolling window is not a cycle.** `rolling_30d` is calibration, not competition
+ *    (`BR-RANKING-001` item 5), and it is NOT the monthly cycle — that one ranks won weeks and
+ *    is born in #742. A monthly seal drawn over `rolling_30d` would assert a cycle the product
+ *    does not have yet.
+ *
+ * `week` is therefore the only cycle this screen can produce today, and the return type says so
+ * rather than leaving the caller to guess.
+ */
+export function sealCycle(
+  period: Pick<PeriodOption, 'kind' | 'end'> | null,
+  now = Date.now()
+): Extract<SealCycle, 'week'> | null {
+  if (period === null || period.kind !== 'week') return null
+
+  const end = new Date(period.end).getTime()
+  if (!Number.isFinite(end)) return null
+
+  return end <= now ? 'week' : null
+}
+
+/**
+ * THE POINT FLOOR OF THE PODIUM — `BR-RANKING-003` item 6, and the only DECLARATION of that
+ * number in this repository: everything that asks about the podium reads it from here.
+ *
+ * It is a number of the business and not a comparison: the operator fixed it on 2026-09-16 over
+ * the measured distribution of a closed week (median of 7 points), so that the floor separates
+ * who played from who drove past a POI. Code cites the ID and reads the number from here
+ * (CLAUDE.md §6) — a second `10` typed into a cell or into a test goes green while the rule
+ * moves.
+ *
+ * **IT IS NOT THE "SCORED" PREDICATE, AND THE TWO MUST NOT MERGE.** `summarize` and the `scored`
+ * chip answer "did this account score at all" with `points_official > 0`, over the whole
+ * population; this one answers "is this line a podium", and only the seal asks it.
+ *
+ * The comparison is `>=` on the OFFICIAL, UNROUNDED score — the same number that orders the
+ * board. The score carries a decimal (a charged minute is worth 0,03 point), so a row at 9,97
+ * is below the floor and a row at exactly 10 is on it.
+ */
+export const PODIUM_POINTS_FLOOR = 10
+
+/**
+ * THE SEAL OF ONE ROW, or `null` — the single answer to "does this cell draw a seal".
+ *
+ * It is one function and not a condition spelled out in the cell because the two halves are only
+ * correct together: a podium without a closed cycle is `DS-COMPONENTE-088`, and a closed cycle
+ * without a podium is the 4th place that must keep printing its number (spec §4.3).
+ *
+ * **The seal never computes a position.** `rank` arrives from the view, and the switch upstream
+ * decides whether it is `rank_official` or `rank_excluding_internal` — the same ruler the `#`
+ * column already prints (`DS-COMPONENTE-082` item 3). A tie is the server's business: two `1`s
+ * produce two gold seals and no silver, which is a valid result (spec §5.4). **The count of seals
+ * on the screen is never the criterion** — only the three conditions below are.
+ *
+ * THE THIRD CONDITION — THE PODIUM HAS A FLOOR, AND IT IS `PODIUM_POINTS_FLOOR` (#756).
+ * Since `20260916120000` the week ranks the WHOLE roster, the zeros tied at the end, so
+ * `rank_official` stopped meaning "won anything" (`BR-RANKING-001`; contract
+ * `banco-para-cms.md`, Parte 7, columns 19 and 20). With the minimum roster of ten and a `free`
+ * tier that does not score (`BR-MONETIZACAO-055`), fewer than three scoring accounts is enough
+ * for the mass tie of zeros to occupy positions 1 to 3: measured on the CT bench, a closed week
+ * where nobody scored drew TEN gold seals. The floor is read from the row and never re-derived —
+ * the migration owns the score (CLAUDE.md §6).
+ *
+ * **THE FLOOR IS PER LINE, NEVER A COUNT OF SEALS.** "Each position from 1 to 3 WHOSE OWNER
+ * reached the floor", not "the three best with points": one account above the floor draws one
+ * gold, and the 2nd and 3rd — who exist, and print their numbers — draw nothing. A week where
+ * nobody reaches it draws no seal at all, which is the open podium `BR-RANKING-003` covers by
+ * name.
+ *
+ * `null` rank gets no seal, and the cell keeps printing `UNKNOWN_VALUE`: "does not rank" is not
+ * "ranks worst" (`DS-COMPONENTE-084` item 1). **A score under the floor is the other case and
+ * prints the NUMBER**, because the position exists — what does not exist is the podium (spec §9
+ * item 8bis).
+ * The cell needs no branch of its own for that: it already prints `rank` whenever there is no
+ * seal.
+ */
+export function rankSeal(
+  rank: number | null,
+  row: Pick<RankingRow, 'points_official'>,
+  period: Pick<PeriodOption, 'kind' | 'end'> | null,
+  now = Date.now()
+): { position: SealPosition; cycle: SealCycle } | null {
+  const cycle = sealCycle(period, now)
+  if (cycle === null) return null
+  if (rank !== 1 && rank !== 2 && rank !== 3) return null
+  if (!(row.points_official >= PODIUM_POINTS_FLOOR)) return null
+
+  return { position: rank, cycle }
 }
 
 /**

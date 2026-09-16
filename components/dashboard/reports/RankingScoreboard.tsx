@@ -3,12 +3,19 @@
 /**
  * ONE ACCOUNT PER ROW — the scoring scoreboard of phase 1 (#741, epic #737).
  *
- * THE LINE CHECKS ITSELF BY EYE: `Pontos = (Disparos + Pts por minuto) × multiplicador`. That is
- * what makes the two facts that look like defects visible without a word of text — the minutes
- * column almost always tiny next to the triggers column (the minute axis is 8% of the
- * scoreboard), and the streak column never multiplying anything (nobody reached 7 calendar days
- * in any of the 13 weeks). Neither is the screen's error, and the screen exists for the operator
- * to see them.
+ * THE LINE CHECKS ITSELF BY EYE: `Pontos = (Disparos + Pts de km) × multiplicador` — the formula
+ * of **BR-RANKING-004** since `20260916130000`. That is what makes the two facts that look like
+ * defects visible without a word of text — the kilometre column a quarter of the scoreboard next
+ * to the triggers column (25,6% measured over the 13 weeks: history leads, the road is
+ * acknowledgement), and the streak column never multiplying anything (nobody reached 7 calendar
+ * days in any of the 13 weeks). Neither is the screen's error, and the screen exists for the
+ * operator to see them.
+ *
+ * THE MINUTE AXIS IS GONE FROM THE SCORE AND `Cobrado` STAYED. `points_from_minutes` is `0`
+ * constant and no cell prints it; `charged_minutes` did not move and keeps its column in the
+ * time group, because it is still the calibration instrument of BR-MONETIZACAO-049. **Numbers
+ * from before 2026-09-16 are not comparable with numbers after it** — every point changed and so
+ * did the order — which is why nothing on this screen puts two periods side by side.
  *
  * THE COMPARISON COLUMNS ARE NOT THE SCOREBOARD. `points_notable_weighted` is deferred by the
  * operator's own decision (#737, decision 2), so its group is grey while the official group
@@ -69,6 +76,7 @@ import { StatCard, StatCardRow } from '@/components/ui/StatCard'
 import type { RpcError } from '@/lib/api/dashboard-fetch'
 import { AppUserLink } from '@/components/dashboard/AppUserLink'
 import { CountryFlag } from '@/components/ui/CountryFlag'
+import { RankSeal } from '@/components/ui/RankSeal'
 import { formatDuration, formatSignedDuration } from '@/lib/format/duration'
 import { UNKNOWN_VALUE } from '@/lib/format/unknown'
 import { appUserLabel } from '@/lib/format/user-identity'
@@ -76,10 +84,12 @@ import { meteringCoverage } from '@/lib/ranking/metering'
 import {
   aggregateRows,
   compareNullable,
+  formatKilometres,
   formatPoints,
   formatRatio,
   matchesPeriod,
   rankDelta,
+  rankSeal,
   summarize,
   visibleRows,
   weekOfSelection,
@@ -100,7 +110,7 @@ const TUGGI_COLORS = {
 type SortKey =
   | 'points_official'
   | 'trigger_points_fired'
-  | 'points_from_minutes'
+  | 'points_from_km'
   | 'story_days'
   | 'points_notable_weighted'
   | 'charged_minutes'
@@ -371,32 +381,27 @@ export function RankingScoreboard({
             isLoading={isLoading}
             color={TUGGI_COLORS.purple}
             label={t('kpi.ratio')}
-            /* PARTIAL COVERAGE IS NOT A FRACTION. The numerator is measured over the whole
-               window and the denominator only from the ledger's first row onwards (the date has
-               one owner, `lib/ranking/metering.ts`), so the ratio would divide two windows of
-               different length — today `rolling_30d`, the DEFAULT period of this screen, has
-               16,2% of its window with no instrument and `rolling_90d` has 72%, which comes out
-               ~3,5× high. The screen used to flatten `partial` into `full` in every number and
-               keep the distinction only in the amber band, on the one number the operator uses
-               to decide the weight of `0,03/min`.
+            /* THE TWO PARCELS OF THE SCORE, AND THE METER IS NEITHER OF THEM. This card used to
+               divide trigger points by MINUTE points, which made it depend on the coverage of
+               `drive.time_credit_consumption`: that ledger opens partway through the horizon (the
+               date has one owner, `lib/ranking/metering.ts`), so over a window the meter only half
+               covers the fraction divided a numerator measured over 30 days by a denominator
+               measured over 25 and came out ~3,5× high.
 
-               What replaces the fraction is not silence: the two totals it would have divided
-               are named, which is the reading he can still make. */
-            value={measured(
-              coverage === 'full' ? formatRatio(summary.triggerToMinuteRatio, locale) : UNKNOWN_VALUE
-            )}
+               The minute axis no longer scores (**BR-RANKING-004** item 2), so the meter stopped
+               being a condition of this number. Both sides are now the two parcels the view adds
+               up into `points_official`, and it computes them for every period it serves —
+               keeping the gate would be the very confusion the contract names by hand: column 12
+               is the calibration instrument, columns 16 and 30 are the score.
+
+               A zero denominator stays UNKNOWN (`DS-COMPONENTE-084` item 2): a period where
+               nobody drove with entitlement divides by nothing, and `∞` is not a reading. */
+            value={measured(formatRatio(summary.triggerToKmRatio, locale))}
             subtitle={note(
-              coverage === 'full'
-                ? t('kpi.ratio_subtitle', {
-                    triggers: points(summary.pointsFromTriggers),
-                    minutes: points(summary.pointsFromMinutes),
-                  })
-                : coverage === 'partial'
-                  ? t('kpi.ratio_partial', {
-                      triggers: points(summary.pointsFromTriggers),
-                      minutes: points(summary.pointsFromMinutes),
-                    })
-                  : t('kpi.no_meter')
+              t('kpi.ratio_subtitle', {
+                triggers: points(summary.pointsFromTriggers),
+                km: points(summary.pointsFromKm),
+              })
             )}
           />
           {isWeek && (
@@ -559,6 +564,14 @@ export function RankingScoreboard({
               of groups has a fixed 28px and the band of column names sticks 28px below it, so a
               label carrying `(posição entre todas as contas)` wrapped and hid the thirteen column
               names (#752). Without this line the delta has a baseline nobody stated (item 2). */}
+          {/* THE COLUMN WHOSE NAME IS A KILOMETRE AND WHOSE NUMBER IS NOT EVERY KILOMETRE — and
+              the gap was measured, so it is not a precaution: **17,2%** of the kilometre driven
+              with the guide on carried no entitlement and is not in the column, and 34,6% of the
+              raw kilometre is GPS artefact the view discards (**BR-RANKING-004** items 4 and 7).
+              On a screen where the operator decides a prize, `Pts de km` with no sentence next to
+              it reads as distance travelled. PROVISIONAL COPY: the wording is the `design`'s, and
+              this line is what says the true thing until he writes the better one. */}
+          <p>{t.rich('caption.km', { b: (chunks) => <strong>{chunks}</strong> })}</p>
           <p>{t.rich('caption.notable', { b: (chunks) => <strong>{chunks}</strong> })}</p>
           {/* No `<b>`: the sentence has no term to define, it denies a consequence. */}
           <p>{t('caption.sorting')}</p>
@@ -575,6 +588,7 @@ export function RankingScoreboard({
               {t.rich('caption.span_in_period', { b: (chunks) => <strong>{chunks}</strong> })}{' '}
               {t.rich('caption.platform', { b: (chunks) => <strong>{chunks}</strong> })}{' '}
               {t.rich('caption.country', { b: (chunks) => <strong>{chunks}</strong> })}{' '}
+              {t.rich('caption.km', { b: (chunks) => <strong>{chunks}</strong> })}{' '}
               {t.rich('caption.notable', { b: (chunks) => <strong>{chunks}</strong> })}{' '}
               {t('caption.sorting')}
             </caption>
@@ -631,7 +645,7 @@ export function RankingScoreboard({
                 </th>
                 {head('points_official', t('table.points'), `${HEAD_NUM} ${EDGE}`)}
                 {head('trigger_points_fired', t('table.triggers'), HEAD_NUM)}
-                {head('points_from_minutes', t('table.points_from_minutes'), HEAD_NUM)}
+                {head('points_from_km', t('table.points_from_km'), HEAD_NUM)}
                 {isWeek && head('story_days', t('table.streak'), HEAD_NUM)}
                 {head('points_notable_weighted', t('table.notable_points'), `${HEAD_NUM} ${EDGE}`)}
                 <th scope="col" className={HEAD_NUM}>
@@ -680,6 +694,17 @@ export function RankingScoreboard({
                 tableRows.map((row) => {
                   const isOpen = expanded === row.user_id
                   const person = appUserLabel(row)
+                  /**
+                   * THE SEAL REPLACES THE DIGIT ON THE PODIUM, and only there — spec §4.3.
+                   *
+                   * The ruler is the one the `#` column already uses (`rankOf`), so the seal
+                   * follows the internal-account switch instead of inventing a second position;
+                   * and it TRAVELS WITH THE ROW — sorting by another column carries the podium
+                   * into the middle of the table, because `#` is a value and never the index of
+                   * the rendered line (`DS-COMPONENTE-082` item 3).
+                   */
+                  const rank = rankOf(row)
+                  const seal = rankSeal(rank, row, meteredPeriod)
 
                   return (
                     <Fragment key={row.user_id}>
@@ -687,7 +712,19 @@ export function RankingScoreboard({
                         className="border-t border-gray-100 hover:bg-gray-50/70 dark:border-gray-800 dark:hover:bg-gray-800/40"
                       >
                         <td className={`${NUM} pr-0`}>
-                          <span className="inline-flex items-center gap-1">
+                          {/* THE SEAL PAYS FOR ITS OWN WIDTH, and the gap is where it finds it.
+                              A 20 px seal where a digit was is 12 px more of `#` column, and the
+                              table has a ceiling it inherited when `Plataforma` left: the natural
+                              width may not pass what that column used to cost
+                              (`DS-COMPONENTE-086` critério 24, measured in
+                              `tests/ct/ranking-scoreboard.spec.tsx`). The chevron is a 24 px
+                              target around a 14 px glyph, so it already carries ~5 px of its own
+                              whitespace on the seal's side — dropping the 4 px flex gap on the
+                              podium rows keeps the two apart and puts the table back at the
+                              ceiling. The digit rows keep the gap they had. */}
+                          <span
+                            className={`inline-flex items-center ${seal === null ? 'gap-1' : ''}`}
+                          >
                             <button
                               type="button"
                               aria-expanded={isOpen}
@@ -705,7 +742,18 @@ export function RankingScoreboard({
                                 <ChevronRight className="h-3.5 w-3.5" aria-hidden="true" />
                               )}
                             </button>
-                            {rankOf(row) ?? UNKNOWN_VALUE}
+                            {/* 20 px of seal adds NOT ONE PIXEL to the row: the chevron next to
+                                it is already `h-6 w-6 min-h-[24px]`, so 24 px governs the height
+                                of the line with or without it (spec §4.3 and §9 item 10). */}
+                            {seal !== null ? (
+                              <RankSeal
+                                position={seal.position}
+                                cycle={seal.cycle}
+                                label={t('table.seal', { rank: seal.position })}
+                              />
+                            ) : (
+                              (rank ?? UNKNOWN_VALUE)
+                            )}
                           </span>
                         </td>
                         {includeInternal && (
@@ -743,10 +791,15 @@ export function RankingScoreboard({
                             column prints two columns to the right, with no label of its own and
                             inside the `Placar oficial` group instead of the time one. Two
                             printings of one fact, and at zero the cell read `0` over `0 min`
-                            (#741, CLAUDE.md §6). */}
-                        <td className={NUM}>
-                          {hasMeter ? points(row.points_from_minutes) : UNKNOWN_VALUE}
-                        </td>
+                            (#741, CLAUDE.md §6).
+
+                            NO `hasMeter` HERE, AND THAT IS THE POINT OF THE SWAP. The meter is
+                            `drive.time_credit_consumption`, which stopped touching the score
+                            (**BR-RANKING-004** item 2); the kilometre comes from the trail and
+                            from the entitlement window, and the view computes it for every period
+                            it serves. Gating it on the meter would print `—` over a measured
+                            number. The kilometres themselves are in the expanded row. */}
+                        <td className={NUM}>{points(row.points_from_km)}</td>
                         {isWeek && (
                           <td className={NUM}>
                             {`${row.story_days} / 7`}
@@ -823,6 +876,19 @@ export function RankingScoreboard({
                                 label={t('kpi.manual_listens')}
                                 value={String(row.visits_manual)}
                               />
+                              {/* THE GRANDEZA THE POINTS COLUMN MULTIPLIES, and it stays out of
+                                  the table on purpose: the width of the row is a ceiling this
+                                  screen inherited (`DS-COMPONENTE-086` critério 24), and the
+                                  operator who is calibrating 0,11 needs the kilometre once, not
+                                  in every line. The LABEL is the whole caveat — guide on and
+                                  entitled — because a `Detail` has no caption above it. */}
+                              <Detail
+                                label={t('row.km_with_entitlement')}
+                                value={formatKilometres(row.km_with_entitlement, locale)}
+                              />
+                              {/* `0` here is not "did not move": `server_received_at` is 100% null
+                                  in 37,5% of the sessions, and 23 (account, period) pairs have
+                                  kilometres with this counter at zero (contract, Parte 7). */}
                               <Detail
                                 label={t('row.sessions_with_trail')}
                                 value={String(row.sessions_with_trail)}
@@ -897,9 +963,7 @@ export function RankingScoreboard({
                     {points(totals.pointsOfficial)}
                   </td>
                   <td className={`${NUM} font-bold`}>{points(totals.triggerPointsFired)}</td>
-                  <td className={`${NUM} font-bold`}>
-                    {hasMeter ? points(totals.pointsFromMinutes) : UNKNOWN_VALUE}
-                  </td>
+                  <td className={`${NUM} font-bold`}>{points(totals.pointsFromKm)}</td>
                   {/* The streak is a multiplier and a fraction of seven days: neither sums. */}
                   {isWeek && <td className={NUM} />}
                   <td className={`${NUM} ${EDGE} ${DIM}`}>
