@@ -453,6 +453,7 @@
         "table": {
           "rank": "#",
           "rank_excluding_internal": "sem internas",
+          "seal": "{rank}º lugar",
           "person": "Pessoa",
           "country": "País explorado",
           "platform": "Plataforma",

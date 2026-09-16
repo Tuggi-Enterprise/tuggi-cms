@@ -455,6 +455,7 @@
         "table": {
           "rank": "#",
           "rank_excluding_internal": "no internals",
+          "seal": "{rank, selectordinal, one {#st} two {#nd} few {#rd} other {#th}} place",
           "person": "Person",
           "country": "Explored country",
           "platform": "Platform",

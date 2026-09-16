@@ -69,6 +69,7 @@ import { StatCard, StatCardRow } from '@/components/ui/StatCard'
 import type { RpcError } from '@/lib/api/dashboard-fetch'
 import { AppUserLink } from '@/components/dashboard/AppUserLink'
 import { CountryFlag } from '@/components/ui/CountryFlag'
+import { RankSeal } from '@/components/ui/RankSeal'
 import { formatDuration, formatSignedDuration } from '@/lib/format/duration'
 import { UNKNOWN_VALUE } from '@/lib/format/unknown'
 import { appUserLabel } from '@/lib/format/user-identity'
@@ -80,6 +81,7 @@ import {
   formatRatio,
   matchesPeriod,
   rankDelta,
+  rankSeal,
   summarize,
   visibleRows,
   weekOfSelection,
@@ -680,6 +682,17 @@ export function RankingScoreboard({
                 tableRows.map((row) => {
                   const isOpen = expanded === row.user_id
                   const person = appUserLabel(row)
+                  /**
+                   * THE SEAL REPLACES THE DIGIT ON THE PODIUM, and only there — spec §4.3.
+                   *
+                   * The ruler is the one the `#` column already uses (`rankOf`), so the seal
+                   * follows the internal-account switch instead of inventing a second position;
+                   * and it TRAVELS WITH THE ROW — sorting by another column carries the podium
+                   * into the middle of the table, because `#` is a value and never the index of
+                   * the rendered line (`DS-COMPONENTE-082` item 3).
+                   */
+                  const rank = rankOf(row)
+                  const seal = rankSeal(rank, meteredPeriod)
 
                   return (
                     <Fragment key={row.user_id}>
@@ -705,7 +718,18 @@ export function RankingScoreboard({
                                 <ChevronRight className="h-3.5 w-3.5" aria-hidden="true" />
                               )}
                             </button>
-                            {rankOf(row) ?? UNKNOWN_VALUE}
+                            {/* 20 px of seal adds NOT ONE PIXEL to the row: the chevron next to
+                                it is already `h-6 w-6 min-h-[24px]`, so 24 px governs the height
+                                of the line with or without it (spec §4.3 and §9 item 10). */}
+                            {seal !== null ? (
+                              <RankSeal
+                                position={seal.position}
+                                cycle={seal.cycle}
+                                label={t('table.seal', { rank: seal.position })}
+                              />
+                            ) : (
+                              (rank ?? UNKNOWN_VALUE)
+                            )}
                           </span>
                         </td>
                         {includeInternal && (

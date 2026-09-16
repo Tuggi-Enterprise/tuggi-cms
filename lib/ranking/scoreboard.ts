@@ -19,6 +19,12 @@
  */
 
 import { UNKNOWN_VALUE } from '@/lib/format/unknown'
+/**
+ * TYPE-ONLY, and it is the seal's own vocabulary — the drawing owns what `1 | 2 | 3` and
+ * `week | month | year` mean (spec §7, "API do componente"). Redeclaring the two unions here
+ * would be a second owner of the seal's API, and the import is erased at build (CLAUDE.md §6).
+ */
+import type { SealCycle, SealPosition } from '@/components/ui/RankSeal'
 
 /** `week` is the game's cycle; the two rolling windows are calibration (contract, Parte 7). */
 export type PeriodKind = 'week' | 'rolling_30d' | 'rolling_90d'
@@ -512,6 +518,62 @@ export function weekOfSelection(selection: PeriodSelection): PeriodOption | null
 /** The period that contains `now` — the current week is the only one that is still half done. */
 export function isCurrentPeriod(period: Pick<PeriodOption, 'start' | 'end'>, now = Date.now()): boolean {
   return new Date(period.start).getTime() <= now && now < new Date(period.end).getTime()
+}
+
+/**
+ * MAY THIS PERIOD WEAR A SEAL AT ALL? — `DS-COMPONENTE-088`, spec §5.1.
+ *
+ * Two refusals, and each one exists because of a way the screen could lie:
+ *
+ * 1. **The cycle has to have CLOSED.** `period_end` is exclusive (contract, Parte 7), so
+ *    `period_end <= now` is exactly "the week is over". The roster is a minimum of ten from
+ *    Monday on (`BR-RANKING-001`), which means a podium exists at 8 a.m. on Monday with 0,3
+ *    point — a gold seal there stops meaning anything by Tuesday.
+ * 2. **A rolling window is not a cycle.** `rolling_30d` is calibration, not competition
+ *    (`BR-RANKING-001` item 5), and it is NOT the monthly cycle — that one ranks won weeks and
+ *    is born in #742. A monthly seal drawn over `rolling_30d` would assert a cycle the product
+ *    does not have yet.
+ *
+ * `week` is therefore the only cycle this screen can produce today, and the return type says so
+ * rather than leaving the caller to guess.
+ */
+export function sealCycle(
+  period: Pick<PeriodOption, 'kind' | 'end'> | null,
+  now = Date.now()
+): Extract<SealCycle, 'week'> | null {
+  if (period === null || period.kind !== 'week') return null
+
+  const end = new Date(period.end).getTime()
+  if (!Number.isFinite(end)) return null
+
+  return end <= now ? 'week' : null
+}
+
+/**
+ * THE SEAL OF ONE ROW, or `null` — the single answer to "does this cell draw a seal".
+ *
+ * It is one function and not a condition spelled out in the cell because the two halves are only
+ * correct together: a podium without a closed cycle is `DS-COMPONENTE-088`, and a closed cycle
+ * without a podium is the 4th place that must keep printing its number (spec §4.3).
+ *
+ * **The seal never computes a position.** `rank` arrives from the view, and the switch upstream
+ * decides whether it is `rank_official` or `rank_excluding_internal` — the same ruler the `#`
+ * column already prints (`DS-COMPONENTE-082` item 3). A tie is the server's business: two `1`s
+ * produce two gold seals and no silver, which is a valid result (spec §5.4).
+ *
+ * `null` rank — zero points — gets no seal, and the cell keeps printing `UNKNOWN_VALUE`: "does
+ * not rank" is not "ranks worst" (`DS-COMPONENTE-084` item 1).
+ */
+export function rankSeal(
+  rank: number | null,
+  period: Pick<PeriodOption, 'kind' | 'end'> | null,
+  now = Date.now()
+): { position: SealPosition; cycle: SealCycle } | null {
+  const cycle = sealCycle(period, now)
+  if (cycle === null) return null
+  if (rank !== 1 && rank !== 2 && rank !== 3) return null
+
+  return { position: rank, cycle }
 }
 
 /**

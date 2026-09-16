@@ -444,6 +444,7 @@
         "table": {
           "rank": "#",
           "rank_excluding_internal": "sin internas",
+          "seal": "{rank}.º lugar",
           "person": "Persona",
           "country": "País explorado",
           "platform": "Plataforma",
