@@ -28,6 +28,7 @@
  */
 
 import { UNKNOWN_VALUE } from '@/lib/format/unknown'
+import { kmCoverage } from '@/lib/ranking/metering'
 /**
  * TYPE-ONLY, and it is the seal's own vocabulary — the drawing owns what `1 | 2 | 3` and
  * `week | month | year` mean (spec §7, "API do componente"). Redeclaring the two unions here
@@ -35,19 +36,77 @@ import { UNKNOWN_VALUE } from '@/lib/format/unknown'
  */
 import type { SealCycle, SealPosition } from '@/components/ui/RankSeal'
 
-/** `week` is the game's cycle; the two rolling windows are calibration (contract, Parte 7). */
-export type PeriodKind = 'week' | 'rolling_30d' | 'rolling_90d'
-
-/** The default is the 30-day window: the screen exists to calibrate, and the current week is always half done (spec §2.1). */
-export const DEFAULT_PERIOD_KIND: PeriodKind = 'rolling_30d'
-
-export const PERIOD_KINDS: readonly PeriodKind[] = ['week', 'rolling_30d', 'rolling_90d']
+/**
+ * FIVE WINDOWS, TWO NATURES — and the nature is the half a flat control erases.
+ *
+ * `week`, `month` and `year` are CYCLES of the product: they have a roster, a floor and a podium
+ * (**BR-RANKING-001**, **BR-RANKING-003**, **BR-RANKING-005**). `rolling_30d` and `rolling_90d`
+ * never were competition — they exist to check a number (**BR-RANKING-001** item 5) — and putting
+ * the five side by side in one flat `<select>` says by omission that they are the same species of
+ * thing, which is the one thing the operator must not get wrong (`DS-COMPONENTE-089` item 1).
+ */
+export type PeriodKind = 'week' | 'month' | 'year' | 'rolling_30d' | 'rolling_90d'
 
 /**
- * One line per (account × period) — `core.ranking_scoreboard`, **30 columns** since
- * `20260916130000` (`docs/contracts/banco-para-cms.md`, Parte 7).
+ * The default is the 30-day window, and it did NOT move when the two cycles arrived (spec §2.3):
+ * the screen exists to calibrate, the current week is always half done, and changing the default
+ * now is churn with no gain.
+ */
+export const DEFAULT_PERIOD_KIND: PeriodKind = 'rolling_30d'
+
+/** In the order the `<select>` shows them: the clock's order inside competition, then calibration. */
+export const PERIOD_KINDS: readonly PeriodKind[] = [
+  'week',
+  'month',
+  'year',
+  'rolling_30d',
+  'rolling_90d',
+]
+
+/** Which of the two groups of the `<select>` a window belongs to. */
+export type PeriodNature = 'competition' | 'calibration'
+
+/**
+ * THE NATURE OF A WINDOW, WITH ONE OWNER — `DS-COMPONENTE-089` items 1 and 2.
  *
- * This type carries the 29 the screen reads. The one left out is `in_roster` (column 28,
+ * The `<select>`'s `<optgroup>`, the stamp printed next to the numbers and the `<caption>` all
+ * read from here. An `if (kind === 'rolling_30d' || kind === 'rolling_90d')` written a second
+ * time inside a component is divergence entering by duplication (CLAUDE.md §6) — and it is the
+ * shape of condition that silently keeps answering `competition` when a sixth window is added.
+ */
+export function periodNature(kind: PeriodKind): PeriodNature {
+  return kind === 'rolling_30d' || kind === 'rolling_90d' ? 'calibration' : 'competition'
+}
+
+/**
+ * Windows whose boundary is a DATE the operator can paste, as opposed to "now minus N days".
+ *
+ * It is what decides whether the URL and the `<select>` value carry a `start`, and it exists as a
+ * predicate rather than as `kind !== 'rolling_30d' && kind !== 'rolling_90d'` typed at the four
+ * call sites that need it — the same reason `periodNature` does.
+ */
+export function hasAnchoredStart(kind: PeriodKind): boolean {
+  return kind === 'week' || kind === 'month' || kind === 'year'
+}
+
+/**
+ * CYCLES THAT COMPOSE THE CYCLE BELOW THEM — **BR-RANKING-005**.
+ *
+ * In `month` and `year`, `points_official` is not the formula of **BR-RANKING-004** applied to
+ * the period: it is the SUM of the points of the weeks (or months) the account finished on the
+ * podium of. Every consequence the screen carries hangs on this predicate — the four columns it
+ * renders (spec §4.8), the `<caption>` that declares the new quantity, and the cards that stop
+ * rendering because they would divide two populations.
+ */
+export function isComposedCycle(kind: PeriodKind): boolean {
+  return kind === 'month' || kind === 'year'
+}
+
+/**
+ * One line per (account × period) — `core.ranking_scoreboard`, **31 columns** since
+ * `20260916140000` (`docs/contracts/banco-para-cms.md`, Parte 7).
+ *
+ * This type carries the 30 the screen reads. The one left out is `in_roster` (column 28,
  * `20260916120000`): what the roster changed for this screen is that a closed week now ranks
  * every row it serves, zeros tied at the end, and the answer to THAT is the podium floor below
  * (`PODIUM_POINTS_FLOOR`, BR-RANKING-003) — not a column. Naming it here would add a field
@@ -137,6 +196,26 @@ export interface RankingRow {
    * never multiplies anything by 0,11.
    */
   points_from_km: number
+  /**
+   * COLUMN 31 — **HOW MANY PODIUM COMPONENTS THE ROW'S `points_official` CAME FROM**, and the
+   * screen NEVER derives it (`20260916140000`, **BR-RANKING-005**).
+   *
+   * In `month` it is how many WEEKS of podium the sum consumed; in `year`, how many MONTHS — a
+   * different unit under the same column, which is why the header is a different key in each
+   * cycle (`table.podium_weeks` / `table.podium_months`).
+   *
+   * **`null` in `week`, `rolling_30d` and `rolling_90d`, never `0`.** In those three there is no
+   * composition at all: `points_official` is **BR-RANKING-004** applied to the period itself. A
+   * `0` would be a MEASURED number and would read as "no podium", which is false — an account
+   * with no podium week in the month does not come out with `month` zeroed, it has no `month` row
+   * (contract, Parte 7). `null` is the "does not apply" the view already spells in `platform` and
+   * in `rank_official`, and the screen prints it as `UNKNOWN_VALUE`.
+   *
+   * Deriving it in the browser would cost a SECOND read of a ~2,8 s view and a second podium
+   * ruler on the client, which is the SSOT defect this screen exists not to have (spec §10 item
+   * 2, CLAUDE.md §6).
+   */
+  podium_components: number | null
 }
 
 /**
@@ -229,27 +308,37 @@ export interface PeriodSelection {
  * the round trip has to be lossless — hence one string that carries both halves.
  */
 export function periodKey(period: PeriodSelection): string {
-  return period.kind === 'week' ? `week:${period.start ?? ''}` : period.kind
+  return hasAnchoredStart(period.kind) ? `${period.kind}:${period.start ?? ''}` : period.kind
 }
 
 /**
- * `?period=rolling_30d` / `?period=week&start=2026-08-31` → the selection, or the default.
+ * `?period=rolling_30d` / `?period=week&start=2026-08-31` / `?period=month&start=2026-09-01` /
+ * `?period=year&start=2026-01-01` → the selection, or the default.
  *
- * A `week` with no `start` falls back to the default rather than to "the first week we find":
- * guessing which week the operator meant is the one answer that looks right and is not. A `start`
- * that is not a readable instant is the same case — `?start=terça` names no week, and letting it
- * through produced a selection that matched nothing and printed a label with no dates in it.
+ * An anchored window with no `start` falls back to the default rather than to "the first one we
+ * find": guessing which week the operator meant is the one answer that looks right and is not. A
+ * `start` that is not a readable instant is the same case — `?start=terça` names no week, and
+ * letting it through produced a selection that matched nothing and printed a label with no dates
+ * in it.
+ *
+ * The three anchored kinds share one branch on purpose (spec §2.3): the parameter used to be
+ * three literals, and adding `month` and `year` as two more copies of the same three lines is how
+ * the fourth one ends up missing the date check.
  */
 export function parsePeriodParam(
   period: string | null | undefined,
   start: string | null | undefined
 ): PeriodSelection {
-  if (period === 'week' && start && Number.isFinite(new Date(start).getTime())) {
-    return { kind: 'week', start }
+  const kind = PERIOD_KINDS.find((candidate) => candidate === period)
+  if (kind === undefined) return { kind: DEFAULT_PERIOD_KIND, start: null }
+
+  if (hasAnchoredStart(kind)) {
+    return start && Number.isFinite(new Date(start).getTime())
+      ? { kind, start }
+      : { kind: DEFAULT_PERIOD_KIND, start: null }
   }
-  if (period === 'rolling_90d') return { kind: 'rolling_90d', start: null }
-  if (period === 'rolling_30d') return { kind: 'rolling_30d', start: null }
-  return { kind: DEFAULT_PERIOD_KIND, start: null }
+
+  return { kind, start: null }
 }
 
 /**
@@ -277,10 +366,17 @@ export function parsePeriodKey(key: string): PeriodSelection {
 }
 
 /**
- * The periods the view returned, in the order the `<select>` shows them (spec §2.1): the two
- * rolling windows first, then the 13 ISO weeks from the most recent backwards.
+ * The periods the view returned, in the order the `<select>` shows them (spec §2.3): COMPETITION
+ * FIRST — the weeks newest first, then the months, then the years — and calibration last.
  *
- * There is NO aggregating option, and that is `DS-COMPONENTE-082` item 1 — summing periods
+ * **The order changed on 2026-09-16 and it is a decision, not a tidy-up** (`DS-COMPONENTE-089`
+ * item 1). Until then the two rolling windows led the list, which was harmless while they were
+ * the only alternative to a week; with `Setembro de 2026` in the same list, a flat control whose
+ * first entry is `Últimos 30 dias` teaches the operator to read a rolling window as "the month".
+ * The grouping is `<optgroup>`, which is the HTML mechanism for exactly this and the one a screen
+ * reader announces together with the option — no component is born for it.
+ *
+ * There is still NO aggregating option, and that is `DS-COMPONENTE-082` item 1 — summing periods
  * counts the same unit several times.
  */
 export function periodOptions(rows: Pick<RankingRow, 'period_kind' | 'period_start' | 'period_end'>[]): PeriodOption[] {
@@ -297,15 +393,27 @@ export function periodOptions(rows: Pick<RankingRow, 'period_kind' | 'period_sta
   }
 
   const all = Array.from(seen.values())
-  const rolling = PERIOD_KINDS.filter((kind) => kind !== 'week')
-    .map((kind) => all.find((option) => option.kind === kind))
-    .filter((option): option is PeriodOption => option !== undefined)
 
-  const weeks = all
-    .filter((option) => option.kind === 'week')
-    .sort((a, b) => b.start.localeCompare(a.start))
+  // `PERIOD_KINDS` is the order, so the list cannot disagree with the type: a sixth kind lands
+  // where its owner put it and nowhere else.
+  return PERIOD_KINDS.flatMap((kind) =>
+    all
+      .filter((option) => option.kind === kind)
+      .sort((a, b) => b.start.localeCompare(a.start))
+  )
+}
 
-  return [...rolling, ...weeks]
+/** The options of one nature, in order — the two `<optgroup>`s of spec §2.3, built from one list. */
+export function periodGroups(
+  options: PeriodOption[]
+): { nature: PeriodNature; options: PeriodOption[] }[] {
+  const natures: PeriodNature[] = ['competition', 'calibration']
+  return natures
+    .map((nature) => ({
+      nature,
+      options: options.filter((option) => periodNature(option.kind) === nature),
+    }))
+    .filter((group) => group.options.length > 0)
 }
 
 /**
@@ -336,7 +444,7 @@ export function matchesPeriod(
   period: PeriodSelection
 ): boolean {
   if (kind !== period.kind) return false
-  if (period.kind !== 'week' || period.start === null) return true
+  if (!hasAnchoredStart(period.kind) || period.start === null) return true
 
   const left = new Date(start).getTime()
   const right = new Date(period.start).getTime()
@@ -578,16 +686,37 @@ const WEEK_MS = 7 * DAY_MS
  * `start` is not a readable instant, which `parsePeriodParam` already refuses to produce.
  */
 export function weekOfSelection(selection: PeriodSelection): PeriodOption | null {
-  if (selection.kind !== 'week' || !selection.start) return null
+  return selection.kind === 'week' ? periodOfSelection(selection) : null
+}
+
+/**
+ * ANY ANCHORED WINDOW AS A FULL PERIOD, derived from the SELECTION — the generalisation of
+ * `weekOfSelection` the two composed cycles needed (spec §2.3).
+ *
+ * The end is a CONSEQUENCE of the start and of the calendar, never a second fact that could
+ * disagree with the view: a week is seven days, a month ends on the 1st of the next month at
+ * midnight UTC, a year on the 1st of January. All three boundaries are `[start, end)` in UTC by
+ * decision (**BR-RANKING-005** item 1), which is what makes them derivable at all.
+ *
+ * It is used for the LABEL, for `(corrente)` and for the instrument coverage — never to decide
+ * which rows belong to the period, which is the route's filter over what the view served. `null`
+ * for the two rolling windows (their boundary is "now minus N days" and only the view knows it)
+ * and for a start that is not a readable instant, which `parsePeriodParam` already refuses.
+ */
+export function periodOfSelection(selection: PeriodSelection): PeriodOption | null {
+  if (!hasAnchoredStart(selection.kind) || !selection.start) return null
 
   const start = new Date(selection.start)
   if (!Number.isFinite(start.getTime())) return null
 
-  return {
-    kind: 'week',
-    start: selection.start,
-    end: new Date(start.getTime() + WEEK_MS).toISOString(),
-  }
+  const end =
+    selection.kind === 'week'
+      ? new Date(start.getTime() + WEEK_MS)
+      : selection.kind === 'month'
+        ? new Date(Date.UTC(start.getUTCFullYear(), start.getUTCMonth() + 1, 1))
+        : new Date(Date.UTC(start.getUTCFullYear() + 1, 0, 1))
+
+  return { kind: selection.kind, start: selection.start, end: end.toISOString() }
 }
 
 /** The period that contains `now` — the current week is the only one that is still half done. */
@@ -605,9 +734,18 @@ export function isCurrentPeriod(period: Pick<PeriodOption, 'start' | 'end'>, now
  *    Monday on (`BR-RANKING-001`), which means a podium exists at 8 a.m. on Monday with 0,3
  *    point — a gold seal there stops meaning anything by Tuesday.
  * 2. **A rolling window is not a cycle.** `rolling_30d` is calibration, not competition
- *    (`BR-RANKING-001` item 5), and it is NOT the monthly cycle — that one ranks won weeks and
- *    is born in #742. A monthly seal drawn over `rolling_30d` would assert a cycle the product
- *    does not have yet.
+ *    (`BR-RANKING-001` item 5), and it is NOT the monthly cycle. A monthly seal drawn over
+ *    `rolling_30d` would assert a cycle the product does not have.
+ * 3. **`month` AND `year` EXIST NOW, AND THEY STILL DRAW NOTHING — that is a decision, not an
+ *    omission** (spec §4.8, `DS-COMPONENTE-089` item 4). `RankSeal` already knows how to draw the
+ *    three cycles (`SealCycle` is the number of apertures of the ring), and the two composed
+ *    cycles have a real `rank_official` since `20260916140000`. What they do not have is a RULE:
+ *    the seal asserts a PODIUM, a podium has a floor, and the only floor written down is the
+ *    weekly one — **BR-RANKING-003** names itself *"o prêmio do ciclo semanal"*. Drawing gold on
+ *    a month would be the screen asserting a prize band no rule defined, on a product that emits
+ *    no prize at all (**BR-RANKING-006**). The `#` column keeps printing the ordinal in all five
+ *    periods, because the ordinal is the view's datum; when the `produto` writes the monthly
+ *    podium this function is one line, and the drawing is already there.
  *
  * `week` is therefore the only cycle this screen can produce today, and the return type says so
  * rather than leaving the caller to guess.
@@ -704,4 +842,222 @@ export function countInternalAccounts(rows: Pick<RankingRow, 'user_id' | 'exclud
   const marked = new Set<string>()
   for (const row of rows) if (row.excluded_from_metrics) marked.add(row.user_id)
   return marked.size
+}
+
+/* ------------------------------------------------------------------------------------------- *
+ * THE CALIBRATION OF THE KM AXIS, WEEK BY WEEK — spec §3.2.
+ *
+ * THE AVERAGE IS THE LEAST INFORMATIVE NUMBER ON THIS SCREEN, and that is the whole reason this
+ * series exists. Aggregated over the 13 measured weeks the kilometre is worth 25,6% of the
+ * scoreboard and the ratio is 2,91 : 1 — inside the band the operator calibrated the coefficient
+ * with. But the WEEKLY slice runs from 4,5% to 44,8%, and in 2 of the 11 weeks with a winner the
+ * kilometre handed first place to somebody who did NOT deliver the most history. An average that
+ * hides both ends answers *"is it calibrated?"* with a number that happened in no week at all.
+ *
+ * IT COSTS NO SECOND READ. The route already reads the whole view once — that is what builds the
+ * `<select>` — so the series is aggregated there, on the `week` rows already in hand, and travels
+ * in the payload as thirteen objects. The view costs ~2,8 s against a `statement_timeout` of 8 s
+ * (contract, Parte 7): one read per screen load, never two, and never 350 rows for the browser
+ * to add up.
+ * ------------------------------------------------------------------------------------------- */
+
+/**
+ * WHO WOULD HAVE WON WITHOUT THE KM AXIS — and it is not a second scoreboard.
+ *
+ * `unchanged` (`=`), a named account, or `unknown` (`—`). The three answers are exclusive and the
+ * last one is not a failure: a tie at the top of EITHER side has no "who would win", and a week
+ * where nobody scored has nobody to name (spec §3.2, `DS-COMPONENTE-083` item 2).
+ */
+export type CounterfactualWinner =
+  | { outcome: 'unchanged' }
+  | { outcome: 'changed'; user_id: string; nickname: string | null }
+  | { outcome: 'unknown' }
+
+/**
+ * The single leader by one ruler, or `null` when there is a tie or nobody scored.
+ *
+ * A score of zero never leads: with the roster ranking the whole week since `20260916120000`, the
+ * mass of zeros is tied at the end and treating it as a leader would name an arbitrary account as
+ * the winner of a week nobody played (**BR-RANKING-001**).
+ */
+function soleLeader(rows: RankingRow[], score: (row: RankingRow) => number): RankingRow | null {
+  let leader: RankingRow | null = null
+  let best = 0
+  let tied = false
+
+  for (const row of rows) {
+    const value = Number(score(row)) || 0
+    if (value <= 0) continue
+    if (leader === null || value > best) {
+      leader = row
+      best = value
+      tied = false
+    } else if (value === best) {
+      tied = true
+    }
+  }
+
+  return tied ? null : leader
+}
+
+/**
+ * The counterfactual of ONE week — the same rows, the same population, reordered by the score
+ * WITHOUT the kilometre parcel.
+ *
+ * It does not recompute `points_official` and it invents no ruler: both parcels come from the
+ * view, and `points_from_triggers × streak_multiplier` is the official formula of
+ * **BR-RANKING-004** with one term removed (spec §3.2). Comparing two orders of the same
+ * population is what `DS-COMPONENTE-083` item 2 demands of any comparison on this screen.
+ */
+export function winnerWithoutKm(rows: RankingRow[]): CounterfactualWinner {
+  const official = soleLeader(rows, (row) => row.points_official)
+  const without = soleLeader(rows, (row) => row.points_from_triggers * row.streak_multiplier)
+
+  if (official === null || without === null) return { outcome: 'unknown' }
+
+  return official.user_id === without.user_id
+    ? { outcome: 'unchanged' }
+    : { outcome: 'changed', user_id: without.user_id, nickname: without.nickname }
+}
+
+/** One line of the panel — one ISO week of the horizon. */
+export interface KmCalibrationWeek {
+  start: string
+  /** EXCLUSIVE, as the view emits it. */
+  end: string
+  pointsFromTriggers: number
+  pointsFromKm: number
+  /**
+   * `points_from_km ÷ (points_from_triggers + points_from_km)`, or `null`.
+   *
+   * `null` on a FLOOR week and on a week with no points at all: a fraction over partial coverage
+   * is a number with no referent — worse than absent, because it looks like a measurement
+   * (`DS-COMPONENTE-084` item 2).
+   */
+  kmShare: number | null
+  winnerWithoutKm: CounterfactualWinner
+  /**
+   * The week is below `ENTITLEMENT_LEDGER_START` or straddles it, so its kilometre is a FLOOR and
+   * not a measurement. **Eight of the 13 weeks are in this state** — half the series, not an edge.
+   */
+  isFloor: boolean
+}
+
+/**
+ * The series plus the footer, and the footer sums ONLY the weeks with an instrument.
+ *
+ * A total over the 13 would mix eight floor weeks with five measured ones, which is exactly the
+ * fraction `DS-COMPONENTE-084` item 2 forbids. **The consequence the `qa` has to know before
+ * opening a ticket: this number does NOT match the 25,6 % of the contract, and that is not a
+ * divergence** — the contract measures the 13 weeks, the footer measures the ones with an
+ * instrument, and the second is larger (spec §3.2, §9 critério 34).
+ */
+export interface KmCalibrationSeries {
+  weeks: KmCalibrationWeek[]
+  /** How many of the weeks the footer summed — the number the footer prints next to the totals. */
+  measuredWeeks: number
+  pointsFromTriggers: number
+  pointsFromKm: number
+  kmShare: number | null
+}
+
+/**
+ * THE SERIES, AGGREGATED ONCE, IN THE ROUTE — over EVERY `week` row of the view, whatever period
+ * the operator has selected (spec §9, critério 31).
+ *
+ * The population is always `NOT excluded_from_metrics`, in BOTH states of the switch: the panel
+ * is an aggregate, and an aggregate on this screen does not follow the switch (spec §2.2,
+ * contract Parte 7). The switch decides which rows the operator may look at; one internal account
+ * holding a fifth of the points would be the loudest voice in every week of this series.
+ */
+export function kmCalibrationSeries(rows: RankingRow[]): KmCalibrationSeries {
+  const weekly = aggregateRows(rows.filter((row) => row.period_kind === 'week'))
+
+  const byWeek = new Map<string, RankingRow[]>()
+  for (const row of weekly) {
+    const bucket = byWeek.get(row.period_start)
+    if (bucket) bucket.push(row)
+    else byWeek.set(row.period_start, [row])
+  }
+
+  // Chronological, oldest first: the panel is read as time passing, and the instrument appears
+  // partway through it. Ordering by anything else is a question the panel does not ask, which is
+  // why it has no `SortHead`.
+  const weeks: KmCalibrationWeek[] = Array.from(byWeek.entries())
+    .sort(([left], [right]) => left.localeCompare(right))
+    .map(([start, weekRows]) => {
+      const end = weekRows[0].period_end
+      const isFloor = kmCoverage(start, end) !== 'full'
+      const pointsFromTriggers = sum(weekRows, (row) => row.points_from_triggers)
+      const pointsFromKm = sum(weekRows, (row) => row.points_from_km)
+      const total = pointsFromTriggers + pointsFromKm
+
+      return {
+        start,
+        end,
+        pointsFromTriggers,
+        pointsFromKm,
+        kmShare: isFloor || total <= 0 ? null : pointsFromKm / total,
+        winnerWithoutKm: isFloor
+          ? ({ outcome: 'unknown' } as CounterfactualWinner)
+          : winnerWithoutKm(weekRows),
+        isFloor,
+      }
+    })
+
+  const measured = weeks.filter((week) => !week.isFloor)
+  const pointsFromTriggers = sum(measured, (week) => week.pointsFromTriggers)
+  const pointsFromKm = sum(measured, (week) => week.pointsFromKm)
+  const total = pointsFromTriggers + pointsFromKm
+
+  return {
+    weeks,
+    measuredWeeks: measured.length,
+    pointsFromTriggers,
+    pointsFromKm,
+    kmShare: total > 0 ? pointsFromKm / total : null,
+  }
+}
+
+/**
+ * THE MONTH OF A CYCLE, CAPITALISED — `Setembro de 2026`, `September 2026`, `Septiembre de 2026`.
+ *
+ * **The capital is not a matter of taste** (spec §6.9): `Intl` hands back `setembro de 2026` and
+ * `septiembre de 2026` in lower case, and one lower-case option in the middle of a list of
+ * capitalised ones reads as a defect. It goes up with `toLocaleUpperCase(locale)` and NEVER with
+ * `toUpperCase()`, which does not respect the locale — the classic counter-example is Turkish
+ * `i`, and a formatter that is right by accident in three locales is a formatter that breaks on
+ * the fourth.
+ *
+ * It is here, in the module that owns the period, and not inside the page's `label`: the
+ * `<select>`, the stamp and the `<caption>` all print the same month, and a second
+ * `Intl.DateTimeFormat` typed in a component is a second owner of the same string
+ * (`DS-COMPONENTE-085` item 4). The zone is UTC because every cycle boundary is UTC
+ * (**BR-RANKING-005** item 1) — formatting a UTC instant in the reader's zone would print
+ * `agosto` over a month that starts in September.
+ */
+export function formatMonthOfCycle(start: string, locale: string): string {
+  const date = new Date(start)
+  if (!Number.isFinite(date.getTime())) return UNKNOWN_VALUE
+
+  const text = new Intl.DateTimeFormat(locale, {
+    month: 'long',
+    year: 'numeric',
+    timeZone: 'UTC',
+  }).format(date)
+
+  return text.charAt(0).toLocaleUpperCase(locale) + text.slice(1)
+}
+
+/** The calendar year a cycle starts in, in UTC — the `{year}` of `period.year`. */
+export function yearOfCycle(start: string): string {
+  const date = new Date(start)
+  if (!Number.isFinite(date.getTime())) return UNKNOWN_VALUE
+  return String(date.getUTCFullYear())
+}
+
+/** A share as the operator reads it — `25,6 %`. `null` is the em dash, never `0 %`. */
+export function formatShare(share: number | null, locale: string): string {
+  if (share == null || !Number.isFinite(share)) return UNKNOWN_VALUE
+  return new Intl.NumberFormat(locale, { style: 'percent', maximumFractionDigits: 1 }).format(share)
 }
