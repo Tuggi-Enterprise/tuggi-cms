@@ -30,6 +30,16 @@ const RANKING = ptMessages.Pages.Dashboard.ranking
 /** `h-7` in `components/ui/dense-table.tsx`, and the `top-7` of the band below depends on it. */
 const GROUP_BAND_PX = 28
 
+/**
+ * THE FIVE COMPARISON COLUMNS ARE BORN COLLAPSED — #742, §11.2.
+ *
+ * Every assertion below about `Pts peso 2`, `Δ vs. oficial`, `Cobrado`, `Intervalo de sinal no
+ * período` or `Diferença` now performs the gesture the operator performs, instead of asserting a
+ * state the screen no longer starts in. The claims themselves did not change: what changed is
+ * that twelve columns never fitted 1280 px and are no longer the default.
+ */
+const openComparisons = (page: Page) => page.getByTestId('ranking-comparisons').check()
+
 test('#740: the marked account does not render, and the switch brings it back', async ({
   mount,
   page,
@@ -91,6 +101,8 @@ test('DS-COMPONENTE-082 item 3: `#` is a value, and sorting does not renumber it
     </DashboardWrapper>
   )
 
+  await openComparisons(page)
+
   const firstCell = (rowIndex: number) =>
     page.locator('tbody tr').nth(rowIndex).locator('td').first()
 
@@ -112,6 +124,8 @@ test('DS-COMPONENTE-084 item 3: a negative difference keeps its sign', async ({ 
     </DashboardWrapper>
   )
 
+  await openComparisons(page)
+
   // `formatDuration(-12)` would print `0 min` and erase the one fact the column exists for.
   await expect(page.getByRole('button', { name: '−12 min' })).toBeVisible()
   await expect(page.getByRole('button', { name: '+2 h 5 min' })).toHaveCount(0)
@@ -127,7 +141,17 @@ test('DS-COMPONENTE-084 item 1: a period before the meter prints an em dash, nev
     </DashboardWrapper>
   )
 
-  await expect(page.getByText(RANKING.meter.none)).toBeVisible()
+  await openComparisons(page)
+
+  // ONE WARNING AT A TIME, AND THE KM COMES FIRST — §11.2. July 2026 is before BOTH boundaries,
+  // and the order is the order of the damage: the km is a parcel of `points_official`, so it
+  // changes how `Pontos` is read, while the minute only qualifies three columns. The minute
+  // warning is suppressed on the band and NOT in the product — the cells below still print `—`,
+  // which is the assertion this test is actually about.
+  await expect(
+    page.getByText(RANKING.meter.km_floor.replace('{date}', '13/08/2026'))
+  ).toBeVisible()
+  await expect(page.getByText(RANKING.meter.none)).toHaveCount(0)
 
   // The three minute columns of the first rendered row: points from minutes, charged, and the
   // difference. `0 min` there would assert a measurement nobody made.
@@ -145,6 +169,8 @@ test('DS-COMPONENTE-083 item 1: the weight-2 comparison prints the reordering in
       <RankingScoreboardHarness />
     </DashboardWrapper>
   )
+
+  await openComparisons(page)
 
   // `hoppy-otter` is 2nd officially and 4th by the notable weight: two positions DOWN, and the
   // baseline is `rank_official` — never the `#` column, which says 1 for her.
@@ -231,6 +257,9 @@ for (const locale of ['pt', 'es'] as const) {
       </DashboardWrapper>
     )
 
+    // The band of groups only exists with the comparisons open — with one group left it does not
+    // render at all (§11.2), and there is no geometry of two bands to measure.
+    await openComparisons(page)
     // The switch ON is the worst case: it adds the `sem internas` column and the widest header.
     await page.getByTestId('include-internal').check()
 
@@ -414,7 +443,9 @@ test('DS-COMPONENTE-084 item 1: a read that answered nothing keeps its `0`, and 
   // Nobody scored in the week IS a measurement, and the indicators say so.
   await expect(page.getByRole('button', { name: `${RANKING.filters.all} 0`, exact: true })).toBeVisible()
   await expect(page.getByText('0 pts de disparo · 0 pts de km')).toBeVisible()
-  await expect(page.getByText(RANKING.kpi.manual_listens_subtitle)).toBeVisible()
+  // The caveat is part of the LABEL, and since §11.2 that is the only place it is: the four
+  // `subtitle`s left with the four cards that became pairs (`DS-COPY-062` items 3 and 4).
+  await expect(page.getByText(RANKING.kpi.manual_listens, { exact: true })).toBeVisible()
 
   // The one dash a successful empty read prints: the ratio, whose denominator is zero
   // (`DS-COMPONENTE-084` item 2 — never `∞`, never `0`).
@@ -427,40 +458,17 @@ test('DS-COMPONENTE-084 item 1: a read that answered nothing keeps its `0`, and 
 // ── The period the numbers belong to ──────────────────────────────────────────────────────
 
 /**
- * #741 — THE SCREEN STAMPS WHAT THE QUERY ANSWERED.
+ * #741 · #742 §11.2 — THE STAMP MOVED, THE BAND DID NOT.
  *
- * The `<select>` is the only place a period appeared, and a control the operator has just
- * operated reads as *what I asked for*, never as *what I got*. `ScoreboardPayload.period` — the
- * period the route actually served — was read nowhere on the screen.
+ * The stamp of the served period is now a caption of the `h1`, in `page.tsx`: what it prints is
+ * pinned against the page's own source in `tests/api/ranking-surface.test.ts` and its geometry is
+ * measured in `ranking-density.spec.tsx`. Asserting it here would be asserting the harness.
+ *
+ * The BAND stayed in this component, and it is a different claim: the route falls back silently on
+ * an unusable parameter, and this is where that stops being silent — the numbers below belong to
+ * the period it fell back to, so the sentence is a condition of them and not of the title.
  */
-test('#741: the stamp above the cards prints the served period and how many accounts it holds', async ({
-  mount,
-  page,
-}) => {
-  await mount(
-    <DashboardWrapper>
-      <RankingScoreboardHarness />
-    </DashboardWrapper>
-  )
-
-  // Three accounts came back for the period; the switch is off and two of them render, which is
-  // exactly why the stamp counts the READ and the line below it says the indicators do not.
-  // #742 · DS-COMPONENTE-089 item 2: the stamp gained a third segment, the NATURE of the window
-  // served — a week is competition, a rolling window is calibration, and the operator cannot read
-  // one as the other.
-  await expect(
-    page.getByText(
-      RANKING.period.stamp
-        .replace('{period}', 'Semana de 31/08 a 06/09 · UTC')
-        .replace('{nature}', RANKING.period.nature_competition)
-        .replace(/\{count.*\}/, '3 contas no período')
-    )
-  ).toBeVisible()
-
-  await expect(page.getByText(RANKING.period.served_differs.slice(0, 12))).toHaveCount(0)
-})
-
-test('#741: a period other than the one asked for raises a band, and the stamp names the one served', async ({
+test('#741: a period other than the one asked for raises a band', async ({
   mount,
   page,
 }) => {
@@ -481,13 +489,6 @@ test('#741: a period other than the one asked for raises a band, and the stamp n
       RANKING.period.served_differs
         .replace('{pedido}', 'Semana de 17/08 a 23/08 · UTC')
         .replace('{servido}', 'Últimos 30 dias')
-    )
-  ).toBeVisible()
-  // And the nature is the SERVED one too: the fallback landed on a calibration window, and the
-  // stamp says so next to the numbers that came out of it.
-  await expect(
-    page.getByText(
-      new RegExp(`Últimos 30 dias · ${RANKING.period.nature_calibration} · 3 contas no período`)
     )
   ).toBeVisible()
 })
@@ -529,6 +530,8 @@ test('#741: the footer totals the two point columns, and leaves the two that do 
     </DashboardWrapper>
   )
 
+  await openComparisons(page)
+
   // 49,29 + 7 over the two rows the filter leaves: the answer to *does the weight 2 change the
   // total?* (65 against 56,29) now exists on the screen that exists to ask it.
   // The week has a streak column, so the cells are: Pontos, Disparos, Pts de km, Sequência,
@@ -568,9 +571,13 @@ test('#741: a week older than the horizon says so, instead of answering that nob
     page.getByText(RANKING.empty.period.replace('{period}', 'Semana de 05/01 a 11/01 · UTC'))
   ).toHaveCount(0)
 
-  // And the meter is answered from the selection, which describes the week on its own: January
-  // is before the ledger, so the minute axis is unknown — not `full` for want of an option.
-  await expect(page.getByText(RANKING.meter.none)).toBeVisible()
+  // And the instruments are answered from the selection, which describes the week on its own:
+  // January is before BOTH ledgers, so the screen warns — not `full` for want of an option. The
+  // line is the km one, which outranks the minute (§11.2), and that it exists at all is what
+  // proves the selection, and not the missing option, answered the question.
+  await expect(
+    page.getByText(RANKING.meter.km_floor.replace('{date}', '13/08/2026'))
+  ).toBeVisible()
 })
 
 // ── The declaration, where the cells are read ─────────────────────────────────────────────
@@ -579,27 +586,22 @@ test('#741: a week older than the horizon says so, instead of answering that nob
 const plain = (text: string) => text.replace(/<\/?b>/g, '')
 
 /**
- * #741 — `DS-COMPONENTE-083` ITEM 3, AND WHY A `<caption>` ALONE WAS NOT ENOUGH.
+ * #741 · #742 §11.1 — THE SIX DECLARATIONS ARE THE `<caption>` NOW, AND ONE OF THEM COMES BACK.
  *
- * The declarations lived inside `DenseTableScroller`, which is `overflow-auto`: 66px tall up to a
- * 1280px viewport, and gone on the first vertical scroll while the two header bands stayed glued.
- * The one that costs money is `Intervalo de sinal no período` — sorting by `Diferença`, the
- * sortable column of the biggest numbers, puts `+67 h` rows on top, and a scoreboard that shows
- * them with no sentence saying an open session with sparse signal inflates the span without
- * consuming balance reads as *we are failing to charge 67 hours*.
+ * They used to have two call sites, and the second one was the defect §11 measured: a visible
+ * block of six grey paragraphs above the scroller, 152 px of the 1.100 that kept the scoreboard
+ * below the fold on a 1440 × 900 laptop. Five of the six deny readings the column label already
+ * denies — `Pts de km` says `de km`, `País explorado` says `explorado` — so the block went and the
+ * `sr-only` `<caption>` stayed whole: it costs no pixel and it is what a screen reader announces
+ * before the first cell, which was never the half that was in the way.
  *
- * THE LAST OF THEM IS `caption.sorting`, AND IT IS THE ONE THAT ALMOST STAYED HIDDEN. — *sorting the table does not recompute positions and
- * points* — stayed in the `sr-only` caption alone when the block was extracted, which put the
- * only sentence about the interaction out of reach of whoever performs it. It is the sentence
- * that blocks the likeliest wrong conclusion from a click on a column head: `#` is a value and
- * does not renumber (`DS-COMPONENTE-082` item 3).
- *
- * THE TWO HALVES ARE ONE CLAIM: a visible block the scroll cannot take away, and an `sr-only`
- * `<caption>` with the same keys in the same order, which is what a screen reader announces
- * before the first cell. Deleting either half to "clean up the duplication" brings a defect
- * back, and this test is what says so out loud.
+ * `caption.sorting` IS THE EXCEPTION, AND IT IS CONDITIONAL. It defines no term: it denies a
+ * consequence of a gesture — `#` is a value and sorting does not renumber it
+ * (`DS-COMPONENTE-082` item 3) — and the wrong conclusion it blocks does not exist before the
+ * click. So it renders while an ordering is active and costs zero pixels in the default state,
+ * which is exactly the measurement §11.3 is about.
  */
-test('#741 · DS-COMPONENTE-083 item 3 · DS-COMPONENTE-082 item 3: the six declarations survive the scroll, and a screen reader still gets them before the first cell', async ({
+test('#741 · #742 §11.1 · DS-COMPONENTE-082 item 3: the caption carries the six, and only the sorting one is ever on screen', async ({
   mount,
   page,
 }) => {
@@ -625,37 +627,10 @@ test('#741 · DS-COMPONENTE-083 item 3 · DS-COMPONENTE-082 item 3: the six decl
     RANKING.caption.km,
     RANKING.caption.notable,
   ].map(plain)
-  // The sixth defines no term, so it carries no `<b>` and gets no `<strong>`.
   const facts = [...defined, RANKING.caption.sorting]
-  const legend = page.getByTestId('ranking-legend')
-  const lines = legend.locator('p')
 
-  await expect(lines).toHaveCount(6)
-  for (const [index, fact] of facts.entries()) {
-    await expect(lines.nth(index)).toHaveText(fact)
-    // The term opens the line in bold: sentences of the same weight are a paragraph.
-    await expect(lines.nth(index).locator('strong')).toHaveCount(index < defined.length ? 1 : 0)
-  }
-
-  // It is ABOVE the scroller, which is the whole point: what moves is the body.
-  const scroller = page.locator('.custom-scrollbar')
-  const before = (await legend.boundingBox())!
-  const viewport = (await scroller.boundingBox())!
-  expect(Math.round(before.y + before.height)).toBeLessThanOrEqual(Math.round(viewport.y) + 1)
-
-  await scroller.evaluate((element) => {
-    element.scrollTop = 400
-  })
-  await expect.poll(() => scroller.evaluate((element) => element.scrollTop)).toBeGreaterThan(0)
-
-  const after = (await legend.boundingBox())!
-  expect(Math.round(after.y), 'the block moved with the body it is supposed to outlive').toBe(
-    Math.round(before.y)
-  )
-  await expect(legend).toBeInViewport()
-
-  // And the same six, in the same order, for whoever does not see them — the sentence about
-  // sorting last, which is where the caption has always carried it.
+  // The six, in order, for whoever does not see them — and the sorting sentence last, which is
+  // where the caption has always carried it.
   const caption = page.locator('table caption')
   await expect(caption).toHaveClass(/sr-only/)
   const spoken = (await caption.textContent()) ?? ''
@@ -665,6 +640,39 @@ test('#741 · DS-COMPONENTE-083 item 3 · DS-COMPONENTE-082 item 3: the six decl
     expect(at, `the caption no longer declares "${fact.slice(0, 28)}…"`).toBeGreaterThan(cursor)
     cursor = at
   }
+
+  // AND NOTHING OF IT IS PAINTED. The five that define a column have no visible call site at all,
+  // and the sixth is silent until the operator orders by something other than `#`.
+  for (const fact of facts) {
+    await expect(
+      page.getByText(fact, { exact: true }),
+      `"${fact.slice(0, 28)}…" is back on the screen`
+    ).toHaveCount(0)
+  }
+
+  // The click that makes the question exist. One sentence, and still only one.
+  await page.getByRole('button', { name: RANKING.table.points }).click()
+  const sorting = page.getByText(RANKING.caption.sorting, { exact: true })
+  await expect(sorting).toBeVisible()
+  await expect(page.getByText(plain(RANKING.caption.km), { exact: true })).toHaveCount(0)
+
+  // It is ABOVE the scroller, which is what the block it replaces existed for: what moves is the
+  // body, and the sentence about the interaction outlives the scroll.
+  const scroller = page.locator('.custom-scrollbar')
+  const before = (await sorting.boundingBox())!
+  const viewport = (await scroller.boundingBox())!
+  expect(Math.round(before.y + before.height)).toBeLessThanOrEqual(Math.round(viewport.y) + 1)
+
+  await scroller.evaluate((element) => {
+    element.scrollTop = 400
+  })
+  await expect.poll(() => scroller.evaluate((element) => element.scrollTop)).toBeGreaterThan(0)
+
+  const after = (await sorting.boundingBox())!
+  expect(Math.round(after.y), 'the sentence moved with the body it is supposed to outlive').toBe(
+    Math.round(before.y)
+  )
+  await expect(sorting).toBeInViewport()
 })
 
 /**
@@ -727,6 +735,8 @@ test('#741: with `Plataforma` gone and `País explorado` in, the `Comparação �
       <RankingScoreboardHarness />
     </DashboardWrapper>
   )
+
+  await openComparisons(page)
 
   const scroller = page.locator('.custom-scrollbar')
   const gap = page.getByRole('columnheader', { name: RANKING.table.gap, exact: true })
@@ -875,6 +885,9 @@ for (const locale of ['pt', 'es', 'en'] as const) {
       </DashboardWrapper>
     )
 
+    // The budget of critério 24 is the twelve-column table: that is the state the design
+    // measured, and the one the country column had to fit inside (§4.7).
+    await openComparisons(page)
     await page.getByTestId('include-internal').check()
 
     // THE NATURAL WIDTH IS NOT `scrollWidth`. The table is `w-full`, so inside a viewport wider

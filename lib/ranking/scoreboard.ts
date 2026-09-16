@@ -28,7 +28,6 @@
  */
 
 import { UNKNOWN_VALUE } from '@/lib/format/unknown'
-import { kmCoverage } from '@/lib/ranking/metering'
 /**
  * TYPE-ONLY, and it is the seal's own vocabulary — the drawing owns what `1 | 2 | 3` and
  * `week | month | year` mean (spec §7, "API do componente"). Redeclaring the two unions here

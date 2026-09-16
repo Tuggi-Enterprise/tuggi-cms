@@ -383,13 +383,18 @@ test('#741: the page hands the scoreboard the period the query answered, not the
   // The asked-for period keeps travelling too: the two are compared, so neither can be dropped.
   assert.match(page, /selection=\{period\}/)
 
-  const component = source('components/dashboard/reports/RankingScoreboard.tsx')
-  assert.match(component, /t\('period\.stamp'/, 'the stamp exists')
+  // §11.2 MOVED THE STAMP ONTO THE `h1`'s LINE, so this is where it is asserted now: it is a
+  // caption of the title and not a sixth block stacked between the header and the numbers. What
+  // it prints did not change — the SERVED label, never `periodLabel`, which is the question.
+  assert.match(page, /tr\('period\.stamp'/, 'the stamp exists, in the page header')
   assert.match(
-    component,
+    page,
     /period: served\.label/,
     'and it prints the SERVED label — `periodLabel` is the question, not the answer'
   )
+
+  // The divergence stays in the scoreboard: it is a condition of the numbers, not of the title.
+  const component = source('components/dashboard/reports/RankingScoreboard.tsx')
   assert.match(component, /t\('period\.served_differs'/, 'a divergence is named, not swallowed')
 })
 
@@ -818,21 +823,21 @@ test('DS-COMPONENTE-083 item 2: the delta compares two positions of the SAME pop
 })
 
 /**
- * #741 — THE FIVE DECLARATIONS ARE RENDERED TWICE ON PURPOSE (`DS-COMPONENTE-083` item 3).
+ * #741 · #742 §11.1 — THE SIX DECLARATIONS LIVE IN THE `sr-only` CAPTION, AND FIVE LIVE ONLY
+ * THERE.
  *
- * The `<caption>` was inside `DenseTableScroller`, which is `overflow-auto`, so the declaration
- * left the screen on the first vertical scroll while the header bands stayed glued. It now has
- * two call sites: a visible block above the scroller, for the eye, and an `sr-only` `<caption>`,
- * which is what a screen reader announces before the first cell. Whoever reads this file next
- * will see the same key twice and read it as duplication — it is not, and the geometry is proved
- * in `tests/ct/ranking-scoreboard.spec.tsx`.
+ * They used to have two call sites: a visible block of six grey paragraphs above the scroller and
+ * the `sr-only` `<caption>`. The block measured 152 px of the 1.100 that kept the scoreboard below
+ * the fold, and five of the six deny readings the column label already denies — so the block went
+ * and the caption stayed whole. It costs no pixel and it is what a screen reader announces before
+ * the first cell, which is the half that was never the problem.
  *
- * `caption.sorting` is the last of them, and it was the one left behind in the extraction: it is the
- * sentence that stops the wrong conclusion a click on a column head invites — `#` does not
- * renumber (`DS-COMPONENTE-082` item 3) — so hiding it from the eye kept it from the only person
- * who can reach it. It defines no term, so it is `t`, not `t.rich`.
+ * `caption.sorting` is the exception and it comes back CONDITIONAL: it defines no term, it answers
+ * a click the operator has just made — `#` does not renumber (`DS-COMPONENTE-082` item 3) — and
+ * the question does not exist before the click. So it has two call sites again, and one of them
+ * renders only while an ordering is active. It is `t`, not `t.rich`.
  */
-test('#741 · DS-COMPONENTE-083 item 3 · DS-COMPONENTE-082 item 3: the six declarations are both visible and in the `sr-only` caption', () => {
+test('#741 · #742 §11.1 · DS-COMPONENTE-082 item 3: five declarations live only in the `sr-only` caption, and the sorting one comes back conditional', () => {
   const component = source('components/dashboard/reports/RankingScoreboard.tsx')
 
   assert.match(
@@ -852,15 +857,27 @@ test('#741 · DS-COMPONENTE-083 item 3 · DS-COMPONENTE-082 item 3: the six decl
   ]) {
     assert.equal(
       (component.match(new RegExp(`t\\.rich\\('${key.replace('.', '\\.')}'`, 'g')) ?? []).length,
-      2,
-      `${key}: one call site is the visible block and the other is the caption — neither is spare`
+      1,
+      `${key}: the caption is the only call site — the visible block left in §11.1`
     )
   }
+
+  // And the block itself does not come back under another name.
+  assert.equal(
+    component.includes('data-testid="ranking-legend"'),
+    false,
+    'no visible block of declarations above the scroller'
+  )
 
   assert.equal(
     (component.match(/t\('caption\.sorting'\)/g) ?? []).length,
     2,
-    'the sorting sentence is read by the eye AND announced before the first cell'
+    'the sorting sentence is announced before the first cell AND rendered while an ordering is on'
+  )
+  assert.match(
+    component,
+    /\{sort !== null && \(/,
+    'and the visible one costs zero pixels in the default ordering'
   )
 
   // `Plataforma` left the table for the width of the `Comparação · tempo` group, and landed in
@@ -1120,7 +1137,14 @@ test('#741: the report title and the menu label exist in the three languages', (
     const file = messages(locale)
     assert.equal(typeof file.Navigation.ranking, 'string')
     assert.equal(typeof file.Pages.Dashboard.reports.ranking.title, 'string')
-    assert.equal(typeof file.Pages.Dashboard.reports.ranking.subtitle, 'string')
+    // #742 §11.1: THE SUBTITLE IS GONE, and the key with it. A sentence explaining a report to
+    // the operator who opens it every day is 24 px of the 1.100 that kept the scoreboard below
+    // the fold — and the title already says what the page is.
+    assert.equal(
+      'subtitle' in file.Pages.Dashboard.reports.ranking,
+      false,
+      `${locale}: the removed key does not come back`
+    )
   }
 })
 
@@ -1153,8 +1177,15 @@ test('#754: the band claims only what the read counted, never the state of drive
       assert.equal(band.includes(claim), false, `${locale}: the read cannot assert "${claim}"`)
     }
     assert.ok(band.includes(SCOPED[locale]), `${locale}: the band names the population it counted`)
-    // Where the mark is put stays in the sentence: the operator has to know where to go.
-    assert.ok(band.includes('excluded_from_metrics'), `${locale}: the mark keeps its address`)
+    // #742 §11.2: THE SECOND SENTENCE WENT, and with it the address of the mark. The band is one
+    // line inside the table's card now, and the address of `excluded_from_metrics` was two lines
+    // of prose for a column the operator already knows. What #754 was about survives whole and is
+    // asserted above: the band may not claim that nobody is marked.
+    assert.equal(
+      band.split(':').length,
+      2,
+      `${locale}: one sentence, one colon — the band is a single line (§11.2)`
+    )
     assert.ok(
       internal.marked.includes(SCOPED[locale]),
       `${locale}: "N marked" is scoped to the same read the band is`

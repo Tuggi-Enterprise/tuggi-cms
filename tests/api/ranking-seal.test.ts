@@ -560,7 +560,11 @@ function currentWeek(): PeriodOption {
  */
 test('#741: DS-COMPONENTE-088 — the table only draws a seal on a closed week, and only on the first three rows', () => {
   const rows = scrollingRows(12)
-  rows[7] = { ...rows[7], rank_official: null, rank_excluding_internal: null, points_official: 0 }
+  // AN ACCOUNT THAT SCORED AND THAT THE VIEW GAVE NO POSITION — `null` is "does not rank", and it
+  // is not zero. It keeps its score on purpose: since §11.2 the table is born on the chip
+  // `Pontuaram`, so a row zeroed to make this point would leave the screen and take the point
+  // with it. The type allows the shape (`rank_official: number | null`) and the cell handles it.
+  rows[7] = { ...rows[7], rank_official: null, rank_excluding_internal: null }
 
   const closed = renderTable(rows, closedWeek)
   assert.equal(sealCount(closed), 3, 'three seals on the closed week — and only three')
@@ -738,7 +742,11 @@ test('#756: BR-RANKING-003, DS-COMPONENTE-088 — three accounts over the floor 
   for (const position of POSITIONS) {
     assert.match(html, new RegExp(`<span class="sr-only">${position}º lugar</span>`))
   }
-  assert.deepEqual(printedRanks(html), Array(ROSTER - 3).fill('4'))
+  // The ROSTER − 3 accounts at zero are not on the screen at all: since §11.2 the table is born
+  // on the chip `Pontuaram`, and the position of a zeroed row is one click away in `Todas 16`.
+  // What the seal rule claims is unchanged, and the two tests above still prove it on rows that
+  // scored: under the floor the `#` prints a number, never the em dash.
+  assert.deepEqual(printedRanks(html), [])
 })
 
 /**

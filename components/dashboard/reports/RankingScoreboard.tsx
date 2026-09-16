@@ -51,11 +51,7 @@ import {
   ArrowUpRight,
   ChevronDown,
   ChevronRight,
-  Clock,
   Copy,
-  Flame,
-  Headphones,
-  MapPin,
   Scale,
   Users,
 } from 'lucide-react'
@@ -91,7 +87,6 @@ import {
   formatRatio,
   isComposedCycle,
   matchesPeriod,
-  periodNature,
   periodOfSelection,
   rankDelta,
   rankSeal,
@@ -102,12 +97,11 @@ import {
   type RankingRow,
 } from '@/lib/ranking/scoreboard'
 
+/** The two the two surviving cards paint with. The other three left with the four cards §11.2
+ *  turned into label/value pairs — a pair has no icon and no colour. */
 const TUGGI_COLORS = {
   blue: '#00A8E8',
   purple: '#8B5CF6',
-  orange: '#FF6F00',
-  green: '#10B981',
-  red: '#EF4444',
 }
 
 /** The eight sortable columns of spec §4.3. `#` is not one of them: it is the default order. */
@@ -858,12 +852,18 @@ export function RankingScoreboard({
                         `Ninguém pontuou em Semana de X a Y` asserts a measurement over a period
                         the query never looked at, and sends the operator to read a scoring
                         design that was never served to him (#741). */}
-                    {activeChip !== 'all'
+                    {/* THE CHIP ONLY GETS THE BLAME WHEN IT TOOK SOMETHING — §11.2 made
+                        `Pontuaram` the default, and with it `activeChip !== 'all'` stopped meaning
+                        "the operator filtered". A period the query answered with no row at all
+                        would have read as *nobody matched your filter*, which is a measurement
+                        over a filter that removed nothing, on top of the week-outside-the-horizon
+                        answer this block exists for. `shown.length` is what tells the two apart. */}
+                    {activeChip !== 'all' && shown.length > 0
                       ? t('empty.filtered', { period: periodLabel })
                       : didRead && period === null && selection.kind === 'week'
                         ? t('empty.out_of_horizon')
                         : t('empty.period', { period: periodLabel })}
-                    {activeChip !== 'all' && (
+                    {activeChip !== 'all' && shown.length > 0 && (
                       <button
                         type="button"
                         onClick={() => setChip('all')}

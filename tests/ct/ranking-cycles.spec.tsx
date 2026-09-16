@@ -168,16 +168,21 @@ test('#742 · BR-RANKING-005: the `<caption>` of a composed cycle declares what 
     </DashboardWrapper>
   )
 
-  const legend = page.getByTestId('ranking-legend')
+  // THE `sr-only` CAPTION IS THE ONLY CALL SITE SINCE §11.1 — the visible block of declarations
+  // left the screen, and this is the one the composed cycle needs most: the one thing the operator
+  // cannot infer from a column header is that `Pontos` stopped being the formula of the period and
+  // became a sum over the podium weeks.
+  const caption = page.locator('table caption')
+  await expect(caption).toHaveClass(/sr-only/)
 
   // The floor arrives from `PODIUM_POINTS_FLOOR` through `{floor}`: no `10` is typed into a
   // string in any of the three languages (CLAUDE.md §6).
-  await expect(legend).toContainText(String(PODIUM_POINTS_FLOOR))
-  await expect(legend).toContainText('pódio daquele mês')
+  await expect(caption).toContainText(String(PODIUM_POINTS_FLOOR))
+  await expect(caption).toContainText('pódio daquele mês')
 
   // And the five declarations about columns that no longer render are gone with them.
-  await expect(legend).not.toContainText('País explorado')
-  await expect(legend).not.toContainText('Intervalo de sinal no período')
+  await expect(caption).not.toContainText('País explorado')
+  await expect(caption).not.toContainText('Intervalo de sinal no período')
 })
 
 /**
