@@ -549,6 +549,21 @@ test('#741: DS-COMPONENTE-082 — the seal does not change the height of the tab
   assert.match(closed, /<svg width="20" height="20"/)
   assert.ok(SEAL_SIZE_FLOOR < 24)
   assert.match(closed, /min-h-\[24px\]/)
+
+  // AND IT PAYS FOR ITS OWN WIDTH. The seal spends 12 px more of `#` column than the digit it
+  // replaces, against a table whose natural width may not pass what `Plataforma` used to cost
+  // (`DS-COMPONENTE-086` critério 24). The podium rows give up the 4 px flex gap; the digit rows
+  // keep it. Measured in a browser at 1280 px: with the gap the table was 1271 px in `pt` and
+  // the ceiling is 1267.
+  const spans = [...closed.matchAll(/<td class="[^"]*pr-0"><span class="([^"]*)"/g)].map(
+    (match) => match[1]
+  )
+  assert.equal(
+    spans.filter((span) => !span.includes('gap-1')).length,
+    3,
+    'the three podium rows drop the gap'
+  )
+  assert.ok(spans.some((span) => span.includes('gap-1')), 'and the digit rows keep it')
 })
 
 /** The fixtures the CT bench uses still type-check against the table this file renders. */

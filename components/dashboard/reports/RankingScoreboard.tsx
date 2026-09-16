@@ -700,7 +700,19 @@ export function RankingScoreboard({
                         className="border-t border-gray-100 hover:bg-gray-50/70 dark:border-gray-800 dark:hover:bg-gray-800/40"
                       >
                         <td className={`${NUM} pr-0`}>
-                          <span className="inline-flex items-center gap-1">
+                          {/* THE SEAL PAYS FOR ITS OWN WIDTH, and the gap is where it finds it.
+                              A 20 px seal where a digit was is 12 px more of `#` column, and the
+                              table has a ceiling it inherited when `Plataforma` left: the natural
+                              width may not pass what that column used to cost
+                              (`DS-COMPONENTE-086` critério 24, measured in
+                              `tests/ct/ranking-scoreboard.spec.tsx`). The chevron is a 24 px
+                              target around a 14 px glyph, so it already carries ~5 px of its own
+                              whitespace on the seal's side — dropping the 4 px flex gap on the
+                              podium rows keeps the two apart and puts the table back at the
+                              ceiling. The digit rows keep the gap they had. */}
+                          <span
+                            className={`inline-flex items-center ${seal === null ? 'gap-1' : ''}`}
+                          >
                             <button
                               type="button"
                               aria-expanded={isOpen}
