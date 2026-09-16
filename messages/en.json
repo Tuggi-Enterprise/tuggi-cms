@@ -418,8 +418,16 @@
           "rolling_90d": "Last 90 days",
           "week": "Week of {start} to {end} · UTC",
           "week_current": "Week of {start} to {end} (current) · UTC",
-          "stamp": "{period} · {count, plural, one {# account in the period} other {# accounts in the period}}",
-          "served_differs": "You asked for {pedido}. The query answered {servido} — the numbers below are the period the query served."
+          "stamp": "{period} · {nature} · {count, plural, one {# account in the period} other {# accounts in the period}}",
+          "served_differs": "You asked for {pedido}. The query answered {servido} — the numbers below are the period the query served.",
+          "group_competition": "Competition",
+          "group_calibration": "Calibration",
+          "nature_competition": "competition",
+          "nature_calibration": "calibration",
+          "month": "{month} · UTC",
+          "month_current": "{month} (current) · UTC",
+          "year": "Year {year} · UTC",
+          "year_current": "Year {year} (current) · UTC"
         },
         "internal": {
           "toggle": "Include internal accounts",
@@ -476,12 +484,14 @@
           "delta_down": "moved down {count} positions with weight 2",
           "delta_same": "did not change position with weight 2",
           "delta_unknown": "does not rank with weight 2",
-          "open_sessions": "see the sessions of {person}"
+          "open_sessions": "see the sessions of {person}",
+          "podium_weeks": "Podium weeks",
+          "podium_months": "Podium months"
         },
         "row": {
           "notable_triggers": "Triggers on notable POI",
           "of_total": "{count} of {total}",
-          "km_with_entitlement": "Km with the guide on and with entitlement",
+          "km_with_entitlement": "Km with the guide on and with access",
           "sessions_with_trail": "Sessions with trail that touched the period",
           "sessions_charged": "Sessions with charge",
           "rank_official": "Position — all accounts",
@@ -496,14 +506,18 @@
           "span_in_period": "<b>Signal span in period</b> is the part of each session's first-to-last-signal interval that fell inside the selected period, summed — it is neither guide time nor charged time; a session left open with sparse signal inflates it without consuming any balance. Overlapping sessions from the same account count the same clock twice, so the total can exceed the period's own duration.",
           "platform": "<b>Empty platform</b> = the account entered the period only by charge or by trail.",
           "country": "<b>Explored country</b> is the predominant country of the period's visits — it is neither the account's residence nor its nationality. Empty = no visit in the period carried a recognizable country, including when the account entered only by charge or by trail.",
-          "km": "<b>Pts from km</b> counts the kilometres driven with the guide on and with entitlement to turn it on, GPS noise discarded — it is not the distance of the trip: kilometres driven with no entitlement stay out.",
+          "km": "<b>Pts from km</b> counts the kilometres driven with the guide on and with access in force at the instant of each step, GPS noise discarded — it is not the distance of the trip: kilometres driven with no access stay out. An account with kilometres and no session with a trail is an expected state: a trail only counts the session whose signal reached the server stamped, and the kilometre does not depend on that stamp.",
           "notable": "<b>Comparison · weight 2</b> ranks among all accounts, marked ones included; the Δ compares with the official position, which comes from the same population.",
           "sorting": "Positions and points come from the query; sorting the table does not recompute them.",
-          "closing": "<b>Closing</b> is the raw text of the client or of the automatic close."
+          "closing": "<b>Closing</b> is the raw text of the client or of the automatic close.",
+          "cycle_month": "<b>Points</b> in the monthly cycle is the sum of the points of the weeks the account finished on the podium of that month — the podium being a top-three finish with at least {floor} points in the week. A week off the podium does not count, so this number is not the month's total points.",
+          "cycle_year": "<b>Points</b> in the yearly cycle is the sum of the points of the months the account finished on the podium of that year — the same composition one level up. A month off the podium does not count."
         },
         "meter": {
           "none": "The minute meter did not exist in this period: the consumption ledger starts on 2026-08-18, 20:41 UTC. The minute columns are not zero — there is no measurement.",
-          "partial": "The meter only exists from 2026-08-18; part of this window is earlier than it."
+          "partial": "The meter only exists from 2026-08-18; part of this window is earlier than it.",
+          "km_floor": "The kilometre with access is a floor in this period: before {date} there is no recorded balance grant, and the only access recognisable in the past is the subscription in force today. The points of this period are minimums, and the order can change with the instrument.",
+          "km_partial": "Part of this window is earlier than {date}, when the record of balance grants begins: the kilometre with access in the earlier stretch is a floor, not a measurement."
         },
         "filters": {
           "all": "All",
@@ -539,6 +553,18 @@
           "last_charge": "Last charge",
           "filtered_by_person": "Sessions of {person}",
           "clear_person": "see every session"
+        },
+        "calibration": {
+          "title": "Calibration of the km axis, week by week",
+          "week": "Week",
+          "trigger_points": "Pts from triggers",
+          "km_share": "Km share",
+          "winner_without_km": "1st without km",
+          "winner_unchanged": "km did not change first place",
+          "open_week": "Open the week of {week}",
+          "floor": "floor",
+          "totals": "{count, plural, one {# week with instrument} other {# weeks with instrument}}",
+          "caption": "The series is always the 13 weeks of the horizon, whatever period is selected, and it ignores internal accounts in both states of the switch. <b>Km share</b> is how much of that week's scoreboard came from the km axis. <b>1st without km</b> reorders the same week by the score without that axis and prints who would win; <b>=</b> means the km did not change first place. A week with no instrument answers neither of the two."
         }
       }
     },

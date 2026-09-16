@@ -28,7 +28,9 @@ import {
   parsePeriodKey,
   parsePeriodParam,
   periodBounds,
+  periodGroups,
   periodKey,
+  periodNature,
   periodOptions,
   rankDelta,
   rowsForPeriod,
@@ -81,6 +83,8 @@ function row(overrides: Partial<RankingRow> = {}): RankingRow {
     // 10 entitled km at 0,11 = 1,1 point: the parcel that closes `points_official` (10 + 1,1).
     km_with_entitlement: 10,
     points_from_km: 1.1,
+    // Column 31 — `null` in `week`, never `0` (contract, Parte 7 · **BR-RANKING-005**).
+    podium_components: null,
     ...overrides,
   }
 }
@@ -240,22 +244,48 @@ test('DS-COMPONENTE-082 item 2: the week label prints both boundaries, and the e
   assert.equal(endInclusive.toISOString(), '2026-09-06T00:00:00.000Z')
 })
 
-test('#741: the `<select>` offers the two rolling windows then the weeks, newest first', () => {
+/**
+ * #742 · DS-COMPONENTE-089 — COMPETITION FIRST, AND THE CLOCK'S ORDER INSIDE IT.
+ *
+ * The order CHANGED on 2026-09-16, and it is a decision (spec §2.3): until then the two rolling
+ * windows led the list, which was harmless while they were the only alternative to a week. With
+ * `Setembro de 2026` in the same control, a flat list whose first entry is `Últimos 30 dias`
+ * teaches the operator to read a rolling window as "the month" — and the error that produces is
+ * not a misread number, it is calibrating **BR-RANKING-004** on a window with no roster, no floor
+ * and no podium (**BR-RANKING-001** item 5).
+ */
+test('#742 · DS-COMPONENTE-089: the `<select>` offers competition first — weeks, months, year — then calibration', () => {
   const options = periodOptions([
     row({ period_kind: 'week', period_start: '2026-08-24T00:00:00+00:00' }),
     row({ period_kind: 'rolling_90d' }),
+    row({ period_kind: 'year', period_start: '2026-01-01T00:00:00+00:00' }),
     row({ period_kind: 'week', period_start: '2026-08-31T00:00:00+00:00' }),
+    row({ period_kind: 'month', period_start: '2026-08-01T00:00:00+00:00' }),
     row({ period_kind: 'rolling_30d' }),
+    row({ period_kind: 'month', period_start: '2026-09-01T00:00:00+00:00' }),
     row({ period_kind: 'week', period_start: '2026-08-31T00:00:00+00:00', user_id: 'z' }),
   ])
 
   assert.deepEqual(
     options.map((option) => `${option.kind}:${option.start.slice(0, 10)}`),
     [
-      'rolling_30d:2026-08-31',
-      'rolling_90d:2026-08-31',
       'week:2026-08-31',
       'week:2026-08-24',
+      'month:2026-09-01',
+      'month:2026-08-01',
+      'year:2026-01-01',
+      'rolling_30d:2026-08-31',
+      'rolling_90d:2026-08-31',
+    ]
+  )
+
+  // And the two `<optgroup>`s come out of the same list, so the control cannot group a window
+  // into a nature the stamp beside the numbers disagrees with.
+  assert.deepEqual(
+    periodGroups(options).map((group) => [group.nature, group.options.length]),
+    [
+      ['competition', 5],
+      ['calibration', 2],
     ]
   )
 })
@@ -363,11 +393,26 @@ test('#741: the page hands the scoreboard the period the query answered, not the
   assert.match(component, /t\('period\.served_differs'/, 'a divergence is named, not swallowed')
 })
 
-test('#741: the stamp prints one period and one count, in the three languages', () => {
+/**
+ * #742 · DS-COMPONENTE-089 item 2 — THE NATURE TRAVELS WITH THE NUMBERS, not only with the
+ * control. It is `DS-COMPONENTE-085` item 1 applied to a second property of the period: the stamp
+ * that already printed which period was SERVED prints which species of window it is, so the
+ * operator reading `Últimos 30 dias` next to a scoreboard knows it has no roster and no podium.
+ */
+test('#741 · #742: the stamp prints the period, its nature and one count, in the three languages', () => {
   const expected = {
-    pt: ['Últimos 30 dias · 145 contas no período', 'Últimos 30 dias · 1 conta no período'],
-    en: ['Last 30 days · 145 accounts in the period', 'Last 30 days · 1 account in the period'],
-    es: ['Últimos 30 días · 145 cuentas en el período', 'Últimos 30 días · 1 cuenta en el período'],
+    pt: [
+      'Últimos 30 dias · calibração · 145 contas no período',
+      'Últimos 30 dias · calibração · 1 conta no período',
+    ],
+    en: [
+      'Last 30 days · calibration · 145 accounts in the period',
+      'Last 30 days · calibration · 1 account in the period',
+    ],
+    es: [
+      'Últimos 30 días · calibración · 145 cuentas en el período',
+      'Últimos 30 días · calibración · 1 cuenta en el período',
+    ],
   }
 
   for (const locale of LOCALES) {
@@ -377,9 +422,16 @@ test('#741: the stamp prints one period and one count, in the three languages', 
       namespace: 'Pages.Dashboard.ranking',
     })
     const period = t(`period.rolling_30d` as never)
+    const nature = t(`period.nature_${periodNature('rolling_30d')}` as never)
 
-    assert.equal(t('period.stamp' as never, { period, count: 145 } as never), expected[locale][0])
-    assert.equal(t('period.stamp' as never, { period, count: 1 } as never), expected[locale][1])
+    assert.equal(
+      t('period.stamp' as never, { period, nature, count: 145 } as never),
+      expected[locale][0]
+    )
+    assert.equal(
+      t('period.stamp' as never, { period, nature, count: 1 } as never),
+      expected[locale][1]
+    )
   }
 })
 
@@ -398,8 +450,8 @@ test('#741: a week older than the horizon is named as such, and still knows abou
   assert.match(component, /empty\.out_of_horizon/, 'the out-of-horizon week has its own sentence')
   assert.match(
     component,
-    /period \?\? weekOfSelection\(selection\)/,
-    'with no option to read, the meter reads the selection — it does not assume `full`'
+    /period \?\? periodOfSelection\(selection\)/,
+    'with no option to read, the instruments read the selection — they do not assume `full`'
   )
 
   // The selection describes the week entirely, which is what makes that possible without a read.
@@ -526,7 +578,12 @@ test('#741: the footer sums the two point columns, and only the columns that sum
   assert.equal(summary.pointsNotableWeighted, 65)
 
   const component = source('components/dashboard/reports/RankingScoreboard.tsx')
-  const footer = component.slice(component.indexOf('<tfoot'), component.indexOf('</tfoot>'))
+  // THE LAST `<tfoot>`, because since #742 there are two: the composed cycles total `Pontos`
+  // alone (spec §4.8) and this one is the full table's.
+  const footer = component.slice(
+    component.lastIndexOf('<tfoot'),
+    component.lastIndexOf('</tfoot>')
+  )
 
   assert.match(footer, /points\(totals\.pointsOfficial\)/, 'the scoreboard column has a total')
   assert.match(footer, /points\(totals\.pointsNotableWeighted\)/, 'and so does the comparison')
@@ -687,13 +744,17 @@ test('#749 · BR-RANKING-004: the ratio divides the two axes of the score, and t
   )
 
   assert.match(card, /formatRatio\(summary\.triggerToKmRatio, locale\)/)
-  assert.match(card, /km: points\(summary\.pointsFromKm\)/)
+  assert.match(card, /points\(summary\.pointsFromKm\)/)
   assert.equal(
-    /coverage === '(full|partial)'/.test(card),
+    /\bcoverage === '(full|partial|none)'/.test(card),
     false,
-    'the meter no longer gates the ratio of the two scoring axes'
+    'the MINUTE meter no longer gates the ratio of the two scoring axes'
   )
   assert.equal(card.includes('hasMeter'), false)
+  // #742 · DS-COMPONENTE-084 items 1 and 2: it is gated again, by the OTHER boundary. The km is
+  // the denominator, the km hangs on the grant ledger of 13/08, and a fraction over partial
+  // coverage is a number with no referent (spec §7.7).
+  assert.match(card, /kmCov === 'full'/)
   assert.equal(
     card.includes('pointsFromMinutes'),
     false,
@@ -924,7 +985,10 @@ test('#741: the clipped labels name the clipping, in the three languages', () =>
 test('#749 · BR-RANKING-004: the km declaration says the guide was on, the entitlement was there, and the trip distance is not it', () => {
   const TERM = { pt: 'Pts de km', en: 'Pts from km', es: 'Pts de km' }
   const GUIDE = { pt: /guia ligado/i, en: /guide on/i, es: /gu[íi]a encendida/i }
-  const ENTITLED = { pt: /direito/i, en: /entitlement/i, es: /derecho/i }
+  // DS-COPY-062 item 5 (2026-09-16): between two correct synonyms the label takes the one the
+  // surface already uses everywhere — `acesso`, 24 strings of the CMS — and not the one of the
+  // data model, `direito`, whose only two strings in the whole repository were this column's.
+  const ENTITLED = { pt: /com acesso/i, en: /with access/i, es: /con acceso/i }
   const DENIAL = { pt: /não é a distância/i, en: /not the distance/i, es: /no es la distancia/i }
 
   for (const locale of LOCALES) {

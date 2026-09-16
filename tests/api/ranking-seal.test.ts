@@ -527,6 +527,15 @@ function renderTable(rows: RankingRow[], period: PeriodOption): string {
       timeZone: 'UTC',
       children: createElement(RankingScoreboard, {
         rows,
+        // The seal is about the table, not about the km panel: an empty series is what a screen
+        // with no calibration to show hands down, and the panel refuses to render on it (#742).
+        calibration: {
+          weeks: [],
+          measuredWeeks: 0,
+          pointsFromTriggers: 0,
+          pointsFromKm: 0,
+          kmShare: null,
+        },
         period,
         periodLabel: 'Semana de 31/08 a 06/09 · UTC',
         selection,
@@ -537,6 +546,7 @@ function renderTable(rows: RankingRow[], period: PeriodOption): string {
         error: null,
         onRetry: () => {},
         onOpenSessions: () => {},
+        onSelectWeek: () => {},
       }),
     })
   )

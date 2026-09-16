@@ -31,6 +31,7 @@ import { getSupabaseService } from '@/lib/core/supabase-client'
 import {
   accountRows,
   countInternalAccounts,
+  kmCalibrationSeries,
   parsePeriodParam,
   periodOptions,
   rowsForPeriod,
@@ -43,9 +44,9 @@ export const dynamic = 'force-dynamic'
  * The columns the screen reads, each one named. `select('*')` would make a column added by
  * `data` arrive here unannounced, and the screen's job is to know what each number means.
  *
- * TWENTY-NINE OF THE VIEW'S THIRTY. The one not named is `in_roster` (column 28): the screen has
+ * THIRTY OF THE VIEW'S THIRTY-ONE. The one not named is `in_roster` (column 28): the screen has
  * no roster treatment of its own — see `RankingRow` — and a column nobody reads does not belong
- * in a read that costs ~3,2 s.
+ * in a read that costs ~2,8 s.
  */
 const COLUMNS = [
   'period_kind',
@@ -85,6 +86,13 @@ const COLUMNS = [
   // still declares it; it is `0` constant and nothing on the screen adds it to anything.
   'km_with_entitlement',
   'points_from_km',
+  // Column 31, born with `20260916140000` (**BR-RANKING-005**). How many PODIUM components the
+  // row's `points_official` came from — weeks in `month`, months in `year`, and `null` in the
+  // three older cycles, where there is no composition at all. It costs +12 ms (+0,4%) because it
+  // is a `count(*)` over a grouping the view already had, and the screen does NOT derive it:
+  // deriving would mean a second read and a second podium ruler in the browser (contract,
+  // Parte 7 · spec §10 item 2).
+  'podium_components',
 ].join(',')
 
 /**
@@ -144,6 +152,11 @@ export const GET = withAuth({ roles: ['admin'] }, async (req: NextRequest) => {
     data: {
       periods: periodOptions(rows),
       period,
+      // THE CALIBRATION SERIES IS AGGREGATED HERE, ON THE ROWS ALREADY IN HAND — spec §3.2 and
+      // §9 critério 31. It is the same 13 weeks whatever period was asked for, so it cannot be a
+      // second request: the view is ~2,8 s against an 8 s `statement_timeout`, and 350 weekly
+      // rows crossing the wire for the browser to add up would be the same cost paid twice.
+      calibration: kmCalibrationSeries(rows),
       // Counted over the whole view, not over the served period: it answers "is the filter
       // removing anybody at all", which must not flicker when the operator changes the week.
       internalAccounts: countInternalAccounts(rows),

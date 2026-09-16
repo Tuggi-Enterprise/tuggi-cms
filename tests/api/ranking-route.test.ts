@@ -235,9 +235,11 @@ test('#741: the scoreboard answers rows of EXACTLY one period', async () => {
   assert.equal(body.data.period.kind, 'week')
   // The `<select>` still knows about every period the view produced: it is built from the data,
   // never from a calendar in the browser.
+  // #742 · DS-COMPONENTE-089: competition first, calibration last — the order of the two
+  // `<optgroup>`s, and it is the list itself that carries it (spec §2.3).
   assert.deepEqual(
     body.data.periods.map((option: { kind: string }) => option.kind),
-    ['rolling_30d', 'rolling_90d', 'week']
+    ['week', 'rolling_30d', 'rolling_90d']
   )
 })
 

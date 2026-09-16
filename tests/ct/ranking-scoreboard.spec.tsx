@@ -445,10 +445,14 @@ test('#741: the stamp above the cards prints the served period and how many acco
 
   // Three accounts came back for the period; the switch is off and two of them render, which is
   // exactly why the stamp counts the READ and the line below it says the indicators do not.
+  // #742 · DS-COMPONENTE-089 item 2: the stamp gained a third segment, the NATURE of the window
+  // served — a week is competition, a rolling window is calibration, and the operator cannot read
+  // one as the other.
   await expect(
     page.getByText(
       RANKING.period.stamp
         .replace('{period}', 'Semana de 31/08 a 06/09 · UTC')
+        .replace('{nature}', RANKING.period.nature_competition)
         .replace(/\{count.*\}/, '3 contas no período')
     )
   ).toBeVisible()
@@ -479,7 +483,13 @@ test('#741: a period other than the one asked for raises a band, and the stamp n
         .replace('{servido}', 'Últimos 30 dias')
     )
   ).toBeVisible()
-  await expect(page.getByText(/Últimos 30 dias · 3 contas no período/)).toBeVisible()
+  // And the nature is the SERVED one too: the fallback landed on a calibration window, and the
+  // stamp says so next to the numbers that came out of it.
+  await expect(
+    page.getByText(
+      new RegExp(`Últimos 30 dias · ${RANKING.period.nature_calibration} · 3 contas no período`)
+    )
+  ).toBeVisible()
 })
 
 /**

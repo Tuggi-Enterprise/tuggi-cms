@@ -80,19 +80,24 @@ import { RankSeal } from '@/components/ui/RankSeal'
 import { formatDuration, formatSignedDuration } from '@/lib/format/duration'
 import { UNKNOWN_VALUE } from '@/lib/format/unknown'
 import { appUserLabel } from '@/lib/format/user-identity'
-import { meteringCoverage } from '@/lib/ranking/metering'
+import { RankingKmCalibration } from '@/components/dashboard/reports/RankingKmCalibration'
+import { ENTITLEMENT_LEDGER_START, kmCoverage, meteringCoverage } from '@/lib/ranking/metering'
 import {
+  PODIUM_POINTS_FLOOR,
   aggregateRows,
   compareNullable,
   formatKilometres,
   formatPoints,
   formatRatio,
+  isComposedCycle,
   matchesPeriod,
+  periodNature,
+  periodOfSelection,
   rankDelta,
   rankSeal,
   summarize,
   visibleRows,
-  weekOfSelection,
+  type KmCalibrationSeries,
   type PeriodOption,
   type PeriodSelection,
   type RankingRow,
@@ -122,6 +127,8 @@ type ChipKey = 'all' | 'scored' | 'charged_without_trigger'
 export interface RankingScoreboardProps {
   /** Rows of EXACTLY one period — the route filtered them, and nothing here re-filters by period. */
   rows: RankingRow[]
+  /** The 13 weeks of the calibration panel — the SAME series whatever period is selected (§3.2). */
+  calibration: KmCalibrationSeries
   period: PeriodOption | null
   /** The label of the selected period, as the `<select>` prints it. Used by empty and by banners. */
   periodLabel: string
@@ -155,10 +162,13 @@ export interface RankingScoreboardProps {
   error: RpcError | null
   onRetry: () => void
   onOpenSessions: (row: RankingRow) => void
+  /** Clicking a week of the calibration panel selects it in the `<select>` and in the URL (§9, 36). */
+  onSelectWeek: (start: string) => void
 }
 
 export function RankingScoreboard({
   rows,
+  calibration,
   period,
   periodLabel,
   selection,
@@ -169,6 +179,7 @@ export function RankingScoreboard({
   error,
   onRetry,
   onOpenSessions,
+  onSelectWeek,
 }: RankingScoreboardProps) {
   const t = useTranslations('Pages.Dashboard.ranking')
   const locale = useLocale()
@@ -195,22 +206,50 @@ export function RankingScoreboard({
   const isWeek = period?.kind === 'week'
 
   /**
+   * A COMPOSED CYCLE IS A DIFFERENT QUANTITY UNDER THE SAME COLUMN NAME — **BR-RANKING-005**,
+   * spec §4.8, `DS-COMPONENTE-089` item 3.
+   *
+   * In `month` and `year`, `Pontos` is the SUM of the points of the weeks (or months) the account
+   * finished on the podium of — not the formula of **BR-RANKING-004** over the period. So the
+   * columns that make up the level below LEAVE THE TABLE there: `Disparos` summed over the whole
+   * month next to `Pontos` drawn only from the podium weeks are two populations on one line, and
+   * the fraction and the subtraction the operator would do in his head would both be wrong.
+   */
+  const isComposed = period !== null && isComposedCycle(period.kind)
+
+  /**
    * NO PERIOD IS NOT "THE METER WAS THERE". `coverage` used to fall back on `'full'` whenever the
    * reading had no option to match the selection — which is exactly the case of a week older than
    * the 13-week horizon, the case of a pasted link months old. The screen then printed minutes
    * for a window it could not place in time.
    *
-   * The selection describes the week on its own (`weekOfSelection`), so the meter has an answer
-   * without the round trip. For a rolling window there is nothing to derive — its boundary is
-   * "now minus N days" and only the view knows it — and re-deriving it here would be a second
-   * owner of a window the view defines (CLAUDE.md §6); that case only exists while the read is in
-   * flight, where the table is a skeleton anyway.
+   * The selection describes the anchored window on its own (`periodOfSelection`), so the
+   * instruments have an answer without the round trip. For a rolling window there is nothing to
+   * derive — its boundary is "now minus N days" and only the view knows it — and re-deriving it
+   * here would be a second owner of a window the view defines (CLAUDE.md §6); that case only
+   * exists while the read is in flight, where the table is a skeleton anyway.
    */
-  const meteredPeriod = period ?? weekOfSelection(selection)
+  const meteredPeriod = period ?? periodOfSelection(selection)
   const coverage = meteredPeriod
     ? meteringCoverage(meteredPeriod.start, meteredPeriod.end)
     : 'full'
   const hasMeter = coverage !== 'none'
+
+  /**
+   * THE SECOND BOUNDARY, AND IT IS OLDER THAN THE FIRST — spec §7.7, `DS-COMPONENTE-084` item 1.
+   *
+   * The kilometre hangs on the balance-grant ledger (13/08), the minute on the consumption ledger
+   * (18/08). **A period between the two has the kilometre `full` and the minute `none` at the same
+   * time**, so reusing `coverage` above for anything made of kilometres is the defect of
+   * 2026-09-13 with another name — and it passes every test that does not look at the date.
+   *
+   * The two states of absence do not print alike either: `none` here is INCOMPLETENESS, not
+   * absence — the entitlement of the past is still readable from `subscription_end_date` for
+   * 12,8% of the profiles — so the values print, MARKED AS A FLOOR, and it is the band that
+   * declares it for the whole reading. Only the RATIO is withheld, because a fraction over partial
+   * coverage is a number with no referent (item 2).
+   */
+  const kmCov = meteredPeriod ? kmCoverage(meteredPeriod.start, meteredPeriod.end) : 'full'
 
   /**
    * The query answered a period other than the one asked for — the route falls back on an
@@ -229,6 +268,15 @@ export function RankingScoreboard({
    */
   const summary = useMemo(() => summarize(aggregateRows(rows)), [rows])
 
+  /**
+   * A HIDDEN CHIP THAT KEEPS FILTERING IS A TABLE NOBODY CAN UNFILTER. `Cobrado sem disparo` is a
+   * diagnosis of the minute and does not appear in a composed cycle (spec §4.8); switching to
+   * `month` with it active used to leave an empty table whose only way out was a control that was
+   * no longer on screen.
+   */
+  const activeChip: ChipKey =
+    isComposed && chip === 'charged_without_trigger' ? 'all' : chip
+
   const counts = useMemo(
     () => ({
       all: shown.length,
@@ -245,8 +293,8 @@ export function RankingScoreboard({
 
   const tableRows = useMemo(() => {
     const kept = shown.filter((row) => {
-      if (chip === 'scored') return row.points_official > 0
-      if (chip === 'charged_without_trigger')
+      if (activeChip === 'scored') return row.points_official > 0
+      if (activeChip === 'charged_without_trigger')
         return row.charged_minutes > 0 && row.trigger_points_fired === 0
       return true
     })
@@ -259,7 +307,7 @@ export function RankingScoreboard({
 
     return [...kept].sort((a, b) => compareNullable(a[sort.key], b[sort.key], sort.dir))
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [shown, chip, sort, includeInternal])
+  }, [shown, activeChip, sort, includeInternal])
 
   const totals = useMemo(() => summarize(tableRows), [tableRows])
 
@@ -309,7 +357,26 @@ export function RankingScoreboard({
    * so the width it imposes is `explorado` / `Explored`, and its cell is a single glyph
    * (spec §4.7, critério 24 — the natural width stays under 1131px in the three languages).
    */
-  const columnCount = 12 + (isWeek ? 0 : -1) + (includeInternal ? 1 : 0)
+  const columnCount = isComposed
+    ? 4 + (includeInternal ? 1 : 0)
+    : 12 + (isWeek ? 0 : -1) + (includeInternal ? 1 : 0)
+
+  /**
+   * THE HEADER OF THE COMPOSITION COLUMN IS A DIFFERENT UNIT IN EACH CYCLE — contract, Parte 7:
+   * in `month` the counter counts WEEKS of podium, in `year` it counts MONTHS. Summing the
+   * monthly counters would give the year's podium weeks, which is another quantity with the same
+   * name, so the two headers are two keys and never one with a parameter.
+   */
+  const podiumColumnLabel =
+    period?.kind === 'year' ? t('table.podium_months') : t('table.podium_weeks')
+
+  /** `13/08/2026` — the km boundary as the two bands print it, from the constant and never typed. */
+  const entitlementLedgerDate = new Intl.DateTimeFormat(locale, {
+    day: '2-digit',
+    month: '2-digit',
+    year: 'numeric',
+    timeZone: 'UTC',
+  }).format(new Date(ENTITLEMENT_LEDGER_START))
 
   return (
     <div className="space-y-6">
@@ -343,8 +410,16 @@ export function RankingScoreboard({
             and the count would be the previous answer wearing the face of the new one — the same
             defect the chips below had. */}
         {didRead && served && !isLoading && (
+          /* THE NATURE TRAVELS WITH THE NUMBERS, NOT ONLY WITH THE CONTROL — `DS-COMPONENTE-089`
+             item 2, which is `DS-COMPONENTE-085` item 1 applied to a second property of the
+             period. And it is the nature of the period the query SERVED, like the dates beside
+             it: a control reads as *what I asked for*, never as *what I got*. */
           <p className="text-[11px] font-medium text-gray-600 dark:text-gray-300">
-            {t('period.stamp', { period: served.label, count: rows.length })}
+            {t('period.stamp', {
+              period: served.label,
+              nature: t(`period.nature_${periodNature(served.period.kind)}`),
+              count: rows.length,
+            })}
           </p>
         )}
         {didRead && includeInternal && (
@@ -352,7 +427,13 @@ export function RankingScoreboard({
             {t('internal.aggregates_note')}
           </p>
         )}
-        <StatCardRow columns={6}>
+        {/* IN A COMPOSED CYCLE THE BAND PRINTS A COUNT AND NEVER A RATIO — spec §4.8. The
+            `Disparo ÷ km` card would divide two rulers (its parcels are summed only over the
+            podium weeks), and the streak card is a property of the weekly cycle by construction.
+            Cards 4, 5 and 6 come back when Parte 7 declares that the columns behind them sum the
+            whole cycle; until it does, they do not render. Card 1 — `points_official > 0` — holds
+            in all five periods and stays. */}
+        <StatCardRow columns={isComposed ? 2 : 6}>
           <StatCard
             icon={Users}
             size="compact"
@@ -375,6 +456,7 @@ export function RankingScoreboard({
               ].join(' · ')
             )}
           />
+          {!isComposed && (
           <StatCard
             icon={Scale}
             size="compact"
@@ -396,15 +478,25 @@ export function RankingScoreboard({
 
                A zero denominator stays UNKNOWN (`DS-COMPONENTE-084` item 2): a period where
                nobody drove with entitlement divides by nothing, and `∞` is not a reading. */
-            value={measured(formatRatio(summary.triggerToKmRatio, locale))}
+            value={measured(
+              kmCov === 'full' ? formatRatio(summary.triggerToKmRatio, locale) : UNKNOWN_VALUE
+            )}
+            /* THE TWO TOTALS ALWAYS PRINT; THE FRACTION DOES NOT — `DS-COMPONENTE-084` item 2
+               forbids the fraction, never the totals. Under partial or floor coverage the km
+               side carries the floor word, which is the same one the calibration panel tags a
+               floor week with (`DS-COPY-062` item 4: one caveat, one redaction). */
             subtitle={note(
               t('kpi.ratio_subtitle', {
                 triggers: points(summary.pointsFromTriggers),
-                km: points(summary.pointsFromKm),
+                km:
+                  kmCov === 'full'
+                    ? points(summary.pointsFromKm)
+                    : `${points(summary.pointsFromKm)} (${t('calibration.floor')})`,
               })
             )}
           />
-          {isWeek && (
+          )}
+          {!isComposed && isWeek && (
             <StatCard
               icon={Flame}
               size="compact"
@@ -415,6 +507,7 @@ export function RankingScoreboard({
               subtitle={note(t('kpi.streak_subtitle', { days: summary.maxStoryDays }))}
             />
           )}
+          {!isComposed && (
           <StatCard
             icon={Clock}
             size="compact"
@@ -428,9 +521,11 @@ export function RankingScoreboard({
               hasMeter ? t('kpi.charged_without_trigger_subtitle') : t('kpi.no_meter')
             )}
           />
+          )}
           {/* The caveat is PART OF THE LABEL and comes from the same key the expanded row reads —
               `DS-COPY-062` items 3 and 4. Manual listening by a paying account records no visit at
               all (two independent gates in the app), so this number measures one tier. */}
+          {!isComposed && (
           <StatCard
             icon={Headphones}
             size="compact"
@@ -440,8 +535,10 @@ export function RankingScoreboard({
             value={measured(summary.manualListens)}
             subtitle={note(t('kpi.manual_listens_subtitle'))}
           />
+          )}
           {/* No percentage here, ever: `trigger_points_fired` is deduplicated by (session, POI) and
               this count is not, so the two do not form a fraction (`DS-COMPONENTE-084` item 2). */}
+          {!isComposed && (
           <StatCard
             icon={MapPin}
             size="compact"
@@ -451,6 +548,7 @@ export function RankingScoreboard({
             value={measured(summary.visitsIndeterminate)}
             subtitle={note(t('kpi.indeterminate_subtitle'))}
           />
+          )}
         </StatCardRow>
       </div>
 
@@ -476,6 +574,21 @@ export function RankingScoreboard({
         </p>
       )}
 
+      {/* THE SECOND BAND, AND THE TWO COEXIST — different windows, different boundaries (§7.7).
+          It says something the minute band never says: the POINTS of this period are a floor, and
+          the ORDER can change when the instrument appears, because the kilometre is a parcel of
+          `points_official` (**BR-RANKING-004**). The date comes from the constant through
+          `{date}` — a date typed into a string is a second owner of a fact the code already has
+          (spec §9, critério 39). */}
+      {kmCov !== 'full' && (
+        <p className="flex items-start gap-2 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-xs text-amber-700 dark:border-amber-900/50 dark:bg-amber-900/20 dark:text-amber-300">
+          <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" aria-hidden="true" />
+          {t(kmCov === 'none' ? 'meter.km_floor' : 'meter.km_partial', {
+            date: entitlementLedgerDate,
+          })}
+        </p>
+      )}
+
       {/* Error is NOT empty, and never looks like it: an empty table after a failed request is
           the screen asserting "nobody scored" when the truth is "I do not know". */}
       {error && (
@@ -491,6 +604,15 @@ export function RankingScoreboard({
         </div>
       )}
 
+      {/* THE SERIES SITS BETWEEN THE INDICATORS AND THE TABLE, AND IT DOES NOT FOLLOW THE PERIOD:
+          it is always the 13 weeks of the horizon, because the question it answers — *is 0,11
+          calibrated?* — is about the axis and not about the week the operator happens to be
+          reading (spec §3.2, §9 critério 31). It costs no second read: the route aggregated it
+          from the rows of the single read. */}
+      {didRead && !isLoading && (
+        <RankingKmCalibration series={calibration} onSelectWeek={onSelectWeek} />
+      )}
+
       <section className="overflow-hidden rounded-3xl border border-gray-200 bg-white/70 shadow-2xl shadow-black/5 backdrop-blur-xl dark:border-gray-800 dark:bg-gray-900/70">
         {/* A CHIP WITH A NUMBER IS AN ASSERTION, and the number is a count of the read. With no
             read the chips stay — they are the filter, and the filter is the operator's, not the
@@ -498,26 +620,30 @@ export function RankingScoreboard({
             indicators were telling. */}
         <header className="flex flex-wrap items-center gap-2 border-b border-gray-200 px-5 py-4 dark:border-gray-800">
           <FilterChip
-            active={chip === 'all'}
+            active={activeChip === 'all'}
             onClick={() => setChip('all')}
             count={didRead && !isLoading ? counts.all : undefined}
           >
             {t('filters.all')}
           </FilterChip>
           <FilterChip
-            active={chip === 'scored'}
+            active={activeChip === 'scored'}
             onClick={() => setChip('scored')}
             count={didRead && !isLoading ? counts.scored : undefined}
           >
             {t('filters.scored')}
           </FilterChip>
-          <FilterChip
-            active={chip === 'charged_without_trigger'}
-            onClick={() => setChip('charged_without_trigger')}
-            count={didRead && !isLoading ? counts.charged_without_trigger : undefined}
-          >
-            {t('filters.charged_without_trigger')}
-          </FilterChip>
+          {/* `Todas` and `Pontuaram` in all five periods; the third one is a diagnosis of the
+              minute axis and has no column to stand next to in a composed cycle (spec §4.8). */}
+          {!isComposed && (
+            <FilterChip
+              active={activeChip === 'charged_without_trigger'}
+              onClick={() => setChip('charged_without_trigger')}
+              count={didRead && !isLoading ? counts.charged_without_trigger : undefined}
+            >
+              {t('filters.charged_without_trigger')}
+            </FilterChip>
+          )}
         </header>
 
         {/* THE DECLARATION IS READ WHERE THE CELLS ARE — `DS-COMPONENTE-083` item 3, amended
@@ -544,6 +670,24 @@ export function RankingScoreboard({
           data-testid="ranking-legend"
           className="space-y-0.5 border-b border-gray-200 px-5 py-2.5 text-[11px] leading-snug text-gray-600 dark:border-gray-800 dark:text-gray-400"
         >
+          {/* A COMPOSED CYCLE DECLARES THE QUANTITY AND NOT THE COLUMNS — the five sentences below
+              define columns that do not render there (`DS-COMPONENTE-089` item 3), and the one
+              thing the operator cannot infer from a column header is that `Pontos` stopped being
+              the formula of the period and became a sum over the podium weeks. The floor comes
+              from `PODIUM_POINTS_FLOOR` through `{floor}`: no `10` is typed into a string
+              (CLAUDE.md §6, spec §9 critério 29). The yearly caption names NO floor, and that is
+              deliberate — **BR-RANKING-003** is the floor of the WEEK, and a number the rule never
+              wrote would be the screen deciding a prize band. */}
+          {isComposed && (
+            <p>
+              {t.rich(period?.kind === 'year' ? 'caption.cycle_year' : 'caption.cycle_month', {
+                b: (chunks) => <strong>{chunks}</strong>,
+                floor: PODIUM_POINTS_FLOOR,
+              })}
+            </p>
+          )}
+          {!isComposed && (
+            <>
           {/* NOT `caption.span`: since the trail span is CLIPPED to the period (contract
               `banco-para-cms.md`, Parte 7), what the column sums is the part of each session's
               interval that fell inside the selected period — and overlapping sessions of one
@@ -573,7 +717,11 @@ export function RankingScoreboard({
               this line is what says the true thing until he writes the better one. */}
           <p>{t.rich('caption.km', { b: (chunks) => <strong>{chunks}</strong> })}</p>
           <p>{t.rich('caption.notable', { b: (chunks) => <strong>{chunks}</strong> })}</p>
-          {/* No `<b>`: the sentence has no term to define, it denies a consequence. */}
+            </>
+          )}
+          {/* No `<b>`: the sentence has no term to define, it denies a consequence. It survives
+              in the composed cycles because `Pontos` is still sortable there and the wrong
+              conclusion a click invites is the same one. */}
           <p>{t('caption.sorting')}</p>
         </div>
 
@@ -585,14 +733,58 @@ export function RankingScoreboard({
             {/* Same five declarations, same order, for whoever does not see the block above —
                 a `<caption>` is what a screen reader announces before the first cell. */}
             <caption className="sr-only">
-              {t.rich('caption.span_in_period', { b: (chunks) => <strong>{chunks}</strong> })}{' '}
-              {t.rich('caption.platform', { b: (chunks) => <strong>{chunks}</strong> })}{' '}
-              {t.rich('caption.country', { b: (chunks) => <strong>{chunks}</strong> })}{' '}
-              {t.rich('caption.km', { b: (chunks) => <strong>{chunks}</strong> })}{' '}
-              {t.rich('caption.notable', { b: (chunks) => <strong>{chunks}</strong> })}{' '}
+              {isComposed ? (
+                t.rich(period?.kind === 'year' ? 'caption.cycle_year' : 'caption.cycle_month', {
+                  b: (chunks) => <strong>{chunks}</strong>,
+                  floor: PODIUM_POINTS_FLOOR,
+                })
+              ) : (
+                <>
+                  {t.rich('caption.span_in_period', { b: (chunks) => <strong>{chunks}</strong> })}{' '}
+                  {t.rich('caption.platform', { b: (chunks) => <strong>{chunks}</strong> })}{' '}
+                  {t.rich('caption.country', { b: (chunks) => <strong>{chunks}</strong> })}{' '}
+                  {t.rich('caption.km', { b: (chunks) => <strong>{chunks}</strong> })}{' '}
+                  {t.rich('caption.notable', { b: (chunks) => <strong>{chunks}</strong> })}{' '}
+                </>
+              )}{' '}
               {t('caption.sorting')}
             </caption>
             <thead>
+              {isComposed ? (
+                <>
+                  {/* THE BAND STAYS EVEN WITH NO GROUP TO NAME, and that is geometry, not decor:
+                      `HEAD` sticks at `top-7` precisely because `GROUP` is `h-7`
+                      (`DS-COMPONENTE-081`). Dropping the band would leave the column names glued
+                      28px below a top that no longer exists. There is no group LABEL because in a
+                      composed cycle there are no groups — four columns, one population. */}
+                  <tr>
+                    <th
+                      className={`${GROUP} text-gray-500 dark:text-gray-400`}
+                      colSpan={columnCount}
+                    />
+                  </tr>
+                  <tr>
+                    <th scope="col" className={`${HEAD} text-right`}>
+                      {t('table.rank')}
+                    </th>
+                    {includeInternal && (
+                      <th scope="col" className={`${HEAD} text-right`}>
+                        {t('table.rank_excluding_internal')}
+                      </th>
+                    )}
+                    <th scope="col" className={HEAD}>
+                      {t('table.person')}
+                    </th>
+                    {head('points_official', t('table.points'), `${HEAD_NUM} ${EDGE}`)}
+                    {/* NOT SORTABLE: the composition is the provenance of the number beside it,
+                        and ordering thirteen rows by it answers no question §4.8 asks. */}
+                    <th scope="col" className={HEAD_NUM}>
+                      {podiumColumnLabel}
+                    </th>
+                  </tr>
+                </>
+              ) : (
+                <>
               <tr>
                 {/* The block with no group: `#`, optionally `sem internas`, `Pessoa` and
                     `País explorado` — identity, never score. */}
@@ -655,6 +847,8 @@ export function RankingScoreboard({
                 {head('trail_span_minutes', t('table.trail_span_in_period'), HEAD_NUM)}
                 {head('metering_gap_minutes', t('table.gap'), HEAD_NUM)}
               </tr>
+                </>
+              )}
             </thead>
 
             <tbody>
@@ -672,12 +866,12 @@ export function RankingScoreboard({
                         `Ninguém pontuou em Semana de X a Y` asserts a measurement over a period
                         the query never looked at, and sends the operator to read a scoring
                         design that was never served to him (#741). */}
-                    {chip !== 'all'
+                    {activeChip !== 'all'
                       ? t('empty.filtered', { period: periodLabel })
                       : didRead && period === null && selection.kind === 'week'
                         ? t('empty.out_of_horizon')
                         : t('empty.period', { period: periodLabel })}
-                    {chip !== 'all' && (
+                    {activeChip !== 'all' && (
                       <button
                         type="button"
                         onClick={() => setChip('all')}
@@ -705,6 +899,62 @@ export function RankingScoreboard({
                    */
                   const rank = rankOf(row)
                   const seal = rankSeal(rank, row, meteredPeriod)
+
+                  /**
+                   * FOUR COLUMNS, NO SEAL, NO CHEVRON — spec §4.8.
+                   *
+                   * No seal because a seal asserts a PODIUM, a podium has a floor, and the only
+                   * floor written down is the weekly one (**BR-RANKING-003**, which names itself
+                   * so). `RankSeal` already draws the three cycles and `sealCycle` still answers
+                   * only `week`: the gate has one owner (`DS-COMPONENTE-088`), and a component
+                   * knowing how to draw a crown is not authorisation to draw it
+                   * (`DS-COMPONENTE-089` item 4). **The `#` keeps printing the ordinal**, because
+                   * the ordinal is the view's datum and not our arithmetic.
+                   *
+                   * No chevron because the expanded row is made of the quantities the composed
+                   * cycle does not declare — platform, country, sessions, kilometres. An opener
+                   * onto columns that have no meaning here would put back, one click away,
+                   * exactly the two populations §4.8 takes out of the line.
+                   */
+                  if (isComposed) {
+                    return (
+                      <tr
+                        key={row.user_id}
+                        className="border-t border-gray-100 hover:bg-gray-50/70 dark:border-gray-800 dark:hover:bg-gray-800/40"
+                      >
+                        <td className={NUM}>{rank ?? UNKNOWN_VALUE}</td>
+                        {includeInternal && (
+                          <td className={`${NUM} ${DIM}`}>
+                            {row.rank_excluding_internal ?? UNKNOWN_VALUE}
+                          </td>
+                        )}
+                        <th
+                          scope="row"
+                          className={`${CELL} min-w-[11rem] max-w-[16rem] truncate text-left font-medium text-gray-900 dark:text-white`}
+                          title={person}
+                        >
+                          <AppUserLink user={row} />
+                          {row.excluded_from_metrics && (
+                            <span className="ml-2 rounded border border-gray-300 px-1 text-[10px] font-bold uppercase tracking-widest text-gray-500 dark:border-gray-700 dark:text-gray-400">
+                              {t('internal.badge')}
+                            </span>
+                          )}
+                        </th>
+                        <td
+                          className={`${NUM} ${EDGE} font-semibold text-gray-900 dark:text-white`}
+                        >
+                          {points(row.points_official)}
+                        </td>
+                        {/* `null` PRINTS THE EM DASH AND NEVER `0` — in the three older cycles
+                            there is no composition at all, and `0` would read as "no podium",
+                            which is false: an account with no podium week has no `month` row
+                            (contract, Parte 7). */}
+                        <td className={NUM}>
+                          {row.podium_components ?? UNKNOWN_VALUE}
+                        </td>
+                      </tr>
+                    )
+                  }
 
                   return (
                     <Fragment key={row.user_id}>
@@ -942,7 +1192,28 @@ export function RankingScoreboard({
                 })}
             </tbody>
 
-            {!isLoading && tableRows.length > 0 && (
+            {!isLoading && tableRows.length > 0 && isComposed && (
+              <tfoot className="sticky bottom-0 z-10">
+                <tr className="border-t-2 border-gray-200 bg-gray-50/95 backdrop-blur dark:border-gray-700 dark:bg-gray-950/95">
+                  <th
+                    scope="row"
+                    className={`${CELL} text-left font-bold text-gray-900 dark:text-white`}
+                    colSpan={includeInternal ? 3 : 2}
+                  >
+                    {t('table.totals', { count: totals.rowCount })}
+                  </th>
+                  <td className={`${NUM} ${EDGE} font-bold text-gray-900 dark:text-white`}>
+                    {points(totals.pointsOfficial)}
+                  </td>
+                  {/* THE COMPOSITION DOES NOT ADD UP ACROSS ACCOUNTS: one podium week is counted
+                      once per account that stood on it, so a total would be neither weeks nor
+                      accounts. Empty, like the delta column, and for the same reason. */}
+                  <td className={NUM} />
+                </tr>
+              </tfoot>
+            )}
+
+            {!isLoading && tableRows.length > 0 && !isComposed && (
               <tfoot className="sticky bottom-0 z-10">
                 <tr className="border-t-2 border-gray-200 bg-gray-50/95 backdrop-blur dark:border-gray-700 dark:bg-gray-950/95">
                   <th
