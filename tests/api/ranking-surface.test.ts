@@ -20,13 +20,17 @@ import { formatDuration, formatSignedDuration } from '../../lib/format/duration'
 import { UNKNOWN_VALUE } from '../../lib/format/unknown'
 import { METERING_LEDGER_START, meteringCoverage } from '../../lib/ranking/metering'
 import {
+  accountRows,
   aggregateRows,
+  countInternalAccounts,
   formatRatio,
   matchesPeriod,
   parsePeriodKey,
   parsePeriodParam,
   periodBounds,
+  periodGroups,
   periodKey,
+  periodNature,
   periodOptions,
   rankDelta,
   rowsForPeriod,
@@ -35,6 +39,7 @@ import {
   weekOfSelection,
   type PeriodSelection,
   type RankingRow,
+  type ScoreboardReadRow,
 } from '../../lib/ranking/scoreboard'
 
 const REPO_ROOT = resolve(import.meta.dirname, '../..')
@@ -62,8 +67,10 @@ function row(overrides: Partial<RankingRow> = {}): RankingRow {
     has_full_week_streak: false,
     streak_multiplier: 1,
     points_from_triggers: 10,
-    points_from_minutes: 0.9,
-    points_official: 10.9,
+    // `0` constant since `20260916130000` — the view still emits the column and it scores
+    // nothing (**BR-RANKING-004** item 2). `charged_minutes` above is untouched and real.
+    points_from_minutes: 0,
+    points_official: 11.1,
     rank_official: 2,
     rank_excluding_internal: 1,
     points_notable_weighted: 13,
@@ -73,9 +80,77 @@ function row(overrides: Partial<RankingRow> = {}): RankingRow {
     sessions_with_trail: 2,
     sessions_charged: 1,
     top_country_code: 'BR',
+    // 10 entitled km at 0,11 = 1,1 point: the parcel that closes `points_official` (10 + 1,1).
+    km_with_entitlement: 10,
+    points_from_km: 1.1,
+    // Column 31 — `null` in `week`, never `0` (contract, Parte 7 · **BR-RANKING-005**).
+    podium_components: null,
     ...overrides,
   }
 }
+
+// ── The ghost row of `user_id` null ───────────────────────────────────────────────────────
+
+/**
+ * #741 · BR-RANKING-001 — ONE CROSSING, AND EVERY OUTPUT IS BEHIND IT.
+ *
+ * `docs/contracts/banco-para-cms.md`, Parte 7, "A linha fantasma de `user_id` nulo": the view
+ * emits one row per period with `user_id` null and every quantity at zero, it always existed, the
+ * fix belongs to the writer of `drive.poi_visits` and `drive.time_credit_consumption`, and
+ * meanwhile *"a tela filtra `user_id IS NOT NULL`; não é opcional, porque a linha não tem apelido
+ * para mostrar"*.
+ *
+ * What is pinned here is that the three consumers of the read sit BEHIND the same filter, which
+ * is the part an inline `.filter()` in the table would quietly lose (CLAUDE.md §6).
+ */
+test('#741 · BR-RANKING-001: `accountRows` drops the ghost row before the table, the periods and the count', () => {
+  const account = row({ period_kind: 'rolling_30d' })
+  const ghost: ScoreboardReadRow = {
+    ...row({ period_kind: 'week', period_start: '2026-06-22T00:00:00+00:00', period_end: '2026-06-29T00:00:00+00:00' }),
+    user_id: null,
+    nickname: null,
+    points_official: 0,
+    // The view leaves this one false — the profile join fails for the same reason the row exists.
+    // The fixture marks it anyway, because what is being pinned is that the crossing happens
+    // BEFORE the count, not what the view happens to put in this column.
+    excluded_from_metrics: true,
+  }
+
+  const rows = accountRows([account, ghost])
+
+  assert.equal(rows.length, 1)
+  assert.equal(rows[0].user_id, account.user_id)
+
+  assert.equal(
+    countInternalAccounts(rows),
+    0,
+    'the marked population is counted in ACCOUNTS, and a row with no account is not one'
+  )
+  assert.deepEqual(
+    periodOptions(rows).map((option) => option.kind),
+    ['rolling_30d'],
+    'a week whose only row is the ghost is a week with nobody in it'
+  )
+})
+
+test('#741 · BR-RANKING-001: the route filters through `accountRows`, never with a `user_id` test of its own', () => {
+  const route = source('app/api/dashboard/ranking/route.ts')
+
+  assert.equal(route.includes('accountRows('), true)
+  // A second ruler for the same fact is how one of the three outputs keeps the ghost. And the
+  // filter has to run AFTER the truncation guard, which compares the count PostgREST returned
+  // with the rows that arrived — filtering first refuses every request as truncated.
+  assert.equal(
+    /user_id\s*(!==|!=|===|==)\s*null/.test(route),
+    false,
+    'the ruler lives in `lib/ranking/scoreboard.ts`'
+  )
+  assert.equal(
+    route.indexOf('truncated read') < route.indexOf('accountRows(read)'),
+    true,
+    'filtering before the guard turns every answer into a false truncation'
+  )
+})
 
 // ── The signed difference ─────────────────────────────────────────────────────────────────
 
@@ -169,22 +244,48 @@ test('DS-COMPONENTE-082 item 2: the week label prints both boundaries, and the e
   assert.equal(endInclusive.toISOString(), '2026-09-06T00:00:00.000Z')
 })
 
-test('#741: the `<select>` offers the two rolling windows then the weeks, newest first', () => {
+/**
+ * #742 · DS-COMPONENTE-089 — COMPETITION FIRST, AND THE CLOCK'S ORDER INSIDE IT.
+ *
+ * The order CHANGED on 2026-09-16, and it is a decision (spec §2.3): until then the two rolling
+ * windows led the list, which was harmless while they were the only alternative to a week. With
+ * `Setembro de 2026` in the same control, a flat list whose first entry is `Últimos 30 dias`
+ * teaches the operator to read a rolling window as "the month" — and the error that produces is
+ * not a misread number, it is calibrating **BR-RANKING-004** on a window with no roster, no floor
+ * and no podium (**BR-RANKING-001** item 5).
+ */
+test('#742 · DS-COMPONENTE-089: the `<select>` offers competition first — weeks, months, year — then calibration', () => {
   const options = periodOptions([
     row({ period_kind: 'week', period_start: '2026-08-24T00:00:00+00:00' }),
     row({ period_kind: 'rolling_90d' }),
+    row({ period_kind: 'year', period_start: '2026-01-01T00:00:00+00:00' }),
     row({ period_kind: 'week', period_start: '2026-08-31T00:00:00+00:00' }),
+    row({ period_kind: 'month', period_start: '2026-08-01T00:00:00+00:00' }),
     row({ period_kind: 'rolling_30d' }),
+    row({ period_kind: 'month', period_start: '2026-09-01T00:00:00+00:00' }),
     row({ period_kind: 'week', period_start: '2026-08-31T00:00:00+00:00', user_id: 'z' }),
   ])
 
   assert.deepEqual(
     options.map((option) => `${option.kind}:${option.start.slice(0, 10)}`),
     [
-      'rolling_30d:2026-08-31',
-      'rolling_90d:2026-08-31',
       'week:2026-08-31',
       'week:2026-08-24',
+      'month:2026-09-01',
+      'month:2026-08-01',
+      'year:2026-01-01',
+      'rolling_30d:2026-08-31',
+      'rolling_90d:2026-08-31',
+    ]
+  )
+
+  // And the two `<optgroup>`s come out of the same list, so the control cannot group a window
+  // into a nature the stamp beside the numbers disagrees with.
+  assert.deepEqual(
+    periodGroups(options).map((group) => [group.nature, group.options.length]),
+    [
+      ['competition', 5],
+      ['calibration', 2],
     ]
   )
 })
@@ -292,11 +393,26 @@ test('#741: the page hands the scoreboard the period the query answered, not the
   assert.match(component, /t\('period\.served_differs'/, 'a divergence is named, not swallowed')
 })
 
-test('#741: the stamp prints one period and one count, in the three languages', () => {
+/**
+ * #742 · DS-COMPONENTE-089 item 2 — THE NATURE TRAVELS WITH THE NUMBERS, not only with the
+ * control. It is `DS-COMPONENTE-085` item 1 applied to a second property of the period: the stamp
+ * that already printed which period was SERVED prints which species of window it is, so the
+ * operator reading `Últimos 30 dias` next to a scoreboard knows it has no roster and no podium.
+ */
+test('#741 · #742: the stamp prints the period, its nature and one count, in the three languages', () => {
   const expected = {
-    pt: ['Últimos 30 dias · 145 contas no período', 'Últimos 30 dias · 1 conta no período'],
-    en: ['Last 30 days · 145 accounts in the period', 'Last 30 days · 1 account in the period'],
-    es: ['Últimos 30 días · 145 cuentas en el período', 'Últimos 30 días · 1 cuenta en el período'],
+    pt: [
+      'Últimos 30 dias · calibração · 145 contas no período',
+      'Últimos 30 dias · calibração · 1 conta no período',
+    ],
+    en: [
+      'Last 30 days · calibration · 145 accounts in the period',
+      'Last 30 days · calibration · 1 account in the period',
+    ],
+    es: [
+      'Últimos 30 días · calibración · 145 cuentas en el período',
+      'Últimos 30 días · calibración · 1 cuenta en el período',
+    ],
   }
 
   for (const locale of LOCALES) {
@@ -306,9 +422,16 @@ test('#741: the stamp prints one period and one count, in the three languages', 
       namespace: 'Pages.Dashboard.ranking',
     })
     const period = t(`period.rolling_30d` as never)
+    const nature = t(`period.nature_${periodNature('rolling_30d')}` as never)
 
-    assert.equal(t('period.stamp' as never, { period, count: 145 } as never), expected[locale][0])
-    assert.equal(t('period.stamp' as never, { period, count: 1 } as never), expected[locale][1])
+    assert.equal(
+      t('period.stamp' as never, { period, nature, count: 145 } as never),
+      expected[locale][0]
+    )
+    assert.equal(
+      t('period.stamp' as never, { period, nature, count: 1 } as never),
+      expected[locale][1]
+    )
   }
 })
 
@@ -327,8 +450,8 @@ test('#741: a week older than the horizon is named as such, and still knows abou
   assert.match(component, /empty\.out_of_horizon/, 'the out-of-horizon week has its own sentence')
   assert.match(
     component,
-    /period \?\? weekOfSelection\(selection\)/,
-    'with no option to read, the meter reads the selection — it does not assume `full`'
+    /period \?\? periodOfSelection\(selection\)/,
+    'with no option to read, the instruments read the selection — they do not assume `full`'
   )
 
   // The selection describes the week entirely, which is what makes that possible without a read.
@@ -374,14 +497,17 @@ test('#741: the frame is born with the filter ON — the switch defaults to unch
 
 // ── The six indicators ────────────────────────────────────────────────────────────────────
 
-test('#741: the indicators count what the contract says they count', () => {
+test('#741 · BR-RANKING-004: the indicators count what the contract says they count', () => {
   const rows = [
-    row({ user_id: 'a', platform: 'ios', points_official: 45, trigger_points_fired: 45, points_from_triggers: 45, points_from_minutes: 0, charged_minutes: 0 }),
-    row({ user_id: 'b', platform: 'android', points_official: 7, trigger_points_fired: 7, points_from_triggers: 7, points_from_minutes: 3, charged_minutes: 100 }),
-    // Charged and fired nothing: the #743 population seen from the revenue side.
-    row({ user_id: 'c', platform: 'ios', points_official: 1.5, trigger_points_fired: 0, points_from_triggers: 0, points_from_minutes: 1.5, charged_minutes: 50 }),
+    // Fired 45 times and drove nothing entitled: the trigger axis alone.
+    row({ user_id: 'a', platform: 'ios', points_official: 45, trigger_points_fired: 45, points_from_triggers: 45, km_with_entitlement: 0, points_from_km: 0, charged_minutes: 0 }),
+    // Charged AND on the road: the charged minute is still measured and no longer scores.
+    row({ user_id: 'b', platform: 'android', points_official: 9.97, trigger_points_fired: 7, points_from_triggers: 7, km_with_entitlement: 27, points_from_km: 2.97, charged_minutes: 100 }),
+    // Charged and fired nothing: the #743 population seen from the revenue side. It still
+    // SCORES, because kilometres with entitlement are the axis that grows where we put no POI.
+    row({ user_id: 'c', platform: 'ios', points_official: 1.485, trigger_points_fired: 0, points_from_triggers: 0, km_with_entitlement: 13.5, points_from_km: 1.485, charged_minutes: 50 }),
     // Nobody: zero points does not count as an account that scored.
-    row({ user_id: 'd', platform: null, points_official: 0, trigger_points_fired: 0, points_from_triggers: 0, points_from_minutes: 0, charged_minutes: 0 }),
+    row({ user_id: 'd', platform: null, points_official: 0, trigger_points_fired: 0, points_from_triggers: 0, km_with_entitlement: 0, points_from_km: 0, charged_minutes: 0 }),
   ]
 
   const summary = summarize(rows)
@@ -392,10 +518,11 @@ test('#741: the indicators count what the contract says they count', () => {
     { platform: 'android', accounts: 1 },
   ])
   assert.equal(summary.chargedWithoutTrigger, 1)
-  // Both sides of the ratio are POINTS — one ruler (`DS-COMPONENTE-084` item 2).
+  // Both sides of the ratio are POINTS — one ruler (`DS-COMPONENTE-084` item 2) — and since
+  // `20260916130000` they are the two parcels of `points_official` (**BR-RANKING-004**).
   assert.equal(summary.pointsFromTriggers, 52)
-  assert.equal(summary.pointsFromMinutes, 4.5)
-  assert.equal(Math.round((summary.triggerToMinuteRatio ?? 0) * 10) / 10, 11.6)
+  assert.equal(Math.round(summary.pointsFromKm * 1000) / 1000, 4.455)
+  assert.equal(Math.round((summary.triggerToKmRatio ?? 0) * 10) / 10, 11.7)
 })
 
 /**
@@ -451,7 +578,12 @@ test('#741: the footer sums the two point columns, and only the columns that sum
   assert.equal(summary.pointsNotableWeighted, 65)
 
   const component = source('components/dashboard/reports/RankingScoreboard.tsx')
-  const footer = component.slice(component.indexOf('<tfoot'), component.indexOf('</tfoot>'))
+  // THE LAST `<tfoot>`, because since #742 there are two: the composed cycles total `Pontos`
+  // alone (spec §4.8) and this one is the full table's.
+  const footer = component.slice(
+    component.lastIndexOf('<tfoot'),
+    component.lastIndexOf('</tfoot>')
+  )
 
   assert.match(footer, /points\(totals\.pointsOfficial\)/, 'the scoreboard column has a total')
   assert.match(footer, /points\(totals\.pointsNotableWeighted\)/, 'and so does the comparison')
@@ -490,27 +622,36 @@ test('#741: the chips drop their count while another period is in flight', () =>
   )
 })
 
-test('DS-COPY-062: `Pts de minuto` names a total, and the indeterminate label names a defect of record', () => {
+test('DS-COPY-062 · BR-RANKING-004: `Pts de km` names a total, and the indeterminate label names a defect of record', () => {
   const expected = {
-    pt: { minutes: 'Pts de minuto', indeterminate: 'Visitas sem trigger point identificado' },
-    en: { minutes: 'Pts from minutes', indeterminate: 'Visits with no identified trigger point' },
-    es: { minutes: 'Pts de minuto', indeterminate: 'Visitas sin trigger point identificado' },
+    pt: { km: 'Pts de km', indeterminate: 'Visitas sem trigger point identificado' },
+    en: { km: 'Pts from km', indeterminate: 'Visits with no identified trigger point' },
+    es: { km: 'Pts de km', indeterminate: 'Visitas sin trigger point identificado' },
   }
 
   for (const locale of LOCALES) {
     const ranking = messages(locale).Pages.Dashboard.ranking
 
-    // The column renders `points_from_minutes`, which is a TOTAL — the rate is `0,03` by
-    // construction and the same in every row. `Pts por minuto` made `38,28` over `21 h 16 min`
-    // read as a rate of 38,28 (#741).
-    assert.equal(ranking.table.points_from_minutes, expected[locale].minutes)
-    for (const word of ['por minuto', 'per minute', 'por minuto']) {
+    // The column renders `points_from_km`, which is a TOTAL — the rate is `0,11` by construction
+    // and the same in every row, exactly as the minute column it replaced had to say `Pts de
+    // minuto` and never `Pts por minuto` (#741).
+    assert.equal(ranking.table.points_from_km, expected[locale].km)
+    for (const word of ['por km', 'per km', 'por quilômetro', 'por kilómetro']) {
       assert.equal(
-        ranking.table.points_from_minutes.toLowerCase().includes(word),
+        ranking.table.points_from_km.toLowerCase().includes(word),
         false,
         `${locale}: the column prints a total, not a rate`
       )
     }
+
+    // THE AXIS THAT LEFT DOES NOT KEEP A LABEL. `points_from_minutes` is `0` constant in the
+    // view (**BR-RANKING-004** item 2): a column head for it would name a parcel that scores
+    // nothing, on the screen that decides a prize.
+    assert.equal(
+      'points_from_minutes' in ranking.table,
+      false,
+      `${locale}: the minute column left the scoreboard with the axis`
+    )
 
     // `visits_indeterminate` is boundary ∪ lost id and the two are indistinguishable (contract,
     // Parte 7, fact 1): the trigger point may well have fired and lost its id. `Visitas sem
@@ -547,10 +688,10 @@ test('DS-COMPONENTE-083 item 1: the delta has no valence — it is a permutation
  * line: the same number the `Cobrado` column prints two columns to the right, without a label and
  * inside the `Placar oficial` group instead of the time one (CLAUDE.md §6).
  */
-test('#741: the minute-points column prints points, and the charged minutes only in their own column', () => {
+test('#741 · BR-RANKING-004: the km-points column prints points, and the charged minutes only in their own column', () => {
   const component = source('components/dashboard/reports/RankingScoreboard.tsx')
   const body = component.slice(
-    component.indexOf('points(row.points_from_minutes)'),
+    component.indexOf('points(row.points_from_km)'),
     component.indexOf('<RankDeltaCell')
   )
 
@@ -567,27 +708,34 @@ test('#741: the minute-points column prints points, and the charged minutes only
 })
 
 test('DS-COMPONENTE-084 item 2: a zero denominator is unknown, never `∞`, `0` or `100 %`', () => {
-  const summary = summarize([row({ points_from_minutes: 0, charged_minutes: 0 })])
+  // Nobody drove an entitled kilometre in the period: the ratio divides by nothing.
+  const summary = summarize([row({ km_with_entitlement: 0, points_from_km: 0, charged_minutes: 0 })])
 
-  assert.equal(summary.triggerToMinuteRatio, null)
+  assert.equal(summary.triggerToKmRatio, null)
   assert.equal(formatRatio(null, 'pt'), UNKNOWN_VALUE)
   assert.equal(formatRatio(11.62, 'pt'), '11,6 : 1')
 })
 
 /**
- * #741 — PARTIAL COVERAGE IS NOT A FRACTION.
+ * #749 · BR-RANKING-004 — THE RATIO CHANGED DENOMINATOR, AND WITH IT WHAT IT DEPENDS ON.
  *
- * `meteringCoverage` has three answers and the screen had two: `const hasMeter = coverage !==
- * 'none'` flattened `partial` into `full` in every number and kept the distinction only in the
- * amber band. The ratio is the number the operator uses to decide the weight of `0,03/min`, and
- * over a window the meter only half covers it divides a numerator measured over 30 days by a
- * denominator measured over 25 — today, on the DEFAULT period of the screen.
+ * Until `20260916130000` this card divided trigger points by MINUTE points, so it had to hang on
+ * `meteringCoverage`: `drive.time_credit_consumption` opens on 2026-08-18 20:41 UTC, and over a
+ * window the meter covers only in part the fraction divided a numerator measured over 30 days by
+ * a denominator measured over 25 — ~3,5× high on the DEFAULT period of this screen.
+ *
+ * The minute axis no longer scores (item 2), so the coverage of the METER stopped being a
+ * condition of this number: both sides are now the two parcels the view adds into
+ * `points_official`, and it computes them for every period it serves. Keeping the gate would be
+ * the confusion the contract names by hand — column 12 calibrates, columns 16 and 30 score.
+ *
+ * `meteringCoverage` itself does not move: it still governs the three TIME columns, which is the
+ * only thing it was ever about.
  */
-test('#741: the ratio card refuses to divide two windows of different length', () => {
-  // The default period of the screen, as it stands today: the ledger opens 2026-08-18 20:41 UTC,
-  // and 16,2% of `[14/08, 13/09)` is earlier than that.
+test('#749 · BR-RANKING-004: the ratio divides the two axes of the score, and the meter is not a condition of it', () => {
+  // The boundary is untouched, and still the right answer for `Cobrado`, `Intervalo` and `Diferença`.
   assert.equal(meteringCoverage('2026-08-14T00:00:00Z', '2026-09-13T00:00:00Z'), 'partial')
-  assert.equal(meteringCoverage('2026-06-15T00:00:00Z', '2026-09-13T00:00:00Z'), 'partial')
+  assert.equal(new Date(METERING_LEDGER_START).toISOString(), '2026-08-18T20:41:00.000Z')
 
   const component = source('components/dashboard/reports/RankingScoreboard.tsx')
   const card = component.slice(
@@ -595,20 +743,35 @@ test('#741: the ratio card refuses to divide two windows of different length', (
     component.indexOf("label={t('kpi.streak')}")
   )
 
-  assert.match(card, /coverage === 'full'/, 'the fraction is printed for `full` and nothing else')
+  assert.match(card, /formatRatio\(summary\.triggerToKmRatio, locale\)/)
+  assert.match(card, /points\(summary\.pointsFromKm\)/)
   assert.equal(
-    card.includes('hasMeter'),
+    /\bcoverage === '(full|partial|none)'/.test(card),
     false,
-    '`hasMeter` is the two-answer question, and it is what flattened `partial` into `full`'
+    'the MINUTE meter no longer gates the ratio of the two scoring axes'
   )
-  assert.match(card, /kpi\.ratio_partial/, 'the two totals are named where the fraction was')
+  assert.equal(card.includes('hasMeter'), false)
+  // #742 · DS-COMPONENTE-084 items 1 and 2: it is gated again, by the OTHER boundary. The km is
+  // the denominator, the km hangs on the grant ledger of 13/08, and a fraction over partial
+  // coverage is a number with no referent (spec §7.7).
+  assert.match(card, /kmCov === 'full'/)
+  assert.equal(
+    card.includes('pointsFromMinutes'),
+    false,
+    'the axis that left the formula took its total with it'
+  )
+
+  // And the three time columns still hang on the meter: the gate moved off the score, not off
+  // the ledger, and `charged_minutes` is still the calibration instrument (contract, Parte 7).
+  assert.match(component, /const hasMeter = coverage !== 'none'/)
+  assert.match(component, /minutes\(row\.charged_minutes\)/)
 })
 
-test('#741: with no fraction to print, the subtitle names the two numbers it would have divided', () => {
+test('#741: the subtitle names the two totals the ratio divides', () => {
   const expected = {
-    pt: '52 pts de disparo · 4,5 pts de minuto',
-    en: '52 pts from triggers · 4,5 pts from minutes',
-    es: '52 pts de disparo · 4,5 pts de minuto',
+    pt: '52 pts de disparo · 4,5 pts de km',
+    en: '52 pts from triggers · 4,5 pts from km',
+    es: '52 pts de disparo · 4,5 pts de km',
   }
 
   for (const locale of LOCALES) {
@@ -617,16 +780,23 @@ test('#741: with no fraction to print, the subtitle names the two numbers it wou
       messages: messages(locale),
       namespace: 'Pages.Dashboard.ranking',
     })
-    const args = { triggers: '52', minutes: '4,5' } as never
+    const args = { triggers: '52', km: '4,5' } as never
 
-    // Two anonymous `pts` on a card labelled `Disparo ÷ minuto` were readable only as the two
-    // sides of that division; with the division gone they have to say which is which.
+    // Two anonymous `pts` on a card labelled `Disparo ÷ km` would be readable only as the two
+    // sides of that division; they say which is which so the reading survives a zero denominator.
     assert.equal(t('kpi.ratio_subtitle' as never, args), expected[locale])
-
-    const partial = t('kpi.ratio_partial' as never, args) as string
-    assert.ok(partial.startsWith(expected[locale]), `${locale}: the two totals come first`)
-    // The break is deliberate — `StatCard` renders the subtitle with `whitespace-pre-line`.
-    assert.ok(partial.includes('\n'), `${locale}: the reason gets a line of its own`)
+    assert.match(
+      messages(locale).Pages.Dashboard.ranking.kpi.ratio,
+      /km/,
+      `${locale}: the card names the denominator it divides by`
+    )
+    // `ratio_partial` described a fraction refused for want of METER, and the meter is no longer
+    // a condition: the key left with the axis, in the three languages at once.
+    assert.equal(
+      'ratio_partial' in messages(locale).Pages.Dashboard.ranking.kpi,
+      false,
+      `${locale}: no orphan subtitle survives the swap of axis`
+    )
   }
 })
 
@@ -662,7 +832,7 @@ test('DS-COMPONENTE-083 item 2: the delta compares two positions of the SAME pop
  * renumber (`DS-COMPONENTE-082` item 3) — so hiding it from the eye kept it from the only person
  * who can reach it. It defines no term, so it is `t`, not `t.rich`.
  */
-test('#741 · DS-COMPONENTE-083 item 3 · DS-COMPONENTE-082 item 3: the five declarations are both visible and in the `sr-only` caption', () => {
+test('#741 · DS-COMPONENTE-083 item 3 · DS-COMPONENTE-082 item 3: the six declarations are both visible and in the `sr-only` caption', () => {
   const component = source('components/dashboard/reports/RankingScoreboard.tsx')
 
   assert.match(
@@ -675,6 +845,9 @@ test('#741 · DS-COMPONENTE-083 item 3 · DS-COMPONENTE-082 item 3: the five dec
     'caption.span_in_period',
     'caption.platform',
     'caption.country',
+    // Sixth since the kilometre axis (**BR-RANKING-004**): `Pts de km` is not every kilometre,
+    // and the number alone on a prize screen reads as the distance of the trip.
+    'caption.km',
     'caption.notable',
   ]) {
     assert.equal(
@@ -797,30 +970,45 @@ test('#741: the clipped labels name the clipping, in the three languages', () =>
 })
 
 /**
- * `DS-COMPONENTE-084` item 2, clause of 2026-09-13 — what depends on a PARTIAL instrument is
- * printed as a floor, never as a total. The trigger axis is measured over the whole window; the
- * minute axis only from the ledger onwards, so `pts de minuto` under partial coverage is the
- * minimum measured, and the card that prints no fraction still must not print it as the total.
+ * #749 · BR-RANKING-004 item 4 — THE COLUMN IS NAMED FOR A KILOMETRE AND IS NOT EVERY KILOMETRE.
+ *
+ * `km_with_entitlement` is the kilometre driven with the guide ON and with the entitlement to
+ * turn it on, GPS noise filtered: 17,2% of the kilometre driven with the guide on carried no
+ * entitlement and is not in it, and a third of the raw kilometre is artefact the view discards.
+ * On the screen where the operator decides a prize, `Pts de km` standing alone reads as distance
+ * travelled — so the declaration above the table carries the caveat, in the same shape the span
+ * and the country columns already use.
+ *
+ * THE WORDING IS PROVISIONAL and belongs to `design`; what this test pins is the ASSERTION the
+ * line has to make, in whatever words he chooses.
  */
-test('#741 · DS-COMPONENTE-084 item 2: under partial coverage the minute total is marked as a floor', () => {
-  const FLOOR = { pt: ', no mínimo', en: ', at least', es: ', como mínimo' }
+test('#749 · BR-RANKING-004: the km declaration says the guide was on, the entitlement was there, and the trip distance is not it', () => {
+  const TERM = { pt: 'Pts de km', en: 'Pts from km', es: 'Pts de km' }
+  const GUIDE = { pt: /guia ligado/i, en: /guide on/i, es: /gu[íi]a encendida/i }
+  // DS-COPY-062 item 5 (2026-09-16): between two correct synonyms the label takes the one the
+  // surface already uses everywhere — `acesso`, 24 strings of the CMS — and not the one of the
+  // data model, `direito`, whose only two strings in the whole repository were this column's.
+  const ENTITLED = { pt: /com acesso/i, en: /with access/i, es: /con acceso/i }
+  const DENIAL = { pt: /não é a distância/i, en: /not the distance/i, es: /no es la distancia/i }
 
   for (const locale of LOCALES) {
-    const kpi = messages(locale).Pages.Dashboard.ranking.kpi
-    const [totals] = (kpi.ratio_partial as string).split('\n')
+    const ranking = messages(locale).Pages.Dashboard.ranking
+    const declaration = ranking.caption.km as string
 
-    assert.ok(totals.endsWith(FLOOR[locale]), `${locale}: the floor mark closes the two totals`)
     assert.ok(
-      totals.startsWith(kpi.ratio_subtitle),
-      `${locale}: the floor is the ONLY difference — the two totals are the same reading`
+      declaration.startsWith(`<b>${TERM[locale]}</b>`),
+      `${locale}: the declaration opens with the term the column head prints`
     )
-    // Full coverage measures both axes over the same window: marking it a floor there would be
-    // the screen refusing a measurement it made.
-    assert.equal(
-      (kpi.ratio_subtitle as string).includes(FLOOR[locale]),
-      false,
-      `${locale}: with the whole window instrumented the total is a total`
-    )
+    assert.equal(ranking.table.points_from_km, TERM[locale])
+    assert.match(declaration, GUIDE[locale], `${locale}: the guide had to be on`)
+    assert.match(declaration, ENTITLED[locale], `${locale}: and the entitlement had to be there`)
+    assert.match(declaration, DENIAL[locale], `${locale}: it is not the distance of the trip`)
+
+    // The expanded row prints the kilometres themselves, and its label carries the same two
+    // conditions — a `Detail` has no declaration above it to lean on (`DS-COPY-062` item 4).
+    const detail = ranking.row.km_with_entitlement as string
+    assert.match(detail, GUIDE[locale])
+    assert.match(detail, ENTITLED[locale])
   }
 })
 

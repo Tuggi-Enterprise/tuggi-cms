@@ -54,6 +54,26 @@ module.exports = {
           600: '#E65C00',
           700: '#CC5200',
         },
+        // THE PODIUM METAL — `DS-COR-006`, approved by the operator on 2026-09-16
+        // (`docs/design/spec-selo-de-posicao-2026-09.md` §7). This file is the OWNER of
+        // the four values in the CMS (`DS-COR-001`): `components/ui/RankSeal.tsx` reads
+        // them through `fill-rank-*` / `stroke-rank-ink` and repeats no hex.
+        //
+        // THE THREE METALS ARE SURFACE, NEVER INK. As ink on white they measure 2.42:1
+        // (gold), 2.54:1 (silver) and 3.79:1 (bronze) — two of them below even the 3:1 of
+        // a graphical object (SC 1.4.11). As a disc with `ink` on top they measure 7.74:1,
+        // 7.37:1 and 4.94:1 and clear SC 1.4.3. The bronze is the tight one and does NOT
+        // get darkened: `#A9611F` drops the ink to 3.94:1 and fails.
+        //
+        // `ink` IS NOT A NEW VALUE: it is the `TUGGI_DARK` that `tuggi-drive-v2/src/theme/
+        // designSystem.ts` declares and the site's `--color-tuggi-dark`. It joins the
+        // `rank` group instead of becoming a fourth place where the dark colour lives.
+        rank: {
+          gold: '#C9A227',
+          silver: '#9CA3AF',
+          bronze: '#B87333',
+          ink: '#0B1220',
+        },
         muted: {
           DEFAULT: 'rgb(var(--muted) / <alpha-value>)',
           foreground: 'rgb(var(--muted-foreground) / <alpha-value>)',

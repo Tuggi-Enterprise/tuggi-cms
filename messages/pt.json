@@ -416,8 +416,16 @@
           "rolling_90d": "Últimos 90 dias",
           "week": "Semana de {start} a {end} · UTC",
           "week_current": "Semana de {start} a {end} (corrente) · UTC",
-          "stamp": "{period} · {count, plural, one {# conta no período} other {# contas no período}}",
-          "served_differs": "Você pediu {pedido}. A consulta respondeu {servido} — os números abaixo são do período que a consulta serviu."
+          "stamp": "{period} · {nature} · {count, plural, one {# conta no período} other {# contas no período}}",
+          "served_differs": "Você pediu {pedido}. A consulta respondeu {servido} — os números abaixo são do período que a consulta serviu.",
+          "group_competition": "Competição",
+          "group_calibration": "Calibração",
+          "nature_competition": "competição",
+          "nature_calibration": "calibração",
+          "month": "{month} · UTC",
+          "month_current": "{month} (corrente) · UTC",
+          "year": "Ano de {year} · UTC",
+          "year_current": "Ano de {year} (corrente) · UTC"
         },
         "internal": {
           "toggle": "Incluir contas internas",
@@ -429,9 +437,8 @@
         "kpi": {
           "accounts_scored": "Contas que pontuaram",
           "platform_unknown": "{count} sem plataforma",
-          "ratio": "Disparo ÷ minuto",
-          "ratio_subtitle": "{triggers} pts de disparo · {minutes} pts de minuto",
-          "ratio_partial": "{triggers} pts de disparo · {minutes} pts de minuto, no mínimo\nO medidor só cobre parte da janela — a razão misturaria duas janelas.",
+          "ratio": "Disparo ÷ km",
+          "ratio_subtitle": "{triggers} pts de disparo · {km} pts de km",
           "streak": "Sequência de 7 dias",
           "accounts": "{count, plural, one {# conta} other {# contas}}",
           "streak_subtitle": "máximo no período: {days} de 7 dias",
@@ -453,12 +460,13 @@
         "table": {
           "rank": "#",
           "rank_excluding_internal": "sem internas",
+          "seal": "{rank}º lugar",
           "person": "Pessoa",
           "country": "País explorado",
           "platform": "Plataforma",
           "points": "Pontos",
           "triggers": "Disparos",
-          "points_from_minutes": "Pts de minuto",
+          "points_from_km": "Pts de km",
           "streak": "Sequência",
           "notable_points": "Pts peso 2",
           "rank_delta": "Δ vs. oficial",
@@ -474,11 +482,14 @@
           "delta_down": "caiu {count} posições com o peso 2",
           "delta_same": "não mudou de posição com o peso 2",
           "delta_unknown": "não ranqueia com o peso 2",
-          "open_sessions": "ver as sessões de {person}"
+          "open_sessions": "ver as sessões de {person}",
+          "podium_weeks": "Semanas de pódio",
+          "podium_months": "Meses de pódio"
         },
         "row": {
           "notable_triggers": "Disparos em POI notável",
           "of_total": "{count} de {total}",
+          "km_with_entitlement": "Km com o guia ligado e com acesso",
           "sessions_with_trail": "Sessões com trilha que tocaram o período",
           "sessions_charged": "Sessões com cobrança",
           "rank_official": "Posição — todas as contas",
@@ -493,13 +504,18 @@
           "span_in_period": "<b>Intervalo de sinal no período</b> é a parte do intervalo entre o primeiro e o último sinal de cada sessão que caiu dentro do período selecionado, somada — não é tempo de guia nem tempo cobrado; sessão aberta com sinal esparso o infla sem consumir saldo. Sessões da mesma conta que se sobrepõem somam duas vezes o mesmo relógio, então o total pode passar da duração do período.",
           "platform": "<b>Plataforma vazia</b> = a conta entrou no período só por cobrança ou trilha.",
           "country": "<b>País explorado</b> é o país predominante das visitas do período — não é a residência nem a nacionalidade da conta. Vazio = nenhuma visita do período trouxe país reconhecível, inclusive quando a conta entrou só por cobrança ou trilha.",
+          "km": "<b>Pts de km</b> conta o quilômetro percorrido com o guia ligado e com acesso vigente no instante do passo, com o ruído de GPS descartado — não é a distância da viagem: o quilômetro rodado sem acesso fica de fora. Conta com quilômetro e nenhuma sessão com trilha é estado esperado: a trilha só conta a sessão cujo sinal chegou carimbado pelo servidor, e o quilômetro não depende desse carimbo.",
           "notable": "<b>Comparação · peso 2</b> posiciona entre todas as contas, marcadas incluídas; o Δ compara com a posição oficial, que sai da mesma população.",
           "sorting": "Posições e pontos vêm da consulta; ordenar a tabela não os recalcula.",
-          "closing": "<b>Encerramento</b> é o texto cru do cliente ou do fechamento automático."
+          "closing": "<b>Encerramento</b> é o texto cru do cliente ou do fechamento automático.",
+          "cycle_month": "<b>Pontos</b> no ciclo mensal é a soma dos pontos das semanas em que a conta terminou no pódio daquele mês — pódio é terminar entre as três primeiras com pelo menos {floor} pontos na semana. Semana fora do pódio não entra, então este número não é a soma dos pontos do mês.",
+          "cycle_year": "<b>Pontos</b> no ciclo anual é a soma dos pontos dos meses em que a conta terminou no pódio daquele ano — a mesma composição um nível acima. Mês fora do pódio não entra."
         },
         "meter": {
           "none": "O medidor de minutos não existia neste período: o ledger de consumo começa em 18/08/2026, 20:41 UTC. As colunas de minuto não valem zero — não há medição.",
-          "partial": "O medidor só existe a partir de 18/08/2026; parte desta janela é anterior a ele."
+          "partial": "O medidor só existe a partir de 18/08/2026; parte desta janela é anterior a ele.",
+          "km_floor": "O quilômetro com acesso é piso neste período: antes de {date} não há concessão de saldo registrada, e o único acesso reconhecível no passado é a assinatura que vale hoje. Os pontos deste período são mínimos, e a ordem pode mudar com o instrumento.",
+          "km_partial": "Parte desta janela é anterior a {date}, quando começa o registro de concessão de saldo: o quilômetro com acesso do trecho anterior é piso, não medição."
         },
         "filters": {
           "all": "Todas",
@@ -535,6 +551,18 @@
           "last_charge": "Última cobrança",
           "filtered_by_person": "Sessões de {person}",
           "clear_person": "ver todas as sessões"
+        },
+        "calibration": {
+          "title": "Calibração do eixo de km, semana a semana",
+          "week": "Semana",
+          "trigger_points": "Pts de disparo",
+          "km_share": "Fatia do km",
+          "winner_without_km": "1º sem o km",
+          "winner_unchanged": "o km não mudou o primeiro lugar",
+          "open_week": "Ver a semana de {week}",
+          "floor": "piso",
+          "totals": "{count, plural, one {# semana com instrumento} other {# semanas com instrumento}}",
+          "caption": "A série é sempre as 13 semanas do horizonte, qualquer que seja o período selecionado, e ignora contas internas nos dois estados do interruptor. <b>Fatia do km</b> é quanto do placar daquela semana veio do eixo de km. <b>1º sem o km</b> reordena a mesma semana pela pontuação sem esse eixo e imprime quem venceria; <b>=</b> significa que o km não mudou o primeiro lugar. Semana sem instrumento não responde nenhuma das duas."
         }
       }
     },

@@ -11,18 +11,44 @@
 import { useState } from 'react'
 import { RankingScoreboard } from '@/components/dashboard/reports/RankingScoreboard'
 import type { RpcError } from '@/lib/api/dashboard-fetch'
-import type { PeriodOption, PeriodSelection, RankingRow } from '@/lib/ranking/scoreboard'
+import { hasAnchoredStart } from '@/lib/ranking/scoreboard'
+import type {
+  KmCalibrationSeries,
+  PeriodOption,
+  PeriodSelection,
+  RankingRow,
+} from '@/lib/ranking/scoreboard'
 import { ROWS, WEEK } from './ranking-fixtures'
+
+/**
+ * NO PANEL UNLESS THE TEST ASKS FOR ONE — and that is a decision about the bench, not a shortcut.
+ *
+ * Since #742 the screen carries TWO dense tables, and the calibration panel renders FIRST: a bare
+ * `table`, `tbody tr` or `.custom-scrollbar` in a spec about the scoreboard would reach the panel
+ * instead. The harness therefore hands down an EMPTY series by default — the panel's own guard is
+ * `weeks.length === 0` — so `ranking-scoreboard.spec.tsx` keeps measuring the table it is about,
+ * and `ranking-cycles.spec.tsx` passes `CALIBRATION` explicitly to measure the panel.
+ */
+const NO_CALIBRATION: KmCalibrationSeries = {
+  weeks: [],
+  measuredWeeks: 0,
+  pointsFromTriggers: 0,
+  pointsFromKm: 0,
+  kmShare: null,
+}
 
 const WEEK_LABEL = 'Semana de 31/08 a 06/09 · UTC'
 
 /** The selection an option came from — the page holds the two separately (#741). */
 function selectionOf(period: PeriodOption): PeriodSelection {
-  return { kind: period.kind, start: period.kind === 'week' ? period.start : null }
+  // The THREE anchored kinds carry their start since #742: a month is pasteable for the same
+  // reason a week is, and the two rolling windows have no boundary to carry.
+  return { kind: period.kind, start: hasAnchoredStart(period.kind) ? period.start : null }
 }
 
 export function RankingScoreboardHarness({
   rows = ROWS,
+  calibration = NO_CALIBRATION,
   period = WEEK,
   /** What the operator ASKED for. Defaults to the selection the served option came from. */
   selection,
@@ -34,6 +60,7 @@ export function RankingScoreboardHarness({
   error = null,
 }: {
   rows?: RankingRow[]
+  calibration?: KmCalibrationSeries
   /** `null` is the week older than the 13-week horizon: the reading has no option for it. */
   period?: PeriodOption | null
   selection?: PeriodSelection
@@ -46,6 +73,13 @@ export function RankingScoreboardHarness({
 }) {
   /** The page's initial state, reproduced: the switch is born OFF. */
   const [includeInternal, setIncludeInternal] = useState(false)
+
+  /**
+   * The week the panel asked for, held HERE because the page holds it: clicking a week of the
+   * calibration panel is a period change, and the assertion of critério 36 is that the selection
+   * travels — not that a prop was called. Playwright reads it out of the DOM.
+   */
+  const [selectedWeek, setSelectedWeek] = useState<string | null>(null)
 
   const asked = selection ?? selectionOf(period ?? WEEK)
   const answered =
@@ -62,8 +96,10 @@ export function RankingScoreboardHarness({
         />
         Incluir contas internas
       </label>
+      <span data-testid="selected-week">{selectedWeek ?? ''}</span>
       <RankingScoreboard
         rows={rows}
+        calibration={calibration}
         period={period}
         periodLabel={periodLabel}
         selection={asked}
@@ -74,6 +110,7 @@ export function RankingScoreboardHarness({
         error={error}
         onRetry={() => {}}
         onOpenSessions={() => {}}
+        onSelectWeek={setSelectedWeek}
       />
     </div>
   )

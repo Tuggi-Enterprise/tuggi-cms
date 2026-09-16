@@ -33,19 +33,37 @@ import { rankingService, type ScoreboardPayload } from '@/lib/services/ranking-s
 import type { RpcError } from '@/lib/api/dashboard-fetch'
 import { appUserLabel } from '@/lib/format/user-identity'
 import {
+  formatMonthOfCycle,
+  hasAnchoredStart,
   isCurrentPeriod,
   matchesPeriod,
   parsePeriodKey,
   parsePeriodParam,
   periodBounds,
+  periodGroups,
   periodKey,
-  weekOfSelection,
+  periodOfSelection,
+  yearOfCycle,
   type PeriodSelection,
   type SessionMeteringRow,
 } from '@/lib/ranking/scoreboard'
 import { UNKNOWN_VALUE } from '@/lib/format/unknown'
 
 type Tab = 'scoreboard' | 'metering'
+
+/**
+ * The series of a read that has not landed — or has failed. It is a CONSTANT and not `?? {…}`
+ * inline because a fresh object on every render would remount the panel; and it is empty rather
+ * than zeroed because the panel's own guard is `weeks.length === 0` (a footer reading
+ * `0 semanas com instrumento` would assert a measurement nobody made).
+ */
+const EMPTY_CALIBRATION = {
+  weeks: [],
+  measuredWeeks: 0,
+  pointsFromTriggers: 0,
+  pointsFromKm: 0,
+  kmShare: null,
+}
 
 export default function RankingReportPage() {
   const t = useTranslations('Pages.Dashboard')
@@ -118,7 +136,10 @@ export default function RankingReportPage() {
       const params = new URLSearchParams()
       if (next.tab === 'metering') params.set('tab', 'metering')
       params.set('period', next.period.kind)
-      if (next.period.kind === 'week' && next.period.start) params.set('start', next.period.start)
+      // The three anchored kinds carry their start; `month` and `year` are pasteable for the same
+      // reason a week is (spec §2.3) — `?period=month&start=2026-09-01`.
+      if (hasAnchoredStart(next.period.kind) && next.period.start)
+        params.set('start', next.period.start)
       router.replace(`?${params.toString()}`, { scroll: false })
     },
     [router]
@@ -126,6 +147,18 @@ export default function RankingReportPage() {
 
   /** Its own memo: a fresh `[]` on every render would re-run the memo that reads it. */
   const options = useMemo(() => payload?.periods ?? [], [payload])
+
+  /**
+   * THE TWO `<optgroup>`s — `DS-COMPONENTE-089` item 1, and no component is born for it.
+   *
+   * `<optgroup label>` is the HTML mechanism for "a group of `option` elements with a common
+   * label" (HTML Living Standard) and it is what a screen reader announces together with the
+   * option. A flat list of fifteen items in which `Últimos 30 dias` and `Setembro de 2026` are
+   * neighbours of the same height says, by omission, that they are the same species of thing —
+   * and the error that produces is not a misread number, it is calibrating the coefficient of
+   * **BR-RANKING-004** on a window that has no roster, no floor and no podium.
+   */
+  const groups = useMemo(() => periodGroups(options), [options])
 
   const selected = useMemo(
     () => options.find((option) => matchesPeriod(option.kind, option.start, period)) ?? null,
@@ -145,9 +178,28 @@ export default function RankingReportPage() {
    */
   const label = useCallback(
     (selection: PeriodSelection) => {
-      if (selection.kind !== 'week') return tr(`period.${selection.kind}`)
+      if (!hasAnchoredStart(selection.kind)) return tr(`period.${selection.kind}`)
 
-      const week = weekOfSelection(selection)
+      const cycle = periodOfSelection(selection)
+      const current = cycle !== null && isCurrentPeriod(cycle)
+
+      /* THE MONTH ARRIVES ALREADY FORMATTED AND ALREADY CAPITALISED — `formatMonthOfCycle` owns
+         both, because the `<select>`, the stamp and the `<caption>` print the same month and a
+         second `Intl.DateTimeFormat` typed here would be a second owner of it
+         (`DS-COMPONENTE-085` item 4, spec §6.9). */
+      if (selection.kind === 'month') {
+        return tr(current ? 'period.month_current' : 'period.month', {
+          month: formatMonthOfCycle(selection.start ?? '', locale),
+        })
+      }
+
+      if (selection.kind === 'year') {
+        return tr(current ? 'period.year_current' : 'period.year', {
+          year: yearOfCycle(selection.start ?? ''),
+        })
+      }
+
+      const week = cycle
       const bounds = week && periodBounds(week)
       // UTC in the formatter AND in the label: the boundary of the week is UTC by decision, with
       // a known edge (22h in São Paulo counts on the next UTC day). While the timezone is an open
@@ -159,7 +211,7 @@ export default function RankingReportPage() {
         timeZone: 'UTC',
       })
 
-      return tr(week && isCurrentPeriod(week) ? 'period.week_current' : 'period.week', {
+      return tr(current ? 'period.week_current' : 'period.week', {
         start: bounds ? date.format(bounds.start) : UNKNOWN_VALUE,
         end: bounds ? date.format(bounds.endInclusive) : UNKNOWN_VALUE,
       })
@@ -182,6 +234,19 @@ export default function RankingReportPage() {
     () => (payload ? { period: payload.period, label: label(payload.period) } : null),
     [payload, label]
   )
+
+  /**
+   * A WEEK OF THE CALIBRATION PANEL BECOMES THE SELECTED PERIOD — spec §9, critério 36.
+   *
+   * It goes through the SAME two places every other period change goes through — the state the
+   * `<select>` reads and the URL — so the panel cannot become a third way of choosing a period
+   * that the address bar does not know about.
+   */
+  const selectWeek = (start: string) => {
+    const next: PeriodSelection = { kind: 'week', start }
+    setPeriod(next)
+    syncUrl({ tab, period: next })
+  }
 
   const openSessions = (row: { user_id: string; nickname: string | null }) => {
     setPersonFilter({ userId: row.user_id, label: appUserLabel(row) })
@@ -239,10 +304,20 @@ export default function RankingReportPage() {
                   no option, and the browser shows the FIRST one: the control would say
                   `Últimos 30 dias` over a table filtered by the week in the URL. */}
               {selected === null && <option value={periodKey(period)}>{selectedLabel}</option>}
-              {options.map((option) => (
-                <option key={periodKey(option)} value={periodKey(option)}>
-                  {label(option)}
-                </option>
+              {/* TWO GROUPS, COMPETITION FIRST — `DS-COMPONENTE-089` item 1. `week`, `month` and
+                  `year` have a roster, a floor and a podium; the two rolling windows never were
+                  competition (**BR-RANKING-001** item 5) and exist to check a number. The nature
+                  of each has ONE owner, `periodNature` in `lib/ranking/scoreboard.ts`, which is
+                  also what the stamp beside the numbers reads — an `if` on the two rolling keys
+                  written a second time here is how the two surfaces start disagreeing. */}
+              {groups.map((group) => (
+                <optgroup key={group.nature} label={tr(`period.group_${group.nature}`)}>
+                  {group.options.map((option) => (
+                    <option key={periodKey(option)} value={periodKey(option)}>
+                      {label(option)}
+                    </option>
+                  ))}
+                </optgroup>
               ))}
             </select>
           </label>
@@ -275,6 +350,9 @@ export default function RankingReportPage() {
       {tab === 'scoreboard' ? (
         <RankingScoreboard
           rows={payload?.rows ?? []}
+          /* EMPTY IS NOT ZERO HERE EITHER: with no read there is no series, and the panel refuses
+             to render rather than printing a footer that counts weeks nobody measured. */
+          calibration={payload?.calibration ?? EMPTY_CALIBRATION}
           period={selected}
           periodLabel={selectedLabel}
           selection={period}
@@ -285,6 +363,7 @@ export default function RankingReportPage() {
           error={scoreboardError}
           onRetry={() => setReloadToken((token) => token + 1)}
           onOpenSessions={openSessions}
+          onSelectWeek={selectWeek}
         />
       ) : (
         <RankingSessionMetering

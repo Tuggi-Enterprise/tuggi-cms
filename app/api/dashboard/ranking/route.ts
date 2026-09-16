@@ -16,27 +16,37 @@
  *
  * WHY THE WHOLE VIEW COMES BACK AND THE PERIOD IS FILTERED HERE: the `<select>` of periods is
  * built from the periods the view actually produced, not from a calendar in the browser, and
- * asking twice would run a 443 ms view twice per screen. The rows that leave this route are
- * already of exactly ONE period — `DS-COMPONENTE-082` item 1, and the contract's number-one
- * suspect when the screen disagrees with the reference measurement.
+ * asking twice would run the view twice per screen. THAT CEILING GOT REAL with the kilometre
+ * axis: the view went from ~400 ms to **~3,2 s**, against a `statement_timeout` of 8 s that
+ * `service_role` does not override (contract, Parte 7) — one read per screen load, never two.
+ *
+ * The rows that leave this route are already of exactly ONE period — `DS-COMPONENTE-082` item 1,
+ * and the contract's number-one suspect when the screen disagrees with the reference
+ * measurement.
  */
 
 import { NextRequest, NextResponse } from 'next/server'
 import { withAuth } from '@/lib/auth-middleware'
 import { getSupabaseService } from '@/lib/core/supabase-client'
 import {
+  accountRows,
   countInternalAccounts,
+  kmCalibrationSeries,
   parsePeriodParam,
   periodOptions,
   rowsForPeriod,
-  type RankingRow,
+  type ScoreboardReadRow,
 } from '@/lib/ranking/scoreboard'
 
 export const dynamic = 'force-dynamic'
 
 /**
- * Every column of the view, named. `select('*')` would make a column added by `data` arrive
- * here unannounced, and the screen's job is to know what each number means.
+ * The columns the screen reads, each one named. `select('*')` would make a column added by
+ * `data` arrive here unannounced, and the screen's job is to know what each number means.
+ *
+ * THIRTY OF THE VIEW'S THIRTY-ONE. The one not named is `in_roster` (column 28): the screen has
+ * no roster treatment of its own — see `RankingRow` — and a column nobody reads does not belong
+ * in a read that costs ~2,8 s.
  */
 const COLUMNS = [
   'period_kind',
@@ -69,15 +79,30 @@ const COLUMNS = [
   // view gained it after this route existed: alpha-2 or `null`, never a country name, and the
   // screen is what decides what `null` prints (contract, Parte 7 · `DS-COMPONENTE-086`).
   'top_country_code',
+  // Columns 29 and 30, born with `20260916130000` (**BR-RANKING-004**). They are the axis that
+  // replaced the minute one in `points_official`: 29 is the kilometre driven with the guide on
+  // AND with entitlement — never "kilometres driven" — and 30 is that kilometre at 0,11 point.
+  // `points_from_minutes` (17) stays on the list because the view still emits it and the type
+  // still declares it; it is `0` constant and nothing on the screen adds it to anything.
+  'km_with_entitlement',
+  'points_from_km',
+  // Column 31, born with `20260916140000` (**BR-RANKING-005**). How many PODIUM components the
+  // row's `points_official` came from — weeks in `month`, months in `year`, and `null` in the
+  // three older cycles, where there is no composition at all. It costs +12 ms (+0,4%) because it
+  // is a `count(*)` over a grouping the view already had, and the screen does NOT derive it:
+  // deriving would mean a second read and a second podium ruler in the browser (contract,
+  // Parte 7 · spec §10 item 2).
+  'podium_components',
 ].join(',')
 
 /**
  * The ceiling, and what happens when it is reached.
  *
  * The whole view is ~180 rows for 90 days, ~145 for 30 and 30 to 35 per week over a 13-week
- * horizon — around 800 (contract, measured 2026-09-13). The ceiling is generous, and a
- * truncated read is refused rather than served: a scoreboard missing rows looks exactly like a
- * scoreboard, and PostgREST's own `max-rows` would cut it without saying so.
+ * horizon — 652 rows measured on 2026-09-16, after the roster and the kilometre axis added 95
+ * between them (contract, Parte 7). The ceiling is generous, and a truncated read is refused
+ * rather than served: a scoreboard missing rows looks exactly like a scoreboard, and PostgREST's
+ * own `max-rows` would cut it without saying so.
  */
 const ROW_CEILING = 5000
 
@@ -106,20 +131,32 @@ export const GET = withAuth({ roles: ['admin'] }, async (req: NextRequest) => {
 
   // The generated row type of a view the repo has no schema types for is `GenericStringError`;
   // the named column list above is what pins the shape, and it is checked against the contract.
-  const rows = (data ?? []) as unknown as RankingRow[]
+  const read = (data ?? []) as unknown as ScoreboardReadRow[]
 
-  if (typeof count === 'number' && count > rows.length) {
-    console.error(`[dashboard/ranking] truncated read: ${rows.length} of ${count}`)
+  // THE TRUNCATION GUARD COMPARES WHAT POSTGREST COUNTED WITH WHAT ARRIVED, so it runs BEFORE any
+  // filtering of ours: a row we dropped on purpose would otherwise read as a row the ceiling cut,
+  // and every single request would be refused as truncated.
+  if (typeof count === 'number' && count > read.length) {
+    console.error(`[dashboard/ranking] truncated read: ${read.length} of ${count}`)
     return NextResponse.json(
       { error: 'ranking_scoreboard returned more rows than the route ceiling' },
       { status: 502 }
     )
   }
 
+  // The ghost row of `user_id` null is dropped HERE, once, so that the table, the count of marked
+  // accounts and the `<select>` of periods below all speak about accounts (contract, Parte 7).
+  const rows = accountRows(read)
+
   return NextResponse.json({
     data: {
       periods: periodOptions(rows),
       period,
+      // THE CALIBRATION SERIES IS AGGREGATED HERE, ON THE ROWS ALREADY IN HAND — spec §3.2 and
+      // §9 critério 31. It is the same 13 weeks whatever period was asked for, so it cannot be a
+      // second request: the view is ~2,8 s against an 8 s `statement_timeout`, and 350 weekly
+      // rows crossing the wire for the browser to add up would be the same cost paid twice.
+      calibration: kmCalibrationSeries(rows),
       // Counted over the whole view, not over the served period: it answers "is the filter
       // removing anybody at all", which must not flicker when the operator changes the week.
       internalAccounts: countInternalAccounts(rows),
