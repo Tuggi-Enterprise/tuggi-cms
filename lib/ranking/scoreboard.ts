@@ -84,6 +84,42 @@ export interface RankingRow {
   top_country_code: string | null
 }
 
+/**
+ * THE VIEW'S ROW AS IT COMES OFF THE WIRE — where `user_id` can be NULL.
+ *
+ * `core.ranking_scoreboard` emits ONE ROW PER PERIOD with `user_id` null, `nickname` null and
+ * every quantity at zero: `drive.poi_visits` and `drive.time_credit_consumption` carry rows whose
+ * `user_id` is nullable and null, they enter the view's key, and the `LEFT JOIN … USING (user_id)`
+ * never match — `NULL = NULL` is unknown, not true. The row ALWAYS existed; what changed with
+ * `20260916120000` (BR-RANKING-001) is that in `period_kind = 'week'` it now receives
+ * `rank_official`, tied at the end, so it reaches the screen with a position and no nickname.
+ *
+ * Fixing it belongs to the WRITER of those two tables and is a card of its own: removing the row
+ * in the database would change the count of the rolling windows, which #741 requires not to move.
+ *
+ * `RankingRow` is therefore what the SCREEN sees — an account — and this type is what the read
+ * brings. `accountRows` is the only crossing between the two.
+ */
+export type ScoreboardReadRow = Omit<RankingRow, 'user_id'> & { user_id: string | null }
+
+/**
+ * The rows that belong to an ACCOUNT — `docs/contracts/banco-para-cms.md`, Parte 7, "A linha
+ * fantasma de `user_id` nulo": *"A tela filtra `user_id IS NOT NULL`; não é opcional, porque a
+ * linha não tem apelido para mostrar."*
+ *
+ * It is a function and not three inline `.filter()` calls because the ghost row has to disappear
+ * from EVERY output of the read at once — the table, the count of marked accounts and the list of
+ * periods (CLAUDE.md §6). A period whose only row is the ghost is a period with nobody in it, and
+ * an option in the `<select>` leading to an empty table would be the screen inventing a period.
+ *
+ * The ruler is `user_id` alone. The ghost also carries `in_roster = false`, but the migration
+ * asserts that a roster row ALWAYS has an account, so the second half would narrow nothing and
+ * would be a second ruler for the same fact.
+ */
+export function accountRows(rows: ScoreboardReadRow[]): RankingRow[] {
+  return rows.filter((row): row is RankingRow => row.user_id != null)
+}
+
 /** One line per trip session — `core.ranking_session_metering`, 20 columns. */
 export interface SessionMeteringRow {
   trip_session_id: string

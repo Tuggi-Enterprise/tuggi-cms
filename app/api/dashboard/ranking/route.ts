@@ -25,11 +25,12 @@ import { NextRequest, NextResponse } from 'next/server'
 import { withAuth } from '@/lib/auth-middleware'
 import { getSupabaseService } from '@/lib/core/supabase-client'
 import {
+  accountRows,
   countInternalAccounts,
   parsePeriodParam,
   periodOptions,
   rowsForPeriod,
-  type RankingRow,
+  type ScoreboardReadRow,
 } from '@/lib/ranking/scoreboard'
 
 export const dynamic = 'force-dynamic'
@@ -106,15 +107,22 @@ export const GET = withAuth({ roles: ['admin'] }, async (req: NextRequest) => {
 
   // The generated row type of a view the repo has no schema types for is `GenericStringError`;
   // the named column list above is what pins the shape, and it is checked against the contract.
-  const rows = (data ?? []) as unknown as RankingRow[]
+  const read = (data ?? []) as unknown as ScoreboardReadRow[]
 
-  if (typeof count === 'number' && count > rows.length) {
-    console.error(`[dashboard/ranking] truncated read: ${rows.length} of ${count}`)
+  // THE TRUNCATION GUARD COMPARES WHAT POSTGREST COUNTED WITH WHAT ARRIVED, so it runs BEFORE any
+  // filtering of ours: a row we dropped on purpose would otherwise read as a row the ceiling cut,
+  // and every single request would be refused as truncated.
+  if (typeof count === 'number' && count > read.length) {
+    console.error(`[dashboard/ranking] truncated read: ${read.length} of ${count}`)
     return NextResponse.json(
       { error: 'ranking_scoreboard returned more rows than the route ceiling' },
       { status: 502 }
     )
   }
+
+  // The ghost row of `user_id` null is dropped HERE, once, so that the table, the count of marked
+  // accounts and the `<select>` of periods below all speak about accounts (contract, Parte 7).
+  const rows = accountRows(read)
 
   return NextResponse.json({
     data: {

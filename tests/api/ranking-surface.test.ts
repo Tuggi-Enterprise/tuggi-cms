@@ -20,7 +20,9 @@ import { formatDuration, formatSignedDuration } from '../../lib/format/duration'
 import { UNKNOWN_VALUE } from '../../lib/format/unknown'
 import { METERING_LEDGER_START, meteringCoverage } from '../../lib/ranking/metering'
 import {
+  accountRows,
   aggregateRows,
+  countInternalAccounts,
   formatRatio,
   matchesPeriod,
   parsePeriodKey,
@@ -35,6 +37,7 @@ import {
   weekOfSelection,
   type PeriodSelection,
   type RankingRow,
+  type ScoreboardReadRow,
 } from '../../lib/ranking/scoreboard'
 
 const REPO_ROOT = resolve(import.meta.dirname, '../..')
@@ -76,6 +79,69 @@ function row(overrides: Partial<RankingRow> = {}): RankingRow {
     ...overrides,
   }
 }
+
+// ── The ghost row of `user_id` null ───────────────────────────────────────────────────────
+
+/**
+ * #741 · BR-RANKING-001 — ONE CROSSING, AND EVERY OUTPUT IS BEHIND IT.
+ *
+ * `docs/contracts/banco-para-cms.md`, Parte 7, "A linha fantasma de `user_id` nulo": the view
+ * emits one row per period with `user_id` null and every quantity at zero, it always existed, the
+ * fix belongs to the writer of `drive.poi_visits` and `drive.time_credit_consumption`, and
+ * meanwhile *"a tela filtra `user_id IS NOT NULL`; não é opcional, porque a linha não tem apelido
+ * para mostrar"*.
+ *
+ * What is pinned here is that the three consumers of the read sit BEHIND the same filter, which
+ * is the part an inline `.filter()` in the table would quietly lose (CLAUDE.md §6).
+ */
+test('#741 · BR-RANKING-001: `accountRows` drops the ghost row before the table, the periods and the count', () => {
+  const account = row({ period_kind: 'rolling_30d' })
+  const ghost: ScoreboardReadRow = {
+    ...row({ period_kind: 'week', period_start: '2026-06-22T00:00:00+00:00', period_end: '2026-06-29T00:00:00+00:00' }),
+    user_id: null,
+    nickname: null,
+    points_official: 0,
+    // The view leaves this one false — the profile join fails for the same reason the row exists.
+    // The fixture marks it anyway, because what is being pinned is that the crossing happens
+    // BEFORE the count, not what the view happens to put in this column.
+    excluded_from_metrics: true,
+  }
+
+  const rows = accountRows([account, ghost])
+
+  assert.equal(rows.length, 1)
+  assert.equal(rows[0].user_id, account.user_id)
+
+  assert.equal(
+    countInternalAccounts(rows),
+    0,
+    'the marked population is counted in ACCOUNTS, and a row with no account is not one'
+  )
+  assert.deepEqual(
+    periodOptions(rows).map((option) => option.kind),
+    ['rolling_30d'],
+    'a week whose only row is the ghost is a week with nobody in it'
+  )
+})
+
+test('#741 · BR-RANKING-001: the route filters through `accountRows`, never with a `user_id` test of its own', () => {
+  const route = source('app/api/dashboard/ranking/route.ts')
+
+  assert.equal(route.includes('accountRows('), true)
+  // A second ruler for the same fact is how one of the three outputs keeps the ghost. And the
+  // filter has to run AFTER the truncation guard, which compares the count PostgREST returned
+  // with the rows that arrived — filtering first refuses every request as truncated.
+  assert.equal(
+    /user_id\s*(!==|!=|===|==)\s*null/.test(route),
+    false,
+    'the ruler lives in `lib/ranking/scoreboard.ts`'
+  )
+  assert.equal(
+    route.indexOf('truncated read') < route.indexOf('accountRows(read)'),
+    true,
+    'filtering before the guard turns every answer into a false truncation'
+  )
+})
 
 // ── The signed difference ─────────────────────────────────────────────────────────────────
 
