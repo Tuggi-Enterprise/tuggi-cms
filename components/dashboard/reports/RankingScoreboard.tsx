@@ -692,7 +692,7 @@ export function RankingScoreboard({
                    * the rendered line (`DS-COMPONENTE-082` item 3).
                    */
                   const rank = rankOf(row)
-                  const seal = rankSeal(rank, meteredPeriod)
+                  const seal = rankSeal(rank, row, meteredPeriod)
 
                   return (
                     <Fragment key={row.user_id}>

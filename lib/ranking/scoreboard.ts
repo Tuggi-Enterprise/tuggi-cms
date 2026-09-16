@@ -559,19 +559,34 @@ export function sealCycle(
  * **The seal never computes a position.** `rank` arrives from the view, and the switch upstream
  * decides whether it is `rank_official` or `rank_excluding_internal` — the same ruler the `#`
  * column already prints (`DS-COMPONENTE-082` item 3). A tie is the server's business: two `1`s
- * produce two gold seals and no silver, which is a valid result (spec §5.4).
+ * produce two gold seals and no silver, which is a valid result (spec §5.4). **The count of seals
+ * on the screen is never the criterion** — only the three conditions below are.
  *
- * `null` rank — zero points — gets no seal, and the cell keeps printing `UNKNOWN_VALUE`: "does
- * not rank" is not "ranks worst" (`DS-COMPONENTE-084` item 1).
+ * THE THIRD CONDITION — A POSITION WITH NO POINT IS NOT A PODIUM (#756, spec §5.1).
+ * Since `20260916120000` the week ranks the WHOLE roster, the zeros tied at the end, so
+ * `rank_official` stopped meaning "scored" (`BR-RANKING-001`; contract `banco-para-cms.md`,
+ * Parte 7, columns 19 and 20). With the minimum roster of ten and a `free` tier that does not
+ * score (`BR-MONETIZACAO-055`), fewer than three scoring accounts is enough for the mass tie of
+ * zeros to occupy positions 1 to 3: measured on the CT bench, a closed week where nobody scored
+ * drew TEN gold seals. Hence `points_official > 0`, and it is read from the row and never
+ * re-derived — the migration owns the score (CLAUDE.md §6).
+ *
+ * `null` rank gets no seal, and the cell keeps printing `UNKNOWN_VALUE`: "does not rank" is not
+ * "ranks worst" (`DS-COMPONENTE-084` item 1). **Zero points is the other case and prints the
+ * NUMBER**, because the position exists — what does not exist is the podium (spec §9 item 8bis).
+ * The cell needs no branch of its own for that: it already prints `rank` whenever there is no
+ * seal.
  */
 export function rankSeal(
   rank: number | null,
+  row: Pick<RankingRow, 'points_official'>,
   period: Pick<PeriodOption, 'kind' | 'end'> | null,
   now = Date.now()
 ): { position: SealPosition; cycle: SealCycle } | null {
   const cycle = sealCycle(period, now)
   if (cycle === null) return null
   if (rank !== 1 && rank !== 2 && rank !== 3) return null
+  if (!(row.points_official > 0)) return null
 
   return { position: rank, cycle }
 }
