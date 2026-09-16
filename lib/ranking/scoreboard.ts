@@ -550,6 +550,26 @@ export function sealCycle(
 }
 
 /**
+ * THE POINT FLOOR OF THE PODIUM — `BR-RANKING-003` item 6, and the only DECLARATION of that
+ * number in this repository: everything that asks about the podium reads it from here.
+ *
+ * It is a number of the business and not a comparison: the operator fixed it on 2026-09-16 over
+ * the measured distribution of a closed week (median of 7 points), so that the floor separates
+ * who played from who drove past a POI. Code cites the ID and reads the number from here
+ * (CLAUDE.md §6) — a second `10` typed into a cell or into a test goes green while the rule
+ * moves.
+ *
+ * **IT IS NOT THE "SCORED" PREDICATE, AND THE TWO MUST NOT MERGE.** `summarize` and the `scored`
+ * chip answer "did this account score at all" with `points_official > 0`, over the whole
+ * population; this one answers "is this line a podium", and only the seal asks it.
+ *
+ * The comparison is `>=` on the OFFICIAL, UNROUNDED score — the same number that orders the
+ * board. The score carries a decimal (a charged minute is worth 0,03 point), so a row at 9,97
+ * is below the floor and a row at exactly 10 is on it.
+ */
+export const PODIUM_POINTS_FLOOR = 10
+
+/**
  * THE SEAL OF ONE ROW, or `null` — the single answer to "does this cell draw a seal".
  *
  * It is one function and not a condition spelled out in the cell because the two halves are only
@@ -562,18 +582,25 @@ export function sealCycle(
  * produce two gold seals and no silver, which is a valid result (spec §5.4). **The count of seals
  * on the screen is never the criterion** — only the three conditions below are.
  *
- * THE THIRD CONDITION — A POSITION WITH NO POINT IS NOT A PODIUM (#756, spec §5.1).
+ * THE THIRD CONDITION — THE PODIUM HAS A FLOOR, AND IT IS `PODIUM_POINTS_FLOOR` (#756).
  * Since `20260916120000` the week ranks the WHOLE roster, the zeros tied at the end, so
- * `rank_official` stopped meaning "scored" (`BR-RANKING-001`; contract `banco-para-cms.md`,
- * Parte 7, columns 19 and 20). With the minimum roster of ten and a `free` tier that does not
- * score (`BR-MONETIZACAO-055`), fewer than three scoring accounts is enough for the mass tie of
- * zeros to occupy positions 1 to 3: measured on the CT bench, a closed week where nobody scored
- * drew TEN gold seals. Hence `points_official > 0`, and it is read from the row and never
- * re-derived — the migration owns the score (CLAUDE.md §6).
+ * `rank_official` stopped meaning "won anything" (`BR-RANKING-001`; contract
+ * `banco-para-cms.md`, Parte 7, columns 19 and 20). With the minimum roster of ten and a `free`
+ * tier that does not score (`BR-MONETIZACAO-055`), fewer than three scoring accounts is enough
+ * for the mass tie of zeros to occupy positions 1 to 3: measured on the CT bench, a closed week
+ * where nobody scored drew TEN gold seals. The floor is read from the row and never re-derived —
+ * the migration owns the score (CLAUDE.md §6).
+ *
+ * **THE FLOOR IS PER LINE, NEVER A COUNT OF SEALS.** "Each position from 1 to 3 WHOSE OWNER
+ * reached the floor", not "the three best with points": one account above the floor draws one
+ * gold, and the 2nd and 3rd — who exist, and print their numbers — draw nothing. A week where
+ * nobody reaches it draws no seal at all, which is the open podium `BR-RANKING-003` covers by
+ * name.
  *
  * `null` rank gets no seal, and the cell keeps printing `UNKNOWN_VALUE`: "does not rank" is not
- * "ranks worst" (`DS-COMPONENTE-084` item 1). **Zero points is the other case and prints the
- * NUMBER**, because the position exists — what does not exist is the podium (spec §9 item 8bis).
+ * "ranks worst" (`DS-COMPONENTE-084` item 1). **A score under the floor is the other case and
+ * prints the NUMBER**, because the position exists — what does not exist is the podium (spec §9
+ * item 8bis).
  * The cell needs no branch of its own for that: it already prints `rank` whenever there is no
  * seal.
  */
@@ -586,7 +613,7 @@ export function rankSeal(
   const cycle = sealCycle(period, now)
   if (cycle === null) return null
   if (rank !== 1 && rank !== 2 && rank !== 3) return null
-  if (!(row.points_official > 0)) return null
+  if (!(row.points_official >= PODIUM_POINTS_FLOOR)) return null
 
   return { position: rank, cycle }
 }

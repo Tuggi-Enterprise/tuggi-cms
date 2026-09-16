@@ -47,6 +47,7 @@ import {
 import { RankingScoreboard } from '../../components/dashboard/reports/RankingScoreboard'
 import { UNKNOWN_VALUE } from '../../lib/format/unknown'
 import {
+  PODIUM_POINTS_FLOOR,
   rankSeal,
   sealCycle,
   type PeriodOption,
@@ -406,8 +407,11 @@ const MINUTE = 60_000
 const closedWeek: PeriodOption = WEEK
 const now = new Date(WEEK.end).getTime()
 
-/** A row that SCORED — the third condition of `DS-COMPONENTE-088` satisfied, and nothing else. */
-const SCORED: Pick<RankingRow, 'points_official'> = { points_official: 49.29 }
+/**
+ * A row OVER THE PODIUM FLOOR — the third condition of `DS-COMPONENTE-088` satisfied, and nothing
+ * else. 49,29 is the CT bench's own winning score, comfortably over `PODIUM_POINTS_FLOOR`.
+ */
+const OVER_THE_FLOOR: Pick<RankingRow, 'points_official'> = { points_official: 49.29 }
 
 /**
  * `DS-COMPONENTE-088` — spec §9 item 8, at the level of the decision.
@@ -447,44 +451,64 @@ test('#741: DS-COMPONENTE-088 — the seal belongs to a closed cycle, and a roll
  */
 test('#741: DS-COMPONENTE-088 — the podium is 1, 2 and 3; the 4th prints a number and a null position prints no seal', () => {
   for (const position of POSITIONS) {
-    assert.deepEqual(rankSeal(position, SCORED, closedWeek, now), { position, cycle: 'week' })
+    assert.deepEqual(rankSeal(position, OVER_THE_FLOOR, closedWeek, now), { position, cycle: 'week' })
   }
 
   for (const rank of [0, 4, 10, -1, null]) {
-    assert.equal(rankSeal(rank, SCORED, closedWeek, now), null, `position ${rank} gets no seal`)
+    assert.equal(rankSeal(rank, OVER_THE_FLOOR, closedWeek, now), null, `position ${rank} gets no seal`)
   }
 
   // Closed cycle and podium are only correct together.
-  assert.equal(rankSeal(1, SCORED, closedWeek, now - MINUTE), null)
-  assert.equal(rankSeal(1, SCORED, { kind: 'rolling_30d', end: closedWeek.end }, now), null)
+  assert.equal(rankSeal(1, OVER_THE_FLOOR, closedWeek, now - MINUTE), null)
+  assert.equal(rankSeal(1, OVER_THE_FLOOR, { kind: 'rolling_30d', end: closedWeek.end }, now), null)
 })
 
 /**
- * `DS-COMPONENTE-088` and spec §5.1 / §9 item 8bis — A POSITION WITH NO POINT IS NOT A PODIUM.
+ * `BR-RANKING-003` and `DS-COMPONENTE-088`, spec §5.1 / §9 item 8bis — THE PODIUM HAS A FLOOR.
  *
- * The third condition of the rule, and the one #756 exists for: since `20260916120000` the week
+ * Operator, 2026-09-16: *"se todo mundo ficar abaixo daqueles 10 pontos, ninguém é primeiro, nem
+ * segundo, nem terceiro. Os primeiros, o pódio ali fica aberto."* Since `20260916120000` the week
  * ranks every roster row, the zeros tied at the end (`BR-RANKING-001`, contract
- * `banco-para-cms.md` Parte 7, columns 19 and 20), so a closed cycle plus a position in 1–3 was
- * no longer enough to mean anybody won anything.
+ * `banco-para-cms.md` Parte 7, columns 19 and 20), so a closed cycle plus a position in 1–3 never
+ * meant anybody won anything.
+ *
+ * The number is NOT retyped here: `PODIUM_POINTS_FLOOR` is the only place it exists, and if the
+ * operator moves it this file follows instead of going green against a rule that changed.
  */
-test('#756: DS-COMPONENTE-088 — zero points draws no seal, whatever position the view gave it', () => {
+test('#756: BR-RANKING-003, DS-COMPONENTE-088 — the seal asks for the floor, and the comparison is `>=` on the unrounded score', () => {
   for (const position of POSITIONS) {
-    assert.equal(
-      rankSeal(position, { points_official: 0 }, closedWeek, now),
-      null,
-      `position ${position} with zero points gets no seal`
-    )
-    // And the same position WITH a point still does: the refusal is the score, not the position.
-    assert.deepEqual(rankSeal(position, { points_official: 0.3 }, closedWeek, now), {
+    // Below the floor, whatever position the view handed out.
+    for (const points of [0, 0.3, 1, 9]) {
+      assert.equal(
+        rankSeal(position, { points_official: points }, closedWeek, now),
+        null,
+        `position ${position} with ${points} points is under the floor and gets no seal`
+      )
+    }
+
+    // At the floor and above it, the same position does draw: the refusal is the score.
+    assert.deepEqual(rankSeal(position, { points_official: PODIUM_POINTS_FLOOR }, closedWeek, now), {
       position,
       cycle: 'week',
     })
   }
 
-  // The floor is strictly above zero, and it is the only floor: the prize asks for 10 points and
-  // the seal asks for none (spec §5.2 — 1st place with no prize wears the same seal).
-  assert.equal(rankSeal(1, { points_official: -0 }, closedWeek, now), null)
-  assert.notEqual(rankSeal(1, { points_official: 0.01 }, closedWeek, now), null)
+  // EXACTLY ON THE FLOOR DRAWS — `BR-RANKING-003` item 6 says `>= 10`, not `> 10`.
+  assert.deepEqual(rankSeal(1, { points_official: PODIUM_POINTS_FLOOR }, closedWeek, now), {
+    position: 1,
+    cycle: 'week',
+  })
+
+  // ONE CHARGED MINUTE BELOW IT DOES NOT — 9,97, and no rounding anywhere on the way
+  // (`BR-RANKING-003` item 6: the charged minute is worth 0,03 point).
+  const oneMinuteShort = PODIUM_POINTS_FLOOR - 0.03
+  assert.equal(oneMinuteShort, 9.97, 'the fixture really is a hair under the floor')
+  assert.equal(
+    rankSeal(1, { points_official: oneMinuteShort }, closedWeek, now),
+    null,
+    '9,97 is not 10: a rounded comparison would draw a gold seal here'
+  )
+  assert.equal(rankSeal(1, { points_official: PODIUM_POINTS_FLOOR - 0.0001 }, closedWeek, now), null)
 })
 
 // ── And what the table does with all of it ────────────────────────────────────────────────
@@ -602,7 +626,17 @@ test('#741: BR-RANKING-001 — the marked row stays out, and the seal follows th
   // `ROWS` has the operator's account at `rank_official: 1` and `rank_excluding_internal: null`;
   // with the switch off it does not render, and the seal of 1st goes to the row whose
   // `rank_excluding_internal` is 1 — the same ruler the `#` column prints.
-  const html = renderTable(ROWS, closedWeek)
+  //
+  // `quiet-tapir` scores 7 in the CT fixture, which is UNDER `PODIUM_POINTS_FLOOR`: this test
+  // asks about the ruler of the column, not about the floor, so the row is lifted exactly onto
+  // the floor here — and lifting it to the floor, not above it, keeps `>=` on screen too
+  // (`BR-RANKING-003` item 6). The fixture itself belongs to the browser bench and is not moved.
+  const html = renderTable(
+    ROWS.map((row) =>
+      row.nickname === 'quiet-tapir' ? { ...row, points_official: PODIUM_POINTS_FLOOR } : row
+    ),
+    closedWeek
+  )
 
   assert.equal(/tuggi-operator/.test(html), false, 'the marked account does not render (#740)')
   assert.equal(sealCount(html), 2, 'two visible accounts, two positions, two seals')
@@ -611,16 +645,19 @@ test('#741: BR-RANKING-001 — the marked row stays out, and the seal follows th
 })
 
 /**
- * THE SAME REFUSAL, ON THE SCREEN — `DS-COMPONENTE-088`, spec §9 item 8bis.
+ * THE SAME REFUSAL, ON THE SCREEN — `BR-RANKING-003` and `DS-COMPONENTE-088`, spec §9 item 8bis.
  *
  * The pure function above says the decision is right; this says the table obeys it, and it is the
  * scenario the `design` measured on the CT bench in 2026-09-16: a closed week whose roster has
- * nobody scoring drew ten gold seals, and one scoring account drew one gold and nine silvers.
+ * nobody over the floor drew ten gold seals, and one account over it drew one gold and nine
+ * silvers.
  *
  * It is not a laboratory shape. `free` does not turn the guide on (`BR-MONETIZACAO-055`), the
- * roster is a minimum of ten (`BR-RANKING-001` item 2), and an account that does not score sits
- * at `0` all week — so fewer than three scoring accounts is enough.
+ * roster is a minimum of ten (`BR-RANKING-001` item 2), the measured median of a closed week is 7
+ * points (`BR-RANKING-003`) — so a week where the podium stays open is the ordinary week, not the
+ * exception.
  */
+/** The roster minimum of `BR-RANKING-001` item 2. It is NOT the floor, and shares only the digit. */
 const ROSTER = 10
 
 /** The roster of a closed week, `rank()`-shaped: ties share the position and the next one skips. */
@@ -645,36 +682,56 @@ function weekOfScores(scores: number[]): RankingRow[] {
 const printedRanks = (html: string) =>
   [...html.matchAll(/<\/button>([^<]*)<\/span><\/td>/g)].map((match) => match[1].trim())
 
-test('#756: DS-COMPONENTE-088 — a closed week where nobody scored draws no seal, and every line prints its number', () => {
-  const html = renderTable(weekOfScores(Array(ROSTER).fill(0)), closedWeek)
+test('#756: BR-RANKING-003, DS-COMPONENTE-088 — a week where NOBODY reaches the floor draws no seal, and every line prints its number', () => {
+  // Ten accounts that played and stayed under ten points — the operator's open podium, and the
+  // case `BR-RANKING-003` covers by name. Nobody is 1st, 2nd or 3rd.
+  const html = renderTable(weekOfScores([9, 8.5, 8, 7, 6, 5, 4, 3, 2, 1]), closedWeek)
 
-  assert.equal(sealCount(html), 0, 'ten positions of zero points, and not one seal')
+  assert.equal(sealCount(html), 0, 'ten positions under the floor, and not one seal')
   assert.equal(/sr-only">\dº lugar/.test(html), false, 'nor an accessible name announcing a podium')
 
-  // The position EXISTS — what does not exist is the podium. `rank()` ties every zero at 1.
-  assert.deepEqual(printedRanks(html), Array(ROSTER).fill('1'))
+  // The positions EXIST — what does not exist is the podium.
+  assert.deepEqual(printedRanks(html), ['1', '2', '3', '4', '5', '6', '7', '8', '9', '10'])
   assert.equal(
     printedRanks(html).includes(UNKNOWN_VALUE),
     false,
-    'zero points is not a null position: the number is printed, never the em dash'
+    'a score under the floor is not a null position: the number is printed, never the em dash'
   )
+
+  // And the same roster with zeros — the shape the CT bench measured — behaves the same way.
+  assert.equal(sealCount(renderTable(weekOfScores(Array(ROSTER).fill(0)), closedWeek)), 0)
 })
 
-test('#756: DS-COMPONENTE-088 — one scoring account in a closed week draws ONE seal, not ten', () => {
-  const html = renderTable(weekOfScores([12, ...Array(ROSTER - 1).fill(0)]), closedWeek)
+/**
+ * THE PARTIALLY OPEN PODIUM — the condition is per LINE, never a count of podium slots.
+ *
+ * One account over the floor gives ONE gold; the accounts sitting at 2nd and 3rd exist, they are
+ * ranked, and they wear nothing because THEIR OWN score is under ten (`BR-RANKING-003`, and item
+ * 5: the prize the floor blocks does not slide down to the next position).
+ */
+test('#756: BR-RANKING-003, DS-COMPONENTE-088 — one account over the floor draws ONE seal, and 2nd and 3rd print their numbers', () => {
+  const html = renderTable(weekOfScores([12, 9, 8, 7, 6, 5, 4, 3, 2, 1]), closedWeek)
 
-  assert.equal(sealCount(html), 1, 'one account scored, one seal')
+  assert.equal(sealCount(html), 1, 'one account over the floor, one seal')
   assert.match(html, /<span class="sr-only">1º lugar<\/span>/)
-  assert.equal(/sr-only">2º lugar/.test(html), false, 'and no silver for the mass tie of zeros')
+  assert.equal(
+    /sr-only">[23]º lugar/.test(html),
+    false,
+    'the 2nd and the 3rd exist and stay bare: the floor is read off their own row'
+  )
 
-  // The nine that did not score keep the position `rank()` gave them — 2, and printed.
-  assert.deepEqual(printedRanks(html), Array(ROSTER - 1).fill('2'))
+  // The nine under the floor keep the position `rank()` gave them, printed as a number.
+  assert.deepEqual(printedRanks(html), ['2', '3', '4', '5', '6', '7', '8', '9', '10'])
 })
 
-test('#756: DS-COMPONENTE-088 — three scoring accounts in a closed week still draw the three seals', () => {
-  const html = renderTable(weekOfScores([30, 20, 10, ...Array(ROSTER - 3).fill(0)]), closedWeek)
+test('#756: BR-RANKING-003, DS-COMPONENTE-088 — three accounts over the floor still draw the three seals', () => {
+  // The third is EXACTLY on the floor, which draws: the comparison is `>=` (item 6).
+  const html = renderTable(
+    weekOfScores([30, 20, PODIUM_POINTS_FLOOR, ...Array(ROSTER - 3).fill(0)]),
+    closedWeek
+  )
 
-  assert.equal(sealCount(html), 3, 'the podium of a week that was played is untouched by #756')
+  assert.equal(sealCount(html), 3, 'the podium of a week that was played is whole')
   for (const position of POSITIONS) {
     assert.match(html, new RegExp(`<span class="sr-only">${position}º lugar</span>`))
   }
@@ -687,7 +744,7 @@ test('#756: DS-COMPONENTE-088 — three scoring accounts in a closed week still 
  * `20260916120000`), so a tie shares the position and the next one skips: two `1`s and no `2` is
  * a valid closed cycle. The count of seals on the screen was never the criterion.
  */
-test('#756: DS-COMPONENTE-088 — a tie WITH points still draws one seal per tied account', () => {
+test('#756: BR-RANKING-003, DS-COMPONENTE-088 — a tie ABOVE THE FLOOR still draws one seal per tied account', () => {
   const html = renderTable(weekOfScores([20, 20, 20, 20, ...Array(ROSTER - 4).fill(5)]), closedWeek)
 
   assert.equal(sealCount(html), 4, 'four accounts tied in 1st, four gold seals')
@@ -698,6 +755,6 @@ test('#756: DS-COMPONENTE-088 — a tie WITH points still draws one seal per tie
   )
   assert.equal(/sr-only">[23]º lugar/.test(html), false, '`rank()` skipped 2, 3 and 4')
 
-  // The rest scored too, so they are numbers only because they are not on the podium.
+  // The rest are numbers for two reasons at once — not on the podium, and under the floor.
   assert.deepEqual(printedRanks(html), Array(ROSTER - 4).fill('5'))
 })
