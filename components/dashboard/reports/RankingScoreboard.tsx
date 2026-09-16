@@ -342,11 +342,11 @@ export function RankingScoreboard({
   const totals = useMemo(() => summarize(tableRows), [tableRows])
 
   /**
-   * O RODAPÉ SOMA AS LINHAS VISÍVEIS, E DIZ QUANTAS DE QUANTAS — §11.2.
+   * THE FOOTER SUMS THE VISIBLE ROWS, AND SAYS HOW MANY OF HOW MANY — §11.2.
    *
-   * Com a tabela nascendo em `Pontuaram`, um rodapé que afirmasse `5 linhas` estaria afirmando um
-   * total que não é o da consulta: são 5 de 16, e a diferença é exatamente o que o chip escondeu.
-   * Sem filtro as duas contagens coincidem e a frase volta a ser a de sempre.
+   * With the table born on `Pontuaram`, a footer claiming `5 linhas` would assert a total that is
+   * not the read's: it is 5 of 16, and the difference is exactly what the chip hid. With no filter
+   * the two counts coincide and the sentence goes back to the one it always was.
    */
   const footerLabel =
     activeChip === 'all'
@@ -435,16 +435,17 @@ export function RankingScoreboard({
   const headNumClass = showComparisons ? HEAD_NUM : cn(HEAD_NUM, 'top-0')
 
   /**
-   * NO MÁXIMO UM AVISO, E É O PRIMEIRO QUE VALER — §11.2. A ordem é a do dano:
+   * AT MOST ONE WARNING, AND IT IS THE FIRST ONE THAT HOLDS — §11.2. The order is the damage's:
    *
-   * 1. o erro de leitura apaga toda a tela; 2. o instrumento de km muda como `Pontos` se lê, porque
-   * o quilômetro é parcela de `points_official` (**BR-RANKING-004**); 3. as internas mudam QUEM
-   * está na lista; 4. o medidor de minuto qualifica três colunas que agora nascem recolhidas.
+   * 1. the failed read wipes out the whole screen; 2. the km instrument changes how `Pontos` is
+   * read, because the kilometre is a parcel of `points_official` (**BR-RANKING-004**); 3. the
+   * internal filter changes WHO is on the list; 4. the minute meter qualifies three columns that
+   * now start collapsed.
    *
-   * `internal.none_marked` continua sem dizer "ninguém está marcado" — só que nenhuma conta
-   * marcada apareceu NESTA consulta (§2.2, critério 20). E continua precisando de uma leitura
-   * para ser condição de alguma coisa: `internalAccounts` também chega `0` quando a requisição
-   * falhou, e `0` de leitura que não aconteceu não é achado.
+   * `internal.none_marked` goes on NOT saying "nobody is marked" — only that no marked account
+   * appeared in THIS read (§2.2, criterion 20). And it goes on needing a read to be a condition
+   * of: `internalAccounts` also arrives `0` when the request failed, and a `0` from a read that
+   * never happened is not a finding.
    */
   const diagnostic: { kind: 'error' | 'warning'; text: string } | null = error
     ? { kind: 'error', text: error.code === '42501' ? t('error.forbidden') : t('error.title') }
@@ -484,12 +485,12 @@ export function RankingScoreboard({
             {t('internal.aggregates_note')}
           </p>
         )}
-        {/* TWO CARDS, AND OS OUTROS QUATRO VIRAM PARES — §11.2.
-            Seis `StatCard` custavam 150 px para dizer quatro coisas que cabem em quatro linhas de
-            13 px, três delas marcando zero. Ficam com cartão os dois que o operador lê primeiro:
-            `Contas que pontuaram`, que é o número de conferência, e `Disparo ÷ km`, que é a
-            métrica do épico. Em ciclo composto sobra o primeiro — os outros cinco dividem réguas
-            que §4.8 não deixa somar. */}
+        {/* TWO CARDS, AND THE OTHER FOUR BECOME PAIRS — §11.2.
+            Six `StatCard`s spent 150 px saying four things that fit in four 13 px lines, three of
+            them marking zero. The two the operator reads first keep their card: `Contas que
+            pontuaram`, which is the number he checks against, and `Disparo ÷ km`, which is the
+            metric of the epic. In a composed cycle only the first survives — the other five divide
+            rulers §4.8 does not let anyone add up. */}
         <StatCardRow columns={isComposed ? 2 : 4}>
           <StatCard
             icon={Users}
@@ -543,11 +544,12 @@ export function RankingScoreboard({
               )}
             />
           )}
-          {/* O BLOCO LISO — quatro grandezas, nenhum ícone, nenhum `subtitle`: o rótulo já diz o
-              que a grandeza conta (`DS-COPY-062` item 3). **Zero fica, e fica em `DIM`** — zero é
-              a resposta, e omitir confunde *é zero* com *não medi* (`DS-COMPONENTE-084` item 1).
-              A exceção é a sequência, que leva o máximo no próprio valor: `0 (máx. 4/7)` é o que
-              impede o zero de parecer defeito do instrumento. */}
+          {/* THE FLAT BLOCK — four quantities, no icon, no `subtitle`: the label already says what
+              the quantity counts (`DS-COPY-062` item 3). **Zero stays, and it stays in `DIM`** —
+              zero is the answer, and omitting it confuses *it is zero* with *I did not measure*
+              (`DS-COMPONENTE-084` item 1). The exception is the streak, which carries its maximum
+              inside the value: `0 (máx. 4/7)` is what stops the zero reading as a broken
+              instrument. */}
           {!isComposed && (
             <div className="col-span-2 h-full rounded-xl border border-gray-200 bg-white p-3 dark:border-gray-800 dark:bg-gray-900">
               <dl className="grid grid-cols-2 gap-x-6 gap-y-1.5">
@@ -594,13 +596,13 @@ export function RankingScoreboard({
       </div>
 
       <section className="overflow-hidden rounded-3xl border border-gray-200 bg-white/70 shadow-2xl shadow-black/5 backdrop-blur-xl dark:border-gray-800 dark:bg-gray-900/70">
-        {/* UM AVISO POR VEZ, SEMPRE UMA LINHA, E DENTRO DO CARTÃO DA TABELA — §11.2.
-            Quatro faixas de 58 px empilhadas acima dos números eram 232 px de altura possível
-            para qualificar uma tabela que ninguém alcançava. A ordem é a do DANO, não a do
-            código: o erro apaga a leitura inteira, o km muda como `Pontos` se lê, as internas
-            mudam QUEM está na lista, e o minuto qualifica três colunas que agora nascem
-            recolhidas. O suprimido não some do produto — o piso do km segue marcado no `subtitle`
-            do cartão 2, e o medidor de minuto segue imprimindo `—` nas células dele. */}
+        {/* ONE WARNING AT A TIME, ALWAYS ONE LINE, AND INSIDE THE TABLE'S OWN CARD — §11.2.
+            Four 58 px bands stacked above the numbers were up to 232 px spent qualifying a table
+            nobody reached. The order is the order of the DAMAGE, not of the code: the error wipes
+            out the whole reading, the kilometre changes how `Pontos` is read, the internal filter
+            changes WHO is on the list, and the minute qualifies three columns that now start
+            collapsed. The suppressed one does not leave the product — the km floor goes on marked
+            in card 2's `subtitle`, and the minute meter goes on printing `—` in its own cells. */}
         {diagnostic && (
           <div
             data-testid="ranking-diagnostic"
@@ -611,9 +613,10 @@ export function RankingScoreboard({
             }`}
           >
             <AlertTriangle className="h-4 w-4 shrink-0" aria-hidden="true" />
-            {/* `truncate` é o que torna "uma linha" estrutural e não disciplina de quem escreve a
-                frase: `meter.km_floor` mede ~1.500 px a 12 px e quebraria em duas a 1280. O texto
-                inteiro continua no DOM — o leitor de tela o recebe completo — e no `title`. */}
+            {/* `truncate` is what makes "one line" structural rather than the discipline of
+                whoever writes the sentence: `meter.km_floor` measures ~1.500 px at 12 px and would
+                wrap in two at 1280. The whole text stays in the DOM — a screen reader gets it
+                entire — and in the `title`. */}
             <span className="truncate" title={diagnostic.text}>
               {diagnostic.text}
             </span>
@@ -659,10 +662,10 @@ export function RankingScoreboard({
               {t('filters.charged_without_trigger')}
             </FilterChip>
           )}
-          {/* O INTERRUPTOR DAS CINCO COLUNAS DE COMPARAÇÃO — §11.2. Tem a forma de
-              `Incluir contas internas`, e não a de um chip, porque ele não filtra linha: muda
-              QUANTAS COLUNAS a tabela tem. Não existe em ciclo composto, onde as colunas de
-              comparação não renderizam em estado nenhum (§4.8). */}
+          {/* THE SWITCH OF THE FIVE COMPARISON COLUMNS — §11.2. It has the shape of `Incluir
+              contas internas` and not of a chip, because it filters no row: it changes HOW MANY
+              COLUMNS the table has. It does not exist in a composed cycle, where the comparison
+              columns render in no state at all (§4.8). */}
           {!isComposed && (
             <label className="ml-auto flex items-center gap-2 text-[11px] font-medium text-gray-600 dark:text-gray-400">
               <input
@@ -677,15 +680,15 @@ export function RankingScoreboard({
           )}
         </header>
 
-        {/* NENHUMA DECLARAÇÃO VOLTA COMO LINHA FIXA; UMA VOLTA CONDICIONAL — §11.1.
-            O bloco de seis parágrafos cinza media 152 px e negava leituras que o próprio rótulo
-            da coluna já nega. Esta frase é a exceção porque ela não define uma coluna: ela
-            responde um clique que o operador ACABOU de dar — `#` é um valor e ordenar não
-            renumera (`DS-COMPONENTE-082` item 3) — e a pergunta só existe depois do clique. Com
-            a ordenação no `#`, custa zero pixel.
+        {/* NO DECLARATION COMES BACK AS A FIXED LINE; ONE COMES BACK CONDITIONAL — §11.1.
+            The block of six grey paragraphs measured 152 px and denied readings the column label
+            already denies. This sentence is the exception because it defines no column: it answers
+            a click the operator has JUST made — `#` is a value and sorting does not renumber it
+            (`DS-COMPONENTE-082` item 3) — and the question only exists after the click. With the
+            ordering on `#`, it costs zero pixels.
 
-            As seis continuam inteiras no `<caption className="sr-only">` abaixo: ele não custa
-            pixel nenhum e é o que um leitor de tela recebe antes da primeira célula. */}
+            All six stay whole in the `<caption className="sr-only">` below: it costs no pixel at
+            all and it is what a screen reader gets before the first cell. */}
         {sort !== null && (
           <p className="border-b border-gray-200 px-5 py-1.5 text-[11px] leading-snug text-gray-600 dark:border-gray-800 dark:text-gray-400">
             {t('caption.sorting')}
@@ -693,9 +696,10 @@ export function RankingScoreboard({
         )}
 
         <DenseTableScroller>
-          {/* O PISO DE LARGURA VALE SÓ COM AS COMPARAÇÕES ABERTAS — §11.2. Ele é um piso para
-              janela estreita, não a largura natural; com sete colunas a tabela cabe em 1280 px
-              sem rolagem lateral, e impor um mínimo ali seria criar a rolagem que §11 tira. */}
+          {/* THE WIDTH FLOOR APPLIES ONLY WITH THE COMPARISONS OPEN — §11.2. It is a floor for a
+              narrow window, not the natural width; with seven columns the table fits 1280 px with
+              no sideways scroll, and imposing a minimum there would create the very scroll §11
+              takes away. */}
           <table
             className={`w-full border-collapse ${showComparisons ? 'min-w-[1040px]' : ''}`}
           >
@@ -754,11 +758,11 @@ export function RankingScoreboard({
                 </>
               ) : (
                 <>
-              {/* COM UM GRUPO SÓ, A FAIXA NÃO RENDERIZA — §11.2. Ela existe para NOMEAR grupos, e
-                  com as comparações recolhidas sobra um: `PLACAR OFICIAL` sobre a única coisa da
-                  tela é tautologia. São 28 px e uma camada grudada a menos, e a geometria que
-                  quebra em `es` (§7.5, #752) sai do estado padrão. O deslocamento de `HEAD`
-                  acompanha, por `headClass`. */}
+              {/* WITH ONE GROUP LEFT, THE BAND DOES NOT RENDER — §11.2. It exists to NAME groups,
+                  and with the comparisons collapsed there is one: `PLACAR OFICIAL` over the only
+                  thing on the screen is a tautology. That is 28 px and one sticky layer less, and
+                  the geometry that breaks in `es` (§7.5, #752) leaves the default state. The
+                  offset of `HEAD` follows, through `headClass`. */}
               {showComparisons && (
               <tr>
                 {/* The block with no group: `#`, optionally `sem internas`, `Pessoa` and
@@ -945,13 +949,14 @@ export function RankingScoreboard({
                   }
 
                   /**
-                   * A LINHA ZERADA RECUA, E SÓ ISSO — §11.2. Fundo ou borda numa tabela densa
-                   * viram faixa; a tinta recuada é o degrau que deixa as cinco que pontuaram
-                   * saltarem de uma coluna de zeros. **Ela nunca some**: zero é resposta, e o
-                   * chip `Pontuaram` é quem a tira da tela, por escolha do operador.
+                   * THE ZEROED ROW RECEDES, AND THAT IS ALL — §11.2. A background or a border in a
+                   * dense table becomes a stripe; receded ink is the step that lets the five rows
+                   * that scored stand out of a column of zeros. **It never disappears**: zero is an
+                   * answer, and the chip `Pontuaram` is what takes it off the screen, by the
+                   * operator's own choice.
                    *
-                   * As variantes com `&` são o que faz o recuo alcançar a célula: `CELL` e `NUM`
-                   * declaram a própria cor, então herança de `<tr>` não chegaria a nenhuma delas.
+                   * The `&` variants are what make the recess reach the cell: `CELL` and `NUM`
+                   * declare their own colour, so inheritance from `<tr>` would reach neither.
                    */
                   const dimmed = activeChip === 'all' && row.points_official <= 0
 
@@ -1326,12 +1331,12 @@ function RankDeltaCell({ row }: { row: RankingRow }) {
 }
 
 /**
- * UM PAR RÓTULO/VALOR DO BLOCO LISO — §11.2, o que sobrou dos quatro `StatCard` que saíram.
+ * ONE LABEL/VALUE PAIR OF THE FLAT BLOCK — §11.2, what is left of the four `StatCard`s that went.
  *
- * Sem ícone, sem `subtitle` e sem caixa própria: o rótulo já diz o que a grandeza conta
- * (`DS-COPY-062` item 3), e quatro caixas para quatro números eram 150 px para dizer o que cabe
- * em quatro linhas. **`isZero` recua a tinta e nunca esconde o par** — zero é a resposta, e omitir
- * confunde *é zero* com *não medi* (`DS-COMPONENTE-084` item 1).
+ * No icon, no `subtitle` and no box of its own: the label already says what the quantity counts
+ * (`DS-COPY-062` item 3), and four boxes for four numbers were 150 px saying what fits in four
+ * lines. **`isZero` recedes the ink and never hides the pair** — zero is the answer, and omitting
+ * it confuses *it is zero* with *I did not measure* (`DS-COMPONENTE-084` item 1).
  */
 function Term({ label, value, isZero }: { label: string; value: ReactNode; isZero: boolean }) {
   return (
