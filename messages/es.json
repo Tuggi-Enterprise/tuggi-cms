@@ -392,8 +392,7 @@
           "platform_hint": "Sistema del dispositivo con el que se creó la cuenta, no el actual."
         },
         "ranking": {
-          "title": "Marcador de puntuación",
-          "subtitle": "Cómo la puntuación ordena las cuentas, y qué cambiarían los números de comparación."
+          "title": "Marcador de puntuación"
         }
       },
       "ranking": {
@@ -423,7 +422,7 @@
           "marked": "{count, plural, one {# cuenta marcada en esta consulta} other {# cuentas marcadas en esta consulta}}",
           "badge": "INTERNA",
           "aggregates_note": "Los indicadores siempre ignoran las cuentas internas.",
-          "none_marked": "El filtro de cuentas internas está activo y no está quitando a nadie: ninguna cuenta marcada aparece en esta consulta. La marca es la columna excluded_from_metrics de drive.profiles — una cuenta marcada sin actividad en el horizonte de la consulta tampoco aparecería aquí."
+          "none_marked": "El filtro de cuentas internas está activo y no está quitando a nadie: ninguna cuenta marcada aparece en esta consulta."
         },
         "kpi": {
           "accounts_scored": "Cuentas que puntuaron",
@@ -439,7 +438,8 @@
           "manual_listens_subtitle": "quien paga no registra visita",
           "indeterminate": "Visitas sin trigger point identificado",
           "indeterminate_subtitle": "área o id perdido — indistinguibles",
-          "no_meter": "sin medidor en el período"
+          "no_meter": "sin medidor en el período",
+          "streak_value": "{count} (máx. {days}/7)"
         },
         "group": {
           "official": "Marcador oficial",
@@ -475,7 +475,8 @@
           "delta_unknown": "no clasifica con el peso 2",
           "open_sessions": "ver las sesiones de {person}",
           "podium_weeks": "Semanas de podio",
-          "podium_months": "Meses de podio"
+          "podium_months": "Meses de podio",
+          "totals_filtered": "{count} de {total} filas"
         },
         "row": {
           "notable_triggers": "Disparos en POI notable",
@@ -513,7 +514,8 @@
           "scored": "Puntuaron",
           "charged_without_trigger": "Cobrado sin disparo",
           "charged": "Con cobro",
-          "gap_over_60": "Diferencia superior a 60 min"
+          "gap_over_60": "Diferencia superior a 60 min",
+          "comparisons": "Comparaciones"
         },
         "empty": {
           "period": "Nadie puntuó en {period}.",

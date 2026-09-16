@@ -73,6 +73,7 @@ import {
   type SortState,
 } from '@/components/ui/dense-table'
 import { StatCard, StatCardRow } from '@/components/ui/StatCard'
+import { cn } from '@/lib/utils'
 import type { RpcError } from '@/lib/api/dashboard-fetch'
 import { AppUserLink } from '@/components/dashboard/AppUserLink'
 import { CountryFlag } from '@/components/ui/CountryFlag'
@@ -119,6 +120,17 @@ type SortKey =
   | 'charged_minutes'
   | 'trail_span_minutes'
   | 'metering_gap_minutes'
+
+/**
+ * The four sortable columns that live behind the `Comparações` switch (§11.2). `points_from_km`
+ * is NOT one of them: it is a parcel of `points_official` and stays in the primary group.
+ */
+const COMPARISON_SORT_KEYS: SortKey[] = [
+  'points_notable_weighted',
+  'charged_minutes',
+  'trail_span_minutes',
+  'metering_gap_minutes',
+]
 
 type ChipKey = 'all' | 'scored' | 'charged_without_trigger'
 
@@ -177,7 +189,23 @@ export function RankingScoreboard({
   const locale = useLocale()
 
   const [sort, setSort] = useState<SortState<SortKey> | null>(null)
-  const [chip, setChip] = useState<ChipKey>('all')
+  /**
+   * THE TABLE IS BORN FILTERED — §11.2.
+   *
+   * Eleven of sixteen accounts are zero in every cell, and with `Todas` as the default they were
+   * the first eleven lines of the scoreboard: the five rows that ARE the scoreboard started below
+   * the fold. Nothing is lost by it — the whole population goes on being printed in the chip
+   * beside this one, `Todas 16`, and one click brings it back.
+   */
+  const [chip, setChip] = useState<ChipKey>('scored')
+  /**
+   * THE FIVE COMPARISON COLUMNS ARE BORN COLLAPSED — §11.2, `DS-COMPONENTE-083` item 3.
+   *
+   * They exist to CHECK a number, not to be read every day: `Pts peso 2` is deferred by the
+   * operator's own decision (#737, decision 2) and the three time columns qualify an axis that
+   * stopped scoring in #749. Twelve columns never fitted 1280 px; seven do.
+   */
+  const [showComparisons, setShowComparisons] = useState(false)
   const [expanded, setExpanded] = useState<string | null>(null)
 
   /**
@@ -269,6 +297,16 @@ export function RankingScoreboard({
   const activeChip: ChipKey =
     isComposed && chip === 'charged_without_trigger' ? 'all' : chip
 
+  /**
+   * COLLAPSING THE COMPARISONS DROPS AN ORDERING THAT CAME FROM THEM. A table ordered by a column
+   * nobody can see is the `#` column lying by omission — and `caption.sorting`, which renders
+   * exactly while an ordering is active, would be answering a click about a column that is gone.
+   */
+  function toggleComparisons(open: boolean) {
+    setShowComparisons(open)
+    if (!open && sort !== null && COMPARISON_SORT_KEYS.includes(sort.key)) setSort(null)
+  }
+
   const counts = useMemo(
     () => ({
       all: shown.length,
@@ -302,6 +340,18 @@ export function RankingScoreboard({
   }, [shown, activeChip, sort, includeInternal])
 
   const totals = useMemo(() => summarize(tableRows), [tableRows])
+
+  /**
+   * O RODAPÉ SOMA AS LINHAS VISÍVEIS, E DIZ QUANTAS DE QUANTAS — §11.2.
+   *
+   * Com a tabela nascendo em `Pontuaram`, um rodapé que afirmasse `5 linhas` estaria afirmando um
+   * total que não é o da consulta: são 5 de 16, e a diferença é exatamente o que o chip escondeu.
+   * Sem filtro as duas contagens coincidem e a frase volta a ser a de sempre.
+   */
+  const footerLabel =
+    activeChip === 'all'
+      ? t('table.totals', { count: totals.rowCount })
+      : t('table.totals_filtered', { count: totals.rowCount, total: counts.all })
 
   function toggle(key: SortKey) {
     setSort((current) =>
@@ -351,7 +401,7 @@ export function RankingScoreboard({
    */
   const columnCount = isComposed
     ? 4 + (includeInternal ? 1 : 0)
-    : 12 + (isWeek ? 0 : -1) + (includeInternal ? 1 : 0)
+    : 6 + (isWeek ? 1 : 0) + (includeInternal ? 1 : 0) + (showComparisons ? 5 : 0)
 
   /**
    * THE HEADER OF THE COMPOSITION COLUMN IS A DIFFERENT UNIT IN EACH CYCLE — contract, Parte 7:
@@ -370,62 +420,77 @@ export function RankingScoreboard({
     timeZone: 'UTC',
   }).format(new Date(ENTITLEMENT_LEDGER_START))
 
-  return (
-    <div className="space-y-6">
-      {/* THE RULER OF THE SIX NUMBERS BELOW, AND IT LIVES GLUED TO THEM — `DS-COPY-062` item 3.
-          It used to sit inside the switch block, ~200px away in the top-right corner, while the
-          contradiction it explains (`Contas que pontuaram: 2` against the chip `Todas: 3`) was
-          down here. A population restriction is part of the label, which means next to the
-          quantity and not once somewhere on the screen.
+  /**
+   * WITH ONE GROUP LEFT, THE BAND OF GROUPS DOES NOT RENDER — §11.2, and that is 28 px and one
+   * sticky layer less. `PLACAR OFICIAL` written over the only thing on the screen is a tautology,
+   * and the geometry that broke in `es` (§7.5, #752) leaves the default state with it.
+   *
+   * `HEAD` sticks at `top-7` because `GROUP` is `h-7` — two numbers that are only right together
+   * (`DS-COMPONENTE-081`), and `dense-table.tsx` is not touched here because the financial table
+   * owns it too. With no band above it the offset has to be `top-0`, and `cn` is what makes that
+   * a real override: two `top-*` utilities in one class list are resolved by Tailwind's own file
+   * order, not by which one was written last, so `top-7` would win a plain concatenation.
+   */
+  const headClass = showComparisons ? HEAD : cn(HEAD, 'top-0')
+  const headNumClass = showComparisons ? HEAD_NUM : cn(HEAD_NUM, 'top-0')
 
-          With the switch off it does not exist: the two populations coincide and the line would
-          be noise in every normal reading of the screen. It is not a warning either — no icon,
-          no coloured band, so it does not compete with the two amber ones this screen can
-          raise. */}
+  /**
+   * NO MÁXIMO UM AVISO, E É O PRIMEIRO QUE VALER — §11.2. A ordem é a do dano:
+   *
+   * 1. o erro de leitura apaga toda a tela; 2. o instrumento de km muda como `Pontos` se lê, porque
+   * o quilômetro é parcela de `points_official` (**BR-RANKING-004**); 3. as internas mudam QUEM
+   * está na lista; 4. o medidor de minuto qualifica três colunas que agora nascem recolhidas.
+   *
+   * `internal.none_marked` continua sem dizer "ninguém está marcado" — só que nenhuma conta
+   * marcada apareceu NESTA consulta (§2.2, critério 20). E continua precisando de uma leitura
+   * para ser condição de alguma coisa: `internalAccounts` também chega `0` quando a requisição
+   * falhou, e `0` de leitura que não aconteceu não é achado.
+   */
+  const diagnostic: { kind: 'error' | 'warning'; text: string } | null = error
+    ? { kind: 'error', text: error.code === '42501' ? t('error.forbidden') : t('error.title') }
+    : kmCov !== 'full'
+      ? {
+          kind: 'warning',
+          text: t(kmCov === 'none' ? 'meter.km_floor' : 'meter.km_partial', {
+            date: entitlementLedgerDate,
+          }),
+        }
+      : didRead && !includeInternal && internalAccounts === 0
+        ? { kind: 'warning', text: t('internal.none_marked') }
+        : coverage !== 'full'
+          ? { kind: 'warning', text: coverage === 'none' ? t('meter.none') : t('meter.partial') }
+          : null
+
+  return (
+    <div className="space-y-4">
       {/* THE QUERY ANSWERED SOMETHING ELSE, AND IT IS A CONDITION OF EVERY NUMBER BELOW — so it
-          comes before all of them, and not next to the one it happens to contradict. */}
+          comes before all of them, and not next to the one it happens to contradict. It is not in
+          the priority of §11.2 because it does not qualify the TABLE: it says the whole page is
+          about another period, and it costs nothing in the default reading, where the query
+          answers what the control asked. */}
       {didRead && servedDiffers && !isLoading && served && (
-        <p className="flex items-start gap-2 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-xs text-amber-700 dark:border-amber-900/50 dark:bg-amber-900/20 dark:text-amber-300">
+        <p className="flex items-start gap-2 rounded-xl border border-amber-200 bg-amber-50 px-4 py-2 text-xs text-amber-700 dark:border-amber-900/50 dark:bg-amber-900/20 dark:text-amber-300">
           <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" aria-hidden="true" />
           {t('period.served_differs', { pedido: periodLabel, servido: served.label })}
         </p>
       )}
 
       <div className="space-y-1.5">
-        {/* THE PERIOD THE NUMBERS BELONG TO, PRINTED WHERE THEY ARE — and it is the period the
-            QUERY SERVED, not the one the `<select>` shows. The control is the operator's own
-            gesture and reads as "what I asked for"; nothing on the screen said what came back,
-            which is how three different weeks could be read one after another showing the same
-            numbers with nothing to denounce it (#741, fixed in 53d674a).
-
-            It needs a read to stamp: with none served, or with another one in flight, the period
-            and the count would be the previous answer wearing the face of the new one — the same
-            defect the chips below had. */}
-        {didRead && served && !isLoading && (
-          /* THE NATURE TRAVELS WITH THE NUMBERS, NOT ONLY WITH THE CONTROL — `DS-COMPONENTE-089`
-             item 2, which is `DS-COMPONENTE-085` item 1 applied to a second property of the
-             period. And it is the nature of the period the query SERVED, like the dates beside
-             it: a control reads as *what I asked for*, never as *what I got*. */
-          <p className="text-[11px] font-medium text-gray-600 dark:text-gray-300">
-            {t('period.stamp', {
-              period: served.label,
-              nature: t(`period.nature_${periodNature(served.period.kind)}`),
-              count: rows.length,
-            })}
-          </p>
-        )}
+        {/* THE RULER OF THE NUMBERS BELOW, AND IT LIVES GLUED TO THEM — `DS-COPY-062` item 3,
+            spec §9 critério 20. With the switch OFF it does not exist: the two populations
+            coincide and the line would be noise in every normal reading of the screen. */}
         {didRead && includeInternal && (
           <p className="text-[11px] text-gray-500 dark:text-gray-400">
             {t('internal.aggregates_note')}
           </p>
         )}
-        {/* IN A COMPOSED CYCLE THE BAND PRINTS A COUNT AND NEVER A RATIO — spec §4.8. The
-            `Disparo ÷ km` card would divide two rulers (its parcels are summed only over the
-            podium weeks), and the streak card is a property of the weekly cycle by construction.
-            Cards 4, 5 and 6 come back when Parte 7 declares that the columns behind them sum the
-            whole cycle; until it does, they do not render. Card 1 — `points_official > 0` — holds
-            in all five periods and stays. */}
-        <StatCardRow columns={isComposed ? 2 : 6}>
+        {/* TWO CARDS, AND OS OUTROS QUATRO VIRAM PARES — §11.2.
+            Seis `StatCard` custavam 150 px para dizer quatro coisas que cabem em quatro linhas de
+            13 px, três delas marcando zero. Ficam com cartão os dois que o operador lê primeiro:
+            `Contas que pontuaram`, que é o número de conferência, e `Disparo ÷ km`, que é a
+            métrica do épico. Em ciclo composto sobra o primeiro — os outros cinco dividem réguas
+            que §4.8 não deixa somar. */}
+        <StatCardRow columns={isComposed ? 2 : 4}>
           <StatCard
             icon={Users}
             size="compact"
@@ -435,10 +500,8 @@ export function RankingScoreboard({
             value={measured(summary.accountsScored)}
             /* THE SPLIT IS A SUM, SO IT HAS TO CLOSE — `33 android · 31 ios` under a card saying
                `82` reads as 18 accounts lost somewhere. They are the accounts that entered the
-               period only by charge, which carry no platform (contract, Parte 7), and
-               `caption.platform` already says what an empty platform means: the third term needs
-               no second explanation, only a number. It is omitted at zero, where the two terms
-               already add up and the word would be noise. */
+               period only by charge, which carry no platform (contract, Parte 7). It is omitted
+               at zero, where the two terms already add up and the word would be noise. */
             subtitle={note(
               [
                 ...summary.byPlatform.map((entry) => `${entry.accounts} ${entry.platform}`),
@@ -449,155 +512,123 @@ export function RankingScoreboard({
             )}
           />
           {!isComposed && (
-          <StatCard
-            icon={Scale}
-            size="compact"
-            isLoading={isLoading}
-            color={TUGGI_COLORS.purple}
-            label={t('kpi.ratio')}
-            /* THE TWO PARCELS OF THE SCORE, AND THE METER IS NEITHER OF THEM. This card used to
-               divide trigger points by MINUTE points, which made it depend on the coverage of
-               `drive.time_credit_consumption`: that ledger opens partway through the horizon (the
-               date has one owner, `lib/ranking/metering.ts`), so over a window the meter only half
-               covers the fraction divided a numerator measured over 30 days by a denominator
-               measured over 25 and came out ~3,5× high.
-
-               The minute axis no longer scores (**BR-RANKING-004** item 2), so the meter stopped
-               being a condition of this number. Both sides are now the two parcels the view adds
-               up into `points_official`, and it computes them for every period it serves —
-               keeping the gate would be the very confusion the contract names by hand: column 12
-               is the calibration instrument, columns 16 and 30 are the score.
-
-               A zero denominator stays UNKNOWN (`DS-COMPONENTE-084` item 2): a period where
-               nobody drove with entitlement divides by nothing, and `∞` is not a reading. */
-            value={measured(
-              kmCov === 'full' ? formatRatio(summary.triggerToKmRatio, locale) : UNKNOWN_VALUE
-            )}
-            /* THE TWO TOTALS ALWAYS PRINT; THE FRACTION DOES NOT — `DS-COMPONENTE-084` item 2
-               forbids the fraction, never the totals. Under partial or floor coverage the km
-               side carries the floor word — `calibration.floor`, whose only consumer this became
-               when the panel of §3.2 left the screen (§11.1). The key survived the removal of its
-               namespace precisely because this `subtitle` and the cell mark still say `(piso)`. */
-            subtitle={note(
-              t('kpi.ratio_subtitle', {
-                triggers: points(summary.pointsFromTriggers),
-                km:
-                  kmCov === 'full'
-                    ? points(summary.pointsFromKm)
-                    : `${points(summary.pointsFromKm)} (${t('calibration.floor')})`,
-              })
-            )}
-          />
-          )}
-          {!isComposed && isWeek && (
             <StatCard
-              icon={Flame}
+              icon={Scale}
               size="compact"
               isLoading={isLoading}
-              color={TUGGI_COLORS.orange}
-              label={t('kpi.streak')}
-              value={measured(t('kpi.accounts', { count: summary.streakAccounts }))}
-              subtitle={note(t('kpi.streak_subtitle', { days: summary.maxStoryDays }))}
+              color={TUGGI_COLORS.purple}
+              label={t('kpi.ratio')}
+              /* THE TWO PARCELS OF THE SCORE, AND THE METER IS NEITHER OF THEM. The minute axis no
+                 longer scores (**BR-RANKING-004** item 2), so the meter stopped being a condition
+                 of this number: both sides are the two parcels the view adds up into
+                 `points_official`, and it computes them for every period it serves.
+
+                 A zero denominator stays UNKNOWN (`DS-COMPONENTE-084` item 2): a period where
+                 nobody drove with entitlement divides by nothing, and `∞` is not a reading. */
+              value={measured(
+                kmCov === 'full' ? formatRatio(summary.triggerToKmRatio, locale) : UNKNOWN_VALUE
+              )}
+              /* THE TWO TOTALS ALWAYS PRINT; THE FRACTION DOES NOT — `DS-COMPONENTE-084` item 2
+                 forbids the fraction, never the totals. Under partial or floor coverage the km
+                 side carries the floor word — `calibration.floor`, whose only consumer this became
+                 when the panel of §3.2 left the screen (§11.1). */
+              subtitle={note(
+                t('kpi.ratio_subtitle', {
+                  triggers: points(summary.pointsFromTriggers),
+                  km:
+                    kmCov === 'full'
+                      ? points(summary.pointsFromKm)
+                      : `${points(summary.pointsFromKm)} (${t('calibration.floor')})`,
+                })
+              )}
             />
           )}
+          {/* O BLOCO LISO — quatro grandezas, nenhum ícone, nenhum `subtitle`: o rótulo já diz o
+              que a grandeza conta (`DS-COPY-062` item 3). **Zero fica, e fica em `DIM`** — zero é
+              a resposta, e omitir confunde *é zero* com *não medi* (`DS-COMPONENTE-084` item 1).
+              A exceção é a sequência, que leva o máximo no próprio valor: `0 (máx. 4/7)` é o que
+              impede o zero de parecer defeito do instrumento. */}
           {!isComposed && (
-          <StatCard
-            icon={Clock}
-            size="compact"
-            isLoading={isLoading}
-            color={TUGGI_COLORS.red}
-            label={t('kpi.charged_without_trigger')}
-            value={measured(
-              hasMeter ? t('kpi.accounts', { count: summary.chargedWithoutTrigger }) : UNKNOWN_VALUE
-            )}
-            subtitle={note(
-              hasMeter ? t('kpi.charged_without_trigger_subtitle') : t('kpi.no_meter')
-            )}
-          />
-          )}
-          {/* The caveat is PART OF THE LABEL and comes from the same key the expanded row reads —
-              `DS-COPY-062` items 3 and 4. Manual listening by a paying account records no visit at
-              all (two independent gates in the app), so this number measures one tier. */}
-          {!isComposed && (
-          <StatCard
-            icon={Headphones}
-            size="compact"
-            isLoading={isLoading}
-            color={TUGGI_COLORS.green}
-            label={t('kpi.manual_listens')}
-            value={measured(summary.manualListens)}
-            subtitle={note(t('kpi.manual_listens_subtitle'))}
-          />
-          )}
-          {/* No percentage here, ever: `trigger_points_fired` is deduplicated by (session, POI) and
-              this count is not, so the two do not form a fraction (`DS-COMPONENTE-084` item 2). */}
-          {!isComposed && (
-          <StatCard
-            icon={MapPin}
-            size="compact"
-            isLoading={isLoading}
-            color={TUGGI_COLORS.blue}
-            label={t('kpi.indeterminate')}
-            value={measured(summary.visitsIndeterminate)}
-            subtitle={note(t('kpi.indeterminate_subtitle'))}
-          />
+            <div className="col-span-2 h-full rounded-xl border border-gray-200 bg-white p-3 dark:border-gray-800 dark:bg-gray-900">
+              <dl className="grid grid-cols-2 gap-x-6 gap-y-1.5">
+                {isWeek && (
+                  <Term
+                    label={t('kpi.streak')}
+                    value={measured(
+                      t('kpi.streak_value', {
+                        count: summary.streakAccounts,
+                        days: summary.maxStoryDays,
+                      })
+                    )}
+                    isZero={summary.streakAccounts === 0}
+                  />
+                )}
+                <Term
+                  label={t('kpi.charged_without_trigger')}
+                  value={measured(
+                    hasMeter
+                      ? t('kpi.accounts', { count: summary.chargedWithoutTrigger })
+                      : UNKNOWN_VALUE
+                  )}
+                  isZero={hasMeter && summary.chargedWithoutTrigger === 0}
+                />
+                {/* The caveat is PART OF THE LABEL and comes from the same key the expanded row
+                    reads — `DS-COPY-062` items 3 and 4. */}
+                <Term
+                  label={t('kpi.manual_listens')}
+                  value={measured(summary.manualListens)}
+                  isZero={summary.manualListens === 0}
+                />
+                {/* No percentage here, ever: `trigger_points_fired` is deduplicated by (session,
+                    POI) and this count is not, so the two do not form a fraction
+                    (`DS-COMPONENTE-084` item 2). */}
+                <Term
+                  label={t('kpi.indeterminate')}
+                  value={measured(summary.visitsIndeterminate)}
+                  isZero={summary.visitsIndeterminate === 0}
+                />
+              </dl>
+            </div>
           )}
         </StatCardRow>
       </div>
 
-      {/* THE STATE THAT MUST NOT PASS IN SILENCE. The switch is off and it is removing nobody:
-          without this band the screen shows an unfiltered scoreboard wearing the face of a
-          filtered one. A band and not a tooltip — it is a condition of the whole reading.
-
-          IT NEEDS A READING TO BE A CONDITION OF. `internalAccounts` also arrives `0` when the
-          request failed, and the sentence — *no marked account appears in THIS READ* — then
-          describes a read that never happened; the two above it do the same. Both say `0` for
-          the same reason the indicators did, and `0` from a failed read is not a finding. */}
-      {didRead && !includeInternal && internalAccounts === 0 && (
-        <p className="flex items-start gap-2 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-xs text-amber-700 dark:border-amber-900/50 dark:bg-amber-900/20 dark:text-amber-300">
-          <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" aria-hidden="true" />
-          {t('internal.none_marked')}
-        </p>
-      )}
-
-      {coverage !== 'full' && (
-        <p className="flex items-start gap-2 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-xs text-amber-700 dark:border-amber-900/50 dark:bg-amber-900/20 dark:text-amber-300">
-          <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" aria-hidden="true" />
-          {coverage === 'none' ? t('meter.none') : t('meter.partial')}
-        </p>
-      )}
-
-      {/* THE SECOND BAND, AND THE TWO COEXIST — different windows, different boundaries (§7.7).
-          It says something the minute band never says: the POINTS of this period are a floor, and
-          the ORDER can change when the instrument appears, because the kilometre is a parcel of
-          `points_official` (**BR-RANKING-004**). The date comes from the constant through
-          `{date}` — a date typed into a string is a second owner of a fact the code already has
-          (spec §9, critério 39). */}
-      {kmCov !== 'full' && (
-        <p className="flex items-start gap-2 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-xs text-amber-700 dark:border-amber-900/50 dark:bg-amber-900/20 dark:text-amber-300">
-          <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" aria-hidden="true" />
-          {t(kmCov === 'none' ? 'meter.km_floor' : 'meter.km_partial', {
-            date: entitlementLedgerDate,
-          })}
-        </p>
-      )}
-
-      {/* Error is NOT empty, and never looks like it: an empty table after a failed request is
-          the screen asserting "nobody scored" when the truth is "I do not know". */}
-      {error && (
-        <div className="flex flex-wrap items-center gap-3 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-xs text-red-700 dark:border-red-900/50 dark:bg-red-900/20 dark:text-red-300">
-          <span>{error.code === '42501' ? t('error.forbidden') : t('error.title')}</span>
-          <button
-            type="button"
-            onClick={onRetry}
-            className="min-h-[24px] rounded-lg border border-red-300 px-2 py-0.5 font-semibold hover:bg-red-100 dark:border-red-800 dark:hover:bg-red-900/40"
-          >
-            {t('error.retry')}
-          </button>
-        </div>
-      )}
-
       <section className="overflow-hidden rounded-3xl border border-gray-200 bg-white/70 shadow-2xl shadow-black/5 backdrop-blur-xl dark:border-gray-800 dark:bg-gray-900/70">
+        {/* UM AVISO POR VEZ, SEMPRE UMA LINHA, E DENTRO DO CARTÃO DA TABELA — §11.2.
+            Quatro faixas de 58 px empilhadas acima dos números eram 232 px de altura possível
+            para qualificar uma tabela que ninguém alcançava. A ordem é a do DANO, não a do
+            código: o erro apaga a leitura inteira, o km muda como `Pontos` se lê, as internas
+            mudam QUEM está na lista, e o minuto qualifica três colunas que agora nascem
+            recolhidas. O suprimido não some do produto — o piso do km segue marcado no `subtitle`
+            do cartão 2, e o medidor de minuto segue imprimindo `—` nas células dele. */}
+        {diagnostic && (
+          <div
+            data-testid="ranking-diagnostic"
+            className={`flex items-center gap-2 border-b px-5 py-2 text-xs ${
+              diagnostic.kind === 'error'
+                ? 'border-red-200 bg-red-50 text-red-700 dark:border-red-900/50 dark:bg-red-900/20 dark:text-red-300'
+                : 'border-amber-200 bg-amber-50 text-amber-700 dark:border-amber-900/50 dark:bg-amber-900/20 dark:text-amber-300'
+            }`}
+          >
+            <AlertTriangle className="h-4 w-4 shrink-0" aria-hidden="true" />
+            {/* `truncate` é o que torna "uma linha" estrutural e não disciplina de quem escreve a
+                frase: `meter.km_floor` mede ~1.500 px a 12 px e quebraria em duas a 1280. O texto
+                inteiro continua no DOM — o leitor de tela o recebe completo — e no `title`. */}
+            <span className="truncate" title={diagnostic.text}>
+              {diagnostic.text}
+            </span>
+            {diagnostic.kind === 'error' && (
+              <button
+                type="button"
+                onClick={onRetry}
+                className="ml-1 min-h-[24px] shrink-0 rounded-lg border border-red-300 px-2 py-0.5 font-semibold hover:bg-red-100 dark:border-red-800 dark:hover:bg-red-900/40"
+              >
+                {t('error.retry')}
+              </button>
+            )}
+          </div>
+        )}
+
         {/* A CHIP WITH A NUMBER IS AN ASSERTION, and the number is a count of the read. With no
             read the chips stay — they are the filter, and the filter is the operator's, not the
             server's — but they count nothing. `Todas: 0` under a red band is the same lie the
@@ -628,92 +659,46 @@ export function RankingScoreboard({
               {t('filters.charged_without_trigger')}
             </FilterChip>
           )}
+          {/* O INTERRUPTOR DAS CINCO COLUNAS DE COMPARAÇÃO — §11.2. Tem a forma de
+              `Incluir contas internas`, e não a de um chip, porque ele não filtra linha: muda
+              QUANTAS COLUNAS a tabela tem. Não existe em ciclo composto, onde as colunas de
+              comparação não renderizam em estado nenhum (§4.8). */}
+          {!isComposed && (
+            <label className="ml-auto flex items-center gap-2 text-[11px] font-medium text-gray-600 dark:text-gray-400">
+              <input
+                type="checkbox"
+                data-testid="ranking-comparisons"
+                checked={showComparisons}
+                onChange={(event) => toggleComparisons(event.target.checked)}
+                className="h-4 w-4 rounded border-gray-300 text-tuggi-blue focus:ring-tuggi-blue dark:border-gray-700"
+              />
+              {t('filters.comparisons')}
+            </label>
+          )}
         </header>
 
-        {/* THE DECLARATION IS READ WHERE THE CELLS ARE — `DS-COMPONENTE-083` item 3, amended
-            2026-09-13, plus the measurement of #741: the same readings inside the `<caption>` sat
-            INSIDE the scroller, 66px tall up to a 1280px viewport, and left the screen on the
-            first vertical scroll while the two header bands stayed glued. The one that costs money
-            is `Intervalo de sinal no período`: sorting by `Diferença` — the sortable column of the
-            biggest numbers — puts `+67 h` rows on top, and without the sentence that says an open
-            session with sparse signal inflates the span without consuming balance, the operator
-            reads a revenue leak that does not exist.
+        {/* NENHUMA DECLARAÇÃO VOLTA COMO LINHA FIXA; UMA VOLTA CONDICIONAL — §11.1.
+            O bloco de seis parágrafos cinza media 152 px e negava leituras que o próprio rótulo
+            da coluna já nega. Esta frase é a exceção porque ela não define uma coluna: ela
+            responde um clique que o operador ACABOU de dar — `#` é um valor e ordenar não
+            renumera (`DS-COMPONENTE-082` item 3) — e a pergunta só existe depois do clique. Com
+            a ordenação no `#`, custa zero pixel.
 
-            FIVE declarations: `caption.country` is the third, and it is the one that keeps a
-            column of countries next to a column of people from being read as an attribute of the
-            person (§6.7). `caption.sorting` is the fifth and answers the wrong conclusion a click on
-            a column head invites — `#` is a value and sorting does not renumber it
-            (`DS-COMPONENTE-082` item 3) — so leaving it only in the `sr-only` caption put the one
-            sentence about the interaction out of reach of whoever performs the interaction.
-
-            One `<p>` per fact, the term in bold opening the line, and the SAME keys the caption
-            below carries, in the same order. The repetition is deliberate: the block is for the
-            eye and the `sr-only` caption is for the screen reader, which gets it before any cell —
-            deleting either half to "clean up the duplication" brings back one of the defects. */}
-        <div
-          data-testid="ranking-legend"
-          className="space-y-0.5 border-b border-gray-200 px-5 py-2.5 text-[11px] leading-snug text-gray-600 dark:border-gray-800 dark:text-gray-400"
-        >
-          {/* A COMPOSED CYCLE DECLARES THE QUANTITY AND NOT THE COLUMNS — the five sentences below
-              define columns that do not render there (`DS-COMPONENTE-089` item 3), and the one
-              thing the operator cannot infer from a column header is that `Pontos` stopped being
-              the formula of the period and became a sum over the podium weeks. The floor comes
-              from `PODIUM_POINTS_FLOOR` through `{floor}`: no `10` is typed into a string
-              (CLAUDE.md §6, spec §9 critério 29). The yearly caption names NO floor, and that is
-              deliberate — **BR-RANKING-003** is the floor of the WEEK, and a number the rule never
-              wrote would be the screen deciding a prize band. */}
-          {isComposed && (
-            <p>
-              {t.rich(period?.kind === 'year' ? 'caption.cycle_year' : 'caption.cycle_month', {
-                b: (chunks) => <strong>{chunks}</strong>,
-                floor: PODIUM_POINTS_FLOOR,
-              })}
-            </p>
-          )}
-          {!isComposed && (
-            <>
-          {/* NOT `caption.span`: since the trail span is CLIPPED to the period (contract
-              `banco-para-cms.md`, Parte 7), what the column sums is the part of each session's
-              interval that fell inside the selected period — and overlapping sessions of one
-              account can push the total past the period's own duration. `caption.span` keeps its
-              consumer in `RankingSessionMetering`, where the row IS the session and there is no
-              period boundary in the middle. */}
-          <p>{t.rich('caption.span_in_period', { b: (chunks) => <strong>{chunks}</strong> })}</p>
-          <p>{t.rich('caption.platform', { b: (chunks) => <strong>{chunks}</strong> })}</p>
-          {/* THE COLUMN THAT ANSWERS NEXT TO A QUESTION THE PRODUCT CANNOT ANSWER — the label
-              already says `País explorado` and never `País`, and this is where the denial lives:
-              it is not residence and it is not nationality (`DS-COMPONENTE-086` item 5,
-              BR-USUARIO-043 item 9). The two words appear here to be REFUSED, which is the only
-              place on the screen they may appear (spec §9, critério 24). The sentence also says
-              what empty means, because `null` is "does not resolve" and this table spells "zero"
-              a different way everywhere else. */}
-          <p>{t.rich('caption.country', { b: (chunks) => <strong>{chunks}</strong> })}</p>
-          {/* THE POPULATION OF THE COMPARISON LIVES HERE, and not in the group label — the band
-              of groups has a fixed 28px and the band of column names sticks 28px below it, so a
-              label carrying `(posição entre todas as contas)` wrapped and hid the thirteen column
-              names (#752). Without this line the delta has a baseline nobody stated (item 2). */}
-          {/* THE COLUMN WHOSE NAME IS A KILOMETRE AND WHOSE NUMBER IS NOT EVERY KILOMETRE — and
-              the gap was measured, so it is not a precaution: **17,2%** of the kilometre driven
-              with the guide on carried no entitlement and is not in the column, and 34,6% of the
-              raw kilometre is GPS artefact the view discards (**BR-RANKING-004** items 4 and 7).
-              On a screen where the operator decides a prize, `Pts de km` with no sentence next to
-              it reads as distance travelled. PROVISIONAL COPY: the wording is the `design`'s, and
-              this line is what says the true thing until he writes the better one. */}
-          <p>{t.rich('caption.km', { b: (chunks) => <strong>{chunks}</strong> })}</p>
-          <p>{t.rich('caption.notable', { b: (chunks) => <strong>{chunks}</strong> })}</p>
-            </>
-          )}
-          {/* No `<b>`: the sentence has no term to define, it denies a consequence. It survives
-              in the composed cycles because `Pontos` is still sortable there and the wrong
-              conclusion a click invites is the same one. */}
-          <p>{t('caption.sorting')}</p>
-        </div>
+            As seis continuam inteiras no `<caption className="sr-only">` abaixo: ele não custa
+            pixel nenhum e é o que um leitor de tela recebe antes da primeira célula. */}
+        {sort !== null && (
+          <p className="border-b border-gray-200 px-5 py-1.5 text-[11px] leading-snug text-gray-600 dark:border-gray-800 dark:text-gray-400">
+            {t('caption.sorting')}
+          </p>
+        )}
 
         <DenseTableScroller>
-          {/* The floor dropped with the `Plataforma` column: the width is a floor for narrow
-              viewports, not the natural width, and keeping the old one would spend on nothing the
-              ~110px the column gave back. */}
-          <table className="w-full min-w-[930px] border-collapse">
+          {/* O PISO DE LARGURA VALE SÓ COM AS COMPARAÇÕES ABERTAS — §11.2. Ele é um piso para
+              janela estreita, não a largura natural; com sete colunas a tabela cabe em 1280 px
+              sem rolagem lateral, e impor um mínimo ali seria criar a rolagem que §11 tira. */}
+          <table
+            className={`w-full border-collapse ${showComparisons ? 'min-w-[1040px]' : ''}`}
+          >
             {/* Same five declarations, same order, for whoever does not see the block above —
                 a `<caption>` is what a screen reader announces before the first cell. */}
             <caption className="sr-only">
@@ -769,6 +754,12 @@ export function RankingScoreboard({
                 </>
               ) : (
                 <>
+              {/* COM UM GRUPO SÓ, A FAIXA NÃO RENDERIZA — §11.2. Ela existe para NOMEAR grupos, e
+                  com as comparações recolhidas sobra um: `PLACAR OFICIAL` sobre a única coisa da
+                  tela é tautologia. São 28 px e uma camada grudada a menos, e a geometria que
+                  quebra em `es` (§7.5, #752) sai do estado padrão. O deslocamento de `HEAD`
+                  acompanha, por `headClass`. */}
+              {showComparisons && (
               <tr>
                 {/* The block with no group: `#`, optionally `sem internas`, `Pessoa` and
                     `País explorado` — identity, never score. */}
@@ -801,35 +792,48 @@ export function RankingScoreboard({
                   {t('group.time')}
                 </th>
               </tr>
+              )}
               <tr>
-                <th scope="col" className={`${HEAD} text-right`}>
+                <th scope="col" className={`${headClass} text-right`}>
                   {t('table.rank')}
                 </th>
                 {includeInternal && (
-                  <th scope="col" className={`${HEAD} text-right`}>
+                  <th scope="col" className={`${headClass} text-right`}>
                     {t('table.rank_excluding_internal')}
                   </th>
                 )}
-                <th scope="col" className={HEAD}>
+                <th scope="col" className={headClass}>
                   {t('table.person')}
                 </th>
                 {/* NOT SORTABLE, and the omission is the same one `Plataforma` had: categorical
                     over 13 rows, and §4.3 does not list it. The header is allowed to wrap — that
                     is what keeps the width at `explorado` and not at `País explorado`. */}
-                <th scope="col" className={HEAD}>
+                <th scope="col" className={headClass}>
                   {t('table.country')}
                 </th>
-                {head('points_official', t('table.points'), `${HEAD_NUM} ${EDGE}`)}
-                {head('trigger_points_fired', t('table.triggers'), HEAD_NUM)}
-                {head('points_from_km', t('table.points_from_km'), HEAD_NUM)}
-                {isWeek && head('story_days', t('table.streak'), HEAD_NUM)}
-                {head('points_notable_weighted', t('table.notable_points'), `${HEAD_NUM} ${EDGE}`)}
-                <th scope="col" className={HEAD_NUM}>
-                  {t('table.rank_delta')}
-                </th>
-                {head('charged_minutes', t('table.charged'), `${HEAD_NUM} ${EDGE}`)}
-                {head('trail_span_minutes', t('table.trail_span_in_period'), HEAD_NUM)}
-                {head('metering_gap_minutes', t('table.gap'), HEAD_NUM)}
+                {head('points_official', t('table.points'), `${headNumClass} ${EDGE}`)}
+                {head('trigger_points_fired', t('table.triggers'), headNumClass)}
+                {head('points_from_km', t('table.points_from_km'), headNumClass)}
+                {isWeek && head('story_days', t('table.streak'), headNumClass)}
+                {showComparisons && (
+                  <>
+                    {head(
+                      'points_notable_weighted',
+                      t('table.notable_points'),
+                      `${headNumClass} ${EDGE}`
+                    )}
+                    <th scope="col" className={headNumClass}>
+                      {t('table.rank_delta')}
+                    </th>
+                    {head('charged_minutes', t('table.charged'), `${headNumClass} ${EDGE}`)}
+                    {head(
+                      'trail_span_minutes',
+                      t('table.trail_span_in_period'),
+                      headNumClass
+                    )}
+                    {head('metering_gap_minutes', t('table.gap'), headNumClass)}
+                  </>
+                )}
               </tr>
                 </>
               )}
@@ -940,10 +944,25 @@ export function RankingScoreboard({
                     )
                   }
 
+                  /**
+                   * A LINHA ZERADA RECUA, E SÓ ISSO — §11.2. Fundo ou borda numa tabela densa
+                   * viram faixa; a tinta recuada é o degrau que deixa as cinco que pontuaram
+                   * saltarem de uma coluna de zeros. **Ela nunca some**: zero é resposta, e o
+                   * chip `Pontuaram` é quem a tira da tela, por escolha do operador.
+                   *
+                   * As variantes com `&` são o que faz o recuo alcançar a célula: `CELL` e `NUM`
+                   * declaram a própria cor, então herança de `<tr>` não chegaria a nenhuma delas.
+                   */
+                  const dimmed = activeChip === 'all' && row.points_official <= 0
+
                   return (
                     <Fragment key={row.user_id}>
                       <tr
-                        className="border-t border-gray-100 hover:bg-gray-50/70 dark:border-gray-800 dark:hover:bg-gray-800/40"
+                        className={`border-t border-gray-100 hover:bg-gray-50/70 dark:border-gray-800 dark:hover:bg-gray-800/40 ${
+                          dimmed
+                            ? '[&_td]:text-gray-500 [&_th]:text-gray-500 dark:[&_td]:text-gray-400 dark:[&_th]:text-gray-400'
+                            : ''
+                        }`}
                       >
                         <td className={`${NUM} pr-0`}>
                           {/* THE SEAL PAYS FOR ITS OWN WIDTH, and the gap is where it finds it.
@@ -1045,31 +1064,35 @@ export function RankingScoreboard({
                           </td>
                         )}
 
-                        <td className={`${NUM} ${EDGE} ${DIM}`}>
-                          {points(row.points_notable_weighted)}
-                        </td>
-                        <td className={NUM}>
-                          <RankDeltaCell row={row} />
-                        </td>
+                        {showComparisons && (
+                          <>
+                            <td className={`${NUM} ${EDGE} ${DIM}`}>
+                              {points(row.points_notable_weighted)}
+                            </td>
+                            <td className={NUM}>
+                              <RankDeltaCell row={row} />
+                            </td>
 
-                        <td className={`${NUM} ${EDGE}`}>{minutes(row.charged_minutes)}</td>
-                        <td className={NUM}>{formatDuration(row.trail_span_minutes)}</td>
-                        {/* The difference is signed in both directions and the cell is the door
-                            to tab 2, where the tail of the divergence actually lives. */}
-                        <td className={NUM}>
-                          {hasMeter ? (
-                            <button
-                              type="button"
-                              onClick={() => onOpenSessions(row)}
-                              title={t('table.open_sessions', { person })}
-                              className="min-h-[24px] underline-offset-2 hover:underline focus-visible:underline"
-                            >
-                              {formatSignedDuration(row.metering_gap_minutes)}
-                            </button>
-                          ) : (
-                            UNKNOWN_VALUE
-                          )}
-                        </td>
+                            <td className={`${NUM} ${EDGE}`}>{minutes(row.charged_minutes)}</td>
+                            <td className={NUM}>{formatDuration(row.trail_span_minutes)}</td>
+                            {/* The difference is signed in both directions and the cell is the
+                                door to tab 2, where the tail of the divergence actually lives. */}
+                            <td className={NUM}>
+                              {hasMeter ? (
+                                <button
+                                  type="button"
+                                  onClick={() => onOpenSessions(row)}
+                                  title={t('table.open_sessions', { person })}
+                                  className="min-h-[24px] underline-offset-2 hover:underline focus-visible:underline"
+                                >
+                                  {formatSignedDuration(row.metering_gap_minutes)}
+                                </button>
+                              ) : (
+                                UNKNOWN_VALUE
+                              )}
+                            </td>
+                          </>
+                        )}
                       </tr>
 
                       {isOpen && (
@@ -1184,7 +1207,7 @@ export function RankingScoreboard({
                     className={`${CELL} text-left font-bold text-gray-900 dark:text-white`}
                     colSpan={includeInternal ? 3 : 2}
                   >
-                    {t('table.totals', { count: totals.rowCount })}
+                    {footerLabel}
                   </th>
                   <td className={`${NUM} ${EDGE} font-bold text-gray-900 dark:text-white`}>
                     {points(totals.pointsOfficial)}
@@ -1205,7 +1228,7 @@ export function RankingScoreboard({
                     className={`${CELL} text-left font-bold text-gray-900 dark:text-white`}
                     colSpan={includeInternal ? 4 : 3}
                   >
-                    {t('table.totals', { count: totals.rowCount })}
+                    {footerLabel}
                   </th>
                   {/* THE FOOTER TOTALS THE COLUMN THE SCREEN IS ABOUT. It used to leave `Pontos`
                       and `Pts peso 2` EMPTY between five bold totals, so the comparison this
@@ -1221,19 +1244,27 @@ export function RankingScoreboard({
                   <td className={`${NUM} font-bold`}>{points(totals.pointsFromKm)}</td>
                   {/* The streak is a multiplier and a fraction of seven days: neither sums. */}
                   {isWeek && <td className={NUM} />}
-                  <td className={`${NUM} ${EDGE} ${DIM}`}>
-                    {points(totals.pointsNotableWeighted)}
-                  </td>
-                  {/* A permutation does not add up either: the deltas of a table sum to zero by
-                      construction, and a `0` there would look like a finding. */}
-                  <td className={NUM} />
-                  <td className={`${NUM} ${EDGE} font-bold`}>{minutes(totals.chargedMinutes)}</td>
-                  <td className={`${NUM} font-bold`}>
-                    {formatDuration(totals.trailSpanMinutes)}
-                  </td>
-                  <td className={`${NUM} font-bold`}>
-                    {hasMeter ? formatSignedDuration(totals.meteringGapMinutes) : UNKNOWN_VALUE}
-                  </td>
+                  {showComparisons && (
+                    <>
+                      <td className={`${NUM} ${EDGE} ${DIM}`}>
+                        {points(totals.pointsNotableWeighted)}
+                      </td>
+                      {/* A permutation does not add up either: the deltas of a table sum to zero
+                          by construction, and a `0` there would look like a finding. */}
+                      <td className={NUM} />
+                      <td className={`${NUM} ${EDGE} font-bold`}>
+                        {minutes(totals.chargedMinutes)}
+                      </td>
+                      <td className={`${NUM} font-bold`}>
+                        {formatDuration(totals.trailSpanMinutes)}
+                      </td>
+                      <td className={`${NUM} font-bold`}>
+                        {hasMeter
+                          ? formatSignedDuration(totals.meteringGapMinutes)
+                          : UNKNOWN_VALUE}
+                      </td>
+                    </>
+                  )}
                 </tr>
               </tfoot>
             )}
@@ -1291,6 +1322,31 @@ function RankDeltaCell({ row }: { row: RankingRow }) {
       <Icon className="h-3 w-3" aria-hidden="true" />
       {Math.abs(delta)}
     </span>
+  )
+}
+
+/**
+ * UM PAR RÓTULO/VALOR DO BLOCO LISO — §11.2, o que sobrou dos quatro `StatCard` que saíram.
+ *
+ * Sem ícone, sem `subtitle` e sem caixa própria: o rótulo já diz o que a grandeza conta
+ * (`DS-COPY-062` item 3), e quatro caixas para quatro números eram 150 px para dizer o que cabe
+ * em quatro linhas. **`isZero` recua a tinta e nunca esconde o par** — zero é a resposta, e omitir
+ * confunde *é zero* com *não medi* (`DS-COMPONENTE-084` item 1).
+ */
+function Term({ label, value, isZero }: { label: string; value: ReactNode; isZero: boolean }) {
+  return (
+    <div>
+      <dt className="text-[11px] font-bold uppercase leading-[1.15] tracking-widest text-gray-500 dark:text-gray-400">
+        {label}
+      </dt>
+      <dd
+        className={`text-sm font-semibold tabular-nums ${
+          isZero ? DIM : 'text-gray-900 dark:text-white'
+        }`}
+      >
+        {value}
+      </dd>
+    </div>
   )
 }
 

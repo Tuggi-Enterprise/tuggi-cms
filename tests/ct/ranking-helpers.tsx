@@ -14,7 +14,7 @@ import { Gauge, Trophy } from 'lucide-react'
 import { ReportTabs } from '@/components/dashboard/ReportTabs'
 import { RankingScoreboard } from '@/components/dashboard/reports/RankingScoreboard'
 import type { RpcError } from '@/lib/api/dashboard-fetch'
-import { hasAnchoredStart } from '@/lib/ranking/scoreboard'
+import { hasAnchoredStart, periodNature } from '@/lib/ranking/scoreboard'
 import type {
   PeriodOption,
   PeriodSelection,
@@ -124,13 +124,19 @@ export function RankingPageHarness({
   const served = { period: asked, label: periodLabel }
 
   return (
-    <div className="cms-width p-6 lg:p-8 space-y-6 min-h-screen bg-gray-50">
-      <div>
-        <h1 className="text-2xl font-bold text-gray-900 flex items-center">
-          <Trophy className="mr-3 h-8 w-8 text-tuggi-purple" />
+    <div className="cms-width p-6 space-y-4 min-h-screen bg-gray-50">
+      <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
+        <h1 className="flex items-center text-lg font-semibold text-gray-900">
+          <Trophy className="mr-2 h-5 w-5 text-tuggi-purple" />
           {t('reports.ranking.title')}
         </h1>
-        <p className="text-gray-500">{t('reports.ranking.subtitle')}</p>
+        <p className="text-[11px] font-medium text-gray-600">
+          {tr('period.stamp', {
+            period: periodLabel,
+            nature: tr(`period.nature_${periodNature(served.period.kind)}`),
+            count: rows.length,
+          })}
+        </p>
       </div>
 
       <div className="flex flex-wrap items-center gap-4">

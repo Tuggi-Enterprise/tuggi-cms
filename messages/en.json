@@ -403,8 +403,7 @@
           "platform_hint": "The system of the device the account was created on, not the current one."
         },
         "ranking": {
-          "title": "Scoring scoreboard",
-          "subtitle": "How the scoring orders the accounts, and what the comparison numbers would change."
+          "title": "Scoring scoreboard"
         }
       },
       "ranking": {
@@ -434,7 +433,7 @@
           "marked": "{count, plural, one {# account marked in this read} other {# accounts marked in this read}}",
           "badge": "INTERNAL",
           "aggregates_note": "The indicators always ignore internal accounts.",
-          "none_marked": "The internal-account filter is on and is removing nobody: no marked account appears in this read. The mark is the excluded_from_metrics column of drive.profiles — a marked account with no activity in the read's horizon would not show up here either."
+          "none_marked": "The internal-account filter is on and is removing nobody: no marked account appears in this read."
         },
         "kpi": {
           "accounts_scored": "Accounts that scored",
@@ -450,7 +449,8 @@
           "manual_listens_subtitle": "a paying account records no visit",
           "indeterminate": "Visits with no identified trigger point",
           "indeterminate_subtitle": "area or lost id — indistinguishable",
-          "no_meter": "no meter in the period"
+          "no_meter": "no meter in the period",
+          "streak_value": "{count} (max. {days}/7)"
         },
         "group": {
           "official": "Official scoreboard",
@@ -486,7 +486,8 @@
           "delta_unknown": "does not rank with weight 2",
           "open_sessions": "see the sessions of {person}",
           "podium_weeks": "Podium weeks",
-          "podium_months": "Podium months"
+          "podium_months": "Podium months",
+          "totals_filtered": "{count} of {total} rows"
         },
         "row": {
           "notable_triggers": "Triggers on notable POI",
@@ -524,7 +525,8 @@
           "scored": "Scored",
           "charged_without_trigger": "Charged with no trigger",
           "charged": "With charge",
-          "gap_over_60": "Difference above 60 min"
+          "gap_over_60": "Difference above 60 min",
+          "comparisons": "Comparisons"
         },
         "empty": {
           "period": "Nobody scored in {period}.",

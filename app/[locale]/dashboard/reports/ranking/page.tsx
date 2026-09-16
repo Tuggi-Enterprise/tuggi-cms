@@ -42,6 +42,7 @@ import {
   periodBounds,
   periodGroups,
   periodKey,
+  periodNature,
   periodOfSelection,
   yearOfCycle,
   type PeriodSelection,
@@ -228,13 +229,33 @@ export default function RankingReportPage() {
   }
 
   return (
-    <div className="cms-width p-6 lg:p-8 space-y-6 min-h-screen bg-gray-50 dark:bg-gray-950">
-      <div>
-        <h1 className="text-2xl font-bold text-gray-900 dark:text-white flex items-center">
-          <Trophy className="mr-3 h-8 w-8 text-tuggi-purple" />
+    <div className="cms-width p-6 space-y-4 min-h-screen bg-gray-50 dark:bg-gray-950">
+      {/* RELATÓRIO INTERNO NÃO TEM MANCHETE — §11.2. A régua tipográfica é que **o `h1` nunca é
+          maior que o valor de um `StatCard`**: o maior tipo da tela é um dado, e era o contrário.
+          O carimbo sobe para esta linha porque ele é legenda do título, e não um sexto bloco
+          empilhado entre o cabeçalho e os números. */}
+      <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
+        <h1 className="flex items-center text-lg font-semibold text-gray-900 dark:text-white">
+          <Trophy className="mr-2 h-5 w-5 text-tuggi-purple" />
           {t('reports.ranking.title')}
         </h1>
-        <p className="text-gray-500">{t('reports.ranking.subtitle')}</p>
+        {/* O CARIMBO É DO PERÍODO QUE A CONSULTA SERVIU, não do que o `<select>` mostra: um
+            controle lê como *o que eu pedi*, nunca como *o que eu recebi* (#741). E a NATUREZA
+            viaja com ele — `DS-COMPONENTE-089` item 2 —, da mesma `periodNature` que agrupa o
+            `<select>`, nunca de um `if` escrito uma segunda vez aqui.
+
+            Precisa de uma leitura para carimbar: com nenhuma servida, ou com outra em voo, o
+            período e a contagem seriam a resposta anterior vestindo a cara da nova. E só na aba
+            do placar — a aba 2 é uma lista de sessões e não tem período. */}
+        {tab === 'scoreboard' && scoreboardError === null && served && !isLoadingScoreboard && (
+          <p className="text-[11px] font-medium text-gray-600 dark:text-gray-300">
+            {tr('period.stamp', {
+              period: served.label,
+              nature: tr(`period.nature_${periodNature(served.period.kind)}`),
+              count: payload?.rows.length ?? 0,
+            })}
+          </p>
+        )}
       </div>
 
       {/* The frame sits at the height of the tabs: one period, always exactly one, and the

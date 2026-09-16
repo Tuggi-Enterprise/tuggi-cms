@@ -401,8 +401,7 @@
           "platform_hint": "Sistema do aparelho com que a conta foi criada, não o atual."
         },
         "ranking": {
-          "title": "Placar de pontuação",
-          "subtitle": "Como a pontuação ordena as contas, e o que os números de comparação mudariam."
+          "title": "Placar de pontuação"
         }
       },
       "ranking": {
@@ -432,7 +431,7 @@
           "marked": "{count, plural, one {# conta marcada nesta consulta} other {# contas marcadas nesta consulta}}",
           "badge": "INTERNA",
           "aggregates_note": "Os indicadores sempre ignoram contas internas.",
-          "none_marked": "O filtro de contas internas está ligado e não está removendo ninguém: nenhuma conta marcada aparece nesta consulta. A marca é a coluna excluded_from_metrics de drive.profiles — uma conta marcada sem atividade no horizonte da consulta também não apareceria aqui."
+          "none_marked": "O filtro de contas internas está ligado e não remove ninguém: nenhuma conta marcada aparece nesta consulta."
         },
         "kpi": {
           "accounts_scored": "Contas que pontuaram",
@@ -448,7 +447,8 @@
           "manual_listens_subtitle": "quem paga não grava visita",
           "indeterminate": "Visitas sem trigger point identificado",
           "indeterminate_subtitle": "área ou id perdido — indistinguíveis",
-          "no_meter": "sem medidor no período"
+          "no_meter": "sem medidor no período",
+          "streak_value": "{count} (máx. {days}/7)"
         },
         "group": {
           "official": "Placar oficial",
@@ -484,7 +484,8 @@
           "delta_unknown": "não ranqueia com o peso 2",
           "open_sessions": "ver as sessões de {person}",
           "podium_weeks": "Semanas de pódio",
-          "podium_months": "Meses de pódio"
+          "podium_months": "Meses de pódio",
+          "totals_filtered": "{count} de {total} linhas"
         },
         "row": {
           "notable_triggers": "Disparos em POI notável",
@@ -522,7 +523,8 @@
           "scored": "Pontuaram",
           "charged_without_trigger": "Cobrado sem disparo",
           "charged": "Com cobrança",
-          "gap_over_60": "Diferença acima de 60 min"
+          "gap_over_60": "Diferença acima de 60 min",
+          "comparisons": "Comparações"
         },
         "empty": {
           "period": "Ninguém pontuou em {period}.",
