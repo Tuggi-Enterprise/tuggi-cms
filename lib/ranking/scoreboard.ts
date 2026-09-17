@@ -776,8 +776,12 @@ export function sealCycle(
  * population; this one answers "is this line a podium", and only the seal asks it.
  *
  * The comparison is `>=` on the OFFICIAL, UNROUNDED score — the same number that orders the
- * board. The score carries a decimal (a charged minute is worth 0,03 point), so a row at 9,97
- * is below the floor and a row at exactly 10 is on it.
+ * board (`BR-RANKING-003` item 8). What puts a decimal on that score is the KILOMETRE axis —
+ * 0,11 point per kilometre with entitlement (`BR-RANKING-004` item 3) — so a row at 9,89 is
+ * below the floor and a row at exactly 10 is on it. **The charged minute is not that axis any
+ * more:** it left the formula on 2026-09-16 and the floor kept the ruler, not the unit. The
+ * `10` itself was calibrated under the minute axis and the operator has not re-cut it since;
+ * moving it is his call, and it moves HERE (CLAUDE.md §6).
  */
 export const PODIUM_POINTS_FLOOR = 10
 
