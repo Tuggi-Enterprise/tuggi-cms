@@ -34,6 +34,7 @@ const newsletter = FN('send-newsletter/index.ts')
 const push = FN('firebase-push-notification/index.ts')
 const webhook = FN('resend-webhook/index.ts')
 const middleware = FN('_shared/auth-middleware.ts')
+const orchestrator = FN('daily-gamification-orchestrator/index.ts')
 
 /** Where a literal first appears, asserting it appears at all. */
 function at(source: string, needle: string, label: string): number {
@@ -280,4 +281,96 @@ test('the push data map is coerced to strings before it reaches FCM', () => {
   // the failure `shouldAbortForBadPayload` exists to stop — and the CMS composer now writes
   // `data.type` alongside whatever the operator typed.
   assert.match(push, /data: stringifyData\(notification\.data\)/)
+})
+
+// --- The daily window is not an anonymous trigger (#747) ----------------------
+
+/** The request handler alone. Both helpers are DECLARED above it and called inside it. */
+function handlerOf(source: string, label: string): string {
+  return source.slice(at(source, 'Deno.serve(', label))
+}
+
+test('#747 / BR-COMUNICACAO-012 item 1.4.a: no effect of the daily window happens before authorization', () => {
+  // Measured against production on 2026-09-17: this function is published with
+  // `verify_jwt: false` and read no `Authorization` anywhere, so an anonymous caller could fire
+  // the whole 07-22-local cohort's daily push at an hour of their choosing — and, once the
+  // ranking e-mail ships, real mail signed with our DKIM, which is the same reputation
+  // `send-transactional` needs for account confirmation and password recovery.
+  //
+  // Same gate as #346, ruled the same way: by POSITION, because the file imports
+  // `https://esm.sh/@supabase/supabase-js@2` and Node cannot load it.
+  assert.match(
+    orchestrator,
+    /import \{ requireAdmin \} from '\.\.\/_shared\/auth-middleware\.ts'/,
+    'the orchestrator does not import the shared gate'
+  )
+  const handler = handlerOf(orchestrator, 'daily-gamification-orchestrator')
+  const gate = at(handler, 'await requireAdmin(req', 'daily-gamification-orchestrator')
+  assert.match(
+    handler.slice(gate, gate + 400),
+    /if \(auth instanceof Response\)/,
+    'the orchestrator calls the gate but does not return its refusal'
+  )
+
+  // Every effect of the window — the audience read, the ranking decision, the e-mail and the
+  // push itself — is downstream of the refusal. The list is named rather than counted: a new
+  // effect added in front of the gate is the regression, a new one added behind it is not.
+  for (const effect of [
+    "rpc('get_morning_push_candidates')",
+    'await collectRankingDispatch(',
+    'await dispatchRankingEmail(',
+    'await fetch(pushUrl',
+  ]) {
+    assert.ok(
+      at(handler, effect, 'daily-gamification-orchestrator') > gate,
+      `\`${effect}\` runs BEFORE the gate — an anonymous caller still reaches it`
+    )
+  }
+
+  // And nothing is answered in front of the gate except the CORS preflight, which has no effect.
+  const before = handler.slice(0, gate)
+  assert.match(before, /req\.method === 'OPTIONS'/, 'the preflight stopped being handled')
+  assert.doesNotMatch(
+    before,
+    /await (fetch|driveClient|supabase|client)\b/,
+    'something is awaited in front of the gate'
+  )
+})
+
+test('#747: the cron keeps its access — the orchestrator adds no second authorization scheme', () => {
+  // Cron job 31, `drive.trigger_fomo_orchestrator()`, already sends
+  // `Authorization: Bearer <ef_secret_key>` read from the Vault, which is exactly what
+  // `isOwnMachineKey` accepts and what `requireAdmin` lets through as `service_role`. So the
+  // only legitimate caller needs no migration and no new secret — provided the gate stays the
+  // shared one and nobody re-spells "is this caller allowed" here.
+  assert.match(orchestrator, /await requireAdmin\(req/, 'the orchestrator never calls the gate')
+  assert.doesNotMatch(
+    orchestrator,
+    /req\.headers\.get\(\s*["'][Aa]uthorization["']\s*\)/,
+    'the orchestrator reads the header itself instead of using the shared gate'
+  )
+  assert.match(middleware, /if \(isOwnMachineKey\(token\)\)/, 'the machine bypass is gone')
+  // The window still does what it did: the gate was added above the work, not in place of it.
+  const handler = handlerOf(orchestrator, 'daily-gamification-orchestrator')
+  for (const effect of ['await collectRankingDispatch(', 'await dispatchRankingEmail(', 'await fetch(pushUrl']) {
+    at(handler, effect, 'daily-gamification-orchestrator')
+  }
+})
+
+test('#747 / BR-USUARIO-043: the response counts, and names nobody', () => {
+  // `results[]` carried `{ user_id, status, kind }` per account — the real id of every account in
+  // the window plus its ranking state, which is pseudonymised personal data leaving in an HTTP
+  // body. The caller needs the tally; the detail is the log's, and not the nickname even there.
+  const handler = handlerOf(orchestrator, 'daily-gamification-orchestrator')
+  const body = handler.slice(at(handler, 'return new Response(JSON.stringify({\n      success: true,', 'daily-gamification-orchestrator'))
+  const literal = body.slice(0, body.indexOf('}), {'))
+  // `\bemail\b` and not `email`: `ranking_email_sent` is a COUNT and belongs in the envelope —
+  // the regression this catches is an address or an id, not the word.
+  assert.doesNotMatch(literal, /user_id|nickname|\bemail\b/, 'the response names accounts again')
+  assert.match(literal, /results_by_kind/, 'the per-kind tally is gone')
+  assert.doesNotMatch(
+    orchestrator,
+    /console\.log\([^\n]*user\.nickname/,
+    'a log line prints the account display name again'
+  )
 })

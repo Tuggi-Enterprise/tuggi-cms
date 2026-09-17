@@ -1,6 +1,13 @@
 
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
 import { getSecretKey } from '../_shared/supabase-client.ts';
+// #747 — esta funcao e publicada com `verify_jwt: false` e, ate 2026-09-17, nao lia
+// `Authorization` nenhum: um chamador anonimo disparava o push diario da coorte 07-22 local na
+// hora que escolhesse, e o e-mail de ranking no dia em que ele subir. O portao e o mesmo que o
+// #346 poz na `send-newsletter`, e o unico chamador legitimo — o cron job 31,
+// `drive.trigger_fomo_orchestrator()` — ja manda o `ef_secret_key` do Vault, que e exatamente o
+// que `isOwnMachineKey` aceita. BR-COMUNICACAO-012, BR-USUARIO-043.
+import { requireAdmin } from '../_shared/auth-middleware.ts';
 // The copy of this push lives in _shared/daily-push-i18n.ts, outside this file,
 // because this one imports a remote URL and therefore cannot be loaded by a
 // test. Spec: docs/design/copy-push-diario-2026-08.md.
@@ -334,6 +341,15 @@ Deno.serve(async (req) => {
   const startTime = Date.now();
   console.log(`[${requestId}] 🚀 Daily Gamification Orchestrator session started`);
 
+  // Nada abaixo desta linha roda para chamador anonimo. Tudo o que esta funcao faz e efeito no
+  // telefone ou na caixa de entrada de outra pessoa, entao o portao fica acima da PRIMEIRA
+  // leitura — nao ha rota publica aqui para manter na frente dele, so o `OPTIONS` acima.
+  const auth = await requireAdmin(req, { ...corsHeaders, 'Content-Type': 'application/json' });
+  if (auth instanceof Response) {
+    console.warn(`[${requestId}] ⛔ refused: ${auth.status}`);
+    return auth;
+  }
+
   try {
     const supabaseUrl = (Deno.env.get('SUPABASE_URL') ?? '').trim();
     const supabaseKey = (getSecretKey() ?? '').trim();
@@ -360,7 +376,14 @@ Deno.serve(async (req) => {
     // Calculate 'yesterday' to match the summary_date logic (CURRENT_DATE - 1)
     const yesterdayDate = new Date(Date.now() - 86400000).toISOString().split('T')[0];
     const userIdsNotified = [];
-    const results = [];
+    // O que volta ao chamador e CONTAGEM, nunca identidade: `results[]` devolvia o `user_id` real
+    // de cada conta da janela mais o estado de ranking dela — dado pessoal pseudonimizado saindo
+    // num corpo HTTP (BR-USUARIO-043). O detalhe por conta e do log, e la tambem sem apelido.
+    const resultsByKind: Record<string, { sent: number; error: number }> = {};
+    const tally = (kind: string, outcome: 'sent' | 'error') => {
+      const row = (resultsByKind[kind] ??= { sent: 0, error: 0 });
+      row[outcome] += 1;
+    };
 
     // 1b. The ranking pieces of #747 ride this same window — BR-COMUNICACAO-012 item 1.4.e.
     const candidateIds = candidates.map((c: { user_id: string }) => c.user_id);
@@ -441,6 +464,8 @@ Deno.serve(async (req) => {
         ttl: 86400,
       } : null;
 
+      const kind = rankingPayload && decision ? decision.piece : 'daily_fomo';
+
       try {
         const payload = {
           type: 'user',
@@ -486,15 +511,16 @@ Deno.serve(async (req) => {
 
         const pushResult = await pushResponse.json();
 
-        const kind = rankingPayload && decision ? decision.piece : 'daily_fomo';
         if (rankingPayload) rankingSent += 1;
-        console.log(`[${requestId}] 📲 Push (${kind}) to ${user.nickname}: Success`, JSON.stringify(pushResult));
-        results.push({ user_id: user.user_id, status: 'sent', kind });
+        // Sem apelido no log: a linha imprimia `user.nickname`, que e o nome de exibicao da conta,
+        // num fluxo de log que nao e lugar para ele.
+        console.log(`[${requestId}] 📲 Push (${kind}) sent`, JSON.stringify(pushResult));
+        tally(kind, 'sent');
         userIdsNotified.push(user.user_id);
 
       } catch (pushErr: any) {
         console.error(`[${requestId}] ⚠️ Push failed for ${user.user_id}:`, pushErr.message);
-        results.push({ user_id: user.user_id, status: 'error', error: pushErr.message });
+        tally(kind, 'error');
         await driveClient.rpc('increment_fomo_attempt', { p_user_id: user.user_id, p_date: yesterdayDate });
       }
     }
@@ -523,7 +549,7 @@ Deno.serve(async (req) => {
       total: candidates.length,
       ranking_sent: rankingSent,
       ranking_email_sent: rankingEmailSent,
-      results
+      results_by_kind: resultsByKind
     }), {
       headers: { ...corsHeaders, 'Content-Type': 'application/json' },
     });
