@@ -616,16 +616,40 @@ export function compareNullable(left: number | null, right: number | null, dir: 
 }
 
 /**
- * A number as the operator reads it: `45`, `7`, `0,69` — never the view's 4 decimals.
+ * EXACTLY two decimals: `45,00`, `7,00`, `0,69`, `0,00` — never the view's 4.
  *
- * Precision nobody uses reads as precision somebody needs. `formatCount` of
- * `lib/finance/money.ts` is deliberately NOT reused: it pins `pt-BR` and abbreviates thousands,
- * and here there is neither a thousand nor a fixed locale (spec §6.3).
+ * *** THE SECOND DECIMAL IS NOT COSMETIC, AND IT IS NOT A CMS DECISION. ***
+ * `maximumFractionDigits` alone made the precision depend on the VALUE, so `45` and `0,5` came
+ * out with a different number of decimals in the same column, and the app rounded the same
+ * number to ONE decimal. Production, 2026-09-17: the app's weekly scoreboard printed `8º 0`,
+ * `9º 0`, `9º 0`, `9º 0`, and `rank()` gives EQUAL values the SAME position
+ * (`BR-RANKING-005` item 9) — so the 8th held a small non-zero value that the rounding hid.
+ * Two decimals is the smallest precision that lets the screen explain itself, because the axes
+ * of `BR-RANKING-004` (0,11 per km) and `BR-RANKING-009` (0,5 for the repeated POI) put the
+ * difference between two neighbours below the first decimal.
+ *
+ * The app prints the same number with the same two decimals, in `formatRankPoints` of
+ * `src/modules/wrapped/utils/rankingFormat.ts` of `tuggi-drive-v2`. The two repos cannot share
+ * the constant, so what holds the parity is a test on each side citing the same rule ID
+ * (CLAUDE.md §6 — one contract and a parity test, not a forced abstraction).
+ *
+ * `formatCount` of `lib/finance/money.ts` stays deliberately NOT reused: it pins `pt-BR` and
+ * abbreviates thousands, and here there is neither a thousand nor a fixed locale (spec §6.3).
+ * The separator remains the locale's — comma in `pt`/`es`/`fr`/`it`, dot in `en`.
  */
 export function formatPoints(value: number | null | undefined, locale: string): string {
   if (value == null || !Number.isFinite(value)) return UNKNOWN_VALUE
-  return new Intl.NumberFormat(locale, { maximumFractionDigits: 2 }).format(value)
+  return new Intl.NumberFormat(locale, {
+    minimumFractionDigits: POINTS_DECIMALS,
+    maximumFractionDigits: POINTS_DECIMALS,
+  }).format(value)
 }
+
+/**
+ * How many decimals a scoreboard point prints, on BOTH surfaces. The twin lives in
+ * `POINTS_DECIMALS` of `src/modules/wrapped/utils/rankingFormat.ts` in `tuggi-drive-v2`.
+ */
+const POINTS_DECIMALS = 2
 
 /**
  * The entitled kilometre as the operator reads it — `39 km`, `1.204,5 km`.

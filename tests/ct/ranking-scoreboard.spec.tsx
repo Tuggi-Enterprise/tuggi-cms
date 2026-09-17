@@ -424,7 +424,7 @@ test('DS-COMPONENTE-084 item 1 · DS-COPY-062: a failed read prints `—` and co
   // The six indicators of a week — the five fixed ones plus the streak. Not one of them `0`,
   // and no subtitle either: `0 pts · 0 pts` is a reading of a reading.
   await expect(page.getByText(UNKNOWN_VALUE, { exact: true })).toHaveCount(6)
-  await expect(page.getByText('0 pts de disparo · 0 pts de km')).toHaveCount(0)
+  await expect(page.getByText('0,00 pts de disparo · 0,00 pts de km')).toHaveCount(0)
   await expect(page.getByText(RANKING.kpi.manual_listens_subtitle)).toHaveCount(0)
   await expect(page.getByText(RANKING.kpi.charged_without_trigger_subtitle)).toHaveCount(0)
 
@@ -456,7 +456,7 @@ test('DS-COMPONENTE-084 item 1: a read that answered nothing keeps its `0`, and 
 
   // Nobody scored in the week IS a measurement, and the indicators say so.
   await expect(page.getByRole('button', { name: `${RANKING.filters.all} 0`, exact: true })).toBeVisible()
-  await expect(page.getByText('0 pts de disparo · 0 pts de km')).toBeVisible()
+  await expect(page.getByText('0,00 pts de disparo · 0,00 pts de km')).toBeVisible()
   // The caveat is part of the LABEL, and since §11.2 that is the only place it is: the four
   // `subtitle`s left with the four cards that became pairs (`DS-COPY-062` items 3 and 4).
   await expect(page.getByText(RANKING.kpi.manual_listens, { exact: true })).toBeVisible()
@@ -531,7 +531,7 @@ test('#749: with the meter covering only part of the window, the score ratio is 
 
   // 52 pts of trigger over 4,29 pts of km — the two parcels of `points_official`, one ruler.
   await expect(page.getByText('12,1 : 1')).toBeVisible()
-  await expect(page.getByText('52 pts de disparo · 4,29 pts de km')).toBeVisible()
+  await expect(page.getByText('52,00 pts de disparo · 4,29 pts de km')).toBeVisible()
 })
 
 test('#741: the footer totals the two point columns, and leaves the two that do not sum empty', async ({
@@ -552,7 +552,7 @@ test('#741: the footer totals the two point columns, and leaves the two that do 
   // Pts peso 2, Δ vs. oficial, Cobrado, Intervalo, Diferença.
   const cells = page.locator('tfoot td')
   await expect(cells.nth(0)).toHaveText('56,29')
-  await expect(cells.nth(4)).toHaveText('65')
+  await expect(cells.nth(4)).toHaveText('65,00')
 
   // The delta is a permutation of sum zero and the streak is a fraction of seven days.
   await expect(cells.nth(3)).toHaveText('')
