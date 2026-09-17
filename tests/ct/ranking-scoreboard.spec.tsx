@@ -234,71 +234,85 @@ test('the expanded row passes axe too', async ({ mount, page }) => {
  * sticks to. In `es` the thirteen column names disappeared whole, on a screen that exists to
  * compare columns.
  *
- * The test runs in the two languages ON PURPOSE. `pt` alone goes green while it is broken — the
- * 10px of overlap there happen to eat the `py-2.5` of `HEAD` and nothing gets cut — so a
- * measurement taken only in the language of the office proves nothing about the defect.
+ * THE THREE LANGUAGES AND THE TWO STATES OF THE SWITCH ARE THE CRITERION, not a sweep — spec §9
+ * criterion 19. `pt` alone goes green while it is broken (the 10px of overlap there happen to eat
+ * the `py-2.5` of `HEAD` and nothing gets cut), so a measurement taken only in the language of the
+ * office proves nothing about the defect; `es` with the switch ON is the widest header the screen
+ * can produce, and `en` is the narrowest, which is what makes the 28px a ceiling rather than a
+ * coincidence of one string. The switch OFF is the state the operator gets WITHOUT touching
+ * anything, and a geometry proven only in the state nobody starts in is proven in the wrong place.
  *
  * `DS-COMPONENTE-083` item 3 is the other half: the population of the comparison moved out of
  * the group label and into the `<caption>`, which is what keeps the label one line long.
  */
-for (const locale of ['pt', 'es'] as const) {
-  const file = locale === 'es' ? esMessages : ptMessages
+const BAND_MESSAGES = { pt: ptMessages, es: esMessages, en: enMessages } as const
 
-  test(`DS-COMPONENTE-081 clause 2: in ${locale}, with the switch on and the table scrolled, the band of groups measures ${GROUP_BAND_PX}px and covers no column name`, async ({
-    mount,
-    page,
-  }) => {
-    // The size the design measured at. The two bands are a geometry, and geometry has a width.
-    await page.setViewportSize({ width: 1280, height: 800 })
+for (const locale of ['pt', 'es', 'en'] as const) {
+  const file = BAND_MESSAGES[locale]
 
-    await mount(
-      <DashboardWrapper locale={locale}>
-        <RankingScoreboardHarness rows={scrollingRows()} />
-      </DashboardWrapper>
-    )
+  for (const withInternal of [false, true] as const) {
+    test(`DS-COMPONENTE-081 clause 2 · spec §9 criterion 19: in ${locale}, with the switch ${
+      withInternal ? 'on' : 'off'
+    } and the table scrolled, the band of groups measures ${GROUP_BAND_PX}px and covers no column name`, async ({
+      mount,
+      page,
+    }) => {
+      // The size the design measured at. The two bands are a geometry, and geometry has a width.
+      await page.setViewportSize({ width: 1280, height: 800 })
 
-    // The band of groups only exists with the comparisons open — with one group left it does not
-    // render at all (§11.2), and there is no geometry of two bands to measure.
-    await openComparisons(page)
-    // The switch ON is the worst case: it adds the `sem internas` column and the widest header.
-    await page.getByTestId('include-internal').check()
+      await mount(
+        <DashboardWrapper locale={locale}>
+          <RankingScoreboardHarness rows={scrollingRows()} />
+        </DashboardWrapper>
+      )
 
-    const scroller = page.locator('.custom-scrollbar')
-    await scroller.evaluate((element) => {
-      element.scrollTop = 400
+      // The band of groups only exists with the comparisons open — with one group left it does not
+      // render at all (§11.2), and there is no geometry of two bands to measure.
+      await openComparisons(page)
+      // ON is the worst case — it adds the `sem internas` column and the widest header — and OFF
+      // is the state the operator gets without touching anything. Criterion 19 asks for both.
+      if (withInternal) await page.getByTestId('include-internal').check()
+
+      const where = `${locale}, switch ${withInternal ? 'on' : 'off'}`
+
+      const scroller = page.locator('.custom-scrollbar')
+      await scroller.evaluate((element) => {
+        element.scrollTop = 400
+      })
+      await expect.poll(() => scroller.evaluate((element) => element.scrollTop)).toBeGreaterThan(0)
+
+      const groups = page.locator('thead tr').first()
+      const columns = page.locator('thead tr').nth(1)
+      const groupBox = (await groups.boundingBox())!
+      const columnBox = (await columns.boundingBox())!
+
+      expect(Math.round(groupBox.height), `${where}: the band of groups grew past its own ceiling`).toBe(
+        GROUP_BAND_PX
+      )
+      // `top-7` is only correct while the band above measures exactly 28px: below that the second
+      // band is not late, it is UNDERNEATH.
+      expect(
+        Math.round(columnBox.y - groupBox.y),
+        `${where}: the band of column names starts inside the band of groups`
+      ).toBeGreaterThanOrEqual(GROUP_BAND_PX)
+
+      // And the proof the operator would accept: whatever the browser paints at the centre of the
+      // `#` header IS the `#` header. `toBeInViewport` would pass on a covered cell.
+      const rank = page.getByRole('columnheader', {
+        name: file.Pages.Dashboard.ranking.table.rank,
+        exact: true,
+      })
+      await expect(rank).toBeInViewport()
+      const covered = await rank.evaluate((element) => {
+        const box = element.getBoundingClientRect()
+        const painted = document.elementFromPoint(box.x + box.width / 2, box.y + box.height / 2)
+        return !element.contains(painted)
+      })
+      expect(covered, `${where}: the band of groups is painted over the name of the column`).toBe(
+        false
+      )
     })
-    await expect
-      .poll(() => scroller.evaluate((element) => element.scrollTop))
-      .toBeGreaterThan(0)
-
-    const groups = page.locator('thead tr').first()
-    const columns = page.locator('thead tr').nth(1)
-    const groupBox = (await groups.boundingBox())!
-    const columnBox = (await columns.boundingBox())!
-
-    expect(Math.round(groupBox.height), `${locale}: the band of groups grew past its own ceiling`).toBe(
-      GROUP_BAND_PX
-    )
-    // `top-7` is only correct while the band above measures exactly 28px: below that the second
-    // band is not late, it is UNDERNEATH.
-    expect(
-      Math.round(columnBox.y - groupBox.y),
-      `${locale}: the band of column names starts inside the band of groups`
-    ).toBeGreaterThanOrEqual(GROUP_BAND_PX)
-
-    // And the proof the operator would accept: whatever the browser paints at the centre of the
-    // `#` header IS the `#` header. `toBeInViewport` would pass on a covered cell.
-    const rank = page.getByRole('columnheader', { name: file.Pages.Dashboard.ranking.table.rank, exact: true })
-    await expect(rank).toBeInViewport()
-    const covered = await rank.evaluate((element) => {
-      const box = element.getBoundingClientRect()
-      const painted = document.elementFromPoint(box.x + box.width / 2, box.y + box.height / 2)
-      return !element.contains(painted)
-    })
-    expect(covered, `${locale}: the band of groups is painted over the name of the column`).toBe(
-      false
-    )
-  })
+  }
 }
 
 // ── The ruler, next to the numbers it rules ───────────────────────────────────────────────
