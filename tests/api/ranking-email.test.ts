@@ -16,6 +16,10 @@
  *   - **BR-COMUNICACAO-017 item 9 / 9.a** — the piece speaks to whoever IS in the roster. The
  *     sentence *"a sua linha não apareceu nesta semana"* was written on this very card and could
  *     not be used; this file is what stops it coming back.
+ *   - **BR-COMUNICACAO-017 item 8.e** — one piece per ADDRESS per weekly cycle, never per day.
+ *     The slot is reserved before the send, the reservation is the only authorisation, and an
+ *     address that already spent its cycle — or one whose reservation could not be proved — is
+ *     discarded in silence.
  *   - **BR-COMUNICACAO-014 item 6.3** — the 7-day bucket has no arbiter in code, so the number of
  *     unarbitrated sends is COUNTED. A test that asserted zero here would be asserting a gate
  *     that does not exist.
@@ -292,6 +296,110 @@ test('BR-COMUNICACAO-014 item 6.3: with no cadence arbiter, the sends that leave
   assert.equal(result.cadenceArbiterAbsent, 2)
   assert.equal(result.cadenceArbiterAbsent, result.recipients.length)
   assert.match(plan.rankingEmailAuditLine(result, 'true'), /no_cadence_arbiter=2/)
+})
+
+// ---------------------------------------------------------------------------------------------
+// THE CYCLE SLOT — BR-COMUNICACAO-017 item 8.e, the ceiling the daily window would otherwise miss
+// ---------------------------------------------------------------------------------------------
+
+/** A plan with one mailable recipient per address, the way `dispatchRankingEmail` builds it. */
+function planFor(rows: Array<[string, string]>, pieces: Record<string, string> = {}) {
+  return plan.planRankingEmails({
+    audience: rows.map(([u, email]) => audienceRow(u, email, 'pt')),
+    decisions: rows.map(([u]) => decision(u, pieces[u] ?? 'rank_drop')),
+    streakDaysByUserId: new Map(),
+    relayDomainVerifiedRaw: 'true',
+  })
+}
+
+test('BR-COMUNICACAO-017 item 8.e: an address that already spent its cycle is discarded, not mailed', async () => {
+  const built = planFor([['u-1', 'spent@tuggi.app'], ['u-2', 'fresh@tuggi.app']])
+  assert.equal(built.recipients.length, 2)
+
+  const asked: string[] = []
+  const claimed = await plan.claimRankingEmailSlots(built, async (r: any) => {
+    asked.push(r.email)
+    // `reserved: false` is what the RPC answers when the unique index already holds this cycle.
+    return r.email === 'spent@tuggi.app' ? 'cycle_already_claimed' : 'reserved'
+  })
+
+  // Every recipient was ASKED; only the one that won the row leaves.
+  assert.equal(asked.length, built.recipients.length)
+  assert.deepEqual(claimed.recipients.map((r: any) => r.email), ['fresh@tuggi.app'])
+  assert.equal(claimed.discarded.cycle_already_claimed, 1)
+
+  const line = plan.rankingEmailAuditLine(claimed, 'true')
+  assert.match(line, /cycle_already_claimed=1/)
+  assert.match(line, /mailable=1/)
+  assert.doesNotMatch(line, /@/)
+  assert.doesNotMatch(line, /u-\d/)
+})
+
+test('BR-COMUNICACAO-017 item 8.e: a reservation that cannot be proved sends nothing, and the failure is counted', async () => {
+  // "Sem contagem provada, nenhum e-mail sai": an RPC error — 55000, 22023, 23514 — is silence.
+  const errored = await plan.claimRankingEmailSlots(planFor([['u-1', 'a@tuggi.app']]), async () => 'claim_failed')
+  assert.equal(errored.recipients.length, 0)
+  assert.equal(errored.discarded.claim_failed, 1)
+  assert.match(plan.rankingEmailAuditLine(errored, 'true'), /claim_failed=1/)
+
+  // And a claim that REJECTS is the same verdict: failing closed is not the caller's to remember.
+  const thrown = await plan.claimRankingEmailSlots(planFor([['u-1', 'a@tuggi.app']]), async () => {
+    throw new Error('network')
+  })
+  assert.equal(thrown.recipients.length, 0)
+  assert.equal(thrown.discarded.claim_failed, 1)
+})
+
+test('BR-COMUNICACAO-017 item 8.e with BR-COMUNICACAO-012 item 1.4.e: two pieces for one address reserve ONCE, and the perishable one wins', async () => {
+  // The ceiling is keyed on the ADDRESS, so two accounts sharing one compete before the
+  // reservation — reserving three times to find out which passes would burn the cycle on the
+  // least urgent piece.
+  const rows = [
+    audienceRow('u-1', 'Shared@tuggi.app', 'pt'),
+    audienceRow('u-2', 'shared@tuggi.app', 'pt'),
+  ]
+  const decisions = [
+    decision('u-1', 'rank_drop'),
+    { user_id: 'u-2', piece: 'streak_at_risk', channel: 'email', rank: null, points: null },
+  ]
+  const streaks = new Map([['u-2', 3]])
+
+  for (const order of [rows, [...rows].reverse()]) {
+    const built = plan.planRankingEmails({
+      audience: order,
+      decisions,
+      streakDaysByUserId: streaks,
+      relayDomainVerifiedRaw: 'true',
+    })
+    // One recipient for the address, and it is the streak — the most perishable of the two.
+    assert.equal(built.recipients.length, 1)
+    assert.equal(built.recipients[0].piece, 'streak_at_risk')
+    assert.equal(built.discarded.address_superseded, 1)
+
+    const asked: string[] = []
+    const claimed = await plan.claimRankingEmailSlots(built, async (r: any) => {
+      asked.push(r.piece)
+      return 'reserved'
+    })
+    assert.deepEqual(asked, ['streak_at_risk'])
+    assert.equal(claimed.recipients.length, 1)
+  }
+})
+
+test('BR-COMUNICACAO-017 item 8.e: the orchestrator reserves BEFORE it delivers, and never gives the slot back', () => {
+  const source = readFileSync(ORCHESTRATOR_PATH, 'utf8')
+  const body = source.slice(source.indexOf('async function dispatchRankingEmail'))
+  const claimAt = body.indexOf('claimRankingEmailSlots')
+  const deliverAt = body.indexOf('send-newsletter/ranking')
+  assert.ok(claimAt > -1, 'the cycle slot is not reserved at all')
+  assert.ok(deliverAt > claimAt, 'delivery happens before the reservation that authorises it')
+  assert.match(body, /claim_ranking_email_slot/)
+  // What leaves is what the reservation returned, never the pre-claim plan.
+  assert.match(body, /recipients: claimed\.recipients/)
+  // No release in the catch: a slot handed back costs two e-mails to the same person.
+  assert.doesNotMatch(body, /release_ranking_email_slot|unclaim|delete_ranking_email/)
+  // The audit line of item 8.c is printed after the reservation, or the two ceilings read zero.
+  assert.ok(body.indexOf('rankingEmailAuditLine') > claimAt, 'the audit line predates the reservation')
 })
 
 // ---------------------------------------------------------------------------------------------

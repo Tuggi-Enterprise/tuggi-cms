@@ -33,6 +33,7 @@ import {
 // `tests/api/ranking-email.test.ts`. This file resolves the audience and delivers; it decides
 // nothing about who is mailable.
 import {
+  claimRankingEmailSlots,
   planRankingEmails,
   rankingEmailAuditLine,
   type RankingEmailAudienceRow,
@@ -298,12 +299,48 @@ async function dispatchRankingEmail(
     relayDomainVerifiedRaw: relayVerifiedRaw,
   });
 
+  // BR-COMUNICACAO-017 item 8.e — the ceiling is ONE piece per address per weekly cycle, and
+  // this window evaluates every day, so without this the same person is reachable on every day
+  // of the same cycle. The count is not readable and does not need to be: the only way to know
+  // is to WIN the row, and `marketing.claim_ranking_email_slot` reserves and answers in one act
+  // (db-tuggiApp `20260917160000`).
+  //
+  // The reservation is written BEFORE the send and is NEVER given back. A provider failure after
+  // it costs one e-mail that does not leave; releasing the slot in the `catch` below would cost
+  // two e-mails to the same person, and e-mail cannot be recalled.
+  const claimErrorCodes = new Set<string>();
+  const claimed = await claimRankingEmailSlots(plan, async (recipient) => {
+    const { data, error } = await client.schema('marketing').rpc('claim_ranking_email_slot', {
+      p_email: recipient.email,
+      p_piece: recipient.piece,
+      p_user_id: recipient.user_id,
+    });
+    // No proof of the reservation is no e-mail — item 8.e fails closed. Only the SQLSTATE is
+    // kept: the message of an RPC error quotes the arguments, and the argument here is an
+    // address. 55000 = no cycle in the snapshot, 22023 = missing argument, 23514 = unknown piece.
+    if (error) {
+      claimErrorCodes.add(String(error.code ?? '?'));
+      return 'claim_failed';
+    }
+    return (data as { reserved?: boolean } | null)?.reserved === true
+      ? 'reserved'
+      : 'cycle_already_claimed';
+  });
+
+  if (claimErrorCodes.size > 0) {
+    console.warn(
+      `[${requestId}] 📭 ranking e-mail: the cycle slot could not be reserved, SQLSTATE ` +
+      `${[...claimErrorCodes].sort().join(',')} — those recipients get nothing today.`
+    );
+  }
+
   // BR-COMUNICACAO-017 item 8.c — the log IS the act of confirmation of BR-COMUNICACAO-014 item
   // 9. That act exists for the CMS path, where a person presses a button; here there is no
-  // button, and an automatic send with no trace is a send nobody can explain afterwards.
-  console.log(`[${requestId}] 📭 ranking e-mail: ${rankingEmailAuditLine(plan, relayVerifiedRaw)}`);
+  // button, and an automatic send with no trace is a send nobody can explain afterwards. It is
+  // printed AFTER the reservation because the two ceilings of item 8.e are counted in it.
+  console.log(`[${requestId}] 📭 ranking e-mail: ${rankingEmailAuditLine(claimed, relayVerifiedRaw)}`);
 
-  if (plan.recipients.length === 0) return 0;
+  if (claimed.recipients.length === 0) return 0;
 
   try {
     const res = await fetch(`${supabaseUrl}/functions/v1/send-newsletter/ranking`, {
@@ -313,7 +350,7 @@ async function dispatchRankingEmail(
         Authorization: `Bearer ${supabaseKey}`,
         apikey: supabaseKey,
       },
-      body: JSON.stringify({ recipients: plan.recipients }),
+      body: JSON.stringify({ recipients: claimed.recipients }),
     });
     if (!res.ok) {
       console.error(
@@ -325,7 +362,7 @@ async function dispatchRankingEmail(
     const body = await res.json().catch(() => ({}));
     console.log(
       `[${requestId}] 📧 ranking e-mail: sent=${body.sent ?? 0} failed=${body.failed ?? 0} ` +
-      `of ${plan.recipients.length}`
+      `of ${claimed.recipients.length}`
     );
     return Number(body.sent ?? 0);
   } catch (err) {

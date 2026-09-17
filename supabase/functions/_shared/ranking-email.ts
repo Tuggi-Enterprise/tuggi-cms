@@ -14,7 +14,7 @@
  * `tests/api/ranking-email.test.ts`.
  *
  * ---------------------------------------------------------------------------------------------
- * THE FOUR GATES, IN ORDER, AND WHO OWNS EACH ONE
+ * THE GATES, IN ORDER, AND WHO OWNS EACH ONE
  * ---------------------------------------------------------------------------------------------
  *
  * 1. **Consents and unsubscribe — the DATABASE owns them, not this file.**
@@ -39,29 +39,44 @@
  *    missing one key in one language does not leave IN THAT LANGUAGE and does not disturb the
  *    others, which is what keeps a half-translated release from being an all-or-nothing outage.
  *
+ * 5. **One piece per ADDRESS — `planRankingEmails`, before any reservation.** The ceiling of
+ *    BR-COMUNICACAO-017 item 8.e is keyed on `(address, cycle)`, and two accounts can share one
+ *    address. When they do, the piece that leaves is the most perishable one — the push order of
+ *    BR-COMUNICACAO-012 item 1.4.e, read from `RANKING_PIECES_BY_PERISHABILITY` and never
+ *    re-listed here. Choosing first is also what keeps the reservation from being attempted three
+ *    times to find out which one passes.
+ *
+ * 6. **The cycle slot — `claimRankingEmailSlots`, and the row is the PROOF, not a receipt.**
+ *    `marketing.claim_ranking_email_slot` reserves and answers in one act (db-tuggiApp
+ *    `20260917160000`): `reserved: true` is the only thing that authorises a send. It is called
+ *    BEFORE delivery and the row is NEVER given back — no release exists, on purpose. A provider
+ *    failure after the reservation costs one e-mail that does not leave; releasing the slot in a
+ *    `catch` would cost two e-mails to the same person, and e-mail cannot be recalled. An RPC
+ *    error is silence, never a send: item 8.e fails closed, so `claim_failed` is a discard.
+ *
  * ---------------------------------------------------------------------------------------------
  * WHAT THIS FILE DOES **NOT** GATE, AND WHY THE ABSENCE IS RETURNED INSTEAD OF HIDDEN
  * ---------------------------------------------------------------------------------------------
  *
- * **There is no cadence gate, here or anywhere.** BR-COMUNICACAO-017 item 4.a: the ranking e-mail
- * and the newsletter share ONE bucket of 1 send per address per 7 days, and BR-COMUNICACAO-014
- * item 6.3 says the service e-mail wins and the newsletter yields. That arbitration is a single
- * SQL gate called by the audience resolvers (014 item 7) and **it does not exist** — a sweep of
- * `pg_proc` in `core`, `drive` and `marketing` on 2026-09-17 returned no candidate. Building a
- * fourth blind gate in TypeScript is precisely the defect item 7 exists to prevent, so this file
- * does the opposite: `cadenceArbiterAbsent` counts the recipients that are leaving WITHOUT an
- * arbiter, so the gap is a number in the log instead of an invisible double send.
- *
- * **There is no once-per-cycle store either.** BR-COMUNICACAO-017 item 8.b caps the e-mail at one
- * per recipient per weekly cycle, and nothing records that an address was mailed: the daily
- * window evaluates each candidate once a DAY, so the same recipient can be reached on more than
- * one day of the same cycle. It needs a row — `marketing.newsletter_recipients` demands a
- * `campaign_id` this dispatch has no campaign for — and a row is `data`'s. Same treatment: the
- * count is returned and logged, never silently assumed to be one.
+ * **The bucket SHARED WITH THE NEWSLETTER still has no arbiter, and that is a different ceiling
+ * from gate 6.** BR-COMUNICACAO-017 item 4.a: the ranking e-mail and the newsletter share ONE
+ * bucket of 1 send per address per 7 days, and BR-COMUNICACAO-014 item 6.3 says the service
+ * e-mail wins and the newsletter yields. That arbitration is a single SQL gate called by the
+ * audience resolvers (014 item 7) and **it does not exist** — a sweep of `pg_proc` in `core`,
+ * `drive` and `marketing` on 2026-09-17 returned no candidate, and the rule itself says closing
+ * the per-cycle ceiling does not close it ("são dois tetos diferentes"). Building a blind gate in
+ * TypeScript is precisely the defect item 7 exists to prevent, so this file does the opposite:
+ * `cadenceArbiterAbsent` counts the recipients that are leaving WITHOUT an arbiter between this
+ * piece and the newsletter, so the gap is a number in the log instead of an invisible double
+ * send. What it no longer declares is the absence of the per-cycle ceiling: that one is gate 6.
  */
 
 import { isApplePrivateRelayAddress, isRelayDomainVerified } from './newsletter-metrics.ts';
-import type { RankingDecision } from './ranking-communication.ts';
+import {
+  RANKING_PIECES_BY_PERISHABILITY,
+  type RankingDecision,
+  type RankingPiece,
+} from './ranking-communication.ts';
 import {
   mailableEmailLang,
   rankingCopyVars,
@@ -100,6 +115,17 @@ export interface RankingEmailDiscards {
   language_not_published: number;
   /** The piece has no complete sentence in that language. */
   no_copy: number;
+  /**
+   * Two accounts share one address and both had a piece today. The ceiling of item 8.e is per
+   * ADDRESS, so only the most perishable piece is kept; the other is counted here and never
+   * reaches the reservation.
+   */
+  address_superseded: number;
+  /** `claim_ranking_email_slot` answered `reserved: false` — this address already spent its
+   * cycle, with any of the three pieces. Expected discard, not an error (item 8.e). */
+  cycle_already_claimed: number;
+  /** The reservation could not be proved. No proof, no e-mail — item 8.e fails closed. */
+  claim_failed: number;
 }
 
 export interface RankingEmailPlan {
@@ -126,6 +152,15 @@ export interface RankingEmailPlanInput {
 }
 
 /**
+ * Position of a piece in BR-COMUNICACAO-012 item 1.4.e — lower is more perishable. An unknown
+ * piece sorts last so it can never displace one the product ordered.
+ */
+function perishability(piece: RankingPiece): number {
+  const i = RANKING_PIECES_BY_PERISHABILITY.indexOf(piece);
+  return i === -1 ? Number.MAX_SAFE_INTEGER : i;
+}
+
+/**
  * The plan. Order matters only for the counts: an address hits the FIRST gate that refuses it, so
  * `no_copy` never absorbs a relay address and the log stays readable.
  */
@@ -139,7 +174,13 @@ export function planRankingEmails(input: RankingEmailPlanInput): RankingEmailPla
     apple_relay_domain_unverified: 0,
     language_not_published: 0,
     no_copy: 0,
+    address_superseded: 0,
+    cycle_already_claimed: 0,
+    claim_failed: 0,
   };
+  // The address is the key of the ceiling, lowercased exactly as `marketing.email_unsubscribes`
+  // and `claim_ranking_email_slot` do it — BR-COMUNICACAO-017 item 8.e, item 5.
+  const indexByAddress = new Map<string, number>();
 
   for (const row of input.audience) {
     const email = String(row.email ?? '').trim();
@@ -177,7 +218,7 @@ export function planRankingEmails(input: RankingEmailPlanInput): RankingEmailPla
       continue;
     }
 
-    recipients.push({
+    const recipient: RankingEmailRecipient = {
       user_id: String(row.user_id),
       email,
       lang,
@@ -185,7 +226,22 @@ export function planRankingEmails(input: RankingEmailPlanInput): RankingEmailPla
       subject: copy.subject,
       heading: copy.heading,
       body: copy.body,
-    });
+    };
+
+    // One piece per address per cycle (item 8.e), so two accounts on the same address compete
+    // here and the most perishable wins — the same order the push already uses, and the reason
+    // the choice is made BEFORE the reservation instead of by reserving three times.
+    const key = email.toLowerCase();
+    const seen = indexByAddress.get(key);
+    if (seen !== undefined) {
+      if (perishability(recipient.piece) < perishability(recipients[seen].piece)) {
+        recipients[seen] = recipient;
+      }
+      discarded.address_superseded += 1;
+      continue;
+    }
+    indexByAddress.set(key, recipients.length);
+    recipients.push(recipient);
   }
 
   return {
@@ -194,6 +250,49 @@ export function planRankingEmails(input: RankingEmailPlanInput): RankingEmailPla
     audienceSize: input.audience.length,
     cadenceArbiterAbsent: recipients.length,
   };
+}
+
+/** What `marketing.claim_ranking_email_slot` answered for one recipient. */
+export type RankingEmailClaimVerdict = 'reserved' | 'cycle_already_claimed' | 'claim_failed';
+
+/**
+ * Gate 6 — BR-COMUNICACAO-017 item 8.e. Reserves the cycle slot of every recipient and returns a
+ * plan whose `recipients` are ONLY the ones that won it.
+ *
+ * The reservation is an act of the database, so the call itself is injected: this file stays
+ * loadable by a test, and the orchestrator keeps the only `supabase-js` import. Three invariants
+ * live here and nowhere else:
+ *
+ * - **Reserve, then deliver.** The caller sends what this function returns, so there is no order
+ *   in which a send precedes its proof.
+ * - **The slot is never given back.** No release exists in this module, and the caller must not
+ *   invent one in a `catch`: a returned slot costs two e-mails to the same person, while a
+ *   reservation spent on a failed send costs one e-mail that does not leave.
+ * - **Failure is silence.** A rejected or errored claim is `claim_failed` and the recipient is
+ *   dropped — "sem contagem provada, nenhum e-mail sai".
+ */
+export async function claimRankingEmailSlots(
+  plan: RankingEmailPlan,
+  claim: (recipient: RankingEmailRecipient) => Promise<RankingEmailClaimVerdict>
+): Promise<RankingEmailPlan> {
+  if (plan.recipients.length === 0) return plan;
+
+  const reserved: RankingEmailRecipient[] = [];
+  const discarded: RankingEmailDiscards = { ...plan.discarded };
+
+  for (const recipient of plan.recipients) {
+    let verdict: RankingEmailClaimVerdict;
+    try {
+      verdict = await claim(recipient);
+    } catch {
+      verdict = 'claim_failed';
+    }
+    if (verdict === 'reserved') reserved.push(recipient);
+    else if (verdict === 'cycle_already_claimed') discarded.cycle_already_claimed += 1;
+    else discarded.claim_failed += 1;
+  }
+
+  return { ...plan, recipients: reserved, discarded, cadenceArbiterAbsent: reserved.length };
 }
 
 /**
@@ -207,14 +306,19 @@ export function planRankingEmails(input: RankingEmailPlanInput): RankingEmailPla
  */
 export function rankingEmailAuditLine(plan: RankingEmailPlan, relayVerifiedRaw: string | null | undefined): string {
   const d = plan.discarded;
-  const discardedTotal = d.no_decision + d.apple_relay_domain_unverified + d.language_not_published + d.no_copy;
+  const discardedTotal =
+    d.no_decision + d.apple_relay_domain_unverified + d.language_not_published + d.no_copy +
+    d.address_superseded + d.cycle_already_claimed + d.claim_failed;
   return (
     `audience=${plan.audienceSize} mailable=${plan.recipients.length} ` +
     `discarded=${discardedTotal} ` +
     `(no_decision=${d.no_decision}, apple_relay_domain_unverified=${d.apple_relay_domain_unverified} ` +
     `[domain_verified=${isRelayDomainVerified(relayVerifiedRaw)}], ` +
-    `language_not_published=${d.language_not_published}, no_copy=${d.no_copy}) ` +
+    `language_not_published=${d.language_not_published}, no_copy=${d.no_copy}, ` +
+    `address_superseded=${d.address_superseded}, cycle_already_claimed=${d.cycle_already_claimed}, ` +
+    `claim_failed=${d.claim_failed}) ` +
     `no_cadence_arbiter=${plan.cadenceArbiterAbsent} ` +
-    '(BR-COMUNICACAO-017 item 4.b: no 7-day bucket gate exists, so these left unarbitrated)'
+    '(BR-COMUNICACAO-017 item 4.b: the bucket shared with the newsletter still has no arbiter, ' +
+    'so these left unarbitrated against it; the per-cycle ceiling of item 8.e IS enforced above)'
   );
 }
