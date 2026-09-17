@@ -13,10 +13,12 @@ import {
   RANKING_PUSH_TYPE,
   RANKING_PUSH_TYPES,
   type RankingDecision,
+  type RankingPiece,
   type RecipientConsent,
   type ScoreboardWeekRow,
 } from '../_shared/ranking-communication.ts';
 import {
+  mailableEmailLang,
   normalizeCopyLang,
   rankingCopyVars,
   resolveRankingPushCopy,
@@ -28,13 +30,23 @@ const corsHeaders = {
 };
 
 /**
- * Where a ranking push lands when it is tapped.
+ * Where each ranking push lands when it is tapped — and it is NOT one destination for the three.
  *
- * The app registers it with the scoreboard screen of #745; declared in
- * `docs/contracts/notificacoes.md` §5. Until it does, the app's destination cascade falls back to
- * the inbox, which is the same behaviour every unknown deeplink already has.
+ * `rank_at_risk` says the hours ran out, so its tap belongs on the paywall, carrying the funnel
+ * origin of BR-MONETIZACAO-081 item 6.4. That route already exists in the app (`DeepLinkService`,
+ * `case '/plans'`, which reads `params.source`), so this costs no store build and recovers the
+ * conversion the piece exists for — sending it to the scoreboard instead would have been a push
+ * about money landing on a table.
+ *
+ * The other two land on the scoreboard screen of #745, which the app does NOT register yet;
+ * until it does, the app's destination cascade falls back to the inbox, which is the same
+ * behaviour every unknown deeplink already has. Declared in `docs/contracts/notificacoes.md` §6.3.
  */
-const RANKING_DEEPLINK = 'tuggi://ranking';
+const RANKING_DEEPLINK: Record<RankingPiece, string> = {
+  streak_at_risk: 'tuggi://ranking',
+  rank_at_risk: 'tuggi://plans?source=rank_at_risk',
+  rank_drop: 'tuggi://ranking',
+};
 
 /**
  * Collects the ranking dispatch for the accounts this daily window is evaluating.
@@ -51,8 +63,16 @@ async function collectRankingDispatch(
   client: ReturnType<typeof createClient>,
   requestId: string,
   candidateIds: string[]
-): Promise<{ byUserId: Map<string, RankingDecision>; emailDecisions: RankingDecision[] }> {
-  const empty = { byUserId: new Map<string, RankingDecision>(), emailDecisions: [] as RankingDecision[] };
+): Promise<{
+  byUserId: Map<string, RankingDecision>;
+  emailDecisions: RankingDecision[];
+  streakDaysByUserId: Map<string, number>;
+}> {
+  const empty = {
+    byUserId: new Map<string, RankingDecision>(),
+    emailDecisions: [] as RankingDecision[],
+    streakDaysByUserId: new Map<string, number>(),
+  };
   if (candidateIds.length === 0) return empty;
 
   const nowIso = new Date().toISOString();
@@ -145,6 +165,44 @@ async function collectRankingDispatch(
     zeroBalanceUserIds = new Set<string>((metered ?? []).map((m: Record<string, unknown>) => String(m.user_id)));
   }
 
+  // THE LENGTH OF THE STREAK — and it is a READ of the only counter there is, not a second one.
+  //
+  // `core.account_streak` is the relation migration `20260917120000` of `db-tuggiApp` creates
+  // (#746): consecutive UTC calendar days with at least one story delivered, per account, over
+  // `core.ranking_story_day`. It is `GRANT SELECT` to `service_role` and to nobody else, which is
+  // exactly this function's key. The sibling RPC `drive.get_streak_v1()` is useless here — it
+  // takes no arguments and identifies the caller by `auth.uid()`, so it can only ever answer
+  // about the holder of the JWT, and this window has none.
+  //
+  // **This is the piece's precondition, and it fails CLOSED.** While the migration is not
+  // applied the read errors, the map stays empty, `rankingCopyVars` supplies no `{{count}}`, and
+  // `ranking.push.streak_at_risk.title` — a plural pair — does not resolve. The streak piece then
+  // simply does not leave, and the daily retrospective keeps the slot.
+  //
+  // Only a run that is ALIVE and NOT YET completed today is carried: `today_completed = true`
+  // means the person already did their part, and `isStreakAtRisk` would not have chosen the piece
+  // for them anyway. Reading both columns here keeps the number the push states and the state the
+  // push claims from ever disagreeing.
+  const streakDaysByUserId = new Map<string, number>();
+  const { data: streakRows, error: streakErr } = await client
+    .schema('core')
+    .from('account_streak')
+    .select('user_id, current_streak_days, today_completed')
+    .in('user_id', candidateIds);
+  if (streakErr) {
+    console.warn(
+      `[${requestId}] ⚠️ ranking: streak not measurable (${streakErr.code ?? '?'}) — ` +
+      'streak_at_risk has no day count and is withheld for everybody today. ' +
+      'Expected until db-tuggiApp migration 20260917120000 is applied.'
+    );
+  } else {
+    for (const s of (streakRows ?? []) as Array<Record<string, unknown>>) {
+      if (s.today_completed === true) continue;
+      const days = Number(s.current_streak_days ?? 0);
+      if (Number.isFinite(days) && days >= 1) streakDaysByUserId.set(String(s.user_id), days);
+    }
+  }
+
   const { decisions, skipped } = buildRankingDispatch({
     now: new Date(),
     cycleStart,
@@ -165,7 +223,7 @@ async function collectRankingDispatch(
     if (d.channel === 'push') byUserId.set(d.user_id, d);
     else emailDecisions.push(d);
   }
-  return { byUserId, emailDecisions };
+  return { byUserId, emailDecisions, streakDaysByUserId };
 }
 
 /**
@@ -206,11 +264,19 @@ async function reportRankingEmailAudience(
   const relayVerified = String(Deno.env.get('APPLE_PRIVATE_RELAY_DOMAIN_VERIFIED') ?? '').trim().toLowerCase() === 'true';
   const rows = (data ?? []) as Array<Record<string, unknown>>;
   const relay = rows.filter((r) => String(r.email ?? '').toLowerCase().endsWith('@privaterelay.appleid.com'));
-  const mailable = relayVerified ? rows.length : rows.length - relay.length;
+  // `fr` is NOT in this audience — spec §2.1. The promotional sender publishes four languages in
+  // its three dictionaries (`FOOTER_LABELS`, `FALLBACK_NAME`, `SITE_LOCALE`) and French is in
+  // none of them, so a French recipient would read a Portuguese footer and be called `traveler`,
+  // in English. Turning it on is three lines in two files and it is a card of its own (spec §8
+  // item 4). Counting them as mailable is how a whole language gets sent by accident.
+  const unservedLang = rows.filter((r) => mailableEmailLang(r.language as string | null) === null);
+  const excluded = new Set<Record<string, unknown>>([...(relayVerified ? [] : relay), ...unservedLang]);
+  const mailable = rows.length - excluded.size;
 
   console.log(
     `[${requestId}] 📭 ranking e-mail: ${mailable} mailable, ${relay.length} on Apple relay ` +
-    `(domain verified: ${relayVerified}).`
+    `(domain verified: ${relayVerified}), ${unservedLang.length} in a language the sender does ` +
+    'not publish.'
   );
   return mailable;
 }
@@ -271,11 +337,19 @@ Deno.serve(async (req) => {
       // retrospective is the one that yields. This is not a second send: it is the same slot,
       // carrying the more urgent of the two.
       const decision = ranking.byUserId.get(user.user_id);
+      const rankingLang = normalizeCopyLang(user.language);
       const rankingCopy = decision
         ? resolveRankingPushCopy(
             decision.piece,
-            normalizeCopyLang(user.language),
-            rankingCopyVars(decision.piece, decision)
+            rankingLang,
+            // `{{rank}}` arrives already formatted as the ordinal of `rankingLang`, and
+            // `{{count}}` only exists for whoever has a measured live streak — see
+            // `rankingCopyVars`. Both are facts about this recipient and nobody else.
+            rankingCopyVars(decision.piece, rankingLang, {
+              rank: decision.rank,
+              points: decision.points,
+              streakDays: ranking.streakDaysByUserId.get(user.user_id) ?? null,
+            })
           )
         : null;
 
@@ -285,7 +359,7 @@ Deno.serve(async (req) => {
       if (decision && !rankingCopy) {
         console.log(
           `[${requestId}] 🔇 ranking: '${decision.piece}' has no copy in ` +
-          `'${normalizeCopyLang(user.language)}' — piece withheld.`
+          `'${rankingLang}' — piece withheld.`
         );
       }
 
@@ -306,7 +380,7 @@ Deno.serve(async (req) => {
             type: RANKING_PUSH_TYPE[decision.piece],
             source: 'ranking',
             date: new Date().toISOString().split('T')[0],
-            deeplink: RANKING_DEEPLINK,
+            deeplink: RANKING_DEEPLINK[decision.piece],
             ...(decision.rank === null ? {} : { rank: decision.rank }),
           },
         },
