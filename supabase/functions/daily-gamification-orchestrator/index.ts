@@ -18,11 +18,18 @@ import {
   type ScoreboardWeekRow,
 } from '../_shared/ranking-communication.ts';
 import {
-  mailableEmailLang,
   normalizeCopyLang,
   rankingCopyVars,
   resolveRankingPushCopy,
 } from '../_shared/ranking-comm-i18n.ts';
+// The e-mail plan — the four gates of BR-COMUNICACAO-017, pure and tested in
+// `tests/api/ranking-email.test.ts`. This file resolves the audience and delivers; it decides
+// nothing about who is mailable.
+import {
+  planRankingEmails,
+  rankingEmailAuditLine,
+  type RankingEmailAudienceRow,
+} from '../_shared/ranking-email.ts';
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -229,22 +236,37 @@ async function collectRankingDispatch(
 /**
  * The e-mail half — BR-COMUNICACAO-017, the channel of the 105 accounts that uninstalled.
  *
- * It resolves the address through the audience resolver that already exists, so
- * `marketing.email_unsubscribes` keeps being the single unsubscribe list (item 5), and it refuses
- * `@privaterelay.appleid.com` while the sending domain is unverified (item 6.a — "not verified
- * equals not sent").
+ * It resolves the address through `marketing.get_ranking_email_audience`, which asks for the two
+ * consents and applies `marketing.email_unsubscribes` — the single unsubscribe list (item 5) —,
+ * plans the send with `planRankingEmails` (the four gates, one implementation), leaves the audit
+ * line item 8.c asks of an automatic dispatch, and hands the recipients to
+ * `send-newsletter/ranking`, which is where a Tuggi e-mail leaves.
  *
- * **The send itself is not wired, and the reason is a missing database object, not a decision**:
- * `marketing.get_newsletter_audience` takes only the allowlisted filter keys of
- * `core.build_audience_filter`, which has no list-of-ids and no `ranking_opt_in`, and
- * `send-newsletter` carries ONE content for a whole campaign — neither can express "this piece,
- * to these accounts". What it needs is in the final report of #747. Until then this logs the
- * audience it would have mailed, which is what makes the gap countable instead of invisible.
+ * **It fails closed on a missing audience resolver, and that is the correct behaviour, not a
+ * degradation.** The RPC lives in migration `20260917140000` of `db-tuggiApp`, which is WRITTEN
+ * and NOT APPLIED (CLAUDE.md §3 — the operator applies). Until it is, the call errors, the warn
+ * below is the whole record, and no e-mail leaves for anybody.
+ *
+ * **Two ceilings of BR-COMUNICACAO-017 are absent and are LOGGED instead of assumed** — the
+ * 7-day bucket shared with the newsletter (item 4.b) and the one-per-cycle cap (item 8.b). Both
+ * need a database object that does not exist; see the header of `_shared/ranking-email.ts`.
+ *
+ * **One divergence from item 8.b is deliberate and is not silent.** The rule says the e-mail goes
+ * out "depois de o ciclo fechar", citing the settled position. This dispatch rides the OPEN
+ * cycle, for a reason that is structural: `isStreakAtRisk` and `isPositionInDispute` are both
+ * false once the cycle is over — the streak has no tomorrow and the dispute died with the cycle —
+ * so a strict reading silences two of the three pieces by construction and publishes six of the
+ * nine sentences `design` wrote as dead code. The position the piece states is `rank_official`,
+ * never a figure computed here. Reported to `produto` on #747 against BR-COMUNICACAO-017 item
+ * 8.b; whichever way it is arbitrated, it is arbitrated in the rule and not here.
  */
-async function reportRankingEmailAudience(
+async function dispatchRankingEmail(
   client: ReturnType<typeof createClient>,
   requestId: string,
-  decisions: RankingDecision[]
+  supabaseUrl: string,
+  supabaseKey: string,
+  decisions: RankingDecision[],
+  streakDaysByUserId: Map<string, number>
 ): Promise<number> {
   if (decisions.length === 0) return 0;
 
@@ -256,29 +278,53 @@ async function reportRankingEmailAudience(
     console.warn(
       `[${requestId}] 📭 ranking e-mail: ${decisions.length} recipient(s) resolved by the ` +
       `mechanism, but marketing.get_ranking_email_audience is unavailable (${error.code ?? '?'}). ` +
-      'No e-mail sent. See #747 for the object this needs.'
+      'No e-mail sent. Expected until db-tuggiApp migration 20260917140000 is applied.'
     );
     return 0;
   }
 
-  const relayVerified = String(Deno.env.get('APPLE_PRIVATE_RELAY_DOMAIN_VERIFIED') ?? '').trim().toLowerCase() === 'true';
-  const rows = (data ?? []) as Array<Record<string, unknown>>;
-  const relay = rows.filter((r) => String(r.email ?? '').toLowerCase().endsWith('@privaterelay.appleid.com'));
-  // `fr` is NOT in this audience — spec §2.1. The promotional sender publishes four languages in
-  // its three dictionaries (`FOOTER_LABELS`, `FALLBACK_NAME`, `SITE_LOCALE`) and French is in
-  // none of them, so a French recipient would read a Portuguese footer and be called `traveler`,
-  // in English. Turning it on is three lines in two files and it is a card of its own (spec §8
-  // item 4). Counting them as mailable is how a whole language gets sent by accident.
-  const unservedLang = rows.filter((r) => mailableEmailLang(r.language as string | null) === null);
-  const excluded = new Set<Record<string, unknown>>([...(relayVerified ? [] : relay), ...unservedLang]);
-  const mailable = rows.length - excluded.size;
+  const relayVerifiedRaw = Deno.env.get('APPLE_PRIVATE_RELAY_DOMAIN_VERIFIED');
+  const plan = planRankingEmails({
+    audience: (data ?? []) as RankingEmailAudienceRow[],
+    decisions,
+    streakDaysByUserId,
+    relayDomainVerifiedRaw: relayVerifiedRaw,
+  });
 
-  console.log(
-    `[${requestId}] 📭 ranking e-mail: ${mailable} mailable, ${relay.length} on Apple relay ` +
-    `(domain verified: ${relayVerified}), ${unservedLang.length} in a language the sender does ` +
-    'not publish.'
-  );
-  return mailable;
+  // BR-COMUNICACAO-017 item 8.c — the log IS the act of confirmation of BR-COMUNICACAO-014 item
+  // 9. That act exists for the CMS path, where a person presses a button; here there is no
+  // button, and an automatic send with no trace is a send nobody can explain afterwards.
+  console.log(`[${requestId}] 📭 ranking e-mail: ${rankingEmailAuditLine(plan, relayVerifiedRaw)}`);
+
+  if (plan.recipients.length === 0) return 0;
+
+  try {
+    const res = await fetch(`${supabaseUrl}/functions/v1/send-newsletter/ranking`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${supabaseKey}`,
+        apikey: supabaseKey,
+      },
+      body: JSON.stringify({ recipients: plan.recipients }),
+    });
+    if (!res.ok) {
+      console.error(
+        `[${requestId}] ❌ ranking e-mail: send-newsletter/ranking returned ${res.status} — ` +
+        `${(await res.text()).slice(0, 300)}`
+      );
+      return 0;
+    }
+    const body = await res.json().catch(() => ({}));
+    console.log(
+      `[${requestId}] 📧 ranking e-mail: sent=${body.sent ?? 0} failed=${body.failed ?? 0} ` +
+      `of ${plan.recipients.length}`
+    );
+    return Number(body.sent ?? 0);
+  } catch (err) {
+    console.error(`[${requestId}] 💥 ranking e-mail: send failed:`, (err as Error).message);
+    return 0;
+  }
 }
 
 Deno.serve(async (req) => {
@@ -319,7 +365,14 @@ Deno.serve(async (req) => {
     // 1b. The ranking pieces of #747 ride this same window — BR-COMUNICACAO-012 item 1.4.e.
     const candidateIds = candidates.map((c: { user_id: string }) => c.user_id);
     const ranking = await collectRankingDispatch(driveClient, requestId, candidateIds);
-    await reportRankingEmailAudience(driveClient, requestId, ranking.emailDecisions);
+    const rankingEmailSent = await dispatchRankingEmail(
+      driveClient,
+      requestId,
+      supabaseUrl,
+      supabaseKey,
+      ranking.emailDecisions,
+      ranking.streakDaysByUserId
+    );
 
     // 2. Send Push directly via firebase-push-notification/send (EF-to-EF)
     const pushUrl = `${supabaseUrl}/functions/v1/firebase-push-notification/send`;
@@ -469,6 +522,7 @@ Deno.serve(async (req) => {
       sent: userIdsNotified.length,
       total: candidates.length,
       ranking_sent: rankingSent,
+      ranking_email_sent: rankingEmailSent,
       results
     }), {
       headers: { ...corsHeaders, 'Content-Type': 'application/json' },

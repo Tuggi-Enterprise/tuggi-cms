@@ -223,20 +223,31 @@ test('BR-COMUNICACAO-012 item 1.4: the three push pieces leave in all five langu
   }
 })
 
-test('BR-COMUNICACAO-017: the nine e-mail keys are still closed, and the channel stays silent in every language', () => {
-  // `design` delivered ONE e-mail piece and it is not a value of this catalogue: it describes an
-  // account ABSENT from the roster (this mechanism only ever resolves accounts that are IN it),
-  // it has five fields against these three, and its paragraphs interpolate `{{first_name}}`,
-  // which `RankingDecision` deliberately does not carry. Spec §2.2/§2.3; header of the module.
+test('BR-COMUNICACAO-017: the nine e-mail keys are FILLED, and the fail-closed contract survived being filled', () => {
+  // These keys were empty until 2026-09-17 because the only e-mail copy that existed described an
+  // account ABSENT from the roster, and this mechanism only ever resolves accounts that are IN
+  // it — the refusal that became BR-COMUNICACAO-017 item 9.a. Spec §2.6 replaced it with nine
+  // sentences for the account that is in the roster, and the audience gates are proved in
+  // `tests/api/ranking-email.test.ts`. What this one keeps proving is the CONTRACT: all three
+  // fields or none, and no fallback to another language.
   for (const piece of PIECES) {
     for (const lang of mod.RANKING_COPY_LANGS) {
-      assert.equal(
-        mod.resolveRankingEmailCopy(piece, lang, { rank: 4, points: 20, count: 3 }),
-        null,
-        `${piece}/${lang}: the e-mail half must fail closed while the campaign does not exist`
+      const vars = piece === 'streak_at_risk' ? { count: 3 } : { rank: mod.formatRankOrdinal(4, lang) }
+      assert.ok(
+        mod.resolveRankingEmailCopy(piece, lang, vars),
+        `${piece}/${lang}: the e-mail copy did not resolve`
       )
     }
   }
+
+  // Drop one of the three fields and the whole piece goes silent in that language, and only in
+  // that language. A subject with no body is not a degraded e-mail, it is a defect.
+  withCatalog({
+    'ranking.email.rank_drop.body': { ...mod.RANKING_COPY_CATALOG['ranking.email.rank_drop.body'], pt: '' },
+  }, () => {
+    assert.equal(mod.resolveRankingEmailCopy('rank_drop', 'pt', { rank: '4º' }), null)
+    assert.ok(mod.resolveRankingEmailCopy('rank_drop', 'en', { rank: '4th' }))
+  })
 })
 
 test('#747: a key filled in four languages and missing in the fifth only goes dark in the fifth', () => {
@@ -527,7 +538,19 @@ test('BR-MONETIZACAO-081 item 6.4: the balance piece taps into the paywall carry
   assert.match(source, /rank_drop:\s*'tuggi:\/\/ranking'/)
 })
 
-test('BR-COMUNICACAO-017: the orchestrator keeps a language the sender cannot address out of the e-mail audience', () => {
+test('BR-COMUNICACAO-017: a language the sender cannot address stays out of the e-mail audience', () => {
+  // The gate moved out of the orchestrator and into `_shared/ranking-email.ts` when the send was
+  // wired (#747), which is what made it executable instead of grep-able — the behaviour itself is
+  // proved in `tests/api/ranking-email.test.ts`. What is checked here is that the orchestrator
+  // still routes through that one plan rather than growing a second copy of the gate.
   const source = readFileSync(ORCHESTRATOR_PATH, 'utf8')
-  assert.match(source, /mailableEmailLang\(/)
+  assert.match(source, /planRankingEmails/)
+  assert.doesNotMatch(source, /mailableEmailLang\(/, 'the language gate has a second implementation')
+  assert.match(
+    readFileSync(
+      resolve(import.meta.dirname, '../../supabase/functions/_shared/ranking-email.ts'),
+      'utf8'
+    ),
+    /mailableEmailLang\(row\.language\)/
+  )
 })

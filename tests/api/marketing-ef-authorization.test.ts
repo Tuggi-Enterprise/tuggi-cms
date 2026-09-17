@@ -156,10 +156,15 @@ test('Gmail bulk-sender: BOTH unsubscribe headers go out, not just one', () => {
   // And they travel together: one function composes the pair, so a caller cannot send half.
   const pairs = [...newsletter.matchAll(/'List-Unsubscribe':/g)].length
   assert.equal(pairs, 1, 'the header pair is spelled out more than once and will drift')
+  // EVERY send site carries it, and the count is not a literal on purpose: `/ranking` (#747) was
+  // the third one, and a hard-coded `2` would have turned a correct new sender into a red test
+  // instead of catching the one that forgets the pair. The invariant is the equality.
+  const sendSites = [...newsletter.matchAll(/from: RESEND_FROM,/g)].length
+  assert.ok(sendSites >= 3, `expected at least the campaign, test and ranking sends, found ${sendSites}`)
   assert.equal(
     [...newsletter.matchAll(/headers: unsubscribeHeaders\(/g)].length,
-    2,
-    'the campaign send and the test send do not both use the pair'
+    sendSites,
+    'a path hands an e-mail to Resend without the one-click unsubscribe pair'
   )
 })
 

@@ -38,26 +38,34 @@
  *    `proposta` (BR-COMUNICACAO-012 item 2). Again, rule 3 covers the numeric half.
  *
  * ---------------------------------------------------------------------------------------------
- * WHY THE E-MAIL HALF IS STILL EMPTY, AND IT IS NOT AN OVERSIGHT
+ * THE E-MAIL HALF IS FILLED NOW, AND IT IS A SECOND SET OF SENTENCES, NOT A COPY OF THE PUSH
  * ---------------------------------------------------------------------------------------------
  *
- * `design` delivered ONE e-mail piece (spec §2.2/§2.3), not three, and it is not a catalogue value
- * in this shape for three independent reasons, any one of which is enough:
+ * Until 2026-09-17 these nine keys were empty on purpose: the only e-mail copy `design` had
+ * written (spec §2.2/§2.3) said *"your line was not there this week"*, which is true only of an
+ * account ABSENT from the roster, and every decision `buildRankingDispatch` produces is for an
+ * account that IS in it. That sentence was refused and **BR-COMUNICACAO-017 item 9.a records the
+ * refusal as a rule**: copy addressed to whoever is outside the roster is forbidden.
  *
- *   a. **Different audience.** The sentence is *"your line was not there this week"* — it is true
- *      only for an account ABSENT from the current roster (the 105 that uninstalled). Every e-mail
- *      decision `buildRankingDispatch` produces is for an account that IS in the roster, so the
- *      sentence would be false for the only recipients this mechanism can name today.
- *   b. **Different shape.** `send-newsletter` consumes `subject`, `preheader`, `title`,
- *      `paragraphs[]` and `cta_label`; `EmailCopyKeys` has three fields. `preheader` and
- *      `cta_label` have nowhere to land.
- *   c. **Different variable.** The paragraphs interpolate `{{first_name}}`, which
- *      `send-newsletter` substitutes and which `RankingDecision` deliberately does not carry —
- *      the decision payload holds no name, and widening it would undo that.
+ * Spec §2.6 is the answer to that — nine sentences for the account that IS in the roster, in
+ * `pt`, `en`, `es`, `it`, plus `fr` written and not mailable. Three things about their shape that
+ * the sentences do not say out loud:
  *
- * So the nine `ranking.email.*` keys stay pending, the pieces keep failing closed on that channel,
- * and the e-mail is the `send-newsletter` campaign the #747 report asks for. Filling them from
- * the spec would publish a false sentence the day somebody wires the send.
+ *   a. **Only `streak_at_risk.subject` is a plural pair.** The `heading` and the `body` of that
+ *      same piece are single strings and carry no `{{count}}`. That works because the plural
+ *      selection of `resolveRankingCopy` is **per key**, not per piece: each catalogue entry is
+ *      independently `string | PluralForms`, so one field of a piece can be countable while the
+ *      other two are not. No mechanism change was needed to publish these — see §2.6 item 3.
+ *   b. **None of the nine carries `{{points}}`, and that is arithmetic, not debt.** A single
+ *      string with `{{points}}` would print *"1 pontos"* the day an account has exactly one
+ *      point, and in the roster that is common (`points_official > 0` is the floor). A plural
+ *      pair cannot fix it either: `rankingCopyVars` supplies no `count` to `rank_drop` or
+ *      `rank_at_risk`, so a pair there resolves to `null` and the piece would never leave.
+ *      Whoever wants the point count in an e-mail changes the MECHANISM — plural scoped to a
+ *      second variable — not the copy.
+ *   c. **No CTA text.** `EmailCopyKeys` has three fields and none is a button label; the button
+ *      belongs to the wrapper (`_shared/emailLayout.ts`). A sentence saying "tap here" would be
+ *      pointing at a control the copy does not own.
  */
 
 import type { RankingPiece } from './ranking-communication.ts';
@@ -232,9 +240,9 @@ export type CopyValue = string | PluralForms;
 /**
  * key → language → sentence.
  *
- * The push half is FILLED, from spec §1.2 / §1.3 / §1.4. The e-mail half is empty and stays empty
- * — see the header. A key with no value for a language means that piece does not leave for that
- * language; there is no fallback, and silence beats a sentence in the wrong language.
+ * The push half comes from spec §1.2 / §1.3 / §1.4; the e-mail half from §2.6. A key with no
+ * value for a language means that piece does not leave for that language; there is no fallback,
+ * and silence beats a sentence in the wrong language.
  */
 export const RANKING_COPY_CATALOG: Record<string, Partial<Record<RankingCopyLang, CopyValue>>> = {
   // -------------------------------------------------------------------------------------------
@@ -310,6 +318,132 @@ export const RANKING_COPY_CATALOG: Record<string, Partial<Record<RankingCopyLang
     es: 'Estás en el {{rank}} puesto, con alguien a pocos puntos de distancia. Sin horas, la guía deja de narrar.',
     fr: "Tu es {{rank}} au classement, avec quelqu'un à quelques points de toi. Sans heures, le guide arrête de raconter.",
     it: 'Sei {{rank}} in classifica, con qualcuno a pochi punti da te. Senza ore, la guida smette di raccontare.',
+  },
+
+  // ===========================================================================================
+  // THE E-MAIL HALF — spec §2.6, and the audience is BR-COMUNICACAO-017 item 9: the account that
+  // IS in the roster, reached by e-mail because push does not reach it (item 2).
+  //
+  // `fr` is present in every key and is NOT in the audience: `mailableEmailLang` refuses it while
+  // `FOOTER_LABELS` (`_shared/emailLayout.ts`), `FALLBACK_NAME` and `SITE_LOCALE`
+  // (`send-newsletter/index.ts`) publish four languages and none of them is French. Writing is
+  // not turning on — spec §2.6, "`fr` — escrito, não enviável", and §8 item 4.
+  // ===========================================================================================
+
+  // -------------------------------------------------------------------------------------------
+  // E-mail piece 1 — rank drop. Spec §2.6, "Peça 1".
+  //
+  // The SUBJECT names the external cause (DS-COPY-071) and the HEADING states the present
+  // (DS-COPY-069): `sceso/scesa` and `descendu/descendue` inflect for a gender we decided not to
+  // know, and the present tense does not. The second sentence of the body is a rule OF THE LIST,
+  // in the third person — "the list is remade with every story narrated with the guide on"
+  // (BR-RANKING-004 item 1). It does NOT promise the reader will score: BR-MONETIZACAO-071
+  // forbids promising points to whoever the tier refuses, and the third person is what keeps the
+  // sentence true for both tiers.
+  // -------------------------------------------------------------------------------------------
+  'ranking.email.rank_drop.subject': {
+    pt: 'Alguém passou à sua frente no placar',
+    en: 'Someone moved ahead of you on the standings',
+    es: 'Alguien te adelantó en la clasificación',
+    fr: "Quelqu'un est passé devant toi au classement",
+    it: 'Qualcuno ti ha superato in classifica',
+  },
+  'ranking.email.rank_drop.heading': {
+    pt: 'Você está em {{rank}} lugar',
+    en: 'You are in {{rank}} place',
+    es: 'Estás en el {{rank}} puesto',
+    fr: 'Tu es {{rank}} au classement',
+    it: 'Ora sei {{rank}} in classifica',
+  },
+  'ranking.email.rank_drop.body': {
+    pt: 'Alguém pontuou e passou à sua frente no placar desta semana. A semana não acabou, e a lista se refaz a cada história narrada com o guia ligado.',
+    en: "Someone scored and moved ahead of you on this week's standings. The week is not over, and the list is remade with every story narrated with the guide on.",
+    es: 'Alguien puntuó y te adelantó en la clasificación de esta semana. La semana no ha terminado, y la lista se rehace con cada historia narrada con la guía activa.',
+    fr: "Quelqu'un a marqué des points et est passé devant toi au classement de cette semaine. La semaine n'est pas finie, et la liste se refait à chaque histoire racontée avec le guide activé.",
+    it: 'Qualcuno ha fatto punti e ti ha superato nella classifica di questa settimana. La settimana non è finita, e la lista si rifà a ogni storia raccontata con la guida attiva.',
+  },
+
+  // -------------------------------------------------------------------------------------------
+  // E-mail piece 2 — streak at risk. Spec §2.6, "Peça 2".
+  //
+  // **The SUBJECT is the only plural pair in the whole e-mail half**, and the heading and the
+  // body beside it are single strings with no `{{count}}`. Both facts are load-bearing: plural
+  // selection is per KEY, so this asymmetry costs nothing; and a single string carrying
+  // `{{count}}` would print "1 dias" — see item (a) of the header.
+  //
+  // The heading is the app's own band sentence (`ranking.streak.at_risk`, #746) and the push's
+  // (§1.3): three surfaces saying the same thing in the same words, because synonyms are what
+  // make the tourist believe they are looking at two different states.
+  //
+  // The body states the DEFINITION and never the ×1.5: BR-RANKING-008 item 5 only makes the
+  // multiplier true when all seven days of the cycle had a story, so on a third day it promises
+  // something not yet earned — and the e-mail arrives after the push, with even less cycle left.
+  // It also never mentions the automatic protection of item 7: that has no implementation, and
+  // 7.e forbids presenting it as a benefit. "zero" is a WORD, not a digit, and passes
+  // `hasLiteralDigit`.
+  // -------------------------------------------------------------------------------------------
+  'ranking.email.streak_at_risk.subject': {
+    pt: { one: 'Sua sequência está em {{count}} dia', other: 'Sua sequência está em {{count}} dias' },
+    en: { one: 'Your streak is at {{count}} day', other: 'Your streak is at {{count}} days' },
+    es: { one: 'Tu racha está en {{count}} día', other: 'Tu racha está en {{count}} días' },
+    fr: { one: 'Ta série est à {{count}} jour', other: 'Ta série est à {{count}} jours' },
+    it: { one: 'La tua serie è a {{count}} giorno', other: 'La tua serie è a {{count}} giorni' },
+  },
+  'ranking.email.streak_at_risk.heading': {
+    pt: 'Falta uma história para a sequência continuar',
+    en: 'One more story keeps the streak going',
+    es: 'Falta una historia para que la racha continúe',
+    fr: 'Il manque une histoire pour que la série continue',
+    it: 'Manca una storia perché la serie continui',
+  },
+  'ranking.email.streak_at_risk.body': {
+    pt: 'A sequência conta os dias seguidos com pelo menos uma história narrada. Um dia sem nenhuma recomeça a contagem do zero.',
+    en: 'The streak counts the days in a row with at least one story narrated. A day without any restarts the count from zero.',
+    es: 'La racha cuenta los días seguidos con al menos una historia narrada. Un día sin ninguna reinicia la cuenta desde cero.',
+    fr: "La série compte les jours d'affilée avec au moins une histoire racontée. Un jour sans aucune remet le compte à zéro.",
+    it: 'La serie conta i giorni di fila con almeno una storia raccontata. Un giorno senza nessuna riporta il conteggio a zero.',
+  },
+
+  // -------------------------------------------------------------------------------------------
+  // E-mail piece 3 — the balance ran out with the position in dispute. Spec §2.6, "Peça 3".
+  //
+  // "a few points away" is neither the total nor deducible from it (BR-RANKING-002 item 2): the
+  // predicate that authorises the sentence is BR-MONETIZACAO-081 item 6.2 — immediate neighbour
+  // within 10 points, with the balance at zero. It says nothing about how many are behind, how
+  // many are playing, or where the neighbour is.
+  //
+  // The body ORDERS nothing. In `free` the act of turning the guide on is refused
+  // (BR-COMUNICACAO-008, BR-MONETIZACAO-055), and ordering a refused act is the defect the rule
+  // names. It states two facts about the recipient — narration stops, the week's scoring stops
+  // with it — and one observation about the list. "the week's scoring stops with it" is true on
+  // both axes: kilometres only count with active access (BR-RANKING-004 item 3), and at zero
+  // balance there is no active access even with the guide still on (BR-AUDIO-026).
+  //
+  // Speaking of HOURS here opens no new purpose: *hour* is the unit of the balance
+  // (BR-MONETIZACAO-048), not a clock — which is why the sweep of
+  // `tests/api/ranking-comm-copy.test.ts` is by token and not by substring, and why the Italian
+  // `Ora sei` above survives it.
+  // -------------------------------------------------------------------------------------------
+  'ranking.email.rank_at_risk.subject': {
+    pt: 'Alguém está a poucos pontos de você no placar',
+    en: 'Someone is a few points from you on the standings',
+    es: 'Alguien está a pocos puntos de ti en la clasificación',
+    fr: "Quelqu'un est à quelques points de toi au classement",
+    it: 'Qualcuno è a pochi punti da te in classifica',
+  },
+  'ranking.email.rank_at_risk.heading': {
+    pt: 'Você está em {{rank}} lugar, e as suas horas acabaram',
+    en: 'You are in {{rank}} place, and your hours have run out',
+    es: 'Estás en el {{rank}} puesto, y se acabaron tus horas',
+    fr: 'Tu es {{rank}} au classement, et tes heures sont terminées',
+    it: 'Sei {{rank}} in classifica, e le tue ore sono finite',
+  },
+  'ranking.email.rank_at_risk.body': {
+    pt: 'Sem horas no saldo, o guia para de narrar — e a pontuação da semana para com ele. A sua linha fica onde está enquanto a lista continua se movendo.',
+    en: "With no hours left, the guide stops narrating — and the week's scoring stops with it. Your row stays where it is while the list keeps moving.",
+    es: 'Sin horas en el saldo, la guía deja de narrar — y la puntuación de la semana se detiene con ella. Tu fila se queda donde está mientras la lista sigue moviéndose.',
+    fr: "Sans heures sur ton solde, le guide arrête de raconter — et les points de la semaine s'arrêtent avec lui. Ta ligne reste où elle est pendant que la liste continue d'avancer.",
+    it: "Senza ore nel saldo, la guida smette di raccontare — e il punteggio della settimana si ferma con lei. La tua riga resta dov'è mentre la lista continua a muoversi.",
   },
 };
 
