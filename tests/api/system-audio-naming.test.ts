@@ -78,11 +78,13 @@ test('build → parse é ida e volta para todas as combinações do catálogo', 
     }
   }
 
-  // 13 chaves × 12 locales × 2 gêneros. Um número aqui é o que denuncia chave
+  // 16 chaves × 12 locales × 2 gêneros. Um número aqui é o que denuncia chave
   // removida sem querer. Foi a 14 em 2026-09-01, quando `nointernet` entrou ao
   // lado de `offline`, e voltou a 13 em 2026-09-02 com a reversão: a chave de
-  // queda é `offline` e é uma só (BR-AUDIO-022 item 2.7).
-  assert.equal(combinations, 312)
+  // queda é `offline` e é uma só (BR-AUDIO-022 item 2.7). Passou a 16 em
+  // 2026-09-17 (#747), com a classe `ranking` do item 8 — três chaves de
+  // subida, e só de subida.
+  assert.equal(combinations, 384)
 })
 
 test('o nome que o app monta hoje continua sendo aceito', () => {
@@ -133,12 +135,15 @@ test('as duas pastas são as que o app lê, e o silent.mp3 é reservado', () => 
   assert.ok(mod.RESERVED_FILES.has('silent.mp3'))
 })
 
-test('BR-AUDIO-022 item 2 — the notice catalogue is the nine keys of §10 plus `missedpoi`, and every key has copy', () => {
+test('BR-AUDIO-022 item 2 — the notice catalogue is the thirteen keys of the closed list, and every key has copy', () => {
   const notices = mod.SYSTEM_AUDIO_SCRIPTS.filter((s) => s.family === 'notice').map((s) => s.key)
 
-  // One key does not come from §10: `missedpoi`, which reports the POI passed
-  // with no balance. The other nine are the document's, and the list is closed on
-  // purpose — one key too many here is one file too many in a public bucket.
+  // Ten of them are the state of the product — balance, network, location,
+  // welcome, pass. The three `ranking*` are the class of item 8, added on
+  // 2026-09-17 (#747): they are the first ones that talk about the GAME, and
+  // they were born in a class of their own so that switching them off is one
+  // line. The list is closed on purpose — one key too many here is one file too
+  // many in a public bucket.
   assert.deepEqual(notices.sort(), [
     'balance15min',
     'balance1h',
@@ -148,9 +153,27 @@ test('BR-AUDIO-022 item 2 — the notice catalogue is the nine keys of §10 plus
     'offline',
     'online',
     'passactive',
+    'rankingfirst',
+    'rankingsecond',
+    'rankingtop3',
     'welcomeend',
     'welcomestart',
   ])
+
+  // §3.3 da spec de design: o texto-fonte pt-BR das três cabe em 50 caracteres,
+  // porque o que vem DEPOIS do clipe é a pista direcional e a narração do
+  // próximo ponto — a 80 km/h, cada segundo de aviso é lugar que já passou.
+  for (const script of mod.SYSTEM_AUDIO_SCRIPTS) {
+    if (!script.key.startsWith('ranking')) continue
+    assert.ok(
+      (script.sourceText ?? '').length <= 50,
+      `${script.key}: texto-fonte com mais de 50 caracteres`
+    )
+    // BR-RANKING-002 e 006: o ordinal já está na chave, e o clipe não carrega
+    // apelido, pontos, distância para o vizinho, total de participantes nem
+    // prêmio. Dígito no texto-fonte é o sintoma de todos eles.
+    assert.ok(!/\d/.test(script.sourceText ?? ''), `${script.key}: o clipe não carrega número`)
+  }
 
   const pending = mod.SYSTEM_AUDIO_SCRIPTS.filter((s) => s.sourceText === null)
   assert.deepEqual(pending, [], 'toda chave tem copy pt-BR escrita')

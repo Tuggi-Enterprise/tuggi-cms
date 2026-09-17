@@ -151,6 +151,49 @@ export const SYSTEM_AUDIO_SCRIPTS: ReadonlyArray<SystemAudioScript> = [
       'Você acabou de passar por um lugar que eu teria contado, mas suas horas acabaram.',
     trigger: 'primeiro POI alcançado sem saldo; cooldown de 20 min, teto de 3 por sessão',
   },
+  // ---------------------------------------------------------------------------
+  // Class `ranking` — BR-AUDIO-022 item 8, #747 (épico #737).
+  //
+  // Three keys, rises only: a fall never becomes audio (the tourist causes the
+  // rise, another account causes the fall — that one goes by push). The ordinal
+  // is IN the key, so none of the three interpolates anything, and BR-RANKING-002
+  // forbids the number of participants: no `de 13`, no percentage, no fraction.
+  // BR-RANKING-006 forbids any mention of a prize.
+  //
+  // The copy below is the `design` recommendation of
+  // `docs/design/spec-comunicacao-ranking-2026-09.md` §3.2, and it is a
+  // PLACEHOLDER in the same sense `missedpoi` above is: the final line is the
+  // operator's (BR-AUDIO-027, edge case 1), written in the `Texto base` field of
+  // `SystemAudioManager` before generating.
+  //
+  // Two rulers before generating (spec §3.3): the pt-BR source is at most 50
+  // characters, and each generated MP3 at most 3.5 s in every language —
+  // `ffprobe -v error -show_entries format=duration -of csv=p=0 <file>.mp3`. The
+  // reason is not silence: the clip waits behind a narration and is followed by
+  // the direction cue plus the next POI, so at 80 km/h every second of notice is
+  // a place that already went by.
+  //
+  // Present tense in all five, and that is a translation decision: `fr` and `it`
+  // inflect the participle for gender (`tu es passé`, `sei salito`) and a
+  // recorded clip cannot be taken back — there is no OTA (BR-OPERACAO-002).
+  {
+    key: 'rankingtop3',
+    family: 'notice',
+    sourceText: 'Você está entre os três primeiros esta semana.',
+    trigger: 'subida para dentro do top 3 confirmada pelo servidor; uma vez por sessão',
+  },
+  {
+    key: 'rankingsecond',
+    family: 'notice',
+    sourceText: 'Você está em segundo lugar esta semana.',
+    trigger: 'subida para a 2ª posição confirmada pelo servidor; uma vez por sessão',
+  },
+  {
+    key: 'rankingfirst',
+    family: 'notice',
+    sourceText: 'Você está em primeiro lugar esta semana.',
+    trigger: 'subida para a 1ª posição confirmada pelo servidor; uma vez por sessão',
+  },
 ];
 
 export const getScript = (key: string): SystemAudioScript | undefined =>
