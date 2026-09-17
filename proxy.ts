@@ -140,6 +140,19 @@ export async function proxy(req: NextRequest) {
 }
 
 export const config = {
-  // Match only internationalized pathnames
-  matcher: ['/', '/(en|pt|es)/:path*', '/((?!api|_next|_vercel|.*\\..*).*)']
+  // Match only internationalized pathnames.
+  //
+  // The third entry writes the dot as `[.]` instead of `\.`. Both compile to the same matcher
+  // on the Next we ship — 16.3.4, the two forms measured side by side through Next's own
+  // `unstable_doesMiddlewareMatch` — and the class is kept because it carries no escape for a
+  // source-to-regexp step to lose. Two things to know before editing this line:
+  //
+  //   - `.*[.].*` is what skips `/favicon.ico` and `/robots.txt`. A bare `[.].*` only excludes
+  //     paths that START with a dot, so static files would reach the proxy and next-intl would
+  //     redirect them under `/en`.
+  //   - this matcher decides whether `proxy()` runs at all. A matcher that selects nothing 404s
+  //     every localized route, and that reads like a broken `pathnames` map, not like this line.
+  //
+  // Behaviour is pinned by `tests/api/proxy-matcher.test.ts`.
+  matcher: ['/', '/(en|pt|es)/:path*', '/((?!api|_next|_vercel|.*[.].*).*)']
 };
