@@ -98,3 +98,57 @@ export function slugifyCampaign(name: string, fallback: string): string {
     .slice(0, 60);
   return slug || fallback;
 }
+
+/**
+ * The domain Sign in with Apple hands us instead of the person's real address.
+ *
+ * **70 of our accounts use it** (measured 2026-09-11, epic #737), and they are the reason the two
+ * functions below exist.
+ */
+export const APPLE_PRIVATE_RELAY_DOMAIN = 'privaterelay.appleid.com';
+
+export function isApplePrivateRelayAddress(email: string | null | undefined): boolean {
+  return String(email ?? '').trim().toLowerCase().endsWith(`@${APPLE_PRIVATE_RELAY_DOMAIN}`);
+}
+
+/**
+ * Whose fault is this bounce — the address, or us?
+ *
+ * **BR-COMUNICACAO-017 item 6.** Apple requires every sending domain to be registered and
+ * validated with SPF and/or DKIM in the Developer Account, with an EXACT match between the
+ * registered domain and the envelope domain. Official documentation, verbatim: *"If you don't
+ * register all the source domains or emails that you use, email sent to the private relay service
+ * will result in a bounce message."*
+ *
+ * That bounce is `Permanent`, and Resend has no way to tell it apart from a dead mailbox — so
+ * without this function the hard-bounce branch of `resend-webhook` suppresses the address, and
+ * **70 accounts are burned at once, in silence, by a misconfiguration of ours**. Item 6.b says it
+ * in one line: a bounce caused by our own missing registration does not remove the address from
+ * the base. BR-COMUNICACAO-015 governs exit BY A SIGNAL FROM THE RECIPIENT, and this signal is
+ * not theirs.
+ *
+ * `relayDomainVerified` is the operator's answer to the one question no agent can answer:
+ * *is the sending domain registered under Certificates, IDs & Profiles → More → Configure Private
+ * Email Relay?* It arrives as the `APPLE_PRIVATE_RELAY_DOMAIN_VERIFIED` secret, and **anything
+ * other than an explicit `true` counts as not verified** — unknown must behave like unregistered,
+ * because the cost of the two mistakes is not symmetric: treating a verified domain as
+ * unverified keeps one dead address in the base, and the reverse deletes 70 live ones.
+ */
+export type BounceOwner = 'recipient' | 'sender';
+
+export function bounceOwner(
+  email: string | null | undefined,
+  relayDomainVerified: boolean
+): BounceOwner {
+  return isApplePrivateRelayAddress(email) && !relayDomainVerified ? 'sender' : 'recipient';
+}
+
+/**
+ * Reads the operator's verification flag. Fails closed — see `bounceOwner`.
+ *
+ * It is a free function and not a constant so that a test can move it, and so that the value is
+ * read at the moment of the event rather than at cold start.
+ */
+export function isRelayDomainVerified(raw: string | null | undefined): boolean {
+  return String(raw ?? '').trim().toLowerCase() === 'true';
+}

@@ -12,7 +12,12 @@
 import { createAdminClient } from '../_shared/supabase-client.ts';
 // The status ladder and the bounce classifier are SHARED, and pure, so that they can be
 // executed by a test instead of only read by one — see `_shared/newsletter-metrics.ts`.
-import { highestStatus, isPermanentBounce } from '../_shared/newsletter-metrics.ts';
+import {
+  highestStatus,
+  isPermanentBounce,
+  bounceOwner,
+  isRelayDomainVerified,
+} from '../_shared/newsletter-metrics.ts';
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -190,7 +195,25 @@ Deno.serve(async (req) => {
         }
       );
 
-      if (permanent) {
+      // WHOSE BOUNCE IS IT — BR-COMUNICACAO-017 item 6.b. A permanent bounce from an Apple
+      // private-relay address, while our sending domain is not registered in the Developer
+      // Account, is OUR failure and not a dead address: suppressing it burns 70 accounts at once
+      // and without a readable log. `owner` is the only thing standing between that and us, and
+      // it fails closed — see `bounceOwner`.
+      const owner = bounceOwner(rec.email, isRelayDomainVerified(Deno.env.get('APPLE_PRIVATE_RELAY_DOMAIN_VERIFIED')));
+
+      if (permanent && owner === 'sender') {
+        // Observable, which is the whole point: item 6.a says "not verified equals not sent", and
+        // the operator needs to SEE that the relay is bouncing instead of discovering it in a
+        // conversion number three weeks later. The row keeps `bounced` — the fact happened — but
+        // the address stays in the base.
+        console.error(
+          `[${requestId}] 🍎 APPLE RELAY BOUNCE, NOT SUPPRESSED — the sending domain is not ` +
+          'registered/validated in the Apple Developer Account (Certificates, IDs & Profiles → ' +
+          'More → Configure Private Email Relay), or APPLE_PRIVATE_RELAY_DOMAIN_VERIFIED is not ' +
+          '"true". BR-COMUNICACAO-017 item 6: this bounce is ours, so the address is kept.'
+        );
+      } else if (permanent) {
         // HARD BOUNCE IS SUPPRESSION, and this is the fix for the measured defect: 83 bounces
         // across 67 distinct addresses, `email_unsubscribes` with `source='bounce'` at ZERO, and
         // 54 of those addresses mailed AGAIN in a later campaign, because

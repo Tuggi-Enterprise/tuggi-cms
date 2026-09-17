@@ -192,11 +192,18 @@ test('a permanent bounce is written to email_unsubscribes, and a soft one is not
 })
 
 test('the webhook never demotes a status, and the ladder is the shared one', () => {
-  assert.match(
-    webhook,
-    /import \{ highestStatus, isPermanentBounce \} from '\.\.\/_shared\/newsletter-metrics\.ts'/,
-    'the webhook re-declared the rules instead of importing them (SSOT)'
-  )
+  // The criterion is unchanged — both rules come from the shared module and neither is
+  // re-declared here. The shape was widened in #747, when `bounceOwner`/`isRelayDomainVerified`
+  // joined the same import (BR-COMUNICACAO-017 item 6.b): pinning the exact brace content made
+  // the ruler fail on an ADDITION, which is not the regression it exists to catch.
+  const importedFromMetrics = /import \{([^}]+)\} from '\.\.\/_shared\/newsletter-metrics\.ts'/.exec(webhook)
+  assert.ok(importedFromMetrics, 'the webhook re-declared the rules instead of importing them (SSOT)')
+  for (const name of ['highestStatus', 'isPermanentBounce']) {
+    assert.ok(
+      importedFromMetrics[1].includes(name),
+      `${name} is no longer imported from the shared module (SSOT)`
+    )
+  }
   // Every status write goes through the ladder. A bare `status: '...'` in an update is the
   // regression: that is exactly how a reopen used to erase a click.
   const rawWrites = [...webhook.matchAll(/update\(\{\s*status: '/g)].length
