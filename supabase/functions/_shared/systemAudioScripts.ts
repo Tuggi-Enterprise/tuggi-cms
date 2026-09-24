@@ -158,12 +158,13 @@ export const SYSTEM_AUDIO_SCRIPTS: ReadonlyArray<SystemAudioScript> = [
     // names the brand because it plays with no screen, sometimes over another
     // app); final line is the operator's (BR-AUDIO-027). The spec's en/es/fr/it
     // lines are for checking the generated translation, not a second source.
-    // It offers and orders nothing — valid for `free` too, and it never asks to
-    // touch the phone while moving (BR-COMUNICACAO-008).
+    // One imperative line for every tier (BR-VIAGEM-021 item 6, named exception
+    // in BR-COMUNICACAO-008 item 5); the order waits for "Quando for seguro", so
+    // it never asks to touch the phone while moving.
     key: 'guideoffmoving',
     family: 'notice',
     sourceText:
-      'O guia do Tuggi está desligado. Com ele ligado, você ouve os lugares do caminho.',
+      'O guia do Tuggi está desligado. Quando for seguro, ligue o guia e ouça os lugares do caminho.',
     trigger: 'guia desligado e 2 min contínuos em movimento; um por episódio, sem sessão de guia',
   },
   // ---------------------------------------------------------------------------
