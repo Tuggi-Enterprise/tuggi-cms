@@ -151,6 +151,20 @@ export const SYSTEM_AUDIO_SCRIPTS: ReadonlyArray<SystemAudioScript> = [
       'Você acabou de passar por um lugar que eu teria contado, mas suas horas acabaram.',
     trigger: 'primeiro POI alcançado sem saldo; cooldown de 20 min, teto de 3 por sessão',
   },
+  {
+    // #770, BR-VIAGEM-021 item 5.3 / BR-AUDIO-022 item 3 — the only notice played
+    // with NO guide session: the tourist is moving with the guide off. Recommended
+    // copy of `docs/design/copy-guia-desligado-em-movimento-2026-09.md` §3 (it
+    // names the brand because it plays with no screen, sometimes over another
+    // app); final line is the operator's (BR-AUDIO-027). The spec's en/es/fr/it
+    // lines are for checking the generated translation, not a second source.
+    // It offers, it does not promise content (BR-COMUNICACAO-008 item 3).
+    key: 'guideoffmoving',
+    family: 'notice',
+    sourceText:
+      'O guia do Tuggi está desligado. Quando parar, abra o aplicativo e ligue o guia para ouvir os lugares do caminho.',
+    trigger: 'guia desligado e 2 min contínuos em movimento; um por episódio, sem sessão de guia',
+  },
   // ---------------------------------------------------------------------------
   // Class `ranking` — BR-AUDIO-022 item 8, #747 (épico #737).
   //

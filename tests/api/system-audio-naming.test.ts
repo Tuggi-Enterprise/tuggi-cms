@@ -78,13 +78,14 @@ test('build → parse é ida e volta para todas as combinações do catálogo', 
     }
   }
 
-  // 16 chaves × 12 locales × 2 gêneros. Um número aqui é o que denuncia chave
+  // 17 chaves × 12 locales × 2 gêneros. Um número aqui é o que denuncia chave
   // removida sem querer. Foi a 14 em 2026-09-01, quando `nointernet` entrou ao
   // lado de `offline`, e voltou a 13 em 2026-09-02 com a reversão: a chave de
   // queda é `offline` e é uma só (BR-AUDIO-022 item 2.7). Passou a 16 em
   // 2026-09-17 (#747), com a classe `ranking` do item 8 — três chaves de
-  // subida, e só de subida.
-  assert.equal(combinations, 384)
+  // subida, e só de subida. Passou a 17 em 2026-09-24 (#770), com
+  // `guideoffmoving`, o aviso tocado sem sessão de guia.
+  assert.equal(combinations, 408)
 })
 
 test('o nome que o app monta hoje continua sendo aceito', () => {
@@ -135,7 +136,7 @@ test('as duas pastas são as que o app lê, e o silent.mp3 é reservado', () => 
   assert.ok(mod.RESERVED_FILES.has('silent.mp3'))
 })
 
-test('BR-AUDIO-022 item 2 — the notice catalogue is the thirteen keys of the closed list, and every key has copy', () => {
+test('BR-AUDIO-022 item 2 — the notice catalogue is the fourteen keys of the closed list, and every key has copy', () => {
   const notices = mod.SYSTEM_AUDIO_SCRIPTS.filter((s) => s.family === 'notice').map((s) => s.key)
 
   // Ten of them are the state of the product — balance, network, location,
@@ -143,11 +144,13 @@ test('BR-AUDIO-022 item 2 — the notice catalogue is the thirteen keys of the c
   // 2026-09-17 (#747): they are the first ones that talk about the GAME, and
   // they were born in a class of their own so that switching them off is one
   // line. The list is closed on purpose — one key too many here is one file too
-  // many in a public bucket.
+  // many in a public bucket. `guideoffmoving` (#770, BR-VIAGEM-021) is the one
+  // played with no guide session.
   assert.deepEqual(notices.sort(), [
     'balance15min',
     'balance1h',
     'balanceend',
+    'guideoffmoving',
     'locationoff',
     'missedpoi',
     'offline',
