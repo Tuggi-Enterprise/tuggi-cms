@@ -37,6 +37,9 @@ const POI_ID = {
   museuDoAmanha: '3d4a364e-6d47-5aab-aa23-6b1a122be84b',
   bustoMazziniBueno: '11959605-51aa-50ba-97ed-52ceac770755',
   igrejaFatima: '0a2f51c0-5aec-5cc2-b50f-075849c1fe28',
+  manguinhos: '0e9ce786-18bf-5ad1-9047-7274dfdef163',
+  // Niterói, no osm_id and no tags: the border must not be the Praça do Radio Amador (#772)
+  arvoreDeNatal: '09778cda-2a33-4469-b6bd-7cca2726049c',
 } as const
 
 const CITY = 'Rio de Janeiro'
@@ -106,7 +109,9 @@ const ZONES: Record<string, BBox> = {
   avenidaAyrtonSenna: { latMin: -23.013, latMax: -22.975, lngMin: -43.372, lngMax: -43.360 },
 }
 
-// As 11 linhas da tabela "Conjunto de referência". Manguinhos fica de fora (a calibrar).
+// The rows of the "Conjunto de referência" table. Manguinhos is still to calibrate, but "no TP
+// inside the border" holds for every POI of every class (BR-AUDIO-009/013: inside the border the
+// boundary fires, so a TP only exists outside it).
 type Check = {
   poi: string
   id: string
@@ -124,14 +129,16 @@ type Check = {
 const GOLDEN: Check[] = [
   { poi: 'Cristo Redentor', id: POI_ID.cristoRedentor, city: CITY, farSectors: { minDistM: 1_000, atLeast: 3 }, noneInsideBoundary: true },
   { poi: 'Pão de Açúcar', id: POI_ID.paoDeAcucar, city: CITY, farSectors: { minDistM: 1_000, atLeast: 3 }, noneInsideBoundary: true },
-  { poi: 'Pico do Irmão Menor', id: POI_ID.picoDoIrmaoMenor, city: CITY }, // TPs na orla do Leblon e de Ipanema — sem contagem fixa
-  { poi: 'Morro do Patronato', id: POI_ID.morroDoPatronato, city: CITY, countRange: [1, Infinity] },
+  { poi: 'Pico do Irmão Menor', id: POI_ID.picoDoIrmaoMenor, city: CITY, noneInsideBoundary: true }, // TPs na orla do Leblon e de Ipanema — sem contagem fixa
+  { poi: 'Morro do Patronato', id: POI_ID.morroDoPatronato, city: CITY, countRange: [1, Infinity], noneInsideBoundary: true },
   { poi: 'Maracanã', id: POI_ID.maracana, city: CITY, noneInsideBoundary: true },
-  { poi: 'Praia do Recreio dos Bandeirantes', id: POI_ID.praiaDoRecreio, city: CITY },
+  { poi: 'Praia do Recreio dos Bandeirantes', id: POI_ID.praiaDoRecreio, city: CITY, noneInsideBoundary: true },
   { poi: 'Sala de Leitura da Cidade das Artes', id: POI_ID.cidadeDasArtes, city: CITY, noneInsideBoundary: true },
-  { poi: 'Museu do Amanhã', id: POI_ID.museuDoAmanha, city: CITY },
+  { poi: 'Museu do Amanhã', id: POI_ID.museuDoAmanha, city: CITY, noneInsideBoundary: true },
   { poi: 'Busto Prof. Mazzini Bueno', id: POI_ID.bustoMazziniBueno, city: CITY, countRange: [1, 4], maxDistToBoundaryM: 60, noneInsideBoundary: true },
-  { poi: 'Igreja Nossa Senhora de Fátima', id: POI_ID.igrejaFatima, city: CITY },
+  { poi: 'Igreja Nossa Senhora de Fátima', id: POI_ID.igrejaFatima, city: CITY, noneInsideBoundary: true },
+  { poi: 'Manguinhos', id: POI_ID.manguinhos, city: CITY, noneInsideBoundary: true },
+  { poi: 'Monumento Árvore de Natal', id: POI_ID.arvoreDeNatal, city: 'Niterói', countRange: [1, 4], noneInsideBoundary: true },
 ]
 
 describe('Conjunto de referência do motor de TP (golden, #772/#779)', { skip: CAN_RUN ? false : SKIP_REASON }, () => {
@@ -198,6 +205,7 @@ const CLASS_CHECKS: ClassCheck[] = [
   { poi: 'Museu do Amanhã', id: POI_ID.museuDoAmanha, expectedOneOf: ['structure', 'landmark_high'] },
   { poi: 'Busto Prof. Mazzini Bueno', id: POI_ID.bustoMazziniBueno, expectedOneOf: ['point_low'] },
   { poi: 'Igreja Nossa Senhora de Fátima', id: POI_ID.igrejaFatima, expectedOneOf: ['point_low', 'structure'] },
+  { poi: 'Monumento Árvore de Natal', id: POI_ID.arvoreDeNatal, expectedOneOf: ['point_low'] },
 ]
 
 describe('Classe esperada por POI (INV-E5, #772/#779)', { skip: CAN_RUN ? false : SKIP_REASON }, () => {
@@ -324,6 +332,57 @@ describe('No landmark_high TP on track/path/service when the cell had a better s
           `${poi}: cell ${cell} kept ${keptBad.map(x => `${x.type} ${x.r.candidate}`).join(', ')} and left out ${betterLeftOut.map(x => `${x.type} ${x.r.candidate}`).join(', ')}`
         )
       }
+    })
+  }
+})
+
+// ============================================================================================
+// Every kept TP sits on a way (BR-AUDIO-010: the TP is where the tourist passes). "On a way" =
+// a `highway=*`, `railway=*`, `aerialway=*` or `route=ferry` line of `data/local_osm.db` within
+// ON_WAY_MAX_M. The aerialway is the Pão de Açúcar cable car: the tourist rides it.
+// `track`/`path` count: demoting them is E10's job (INV-E10a), not this one's. Operator report
+// 2026-09-27: TPs of the Cristo and of the Irmão Menor looked like forest on the satellite tile.
+// ============================================================================================
+const ON_WAY_MAX_M = 30
+
+describe('Every kept TP sits on a way (BR-AUDIO-010, #772)', { skip: CAN_RUN ? false : SKIP_REASON }, () => {
+  let nearestWayM: ((p: { lat: number; lng: number }) => { m: number; way: string }) | null = null
+  async function nearest(p: { lat: number; lng: number }) {
+    if (!nearestWayM) {
+      const { default: Database } = await import('better-sqlite3')
+      const { calculateDistanceToLineSegment } = await import('@/lib/services/trigger-points-google/utils/calculations')
+      const db = new Database(LOCAL_OSM_DB, { readonly: true })
+      const q = db.prepare(`SELECT s.geometry_json g, s.tags_json t FROM streets s JOIN streets_rtree r ON r.rowid = s.rowid
+        WHERE r.max_lat >= ? AND r.min_lat <= ? AND r.max_lng >= ? AND r.min_lng <= ?`)
+      const E = 0.0005 // ~50 m, wider than ON_WAY_MAX_M
+      nearestWayM = (at) => {
+        let best = { m: Infinity, way: 'none' }
+        for (const row of q.all(at.lat - E, at.lat + E, at.lng - E, at.lng + E) as Array<{ g: string; t: string | null }>) {
+          const tags = JSON.parse(row.t ?? '{}') as Record<string, string>
+          const kind = tags.highway ?? tags.railway ?? tags.aerialway ?? (tags.route === 'ferry' ? 'ferry' : undefined)
+          const pts = JSON.parse(row.g) as Array<{ lat: number; lng: number }>
+          if (!kind || pts.length < 2) continue
+          for (let i = 1; i < pts.length; i++) {
+            const m = calculateDistanceToLineSegment(at, pts[i - 1], pts[i])
+            if (m < best.m) best = { m, way: `${kind} ${tags['@id']}` }
+          }
+        }
+        return best
+      }
+    }
+    return nearestWayM(p)
+  }
+
+  for (const check of GOLDEN) {
+    it(`${check.poi}: every kept TP within ${ON_WAY_MAX_M} m of a way`, async () => {
+      const result = await getResult(check.id)
+      assert.equal(result.error, null, `dry-run failed for ${check.poi}: ${result.error}`)
+      const off: string[] = []
+      for (const r of keptOf(result)) {
+        const w = await nearest(r)
+        if (w.m > ON_WAY_MAX_M) off.push(`${r.lat.toFixed(6)},${r.lng.toFixed(6)} nearest ${w.way} at ${Math.round(w.m)} m`)
+      }
+      assert.deepEqual(off, [], `${check.poi}: TP off any way`)
     })
   }
 })
