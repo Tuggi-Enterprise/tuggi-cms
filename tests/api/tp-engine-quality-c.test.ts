@@ -110,3 +110,34 @@ describe('BR-AUDIO-010 — a long beach keeps its polygon and its class', () => 
     assert.equal(out.classification?.group, VisibilityClass.LINEAR)
   })
 })
+
+describe('BR-AUDIO-010 — post-condition: no TP inside the POI boundary, except where the tourist is inside', () => {
+  const square = [offset({ n: -50, e: -50 }), offset({ n: -50, e: 50 }), offset({ n: 50, e: 50 }), offset({ n: 50, e: -50 })]
+  const inside = { id: 'in', location: offset({ n: 10 }) }
+  const outside = { id: 'out', location: offset({ n: 80 }) }
+
+  it('a building or a bust drops the TP inside it', async () => {
+    const { dropInsidePoi } = await import('../../lib/services/trigger-points-google/utils/tp-selection')
+    const out = dropInsidePoi([inside, outside], { coordinates: square, classification: { group: VisibilityClass.STRUCTURE } })
+    assert.deepEqual(out.map(t => t.id), ['out'])
+  })
+
+  it('AREA, beach and park keep it', async () => {
+    const { dropInsidePoi } = await import('../../lib/services/trigger-points-google/utils/tp-selection')
+    assert.equal(dropInsidePoi([inside], { coordinates: square, classification: { group: VisibilityClass.AREA } }).length, 1)
+    assert.equal(dropInsidePoi([inside], { coordinates: square, classification: { group: VisibilityClass.LINEAR }, osmTags: { natural: 'beach' } }).length, 1)
+    assert.equal(dropInsidePoi([inside], { coordinates: square, classification: { group: VisibilityClass.POINT_LOW }, osmTags: { leisure: 'park' } }).length, 1)
+  })
+})
+
+describe('BR-AUDIO-010 — a room inside a host building: no TP inside the host', () => {
+  it('drops the TP inside the building that contains the POI, keeps the one on the street', async () => {
+    const { dropInsidePoi } = await import('../../lib/services/trigger-points-google/utils/tp-selection')
+    const host = [offset({ n: -80, e: -80 }), offset({ n: -80, e: 80 }), offset({ n: 80, e: 80 }), offset({ n: 80, e: -80 })]
+    const room = [offset({ n: -5, e: -5 }), offset({ n: -5, e: 5 }), offset({ n: 5, e: 5 }), offset({ n: 5, e: -5 })]
+    const out = dropInsidePoi([{ id: 'hall', location: offset({ n: 40 }) }, { id: 'street', location: offset({ n: 120 }) }], {
+      coordinates: room, center: PIN, classification: { group: VisibilityClass.POINT_LOW }, buildings: [{ geometry: host }],
+    })
+    assert.deepEqual(out.map(t => t.id), ['street'])
+  })
+})

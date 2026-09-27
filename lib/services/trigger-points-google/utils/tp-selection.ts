@@ -5,8 +5,8 @@
  * frontal TPs included. Numbers live in config/visibility-class.ts.
  */
 import { TriggerPoint } from '../types/interfaces';
-import { calculateDistance } from './calculations';
-import { EDGE_BAND_M, VisibilityClass, proximityBand } from '../config/visibility-class';
+import { calculateDistance, isPointInPolygon } from './calculations';
+import { EDGE_BAND_M, VisibilityClass, proximityBand, touristCanBeInside } from '../config/visibility-class';
 import { isApproachableForBearing } from '../../../geometry';
 
 type SelectionClassification = {
@@ -105,4 +105,34 @@ export function dropUnfireable(tps: TriggerPoint[]): TriggerPoint[] {
     if (!coords || coords.length < 2 || !oneway) return true;
     return isApproachableForBearing(coords, oneway, tp.expectedBearing, tp.location);
   });
+}
+
+type LatLng = { lat: number; lng: number };
+
+/**
+ * Post-condition: no TP inside the POI boundary, nor inside the building that hosts the POI
+ * (a room or a shop inside a larger building) — it would fire inside the building or on the
+ * statue. Exception: AREA and open spaces (beach, park), where the tourist is inside
+ * (BR-AUDIO-010, #779: Cidade das Artes and a bust had TPs inside their boundary).
+ */
+export function dropInsidePoi<T extends { location: LatLng }>(
+  tps: T[],
+  boundary?: {
+    coordinates?: LatLng[];
+    center?: LatLng;
+    classification?: { group?: VisibilityClass };
+    osmTags?: Record<string, unknown>;
+    buildings?: Array<{ geometry?: Array<{ lat: number; lng?: number; lon?: number }> }>;
+  } | null
+): T[] {
+  if (!boundary || touristCanBeInside(boundary.classification?.group, boundary.osmTags)) return tps;
+  const rings: LatLng[][] = [];
+  if (boundary.coordinates && boundary.coordinates.length >= 3) rings.push(boundary.coordinates);
+  if (boundary.center) {
+    for (const b of boundary.buildings ?? []) {
+      const ring = (b.geometry ?? []).map(c => ({ lat: c.lat, lng: (c.lng ?? c.lon) as number }));
+      if (ring.length >= 3 && isPointInPolygon(boundary.center, ring)) { rings.push(ring); break; }
+    }
+  }
+  return tps.filter(tp => !rings.some(r => isPointInPolygon(tp.location, r)));
 }

@@ -13,7 +13,7 @@ import { loadTriggerPointsConfig, TriggerPointsConfig, TRIGGER_POINTS_CONSTANTS 
 import { VisibilityClass, LANDMARK_MIN_PROMINENCE_M, EDGE_BAND_M, fanHorizonM, isNaturalRelief } from '../config/visibility-class';
 import { emitDebugQuality, DebugQualitySnapshot } from '../debug-quality-logger';
 import { partitionByPoiReach, tpReachCapM } from '../utils/validation';
-import { selectSpacedTriggerPoints, dropUnfireable } from '../utils/tp-selection';
+import { selectSpacedTriggerPoints, dropUnfireable, dropInsidePoi } from '../utils/tp-selection';
 
 // Defaults baked into VisibilityMapBuilder.buildFan() — used by debug-quality
 // emission when the fan is present (the boundary.visibilityFan type flattens
@@ -525,7 +525,7 @@ export class CoreTriggerPointPredictor {
     for (const { item, distanceM } of dropped) {
       console.warn(`🚫 [FALLBACK] TP ${item.id} dropped: ${distanceM.toFixed(0)}m from POI (cap ${capM}m)`);
     }
-    return kept;
+    return dropInsidePoi(kept, boundary);
   }
 
   private async buildRecoveryFallbackCandidates(
@@ -1371,7 +1371,7 @@ export class CoreTriggerPointPredictor {
     if (options.minQuality !== undefined) {
       filtered = filtered.filter(tp => tp.quality >= options.minQuality!);
     }
-    const accepted = selectSpacedTriggerPoints(dropUnfireable(filtered), boundary?.classification);
+    const accepted = selectSpacedTriggerPoints(dropInsidePoi(dropUnfireable(filtered), boundary), boundary?.classification);
     if (options.maxTriggerPoints !== undefined && accepted.length > options.maxTriggerPoints) {
       console.log(`✂️ Caller-set max: trimming ${accepted.length} → ${options.maxTriggerPoints}`);
       return accepted.slice(0, options.maxTriggerPoints);
