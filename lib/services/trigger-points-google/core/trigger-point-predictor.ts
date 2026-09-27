@@ -764,7 +764,9 @@ export class CoreTriggerPointPredictor {
     const out: TriggerPoint[] = [];
 
     // 1. Frontal TPs (upstream + downstream)
-    const frontalTPs = this.buildFrontalArrivalTP(poiData, boundary, context, accessibleStreets, out);
+    // Every engine output passes E11 (INV-E11): the pre_generated save path of
+    // generate-batch trusts this output as-is.
+    const frontalTPs = applyTpPostConditions(this.buildFrontalArrivalTP(poiData, boundary, context, accessibleStreets, out), poiData.location, boundary).kept;
     for (const t of selectSpacedTriggerPoints(frontalTPs, boundary.classification)) out.push(t);
 
     if (out.length > 0) {
@@ -774,7 +776,8 @@ export class CoreTriggerPointPredictor {
 
     // Último recurso: legacy single-TP fallback
     console.warn('🛟 Fan-collapse fallback: no frontal TPs available, falling back to legacy single-TP');
-    return await this.generateFallbackTriggerPoints(poiData, boundary, context, accessibleStreets);
+    const legacy = await this.generateFallbackTriggerPoints(poiData, boundary, context, accessibleStreets);
+    return applyTpPostConditions(legacy, poiData.location, boundary).kept;
   }
 
   private async generateFallbackTriggerPoints(
