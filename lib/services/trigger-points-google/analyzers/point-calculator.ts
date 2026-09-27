@@ -1,7 +1,7 @@
 // Calculador de pontos ótimos para trigger points
 
 import { POIData, BoundaryData, GeographicContext, StreetData, TriggerPointCandidate } from '../types/interfaces';
-import { calculateDistance, calculateBearing, calculateDistanceToBoundary, isPointInPolygon, findClosestPointOnBoundary } from '../utils/calculations';
+import { calculateBearing, calculateDistanceToBoundary, findClosestPointOnBoundary, streetFootOnEdge, samplePolylineAround } from '../utils/calculations';
 import { TRIGGER_POINTS_CONSTANTS } from '../config/trigger-points-config';
 import { POIClassifierService } from '../services/poi-classifier.service';
 
@@ -178,62 +178,26 @@ export class OptimalPointCalculator {
     for (const street of streets) {
       if (!street.coordinates || street.coordinates.length === 0) continue;
 
-      const validPoints: Array<{ lat: number; lng: number }> = [];
-      let minDistanceToBoundary = Infinity;
-      let maxDistanceToBoundary = 0;
-
-      for (const streetPoint of street.coordinates) {
-        const distanceToBoundary = calculateDistanceToBoundary(streetPoint, boundary.coordinates);
-
-        minDistanceToBoundary = Math.min(minDistanceToBoundary, distanceToBoundary);
-        maxDistanceToBoundary = Math.max(maxDistanceToBoundary, distanceToBoundary);
-
-        // Aceite unificado: dentro do raio efetivo OU dentro do boundary OU
-        // colado (≤30m) à aresta (safety net calçada perimetral).
-        // Sem mais split fan/radius — o per-TP check faz o filtro fino.
-        const accepted =
-          distanceToBoundary <= maxAllowedDistance ||
-          isPointInPolygon(streetPoint, boundary.coordinates) ||
-          distanceToBoundary <= 30;
-
-        if (accepted) {
-          validPoints.push(streetPoint);
-        }
+      // Whole polyline, not vertices: a long segment passing in front of the POI has
+      // both vertices far away and used to be rejected (BR-AUDIO-010).
+      const foot = streetFootOnEdge(street.coordinates, boundary.center, boundary.coordinates);
+      if (!foot || foot.edgeDistanceM > maxAllowedDistance) {
+        const reason = `outside radius (${foot ? foot.edgeDistanceM.toFixed(0) : '?'}m from boundary, max allowed: ${maxAllowedDistance.toFixed(0)}m${useFanRadius ? ' = fan max' : ''})`;
+        console.log(`🚫 Street ${street.id} (${street.name || street.id || 'unnamed'}): Rejected - ${reason}`);
+        continue;
       }
-      
-      // ✅ REGRA: Aprovar ruas que têm pelo menos 1 ponto válido dentro do raio
-      // A função findPointAtDistanceFromBoundary funciona perfeitamente com 1 ponto,
-      // então não há necessidade de exigir 2+ pontos para "formar um segmento"
-      // Se tem 1 ponto válido dentro do raio, podemos usar esse ponto diretamente
-      if (validPoints.length >= 1) {
-        // Se tem apenas 1 ponto, duplicar para manter compatibilidade (mas não é necessário)
-        const pointsToUse = validPoints.length >= 2
-          ? validPoints
-          : [validPoints[0], validPoints[0]]; // Duplicar ponto para manter formato de segmento
 
-        // 🆕 Boundary segmentation (issue 1.8):
-        // Quando o boundary OSM "invade" a calçada/faixa da rua perimetral, a regra
-        // antiga rejeitava o candidato como "dentro do boundary". Aqui dividimos a
-        // rua em trechos dentro/fora do polígono e usamos apenas os trechos externos.
-        const subStreets = this.segmentStreetByBoundary(street, pointsToUse, boundary);
-        for (const sub of subStreets) {
-          filtered.push(sub);
-        }
-
-        if (subStreets.length === 0) {
-          const streetName = street.name || street.id || 'unnamed';
-          console.log(`🚫 Street ${street.id} (${streetName}): Rejected - fully internal to boundary`);
-        } else if (validPoints.length < street.coordinates.length) {
-          console.log(`✂️ Street ${street.id}: Filtered ${street.coordinates.length - validPoints.length} points outside radius (kept ${validPoints.length}/${street.coordinates.length}) → ${subStreets.length} external sub-segment(s)`);
-        }
-      } else {
-        const streetName = street.name || street.id || 'unnamed';
-        const distRange = `${minDistanceToBoundary.toFixed(0)}m-${maxDistanceToBoundary.toFixed(0)}m from boundary`;
-        const reason = `outside radius (${distRange}, max allowed: ${maxAllowedDistance.toFixed(0)}m${useFanRadius ? ' = fan max' : ''})`;
-        console.log(`🚫 Street ${street.id} (${streetName}): Rejected - ${reason}`);
+      const pointsToUse = street.coordinates.length >= 2
+        ? street.coordinates
+        : [street.coordinates[0], street.coordinates[0]];
+      // Boundary segmentation (issue 1.8): keep only the stretches outside the polygon.
+      const subStreets = this.segmentStreetByBoundary(street, pointsToUse, boundary);
+      for (const sub of subStreets) filtered.push(sub);
+      if (subStreets.length === 0) {
+        console.log(`🚫 Street ${street.id} (${street.name || street.id || 'unnamed'}): Rejected - fully internal to boundary`);
       }
     }
-    
+
     return filtered;
   }
   
@@ -257,54 +221,32 @@ export class OptimalPointCalculator {
   ): Promise<TriggerPointCandidate[]> {
     const candidates: TriggerPointCandidate[] = [];
     const minSpacing = classification.minDistanceBetweenTPs || 40;
-    // Usa fan max distance como raio — mesmo critério que filterStreetsByRadius.
-    // Per-TP check downstream valida cada candidato individual com ray-cast exato.
+    // Reach from the EDGE: the fan (visibility) bounded by the class cap (BR-AUDIO-010).
+    // The ≤30 m band next to the edge is always visible (perimeter sidewalk).
     const fanRadiusM = boundary.visibilityFan!.maxDistanceM || 0;
+    const reachM = Math.max(30, Math.min(fanRadiusM + 20, classification.maxEdgeDistanceM ?? Infinity));
 
     for (const street of streets) {
       if (!street.coordinates || street.coordinates.length < 2) continue;
 
-      // Visibilidade é GATE: mantém só os pontos onde o POI é fisicamente
-      // visível (inside any fan OR inside boundary OR ≤30m da aresta —
-      // calçada perimetral). Pontos invisíveis não viram TP.
-      //
-      // Quando todos os pontos da rua são invisíveis, a rua é descartada.
-      // Se TODAS as ruas forem descartadas (fan colapsado completamente),
-      // o predictor cai em `buildFanCollapseFallback`.
-      const visiblePoints = street.coordinates.filter(p => {
-        const distToBoundary = calculateDistanceToBoundary(p, boundary.coordinates);
-        if (distToBoundary <= fanRadiusM + 20) return true;
-        if (isPointInPolygon(p, boundary.coordinates)) return true;
-        return distToBoundary <= 30;
-      });
-      if (visiblePoints.length === 0) continue;
+      // Walk the whole street from the foot of the perpendicular on the POI edge,
+      // outwards both ways, one candidate every `minSpacing` meters of arc length.
+      const foot = streetFootOnEdge(street.coordinates, boundary.center, boundary.coordinates);
+      if (!foot || foot.edgeDistanceM > reachM) continue;
 
-      // Caminha pelos pontos visíveis em ordem, droppando candidato a cada
-      // `minSpacing` metros acumulados.
-      let accumulatedDist = minSpacing; // garantir candidato no primeiro ponto
       let streetCandidates = 0;
-      for (let i = 0; i < visiblePoints.length; i++) {
-        if (i > 0) {
-          accumulatedDist += calculateDistance(visiblePoints[i - 1], visiblePoints[i]);
-        }
-        if (accumulatedDist < minSpacing && i > 0) continue;
-        accumulatedDist = 0;
+      for (const pointOnStreet of samplePolylineAround(street.coordinates, foot.point, minSpacing)) {
+        const edgeDistance = calculateDistanceToBoundary(pointOnStreet, boundary.coordinates);
+        if (edgeDistance > reachM) continue;
 
-        const pointOnStreet = visiblePoints[i];
-
-        // Quality 100% física — fan já validou visibilidade. Restam só
-        // qualidade da rua (tipo OSM) e proximidade ao POI.
         const quality = this.calculateFanWalkQuality(pointOnStreet, boundary, street);
-
-        // Bearing aponta para o ponto mais próximo do boundary — KISS, sempre correto
-        // para qualquer forma de POI (parque, prédio, montanha).
+        // Bearing points at the closest point of the edge — right for any POI shape.
         const closestOnBoundary = findClosestPointOnBoundary(pointOnStreet, boundary.coordinates);
         const expectedBearing = calculateBearing(pointOnStreet, closestOnBoundary);
-        const distance = calculateDistance(pointOnStreet, boundary.center);
 
         candidates.push({
           location: pointOnStreet,
-          distance,
+          distance: edgeDistance,
           quality,
           street,
           expectedBearing,
@@ -313,7 +255,7 @@ export class OptimalPointCalculator {
         streetCandidates++;
       }
       if (streetCandidates > 0) {
-        console.log(`  ↳ ${street.id} (${street.name || 'unnamed'}): ${streetCandidates} candidate(s) from ${visiblePoints.length} visible point(s)`);
+        console.log(`  ↳ ${street.id} (${street.name || 'unnamed'}): ${streetCandidates} candidate(s), foot ${foot.edgeDistanceM.toFixed(0)}m from edge`);
       }
     }
 

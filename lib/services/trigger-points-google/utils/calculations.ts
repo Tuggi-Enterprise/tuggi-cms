@@ -47,38 +47,39 @@ export function normalizeAngleDifference(angle: number): number {
 }
 
 /**
- * Calcula a distância mínima de um ponto a um segmento de linha
+ * Closest point on segment AB to `point`, projected on a local metric plane (longitude
+ * scaled by cos(lat)). Raw-degree projection skews the foot of the perpendicular away
+ * from the equator — BR-AUDIO-010: the TP must sit in front of the POI edge.
+ * The single implementation: every point-to-segment helper here delegates to it.
  */
+export function closestPointOnSegment(
+  point: GeoPoint,
+  lineStart: GeoPoint,
+  lineEnd: GeoPoint
+): { point: GeoPoint; t: number } {
+  const k = Math.cos((lineStart.lat * Math.PI) / 180);
+  const dx = (lineEnd.lng - lineStart.lng) * k;
+  const dy = lineEnd.lat - lineStart.lat;
+  const lenSq = dx * dx + dy * dy;
+  if (lenSq === 0) return { point: { lat: lineStart.lat, lng: lineStart.lng }, t: 0 };
+  let t = (((point.lng - lineStart.lng) * k) * dx + (point.lat - lineStart.lat) * dy) / lenSq;
+  t = Math.max(0, Math.min(1, t));
+  return {
+    point: {
+      lat: lineStart.lat + t * (lineEnd.lat - lineStart.lat),
+      lng: lineStart.lng + t * (lineEnd.lng - lineStart.lng),
+    },
+    t,
+  };
+}
+
+/** Distance in meters from `point` to segment AB. */
 export function distanceToLineSegment(
   point: GeoPoint,
   lineStart: GeoPoint,
   lineEnd: GeoPoint
 ): number {
-  const A = point.lat - lineStart.lat;
-  const B = point.lng - lineStart.lng;
-  const C = lineEnd.lat - lineStart.lat;
-  const D = lineEnd.lng - lineStart.lng;
-
-  const dot = A * C + B * D;
-  const lenSq = C * C + D * D;
-  let param = -1;
-
-  if (lenSq !== 0) param = dot / lenSq;
-
-  let xx, yy;
-
-  if (param < 0) {
-    xx = lineStart.lat;
-    yy = lineStart.lng;
-  } else if (param > 1) {
-    xx = lineEnd.lat;
-    yy = lineEnd.lng;
-  } else {
-    xx = lineStart.lat + param * C;
-    yy = lineStart.lng + param * D;
-  }
-
-  return calculateDistance(point, { lat: xx, lng: yy });
+  return calculateDistance(point, closestPointOnSegment(point, lineStart, lineEnd).point);
 }
 
 /**
@@ -232,42 +233,13 @@ export function calculateDistanceToPolygon(
   return minDistance;
 }
 
-/**
- * Calcula a distância de um ponto até um segmento de linha
- */
+/** Distance in meters from `point` to segment AB (same as distanceToLineSegment). */
 export function calculateDistanceToLineSegment(
   point: { lat: number; lng: number },
   lineStart: { lat: number; lng: number },
   lineEnd: { lat: number; lng: number }
 ): number {
-  const A = point.lng - lineStart.lng;
-  const B = point.lat - lineStart.lat;
-  const C = lineEnd.lng - lineStart.lng;
-  const D = lineEnd.lat - lineStart.lat;
-  
-  const dot = A * C + B * D;
-  const lenSq = C * C + D * D;
-  
-  if (lenSq === 0) {
-    return calculateDistance(point, lineStart);
-  }
-  
-  let param = dot / lenSq;
-  
-  let xx, yy;
-  
-  if (param < 0) {
-    xx = lineStart.lng;
-    yy = lineStart.lat;
-  } else if (param > 1) {
-    xx = lineEnd.lng;
-    yy = lineEnd.lat;
-  } else {
-    xx = lineStart.lng + param * C;
-    yy = lineStart.lat + param * D;
-  }
-  
-  return calculateDistance(point, { lat: yy, lng: xx });
+  return distanceToLineSegment(point, lineStart, lineEnd);
 }
 
 /**
@@ -325,13 +297,8 @@ export function closestPointOnPolyline(
   for (let i = 0; i < coords.length - 1; i++) {
     const A = coords[i];
     const B = coords[i + 1];
-    const dx = B.lng - A.lng;
-    const dy = B.lat - A.lat;
-    const lenSq = dx * dx + dy * dy;
-    if (lenSq === 0) continue;
-    let t = ((point.lng - A.lng) * dx + (point.lat - A.lat) * dy) / lenSq;
-    t = Math.max(0, Math.min(1, t));
-    const proj = { lat: A.lat + t * dy, lng: A.lng + t * dx };
+    if (A.lat === B.lat && A.lng === B.lng) continue;
+    const { point: proj, t } = closestPointOnSegment(point, A, B);
     const d = calculateDistance(point, proj);
     if (d < best.distance) {
       best = { point: proj, segmentIndex: i, t, distance: d };
@@ -365,6 +332,66 @@ export function closestStreetPointToPoi(
     }
   }
   return best;
+}
+
+/**
+ * Point of the WHOLE street polyline closest to the POI edge (or pin, without a
+ * boundary), with its edge distance. Considers the foot of the perpendicular from every
+ * boundary vertex and every street vertex, so a long segment passing in front of a small
+ * POI anchors in front of it instead of at a far vertex. BR-AUDIO-010.
+ */
+export function streetFootOnEdge(
+  polyline: GeoPoint[],
+  poiPin: GeoPoint,
+  boundaryCoords?: GeoPoint[]
+): { point: GeoPoint; edgeDistanceM: number } | null {
+  if (!polyline || polyline.length === 0) return null;
+  const hasBoundary = !!boundaryCoords && boundaryCoords.length >= 3;
+  const edgeDist = (p: GeoPoint) => hasBoundary ? calculateDistanceToBoundary(p, boundaryCoords!) : calculateDistance(p, poiPin);
+  const seeds: GeoPoint[] = [...polyline];
+  for (const target of hasBoundary ? boundaryCoords! : [poiPin]) {
+    const proj = closestPointOnPolyline(target, polyline);
+    if (proj) seeds.push(proj.point);
+  }
+  let best: { point: GeoPoint; edgeDistanceM: number } | null = null;
+  for (const p of seeds) {
+    const d = edgeDist(p);
+    if (!best || d < best.edgeDistanceM) best = { point: p, edgeDistanceM: d };
+  }
+  return best;
+}
+
+/**
+ * Samples the polyline every `spacingM` meters of arc length, both ways from `anchor`
+ * (anchor first, then alternating outwards). Points are interpolated, not vertices.
+ */
+export function samplePolylineAround(
+  polyline: GeoPoint[],
+  anchor: GeoPoint,
+  spacingM: number
+): GeoPoint[] {
+  if (!polyline || polyline.length < 2 || spacingM <= 0) return polyline?.length ? [anchor] : [];
+  const cum: number[] = [0];
+  for (let i = 1; i < polyline.length; i++) cum.push(cum[i - 1] + calculateDistance(polyline[i - 1], polyline[i]));
+  const total = cum[cum.length - 1];
+  const proj = closestPointOnPolyline(anchor, polyline)!;
+  const s0 = cum[proj.segmentIndex] + proj.t * (cum[proj.segmentIndex + 1] - cum[proj.segmentIndex]);
+  const at = (s: number): GeoPoint => {
+    let i = 0;
+    while (i < cum.length - 2 && cum[i + 1] < s) i++;
+    const seg = cum[i + 1] - cum[i];
+    const r = seg > 0 ? (s - cum[i]) / seg : 0;
+    return { lat: polyline[i].lat + (polyline[i + 1].lat - polyline[i].lat) * r, lng: polyline[i].lng + (polyline[i + 1].lng - polyline[i].lng) * r };
+  };
+  const out: GeoPoint[] = [proj.point];
+  for (let k = 1; ; k++) {
+    const fwd = s0 + k * spacingM;
+    const back = s0 - k * spacingM;
+    if (fwd > total && back < 0) break;
+    if (fwd <= total) out.push(at(fwd));
+    if (back >= 0) out.push(at(back));
+  }
+  return out;
 }
 
 /**
@@ -804,7 +831,7 @@ export function findClosestPointOnBoundary(
     const edgeEnd = boundaryCoordinates[(i + 1) % boundaryCoordinates.length];
     
     // Find closest point on this edge
-    const closestOnEdge = findClosestPointOnLineSegment(triggerPoint, edgeStart, edgeEnd);
+    const closestOnEdge = closestPointOnSegment(triggerPoint, edgeStart, edgeEnd).point;
     const distanceToEdge = calculateDistance(triggerPoint, closestOnEdge);
     
     if (distanceToEdge < minDistance) {
@@ -818,43 +845,6 @@ export function findClosestPointOnBoundary(
     lng: closestPoint.lng,
     distance: minDistance
   };
-}
-
-/**
- * Find the closest point on a line segment to a given point
- */
-function findClosestPointOnLineSegment(
-  point: { lat: number; lng: number },
-  lineStart: { lat: number; lng: number },
-  lineEnd: { lat: number; lng: number }
-): { lat: number; lng: number } {
-  const A = point.lat - lineStart.lat;
-  const B = point.lng - lineStart.lng;
-  const C = lineEnd.lat - lineStart.lat;
-  const D = lineEnd.lng - lineStart.lng;
-  
-  const dot = A * C + B * D;
-  const lenSq = C * C + D * D;
-  let param = -1;
-  
-  if (lenSq !== 0) {
-    param = dot / lenSq;
-  }
-  
-  let xx: number, yy: number;
-  
-  if (param < 0) {
-    xx = lineStart.lat;
-    yy = lineStart.lng;
-  } else if (param > 1) {
-    xx = lineEnd.lat;
-    yy = lineEnd.lng;
-  } else {
-    xx = lineStart.lat + param * C;
-    yy = lineStart.lng + param * D;
-  }
-  
-  return { lat: xx, lng: yy };
 }
 
 /**

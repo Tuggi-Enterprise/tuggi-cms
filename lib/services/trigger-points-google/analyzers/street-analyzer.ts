@@ -2,7 +2,7 @@
 
 import { GoogleAPIsService } from '../services/google-apis.service';
 import { POIData, BoundaryData, GeographicContext, StreetData } from '../types/interfaces';
-import { calculateDistance, isPointInPolygon, extractBuildingHeight, calculateBearing, calculateDistanceToLineSegment, calculateDistanceToPolygon, calculateDistanceToBoundary, findClosestPointOnBoundary } from '../utils/calculations';
+import { calculateDistance, isPointInPolygon, extractBuildingHeight, calculateBearing, calculateDistanceToLineSegment, calculateDistanceToPolygon, calculateDistanceToBoundary, findClosestPointOnBoundary, closestStreetPointToPoi } from '../utils/calculations';
 import { ElevationAnalysisService } from '../services/elevation-service';
 import { loadTriggerPointsConfig, TriggerPointsConfig, TRIGGER_POINTS_CONSTANTS } from '../config/trigger-points-config';
 import { VisibilityClass } from '../config/visibility-class';
@@ -166,7 +166,7 @@ export class StreetAnalyzer {
         
         if (validStreets.length > 0) {
           const streetPoints = validStreets.map(street => 
-            this.findClosestPointToBoundary(street, boundary)
+            this.withEdgeDistance(street, boundary)
           );
           return streetPoints;
         } else {
@@ -175,7 +175,7 @@ export class StreetAnalyzer {
       
       // Calcular pontos mais próximos ao boundary
       const streetPoints = accessibleStreets.map(street => 
-        this.findClosestPointToBoundary(street, boundary)
+        this.withEdgeDistance(street, boundary)
       );
       
       return streetPoints;
@@ -221,7 +221,7 @@ export class StreetAnalyzer {
       
       // Calcular pontos mais próximos ao boundary
       const streetPoints = accessibleStreets.map(street => 
-        this.findClosestPointToBoundary(street, boundary)
+        this.withEdgeDistance(street, boundary)
       );
 
       // Coletar dados de elevação para o frontend
@@ -1587,36 +1587,21 @@ out geom tags; // ADICIONAR 'tags' para obter tunnel, bridge, layer, etc
   }
   
   /**
-   * Encontra ponto na rua mais próximo ao boundary
+   * Annotates the street with its distance to the POI EDGE, keeping the whole polyline.
+   * It used to collapse `coordinates` to the vertex closest to the center, so the fan-walk
+   * never walked the street (BR-AUDIO-010: the TP sits in front of the POI).
+   * `fullCoordinates` stays for consumers that still read it.
    */
-  private findClosestPointToBoundary(street: StreetData, boundary: BoundaryData): StreetData {
-    if (street.coordinates.length === 0) {
-      return street;
-    }
-
-    // Encontrar ponto na rua mais próximo ao centro do boundary
-    let closestPoint = street.coordinates[0];
-    let minDistance = calculateDistance(street.coordinates[0], boundary.center);
-
-    for (const point of street.coordinates) {
-      const distance = calculateDistance(point, boundary.center);
-      if (distance < minDistance) {
-        minDistance = distance;
-        closestPoint = point;
-      }
-    }
-
-    // Preserva a polilinha original em `fullCoordinates` antes de colapsar
-    // `coordinates` para 1 ponto. Consumers que precisam de upstream/downstream
-    // (ex: `predictor.buildFrontalArrivalTP`) usam `fullCoordinates`.
+  private withEdgeDistance(street: StreetData, boundary: BoundaryData): StreetData {
+    if (street.coordinates.length === 0) return street;
+    const foot = closestStreetPointToPoi(street, boundary.center, boundary.coordinates);
     return {
       ...street,
-      coordinates: [closestPoint],
       fullCoordinates: street.coordinates,
-      distance: minDistance
+      distance: foot?.distance,
     } as StreetData;
   }
-  
+
   /**
    * Busca ruas usando Google Roads API com fallback
    */

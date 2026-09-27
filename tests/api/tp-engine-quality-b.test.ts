@@ -108,3 +108,53 @@ describe('BR-AUDIO-010 — per-class cap replaces the 300 m floor and the single
     assert.equal(partitionByPoiReach([at(80)], p => p, PIN, undefined, tpReachCapM(low)).kept.length, 0)
   })
 })
+
+describe('BR-AUDIO-010 — whole street, not a vertex: the TP sits in front of the POI edge', () => {
+  const offset = (m: { n?: number; e?: number }) => ({ lat: PIN.lat + (m.n ?? 0) / M_PER_DEG_LAT, lng: PIN.lng + (m.e ?? 0) / mPerDegLng })
+  const smallPoi = rect(10, 10)
+  // Straight street 25 m south of the POI center, vertices 400 m away on each side.
+  const street = { id: 'way/1', type: 'residential', accessibility: 'public', confidence: 0.8,
+    coordinates: [offset({ n: -25, e: -400 }), offset({ n: -25, e: 400 })] } as any
+  const lowClass = buildClassification(VisibilityClass.POINT_LOW, { heightM: 2, prominenceM: 0, areaM2: 100 })
+
+  it('foot of the perpendicular on a diagonal segment is the true closest point (metric projection)', async () => {
+    const { closestPointOnSegment } = await import('../../lib/services/trigger-points-google/utils/calculations')
+    const { calculateDistance } = await import('../../lib/services/trigger-points-google/utils/calculations')
+    const a = offset({ n: -300, e: -300 })
+    const b = offset({ n: 300, e: 100 })
+    const p = offset({ n: 50, e: 200 })
+    let brute = Infinity
+    for (let i = 0; i <= 20000; i++) {
+      const t = i / 20000
+      brute = Math.min(brute, calculateDistance(p, { lat: a.lat + t * (b.lat - a.lat), lng: a.lng + t * (b.lng - a.lng) }))
+    }
+    const d = calculateDistance(p, closestPointOnSegment(p, a, b).point)
+    assert.ok(Math.abs(d - brute) < 0.5, `projection ${d.toFixed(2)} m vs true ${brute.toFixed(2)} m`)
+  })
+
+  it('street analysis keeps the whole polyline and measures to the edge', async () => {
+    const { StreetAnalyzer } = await import('../../lib/services/trigger-points-google/analyzers/street-analyzer')
+    const s = (new StreetAnalyzer() as any).withEdgeDistance(street, { center: PIN, coordinates: smallPoi })
+    assert.equal(s.coordinates.length, 2)
+    assert.ok(s.distance > 15 && s.distance < 25, String(s.distance))
+  })
+
+  it('fan-walk walks the segment: candidates in front of the POI, none beyond the class cap', async () => {
+    const { OptimalPointCalculator } = await import('../../lib/services/trigger-points-google/analyzers/point-calculator')
+    const boundary = { center: PIN, coordinates: smallPoi, visibilityFan: { polygons: [[PIN]], maxDistanceM: 300 }, classification: lowClass } as any
+    const calc = new OptimalPointCalculator() as any
+    const streets = calc.filterStreetsByRadius([street], boundary, 60)
+    assert.equal(streets.length, 1, 'street passing 20 m from the edge must survive the radius filter')
+    const cands = await calc.calculateFanWalkStrategy(streets, { id: 'x', name: 'x', location: PIN }, boundary, context, lowClass)
+    assert.ok(cands.length >= 1)
+    const nearest = Math.min(...cands.map((c: any) => c.distance))
+    assert.ok(nearest < 25, `closest candidate ${nearest.toFixed(0)} m from edge`)
+    for (const c of cands) assert.ok(c.distance <= lowClass.maxEdgeDistanceM, `candidate ${c.distance.toFixed(0)} m from edge`)
+  })
+
+  it('a candidate interpolated between far vertices is on the street', async () => {
+    const { CoreTriggerPointPredictor } = await import('../../lib/services/trigger-points-google/core/trigger-point-predictor')
+    const p = new CoreTriggerPointPredictor() as any
+    assert.equal(p.isCandidateOnStreet({ location: offset({ n: -25, e: 0 }) }, [street]), true)
+  })
+})

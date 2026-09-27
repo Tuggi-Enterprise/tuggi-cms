@@ -7,7 +7,7 @@ import { OptimalPointCalculator } from '../analyzers/point-calculator';
 import { TriggerPointValidator } from '../analyzers/validator';
 import { GoogleAPIsService } from '../services/google-apis.service';
 import { POIData, TriggerPoint, TriggerPointGenerationOptions, TriggerPointPredictionResult, BoundaryData, GeographicContext, TriggerPointCandidate, StreetData } from '../types/interfaces';
-import { calculateBearing, calculateDistance, findClosestPointOnBoundary, closestStreetPointToPoi } from '../utils/calculations';
+import { calculateBearing, calculateDistance, findClosestPointOnBoundary, closestStreetPointToPoi, closestPointOnPolyline } from '../utils/calculations';
 import { deterministicTPId } from '../utils/deterministic';
 import { loadTriggerPointsConfig, TriggerPointsConfig, TRIGGER_POINTS_CONSTANTS } from '../config/trigger-points-config';
 import { VisibilityClass, LANDMARK_MIN_PROMINENCE_M, fanHorizonM } from '../config/visibility-class';
@@ -1022,9 +1022,8 @@ export class CoreTriggerPointPredictor {
     for (const street of streets) {
       if (!street.coordinates || street.coordinates.length === 0) continue;
       
-      // Calcular distância do POI para a rua (usar primeira coordenada como referência)
-      const streetPoint = street.coordinates[0];
-      const distance = calculateDistance(poiLocation, streetPoint);
+      // Distance to the closest point of the whole street, not its first vertex.
+      const distance = closestStreetPointToPoi(street, poiLocation)?.distance ?? Infinity;
       
       const streetName = street.name || street.id || 'unnamed';
       const streetType = (street.tags as any)?.highway || 'unknown';
@@ -1095,8 +1094,10 @@ export class CoreTriggerPointPredictor {
     // USAR BOUNDARY.CENTER em vez de poiData.location
     const centerPoint = boundary?.center || poiData.location;
     
-    const streetPoint = street.coordinates[0];
-    const distanceToPOI = calculateDistance(centerPoint, streetPoint); // ✅ DRY: usar função importada
+    // Closest point of the whole street to the POI edge, not its first vertex (BR-AUDIO-010).
+    const foot = closestStreetPointToPoi(street, poiData.location, boundary?.coordinates);
+    const streetPoint = foot?.point ?? street.coordinates[0];
+    const distanceToPOI = foot?.distance ?? calculateDistance(centerPoint, streetPoint);
     
     
     // Criar apenas 1 TP principal na rua mais próxima
@@ -1327,14 +1328,10 @@ export class CoreTriggerPointPredictor {
     const maxDistanceFromStreet = TRIGGER_POINTS_CONSTANTS.distances.maxDistanceFromStreet;
     
     for (const street of accessibleStreets) {
-      // Verificar se o candidato está próximo a qualquer ponto da rua
-      for (const streetPoint of street.coordinates) {
-        const distance = calculateDistance(candidateLocation, streetPoint);
-        
-        if (distance <= maxDistanceFromStreet) {
-          return true;
-        }
-      }
+      // Distance to the polyline, not to its vertices: fan-walk candidates are
+      // interpolated along the street (BR-AUDIO-010).
+      const proj = closestPointOnPolyline(candidateLocation, street.coordinates);
+      if (proj && proj.distance <= maxDistanceFromStreet) return true;
     }
     
     return false;

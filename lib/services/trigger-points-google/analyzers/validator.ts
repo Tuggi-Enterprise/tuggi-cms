@@ -1,7 +1,7 @@
 // Validador e ranker de trigger points
 
 import { POIData, GeographicContext, TriggerPointCandidate, TriggerPoint, BoundaryData } from '../types/interfaces';
-import { calculateOptimalRadius, calculateDistance, calculateBearing, extractBuildingHeight, normalizeAngleDifference, isPointInPolygon, calculateDistanceToBoundary } from '../utils/calculations';
+import { calculateOptimalRadius, calculateDistance, calculateBearing, extractBuildingHeight, normalizeAngleDifference, isPointInPolygon, calculateDistanceToBoundary, distanceToLineSegment } from '../utils/calculations';
 import { getFanReachAtBearing } from '../utils/fan-reach';
 import { ElevationAnalysisService } from '../services/elevation-service';
 import { loadTriggerPointsConfig, TriggerPointsConfig, TRIGGER_POINTS_CONSTANTS } from '../config/trigger-points-config';
@@ -1289,7 +1289,7 @@ export class TriggerPointValidator {
       const point2 = boundary.coordinates[(i + 1) % boundary.coordinates.length];
       
       // Calcular distância do TP para o segmento de linha
-      const distance = this.distanceToLineSegment(tpLocation, point1, point2);
+      const distance = distanceToLineSegment(tpLocation, point1, point2);
       
       if (distance < minDistance) {
         minDistance = distance;
@@ -1304,45 +1304,6 @@ export class TriggerPointValidator {
     }
     
     return false;
-  }
-
-  /**
-   * NOVO: Calcula distância de um ponto para um segmento de linha (MELHORIA INCREMENTAL)
-   */
-  private distanceToLineSegment(
-    point: { lat: number; lng: number },
-    lineStart: { lat: number; lng: number },
-    lineEnd: { lat: number; lng: number }
-  ): number {
-    // Calcular distância usando fórmula de distância ponto-linha
-    const A = point.lat - lineStart.lat;
-    const B = point.lng - lineStart.lng;
-    const C = lineEnd.lat - lineStart.lat;
-    const D = lineEnd.lng - lineStart.lng;
-    
-    const dot = A * C + B * D;
-    const lenSq = C * C + D * D;
-    
-    if (lenSq === 0) {
-      // Linha degenerada (ponto)
-      return calculateDistance(point, lineStart);
-    }
-    
-    const param = dot / lenSq;
-    
-    let closestPoint;
-    if (param < 0) {
-      closestPoint = lineStart;
-    } else if (param > 1) {
-      closestPoint = lineEnd;
-    } else {
-      closestPoint = {
-        lat: lineStart.lat + param * C,
-        lng: lineStart.lng + param * D
-      };
-    }
-    
-    return calculateDistance(point, closestPoint);
   }
 
   /**
