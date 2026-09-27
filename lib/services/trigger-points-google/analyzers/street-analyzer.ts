@@ -7,6 +7,42 @@ import { ElevationAnalysisService } from '../services/elevation-service';
 import { loadTriggerPointsConfig, TriggerPointsConfig, TRIGGER_POINTS_CONSTANTS, POIGroup } from '../config/trigger-points-config';
 import { LRUCacheWithTTL } from '../utils/lru-cache';
 
+// Tipos de vias onde usuários passam e podem ouvir audio guides (BR-AUDIO-010).
+// Inclui carro, ônibus, bicicleta, pedestre, trem, barco em hidrovia e teleférico.
+// `ferry` NÃO entra: a rota de balsa no OSM é uma linha entre terminais distantes, e o
+// TP ancorado nela caía no terminal — 155 de 234 outliers de fallback_recovery (auditoria
+// de 2026-09-27). SSOT: o predictor lê esta lista em vez de redeclarar.
+export const MOTORIZED_ROAD_TYPES: ReadonlySet<string> = new Set([
+  'motorway', 'trunk', 'primary', 'secondary', 'tertiary',
+  'residential', 'living_street', 'unclassified',
+  'motorway_link', 'trunk_link', 'primary_link', 'secondary_link', 'tertiary_link',
+  'bus_guideway',  // 🚌 Faixa exclusiva de ônibus
+]);
+
+export const NON_MOTORIZED_TYPES: ReadonlySet<string> = new Set([
+  'cycleway',      // 🚲 Ciclovia dedicada
+  'footway',       // 🚶 Calçada / passeio
+  'pedestrian',    // 🚶 Zona pedestre (rua comercial, piazza)
+  'path',          // 🥾 Caminho genérico (trilha, atalho urbano)
+  'waterway',      // 🌊 Hidrovia navegável (rio, canal)
+  'railway_rail',           // 🚆 Trem de superfície
+  'railway_light_rail',     // 🚊 VLT / light rail
+  'railway_tram',           // 🚃 Bonde / tram
+  'railway_subway',         // 🚇 Metrô ELEVADO (filtro de túnel abaixo rejeita o subterrâneo)
+  'railway_monorail',       // 🚝 Monotrilho
+  'railway_narrow_gauge',   // 🚂 Trem de bitola estreita (turístico)
+  'railway_preserved',      // 🚂 Ferrovia histórica preservada
+  'aerialway_cable_car',    // 🚠 Teleférico (ex: Cristo Redentor)
+  'aerialway_gondola',      // 🚡 Gôndola
+  'aerialway_chair_lift',   // 🪑 Cadeirinha
+  'aerialway_mixed_lift',   // 🚡 Teleférico misto
+]);
+
+export const ACCESSIBLE_ROUTE_TYPES: ReadonlySet<string> = new Set([
+  ...MOTORIZED_ROAD_TYPES,
+  ...NON_MOTORIZED_TYPES,
+]);
+
 export class StreetAnalyzer {
   private googleAPIs: GoogleAPIsService;
 
@@ -1537,35 +1573,6 @@ out geom tags; // ADICIONAR 'tags' para obter tunnel, bridge, layer, etc
    * Verifica se uma rua é acessível
    */
   private isStreetAccessible(road: StreetData, context: GeographicContext): boolean {
-    // Tipos de vias onde usuários passam e podem ouvir audio guides.
-    // Inclui todos os modos: carro, ônibus, bicicleta, pedestre, trem, barco, teleférico.
-    const MOTORIZED_ROAD_TYPES = new Set([
-      'motorway', 'trunk', 'primary', 'secondary', 'tertiary',
-      'residential', 'living_street', 'unclassified',
-      'motorway_link', 'trunk_link', 'primary_link', 'secondary_link', 'tertiary_link',
-      'bus_guideway',  // 🚌 Faixa exclusiva de ônibus
-      'ferry',         // ⛴️ Ferry / táxi marítimo
-    ]);
-
-    const NON_MOTORIZED_TYPES = new Set([
-      'cycleway',      // 🚲 Ciclovia dedicada
-      'footway',       // 🚶 Calçada / passeio
-      'pedestrian',    // 🚶 Zona pedestre (rua comercial, piazza)
-      'path',          // 🥾 Caminho genérico (trilha, atalho urbano)
-      'waterway',      // 🌊 Hidrovia navegável (rio, canal)
-      'railway_rail',           // 🚆 Trem de superfície
-      'railway_light_rail',     // 🚊 VLT / light rail
-      'railway_tram',           // 🚃 Bonde / tram
-      'railway_subway',         // 🚇 Metrô ELEVADO (filtro de túnel abaixo rejeita o subterrâneo)
-      'railway_monorail',       // 🚝 Monotrilho
-      'railway_narrow_gauge',   // 🚂 Trem de bitola estreita (turístico)
-      'railway_preserved',      // 🚂 Ferrovia histórica preservada
-      'aerialway_cable_car',    // 🚠 Teleférico (ex: Cristo Redentor)
-      'aerialway_gondola',      // 🚡 Gôndola
-      'aerialway_chair_lift',   // 🪑 Cadeirinha
-      'aerialway_mixed_lift',   // 🚡 Teleférico misto
-    ]);
-
     const isMotorizedRoad = MOTORIZED_ROAD_TYPES.has(road.type);
     const isNonMotorized = NON_MOTORIZED_TYPES.has(road.type);
 

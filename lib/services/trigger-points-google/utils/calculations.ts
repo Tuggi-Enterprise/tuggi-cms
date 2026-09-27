@@ -341,6 +341,33 @@ export function closestPointOnPolyline(
 }
 
 /**
+ * Ponto da rua mais próximo do POI — da borda quando ela existe, do pino quando não.
+ *
+ * Usa `fullCoordinates` quando a rua foi colapsada a 1 ponto. Substitui o antigo
+ * `street.coordinates[0]` (1º vértice), que numa rota longa caía a quilômetros do POI
+ * (BR-AUDIO-010: o TP dispara onde o POI está).
+ */
+export function closestStreetPointToPoi(
+  street: { coordinates: Array<{ lat: number; lng: number }>; fullCoordinates?: Array<{ lat: number; lng: number }> },
+  poiPin: { lat: number; lng: number },
+  boundaryCoords?: Array<{ lat: number; lng: number }>
+): { point: { lat: number; lng: number }; distance: number } | null {
+  const polyline = street.fullCoordinates && street.fullCoordinates.length >= 2
+    ? street.fullCoordinates
+    : street.coordinates;
+  const targets = boundaryCoords && boundaryCoords.length >= 3 ? boundaryCoords : [poiPin];
+
+  let best: { point: { lat: number; lng: number }; distance: number } | null = null;
+  for (const target of targets) {
+    const projection = closestPointOnPolyline(target, polyline);
+    if (projection && (!best || projection.distance < best.distance)) {
+      best = { point: projection.point, distance: projection.distance };
+    }
+  }
+  return best;
+}
+
+/**
  * Caminha pela polilinha a partir de uma posição inicial (resultado de
  * `closestPointOnPolyline`) por `distanceM` metros. Sinal de `distanceM`:
  *  - positivo: avança no sentido coords[i] → coords[i+1] → ...

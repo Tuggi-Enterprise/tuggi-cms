@@ -2,12 +2,12 @@
 
 import { GeographicContextAnalyzer } from './geographic-analyzer';
 import { BoundaryDetector } from './boundary-detector';
-import { StreetAnalyzer } from '../analyzers/street-analyzer';
+import { StreetAnalyzer, ACCESSIBLE_ROUTE_TYPES } from '../analyzers/street-analyzer';
 import { OptimalPointCalculator } from '../analyzers/point-calculator';
 import { TriggerPointValidator } from '../analyzers/validator';
 import { GoogleAPIsService } from '../services/google-apis.service';
 import { POIData, TriggerPoint, TriggerPointGenerationOptions, TriggerPointPredictionResult, BoundaryData, GeographicContext, TriggerPointCandidate, StreetData } from '../types/interfaces';
-import { calculateBearing, calculateDistance, findClosestPointOnBoundary } from '../utils/calculations';
+import { calculateBearing, calculateDistance, findClosestPointOnBoundary, closestStreetPointToPoi } from '../utils/calculations';
 import { deterministicTPId } from '../utils/deterministic';
 import { loadTriggerPointsConfig, TriggerPointsConfig, TRIGGER_POINTS_CONSTANTS, POIGroup } from '../config/trigger-points-config';
 import { emitDebugQuality, DebugQualitySnapshot } from '../debug-quality-logger';
@@ -593,7 +593,8 @@ export class CoreTriggerPointPredictor {
     context: GeographicContext,
     boundary?: BoundaryData
   ): TriggerPoint[] {
-    const streetPoint = street.coordinates[0];
+    const streetPoint = closestStreetPointToPoi(street, centerPoint, boundary?.coordinates)?.point
+      ?? street.coordinates[0];
     const distance = calculateDistance(centerPoint, streetPoint);
     
     // Usar boundary mais próximo para bearing, não centro
@@ -640,8 +641,8 @@ export class CoreTriggerPointPredictor {
     for (const street of streets) {
       if (street.coordinates.length === 0) continue;
       
-      const streetPoint = street.coordinates[0];
-      const distance = calculateDistance(centerPoint, streetPoint);
+      const distance = closestStreetPointToPoi(street, centerPoint)?.distance
+        ?? calculateDistance(centerPoint, street.coordinates[0]);
       
       // Score baseado em: proximidade (menor = melhor) + tipo de rua (primary = melhor)
       let score = 1000 / (distance + 1); // Inverter distância (mais próximo = score maior)
@@ -1711,17 +1712,8 @@ export class CoreTriggerPointPredictor {
     const streetDistances: Array<{ street: StreetData; dist: number }> = [];
     for (const s of rawPerimeterStreets ?? []) {
       if (!s.coordinates?.length) continue;
-      // isStreetAccessible check (inline para não importar o analisador aqui)
-      const ACCESSIBLE = new Set([
-        'motorway','trunk','primary','secondary','tertiary','residential',
-        'living_street','unclassified','motorway_link','trunk_link',
-        'primary_link','secondary_link','tertiary_link','bus_guideway',
-        'ferry','waterway','cycleway','footway','pedestrian','path',
-        'railway_rail','railway_light_rail','railway_tram','railway_subway',
-        'railway_monorail','railway_narrow_gauge','railway_preserved',
-        'aerialway_cable_car','aerialway_gondola','aerialway_chair_lift','aerialway_mixed_lift',
-      ]);
-      if (!ACCESSIBLE.has(s.type)) continue;
+      // Mesma lista de isStreetAccessible (SSOT em street-analyzer).
+      if (!ACCESSIBLE_ROUTE_TYPES.has(s.type)) continue;
       if ((s as any).tags?.tunnel === 'yes' || (s as any).tags?.covered === 'yes') continue;
 
       let minDist = Infinity;
