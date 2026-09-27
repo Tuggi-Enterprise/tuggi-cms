@@ -703,6 +703,37 @@ export class LocalOSMFetcher {
   }
 
   /**
+   * E1 (INV-E1a, "OSM that contains the pin"): every mapped area whose bounding box holds the
+   * pin — `pois` (ways and multipolygons) and `buildings` — as Overpass elements. The caller
+   * decides which one is the border (`boundary-choice#chooseContainingBoundary`).
+   * null when the local DB is not available (the caller goes to Overpass).
+   */
+  public fetchAreasContaining(pin: { lat: number; lng: number }): any[] | null {
+    if (!this.db) return null;
+    try {
+      const out: any[] = [];
+      for (const table of ['pois', 'buildings'] as const) {
+        const cols = table === 'pois' ? 'p.id, p.osm_id, p.osm_type, p.geometry_json, p.tags_json' : 'p.id, p.geometry_json, p.tags_json';
+        const rtree = this.rtreeAvailable[table];
+        const rows = this.db.prepare(rtree
+          ? `SELECT ${cols} FROM ${table} p JOIN ${table}_rtree r ON r.rowid = p.rowid
+             WHERE r.min_lat <= ? AND r.max_lat >= ? AND r.min_lng <= ? AND r.max_lng >= ?`
+          : `SELECT ${cols} FROM ${table} p
+             WHERE p.min_lat <= ? AND p.max_lat >= ? AND p.min_lng <= ? AND p.max_lng >= ?`
+        ).all(pin.lat, pin.lat, pin.lng, pin.lng) as any[];
+        for (const row of rows) {
+          const el = this.toOverpassElement(row, 'way');
+          if (el.type !== 'node') out.push(el);
+        }
+      }
+      return out;
+    } catch (error) {
+      console.error(`❌ [LocalOSMFetcher] Error fetching areas containing the pin:`, error);
+      return null;
+    }
+  }
+
+  /**
    * Busca um elemento OSM específico por tipo e ID no banco local.
    *
    * No OSM o id só é único DENTRO do tipo: node 123 e way 123 são elementos diferentes.

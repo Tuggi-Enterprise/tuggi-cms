@@ -49,6 +49,8 @@ export function poiTraceRows(poiId: string, boundary: BoundaryData | undefined):
   const rows: EngineTraceRow[] = [
     row('E1', 'boundary-detector#detectBoundary',
       `source=${boundary.source}; synthetic=${!!boundary.synthetic}; vertices=${boundary.coordinates?.length ?? 0}; area=${Math.round(boundary.area_m2 ?? 0)} m²`),
+    // INV-E1c: every candidate refused on the way, with the reason.
+    ...(boundary.rejected ?? []).map(r => row('E1', 'boundary-choice#chooseContainingBoundary', `${r.element}: ${r.reason}`, '', 'dropped')),
     row('E3', 'visibility-class#resolveHeightM', `${m(ph?.heightM ?? boundary.height)} (${ph?.heightSource ?? 'unmeasured'})`),
     row('E4', 'elevation-service#groundTop', `${m(ph?.groundTopM)} (${ph?.groundSource ?? 'unmeasured'})`, '',
       ph?.groundTopM === null ? 'dropped' : 'kept'),

@@ -257,7 +257,7 @@ export const AREA_TAGS: Array<{ key: string; value: string }> = [
  * Tag value. Accepts both OSM (`natural=peak`) and the Nominatim shape stored in
  * `osm_tags` (`class=natural`, `type=peak`).
  */
-function tagValue(tags: Record<string, unknown> | undefined, key: string): string {
+export function tagValue(tags: Record<string, unknown> | undefined, key: string): string {
   const direct = tags?.[key];
   if (direct != null && direct !== '') return String(direct).toLowerCase();
   if (String(tags?.class ?? '').toLowerCase() === key) return String(tags?.type ?? '').toLowerCase();

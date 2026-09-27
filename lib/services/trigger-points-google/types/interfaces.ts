@@ -57,7 +57,10 @@ export interface BoundaryData {
   area_m2: number;
   perimeter_m: number;
   confidence: number;
-  source: 'google_places' | 'osm' | 'estimated' | 'manual' | 'manual_drawing' | 'nominatim' | 'unified_overpass' | 'estimated_boundary' | 'osm_nominatim' | 'osm_reverse_geocoding' | 'osm_nearby_features'; // ✅ Adicionado 'manual', 'manual_drawing' e 'nominatim' para boundaries do banco
+  /** `synthetic`: a circle drawn around a point, from any path (INV-E1b). `estimated` is the last-resort circle, with its own predictor branch. */
+  source: 'google_places' | 'osm' | 'synthetic' | 'estimated' | 'manual' | 'manual_drawing' | 'nominatim' | 'unified_overpass' | 'estimated_boundary' | 'osm_nominatim' | 'osm_reverse_geocoding' | 'osm_nearby_features';
+  /** E1 candidates refused on the way to this border, with the reason (trace, INV-E1c) */
+  rejected?: import('../utils/boundary-choice').BoundaryRejection[];
   osmIdentified?: boolean; // ✅ Flag: OSM identificou o POI? (para POIs manuais, indica se OSM encontrou dados)
   /**
    * The coordinates are a circle drawn around a point (OSM node, estimated fallback), not

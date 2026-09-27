@@ -264,21 +264,19 @@ describe('Zonas nomeadas do conjunto de referência (INV-E7c/E10a, #772/#779)', 
 })
 
 // ============================================================================================
-// Maracanã: a borda de hoje é o nó de bairro, não o polígono do estádio (E1, dívida registrada
-// em motor-de-tp.md). "TPs em pelo menos 2 lados" vira: pelo menos 2 TPs e pelo menos 2 setores
-// de 45° distintos entre os TPs mantidos.
+// Maracanã: o osm_id do POI é o nó de bairro; E1 o descarta (place para POI que não é lugar,
+// INV-E1c) e a borda sai do polígono do estádio. "TPs em pelo menos 2 lados" vira: pelo menos
+// 2 TPs e pelo menos 2 setores de 45° distintos entre os TPs mantidos.
 // ============================================================================================
-describe('Maracanã: cobertura de pelo menos 2 lados (dívida E1, #772)', { skip: CAN_RUN ? false : SKIP_REASON }, () => {
-  const cause = 'E1 (boundary-detector#detectBoundary): a borda resolvida é o nó de bairro "Maracanã", não o polígono do estádio (docs/arquitetura/cms/motor-de-tp.md, dívida "borda sintética/polígono errado") — o motor gera 1 TP colado ao pino'
-
-  it('Maracanã: pelo menos 2 TPs mantidos', { todo: cause }, async () => {
+describe('Maracanã: cobertura de pelo menos 2 lados (INV-E1c, #772)', { skip: CAN_RUN ? false : SKIP_REASON }, () => {
+  it('Maracanã: pelo menos 2 TPs mantidos', async () => {
     const result = await getResult(POI_ID.maracana)
     assert.equal(result.error, null)
     const kept = keptOf(result)
     assert.ok(kept.length >= 2, `Maracanã: ${kept.length} TP(s) mantido(s), esperado >= 2`)
   })
 
-  it('Maracanã: pelo menos 2 setores de 45° distintos (2 lados)', { todo: cause }, async () => {
+  it('Maracanã: pelo menos 2 setores de 45° distintos (2 lados)', async () => {
     const result = await getResult(POI_ID.maracana)
     assert.equal(result.error, null)
     const kept = keptOf(result)

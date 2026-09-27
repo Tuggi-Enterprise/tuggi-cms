@@ -7,6 +7,7 @@ import { POIData, GeographicContext, BoundaryData, ProcessingResult } from '../t
 import { convertViewportToPolygon, calculatePolygonArea, calculatePolygonAreaInM2, calculatePolygonCenter, calculateDistance, isPointInPolygon, isDrawnCircle } from '../utils/calculations';
 import { TRIGGER_POINTS_CONSTANTS } from '../config/trigger-points-config';
 import { isCuratedBoundaryImplausible } from '../utils/osm-validation';
+import { chooseContainingBoundary, isPlaceElement, outerRing, poiIsPlace, type BoundaryRejection, type OsmAreaElement } from '../utils/boundary-choice';
 import { getSupabase } from '../../../core/supabase-client';
 
 /** Surveyed summits for the ground-top read (E4): one point per `processOSMPeaks` element. */
@@ -19,6 +20,8 @@ function peakPoints(peaks: any[] | undefined): Array<{ lat: number; lng: number;
 export class BoundaryDetector {
   private googleAPIs: GoogleAPIsService;
   private elevationService: ElevationService;
+  /** E1 candidates refused during the current `detectBoundary`, for the trace (E0). */
+  private rejections: BoundaryRejection[] = [];
   
   /**
    * 🔄 RETRY COM BACKOFF EXPONENCIAL para queries OSM (QUALIDADE > VELOCIDADE)
@@ -108,29 +111,44 @@ export class BoundaryDetector {
     const startTime = Date.now();
     
     try {
-      // ✅ REGRA: OSM tem prioridade sobre banco de dados
-      // 1. Buscar boundary no OSM primeiro (sempre verificar OSM)
+      this.rejections = [];
+      // INV-E1a: OSM by typed id → OSM that contains the pin → online search → drawn circle.
       let osmBoundaryResult: ProcessingResult<BoundaryData> | null = null;
-      
-      // Tentar OSM ID direto primeiro (mais preciso)
+      // A node id has no footprint: its circle only marks the point, and is the last resort.
+      let pointCircle: ProcessingResult<BoundaryData> | null = null;
+
       if (poiData.osm_id && poiData.osm_type) {
-        osmBoundaryResult = await this.detectOSMBoundaryByID(
-          String(poiData.osm_id), 
-          poiData.osm_type, 
-          poiData
-        );
+        const byId = await this.detectOSMBoundaryByID(String(poiData.osm_id), poiData.osm_type, poiData);
+        if (byId.success && byId.data?.synthetic) pointCircle = byId;
+        else osmBoundaryResult = byId;
       }
-      
-      // Se OSM ID falhou, tentar busca por nome
+
       if (!osmBoundaryResult?.success) {
+        const containing = await this.detectContainingBoundary(poiData, pointCircle?.data?.osmTags);
+        if (containing.success) osmBoundaryResult = containing;
+      }
+
+      // Name search is for a POI without an id: with a node id it finds the same point again
+      // (Irmão Menor came back as a 200 m circle).
+      if (!osmBoundaryResult?.success && !pointCircle) {
         osmBoundaryResult = await this.detectOSMBoundary(poiData);
       }
-      
+
+      if (!osmBoundaryResult?.success && pointCircle) osmBoundaryResult = pointCircle;
+
       // 2. Se OSM encontrou boundary, usar OSM (PRIORIDADE)
       if (osmBoundaryResult?.success && osmBoundaryResult.data) {
+        // INV-E1b: a drawn circle is `synthetic`, whatever path drew it (node, Nominatim point).
+        const synthetic = !!osmBoundaryResult.data.synthetic || isDrawnCircle(osmBoundaryResult.data.coordinates);
         return {
           success: true,
-          data: await this.withClassification({ ...osmBoundaryResult.data, source: 'osm', osmIdentified: true }, poiData),
+          data: await this.withClassification({
+            ...osmBoundaryResult.data,
+            source: synthetic ? 'synthetic' : 'osm',
+            synthetic,
+            osmIdentified: true,
+            rejected: this.rejections.length ? [...this.rejections] : undefined,
+          }, poiData),
           processingTime: Date.now() - startTime,
           metadata: {
             step: 'boundary_detection',
@@ -151,7 +169,7 @@ export class BoundaryDetector {
         if (dbBoundaryResult.success && dbBoundaryResult.data) {
           return {
             success: true,
-            data: await this.withClassification(dbBoundaryResult.data, poiData),
+            data: await this.withClassification({ ...dbBoundaryResult.data, rejected: this.rejections.length ? [...this.rejections] : undefined }, poiData),
             processingTime: Date.now() - startTime,
             metadata: {
               step: 'boundary_detection',
@@ -169,7 +187,7 @@ export class BoundaryDetector {
       const estimatedResult = await this.createEstimatedBoundary(poiData);
       return {
         success: true,
-        data: await this.withClassification({ ...estimatedResult, source: 'estimated', osmIdentified: false }, poiData),
+        data: await this.withClassification({ ...estimatedResult, source: 'estimated', osmIdentified: false, rejected: this.rejections.length ? [...this.rejections] : undefined }, poiData),
         processingTime: Date.now() - startTime,
         metadata: {
           step: 'boundary_detection',
@@ -340,6 +358,7 @@ export class BoundaryDetector {
       const area = metadata?.boundary_area_m2 ? Number(metadata.boundary_area_m2) : calculatePolygonAreaInM2(coordinates);
       const confidence = metadata?.boundary_confidence ? Number(metadata.boundary_confidence) : 0.8;
       
+      const storedSource = (metadata?.boundary_source as BoundaryData['source'] | null) || 'manual';
       const boundary: BoundaryData = {
         type: 'polygon',
         coordinates,
@@ -347,7 +366,9 @@ export class BoundaryDetector {
         area_m2: area,
         perimeter_m: 0,
         confidence,
-        source: (metadata?.boundary_source as 'osm' | 'nominatim' | 'manual' | 'estimated') || 'manual',
+        // A stored drawn circle is still a drawn circle (INV-E1b): earlier runs saved it as 'osm'.
+        // 'estimated' and the curator's 'manual'/'manual_drawing' keep their predictor branches.
+        source: synthetic && !['estimated', 'manual', 'manual_drawing'].includes(storedSource) ? 'synthetic' : storedSource,
         synthetic,
         // Metadata adicional
         osmTags: undefined,
@@ -375,7 +396,13 @@ export class BoundaryDetector {
    * 🆕 Detecta boundary usando OSM ID diretamente (se disponível)
    * Estratégia consolidada: 1 query inicial com raio padrão, expande se necessário
    */
-  private async detectOSMBoundaryByID(osmID: string, osmType: string, poiData: POIData): Promise<ProcessingResult<BoundaryData>> {
+  private async detectOSMBoundaryByID(
+    osmID: string,
+    osmType: string,
+    poiData: POIData,
+    /** An element already chosen (E1 "contains the pin") and the POI's own tags, which it keeps. */
+    chosen?: { element: OsmAreaElement; tags?: Record<string, unknown> }
+  ): Promise<ProcessingResult<BoundaryData>> {
     try {
       
       // 🚀 ESTRATÉGIA CONSOLIDADA: Query inicial com raio padrão reduzido (150m) para evitar timeout/406 no Overpass
@@ -384,11 +411,13 @@ export class BoundaryDetector {
       
       // 🌍 ESTRATÉGIA 1: LOCAL OSM DB (busca por ID direto)
       const { LocalOSMFetcher } = await import('../services/local-osm-fetcher');
-      const localData = LocalOSMFetcher.getInstance().fetchElementById(osmType, osmID);
+      const localData = chosen ? null : LocalOSMFetcher.getInstance().fetchElementById(osmType, osmID);
       
       let elements: any[] = [];
       
-      if (localData && localData.elements.length > 0) {
+      if (chosen) {
+        elements = [chosen.element];
+      } else if (localData && localData.elements.length > 0) {
         elements = localData.elements;
       } else {
         // 🔄 ESTRATÉGIA 2: OVERPASS API (Fallback)
@@ -419,6 +448,13 @@ out geom tags;
       }
       
       const element = elements[0];
+
+      // A place (neighbourhood, city) is a border only for a POI that is itself a place: the
+      // Maracanã and Manguinhos ids resolve to `place=suburb` nodes and drew a circle at the pin.
+      if (!chosen && isPlaceElement(element.tags) && !poiIsPlace(poiData.type)) {
+        this.rejections.push({ element: `${osmType}/${osmID}`, reason: 'place/boundary element for a POI that is not a place' });
+        return { success: false, error: 'osm_id is a place and the POI is not', processingTime: 0 };
+      }
       
       // Processar geometria
       let coordinates: Array<{ lat: number; lng: number }> = [];
@@ -426,11 +462,12 @@ out geom tags;
       let synthetic = false;
 
       if ((osmType === 'way' || osmType === 'relation') && Array.isArray(element.geometry) && element.geometry.length >= 3) {
-        // Way, or relation with its outer ring already assembled (local DB): real geometry
-        coordinates = element.geometry.map((point: any) => ({
+        // Way, or relation (local DB: its rings one after another; the footprint is the outer one)
+        const points = element.geometry.map((point: any) => ({
           lat: point.lat,
           lng: point.lon ?? point.lng
         }));
+        coordinates = osmType === 'relation' ? outerRing(points, poiData.location) : points;
       } else if (osmType === 'node') {
         const center = { lat: element.lat, lng: element.lon };
         coordinates = this.createCircularBoundary(center, 10);
@@ -455,8 +492,8 @@ out geom tags;
       // do polígono e centróide a >1 km. Aí o id aponta para outro elemento e o
       // boundary é recusado (BR-AUDIO-010; auditoria de TP, 2026-09-27).
       const distanceFromPOI = calculateDistance(center, poiData.location);
-      const poiTags = element.tags || {};
-      const osmName = poiTags.name || poiTags['name:pt'] || '';
+      const poiTags = chosen ? (chosen.tags ?? {}) : (element.tags || {});
+      const osmName = chosen ? '' : (poiTags.name || poiTags['name:pt'] || '');
 
       if (isCuratedBoundaryImplausible(poiData.location, coordinates)) {
         console.warn(`🚫 osm_id=${osmType}(${osmID}) rejected: pin outside polygon and far from its edge`);
@@ -1196,6 +1233,49 @@ out geom tags;
   /**
    * Detecta boundary usando OSM com múltiplas estratégias (estratégia principal)
    */
+  /**
+   * INV-E1a "OSM that contains the pin" (local DB, then Overpass): the areas holding the pin,
+   * judged by `boundary-choice#chooseContainingBoundary` (INV-E1c). The chosen polygon is the
+   * border; the class keeps reading the POI's own tags (`ownTags`, else `osm_tags`).
+   * Replaces the proximity/category searches, which took the longest way in 200 m — a street
+   * or a 0.69 km² polygon (Monumento Árvore de Natal, #772).
+   */
+  private async detectContainingBoundary(poiData: POIData, ownTags?: Record<string, unknown>): Promise<ProcessingResult<BoundaryData>> {
+    const tags = ownTags ?? (poiData.osm_tags as Record<string, unknown> | undefined);
+    const { LocalOSMFetcher } = await import('../services/local-osm-fetcher');
+    let elements: OsmAreaElement[] | null = LocalOSMFetcher.getInstance().fetchAreasContaining(poiData.location);
+    if (!elements) {
+      const { lat, lng } = poiData.location;
+      const query = `
+[out:json][timeout:60];
+is_in(${lat},${lng})->.a;
+(way(pivot.a); relation(pivot.a); way(around:1,${lat},${lng})["building"];);
+out geom tags;
+`;
+      try {
+        const response = await this.retryOSMQuery(query, 'OSM areas containing the pin', 3, 2000);
+        const data = await response.json();
+        // Overpass relations carry member geometries; each closed outer member is a candidate ring.
+        elements = (data.elements ?? []).flatMap((el: any) => el.type !== 'relation'
+          ? [el]
+          : (el.members ?? []).filter((m: any) => m.role === 'outer' && m.geometry?.length >= 4)
+              .map((m: any) => ({ type: 'relation', id: el.id, tags: el.tags, geometry: m.geometry })));
+      } catch (error) {
+        console.warn(`⚠️ Overpass is_in failed for ${poiData.name}:`, error instanceof Error ? error.message : error);
+        return { success: false, error: 'Overpass is_in failed', processingTime: 0 };
+      }
+    }
+    const { chosen, rejected } = chooseContainingBoundary(
+      poiData.location, { category: poiData.type, tags }, elements ?? []
+    );
+    this.rejections.push(...rejected);
+    if (!chosen) return { success: false, error: 'No OSM area fits the POI at the pin', processingTime: 0 };
+    return this.detectOSMBoundaryByID(String(chosen.element.id), chosen.element.type, poiData, {
+      element: { ...chosen.element, geometry: chosen.ring.map(p => ({ lat: p.lat, lon: p.lng })) },
+      tags,
+    });
+  }
+
   private async detectOSMBoundary(poiData: POIData): Promise<ProcessingResult<BoundaryData>> {
     try {
       console.log(`🗺️ OSM boundary detection (primary) for: ${poiData.name}`);
@@ -1204,22 +1284,6 @@ out geom tags;
       let result = await this.queryOSMByName(poiData);
       if (result.success) {
         console.log('✅ OSM found via exact name match');
-        return result;
-      }
-      
-      // Estratégia 2: Busca por proximidade e tipo
-      console.log('🔄 Trying OSM proximity search...');
-      result = await this.queryOSMByProximity(poiData);
-      if (result.success) {
-        console.log('✅ OSM found via proximity search');
-        return result;
-      }
-      
-      // Estratégia 3: Busca expandida por categoria
-      console.log('🔄 Trying OSM category search...');
-      result = await this.queryOSMByCategory(poiData);
-      if (result.success) {
-        console.log('✅ OSM found via category search');
         return result;
       }
       
@@ -1706,6 +1770,12 @@ out geom tags;
               console.log(`🏗️ Building detected: using ${maxDistance}m threshold`);
             }
             
+            // Same place rule as the id path (INV-E1c): a neighbourhood is not a stadium's border.
+            if ((result.class === 'place' || result.class === 'boundary') && !poiIsPlace(poiData.type)) {
+              this.rejections.push({ element: `${result.osm_type}/${result.osm_id}`, reason: `Nominatim ${result.class}=${result.type} for a POI that is not a place` });
+              continue;
+            }
+
             // Validar distância, categoria e localidade (threshold dinâmico)
             if (!this.validateNominatimResult(result, poiData, maxDistance)) {
               console.log(`⚠️ Result rejected for "${searchTerm}": validation failed`);
@@ -2241,280 +2311,11 @@ out tags;
     }
   }
   
-  /**
-   * Query OSM por proximidade (simplificada para evitar timeout)
-   */
-  private async queryOSMByProximity(poiData: POIData): Promise<ProcessingResult<BoundaryData>> {
-    const query = `
-[out:json][timeout:${TRIGGER_POINTS_CONSTANTS.timeouts.osmQueryMedium}];
-(
-  relation["type"="multipolygon"](around:100,${poiData.location.lat},${poiData.location.lng});
-  way["building"](around:50,${poiData.location.lat},${poiData.location.lng});
-  way["leisure"](around:100,${poiData.location.lat},${poiData.location.lng});
-  way["amenity"](around:100,${poiData.location.lat},${poiData.location.lng});
-  way["building:part"~"^(tower|spire|dome|cupola|minaret)$"](around:200,${poiData.location.lat},${poiData.location.lng});
-  way["man_made"~"^(tower|monument|obelisk|spire)$"](around:200,${poiData.location.lat},${poiData.location.lng});
-  way["tower:type"~".*"](around:200,${poiData.location.lat},${poiData.location.lng});
-);
-out geom tags;
-`;
-    
-    return await this.executeOSMQuery(query, 'proximity search', poiData);
-  }
   
-  /**
-   * Query OSM por categoria (incluindo dados de elevação)
-   */
-  private async queryOSMByCategory(poiData: POIData): Promise<ProcessingResult<BoundaryData>> {
-    const categoryMap: Record<string, string> = {
-      'park': 'leisure=park',
-      'museum': 'tourism=museum',
-      'restaurant': 'amenity=restaurant',
-      'hotel': 'tourism=hotel',
-      'tourist_attraction': 'tourism=attraction',
-      'shopping_mall': 'shop=mall',
-      'church': 'amenity=place_of_worship',
-      'hospital': 'amenity=hospital'
-    };
-    
-    const osmCategory = categoryMap[poiData.type] || 'tourism=attraction';
-    
-    const query = `
-[out:json][timeout:${TRIGGER_POINTS_CONSTANTS.timeouts.osmQueryMedium}];
-(
-  relation[${osmCategory}](around:200,${poiData.location.lat},${poiData.location.lng});
-  way[${osmCategory}](around:200,${poiData.location.lat},${poiData.location.lng});
-  way["building:part"~"^(tower|spire|dome|cupola|minaret)$"](around:200,${poiData.location.lat},${poiData.location.lng});
-  way["man_made"~"^(tower|monument|obelisk|spire)$"](around:200,${poiData.location.lat},${poiData.location.lng});
-  way["tower:type"~".*"](around:200,${poiData.location.lat},${poiData.location.lng});
-);
-out geom tags;
-`;
-    
-    return await this.executeOSMQuery(query, 'category search', poiData);
-  }
   
-  /**
-   * Executa query OSM e processa resultado
-   */
-  private async executeOSMQuery(query: string, searchType: string, poiData?: POIData): Promise<ProcessingResult<BoundaryData>> {
-    try {
-      let data: any;
-      
-      // 🌍 ESTRATÉGIA 1: LOCAL OSM DB
-      if (poiData) {
-        const { LocalOSMFetcher } = await import('../services/local-osm-fetcher');
-        const localData = LocalOSMFetcher.getInstance().fetchAsOverpassData(
-          poiData.location, 200, { includeBuildings: true }
-        );
-        if (localData && localData.elements.length > 0) {
-          data = localData;
-        }
-      }
-      
-      // 🔄 ESTRATÉGIA 2: OVERPASS API (Fallback)
-      if (!data) {
-        const response = await this.retryOSMQuery(
-          query,
-          `OSM query: ${searchType}`,
-          7,
-          2000
-        );
-        
-        // retryOSMQuery already throws if !response.ok, but we'll be safe
-        if (!response.ok) {
-          return { success: false, error: `OSM API error: ${response.status}`, processingTime: 0 };
-        }
-        
-        data = await response.json();
-      }
-      
-      
-      if (!data.elements || data.elements.length === 0) {
-        console.warn(`⚠️ No OSM elements found for ${searchType}`);
-        return { success: false, error: `No OSM data found for ${searchType}`, processingTime: 0 };
-      }
-      
-      
-      // Encontrar melhor elemento
-      const bestElement = this.findBestOSMElement(data.elements);
-      const coordinates = this.extractOSMCoordinates(bestElement);
-      
-      if (coordinates.length < 3) {
-        return { success: false, error: 'Insufficient coordinates from OSM', processingTime: 0 };
-      }
-      
-      const center = calculatePolygonCenter(coordinates);
-      const area = calculatePolygonAreaInM2(coordinates); // ✅ DRY: usar função SSOT (retorna m²)
-      const confidence = this.calculateOSMConfidence(bestElement, searchType);
-      
-      // VALIDAÇÃO: Rejeitar boundaries com área inválida
-      if (area < TRIGGER_POINTS_CONSTANTS.distances.minArea) { // Área mínima configurável
-        console.warn(`⚠️ OSM boundary rejected: area too small (${area.toFixed(0)}m²)`);
-        return { success: false, error: `Boundary area too small: ${area.toFixed(0)}m²`, processingTime: 0 };
-      }
-      
-      console.log(`✅ OSM boundary extracted: ${coordinates.length} points, area: ${area.toFixed(0)}m²`);
-      
-      // Tentar obter elevação e altura do POI (REABILITADO para análise de visibilidade)
-      let elevationData;
-      let poiHeight;
-      try {
-        console.log(`🏗️ Extracting POI elevation and height for visibility analysis...`);
-        console.log(`📍 POI center: ${center.lat.toFixed(6)}, ${center.lng.toFixed(6)}`);
-        console.log(`🏷️ OSM element type: ${bestElement?.type}, id: ${bestElement?.id}`);
-        
-        // Extrair altura do POI dos tags OSM (sistema escalável)
-        // console.log(`🔍 DEBUG: bestElement tags:`, bestElement?.tags);
-        poiHeight = this.extractOSMHeight(bestElement);
-        
-        // Se não encontrou altura no elemento principal, buscar em elementos relacionados
-        if (!poiHeight && data.elements && data.elements.length > 0) {
-          // console.log(`🔄 No height in main element, searching related architectural elements...`);
-          // Criar boundary temporário para verificação
-          const tempBoundary: BoundaryData = {
-            type: 'polygon',
-            coordinates,
-            center,
-            area_m2: area,
-            perimeter_m: 0,
-            confidence,
-            source: 'osm'
-          };
-          poiHeight = this.extractHeightFromMultipleElements(data.elements, center, tempBoundary);
-        }
-        
-        if (poiHeight) {
-          console.log(`🏢 POI height from OSM: ${poiHeight}m`);
-        } else {
-          console.log(`⚠️ No height found in OSM tags or related elements`);
-          // console.log(`🔍 DEBUG: Available tags:`, Object.keys(bestElement?.tags || {}));
-        }
-        
-        // DEBUG: Verificar se altura está sendo salva corretamente
-        // console.log(`🔍 DEBUG: poiHeight value: ${poiHeight}, type: ${typeof poiHeight}`);
-        
-        // Tentar obter elevação (opcional, não bloquear se falhar)
-        console.log(`🌍 Calling ElevationService.getElevation...`);
-        const elevation = await this.elevationService.getElevation(center, undefined, bestElement, undefined, poiData);
-        console.log(`📊 Elevation service returned:`, { 
-          elevation: elevation ? elevation.total : null, 
-          confidence: elevation?.confidence,
-          source: elevation?.source 
-        });
-        
-        if (elevation && elevation.confidence > 0.5) {
-          elevationData = {
-            min: elevation.ground - 10,
-            max: elevation.ground + 10,
-            average: elevation.ground,
-            center: elevation.total
-          };
-          console.log(`⛰️ POI elevation: ${elevation.total.toFixed(1)}m (ground: ${elevation.ground.toFixed(1)}m)`);
-        } else {
-          console.log(`⚠️ Low confidence elevation or no data: confidence=${elevation?.confidence}`);
-        }
-      } catch (error) {
-        console.warn('⚠️ Elevation extraction failed (non-blocking):', error);
-        if (error instanceof Error) {
-          console.warn('⚠️ Error details:', error.message);
-        }
-      }
-      
-      // DEBUG: Verificar altura final antes de retornar
-      console.log(`🔍 DEBUG: Final boundary height: ${poiHeight}, type: ${typeof poiHeight}`);
-      
-      return {
-        success: true,
-        data: {
-          type: 'polygon',
-          coordinates,
-          center,
-          area_m2: area,
-          perimeter_m: 0,
-          confidence,
-          source: 'osm' as const,
-          elevation: elevationData,
-          height: poiHeight || undefined
-        },
-        processingTime: 0
-      };
-      
-    } catch (error) {
-      console.error(`Error in OSM ${searchType}:`, error);
-      return { success: false, error: error instanceof Error ? error.message : 'Unknown error', processingTime: 0 };
-    }
-  }
   
-  /**
-   * Encontra o melhor elemento OSM
-   */
-  private findBestOSMElement(elements: any[]): any {
-    if (elements.length === 1) return elements[0];
-    
-    // Preferir relações sobre ways
-    const relations = elements.filter(e => e.type === 'relation');
-    if (relations.length > 0) return relations[0];
-    
-    // Preferir ways com mais geometria
-    const ways = elements.filter(e => e.type === 'way' && e.geometry);
-    if (ways.length > 0) {
-      return ways.sort((a, b) => (b.geometry?.length || 0) - (a.geometry?.length || 0))[0];
-    }
-    
-    return elements[0];
-  }
   
-  /**
-   * Extrai coordenadas do elemento OSM
-   */
-  private extractOSMCoordinates(element: any): Array<{lat: number, lng: number}> {
-    let coordinates: Array<{lat: number, lng: number}> = [];
-    
-    if (element.type === 'way' && element.geometry) {
-      coordinates = element.geometry.map((point: any) => ({
-        lat: point.lat,
-        lng: point.lon
-      }));
-    } else if (element.type === 'relation' && element.members) {
-      // Para relações, usar o primeiro way com geometria
-      const firstWay = element.members.find((member: any) => 
-        member.type === 'way' && member.geometry
-      );
-      if (firstWay && firstWay.geometry) {
-        coordinates = firstWay.geometry.map((point: any) => ({
-          lat: point.lat,
-          lng: point.lon
-        }));
-      }
-    }
-    
-    return coordinates;
-  }
   
-  /**
-   * Calcula confidence do resultado OSM
-   */
-  private calculateOSMConfidence(element: any, searchType: string): number {
-    let confidence = 0.5; // Base
-    
-    // Bonus por tipo de busca
-    if (searchType === 'name search') confidence += 0.2;
-    else if (searchType === 'proximity search') confidence += 0.1;
-    else if (searchType === 'category search') confidence += 0.05;
-    
-    // Bonus por tipo de elemento
-    if (element.type === 'relation') confidence += 0.1;
-    else if (element.type === 'way') confidence += 0.05;
-    
-    // Bonus por tags
-    if (element.tags) {
-      if (element.tags.name) confidence += 0.1;
-      if (element.tags.building || element.tags.leisure || element.tags.amenity) confidence += 0.05;
-    }
-    
-    return Math.min(confidence, 0.9);
-  }
   
   /**
    * Extrai dados de elevação do elemento OSM
