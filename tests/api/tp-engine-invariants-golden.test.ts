@@ -22,6 +22,8 @@ const SKIP_REASON = !HAS_LOCAL_OSM
 
 type Check = {
   poi: string
+  /** id em core.attractions — o nome não é único (há várias "Nossa Senhora de Fátima") nem igual ao do banco */
+  id: string
   /** cidade usada para desambiguar o nome (mesmo critério de scripts/_viz-tp.ts) */
   city: string
   /** TPs "generated" mantidos (sem drop_reason) têm que existir nesta faixa de contagem */
@@ -36,16 +38,16 @@ type Check = {
 
 // As 11 linhas da tabela "Conjunto de referência". Manguinhos fica de fora (a calibrar).
 const GOLDEN: Check[] = [
-  { poi: 'Cristo Redentor', city: 'Rio de Janeiro', farSectors: { minDistM: 1_000, atLeast: 3 }, noneInsideBoundary: true },
-  { poi: 'Pão de Açúcar', city: 'Rio de Janeiro', farSectors: { minDistM: 1_000, atLeast: 3 }, noneInsideBoundary: true },
-  { poi: 'Pico do Irmão Menor', city: 'Rio de Janeiro' }, // TPs na orla do Leblon e de Ipanema — sem contagem fixa
-  { poi: 'Morro do Patronato', city: 'Rio de Janeiro', countRange: [1, Infinity] },
-  { poi: 'Maracanã', city: 'Rio de Janeiro', noneInsideBoundary: true },
-  { poi: 'Praia do Recreio dos Bandeirantes', city: 'Rio de Janeiro' },
-  { poi: 'Sala de Leitura da Cidade das Artes', city: 'Rio de Janeiro', noneInsideBoundary: true },
-  { poi: 'Museu do Amanhã', city: 'Rio de Janeiro' },
-  { poi: 'Busto Prof. Mazzini Bueno', city: 'Rio de Janeiro', countRange: [1, 4], maxDistToBoundaryM: 60, noneInsideBoundary: true },
-  { poi: 'Igreja Nossa Senhora de Fátima', city: 'Rio de Janeiro' },
+  { poi: 'Cristo Redentor', id: 'ae3a6d91-feef-46f7-aae2-a34c3db12c04', city: 'Rio de Janeiro', farSectors: { minDistM: 1_000, atLeast: 3 }, noneInsideBoundary: true },
+  { poi: 'Pão de Açúcar', id: '5f16ab45-6923-5184-8ee7-0c5d4c0e4be4', city: 'Rio de Janeiro', farSectors: { minDistM: 1_000, atLeast: 3 }, noneInsideBoundary: true },
+  { poi: 'Pico do Irmão Menor', id: '064f0acf-0673-5cef-ad71-11e0c4693164', city: 'Rio de Janeiro' }, // TPs na orla do Leblon e de Ipanema — sem contagem fixa
+  { poi: 'Morro do Patronato', id: '03673109-74ec-5a7d-ae44-a0ca58eec4b8', city: 'Rio de Janeiro', countRange: [1, Infinity] },
+  { poi: 'Maracanã', id: 'ad1fd646-07f5-5576-b571-dca112dab834', city: 'Rio de Janeiro', noneInsideBoundary: true },
+  { poi: 'Praia do Recreio dos Bandeirantes', id: '176522ba-08e2-529b-8413-943ab6c91767', city: 'Rio de Janeiro' },
+  { poi: 'Sala de Leitura da Cidade das Artes', id: '0004411f-b2b3-4d8c-9074-461e066d7976', city: 'Rio de Janeiro', noneInsideBoundary: true },
+  { poi: 'Museu do Amanhã', id: '3d4a364e-6d47-5aab-aa23-6b1a122be84b', city: 'Rio de Janeiro' },
+  { poi: 'Busto Prof. Mazzini Bueno', id: '11959605-51aa-50ba-97ed-52ceac770755', city: 'Rio de Janeiro', countRange: [1, 4], maxDistToBoundaryM: 60, noneInsideBoundary: true },
+  { poi: 'Igreja Nossa Senhora de Fátima', id: '0a2f51c0-5aec-5cc2-b50f-075849c1fe28', city: 'Rio de Janeiro' },
 ]
 
 function sectorOf(bearingDeg: number): number {
@@ -55,13 +57,8 @@ function sectorOf(bearingDeg: number): number {
 describe('Conjunto de referência do motor de TP (golden, #772/#779)', { skip: CAN_RUN ? false : SKIP_REASON }, () => {
   for (const check of GOLDEN) {
     it(`${check.poi}: propriedades do lote gerado batem com o calibrado`, async () => {
-      const { getSupabase } = await import('@/lib/core/supabase-client')
       const { dryRunPoi } = await import('@/lib/services/tp-dry-run')
-      const sb = getSupabase('service')
-      const { data } = await sb.schema('core').from('attractions').select('id,name').ilike('name', `%${check.poi}%`).eq('city', check.city).limit(1)
-      assert.ok(data?.length, `POI "${check.poi}" não encontrado em core.attractions (${check.city}) — golden não pode calibrar sem o fixture`)
-      const id = data![0].id as string
-      const result = await dryRunPoi(id)
+      const result = await dryRunPoi(check.id)
       assert.equal(result.error, null, `dry-run falhou para ${check.poi}: ${result.error}`)
 
       const kept = result.rows.filter(r => r.source === 'generated' && !r.drop_reason)
