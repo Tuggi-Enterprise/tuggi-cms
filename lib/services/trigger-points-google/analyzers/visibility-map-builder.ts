@@ -94,7 +94,9 @@ export class VisibilityMapBuilder {
    * INV-E8 (P8): what the sight line aims at — the ground at the highest point of the boundary
    * (E4, `boundary.physical.groundTopM`) plus the POI height (E3). One formula for the fan and
    * for each candidate; they used to pick `elevation.max|average|center` by a height>20 guess.
-   * A POI with no height is still seen at eye level.
+   * A POI with no height is still seen at eye level. `boundary.height` above the measured one
+   * only comes from the host building (`predictor#useContainingBuildingHeight`, E2): the storefront
+   * is seen by its facade.
    */
   static poiSightTarget(boundary: {
     physical?: { groundTopM: number | null; heightM: number };
@@ -102,7 +104,7 @@ export class VisibilityMapBuilder {
     elevation?: { center?: number };
   }): { groundM: number; heightM: number; topM: number } {
     const groundM = boundary.physical?.groundTopM ?? boundary.elevation?.center ?? 0;
-    const heightM = Math.max(boundary.physical?.heightM ?? boundary.height ?? 0, OBSERVER_EYE_HEIGHT_M);
+    const heightM = Math.max(boundary.physical?.heightM ?? 0, boundary.height ?? 0, OBSERVER_EYE_HEIGHT_M);
     return { groundM, heightM, topM: groundM + heightM };
   }
 

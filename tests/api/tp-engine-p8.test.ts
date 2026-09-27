@@ -116,6 +116,8 @@ describe('INV-E4a/b/c / BR-AUDIO-010 — ground at the top of the boundary, one 
     assert.equal(classification.group, VisibilityClass.LANDMARK_HIGH)
     assert.equal(physical.classRule, 'landmark_prominence')
     assert.deepEqual(VisibilityMapBuilder.poiSightTarget({ physical }), { groundM: 700, heightM: 12, topM: 712 })
+    // a host building raised afterwards (E2) is what the sight line sees; the class keeps its own
+    assert.equal(VisibilityMapBuilder.poiSightTarget({ physical, height: 30 }).topM, 730)
   })
 })
 
