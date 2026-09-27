@@ -79,18 +79,18 @@ describe('BR-AUDIO-010 — osm_id só identifica o elemento junto com o tipo', (
 })
 
 describe('BR-AUDIO-010 — polígono curado implausível é recusado', () => {
-  it('pino fora e centróide a >1 km: implausível; pino dentro ou perto: plausível', async () => {
+  it('pino fora e borda a >500 m: implausível; pino dentro ou perto da borda: plausível', async () => {
     const { isCuratedBoundaryImplausible } = await import('../../lib/services/trigger-points-google/utils/osm-validation')
     const square = (c: { lat: number; lng: number }, d: number) => [
       { lat: c.lat - d, lng: c.lng - d }, { lat: c.lat - d, lng: c.lng + d },
       { lat: c.lat + d, lng: c.lng + d }, { lat: c.lat + d, lng: c.lng - d },
     ]
     const farCenter = { lat: POI_PIN.lat + 0.02, lng: POI_PIN.lng } // ~2,2 km ao norte
-    assert.equal(isCuratedBoundaryImplausible(POI_PIN, square(farCenter, 0.001), farCenter), true)
+    assert.equal(isCuratedBoundaryImplausible(POI_PIN, square(farCenter, 0.001)), true)
     const nearCenter = { lat: POI_PIN.lat + 0.005, lng: POI_PIN.lng } // ~550 m
-    assert.equal(isCuratedBoundaryImplausible(POI_PIN, square(nearCenter, 0.001), nearCenter), false)
+    assert.equal(isCuratedBoundaryImplausible(POI_PIN, square(nearCenter, 0.001)), false)
     // Parque grande: centróide longe, mas o pino está dentro.
-    assert.equal(isCuratedBoundaryImplausible(POI_PIN, square(farCenter, 0.03), farCenter), false)
+    assert.equal(isCuratedBoundaryImplausible(POI_PIN, square(farCenter, 0.03)), false)
   })
 })
 

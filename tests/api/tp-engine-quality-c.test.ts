@@ -88,3 +88,25 @@ describe('BR-AUDIO-010 — a peak or hill is a landmark, and its prominence is m
     }
   })
 })
+
+describe('BR-AUDIO-010 — a long beach keeps its polygon and its class', () => {
+  // 2.6 km × 60 m strip, pin 30 m north of it (on the promenade)
+  const strip = [offset({ e: -1300, n: -60 }), offset({ e: 1300, n: -60 }), offset({ e: 1300 }), offset({ e: -1300 }), offset({ e: -1300, n: -60 })]
+  const pin = offset({ e: 1250, n: 30 })
+
+  it('pin on the promenade, centroid 1.3 km away: the curated polygon is plausible', async () => {
+    const { isCuratedBoundaryImplausible } = await import('../../lib/services/trigger-points-google/utils/osm-validation')
+    assert.equal(isCuratedBoundaryImplausible(pin, strip), false)
+  })
+
+  it('a boundary from the DB fallback leaves the detector classified, never null', async () => {
+    const { BoundaryDetector } = await import('../../lib/services/trigger-points-google/core/boundary-detector')
+    const det = new BoundaryDetector() as any
+    det.elevationService = { getElevation: async () => ({ confidence: 0 }) }
+    const out = await det.withClassification(
+      { type: 'polygon', coordinates: strip, center: offset({ n: -30 }), area_m2: 156_000, perimeter_m: 0, confidence: 0.8, source: 'manual' },
+      { id: 'x', name: 'Praia', location: pin, type: 'beach', country: 'Brazil', city: 'Rio de Janeiro' }
+    )
+    assert.equal(out.classification?.group, VisibilityClass.LINEAR)
+  })
+})

@@ -72,7 +72,7 @@ export class POIClassifierService {
     poiHeight: number | undefined,
     poiElevation: { center: number } | undefined,
     area: number,
-    context: GeographicContext,
+    context: GeographicContext | undefined,
     osmTags?: Record<string, unknown>,
     boundaryCoords?: GeoPoint[]
   ): Promise<POIClassification> {

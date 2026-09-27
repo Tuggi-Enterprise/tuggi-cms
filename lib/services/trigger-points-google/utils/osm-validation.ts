@@ -1,5 +1,5 @@
 // NOVO: Single Source of Truth para validação OSM
-import { calculateDistance, isPointInPolygon } from './calculations';
+import { calculateDistance, calculateDistanceToPolygon, isPointInPolygon } from './calculations';
 import { POIData } from '../types/interfaces';
 
 export interface OSMValidationResult {
@@ -156,22 +156,22 @@ function compareStates(osmState: string, poiState: string): boolean {
 }
 
 /**
- * Distância máxima entre o centróide do polígono curado e o pino do POI quando o pino
- * está FORA do polígono. Acima disso o osm_id aponta para outro elemento (id sem tipo,
- * curadoria errada), e o boundary não pode ser usado.
+ * Distância máxima entre o pino e a BORDA do polígono curado quando o pino está fora dele.
+ * Acima disso o osm_id aponta para outro elemento (id sem tipo, curadoria errada), e o
+ * boundary não pode ser usado. Medida à borda, não ao centróide: numa praia de 2,6 km o
+ * centróide fica a 1,4 km de um pino que está no calçadão (Praia do Recreio, #779).
  */
-export const CURATED_BOUNDARY_MAX_CENTROID_OFFSET_M = 1000;
+export const CURATED_BOUNDARY_MAX_PIN_OFFSET_M = 500;
 
 /**
- * O polígono vindo do osm_id curado é implausível: o pino está fora dele E o centróide
- * está a mais de CURATED_BOUNDARY_MAX_CENTROID_OFFSET_M do pino (BR-AUDIO-010: o TP
- * nasce em volta do POI — um polígono em outro bairro leva o TP junto).
+ * O polígono vindo do osm_id curado é implausível: o pino está fora dele E a mais de
+ * CURATED_BOUNDARY_MAX_PIN_OFFSET_M da borda (BR-AUDIO-010: o TP nasce em volta do POI —
+ * um polígono em outro bairro leva o TP junto).
  */
 export function isCuratedBoundaryImplausible(
   poiPin: { lat: number; lng: number },
-  polygon: Array<{ lat: number; lng: number }>,
-  centroid: { lat: number; lng: number }
+  polygon: Array<{ lat: number; lng: number }>
 ): boolean {
   if (isPointInPolygon(poiPin, polygon)) return false;
-  return calculateDistance(centroid, poiPin) > CURATED_BOUNDARY_MAX_CENTROID_OFFSET_M;
+  return calculateDistanceToPolygon(poiPin, polygon) > CURATED_BOUNDARY_MAX_PIN_OFFSET_M;
 }

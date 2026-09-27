@@ -144,7 +144,7 @@ export class BoundaryDetector {
         if (dbBoundaryResult.success && dbBoundaryResult.data) {
           return {
             success: true,
-            data: dbBoundaryResult.data,
+            data: await this.withClassification(dbBoundaryResult.data, poiData),
             processingTime: Date.now() - startTime,
             metadata: {
               step: 'boundary_detection',
@@ -162,7 +162,7 @@ export class BoundaryDetector {
       const estimatedResult = await this.createEstimatedBoundary(poiData);
       return {
         success: true,
-        data: { ...estimatedResult, source: 'estimated', osmIdentified: false },
+        data: await this.withClassification({ ...estimatedResult, source: 'estimated', osmIdentified: false }, poiData),
         processingTime: Date.now() - startTime,
         metadata: {
           step: 'boundary_detection',
@@ -190,6 +190,29 @@ export class BoundaryDetector {
     }
   }
   
+  /**
+   * Every boundary leaves the detector classified (BR-AUDIO-010). The DB fallback and the
+   * estimated circle had no class, and the POI fell into the 300 m unclassified cap — a
+   * 2.6 km beach got 1 TP (Praia do Recreio, #779).
+   */
+  private async withClassification(boundary: BoundaryData, poiData: POIData): Promise<BoundaryData> {
+    if (boundary.classification) return boundary;
+    const loose = poiData as POIData & { tags?: Record<string, unknown>; height?: number };
+    const tags = (boundary.osmTags ?? poiData.osm_tags ?? loose.tags) as Record<string, unknown> | undefined;
+    const elevation = await this.elevationService.getElevation(boundary.center, undefined, { tags }, undefined, poiData);
+    const { POIClassifierService } = await import('../services/poi-classifier.service');
+    const classification = await new POIClassifierService().classifyPOI(
+      poiData,
+      loose.height ?? undefined,
+      elevation && elevation.confidence > 0.5 ? { center: elevation.total } : undefined,
+      boundary.synthetic ? 0 : boundary.area_m2,
+      undefined,
+      tags,
+      boundary.synthetic ? undefined : boundary.coordinates
+    );
+    return { ...boundary, classification };
+  }
+
   /**
    * 🆕 Busca boundary do banco de dados (PRIMEIRA PRIORIDADE)
    * POIs podem ter boundary corrigido manualmente ou desenhado à mão
@@ -419,9 +442,9 @@ out geom tags;
       const poiTags = element.tags || {};
       const osmName = poiTags.name || poiTags['name:pt'] || '';
 
-      if (isCuratedBoundaryImplausible(poiData.location, coordinates, center)) {
-        console.warn(`🚫 osm_id=${osmType}(${osmID}) rejected: pin outside polygon and centroid ${distanceFromPOI.toFixed(0)}m away`);
-        return { success: false, error: 'Curated osm_id boundary is implausible (pin outside, centroid > 1 km)', processingTime: 0 };
+      if (isCuratedBoundaryImplausible(poiData.location, coordinates)) {
+        console.warn(`🚫 osm_id=${osmType}(${osmID}) rejected: pin outside polygon and far from its edge`);
+        return { success: false, error: 'Curated osm_id boundary is implausible (pin outside, > 500 m from the edge)', processingTime: 0 };
       }
 
       if (distanceFromPOI > 200) {
