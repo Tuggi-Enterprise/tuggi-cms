@@ -12,6 +12,12 @@ import { HomologEnrichmentService } from './poi-processing/homolog-enrichment.se
 const supabase = getSupabase('service')
 
 /**
+ * Opções do motor de TP usadas na gravação e no dry-run. Sem maxSearchRadius — o motor
+ * calcula dinamicamente via fan de visibilidade (o cap de 1000m cortava POIs grandes).
+ */
+export const TP_ENGINE_OPTIONS = { clusterIntersections: true, minQuality: 0.3 } as const
+
+/**
  * Language the POI description is authored in. Translations always start from it, and the
  * audio step upstream already produces its narration — so it is never a translation target.
  * The catalogue of languages a POI may exist in belongs to BR-IDIOMA-001 and is chosen by the
@@ -702,6 +708,34 @@ export class PoiMigrationPipeline {
   }
 
   /**
+   * Entrada do motor de TP a partir do POI do core. Uma só montagem para a gravação
+   * (executeTriggerPointsStep) e para o dry-run (lib/services/tp-dry-run), para que o
+   * dry-run meça exatamente o que seria gravado.
+   */
+  static buildEngineInput(poi: any, coordinate: { latitude: number; longitude: number }) {
+    const osmId = poi.osm_id
+    const osmType = poi.osm_type || poi.osm_element_type
+    if (osmId) {
+      console.log(`   🔗 Engine input with OSM ID: ${osmType}(${osmId})`)
+    } else {
+      console.log(`   ⚠️ Engine input WITHOUT OSM ID (fallback mode)`)
+    }
+    return {
+      id: poi.id,
+      name: poi.name,
+      location: { lat: coordinate.latitude, lng: coordinate.longitude },
+      type: poi.category || 'point_of_interest',
+      country: poi.country,
+      city: poi.city,
+      state: poi.state,
+      osm_id: osmId,
+      osm_type: osmType,
+      height: poi.estimated_height_m,
+      tags: poi.osm_tags
+    }
+  }
+
+  /**
    * Step 4: Generate Trigger Points
    */
   private static async executeTriggerPointsStep(
@@ -731,38 +765,7 @@ export class PoiMigrationPipeline {
       console.log(`   ✅ POI loaded: ${poi.name} (${poi.city}, ${poi.state})`)
       console.log(`   📍 Coordinates: ${coordinate.latitude}, ${coordinate.longitude}`)
       
-      const lat = coordinate.latitude
-      const lng = coordinate.longitude
-
-      // Prepare POI data for trigger points generation (same format as /trigger-points-single)
-      
-      // ✅ Ensure OSM ID/Type are passed (handling potential property name variations)
-      const osmId = poi.osm_id;
-      const osmType = poi.osm_type || (poi as any).osm_element_type;
-      
-      if (osmId) {
-        console.log(`   🔗 Migrating with OSM ID: ${osmType}(${osmId})`);
-      } else {
-        console.log(`   ⚠️ Migrating WITHOUT OSM ID (fallback mode)`);
-      }
-
-      const poiData = {
-        id: poi.id,
-        name: poi.name,
-        location: {
-          lat: lat,
-          lng: lng
-        },
-        type: poi.category || 'point_of_interest',
-        country: poi.country,
-        city: poi.city,
-        state: poi.state,
-        osm_id: osmId,
-        osm_type: osmType,
-        height: poi.estimated_height_m,
-        tags: poi.osm_tags
-      }
-
+      const poiData = PoiMigrationPipeline.buildEngineInput(poi, coordinate)
 
       // Use CoreTriggerPointPredictor (same motor as /trigger-points-single page)
       console.log(`   🎯 Calling CoreTriggerPointPredictor (new motor - same as /trigger-points-single)...`)
@@ -770,10 +773,7 @@ export class PoiMigrationPipeline {
       
       const predictor = new CoreTriggerPointPredictor()
       const predictionResult = await predictor.predictTriggerPointsComplete(poiData, {
-        // Sem maxSearchRadius — o motor calcula dinamicamente via fan de visibilidade.
-        // O cap de 1000m estava cortando TPs em POIs grandes (Central Park, aeroportos).
-        clusterIntersections: true,
-        minQuality: 0.3,
+        ...TP_ENGINE_OPTIONS,
         debugQuality: opts.debug_quality,
         qualityFixFanCap: opts.quality_fix_fan_cap
       })

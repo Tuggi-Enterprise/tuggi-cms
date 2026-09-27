@@ -193,7 +193,7 @@ export class BoundaryDetector {
    * 🆕 Busca boundary do banco de dados (PRIMEIRA PRIORIDADE)
    * POIs podem ter boundary corrigido manualmente ou desenhado à mão
    */
-  private async fetchBoundaryFromDatabase(poiId: string): Promise<ProcessingResult<BoundaryData>> {
+  public async fetchBoundaryFromDatabase(poiId: string): Promise<ProcessingResult<BoundaryData>> {
     try {
       const supabase = getSupabase('service');
       

@@ -87,3 +87,36 @@ describe('BR-AUDIO-010 — reprocessar TP (reprocess_triggers_core) não tem efe
     assert.equal('access' in row, false)
   })
 })
+
+describe('BR-AUDIO-010 — dry-run do motor de TP mede sem gravar', () => {
+  it('gera e mede, e não escreve nada no banco (nem TP, nem aprovação, nem fila)', async () => {
+    writes.length = 0
+    const saved: unknown[][] = []
+    stubEngine(saved)
+    const { dryRunPoi, summarizePoi } = await import('@/lib/services/tp-dry-run')
+    const result = await dryRunPoi('poi-1')
+    assert.equal(result.error, null)
+    assert.deepEqual(saved, [], 'saveTriggerPoints não pode ser chamado')
+    const nonReadWrites = writes.filter(w => !(w.op === 'rpc' && w.args[0] === 'get_boundary_geometry'))
+    assert.deepEqual(nonReadWrites, [])
+    const summary = summarizePoi(result)
+    assert.equal(summary.generated.count, 2)
+    assert.equal(summary.generated.beyond_cap, 1)
+  })
+
+  it('mede distância ao pino e à borda por TP', async () => {
+    const { measureTriggerPoints } = await import('@/lib/services/tp-dry-run')
+    const border = [
+      { lat: PIN.lat, lng: PIN.lng }, { lat: PIN.lat, lng: PIN.lng + 0.001 },
+      { lat: PIN.lat + 0.001, lng: PIN.lng + 0.001 }, { lat: PIN.lat + 0.001, lng: PIN.lng },
+    ]
+    const [row] = measureTriggerPoints({
+      attractionId: 'poi-1', poiName: 'Paço Imperial', pin: PIN, boundaryCoords: border, boundarySource: 'osm', source: 'current',
+      tps: [{ lat: PIN.lat + 0.004, lng: PIN.lng + 0.0005, type: 'primary', generation_method: 'fallback_recovery', radius_m: 20, bearing: 180 }],
+    })
+    assert.ok(Math.abs(row.dist_to_pin_m - 446) < 10, `pino: ${row.dist_to_pin_m}`)
+    assert.ok(Math.abs((row.dist_to_boundary_m ?? 0) - 333) < 10, `borda: ${row.dist_to_boundary_m}`)
+    assert.equal(row.beyond_cap, true)
+    assert.equal(row.generation_method, 'fallback_recovery')
+  })
+})

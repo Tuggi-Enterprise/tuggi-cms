@@ -41,6 +41,7 @@ output/chunks/
 output/preview-*.txt
 output/category-analysis-*.txt
 output/all-categories.txt
+output/tp-dry-run-*
 
 # Keep documentation and configs
 !output/*.md
