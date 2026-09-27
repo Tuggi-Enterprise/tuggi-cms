@@ -6,7 +6,7 @@
  */
 import { TriggerPoint } from '../types/interfaces';
 import { calculateBearing, calculateDistance, calculateDistanceToPolygon } from './calculations';
-import { EDGE_BAND_M, LANDMARK_CELL_RINGS_M, VisibilityClass, landmarkSectorOf, landmarkStreetTier, proximityBand } from '../config/visibility-class';
+import { EDGE_BAND_M, LANDMARK_CELL_RINGS_M, VisibilityClass, isCarStreet, landmarkSectorOf, landmarkStreetTier, proximityBand } from '../config/visibility-class';
 import { isApproachableForBearing } from '../../../geometry';
 import { partitionByPoiReach, poiEdgeRing, tpReachCapM } from './validation';
 
@@ -143,7 +143,14 @@ export function selectSpacedTriggerPoints(
         if (best) tryAccept(best);
       }
     }
-    for (const tp of ranked) tryAccept(tp);
+    // `point_low`: the closest car-street candidate goes first, so it wins spacing against a
+    // sidewalk one (BR-POI-008, #772 — Árvore de Natal kept only the sidewalk at 12 m).
+    const carFirst = classification?.group === VisibilityClass.POINT_LOW ? ranked.find(tp => isCarStreet(tp.street?.type)) : undefined;
+    if (carFirst) why?.set(carFirst, `${carFirst.street?.type}; car street first: ${tryAccept(carFirst)}`);
+    for (const tp of ranked) {
+      const r = tryAccept(tp);
+      if (!why?.has(tp)) why?.set(tp, `${tp.street?.type || '?'}; ${r === 'won' || r === 'taken' ? 'won' : `lost: ${r}`}`);
+    }
   }
 
   return accepted.sort((a, b) =>

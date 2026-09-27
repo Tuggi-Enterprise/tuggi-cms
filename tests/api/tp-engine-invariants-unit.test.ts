@@ -39,9 +39,9 @@ function tp(over: Partial<TriggerPoint> & { location: TriggerPoint['location'] }
 }
 
 describe('INV-E5b, BR-AUDIO-010 — classifyVisibility: relevo natural vence a tag de mirante', () => {
-  it('proeminência 262 m + natural=peak → landmark_high, mesmo com tourism=viewpoint na mesma tag', () => {
+  it('proeminência 262 m (cidade e local) + natural=peak → landmark_high, mesmo com tourism=viewpoint na mesma tag', () => {
     const cls = classifyVisibility({
-      heightM: 0, prominenceM: 262, areaM2: 0,
+      heightM: 0, prominenceM: 262, localProminenceM: 262, areaM2: 0,
       tags: { natural: 'peak', tourism: 'viewpoint' },
     })
     assert.equal(cls, VisibilityClass.LANDMARK_HIGH, 'viewpoint não vence o relevo natural (Pico Irmão Menor, #779)')

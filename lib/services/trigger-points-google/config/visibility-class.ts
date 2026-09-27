@@ -96,6 +96,16 @@ export function landmarkSectorOf(bearingFromPoiDeg: number, edgeDistanceM: numbe
 export const LANDMARK_TOURIST_STREET_TYPES = ['motorway', 'trunk', 'primary', 'secondary', 'tertiary', 'pedestrian', 'living_street'];
 export const LANDMARK_AVOID_STREET_TYPES = ['track', 'path', 'service'];
 
+/**
+ * Streets a car does not drive on. A `point_low` next to a car street keeps at least one TP on
+ * it: the app is used driving (BR-POI-008), and a TP on the sidewalk only fires on foot (#772).
+ */
+export const NON_CAR_STREET_TYPES = ['footway', 'path', 'pedestrian', 'steps', 'track', 'service', 'cycleway'];
+
+export function isCarStreet(streetType?: string): boolean {
+  return !!streetType && !NON_CAR_STREET_TYPES.includes(streetType);
+}
+
 export function landmarkStreetTier(streetType?: string): 0 | 1 | 2 {
   if (LANDMARK_TOURIST_STREET_TYPES.includes(streetType ?? '')) return 0;
   if (LANDMARK_AVOID_STREET_TYPES.includes(streetType ?? '')) return 2;
@@ -235,8 +245,8 @@ export const DEFAULT_HEIGHT_BY_TAG: TagRow[] = [
 export const BUILDING_LEVEL_HEIGHT_M = 3;
 
 /**
- * Natural relief: seen from afar by what it is, even when SRTM smooths its prominence away.
- * Precedes the viewpoint tag — a summit with `tourism=viewpoint` is still a summit seen
+ * Natural relief: a landmark when it is prominent (`isProminentLandmark`), even with no
+ * height of its own. Precedes the viewpoint tag — a summit with `tourism=viewpoint` is still a summit seen
  * from the whole neighbourhood (Pico Irmão Menor, #779).
  */
 export const NATURAL_RELIEF_TAGS: Array<{ key: string; value: string }> = [
@@ -399,7 +409,10 @@ export type ClassRule =
   | 'area_tag' | 'linear_shape' | 'area_size' | 'structure_height' | 'point_low';
 
 export function visibilityClassRule(a: PhysicalAttributes): { cls: VisibilityClass; rule: ClassRule } {
-  if (isNaturalRelief(a.tags)) return { cls: VisibilityClass.LANDMARK_HIGH, rule: 'natural_relief' };
+  // A peak/hill is a landmark only when it is prominent over the city AND its ring, like any
+  // relief: the Morro do Patronato (91 m over the city, 77 m local) got 32 TPs up to 2.6 km.
+  // Relief that fails falls to the class its edge gives (#772, BR-AUDIO-010).
+  if (isNaturalRelief(a.tags) && isProminentLandmark(a)) return { cls: VisibilityClass.LANDMARK_HIGH, rule: 'natural_relief' };
   if (VIEWPOINT_TAGS.some(t => hasTag(a.tags, t.key, t.value))) return { cls: VisibilityClass.VIEWPOINT, rule: 'viewpoint_tag' };
   if (a.heightM >= LANDMARK_MIN_HEIGHT_M) return { cls: VisibilityClass.LANDMARK_HIGH, rule: 'landmark_height' };
   if (isProminentLandmark(a)) return { cls: VisibilityClass.LANDMARK_HIGH, rule: 'landmark_prominence' };

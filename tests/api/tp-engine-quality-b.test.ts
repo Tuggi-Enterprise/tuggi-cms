@@ -244,6 +244,21 @@ describe('BR-AUDIO-010 — proximity before road type; one spacing rule for ever
     }
   })
 
+  it('BR-POI-008/BR-AUDIO-010: POINT_LOW next to a car street keeps a TP on it, winning spacing against the sidewalk (Árvore de Natal, #772)', async () => {
+    const { selectSpacedTriggerPoints } = await import('../../lib/services/trigger-points-google/utils/tp-selection')
+    const low = buildClassification(VisibilityClass.POINT_LOW, { heightM: 2, prominenceM: 0, areaM2: 100 })
+    const sidewalk = tp(offset({ n: -12 }), 12, { quality: 0.95, street: { id: 's', type: 'footway' } })
+    const avenue = tp(offset({ n: -30 }), 30, { quality: 0.6, street: { id: 'a', type: 'primary' } })
+    const service = tp(offset({ n: -20, e: 5 }), 20, { quality: 0.9, street: { id: 'v', type: 'service' } })
+    const why = new Map()
+    const out = selectSpacedTriggerPoints([sidewalk, service, avenue], low, PIN, why)
+    assert.deepEqual(out, [avenue])
+    assert.match(why.get(avenue), /primary; car street first: won/)
+    assert.match(why.get(sidewalk), /footway; lost: spacing/)
+    // no car street: unchanged, closest first
+    assert.deepEqual(selectSpacedTriggerPoints([sidewalk, service], low), [sidewalk])
+  })
+
   it('a frontal TP 10 m from a validated TP counts in the same spacing', async () => {
     const { selectSpacedTriggerPoints } = await import('../../lib/services/trigger-points-google/utils/tp-selection')
     const frontal = tp(offset({ n: -20 }), 15, { quality: 0.95 })

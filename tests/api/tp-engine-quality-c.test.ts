@@ -65,8 +65,9 @@ describe('BR-AUDIO-010 — a landmark gets far TPs where it is seen, on every si
 })
 
 describe('BR-AUDIO-010 — a peak or hill is a landmark, and its prominence is measured around it', () => {
-  it('natural=peak/hill is LANDMARK_HIGH, even with tourism=viewpoint and in Nominatim shape', () => {
-    const flat = { heightM: 0, prominenceM: 0, areaM2: 0 }
+  it('a prominent natural=peak/hill is LANDMARK_HIGH, even with tourism=viewpoint and in Nominatim shape', () => {
+    // relief needs both prominences (#772: Morro do Patronato, 91/77 m, is not a landmark)
+    const flat = { heightM: 0, prominenceM: 100, localProminenceM: 100, areaM2: 0 }
     assert.equal(classifyVisibility({ ...flat, tags: { natural: 'peak', tourism: 'viewpoint' } }), VisibilityClass.LANDMARK_HIGH)
     assert.equal(classifyVisibility({ ...flat, tags: { class: 'natural', type: 'hill' } }), VisibilityClass.LANDMARK_HIGH)
     assert.equal(classifyVisibility({ ...flat, tags: { tourism: 'viewpoint' } }), VisibilityClass.VIEWPOINT)

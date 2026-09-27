@@ -193,7 +193,9 @@ const CLASS_CHECKS: ClassCheck[] = [
   { poi: 'Cristo Redentor', id: POI_ID.cristoRedentor, expectedOneOf: ['landmark_high'] },
   { poi: 'Pão de Açúcar', id: POI_ID.paoDeAcucar, expectedOneOf: ['landmark_high'] },
   { poi: 'Pico do Irmão Menor', id: POI_ID.picoDoIrmaoMenor, expectedOneOf: ['landmark_high'] },
-  { poi: 'Morro do Patronato', id: POI_ID.morroDoPatronato, expectedOneOf: ['landmark_high', 'structure'] },
+  // Relief without both prominences is not landmark_high (91 m city / 77 m local < 100): it takes
+  // the class of its 261,549 m² polygon (BR-AUDIO-010, #772).
+  { poi: 'Morro do Patronato', id: POI_ID.morroDoPatronato, expectedOneOf: ['area'] },
   // "não point_low" (tabela): a borda de hoje é o nó de bairro, não o polígono do estádio (E1) —
   // a classe em si já não é point_low (sai `area`), então esta asserção específica passa.
   { poi: 'Maracanã', id: POI_ID.maracana, forbidden: ['point_low'] },
@@ -305,7 +307,6 @@ describe('No landmark_high TP on track/path/service when the cell had a better s
     { poi: 'Cristo Redentor', id: POI_ID.cristoRedentor },
     { poi: 'Pão de Açúcar', id: POI_ID.paoDeAcucar },
     { poi: 'Pico do Irmão Menor', id: POI_ID.picoDoIrmaoMenor },
-    { poi: 'Morro do Patronato', id: POI_ID.morroDoPatronato },
   ]
 
   for (const { poi, id } of LANDMARK_HIGH_POIS) {
@@ -385,4 +386,26 @@ describe('Every kept TP sits on a way (BR-AUDIO-010, #772)', { skip: CAN_RUN ? f
       assert.deepEqual(off, [], `${check.poi}: TP off any way`)
     })
   }
+})
+
+// ============================================================================================
+// point_low next to a car street keeps a TP on it (BR-POI-008: the app is used driving;
+// BR-AUDIO-010). Read from the E10 trace of the non-landmark branch
+// (`tp-selection#selectSpacedTriggerPoints`: `edge N m; <highway>; won|lost ...`). Árvore de Natal
+// kept only the sidewalk at 12 m while Av. Quintino Bocaiúva sat at 24–41 m (#772).
+// ============================================================================================
+const NOT_A_CAR_STREET = new Set(['footway', 'path', 'pedestrian', 'steps', 'track', 'service', 'cycleway', '?'])
+
+describe('point_low keeps a TP on the car street when one is in reach (BR-POI-008, BR-AUDIO-010, #772)', { skip: CAN_RUN ? false : SKIP_REASON }, () => {
+  it('Monumento Árvore de Natal: at least one kept TP on a car street', async () => {
+    const result = await getResult(POI_ID.arvoreDeNatal)
+    assert.equal(result.error, null)
+    assert.equal(classOf(result), 'point_low')
+    const rows = result.trace
+      .filter(r => r.stage === 'E10' && r.rule === 'tp-selection#selectSpacedTriggerPoints')
+      .map(r => ({ decision: r.decision, type: /^edge \d+ m; (\S+);/.exec(r.value)?.[1] ?? '?' }))
+    assert.ok(rows.some(r => !NOT_A_CAR_STREET.has(r.type)), 'no car-street candidate in reach — fixture changed?')
+    assert.ok(rows.some(r => r.decision === 'kept' && !NOT_A_CAR_STREET.has(r.type)),
+      `kept: ${rows.filter(r => r.decision === 'kept').map(r => r.type).join(', ')}`)
+  })
 })
