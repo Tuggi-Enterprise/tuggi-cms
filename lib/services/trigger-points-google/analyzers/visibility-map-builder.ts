@@ -364,7 +364,7 @@ export class VisibilityMapBuilder {
       noiseMarginM?: number;
       observerEyeHeightM?: number;
       elevCache?: Map<string, number>;
-      buildingTops?: Array<{ centroid: GeoPoint; topAltitudeM: number }>;
+      buildingTops?: Array<{ centroid: GeoPoint; topAltitudeM: number; polygon?: GeoPoint[] }>;
     } = {}
   ): Promise<boolean> {
     const sampleIntervalM = options.sampleIntervalM ?? 100;
@@ -428,7 +428,13 @@ export class VisibilityMapBuilder {
         if (distFromPoi < SKIP_NEAR_POI_M) continue;  // colado ao POI
         const perpDist = this.perpendicularDistanceToSegment(b.centroid, poi, targetPoint);
         if (perpDist > CORRIDOR_WIDTH_M) continue;
-        const t = distFromPoi / distanceM;
+        // With a footprint, the building blocks only where the ray CROSSES it, at the crossing
+        // nearest the observer (the line is lowest there). By centroid ± corridor, the row of
+        // buildings beside a beachfront avenue hid a peak seen straight along the avenue
+        // (Irmão Menor from the Vieira Souto; profile in #772). A building behind or beside the
+        // observer is not crossed.
+        const t = b.polygon && b.polygon.length >= 3 ? this.lastCrossingT(poi, targetPoint, b.polygon) : distFromPoi / distanceM;
+        if (t === null) continue;
         const lineAlt = poiTopAltitudeM * (1 - t) + observerEyeAlt * t;
         if (b.topAltitudeM > lineAlt + noiseMarginM) {
           return false; // prédio bloqueia
@@ -437,6 +443,27 @@ export class VisibilityMapBuilder {
     }
 
     return true;
+  }
+
+  /**
+   * Fraction (0–1, POI → observer) of the LAST point where the segment crosses the polygon
+   * edge; null when it does not cross. Local planar metres: the segments are a few km.
+   */
+  static lastCrossingT(from: GeoPoint, to: GeoPoint, polygon: GeoPoint[]): number | null {
+    const kx = 111_320 * Math.cos((from.lat * Math.PI) / 180), ky = 110_540;
+    const xy = (p: GeoPoint) => ({ x: (p.lng - from.lng) * kx, y: (p.lat - from.lat) * ky });
+    const r = xy(to);
+    let best: number | null = null;
+    for (let i = 0; i < polygon.length; i++) {
+      const a = xy(polygon[i]), b = xy(polygon[(i + 1) % polygon.length]);
+      const e = { x: b.x - a.x, y: b.y - a.y };
+      const den = r.x * e.y - r.y * e.x;
+      if (den === 0) continue;
+      const t = (a.x * e.y - a.y * e.x) / den;
+      const u = (a.x * r.y - a.y * r.x) / den;
+      if (t >= 0 && t < 1 && u >= 0 && u <= 1 && (best === null || t > best)) best = t;
+    }
+    return best;
   }
 
   // ───────────────────────────────────────────────────────────────────

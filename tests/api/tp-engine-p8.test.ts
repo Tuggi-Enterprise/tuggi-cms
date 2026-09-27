@@ -160,4 +160,25 @@ describe('INV-E8 / BR-AUDIO-010 — sight line from the observer eye to the POI 
       assert.equal(await VisibilityMapBuilder.checkExactVisibility(PIN, 712, obs), true)
     })
   })
+
+  it('a building blocks only where the ray crosses its footprint: beside the observer it does not (profile #772)', async () => {
+    const { VisibilityMapBuilder } = await import('../../lib/services/trigger-points-google/analyzers/visibility-map-builder')
+    const obs = at(-3000, 0)
+    const box = (n0: number, n1: number, e0: number, e1: number) => [at(n0, e0), at(n0, e1), at(n1, e1), at(n1, e0)]
+    const tops = (polygon: ReturnType<typeof box>) => {
+      const c = { lat: polygon.reduce((a, p) => a + p.lat, 0) / 4, lng: polygon.reduce((a, p) => a + p.lng, 0) / 4 }
+      return [{ centroid: c, topAltitudeM: 5 + 50, polygon }]
+    }
+    await withSrtm(() => 5, async () => {
+      // a 50 m block 15–35 m beside the avenue, next to the observer, with the peak straight along it
+      const beside = box(-2960, -2900, 15, 35)
+      assert.equal(await VisibilityMapBuilder.checkExactVisibility(PIN, 712, obs, { buildingTops: tops(beside) }), true)
+      // the same block across the ray
+      const across = box(-2960, -2900, -20, 20)
+      assert.equal(await VisibilityMapBuilder.checkExactVisibility(PIN, 712, obs, { buildingTops: tops(across) }), false)
+      // behind the observer
+      const behind = box(-3060, -3020, -20, 20)
+      assert.equal(await VisibilityMapBuilder.checkExactVisibility(PIN, 712, obs, { buildingTops: tops(behind) }), true)
+    })
+  })
 })

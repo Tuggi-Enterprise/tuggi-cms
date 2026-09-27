@@ -1277,7 +1277,7 @@ export class CoreTriggerPointPredictor {
     // perto do observador (line altitude ~5-15m a 50-100m do observador).
     // Sem height tag explícito → descartamos (casa residencial típica).
     const fanRadius = boundary.visibilityFan?.maxDistanceM ?? 0;
-    const buildingTops: Array<{ centroid: { lat: number; lng: number }; topAltitudeM: number }> = [];
+    const buildingTops: Array<{ centroid: { lat: number; lng: number }; topAltitudeM: number; polygon: Array<{ lat: number; lng: number }> }> = [];
 
     if (fanRadius > 100) {
       const fetcher = LocalOSMFetcher.getInstance();
@@ -1300,7 +1300,7 @@ export class CoreTriggerPointPredictor {
             lng: geometry.reduce((s: number, p: any) => s + p.lng, 0) / geometry.length,
           };
           const groundAlt = (await srtm.getElevation(centroid.lat, centroid.lng)) ?? 0;
-          buildingTops.push({ centroid, topAltitudeM: groundAlt + height });
+          buildingTops.push({ centroid, topAltitudeM: groundAlt + height, polygon: geometry });
         }
       }
     }
