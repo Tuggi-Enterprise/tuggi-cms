@@ -1,0 +1,205 @@
+import { describe, it } from 'node:test'
+import assert from 'node:assert/strict'
+import {
+  VisibilityClass,
+  classifyVisibility,
+  resolveHeightM,
+  fanHorizonM,
+  LANDMARK_MIN_PROMINENCE_M,
+  DEFAULT_HEIGHT_BY_TAG,
+} from '@/lib/services/trigger-points-google/config/visibility-class'
+import { tpReachCapM, UNCLASSIFIED_MAX_TP_DISTANCE_M } from '@/lib/services/trigger-points-google/utils/validation'
+import { applyTpPostConditions, dropUnfireable, dropInsidePoi } from '@/lib/services/trigger-points-google/utils/tp-selection'
+import { POIClassifierService } from '@/lib/services/trigger-points-google/services/poi-classifier.service'
+import type { TriggerPoint } from '@/lib/services/trigger-points-google/types/interfaces'
+
+// Motor de TP (#772), fonte: docs/arquitetura/cms/motor-de-tp.md. Camada "unidade" da
+// estratégia de teste — funções puras, dado literal, sem rede e sem banco.
+
+const PIN = { lat: -22.9030, lng: -43.1740 }
+
+function square(halfSideDeg = 0.0003) {
+  const d = halfSideDeg
+  return [
+    { lat: PIN.lat - d, lng: PIN.lng - d }, { lat: PIN.lat - d, lng: PIN.lng + d },
+    { lat: PIN.lat + d, lng: PIN.lng + d }, { lat: PIN.lat + d, lng: PIN.lng - d },
+  ]
+}
+
+function tp(over: Partial<TriggerPoint> & { location: TriggerPoint['location'] }): TriggerPoint {
+  return {
+    id: 'tp', radius: 20, expectedBearing: 0, bearingThreshold: 45, type: 'primary',
+    priority: 5, confidence: 0.8, quality: 0.8, street: undefined as any, distance: 0,
+    generationMethod: 'local_osm', ...over,
+  }
+}
+
+describe('INV-E5b, BR-AUDIO-010 — classifyVisibility: relevo natural vence a tag de mirante', () => {
+  it('proeminência 262 m + natural=peak → landmark_high, mesmo com tourism=viewpoint na mesma tag', () => {
+    const cls = classifyVisibility({
+      heightM: 0, prominenceM: 262, areaM2: 0,
+      tags: { natural: 'peak', tourism: 'viewpoint' },
+    })
+    assert.equal(cls, VisibilityClass.LANDMARK_HIGH, 'viewpoint não vence o relevo natural (Pico Irmão Menor, #779)')
+  })
+
+  it('tourism=viewpoint sozinho, sem relevo natural e sem altura/proeminência → viewpoint', () => {
+    const cls = classifyVisibility({ heightM: 0, prominenceM: 0, areaM2: 0, tags: { tourism: 'viewpoint' } })
+    assert.equal(cls, VisibilityClass.VIEWPOINT)
+  })
+
+  it('proeminência acima do limiar classifica landmark_high sem tag de relevo (via física, não via nome)', () => {
+    const cls = classifyVisibility({ heightM: 0, prominenceM: LANDMARK_MIN_PROMINENCE_M + 1, areaM2: 0, tags: {} })
+    assert.equal(cls, VisibilityClass.LANDMARK_HIGH)
+  })
+})
+
+describe('INV-E5a, BR-AUDIO-010 — classifyVisibility é função pura dos atributos físicos', () => {
+  it('duas chamadas com os mesmos atributos físicos e tags de nome/categoria diferentes dão a mesma classe', () => {
+    const base = { heightM: 3, prominenceM: 0, areaM2: 500 }
+    const a = classifyVisibility({ ...base, tags: { name: 'Busto A', category: 'monument' } as any })
+    const b = classifyVisibility({ ...base, tags: { name: 'Busto B completamente diferente', category: 'x' } as any })
+    assert.equal(a, b, 'nome/categoria do POI não é lido pelo classificador (P3)')
+  })
+})
+
+describe('INV-E6, BR-AUDIO-010 — tpReachCapM: uma régua, sempre limitada pelo teto de sanidade', () => {
+  it('sem classificação usa o teto do POI não classificado', () => {
+    assert.equal(tpReachCapM(undefined), UNCLASSIFIED_MAX_TP_DISTANCE_M)
+    assert.equal(tpReachCapM(null), UNCLASSIFIED_MAX_TP_DISTANCE_M)
+  })
+
+  it('com classificação normal, usa maxEdgeDistanceM da classe', () => {
+    assert.equal(tpReachCapM({ maxEdgeDistanceM: 5_000 }), 5_000)
+  })
+
+  it('maxEdgeDistanceM absurdo é sempre limitado pelo teto de sanidade (15 km)', () => {
+    assert.equal(tpReachCapM({ maxEdgeDistanceM: 999_999 }), 15_000)
+  })
+})
+
+describe('INV-E6, BR-AUDIO-010 — fanHorizonM: alcance medido pela classe e pela proeminência', () => {
+  it('landmark_high sem proeminência real fica limitado ao horizonte urbano (2 km)', () => {
+    const h = fanHorizonM({ cls: VisibilityClass.LANDMARK_HIGH, effectiveHeightM: 500, prominenceM: 0 })
+    assert.equal(h, 2_000)
+  })
+
+  it('landmark_high com proeminência real pode alcançar o teto de sanidade (15 km)', () => {
+    const h = fanHorizonM({ cls: VisibilityClass.LANDMARK_HIGH, effectiveHeightM: 1_500, prominenceM: LANDMARK_MIN_PROMINENCE_M })
+    assert.equal(h, 15_000)
+  })
+
+  it('classe baixa/local usa o teto fixo da classe, não a fórmula de altura', () => {
+    const h = fanHorizonM({ cls: VisibilityClass.POINT_LOW, effectiveHeightM: 500, prominenceM: 0 })
+    assert.equal(h, 60, 'point_low: maxEdgeDistanceM da tabela é 60')
+  })
+})
+
+describe('INV-E3, BR-AUDIO-010 — resolveHeightM: ordem das fontes de altura', () => {
+  it('height real vence tudo', () => {
+    const r = resolveHeightM({ height: '45m', 'building:levels': '3' }, 10)
+    assert.deepEqual(r, { heightM: 45, source: 'height' })
+  })
+
+  it('sem height real, building:levels × 4 m/andar vence a altura já conhecida', () => {
+    const r = resolveHeightM({ 'building:levels': '3' }, 10)
+    assert.deepEqual(r, { heightM: 12, source: 'levels' })
+  })
+
+  it('sem height nem levels, usa a altura já conhecida antes da tabela por tag', () => {
+    const r = resolveHeightM({ building: 'church' }, 8)
+    assert.deepEqual(r, { heightM: 8, source: 'known' })
+  })
+
+  it('sem nenhuma das três, cai na tabela por tag — estátua, torre e monumento nunca saem com 0', () => {
+    assert.deepEqual(resolveHeightM({ memorial: 'statue' }), { heightM: 6, source: 'tag_default' })
+    assert.deepEqual(resolveHeightM({ man_made: 'tower' }), { heightM: 30, source: 'tag_default' })
+    assert.deepEqual(resolveHeightM({ historic: 'monument' }), { heightM: 12, source: 'tag_default' })
+  })
+
+  it('tag mais específica (valor exato) vence o coringa building=*', () => {
+    const r = resolveHeightM({ building: 'church' })
+    const exactRow = DEFAULT_HEIGHT_BY_TAG.find(row => row.key === 'building' && row.value === 'church')!
+    assert.equal(r.heightM, exactRow.heightM, 'church (25 m) vence o building=* genérico (10 m)')
+  })
+
+  it('sem tag nenhuma que bata na tabela, a altura sai 0 e a fonte é "none" (não silenciosa: `source` denuncia)', () => {
+    assert.deepEqual(resolveHeightM({ amenity: 'tag_que_nao_existe_na_tabela' }), { heightM: 0, source: 'none' })
+  })
+})
+
+describe('INV-E4c, BR-AUDIO-010 — proeminência quando o DEM está indisponível', () => {
+  it('sem elevação do POI (DEM não respondeu), a proeminência não pode ser um 0 silencioso', {
+    todo: 'INV-E4c: poi-classifier.service#classifyPOI inicializa prominenceM=0 e só recalcula quando ' +
+      'poiElevation.center > 0 — DEM indisponível (poiElevation undefined) fica indistinguível de "elevação real é 0", ' +
+      'e nada disso vai para o rastro. Código diverge do alvo (#772).',
+  }, async () => {
+    const svc = new POIClassifierService()
+    const result = await svc.classifyPOI(
+      { id: 'poi-1', name: 'Sem DEM', location: PIN, type: 'attraction', country: 'BR', city: 'Rio de Janeiro' } as any,
+      undefined,
+      undefined, // DEM falhou: sem elevação do POI
+      0,
+      undefined,
+      {},
+      undefined,
+    )
+    assert.equal(result.metadata.elevationDiff, null, 'esperado: null explícito, não 0')
+  })
+})
+
+describe('INV-E11, BR-AUDIO-010 — post-condições isoladas, uma por motivo', () => {
+  it('beyond_reach: TP além do alcance da classe é descartado com o motivo correto', () => {
+    const near = tp({ id: 'near', location: { lat: PIN.lat + 0.0002, lng: PIN.lng } })
+    const far = tp({ id: 'far', location: { lat: PIN.lat + 0.02, lng: PIN.lng } }) // ~2.2 km
+    const { kept, dropped } = applyTpPostConditions([near, far], PIN, { classification: { maxEdgeDistanceM: 300 } })
+    assert.deepEqual(kept.map(t => t.id), ['near'])
+    assert.deepEqual(dropped, [{ tp: far, reason: 'beyond_reach' }])
+  })
+
+  it('unfireable: via de mão única cujo sentido deixa o POI atrás do usuário é descartada', () => {
+    // Rua indo de oeste (coords[0]) para leste (coords[1]) — forward bearing ~90°.
+    const westEastStreet = { coordinates: [{ lat: PIN.lat, lng: PIN.lng - 0.01 }, { lat: PIN.lat, lng: PIN.lng + 0.01 }], tags: { oneway: 'yes' } } as any
+    // expectedBearing 270 (POI a oeste do TP): delta com o forward (90°) é 180° → zona "back".
+    const back = tp({ id: 'back', location: PIN, street: westEastStreet, expectedBearing: 270 })
+    // expectedBearing 90: delta 0° com o forward → zona "front", passa.
+    const front = tp({ id: 'front', location: PIN, street: westEastStreet, expectedBearing: 90 })
+    const kept = dropUnfireable([back, front])
+    assert.deepEqual(kept.map(t => t.id), ['front'])
+  })
+
+  it('bidirecional (sem oneway) nunca é descartada por sentido', () => {
+    const bidi = { coordinates: [{ lat: PIN.lat, lng: PIN.lng - 0.01 }, { lat: PIN.lat, lng: PIN.lng + 0.01 }] } as any
+    const t = tp({ id: 'bidi', location: PIN, street: bidi, expectedBearing: 270 })
+    assert.deepEqual(dropUnfireable([t]).map(x => x.id), ['bidi'])
+  })
+
+  it('inside_poi: TP dentro da borda é descartado quando a classe não é area/linear', () => {
+    const inside = { location: { lat: PIN.lat, lng: PIN.lng } }
+    const outside = { location: { lat: PIN.lat + 0.001, lng: PIN.lng } }
+    const kept = dropInsidePoi([inside, outside], { coordinates: square(), classification: { group: VisibilityClass.STRUCTURE } })
+    assert.deepEqual(kept, [outside])
+  })
+
+  it('exceção: classe area — TP dentro da borda passa porque o turista está dentro (praia, parque)', () => {
+    const inside = { location: { lat: PIN.lat, lng: PIN.lng } }
+    const kept = dropInsidePoi([inside], { coordinates: square(), classification: { group: VisibilityClass.AREA } })
+    assert.deepEqual(kept, [inside])
+  })
+
+  it('exceção: classe linear — mesma isenção do que a area', {
+    todo: 'INV-E11: touristCanBeInside só isenta VisibilityClass.AREA (e OPEN_SPACE_TAGS por tag), ' +
+      'não a classe LINEAR — uma orla/promenade comprida sem tag natural=beach/leisure=park tem TP ' +
+      'dentro da borda descartado mesmo sendo a classe onde o turista anda por dentro. Código diverge do alvo (#772).',
+  }, () => {
+    const inside = { location: { lat: PIN.lat, lng: PIN.lng } }
+    const kept = dropInsidePoi([inside], { coordinates: square(), classification: { group: VisibilityClass.LINEAR } })
+    assert.deepEqual(kept, [inside])
+  })
+
+  it('borda sintética nunca é usada para descartar por "dentro" (INV-E1b: círculo sintético não é o footprint)', () => {
+    const inside = { location: { lat: PIN.lat, lng: PIN.lng } }
+    const kept = dropInsidePoi([inside], { coordinates: square(), synthetic: true, classification: { group: VisibilityClass.STRUCTURE } })
+    assert.deepEqual(kept, [inside], 'com synthetic=true a borda não entra no polígono de corte')
+  })
+})
