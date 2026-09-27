@@ -438,7 +438,7 @@ export class CoreTriggerPointPredictor {
       // collapses inside a large building), then ONE spacing/cap pass over all TPs —
       // frontal included (BR-AUDIO-010: ≥2r between every TP of the POI).
       const frontalTPs = this.buildFrontalArrivalTP(poiData, boundary, context, accessibleStreets, []);
-      const filteredPoints = this.applyOptions([...frontalTPs, ...validatedPoints], options, boundary);
+      const filteredPoints = this.applyOptions([...frontalTPs, ...validatedPoints], options, boundary, poiData.location);
 
       // Geofence: o app usa o boundary polygon diretamente para point-in-polygon.
       // Não gerar TP do tipo geofence — é redundante e polui o DB.
@@ -1366,11 +1366,19 @@ export class CoreTriggerPointPredictor {
   /**
    * Aplica opções de filtro aos trigger points
    */
-  private applyOptions(triggerPoints: TriggerPoint[], options: TriggerPointGenerationOptions, boundary?: BoundaryData): TriggerPoint[] {
+  private applyOptions(
+    triggerPoints: TriggerPoint[],
+    options: TriggerPointGenerationOptions,
+    boundary: BoundaryData | undefined,
+    poiPin: { lat: number; lng: number }
+  ): TriggerPoint[] {
     let filtered = [...triggerPoints];
     if (options.minQuality !== undefined) {
       filtered = filtered.filter(tp => tp.quality >= options.minQuality!);
     }
+    // Same reach ruler as the save gate (poi-migration-pipeline) and the dry-run: the engine
+    // never emits a TP the save would drop, so a closer candidate takes its slot (#779).
+    filtered = partitionByPoiReach(filtered, tp => tp.location, poiPin, boundary?.coordinates, tpReachCapM(boundary?.classification)).kept;
     const accepted = selectSpacedTriggerPoints(dropInsidePoi(dropUnfireable(filtered), boundary), boundary?.classification);
     if (options.maxTriggerPoints !== undefined && accepted.length > options.maxTriggerPoints) {
       console.log(`✂️ Caller-set max: trimming ${accepted.length} → ${options.maxTriggerPoints}`);

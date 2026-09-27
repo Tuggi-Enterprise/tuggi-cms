@@ -156,3 +156,14 @@ describe('BR-AUDIO-010 — the class spacing floor holds even when TP radii are 
     }
   })
 })
+
+describe('BR-AUDIO-010 — the engine never emits a TP the save gate would drop', () => {
+  it('a TP beyond the class reach is cut in the final selection, the closer one stays', async () => {
+    const { CoreTriggerPointPredictor } = await import('../../lib/services/trigger-points-google/core/trigger-point-predictor')
+    const area = buildClassification(VisibilityClass.AREA, { heightM: 0, prominenceM: 0, areaM2: 0 })
+    const circle = Array.from({ length: 16 }, (_, i) => offset({ n: 10 * Math.cos((i * Math.PI) / 8), e: 10 * Math.sin((i * Math.PI) / 8) }))
+    const mk = (id: string, n: number) => ({ id, location: offset({ n }), distance: n - 10, radius: 30, quality: 0.8, expectedBearing: 180, type: 'secondary' }) as any
+    const out = (new CoreTriggerPointPredictor() as any).applyOptions([mk('near', 40), mk('far', 160)], {}, { coordinates: circle, center: PIN, classification: area }, PIN)
+    assert.deepEqual(out.map((t: any) => t.id), ['near'])
+  })
+})

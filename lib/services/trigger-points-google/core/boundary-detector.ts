@@ -210,7 +210,12 @@ export class BoundaryDetector {
       tags,
       boundary.synthetic ? undefined : boundary.coordinates
     );
-    return { ...boundary, classification };
+    // The fan reads the POI ground from boundary.elevation; without it the top was 0 m
+    // and a peak found only through the DB fallback saw nothing.
+    const withElevation = !boundary.elevation && elevation && elevation.confidence > 0.5
+      ? { elevation: { min: elevation.ground - 10, max: elevation.ground + 10, average: elevation.ground, center: elevation.total } }
+      : {};
+    return { ...boundary, ...withElevation, classification };
   }
 
   /**
