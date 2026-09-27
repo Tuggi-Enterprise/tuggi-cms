@@ -62,3 +62,29 @@ describe('BR-AUDIO-010 — a landmark gets far TPs where it is seen, on every si
     assert.ok(ids.includes('t90') && ids.includes('t91'), ids.join(','))
   })
 })
+
+describe('BR-AUDIO-010 — a peak or hill is a landmark, and its prominence is measured around it', () => {
+  it('natural=peak/hill is LANDMARK_HIGH, even with tourism=viewpoint and in Nominatim shape', () => {
+    const flat = { heightM: 0, prominenceM: 0, areaM2: 0 }
+    assert.equal(classifyVisibility({ ...flat, tags: { natural: 'peak', tourism: 'viewpoint' } }), VisibilityClass.LANDMARK_HIGH)
+    assert.equal(classifyVisibility({ ...flat, tags: { class: 'natural', type: 'hill' } }), VisibilityClass.LANDMARK_HIGH)
+    assert.equal(classifyVisibility({ ...flat, tags: { tourism: 'viewpoint' } }), VisibilityClass.VIEWPOINT)
+  })
+
+  it('the regional base is sampled around each POI, not cached per city', async () => {
+    const { ElevationAnalysisService } = await import('../../lib/services/trigger-points-google/services/elevation-service')
+    const { SRTMLocalService } = await import('../../lib/services/srtm-local-service')
+    const srtm = SRTMLocalService.getInstance() as any
+    const original = srtm.getElevation
+    srtm.getElevation = async (lat: number) => (lat > -22.5 ? 500 : 0)
+    try {
+      ElevationAnalysisService.clearCache()
+      const poi = { city: 'São Gonçalo', country: 'Brazil' } as any
+      assert.equal(await ElevationAnalysisService.estimateRegionalBaseElevation({ lat: -22.83, lng: -43.07 }, undefined, poi), 0)
+      assert.equal(await ElevationAnalysisService.estimateRegionalBaseElevation({ lat: -22.2, lng: -43.07 }, undefined, poi), 500)
+    } finally {
+      srtm.getElevation = original
+      ElevationAnalysisService.clearCache()
+    }
+  })
+})

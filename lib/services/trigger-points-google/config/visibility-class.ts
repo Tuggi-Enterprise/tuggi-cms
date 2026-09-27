@@ -158,6 +158,17 @@ export const DEFAULT_HEIGHT_BY_TAG: TagRow[] = [
 /** Height per floor, for `building:levels`. */
 export const BUILDING_LEVEL_HEIGHT_M = 4;
 
+/**
+ * Natural relief: seen from afar by what it is, even when SRTM smooths its prominence away.
+ * Precedes the viewpoint tag — a summit with `tourism=viewpoint` is still a summit seen
+ * from the whole neighbourhood (Pico Irmão Menor, #779).
+ */
+export const NATURAL_RELIEF_TAGS: Array<{ key: string; value: string }> = [
+  { key: 'natural', value: 'peak' },
+  { key: 'natural', value: 'hill' },
+  { key: 'natural', value: 'volcano' },
+];
+
 /** Tags that mark a viewpoint. */
 export const VIEWPOINT_TAGS: Array<{ key: string; value: string }> = [
   { key: 'tourism', value: 'viewpoint' },
@@ -267,8 +278,13 @@ export interface PhysicalAttributes {
   tags?: Record<string, unknown>;
 }
 
+export function isNaturalRelief(tags: Record<string, unknown> | undefined): boolean {
+  return NATURAL_RELIEF_TAGS.some(t => hasTag(tags, t.key, t.value));
+}
+
 /** The single, pure classifier. Order is precedence. */
 export function classifyVisibility(a: PhysicalAttributes): VisibilityClass {
+  if (isNaturalRelief(a.tags)) return VisibilityClass.LANDMARK_HIGH;
   if (VIEWPOINT_TAGS.some(t => hasTag(a.tags, t.key, t.value))) return VisibilityClass.VIEWPOINT;
   if (a.heightM >= LANDMARK_MIN_HEIGHT_M || a.prominenceM >= LANDMARK_MIN_PROMINENCE_M) {
     return VisibilityClass.LANDMARK_HIGH;

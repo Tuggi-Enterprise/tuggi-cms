@@ -10,7 +10,7 @@ import { POIData, TriggerPoint, TriggerPointGenerationOptions, TriggerPointPredi
 import { calculateBearing, calculateDistance, findClosestPointOnBoundary, closestStreetPointToPoi, closestPointOnPolyline } from '../utils/calculations';
 import { deterministicTPId } from '../utils/deterministic';
 import { loadTriggerPointsConfig, TriggerPointsConfig, TRIGGER_POINTS_CONSTANTS } from '../config/trigger-points-config';
-import { VisibilityClass, LANDMARK_MIN_PROMINENCE_M, EDGE_BAND_M, fanHorizonM } from '../config/visibility-class';
+import { VisibilityClass, LANDMARK_MIN_PROMINENCE_M, EDGE_BAND_M, fanHorizonM, isNaturalRelief } from '../config/visibility-class';
 import { emitDebugQuality, DebugQualitySnapshot } from '../debug-quality-logger';
 import { partitionByPoiReach, tpReachCapM } from '../utils/validation';
 import { selectSpacedTriggerPoints, dropUnfireable } from '../utils/tp-selection';
@@ -1497,30 +1497,15 @@ export class CoreTriggerPointPredictor {
         : (boundary.elevation?.max ?? boundary.elevation?.center ?? boundary.elevation?.average ?? 0);
       const poiHeight = Math.max(boundary.height ?? 0, 1.7);
 
-      let regionalBase = poiGround; // fallback se SRTM falhar → elevationDiff vira 0
-      try {
-        const { SRTMLocalService } = require('../../srtm-local-service');
-        const srtm = SRTMLocalService.getInstance();
-        // 4 pontos cardeais a ~2km (KISS, sem dependência de context)
-        const samplingRadiusDeg = 0.02;
-        const samples = await Promise.all([
-          srtm.getElevation(boundary.center.lat + samplingRadiusDeg, boundary.center.lng),
-          srtm.getElevation(boundary.center.lat - samplingRadiusDeg, boundary.center.lng),
-          srtm.getElevation(boundary.center.lat, boundary.center.lng + samplingRadiusDeg),
-          srtm.getElevation(boundary.center.lat, boundary.center.lng - samplingRadiusDeg),
-        ]);
-        const valid = samples.filter((s: number | null) => s !== null && !isNaN(s as number)) as number[];
-        if (valid.length > 0) {
-          valid.sort((a, b) => a - b);
-          regionalBase = valid[Math.floor(valid.length / 2)]; // mediana
-        }
-      } catch (e) {
-        // SRTM indisponível, fica com regionalBase = poiGround → elevationDiff=0
-      }
+      // One regional base for the class and for the fan (SSOT: ElevationAnalysisService).
+      const { ElevationAnalysisService } = require('../services/elevation-service');
+      const regionalBase: number = await ElevationAnalysisService.estimateRegionalBaseElevation(boundary.center, boundary.cachedContext);
 
       const elevationDiff = Math.max(0, poiGround - regionalBase);
       // Below landmark prominence it is urban SRTM noise (SSOT: visibility-class).
-      const effectiveElevationContribution = elevationDiff >= LANDMARK_MIN_PROMINENCE_M ? elevationDiff : 0;
+      // A peak/hill is relief, not SRTM noise under a building: its prominence always counts.
+      const effectiveElevationContribution =
+        elevationDiff >= LANDMARK_MIN_PROMINENCE_M || isNaturalRelief(boundary.osmTags) ? elevationDiff : 0;
       const effectiveHeight = poiHeight + effectiveElevationContribution;
 
       // Horizon per visibility class (BR-AUDIO-010): a low/local class stays at its cap —

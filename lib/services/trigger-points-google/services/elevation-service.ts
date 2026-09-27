@@ -24,14 +24,14 @@ export class ElevationAnalysisService {
    * FONTE ÚNICA DE VERDADE - usada por todos os analyzers
    */
   static async estimateRegionalBaseElevation(
-    location: { lat: number; lng: number }, 
-    context: GeographicContext,
-    poiData?: POIData
+    location: { lat: number; lng: number },
+    context?: GeographicContext,
+    _poiData?: POIData
   ): Promise<number> {
-    // 🚀 VERIFICAR CACHE PRIMEIRO
-    const cacheKey = poiData?.city && poiData?.country 
-      ? `${poiData.city}-${poiData.country}` 
-      : `${location.lat.toFixed(4)}-${location.lng.toFixed(4)}`;
+    // Cache per ~1 km cell. It was per CITY: the first POI sampled fixed the base of the
+    // whole city, and a hill whose own height became its city base had prominence 0
+    // (Morro do Patronato, #779).
+    const cacheKey = `${location.lat.toFixed(2)},${location.lng.toFixed(2)}`;
     
     if (this.elevationCache.has(cacheKey)) {
       const cachedValue = this.elevationCache.get(cacheKey)!;
@@ -43,7 +43,7 @@ export class ElevationAnalysisService {
     
     // 🌍 Amostragem de elevação regional (rápida e 100% offline via SRTM)
     try {
-      const regionalElevation = await this.sampleRegionalElevation(location, context);
+      const regionalElevation = await this.sampleRegionalElevation(location);
       if (regionalElevation !== null) {
         console.log(`🗺️ [ElevationService] Regional elevation from sampling: ${regionalElevation}m`);
         // 🚀 SALVAR NO CACHE
@@ -57,7 +57,7 @@ export class ElevationAnalysisService {
     // 📊 ESTRATÉGIA 3: Estimativa baseada em contexto (último recurso)
     let baseElevation = 500; // Default global average
     
-    if (context.elevationContext && context.elevationContext.variance) {
+    if (context?.elevationContext && context.elevationContext.variance) {
       if (context.elevationContext.variance < 50) {
         baseElevation = 400;
         console.log(`📊 [ElevationService] Low elevation variance (${context.elevationContext.variance.toFixed(1)}m) → flat area base: ${baseElevation}m`);
@@ -73,7 +73,7 @@ export class ElevationAnalysisService {
       baseElevation = 20; // Cidades costeiras ficam ao nível do mar
       console.log(`🏖️ [ElevationService] Coastal city detected → base: ${baseElevation}m`);
     } else {
-      switch (context.urbanDensity.level) {
+      switch (context?.urbanDensity?.level) {
         case 'very_dense':
         case 'dense':
           baseElevation = 400; // Cidades grandes tendem a ter elevação moderada
@@ -97,20 +97,18 @@ export class ElevationAnalysisService {
   /**
    * Amostra elevação regional fazendo múltiplas consultas ao redor do POI
    */
-  private static async sampleRegionalElevation(location: { lat: number; lng: number }, context: GeographicContext): Promise<number | null> {
+  private static async sampleRegionalElevation(location: { lat: number; lng: number }): Promise<number | null> {
     try {
-      // Definir raio de amostragem baseado na densidade urbana
-      const samplingRadius = context.urbanDensity.level === 'very_dense' || context.urbanDensity.level === 'dense' 
-        ? 0.02 // ~2km para áreas urbanas
-        : 0.05; // ~5km para áreas rurais
-      
-      // 4 pontos cardeais ao redor do POI
-      const samplePoints = [
-        { lat: location.lat + samplingRadius, lng: location.lng }, // Norte
-        { lat: location.lat - samplingRadius, lng: location.lng }, // Sul  
-        { lat: location.lat, lng: location.lng + samplingRadius }, // Leste
-        { lat: location.lat, lng: location.lng - samplingRadius }  // Oeste
-      ];
+      // 8 points on a ~2 km ring, lower median: the plain around the POI, not the next hill.
+      // One radius for every density — the 5.6 km rural ring landed on other hills.
+      const samplingRadius = 0.02;
+      const samplePoints = Array.from({ length: 8 }, (_, i) => {
+        const a = (i * Math.PI) / 4;
+        return {
+          lat: location.lat + samplingRadius * Math.cos(a),
+          lng: location.lng + (samplingRadius * Math.sin(a)) / Math.cos((location.lat * Math.PI) / 180),
+        };
+      });
       
       console.log(`🎯 [ElevationService] Sampling regional elevation at ${(samplingRadius * 111).toFixed(1)}km radius (${samplePoints.length} points)`);
       
@@ -141,7 +139,7 @@ export class ElevationAnalysisService {
       
       // Calcular mediana (mais robusta que média)
       const sortedElevations = validElevations.sort((a: number, b: number) => a - b);
-      const medianElevation = sortedElevations[Math.floor(sortedElevations.length / 2)];
+      const medianElevation = sortedElevations[Math.floor((sortedElevations.length - 1) / 2)];
       
       console.log(`📊 [ElevationService] Regional elevation samples: [${validElevations.map((e: number) => e.toFixed(0)).join(', ')}]m`);
       console.log(`🎯 [ElevationService] Regional median elevation: ${medianElevation}m`);
