@@ -104,7 +104,7 @@ export function convertTriggerPointToDB(
     score_factors,
     generation_method,
     validation_notes: reasoning,
-    access: 'both', // Default access
+    // `access` ausente: o default do banco ('car') vale.
     // Issue 2.4 — propagar polígono para TPs do tipo 'geofence'
     geometry_geojson: tp.geometryGeoJson ?? null,
   }

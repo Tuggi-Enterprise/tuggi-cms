@@ -66,7 +66,6 @@ async function regenSingle(attractionId: string) {
   console.log(`\n🔄 Regenerando TPs para: ${attractionId}`)
   const result = await PoiMigrationPipeline.executePipeline(attractionId, {
     mode: 'reprocess_triggers_core',
-    auto_approve_if_satisfactory: true,
   })
   console.log(`✅ Concluído:`, JSON.stringify(result, null, 2))
 }
@@ -163,7 +162,6 @@ async function runBatch(batchId: string) {
     try {
       await PoiMigrationPipeline.executePipeline(attractionId, {
         mode: 'reprocess_triggers_core',
-        auto_approve_if_satisfactory: true,
       })
       processed++
       const elapsed = ((Date.now() - startMs) / 1000).toFixed(0)

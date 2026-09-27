@@ -126,34 +126,9 @@ export class PoiMigrationPipeline {
            }
         }
         
-        // Auto-approve POI if trigger points were generated successfully
-        // Since we're not generating descriptions/audio anymore, TPs are the main criteria
-        if (triggerPointsStep.data?.trigger_points_saved > 0) {
-          const maxConfidence = triggerPointsStep.data?.confidence_score || 0
-          const shouldAutoApprove = triggerPointsStep.data.trigger_points_saved >= 1 && maxConfidence > 0.4
-          
-          if (shouldAutoApprove) {
-            console.log(`🚀 Auto-approving POI ${attraction_id} (${triggerPointsStep.data.trigger_points_saved} TPs, max confidence: ${maxConfidence})`)
-            const { error: approveError } = await supabase
-              .schema('core')
-              .from('attractions')
-              .update({ 
-                approved: true,
-                processing_status: 'completed'
-              })
-              .eq('id', attraction_id)
-            
-            if (approveError) {
-              console.error(`⚠️  Failed to auto-approve POI: ${approveError.message}`)
-              warnings.push(`Failed to auto-approve POI: ${approveError.message}`)
-            } else {
-              console.log(`✅ POI auto-approved and marked as completed`)
-            }
-          } else {
-            console.log(`⏳ POI not auto-approved (TPs: ${triggerPointsStep.data.trigger_points_saved}, confidence: ${maxConfidence})`)
-          }
-        }
-        
+        // Reprocessar TP não aprova POI: aprovação é decisão de curadoria, e a
+        // confiança do motor não é critério para publicar (auditoria de TP, 2026-09-27).
+        // `auto_approve_if_satisfactory` não vale neste modo.
         console.log(`✅ Trigger points reprocessed successfully for ${attraction_id}`)
         return {
           success: true,
@@ -832,7 +807,7 @@ export class PoiMigrationPipeline {
         type: tp.type,
         priority: tp.priority || 1,
         is_active: true,
-        access: 'both' as 'walk' | 'car' | 'both',
+        // `access` fica de fora: o motor não sabe o modo, e o default do banco ('car') vale.
         confidence: tp.confidence || 0.5,
         generation_method: tp.generationMethod || 'local_osm',
         boundary_source: predictionResult.boundary?.source || 'unknown',
