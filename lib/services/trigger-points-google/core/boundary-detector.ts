@@ -1,5 +1,6 @@
 // Detector de boundaries usando Google APIs com fallback para OSM
 
+import { defaultHeightByTag } from '../config/visibility-class';
 import { GoogleAPIsService } from '../services/google-apis.service';
 import { ElevationService } from '../services/elevation.service';
 import { POIData, GeographicContext, BoundaryData, ProcessingResult } from '../types/interfaces';
@@ -1191,7 +1192,6 @@ out geom tags;
    */
   private generateNameVariations(name: string): string[] {
     const variations: string[] = [];
-    const nameLower = name.toLowerCase();
     
     // 1. Nome original (primeira tentativa)
     variations.push(name);
@@ -1214,44 +1214,14 @@ out geom tags;
       variations.push(withoutDash);
     }
     
-    // 5. Variações específicas por tipo de POI
-    if (nameLower.includes('estádio') || nameLower.includes('stadium') || nameLower.includes('arena')) {
-      // Para estádios: remover prefixo "Estádio" ou "Arena"
-      variations.push(
-        name.replace(/estádio\s+/gi, '').trim(),
-        name.replace(/stadium\s+/gi, '').trim(),
-        name.replace(/arena\s+/gi, '').trim()
-      );
-      // Pegar parte principal (ex: "Nabi Abi Chedid")
-      const words = name.split(' ').filter(w => 
-        w.length > 2 && 
-        !w.match(/^(estádio|stadium|arena|red|bull)$/gi)
-      );
-      if (words.length > 0) {
-        variations.push(words.join(' '));
-        if (words.length > 1) {
-          variations.push(words.slice(0, 2).join(' ')); // Primeiras 2 palavras
-        }
-      }
-    } else if (nameLower.includes('museu') || nameLower.includes('museum')) {
-      variations.push(
-        name.replace(/museu\s+/gi, '').trim(),
-        name.replace(/museum\s+/gi, '').trim()
-      );
-    } else if (nameLower.includes('parque') || nameLower.includes('park')) {
-      variations.push(
-        name.replace(/parque\s+/gi, '').trim(),
-        name.replace(/park\s+/gi, '').trim()
-      );
-    } else if (nameLower.includes('igreja') || nameLower.includes('church') || nameLower.includes('catedral') || nameLower.includes('cathedral')) {
-      variations.push(
-        name.replace(/igreja\s+/gi, '').trim(),
-        name.replace(/church\s+/gi, '').trim(),
-        name.replace(/catedral\s+/gi, '').trim(),
-        name.replace(/cathedral\s+/gi, '').trim()
-      );
+    // 5. Without the leading word — the generic form of the old per-category prefix
+    // stripping ("Estádio X", "Igreja X", "Museu X" → "X"). No POI name or category is a
+    // branch here (engine-agnostic, epic #772; BR-AUDIO-010).
+    const spaced = withoutParens.split(' ').filter(w => w.length > 0);
+    if (spaced.length > 2) {
+      variations.push(spaced.slice(1).join(' '));
     }
-    
+
     // 6. Variações genéricas: primeiras palavras, últimas palavras
     const words = name.split(' ').filter(w => w.length > 2);
     if (words.length > 1) {
@@ -1494,12 +1464,7 @@ out geom tags;
                       result.class === 'peak' ||
                       result.type === 'natural' ||
                       result.class === 'natural' ||
-                      result.osm_type === 'node' && (result.type === 'peak' || result.class === 'peak') ||
-                      poiData.name.toLowerCase().includes('pico') ||
-                      poiData.name.toLowerCase().includes('morro') ||
-                      poiData.name.toLowerCase().includes('cristo') ||
-                      poiData.name.toLowerCase().includes('mountain') ||
-                      poiData.name.toLowerCase().includes('montanha');
+                      result.osm_type === 'node' && (result.type === 'peak' || result.class === 'peak');
         
         let effectiveMaxDistance = maxDistance;
         
@@ -1534,17 +1499,16 @@ out geom tags;
       // 2. Validar categoria (NOVO - evita falsos positivos)
       // 🆕 Para matches perfeitos, pular validação de categoria
       // 🏔️ Para peaks detectados no nome, aceitar qualquer categoria OSM relacionada a peaks
-      const isPeakInName = poiData.name.toLowerCase().includes('pico') ||
-                          poiData.name.toLowerCase().includes('morro') ||
-                          poiData.name.toLowerCase().includes('cristo') ||
-                          poiData.name.toLowerCase().includes('mountain') ||
-                          poiData.name.toLowerCase().includes('montanha');
+      // Natural landmark by the OSM result class/type, never by the POI name
+      // (engine-agnostic, epic #772; BR-AUDIO-010).
+      const isNaturalLandmarkResult = ['peak', 'volcano', 'natural'].includes(String(result.type)) ||
+                          ['peak', 'volcano', 'natural'].includes(String(result.class));
       
       if (!isPerfectMatch) {
         const osmCategory = this.extractCategoryFromNominatim(result);
         
         // 🏔️ Se é peak no nome, aceitar categorias relacionadas a peaks
-        if (isPeakInName) {
+        if (isNaturalLandmarkResult) {
           const peakRelatedCategories = ['peak', 'volcano', 'natural', 'park', 'mountain', 'hill', 'viewpoint', 'attraction'];
           const isPeakRelated = osmCategory && peakRelatedCategories.some(cat => 
             osmCategory.toLowerCase().includes(cat) || cat.includes(osmCategory.toLowerCase())
@@ -1662,12 +1626,7 @@ out geom tags;
                           result.class === 'peak' ||
                           result.type === 'natural' ||
                           result.class === 'natural' ||
-                          result.osm_type === 'node' && (result.type === 'peak' || result.class === 'peak') ||
-                          poiData.name.toLowerCase().includes('pico') ||
-                          poiData.name.toLowerCase().includes('morro') ||
-                          poiData.name.toLowerCase().includes('cristo') ||
-                          poiData.name.toLowerCase().includes('mountain') ||
-                          poiData.name.toLowerCase().includes('montanha');
+                          result.osm_type === 'node' && (result.type === 'peak' || result.class === 'peak');
             
             // Se é um edifício (building), threshold maior (edifícios grandes podem ter pontos de referência diferentes)
             const isBuilding = result.type === 'building' || 
@@ -1713,12 +1672,7 @@ out geom tags;
               const isPeakResult = result.type === 'peak' || 
                                   result.class === 'peak' ||
                                   result.type === 'natural' ||
-                                  result.class === 'natural' ||
-                                  poiData.name.toLowerCase().includes('pico') ||
-                                  poiData.name.toLowerCase().includes('morro') ||
-                                  poiData.name.toLowerCase().includes('cristo') ||
-                                  poiData.name.toLowerCase().includes('mountain') ||
-                                  poiData.name.toLowerCase().includes('montanha');
+                                  result.class === 'natural';
               
               const processed = await this.processNominatimGeometry(result.geojson, lat, lng, isPeakResult);
               if (processed.success && processed.coordinates.length > 2) {
@@ -2795,31 +2749,12 @@ out geom tags;
   private extractHeuristicHeight(tags: any, poiName?: string): number | null {
     if (!tags) return null;
 
-    // Order matters — most specific first. Each rule has a `source` label that
-    // gets logged so users can audit heuristics in migration-log.
-    type Rule = { match: () => boolean; height: number; source: string };
-    const rules: Rule[] = [
-      { match: () => tags['man_made'] === 'tower',          height: 30, source: 'heuristic_tower' },
-      { match: () => tags['man_made'] === 'lighthouse',     height: 25, source: 'heuristic_lighthouse' },
-      { match: () => tags['historic'] === 'castle',         height: 20, source: 'heuristic_castle' },
-      { match: () => tags['building'] === 'cathedral',      height: 60, source: 'heuristic_cathedral' },
-      { match: () => tags['building'] === 'church',         height: 25, source: 'heuristic_church' },
-      { match: () => ['mosque', 'temple', 'synagogue'].includes(tags['building']),
-                                                            height: 20, source: 'heuristic_religious' },
-      { match: () => ['cinema', 'theatre'].includes(tags['amenity']),
-                                                            height: 12, source: 'heuristic_civic' },
-      { match: () => tags['tourism'] === 'museum',          height: 15, source: 'heuristic_civic' },
-      // Genérico: qualquer building taggeado (default 10m, mesmo do TRIGGER_POINTS_CONSTANTS.defaultHouseHeight).
-      { match: () => !!tags['building'],                    height: 10, source: 'heuristic_default_building' },
-    ];
-
-    for (const r of rules) {
-      if (r.match()) {
-        console.log(`📏 POI height heuristic: ${r.height}m (${r.source})${poiName ? ` for "${poiName}"` : ''}`);
-        return r.height;
-      }
+    // Single tag→height table (SSOT): config/visibility-class.ts#DEFAULT_HEIGHT_BY_TAG.
+    const height = defaultHeightByTag(tags);
+    if (height !== null && height > 0) {
+      console.log(`📏 POI height by tag: ${height}m${poiName ? ` for "${poiName}"` : ''}`);
+      return height;
     }
-
     return null;
   }
 
@@ -3169,16 +3104,6 @@ out geom tags;
     
     // Adicionar variações comuns
     const keywords = [...words];
-    
-    // Para "Edifício", adicionar variações
-    if (name.toLowerCase().includes('edifício') || name.toLowerCase().includes('edificio')) {
-      keywords.push('building', 'edifício', 'edificio');
-    }
-    
-    // Para "Copan", pode ser "Copacabana"
-    if (name.toLowerCase().includes('copan')) {
-      keywords.push('copan', 'copacabana');
-    }
     
     console.log(`📝 Name keywords extracted from "${name}": ${keywords.join(', ')}`);
     return keywords;

@@ -268,3 +268,28 @@ describe('BR-AUDIO-010 — bearing points TP→POI, and one-way reads the local 
     assert.deepEqual(dropUnfireable([behind, ahead, twoWay]), [ahead, twoWay])
   })
 })
+
+describe('BR-AUDIO-010 — engine-agnostic: no POI name or category becomes a branch', () => {
+  it('no name literal drives the boundary detector or the classifier', async () => {
+    const { readFileSync } = await import('node:fs')
+    const nameBranch = /includes\(\s*'(cristo|peak|pico|morro|mountain|montanha|stadium|estádio|arena|igreja|church|catedral|cathedral|copan|edif[ií]cio)'\s*\)/i
+    for (const f of ['core/boundary-detector.ts', 'services/poi-classifier.service.ts']) {
+      const src = readFileSync(`lib/services/trigger-points-google/${f}`, 'utf8')
+      assert.equal(nameBranch.test(src), false, `${f} branches on a POI name`)
+    }
+  })
+
+  it('name variations strip the leading word generically', async () => {
+    const { BoundaryDetector } = await import('../../lib/services/trigger-points-google/core/boundary-detector')
+    const v = (Object.create(BoundaryDetector.prototype) as any).generateNameVariations('Estádio Nabi Abi Chedid (Arena Red Bull)')
+    assert.ok(v.includes('Nabi Abi Chedid'), v.join(' | '))
+  })
+
+  it('one tag→height table: the exact tag wins over the generic building', async () => {
+    const { defaultHeightByTag } = await import('../../lib/services/trigger-points-google/config/visibility-class')
+    assert.equal(defaultHeightByTag({ building: 'cathedral' }), 25)
+    assert.equal(defaultHeightByTag({ building: 'yes' }), 10)
+    assert.equal(defaultHeightByTag({ building: 'yes', amenity: 'theatre' }), 12)
+    assert.equal(defaultHeightByTag({ leisure: 'park' }), null)
+  })
+})

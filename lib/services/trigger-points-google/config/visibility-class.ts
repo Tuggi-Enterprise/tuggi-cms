@@ -144,6 +144,15 @@ export const DEFAULT_HEIGHT_BY_TAG: TagRow[] = [
   { key: 'man_made', value: 'lighthouse', heightM: 20 },
   { key: 'man_made', value: 'tower', heightM: 30 },
   { key: 'tourism', value: 'viewpoint', heightM: 0 },
+  { key: 'historic', value: 'castle', heightM: 20 },
+  { key: 'building', value: 'mosque', heightM: 20 },
+  { key: 'building', value: 'temple', heightM: 20 },
+  { key: 'building', value: 'synagogue', heightM: 20 },
+  { key: 'amenity', value: 'cinema', heightM: 12 },
+  { key: 'amenity', value: 'theatre', heightM: 12 },
+  { key: 'tourism', value: 'museum', heightM: 15 },
+  // any other tagged building (`*` matches any value)
+  { key: 'building', value: '*', heightM: 10 },
 ];
 
 /** Height per floor, for `building:levels`. */
@@ -155,7 +164,19 @@ export const VIEWPOINT_TAGS: Array<{ key: string; value: string }> = [
 ];
 
 function hasTag(tags: Record<string, unknown> | undefined, key: string, value: string): boolean {
-  return String(tags?.[key] ?? '').toLowerCase() === value;
+  const v = String(tags?.[key] ?? '').toLowerCase();
+  return value === '*' ? v !== '' && v !== 'no' : v === value;
+}
+
+/**
+ * Default height from DEFAULT_HEIGHT_BY_TAG: the most specific matching row wins
+ * (exact value over `*`), then the tallest. null when no row matches.
+ */
+export function defaultHeightByTag(tags: Record<string, unknown> | undefined): number | null {
+  const rows = DEFAULT_HEIGHT_BY_TAG.filter(r => hasTag(tags, r.key, r.value));
+  const exact = rows.filter(r => r.value !== '*');
+  const pick = exact.length ? exact : rows;
+  return pick.length ? Math.max(...pick.map(r => r.heightM)) : null;
 }
 
 function parseMeters(raw: unknown): number | null {
@@ -178,8 +199,8 @@ export function resolveHeightM(
   const levels = parseMeters(tags?.['building:levels']);
   if (levels) return { heightM: levels * BUILDING_LEVEL_HEIGHT_M, source: 'levels' };
   if (knownHeightM && knownHeightM > 0) return { heightM: knownHeightM, source: 'known' };
-  const rows = DEFAULT_HEIGHT_BY_TAG.filter(r => hasTag(tags, r.key, r.value));
-  if (rows.length) return { heightM: Math.max(...rows.map(r => r.heightM)), source: 'tag_default' };
+  const byTag = defaultHeightByTag(tags);
+  if (byTag !== null) return { heightM: byTag, source: 'tag_default' };
   return { heightM: 0, source: 'none' };
 }
 
