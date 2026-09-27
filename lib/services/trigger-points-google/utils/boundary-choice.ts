@@ -65,6 +65,26 @@ export function isPlaceElement(tags: Tags): boolean {
   return tagValue(tags, 'place') !== '' || tagValue(tags, 'boundary') === 'administrative';
 }
 
+const normName = (s: unknown): string =>
+  String(s ?? '').normalize('NFD').replace(/[̀-ͯ]/g, '').trim().toLowerCase();
+
+/**
+ * The curated id is a place area (relation/way) carrying the POI's own name, and the POI has no
+ * category saying otherwise: the POI is that place. The Maracanã and Manguinhos POIs are the
+ * neighbourhoods, with `category` null and the admin relation as osm_id. A node has no area, and
+ * a POI whose name differs (a stadium pointing at its neighbourhood) keeps the refusal.
+ */
+export function curatedPlaceIsThePoi(
+  osmType: string,
+  elementTags: Tags,
+  poi: { name?: string | null; category?: string | null },
+): boolean {
+  const uncategorised = !poi.category || poi.category === 'point_of_interest';
+  const name = normName(poi.name);
+  return osmType !== 'node' && uncategorised && name !== ''
+    && [elementTags?.name, elementTags?.['name:pt']].some(n => normName(n) === name);
+}
+
 /** Relief: the border is the landform around the summit (natural=*), never a park or a building. */
 export function isReliefPoi(tags: Tags): boolean {
   return ['peak', 'hill', 'volcano'].includes(tagValue(tags, 'natural'));

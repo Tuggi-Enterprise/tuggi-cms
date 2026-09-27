@@ -136,6 +136,15 @@ describe('INV-E1a — a relation id from Overpass becomes its outer ring, not a 
     assert.ok(Math.abs(ring[0].lat - PIN.lat) < 400 * M_LAT, 'the small ring at the pin, not the larger one away')
   })
 
+  it('INV-E1c: an uncategorised POI named as its curated place relation is that place; a node or another name is not', () => {
+    const rel = { boundary: 'administrative', admin_level: '10', name: 'Maracanã' }
+    assert.equal(choice.curatedPlaceIsThePoi('relation', rel, { name: 'Maracanã', category: 'point_of_interest' }), true)
+    assert.equal(choice.curatedPlaceIsThePoi('relation', rel, { name: 'maracana', category: null }), true)
+    assert.equal(choice.curatedPlaceIsThePoi('relation', rel, { name: 'Estádio do Maracanã', category: null }), false)
+    assert.equal(choice.curatedPlaceIsThePoi('relation', rel, { name: 'Maracanã', category: 'stadium' }), false)
+    assert.equal(choice.curatedPlaceIsThePoi('node', { place: 'neighbourhood', name: 'Praça Seca' }, { name: 'Praça Seca', category: null }), false)
+  })
+
   it('detectOSMBoundaryByID asks Overpass for members (`out geom`) and returns the ring as a non-synthetic border', async () => {
     const { BoundaryDetector } = await import('../../lib/services/trigger-points-google/core/boundary-detector')
     const { LocalOSMFetcher } = await import('../../lib/services/trigger-points-google/services/local-osm-fetcher')
@@ -153,7 +162,7 @@ describe('INV-E1a — a relation id from Overpass becomes its outer ring, not a 
     }
     d.elevationService = { getElevation: async () => null }
     try {
-      const r = await d.detectOSMBoundaryByID('5520332', 'relation', { id: 'x', name: 'Maracanã', type: 'neighborhood', location: PIN })
+      const r = await d.detectOSMBoundaryByID('5520332', 'relation', { id: 'x', name: 'Maracanã', type: 'point_of_interest', location: PIN })
       assert.match(queries[0], /relation\(5520332\);\s*out geom;/)
       assert.equal(r.success, true)
       assert.notEqual(r.data.synthetic, true)

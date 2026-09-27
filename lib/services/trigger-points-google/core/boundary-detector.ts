@@ -7,7 +7,7 @@ import { POIData, GeographicContext, BoundaryData, ProcessingResult } from '../t
 import { convertViewportToPolygon, calculatePolygonArea, calculatePolygonAreaInM2, calculatePolygonCenter, calculateDistance, isPointInPolygon, isDrawnCircle } from '../utils/calculations';
 import { TRIGGER_POINTS_CONSTANTS } from '../config/trigger-points-config';
 import { isCuratedBoundaryImplausible } from '../utils/osm-validation';
-import { assembleOuterRings, chooseContainingBoundary, footprintRing, isPlaceElement, outerRing, poiIsPlace, type BoundaryRejection, type OsmAreaElement } from '../utils/boundary-choice';
+import { assembleOuterRings, chooseContainingBoundary, curatedPlaceIsThePoi, footprintRing, isPlaceElement, outerRing, poiIsPlace, type BoundaryRejection, type OsmAreaElement } from '../utils/boundary-choice';
 import { getSupabase } from '../../../core/supabase-client';
 
 /** Surveyed summits for the ground-top read (E4): one point per `processOSMPeaks` element. */
@@ -454,9 +454,11 @@ out geom;
       
       const element = elements[0];
 
-      // A place (neighbourhood, city) is a border only for a POI that is itself a place: the
-      // Maracanã and Manguinhos ids resolve to `place=suburb` nodes and drew a circle at the pin.
-      if (!chosen && isPlaceElement(element.tags) && !poiIsPlace(poiData.type)) {
+      // A place (neighbourhood, city) is a border only for a POI that is itself a place: a
+      // `place=*` node under a POI drew a circle at the pin. The uncategorised POI named as the
+      // curated place area is that place (Maracanã relation 5520332).
+      if (!chosen && isPlaceElement(element.tags) && !poiIsPlace(poiData.type)
+        && !curatedPlaceIsThePoi(osmType, element.tags, { name: poiData.name, category: poiData.type })) {
         this.rejections.push({ element: `${osmType}/${osmID}`, reason: 'place/boundary element for a POI that is not a place' });
         return {
           success: false, error: 'osm_id is a place and the POI is not', processingTime: 0,
