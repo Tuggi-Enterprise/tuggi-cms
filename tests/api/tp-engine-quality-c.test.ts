@@ -141,3 +141,18 @@ describe('BR-AUDIO-010 — a room inside a host building: no TP inside the host'
     assert.deepEqual(out.map(t => t.id), ['street'])
   })
 })
+
+describe('BR-AUDIO-010 — the class spacing floor holds even when TP radii are small', () => {
+  it('LINEAR: 16 candidates of 15 m radius along 200 m keep ≥ 100 m between each other', async () => {
+    const { selectSpacedTriggerPoints } = await import('../../lib/services/trigger-points-google/utils/tp-selection')
+    const { calculateDistance } = await import('../../lib/services/trigger-points-google/utils/calculations')
+    const linear = buildClassification(VisibilityClass.LINEAR, { heightM: 15, prominenceM: 0, areaM2: 11_000 })
+    const row = Array.from({ length: 16 }, (_, i) => ({ id: `t${i}`, location: offset({ e: i * 13, n: 20 }), distance: 20, radius: 15,
+      quality: 0.8, expectedBearing: 180, type: 'secondary' }) as any)
+    const out = selectSpacedTriggerPoints(row, linear)
+    assert.ok(out.length <= 3, `${out.length} TPs`)
+    for (let i = 0; i < out.length; i++) for (let j = i + 1; j < out.length; j++) {
+      assert.ok(calculateDistance(out[i].location, out[j].location) >= linear.minDistanceBetweenTPs)
+    }
+  })
+})

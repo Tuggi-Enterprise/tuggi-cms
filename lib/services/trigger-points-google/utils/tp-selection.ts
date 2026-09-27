@@ -13,6 +13,8 @@ type SelectionClassification = {
   group?: VisibilityClass;
   maxTriggerPoints?: number;
   maxFarTriggerPoints?: number;
+  /** class spacing floor (2 × class max radius) */
+  minDistanceBetweenTPs?: number;
 };
 
 /** Classes whose perimeter is long enough to want one TP per approach direction. */
@@ -24,9 +26,17 @@ const DIRECTION_COVERAGE_CLASSES = new Set<VisibilityClass | undefined>([
 ]);
 const COVERAGE_SLICES = 16;
 
-/** Min distance between two TPs: their GPS circles never overlap, and it grows with range. */
-export function minSpacingM(a: Pick<TriggerPoint, 'radius' | 'distance'>, b: Pick<TriggerPoint, 'radius' | 'distance'>): number {
-  return Math.max(2 * a.radius, 2 * b.radius, 0.1 * Math.max(a.distance, b.distance));
+/**
+ * Min distance between two TPs: their GPS circles never overlap, it grows with range, and
+ * it never goes below the class floor. With 15 m radii the floor was 30 m and the Museu do
+ * Amanhã got 16 TPs in 200 m of waterfront (#779).
+ */
+export function minSpacingM(
+  a: Pick<TriggerPoint, 'radius' | 'distance'>,
+  b: Pick<TriggerPoint, 'radius' | 'distance'>,
+  classFloorM = 0
+): number {
+  return Math.max(2 * a.radius, 2 * b.radius, 0.1 * Math.max(a.distance, b.distance), classFloorM);
 }
 
 /**
@@ -43,6 +53,7 @@ export function selectSpacedTriggerPoints(
   );
   const maxNear = classification?.maxTriggerPoints ?? Infinity;
   const maxFar = classification?.maxFarTriggerPoints ?? (classification ? 0 : Infinity);
+  const classFloorM = classification?.minDistanceBetweenTPs ?? 0;
   const accepted: TriggerPoint[] = [];
   let near = 0;
   let far = 0;
@@ -51,7 +62,7 @@ export function selectSpacedTriggerPoints(
     if (accepted.includes(tp)) return false;
     const isFar = tp.distance > EDGE_BAND_M;
     if (isFar ? far >= maxFar : near >= maxNear) return false;
-    if (accepted.some(a => calculateDistance(a.location, tp.location) < minSpacingM(a, tp))) return false;
+    if (accepted.some(a => calculateDistance(a.location, tp.location) < minSpacingM(a, tp, classFloorM))) return false;
     accepted.push(tp);
     if (isFar) far++; else near++;
     return true;
