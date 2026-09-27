@@ -8,7 +8,9 @@
  *  2. both layers are read for that area on one 1-arc-second lattice (`dem-sources`);
  *  3. every tile is checked: its georeference matches its name and the lattice, it read in
  *     full, and there is no no-data over land;
- *  4. a manifest records layer, source version, date and tiles.
+ *  4. the measured obstacles (#783, `obstacle-prepare`): building footprints with height
+ *     (Overture, 3D-GloBFP) and canopy height (Meta/WRI), on the obstacle lattice;
+ *  5. a manifest records layer, source version, date and tiles.
  *
  * A missing tile or a hole over land fails the city: the manifest says `failed`, the store
  * refuses its POIs, and nothing falls back to SRTM or anything else (INV-EPb).
@@ -27,8 +29,19 @@ import {
   type DemLayer,
 } from './dem-sources'
 import {
+  BuildingRaster,
+  globfpReader,
+  metaChmReader,
+  overtureReader,
+  type BuildingReader,
+  type CanopyReader,
+  type DemArea,
+} from './obstacle-prepare'
+import {
   DEM_MANIFEST_FILE,
   defaultDemCacheDir,
+  nearestCell,
+  obstacleGrid,
   type DemGrid,
   type DemLayerRecord,
   type DemManifest,
@@ -36,7 +49,7 @@ import {
 } from './dem-store'
 
 type LatLng = { lat: number; lng: number }
-export type DemArea = { south: number; west: number; north: number; east: number }
+export type { DemArea }
 
 /**
  * A cell is sea when both layers agree it is at sea level. Copernicus reads ~0 m over the
@@ -297,12 +310,16 @@ export interface PrepareCityDemInput {
   marginM: number
   dir?: string
   readers?: LayerReader[]
+  /** measured obstacles (#783); default: Overture + 3D-GloBFP, and Meta/WRI canopy */
+  obstacles?: { buildings: BuildingReader[]; canopy: CanopyReader }
   now?: () => Date
 }
 
 /** EP for one city. Always writes the manifest; `status` says whether the city may generate. */
 export async function prepareCityDem(input: PrepareCityDemInput): Promise<DemManifest> {
   const readers = input.readers ?? [copernicusReader(), gedtm30Reader()]
+  const sourcesDir = path.join(input.dir ?? defaultDemCacheDir(), '_sources')
+  const obstacles = input.obstacles ?? { buildings: [overtureReader(), globfpReader(sourcesDir)], canopy: metaChmReader(sourcesDir) }
   const cityDir = path.join(input.dir ?? defaultDemCacheDir(), slugCity(input.city))
   fs.mkdirSync(cityDir, { recursive: true })
   const grid = snapGrid(input.area)
@@ -320,31 +337,77 @@ export async function prepareCityDem(input: PrepareCityDemInput): Promise<DemMan
     checks = fillSeaAndCountHoles(surface.read.values, ground.read.values, surface.read.seaAssumed)
     if (checks.landHoles > 0) failures.push(`${checks.landHoles} cells without data over land`)
   }
+  // The obstacles only after the relief is good: they cost gigabytes, and they need the ground
+  // to tell land from sea.
+  const og = obstacleGrid(grid)
+  const extra: Array<{ record: Omit<DemLayerRecord, 'sha256'>; data: Uint8Array | Uint16Array }> = []
+  let obstacleChecks: Pick<DemManifest['checks'], 'buildings' | 'canopy'> = {}
+  if (failures.length === 0 && ground) {
+    const g = ground.read.values
+    const landAt = (lat: number, lng: number) => {
+      const i = nearestCell(grid, lat, lng)
+      return i >= 0 && g[i] > DEM_SEA_MAX_M
+    }
+    const raster = new BuildingRaster(og)
+    const tiles = []
+    for (const reader of obstacles.buildings) {
+      const t0 = Date.now()
+      const r = await reader.read(input.area, raster.add, landAt)
+      console.error(`EP ${input.city}: ${reader.source} ${Math.round((Date.now() - t0) / 1000)} s, ${r.failures.length} failures`)
+      failures.push(...r.failures)
+      tiles.push(...r.tiles)
+    }
+    let builtCells = 0
+    for (let i = 0; i < raster.cells.length; i++) if (raster.cells[i]) builtCells++
+    extra.push({
+      record: {
+        layer: 'buildings',
+        source: obstacles.buildings.map(b => b.source).join('+'),
+        version: obstacles.buildings.map(b => `${b.source}:${b.version}`).join('+'),
+        attribution: obstacles.buildings.map(b => b.attribution).join(' · '),
+        file: 'buildings.u16',
+        tiles,
+      },
+      data: raster.cells,
+    })
+    const t0 = Date.now()
+    const canopy = await obstacles.canopy.read(og)
+    console.error(`EP ${input.city}: ${obstacles.canopy.source} ${Math.round((Date.now() - t0) / 1000)} s, ${canopy.failures.length} failures`)
+    failures.push(...canopy.failures)
+    let treeCells = 0, holes = 0
+    for (let i = 0; i < canopy.values.length; i++) {
+      if (canopy.values[i] > 0) treeCells++
+      if (!canopy.covered[i] && landAt(og.north - Math.floor(i / og.width) * og.res, og.west + (i % og.width) * og.res)) holes++
+    }
+    if (holes > 0) failures.push(`${holes} land cells without a canopy tile`)
+    extra.push({
+      record: { layer: 'canopy', source: obstacles.canopy.source, version: obstacles.canopy.version, attribution: obstacles.canopy.attribution, file: 'canopy.u8', tiles: canopy.tiles },
+      data: canopy.values,
+    })
+    obstacleChecks = { buildings: { ...raster.counts, cells: builtCells }, canopy: { treeCells, landHoles: holes } }
+  }
   const layers: DemLayerRecord[] = []
+  const write = (file: string, data: Float32Array | Uint16Array | Uint8Array) => {
+    const buf = Buffer.from(data.buffer, data.byteOffset, data.byteLength)
+    if (failures.length === 0) writeAtomic(path.join(cityDir, file), buf)
+    return createHash('sha256').update(buf).digest('hex')
+  }
   for (const [layer, { reader, read }] of reads) {
     const file = `${layer}.f32`
-    const buf = Buffer.from(read.values.buffer, read.values.byteOffset, read.values.byteLength)
-    if (failures.length === 0) writeAtomic(path.join(cityDir, file), buf)
-    layers.push({
-      layer,
-      source: reader.source,
-      version: reader.version,
-      attribution: reader.attribution,
-      file,
-      sha256: createHash('sha256').update(buf).digest('hex'),
-      tiles: read.tiles,
-    })
+    layers.push({ layer, source: reader.source, version: reader.version, attribution: reader.attribution, file, sha256: write(file, read.values), tiles: read.tiles })
   }
+  for (const { record, data } of extra) layers.push({ ...record, sha256: write(record.file, data) })
   const manifest: DemManifest = {
     city: input.city,
     preparedAt: (input.now?.() ?? new Date()).toISOString(),
     area: input.area,
     marginM: input.marginM,
     grid,
+    obstacleGrid: og,
     status: failures.length === 0 ? 'ok' : 'failed',
     failures,
     layers,
-    checks,
+    checks: { ...checks, ...obstacleChecks },
   }
   writeAtomic(path.join(cityDir, DEM_MANIFEST_FILE), JSON.stringify(manifest, null, 2))
   return manifest

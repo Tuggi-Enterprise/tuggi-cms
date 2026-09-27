@@ -12,6 +12,7 @@ import {
 } from '../../lib/services/dem/dem-prepare'
 import { DEM_LATTICE_DEG, DEM_SOURCES_VERSION, GEDTM30, COPERNICUS_GLO30, copernicusTileName, stampGenerationMethod } from '../../lib/services/dem/dem-sources'
 import { DemNotPreparedError, DemStore, type DemGrid } from '../../lib/services/dem/dem-store'
+import { fakeObstacles } from './helpers/fake-obstacles'
 
 // TP engine, EP — city preparation of the relief (#782). Targets in
 // docs/arquitetura/cms/motor-de-tp.md (INV-EPa/b/c, INV-E4, INV-E8). BR-AUDIO-010.
@@ -57,6 +58,7 @@ describe('INV-EPa / INV-EPb — EP prepares one city, checks it and writes a man
     const m = await prepareCityDem({
       city: 'Cidade Ok', area: AREA, marginM: 15_000, dir: tmp, now: () => new Date('2026-09-27T12:00:00Z'),
       readers: [fakeReader('surface', (r, c) => 100 + r + c + 20), fakeReader('ground', (r, c) => 100 + r + c)],
+      obstacles: fakeObstacles(),
     })
     assert.equal(m.status, 'ok')
     assert.deepEqual(m.failures, [])
@@ -178,14 +180,16 @@ describe('INV-E8 / INV-E4 / BR-AUDIO-010 — the sight line walks the surface at
 
   async function withRelief<T>(ground: (lat: number, lng: number) => number | null, surface: (lat: number, lng: number) => number | null, fn: () => Promise<T>): Promise<T> {
     const dem = DemStore.getInstance() as any
-    const original = { ground: dem.ground, surface: dem.surface }
+    const original = { ground: dem.ground, surface: dem.surface, cell: dem.cell }
     dem.ground = ground
     dem.surface = surface
+    dem.cell = () => null // no measured building or canopy: the surface alone (#783 layers tested in tp-engine-ep-obstacles)
     try {
       return await fn()
     } finally {
       dem.ground = original.ground
       dem.surface = original.surface
+      dem.cell = original.cell
     }
   }
 
@@ -252,13 +256,15 @@ describe('INV-E8 / INV-E4 / BR-AUDIO-010 — the sight line walks the surface at
     const sq = [at(-10, -10), at(-10, 10), at(10, 10), at(10, -10)]
     const boundary: any = { center: PIN, area_m2: 400, height: 0, buildings: [{ geometry: sq, tags: { building: 'yes' } }] }
     const dem = DemStore.getInstance() as any
-    const original = dem.obstacleHeight
+    const original = { obstacleHeight: dem.obstacleHeight, cell: dem.cell }
     dem.obstacleHeight = () => 17.5
+    dem.cell = () => null // no measured height in the buildings layer (#783): surface − ground
     try {
       ;(new CoreTriggerPointPredictor() as any).useContainingBuildingHeight(boundary)
       assert.equal(boundary.height, 17.5)
     } finally {
-      dem.obstacleHeight = original
+      dem.obstacleHeight = original.obstacleHeight
+      dem.cell = original.cell
     }
   })
 })
