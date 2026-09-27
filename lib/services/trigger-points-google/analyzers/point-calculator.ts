@@ -10,6 +10,7 @@ import {
   landmarkStreetTier,
   FAR_CELL_SPACING_M,
   FAR_RINGS_M,
+  LANDMARK_CELL_RINGS_M,
   FAR_SECTOR_DEG,
   VisibilityClass,
   proximityRankScore,
@@ -228,18 +229,22 @@ export class OptimalPointCalculator {
 /**
  * INV-E7c / INV-E10c: a landmark's candidates FAR from the edge, sampled along the streets in
  * reach and spread by direction. Beyond EDGE_BAND_M the walked candidates go into cells of
- * (sector of FAR_SECTOR_DEG seen from the POI × distance ring FAR_RINGS_M); each cell keeps its
- * best FAR_CANDIDATES_PER_CELL, at least FAR_CELL_SPACING_M apart. The near band stays whole.
- * Bounds the sight-line work (E8) without leaving a direction or a distance empty.
+ * (sector of FAR_SECTOR_DEG seen from the POI × distance ring FAR_RINGS_M), FAR_CELL_SPACING_M
+ * apart. Inside the last E10 inner ring a cell keeps EVERY tourist-street candidate (by street
+ * length: 6 per cell left the orla of Copacabana and the south shore of the Lagoa without one),
+ * and the other streets fill up to FAR_CANDIDATES_PER_CELL; in the horizon, tourist streets only,
+ * FAR_CANDIDATES_PER_CELL per cell (E10 takes nothing else there). The near band stays whole.
  */
 export function sampleFarBySectorAndRing(
   candidates: TriggerPointCandidate[],
   centre: { lat: number; lng: number }
 ): TriggerPointCandidate[] {
   const near = candidates.filter(c => c.distance <= EDGE_BAND_M);
+  const innerLimitM = LANDMARK_CELL_RINGS_M[LANDMARK_CELL_RINGS_M.length - 1];
   const cells = new Map<string, TriggerPointCandidate[]>();
   for (const c of candidates) {
     if (c.distance <= EDGE_BAND_M) continue;
+    if (c.distance > innerLimitM && landmarkStreetTier(c.street?.type) > 0) continue;
     const ringIdx = FAR_RINGS_M.findIndex(r => c.distance <= r);
     const sector = Math.floor((((calculateBearing(centre, c.location) % 360) + 360) % 360) / FAR_SECTOR_DEG);
     const key = `${sector}:${ringIdx}`;
@@ -249,9 +254,11 @@ export function sampleFarBySectorAndRing(
   for (const cell of cells.values()) {
     // Tourist streets first (INV-E10a): by quality alone the cell filled up with tracks and service lanes.
     cell.sort((a, b) => landmarkStreetTier(a.street?.type) - landmarkStreetTier(b.street?.type) || b.quality - a.quality);
+    const inner = cell[0].distance <= innerLimitM;
     const kept: TriggerPointCandidate[] = [];
     for (const c of cell) {
-      if (kept.length >= FAR_CANDIDATES_PER_CELL) break;
+      const byLength = inner && landmarkStreetTier(c.street?.type) === 0;
+      if (!byLength && kept.length >= FAR_CANDIDATES_PER_CELL) break;
       if (kept.some(k => calculateDistance(k.location, c.location) < FAR_CELL_SPACING_M)) continue;
       kept.push(c);
     }

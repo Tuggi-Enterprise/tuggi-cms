@@ -53,18 +53,16 @@ export const EDGE_BAND_M = 100;
 export const FAR_SECTOR_DEG = 45;
 /** Outer limits of the distance rings beyond EDGE_BAND_M, from the edge. */
 export const FAR_RINGS_M = [500, 1_000, 2_000, 4_000, 8_000, SANITY_MAX_TP_DISTANCE_M];
-/** Candidates kept per (sector × ring) cell before the sight line. */
+/**
+ * Inner rings (up to the last LANDMARK_CELL_RINGS_M): every tourist-street candidate at least
+ * FAR_CELL_SPACING_M from the others, so a cell's candidates follow the length of its avenues
+ * and promenades (Copacabana, Ipanema, the south shore of the Lagoa); other streets fill up to
+ * FAR_CANDIDATES_PER_CELL. Horizon: tourist streets only, FAR_CANDIDATES_PER_CELL per cell —
+ * E10 takes nothing else there, and the horizon is the bulk of the sight-line cost.
+ */
 export const FAR_CANDIDATES_PER_CELL = 6;
 /** Min distance between two candidates of the same cell. */
 export const FAR_CELL_SPACING_M = 300;
-/**
- * Beyond this distance from the edge a landmark's streets are fetched by type only
- * (FAR_STREET_TYPES), tile by tile (FAR_STREET_TILE_M): every street within 15 km is ~100k
- * rows. Inside it, every street is fetched along the edge.
- */
-export const FAR_STREETS_FROM_M = 2_000;
-export const FAR_STREET_TYPES = ['motorway', 'trunk', 'primary', 'secondary', 'tertiary', 'motorway_link', 'trunk_link', 'primary_link', 'secondary_link'];
-export const FAR_STREET_TILE_M = 3_000;
 
 // ── Landmark selection by cell coverage (E10, INV-E10a/c) ─────────────────────
 /**
@@ -90,6 +88,15 @@ export function landmarkStreetTier(streetType?: string): 0 | 1 | 2 {
   if (LANDMARK_AVOID_STREET_TYPES.includes(streetType ?? '')) return 2;
   return 1;
 }
+
+/**
+ * Streets of a landmark (E6/E7): every type along the edge up to the last E10 inner ring;
+ * beyond it, where E10 takes a tourist street only, those types only, tile by tile
+ * (FAR_STREET_TILE_M): every street within 15 km is ~100k rows.
+ */
+export const FAR_STREETS_FROM_M = LANDMARK_CELL_RINGS_M[LANDMARK_CELL_RINGS_M.length - 1];
+export const FAR_STREET_TYPES = LANDMARK_TOURIST_STREET_TYPES;
+export const FAR_STREET_TILE_M = 3_000;
 
 export interface ClassLimits {
   /** max distance from the TP to the POI EDGE */

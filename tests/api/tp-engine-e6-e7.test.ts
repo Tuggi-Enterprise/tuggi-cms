@@ -58,19 +58,22 @@ describe('INV-E7b, BR-AUDIO-010 — o candidato perto fica no pé da perpendicul
 })
 
 describe('INV-E7c / INV-E10c, BR-AUDIO-010 — landmark_high gera candidatos longe, distribuídos por setor', () => {
-  const cand = (n: number, e: number, quality = 0.5) => {
+  const cand = (n: number, e: number, quality = 0.5, type = 'primary') => {
     const location = at(n, e)
-    return { location, distance: Math.hypot(n, e), quality, expectedBearing: 0, confidence: 0.85, street: {} as any }
+    return { location, distance: Math.hypot(n, e), quality, expectedBearing: 0, confidence: 0.85, street: { type } as any }
   }
 
-  it('cada célula (setor × anel) guarda no máximo FAR_CANDIDATES_PER_CELL; a faixa da borda fica inteira', () => {
+  it('beyond the inner rings each cell keeps at most FAR_CANDIDATES_PER_CELL, tourist streets only; the edge band stays whole', () => {
     const near = Array.from({ length: 10 }, (_, i) => cand(50, i * 5))
-    const crowded = Array.from({ length: 40 }, (_, i) => cand(3_000 + i * 400, 10)) // um setor, vários anéis
-    const out = sampleFarBySectorAndRing([...near, ...crowded] as any, PIN)
+    const crowded = Array.from({ length: 40 }, (_, i) => cand(3_000 + i * 400, 10)) // one sector, several rings
+    const lanes = Array.from({ length: 10 }, (_, i) => cand(5_000 + i * 400, 300, 0.9, 'residential'))
+    const out = sampleFarBySectorAndRing([...near, ...crowded, ...lanes] as any, PIN)
     assert.equal(out.filter(c => c.distance <= EDGE_BAND_M).length, near.length)
     const far = out.filter(c => c.distance > EDGE_BAND_M)
-    assert.ok(far.length > FAR_CANDIDATES_PER_CELL, 'anéis diferentes são células diferentes')
+    assert.ok(far.length > FAR_CANDIDATES_PER_CELL, 'different rings are different cells')
     assert.ok(far.length < crowded.length)
+    assert.ok(!far.some(c => lanes.includes(c as any)), 'the horizon takes tourist streets only')
+    assert.ok(far.filter(c => c.distance > 4_000 && c.distance <= 8_000).length <= FAR_CANDIDATES_PER_CELL)
   })
 
   it('candidatos longe em oito direções saem nas oito direções', () => {

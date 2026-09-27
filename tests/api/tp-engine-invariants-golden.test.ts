@@ -236,12 +236,12 @@ const ZONE_CHECKS: ZoneCheck[] = [
   { poi: 'Cristo Redentor', id: POI_ID.cristoRedentor, zone: 'copacabana', label: 'Copacabana' },
   { poi: 'Pão de Açúcar', id: POI_ID.paoDeAcucar, zone: 'urca', label: 'Urca' },
   { poi: 'Pão de Açúcar', id: POI_ID.paoDeAcucar, zone: 'botafogo', label: 'Botafogo' },
-  // Coberta por um TP na Av. Infante Dom Henrique (trunk): válido, o app é usado dirigindo (BR-POI-008).
+  // Covered by a TP on the Av. Infante Dom Henrique (trunk): valid, the app is used driving (BR-POI-008).
   { poi: 'Pão de Açúcar', id: POI_ID.paoDeAcucar, zone: 'aterroDoFlamengo', label: 'Aterro do Flamengo' },
   { poi: 'Pico do Irmão Menor', id: POI_ID.picoDoIrmaoMenor, zone: 'orlaDoLeblon', label: 'orla do Leblon' },
   {
     poi: 'Pico do Irmão Menor', id: POI_ID.picoDoIrmaoMenor, zone: 'orlaDeIpanema', label: 'orla de Ipanema',
-    todoCause: 'INV-E7c/E10a: nenhum TP alcança a orla de Ipanema nesta build',
+    todoCause: 'INV-E10a: the 45° × 2–4 km cell east of the Irmão Menor holds both the Lagoa and Ipanema; its 1st TP goes to the Lagoa (closer), and the far cap (20) leaves 2 second-pass slots (fix/tp-engine-quality-e)',
   },
   { poi: 'Sala de Leitura da Cidade das Artes', id: POI_ID.cidadeDasArtes, zone: 'avenidaDasAmericas', label: 'Av. das Américas' },
   { poi: 'Sala de Leitura da Cidade das Artes', id: POI_ID.cidadeDasArtes, zone: 'avenidaAyrtonSenna', label: 'Av. Ayrton Senna' },
@@ -288,16 +288,16 @@ describe('Maracanã: cobertura de pelo menos 2 lados (dívida E1, #772)', { skip
 })
 
 // ============================================================================================
-// Asserção negativa (INV-E10a, commit 0a656ec do workspace): num `landmark_high`, nenhum TP em
-// `track`/`path`/`service` quando a célula dele tinha candidato de via melhor. `trunk`,
-// `motorway` e ponte NÃO são rebaixados — o app é usado dirigindo (BR-POI-008). Lido do rastro
-// da E10 (`tp-selection#selectSpacedTriggerPoints`: `cell sS/rR; tier N <tipo>; won|lost ...`),
-// com o tipo classificado aqui, não pela camada que o motor imprime. Um candidato melhor que
-// perdeu por espaçamento não conta: o espaçamento é físico, não preferência.
+// Negative assertion (INV-E10a, workspace commit 0a656ec): in a `landmark_high`, no TP on
+// `track`/`path`/`service` when its cell had a candidate on a better street. `trunk`, `motorway`
+// and bridge are NOT demoted — the app is used driving (BR-POI-008). Read from the E10 trace
+// (`tp-selection#selectSpacedTriggerPoints`: `cell sS/rR; tier N <type>; won|lost ...`), with the
+// type classified here, not by the tier the engine prints. A better candidate that lost on
+// spacing does not count: spacing is physical, not preference.
 // ============================================================================================
 const NOBODY_TRAVELS = new Set(['track', 'path', 'service'])
 
-describe('Nenhum TP de landmark_high em track/path/service com via melhor na célula (INV-E10a, BR-POI-008, #772)', { skip: CAN_RUN ? false : SKIP_REASON }, () => {
+describe('No landmark_high TP on track/path/service when the cell had a better street (INV-E10a, BR-POI-008, #772)', { skip: CAN_RUN ? false : SKIP_REASON }, () => {
   const LANDMARK_HIGH_POIS = [
     { poi: 'Cristo Redentor', id: POI_ID.cristoRedentor },
     { poi: 'Pão de Açúcar', id: POI_ID.paoDeAcucar },
@@ -306,14 +306,14 @@ describe('Nenhum TP de landmark_high em track/path/service com via melhor na cé
   ]
 
   for (const { poi, id } of LANDMARK_HIGH_POIS) {
-    it(`${poi}: TP em track/path/service só onde a célula não tinha via melhor`, async () => {
+    it(`${poi}: TP on track/path/service only where the cell had no better street`, async () => {
       const result = await getResult(id)
       assert.equal(result.error, null)
       const rows = result.trace
         .filter(r => r.stage === 'E10' && r.rule === 'tp-selection#selectSpacedTriggerPoints')
         .map(r => ({ r, m: /cell (s\d+\/r\d+); tier \d \S+ ?/.exec(r.value), type: /cell s\d+\/r\d+; tier \d (\S+);/.exec(r.value)?.[1] ?? '?' }))
         .filter(x => x.m)
-      assert.ok(rows.length > 0, `${poi}: sem rastro de célula na E10 — a classe deixou de ser landmark_high?`)
+      assert.ok(rows.length > 0, `${poi}: no E10 cell trace — is the class still landmark_high?`)
       const byCell = new Map<string, typeof rows>()
       for (const x of rows) {
         const cell = x.m![1]
@@ -326,7 +326,7 @@ describe('Nenhum TP de landmark_high em track/path/service com via melhor na cé
         const betterLeftOut = xs.filter(x => x.r.decision === 'dropped' && !NOBODY_TRAVELS.has(x.type) && x.type !== '?' && !/lost: spacing/.test(x.r.value))
         assert.ok(
           keptBetter || betterLeftOut.length === 0,
-          `${poi}: célula ${cell} ficou com TP em ${keptBad.map(x => `${x.type} ${x.r.candidate}`).join(', ')} e deixou de fora ${betterLeftOut.map(x => `${x.type} ${x.r.candidate}`).join(', ')}`
+          `${poi}: cell ${cell} kept ${keptBad.map(x => `${x.type} ${x.r.candidate}`).join(', ')} and left out ${betterLeftOut.map(x => `${x.type} ${x.r.candidate}`).join(', ')}`
         )
       }
     })

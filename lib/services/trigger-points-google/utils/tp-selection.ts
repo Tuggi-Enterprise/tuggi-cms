@@ -110,13 +110,19 @@ export function selectSpacedTriggerPoints(
     // is spent, and only on a tourist street: measured on the Rio sample it held the bridge,
     // a footway on an island and the far side of the bay, while Ipanema waited for a 2nd TP.
     const outer = String(LANDMARK_CELL_RINGS_M.length);
+    const tierRank = new Map([...cells].map(([k, c]) => [k, tierOf(c[0])]));
+    const ringOf = (k: string) => Number(k.split(':')[0]);
+    const sectorOf = (k: string) => Number(k.split(':')[1]);
     const keys = [...cells.keys()].sort(byTierRingSector);
     const lost = new Map<TriggerPoint, string>();
     for (const phase of [keys.filter(k => !k.startsWith(`${outer}:`)), keys.filter(k => k.startsWith(`${outer}:`))]) {
       const isOuter = phase[0]?.startsWith(`${outer}:`);
       // Pass k gives each cell its k-th TP: every covered cell before any cell gets a second one.
+      // From pass 2 on, the outer rings first: a second TP 3 km out (Ipanema seen from the Irmão
+      // Menor, Copacabana from the Cristo) is where the tourist is; a second one on the slope is not.
+      const secondPass = [...phase].sort((a, b) => tierRank.get(a)! - tierRank.get(b)! || ringOf(b) - ringOf(a) || sectorOf(a) - sectorOf(b));
       for (let pass = 1; phase.some(k => cells.get(k)!.length); pass++) {
-        for (const key of phase) {
+        for (const key of pass === 1 ? phase : secondPass) {
           const cell = cells.get(key)!;
           while (cell.length) {
             const tp = cell.shift()!;

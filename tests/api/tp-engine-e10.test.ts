@@ -85,6 +85,15 @@ describe('INV-E10a, INV-E10c, BR-AUDIO-010 — landmark_high selects by cell cov
     assert.match(roomy.get(island), /lost: horizon needs a tourist street/)
   })
 
+  it('from pass 2 on, the outer ring gets its second TP before the slope next to the POI', () => {
+    const slope = [tp(80, 500, 'primary', 0.9), tp(84, 800, 'primary', 0.9)] // same ring-0 cell
+    const ipanema = [tp(80, 2_300, 'primary', 0.5), tp(84, 3_300, 'primary', 0.5)] // same ring-2 cell
+    const why = new Map()
+    const out = selectSpacedTriggerPoints([...slope, ...ipanema], { ...landmark, maxFarTriggerPoints: 3 }, PIN, why)
+    assert.ok(out.includes(ipanema[1]), [...why.values()].join(' | '))
+    assert.match(why.get(slope[1]), /lost: cap/)
+  })
+
   it('the cap is the class one, and the minimum spacing still holds (INV-E10b)', () => {
     const pool = Array.from({ length: 8 }, (_, s) =>
       [500, 2_000, 4_500, 9_000].flatMap(m => [tp(s * 45 + 10, m, 'secondary'), tp(s * 45 + 11, m + 5, 'secondary')])).flat()
@@ -111,5 +120,28 @@ describe('INV-E10a, INV-E10c, BR-AUDIO-010 — landmark_high selects by cell cov
     const avenue = cand(100, 3_000, 'secondary', 0.5)
     const out = sampleFarBySectorAndRing([...trunks, avenue] as any, PIN)
     assert.ok(out.includes(avenue as any))
+  })
+
+  it('INV-E7c: inside the inner rings a cell keeps its tourist streets by length, not 6 per cell', () => {
+    const cand = (bearing: number, m: number, type: string, quality: number) =>
+      ({ location: polar(bearing, m), distance: m, quality, expectedBearing: 0, confidence: 0.85, street: { type } as any })
+    // a promenade crossing the 2–4 km ring of one 45° sector, one walked point every 100 m
+    const orla = Array.from({ length: 20 }, (_, i) => cand(95 + i * 1.9, 2_100 + i * 95, 'primary', 0.5))
+    const residential = Array.from({ length: 10 }, (_, i) => cand(120, 2_100 + i * 190, 'residential', 0.9))
+    const out = sampleFarBySectorAndRing([...orla, ...residential] as any, PIN)
+    const keptOrla = out.filter(c => orla.includes(c as any)).length
+    assert.ok(keptOrla > 6, `${keptOrla} of the promenade`)
+    // tourist streets are not capped; the others only fill up to FAR_CANDIDATES_PER_CELL
+    assert.equal(out.filter(c => residential.includes(c as any)).length, 0)
+  })
+
+  it('INV-E7c: the horizon keeps tourist streets only, FAR_CANDIDATES_PER_CELL per cell', () => {
+    const cand = (bearing: number, m: number, type: string) =>
+      ({ location: polar(bearing, m), distance: m, quality: 0.5, expectedBearing: 0, confidence: 0.85, street: { type } as any })
+    const avenue = Array.from({ length: 12 }, (_, i) => cand(100, 4_500 + i * 300, 'secondary'))
+    const lane = cand(110, 5_000, 'residential')
+    const out = sampleFarBySectorAndRing([...avenue, lane] as any, PIN)
+    assert.ok(!out.includes(lane as any))
+    assert.ok(out.length <= 6 * 2, `${out.length}`) // two E7 rings (4–8 km, 8+ km) in this sector
   })
 })
