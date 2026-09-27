@@ -125,6 +125,20 @@ describe('INV-E1b — a drawn circle leaves with source=synthetic on every path 
     assert.equal(r.data.synthetic, true)
   })
 
+  it('INV-E1c: an id that is a place label skips the area-under-the-pin search; the name search still runs', async () => {
+    const { BoundaryDetector } = await import('../../lib/services/trigger-points-google/core/boundary-detector')
+    const d = new BoundaryDetector() as any
+    const calls: string[] = []
+    d.detectOSMBoundaryByID = async () => { calls.push('id'); return { success: false, metadata: { idIsPlace: true } } }
+    d.detectContainingBoundary = async () => { calls.push('contains'); return { success: false } }
+    d.detectOSMBoundary = async () => { calls.push('name'); return { success: false } }
+    d.fetchBoundaryFromDatabase = async () => ({ success: false })
+    d.createEstimatedBoundary = async () => ({ coordinates: [], synthetic: true })
+    d.withClassification = async (b: unknown) => b
+    await d.detectBoundary({ id: 'x', name: 'x', osm_id: 1, osm_type: 'node', location: PIN })
+    assert.deepEqual(calls, ['id', 'name'])
+  })
+
   it('a circle from the name search (Nominatim point) also leaves synthetic', async () => {
     const { BoundaryDetector } = await import('../../lib/services/trigger-points-google/core/boundary-detector')
     const d = new BoundaryDetector() as any

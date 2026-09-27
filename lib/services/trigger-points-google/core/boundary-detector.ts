@@ -116,14 +116,18 @@ export class BoundaryDetector {
       let osmBoundaryResult: ProcessingResult<BoundaryData> | null = null;
       // A node id has no footprint: its circle only marks the point, and is the last resort.
       let pointCircle: ProcessingResult<BoundaryData> | null = null;
+      // The id is a neighbourhood's label node: the pin was copied from it and says nothing about
+      // which polygon is the POI (Praça Seca took a building under the label and became a landmark).
+      let idIsPlace = false;
 
       if (poiData.osm_id && poiData.osm_type) {
         const byId = await this.detectOSMBoundaryByID(String(poiData.osm_id), poiData.osm_type, poiData);
+        idIsPlace = !!byId.metadata?.idIsPlace;
         if (byId.success && byId.data?.synthetic) pointCircle = byId;
         else osmBoundaryResult = byId;
       }
 
-      if (!osmBoundaryResult?.success) {
+      if (!osmBoundaryResult?.success && !idIsPlace) {
         const containing = await this.detectContainingBoundary(poiData, pointCircle?.data?.osmTags);
         if (containing.success) osmBoundaryResult = containing;
       }
@@ -453,7 +457,10 @@ out geom tags;
       // Maracanã and Manguinhos ids resolve to `place=suburb` nodes and drew a circle at the pin.
       if (!chosen && isPlaceElement(element.tags) && !poiIsPlace(poiData.type)) {
         this.rejections.push({ element: `${osmType}/${osmID}`, reason: 'place/boundary element for a POI that is not a place' });
-        return { success: false, error: 'osm_id is a place and the POI is not', processingTime: 0 };
+        return {
+          success: false, error: 'osm_id is a place and the POI is not', processingTime: 0,
+          metadata: { step: 'boundary_detection', status: 'rejected', timestamp: new Date().toISOString(), idIsPlace: true },
+        };
       }
       
       // Processar geometria
