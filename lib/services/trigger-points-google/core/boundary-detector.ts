@@ -197,7 +197,7 @@ export class BoundaryDetector {
       const estimatedResult = await this.createEstimatedBoundary(poiData);
       return {
         success: true,
-        data: await this.withClassification({ ...estimatedResult, source: 'estimated', osmIdentified: false, rejected: this.rejections.length ? [...this.rejections] : undefined }, poiData),
+        data: await this.withClassification({ ...estimatedResult, osmIdentified: false, rejected: this.rejections.length ? [...this.rejections] : undefined }, poiData),
         processingTime: Date.now() - startTime,
         metadata: {
           step: 'boundary_detection',
@@ -2287,7 +2287,9 @@ out geom;
   }
 
   private async createEstimatedBoundary(poiData: POIData): Promise<BoundaryData> {
-    // Nothing found: the pin as a point, the same circle an OSM node gets (INV-E1b).
+    // Nothing found: the pin as a point, the same circle an OSM node gets, down the same engine
+    // path (INV-E1b). As `estimated` it took the one-TP legacy fallback of the predictor, and the
+    // Árvore de Natal lost its car-street TP.
     const coordinates = this.createCircularBoundary(poiData.location, POINT_CIRCLE_RADIUS_M);
     return {
       type: 'polygon',
@@ -2296,7 +2298,7 @@ out geom;
       area_m2: calculatePolygonAreaInM2(coordinates),
       perimeter_m: 0,
       confidence: 0.3,
-      source: 'estimated' as const,
+      source: 'synthetic' as const,
       synthetic: true
     };
   }
