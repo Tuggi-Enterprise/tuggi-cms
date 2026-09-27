@@ -136,6 +136,18 @@ describe('INV-E1a — a relation id from Overpass becomes its outer ring, not a 
     assert.ok(Math.abs(ring[0].lat - PIN.lat) < 400 * M_LAT, 'the small ring at the pin, not the larger one away')
   })
 
+  it('INV-E1c: a POI with no category and no tags does not take a named square of another name (Monumento Árvore de Natal, #772)', () => {
+    const praca = { type: 'way', id: 12, tags: { leisure: 'park', name: 'Praça do Radio Amador' }, geometry: square(30) }
+    const geocoderHit = { class: 'highway', type: 'pedestrian', name: '' }
+    const r = choice.chooseContainingBoundary(PIN, { name: 'Monumento Árvore de Natal', category: 'point_of_interest', tags: geocoderHit }, [praca])
+    assert.equal(r.chosen, undefined)
+    assert.ok(r.rejected.some(x => x.element === 'way/12' && /named ground/.test(x.reason)))
+    // same name, a category, or tags of the same kind: the square stays eligible
+    assert.equal(choice.chooseContainingBoundary(PIN, { name: 'Praça do Rádio Amador', category: null }, [praca]).chosen?.element.id, 12)
+    assert.equal(choice.chooseContainingBoundary(PIN, { name: 'Monumento Árvore de Natal', category: 'park' }, [praca]).chosen?.element.id, 12)
+    assert.equal(choice.chooseContainingBoundary(PIN, { name: 'X', category: null, tags: { leisure: 'park' } }, [praca]).chosen?.element.id, 12)
+  })
+
   it('INV-E1c: an uncategorised POI named as its curated place relation is that place; a node or another name is not', () => {
     const rel = { boundary: 'administrative', admin_level: '10', name: 'Maracanã' }
     assert.equal(choice.curatedPlaceIsThePoi('relation', rel, { name: 'Maracanã', category: 'point_of_interest' }), true)

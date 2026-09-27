@@ -7,7 +7,7 @@ import { POIData, GeographicContext, BoundaryData, ProcessingResult } from '../t
 import { convertViewportToPolygon, calculatePolygonArea, calculatePolygonAreaInM2, calculatePolygonCenter, calculateDistance, isPointInPolygon, isDrawnCircle } from '../utils/calculations';
 import { TRIGGER_POINTS_CONSTANTS } from '../config/trigger-points-config';
 import { isCuratedBoundaryImplausible } from '../utils/osm-validation';
-import { assembleOuterRings, chooseContainingBoundary, curatedPlaceIsThePoi, footprintRing, isPlaceElement, outerRing, poiIsPlace, type BoundaryRejection, type OsmAreaElement } from '../utils/boundary-choice';
+import { assembleOuterRings, chooseContainingBoundary, curatedPlaceIsThePoi, footprintRing, isPlaceElement, NAMED_GROUND_REASON, outerRing, poiIsPlace, type BoundaryRejection, type OsmAreaElement } from '../utils/boundary-choice';
 import { getSupabase } from '../../../core/supabase-client';
 
 /** Surveyed summits for the ground-top read (E4): one point per `processOSMPeaks` element. */
@@ -130,6 +130,9 @@ export class BoundaryDetector {
       if (!osmBoundaryResult?.success && !idIsPlace) {
         const containing = await this.detectContainingBoundary(poiData, pointCircle?.data?.osmTags);
         if (containing.success) osmBoundaryResult = containing;
+        // The pin stands on a named square of another name: the POI is an object on it, a point.
+        // Without this the 50 m estimated circle swallowed the avenue and every TP (Árvore de Natal, #772).
+        else if (!pointCircle && this.rejections.some(r => r.reason === NAMED_GROUND_REASON)) pointCircle = this.pinPointCircle(poiData);
       }
 
       // Name search is for a POI without an id: with a node id it finds the same point again
@@ -1257,7 +1260,8 @@ out geom tags;
    * or a 0.69 km² polygon (Monumento Árvore de Natal, #772).
    */
   private async detectContainingBoundary(poiData: POIData, ownTags?: Record<string, unknown>): Promise<ProcessingResult<BoundaryData>> {
-    const tags = ownTags ?? (poiData.osm_tags as Record<string, unknown> | undefined);
+    // The engine input carries the POI tags as `tags` (poi-migration-pipeline#buildEngineInput).
+    const tags = (ownTags ?? poiData.osm_tags ?? (poiData as POIData & { tags?: unknown }).tags) as Record<string, unknown> | undefined;
     const { LocalOSMFetcher } = await import('../services/local-osm-fetcher');
     let elements: OsmAreaElement[] | null = LocalOSMFetcher.getInstance().fetchAreasContaining(poiData.location);
     if (!elements) {
@@ -1282,7 +1286,7 @@ out geom tags;
       }
     }
     const { chosen, rejected } = chooseContainingBoundary(
-      poiData.location, { category: poiData.type, tags }, elements ?? []
+      poiData.location, { name: poiData.name, category: poiData.type, tags }, elements ?? []
     );
     this.rejections.push(...rejected);
     if (!chosen) return { success: false, error: 'No OSM area fits the POI at the pin', processingTime: 0 };
@@ -2857,6 +2861,19 @@ out tags;
   /**
    * Cria boundary estimado baseado no contexto
    */
+  /** The pin as a point object: the same 10 m synthetic circle an OSM node gets (INV-E1b). */
+  private pinPointCircle(poiData: POIData): ProcessingResult<BoundaryData> {
+    const coordinates = this.createCircularBoundary(poiData.location, 10);
+    return {
+      success: true,
+      data: {
+        type: 'polygon', coordinates, center: poiData.location, area_m2: calculatePolygonAreaInM2(coordinates),
+        perimeter_m: 0, confidence: 0.3, source: 'synthetic', synthetic: true,
+      },
+      processingTime: 0,
+    };
+  }
+
   private async createEstimatedBoundary(poiData: POIData): Promise<BoundaryData> {
     // ✅ REFATORADO: Usar raio padrão pequeno (50m) para POIs não encontrados
     // Não precisa de context - POI não encontrado provavelmente é pequeno/irrelevante

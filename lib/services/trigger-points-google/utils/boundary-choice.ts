@@ -85,6 +85,27 @@ export function curatedPlaceIsThePoi(
     && [elementTags?.name, elementTags?.['name:pt']].some(n => normName(n) === name);
 }
 
+/**
+ * An uncategorised POI under a NAMED square, park, landuse or landform of another name, whose own
+ * tags do not say it is that kind of place: the element is the ground it stands on, not the POI.
+ * The Monumento Árvore de Natal (no id; tags = the geocoder's `highway=pedestrian` hit) took the
+ * Praça do Radio Amador (leisure=park, 6,008 m²) with the avenue sidewalk in it (#772). The name
+ * is compared for identity, never read for kind (P3).
+ */
+export const NAMED_GROUND_REASON = 'named ground of another name under a POI with no kind evidence';
+
+export function isNamedGroundOfAnotherPoi(
+  elementTags: Tags,
+  poi: { name?: string | null; category?: string | null; tags?: Tags },
+): boolean {
+  const uncategorised = !poi.category || poi.category === 'point_of_interest';
+  const groundKeys = POINT_FEATURE_REFUSED_KEYS.filter(k => tagValue(elementTags, k) !== '');
+  const sameKind = groundKeys.some(k => tagValue(poi.tags, k) === tagValue(elementTags, k));
+  const own = [elementTags?.name, elementTags?.['name:pt']].map(normName).filter(n => n !== '');
+  const name = normName(poi.name);
+  return uncategorised && groundKeys.length > 0 && !sameKind && name !== '' && own.length > 0 && !own.includes(name);
+}
+
 /** Relief: the border is the landform around the summit (natural=*), never a park or a building. */
 export function isReliefPoi(tags: Tags): boolean {
   return ['peak', 'hill', 'volcano'].includes(tagValue(tags, 'natural'));
@@ -181,7 +202,7 @@ const isClosed = (ring: LatLng[]): boolean =>
  */
 export function chooseContainingBoundary(
   pin: LatLng,
-  poi: { category?: string | null; tags?: Tags },
+  poi: { name?: string | null; category?: string | null; tags?: Tags },
   elements: OsmAreaElement[],
 ): { chosen?: ChosenBoundary; rejected: BoundaryRejection[] } {
   const rejected: BoundaryRejection[] = [];
@@ -202,6 +223,7 @@ export function chooseContainingBoundary(
     const reject = (reason: string) => rejected.push({ element: key, reason });
 
     if (isPlaceElement(el.tags) && !place) { reject('place/boundary element for a POI that is not a place'); continue; }
+    if (isNamedGroundOfAnotherPoi(el.tags, poi)) { reject(NAMED_GROUND_REASON); continue; }
     if (relief && tagValue(el.tags, 'natural') === '') { reject('relief POI takes a natural=* landform only'); continue; }
     if (relief && areaM2 > RELIEF_MAX_AREA_M2) {
       reject(`relief landform ${Math.round(areaM2)} m² > ${RELIEF_MAX_AREA_M2} m² (the massif, not the hill)`); continue;
