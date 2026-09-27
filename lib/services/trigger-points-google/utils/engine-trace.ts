@@ -16,7 +16,7 @@ import {
   VisibilityClass,
 } from '../config/visibility-class';
 
-export type TraceStage = 'E1' | 'E3' | 'E4' | 'E5' | 'E6' | 'E7' | 'E8' | 'E9-E10' | 'E10' | 'E11';
+export type TraceStage = 'EP' | 'E1' | 'E3' | 'E4' | 'E5' | 'E6' | 'E7' | 'E8' | 'E9-E10' | 'E10' | 'E11';
 
 export interface EngineTraceRow {
   poi_id: string;

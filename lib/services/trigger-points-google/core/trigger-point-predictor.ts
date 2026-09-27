@@ -10,7 +10,8 @@ import { POIData, TriggerPoint, TriggerPointGenerationOptions, TriggerPointPredi
 import { calculateBearing, calculateDistance, findClosestPointOnBoundary, closestStreetPointToPoi, closestPointOnPolyline } from '../utils/calculations';
 import { deterministicTPId } from '../utils/deterministic';
 import { loadTriggerPointsConfig, TriggerPointsConfig, TRIGGER_POINTS_CONSTANTS } from '../config/trigger-points-config';
-import { VisibilityClass, LANDMARK_MIN_PROMINENCE_M, EDGE_BAND_M, fanHorizonM, heightFromTags, isCarStreet } from '../config/visibility-class';
+import { VisibilityClass, LANDMARK_MIN_PROMINENCE_M, EDGE_BAND_M, SANITY_MAX_TP_DISTANCE_M, fanHorizonM, heightFromTags, isCarStreet } from '../config/visibility-class';
+import { DemNotPreparedError, DemStore } from '../../dem/dem-store';
 import { emitDebugQuality, DebugQualitySnapshot } from '../debug-quality-logger';
 import { selectSpacedTriggerPoints, applyTpPostConditions, bestStreetPointOutside, REACH_RESCUE_METHOD } from '../utils/tp-selection';
 import { poiEdgeRing } from '../utils/validation';
@@ -23,10 +24,9 @@ import { VisibilityMapBuilder } from '../analyzers/visibility-map-builder';
 // Defaults baked into VisibilityMapBuilder.buildFan() — used by debug-quality
 // emission when the fan is present (the boundary.visibilityFan type flattens
 // stats but drops directionCount/stepM/maxHorizonM diagnostics). Keep in sync
-// with visibility-map-builder.ts:90-92.
+// with visibility-map-builder.ts#buildFan; the step is the relief grid spacing.
 const FAN_DEFAULT_HORIZON_M = 10000;
 const FAN_DEFAULT_DIRECTION_COUNT = 72;
-const FAN_DEFAULT_STEP_M = 100;
 
 export class CoreTriggerPointPredictor {
   private geographicAnalyzer: GeographicContextAnalyzer;
@@ -63,6 +63,11 @@ export class CoreTriggerPointPredictor {
     poiData: POIData,
     options: TriggerPointGenerationOptions = {}
   ): Promise<TracedPrediction> {
+    // EP (#782, INV-EPb/c): the relief of the POI's city must be prepared on disk, with the
+    // reach of a TP around it. Otherwise the POI does not generate — no other source stands in.
+    const pin = poiData.location;
+    const cover = DemStore.getInstance().coverage(pin?.lat, pin?.lng, SANITY_MAX_TP_DISTANCE_M);
+    if (!cover.ok) throw new DemNotPreparedError(cover.reason);
     const candidateRows: EngineTraceRow[] = [];
     const result = await this.predictWithTrace(poiData, options, candidateRows);
     const poiId = poiData.id ?? '';
@@ -189,7 +194,7 @@ export class CoreTriggerPointPredictor {
         search_radius_m: _searchRadius,
         fan_max_horizon_m: fan ? (options.visibilityMaxHorizonM ?? FAN_DEFAULT_HORIZON_M) : undefined,
         fan_direction_count: fan ? FAN_DEFAULT_DIRECTION_COUNT : undefined,
-        fan_step_m: fan ? FAN_DEFAULT_STEP_M : undefined,
+        fan_step_m: fan ? Math.round(DemStore.getInstance().stepM) : undefined,
         fan_sample_points: fan?.samplePoints?.length,
         fan_mean_visible_m: fan?.meanDistanceM,
         fan_max_visible_m: fan?.maxDistanceM,
@@ -446,9 +451,8 @@ export class CoreTriggerPointPredictor {
       //
       // O fan é coarse (72 direções × interpolação angular + polygon edge effects).
       // Aqui re-checamos cada candidato VIA ray-cast EXATO POI → candidato
-      // location. Bate o terreno em intervalos fixos de 100m, com short-circuit
-      // ao primeiro bloqueio. Cache por POI compartilha pixels SRTM entre
-      // candidatos da mesma região.
+      // location, over the relief surface at the grid spacing (~30 m, #782), com
+      // short-circuit ao primeiro bloqueio.
       //
       // Casos que isso pega que o fan não pega:
       //  - Cristo → Av. Niemeyer: bloqueado por morros estreitos entre 5-6km
@@ -1319,9 +1323,8 @@ export class CoreTriggerPointPredictor {
    * preciso POI → location bate em terreno.
    *
    * Detalhes:
-   *  - Sample interval fixo 100m (não proporcional → não miss peaks estreitos)
-   *  - Margem SRTM 15m (noise vertical típico do dataset)
-   *  - Cache de elevação por POI (compartilha pixels entre candidatos)
+   *  - Walk at the relief grid spacing (~30 m) over the surface (#782)
+   *  - `SIGHT_NOISE_MARGIN_M` (GLO-30 vertical accuracy)
    *  - Paraleliza em lotes de 200 (cobre I/O do SQLite local sem stall)
    *  - Short-circuit no primeiro bloqueio
    */
@@ -1333,22 +1336,20 @@ export class CoreTriggerPointPredictor {
 
     const { VisibilityMapBuilder } = await import('../analyzers/visibility-map-builder');
     const { LocalOSMFetcher } = await import('../services/local-osm-fetcher');
-    const { SRTMLocalService } = await import('../../srtm-local-service');
 
     // INV-E8: same target as the fan — ground at the top of the boundary (E4) + height (E3).
     const { topM: poiTop } = VisibilityMapBuilder.poiSightTarget(boundary);
 
     // ── Pre-fetch building tops pro check de urban-canyon ──────────────────
-    // Filtro de altura ≥8m: só buildings que PODEM bloquear linha de visão
-    // perto do observador (line altitude ~5-15m a 50-100m do observador).
-    // Sem height tag explícito → descartamos (casa residencial típica).
+    // Only buildings with a MEASURED height (tag) ≥ 8 m, on the ground (GEDTM30). The rest,
+    // houses included, is already in the relief surface the sight line walks (#782).
     const fanRadius = boundary.visibilityFan?.maxDistanceM ?? 0;
     const buildingTops: Array<{ centroid: { lat: number; lng: number }; topAltitudeM: number; polygon: Array<{ lat: number; lng: number }> }> = [];
 
     if (fanRadius > 100) {
       const fetcher = LocalOSMFetcher.getInstance();
       const data = fetcher.fetchAsOverpassData(boundary.center, fanRadius, { includeBuildings: true });
-      const srtm = SRTMLocalService.getInstance();
+      const dem = DemStore.getInstance();
 
       const MIN_BLOCKING_HEIGHT_M = 8;
       if (data?.elements) {
@@ -1365,7 +1366,8 @@ export class CoreTriggerPointPredictor {
             lat: geometry.reduce((s: number, p: any) => s + p.lat, 0) / geometry.length,
             lng: geometry.reduce((s: number, p: any) => s + p.lng, 0) / geometry.length,
           };
-          const groundAlt = (await srtm.getElevation(centroid.lat, centroid.lng)) ?? 0;
+          const groundAlt = dem.ground(centroid.lat, centroid.lng);
+          if (groundAlt === null) continue;
           buildingTops.push({ centroid, topAltitudeM: groundAlt + height, polygon: geometry });
         }
       }
@@ -1404,7 +1406,6 @@ export class CoreTriggerPointPredictor {
       return out;
     };
 
-    const elevCache = new Map<string, number>();
     const startMs = Date.now();
     const BATCH = 200;
     const survivors: TriggerPointCandidate[] = [];
@@ -1418,10 +1419,7 @@ export class CoreTriggerPointPredictor {
             losOrigin(c),
             poiTop,
             c.location,
-            {
-              elevCache,
-              buildingTops: candidatesBuildingsForLOS(c),
-            }
+            { buildingTops: candidatesBuildingsForLOS(c) }
           )
         )
       );
@@ -1528,8 +1526,8 @@ export class CoreTriggerPointPredictor {
    * abriga o POI — afinal, é a fachada desse prédio que o usuário vê da rua.
    *
    * Algoritmo: procurar entre `boundary.buildings` quem contém o centroide
-   * do POI. Usar sua altura (com fallbacks: tag height, building:levels × a régua única de andar,
-   * defaultHouseHeight). Só substitui se a altura encontrada for maior que a
+   * do POI. Usar sua altura (tag height, building:levels × a régua única de andar, ou a altura
+   * medida pelo relevo: superfície − chão no centro do prédio, #782). Só substitui se a altura encontrada for maior que a
    * altura semântica original.
    */
   private useContainingBuildingHeight(boundary: BoundaryData): void {
@@ -1557,7 +1555,6 @@ export class CoreTriggerPointPredictor {
     }
 
     const { isPointInPolygon, extractBuildingHeight } = require('../utils/calculations');
-    const defaultHouseHeight = TRIGGER_POINTS_CONSTANTS.obstructions.defaultHouseHeight;
 
     for (const b of buildings) {
       const geom = b.geometry;
@@ -1571,7 +1568,11 @@ export class CoreTriggerPointPredictor {
       if (!h && b.tags) {
         h = extractBuildingHeight(b.tags) || 0;
       }
-      if (!h) h = defaultHouseHeight; // 6m fallback
+      // No tag: the height the relief measured on the host (surface − ground, #782), never a guess.
+      if (!h) {
+        const c = coords.reduce((a: { lat: number; lng: number }, p: { lat: number; lng: number }) => ({ lat: a.lat + p.lat / coords.length, lng: a.lng + p.lng / coords.length }), { lat: 0, lng: 0 });
+        h = DemStore.getInstance().obstacleHeight(c.lat, c.lng) ?? 0;
+      }
 
       if (h > currentHeight) {
         console.log(`🏢 Containing building detected: using height ${h}m (was ${currentHeight}m semantic)`);

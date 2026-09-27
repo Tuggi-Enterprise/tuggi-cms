@@ -80,15 +80,15 @@ describe('BR-AUDIO-010 — visibility class comes from physical attributes, not 
   it('a "Cristo"/"Peak" name without height or prominence is not a landmark', async () => {
     // off-shore: the real Corcovado summit node sits next to PIN and would (rightly) make it a landmark
     const poi = { id: 'x', name: 'Cristo Peak Stadium', location: { lat: -23.3, lng: -43.0 } } as unknown as POIData
-    const { SRTMLocalService } = await import('../../lib/services/srtm-local-service')
-    const srtm = SRTMLocalService.getInstance() as any
-    const original = srtm.getElevation
-    srtm.getElevation = async () => 0
+    const { DemStore } = await import('../../lib/services/dem/dem-store')
+    const dem = DemStore.getInstance() as any
+    const original = dem.ground
+    dem.ground = () => 0
     let c
     try {
       c = (await measureAndClassify({ poiData: poi, boundary: rect(4, 4), areaM2: 16, tags: {}, context })).classification
     } finally {
-      srtm.getElevation = original
+      dem.ground = original
     }
     assert.equal(c.group, VisibilityClass.POINT_LOW)
     assert.equal(c.maxEdgeDistanceM, CLASS_LIMITS[VisibilityClass.POINT_LOW].maxEdgeDistanceM)

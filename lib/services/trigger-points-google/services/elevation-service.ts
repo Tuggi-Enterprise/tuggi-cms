@@ -1,5 +1,5 @@
 import { GeographicContext, GeoPoint, POIData } from '../types/interfaces';
-import { SRTMLocalService } from '../../srtm-local-service';
+import { DemStore } from '../../dem/dem-store';
 import { LRUCacheWithTTL } from '../utils/lru-cache';
 import { LocalReverseGeocoder } from '../../local-reverse-geocoder';
 import { calculateDistance, calculateDistanceToPolygon } from '../utils/calculations';
@@ -33,11 +33,14 @@ export interface GroundTop {
   /** terrain at the highest point of the boundary; null when the DEM failed (INV-E4c) */
   groundM: number | null;
   at: LatLng | null;
-  source: 'ele_tag' | 'summit_ele' | 'srtm_boundary_max' | 'none';
+  source: 'ele_tag' | 'summit_ele' | 'dem_boundary_max' | 'none';
 }
 
-const srtmReader: ElevationReader = (lat, lng) =>
-  SRTMLocalService.getInstance().getElevation(lat, lng).catch(() => null);
+/**
+ * E4 reads the bare GROUND (GEDTM30), from disk (#782, INV-EPc): the base of the POI, of the
+ * TP and of the observer eye. The surface (buildings, trees) is the obstacle of E8, not a ground.
+ */
+const groundReader: ElevationReader = async (lat, lng) => DemStore.getInstance().ground(lat, lng);
 
 function offsetM(o: LatLng, northM: number, eastM: number): LatLng {
   return {
@@ -74,15 +77,15 @@ export class ElevationAnalysisService {
   }
 
   /**
-   * INV-E4b: ONE base per city, computed in one place — the lower quartile of the land SRTM
+   * INV-E4b: ONE base per city, computed in one place — the lower quartile of the land ground
    * samples on a grid of CITY_BASE_RADIUS_M around the city centre. Cached per city; it was
    * per city but set by the 1st POI, then a 2 km ring around each POI, which is a local base,
-   * not the city's (P8). No invented fallback (20/400/500/600 m): SRTM empty → null.
+   * not the city's (P8). No invented fallback (20/400/500/600 m): no ground → null.
    */
   static async cityBaseElevation(
     pin: LatLng,
     cityName?: string,
-    read: ElevationReader = srtmReader
+    read: ElevationReader = groundReader
   ): Promise<CityBase> {
     const city = this.cityCentre(pin, cityName);
     const key = city ? `geonames:${city.id}` : `poi_cell:${pin.lat.toFixed(1)},${pin.lng.toFixed(1)}`;
@@ -104,12 +107,12 @@ export class ElevationAnalysisService {
   }
 
   /**
-   * Local base (E4, #772): median of the land SRTM samples on a ring of LOCAL_BASE_RING_M
+   * Local base (E4, #772): median of the land ground samples on a ring of LOCAL_BASE_RING_M
    * around the pin. The class asks for prominence over this too, so a POI on a plateau does
    * not become a landmark because the city below is low. null when the ring is all sea or the
    * DEM gave nothing (INV-E4c).
    */
-  static async localBaseElevation(pin: LatLng, read: ElevationReader = srtmReader): Promise<number | null> {
+  static async localBaseElevation(pin: LatLng, read: ElevationReader = groundReader): Promise<number | null> {
     const reads: Promise<number | null>[] = [];
     for (let k = 0; k < LOCAL_BASE_DIRECTIONS; k++) {
       const a = (2 * Math.PI * k) / LOCAL_BASE_DIRECTIONS;
@@ -127,7 +130,7 @@ export class ElevationAnalysisService {
    * RELIEF_MAX_RADIUS_M. null when the pin is not RELIEF_MIN_M above the local base, or the DEM
    * gave nothing. The Morro do Patronato was a 10 m circle and `point_low` with one TP.
    */
-  static async reliefFootprint(pin: LatLng, localBaseM: number | null, read: ElevationReader = srtmReader): Promise<LatLng[] | null> {
+  static async reliefFootprint(pin: LatLng, localBaseM: number | null, read: ElevationReader = groundReader): Promise<LatLng[] | null> {
     const top = await read(pin.lat, pin.lng);
     if (top === null || localBaseM === null || top - localBaseM < RELIEF_MIN_M) return null;
     const foot = localBaseM + (top - localBaseM) * RELIEF_FOOT_FRACTION;
@@ -162,14 +165,15 @@ export class ElevationAnalysisService {
 
   /**
    * INV-E4a: the POI ground is the terrain at the HIGHEST point of its boundary, not at the
-   * pin or centroid (Cristo read 522 m at the centroid, the summit is ~710 m). Candidates: SRTM
-   * on every vertex, on an interior grid and at the pin; the POI `ele` tag; the `ele` of a
-   * surveyed summit (`natural=peak`) inside or within SUMMIT_MATCH_M of the boundary. SRTM
-   * (90 m grid here) flattens narrow summits, so a surveyed value above it wins.
+   * pin or centroid (Cristo read 522 m at the centroid, the summit is ~710 m). Candidates: the
+   * ground (GEDTM30) on every vertex, on an interior grid and at the pin; the POI `ele` tag; the
+   * `ele` of a surveyed summit (`natural=peak`) inside or within SUMMIT_MATCH_M of the boundary.
+   * A 30 m grid still flattens a narrow summit (Corcovado reads ~630 m), so a surveyed value
+   * above it wins.
    */
   static async groundTop(
     a: { pin: LatLng; boundary?: LatLng[]; tags?: Record<string, unknown>; peaks?: Array<{ lat: number; lng: number; ele?: unknown; tags?: Record<string, unknown> }> },
-    read: ElevationReader = srtmReader
+    read: ElevationReader = groundReader
   ): Promise<GroundTop> {
     const pts: LatLng[] = [a.pin, ...(a.boundary ?? [])];
     if (a.boundary && a.boundary.length >= 3) {
@@ -185,7 +189,7 @@ export class ElevationAnalysisService {
     const vals = await Promise.all(pts.map(p => read(p.lat, p.lng)));
     vals.forEach((v, i) => {
       if (v !== null && Number.isFinite(v) && (best.groundM === null || v > best.groundM)) {
-        best = { groundM: v, at: pts[i], source: 'srtm_boundary_max' };
+        best = { groundM: v, at: pts[i], source: 'dem_boundary_max' };
       }
     });
     const tagEle = parseEle(a.tags?.ele);

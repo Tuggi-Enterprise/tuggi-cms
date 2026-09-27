@@ -3,8 +3,9 @@
  *
  * IDEA (this is the heart of the new motor):
  *  Instead of picking a search radius by category (HIGH=5km, FLAT=120m, etc.),
- *  we cast rays in every direction from the POI and use building heights + SRTM
- *  terrain to find HOW FAR the POI is actually visible in each direction.
+ *  we cast rays in every direction from the POI over the relief surface (Copernicus
+ *  GLO-30: ground + buildings + trees) and the tagged building heights to find HOW FAR
+ *  the POI is actually visible in each direction.
  *
  *  Output: a 72-vertex polygon ("fan") around the POI representing where the POI
  *  is physically visible. Downstream pipeline filters streets by this polygon
@@ -17,14 +18,18 @@
  *   ✅ Same code for Cristo Redentor, Pier 97, Roman bridge — physics decides
  *   ⚠️ ~1-3s of extra compute per POI (acceptable, all local data)
  *
- * Earth curvature: included as an additional drop on the line of sight at long
- * distances (matters at 3km+). Earth radius = 6371000m.
+ * Earth curvature and standard refraction (k = 0.13): every point of the profile drops by
+ * d²(1 − k) / 2R below the tangent plane at the POI, observer and obstacles alike (#782).
+ *
+ * Relief (#782, INV-EPc): read from disk through `DemStore`, prepared once per city (EP).
+ * Surface: produced using Copernicus WorldDEM-30 © DLR e.V. 2010-2014 and © Airbus Defence and
+ * Space GmbH 2014-2018 provided under COPERNICUS by the European Union and ESA; all rights
+ * reserved. Ground: GEDTM30 v1.2.0, OpenGeoHub, doi:10.5281/zenodo.18887460, CC BY 4.0.
  */
 
 import type { BuildingData } from '../services/osm-data-fetcher';
 import { calculateDistance, isPointInPolygon } from '../utils/calculations';
-import { SRTMLocalService } from '../../srtm-local-service';
-import { TRIGGER_POINTS_CONSTANTS } from '../config/trigger-points-config';
+import { DemStore } from '../../dem/dem-store';
 import { heightFromTags } from '../config/visibility-class';
 
 export type GeoPoint = { lat: number; lng: number };
@@ -59,7 +64,7 @@ export interface BuildVisibilityFanOptions {
   maxHorizonM?: number;
   /** Number of directions to test (sample density of the fan). Default 72 (5° each). */
   directionCount?: number;
-  /** Step size when walking outward along a ray. Default 100m. */
+  /** Step when walking outward along a ray. Default: the relief grid spacing (~30 m, #782). */
   stepM?: number;
   /** Observer eye height (1.7m pedestrian, 1.5m car driver). Default 1.7m. */
   observerEyeHeightM?: number;
@@ -68,7 +73,28 @@ export interface BuildVisibilityFanOptions {
 }
 
 const EARTH_RADIUS_M = 6_371_000;
-const SRTM_FAIL_VALUE = 0;
+/** Standard atmospheric refraction coefficient: the sight line bends back k of the curvature (#782). */
+export const REFRACTION_K = 0.13;
+/**
+ * How far an obstacle may stand above the sight line before it blocks: the absolute vertical
+ * accuracy of Copernicus GLO-30 (< 4 m LE90, Copernicus DEM Product Handbook). One margin for the
+ * surface and for tagged buildings, in the fan and per candidate (#782; SRTM needed 15 m).
+ */
+export const SIGHT_NOISE_MARGIN_M = 4;
+
+/** Drop of a point d metres away below the tangent plane at the origin: curvature minus refraction. */
+export function curvatureDropM(d: number): number {
+  return ((1 - REFRACTION_K) * d * d) / (2 * EARTH_RADIUS_M);
+}
+
+/** The two relief layers the sight line reads (E4/E8); `DemStore` in the engine, a stub in tests. */
+export interface SightRelief {
+  ground(lat: number, lng: number): number | null;
+  surface(lat: number, lng: number): number | null;
+}
+
+type BuildingTop = { centroid: GeoPoint; topAltitudeM: number; polygon: GeoPoint[] };
+
 /**
  * Buildings this close to the POI (beyond its own boundary, in the fan) are the POI itself
  * or glued to it (pedestal, chapel, summit station): the sight line there is at the POI top,
@@ -117,15 +143,15 @@ export class VisibilityMapBuilder {
   ): Promise<VisibilityFan> {
     const maxHorizonM = options.maxHorizonM ?? 10_000;
     const directionCount = options.directionCount ?? 72;
-    const stepM = options.stepM ?? 100;
+    const dem = DemStore.getInstance();
+    const stepM = options.stepM ?? dem.stepM;
     const observerEyeHeightM = options.observerEyeHeightM ?? OBSERVER_EYE_HEIGHT_M;
     const minVisibleDistanceM = options.minVisibleDistanceM ?? 30;
 
     const start = Date.now();
-    const srtm = SRTMLocalService.getInstance();
 
-    // Pre-compute building tops (terrain elevation + building height) using SRTM
-    const buildingTops = await this.computeBuildingTops(buildings, srtm);
+    // Tops of the buildings with a measured height (ground + tag); the rest is in the surface.
+    const buildingTops = this.computeBuildingTops(buildings, dem);
 
     // Sample points along the boundary — quantos depende do tamanho do POI.
     // POI pequeno (boundary curto): 1 ponto (centroide).
@@ -149,7 +175,7 @@ export class VisibilityMapBuilder {
           poiTopAltitudeM,
           bearing,
           buildingTops,
-          srtm,
+          dem,
           maxHorizonM,
           stepM,
           observerEyeHeightM,
@@ -339,21 +365,14 @@ export class VisibilityMapBuilder {
   }
 
   /**
-   * Per-TP exact visibility check — usado APÓS o fan-walk pra validar cada
-   * candidato individual via ray-cast preciso.
+   * INV-E8 — per-candidate sight line, after the fan-walk: from the observer eye (ground at the
+   * TP + `OBSERVER_EYE_HEIGHT_M`) to the POI top, over the relief SURFACE (Copernicus GLO-30:
+   * ground + buildings + trees) and the buildings with a measured height, walked at the grid
+   * spacing (~30 m; it was 100 m over SRTM 90 m). Short-circuits on the first obstacle.
    *
-   * Vantagens sobre o filtro de polígono do fan:
-   *  - Sem interpolação angular (5° entre vértices) — verifica o bearing EXATO
-   *  - Sem edge effects de point-in-polygon
-   *  - Sampling em intervalo FIXO (100m) em vez de proporcional → pega peaks
-   *    estreitos que o fan miss
-   *  - Short-circuit: para na primeira amostra que bloqueia
-   *  - Cache de elevação injetável → múltiplos TPs compartilham pixels SRTM
-   *
-   * Escopo: apenas TERRENO. Buildings já são checadas no fan (suficiente).
-   *
-   * Performance: ~1-3ms por TP com cache warm. Pra Cristo (~6k candidates)
-   * em paralelo (Promise.all em lotes): ~1-3s total.
+   * Neither end's own cell is an obstacle: samples within `SKIP_NEAR_POI_M` of the POI are the
+   * POI itself (its facade, its pedestal), and the observer's own sample is the street he stands
+   * on — at 30 m the surface there mixes in the facades beside the avenue (#782).
    */
   static async checkExactVisibility(
     poi: GeoPoint,
@@ -363,80 +382,54 @@ export class VisibilityMapBuilder {
       sampleIntervalM?: number;
       noiseMarginM?: number;
       observerEyeHeightM?: number;
-      elevCache?: Map<string, number>;
       buildingTops?: Array<{ centroid: GeoPoint; topAltitudeM: number; polygon?: GeoPoint[] }>;
     } = {}
   ): Promise<boolean> {
-    const sampleIntervalM = options.sampleIntervalM ?? 100;
-    const noiseMarginM = options.noiseMarginM ?? 15;
+    const dem: SightRelief = DemStore.getInstance();
+    const stepM = options.sampleIntervalM ?? DemStore.getInstance().stepM;
+    const marginM = options.noiseMarginM ?? SIGHT_NOISE_MARGIN_M;
     const observerEyeHeightM = options.observerEyeHeightM ?? OBSERVER_EYE_HEIGHT_M;
-    const elevCache = options.elevCache;
     const buildingTops = options.buildingTops;
 
-    const srtm = SRTMLocalService.getInstance();
-    const getElev = async (lat: number, lng: number): Promise<number> => {
-      if (elevCache) {
-        const k = `${lat.toFixed(4)},${lng.toFixed(4)}`; // ~10m grid
-        const cached = elevCache.get(k);
-        if (cached !== undefined) return cached;
-        const v = (await srtm.getElevation(lat, lng)) ?? SRTM_FAIL_VALUE;
-        elevCache.set(k, v);
-        return v;
-      }
-      return (await srtm.getElevation(lat, lng)) ?? SRTM_FAIL_VALUE;
-    };
-
     const distanceM = calculateDistance(poi, target);
-    if (distanceM < sampleIntervalM) return true; // muito próximo, confia
+    if (distanceM < stepM) return true; // inside one grid cell: nothing can stand between
 
-    const observerGroundAlt = await getElev(target.lat, target.lng);
-    const earthDrop = (distanceM * distanceM) / (2 * EARTH_RADIUS_M);
-    const observerEyeAlt = observerGroundAlt + observerEyeHeightM - earthDrop;
+    // No ground under the observer: the candidate cannot be judged, so it does not pass (INV-E8).
+    const observerGround = dem.ground(target.lat, target.lng);
+    if (observerGround === null) return false;
+    const observerEyeAlt = observerGround + observerEyeHeightM - curvatureDropM(distanceM);
+    // The sight line, as the slope from the POI top; an obstacle blocks when its slope is steeper.
+    const sightSlope = (observerEyeAlt - poiTopAltitudeM) / distanceM;
+    const bearingDeg = this.bearing(poi, target);
 
-    // Bearing POI → target (inline pra evitar import circular)
-    const φ1 = (poi.lat * Math.PI) / 180;
-    const φ2 = (target.lat * Math.PI) / 180;
-    const Δλ = ((target.lng - poi.lng) * Math.PI) / 180;
-    const yB = Math.sin(Δλ) * Math.cos(φ2);
-    const xB = Math.cos(φ1) * Math.sin(φ2) - Math.sin(φ1) * Math.cos(φ2) * Math.cos(Δλ);
-    const bearingDeg = (Math.atan2(yB, xB) * 180) / Math.PI;
-
-    // ── Terrain check: caminhar a 100m steps; short-circuit ao primeiro bloqueio.
-    const sampleCount = Math.floor(distanceM / sampleIntervalM);
-    for (let i = 1; i <= sampleCount; i++) {
-      const sampleDistance = i * sampleIntervalM;
-      const samplePoint = this.offsetByBearing(poi, bearingDeg, sampleDistance);
-      const terrainAlt = await getElev(samplePoint.lat, samplePoint.lng);
-      const t = sampleDistance / distanceM;
-      const lineAlt = poiTopAltitudeM * (1 - t) + observerEyeAlt * t;
-      if (terrainAlt > lineAlt + noiseMarginM) {
-        return false; // terreno bloqueia
-      }
+    for (let d = stepM; d <= distanceM - stepM; d += stepM) {
+      if (d < SKIP_NEAR_POI_M) continue;
+      const p = this.offsetByBearing(poi, bearingDeg, d);
+      const surface = dem.surface(p.lat, p.lng);
+      if (surface === null) continue;
+      if ((surface - curvatureDropM(d) - marginM - poiTopAltitudeM) / d > sightSlope) return false;
     }
 
-    // ── Building check: prédios na corredor do raio (urban canyon).
-    // Foco no observador: a linha está mais baixa perto dele, então prédios
-    // próximos ao observador bloqueiam com altura modesta. Ex: Pão de Açúcar
-    // (395m) visto da Av. General Justo a 4km — linha a 50m do observador
-    // está a 6.6m. Prédio de 30m em escritórios bloqueia totalmente.
+    // Buildings with a measured height (ground + tag). Foco no observador: a linha está mais
+    // baixa perto dele, então prédios próximos ao observador bloqueiam com altura modesta.
     if (buildingTops && buildingTops.length > 0) {
       const CORRIDOR_WIDTH_M = 30; // semi-largura: prédio dentro de ±30m do raio é considerado
-      const targetPoint = target;
       for (const b of buildingTops) {
         const distFromPoi = calculateDistance(poi, b.centroid);
         if (distFromPoi >= distanceM) continue;       // atrás do observador
         if (distFromPoi < SKIP_NEAR_POI_M) continue;  // colado ao POI
-        const perpDist = this.perpendicularDistanceToSegment(b.centroid, poi, targetPoint);
+        const perpDist = this.perpendicularDistanceToSegment(b.centroid, poi, target);
         if (perpDist > CORRIDOR_WIDTH_M) continue;
         // With a footprint, the building blocks only where the ray CROSSES it, at the crossing
         // nearest the observer (the line is lowest there). By centroid ± corridor, the row of
         // buildings beside a beachfront avenue hid a peak seen straight along the avenue
         // (Irmão Menor from the Vieira Souto; profile in #772). A building behind or beside the
         // observer is not crossed.
-        const t = b.polygon && b.polygon.length >= 3 ? this.lastCrossingT(poi, targetPoint, b.polygon) : distFromPoi / distanceM;
+        const t = b.polygon && b.polygon.length >= 3 ? this.lastCrossingT(poi, target, b.polygon) : distFromPoi / distanceM;
         if (t === null) continue;
-        const lineAlt = poiTopAltitudeM * (1 - t) + observerEyeAlt * t;
-        if (b.topAltitudeM > lineAlt + noiseMarginM) {
+        const d = t * distanceM;
+        if (d <= 0) continue;
+        if ((b.topAltitudeM - curvatureDropM(d) - marginM - poiTopAltitudeM) / d > sightSlope) {
           return false; // prédio bloqueia
         }
       }
@@ -471,170 +464,86 @@ export class VisibilityMapBuilder {
   // ───────────────────────────────────────────────────────────────────
 
   /**
-   * Builds an enriched list of buildings with their TOP absolute altitude
-   * (terrain elevation at building centroid + building height).
+   * Tops of the buildings whose height is MEASURED (`height` / `building:levels`): ground under
+   * the centroid + that height. A building without it is already in the relief surface, with
+   * the height the surface measured (#782: this replaced the 10 m guess); adding a guessed
+   * block on top of the surface would count it twice.
    */
-  private static async computeBuildingTops(
-    buildings: BuildingData[],
-    srtm: SRTMLocalService
-  ): Promise<Array<{ centroid: GeoPoint; topAltitudeM: number; polygon: GeoPoint[] }>> {
-    const result: Array<{ centroid: GeoPoint; topAltitudeM: number; polygon: GeoPoint[] }> = [];
+  private static computeBuildingTops(buildings: BuildingData[], dem: SightRelief): BuildingTop[] {
+    const result: BuildingTop[] = [];
     for (const b of buildings) {
       if (!b.geometry || b.geometry.length < 3) continue;
+      const heightM = this.measuredBuildingHeight(b);
+      if (heightM === null) continue;
       const centroid = this.polygonCentroid(b.geometry);
-      const groundAlt = (await srtm.getElevation(centroid.lat, centroid.lng)) ?? SRTM_FAIL_VALUE;
-      const heightM = this.resolveBuildingHeight(b);
-      result.push({
-        centroid,
-        topAltitudeM: groundAlt + heightM,
-        polygon: b.geometry,
-      });
+      const groundAlt = dem.ground(centroid.lat, centroid.lng);
+      if (groundAlt === null) continue;
+      result.push({ centroid, topAltitudeM: groundAlt + heightM, polygon: b.geometry });
     }
     return result;
   }
 
-  /**
-   * Extracts a usable building height, with fallbacks.
-   */
-  private static resolveBuildingHeight(b: BuildingData): number {
+  /** The tagged height of a building (the one floor ruler, INV-E3), or null when it has none. */
+  private static measuredBuildingHeight(b: BuildingData): number | null {
     if (b.height && b.height > 0) return b.height;
-    const tagged = heightFromTags(b.tags as Record<string, unknown> | undefined);
-    if (tagged) return tagged.heightM;
-    // Fallback conservador (SSOT em TRIGGER_POINTS_CONSTANTS.obstructions.defaultHouseHeight)
-    return TRIGGER_POINTS_CONSTANTS.obstructions.defaultHouseHeight;
+    return heightFromTags(b.tags as Record<string, unknown> | undefined)?.heightM ?? null;
   }
 
   /**
-   * For a single direction, walks outward from POI up to the horizon and returns the
-   * FARTHEST distance at which the POI top is visible (no building/terrain blocks the line
-   * from POI top to an observer eye at that point) — not the first blocked step.
+   * For a single direction, walks outward from the POI at the grid spacing up to the horizon and
+   * returns the FARTHEST distance at which the POI top is visible — not the first blocked step.
+   * One pass: the steepest obstacle slope seen so far (surface, and the tagged buildings passed)
+   * against the slope of the line to the observer eye at each step.
    */
-  private static async computeMaxVisibleDistance(
+  private static computeMaxVisibleDistance(
     poi: GeoPoint,
     poiTopAltitudeM: number,
     bearing: number,
-    buildings: Array<{ centroid: GeoPoint; topAltitudeM: number; polygon: GeoPoint[] }>,
-    srtm: SRTMLocalService,
+    buildings: BuildingTop[],
+    dem: SightRelief,
     maxHorizonM: number,
     stepM: number,
     observerEyeHeightM: number,
     minVisibleDistanceM: number,
     skipNearM = SKIP_NEAR_POI_M
-  ): Promise<number> {
+  ): number {
     // Pre-filter: keep only buildings whose footprint touches the ray corridor
     // (within ~50m perpendicular distance to the ray). This avoids O(N) per step.
-    const relevantBuildings = this.filterBuildingsAlongRay(poi, bearing, maxHorizonM, buildings);
-
-    // Sort by distance from POI — we'll iterate them in order
-    const buildingsSorted = relevantBuildings
+    const buildingsSorted = this.filterBuildingsAlongRay(poi, bearing, maxHorizonM, buildings)
       .map(b => ({ ...b, distanceFromPoi: calculateDistance(poi, b.centroid) }))
       .filter(b => b.distanceFromPoi >= skipNearM)
       .sort((a, b) => a.distanceFromPoi - b.distanceFromPoi);
 
     let lastVisibleD = minVisibleDistanceM;
+    // Steepest obstacle strictly before the current observer sample (his own cell is the street).
+    let maxSlope = -Infinity;
+    let pendingSlope = -Infinity;
+    let bi = 0;
 
     for (let d = stepM; d <= maxHorizonM; d += stepM) {
-      const observerPoint = this.offsetByBearing(poi, bearing, d);
-      const terrainAlt = (await srtm.getElevation(observerPoint.lat, observerPoint.lng)) ?? SRTM_FAIL_VALUE;
-      // Apply Earth-curvature drop: distant observer appears LOWER relative to POI
-      const earthDropM = (d * d) / (2 * EARTH_RADIUS_M);
-      const observerEyeAlt = terrainAlt + observerEyeHeightM - earthDropM;
-
-      const blocked = this.isLineOfSightBlocked(
-        poi,
-        poiTopAltitudeM,
-        observerPoint,
-        observerEyeAlt,
-        d,
-        buildingsSorted,
-        srtm
-      );
-
-      // Check terrain along the way (intermediate samples) — async-light by reusing SRTM cache
-      const blockedByTerrain = await this.isBlockedByTerrainAlongRay(
-        poi,
-        poiTopAltitudeM,
-        observerPoint,
-        observerEyeAlt,
-        d,
-        bearing,
-        stepM,
-        srtm
-      );
-
+      maxSlope = Math.max(maxSlope, pendingSlope);
+      while (bi < buildingsSorted.length && buildingsSorted[bi].distanceFromPoi < d) {
+        const b = buildingsSorted[bi++];
+        const s = b.distanceFromPoi;
+        maxSlope = Math.max(maxSlope, (b.topAltitudeM - curvatureDropM(s) - SIGHT_NOISE_MARGIN_M - poiTopAltitudeM) / s);
+      }
+      const p = this.offsetByBearing(poi, bearing, d);
+      const ground = dem.ground(p.lat, p.lng);
       // Visibility is not monotonic along a ray: on a hill the slope right below the top
       // hides it from a close observer while the plain further out sees it (Cristo from the
       // Lagoa). The fan is the OUTER reach per bearing; each candidate is then checked by
-      // `checkExactVisibility`. Stopping at the first block cut every far viewpoint
-      // (BR-AUDIO-010; #779).
-      if (!blocked && !blockedByTerrain) lastVisibleD = d;
+      // `checkExactVisibility` (BR-AUDIO-010; #779).
+      if (ground !== null) {
+        const eye = ground + observerEyeHeightM - curvatureDropM(d);
+        if ((eye - poiTopAltitudeM) / d >= maxSlope) lastVisibleD = d;
+      }
+      const surface = dem.surface(p.lat, p.lng);
+      pendingSlope = surface === null || d < skipNearM
+        ? -Infinity
+        : (surface - curvatureDropM(d) - SIGHT_NOISE_MARGIN_M - poiTopAltitudeM) / d;
     }
 
     return Math.max(lastVisibleD, minVisibleDistanceM);
-  }
-
-  /**
-   * Returns true if any pre-sorted building's TOP altitude is above the line
-   * from POI top to observer eye at the building's distance along the ray.
-   */
-  private static isLineOfSightBlocked(
-    _poi: GeoPoint,
-    poiTopAltitudeM: number,
-    _observer: GeoPoint,
-    observerEyeAlt: number,
-    observerDistanceM: number,
-    buildings: Array<{ distanceFromPoi: number; topAltitudeM: number }>,
-    _srtm: SRTMLocalService
-  ): boolean {
-    for (const b of buildings) {
-      // Only buildings between POI and observer can block
-      if (b.distanceFromPoi >= observerDistanceM) break;
-      // Linear interpolation of sight-line altitude at the building distance
-      const t = b.distanceFromPoi / observerDistanceM;
-      const lineAltAtBuilding = poiTopAltitudeM * (1 - t) + observerEyeAlt * t;
-      if (b.topAltitudeM > lineAltAtBuilding) {
-        return true;
-      }
-    }
-    return false;
-  }
-
-  /**
-   * Samples SRTM terrain at a few intermediate points along the ray and
-   * checks if the terrain itself blocks the sight line. Critical for non-urban
-   * areas (mountains, hills) and for HIGH POIs visible from afar.
-   */
-  private static async isBlockedByTerrainAlongRay(
-    poi: GeoPoint,
-    poiTopAltitudeM: number,
-    observer: GeoPoint,
-    observerEyeAlt: number,
-    observerDistanceM: number,
-    bearing: number,
-    stepM: number,
-    srtm: SRTMLocalService
-  ): Promise<boolean> {
-    // Sample 5-10 intermediate terrain points (cheap with local SRTM)
-    const sampleCount = Math.max(3, Math.min(10, Math.floor(observerDistanceM / 500)));
-    if (sampleCount < 3) return false;
-
-    for (let i = 1; i < sampleCount; i++) {
-      const sampleDistance = (observerDistanceM * i) / sampleCount;
-      const samplePoint = this.offsetByBearing(poi, bearing, sampleDistance);
-      const terrainAlt = (await srtm.getElevation(samplePoint.lat, samplePoint.lng)) ?? SRTM_FAIL_VALUE;
-      const t = sampleDistance / observerDistanceM;
-      const lineAlt = poiTopAltitudeM * (1 - t) + observerEyeAlt * t;
-      // SRTM resolution noise margin. Grid horizontal ~30m, vertical ±10-20m.
-      // Margem menor (era 5m) gerava obstáculos fantasmas em terreno íngreme
-      // (Cristo Redentor, picos, mirantes) — fan colapsava a ~1km quando a
-      // visibilidade real ia a 7km+. 15m é o ponto onde ruído estatístico do
-      // dataset não cria false positives em slopes naturais.
-      const SRTM_NOISE_MARGIN_M = 15;
-      if (terrainAlt > lineAlt + SRTM_NOISE_MARGIN_M) {
-        return true;
-      }
-    }
-    return false;
   }
 
   /**
@@ -645,8 +554,8 @@ export class VisibilityMapBuilder {
     poi: GeoPoint,
     bearing: number,
     maxHorizonM: number,
-    buildings: Array<{ centroid: GeoPoint; topAltitudeM: number; polygon: GeoPoint[] }>
-  ): Array<{ centroid: GeoPoint; topAltitudeM: number; polygon: GeoPoint[] }> {
+    buildings: BuildingTop[]
+  ): BuildingTop[] {
     const corridorWidthM = 50;
     const rayEnd = this.offsetByBearing(poi, bearing, maxHorizonM);
     return buildings.filter(b => {
@@ -674,6 +583,15 @@ export class VisibilityMapBuilder {
   // ───────────────────────────────────────────────────────────────────
   // Geometry helpers (local; could be moved to lib/geometry later)
   // ───────────────────────────────────────────────────────────────────
+
+  private static bearing(from: GeoPoint, to: GeoPoint): number {
+    const φ1 = (from.lat * Math.PI) / 180;
+    const φ2 = (to.lat * Math.PI) / 180;
+    const Δλ = ((to.lng - from.lng) * Math.PI) / 180;
+    const y = Math.sin(Δλ) * Math.cos(φ2);
+    const x = Math.cos(φ1) * Math.sin(φ2) - Math.sin(φ1) * Math.cos(φ2) * Math.cos(Δλ);
+    return (Math.atan2(y, x) * 180) / Math.PI;
+  }
 
   private static offsetByBearing(origin: GeoPoint, bearingDeg: number, distanceM: number): GeoPoint {
     const θ = (bearingDeg * Math.PI) / 180;

@@ -6,7 +6,7 @@ import { SANITY_MAX_TP_DISTANCE_M, proximityBand, proximityRankScore } from '../
 import { tpReachCapM } from '../utils/validation';
 import { loadTriggerPointsConfig, TriggerPointsConfig, TRIGGER_POINTS_CONSTANTS } from '../config/trigger-points-config';
 import { GoogleAPIsService } from '../services/google-apis.service';
-import { SRTMLocalService } from '../../srtm-local-service';
+import { DemStore } from '../../dem/dem-store';
 import { resolveStreetSpeedKmh, calculateGpsAwareRadius, isApproachableForBearing } from '../../../geometry';
 
 export class TriggerPointValidator {
@@ -1737,11 +1737,8 @@ export class TriggerPointValidator {
     points: Array<{ lat: number; lng: number }>
   ): Promise<number[]> {
     try {
-      const srtm = SRTMLocalService.getInstance();
-      const results = await Promise.all(
-        points.map(p => srtm.getElevation(p.lat, p.lng))
-      );
-      return results.map(e => e ?? 0);
+      const dem = DemStore.getInstance();
+      return points.map(p => dem.ground(p.lat, p.lng) ?? 0);
       
     } catch (error) {
       console.warn('Failed to get elevations from SRTM Local Service:', error);

@@ -18,6 +18,7 @@ import { BoundaryDetector } from './trigger-points-google/core/boundary-detector
 import { calculateDistance, calculateDistanceToPolygon } from './trigger-points-google/utils/calculations'
 import { UNCLASSIFIED_MAX_TP_DISTANCE_M, distanceFromPoiM, poiEdgeRing } from './trigger-points-google/utils/validation'
 import { applyTpPostConditions, type TpDropReason } from './trigger-points-google/utils/tp-selection'
+import { DemNotPreparedError } from './dem/dem-store'
 import {
   TRACE_CSV_COLUMNS,
   candidateKey,
@@ -190,7 +191,11 @@ export async function dryRunPoi(attractionId: string): Promise<PoiDryRunResult> 
     }))
     return { attraction_id: attractionId, poi_name: poiData.name, error: null, rows, trace, edge: poiEdgeRing(prediction.boundary) }
   } catch (e) {
-    return { attraction_id: attractionId, poi_name: poiData.name, error: e instanceof Error ? e.message : String(e), rows, trace: [] }
+    // EP (INV-EPb): a city whose relief was not prepared does not generate, and says why.
+    const trace = e instanceof DemNotPreparedError
+      ? [{ poi_id: attractionId, stage: 'EP' as const, rule: 'dem-store#coverage', candidate: '', value: e.message, limit: 'city relief prepared (INV-EPb)', decision: 'dropped' as const }]
+      : []
+    return { attraction_id: attractionId, poi_name: poiData.name, error: e instanceof Error ? e.message : String(e), rows, trace }
   }
 }
 

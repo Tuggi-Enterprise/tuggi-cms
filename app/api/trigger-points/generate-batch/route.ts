@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { getSupabaseRouteHandler } from '@/lib/core/supabase-client'
 import { cookies } from 'next/headers'
 import { getSupabase } from '../../../../lib/core/supabase-client'
+import { stampGenerationMethod } from '../../../../lib/services/dem/dem-sources'
 
 export const maxDuration = 60 // Vercel Hobby plan limit (max 60s)
 
@@ -345,7 +346,7 @@ export async function POST(request: NextRequest) {
           is_active: true,
           access: 'car' as 'walk' | 'car' | 'both',
           confidence: tp.confidence || 0.5,
-          generation_method: tp.generationMethod || 'local_osm',
+          generation_method: stampGenerationMethod(tp.generationMethod || 'local_osm'), // #782
           geometry_geojson: tp.geometryGeoJson || null,
           boundary_source: predictionResult.boundary?.source || 'unknown'
         }))

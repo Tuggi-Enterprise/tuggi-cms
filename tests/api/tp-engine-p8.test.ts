@@ -22,19 +22,22 @@ const at = (n: number, e: number) => ({
 const square = (r: number) => [at(-r, -r), at(-r, r), at(r, r), at(r, -r)]
 
 /** Fake DEM, and no surveyed summit (the real Corcovado node sits next to PIN). */
-async function withSrtm<T>(read: (lat: number, lng: number) => number | null, fn: () => Promise<T>): Promise<T> {
-  const { SRTMLocalService } = await import('../../lib/services/srtm-local-service')
+async function withDem<T>(read: (lat: number, lng: number) => number | null, fn: () => Promise<T>): Promise<T> {
+  const { DemStore } = await import('../../lib/services/dem/dem-store')
   const { LocalOSMFetcher } = await import('../../lib/services/trigger-points-google/services/local-osm-fetcher')
-  const srtm = SRTMLocalService.getInstance() as any
+  const dem = DemStore.getInstance() as any
   const osm = LocalOSMFetcher.getInstance() as any
-  const original = srtm.getElevation
+  const original = { ground: dem.ground, surface: dem.surface }
   const originalSummits = osm.fetchSummits
-  srtm.getElevation = async (lat: number, lng: number) => read(lat, lng)
+  // bare ground and surface alike: a terrain without buildings or trees
+  dem.ground = (lat: number, lng: number) => read(lat, lng)
+  dem.surface = (lat: number, lng: number) => read(lat, lng)
   osm.fetchSummits = () => []
   try {
     return await fn()
   } finally {
-    srtm.getElevation = original
+    dem.ground = original.ground
+    dem.surface = original.surface
     osm.fetchSummits = originalSummits
   }
 }
@@ -52,7 +55,9 @@ describe('INV-E3 / BR-AUDIO-010 — one height, one floor ruler, source recorded
     const { VisibilityMapBuilder } = await import('../../lib/services/trigger-points-google/analyzers/visibility-map-builder')
     const tags = { building: 'yes', 'building:levels': '7' }
     assert.equal(extractBuildingHeight(tags), 7 * BUILDING_LEVEL_HEIGHT_M)
-    assert.equal((VisibilityMapBuilder as any).resolveBuildingHeight({ tags }), 7 * BUILDING_LEVEL_HEIGHT_M)
+    assert.equal((VisibilityMapBuilder as any).measuredBuildingHeight({ tags }), 7 * BUILDING_LEVEL_HEIGHT_M)
+    // #782: a building without a measured height is not guessed (6 m / 10 m): the surface has it
+    assert.equal((VisibilityMapBuilder as any).measuredBuildingHeight({ tags: { building: 'house' } }), null)
   })
 
   it('Cristo (man_made=monument, no height): no height by type; only one measured on its footprint', () => {
@@ -70,7 +75,7 @@ describe('INV-E4a/b/c / BR-AUDIO-010 — ground at the top of the boundary, one 
     const read = async (lat: number) => (lat >= north.lat - 1e-7 ? 600 : 520)
     const top = await ElevationAnalysisService.groundTop({ pin: PIN, boundary: square(40) }, read)
     assert.equal(top.groundM, 600)
-    assert.equal(top.source, 'srtm_boundary_max')
+    assert.equal(top.source, 'dem_boundary_max')
   })
 
   it('INV-E4a: a surveyed summit on the boundary beats the smoothed DEM; one 2 km away does not', async () => {
@@ -104,7 +109,7 @@ describe('INV-E4a/b/c / BR-AUDIO-010 — ground at the top of the boundary, one 
     const { VisibilityMapBuilder } = await import('../../lib/services/trigger-points-google/analyzers/visibility-map-builder')
     ElevationAnalysisService.clearCache()
     const poi = { id: 'c', name: 'x', location: PIN, city: 'Rio de Janeiro', country: 'Brazil' } as any
-    const { classification, physical } = await withSrtm(
+    const { classification, physical } = await withDem(
       (lat, lng) => (Math.abs(lat - PIN.lat) < 0.001 && Math.abs(lng - PIN.lng) < 0.001 ? 700 : 10),
       () => measureAndClassify({ poiData: poi, boundary: square(20), areaM2: 1600, tags: { man_made: 'monument', height: '12' } })
     )
@@ -153,7 +158,7 @@ describe('INV-E8 / BR-AUDIO-010 — sight line from the observer eye to the POI 
     // terrain: 5 m everywhere, except a 400 m ridge band 1.5 km south of the POI
     const terrain = (lat: number) => (Math.abs(lat - ridgeLat) < 0.0015 ? 400 : 5)
     const top = 700 + 12
-    await withSrtm(terrain, async () => {
+    await withDem(terrain, async () => {
       assert.equal(await VisibilityMapBuilder.checkExactVisibility(PIN, top, at(0, 3000)), true)
       assert.equal(await VisibilityMapBuilder.checkExactVisibility(PIN, top, at(-3000, 0)), false)
     })
@@ -165,7 +170,7 @@ describe('INV-E8 / BR-AUDIO-010 — sight line from the observer eye to the POI 
     const obs = at(-3000, 0)
     const terrain = (lat: number) =>
       Math.abs(lat - obs.lat) < 0.0005 ? 900 : Math.abs(lat - ridgeLat) < 0.0015 ? 400 : 5
-    await withSrtm(terrain, async () => {
+    await withDem(terrain, async () => {
       assert.equal(await VisibilityMapBuilder.checkExactVisibility(PIN, 712, obs), true)
     })
   })
@@ -178,7 +183,7 @@ describe('INV-E8 / BR-AUDIO-010 — sight line from the observer eye to the POI 
       const c = { lat: polygon.reduce((a, p) => a + p.lat, 0) / 4, lng: polygon.reduce((a, p) => a + p.lng, 0) / 4 }
       return [{ centroid: c, topAltitudeM: 5 + 50, polygon }]
     }
-    await withSrtm(() => 5, async () => {
+    await withDem(() => 5, async () => {
       // a 50 m block 15–35 m beside the avenue, next to the observer, with the peak straight along it
       const beside = box(-2960, -2900, 15, 35)
       assert.equal(await VisibilityMapBuilder.checkExactVisibility(PIN, 712, obs, { buildingTops: tops(beside) }), true)

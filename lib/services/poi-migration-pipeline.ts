@@ -8,6 +8,7 @@ import { MigrationResult, MigrationService } from './migration-service'
 import ProcessingService from '@/lib/core/processing-service'
 import { getSupabase } from '@/lib/core/supabase-client'
 import { HomologEnrichmentService } from './poi-processing/homolog-enrichment.service'
+import { stampGenerationMethod } from './dem/dem-sources'
 
 const supabase = getSupabase('service')
 
@@ -826,7 +827,8 @@ export class PoiMigrationPipeline {
         is_active: true,
         // `access` fica de fora: o motor não sabe o modo, e o default do banco ('car') vale.
         confidence: tp.confidence || 0.5,
-        generation_method: tp.generationMethod || 'local_osm',
+        // #782: the relief sources travel with the method, so a batch is reprocessable by data version
+        generation_method: stampGenerationMethod(tp.generationMethod || 'local_osm'),
         boundary_source: predictionResult.boundary?.source || 'unknown',
         // TPs do tipo geofence carregam o polígono GeoJSON; requer a migração
         // 20260515_add_geofence_trigger_type.sql aplicada.

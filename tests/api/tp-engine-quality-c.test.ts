@@ -10,7 +10,7 @@ const PIN = { lat: -22.9519, lng: -43.2105 }
 const M_PER_DEG_LAT = 110_540
 const mPerDegLng = 111_320 * Math.cos((PIN.lat * Math.PI) / 180)
 const offset = (m: { n?: number; e?: number }) => ({ lat: PIN.lat + (m.n ?? 0) / M_PER_DEG_LAT, lng: PIN.lng + (m.e ?? 0) / mPerDegLng })
-const flatSrtm = { getElevation: async () => 0 }
+const flatDem = { ground: () => 0, surface: () => 0 }
 
 // TP engine audit, 2026-09-27, slice C (#779). Visual check on 11 Rio POIs.
 
@@ -32,7 +32,7 @@ describe('BR-AUDIO-010 — a landmark gets far TPs where it is seen, on every si
     // 480 m obstacle 200 m north of a 500 m top: hides it up to ~5 km, not beyond
     const b = offset({ n: 200 })
     const obstacle = { centroid: b, topAltitudeM: 480, polygon: [b] }
-    const reach = await V.computeMaxVisibleDistance(PIN, 500, 0, [obstacle], flatSrtm, 7000, 100, 1.7, 30)
+    const reach = await V.computeMaxVisibleDistance(PIN, 500, 0, [obstacle], flatDem, 7000, 100, 1.7, 30)
     assert.ok(reach >= 6000, `reach ${reach}`)
   })
 
@@ -41,8 +41,8 @@ describe('BR-AUDIO-010 — a landmark gets far TPs where it is seen, on every si
     const V = VisibilityMapBuilder as any
     const b = offset({ n: 60 })
     const own = { centroid: b, topAltitudeM: 600, polygon: [b] }
-    assert.equal(await V.computeMaxVisibleDistance(PIN, 546, 0, [own], flatSrtm, 3000, 100, 1.7, 30), 30, 'counted, it blocks')
-    assert.equal(await V.computeMaxVisibleDistance(PIN, 546, 0, [own], flatSrtm, 3000, 100, 1.7, 30, 100), 3000, 'skipped with a 50 m boundary')
+    assert.equal(await V.computeMaxVisibleDistance(PIN, 546, 0, [own], flatDem, 3000, 100, 1.7, 30), 30, 'counted, it blocks')
+    assert.equal(await V.computeMaxVisibleDistance(PIN, 546, 0, [own], flatDem, 3000, 100, 1.7, 30, 100), 3000, 'skipped with a 50 m boundary')
   })
 
   it('far TPs spread by bearing instead of piling up in the closest neighbourhood', async () => {
@@ -99,14 +99,14 @@ describe('BR-AUDIO-010 — a long beach keeps its polygon and its class', () => 
 
   it('a boundary from the DB fallback leaves the detector classified, never null', async () => {
     const { BoundaryDetector } = await import('../../lib/services/trigger-points-google/core/boundary-detector')
-    const { SRTMLocalService } = await import('../../lib/services/srtm-local-service')
+    const { DemStore } = await import('../../lib/services/dem/dem-store')
     const { LocalOSMFetcher } = await import('../../lib/services/trigger-points-google/services/local-osm-fetcher')
-    const srtm = SRTMLocalService.getInstance() as any
+    const dem = DemStore.getInstance() as any
     const osm = LocalOSMFetcher.getInstance() as any
-    const original = srtm.getElevation
+    const original = dem.ground
     const originalSummits = osm.fetchSummits
     // a beach: flat ground, no summit (the fixture sits on Corcovado coordinates)
-    srtm.getElevation = async () => 2
+    dem.ground = () => 2
     osm.fetchSummits = () => []
     try {
       const det = new BoundaryDetector() as any
@@ -116,7 +116,7 @@ describe('BR-AUDIO-010 — a long beach keeps its polygon and its class', () => 
       )
       assert.equal(out.classification?.group, VisibilityClass.LINEAR)
     } finally {
-      srtm.getElevation = original
+      dem.ground = original
       osm.fetchSummits = originalSummits
     }
   })
