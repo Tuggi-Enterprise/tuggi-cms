@@ -106,6 +106,65 @@ describe('INV-E1c — the element holding the pin must fit the kind of POI (BR-A
   })
 })
 
+describe('INV-E1a — a relation id from Overpass becomes its outer ring, not a circle (BR-AUDIO-010)', () => {
+  /** The square's four sides as open ways, the way Overpass hands the Maracanã relation 5520332. */
+  function openSides(half: number, c: LatLng = PIN) {
+    const r = square(half, c)
+    return [0, 1, 2, 3].map(i => ({ type: 'way', role: 'outer', geometry: [r[i], r[i + 1]] }))
+  }
+
+  it('joins open outer ways end to end, reversing the ones drawn backwards', () => {
+    const [a, b, c, d] = openSides(300)
+    const rings = choice.assembleOuterRings([
+      a, { ...c, geometry: [...c.geometry].reverse() }, d, b, { type: 'node', role: 'label', geometry: null },
+    ])
+    assert.equal(rings.length, 1)
+    assert.equal(rings[0].length, 5)
+    assert.deepEqual(rings[0][0], rings[0][4])
+  })
+
+  it('a chain that never closes gives no ring (incomplete relation)', () => {
+    const [a, b, c] = openSides(300)
+    assert.deepEqual(choice.assembleOuterRings([a, b, c]), [])
+  })
+
+  it('two outer rings: the footprint is the one holding the pin', () => {
+    const far = { lat: PIN.lat + 5000 * M_LAT, lng: PIN.lng }
+    const rings = choice.assembleOuterRings([...openSides(2000, far), ...openSides(300)])
+    assert.equal(rings.length, 2)
+    const ring = choice.footprintRing(rings, PIN)!
+    assert.ok(Math.abs(ring[0].lat - PIN.lat) < 400 * M_LAT, 'the small ring at the pin, not the larger one away')
+  })
+
+  it('detectOSMBoundaryByID asks Overpass for members (`out geom`) and returns the ring as a non-synthetic border', async () => {
+    const { BoundaryDetector } = await import('../../lib/services/trigger-points-google/core/boundary-detector')
+    const { LocalOSMFetcher } = await import('../../lib/services/trigger-points-google/services/local-osm-fetcher')
+    const local = LocalOSMFetcher.getInstance() as any
+    const restore = { byId: local.fetchElementById, around: local.fetchAsOverpassData }
+    local.fetchElementById = () => null
+    local.fetchAsOverpassData = () => null
+    const d = new BoundaryDetector() as any
+    const queries: string[] = []
+    d.retryOSMQuery = async (q: string) => {
+      queries.push(q)
+      if (queries.length > 1) return { ok: false, status: 503, json: async () => ({ elements: [] }) }
+      return { ok: true, json: async () => ({ elements: [{ type: 'relation', id: 5520332,
+        tags: { boundary: 'administrative', admin_level: '10', name: 'Maracanã' }, members: openSides(600) }] }) }
+    }
+    d.elevationService = { getElevation: async () => null }
+    try {
+      const r = await d.detectOSMBoundaryByID('5520332', 'relation', { id: 'x', name: 'Maracanã', type: 'neighborhood', location: PIN })
+      assert.match(queries[0], /relation\(5520332\);\s*out geom;/)
+      assert.equal(r.success, true)
+      assert.notEqual(r.data.synthetic, true)
+      assert.equal(r.data.coordinates.length, 5)
+    } finally {
+      local.fetchElementById = restore.byId
+      local.fetchAsOverpassData = restore.around
+    }
+  })
+})
+
 describe('INV-E1b — a drawn circle leaves with source=synthetic on every path (BR-AUDIO-010)', () => {
   it('an OSM node (10 m circle) leaves synthetic with source=synthetic, and the area search runs before it', async () => {
     const { BoundaryDetector } = await import('../../lib/services/trigger-points-google/core/boundary-detector')

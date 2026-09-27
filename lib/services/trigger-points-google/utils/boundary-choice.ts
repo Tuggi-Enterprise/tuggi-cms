@@ -114,8 +114,41 @@ export function splitRings(points: LatLng[]): LatLng[][] {
 export function outerRing(points: LatLng[], pin: LatLng): LatLng[] {
   const rings = splitRings(points);
   if (rings.length <= 1) return rings[0] ?? points;
+  return footprintRing(rings, pin) ?? points;
+}
+
+/** Of closed rings, the footprint: the largest holding the pin; without one, the largest. */
+export function footprintRing(rings: LatLng[][], pin: LatLng): LatLng[] | undefined {
   const byArea = rings.map(r => ({ r, a: calculatePolygonAreaInM2(r) })).sort((x, y) => y.a - x.a);
-  return (byArea.find(x => isPointInPolygon(pin, x.r)) ?? byArea[0]).r;
+  return (byArea.find(x => isPointInPolygon(pin, x.r)) ?? byArea[0])?.r;
+}
+
+const samePoint = (a: LatLng, b: LatLng): boolean => a.lat === b.lat && a.lng === b.lng;
+
+/**
+ * Overpass returns a relation as members, each outer way with its own geometry, and a border is
+ * usually several open ways that meet end to end (Maracanã 5520332: 6 ways, none closed). Joins
+ * them into closed rings; a chain that never closes is dropped (incomplete relation).
+ */
+export function assembleOuterRings(
+  members: Array<{ type?: string; role?: string; geometry?: Array<{ lat: number; lon?: number; lng?: number }> | null }> | undefined,
+): LatLng[][] {
+  const pending = (members ?? [])
+    .filter(m => m.type !== 'node' && (m.role === 'outer' || m.role === '') && Array.isArray(m.geometry) && m.geometry.length >= 2)
+    .map(m => m.geometry!.map(toLatLng));
+  const rings: LatLng[][] = [];
+  while (pending.length > 0) {
+    let chain = pending.shift()!;
+    while (!(chain.length >= 4 && samePoint(chain[0], chain[chain.length - 1]))) {
+      const end = chain[chain.length - 1];
+      const i = pending.findIndex(w => samePoint(w[0], end) || samePoint(w[w.length - 1], end));
+      if (i < 0) break;
+      const [next] = pending.splice(i, 1);
+      chain = chain.concat((samePoint(next[0], end) ? next : [...next].reverse()).slice(1));
+    }
+    if (chain.length >= 4 && samePoint(chain[0], chain[chain.length - 1])) rings.push(chain);
+  }
+  return rings;
 }
 
 const isClosed = (ring: LatLng[]): boolean =>

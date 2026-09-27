@@ -7,7 +7,7 @@ import { POIData, GeographicContext, BoundaryData, ProcessingResult } from '../t
 import { convertViewportToPolygon, calculatePolygonArea, calculatePolygonAreaInM2, calculatePolygonCenter, calculateDistance, isPointInPolygon, isDrawnCircle } from '../utils/calculations';
 import { TRIGGER_POINTS_CONSTANTS } from '../config/trigger-points-config';
 import { isCuratedBoundaryImplausible } from '../utils/osm-validation';
-import { chooseContainingBoundary, isPlaceElement, outerRing, poiIsPlace, type BoundaryRejection, type OsmAreaElement } from '../utils/boundary-choice';
+import { assembleOuterRings, chooseContainingBoundary, footprintRing, isPlaceElement, outerRing, poiIsPlace, type BoundaryRejection, type OsmAreaElement } from '../utils/boundary-choice';
 import { getSupabase } from '../../../core/supabase-client';
 
 /** Surveyed summits for the ground-top read (E4): one point per `processOSMPeaks` element. */
@@ -424,11 +424,12 @@ export class BoundaryDetector {
       } else if (localData && localData.elements.length > 0) {
         elements = localData.elements;
       } else {
-        // 🔄 ESTRATÉGIA 2: OVERPASS API (Fallback)
+        // 🔄 ESTRATÉGIA 2: OVERPASS API (Fallback). `out geom`, not `out geom tags`: the `tags`
+        // verbosity drops a relation's members, and without them there is no ring to assemble.
         const query = `
 [out:json][timeout:30];
 ${osmType}(${osmID});
-out geom tags;
+out geom;
 `;
         const response = await this.retryOSMQuery(
           query,
@@ -480,9 +481,15 @@ out geom tags;
         coordinates = this.createCircularBoundary(center, 10);
         synthetic = true;
       } else if (osmType === 'relation') {
-        // Relation without assembled geometry (Overpass `members`): mark the pin only
-        coordinates = this.createCircularBoundary(poiData.location, 20);
-        synthetic = true;
+        // Overpass relation: its outer ways joined into rings (INV-E1a). Only when no ring closes
+        // is the pin marked by a circle.
+        const ring = footprintRing(assembleOuterRings(element.members), poiData.location);
+        if (ring) {
+          coordinates = ring;
+        } else {
+          coordinates = this.createCircularBoundary(poiData.location, 20);
+          synthetic = true;
+        }
       }
       
       if (coordinates.length < 3) {
