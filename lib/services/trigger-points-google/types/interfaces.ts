@@ -59,6 +59,12 @@ export interface BoundaryData {
   confidence: number;
   source: 'google_places' | 'osm' | 'estimated' | 'manual' | 'manual_drawing' | 'nominatim' | 'unified_overpass' | 'estimated_boundary' | 'osm_nominatim' | 'osm_reverse_geocoding' | 'osm_nearby_features'; // ✅ Adicionado 'manual', 'manual_drawing' e 'nominatim' para boundaries do banco
   osmIdentified?: boolean; // ✅ Flag: OSM identificou o POI? (para POIs manuais, indica se OSM encontrou dados)
+  /**
+   * The coordinates are a circle drawn around a point (OSM node, estimated fallback), not
+   * the POI footprint. Area and shape of a synthetic boundary say nothing about the POI and
+   * never enter the visibility class (BR-AUDIO-010).
+   */
+  synthetic?: boolean;
   elevation?: {
     min: number;
     max: number;

@@ -163,8 +163,35 @@ export const VIEWPOINT_TAGS: Array<{ key: string; value: string }> = [
   { key: 'tourism', value: 'viewpoint' },
 ];
 
+/**
+ * Tags where the POI is a place the tourist is INSIDE (neighbourhood, island): an area even
+ * when OSM only has the node. Read before area/shape because a node has neither.
+ */
+export const AREA_TAGS: Array<{ key: string; value: string }> = [
+  { key: 'place', value: 'suburb' },
+  { key: 'place', value: 'neighbourhood' },
+  { key: 'place', value: 'quarter' },
+  { key: 'place', value: 'city_block' },
+  { key: 'place', value: 'locality' },
+  { key: 'place', value: 'village' },
+  { key: 'place', value: 'hamlet' },
+  { key: 'place', value: 'island' },
+  { key: 'place', value: 'islet' },
+];
+
+/**
+ * Tag value. Accepts both OSM (`natural=peak`) and the Nominatim shape stored in
+ * `osm_tags` (`class=natural`, `type=peak`).
+ */
+function tagValue(tags: Record<string, unknown> | undefined, key: string): string {
+  const direct = tags?.[key];
+  if (direct != null && direct !== '') return String(direct).toLowerCase();
+  if (String(tags?.class ?? '').toLowerCase() === key) return String(tags?.type ?? '').toLowerCase();
+  return '';
+}
+
 function hasTag(tags: Record<string, unknown> | undefined, key: string, value: string): boolean {
-  const v = String(tags?.[key] ?? '').toLowerCase();
+  const v = tagValue(tags, key);
   return value === '*' ? v !== '' && v !== 'no' : v === value;
 }
 
@@ -233,7 +260,9 @@ export interface PhysicalAttributes {
   heightM: number;
   /** prominence over the regional base (m); 0 when unknown */
   prominenceM: number;
+  /** footprint area; 0 when the boundary is synthetic (BoundaryData.synthetic) */
   areaM2: number;
+  /** footprint; omitted when synthetic — a drawn circle has no shape */
   boundary?: GeoPoint[];
   tags?: Record<string, unknown>;
 }
@@ -244,6 +273,7 @@ export function classifyVisibility(a: PhysicalAttributes): VisibilityClass {
   if (a.heightM >= LANDMARK_MIN_HEIGHT_M || a.prominenceM >= LANDMARK_MIN_PROMINENCE_M) {
     return VisibilityClass.LANDMARK_HIGH;
   }
+  if (AREA_TAGS.some(t => hasTag(a.tags, t.key, t.value))) return VisibilityClass.AREA;
   const shape = boundaryShape(a.boundary);
   if (shape.elongation >= LINEAR_MIN_ELONGATION && shape.lengthM >= LINEAR_MIN_LENGTH_M) {
     return VisibilityClass.LINEAR;

@@ -238,6 +238,7 @@ export class BoundaryDetector {
       }
       
       let coordinates: Array<{lat: number, lng: number}> = [];
+      let synthetic = metadata?.boundary_source === 'estimated';
       
       // Extrair coordenadas do GeoJSON
       if (geometry.type === 'Polygon' && geometry.coordinates && geometry.coordinates[0]) {
@@ -261,6 +262,7 @@ export class BoundaryDetector {
           lng: geometry.coordinates[0]
         };
         coordinates = this.createCircularBoundary(center, 50); // 50m radius
+        synthetic = true;
       } else if (geometry.type === 'LineString') {
         // LineString: usar coordenadas diretamente
         coordinates = geometry.coordinates.map((coord: [number, number]) => ({
@@ -276,12 +278,14 @@ export class BoundaryDetector {
             lng: Number(metadata.boundary_centroid_lng)
           };
           coordinates = this.createCircularBoundary(center, 50);
+          synthetic = true;
         } else if (metadata?.latitude && metadata?.longitude) {
           const center = {
             lat: Number(metadata.latitude),
             lng: Number(metadata.longitude)
           };
           coordinates = this.createCircularBoundary(center, 50);
+          synthetic = true;
         } else {
           return { success: false, error: `Unsupported geometry type: ${geometry.type}`, processingTime: 0 };
         }
@@ -305,6 +309,7 @@ export class BoundaryDetector {
         perimeter_m: 0,
         confidence,
         source: (metadata?.boundary_source as 'osm' | 'nominatim' | 'manual' | 'estimated') || 'manual',
+        synthetic,
         // Metadata adicional
         osmTags: undefined,
         classification: undefined
@@ -378,24 +383,23 @@ out geom tags;
       
       // Processar geometria
       let coordinates: Array<{ lat: number; lng: number }> = [];
-      
-      if (osmType === 'way' && element.geometry) {
-        // Way: usar geometria diretamente
+      // A node has no footprint: the circle only marks the point (see BoundaryData.synthetic).
+      let synthetic = false;
+
+      if ((osmType === 'way' || osmType === 'relation') && Array.isArray(element.geometry) && element.geometry.length >= 3) {
+        // Way, or relation with its outer ring already assembled (local DB): real geometry
         coordinates = element.geometry.map((point: any) => ({
           lat: point.lat,
-          lng: point.lon
+          lng: point.lon ?? point.lng
         }));
       } else if (osmType === 'node') {
-        // Node: criar boundary circular pequeno
         const center = { lat: element.lat, lng: element.lon };
-        const radius = 10; // 10m para nodes
-        coordinates = this.createCircularBoundary(center, radius);
-      } else if (osmType === 'relation' && element.members) {
-        // Relation: usar outer way
-        // Por enquanto, criar boundary estimado
-        const center = poiData.location;
-        const radius = 20;
-        coordinates = this.createCircularBoundary(center, radius);
+        coordinates = this.createCircularBoundary(center, 10);
+        synthetic = true;
+      } else if (osmType === 'relation') {
+        // Relation without assembled geometry (Overpass `members`): mark the pin only
+        coordinates = this.createCircularBoundary(poiData.location, 20);
+        synthetic = true;
       }
       
       if (coordinates.length < 3) {
@@ -566,10 +570,10 @@ out geom tags;
         poiData,
         poiHeight || undefined,
         elevationData ? { center: elevationData.center } : undefined,
-        area,
+        synthetic ? 0 : area,
         contextForClassification, // ✅ Usar contexto atualizado com densidade correta
         poiTags,
-        coordinates
+        synthetic ? undefined : coordinates
       );
       
       
@@ -658,6 +662,7 @@ out geom tags;
         perimeter_m: 0,
         confidence: 0.95, // Alta confiança quando temos OSM ID
         source: 'osm',
+        synthetic,
         height: poiHeight || undefined,
         elevation: elevationData,
         osmTags: poiTags,
@@ -3032,7 +3037,8 @@ out geom tags;
       area_m2: area,
       perimeter_m: 0,
       confidence: 0.3,
-      source: 'estimated' as const
+      source: 'estimated' as const,
+      synthetic: true
     };
   }
   
