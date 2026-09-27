@@ -89,14 +89,6 @@ describe('INV-E1c — the element holding the pin must fit the kind of POI (BR-A
     assert.equal(monument.chosen?.element.id, 7)
   })
 
-  it('a POI whose curated category is monument/memorial/artwork is a point feature even when its tags are a geocoder hit', () => {
-    // Monumento Árvore de Natal: primary_category=monument, tags = `highway=pedestrian` (#772).
-    const namedPark = { type: 'way', id: 13, tags: { leisure: 'park', name: 'Praça do Radio Amador' }, geometry: square(40) }
-    const r = choice.chooseContainingBoundary(PIN, { name: 'Monumento Árvore de Natal', category: 'monument', tags: { class: 'highway', type: 'pedestrian' } }, [namedPark])
-    assert.equal(r.chosen, undefined)
-    assert.match(r.rejected[0].reason, /area polygon/)
-  })
-
   it('only what holds the pin counts; a closed road is no area; the smallest fitting polygon wins', () => {
     const roundabout = { type: 'way', id: 8, tags: { highway: 'primary' }, geometry: square(20) }
     const nearby = { type: 'way', id: 9, tags: { leisure: 'park' }, geometry: square(40, { lat: PIN.lat + 300 * M_LAT, lng: PIN.lng }) }

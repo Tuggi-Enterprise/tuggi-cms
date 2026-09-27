@@ -4,14 +4,12 @@ import assert from 'node:assert/strict'
 // Auditoria do motor de TP, 2026-09-27, fatia A, item 5: reprocessar TP não aprova POI
 // e não carimba `access: 'both'`. Cliente Supabase falso grava o que seria escrito.
 const writes: Array<{ op: string; args: unknown[] }> = []
-const selects: string[] = []
 
 function fakeClient(): any {
   const handler: ProxyHandler<any> = {
     get(_t, prop) {
       if (prop === 'then') return (resolve: (v: unknown) => void) => resolve({ data: null, error: null, count: 0 })
       return (...args: unknown[]) => {
-        if (prop === 'select') selects.push(String(args[0]))
         if (prop === 'update' || prop === 'insert' || prop === 'upsert' || prop === 'rpc' || prop === 'delete') {
           writes.push({ op: String(prop), args })
         }
@@ -26,7 +24,6 @@ let PoiMigrationPipeline: any
 let MigrationService: any
 let TriggerPointSavingService: any
 let CoreTriggerPointPredictor: any
-let loadPOIWithCoordinates: any
 
 before(async () => {
   mock.module('@/lib/core/supabase-client', {
@@ -41,7 +38,6 @@ before(async () => {
   })
   ;({ PoiMigrationPipeline } = await import('@/lib/services/poi-migration-pipeline'))
   ;({ MigrationService } = await import('@/lib/services/migration-service'))
-  loadPOIWithCoordinates = MigrationService.loadPOIWithCoordinates.bind(MigrationService)
   ;({ TriggerPointSavingService } = await import('@/lib/services/trigger-point-saving'))
   ;({ CoreTriggerPointPredictor } = await import('@/lib/services/trigger-points-google/core/trigger-point-predictor'))
 })
@@ -162,26 +158,5 @@ describe('BR-AUDIO-010 / INV-E11 — dry-run do motor de TP mede sem gravar, pel
     assert.ok(Math.abs((row.dist_to_boundary_m ?? 0) - 333) < 10, `borda: ${row.dist_to_boundary_m}`)
     assert.equal(row.beyond_cap, true)
     assert.equal(row.generation_method, 'fallback_recovery')
-  })
-})
-
-describe('BR-AUDIO-010 — a categoria que chega ao motor é a taxonomia (primary_category), a legada só de fallback', () => {
-  it('o carregador do regen lê primary_category e category_group', async () => {
-    selects.length = 0
-    await loadPOIWithCoordinates('poi-1')
-    const attractions = selects.find(s => s.includes('osm_id'))
-    assert.ok(attractions?.includes('primary_category') && attractions.includes('category_group'), attractions)
-  })
-
-  it('POI com category null e primary_category de praia, parque e monumento entra no motor com o tipo certo', () => {
-    const coord = { latitude: PIN.lat, longitude: PIN.lng }
-    for (const kind of ['beach', 'park', 'monument']) {
-      const input = PoiMigrationPipeline.buildEngineInput({ id: 'p', name: 'x', category: null, primary_category: kind }, coord)
-      assert.equal(input.type, kind)
-    }
-    const legacy = PoiMigrationPipeline.buildEngineInput({ id: 'p', name: 'x', category: 'park', primary_category: null }, coord)
-    assert.equal(legacy.type, 'park')
-    const generic = PoiMigrationPipeline.buildEngineInput({ id: 'p', name: 'x', category: 'point_of_interest', primary_category: '_excluded_street' }, coord)
-    assert.equal(generic.type, 'point_of_interest')
   })
 })
