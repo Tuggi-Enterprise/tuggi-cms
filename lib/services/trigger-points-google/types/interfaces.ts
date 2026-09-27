@@ -65,6 +65,8 @@ export interface BoundaryData {
    * never enter the visibility class (BR-AUDIO-010).
    */
   synthetic?: boolean;
+  /** E3/E4/E5 measured once on the final boundary (P8): height, ground top, city base, prominence */
+  physical?: import('../services/poi-classifier.service').PoiPhysical;
   elevation?: {
     min: number;
     max: number;

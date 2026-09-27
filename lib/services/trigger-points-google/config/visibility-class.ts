@@ -69,8 +69,8 @@ export const CLASS_LIMITS: Record<VisibilityClass, ClassLimits> = {
  * Max edge distance for the class. A landmark on elevated terrain (real prominence)
  * reaches the sanity cap; everything else uses the table.
  */
-export function maxEdgeDistanceFor(cls: VisibilityClass, prominenceM = 0): number {
-  if (cls === VisibilityClass.LANDMARK_HIGH && prominenceM >= LANDMARK_MIN_PROMINENCE_M) {
+export function maxEdgeDistanceFor(cls: VisibilityClass, prominenceM: number | null = 0): number {
+  if (cls === VisibilityClass.LANDMARK_HIGH && (prominenceM ?? 0) >= LANDMARK_MIN_PROMINENCE_M) {
     return SANITY_MAX_TP_DISTANCE_M;
   }
   return CLASS_LIMITS[cls].maxEdgeDistanceM;
@@ -135,6 +135,8 @@ export const DEFAULT_HEIGHT_BY_TAG: TagRow[] = [
   { key: 'memorial', value: 'statue', heightM: 6 },
   { key: 'artwork_type', value: 'statue', heightM: 6 },
   { key: 'historic', value: 'monument', heightM: 12 },
+  // older tagging of the same object; Cristo Redentor is `man_made=monument` with no height (#772 P8)
+  { key: 'man_made', value: 'monument', heightM: 12 },
   { key: 'man_made', value: 'obelisk', heightM: 12 },
   { key: 'memorial', value: 'obelisk', heightM: 12 },
   { key: 'building', value: 'chapel', heightM: 10 },
@@ -155,8 +157,13 @@ export const DEFAULT_HEIGHT_BY_TAG: TagRow[] = [
   { key: 'building', value: '*', heightM: 10 },
 ];
 
-/** Height per floor, for `building:levels`. */
-export const BUILDING_LEVEL_HEIGHT_M = 4;
+/**
+ * Height per floor, for `building:levels` — the ONE floor ruler of the engine (INV-E3). The POI
+ * height, the buildings of the fan, the sight-line check and the elevation service all read it
+ * through `heightFromTags`. 3 m is the OSM "Simple 3D Buildings" convention for a level.
+ * It was ×3, ×3.5 and ×4 in three places.
+ */
+export const BUILDING_LEVEL_HEIGHT_M = 3;
 
 /**
  * Natural relief: seen from afar by what it is, even when SRTM smooths its prominence away.
@@ -244,21 +251,43 @@ function parseMeters(raw: unknown): number | null {
   return Number.isFinite(n) && n > 0 ? n : null;
 }
 
+export type TagHeightSource = 'height' | 'building:height' | 'levels';
+
 /**
- * Physical POI height: real `height` > `building:levels` × BUILDING_LEVEL_HEIGHT_M >
- * height already known > DEFAULT_HEIGHT_BY_TAG (largest among matching tags).
+ * Measured height written on the element itself: `height` → `building:height` →
+ * `building:levels` × BUILDING_LEVEL_HEIGHT_M. null when none is there. Every building-height
+ * reader of the engine goes through here (INV-E3).
+ */
+export function heightFromTags(
+  tags: Record<string, unknown> | undefined | null
+): { heightM: number; source: TagHeightSource } | null {
+  if (!tags) return null;
+  const real = parseMeters(tags.height);
+  if (real) return { heightM: real, source: 'height' };
+  const building = parseMeters(tags['building:height']);
+  if (building) return { heightM: building, source: 'building:height' };
+  const levels = parseMeters(tags['building:levels']);
+  if (levels) return { heightM: levels * BUILDING_LEVEL_HEIGHT_M, source: 'levels' };
+  return null;
+}
+
+export type HeightSource = TagHeightSource | 'tag_default' | 'known' | 'none';
+
+/**
+ * Physical POI height (INV-E3): measured tag (`heightFromTags`) → DEFAULT_HEIGHT_BY_TAG →
+ * height measured on another element (`knownHeightM`: building aggregation, host) → 0.
+ * The table precedes `known` because the element scan picks up neighbours: Cristo got the
+ * 24 m of a kiosk next to the statue (#772 P8).
  */
 export function resolveHeightM(
   tags: Record<string, unknown> | undefined,
   knownHeightM?: number
-): { heightM: number; source: 'height' | 'levels' | 'known' | 'tag_default' | 'none' } {
-  const real = parseMeters(tags?.height);
-  if (real) return { heightM: real, source: 'height' };
-  const levels = parseMeters(tags?.['building:levels']);
-  if (levels) return { heightM: levels * BUILDING_LEVEL_HEIGHT_M, source: 'levels' };
-  if (knownHeightM && knownHeightM > 0) return { heightM: knownHeightM, source: 'known' };
+): { heightM: number; source: HeightSource } {
+  const measured = heightFromTags(tags);
+  if (measured) return measured;
   const byTag = defaultHeightByTag(tags);
   if (byTag !== null) return { heightM: byTag, source: 'tag_default' };
+  if (knownHeightM && knownHeightM > 0) return { heightM: knownHeightM, source: 'known' };
   return { heightM: 0, source: 'none' };
 }
 
@@ -289,8 +318,11 @@ export function boundaryShape(coords: GeoPoint[] | undefined): { elongation: num
 
 export interface PhysicalAttributes {
   heightM: number;
-  /** prominence over the regional base (m); 0 when unknown */
-  prominenceM: number;
+  /**
+   * Ground at the top of the POI + height − city base (INV-E4b, `prominenceOverCityM`).
+   * null when the DEM failed: the class is still decided, never on a silent 0 (INV-E4c/E5c).
+   */
+  prominenceM: number | null;
   /** footprint area; 0 when the boundary is synthetic (BoundaryData.synthetic) */
   areaM2: number;
   /** footprint; omitted when synthetic — a drawn circle has no shape */
@@ -302,19 +334,58 @@ export function isNaturalRelief(tags: Record<string, unknown> | undefined): bool
   return NATURAL_RELIEF_TAGS.some(t => hasTag(tags, t.key, t.value));
 }
 
-/** The single, pure classifier. Order is precedence. */
-export function classifyVisibility(a: PhysicalAttributes): VisibilityClass {
-  if (isNaturalRelief(a.tags)) return VisibilityClass.LANDMARK_HIGH;
-  if (VIEWPOINT_TAGS.some(t => hasTag(a.tags, t.key, t.value))) return VisibilityClass.VIEWPOINT;
-  if (a.heightM >= LANDMARK_MIN_HEIGHT_M || a.prominenceM >= LANDMARK_MIN_PROMINENCE_M) {
-    return VisibilityClass.LANDMARK_HIGH;
+/**
+ * The rule that decided the class, for the trace (E0). Same precedence as `classifyVisibility`,
+ * which is the only caller that turns it into a class.
+ */
+export type ClassRule =
+  | 'natural_relief' | 'viewpoint_tag' | 'landmark_height' | 'landmark_prominence'
+  | 'area_tag' | 'linear_shape' | 'area_size' | 'structure_height' | 'point_low';
+
+export function visibilityClassRule(a: PhysicalAttributes): { cls: VisibilityClass; rule: ClassRule } {
+  if (isNaturalRelief(a.tags)) return { cls: VisibilityClass.LANDMARK_HIGH, rule: 'natural_relief' };
+  if (VIEWPOINT_TAGS.some(t => hasTag(a.tags, t.key, t.value))) return { cls: VisibilityClass.VIEWPOINT, rule: 'viewpoint_tag' };
+  if (a.heightM >= LANDMARK_MIN_HEIGHT_M) return { cls: VisibilityClass.LANDMARK_HIGH, rule: 'landmark_height' };
+  if (a.prominenceM !== null && a.prominenceM >= LANDMARK_MIN_PROMINENCE_M) {
+    return { cls: VisibilityClass.LANDMARK_HIGH, rule: 'landmark_prominence' };
   }
-  if (AREA_TAGS.some(t => hasTag(a.tags, t.key, t.value))) return VisibilityClass.AREA;
+  if (AREA_TAGS.some(t => hasTag(a.tags, t.key, t.value))) return { cls: VisibilityClass.AREA, rule: 'area_tag' };
   const shape = boundaryShape(a.boundary);
   if (shape.elongation >= LINEAR_MIN_ELONGATION && shape.lengthM >= LINEAR_MIN_LENGTH_M) {
-    return VisibilityClass.LINEAR;
+    return { cls: VisibilityClass.LINEAR, rule: 'linear_shape' };
   }
-  if (a.areaM2 >= AREA_MIN_M2) return VisibilityClass.AREA;
-  if (a.heightM >= STRUCTURE_MIN_HEIGHT_M) return VisibilityClass.STRUCTURE;
-  return VisibilityClass.POINT_LOW;
+  if (a.areaM2 >= AREA_MIN_M2) return { cls: VisibilityClass.AREA, rule: 'area_size' };
+  if (a.heightM >= STRUCTURE_MIN_HEIGHT_M) return { cls: VisibilityClass.STRUCTURE, rule: 'structure_height' };
+  return { cls: VisibilityClass.POINT_LOW, rule: 'point_low' };
+}
+
+/** The single, pure classifier (INV-E5a). Order is precedence. */
+export function classifyVisibility(a: PhysicalAttributes): VisibilityClass {
+  return visibilityClassRule(a).cls;
+}
+
+// ── Elevation and city base (E4, P8) ───────────────────────────────────────────
+/** Radius around the city centre sampled for the city base. */
+export const CITY_BASE_RADIUS_M = 10_000;
+/** Grid step of that sampling (~300 SRTM reads per city, once). */
+export const CITY_BASE_GRID_STEP_M = 1_000;
+/** Lower quartile of the land samples: the ground the city is built on, not its hills. */
+export const CITY_BASE_PERCENTILE = 0.25;
+/** A surveyed summit (`natural=peak` with `ele`) this close to the boundary is its top. */
+export const SUMMIT_MATCH_M = 60;
+
+/** Lower percentile of the samples above sea level (sea reads 0 in SRTM); null when none. */
+export function landPercentile(samples: Array<number | null>, p = CITY_BASE_PERCENTILE): number | null {
+  const land = samples.filter((v): v is number => v !== null && Number.isFinite(v) && v > 0).sort((a, b) => a - b);
+  if (!land.length) return null;
+  return land[Math.floor((land.length - 1) * p)];
+}
+
+/**
+ * INV-E4b (P8): prominence = ground at the top of the POI + POI height − city base.
+ * null when either terrain number is unknown (INV-E4c).
+ */
+export function prominenceOverCityM(groundTopM: number | null, heightM: number, cityBaseM: number | null): number | null {
+  if (groundTopM === null || cityBaseM === null) return null;
+  return Math.max(0, groundTopM + heightM - cityBaseM);
 }

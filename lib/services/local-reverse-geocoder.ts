@@ -166,6 +166,43 @@ export class LocalReverseGeocoder {
   }
 
   /**
+   * Centre of the POI's city, for the city base elevation (TP engine E4, P8): the GeoNames city
+   * whose name matches `cityName` (accent/case-insensitive), nearest to the point within 100 km;
+   * else the most populous city within 30 km. null without GeoNames or without a city.
+   */
+  public cityCentre(
+    lat: number,
+    lng: number,
+    cityName?: string | null
+  ): { id: string; centre: { lat: number; lng: number } } | null {
+    if (!this.geonamesAvailable || !this.db || !Number.isFinite(lat) || !Number.isFinite(lng)) return null
+    const box = (km: number) => {
+      const dLat = km / 111
+      const dLng = km / (111 * Math.cos(lat * Math.PI / 180))
+      return this.db!.prepare(`
+        SELECT c.geonameid AS id, c.name, c.ascii_name, c.lat, c.lng, c.population
+        FROM geonames_cities c JOIN geonames_cities_rtree r ON r.rowid = c.geonameid
+        WHERE r.min_lat <= ? AND r.max_lat >= ? AND r.min_lng <= ? AND r.max_lng >= ?
+      `).all(lat + dLat, lat - dLat, lng + dLng, lng - dLng) as Array<{
+        id: number; name: string; ascii_name: string | null; lat: number; lng: number; population: number | null
+      }>
+    }
+    const fold = (s: string) => s.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().trim()
+    const pick = (r: { id: number; lat: number; lng: number }) => ({ id: String(r.id), centre: { lat: r.lat, lng: r.lng } })
+    if (cityName) {
+      const want = fold(cityName)
+      const named = box(100)
+        .filter(r => fold(r.name) === want || fold(r.ascii_name ?? '') === want)
+        .sort((a, b) => haversineKm(lat, lng, a.lat, a.lng) - haversineKm(lat, lng, b.lat, b.lng))
+      if (named.length) return pick(named[0])
+    }
+    const near = box(30)
+      .filter(r => haversineKm(lat, lng, r.lat, r.lng) <= 30)
+      .sort((a, b) => (b.population ?? 0) - (a.population ?? 0))
+    return near.length ? pick(near[0]) : null
+  }
+
+  /**
    * Combined lookup. Tries tags first (free, exact), then GeoNames
    * (offline, sub-millisecond), then fills any missing field by combining
    * the two sources.

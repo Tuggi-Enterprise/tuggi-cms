@@ -602,6 +602,51 @@ export class LocalOSMFetcher {
   }
 
   /**
+   * Surveyed summits (`natural=peak|volcano` nodes with `ele`) in a bbox — the ground-top read
+   * of the TP engine (E4, INV-E4a). SRTM here is a 90 m grid and puts Corcovado at 568 m;
+   * the summit node says 710. null without the local DB.
+   */
+  public fetchSummits(
+    bbox: { minLat: number; maxLat: number; minLng: number; maxLng: number }
+  ): Array<{ lat: number; lng: number; tags: Record<string, unknown> }> | null {
+    if (!this.db) return null;
+    try {
+      const stmt = this.rtreeAvailable.pois
+        ? this.db.prepare(`
+            SELECT p.geometry_json, p.tags_json FROM pois p
+            JOIN pois_rtree r ON r.rowid = p.rowid
+            WHERE json_extract(p.tags_json, '$.natural') IN ('peak', 'volcano')
+              AND json_extract(p.tags_json, '$.ele') IS NOT NULL
+              AND r.min_lat <= ? AND r.max_lat >= ?
+              AND r.min_lng <= ? AND r.max_lng >= ?
+          `)
+        : this.db.prepare(`
+            SELECT geometry_json, tags_json FROM pois
+            WHERE json_extract(tags_json, '$.natural') IN ('peak', 'volcano')
+              AND json_extract(tags_json, '$.ele') IS NOT NULL
+              AND min_lat <= ? AND max_lat >= ?
+              AND min_lng <= ? AND max_lng >= ?
+          `);
+      const rows = stmt.all(bbox.maxLat, bbox.minLat, bbox.maxLng, bbox.minLng) as any[];
+      const out: Array<{ lat: number; lng: number; tags: Record<string, unknown> }> = [];
+      for (const row of rows ?? []) {
+        try {
+          const geom = JSON.parse(row.geometry_json);
+          const point = Array.isArray(geom) ? geom[0] : geom;
+          if (!point || typeof point.lat !== 'number') continue;
+          out.push({ lat: point.lat, lng: point.lng ?? point.lon, tags: JSON.parse(row.tags_json || '{}') });
+        } catch {
+          // ignora rows com geometry/tags inválidos
+        }
+      }
+      return out;
+    } catch (error) {
+      console.error(`❌ [LocalOSMFetcher] Error fetching summits:`, error);
+      return null;
+    }
+  }
+
+  /**
    * Busca um elemento OSM específico por tipo e ID no banco local.
    *
    * No OSM o id só é único DENTRO do tipo: node 123 e way 123 são elementos diferentes.

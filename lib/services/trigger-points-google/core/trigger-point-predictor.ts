@@ -10,7 +10,7 @@ import { POIData, TriggerPoint, TriggerPointGenerationOptions, TriggerPointPredi
 import { calculateBearing, calculateDistance, findClosestPointOnBoundary, closestStreetPointToPoi, closestPointOnPolyline } from '../utils/calculations';
 import { deterministicTPId } from '../utils/deterministic';
 import { loadTriggerPointsConfig, TriggerPointsConfig, TRIGGER_POINTS_CONSTANTS } from '../config/trigger-points-config';
-import { VisibilityClass, LANDMARK_MIN_PROMINENCE_M, EDGE_BAND_M, fanHorizonM, isNaturalRelief } from '../config/visibility-class';
+import { VisibilityClass, LANDMARK_MIN_PROMINENCE_M, EDGE_BAND_M, fanHorizonM, heightFromTags, isNaturalRelief } from '../config/visibility-class';
 import { emitDebugQuality, DebugQualitySnapshot } from '../debug-quality-logger';
 import { selectSpacedTriggerPoints, applyTpPostConditions } from '../utils/tp-selection';
 
@@ -1206,13 +1206,8 @@ export class CoreTriggerPointPredictor {
     const { LocalOSMFetcher } = await import('../services/local-osm-fetcher');
     const { SRTMLocalService } = await import('../../srtm-local-service');
 
-    // Mesma fórmula de poiTop que attachVisibilityFan (com max pra peaks naturais).
-    const isStructurePOI = (boundary.height ?? 0) > 20;
-    const poiGround = isStructurePOI
-      ? (boundary.elevation?.average ?? boundary.elevation?.center ?? 0)
-      : (boundary.elevation?.max ?? boundary.elevation?.center ?? boundary.elevation?.average ?? 0);
-    const poiHeight = Math.max(boundary.height ?? 0, 1.7);
-    const poiTop = poiGround + poiHeight;
+    // INV-E8: same target as the fan — ground at the top of the boundary (E4) + height (E3).
+    const { topM: poiTop } = VisibilityMapBuilder.poiSightTarget(boundary);
 
     // ── Pre-fetch building tops pro check de urban-canyon ──────────────────
     // Filtro de altura ≥8m: só buildings que PODEM bloquear linha de visão
@@ -1233,15 +1228,8 @@ export class CoreTriggerPointPredictor {
           const geometry = el.geometry.map((g: any) => ({ lat: g.lat, lng: g.lon ?? g.lng }));
           if (geometry.length < 3) continue;
 
-          let height = 0;
-          if (el.tags.height) {
-            const m = String(el.tags.height).match(/(\d+(?:\.\d+)?)/);
-            if (m) height = parseFloat(m[1]);
-          }
-          if (!height && el.tags['building:levels']) {
-            const lv = parseFloat(el.tags['building:levels']);
-            if (!isNaN(lv) && lv > 0) height = lv * 3.5;
-          }
+          // one floor ruler (INV-E3); untagged buildings stay out of this check (see MIN_BLOCKING_HEIGHT_M)
+          const height = heightFromTags(el.tags)?.heightM ?? 0;
           if (!height || height < MIN_BLOCKING_HEIGHT_M) continue;
 
           const centroid = {
@@ -1499,22 +1487,16 @@ export class CoreTriggerPointPredictor {
       //    ESB: ground=42m, height=443m → poiTop deve ser 485m, não 528m.
       //
       // Threshold height>20m distingue (storefront/edifício vs natural).
-      const isStructurePOI = (boundary.height ?? 0) > 20;
-      const poiGround = isStructurePOI
-        ? (boundary.elevation?.average ?? boundary.elevation?.center ?? 0)
-        : (boundary.elevation?.max ?? boundary.elevation?.center ?? boundary.elevation?.average ?? 0);
-      const poiHeight = Math.max(boundary.height ?? 0, 1.7);
+      const { groundM: poiGround, heightM: poiHeight, topM: poiTop } = VisibilityMapBuilder.poiSightTarget(boundary);
 
-      // One regional base for the class and for the fan (SSOT: ElevationAnalysisService).
-      const { ElevationAnalysisService } = require('../services/elevation-service');
-      const regionalBase: number = await ElevationAnalysisService.estimateRegionalBaseElevation(boundary.center, boundary.cachedContext);
-
-      const elevationDiff = Math.max(0, poiGround - regionalBase);
-      // Below landmark prominence it is urban SRTM noise (SSOT: visibility-class).
-      // A peak/hill is relief, not SRTM noise under a building: its prominence always counts.
-      const effectiveElevationContribution =
-        elevationDiff >= LANDMARK_MIN_PROMINENCE_M || isNaturalRelief(boundary.osmTags) ? elevationDiff : 0;
-      const effectiveHeight = poiHeight + effectiveElevationContribution;
+      // Prominence over the city base, measured once in E4 (P8) — the fan no longer samples a
+      // base of its own. Below landmark prominence it is urban SRTM noise; a peak/hill is relief
+      // and always counts. Prominence already includes the height (INV-E4b).
+      const prominence = boundary.physical?.prominenceM ?? null;
+      const elevated = prominence !== null && (prominence >= LANDMARK_MIN_PROMINENCE_M || isNaturalRelief(boundary.osmTags));
+      const effectiveElevationContribution = elevated ? prominence : 0;
+      const effectiveHeight = elevated ? Math.max(prominence, poiHeight) : poiHeight;
+      const elevationDiff = prominence ?? 0;
 
       // Horizon per visibility class (BR-AUDIO-010): a low/local class stays at its cap —
       // the old 300 m floor no longer applies to a POI without height. A tall landmark
@@ -1538,17 +1520,7 @@ export class CoreTriggerPointPredictor {
         for (const el of overpassLike.elements) {
           if (el.tags?.building && el.geometry && Array.isArray(el.geometry)) {
             const geometry = el.geometry.map((g: any) => ({ lat: g.lat, lng: g.lon ?? g.lng }));
-            const heightTag = el.tags['height'];
-            const levelsTag = el.tags['building:levels'];
-            let height = 0;
-            if (heightTag) {
-              const m = String(heightTag).match(/(\d+(?:\.\d+)?)/);
-              if (m) height = parseFloat(m[1]);
-            }
-            if (!height && levelsTag) {
-              const lv = parseFloat(levelsTag);
-              if (!isNaN(lv) && lv > 0) height = lv * 3.5;
-            }
+            const height = heightFromTags(el.tags)?.heightM ?? 0; // one floor ruler (INV-E3)
             buildings.push({ id: String(el.id), geometry, height, tags: el.tags });
           }
         }
@@ -1576,10 +1548,6 @@ export class CoreTriggerPointPredictor {
         console.log(`👁️ Memory cap: trimmed buildings ${originalCount} → ${MAX_BUILDINGS} (closest to POI center)`);
       }
 
-      // POI top altitude: usa altitude SRTM absoluta pra ray-cast (precisa de
-      // coordenada Z consistente com prédios e terreno). Independente da
-      // fórmula de horizon, que usa elevation DIFF filtrada.
-      const poiTop = poiGround + poiHeight;
 
       console.log(`👁️ Building visibility fan: POI top=${poiTop.toFixed(1)}m (ground ${poiGround} + height ${poiHeight}), buildings considered=${buildings.length}, horizon=${horizon}m`);
 

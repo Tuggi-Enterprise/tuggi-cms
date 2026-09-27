@@ -1,4 +1,5 @@
 import { GeoPoint } from '../types/interfaces';
+import { heightFromTags } from '../config/visibility-class';
 
 /**
  * Calcula a distância entre dois pontos em metros usando a fórmula de Haversine
@@ -95,37 +96,11 @@ export function isInBearingRange(
 }
 
 /**
- * Extrai altura de prédio de tags OSM (função centralizada - DRY)
+ * Building height from OSM tags; 0 when none. Delegates to the engine's one floor ruler
+ * (config/visibility-class#heightFromTags, INV-E3) — this copy used ×3 per floor.
  */
 export function extractBuildingHeight(tags: any): number {
-  if (!tags) return 0;
-  
-  // 1. Tag height direta
-  if (tags.height) {
-    // tags.height pode ser número ou string
-    if (typeof tags.height === 'number') {
-      return tags.height;
-    }
-    const match = String(tags.height).match(/(\d+\.?\d*)/);
-    if (match) return parseFloat(match[1]);
-  }
-  
-  // 2. Tag building:height
-  if (tags['building:height']) {
-    if (typeof tags['building:height'] === 'number') {
-      return tags['building:height'];
-    }
-    const match = String(tags['building:height']).match(/(\d+\.?\d*)/);
-    if (match) return parseFloat(match[1]);
-  }
-  
-  // 3. Converter building:levels em altura (3m por andar)
-  if (tags['building:levels']) {
-    const levels = parseInt(tags['building:levels']);
-    if (!isNaN(levels)) return levels * 3;
-  }
-  
-  return 0;
+  return heightFromTags(tags)?.heightM ?? 0;
 }
 
 /**

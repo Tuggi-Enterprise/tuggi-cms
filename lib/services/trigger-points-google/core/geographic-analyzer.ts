@@ -203,7 +203,8 @@ export class GeographicContextAnalyzer {
       const srtm = SRTMLocalService.getInstance();
       const poiElevation = await srtm.getElevation(location.lat, location.lng) ?? baseElevation;
       
-      const elevationDiff = poiElevation - baseElevation;
+      // no city base or no ground (DEM failed): no elevation claim (INV-E4c)
+      const elevationDiff = poiElevation === null || baseElevation === null ? 0 : poiElevation - baseElevation;
       
       // Classificar baseado na diferença
       let type: 'flat' | 'mountainous' | 'hilly' = 'flat';

@@ -9,7 +9,7 @@ import {
   SANITY_MAX_TP_DISTANCE_M,
 } from '../../lib/services/trigger-points-google/config/visibility-class'
 import { tpReachCapM, partitionByPoiReach } from '../../lib/services/trigger-points-google/utils/validation'
-import { POIClassifierService, buildClassification } from '../../lib/services/trigger-points-google/services/poi-classifier.service'
+import { measureAndClassify, buildClassification } from '../../lib/services/trigger-points-google/services/poi-classifier.service'
 import type { GeographicContext, POIData } from '../../lib/services/trigger-points-google/types/interfaces'
 
 // TP engine audit, 2026-09-27, slice B (#774). Fixture: Rio de Janeiro.
@@ -48,7 +48,8 @@ describe('BR-AUDIO-010 — visibility class comes from physical attributes, not 
     assert.equal(resolveHeightM({ memorial: 'bust' }).heightM, 2.5)
     assert.equal(resolveHeightM({ building: 'church' }).heightM, 25)
     assert.equal(resolveHeightM({ building: 'church', height: '41' }).heightM, 41)
-    assert.equal(resolveHeightM({ building: 'yes', 'building:levels': '10' }).heightM, 40)
+    // one floor ruler, 3 m (INV-E3)
+    assert.equal(resolveHeightM({ building: 'yes', 'building:levels': '10' }).heightM, 30)
   })
 
   it('bust is POINT_LOW, statue and church are STRUCTURE, tower is LANDMARK_HIGH', () => {
@@ -76,8 +77,18 @@ describe('BR-AUDIO-010 — visibility class comes from physical attributes, not 
   })
 
   it('a "Cristo"/"Peak" name without height or prominence is not a landmark', async () => {
-    const poi = { id: 'x', name: 'Cristo Peak Stadium', location: PIN } as unknown as POIData
-    const c = await new POIClassifierService().classifyPOI(poi, undefined, undefined, 16, context, {}, rect(4, 4))
+    // off-shore: the real Corcovado summit node sits next to PIN and would (rightly) make it a landmark
+    const poi = { id: 'x', name: 'Cristo Peak Stadium', location: { lat: -23.3, lng: -43.0 } } as unknown as POIData
+    const { SRTMLocalService } = await import('../../lib/services/srtm-local-service')
+    const srtm = SRTMLocalService.getInstance() as any
+    const original = srtm.getElevation
+    srtm.getElevation = async () => 0
+    let c
+    try {
+      c = (await measureAndClassify({ poiData: poi, boundary: rect(4, 4), areaM2: 16, tags: {}, context })).classification
+    } finally {
+      srtm.getElevation = original
+    }
     assert.equal(c.group, VisibilityClass.POINT_LOW)
     assert.equal(c.maxEdgeDistanceM, CLASS_LIMITS[VisibilityClass.POINT_LOW].maxEdgeDistanceM)
     assert.equal(c.minDistanceBetweenTPs, 2 * c.maxTPRadiusM)

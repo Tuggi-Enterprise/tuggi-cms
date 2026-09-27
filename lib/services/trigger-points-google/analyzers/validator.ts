@@ -1023,7 +1023,7 @@ export class TriggerPointValidator {
       if (boundary?.elevation && boundary.elevation.center > 0 && cachedBaseElevation !== null) {
         const poiElevation = boundary.elevation.center;
         const baseElevation = cachedBaseElevation || await ElevationAnalysisService.estimateRegionalBaseElevation(boundary.center, context, poiData);
-        const elevationDiff = poiElevation - baseElevation;
+        const elevationDiff = baseElevation === null ? 0 : poiElevation - baseElevation;
         if (elevationDiff > 150) maxDistance = 15000;
         else if (elevationDiff > 50) maxDistance = 4000;
       } else if (context.urbanDensity.level === 'rural') {

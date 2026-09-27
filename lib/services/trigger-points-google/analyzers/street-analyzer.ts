@@ -280,7 +280,8 @@ export class StreetAnalyzer {
     if (boundary.elevation && boundary.elevation.center > 0) {
       const poiElevation = boundary.elevation.center;
       const baseElevation = await ElevationAnalysisService.estimateRegionalBaseElevation(boundary.center, context, poiData);
-      const elevationDiff = poiElevation - baseElevation;
+      // no city base (DEM failed): no elevation claim (INV-E4c)
+      const elevationDiff = baseElevation === null ? 0 : poiElevation - baseElevation;
       
       
       // 🏔️ Apply dynamic formula for high-visibility landmarks (>150m difference)

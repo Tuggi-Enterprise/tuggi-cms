@@ -1,6 +1,6 @@
 // Detector de boundaries usando Google APIs com fallback para OSM
 
-import { defaultHeightByTag } from '../config/visibility-class';
+import { defaultHeightByTag, heightFromTags } from '../config/visibility-class';
 import { GoogleAPIsService } from '../services/google-apis.service';
 import { ElevationService } from '../services/elevation.service';
 import { POIData, GeographicContext, BoundaryData, ProcessingResult } from '../types/interfaces';
@@ -8,6 +8,13 @@ import { convertViewportToPolygon, calculatePolygonArea, calculatePolygonAreaInM
 import { TRIGGER_POINTS_CONSTANTS } from '../config/trigger-points-config';
 import { isCuratedBoundaryImplausible } from '../utils/osm-validation';
 import { getSupabase } from '../../../core/supabase-client';
+
+/** Surveyed summits for the ground-top read (E4): one point per `processOSMPeaks` element. */
+function peakPoints(peaks: any[] | undefined): Array<{ lat: number; lng: number; tags?: Record<string, unknown> }> {
+  return (peaks ?? [])
+    .filter(p => p?.coordinates?.length)
+    .map(p => ({ lat: p.coordinates[0].lat, lng: p.coordinates[0].lng, tags: p.tags }));
+}
 
 export class BoundaryDetector {
   private googleAPIs: GoogleAPIsService;
@@ -196,26 +203,28 @@ export class BoundaryDetector {
    * 2.6 km beach got 1 TP (Praia do Recreio, #779).
    */
   private async withClassification(boundary: BoundaryData, poiData: POIData): Promise<BoundaryData> {
-    if (boundary.classification) return boundary;
+    // Always measured here, on the FINAL boundary (E3 → E4 → E5, P8): on the name path the class
+    // was decided before the height and the 2nd elevation read, and Cristo left with height 0.
     const loose = poiData as POIData & { tags?: Record<string, unknown>; height?: number };
     const tags = (boundary.osmTags ?? poiData.osm_tags ?? loose.tags) as Record<string, unknown> | undefined;
-    const elevation = await this.elevationService.getElevation(boundary.center, undefined, { tags }, undefined, poiData);
-    const { POIClassifierService } = await import('../services/poi-classifier.service');
-    const classification = await new POIClassifierService().classifyPOI(
+    const { measureAndClassify } = await import('../services/poi-classifier.service');
+    const { classification, physical } = await measureAndClassify({
       poiData,
-      loose.height ?? undefined,
-      elevation && elevation.confidence > 0.5 ? { center: elevation.total } : undefined,
-      boundary.synthetic ? 0 : boundary.area_m2,
-      undefined,
+      boundary: boundary.coordinates,
+      synthetic: boundary.synthetic,
+      areaM2: boundary.area_m2,
       tags,
-      boundary.synthetic ? undefined : boundary.coordinates
-    );
-    // The fan reads the POI ground from boundary.elevation; without it the top was 0 m
-    // and a peak found only through the DB fallback saw nothing.
-    const withElevation = !boundary.elevation && elevation && elevation.confidence > 0.5
-      ? { elevation: { min: elevation.ground - 10, max: elevation.ground + 10, average: elevation.ground, center: elevation.total } }
+      knownHeightM: boundary.height ?? loose.height ?? undefined,
+      peaks: peakPoints(boundary.peaks),
+      context: boundary.cachedContext,
+    });
+    // Legacy readers (street-analyzer, validator) still read boundary.elevation: give them the
+    // measured top when the path left none.
+    const withElevation = !boundary.elevation && physical.groundTopM !== null
+      ? { elevation: { min: physical.groundTopM, max: physical.groundTopM, average: physical.groundTopM, center: physical.groundTopM } }
       : {};
-    return { ...boundary, ...withElevation, classification };
+    // One height for the class, the fan and the sight line (INV-E3).
+    return { ...boundary, ...withElevation, height: physical.heightM || undefined, physical, classification };
   }
 
   /**
@@ -594,17 +603,19 @@ out geom tags;
       // STEP 3: CLASSIFICAR POI
       // ===============================================
       
-      const POIClassifierService = (await import('../services/poi-classifier.service')).POIClassifierService;
-      const classifier = new POIClassifierService();
-      const classification = await classifier.classifyPOI(
+      // Provisional class, only to size the street query below; `withClassification` measures
+      // again on the final boundary with the same function (E5).
+      const { measureAndClassify } = await import('../services/poi-classifier.service');
+      const { classification } = await measureAndClassify({
         poiData,
-        poiHeight || undefined,
-        elevationData ? { center: elevationData.center } : undefined,
-        synthetic ? 0 : area,
-        contextForClassification, // ✅ Usar contexto atualizado com densidade correta
-        poiTags,
-        synthetic ? undefined : coordinates
-      );
+        boundary: coordinates,
+        synthetic,
+        areaM2: area,
+        tags: poiTags,
+        knownHeightM: poiHeight || undefined,
+        peaks: peakPoints(processedPeaks),
+        context: contextForClassification,
+      });
       
       
       // 🎯 BULLET 2: Calcular tamanho do boundary (raio máximo do centro até o ponto mais distante)
@@ -1951,18 +1962,18 @@ out tags;
                       // STEP 3: CLASSIFICAR POI
                       // ===============================================
                       
-                      const POIClassifierService = (await import('../services/poi-classifier.service')).POIClassifierService;
-                      const classifier = new POIClassifierService();
-                      
-                      const classification = await classifier.classifyPOI(
+                      // Provisional class, only to size the street query below; `withClassification`
+                      // measures again on the final boundary with the same function (E5).
+                      const { measureAndClassify } = await import('../services/poi-classifier.service');
+                      const { classification } = await measureAndClassify({
                         poiData,
-                        poiHeight || undefined,
-                        elevationData ? { center: elevationData.center } : undefined,
-                        area,
-                        contextForClassification, // ✅ Usar contexto atualizado com densidade correta
-                        poiTags,
-                        processed.coordinates
-                      );
+                        boundary: processed.coordinates,
+                        areaM2: area,
+                        tags: poiTags,
+                        knownHeightM: poiHeight || undefined,
+                        peaks: peakPoints(processedPeaks),
+                        context: contextForClassification,
+                      });
                       
                       console.log(`✅ POI Classification: ${classification.group.toUpperCase()}`);
                       console.log(`📏 Search radius: ${classification.searchRadius}m (${classification.metadata.reasoning})`);
@@ -2739,29 +2750,8 @@ out geom tags;
    * Extrai altura do POI das tags OSM (versão escalável para múltiplos elementos)
    */
   private extractOSMHeight(element: any): number | null {
-    if (!element.tags) return null;
-
-    // Tags de altura de construções (ordenadas por prioridade)
-    const heightTags = ['height', 'building:height', 'building:levels'];
-
-    for (const tag of heightTags) {
-      if (element.tags[tag]) {
-        if (tag === 'building:levels') {
-          // Converter níveis para altura (aproximadamente 3m por andar)
-          const levels = parseFloat(element.tags[tag]);
-          if (!isNaN(levels)) {
-            return levels * 3;
-          }
-        } else {
-          const height = parseFloat(element.tags[tag]);
-          if (!isNaN(height)) {
-            return height;
-          }
-        }
-      }
-    }
-
-    return null;
+    // One floor ruler for the engine (INV-E3): config/visibility-class#heightFromTags.
+    return heightFromTags(element?.tags)?.heightM ?? null;
   }
 
   /**

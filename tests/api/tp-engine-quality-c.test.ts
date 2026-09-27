@@ -71,19 +71,18 @@ describe('BR-AUDIO-010 — a peak or hill is a landmark, and its prominence is m
     assert.equal(classifyVisibility({ ...flat, tags: { tourism: 'viewpoint' } }), VisibilityClass.VIEWPOINT)
   })
 
-  it('the regional base is sampled around each POI, not cached per city', async () => {
+  it('INV-E4b (P8): one base per city, from the city centre — not from the POI that asked first', async () => {
     const { ElevationAnalysisService } = await import('../../lib/services/trigger-points-google/services/elevation-service')
-    const { SRTMLocalService } = await import('../../lib/services/srtm-local-service')
-    const srtm = SRTMLocalService.getInstance() as any
-    const original = srtm.getElevation
-    srtm.getElevation = async (lat: number) => (lat > -22.5 ? 500 : 0)
+    // lower quartile of land samples around the city centre; the hill does not lift the base
+    const read = async (lat: number) => (lat > -22.83 ? 300 : 8)
+    ElevationAnalysisService.clearCache()
     try {
-      ElevationAnalysisService.clearCache()
-      const poi = { city: 'São Gonçalo', country: 'Brazil' } as any
-      assert.equal(await ElevationAnalysisService.estimateRegionalBaseElevation({ lat: -22.83, lng: -43.07 }, undefined, poi), 0)
-      assert.equal(await ElevationAnalysisService.estimateRegionalBaseElevation({ lat: -22.2, lng: -43.07 }, undefined, poi), 500)
+      const onHill = await ElevationAnalysisService.cityBaseElevation({ lat: -22.80, lng: -43.05 }, 'São Gonçalo', read)
+      const onPlain = await ElevationAnalysisService.cityBaseElevation({ lat: -22.86, lng: -43.05 }, 'São Gonçalo', read)
+      assert.equal(onHill.source, onPlain.source)
+      assert.equal(onHill.baseM, onPlain.baseM)
+      assert.equal(onHill.baseM, 8)
     } finally {
-      srtm.getElevation = original
       ElevationAnalysisService.clearCache()
     }
   })
@@ -101,13 +100,26 @@ describe('BR-AUDIO-010 — a long beach keeps its polygon and its class', () => 
 
   it('a boundary from the DB fallback leaves the detector classified, never null', async () => {
     const { BoundaryDetector } = await import('../../lib/services/trigger-points-google/core/boundary-detector')
-    const det = new BoundaryDetector() as any
-    det.elevationService = { getElevation: async () => ({ confidence: 0 }) }
-    const out = await det.withClassification(
-      { type: 'polygon', coordinates: strip, center: offset({ n: -30 }), area_m2: 156_000, perimeter_m: 0, confidence: 0.8, source: 'manual' },
-      { id: 'x', name: 'Praia', location: pin, type: 'beach', country: 'Brazil', city: 'Rio de Janeiro' }
-    )
-    assert.equal(out.classification?.group, VisibilityClass.LINEAR)
+    const { SRTMLocalService } = await import('../../lib/services/srtm-local-service')
+    const { LocalOSMFetcher } = await import('../../lib/services/trigger-points-google/services/local-osm-fetcher')
+    const srtm = SRTMLocalService.getInstance() as any
+    const osm = LocalOSMFetcher.getInstance() as any
+    const original = srtm.getElevation
+    const originalSummits = osm.fetchSummits
+    // a beach: flat ground, no summit (the fixture sits on Corcovado coordinates)
+    srtm.getElevation = async () => 2
+    osm.fetchSummits = () => []
+    try {
+      const det = new BoundaryDetector() as any
+      const out = await det.withClassification(
+        { type: 'polygon', coordinates: strip, center: offset({ n: -30 }), area_m2: 156_000, perimeter_m: 0, confidence: 0.8, source: 'manual' },
+        { id: 'x', name: 'Praia', location: pin, type: 'beach', country: 'Brazil', city: 'Rio de Janeiro' }
+      )
+      assert.equal(out.classification?.group, VisibilityClass.LINEAR)
+    } finally {
+      srtm.getElevation = original
+      osm.fetchSummits = originalSummits
+    }
   })
 })
 

@@ -4,13 +4,11 @@ import { POIData, BoundaryData, GeographicContext, StreetData, TriggerPointCandi
 import { calculateBearing, calculateDistanceToBoundary, findClosestPointOnBoundary, streetFootOnEdge, samplePolylineAround } from '../utils/calculations';
 import { TRIGGER_POINTS_CONSTANTS } from '../config/trigger-points-config';
 import { proximityRankScore } from '../config/visibility-class';
-import { POIClassifierService } from '../services/poi-classifier.service';
+import { measureAndClassify } from '../services/poi-classifier.service';
 
 export class OptimalPointCalculator {
-  private poiClassifier: POIClassifierService;
   
   constructor() {
-    this.poiClassifier = new POIClassifierService();
   }
   
   /**
@@ -35,15 +33,15 @@ export class OptimalPointCalculator {
       console.warn(`⚠️ No classification found in boundary, using fallback`);
       // Fallback: criar classificação padrão APENAS se não existe classificação
       // ✅ IMPORTANTE: Não recategorizar se já existe classificação (evitar redundância)
-      const fallbackClassification = await this.poiClassifier.classifyPOI(
+      const { classification: fallbackClassification } = await measureAndClassify({
         poiData,
-        boundary.height,
-        boundary.elevation ? { center: boundary.elevation.center } : undefined,
-        boundary.area_m2,
+        boundary: boundary.coordinates,
+        synthetic: boundary.synthetic,
+        areaM2: boundary.area_m2,
+        tags: boundary.osmTags,
+        knownHeightM: boundary.height,
         context,
-        boundary.osmTags,
-        boundary.coordinates
-      );
+      });
       boundary.classification = fallbackClassification;
       classification = fallbackClassification; // ✅ CORREÇÃO: Atualizar variável local também
     }

@@ -1,201 +1,155 @@
-import { GeographicContext, POIData } from '../types/interfaces';
+import { GeographicContext, GeoPoint, POIData } from '../types/interfaces';
 import { SRTMLocalService } from '../../srtm-local-service';
 import { LRUCacheWithTTL } from '../utils/lru-cache';
+import { LocalReverseGeocoder } from '../../local-reverse-geocoder';
+import { calculateDistance, calculateDistanceToPolygon } from '../utils/calculations';
+import {
+  CITY_BASE_GRID_STEP_M,
+  CITY_BASE_RADIUS_M,
+  SUMMIT_MATCH_M,
+  landPercentile,
+} from '../config/visibility-class';
+
+type LatLng = { lat: number; lng: number };
+type ElevationReader = (lat: number, lng: number) => Promise<number | null>;
+
+export interface CityBase {
+  /** null when the DEM gave nothing (INV-E4c) */
+  baseM: number | null;
+  /** `geonames:<id>` (city centre) or `poi_cell:<lat,lng>` when no city was found */
+  source: string;
+}
+
+export interface GroundTop {
+  /** terrain at the highest point of the boundary; null when the DEM failed (INV-E4c) */
+  groundM: number | null;
+  at: LatLng | null;
+  source: 'ele_tag' | 'summit_ele' | 'srtm_boundary_max' | 'none';
+}
+
+const srtmReader: ElevationReader = (lat, lng) =>
+  SRTMLocalService.getInstance().getElevation(lat, lng).catch(() => null);
+
+function offsetM(o: LatLng, northM: number, eastM: number): LatLng {
+  return {
+    lat: o.lat + northM / 110_540,
+    lng: o.lng + eastM / (111_320 * Math.cos((o.lat * Math.PI) / 180)),
+  };
+}
+
+function parseEle(raw: unknown): number | null {
+  const m = String(raw ?? '').match(/-?\d+(?:[.,]\d+)?/);
+  if (!m) return null;
+  const n = parseFloat(m[0].replace(',', '.'));
+  return Number.isFinite(n) ? n : null;
+}
 
 /**
- * Serviço centralizado para análise de elevação
- * Fonte única de verdade para cálculos de elevação base regional
+ * E4 — elevation (P8). The single home of the city base and of the POI ground.
  */
 export class ElevationAnalysisService {
-  // ✅ LRU cache: max 1000 entries, TTL 24h. Antes era Map<> ilimitado e sem TTL.
-  // Em batch 10k POIs (cidade grande), poderia crescer indefinidamente.
-  private static elevationCache = new LRUCacheWithTTL<string, number>(1000, 24 * 60 * 60 * 1000);
+  // One entry per city (or per 0.1° cell without a city). Deterministic: the key and the
+  // value come from the city, never from the first POI that asked.
+  private static cityBaseCache = new LRUCacheWithTTL<string, CityBase>(1000, 24 * 60 * 60 * 1000);
+
+  static clearCache(): void {
+    this.cityBaseCache.clear();
+  }
 
   /**
-   * Limpa o cache de elevação (útil para testes ou entre diferentes POIs)
+   * City centre for the base: the GeoNames city named like the POI's city, nearest to the pin
+   * (≤100 km); else the most populous city within 30 km; else null.
    */
-  static clearCache(): void {
-    this.elevationCache.clear();
-    console.log(`🗑️ [ElevationService] Cache cleared`);
+  static cityCentre(pin: LatLng, cityName?: string): { id: string; centre: LatLng } | null {
+    return LocalReverseGeocoder.getInstance().cityCentre(pin.lat, pin.lng, cityName);
   }
-  
+
   /**
-   * Estima a elevação base regional para comparação usando APIs dinâmicas
-   * FONTE ÚNICA DE VERDADE - usada por todos os analyzers
+   * INV-E4b: ONE base per city, computed in one place — the lower quartile of the land SRTM
+   * samples on a grid of CITY_BASE_RADIUS_M around the city centre. Cached per city; it was
+   * per city but set by the 1st POI, then a 2 km ring around each POI, which is a local base,
+   * not the city's (P8). No invented fallback (20/400/500/600 m): SRTM empty → null.
+   */
+  static async cityBaseElevation(
+    pin: LatLng,
+    cityName?: string,
+    read: ElevationReader = srtmReader
+  ): Promise<CityBase> {
+    const city = this.cityCentre(pin, cityName);
+    const key = city ? `geonames:${city.id}` : `poi_cell:${pin.lat.toFixed(1)},${pin.lng.toFixed(1)}`;
+    const cached = this.cityBaseCache.get(key);
+    if (cached) return cached;
+    const centre = city?.centre ?? { lat: Number(pin.lat.toFixed(1)), lng: Number(pin.lng.toFixed(1)) };
+    const reads: Promise<number | null>[] = [];
+    const n = Math.floor(CITY_BASE_RADIUS_M / CITY_BASE_GRID_STEP_M);
+    for (let i = -n; i <= n; i++) {
+      for (let j = -n; j <= n; j++) {
+        if ((i * i + j * j) * CITY_BASE_GRID_STEP_M ** 2 > CITY_BASE_RADIUS_M ** 2) continue;
+        const p = offsetM(centre, i * CITY_BASE_GRID_STEP_M, j * CITY_BASE_GRID_STEP_M);
+        reads.push(read(p.lat, p.lng));
+      }
+    }
+    const result: CityBase = { baseM: landPercentile(await Promise.all(reads)), source: key };
+    this.cityBaseCache.set(key, result);
+    return result;
+  }
+
+  /**
+   * Legacy entry point, kept for the radius heuristics outside this wave (street-analyzer,
+   * validator, geographic-analyzer): the same city base, as a number or null.
    */
   static async estimateRegionalBaseElevation(
-    location: { lat: number; lng: number },
-    context?: GeographicContext,
-    _poiData?: POIData
-  ): Promise<number> {
-    // Cache per ~1 km cell. It was per CITY: the first POI sampled fixed the base of the
-    // whole city, and a hill whose own height became its city base had prominence 0
-    // (Morro do Patronato, #779).
-    const cacheKey = `${location.lat.toFixed(2)},${location.lng.toFixed(2)}`;
-    
-    if (this.elevationCache.has(cacheKey)) {
-      const cachedValue = this.elevationCache.get(cacheKey)!;
-      console.log(`🚀 [ElevationService] Using cached elevation: ${cachedValue}m (key: ${cacheKey})`);
-      return cachedValue;
-    }
-    
-    console.log(`🏞️ [ElevationService] Estimating regional base elevation for (${location.lat.toFixed(4)}, ${location.lng.toFixed(4)})`);
-    
-    // 🌍 Amostragem de elevação regional (rápida e 100% offline via SRTM)
-    try {
-      const regionalElevation = await this.sampleRegionalElevation(location);
-      if (regionalElevation !== null) {
-        console.log(`🗺️ [ElevationService] Regional elevation from sampling: ${regionalElevation}m`);
-        // 🚀 SALVAR NO CACHE
-        this.elevationCache.set(cacheKey, regionalElevation);
-        return regionalElevation;
-      }
-    } catch (error) {
-      console.warn(`⚠️ [ElevationService] Failed to sample regional elevation:`, error);
-    }
-    
-    // 📊 ESTRATÉGIA 3: Estimativa baseada em contexto (último recurso)
-    let baseElevation = 500; // Default global average
-    
-    if (context?.elevationContext && context.elevationContext.variance) {
-      if (context.elevationContext.variance < 50) {
-        baseElevation = 400;
-        console.log(`📊 [ElevationService] Low elevation variance (${context.elevationContext.variance.toFixed(1)}m) → flat area base: ${baseElevation}m`);
-      } else if (context.elevationContext.variance > 200) {
-        baseElevation = 600;
-        console.log(`📊 [ElevationService] High elevation variance (${context.elevationContext.variance.toFixed(1)}m) → mountainous area base: ${baseElevation}m`);
-      }
-    }
-    
-    // 🌊 VERIFICAR SE É CIDADE COSTEIRA PRIMEIRO (coordenadas próximas ao oceano)
-    const isCoastalCity = await this.isCoastalLocation(location);
-    if (isCoastalCity) {
-      baseElevation = 20; // Cidades costeiras ficam ao nível do mar
-      console.log(`🏖️ [ElevationService] Coastal city detected → base: ${baseElevation}m`);
-    } else {
-      switch (context?.urbanDensity?.level) {
-        case 'very_dense':
-        case 'dense':
-          baseElevation = 400; // Cidades grandes tendem a ter elevação moderada
-          console.log(`🏙️ [ElevationService] Dense urban area → base: ${baseElevation}m`);
-          break;
-        case 'rural':
-          baseElevation += 100;
-          console.log(`🌾 [ElevationService] Rural area adjustment → base: ${baseElevation}m`);
-          break;
-      }
-    }
-    
-    console.log(`✅ [ElevationService] Fallback estimated base elevation: ${baseElevation}m`);
-    // 🚀 SALVAR NO CACHE
-    this.elevationCache.set(cacheKey, baseElevation);
-    return baseElevation;
+    location: LatLng,
+    _context?: GeographicContext,
+    poiData?: POIData
+  ): Promise<number | null> {
+    return (await this.cityBaseElevation(location, poiData?.city)).baseM;
   }
-
-
 
   /**
-   * Amostra elevação regional fazendo múltiplas consultas ao redor do POI
+   * INV-E4a: the POI ground is the terrain at the HIGHEST point of its boundary, not at the
+   * pin or centroid (Cristo read 522 m at the centroid, the summit is ~710 m). Candidates: SRTM
+   * on every vertex, on an interior grid and at the pin; the POI `ele` tag; the `ele` of a
+   * surveyed summit (`natural=peak`) inside or within SUMMIT_MATCH_M of the boundary. SRTM
+   * (90 m grid here) flattens narrow summits, so a surveyed value above it wins.
    */
-  private static async sampleRegionalElevation(location: { lat: number; lng: number }): Promise<number | null> {
-    try {
-      // 8 points on a ~2 km ring, lower median: the plain around the POI, not the next hill.
-      // One radius for every density — the 5.6 km rural ring landed on other hills.
-      const samplingRadius = 0.02;
-      const samplePoints = Array.from({ length: 8 }, (_, i) => {
-        const a = (i * Math.PI) / 4;
-        return {
-          lat: location.lat + samplingRadius * Math.cos(a),
-          lng: location.lng + (samplingRadius * Math.sin(a)) / Math.cos((location.lat * Math.PI) / 180),
-        };
-      });
-      
-      console.log(`🎯 [ElevationService] Sampling regional elevation at ${(samplingRadius * 111).toFixed(1)}km radius (${samplePoints.length} points)`);
-      
-      const srtm = SRTMLocalService.getInstance();
-      const validElevations: number[] = [];
-      
-      // Amostragem local SRTM é tão rápida que podemos fazer em série ou Promise.all.
-      // Catch per-sample rejections so one bad tile (e.g. > 60°N) doesn't crash the worker.
-      const results = await Promise.all(
-        samplePoints.map(p =>
-          srtm.getElevation(p.lat, p.lng).catch(err => {
-            console.error(`[ElevationService] sample failed at ${p.lat},${p.lng}:`, err);
-            return null;
-          })
-        )
-      );
-      
-      for (const ele of results) {
-        if (ele !== null && !isNaN(ele)) {
-          validElevations.push(ele);
-        }
+  static async groundTop(
+    a: { pin: LatLng; boundary?: LatLng[]; tags?: Record<string, unknown>; peaks?: Array<{ lat: number; lng: number; ele?: unknown; tags?: Record<string, unknown> }> },
+    read: ElevationReader = srtmReader
+  ): Promise<GroundTop> {
+    const pts: LatLng[] = [a.pin, ...(a.boundary ?? [])];
+    if (a.boundary && a.boundary.length >= 3) {
+      const lats = a.boundary.map(p => p.lat), lngs = a.boundary.map(p => p.lng);
+      const [s, n, w, e] = [Math.min(...lats), Math.max(...lats), Math.min(...lngs), Math.max(...lngs)];
+      const k = 6;
+      for (let i = 0; i <= k; i++) for (let j = 0; j <= k; j++) {
+        const p = { lat: s + ((n - s) * i) / k, lng: w + ((e - w) * j) / k };
+        if (calculateDistanceToPolygon(p, a.boundary) === 0) pts.push(p);
       }
-      
-      if (validElevations.length === 0) {
-        console.log(`❌ [ElevationService] No valid SRTM elevation samples found`);
-        return null;
-      }
-      
-      // Calcular mediana (mais robusta que média)
-      const sortedElevations = validElevations.sort((a: number, b: number) => a - b);
-      const medianElevation = sortedElevations[Math.floor((sortedElevations.length - 1) / 2)];
-      
-      console.log(`📊 [ElevationService] Regional elevation samples: [${validElevations.map((e: number) => e.toFixed(0)).join(', ')}]m`);
-      console.log(`🎯 [ElevationService] Regional median elevation: ${medianElevation}m`);
-      
-      return medianElevation;
-    } catch (error) {
-      console.error('[ElevationService] Error sampling regional elevation:', error);
-      return null;
     }
-  }
-
-
-
-  /**
-   * Detecta se uma localização é costeira usando amostragem de elevação dinâmica
-   */
-  private static async isCoastalLocation(location: { lat: number; lng: number }): Promise<boolean> {
-    try {
-      // 🌊 ESTRATÉGIA DINÂMICA: Amostrar elevação em 4 direções cardeais próximas
-      const samplingRadius = 0.01; // ~1km
-      const samplePoints = [
-        { lat: location.lat + samplingRadius, lng: location.lng }, // Norte
-        { lat: location.lat - samplingRadius, lng: location.lng }, // Sul  
-        { lat: location.lat, lng: location.lng + samplingRadius }, // Leste
-        { lat: location.lat, lng: location.lng - samplingRadius }  // Oeste
-      ];
-      
-      const srtm = SRTMLocalService.getInstance();
-      const validElevations: number[] = [];
-      
-      const results = await Promise.all(
-        samplePoints.map(p => srtm.getElevation(p.lat, p.lng))
-      );
-      
-      for (const ele of results) {
-        if (ele !== null && !isNaN(ele)) {
-          validElevations.push(ele);
-        }
+    let best: GroundTop = { groundM: null, at: null, source: 'none' };
+    const vals = await Promise.all(pts.map(p => read(p.lat, p.lng)));
+    vals.forEach((v, i) => {
+      if (v !== null && Number.isFinite(v) && (best.groundM === null || v > best.groundM)) {
+        best = { groundM: v, at: pts[i], source: 'srtm_boundary_max' };
       }
-      
-      if (validElevations.length >= 2) {
-        const avgElevation = validElevations.reduce((a: number, b: number) => a + b, 0) / validElevations.length;
-        const isCoastal = avgElevation < 100; // Se a média da região é < 100m, provavelmente é costeira
-        
-        console.log(`🌊 [ElevationService] Coastal detection: avg elevation ${avgElevation.toFixed(0)}m → coastal: ${isCoastal}`);
-        return isCoastal;
-      }
-      
-      return false;
-    } catch (error) {
-      console.warn(`⚠️ [ElevationService] Coastal detection failed:`, error);
-      return false;
+    });
+    const tagEle = parseEle(a.tags?.ele);
+    if (tagEle !== null && (best.groundM === null || tagEle > best.groundM)) {
+      best = { groundM: tagEle, at: a.pin, source: 'ele_tag' };
     }
+    for (const pk of a.peaks ?? []) {
+      const ele = parseEle(pk.ele ?? pk.tags?.ele);
+      if (ele === null) continue;
+      const near = a.boundary && a.boundary.length >= 3
+        ? calculateDistanceToPolygon(pk, a.boundary) <= SUMMIT_MATCH_M
+        : calculateDistance(pk, a.pin) <= SUMMIT_MATCH_M;
+      if (near && (best.groundM === null || ele > best.groundM)) {
+        best = { groundM: ele, at: { lat: pk.lat, lng: pk.lng }, source: 'summit_ele' };
+      }
+    }
+    return best;
   }
-
-
 
   /**
    * Calcula diferença de elevação e determina se é alta elevação
@@ -205,14 +159,15 @@ export class ElevationAnalysisService {
     location: { lat: number; lng: number },
     context: GeographicContext,
     poiData?: POIData
-  ): Promise<{ baseElevation: number; elevationDiff: number; isHighVisibility: boolean }> {
+  ): Promise<{ baseElevation: number | null; elevationDiff: number; isHighVisibility: boolean }> {
     const baseElevation = await this.estimateRegionalBaseElevation(location, context, poiData);
-    const elevationDiff = poiElevation - baseElevation;
+    // No base (DEM failed): no difference claimed (INV-E4c).
+    const elevationDiff = baseElevation === null ? 0 : poiElevation - baseElevation;
     const isHighVisibility = elevationDiff > 200;
     
     console.log(`📏 [ElevationService] Elevation analysis:`);
     console.log(`  📍 POI elevation: ${poiElevation.toFixed(1)}m`);
-    console.log(`  🏞️ Base elevation: ${baseElevation.toFixed(1)}m`);
+    console.log(`  🏞️ Base elevation: ${baseElevation?.toFixed(1) ?? 'unknown'}m`);
     console.log(`  📈 Difference: ${elevationDiff.toFixed(1)}m`);
     console.log(`  🎯 High visibility: ${isHighVisibility}`);
     

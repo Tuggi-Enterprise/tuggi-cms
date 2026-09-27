@@ -6,6 +6,7 @@ import { BoundaryData, GeographicContext, POIData } from '../types/interfaces';
 import { TRIGGER_POINTS_CONSTANTS } from '../config/trigger-points-config';
 import { ElevationAnalysisService } from './elevation-service';
 import { SRTMLocalService } from '../../srtm-local-service';
+import { heightFromTags } from '../config/visibility-class';
 
 export interface ElevationData {
   ground: number; // elevação do solo (metros acima do nível do mar)
@@ -97,14 +98,10 @@ export class ElevationService {
         console.warn('⚠️ Local SRTM failed, using OSM or fallback ground');
       }
 
-      // Se groundElevation ainda for 0, usar regionalBase como ground
-      if (groundElevation === 0) {
-        groundElevation = regionalBase;
-        groundSource = 'regional_base';
-      }
-
+      // No invented ground: a city base is not the POI ground (INV-E4c). Confidence stays as measured.
+      const baseForDiff = regionalBase ?? groundElevation;
       const totalElevation = groundElevation + structureHeight;
-      const elevationDiff = totalElevation - regionalBase;
+      const elevationDiff = totalElevation - baseForDiff;
       const isElevated = elevationDiff > 50; // Threshold do usuário
 
       console.log(`📊 Current Elevation State: Ground=${groundElevation}m, Structure=${structureHeight}m, Total=${totalElevation}m, Base=${regionalBase}m, Diff=${elevationDiff}m`);
@@ -119,7 +116,7 @@ export class ElevationService {
           total: totalElevation,
           relative: {
             aboveNeighborhood: elevationDiff,
-            neighborhoodAverage: regionalBase,
+            neighborhoodAverage: baseForDiff,
             prominence: Math.min(1.0, Math.max(0.1, elevationDiff / 200)), // Estimativa de proeminência
             isElevated: isElevated
           },
@@ -140,7 +137,7 @@ export class ElevationService {
       // Atualizar com ground do Google mas manter structure do OSM se for melhor
       const finalGround = googleElevation.ground;
       const finalTotal = finalGround + structureHeight;
-      const finalDiff = finalTotal - regionalBase;
+      const finalDiff = finalTotal - (regionalBase ?? finalGround);
       
       return {
         ...googleElevation,
@@ -150,7 +147,7 @@ export class ElevationService {
         relative: {
           ...googleElevation.relative,
           aboveNeighborhood: finalDiff,
-          neighborhoodAverage: regionalBase,
+          neighborhoodAverage: baseForDiff,
           isElevated: finalDiff > 50 || googleElevation.relative.isElevated
         }
       };
@@ -237,11 +234,9 @@ export class ElevationService {
       structureHeight = this.parseElevationValue(tags['building:height']);
       structureSource = 'building_height_tag';
     } else if (tags['building:levels']) {
-      const levels = parseInt(tags['building:levels']);
-      if (!isNaN(levels) && levels > 0) {
-        structureHeight = levels * 3.5; // ~3.5m por andar
-        structureSource = 'building_levels_tag';
-      }
+      // one floor ruler (INV-E3): config/visibility-class#heightFromTags
+      structureHeight = heightFromTags(tags)?.heightM ?? null;
+      if (structureHeight !== null) structureSource = 'building_levels_tag';
     }
 
     // Se temos dados OSM válidos

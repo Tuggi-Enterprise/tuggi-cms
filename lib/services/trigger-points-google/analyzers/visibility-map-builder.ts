@@ -25,6 +25,7 @@ import type { BuildingData } from '../services/osm-data-fetcher';
 import { calculateDistance, isPointInPolygon } from '../utils/calculations';
 import { SRTMLocalService } from '../../srtm-local-service';
 import { TRIGGER_POINTS_CONSTANTS } from '../config/trigger-points-config';
+import { heightFromTags } from '../config/visibility-class';
 
 export type GeoPoint = { lat: number; lng: number };
 
@@ -75,6 +76,8 @@ const SRTM_FAIL_VALUE = 0;
  * fan counted the Cristo's own buildings and collapsed to 30 m in most directions).
  */
 const SKIP_NEAR_POI_M = 50;
+/** Observer eye above the ground at the TP (INV-E8): the one value for the fan and each candidate. */
+export const OBSERVER_EYE_HEIGHT_M = 1.7;
 
 export class VisibilityMapBuilder {
   /**
@@ -87,6 +90,22 @@ export class VisibilityMapBuilder {
    * centroide. Amostrando ao longo da boundary, o fan resultante (união)
    * cobre toda a região onde o POI é fisicamente visível.
    */
+  /**
+   * INV-E8 (P8): what the sight line aims at — the ground at the highest point of the boundary
+   * (E4, `boundary.physical.groundTopM`) plus the POI height (E3). One formula for the fan and
+   * for each candidate; they used to pick `elevation.max|average|center` by a height>20 guess.
+   * A POI with no height is still seen at eye level.
+   */
+  static poiSightTarget(boundary: {
+    physical?: { groundTopM: number | null; heightM: number };
+    height?: number;
+    elevation?: { center?: number };
+  }): { groundM: number; heightM: number; topM: number } {
+    const groundM = boundary.physical?.groundTopM ?? boundary.elevation?.center ?? 0;
+    const heightM = Math.max(boundary.physical?.heightM ?? boundary.height ?? 0, OBSERVER_EYE_HEIGHT_M);
+    return { groundM, heightM, topM: groundM + heightM };
+  }
+
   static async buildFan(
     boundaryCoords: GeoPoint[],
     poiTopAltitudeM: number,
@@ -97,7 +116,7 @@ export class VisibilityMapBuilder {
     const maxHorizonM = options.maxHorizonM ?? 10_000;
     const directionCount = options.directionCount ?? 72;
     const stepM = options.stepM ?? 100;
-    const observerEyeHeightM = options.observerEyeHeightM ?? 1.7;
+    const observerEyeHeightM = options.observerEyeHeightM ?? OBSERVER_EYE_HEIGHT_M;
     const minVisibleDistanceM = options.minVisibleDistanceM ?? 30;
 
     const start = Date.now();
@@ -348,7 +367,7 @@ export class VisibilityMapBuilder {
   ): Promise<boolean> {
     const sampleIntervalM = options.sampleIntervalM ?? 100;
     const noiseMarginM = options.noiseMarginM ?? 15;
-    const observerEyeHeightM = options.observerEyeHeightM ?? 1.7;
+    const observerEyeHeightM = options.observerEyeHeightM ?? OBSERVER_EYE_HEIGHT_M;
     const elevCache = options.elevCache;
     const buildingTops = options.buildingTops;
 
@@ -450,9 +469,8 @@ export class VisibilityMapBuilder {
    */
   private static resolveBuildingHeight(b: BuildingData): number {
     if (b.height && b.height > 0) return b.height;
-    const tags = b.tags || {};
-    const levels = parseFloat(tags['building:levels'] as any);
-    if (!isNaN(levels) && levels > 0) return levels * 3.5;
+    const tagged = heightFromTags(b.tags as Record<string, unknown> | undefined);
+    if (tagged) return tagged.heightM;
     // Fallback conservador (SSOT em TRIGGER_POINTS_CONSTANTS.obstructions.defaultHouseHeight)
     return TRIGGER_POINTS_CONSTANTS.obstructions.defaultHouseHeight;
   }
