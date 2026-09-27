@@ -10,7 +10,7 @@ import { POIData, TriggerPoint, TriggerPointGenerationOptions, TriggerPointPredi
 import { calculateBearing, calculateDistance, findClosestPointOnBoundary, closestStreetPointToPoi, closestPointOnPolyline } from '../utils/calculations';
 import { deterministicTPId } from '../utils/deterministic';
 import { loadTriggerPointsConfig, TriggerPointsConfig, TRIGGER_POINTS_CONSTANTS } from '../config/trigger-points-config';
-import { VisibilityClass, LANDMARK_MIN_PROMINENCE_M, EDGE_BAND_M, fanHorizonM, heightFromTags, isCarStreet, isNaturalRelief } from '../config/visibility-class';
+import { VisibilityClass, LANDMARK_MIN_PROMINENCE_M, EDGE_BAND_M, fanHorizonM, heightFromTags, isCarStreet } from '../config/visibility-class';
 import { emitDebugQuality, DebugQualitySnapshot } from '../debug-quality-logger';
 import { selectSpacedTriggerPoints, applyTpPostConditions, bestStreetPointOutside, REACH_RESCUE_METHOD } from '../utils/tp-selection';
 import { poiEdgeRing } from '../utils/validation';
@@ -1631,10 +1631,10 @@ export class CoreTriggerPointPredictor {
       const { groundM: poiGround, heightM: poiHeight, topM: poiTop } = VisibilityMapBuilder.poiSightTarget(boundary);
 
       // Prominence over the city base, measured once in E4 (P8) — the fan no longer samples a
-      // base of its own. Below landmark prominence it is urban SRTM noise; a peak/hill is relief
-      // and always counts. Prominence already includes the height (INV-E4b).
+      // base of its own. Below landmark prominence it is urban SRTM noise, whatever the tags say
+      // (2026-09-27). Prominence already includes the height (INV-E4b).
       const prominence = boundary.physical?.prominenceM ?? null;
-      const elevated = prominence !== null && (prominence >= LANDMARK_MIN_PROMINENCE_M || isNaturalRelief(boundary.osmTags));
+      const elevated = prominence !== null && prominence >= LANDMARK_MIN_PROMINENCE_M;
       const effectiveElevationContribution = elevated ? prominence : 0;
       const effectiveHeight = elevated ? Math.max(prominence, poiHeight) : poiHeight;
       const elevationDiff = prominence ?? 0;

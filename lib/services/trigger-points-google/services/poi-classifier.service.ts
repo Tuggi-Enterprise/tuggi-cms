@@ -142,7 +142,6 @@ export async function measureAndClassify(a: MeasureInput): Promise<{ classificat
     localProminenceM,
     areaM2,
     boundary: a.synthetic ? undefined : a.boundary,
-    tags: a.tags,
   });
   return {
     classification: buildClassification(cls, {

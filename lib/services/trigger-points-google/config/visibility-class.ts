@@ -1,10 +1,11 @@
 /**
  * POI visibility class — BR-AUDIO-010 (the TP fires where the POI is).
  *
- * Engine-agnostic (epic #772): the class comes from PHYSICAL attributes — height,
- * prominence over the terrain, boundary area and shape. No POI name becomes a branch.
- * OSM tags enter only as DATA TABLES (default height when the real one is missing;
- * viewpoint tag), never as an `if`.
+ * Engine-agnostic (epic #772): the class comes from what is MEASURED on the POI — height,
+ * prominence over the terrain, boundary area and shape. No name, category or type tag
+ * (`natural`, `tourism`, `place`, `building`, …) decides class or reach (operator, 2026-09-27):
+ * a summit that is not measured prominent, a viewpoint and a church of unknown height are
+ * classed by what the terrain and their footprint say.
  *
  * PROVISIONAL: every number in this file comes from the engine audit (2026-09-27) and has
  * no `BR-*` of its own yet — `produto` registers it (#775). Until then this is their only home.
@@ -22,8 +23,6 @@ export enum VisibilityClass {
   LINEAR = 'linear',
   /** tall (≥30 m) or prominent over the terrain: visible from afar */
   LANDMARK_HIGH = 'landmark_high',
-  /** viewpoint — the tourist goes to it, does not see it from afar */
-  VIEWPOINT = 'viewpoint',
 }
 
 // ── Classification thresholds (provisional, #775) ──────────────────────────────
@@ -141,7 +140,6 @@ export const CLASS_LIMITS: Record<VisibilityClass, ClassLimits> = {
   // 4 at the edge + 28 beyond. The horizon ring only after every inner cell is spent. The edge
   // band of a landmark is a handful of footways at its base. Provisional (#775).
   [VisibilityClass.LANDMARK_HIGH]: { maxEdgeDistanceM: URBAN_LANDMARK_HORIZON_M, maxRadiusM: 100, maxTPs: 4, maxFarTPs: 28 },
-  [VisibilityClass.VIEWPOINT]: { maxEdgeDistanceM: 60, maxRadiusM: 30, maxTPs: 4, maxFarTPs: 0 },
 };
 
 /**
@@ -204,37 +202,7 @@ export function proximityRankScore(edgeDistanceM: number, roadType?: string): nu
   return bandScore + (ROAD_TYPE_TIEBREAK[roadType ?? ''] ?? 0.05) * step * 0.9;
 }
 
-// ── Data tables (OSM tags) ────────────────────────────────────────────────
-type TagRow = { key: string; value: string; heightM: number };
-
-/** Default height when OSM has neither `height` nor `building:levels`. */
-export const DEFAULT_HEIGHT_BY_TAG: TagRow[] = [
-  { key: 'memorial', value: 'bust', heightM: 2.5 },
-  { key: 'historic', value: 'memorial', heightM: 2.5 },
-  { key: 'memorial', value: 'statue', heightM: 6 },
-  { key: 'artwork_type', value: 'statue', heightM: 6 },
-  { key: 'historic', value: 'monument', heightM: 12 },
-  // older tagging of the same object; Cristo Redentor is `man_made=monument` with no height (#772 P8)
-  { key: 'man_made', value: 'monument', heightM: 12 },
-  { key: 'man_made', value: 'obelisk', heightM: 12 },
-  { key: 'memorial', value: 'obelisk', heightM: 12 },
-  { key: 'building', value: 'chapel', heightM: 10 },
-  { key: 'building', value: 'church', heightM: 25 },
-  { key: 'building', value: 'cathedral', heightM: 25 },
-  { key: 'building', value: 'basilica', heightM: 25 },
-  { key: 'man_made', value: 'lighthouse', heightM: 20 },
-  { key: 'man_made', value: 'tower', heightM: 30 },
-  { key: 'tourism', value: 'viewpoint', heightM: 0 },
-  { key: 'historic', value: 'castle', heightM: 20 },
-  { key: 'building', value: 'mosque', heightM: 20 },
-  { key: 'building', value: 'temple', heightM: 20 },
-  { key: 'building', value: 'synagogue', heightM: 20 },
-  { key: 'amenity', value: 'cinema', heightM: 12 },
-  { key: 'amenity', value: 'theatre', heightM: 12 },
-  { key: 'tourism', value: 'museum', heightM: 15 },
-  // any other tagged building (`*` matches any value)
-  { key: 'building', value: '*', heightM: 10 },
-];
+// ── Height measured on the element ─────────────────────────────────────────
 
 /**
  * Height per floor, for `building:levels` — the ONE floor ruler of the engine (INV-E3). The POI
@@ -245,38 +213,6 @@ export const DEFAULT_HEIGHT_BY_TAG: TagRow[] = [
 export const BUILDING_LEVEL_HEIGHT_M = 3;
 
 /**
- * Natural relief: a landmark when it is prominent (`isProminentLandmark`), even with no
- * height of its own. Precedes the viewpoint tag — a summit with `tourism=viewpoint` is still a summit seen
- * from the whole neighbourhood (Pico Irmão Menor, #779).
- */
-export const NATURAL_RELIEF_TAGS: Array<{ key: string; value: string }> = [
-  { key: 'natural', value: 'peak' },
-  { key: 'natural', value: 'hill' },
-  { key: 'natural', value: 'volcano' },
-];
-
-/** Tags that mark a viewpoint. */
-export const VIEWPOINT_TAGS: Array<{ key: string; value: string }> = [
-  { key: 'tourism', value: 'viewpoint' },
-];
-
-/**
- * Tags where the POI is a place the tourist is INSIDE (neighbourhood, island): an area even
- * when OSM only has the node. Read before area/shape because a node has neither.
- */
-export const AREA_TAGS: Array<{ key: string; value: string }> = [
-  { key: 'place', value: 'suburb' },
-  { key: 'place', value: 'neighbourhood' },
-  { key: 'place', value: 'quarter' },
-  { key: 'place', value: 'city_block' },
-  { key: 'place', value: 'locality' },
-  { key: 'place', value: 'village' },
-  { key: 'place', value: 'hamlet' },
-  { key: 'place', value: 'island' },
-  { key: 'place', value: 'islet' },
-];
-
-/**
  * Tag value. Accepts both OSM (`natural=peak`) and the Nominatim shape stored in
  * `osm_tags` (`class=natural`, `type=peak`).
  */
@@ -285,22 +221,6 @@ export function tagValue(tags: Record<string, unknown> | undefined, key: string)
   if (direct != null && direct !== '') return String(direct).toLowerCase();
   if (String(tags?.class ?? '').toLowerCase() === key) return String(tags?.type ?? '').toLowerCase();
   return '';
-}
-
-function hasTag(tags: Record<string, unknown> | undefined, key: string, value: string): boolean {
-  const v = tagValue(tags, key);
-  return value === '*' ? v !== '' && v !== 'no' : v === value;
-}
-
-/**
- * Default height from DEFAULT_HEIGHT_BY_TAG: the most specific matching row wins
- * (exact value over `*`), then the tallest. null when no row matches.
- */
-export function defaultHeightByTag(tags: Record<string, unknown> | undefined): number | null {
-  const rows = DEFAULT_HEIGHT_BY_TAG.filter(r => hasTag(tags, r.key, r.value));
-  const exact = rows.filter(r => r.value !== '*');
-  const pick = exact.length ? exact : rows;
-  return pick.length ? Math.max(...pick.map(r => r.heightM)) : null;
 }
 
 function parseMeters(raw: unknown): number | null {
@@ -330,13 +250,13 @@ export function heightFromTags(
   return null;
 }
 
-export type HeightSource = TagHeightSource | 'tag_default' | 'known' | 'none';
+export type HeightSource = TagHeightSource | 'known' | 'none';
 
 /**
- * Physical POI height (INV-E3): measured tag (`heightFromTags`) → DEFAULT_HEIGHT_BY_TAG →
- * height measured on another element (`knownHeightM`: building aggregation, host) → 0.
- * The table precedes `known` because the element scan picks up neighbours: Cristo got the
- * 24 m of a kiosk next to the statue (#772 P8).
+ * Physical POI height (INV-E3): measured on the element (`heightFromTags`) → height measured on
+ * another element (`knownHeightM`: building aggregation, host) → 0. There is no height by type:
+ * a church or a statue with no measured height is 0, and its class comes from the terrain and
+ * its footprint (operator, 2026-09-27; BR-AUDIO-010).
  */
 export function resolveHeightM(
   tags: Record<string, unknown> | undefined,
@@ -344,8 +264,6 @@ export function resolveHeightM(
 ): { heightM: number; source: HeightSource } {
   const measured = heightFromTags(tags);
   if (measured) return measured;
-  const byTag = defaultHeightByTag(tags);
-  if (byTag !== null) return { heightM: byTag, source: 'tag_default' };
   if (knownHeightM && knownHeightM > 0) return { heightM: knownHeightM, source: 'known' };
   return { heightM: 0, source: 'none' };
 }
@@ -393,11 +311,6 @@ export interface PhysicalAttributes {
   areaM2: number;
   /** footprint; omitted when synthetic — a drawn circle has no shape */
   boundary?: GeoPoint[];
-  tags?: Record<string, unknown>;
-}
-
-export function isNaturalRelief(tags: Record<string, unknown> | undefined): boolean {
-  return NATURAL_RELIEF_TAGS.some(t => hasTag(tags, t.key, t.value));
 }
 
 /**
@@ -405,18 +318,13 @@ export function isNaturalRelief(tags: Record<string, unknown> | undefined): bool
  * which is the only caller that turns it into a class.
  */
 export type ClassRule =
-  | 'natural_relief' | 'viewpoint_tag' | 'landmark_height' | 'landmark_prominence'
-  | 'area_tag' | 'linear_shape' | 'area_size' | 'structure_height' | 'point_low';
+  | 'landmark_height' | 'landmark_prominence' | 'linear_shape' | 'area_size' | 'structure_height' | 'point_low';
 
 export function visibilityClassRule(a: PhysicalAttributes): { cls: VisibilityClass; rule: ClassRule } {
-  // A peak/hill is a landmark only when it is prominent over the city AND its ring, like any
-  // relief: the Morro do Patronato (91 m over the city, 77 m local) got 32 TPs up to 2.6 km.
-  // Relief that fails falls to the class its edge gives (#772, BR-AUDIO-010).
-  if (isNaturalRelief(a.tags) && isProminentLandmark(a)) return { cls: VisibilityClass.LANDMARK_HIGH, rule: 'natural_relief' };
-  if (VIEWPOINT_TAGS.some(t => hasTag(a.tags, t.key, t.value))) return { cls: VisibilityClass.VIEWPOINT, rule: 'viewpoint_tag' };
   if (a.heightM >= LANDMARK_MIN_HEIGHT_M) return { cls: VisibilityClass.LANDMARK_HIGH, rule: 'landmark_height' };
+  // Relief is a landmark only when prominent over the city AND its ring, whatever its tags: the
+  // Morro do Patronato (91 m over the city, 77 m local) got 32 TPs up to 2.6 km (#772).
   if (isProminentLandmark(a)) return { cls: VisibilityClass.LANDMARK_HIGH, rule: 'landmark_prominence' };
-  if (AREA_TAGS.some(t => hasTag(a.tags, t.key, t.value))) return { cls: VisibilityClass.AREA, rule: 'area_tag' };
   // A structure of known height is a structure whatever its footprint: the Museu do Amanhã is
   // long and narrow, and it is still a 15 m building seen from the street (#772).
   if (a.heightM >= STRUCTURE_MIN_HEIGHT_M) return { cls: VisibilityClass.STRUCTURE, rule: 'structure_height' };

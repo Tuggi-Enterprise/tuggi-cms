@@ -2,29 +2,15 @@
  * E1 — which OSM element may be the POI border (docs/arquitetura/cms/motor-de-tp.md,
  * INV-E1a/b/c, BR-AUDIO-010). Pure: no network, no DB. The detector fetches, this decides.
  *
- * The rule reads the POI's own tags and category, never its name. Every element that
- * contains the pin and is refused leaves a reason for the trace (E0).
+ * Identity and geometry only (operator, 2026-09-27): the name says WHICH element is the POI; no
+ * category, geocoder class or type tag (`leisure`, `natural`, `place`, `building`, …) decides
+ * whether an element may be its border. Every element that contains the pin and is refused
+ * leaves a reason for the trace (E0).
  */
-import { tagValue } from '../config/visibility-class';
 import { calculatePolygonAreaInM2, isPointInPolygon } from './calculations';
 
 type LatLng = { lat: number; lng: number };
 type Tags = Record<string, unknown> | undefined;
-
-/**
- * Largest footprint a monument, statue, bust or artwork may take from a containing polygon
- * (provisional, #775). Above it the polygon is the square, the campus or the hill the POI
- * stands on, not the POI: the Monumento Árvore de Natal took 0.69 km² from a nearby polygon
- * and got 264 m of terrain (#772).
- */
-export const POINT_FEATURE_MAX_AREA_M2 = 5_000;
-
-/**
- * Largest landform a summit may take as its border (provisional, #775). Above it the natural=*
- * polygon is the forest of the whole massif, not the hill: the Pico Itaiaci took a 92 km² wood
- * and the far-street search went through 30k streets.
- */
-export const RELIEF_MAX_AREA_M2 = 1_000_000;
 
 /** An E1 candidate refused, with the reason, for the trace. */
 export interface BoundaryRejection {
@@ -46,88 +32,30 @@ export interface ChosenBoundary {
   areaM2: number;
 }
 
-/**
- * Categories whose nature is a place (neighbourhood, city). The category is the curated field;
- * `osm_tags` is not read here because it mirrors the very element being judged — the Maracanã
- * POI carries `class=place` only because its osm_id points at the neighbourhood node.
- */
-const PLACE_CATEGORIES = new Set([
-  'neighborhood', 'neighbourhood', 'suburb', 'quarter', 'locality', 'sublocality', 'city', 'town',
-  'village', 'hamlet', 'municipality', 'bairro', 'island', 'islet',
-]);
-
-export function poiIsPlace(category: string | undefined | null): boolean {
-  return PLACE_CATEGORIES.has(String(category ?? '').trim().toLowerCase());
-}
-
-/** `place=*` or an administrative boundary: a border only for a POI that is itself a place. */
-export function isPlaceElement(tags: Tags): boolean {
-  return tagValue(tags, 'place') !== '' || tagValue(tags, 'boundary') === 'administrative';
-}
-
 const normName = (s: unknown): string =>
-  String(s ?? '').normalize('NFD').replace(/[̀-ͯ]/g, '').trim().toLowerCase();
+  String(s ?? '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[^a-z0-9]+/gi, ' ').trim().toLowerCase();
 
-/**
- * The curated id is a place area (relation/way) carrying the POI's own name, and the POI has no
- * category saying otherwise: the POI is that place. The Maracanã and Manguinhos POIs are the
- * neighbourhoods, with `category` null and the admin relation as osm_id. A node has no area, and
- * a POI whose name differs (a stadium pointing at its neighbourhood) keeps the refusal.
- */
-export function curatedPlaceIsThePoi(
-  osmType: string,
-  elementTags: Tags,
-  poi: { name?: string | null; category?: string | null },
-): boolean {
-  const uncategorised = !poi.category || poi.category === 'point_of_interest';
-  const name = normName(poi.name);
-  return osmType !== 'node' && uncategorised && name !== ''
-    && [elementTags?.name, elementTags?.['name:pt']].some(n => normName(n) === name);
+/** The element's own names, normalised (`name`, `name:pt`, `official_name`, `alt_name`). */
+export function elementNames(tags: Tags): string[] {
+  return ['name', 'name:pt', 'official_name', 'alt_name'].map(k => normName(tags?.[k])).filter(n => n !== '');
+}
+
+/** Identity: the element carries the POI's own name. Compared for identity, never read for kind. */
+export function carriesPoiName(tags: Tags, poiName: string | null | undefined): boolean {
+  const name = normName(poiName);
+  return name !== '' && elementNames(tags).includes(name);
 }
 
 /**
- * An uncategorised POI under a NAMED square, park, landuse or landform of another name, whose own
- * tags do not say it is that kind of place: the element is the ground it stands on, not the POI.
- * The Monumento Árvore de Natal (no id; tags = the geocoder's `highway=pedestrian` hit) took the
- * Praça do Radio Amador (leisure=park, 6,008 m²) with the avenue sidewalk in it (#772). The name
- * is compared for identity, never read for kind (P3).
+ * The pin stands on a named element of another name: it is the ground the POI is on (a square,
+ * a park, a neighbourhood), not the POI. The Monumento Árvore de Natal took the Praça do Radio
+ * Amador (6,008 m²) with the avenue sidewalk in it (#772).
  */
-export const NAMED_GROUND_REASON = 'named ground of another name under a POI with no kind evidence';
+export const NAMED_GROUND_REASON = 'named element of another name: the ground the POI stands on';
 
-export function isNamedGroundOfAnotherPoi(
-  elementTags: Tags,
-  poi: { name?: string | null; category?: string | null; tags?: Tags },
-): boolean {
-  const uncategorised = !poi.category || poi.category === 'point_of_interest';
-  const groundKeys = POINT_FEATURE_REFUSED_KEYS.filter(k => tagValue(elementTags, k) !== '');
-  const sameKind = groundKeys.some(k => tagValue(poi.tags, k) === tagValue(elementTags, k));
-  const own = [elementTags?.name, elementTags?.['name:pt']].map(normName).filter(n => n !== '');
-  const name = normName(poi.name);
-  return uncategorised && groundKeys.length > 0 && !sameKind && name !== '' && own.length > 0 && !own.includes(name);
-}
-
-/** Relief: the border is the landform around the summit (natural=*), never a park or a building. */
-export function isReliefPoi(tags: Tags): boolean {
-  return ['peak', 'hill', 'volcano'].includes(tagValue(tags, 'natural'));
-}
-
-/** Monument, statue, bust, memorial, artwork: an object on a square, not the square. */
-export function isPointFeature(tags: Tags): boolean {
-  const historic = tagValue(tags, 'historic');
-  return ['monument', 'memorial', 'statue', 'bust'].includes(historic)
-    || tagValue(tags, 'man_made') === 'monument'
-    || tagValue(tags, 'tourism') === 'artwork'
-    || tagValue(tags, 'memorial') !== ''
-    || ['statue', 'bust', 'sculpture'].includes(tagValue(tags, 'artwork_type'));
-}
-
-/** Area kinds a point feature never inherits (INV-E1c): they are what it stands on. */
-const POINT_FEATURE_REFUSED_KEYS = ['leisure', 'landuse', 'natural', 'place', 'boundary'];
-
-/** Features mapped as lines even when the way closes on itself. */
-function isLinearFeature(tags: Tags): boolean {
-  return tagValue(tags, 'highway') !== '' || tagValue(tags, 'railway') !== '' || tagValue(tags, 'barrier') !== ''
-    || ['coastline', 'cliff', 'ridge', 'tree_row'].includes(tagValue(tags, 'natural'));
+/** A closed way that is a via (`highway`, `railway`), not an area: the TP stands on it (E6). */
+function isVia(tags: Tags): boolean {
+  return String(tags?.highway ?? '') !== '' || String(tags?.railway ?? '') !== '';
 }
 
 const toLatLng = (p: { lat: number; lon?: number; lng?: number }): LatLng => ({ lat: p.lat, lng: (p.lng ?? p.lon) as number });
@@ -196,20 +124,23 @@ const isClosed = (ring: LatLng[]): boolean =>
   ring.length >= 4 && ring[0].lat === ring[ring.length - 1].lat && ring[0].lng === ring[ring.length - 1].lng;
 
 /**
- * INV-E1a step "OSM that contains the pin", with INV-E1c: the border holds the pin, and its
- * kind fits the POI. Smallest fitting polygon wins. Only elements holding the pin are judged;
- * without an id the pin is the only evidence that a polygon is the POI.
+ * INV-E1a step "OSM that contains the pin", with INV-E1c by identity and geometry:
+ * 1. an element carrying the POI's name wins (the smallest, when several do);
+ * 2. otherwise an UNNAMED element, and only one smaller than the smallest named element of another
+ *    name at the pin — whatever holds the ground the POI stands on is not the POI either;
+ * 3. a POI with a curated node id has its own identity: only step 1 applies, because an unnamed
+ *    polygon under a bust is the square, not the bust.
+ * Only elements holding the pin are judged; without an id the pin is the only evidence.
  */
 export function chooseContainingBoundary(
   pin: LatLng,
-  poi: { name?: string | null; category?: string | null; tags?: Tags },
+  poi: { name?: string | null; hasOwnNode?: boolean },
   elements: OsmAreaElement[],
 ): { chosen?: ChosenBoundary; rejected: BoundaryRejection[] } {
   const rejected: BoundaryRejection[] = [];
-  const place = poiIsPlace(poi.category);
-  const relief = isReliefPoi(poi.tags);
-  const pointFeature = !relief && isPointFeature(poi.tags);
-  const fitting: ChosenBoundary[] = [];
+  const named: ChosenBoundary[] = [];
+  const other: ChosenBoundary[] = [];
+  const unnamed: ChosenBoundary[] = [];
   const seen = new Set<string>();
 
   for (const el of elements) {
@@ -218,24 +149,85 @@ export function chooseContainingBoundary(
     seen.add(key);
     const points = el.geometry.map(toLatLng);
     const ring = el.type === 'relation' ? outerRing(points, pin) : points;
-    if (!isClosed(ring) || isLinearFeature(el.tags) || !isPointInPolygon(pin, ring)) continue;
-    const areaM2 = calculatePolygonAreaInM2(ring);
-    const reject = (reason: string) => rejected.push({ element: key, reason });
-
-    if (isPlaceElement(el.tags) && !place) { reject('place/boundary element for a POI that is not a place'); continue; }
-    if (isNamedGroundOfAnotherPoi(el.tags, poi)) { reject(NAMED_GROUND_REASON); continue; }
-    if (relief && tagValue(el.tags, 'natural') === '') { reject('relief POI takes a natural=* landform only'); continue; }
-    if (relief && areaM2 > RELIEF_MAX_AREA_M2) {
-      reject(`relief landform ${Math.round(areaM2)} m² > ${RELIEF_MAX_AREA_M2} m² (the massif, not the hill)`); continue;
-    }
-    if (pointFeature && POINT_FEATURE_REFUSED_KEYS.some(k => tagValue(el.tags, k) !== '')) {
-      reject('monument/statue/bust does not inherit an area polygon'); continue;
-    }
-    if (pointFeature && areaM2 > POINT_FEATURE_MAX_AREA_M2) {
-      reject(`monument/statue/bust footprint ${Math.round(areaM2)} m² > ${POINT_FEATURE_MAX_AREA_M2} m²`); continue;
-    }
-    fitting.push({ element: el, ring, areaM2 });
+    if (!isClosed(ring) || isVia(el.tags) || !isPointInPolygon(pin, ring)) continue;
+    const candidate = { element: el, ring, areaM2: calculatePolygonAreaInM2(ring) };
+    if (carriesPoiName(el.tags, poi.name)) named.push(candidate);
+    else if (elementNames(el.tags).length > 0) other.push(candidate);
+    else unnamed.push(candidate);
   }
-  fitting.sort((a, b) => a.areaM2 - b.areaM2);
+  const byArea = (a: ChosenBoundary, b: ChosenBoundary) => a.areaM2 - b.areaM2;
+  named.sort(byArea);
+  if (named[0]) return { chosen: named[0], rejected };
+
+  const key = (c: ChosenBoundary) => `${c.element.type}/${c.element.id}`;
+  for (const c of other) rejected.push({ element: key(c), reason: NAMED_GROUND_REASON });
+  const groundM2 = Math.min(...other.map(c => c.areaM2));
+  const fitting: ChosenBoundary[] = [];
+  for (const c of unnamed.sort(byArea)) {
+    if (poi.hasOwnNode) rejected.push({ element: key(c), reason: 'unnamed area under a POI with its own node id' });
+    else if (c.areaM2 >= groundM2) rejected.push({ element: key(c), reason: `unnamed area ${Math.round(c.areaM2)} m² holds the named ground at the pin` });
+    else fitting.push(c);
+  }
   return { chosen: fitting[0], rejected };
+}
+
+// ── A POI mapped as a line (bridge, promenade) — INV-E1a ───────────────────────
+
+/**
+ * Half width of the corridor drawn around a POI mapped as open ways, when the way has no
+ * `width` of its own. Two carriageways of a motorway sit within it. Provisional (#775).
+ */
+export const LINE_CORRIDOR_HALF_WIDTH_M = 15;
+
+type Way = { id: string | number; tags?: Record<string, unknown>; geometry?: Array<{ lat: number; lon?: number; lng?: number }> };
+
+/**
+ * The POI's curated way is open: the element is a line, and the POI is the whole run of ways of
+ * the same identity (name) and the same via kind that continue it end to end. The Ponte
+ * Rio-Niterói id is one 45-point motorway segment; read as a ring it was a 1,040 m² sliver.
+ * Walks both ends, taking at each end the continuation that turns the least.
+ */
+export function chainSameIdentity(start: Way, ways: Way[]): LatLng[] {
+  const line = (w: Way) => (w.geometry ?? []).map(toLatLng);
+  const names = elementNames(start.tags);
+  const kind = String(start.tags?.highway ?? start.tags?.railway ?? '');
+  const pool = ways.filter(w => String(w.id) !== String(start.id) && (w.geometry?.length ?? 0) >= 2
+    && elementNames(w.tags).some(n => names.includes(n)) && String(w.tags?.highway ?? w.tags?.railway ?? '') === kind)
+    .map(line);
+  const heading = (a: LatLng, b: LatLng) => Math.atan2(b.lat - a.lat, (b.lng - a.lng) * Math.cos((a.lat * Math.PI) / 180));
+  const turn = (x: number, y: number) => Math.abs(Math.atan2(Math.sin(x - y), Math.cos(x - y)));
+  const extend = (chain: LatLng[]): LatLng[] => {
+    for (;;) {
+      const end = chain[chain.length - 1];
+      const dir = heading(chain[chain.length - 2], end);
+      const next = pool
+        .map((w, i) => ({ i, w: samePoint(w[0], end) ? w : samePoint(w[w.length - 1], end) ? [...w].reverse() : null }))
+        .filter((c): c is { i: number; w: LatLng[] } => c.w !== null)
+        .sort((x, y) => turn(heading(x.w[0], x.w[1]), dir) - turn(heading(y.w[0], y.w[1]), dir))[0];
+      if (!next) return chain;
+      pool.splice(next.i, 1);
+      chain = chain.concat(next.w.slice(1));
+    }
+  };
+  return extend([...extend(line(start))].reverse());
+}
+
+/** Closed ring of a corridor `halfWidthM` each side of a polyline (offset along vertex normals). */
+export function corridorRing(line: LatLng[], halfWidthM: number): LatLng[] {
+  if (line.length < 2) return [];
+  const lat0 = line[0].lat;
+  const kx = 111_320 * Math.cos((lat0 * Math.PI) / 180);
+  const ky = 110_540;
+  const xy = line.map(p => ({ x: p.lng * kx, y: p.lat * ky }));
+  const normal = (i: number) => {
+    const a = xy[Math.max(0, i - 1)], b = xy[Math.min(xy.length - 1, i + 1)];
+    const dx = b.x - a.x, dy = b.y - a.y, len = Math.hypot(dx, dy) || 1;
+    return { x: -dy / len, y: dx / len };
+  };
+  const side = (sign: number) => xy.map((p, i) => {
+    const n = normal(i);
+    return { lat: (p.y + sign * n.y * halfWidthM) / ky, lng: (p.x + sign * n.x * halfWidthM) / kx };
+  });
+  const left = side(1), right = side(-1).reverse();
+  return [...left, ...right, left[0]];
 }

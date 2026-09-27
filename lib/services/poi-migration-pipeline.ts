@@ -719,7 +719,9 @@ export class PoiMigrationPipeline {
       id: poi.id,
       name: poi.name,
       location: { lat: coordinate.latitude, lng: coordinate.longitude },
-      type: poi.category || 'point_of_interest',
+      // The category never reaches the engine: class, reach and border come from what is measured
+      // on the POI (operator, 2026-09-27; BR-AUDIO-010).
+      type: 'point_of_interest',
       country: poi.country,
       city: poi.city,
       state: poi.state,

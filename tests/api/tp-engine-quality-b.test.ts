@@ -40,24 +40,24 @@ function classOf(tags: Record<string, string>, extra: { prominenceM?: number; wM
     localProminenceM: extra.prominenceM ?? 0,
     areaM2: w * h,
     boundary: rect(w, h),
-    tags,
   })
 }
 
 describe('BR-AUDIO-010 — visibility class comes from physical attributes, not from the name', () => {
-  it('default height by tag only when the real one is missing', () => {
-    assert.equal(resolveHeightM({ memorial: 'bust' }).heightM, 2.5)
-    assert.equal(resolveHeightM({ building: 'church' }).heightM, 25)
+  it('height is measured on the element; a type tag gives none (2026-09-27)', () => {
+    assert.equal(resolveHeightM({ memorial: 'bust' }).heightM, 0)
+    assert.equal(resolveHeightM({ building: 'church' }).heightM, 0)
     assert.equal(resolveHeightM({ building: 'church', height: '41' }).heightM, 41)
     // one floor ruler, 3 m (INV-E3)
     assert.equal(resolveHeightM({ building: 'yes', 'building:levels': '10' }).heightM, 30)
   })
 
-  it('bust is POINT_LOW, statue and church are STRUCTURE, tower is LANDMARK_HIGH', () => {
-    assert.equal(classOf({ historic: 'memorial', memorial: 'bust' }), VisibilityClass.POINT_LOW)
-    assert.equal(classOf({ memorial: 'statue' }), VisibilityClass.STRUCTURE)
-    assert.equal(classOf({ building: 'church' }), VisibilityClass.STRUCTURE)
-    assert.equal(classOf({ man_made: 'tower' }), VisibilityClass.LANDMARK_HIGH)
+  it('the type tag does not class: bust, statue, church and tower with no measured height are POINT_LOW; measured height classes', () => {
+    for (const tags of [{ memorial: 'bust' }, { memorial: 'statue' }, { building: 'church' }, { man_made: 'tower' }] as Array<Record<string, string>>) {
+      assert.equal(classOf(tags), VisibilityClass.POINT_LOW, JSON.stringify(tags))
+    }
+    assert.equal(classOf({ building: 'church', height: '12' }), VisibilityClass.STRUCTURE)
+    assert.equal(classOf({ man_made: 'tower', height: '45' }), VisibilityClass.LANDMARK_HIGH)
   })
 
   it('high prominence over the terrain makes LANDMARK_HIGH even without height', () => {
@@ -70,8 +70,8 @@ describe('BR-AUDIO-010 — visibility class comes from physical attributes, not 
     assert.equal(classOf({ leisure: 'park' }, { wM: 1500, hM: 60 }), VisibilityClass.LINEAR)
   })
 
-  it('viewpoint tag is VIEWPOINT; only the tall landmark has an edge cap above 100 m', () => {
-    assert.equal(classOf({ tourism: 'viewpoint' }), VisibilityClass.VIEWPOINT)
+  it('a viewpoint tag does not class (POINT_LOW); only the tall landmark has an edge cap above 100 m', () => {
+    assert.equal(classOf({ tourism: 'viewpoint' }), VisibilityClass.POINT_LOW)
     for (const [cls, lim] of Object.entries(CLASS_LIMITS)) {
       if (cls !== VisibilityClass.LANDMARK_HIGH) assert.ok(lim.maxEdgeDistanceM <= 100, cls)
     }
@@ -312,13 +312,6 @@ describe('BR-AUDIO-010 — engine-agnostic: no POI name or category becomes a br
     assert.ok(v.includes('Nabi Abi Chedid'), v.join(' | '))
   })
 
-  it('one tag→height table: the exact tag wins over the generic building', async () => {
-    const { defaultHeightByTag } = await import('../../lib/services/trigger-points-google/config/visibility-class')
-    assert.equal(defaultHeightByTag({ building: 'cathedral' }), 25)
-    assert.equal(defaultHeightByTag({ building: 'yes' }), 10)
-    assert.equal(defaultHeightByTag({ building: 'yes', amenity: 'theatre' }), 12)
-    assert.equal(defaultHeightByTag({ leisure: 'park' }), null)
-  })
 })
 
 describe('BR-AUDIO-010 — what the CMS saves is what the engine computed', () => {

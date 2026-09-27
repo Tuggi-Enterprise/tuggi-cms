@@ -1,13 +1,20 @@
 // Detector de boundaries usando Google APIs com fallback para OSM
 
-import { defaultHeightByTag, heightFromTags } from '../config/visibility-class';
+import { heightFromTags, SANITY_MAX_TP_DISTANCE_M } from '../config/visibility-class';
 import { GoogleAPIsService } from '../services/google-apis.service';
 import { ElevationService } from '../services/elevation.service';
 import { POIData, GeographicContext, BoundaryData, ProcessingResult } from '../types/interfaces';
 import { convertViewportToPolygon, calculatePolygonArea, calculatePolygonAreaInM2, calculatePolygonCenter, calculateDistance, isPointInPolygon, isDrawnCircle } from '../utils/calculations';
 import { TRIGGER_POINTS_CONSTANTS } from '../config/trigger-points-config';
 import { isCuratedBoundaryImplausible } from '../utils/osm-validation';
-import { assembleOuterRings, chooseContainingBoundary, curatedPlaceIsThePoi, footprintRing, isPlaceElement, NAMED_GROUND_REASON, outerRing, poiIsPlace, type BoundaryRejection, type OsmAreaElement } from '../utils/boundary-choice';
+import { assembleOuterRings, chainSameIdentity, chooseContainingBoundary, corridorRing, footprintRing, LINE_CORRIDOR_HALF_WIDTH_M, NAMED_GROUND_REASON, outerRing, type BoundaryRejection, type OsmAreaElement } from '../utils/boundary-choice';
+
+/**
+ * Radius of the circle that marks a POI with no footprint of its own: an OSM node, a pin with
+ * nothing at it, a stored point (INV-E1b). A 50 m "estimated" circle (~8,300 m²) swallowed the
+ * street in front of the Igreja da Penna and the TP landed inside it (#772).
+ */
+export const POINT_CIRCLE_RADIUS_M = 10;
 import { getSupabase } from '../../../core/supabase-client';
 
 /** Surveyed summits for the ground-top read (E4): one point per `processOSMPeaks` element. */
@@ -116,18 +123,14 @@ export class BoundaryDetector {
       let osmBoundaryResult: ProcessingResult<BoundaryData> | null = null;
       // A node id has no footprint: its circle only marks the point, and is the last resort.
       let pointCircle: ProcessingResult<BoundaryData> | null = null;
-      // The id is a neighbourhood's label node: the pin was copied from it and says nothing about
-      // which polygon is the POI (Praça Seca took a building under the label and became a landmark).
-      let idIsPlace = false;
 
       if (poiData.osm_id && poiData.osm_type) {
         const byId = await this.detectOSMBoundaryByID(String(poiData.osm_id), poiData.osm_type, poiData);
-        idIsPlace = !!byId.metadata?.idIsPlace;
         if (byId.success && byId.data?.synthetic) pointCircle = byId;
         else osmBoundaryResult = byId;
       }
 
-      if (!osmBoundaryResult?.success && !idIsPlace) {
+      if (!osmBoundaryResult?.success) {
         const containing = await this.detectContainingBoundary(poiData, pointCircle?.data?.osmTags);
         if (containing.success) osmBoundaryResult = containing;
         // The pin stands on a named square of another name: the POI is an object on it, a point.
@@ -323,7 +326,7 @@ export class BoundaryDetector {
           lat: geometry.coordinates[1],
           lng: geometry.coordinates[0]
         };
-        coordinates = this.createCircularBoundary(center, 50); // 50m radius
+        coordinates = this.createCircularBoundary(center, POINT_CIRCLE_RADIUS_M);
         synthetic = true;
       } else if (geometry.type === 'LineString') {
         // LineString: usar coordenadas diretamente
@@ -339,14 +342,14 @@ export class BoundaryDetector {
             lat: Number(metadata.boundary_centroid_lat),
             lng: Number(metadata.boundary_centroid_lng)
           };
-          coordinates = this.createCircularBoundary(center, 50);
+          coordinates = this.createCircularBoundary(center, POINT_CIRCLE_RADIUS_M);
           synthetic = true;
         } else if (metadata?.latitude && metadata?.longitude) {
           const center = {
             lat: Number(metadata.latitude),
             lng: Number(metadata.longitude)
           };
-          coordinates = this.createCircularBoundary(center, 50);
+          coordinates = this.createCircularBoundary(center, POINT_CIRCLE_RADIUS_M);
           synthetic = true;
         } else {
           return { success: false, error: `Unsupported geometry type: ${geometry.type}`, processingTime: 0 };
@@ -457,24 +460,18 @@ out geom;
       
       const element = elements[0];
 
-      // A place (neighbourhood, city) is a border only for a POI that is itself a place: a
-      // `place=*` node under a POI drew a circle at the pin. The uncategorised POI named as the
-      // curated place area is that place (Maracanã relation 5520332).
-      if (!chosen && isPlaceElement(element.tags) && !poiIsPlace(poiData.type)
-        && !curatedPlaceIsThePoi(osmType, element.tags, { name: poiData.name, category: poiData.type })) {
-        this.rejections.push({ element: `${osmType}/${osmID}`, reason: 'place/boundary element for a POI that is not a place' });
-        return {
-          success: false, error: 'osm_id is a place and the POI is not', processingTime: 0,
-          metadata: { step: 'boundary_detection', status: 'rejected', timestamp: new Date().toISOString(), idIsPlace: true },
-        };
-      }
-      
       // Processar geometria
       let coordinates: Array<{ lat: number; lng: number }> = [];
       // A node has no footprint: the circle only marks the point (see BoundaryData.synthetic).
       let synthetic = false;
 
-      if ((osmType === 'way' || osmType === 'relation') && Array.isArray(element.geometry) && element.geometry.length >= 3) {
+      const g = Array.isArray(element.geometry) ? element.geometry : [];
+      const openWay = !chosen && osmType === 'way' && g.length >= 2
+        && !(g[0].lat === g[g.length - 1].lat && (g[0].lon ?? g[0].lng) === (g[g.length - 1].lon ?? g[g.length - 1].lng));
+      if (openWay) {
+        // A line (bridge, promenade): the run of ways of the same identity around it, as a corridor.
+        coordinates = await this.sameIdentityCorridor(element);
+      } else if ((osmType === 'way' || osmType === 'relation') && Array.isArray(element.geometry) && element.geometry.length >= 3) {
         // Way, or relation (local DB: its rings one after another; the footprint is the outer one)
         const points = element.geometry.map((point: any) => ({
           lat: point.lat,
@@ -483,7 +480,7 @@ out geom;
         coordinates = osmType === 'relation' ? outerRing(points, poiData.location) : points;
       } else if (osmType === 'node') {
         const center = { lat: element.lat, lng: element.lon };
-        coordinates = this.createCircularBoundary(center, 10);
+        coordinates = this.createCircularBoundary(center, POINT_CIRCLE_RADIUS_M);
         synthetic = true;
       } else if (osmType === 'relation') {
         // Overpass relation: its outer ways joined into rings (INV-E1a). Only when no ring closes
@@ -492,7 +489,7 @@ out geom;
         if (ring) {
           coordinates = ring;
         } else {
-          coordinates = this.createCircularBoundary(poiData.location, 20);
+          coordinates = this.createCircularBoundary(poiData.location, POINT_CIRCLE_RADIUS_M);
           synthetic = true;
         }
       }
@@ -536,10 +533,8 @@ out geom;
         }
       }
       
-      // Extrair tags e processar como no fluxo normal.
-      // Phase 2.E: heurística por tag preenche altura quando OSM não tem
-      // `height` / `building:levels` (caso em ~80% dos POIs Phase 0).
-      const poiHeight = this.extractOSMHeightWithHeuristic({ tags: poiTags }, poiData.name);
+      // Height measured on the element only: there is no height by type tag (INV-E3, 2026-09-27).
+      const poiHeight = this.extractOSMHeight({ tags: poiTags });
       
       // Buscar elevação
       const elevation = await this.elevationService.getElevation(center, undefined, { tags: poiTags }, undefined, poiData);
@@ -826,249 +821,6 @@ out geom tags;
   }
   
   /**
-   * Detecta boundary usando Google Places API com múltiplas estratégias
-   */
-  private async detectGoogleBoundary(poiData: POIData): Promise<ProcessingResult<BoundaryData>> {
-    try {
-      
-      // Estratégia 1: Busca por nome exato
-      let searchResponse = await this.googleAPIs.searchPlacesNearby({
-        location: poiData.location,
-        radius: 100,
-        name: poiData.name
-      });
-      
-      // Estratégia 2: Busca por proximidade se nome não funcionou
-      if (!searchResponse.success || !searchResponse.data?.results?.length) {
-        console.log('🔄 Trying proximity search...');
-        searchResponse = await this.googleAPIs.searchPlacesNearby({
-          location: poiData.location,
-          radius: 200,
-          type: poiData.type
-        });
-      }
-      
-      // Estratégia 3: Busca expandida
-      if (!searchResponse.success || !searchResponse.data?.results?.length) {
-        console.log('🔄 Trying expanded search...');
-        searchResponse = await this.googleAPIs.searchPlacesNearby({
-          location: poiData.location,
-          radius: 500
-        });
-      }
-      
-      if (!searchResponse.success || !searchResponse.data?.results?.length) {
-        return { success: false, error: 'No Google Places results found', processingTime: 0 };
-      }
-      
-      // Encontrar o melhor match
-      const bestPlace = this.findBestPlaceMatch(searchResponse.data.results, poiData);
-      console.log(`📍 Best match: ${bestPlace.name} (${bestPlace.place_id})`);
-      
-      // Buscar detalhes com geometry expandida
-      const detailsResponse = await this.googleAPIs.getPlaceDetails(
-        bestPlace.place_id,
-        ['geometry', 'name', 'types', 'formatted_address']
-      );
-      
-      if (!detailsResponse.success || !detailsResponse.data?.result) {
-        return { success: false, error: 'Failed to get place details', processingTime: 0 };
-      }
-      
-      const result = detailsResponse.data.result;
-      const geometry = result.geometry;
-      
-      if (!geometry) {
-        return { success: false, error: 'No geometry found', processingTime: 0 };
-      }
-      
-      // Tentar obter boundary preciso
-      const boundaryData = await this.extractPreciseBoundary(result, poiData);
-      
-      return {
-        success: true,
-        data: boundaryData,
-        processingTime: 0
-      };
-      
-    } catch (error) {
-      console.error('Error in Google boundary detection:', error);
-      return { success: false, error: error instanceof Error ? error.message : 'Unknown error', processingTime: 0 };
-    }
-  }
-  
-  /**
-   * Encontra o melhor match entre os resultados do Google Places
-   */
-  private findBestPlaceMatch(places: any[], poiData: POIData): any {
-    if (places.length === 1) return places[0];
-    
-    let bestPlace = places[0];
-    let bestScore = 0;
-    
-    for (const place of places) {
-      let score = 0;
-      
-      // Score por similaridade do nome
-      if (place.name && this.calculateNameSimilarity(place.name, poiData.name) > 0.7) {
-        score += 50;
-      }
-      
-      // Score por proximidade
-      const distance = this.calculateDistanceToPlace(place, poiData.location);
-      if (distance < 100) score += 30;
-      else if (distance < 200) score += 20;
-      else if (distance < 500) score += 10;
-      
-      // Score por tipo
-      if (place.types && place.types.includes(poiData.type)) {
-        score += 20;
-      }
-      
-      if (score > bestScore) {
-        bestScore = score;
-        bestPlace = place;
-      }
-    }
-    
-    return bestPlace;
-  }
-  
-  /**
-   * Extrai boundary preciso do resultado do Google
-   */
-  private async extractPreciseBoundary(placeResult: any, poiData: POIData): Promise<BoundaryData> {
-    const geometry = placeResult.geometry;
-    let coordinates: Array<{lat: number, lng: number}> = [];
-    let confidence = 0.3; // Padrão baixo
-    let center = poiData.location;
-    
-    // Estratégia 1: Usar viewport se disponível
-    if (geometry.viewport) {
-      coordinates = convertViewportToPolygon(geometry.viewport);
-      confidence = 0.6; // Viewport é melhor que estimativa
-      center = geometry.location || poiData.location;
-      console.log('📐 Using Google viewport boundary');
-    }
-    
-    // Estratégia 2: Criar boundary baseado no tipo e localização
-    if (coordinates.length === 0 || confidence < 0.5) {
-      const estimatedRadius = this.getGoogleEstimatedRadius(placeResult, poiData);
-      coordinates = this.createCircularBoundary(center, estimatedRadius);
-      confidence = 0.4;
-      console.log(`📐 Using estimated boundary with radius: ${estimatedRadius}m`);
-    }
-    
-    const area = calculatePolygonAreaInM2(coordinates); // ✅ DRY: usar função SSOT (retorna m²)
-    
-    // Ajustar confidence baseado na qualidade dos dados
-    if (placeResult.name && this.calculateNameSimilarity(placeResult.name, poiData.name) > 0.8) {
-      confidence += 0.1;
-    }
-    
-    if (placeResult.types && placeResult.types.length > 0) {
-      confidence += 0.1;
-    }
-    
-    // Tentar obter elevação via Google (não-bloqueante - DESABILITADO temporariamente)
-    let elevationData;
-    try {
-      // TEMPORARIAMENTE DESABILITADO para não quebrar o boundary
-      // const elevation = await this.elevationService.getElevation(center, { coordinates, center, area, confidence, source: 'google_places' });
-    } catch (error) {
-      console.warn('⚠️ Google elevation extraction failed (non-blocking):', error);
-    }
-    
-    return {
-      type: 'polygon',
-      coordinates,
-      center,
-      area_m2: area,
-      perimeter_m: 0,
-      confidence: Math.min(confidence, 0.9),
-      source: 'google_places' as const
-    };
-  }
-  
-  /**
-   * Calcula raio estimado baseado nos dados do Google
-   */
-  private getGoogleEstimatedRadius(placeResult: any, poiData: POIData): number {
-    let radius = 50; // Padrão
-    
-    // Ajustar baseado no tipo do Google
-    if (placeResult.types) {
-      if (placeResult.types.includes('park')) radius = 200;
-      else if (placeResult.types.includes('shopping_mall')) radius = 150;
-      else if (placeResult.types.includes('museum')) radius = 80;
-      else if (placeResult.types.includes('restaurant')) radius = 25;
-      else if (placeResult.types.includes('tourist_attraction')) radius = 100;
-    }
-    
-    // Ajustar baseado no rating/popularidade
-    if (placeResult.rating) {
-      if (placeResult.rating > 4.5) radius *= 1.2;
-      else if (placeResult.rating > 4.0) radius *= 1.1;
-    }
-    
-    return Math.max(radius, 20);
-  }
-  
-  /**
-   * Calcula similaridade entre nomes
-   */
-  private calculateNameSimilarity(name1: string, name2: string): number {
-    const normalize = (str: string) => str.toLowerCase().replace(/[^a-z0-9]/g, '');
-    const n1 = normalize(name1);
-    const n2 = normalize(name2);
-    
-    if (n1 === n2) return 1.0;
-    if (n1.includes(n2) || n2.includes(n1)) return 0.8;
-    
-    // Levenshtein distance simplificado
-    const maxLen = Math.max(n1.length, n2.length);
-    if (maxLen === 0) return 1.0;
-    
-    let matches = 0;
-    const minLen = Math.min(n1.length, n2.length);
-    
-    for (let i = 0; i < minLen; i++) {
-      if (n1[i] === n2[i]) matches++;
-    }
-    
-    return matches / maxLen;
-  }
-  
-  /**
-   * Calcula distância até um place do Google
-   */
-  private calculateDistanceToPlace(place: any, location: { lat: number; lng: number }): number {
-    if (!place.geometry?.location) return Infinity;
-    
-    const placeLocation = place.geometry.location;
-    return calculateDistance(location, placeLocation); // ✅ DRY: usar função SSOT
-  }
-  
-  // ✅ DRY: calculateDistance removido - usar função importada de utils/calculations.ts
-  
-  /**
-   * Calcula raio de busca baseado na área do POI
-   */
-  private calculateSearchRadiusFromArea(area: number): number {
-    // Fórmula baseada na área: raio = sqrt(área / π) * 2
-    // Isso garante que cobrimos uma área 4x maior que o POI
-    const baseRadius = Math.sqrt(area / Math.PI) * 2;
-    
-    // Limitar entre 200m e 2000m
-    const minRadius = 200;
-    const maxRadius = 2000;
-    
-    const radius = Math.max(minRadius, Math.min(maxRadius, baseRadius));
-    
-    return Math.round(radius);
-  }
-
-  /**
    * Processa elementos OSM de ruas em StreetData
    */
   private processOSMStreets(streetElements: any[], boundaryCoordinates: Array<{lat: number, lng: number}>): any[] {
@@ -1286,7 +1038,7 @@ out geom tags;
       }
     }
     const { chosen, rejected } = chooseContainingBoundary(
-      poiData.location, { name: poiData.name, category: poiData.type, tags }, elements ?? []
+      poiData.location, { name: poiData.name, hasOwnNode: poiData.osm_type === 'node' && !!poiData.osm_id }, elements ?? []
     );
     this.rejections.push(...rejected);
     if (!chosen) return { success: false, error: 'No OSM area fits the POI at the pin', processingTime: 0 };
@@ -1372,161 +1124,6 @@ out geom tags;
   }
   
   /**
-   * Extrai categoria do resultado do Nominatim
-   * Retorna a categoria normalizada (ex: "stadium", "park", "museum")
-   */
-  private extractCategoryFromNominatim(result: any): string | null {
-    try {
-      const extratags = result.extratags || {};
-      const priorityTags = ['tourism', 'amenity', 'historic', 'natural', 'leisure', 'railway', 'public_transport', 'shop', 'highway', 'building'];
-      
-      // Primeiro: buscar tags específicas (não *=yes)
-      for (const tag of priorityTags) {
-        if (extratags[tag] && extratags[tag] !== 'yes') {
-          return extratags[tag]; // Retorna apenas o valor (ex: "stadium", "park")
-        }
-      }
-      
-      // Segundo: se não encontrou, buscar tags com valor "yes" mas usar o tipo da tag
-      for (const tag of priorityTags) {
-        if (extratags[tag] === 'yes') {
-          // Se o tipo da tag é válido, usar ele como categoria
-          if (tag !== 'building' && tag !== 'highway') { // building e highway são muito genéricos
-            return tag;
-          }
-        }
-      }
-      
-      // Terceiro: se ainda não encontrou, usar class/type do Nominatim
-      if (result.class && result.type) {
-        // Se type não for genérico, usar type
-        if (result.type !== 'yes' && result.type !== 'no') {
-          return result.type;
-        } else if (result.class !== 'place' && result.class !== 'boundary') {
-          // Caso contrário, usar class se não for muito genérico
-          if (result.class !== 'building' && result.class !== 'highway') {
-            return result.class;
-          }
-        }
-      }
-      
-      return null;
-    } catch (error) {
-      console.warn('Error extracting category from Nominatim:', error);
-      return null;
-    }
-  }
-  
-  /**
-   * Normaliza categoria do POI (Google type) para comparar com categoria OSM
-   * Mapeia tipos do Google para categorias OSM equivalentes
-   */
-  private normalizePOICategory(poiType: string): string[] {
-    const normalized = poiType.toLowerCase();
-    const equivalentCategories: string[] = [];
-    
-    // 🆕 point_of_interest é um tipo genérico do Google Places - aceita qualquer categoria OSM válida
-    if (normalized === 'point_of_interest') {
-      // Lista de categorias OSM comuns que são válidas para point_of_interest
-      return [
-        'stadium', 'sports_centre', 'arena',
-        'park', 'recreation_ground', 'garden',
-        'museum', 'gallery',
-        'church', 'cathedral', 'place_of_worship',
-        'restaurant', 'cafe', 'fast_food',
-        'hotel', 'hostel', 'motel',
-        'attraction', 'viewpoint', 'monument',
-        'mall', 'shopping_centre',
-        'hospital', 'clinic',
-        'school', 'university', 'college',
-        'zoo', 'wildlife_park',
-        'aquarium',
-        'library',
-        'theatre', 'cinema',
-        'theme_park', 'amusement_ride',
-        'beach',
-        'peak', 'volcano',
-        'lake', 'reservoir',
-        'airport', 'aerodrome',
-        'station', 'halt',
-        'bus_station', 'bus_stop',
-        'tourism', 'amenity', 'historic', 'natural', 'leisure',
-        'point_of_interest' // Incluir o próprio tipo também
-      ];
-    }
-    
-    // Mapeamento de tipos Google para categorias OSM
-    const categoryMap: Record<string, string[]> = {
-      'stadium': ['stadium', 'sports_centre', 'arena'],
-      'park': ['park', 'recreation_ground', 'garden'],
-      'museum': ['museum', 'gallery'],
-      'church': ['church', 'cathedral', 'place_of_worship'],
-      'restaurant': ['restaurant', 'cafe', 'fast_food'],
-      'hotel': ['hotel', 'hostel', 'motel'],
-      'tourist_attraction': ['attraction', 'viewpoint', 'monument'],
-      'shopping_mall': ['mall', 'shopping_centre'],
-      'hospital': ['hospital', 'clinic'],
-      'school': ['school', 'university', 'college'],
-      'zoo': ['zoo', 'wildlife_park'],
-      'aquarium': ['aquarium'],
-      'library': ['library'],
-      'theater': ['theatre', 'cinema'],
-      'amusement_park': ['theme_park', 'amusement_ride'],
-      'beach': ['beach'],
-      'mountain': ['peak', 'volcano'],
-      'lake': ['lake', 'reservoir'],
-      'airport': ['airport', 'aerodrome'],
-      'train_station': ['station', 'halt'],
-      'bus_station': ['bus_station', 'bus_stop'],
-      // 🆕 establishment é um tipo genérico do Google - aceita várias categorias naturais
-      'establishment': ['peak', 'volcano', 'natural', 'park', 'attraction', 'viewpoint', 'monument', 'tourism', 'leisure', 'point_of_interest'],
-      // 🆕 natural é uma categoria do banco - compatível com várias categorias OSM naturais
-      'natural': ['peak', 'volcano', 'natural', 'park', 'mountain', 'hill', 'viewpoint']
-    };
-    
-    // Buscar mapeamento direto
-    if (categoryMap[normalized]) {
-      equivalentCategories.push(...categoryMap[normalized]);
-    }
-    
-    // Adicionar o tipo original também (caso seja compatível)
-    if (!equivalentCategories.includes(normalized)) {
-      equivalentCategories.push(normalized);
-    }
-    
-    return equivalentCategories;
-  }
-  
-  /**
-   * Compara categoria do POI com categoria do Nominatim
-   * Retorna true se as categorias são compatíveis
-   */
-  private compareCategories(poiType: string, osmCategory: string | null): boolean {
-    if (!osmCategory) {
-      // Se não encontrou categoria no OSM, não rejeitar (pode ser um POI sem categoria definida)
-      return true;
-    }
-    
-    // 🆕 Se poiType for 'unknown', aceitar qualquer categoria OSM (mais permissivo)
-    if (poiType === 'unknown' || !poiType) {
-      console.log(`ℹ️ POI type is 'unknown', accepting OSM category: ${osmCategory}`);
-      return true;
-    }
-    
-    const normalizedOsmCategory = osmCategory.toLowerCase();
-    const equivalentCategories = this.normalizePOICategory(poiType);
-    
-    // Verificar se a categoria OSM está na lista de categorias equivalentes
-    const isCompatible = equivalentCategories.some(cat => 
-      normalizedOsmCategory === cat.toLowerCase() ||
-      normalizedOsmCategory.includes(cat.toLowerCase()) ||
-      cat.toLowerCase().includes(normalizedOsmCategory)
-    );
-    
-    return isCompatible;
-  }
-  
-  /**
    * Valida resultado do Nominatim pela distância, localidade e categoria
    * Retorna true se o resultado é válido para o POI
    * 🆕 Ajusta threshold dinamicamente baseado em confiança do match
@@ -1583,85 +1180,15 @@ out geom tags;
           return false;
         }
       } else {
-        // Para matches não perfeitos, usar lógica original
-        const isHighConfidenceMatch = exactNameMatch && hasOSMID;
-        const isBuilding = result.type === 'building' || 
-                          result.class === 'building' ||
-                          (result.osm_type === 'way' && result.type === 'way');
-        
-        // 🏔️ NOVO: Detectar peaks/picos/montanhas (landmarks naturais)
-        const isPeak = result.type === 'peak' || 
-                      result.class === 'peak' ||
-                      result.type === 'natural' ||
-                      result.class === 'natural' ||
-                      result.osm_type === 'node' && (result.type === 'peak' || result.class === 'peak');
-        
-        let effectiveMaxDistance = maxDistance;
-        
-        // 🏔️ PRIORIDADE 1: Peaks/picos têm threshold muito maior
-        if (isPeak) {
-          if (isHighConfidenceMatch) {
-            effectiveMaxDistance = Math.max(maxDistance, 500); // Peak com OSM ID + nome exato: até 500m
-            console.log(`🏔️ High-confidence peak/landmark match: using ${effectiveMaxDistance}m threshold (distance: ${distance.toFixed(0)}m)`);
-          } else if (exactNameMatch) {
-            effectiveMaxDistance = Math.max(maxDistance, 300); // Peak com nome exato: até 300m
-            console.log(`🏔️ Peak/landmark with exact name match: using ${effectiveMaxDistance}m threshold (distance: ${distance.toFixed(0)}m)`);
-          } else {
-            effectiveMaxDistance = Math.max(maxDistance, 200); // Peak detectado: até 200m
-            console.log(`🏔️ Peak/landmark detected: using ${effectiveMaxDistance}m threshold (distance: ${distance.toFixed(0)}m)`);
-          }
-        } else if (isHighConfidenceMatch) {
-          if (isBuilding) {
-            effectiveMaxDistance = Math.max(maxDistance, 100); // Edifícios: até 100m
-            console.log(`🏗️ High-confidence building match: using ${effectiveMaxDistance}m threshold (distance: ${distance.toFixed(0)}m)`);
-          } else {
-            effectiveMaxDistance = Math.max(maxDistance, 50); // Outros: até 50m
-            console.log(`📍 High-confidence match: using ${effectiveMaxDistance}m threshold (distance: ${distance.toFixed(0)}m)`);
-          }
-        }
-        
+        // Identity (osm id + exact name) widens the match to 50 m. The geocoder class/type
+        // (peak, building, …) never decides it (operator, 2026-09-27; BR-AUDIO-010).
+        const effectiveMaxDistance = exactNameMatch && hasOSMID ? Math.max(maxDistance, 50) : maxDistance;
         if (distance > effectiveMaxDistance) {
           console.log(`⚠️ Result too far: ${distance.toFixed(0)}m (max: ${effectiveMaxDistance}m)`);
           return false;
         }
       }
-      
-      // 2. Validar categoria (NOVO - evita falsos positivos)
-      // 🆕 Para matches perfeitos, pular validação de categoria
-      // 🏔️ Para peaks detectados no nome, aceitar qualquer categoria OSM relacionada a peaks
-      // Natural landmark by the OSM result class/type, never by the POI name
-      // (engine-agnostic, epic #772; BR-AUDIO-010).
-      const isNaturalLandmarkResult = ['peak', 'volcano', 'natural'].includes(String(result.type)) ||
-                          ['peak', 'volcano', 'natural'].includes(String(result.class));
-      
-      if (!isPerfectMatch) {
-        const osmCategory = this.extractCategoryFromNominatim(result);
-        
-        // 🏔️ Se é peak no nome, aceitar categorias relacionadas a peaks
-        if (isNaturalLandmarkResult) {
-          const peakRelatedCategories = ['peak', 'volcano', 'natural', 'park', 'mountain', 'hill', 'viewpoint', 'attraction'];
-          const isPeakRelated = osmCategory && peakRelatedCategories.some(cat => 
-            osmCategory.toLowerCase().includes(cat) || cat.includes(osmCategory.toLowerCase())
-          );
-          if (isPeakRelated) {
-            console.log(`🏔️ Peak detected in name, accepting OSM category: ${osmCategory}`);
-            // Aceitar - não fazer return false
-          } else {
-            // Se não for categoria relacionada a peak, validar normalmente
-            if (!this.compareCategories(poiData.type, osmCategory)) {
-              console.log(`⚠️ Category mismatch: POI=${poiData.type}, OSM=${osmCategory || 'unknown'}`);
-              return false;
-            }
-          }
-        } else {
-          // Para não-peaks, validar normalmente
-          if (!this.compareCategories(poiData.type, osmCategory)) {
-            console.log(`⚠️ Category mismatch: POI=${poiData.type}, OSM=${osmCategory || 'unknown'}`);
-            return false;
-          }
-        }
-      }
-      
+
       // 3. Validar localidade (cidade/estado)
       // 🆕 IMPORTANTE: Se temos OSM ID, não precisamos validar cidade/estado
       // OSM IDs são únicos globalmente e já identificam o POI corretamente
@@ -1744,57 +1271,10 @@ out geom tags;
 
           // Validar e processar resultados
           for (const result of results) {
-            // 🆕 Calcular threshold dinâmico baseado no tipo de resultado e confiança do match
-            let maxDistance = 10; // Default conservador
-            
-            // Se nome corresponde exatamente, aumentar threshold
+            // Identity widens the match; the geocoder class/type never decides it (2026-09-27).
             const exactNameMatch = result.display_name?.toLowerCase().includes(poiData.name.toLowerCase()) ||
                                    poiData.name.toLowerCase().includes(result.display_name?.toLowerCase() || '');
-            
-            // 🏔️ NOVO: Detectar peaks/picos/montanhas (landmarks naturais)
-            const isPeak = result.type === 'peak' || 
-                          result.class === 'peak' ||
-                          result.type === 'natural' ||
-                          result.class === 'natural' ||
-                          result.osm_type === 'node' && (result.type === 'peak' || result.class === 'peak');
-            
-            // Se é um edifício (building), threshold maior (edifícios grandes podem ter pontos de referência diferentes)
-            const isBuilding = result.type === 'building' || 
-                              result.class === 'building' ||
-                              result.osm_type === 'way' && result.type === 'way';
-            
-            // 🏔️ PRIORIDADE 1: Peaks/picos têm threshold muito maior (landmarks visíveis de longe)
-            if (isPeak) {
-              if (exactNameMatch && result.osm_id) {
-                maxDistance = 500; // Peak com nome exato + OSM ID: até 500m
-                console.log(`🏔️ Peak/landmark with exact name match + OSM ID: using ${maxDistance}m threshold`);
-              } else if (exactNameMatch) {
-                maxDistance = 300; // Peak com nome exato: até 300m
-                console.log(`🏔️ Peak/landmark with exact name match: using ${maxDistance}m threshold`);
-              } else {
-                maxDistance = 200; // Peak detectado no nome: até 200m
-                console.log(`🏔️ Peak/landmark detected: using ${maxDistance}m threshold`);
-              }
-            }
-            // Se tem OSM ID e nome corresponde, é muito provável que seja o POI correto
-            else if (result.osm_id && exactNameMatch) {
-              if (isBuilding) {
-                maxDistance = 100; // Edifícios: até 100m (edifícios grandes)
-                console.log(`🏗️ Building with exact name match: using ${maxDistance}m threshold`);
-              } else {
-                maxDistance = 50; // Outros: até 50m
-                console.log(`📍 Exact name match: using ${maxDistance}m threshold`);
-              }
-            } else if (isBuilding) {
-              maxDistance = 50; // Edifícios sem match exato: 50m
-              console.log(`🏗️ Building detected: using ${maxDistance}m threshold`);
-            }
-            
-            // Same place rule as the id path (INV-E1c): a neighbourhood is not a stadium's border.
-            if ((result.class === 'place' || result.class === 'boundary') && !poiIsPlace(poiData.type)) {
-              this.rejections.push({ element: `${result.osm_type}/${result.osm_id}`, reason: `Nominatim ${result.class}=${result.type} for a POI that is not a place` });
-              continue;
-            }
+            const maxDistance = result.osm_id && exactNameMatch ? 50 : 10;
 
             // Validar distância, categoria e localidade (threshold dinâmico)
             if (!this.validateNominatimResult(result, poiData, maxDistance)) {
@@ -1804,13 +1284,7 @@ out geom tags;
             
             if (result.geojson && result.geojson.coordinates) {
               
-              // 🏔️ Detectar se é peak para usar boundary maior
-              const isPeakResult = result.type === 'peak' || 
-                                  result.class === 'peak' ||
-                                  result.type === 'natural' ||
-                                  result.class === 'natural';
-              
-              const processed = await this.processNominatimGeometry(result.geojson, lat, lng, isPeakResult);
+              const processed = await this.processNominatimGeometry(result.geojson, lat, lng);
               if (processed.success && processed.coordinates.length > 2) {
                 const center = this.calculatePolygonCenter(processed.coordinates);
                 const area = calculatePolygonAreaInM2(processed.coordinates); // ✅ DRY: usar função SSOT
@@ -1930,7 +1404,7 @@ out geom tags;
                           // Extrair altura do POI (Phase 2.E: heurística por tag
                           // fallback quando OSM não tem `height`/`building:levels`).
                           if (poiElementFromQuery) {
-                            poiHeight = this.extractOSMHeightWithHeuristic(poiElementFromQuery, poiData.name);
+                            poiHeight = this.extractOSMHeight(poiElementFromQuery);
                             if (poiHeight) {
                               console.log(`📏 POI height from OSM: ${poiHeight}m`);
                             }
@@ -2576,47 +2050,6 @@ out tags;
   }
 
   /**
-   * Phase 2.E — Heuristic height fallback by OSM tag category.
-   *
-   * Use ONLY for the POI's OWN element, never for surrounding/architectural
-   * elements (those are scanned by extractHeightFromMultipleElements and adding
-   * heuristics there would assign generic 10m to every nearby building, polluting
-   * the POI's effective height).
-   *
-   * Data-driven: 80% of POIs in California had `poi_height_source =
-   * null_fallback` in Phase 0. Without a POI height, the 2.5D ray-cast in
-   * VisibilityMapBuilder uses poi_top = terrain altitude, collapsing the fan to
-   * ~200-300m. That collapse then becomes the cap for Phase 2.A. Heuristics
-   * give the fan a sensible POI height so it reaches further in line-of-sight.
-   *
-   * Returns null when no heuristic applies — caller should treat as
-   * "no information" (same as the existing null_fallback path).
-   */
-  private extractHeuristicHeight(tags: any, poiName?: string): number | null {
-    if (!tags) return null;
-
-    // Single tag→height table (SSOT): config/visibility-class.ts#DEFAULT_HEIGHT_BY_TAG.
-    const height = defaultHeightByTag(tags);
-    if (height !== null && height > 0) {
-      console.log(`📏 POI height by tag: ${height}m${poiName ? ` for "${poiName}"` : ''}`);
-      return height;
-    }
-    return null;
-  }
-
-  /**
-   * POI-self height extraction: tries OSM-tagged height first, falls back to
-   * heuristic-by-tag (Phase 2.E). Use this at sites where `element` is known to
-   * be the POI itself; for surrounding-element scanning, call extractOSMHeight
-   * directly without heuristics.
-   */
-  private extractOSMHeightWithHeuristic(element: any, poiName?: string): number | null {
-    const direct = this.extractOSMHeight(element);
-    if (direct !== null) return direct;
-    return this.extractHeuristicHeight(element?.tags, poiName);
-  }
-
-  /**
    * Extrai altura de múltiplos elementos OSM (sistema escalável)
    * Busca por elementos arquitetônicos relacionados ao POI principal
    */
@@ -2714,7 +2147,6 @@ out tags;
    * Verifica se um elemento faz parte da mesma estrutura do POI
    */
   private isElementPartOfPOIStructure(element: any, poiCenter: { lat: number; lng: number }, boundary?: BoundaryData): boolean {
-    const tags = element.tags || {};
     const elementCenter = this.calculateElementCenter(element);
     
     if (!elementCenter) {
@@ -2738,43 +2170,9 @@ out tags;
       }
     }
     
-    // 3. VERIFICAÇÃO DE TAGS: Elemento tem tags que indicam relação?
-    const hasStructuralRelation = this.hasStructuralRelationTags(tags);
-    if (hasStructuralRelation) {
-      console.log(`✅ Element has structural relation tags - same structure`);
-      return true;
-    }
-    
-    // 4. VERIFICAÇÃO DE PROXIMIDADE: Elemento muito próximo (<30m)?
-    if (distance <= TRIGGER_POINTS_CONSTANTS.distances.veryCloseDistance) {
-      console.log(`✅ Element very close (${distance.toFixed(0)}m ≤ ${TRIGGER_POINTS_CONSTANTS.distances.veryCloseDistance}m) - likely same structure`);
-      return true;
-    }
-    
-    console.log(`❌ Element external (${distance.toFixed(0)}m, no relation tags) - external`);
-    return false;
-  }
-  
-  /**
-   * Verifica se as tags indicam relação estrutural
-   */
-  private hasStructuralRelationTags(tags: any): boolean {
-    // Tags que indicam que é parte de uma estrutura maior
-    const structuralTags = [
-      'building:part', 'part_of', 'building:use', 'building:levels',
-      'amenity', 'tourism', 'historic', 'religion'
-    ];
-    
-    // Se tem building:part, provavelmente é parte da mesma estrutura
-    if (tags['building:part']) {
-      return true;
-    }
-    
-    // Se tem tags de amenity/tourism similares, pode ser parte do complexo
-    if (tags['amenity'] || tags['tourism'] || tags['historic'] || tags['religion']) {
-      return true;
-    }
-    
+    // Only a building inside the POI footprint is the POI: a type tag near it or a neighbour
+    // within 30 m is not (the Cristo took the 24 m of a kiosk, P8; operator, 2026-09-27).
+    console.log(`❌ Element external (${distance.toFixed(0)}m, outside the footprint) - external`);
     return false;
   }
   
@@ -2859,11 +2257,38 @@ out tags;
 
   
   /**
-   * Cria boundary estimado baseado no contexto
+   * INV-E1a for a POI whose curated way is OPEN (a line: bridge, promenade, avenue): the ways of
+   * the same identity (name / official_name) and via kind that continue it end to end, as a
+   * corridor of the way's own `width`, else LINE_CORRIDOR_HALF_WIDTH_M each side. The Ponte
+   * Rio-Niterói id is one 45-point motorway segment, and read as a ring it was a 1,040 m² sliver.
+   * Overpass down: the segment alone, as a corridor.
    */
+  private async sameIdentityCorridor(element: any): Promise<Array<{ lat: number; lng: number }>> {
+    const names = ['name', 'official_name'].map(k => element.tags?.[k]).filter((n: unknown) => typeof n === 'string' && n !== '');
+    let ways: any[] = [];
+    if (names.length > 0) {
+      const esc = (n: string) => n.replace(/\\/g, '\\\\').replace(/"/g, '\\"');
+      const query = `
+[out:json][timeout:60];
+way(${element.id})->.a;
+(${names.map((n: string) => `way(around.a:${SANITY_MAX_TP_DISTANCE_M})["name"="${esc(n)}"];way(around.a:${SANITY_MAX_TP_DISTANCE_M})["official_name"="${esc(n)}"];`).join('')});
+out geom;
+`;
+      try {
+        const response = await this.retryOSMQuery(query, `ways of the same identity as way(${element.id})`, 3, 2000);
+        ways = (await response.json()).elements ?? [];
+      } catch (error) {
+        console.warn(`⚠️ Same-identity ways of way(${element.id}) unavailable:`, error instanceof Error ? error.message : error);
+      }
+    }
+    const width = parseFloat(String(element.tags?.width ?? ''));
+    const halfWidthM = Number.isFinite(width) && width > 0 ? width / 2 : LINE_CORRIDOR_HALF_WIDTH_M;
+    return corridorRing(chainSameIdentity(element, ways), halfWidthM);
+  }
+
   /** The pin as a point object: the same 10 m synthetic circle an OSM node gets (INV-E1b). */
   private pinPointCircle(poiData: POIData): ProcessingResult<BoundaryData> {
-    const coordinates = this.createCircularBoundary(poiData.location, 10);
+    const coordinates = this.createCircularBoundary(poiData.location, POINT_CIRCLE_RADIUS_M);
     return {
       success: true,
       data: {
@@ -2875,77 +2300,20 @@ out tags;
   }
 
   private async createEstimatedBoundary(poiData: POIData): Promise<BoundaryData> {
-    // ✅ REFATORADO: Usar raio padrão pequeno (50m) para POIs não encontrados
-    // Não precisa de context - POI não encontrado provavelmente é pequeno/irrelevante
-    const baseRadius = 50; // Raio padrão para POIs não encontrados
-    
-    // Criar boundary circular
-    const coordinates = this.createCircularBoundary(poiData.location, baseRadius);
-    const center = poiData.location;
-    const area = calculatePolygonAreaInM2(coordinates); // ✅ DRY: usar função SSOT (retorna m²)
-    
+    // Nothing found: the pin as a point, the same circle an OSM node gets (INV-E1b).
+    const coordinates = this.createCircularBoundary(poiData.location, POINT_CIRCLE_RADIUS_M);
     return {
       type: 'polygon',
       coordinates,
-      center,
-      area_m2: area,
+      center: poiData.location,
+      area_m2: calculatePolygonAreaInM2(coordinates),
       perimeter_m: 0,
       confidence: 0.3,
       source: 'estimated' as const,
       synthetic: true
     };
   }
-  
-  /**
-   * Calcula raio estimado baseado no tipo de POI e contexto
-   */
-  private calculateEstimatedRadius(poiType: string, context: GeographicContext): number {
-    console.log(`🎯 Calculating small radius for unfound POI (likely small/irrelevant)`);
-    
-    // Raios MUITO MENORES para POIs não encontrados (provavelmente irrelevantes)
-    const baseRadii: Record<string, number> = {
-      'park': 50,           // Parques pequenos
-      'museum': 20,         // Museus pequenos
-      'monument': 15,       // Monumentos pontuais
-      'restaurant': 10,     // Restaurantes
-      'hotel': 15,          // Hotéis pequenos
-      'shopping_mall': 30,  // Shopping pequeno
-      'tourist_attraction': 25,
-      'natural_feature': 40,
-      'building': 15,       // Prédios pequenos
-      'establishment': 10,  // Estabelecimentos gerais
-      'point_of_interest': 15
-    };
-    
-    let baseRadius = baseRadii[poiType] || 15; // Default muito pequeno
-    
-    // Ajustar baseado na densidade urbana (POIs pequenos em zonas densas)
-    switch (context.urbanDensity.level) {
-      case 'very_dense':
-        baseRadius *= 0.8;  // Ainda menores em zonas densas
-        break;
-      case 'dense':
-        baseRadius *= 0.9;
-        break;
-      case 'medium':
-        baseRadius *= 1.0;
-        break;
-      case 'low':
-        baseRadius *= 1.1;
-        break;
-      case 'rural':
-        baseRadius *= 1.2;
-        break;
-    }
-    
-    // Limites muito conservadores para POIs não encontrados
-    const finalRadius = Math.max(TRIGGER_POINTS_CONSTANTS.distances.minBoundaryRadius, Math.min(baseRadius, TRIGGER_POINTS_CONSTANTS.distances.maxBoundaryRadius)); // Limites configuráveis
-    
-    console.log(`📏 Small POI estimated radius: ${finalRadius}m (conservative for unfound POI)`);
-    return finalRadius;
-  }
-  
-  
+
   /**
    * Extrai palavras-chave do nome para busca flexível no OSM
    */
@@ -2975,8 +2343,7 @@ out tags;
   private async processNominatimGeometry(
     geojson: any, 
     lat: number, 
-    lng: number,
-    isPeak: boolean = false
+    lng: number
   ): Promise<{ success: boolean; coordinates: Array<{lat: number, lng: number}> }> {
     try {
       let coordinates: Array<{lat: number, lng: number}> = [];
@@ -2994,11 +2361,8 @@ out tags;
           lng: coord[0]
         }));
       } else if (geojson.type === 'Point') {
-        // Se for apenas um ponto, criar um polígono ao redor
-        // 🏔️ Para peaks, usar raio maior (200m) para melhor cobertura
-        const radius = isPeak ? 200 : 50; // Peaks: 200m, outros: 50m
-        console.log(`📍 Point geometry detected (${isPeak ? 'peak' : 'regular'}): creating ${radius}m radius boundary`);
-        coordinates = this.createCircularBoundary({ lat, lng }, radius);
+        // A point has no footprint: the same circle as an OSM node (INV-E1b).
+        coordinates = this.createCircularBoundary({ lat, lng }, POINT_CIRCLE_RADIUS_M);
       }
       
       // Validar se temos coordenadas suficientes

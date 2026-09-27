@@ -15,14 +15,12 @@ const flatSrtm = { getElevation: async () => 0 }
 // TP engine audit, 2026-09-27, slice C (#779). Visual check on 11 Rio POIs.
 
 describe('BR-AUDIO-010 — a synthetic boundary (node circle) never decides the class', () => {
-  it('a neighbourhood node is AREA, in OSM or Nominatim tag shape', () => {
-    const synthetic = { heightM: 0, prominenceM: 0, areaM2: 0 }
-    assert.equal(classifyVisibility({ ...synthetic, tags: { place: 'suburb' } }), VisibilityClass.AREA)
-    assert.equal(classifyVisibility({ ...synthetic, tags: { class: 'place', type: 'suburb' } }), VisibilityClass.AREA)
+  it('a neighbourhood node has no footprint: POINT_LOW, whatever its place tag (2026-09-27)', () => {
+    assert.equal(classifyVisibility({ heightM: 0, prominenceM: 0, areaM2: 0 }), VisibilityClass.POINT_LOW)
   })
 
   it('a bust node with no footprint stays POINT_LOW; a prominent node is a landmark, whatever the circle', () => {
-    assert.equal(classifyVisibility({ heightM: 2.5, prominenceM: 0, areaM2: 0, tags: { memorial: 'bust' } }), VisibilityClass.POINT_LOW)
+    assert.equal(classifyVisibility({ heightM: 2.5, prominenceM: 0, areaM2: 0 }), VisibilityClass.POINT_LOW)
     assert.equal(classifyVisibility({ heightM: 0, prominenceM: 331, localProminenceM: 331, areaM2: 0 }), VisibilityClass.LANDMARK_HIGH)
   })
 })
@@ -65,12 +63,11 @@ describe('BR-AUDIO-010 — a landmark gets far TPs where it is seen, on every si
 })
 
 describe('BR-AUDIO-010 — a peak or hill is a landmark, and its prominence is measured around it', () => {
-  it('a prominent natural=peak/hill is LANDMARK_HIGH, even with tourism=viewpoint and in Nominatim shape', () => {
+  it('relief is LANDMARK_HIGH by its two measured prominences, with no tag (2026-09-27)', () => {
     // relief needs both prominences (#772: Morro do Patronato, 91/77 m, is not a landmark)
     const flat = { heightM: 0, prominenceM: 100, localProminenceM: 100, areaM2: 0 }
-    assert.equal(classifyVisibility({ ...flat, tags: { natural: 'peak', tourism: 'viewpoint' } }), VisibilityClass.LANDMARK_HIGH)
-    assert.equal(classifyVisibility({ ...flat, tags: { class: 'natural', type: 'hill' } }), VisibilityClass.LANDMARK_HIGH)
-    assert.equal(classifyVisibility({ ...flat, tags: { tourism: 'viewpoint' } }), VisibilityClass.VIEWPOINT)
+    assert.equal(classifyVisibility({ ...flat }), VisibilityClass.LANDMARK_HIGH)
+    assert.equal(classifyVisibility({ ...flat, localProminenceM: 77 }), VisibilityClass.POINT_LOW)
   })
 
   it('INV-E4b (P8): one base per city, from the city centre — not from the POI that asked first', async () => {

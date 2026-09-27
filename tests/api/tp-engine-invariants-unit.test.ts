@@ -7,7 +7,6 @@ import {
   resolveHeightM,
   fanHorizonM,
   LANDMARK_MIN_PROMINENCE_M,
-  DEFAULT_HEIGHT_BY_TAG,
   BUILDING_LEVEL_HEIGHT_M,
 } from '@/lib/services/trigger-points-google/config/visibility-class'
 import { tpReachCapM, UNCLASSIFIED_MAX_TP_DISTANCE_M } from '@/lib/services/trigger-points-google/utils/validation'
@@ -38,38 +37,30 @@ function tp(over: Partial<TriggerPoint> & { location: TriggerPoint['location'] }
   }
 }
 
-describe('INV-E5b, BR-AUDIO-010 — classifyVisibility: relevo natural vence a tag de mirante', () => {
-  it('proeminência 262 m (cidade e local) + natural=peak → landmark_high, mesmo com tourism=viewpoint na mesma tag', () => {
-    const cls = classifyVisibility({
-      heightM: 0, prominenceM: 262, localProminenceM: 262, areaM2: 0,
-      tags: { natural: 'peak', tourism: 'viewpoint' },
-    })
-    assert.equal(cls, VisibilityClass.LANDMARK_HIGH, 'viewpoint não vence o relevo natural (Pico Irmão Menor, #779)')
-  })
-
-  it('tourism=viewpoint sozinho, sem relevo natural e sem altura/proeminência → viewpoint', () => {
-    const cls = classifyVisibility({ heightM: 0, prominenceM: 0, areaM2: 0, tags: { tourism: 'viewpoint' } })
-    assert.equal(cls, VisibilityClass.VIEWPOINT)
-  })
-
-  it('proeminência acima do limiar classifica landmark_high sem tag de relevo (via física, não via nome)', () => {
-    const cls = classifyVisibility({ heightM: 0, prominenceM: LANDMARK_MIN_PROMINENCE_M + 1, localProminenceM: LANDMARK_MIN_PROMINENCE_M + 1, areaM2: 0, tags: {} })
+describe('INV-E5b, BR-AUDIO-010 — classifyVisibility: relevo é medido, nunca lido da tag (2026-09-27)', () => {
+  it('proeminência 262 m (cidade e local) → landmark_high sem tag nenhuma (Pico Irmão Menor, #779)', () => {
+    const cls = classifyVisibility({ heightM: 0, prominenceM: 262, localProminenceM: 262, areaM2: 0 })
     assert.equal(cls, VisibilityClass.LANDMARK_HIGH)
+  })
+
+  it('um mirante sem altura, proeminência nem área medidas é point_low — não existe classe por tag de mirante', () => {
+    assert.equal(classifyVisibility({ heightM: 0, prominenceM: 0, areaM2: 0 }), VisibilityClass.POINT_LOW)
+    assert.equal(Object.values(VisibilityClass).includes('viewpoint' as VisibilityClass), false)
   })
 })
 
 describe('INV-E5b, BR-AUDIO-010 — proeminência sobre a cidade E sobre o anel local (#772)', () => {
   it('platô: alto sobre a cidade e plano sobre a vizinhança não é landmark (Igreja de Fátima: 245 m sobre a cidade, ~0 local)', () => {
-    const r = visibilityClassRule({ heightM: 0, prominenceM: 245, localProminenceM: 0, areaM2: 400, tags: { building: 'church' } })
+    const r = visibilityClassRule({ heightM: 0, prominenceM: 245, localProminenceM: 0, areaM2: 400 })
     assert.notEqual(r.cls, VisibilityClass.LANDMARK_HIGH)
   })
 
   it('pico sobre a cidade e sobre a vizinhança é landmark (Cristo: 713 m e ~600 m)', () => {
-    assert.equal(visibilityClassRule({ heightM: 12, prominenceM: 713, localProminenceM: 618, areaM2: 0, tags: {} }).rule, 'landmark_prominence')
+    assert.equal(visibilityClassRule({ heightM: 12, prominenceM: 713, localProminenceM: 618, areaM2: 0 }).rule, 'landmark_prominence')
   })
 
   it('proeminência local desconhecida não faz landmark (INV-E5c)', () => {
-    assert.notEqual(visibilityClassRule({ heightM: 0, prominenceM: 300, localProminenceM: null, areaM2: 0, tags: {} }).cls, VisibilityClass.LANDMARK_HIGH)
+    assert.notEqual(visibilityClassRule({ heightM: 0, prominenceM: 300, localProminenceM: null, areaM2: 0 }).cls, VisibilityClass.LANDMARK_HIGH)
   })
 })
 
@@ -80,7 +71,7 @@ describe('INV-E5, BR-AUDIO-010 — altura conhecida de estrutura vem antes da fo
       { lat: lat0 - 0.0002, lng: lng0 - 0.002 }, { lat: lat0 - 0.0002, lng: lng0 + 0.002 },
       { lat: lat0 + 0.0002, lng: lng0 + 0.002 }, { lat: lat0 + 0.0002, lng: lng0 - 0.002 },
     ]
-    const r = visibilityClassRule({ heightM: 15, prominenceM: 14, localProminenceM: 0, areaM2: 11_000, boundary: longNarrow, tags: { tourism: 'museum' } })
+    const r = visibilityClassRule({ heightM: 15, prominenceM: 14, localProminenceM: 0, areaM2: 11_000, boundary: longNarrow })
     assert.deepEqual(r, { cls: VisibilityClass.STRUCTURE, rule: 'structure_height' })
   })
 
@@ -90,15 +81,15 @@ describe('INV-E5, BR-AUDIO-010 — altura conhecida de estrutura vem antes da fo
       { lat: lat0 - 0.0002, lng: lng0 - 0.002 }, { lat: lat0 - 0.0002, lng: lng0 + 0.002 },
       { lat: lat0 + 0.0002, lng: lng0 + 0.002 }, { lat: lat0 + 0.0002, lng: lng0 - 0.002 },
     ]
-    assert.equal(visibilityClassRule({ heightM: 0, prominenceM: 0, localProminenceM: 0, areaM2: 11_000, boundary: longNarrow, tags: { natural: 'beach' } }).cls, VisibilityClass.LINEAR)
+    assert.equal(visibilityClassRule({ heightM: 0, prominenceM: 0, localProminenceM: 0, areaM2: 11_000, boundary: longNarrow }).cls, VisibilityClass.LINEAR)
   })
 })
 
 describe('INV-E5a, BR-AUDIO-010 — classifyVisibility é função pura dos atributos físicos', () => {
   it('duas chamadas com os mesmos atributos físicos e tags de nome/categoria diferentes dão a mesma classe', () => {
     const base = { heightM: 3, prominenceM: 0, areaM2: 500 }
-    const a = classifyVisibility({ ...base, tags: { name: 'Busto A', category: 'monument' } as any })
-    const b = classifyVisibility({ ...base, tags: { name: 'Busto B completamente diferente', category: 'x' } as any })
+    const a = classifyVisibility({ ...base })
+    const b = classifyVisibility({ ...base })
     assert.equal(a, b, 'nome/categoria do POI não é lido pelo classificador (P3)')
   })
 })
@@ -146,29 +137,14 @@ describe('INV-E3, BR-AUDIO-010 — resolveHeightM: ordem das fontes de altura', 
     assert.deepEqual(r, { heightM: 3 * BUILDING_LEVEL_HEIGHT_M, source: 'levels' })
   })
 
-  it('sem height nem levels, a tabela por tag vem antes da altura medida em outro elemento (ordem da spec)', () => {
-    const r = resolveHeightM({ building: 'church' }, 8)
-    assert.equal(r.source, 'tag_default', 'o vizinho medido não vence a tabela: o Cristo pegava os 24 m de um quiosque (P8)')
+  it('sem height nem levels, a altura medida em outro elemento (hospedeiro) vale', () => {
+    assert.deepEqual(resolveHeightM({ building: 'church' }, 8), { heightM: 8, source: 'known' })
   })
 
-  it('sem tag na tabela, a altura medida em outro elemento (hospedeiro) ainda vale', () => {
-    assert.deepEqual(resolveHeightM({ amenity: 'tag_que_nao_existe_na_tabela' }, 8), { heightM: 8, source: 'known' })
-  })
-
-  it('sem nenhuma das três, cai na tabela por tag — estátua, torre e monumento nunca saem com 0', () => {
-    assert.deepEqual(resolveHeightM({ memorial: 'statue' }), { heightM: 6, source: 'tag_default' })
-    assert.deepEqual(resolveHeightM({ man_made: 'tower' }), { heightM: 30, source: 'tag_default' })
-    assert.deepEqual(resolveHeightM({ historic: 'monument' }), { heightM: 12, source: 'tag_default' })
-  })
-
-  it('tag mais específica (valor exato) vence o coringa building=*', () => {
-    const r = resolveHeightM({ building: 'church' })
-    const exactRow = DEFAULT_HEIGHT_BY_TAG.find(row => row.key === 'building' && row.value === 'church')!
-    assert.equal(r.heightM, exactRow.heightM, 'church (25 m) vence o building=* genérico (10 m)')
-  })
-
-  it('sem tag nenhuma que bata na tabela, a altura sai 0 e a fonte é "none" (não silenciosa: `source` denuncia)', () => {
-    assert.deepEqual(resolveHeightM({ amenity: 'tag_que_nao_existe_na_tabela' }), { heightM: 0, source: 'none' })
+  it('não existe altura por tipo: estátua, torre, igreja e monumento sem altura medida saem com 0 e fonte "none" (2026-09-27)', () => {
+    for (const tags of [{ memorial: 'statue' }, { man_made: 'tower' }, { historic: 'monument' }, { building: 'church' }]) {
+      assert.deepEqual(resolveHeightM(tags), { heightM: 0, source: 'none' }, JSON.stringify(tags))
+    }
   })
 })
 

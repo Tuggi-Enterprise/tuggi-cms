@@ -55,9 +55,9 @@ describe('INV-E3 / BR-AUDIO-010 — one height, one floor ruler, source recorded
     assert.equal((VisibilityMapBuilder as any).resolveBuildingHeight({ tags }), 7 * BUILDING_LEVEL_HEIGHT_M)
   })
 
-  it('Cristo (man_made=monument, no height) leaves with the table height, not 0 and not a neighbour', () => {
+  it('Cristo (man_made=monument, no height): no height by type; only one measured on its footprint', () => {
     const cristo = { man_made: 'monument', landmark: '1', tourism: 'attraction' }
-    assert.deepEqual(resolveHeightM(cristo, 24.33), { heightM: 12, source: 'tag_default' })
+    assert.deepEqual(resolveHeightM(cristo), { heightM: 0, source: 'none' })
     assert.deepEqual(resolveHeightM({ amenity: 'library' }, 21), { heightM: 21, source: 'known' })
     assert.deepEqual(resolveHeightM({ amenity: 'library' }), { heightM: 0, source: 'none' })
   })
@@ -106,7 +106,7 @@ describe('INV-E4a/b/c / BR-AUDIO-010 — ground at the top of the boundary, one 
     const poi = { id: 'c', name: 'x', location: PIN, city: 'Rio de Janeiro', country: 'Brazil' } as any
     const { classification, physical } = await withSrtm(
       (lat, lng) => (Math.abs(lat - PIN.lat) < 0.001 && Math.abs(lng - PIN.lng) < 0.001 ? 700 : 10),
-      () => measureAndClassify({ poiData: poi, boundary: square(20), areaM2: 1600, tags: { man_made: 'monument' } })
+      () => measureAndClassify({ poiData: poi, boundary: square(20), areaM2: 1600, tags: { man_made: 'monument', height: '12' } })
     )
     ElevationAnalysisService.clearCache()
     assert.equal(physical.heightM, 12)
@@ -126,17 +126,17 @@ describe('INV-E5a/b/c / BR-AUDIO-010 — class from the physical, rule recorded'
 
   it('INV-E5b: a prominent peak/hill is landmark; a hill above the prominence threshold is landmark', () => {
     const prominent = { prominenceM: LANDMARK_MIN_PROMINENCE_M, localProminenceM: LANDMARK_MIN_PROMINENCE_M }
-    assert.deepEqual(visibilityClassRule({ ...flat, ...prominent, tags: { natural: 'hill', tourism: 'viewpoint' } }),
-      { cls: VisibilityClass.LANDMARK_HIGH, rule: 'natural_relief' })
+    assert.deepEqual(visibilityClassRule({ ...flat, ...prominent }),
+      { cls: VisibilityClass.LANDMARK_HIGH, rule: 'landmark_prominence' })
     assert.deepEqual(visibilityClassRule({ ...flat, prominenceM: LANDMARK_MIN_PROMINENCE_M, localProminenceM: LANDMARK_MIN_PROMINENCE_M }),
       { cls: VisibilityClass.LANDMARK_HIGH, rule: 'landmark_prominence' })
   })
 
   it('BR-AUDIO-010: relief without both prominences is not landmark_high — it takes the class of its edge (Morro do Patronato, #772)', () => {
     // Patronato: 91 m over the city, 77 m over its ring, polygon of 261,549 m²
-    assert.deepEqual(visibilityClassRule({ heightM: 0, prominenceM: 91, localProminenceM: 77, areaM2: 261_549, tags: { natural: 'hill' } }),
+    assert.deepEqual(visibilityClassRule({ heightM: 0, prominenceM: 91, localProminenceM: 77, areaM2: 261_549 }),
       { cls: VisibilityClass.AREA, rule: 'area_size' })
-    assert.deepEqual(visibilityClassRule({ heightM: 0, prominenceM: 262, localProminenceM: null, areaM2: 0, tags: { natural: 'peak' } }),
+    assert.deepEqual(visibilityClassRule({ heightM: 0, prominenceM: 262, localProminenceM: null, areaM2: 0 }),
       { cls: VisibilityClass.POINT_LOW, rule: 'point_low' }, 'unknown local prominence does not make a relief a landmark')
   })
 
