@@ -42,6 +42,12 @@ const POI_ID = {
   arvoreDeNatal: '09778cda-2a33-4469-b6bd-7cca2726049c',
   // water all around, the only bridge a military `service` way: every candidate died in reach (#772)
   ilhaDasCobras: '0fffc071-fb34-5e23-a553-97f0797ff2cd',
+  // relation 2339171, 72 k m², `area`: streets on four sides within 60 m, 3 TPs (#772)
+  estadioNiltonSantos: '96a4d109-8f9f-5b05-97d9-6b643bc39a75',
+  // `area`: ~1 km of Av. Borges de Medeiros (west side) without a TP (#772)
+  lagoaRodrigoDeFreitas: '6fa9bdc9-b92f-5107-8d20-40021dc3f2ed',
+  // way/70601800: its one TP sat on the Navy's private dock (access=private) (#772)
+  ilhaFiscal: 'bb5e4bf8-8903-5044-ac0a-30e2754050e1',
 } as const
 
 const CITY = 'Rio de Janeiro'
@@ -427,5 +433,100 @@ describe('A POI with a border leaves with at least one TP outside it (INV-E11b, 
     const kept = keptOf(result)
     assert.ok(kept.length >= 1, 'no TP kept')
     for (const r of kept) assert.ok((r.dist_to_boundary_m ?? 0) >= 1, `TP at ${r.dist_to_boundary_m} m from the edge`)
+  })
+})
+
+// ============================================================================================
+// INV-E10d: in `area`/`linear`, every perimeter sector (`tp-selection#perimeterSectors`,
+// PERIMETER_SECTOR_M of edge) with a public way within the class reach, outside the border, has
+// a kept TP. The way is read from `data/local_osm.db` here, not from the engine: accessible type
+// (`street-analyzer#ACCESSIBLE_ROUTE_TYPES`), public (`isPublicWay`), not a tunnel. The reach
+// is the class one (60 m) — not widened to pass (Tech Lead, 2026-09-27).
+// ============================================================================================
+describe('Every perimeter sector with a way in reach has a TP (INV-E10d, BR-AUDIO-010, #772)', { skip: CAN_RUN ? false : SKIP_REASON }, () => {
+  const COVERED = [
+    { poi: 'Estádio Nilton Santos', id: POI_ID.estadioNiltonSantos },
+    { poi: 'Lagoa Rodrigo de Freitas', id: POI_ID.lagoaRodrigoDeFreitas },
+  ]
+  for (const { poi, id } of COVERED) {
+    it(`${poi}: no bare sector with a public way in reach`, async () => {
+      const result = await getResult(id)
+      assert.equal(result.error, null)
+      const edge = result.edge
+      assert.ok(edge && edge.length >= 4, `${poi}: no real edge — did E1 change?`)
+      const { default: Database } = await import('better-sqlite3')
+      const calc = await import('@/lib/services/trigger-points-google/utils/calculations')
+      const { perimeterSectors } = await import('@/lib/services/trigger-points-google/utils/tp-selection')
+      const { isPublicWay } = await import('@/lib/services/trigger-points-google/config/visibility-class')
+      const { ACCESSIBLE_ROUTE_TYPES } = await import('@/lib/services/trigger-points-google/analyzers/street-analyzer')
+      const { tpReachCapM } = await import('@/lib/services/trigger-points-google/utils/validation')
+      const { CLASS_LIMITS } = await import('@/lib/services/trigger-points-google/config/visibility-class')
+      const reachM = tpReachCapM({ maxEdgeDistanceM: CLASS_LIMITS[classOf(result) as keyof typeof CLASS_LIMITS]?.maxEdgeDistanceM })
+      const db = new Database(LOCAL_OSM_DB, { readonly: true })
+      const q = db.prepare(`SELECT s.type t, s.geometry_json g, s.tags_json j FROM streets s JOIN streets_rtree r ON r.rowid = s.rowid
+        WHERE r.max_lat >= ? AND r.min_lat <= ? AND r.max_lng >= ? AND r.min_lng <= ?`)
+      const E = reachM / 100_000
+      const { count, sectorOf } = perimeterSectors(edge!)
+      const withWay = new Set<number>()
+      for (let i = 0; i < edge!.length - 1; i++) {
+        const seg = calc.calculateDistance(edge![i], edge![i + 1])
+        for (let d = 0; d <= seg; d += 10) {
+          const t = seg ? d / seg : 0
+          const at = { lat: edge![i].lat + t * (edge![i + 1].lat - edge![i].lat), lng: edge![i].lng + t * (edge![i + 1].lng - edge![i].lng) }
+          const k = sectorOf(at)
+          if (withWay.has(k)) continue
+          for (const row of q.all(at.lat - E, at.lat + E, at.lng - E, at.lng + E) as Array<{ t: string; g: string; j: string | null }>) {
+            const tags = JSON.parse(row.j ?? '{}') as Record<string, string>
+            if (!ACCESSIBLE_ROUTE_TYPES.has(row.t) || !isPublicWay(tags) || tags.tunnel === 'yes' || tags.covered === 'yes') continue
+            const pts = JSON.parse(row.g) as Array<{ lat: number; lng: number }>
+            const hit = pts.slice(1).some((p, n) => {
+              const foot = calc.closestPointOnSegment(at, pts[n], p).point
+              return calc.calculateDistance(at, foot) <= reachM && !calc.isPointInPolygon(foot, edge!)
+            })
+            if (hit) { withWay.add(k); break }
+          }
+        }
+      }
+      const withTp = new Set(keptOf(result).map(r => sectorOf(r)))
+      const bare = [...withWay].filter(k => !withTp.has(k)).sort((a, b) => a - b)
+      assert.ok(withWay.size > 0, `${poi}: no sector with a way — fixture changed?`)
+      assert.deepEqual(bare, [], `${poi}: ${bare.length}/${count} sectors with a way in ${reachM} m and no TP (${withTp.size} covered)`)
+    })
+  }
+})
+
+// ============================================================================================
+// INV-E7a: no TP on a way closed to the public. Ilha Fiscal's one TP is read against the Doca 11
+// de Junho (access=private, the Navy's dock from the Ilha das Cobras): it stands on the dock's
+// tip node, which the untagged footway to the Ilha Fiscal ferry terminal shares (#772).
+// ============================================================================================
+describe('No TP on a way closed to the public (INV-E7a, BR-AUDIO-010, #772)', { skip: CAN_RUN ? false : SKIP_REASON }, () => {
+  it('Ilha Fiscal: ≥ 1 kept TP, none of them nearest to a closed way', async () => {
+    const result = await getResult(POI_ID.ilhaFiscal)
+    assert.equal(result.error, null)
+    const kept = keptOf(result)
+    assert.ok(kept.length >= 1, 'no TP kept')
+    const { default: Database } = await import('better-sqlite3')
+    const calc = await import('@/lib/services/trigger-points-google/utils/calculations')
+    const { isPublicWay } = await import('@/lib/services/trigger-points-google/config/visibility-class')
+    const db = new Database(LOCAL_OSM_DB, { readonly: true })
+    const q = db.prepare(`SELECT s.geometry_json g, s.tags_json j FROM streets s JOIN streets_rtree r ON r.rowid = s.rowid
+      WHERE r.max_lat >= ? AND r.min_lat <= ? AND r.max_lng >= ? AND r.min_lng <= ?`)
+    for (const r of kept) {
+      // nearest open way vs nearest closed way: a TP on a node both share (the dock tip where the
+      // Ilha Fiscal ferry lands) stands on the open one
+      const best = { open: Infinity, closed: Infinity }
+      for (const row of q.all(r.lat - 0.0005, r.lat + 0.0005, r.lng - 0.0005, r.lng + 0.0005) as Array<{ g: string; j: string | null }>) {
+        const tags = JSON.parse(row.j ?? '{}') as Record<string, string>
+        if (!tags.highway) continue
+        const pts = JSON.parse(row.g) as Array<{ lat: number; lng: number }>
+        for (let i = 1; i < pts.length; i++) {
+          const m = calc.calculateDistanceToLineSegment(r, pts[i - 1], pts[i])
+          const k = isPublicWay(tags) ? 'open' : 'closed'
+          best[k] = Math.min(best[k], m)
+        }
+      }
+      assert.ok(best.open <= best.closed + 1, `TP ${r.lat.toFixed(6)},${r.lng.toFixed(6)} sits on a closed way (open ${Math.round(best.open)} m, closed ${Math.round(best.closed)} m)`)
+    }
   })
 })

@@ -5,8 +5,8 @@
  * frontal TPs included. Numbers live in config/visibility-class.ts.
  */
 import { StreetData, TriggerPoint } from '../types/interfaces';
-import { calculateBearing, calculateDistance, calculateDistanceToPolygon } from './calculations';
-import { EDGE_BAND_M, LANDMARK_CELL_RINGS_M, SANITY_MAX_TP_DISTANCE_M, VisibilityClass, isCarStreet, landmarkSectorOf, landmarkStreetTier, proximityBand, proximityRankScore } from '../config/visibility-class';
+import { calculateBearing, calculateDistance, calculateDistanceToPolygon, closestPointOnSegment } from './calculations';
+import { EDGE_BAND_M, LANDMARK_CELL_RINGS_M, PERIMETER_SECTOR_M, SANITY_MAX_TP_DISTANCE_M, VisibilityClass, isCarStreet, landmarkSectorOf, landmarkStreetTier, proximityBand, proximityRankScore } from '../config/visibility-class';
 import { isApproachableForBearing } from '../../../geometry';
 import { partitionByPoiReach, poiEdgeRing, tpReachCapM } from './validation';
 
@@ -25,6 +25,41 @@ const DIRECTION_COVERAGE_CLASSES = new Set<VisibilityClass | undefined>([
   undefined,
 ]);
 const COVERAGE_SLICES = 16;
+/** Classes covered by perimeter sector when they have a real edge (INV-E10d). */
+const PERIMETER_COVERAGE_CLASSES = new Set<VisibilityClass | undefined>([VisibilityClass.AREA, VisibilityClass.LINEAR]);
+
+/** Arc length (m) from the first vertex of `ring` to the edge point closest to `p`. */
+export function perimeterPositionM(p: LatLng, ring: LatLng[]): number {
+  let best = Infinity;
+  let at = 0;
+  let walked = 0;
+  for (let i = 0; i < ring.length - 1; i++) {
+    const seg = calculateDistance(ring[i], ring[i + 1]);
+    const foot = closestPointOnSegment(p, ring[i], ring[i + 1]);
+    const d = calculateDistance(p, foot.point);
+    if (d < best) { best = d; at = walked + foot.t * seg; }
+    walked += seg;
+  }
+  return at;
+}
+
+/**
+ * Perimeter sectors of an `area`/`linear` edge (INV-E10d): `PERIMETER_SECTOR_M` of edge each,
+ * equal length, at least one. Returns the sector count and the sector of a point.
+ */
+export function perimeterSectors(ring: LatLng[]): { count: number; sectorOf: (p: LatLng) => number; offMidM: (p: LatLng) => number } {
+  let perimeter = 0;
+  for (let i = 0; i < ring.length - 1; i++) perimeter += calculateDistance(ring[i], ring[i + 1]);
+  const count = Math.max(1, Math.round(perimeter / PERIMETER_SECTOR_M));
+  const len = perimeter / count;
+  const sectorOf = (p: LatLng) => (perimeter > 0 ? Math.min(count - 1, Math.floor(perimeterPositionM(p, ring) / len)) : 0);
+  return {
+    count,
+    sectorOf,
+    /** arc distance from the point's edge position to the middle of its sector */
+    offMidM: p => Math.abs(perimeterPositionM(p, ring) - (sectorOf(p) + 0.5) * len),
+  };
+}
 
 /**
  * Min distance between two TPs: their GPS circles never overlap, it grows with range, and
@@ -66,7 +101,8 @@ export function selectSpacedTriggerPoints(
   tps: TriggerPoint[],
   classification?: SelectionClassification | null,
   centre?: LatLng | null,
-  why?: Map<TriggerPoint, string>
+  why?: Map<TriggerPoint, string>,
+  edgeRing?: LatLng[] | null
 ): TriggerPoint[] {
   const ranked = [...tps].sort((a, b) =>
     proximityBand(a.distance) - proximityBand(b.distance) || b.quality - a.quality
@@ -78,10 +114,10 @@ export function selectSpacedTriggerPoints(
   let near = 0;
   let far = 0;
 
-  const tryAccept = (tp: TriggerPoint): 'won' | 'cap' | 'spacing' | 'taken' => {
+  const tryAccept = (tp: TriggerPoint, overCap = false): 'won' | 'cap' | 'spacing' | 'taken' => {
     if (accepted.includes(tp)) return 'taken';
     const isFar = tp.distance > EDGE_BAND_M;
-    if (isFar ? far >= maxFar : near >= maxNear) return 'cap';
+    if (!overCap && (isFar ? far >= maxFar : near >= maxNear)) return 'cap';
     if (accepted.some(a => calculateDistance(a.location, tp.location) < minSpacingM(a, tp, classFloorM))) return 'spacing';
     accepted.push(tp);
     if (isFar) far++; else near++;
@@ -135,7 +171,31 @@ export function selectSpacedTriggerPoints(
     }
     for (const tp of tps) if (!why?.has(tp)) why?.set(tp, `${label.get(tp)}; ${lost.get(tp) ?? 'lost'}`);
   } else {
-    if (DIRECTION_COVERAGE_CLASSES.has(classification?.group)) {
+    const perimeterRing = PERIMETER_COVERAGE_CLASSES.has(classification?.group) && edgeRing && edgeRing.length >= 4 ? edgeRing : undefined;
+    if (perimeterRing) {
+      // INV-E10d: every perimeter sector with a candidate in reach gets one TP, above the class
+      // cap — a cap by count left the Lagoa with 1 km of Av. Borges de Medeiros bare. Inside the
+      // spacing is a physical floor, never waived.
+      const { count, sectorOf, offMidM } = perimeterSectors(perimeterRing);
+      const bySector = new Map<number, TriggerPoint[]>();
+      for (const tp of ranked) {
+        const k = sectorOf(tp.location);
+        (bySector.get(k) ?? bySector.set(k, []).get(k)!).push(tp);
+      }
+      // Inside a sector, a car street first (BR-POI-008: the app is used driving), then the
+      // candidate nearest the middle of the sector's arc: picked at the sector's end, it took the
+      // spacing of the next sector's only candidates (Estádio Nilton Santos, #772). The sectors
+      // with the fewest candidates choose first: they cannot give way.
+      const mid = new Map(ranked.map(tp => [tp, offMidM(tp.location)]));
+      const car = (tp: TriggerPoint) => (isCarStreet(tp.street?.type) ? 0 : 1);
+      for (const cands of bySector.values()) cands.sort((a, b) => car(a) - car(b) || mid.get(a)! - mid.get(b)!);
+      for (const [k, cands] of [...bySector].sort((a, b) => a[1].length - b[1].length || a[0] - b[0])) {
+        for (const tp of cands) {
+          const r = tryAccept(tp, true);
+          if (r === 'won') { why?.set(tp, `${tp.street?.type || '?'}; perimeter sector ${k + 1}/${count}; won`); break; }
+        }
+      }
+    } else if (DIRECTION_COVERAGE_CLASSES.has(classification?.group)) {
       const sliceDeg = 360 / COVERAGE_SLICES;
       const sliceOf = (bearing: number) => Math.floor((((bearing % 360) + 360) % 360) / sliceDeg);
       for (let s = 0; s < COVERAGE_SLICES; s++) {

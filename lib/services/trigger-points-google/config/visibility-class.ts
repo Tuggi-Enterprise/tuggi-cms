@@ -46,6 +46,11 @@ export const SANITY_MAX_TP_DISTANCE_M = 15_000;
 export const URBAN_LANDMARK_HORIZON_M = 2_000;
 /** Edge band: a TP within this counts as next to the POI (not in the far-TP cap). */
 export const EDGE_BAND_M = 100;
+/**
+ * Edge length of one perimeter sector of an `area`/`linear` POI (INV-E10d): each sector with a
+ * street in reach gets a TP. Provisional (#775).
+ */
+export const PERIMETER_SECTOR_M = 250;
 
 // ── Far candidates of a landmark (E7, INV-E7c) ────────────────────────────────
 /** Direction sector seen from the POI; the golden counts coverage in the same 45°. */

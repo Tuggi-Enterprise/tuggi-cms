@@ -28,3 +28,45 @@ describe('INV-E3 — the engine never reads a registered height', () => {
     assert.deepEqual(input.tags, { height: '12' }) // a measured OSM tag still reaches the engine
   })
 })
+
+describe('BR-AUDIO-010, INV-E10d — an area gets one TP per perimeter sector with a street in reach, above the class cap', () => {
+  // 1 km × 1 km square: 4,000 m of edge, 16 sectors of PERIMETER_SECTOR_M
+  const O = { lat: -22.9, lng: -43.2 }
+  const kx = 111_320 * Math.cos((O.lat * Math.PI) / 180)
+  const at = (e: number, n: number) => ({ lat: O.lat + n / 110_540, lng: O.lng + e / kx })
+  const ring = [at(0, 0), at(1000, 0), at(1000, 1000), at(0, 1000), at(0, 0)]
+  const tp = (e: number, n: number, bearing: number, type = 'residential') => ({
+    location: at(e, n), distance: 30, radius: 20, quality: 0.8, expectedBearing: bearing, street: { type },
+  }) as any
+
+  it('perimeterSectors cuts the edge into equal sectors of PERIMETER_SECTOR_M', async () => {
+    const { perimeterSectors } = await import('../../lib/services/trigger-points-google/utils/tp-selection')
+    const { count, sectorOf } = perimeterSectors(ring)
+    assert.equal(count, 16)
+    assert.equal(sectorOf(at(100, -30)), 0)
+    assert.equal(sectorOf(at(1030, 100)), 4)
+  })
+
+  it('20 candidates, one every 200 m along the south and east sides: every sector they reach wins, cap 4 notwithstanding', async () => {
+    const { selectSpacedTriggerPoints, perimeterSectors } = await import('../../lib/services/trigger-points-google/utils/tp-selection')
+    const { VisibilityClass } = await import('../../lib/services/trigger-points-google/config/visibility-class')
+    const cands = [
+      ...[100, 300, 500, 700, 900].map(e => tp(e, -30, 0)),
+      ...[100, 300, 500, 700, 900].map(n => tp(1030, n, 270)),
+    ]
+    const cls = { group: VisibilityClass.AREA, maxTriggerPoints: 4, maxFarTriggerPoints: 0, minDistanceBetweenTPs: 100 }
+    const out = selectSpacedTriggerPoints(cands, cls, at(500, 500), undefined, ring)
+    const { sectorOf } = perimeterSectors(ring)
+    const reached = new Set(cands.map(c => sectorOf(c.location)))
+    assert.deepEqual(new Set(out.map(t => sectorOf(t.location))), reached)
+  })
+
+  it('inside a sector a car street wins over a footway', async () => {
+    const { selectSpacedTriggerPoints } = await import('../../lib/services/trigger-points-google/utils/tp-selection')
+    const { VisibilityClass } = await import('../../lib/services/trigger-points-google/config/visibility-class')
+    const foot = tp(125, -5, 0, 'footway')
+    const avenue = tp(125, -55, 0, 'trunk')
+    const out = selectSpacedTriggerPoints([foot, avenue], { group: VisibilityClass.AREA, maxTriggerPoints: 16, minDistanceBetweenTPs: 100 }, at(500, 500), undefined, ring)
+    assert.deepEqual(out, [avenue])
+  })
+})

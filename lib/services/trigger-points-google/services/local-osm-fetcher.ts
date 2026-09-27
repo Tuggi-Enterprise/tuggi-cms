@@ -17,6 +17,9 @@ import { isPublicWay } from '../config/visibility-class';
  * - DRY: Helpers centralizados (calculateBBox, toOverpassElement, queryStreets, queryBuildings)
  * - KISS: Interface simples com fallback transparente (retorna null = cache miss)
  */
+/** Sanity bound on the query points along one edge (fetchStreetsAlongBoundary). */
+const BOUNDARY_SAMPLE_CAP = 600;
+
 export class LocalOSMFetcher {
   private static instance: LocalOSMFetcher;
   private db: Database.Database | null = null;
@@ -459,15 +462,13 @@ export class LocalOSMFetcher {
    */
   public fetchStreetsAlongBoundary(
     boundaryCoords: Array<{ lat: number; lng: number }>,
-    radiusPerPointM: number = 200,
-    maxSamplePoints: number = 16
+    radiusPerPointM: number = 200
   ): StreetData[] | null {
     if (!this.db) return null;
     if (!boundaryCoords || boundaryCoords.length === 0) return null;
 
     try {
-      // Amostragem proporcional ao perímetro
-      const samples = this.sampleBoundaryPoints(boundaryCoords, maxSamplePoints);
+      const samples = this.sampleBoundaryPoints(boundaryCoords, radiusPerPointM);
       if (samples.length === 0) return null;
 
       const seen = new Set<string>();
@@ -548,53 +549,47 @@ export class LocalOSMFetcher {
    * Amostra N pontos distribuídos ao longo do perímetro de um polígono.
    * Mesma lógica do VisibilityMapBuilder.sampleBoundary — refatorável depois.
    */
+  /**
+   * Points along the edge, one every `spacingM` (the query radius), so the query squares overlap
+   * and every stretch of the edge is searched out to the radius. A fixed count (4 up to 2 km of
+   * perimeter, 12 beyond) with a 60 m radius left most of the edge unsearched: the Estádio Nilton
+   * Santos (1 km) had streets on four sides and candidates on two; the Lagoa Rodrigo de Freitas
+   * lost 1 km of Av. Borges de Medeiros (#772). BOUNDARY_SAMPLE_CAP is only a sanity bound.
+   */
   private sampleBoundaryPoints(
     coords: Array<{ lat: number; lng: number }>,
-    maxCount: number
+    spacingM: number
   ): Array<{ lat: number; lng: number }> {
     if (coords.length === 0) return [];
-
-    // Perímetro
+    const segLen = (a: { lat: number; lng: number }, b: { lat: number; lng: number }) => {
+      const dLat = (b.lat - a.lat) * 111_000;
+      const dLng = (b.lng - a.lng) * 111_000 * Math.cos(a.lat * Math.PI / 180);
+      return Math.sqrt(dLat * dLat + dLng * dLng);
+    };
     let perimeter = 0;
-    for (let i = 0; i < coords.length - 1; i++) {
-      const dLat = (coords[i + 1].lat - coords[i].lat) * 111_000;
-      const dLng = (coords[i + 1].lng - coords[i].lng) * 111_000 * Math.cos(coords[i].lat * Math.PI / 180);
-      perimeter += Math.sqrt(dLat * dLat + dLng * dLng);
-    }
-
-    // Centroide
+    for (let i = 0; i < coords.length - 1; i++) perimeter += segLen(coords[i], coords[i + 1]);
     const centroid = {
       lat: coords.reduce((s, c) => s + c.lat, 0) / coords.length,
       lng: coords.reduce((s, c) => s + c.lng, 0) / coords.length,
     };
+    if (perimeter <= spacingM) return [centroid];
 
-    let n: number;
-    if (perimeter < 400) n = 1;
-    else if (perimeter < 2000) n = 4;
-    else if (perimeter < 5000) n = 8;
-    else n = Math.min(maxCount, 12);
-
-    if (n === 1) return [centroid];
-
-    const samples: Array<{ lat: number; lng: number }> = [centroid];
-    const spacing = perimeter / n;
+    const step = Math.max(spacingM, perimeter / BOUNDARY_SAMPLE_CAP);
+    const samples: Array<{ lat: number; lng: number }> = [coords[0]];
     let walked = 0;
-    let nextTarget = spacing;
-    for (let i = 0; i < coords.length - 1 && samples.length < n; i++) {
-      const dLat = (coords[i + 1].lat - coords[i].lat) * 111_000;
-      const dLng = (coords[i + 1].lng - coords[i].lng) * 111_000 * Math.cos(coords[i].lat * Math.PI / 180);
-      const segLen = Math.sqrt(dLat * dLat + dLng * dLng);
-      while (walked + segLen >= nextTarget && samples.length < n) {
-        const t = (nextTarget - walked) / segLen;
+    let nextTarget = step;
+    for (let i = 0; i < coords.length - 1; i++) {
+      const len = segLen(coords[i], coords[i + 1]);
+      while (len > 0 && walked + len >= nextTarget) {
+        const t = (nextTarget - walked) / len;
         samples.push({
           lat: coords[i].lat + (coords[i + 1].lat - coords[i].lat) * t,
           lng: coords[i].lng + (coords[i + 1].lng - coords[i].lng) * t,
         });
-        nextTarget += spacing;
+        nextTarget += step;
       }
-      walked += segLen;
+      walked += len;
     }
-
     return samples;
   }
 

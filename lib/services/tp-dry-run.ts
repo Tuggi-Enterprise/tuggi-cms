@@ -58,6 +58,8 @@ export interface PoiDryRunResult {
   rows: TpMetricRow[]
   /** E0 trace: E1–E6 one row per POI, E7–E11 one row per candidate (motor-de-tp.md) */
   trace: EngineTraceRow[]
+  /** the generated edge ring (`poiEdgeRing`); absent when the border is synthetic */
+  edge?: LatLng[]
 }
 
 export function measureTriggerPoints(args: {
@@ -186,7 +188,7 @@ export async function dryRunPoi(attractionId: string): Promise<PoiDryRunResult> 
         drop_reason: reason,
       })),
     }))
-    return { attraction_id: attractionId, poi_name: poiData.name, error: null, rows, trace }
+    return { attraction_id: attractionId, poi_name: poiData.name, error: null, rows, trace, edge: poiEdgeRing(prediction.boundary) }
   } catch (e) {
     return { attraction_id: attractionId, poi_name: poiData.name, error: e instanceof Error ? e.message : String(e), rows, trace: [] }
   }

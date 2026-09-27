@@ -193,6 +193,13 @@ export class OptimalPointCalculator {
     const candidates: TriggerPointCandidate[] = [];
     const minSpacing = classification.minDistanceBetweenTPs || 40;
     const ring = poiEdgeRing(boundary);
+    // `area`/`linear` walk at a quarter of the spacing: E10 takes one TP per perimeter sector
+    // (INV-E10d), and with one candidate every `minSpacing` a sector whose street is in reach for
+    // under 100 m got none, or only one inside its neighbour's spacing (Estádio Nilton Santos: 2 of
+    // 5 sectors bare at a half, none at a quarter, #772).
+    const walkStepM = ring && (classification.group === VisibilityClass.AREA || classification.group === VisibilityClass.LINEAR)
+      ? minSpacing / 4
+      : minSpacing;
 
     for (const street of streets) {
       if (!street.coordinates || street.coordinates.length < 2) continue;
@@ -202,7 +209,7 @@ export class OptimalPointCalculator {
       const foot = streetFootOnEdge(street.coordinates, boundary.center, ring);
       if (!foot || foot.edgeDistanceM > reachM) continue;
 
-      for (const pointOnStreet of samplePolylineAround(street.coordinates, foot.point, minSpacing)) {
+      for (const pointOnStreet of samplePolylineAround(street.coordinates, foot.point, walkStepM)) {
         const edgeDistance = edgeDistanceM(pointOnStreet, boundary);
         if (edgeDistance > reachM) continue;
         // Bearing points at the closest point of the edge — right for any POI shape.

@@ -115,7 +115,7 @@ export class CoreTriggerPointPredictor {
     // Car streets first, in every ring, then any accessible way: the app is used driving (BR-POI-008).
     const passes = [true, false].flatMap(carOnly => REACH_RESCUE_RINGS_M.map(radiusM => ({ carOnly, radiusM })));
     for (const { carOnly, radiusM } of passes) {
-      const streets = (fetcher.fetchStreetsAlongBoundary(ring, radiusM, 16) ?? [] as StreetData[]).filter((s: StreetData) =>
+      const streets = (fetcher.fetchStreetsAlongBoundary(ring, radiusM) ?? [] as StreetData[]).filter((s: StreetData) =>
         ACCESSIBLE_ROUTE_TYPES.has(s.type) && !s.type.startsWith('aerialway') && (!carOnly || isCarStreet(s.type))
         && (s as any).tags?.tunnel !== 'yes' && (s as any).tags?.covered !== 'yes');
       const best = bestStreetPointOutside(streets, ring);
@@ -896,7 +896,7 @@ export class CoreTriggerPointPredictor {
     // Every engine output passes E11 (INV-E11): the pre_generated save path of
     // generate-batch trusts this output as-is.
     const frontalTPs = applyTpPostConditions(this.buildFrontalArrivalTP(poiData, boundary, context, accessibleStreets, out), poiData.location, boundary).kept;
-    for (const t of selectSpacedTriggerPoints(frontalTPs, boundary.classification, boundary.center ?? poiData.location)) out.push(t);
+    for (const t of selectSpacedTriggerPoints(frontalTPs, boundary.classification, boundary.center ?? poiData.location, undefined, poiEdgeRing(boundary))) out.push(t);
 
     if (out.length > 0) {
       console.log(`🛟 Fan-collapse fallback: emitted ${out.length} frontal TP(s)`);
@@ -1499,7 +1499,7 @@ export class CoreTriggerPointPredictor {
     const post = applyTpPostConditions(filtered, poiPin, boundary);
     const passed = post.kept;
     const why = new Map<TriggerPoint, string>();
-    const accepted = selectSpacedTriggerPoints(passed, boundary?.classification, boundary?.center ?? poiPin, why);
+    const accepted = selectSpacedTriggerPoints(passed, boundary?.classification, boundary?.center ?? poiPin, why, poiEdgeRing(boundary));
     if (trace) {
       const poiId = trace[0]?.poi_id ?? '';
       const edge = (tp: TriggerPoint) => `edge ${Math.round(edgeDistanceM(tp.location, boundary))} m`;
@@ -1767,8 +1767,7 @@ export class CoreTriggerPointPredictor {
     // Query direta de raio pequeno — retorna no máximo ~20-50 ruas, nunca atinge LIMIT
     const rawPerimeterStreets: StreetData[] | null = fetcher.fetchStreetsAlongBoundary(
       boundary.coordinates,
-      PERIMETER_FETCH_RADIUS_M,
-      4 // até 4 sample points no boundary
+      PERIMETER_FETCH_RADIUS_M
     );
 
     const addrStreet = boundary.address?.street;
