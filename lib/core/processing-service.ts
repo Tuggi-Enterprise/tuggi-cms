@@ -186,7 +186,8 @@ class ProcessingService {
                 score_factors: tp.score_factors,
                 generation_method: tp.generation_method,
                 validation_notes: tp.validation_notes,
-                access: tp.access || 'both'
+                // no access fallback: the database default ('car') applies (BR-AUDIO-010)
+                access: tp.access
               }))
               
               // Call generate-batch API route which already handles saving with service role key
@@ -210,7 +211,7 @@ class ProcessingService {
                     score_factors: tp.score_factors,
                     generation_method: tp.generation_method,
                     validation_notes: tp.validation_notes,
-                    access: tp.access || 'both'
+                    access: tp.access
                   })),
                   boundary_source: boundarySource
                 })

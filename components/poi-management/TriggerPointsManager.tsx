@@ -32,6 +32,8 @@ export function TriggerPointsManager({
   attractionName,
   attractionCoordinates,
   attractionTypes = [],
+  attractionCountry,
+  attractionCity,
   onClose,
   onUpdate,
   boundary,
@@ -202,8 +204,8 @@ export function TriggerPointsManager({
             name: attractionName,
             location: coords,
             type: attractionTypes?.[0] || 'tourist_attraction',
-            country: 'Portugal', // Default/fallback if not strictly available
-            city: 'Unknown'
+            country: attractionCountry ?? '',
+            city: attractionCity ?? ''
           },
           options: {
             maxTriggerPoints: 3
@@ -240,7 +242,7 @@ export function TriggerPointsManager({
     } finally {
       setIsGeneratingSuggestions(false)
     }
-  }, [attractionId, attractionName, coords, attractionTypes, t])
+  }, [attractionId, attractionName, attractionCountry, attractionCity, coords, attractionTypes, t])
 
   const handleSuggestionDrag = useCallback((suggestionId: string, newLat: number, newLng: number, newDistance: number, newBearing: number) => {
     setSuggestedTriggerPoints(prev => prev.map(s => 
@@ -270,9 +272,10 @@ export function TriggerPointsManager({
           attraction_id: attractionId,
           lat: suggestion.lat,
           lng: suggestion.lng,
-          radius_meters: 30, // Default for generated
+          // Radius and threshold the engine computed for this TP (BR-AUDIO-010).
+          radius_meters: suggestion.radius,
           expected_bearing: suggestion.bearing_deg !== null ? suggestion.bearing_deg : null,
-          bearing_threshold: 30, // Relaxed threshold for generated
+          bearing_threshold: suggestion.bearingThreshold,
           type: 'primary',
           priority: maxPriority + 1,
           is_active: true,

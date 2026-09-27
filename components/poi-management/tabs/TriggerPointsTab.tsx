@@ -37,6 +37,8 @@ export function TriggerPointsTab() {
         attractionName={poi?.name || ''}
         attractionCoordinates={coordinates ? { lat: coordinates.latitude, lng: coordinates.longitude } : undefined}
         attractionTypes={poi?.google_types || []}
+        attractionCountry={poi?.country}
+        attractionCity={poi?.city}
         onUpdate={invalidateAllPOICaches}
         isGeofence={isGeofence}
         boundary={{

@@ -573,7 +573,7 @@ export class GeometricPOVGenerator {
       if (nearestIdx >= 0) {
         selected[nearestIdx] = {
           ...selected[nearestIdx],
-          access: 'both',
+          access: 'car',
           vantage: 'street'
         }
       }

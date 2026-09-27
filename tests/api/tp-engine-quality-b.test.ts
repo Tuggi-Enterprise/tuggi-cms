@@ -293,3 +293,20 @@ describe('BR-AUDIO-010 — engine-agnostic: no POI name or category becomes a br
     assert.equal(defaultHeightByTag({ leisure: 'park' }), null)
   })
 })
+
+describe('BR-AUDIO-010 — what the CMS saves is what the engine computed', () => {
+  it('accepting a suggestion sends the engine radius/threshold and no invented country', async () => {
+    const { readFileSync } = await import('node:fs')
+    const src = readFileSync('components/poi-management/TriggerPointsManager.tsx', 'utf8')
+    assert.equal(/'Portugal'/.test(src), false)
+    const accept = src.slice(src.indexOf('handleAcceptSuggestion'), src.indexOf('handleAcceptSuggestion') + 2500)
+    assert.match(accept, /radius_meters: suggestion\.radius\b/)
+    assert.match(accept, /bearing_threshold: suggestion\.bearingThreshold\b/)
+  })
+
+  it("no 'both' access fallback when saving generated TPs or POVs", async () => {
+    const { readFileSync } = await import('node:fs')
+    assert.equal(/access \|\| 'both'/.test(readFileSync('lib/core/processing-service.ts', 'utf8')), false)
+    assert.equal(/access: 'both'/.test(readFileSync('lib/services/geometric-pov-generator.ts', 'utf8')), false)
+  })
+})
