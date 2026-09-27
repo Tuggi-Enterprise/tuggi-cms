@@ -1,9 +1,9 @@
 /**
  * POI CLASSIFIER SERVICE — BR-AUDIO-010.
  *
- * Mede os atributos físicos do POI (altura, proeminência, área, forma) e delega a
- * classificação ao classificador puro `classifyVisibility` (config/visibility-class.ts).
- * Nenhum nome de POI decide nada aqui (motor agnóstico, épico #772).
+ * Measures the POI physical attributes (height, prominence, area, shape) and delegates
+ * to the pure `classifyVisibility` (config/visibility-class.ts). No POI name decides
+ * anything here (engine-agnostic, epic #772).
  */
 
 import { GeographicContext, GeoPoint, POIData } from '../types/interfaces';
@@ -18,15 +18,15 @@ import { ElevationAnalysisService } from './elevation-service';
 
 export interface POIClassification {
   group: VisibilityClass;
-  /** raio de busca de ruas, a partir da BORDA */
+  /** street search radius, from the EDGE */
   searchRadius: number;
-  /** distância máxima do TP à borda */
+  /** max distance from the TP to the edge */
   maxEdgeDistanceM: number;
   maxTriggerPoints: number;
   maxFarTriggerPoints: number;
-  /** teto do radius do TP */
+  /** cap on the TP radius */
   maxTPRadiusM: number;
-  /** espaçamento mínimo entre TPs = 2 × maxTPRadiusM */
+  /** min spacing between TPs = 2 × maxTPRadiusM */
   minDistanceBetweenTPs: number;
   metadata: {
     height: number;
@@ -39,7 +39,7 @@ export interface POIClassification {
   };
 }
 
-/** Monta a classificação a partir da classe — SSOT dos números em CLASS_LIMITS. */
+/** Builds the classification from the class — numbers live in CLASS_LIMITS. */
 export function buildClassification(
   cls: VisibilityClass,
   m: { heightM: number; heightSource?: string; elevationM?: number; prominenceM: number; areaM2: number; urbanDensity?: string }

@@ -5,6 +5,7 @@
 
 import { TriggerPointForDB } from './conversion'
 import { calculateDistance, calculateDistanceToPolygon } from './calculations'
+import { SANITY_MAX_TP_DISTANCE_M } from '../config/visibility-class'
 
 export interface ValidationError {
   field: string
@@ -186,14 +187,19 @@ export function validateTriggerPoints(
 type LatLng = { lat: number; lng: number }
 
 /**
- * Teto de sanidade da distância TP↔POI, em metros.
+ * TP↔POI distance cap (to the edge) when the POI has no visibility class.
  *
- * PROVISÓRIO: o valor é da auditoria do motor de TP (2026-09-27) e ainda não tem regra
- * `BR-*` própria — o `produto` registra. Até lá, este é o único lugar do número (SSOT):
- * o fallback do predictor, o passo de gravação do pipeline e o dry-run leem daqui.
- * Relacionada: BR-AUDIO-010 (o TP dispara onde o POI está).
+ * With a class the cap is `classification.maxEdgeDistanceM` (CLASS_LIMITS in
+ * config/visibility-class.ts), always bounded by SANITY_MAX_TP_DISTANCE_M.
+ * PROVISIONAL until `produto` registers it (#775). Related: BR-AUDIO-010.
  */
-export const MAX_TP_DISTANCE_FROM_POI_M = 300
+export const UNCLASSIFIED_MAX_TP_DISTANCE_M = 300
+
+/** Edge-distance cap for this POI: the class one, or the unclassified one; never above sanity. */
+export function tpReachCapM(classification?: { maxEdgeDistanceM?: number } | null): number {
+  const byClass = classification?.maxEdgeDistanceM
+  return Math.min(SANITY_MAX_TP_DISTANCE_M, byClass && byClass > 0 ? byClass : UNCLASSIFIED_MAX_TP_DISTANCE_M)
+}
 
 /**
  * Distância do TP ao POI: à borda quando há polígono (0 dentro dele), ao pino quando não.
@@ -206,19 +212,20 @@ export function distanceFromPoiM(tp: LatLng, poiPin: LatLng, boundaryCoords?: La
 }
 
 /**
- * Separa os TPs dentro e fora do teto MAX_TP_DISTANCE_FROM_POI_M.
+ * Splits TPs inside and beyond `capM` (default: unclassified). Use `tpReachCapM`.
  */
 export function partitionByPoiReach<T>(
   items: T[],
   locate: (item: T) => LatLng,
   poiPin: LatLng,
-  boundaryCoords?: LatLng[]
+  boundaryCoords?: LatLng[],
+  capM: number = UNCLASSIFIED_MAX_TP_DISTANCE_M
 ): { kept: T[]; dropped: Array<{ item: T; distanceM: number }> } {
   const kept: T[] = []
   const dropped: Array<{ item: T; distanceM: number }> = []
   for (const item of items) {
     const distanceM = distanceFromPoiM(locate(item), poiPin, boundaryCoords)
-    if (distanceM > MAX_TP_DISTANCE_FROM_POI_M) dropped.push({ item, distanceM })
+    if (distanceM > capM) dropped.push({ item, distanceM })
     else kept.push(item)
   }
   return { kept, dropped }

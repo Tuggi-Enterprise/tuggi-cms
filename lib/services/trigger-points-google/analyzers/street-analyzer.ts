@@ -271,7 +271,7 @@ export class StreetAnalyzer {
     
     // 🎯 STEP 0: PRIORIDADE MÁXIMA - Usar classificação do boundary se disponível (SSOT)
     // A classificação já foi calculada no boundary-detector e deve ser respeitada
-    // Classe de visibilidade (BR-AUDIO-010): o raio a partir da borda sai de CLASS_LIMITS.
+    // Visibility class (BR-AUDIO-010): the radius from the edge comes from CLASS_LIMITS.
     if (boundary.classification && boundary.classification.searchRadius) {
       return boundary.classification.searchRadius;
     }

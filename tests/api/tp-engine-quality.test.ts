@@ -96,8 +96,8 @@ describe('BR-AUDIO-010 — polígono curado implausível é recusado', () => {
 
 describe('BR-AUDIO-010 — teto de sanidade da distância TP↔POI (valor provisório)', () => {
   it('sem borda mede ao pino; com borda mede à borda', async () => {
-    const { partitionByPoiReach, MAX_TP_DISTANCE_FROM_POI_M } = await import('../../lib/services/trigger-points-google/utils/validation')
-    assert.equal(MAX_TP_DISTANCE_FROM_POI_M, 300)
+    const { partitionByPoiReach, UNCLASSIFIED_MAX_TP_DISTANCE_M } = await import('../../lib/services/trigger-points-google/utils/validation')
+    assert.equal(UNCLASSIFIED_MAX_TP_DISTANCE_M, 300)
     const at = (m: number) => ({ lat: POI_PIN.lat + m / 111_000, lng: POI_PIN.lng })
     const noBorder = partitionByPoiReach([at(250), at(350)], p => p, POI_PIN)
     assert.deepEqual(noBorder.kept, [at(250)])

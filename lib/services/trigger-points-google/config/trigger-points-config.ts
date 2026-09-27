@@ -311,7 +311,7 @@ export const TRIGGER_POINTS_CONSTANTS = {
     // Histórico do produto: 10-50m funciona bem na maioria dos casos.
     gpsPingWindowSec: 3,      // janela típica entre pings GPS
     gpsPingSafetyFactor: 2,   // multiplicador de segurança (cobrir variação)
-    // Limites globais — caps refinados por classe (CLASS_LIMITS.maxRadiusM em visibility-class.ts)
+    // Global limits — per-class caps in CLASS_LIMITS.maxRadiusM (visibility-class.ts)
     minRadiusM: 15,
     maxRadiusM: 150,
 
@@ -348,7 +348,7 @@ export const TRIGGER_POINTS_CONSTANTS = {
   },
 };
 
-// Classes de visibilidade do POI: config/visibility-class.ts (BR-AUDIO-010).
+// POI visibility classes: config/visibility-class.ts (BR-AUDIO-010).
 
 // Configuração de distribuição de distâncias (compartilhada)
 const SHARED_DISTANCE_DISTRIBUTION = {

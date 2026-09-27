@@ -1,57 +1,58 @@
 /**
- * Classe de visibilidade do POI — BR-AUDIO-010 (o TP dispara onde o POI está).
+ * POI visibility class — BR-AUDIO-010 (the TP fires where the POI is).
  *
- * Motor agnóstico (épico #772): a classe sai de atributo FÍSICO — altura, proeminência
- * sobre o terreno, área e forma do boundary. Nenhum nome de POI vira ramo. Tag OSM entra
- * só como TABELA DE DADO (altura padrão quando falta a real; tag de mirante), nunca como `if`.
+ * Engine-agnostic (epic #772): the class comes from PHYSICAL attributes — height,
+ * prominence over the terrain, boundary area and shape. No POI name becomes a branch.
+ * OSM tags enter only as DATA TABLES (default height when the real one is missing;
+ * viewpoint tag), never as an `if`.
  *
- * PROVISÓRIO: todo número deste arquivo é da auditoria do motor (2026-09-27) e ainda não
- * tem regra `BR-*` própria — o `produto` registra (#775). Até lá, este é o único lugar deles.
+ * PROVISIONAL: every number in this file comes from the engine audit (2026-09-27) and has
+ * no `BR-*` of its own yet — `produto` registers it (#775). Until then this is their only home.
  */
 import { GeoPoint } from '../types/interfaces';
 
 export enum VisibilityClass {
-  /** pontual e baixo (<5 m): busto, placa, chafariz */
+  /** point-like and low (<5 m): bust, plaque, fountain */
   POINT_LOW = 'point_low',
-  /** estrutura de 5 a 30 m */
+  /** 5–30 m structure */
   STRUCTURE = 'structure',
-  /** área grande e baixa: parque, praça, praia */
+  /** large, low area: park, square, beach */
   AREA = 'area',
-  /** boundary alongado: orla, calçadão, ponte */
+  /** elongated boundary: waterfront, promenade, bridge */
   LINEAR = 'linear',
-  /** alto (≥30 m) ou proeminente sobre o terreno: visível de longe */
+  /** tall (≥30 m) or prominent over the terrain: visible from afar */
   LANDMARK_HIGH = 'landmark_high',
-  /** mirante — o turista vai até ele, não o vê de longe */
+  /** viewpoint — the tourist goes to it, does not see it from afar */
   VIEWPOINT = 'viewpoint',
 }
 
-// ── Limiares da classificação (provisórios, #775) ──────────────────────────────
+// ── Classification thresholds (provisional, #775) ──────────────────────────────
 export const STRUCTURE_MIN_HEIGHT_M = 5;
 export const LANDMARK_MIN_HEIGHT_M = 30;
-/** Proeminência sobre a base regional. Abaixo disto é ruído do SRTM urbano. */
+/** Prominence over the regional base. Below this it is urban SRTM noise. */
 export const LANDMARK_MIN_PROMINENCE_M = 100;
 export const AREA_MIN_M2 = 10_000;
-/** Razão eixo maior / eixo menor do boundary. */
+/** Boundary major axis / minor axis ratio. */
 export const LINEAR_MIN_ELONGATION = 4;
-/** Comprimento mínimo do eixo maior para contar como linear (evita prédio estreito). */
+/** Minimum major-axis length to count as linear (keeps narrow buildings out). */
 export const LINEAR_MIN_LENGTH_M = 150;
 
-// ── Tetos ──────────────────────────────────────────────────────────────────────
-/** Teto absoluto de sanidade TP↔POI: barra lixo, não decide produto. */
+// ── Caps ──────────────────────────────────────────────────────────────────────
+/** Absolute TP↔POI sanity cap: stops garbage, does not decide product. */
 export const SANITY_MAX_TP_DISTANCE_M = 15_000;
-/** Horizonte de marco alto em terreno plano: quem visita chega de ≤2 km. */
+/** Tall landmark horizon on flat terrain: visitors approach from ≤2 km. */
 export const URBAN_LANDMARK_HORIZON_M = 2_000;
-/** Faixa "de borda": TP até aqui conta como colado ao POI (não entra no limite de TPs distantes). */
+/** Edge band: a TP within this counts as next to the POI (not in the far-TP cap). */
 export const EDGE_BAND_M = 100;
 
 export interface ClassLimits {
-  /** distância máxima do TP à BORDA do POI */
+  /** max distance from the TP to the POI EDGE */
   maxEdgeDistanceM: number;
-  /** teto do radius_meters do TP */
+  /** cap on the TP radius_meters */
   maxRadiusM: number;
-  /** nº máximo de TPs na faixa de borda (≤ EDGE_BAND_M) */
+  /** max TPs inside the edge band (≤ EDGE_BAND_M) */
   maxTPs: number;
-  /** nº máximo de TPs além da faixa de borda */
+  /** max TPs beyond the edge band */
   maxFarTPs: number;
 }
 
@@ -65,8 +66,8 @@ export const CLASS_LIMITS: Record<VisibilityClass, ClassLimits> = {
 };
 
 /**
- * Distância máxima à borda para a classe. Marco em terreno elevado (proeminência real)
- * vai até o teto de sanidade; o resto usa o teto da tabela.
+ * Max edge distance for the class. A landmark on elevated terrain (real prominence)
+ * reaches the sanity cap; everything else uses the table.
  */
 export function maxEdgeDistanceFor(cls: VisibilityClass, prominenceM = 0): number {
   if (cls === VisibilityClass.LANDMARK_HIGH && prominenceM >= LANDMARK_MIN_PROMINENCE_M) {
@@ -75,10 +76,29 @@ export function maxEdgeDistanceFor(cls: VisibilityClass, prominenceM = 0): numbe
   return CLASS_LIMITS[cls].maxEdgeDistanceM;
 }
 
-// ── Tabelas de dado (tag OSM) ────────────────────────────────────────────────
+/** Horizon of an unclassified POI (legacy): approach floor. */
+export const UNCLASSIFIED_MIN_HORIZON_M = 300;
+/** Fan heuristic: a POI of effective height h is visible at ~15·h. */
+export const HORIZON_PER_HEIGHT = 15;
+
+/**
+ * Visibility fan horizon, measured from the edge.
+ * Low/local class: the class cap (no 300 m floor). Tall landmark: 15·h, up to 2 km on
+ * flat terrain or up to the sanity cap on prominent terrain.
+ */
+export function fanHorizonM(a: { cls?: VisibilityClass; effectiveHeightM: number; prominenceM: number }): number {
+  const elevated = a.prominenceM >= LANDMARK_MIN_PROMINENCE_M;
+  const cap = elevated ? SANITY_MAX_TP_DISTANCE_M : URBAN_LANDMARK_HORIZON_M;
+  const byHeight = Math.round(a.effectiveHeightM * HORIZON_PER_HEIGHT);
+  if (!a.cls) return Math.max(UNCLASSIFIED_MIN_HORIZON_M, Math.min(cap, byHeight));
+  if (a.cls === VisibilityClass.LANDMARK_HIGH) return Math.max(EDGE_BAND_M, Math.min(cap, byHeight));
+  return CLASS_LIMITS[a.cls].maxEdgeDistanceM;
+}
+
+// ── Data tables (OSM tags) ────────────────────────────────────────────────
 type TagRow = { key: string; value: string; heightM: number };
 
-/** Altura padrão quando o OSM não traz `height` nem `building:levels`. */
+/** Default height when OSM has neither `height` nor `building:levels`. */
 export const DEFAULT_HEIGHT_BY_TAG: TagRow[] = [
   { key: 'memorial', value: 'bust', heightM: 2.5 },
   { key: 'historic', value: 'memorial', heightM: 2.5 },
@@ -96,10 +116,10 @@ export const DEFAULT_HEIGHT_BY_TAG: TagRow[] = [
   { key: 'tourism', value: 'viewpoint', heightM: 0 },
 ];
 
-/** Altura por andar, para `building:levels`. */
+/** Height per floor, for `building:levels`. */
 export const BUILDING_LEVEL_HEIGHT_M = 4;
 
-/** Tags que marcam um mirante. */
+/** Tags that mark a viewpoint. */
 export const VIEWPOINT_TAGS: Array<{ key: string; value: string }> = [
   { key: 'tourism', value: 'viewpoint' },
 ];
@@ -116,8 +136,8 @@ function parseMeters(raw: unknown): number | null {
 }
 
 /**
- * Altura física do POI: `height` real > `building:levels` × BUILDING_LEVEL_HEIGHT_M >
- * DEFAULT_HEIGHT_BY_TAG (maior valor entre as tags que casam) > a altura já conhecida.
+ * Physical POI height: real `height` > `building:levels` × BUILDING_LEVEL_HEIGHT_M >
+ * height already known > DEFAULT_HEIGHT_BY_TAG (largest among matching tags).
  */
 export function resolveHeightM(
   tags: Record<string, unknown> | undefined,
@@ -134,8 +154,8 @@ export function resolveHeightM(
 }
 
 /**
- * Alongamento do boundary: razão entre os desvios dos eixos principais (PCA) e o
- * comprimento do eixo maior, em metros, numa projeção local.
+ * Boundary elongation: ratio of the principal-axis deviations (PCA) and the major-axis
+ * length in meters, on a local projection.
  */
 export function boundaryShape(coords: GeoPoint[] | undefined): { elongation: number; lengthM: number } {
   if (!coords || coords.length < 3) return { elongation: 1, lengthM: 0 };
@@ -151,7 +171,7 @@ export function boundaryShape(coords: GeoPoint[] | undefined): { elongation: num
   const disc = Math.sqrt(Math.max(0, ((sxx - syy) / 2) ** 2 + sxy * sxy));
   const l1 = tr / 2 + disc;
   const l2 = Math.max(tr / 2 - disc, 1e-9);
-  // eixo maior: extensão das projeções no autovetor principal
+  // major axis: spread of the projections on the principal eigenvector
   const ang = 0.5 * Math.atan2(2 * sxy, sxx - syy);
   const ux = Math.cos(ang), uy = Math.sin(ang);
   const proj = pts.map(p => p.x * ux + p.y * uy);
@@ -160,14 +180,14 @@ export function boundaryShape(coords: GeoPoint[] | undefined): { elongation: num
 
 export interface PhysicalAttributes {
   heightM: number;
-  /** proeminência sobre a base regional (m); 0 quando desconhecida */
+  /** prominence over the regional base (m); 0 when unknown */
   prominenceM: number;
   areaM2: number;
   boundary?: GeoPoint[];
   tags?: Record<string, unknown>;
 }
 
-/** Classificador único e puro. A ordem é a precedência. */
+/** The single, pure classifier. Order is precedence. */
 export function classifyVisibility(a: PhysicalAttributes): VisibilityClass {
   if (VIEWPOINT_TAGS.some(t => hasTag(a.tags, t.key, t.value))) return VisibilityClass.VIEWPOINT;
   if (a.heightM >= LANDMARK_MIN_HEIGHT_M || a.prominenceM >= LANDMARK_MIN_PROMINENCE_M) {

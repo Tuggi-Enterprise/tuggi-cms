@@ -13,7 +13,7 @@ import { PoiMigrationPipeline, TP_ENGINE_OPTIONS } from './poi-migration-pipelin
 import { CoreTriggerPointPredictor } from './trigger-points-google/core/trigger-point-predictor'
 import { BoundaryDetector } from './trigger-points-google/core/boundary-detector'
 import { calculateDistance, calculateDistanceToPolygon } from './trigger-points-google/utils/calculations'
-import { MAX_TP_DISTANCE_FROM_POI_M, distanceFromPoiM } from './trigger-points-google/utils/validation'
+import { UNCLASSIFIED_MAX_TP_DISTANCE_M, distanceFromPoiM, tpReachCapM } from './trigger-points-google/utils/validation'
 
 type LatLng = { lat: number; lng: number }
 
@@ -34,7 +34,7 @@ export interface TpMetricRow extends TpMetricInput {
   dist_to_pin_m: number
   /** null quando não há polígono de borda */
   dist_to_boundary_m: number | null
-  /** o teto de gravação (MAX_TP_DISTANCE_FROM_POI_M) descartaria este TP */
+  /** the POI class save cap (tpReachCapM) would drop this TP */
   beyond_cap: boolean
 }
 
@@ -53,6 +53,8 @@ export function measureTriggerPoints(args: {
   boundarySource: string | null
   source: 'current' | 'generated'
   tps: TpMetricInput[]
+  /** POI class cap; without it, the unclassified one */
+  capM?: number
 }): TpMetricRow[] {
   const hasBoundary = !!args.boundaryCoords && args.boundaryCoords.length >= 3
   const round = (n: number) => Math.round(n * 10) / 10
@@ -66,7 +68,7 @@ export function measureTriggerPoints(args: {
       boundary_source: args.boundarySource,
       dist_to_pin_m: round(calculateDistance(at, args.pin)),
       dist_to_boundary_m: hasBoundary ? round(calculateDistanceToPolygon(at, args.boundaryCoords!)) : null,
-      beyond_cap: distanceFromPoiM(at, args.pin, args.boundaryCoords) > MAX_TP_DISTANCE_FROM_POI_M,
+      beyond_cap: distanceFromPoiM(at, args.pin, args.boundaryCoords) > (args.capM ?? UNCLASSIFIED_MAX_TP_DISTANCE_M),
     }
   })
 }
@@ -133,8 +135,12 @@ export async function dryRunPoi(attractionId: string): Promise<PoiDryRunResult> 
 
   try {
     const prediction = await new CoreTriggerPointPredictor().predictTriggerPointsComplete(poiData, { ...TP_ENGINE_OPTIONS })
+    const capM = tpReachCapM(prediction.boundary?.classification)
+    // Before × after under the same cap: the class the engine assigns now.
+    for (const r of rows) r.beyond_cap = (r.dist_to_boundary_m ?? r.dist_to_pin_m) > capM
     rows.push(...measureTriggerPoints({
       ...base,
+      capM,
       source: 'generated',
       boundaryCoords: prediction.boundary?.coordinates,
       boundarySource: prediction.boundary?.source ?? null,

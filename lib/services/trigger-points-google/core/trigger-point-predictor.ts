@@ -10,9 +10,9 @@ import { POIData, TriggerPoint, TriggerPointGenerationOptions, TriggerPointPredi
 import { calculateBearing, calculateDistance, findClosestPointOnBoundary, closestStreetPointToPoi } from '../utils/calculations';
 import { deterministicTPId } from '../utils/deterministic';
 import { loadTriggerPointsConfig, TriggerPointsConfig, TRIGGER_POINTS_CONSTANTS } from '../config/trigger-points-config';
-import { VisibilityClass } from '../config/visibility-class';
+import { VisibilityClass, LANDMARK_MIN_PROMINENCE_M, fanHorizonM } from '../config/visibility-class';
 import { emitDebugQuality, DebugQualitySnapshot } from '../debug-quality-logger';
-import { partitionByPoiReach, MAX_TP_DISTANCE_FROM_POI_M } from '../utils/validation';
+import { partitionByPoiReach, tpReachCapM } from '../utils/validation';
 
 // Defaults baked into VisibilityMapBuilder.buildFan() — used by debug-quality
 // emission when the fan is present (the boundary.visibilityFan type flattens
@@ -505,9 +505,10 @@ export class CoreTriggerPointPredictor {
   ): Promise<TriggerPoint[]> {
     const candidates = await this.buildRecoveryFallbackCandidates(poiData, context, boundary);
     // Teto de sanidade (BR-AUDIO-010): fallback longe do POI é descartado, não gravado.
-    const { kept, dropped } = partitionByPoiReach(candidates, tp => tp.location, poiData.location, boundary?.coordinates);
+    const capM = tpReachCapM(boundary?.classification);
+    const { kept, dropped } = partitionByPoiReach(candidates, tp => tp.location, poiData.location, boundary?.coordinates, capM);
     for (const { item, distanceM } of dropped) {
-      console.warn(`🚫 [FALLBACK] TP ${item.id} dropped: ${distanceM.toFixed(0)}m from POI (cap ${MAX_TP_DISTANCE_FROM_POI_M}m)`);
+      console.warn(`🚫 [FALLBACK] TP ${item.id} dropped: ${distanceM.toFixed(0)}m from POI (cap ${capM}m)`);
     }
     return kept;
   }
@@ -1566,29 +1567,21 @@ export class CoreTriggerPointPredictor {
       }
 
       const elevationDiff = Math.max(0, poiGround - regionalBase);
-      // Filtra ruído SRTM urbano (≤100m). Apenas POIs naturalmente elevados
-      // (montanha, plateau, mountain peak) ganham extensão de horizon.
-      const SIGNIFICANT_ELEVATION_DIFF_M = 100;
-      const effectiveElevationContribution = elevationDiff >= SIGNIFICANT_ELEVATION_DIFF_M ? elevationDiff : 0;
+      // Below landmark prominence it is urban SRTM noise (SSOT: visibility-class).
+      const effectiveElevationContribution = elevationDiff >= LANDMARK_MIN_PROMINENCE_M ? elevationDiff : 0;
       const effectiveHeight = poiHeight + effectiveElevationContribution;
 
-      // horizon × 15: regra heurística — POI de 30m visível ~450m de longe em situação
-      // típica. Floor 300m (audio approach mínimo de driving). Cap 15km (Cristo).
-      //
-      // POIs em terreno PLANO (arranha-céus urbanos como ESB): visibilidade física vai a
-      // quilômetros mas usuário que visita se aproxima de ≤2km. TPs além disso disparam
-      // o audio guide cedo demais → cap 2km. Cap só ativo quando o terreno não tem
-      // elevação significativa (effectiveElevationContribution == 0).
-      //
-      // POIs em terreno ELEVADO (Cristo, picos, mirantes): usuário dirige ao longo de
-      // estradas que circundam o maciço → alcance completo (~11km para Cristo).
-      const URBAN_HORIZON_CAP_M = 2000;
+      // Horizon per visibility class (BR-AUDIO-010): a low/local class stays at its cap —
+      // the old 300 m floor no longer applies to a POI without height. A tall landmark
+      // goes to 15·h, up to 2 km on flat terrain or to the sanity cap when prominent.
       const isUrbanTerrain = effectiveElevationContribution === 0;
-      const horizonDefault = isUrbanTerrain
-        ? Math.max(300, Math.min(URBAN_HORIZON_CAP_M, Math.round(effectiveHeight * 15)))
-        : Math.max(300, Math.min(15_000, Math.round(effectiveHeight * 15)));
+      const horizonDefault = fanHorizonM({
+        cls: boundary.classification?.group,
+        effectiveHeightM: effectiveHeight,
+        prominenceM: effectiveElevationContribution,
+      });
       const horizon = maxHorizonM ?? horizonDefault;
-      console.log(`🔭 Horizon: ${horizon}m (height=${poiHeight.toFixed(0)}m, elevDiff=${elevationDiff.toFixed(0)}m${effectiveElevationContribution > 0 ? ' (significant — POI naturally elevated)' : ' (filtered as SRTM noise)'}, effectiveHeight=${effectiveHeight.toFixed(0)}m, terrain=${isUrbanTerrain ? 'urban-flat (cap 2km)' : 'elevated'}, ${maxHorizonM ? 'user-override' : 'auto'})`);
+      console.log(`🔭 Horizon: ${horizon}m (height=${poiHeight.toFixed(0)}m, elevDiff=${elevationDiff.toFixed(0)}m${effectiveElevationContribution > 0 ? ' (significant — POI naturally elevated)' : ' (filtered as SRTM noise)'}, effectiveHeight=${effectiveHeight.toFixed(0)}m, terrain=${isUrbanTerrain ? 'urban-flat' : 'elevated'}, class=${boundary.classification?.group ?? 'none'}, ${maxHorizonM ? 'user-override' : 'auto'})`);
 
       const fetcher = LocalOSMFetcher.getInstance();
       const overpassLike = fetcher.fetchAsOverpassData(poiData.location, horizon, {
