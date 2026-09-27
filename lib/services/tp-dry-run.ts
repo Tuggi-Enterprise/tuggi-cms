@@ -16,7 +16,7 @@ import { PoiMigrationPipeline, TP_ENGINE_OPTIONS } from './poi-migration-pipelin
 import { CoreTriggerPointPredictor } from './trigger-points-google/core/trigger-point-predictor'
 import { BoundaryDetector } from './trigger-points-google/core/boundary-detector'
 import { calculateDistance, calculateDistanceToPolygon } from './trigger-points-google/utils/calculations'
-import { UNCLASSIFIED_MAX_TP_DISTANCE_M, distanceFromPoiM } from './trigger-points-google/utils/validation'
+import { UNCLASSIFIED_MAX_TP_DISTANCE_M, distanceFromPoiM, poiEdgeRing } from './trigger-points-google/utils/validation'
 import { applyTpPostConditions, type TpDropReason } from './trigger-points-google/utils/tp-selection'
 import {
   TRACE_CSV_COLUMNS,
@@ -171,7 +171,7 @@ export async function dryRunPoi(attractionId: string): Promise<PoiDryRunResult> 
       ...base,
       capM,
       source: 'generated',
-      boundaryCoords: prediction.boundary?.coordinates,
+      boundaryCoords: poiEdgeRing(prediction.boundary),
       boundarySource: prediction.boundary?.source ?? null,
       tps: [
         ...post.kept.map(tp => ({ tp, reason: '' as const })),

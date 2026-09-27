@@ -123,7 +123,7 @@ describe('BR-AUDIO-010 — a long beach keeps its polygon and its class', () => 
   })
 })
 
-describe('BR-AUDIO-010 — post-condition: no TP inside the POI boundary, except where the tourist is inside', () => {
+describe('BR-AUDIO-010, INV-E11 — post-condition: no TP inside the POI boundary, in any class', () => {
   const square = [offset({ n: -50, e: -50 }), offset({ n: -50, e: 50 }), offset({ n: 50, e: 50 }), offset({ n: 50, e: -50 })]
   const inside = { id: 'in', location: offset({ n: 10 }) }
   const outside = { id: 'out', location: offset({ n: 80 }) }
@@ -134,11 +134,10 @@ describe('BR-AUDIO-010 — post-condition: no TP inside the POI boundary, except
     assert.deepEqual(out.map(t => t.id), ['out'])
   })
 
-  it('AREA, beach and park keep it', async () => {
+  it('AREA and LINEAR drop it too: whoever is inside hears the POI through the boundary (BR-AUDIO-009/013)', async () => {
     const { dropInsidePoi } = await import('../../lib/services/trigger-points-google/utils/tp-selection')
-    assert.equal(dropInsidePoi([inside], { coordinates: square, classification: { group: VisibilityClass.AREA } }).length, 1)
-    assert.equal(dropInsidePoi([inside], { coordinates: square, classification: { group: VisibilityClass.LINEAR }, osmTags: { natural: 'beach' } }).length, 1)
-    assert.equal(dropInsidePoi([inside], { coordinates: square, classification: { group: VisibilityClass.POINT_LOW }, osmTags: { leisure: 'park' } }).length, 1)
+    assert.equal(dropInsidePoi([inside], { coordinates: square, classification: { group: VisibilityClass.AREA } }).length, 0)
+    assert.equal(dropInsidePoi([inside], { coordinates: square, classification: { group: VisibilityClass.LINEAR } }).length, 0)
   })
 })
 

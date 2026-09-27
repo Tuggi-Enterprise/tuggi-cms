@@ -198,26 +198,6 @@ export const AREA_TAGS: Array<{ key: string; value: string }> = [
 ];
 
 /**
- * Open spaces the tourist walks INTO (beach, park, garden): a TP inside their boundary is
- * legitimate even when the class is not AREA (a long beach is LINEAR).
- */
-export const OPEN_SPACE_TAGS: Array<{ key: string; value: string }> = [
-  { key: 'natural', value: 'beach' },
-  { key: 'leisure', value: 'park' },
-  { key: 'leisure', value: 'garden' },
-  { key: 'leisure', value: 'nature_reserve' },
-  { key: 'boundary', value: 'national_park' },
-];
-
-/**
- * The tourist can be inside the POI: AREA class or an open-space tag. Everywhere else a TP
- * inside the POI boundary fires inside the building or on the statue (BR-AUDIO-010, #779).
- */
-export function touristCanBeInside(cls: VisibilityClass | undefined, tags: Record<string, unknown> | undefined): boolean {
-  return cls === VisibilityClass.AREA || OPEN_SPACE_TAGS.some(t => hasTag(tags, t.key, t.value));
-}
-
-/**
  * Tag value. Accepts both OSM (`natural=peak`) and the Nominatim shape stored in
  * `osm_tags` (`class=natural`, `type=peak`).
  */

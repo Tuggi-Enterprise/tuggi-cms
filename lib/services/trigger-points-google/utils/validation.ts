@@ -202,6 +202,16 @@ export function tpReachCapM(classification?: { maxEdgeDistanceM?: number } | nul
 }
 
 /**
+ * The ring that counts as the POI edge (P2): the boundary polygon, unless it is a synthetic
+ * circle drawn around the pin (INV-E1b) — that one is not a footprint, so distances fall back to
+ * the pin. One answer for reach (E6), inside-the-POI (E11), the trace and the dry-run.
+ */
+export function poiEdgeRing(boundary?: { coordinates?: LatLng[]; synthetic?: boolean } | null): LatLng[] | undefined {
+  const ring = boundary?.coordinates
+  return !boundary?.synthetic && ring && ring.length >= 3 ? ring : undefined
+}
+
+/**
  * Distância do TP ao POI: à borda quando há polígono (0 dentro dele), ao pino quando não.
  */
 export function distanceFromPoiM(tp: LatLng, poiPin: LatLng, boundaryCoords?: LatLng[]): number {

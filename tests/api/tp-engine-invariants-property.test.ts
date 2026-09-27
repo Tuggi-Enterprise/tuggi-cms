@@ -106,7 +106,7 @@ describe('INV-E11, BR-AUDIO-010 — nenhum TP mantido viola uma pós-condição'
       const distM = distanceFromPoiM(t.location, PIN, boundary)
       assert.ok(distM <= reachCapM, `${t.id}: ${distM}m excede o teto de ${reachCapM}m (INV-E6)`)
       assert.deepEqual(dropUnfireable([t]), [t], `${t.id}: não pode disparar em nenhum sentido legal (INV-E9)`)
-      assert.equal(isPointInPolygon(t.location, boundary), false, `${t.id}: está dentro da borda e a classe não é area/linear (INV-E11)`)
+      assert.equal(isPointInPolygon(t.location, boundary), false, `${t.id}: está dentro da borda (INV-E11)`)
     }
   })
 })

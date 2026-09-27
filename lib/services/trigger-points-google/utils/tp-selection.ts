@@ -5,10 +5,10 @@
  * frontal TPs included. Numbers live in config/visibility-class.ts.
  */
 import { TriggerPoint } from '../types/interfaces';
-import { calculateDistance, isPointInPolygon } from './calculations';
-import { EDGE_BAND_M, VisibilityClass, proximityBand, touristCanBeInside } from '../config/visibility-class';
+import { calculateDistance, calculateDistanceToPolygon } from './calculations';
+import { EDGE_BAND_M, VisibilityClass, proximityBand } from '../config/visibility-class';
 import { isApproachableForBearing } from '../../../geometry';
-import { partitionByPoiReach, tpReachCapM } from './validation';
+import { partitionByPoiReach, poiEdgeRing, tpReachCapM } from './validation';
 
 type SelectionClassification = {
   group?: VisibilityClass;
@@ -122,10 +122,10 @@ export function dropUnfireable(tps: TriggerPoint[]): TriggerPoint[] {
 type LatLng = { lat: number; lng: number };
 
 /**
- * Post-condition: no TP inside the POI boundary, nor inside the building that hosts the POI
- * (a room or a shop inside a larger building) — it would fire inside the building or on the
- * statue. Exception: AREA and open spaces (beach, park), where the tourist is inside
- * (BR-AUDIO-010, #779: Cidade das Artes and a bust had TPs inside their boundary).
+ * Post-condition (INV-E11): no TP inside the POI boundary, nor inside the building that hosts
+ * the POI (a room or a shop inside a larger building), in ANY class. Whoever is inside hears the
+ * POI through the boundary (BR-AUDIO-009, BR-AUDIO-013); the TP serves whoever is outside
+ * (operator, 2026-09-27). A TP ON the edge counts as inside.
  */
 export function dropInsidePoi<T extends { location: LatLng }>(
   tps: T[],
@@ -134,23 +134,26 @@ export function dropInsidePoi<T extends { location: LatLng }>(
     synthetic?: boolean;
     center?: LatLng;
     classification?: { group?: VisibilityClass };
-    osmTags?: Record<string, unknown>;
     buildings?: Array<{ geometry?: Array<{ lat: number; lng?: number; lon?: number }> }>;
   } | null
 ): T[] {
-  if (!boundary || touristCanBeInside(boundary.classification?.group, boundary.osmTags)) return tps;
+  if (!boundary) return tps;
   const rings: LatLng[][] = [];
-  // A synthetic circle is not the footprint: a TP 30 m from a memorial inside a drawn 50 m
-  // circle is in front of it, not inside it.
-  if (!boundary.synthetic && boundary.coordinates && boundary.coordinates.length >= 3) rings.push(boundary.coordinates);
+  // A synthetic circle is not the footprint (INV-E1b): a TP 30 m from a memorial inside a drawn
+  // 50 m circle is in front of it, not inside it.
+  const edge = poiEdgeRing(boundary);
+  if (edge) rings.push(edge);
   if (boundary.center) {
     for (const b of boundary.buildings ?? []) {
       const ring = (b.geometry ?? []).map(c => ({ lat: c.lat, lng: (c.lng ?? c.lon) as number }));
-      if (ring.length >= 3 && isPointInPolygon(boundary.center, ring)) { rings.push(ring); break; }
+      if (ring.length >= 3 && calculateDistanceToPolygon(boundary.center, ring) === 0) { rings.push(ring); break; }
     }
   }
-  return tps.filter(tp => !rings.some(r => isPointInPolygon(tp.location, r)));
+  return tps.filter(tp => !rings.some(r => calculateDistanceToPolygon(tp.location, r) < ON_EDGE_M));
 }
+
+/** A TP closer than this to the edge is ON it, and counts as inside (INV-E11). Provisional (#775). */
+export const ON_EDGE_M = 1;
 
 export type TpDropReason = 'beyond_reach' | 'unfireable' | 'inside_poi';
 
@@ -171,7 +174,7 @@ export function applyTpPostConditions<T extends TriggerPoint>(
   boundary?: PostConditionBoundary | null
 ): { kept: T[]; dropped: Array<{ tp: T; reason: TpDropReason }>; reachCapM: number } {
   const reachCapM = tpReachCapM(boundary?.classification);
-  const reach = partitionByPoiReach(tps, tp => tp.location, poiPin, boundary?.coordinates, reachCapM);
+  const reach = partitionByPoiReach(tps, tp => tp.location, poiPin, poiEdgeRing(boundary), reachCapM);
   const dropped: Array<{ tp: T; reason: TpDropReason }> = reach.dropped.map(d => ({ tp: d.item, reason: 'beyond_reach' }));
   const fireable = dropUnfireable(reach.kept) as T[];
   for (const tp of reach.kept) if (!fireable.includes(tp)) dropped.push({ tp, reason: 'unfireable' });

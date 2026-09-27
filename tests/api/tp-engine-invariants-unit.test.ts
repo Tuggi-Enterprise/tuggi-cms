@@ -180,24 +180,27 @@ describe('INV-E11, BR-AUDIO-010 — post-condições isoladas, uma por motivo', 
     assert.deepEqual(dropUnfireable([t]).map(x => x.id), ['bidi'])
   })
 
-  it('inside_poi: TP dentro da borda é descartado quando a classe não é area/linear', () => {
+  it('inside_poi: TP dentro da borda é descartado', () => {
     const inside = { location: { lat: PIN.lat, lng: PIN.lng } }
     const outside = { location: { lat: PIN.lat + 0.001, lng: PIN.lng } }
     const kept = dropInsidePoi([inside, outside], { coordinates: square(), classification: { group: VisibilityClass.STRUCTURE } })
     assert.deepEqual(kept, [outside])
   })
 
-  it('exceção: classe area — TP dentro da borda passa porque o turista está dentro (praia, parque)', () => {
+  it('classe area — TP dentro da borda também é descartado (INV-E11, decisão de 2026-09-27)', () => {
     const inside = { location: { lat: PIN.lat, lng: PIN.lng } }
     const kept = dropInsidePoi([inside], { coordinates: square(), classification: { group: VisibilityClass.AREA } })
-    assert.deepEqual(kept, [inside])
+    assert.deepEqual(kept, [])
   })
 
-  it('classe linear — TP dentro da borda também é descartado: quem está dentro ouve pelo boundary (BR-AUDIO-009/013)', {
-    todo: 'INV-E11 (decisão de 2026-09-27): visibility-class#touristCanBeInside ainda isenta AREA e OPEN_SPACE_TAGS em tp-selection#dropInsidePoi',
-  }, () => {
+  it('TP sobre a borda conta como dentro (INV-E11)', () => {
+    const onEdge = { location: { lat: PIN.lat - 0.0003, lng: PIN.lng } }
+    assert.deepEqual(dropInsidePoi([onEdge], { coordinates: square(), classification: { group: VisibilityClass.STRUCTURE } }), [])
+  })
+
+  it('classe linear — TP dentro da borda também é descartado: quem está dentro ouve pelo boundary (BR-AUDIO-009/013)', () => {
     const inside = { location: { lat: PIN.lat, lng: PIN.lng } }
-    const kept = dropInsidePoi([inside], { coordinates: square(), classification: { group: VisibilityClass.LINEAR }, osmTags: { natural: 'beach' } })
+    const kept = dropInsidePoi([inside], { coordinates: square(), classification: { group: VisibilityClass.LINEAR } })
     assert.deepEqual(kept, [])
   })
 
