@@ -39,33 +39,50 @@ describe('INV-E10a, INV-E10c, BR-AUDIO-010 — landmark_high selects by cell cov
     assert.equal(perCell.size, covered.size)
   })
 
-  it('inside the cell the street where the tourist circulates wins; trunk, motorway, track and service lose', () => {
-    const avoid = ['motorway', 'trunk', 'track', 'service', 'path'].map((t, i) => tp(130, 2_400 + i * 20, t, 0.95))
+  it('inside the cell the street where the tourist circulates wins; track, path and service lose', () => {
+    const avoid = ['track', 'service', 'path'].map((t, i) => tp(130, 2_400 + i * 20, t, 0.95))
     const orla = tp(130, 2_700, 'primary', 0.3)
     const why = new Map()
     const out = selectSpacedTriggerPoints([...avoid, orla], { ...landmark, maxFarTriggerPoints: 1 }, PIN, why)
     assert.deepEqual(out.map(t => t.id), [orla.id])
     assert.match(why.get(orla), /cell s2\/r2; tier 0 primary; won pass 1/)
-    assert.match(why.get(avoid[0]), /tier 2 motorway; lost: cap/)
+    assert.match(why.get(avoid[0]), /tier 2 track; lost: cap/)
   })
 
-  it('an expressway only gets in when its cell has no other street', () => {
-    const expressway = tp(90, 3_000, 'motorway', 0.9)
-    assert.equal(selectSpacedTriggerPoints([expressway], landmark, PIN).length, 1)
+  it('BR-POI-008: the app is used driving — trunk and motorway are tourist streets, not demoted', () => {
+    const trunk = tp(130, 2_400, 'trunk', 0.9)
+    const motorway = tp(170, 2_400, 'motorway', 0.9)
+    const orla = tp(130, 2_700, 'primary', 0.3)
+    const why = new Map()
+    const out = selectSpacedTriggerPoints([trunk, orla], { ...landmark, maxFarTriggerPoints: 1 }, PIN, why)
+    assert.deepEqual(out.map(t => t.id), [trunk.id], 'same tier: quality decides')
+    assert.match(why.get(trunk), /tier 0 trunk; won pass 1/)
+    selectSpacedTriggerPoints([motorway], landmark, PIN, why)
+    assert.match(why.get(motorway), /tier 0 motorway/)
+  })
+
+  it('a forest track only gets in when its cell has no other street', () => {
+    const track = tp(90, 3_000, 'track', 0.9)
+    assert.equal(selectSpacedTriggerPoints([track], landmark, PIN).length, 1)
   })
 
   it('the horizon ring (beyond the last inner ring) takes a tourist street only, and only after the inner cells', () => {
-    const bridge = tp(90, 12_000, 'motorway', 0.9)
+    const bridge = tp(90, 12_000, 'motorway', 0.9) // the Rio–Niterói bridge seen from the Pão de Açúcar
     const island = tp(170, 12_000, 'footway', 0.9)
     const farSide = tp(60, 8_000, 'primary', 0.9)
     const ipanema = [tp(80, 2_500, 'primary', 0.5), tp(84, 3_500, 'primary', 0.5)] // same inner cell
     const why = new Map()
     const out = selectSpacedTriggerPoints([bridge, island, farSide, ...ipanema], { ...landmark, maxFarTriggerPoints: 2 }, PIN, why)
     assert.deepEqual(out.map(t => t.id).sort(), ipanema.map(t => t.id).sort())
-    assert.match(why.get(bridge), /lost: horizon needs a tourist street/)
+    assert.match(why.get(bridge), /lost: cap/)
     assert.match(why.get(island), /lost: horizon needs a tourist street/)
     assert.match(why.get(farSide), /lost: cap/)
     assert.match(why.get(ipanema[1]), /won pass 2/)
+    const roomy = new Map()
+    const all = selectSpacedTriggerPoints([bridge, island, farSide, ...ipanema], { ...landmark, maxFarTriggerPoints: 5 }, PIN, roomy)
+    assert.ok(all.includes(bridge), 'with room, the bridge comes back in the horizon')
+    assert.match(roomy.get(bridge), /won pass 1 \(horizon\)/)
+    assert.match(roomy.get(island), /lost: horizon needs a tourist street/)
   })
 
   it('the cap is the class one, and the minimum spacing still holds (INV-E10b)', () => {
@@ -87,10 +104,10 @@ describe('INV-E10a, INV-E10c, BR-AUDIO-010 — landmark_high selects by cell cov
     assert.match(why.get(b), /cell s0\/r1; tier 1 residential; lost: spacing/)
   })
 
-  it('INV-E7c: the cell sample keeps the tourist street, not only the expressways', () => {
+  it('INV-E7c: the cell sample keeps the tourist street, not only the forest tracks', () => {
     const cand = (bearing: number, m: number, type: string, quality: number) =>
       ({ location: polar(bearing, m), distance: m, quality, expectedBearing: 0, confidence: 0.85, street: { type } as any })
-    const trunks = Array.from({ length: 10 }, (_, i) => cand(100, 2_100 + i * 400, 'trunk', 0.9))
+    const trunks = Array.from({ length: 10 }, (_, i) => cand(100, 2_100 + i * 400, 'track', 0.9))
     const avenue = cand(100, 3_000, 'secondary', 0.5)
     const out = sampleFarBySectorAndRing([...trunks, avenue] as any, PIN)
     assert.ok(out.includes(avenue as any))

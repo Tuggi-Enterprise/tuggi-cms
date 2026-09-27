@@ -1,8 +1,7 @@
-import { describe, it, after } from 'node:test'
+import { describe, it } from 'node:test'
 import assert from 'node:assert/strict'
 import { existsSync } from 'node:fs'
 import { join } from 'node:path'
-import Database from 'better-sqlite3'
 
 // Motor de TP (#772) — camada "conjunto de referência" (golden) da estratégia de teste.
 // Fonte: docs/arquitetura/cms/motor-de-tp.md, tabela "Conjunto de referência". Roda o motor
@@ -233,33 +232,16 @@ type ZoneCheck = { poi: string; id: string; zone: keyof typeof ZONES; label: str
 
 const ZONE_CHECKS: ZoneCheck[] = [
   { poi: 'Cristo Redentor', id: POI_ID.cristoRedentor, zone: 'lagoa', label: 'Lagoa' },
-  {
-    poi: 'Cristo Redentor', id: POI_ID.cristoRedentor, zone: 'botafogo', label: 'Botafogo',
-    todoCause: 'INV-E10a: seleção do landmark_high ainda prioriza proximidade sobre cobertura de célula nesta build (fix/tp-engine-quality-e); TPs se amontoam do lado da Lagoa e nenhum cobre o setor de Botafogo',
-  },
-  {
-    poi: 'Cristo Redentor', id: POI_ID.cristoRedentor, zone: 'copacabana', label: 'Copacabana',
-    todoCause: 'INV-E10a: idem — nenhum TP cobre o setor de Copacabana nesta build',
-  },
+  { poi: 'Cristo Redentor', id: POI_ID.cristoRedentor, zone: 'botafogo', label: 'Botafogo' },
+  { poi: 'Cristo Redentor', id: POI_ID.cristoRedentor, zone: 'copacabana', label: 'Copacabana' },
   { poi: 'Pão de Açúcar', id: POI_ID.paoDeAcucar, zone: 'urca', label: 'Urca' },
-  {
-    // Achado desta rodada: o card previa vermelho no Aterro, não aqui — só a medição por zona
-    // revelou que é Botafogo que está descoberto hoje, não o Aterro (linha abaixo). Os TPs mais
-    // próximos (Av. Infante Dom Henrique) ficam ~450 m a leste da zona de Botafogo, já na faixa
-    // costeira que separa Botafogo de Urca.
-    poi: 'Pão de Açúcar', id: POI_ID.paoDeAcucar, zone: 'botafogo', label: 'Botafogo',
-    todoCause: 'INV-E10a/E7c: os TPs mais próximos de Botafogo (Av. Infante Dom Henrique) ficam ~450m a leste da zona, ainda na faixa costeira — nenhum cobre o setor de Botafogo nesta build (fix/tp-engine-quality-e)',
-  },
-  // Passa hoje, mas só via um TP a 0.2 m da Av. Infante Dom Henrique (trunk) — ver a asserção
-  // de via rápida abaixo, que reprova exatamente este TP. A zona está coberta; a qualidade não.
+  { poi: 'Pão de Açúcar', id: POI_ID.paoDeAcucar, zone: 'botafogo', label: 'Botafogo' },
+  // Coberta por um TP na Av. Infante Dom Henrique (trunk): válido, o app é usado dirigindo (BR-POI-008).
   { poi: 'Pão de Açúcar', id: POI_ID.paoDeAcucar, zone: 'aterroDoFlamengo', label: 'Aterro do Flamengo' },
-  {
-    poi: 'Pico do Irmão Menor', id: POI_ID.picoDoIrmaoMenor, zone: 'orlaDoLeblon', label: 'orla do Leblon',
-    todoCause: 'INV-E7c/E10a: os candidatos "far" do landmark_high não alcançam a orla do Leblon nesta build (fix/tp-engine-quality-e)',
-  },
+  { poi: 'Pico do Irmão Menor', id: POI_ID.picoDoIrmaoMenor, zone: 'orlaDoLeblon', label: 'orla do Leblon' },
   {
     poi: 'Pico do Irmão Menor', id: POI_ID.picoDoIrmaoMenor, zone: 'orlaDeIpanema', label: 'orla de Ipanema',
-    todoCause: 'INV-E7c/E10a: idem — nenhum TP alcança a orla de Ipanema nesta build',
+    todoCause: 'INV-E7c/E10a: nenhum TP alcança a orla de Ipanema nesta build',
   },
   { poi: 'Sala de Leitura da Cidade das Artes', id: POI_ID.cidadeDasArtes, zone: 'avenidaDasAmericas', label: 'Av. das Américas' },
   { poi: 'Sala de Leitura da Cidade das Artes', id: POI_ID.cidadeDasArtes, zone: 'avenidaAyrtonSenna', label: 'Av. Ayrton Senna' },
@@ -306,66 +288,45 @@ describe('Maracanã: cobertura de pelo menos 2 lados (dívida E1, #772)', { skip
 })
 
 // ============================================================================================
-// Asserção negativa: nenhum TP de `landmark_high` sobre via `motorway`/`trunk`. `E7` (via,
-// trilho ou água) não exclui hoje `motorway`/`trunk` de `MOTORIZED_ROAD_TYPES`
-// (street-analyzer.ts#ACCESSIBLE_ROUTE_TYPES) — um TP num turista não pode ficar plantado no
-// canteiro de uma via expressa. Medido por distância real ao segmento mais próximo (não pela
-// tag do candidato), contra `data/local_osm.db`.
+// Asserção negativa (INV-E10a, commit 0a656ec do workspace): num `landmark_high`, nenhum TP em
+// `track`/`path`/`service` quando a célula dele tinha candidato de via melhor. `trunk`,
+// `motorway` e ponte NÃO são rebaixados — o app é usado dirigindo (BR-POI-008). Lido do rastro
+// da E10 (`tp-selection#selectSpacedTriggerPoints`: `cell sS/rR; tier N <tipo>; won|lost ...`),
+// com o tipo classificado aqui, não pela camada que o motor imprime. Um candidato melhor que
+// perdeu por espaçamento não conta: o espaçamento é físico, não preferência.
 // ============================================================================================
-const ON_MOTORWAY_TRUNK_TOLERANCE_M = 15
-const MOTORWAY_TRUNK_TYPES = ['motorway', 'trunk', 'motorway_link', 'trunk_link']
+const NOBODY_TRAVELS = new Set(['track', 'path', 'service'])
 
-function distanceToSegmentM(p: { lat: number; lng: number }, a: { lat: number; lng: number }, b: { lat: number; lng: number }): number {
-  const cos = Math.cos((p.lat * Math.PI) / 180)
-  const toXY = (q: { lat: number; lng: number }) => ({ x: (q.lng - p.lng) * 111_320 * cos, y: (q.lat - p.lat) * 110_540 })
-  const A = toXY(a), B = toXY(b)
-  const abx = B.x - A.x, aby = B.y - A.y
-  const len2 = abx * abx + aby * aby
-  let t = len2 === 0 ? 0 : (-A.x * abx + -A.y * aby) / len2
-  t = Math.max(0, Math.min(1, t))
-  const cx = A.x + t * abx, cy = A.y + t * aby
-  return Math.hypot(cx, cy)
-}
-
-function nearestMotorwayTrunk(db: InstanceType<typeof Database>, lat: number, lng: number): { distM: number; name: string | null } {
-  const pad = 0.01 // ~1.1km, generoso o bastante pra pegar o segmento mais próximo sem varrer o país
-  const placeholders = MOTORWAY_TRUNK_TYPES.map(() => '?').join(',')
-  const rows = db
-    .prepare(`select name, geometry_json from streets where type in (${placeholders}) and min_lat <= ? and max_lat >= ? and min_lng <= ? and max_lng >= ?`)
-    .all(...MOTORWAY_TRUNK_TYPES, lat + pad, lat - pad, lng + pad, lng - pad) as Array<{ name: string | null; geometry_json: string }>
-  let best = { distM: Infinity, name: null as string | null }
-  for (const row of rows) {
-    const pts = JSON.parse(row.geometry_json) as Array<{ lat: number; lng: number }>
-    for (let i = 0; i < pts.length - 1; i++) {
-      const d = distanceToSegmentM({ lat, lng }, pts[i], pts[i + 1])
-      if (d < best.distM) best = { distM: d, name: row.name }
-    }
-  }
-  return best
-}
-
-describe('Nenhum TP de landmark_high sobre motorway/trunk (E7, #772)', { skip: CAN_RUN ? false : SKIP_REASON }, () => {
-  let db: InstanceType<typeof Database> | null = null
-  const getDb = () => (db ??= new Database(LOCAL_OSM_DB, { readonly: true }))
-  after(() => db?.close())
-
+describe('Nenhum TP de landmark_high em track/path/service com via melhor na célula (INV-E10a, BR-POI-008, #772)', { skip: CAN_RUN ? false : SKIP_REASON }, () => {
   const LANDMARK_HIGH_POIS = [
-    { poi: 'Cristo Redentor', id: POI_ID.cristoRedentor, todoCause: 'MOTORIZED_ROAD_TYPES inclui motorway/trunk em ACCESSIBLE_ROUTE_TYPES (street-analyzer.ts); TPs caem sobre a Av. Vital Brasil e a Av. Borges de Medeiros' },
-    { poi: 'Pão de Açúcar', id: POI_ID.paoDeAcucar, todoCause: 'idem — TPs caem sobre a Ponte Rio-Niterói e a Av. Infante Dom Henrique' },
-    { poi: 'Pico do Irmão Menor', id: POI_ID.picoDoIrmaoMenor, todoCause: 'idem — TP cai sobre o Elevado do Joá' },
-    { poi: 'Morro do Patronato', id: POI_ID.morroDoPatronato, todoCause: 'idem — TP cai sobre a Rodovia Governador Mário Covas' },
+    { poi: 'Cristo Redentor', id: POI_ID.cristoRedentor },
+    { poi: 'Pão de Açúcar', id: POI_ID.paoDeAcucar },
+    { poi: 'Pico do Irmão Menor', id: POI_ID.picoDoIrmaoMenor },
+    { poi: 'Morro do Patronato', id: POI_ID.morroDoPatronato },
   ]
 
-  for (const { poi, id, todoCause } of LANDMARK_HIGH_POIS) {
-    it(`${poi}: nenhum TP mantido a menos de ${ON_MOTORWAY_TRUNK_TOLERANCE_M}m de motorway/trunk`, { todo: todoCause }, async () => {
+  for (const { poi, id } of LANDMARK_HIGH_POIS) {
+    it(`${poi}: TP em track/path/service só onde a célula não tinha via melhor`, async () => {
       const result = await getResult(id)
       assert.equal(result.error, null)
-      const kept = keptOf(result)
-      for (const r of kept) {
-        const { distM, name } = nearestMotorwayTrunk(getDb(), r.lat, r.lng)
+      const rows = result.trace
+        .filter(r => r.stage === 'E10' && r.rule === 'tp-selection#selectSpacedTriggerPoints')
+        .map(r => ({ r, m: /cell (s\d+\/r\d+); tier \d \S+ ?/.exec(r.value), type: /cell s\d+\/r\d+; tier \d (\S+);/.exec(r.value)?.[1] ?? '?' }))
+        .filter(x => x.m)
+      assert.ok(rows.length > 0, `${poi}: sem rastro de célula na E10 — a classe deixou de ser landmark_high?`)
+      const byCell = new Map<string, typeof rows>()
+      for (const x of rows) {
+        const cell = x.m![1]
+        ;(byCell.get(cell) ?? byCell.set(cell, []).get(cell)!).push(x)
+      }
+      for (const [cell, xs] of byCell) {
+        const keptBad = xs.filter(x => x.r.decision === 'kept' && NOBODY_TRAVELS.has(x.type))
+        if (!keptBad.length) continue
+        const keptBetter = xs.some(x => x.r.decision === 'kept' && !NOBODY_TRAVELS.has(x.type) && x.type !== '?')
+        const betterLeftOut = xs.filter(x => x.r.decision === 'dropped' && !NOBODY_TRAVELS.has(x.type) && x.type !== '?' && !/lost: spacing/.test(x.r.value))
         assert.ok(
-          distM > ON_MOTORWAY_TRUNK_TOLERANCE_M,
-          `${poi}: TP (${r.lat},${r.lng}) a ${distM.toFixed(1)}m de "${name}" (motorway/trunk), esperado > ${ON_MOTORWAY_TRUNK_TOLERANCE_M}m`
+          keptBetter || betterLeftOut.length === 0,
+          `${poi}: célula ${cell} ficou com TP em ${keptBad.map(x => `${x.type} ${x.r.candidate}`).join(', ')} e deixou de fora ${betterLeftOut.map(x => `${x.type} ${x.r.candidate}`).join(', ')}`
         )
       }
     })

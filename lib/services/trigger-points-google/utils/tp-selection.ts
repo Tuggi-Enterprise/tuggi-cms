@@ -100,7 +100,7 @@ export function selectSpacedTriggerPoints(
     const tierOf = (t: TriggerPoint) => landmarkStreetTier(t.street?.type);
     for (const cell of cells.values()) cell.sort((a, b) => tierOf(a) - tierOf(b) || b.quality - a.quality);
     // Cells whose best street is a tourist street first, then ring, then sector: when the cap
-    // cuts, it cuts the forest-only and expressway-only cells, not Copacabana (#772).
+    // cuts, it cuts the track- and service-only cells, not Copacabana (#772).
     const byTierRingSector = (a: string, b: string) => {
       const [ra, sa] = a.split(':').map(Number);
       const [rb, sb] = b.split(':').map(Number);

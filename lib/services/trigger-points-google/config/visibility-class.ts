@@ -77,11 +77,13 @@ export const FAR_STREET_TILE_M = 3_000;
 export const LANDMARK_CELL_RINGS_M = [1_000, 2_000, 4_000];
 /**
  * Where the tourist circulates, by the street's own OSM `highway` (INV-E10a): 0 wins, 2 loses.
- * Tier 2 is the expressway, the bridge approach, the forest track and the service lane — not a
- * place a tourist is. Unknown types sit in the middle. Provisional (#775).
+ * Tier 0 is where the tourist is, on foot or DRIVING: avenue, promenade, expressway and bridge
+ * (the app is used driving, BR-POI-008; whoever crosses the Rio–Niterói bridge sees the Pão de
+ * Açúcar). Tier 2 is what nobody travels: the forest track, the path and the service lane.
+ * Unknown types sit in the middle. Provisional (#775).
  */
-export const LANDMARK_TOURIST_STREET_TYPES = ['primary', 'secondary', 'tertiary', 'pedestrian', 'living_street'];
-export const LANDMARK_AVOID_STREET_TYPES = ['motorway', 'motorway_link', 'trunk', 'trunk_link', 'track', 'path', 'service'];
+export const LANDMARK_TOURIST_STREET_TYPES = ['motorway', 'trunk', 'primary', 'secondary', 'tertiary', 'pedestrian', 'living_street'];
+export const LANDMARK_AVOID_STREET_TYPES = ['track', 'path', 'service'];
 
 export function landmarkStreetTier(streetType?: string): 0 | 1 | 2 {
   if (LANDMARK_TOURIST_STREET_TYPES.includes(streetType ?? '')) return 0;

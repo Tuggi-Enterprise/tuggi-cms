@@ -247,7 +247,7 @@ export function sampleFarBySectorAndRing(
   }
   const far: TriggerPointCandidate[] = [];
   for (const cell of cells.values()) {
-    // Tourist streets first (INV-E10a): by quality alone the cell filled up with expressways.
+    // Tourist streets first (INV-E10a): by quality alone the cell filled up with tracks and service lanes.
     cell.sort((a, b) => landmarkStreetTier(a.street?.type) - landmarkStreetTier(b.street?.type) || b.quality - a.quality);
     const kept: TriggerPointCandidate[] = [];
     for (const c of cell) {
