@@ -1,11 +1,11 @@
 /**
- * E1 — borda (docs/arquitetura/cms/motor-de-tp.md, INV-E1a/b/c; BR-AUDIO-010).
+ * E1 — border (docs/arquitetura/cms/motor-de-tp.md, INV-E1a/b/c; BR-AUDIO-010).
  *
- * Unidade, com dado literal: a escolha do elemento que contém o pino (INV-E1c), o círculo
- * desenhado marcado `synthetic` em qualquer caminho (INV-E1b), e a borda sintética gravada que
- * volta do banco lida como sintética. As formas imitam os quatro casos medidos na onda -h:
- * Maracanã/Manguinhos (nó de bairro), Pão de Açúcar (rocha com buraco no cume), Monumento
- * Árvore de Natal (polígono grande perto) e Busto Mazzini (círculo com source=osm).
+ * Unit, literal data: which element holding the pin may be the border (INV-E1c), the drawn
+ * circle marked `synthetic` on every path (INV-E1b), and the stored synthetic border read back
+ * as synthetic. The shapes mimic the four cases measured in wave -h: Maracanã/Manguinhos
+ * (neighbourhood node), Pão de Açúcar (rock with a hole at the summit), Monumento Árvore de
+ * Natal (large polygon nearby) and Busto Mazzini (circle with source=osm).
  */
 import { describe, it, mock, before } from 'node:test'
 import assert from 'node:assert/strict'
@@ -42,8 +42,8 @@ before(async () => {
   choice = await import('../../lib/services/trigger-points-google/utils/boundary-choice')
 })
 
-describe('INV-E1c — o elemento que contém o pino precisa ser do tipo do POI (BR-AUDIO-010)', () => {
-  it('place/bairro não é borda de POI que não é lugar; é borda de POI com categoria de lugar', () => {
+describe('INV-E1c — the element holding the pin must fit the kind of POI (BR-AUDIO-010)', () => {
+  it('a place/neighbourhood is no border for a POI that is not a place; it is for a place category', () => {
     const suburb = { type: 'relation', id: 1, tags: { place: 'suburb' }, geometry: square(800) }
     const stadiumPoi = choice.chooseContainingBoundary(PIN, { category: 'point_of_interest', tags: {} }, [suburb])
     assert.equal(stadiumPoi.chosen, undefined)
@@ -52,25 +52,32 @@ describe('INV-E1c — o elemento que contém o pino precisa ser do tipo do POI (
     assert.equal(neighbourhoodPoi.chosen?.element.id, 1)
   })
 
-  it('limite administrativo nunca vira borda de atração', () => {
+  it('an administrative boundary never becomes an attraction border', () => {
     const city = { type: 'relation', id: 2, tags: { boundary: 'administrative', admin_level: '8' }, geometry: square(5000) }
     const r = choice.chooseContainingBoundary(PIN, { category: null, tags: { tourism: 'museum' } }, [city])
     assert.equal(r.chosen, undefined)
     assert.equal(r.rejected.length, 1)
   })
 
-  it('pico toma o relevo natural=* que contém o cume, nunca o parque do topo; multipolígono lido pelo anel externo', () => {
-    // bare_rock com buraco (vegetação) no cume: outer 400 m, inner 60 m, anéis em sequência como no banco local.
+  it('a peak takes the natural=* landform holding the summit, never the summit park; multipolygon read by its outer ring', () => {
+    // bare_rock with a (vegetated) hole at the summit: outer 400 m, inner 60 m, rings in sequence as in the local DB.
     const rock = { type: 'relation', id: 3, tags: { natural: 'bare_rock' }, geometry: [...square(400), ...square(60)] }
     const summitPark = { type: 'relation', id: 4, tags: { leisure: 'park' }, geometry: square(50) }
     const r = choice.chooseContainingBoundary(PIN, { tags: { natural: 'peak' } }, [summitPark, rock])
     assert.equal(r.chosen?.element.id, 3)
-    assert.ok(r.chosen!.areaM2 > 600_000, `anel externo, não o buraco: ${r.chosen!.areaM2} m²`)
+    assert.ok(r.chosen!.areaM2 > 600_000, `outer ring, not the hole: ${r.chosen!.areaM2} m²`)
     assert.ok(r.rejected.some(x => x.element === 'relation/4' && /natural/.test(x.reason)))
   })
 
-  it('busto, estátua ou monumento não herda polígono de área nem polígono grande (motivo no rastro)', () => {
-    const school = { type: 'way', id: 5, tags: { amenity: 'school' }, geometry: square(120) } // ~57.600 m²
+  it('a peak does not take the forest of the whole massif (above RELIEF_MAX_AREA_M2)', () => {
+    const massifWood = { type: 'relation', id: 12, tags: { natural: 'wood' }, geometry: square(3000) } // 36 km²
+    const r = choice.chooseContainingBoundary(PIN, { tags: { natural: 'peak' } }, [massifWood])
+    assert.equal(r.chosen, undefined)
+    assert.match(r.rejected[0].reason, /massif/)
+  })
+
+  it('a bust, statue or monument inherits neither an area polygon nor a large one (reason in the trace)', () => {
+    const school = { type: 'way', id: 5, tags: { amenity: 'school' }, geometry: square(120) } // ~57,600 m²
     const square_ = { type: 'way', id: 6, tags: { leisure: 'park' }, geometry: square(30) }
     const pedestal = { type: 'way', id: 7, tags: { building: 'yes', amenity: 'place_of_worship' }, geometry: square(4) }
     const bust = { tourism: 'artwork', artwork_type: 'sculpture' }
@@ -82,7 +89,7 @@ describe('INV-E1c — o elemento que contém o pino precisa ser do tipo do POI (
     assert.equal(monument.chosen?.element.id, 7)
   })
 
-  it('só conta o que contém o pino; via fechada não é área; vence o menor polígono que serve', () => {
+  it('only what holds the pin counts; a closed road is no area; the smallest fitting polygon wins', () => {
     const roundabout = { type: 'way', id: 8, tags: { highway: 'primary' }, geometry: square(20) }
     const nearby = { type: 'way', id: 9, tags: { leisure: 'park' }, geometry: square(40, { lat: PIN.lat + 300 * M_LAT, lng: PIN.lng }) }
     const plaza = { type: 'way', id: 10, tags: { leisure: 'park' }, geometry: square(40) }
@@ -92,15 +99,15 @@ describe('INV-E1c — o elemento que contém o pino precisa ser do tipo do POI (
     assert.deepEqual(r.rejected, [])
   })
 
-  it('splitRings separa os anéis gravados em sequência; um anel só volta inteiro', () => {
+  it('splitRings splits rings stored in sequence; a single ring comes back whole', () => {
     const pts = [...square(10), ...square(5)].map(p => ({ lat: p.lat, lng: p.lon }))
     assert.deepEqual(choice.splitRings(pts).map(r => r.length), [5, 5])
     assert.equal(choice.splitRings(pts.slice(0, 5)).length, 1)
   })
 })
 
-describe('INV-E1b — círculo desenhado sai source=synthetic em qualquer caminho (BR-AUDIO-010)', () => {
-  it('nó OSM (círculo de 10 m) sai synthetic, com source=synthetic, e a busca por área vem antes dele', async () => {
+describe('INV-E1b — a drawn circle leaves with source=synthetic on every path (BR-AUDIO-010)', () => {
+  it('an OSM node (10 m circle) leaves synthetic with source=synthetic, and the area search runs before it', async () => {
     const { BoundaryDetector } = await import('../../lib/services/trigger-points-google/core/boundary-detector')
     const d = new BoundaryDetector() as any
     const circle = Array.from({ length: 16 }, (_, i) => ({
@@ -113,12 +120,12 @@ describe('INV-E1b — círculo desenhado sai source=synthetic em qualquer caminh
     d.detectOSMBoundary = async () => { calls.push('name'); return { success: false } }
     d.withClassification = async (b: unknown) => b
     const r = await d.detectBoundary({ id: 'x', name: 'x', osm_id: 1, osm_type: 'node', location: PIN })
-    assert.deepEqual(calls, ['id', 'contains'], 'com id de nó, a busca por nome não roda')
+    assert.deepEqual(calls, ['id', 'contains'], 'with a node id the name search does not run')
     assert.equal(r.data.source, 'synthetic')
     assert.equal(r.data.synthetic, true)
   })
 
-  it('círculo vindo da busca por nome (ponto do Nominatim) também sai synthetic', async () => {
+  it('a circle from the name search (Nominatim point) also leaves synthetic', async () => {
     const { BoundaryDetector } = await import('../../lib/services/trigger-points-google/core/boundary-detector')
     const d = new BoundaryDetector() as any
     const circle50 = Array.from({ length: 17 }, (_, i) => ({
@@ -133,7 +140,7 @@ describe('INV-E1b — círculo desenhado sai source=synthetic em qualquer caminh
     assert.equal(r.data.synthetic, true)
   })
 
-  it('borda sintética gravada volta do banco como sintética, não como fonte; manual segue manual', async () => {
+  it('a stored synthetic border reads back as synthetic, not as a source; manual stays manual', async () => {
     const { BoundaryDetector } = await import('../../lib/services/trigger-points-google/core/boundary-detector')
     const ring = Array.from({ length: 17 }, (_, i) => [
       PIN.lng + 10 * M_LNG * Math.sin(((i % 16) / 16) * 2 * Math.PI),

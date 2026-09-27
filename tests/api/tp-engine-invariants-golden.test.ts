@@ -261,19 +261,19 @@ describe('Zonas nomeadas do conjunto de referência (INV-E7c/E10a, #772/#779)', 
 })
 
 // ============================================================================================
-// Maracanã: o osm_id do POI é o nó de bairro; E1 o descarta (place para POI que não é lugar,
-// INV-E1c) e a borda sai do polígono do estádio. "TPs em pelo menos 2 lados" vira: pelo menos
-// 2 TPs e pelo menos 2 setores de 45° distintos entre os TPs mantidos.
+// Maracanã: the POI osm_id is the neighbourhood node; E1 drops it (a place for a POI that is not
+// a place, INV-E1c) and the border is the stadium polygon. "TPs on at least 2 sides" reads: at
+// least 2 TPs and at least 2 distinct 45° sectors among the kept TPs.
 // ============================================================================================
-describe('Maracanã: cobertura de pelo menos 2 lados (INV-E1c, #772)', { skip: CAN_RUN ? false : SKIP_REASON }, () => {
-  it('Maracanã: pelo menos 2 TPs mantidos', async () => {
+describe('Maracanã: coverage of at least 2 sides (INV-E1c, #772)', { skip: CAN_RUN ? false : SKIP_REASON }, () => {
+  it('Maracanã: at least 2 kept TPs', async () => {
     const result = await getResult(POI_ID.maracana)
     assert.equal(result.error, null)
     const kept = keptOf(result)
     assert.ok(kept.length >= 2, `Maracanã: ${kept.length} TP(s) mantido(s), esperado >= 2`)
   })
 
-  it('Maracanã: pelo menos 2 setores de 45° distintos (2 lados)', async () => {
+  it('Maracanã: at least 2 distinct 45° sectors (2 sides)', async () => {
     const result = await getResult(POI_ID.maracana)
     assert.equal(result.error, null)
     const kept = keptOf(result)

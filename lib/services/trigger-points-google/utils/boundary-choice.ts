@@ -19,6 +19,13 @@ type Tags = Record<string, unknown> | undefined;
  */
 export const POINT_FEATURE_MAX_AREA_M2 = 5_000;
 
+/**
+ * Largest landform a summit may take as its border (provisional, #775). Above it the natural=*
+ * polygon is the forest of the whole massif, not the hill: the Pico Itaiaci took a 92 km² wood
+ * and the far-street search went through 30k streets.
+ */
+export const RELIEF_MAX_AREA_M2 = 1_000_000;
+
 /** An E1 candidate refused, with the reason, for the trace. */
 export interface BoundaryRejection {
   element: string;
@@ -143,6 +150,9 @@ export function chooseContainingBoundary(
 
     if (isPlaceElement(el.tags) && !place) { reject('place/boundary element for a POI that is not a place'); continue; }
     if (relief && tagValue(el.tags, 'natural') === '') { reject('relief POI takes a natural=* landform only'); continue; }
+    if (relief && areaM2 > RELIEF_MAX_AREA_M2) {
+      reject(`relief landform ${Math.round(areaM2)} m² > ${RELIEF_MAX_AREA_M2} m² (the massif, not the hill)`); continue;
+    }
     if (pointFeature && POINT_FEATURE_REFUSED_KEYS.some(k => tagValue(el.tags, k) !== '')) {
       reject('monument/statue/bust does not inherit an area polygon'); continue;
     }
