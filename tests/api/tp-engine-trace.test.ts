@@ -27,14 +27,14 @@ describe('E0 / BR-AUDIO-010 — engine trace: one row per POI for E1–E6, one p
   it('E1–E6 rows carry the measured value and source; a failed DEM is marked, never a silent 0 (INV-E4c)', () => {
     const physical = {
       heightM: 12, heightSource: 'tag_default' as const, groundTopM: null, groundSource: 'none' as const, topPoint: null,
-      cityBaseM: 9, cityBaseSource: 'geonames:3451190', prominenceM: null, areaM2: 8000, classRule: 'structure_height' as const,
+      cityBaseM: 9, cityBaseSource: 'geonames:3451190', prominenceM: null, localBaseM: null, localProminenceM: null, areaM2: 8000, classRule: 'structure_height' as const,
     }
     const rows = poiTraceRows('p', {
       type: 'polygon', coordinates: [], center: { lat: 0, lng: 0 }, area_m2: 8000, perimeter_m: 0, confidence: 1, source: 'osm',
       physical, classification: buildClassification(VisibilityClass.STRUCTURE, { heightM: 12, prominenceM: null, areaM2: 8000 }),
     } as any)
     const by = (rule: string) => rows.find(r => r.rule === rule)!
-    assert.deepEqual(rows.map(r => r.stage), ['E1', 'E3', 'E4', 'E4', 'E4', 'E5', 'E6', 'E6'])
+    assert.deepEqual(rows.map(r => r.stage), ['E1', 'E3', 'E4', 'E4', 'E4', 'E4', 'E5', 'E6', 'E6'])
     assert.equal(by('visibility-class#resolveHeightM').value, '12 m (tag_default)')
     assert.equal(by('elevation-service#groundTop').decision, 'dropped')
     assert.equal(by('visibility-class#prominenceOverCityM').value, 'null')

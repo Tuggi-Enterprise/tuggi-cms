@@ -48,6 +48,9 @@ export interface PoiPhysical {
   cityBaseSource: string;
   /** ground top + height − city base (INV-E4b); null when a terrain number is missing (INV-E4c) */
   prominenceM: number | null;
+  /** ground top + height − local base (ring of LOCAL_BASE_RING_M); null when unknown */
+  localBaseM: number | null;
+  localProminenceM: number | null;
   areaM2: number;
   classRule: ClassRule;
 }
@@ -126,12 +129,17 @@ export async function measureAndClassify(a: MeasureInput): Promise<{ classificat
     tags: a.tags,
     peaks: [...(a.peaks ?? []), ...summitsAround(a.poiData.location, a.boundary)],
   });
-  const base = await ElevationAnalysisService.cityBaseElevation(a.poiData.location, a.poiData.city);
+  const [base, localBaseM] = await Promise.all([
+    ElevationAnalysisService.cityBaseElevation(a.poiData.location, a.poiData.city),
+    ElevationAnalysisService.localBaseElevation(a.poiData.location),
+  ]);
   const prominenceM = prominenceOverCityM(top.groundM, heightM, base.baseM);
+  const localProminenceM = prominenceOverCityM(top.groundM, heightM, localBaseM);
   const areaM2 = a.synthetic ? 0 : a.areaM2 || 0;
   const { cls, rule } = visibilityClassRule({
     heightM,
     prominenceM,
+    localProminenceM,
     areaM2,
     boundary: a.synthetic ? undefined : a.boundary,
     tags: a.tags,
@@ -154,6 +162,8 @@ export async function measureAndClassify(a: MeasureInput): Promise<{ classificat
       cityBaseM: base.baseM,
       cityBaseSource: base.source,
       prominenceM,
+      localBaseM,
+      localProminenceM,
       areaM2,
       classRule: rule,
     },

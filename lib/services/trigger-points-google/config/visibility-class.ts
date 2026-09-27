@@ -29,7 +29,10 @@ export enum VisibilityClass {
 // ── Classification thresholds (provisional, #775) ──────────────────────────────
 export const STRUCTURE_MIN_HEIGHT_M = 5;
 export const LANDMARK_MIN_HEIGHT_M = 30;
-/** Prominence over the regional base. Below this it is urban SRTM noise. */
+/**
+ * Prominence threshold of a landmark, over the city base AND over the local ring
+ * (`LOCAL_BASE_RING_M`). Below this it is urban SRTM noise.
+ */
 export const LANDMARK_MIN_PROMINENCE_M = 100;
 export const AREA_MIN_M2 = 10_000;
 /** Boundary major axis / minor axis ratio. */
@@ -303,6 +306,13 @@ export interface PhysicalAttributes {
    * null when the DEM failed: the class is still decided, never on a silent 0 (INV-E4c/E5c).
    */
   prominenceM: number | null;
+  /**
+   * Ground at the top of the POI + height − local base (`localBaseElevation`, a ring of
+   * LOCAL_BASE_RING_M). A church on a plateau is prominent over the city and not over its
+   * neighbourhood (Igreja de Fátima, #772). null/absent = unknown, and then prominence alone
+   * does not make a landmark (INV-E5c).
+   */
+  localProminenceM?: number | null;
   /** footprint area; 0 when the boundary is synthetic (BoundaryData.synthetic) */
   areaM2: number;
   /** footprint; omitted when synthetic — a drawn circle has no shape */
@@ -326,17 +336,23 @@ export function visibilityClassRule(a: PhysicalAttributes): { cls: VisibilityCla
   if (isNaturalRelief(a.tags)) return { cls: VisibilityClass.LANDMARK_HIGH, rule: 'natural_relief' };
   if (VIEWPOINT_TAGS.some(t => hasTag(a.tags, t.key, t.value))) return { cls: VisibilityClass.VIEWPOINT, rule: 'viewpoint_tag' };
   if (a.heightM >= LANDMARK_MIN_HEIGHT_M) return { cls: VisibilityClass.LANDMARK_HIGH, rule: 'landmark_height' };
-  if (a.prominenceM !== null && a.prominenceM >= LANDMARK_MIN_PROMINENCE_M) {
-    return { cls: VisibilityClass.LANDMARK_HIGH, rule: 'landmark_prominence' };
-  }
+  if (isProminentLandmark(a)) return { cls: VisibilityClass.LANDMARK_HIGH, rule: 'landmark_prominence' };
   if (AREA_TAGS.some(t => hasTag(a.tags, t.key, t.value))) return { cls: VisibilityClass.AREA, rule: 'area_tag' };
+  // A structure of known height is a structure whatever its footprint: the Museu do Amanhã is
+  // long and narrow, and it is still a 15 m building seen from the street (#772).
+  if (a.heightM >= STRUCTURE_MIN_HEIGHT_M) return { cls: VisibilityClass.STRUCTURE, rule: 'structure_height' };
   const shape = boundaryShape(a.boundary);
   if (shape.elongation >= LINEAR_MIN_ELONGATION && shape.lengthM >= LINEAR_MIN_LENGTH_M) {
     return { cls: VisibilityClass.LINEAR, rule: 'linear_shape' };
   }
   if (a.areaM2 >= AREA_MIN_M2) return { cls: VisibilityClass.AREA, rule: 'area_size' };
-  if (a.heightM >= STRUCTURE_MIN_HEIGHT_M) return { cls: VisibilityClass.STRUCTURE, rule: 'structure_height' };
   return { cls: VisibilityClass.POINT_LOW, rule: 'point_low' };
+}
+
+/** Landmark by relief (INV-E5b): prominent over the city base AND over the local ring. */
+export function isProminentLandmark(a: Pick<PhysicalAttributes, 'prominenceM' | 'localProminenceM'>): boolean {
+  return a.prominenceM != null && a.prominenceM >= LANDMARK_MIN_PROMINENCE_M
+    && a.localProminenceM != null && a.localProminenceM >= LANDMARK_MIN_PROMINENCE_M;
 }
 
 /** The single, pure classifier (INV-E5a). Order is precedence. */
@@ -351,6 +367,12 @@ export const CITY_BASE_RADIUS_M = 10_000;
 export const CITY_BASE_GRID_STEP_M = 1_000;
 /** Lower quartile of the land samples: the ground the city is built on, not its hills. */
 export const CITY_BASE_PERCENTILE = 0.25;
+/** Radius of the local ring, from the pin: the neighbourhood the POI must stand out of. */
+export const LOCAL_BASE_RING_M = 2_000;
+/** Directions sampled on that ring. */
+export const LOCAL_BASE_DIRECTIONS = 24;
+/** Median of the land samples: the typical ground around, so a plateau counts as ground. */
+export const LOCAL_BASE_PERCENTILE = 0.5;
 /** A surveyed summit (`natural=peak` with `ele`) this close to the boundary is its top. */
 export const SUMMIT_MATCH_M = 60;
 

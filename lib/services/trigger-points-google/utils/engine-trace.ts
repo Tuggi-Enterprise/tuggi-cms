@@ -60,6 +60,8 @@ export function poiTraceRows(poiId: string, boundary: BoundaryData | undefined):
     row('E4', 'elevation-service#cityBaseElevation', `${m(ph?.cityBaseM)} (${ph?.cityBaseSource ?? 'unmeasured'})`, '',
       ph?.cityBaseM === null ? 'dropped' : 'kept'),
     row('E4', 'visibility-class#prominenceOverCityM', m(ph?.prominenceM), `landmark ≥ ${LANDMARK_MIN_PROMINENCE_M} m`),
+    row('E4', 'elevation-service#localBaseElevation', `local base ${m(ph?.localBaseM)}; local prominence ${m(ph?.localProminenceM)}`,
+      `landmark ≥ ${LANDMARK_MIN_PROMINENCE_M} m`, ph?.localProminenceM === null ? 'dropped' : 'kept'),
     row('E5', 'visibility-class#visibilityClassRule', `${cls ?? 'none'} (${ph?.classRule ?? 'unmeasured'})`,
       `height landmark ≥ ${LANDMARK_MIN_HEIGHT_M} m; structure ≥ ${STRUCTURE_MIN_HEIGHT_M} m`),
     row('E6', 'validation#tpReachCapM', `${tpReachCapM(boundary.classification)} m`,

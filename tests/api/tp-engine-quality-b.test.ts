@@ -37,6 +37,7 @@ function classOf(tags: Record<string, string>, extra: { prominenceM?: number; wM
   return classifyVisibility({
     heightM: resolveHeightM(tags).heightM,
     prominenceM: extra.prominenceM ?? 0,
+    localProminenceM: extra.prominenceM ?? 0,
     areaM2: w * h,
     boundary: rect(w, h),
     tags,

@@ -6,6 +6,9 @@ import { calculateDistance, calculateDistanceToPolygon } from '../utils/calculat
 import {
   CITY_BASE_GRID_STEP_M,
   CITY_BASE_RADIUS_M,
+  LOCAL_BASE_DIRECTIONS,
+  LOCAL_BASE_PERCENTILE,
+  LOCAL_BASE_RING_M,
   SUMMIT_MATCH_M,
   landPercentile,
 } from '../config/visibility-class';
@@ -92,6 +95,22 @@ export class ElevationAnalysisService {
     const result: CityBase = { baseM: landPercentile(await Promise.all(reads)), source: key };
     this.cityBaseCache.set(key, result);
     return result;
+  }
+
+  /**
+   * Local base (E4, #772): median of the land SRTM samples on a ring of LOCAL_BASE_RING_M
+   * around the pin. The class asks for prominence over this too, so a POI on a plateau does
+   * not become a landmark because the city below is low. null when the ring is all sea or the
+   * DEM gave nothing (INV-E4c).
+   */
+  static async localBaseElevation(pin: LatLng, read: ElevationReader = srtmReader): Promise<number | null> {
+    const reads: Promise<number | null>[] = [];
+    for (let k = 0; k < LOCAL_BASE_DIRECTIONS; k++) {
+      const a = (2 * Math.PI * k) / LOCAL_BASE_DIRECTIONS;
+      const p = offsetM(pin, LOCAL_BASE_RING_M * Math.cos(a), LOCAL_BASE_RING_M * Math.sin(a));
+      reads.push(read(p.lat, p.lng));
+    }
+    return landPercentile(await Promise.all(reads), LOCAL_BASE_PERCENTILE);
   }
 
   /**

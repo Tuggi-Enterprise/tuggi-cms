@@ -127,7 +127,7 @@ describe('INV-E5a/b/c / BR-AUDIO-010 — class from the physical, rule recorded'
   it('INV-E5b: peak/hill is landmark; a hill above the prominence threshold is landmark', () => {
     assert.deepEqual(visibilityClassRule({ ...flat, tags: { natural: 'hill', tourism: 'viewpoint' } }),
       { cls: VisibilityClass.LANDMARK_HIGH, rule: 'natural_relief' })
-    assert.deepEqual(visibilityClassRule({ ...flat, prominenceM: LANDMARK_MIN_PROMINENCE_M }),
+    assert.deepEqual(visibilityClassRule({ ...flat, prominenceM: LANDMARK_MIN_PROMINENCE_M, localProminenceM: LANDMARK_MIN_PROMINENCE_M }),
       { cls: VisibilityClass.LANDMARK_HIGH, rule: 'landmark_prominence' })
   })
 

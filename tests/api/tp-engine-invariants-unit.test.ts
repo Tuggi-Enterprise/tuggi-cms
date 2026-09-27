@@ -3,6 +3,7 @@ import assert from 'node:assert/strict'
 import {
   VisibilityClass,
   classifyVisibility,
+  visibilityClassRule,
   resolveHeightM,
   fanHorizonM,
   LANDMARK_MIN_PROMINENCE_M,
@@ -52,8 +53,44 @@ describe('INV-E5b, BR-AUDIO-010 — classifyVisibility: relevo natural vence a t
   })
 
   it('proeminência acima do limiar classifica landmark_high sem tag de relevo (via física, não via nome)', () => {
-    const cls = classifyVisibility({ heightM: 0, prominenceM: LANDMARK_MIN_PROMINENCE_M + 1, areaM2: 0, tags: {} })
+    const cls = classifyVisibility({ heightM: 0, prominenceM: LANDMARK_MIN_PROMINENCE_M + 1, localProminenceM: LANDMARK_MIN_PROMINENCE_M + 1, areaM2: 0, tags: {} })
     assert.equal(cls, VisibilityClass.LANDMARK_HIGH)
+  })
+})
+
+describe('INV-E5b, BR-AUDIO-010 — proeminência sobre a cidade E sobre o anel local (#772)', () => {
+  it('platô: alto sobre a cidade e plano sobre a vizinhança não é landmark (Igreja de Fátima: 245 m sobre a cidade, ~0 local)', () => {
+    const r = visibilityClassRule({ heightM: 0, prominenceM: 245, localProminenceM: 0, areaM2: 400, tags: { building: 'church' } })
+    assert.notEqual(r.cls, VisibilityClass.LANDMARK_HIGH)
+  })
+
+  it('pico sobre a cidade e sobre a vizinhança é landmark (Cristo: 713 m e ~600 m)', () => {
+    assert.equal(visibilityClassRule({ heightM: 12, prominenceM: 713, localProminenceM: 618, areaM2: 0, tags: {} }).rule, 'landmark_prominence')
+  })
+
+  it('proeminência local desconhecida não faz landmark (INV-E5c)', () => {
+    assert.notEqual(visibilityClassRule({ heightM: 0, prominenceM: 300, localProminenceM: null, areaM2: 0, tags: {} }).cls, VisibilityClass.LANDMARK_HIGH)
+  })
+})
+
+describe('INV-E5, BR-AUDIO-010 — altura conhecida de estrutura vem antes da forma', () => {
+  it('um prédio longo e estreito com 15 m é structure, não linear (Museu do Amanhã)', () => {
+    const lng0 = PIN.lng, lat0 = PIN.lat
+    const longNarrow = [
+      { lat: lat0 - 0.0002, lng: lng0 - 0.002 }, { lat: lat0 - 0.0002, lng: lng0 + 0.002 },
+      { lat: lat0 + 0.0002, lng: lng0 + 0.002 }, { lat: lat0 + 0.0002, lng: lng0 - 0.002 },
+    ]
+    const r = visibilityClassRule({ heightM: 15, prominenceM: 14, localProminenceM: 0, areaM2: 11_000, boundary: longNarrow, tags: { tourism: 'museum' } })
+    assert.deepEqual(r, { cls: VisibilityClass.STRUCTURE, rule: 'structure_height' })
+  })
+
+  it('a mesma forma sem altura (orla, praia) continua linear', () => {
+    const lng0 = PIN.lng, lat0 = PIN.lat
+    const longNarrow = [
+      { lat: lat0 - 0.0002, lng: lng0 - 0.002 }, { lat: lat0 - 0.0002, lng: lng0 + 0.002 },
+      { lat: lat0 + 0.0002, lng: lng0 + 0.002 }, { lat: lat0 + 0.0002, lng: lng0 - 0.002 },
+    ]
+    assert.equal(visibilityClassRule({ heightM: 0, prominenceM: 0, localProminenceM: 0, areaM2: 11_000, boundary: longNarrow, tags: { natural: 'beach' } }).cls, VisibilityClass.LINEAR)
   })
 })
 
