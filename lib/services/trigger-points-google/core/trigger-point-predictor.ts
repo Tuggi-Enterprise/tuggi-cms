@@ -611,9 +611,10 @@ export class CoreTriggerPointPredictor {
     context: GeographicContext,
     boundary?: BoundaryData
   ): TriggerPoint[] {
-    const streetPoint = closestStreetPointToPoi(street, centerPoint, boundary?.coordinates)?.point
-      ?? street.coordinates[0];
-    const distance = calculateDistance(centerPoint, streetPoint);
+    const foot = closestStreetPointToPoi(street, centerPoint, boundary?.coordinates);
+    const streetPoint = foot?.point ?? street.coordinates[0];
+    // Distance to the edge when there is one (BR-AUDIO-010).
+    const distance = foot?.distance ?? calculateDistance(centerPoint, streetPoint);
     
     // Usar boundary mais próximo para bearing, não centro
     const closestBoundaryPoint = boundary?.coordinates 
@@ -1791,7 +1792,7 @@ export class CoreTriggerPointPredictor {
           confidence: 0.95,
           quality: 0.95,
           street,
-          distance: calculateDistance(f.location, boundary.center),
+          distance: calculateDistanceToBoundary(f.location, boundary.coordinates),
           generationMethod: 'local_osm',
           contextData: context,
           createdAt: new Date().toISOString(),

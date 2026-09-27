@@ -1,7 +1,8 @@
 // Validador e ranker de trigger points
 
 import { POIData, GeographicContext, TriggerPointCandidate, TriggerPoint, BoundaryData } from '../types/interfaces';
-import { calculateOptimalRadius, calculateDistance, calculateBearing, extractBuildingHeight, normalizeAngleDifference, isPointInPolygon, calculateDistanceToBoundary, distanceToLineSegment } from '../utils/calculations';
+import { calculateOptimalRadius, calculateDistance, calculateBearing, extractBuildingHeight, normalizeAngleDifference, isPointInPolygon, calculateDistanceToBoundary, distanceToLineSegment, findClosestPointOnBoundary } from '../utils/calculations';
+import { SANITY_MAX_TP_DISTANCE_M } from '../config/visibility-class';
 import { getFanReachAtBearing } from '../utils/fan-reach';
 import { ElevationAnalysisService } from '../services/elevation-service';
 import { loadTriggerPointsConfig, TriggerPointsConfig, TRIGGER_POINTS_CONSTANTS } from '../config/trigger-points-config';
@@ -1071,12 +1072,24 @@ export class TriggerPointValidator {
       // depois do validateAndRankPoints.
       //
       // Kill-switch: pass options.qualityFixFanCap = false para desligar.
-      const bearingPoiToCandidate = calculateBearing(boundary.center, candidate.location);
+      // The fan is cast from sample points ON the edge and `candidate.distance` is the
+      // distance to the edge (BR-AUDIO-010), so the bearing also leaves from the edge.
+      const edgePoint = boundary.coordinates?.length >= 3 && candidate.distance > 0
+        ? findClosestPointOnBoundary(candidate.location, boundary.coordinates)
+        : boundary.center;
+      const bearingPoiToCandidate = calculateBearing(edgePoint, candidate.location);
       const fanReach = getFanReachAtBearing(boundary.visibilityFan, bearingPoiToCandidate);
       if (Number.isFinite(fanReach) && candidate.distance > fanReach * 1.1) {
         console.log(`🚫 Candidate rejected (Phase 2.A fan cap): distance ${candidate.distance.toFixed(0)}m > fanReach@${bearingPoiToCandidate.toFixed(0)}° ${fanReach.toFixed(0)}m × 1.1`);
         return false;
       }
+    }
+
+    // Per-class cap on the distance to the edge (BR-AUDIO-010, config/visibility-class.ts).
+    const classCapM = boundary?.classification?.maxEdgeDistanceM;
+    if (classCapM && candidate.distance > classCapM) {
+      console.log(`🚫 Candidate rejected: ${candidate.distance.toFixed(0)}m from the edge > class cap ${classCapM}m`);
+      return false;
     }
 
     // Verificar acessibilidade
@@ -1604,8 +1617,8 @@ export class TriggerPointValidator {
     }
     
     // Verificar distância
-    if (tp.distance < 0 || tp.distance > 2000) {
-      issues.push(`Invalid distance: ${tp.distance}m (must be between 0-2000m)`);
+    if (tp.distance < 0 || tp.distance > SANITY_MAX_TP_DISTANCE_M) {
+      issues.push(`Invalid distance: ${tp.distance}m (must be between 0-${SANITY_MAX_TP_DISTANCE_M}m)`);
     }
     
     // Verificar tipo

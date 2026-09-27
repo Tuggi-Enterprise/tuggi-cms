@@ -158,3 +158,40 @@ describe('BR-AUDIO-010 — whole street, not a vertex: the TP sits in front of t
     assert.equal(p.isCandidateOnStreet({ location: offset({ n: -25, e: 0 }) }, [street]), true)
   })
 })
+
+describe('BR-AUDIO-010 — distance to the EDGE everywhere, not to the center', () => {
+  const offset = (m: { n?: number; e?: number }) => ({ lat: PIN.lat + (m.n ?? 0) / M_PER_DEG_LAT, lng: PIN.lng + (m.e ?? 0) / mPerDegLng })
+  /** Fan with 72 rays of `reachM` from every boundary vertex. */
+  function fan(samples: Array<{ lat: number; lng: number }>, reachM: number) {
+    const polygons = samples.map(s => {
+      const ring = Array.from({ length: 72 }, (_, i) => {
+        const b = (i * 5 * Math.PI) / 180
+        return { lat: s.lat + (Math.cos(b) * reachM) / M_PER_DEG_LAT, lng: s.lng + (Math.sin(b) * reachM) / mPerDegLng }
+      })
+      return [...ring, ring[0]]
+    })
+    return { polygons, samplePoints: samples, maxDistanceM: reachM }
+  }
+  const cand = (at: { lat: number; lng: number }, distance: number) =>
+    ({ location: at, distance, quality: 0.8, confidence: 0.85, street: { type: 'residential' }, expectedBearing: 0 })
+
+  it('a large park keeps the TP on its own waterfront (500 m from center, 30 m from edge)', async () => {
+    const { TriggerPointValidator } = await import('../../lib/services/trigger-points-google/analyzers/validator')
+    const park = rect(1000, 1000)
+    const areaClass = buildClassification(VisibilityClass.AREA, { heightM: 0, prominenceM: 0, areaM2: 1e6 })
+    const boundary = { center: PIN, coordinates: park, visibilityFan: fan(park, 60), classification: areaClass }
+    const v = new TriggerPointValidator(undefined as any) as any
+    const ok = await v.isValidCandidate(cand(offset({ n: -530 }), 30), { location: PIN }, context, boundary, 0)
+    assert.equal(ok, true)
+  })
+
+  it('the class cap rejects a TP beyond the class edge distance', async () => {
+    const { TriggerPointValidator } = await import('../../lib/services/trigger-points-google/analyzers/validator')
+    const small = rect(10, 10)
+    const low = buildClassification(VisibilityClass.POINT_LOW, { heightM: 2, prominenceM: 0, areaM2: 100 })
+    const boundary = { center: PIN, coordinates: small, visibilityFan: fan(small, 300), classification: low }
+    const v = new TriggerPointValidator(undefined as any) as any
+    assert.equal(await v.isValidCandidate(cand(offset({ n: -85 }), 80), { location: PIN }, context, boundary, 0), false)
+    assert.equal(await v.isValidCandidate(cand(offset({ n: -45 }), 40), { location: PIN }, context, boundary, 0), true)
+  })
+})
