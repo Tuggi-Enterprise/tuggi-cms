@@ -88,7 +88,7 @@ describe('BR-AUDIO-010 — reprocessar TP (reprocess_triggers_core) não tem efe
   })
 })
 
-describe('BR-AUDIO-010 — dry-run do motor de TP mede sem gravar', () => {
+describe('BR-AUDIO-010 / INV-E11 — dry-run do motor de TP mede sem gravar, pela mesma pós-condição da gravação', () => {
   it('gera e mede, e não escreve nada no banco (nem TP, nem aprovação, nem fila)', async () => {
     writes.length = 0
     const saved: unknown[][] = []
@@ -100,8 +100,48 @@ describe('BR-AUDIO-010 — dry-run do motor de TP mede sem gravar', () => {
     const nonReadWrites = writes.filter(w => !(w.op === 'rpc' && w.args[0] === 'get_boundary_geometry'))
     assert.deepEqual(nonReadWrites, [])
     const summary = summarizePoi(result)
-    assert.equal(summary.generated.count, 2)
-    assert.equal(summary.generated.beyond_cap, 1)
+    assert.equal(summary.generated.count, 1, 'o dry-run corta como a gravação corta')
+    assert.equal(summary.generated.dropped.beyond_reach, 1)
+    const far = result.rows.find((r: any) => r.source === 'generated' && r.generation_method === 'fallback_recovery')
+    assert.equal(far?.drop_reason, 'beyond_reach')
+  })
+
+  it('INV-E11: dry-run e gravação produzem o mesmo conjunto de TPs para o mesmo POI', async () => {
+    const { VisibilityClass } = await import('@/lib/services/trigger-points-google/config/visibility-class')
+    const d = 0.0003 // ~33 m
+    const square = [
+      { lat: PIN.lat - d, lng: PIN.lng - d }, { lat: PIN.lat - d, lng: PIN.lng + d },
+      { lat: PIN.lat + d, lng: PIN.lng + d }, { lat: PIN.lat + d, lng: PIN.lng - d },
+    ]
+    const tp = (id: string, dLat: number) => ({ id, location: { lat: PIN.lat + dLat, lng: PIN.lng }, radius: 30, type: 'primary', confidence: 0.9, generationMethod: id })
+    const saved: unknown[][] = []
+    stubEngine(saved)
+    CoreTriggerPointPredictor.prototype.predictTriggerPointsComplete = async () => ({
+      triggerPoints: [tp('front', d + 0.0003), tp('inside', 0), tp('far', d + 0.01)],
+      boundary: { source: 'osm', coordinates: square, center: PIN, classification: { group: VisibilityClass.STRUCTURE, maxEdgeDistanceM: 150 } },
+    })
+    await PoiMigrationPipeline.executePipeline('poi-1', { mode: 'reprocess_triggers_core' })
+    const { dryRunPoi } = await import('@/lib/services/tp-dry-run')
+    const result = await dryRunPoi('poi-1')
+    const key = (p: { lat: number; lng: number }) => `${p.lat.toFixed(7)},${p.lng.toFixed(7)}`
+    const savedSet = (saved[0] as any[]).map(key).sort()
+    const dryKept = result.rows.filter((r: any) => r.source === 'generated' && !r.drop_reason).map(key).sort()
+    assert.deepEqual(dryKept, savedSet)
+    assert.equal(savedSet.length, 1)
+    const reasons = Object.fromEntries(result.rows.filter((r: any) => r.source === 'generated').map((r: any) => [r.generation_method, r.drop_reason]))
+    assert.deepEqual(reasons, { front: '', inside: 'inside_poi', far: 'beyond_reach' })
+  })
+
+  it('CSV: coluna drop_reason e campo com vírgula entre aspas', async () => {
+    const { toCsvLines, DRY_RUN_CSV_COLUMNS, measureTriggerPoints } = await import('@/lib/services/tp-dry-run')
+    assert.equal(DRY_RUN_CSV_COLUMNS[DRY_RUN_CSV_COLUMNS.length - 1], 'drop_reason')
+    const rows = measureTriggerPoints({
+      attractionId: 'poi-1', poiName: 'Praia, Recreio', pin: PIN, boundarySource: 'osm', source: 'generated',
+      tps: [{ lat: PIN.lat, lng: PIN.lng, type: 'primary', generation_method: 'x', radius_m: 20, bearing: 0, drop_reason: 'unfireable' }],
+    })
+    const [line] = toCsvLines(rows)
+    assert.ok(line.includes('"Praia, Recreio"'), line)
+    assert.ok(line.endsWith(',unfireable'), line)
   })
 
   it('mede distância ao pino e à borda por TP', async () => {

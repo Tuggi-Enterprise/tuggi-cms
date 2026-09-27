@@ -8,6 +8,7 @@ import { TriggerPoint } from '../types/interfaces';
 import { calculateDistance, isPointInPolygon } from './calculations';
 import { EDGE_BAND_M, VisibilityClass, proximityBand, touristCanBeInside } from '../config/visibility-class';
 import { isApproachableForBearing } from '../../../geometry';
+import { partitionByPoiReach, tpReachCapM } from './validation';
 
 type SelectionClassification = {
   group?: VisibilityClass;
@@ -149,4 +150,32 @@ export function dropInsidePoi<T extends { location: LatLng }>(
     }
   }
   return tps.filter(tp => !rings.some(r => isPointInPolygon(tp.location, r)));
+}
+
+export type TpDropReason = 'beyond_reach' | 'unfireable' | 'inside_poi';
+
+type PostConditionBoundary = NonNullable<Parameters<typeof dropInsidePoi>[1]> & {
+  classification?: { group?: VisibilityClass; maxEdgeDistanceM?: number };
+};
+
+/**
+ * E11 post-conditions (INV-E11, BR-AUDIO-010): the ONE step that decides which TPs are
+ * written. The save (`poi-migration-pipeline`), the API routes that save, the dry-run
+ * (`tp-dry-run`) and the engine itself call it, so a dry-run number predicts the save.
+ * Order: reach cap (`tpReachCapM`, measured to the edge) → fires in a legal direction →
+ * not inside the POI.
+ */
+export function applyTpPostConditions<T extends TriggerPoint>(
+  tps: T[],
+  poiPin: LatLng,
+  boundary?: PostConditionBoundary | null
+): { kept: T[]; dropped: Array<{ tp: T; reason: TpDropReason }>; reachCapM: number } {
+  const reachCapM = tpReachCapM(boundary?.classification);
+  const reach = partitionByPoiReach(tps, tp => tp.location, poiPin, boundary?.coordinates, reachCapM);
+  const dropped: Array<{ tp: T; reason: TpDropReason }> = reach.dropped.map(d => ({ tp: d.item, reason: 'beyond_reach' }));
+  const fireable = dropUnfireable(reach.kept) as T[];
+  for (const tp of reach.kept) if (!fireable.includes(tp)) dropped.push({ tp, reason: 'unfireable' });
+  const kept = dropInsidePoi(fireable, boundary);
+  for (const tp of fireable) if (!kept.includes(tp)) dropped.push({ tp, reason: 'inside_poi' });
+  return { kept, dropped, reachCapM };
 }

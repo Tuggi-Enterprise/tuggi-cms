@@ -17,10 +17,6 @@
  *                              filters but reads from core.attractions. Skips enrichment + migration; runs
  *                              ONLY Step 4 (TP generation). TP saves are atomic replace_all — idempotent.
  *                              Intended for Phase 0 data harvesting on already-migrated POIs.
- *   --quality-fix-fan-cap false  Kill-switch for Phase 2.A. The fan-cap (reject candidate TPs farther than
- *                              the fan's reach in their bearing × 1.1) is ON by default since 2026-05-29.
- *                              Pass `false` to fall back to the legacy "fan-mode skips distance cap" behavior
- *                              (for A/B against future quality changes).
  *
  * Output:
  *   migration-results-<ts>.json  Stats + per-step timings (machine-readable)
@@ -91,7 +87,6 @@ interface ScriptOptions {
   shuffle?: boolean
   debug_quality?: boolean
   from_core?: boolean
-  quality_fix_fan_cap?: boolean
 }
 
 /**
@@ -214,9 +209,6 @@ async function main() {
         case 'from-core':
           options.from_core = value === 'true'
           break
-        case 'quality-fix-fan-cap':
-          options.quality_fix_fan_cap = value === 'true'
-          break
       }
     }
   }
@@ -244,8 +236,6 @@ async function main() {
   // Override mode if reprocessing from core. The pipeline's reprocess_triggers_core
   // mode treats uuid_id as attraction_id directly and skips Enrichment/Migration.
   const effectiveMode = fromCore ? 'reprocess_triggers_core' : mode
-  // Phase 2.A — cap candidate TPs by visibility fan reach in their bearing.
-  const qualityFixFanCap = options.quality_fix_fan_cap ?? false
 
   const runStartedAt = new Date()
   const runStamp = runStartedAt.getTime()
@@ -271,8 +261,7 @@ async function main() {
     shuffle,
     debug_quality: debugQuality,
     from_core: fromCore,
-    effective_mode: effectiveMode,
-    quality_fix_fan_cap: qualityFixFanCap
+    effective_mode: effectiveMode
   })
 
   if (options.processing_status === 'all') {
@@ -413,8 +402,7 @@ async function main() {
     skip_if_exists: skipIfExists,
     update_if_exists: updateIfExists,
     mode: effectiveMode as PipelineOptions['mode'],
-    debug_quality: debugQuality,
-    quality_fix_fan_cap: qualityFixFanCap
+    debug_quality: debugQuality
   }
 
   const startedAt = Date.now()

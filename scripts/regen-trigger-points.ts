@@ -278,7 +278,7 @@ async function dryRun(opts: { ids?: string[]; bbox?: [number, number, number, nu
     summaries.push(summary)
     // Resumo reescrito a cada POI: um crash no meio não perde o que já foi medido.
     fs.writeFileSync(summaryPath, JSON.stringify({ bbox: opts.bbox ?? null, total: ids.length, pois: summaries }, null, 2))
-    console.log(`[${i + 1}/${ids.length}] ${summary.poi_name || attractionId}: atual ${summary.current.count} (${summary.current.beyond_cap} além do teto) → gerado ${summary.generated.count} (${summary.generated.beyond_cap})${summary.error ? ` ❌ ${summary.error}` : ''}`)
+    console.log(`[${i + 1}/${ids.length}] ${summary.poi_name || attractionId}: atual ${summary.current.count} (${summary.current.beyond_cap} além do teto) → gerado ${summary.generated.count} (cortados: ${JSON.stringify(summary.generated.dropped)})${summary.error ? ` ❌ ${summary.error}` : ''}`)
   }
   console.log(`\n✅ Dry-run concluído.\n   ${csvPath}\n   ${summaryPath}`)
 }

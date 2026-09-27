@@ -12,8 +12,7 @@ import { deterministicTPId } from '../utils/deterministic';
 import { loadTriggerPointsConfig, TriggerPointsConfig, TRIGGER_POINTS_CONSTANTS } from '../config/trigger-points-config';
 import { VisibilityClass, LANDMARK_MIN_PROMINENCE_M, EDGE_BAND_M, fanHorizonM, isNaturalRelief } from '../config/visibility-class';
 import { emitDebugQuality, DebugQualitySnapshot } from '../debug-quality-logger';
-import { partitionByPoiReach, tpReachCapM } from '../utils/validation';
-import { selectSpacedTriggerPoints, dropUnfireable, dropInsidePoi } from '../utils/tp-selection';
+import { selectSpacedTriggerPoints, applyTpPostConditions } from '../utils/tp-selection';
 
 // Defaults baked into VisibilityMapBuilder.buildFan() — used by debug-quality
 // emission when the fan is present (the boundary.visibilityFan type flattens
@@ -429,7 +428,6 @@ export class CoreTriggerPointPredictor {
           validateCorridor: options.validateCorridor,
           clusterIntersections: options.clusterIntersections,
           intersectionClusterRadiusM: options.intersectionClusterRadiusM,
-          qualityFixFanCap: options.qualityFixFanCap,
         }
       );
       _validatedCount = validatedPoints.length;
@@ -520,12 +518,11 @@ export class CoreTriggerPointPredictor {
   ): Promise<TriggerPoint[]> {
     const candidates = await this.buildRecoveryFallbackCandidates(poiData, context, boundary);
     // Teto de sanidade (BR-AUDIO-010): fallback longe do POI é descartado, não gravado.
-    const capM = tpReachCapM(boundary?.classification);
-    const { kept, dropped } = partitionByPoiReach(candidates, tp => tp.location, poiData.location, boundary?.coordinates, capM);
-    for (const { item, distanceM } of dropped) {
-      console.warn(`🚫 [FALLBACK] TP ${item.id} dropped: ${distanceM.toFixed(0)}m from POI (cap ${capM}m)`);
+    const { kept, dropped, reachCapM } = applyTpPostConditions(candidates, poiData.location, boundary);
+    for (const { tp, reason } of dropped) {
+      console.warn(`🚫 [FALLBACK] TP ${tp.id} dropped: ${reason} (reach cap ${reachCapM}m)`);
     }
-    return dropInsidePoi(kept, boundary);
+    return kept;
   }
 
   private async buildRecoveryFallbackCandidates(
@@ -1376,10 +1373,10 @@ export class CoreTriggerPointPredictor {
     if (options.minQuality !== undefined) {
       filtered = filtered.filter(tp => tp.quality >= options.minQuality!);
     }
-    // Same reach ruler as the save gate (poi-migration-pipeline) and the dry-run: the engine
-    // never emits a TP the save would drop, so a closer candidate takes its slot (#779).
-    filtered = partitionByPoiReach(filtered, tp => tp.location, poiPin, boundary?.coordinates, tpReachCapM(boundary?.classification)).kept;
-    const accepted = selectSpacedTriggerPoints(dropInsidePoi(dropUnfireable(filtered), boundary), boundary?.classification);
+    // Same post-conditions as the save and the dry-run (INV-E11): the engine never emits a TP
+    // the save would drop, so a closer candidate takes its slot before spacing (#779).
+    const passed = applyTpPostConditions(filtered, poiPin, boundary).kept;
+    const accepted = selectSpacedTriggerPoints(passed, boundary?.classification);
     if (options.maxTriggerPoints !== undefined && accepted.length > options.maxTriggerPoints) {
       console.log(`✂️ Caller-set max: trimming ${accepted.length} → ${options.maxTriggerPoints}`);
       return accepted.slice(0, options.maxTriggerPoints);

@@ -1,6 +1,9 @@
 /**
  * Dry-run do motor de TP: gera como a gravação geraria e mede, sem escrever nada.
  *
+ * Passa pela mesma pós-condição da gravação (`applyTpPostConditions`, INV-E11): o TP que a
+ * gravação cortaria sai cortado aqui também, com o motivo em `drop_reason`.
+ *
  * Só leitura no banco (SELECT e RPC de leitura). Não chama saveTriggerPoints, não aprova
  * POI, não toca tp_regen_queue. Para cada POI devolve uma linha por TP — os gerados agora
  * e os gravados hoje — com a distância à borda e ao pino, para comparar antes × depois
@@ -13,7 +16,8 @@ import { PoiMigrationPipeline, TP_ENGINE_OPTIONS } from './poi-migration-pipelin
 import { CoreTriggerPointPredictor } from './trigger-points-google/core/trigger-point-predictor'
 import { BoundaryDetector } from './trigger-points-google/core/boundary-detector'
 import { calculateDistance, calculateDistanceToPolygon } from './trigger-points-google/utils/calculations'
-import { UNCLASSIFIED_MAX_TP_DISTANCE_M, distanceFromPoiM, tpReachCapM } from './trigger-points-google/utils/validation'
+import { UNCLASSIFIED_MAX_TP_DISTANCE_M, distanceFromPoiM } from './trigger-points-google/utils/validation'
+import { applyTpPostConditions, type TpDropReason } from './trigger-points-google/utils/tp-selection'
 
 type LatLng = { lat: number; lng: number }
 
@@ -24,6 +28,8 @@ export interface TpMetricInput {
   generation_method: string | null
   radius_m: number | null
   bearing: number | null
+  /** generated only: why the post-conditions dropped it; empty when kept */
+  drop_reason?: TpDropReason | ''
 }
 
 export interface TpMetricRow extends TpMetricInput {
@@ -36,6 +42,7 @@ export interface TpMetricRow extends TpMetricInput {
   dist_to_boundary_m: number | null
   /** the POI class save cap (tpReachCapM) would drop this TP */
   beyond_cap: boolean
+  drop_reason: TpDropReason | ''
 }
 
 export interface PoiDryRunResult {
@@ -69,6 +76,7 @@ export function measureTriggerPoints(args: {
       dist_to_pin_m: round(calculateDistance(at, args.pin)),
       dist_to_boundary_m: hasBoundary ? round(calculateDistanceToPolygon(at, args.boundaryCoords!)) : null,
       beyond_cap: distanceFromPoiM(at, args.pin, args.boundaryCoords) > (args.capM ?? UNCLASSIFIED_MAX_TP_DISTANCE_M),
+      drop_reason: tp.drop_reason ?? '',
     }
   })
 }
@@ -135,7 +143,8 @@ export async function dryRunPoi(attractionId: string): Promise<PoiDryRunResult> 
 
   try {
     const prediction = await new CoreTriggerPointPredictor().predictTriggerPointsComplete(poiData, { ...TP_ENGINE_OPTIONS })
-    const capM = tpReachCapM(prediction.boundary?.classification)
+    const post = applyTpPostConditions(prediction.triggerPoints ?? [], poiData.location, prediction.boundary)
+    const capM = post.reachCapM
     // Before × after under the same cap: the class the engine assigns now.
     for (const r of rows) r.beyond_cap = (r.dist_to_boundary_m ?? r.dist_to_pin_m) > capM
     rows.push(...measureTriggerPoints({
@@ -144,13 +153,17 @@ export async function dryRunPoi(attractionId: string): Promise<PoiDryRunResult> 
       source: 'generated',
       boundaryCoords: prediction.boundary?.coordinates,
       boundarySource: prediction.boundary?.source ?? null,
-      tps: (prediction.triggerPoints ?? []).map(tp => ({
+      tps: [
+        ...post.kept.map(tp => ({ tp, reason: '' as const })),
+        ...post.dropped,
+      ].map(({ tp, reason }) => ({
         lat: tp.location.lat,
         lng: tp.location.lng,
         type: tp.type ?? null,
         generation_method: tp.generationMethod ?? null,
         radius_m: tp.radius ?? null,
         bearing: tp.expectedBearing ?? null,
+        drop_reason: reason,
       })),
     }))
     return { attraction_id: attractionId, poi_name: poiData.name, error: null, rows }
@@ -161,7 +174,7 @@ export async function dryRunPoi(attractionId: string): Promise<PoiDryRunResult> 
 
 export const DRY_RUN_CSV_COLUMNS: Array<keyof TpMetricRow> = [
   'attraction_id', 'poi_name', 'source', 'boundary_source', 'type', 'generation_method',
-  'radius_m', 'bearing', 'lat', 'lng', 'dist_to_pin_m', 'dist_to_boundary_m', 'beyond_cap',
+  'radius_m', 'bearing', 'lat', 'lng', 'dist_to_pin_m', 'dist_to_boundary_m', 'beyond_cap', 'drop_reason',
 ]
 
 export function toCsvLines(rows: TpMetricRow[]): string[] {
@@ -173,15 +186,23 @@ export function toCsvLines(rows: TpMetricRow[]): string[] {
   return rows.map(r => DRY_RUN_CSV_COLUMNS.map(c => cell(r[c])).join(','))
 }
 
-/** Resumo por POI: contagem, TPs além do teto e distância máxima, antes × depois. */
+/**
+ * Resumo por POI, antes × depois. `generated.count` é o que a gravação gravaria (os mantidos);
+ * `generated.dropped` conta os cortados pela pós-condição, por motivo.
+ */
 export function summarizePoi(result: PoiDryRunResult) {
   const side = (source: 'current' | 'generated') => {
-    const rows = result.rows.filter(r => r.source === source)
+    const rows = result.rows.filter(r => r.source === source && !r.drop_reason)
     return {
       count: rows.length,
       beyond_cap: rows.filter(r => r.beyond_cap).length,
       max_dist_to_pin_m: rows.length ? Math.max(...rows.map(r => r.dist_to_pin_m)) : null,
     }
   }
-  return { attraction_id: result.attraction_id, poi_name: result.poi_name, error: result.error, current: side('current'), generated: side('generated') }
+  const dropped: Record<TpDropReason, number> = { beyond_reach: 0, unfireable: 0, inside_poi: 0 }
+  for (const r of result.rows) if (r.source === 'generated' && r.drop_reason) dropped[r.drop_reason]++
+  return {
+    attraction_id: result.attraction_id, poi_name: result.poi_name, error: result.error,
+    current: side('current'), generated: { ...side('generated'), dropped },
+  }
 }

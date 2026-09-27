@@ -269,16 +269,6 @@ export interface TriggerPointGenerationOptions {
    * `scripts/migrate-pois-batch.ts`.
    */
   debugQuality?: boolean;
-  /**
-   * Phase 2.A — Cap-by-visibility. Candidate TPs are rejected if their
-   * distance from the POI center exceeds the visibility fan's reach in the
-   * candidate's bearing (with 10% slack). Targets the "fan_mean ~300m but
-   * TP at 2km" pattern seen in Phase 0 (Vail Lake, Robert W. Crown Beach,
-   * etc.). **On by default** since 2026-05-29 after A/B validated -61% TPs in
-   * 200-1500m bucket without regressions. Pass `false` to disable as a
-   * kill-switch; `--quality-fix-fan-cap false` on the batch script.
-   */
-  qualityFixFanCap?: boolean;
 }
 
 export interface TriggerPointGenerationResult {

@@ -58,10 +58,6 @@ export interface PipelineOptions {
   // per POI from the predictor. No behavior change. Pure observation, gated
   // by `--debug-quality true` on `scripts/migrate-pois-batch.ts`.
   debug_quality?: boolean
-  // Phase 2.A — Cap candidate TPs by the visibility fan's reach in their
-  // bearing. Closes the "fan_mean ~300m but TP at 2km" leak observed in
-  // Phase 0. Off by default; opt in via `--quality-fix-fan-cap true`.
-  quality_fix_fan_cap?: boolean
 }
 
 export interface PipelineStepResult {
@@ -102,8 +98,7 @@ export class PoiMigrationPipeline {
       mode = 'enrichment_migration_triggers', // NEW DEFAULT: Enrichment -> Migration -> Triggers
       languages = ['pt-br'],
       voice_gender = 'male',
-      debug_quality = false,
-      quality_fix_fan_cap = false
+      debug_quality = false
     } = options
 
     try {
@@ -117,7 +112,7 @@ export class PoiMigrationPipeline {
         
         // Directly to Step 4: Generate Trigger Points
         console.log(`📍 Step 4: Generating trigger points for ${attraction_id}...`)
-        const triggerPointsStep = await this.executeTriggerPointsStep(attraction_id, { debug_quality, quality_fix_fan_cap })
+        const triggerPointsStep = await this.executeTriggerPointsStep(attraction_id, { debug_quality })
         steps.push(triggerPointsStep)
 
         if (!triggerPointsStep.success) {
@@ -314,7 +309,7 @@ export class PoiMigrationPipeline {
 
       // Step 4: Generate Trigger Points
       console.log(`📍 Step 4: Generating trigger points for ${attraction_id}...`)
-      const triggerPointsStep = await this.executeTriggerPointsStep(attraction_id, { debug_quality, quality_fix_fan_cap })
+      const triggerPointsStep = await this.executeTriggerPointsStep(attraction_id, { debug_quality })
       steps.push(triggerPointsStep)
 
       // If trigger points fail, rollback and stop (critical for approval)
@@ -740,7 +735,7 @@ export class PoiMigrationPipeline {
    */
   private static async executeTriggerPointsStep(
     attraction_id: string,
-    opts: { debug_quality?: boolean; quality_fix_fan_cap?: boolean } = {}
+    opts: { debug_quality?: boolean } = {}
   ): Promise<PipelineStepResult> {
     const stepStart = Date.now()
 
@@ -774,8 +769,7 @@ export class PoiMigrationPipeline {
       const predictor = new CoreTriggerPointPredictor()
       const predictionResult = await predictor.predictTriggerPointsComplete(poiData, {
         ...TP_ENGINE_OPTIONS,
-        debugQuality: opts.debug_quality,
-        qualityFixFanCap: opts.quality_fix_fan_cap
+        debugQuality: opts.debug_quality
       })
 
       if (!predictionResult.triggerPoints || predictionResult.triggerPoints.length === 0) {
@@ -796,8 +790,28 @@ export class PoiMigrationPipeline {
       console.log(`   💾 Saving trigger points to database...`)
       const { TriggerPointSavingService } = await import('./trigger-point-saving')
       
+      // E11 post-conditions (INV-E11, BR-AUDIO-010): the same step the dry-run runs, so its
+      // numbers predict this save. A TP far from, inside, or unfireable for the POI never
+      // reaches the database.
+      const { applyTpPostConditions } = await import('./trigger-points-google/utils/tp-selection')
+      const post = applyTpPostConditions(predictionResult.triggerPoints, poiData.location, predictionResult.boundary)
+      if (post.dropped.length > 0) {
+        const byReason = post.dropped.reduce<Record<string, number>>((acc, d) => ({ ...acc, [d.reason]: (acc[d.reason] ?? 0) + 1 }), {})
+        console.warn(`   🚫 ${post.dropped.length} TP(s) dropped by post-conditions (reach cap ${post.reachCapM}m): ${JSON.stringify(byReason)}`)
+      }
+      if (post.kept.length === 0) {
+        const errorMsg = `All ${triggerPointsCount} trigger points failed the post-conditions (reach cap ${post.reachCapM}m)`
+        console.error(`   ❌ ${errorMsg}`)
+        return {
+          step: 'trigger_points',
+          success: false,
+          error: errorMsg,
+          processing_time: Date.now() - stepStart
+        }
+      }
+
       // Convert TriggerPoint[] to TriggerPointSaveData[]
-      const triggerPointsToSave = predictionResult.triggerPoints.map(tp => ({
+      const triggerPointsToSave = post.kept.map(tp => ({
         attraction_id,
         lat: tp.location.lat,
         lng: tp.location.lng,
@@ -816,34 +830,9 @@ export class PoiMigrationPipeline {
         geometry_geojson: tp.geometryGeoJson || null,
       }))
       
-      // Per-visibility-class cap before saving (BR-AUDIO-010; provisional values in
-      // config/visibility-class.ts). A TP far from the POI never reaches the database.
-      const { partitionByPoiReach, tpReachCapM } = await import('./trigger-points-google/utils/validation')
-      const reachCapM = tpReachCapM(predictionResult.boundary?.classification)
-      const reach = partitionByPoiReach(
-        triggerPointsToSave,
-        tp => ({ lat: tp.lat, lng: tp.lng }),
-        poiData.location,
-        predictionResult.boundary?.coordinates,
-        reachCapM
-      )
-      if (reach.dropped.length > 0) {
-        console.warn(`   🚫 ${reach.dropped.length} TP(s) beyond ${reachCapM}m from the POI were dropped (max ${Math.max(...reach.dropped.map(d => d.distanceM)).toFixed(0)}m)`)
-      }
-      if (reach.kept.length === 0) {
-        const errorMsg = `All ${triggerPointsToSave.length} trigger points are beyond ${reachCapM}m from the POI`
-        console.error(`   ❌ ${errorMsg}`)
-        return {
-          step: 'trigger_points',
-          success: false,
-          error: errorMsg,
-          processing_time: Date.now() - stepStart
-        }
-      }
-
       const saveResult = await TriggerPointSavingService.saveTriggerPoints(
         attraction_id,
-        reach.kept,
+        triggerPointsToSave,
         {
           mode: 'replace_all',
           boundarySource: predictionResult.boundary?.source || 'unknown'

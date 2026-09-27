@@ -100,7 +100,6 @@ export class TriggerPointValidator {
       validateCorridor?: boolean;
       clusterIntersections?: boolean;
       intersectionClusterRadiusM?: number;
-      qualityFixFanCap?: boolean;
     } = {}
   ): Promise<TriggerPoint[]> {
     // NÃO sobrescrever maxTriggerPoints/minDistanceBetweenTPs com a classificação:
@@ -122,9 +121,7 @@ export class TriggerPointValidator {
       // ✅ VALIDAÇÃO BÁSICA COMPLETA
       const basicValidCandidates = [];
       for (const candidate of candidates) {
-        const isValid = await this.isValidCandidate(candidate, poiData, context, boundary, baseElevation, {
-          qualityFixFanCap: options.qualityFixFanCap,
-        });
+        const isValid = await this.isValidCandidate(candidate, poiData, context, boundary, baseElevation);
         if (isValid) {
           basicValidCandidates.push(candidate);
         }
@@ -989,8 +986,7 @@ export class TriggerPointValidator {
     poiData: POIData,
     context: GeographicContext,
     boundary?: BoundaryData,
-    cachedBaseElevation?: number | null,
-    opts?: { qualityFixFanCap?: boolean }
+    cachedBaseElevation?: number | null
   ): Promise<boolean> {
     // Verificar qualidade mínima
     if (candidate.quality < 0.3) {
@@ -1039,7 +1035,7 @@ export class TriggerPointValidator {
         console.log(`🚫 Candidate rejected: distance ${candidate.distance.toFixed(0)}m > ${maxDistance}m`);
         return false;
       }
-    } else if (opts?.qualityFixFanCap !== false && boundary) {
+    } else if (boundary) {
       // Phase 2.A — cap por visibilidade real (default on desde 2026-05-29).
       // O fan mode antigo pulava qualquer cap apostando que o fan filtrava
       // fisicamente, mas o fan tem resolução grossa (5° × 100m) e candidatos
@@ -1053,7 +1049,8 @@ export class TriggerPointValidator {
       // fan colapsado continuam protegidos por buildFrontalArrivalTP que roda
       // depois do validateAndRankPoints.
       //
-      // Kill-switch: pass options.qualityFixFanCap = false para desligar.
+      // Always on (INV-E11, #779): the save and the dry-run run the same engine, and the
+      // batch kill-switch (`quality_fix_fan_cap = false`) made the save skip this cap.
       // The fan is cast from sample points ON the edge and `candidate.distance` is the
       // distance to the edge (BR-AUDIO-010), so the bearing also leaves from the edge.
       const edgePoint = boundary.coordinates?.length >= 3 && candidate.distance > 0
