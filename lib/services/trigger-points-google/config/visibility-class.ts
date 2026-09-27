@@ -105,6 +105,24 @@ export function isCarStreet(streetType?: string): boolean {
   return !!streetType && !NON_CAR_STREET_TYPES.includes(streetType);
 }
 
+/** `access` values that close a way to the public (#772: Ilha Fiscal's TP sat on the Navy's private dock). */
+export const CLOSED_ACCESS_VALUES = ['private', 'no', 'military'];
+/** Mode tags that reopen a closed way to someone the app serves (on foot or driving). */
+const PUBLIC_MODE_TAGS = ['foot', 'motor_vehicle', 'motorcar', 'vehicle'];
+const OPEN_MODE_VALUES = ['yes', 'designated', 'permissive', 'destination'];
+
+/**
+ * A way the public may use: no TP on a way closed by `access` (unless a mode tag reopens it) or
+ * tagged `military=*` (BR-AUDIO-010: the TP is where the tourist passes). A tag of the WAY, not
+ * of the POI: it says where the TP may stand, not what the POI is.
+ */
+export function isPublicWay(tags?: Record<string, unknown> | null): boolean {
+  if (!tags) return true;
+  if (String(tags.military ?? '') !== '') return false;
+  if (!CLOSED_ACCESS_VALUES.includes(String(tags.access ?? ''))) return true;
+  return PUBLIC_MODE_TAGS.some(k => OPEN_MODE_VALUES.includes(String(tags[k] ?? '')));
+}
+
 export function landmarkStreetTier(streetType?: string): 0 | 1 | 2 {
   if (LANDMARK_TOURIST_STREET_TYPES.includes(streetType ?? '')) return 0;
   if (LANDMARK_AVOID_STREET_TYPES.includes(streetType ?? '')) return 2;

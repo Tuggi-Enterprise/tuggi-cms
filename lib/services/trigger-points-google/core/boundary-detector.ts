@@ -233,7 +233,7 @@ export class BoundaryDetector {
   private async withClassification(boundary: BoundaryData, poiData: POIData): Promise<BoundaryData> {
     // Always measured here, on the FINAL boundary (E3 → E4 → E5, P8): on the name path the class
     // was decided before the height and the 2nd elevation read, and Cristo left with height 0.
-    const loose = poiData as POIData & { tags?: Record<string, unknown>; height?: number };
+    const loose = poiData as POIData & { tags?: Record<string, unknown> };
     const tags = (boundary.osmTags ?? poiData.osm_tags ?? loose.tags) as Record<string, unknown> | undefined;
     const { measureAndClassify } = await import('../services/poi-classifier.service');
     const { classification, physical } = await measureAndClassify({
@@ -242,7 +242,8 @@ export class BoundaryDetector {
       synthetic: boundary.synthetic,
       areaM2: boundary.area_m2,
       tags,
-      knownHeightM: boundary.height ?? loose.height ?? undefined,
+      // Measured only: never a height the caller registered on the POI (INV-E3).
+      knownHeightM: boundary.height ?? undefined,
       peaks: peakPoints(boundary.peaks),
       context: boundary.cachedContext,
     });

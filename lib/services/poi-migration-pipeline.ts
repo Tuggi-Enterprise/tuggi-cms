@@ -727,7 +727,8 @@ export class PoiMigrationPipeline {
       state: poi.state,
       osm_id: osmId,
       osm_type: osmType,
-      height: poi.estimated_height_m,
+      // No `estimated_height_m`: it is registered data, not measured. Height comes from the OSM
+      // tags or a building inside the footprint (INV-E3, operator 2026-09-27).
       tags: poi.osm_tags
     }
   }

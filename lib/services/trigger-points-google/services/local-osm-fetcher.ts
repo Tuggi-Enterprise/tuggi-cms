@@ -4,6 +4,7 @@ import fs from 'fs';
 import { POIData, BoundaryData, StreetData } from '../types/interfaces';
 import { BuildingData, OSMDataBundle } from './osm-data-fetcher';
 import { TRIGGER_POINTS_CONSTANTS } from '../config/trigger-points-config';
+import { isPublicWay } from '../config/visibility-class';
 
 /**
  * 🌍 LOCAL OSM FETCHER — Singleton
@@ -152,7 +153,16 @@ export class LocalOSMFetcher {
    * Caminho legado: mantido pra retrocompatibilidade com máquinas que ainda não
    * rodaram o hotfix. Resultado é semanticamente idêntico — mesmas rows.
    */
-  private queryStreets(bbox: { minLat: number; maxLat: number; minLng: number; maxLng: number }, types?: string[]) {
+  /**
+   * Every street read goes through here, so a way closed to the public never reaches E7 on any
+   * path (main, perimeter, reach rescue, far tiles): `config/visibility-class#isPublicWay`.
+   */
+  private queryStreets(bbox: { minLat: number; maxLat: number; minLng: number; maxLng: number }, types?: string[]): any[] {
+    return this.queryStreetRows(bbox, types).filter((row: any) =>
+      !row.tags_json || !/"(access|military)"/.test(row.tags_json) || isPublicWay(JSON.parse(row.tags_json)));
+  }
+
+  private queryStreetRows(bbox: { minLat: number; maxLat: number; minLng: number; maxLng: number }, types?: string[]): any[] {
     if (!this.db) return [];
     if (types?.length) {
       const marks = types.map(() => '?').join(',');
