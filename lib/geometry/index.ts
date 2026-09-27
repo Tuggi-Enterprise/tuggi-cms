@@ -37,6 +37,7 @@ import {
   calculateBearing,
   normalizeAngleDifference,
   isPointInPolygon,
+  closestPointOnPolyline,
 } from '../services/trigger-points-google/utils/calculations';
 
 // =====================================================================
@@ -210,11 +211,20 @@ export function classifyStreetVsBoundary(
  */
 export function getStreetTravelDirections(
   coords: GeoPoint[],
-  oneway?: string | null
+  oneway?: string | null,
+  at?: GeoPoint
 ): number[] {
   if (coords.length < 2) return [];
 
-  const forward = calculateBearing(coords[0], coords[coords.length - 1]);
+  // Local tangent of the stretch under `at` (BR-AUDIO-010): the first→last chord of a
+  // curved or looping way points anywhere. Without `at`, the chord (legacy).
+  let from = coords[0];
+  let to = coords[coords.length - 1];
+  if (at) {
+    const proj = closestPointOnPolyline(at, coords);
+    if (proj) { from = coords[proj.segmentIndex]; to = coords[proj.segmentIndex + 1] ?? to; }
+  }
+  const forward = calculateBearing(from, to);
   const reverse = (forward + 180) % 360;
 
   const tag = (oneway || '').toLowerCase();
@@ -238,9 +248,10 @@ export function getStreetTravelDirections(
 export function isApproachableForBearing(
   streetCoords: GeoPoint[],
   oneway: string | null | undefined,
-  expectedBearing: number
+  expectedBearing: number,
+  at?: GeoPoint
 ): boolean {
-  const travelDirs = getStreetTravelDirections(streetCoords, oneway);
+  const travelDirs = getStreetTravelDirections(streetCoords, oneway, at);
   if (travelDirs.length === 0) return true; // no info → don't filter
   return travelDirs.some(dir => getDirectionZone(expectedBearing, dir) !== 'back');
 }

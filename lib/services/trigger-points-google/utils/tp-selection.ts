@@ -7,6 +7,7 @@
 import { TriggerPoint } from '../types/interfaces';
 import { calculateDistance } from './calculations';
 import { EDGE_BAND_M, VisibilityClass, proximityBand } from '../config/visibility-class';
+import { isApproachableForBearing } from '../../../geometry';
 
 type SelectionClassification = {
   group?: VisibilityClass;
@@ -68,4 +69,18 @@ export function selectSpacedTriggerPoints(
   return accepted.sort((a, b) =>
     proximityBand(a.distance) - proximityBand(b.distance) || b.quality - a.quality
   );
+}
+
+/**
+ * Post-condition: drops TPs that fire for no legal traffic direction — a one-way
+ * stretch whose only direction puts the POI behind the driver. Read by the local
+ * tangent at the TP. Bidirectional streets and TPs without street data pass.
+ */
+export function dropUnfireable(tps: TriggerPoint[]): TriggerPoint[] {
+  return tps.filter(tp => {
+    const coords = tp.street?.fullCoordinates?.length ? tp.street.fullCoordinates : tp.street?.coordinates;
+    const oneway = (tp.street as any)?.tags?.oneway as string | undefined;
+    if (!coords || coords.length < 2 || !oneway) return true;
+    return isApproachableForBearing(coords, oneway, tp.expectedBearing, tp.location);
+  });
 }

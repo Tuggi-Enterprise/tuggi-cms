@@ -13,7 +13,7 @@ import { loadTriggerPointsConfig, TriggerPointsConfig, TRIGGER_POINTS_CONSTANTS 
 import { VisibilityClass, LANDMARK_MIN_PROMINENCE_M, EDGE_BAND_M, fanHorizonM } from '../config/visibility-class';
 import { emitDebugQuality, DebugQualitySnapshot } from '../debug-quality-logger';
 import { partitionByPoiReach, tpReachCapM } from '../utils/validation';
-import { selectSpacedTriggerPoints } from '../utils/tp-selection';
+import { selectSpacedTriggerPoints, dropUnfireable } from '../utils/tp-selection';
 
 // Defaults baked into VisibilityMapBuilder.buildFan() — used by debug-quality
 // emission when the fan is present (the boundary.visibilityFan type flattens
@@ -349,10 +349,31 @@ export class CoreTriggerPointPredictor {
       _postLOSCount = visibleOptimalPoints.length;
 
       if (visibleOptimalPoints.length === 0) {
-        console.warn('⚠️ Per-TP LOS check rejected all candidates — using fan-walk output without per-TP filter');
-        // Falha defensiva: prefere falsos positivos a zero TPs
+        // Line of sight is mandatory (BR-AUDIO-010): with no visible candidate, fall back
+        // to the frontal TPs next to the POI — never to the unchecked candidates.
+        console.warn('⚠️ Per-TP LOS check rejected all candidates — using frontal TPs next to the POI');
+        const fallbackPoints = await this.buildFanCollapseFallback(poiData, boundary, context, accessibleStreets);
+        _finalTPs = fallbackPoints;
+        emitDebugIfEnabled('no_visible_candidates');
+        return {
+          triggerPoints: fallbackPoints,
+          boundary,
+          context,
+          processingTime: Date.now() - startTime,
+          metadata: {
+            boundarySource: boundary.source,
+            boundaryConfidence: boundary.confidence,
+            streetCount: accessibleStreets.length,
+            optimalPointsFound: optimalPoints.length,
+            validatedPoints: fallbackPoints.length,
+            finalPoints: fallbackPoints.length,
+            fallbackUsed: true,
+            searchRadius: streetAnalysisResult.searchRadius,
+            elevationAnalysis: streetAnalysisResult.elevationAnalysis
+          }
+        };
       }
-      const candidatesPostLOS = visibleOptimalPoints.length > 0 ? visibleOptimalPoints : optimalPoints;
+      const candidatesPostLOS = visibleOptimalPoints;
 
       // 5. Validação de candidatos em ruas (NOVO PASSO)
       const streetValidatedCandidates = await this.validateCandidatesOnStreets(candidatesPostLOS, accessibleStreets);
@@ -948,7 +969,11 @@ export class CoreTriggerPointPredictor {
       id: 'minimal_fallback_1',
       location: point,
       radius: 30,
-      expectedBearing: direction,
+      // TP→POI (the heading that sees the POI ahead); `direction` is POI→TP.
+      expectedBearing: calculateBearing(
+        point,
+        boundary?.coordinates?.length ? findClosestPointOnBoundary(point, boundary.coordinates) : (boundary?.center ?? poiData.location)
+      ),
       bearingThreshold: TRIGGER_POINTS_CONSTANTS.triggerPoint.fallbackBearingThreshold,
       type: 'primary',
       priority: 1,
@@ -1241,11 +1266,17 @@ export class CoreTriggerPointPredictor {
       arr.push(b);
       buildingGrid.set(key, arr);
     }
+    // Sight line leaves the POI EDGE facing the candidate, not the center: from the
+    // center, the POI's own footprint (or a large park) blocked its own TPs (BR-AUDIO-010).
+    const losOrigin = (tp: TriggerPointCandidate) => boundary.coordinates?.length >= 3
+      ? findClosestPointOnBoundary(tp.location, boundary.coordinates)
+      : boundary.center;
     const candidatesBuildingsForLOS = (tp: TriggerPointCandidate) => {
-      const minLat = Math.floor(Math.min(boundary.center.lat, tp.location.lat) / GRID_CELL_DEG) - 1;
-      const maxLat = Math.floor(Math.max(boundary.center.lat, tp.location.lat) / GRID_CELL_DEG) + 1;
-      const minLng = Math.floor(Math.min(boundary.center.lng, tp.location.lng) / GRID_CELL_DEG) - 1;
-      const maxLng = Math.floor(Math.max(boundary.center.lng, tp.location.lng) / GRID_CELL_DEG) + 1;
+      const o = losOrigin(tp);
+      const minLat = Math.floor(Math.min(o.lat, tp.location.lat) / GRID_CELL_DEG) - 1;
+      const maxLat = Math.floor(Math.max(o.lat, tp.location.lat) / GRID_CELL_DEG) + 1;
+      const minLng = Math.floor(Math.min(o.lng, tp.location.lng) / GRID_CELL_DEG) - 1;
+      const maxLng = Math.floor(Math.max(o.lng, tp.location.lng) / GRID_CELL_DEG) + 1;
       const out: typeof buildingTops = [];
       for (let lat = minLat; lat <= maxLat; lat++) {
         for (let lng = minLng; lng <= maxLng; lng++) {
@@ -1267,7 +1298,7 @@ export class CoreTriggerPointPredictor {
       const results = await Promise.all(
         batch.map(c =>
           VisibilityMapBuilder.checkExactVisibility(
-            boundary.center,
+            losOrigin(c),
             poiTop,
             c.location,
             {
@@ -1340,7 +1371,7 @@ export class CoreTriggerPointPredictor {
     if (options.minQuality !== undefined) {
       filtered = filtered.filter(tp => tp.quality >= options.minQuality!);
     }
-    const accepted = selectSpacedTriggerPoints(filtered, boundary?.classification);
+    const accepted = selectSpacedTriggerPoints(dropUnfireable(filtered), boundary?.classification);
     if (options.maxTriggerPoints !== undefined && accepted.length > options.maxTriggerPoints) {
       console.log(`✂️ Caller-set max: trimming ${accepted.length} → ${options.maxTriggerPoints}`);
       return accepted.slice(0, options.maxTriggerPoints);

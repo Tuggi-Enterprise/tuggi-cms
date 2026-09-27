@@ -141,18 +141,10 @@ export class TriggerPointValidator {
       // Aqui descartamos candidatos cuja rua é one-way e cuja única direção de
       // tráfego resultaria em "back" relativo ao POI. Vias bidirecionais sempre
       // passam (alguém indo na direção certa pode disparar).
-      // One-way validation:
-      //
-      // Modo fan: DESLIGADO. Motivo: a direção de way no OSM tem inconsistências
-      // (alguns segmentos desenhados na direção contrária ao tráfego real),
-      // gerando falsos positivos de rejeição em ruas de mão única famosas
-      // (ex: 5th Ave em Manhattan). O app `tuggi-drive-v2` já filtra
-      // `direction=back` em runtime — TPs gerados em ruas de mão errada
-      // simplesmente não disparam, sem prejuízo. Aqui apenas LOGAMOS o que
-      // SERIA rejeitado, pra monitoramento.
-      //
-      // Modo categórico (sem fan): mantém pre-filter (legado).
-      const fanModeForOneway = !!boundary.visibilityFan?.polygons?.length;
+      // One-way validation, in every mode, by the local tangent at the candidate
+      // (the old first→last chord gave false rejections on curved ways, which is why
+      // fan mode used to only log). A TP that cannot fire in any legal direction wastes
+      // a slot of the POI (BR-AUDIO-010).
       const onewayWouldReject: string[] = [];
       const onewayValidCandidates = basicValidCandidates.filter(c => {
         const streetTags: any = (c.street as any)?.tags || {};
@@ -166,18 +158,19 @@ export class TriggerPointValidator {
         // TP está DENTRO do boundary do POI? Não aplica one-way.
         if (isPointInPolygon(c.location, boundary.coordinates)) return true;
 
-        const ok = isApproachableForBearing(streetCoords, oneway, c.expectedBearing);
+        // Local tangent at the candidate, not the way's first→last chord — the chord is
+        // what made fan mode only log (BR-AUDIO-010: never emit a TP that cannot fire).
+        const ok = isApproachableForBearing(streetCoords, oneway, c.expectedBearing, c.location);
 
         if (!ok) {
           onewayWouldReject.push(`${c.street?.id} (${(c.street as any)?.name || 'unnamed'}) oneway=${oneway}, bearing=${c.expectedBearing.toFixed(0)}°`);
-          // Modo fan: NÃO descarta, só registra. Modo categórico: descarta.
-          return fanModeForOneway;
+          return false;
         }
         return true;
       });
 
       if (onewayWouldReject.length > 0) {
-        const action = fanModeForOneway ? 'flagged-only (fan mode, app filters runtime)' : 'DISCARDED';
+        const action = 'DISCARDED';
         console.log(`🚦 One-way validation: ${action} ${onewayWouldReject.length}/${basicValidCandidates.length} candidate(s):`);
         for (const r of onewayWouldReject.slice(0, 10)) console.log(`   → ${r}`);
         if (onewayWouldReject.length > 10) console.log(`   → (+${onewayWouldReject.length - 10} more)`);
