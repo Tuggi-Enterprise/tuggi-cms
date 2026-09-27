@@ -5,8 +5,8 @@
  * frontal TPs included. Numbers live in config/visibility-class.ts.
  */
 import { TriggerPoint } from '../types/interfaces';
-import { calculateDistance, calculateDistanceToPolygon } from './calculations';
-import { EDGE_BAND_M, VisibilityClass, proximityBand } from '../config/visibility-class';
+import { calculateBearing, calculateDistance, calculateDistanceToPolygon } from './calculations';
+import { EDGE_BAND_M, FAR_SECTOR_DEG, LANDMARK_CELL_RINGS_M, VisibilityClass, landmarkStreetTier, proximityBand } from '../config/visibility-class';
 import { isApproachableForBearing } from '../../../geometry';
 import { partitionByPoiReach, poiEdgeRing, tpReachCapM } from './validation';
 
@@ -22,7 +22,6 @@ type SelectionClassification = {
 const DIRECTION_COVERAGE_CLASSES = new Set<VisibilityClass | undefined>([
   VisibilityClass.AREA,
   VisibilityClass.LINEAR,
-  VisibilityClass.LANDMARK_HIGH,
   undefined,
 ]);
 const COVERAGE_SLICES = 16;
@@ -40,14 +39,34 @@ export function minSpacingM(
   return Math.max(2 * a.radius, 2 * b.radius, 0.1 * Math.max(a.distance, b.distance), classFloorM);
 }
 
+type LatLng = { lat: number; lng: number };
+
+/** E10 cell of a landmark TP: sector seen from the POI × ring of edge distance (INV-E10a). */
+export function landmarkCellOf(tp: Pick<TriggerPoint, 'location' | 'distance' | 'expectedBearing'>, centre?: LatLng | null) {
+  const fromPoi = centre ? calculateBearing(centre, tp.location) : tp.expectedBearing + 180;
+  const sector = Math.floor((((fromPoi % 360) + 360) % 360) / FAR_SECTOR_DEG);
+  const ring = LANDMARK_CELL_RINGS_M.findIndex(r => tp.distance <= r);
+  return { sector, ring: ring === -1 ? LANDMARK_CELL_RINGS_M.length : ring };
+}
+
 /**
- * Picks TPs ranked by proximity band to the edge (then quality), keeping ≥2r between
- * every pair and the class caps (near band / far). Long-perimeter classes first take the
- * best TP of each approach direction.
+ * Picks the TPs of one POI, keeping the spacing and the class caps (near band / far) in one
+ * pass over ALL its TPs (INV-E10b). `why`, when given, gets the E10 reason of every TP.
+ *
+ * - `landmark_high` (INV-E10a/c): coverage first. One TP per cell (sector × ring) before any
+ *   second TP in the same cell; inside the cell the street where the tourist circulates wins
+ *   (`landmarkStreetTier`), then quality. Cells are walked by the tier of their best street,
+ *   then ring by ring, so the cap cuts the cells without a tourist street first. The open-ended
+ *   horizon ring comes only after every inner cell, and only on a tourist street. By proximity first, the Cristo had its TPs in the forest and none in
+ *   Botafogo or Copacabana (#772).
+ * - Other classes: proximity band to the edge first, then quality; long-perimeter classes first
+ *   take the best TP of each approach direction.
  */
 export function selectSpacedTriggerPoints(
   tps: TriggerPoint[],
-  classification?: SelectionClassification | null
+  classification?: SelectionClassification | null,
+  centre?: LatLng | null,
+  why?: Map<TriggerPoint, string>
 ): TriggerPoint[] {
   const ranked = [...tps].sort((a, b) =>
     proximityBand(a.distance) - proximityBand(b.distance) || b.quality - a.quality
@@ -59,46 +78,67 @@ export function selectSpacedTriggerPoints(
   let near = 0;
   let far = 0;
 
-  const tryAccept = (tp: TriggerPoint): boolean => {
-    if (accepted.includes(tp)) return false;
+  const tryAccept = (tp: TriggerPoint): 'won' | 'cap' | 'spacing' | 'taken' => {
+    if (accepted.includes(tp)) return 'taken';
     const isFar = tp.distance > EDGE_BAND_M;
-    if (isFar ? far >= maxFar : near >= maxNear) return false;
-    if (accepted.some(a => calculateDistance(a.location, tp.location) < minSpacingM(a, tp, classFloorM))) return false;
+    if (isFar ? far >= maxFar : near >= maxNear) return 'cap';
+    if (accepted.some(a => calculateDistance(a.location, tp.location) < minSpacingM(a, tp, classFloorM))) return 'spacing';
     accepted.push(tp);
     if (isFar) far++; else near++;
-    return true;
+    return 'won';
   };
 
-  // Far TPs (the landmark seen from afar) go to DIFFERENT sides of the POI: the best one
-  // first, then always the candidate whose bearing is farthest from the far TPs already
-  // taken. By rank alone all of them landed in the closest neighbourhood (Cristo: 4 far TPs
-  // around the Lagoa, none in Botafogo or Copacabana — #779).
-  if (Number.isFinite(maxFar) && maxFar > 0) {
-    const pool = ranked.filter(tp => tp.distance > EDGE_BAND_M);
-    const farBearings: number[] = [];
-    const gap = (b: number) => farBearings.length === 0
-      ? 0
-      : Math.min(...farBearings.map(f => { const d = Math.abs(((b - f) % 360 + 360) % 360); return Math.min(d, 360 - d); }));
-    while (far < maxFar && pool.length) {
-      const order = pool
-        .map((tp, rank) => ({ tp, rank, gap: gap(tp.expectedBearing) }))
-        .sort((a, b) => b.gap - a.gap || a.rank - b.rank);
-      const hit = order.find(o => tryAccept(o.tp));
-      if (!hit) break;
-      farBearings.push(hit.tp.expectedBearing);
-      pool.splice(pool.indexOf(hit.tp), 1);
+  if (classification?.group === VisibilityClass.LANDMARK_HIGH) {
+    const cells = new Map<string, TriggerPoint[]>();
+    const label = new Map<TriggerPoint, string>();
+    for (const tp of tps) {
+      const { sector, ring } = landmarkCellOf(tp, centre);
+      const key = `${ring}:${sector}`;
+      label.set(tp, `cell s${sector}/r${ring}; tier ${landmarkStreetTier(tp.street?.type)} ${tp.street?.type || '?'}`);
+      (cells.get(key) ?? cells.set(key, []).get(key)!).push(tp);
     }
-  }
-
-  if (DIRECTION_COVERAGE_CLASSES.has(classification?.group)) {
-    const sliceDeg = 360 / COVERAGE_SLICES;
-    const sliceOf = (bearing: number) => Math.floor((((bearing % 360) + 360) % 360) / sliceDeg);
-    for (let s = 0; s < COVERAGE_SLICES; s++) {
-      const best = ranked.find(tp => sliceOf(tp.expectedBearing) === s);
-      if (best) tryAccept(best);
+    const tierOf = (t: TriggerPoint) => landmarkStreetTier(t.street?.type);
+    for (const cell of cells.values()) cell.sort((a, b) => tierOf(a) - tierOf(b) || b.quality - a.quality);
+    // Cells whose best street is a tourist street first, then ring, then sector: when the cap
+    // cuts, it cuts the forest-only and expressway-only cells, not Copacabana (#772).
+    const byTierRingSector = (a: string, b: string) => {
+      const [ra, sa] = a.split(':').map(Number);
+      const [rb, sb] = b.split(':').map(Number);
+      return tierOf(cells.get(a)![0]) - tierOf(cells.get(b)![0]) || ra - rb || sa - sb;
+    };
+    // The open-ended outer ring (the horizon, up to the sanity cap) only after every inner cell
+    // is spent, and only on a tourist street: measured on the Rio sample it held the bridge,
+    // a footway on an island and the far side of the bay, while Ipanema waited for a 2nd TP.
+    const outer = String(LANDMARK_CELL_RINGS_M.length);
+    const keys = [...cells.keys()].sort(byTierRingSector);
+    const lost = new Map<TriggerPoint, string>();
+    for (const phase of [keys.filter(k => !k.startsWith(`${outer}:`)), keys.filter(k => k.startsWith(`${outer}:`))]) {
+      const isOuter = phase[0]?.startsWith(`${outer}:`);
+      // Pass k gives each cell its k-th TP: every covered cell before any cell gets a second one.
+      for (let pass = 1; phase.some(k => cells.get(k)!.length); pass++) {
+        for (const key of phase) {
+          const cell = cells.get(key)!;
+          while (cell.length) {
+            const tp = cell.shift()!;
+            const r = isOuter && tierOf(tp) > 0 ? 'horizon needs a tourist street' : tryAccept(tp);
+            if (r === 'won') { why?.set(tp, `${label.get(tp)}; won pass ${pass}${isOuter ? ' (horizon)' : ''}`); break; }
+            lost.set(tp, `lost: ${r}`);
+          }
+        }
+      }
     }
+    for (const tp of tps) if (!why?.has(tp)) why?.set(tp, `${label.get(tp)}; ${lost.get(tp) ?? 'lost'}`);
+  } else {
+    if (DIRECTION_COVERAGE_CLASSES.has(classification?.group)) {
+      const sliceDeg = 360 / COVERAGE_SLICES;
+      const sliceOf = (bearing: number) => Math.floor((((bearing % 360) + 360) % 360) / sliceDeg);
+      for (let s = 0; s < COVERAGE_SLICES; s++) {
+        const best = ranked.find(tp => sliceOf(tp.expectedBearing) === s);
+        if (best) tryAccept(best);
+      }
+    }
+    for (const tp of ranked) tryAccept(tp);
   }
-  for (const tp of ranked) tryAccept(tp);
 
   return accepted.sort((a, b) =>
     proximityBand(a.distance) - proximityBand(b.distance) || b.quality - a.quality
@@ -118,8 +158,6 @@ export function dropUnfireable(tps: TriggerPoint[]): TriggerPoint[] {
     return isApproachableForBearing(coords, oneway, tp.expectedBearing, tp.location);
   });
 }
-
-type LatLng = { lat: number; lng: number };
 
 /**
  * Post-condition (INV-E11): no TP inside the POI boundary, nor inside the building that hosts

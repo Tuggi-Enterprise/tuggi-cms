@@ -7,6 +7,7 @@ import { TRIGGER_POINTS_CONSTANTS } from '../config/trigger-points-config';
 import {
   EDGE_BAND_M,
   FAR_CANDIDATES_PER_CELL,
+  landmarkStreetTier,
   FAR_CELL_SPACING_M,
   FAR_RINGS_M,
   FAR_SECTOR_DEG,
@@ -246,7 +247,8 @@ export function sampleFarBySectorAndRing(
   }
   const far: TriggerPointCandidate[] = [];
   for (const cell of cells.values()) {
-    cell.sort((a, b) => b.quality - a.quality);
+    // Tourist streets first (INV-E10a): by quality alone the cell filled up with expressways.
+    cell.sort((a, b) => landmarkStreetTier(a.street?.type) - landmarkStreetTier(b.street?.type) || b.quality - a.quality);
     const kept: TriggerPointCandidate[] = [];
     for (const c of cell) {
       if (kept.length >= FAR_CANDIDATES_PER_CELL) break;

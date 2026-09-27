@@ -830,7 +830,7 @@ export class CoreTriggerPointPredictor {
     // Every engine output passes E11 (INV-E11): the pre_generated save path of
     // generate-batch trusts this output as-is.
     const frontalTPs = applyTpPostConditions(this.buildFrontalArrivalTP(poiData, boundary, context, accessibleStreets, out), poiData.location, boundary).kept;
-    for (const t of selectSpacedTriggerPoints(frontalTPs, boundary.classification)) out.push(t);
+    for (const t of selectSpacedTriggerPoints(frontalTPs, boundary.classification, boundary.center ?? poiData.location)) out.push(t);
 
     if (out.length > 0) {
       console.log(`🛟 Fan-collapse fallback: emitted ${out.length} frontal TP(s)`);
@@ -1432,7 +1432,8 @@ export class CoreTriggerPointPredictor {
     // the save would drop, so a closer candidate takes its slot before spacing (#779).
     const post = applyTpPostConditions(filtered, poiPin, boundary);
     const passed = post.kept;
-    const accepted = selectSpacedTriggerPoints(passed, boundary?.classification);
+    const why = new Map<TriggerPoint, string>();
+    const accepted = selectSpacedTriggerPoints(passed, boundary?.classification, boundary?.center ?? poiPin, why);
     if (trace) {
       const poiId = trace[0]?.poi_id ?? '';
       const edge = (tp: TriggerPoint) => `edge ${Math.round(edgeDistanceM(tp.location, boundary))} m`;
@@ -1442,7 +1443,7 @@ export class CoreTriggerPointPredictor {
         candidate: candidateKey(d.tp.location), value: `${d.reason}; ${edge(d.tp)}`, limit: `reach ${post.reachCapM} m`, decision: 'dropped' as const })));
       const c = boundary?.classification;
       trace.push(...stepTraceRows({ poiId, stage: 'E10', rule: 'tp-selection#selectSpacedTriggerPoints', before: passed, after: accepted,
-        value: edge, limit: `spacing ≥ ${c?.minDistanceBetweenTPs ?? 0} m; near ≤ ${c?.maxTriggerPoints ?? '∞'}; far ≤ ${c?.maxFarTriggerPoints ?? '∞'}` }));
+        value: tp => [edge(tp), why.get(tp)].filter(Boolean).join('; '), limit: `spacing ≥ ${c?.minDistanceBetweenTPs ?? 0} m; near ≤ ${c?.maxTriggerPoints ?? '∞'}; far ≤ ${c?.maxFarTriggerPoints ?? '∞'}` }));
     }
     if (options.maxTriggerPoints !== undefined && accepted.length > options.maxTriggerPoints) {
       console.log(`✂️ Caller-set max: trimming ${accepted.length} → ${options.maxTriggerPoints}`);

@@ -66,6 +66,29 @@ export const FAR_STREETS_FROM_M = 2_000;
 export const FAR_STREET_TYPES = ['motorway', 'trunk', 'primary', 'secondary', 'tertiary', 'motorway_link', 'trunk_link', 'primary_link', 'secondary_link'];
 export const FAR_STREET_TILE_M = 3_000;
 
+// ── Landmark selection by cell coverage (E10, INV-E10a/c) ─────────────────────
+/**
+ * Outer limits of the E10 coverage rings of a landmark, from the edge: near, 1–2 km, 2–4 km,
+ * and the open-ended horizon beyond. A cell is (FAR_SECTOR_DEG sector seen from the POI × ring).
+ * 2 km splits the two sides of the Lagoa seen from the Cristo; 4 km holds Copacabana and
+ * Ipanema. Coarser than FAR_RINGS_M on purpose: E7 rings bound the sight-line work, these decide
+ * coverage. Provisional (#775).
+ */
+export const LANDMARK_CELL_RINGS_M = [1_000, 2_000, 4_000];
+/**
+ * Where the tourist circulates, by the street's own OSM `highway` (INV-E10a): 0 wins, 2 loses.
+ * Tier 2 is the expressway, the bridge approach, the forest track and the service lane — not a
+ * place a tourist is. Unknown types sit in the middle. Provisional (#775).
+ */
+export const LANDMARK_TOURIST_STREET_TYPES = ['primary', 'secondary', 'tertiary', 'pedestrian', 'living_street'];
+export const LANDMARK_AVOID_STREET_TYPES = ['motorway', 'motorway_link', 'trunk', 'trunk_link', 'track', 'path', 'service'];
+
+export function landmarkStreetTier(streetType?: string): 0 | 1 | 2 {
+  if (LANDMARK_TOURIST_STREET_TYPES.includes(streetType ?? '')) return 0;
+  if (LANDMARK_AVOID_STREET_TYPES.includes(streetType ?? '')) return 2;
+  return 1;
+}
+
 export interface ClassLimits {
   /** max distance from the TP to the POI EDGE */
   maxEdgeDistanceM: number;
@@ -82,7 +105,10 @@ export const CLASS_LIMITS: Record<VisibilityClass, ClassLimits> = {
   [VisibilityClass.STRUCTURE]: { maxEdgeDistanceM: 100, maxRadiusM: 40, maxTPs: 6, maxFarTPs: 0 },
   [VisibilityClass.AREA]: { maxEdgeDistanceM: 60, maxRadiusM: 50, maxTPs: 16, maxFarTPs: 0 },
   [VisibilityClass.LINEAR]: { maxEdgeDistanceM: 60, maxRadiusM: 50, maxTPs: 16, maxFarTPs: 0 },
-  [VisibilityClass.LANDMARK_HIGH]: { maxEdgeDistanceM: URBAN_LANDMARK_HORIZON_M, maxRadiusM: 100, maxTPs: 8, maxFarTPs: 8 },
+  // 8 sectors × 3 inner rings = 24 cells (INV-E10a); 4 at the edge + 20 beyond = 24 TPs, one per
+  // inner cell; the horizon ring only after every inner cell is spent. The edge band of a landmark
+  // is a handful of footways at its base. Provisional (#775).
+  [VisibilityClass.LANDMARK_HIGH]: { maxEdgeDistanceM: URBAN_LANDMARK_HORIZON_M, maxRadiusM: 100, maxTPs: 4, maxFarTPs: 20 },
   [VisibilityClass.VIEWPOINT]: { maxEdgeDistanceM: 60, maxRadiusM: 30, maxTPs: 4, maxFarTPs: 0 },
 };
 

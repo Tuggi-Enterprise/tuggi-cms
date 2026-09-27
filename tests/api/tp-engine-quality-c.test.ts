@@ -55,9 +55,10 @@ describe('BR-AUDIO-010 — a landmark gets far TPs where it is seen, on every si
       return { id: `t${i}`, location: offset({ n: Math.cos(r) * distM, e: Math.sin(r) * distM }), distance: distM, radius: 50,
         quality: 0.8, expectedBearing: (bearingFromPoi + 180) % 360, type: 'secondary' } as any
     }
-    // 20 candidates south-east (1-3 km), 1 north (5 km), 1 east (4 km)
+    // 20 candidates south-east (1-3 km), 1 north (3.5 km), 1 east (4 km) — inside the inner rings
+    // of INV-E10a; the horizon beyond them waits for the inner cells (tp-engine-e10.test.ts)
     const se = Array.from({ length: 20 }, (_, i) => tp(140 + (i % 5) * 4, 1000 + i * 100, i))
-    const out = selectSpacedTriggerPoints([...se, tp(0, 5000, 90), tp(90, 4000, 91)], landmark)
+    const out = selectSpacedTriggerPoints([...se, tp(0, 3500, 90), tp(90, 4000, 91)], landmark)
     const ids = out.map(t => t.id)
     assert.ok(ids.includes('t90') && ids.includes('t91'), ids.join(','))
   })
