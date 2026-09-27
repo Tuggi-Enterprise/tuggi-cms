@@ -123,7 +123,7 @@ export class BoundaryDetector {
       if (osmBoundaryResult?.success && osmBoundaryResult.data) {
         return {
           success: true,
-          data: { ...osmBoundaryResult.data, source: 'osm', osmIdentified: true },
+          data: await this.withClassification({ ...osmBoundaryResult.data, source: 'osm', osmIdentified: true }, poiData),
           processingTime: Date.now() - startTime,
           metadata: {
             step: 'boundary_detection',
