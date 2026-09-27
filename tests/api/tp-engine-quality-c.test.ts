@@ -167,3 +167,19 @@ describe('BR-AUDIO-010 — the engine never emits a TP the save gate would drop'
     assert.deepEqual(out.map((t: any) => t.id), ['near'])
   })
 })
+
+describe('BR-AUDIO-010 — a drawn circle stored in the DB is synthetic, not a footprint', () => {
+  const circle = (r: number, n = 16) => Array.from({ length: n + 1 }, (_, i) => offset({ n: r * Math.cos((i * 2 * Math.PI) / n), e: r * Math.sin((i * 2 * Math.PI) / n) }))
+
+  it('a 16-vertex 50 m circle is drawn; a real rectangle is not', async () => {
+    const { isDrawnCircle } = await import('../../lib/services/trigger-points-google/utils/calculations')
+    assert.equal(isDrawnCircle(circle(50)), true)
+    assert.equal(isDrawnCircle([offset({ n: -20, e: -60 }), offset({ n: -20, e: 60 }), offset({ n: 20, e: 60 }), offset({ n: 20, e: -60 })]), false)
+  })
+
+  it('a TP 30 m from a memorial inside a synthetic 50 m circle is kept', async () => {
+    const { dropInsidePoi } = await import('../../lib/services/trigger-points-google/utils/tp-selection')
+    const out = dropInsidePoi([{ id: 'front', location: offset({ n: 30 }) }], { coordinates: circle(50), synthetic: true, center: PIN, classification: { group: VisibilityClass.POINT_LOW } })
+    assert.equal(out.length, 1)
+  })
+})

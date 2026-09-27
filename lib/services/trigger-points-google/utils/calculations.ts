@@ -890,3 +890,19 @@ function lineSegmentsIntersect(p1: GeoPoint, q1: GeoPoint, p2: GeoPoint, q2: Geo
 }
 
 
+
+/**
+ * The ring is a circle drawn around a point (≥12 vertices, all at the same distance from
+ * their centroid, ±2%) — the engine's fallback shape, not a surveyed footprint. Stored
+ * boundaries from earlier runs carry it without any source flag (#779).
+ */
+export function isDrawnCircle(coords: Array<{ lat: number; lng: number }>): boolean {
+  const ring = coords.length > 1 && coords[0].lat === coords[coords.length - 1].lat && coords[0].lng === coords[coords.length - 1].lng
+    ? coords.slice(0, -1)
+    : coords;
+  if (ring.length < 12) return false;
+  const c = { lat: ring.reduce((t, p) => t + p.lat, 0) / ring.length, lng: ring.reduce((t, p) => t + p.lng, 0) / ring.length };
+  const r = ring.map(p => calculateDistance(c, p));
+  const mean = r.reduce((t, x) => t + x, 0) / r.length;
+  return mean > 0 && r.every(x => Math.abs(x - mean) <= 0.02 * mean);
+}

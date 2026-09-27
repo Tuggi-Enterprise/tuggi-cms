@@ -4,7 +4,7 @@ import { defaultHeightByTag } from '../config/visibility-class';
 import { GoogleAPIsService } from '../services/google-apis.service';
 import { ElevationService } from '../services/elevation.service';
 import { POIData, GeographicContext, BoundaryData, ProcessingResult } from '../types/interfaces';
-import { convertViewportToPolygon, calculatePolygonArea, calculatePolygonAreaInM2, calculatePolygonCenter, calculateDistance, isPointInPolygon } from '../utils/calculations';
+import { convertViewportToPolygon, calculatePolygonArea, calculatePolygonAreaInM2, calculatePolygonCenter, calculateDistance, isPointInPolygon, isDrawnCircle } from '../utils/calculations';
 import { TRIGGER_POINTS_CONSTANTS } from '../config/trigger-points-config';
 import { isCuratedBoundaryImplausible } from '../utils/osm-validation';
 import { getSupabase } from '../../../core/supabase-client';
@@ -322,6 +322,8 @@ export class BoundaryDetector {
       if (coordinates.length < 3) {
         return { success: false, error: 'Invalid boundary coordinates (need at least 3 points)', processingTime: 0 };
       }
+      // Earlier pipeline runs saved the drawn fallback circle as if it were the footprint.
+      if (isDrawnCircle(coordinates)) synthetic = true;
       
       // Calcular centro e área
       const center = calculatePolygonCenter(coordinates);

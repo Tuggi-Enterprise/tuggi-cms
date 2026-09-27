@@ -130,6 +130,7 @@ export function dropInsidePoi<T extends { location: LatLng }>(
   tps: T[],
   boundary?: {
     coordinates?: LatLng[];
+    synthetic?: boolean;
     center?: LatLng;
     classification?: { group?: VisibilityClass };
     osmTags?: Record<string, unknown>;
@@ -138,7 +139,9 @@ export function dropInsidePoi<T extends { location: LatLng }>(
 ): T[] {
   if (!boundary || touristCanBeInside(boundary.classification?.group, boundary.osmTags)) return tps;
   const rings: LatLng[][] = [];
-  if (boundary.coordinates && boundary.coordinates.length >= 3) rings.push(boundary.coordinates);
+  // A synthetic circle is not the footprint: a TP 30 m from a memorial inside a drawn 50 m
+  // circle is in front of it, not inside it.
+  if (!boundary.synthetic && boundary.coordinates && boundary.coordinates.length >= 3) rings.push(boundary.coordinates);
   if (boundary.center) {
     for (const b of boundary.buildings ?? []) {
       const ring = (b.geometry ?? []).map(c => ({ lat: c.lat, lng: (c.lng ?? c.lon) as number }));
