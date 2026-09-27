@@ -53,8 +53,29 @@ export interface ChosenBoundary {
  */
 const PLACE_CATEGORIES = new Set([
   'neighborhood', 'neighbourhood', 'suburb', 'quarter', 'locality', 'sublocality', 'city', 'town',
-  'village', 'hamlet', 'municipality', 'bairro', 'island', 'islet',
+  'village', 'hamlet', 'municipality', 'bairro', 'island', 'islet', 'borough',
 ]);
+
+/** Values that name no kind: the POI is uncategorised for the engine. */
+const GENERIC_CATEGORIES = new Set(['point_of_interest', 'unknown']);
+
+/**
+ * The category the engine reads (`POIData.type`): the curated taxonomy `primary_category`
+ * (lib/shared/poi-taxonomy), the legacy `category` only as fallback — new imports never fill the
+ * legacy column, so reading it alone left 20 of 24 calibration POIs as `point_of_interest` (#772).
+ * `_excluded_*` markers and generic values count as no category.
+ */
+export function poiEngineCategory(poi: { primary_category?: string | null; category?: string | null }): string {
+  for (const c of [poi.primary_category, poi.category]) {
+    const v = String(c ?? '').trim().toLowerCase();
+    if (v !== '' && !v.startsWith('_') && !GENERIC_CATEGORIES.has(v)) return v;
+  }
+  return 'point_of_interest';
+}
+
+/** Curated categories that are a point feature / relief, same meaning as the tags below. */
+const POINT_FEATURE_CATEGORIES = new Set(['monument', 'memorial', 'artwork']);
+const RELIEF_CATEGORIES = new Set(['peak', 'hill', 'volcano']);
 
 export function poiIsPlace(category: string | undefined | null): boolean {
   return PLACE_CATEGORIES.has(String(category ?? '').trim().toLowerCase());
@@ -92,6 +113,9 @@ export function curatedPlaceIsThePoi(
  * Praça do Radio Amador (leisure=park, 6,008 m²) with the avenue sidewalk in it (#772). The name
  * is compared for identity, never read for kind (P3).
  */
+/** Reason of a point feature refusing the area it stands on: the POI is a point on it (INV-E1c). */
+export const POINT_FEATURE_AREA_REASON = 'monument/statue/bust does not inherit an area polygon';
+
 export const NAMED_GROUND_REASON = 'named ground of another name under a POI with no kind evidence';
 
 export function isNamedGroundOfAnotherPoi(
@@ -207,8 +231,9 @@ export function chooseContainingBoundary(
 ): { chosen?: ChosenBoundary; rejected: BoundaryRejection[] } {
   const rejected: BoundaryRejection[] = [];
   const place = poiIsPlace(poi.category);
-  const relief = isReliefPoi(poi.tags);
-  const pointFeature = !relief && isPointFeature(poi.tags);
+  const category = String(poi.category ?? '').trim().toLowerCase();
+  const relief = isReliefPoi(poi.tags) || RELIEF_CATEGORIES.has(category);
+  const pointFeature = !relief && (isPointFeature(poi.tags) || POINT_FEATURE_CATEGORIES.has(category));
   const fitting: ChosenBoundary[] = [];
   const seen = new Set<string>();
 
@@ -229,7 +254,7 @@ export function chooseContainingBoundary(
       reject(`relief landform ${Math.round(areaM2)} m² > ${RELIEF_MAX_AREA_M2} m² (the massif, not the hill)`); continue;
     }
     if (pointFeature && POINT_FEATURE_REFUSED_KEYS.some(k => tagValue(el.tags, k) !== '')) {
-      reject('monument/statue/bust does not inherit an area polygon'); continue;
+      reject(POINT_FEATURE_AREA_REASON); continue;
     }
     if (pointFeature && areaM2 > POINT_FEATURE_MAX_AREA_M2) {
       reject(`monument/statue/bust footprint ${Math.round(areaM2)} m² > ${POINT_FEATURE_MAX_AREA_M2} m²`); continue;

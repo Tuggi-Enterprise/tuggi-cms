@@ -7,7 +7,7 @@ import { POIData, GeographicContext, BoundaryData, ProcessingResult } from '../t
 import { convertViewportToPolygon, calculatePolygonArea, calculatePolygonAreaInM2, calculatePolygonCenter, calculateDistance, isPointInPolygon, isDrawnCircle } from '../utils/calculations';
 import { TRIGGER_POINTS_CONSTANTS } from '../config/trigger-points-config';
 import { isCuratedBoundaryImplausible } from '../utils/osm-validation';
-import { assembleOuterRings, chooseContainingBoundary, curatedPlaceIsThePoi, footprintRing, isPlaceElement, NAMED_GROUND_REASON, outerRing, poiIsPlace, type BoundaryRejection, type OsmAreaElement } from '../utils/boundary-choice';
+import { assembleOuterRings, chooseContainingBoundary, curatedPlaceIsThePoi, footprintRing, isPlaceElement, NAMED_GROUND_REASON, outerRing, POINT_FEATURE_AREA_REASON, poiIsPlace, type BoundaryRejection, type OsmAreaElement } from '../utils/boundary-choice';
 import { getSupabase } from '../../../core/supabase-client';
 
 /** Surveyed summits for the ground-top read (E4): one point per `processOSMPeaks` element. */
@@ -130,9 +130,11 @@ export class BoundaryDetector {
       if (!osmBoundaryResult?.success && !idIsPlace) {
         const containing = await this.detectContainingBoundary(poiData, pointCircle?.data?.osmTags);
         if (containing.success) osmBoundaryResult = containing;
-        // The pin stands on a named square of another name: the POI is an object on it, a point.
-        // Without this the 50 m estimated circle swallowed the avenue and every TP (Árvore de Natal, #772).
-        else if (!pointCircle && this.rejections.some(r => r.reason === NAMED_GROUND_REASON)) pointCircle = this.pinPointCircle(poiData);
+        // The pin stands on a named square of another name, or a monument stands on an area: the
+        // POI is an object on it, a point. Without this the 50 m estimated circle swallowed the
+        // avenue and every TP (Árvore de Natal, #772 — `named ground` while uncategorised, the
+        // point-feature refusal since its `monument` category reaches the engine).
+        else if (!pointCircle && this.rejections.some(r => r.reason === NAMED_GROUND_REASON || r.reason === POINT_FEATURE_AREA_REASON)) pointCircle = this.pinPointCircle(poiData);
       }
 
       // Name search is for a POI without an id: with a node id it finds the same point again
@@ -1484,9 +1486,13 @@ out geom tags;
       'natural': ['peak', 'volcano', 'natural', 'park', 'mountain', 'hill', 'viewpoint']
     };
     
-    // Buscar mapeamento direto
+    // Buscar mapeamento direto. Categoria que o mapa não conhece não é evidência de
+    // divergência: vale a lista genérica, como valia quando toda entrada chegava
+    // `point_of_interest` (#772 — a taxonomia `primary_category` passou a chegar ao motor).
     if (categoryMap[normalized]) {
       equivalentCategories.push(...categoryMap[normalized]);
+    } else {
+      equivalentCategories.push(...this.normalizePOICategory('point_of_interest'));
     }
     
     // Adicionar o tipo original também (caso seja compatível)

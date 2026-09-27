@@ -8,6 +8,7 @@ import { MigrationResult, MigrationService } from './migration-service'
 import ProcessingService from '@/lib/core/processing-service'
 import { getSupabase } from '@/lib/core/supabase-client'
 import { HomologEnrichmentService } from './poi-processing/homolog-enrichment.service'
+import { poiEngineCategory } from './trigger-points-google/utils/boundary-choice'
 
 const supabase = getSupabase('service')
 
@@ -719,7 +720,7 @@ export class PoiMigrationPipeline {
       id: poi.id,
       name: poi.name,
       location: { lat: coordinate.latitude, lng: coordinate.longitude },
-      type: poi.category || 'point_of_interest',
+      type: poiEngineCategory(poi),
       country: poi.country,
       city: poi.city,
       state: poi.state,

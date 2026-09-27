@@ -50,7 +50,7 @@ export class MigrationService {
       const { data: poi, error: poiError } = await supabase
         .schema('core')
         .from('attractions')
-        .select('id, name, city, state, country, category, osm_id, osm_type, estimated_height_m, osm_tags')
+        .select('id, name, city, state, country, category, primary_category, category_group, osm_id, osm_type, estimated_height_m, osm_tags')
         .eq('id', attraction_id)
         .maybeSingle()
 
