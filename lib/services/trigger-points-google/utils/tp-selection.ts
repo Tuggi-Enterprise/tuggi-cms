@@ -4,9 +4,9 @@
  * The single place that decides spacing and per-class caps over ALL TPs of a POI,
  * frontal TPs included. Numbers live in config/visibility-class.ts.
  */
-import { TriggerPoint } from '../types/interfaces';
+import { StreetData, TriggerPoint } from '../types/interfaces';
 import { calculateBearing, calculateDistance, calculateDistanceToPolygon } from './calculations';
-import { EDGE_BAND_M, LANDMARK_CELL_RINGS_M, VisibilityClass, isCarStreet, landmarkSectorOf, landmarkStreetTier, proximityBand } from '../config/visibility-class';
+import { EDGE_BAND_M, LANDMARK_CELL_RINGS_M, SANITY_MAX_TP_DISTANCE_M, VisibilityClass, isCarStreet, landmarkSectorOf, landmarkStreetTier, proximityBand, proximityRankScore } from '../config/visibility-class';
 import { isApproachableForBearing } from '../../../geometry';
 import { partitionByPoiReach, poiEdgeRing, tpReachCapM } from './validation';
 
@@ -206,6 +206,47 @@ export function dropInsidePoi<T extends { location: LatLng }>(
 /** A TP closer than this to the edge is ON it, and counts as inside (INV-E11). Provisional (#775). */
 export const ON_EDGE_M = 1;
 
+/** generationMethod of the one TP emitted when nothing survived the class reach (INV-E11b). */
+export const REACH_RESCUE_METHOD = 'reach_rescue' as const;
+
+/** Spacing of the points sampled along a street when looking for its closest point outside the POI. */
+const RESCUE_SAMPLE_STEP_M = 5;
+
+/**
+ * INV-E11b (#772, BR-AUDIO-010): a POI with a real border never ends with 0 TPs. When nothing
+ * survived the class reach, the rescue takes the best street point OUTSIDE the border —
+ * `proximityRankScore` (closer band first, road type breaks ties), then the smaller distance.
+ * Pure: the caller passes streets already filtered for access. Ilha das Cobras: water all
+ * around, the only bridge a military `service` way, the nearest public street 120 m from the
+ * edge against an `area` reach of 60 m — every candidate died and the POI had no TP.
+ */
+export function bestStreetPointOutside(
+  streets: StreetData[],
+  ring: LatLng[]
+): { street: StreetData; point: LatLng; edgeDistanceM: number } | null {
+  let best: { street: StreetData; point: LatLng; edgeDistanceM: number; score: number } | null = null;
+  for (const street of streets) {
+    const line = street.fullCoordinates?.length ? street.fullCoordinates : street.coordinates;
+    if (!line?.length) continue;
+    let own: { point: LatLng; edgeDistanceM: number } | null = null;
+    for (let i = 0; i < line.length; i++) {
+      const a = line[i], b = line[i + 1] ?? a;
+      const steps = Math.max(1, Math.ceil(calculateDistance(a, b) / RESCUE_SAMPLE_STEP_M));
+      for (let k = 0; k <= steps; k++) {
+        const point = { lat: a.lat + (b.lat - a.lat) * (k / steps), lng: a.lng + (b.lng - a.lng) * (k / steps) };
+        const d = calculateDistanceToPolygon(point, ring);
+        if (d >= ON_EDGE_M && (!own || d < own.edgeDistanceM)) own = { point, edgeDistanceM: d };
+      }
+    }
+    if (!own) continue;
+    const score = proximityRankScore(own.edgeDistanceM, street.type);
+    if (!best || score > best.score || (score === best.score && own.edgeDistanceM < best.edgeDistanceM)) {
+      best = { street, ...own, score };
+    }
+  }
+  return best && { street: best.street, point: best.point, edgeDistanceM: best.edgeDistanceM };
+}
+
 export type TpDropReason = 'beyond_reach' | 'unfireable' | 'inside_poi';
 
 type PostConditionBoundary = NonNullable<Parameters<typeof dropInsidePoi>[1]> & {
@@ -225,9 +266,14 @@ export function applyTpPostConditions<T extends TriggerPoint>(
   boundary?: PostConditionBoundary | null
 ): { kept: T[]; dropped: Array<{ tp: T; reason: TpDropReason }>; reachCapM: number } {
   const reachCapM = tpReachCapM(boundary?.classification);
-  const reach = partitionByPoiReach(tps, tp => tp.location, poiPin, poiEdgeRing(boundary), reachCapM);
-  const dropped: Array<{ tp: T; reason: TpDropReason }> = reach.dropped.map(d => ({ tp: d.item, reason: 'beyond_reach' }));
-  const fireable = dropUnfireable(reach.kept) as T[];
+  const ring = poiEdgeRing(boundary);
+  // The rescue TP (INV-E11b) answers to the sanity cap, not to the class reach: it exists
+  // precisely because nothing was within the class reach.
+  const rescue = tps.filter(tp => tp.generationMethod === REACH_RESCUE_METHOD);
+  const reach = partitionByPoiReach(tps.filter(tp => !rescue.includes(tp)), tp => tp.location, poiPin, ring, reachCapM);
+  const sane = partitionByPoiReach(rescue, tp => tp.location, poiPin, ring, SANITY_MAX_TP_DISTANCE_M);
+  const dropped: Array<{ tp: T; reason: TpDropReason }> = [...reach.dropped, ...sane.dropped].map(d => ({ tp: d.item, reason: 'beyond_reach' }));
+  const fireable = dropUnfireable([...reach.kept, ...sane.kept]) as T[];
   for (const tp of reach.kept) if (!fireable.includes(tp)) dropped.push({ tp, reason: 'unfireable' });
   const kept = dropInsidePoi(fireable, boundary);
   for (const tp of fireable) if (!kept.includes(tp)) dropped.push({ tp, reason: 'inside_poi' });

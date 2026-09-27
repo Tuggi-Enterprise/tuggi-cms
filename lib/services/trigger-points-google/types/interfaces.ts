@@ -208,7 +208,7 @@ export interface TriggerPoint {
   quality: number;
   street: StreetData;
   distance: number;
-  generationMethod: 'local_osm' | 'overpass_fallback' | 'estimated' | 'fallback_recovery';
+  generationMethod: 'local_osm' | 'overpass_fallback' | 'estimated' | 'fallback_recovery' | 'reach_rescue';
   contextData?: GeographicContext;
   // Para TPs do tipo 'geofence': polígono que define a área de disparo.
   // O save layer persiste isso (depois da migração que adiciona a coluna)

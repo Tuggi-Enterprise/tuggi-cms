@@ -40,6 +40,8 @@ const POI_ID = {
   manguinhos: '0e9ce786-18bf-5ad1-9047-7274dfdef163',
   // Niterói, no osm_id and no tags: the border must not be the Praça do Radio Amador (#772)
   arvoreDeNatal: '09778cda-2a33-4469-b6bd-7cca2726049c',
+  // water all around, the only bridge a military `service` way: every candidate died in reach (#772)
+  ilhaDasCobras: '0fffc071-fb34-5e23-a553-97f0797ff2cd',
 } as const
 
 const CITY = 'Rio de Janeiro'
@@ -407,5 +409,19 @@ describe('point_low keeps a TP on the car street when one is in reach (BR-POI-00
     assert.ok(rows.some(r => !NOT_A_CAR_STREET.has(r.type)), 'no car-street candidate in reach — fixture changed?')
     assert.ok(rows.some(r => r.decision === 'kept' && !NOT_A_CAR_STREET.has(r.type)),
       `kept: ${rows.filter(r => r.decision === 'kept').map(r => r.type).join(', ')}`)
+  })
+})
+
+// ============================================================================================
+// INV-E11b: a POI with a real border never ends with 0 TPs. Ilha das Cobras (way/70601832,
+// 349,662 m², `area`, reach 60 m) went 12 → 0: the nearest public street is ~120 m off the edge.
+// ============================================================================================
+describe('A POI with a border leaves with at least one TP outside it (INV-E11b, BR-AUDIO-010, #772)', { skip: CAN_RUN ? false : SKIP_REASON }, () => {
+  it('Ilha das Cobras: ≥ 1 kept TP, all of them outside the border', async () => {
+    const result = await getResult(POI_ID.ilhaDasCobras)
+    assert.equal(result.error, null)
+    const kept = keptOf(result)
+    assert.ok(kept.length >= 1, 'no TP kept')
+    for (const r of kept) assert.ok((r.dist_to_boundary_m ?? 0) >= 1, `TP at ${r.dist_to_boundary_m} m from the edge`)
   })
 })

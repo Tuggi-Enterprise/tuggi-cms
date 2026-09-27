@@ -11,7 +11,7 @@ import {
   BUILDING_LEVEL_HEIGHT_M,
 } from '@/lib/services/trigger-points-google/config/visibility-class'
 import { tpReachCapM, UNCLASSIFIED_MAX_TP_DISTANCE_M } from '@/lib/services/trigger-points-google/utils/validation'
-import { applyTpPostConditions, dropUnfireable, dropInsidePoi } from '@/lib/services/trigger-points-google/utils/tp-selection'
+import { applyTpPostConditions, bestStreetPointOutside, dropUnfireable, dropInsidePoi, REACH_RESCUE_METHOD } from '@/lib/services/trigger-points-google/utils/tp-selection'
 import { measureAndClassify } from '@/lib/services/trigger-points-google/services/poi-classifier.service'
 import { ElevationAnalysisService } from '@/lib/services/trigger-points-google/services/elevation-service'
 import { LocalOSMFetcher } from '@/lib/services/trigger-points-google/services/local-osm-fetcher'
@@ -245,5 +245,34 @@ describe('INV-E11, BR-AUDIO-010 — post-condições isoladas, uma por motivo', 
     const inside = { location: { lat: PIN.lat, lng: PIN.lng } }
     const kept = dropInsidePoi([inside], { coordinates: square(), synthetic: true, classification: { group: VisibilityClass.STRUCTURE } })
     assert.deepEqual(kept, [inside], 'com synthetic=true a borda não entra no polígono de corte')
+  })
+})
+
+describe('INV-E11b, BR-AUDIO-010 — POI com borda nunca termina com 0 TP (Ilha das Cobras, #772)', () => {
+  const ring = square() // ~66 m de lado
+  const street = (id: string, type: string, lngOffsetDeg: number) => ({
+    id, type, name: id, accessibility: 'public', confidence: 1,
+    coordinates: [{ lat: PIN.lat - 0.002, lng: PIN.lng + lngOffsetDeg }, { lat: PIN.lat + 0.002, lng: PIN.lng + lngOffsetDeg }],
+  })
+
+  it('o ponto escolhido fica fora da borda, na via melhor ranqueada; via que cruza a borda vale só pelo trecho de fora', () => {
+    const crossing = street('crossing', 'residential', 0) // atravessa o POI: dentro não conta
+    const far = street('far', 'primary', 0.004) // ~410 m
+    const best = bestStreetPointOutside([crossing as any, far as any], ring)
+    assert.equal(best?.street.id, 'crossing')
+    assert.ok(best!.edgeDistanceM >= 1 && best!.edgeDistanceM < 10, `${best!.edgeDistanceM} m`)
+    assert.equal(bestStreetPointOutside([street('in', 'residential', 0.0001) as any].map(s => ({ ...s, coordinates: [{ lat: PIN.lat, lng: PIN.lng }, { lat: PIN.lat + 0.0001, lng: PIN.lng }] })), ring), null)
+  })
+
+  it('o TP de resgate responde ao teto de sanidade, não ao alcance da classe; um TP comum além do alcance segue descartado', () => {
+    const at = { lat: PIN.lat, lng: PIN.lng + 0.003 } // ~270 m da borda
+    const rescue = tp({ id: 'rescue', location: at, generationMethod: REACH_RESCUE_METHOD })
+    const plain = tp({ id: 'plain', location: at })
+    const boundary = { coordinates: ring, classification: { maxEdgeDistanceM: 60 } }
+    const { kept, dropped } = applyTpPostConditions([rescue, plain], PIN, boundary)
+    assert.deepEqual(kept.map(t => t.id), ['rescue'])
+    assert.deepEqual(dropped.map(d => [d.tp.id, d.reason]), [['plain', 'beyond_reach']])
+    const inside = tp({ id: 'inside', location: PIN, generationMethod: REACH_RESCUE_METHOD })
+    assert.deepEqual(applyTpPostConditions([inside], PIN, boundary).kept, [], 'resgate dentro da borda também cai')
   })
 })

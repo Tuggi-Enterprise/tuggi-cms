@@ -10,9 +10,13 @@ import { POIData, TriggerPoint, TriggerPointGenerationOptions, TriggerPointPredi
 import { calculateBearing, calculateDistance, findClosestPointOnBoundary, closestStreetPointToPoi, closestPointOnPolyline } from '../utils/calculations';
 import { deterministicTPId } from '../utils/deterministic';
 import { loadTriggerPointsConfig, TriggerPointsConfig, TRIGGER_POINTS_CONSTANTS } from '../config/trigger-points-config';
-import { VisibilityClass, LANDMARK_MIN_PROMINENCE_M, EDGE_BAND_M, fanHorizonM, heightFromTags, isNaturalRelief } from '../config/visibility-class';
+import { VisibilityClass, LANDMARK_MIN_PROMINENCE_M, EDGE_BAND_M, fanHorizonM, heightFromTags, isCarStreet, isNaturalRelief } from '../config/visibility-class';
 import { emitDebugQuality, DebugQualitySnapshot } from '../debug-quality-logger';
-import { selectSpacedTriggerPoints, applyTpPostConditions } from '../utils/tp-selection';
+import { selectSpacedTriggerPoints, applyTpPostConditions, bestStreetPointOutside, REACH_RESCUE_METHOD } from '../utils/tp-selection';
+import { poiEdgeRing } from '../utils/validation';
+
+/** Radii searched around the border for the rescue TP (INV-E11b), closest first. Provisional (#775). */
+const REACH_RESCUE_RINGS_M = [150, 500, 1_500];
 import { EngineTraceRow, TracedPrediction, candidateKey, edgeDistanceM, poiTraceRows, stepTraceRows } from '../utils/engine-trace';
 import { VisibilityMapBuilder } from '../analyzers/visibility-map-builder';
 
@@ -63,6 +67,18 @@ export class CoreTriggerPointPredictor {
     const result = await this.predictWithTrace(poiData, options, candidateRows);
     const poiId = poiData.id ?? '';
     const trace = [...poiTraceRows(poiId, result.boundary), ...candidateRows];
+    if (result.triggerPoints.length === 0) {
+      const rescue = this.buildReachRescueTP(poiData, result.boundary, result.context);
+      if (rescue) {
+        result.triggerPoints = [rescue];
+        result.metadata.finalPoints = 1;
+        trace.push({
+          poi_id: poiId, stage: 'E11', rule: 'tp-selection#bestStreetPointOutside', candidate: candidateKey(rescue.location),
+          value: `reach rescue; ${rescue.street?.type ?? ''} ${rescue.street?.name ?? ''}; edge ${Math.round(rescue.distance)} m`.trim(),
+          limit: 'no TP within the class reach (INV-E11b)', decision: 'kept',
+        });
+      }
+    }
     if (result.metadata.fallbackUsed) {
       // Fallback TPs skip E8–E10 (motor-de-tp.md, "Fallback que fura as etapas"): say so per TP.
       trace.push(...result.triggerPoints.map(tp => ({
@@ -81,6 +97,54 @@ export class CoreTriggerPointPredictor {
       });
     }
     return { ...result, trace };
+  }
+
+  /**
+   * INV-E11b: the one TP of a POI with a real border that ended with none. Streets along the
+   * border in widening rings, access-filtered like the perimeter pass (no tunnel, no ferry,
+   * no `service`), car streets before footways; the TP goes through E11 like any other, under
+   * the sanity cap.
+   */
+  private buildReachRescueTP(poiData: POIData, boundary: BoundaryData | undefined, context: any): TriggerPoint | null {
+    const ring = poiEdgeRing(boundary);
+    if (!boundary || !ring) return null;
+    const { LocalOSMFetcher } = require('../services/local-osm-fetcher');
+    const fetcher = LocalOSMFetcher.getInstance();
+    // Car streets first, in every ring, then any accessible way: the app is used driving (BR-POI-008).
+    const passes = [true, false].flatMap(carOnly => REACH_RESCUE_RINGS_M.map(radiusM => ({ carOnly, radiusM })));
+    for (const { carOnly, radiusM } of passes) {
+      const streets = (fetcher.fetchStreetsAlongBoundary(ring, radiusM, 16) ?? [] as StreetData[]).filter((s: StreetData) =>
+        ACCESSIBLE_ROUTE_TYPES.has(s.type) && !s.type.startsWith('aerialway') && (!carOnly || isCarStreet(s.type))
+        && (s as any).tags?.tunnel !== 'yes' && (s as any).tags?.covered !== 'yes');
+      const best = bestStreetPointOutside(streets, ring);
+      if (!best) continue;
+      const { resolveStreetSpeedKmh, calculateGpsAwareRadius } = require('../../../geometry');
+      const cfg = TRIGGER_POINTS_CONSTANTS.triggerPoint;
+      const tags: any = (best.street as any).tags || {};
+      const radius = calculateGpsAwareRadius(resolveStreetSpeedKmh(tags.maxspeed, best.street.type), cfg.gpsPingWindowSec,
+        cfg.gpsPingSafetyFactor, { min: cfg.minRadiusM, max: boundary.classification?.maxTPRadiusM ?? cfg.maxRadiusM });
+      const tp: TriggerPoint = {
+        id: deterministicTPId(poiData.id, `reach_rescue_${best.street.id}`, best.point.lat, best.point.lng),
+        location: best.point,
+        radius,
+        expectedBearing: calculateBearing(best.point, findClosestPointOnBoundary(best.point, ring)),
+        bearingThreshold: cfg.defaultBearingThreshold,
+        type: 'primary',
+        priority: 1,
+        confidence: 0.5,
+        quality: 0.5,
+        street: best.street,
+        distance: best.edgeDistanceM,
+        generationMethod: REACH_RESCUE_METHOD,
+        contextData: context,
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+      };
+      const kept = applyTpPostConditions([tp], poiData.location, boundary).kept;
+      console.log(`🛟 Reach rescue (INV-E11b): ${best.street.type} "${best.street.name ?? best.street.id}" at ${Math.round(best.edgeDistanceM)} m from the edge (ring ${radiusM} m) → ${kept.length ? 'kept' : 'dropped by E11'}`);
+      if (kept.length) return kept[0];
+    }
+    return null;
   }
 
   private async predictWithTrace(
