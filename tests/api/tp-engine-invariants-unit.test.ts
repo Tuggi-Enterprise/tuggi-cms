@@ -1,4 +1,4 @@
-import { describe, it } from 'node:test'
+import { describe, it, mock } from 'node:test'
 import assert from 'node:assert/strict'
 import {
   VisibilityClass,
@@ -7,10 +7,13 @@ import {
   fanHorizonM,
   LANDMARK_MIN_PROMINENCE_M,
   DEFAULT_HEIGHT_BY_TAG,
+  BUILDING_LEVEL_HEIGHT_M,
 } from '@/lib/services/trigger-points-google/config/visibility-class'
 import { tpReachCapM, UNCLASSIFIED_MAX_TP_DISTANCE_M } from '@/lib/services/trigger-points-google/utils/validation'
 import { applyTpPostConditions, dropUnfireable, dropInsidePoi } from '@/lib/services/trigger-points-google/utils/tp-selection'
-import { POIClassifierService } from '@/lib/services/trigger-points-google/services/poi-classifier.service'
+import { measureAndClassify } from '@/lib/services/trigger-points-google/services/poi-classifier.service'
+import { ElevationAnalysisService } from '@/lib/services/trigger-points-google/services/elevation-service'
+import { LocalOSMFetcher } from '@/lib/services/trigger-points-google/services/local-osm-fetcher'
 import type { TriggerPoint } from '@/lib/services/trigger-points-google/types/interfaces'
 
 // Motor de TP (#772), fonte: docs/arquitetura/cms/motor-de-tp.md. Camada "unidade" da
@@ -101,14 +104,18 @@ describe('INV-E3, BR-AUDIO-010 — resolveHeightM: ordem das fontes de altura', 
     assert.deepEqual(r, { heightM: 45, source: 'height' })
   })
 
-  it('sem height real, building:levels × 4 m/andar vence a altura já conhecida', () => {
+  it('sem height real, building:levels × BUILDING_LEVEL_HEIGHT_M vence a altura já conhecida', () => {
     const r = resolveHeightM({ 'building:levels': '3' }, 10)
-    assert.deepEqual(r, { heightM: 12, source: 'levels' })
+    assert.deepEqual(r, { heightM: 3 * BUILDING_LEVEL_HEIGHT_M, source: 'levels' })
   })
 
-  it('sem height nem levels, usa a altura já conhecida antes da tabela por tag', () => {
+  it('sem height nem levels, a tabela por tag vem antes da altura medida em outro elemento (ordem da spec)', () => {
     const r = resolveHeightM({ building: 'church' }, 8)
-    assert.deepEqual(r, { heightM: 8, source: 'known' })
+    assert.equal(r.source, 'tag_default', 'o vizinho medido não vence a tabela: o Cristo pegava os 24 m de um quiosque (P8)')
+  })
+
+  it('sem tag na tabela, a altura medida em outro elemento (hospedeiro) ainda vale', () => {
+    assert.deepEqual(resolveHeightM({ amenity: 'tag_que_nao_existe_na_tabela' }, 8), { heightM: 8, source: 'known' })
   })
 
   it('sem nenhuma das três, cai na tabela por tag — estátua, torre e monumento nunca saem com 0', () => {
@@ -129,22 +136,21 @@ describe('INV-E3, BR-AUDIO-010 — resolveHeightM: ordem das fontes de altura', 
 })
 
 describe('INV-E4c, BR-AUDIO-010 — proeminência quando o DEM está indisponível', () => {
-  it('sem elevação do POI (DEM não respondeu), a proeminência não pode ser um 0 silencioso', {
-    todo: 'INV-E4c: poi-classifier.service#classifyPOI inicializa prominenceM=0 e só recalcula quando ' +
-      'poiElevation.center > 0 — DEM indisponível (poiElevation undefined) fica indistinguível de "elevação real é 0", ' +
-      'e nada disso vai para o rastro. Código diverge do alvo (#772).',
-  }, async () => {
-    const svc = new POIClassifierService()
-    const result = await svc.classifyPOI(
-      { id: 'poi-1', name: 'Sem DEM', location: PIN, type: 'attraction', country: 'BR', city: 'Rio de Janeiro' } as any,
-      undefined,
-      undefined, // DEM falhou: sem elevação do POI
-      0,
-      undefined,
-      {},
-      undefined,
-    )
-    assert.equal(result.metadata.elevationDiff, null, 'esperado: null explícito, não 0')
+  it('sem elevação do POI (DEM não respondeu), a proeminência sai null, não um 0 silencioso', async () => {
+    const groundTop = mock.method(ElevationAnalysisService, 'groundTop', async () => ({ groundM: null, source: 'none', at: null }) as any)
+    const cityBase = mock.method(ElevationAnalysisService, 'cityBaseElevation', async () => ({ baseM: 9, source: 'test' }) as any)
+    const summits = mock.method(LocalOSMFetcher.prototype, 'fetchSummits', () => [])
+    try {
+      const { classification, physical } = await measureAndClassify({
+        poiData: { id: 'poi-1', name: 'Sem DEM', location: PIN, type: 'attraction', country: 'BR', city: 'Rio de Janeiro' } as any,
+        areaM2: 0,
+        tags: {},
+      })
+      assert.equal(physical.prominenceM, null, 'proeminência desconhecida é null')
+      assert.equal(classification.metadata.elevationDiff, null, 'esperado: null explícito, não 0')
+    } finally {
+      groundTop.mock.restore(); cityBase.mock.restore(); summits.mock.restore()
+    }
   })
 })
 
@@ -187,14 +193,12 @@ describe('INV-E11, BR-AUDIO-010 — post-condições isoladas, uma por motivo', 
     assert.deepEqual(kept, [inside])
   })
 
-  it('exceção: classe linear — mesma isenção do que a area', {
-    todo: 'INV-E11: touristCanBeInside só isenta VisibilityClass.AREA (e OPEN_SPACE_TAGS por tag), ' +
-      'não a classe LINEAR — uma orla/promenade comprida sem tag natural=beach/leisure=park tem TP ' +
-      'dentro da borda descartado mesmo sendo a classe onde o turista anda por dentro. Código diverge do alvo (#772).',
+  it('classe linear — TP dentro da borda também é descartado: quem está dentro ouve pelo boundary (BR-AUDIO-009/013)', {
+    todo: 'INV-E11 (decisão de 2026-09-27): visibility-class#touristCanBeInside ainda isenta AREA e OPEN_SPACE_TAGS em tp-selection#dropInsidePoi',
   }, () => {
     const inside = { location: { lat: PIN.lat, lng: PIN.lng } }
-    const kept = dropInsidePoi([inside], { coordinates: square(), classification: { group: VisibilityClass.LINEAR } })
-    assert.deepEqual(kept, [inside])
+    const kept = dropInsidePoi([inside], { coordinates: square(), classification: { group: VisibilityClass.LINEAR }, osmTags: { natural: 'beach' } })
+    assert.deepEqual(kept, [])
   })
 
   it('borda sintética nunca é usada para descartar por "dentro" (INV-E1b: círculo sintético não é o footprint)', () => {
