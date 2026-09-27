@@ -68,6 +68,13 @@ export interface BuildVisibilityFanOptions {
 
 const EARTH_RADIUS_M = 6_371_000;
 const SRTM_FAIL_VALUE = 0;
+/**
+ * Buildings this close to the POI (beyond its own boundary, in the fan) are the POI itself
+ * or glued to it (pedestal, chapel, summit station): the sight line there is at the POI top,
+ * so they never block. Same number for the fan and for the per-TP exact check (#779: the
+ * fan counted the Cristo's own buildings and collapsed to 30 m in most directions).
+ */
+const SKIP_NEAR_POI_M = 50;
 
 export class VisibilityMapBuilder {
   /**
@@ -103,6 +110,11 @@ export class VisibilityMapBuilder {
     // POI pequeno (boundary curto): 1 ponto (centroide).
     // POI grande/longo: até 12 pontos espaçados.
     const samplePoints = this.sampleBoundary(boundaryCoords);
+    // Single sample (centroid): the POI's own footprint reaches as far as its boundary.
+    const ownRadiusM = samplePoints.length === 1 && boundaryCoords.length
+      ? Math.max(...boundaryCoords.map(c => calculateDistance(samplePoints[0], c)))
+      : 0;
+    const skipNearM = SKIP_NEAR_POI_M + ownRadiusM;
 
     // Para cada sample point, computa um fan independente
     const polygons: GeoPoint[][] = [];
@@ -120,7 +132,8 @@ export class VisibilityMapBuilder {
           maxHorizonM,
           stepM,
           observerEyeHeightM,
-          minVisibleDistanceM
+          minVisibleDistanceM,
+          skipNearM
         );
       });
       const distances = await Promise.all(promises);
@@ -387,7 +400,6 @@ export class VisibilityMapBuilder {
     // está a 6.6m. Prédio de 30m em escritórios bloqueia totalmente.
     if (buildingTops && buildingTops.length > 0) {
       const CORRIDOR_WIDTH_M = 30; // semi-largura: prédio dentro de ±30m do raio é considerado
-      const SKIP_NEAR_POI_M = 50;  // ignora prédios colados ao POI (line altitude ≈ poiTop)
       const targetPoint = target;
       for (const b of buildingTops) {
         const distFromPoi = calculateDistance(poi, b.centroid);
@@ -446,9 +458,9 @@ export class VisibilityMapBuilder {
   }
 
   /**
-   * For a single direction, walks outward from POI and returns the maximum
-   * distance at which the POI top is still visible (no building/terrain blocks
-   * the line from POI top to an observer eye at that point).
+   * For a single direction, walks outward from POI up to the horizon and returns the
+   * FARTHEST distance at which the POI top is visible (no building/terrain blocks the line
+   * from POI top to an observer eye at that point) — not the first blocked step.
    */
   private static async computeMaxVisibleDistance(
     poi: GeoPoint,
@@ -459,7 +471,8 @@ export class VisibilityMapBuilder {
     maxHorizonM: number,
     stepM: number,
     observerEyeHeightM: number,
-    minVisibleDistanceM: number
+    minVisibleDistanceM: number,
+    skipNearM = SKIP_NEAR_POI_M
   ): Promise<number> {
     // Pre-filter: keep only buildings whose footprint touches the ray corridor
     // (within ~50m perpendicular distance to the ray). This avoids O(N) per step.
@@ -468,6 +481,7 @@ export class VisibilityMapBuilder {
     // Sort by distance from POI — we'll iterate them in order
     const buildingsSorted = relevantBuildings
       .map(b => ({ ...b, distanceFromPoi: calculateDistance(poi, b.centroid) }))
+      .filter(b => b.distanceFromPoi >= skipNearM)
       .sort((a, b) => a.distanceFromPoi - b.distanceFromPoi);
 
     let lastVisibleD = minVisibleDistanceM;
@@ -501,10 +515,12 @@ export class VisibilityMapBuilder {
         srtm
       );
 
-      if (blocked || blockedByTerrain) {
-        return Math.max(lastVisibleD, minVisibleDistanceM);
-      }
-      lastVisibleD = d;
+      // Visibility is not monotonic along a ray: on a hill the slope right below the top
+      // hides it from a close observer while the plain further out sees it (Cristo from the
+      // Lagoa). The fan is the OUTER reach per bearing; each candidate is then checked by
+      // `checkExactVisibility`. Stopping at the first block cut every far viewpoint
+      // (BR-AUDIO-010; #779).
+      if (!blocked && !blockedByTerrain) lastVisibleD = d;
     }
 
     return Math.max(lastVisibleD, minVisibleDistanceM);

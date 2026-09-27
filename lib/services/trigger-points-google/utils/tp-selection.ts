@@ -47,14 +47,36 @@ export function selectSpacedTriggerPoints(
   let near = 0;
   let far = 0;
 
-  const tryAccept = (tp: TriggerPoint): void => {
-    if (accepted.includes(tp)) return;
+  const tryAccept = (tp: TriggerPoint): boolean => {
+    if (accepted.includes(tp)) return false;
     const isFar = tp.distance > EDGE_BAND_M;
-    if (isFar ? far >= maxFar : near >= maxNear) return;
-    if (accepted.some(a => calculateDistance(a.location, tp.location) < minSpacingM(a, tp))) return;
+    if (isFar ? far >= maxFar : near >= maxNear) return false;
+    if (accepted.some(a => calculateDistance(a.location, tp.location) < minSpacingM(a, tp))) return false;
     accepted.push(tp);
     if (isFar) far++; else near++;
+    return true;
   };
+
+  // Far TPs (the landmark seen from afar) go to DIFFERENT sides of the POI: the best one
+  // first, then always the candidate whose bearing is farthest from the far TPs already
+  // taken. By rank alone all of them landed in the closest neighbourhood (Cristo: 4 far TPs
+  // around the Lagoa, none in Botafogo or Copacabana — #779).
+  if (Number.isFinite(maxFar) && maxFar > 0) {
+    const pool = ranked.filter(tp => tp.distance > EDGE_BAND_M);
+    const farBearings: number[] = [];
+    const gap = (b: number) => farBearings.length === 0
+      ? 0
+      : Math.min(...farBearings.map(f => { const d = Math.abs(((b - f) % 360 + 360) % 360); return Math.min(d, 360 - d); }));
+    while (far < maxFar && pool.length) {
+      const order = pool
+        .map((tp, rank) => ({ tp, rank, gap: gap(tp.expectedBearing) }))
+        .sort((a, b) => b.gap - a.gap || a.rank - b.rank);
+      const hit = order.find(o => tryAccept(o.tp));
+      if (!hit) break;
+      farBearings.push(hit.tp.expectedBearing);
+      pool.splice(pool.indexOf(hit.tp), 1);
+    }
+  }
 
   if (DIRECTION_COVERAGE_CLASSES.has(classification?.group)) {
     const sliceDeg = 360 / COVERAGE_SLICES;
