@@ -9,7 +9,8 @@ import { GoogleAPIsService } from '../services/google-apis.service';
 import { POIData, TriggerPoint, TriggerPointGenerationOptions, TriggerPointPredictionResult, BoundaryData, GeographicContext, TriggerPointCandidate, StreetData } from '../types/interfaces';
 import { calculateBearing, calculateDistance, findClosestPointOnBoundary, closestStreetPointToPoi } from '../utils/calculations';
 import { deterministicTPId } from '../utils/deterministic';
-import { loadTriggerPointsConfig, TriggerPointsConfig, TRIGGER_POINTS_CONSTANTS, POIGroup } from '../config/trigger-points-config';
+import { loadTriggerPointsConfig, TriggerPointsConfig, TRIGGER_POINTS_CONSTANTS } from '../config/trigger-points-config';
+import { VisibilityClass } from '../config/visibility-class';
 import { emitDebugQuality, DebugQualitySnapshot } from '../debug-quality-logger';
 import { partitionByPoiReach, MAX_TP_DISTANCE_FROM_POI_M } from '../utils/validation';
 
@@ -269,7 +270,7 @@ export class CoreTriggerPointPredictor {
         
         // ✅ LÓGICA CORRIGIDA: Para POIs HIGH, filtrar apenas por buildings bloqueando (não por classificação)
         // Para outros POIs, usar classificação front/side
-        const isHighElevationPOI = boundary.classification?.group === POIGroup.HIGH;
+        const isHighElevationPOI = boundary.classification?.group === VisibilityClass.LANDMARK_HIGH;
         
         let validStreets: StreetData[];
         if (isHighElevationPOI) {

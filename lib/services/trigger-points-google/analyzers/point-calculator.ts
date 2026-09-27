@@ -40,7 +40,8 @@ export class OptimalPointCalculator {
         boundary.elevation ? { center: boundary.elevation.center } : undefined,
         boundary.area_m2,
         context,
-        boundary.osmTags
+        boundary.osmTags,
+        boundary.coordinates
       );
       boundary.classification = fallbackClassification;
       classification = fallbackClassification; // ✅ CORREÇÃO: Atualizar variável local também

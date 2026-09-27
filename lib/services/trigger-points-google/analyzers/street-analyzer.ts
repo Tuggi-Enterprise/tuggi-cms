@@ -4,7 +4,8 @@ import { GoogleAPIsService } from '../services/google-apis.service';
 import { POIData, BoundaryData, GeographicContext, StreetData } from '../types/interfaces';
 import { calculateDistance, isPointInPolygon, extractBuildingHeight, calculateBearing, calculateDistanceToLineSegment, calculateDistanceToPolygon, calculateDistanceToBoundary, findClosestPointOnBoundary } from '../utils/calculations';
 import { ElevationAnalysisService } from '../services/elevation-service';
-import { loadTriggerPointsConfig, TriggerPointsConfig, TRIGGER_POINTS_CONSTANTS, POIGroup } from '../config/trigger-points-config';
+import { loadTriggerPointsConfig, TriggerPointsConfig, TRIGGER_POINTS_CONSTANTS } from '../config/trigger-points-config';
+import { VisibilityClass } from '../config/visibility-class';
 import { LRUCacheWithTTL } from '../utils/lru-cache';
 
 // Tipos de vias onde usuários passam e podem ouvir audio guides (BR-AUDIO-010).
@@ -270,41 +271,11 @@ export class StreetAnalyzer {
     
     // 🎯 STEP 0: PRIORIDADE MÁXIMA - Usar classificação do boundary se disponível (SSOT)
     // A classificação já foi calculada no boundary-detector e deve ser respeitada
+    // Classe de visibilidade (BR-AUDIO-010): o raio a partir da borda sai de CLASS_LIMITS.
     if (boundary.classification && boundary.classification.searchRadius) {
-      const classificationRadius = boundary.classification.searchRadius;
-      const classificationGroup = boundary.classification.group;
-      
-      // 🏙️ CANYON: Raio muito limitado (visibilidade muito restrita)
-      if (classificationGroup === 'canyon') {
-        const baseCanyonRadius = classificationRadius;
-        
-        // Para POIs muito altos (>100m) em canyon, permitir pequeno aumento, mas máximo 100m
-        let canyonRadius = baseCanyonRadius;
-        if (boundary.height && boundary.height > 100) {
-          const heightAdjustment = Math.min((boundary.height - 100) * 0.3, 25);
-          canyonRadius = Math.min(baseCanyonRadius + heightAdjustment, 100);
-        }
-        
-        return canyonRadius;
-      }
-      
-      // Para outros grupos (HIGH, MEDIUM, FLAT), usar o raio da classificação diretamente
-      return classificationRadius;
+      return boundary.classification.searchRadius;
     }
-    
-    // 🏙️ FALLBACK: Se não há classificação, verificar CANYON manualmente (para compatibilidade)
-    if (boundary.classification?.group === 'canyon') {
-      const baseCanyonRadius = boundary.classification.searchRadius || 75;
-      
-      let canyonRadius = baseCanyonRadius;
-      if (boundary.height && boundary.height > 100) {
-        const heightAdjustment = Math.min((boundary.height - 100) * 0.3, 25);
-        canyonRadius = Math.min(baseCanyonRadius + heightAdjustment, 100);
-      } else {
-      }
-      return canyonRadius;
-    }
-    
+
     // 🏔️ STEP 1: Check if this is a high-visibility POI using REAL elevation data (DYNAMIC LOGIC)
     if (boundary.elevation && boundary.elevation.center > 0) {
       const poiElevation = boundary.elevation.center;
@@ -324,17 +295,6 @@ export class StreetAnalyzer {
         return Math.round(maxRange);
       }
       
-      // 🏞️ NOVA LÓGICA: POIs FLAT (baixa elevação) - usar configuração do grupo
-      // 🆕 CORRIGIDO: Usar raio da configuração do grupo ao invés de valor hardcoded
-      if (elevationDiff <= 50 && boundary.classification?.group === 'flat') {
-        const flatRadius = boundary.classification.searchRadius || 120; // Usar da configuração, fallback 120m
-        return flatRadius;
-      }
-      // Moderate elevation bonus for smaller differences
-      else if (elevationDiff > 50) {
-        const elevationBonus = elevationDiff * 8; // 8m radius per meter of elevation
-        // Continue with normal calculation but add elevation bonus later
-      }
     }
     
     // Carregar configuração
@@ -1884,7 +1844,7 @@ out geom tags;
     console.log(`🏘️ Analyzing block structure for ${streets.length} streets and ${buildings.length} buildings`);
     
     // ✅ NOVO: Detectar se é POI HIGH (alta elevação) - para esses, distância não importa, apenas buildings bloqueando
-    const isHighElevationPOI = boundary?.classification?.group === POIGroup.HIGH;
+    const isHighElevationPOI = boundary?.classification?.group === VisibilityClass.LANDMARK_HIGH;
     
     if (isHighElevationPOI) {
       //console.log(`🏔️ HIGH elevation POI detected - classification based ONLY on building obstructions (distance ignored)`);

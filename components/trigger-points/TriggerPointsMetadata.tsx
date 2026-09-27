@@ -82,16 +82,8 @@ export function TriggerPointsMetadata({
           {boundary?.classification?.group && (
             <div className="mt-2 pt-2 border-t border-blue-200 dark:border-blue-700">
               <div className="text-xs font-semibold text-blue-600 uppercase">
-                {boundary.classification.group === 'high' && '🏔️ HIGH'}
-                {boundary.classification.group === 'medium' && '🏗️ MEDIUM'}
-                {boundary.classification.group === 'canyon' && '🏙️ CANYON'}
-                {boundary.classification.group === 'flat' && '🏞️ FLAT'}
+                {String(boundary.classification.group).replace('_', ' ')}
               </div>
-              {boundary.classification.strategy && (
-                <div className="text-xs text-blue-600 mt-1">
-                  Estratégia: {boundary.classification.strategy}
-                </div>
-              )}
             </div>
           )}
         </div>

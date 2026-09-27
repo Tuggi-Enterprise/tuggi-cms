@@ -567,7 +567,8 @@ out geom tags;
         elevationData ? { center: elevationData.center } : undefined,
         area,
         contextForClassification, // ✅ Usar contexto atualizado com densidade correta
-        poiTags
+        poiTags,
+        coordinates
       );
       
       
@@ -1970,7 +1971,8 @@ out tags;
                         elevationData ? { center: elevationData.center } : undefined,
                         area,
                         contextForClassification, // ✅ Usar contexto atualizado com densidade correta
-                        poiTags
+                        poiTags,
+                        processed.coordinates
                       );
                       
                       console.log(`✅ POI Classification: ${classification.group.toUpperCase()}`);
@@ -2008,10 +2010,7 @@ out tags;
                         const expandedBoundaryFinal = this.expandBoundary(processed.coordinates, requiredRadius);
                         const expandedPolygonFinal = expandedBoundaryFinal.map(coord => `${coord.lat} ${coord.lng}`).join(' ');
                         
-                        // 🚀 OPTIMIZATION: Only search for relevant streets for the group (very important for large radius)
-                        const streetTypes = classification.streetPriority && classification.streetPriority.length > 0
-                          ? classification.streetPriority.join('|')
-                          : 'motorway|trunk|primary|secondary|tertiary|residential|unclassified';
+                        const streetTypes = 'motorway|trunk|primary|secondary|tertiary|residential|unclassified';
                           
                         // Query expandida apenas para ruas (mais leve que buscar apenas o que importa)
                         const expandedStreetsQuery = `

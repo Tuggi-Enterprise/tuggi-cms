@@ -4,7 +4,7 @@ import { POIData, GeographicContext, TriggerPointCandidate, TriggerPoint, Bounda
 import { calculateOptimalRadius, calculateDistance, calculateBearing, extractBuildingHeight, normalizeAngleDifference, isPointInPolygon, calculateDistanceToBoundary } from '../utils/calculations';
 import { getFanReachAtBearing } from '../utils/fan-reach';
 import { ElevationAnalysisService } from '../services/elevation-service';
-import { loadTriggerPointsConfig, TriggerPointsConfig, TRIGGER_POINTS_CONSTANTS, POIGroup } from '../config/trigger-points-config';
+import { loadTriggerPointsConfig, TriggerPointsConfig, TRIGGER_POINTS_CONSTANTS } from '../config/trigger-points-config';
 import { GoogleAPIsService } from '../services/google-apis.service';
 import { SRTMLocalService } from '../../srtm-local-service';
 import { resolveStreetSpeedKmh, calculateGpsAwareRadius, isApproachableForBearing } from '../../../geometry';
@@ -609,7 +609,7 @@ export class TriggerPointValidator {
     let rejectedCount = 0;
     
     // Issue 2.4b — Cobertura completa. Apenas honramos `minDistance` configurada
-    // (vinda de `GROUP_CONFIGS.minDistanceBetweenTPs`). Removidos:
+    // (vinda de `classification.minDistanceBetweenTPs`). Removidos:
     //  1. O override "forced 60m para POIs pequenos" — bloqueava cobertura em pier/edifícios.
     //  2. O override "forced 80m para FLAT+dense" — bloqueava cobertura em parques urbanos.
     //  3. A duplicação do raio (`STANDARD_TP_RADIUS * 2`) — usava valor hardcoded de 20m
