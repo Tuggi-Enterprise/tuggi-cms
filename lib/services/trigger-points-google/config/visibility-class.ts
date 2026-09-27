@@ -48,6 +48,24 @@ export const URBAN_LANDMARK_HORIZON_M = 2_000;
 /** Edge band: a TP within this counts as next to the POI (not in the far-TP cap). */
 export const EDGE_BAND_M = 100;
 
+// ── Far candidates of a landmark (E7, INV-E7c) ────────────────────────────────
+/** Direction sector seen from the POI; the golden counts coverage in the same 45°. */
+export const FAR_SECTOR_DEG = 45;
+/** Outer limits of the distance rings beyond EDGE_BAND_M, from the edge. */
+export const FAR_RINGS_M = [500, 1_000, 2_000, 4_000, 8_000, SANITY_MAX_TP_DISTANCE_M];
+/** Candidates kept per (sector × ring) cell before the sight line. */
+export const FAR_CANDIDATES_PER_CELL = 6;
+/** Min distance between two candidates of the same cell. */
+export const FAR_CELL_SPACING_M = 300;
+/**
+ * Beyond this distance from the edge a landmark's streets are fetched by type only
+ * (FAR_STREET_TYPES), tile by tile (FAR_STREET_TILE_M): every street within 15 km is ~100k
+ * rows. Inside it, every street is fetched along the edge.
+ */
+export const FAR_STREETS_FROM_M = 2_000;
+export const FAR_STREET_TYPES = ['motorway', 'trunk', 'primary', 'secondary', 'tertiary', 'motorway_link', 'trunk_link', 'primary_link', 'secondary_link'];
+export const FAR_STREET_TILE_M = 3_000;
+
 export interface ClassLimits {
   /** max distance from the TP to the POI EDGE */
   maxEdgeDistanceM: number;

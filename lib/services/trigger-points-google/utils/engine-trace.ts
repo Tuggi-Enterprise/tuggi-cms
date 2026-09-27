@@ -7,8 +7,7 @@
  * "why did this POI end with no TP" is answered from the dry-run CSV without reading code.
  */
 import type { BoundaryData, TriggerPointPredictionResult } from '../types/interfaces';
-import { poiEdgeRing, tpReachCapM } from './validation';
-import { calculateDistance, calculateDistanceToPolygon } from './calculations';
+import { edgeDistanceM, tpReachCapM } from './validation';
 import {
   CLASS_LIMITS,
   LANDMARK_MIN_HEIGHT_M,
@@ -38,11 +37,7 @@ export const candidateKey = (p: LatLng): string => `${p.lat.toFixed(6)},${p.lng.
 
 const m = (n: number | null | undefined): string => (n === null || n === undefined ? 'null' : `${Math.round(n)} m`);
 
-/** Distance to the POI edge (or to the pin without a polygon), for the candidate rows. */
-export function edgeDistanceM(p: LatLng, boundary: Pick<BoundaryData, 'coordinates' | 'center' | 'synthetic'> | undefined): number {
-  const ring = poiEdgeRing(boundary);
-  return ring ? calculateDistanceToPolygon(p, ring) : calculateDistance(p, boundary?.center ?? p);
-}
+export { edgeDistanceM };
 
 /** E1–E6: one row per POI, from what the detector measured (`boundary.physical`). */
 export function poiTraceRows(poiId: string, boundary: BoundaryData | undefined): EngineTraceRow[] {

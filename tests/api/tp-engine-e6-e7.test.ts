@@ -1,0 +1,84 @@
+import { describe, it } from 'node:test'
+import assert from 'node:assert/strict'
+import { streetEdgeReach, tpReachCapM } from '@/lib/services/trigger-points-google/utils/validation'
+import { OptimalPointCalculator, sampleFarBySectorAndRing } from '@/lib/services/trigger-points-google/analyzers/point-calculator'
+import {
+  EDGE_BAND_M,
+  FAR_CANDIDATES_PER_CELL,
+  VisibilityClass,
+} from '@/lib/services/trigger-points-google/config/visibility-class'
+import { buildClassification } from '@/lib/services/trigger-points-google/services/poi-classifier.service'
+
+// Motor de TP (#772) — E6 (alcance) e E7 (candidatos). Fonte: docs/arquitetura/cms/motor-de-tp.md.
+
+const PIN = { lat: -22.9, lng: -43.2 }
+const M_LAT = 110_540
+const M_LNG = 111_320 * Math.cos((PIN.lat * Math.PI) / 180)
+const at = (n: number, e: number) => ({ lat: PIN.lat + n / M_LAT, lng: PIN.lng + e / M_LNG })
+const square = (h: number) => [at(-h, -h), at(-h, h), at(h, h), at(h, -h)]
+const eastWest = (n: number, halfLenM = 2_000) => ({ id: `s${n}`, name: `Rua ${n}`, type: 'residential', coordinates: [at(n, -halfLenM), at(n, halfLenM)] })
+
+describe('INV-E6, BR-AUDIO-010 — um raio só, medido da borda', () => {
+  const boundary = { center: PIN, coordinates: square(20) }
+
+  it('a via cujos vértices estão longe mas passa a 20 m da borda está no alcance (a polilinha conta, não o vértice)', () => {
+    const r = streetEdgeReach(eastWest(40), boundary, 60)
+    assert.equal(r.within, true)
+    assert.ok(Math.abs(r.edgeDistanceM! - 20) < 1, `edge ${r.edgeDistanceM}`)
+  })
+
+  it('a via a 200 m da borda fica fora do alcance de 60 m', () => {
+    assert.equal(streetEdgeReach(eastWest(220), boundary, 60).within, false)
+  })
+
+  it('o leque de visibilidade não alarga o filtro: o raio é o de tpReachCapM', () => {
+    const cls = buildClassification(VisibilityClass.POINT_LOW, { heightM: 2, prominenceM: 0, areaM2: 1600 })
+    const b = { ...boundary, classification: cls, visibilityFan: { polygons: [[PIN]], maxDistanceM: 5_000 } } as any
+    const calc = new OptimalPointCalculator() as any
+    const kept = calc.filterStreetsByRadius([eastWest(40), eastWest(220)], b, tpReachCapM(cls))
+    assert.deepEqual(kept.map((s: any) => s.name), ['Rua 40'])
+  })
+
+  it('borda sintética: o alcance é medido do pino, não do círculo desenhado (INV-E1b)', () => {
+    const r = streetEdgeReach(eastWest(70), { center: PIN, coordinates: square(50), synthetic: true }, 60)
+    assert.equal(r.within, false, 'a 70 m do pino, fora dos 60 m, mesmo a 20 m do círculo')
+  })
+})
+
+describe('INV-E7b, BR-AUDIO-010 — o candidato perto fica no pé da perpendicular da borda sobre a via', () => {
+  it('o 1º candidato de uma via longa é o ponto em frente à borda, não um vértice', async () => {
+    const cls = buildClassification(VisibilityClass.POINT_LOW, { heightM: 2, prominenceM: 0, areaM2: 1600 })
+    const b = { center: PIN, coordinates: square(20), classification: cls, visibilityFan: { polygons: [[PIN]], maxDistanceM: 60 } } as any
+    const calc = new OptimalPointCalculator() as any
+    const cands = await calc.calculateFanWalkStrategy([eastWest(40)], { id: 'x', name: 'x', location: PIN }, b, {}, cls)
+    const nearest = cands.reduce((a: any, c: any) => (c.distance < a.distance ? c : a))
+    assert.ok(Math.abs(nearest.location.lng - PIN.lng) * M_LNG < 21, 'em frente à borda (|leste| ≤ meia largura)')
+    assert.ok(Math.abs(nearest.distance - 20) < 1)
+  })
+})
+
+describe('INV-E7c / INV-E10c, BR-AUDIO-010 — landmark_high gera candidatos longe, distribuídos por setor', () => {
+  const cand = (n: number, e: number, quality = 0.5) => {
+    const location = at(n, e)
+    return { location, distance: Math.hypot(n, e), quality, expectedBearing: 0, confidence: 0.85, street: {} as any }
+  }
+
+  it('cada célula (setor × anel) guarda no máximo FAR_CANDIDATES_PER_CELL; a faixa da borda fica inteira', () => {
+    const near = Array.from({ length: 10 }, (_, i) => cand(50, i * 5))
+    const crowded = Array.from({ length: 40 }, (_, i) => cand(3_000 + i * 400, 10)) // um setor, vários anéis
+    const out = sampleFarBySectorAndRing([...near, ...crowded] as any, PIN)
+    assert.equal(out.filter(c => c.distance <= EDGE_BAND_M).length, near.length)
+    const far = out.filter(c => c.distance > EDGE_BAND_M)
+    assert.ok(far.length > FAR_CANDIDATES_PER_CELL, 'anéis diferentes são células diferentes')
+    assert.ok(far.length < crowded.length)
+  })
+
+  it('candidatos longe em oito direções saem nas oito direções', () => {
+    const dirs = Array.from({ length: 8 }, (_, k) => (k * Math.PI) / 4 + 0.1)
+    const pool = dirs.flatMap(a => Array.from({ length: 20 }, (_, i) => cand(Math.cos(a) * (2_000 + i * 50), Math.sin(a) * (2_000 + i * 50))))
+    const out = sampleFarBySectorAndRing(pool as any, PIN)
+    const sectors = new Set(out.map(c => Math.floor(((Math.atan2(
+      (c.location.lng - PIN.lng) * M_LNG, (c.location.lat - PIN.lat) * M_LAT) * 180) / Math.PI + 360) % 360 / 45)))
+    assert.equal(sectors.size, 8)
+  })
+})

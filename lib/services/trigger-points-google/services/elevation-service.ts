@@ -114,8 +114,8 @@ export class ElevationAnalysisService {
   }
 
   /**
-   * Legacy entry point, kept for the radius heuristics outside this wave (street-analyzer,
-   * validator, geographic-analyzer): the same city base, as a number or null.
+   * Legacy entry point, kept for geographic-analyzer and elevation.service: the same city base,
+   * as a number or null.
    */
   static async estimateRegionalBaseElevation(
     location: LatLng,

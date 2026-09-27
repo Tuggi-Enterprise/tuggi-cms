@@ -152,8 +152,20 @@ export class LocalOSMFetcher {
    * Caminho legado: mantido pra retrocompatibilidade com máquinas que ainda não
    * rodaram o hotfix. Resultado é semanticamente idêntico — mesmas rows.
    */
-  private queryStreets(bbox: { minLat: number; maxLat: number; minLng: number; maxLng: number }) {
+  private queryStreets(bbox: { minLat: number; maxLat: number; minLng: number; maxLng: number }, types?: string[]) {
     if (!this.db) return [];
+    if (types?.length) {
+      const marks = types.map(() => '?').join(',');
+      const sql = this.rtreeAvailable.streets
+        ? `SELECT s.id, s.name, s.type, s.geometry_json, s.tags_json FROM streets s
+           JOIN streets_rtree r ON r.rowid = s.rowid
+           WHERE r.min_lat <= ? AND r.max_lat >= ? AND r.min_lng <= ? AND r.max_lng >= ? AND s.type IN (${marks})
+           LIMIT ?`
+        : `SELECT id, name, type, geometry_json, tags_json FROM streets
+           WHERE min_lat <= ? AND max_lat >= ? AND min_lng <= ? AND max_lng >= ? AND type IN (${marks})
+           LIMIT ?`;
+      return this.db.prepare(sql).all(bbox.maxLat, bbox.minLat, bbox.maxLng, bbox.minLng, ...types, TRIGGER_POINTS_CONSTANTS.memory.maxStreetsPerQuery) as any[];
+    }
     // LIMIT aplicado no SQL — impede Statement.all() de materializar centenas de
     // milhares de rows em JS (OOM fatal em POIs grandes como Central Park).
     // O cap pós-query por distância (maxStreetsPerPOI) reduz ainda mais.
@@ -476,6 +488,50 @@ export class LocalOSMFetcher {
       console.error(`❌ [LocalOSMFetcher] Error fetching streets along boundary:`, error);
       return null;
     }
+  }
+
+  /**
+   * Streets of the given types in a disc of `radiusM` around `center`, queried tile by tile
+   * (`tileM`) so the per-query LIMIT never cuts a whole direction off: one bbox of 30 km hit
+   * the LIMIT and returned whatever the index gave first (E7, INV-E7c, #772).
+   */
+  public fetchStreetsInTiles(
+    center: { lat: number; lng: number },
+    radiusM: number,
+    types: string[],
+    tileM: number
+  ): StreetData[] | null {
+    if (!this.db) return null;
+    const seen = new Set<string>();
+    const out: StreetData[] = [];
+    const n = Math.ceil(radiusM / tileM);
+    for (let i = -n; i < n; i++) {
+      for (let j = -n; j < n; j++) {
+        // skip tiles whose nearest corner is beyond the disc
+        const dn = Math.max(0, i * tileM, -(i + 1) * tileM), de = Math.max(0, j * tileM, -(j + 1) * tileM);
+        if (dn * dn + de * de > radiusM * radiusM) continue;
+        const lat0 = center.lat + (i * tileM) / 111000;
+        const lat1 = center.lat + ((i + 1) * tileM) / 111000;
+        const k = 111000 * Math.cos((center.lat * Math.PI) / 180);
+        const lng0 = center.lng + (j * tileM) / k;
+        const lng1 = center.lng + ((j + 1) * tileM) / k;
+        for (const row of this.queryStreets({ minLat: lat0, maxLat: lat1, minLng: lng0, maxLng: lng1 }, types)) {
+          const id = String(row.id);
+          if (seen.has(id)) continue;
+          seen.add(id);
+          out.push({
+            id: row.id,
+            name: row.name || 'Unknown Street',
+            type: row.type || 'residential',
+            coordinates: JSON.parse(row.geometry_json),
+            accessibility: 'public',
+            confidence: 0.9,
+            tags: row.tags_json ? JSON.parse(row.tags_json) : {},
+          });
+        }
+      }
+    }
+    return out;
   }
 
   /**

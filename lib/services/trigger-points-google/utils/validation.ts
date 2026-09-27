@@ -4,7 +4,7 @@
  */
 
 import { TriggerPointForDB } from './conversion'
-import { calculateDistance, calculateDistanceToPolygon } from './calculations'
+import { calculateDistance, calculateDistanceToPolygon, streetFootOnEdge } from './calculations'
 import { SANITY_MAX_TP_DISTANCE_M } from '../config/visibility-class'
 
 export interface ValidationError {
@@ -209,6 +209,30 @@ export function tpReachCapM(classification?: { maxEdgeDistanceM?: number } | nul
 export function poiEdgeRing(boundary?: { coordinates?: LatLng[]; synthetic?: boolean } | null): LatLng[] | undefined {
   const ring = boundary?.coordinates
   return !boundary?.synthetic && ring && ring.length >= 3 ? ring : undefined
+}
+
+/** Distance from `p` to the POI edge (`poiEdgeRing`), or to the centre when there is no real ring. */
+export function edgeDistanceM(
+  p: LatLng,
+  boundary: { coordinates?: LatLng[]; synthetic?: boolean; center?: LatLng } | null | undefined
+): number {
+  const ring = poiEdgeRing(boundary)
+  return ring ? calculateDistanceToPolygon(p, ring) : calculateDistance(p, boundary?.center ?? p)
+}
+
+/**
+ * E6 — does this street reach the POI? The WHOLE polyline counts (foot of the perpendicular
+ * on the edge, `streetFootOnEdge`), measured from the edge, against the ONE reach
+ * (`tpReachCapM`). The street search and the candidate filter both ask here (INV-E6).
+ */
+export function streetEdgeReach(
+  street: { coordinates?: LatLng[]; fullCoordinates?: LatLng[] },
+  boundary: { coordinates?: LatLng[]; synthetic?: boolean; center: LatLng },
+  reachM: number
+): { within: boolean; edgeDistanceM: number | null; foot: LatLng | null } {
+  const coords = street.fullCoordinates?.length ? street.fullCoordinates : street.coordinates
+  const foot = coords?.length ? streetFootOnEdge(coords, boundary.center, poiEdgeRing(boundary)) : null
+  return { within: !!foot && foot.edgeDistanceM <= reachM, edgeDistanceM: foot?.edgeDistanceM ?? null, foot: foot?.point ?? null }
 }
 
 /**

@@ -4,9 +4,9 @@ import { GoogleAPIsService } from '../services/google-apis.service';
 import { POIData, BoundaryData, GeographicContext, StreetData } from '../types/interfaces';
 import { calculateDistance, isPointInPolygon, extractBuildingHeight, calculateBearing, calculateDistanceToLineSegment, calculateDistanceToPolygon, calculateDistanceToBoundary, findClosestPointOnBoundary, closestStreetPointToPoi } from '../utils/calculations';
 import { ElevationAnalysisService } from '../services/elevation-service';
-import { loadTriggerPointsConfig, TriggerPointsConfig, TRIGGER_POINTS_CONSTANTS } from '../config/trigger-points-config';
-import { VisibilityClass } from '../config/visibility-class';
-import { LRUCacheWithTTL } from '../utils/lru-cache';
+import { TRIGGER_POINTS_CONSTANTS } from '../config/trigger-points-config';
+import { FAR_STREETS_FROM_M, FAR_STREET_TILE_M, FAR_STREET_TYPES, VisibilityClass } from '../config/visibility-class';
+import { streetEdgeReach, tpReachCapM } from '../utils/validation';
 
 // Tipos de vias onde usuários passam e podem ouvir audio guides (BR-AUDIO-010).
 // Inclui carro, ônibus, bicicleta, pedestre, trem, barco em hidrovia e teleférico.
@@ -44,15 +44,21 @@ export const ACCESSIBLE_ROUTE_TYPES: ReadonlySet<string> = new Set([
   ...NON_MOTORIZED_TYPES,
 ]);
 
+/** A street the reach left out (E6), for the trace. */
+export interface RejectedStreet {
+  id: string;
+  name?: string;
+  edgeDistanceM: number | null;
+  limitM: number;
+  reason: 'beyond_reach' | 'street_ceiling';
+}
+
+/** Memory ceiling on the streets of one POI; the closest to the edge stay (was the fan ceiling). */
+const STREET_CEILING = 20_000;
+
 export class StreetAnalyzer {
   private googleAPIs: GoogleAPIsService;
 
-  // ✅ LRU cache: max 1000 entries, TTL 30min. Antes era Map<{data, timestamp}>
-  // ilimitado com TTL manual.
-  private static surroundingHeightCache = new LRUCacheWithTTL<
-    string,
-    { average: number; max: number; buildingCount: number; tallBuildingsCount?: number }
-  >(1000, 30 * 60 * 1000);
   
   constructor() {
     this.googleAPIs = new GoogleAPIsService();
@@ -133,82 +139,19 @@ export class StreetAnalyzer {
   
   /**
    * Encontra ruas acessíveis ao redor do POI e retorna junto com metadados do raio
-   */
-  async findAccessibleStreets(
-    poiData: POIData, 
-    boundary: BoundaryData, 
-    context: GeographicContext
-  ): Promise<StreetData[]> {
-    
-    try {
-      const searchRadius = await this.calculateIntelligentRadius(boundary, context, poiData);
-      const roads = await this.getRoadsAroundBoundary(boundary, searchRadius, context);
-      
-      // Filtrar ruas acessíveis
-      const accessibleStreets = roads.filter(road => 
-        this.isStreetAccessible(road, context)
-      );
-      
-      // NOVO: Para Urban Canyon, usar análise de quarteirão para identificar front/side/back streets
-      const isUrbanCanyon = this.isUrbanCanyon(boundary, context);
-      if (isUrbanCanyon && boundary.buildings && boundary.buildings.length > 0) {
-        const blockAnalysis = this.analyzeBlockStructure(
-          boundary.center,
-          accessibleStreets,
-          boundary.buildings,
-          boundary
-        );
-        
-        // Filtrar apenas front/side streets (sem buildings bloqueando)
-        const validStreets = blockAnalysis
-          .filter(result => result.classification === 'front' || result.classification === 'side')
-          .map(result => result.street);
-        
-        if (validStreets.length > 0) {
-          const streetPoints = validStreets.map(street => 
-            this.withEdgeDistance(street, boundary)
-          );
-          return streetPoints;
-        } else {
-        }
-      }
-      
-      // Calcular pontos mais próximos ao boundary
-      const streetPoints = accessibleStreets.map(street => 
-        this.withEdgeDistance(street, boundary)
-      );
-      
-      return streetPoints;
-      
-    } catch (error) {
-      console.error('Error finding accessible streets:', error);
-      return [];
-    }
-  }
-
-  /**
-   * Encontra ruas acessíveis ao redor do POI e retorna junto com metadados do raio
    * Versão que retorna metadados para visualização no frontend
    */
   async findAccessibleStreetsWithMetadata(
     poiData: POIData,
     boundary: BoundaryData,
     context: GeographicContext
-  ): Promise<{ streets: StreetData[]; searchRadius: number; elevationAnalysis?: any }> {
+  ): Promise<{ streets: StreetData[]; searchRadius: number; rejectedStreets: RejectedStreet[]; elevationAnalysis?: any }> {
+    // INV-E6: ONE reach, measured from the edge — the search, the filter and the candidates
+    // use it. No POI class reaches here only on a path the trace already marks (E5 row).
+    const searchRadius = tpReachCapM(boundary.classification);
+    const rejectedStreets: RejectedStreet[] = [];
     try {
-      // Modo fan: usa o alcance máximo do polígono de visibilidade como raio de busca.
-      // Garante que streets dentro do fan são fetchadas (não importa a classificação).
-      const fanMax = boundary.visibilityFan?.maxDistanceM;
-      const categoricalRadius = await this.calculateIntelligentRadius(boundary, context, poiData);
-      const searchRadius = fanMax && fanMax > categoricalRadius
-        ? Math.ceil(fanMax + 100) // pequena margem
-        : categoricalRadius;
-
-      if (fanMax) {
-        console.log(`🔭 Street search radius driven by visibility fan: ${searchRadius}m (fan max ${fanMax}m, categorical ${categoricalRadius}m)`);
-      }
-
-      const roads = await this.getRoadsAroundBoundary(boundary, searchRadius, context);
+      const roads = await this.getRoadsAroundBoundary(boundary, searchRadius, context, rejectedStreets);
       
       if (roads.length === 0) {
         console.error(`❌ [CRITICAL] getRoadsAroundBoundary returned 0 roads despite ${boundary.streets?.length || 0} consolidated streets`);
@@ -240,244 +183,19 @@ export class StreetAnalyzer {
         console.error(`   → Check: filterStreetPointsByRadius and isStreetAccessible filters`);
       }
       
-      return { 
-        streets: streetPoints, 
+      return {
+        streets: streetPoints,
         searchRadius,
+        rejectedStreets,
         elevationAnalysis
       };
       
     } catch (error) {
       console.error('❌ [ERROR] Finding accessible streets:', error);
-      return { streets: [], searchRadius: 300 };
+      return { streets: [], searchRadius, rejectedStreets };
     }
   }
   
-  /**
-   * Calcula raio de busca inteligente baseado em elevação, altura e contexto
-   * Implementa a lógica DINÂMICA do sistema legado usando dados reais de elevação
-   */
-  private async calculateIntelligentRadius(boundary: BoundaryData, context: GeographicContext, poiData: POIData, config?: TriggerPointsConfig): Promise<number> {
-    // ✅ REGRA CONSERVADORA: POIs sem dados de elevação ou desconhecidos no OSM
-    // Ser conservador: melhor range menor do que TPs muito longe
-    const hasElevationData = boundary.elevation && boundary.elevation.center > 0;
-    // POI é desconhecido se: boundary é manual (ou manual_drawing) E OSM não identificou
-    const isManualBoundary = boundary.source === 'manual' || boundary.source === 'manual_drawing';
-    const isUnknownPOI = isManualBoundary && boundary.osmIdentified === false;
-    
-    if (!hasElevationData || isUnknownPOI) {
-      const conservativeRadius = 150; // Range conservador: 150m máximo (regras FLAT)
-      return conservativeRadius;
-    }
-    
-    // 🎯 STEP 0: PRIORIDADE MÁXIMA - Usar classificação do boundary se disponível (SSOT)
-    // A classificação já foi calculada no boundary-detector e deve ser respeitada
-    // Visibility class (BR-AUDIO-010): the radius from the edge comes from CLASS_LIMITS.
-    if (boundary.classification && boundary.classification.searchRadius) {
-      return boundary.classification.searchRadius;
-    }
-
-    // 🏔️ STEP 1: Check if this is a high-visibility POI using REAL elevation data (DYNAMIC LOGIC)
-    if (boundary.elevation && boundary.elevation.center > 0) {
-      const poiElevation = boundary.elevation.center;
-      const baseElevation = await ElevationAnalysisService.estimateRegionalBaseElevation(boundary.center, context, poiData);
-      // no city base (DEM failed): no elevation claim (INV-E4c)
-      const elevationDiff = baseElevation === null ? 0 : poiElevation - baseElevation;
-      
-      
-      // 🏔️ Apply dynamic formula for high-visibility landmarks (>150m difference)
-      // ✅ PRIORIDADE MÁXIMA: Este cálculo dinâmico tem precedência sobre qualquer outro
-      if (elevationDiff > 150) {
-        const theoreticalRange = Math.sqrt(elevationDiff) * 200; // Fórmula dinâmica
-        // 🎯 SEM LIMITES ARTIFICIAIS: Apenas mínimo de 3km e máximo de 15km (Cristo Redentor até Copacabana ~8km)
-        const calculatedRange = Math.max(theoreticalRange, 3000); // Mínimo 3km
-        const maxRange = Math.min(calculatedRange, 15000); // Máximo 15km (limite físico de visibilidade)
-        
-        
-        return Math.round(maxRange);
-      }
-      
-    }
-    
-    // Carregar configuração
-    const cfg = config || loadTriggerPointsConfig();
-    
-    let baseRadius = cfg.searchRadius.baseRadius[context.urbanDensity.level];
-    
-    
-    // 2. NOVO: Ajuste por elevação absoluta e relativa do POI
-    if (boundary.elevation) {
-      const poiElevation = boundary.elevation.center;
-      const elevationDiff = boundary.elevation.center - boundary.elevation.average;
-      
-      // Para POIs EXTREMAMENTE altos (>1000m), usar fórmula agressiva para picos/montanhas
-      if (poiElevation > 1000) {
-        const extremeAltitudeBonus = Math.min((poiElevation - 1000) * 10 + 2000, 4000); // 10m raio por metro acima de 1000m + 2000m base, max 4000m
-        baseRadius += extremeAltitudeBonus;
-      }
-      // Para POIs muito altos (>800m), usar elevação absoluta (picos, montanhas)
-      else if (poiElevation > 800) {
-        const highAltitudeBonus = Math.min((poiElevation - 800) * 6 + 1200, 2500); // 6m raio por metro acima de 800m + 1200m base, max 2500m
-        baseRadius += highAltitudeBonus;
-      }
-      // Para POIs moderadamente altos (>400m), usar elevação absoluta moderada
-      else if (poiElevation > 400) {
-        const moderateAltitudeBonus = Math.min((poiElevation - 400) * 2, 800);
-        baseRadius += moderateAltitudeBonus;
-      }
-      
-      // Ajuste adicional por elevação relativa (diferença interna do POI)
-      if (elevationDiff > 50) {
-        // POI muito acima da média interna - visível de longe
-        const elevationBonus = Math.min(elevationDiff * 8, 400); // Max 400m bonus
-        baseRadius += elevationBonus;
-      } else if (elevationDiff > 20) {
-        // POI moderadamente acima da média interna
-        const elevationBonus = elevationDiff * 5;
-        baseRadius += elevationBonus;
-      } else if (elevationDiff < -20) {
-        // POI abaixo da média interna - menos visível
-        const elevationPenalty = Math.abs(elevationDiff) * TRIGGER_POINTS_CONSTANTS.ratios.elevationPenalty;
-        baseRadius = Math.max(baseRadius - elevationPenalty, TRIGGER_POINTS_CONSTANTS.ratios.elevationPenaltyMin); // Mínimo configurável
-        console.log(`🕳️ Low elevation penalty: POI is ${Math.abs(elevationDiff).toFixed(1)}m below internal average → -${elevationPenalty.toFixed(0)}m radius`);
-      }
-      
-      // Terreno muito variado = maior raio (melhor visibilidade de pontos altos)
-      const elevationRange = boundary.elevation.max - boundary.elevation.min;
-      if (elevationRange > 100) {
-        const terrainBonus = Math.min(elevationRange * 2, 200);
-        baseRadius += terrainBonus;
-        console.log(`🗻 Varied terrain bonus: ${elevationRange.toFixed(1)}m range → +${terrainBonus.toFixed(0)}m radius`);
-      }
-    }
-    
-    // 3. NOVO: Ajuste por altura da construção/POI
-    if (boundary.height && boundary.height > 10) {
-      const heightBonus = Math.min(boundary.height * TRIGGER_POINTS_CONSTANTS.ratios.heightMultiplier, TRIGGER_POINTS_CONSTANTS.ratios.heightMultiplierMax); // Multiplicador configurável
-      baseRadius += heightBonus;
-      console.log(`🏢 Height bonus: ${boundary.height}m tall → +${heightBonus.toFixed(0)}m radius`);
-    }
-
-    // 3.5. NOVO: Ajuste por altura RELATIVA aos prédios vizinhos (LÓGICA MATEMÁTICA PURA)
-    // Em áreas densas, SEMPRE analisar altura relativa, independente da altura do POI
-    const isDenseArea = context.urbanDensity.level === 'very_dense' || context.urbanDensity.level === 'dense';
-    const shouldAnalyzeRelativeHeight = isDenseArea || (boundary.height && boundary.height > 10);
-    
-    if (shouldAnalyzeRelativeHeight) {
-      try {
-        console.log(`🏙️ Analyzing relative height: ${isDenseArea ? 'dense area' : 'tall POI'} (${boundary.height || 'no height'}m)`);
-        
-        // Buscar altura dos prédios ao redor com raio dinâmico baseado na altura do POI
-        const poiHeight = boundary.height || 0;
-        let analysisRadius = TRIGGER_POINTS_CONSTANTS.distances.surroundingHeightsRadius; // 800m base
-        
-        // Raio dinâmico: POIs muito altos precisam de raio maior para capturar prédios similares
-        if (poiHeight > 100) {
-          analysisRadius = 1500; // Raio máximo para POIs muito altos (m)
-          console.log(`🏗️ Using extended radius (${analysisRadius}m) for very tall POI (${poiHeight}m)`);
-        } else if (poiHeight > 50) {
-          analysisRadius = Math.min(1200, TRIGGER_POINTS_CONSTANTS.distances.surroundingHeightsRadius * 1.5); // 1200m para POIs altos
-          console.log(`🏢 Using increased radius (${analysisRadius}m) for tall POI (${poiHeight}m)`);
-        }
-        
-        const surroundingHeights = await Promise.race([
-          this.calculateSurroundingBuildingsHeight(boundary.center, analysisRadius),
-          new Promise<{ average: number; max: number; buildingCount: number }>((_, reject) => 
-            setTimeout(() => reject(new Error('Timeout')), 15000) // Timeout configurável (QUALIDADE > PERFORMANCE)
-          )
-        ]);
-        
-        // ✅ SALVAR OS DADOS NO BOUNDARY PARA USO NA VALIDAÇÃO DE CANYON
-        boundary.surroundingHeight = surroundingHeights;
-        console.log(`✅ Saved surrounding height data to boundary: ${surroundingHeights.buildingCount} buildings, avg ${surroundingHeights.average}m`);
-        
-        if (surroundingHeights.buildingCount > 5) {
-          // Calcular diferença relativa
-          const poiHeight = boundary.height || 0; // Se não tem altura, considerar 0
-          console.log(`🔍 DEBUG: boundary.height: ${boundary.height}, poiHeight: ${poiHeight}, type: ${typeof boundary.height}`);
-          const heightDifference = poiHeight - surroundingHeights.average;
-          
-          if (isDenseArea) {
-            // EM ÁREAS DENSAS: Lógica ajustada para POIs muito altos
-            if (heightDifference > 100) {
-              // POI EXTREMAMENTE alto (landmarks como Sagrada Família) → raio generoso
-              const relativeRadius = Math.min(heightDifference * cfg.searchRadius.heightMultipliers.extremely_tall.multiplier, cfg.searchRadius.heightMultipliers.extremely_tall.maxRadius);
-              baseRadius = Math.max(relativeRadius, cfg.searchRadius.heightMultipliers.extremely_tall.minRadius);
-              console.log(`🏗️ DENSE AREA: POI EXTREMELY tall landmark: ${poiHeight}m vs avg ${surroundingHeights.average}m → radius ${baseRadius}m`);
-            } else if (heightDifference > 50) {
-              // POI MUITO mais alto que vizinhos → raio baseado na diferença
-              const relativeRadius = Math.min(heightDifference * cfg.searchRadius.heightMultipliers.very_tall.multiplier, cfg.searchRadius.heightMultipliers.very_tall.maxRadius);
-              baseRadius = Math.max(relativeRadius, cfg.searchRadius.heightMultipliers.very_tall.minRadius);
-              console.log(`🏢 DENSE AREA: POI VERY tall relative to surroundings: ${poiHeight}m vs avg ${surroundingHeights.average}m → radius ${baseRadius}m`);
-            } else if (heightDifference > 20) {
-              // POI moderadamente mais alto → raio moderado
-              const relativeRadius = Math.min(heightDifference * cfg.searchRadius.heightMultipliers.tall.multiplier, cfg.searchRadius.heightMultipliers.tall.maxRadius);
-              baseRadius = Math.max(relativeRadius, cfg.searchRadius.heightMultipliers.tall.minRadius);
-              console.log(`🏗️ DENSE AREA: POI tall relative to surroundings: ${poiHeight}m vs avg ${surroundingHeights.average}m → radius ${baseRadius}m`);
-            } else if (heightDifference > 0) {
-              // POI ligeiramente mais alto → raio conservador
-              const relativeRadius = Math.min(heightDifference * cfg.searchRadius.heightMultipliers.medium.multiplier, cfg.searchRadius.heightMultipliers.medium.maxRadius);
-              baseRadius = Math.max(relativeRadius, cfg.searchRadius.heightMultipliers.medium.minRadius);
-              console.log(`🏙️ DENSE AREA: POI slightly tall relative to surroundings: ${poiHeight}m vs avg ${surroundingHeights.average}m → radius ${baseRadius}m`);
-            } else {
-              // POI igual ou menor que vizinhos → raio pequeno
-              baseRadius = Math.max(30, 20 + Math.abs(heightDifference) * 0.5); // 20-30m base + 0.5m por metro de diferença
-              console.log(`🏘️ DENSE AREA: POI lower than surroundings: ${poiHeight}m vs avg ${surroundingHeights.average}m → radius ${baseRadius}m`);
-            }
-          } else {
-            // EM ÁREAS NÃO DENSAS: Lógica original (bonus/penalty)
-            if (heightDifference > 50) {
-              const relativeBonus = Math.min(heightDifference * 4, 600);
-              baseRadius += relativeBonus;
-              console.log(`🏢 POI VERY tall relative to surroundings: ${poiHeight}m vs avg ${surroundingHeights.average}m → +${relativeBonus}m radius`);
-            } else if (heightDifference > 20) {
-              const relativeBonus = heightDifference * 2;
-              baseRadius += relativeBonus;
-              console.log(`🏗️ POI tall relative to surroundings: ${poiHeight}m vs avg ${surroundingHeights.average}m → +${relativeBonus}m radius`);
-            } else if (heightDifference < -20) {
-              const penalty = Math.abs(heightDifference) * 2;
-              baseRadius = Math.max(baseRadius - penalty, 150);
-              console.log(`🏘️ POI lower than surroundings: ${poiHeight}m vs avg ${surroundingHeights.average}m → -${penalty}m radius`);
-            } else {
-              console.log(`🏙️ POI similar height to surroundings: ${poiHeight}m vs avg ${surroundingHeights.average}m → no adjustment`);
-            }
-          }
-        } else {
-          console.log(`⚠️ Insufficient surrounding height data (${surroundingHeights.buildingCount} buildings), using fallback`);
-          if (isDenseArea) {
-            // Em áreas densas, usar raio conservador se não tem dados de altura
-            baseRadius = Math.min(baseRadius, 150);
-            console.log(`🏙️ DENSE AREA: No height data, using conservative radius: ${baseRadius}m`);
-          }
-        }
-      } catch (error) {
-        console.warn(`⚠️ Failed to analyze surrounding buildings height: ${error instanceof Error ? error.message : String(error)}, using fallback`);
-        if (isDenseArea) {
-          // Em áreas densas, usar raio conservador se falhar
-          baseRadius = Math.min(baseRadius, 150);
-          console.log(`🏙️ DENSE AREA: Analysis failed, using conservative radius: ${baseRadius}m`);
-        }
-      }
-    }
-    
-    // 4. Ajuste por tipo de terreno (elevação)
-    if (context.elevationContext.type === 'mountainous') {
-      baseRadius *= 1.4; // Montanhas = visibilidade maior
-      console.log(`⛰️ Mountainous terrain multiplier: x1.4`);
-    } else if (context.elevationContext.type === 'hilly') {
-      baseRadius *= 1.2;
-      console.log(`🏔️ Hilly terrain multiplier: x1.2`);
-    }
-    
-    // 5. Limites de segurança
-    const minRadius = cfg.searchRadius.limits.min;
-    const maxRadius = cfg.searchRadius.limits.max;
-    const finalRadius = Math.max(minRadius, Math.min(baseRadius, maxRadius));
-    
-    console.log(`✅ Intelligent radius calculated: ${finalRadius.toFixed(0)}m (base: ${baseRadius.toFixed(0)}m)`);
-    
-    return Math.round(finalRadius);
-  }
-
   /**
    * Estima a elevação base da região usando dados de contexto e heurísticas
    * Substitui a lista hardcoded de landmarks por lógica dinâmica
@@ -489,177 +207,35 @@ export class StreetAnalyzer {
    * Busca ruas ao redor do boundary do POI (ESTRATÉGIA HÍBRIDA para POIs grandes)
    * ✅ CORREÇÃO ESTRUTURAL: Garante que todas as ruas retornadas respeitam o searchRadius
    */
-  private async getRoadsAroundBoundary(boundary: BoundaryData, searchRadius: number, context?: GeographicContext): Promise<StreetData[]> {
-    console.log(`🗺️ [getRoadsAroundBoundary] Boundary: ${boundary.coordinates.length} points, radius: ${searchRadius}m`);
-    console.log(`📊 [INPUT] boundary.streets: ${boundary.streets?.length || 0} consolidated streets`);
-    
+  private async getRoadsAroundBoundary(
+    boundary: BoundaryData,
+    searchRadius: number,
+    context: GeographicContext | undefined,
+    rejected: RejectedStreet[]
+  ): Promise<StreetData[]> {
     try {
-      // 🚀 ESTRATÉGIA: usar streets consolidadas + EXPANDIR se o searchRadius
-      // pedido for maior que o raio coberto durante detecção do boundary.
-      //
-      // Crítico para o modo visibility-driven: o fan pode dizer "POI visível a
-      // 3km" mas `boundary.streets` só tem ruas no raio inicial (500m). Sem
-      // re-fetch, FAN-WALK roda só com as 39 streets do quarteirão e perde
-      // todas as ruas no entorno expandido.
-      if (boundary.streets && boundary.streets.length > 0) {
-        let streets = boundary.streets;
-
-        // Quando o fan está ativo, SEMPRE buscar streets usando amostragem ao
-        // longo do boundary. A `boundary.streets` consolidada veio da detecção
-        // inicial (bbox ~600m centrada no PIN do POI), o que enviesa cobertura
-        // pro lado do pin em boundaries grandes/assimétricos. O fetch ao longo
-        // do boundary distribui os bboxes uniformemente pelo perímetro real.
-        //
-        // Estratégia: N pontos amostrados ao longo do perímetro × raio fan
-        // por ponto = cobertura proporcional ao tamanho real do POI E à
-        // visibilidade física.
-        const fanActive = !!boundary.visibilityFan?.polygons?.length;
-        if (fanActive) {
-          console.log(`🔭 [EXTEND] Fan active → fetching streets along boundary (searchRadius=${searchRadius}m, bypassing pin-bias from initial fetch)`);
-          try {
-            const { LocalOSMFetcher } = require('../services/local-osm-fetcher');
-            const fetcher = LocalOSMFetcher.getInstance();
-
-            // Raio por sample-point = distância máxima de visibilidade do fan.
-            //
-            // Crítico: para POIs altos (Cristo, Jaraguá), o boundary é pequeno
-            // mas a visibilidade vai a quilômetros. O fan já calculou a real
-            // distância máxima visível considerando altura+terreno+prédios.
-            // Usar isso como raio garante:
-            //  - Cristo: 1 sample point × fan.max=10km → cobre Botafogo, Copa
-            //  - Queensboro: 8 sample points × fan.max=5km → cobre Manhattan + Queens
-            //  - Pier 97: 1 sample × fan.max=100m → cobre só o entorno (correto)
-            //
-            // Cap em 10km por sample-point. Antes era 4km, mas pra HIGH POIs
-            // (Cristo: fan max=7.2km) o cap menor cortava streets em áreas
-            // distantes visíveis (Copacabana, Ipanema). 10km cobre qualquer
-            // fan razoável; carga em zonas densas é controlada pelo
-            // fan-aware memory cap abaixo (prefere streets dentro do fan).
-            const fanMaxM = boundary.visibilityFan?.maxDistanceM ?? searchRadius;
-            const radiusPerPoint = Math.max(300, Math.min(fanMaxM, 10000));
-            console.log(`🔭 [EXTEND] Using radiusPerPoint=${radiusPerPoint}m (fan max=${fanMaxM}m)`);
-
-            const extended = fetcher.fetchStreetsAlongBoundary(
-              boundary.coordinates,
-              radiusPerPoint
-            );
-
-            if (extended && extended.length > 0) {
-              // Normaliza IDs antes de dedup: `toOverpassElement` pode gerar um
-              // ID numérico aleatório diferente para ruas sem OSM ID válido, enquanto
-              // `fetchStreetsAlongBoundary` usa o `row.id` original do SQLite
-              // (ex: "osm_way_hdrk4b19j"). Sem normalização, o mesmo segmento físico
-              // entra 2x na lista → FAN-WALK processa o mesmo candidato em duplicata.
-              //
-              // Fix: usar Map keyed por ID normalizado. `fetchStreetsAlongBoundary`
-              // tem coordenadas completas (fullCoordinates) — preferir esses sobre
-              // boundary.streets quando há colisão de ID normalizado.
-              const normalizeId = (id: string | number): string => {
-                const s = String(id);
-                // "osm_way_226041025" → "226041025", "226041025" → "226041025"
-                // "osm_way_hdrk4b19j" → "hdrk4b19j" (alphanumeric, sem conflito)
-                return s.replace(/^osm_way_/, '').replace(/^osm_/, '');
-              };
-              // Rebuild final list: extended streets take priority (have fullCoordinates)
-              const finalMap = new Map<string, StreetData>();
-              for (const s of streets) finalMap.set(normalizeId(s.id), s);
-              for (const s of extended as StreetData[]) finalMap.set(normalizeId(s.id), s);
-              const before = streets.length;
-              streets = Array.from(finalMap.values());
-              const deduped = before + extended.length - streets.length;
-              console.log(`✅ [EXTEND] Merged ${extended.length} boundary streets → ${streets.length} total (${deduped} deduped)`);
-            } else {
-              console.log(`⚠️ [EXTEND] No additional streets found along boundary`);
-            }
-          } catch (err) {
-            console.warn(`⚠️ [EXTEND] Failed to fetch streets along boundary:`, err);
-          }
-        }
-
-        // Memory cap: pra POIs em áreas hiper-densas (Manhattan, parques grandes),
-        // streets podem chegar a 12k+ entradas. SSOT do limite em
-        // TRIGGER_POINTS_CONSTANTS.memory.
-        //
-        // Estratégia FAN-AWARE: quando o visibility fan existe, streets dentro
-        // do polígono do fan têm PRIORIDADE absoluta — elas são candidatas
-        // legítimas a TPs (visibilidade física confirmada). Streets fora do fan
-        // raramente viram TP e são descartadas primeiro.
-        //
-        // Sem essa estratégia, pra HIGH POIs (Cristo: fan max=7.2km), streets
-        // distantes-mas-visíveis (Copacabana) eram cortadas pelo "closest to
-        // center" enquanto streets próximas-mas-invisíveis (atrás da montanha)
-        // sobreviviam.
-        const MAX_STREETS = TRIGGER_POINTS_CONSTANTS.memory.maxStreetsPerPOI;
-        if (streets.length > MAX_STREETS) {
-          const poiCenter = boundary.center;
-          const distanceToCenter = (s: any): number => {
-            if (!s.coordinates || s.coordinates.length === 0) return Infinity;
-            let minD = Infinity;
-            for (const p of s.coordinates) {
-              const d = calculateDistance(poiCenter, p);
-              if (d < minD) minD = d;
-            }
-            return minD;
-          };
-
-          const fanMaxM = boundary.visibilityFan?.maxDistanceM ?? 0;
-          const hasFanRadius = fanMaxM > 0;
-
-          if (hasFanRadius) {
-            // Split: streets com QUALQUER ponto dentro do raio derivado do fan
-            // vs fora. Sem polygon check — per-TP downstream faz a verificação
-            // exata de linha de visão.
-            const inRadius: any[] = [];
-            const outRadius: any[] = [];
-            for (const s of streets) {
-              const coords = s.coordinates || [];
-              const anyInside = coords.some((p: any) =>
-                calculateDistance(poiCenter, p) <= fanMaxM
-              );
-              (anyInside ? inRadius : outRadius).push(s);
-            }
-
-            // Streets dentro do raio são candidatas legítimas até o per-TP
-            // check rodar. Mantemos todas (teto alto só pra safety).
-            const FAN_RADIUS_CEILING = 20000;
-            if (inRadius.length > FAN_RADIUS_CEILING) {
-              streets = inRadius
-                .map(s => ({ s, d: distanceToCenter(s) }))
-                .sort((a, b) => a.d - b.d)
-                .slice(0, FAN_RADIUS_CEILING)
-                .map(x => x.s);
-              console.log(`🧠 Memory cap (fan-radius ceiling): trimmed ${inRadius.length} in-radius streets to ${FAN_RADIUS_CEILING} closest (${outRadius.length} out-of-radius dropped)`);
-            } else {
-              streets = inRadius;
-              console.log(`🧠 Memory cap (fan-radius): kept ALL ${inRadius.length} in-radius streets (radius=${fanMaxM}m; ${outRadius.length} out-of-radius dropped)`);
-            }
-          } else {
-            // Sem fan: fallback ao critério antigo (closest to center).
-            streets = streets
-              .map(s => ({ s, d: distanceToCenter(s) }))
-              .sort((a, b) => a.d - b.d)
-              .slice(0, MAX_STREETS)
-              .map(x => x.s);
-            console.log(`🧠 Memory cap: trimmed streets to ${MAX_STREETS} closest to POI center`);
-          }
-        }
-
-        console.log(`✅ [STRATEGY] Using ${streets.length} streets (consolidated + any extensions)`);
-        console.log(`🔍 [FILTER] Filtering ${streets.length} streets by radius ${searchRadius}m...`);
-
-        // ✅ CRÍTICO: Filtrar ruas consolidadas pelo raio também (podem ter sido criadas com raio maior)
-        const filtered = this.filterStreetPointsByRadius(streets, boundary, searchRadius);
-        console.log(`✅ [RESULT] After filtering: ${filtered.length} streets within ${searchRadius}m radius (from ${streets.length} input)`);
-        
-        if (filtered.length === 0 && boundary.streets.length > 0) {
-          console.error(`❌ [CRITICAL] All ${boundary.streets.length} consolidated streets were rejected by filterStreetPointsByRadius`);
-          console.error(`   → searchRadius: ${searchRadius}m`);
-          console.error(`   → Check: Are streets too far from boundary?`);
-        }
-        
-        return filtered;
+      // INV-E6: the search runs ALONG the edge, with the reach as the radius of every sample
+      // point — never a bbox centred on the pin. The streets consolidated at detection (a bbox
+      // around the pin) only add to it.
+      const { LocalOSMFetcher } = require('../services/local-osm-fetcher');
+      const ring = boundary.coordinates?.length ? boundary.coordinates : [boundary.center];
+      const fetcher = LocalOSMFetcher.getInstance();
+      const nearM = Math.min(searchRadius, FAR_STREETS_FROM_M);
+      const along: StreetData[] | null = fetcher.fetchStreetsAlongBoundary(ring, nearM);
+      // A landmark's far reach (INV-E7c): the through roads, tile by tile, so no direction is lost.
+      const far: StreetData[] = searchRadius > nearM
+        ? fetcher.fetchStreetsInTiles(boundary.center, searchRadius, FAR_STREET_TYPES, FAR_STREET_TILE_M) ?? []
+        : [];
+      if (along?.length || far.length || boundary.streets?.length) {
+        // `toOverpassElement` and the SQLite row name the same way differently
+        // ("osm_way_226041025" vs "226041025"); the along-the-edge one has the full geometry.
+        const normalizeId = (id: string | number) => String(id).replace(/^osm_way_/, '').replace(/^osm_/, '');
+        const merged = new Map<string, StreetData>();
+        for (const st of boundary.streets ?? []) merged.set(normalizeId(st.id), st);
+        for (const st of [...far, ...(along ?? [])]) merged.set(normalizeId(st.id), st);
+        return this.filterStreetsByReach(Array.from(merged.values()), boundary, searchRadius, rejected);
       }
-      
+
       // 🚀 ESTRATÉGIA INTELIGENTE: Usar dados do Nominatim + ruas virtuais
       if (boundary.coordinates.length > 100) {
         console.log(`🏗️ [STRATEGY] Large POI (${boundary.coordinates.length} points) - checking for urban canyon`);
@@ -683,7 +259,7 @@ export class StreetAnalyzer {
         // Fallback: Criar ruas reais dos dados do Nominatim
         const nominatimStreets = this.createRealStreetsFromNominatimData(boundary);
         console.log(`✅ [FALLBACK] Created ${nominatimStreets.length} streets from Nominatim`);
-        return this.filterStreetPointsByRadius(nominatimStreets, boundary, searchRadius);
+        return this.filterStreetsByReach(nominatimStreets, boundary, searchRadius, rejected);
       }
       
       // Para boundaries médios (50-100 pontos), tentar Nominatim primeiro, depois OSM como fallback
@@ -699,14 +275,14 @@ export class StreetAnalyzer {
             const osmStreets = await this.getStreetsFromOSMOptimizedBoundary(boundary, searchRadius);
             if (osmStreets && osmStreets.length > 0) {
               console.log(`✅ [FALLBACK] Found ${osmStreets.length} streets via OSM`);
-              return this.filterStreetPointsByRadius(osmStreets, boundary, searchRadius);
+              return this.filterStreetsByReach(osmStreets, boundary, searchRadius, rejected);
             }
           } catch (error) {
             console.warn(`⚠️ [FALLBACK] OSM query failed:`, error);
           }
         }
         
-        return this.filterStreetPointsByRadius(nominatimStreets, boundary, searchRadius);
+        return this.filterStreetsByReach(nominatimStreets, boundary, searchRadius, rejected);
       }
       
       // Para boundaries pequenos, tentar Nominatim primeiro, depois OSM como fallback
@@ -721,14 +297,14 @@ export class StreetAnalyzer {
           const osmStreets = await this.getStreetsFromOSMOptimizedBoundary(boundary, searchRadius);
           if (osmStreets && osmStreets.length > 0) {
             console.log(`✅ [FALLBACK] Found ${osmStreets.length} streets via OSM`);
-            return this.filterStreetPointsByRadius(osmStreets, boundary, searchRadius);
+            return this.filterStreetsByReach(osmStreets, boundary, searchRadius, rejected);
           }
         } catch (error) {
           console.warn(`⚠️ [FALLBACK] OSM query failed:`, error);
         }
       }
       
-      return this.filterStreetPointsByRadius(nominatimStreets, boundary, searchRadius);
+      return this.filterStreetsByReach(nominatimStreets, boundary, searchRadius, rejected);
       
     } catch (error) {
       console.error('❌ [ERROR] Finding roads around boundary:', error);
@@ -743,124 +319,43 @@ export class StreetAnalyzer {
           const osmStreets = await this.getStreetsFromOSMOptimizedBoundary(boundary, searchRadius);
           if (osmStreets && osmStreets.length > 0) {
             console.log(`✅ [FALLBACK FINAL] Found ${osmStreets.length} streets via OSM`);
-            return this.filterStreetPointsByRadius(osmStreets, boundary, searchRadius);
+            return this.filterStreetsByReach(osmStreets, boundary, searchRadius, rejected);
           }
         } catch (osmError) {
           console.warn(`⚠️ [FALLBACK FINAL] OSM query also failed:`, osmError);
         }
       }
       
-      return this.filterStreetPointsByRadius(nominatimStreets, boundary, searchRadius);
+      return this.filterStreetsByReach(nominatimStreets, boundary, searchRadius, rejected);
     }
   }
   
   /**
-   * ✅ NOVA FUNÇÃO: Filtra PONTOS das ruas pelo raio de busca
-   * Garante que apenas pontos dentro do raio sejam mantidos
+   * E6 — keeps the streets whose polyline comes within the reach of the POI EDGE
+   * (`validation#streetEdgeReach`), whole: the candidate step anchors at the foot of the
+   * perpendicular, so no vertex is cut here. Every street left out goes to `rejected`, with its
+   * edge distance and the limit, for the trace. Above STREET_CEILING the closest stay.
    */
-  private filterStreetPointsByRadius(
+  private filterStreetsByReach(
     streets: StreetData[],
     boundary: BoundaryData,
-    searchRadius: number
+    reachM: number,
+    rejected: RejectedStreet[]
   ): StreetData[] {
-    if (!streets || streets.length === 0) {
-      console.log(`🔍 [filterStreetPointsByRadius] No streets to filter`);
-      return streets;
+    const within: Array<{ street: StreetData; d: number }> = [];
+    for (const street of streets ?? []) {
+      const r = streetEdgeReach(street, boundary, reachM);
+      if (r.within) within.push({ street, d: r.edgeDistanceM! });
+      else rejected.push({ id: String(street.id), name: street.name, edgeDistanceM: r.edgeDistanceM, limitM: reachM, reason: 'beyond_reach' });
     }
-    if (!boundary.coordinates || boundary.coordinates.length === 0) {
-      console.log(`🔍 [filterStreetPointsByRadius] No boundary coordinates, returning all streets`);
-      return streets;
+    within.sort((x, y) => x.d - y.d);
+    for (const w of within.slice(STREET_CEILING)) {
+      rejected.push({ id: String(w.street.id), name: w.street.name, edgeDistanceM: w.d, limitM: reachM, reason: 'street_ceiling' });
     }
-    
-    const maxAllowedDistance = searchRadius + 20; // Margem de 20m
-    const filtered: StreetData[] = [];
-    let approvedCount = 0;
-    let rejectedCount = 0;
-    const rejectionReasons: { reason: string; count: number }[] = [];
-    
-    console.log(`🔍 [filterStreetPointsByRadius] Filtering ${streets.length} streets by radius ${searchRadius}m (max: ${maxAllowedDistance}m)`);
-    
-    for (const street of streets) {
-      if (!street.coordinates || street.coordinates.length === 0) {
-        rejectedCount++;
-        continue;
-      }
-      
-      // Filtrar pontos pelo raio
-      const validPoints: Array<{ lat: number; lng: number }> = [];
-      let minDistanceToBoundary = Infinity;
-      let pointsInsideBoundary = 0;
-      
-      for (const point of street.coordinates) {
-        // Ignorar pontos dentro do boundary
-        if (isPointInPolygon(point, boundary.coordinates)) {
-          pointsInsideBoundary++;
-          continue;
-        }
-        
-        // Calcular distância ao boundary
-        const distanceToBoundary = calculateDistanceToPolygon(point, boundary.coordinates);
-        minDistanceToBoundary = Math.min(minDistanceToBoundary, distanceToBoundary);
-        
-        if (distanceToBoundary <= maxAllowedDistance) {
-          validPoints.push(point);
-        }
-      }
-      
-      // ✅ REGRA: Aprovar ruas que têm pelo menos 1 ponto válido dentro do raio
-      if (validPoints.length >= 1) {
-        const pointsToUse = validPoints.length >= 2 
-          ? validPoints 
-          : [validPoints[0], validPoints[0]]; // Duplicar ponto para manter formato de segmento
-        
-        filtered.push({
-          ...street,
-          coordinates: pointsToUse
-        });
-        approvedCount++;
-      } else {
-        rejectedCount++;
-        let reason = '';
-        if (pointsInsideBoundary === street.coordinates.length) {
-          reason = `all points inside boundary`;
-        } else if (minDistanceToBoundary !== Infinity) {
-          reason = `closest point ${minDistanceToBoundary.toFixed(0)}m (max: ${maxAllowedDistance.toFixed(0)}m)`;
-        } else {
-          reason = `no valid points`;
-        }
-        
-        // Agrupar razões de rejeição
-        const existingReason = rejectionReasons.find(r => r.reason === reason);
-        if (existingReason) {
-          existingReason.count++;
-        } else {
-          rejectionReasons.push({ reason, count: 1 });
-        }
-      }
-    }
-    
-    // Log resumido
-    console.log(`📊 [filterStreetPointsByRadius] Result: ${approvedCount} approved, ${rejectedCount} rejected (from ${streets.length} total)`);
-    
-    if (rejectedCount > 0 && rejectedCount <= 10) {
-      // Mostrar detalhes das primeiras 10 rejeições
-      console.log(`   Rejection reasons: ${rejectionReasons.map(r => `${r.reason} (${r.count}x)`).join(', ')}`);
-    } else if (rejectedCount > 10) {
-      // Mostrar apenas resumo para muitas rejeições
-      console.log(`   Top rejection reasons: ${rejectionReasons.slice(0, 3).map(r => `${r.reason} (${r.count}x)`).join(', ')}`);
-    }
-    
-    if (filtered.length === 0 && streets.length > 0) {
-      console.error(`❌ [CRITICAL] All ${streets.length} streets were rejected by radius filter`);
-      console.error(`   → searchRadius: ${searchRadius}m, maxAllowed: ${maxAllowedDistance}m`);
-      console.error(`   → Check: Are streets too far from boundary?`);
-    }
-    
-    return filtered;
+    console.log(`🔍 [filterStreetsByReach] ${Math.min(within.length, STREET_CEILING)}/${streets?.length ?? 0} streets within ${reachM} m of the edge`);
+    return within.slice(0, STREET_CEILING).map(w => w.street);
   }
-  
-  // ✅ DRY: calculateDistanceToBoundary removido - usar função importada de utils/calculations.ts
-  
+
   /**
    * Calcula distância de um ponto a um segmento de linha
    */
@@ -1601,91 +1096,6 @@ out geom tags; // ADICIONAR 'tags' para obter tunnel, bridge, layer, etc
       fullCoordinates: street.coordinates,
       distance: foot?.distance,
     } as StreetData;
-  }
-
-  /**
-   * Busca ruas usando Google Roads API com fallback
-   */
-  private async calculateSurroundingBuildingsHeight(
-    poiLocation: { lat: number; lng: number },
-    radius: number = 500
-  ): Promise<{ average: number; max: number; buildingCount: number }> {
-    // Verificar cache primeiro (TTL gerenciado internamente)
-    const cacheKey = `${poiLocation.lat.toFixed(4)},${poiLocation.lng.toFixed(4)},${radius}`;
-    const cached = StreetAnalyzer.surroundingHeightCache.get(cacheKey);
-
-    if (cached !== undefined) {
-      console.log(`🏙️ Using cached surrounding buildings data (${cached.buildingCount} buildings, avg: ${cached.average}m)`);
-      return cached;
-    }
-    
-    const query = `
-[out:json][timeout:${TRIGGER_POINTS_CONSTANTS.timeouts.osmQueryVeryLong}];
-(
-  way["building"](around:${radius},${poiLocation.lat},${poiLocation.lng});
-);
-out tags;
-`;
-
-    try {
-      console.log(`🏙️ Fetching surrounding buildings height data (${radius}m radius)...`);
-      
-      const response = await this.retryOSMQuery(
-        query,
-        'OSM surrounding buildings query',
-        7,
-        1500
-      );
-      
-      if (!response.ok) {
-        console.warn(`OSM surrounding buildings query failed: ${response.status}`);
-        return { average: 0, max: 0, buildingCount: 0 };
-      }
-      
-      const data = await response.json();
-      
-      if (!data.elements || data.elements.length === 0) {
-        console.log('⚠️ No surrounding buildings found in OSM');
-        return { average: 0, max: 0, buildingCount: 0 };
-      }
-      
-      const heights: number[] = [];
-      
-      for (const element of data.elements || []) {
-        const height = extractBuildingHeight(element.tags);
-        if (height > 0) {
-          heights.push(height);
-        }
-      }
-      
-      if (heights.length === 0) {
-        console.log('⚠️ No surrounding buildings with height data found');
-        return { average: 0, max: 0, buildingCount: 0 };
-      }
-      
-      const averageHeight = heights.reduce((sum, h) => sum + h, 0) / heights.length;
-      const maxHeight = Math.max(...heights);
-      
-      // Contar prédios altos (acima de 50m) para análise de canyon urbano
-      const tallBuildingsCount = heights.filter(height => height > 50).length;
-      
-      const result = {
-        average: Math.round(averageHeight),  // ✅ CORRIGIDO: average em vez de averageHeight
-        max: Math.round(maxHeight),          // ✅ CORRIGIDO: max em vez de maxHeight
-        buildingCount: heights.length,
-        tallBuildingsCount: tallBuildingsCount // NOVO: contagem de prédios altos
-      };
-      
-      // Armazenar no cache (TTL aplicado internamente)
-      StreetAnalyzer.surroundingHeightCache.set(cacheKey, result);
-      
-      console.log(`🏙️ Surrounding buildings: ${heights.length} analyzed, avg height: ${averageHeight.toFixed(1)}m, max: ${maxHeight.toFixed(1)}m (cached)`);
-      
-      return result;
-    } catch (error) {
-      console.error('Failed to fetch surrounding buildings height:', error);
-      return { average: 0, max: 0, buildingCount: 0 };
-    }
   }
 
   /**

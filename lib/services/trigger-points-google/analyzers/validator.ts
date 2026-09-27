@@ -1,10 +1,9 @@
 // Validador e ranker de trigger points
 
 import { POIData, GeographicContext, TriggerPointCandidate, TriggerPoint, BoundaryData } from '../types/interfaces';
-import { calculateOptimalRadius, calculateDistance, calculateBearing, extractBuildingHeight, normalizeAngleDifference, isPointInPolygon, calculateDistanceToBoundary, distanceToLineSegment, findClosestPointOnBoundary } from '../utils/calculations';
+import { calculateOptimalRadius, calculateDistance, calculateBearing, extractBuildingHeight, normalizeAngleDifference, isPointInPolygon, calculateDistanceToBoundary, distanceToLineSegment } from '../utils/calculations';
 import { SANITY_MAX_TP_DISTANCE_M, proximityBand, proximityRankScore } from '../config/visibility-class';
-import { getFanReachAtBearing } from '../utils/fan-reach';
-import { ElevationAnalysisService } from '../services/elevation-service';
+import { tpReachCapM } from '../utils/validation';
 import { loadTriggerPointsConfig, TriggerPointsConfig, TRIGGER_POINTS_CONSTANTS } from '../config/trigger-points-config';
 import { GoogleAPIsService } from '../services/google-apis.service';
 import { SRTMLocalService } from '../../srtm-local-service';
@@ -106,12 +105,6 @@ export class TriggerPointValidator {
     // o predictor já injeta os valores corretos (`safety ceiling 5000` em
     // calculateDynamicTPLimit + minDistance calculado em calculateMinDistance).
     // O controle real de quantidade vive em applyOptions (density thinning).
-    // 🚀 OTIMIZAÇÃO: Calcular elevação base UMA ÚNICA VEZ para evitar centenas de chamadas de API
-    let baseElevation: number | null = null;
-    if (boundary?.elevation && boundary.elevation.center > 0) {
-      baseElevation = await ElevationAnalysisService.estimateRegionalBaseElevation(boundary.center, context, poiData);
-    }
-    
     // 🎯 NOVO: Confiar 100% no limite calculado pelo predictor (sem recalcular)
     // O predictor já calculou o limite baseado na área e características do POI
     const dynamicMaxTPs = maxTriggerPoints;
@@ -121,7 +114,7 @@ export class TriggerPointValidator {
       // ✅ VALIDAÇÃO BÁSICA COMPLETA
       const basicValidCandidates = [];
       for (const candidate of candidates) {
-        const isValid = await this.isValidCandidate(candidate, poiData, context, boundary, baseElevation);
+        const isValid = await this.isValidCandidate(candidate, poiData, context, boundary);
         if (isValid) {
           basicValidCandidates.push(candidate);
         }
@@ -985,8 +978,7 @@ export class TriggerPointValidator {
     candidate: TriggerPointCandidate,
     poiData: POIData,
     context: GeographicContext,
-    boundary?: BoundaryData,
-    cachedBaseElevation?: number | null
+    boundary?: BoundaryData
   ): Promise<boolean> {
     // Verificar qualidade mínima
     if (candidate.quality < 0.3) {
@@ -1005,69 +997,12 @@ export class TriggerPointValidator {
       return false;
     }
     
-    // Distância máxima do candidato ao centroide do POI.
-    //
-    // Modo fan-driven: PULA a checagem por completo. O FAN-WALK já filtrou
-    // fisicamente (fan polygons + boundary + safety 100m). Se um candidato
-    // chegou aqui, ele passou pela visibilidade — não há razão pra rejeitar
-    // por distância arbitrária. Casos típicos onde a regra antiga atrapalha:
-    //  - POIs storefront com fan degenerado (max=30m): a regra rejeitava TPs
-    //    legítimos em ruas adjacentes a 35-100m.
-    //  - Infraestruturas vizinhas visíveis (Roosevelt Island Bridge a 1.5km
-    //    da Queensboro): a regra cortava antes mesmo do fan opinar.
-    //
-    // Modo categórico (fallback, sem fan): mantém regra antiga.
-    const fanForDistance = !!boundary?.visibilityFan?.polygons?.length;
-    if (!fanForDistance) {
-      let maxDistance = 1000;
-      if (boundary?.elevation && boundary.elevation.center > 0 && cachedBaseElevation !== null) {
-        const poiElevation = boundary.elevation.center;
-        const baseElevation = cachedBaseElevation || await ElevationAnalysisService.estimateRegionalBaseElevation(boundary.center, context, poiData);
-        const elevationDiff = baseElevation === null ? 0 : poiElevation - baseElevation;
-        if (elevationDiff > 150) maxDistance = 15000;
-        else if (elevationDiff > 50) maxDistance = 4000;
-      } else if (context.urbanDensity.level === 'rural') {
-        maxDistance = 3000;
-        console.log(`🌾 Rural area without elevation data → extending max distance to ${maxDistance}m`);
-      }
-
-      if (candidate.distance > maxDistance) {
-        console.log(`🚫 Candidate rejected: distance ${candidate.distance.toFixed(0)}m > ${maxDistance}m`);
-        return false;
-      }
-    } else if (boundary) {
-      // Phase 2.A — cap por visibilidade real (default on desde 2026-05-29).
-      // O fan mode antigo pulava qualquer cap apostando que o fan filtrava
-      // fisicamente, mas o fan tem resolução grossa (5° × 100m) e candidatos
-      // vazavam (Vail Lake: fan_mean 297m, TP a 6527m). Aqui fechamos esse
-      // vazamento usando a distância visível do fan na direção do candidato
-      // como teto, com 10% de folga para absorver ruído de fatias adjacentes.
-      //
-      // Validado em A/B (200 POIs California, 2026-05-29): -61% de TPs no
-      // bucket 200-1500m (zona "TP em rua longe"), Robert W. Crown Beach
-      // max_d 2474m → 644m, sem aumento em exit_path errors. Storefronts com
-      // fan colapsado continuam protegidos por buildFrontalArrivalTP que roda
-      // depois do validateAndRankPoints.
-      //
-      // Always on (INV-E11, #779): the save and the dry-run run the same engine, and the
-      // batch kill-switch (`quality_fix_fan_cap = false`) made the save skip this cap.
-      // The fan is cast from sample points ON the edge and `candidate.distance` is the
-      // distance to the edge (BR-AUDIO-010), so the bearing also leaves from the edge.
-      const edgePoint = boundary.coordinates?.length >= 3 && candidate.distance > 0
-        ? findClosestPointOnBoundary(candidate.location, boundary.coordinates)
-        : boundary.center;
-      const bearingPoiToCandidate = calculateBearing(edgePoint, candidate.location);
-      const fanReach = getFanReachAtBearing(boundary.visibilityFan, bearingPoiToCandidate);
-      if (Number.isFinite(fanReach) && candidate.distance > fanReach * 1.1) {
-        console.log(`🚫 Candidate rejected (Phase 2.A fan cap): distance ${candidate.distance.toFixed(0)}m > fanReach@${bearingPoiToCandidate.toFixed(0)}° ${fanReach.toFixed(0)}m × 1.1`);
-        return false;
-      }
-    }
-
-    // Per-class cap on the distance to the edge (BR-AUDIO-010, config/visibility-class.ts).
-    const classCapM = boundary?.classification?.maxEdgeDistanceM;
-    if (classCapM && candidate.distance > classCapM) {
-      console.log(`🚫 Candidate rejected: ${candidate.distance.toFixed(0)}m from the edge > class cap ${classCapM}m`);
+    // INV-E6: the ONE reach, from the edge (`tpReachCapM`) — the same the street search and the
+    // candidate walk used. The fan cap (fan reach × 1.1) and the elevation ladder
+    // (1/4/15 km) were two more rulers; visibility is the sight line's job (E8).
+    const reachM = tpReachCapM(boundary?.classification);
+    if (candidate.distance > reachM) {
+      console.log(`🚫 Candidate rejected: ${candidate.distance.toFixed(0)}m from the edge > reach ${reachM}m`);
       return false;
     }
 

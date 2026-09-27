@@ -249,6 +249,16 @@ export class CoreTriggerPointPredictor {
       const streetAnalysisResult = await this.streetAnalyzer.findAccessibleStreetsWithMetadata(poiData, boundary, context);
       const accessibleStreets = streetAnalysisResult.streets;
       _searchRadius = streetAnalysisResult.searchRadius;
+      if (!boundary.classification) {
+        trace.push({ poi_id: poiId, stage: 'E6', rule: 'validation#tpReachCapM', candidate: '',
+          value: `no class: reach ${streetAnalysisResult.searchRadius} m`, limit: 'class required (INV-E5c)', decision: 'kept' });
+      }
+      trace.push(...streetAnalysisResult.rejectedStreets.map(r => ({
+        poi_id: poiId, stage: 'E6' as const, rule: 'street-analyzer#filterStreetsByReach', candidate: '',
+        value: `${r.name || r.id}; edge ${r.edgeDistanceM === null ? '?' : Math.round(r.edgeDistanceM)} m`,
+        limit: r.reason === 'street_ceiling' ? `street ceiling (reach ${r.limitM} m)` : `reach ${r.limitM} m`,
+        decision: 'dropped' as const,
+      })));
 
       if (accessibleStreets.length === 0) {
         console.error('❌ ========================================');
