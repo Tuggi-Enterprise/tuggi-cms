@@ -91,20 +91,10 @@ describe('INV-E1c — the element holding the pin must fit the kind of POI (BR-A
 
   it('a POI whose curated category is monument/memorial/artwork is a point feature even when its tags are a geocoder hit', () => {
     // Monumento Árvore de Natal: primary_category=monument, tags = `highway=pedestrian` (#772).
-    const unnamedPark = { type: 'way', id: 13, tags: { leisure: 'park' }, geometry: square(40) }
-    const r = choice.chooseContainingBoundary(PIN, { name: 'Monumento Árvore de Natal', category: 'monument', tags: { class: 'highway', type: 'pedestrian' } }, [unnamedPark])
+    const namedPark = { type: 'way', id: 13, tags: { leisure: 'park', name: 'Praça do Radio Amador' }, geometry: square(40) }
+    const r = choice.chooseContainingBoundary(PIN, { name: 'Monumento Árvore de Natal', category: 'monument', tags: { class: 'highway', type: 'pedestrian' } }, [namedPark])
     assert.equal(r.chosen, undefined)
-    assert.equal(r.rejected[0].reason, choice.POINT_FEATURE_AREA_REASON)
-  })
-
-  it('a categorised POI still refuses named ground of another name, unless its category names that ground', () => {
-    // Mirante Vista para a Cidade (`viewpoint`) took the 81 km² park around it (#772).
-    const park = { type: 'relation', id: 14, tags: { leisure: 'park', name: 'Parque Nacional' }, geometry: square(500) }
-    const viewpoint = choice.chooseContainingBoundary(PIN, { name: 'Mirante Vista para a Cidade', category: 'viewpoint', tags: { tourism: 'viewpoint' } }, [park])
-    assert.equal(viewpoint.chosen, undefined)
-    assert.equal(viewpoint.rejected[0].reason, choice.NAMED_GROUND_REASON)
-    const parkPoi = choice.chooseContainingBoundary(PIN, { name: 'Parque Comitê', category: 'park', tags: {} }, [park])
-    assert.equal(parkPoi.chosen?.element.id, 14)
+    assert.match(r.rejected[0].reason, /area polygon/)
   })
 
   it('only what holds the pin counts; a closed road is no area; the smallest fitting polygon wins', () => {

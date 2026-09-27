@@ -107,8 +107,8 @@ export function curatedPlaceIsThePoi(
 }
 
 /**
- * A POI under a NAMED square, park, landuse or landform of another name, whose own tags and
- * category do not say it is that kind of place: the element is the ground it stands on, not the POI.
+ * An uncategorised POI under a NAMED square, park, landuse or landform of another name, whose own
+ * tags do not say it is that kind of place: the element is the ground it stands on, not the POI.
  * The Monumento Árvore de Natal (no id; tags = the geocoder's `highway=pedestrian` hit) took the
  * Praça do Radio Amador (leisure=park, 6,008 m²) with the avenue sidewalk in it (#772). The name
  * is compared for identity, never read for kind (P3).
@@ -122,15 +122,12 @@ export function isNamedGroundOfAnotherPoi(
   elementTags: Tags,
   poi: { name?: string | null; category?: string | null; tags?: Tags },
 ): boolean {
+  const uncategorised = !poi.category || poi.category === 'point_of_interest';
   const groundKeys = POINT_FEATURE_REFUSED_KEYS.filter(k => tagValue(elementTags, k) !== '');
-  // Kind evidence: the POI's own tags, or its curated category naming that ground (`park` on a
-  // `leisure=park`). Any other category is no evidence: the Mirante Vista para a Cidade
-  // (`viewpoint`) took the 81 km² park around it once its category reached the engine (#772).
-  const category = String(poi.category ?? '').trim().toLowerCase();
-  const sameKind = groundKeys.some(k => tagValue(poi.tags, k) === tagValue(elementTags, k) || tagValue(elementTags, k) === category);
+  const sameKind = groundKeys.some(k => tagValue(poi.tags, k) === tagValue(elementTags, k));
   const own = [elementTags?.name, elementTags?.['name:pt']].map(normName).filter(n => n !== '');
   const name = normName(poi.name);
-  return groundKeys.length > 0 && !sameKind && name !== '' && own.length > 0 && !own.includes(name);
+  return uncategorised && groundKeys.length > 0 && !sameKind && name !== '' && own.length > 0 && !own.includes(name);
 }
 
 /** Relief: the border is the landform around the summit (natural=*), never a park or a building. */
