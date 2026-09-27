@@ -9,6 +9,12 @@ import {
   LOCAL_BASE_DIRECTIONS,
   LOCAL_BASE_PERCENTILE,
   LOCAL_BASE_RING_M,
+  RELIEF_FOOT_FRACTION,
+  RELIEF_MAX_RADIUS_M,
+  RELIEF_MIN_M,
+  RELIEF_RAYS,
+  RELIEF_SADDLE_RISE_M,
+  RELIEF_STEP_M,
   SUMMIT_MATCH_M,
   landPercentile,
 } from '../config/visibility-class';
@@ -111,6 +117,35 @@ export class ElevationAnalysisService {
       reads.push(read(p.lat, p.lng));
     }
     return landPercentile(await Promise.all(reads), LOCAL_BASE_PERCENTILE);
+  }
+
+  /**
+   * E1 (#772): the footprint of a hill that has none mapped — where its slope ends, measured on
+   * the DEM. From the pin, RELIEF_RAYS rays walk out every RELIEF_STEP_M until the terrain comes
+   * down to `base + RELIEF_FOOT_FRACTION × relief` (interpolated), or climbs RELIEF_SADDLE_RISE_M
+   * past its lowest point (a saddle to the next hill: the foot is that lowest point), or reaches
+   * RELIEF_MAX_RADIUS_M. null when the pin is not RELIEF_MIN_M above the local base, or the DEM
+   * gave nothing. The Morro do Patronato was a 10 m circle and `point_low` with one TP.
+   */
+  static async reliefFootprint(pin: LatLng, localBaseM: number | null, read: ElevationReader = srtmReader): Promise<LatLng[] | null> {
+    const top = await read(pin.lat, pin.lng);
+    if (top === null || localBaseM === null || top - localBaseM < RELIEF_MIN_M) return null;
+    const foot = localBaseM + (top - localBaseM) * RELIEF_FOOT_FRACTION;
+    const rays = await Promise.all(Array.from({ length: RELIEF_RAYS }, async (_, k) => {
+      const a = (2 * Math.PI * k) / RELIEF_RAYS;
+      const along = (d: number) => offsetM(pin, d * Math.cos(a), d * Math.sin(a));
+      let prev = top, prevD = 0, low = top, lowD = 0;
+      for (let d = RELIEF_STEP_M; d <= RELIEF_MAX_RADIUS_M; d += RELIEF_STEP_M) {
+        const p = along(d);
+        const e = (await read(p.lat, p.lng)) ?? prev;
+        if (e <= foot) return along(prevD + ((d - prevD) * (prev - foot)) / Math.max(prev - e, 1e-6));
+        if (e < low) { low = e; lowD = d; }
+        if (e >= low + RELIEF_SADDLE_RISE_M) return along(lowD);
+        prev = e; prevD = d;
+      }
+      return along(RELIEF_MAX_RADIUS_M);
+    }));
+    return [...rays, rays[0]];
   }
 
   /**

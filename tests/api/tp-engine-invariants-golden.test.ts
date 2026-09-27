@@ -201,10 +201,11 @@ const CLASS_CHECKS: ClassCheck[] = [
   { poi: 'Cristo Redentor', id: POI_ID.cristoRedentor, expectedOneOf: ['landmark_high'] },
   { poi: 'Pão de Açúcar', id: POI_ID.paoDeAcucar, expectedOneOf: ['landmark_high'] },
   { poi: 'Pico do Irmão Menor', id: POI_ID.picoDoIrmaoMenor, expectedOneOf: ['landmark_high'] },
-  // Relief without both prominences is not landmark_high (91 m city / 77 m local < 100). Its own
-  // node id has no polygon carrying its name, so the border is the 10 m point circle, not the
-  // unnamed 261,549 m² landform it took by `natural=*` (operator, 2026-09-27; BR-AUDIO-010, #772).
-  { poi: 'Morro do Patronato', id: POI_ID.morroDoPatronato, expectedOneOf: ['point_low'] },
+  // Relief without both prominences is not landmark_high (91 m city / 77 m local < 100). No mapped
+  // polygon carries its name, and the unnamed scrub under the pin is land cover, not the hill: the
+  // border is the slope measured on the DEM (`elevation-service#reliefFootprint`), ~300 k m², so
+  // `area` (Tech Lead, 2026-09-27: ~260 k m², TPs on the streets around; BR-AUDIO-010, #772).
+  { poi: 'Morro do Patronato', id: POI_ID.morroDoPatronato, expectedOneOf: ['area'] },
   // "não point_low" (tabela): a borda de hoje é o nó de bairro, não o polígono do estádio (E1) —
   // a classe em si já não é point_low (sai `area`), então esta asserção específica passa.
   { poi: 'Maracanã', id: POI_ID.maracana, forbidden: ['point_low'] },

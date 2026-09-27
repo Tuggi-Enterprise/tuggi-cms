@@ -1,10 +1,11 @@
 // Detector de boundaries usando Google APIs com fallback para OSM
 
-import { heightFromTags, SANITY_MAX_TP_DISTANCE_M } from '../config/visibility-class';
+import { heightFromTags, SANITY_MAX_TP_DISTANCE_M, VisibilityClass } from '../config/visibility-class';
 import { GoogleAPIsService } from '../services/google-apis.service';
 import { ElevationService } from '../services/elevation.service';
 import { POIData, GeographicContext, BoundaryData, ProcessingResult } from '../types/interfaces';
-import { convertViewportToPolygon, calculatePolygonArea, calculatePolygonAreaInM2, calculatePolygonCenter, calculateDistance, isPointInPolygon, isDrawnCircle } from '../utils/calculations';
+import { convertViewportToPolygon, calculatePolygonArea, calculatePolygonAreaInM2, calculatePolygonCenter, calculatePolygonPerimeter, calculateDistance, isPointInPolygon, isDrawnCircle } from '../utils/calculations';
+import { ElevationAnalysisService } from '../services/elevation-service';
 import { TRIGGER_POINTS_CONSTANTS } from '../config/trigger-points-config';
 import { isCuratedBoundaryImplausible } from '../utils/osm-validation';
 import { assembleOuterRings, chainSameIdentity, chooseContainingBoundary, corridorRing, footprintRing, LINE_CORRIDOR_HALF_WIDTH_M, outerRing, type BoundaryRejection, type OsmAreaElement } from '../utils/boundary-choice';
@@ -231,6 +232,28 @@ export class BoundaryDetector {
    * 2.6 km beach got 1 TP (Praia do Recreio, #779).
    */
   private async withClassification(boundary: BoundaryData, poiData: POIData): Promise<BoundaryData> {
+    const measured = await this.measureBoundary(boundary, poiData);
+    const physical = measured.physical;
+    // E1, relief footprint (#772): a POI with no footprint of its own that stands on a hill takes
+    // the slope as its border, measured on the DEM — never a mapped polygon by its type. Not for a
+    // `landmark_high`: its reach is the horizon, and the slope would only take its trail and cable
+    // car TPs away (inside the border, INV-E11).
+    if (!boundary.synthetic || measured.classification?.group === VisibilityClass.LANDMARK_HIGH || !physical) return measured;
+    const ring = await ElevationAnalysisService.reliefFootprint(poiData.location, physical.localBaseM);
+    if (!ring) return measured;
+    const areaM2 = calculatePolygonAreaInM2(ring);
+    return this.measureBoundary({
+      ...boundary,
+      type: 'polygon',
+      coordinates: ring,
+      area_m2: areaM2,
+      perimeter_m: calculatePolygonPerimeter(ring),
+      source: 'dem_relief',
+      synthetic: false,
+    }, poiData);
+  }
+
+  private async measureBoundary(boundary: BoundaryData, poiData: POIData): Promise<BoundaryData> {
     // Always measured here, on the FINAL boundary (E3 → E4 → E5, P8): on the name path the class
     // was decided before the height and the 2nd elevation read, and Cristo left with height 0.
     const loose = poiData as POIData & { tags?: Record<string, unknown> };

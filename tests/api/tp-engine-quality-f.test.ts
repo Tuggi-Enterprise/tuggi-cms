@@ -70,3 +70,23 @@ describe('BR-AUDIO-010, INV-E10d — an area gets one TP per perimeter sector wi
     assert.deepEqual(out, [avenue])
   })
 })
+
+describe('BR-AUDIO-010, E1 — a hill with no mapped footprint takes the slope measured on the DEM', () => {
+  const PIN = { lat: -22.8355, lng: -43.0736 }
+  const kx = 111_320 * Math.cos((PIN.lat * Math.PI) / 180)
+  const distM = (lat: number, lng: number) => Math.hypot((lat - PIN.lat) * 110_540, (lng - PIN.lng) * kx)
+
+  it('a cone 100 m over a 10 m base, 300 m of slope: the foot (1/3 of the relief) is ~200 m out', async () => {
+    const { ElevationAnalysisService } = await import('../../lib/services/trigger-points-google/services/elevation-service')
+    const cone = async (lat: number, lng: number) => Math.max(10, 100 - (90 * distM(lat, lng)) / 300)
+    const ring = await ElevationAnalysisService.reliefFootprint(PIN, 10, cone)
+    assert.ok(ring)
+    for (const p of ring!) assert.ok(Math.abs(distM(p.lat, p.lng) - 200) < 5, `foot at ${distM(p.lat, p.lng)} m`)
+    assert.deepEqual(ring![0], ring![ring!.length - 1])
+  })
+
+  it('flat ground (urban SRTM noise under RELIEF_MIN_M) has no relief footprint', async () => {
+    const { ElevationAnalysisService } = await import('../../lib/services/trigger-points-google/services/elevation-service')
+    assert.equal(await ElevationAnalysisService.reliefFootprint(PIN, 10, async () => 25), null)
+  })
+})

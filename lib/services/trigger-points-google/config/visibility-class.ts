@@ -386,6 +386,22 @@ export const LOCAL_BASE_PERCENTILE = 0.5;
 /** A surveyed summit (`natural=peak` with `ele`) this close to the boundary is its top. */
 export const SUMMIT_MATCH_M = 60;
 
+// ── Relief footprint (E1, #772) — provisional (#775) ──────────────────────────────
+/**
+ * A POI with no footprint of its own whose SRTM ground stands this much above the local base
+ * (`LOCAL_BASE_RING_M` median) is a hill: its border is the slope, measured on the DEM
+ * (`elevation-service#reliefFootprint`). Below it, urban SRTM noise.
+ */
+export const RELIEF_MIN_M = 30;
+/** The slope ends where the terrain has come down this fraction of the relief above the base. */
+export const RELIEF_FOOT_FRACTION = 1 / 3;
+/** Rays from the pin, step along each, and the cap of a ray (a ridge that never comes down). */
+export const RELIEF_RAYS = 24;
+export const RELIEF_STEP_M = 30;
+export const RELIEF_MAX_RADIUS_M = 1_000;
+/** A ray stops at a saddle: the terrain climbs this much above the lowest point it passed. */
+export const RELIEF_SADDLE_RISE_M = 5;
+
 /** Lower percentile of the samples above sea level (sea reads 0 in SRTM); null when none. */
 export function landPercentile(samples: Array<number | null>, p = CITY_BASE_PERCENTILE): number | null {
   const land = samples.filter((v): v is number => v !== null && Number.isFinite(v) && v > 0).sort((a, b) => a - b);
