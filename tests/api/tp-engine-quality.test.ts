@@ -93,3 +93,30 @@ describe('BR-AUDIO-010 — polígono curado implausível é recusado', () => {
     assert.equal(isCuratedBoundaryImplausible(POI_PIN, square(farCenter, 0.03), farCenter), false)
   })
 })
+
+describe('BR-AUDIO-010 — teto de sanidade da distância TP↔POI (valor provisório)', () => {
+  it('sem borda mede ao pino; com borda mede à borda', async () => {
+    const { partitionByPoiReach, MAX_TP_DISTANCE_FROM_POI_M } = await import('../../lib/services/trigger-points-google/utils/validation')
+    assert.equal(MAX_TP_DISTANCE_FROM_POI_M, 300)
+    const at = (m: number) => ({ lat: POI_PIN.lat + m / 111_000, lng: POI_PIN.lng })
+    const noBorder = partitionByPoiReach([at(250), at(350)], p => p, POI_PIN)
+    assert.deepEqual(noBorder.kept, [at(250)])
+    assert.equal(noBorder.dropped.length, 1)
+    // Polígono de 200 m ao norte do pino: um TP a 450 m do pino fica a ~250 m da borda.
+    const border = [at(0), { ...at(0), lng: POI_PIN.lng + 0.002 }, { ...at(200), lng: POI_PIN.lng + 0.002 }, at(200)]
+    assert.equal(partitionByPoiReach([at(450)], p => p, POI_PIN, border).kept.length, 1)
+    assert.equal(partitionByPoiReach([at(550)], p => p, POI_PIN, border).kept.length, 0)
+  })
+
+  it('fallback ancora no pino, não no centro do boundary, e descarta TP além do teto', async () => {
+    const predictor = new CoreTriggerPointPredictor() as any
+    // boundary.center errado a ~1,1 km do pino, com a única rua ao lado dele.
+    const wrongCenter = { lat: POI_PIN.lat + 0.01, lng: POI_PIN.lng }
+    const s = street('primary', [{ lat: wrongCenter.lat, lng: wrongCenter.lng - 0.0005 }, { lat: wrongCenter.lat, lng: wrongCenter.lng + 0.0005 }])
+    const boundary = { center: wrongCenter, streets: [s], buildings: [] }
+    const tps = await predictor.generateRecoveryFallbackTriggerPoints({ id: 'x', name: 'Paço Imperial', location: POI_PIN }, context, boundary)
+    for (const tp of tps) {
+      assert.ok(calculateDistance(tp.location, POI_PIN) <= 300, `TP de fallback a ${calculateDistance(tp.location, POI_PIN).toFixed(0)} m do pino`)
+    }
+  })
+})

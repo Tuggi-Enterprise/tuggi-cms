@@ -841,9 +841,32 @@ export class PoiMigrationPipeline {
         geometry_geojson: tp.geometryGeoJson || null,
       }))
       
+      // Teto de sanidade antes de gravar (BR-AUDIO-010; valor provisório em
+      // MAX_TP_DISTANCE_FROM_POI_M). TP longe do POI não entra no banco.
+      const { partitionByPoiReach, MAX_TP_DISTANCE_FROM_POI_M } = await import('./trigger-points-google/utils/validation')
+      const reach = partitionByPoiReach(
+        triggerPointsToSave,
+        tp => ({ lat: tp.lat, lng: tp.lng }),
+        poiData.location,
+        predictionResult.boundary?.coordinates
+      )
+      if (reach.dropped.length > 0) {
+        console.warn(`   🚫 ${reach.dropped.length} TP(s) beyond ${MAX_TP_DISTANCE_FROM_POI_M}m from the POI were dropped (max ${Math.max(...reach.dropped.map(d => d.distanceM)).toFixed(0)}m)`)
+      }
+      if (reach.kept.length === 0) {
+        const errorMsg = `All ${triggerPointsToSave.length} trigger points are beyond ${MAX_TP_DISTANCE_FROM_POI_M}m from the POI`
+        console.error(`   ❌ ${errorMsg}`)
+        return {
+          step: 'trigger_points',
+          success: false,
+          error: errorMsg,
+          processing_time: Date.now() - stepStart
+        }
+      }
+
       const saveResult = await TriggerPointSavingService.saveTriggerPoints(
         attraction_id,
-        triggerPointsToSave,
+        reach.kept,
         {
           mode: 'replace_all',
           boundarySource: predictionResult.boundary?.source || 'unknown'

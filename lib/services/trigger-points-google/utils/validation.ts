@@ -4,6 +4,7 @@
  */
 
 import { TriggerPointForDB } from './conversion'
+import { calculateDistance, calculateDistanceToPolygon } from './calculations'
 
 export interface ValidationError {
   field: string
@@ -182,3 +183,43 @@ export function validateTriggerPoints(
   }
 }
 
+type LatLng = { lat: number; lng: number }
+
+/**
+ * Teto de sanidade da distância TP↔POI, em metros.
+ *
+ * PROVISÓRIO: o valor é da auditoria do motor de TP (2026-09-27) e ainda não tem regra
+ * `BR-*` própria — o `produto` registra. Até lá, este é o único lugar do número (SSOT):
+ * o fallback do predictor, o passo de gravação do pipeline e o dry-run leem daqui.
+ * Relacionada: BR-AUDIO-010 (o TP dispara onde o POI está).
+ */
+export const MAX_TP_DISTANCE_FROM_POI_M = 300
+
+/**
+ * Distância do TP ao POI: à borda quando há polígono (0 dentro dele), ao pino quando não.
+ */
+export function distanceFromPoiM(tp: LatLng, poiPin: LatLng, boundaryCoords?: LatLng[]): number {
+  if (boundaryCoords && boundaryCoords.length >= 3) {
+    return calculateDistanceToPolygon(tp, boundaryCoords)
+  }
+  return calculateDistance(tp, poiPin)
+}
+
+/**
+ * Separa os TPs dentro e fora do teto MAX_TP_DISTANCE_FROM_POI_M.
+ */
+export function partitionByPoiReach<T>(
+  items: T[],
+  locate: (item: T) => LatLng,
+  poiPin: LatLng,
+  boundaryCoords?: LatLng[]
+): { kept: T[]; dropped: Array<{ item: T; distanceM: number }> } {
+  const kept: T[] = []
+  const dropped: Array<{ item: T; distanceM: number }> = []
+  for (const item of items) {
+    const distanceM = distanceFromPoiM(locate(item), poiPin, boundaryCoords)
+    if (distanceM > MAX_TP_DISTANCE_FROM_POI_M) dropped.push({ item, distanceM })
+    else kept.push(item)
+  }
+  return { kept, dropped }
+}

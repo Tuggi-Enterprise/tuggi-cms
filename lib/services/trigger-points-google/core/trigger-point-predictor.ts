@@ -11,6 +11,7 @@ import { calculateBearing, calculateDistance, findClosestPointOnBoundary, closes
 import { deterministicTPId } from '../utils/deterministic';
 import { loadTriggerPointsConfig, TriggerPointsConfig, TRIGGER_POINTS_CONSTANTS, POIGroup } from '../config/trigger-points-config';
 import { emitDebugQuality, DebugQualitySnapshot } from '../debug-quality-logger';
+import { partitionByPoiReach, MAX_TP_DISTANCE_FROM_POI_M } from '../utils/validation';
 
 // Defaults baked into VisibilityMapBuilder.buildFan() — used by debug-quality
 // emission when the fan is present (the boundary.visibilityFan type flattens
@@ -501,9 +502,24 @@ export class CoreTriggerPointPredictor {
     context: GeographicContext,
     boundary?: BoundaryData
   ): Promise<TriggerPoint[]> {
+    const candidates = await this.buildRecoveryFallbackCandidates(poiData, context, boundary);
+    // Teto de sanidade (BR-AUDIO-010): fallback longe do POI é descartado, não gravado.
+    const { kept, dropped } = partitionByPoiReach(candidates, tp => tp.location, poiData.location, boundary?.coordinates);
+    for (const { item, distanceM } of dropped) {
+      console.warn(`🚫 [FALLBACK] TP ${item.id} dropped: ${distanceM.toFixed(0)}m from POI (cap ${MAX_TP_DISTANCE_FROM_POI_M}m)`);
+    }
+    return kept;
+  }
+
+  private async buildRecoveryFallbackCandidates(
+    poiData: POIData,
+    context: GeographicContext,
+    boundary?: BoundaryData
+  ): Promise<TriggerPoint[]> {
     
-    // USAR BOUNDARY.CENTER em vez de poiData.location
-    const centerPoint = boundary?.center || poiData.location;
+    // Âncora é o pino do POI: boundary.center de um polígono errado arrastava o
+    // fallback para longe (auditoria de TP, 2026-09-27).
+    const centerPoint = poiData.location;
     
     try {
       // ESTRATÉGIA INTELIGENTE: Usar funções existentes para buscar ruas reais no OSM
@@ -669,10 +685,9 @@ export class CoreTriggerPointPredictor {
   /**
    * Cria 1 TP mínimo quando nem Google Roads funciona
    */
-  private createMinimalDirectionalTP(poiData: POIData, context: GeographicContext, boundary?: BoundaryData): TriggerPoint[] {
+  private createMinimalDirectionalTP(poiData: POIData, context: GeographicContext, _boundary?: BoundaryData): TriggerPoint[] {
     
-    // USAR BOUNDARY.CENTER em vez de poiData.location
-    const centerPoint = boundary?.center || poiData.location;
+    const centerPoint = poiData.location;
     
     const direction = 180; // Sul (direção comum de aproximação)
     const distance = 30; // Muito próximo
