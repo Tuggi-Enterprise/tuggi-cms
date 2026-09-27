@@ -5,6 +5,7 @@ import { ElevationService } from '../services/elevation.service';
 import { POIData, GeographicContext, BoundaryData, ProcessingResult } from '../types/interfaces';
 import { convertViewportToPolygon, calculatePolygonArea, calculatePolygonAreaInM2, calculatePolygonCenter, calculateDistance, isPointInPolygon } from '../utils/calculations';
 import { TRIGGER_POINTS_CONSTANTS } from '../config/trigger-points-config';
+import { isCuratedBoundaryImplausible } from '../utils/osm-validation';
 import { getSupabase } from '../../../core/supabase-client';
 
 export class BoundaryDetector {
@@ -405,13 +406,18 @@ out geom tags;
       const area = calculatePolygonAreaInM2(coordinates); // ✅ DRY: usar função SSOT (retorna m²)
       
       // Princípio: quando o POI tem `osm_id` armazenado, o ID é a fonte de
-      // verdade (curado upstream — admin UI, import). Não re-validamos por
-      // proximidade nem por nome — apenas logamos divergências como warnings
-      // pra observabilidade. Validação defensiva existe no caminho discovery
-      // (`detectOSMBoundary` por nome via Nominatim).
+      // verdade (curado upstream — admin UI, import). Divergência de nome ou
+      // centróide a >200 m só vira warning — EXCETO o caso implausível: pino fora
+      // do polígono e centróide a >1 km. Aí o id aponta para outro elemento e o
+      // boundary é recusado (BR-AUDIO-010; auditoria de TP, 2026-09-27).
       const distanceFromPOI = calculateDistance(center, poiData.location);
       const poiTags = element.tags || {};
       const osmName = poiTags.name || poiTags['name:pt'] || '';
+
+      if (isCuratedBoundaryImplausible(poiData.location, coordinates, center)) {
+        console.warn(`🚫 osm_id=${osmType}(${osmID}) rejected: pin outside polygon and centroid ${distanceFromPOI.toFixed(0)}m away`);
+        return { success: false, error: 'Curated osm_id boundary is implausible (pin outside, centroid > 1 km)', processingTime: 0 };
+      }
 
       if (distanceFromPOI > 200) {
         const pinIsInsideBoundary = isPointInPolygon(poiData.location, coordinates);

@@ -40,3 +40,56 @@ describe('BR-AUDIO-010 — TP de fallback nasce no ponto da rua mais perto do PO
     assert.ok(calculateDistance(tp.location, POI_PIN) < 80)
   })
 })
+
+describe('BR-AUDIO-010 — osm_id só identifica o elemento junto com o tipo', () => {
+  // Fixture: node 123 e way 123 são elementos diferentes no OSM.
+  async function fetcherWith(rows: { pois?: any[]; streets?: any[]; buildings?: any[] }) {
+    const { default: Database } = await import('better-sqlite3')
+    const { LocalOSMFetcher } = await import('../../lib/services/trigger-points-google/services/local-osm-fetcher')
+    const db = new Database(':memory:')
+    db.exec(`CREATE TABLE pois (id INTEGER PRIMARY KEY, osm_id TEXT, osm_type TEXT, geometry_json TEXT, tags_json TEXT);
+             CREATE TABLE streets (id INTEGER PRIMARY KEY, geometry_json TEXT, tags_json TEXT);
+             CREATE TABLE buildings (id INTEGER PRIMARY KEY, geometry_json TEXT, tags_json TEXT);`)
+    for (const [table, list] of Object.entries(rows)) {
+      for (const r of list ?? []) {
+        const cols = Object.keys(r)
+        db.prepare(`INSERT INTO ${table} (${cols.join(',')}) VALUES (${cols.map(() => '?').join(',')})`).run(...cols.map(c => r[c]))
+      }
+    }
+    const fetcher = Object.create(LocalOSMFetcher.prototype)
+    fetcher.db = db
+    return fetcher as Pick<ReturnType<typeof LocalOSMFetcher.getInstance>, "fetchElementById">
+  }
+  const point = JSON.stringify([{ lat: -22.903, lon: -43.174 }, { lat: -22.9031, lon: -43.1741 }])
+
+  it('pedido de way 123 não devolve o node 123 (coluna osm_id)', async () => {
+    const f = await fetcherWith({ pois: [{ osm_id: '123', osm_type: 'node', geometry_json: point, tags_json: '{"name":"Outro"}' }] })
+    assert.equal(f.fetchElementById('way', '123'), null)
+  })
+
+  it('pedido de way 123 não devolve o node 123 (tags_json "@id")', async () => {
+    const f = await fetcherWith({ streets: [{ geometry_json: point, tags_json: '{"@type":"node","@id":123}' }] })
+    assert.equal(f.fetchElementById('way', '123'), null)
+  })
+
+  it('way 123 com o tipo certo é achado', async () => {
+    const f = await fetcherWith({ buildings: [{ geometry_json: point, tags_json: '{"@type":"way","@id":123,"name":"Paço"}' }] })
+    assert.equal(f.fetchElementById('way', '123')?.elements.length, 1)
+  })
+})
+
+describe('BR-AUDIO-010 — polígono curado implausível é recusado', () => {
+  it('pino fora e centróide a >1 km: implausível; pino dentro ou perto: plausível', async () => {
+    const { isCuratedBoundaryImplausible } = await import('../../lib/services/trigger-points-google/utils/osm-validation')
+    const square = (c: { lat: number; lng: number }, d: number) => [
+      { lat: c.lat - d, lng: c.lng - d }, { lat: c.lat - d, lng: c.lng + d },
+      { lat: c.lat + d, lng: c.lng + d }, { lat: c.lat + d, lng: c.lng - d },
+    ]
+    const farCenter = { lat: POI_PIN.lat + 0.02, lng: POI_PIN.lng } // ~2,2 km ao norte
+    assert.equal(isCuratedBoundaryImplausible(POI_PIN, square(farCenter, 0.001), farCenter), true)
+    const nearCenter = { lat: POI_PIN.lat + 0.005, lng: POI_PIN.lng } // ~550 m
+    assert.equal(isCuratedBoundaryImplausible(POI_PIN, square(nearCenter, 0.001), nearCenter), false)
+    // Parque grande: centróide longe, mas o pino está dentro.
+    assert.equal(isCuratedBoundaryImplausible(POI_PIN, square(farCenter, 0.03), farCenter), false)
+  })
+})

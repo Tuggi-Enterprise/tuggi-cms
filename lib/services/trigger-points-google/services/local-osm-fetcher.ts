@@ -603,11 +603,13 @@ export class LocalOSMFetcher {
 
   /**
    * Busca um elemento OSM específico por tipo e ID no banco local.
-   * Estratégia de busca (em ordem de prioridade):
-   *   1. Coluna osm_id na tabela pois (mais rápido, dados importados com pbf2json)
-   *   2. Campo @id dentro de tags_json (fallback para dados importados com osmium)
-   *   3. Busca em streets e buildings por tags_json @id
-   * Retorna null se não encontrado (= fallback para Overpass online).
+   *
+   * No OSM o id só é único DENTRO do tipo: node 123 e way 123 são elementos diferentes.
+   * Toda busca aqui casa tipo E id — sem tipo, a busca devolvia outro elemento e o boundary
+   * nascia no lugar errado (auditoria de TP, 2026-09-27). Estratégias:
+   *   1. Colunas osm_id + osm_type na tabela pois (pbf2json)
+   *   2. "@id" + "@type" dentro de tags_json em pois, streets e buildings (osmium)
+   * Retorna null se não encontrado (= fallback para Overpass online, que também é tipado).
    */
   public fetchElementById(
     osmType: string,
@@ -618,12 +620,6 @@ export class LocalOSMFetcher {
     try {
       let row: any = null;
 
-      // ═══════════════════════════════════════════════════════════════
-      // ESTRATÉGIA 1: Buscar pela coluna osm_id (dados importados via pbf2json)
-      // A coluna osm_id contém o ID numérico real do OSM diretamente
-      // ═══════════════════════════════════════════════════════════════
-      
-      // 1a. Buscar na tabela pois por osm_id + osm_type
       const poiByColStmt = this.db.prepare(`
         SELECT id, osm_id, osm_type, geometry_json, tags_json FROM pois
         WHERE osm_id = ? AND osm_type = ? LIMIT 1
@@ -633,61 +629,21 @@ export class LocalOSMFetcher {
         console.log(`🚀 [LocalOSMFetcher] Found element ${osmType}(${osmId}) by ID column in 'pois'`);
       }
 
-      // 1b. Buscar na tabela pois por osm_id apenas (sem filtro de tipo)
-      if (!row) {
-        const poiByIdStmt = this.db.prepare(`
-          SELECT id, osm_id, osm_type, geometry_json, tags_json FROM pois
-          WHERE osm_id = ? LIMIT 1
-        `);
-        row = poiByIdStmt.get(osmId) as any;
-      }
+      // O índice de expressão em json_extract(tags_json, '$."@id"') resolve o id; o
+      // "@type" filtra as poucas linhas que sobram. CAST para INTEGER casa o tipo do índice.
+      const osmIdInt = parseInt(osmId, 10);
+      const isNumericId = Number.isFinite(osmIdInt) && String(osmIdInt) === String(osmId).trim();
 
-      // ═══════════════════════════════════════════════════════════════
-      // ESTRATÉGIA 2: Buscar pelo campo @id dentro de tags_json (osmium format)
-      // Ex: {"@type":"way","@id":40666277,"name":"Mugar Property"}
-      //
-      // Usa json_extract com índice em expressão para evitar full-scan:
-      //   CREATE INDEX idx_<tbl>_realosmid ON <tbl>(json_extract(tags_json, '$."@id"'));
-      // O CAST para INTEGER é necessário para casar o tipo do índice (o @id no JSON
-      // é numérico). Sem o índice essa query também varre a tabela inteira.
-      // ═══════════════════════════════════════════════════════════════
-      if (!row) {
-        const osmIdInt = parseInt(osmId, 10);
-        const useNumeric = Number.isFinite(osmIdInt) && String(osmIdInt) === String(osmId).trim();
-
-        if (useNumeric) {
-          // 2a. Buscar na tabela pois via índice de expressão
-          const poiStmt = this.db.prepare(`
-            SELECT id, osm_id, osm_type, geometry_json, tags_json FROM pois
-            WHERE json_extract(tags_json, '$."@id"') = ? LIMIT 1
-          `);
-          row = poiStmt.get(osmIdInt) as any;
-
-          // 2b. Buscar na tabela streets via índice de expressão
-          if (!row) {
-            const streetStmt = this.db.prepare(`
-              SELECT id, geometry_json, tags_json FROM streets
-              WHERE json_extract(tags_json, '$."@id"') = ? LIMIT 1
-            `);
-            row = streetStmt.get(osmIdInt) as any;
-          }
-
-          // 2c. Buscar na tabela buildings via índice de expressão
-          if (!row) {
-            const buildingStmt = this.db.prepare(`
-              SELECT id, geometry_json, tags_json FROM buildings
-              WHERE json_extract(tags_json, '$."@id"') = ? LIMIT 1
-            `);
-            row = buildingStmt.get(osmIdInt) as any;
-          }
-        } else {
-          // Fallback: osmId não-numérico (raro) — mantém LIKE como último recurso.
-          const searchPattern = `%"@id":${osmId}%`;
-          const poiStmt = this.db.prepare(`
-            SELECT id, osm_id, osm_type, geometry_json, tags_json FROM pois
-            WHERE tags_json LIKE ? LIMIT 1
-          `);
-          row = poiStmt.get(searchPattern) as any;
+      if (!row && isNumericId) {
+        for (const table of ['pois', 'streets', 'buildings'] as const) {
+          const columns = table === 'pois' ? 'id, osm_id, osm_type, geometry_json, tags_json' : 'id, geometry_json, tags_json';
+          row = this.db.prepare(`
+            SELECT ${columns} FROM ${table}
+            WHERE json_extract(tags_json, '$."@id"') = ?
+              AND json_extract(tags_json, '$."@type"') = ?
+            LIMIT 1
+          `).get(osmIdInt, osmType) as any;
+          if (row) break;
         }
       }
 

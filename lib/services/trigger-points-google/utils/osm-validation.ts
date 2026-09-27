@@ -1,5 +1,5 @@
 // NOVO: Single Source of Truth para validação OSM
-import { calculateDistance } from './calculations';
+import { calculateDistance, isPointInPolygon } from './calculations';
 import { POIData } from '../types/interfaces';
 
 export interface OSMValidationResult {
@@ -153,4 +153,25 @@ function compareCities(osmCity: string, poiCity: string): boolean {
 function compareStates(osmState: string, poiState: string): boolean {
   const normalize = (s: string) => s.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
   return normalize(osmState) === normalize(poiState);
+}
+
+/**
+ * Distância máxima entre o centróide do polígono curado e o pino do POI quando o pino
+ * está FORA do polígono. Acima disso o osm_id aponta para outro elemento (id sem tipo,
+ * curadoria errada), e o boundary não pode ser usado.
+ */
+export const CURATED_BOUNDARY_MAX_CENTROID_OFFSET_M = 1000;
+
+/**
+ * O polígono vindo do osm_id curado é implausível: o pino está fora dele E o centróide
+ * está a mais de CURATED_BOUNDARY_MAX_CENTROID_OFFSET_M do pino (BR-AUDIO-010: o TP
+ * nasce em volta do POI — um polígono em outro bairro leva o TP junto).
+ */
+export function isCuratedBoundaryImplausible(
+  poiPin: { lat: number; lng: number },
+  polygon: Array<{ lat: number; lng: number }>,
+  centroid: { lat: number; lng: number }
+): boolean {
+  if (isPointInPolygon(poiPin, polygon)) return false;
+  return calculateDistance(centroid, poiPin) > CURATED_BOUNDARY_MAX_CENTROID_OFFSET_M;
 }
