@@ -195,3 +195,48 @@ describe('BR-AUDIO-010 — distance to the EDGE everywhere, not to the center', 
     assert.equal(await v.isValidCandidate(cand(offset({ n: -45 }), 40), { location: PIN }, context, boundary, 0), true)
   })
 })
+
+describe('BR-AUDIO-010 — proximity before road type; one spacing rule for every TP', () => {
+  const offset = (m: { n?: number; e?: number }) => ({ lat: PIN.lat + (m.n ?? 0) / M_PER_DEG_LAT, lng: PIN.lng + (m.e ?? 0) / mPerDegLng })
+  const tp = (at: { lat: number; lng: number }, distance: number, extra: Record<string, unknown> = {}) =>
+    ({ id: `${at.lat},${at.lng}`, location: at, distance, radius: 30, quality: 0.8, expectedBearing: 0, type: 'primary', ...extra }) as any
+
+  it('a residential street in front outranks a primary 150 m away', async () => {
+    const { proximityRankScore } = await import('../../lib/services/trigger-points-google/config/visibility-class')
+    assert.ok(proximityRankScore(20, 'residential') > proximityRankScore(150, 'motorway'))
+    assert.ok(proximityRankScore(20, 'primary') > proximityRankScore(20, 'residential'), 'road type still breaks ties')
+  })
+
+  it('primary/secondary follows proximity, not road class', async () => {
+    const { TriggerPointValidator } = await import('../../lib/services/trigger-points-google/analyzers/validator')
+    const v = new TriggerPointValidator(undefined as any) as any
+    const near = { location: offset({ n: -20 }), street: { id: 'a', type: 'residential' } } as any
+    const far = { location: offset({ n: -300 }), street: { id: 'b', type: 'primary' } } as any
+    v.classifyCandidatesByPrimaryScore([near, far], { coordinates: rect(10, 10), center: PIN })
+    assert.equal(near.predictedType, 'primary')
+    assert.equal(far.predictedType, 'secondary')
+  })
+
+  it('POINT_LOW: no 16-direction fill, ≤4 TPs, every pair ≥2r apart', async () => {
+    const { selectSpacedTriggerPoints } = await import('../../lib/services/trigger-points-google/utils/tp-selection')
+    const { calculateDistance } = await import('../../lib/services/trigger-points-google/utils/calculations')
+    const low = buildClassification(VisibilityClass.POINT_LOW, { heightM: 2, prominenceM: 0, areaM2: 100 })
+    const ring = Array.from({ length: 16 }, (_, i) => {
+      const b = (i * 22.5 * Math.PI) / 180
+      return tp(offset({ n: Math.cos(b) * 40, e: Math.sin(b) * 40 }), 35, { expectedBearing: (i * 22.5 + 180) % 360 })
+    })
+    const out = selectSpacedTriggerPoints(ring, low)
+    assert.ok(out.length <= low.maxTriggerPoints, `${out.length} TPs`)
+    for (let i = 0; i < out.length; i++) for (let j = i + 1; j < out.length; j++) {
+      assert.ok(calculateDistance(out[i].location, out[j].location) >= 2 * out[i].radius)
+    }
+  })
+
+  it('a frontal TP 10 m from a validated TP counts in the same spacing', async () => {
+    const { selectSpacedTriggerPoints } = await import('../../lib/services/trigger-points-google/utils/tp-selection')
+    const frontal = tp(offset({ n: -20 }), 15, { quality: 0.95 })
+    const validated = tp(offset({ n: -20, e: 10 }), 15)
+    const out = selectSpacedTriggerPoints([frontal, validated], buildClassification(VisibilityClass.STRUCTURE, { heightM: 10, prominenceM: 0, areaM2: 100 }))
+    assert.deepEqual(out, [frontal])
+  })
+})

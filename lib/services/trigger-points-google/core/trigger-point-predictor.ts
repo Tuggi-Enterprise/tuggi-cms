@@ -10,9 +10,10 @@ import { POIData, TriggerPoint, TriggerPointGenerationOptions, TriggerPointPredi
 import { calculateBearing, calculateDistance, findClosestPointOnBoundary, closestStreetPointToPoi, closestPointOnPolyline } from '../utils/calculations';
 import { deterministicTPId } from '../utils/deterministic';
 import { loadTriggerPointsConfig, TriggerPointsConfig, TRIGGER_POINTS_CONSTANTS } from '../config/trigger-points-config';
-import { VisibilityClass, LANDMARK_MIN_PROMINENCE_M, fanHorizonM } from '../config/visibility-class';
+import { VisibilityClass, LANDMARK_MIN_PROMINENCE_M, EDGE_BAND_M, fanHorizonM } from '../config/visibility-class';
 import { emitDebugQuality, DebugQualitySnapshot } from '../debug-quality-logger';
 import { partitionByPoiReach, tpReachCapM } from '../utils/validation';
+import { selectSpacedTriggerPoints } from '../utils/tp-selection';
 
 // Defaults baked into VisibilityMapBuilder.buildFan() — used by debug-quality
 // emission when the fan is present (the boundary.visibilityFan type flattens
@@ -412,18 +413,11 @@ export class CoreTriggerPointPredictor {
       );
       _validatedCount = validatedPoints.length;
 
-      // 7. Aplicar opções de filtro adicionais (se houver)
-      const filteredPoints = this.applyOptions(validatedPoints, options, boundary);
-      
-      // 8. Otimização já foi feita em selectTriggerPointsWithMinDistance
-
-      // 8.5. KISS: garantir TPs "frontais" na rua de endereço do POI quando ela
-      // está populada no OSM. Crítico pra storefront POIs (lojas, museus,
-      // restaurantes) cujo fan de visibilidade colapsa por estarem dentro de
-      // prédios grandes. Emite até 2 TPs (upstream + downstream) pra garantir
-      // que ao menos um dispare como "front" em qualquer sentido de aproximação.
-      const frontalTPs = this.buildFrontalArrivalTP(poiData, boundary, context, accessibleStreets, filteredPoints);
-      for (const t of frontalTPs) filteredPoints.push(t);
+      // 7. Frontal TPs on the streets touching the POI edge (storefront POIs whose fan
+      // collapses inside a large building), then ONE spacing/cap pass over all TPs —
+      // frontal included (BR-AUDIO-010: ≥2r between every TP of the POI).
+      const frontalTPs = this.buildFrontalArrivalTP(poiData, boundary, context, accessibleStreets, []);
+      const filteredPoints = this.applyOptions([...frontalTPs, ...validatedPoints], options, boundary);
 
       // Geofence: o app usa o boundary polygon diretamente para point-in-polygon.
       // Não gerar TP do tipo geofence — é redundante e polui o DB.
@@ -753,7 +747,7 @@ export class CoreTriggerPointPredictor {
 
     // 1. Frontal TPs (upstream + downstream)
     const frontalTPs = this.buildFrontalArrivalTP(poiData, boundary, context, accessibleStreets, out);
-    for (const t of frontalTPs) out.push(t);
+    for (const t of selectSpacedTriggerPoints(frontalTPs, boundary.classification)) out.push(t);
 
     if (out.length > 0) {
       console.log(`🛟 Fan-collapse fallback: emitted ${out.length} frontal TP(s)`);
@@ -1343,88 +1337,17 @@ export class CoreTriggerPointPredictor {
    */
   private applyOptions(triggerPoints: TriggerPoint[], options: TriggerPointGenerationOptions, boundary?: BoundaryData): TriggerPoint[] {
     let filtered = [...triggerPoints];
-
-    // Filtrar por qualidade mínima (override explícito do caller)
     if (options.minQuality !== undefined) {
       filtered = filtered.filter(tp => tp.quality >= options.minQuality!);
     }
-
-    // ── Density-based thinning + coverage guarantee ──────────────────────────
-    //
-    // Princípio: substituímos cap-based dedup (radius + bearing-sector) por
-    // uma única regra de densidade SEM cap por setor ou total.
-    //
-    //   Spacing(tp) = max(2 × tp.radius, 150m, tp.distance × 0.10)
-    //
-    //   Intuição:
-    //     - 2 × radius  → círculos GPS nunca se sobrepõem
-    //     - 150m floor  → nunca dois TPs colados (UX: audio não atropela)
-    //     - 10% radial  → escala com distância. TP a 5km do POI precisa de
-    //                     500m até o vizinho; TP a 1km, 100m (floor 150m).
-    //                     Naturalmente cria gradiente: TPs densos perto do POI
-    //                     (zona urbana de aproximação) e esparsos longe
-    //                     (highway, aproximação macro).
-    //
-    // Depois, coverage guarantee: cada slice angular de 22.5° (16 slices) com
-    // candidatos VÍSIVEIS tem pelo menos 1 TP. Garante que "regiões" não fiquem
-    // vazias mesmo quando a thinning corta todos os candidatos delas.
-    //
-    // N (total de TPs) é EMERGENTE da regra de densidade, não decretado.
-
-    const { calculateDistance } = require('../utils/calculations');
-
-    // Sort: primary > secondary, depois quality desc.
-    filtered.sort((a, b) => {
-      if (a.type === 'primary' && b.type !== 'primary') return -1;
-      if (b.type === 'primary' && a.type !== 'primary') return 1;
-      return b.quality - a.quality;
-    });
-
-    const minSpacingM = (tp: TriggerPoint) => Math.max(
-      tp.radius * 2,
-      150,
-      tp.distance * 0.10
-    );
-
-    const accepted: TriggerPoint[] = [];
-    for (const tp of filtered) {
-      const tooClose = accepted.some(a => {
-        const minDist = Math.max(minSpacingM(tp), minSpacingM(a));
-        return calculateDistance(tp.location, a.location) < minDist;
-      });
-      if (!tooClose) accepted.push(tp);
-    }
-    console.log(`📐 Density thinning: ${filtered.length} → ${accepted.length} TPs (spacing = max(2×radius, 150m, 10% × radial-to-POI))`);
-
-    // Coverage guarantee — 16 slices angulares de 22.5°.
-    const SLICE_COUNT = 16;
-    const SLICE_DEG = 360 / SLICE_COUNT;
-    const sliceOf = (bearing: number) => Math.floor((((bearing % 360) + 360) % 360) / SLICE_DEG);
-
-    let coverageAdded = 0;
-    for (let s = 0; s < SLICE_COUNT; s++) {
-      if (accepted.some(tp => sliceOf(tp.expectedBearing) === s)) continue;
-      // Slice vazia — buscar melhor candidato dessa direção.
-      // (Se a slice não tem candidatos, fan não alcança lá: nada a adicionar.)
-      const sliceCandidates = filtered.filter(c => sliceOf(c.expectedBearing) === s);
-      if (sliceCandidates.length === 0) continue;
-      sliceCandidates.sort((a, b) => b.quality - a.quality);
-      accepted.push(sliceCandidates[0]);
-      coverageAdded++;
-    }
-    if (coverageAdded > 0) {
-      console.log(`🎯 Coverage guarantee: filled ${coverageAdded} empty 22.5° slice(s) with best available candidate`);
-    }
-
-    // Cap explícito do caller (não cap automático).
+    const accepted = selectSpacedTriggerPoints(filtered, boundary?.classification);
     if (options.maxTriggerPoints !== undefined && accepted.length > options.maxTriggerPoints) {
       console.log(`✂️ Caller-set max: trimming ${accepted.length} → ${options.maxTriggerPoints}`);
       return accepted.slice(0, options.maxTriggerPoints);
     }
-
     return accepted;
   }
-  
+
   /**
    * Camada 1 — Detecta o prédio que CONTÉM o POI e usa sua altura como altura
    * efetiva (`boundary.height`) para o ray-cast 2.5D.
@@ -1688,7 +1611,7 @@ export class CoreTriggerPointPredictor {
   ): TriggerPoint[] {
     if (!accessibleStreets.length) return [];
 
-    const { calculateBearing, calculateDistance, calculateDistanceToBoundary, closestPointOnPolyline, walkAlongPolyline, findClosestPointOnBoundary } = require('../utils/calculations');
+    const { calculateBearing, calculateDistance, calculateDistanceToBoundary, closestPointOnPolyline, walkAlongPolyline, findClosestPointOnBoundary, streetFootOnEdge } = require('../utils/calculations');
     const { resolveStreetSpeedKmh, calculateGpsAwareRadius } = require('../../../geometry');
     const cfg = TRIGGER_POINTS_CONSTANTS.triggerPoint;
     const groupCap = boundary.classification?.maxTPRadiusM ?? cfg.maxRadiusM;
@@ -1698,7 +1621,8 @@ export class CoreTriggerPointPredictor {
     // IMPORTANTE: NÃO usar `accessibleStreets` aqui — ele vem da pipeline principal
     // que pode sofrer SQL LIMIT (15k rows por bbox grande). Para raios pequenos
     // (100m), fazemos query direta no SQLite com baixíssima chance de LIMIT.
-    const PERIMETER_RADIUS_M = 80;
+    // Perimeter reach: the class edge cap, never beyond the edge band (BR-AUDIO-010).
+    const PERIMETER_RADIUS_M = Math.min(EDGE_BAND_M, boundary.classification?.maxEdgeDistanceM ?? 80);
     const PERIMETER_FETCH_RADIUS_M = 150; // buffer extra pra garantir cobertura
     const MAX_PERIMETER_STREETS = 8;
 
@@ -1723,11 +1647,8 @@ export class CoreTriggerPointPredictor {
       if (!ACCESSIBLE_ROUTE_TYPES.has(s.type)) continue;
       if ((s as any).tags?.tunnel === 'yes' || (s as any).tags?.covered === 'yes') continue;
 
-      let minDist = Infinity;
-      for (const p of s.coordinates) {
-        const d = calculateDistanceToBoundary(p, boundary.coordinates);
-        if (d < minDist) minDist = d;
-      }
+      // Whole polyline, not vertices (BR-AUDIO-010).
+      const minDist = streetFootOnEdge(s.coordinates, boundary.center, boundary.coordinates)?.edgeDistanceM ?? Infinity;
       const isAddrMatch = addrLower && (s.name || '').toLowerCase().includes(addrLower);
       if (minDist <= PERIMETER_RADIUS_M || isAddrMatch) {
         streetDistances.push({ street: s, dist: minDist });
@@ -1753,7 +1674,9 @@ export class CoreTriggerPointPredictor {
         ? street.fullCoordinates
         : street.coordinates;
 
-      const projection = closestPointOnPolyline(boundary.center, polyline);
+      // Anchor on the foot of the perpendicular on the POI EDGE, not on the center.
+      const foot = streetFootOnEdge(polyline, boundary.center, boundary.coordinates);
+      const projection = foot ? closestPointOnPolyline(foot.point, polyline) : null;
       if (!projection) continue;
 
       const tags: any = (street as any).tags || {};
@@ -1765,8 +1688,9 @@ export class CoreTriggerPointPredictor {
         { min: cfg.minRadiusM, max: groupCap }
       );
 
-      // 2 TPs por rua: upstream e downstream — garante disparo em qualquer sentido
-      const offsetM = 25;
+      // 2 TPs per street, upstream and downstream, one radius each side of the foot:
+      // exactly 2r apart, so both survive the single spacing rule.
+      const offsetM = radius;
       const upstreamPoint = walkAlongPolyline(polyline, projection, -offsetM);
       const downstreamPoint = walkAlongPolyline(polyline, projection, +offsetM);
       const upToDown = calculateDistance(upstreamPoint, downstreamPoint);

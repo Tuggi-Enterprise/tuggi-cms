@@ -3,6 +3,7 @@
 import { POIData, BoundaryData, GeographicContext, StreetData, TriggerPointCandidate } from '../types/interfaces';
 import { calculateBearing, calculateDistanceToBoundary, findClosestPointOnBoundary, streetFootOnEdge, samplePolylineAround } from '../utils/calculations';
 import { TRIGGER_POINTS_CONSTANTS } from '../config/trigger-points-config';
+import { proximityRankScore } from '../config/visibility-class';
 import { POIClassifierService } from '../services/poi-classifier.service';
 
 export class OptimalPointCalculator {
@@ -264,53 +265,17 @@ export class OptimalPointCalculator {
   }
 
   /**
-   * Quality score 100% físico — sem bônus categóricos por urbanDensity ou
-   * elevationType. Usado pelo FAN-WALK (modo visibility-driven).
-   *
-   * Sinais:
-   *  - Tipo de rua OSM (motorway/primary > residential > unknown)
-   *  - Proximidade ao POI (mais perto = melhor, capped)
-   *  - Confiança do registro OSM da rua
-   *
-   * Pré-condição: o ponto JÁ passou pelo filtro de visibilidade do fan.
-   * Visibilidade não entra no score porque é gate upstream.
+   * Physical quality score for a fan-walk candidate (already inside the visible fan).
+   * Proximity band to the EDGE dominates; road type only breaks ties inside a band
+   * (BR-AUDIO-010: a primary 400 m away must not beat a residential street in front).
    */
   private calculateFanWalkQuality(
     point: { lat: number; lng: number },
     boundary: BoundaryData,
     street: StreetData
   ): number {
-    // Base: 0.6 (já validado pelo fan)
-    let q = 0.6;
-
-    // Tipo de rua — preferência por vias com tráfego real
-    const streetTypeScore: Record<string, number> = {
-      motorway: 0.25,
-      trunk: 0.22,
-      primary: 0.20,
-      secondary: 0.17,
-      tertiary: 0.14,
-      residential: 0.10,
-      unclassified: 0.08,
-      living_street: 0.06,
-      service: 0.04,
-      pedestrian: 0.05,
-      footway: 0.03,
-      cycleway: 0.03,
-    };
-    q += streetTypeScore[street.type] ?? 0.05;
-
-    // Proximidade ao POI (capped: ganho diminui ao se aproximar muito)
-    const distanceToBoundary = calculateDistanceToBoundary(point, boundary.coordinates);
-    if (distanceToBoundary <= 50) q += 0.10;
-    else if (distanceToBoundary <= 200) q += 0.05;
-    else if (distanceToBoundary <= 500) q += 0.02;
-    // > 500m: sem bônus, mas também sem penalidade (fan já validou visibilidade)
-
-    // Confiança do dado da rua
-    if (street.confidence > 0.8) q += 0.03;
-
-    return Math.min(1.0, Math.max(0, q));
+    const edgeDistance = calculateDistanceToBoundary(point, boundary.coordinates);
+    return 0.4 + 0.55 * proximityRankScore(edgeDistance, street.type);
   }
 
 }

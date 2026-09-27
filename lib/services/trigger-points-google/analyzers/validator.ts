@@ -2,7 +2,7 @@
 
 import { POIData, GeographicContext, TriggerPointCandidate, TriggerPoint, BoundaryData } from '../types/interfaces';
 import { calculateOptimalRadius, calculateDistance, calculateBearing, extractBuildingHeight, normalizeAngleDifference, isPointInPolygon, calculateDistanceToBoundary, distanceToLineSegment, findClosestPointOnBoundary } from '../utils/calculations';
-import { SANITY_MAX_TP_DISTANCE_M } from '../config/visibility-class';
+import { SANITY_MAX_TP_DISTANCE_M, proximityBand, proximityRankScore } from '../config/visibility-class';
 import { getFanReachAtBearing } from '../utils/fan-reach';
 import { ElevationAnalysisService } from '../services/elevation-service';
 import { loadTriggerPointsConfig, TriggerPointsConfig, TRIGGER_POINTS_CONSTANTS } from '../config/trigger-points-config';
@@ -186,7 +186,10 @@ export class TriggerPointValidator {
       
       // ✅ ORDENAR POR PRIORIDADE (RÁPIDO - sem verificação de visibilidade)
       // Ordenar por prioridade: FRONT STREETS primeiro, depois por qualidade
+      // Proximity band to the edge first (BR-AUDIO-010), then front street, then quality.
       const rankedCandidates = onewayValidCandidates.sort((a, b) => {
+        const bandDiff = proximityBand(a.distance) - proximityBand(b.distance);
+        if (bandDiff !== 0) return bandDiff;
         const aIsFrontStreet = this.isTPOnFrontStreet(a, boundary);
         const bIsFrontStreet = this.isTPOnFrontStreet(b, boundary);
         
@@ -309,40 +312,26 @@ export class TriggerPointValidator {
     //    baixo pra TPs em cantos de POIs grandes.
     //  - threshold 0.55 → 0.50 (achievable por secondary street + edge + intersection)
     //  - intersection bonus 0.15 → 0.20 (esquinas valem mais)
+    // Proximity before road type (BR-AUDIO-010): the band to the EDGE dominates the
+    // score; road type only breaks ties (config/visibility-class.ts#proximityRankScore).
+    // Closest band is primary on its own; the next one needs an intersection or the
+    // POI address street.
     const PRIMARY_THRESHOLD = 0.50;
     const INTERSECTION_RADIUS_M = 30;
-    const INTERSECTION_BONUS = 0.20;
+    const INTERSECTION_BONUS = 0.10;
     const addrStreet = (boundary.address?.street || '').toLowerCase().trim();
-
-    const streetClassScore: Record<string, number> = {
-      motorway: 0.30,
-      trunk: 0.25,
-      primary: 0.20,
-      secondary: 0.15,
-      tertiary: 0.10,
-      residential: 0.05,
-      unclassified: 0.03,
-      living_street: 0.03,
-      service: 0.02,
-      pedestrian: 0.05,
-    };
 
     let primaryCount = 0;
     for (const cand of candidates) {
       let score = 0;
       const breakdown: any = {};
 
-      // 1. Street class
-      const sc = streetClassScore[cand.street?.type] ?? 0;
-      score += sc; breakdown.streetClass = sc;
-
-      // 2. Proximity to boundary EDGE (FIX: usa distância à aresta, 0 se dentro)
+      // 1–2. Proximity band to the edge, road type as tie-break
       const distToEdge = calculateDistanceToBoundary(cand.location, boundary.coordinates);
-      let proximityBonus = 0;
-      if (distToEdge <= 30) proximityBonus = 0.15;
-      else if (distToEdge <= 100) proximityBonus = 0.10;
-      else if (distToEdge <= 500) proximityBonus = 0.05;
-      score += proximityBonus; breakdown.proximity = proximityBonus;
+      const band = proximityBand(distToEdge);
+      const proximity = band === 0 ? 0.5 : band === 1 ? 0.35 : band === 2 ? 0.2 : band === 3 ? 0.1 : 0;
+      const tie = proximityRankScore(distToEdge, cand.street?.type) * 0.04;
+      score += proximity + tie; breakdown.proximity = proximity; breakdown.streetClass = tie;
 
       // 3. Intersection: outro candidato com street.id diferente em raio 30m
       const hasIntersection = candidates.some(other => {

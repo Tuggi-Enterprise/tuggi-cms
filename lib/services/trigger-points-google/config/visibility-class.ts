@@ -95,6 +95,36 @@ export function fanHorizonM(a: { cls?: VisibilityClass; effectiveHeightM: number
   return CLASS_LIMITS[a.cls].maxEdgeDistanceM;
 }
 
+// ── Ranking ────────────────────────────────────────────────────────────────────
+/**
+ * Proximity bands (distance to the edge, m). Ranking orders by band first; road type
+ * only breaks ties inside a band (BR-AUDIO-010: close beats big road).
+ */
+export const PROXIMITY_BANDS_M = [30, 60, 100, 200, 500];
+
+/** Band index of an edge distance: 0 = closest; PROXIMITY_BANDS_M.length = beyond all. */
+export function proximityBand(edgeDistanceM: number): number {
+  const i = PROXIMITY_BANDS_M.findIndex(limit => edgeDistanceM <= limit);
+  return i === -1 ? PROXIMITY_BANDS_M.length : i;
+}
+
+/** Road-type tie-break inside a proximity band. Values stay below one band step. */
+export const ROAD_TYPE_TIEBREAK: Record<string, number> = {
+  motorway: 1, trunk: 0.9, primary: 0.8, secondary: 0.7, tertiary: 0.55, residential: 0.4,
+  unclassified: 0.3, living_street: 0.25, pedestrian: 0.2, service: 0.15, footway: 0.1, cycleway: 0.1,
+};
+
+/**
+ * Rank score in [0, 1]: proximity band dominates, road type breaks ties.
+ * Any candidate in a closer band scores above every candidate in a farther band.
+ */
+export function proximityRankScore(edgeDistanceM: number, roadType?: string): number {
+  const bands = PROXIMITY_BANDS_M.length + 1;
+  const step = 1 / bands;
+  const bandScore = (bands - 1 - proximityBand(edgeDistanceM)) * step;
+  return bandScore + (ROAD_TYPE_TIEBREAK[roadType ?? ''] ?? 0.05) * step * 0.9;
+}
+
 // ── Data tables (OSM tags) ────────────────────────────────────────────────
 type TagRow = { key: string; value: string; heightM: number };
 
