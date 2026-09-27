@@ -7,7 +7,7 @@ import { POIData, GeographicContext, BoundaryData, ProcessingResult } from '../t
 import { convertViewportToPolygon, calculatePolygonArea, calculatePolygonAreaInM2, calculatePolygonCenter, calculateDistance, isPointInPolygon, isDrawnCircle } from '../utils/calculations';
 import { TRIGGER_POINTS_CONSTANTS } from '../config/trigger-points-config';
 import { isCuratedBoundaryImplausible } from '../utils/osm-validation';
-import { assembleOuterRings, chainSameIdentity, chooseContainingBoundary, corridorRing, footprintRing, LINE_CORRIDOR_HALF_WIDTH_M, NAMED_GROUND_REASON, outerRing, type BoundaryRejection, type OsmAreaElement } from '../utils/boundary-choice';
+import { assembleOuterRings, chainSameIdentity, chooseContainingBoundary, corridorRing, footprintRing, LINE_CORRIDOR_HALF_WIDTH_M, outerRing, type BoundaryRejection, type OsmAreaElement } from '../utils/boundary-choice';
 
 /**
  * Radius of the circle that marks a POI with no footprint of its own: an OSM node, a pin with
@@ -132,10 +132,10 @@ export class BoundaryDetector {
 
       if (!osmBoundaryResult?.success) {
         const containing = await this.detectContainingBoundary(poiData, pointCircle?.data?.osmTags);
+        // A named ground of another name at the pin no longer skips the name search: every pin
+        // stands in its city's boundary, and the fallback it guarded against is now the 10 m
+        // point circle, not the 50 m one that swallowed the avenue (Árvore de Natal, #772).
         if (containing.success) osmBoundaryResult = containing;
-        // The pin stands on a named square of another name: the POI is an object on it, a point.
-        // Without this the 50 m estimated circle swallowed the avenue and every TP (Árvore de Natal, #772).
-        else if (!pointCircle && this.rejections.some(r => r.reason === NAMED_GROUND_REASON)) pointCircle = this.pinPointCircle(poiData);
       }
 
       // Name search is for a POI without an id: with a node id it finds the same point again
@@ -2284,19 +2284,6 @@ out geom;
     const width = parseFloat(String(element.tags?.width ?? ''));
     const halfWidthM = Number.isFinite(width) && width > 0 ? width / 2 : LINE_CORRIDOR_HALF_WIDTH_M;
     return corridorRing(chainSameIdentity(element, ways), halfWidthM);
-  }
-
-  /** The pin as a point object: the same 10 m synthetic circle an OSM node gets (INV-E1b). */
-  private pinPointCircle(poiData: POIData): ProcessingResult<BoundaryData> {
-    const coordinates = this.createCircularBoundary(poiData.location, POINT_CIRCLE_RADIUS_M);
-    return {
-      success: true,
-      data: {
-        type: 'polygon', coordinates, center: poiData.location, area_m2: calculatePolygonAreaInM2(coordinates),
-        perimeter_m: 0, confidence: 0.3, source: 'synthetic', synthetic: true,
-      },
-      processingTime: 0,
-    };
   }
 
   private async createEstimatedBoundary(poiData: POIData): Promise<BoundaryData> {
