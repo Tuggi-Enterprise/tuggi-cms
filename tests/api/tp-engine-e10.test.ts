@@ -2,7 +2,7 @@ import { describe, it } from 'node:test'
 import assert from 'node:assert/strict'
 import { landmarkCellOf, selectSpacedTriggerPoints } from '@/lib/services/trigger-points-google/utils/tp-selection'
 import { sampleFarBySectorAndRing } from '@/lib/services/trigger-points-google/analyzers/point-calculator'
-import { CLASS_LIMITS, VisibilityClass } from '@/lib/services/trigger-points-google/config/visibility-class'
+import { CLASS_LIMITS, FAR_FINE_SECTOR_DEG, FAR_SECTOR_DEG, VisibilityClass, landmarkSectorOf } from '@/lib/services/trigger-points-google/config/visibility-class'
 import { buildClassification } from '@/lib/services/trigger-points-google/services/poi-classifier.service'
 
 // TP engine (#772) — E10 (selection) of a landmark_high. Source: docs/arquitetura/cms/motor-de-tp.md.
@@ -45,7 +45,8 @@ describe('INV-E10a, INV-E10c, BR-AUDIO-010 — landmark_high selects by cell cov
     const why = new Map()
     const out = selectSpacedTriggerPoints([...avoid, orla], { ...landmark, maxFarTriggerPoints: 1 }, PIN, why)
     assert.deepEqual(out.map(t => t.id), [orla.id])
-    assert.match(why.get(orla), /cell s2\/r2; tier 0 primary; won pass 1/)
+    // beyond 2 km the sector is FAR_FINE_SECTOR_DEG (22.5°): bearing 130 is s5
+    assert.match(why.get(orla), /cell s5\/r2; tier 0 primary; won pass 1/)
     assert.match(why.get(avoid[0]), /tier 2 track; lost: cap/)
   })
 
@@ -125,9 +126,9 @@ describe('INV-E10a, INV-E10c, BR-AUDIO-010 — landmark_high selects by cell cov
   it('INV-E7c: inside the inner rings a cell keeps its tourist streets by length, not 6 per cell', () => {
     const cand = (bearing: number, m: number, type: string, quality: number) =>
       ({ location: polar(bearing, m), distance: m, quality, expectedBearing: 0, confidence: 0.85, street: { type } as any })
-    // a promenade crossing the 2–4 km ring of one 45° sector, one walked point every 100 m
-    const orla = Array.from({ length: 20 }, (_, i) => cand(95 + i * 1.9, 2_100 + i * 95, 'primary', 0.5))
-    const residential = Array.from({ length: 10 }, (_, i) => cand(120, 2_100 + i * 190, 'residential', 0.9))
+    // a promenade crossing the 2–4 km ring of one sector (22.5° beyond 2 km), one walked point every ~100 m
+    const orla = Array.from({ length: 20 }, (_, i) => cand(91 + i * 1.0, 2_100 + i * 95, 'primary', 0.5))
+    const residential = Array.from({ length: 10 }, (_, i) => cand(100, 2_100 + i * 190, 'residential', 0.9))
     const out = sampleFarBySectorAndRing([...orla, ...residential] as any, PIN)
     const keptOrla = out.filter(c => orla.includes(c as any)).length
     assert.ok(keptOrla > 6, `${keptOrla} of the promenade`)
@@ -143,5 +144,20 @@ describe('INV-E10a, INV-E10c, BR-AUDIO-010 — landmark_high selects by cell cov
     const out = sampleFarBySectorAndRing([...avenue, lane] as any, PIN)
     assert.ok(!out.includes(lane as any))
     assert.ok(out.length <= 6 * 2, `${out.length}`) // two E7 rings (4–8 km, 8+ km) in this sector
+  })
+})
+
+describe('INV-E10a, BR-AUDIO-010 — far cells are finer (provisional #775)', () => {
+  it('up to 2 km the sector is 45°; beyond, 22.5°: Lagoa and Ipanema east of the Irmão Menor fall in different cells', () => {
+    assert.equal(FAR_SECTOR_DEG, 45)
+    assert.equal(FAR_FINE_SECTOR_DEG, 22.5)
+    assert.equal(landmarkSectorOf(100, 2_000), landmarkSectorOf(125, 2_000))
+    assert.notEqual(landmarkSectorOf(100, 2_500), landmarkSectorOf(125, 2_500))
+    assert.equal(landmarkSectorOf(-10, 3_000), landmarkSectorOf(350, 3_000))
+  })
+
+  it('landmark_high far cap is 28 (4 near + 28 far), in CLASS_LIMITS only', () => {
+    assert.equal(CLASS_LIMITS[VisibilityClass.LANDMARK_HIGH].maxFarTPs, 28)
+    assert.equal(CLASS_LIMITS[VisibilityClass.LANDMARK_HIGH].maxTPs, 4)
   })
 })

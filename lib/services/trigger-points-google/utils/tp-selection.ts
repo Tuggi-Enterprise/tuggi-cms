@@ -6,7 +6,7 @@
  */
 import { TriggerPoint } from '../types/interfaces';
 import { calculateBearing, calculateDistance, calculateDistanceToPolygon } from './calculations';
-import { EDGE_BAND_M, FAR_SECTOR_DEG, LANDMARK_CELL_RINGS_M, VisibilityClass, landmarkStreetTier, proximityBand } from '../config/visibility-class';
+import { EDGE_BAND_M, LANDMARK_CELL_RINGS_M, VisibilityClass, landmarkSectorOf, landmarkStreetTier, proximityBand } from '../config/visibility-class';
 import { isApproachableForBearing } from '../../../geometry';
 import { partitionByPoiReach, poiEdgeRing, tpReachCapM } from './validation';
 
@@ -44,7 +44,7 @@ type LatLng = { lat: number; lng: number };
 /** E10 cell of a landmark TP: sector seen from the POI × ring of edge distance (INV-E10a). */
 export function landmarkCellOf(tp: Pick<TriggerPoint, 'location' | 'distance' | 'expectedBearing'>, centre?: LatLng | null) {
   const fromPoi = centre ? calculateBearing(centre, tp.location) : tp.expectedBearing + 180;
-  const sector = Math.floor((((fromPoi % 360) + 360) % 360) / FAR_SECTOR_DEG);
+  const sector = landmarkSectorOf(fromPoi, tp.distance);
   const ring = LANDMARK_CELL_RINGS_M.findIndex(r => tp.distance <= r);
   return { sector, ring: ring === -1 ? LANDMARK_CELL_RINGS_M.length : ring };
 }

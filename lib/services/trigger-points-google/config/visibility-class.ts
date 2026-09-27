@@ -51,6 +51,12 @@ export const EDGE_BAND_M = 100;
 // ── Far candidates of a landmark (E7, INV-E7c) ────────────────────────────────
 /** Direction sector seen from the POI; the golden counts coverage in the same 45°. */
 export const FAR_SECTOR_DEG = 45;
+/**
+ * Beyond FINE_SECTOR_FROM_M from the edge the sector narrows to FAR_FINE_SECTOR_DEG: at 2–4 km a
+ * 45° sector east of the Irmão Menor holds both the Lagoa and the orla of Ipanema, and one TP per
+ * cell went to the Lagoa. Provisional (#775).
+ */
+export const FAR_FINE_SECTOR_DEG = 22.5;
 /** Outer limits of the distance rings beyond EDGE_BAND_M, from the edge. */
 export const FAR_RINGS_M = [500, 1_000, 2_000, 4_000, 8_000, SANITY_MAX_TP_DISTANCE_M];
 /**
@@ -67,12 +73,19 @@ export const FAR_CELL_SPACING_M = 300;
 // ── Landmark selection by cell coverage (E10, INV-E10a/c) ─────────────────────
 /**
  * Outer limits of the E10 coverage rings of a landmark, from the edge: near, 1–2 km, 2–4 km,
- * and the open-ended horizon beyond. A cell is (FAR_SECTOR_DEG sector seen from the POI × ring).
+ * and the open-ended horizon beyond. A cell is (`landmarkSectorOf` sector seen from the POI × ring).
  * 2 km splits the two sides of the Lagoa seen from the Cristo; 4 km holds Copacabana and
  * Ipanema. Coarser than FAR_RINGS_M on purpose: E7 rings bound the sight-line work, these decide
  * coverage. Provisional (#775).
  */
 export const LANDMARK_CELL_RINGS_M = [1_000, 2_000, 4_000];
+export const FINE_SECTOR_FROM_M = LANDMARK_CELL_RINGS_M[1];
+
+/** Sector of a landmark candidate/TP seen from the POI (E7 sampling and E10 cells, one rule). */
+export function landmarkSectorOf(bearingFromPoiDeg: number, edgeDistanceM: number): number {
+  const width = edgeDistanceM > FINE_SECTOR_FROM_M ? FAR_FINE_SECTOR_DEG : FAR_SECTOR_DEG;
+  return Math.floor((((bearingFromPoiDeg % 360) + 360) % 360) / width);
+}
 /**
  * Where the tourist circulates, by the street's own OSM `highway` (INV-E10a): 0 wins, 2 loses.
  * Tier 0 is where the tourist is, on foot or DRIVING: avenue, promenade, expressway and bridge
@@ -114,10 +127,10 @@ export const CLASS_LIMITS: Record<VisibilityClass, ClassLimits> = {
   [VisibilityClass.STRUCTURE]: { maxEdgeDistanceM: 100, maxRadiusM: 40, maxTPs: 6, maxFarTPs: 0 },
   [VisibilityClass.AREA]: { maxEdgeDistanceM: 60, maxRadiusM: 50, maxTPs: 16, maxFarTPs: 0 },
   [VisibilityClass.LINEAR]: { maxEdgeDistanceM: 60, maxRadiusM: 50, maxTPs: 16, maxFarTPs: 0 },
-  // 8 sectors × 3 inner rings = 24 cells (INV-E10a); 4 at the edge + 20 beyond = 24 TPs, one per
-  // inner cell; the horizon ring only after every inner cell is spent. The edge band of a landmark
-  // is a handful of footways at its base. Provisional (#775).
-  [VisibilityClass.LANDMARK_HIGH]: { maxEdgeDistanceM: URBAN_LANDMARK_HORIZON_M, maxRadiusM: 100, maxTPs: 4, maxFarTPs: 20 },
+  // Inner cells (INV-E10a): 8 sectors of 45° in 0–1 and 1–2 km + 16 of 22.5° in 2–4 km = 32;
+  // 4 at the edge + 28 beyond. The horizon ring only after every inner cell is spent. The edge
+  // band of a landmark is a handful of footways at its base. Provisional (#775).
+  [VisibilityClass.LANDMARK_HIGH]: { maxEdgeDistanceM: URBAN_LANDMARK_HORIZON_M, maxRadiusM: 100, maxTPs: 4, maxFarTPs: 28 },
   [VisibilityClass.VIEWPOINT]: { maxEdgeDistanceM: 60, maxRadiusM: 30, maxTPs: 4, maxFarTPs: 0 },
 };
 

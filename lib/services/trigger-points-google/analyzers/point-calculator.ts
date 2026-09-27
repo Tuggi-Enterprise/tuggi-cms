@@ -11,7 +11,7 @@ import {
   FAR_CELL_SPACING_M,
   FAR_RINGS_M,
   LANDMARK_CELL_RINGS_M,
-  FAR_SECTOR_DEG,
+  landmarkSectorOf,
   VisibilityClass,
   proximityRankScore,
 } from '../config/visibility-class';
@@ -229,7 +229,7 @@ export class OptimalPointCalculator {
 /**
  * INV-E7c / INV-E10c: a landmark's candidates FAR from the edge, sampled along the streets in
  * reach and spread by direction. Beyond EDGE_BAND_M the walked candidates go into cells of
- * (sector of FAR_SECTOR_DEG seen from the POI × distance ring FAR_RINGS_M), FAR_CELL_SPACING_M
+ * (sector `landmarkSectorOf` seen from the POI × distance ring FAR_RINGS_M), FAR_CELL_SPACING_M
  * apart. Inside the last E10 inner ring a cell keeps EVERY tourist-street candidate (by street
  * length: 6 per cell left the orla of Copacabana and the south shore of the Lagoa without one),
  * and the other streets fill up to FAR_CANDIDATES_PER_CELL; in the horizon, tourist streets only,
@@ -246,7 +246,7 @@ export function sampleFarBySectorAndRing(
     if (c.distance <= EDGE_BAND_M) continue;
     if (c.distance > innerLimitM && landmarkStreetTier(c.street?.type) > 0) continue;
     const ringIdx = FAR_RINGS_M.findIndex(r => c.distance <= r);
-    const sector = Math.floor((((calculateBearing(centre, c.location) % 360) + 360) % 360) / FAR_SECTOR_DEG);
+    const sector = landmarkSectorOf(calculateBearing(centre, c.location), c.distance);
     const key = `${sector}:${ringIdx}`;
     (cells.get(key) ?? cells.set(key, []).get(key)!).push(c);
   }

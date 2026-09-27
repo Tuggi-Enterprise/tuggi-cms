@@ -239,10 +239,7 @@ const ZONE_CHECKS: ZoneCheck[] = [
   // Covered by a TP on the Av. Infante Dom Henrique (trunk): valid, the app is used driving (BR-POI-008).
   { poi: 'Pão de Açúcar', id: POI_ID.paoDeAcucar, zone: 'aterroDoFlamengo', label: 'Aterro do Flamengo' },
   { poi: 'Pico do Irmão Menor', id: POI_ID.picoDoIrmaoMenor, zone: 'orlaDoLeblon', label: 'orla do Leblon' },
-  {
-    poi: 'Pico do Irmão Menor', id: POI_ID.picoDoIrmaoMenor, zone: 'orlaDeIpanema', label: 'orla de Ipanema',
-    todoCause: 'INV-E10a: the 45° × 2–4 km cell east of the Irmão Menor holds both the Lagoa and Ipanema; its 1st TP goes to the Lagoa (closer), and the far cap (20) leaves 2 second-pass slots (fix/tp-engine-quality-e)',
-  },
+  { poi: 'Pico do Irmão Menor', id: POI_ID.picoDoIrmaoMenor, zone: 'orlaDeIpanema', label: 'orla de Ipanema' },
   { poi: 'Sala de Leitura da Cidade das Artes', id: POI_ID.cidadeDasArtes, zone: 'avenidaDasAmericas', label: 'Av. das Américas' },
   { poi: 'Sala de Leitura da Cidade das Artes', id: POI_ID.cidadeDasArtes, zone: 'avenidaAyrtonSenna', label: 'Av. Ayrton Senna' },
 ]
