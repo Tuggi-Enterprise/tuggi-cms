@@ -254,7 +254,7 @@ async function resetStuck(batchId: string) {
 // ─── Dry-run: gera e mede, sem gravar ──────────────────────────────────────────
 
 async function dryRun(opts: { ids?: string[]; bbox?: [number, number, number, number]; limit?: number }) {
-  const { dryRunPoi, listAttractionIdsInBbox, toCsvLines, summarizePoi, DRY_RUN_CSV_COLUMNS } =
+  const { dryRunPoi, listAttractionIdsInBbox, toCsvLines, summarizePoi, DRY_RUN_CSV_COLUMNS, TRACE_CSV_COLUMNS, toTraceCsvLines } =
     await import('../lib/services/tp-dry-run')
 
   let ids = opts.ids ?? (opts.bbox ? await listAttractionIdsInBbox(opts.bbox) : [])
@@ -266,7 +266,9 @@ async function dryRun(opts: { ids?: string[]; bbox?: [number, number, number, nu
   const stamp = new Date().toISOString().replace(/[:.]/g, '-')
   const csvPath = path.join(outDir, `tp-dry-run-${stamp}.csv`)
   const summaryPath = path.join(outDir, `tp-dry-run-${stamp}.summary.json`)
+  const tracePath = path.join(outDir, `tp-dry-run-${stamp}.trace.csv`)
   fs.writeFileSync(csvPath, DRY_RUN_CSV_COLUMNS.join(',') + '\n')
+  fs.writeFileSync(tracePath, TRACE_CSV_COLUMNS.join(',') + '\n')
 
   console.log(`🧪 Dry-run de ${ids.length} POIs — nada é gravado. CSV: ${csvPath}`)
   const summaries = []
@@ -274,13 +276,15 @@ async function dryRun(opts: { ids?: string[]; bbox?: [number, number, number, nu
     const result = await dryRunPoi(attractionId)
     const lines = toCsvLines(result.rows)
     if (lines.length) fs.appendFileSync(csvPath, lines.join('\n') + '\n')
+    const traceLines = toTraceCsvLines(result.trace)
+    if (traceLines.length) fs.appendFileSync(tracePath, traceLines.join('\n') + '\n')
     const summary = summarizePoi(result)
     summaries.push(summary)
     // Resumo reescrito a cada POI: um crash no meio não perde o que já foi medido.
     fs.writeFileSync(summaryPath, JSON.stringify({ bbox: opts.bbox ?? null, total: ids.length, pois: summaries }, null, 2))
     console.log(`[${i + 1}/${ids.length}] ${summary.poi_name || attractionId}: atual ${summary.current.count} (${summary.current.beyond_cap} além do teto) → gerado ${summary.generated.count} (cortados: ${JSON.stringify(summary.generated.dropped)})${summary.error ? ` ❌ ${summary.error}` : ''}`)
   }
-  console.log(`\n✅ Dry-run concluído.\n   ${csvPath}\n   ${summaryPath}`)
+  console.log(`\n✅ Dry-run concluído.\n   ${csvPath}\n   ${tracePath}\n   ${summaryPath}`)
 }
 
 // ─── main ─────────────────────────────────────────────────────────────────────

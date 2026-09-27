@@ -13,6 +13,8 @@ import { loadTriggerPointsConfig, TriggerPointsConfig, TRIGGER_POINTS_CONSTANTS 
 import { VisibilityClass, LANDMARK_MIN_PROMINENCE_M, EDGE_BAND_M, fanHorizonM, heightFromTags, isNaturalRelief } from '../config/visibility-class';
 import { emitDebugQuality, DebugQualitySnapshot } from '../debug-quality-logger';
 import { selectSpacedTriggerPoints, applyTpPostConditions } from '../utils/tp-selection';
+import { EngineTraceRow, TracedPrediction, candidateKey, edgeDistanceM, poiTraceRows, stepTraceRows } from '../utils/engine-trace';
+import { VisibilityMapBuilder } from '../analyzers/visibility-map-builder';
 
 // Defaults baked into VisibilityMapBuilder.buildFan() — used by debug-quality
 // emission when the fan is present (the boundary.visibilityFan type flattens
@@ -51,13 +53,44 @@ export class CoreTriggerPointPredictor {
   }
 
   /**
-   * Prediz trigger points para um POI (resultado completo)
+   * Prediz trigger points para um POI (resultado completo), com o rastro por etapa (E0).
    */
   async predictTriggerPointsComplete(
     poiData: POIData,
     options: TriggerPointGenerationOptions = {}
+  ): Promise<TracedPrediction> {
+    const candidateRows: EngineTraceRow[] = [];
+    const result = await this.predictWithTrace(poiData, options, candidateRows);
+    const poiId = poiData.id ?? '';
+    const trace = [...poiTraceRows(poiId, result.boundary), ...candidateRows];
+    if (result.metadata.fallbackUsed) {
+      // Fallback TPs skip E8–E10 (motor-de-tp.md, "Fallback que fura as etapas"): say so per TP.
+      trace.push(...result.triggerPoints.map(tp => ({
+        poi_id: poiId, stage: 'E7' as const, rule: 'trigger-point-predictor#fallback', candidate: candidateKey(tp.location),
+        value: `fallback ${tp.generationMethod ?? tp.type ?? ''}; edge ${Math.round(edgeDistanceM(tp.location, result.boundary))} m`,
+        limit: `optimal=${result.metadata.optimalPointsFound}; streets=${result.metadata.streetCount}`, decision: 'kept' as const,
+      })));
+    }
+    if (result.triggerPoints.length === 0) {
+      // "Why this POI has no TP", in one row: the counts at each exit of the engine.
+      const md = result.metadata;
+      trace.push({
+        poi_id: poiId, stage: 'E7', rule: 'trigger-point-predictor#predictTriggerPointsComplete', candidate: '',
+        value: `0 TPs; streets=${md.streetCount}; candidates=${md.optimalPointsFound}; on street=${md.streetValidatedCandidates ?? '-'}; validated=${md.validatedPoints}; fallback=${md.fallbackUsed}`,
+        limit: `search ${md.searchRadius} m`, decision: 'dropped',
+      });
+    }
+    return { ...result, trace };
+  }
+
+  private async predictWithTrace(
+    poiData: POIData,
+    options: TriggerPointGenerationOptions,
+    trace: EngineTraceRow[]
   ): Promise<TriggerPointPredictionResult> {
     const startTime = Date.now();
+    const poiId = poiData.id ?? '';
+    const edge = (c: { location: { lat: number; lng: number } }) => `edge ${Math.round(edgeDistanceM(c.location, _boundary))} m`;
 
     // Phase 0 instrumentation. Captured progressively as the pipeline advances;
     // a single closure emits one JSON line on whichever exit path we take.
@@ -302,6 +335,10 @@ export class CoreTriggerPointPredictor {
       // ✅ Usar apenas ruas front/side (sem buildings bloqueando)
       const optimalPoints = await this.pointCalculator.calculateOptimalPoints(poiData, streetsForOptimalPoints, boundary, context, streetAnalysisResult.searchRadius);
       _optimalCount = optimalPoints.length;
+      trace.push(...stepTraceRows({
+        poiId, stage: 'E7', rule: 'point-calculator#calculateOptimalPoints', before: optimalPoints, after: optimalPoints,
+        value: c => `${edge(c)}; ${c.street?.type ?? ''} ${c.streetName ?? ''}`.trim(), limit: `search ${streetAnalysisResult.searchRadius} m`,
+      }));
 
       if (optimalPoints.length === 0) {
         console.warn('⚠️ No optimal points calculated, using fallback strategy');
@@ -346,6 +383,10 @@ export class CoreTriggerPointPredictor {
         boundary,
       );
       _postLOSCount = visibleOptimalPoints.length;
+      trace.push(...stepTraceRows({
+        poiId, stage: 'E8', rule: 'visibility-map-builder#checkExactVisibility', before: optimalPoints, after: visibleOptimalPoints,
+        value: edge, limit: `sight line to POI top ${Math.round(VisibilityMapBuilder.poiSightTarget(boundary).topM)} m`,
+      }));
 
       if (visibleOptimalPoints.length === 0) {
         // Line of sight is mandatory (BR-AUDIO-010): with no visible candidate, fall back
@@ -377,6 +418,10 @@ export class CoreTriggerPointPredictor {
       // 5. Validação de candidatos em ruas (NOVO PASSO)
       const streetValidatedCandidates = await this.validateCandidatesOnStreets(candidatesPostLOS, accessibleStreets);
       _streetValidatedCount = streetValidatedCandidates.length;
+      trace.push(...stepTraceRows({
+        poiId, stage: 'E7', rule: 'trigger-point-predictor#validateCandidatesOnStreets', before: candidatesPostLOS, after: streetValidatedCandidates,
+        value: edge, limit: `≤ ${TRIGGER_POINTS_CONSTANTS.distances.maxDistanceFromStreet} m from a street`,
+      }));
 
       if (streetValidatedCandidates.length === 0) {
         console.warn('⚠️ No candidates validated on streets, using fallback strategy');
@@ -431,12 +476,20 @@ export class CoreTriggerPointPredictor {
         }
       );
       _validatedCount = validatedPoints.length;
+      trace.push(...stepTraceRows<{ location: { lat: number; lng: number } }>({
+        poiId, stage: 'E9-E10', rule: 'validator#validateAndRankPoints', before: streetValidatedCandidates, after: validatedPoints,
+        value: edge, limit: `one-way, dedup ≥ ${minDistance} m, max ${maxTPs}`,
+      }));
 
       // 7. Frontal TPs on the streets touching the POI edge (storefront POIs whose fan
       // collapses inside a large building), then ONE spacing/cap pass over all TPs —
       // frontal included (BR-AUDIO-010: ≥2r between every TP of the POI).
       const frontalTPs = this.buildFrontalArrivalTP(poiData, boundary, context, accessibleStreets, []);
-      const filteredPoints = this.applyOptions([...frontalTPs, ...validatedPoints], options, boundary, poiData.location);
+      trace.push(...stepTraceRows({
+        poiId, stage: 'E7', rule: 'trigger-point-predictor#buildFrontalArrivalTP', before: frontalTPs, after: frontalTPs,
+        value: edge, limit: 'addr:street frontage (skips E8–E10)',
+      }));
+      const filteredPoints = this.applyOptions([...frontalTPs, ...validatedPoints], options, boundary, poiData.location, trace);
 
       // Geofence: o app usa o boundary polygon diretamente para point-in-polygon.
       // Não gerar TP do tipo geofence — é redundante e polui o DB.
@@ -1358,7 +1411,8 @@ export class CoreTriggerPointPredictor {
     triggerPoints: TriggerPoint[],
     options: TriggerPointGenerationOptions,
     boundary: BoundaryData | undefined,
-    poiPin: { lat: number; lng: number }
+    poiPin: { lat: number; lng: number },
+    trace?: EngineTraceRow[]
   ): TriggerPoint[] {
     let filtered = [...triggerPoints];
     if (options.minQuality !== undefined) {
@@ -1366,8 +1420,20 @@ export class CoreTriggerPointPredictor {
     }
     // Same post-conditions as the save and the dry-run (INV-E11): the engine never emits a TP
     // the save would drop, so a closer candidate takes its slot before spacing (#779).
-    const passed = applyTpPostConditions(filtered, poiPin, boundary).kept;
+    const post = applyTpPostConditions(filtered, poiPin, boundary);
+    const passed = post.kept;
     const accepted = selectSpacedTriggerPoints(passed, boundary?.classification);
+    if (trace) {
+      const poiId = trace[0]?.poi_id ?? '';
+      const edge = (tp: TriggerPoint) => `edge ${Math.round(edgeDistanceM(tp.location, boundary))} m`;
+      trace.push(...passed.map(tp => ({ poi_id: poiId, stage: 'E11' as const, rule: 'tp-selection#applyTpPostConditions',
+        candidate: candidateKey(tp.location), value: edge(tp), limit: `reach ${post.reachCapM} m`, decision: 'kept' as const })));
+      trace.push(...post.dropped.map(d => ({ poi_id: poiId, stage: 'E11' as const, rule: 'tp-selection#applyTpPostConditions',
+        candidate: candidateKey(d.tp.location), value: `${d.reason}; ${edge(d.tp)}`, limit: `reach ${post.reachCapM} m`, decision: 'dropped' as const })));
+      const c = boundary?.classification;
+      trace.push(...stepTraceRows({ poiId, stage: 'E10', rule: 'tp-selection#selectSpacedTriggerPoints', before: passed, after: accepted,
+        value: edge, limit: `spacing ≥ ${c?.minDistanceBetweenTPs ?? 0} m; near ≤ ${c?.maxTriggerPoints ?? '∞'}; far ≤ ${c?.maxFarTriggerPoints ?? '∞'}` }));
+    }
     if (options.maxTriggerPoints !== undefined && accepted.length > options.maxTriggerPoints) {
       console.log(`✂️ Caller-set max: trimming ${accepted.length} → ${options.maxTriggerPoints}`);
       return accepted.slice(0, options.maxTriggerPoints);
@@ -1385,7 +1451,7 @@ export class CoreTriggerPointPredictor {
    * abriga o POI — afinal, é a fachada desse prédio que o usuário vê da rua.
    *
    * Algoritmo: procurar entre `boundary.buildings` quem contém o centroide
-   * do POI. Usar sua altura (com fallbacks: tag height, building:levels × 3.5,
+   * do POI. Usar sua altura (com fallbacks: tag height, building:levels × a régua única de andar,
    * defaultHouseHeight). Só substitui se a altura encontrada for maior que a
    * altura semântica original.
    */

@@ -18,6 +18,12 @@ import { BoundaryDetector } from './trigger-points-google/core/boundary-detector
 import { calculateDistance, calculateDistanceToPolygon } from './trigger-points-google/utils/calculations'
 import { UNCLASSIFIED_MAX_TP_DISTANCE_M, distanceFromPoiM } from './trigger-points-google/utils/validation'
 import { applyTpPostConditions, type TpDropReason } from './trigger-points-google/utils/tp-selection'
+import {
+  TRACE_CSV_COLUMNS,
+  candidateKey,
+  edgeDistanceM,
+  type EngineTraceRow,
+} from './trigger-points-google/utils/engine-trace'
 
 type LatLng = { lat: number; lng: number }
 
@@ -50,6 +56,8 @@ export interface PoiDryRunResult {
   poi_name: string
   error: string | null
   rows: TpMetricRow[]
+  /** E0 trace: E1–E6 one row per POI, E7–E11 one row per candidate (motor-de-tp.md) */
+  trace: EngineTraceRow[]
 }
 
 export function measureTriggerPoints(args: {
@@ -124,7 +132,7 @@ async function fetchCurrentTriggerPoints(attractionId: string): Promise<TpMetric
 export async function dryRunPoi(attractionId: string): Promise<PoiDryRunResult> {
   const loaded = await MigrationService.loadPOIWithCoordinates(attractionId)
   if (!loaded.success || !loaded.data) {
-    return { attraction_id: attractionId, poi_name: '', error: loaded.error ?? 'POI not found', rows: [] }
+    return { attraction_id: attractionId, poi_name: '', error: loaded.error ?? 'POI not found', rows: [], trace: [] }
   }
   const poiData = PoiMigrationPipeline.buildEngineInput(loaded.data.poi, loaded.data.coordinate)
   const base = { attractionId, poiName: poiData.name, pin: poiData.location }
@@ -145,6 +153,18 @@ export async function dryRunPoi(attractionId: string): Promise<PoiDryRunResult> 
     const prediction = await new CoreTriggerPointPredictor().predictTriggerPointsComplete(poiData, { ...TP_ENGINE_OPTIONS })
     const post = applyTpPostConditions(prediction.triggerPoints ?? [], poiData.location, prediction.boundary)
     const capM = post.reachCapM
+    // The engine already traced its own E11; the fallback exits and anything cut here are added.
+    const e11 = (tp: { location: { lat: number; lng: number } }, reason: string): EngineTraceRow => ({
+      poi_id: attractionId, stage: 'E11', rule: 'tp-selection#applyTpPostConditions', candidate: candidateKey(tp.location),
+      value: `${reason ? `${reason}; ` : ''}edge ${Math.round(edgeDistanceM(tp.location, prediction.boundary))} m`,
+      limit: `reach ${capM} m`, decision: reason ? 'dropped' : 'kept',
+    })
+    const trace = [
+      // tolerant on purpose: the trace is information and never fails the dry-run
+      ...(prediction.trace ?? []),
+      ...(prediction.metadata?.fallbackUsed ? post.kept.map(tp => e11(tp, '')) : []),
+      ...post.dropped.map(d => e11(d.tp, d.reason)),
+    ]
     // Before × after under the same cap: the class the engine assigns now.
     for (const r of rows) r.beyond_cap = (r.dist_to_boundary_m ?? r.dist_to_pin_m) > capM
     rows.push(...measureTriggerPoints({
@@ -166,9 +186,9 @@ export async function dryRunPoi(attractionId: string): Promise<PoiDryRunResult> 
         drop_reason: reason,
       })),
     }))
-    return { attraction_id: attractionId, poi_name: poiData.name, error: null, rows }
+    return { attraction_id: attractionId, poi_name: poiData.name, error: null, rows, trace }
   } catch (e) {
-    return { attraction_id: attractionId, poi_name: poiData.name, error: e instanceof Error ? e.message : String(e), rows }
+    return { attraction_id: attractionId, poi_name: poiData.name, error: e instanceof Error ? e.message : String(e), rows, trace: [] }
   }
 }
 
@@ -177,13 +197,20 @@ export const DRY_RUN_CSV_COLUMNS: Array<keyof TpMetricRow> = [
   'radius_m', 'bearing', 'lat', 'lng', 'dist_to_pin_m', 'dist_to_boundary_m', 'beyond_cap', 'drop_reason',
 ]
 
+function csvCell(v: unknown): string {
+  if (v === null || v === undefined) return ''
+  const s = String(v)
+  return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s
+}
+
 export function toCsvLines(rows: TpMetricRow[]): string[] {
-  const cell = (v: unknown) => {
-    if (v === null || v === undefined) return ''
-    const s = String(v)
-    return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s
-  }
-  return rows.map(r => DRY_RUN_CSV_COLUMNS.map(c => cell(r[c])).join(','))
+  return rows.map(r => DRY_RUN_CSV_COLUMNS.map(c => csvCell(r[c])).join(','))
+}
+
+/** E0 trace CSV, written next to the dry-run CSV (`*.trace.csv`). */
+export { TRACE_CSV_COLUMNS }
+export function toTraceCsvLines(rows: EngineTraceRow[]): string[] {
+  return rows.map(r => TRACE_CSV_COLUMNS.map(c => csvCell(r[c])).join(','))
 }
 
 /**
