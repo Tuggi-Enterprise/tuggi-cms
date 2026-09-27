@@ -8,6 +8,7 @@
  * leaves a reason for the trace (E0).
  */
 import { calculatePolygonAreaInM2, isPointInPolygon } from './calculations';
+import { isCuratedBoundaryImplausible } from './osm-validation';
 
 type LatLng = { lat: number; lng: number };
 type Tags = Record<string, unknown> | undefined;
@@ -125,12 +126,14 @@ const isClosed = (ring: LatLng[]): boolean =>
 
 /**
  * INV-E1a step "OSM that contains the pin", with INV-E1c by identity and geometry:
- * 1. an element carrying the POI's name wins (the smallest, when several do);
+ * 1. an element carrying the POI's name wins (the smallest, when several do). It need not hold the
+ *    pin, only be as plausible as a curated id (`isCuratedBoundaryImplausible`): the Praia da
+ *    Reserva pin is on the promenade, off the sand, and a 248 m² kiosk under it took the border;
  * 2. otherwise an UNNAMED element, and only one smaller than the smallest named element of another
  *    name at the pin — whatever holds the ground the POI stands on is not the POI either;
  * 3. a POI with a curated node id has its own identity: only step 1 applies, because an unnamed
  *    polygon under a bust is the square, not the bust.
- * Only elements holding the pin are judged; without an id the pin is the only evidence.
+ * Otherwise only elements holding the pin are judged; without an id the pin is the only evidence.
  */
 export function chooseContainingBoundary(
   pin: LatLng,
@@ -149,10 +152,14 @@ export function chooseContainingBoundary(
     seen.add(key);
     const points = el.geometry.map(toLatLng);
     const ring = el.type === 'relation' ? outerRing(points, pin) : points;
-    if (!isClosed(ring) || isVia(el.tags) || !isPointInPolygon(pin, ring)) continue;
+    if (!isClosed(ring) || isVia(el.tags)) continue;
     const candidate = { element: el, ring, areaM2: calculatePolygonAreaInM2(ring) };
-    if (carriesPoiName(el.tags, poi.name)) named.push(candidate);
-    else if (elementNames(el.tags).length > 0) other.push(candidate);
+    if (carriesPoiName(el.tags, poi.name)) {
+      if (!isCuratedBoundaryImplausible(pin, ring)) named.push(candidate);
+      continue;
+    }
+    if (!isPointInPolygon(pin, ring)) continue;
+    if (elementNames(el.tags).length > 0) other.push(candidate);
     else unnamed.push(candidate);
   }
   const byArea = (a: ChosenBoundary, b: ChosenBoundary) => a.areaM2 - b.areaM2;

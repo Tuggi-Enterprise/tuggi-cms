@@ -51,6 +51,14 @@ describe('INV-E1c — the element holding the pin is chosen by identity and geom
     assert.equal(r.chosen?.element.id, 1)
   })
 
+  it('the element carrying the POI name need not hold the pin, only be plausible (pin on the promenade, off the sand)', () => {
+    const beach = { type: 'way', id: 20, tags: { name: 'Praia da Reserva' }, geometry: square(100, { lat: PIN.lat - 130 * M_LAT, lng: PIN.lng }) }
+    const kiosk = { type: 'way', id: 21, tags: {}, geometry: square(8) }
+    assert.equal(choice.chooseContainingBoundary(PIN, { name: 'Praia da Reserva' }, [kiosk, beach]).chosen?.element.id, 20)
+    const farBeach = { ...beach, geometry: square(100, { lat: PIN.lat - 900 * M_LAT, lng: PIN.lng }) }
+    assert.equal(choice.chooseContainingBoundary(PIN, { name: 'Praia da Reserva' }, [kiosk, farBeach]).chosen?.element.id, 21)
+  })
+
   it('a named element of another name is the ground under the POI, and so is every unnamed one holding it', () => {
     const city = { type: 'relation', id: 3, tags: { boundary: 'administrative', name: 'Rio de Janeiro' }, geometry: square(5000) }
     const park = { type: 'way', id: 4, tags: { name: 'Parque Nacional da Tijuca' }, geometry: square(900) }

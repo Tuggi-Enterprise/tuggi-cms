@@ -100,13 +100,15 @@ export class CoreTriggerPointPredictor {
   }
 
   /**
-   * INV-E11b: the one TP of a POI with a real border that ended with none. Streets along the
-   * border in widening rings, access-filtered like the perimeter pass (no tunnel, no ferry,
+   * INV-E11b: the one TP of a POI that ended with none. Streets along the border in widening
+   * rings — a POI with no footprint of its own is searched around its 10 m point circle, because
+   * the border by identity leaves summits and busts without one (Morro do Patronato, 2026-09-27) — access-filtered like the perimeter pass (no tunnel, no ferry,
    * no `service`), car streets before footways; the TP goes through E11 like any other, under
    * the sanity cap.
    */
   private buildReachRescueTP(poiData: POIData, boundary: BoundaryData | undefined, context: any): TriggerPoint | null {
-    const ring = poiEdgeRing(boundary);
+    const drawn = boundary?.coordinates && boundary.coordinates.length >= 3 ? boundary.coordinates : undefined;
+    const ring = poiEdgeRing(boundary) ?? drawn;
     if (!boundary || !ring) return null;
     const { LocalOSMFetcher } = require('../services/local-osm-fetcher');
     const fetcher = LocalOSMFetcher.getInstance();

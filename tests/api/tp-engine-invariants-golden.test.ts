@@ -195,9 +195,10 @@ const CLASS_CHECKS: ClassCheck[] = [
   { poi: 'Cristo Redentor', id: POI_ID.cristoRedentor, expectedOneOf: ['landmark_high'] },
   { poi: 'Pão de Açúcar', id: POI_ID.paoDeAcucar, expectedOneOf: ['landmark_high'] },
   { poi: 'Pico do Irmão Menor', id: POI_ID.picoDoIrmaoMenor, expectedOneOf: ['landmark_high'] },
-  // Relief without both prominences is not landmark_high (91 m city / 77 m local < 100): it takes
-  // the class of its 261,549 m² polygon (BR-AUDIO-010, #772).
-  { poi: 'Morro do Patronato', id: POI_ID.morroDoPatronato, expectedOneOf: ['area'] },
+  // Relief without both prominences is not landmark_high (91 m city / 77 m local < 100). Its own
+  // node id has no polygon carrying its name, so the border is the 10 m point circle, not the
+  // unnamed 261,549 m² landform it took by `natural=*` (operator, 2026-09-27; BR-AUDIO-010, #772).
+  { poi: 'Morro do Patronato', id: POI_ID.morroDoPatronato, expectedOneOf: ['point_low'] },
   // "não point_low" (tabela): a borda de hoje é o nó de bairro, não o polígono do estádio (E1) —
   // a classe em si já não é point_low (sai `area`), então esta asserção específica passa.
   { poi: 'Maracanã', id: POI_ID.maracana, forbidden: ['point_low'] },
@@ -206,7 +207,10 @@ const CLASS_CHECKS: ClassCheck[] = [
     poi: 'Sala de Leitura da Cidade das Artes', id: POI_ID.cidadeDasArtes,
     todoCause: 'INV-E2 não existe (poi-classifier só sobe altura do hospedeiro, não borda/classe — motor-de-tp.md E2); classe esperada é a do prédio Cidade das Artes, hoje sai landmark_high do próprio POI',
   },
-  { poi: 'Museu do Amanhã', id: POI_ID.museuDoAmanha, expectedOneOf: ['structure', 'landmark_high'] },
+  // No measured height (OSM has neither `height` nor `building:levels`): the 15 m came from
+  // `tourism=museum` in the height-by-type table, which left the engine (operator, 2026-09-27).
+  // By measure it is a long, narrow 11,290 m² footprint: linear (BR-AUDIO-010, #772).
+  { poi: 'Museu do Amanhã', id: POI_ID.museuDoAmanha, expectedOneOf: ['linear'] },
   { poi: 'Busto Prof. Mazzini Bueno', id: POI_ID.bustoMazziniBueno, expectedOneOf: ['point_low'] },
   { poi: 'Igreja Nossa Senhora de Fátima', id: POI_ID.igrejaFatima, expectedOneOf: ['point_low', 'structure'] },
   { poi: 'Monumento Árvore de Natal', id: POI_ID.arvoreDeNatal, expectedOneOf: ['point_low'] },
