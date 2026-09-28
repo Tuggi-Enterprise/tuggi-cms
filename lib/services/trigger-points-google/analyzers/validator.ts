@@ -1,7 +1,7 @@
 // Validador e ranker de trigger points
 
 import { POIData, GeographicContext, TriggerPointCandidate, TriggerPoint, BoundaryData } from '../types/interfaces';
-import { calculateOptimalRadius, calculateDistance, calculateBearing, extractBuildingHeight, calculateDistanceToBoundary, distanceToLineSegment } from '../utils/calculations';
+import { calculateDistance, calculateBearing, extractBuildingHeight, calculateDistanceToBoundary, distanceToLineSegment } from '../utils/calculations';
 import { SANITY_MAX_TP_DISTANCE_M, proximityBand, proximityRankScore } from '../config/visibility-class';
 import { tpReachCapM } from '../utils/validation';
 import { TRIGGER_POINTS_CONSTANTS } from '../config/trigger-points-config';

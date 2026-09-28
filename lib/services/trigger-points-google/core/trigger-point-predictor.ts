@@ -1609,8 +1609,8 @@ export class CoreTriggerPointPredictor {
       // só do `height`. Pra montanhas reais (Cristo): elevationDiff = 700m+ → horizon
       // estende muito.
       //
-      // Filtro de ruído: elevationDiff < 100m é considerado ruído SRTM (urbano), ignorado.
-      // 100m+ é sinal forte de POI naturalmente elevado.
+      // Filtro de ruído: abaixo de LANDMARK_MIN_PROMINENCE_M é ruído do relevo urbano, ignorado;
+      // dali para cima é POI naturalmente elevado (limiar único, #777).
       //
       // ELEIÇÃO DE poiGround — depende do tipo de POI:
       //

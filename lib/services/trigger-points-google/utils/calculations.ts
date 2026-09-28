@@ -501,54 +501,6 @@ export function convertViewportToPolygon(viewport: {
 }
 
 /**
- * Calcula o raio ótimo baseado no contexto geográfico
- */
-export function calculateOptimalRadius(
-  context: {
-    urbanDensity: { level: string; score: number };
-    elevationContext: { type: string; variance: number };
-  }
-): number {
-  const baseRadius = 100; // metros
-  
-  // Ajustar baseado na densidade urbana
-  let densityMultiplier = 1.0;
-  switch (context.urbanDensity.level) {
-    case 'very_dense':
-      densityMultiplier = 0.7;
-      break;
-    case 'dense':
-      densityMultiplier = 0.8;
-      break;
-    case 'medium':
-      densityMultiplier = 1.0;
-      break;
-    case 'low':
-      densityMultiplier = 1.2;
-      break;
-    case 'rural':
-      densityMultiplier = 1.5;
-      break;
-  }
-  
-  // Ajustar baseado na elevação
-  let elevationMultiplier = 1.0;
-  switch (context.elevationContext.type) {
-    case 'mountainous':
-      elevationMultiplier = 1.3;
-      break;
-    case 'hilly':
-      elevationMultiplier = 1.1;
-      break;
-    case 'flat':
-      elevationMultiplier = 1.0;
-      break;
-  }
-  
-  return Math.round(baseRadius * densityMultiplier * elevationMultiplier);
-}
-
-/**
  * Calcula a distância mínima de um ponto até o boundary (perímetro) de um polígono
  * Retorna 0 se o ponto estiver dentro do polígono
  */
@@ -677,54 +629,6 @@ export function adjustPointDistance(
     lat: fromPoint.lat + deltaLat,
     lng: fromPoint.lng + deltaLng
   };
-}
-
-/**
- * Calcula raio inteligente baseado na elevação e altura do POI
- */
-export function calculateElevationBasedRadius(
-  elevation?: {
-    min: number;
-    max: number;
-    average: number;
-    center: number;
-  },
-  height?: number,
-  baseRadius: number = 200
-): number {
-  let calculatedRadius = baseRadius;
-  
-  // Ajustar baseado na altura do POI (ex: prédios altos)
-  if (height && height > 0) {
-    // Regra: para cada 10m de altura, adicionar 15m de raio
-    const heightBonus = Math.floor(height / 10) * 15;
-    calculatedRadius += heightBonus;
-    console.log(`📏 Height bonus: ${height}m → +${heightBonus}m radius`);
-  }
-  
-  // Ajustar baseado na variação de elevação
-  if (elevation) {
-    const elevationRange = elevation.max - elevation.min;
-    
-    if (elevationRange > 50) {
-      // Terreno muito variado - aumentar raio para melhor visibilidade
-      const terrainBonus = Math.floor(elevationRange / 20) * 25;
-      calculatedRadius += terrainBonus;
-      console.log(`⛰️ Terrain bonus: ${elevationRange}m range → +${terrainBonus}m radius`);
-    }
-    
-    // Se POI está em elevação alta, aumentar raio (melhor visibilidade)
-    if (elevation.center > elevation.average + 20) {
-      calculatedRadius += 50;
-      console.log(`🏔️ High elevation bonus: +50m radius`);
-    }
-  }
-  
-  // Limites mínimos e máximos
-  calculatedRadius = Math.max(calculatedRadius, 100); // Mínimo 100m
-  calculatedRadius = Math.min(calculatedRadius, 1000); // Máximo 1km
-  
-  return calculatedRadius;
 }
 
 /**

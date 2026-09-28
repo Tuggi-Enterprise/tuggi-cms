@@ -116,8 +116,6 @@ export const TRIGGER_POINTS_CONSTANTS = {
     // Proporções para cálculo de raio
     heightMultiplier: 6, // Multiplicador de altura para raio (6m por metro)
     heightMultiplierMax: 300, // Máximo do multiplicador de altura (m)
-    elevationPenalty: 3, // Penalidade por elevação baixa (3m por metro)
-    elevationPenaltyMin: 150, // Mínimo após penalidade de elevação (m)
     
     // Proporções para boundary
     boundaryRadiusMultiplier: 0.5, // Multiplicador do raio do boundary (50%)
@@ -142,10 +140,6 @@ export const TRIGGER_POINTS_CONSTANTS = {
     mediumHeight: 15, // Altura para POI médio (m)
     lowHeight: 10, // Altura para POI baixo (m)
     
-    // Limites de elevação
-    highElevation: 1000, // Elevação alta (m)
-    mediumElevation: 400, // Elevação média (m)
-    lowElevation: 50, // Elevação baixa (m)
     
     // Limites de área
     veryLargeArea: 500000, // Área muito grande (m²)
@@ -194,10 +188,6 @@ export const TRIGGER_POINTS_CONSTANTS = {
     veryTallThreshold: 50, // Altura para POI muito alto (m)
     tallThreshold: 20, // Altura para POI alto (m)
     highPOIThreshold: 30, // Altura para POI alto (m)
-    // Thresholds de elevação
-    highElevationThreshold: 100, // Diferença de elevação para landmark alto (m)
-    veryHighElevationThreshold: 1000, // Elevação muito alta (m)
-    highElevationThreshold2: 400, // Elevação alta (m)
     // Área thresholds
     veryLargeAreaThreshold: 1000000, // Área muito grande (m²) - 1km²
     largeAreaThreshold: 500000, // Área grande (m²) - 0.5km²

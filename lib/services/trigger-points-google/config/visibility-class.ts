@@ -56,7 +56,8 @@ export const BUILT_BASE_MIN_RELIEF_CELLS = 4;
 export const MIN_APPARENT_ANGLE_DEG = 0.2;
 /**
  * Prominence threshold of a landmark, over the city base AND over the local ring
- * (`LOCAL_BASE_RING_M`). Below this it is urban SRTM noise.
+ * (`LOCAL_BASE_RING_M`). Below this it is urban SRTM noise. The ONE "elevated terrain"
+ * threshold of the engine (#777): it was 50, 100 and 150 m in different places.
  */
 export const LANDMARK_MIN_PROMINENCE_M = 100;
 export const AREA_MIN_M2 = 10_000;

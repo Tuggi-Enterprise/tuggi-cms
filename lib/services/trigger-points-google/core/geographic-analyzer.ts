@@ -6,6 +6,14 @@ import { calculateVariance, calculateBearing, calculateDistance } from '../utils
 import { ElevationAnalysisService } from '../services/elevation-service';
 import { DemStore } from '../../dem/dem-store';
 
+/**
+ * Descriptive terrain label of the context (`elevationContext.type`, returned by the
+ * analyze-context route). Not the "elevated terrain" decision of the engine — that one is
+ * `config/visibility-class#LANDMARK_MIN_PROMINENCE_M` (#777).
+ */
+const HILLY_MIN_RISE_M = 50;
+const MOUNTAINOUS_MIN_RISE_M = 200;
+
 export class GeographicContextAnalyzer {
   constructor() {
     // GoogleAPIsService removido - não é mais necessário
@@ -207,8 +215,8 @@ export class GeographicContextAnalyzer {
       
       // Classificar baseado na diferença
       let type: 'flat' | 'mountainous' | 'hilly' = 'flat';
-      if (elevationDiff > 200) type = 'mountainous';
-      else if (elevationDiff > 50) type = 'hilly';
+      if (elevationDiff > MOUNTAINOUS_MIN_RISE_M) type = 'mountainous';
+      else if (elevationDiff > HILLY_MIN_RISE_M) type = 'hilly';
       
       console.log(`✅ Elevation analysis: ${type} (base: ${baseElevation}m, poi: ${poiElevation}m, diff: ${elevationDiff}m)`);
       

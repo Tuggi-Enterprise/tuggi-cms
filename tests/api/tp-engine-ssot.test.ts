@@ -5,7 +5,9 @@ import assert from 'node:assert/strict'
 import { readdirSync, readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { TRIGGER_POINT_DB_TYPES } from '../../lib/services/trigger-points-google/types/interfaces'
-import { BUILDING_LEVEL_HEIGHT_M, heightFromTags } from '../../lib/services/trigger-points-google/config/visibility-class'
+import {
+  BUILDING_LEVEL_HEIGHT_M, heightFromTags, LANDMARK_MIN_PROMINENCE_M, SANITY_MAX_TP_DISTANCE_M, VisibilityClass, maxEdgeDistanceFor,
+} from '../../lib/services/trigger-points-google/config/visibility-class'
 import { OSMDataFetcher } from '../../lib/services/trigger-points-google/services/osm-data-fetcher'
 
 const MIGRATIONS = join(process.cwd(), 'supabase/migrations')
@@ -33,5 +35,17 @@ describe('#781 TP engine SSOT', () => {
       assert.equal(fetcher.extractBuildingHeight(tags), heightFromTags(tags)!.heightM)
     }
     assert.equal(fetcher.extractBuildingHeight({ 'building:levels': '4' }), 4 * BUILDING_LEVEL_HEIGHT_M)
+  })
+
+  it('#777: one "elevated terrain" threshold — LANDMARK_MIN_PROMINENCE_M decides, no literal elsewhere in the engine', () => {
+    const T = LANDMARK_MIN_PROMINENCE_M
+    assert.equal(maxEdgeDistanceFor(VisibilityClass.LANDMARK_HIGH, T), SANITY_MAX_TP_DISTANCE_M)
+    assert.notEqual(maxEdgeDistanceFor(VisibilityClass.LANDMARK_HIGH, T - 1), SANITY_MAX_TP_DISTANCE_M)
+    const engine = join(process.cwd(), 'lib/services/trigger-points-google')
+    const literal = /(elevationDiff|[pP]rominence\w*|aboveNeighborhood|finalDiff)\s*[<>]=?\s*\d{2,}|isElevated/
+    for (const file of readdirSync(engine, { recursive: true }) as string[]) {
+      if (!file.endsWith('.ts')) continue
+      assert.doesNotMatch(readFileSync(join(engine, file), 'utf8'), literal, file)
+    }
   })
 })

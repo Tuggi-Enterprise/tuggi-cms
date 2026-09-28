@@ -17,7 +17,6 @@ export interface ElevationData {
     aboveNeighborhood: number; // metros acima da vizinhança média
     neighborhoodAverage: number; // elevação média da vizinhança
     prominence: number; // proeminência topográfica (0-1)
-    isElevated: boolean; // se está significativamente elevado
   };
   confidence: number; // 0.0 - 1.0
   source: 'osm_tags' | 'google_elevation' | 'estimated';
@@ -102,12 +101,11 @@ export class ElevationService {
       const baseForDiff = regionalBase ?? groundElevation;
       const totalElevation = groundElevation + structureHeight;
       const elevationDiff = totalElevation - baseForDiff;
-      const isElevated = elevationDiff > 50; // Threshold do usuário
 
       console.log(`📊 Current Elevation State: Ground=${groundElevation}m, Structure=${structureHeight}m, Total=${totalElevation}m, Base=${regionalBase}m, Diff=${elevationDiff}m`);
 
       // ✅ REGRA DE OURO DO USUÁRIO: Se temos dados do Open Elevation + OSM e a diferença é clara, SAIR CEDO
-      if (confidence >= 0.7 || (groundSource === 'open_elevation' && isElevated)) {
+      if (confidence >= 0.7) {
         console.log(`✅ Sufficient data from Open Elevation + OSM. Diff from base: ${elevationDiff}m. Skipping Google API.`);
         
         return {
@@ -118,7 +116,6 @@ export class ElevationService {
             aboveNeighborhood: elevationDiff,
             neighborhoodAverage: baseForDiff,
             prominence: Math.min(1.0, Math.max(0.1, elevationDiff / 200)), // Estimativa de proeminência
-            isElevated: isElevated
           },
           confidence: confidence,
           source: 'osm_tags', // Simplificado para indicar que não usou Google
@@ -148,7 +145,6 @@ export class ElevationService {
           ...googleElevation.relative,
           aboveNeighborhood: finalDiff,
           neighborhoodAverage: baseForDiff,
-          isElevated: finalDiff > 50 || googleElevation.relative.isElevated
         }
       };
 
@@ -183,7 +179,6 @@ export class ElevationService {
           aboveNeighborhood: 0, // Will be calculated if needed
           neighborhoodAverage: elevation,
           prominence: 0.5,
-          isElevated: elevation > 500
         },
         confidence: 0.9, // measured ground
         source: 'estimated', // legacy type; the value is the measured ground (GEDTM30)
@@ -260,7 +255,6 @@ export class ElevationService {
           aboveNeighborhood: 0, // OSM tags não têm análise de vizinhança
           neighborhoodAverage: ground,
           prominence: 0.5, // Assumir média
-          isElevated: structure ? structure > 50 : false // Baseado na altura da estrutura
         },
         confidence: Math.min(1.0, confidence),
         source: 'osm_tags',
@@ -307,11 +301,8 @@ export class ElevationService {
         neighborhoodAnalysis.elevations
       );
       
-      // 4. Determinar se está significativamente elevado
-      const isElevated = aboveNeighborhood > 30 && prominence > 0.3; // >30m e >30% de proeminência
-
       console.log(`📊 Neighborhood analysis: POI=${poiElevation.toFixed(1)}m, Avg=${neighborhoodAnalysis.average.toFixed(1)}m, Relative=${aboveNeighborhood > 0 ? '+' : ''}${aboveNeighborhood.toFixed(1)}m`);
-      console.log(`⛰️ Topographic prominence: ${(prominence * 100).toFixed(1)}%, Elevated: ${isElevated}`);
+      console.log(`⛰️ Topographic prominence: ${(prominence * 100).toFixed(1)}%`);
 
       return {
         ground: poiElevation,
@@ -321,7 +312,6 @@ export class ElevationService {
           aboveNeighborhood,
           neighborhoodAverage: neighborhoodAnalysis.average,
           prominence,
-          isElevated
         },
         confidence: 0.8,
         source: 'google_elevation',
@@ -378,7 +368,6 @@ export class ElevationService {
           aboveNeighborhood: 0, // Método legado não faz análise de vizinhança
           neighborhoodAverage: avgElevation,
           prominence: 0.5, // Assumir média
-          isElevated: false // Sem análise de proeminência
         },
         confidence: 0.8, // Google é confiável para elevação do terreno
         source: 'google_elevation',
@@ -437,7 +426,6 @@ export class ElevationService {
         aboveNeighborhood: 0, // Estimativa não tem análise de vizinhança
         neighborhoodAverage: estimatedGround,
         prominence: 0.3, // Baixa proeminência
-        isElevated: false // Sem dados suficientes
       },
       confidence: 0.2, // Baixa confiança
       source: 'estimated',
@@ -462,7 +450,6 @@ export class ElevationService {
         aboveNeighborhood: 0,
         neighborhoodAverage: 0,
         prominence: 0,
-        isElevated: false
       },
       confidence: 0.0, // Zero confidence
       source: 'estimated',

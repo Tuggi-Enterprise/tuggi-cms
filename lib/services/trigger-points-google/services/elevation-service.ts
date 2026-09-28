@@ -19,6 +19,7 @@ import {
   RELIEF_TOP_RING_M,
   SUMMIT_MATCH_M,
   landPercentile,
+  LANDMARK_MIN_PROMINENCE_M,
 } from '../config/visibility-class';
 
 type LatLng = { lat: number; lng: number };
@@ -258,7 +259,9 @@ export class ElevationAnalysisService {
     const baseElevation = await this.estimateRegionalBaseElevation(location, context, poiData);
     // No base (DEM failed): no difference claimed (INV-E4c).
     const elevationDiff = baseElevation === null ? 0 : poiElevation - baseElevation;
-    const isHighVisibility = elevationDiff > 200;
+    // Same "elevated terrain" threshold as the engine (#777): the CMS panel says ALTA only when
+    // the engine treats the POI as prominent.
+    const isHighVisibility = elevationDiff >= LANDMARK_MIN_PROMINENCE_M;
     
     console.log(`📏 [ElevationService] Elevation analysis:`);
     console.log(`  📍 POI elevation: ${poiElevation.toFixed(1)}m`);
