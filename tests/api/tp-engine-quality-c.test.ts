@@ -193,3 +193,26 @@ describe('BR-AUDIO-010 — a drawn circle stored in the DB is synthetic, not a f
     assert.equal(out.length, 1)
   })
 })
+
+describe('BR-POI-009 — a body of water is never the top of a relief, so never landmark_high (#779)', () => {
+  it('a river corridor that climbs a hill measures prominent and is still linear (Rio pavuna, Rio Cação Vermelho)', async () => {
+    const { visibilityClassRule, isWaterBody } = await import('../../lib/services/trigger-points-google/config/visibility-class')
+    const river = Array.from({ length: 50 }, (_, i) => offset({ e: i * 200, n: (i % 2) * 20 }))
+    const measured = { heightM: 0, prominenceM: 120, localProminenceM: 110, areaM2: 600_000, boundary: river }
+    assert.equal(visibilityClassRule(measured).cls, VisibilityClass.LANDMARK_HIGH, 'without the water gate')
+    const tags = { name: 'Rio pavuna', class: 'waterway', type: 'stream', tunnel: 'yes' }
+    assert.equal(isWaterBody(tags), true)
+    assert.equal(visibilityClassRule({ ...measured, waterBody: isWaterBody(tags) }).rule, 'linear_shape')
+    assert.equal(visibilityClassRule({ ...measured, heightM: 40, waterBody: true }).cls !== VisibilityClass.LANDMARK_HIGH, true)
+  })
+
+  it('river, canal, bay and lagoon are water; a waterfall, a fountain and a peak are not', async () => {
+    const { isWaterBody } = await import('../../lib/services/trigger-points-google/config/visibility-class')
+    for (const t of [{ waterway: 'river' }, { waterway: 'canal' }, { natural: 'bay' }, { natural: 'water', water: 'lagoon' }, { class: 'natural', type: 'water' }]) {
+      assert.equal(isWaterBody(t), true, JSON.stringify(t))
+    }
+    for (const t of [{ waterway: 'waterfall' }, { amenity: 'fountain' }, { natural: 'peak' }, {}, undefined]) {
+      assert.equal(isWaterBody(t), false, JSON.stringify(t))
+    }
+  })
+})
