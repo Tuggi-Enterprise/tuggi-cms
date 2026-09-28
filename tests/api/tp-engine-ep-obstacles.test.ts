@@ -218,6 +218,43 @@ describe('INV-EPa / INV-E8 — 3D-GloBFP is rescaled where Overture measured it 
   })
 })
 
+describe('INV-E4a — a wide built POI stands on the ground around it, not on its own stands (#772)', () => {
+  const pin = { lat: -22.8931, lng: -43.2925 }
+  const square = (halfM: number) => {
+    const dy = halfM / 110_540, dx = halfM / (111_320 * Math.cos((pin.lat * Math.PI) / 180))
+    return [{ lat: pin.lat - dy, lng: pin.lng - dx }, { lat: pin.lat - dy, lng: pin.lng + dx }, { lat: pin.lat + dy, lng: pin.lng + dx }, { lat: pin.lat + dy, lng: pin.lng - dx }]
+  }
+  const classify = async (halfM: number, heightM: number | null) => {
+    const { measureAndClassify } = await import('../../lib/services/trigger-points-google/services/poi-classifier.service')
+    const dem = DemStore.getInstance() as any
+    const [fb, gr] = [dem.footprintBuildings, dem.ground]
+    const ring = square(halfM)
+    const inside = (lat: number, lng: number) => lat >= ring[0].lat && lat <= ring[2].lat && lng >= ring[0].lng && lng <= ring[1].lng
+    dem.footprintBuildings = () => ({ cells: 10, builtCells: 10, heightM, source: heightM ? '3d-globfp' : null })
+    // GEDTM30 reads the stands as terrain: 52.7 m inside the footprint, 22 m around it
+    dem.ground = (lat: number, lng: number) => (inside(lat, lng) ? 52.7 : 22)
+    try {
+      const poiData = { id: 'x', name: 'x', city: 'Rio de Janeiro', location: pin } as any
+      return (await measureAndClassify({ poiData, boundary: ring, synthetic: false, areaM2: (2 * halfM) ** 2 })).physical
+    } finally {
+      dem.footprintBuildings = fb
+      dem.ground = gr
+    }
+  }
+
+  it('INV-E4a / INV-E8: a stadium (270 m wide, 38.6 m) stands at 22 m — its top is 60.6 m, not 91.3 m', async () => {
+    const ph = await classify(135, 38.6)
+    assert.deepEqual([ph.groundTopM, ph.groundSource, ph.heightM], [22, 'built_base', 38.6])
+  })
+
+  it('INV-E4a: a narrow building (a church of 1,000 m²) and a POI with no height keep the boundary maximum', async () => {
+    const church = await classify(16, 13.2)
+    assert.deepEqual([church.groundTopM, church.groundSource], [52.7, 'dem_boundary_max'])
+    const unbuilt = await classify(135, null)
+    assert.deepEqual([unbuilt.groundTopM, unbuilt.groundSource], [52.7, 'dem_boundary_max'])
+  })
+})
+
 describe('INV-E3 — the POI height comes from the buildings measured on its footprint, never from its type (#783)', () => {
   it('INV-E3: order — OSM height tag → OSM building inside → buildings layer → 0', () => {
     const fp = { heightM: 38, source: '3d-globfp' as const }

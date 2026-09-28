@@ -19,6 +19,7 @@ import {
   resolveHeightM,
   footprintStructureHeight,
   visibilityClassRule,
+  BUILT_BASE_MIN_RELIEF_CELLS,
 } from '../config/visibility-class';
 import { ElevationAnalysisService, GroundTop } from './elevation-service';
 import { DemStore } from '../../dem/dem-store';
@@ -150,12 +151,21 @@ export async function measureAndClassify(a: MeasureInput): Promise<{ classificat
   // synthetic circle is not a footprint (INV-E1b): the building under a park's pin is not the park.
   const footprint = a.synthetic ? null : DemStore.getInstance().footprintBuildings(a.boundary ?? []);
   const { heightM, source: heightSource } = resolveHeightM(a.tags, a.knownHeightM, footprint && footprintStructureHeight(footprint));
-  const top = await ElevationAnalysisService.groundTop({
+  const measuredTop = await ElevationAnalysisService.groundTop({
     pin: a.poiData.location,
     boundary: a.boundary,
     tags: a.tags,
     peaks: [...(a.peaks ?? []), ...summitsAround(a.poiData.location, a.boundary)],
   });
+  // INV-E4a (#772): a built POI wide enough for GEDTM30 to read it as terrain stands on the
+  // ground around it; the maximum inside would count its height twice.
+  const stepM = DemStore.getInstance().stepM;
+  const wideBuilt = !a.synthetic && heightM > 0 && measuredTop.source === 'dem_boundary_max' && measuredTop.groundM !== null
+    && (a.areaM2 || 0) >= BUILT_BASE_MIN_RELIEF_CELLS * stepM * stepM;
+  const builtBase = wideBuilt ? await ElevationAnalysisService.builtBaseM(a.boundary) : null;
+  const top = builtBase !== null && builtBase < measuredTop.groundM!
+    ? { ...measuredTop, groundM: builtBase, source: 'built_base' as const }
+    : measuredTop;
   const [base, localBaseM] = await Promise.all([
     ElevationAnalysisService.cityBaseElevation(a.poiData.location, a.poiData.city),
     ElevationAnalysisService.localBaseElevation(a.poiData.location),

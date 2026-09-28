@@ -39,6 +39,15 @@ export const LANDMARK_MIN_HEIGHT_M = 30;
  */
 export const STRUCTURE_BUILT_SHARE_MIN = 0.8;
 /**
+ * INV-E4a (#772): a built POI at least this many relief cells (`DemStore#stepM`², ~940 m² each)
+ * wide is read by GEDTM30 as terrain — the stands of Nilton Santos lift the "ground" inside the
+ * footprint to 52.7 m over streets at ~22 m, and E3 adds the building height again. Its ground is
+ * then the terrain around it (`elevation-service#builtBaseM`), never above the boundary maximum.
+ * 4 cells (~3,770 m²): Nilton Santos, Maracanã and Museu do Amanhã among the 36; Igreja de Fátima
+ * (1,673 m²) and the Matriz of Cabo Frio (1,003 m²) keep the maximum.
+ */
+export const BUILT_BASE_MIN_RELIEF_CELLS = 4;
+/**
  * Smallest angle the visible part of the POI must span in the observer's view for the candidate
  * to pass the sight line (INV-E8b, #784). Calibrated on the 36 POIs (#784): the visible candidates
  * leave a gap between ~0.1° and ~0.3° (below it, one aim or a sliver; above it, the POI), and

@@ -35,7 +35,7 @@ export interface GroundTop {
   /** terrain at the highest point of the boundary; null when the DEM failed (INV-E4c) */
   groundM: number | null;
   at: LatLng | null;
-  source: 'ele_tag' | 'summit_ele' | 'dem_boundary_max' | 'none';
+  source: 'ele_tag' | 'summit_ele' | 'dem_boundary_max' | 'built_base' | 'none';
 }
 
 /**
@@ -122,6 +122,23 @@ export class ElevationAnalysisService {
       reads.push(read(p.lat, p.lng));
     }
     return landPercentile(await Promise.all(reads), LOCAL_BASE_PERCENTILE);
+  }
+
+  /**
+   * INV-E4a (#772): the ground around a built POI — the median GEDTM30 ground one relief cell
+   * (`DemStore#stepM`) outside each vertex of its boundary, away from the centroid, where the 1″
+   * DTM no longer reads the building as terrain. null with no boundary or no DEM.
+   */
+  static async builtBaseM(boundary: LatLng[] | undefined, read: ElevationReader = groundReader): Promise<number | null> {
+    if (!boundary || boundary.length < 3) return null;
+    const c = { lat: boundary.reduce((s, p) => s + p.lat, 0) / boundary.length, lng: boundary.reduce((s, p) => s + p.lng, 0) / boundary.length };
+    const outM = DemStore.getInstance().stepM;
+    const kx = 111_320 * Math.cos((c.lat * Math.PI) / 180);
+    const vals = (await Promise.all(boundary.map(p => {
+      const n = (p.lat - c.lat) * 110_540, e = (p.lng - c.lng) * kx, r = Math.hypot(n, e) || 1;
+      return read(p.lat + (n / r) * outM / 110_540, p.lng + (e / r) * outM / kx);
+    }))).filter((v): v is number => v !== null && Number.isFinite(v)).sort((a, b) => a - b);
+    return vals.length ? vals[Math.floor(vals.length / 2)] : null;
   }
 
   /**
