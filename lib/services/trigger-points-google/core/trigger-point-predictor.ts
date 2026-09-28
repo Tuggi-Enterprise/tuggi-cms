@@ -9,7 +9,7 @@ import { GoogleAPIsService } from '../services/google-apis.service';
 import { POIData, TriggerPoint, TriggerPointGenerationOptions, TriggerPointPredictionResult, BoundaryData, GeographicContext, TriggerPointCandidate, StreetData } from '../types/interfaces';
 import { calculateBearing, calculateDistance, findClosestPointOnBoundary, closestStreetPointToPoi, closestPointOnPolyline } from '../utils/calculations';
 import { deterministicTPId } from '../utils/deterministic';
-import { loadTriggerPointsConfig, TriggerPointsConfig, TRIGGER_POINTS_CONSTANTS } from '../config/trigger-points-config';
+import { TRIGGER_POINTS_CONSTANTS } from '../config/trigger-points-config';
 import { VisibilityClass, LANDMARK_MIN_PROMINENCE_M, EDGE_BAND_M, SANITY_MAX_TP_DISTANCE_M, fanHorizonM, heightFromTags, isCarStreet } from '../config/visibility-class';
 import { DemNotPreparedError, DemStore } from '../../dem/dem-store';
 import { emitDebugQuality, DebugQualitySnapshot } from '../debug-quality-logger';
@@ -529,35 +529,25 @@ export class CoreTriggerPointPredictor {
         };
       }
       
-      // 6. Validação e ranking com distância mínima
-      const maxTPs = options.maxTriggerPoints || this.calculateDynamicTPLimit(boundary, context, streetAnalysisResult.searchRadius);
-      
-      // 🎯 NOVO: Usar configuração do grupo se disponível, senão calcular
-      let minDistance: number;
-      if (boundary.classification?.minDistanceBetweenTPs) {
-        minDistance = boundary.classification.minDistanceBetweenTPs;
-      } else {
-        minDistance = this.calculateMinDistance(context, boundary);
-      }
-      
+      // 6. One-way and intersection clustering; spacing is E10, in applyOptions (BR-POI-009).
+      const e9Why = new Map<object, string>();
       const validatedPoints = await this.validator.validateAndRankPoints(
         streetValidatedCandidates,
         poiData,
         context,
         boundary,
-        maxTPs,
-        minDistance,
         {
           simulateApproach: options.simulateApproach,
           validateCorridor: options.validateCorridor,
           clusterIntersections: options.clusterIntersections,
           intersectionClusterRadiusM: options.intersectionClusterRadiusM,
+          why: e9Why,
         }
       );
       _validatedCount = validatedPoints.length;
       trace.push(...stepTraceRows<{ location: { lat: number; lng: number } }>({
         poiId, stage: 'E9-E10', rule: 'validator#validateAndRankPoints', before: streetValidatedCandidates, after: validatedPoints,
-        value: edge, limit: `one-way, dedup ≥ ${minDistance} m, max ${maxTPs}`,
+        value: c => [edge(c), e9Why.get(c)].filter(Boolean).join('; '), limit: 'one-way; intersection cluster 25 m (spacing is E10)',
       }));
 
       // 7. Frontal TPs on the streets touching the POI edge (storefront POIs whose fan
@@ -2084,78 +2074,5 @@ export class CoreTriggerPointPredictor {
     
     return stats;
   }
-  
-  /**
-   * Calcula limite dinâmico de TPs baseado em características matemáticas do POI
-   * Substitui o limite fixo de 50 por cálculo baseado em área, elevação e altura
-   */
-  /**
-   * Issue 2.4b — Cobertura completa.
-   *
-   * Premissa: não perder usuário vindo de qualquer lado. O controle real de
-   * sobreposição é `minDistanceBetweenTPs`. O limite por grupo no config é
-   * apenas um teto de segurança (200-500); aqui apenas o respeitamos.
-   *
-   * Antes: a função impunha um segundo teto por "área de cobertura" (1 TP
-   * por 0.1km²) que entrava em conflito com a meta de 1 TP por rua perimetral.
-   */
-  private calculateDynamicTPLimit(boundary: BoundaryData, context: GeographicContext, searchRadius?: number): number {
-    // Safety ceiling — não é "o cap" do POI.
-    //
-    // O controle real de quantos TPs são gerados vive em `applyOptions`:
-    // greedy density thinning com spacing escalado por distância radial ao POI
-    // + coverage guarantee por slice angular. A quantidade final é EMERGENTE,
-    // não decretada — POI grande/visível-de-longe gera mais TPs sem cap;
-    // POI pequeno gera poucos, sem padding artificial.
-    //
-    // Este número existe só pra evitar runaway em edge cases (POI degenerado
-    // que vire fan-walk de 100k candidatos). 5000 é alto o suficiente pra
-    // nunca limitar legitimamente.
-    const SAFETY_CEILING = 5000;
-    console.log(`📊 TP safety ceiling: ${SAFETY_CEILING} (real control is density thinning in applyOptions)`);
-    return SAFETY_CEILING;
-  }
 
-  
-  /**
-   * Calcula distância mínima entre TPs baseado no contexto e tamanho do POI
-   */
-  private calculateMinDistance(context: GeographicContext, boundary: BoundaryData, config?: TriggerPointsConfig): number {
-    // Carregar configuração
-    const cfg = config || loadTriggerPointsConfig();
-    
-    let baseDistance = cfg.minDistance.baseDistance[context.urbanDensity.level];
-    
-    console.log(`📏 Calculating minimum distance between TPs (20m range each)...`);
-    
-    // Ajustar baseado no tamanho do POI
-    if (boundary.area_m2 > 500000) { // POIs muito grandes (>50 hectares)
-      baseDistance *= cfg.minDistance.areaMultipliers.very_large;
-      console.log(`🏞️ Large POI adjustment: +${((cfg.minDistance.areaMultipliers.very_large - 1) * 100).toFixed(0)}% distance`);
-    } else if (boundary.area_m2 > 100000) { // POIs grandes (>10 hectares)
-      baseDistance *= cfg.minDistance.areaMultipliers.large;
-      console.log(`🏛️ Medium POI adjustment: +${((cfg.minDistance.areaMultipliers.large - 1) * 100).toFixed(0)}% distance`);
-    }
-    
-    // Ajustar baseado na elevação (POIs altos = TPs mais distantes)
-    if (boundary.elevation) {
-      const elevationDiff = boundary.elevation.center - boundary.elevation.average;
-      if (elevationDiff > 50) {
-        baseDistance *= cfg.minDistance.elevationMultipliers.high;
-        console.log(`⛰️ High elevation adjustment: +${((cfg.minDistance.elevationMultipliers.high - 1) * 100).toFixed(0)}% distance`);
-      }
-    }
-    
-    // Ajustar baseado na altura do POI
-    if (boundary.height && boundary.height > 50) {
-      baseDistance *= cfg.minDistance.heightMultipliers.tall;
-      console.log(`🏢 Tall POI adjustment: +${((cfg.minDistance.heightMultipliers.tall - 1) * 100).toFixed(0)}% distance`);
-    }
-    
-    // Limites de segurança otimizados para range de 20m
-    const minDistance = Math.max(cfg.minDistance.limits.min, Math.min(baseDistance, cfg.minDistance.limits.max));
-    
-    console.log(`✅ Minimum distance calculated: ${minDistance}m (base: ${baseDistance.toFixed(0)}m) - TP range: 20m`);
-    return Math.round(minDistance);
-  }
 }
