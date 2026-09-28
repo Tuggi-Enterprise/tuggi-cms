@@ -59,7 +59,7 @@ describe('INV-E6, BR-AUDIO-010 — alcance = tamanho / tan(ângulo de reconhecim
   })
 })
 
-describe('INV-E6 / INV-E10, BR-AUDIO-010 — cota longe própria (maxFarTPs), sem tomar vaga de TP perto', () => {
+describe('INV-E6 / INV-E10, BR-AUDIO-010 — sem teto de quantidade: depois da visada, só o espaçamento corta (#772, 2026-09-28)', () => {
   const C = { lat: -22.9, lng: -43.2 }
   const tp = (id: string, distance: number, dLat: number, type = 'residential', quality = 0.5, dLng = 0): TriggerPoint => ({
     id, location: { lat: C.lat + dLat, lng: C.lng + dLng }, radius: 30, distance, quality,
@@ -67,49 +67,52 @@ describe('INV-E6 / INV-E10, BR-AUDIO-010 — cota longe própria (maxFarTPs), se
   } as any)
   const pointLow = () => buildClassification(VisibilityClass.POINT_LOW, { heightM: 10, prominenceM: 0, areaM2: 100 })
 
-  it('as quatro classes têm 2 vagas longe; landmark_high fica como estava', () => {
+  it('nenhuma classe tem teto de contagem, perto ou longe; a divisa perto/longe continua em CLASS_LIMITS', () => {
     for (const cls of [VisibilityClass.POINT_LOW, VisibilityClass.STRUCTURE, VisibilityClass.AREA, VisibilityClass.LINEAR]) {
-      assert.equal(CLASS_LIMITS[cls].maxFarTPs, 2, cls)
+      assert.equal(CLASS_LIMITS[cls].maxTPs, Infinity, cls)
+      assert.equal(CLASS_LIMITS[cls].maxFarTPs, Infinity, cls)
       assert.equal(sizeReachFarFromM(cls), CLASS_LIMITS[cls].maxEdgeDistanceM, cls)
     }
-    assert.equal(CLASS_LIMITS[VisibilityClass.LANDMARK_HIGH].maxFarTPs, 28)
+    assert.equal(CLASS_LIMITS[VisibilityClass.LANDMARK_HIGH].maxFarTPs, Infinity)
     assert.equal(sizeReachFarFromM(VisibilityClass.LANDMARK_HIGH), null)
   })
 
-  it('point_low com 4 perto e 3 longe fica com os 4 perto E 2 longe', () => {
+  it('point_low com 4 perto e 3 longe espaçados fica com os 7', () => {
     const near = [0, 1, 2, 3].map(i => tp(`n${i}`, 20 + i, i * 0.001))
     const far = [0, 1, 2].map(i => tp(`f${i}`, 250, 0.01 + i * 0.001, 'primary'))
     const out = selectSpacedTriggerPoints([...far, ...near], pointLow(), C)
-    assert.deepEqual(out.filter(t => t.distance <= 60).map(t => t.id).sort(), ['n0', 'n1', 'n2', 'n3'])
-    assert.equal(out.filter(t => t.distance > 60).length, 2)
+    assert.deepEqual(out.map(t => t.id).sort(), ['f0', 'f1', 'f2', 'n0', 'n1', 'n2', 'n3'])
   })
 
-  it('longe não preenche vaga de perto: 1 perto + 5 longe = 1 + 2', () => {
+  it('o espaçamento é o único corte: 1 perto + 5 longe espaçados = 6; um longe colado no outro sai', () => {
     const far = [0, 1, 2, 3, 4].map(i => tp(`f${i}`, 200, 0.01 + i * 0.001, 'primary'))
-    const out = selectSpacedTriggerPoints([...far, tp('n0', 20, 0)], pointLow(), C)
-    assert.equal(out.length, 3)
-    assert.ok(out.some(t => t.id === 'n0'))
+    assert.equal(selectSpacedTriggerPoints([...far, tp('n0', 20, 0)], pointLow(), C).length, 6)
+    const glued = tp('g', 200, 0.01 + 0.00005, 'primary', 0.1) // ~5 m do f0, abaixo de minSpacingM
+    const out = selectSpacedTriggerPoints([...far, glued, tp('n0', 20, 0)], pointLow(), C)
+    assert.equal(out.length, 6)
+    assert.ok(!out.some(t => t.id === 'g'))
   })
 
-  it('o longe vai primeiro ao setor sem TP, depois ao caminho que ninguém usa (a barca), não ao de maior qualidade', () => {
+  it('o setor sem TP, o caminho que ninguém usa (a barca) e o de maior qualidade entram todos', () => {
     const near = tp('n0', 20, 0.0003)
     const sameSectorStreet = tp('A', 300, 0.003, 'residential', 0.9)
     const otherSector = tp('B', 300, -0.003, 'primary', 0.5)
     const sameSectorFerry = tp('C', 450, 0.0045, 'ferry', 0.3, 0.0005)
     const out = selectSpacedTriggerPoints([sameSectorStreet, otherSector, sameSectorFerry, near], pointLow(), C)
-    assert.deepEqual(out.filter(t => t.distance > 60).map(t => t.id).sort(), ['B', 'C'])
+    assert.deepEqual(out.filter(t => t.distance > 60).map(t => t.id).sort(), ['A', 'B', 'C'])
   })
 
-  it('#786: a rua perto no setor não cobre quem vai embarcado — o VLT fica, e a barca não toma o lugar dele (Museu do Amanhã)', () => {
+  it('#786: quem vai embarcado entra — o VLT e a barca ficam ambos, com a orla (Museu do Amanhã)', () => {
     const near = tp('n0', 20, 0.0003)
     const tram = tp('T', 150, 0.0014, 'railway_tram', 0.5)
     const ferry = tp('F', 150, -0.001, 'ferry', 0.8, 0.001)
     const orla = tp('P', 150, -0.0015, 'pedestrian', 0.9)
-    const out = selectSpacedTriggerPoints([orla, ferry, tram, near], pointLow(), C)
-    assert.deepEqual(out.filter(t => t.distance > 60).map(t => t.id).sort(), ['F', 'T'])
+    const tramGlued = tp('T2', 150, 0.00145, 'railway_tram', 0.4) // ~5 m do VLT: o espaçamento segue cortando
+    const out = selectSpacedTriggerPoints([orla, ferry, tram, tramGlued, near], pointLow(), C)
+    assert.deepEqual(out.filter(t => t.distance > 60).map(t => t.id).sort(), ['F', 'P', 'T'])
   })
 
-  it('area: o setor do longe é o setor de perímetro (INV-E10d), não o de 45° do centroide (Ilha do Fundão)', () => {
+  it('area: todo trecho de perímetro espaçado entra — a Linha Vermelha oeste do Fundão (X) também (INV-E10d)', () => {
     const M_LAT = 110_540, M_LNG = 111_320 * Math.cos((C.lat * Math.PI) / 180)
     const polar = (deg: number, m: number) => ({ lat: C.lat + (m * Math.cos((deg * Math.PI) / 180)) / M_LAT, lng: C.lng + (m * Math.sin((deg * Math.PI) / 180)) / M_LNG })
     const ring = Array.from({ length: 361 }, (_, i) => polar(i % 360, 500))
@@ -121,7 +124,7 @@ describe('INV-E6 / INV-E10, BR-AUDIO-010 — cota longe própria (maxFarTPs), se
     const y = at('Y', 200, 150, 'motorway', 0.5)
     const z = at('Z', 260, 150, 'motorway', 0.4)
     const out = selectSpacedTriggerPoints([besideNear, gap, y, z, near], area, C, undefined, ring)
-    assert.deepEqual(out.filter(t => t.distance > 100).map(t => t.id).sort(), ['X', 'Y'])
+    assert.deepEqual(out.filter(t => t.distance > 100).map(t => t.id).sort(), ['W', 'X', 'Y', 'Z'])
   })
 })
 

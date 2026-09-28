@@ -112,7 +112,8 @@ export function selectSpacedTriggerPoints(
     proximityBand(a.distance) - proximityBand(b.distance) || b.quality - a.quality
   );
   const maxNear = classification?.maxTriggerPoints ?? Infinity;
-  const maxFar = classification?.maxFarTriggerPoints ?? (classification ? 0 : Infinity);
+  // A missing far count is no cap, not zero: the class table no longer caps by count (#772).
+  const maxFar = classification?.maxFarTriggerPoints ?? Infinity;
   const classFloorM = classification?.minDistanceBetweenTPs ?? 0;
   const accepted: TriggerPoint[] = [];
   let near = 0;

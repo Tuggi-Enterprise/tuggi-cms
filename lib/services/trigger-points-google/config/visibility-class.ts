@@ -182,16 +182,16 @@ export interface ClassLimits {
   maxFarTPs: number;
 }
 
+// No count cap (operator, 2026-09-28, #772 experiment): every TP that survives reach (E6), sight
+// (E8) and spacing (E10) is kept. The near/far split stays (`sizeReachFarFromM`); only the count goes.
+const NO_COUNT_CAP = Infinity;
+
 export const CLASS_LIMITS: Record<VisibilityClass, ClassLimits> = {
-  // maxFarTPs of the four: provisional, #775 — the far TPs of the size reach (INV-E6), on a tourist way.
-  [VisibilityClass.POINT_LOW]: { maxEdgeDistanceM: 60, maxRadiusM: 30, maxTPs: 4, maxFarTPs: 2 },
-  [VisibilityClass.STRUCTURE]: { maxEdgeDistanceM: 100, maxRadiusM: 40, maxTPs: 6, maxFarTPs: 2 },
-  [VisibilityClass.AREA]: { maxEdgeDistanceM: 60, maxRadiusM: 50, maxTPs: 16, maxFarTPs: 2 },
-  [VisibilityClass.LINEAR]: { maxEdgeDistanceM: 60, maxRadiusM: 50, maxTPs: 16, maxFarTPs: 2 },
-  // Inner cells (INV-E10a): 8 sectors of 45° in 0–1 and 1–2 km + 16 of 22.5° in 2–4 km = 32;
-  // 4 at the edge + 28 beyond. The horizon ring only after every inner cell is spent. The edge
-  // band of a landmark is a handful of footways at its base. Provisional (#775).
-  [VisibilityClass.LANDMARK_HIGH]: { maxEdgeDistanceM: URBAN_LANDMARK_HORIZON_M, maxRadiusM: 100, maxTPs: 4, maxFarTPs: 28 },
+  [VisibilityClass.POINT_LOW]: { maxEdgeDistanceM: 60, maxRadiusM: 30, maxTPs: NO_COUNT_CAP, maxFarTPs: NO_COUNT_CAP },
+  [VisibilityClass.STRUCTURE]: { maxEdgeDistanceM: 100, maxRadiusM: 40, maxTPs: NO_COUNT_CAP, maxFarTPs: NO_COUNT_CAP },
+  [VisibilityClass.AREA]: { maxEdgeDistanceM: 60, maxRadiusM: 50, maxTPs: NO_COUNT_CAP, maxFarTPs: NO_COUNT_CAP },
+  [VisibilityClass.LINEAR]: { maxEdgeDistanceM: 60, maxRadiusM: 50, maxTPs: NO_COUNT_CAP, maxFarTPs: NO_COUNT_CAP },
+  [VisibilityClass.LANDMARK_HIGH]: { maxEdgeDistanceM: URBAN_LANDMARK_HORIZON_M, maxRadiusM: 100, maxTPs: NO_COUNT_CAP, maxFarTPs: NO_COUNT_CAP },
 };
 
 /**

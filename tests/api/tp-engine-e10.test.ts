@@ -167,8 +167,10 @@ describe('INV-E10a, BR-AUDIO-010 — far cells are finer (provisional #775)', ()
     assert.equal(landmarkSectorOf(-10, 3_000), landmarkSectorOf(350, 3_000))
   })
 
-  it('landmark_high far cap is 28 (4 near + 28 far), in CLASS_LIMITS only', () => {
-    assert.equal(CLASS_LIMITS[VisibilityClass.LANDMARK_HIGH].maxFarTPs, 28)
-    assert.equal(CLASS_LIMITS[VisibilityClass.LANDMARK_HIGH].maxTPs, 4)
+  it('INV-E10, INV-E6, BR-AUDIO-010: no count cap in any class, near or far — one source, CLASS_LIMITS; spacing is the only cut (#772)', () => {
+    for (const cls of Object.values(VisibilityClass)) {
+      assert.equal(CLASS_LIMITS[cls].maxTPs, Infinity, cls)
+      assert.equal(CLASS_LIMITS[cls].maxFarTPs, Infinity, cls)
+    }
   })
 })

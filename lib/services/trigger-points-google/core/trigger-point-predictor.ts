@@ -1761,7 +1761,6 @@ export class CoreTriggerPointPredictor {
     // Perimeter reach: the class edge cap, never beyond the edge band (BR-AUDIO-010).
     const PERIMETER_RADIUS_M = Math.min(EDGE_BAND_M, boundary.classification?.maxEdgeDistanceM ?? 80);
     const PERIMETER_FETCH_RADIUS_M = 150; // buffer extra pra garantir cobertura
-    const MAX_PERIMETER_STREETS = 8;
 
     const { LocalOSMFetcher } = require('../services/local-osm-fetcher');
     const fetcher = LocalOSMFetcher.getInstance();
@@ -1795,9 +1794,9 @@ export class CoreTriggerPointPredictor {
       return [];
     }
 
-    // Ordenar por distância e limitar ao cap
+    // Every adjacent street, closest first; spacing in `applyOptions` decides, not a count (#772).
     streetDistances.sort((a, b) => a.dist - b.dist);
-    const candidates = streetDistances.slice(0, MAX_PERIMETER_STREETS);
+    const candidates = streetDistances;
     console.log(`🏠 Perimeter TPs: ${candidates.length} ruas adjacentes (≤${PERIMETER_RADIUS_M}m)`);
 
     const tps: TriggerPoint[] = [];
