@@ -48,6 +48,9 @@ const POI_ID = {
   lagoaRodrigoDeFreitas: '6fa9bdc9-b92f-5107-8d20-40021dc3f2ed',
   // way/70601800: its one TP sat on the Navy's private dock (access=private) (#772)
   ilhaFiscal: 'bb5e4bf8-8903-5044-ac0a-30e2754050e1',
+  // relief landmarks over the Tijuca forest: #784 swapped their city TPs for forest roads
+  miranteVistaParaACidade: 'cf6e7661-d145-5635-bbc6-63604817b871',
+  picoDaCarioca: '47b2f61d-a73a-5a4c-8b73-414a7de49ae0',
 } as const
 
 const CITY = 'Rio de Janeiro'
@@ -531,4 +534,40 @@ describe('No TP on a way closed to the public (INV-E7a, BR-AUDIO-010, #772)', { 
       assert.ok(best.open <= best.closed + 1, `TP ${r.lat.toFixed(6)},${r.lng.toFixed(6)} sits on a closed way (open ${Math.round(best.open)} m, closed ${Math.round(best.closed)} m)`)
     }
   })
+})
+
+// ============================================================================================
+// A relief landmark is heard from the city around it and far away, not from the forest on its
+// own slope (INV-E8b, INV-E10a, BR-AUDIO-010, #784). Measured on the 36-POI sample over the state
+// the operator approved on the map (`7e4e5c4a`) and the regression (`23421dc2`), per POI:
+// TPs beyond 2 km of the pin / 45° sectors (seen from the pin) they cover / TPs within 1 km.
+//   Mirante Vista para a Cidade  approved 20 / 6 / 3   regression 16 / 8 / 6
+//   Pico da Carioca              approved 24 / 6 / 0   regression 20 / 6 / 2
+// The bounds keep a margin under the approved state and fail the regression.
+// ============================================================================================
+describe('A relief landmark keeps its TPs in the city, around it and far (INV-E8b, INV-E10a, BR-AUDIO-010, #784)', { skip: CAN_RUN ? false : SKIP_REASON }, () => {
+  const bearingFrom = (a: { lat: number; lng: number }, b: { lat: number; lng: number }) => {
+    const r = Math.PI / 180
+    const y = Math.sin((b.lng - a.lng) * r) * Math.cos(b.lat * r)
+    const x = Math.cos(a.lat * r) * Math.sin(b.lat * r) - Math.sin(a.lat * r) * Math.cos(b.lat * r) * Math.cos((b.lng - a.lng) * r)
+    return (Math.atan2(y, x) / r + 360) % 360
+  }
+  // `pin`: the POI pin in core.attractions, the one `dist_to_pin_m` is measured from
+  const CASES = [
+    { poi: 'Mirante Vista para a Cidade', id: POI_ID.miranteVistaParaACidade, pin: { lat: -22.943099, lng: -43.2851209 }, farAtLeast: 18, farSectorsAtLeast: 5, nearAtMost: 4 },
+    { poi: 'Pico da Carioca', id: POI_ID.picoDaCarioca, pin: { lat: -22.9515968, lng: -43.2378746 }, farAtLeast: 21, farSectorsAtLeast: 5, nearAtMost: 1 },
+  ]
+  for (const c of CASES) {
+    it(`${c.poi}: >= ${c.farAtLeast} TPs beyond 2 km over >= ${c.farSectorsAtLeast} sectors, <= ${c.nearAtMost} within 1 km`, async () => {
+      const result = await getResult(c.id)
+      assert.equal(result.error, null, `dry-run failed for ${c.poi}: ${result.error}`)
+      const kept = keptOf(result)
+      const far = kept.filter(r => r.dist_to_pin_m > 2_000)
+      const farSectors = new Set(far.map(r => sectorOf(bearingFrom(c.pin, r))))
+      const near = kept.filter(r => r.dist_to_pin_m < 1_000)
+      assert.ok(far.length >= c.farAtLeast, `${c.poi}: ${far.length} TPs beyond 2 km, expected >= ${c.farAtLeast}`)
+      assert.ok(farSectors.size >= c.farSectorsAtLeast, `${c.poi}: TPs beyond 2 km cover ${farSectors.size} sectors, expected >= ${c.farSectorsAtLeast}`)
+      assert.ok(near.length <= c.nearAtMost, `${c.poi}: ${near.length} TPs within 1 km, expected <= ${c.nearAtMost}`)
+    })
+  }
 })
