@@ -5,7 +5,7 @@ import { POIData, BoundaryData, GeographicContext, StreetData } from '../types/i
 import { calculateDistance, isPointInPolygon, extractBuildingHeight, calculateBearing, calculateDistanceToLineSegment, calculateDistanceToPolygon, calculateDistanceToBoundary, findClosestPointOnBoundary, closestStreetPointToPoi } from '../utils/calculations';
 import { ElevationAnalysisService } from '../services/elevation-service';
 import { TRIGGER_POINTS_CONSTANTS } from '../config/trigger-points-config';
-import { FAR_STREETS_FROM_M, FAR_STREET_TILE_M, FAR_STREET_TYPES, VisibilityClass, sizeReachFarFromM } from '../config/visibility-class';
+import { FAR_STREETS_FROM_M, FAR_STREET_TILE_M, FAR_STREET_TYPES, VisibilityClass, farWayTypes, sizeReachFarFromM } from '../config/visibility-class';
 import { streetEdgeReach, tpReachCapM } from '../utils/validation';
 
 // Ways where users pass and can hear the audio guide (BR-AUDIO-010): car, bus, bicycle, on
@@ -257,7 +257,8 @@ export class StreetAnalyzer {
       const nearM = split ? farFromM : Math.min(searchRadius, FAR_STREETS_FROM_M);
       const along: StreetData[] | null = fetcher.fetchStreetsAlongBoundary(ring, nearM);
       const nearIds = new Set((along ?? []).map(st => normalizeId(st.id)));
-      const isTouristWay = (st: StreetData) => FAR_STREET_TYPES.includes(st.type);
+      const farTypes = farWayTypes(boundary.physical);
+      const isTouristWay = (st: StreetData) => farTypes === null || farTypes.includes(st.type);
       // A landmark's far reach (INV-E7c): the through roads, tile by tile, so no direction is lost.
       const far: StreetData[] = split
         ? (fetcher.fetchStreetsAlongBoundary(ring, searchRadius) ?? []).filter(isTouristWay)

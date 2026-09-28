@@ -85,3 +85,26 @@ describe('INV-E7c / INV-E10c, BR-AUDIO-010 — landmark_high gera candidatos lon
     assert.equal(sectors.size, 8)
   })
 })
+
+describe('INV-E6, BR-POI-009 — um POI que é o seu relevo é visto de qualquer via: a orla residencial e a trilha contam no longe', () => {
+  // Morro do Vigia (Cabo Frio): área de 54 mil m², 16 m sobre o anel, e além de 60 m só uma terciária a 1,4 km.
+  const hill = buildClassification(VisibilityClass.AREA, { heightM: 0, prominenceM: 19, areaM2: 54_000, extentM: 400 })
+  const boundary = (localProminenceM: number, heightM = 0) =>
+    ({ center: PIN, coordinates: [...square(100), square(100)[0]], classification: hill, visibilityFan: { polygons: [[PIN]], maxDistanceM: 1_500 },
+      physical: { heightM, localProminenceM } }) as any
+  const walk = (b: any, type: string) => {
+    const street = { ...eastWest(500), type }
+    return (new OptimalPointCalculator() as any).calculateFanWalkStrategy([street], { id: 'x', name: 'x', location: PIN }, b, {}, hill, tpReachCapM(hill))
+  }
+  const farOnes = (cands: any[]) => cands.filter((c: any) => c.distance > 60)
+
+  it('morro de 16 m: a rua residencial e a trilha a 400 m da borda dão candidato', async () => {
+    assert.ok(farOnes(await walk(boundary(16), 'residential')).length > 0)
+    assert.ok(farOnes(await walk(boundary(16), 'path')).length > 0)
+  })
+
+  it('terreno plano, ou estrutura em cima do morro: longe continua só via de turista', async () => {
+    assert.equal(farOnes(await walk(boundary(3), 'residential')).length, 0)
+    assert.equal(farOnes(await walk(boundary(16, 12), 'residential')).length, 0)
+  })
+})

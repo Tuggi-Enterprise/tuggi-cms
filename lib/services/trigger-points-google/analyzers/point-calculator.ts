@@ -7,7 +7,7 @@ import { TRIGGER_POINTS_CONSTANTS } from '../config/trigger-points-config';
 import {
   EDGE_BAND_M,
   FAR_CANDIDATES_PER_CELL,
-  FAR_STREET_TYPES,
+  farWayTypes,
   landmarkStreetTier,
   observerPath,
   FAR_CELL_SPACING_M,
@@ -201,6 +201,7 @@ export class OptimalPointCalculator {
     // under 100 m got none, or only one inside its neighbour's spacing (Estádio Nilton Santos: 2 of
     // 5 sectors bare at a half, none at a quarter, #772).
     const farFromM = sizeReachFarFromM(classification.group);
+    const farTypes = farWayTypes(boundary.physical);
     const walkStepM = ring && (classification.group === VisibilityClass.AREA || classification.group === VisibilityClass.LINEAR)
       ? minSpacing / 4
       : minSpacing;
@@ -212,7 +213,7 @@ export class OptimalPointCalculator {
       // street, then outwards both ways, one every `minSpacing` meters of arc length.
       const foot = streetFootOnEdgeFarLane(street.coordinates, boundary);
       if (!foot || foot.edgeDistanceM > reachM) continue;
-      const touristWay = FAR_STREET_TYPES.includes(street.type);
+      const touristWay = farTypes === null || farTypes.includes(street.type);
 
       for (const pointOnStreet of samplePolylineAround(street.coordinates, foot.point, walkStepM)) {
         const edgeDistance = edgeDistanceFarLaneM(pointOnStreet, boundary);

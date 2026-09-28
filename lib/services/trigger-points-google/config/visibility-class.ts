@@ -171,6 +171,20 @@ export const FAR_STREETS_FROM_M = LANDMARK_CELL_RINGS_M[LANDMARK_CELL_RINGS_M.le
 export const FAR_STREET_TYPES = LANDMARK_TOURIST_STREET_TYPES;
 export const FAR_STREET_TILE_M = 3_000;
 
+/**
+ * Local prominence from which a low POI IS its relief — a hill, a dune, a hill with a chapel of
+ * unknown height on top. The relief is seen from every way around it, the promenade tagged
+ * `residential` and the trail included, not only from `FAR_STREET_TYPES`: the Morro do Vigia
+ * (Cabo Frio, 16 m over its ring) had no way beyond 60 m but one tertiary at 1.4 km (#772).
+ * The sight line (E8) and the spacing (E10) still decide; the far cells cap the candidates.
+ */
+export const RELIEF_SEEN_MIN_M = 10;
+
+/** Way types walked beyond the class table (INV-E6 by size); null = every type (relief POI). */
+export function farWayTypes(p?: { heightM: number; localProminenceM?: number | null } | null): readonly string[] | null {
+  return p && p.heightM < STRUCTURE_MIN_HEIGHT_M && (p.localProminenceM ?? 0) >= RELIEF_SEEN_MIN_M ? null : FAR_STREET_TYPES;
+}
+
 export interface ClassLimits {
   /** max distance from the TP to the POI EDGE; outside `landmark_high`, the floor of the size reach (`maxEdgeDistanceFor`) and the near/far split (`sizeReachFarFromM`) */
   maxEdgeDistanceM: number;
