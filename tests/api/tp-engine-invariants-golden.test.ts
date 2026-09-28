@@ -216,8 +216,9 @@ const CLASS_CHECKS: ClassCheck[] = [
   },
   // No measured height (OSM has neither `height` nor `building:levels`): the 15 m came from
   // `tourism=museum` in the height-by-type table, which left the engine (operator, 2026-09-27).
-  // By measure it is a long, narrow 11,290 m² footprint: linear (BR-AUDIO-010, #772).
-  { poi: 'Museu do Amanhã', id: POI_ID.museuDoAmanha, expectedOneOf: ['linear'] },
+  // With the measured building layer (#783, INV-E3) it reads 13.1 m over 100% of the footprint:
+  // structure, as the reference table in motor-de-tp.md asks (BR-AUDIO-010, #772).
+  { poi: 'Museu do Amanhã', id: POI_ID.museuDoAmanha, expectedOneOf: ['structure', 'landmark_high'] },
   { poi: 'Busto Prof. Mazzini Bueno', id: POI_ID.bustoMazziniBueno, expectedOneOf: ['point_low'] },
   { poi: 'Igreja Nossa Senhora de Fátima', id: POI_ID.igrejaFatima, expectedOneOf: ['point_low', 'structure'] },
   { poi: 'Monumento Árvore de Natal', id: POI_ID.arvoreDeNatal, expectedOneOf: ['point_low'] },
