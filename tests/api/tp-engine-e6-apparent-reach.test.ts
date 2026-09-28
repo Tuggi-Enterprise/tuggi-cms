@@ -14,6 +14,7 @@ import { COARSE_EDGE_TOLERANCE_M, coarseEdgeRing, edgeDistanceFarLaneM, edgeDist
 import { calculateDistanceToPolygon } from '@/lib/services/trigger-points-google/utils/calculations'
 import { OptimalPointCalculator } from '@/lib/services/trigger-points-google/analyzers/point-calculator'
 import { buildClassification } from '@/lib/services/trigger-points-google/services/poi-classifier.service'
+import { ElevationAnalysisService } from '@/lib/services/trigger-points-google/services/elevation-service'
 import { selectSpacedTriggerPoints } from '@/lib/services/trigger-points-google/utils/tp-selection'
 import type { TriggerPoint } from '@/lib/services/trigger-points-google/types/interfaces'
 
@@ -58,12 +59,25 @@ describe('INV-E6, BR-POI-009, BR-AUDIO-010 — alcance = tamanho / tan(ângulo d
     assert.equal(tall.searchRadius, tall.maxEdgeDistanceM)
   })
 
-  it('o morro sob o POI conta no tamanho — capela de 0 m num morro de 31 m (Capela da Guia, Cabo Frio) alcança 31 / tan 2°', () => {
-    const onHill = buildClassification(VisibilityClass.POINT_LOW, { heightM: 0, prominenceM: 34, localProminenceM: 31, areaM2: 0, extentM: 0 })
+  it('BR-POI-009: the relief under the POI counts in the size — a 0 m chapel on top of a 31 m hill (Capela da Guia, Cabo Frio) reaches 31 / tan 2°', () => {
+    const onHill = buildClassification(VisibilityClass.POINT_LOW, { heightM: 0, prominenceM: 34, reliefProminenceM: 31, areaM2: 0, extentM: 0 })
     assert.equal(tpReachCapM(onHill), Math.round(31 * perDeg))
-    // proeminência desconhecida não soma; e nunca encolhe o que a altura ou a pegada já davam
-    assert.equal(tpReachCapM(buildClassification(VisibilityClass.POINT_LOW, { heightM: 3, prominenceM: null, localProminenceM: null, areaM2: 0 })), 86)
-    assert.equal(tpReachCapM(buildClassification(VisibilityClass.STRUCTURE, { heightM: 10, prominenceM: 0, localProminenceM: -5, areaM2: 400, extentM: 30 })), Math.round(30 * perDeg))
+    // unknown relief adds nothing, and never shrinks what the height or the footprint gave
+    assert.equal(tpReachCapM(buildClassification(VisibilityClass.POINT_LOW, { heightM: 3, prominenceM: null, reliefProminenceM: null, areaM2: 0 })), 86)
+    assert.equal(tpReachCapM(buildClassification(VisibilityClass.STRUCTURE, { heightM: 10, prominenceM: 0, reliefProminenceM: -5, areaM2: 400, extentM: 30 })), Math.round(30 * perDeg))
+  })
+
+  it('BR-POI-009: a POI on a slope tops no relief — the bust at the foot of a slope (Busto Mazzini, 10 m over the 2 km median) stays at the floor', async () => {
+    const top = { lat: -22.9, lng: -43.1 }
+    const northM = (lat: number) => (lat - top.lat) * 110_540
+    // the slope climbs 1 m every 10 m to the north: the ring at 100 m has half its bearings above the top
+    const slope = async (lat: number) => 20 + northM(lat) / 10
+    assert.equal(await ElevationAnalysisService.isReliefTop(top, 20, slope), false)
+    // a hilltop: the ground comes down on every bearing
+    const hill = async (lat: number, lng: number) => 35 - Math.hypot(northM(lat), (lng - top.lng) * 102_000) / 10
+    assert.equal(await ElevationAnalysisService.isReliefTop(top, 35, hill), true)
+    // on the slope the relief is 0, so the size is the bust itself
+    assert.equal(tpReachCapM(buildClassification(VisibilityClass.POINT_LOW, { heightM: 0, prominenceM: 10, reliefProminenceM: 0, areaM2: 0, extentM: 0 })), CLASS_LIMITS[VisibilityClass.POINT_LOW].maxEdgeDistanceM)
   })
 })
 

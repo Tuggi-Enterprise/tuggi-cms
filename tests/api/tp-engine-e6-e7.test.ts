@@ -89,9 +89,9 @@ describe('INV-E7c / INV-E10c, BR-AUDIO-010 — landmark_high gera candidatos lon
 describe('INV-E6, BR-POI-009 — um POI que é o seu relevo é visto de qualquer via: a orla residencial e a trilha contam no longe', () => {
   // Morro do Vigia (Cabo Frio): área de 54 mil m², 16 m sobre o anel, e além de 60 m só uma terciária a 1,4 km.
   const hill = buildClassification(VisibilityClass.AREA, { heightM: 0, prominenceM: 19, areaM2: 54_000, extentM: 400 })
-  const boundary = (localProminenceM: number, heightM = 0) =>
+  const boundary = (reliefProminenceM: number, heightM = 0) =>
     ({ center: PIN, coordinates: [...square(100), square(100)[0]], classification: hill, visibilityFan: { polygons: [[PIN]], maxDistanceM: 1_500 },
-      physical: { heightM, localProminenceM } }) as any
+      physical: { heightM, reliefProminenceM } }) as any
   const walk = (b: any, type: string) => {
     const street = { ...eastWest(500), type }
     return (new OptimalPointCalculator() as any).calculateFanWalkStrategy([street], { id: 'x', name: 'x', location: PIN }, b, {}, hill, tpReachCapM(hill))
@@ -106,5 +106,10 @@ describe('INV-E6, BR-POI-009 — um POI que é o seu relevo é visto de qualquer
   it('terreno plano, ou estrutura em cima do morro: longe continua só via de turista', async () => {
     assert.equal(farOnes(await walk(boundary(3), 'residential')).length, 0)
     assert.equal(farOnes(await walk(boundary(16, 12), 'residential')).length, 0)
+  })
+
+  it('BR-POI-009: 10 m over the 2 km median on a slope is not a relief — far ways stay the tourist ones (Busto Mazzini)', async () => {
+    const onSlope = { ...boundary(0), physical: { heightM: 0, localProminenceM: 10, reliefProminenceM: 0 } }
+    assert.equal(farOnes(await walk(onSlope, 'footway')).length, 0)
   })
 })

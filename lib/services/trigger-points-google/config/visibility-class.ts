@@ -174,17 +174,20 @@ export const FAR_STREET_TYPES = LANDMARK_TOURIST_STREET_TYPES;
 export const FAR_STREET_TILE_M = 3_000;
 
 /**
- * Local prominence from which a low POI IS its relief — a hill, a dune, a hill with a chapel of
- * unknown height on top. The relief is seen from every way around it, the promenade tagged
+ * Local prominence of the relief a low POI stands on top of (`reliefProminenceM`) from which it
+ * IS its relief — a hill, a dune, a hill with a chapel of unknown height on top. The relief is seen from every way around it, the promenade tagged
  * `residential` and the trail included, not only from `FAR_STREET_TYPES`: the Morro do Vigia
  * (Cabo Frio, 16 m over its ring) had no way beyond 60 m but one tertiary at 1.4 km (#772).
  * The sight line (E8) and the spacing (E10) still decide; the far cells cap the candidates.
  */
 export const RELIEF_SEEN_MIN_M = 10;
 
-/** Way types walked beyond the class table (INV-E6 by size); null = every type (relief POI). */
-export function farWayTypes(p?: { heightM: number; localProminenceM?: number | null } | null): readonly string[] | null {
-  return p && p.heightM < STRUCTURE_MIN_HEIGHT_M && (p.localProminenceM ?? 0) >= RELIEF_SEEN_MIN_M ? null : FAR_STREET_TYPES;
+/**
+ * Way types walked beyond the class table (INV-E6 by size); null = every type (relief POI).
+ * The relief is the one the POI stands on top of (`reliefProminenceM`), never a slope it sits on.
+ */
+export function farWayTypes(p?: { heightM: number; reliefProminenceM?: number | null } | null): readonly string[] | null {
+  return p && p.heightM < STRUCTURE_MIN_HEIGHT_M && (p.reliefProminenceM ?? 0) >= RELIEF_SEEN_MIN_M ? null : FAR_STREET_TYPES;
 }
 
 export interface ClassLimits {
@@ -471,6 +474,15 @@ export const LOCAL_BASE_DIRECTIONS = 24;
 export const LOCAL_BASE_PERCENTILE = 0.5;
 /** A surveyed summit (`natural=peak` with `ele`) this close to the boundary is its top. */
 export const SUMMIT_MATCH_M = 60;
+/**
+ * BR-POI-009 item 1: the local prominence counts in the size S only when the POI is the top of
+ * its relief — the ground comes down all around its highest point. Tested on a ring of this
+ * radius (`LOCAL_BASE_DIRECTIONS` samples) from that point. A bust at the foot of a slope reads
+ * 10 m over the 2 km median and has the slope above it on 19 of 24 bearings (#772).
+ */
+export const RELIEF_TOP_RING_M = 100;
+/** Share of that ring allowed to stand at or above the top (DEM noise, a saddle). */
+export const RELIEF_TOP_MAX_HIGHER_SHARE = 1 / 8;
 
 // ── Relief footprint (E1, #772) — provisional (#775) ──────────────────────────────
 /**

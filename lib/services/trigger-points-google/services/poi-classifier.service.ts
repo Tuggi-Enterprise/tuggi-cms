@@ -56,6 +56,12 @@ export interface PoiPhysical {
   /** ground top + height − local base (ring of LOCAL_BASE_RING_M); null when unknown */
   localBaseM: number | null;
   localProminenceM: number | null;
+  /**
+   * The local prominence of the relief the POI stands on top of (BR-POI-009 item 1): localProminenceM
+   * when the ground comes down all around its top (`elevation-service#isReliefTop`), 0 on a slope
+   * or on the flat, null when unknown. The size S and the far ways read this, never the raw one.
+   */
+  reliefProminenceM: number | null;
   areaM2: number;
   classRule: ClassRule;
 }
@@ -92,17 +98,18 @@ export function buildClassification(
     /** longest extent of the real footprint (`boundaryShape`); 0 for a synthetic circle (INV-E1b) */
     extentM?: number;
     /**
-     * Local prominence (ground top + height − local base): what the passer-by sees standing up
-     * is the POI plus the hill under it. A 0 m chapel on a 31 m hill (Capela da Guia, Cabo Frio)
-     * reached 60 m; its hilltop is seen from the canal bridge. null = unknown, not counted.
+     * Local prominence of the relief the POI tops (`PoiPhysical#reliefProminenceM`): what the
+     * passer-by sees standing up is the POI plus the hill under it. A 0 m chapel on a 31 m hill
+     * (Capela da Guia, Cabo Frio) reached 60 m; its hilltop is seen from the canal bridge. A bust
+     * at the foot of a slope tops nothing (0). null = unknown, not counted.
      */
-    localProminenceM?: number | null;
+    reliefProminenceM?: number | null;
   }
 ): POIClassification {
   const limits = CLASS_LIMITS[cls];
   // INV-E6: the reach is decided here, once, and read by `tpReachCapM` everywhere.
   // The size S of BR-POI-009 item 1: the largest of height (with the terrain under it) and extent.
-  const maxEdge = maxEdgeDistanceFor(cls, m.prominenceM, Math.max(m.heightM, m.localProminenceM ?? 0, m.extentM ?? 0));
+  const maxEdge = maxEdgeDistanceFor(cls, m.prominenceM, Math.max(m.heightM, m.reliefProminenceM ?? 0, m.extentM ?? 0));
   return {
     group: cls,
     searchRadius: maxEdge,
@@ -155,6 +162,8 @@ export async function measureAndClassify(a: MeasureInput): Promise<{ classificat
   ]);
   const prominenceM = prominenceOverCityM(top.groundM, heightM, base.baseM);
   const localProminenceM = prominenceOverCityM(top.groundM, heightM, localBaseM);
+  const onTop = localProminenceM === null ? null : await ElevationAnalysisService.isReliefTop(top.at, top.groundM);
+  const reliefProminenceM = onTop === null ? null : onTop ? localProminenceM : 0;
   const areaM2 = a.synthetic ? 0 : a.areaM2 || 0;
   const { cls, rule } = visibilityClassRule({
     heightM,
@@ -172,7 +181,7 @@ export async function measureAndClassify(a: MeasureInput): Promise<{ classificat
       areaM2,
       // A synthetic circle is drawn, not measured: it is no size (INV-E1b), like its area.
       extentM: a.synthetic ? 0 : boundaryShape(a.boundary).lengthM,
-      localProminenceM,
+      reliefProminenceM,
       urbanDensity: a.context?.urbanDensity?.level,
     }),
     physical: {
@@ -191,6 +200,7 @@ export async function measureAndClassify(a: MeasureInput): Promise<{ classificat
       prominenceM,
       localBaseM,
       localProminenceM,
+      reliefProminenceM,
       areaM2,
       classRule: rule,
     },

@@ -15,6 +15,8 @@ import {
   RELIEF_RAYS,
   RELIEF_SADDLE_RISE_M,
   RELIEF_STEP_M,
+  RELIEF_TOP_MAX_HIGHER_SHARE,
+  RELIEF_TOP_RING_M,
   SUMMIT_MATCH_M,
   landPercentile,
 } from '../config/visibility-class';
@@ -120,6 +122,24 @@ export class ElevationAnalysisService {
       reads.push(read(p.lat, p.lng));
     }
     return landPercentile(await Promise.all(reads), LOCAL_BASE_PERCENTILE);
+  }
+
+  /**
+   * BR-POI-009 item 1 (#772): the POI is the top of its relief — on a ring of RELIEF_TOP_RING_M
+   * around its highest point (E4), at most RELIEF_TOP_MAX_HIGHER_SHARE of the land samples stand
+   * at or above it. A POI on a slope or on the flat is not. null when the DEM gave nothing.
+   */
+  static async isReliefTop(top: LatLng | null, groundTopM: number | null, read: ElevationReader = groundReader): Promise<boolean | null> {
+    if (!top || groundTopM === null) return null;
+    const reads: Promise<number | null>[] = [];
+    for (let k = 0; k < LOCAL_BASE_DIRECTIONS; k++) {
+      const a = (2 * Math.PI * k) / LOCAL_BASE_DIRECTIONS;
+      const p = offsetM(top, RELIEF_TOP_RING_M * Math.cos(a), RELIEF_TOP_RING_M * Math.sin(a));
+      reads.push(read(p.lat, p.lng));
+    }
+    const land = (await Promise.all(reads)).filter((v): v is number => v !== null && Number.isFinite(v) && v > 0);
+    if (!land.length) return null;
+    return land.filter(v => v >= groundTopM).length <= land.length * RELIEF_TOP_MAX_HIGHER_SHARE;
   }
 
   /**
