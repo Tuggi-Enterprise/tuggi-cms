@@ -91,11 +91,18 @@ export function buildClassification(
     heightM: number; heightSource?: string; elevationM?: number | null; prominenceM: number | null; areaM2: number; urbanDensity?: string;
     /** longest extent of the real footprint (`boundaryShape`); 0 for a synthetic circle (INV-E1b) */
     extentM?: number;
+    /**
+     * Local prominence (ground top + height − local base): what the passer-by sees standing up
+     * is the POI plus the hill under it. A 0 m chapel on a 31 m hill (Capela da Guia, Cabo Frio)
+     * reached 60 m; its hilltop is seen from the canal bridge. null = unknown, not counted.
+     */
+    localProminenceM?: number | null;
   }
 ): POIClassification {
   const limits = CLASS_LIMITS[cls];
   // INV-E6: the reach is decided here, once, and read by `tpReachCapM` everywhere.
-  const maxEdge = maxEdgeDistanceFor(cls, m.prominenceM, Math.max(m.heightM, m.extentM ?? 0));
+  // The size S of BR-POI-009 item 1: the largest of height (with the terrain under it) and extent.
+  const maxEdge = maxEdgeDistanceFor(cls, m.prominenceM, Math.max(m.heightM, m.localProminenceM ?? 0, m.extentM ?? 0));
   return {
     group: cls,
     searchRadius: maxEdge,
@@ -165,6 +172,7 @@ export async function measureAndClassify(a: MeasureInput): Promise<{ classificat
       areaM2,
       // A synthetic circle is drawn, not measured: it is no size (INV-E1b), like its area.
       extentM: a.synthetic ? 0 : boundaryShape(a.boundary).lengthM,
+      localProminenceM,
       urbanDensity: a.context?.urbanDensity?.level,
     }),
     physical: {

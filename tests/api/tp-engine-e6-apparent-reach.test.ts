@@ -57,6 +57,14 @@ describe('INV-E6, BR-AUDIO-010 — alcance = tamanho / tan(ângulo de reconhecim
     assert.equal(tpReachCapM(wide), Math.round(30 * perDeg))
     assert.equal(tall.searchRadius, tall.maxEdgeDistanceM)
   })
+
+  it('BR-POI-009: o morro sob o POI conta no tamanho — capela de 0 m num morro de 31 m (Capela da Guia, Cabo Frio) alcança 31 / tan 2°', () => {
+    const onHill = buildClassification(VisibilityClass.POINT_LOW, { heightM: 0, prominenceM: 34, localProminenceM: 31, areaM2: 0, extentM: 0 })
+    assert.equal(tpReachCapM(onHill), Math.round(31 * perDeg))
+    // proeminência desconhecida não soma; e nunca encolhe o que a altura ou a pegada já davam
+    assert.equal(tpReachCapM(buildClassification(VisibilityClass.POINT_LOW, { heightM: 3, prominenceM: null, localProminenceM: null, areaM2: 0 })), 86)
+    assert.equal(tpReachCapM(buildClassification(VisibilityClass.STRUCTURE, { heightM: 10, prominenceM: 0, localProminenceM: -5, areaM2: 400, extentM: 30 })), Math.round(30 * perDeg))
+  })
 })
 
 describe('INV-E6 / INV-E10, BR-AUDIO-010 — sem teto de quantidade: depois da visada, só o espaçamento corta (#772, 2026-09-28)', () => {
