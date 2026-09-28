@@ -547,7 +547,7 @@ export class CoreTriggerPointPredictor {
       _validatedCount = validatedPoints.length;
       trace.push(...stepTraceRows<{ location: { lat: number; lng: number } }>({
         poiId, stage: 'E9-E10', rule: 'validator#validateAndRankPoints', before: streetValidatedCandidates, after: validatedPoints,
-        value: c => [edge(c), e9Why.get(c)].filter(Boolean).join('; '), limit: 'one-way; intersection cluster 25 m (spacing is E10)',
+        value: c => [edge(c), e9Why.get(c)].filter(Boolean).join('; '), limit: 'intersection cluster 25 m (spacing is E10)',
       }));
 
       // 7. Frontal TPs on the streets touching the POI edge (storefront POIs whose fan

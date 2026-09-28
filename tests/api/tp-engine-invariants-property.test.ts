@@ -6,7 +6,7 @@ import {
   maxEdgeDistanceFor,
   LANDMARK_MIN_PROMINENCE_M,
 } from '@/lib/services/trigger-points-google/config/visibility-class'
-import { applyTpPostConditions, dropUnfireable } from '@/lib/services/trigger-points-google/utils/tp-selection'
+import { applyTpPostConditions } from '@/lib/services/trigger-points-google/utils/tp-selection'
 import { distanceFromPoiM } from '@/lib/services/trigger-points-google/utils/validation'
 import { isPointInPolygon } from '@/lib/services/trigger-points-google/utils/calculations'
 import type { TriggerPoint } from '@/lib/services/trigger-points-google/types/interfaces'
@@ -86,7 +86,7 @@ describe('P4/P8, BR-POI-009, BR-AUDIO-010 — aumentar a altura do POI nunca red
 })
 
 describe('INV-E11, BR-AUDIO-010 — nenhum TP mantido viola uma pós-condição', () => {
-  it('sobre um lote misto (dentro/fora do alcance, mão única a favor/contra, dentro/fora da borda), todo `kept` está limpo nas três frentes', () => {
+  it('sobre um lote misto (dentro/fora do alcance, mão única a favor/contra, dentro/fora da borda), todo `kept` está limpo nas duas frentes, e mão única não pesa (INV-E9, BR-POI-009)', () => {
     const boundary = square(PIN, 0.0004) // ~90 m de lado
     const onewayEastForward = { coordinates: [{ lat: PIN.lat, lng: PIN.lng - 0.01 }, { lat: PIN.lat, lng: PIN.lng + 0.01 }], tags: { oneway: 'yes' } } as any
     const bidi = { coordinates: [{ lat: PIN.lat, lng: PIN.lng - 0.01 }, { lat: PIN.lat, lng: PIN.lng + 0.01 }] } as any
@@ -95,17 +95,17 @@ describe('INV-E11, BR-AUDIO-010 — nenhum TP mantido viola uma pós-condição'
       tp({ id: 'ok-near', location: { lat: PIN.lat + 0.001, lng: PIN.lng }, street: bidi, expectedBearing: 180 }),
       tp({ id: 'ok-oneway-front', location: { lat: PIN.lat + 0.0009, lng: PIN.lng }, street: onewayEastForward, expectedBearing: 90 }),
       tp({ id: 'bad-far', location: { lat: PIN.lat + 0.05, lng: PIN.lng }, street: bidi, expectedBearing: 180 }),
-      tp({ id: 'bad-oneway-back', location: { lat: PIN.lat + 0.0009, lng: PIN.lng }, street: onewayEastForward, expectedBearing: 270 }),
+      tp({ id: 'ok-oneway-back', location: { lat: PIN.lat + 0.0009, lng: PIN.lng }, street: onewayEastForward, expectedBearing: 270 }),
       tp({ id: 'bad-inside', location: PIN, street: bidi, expectedBearing: 0 }),
     ]
     const classification = { group: VisibilityClass.STRUCTURE, maxEdgeDistanceM: 300 }
     const { kept, reachCapM } = applyTpPostConditions(batch, PIN, { coordinates: boundary, classification })
 
     assert.ok(kept.length > 0 && kept.length < batch.length, 'a fixture tem que gerar mantidos E descartados, senão a propriedade não é exercida')
+    assert.deepEqual(kept.map(t => t.id).filter(id => id.startsWith('ok-')).sort(), ['ok-near', 'ok-oneway-back', 'ok-oneway-front'])
     for (const t of kept) {
       const distM = distanceFromPoiM(t.location, PIN, boundary)
       assert.ok(distM <= reachCapM, `${t.id}: ${distM}m excede o teto de ${reachCapM}m (INV-E6)`)
-      assert.deepEqual(dropUnfireable([t]), [t], `${t.id}: não pode disparar em nenhum sentido legal (INV-E9)`)
       assert.equal(isPointInPolygon(t.location, boundary), false, `${t.id}: está dentro da borda (INV-E11)`)
     }
   })

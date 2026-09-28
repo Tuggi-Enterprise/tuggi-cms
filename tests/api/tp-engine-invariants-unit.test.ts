@@ -10,7 +10,7 @@ import {
   BUILDING_LEVEL_HEIGHT_M,
 } from '@/lib/services/trigger-points-google/config/visibility-class'
 import { tpReachCapM, UNCLASSIFIED_MAX_TP_DISTANCE_M } from '@/lib/services/trigger-points-google/utils/validation'
-import { applyTpPostConditions, bestStreetPointOutside, dropUnfireable, dropInsidePoi, REACH_RESCUE_METHOD } from '@/lib/services/trigger-points-google/utils/tp-selection'
+import { applyTpPostConditions, bestStreetPointOutside, dropInsidePoi, REACH_RESCUE_METHOD } from '@/lib/services/trigger-points-google/utils/tp-selection'
 import { measureAndClassify } from '@/lib/services/trigger-points-google/services/poi-classifier.service'
 import { ElevationAnalysisService } from '@/lib/services/trigger-points-google/services/elevation-service'
 import { LocalOSMFetcher } from '@/lib/services/trigger-points-google/services/local-osm-fetcher'
@@ -176,21 +176,15 @@ describe('INV-E11, BR-AUDIO-010 — post-condições isoladas, uma por motivo', 
     assert.deepEqual(dropped, [{ tp: far, reason: 'beyond_reach' }])
   })
 
-  it('unfireable: via de mão única cujo sentido deixa o POI atrás do usuário é descartada', () => {
-    // Rua indo de oeste (coords[0]) para leste (coords[1]) — forward bearing ~90°.
+  it('INV-E9, BR-POI-009 — mão única do OSM não descarta: TP em via oneway=yes que flui para longe do POI é mantido', () => {
+    // Rua de oeste (coords[0]) para leste (coords[1]); expectedBearing 270 põe o POI "atrás" de
+    // quem dirige no sentido da via. Pedestre e ciclista não seguem esse sentido, e o oneway do
+    // OSM costuma estar velho (operador, 2026-09-28).
     const westEastStreet = { coordinates: [{ lat: PIN.lat, lng: PIN.lng - 0.01 }, { lat: PIN.lat, lng: PIN.lng + 0.01 }], tags: { oneway: 'yes' } } as any
-    // expectedBearing 270 (POI a oeste do TP): delta com o forward (90°) é 180° → zona "back".
-    const back = tp({ id: 'back', location: PIN, street: westEastStreet, expectedBearing: 270 })
-    // expectedBearing 90: delta 0° com o forward → zona "front", passa.
-    const front = tp({ id: 'front', location: PIN, street: westEastStreet, expectedBearing: 90 })
-    const kept = dropUnfireable([back, front])
-    assert.deepEqual(kept.map(t => t.id), ['front'])
-  })
-
-  it('bidirecional (sem oneway) nunca é descartada por sentido', () => {
-    const bidi = { coordinates: [{ lat: PIN.lat, lng: PIN.lng - 0.01 }, { lat: PIN.lat, lng: PIN.lng + 0.01 }] } as any
-    const t = tp({ id: 'bidi', location: PIN, street: bidi, expectedBearing: 270 })
-    assert.deepEqual(dropUnfireable([t]).map(x => x.id), ['bidi'])
+    const back = tp({ id: 'back', location: { lat: PIN.lat + 0.0002, lng: PIN.lng }, street: westEastStreet, expectedBearing: 270 })
+    const { kept, dropped } = applyTpPostConditions([back], PIN, { classification: { maxEdgeDistanceM: 300 } })
+    assert.deepEqual(kept.map(t => t.id), ['back'])
+    assert.deepEqual(dropped, [])
   })
 
   it('inside_poi: TP dentro da borda é descartado', () => {

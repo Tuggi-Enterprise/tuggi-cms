@@ -171,10 +171,6 @@ export const TRIGGER_POINTS_CONSTANTS = {
 
   // 🎯 CONFIGURAÇÕES DE VALIDAÇÃO
   validation: {
-    // Validação de ângulo
-    onewayAngleThreshold: 90, // Threshold de ângulo para validação de oneway (graus)
-    onewayAngleMax: 270, // Ângulo máximo para validação de oneway (graus)
-    
     // Validação de padrão de ruas
     gridAngleVariance: 10, // Variância de ângulo para padrão grid (graus)
     gridBlockSize: 150, // Tamanho de bloco para padrão grid (m)

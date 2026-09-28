@@ -1,13 +1,13 @@
 // Validador e ranker de trigger points
 
 import { POIData, GeographicContext, TriggerPointCandidate, TriggerPoint, BoundaryData } from '../types/interfaces';
-import { calculateOptimalRadius, calculateDistance, calculateBearing, extractBuildingHeight, isPointInPolygon, calculateDistanceToBoundary, distanceToLineSegment } from '../utils/calculations';
+import { calculateOptimalRadius, calculateDistance, calculateBearing, extractBuildingHeight, calculateDistanceToBoundary, distanceToLineSegment } from '../utils/calculations';
 import { SANITY_MAX_TP_DISTANCE_M, proximityBand, proximityRankScore } from '../config/visibility-class';
 import { tpReachCapM } from '../utils/validation';
 import { TRIGGER_POINTS_CONSTANTS } from '../config/trigger-points-config';
 import { GoogleAPIsService } from '../services/google-apis.service';
 import { DemStore } from '../../dem/dem-store';
-import { resolveStreetSpeedKmh, calculateGpsAwareRadius, isApproachableForBearing } from '../../../geometry';
+import { resolveStreetSpeedKmh, calculateGpsAwareRadius } from '../../../geometry';
 
 export class TriggerPointValidator {
   // Cache para resultado de isPOIInUrbanCanyon (evita recalcular para cada candidato)
@@ -52,59 +52,14 @@ export class TriggerPointValidator {
       }
       
       
-      // ✅ M2 v2: Validação de sentido de via reimplementada (issue 1.2).
-      //
-      // Por que isso importa: o app `tuggi-drive-v2` BLOQUEIA o trigger quando a
-      // direção classificada (front/right/left/back) é "back". Um TP numa rua de
-      // mão única que flui PARA LONGE do POI sempre disparará como "back", logo
-      // nunca executará.
-      //
-      // Aqui descartamos candidatos cuja rua é one-way e cuja única direção de
-      // tráfego resultaria em "back" relativo ao POI. Vias bidirecionais sempre
-      // passam (alguém indo na direção certa pode disparar).
-      // One-way validation, in every mode, by the local tangent at the candidate
-      // (the old first→last chord gave false rejections on curved ways, which is why
-      // fan mode used to only log). A TP that cannot fire in any legal direction wastes
-      // a slot of the POI (BR-AUDIO-010).
-      const onewayWouldReject: string[] = [];
-      const onewayValidCandidates = basicValidCandidates.filter(c => {
-        const streetTags: any = (c.street as any)?.tags || {};
-        const oneway: string | undefined = streetTags.oneway;
+      // OSM `oneway` never discards a candidate (INV-E9, BR-POI-009): the map is often stale,
+      // and the TP also serves whoever walks or cycles, for whom car flow is no reference
+      // (operator, 2026-09-28).
 
-        if (!oneway || oneway === 'no' || oneway === 'false' || oneway === '0') return true;
-
-        const streetCoords = (c.street as any)?.coordinates;
-        if (!streetCoords || streetCoords.length < 2) return true;
-
-        // TP está DENTRO do boundary do POI? Não aplica one-way.
-        if (isPointInPolygon(c.location, boundary.coordinates)) return true;
-
-        // Local tangent at the candidate, not the way's first→last chord — the chord is
-        // what made fan mode only log (BR-AUDIO-010: never emit a TP that cannot fire).
-        const ok = isApproachableForBearing(streetCoords, oneway, c.expectedBearing, c.location);
-
-        if (!ok) {
-          onewayWouldReject.push(`${c.street?.id} (${(c.street as any)?.name || 'unnamed'}) oneway=${oneway}, bearing=${c.expectedBearing.toFixed(0)}°`);
-          // The app blocks a "back" trigger: a one-way street that only flows away from the POI
-          // can never fire (BR-AUDIO-010). Explicit in the trace (Convento dos Anjos, 2026-09-28).
-          options.why?.set(c, `one-way ${oneway} flows away from the POI (${(c.street as any)?.name || c.street?.id})`);
-          return false;
-        }
-        return true;
-      });
-
-      if (onewayWouldReject.length > 0) {
-        const action = 'DISCARDED';
-        console.log(`🚦 One-way validation: ${action} ${onewayWouldReject.length}/${basicValidCandidates.length} candidate(s):`);
-        for (const r of onewayWouldReject.slice(0, 10)) console.log(`   → ${r}`);
-        if (onewayWouldReject.length > 10) console.log(`   → (+${onewayWouldReject.length - 10} more)`);
-      }
-
-      
       // ✅ ORDENAR POR PRIORIDADE (RÁPIDO - sem verificação de visibilidade)
       // Ordenar por prioridade: FRONT STREETS primeiro, depois por qualidade
       // Proximity band to the edge first (BR-AUDIO-010), then front street, then quality.
-      const rankedCandidates = onewayValidCandidates.sort((a, b) => {
+      const rankedCandidates = basicValidCandidates.sort((a, b) => {
         const bandDiff = proximityBand(a.distance) - proximityBand(b.distance);
         if (bandDiff !== 0) return bandDiff;
         const aIsFrontStreet = this.isTPOnFrontStreet(a, boundary);

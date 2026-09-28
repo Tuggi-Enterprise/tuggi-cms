@@ -795,8 +795,8 @@ export class PoiMigrationPipeline {
       const { TriggerPointSavingService } = await import('./trigger-point-saving')
       
       // E11 post-conditions (INV-E11, BR-AUDIO-010): the same step the dry-run runs, so its
-      // numbers predict this save. A TP far from, inside, or unfireable for the POI never
-      // reaches the database.
+      // numbers predict this save. A TP far from or inside the POI never reaches the
+      // database.
       const { applyTpPostConditions } = await import('./trigger-points-google/utils/tp-selection')
       const post = applyTpPostConditions(predictionResult.triggerPoints, poiData.location, predictionResult.boundary)
       if (post.dropped.length > 0) {

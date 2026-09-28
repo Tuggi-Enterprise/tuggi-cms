@@ -195,7 +195,7 @@ describe('INV-E10, BR-POI-009 — spacing lives in E10 only; E9 cuts nothing by 
     assert.equal(out.length, 2, 'both reach E10, where BR-POI-009 spacing decides with a trace')
   })
 
-  it('a one-way street that only flows away from the POI is dropped with its reason in the trace (Convento dos Anjos, Av. Júlia Kubitschek)', async () => {
+  it('INV-E9, BR-POI-009 — a one-way street that only flows away from the POI does not drop the candidate: walkers and cyclists use it, and OSM one-way is often stale (Convento dos Anjos, Av. Júlia Kubitschek)', async () => {
     const { TriggerPointValidator } = await import('@/lib/services/trigger-points-google/analyzers/validator')
     const structure = buildClassification(VisibilityClass.STRUCTURE, { heightM: 7, prominenceM: 15, areaM2: 500 })
     const d = 12 / M_LAT
@@ -209,7 +209,7 @@ describe('INV-E10, BR-POI-009 — spacing lives in E10 only; E9 cuts nothing by 
       street: { id: 'w', name: 'Away', type: 'primary', tags: { oneway: 'yes' }, coordinates: [polar(180, 20), polar(180, 300)] } } as any
     const why = new Map<object, string>()
     const out = await new TriggerPointValidator(undefined as any).validateAndRankPoints([away], { location: PIN } as any, context, boundary, { why })
-    assert.equal(out.length, 0)
-    assert.match(why.get(away) ?? '', /one-way yes flows away from the POI/)
+    assert.equal(out.length, 1)
+    assert.doesNotMatch(why.get(away) ?? '', /one-way/)
   })
 })

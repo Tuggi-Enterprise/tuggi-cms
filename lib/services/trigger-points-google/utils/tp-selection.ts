@@ -7,7 +7,6 @@
 import { StreetData, TriggerPoint } from '../types/interfaces';
 import { calculateBearing, calculateDistance, calculateDistanceToPolygon, closestPointOnSegment } from './calculations';
 import { EDGE_BAND_M, LANDMARK_CELL_RINGS_M, PERIMETER_SECTOR_M, SANITY_MAX_TP_DISTANCE_M, VisibilityClass, isCarStreet, landmarkSectorOf, landmarkStreetTier, observerPath, proximityBand, proximityRankScore, sizeReachFarFromM } from '../config/visibility-class';
-import { isApproachableForBearing } from '../../../geometry';
 import { partitionByPoiReach, poiEdgeRing, tpReachCapM } from './validation';
 
 type SelectionClassification = {
@@ -265,20 +264,6 @@ export function selectSpacedTriggerPoints(
 }
 
 /**
- * Post-condition: drops TPs that fire for no legal traffic direction — a one-way
- * stretch whose only direction puts the POI behind the driver. Read by the local
- * tangent at the TP. Bidirectional streets and TPs without street data pass.
- */
-export function dropUnfireable(tps: TriggerPoint[]): TriggerPoint[] {
-  return tps.filter(tp => {
-    const coords = tp.street?.fullCoordinates?.length ? tp.street.fullCoordinates : tp.street?.coordinates;
-    const oneway = (tp.street as any)?.tags?.oneway as string | undefined;
-    if (!coords || coords.length < 2 || !oneway) return true;
-    return isApproachableForBearing(coords, oneway, tp.expectedBearing, tp.location);
-  });
-}
-
-/**
  * Post-condition (INV-E11): no TP inside the POI boundary, nor inside the building that hosts
  * the POI (a room or a shop inside a larger building), in ANY class. Whoever is inside hears the
  * POI through the boundary (BR-AUDIO-009, BR-AUDIO-013); the TP serves whoever is outside
@@ -353,7 +338,7 @@ export function bestStreetPointOutside(
   return best && { street: best.street, point: best.point, edgeDistanceM: best.edgeDistanceM };
 }
 
-export type TpDropReason = 'beyond_reach' | 'unfireable' | 'inside_poi';
+export type TpDropReason = 'beyond_reach' | 'inside_poi';
 
 type PostConditionBoundary = NonNullable<Parameters<typeof dropInsidePoi>[1]> & {
   classification?: { group?: VisibilityClass; maxEdgeDistanceM?: number };
@@ -363,8 +348,7 @@ type PostConditionBoundary = NonNullable<Parameters<typeof dropInsidePoi>[1]> & 
  * E11 post-conditions (INV-E11, BR-AUDIO-010): the ONE step that decides which TPs are
  * written. The save (`poi-migration-pipeline`), the API routes that save, the dry-run
  * (`tp-dry-run`) and the engine itself call it, so a dry-run number predicts the save.
- * Order: reach cap (`tpReachCapM`, measured to the edge) → fires in a legal direction →
- * not inside the POI.
+ * Order: reach cap (`tpReachCapM`, measured to the edge) → not inside the POI.
  */
 export function applyTpPostConditions<T extends TriggerPoint>(
   tps: T[],
@@ -379,9 +363,10 @@ export function applyTpPostConditions<T extends TriggerPoint>(
   const reach = partitionByPoiReach(tps.filter(tp => !rescue.includes(tp)), tp => tp.location, poiPin, ring, reachCapM);
   const sane = partitionByPoiReach(rescue, tp => tp.location, poiPin, ring, SANITY_MAX_TP_DISTANCE_M);
   const dropped: Array<{ tp: T; reason: TpDropReason }> = [...reach.dropped, ...sane.dropped].map(d => ({ tp: d.item, reason: 'beyond_reach' }));
-  const fireable = dropUnfireable([...reach.kept, ...sane.kept]) as T[];
-  for (const tp of reach.kept) if (!fireable.includes(tp)) dropped.push({ tp, reason: 'unfireable' });
-  const kept = dropInsidePoi(fireable, boundary);
-  for (const tp of fireable) if (!kept.includes(tp)) dropped.push({ tp, reason: 'inside_poi' });
+  // OSM `oneway` is not a post-condition (INV-E9, BR-POI-009): the TP also serves walkers and
+  // cyclists, and the map's one-way is often stale (operator, 2026-09-28).
+  const reachable = [...reach.kept, ...sane.kept];
+  const kept = dropInsidePoi(reachable, boundary);
+  for (const tp of reachable) if (!kept.includes(tp)) dropped.push({ tp, reason: 'inside_poi' });
   return { kept, dropped, reachCapM };
 }

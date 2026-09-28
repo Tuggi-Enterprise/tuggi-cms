@@ -271,7 +271,7 @@ describe('BR-POI-009, BR-AUDIO-010 — proximity before road type; one spacing r
   })
 })
 
-describe('BR-AUDIO-010 — bearing points TP→POI, and one-way reads the local tangent', () => {
+describe('BR-AUDIO-010 — bearing points TP→POI', () => {
   const offset = (m: { n?: number; e?: number }) => ({ lat: PIN.lat + (m.n ?? 0) / M_PER_DEG_LAT, lng: PIN.lng + (m.e ?? 0) / mPerDegLng })
   const angleDiff = (a: number, b: number) => Math.abs((((a - b) % 360) + 540) % 360 - 180)
 
@@ -280,22 +280,6 @@ describe('BR-AUDIO-010 — bearing points TP→POI, and one-way reads the local 
     const p = new CoreTriggerPointPredictor() as any
     const [tp] = p.createTPAtPoint(offset({ n: -50 }), 180, 50, { id: 'x', name: 'x', location: PIN }, context, undefined)
     assert.ok(angleDiff(tp.expectedBearing, 0) < 1, `bearing ${tp.expectedBearing}`)
-  })
-
-  it('travel direction of a U-shaped one-way comes from the stretch under the TP, not the chord', async () => {
-    const { getStreetTravelDirections } = await import('../../lib/geometry')
-    const u = [offset({}), offset({ e: 400 }), offset({ n: 60, e: 400 }), offset({ n: 60 })]
-    const [dir] = getStreetTravelDirections(u, 'yes', offset({ n: 60, e: 200 }))
-    assert.ok(angleDiff(dir, 270) < 2, `direction ${dir}`)
-  })
-
-  it('a TP on a one-way that only drives away from the POI is not emitted', async () => {
-    const { dropUnfireable } = await import('../../lib/services/trigger-points-google/utils/tp-selection')
-    const eastbound = { id: 'w', type: 'residential', coordinates: [offset({ e: -200 }), offset({ e: 200 })], tags: { oneway: 'yes' } }
-    const behind = { location: offset({}), expectedBearing: 270, street: eastbound } as any
-    const ahead = { location: offset({}), expectedBearing: 90, street: eastbound } as any
-    const twoWay = { location: offset({}), expectedBearing: 270, street: { ...eastbound, tags: {} } } as any
-    assert.deepEqual(dropUnfireable([behind, ahead, twoWay]), [ahead, twoWay])
   })
 })
 

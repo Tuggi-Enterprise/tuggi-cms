@@ -137,11 +137,11 @@ describe('BR-AUDIO-010 / INV-E11 — dry-run do motor de TP mede sem gravar, pel
     assert.equal(DRY_RUN_CSV_COLUMNS[DRY_RUN_CSV_COLUMNS.length - 1], 'drop_reason')
     const rows = measureTriggerPoints({
       attractionId: 'poi-1', poiName: 'Praia, Recreio', pin: PIN, boundarySource: 'osm', source: 'generated',
-      tps: [{ lat: PIN.lat, lng: PIN.lng, type: 'primary', generation_method: 'x', radius_m: 20, bearing: 0, drop_reason: 'unfireable' }],
+      tps: [{ lat: PIN.lat, lng: PIN.lng, type: 'primary', generation_method: 'x', radius_m: 20, bearing: 0, drop_reason: 'inside_poi' }],
     })
     const [line] = toCsvLines(rows)
     assert.ok(line.includes('"Praia, Recreio"'), line)
-    assert.ok(line.endsWith(',unfireable'), line)
+    assert.ok(line.endsWith(',inside_poi'), line)
   })
 
   it('mede distância ao pino e à borda por TP', async () => {

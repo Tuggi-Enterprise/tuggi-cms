@@ -235,7 +235,7 @@ export function summarizePoi(result: PoiDryRunResult) {
       max_dist_to_pin_m: rows.length ? Math.max(...rows.map(r => r.dist_to_pin_m)) : null,
     }
   }
-  const dropped: Record<TpDropReason, number> = { beyond_reach: 0, unfireable: 0, inside_poi: 0 }
+  const dropped: Record<TpDropReason, number> = { beyond_reach: 0, inside_poi: 0 }
   for (const r of result.rows) if (r.source === 'generated' && r.drop_reason) dropped[r.drop_reason]++
   return {
     attraction_id: result.attraction_id, poi_name: result.poi_name, error: result.error,

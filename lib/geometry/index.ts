@@ -37,7 +37,6 @@ import {
   calculateBearing,
   normalizeAngleDifference,
   isPointInPolygon,
-  closestPointOnPolyline,
 } from '../services/trigger-points-google/utils/calculations';
 
 // =====================================================================
@@ -191,83 +190,6 @@ export function classifyStreetVsBoundary(
   else relation = 'partial';
 
   return { relation, insideRatio: ratio, outsideSegments: outside };
-}
-
-// =====================================================================
-// STREET TRAVEL DIRECTION (for issue 1.2 — one-way validation)
-// =====================================================================
-
-/**
- * Returns the typical user travel direction(s) along a street, in degrees.
- *
- * OSM convention for `oneway`:
- *   - `"yes"` / `"true"` / `"1"`: traffic flows from coords[0] to coords[last]
- *   - `"-1"` / `"reverse"`:        traffic flows from coords[last] to coords[0]
- *   - anything else / undefined:   bidirectional → returns BOTH directions
- *
- * @param coords  street polyline (in OSM order)
- * @param oneway  raw OSM tag value
- * @returns array of bearings (1 entry for one-way, 2 for two-way)
- */
-export function getStreetTravelDirections(
-  coords: GeoPoint[],
-  oneway?: string | null,
-  at?: GeoPoint
-): number[] {
-  if (coords.length < 2) return [];
-
-  // Local tangent of the stretch under `at` (BR-AUDIO-010): the first→last chord of a
-  // curved or looping way points anywhere. Without `at`, the chord (legacy).
-  let from = coords[0];
-  let to = coords[coords.length - 1];
-  if (at) {
-    const proj = closestPointOnPolyline(at, coords);
-    if (proj) { from = coords[proj.segmentIndex]; to = coords[proj.segmentIndex + 1] ?? to; }
-  }
-  const forward = calculateBearing(from, to);
-  const reverse = (forward + 180) % 360;
-
-  const tag = (oneway || '').toLowerCase();
-
-  if (tag === 'yes' || tag === 'true' || tag === '1') return [forward];
-  if (tag === '-1' || tag === 'reverse') return [reverse];
-
-  // bidirectional (default) — both directions valid
-  return [forward, reverse];
-}
-
-/**
- * Given an `expectedBearing` (TP→POI direction) and a street, returns true
- * if at least one travel direction along the street keeps the POI in the
- * user's "front zone" (i.e. the app does NOT classify as "back").
- *
- * Importante: receba o `expectedBearing` já calculado (idealmente com o
- * mesmo target que o `point-calculator` usou — entrada OSM ou centroid).
- * Recalcular aqui via centroid descartaria a precisão do entrance-aware.
- */
-export function isApproachableForBearing(
-  streetCoords: GeoPoint[],
-  oneway: string | null | undefined,
-  expectedBearing: number,
-  at?: GeoPoint
-): boolean {
-  const travelDirs = getStreetTravelDirections(streetCoords, oneway, at);
-  if (travelDirs.length === 0) return true; // no info → don't filter
-  return travelDirs.some(dir => getDirectionZone(expectedBearing, dir) !== 'back');
-}
-
-/**
- * @deprecated Prefer `isApproachableForBearing` to respect entrance-aware bearing.
- * Mantida apenas para callers que não têm o bearing pré-calculado.
- */
-export function isApproachableForPOI(
-  streetCoords: GeoPoint[],
-  oneway: string | null | undefined,
-  tpLocation: GeoPoint,
-  poiLocation: GeoPoint
-): boolean {
-  const expectedBearing = calculateBearing(tpLocation, poiLocation);
-  return isApproachableForBearing(streetCoords, oneway, expectedBearing);
 }
 
 // =====================================================================
