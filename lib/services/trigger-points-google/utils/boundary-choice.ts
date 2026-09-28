@@ -36,9 +36,16 @@ export interface ChosenBoundary {
 const normName = (s: unknown): string =>
   String(s ?? '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[^a-z0-9]+/gi, ' ').trim().toLowerCase();
 
-/** The element's own names, normalised (`name`, `name:pt`, `official_name`, `alt_name`). */
+/**
+ * The element's own names, normalised (`name`, `name:pt`, `official_name`, `alt_name`,
+ * `short_name`; a `;` list is several names). The Maracanã stadium is `name=Estádio Jornalista
+ * Mário Filho`, `short_name=Maracanã`: without it the neighbourhood of the same name took the
+ * border (#786).
+ */
 export function elementNames(tags: Tags): string[] {
-  return ['name', 'name:pt', 'official_name', 'alt_name'].map(k => normName(tags?.[k])).filter(n => n !== '');
+  return ['name', 'name:pt', 'official_name', 'alt_name', 'short_name']
+    .flatMap(k => String(tags?.[k] ?? '').split(';'))
+    .map(normName).filter(n => n !== '');
 }
 
 /** Identity: the element carries the POI's own name. Compared for identity, never read for kind. */
@@ -53,6 +60,13 @@ export function carriesPoiName(tags: Tags, poiName: string | null | undefined): 
  * Amador (6,008 m²) with the avenue sidewalk in it (#772).
  */
 export const NAMED_GROUND_REASON = 'named element of another name: the ground the POI stands on';
+
+/**
+ * How far from the pin a border of the POI's identity is looked for when the typed id already
+ * gave one (INV-E1c): the Maracanã pin is 17 m off the stadium, on the street (#786). Same
+ * widening as the identity match of the name search. Provisional (#775).
+ */
+export const IDENTITY_NEAR_PIN_M = 50;
 
 /** A closed way that is a via (`highway`, `railway`), not an area: the TP stands on it (E6). */
 function isVia(tags: Tags): boolean {
@@ -131,13 +145,14 @@ const isClosed = (ring: LatLng[]): boolean =>
  *    Reserva pin is on the promenade, off the sand, and a 248 m² kiosk under it took the border;
  * 2. otherwise an UNNAMED element, and only one smaller than the smallest named element of another
  *    name at the pin — whatever holds the ground the POI stands on is not the POI either;
- * 3. a POI with a curated node id has its own identity: only step 1 applies, because an unnamed
- *    polygon under a bust is the square, not the bust.
+ * 3. `namedOnly`: only step 1 applies. A POI with a curated node id has its own identity, because
+ *    an unnamed polygon under a bust is the square, not the bust; and a POI whose typed id already
+ *    gave a border only gives way to a smaller element of its name (Maracanã, #786).
  * Otherwise only elements holding the pin are judged; without an id the pin is the only evidence.
  */
 export function chooseContainingBoundary(
   pin: LatLng,
-  poi: { name?: string | null; hasOwnNode?: boolean },
+  poi: { name?: string | null; namedOnly?: boolean },
   elements: OsmAreaElement[],
 ): { chosen?: ChosenBoundary; rejected: BoundaryRejection[] } {
   const rejected: BoundaryRejection[] = [];
@@ -171,7 +186,7 @@ export function chooseContainingBoundary(
   const groundM2 = Math.min(...other.map(c => c.areaM2));
   const fitting: ChosenBoundary[] = [];
   for (const c of unnamed.sort(byArea)) {
-    if (poi.hasOwnNode) rejected.push({ element: key(c), reason: 'unnamed area under a POI with its own node id' });
+    if (poi.namedOnly) rejected.push({ element: key(c), reason: 'unnamed area under a POI with its own node id' });
     else if (c.areaM2 >= groundM2) rejected.push({ element: key(c), reason: `unnamed area ${Math.round(c.areaM2)} m² holds the named ground at the pin` });
     else fitting.push(c);
   }

@@ -61,6 +61,8 @@ export interface PoiDryRunResult {
   trace: EngineTraceRow[]
   /** the generated edge ring (`poiEdgeRing`); absent when the border is synthetic */
   edge?: LatLng[]
+  /** the POI pin the engine ran from; `dist_to_pin_m` is measured from it */
+  pin?: LatLng
 }
 
 export function measureTriggerPoints(args: {
@@ -189,7 +191,7 @@ export async function dryRunPoi(attractionId: string): Promise<PoiDryRunResult> 
         drop_reason: reason,
       })),
     }))
-    return { attraction_id: attractionId, poi_name: poiData.name, error: null, rows, trace, edge: poiEdgeRing(prediction.boundary) }
+    return { attraction_id: attractionId, poi_name: poiData.name, error: null, rows, trace, edge: poiEdgeRing(prediction.boundary), pin: poiData.location }
   } catch (e) {
     // EP (INV-EPb): a city whose relief was not prepared does not generate, and says why.
     const trace = e instanceof DemNotPreparedError

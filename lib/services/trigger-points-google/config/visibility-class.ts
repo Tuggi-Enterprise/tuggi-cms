@@ -109,10 +109,23 @@ export function landmarkSectorOf(bearingFromPoiDeg: number, edgeDistanceM: numbe
  * Where the tourist circulates, by the street's own OSM `highway` (INV-E10a): 0 wins, 2 loses.
  * Tier 0 is where the tourist is, on foot or DRIVING: avenue, promenade, expressway and bridge
  * (the app is used driving, BR-POI-008; whoever crosses the Rio–Niterói bridge sees the Pão de
- * Açúcar). Tier 2 is what nobody travels: the forest track, the path and the service lane.
+ * Açúcar), and the surface train and the ferry the tourist rides. Tier 2 is what nobody
+ * travels: the forest track, the path and the service lane.
  * Unknown types sit in the middle. Provisional (#775).
  */
-export const LANDMARK_TOURIST_STREET_TYPES = ['motorway', 'trunk', 'primary', 'secondary', 'tertiary', 'pedestrian', 'living_street'];
+/**
+ * Ways the tourist RIDES: the surface train and the ferry (INV-E7a, 1C, #786). Whoever takes the
+ * train or the ferry sees the landmark, and is not on the street beside the line: a TP on the
+ * avenue does not reach the passenger, so the two do not crowd each other out (`observerPath`).
+ */
+export const RIDE_WAY_TYPES = ['railway_rail', 'railway_light_rail', 'railway_subway', 'railway_tram', 'ferry'];
+export function observerPath(streetType?: string): 'ride' | 'street' {
+  return RIDE_WAY_TYPES.includes(streetType ?? '') ? 'ride' : 'street';
+}
+export const LANDMARK_TOURIST_STREET_TYPES = [
+  'motorway', 'trunk', 'primary', 'secondary', 'tertiary', 'pedestrian', 'living_street',
+  ...RIDE_WAY_TYPES,
+];
 export const LANDMARK_AVOID_STREET_TYPES = ['track', 'path', 'service'];
 
 /**

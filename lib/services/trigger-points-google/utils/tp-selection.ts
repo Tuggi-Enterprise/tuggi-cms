@@ -6,7 +6,7 @@
  */
 import { StreetData, TriggerPoint } from '../types/interfaces';
 import { calculateBearing, calculateDistance, calculateDistanceToPolygon, closestPointOnSegment } from './calculations';
-import { EDGE_BAND_M, LANDMARK_CELL_RINGS_M, PERIMETER_SECTOR_M, SANITY_MAX_TP_DISTANCE_M, VisibilityClass, isCarStreet, landmarkSectorOf, landmarkStreetTier, proximityBand, proximityRankScore } from '../config/visibility-class';
+import { EDGE_BAND_M, LANDMARK_CELL_RINGS_M, PERIMETER_SECTOR_M, SANITY_MAX_TP_DISTANCE_M, VisibilityClass, isCarStreet, landmarkSectorOf, landmarkStreetTier, observerPath, proximityBand, proximityRankScore } from '../config/visibility-class';
 import { isApproachableForBearing } from '../../../geometry';
 import { partitionByPoiReach, poiEdgeRing, tpReachCapM } from './validation';
 
@@ -93,8 +93,9 @@ export function landmarkCellOf(tp: Pick<TriggerPoint, 'location' | 'distance' | 
  *   (`landmarkStreetTier`), then quality. Cells are walked by the tier of their best street,
  *   then ring by ring, so the cap cuts the cells without a tourist street first. The open-ended
  *   horizon ring comes only after every inner cell with more than a trail, and only on a tourist
- *   street; the cells with only a trail come last (#784). By proximity first, the Cristo had its
- *   TPs in the forest and none in Botafogo or Copacabana (#772).
+ *   street; its ride cells (ferry, train: `observerPath`) are cells of their own and go with the
+ *   inner ones (#786); the cells with only a trail come last (#784). By proximity first, the
+ *   Cristo had its TPs in the forest and none in Botafogo or Copacabana (#772).
  * - Other classes: proximity band to the edge first, then quality; long-perimeter classes first
  *   take the best TP of each approach direction.
  */
@@ -130,7 +131,10 @@ export function selectSpacedTriggerPoints(
     const label = new Map<TriggerPoint, string>();
     for (const tp of tps) {
       const { sector, ring } = landmarkCellOf(tp, centre);
-      const key = `${ring}:${sector}`;
+      // In the horizon the rider (the ferry across the bay) is not the far street it waits for:
+      // own cell, walked with the inner ones (#786). Inside, train and street share the cell.
+      const ride = ring === LANDMARK_CELL_RINGS_M.length && observerPath(tp.street?.type) === 'ride';
+      const key = `${ring}:${sector}:${ride ? 'ride' : 'street'}`;
       label.set(tp, `cell s${sector}/r${ring}; tier ${landmarkStreetTier(tp.street?.type)} ${tp.street?.type || '?'}`);
       (cells.get(key) ?? cells.set(key, []).get(key)!).push(tp);
     }
@@ -155,14 +159,14 @@ export function selectSpacedTriggerPoints(
     // The cells with only a trail (tier 2) after the horizon (#784): with the upper half of the
     // relief as an aim, the trails on the slope under the Mirante took the cap from the
     // motorways at 5–8 km that the operator had approved.
-    const isOuterKey = (k: string) => k.startsWith(`${outer}:`);
+    const isOuterKey = (k: string) => k.startsWith(`${outer}:`) && k.endsWith(':street');
     const phases = [
       keys.filter(k => !isOuterKey(k) && tierRank.get(k)! < 2),
       keys.filter(isOuterKey),
       keys.filter(k => !isOuterKey(k) && tierRank.get(k)! === 2),
     ];
     for (const phase of phases) {
-      const isOuter = phase[0]?.startsWith(`${outer}:`);
+      const isOuter = !!phase[0] && isOuterKey(phase[0]);
       // Pass k gives each cell its k-th TP: every covered cell before any cell gets a second one.
       // From pass 2 on, the outer rings first: a second TP 3 km out (Ipanema seen from the Irmão
       // Menor, Copacabana from the Cristo) is where the tourist is; a second one on the slope is not.

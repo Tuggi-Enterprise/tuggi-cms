@@ -8,7 +8,7 @@ import { convertViewportToPolygon, calculatePolygonArea, calculatePolygonAreaInM
 import { ElevationAnalysisService } from '../services/elevation-service';
 import { TRIGGER_POINTS_CONSTANTS } from '../config/trigger-points-config';
 import { isCuratedBoundaryImplausible } from '../utils/osm-validation';
-import { assembleOuterRings, chainSameIdentity, chooseContainingBoundary, corridorRing, footprintRing, LINE_CORRIDOR_HALF_WIDTH_M, outerRing, type BoundaryRejection, type OsmAreaElement } from '../utils/boundary-choice';
+import { assembleOuterRings, chainSameIdentity, chooseContainingBoundary, corridorRing, footprintRing, IDENTITY_NEAR_PIN_M, LINE_CORRIDOR_HALF_WIDTH_M, outerRing, type BoundaryRejection, type OsmAreaElement } from '../utils/boundary-choice';
 
 /**
  * Radius of the circle that marks a POI with no footprint of its own: an OSM node, a pin with
@@ -129,6 +129,14 @@ export class BoundaryDetector {
         const byId = await this.detectOSMBoundaryByID(String(poiData.osm_id), poiData.osm_type, poiData);
         if (byId.success && byId.data?.synthetic) pointCircle = byId;
         else osmBoundaryResult = byId;
+        // INV-E1c: the pin in more than one polygon of the POI's identity — the smallest wins. The
+        // Maracanã id is the neighbourhood (1.82 km²); the stadium (`short_name=Maracanã`) is the
+        // POI (#786). Only an element carrying the POI's name, never an unnamed one.
+        const typed = byId.success && !byId.data?.synthetic ? byId.data?.coordinates : undefined;
+        if (typed && typed.length >= 3) {
+          const narrower = await this.detectContainingBoundary(poiData, undefined, calculatePolygonAreaInM2(typed));
+          if (narrower.success) osmBoundaryResult = narrower;
+        }
       }
 
       if (!osmBoundaryResult?.success) {
@@ -1035,11 +1043,17 @@ out geom tags;
    * Replaces the proximity/category searches, which took the longest way in 200 m — a street
    * or a 0.69 km² polygon (Monumento Árvore de Natal, #772).
    */
-  private async detectContainingBoundary(poiData: POIData, ownTags?: Record<string, unknown>): Promise<ProcessingResult<BoundaryData>> {
+  /**
+   * `smallerThanM2`: the POI already has a typed-id border of this area, and only a smaller
+   * element carrying its name may replace it (INV-E1c); nothing is refused into the trace then.
+   */
+  private async detectContainingBoundary(poiData: POIData, ownTags?: Record<string, unknown>, smallerThanM2?: number): Promise<ProcessingResult<BoundaryData>> {
     // The engine input carries the POI tags as `tags` (poi-migration-pipeline#buildEngineInput).
     const tags = (ownTags ?? poiData.osm_tags ?? (poiData as POIData & { tags?: unknown }).tags) as Record<string, unknown> | undefined;
     const { LocalOSMFetcher } = await import('../services/local-osm-fetcher');
-    let elements: OsmAreaElement[] | null = LocalOSMFetcher.getInstance().fetchAreasContaining(poiData.location);
+    const narrowing = smallerThanM2 !== undefined;
+    let elements: OsmAreaElement[] | null = LocalOSMFetcher.getInstance().fetchAreasContaining(poiData.location, narrowing ? IDENTITY_NEAR_PIN_M : 0);
+    if (!elements && narrowing) return { success: false, error: 'No local OSM to narrow the typed border', processingTime: 0 };
     if (!elements) {
       const { lat, lng } = poiData.location;
       const query = `
@@ -1062,9 +1076,11 @@ out geom tags;
       }
     }
     const { chosen, rejected } = chooseContainingBoundary(
-      poiData.location, { name: poiData.name, hasOwnNode: poiData.osm_type === 'node' && !!poiData.osm_id }, elements ?? []
+      poiData.location, { name: poiData.name, namedOnly: narrowing || (poiData.osm_type === 'node' && !!poiData.osm_id) }, elements ?? []
     );
-    this.rejections.push(...rejected);
+    if (narrowing) {
+      if (!chosen || chosen.areaM2 >= smallerThanM2 || String(chosen.element.id) === String(poiData.osm_id)) return { success: false, error: 'No smaller element of the POI identity', processingTime: 0 };
+    } else this.rejections.push(...rejected);
     if (!chosen) return { success: false, error: 'No OSM area fits the POI at the pin', processingTime: 0 };
     return this.detectOSMBoundaryByID(String(chosen.element.id), chosen.element.type, poiData, {
       element: { ...chosen.element, geometry: chosen.ring.map(p => ({ lat: p.lat, lon: p.lng })) },
@@ -1206,7 +1222,7 @@ out geom tags;
       } else {
         // Identity (osm id + exact name) widens the match to 50 m. The geocoder class/type
         // (peak, building, …) never decides it (operator, 2026-09-27; BR-AUDIO-010).
-        const effectiveMaxDistance = exactNameMatch && hasOSMID ? Math.max(maxDistance, 50) : maxDistance;
+        const effectiveMaxDistance = exactNameMatch && hasOSMID ? Math.max(maxDistance, IDENTITY_NEAR_PIN_M) : maxDistance;
         if (distance > effectiveMaxDistance) {
           console.log(`⚠️ Result too far: ${distance.toFixed(0)}m (max: ${effectiveMaxDistance}m)`);
           return false;
@@ -1298,7 +1314,7 @@ out geom tags;
             // Identity widens the match; the geocoder class/type never decides it (2026-09-27).
             const exactNameMatch = result.display_name?.toLowerCase().includes(poiData.name.toLowerCase()) ||
                                    poiData.name.toLowerCase().includes(result.display_name?.toLowerCase() || '');
-            const maxDistance = result.osm_id && exactNameMatch ? 50 : 10;
+            const maxDistance = result.osm_id && exactNameMatch ? IDENTITY_NEAR_PIN_M : 10;
 
             // Validar distância, categoria e localidade (threshold dinâmico)
             if (!this.validateNominatimResult(result, poiData, maxDistance)) {

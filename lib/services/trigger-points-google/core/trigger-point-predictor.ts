@@ -2,7 +2,7 @@
 
 import { GeographicContextAnalyzer } from './geographic-analyzer';
 import { BoundaryDetector } from './boundary-detector';
-import { StreetAnalyzer, ACCESSIBLE_ROUTE_TYPES } from '../analyzers/street-analyzer';
+import { StreetAnalyzer, isObserverWay } from '../analyzers/street-analyzer';
 import { OptimalPointCalculator } from '../analyzers/point-calculator';
 import { TriggerPointValidator } from '../analyzers/validator';
 import { GoogleAPIsService } from '../services/google-apis.service';
@@ -121,8 +121,7 @@ export class CoreTriggerPointPredictor {
     const passes = [true, false].flatMap(carOnly => REACH_RESCUE_RINGS_M.map(radiusM => ({ carOnly, radiusM })));
     for (const { carOnly, radiusM } of passes) {
       const streets = (fetcher.fetchStreetsAlongBoundary(ring, radiusM) ?? [] as StreetData[]).filter((s: StreetData) =>
-        ACCESSIBLE_ROUTE_TYPES.has(s.type) && !s.type.startsWith('aerialway') && (!carOnly || isCarStreet(s.type))
-        && (s as any).tags?.tunnel !== 'yes' && (s as any).tags?.covered !== 'yes');
+        isObserverWay(s) && !s.type.startsWith('aerialway') && s.type !== 'ferry' && (!carOnly || isCarStreet(s.type)));
       const best = bestStreetPointOutside(streets, ring);
       if (!best) continue;
       const { resolveStreetSpeedKmh, calculateGpsAwareRadius } = require('../../../geometry');
@@ -1780,9 +1779,8 @@ export class CoreTriggerPointPredictor {
     const streetDistances: Array<{ street: StreetData; dist: number }> = [];
     for (const s of rawPerimeterStreets ?? []) {
       if (!s.coordinates?.length) continue;
-      // Mesma lista de isStreetAccessible (SSOT em street-analyzer).
-      if (!ACCESSIBLE_ROUTE_TYPES.has(s.type)) continue;
-      if ((s as any).tags?.tunnel === 'yes' || (s as any).tags?.covered === 'yes') continue;
+      // Mesma régua de isStreetAccessible (SSOT em street-analyzer).
+      if (!isObserverWay(s)) continue;
 
       // Whole polyline, not vertices (BR-AUDIO-010).
       const minDist = streetFootOnEdge(s.coordinates, boundary.center, boundary.coordinates)?.edgeDistanceM ?? Infinity;

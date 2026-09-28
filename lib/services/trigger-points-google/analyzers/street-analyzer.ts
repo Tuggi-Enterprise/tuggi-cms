@@ -8,11 +8,12 @@ import { TRIGGER_POINTS_CONSTANTS } from '../config/trigger-points-config';
 import { FAR_STREETS_FROM_M, FAR_STREET_TILE_M, FAR_STREET_TYPES, VisibilityClass } from '../config/visibility-class';
 import { streetEdgeReach, tpReachCapM } from '../utils/validation';
 
-// Tipos de vias onde usuários passam e podem ouvir audio guides (BR-AUDIO-010).
-// Inclui carro, ônibus, bicicleta, pedestre, trem, barco em hidrovia e teleférico.
-// `ferry` NÃO entra: a rota de balsa no OSM é uma linha entre terminais distantes, e o
-// TP ancorado nela caía no terminal — 155 de 234 outliers de fallback_recovery (auditoria
-// de 2026-09-27). SSOT: o predictor lê esta lista em vez de redeclarar.
+// Ways where users pass and can hear the audio guide (BR-AUDIO-010): car, bus, bicycle, on
+// foot, train, ferry, boat on a waterway and cable car. `ferry` (`route=ferry`) came back in
+// #786 (1C): the defect was the TP on the line's 1st vertex, at the terminal, not the way — the
+// candidate is now the foot of the perpendicular (INV-E7b). The 1-TP rescue
+// (`buildReachRescueTP`) still skips the ferry: there the point nearest the edge is the terminal.
+// SSOT: the predictor reads this list instead of redeclaring it.
 export const MOTORIZED_ROAD_TYPES: ReadonlySet<string> = new Set([
   'motorway', 'trunk', 'primary', 'secondary', 'tertiary',
   'residential', 'living_street', 'unclassified',
@@ -37,12 +38,28 @@ export const NON_MOTORIZED_TYPES: ReadonlySet<string> = new Set([
   'aerialway_gondola',      // 🚡 Gôndola
   'aerialway_chair_lift',   // 🪑 Cadeirinha
   'aerialway_mixed_lift',   // 🚡 Teleférico misto
+  'ferry',                  // ⛴️ Ferry (`route=ferry`): whoever crosses sees the landmark (#786)
 ]);
 
 export const ACCESSIBLE_ROUTE_TYPES: ReadonlySet<string> = new Set([
   ...MOTORIZED_ROAD_TYPES,
   ...NON_MOTORIZED_TYPES,
 ]);
+
+/**
+ * Above ground (INV-E7a): not in a tunnel, not covered, and a railway not below ground — the Rio
+ * metro underground is often only `layer<0`, with no `tunnel` tag (#786). A way the tourist sees
+ * nothing from is not a way to hear the POI from.
+ */
+export function isSurfaceWay(type: string, tags?: Record<string, unknown> | null): boolean {
+  if (tags?.tunnel === 'yes' || tags?.covered === 'yes') return false;
+  return !(type.startsWith('railway') && Number.parseInt(String(tags?.layer ?? '0'), 10) < 0);
+}
+
+/** A way the tourist travels on, above ground (INV-E7a, BR-AUDIO-010): the TP may stand on it. */
+export function isObserverWay(street: Pick<StreetData, 'type'> & { tags?: unknown }): boolean {
+  return ACCESSIBLE_ROUTE_TYPES.has(street.type) && isSurfaceWay(street.type, street.tags as Record<string, unknown> | undefined);
+}
 
 /** A street the reach left out (E6), for the trace. */
 export interface RejectedStreet {
@@ -1030,12 +1047,8 @@ out geom tags; // ADICIONAR 'tags' para obter tunnel, bridge, layer, etc
    */
   private isStreetAccessible(road: StreetData, context: GeographicContext): boolean {
     const isMotorizedRoad = MOTORIZED_ROAD_TYPES.has(road.type);
-    const isNonMotorized = NON_MOTORIZED_TYPES.has(road.type);
 
-    if (!isMotorizedRoad && !isNonMotorized) {
-      console.log(`🚫 Road type '${road.type}' not in accessible types`);
-      return false;
-    }
+    if (!isObserverWay(road)) return false;
 
     // Verificar restrições de acesso
     if (road.accessibility === 'private' || road.accessibility === 'no') {
@@ -1058,12 +1071,6 @@ out geom tags; // ADICIONAR 'tags' para obter tunnel, bridge, layer, etc
         console.log(`🚫 Street ${road.id} (${(road as any).name || 'unnamed'}) rejected: vehicle=${vehicleTag}`);
         return false;
       }
-    }
-    
-    // NOVO: Rejeitar ruas em túneis (sem visibilidade do céu/POI)
-    if (road.tags?.tunnel === 'yes' || road.tags?.covered === 'yes') {
-      console.log(`🚫 Street ${road.id} rejected: tunnel/covered (no sky visibility)`);
-      return false;
     }
     
     // NOVO: Penalizar viadutos elevados (layer > 0) se POI está no nível do solo

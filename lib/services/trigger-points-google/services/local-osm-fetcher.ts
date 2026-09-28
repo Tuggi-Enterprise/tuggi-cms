@@ -711,12 +711,15 @@ export class LocalOSMFetcher {
    * E1 (INV-E1a, "OSM that contains the pin"): every mapped area whose bounding box holds the
    * pin — `pois` (ways and multipolygons) and `buildings` — as Overpass elements. The caller
    * decides which one is the border (`boundary-choice#chooseContainingBoundary`).
-   * null when the local DB is not available (the caller goes to Overpass).
+   * null when the local DB is not available (the caller goes to Overpass). `marginM` widens the
+   * box around the pin: a border of the POI's identity may stand next to it (INV-E1c).
    */
-  public fetchAreasContaining(pin: { lat: number; lng: number }): any[] | null {
+  public fetchAreasContaining(pin: { lat: number; lng: number }, marginM = 0): any[] | null {
     if (!this.db) return null;
     try {
       const out: any[] = [];
+      const dLat = marginM / 110_540;
+      const dLng = marginM / (111_320 * Math.cos((pin.lat * Math.PI) / 180));
       for (const table of ['pois', 'buildings'] as const) {
         const cols = table === 'pois' ? 'p.id, p.osm_id, p.osm_type, p.geometry_json, p.tags_json' : 'p.id, p.geometry_json, p.tags_json';
         const rtree = this.rtreeAvailable[table];
@@ -725,7 +728,7 @@ export class LocalOSMFetcher {
              WHERE r.min_lat <= ? AND r.max_lat >= ? AND r.min_lng <= ? AND r.max_lng >= ?`
           : `SELECT ${cols} FROM ${table} p
              WHERE p.min_lat <= ? AND p.max_lat >= ? AND p.min_lng <= ? AND p.max_lng >= ?`
-        ).all(pin.lat, pin.lat, pin.lng, pin.lng) as any[];
+        ).all(pin.lat + dLat, pin.lat - dLat, pin.lng + dLng, pin.lng - dLng) as any[];
         for (const row of rows) {
           const el = this.toOverpassElement(row, 'way');
           if (el.type !== 'node') out.push(el);

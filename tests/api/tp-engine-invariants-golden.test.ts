@@ -83,6 +83,19 @@ function classOf(result: DryRunResult): string {
 function sectorOf(bearingDeg: number): number {
   return Math.floor((((bearingDeg % 360) + 360) % 360) / 45)
 }
+/** Bearing from `a` to `b`. Coverage around a POI is where the TP stands seen from the pin — not
+ *  `r.bearing`, which is the TP's `expected_bearing`, the direction of travel (#786). */
+function bearingFrom(a: { lat: number; lng: number }, b: { lat: number; lng: number }): number {
+  const r = Math.PI / 180
+  const y = Math.sin((b.lng - a.lng) * r) * Math.cos(b.lat * r)
+  const x = Math.cos(a.lat * r) * Math.sin(b.lat * r) - Math.sin(a.lat * r) * Math.cos(b.lat * r) * Math.cos((b.lng - a.lng) * r)
+  return (Math.atan2(y, x) / r + 360) % 360
+}
+/** 45° sector of a kept TP seen from the POI pin */
+function positionSector(result: DryRunResult, r: { lat: number; lng: number }): number {
+  assert.ok(result.pin, 'dry-run without the pin')
+  return sectorOf(bearingFrom(result.pin!, r))
+}
 
 // ============================================================================================
 // Zonas nomeadas — coordenadas extraídas de `data/local_osm.db` em 2026-09-27 (mesmo arquivo
@@ -177,7 +190,7 @@ describe('Conjunto de referência do motor de TP (golden, #772/#779)', { skip: C
       }
       if (check.farSectors) {
         const far = kept.filter(r => (r.dist_to_boundary_m ?? r.dist_to_pin_m) > check.farSectors!.minDistM)
-        const sectors = new Set(far.map(r => sectorOf(r.bearing ?? 0)))
+        const sectors = new Set(far.map(r => positionSector(result, r)))
         assert.ok(
           sectors.size >= check.farSectors!.atLeast,
           `${check.poi}: TPs a mais de ${check.farSectors!.minDistM}m cobrem ${sectors.size} setor(es), esperado >= ${check.farSectors!.atLeast}`
@@ -288,11 +301,20 @@ describe('Zonas nomeadas do conjunto de referência (INV-E7c/E10a, #772/#779)', 
 })
 
 // ============================================================================================
-// Maracanã: the POI osm_id is the neighbourhood node; E1 drops it (a place for a POI that is not
-// a place, INV-E1c) and the border is the stadium polygon. "TPs on at least 2 sides" reads: at
-// least 2 TPs and at least 2 distinct 45° sectors among the kept TPs.
+// Maracanã: the POI osm_id is the neighbourhood relation (1.82 km²); the stadium carries the name
+// as `short_name`, is smaller, and is the border (INV-E1a/c, #786). "TPs on at least 2 sides"
+// reads: at least 2 TPs and at least 2 distinct 45° sectors, by where they stand seen from the pin.
 // ============================================================================================
 describe('Maracanã: coverage of at least 2 sides (INV-E1c, #772)', { skip: CAN_RUN ? false : SKIP_REASON }, () => {
+  it('Maracanã: the border is the stadium, not the neighbourhood (INV-E1a, INV-E1c, #786)', async () => {
+    const result = await getResult(POI_ID.maracana)
+    assert.equal(result.error, null)
+    assert.ok(result.edge && result.edge.length >= 4, 'no real edge')
+    const { calculatePolygonAreaInM2 } = await import('@/lib/services/trigger-points-google/utils/calculations')
+    const areaM2 = calculatePolygonAreaInM2(result.edge!)
+    assert.ok(areaM2 < 150_000, `Maracanã: border of ${Math.round(areaM2)} m², the stadium is ~91,000 m²`)
+  })
+
   it('Maracanã: at least 2 kept TPs', async () => {
     const result = await getResult(POI_ID.maracana)
     assert.equal(result.error, null)
@@ -304,7 +326,7 @@ describe('Maracanã: coverage of at least 2 sides (INV-E1c, #772)', { skip: CAN_
     const result = await getResult(POI_ID.maracana)
     assert.equal(result.error, null)
     const kept = keptOf(result)
-    const sectors = new Set(kept.map(r => sectorOf(r.bearing ?? 0)))
+    const sectors = new Set(kept.map(r => positionSector(result, r)))
     assert.ok(sectors.size >= 2, `Maracanã: TPs cobrem ${sectors.size} setor(es), esperado >= 2`)
   })
 })
@@ -546,12 +568,6 @@ describe('No TP on a way closed to the public (INV-E7a, BR-AUDIO-010, #772)', { 
 // The bounds keep a margin under the approved state and fail the regression.
 // ============================================================================================
 describe('A relief landmark keeps its TPs in the city, around it and far (INV-E8b, INV-E10a, BR-AUDIO-010, #784)', { skip: CAN_RUN ? false : SKIP_REASON }, () => {
-  const bearingFrom = (a: { lat: number; lng: number }, b: { lat: number; lng: number }) => {
-    const r = Math.PI / 180
-    const y = Math.sin((b.lng - a.lng) * r) * Math.cos(b.lat * r)
-    const x = Math.cos(a.lat * r) * Math.sin(b.lat * r) - Math.sin(a.lat * r) * Math.cos(b.lat * r) * Math.cos((b.lng - a.lng) * r)
-    return (Math.atan2(y, x) / r + 360) % 360
-  }
   // `pin`: the POI pin in core.attractions, the one `dist_to_pin_m` is measured from
   const CASES = [
     { poi: 'Mirante Vista para a Cidade', id: POI_ID.miranteVistaParaACidade, pin: { lat: -22.943099, lng: -43.2851209 }, farAtLeast: 18, farSectorsAtLeast: 5, nearAtMost: 4 },
@@ -568,6 +584,28 @@ describe('A relief landmark keeps its TPs in the city, around it and far (INV-E8
       assert.ok(far.length >= c.farAtLeast, `${c.poi}: ${far.length} TPs beyond 2 km, expected >= ${c.farAtLeast}`)
       assert.ok(farSectors.size >= c.farSectorsAtLeast, `${c.poi}: TPs beyond 2 km cover ${farSectors.size} sectors, expected >= ${c.farSectorsAtLeast}`)
       assert.ok(near.length <= c.nearAtMost, `${c.poi}: ${near.length} TPs within 1 km, expected <= ${c.nearAtMost}`)
+    })
+  }
+})
+
+// ============================================================================================
+// The train and the ferry are observer paths (INV-E7a, INV-E10a, BR-AUDIO-010, #786). The
+// operator on the Estádio Nilton Santos: "tem visão da avenida, da ponte e da linha de trem";
+// the reference table: the Pão de Açúcar also on the ferry. Read from the E10 trace (the street
+// type of the winner), kept only if E11 kept the same point.
+// ============================================================================================
+describe('A landmark keeps a TP on the train or the ferry line in sight (INV-E7a, INV-E10a, BR-AUDIO-010, #786)', { skip: CAN_RUN ? false : SKIP_REASON }, () => {
+  const CASES = [
+    { poi: 'Estádio Nilton Santos', id: POI_ID.estadioNiltonSantos, way: /tier 0 railway_(rail|light_rail|subway|tram); won/ },
+    { poi: 'Pão de Açúcar', id: POI_ID.paoDeAcucar, way: /tier 0 ferry; won/ },
+  ]
+  for (const c of CASES) {
+    it(`${c.poi}: at least 1 kept TP on the line`, async () => {
+      const result = await getResult(c.id)
+      assert.equal(result.error, null, `dry-run failed for ${c.poi}: ${result.error}`)
+      const kept = new Set(keptOf(result).map(r => `${r.lat.toFixed(6)},${r.lng.toFixed(6)}`))
+      const onLine = result.trace.filter(t => t.stage === 'E10' && c.way.test(t.value) && kept.has(t.candidate))
+      assert.ok(onLine.length >= 1, `${c.poi}: no kept TP on the line`)
     })
   }
 })

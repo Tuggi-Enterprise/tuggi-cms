@@ -13,12 +13,16 @@ function street(type: string, coordinates: Array<{ lat: number; lng: number }>, 
   return { id: `way/${type}`, type, coordinates, accessibility: 'public', confidence: 0.8, ...extra }
 }
 
-describe('BR-AUDIO-010 — TP dispara onde o POI está: a rota de balsa não é via acessível', () => {
-  it('ferry é recusado; primary continua aceito', () => {
+// Superseded by decision 1C (docs/arquitetura/cms/motor-de-tp.md, "Barca e trilho voltam como
+// caminho de observador", #786): the defect was the TP on the line's 1st vertex (the terminal),
+// fixed below and by INV-E7b, not the ferry. The ferry is an observer path again (INV-E7a).
+describe('BR-AUDIO-010, INV-E7a — the ferry route is an observer path again (1C, #786)', () => {
+  it('ferry and primary are accepted; a ferry in a tunnel would not be', () => {
     const analyzer = new StreetAnalyzer()
     const line = [POI_PIN, { lat: -22.8950, lng: -43.1250 }]
-    assert.equal(analyzer.isStreetAccessiblePublic(street('ferry', line), context), false)
+    assert.equal(analyzer.isStreetAccessiblePublic(street('ferry', line), context), true)
     assert.equal(analyzer.isStreetAccessiblePublic(street('primary', line), context), true)
+    assert.equal(analyzer.isStreetAccessiblePublic(street('ferry', line, { tags: { tunnel: 'yes' } } as any), context), false)
   })
 })
 

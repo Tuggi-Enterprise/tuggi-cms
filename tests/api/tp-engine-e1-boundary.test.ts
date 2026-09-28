@@ -78,11 +78,19 @@ describe('INV-E1c — the element holding the pin is chosen by identity and geom
 
   it('a POI with its own node id takes only an element carrying its name (a bust does not take the square)', () => {
     const square_ = { type: 'way', id: 8, tags: {}, geometry: square(30) }
-    const r = choice.chooseContainingBoundary(PIN, { name: 'Busto X', hasOwnNode: true }, [square_])
+    const r = choice.chooseContainingBoundary(PIN, { name: 'Busto X', namedOnly: true }, [square_])
     assert.equal(r.chosen, undefined)
     assert.match(r.rejected[0].reason, /own node id/)
     const church = { type: 'way', id: 9, tags: { name: 'Igreja X' }, geometry: square(20) }
-    assert.equal(choice.chooseContainingBoundary(PIN, { name: 'Igreja X', hasOwnNode: true }, [square_, church]).chosen?.element.id, 9)
+    assert.equal(choice.chooseContainingBoundary(PIN, { name: 'Igreja X', namedOnly: true }, [square_, church]).chosen?.element.id, 9)
+  })
+
+  it('INV-E1a/c (#786): `short_name` and `;` lists are the element\'s names — the stadium is the Maracanã, and the smallest of the identity wins', () => {
+    const stadium = { type: 'relation', id: 30, tags: { name: 'Estádio Jornalista Mário Filho', short_name: 'Maracanã' }, geometry: square(150, { lat: PIN.lat + 170 * M_LAT, lng: PIN.lng }) }
+    const hood = { type: 'relation', id: 31, tags: { boundary: 'administrative', name: 'Maracanã' }, geometry: square(700) }
+    assert.equal(choice.chooseContainingBoundary(PIN, { name: 'Maracanã', namedOnly: true }, [hood, stadium]).chosen?.element.id, 30,
+      'the pin is 20 m off the stadium, on the street: plausible, and smaller than the neighbourhood')
+    assert.ok(choice.carriesPoiName({ alt_name: 'Estádio do Maracanã;Maracanã' }, 'maracana'))
   })
 
   it('only what holds the pin counts; a closed road is no area; the smallest unnamed polygon wins', () => {
@@ -181,6 +189,33 @@ describe('INV-E1a — a relation id from Overpass becomes its outer ring, not a 
       local.fetchElementById = restore.byId
       local.fetchAsOverpassData = restore.around
     }
+  })
+})
+
+describe('INV-E1a/c — a typed id gives way to a smaller element of the POI identity (BR-AUDIO-010, #786)', () => {
+  const ring = (half: number) => square(half).map(p => ({ lat: p.lat, lng: p.lon }))
+  const run = async (narrower: { success: boolean; data?: unknown }) => {
+    const { BoundaryDetector } = await import('../../lib/services/trigger-points-google/core/boundary-detector')
+    const d = new BoundaryDetector() as any
+    const asked: unknown[] = []
+    d.detectOSMBoundaryByID = async () => ({ success: true, data: { coordinates: ring(700), synthetic: false, source: 'osm' } })
+    d.detectContainingBoundary = async (...args: unknown[]) => { asked.push(args[2]); return narrower }
+    d.withClassification = async (b: unknown) => b
+    const r = await d.detectBoundary({ id: 'x', name: 'Maracanã', osm_id: 5520332, osm_type: 'relation', location: PIN })
+    return { r, asked }
+  }
+
+  it('the neighbourhood id (Maracanã) gives way to the stadium carrying the name', async () => {
+    const { r, asked } = await run({ success: true, data: { coordinates: ring(150), synthetic: false, source: 'osm' } })
+    assert.equal(asked.length, 1)
+    assert.ok(Math.abs((asked[0] as number) - calculatePolygonAreaInM2(ring(700))) < 1, 'only smaller than the typed border')
+    assert.equal(r.data.coordinates.length, ring(150).length)
+    assert.ok(calculatePolygonAreaInM2(r.data.coordinates) < 100_000)
+  })
+
+  it('no smaller element of the identity: the typed border stays', async () => {
+    const { r } = await run({ success: false })
+    assert.ok(calculatePolygonAreaInM2(r.data.coordinates) > 1_000_000)
   })
 })
 

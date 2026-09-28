@@ -8,6 +8,7 @@ import {
   EDGE_BAND_M,
   FAR_CANDIDATES_PER_CELL,
   landmarkStreetTier,
+  observerPath,
   FAR_CELL_SPACING_M,
   FAR_RINGS_M,
   LANDMARK_CELL_RINGS_M,
@@ -266,7 +267,8 @@ export function sampleFarBySectorAndRing(
     for (const c of cell) {
       const byLength = inner && landmarkStreetTier(c.street?.type) === 0;
       if (!byLength && kept.length >= FAR_CANDIDATES_PER_CELL) break;
-      if (kept.some(k => calculateDistance(k.location, c.location) < FAR_CELL_SPACING_M)) continue;
+      if (kept.some(k => observerPath(k.street?.type) === observerPath(c.street?.type)
+        && calculateDistance(k.location, c.location) < FAR_CELL_SPACING_M)) continue;
       kept.push(c);
     }
     far.push(...kept);
