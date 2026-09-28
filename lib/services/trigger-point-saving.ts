@@ -6,6 +6,7 @@
  */
 
 import { getSupabaseService } from '../core/supabase-client'
+import type { TriggerPointDbType } from './trigger-points-google/types/interfaces'
 
 // Get appropriate Supabase client based on context
 // Use service client on server (bypasses RLS), fallback to server client if service key not available
@@ -30,7 +31,7 @@ export interface TriggerPointSaveData {
   radius_meters?: number
   expected_bearing?: number
   bearing_threshold?: number
-  type: 'primary' | 'secondary' | 'fallback' | 'special' | 'testing' | 'geofence' | 'entry' | 'exit' | 'approach' | 'custom'
+  type: TriggerPointDbType
   priority?: number
   is_active?: boolean
   confidence?: number

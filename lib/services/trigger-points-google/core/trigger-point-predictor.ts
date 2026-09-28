@@ -870,10 +870,9 @@ export class CoreTriggerPointPredictor {
    *     downstream) na rua de endereço do POI ou na rua mais próxima ≤80m.
    *     Cobre ambos os sentidos de aproximação sem depender de one-way
    *     validation (que está desligada em modo fan).
-   *  2. Geofence TP (`buildGeofenceTriggerPoint`): polígono do boundary inteiro
-   *     como zona de disparo. Pega usuários que entram pela porta lateral ou
-   *     andando, independente da rua que estão.
-   *  3. Se 1 + 2 falharem (sem rua acessível + boundary inválido), cai pro
+   *  2. Sem TP do tipo geofence: o app usa o polígono do boundary direto
+   *     para point-in-polygon (#781 removeu o gerador órfão).
+   *  3. Se 1 falhar (sem rua acessível), cai pro
    *     legacy `generateFallbackTriggerPoints` como último recurso (1 TP
    *     direcional).
    */
@@ -1860,89 +1859,6 @@ export class CoreTriggerPointPredictor {
 
     console.log(`🏠 Perimeter TPs total: ${tps.length} emitted`);
     return tps;
-  }
-
-  /**
-   * Issue 2.4 — Geofence TP para qualquer POI com boundary válido.
-   *
-   * O app `tuggi-drive-v2` suporta TPs do tipo `geofence` que disparam quando o
-   * usuário entra no polígono — sem checagem de bearing. Geramos um por POI
-   * com boundary válido (qualquer tamanho) para cobrir o caso do usuário
-   * andando que entra pela porta sem passar próximo aos TPs arrival na rua.
-   */
-  private buildGeofenceTriggerPoint(
-    poiData: POIData,
-    boundary: BoundaryData,
-    context: GeographicContext
-  ): TriggerPoint | null {
-    // Não emitir para boundaries estimados/manuais (não representam o polígono real)
-    if (!boundary || !boundary.coordinates || boundary.coordinates.length < 3) {
-      console.log(`🚫 Geofence TP skipped: invalid boundary (coords=${boundary?.coordinates?.length})`);
-      return null;
-    }
-    if (boundary.source === 'estimated' || boundary.source === 'manual' || boundary.source === 'manual_drawing') {
-      console.log(`🚫 Geofence TP skipped: boundary.source=${boundary.source}`);
-      return null;
-    }
-    console.log(`🟦 Geofence TP: emitting for boundary.source=${boundary.source}, coords=${boundary.coordinates.length}, area=${boundary.area_m2?.toFixed(0)}m²`);
-
-    // GeoJSON Polygon: anel de coordenadas [lng, lat] (fechado).
-    const ring = boundary.coordinates.map(c => [c.lng, c.lat]);
-    if (ring.length > 0) {
-      const first = ring[0];
-      const last = ring[ring.length - 1];
-      if (first[0] !== last[0] || first[1] !== last[1]) {
-        ring.push([first[0], first[1]]); // fechar o polígono
-      }
-    }
-    const geojson = JSON.stringify({ type: 'Polygon', coordinates: [ring] });
-
-    // Pre-filter radius (o app usa pra fast-reject antes do point-in-polygon).
-    // DEVE encompassar o polígono inteiro — senão usuários no perímetro do POI
-    // (dentro do polígono) falham o pre-filter e o geofence nunca dispara
-    // pra eles. Bug histórico: pra POIs grandes com fan pequeno (LaGuardia:
-    // polígono 2km, fan 300m), o radius ficava 500m e excluía 75% do polígono.
-    //
-    // Fórmula: max(floor=500m, fanMax, polygonBoundingRadius).
-    //  - polygonBoundingRadius garante que TODO vertex do polígono fica dentro
-    //  - fanMax estende além do polígono pra POIs visíveis a longa distância
-    //  - floor 500m cobre o caso degenerado de polígonos minúsculos
-    const fanMax = boundary.visibilityFan?.maxDistanceM ?? 0;
-    let polygonBoundingRadius = 0;
-    for (const c of boundary.coordinates) {
-      const d = calculateDistance(boundary.center, c);
-      if (d > polygonBoundingRadius) polygonBoundingRadius = d;
-    }
-    // Para geofence, o trigger zone É o polígono em geometry_geojson.
-    // O app usa point-in-polygon — radius_meters não tem significado aqui.
-    // Valor 1 satisfaz o DB constraint (chk_radius_positive > 0).
-    const safetyRadius = 1;
-    console.log(`🟦 Geofence TP: polygon=${boundary.coordinates.length} pts, area=${boundary.area_m2?.toFixed(0)}m² — trigger zone is the polygon (radius_meters=1, nominal only)`);
-
-    return {
-      id: deterministicTPId(poiData.id, 'geofence', boundary.center.lat, boundary.center.lng),
-      location: { lat: boundary.center.lat, lng: boundary.center.lng },
-      radius: safetyRadius,
-      expectedBearing: 0,
-      bearingThreshold: 180, // não usado para geofence; valor neutro
-      type: 'geofence',
-      priority: 1,
-      confidence: boundary.confidence ?? 0.9,
-      quality: 1.0,
-      street: {
-        id: 'geofence_boundary',
-        type: 'boundary',
-        coordinates: boundary.coordinates,
-        accessibility: 'public',
-        confidence: 0.9,
-      } as StreetData,
-      distance: 0,
-      generationMethod: 'local_osm',
-      contextData: context,
-      geometryGeoJson: geojson,
-      createdAt: new Date().toISOString(),
-      updatedAt: new Date().toISOString(),
-    };
   }
 
   /**

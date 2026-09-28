@@ -13,6 +13,7 @@
 
 import { POIData, BoundaryData, StreetData } from '../types/interfaces';
 import { LocalOSMFetcher } from './local-osm-fetcher';
+import { heightFromTags } from '../config/visibility-class';
 import { 
   calculatePolygonArea, 
   calculatePolygonCenter, 
@@ -498,11 +499,8 @@ export class OSMDataFetcher {
   }
 
   /**
-   * Extrai altura do building a partir de tags OSM
-   * DRY: Usa mesma lógica do calculations.ts
-   * 
-   * 🏠 ATUALIZADO: Usa constante DEFAULT_HOUSE_HEIGHT (6m) para casas/sobrados
-   * Isso garante que áreas residenciais bloqueiem visão de POIs baixos.
+   * Altura do building: medida nas tags pela régua única do motor
+   * (`config/visibility-class#heightFromTags`, INV-E3); sem medida, estimativa por tipo.
    */
   private extractBuildingHeight(tags: any): number {
     // Importar constante de altura de casas
@@ -510,19 +508,11 @@ export class OSMDataFetcher {
     
     if (!tags) return DEFAULT_HOUSE_HEIGHT; // Default: casa com 6m
     
-    // 1. Tag height direta (dados precisos do OSM)
-    if (tags.height) {
-      const height = parseFloat(tags.height);
-      if (!isNaN(height)) return height;
-    }
+    // 1. Medida nas tags (height → building:height → building:levels × régua única)
+    const measured = heightFromTags(tags);
+    if (measured) return measured.heightM;
     
-    // 2. Níveis × 3.5m (dados precisos do OSM)
-    if (tags['building:levels']) {
-      const levels = parseInt(tags['building:levels']);
-      if (!isNaN(levels)) return levels * 3.5;
-    }
-    
-    // 3. Estimativa por tipo de building
+    // 2. Estimativa por tipo de building
     const buildingType = tags.building?.toLowerCase();
     
     // 🏙️ ESTRATÉGIA: Usar constantes configuráveis para casas

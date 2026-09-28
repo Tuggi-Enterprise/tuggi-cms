@@ -218,27 +218,6 @@ export function calculateDistanceToLineSegment(
 }
 
 /**
- * Resolve o ponto-alvo de bearing pra um TP apontar (Camada 3 frontal, FAN-WALK).
- *
- * Prioridade:
- *  1. Entrance OSM principal (`main` > `yes` > `other`) se disponível no boundary.
- *  2. Centróide do boundary (fallback).
- *
- * SSOT: substitui a duplicação da lógica em `point-calculator.calculateFanWalkStrategy`
- * e `predictor.buildFrontalArrivalTP`.
- */
-export function resolveBearingTarget(
-  boundary: { center: { lat: number; lng: number }; entrances?: Array<{ lat: number; lng: number; kind: 'main' | 'yes' | 'other' }> }
-): { lat: number; lng: number } {
-  if (boundary.entrances && boundary.entrances.length > 0) {
-    const priority = { main: 0, yes: 1, other: 2 } as const;
-    const best = [...boundary.entrances].sort((a, b) => priority[a.kind] - priority[b.kind])[0];
-    return { lat: best.lat, lng: best.lng };
-  }
-  return { lat: boundary.center.lat, lng: boundary.center.lng };
-}
-
-/**
  * Projeta um ponto na polilinha de uma rua e retorna:
  *  - point: posição projetada na polilinha (interpolada dentro do segmento mais próximo)
  *  - segmentIndex: índice do segmento (coords[i] → coords[i+1])
@@ -746,29 +725,6 @@ export function calculateElevationBasedRadius(
   calculatedRadius = Math.min(calculatedRadius, 1000); // Máximo 1km
   
   return calculatedRadius;
-}
-
-/**
- * 🎯 NOVO: Calcula a distância mínima de uma rua até um ponto central
- * DRY: Evita duplicação de lógica em point-calculator.ts e street-analyzer.ts
- */
-export function calculateMinDistanceToCenter(
-  streetCoordinates: Array<{ lat: number; lng: number }>,
-  center: { lat: number; lng: number }
-): number {
-  if (!streetCoordinates || streetCoordinates.length === 0) {
-    return Infinity;
-  }
-  
-  let minDistance = Infinity;
-  for (const coord of streetCoordinates) {
-    const distance = calculateDistance(coord, center);
-    if (distance < minDistance) {
-      minDistance = distance;
-    }
-  }
-  
-  return minDistance;
 }
 
 /**

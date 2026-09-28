@@ -5,7 +5,6 @@ Este diretório contém todas as configurações ajustáveis para o sistema de t
 ## 📁 Arquivos
 
 - `trigger-points-config.ts` - Configurações principais
-- `example-usage.ts` - Exemplos de uso e configurações personalizadas
 - `README.md` - Este arquivo de documentação
 
 ## 🚀 Como Usar

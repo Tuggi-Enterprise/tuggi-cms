@@ -4,7 +4,7 @@
  * SSOT: Single Source of Truth for conversion logic
  */
 
-import { TriggerPoint } from '../types/interfaces'
+import { TriggerPoint, TriggerPointDbType } from '../types/interfaces'
 import { stampGenerationMethod } from '../../dem/dem-sources'
 
 export interface TriggerPointForDB {
@@ -13,7 +13,7 @@ export interface TriggerPointForDB {
   radius_meters: number
   expected_bearing?: number
   bearing_threshold?: number
-  type: 'primary' | 'secondary' | 'fallback' | 'special' | 'testing' | 'geofence' | 'entry' | 'exit' | 'approach' | 'custom'
+  type: TriggerPointDbType
   priority: number
   confidence_score: number
   auto_status: 'approved' | 'review' | 'rejected'

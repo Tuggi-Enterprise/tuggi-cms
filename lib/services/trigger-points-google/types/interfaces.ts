@@ -1,3 +1,15 @@
+/**
+ * Every value `core.attraction_trigger_points.type` accepts — mirror of the CHECK
+ * `attraction_trigger_points_type_check` (supabase/migrations/20260515_add_geofence_trigger_type.sql).
+ * Parity is proved by tests/api/tp-engine-trigger-point-type-parity.test.ts.
+ */
+export const TRIGGER_POINT_DB_TYPES = [
+  'primary', 'secondary', 'fallback', 'special', 'testing',
+  'entry', 'exit', 'approach', 'custom',
+  'geofence',
+] as const;
+export type TriggerPointDbType = (typeof TRIGGER_POINT_DB_TYPES)[number];
+
 // Interfaces para o sistema de trigger points migrado para Google APIs
 
 export interface GeoPoint {
