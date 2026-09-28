@@ -22,6 +22,7 @@ import type {
   Coupon,
   CouponCreateInput,
   CouponEligibility,
+  CouponGrantKind,
   CouponOwnerSummary,
 } from '@/types/coupons';
 
@@ -45,6 +46,9 @@ interface CouponFormDrawerProps {
 const EMPTY_FORM: CouponCreateInput = {
   code: '',
   owner_client_id: null,
+  // Partner coupons grant hours of balance (#787, BR-MONETIZACAO-047); days stay selectable.
+  grant_kind: 'minutes',
+  grant_minutes: null,
   duration_days: 7,
   eligibility: 'any',
   stack_with_active: true,
@@ -54,6 +58,18 @@ const EMPTY_FORM: CouponCreateInput = {
   valid_until: null,
   notes: null,
 };
+
+const MINUTES_PER_HOUR = 60;
+
+/**
+ * The grant as the API takes it: only the amount of the chosen kind, the other one NULL —
+ * the shape of `coupons_natureza_ck` (BR-MONETIZACAO-047).
+ */
+function grantPayload(form: CouponCreateInput) {
+  return form.grant_kind === 'minutes'
+    ? { grant_kind: form.grant_kind, grant_minutes: form.grant_minutes, duration_days: null }
+    : { grant_kind: form.grant_kind, grant_minutes: null, duration_days: form.duration_days };
+}
 
 /**
  * `valid_from` / `valid_until` come back from the API as ISO strings; the
@@ -70,7 +86,10 @@ function buildFormFromCoupon(coupon: Coupon): CouponCreateInput {
   return {
     code: coupon.code,
     owner_client_id: coupon.owner_client_id,
-    duration_days: coupon.duration_days,
+    grant_kind: coupon.grant_kind ?? 'until',
+    grant_minutes: coupon.grant_minutes,
+    // Kept filled even on an hours coupon, so switching the selector back has a value.
+    duration_days: coupon.duration_days ?? EMPTY_FORM.duration_days,
     eligibility: coupon.eligibility,
     stack_with_active: coupon.stack_with_active,
     max_redemptions: coupon.max_redemptions,
@@ -146,6 +165,12 @@ export function CouponFormDrawer({
     value: CouponCreateInput[K]
   ) => setForm(prev => ({ ...prev, [key]: value }));
 
+  /** The cap refusal names the cap in hours, read back from the API (never declared here). */
+  const refusalText = (data: { code?: string; cap_minutes?: number }) =>
+    data.code === 'above_cap' && data.cap_minutes
+      ? t('validation.aboveCap', { hours: data.cap_minutes / MINUTES_PER_HOUR })
+      : null;
+
   const submit = async () => {
     setError(null);
     setSuccess(null);
@@ -154,8 +179,16 @@ export function CouponFormDrawer({
       setError(t('validation.codeMinLength'));
       return;
     }
-    if (form.duration_days < 1) {
+    if (form.grant_kind === 'until' && (form.duration_days ?? 0) < 1) {
       setError(t('validation.durationMin'));
+      return;
+    }
+    // The cap (BR-MONETIZACAO-063) is the database's; only the shape is checked here.
+    if (
+      form.grant_kind === 'minutes' &&
+      !(Number.isInteger(form.grant_minutes) && (form.grant_minutes ?? 0) >= 1)
+    ) {
+      setError(t('validation.hoursMin'));
       return;
     }
 
@@ -164,7 +197,7 @@ export function CouponFormDrawer({
       if (isEditing && coupon) {
         // PATCH: only send the fields the backend allow-list accepts.
         const patch = {
-          duration_days: form.duration_days,
+          ...grantPayload(form),
           eligibility: form.eligibility,
           stack_with_active: form.stack_with_active,
           max_redemptions: form.max_redemptions ?? null,
@@ -180,7 +213,7 @@ export function CouponFormDrawer({
         });
         const data = await res.json();
         if (!res.ok) {
-          setError(data.error || t('errors.update'));
+          setError(refusalText(data) ?? data.error ?? t('errors.update'));
           return;
         }
         setSuccess(t('success.updated', { code: data.coupon.code }));
@@ -190,11 +223,11 @@ export function CouponFormDrawer({
         const res = await fetch('/api/admin/coupons', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(form),
+          body: JSON.stringify({ ...form, ...grantPayload(form) }),
         });
         const data = await res.json();
         if (!res.ok) {
-          setError(data.error || t('errors.create'));
+          setError(refusalText(data) ?? data.error ?? t('errors.create'));
           return;
         }
         setSuccess(t('success.created', { code: data.coupon.code }));
@@ -308,18 +341,52 @@ export function CouponFormDrawer({
             </div>
           )}
 
-          {/* Duration */}
-          <div>
-            <label className="block text-sm font-semibold text-gray-700 mb-1">
-              {t('duration')} <span className="text-red-500">*</span>
-            </label>
-            <input
-              type="number"
-              min={1}
-              value={form.duration_days}
-              onChange={e => set('duration_days', parseInt(e.target.value) || 1)}
-              className="w-full rounded-xl border border-gray-200 bg-gray-50 px-3 py-2 text-sm font-semibold text-gray-900 focus:outline-none focus:ring-2 focus:ring-tuggi-blue/30"
-            />
+          {/* Grant — days of access (`until`) or hours of balance (`minutes`), BR-MONETIZACAO-047 */}
+          <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+            <div>
+              <label className="block text-sm font-semibold text-gray-700 mb-1">
+                {t('grantKind')}
+              </label>
+              <select
+                value={form.grant_kind}
+                onChange={e => set('grant_kind', e.target.value as CouponGrantKind)}
+                className="w-full rounded-xl border border-gray-200 bg-gray-50 px-3 py-2 text-sm font-semibold text-gray-900 focus:outline-none focus:ring-2 focus:ring-tuggi-blue/30">
+                <option value="minutes">{t('grantKindHours')}</option>
+                <option value="until">{t('grantKindDays')}</option>
+              </select>
+            </div>
+            {form.grant_kind === 'minutes' ? (
+              <div>
+                <label className="block text-sm font-semibold text-gray-700 mb-1">
+                  {t('hours')} <span className="text-red-500">*</span>
+                </label>
+                <input
+                  type="number"
+                  min={1}
+                  step={1}
+                  value={form.grant_minutes == null ? '' : form.grant_minutes / MINUTES_PER_HOUR}
+                  onChange={e => {
+                    const hours = parseInt(e.target.value);
+                    set('grant_minutes', Number.isFinite(hours) ? hours * MINUTES_PER_HOUR : null);
+                  }}
+                  className="w-full rounded-xl border border-gray-200 bg-gray-50 px-3 py-2 text-sm font-semibold text-gray-900 focus:outline-none focus:ring-2 focus:ring-tuggi-blue/30"
+                />
+                <p className="mt-1 text-xs text-gray-500">{t('hoursHelp')}</p>
+              </div>
+            ) : (
+              <div>
+                <label className="block text-sm font-semibold text-gray-700 mb-1">
+                  {t('duration')} <span className="text-red-500">*</span>
+                </label>
+                <input
+                  type="number"
+                  min={1}
+                  value={form.duration_days ?? ''}
+                  onChange={e => set('duration_days', parseInt(e.target.value) || 1)}
+                  className="w-full rounded-xl border border-gray-200 bg-gray-50 px-3 py-2 text-sm font-semibold text-gray-900 focus:outline-none focus:ring-2 focus:ring-tuggi-blue/30"
+                />
+              </div>
+            )}
           </div>
 
           {/* Eligibility + Stack */}

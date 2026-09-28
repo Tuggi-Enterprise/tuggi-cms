@@ -13,6 +13,7 @@ import {
   getSupabaseRouteHandler,
   getSupabaseService,
 } from '@/lib/core/supabase-client';
+import { couponWriteRefusal, parseCouponGrant } from '@/lib/coupons/grant';
 
 interface AuthGateResult {
   ok: true;
@@ -81,7 +82,7 @@ export async function GET(request: NextRequest) {
       .schema('drive')
       .from('coupons')
       .select(
-        'id, code, owner_client_id, duration_days, eligibility, stack_with_active, max_redemptions, max_redemptions_per_user, redeemed_count, valid_from, valid_until, is_active, notes, created_at, updated_at',
+        'id, code, owner_client_id, grant_kind, grant_minutes, duration_days, eligibility, stack_with_active, max_redemptions, max_redemptions_per_user, redeemed_count, valid_from, valid_until, is_active, notes, created_at, updated_at',
         { count: 'exact' }
       );
 
@@ -162,7 +163,6 @@ export async function POST(request: NextRequest) {
     const {
       code,
       owner_client_id,
-      duration_days,
       eligibility,
       stack_with_active,
       max_redemptions,
@@ -179,11 +179,10 @@ export async function POST(request: NextRequest) {
         { status: 400 }
       );
     }
-    if (!Number.isFinite(duration_days) || duration_days < 1) {
-      return NextResponse.json(
-        { error: 'duration_days must be a positive integer' },
-        { status: 400 }
-      );
+    // BR-MONETIZACAO-047: `until` (days) or `minutes` (hours balance), never both.
+    const grant = parseCouponGrant(body as Record<string, unknown>);
+    if (!grant.ok) {
+      return NextResponse.json({ error: grant.error }, { status: 400 });
     }
     if (eligibility !== 'any' && eligibility !== 'new_subscribers_only') {
       return NextResponse.json(
@@ -219,7 +218,7 @@ export async function POST(request: NextRequest) {
         {
           code: code.toUpperCase().trim(),
           owner_client_id: owner_client_id || null,
-          duration_days,
+          ...grant.fields,
           eligibility,
           stack_with_active: !!stack_with_active,
           max_redemptions: max_redemptions ?? null,
@@ -239,6 +238,9 @@ export async function POST(request: NextRequest) {
           { status: 409 }
         );
       }
+      // BR-MONETIZACAO-063 item 7: the cap is the database's, raised as TGM63.
+      const refusal = couponWriteRefusal(error);
+      if (refusal) return NextResponse.json(refusal.body, { status: refusal.status });
       return NextResponse.json({ error: error.message }, { status: 500 });
     }
 

@@ -2733,7 +2733,9 @@
       "cancel": "Cancelar",
       "validation": {
         "codeMinLength": "El código debe tener al menos 3 caracteres.",
-        "durationMin": "La duración debe ser de al menos 1 día."
+        "durationMin": "La duración debe ser de al menos 1 día.",
+        "hoursMin": "Ingresa un número entero de horas, desde 1.",
+        "aboveCap": "El cupón supera el tope de {hours} h por canje."
       },
       "errors": {
         "create": "Error al crear cupón",
@@ -2745,7 +2747,12 @@
         "created": "Cupón {code} creado.",
         "updated": "Cupón {code} actualizado."
       },
-      "redemptionWarning": "Este cupón ya tiene {count} canje(s). Los cambios en duración, elegibilidad o límites solo afectan canjes futuros — los ya consumidos no cambian."
+      "redemptionWarning": "Este cupón ya tiene {count} canje(s). Los cambios en duración, elegibilidad o límites solo afectan canjes futuros — los ya consumidos no cambian.",
+      "grantKind": "Otorga",
+      "grantKindHours": "Horas de saldo",
+      "grantKindDays": "Días de acceso",
+      "hours": "Horas",
+      "hoursHelp": "Se suman al saldo de horas del turista al canjear."
     },
     "owners": {
       "title": "Rendimiento por owner",
@@ -2764,12 +2771,14 @@
         "uniqueUsers": "Usuarios únicos",
         "converted": "Convertidos",
         "daysGranted": "Días otorgados",
-        "lastRedeemed": "Último canje"
+        "lastRedeemed": "Último canje",
+        "hoursGranted": "Horas otorgadas"
       },
       "errors": {
         "loadFailed": "Error al cargar el rendimiento",
         "loadNetwork": "No se pudo cargar el rendimiento por owner"
-      }
+      },
+      "hoursGranted": "Horas otorgadas"
     }
   },
   "Finance": {

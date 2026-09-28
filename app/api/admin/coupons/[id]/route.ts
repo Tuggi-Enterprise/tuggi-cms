@@ -9,7 +9,7 @@
  *                       misattribute past + future redemptions
  *   - redeemed_count    historical counter, written by the redeem flow
  *
- * Everything else is mutable — durations, eligibility rules, redemption
+ * Everything else is mutable — the grant (kind + amount), eligibility rules, redemption
  * limits, validity window, internal notes, and the is_active toggle.
  * The CMS shows a banner warning the admin when editing a coupon that
  * already has redemptions, so the impact on existing users is explicit.
@@ -21,6 +21,7 @@ import {
   getSupabaseRouteHandler,
   getSupabaseService,
 } from '@/lib/core/supabase-client';
+import { couponWriteRefusal, parseCouponGrant } from '@/lib/coupons/grant';
 
 async function isAdmin(): Promise<boolean> {
   const cookieStore = await cookies();
@@ -41,8 +42,13 @@ async function isAdmin(): Promise<boolean> {
   return !!cmsUser && !cmsError && cmsUser.role === 'admin';
 }
 
+/**
+ * The grant travels as a unit (BR-MONETIZACAO-047): touching any of the three rewrites all
+ * three, so a patch can never leave a row that `coupons_natureza_ck` refuses.
+ */
+const GRANT_FIELDS = ['grant_kind', 'grant_minutes', 'duration_days'] as const;
+
 const EDITABLE_FIELDS = [
-  'duration_days',
   'eligibility',
   'stack_with_active',
   'max_redemptions',
@@ -78,6 +84,22 @@ export async function PATCH(
       }
     }
 
+    if (GRANT_FIELDS.some(field => field in body)) {
+      // Explicit kind required here: defaulting to `until` would silently turn an hours
+      // coupon into a days coupon on a patch that only sent `duration_days`.
+      if (!('grant_kind' in body)) {
+        return NextResponse.json(
+          { error: 'grant_kind is required when changing the grant' },
+          { status: 400 }
+        );
+      }
+      const grant = parseCouponGrant(body);
+      if (!grant.ok) {
+        return NextResponse.json({ error: grant.error }, { status: 400 });
+      }
+      Object.assign(updateData, grant.fields);
+    }
+
     if (Object.keys(updateData).length === 0) {
       return NextResponse.json(
         { error: 'No editable fields provided' },
@@ -86,15 +108,6 @@ export async function PATCH(
     }
 
     // Server-side validation for shape — keep the same rules as POST.
-    if ('duration_days' in updateData) {
-      const v = updateData.duration_days;
-      if (typeof v !== 'number' || !Number.isFinite(v) || v < 1) {
-        return NextResponse.json(
-          { error: 'duration_days must be a positive integer' },
-          { status: 400 }
-        );
-      }
-    }
     if ('eligibility' in updateData) {
       const v = updateData.eligibility;
       if (v !== 'any' && v !== 'new_subscribers_only') {
@@ -139,6 +152,9 @@ export async function PATCH(
       .single();
 
     if (error) {
+      // BR-MONETIZACAO-063 item 7: the cap is the database's, raised as TGM63.
+      const refusal = couponWriteRefusal(error);
+      if (refusal) return NextResponse.json(refusal.body, { status: refusal.status });
       return NextResponse.json({ error: error.message }, { status: 500 });
     }
 

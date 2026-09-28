@@ -2994,7 +2994,9 @@
       "cancel": "Cancelar",
       "validation": {
         "codeMinLength": "O código deve ter ao menos 3 caracteres.",
-        "durationMin": "A duração deve ser de pelo menos 1 dia."
+        "durationMin": "A duração deve ser de pelo menos 1 dia.",
+        "hoursMin": "Informe um número inteiro de horas, a partir de 1.",
+        "aboveCap": "O cupom passa do teto de {hours} h por resgate."
       },
       "errors": {
         "create": "Falha ao criar cupom",
@@ -3006,7 +3008,12 @@
         "created": "Cupom {code} criado.",
         "updated": "Cupom {code} atualizado."
       },
-      "redemptionWarning": "Este cupom já tem {count} resgate(s). Alterações em duração, elegibilidade ou limites afetam apenas resgates futuros — os já consumidos não mudam."
+      "redemptionWarning": "Este cupom já tem {count} resgate(s). Alterações em duração, elegibilidade ou limites afetam apenas resgates futuros — os já consumidos não mudam.",
+      "grantKind": "Concede",
+      "grantKindHours": "Horas de saldo",
+      "grantKindDays": "Dias de acesso",
+      "hours": "Horas",
+      "hoursHelp": "Somadas ao saldo de horas do turista no resgate."
     },
     "owners": {
       "title": "Desempenho por owner",
@@ -3025,12 +3032,14 @@
         "uniqueUsers": "Usuários únicos",
         "converted": "Convertidos",
         "daysGranted": "Dias concedidos",
-        "lastRedeemed": "Último resgate"
+        "lastRedeemed": "Último resgate",
+        "hoursGranted": "Horas concedidas"
       },
       "errors": {
         "loadFailed": "Falha ao carregar desempenho",
         "loadNetwork": "Não foi possível carregar o desempenho por owner"
-      }
+      },
+      "hoursGranted": "Horas concedidas"
     }
   },
   "PartnerForm": {

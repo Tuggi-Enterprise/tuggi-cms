@@ -2751,7 +2751,9 @@
       "cancel": "Cancel",
       "validation": {
         "codeMinLength": "Code must be at least 3 characters.",
-        "durationMin": "Duration must be at least 1 day."
+        "durationMin": "Duration must be at least 1 day.",
+        "hoursMin": "Enter a whole number of hours, 1 or more.",
+        "aboveCap": "The coupon exceeds the cap of {hours} h per redemption."
       },
       "errors": {
         "create": "Failed to create coupon",
@@ -2763,7 +2765,12 @@
         "created": "Coupon {code} created.",
         "updated": "Coupon {code} updated."
       },
-      "redemptionWarning": "This coupon already has {count} redemption(s). Changes to duration, eligibility or limits only affect future redemptions — already consumed ones don't change."
+      "redemptionWarning": "This coupon already has {count} redemption(s). Changes to duration, eligibility or limits only affect future redemptions — already consumed ones don't change.",
+      "grantKind": "Grants",
+      "grantKindHours": "Hours of balance",
+      "grantKindDays": "Days of access",
+      "hours": "Hours",
+      "hoursHelp": "Added to the tourist's hour balance on redemption."
     },
     "owners": {
       "title": "Owner performance",
@@ -2782,12 +2789,14 @@
         "uniqueUsers": "Unique users",
         "converted": "Converted",
         "daysGranted": "Days granted",
-        "lastRedeemed": "Last redeemed"
+        "lastRedeemed": "Last redeemed",
+        "hoursGranted": "Hours granted"
       },
       "errors": {
         "loadFailed": "Failed to load performance",
         "loadNetwork": "Could not load owner performance"
-      }
+      },
+      "hoursGranted": "Hours granted"
     }
   },
   "Finance": {

@@ -16,6 +16,7 @@ import {
 import Link from 'next/link';
 import { useTranslations } from 'next-intl';
 import type { Coupon } from '@/types/coupons';
+import { formatCouponGrant } from '@/lib/coupons/grant';
 
 interface CouponsListAdminProps {
   onCreateNew: () => void;
@@ -265,7 +266,7 @@ export function CouponsListAdmin({
                       )}
                     </td>
                   )}
-                  <td className="px-4 py-3">{c.duration_days} {t('days')}</td>
+                  <td className="px-4 py-3">{formatCouponGrant(c, t('days'))}</td>
                   <td className="px-4 py-3 text-xs">
                     <span className="rounded-full bg-gray-100 px-2 py-0.5 text-gray-700">
                       {c.eligibility === 'new_subscribers_only'
