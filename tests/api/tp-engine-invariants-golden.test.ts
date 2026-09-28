@@ -475,15 +475,8 @@ describe('A POI with a border leaves with at least one TP outside it (INV-E11b, 
 // ============================================================================================
 describe('Every perimeter sector with a way in reach has a TP (INV-E10d, BR-AUDIO-010, #772)', { skip: CAN_RUN ? false : SKIP_REASON }, () => {
   const COVERED: Array<{ poi: string; id: string; todo?: string }> = [
-    {
-      poi: 'Estádio Nilton Santos', id: POI_ID.estadioNiltonSantos,
-      // Open question for the Tech Lead (#772, 2026-09-28): the stadium is `landmark_high` now, and
-      // INV-E10d is the `area`/`linear` selection. Its perimeter sector 4 was covered only by a
-      // motorway TP at 407 m that saw 2/41 aims (the top 0.4 m over 26 m buildings, forgiven by the
-      // 4 m surface margin on a measured height). Without it the sector's one seen candidate (111 m)
-      // loses to the 200 m landmark spacing. Does a `landmark_high` owe perimeter coverage?
-      todo: 'INV-E10d is area/linear; the stadium is landmark_high and its sector-4 TP had no sight (BR-POI-009)',
-    },
+    // Estádio Nilton Santos left this list (2026-09-28): it is `landmark_high` since a7cea263
+    // (38.6 m from 3D-GloBFP), and INV-E10d is the `area`/`linear` selection (motor-de-tp.md).
     { poi: 'Lagoa Rodrigo de Freitas', id: POI_ID.lagoaRodrigoDeFreitas },
   ]
   for (const { poi, id, todo } of COVERED) {
