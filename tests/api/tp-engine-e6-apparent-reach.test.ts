@@ -99,6 +99,30 @@ describe('INV-E6 / INV-E10, BR-AUDIO-010 — cota longe própria (maxFarTPs), se
     const out = selectSpacedTriggerPoints([sameSectorStreet, otherSector, sameSectorFerry, near], pointLow(), C)
     assert.deepEqual(out.filter(t => t.distance > 60).map(t => t.id).sort(), ['B', 'C'])
   })
+
+  it('#786: a rua perto no setor não cobre quem vai embarcado — o VLT fica, e a barca não toma o lugar dele (Museu do Amanhã)', () => {
+    const near = tp('n0', 20, 0.0003)
+    const tram = tp('T', 150, 0.0014, 'railway_tram', 0.5)
+    const ferry = tp('F', 150, -0.001, 'ferry', 0.8, 0.001)
+    const orla = tp('P', 150, -0.0015, 'pedestrian', 0.9)
+    const out = selectSpacedTriggerPoints([orla, ferry, tram, near], pointLow(), C)
+    assert.deepEqual(out.filter(t => t.distance > 60).map(t => t.id).sort(), ['F', 'T'])
+  })
+
+  it('area: o setor do longe é o setor de perímetro (INV-E10d), não o de 45° do centroide (Ilha do Fundão)', () => {
+    const M_LAT = 110_540, M_LNG = 111_320 * Math.cos((C.lat * Math.PI) / 180)
+    const polar = (deg: number, m: number) => ({ lat: C.lat + (m * Math.cos((deg * Math.PI) / 180)) / M_LAT, lng: C.lng + (m * Math.sin((deg * Math.PI) / 180)) / M_LNG })
+    const ring = Array.from({ length: 361 }, (_, i) => polar(i % 360, 500))
+    const at = (id: string, deg: number, out: number, type: string, quality: number) => ({ ...tp(id, out, 0, type, quality), location: polar(deg, 500 + out) })
+    const area = buildClassification(VisibilityClass.AREA, { heightM: 0, prominenceM: 0, areaM2: 785_000, extentM: 1000 })
+    const near = at('n0', 0, 20, 'primary', 0.9)
+    const besideNear = at('W', 5, 150, 'motorway', 1) // mesmo trecho da borda do TP perto
+    const gap = at('X', 30, 150, 'motorway', 0.9) // mesmo setor de 45°, outro trecho da borda
+    const y = at('Y', 200, 150, 'motorway', 0.5)
+    const z = at('Z', 260, 150, 'motorway', 0.4)
+    const out = selectSpacedTriggerPoints([besideNear, gap, y, z, near], area, C, undefined, ring)
+    assert.deepEqual(out.filter(t => t.distance > 100).map(t => t.id).sort(), ['X', 'Y'])
+  })
 })
 
 describe('INV-E6, BR-AUDIO-010 — além do teto da classe só via de turista, medida na borda simplificada', () => {

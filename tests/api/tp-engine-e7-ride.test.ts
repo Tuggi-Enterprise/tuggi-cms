@@ -37,6 +37,14 @@ describe('INV-E7a, BR-AUDIO-010 — the surface train and the ferry are observer
     assert.equal(isObserverWay({ type: 'primary', tags: { layer: '-1' } }), true, 'a street keeps its old rule: only the tunnel tag')
   })
 
+  it('a yard or spur track carries no passenger (OSM service=yard|spur): not an observer path; a siding still is (Museu do Amanhã)', () => {
+    assert.equal(isObserverWay({ type: 'railway_rail', tags: { service: 'yard' } }), false)
+    assert.equal(isObserverWay({ type: 'railway_tram', tags: { service: 'yard' } }), false)
+    assert.equal(isObserverWay({ type: 'railway_rail', tags: { service: 'spur' } }), false)
+    assert.equal(isObserverWay({ type: 'railway_rail', tags: { service: 'siding' } }), true)
+    assert.equal(isObserverWay({ type: 'residential', tags: { service: 'yard' } }), true, 'a street is not a track')
+  })
+
   it('INV-E10a: the train and the ferry are tourist ways (tier 0), not trails', () => {
     for (const type of ['railway_rail', 'railway_subway', 'ferry']) {
       assert.equal(landmarkStreetTier(type), 0, type)

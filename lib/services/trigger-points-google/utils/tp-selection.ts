@@ -233,16 +233,22 @@ export function selectSpacedTriggerPoints(
       const r = tryAccept(tp);
       if (!why?.has(tp)) why?.set(tp, `${tp.street?.type || '?'}; ${r === 'won' || r === 'taken' ? 'won' : `lost: ${r}`}`);
     }
-    // Far (INV-E6 by size, INV-E10a): the landmark's cell (`landmarkCellOf`) and way ranking
-    // (`landmarkStreetTier`, `observerPath`). Each far TP goes where no accepted TP is yet — a
-    // sector first, then a way (the ferry, the orla) — then the tourist way, then quality.
+    // Far (INV-E6 by size, INV-E10a): each far TP goes where no accepted TP of ITS public is yet —
+    // a sector first, then a way — then the tourist way (`landmarkStreetTier`), then quality.
+    // The public is the street, or each way the tourist rides (`observerPath`: the tram, the
+    // ferry): the passenger is not the driver beside the line, nor the one on the other ride
+    // (#786 — the VLT at the Museu do Amanhã lost to a footway in its sector). The sector of an
+    // area/linear is the perimeter sector of INV-E10d: from the centroid of a 5 km island, 45°
+    // took the whole Linha Vermelha as covered by the TPs at its two ends (Ilha do Fundão).
     const farPool = sizeFarFromM === null ? [] : ranked.filter(tp => !inFloor(tp));
-    const sectorOf = (tp: TriggerPoint) => landmarkCellOf(tp, centre).sector;
+    const edgeSectorOf = perimeterRing ? perimeterSectors(perimeterRing).sectorOf : null;
+    const sectorOf = (tp: TriggerPoint) => (edgeSectorOf ? edgeSectorOf(tp.location) : landmarkCellOf(tp, centre).sector);
+    const publicOf = (tp: TriggerPoint) => (observerPath(tp.street?.type) === 'ride' ? tp.street!.type : 'street');
     while (far < maxFar && farPool.length) {
-      const sectors = new Set(accepted.map(sectorOf));
-      const paths = new Set(accepted.map(a => observerPath(a.street?.type)));
+      const sectors = new Set(accepted.map(a => `${publicOf(a)}:${sectorOf(a)}`));
+      const paths = new Set(accepted.map(publicOf));
       const key = (tp: TriggerPoint) => [
-        sectors.has(sectorOf(tp)) ? 1 : 0, paths.has(observerPath(tp.street?.type)) ? 1 : 0, landmarkStreetTier(tp.street?.type), -tp.quality,
+        sectors.has(`${publicOf(tp)}:${sectorOf(tp)}`) ? 1 : 0, paths.has(publicOf(tp)) ? 1 : 0, landmarkStreetTier(tp.street?.type), -tp.quality,
       ];
       farPool.sort((a, b) => { const ka = key(a), kb = key(b); return ka[0] - kb[0] || ka[1] - kb[1] || ka[2] - kb[2] || ka[3] - kb[3]; });
       const tp = farPool.shift()!;

@@ -56,9 +56,18 @@ export function isSurfaceWay(type: string, tags?: Record<string, unknown> | null
   return !(type.startsWith('railway') && Number.parseInt(String(tags?.layer ?? '0'), 10) < 0);
 }
 
+/**
+ * Railway `service` values no passenger rides (OSM wiki Key:service): the company's yard and the
+ * spur to a factory or harbour. The freight yard of the port stood 138 m from the Museu do
+ * Amanhã and took the rider's place from the VLT (#786). `siding` may board passengers; it stays.
+ */
+const NON_PASSENGER_RAIL_SERVICE = ['yard', 'spur'];
+
 /** A way the tourist travels on, above ground (INV-E7a, BR-AUDIO-010): the TP may stand on it. */
 export function isObserverWay(street: Pick<StreetData, 'type'> & { tags?: unknown }): boolean {
-  return ACCESSIBLE_ROUTE_TYPES.has(street.type) && isSurfaceWay(street.type, street.tags as Record<string, unknown> | undefined);
+  const tags = street.tags as Record<string, unknown> | undefined;
+  if (street.type.startsWith('railway') && NON_PASSENGER_RAIL_SERVICE.includes(String(tags?.service ?? ''))) return false;
+  return ACCESSIBLE_ROUTE_TYPES.has(street.type) && isSurfaceWay(street.type, tags);
 }
 
 /** A street the reach left out (E6), for the trace. */
