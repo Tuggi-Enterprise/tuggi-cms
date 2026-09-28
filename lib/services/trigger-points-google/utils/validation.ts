@@ -5,7 +5,7 @@
 
 import { TriggerPointForDB } from './conversion'
 import { calculateDistance, calculateDistanceToPolygon, streetFootOnEdge } from './calculations'
-import { SANITY_MAX_TP_DISTANCE_M } from '../config/visibility-class'
+import { SANITY_MAX_TP_DISTANCE_M, VisibilityClass, sizeReachFarFromM } from '../config/visibility-class'
 
 export interface ValidationError {
   field: string
@@ -227,12 +227,80 @@ export function edgeDistanceM(
  */
 export function streetEdgeReach(
   street: { coordinates?: LatLng[]; fullCoordinates?: LatLng[] },
-  boundary: { coordinates?: LatLng[]; synthetic?: boolean; center: LatLng },
+  boundary: FarLaneBoundary,
   reachM: number
 ): { within: boolean; edgeDistanceM: number | null; foot: LatLng | null } {
   const coords = street.fullCoordinates?.length ? street.fullCoordinates : street.coordinates
-  const foot = coords?.length ? streetFootOnEdge(coords, boundary.center, poiEdgeRing(boundary)) : null
+  const foot = coords?.length ? streetFootOnEdgeFarLane(coords, boundary) : null
   return { within: !!foot && foot.edgeDistanceM <= reachM, edgeDistanceM: foot?.edgeDistanceM ?? null, foot: foot?.point ?? null }
+}
+
+type FarLaneBoundary = { coordinates?: LatLng[]; synthetic?: boolean; center: LatLng; classification?: { group?: VisibilityClass } | null }
+
+/**
+ * Tolerance of the coarse edge (`coarseEdgeRing`). Only a distance past the near/far split
+ * (`sizeReachFarFromM`) by more than this is read on it: near stays exact.
+ */
+export const COARSE_EDGE_TOLERANCE_M = 10
+const coarseRings = new WeakMap<LatLng[], LatLng[]>()
+
+/**
+ * The edge simplified to COARSE_EDGE_TOLERANCE_M (Douglas–Peucker, local metres), cached per
+ * ring. The foot of a street is (street + edge vertices) × edge vertices: on the 1,000-vertex
+ * Ilha do Fundão, ~25 ms a street, and the size reach brings hundreds of far streets (INV-E6).
+ */
+export function coarseEdgeRing(ring: LatLng[]): LatLng[] {
+  const hit = coarseRings.get(ring)
+  if (hit) return hit
+  const o = ring[0]
+  const kx = 111_320 * Math.cos((o.lat * Math.PI) / 180)
+  const ky = 110_540
+  const xy = ring.map(p => [(p.lng - o.lng) * kx, (p.lat - o.lat) * ky])
+  const keep = new Uint8Array(ring.length)
+  keep[0] = keep[ring.length - 1] = 1
+  const stack: Array<[number, number]> = [[0, ring.length - 1]]
+  while (stack.length) {
+    const [a, b] = stack.pop()!
+    const [ax, ay] = xy[a], [bx, by] = xy[b]
+    const dx = bx - ax, dy = by - ay, len2 = dx * dx + dy * dy
+    let worst = -1, worstD = COARSE_EDGE_TOLERANCE_M
+    for (let i = a + 1; i < b; i++) {
+      const t = len2 ? Math.max(0, Math.min(1, ((xy[i][0] - ax) * dx + (xy[i][1] - ay) * dy) / len2)) : 0
+      const d = Math.hypot(xy[i][0] - ax - t * dx, xy[i][1] - ay - t * dy)
+      if (d > worstD) { worst = i; worstD = d }
+    }
+    if (worst >= 0) { keep[worst] = 1; stack.push([a, worst], [worst, b]) }
+  }
+  const out = ring.filter((_, i) => keep[i])
+  const coarse = out.length >= 3 ? out : ring
+  coarseRings.set(ring, coarse)
+  return coarse
+}
+
+/**
+ * `streetFootOnEdge` for the size reach (INV-E6): outside `landmark_high`, a street that the
+ * coarse edge already puts past the near/far split (+ COARSE_EDGE_TOLERANCE_M) keeps that
+ * foot, within the tolerance; anything closer, and every landmark, is measured on the real edge.
+ */
+export function streetFootOnEdgeFarLane(coords: LatLng[], boundary: FarLaneBoundary): { point: LatLng; edgeDistanceM: number } | null {
+  const ring = poiEdgeRing(boundary)
+  const farFromM = sizeReachFarFromM(boundary.classification?.group)
+  if (ring && farFromM !== null) {
+    const coarse = streetFootOnEdge(coords, boundary.center, coarseEdgeRing(ring))
+    if (coarse && coarse.edgeDistanceM > farFromM + COARSE_EDGE_TOLERANCE_M) return coarse
+  }
+  return streetFootOnEdge(coords, boundary.center, ring)
+}
+
+/** `edgeDistanceM` with the same far lane as `streetFootOnEdgeFarLane`. */
+export function edgeDistanceFarLaneM(p: LatLng, boundary: FarLaneBoundary): number {
+  const ring = poiEdgeRing(boundary)
+  const farFromM = sizeReachFarFromM(boundary.classification?.group)
+  if (ring && farFromM !== null) {
+    const coarse = calculateDistanceToPolygon(p, coarseEdgeRing(ring))
+    if (coarse > farFromM + COARSE_EDGE_TOLERANCE_M) return coarse
+  }
+  return edgeDistanceM(p, boundary)
 }
 
 /**

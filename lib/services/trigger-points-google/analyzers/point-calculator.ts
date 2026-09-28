@@ -1,12 +1,13 @@
 // Calculador de pontos ótimos para trigger points
 
 import { POIData, BoundaryData, GeographicContext, StreetData, TriggerPointCandidate } from '../types/interfaces';
-import { calculateBearing, calculateDistance, findClosestPointOnBoundary, streetFootOnEdge, samplePolylineAround } from '../utils/calculations';
-import { edgeDistanceM, poiEdgeRing, streetEdgeReach, tpReachCapM } from '../utils/validation';
+import { calculateBearing, calculateDistance, findClosestPointOnBoundary, samplePolylineAround } from '../utils/calculations';
+import { edgeDistanceFarLaneM, poiEdgeRing, streetEdgeReach, streetFootOnEdgeFarLane, tpReachCapM } from '../utils/validation';
 import { TRIGGER_POINTS_CONSTANTS } from '../config/trigger-points-config';
 import {
   EDGE_BAND_M,
   FAR_CANDIDATES_PER_CELL,
+  FAR_STREET_TYPES,
   landmarkStreetTier,
   observerPath,
   FAR_CELL_SPACING_M,
@@ -15,6 +16,7 @@ import {
   landmarkSectorOf,
   VisibilityClass,
   proximityRankScore,
+  sizeReachFarFromM,
 } from '../config/visibility-class';
 import { measureAndClassify } from '../services/poi-classifier.service';
 
@@ -198,6 +200,7 @@ export class OptimalPointCalculator {
     // (INV-E10d), and with one candidate every `minSpacing` a sector whose street is in reach for
     // under 100 m got none, or only one inside its neighbour's spacing (Estádio Nilton Santos: 2 of
     // 5 sectors bare at a half, none at a quarter, #772).
+    const farFromM = sizeReachFarFromM(classification.group);
     const walkStepM = ring && (classification.group === VisibilityClass.AREA || classification.group === VisibilityClass.LINEAR)
       ? minSpacing / 4
       : minSpacing;
@@ -207,12 +210,15 @@ export class OptimalPointCalculator {
 
       // INV-E7b: the first candidate is the foot of the perpendicular from the POI edge on the
       // street, then outwards both ways, one every `minSpacing` meters of arc length.
-      const foot = streetFootOnEdge(street.coordinates, boundary.center, ring);
+      const foot = streetFootOnEdgeFarLane(street.coordinates, boundary);
       if (!foot || foot.edgeDistanceM > reachM) continue;
+      const touristWay = FAR_STREET_TYPES.includes(street.type);
 
       for (const pointOnStreet of samplePolylineAround(street.coordinates, foot.point, walkStepM)) {
-        const edgeDistance = edgeDistanceM(pointOnStreet, boundary);
+        const edgeDistance = edgeDistanceFarLaneM(pointOnStreet, boundary);
         if (edgeDistance > reachM) continue;
+        // INV-E6 by size: beyond the class table, a tourist way only (`sizeReachFarFromM`).
+        if (farFromM !== null && edgeDistance > farFromM && !touristWay) continue;
         // Bearing points at the closest point of the edge — right for any POI shape.
         const target = ring ? findClosestPointOnBoundary(pointOnStreet, ring) : boundary.center;
         candidates.push({
@@ -226,9 +232,12 @@ export class OptimalPointCalculator {
       }
     }
 
-    const out = classification.group === VisibilityClass.LANDMARK_HIGH
+    // Far candidates are sampled by cell (INV-E7c). Outside `landmark_high` far starts at the
+    // class table and E10 keeps only `maxFarTPs` of them: a cell holds FAR_CANDIDATES_PER_CELL,
+    // not every tourist-way candidate (INV-E6 by size).
+    const out = farFromM === null
       ? sampleFarBySectorAndRing(candidates, boundary.center)
-      : candidates;
+      : sampleFarBySectorAndRing(candidates, boundary.center, farFromM, false);
     console.log(`👁️ FAN-WALK: ${out.length} candidates (${candidates.length} walked) from ${streets.length} streets, reach ${reachM} m`);
     return out;
   }
@@ -245,13 +254,17 @@ export class OptimalPointCalculator {
  */
 export function sampleFarBySectorAndRing(
   candidates: TriggerPointCandidate[],
-  centre: { lat: number; lng: number }
+  centre: { lat: number; lng: number },
+  /** where far starts: EDGE_BAND_M for a landmark, the class table otherwise (`sizeReachFarFromM`) */
+  farFromM = EDGE_BAND_M,
+  /** a landmark keeps every inner tourist-way candidate (E10 fills 28 cells); the other classes keep 2 */
+  keepEveryInnerTouristWay = true
 ): TriggerPointCandidate[] {
-  const near = candidates.filter(c => c.distance <= EDGE_BAND_M);
+  const near = candidates.filter(c => c.distance <= farFromM);
   const innerLimitM = LANDMARK_CELL_RINGS_M[LANDMARK_CELL_RINGS_M.length - 1];
   const cells = new Map<string, TriggerPointCandidate[]>();
   for (const c of candidates) {
-    if (c.distance <= EDGE_BAND_M) continue;
+    if (c.distance <= farFromM) continue;
     if (c.distance > innerLimitM && landmarkStreetTier(c.street?.type) > 0) continue;
     const ringIdx = FAR_RINGS_M.findIndex(r => c.distance <= r);
     const sector = landmarkSectorOf(calculateBearing(centre, c.location), c.distance);
@@ -265,7 +278,7 @@ export function sampleFarBySectorAndRing(
     const inner = cell[0].distance <= innerLimitM;
     const kept: TriggerPointCandidate[] = [];
     for (const c of cell) {
-      const byLength = inner && landmarkStreetTier(c.street?.type) === 0;
+      const byLength = keepEveryInnerTouristWay && inner && landmarkStreetTier(c.street?.type) === 0;
       if (!byLength && kept.length >= FAR_CANDIDATES_PER_CELL) break;
       if (kept.some(k => observerPath(k.street?.type) === observerPath(c.street?.type)
         && calculateDistance(k.location, c.location) < FAR_CELL_SPACING_M)) continue;

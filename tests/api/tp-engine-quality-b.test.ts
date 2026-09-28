@@ -7,6 +7,8 @@ import {
   CLASS_LIMITS,
   fanHorizonM,
   SANITY_MAX_TP_DISTANCE_M,
+  maxEdgeDistanceFor,
+  boundaryShape,
 } from '../../lib/services/trigger-points-google/config/visibility-class'
 import { tpReachCapM, partitionByPoiReach } from '../../lib/services/trigger-points-google/utils/validation'
 import { measureAndClassify, buildClassification } from '../../lib/services/trigger-points-google/services/poi-classifier.service'
@@ -91,7 +93,8 @@ describe('BR-AUDIO-010 — visibility class comes from physical attributes, not 
       dem.ground = original
     }
     assert.equal(c.group, VisibilityClass.POINT_LOW)
-    assert.equal(c.maxEdgeDistanceM, CLASS_LIMITS[VisibilityClass.POINT_LOW].maxEdgeDistanceM)
+    // INV-E6 by apparent size: a 4 × 4 m footprint reaches past the point_low floor, and no further than its size says
+    assert.equal(c.maxEdgeDistanceM, maxEdgeDistanceFor(VisibilityClass.POINT_LOW, 0, boundaryShape(rect(4, 4)).lengthM))
     assert.equal(c.minDistanceBetweenTPs, 2 * c.maxTPRadiusM)
   })
 })

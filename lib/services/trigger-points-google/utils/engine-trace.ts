@@ -13,6 +13,8 @@ import {
   MIN_APPARENT_ANGLE_DEG,
   LANDMARK_MIN_HEIGHT_M,
   LANDMARK_MIN_PROMINENCE_M,
+  APPARENT_REACH_CEILING_M,
+  RECOGNITION_ANGLE_DEG,
   STRUCTURE_BUILT_SHARE_MIN,
   STRUCTURE_MIN_HEIGHT_M,
   VisibilityClass,
@@ -67,7 +69,10 @@ export function poiTraceRows(poiId: string, boundary: BoundaryData | undefined):
     row('E5', 'visibility-class#visibilityClassRule', `${cls ?? 'none'} (${ph?.classRule ?? 'unmeasured'})`,
       `height landmark ≥ ${LANDMARK_MIN_HEIGHT_M} m; structure ≥ ${STRUCTURE_MIN_HEIGHT_M} m`),
     row('E6', 'validation#tpReachCapM', `${tpReachCapM(boundary.classification)} m`,
-      cls ? `class ${cls}: edge ≤ ${CLASS_LIMITS[cls].maxEdgeDistanceM} m, near ≤ ${CLASS_LIMITS[cls].maxTPs}, far ≤ ${CLASS_LIMITS[cls].maxFarTPs}` : 'unclassified'),
+      !cls ? 'unclassified'
+        : cls === VisibilityClass.LANDMARK_HIGH
+          ? `class ${cls}: edge ≤ ${CLASS_LIMITS[cls].maxEdgeDistanceM} m, near ≤ ${CLASS_LIMITS[cls].maxTPs}, far ≤ ${CLASS_LIMITS[cls].maxFarTPs}`
+          : `class ${cls}: size / tan ${RECOGNITION_ANGLE_DEG}°, ${CLASS_LIMITS[cls].maxEdgeDistanceM}–${APPARENT_REACH_CEILING_M} m; near ≤ ${CLASS_LIMITS[cls].maxEdgeDistanceM} m ≤ ${CLASS_LIMITS[cls].maxTPs}, far on a tourist way ≤ ${CLASS_LIMITS[cls].maxFarTPs}`),
     row('E6', 'trigger-point-predictor#attachVisibilityFan', `fan max ${m(boundary.visibilityFan?.maxDistanceM)}`),
   ];
   return rows;

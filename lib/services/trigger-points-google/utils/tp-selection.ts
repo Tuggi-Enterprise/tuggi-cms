@@ -6,7 +6,7 @@
  */
 import { StreetData, TriggerPoint } from '../types/interfaces';
 import { calculateBearing, calculateDistance, calculateDistanceToPolygon, closestPointOnSegment } from './calculations';
-import { EDGE_BAND_M, LANDMARK_CELL_RINGS_M, PERIMETER_SECTOR_M, SANITY_MAX_TP_DISTANCE_M, VisibilityClass, isCarStreet, landmarkSectorOf, landmarkStreetTier, observerPath, proximityBand, proximityRankScore } from '../config/visibility-class';
+import { EDGE_BAND_M, LANDMARK_CELL_RINGS_M, PERIMETER_SECTOR_M, SANITY_MAX_TP_DISTANCE_M, VisibilityClass, isCarStreet, landmarkSectorOf, landmarkStreetTier, observerPath, proximityBand, proximityRankScore, sizeReachFarFromM } from '../config/visibility-class';
 import { isApproachableForBearing } from '../../../geometry';
 import { partitionByPoiReach, poiEdgeRing, tpReachCapM } from './validation';
 
@@ -97,7 +97,9 @@ export function landmarkCellOf(tp: Pick<TriggerPoint, 'location' | 'distance' | 
  *   inner ones (#786); the cells with only a trail come last (#784). By proximity first, the
  *   Cristo had its TPs in the forest and none in Botafogo or Copacabana (#772).
  * - Other classes: proximity band to the edge first, then quality; long-perimeter classes first
- *   take the best TP of each approach direction.
+ *   take the best TP of each approach direction. All of it within the class table
+ *   (`sizeReachFarFromM`); beyond it, `maxFarTPs` more, each in a sector and on a way no
+ *   accepted TP holds yet (INV-E6 by size).
  */
 export function selectSpacedTriggerPoints(
   tps: TriggerPoint[],
@@ -115,10 +117,16 @@ export function selectSpacedTriggerPoints(
   const accepted: TriggerPoint[] = [];
   let near = 0;
   let far = 0;
+  // Outside `landmark_high` near ends at the class table (`sizeReachFarFromM`, INV-E6 by size):
+  // the near passes below see only what is within it, exactly as before the size reach, and the
+  // far TPs have their own `maxFarTPs` slots — they never take a near one.
+  const sizeFarFromM = sizeReachFarFromM(classification?.group);
+  const farFromM = sizeFarFromM ?? EDGE_BAND_M;
+  const inFloor = (tp: TriggerPoint) => tp.distance <= farFromM;
 
   const tryAccept = (tp: TriggerPoint, overCap = false): 'won' | 'cap' | 'spacing' | 'taken' => {
     if (accepted.includes(tp)) return 'taken';
-    const isFar = tp.distance > EDGE_BAND_M;
+    const isFar = !inFloor(tp);
     if (!overCap && (isFar ? far >= maxFar : near >= maxNear)) return 'cap';
     if (accepted.some(a => calculateDistance(a.location, tp.location) < minSpacingM(a, tp, classFloorM))) return 'spacing';
     accepted.push(tp);
@@ -192,7 +200,7 @@ export function selectSpacedTriggerPoints(
       // spacing is a physical floor, never waived.
       const { count, sectorOf, offMidM } = perimeterSectors(perimeterRing);
       const bySector = new Map<number, TriggerPoint[]>();
-      for (const tp of ranked) {
+      for (const tp of ranked.filter(inFloor)) {
         const k = sectorOf(tp.location);
         (bySector.get(k) ?? bySector.set(k, []).get(k)!).push(tp);
       }
@@ -213,18 +221,35 @@ export function selectSpacedTriggerPoints(
       const sliceDeg = 360 / COVERAGE_SLICES;
       const sliceOf = (bearing: number) => Math.floor((((bearing % 360) + 360) % 360) / sliceDeg);
       for (let s = 0; s < COVERAGE_SLICES; s++) {
-        const best = ranked.find(tp => sliceOf(tp.expectedBearing) === s);
+        const best = ranked.find(tp => inFloor(tp) && sliceOf(tp.expectedBearing) === s);
         if (best) tryAccept(best);
       }
     }
     // `point_low`: the closest car-street candidate goes first, so it wins spacing against a
     // sidewalk one (BR-POI-008, #772 — Árvore de Natal kept only the sidewalk at 12 m).
-    const carFirst = classification?.group === VisibilityClass.POINT_LOW ? ranked.find(tp => isCarStreet(tp.street?.type)) : undefined;
+    const carFirst = classification?.group === VisibilityClass.POINT_LOW ? ranked.find(tp => inFloor(tp) && isCarStreet(tp.street?.type)) : undefined;
     if (carFirst) why?.set(carFirst, `${carFirst.street?.type}; car street first: ${tryAccept(carFirst)}`);
-    for (const tp of ranked) {
+    for (const tp of sizeFarFromM === null ? ranked : ranked.filter(inFloor)) {
       const r = tryAccept(tp);
       if (!why?.has(tp)) why?.set(tp, `${tp.street?.type || '?'}; ${r === 'won' || r === 'taken' ? 'won' : `lost: ${r}`}`);
     }
+    // Far (INV-E6 by size, INV-E10a): the landmark's cell (`landmarkCellOf`) and way ranking
+    // (`landmarkStreetTier`, `observerPath`). Each far TP goes where no accepted TP is yet — a
+    // sector first, then a way (the ferry, the orla) — then the tourist way, then quality.
+    const farPool = sizeFarFromM === null ? [] : ranked.filter(tp => !inFloor(tp));
+    const sectorOf = (tp: TriggerPoint) => landmarkCellOf(tp, centre).sector;
+    while (far < maxFar && farPool.length) {
+      const sectors = new Set(accepted.map(sectorOf));
+      const paths = new Set(accepted.map(a => observerPath(a.street?.type)));
+      const key = (tp: TriggerPoint) => [
+        sectors.has(sectorOf(tp)) ? 1 : 0, paths.has(observerPath(tp.street?.type)) ? 1 : 0, landmarkStreetTier(tp.street?.type), -tp.quality,
+      ];
+      farPool.sort((a, b) => { const ka = key(a), kb = key(b); return ka[0] - kb[0] || ka[1] - kb[1] || ka[2] - kb[2] || ka[3] - kb[3]; });
+      const tp = farPool.shift()!;
+      const r = tryAccept(tp);
+      why?.set(tp, `${tp.street?.type || '?'}; far s${sectorOf(tp)}; ${r === 'won' ? 'won' : `lost: ${r}`}`);
+    }
+    for (const tp of farPool) if (!why?.has(tp)) why?.set(tp, `${tp.street?.type || '?'}; far; lost: cap`);
   }
 
   return accepted.sort((a, b) =>

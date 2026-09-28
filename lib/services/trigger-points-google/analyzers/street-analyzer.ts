@@ -5,7 +5,7 @@ import { POIData, BoundaryData, GeographicContext, StreetData } from '../types/i
 import { calculateDistance, isPointInPolygon, extractBuildingHeight, calculateBearing, calculateDistanceToLineSegment, calculateDistanceToPolygon, calculateDistanceToBoundary, findClosestPointOnBoundary, closestStreetPointToPoi } from '../utils/calculations';
 import { ElevationAnalysisService } from '../services/elevation-service';
 import { TRIGGER_POINTS_CONSTANTS } from '../config/trigger-points-config';
-import { FAR_STREETS_FROM_M, FAR_STREET_TILE_M, FAR_STREET_TYPES, VisibilityClass } from '../config/visibility-class';
+import { FAR_STREETS_FROM_M, FAR_STREET_TILE_M, FAR_STREET_TYPES, VisibilityClass, sizeReachFarFromM } from '../config/visibility-class';
 import { streetEdgeReach, tpReachCapM } from '../utils/validation';
 
 // Ways where users pass and can hear the audio guide (BR-AUDIO-010): car, bus, bicycle, on
@@ -237,18 +237,30 @@ export class StreetAnalyzer {
       const { LocalOSMFetcher } = require('../services/local-osm-fetcher');
       const ring = boundary.coordinates?.length ? boundary.coordinates : [boundary.center];
       const fetcher = LocalOSMFetcher.getInstance();
-      const nearM = Math.min(searchRadius, FAR_STREETS_FROM_M);
+      // `toOverpassElement` and the SQLite row name the same way differently
+      // ("osm_way_226041025" vs "226041025"); the along-the-edge one has the full geometry.
+      const normalizeId = (id: string | number) => String(id).replace(/^osm_way_/, '').replace(/^osm_/, '');
+      // INV-E6 by size, outside `landmark_high`: every way up to the class table, and beyond it
+      // a tourist way only (`sizeReachFarFromM`). All ways in 1.5 km of a 1,000-vertex edge
+      // made the Ilha do Fundão take 284 s for 2 far TPs (#772).
+      const farFromM = sizeReachFarFromM(boundary.classification?.group);
+      const split = farFromM !== null && searchRadius > farFromM;
+      const nearM = split ? farFromM : Math.min(searchRadius, FAR_STREETS_FROM_M);
       const along: StreetData[] | null = fetcher.fetchStreetsAlongBoundary(ring, nearM);
+      const nearIds = new Set((along ?? []).map(st => normalizeId(st.id)));
+      const isTouristWay = (st: StreetData) => FAR_STREET_TYPES.includes(st.type);
       // A landmark's far reach (INV-E7c): the through roads, tile by tile, so no direction is lost.
-      const far: StreetData[] = searchRadius > nearM
-        ? fetcher.fetchStreetsInTiles(boundary.center, searchRadius, FAR_STREET_TYPES, FAR_STREET_TILE_M) ?? []
-        : [];
-      if (along?.length || far.length || boundary.streets?.length) {
-        // `toOverpassElement` and the SQLite row name the same way differently
-        // ("osm_way_226041025" vs "226041025"); the along-the-edge one has the full geometry.
-        const normalizeId = (id: string | number) => String(id).replace(/^osm_way_/, '').replace(/^osm_/, '');
+      const far: StreetData[] = split
+        ? (fetcher.fetchStreetsAlongBoundary(ring, searchRadius) ?? []).filter(isTouristWay)
+        : searchRadius > nearM
+          ? fetcher.fetchStreetsInTiles(boundary.center, searchRadius, FAR_STREET_TYPES, FAR_STREET_TILE_M) ?? []
+          : [];
+      const consolidated = split
+        ? (boundary.streets ?? []).filter(st => isTouristWay(st) || nearIds.has(normalizeId(st.id)))
+        : boundary.streets ?? [];
+      if (along?.length || far.length || consolidated.length) {
         const merged = new Map<string, StreetData>();
-        for (const st of boundary.streets ?? []) merged.set(normalizeId(st.id), st);
+        for (const st of consolidated) merged.set(normalizeId(st.id), st);
         for (const st of [...far, ...(along ?? [])]) merged.set(normalizeId(st.id), st);
         return this.filterStreetsByReach(Array.from(merged.values()), boundary, searchRadius, rejected);
       }

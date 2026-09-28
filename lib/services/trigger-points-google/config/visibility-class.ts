@@ -172,21 +172,22 @@ export const FAR_STREET_TYPES = LANDMARK_TOURIST_STREET_TYPES;
 export const FAR_STREET_TILE_M = 3_000;
 
 export interface ClassLimits {
-  /** max distance from the TP to the POI EDGE */
+  /** max distance from the TP to the POI EDGE; outside `landmark_high`, the floor of the size reach (`maxEdgeDistanceFor`) and the near/far split (`sizeReachFarFromM`) */
   maxEdgeDistanceM: number;
   /** cap on the TP radius_meters */
   maxRadiusM: number;
-  /** max TPs inside the edge band (≤ EDGE_BAND_M) */
+  /** max near TPs: `landmark_high` inside the edge band (≤ EDGE_BAND_M), other classes within `maxEdgeDistanceM` */
   maxTPs: number;
-  /** max TPs beyond the edge band */
+  /** max far TPs, on top of `maxTPs` — never a near slot */
   maxFarTPs: number;
 }
 
 export const CLASS_LIMITS: Record<VisibilityClass, ClassLimits> = {
-  [VisibilityClass.POINT_LOW]: { maxEdgeDistanceM: 60, maxRadiusM: 30, maxTPs: 4, maxFarTPs: 0 },
-  [VisibilityClass.STRUCTURE]: { maxEdgeDistanceM: 100, maxRadiusM: 40, maxTPs: 6, maxFarTPs: 0 },
-  [VisibilityClass.AREA]: { maxEdgeDistanceM: 60, maxRadiusM: 50, maxTPs: 16, maxFarTPs: 0 },
-  [VisibilityClass.LINEAR]: { maxEdgeDistanceM: 60, maxRadiusM: 50, maxTPs: 16, maxFarTPs: 0 },
+  // maxFarTPs of the four: provisional, #775 — the far TPs of the size reach (INV-E6), on a tourist way.
+  [VisibilityClass.POINT_LOW]: { maxEdgeDistanceM: 60, maxRadiusM: 30, maxTPs: 4, maxFarTPs: 2 },
+  [VisibilityClass.STRUCTURE]: { maxEdgeDistanceM: 100, maxRadiusM: 40, maxTPs: 6, maxFarTPs: 2 },
+  [VisibilityClass.AREA]: { maxEdgeDistanceM: 60, maxRadiusM: 50, maxTPs: 16, maxFarTPs: 2 },
+  [VisibilityClass.LINEAR]: { maxEdgeDistanceM: 60, maxRadiusM: 50, maxTPs: 16, maxFarTPs: 2 },
   // Inner cells (INV-E10a): 8 sectors of 45° in 0–1 and 1–2 km + 16 of 22.5° in 2–4 km = 32;
   // 4 at the edge + 28 beyond. The horizon ring only after every inner cell is spent. The edge
   // band of a landmark is a handful of footways at its base. Provisional (#775).
@@ -194,14 +195,35 @@ export const CLASS_LIMITS: Record<VisibilityClass, ClassLimits> = {
 };
 
 /**
- * Max edge distance for the class. A landmark on elevated terrain (real prominence)
- * reaches the sanity cap; everything else uses the table.
+ * E6 by apparent size (INV-E6, BR-AUDIO-010): a passer-by recognises the POI while it fills
+ * at least this angle. Provisional, #775 — not the E8 pass mark (`MIN_APPARENT_ANGLE_DEG`).
  */
-export function maxEdgeDistanceFor(cls: VisibilityClass, prominenceM: number | null = 0): number {
-  if (cls === VisibilityClass.LANDMARK_HIGH && (prominenceM ?? 0) >= LANDMARK_MIN_PROMINENCE_M) {
-    return SANITY_MAX_TP_DISTANCE_M;
+export const RECOGNITION_ANGLE_DEG = 2;
+/** Ceiling of the apparent-size reach, from the edge. Provisional, #775. */
+export const APPARENT_REACH_CEILING_M = 1_500;
+
+/**
+ * Max edge distance for the class (INV-E6). `landmark_high`: the urban horizon, or the sanity
+ * cap on elevated terrain (real prominence). Every other class: its size S (max of the height
+ * and the longest extent of the footprint) over tan(RECOGNITION_ANGLE_DEG), never below the
+ * class table (the floor) nor above APPARENT_REACH_CEILING_M. A 3 m bust reaches ~86 m.
+ */
+export function maxEdgeDistanceFor(cls: VisibilityClass, prominenceM: number | null = 0, sizeM = 0): number {
+  if (cls === VisibilityClass.LANDMARK_HIGH) {
+    return (prominenceM ?? 0) >= LANDMARK_MIN_PROMINENCE_M ? SANITY_MAX_TP_DISTANCE_M : CLASS_LIMITS[cls].maxEdgeDistanceM;
   }
-  return CLASS_LIMITS[cls].maxEdgeDistanceM;
+  const bySize = sizeM / Math.tan((RECOGNITION_ANGLE_DEG * Math.PI) / 180);
+  return Math.round(Math.min(APPARENT_REACH_CEILING_M, Math.max(CLASS_LIMITS[cls].maxEdgeDistanceM, bySize)));
+}
+
+/**
+ * Near/far split of the size reach (INV-E6): outside `landmark_high` the class table
+ * (`maxEdgeDistanceM`) is where "near" ends. Beyond it only a tourist way (`FAR_STREET_TYPES`:
+ * avenue, promenade, ferry, train) is searched and walked, and a TP there takes one of the
+ * `maxFarTPs` slots. `null` for `landmark_high` (its own cells, INV-E10a) and unclassified.
+ */
+export function sizeReachFarFromM(cls?: VisibilityClass | null): number | null {
+  return cls && cls !== VisibilityClass.LANDMARK_HIGH ? CLASS_LIMITS[cls].maxEdgeDistanceM : null;
 }
 
 /** Horizon of an unclassified POI (legacy): approach floor. */

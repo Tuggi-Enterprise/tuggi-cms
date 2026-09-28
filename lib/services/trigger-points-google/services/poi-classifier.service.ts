@@ -13,6 +13,7 @@ import {
   ClassRule,
   HeightSource,
   maxEdgeDistanceFor,
+  boundaryShape,
   SUMMIT_MATCH_M,
   prominenceOverCityM,
   resolveHeightM,
@@ -86,10 +87,15 @@ export interface POIClassification {
 /** Builds the classification from the class — numbers live in CLASS_LIMITS. */
 export function buildClassification(
   cls: VisibilityClass,
-  m: { heightM: number; heightSource?: string; elevationM?: number | null; prominenceM: number | null; areaM2: number; urbanDensity?: string }
+  m: {
+    heightM: number; heightSource?: string; elevationM?: number | null; prominenceM: number | null; areaM2: number; urbanDensity?: string;
+    /** longest extent of the real footprint (`boundaryShape`); 0 for a synthetic circle (INV-E1b) */
+    extentM?: number;
+  }
 ): POIClassification {
   const limits = CLASS_LIMITS[cls];
-  const maxEdge = maxEdgeDistanceFor(cls, m.prominenceM);
+  // INV-E6: the reach is decided here, once, and read by `tpReachCapM` everywhere.
+  const maxEdge = maxEdgeDistanceFor(cls, m.prominenceM, Math.max(m.heightM, m.extentM ?? 0));
   return {
     group: cls,
     searchRadius: maxEdge,
@@ -157,6 +163,8 @@ export async function measureAndClassify(a: MeasureInput): Promise<{ classificat
       elevationM: top.groundM,
       prominenceM,
       areaM2,
+      // A synthetic circle is drawn, not measured: it is no size (INV-E1b), like its area.
+      extentM: a.synthetic ? 0 : boundaryShape(a.boundary).lengthM,
       urbanDensity: a.context?.urbanDensity?.level,
     }),
     physical: {
