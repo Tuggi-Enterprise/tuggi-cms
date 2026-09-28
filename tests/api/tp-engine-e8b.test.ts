@@ -84,6 +84,27 @@ describe('INV-E8b, BR-AUDIO-010 — the sight line aims at many points of the PO
     }
   })
 
+  it('INV-E8b: a relief landmark is seen by its summit — the upper half alone does not pass a candidate (#784)', async () => {
+    // a wall hides the summit from an observer 1 km east; two relief aims 200 m out stay in view,
+    // like a forest road under the Mirante Vista para a Cidade seeing the slope above it
+    const wall = (n: number, e: number) => (Math.abs(n) <= 5 && e >= 140 && e <= 160 ? 390 : GROUND)
+    const observer = at(0, 1_000)
+    const top = { at: PIN, altM: 400, kind: 'top' as const }
+    const slope = [
+      { at: at(0, 200), altM: 300, kind: 'relief' as const, ringM: 200 },
+      { at: at(141, 141), altM: 300, kind: 'relief' as const, ringM: 200 },
+    ]
+    const summitRing = { at: at(35, 35), altM: 380, kind: 'relief' as const, ringM: 50 }
+    await withRelief(wall, async () => {
+      const hidden = await VisibilityMapBuilder.measureSight([top, ...slope], observer)
+      assert.equal(hidden.visible, 2, 'the two slope aims are seen, the summit is not')
+      assert.ok(hidden.angleDeg >= MIN_APPARENT_ANGLE_DEG, `${hidden.angleDeg}`)
+      assert.equal(hidden.passes, false)
+      const seen = await VisibilityMapBuilder.measureSight([top, ...slope, summitRing], observer)
+      assert.equal(seen.passes, true, 'an aim 50 m from the top is the summit')
+    })
+  })
+
   it('INV-E8b: next to a long POI, the edge point facing the observer is an aim (the sampled ones are far)', async () => {
     const bridge = { coordinates: box(-5, 5, -5000, 5000), center: PIN, physical: { groundTopM: GROUND, heightM: 0, topPoint: PIN } }
     const observer = at(-40, 3000)

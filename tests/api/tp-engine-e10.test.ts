@@ -86,6 +86,17 @@ describe('INV-E10a, INV-E10c, BR-AUDIO-010 — landmark_high selects by cell cov
     assert.match(roomy.get(island), /lost: horizon needs a tourist street/)
   })
 
+  it('a cell with only a trail comes after the horizon: the path on the slope does not take the cap from a motorway 7 km out (#784)', () => {
+    const path = tp(200, 1_500, 'path', 0.9) // the Mirante Vista para a Cidade: a trail under the forest
+    const motorway = tp(0, 7_000, 'motorway', 0.4) // Méier, 7 km north
+    const why = new Map()
+    const out = selectSpacedTriggerPoints([path, motorway], { ...landmark, maxFarTriggerPoints: 1 }, PIN, why)
+    assert.deepEqual(out.map(t => t.id), [motorway.id])
+    assert.match(why.get(motorway), /won pass 1 \(horizon\)/)
+    assert.match(why.get(path), /tier 2 path; lost: cap/)
+    assert.equal(selectSpacedTriggerPoints([path, motorway], landmark, PIN).length, 2, 'with room, the trail gets in')
+  })
+
   it('from pass 2 on, the outer ring gets its second TP before the slope next to the POI', () => {
     const slope = [tp(80, 500, 'primary', 0.9), tp(84, 800, 'primary', 0.9)] // same ring-0 cell
     const ipanema = [tp(80, 2_300, 'primary', 0.5), tp(84, 3_300, 'primary', 0.5)] // same ring-2 cell

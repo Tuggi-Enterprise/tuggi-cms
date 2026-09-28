@@ -92,8 +92,9 @@ export function landmarkCellOf(tp: Pick<TriggerPoint, 'location' | 'distance' | 
  *   second TP in the same cell; inside the cell the street where the tourist circulates wins
  *   (`landmarkStreetTier`), then quality. Cells are walked by the tier of their best street,
  *   then ring by ring, so the cap cuts the cells without a tourist street first. The open-ended
- *   horizon ring comes only after every inner cell, and only on a tourist street. By proximity first, the Cristo had its TPs in the forest and none in
- *   Botafogo or Copacabana (#772).
+ *   horizon ring comes only after every inner cell with more than a trail, and only on a tourist
+ *   street; the cells with only a trail come last (#784). By proximity first, the Cristo had its
+ *   TPs in the forest and none in Botafogo or Copacabana (#772).
  * - Other classes: proximity band to the edge first, then quality; long-perimeter classes first
  *   take the best TP of each approach direction.
  */
@@ -151,7 +152,16 @@ export function selectSpacedTriggerPoints(
     const sectorOf = (k: string) => Number(k.split(':')[1]);
     const keys = [...cells.keys()].sort(byTierRingSector);
     const lost = new Map<TriggerPoint, string>();
-    for (const phase of [keys.filter(k => !k.startsWith(`${outer}:`)), keys.filter(k => k.startsWith(`${outer}:`))]) {
+    // The cells with only a trail (tier 2) after the horizon (#784): with the upper half of the
+    // relief as an aim, the trails on the slope under the Mirante took the cap from the
+    // motorways at 5–8 km that the operator had approved.
+    const isOuterKey = (k: string) => k.startsWith(`${outer}:`);
+    const phases = [
+      keys.filter(k => !isOuterKey(k) && tierRank.get(k)! < 2),
+      keys.filter(isOuterKey),
+      keys.filter(k => !isOuterKey(k) && tierRank.get(k)! === 2),
+    ];
+    for (const phase of phases) {
       const isOuter = phase[0]?.startsWith(`${outer}:`);
       // Pass k gives each cell its k-th TP: every covered cell before any cell gets a second one.
       // From pass 2 on, the outer rings first: a second TP 3 km out (Ipanema seen from the Irmão

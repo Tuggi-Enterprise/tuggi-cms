@@ -100,7 +100,7 @@ export interface SightRelief {
 type BuildingTop = { centroid: GeoPoint; topAltitudeM: number; polygon: GeoPoint[] };
 
 /** INV-E8b: one point of the POI the sight line aims at (altitude in metres). */
-export interface SightAim { at: GeoPoint; altM: number; kind: 'top' | 'mid' | 'edge' | 'relief' }
+export interface SightAim { at: GeoPoint; altM: number; kind: 'top' | 'mid' | 'edge' | 'relief'; ringM?: number }
 
 /** INV-E8b: graded sight from one observer; `fraction` and `angleDeg` go to the E8 trace. */
 export interface SightMeasure { visible: number; total: number; fraction: number; angleDeg: number; passes: boolean }
@@ -115,6 +115,14 @@ const EDGE_AIM_LEVELS = [0, 0.5, 1] as const;
 /** INV-E8b, relief landmark: 8 bearings × rings to 800 m, cut where the upper half ends (#784). */
 const RELIEF_AIM_BEARINGS = 8;
 const RELIEF_AIM_RINGS_M = [50, 100, 200, 400, 800] as const;
+/**
+ * INV-E8b (#784): the summit of a relief landmark — its footprint and the first relief ring. A
+ * candidate sees the landmark only when it sees one of these aims; the rings beyond give its size.
+ * 50 m is the reach the POI end had before #784 (`SKIP_NEAR_POI_M`), when the Mirante Vista para a
+ * Cidade was approved: every approved TP of the Mirante, the Pico da Carioca and the Igreja N. S.
+ * da Penna sees an aim within it; 15 of the 34 forest roads that entered with the upper half do not.
+ */
+const SUMMIT_RING_M = RELIEF_AIM_RINGS_M[0];
 
 /**
  * FAN ONLY: buildings this close to the POI (beyond its own boundary) are the POI itself or glued
@@ -439,7 +447,7 @@ export class VisibilityMapBuilder {
           const g = relief.ground(at.lat, at.lng);
           const top = relief.obstacle(at.lat, at.lng);
           if (g === null || top === null || g < upperHalfM) break; // left the upper half on this bearing
-          aims.push({ at, altM: top, kind: 'relief' });
+          aims.push({ at, altM: top, kind: 'relief', ringM: r });
         }
       }
     }
@@ -471,6 +479,8 @@ export class VisibilityMapBuilder {
    * obstacle) and the angle the visible part spans in his view — the largest angle between two
    * visible aims, seen from his eye. The candidate passes when that angle reaches
    * `MIN_APPARENT_ANGLE_DEG` (provisional, #775): one visible point is not a POI the tourist sees.
+   * With `relief` aims (a `landmark_prominence`), one aim of the summit (`SUMMIT_RING_M`) must be
+   * among the visible ones.
    */
   static async measureSight(
     aims: SightAim[],
@@ -486,12 +496,17 @@ export class VisibilityMapBuilder {
       if (await this.checkExactVisibility(aim.at, aim.altM, observer, options)) seen.push(aim);
     }
     const angleDeg = this.apparentAngleDeg(seen, observer);
+    // A relief landmark is seen by its summit: its upper half gives the size, never the sight.
+    // A patch of the slope above a road on the mountain, with the summit behind it, is not the
+    // landmark (#784: forest roads under the Mirante Vista para a Cidade).
+    const summitSeen =
+      !aims.some(a => a.kind === 'relief') || seen.some(a => a.kind !== 'relief' || (a.ringM ?? Infinity) <= SUMMIT_RING_M);
     return {
       visible: seen.length,
       total: aims.length,
       fraction: aims.length ? seen.length / aims.length : 0,
       angleDeg,
-      passes: angleDeg >= MIN_APPARENT_ANGLE_DEG,
+      passes: summitSeen && angleDeg >= MIN_APPARENT_ANGLE_DEG,
     };
   }
 
