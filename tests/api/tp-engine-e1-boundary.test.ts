@@ -353,3 +353,21 @@ describe('INV-E1c — a smaller element of the identity narrows the typed border
     assert.equal(r.data.osmId, '1')
   })
 })
+
+describe('INV-E1a — the ways of a line POI are its identity whatever the letter case (BR-POI-009, #779)', () => {
+  it('BR-POI-009: the query asks Overpass for the name ignoring case, escaped (Rio Pavuna / "Rio pavuna")', () => {
+    const q = choice.sameIdentityWaysQuery(674849609, ['Rio pavuna', 'Av. "A" (1)'], 30_000)
+    assert.match(q, /way\(674849609\)->\.a;/)
+    assert.ok(q.includes('way(around.a:30000)["name"~"^Rio pavuna$",i];'), q)
+    assert.ok(q.includes('["official_name"~"^Rio pavuna$",i];'), q)
+    assert.ok(q.includes('["name"~"^Av\\\\. \\"A\\" \\\\(1\\\\)$",i];'), q)
+  })
+
+  it('BR-POI-009: a way named "Rio Pavuna" continues a river whose curated way is "Rio pavuna"', () => {
+    const at = (m: number) => ({ lat: PIN.lat, lon: PIN.lng + m * M_LNG })
+    const start = { id: 1, tags: { waterway: 'stream', name: 'Rio pavuna' }, geometry: [at(0), at(100)] }
+    const ways = [{ id: 2, tags: { waterway: 'stream', name: 'Rio Pavuna' }, geometry: [at(100), at(900)] }]
+    const xs = choice.chainSameIdentity(start, ways).map(p => Math.round((p.lng - PIN.lng) / M_LNG))
+    assert.equal(Math.max(...xs), 900)
+  })
+})

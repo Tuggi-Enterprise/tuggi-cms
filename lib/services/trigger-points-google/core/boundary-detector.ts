@@ -9,7 +9,7 @@ import { ElevationAnalysisService } from '../services/elevation-service';
 import { TRIGGER_POINTS_CONSTANTS } from '../config/trigger-points-config';
 import { isCuratedBoundaryImplausible } from '../utils/osm-validation';
 import { DemStore } from '../../dem/dem-store';
-import { assembleOuterRings, chainSameIdentity, chooseContainingBoundary, corridorRing, footprintRing, IDENTITY_NEAR_PIN_M, LINE_CORRIDOR_HALF_WIDTH_M, outerRing, type BoundaryRejection, type OsmAreaElement } from '../utils/boundary-choice';
+import { assembleOuterRings, chainSameIdentity, sameIdentityWaysQuery, chooseContainingBoundary, corridorRing, footprintRing, IDENTITY_NEAR_PIN_M, LINE_CORRIDOR_HALF_WIDTH_M, outerRing, type BoundaryRejection, type OsmAreaElement } from '../utils/boundary-choice';
 
 /**
  * Radius of the circle that marks a POI with no footprint of its own: an OSM node, a pin with
@@ -2334,13 +2334,7 @@ out tags;
     const names = ['name', 'official_name'].map(k => element.tags?.[k]).filter((n: unknown) => typeof n === 'string' && n !== '');
     let ways: any[] = [];
     if (names.length > 0) {
-      const esc = (n: string) => n.replace(/\\/g, '\\\\').replace(/"/g, '\\"');
-      const query = `
-[out:json][timeout:60];
-way(${element.id})->.a;
-(${names.map((n: string) => `way(around.a:${SANITY_MAX_TP_DISTANCE_M})["name"="${esc(n)}"];way(around.a:${SANITY_MAX_TP_DISTANCE_M})["official_name"="${esc(n)}"];`).join('')});
-out geom;
-`;
+      const query = sameIdentityWaysQuery(element.id, names, SANITY_MAX_TP_DISTANCE_M);
       try {
         const response = await this.retryOSMQuery(query, `ways of the same identity as way(${element.id})`, 3, 2000);
         ways = (await response.json()).elements ?? [];
