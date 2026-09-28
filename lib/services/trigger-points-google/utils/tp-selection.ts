@@ -90,7 +90,7 @@ export function landmarkCellOf(tp: Pick<TriggerPoint, 'location' | 'distance' | 
  *
  * - `landmark_high` (INV-E10a/c): coverage first. One TP per cell (sector × ring) before any
  *   second TP in the same cell; inside the cell the street where the tourist circulates wins
- *   (`landmarkStreetTier`), then quality. Cells are walked by the tier of their best street,
+ *   (`landmarkStreetTier`), then the larger apparent angle (INV-E8b), then quality. Cells are walked by the tier of their best street,
  *   then ring by ring, so the cap cuts the cells without a tourist street first. The open-ended
  *   horizon ring comes only after every inner cell, and only on a tourist street. By proximity first, the Cristo had its TPs in the forest and none in
  *   Botafogo or Copacabana (#772).
@@ -134,7 +134,9 @@ export function selectSpacedTriggerPoints(
       (cells.get(key) ?? cells.set(key, []).get(key)!).push(tp);
     }
     const tierOf = (t: TriggerPoint) => landmarkStreetTier(t.street?.type);
-    for (const cell of cells.values()) cell.sort((a, b) => tierOf(a) - tierOf(b) || b.quality - a.quality);
+    // Same tier: where the POI looks bigger wins (INV-E8b); unmeasured ties, then quality.
+    const angleOf = (t: TriggerPoint) => t.apparentAngleDeg ?? 0;
+    for (const cell of cells.values()) cell.sort((a, b) => tierOf(a) - tierOf(b) || angleOf(b) - angleOf(a) || b.quality - a.quality);
     // Cells whose best street is a tourist street first, then ring, then sector: when the cap
     // cuts, it cuts the track- and service-only cells, not Copacabana (#772).
     const byTierRingSector = (a: string, b: string) => {

@@ -1074,6 +1074,7 @@ export class TriggerPointValidator {
       street: candidate.street,
       distance: candidate.distance,
       generationMethod: 'local_osm',
+      apparentAngleDeg: candidate.metadata?.sight?.angleDeg,
       contextData: context,
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString()

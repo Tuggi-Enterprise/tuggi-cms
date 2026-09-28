@@ -18,7 +18,7 @@ import { poiEdgeRing } from '../utils/validation';
 
 /** Radii searched around the border for the rescue TP (INV-E11b), closest first. Provisional (#775). */
 const REACH_RESCUE_RINGS_M = [150, 500, 1_500];
-import { EngineTraceRow, TracedPrediction, candidateKey, edgeDistanceM, poiTraceRows, stepTraceRows } from '../utils/engine-trace';
+import { EngineTraceRow, TracedPrediction, candidateKey, edgeDistanceM, SIGHT_TRACE_LIMIT, poiTraceRows, sightTraceValue, stepTraceRows } from '../utils/engine-trace';
 import { VisibilityMapBuilder } from '../analyzers/visibility-map-builder';
 
 // Defaults baked into VisibilityMapBuilder.buildFan() — used by debug-quality
@@ -464,8 +464,8 @@ export class CoreTriggerPointPredictor {
       );
       _postLOSCount = visibleOptimalPoints.length;
       trace.push(...stepTraceRows({
-        poiId, stage: 'E8', rule: 'visibility-map-builder#checkExactVisibility', before: optimalPoints, after: visibleOptimalPoints,
-        value: edge, limit: `sight line to POI top ${Math.round(VisibilityMapBuilder.poiSightTarget(boundary).topM)} m`,
+        poiId, stage: 'E8', rule: 'visibility-map-builder#measureSight', before: optimalPoints, after: visibleOptimalPoints,
+        value: c => `${edge(c)}; ${sightTraceValue(c.metadata?.sight)}`, limit: SIGHT_TRACE_LIMIT,
       }));
 
       if (visibleOptimalPoints.length === 0) {
@@ -1319,14 +1319,16 @@ export class CoreTriggerPointPredictor {
   }
   
   /**
-   * Per-TP exact line-of-sight filter. Rejeita candidatos cujo ray-cast
-   * preciso POI → location bate em terreno.
+   * Per-TP exact line-of-sight filter (INV-E8, INV-E8b): each candidate sees the aims of the POI
+   * (`VisibilityMapBuilder#sightAims`) and passes when the visible part spans at least
+   * `MIN_APPARENT_ANGLE_DEG` (`VisibilityMapBuilder#measureSight`). The measure stays on
+   * `candidate.metadata.sight` for the E8 trace and the E10 tie-break.
    *
    * Detalhes:
-   *  - Walk at the relief grid spacing (~30 m) over the surface (#782)
+   *  - Walk at the obstacle lattice (~15 m) over `DemStore#obstacle` (#783)
    *  - `SIGHT_NOISE_MARGIN_M` (GLO-30 vertical accuracy)
    *  - Paraleliza em lotes de 200 (cobre I/O do SQLite local sem stall)
-   *  - Short-circuit no primeiro bloqueio
+   *  - Short-circuit no primeiro bloqueio, por alvo
    */
   private async filterCandidatesByExactLOS(
     candidates: TriggerPointCandidate[],
@@ -1336,9 +1338,6 @@ export class CoreTriggerPointPredictor {
 
     const { VisibilityMapBuilder } = await import('../analyzers/visibility-map-builder');
     const { LocalOSMFetcher } = await import('../services/local-osm-fetcher');
-
-    // INV-E8: same target as the fan — ground at the top of the boundary (E4) + height (E3).
-    const { topM: poiTop } = VisibilityMapBuilder.poiSightTarget(boundary);
 
     // ── Pre-fetch building tops pro check de urban-canyon ──────────────────
     // Only buildings with a MEASURED height (tag) ≥ 8 m, on the ground (GEDTM30). The rest,
@@ -1385,17 +1384,19 @@ export class CoreTriggerPointPredictor {
       arr.push(b);
       buildingGrid.set(key, arr);
     }
-    // Sight line leaves the POI EDGE facing the candidate, not the center: from the
-    // center, the POI's own footprint (or a large park) blocked its own TPs (BR-AUDIO-010).
-    const losOrigin = (tp: TriggerPointCandidate) => boundary.coordinates?.length >= 3
-      ? findClosestPointOnBoundary(tp.location, boundary.coordinates)
-      : boundary.center;
+    // INV-E8b (#784): every aim of the POI — top, mid-height, edge points — and only its
+    // footprint is not an obstacle. It replaced one aim on the edge point facing the candidate.
+    const aims = VisibilityMapBuilder.sightAims(boundary);
+    const footprint = boundary.coordinates?.length >= 3 ? boundary.coordinates : null;
+    const aimBox = {
+      minLat: Math.min(...aims.map(a => a.at.lat)), maxLat: Math.max(...aims.map(a => a.at.lat)),
+      minLng: Math.min(...aims.map(a => a.at.lng)), maxLng: Math.max(...aims.map(a => a.at.lng)),
+    };
     const candidatesBuildingsForLOS = (tp: TriggerPointCandidate) => {
-      const o = losOrigin(tp);
-      const minLat = Math.floor(Math.min(o.lat, tp.location.lat) / GRID_CELL_DEG) - 1;
-      const maxLat = Math.floor(Math.max(o.lat, tp.location.lat) / GRID_CELL_DEG) + 1;
-      const minLng = Math.floor(Math.min(o.lng, tp.location.lng) / GRID_CELL_DEG) - 1;
-      const maxLng = Math.floor(Math.max(o.lng, tp.location.lng) / GRID_CELL_DEG) + 1;
+      const minLat = Math.floor(Math.min(aimBox.minLat, tp.location.lat) / GRID_CELL_DEG) - 1;
+      const maxLat = Math.floor(Math.max(aimBox.maxLat, tp.location.lat) / GRID_CELL_DEG) + 1;
+      const minLng = Math.floor(Math.min(aimBox.minLng, tp.location.lng) / GRID_CELL_DEG) - 1;
+      const maxLng = Math.floor(Math.max(aimBox.maxLng, tp.location.lng) / GRID_CELL_DEG) + 1;
       const out: typeof buildingTops = [];
       for (let lat = minLat; lat <= maxLat; lat++) {
         for (let lng = minLng; lng <= maxLng; lng++) {
@@ -1415,16 +1416,13 @@ export class CoreTriggerPointPredictor {
       const batch = candidates.slice(i, i + BATCH);
       const results = await Promise.all(
         batch.map(c =>
-          VisibilityMapBuilder.checkExactVisibility(
-            losOrigin(c),
-            poiTop,
-            c.location,
-            { buildingTops: candidatesBuildingsForLOS(c) }
-          )
+          VisibilityMapBuilder.measureSight(aims, c.location, { footprint, buildingTops: candidatesBuildingsForLOS(c) })
         )
       );
       for (let j = 0; j < batch.length; j++) {
-        if (results[j]) survivors.push(batch[j]);
+        // E8 trace and E10 tie-break read it (INV-E8b)
+        batch[j].metadata = { ...(batch[j].metadata || {}), sight: results[j] };
+        if (results[j].passes) survivors.push(batch[j]);
         else blocked++;
       }
     }

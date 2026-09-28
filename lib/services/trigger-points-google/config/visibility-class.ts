@@ -37,6 +37,12 @@ export const LANDMARK_MIN_HEIGHT_M = 30;
  */
 export const STRUCTURE_BUILT_SHARE_MIN = 0.8;
 /**
+ * Smallest angle the visible part of the POI must span in the observer's view for the candidate
+ * to pass the sight line (INV-E8b, #784). CALIBRATION PENDING.
+ * Provisional (#775).
+ */
+export const MIN_APPARENT_ANGLE_DEG = 0.2;
+/**
  * Prominence threshold of a landmark, over the city base AND over the local ring
  * (`LOCAL_BASE_RING_M`). Below this it is urban SRTM noise.
  */

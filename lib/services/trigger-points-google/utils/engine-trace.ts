@@ -10,6 +10,7 @@ import type { BoundaryData, TriggerPointPredictionResult } from '../types/interf
 import { edgeDistanceM, tpReachCapM } from './validation';
 import {
   CLASS_LIMITS,
+  MIN_APPARENT_ANGLE_DEG,
   LANDMARK_MIN_HEIGHT_M,
   LANDMARK_MIN_PROMINENCE_M,
   STRUCTURE_BUILT_SHARE_MIN,
@@ -71,6 +72,15 @@ export function poiTraceRows(poiId: string, boundary: BoundaryData | undefined):
   ];
   return rows;
 }
+
+/** INV-E8b: what the E8 row of a candidate says about its sight — aims seen and apparent angle. */
+export function sightTraceValue(sight: { visible: number; total: number; fraction: number; angleDeg: number } | undefined): string {
+  if (!sight) return 'sight not measured';
+  return `sight ${sight.visible}/${sight.total} aims (${Math.round(sight.fraction * 100)}%), ${sight.angleDeg.toFixed(2)}°`;
+}
+
+/** INV-E8b: the limit column of the E8 rows. */
+export const SIGHT_TRACE_LIMIT = `apparent angle ≥ ${MIN_APPARENT_ANGLE_DEG}° (provisional, #775)`;
 
 /**
  * Candidate rows for one step: every item of `before` is kept when it is still in `after`

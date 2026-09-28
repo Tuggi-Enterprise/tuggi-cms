@@ -209,6 +209,8 @@ export interface TriggerPoint {
   street: StreetData;
   distance: number;
   generationMethod: 'local_osm' | 'overpass_fallback' | 'estimated' | 'fallback_recovery' | 'reach_rescue';
+  /** INV-E8b: angle the visible part of the POI spans from here (E8); breaks ties inside an E10 cell */
+  apparentAngleDeg?: number;
   contextData?: GeographicContext;
   // Para TPs do tipo 'geofence': polígono que define a área de disparo.
   // O save layer persiste isso (depois da migração que adiciona a coluna)

@@ -30,7 +30,7 @@
 import type { BuildingData } from '../services/osm-data-fetcher';
 import { calculateDistance, isPointInPolygon } from '../utils/calculations';
 import { DemStore } from '../../dem/dem-store';
-import { heightFromTags } from '../config/visibility-class';
+import { MIN_APPARENT_ANGLE_DEG, heightFromTags } from '../config/visibility-class';
 
 export type GeoPoint = { lat: number; lng: number };
 
@@ -99,11 +99,25 @@ export interface SightRelief {
 
 type BuildingTop = { centroid: GeoPoint; topAltitudeM: number; polygon: GeoPoint[] };
 
+/** INV-E8b: one point of the POI the sight line aims at (altitude in metres). */
+export interface SightAim { at: GeoPoint; altM: number; kind: 'top' | 'mid' | 'edge' }
+
+/** INV-E8b: graded sight from one observer; `fraction` and `angleDeg` go to the E8 trace. */
+export interface SightMeasure { visible: number; total: number; fraction: number; angleDeg: number; passes: boolean }
+
 /**
- * Buildings this close to the POI (beyond its own boundary, in the fan) are the POI itself
- * or glued to it (pedestal, chapel, summit station): the sight line there is at the POI top,
- * so they never block. Same number for the fan and for the per-TP exact check (#779: the
- * fan counted the Cristo's own buildings and collapsed to 30 m in most directions).
+ * INV-E8b: boundary points the sight line aims at, and the share of the POI height each one
+ * stands at. Technical choice (#784): 12 points × ground / half / full height = 36 edge aims,
+ * a point every 30° around a compact POI.
+ */
+export const EDGE_AIM_COUNT = 12;
+const EDGE_AIM_LEVELS = [0, 0.5, 1] as const;
+
+/**
+ * FAN ONLY: buildings this close to the POI (beyond its own boundary) are the POI itself or glued
+ * to it (pedestal, chapel, summit station), so the coarse fan never collapses on them (#779: it
+ * counted the Cristo's own buildings and fell to 30 m). The fan is a generous pre-filter; the
+ * per-candidate check excludes only the POI footprint, never a radius (INV-E8b, #784).
  */
 const SKIP_NEAR_POI_M = 50;
 /** Observer eye above the ground at the TP (INV-E8): the one value for the fan and each candidate. */
@@ -372,15 +386,116 @@ export class VisibilityMapBuilder {
   }
 
   /**
-   * INV-E8 — per-candidate sight line, after the fan-walk: from the observer eye (ground at the
-   * TP + `OBSERVER_EYE_HEIGHT_M`) to the POI top, over `DemStore#obstacle` — measured building
+   * INV-E8b (#784) — the points of the POI the sight line aims at: the top and the mid-height
+   * over the highest point of the boundary (E4), and `EDGE_AIM_COUNT` points evenly spaced on the
+   * boundary, each at `EDGE_AIM_LEVELS` of the POI height over the ground at that point. The mid
+   * height runs from the lowest edge ground to the top, so a hill's mid aim is on its body.
+   */
+  static sightAims(
+    boundary: {
+      coordinates?: GeoPoint[];
+      center?: GeoPoint;
+      physical?: { groundTopM: number | null; heightM: number; topPoint?: GeoPoint | null };
+      height?: number;
+      elevation?: { center?: number };
+    },
+    relief: Pick<SightRelief, 'ground'> = DemStore.getInstance()
+  ): SightAim[] {
+    const { groundM, heightM, topM } = this.poiSightTarget(boundary);
+    const ring = boundary.coordinates && boundary.coordinates.length >= 3 ? boundary.coordinates : [];
+    const topAt = boundary.physical?.topPoint ?? boundary.center ?? (ring.length ? this.polygonCentroid(ring) : null);
+    const edge = ring.length ? this.evenlyAlongRing(ring, EDGE_AIM_COUNT) : [];
+    const edgeGround = edge.map(v => relief.ground(v.lat, v.lng) ?? groundM);
+    const baseM = Math.min(groundM, ...edgeGround);
+    const aims: SightAim[] = topAt
+      ? [{ at: topAt, altM: topM, kind: 'top' }, { at: topAt, altM: (baseM + topM) / 2, kind: 'mid' }]
+      : [];
+    edge.forEach((v, i) => {
+      for (const f of EDGE_AIM_LEVELS) aims.push({ at: v, altM: edgeGround[i] + f * heightM, kind: 'edge' });
+    });
+    return aims;
+  }
+
+  /**
+   * INV-E8b (#784) — graded sight from one observer: which aims he sees (INV-E8, each by
+   * `checkExactVisibility`, with the POI footprint as the only part of the line that is not an
+   * obstacle) and the angle the visible part spans in his view — the largest angle between two
+   * visible aims, seen from his eye. The candidate passes when that angle reaches
+   * `MIN_APPARENT_ANGLE_DEG` (provisional, #775): one visible point is not a POI the tourist sees.
+   */
+  static async measureSight(
+    aims: SightAim[],
+    observer: GeoPoint,
+    options: {
+      footprint?: GeoPoint[] | null;
+      buildingTops?: Array<{ centroid: GeoPoint; topAltitudeM: number; polygon?: GeoPoint[] }>;
+      sampleIntervalM?: number;
+    } = {}
+  ): Promise<SightMeasure> {
+    const seen: SightAim[] = [];
+    for (const aim of aims) {
+      if (await this.checkExactVisibility(aim.at, aim.altM, observer, options)) seen.push(aim);
+    }
+    const angleDeg = this.apparentAngleDeg(seen, observer);
+    return {
+      visible: seen.length,
+      total: aims.length,
+      fraction: aims.length ? seen.length / aims.length : 0,
+      angleDeg,
+      passes: angleDeg >= MIN_APPARENT_ANGLE_DEG,
+    };
+  }
+
+  /** Largest angle between two aims seen from the observer eye (local metres, curvature included). */
+  static apparentAngleDeg(aims: SightAim[], observer: GeoPoint, relief: Pick<SightRelief, 'ground'> = DemStore.getInstance()): number {
+    if (aims.length < 2) return 0;
+    const eyeM = (relief.ground(observer.lat, observer.lng) ?? 0) + OBSERVER_EYE_HEIGHT_M;
+    const kx = 111_320 * Math.cos((observer.lat * Math.PI) / 180), ky = 110_540;
+    const dirs = aims.map(a => {
+      const x = (a.at.lng - observer.lng) * kx, y = (a.at.lat - observer.lat) * ky;
+      const z = a.altM - curvatureDropM(Math.hypot(x, y)) - eyeM;
+      const n = Math.hypot(x, y, z) || 1;
+      return [x / n, y / n, z / n];
+    });
+    let minDot = 1;
+    for (let i = 0; i < dirs.length; i++) {
+      for (let j = i + 1; j < dirs.length; j++) {
+        minDot = Math.min(minDot, dirs[i][0] * dirs[j][0] + dirs[i][1] * dirs[j][1] + dirs[i][2] * dirs[j][2]);
+      }
+    }
+    return (Math.acos(Math.max(-1, Math.min(1, minDot))) * 180) / Math.PI;
+  }
+
+  /** `n` points evenly spaced along a closed ring, by walked length. */
+  private static evenlyAlongRing(ring: GeoPoint[], n: number): GeoPoint[] {
+    const pts = [...ring];
+    if (pts[0].lat !== pts[pts.length - 1].lat || pts[0].lng !== pts[pts.length - 1].lng) pts.push(pts[0]);
+    const seg = pts.slice(1).map((p, i) => calculateDistance(pts[i], p));
+    const perimeter = seg.reduce((a, b) => a + b, 0);
+    if (perimeter === 0) return [pts[0]];
+    const out: GeoPoint[] = [];
+    let i = 0, walked = 0;
+    for (let k = 0; k < n; k++) {
+      const target = (k * perimeter) / n;
+      while (i < seg.length - 1 && walked + seg[i] < target) walked += seg[i++];
+      const t = seg[i] ? (target - walked) / seg[i] : 0;
+      out.push({ lat: pts[i].lat + (pts[i + 1].lat - pts[i].lat) * t, lng: pts[i].lng + (pts[i + 1].lng - pts[i].lng) * t });
+    }
+    return out;
+  }
+
+  /**
+   * INV-E8 — one sight line, from the observer eye (ground at the TP + `OBSERVER_EYE_HEIGHT_M`) to
+   * one aim of the POI (INV-E8b: `sightAims`), over `DemStore#obstacle` — measured building
    * (Overture, 3D-GloBFP) or canopy (Meta/WRI) over the ground, else the relief SURFACE
    * (Copernicus GLO-30) — and the buildings with a tagged height, walked at the obstacle lattice
    * (~15 m, #783; it was 30 m, and 100 m over SRTM 90 m). Short-circuits on the first obstacle.
    *
-   * Neither end's own cell is an obstacle: samples within `SKIP_NEAR_POI_M` of the POI are the
-   * POI itself (its facade, its pedestal), and the observer's own relief cell (~30 m) is the
-   * street he stands on — at 30 m the surface there mixes in the facades beside the avenue (#782).
+   * What is not an obstacle at the POI end is the POI itself: the stretch of the line inside
+   * `footprint`, plus one obstacle cell (its own building, rasterised at ~15 m). There is no fixed
+   * radius (#784: 50 m hid every building between a street and a low POI). At the observer end,
+   * his own relief cell (~30 m) is the street he stands on — at 30 m the surface there mixes in
+   * the facades beside the avenue (#782).
    */
   static async checkExactVisibility(
     poi: GeoPoint,
@@ -391,10 +506,11 @@ export class VisibilityMapBuilder {
       noiseMarginM?: number;
       observerEyeHeightM?: number;
       buildingTops?: Array<{ centroid: GeoPoint; topAltitudeM: number; polygon?: GeoPoint[] }>;
+      footprint?: GeoPoint[] | null;
     } = {}
   ): Promise<boolean> {
     const dem: SightRelief = DemStore.getInstance();
-    // Walked at the obstacle lattice (~15 m, #783); each end keeps its relief cell (~30 m) out.
+    // Walked at the obstacle lattice (~15 m, #783); the observer keeps his relief cell (~30 m) out.
     const stepM = options.sampleIntervalM ?? DemStore.getInstance().sampleM;
     const cellM = options.sampleIntervalM ?? DemStore.getInstance().stepM;
     const marginM = options.noiseMarginM ?? SIGHT_NOISE_MARGIN_M;
@@ -408,12 +524,15 @@ export class VisibilityMapBuilder {
     const observerGround = dem.ground(target.lat, target.lng);
     if (observerGround === null) return false;
     const observerEyeAlt = observerGround + observerEyeHeightM - curvatureDropM(distanceM);
-    // The sight line, as the slope from the POI top; an obstacle blocks when its slope is steeper.
+    // The sight line, as the slope from the aim; an obstacle blocks when its slope is steeper.
     const sightSlope = (observerEyeAlt - poiTopAltitudeM) / distanceM;
     const bearingDeg = this.bearing(poi, target);
+    // INV-E8b: the POI's own stretch of the line — up to where it last leaves the footprint.
+    const ring = options.footprint && options.footprint.length >= 3 ? options.footprint : null;
+    const ownM = (ring ? (this.lastCrossingT(poi, target, ring) ?? 0) : 0) * distanceM + stepM;
 
-    for (let d = cellM; d <= distanceM - cellM + 1e-6; d += stepM) {
-      if (d < SKIP_NEAR_POI_M) continue;
+    for (let d = stepM; d <= distanceM - cellM + 1e-6; d += stepM) {
+      if (d < ownM) continue;
       const p = this.offsetByBearing(poi, bearingDeg, d);
       const top = dem.obstacle(p.lat, p.lng);
       if (top === null) continue;
@@ -427,7 +546,6 @@ export class VisibilityMapBuilder {
       for (const b of buildingTops) {
         const distFromPoi = calculateDistance(poi, b.centroid);
         if (distFromPoi >= distanceM) continue;       // atrás do observador
-        if (distFromPoi < SKIP_NEAR_POI_M) continue;  // colado ao POI
         const perpDist = this.perpendicularDistanceToSegment(b.centroid, poi, target);
         if (perpDist > CORRIDOR_WIDTH_M) continue;
         // With a footprint, the building blocks only where the ray CROSSES it, at the crossing
@@ -438,7 +556,7 @@ export class VisibilityMapBuilder {
         const t = b.polygon && b.polygon.length >= 3 ? this.lastCrossingT(poi, target, b.polygon) : distFromPoi / distanceM;
         if (t === null) continue;
         const d = t * distanceM;
-        if (d <= 0) continue;
+        if (d < ownM) continue; // the POI itself, or inside its own stretch (INV-E8b)
         if ((b.topAltitudeM - curvatureDropM(d) - marginM - poiTopAltitudeM) / d > sightSlope) {
           return false; // prédio bloqueia
         }
