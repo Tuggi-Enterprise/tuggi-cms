@@ -2,36 +2,30 @@
  * GET  /api/routes/[id]/translations  — lista todas as traduções da rota
  * POST /api/routes/[id]/translations  — salva edição manual de um idioma
  *
- * Auth: verifica sessão via getSupabaseRouteHandler (como todas as outras rotas).
+ * Auth: `withAuth` (admin, client) — ver PORTÃO abaixo.
  * DB:   usa getSupabase('service') para operações que precisam ignorar RLS
  *       (o admin precisa ler/escrever traduções de qualquer rota do cliente).
  */
 
 import { NextRequest, NextResponse } from 'next/server'
-import { getSupabase, getSupabaseRouteHandler } from '@/lib/core/supabase-client'
-import { cookies } from 'next/headers'
+import { getSupabase } from '@/lib/core/supabase-client'
+import { withAuth } from '@/lib/auth-middleware'
 
 export const dynamic = 'force-dynamic'
 
 // ─── Auth helper ──────────────────────────────────────────────────────────────
 
-async function requireAuth() {
-  const cookieStore = await cookies()
-  const supabaseAuth = getSupabaseRouteHandler(cookieStore)
-  const { data: { session }, error } = await supabaseAuth.auth.getSession()
-  if (error || !session) return null
-  return session
-}
+/**
+ * PORTÃO (#780): `withAuth({ roles: ['admin', 'client'] })`. Quem chama é
+ * `components/routes/RouteTranslationsPanel`, dentro do editor de `/routes`, tela que o proxy abre
+ * para `admin` e `client` (`lib/navigation/access.ts#resolveAccess`). Antes: só `getSession()`,
+ * que lê o cookie sem revalidar o JWT.
+ */
+type Params = { id: string }
 
 // ─── GET — listar traduções ────────────────────────────────────────────────────
-export async function GET(
-  _req: NextRequest,
-  { params }: { params: Promise<{ id: string }> }
-) {
-  const session = await requireAuth()
-  if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-
-  const { id: routeId } = await params
+export const GET = withAuth<Params>({ roles: ['admin', 'client'] }, async (_req: NextRequest, ctx) => {
+  const { id: routeId } = (await ctx.params) as Params
   const supabase = getSupabase('service')
 
   // Buscar dados originais da rota (conteúdo base)
@@ -63,17 +57,11 @@ export async function GET(
     original: { name: route.name, description: route.description },
     translations: translations ?? [],
   })
-}
+})
 
 // ─── POST — salvar edição manual ──────────────────────────────────────────────
-export async function POST(
-  req: NextRequest,
-  { params }: { params: Promise<{ id: string }> }
-) {
-  const session = await requireAuth()
-  if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-
-  const { id: routeId } = await params
+export const POST = withAuth<Params>({ roles: ['admin', 'client'] }, async (req: NextRequest, ctx) => {
+  const { id: routeId } = (await ctx.params) as Params
   const body = await req.json()
   const { language, gender = 'male', name, description } = body
 
@@ -105,4 +93,4 @@ export async function POST(
   }
 
   return NextResponse.json({ translation: data })
-}
+})

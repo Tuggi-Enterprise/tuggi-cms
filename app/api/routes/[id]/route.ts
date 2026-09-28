@@ -1,34 +1,24 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { getSupabaseRouteHandler } from '@/lib/core/supabase-client'
 import { RouteService } from '@/lib/services/route-service'
-import { cookies } from 'next/headers'
+import { withAuth } from '@/lib/auth-middleware'
 
-interface RouteParams {
-  params: Promise<{ id: string }>
-}
+/**
+ * PORTÃO (#780): `withAuth({ roles: ['admin', 'client'] })` nos três métodos. Quem chama é o editor
+ * de `/routes` (`components/routes/RouteEditorModal`), tela que o proxy abre para `admin` e
+ * `client` (`lib/navigation/access.ts#resolveAccess`). A escrita segue pelo client do cookie, e a
+ * RLS de `core.custom_routes` continua valendo por baixo. Antes: só `getSession()`, que lê o
+ * cookie sem revalidar o JWT.
+ */
+type Params = { id: string }
 
 /**
  * GET /api/routes/[id]
  * Get a single route by ID
  */
-export async function GET(
-  request: NextRequest,
-  context: RouteParams
-) {
+export const GET = withAuth<Params>({ roles: ['admin', 'client'] }, async (_request: NextRequest, ctx, auth) => {
   try {
-    // Require authentication
-    const cookieStore = await cookies()
-    const supabaseAuth = getSupabaseRouteHandler(cookieStore)
-    const { data: { session }, error: authError } = await supabaseAuth.auth.getSession()
-
-    if (authError || !session) {
-      return NextResponse.json(
-        { error: 'Unauthorized - Authentication required' },
-        { status: 401 }
-      )
-    }
-
-    const { id } = await context.params
+    const supabaseAuth = auth.supabase
+    const { id } = (await ctx.params) as Params
 
     const route = await RouteService.getRouteById(supabaseAuth, id)
 
@@ -47,7 +37,7 @@ export async function GET(
       { status: 500 }
     )
   }
-}
+})
 
 /**
  * PUT /api/routes/[id]
@@ -61,28 +51,14 @@ export async function GET(
  *   snap_to_roads?: boolean
  * }
  */
-export async function PUT(
-  request: NextRequest,
-  context: RouteParams
-) {
+export const PUT = withAuth<Params>({ roles: ['admin', 'client'] }, async (request: NextRequest, ctx, auth) => {
   try {
-    // Require authentication
-    const cookieStore = await cookies()
-    const supabaseAuth = getSupabaseRouteHandler(cookieStore)
-    const { data: { session }, error: authError } = await supabaseAuth.auth.getSession()
-
-    if (authError || !session) {
-      return NextResponse.json(
-        { error: 'Unauthorized - Authentication required' },
-        { status: 401 }
-      )
-    }
-
-    const { id } = await context.params
+    const supabaseAuth = auth.supabase
+    const { id } = (await ctx.params) as Params
     const body = await request.json()
 
     // Get the authenticated user ID
-    const userId = session.user.id
+    const userId = auth.user.id
 
     const route = await RouteService.updateRoute(supabaseAuth, id, {
       name: body.name,
@@ -134,33 +110,19 @@ export async function PUT(
       { status: 500 }
     )
   }
-}
+})
 
 /**
  * DELETE /api/routes/[id]
  * Soft delete a route (marks as inactive)
  */
-export async function DELETE(
-  request: NextRequest,
-  context: RouteParams
-) {
+export const DELETE = withAuth<Params>({ roles: ['admin', 'client'] }, async (_request: NextRequest, ctx, auth) => {
   try {
-    // Require authentication
-    const cookieStore = await cookies()
-    const supabaseAuth = getSupabaseRouteHandler(cookieStore)
-    const { data: { session }, error: authError } = await supabaseAuth.auth.getSession()
-
-    if (authError || !session) {
-      return NextResponse.json(
-        { error: 'Unauthorized - Authentication required' },
-        { status: 401 }
-      )
-    }
-
-    const { id } = await context.params
+    const supabaseAuth = auth.supabase
+    const { id } = (await ctx.params) as Params
 
     // Get the authenticated user ID
-    const userId = session.user.id
+    const userId = auth.user.id
 
     await RouteService.deleteRoute(supabaseAuth, id, userId)
 
@@ -172,4 +134,4 @@ export async function DELETE(
       { status: 500 }
     )
   }
-}
+})

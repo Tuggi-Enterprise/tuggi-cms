@@ -14,16 +14,18 @@
  */
 
 import { NextRequest, NextResponse } from 'next/server'
-import { getSupabaseRouteHandler } from '@/lib/core/supabase-client'
-import { cookies } from 'next/headers'
+import { withAuth } from '@/lib/auth-middleware'
 
 export const dynamic = 'force-dynamic'
 
-export async function POST(
-  req: NextRequest,
-  { params }: { params: Promise<{ id: string }> }
-) {
-  const { id: routeId } = await params
+/**
+ * PORTÃO (#780): `withAuth({ roles: ['admin', 'client'] })` — chamado pelo
+ * `components/routes/RouteTranslationsPanel`, no editor de `/routes` (admin e client). O
+ * `getSession()` que sobra só LÊ o `access_token` para repassar à EF, depois de `withAuth` já ter
+ * revalidado o JWT com `getUser()` — mesmo padrão de `app/api/system-audio/route.ts`.
+ */
+export const POST = withAuth<{ id: string }>({ roles: ['admin', 'client'] }, async (req: NextRequest, ctx, auth) => {
+  const { id: routeId } = (await ctx.params) as { id: string }
   const body = await req.json()
   const { language, gender = 'male', generateAudio = true } = body
 
@@ -32,10 +34,7 @@ export async function POST(
   }
 
   // ── Autenticação — obter JWT da sessão do utilizador ──────────────────────
-  const cookieStore = await cookies()
-  const supabase    = getSupabaseRouteHandler(cookieStore)
-
-  const { data: { session }, error: authError } = await supabase.auth.getSession()
+  const { data: { session }, error: authError } = await auth.supabase.auth.getSession()
 
   if (authError || !session) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
@@ -71,4 +70,4 @@ export async function POST(
 
   const data = await efRes.json()
   return NextResponse.json(data)
-}
+})

@@ -1,6 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { getSupabaseRouteHandler } from '@/lib/core/supabase-client'
-import { cookies } from 'next/headers'
+import { withAuth } from '@/lib/auth-middleware'
 import { getSupabase } from '@/lib/core/supabase-client'
 import { logAuditEvent } from '@/lib/services/audit-service'
 
@@ -9,15 +8,13 @@ const supabaseService = getSupabase('service')
 /**
  * POST /api/pois/[id]/garbage
  * Marks a POI as garbage (blacklisted) and deletes it from core.attractions.
- * Only system admins can perform this action.
+ * Only system admins can perform this action — `withAuth({ roles: ['admin'] })` (#780). Before, the
+ * route only checked `getSession()` and that the e-mail existed in `cms_users`, with no role and no
+ * `is_active`. The screen already offers it to admin only (`app/[locale]/pois/page.tsx`, `canGarbage`).
  */
-export async function POST(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
+export const POST = withAuth<{ id: string }>({ roles: ['admin'] }, async (request: NextRequest, ctx, auth) => {
   try {
-    const { id: poiId } = await params
-    const cookieStore = await cookies()
-    const supabaseAuth = getSupabaseRouteHandler(cookieStore)
-    const { data: { session }, error: authError } = await supabaseAuth.auth.getSession()
-    if (authError || !session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+    const { id: poiId } = (await ctx.params) as { id: string }
 
     /**
      * A IDENTIDADE VEM DA SESSÃO; A CONSULTA VAI COM `service_role`, e a diferença é o que
@@ -35,7 +32,7 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
      */
     const { data: userData, error: userErr } = await supabaseService
       .schema('core')
-      .rpc('get_cms_user_info', { p_email: session.user.email as string })
+      .rpc('get_cms_user_info', { p_email: auth.cmsUser.email })
     
     const cmsUser = Array.isArray(userData) ? userData[0] : userData
 
@@ -62,7 +59,7 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
       entity: 'POI',
       entityId: poiId,
       userId: cmsUser.id,
-      userEmail: session.user.email || null,
+      userEmail: auth.cmsUser.email || null,
       description: `POI "${attractionName}" marked as garbage and deleted.`
     })
 
@@ -72,4 +69,4 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
     console.error('Error in POI garbage delete:', err)
     return NextResponse.json({ error: 'Internal server error' }, { status: 500 })
   }
-}
+})
