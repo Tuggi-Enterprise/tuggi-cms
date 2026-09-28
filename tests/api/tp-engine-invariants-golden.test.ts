@@ -545,7 +545,9 @@ describe('No TP on a way closed to the public (INV-E7a, BR-AUDIO-010, #772)', { 
       const best = { open: Infinity, closed: Infinity }
       for (const row of q.all(r.lat - 0.0005, r.lat + 0.0005, r.lng - 0.0005, r.lng + 0.0005) as Array<{ g: string; j: string | null }>) {
         const tags = JSON.parse(row.j ?? '{}') as Record<string, string>
-        if (!tags.highway) continue
+        // a way the TP may stand on, as in "Every kept TP sits on a way": the ferry and the
+        // train are observer paths since 1C (#786) — the Ilha Fiscal tour boat is an open way
+        if (!(tags.highway ?? tags.railway ?? tags.aerialway ?? (tags.route === 'ferry' ? 'ferry' : undefined))) continue
         const pts = JSON.parse(row.g) as Array<{ lat: number; lng: number }>
         for (let i = 1; i < pts.length; i++) {
           const m = calc.calculateDistanceToLineSegment(r, pts[i - 1], pts[i])
