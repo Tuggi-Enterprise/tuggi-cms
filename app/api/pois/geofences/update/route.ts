@@ -1,18 +1,15 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { getSupabaseRouteHandler } from '@/lib/core/supabase-client'
-import { cookies } from 'next/headers'
+import { withAuth } from '@/lib/auth-middleware'
 import { getSupabase } from '@/lib/core/supabase-client'
 import { calculatePolygonArea, calculatePolygonCenter } from '@/lib/utils/geometry'
 
-export async function POST(request: NextRequest) {
+/**
+ * PORTÃO (#780): `withAuth({ roles: ['admin'] })`. Grava em `core.attractions` com `service_role`;
+ * antes só checava `getSession()` e a existência do e-mail em `cms_users`, sem papel nem
+ * `is_active`. Nenhuma tela do CMS chama esta rota hoje — admin é o piso seguro.
+ */
+export const POST = withAuth({ roles: ['admin'] }, async (request: NextRequest, _ctx, auth) => {
   try {
-    const cookieStore = await cookies()
-    const supabaseAuth = getSupabaseRouteHandler(cookieStore)
-    const { data: { session }, error: authError } = await supabaseAuth.auth.getSession()
-    
-    if (authError || !session) {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-    }
 
     const supabase = getSupabase('service')
     const { searchParams } = new URL(request.url)
@@ -32,7 +29,7 @@ export async function POST(request: NextRequest) {
       .schema('core')
       .from('cms_users')
       .select('id')
-      .eq('email', session.user.email)
+      .eq('email', auth.cmsUser.email)
       .single()
 
     if (cmsError || !cmsUser) {
@@ -150,4 +147,4 @@ export async function POST(request: NextRequest) {
     console.error('CRITICAL GEOFENCE UPDATE ERROR', error)
     return NextResponse.json({ error: 'Internal server error' }, { status: 500 })
   }
-}
+})

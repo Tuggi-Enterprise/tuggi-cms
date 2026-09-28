@@ -7,33 +7,26 @@
  * O nome é independente de gênero, então a escrita atinge todas as linhas de
  * (attraction_id, language) via upsertPoiName.
  *
- * Auth: sessão via getSupabaseRouteHandler. DB: service role para ignorar RLS.
+ * Auth: `withAuth` (admin). DB: service role para ignorar RLS.
  */
 
 import { NextRequest, NextResponse } from 'next/server'
-import { getSupabase, getSupabaseRouteHandler } from '@/lib/core/supabase-client'
+import { getSupabase } from '@/lib/core/supabase-client'
 import { upsertPoiName } from '@/lib/core/poi-descriptions-service'
-import { cookies } from 'next/headers'
+import { withAuth } from '@/lib/auth-middleware'
 
 export const dynamic = 'force-dynamic'
 
-async function requireAuth() {
-  const cookieStore = await cookies()
-  const supabaseAuth = getSupabaseRouteHandler(cookieStore)
-  const { data: { session }, error } = await supabaseAuth.auth.getSession()
-  if (error || !session) return null
-  return session
-}
+/**
+ * PORTÃO (#780): `withAuth({ roles: ['admin'] })`. As duas rotas usam `service_role`; antes só
+ * checavam `getSession()`, que lê o cookie sem revalidar o JWT. Nenhuma tela do CMS chama esta
+ * rota hoje — admin é o piso seguro.
+ */
+type Params = { id: string }
 
 // ─── GET — nome original + nomes traduzidos por idioma ──────────────────────────
-export async function GET(
-  _req: NextRequest,
-  { params }: { params: Promise<{ id: string }> }
-) {
-  const session = await requireAuth()
-  if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-
-  const { id: poiId } = await params
+export const GET = withAuth<Params>({ roles: ['admin'] }, async (_req: NextRequest, ctx) => {
+  const { id: poiId } = (await ctx.params) as Params
   const supabase = getSupabase('service')
 
   // Nome canônico (original) do POI
@@ -71,17 +64,11 @@ export async function GET(
     original: { name: poi.name },
     names: Array.from(byLanguage.values()),
   })
-}
+})
 
 // ─── POST — salvar edição manual do nome de um idioma ───────────────────────────
-export async function POST(
-  req: NextRequest,
-  { params }: { params: Promise<{ id: string }> }
-) {
-  const session = await requireAuth()
-  if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-
-  const { id: poiId } = await params
+export const POST = withAuth<Params>({ roles: ['admin'] }, async (req: NextRequest, ctx) => {
+  const { id: poiId } = (await ctx.params) as Params
   const body = await req.json()
   const { language, name } = body
 
@@ -97,4 +84,4 @@ export async function POST(
   } catch (e: any) {
     return NextResponse.json({ error: e?.message ?? 'Failed to save name' }, { status: 500 })
   }
-}
+})
