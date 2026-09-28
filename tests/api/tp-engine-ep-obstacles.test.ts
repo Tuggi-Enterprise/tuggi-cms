@@ -131,7 +131,7 @@ describe('INV-EPa / INV-EPb — the measured obstacles are layers of the city pr
     assert.match(byLayer.buildings.attribution, /3D-GloBFP/)
     assert.match(byLayer.canopy.attribution, /WRI and Meta/)
     assert.equal(byLayer.buildings.tiles.length, 2)
-    assert.deepEqual(m.checks.buildings, { overture: 1, globfp: 1, unmeasured: 1, cells: 36 + 4 })
+    assert.deepEqual(m.checks.buildings, { overture: 1, globfp: 1, unmeasured: 1, cells: 36 + 4, globfpCalibrated: { tiles: 0, cells: 0 } })
     assert.equal(m.checks.canopy?.treeCells, 9)
     const dir = path.join(tmp, 'cidade-obstaculos')
     assert.equal(fs.statSync(path.join(dir, 'buildings.u16')).size, OG.width * OG.height * 2)
@@ -171,6 +171,50 @@ describe('INV-EPa / INV-EPb — the measured obstacles are layers of the city pr
     assert.equal(cover.ok, false)
     assert.match(cover.ok ? '' : cover.reason, /lacks the buildings, canopy layer — run scripts\/prepare-city-dem\.ts again/)
     fs.rmSync(dir, { recursive: true })
+  })
+})
+
+describe('INV-EPa / INV-E8 — 3D-GloBFP is rescaled where Overture measured it lower, tile by tile (#772)', () => {
+  /** 30 one-cell buildings, Overture then 3D-GloBFP on the same cell: 30 pairs in the only tile. */
+  const paired = (r: BuildingRaster, ov: (k: number) => number, gf: number) => {
+    let k = 0
+    for (let row = 14; row <= 19; row++) for (let col = 14; col <= 18; col++, k++) r.add(cellsRing(row, row, col, col), BUILDING_TIER.OVERTURE, ov(k))
+    for (let row = 14; row <= 19; row++) for (let col = 14; col <= 18; col++) r.add(cellsRing(row, row, col, col), BUILDING_TIER.GLOBFP, gf)
+  }
+  const at = (r: BuildingRaster, row: number, col: number) => decodeBuilding(r.cells[row * OG.width + col])
+
+  it('INV-EPa / INV-E8: houses measured at 5 m that 3D-GloBFP puts at 15 m pull the unpaired 3D-GloBFP houses of the tile to a third (Engenho de Dentro)', () => {
+    const r = new BuildingRaster(OG)
+    paired(r, () => 5, 15)
+    r.add(cellsRing(22, 22, 22, 22), BUILDING_TIER.GLOBFP, 18)
+    r.add(STADIUM, BUILDING_TIER.GLOBFP, 38.6)
+    assert.deepEqual(r.calibrateGlobfp(), { tiles: 1, cells: 1 })
+    assert.deepEqual(at(r, 22, 22), { tier: BUILDING_TIER.GLOBFP, heightM: 6 }, '18 m × 5/15')
+    assert.deepEqual(at(r, 16, 16), { tier: BUILDING_TIER.OVERTURE, heightM: 5 }, 'Overture is never touched')
+    assert.deepEqual(at(r, 6, 6), { tier: BUILDING_TIER.GLOBFP, heightM: 38.6 }, 'a footprint larger than every paired one has no evidence: it keeps its estimate')
+  })
+
+  it('INV-EPa: where the pairs split — half above, half below, like the towers of Copacabana — nothing moves; and never up', () => {
+    const split = new BuildingRaster(OG)
+    paired(split, k => (k % 2 ? 5 : 30), 15)
+    split.add(cellsRing(22, 22, 22, 22), BUILDING_TIER.GLOBFP, 18)
+    assert.deepEqual(split.calibrateGlobfp(), { tiles: 0, cells: 0 })
+    assert.equal(at(split, 22, 22).heightM, 18)
+    const low = new BuildingRaster(OG)
+    paired(low, () => 30, 15)
+    low.add(cellsRing(22, 22, 22, 22), BUILDING_TIER.GLOBFP, 18)
+    assert.deepEqual(low.calibrateGlobfp(), { tiles: 0, cells: 0 })
+    assert.equal(at(low, 22, 22).heightM, 18, '3D-GloBFP lower than Overture is not raised')
+  })
+
+  it('INV-EPa: fewer than GLOBFP_CAL_MIN_PAIRS pairs is no evidence', () => {
+    const r = new BuildingRaster(OG)
+    for (let col = 14; col <= 18; col++) {
+      r.add(cellsRing(14, 14, col, col), BUILDING_TIER.OVERTURE, 5)
+      r.add(cellsRing(14, 14, col, col), BUILDING_TIER.GLOBFP, 15)
+    }
+    r.add(cellsRing(22, 22, 22, 22), BUILDING_TIER.GLOBFP, 18)
+    assert.deepEqual(r.calibrateGlobfp(), { tiles: 0, cells: 0 })
   })
 })
 

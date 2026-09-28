@@ -96,6 +96,21 @@ export const BUILDING_TIER = { NONE: 0, UNMEASURED: 1, GLOBFP: 2, OVERTURE: 3 } 
 export const BUILDING_DM_MAX = (1 << 14) - 1
 
 /**
+ * INV-EPa (#772): 3D-GloBFP is an estimate (XGBoost, RMSE up to 14.6 m) and its error is
+ * regional. Where Overture measured the same building (the 3D-GloBFP centroid falls on an
+ * Overture cell with height), the ratio Overture / 3D-GloBFP of the pairs of a tile of
+ * `GLOBFP_CAL_TILE_CELLS`² obstacle cells (~1 km) rescales the 3D-GloBFP cells of that tile by
+ * the median ratio — only with ≥ `GLOBFP_CAL_MIN_PAIRS` pairs of which ≥ `GLOBFP_CAL_OVER_SHARE`
+ * say the estimate is taller (never up), and only for footprints no larger than the largest
+ * paired one (no evidence beyond it). Measured 2026-09-28: Engenho de Dentro (Rio), 1,289 pairs,
+ * 3D-GloBFP ~3× Overture (median 14.7 m against 4.7 m on houses of 2 storeys, 90 % of the pairs
+ * above); Copacabana, 385 pairs, ~70 % above and the towers right — untouched.
+ */
+export const GLOBFP_CAL_TILE_CELLS = 64
+export const GLOBFP_CAL_MIN_PAIRS = 30
+export const GLOBFP_CAL_OVER_SHARE = 0.75
+
+/**
  * Overture Maps buildings, theme `buildings`, type `building` (GeoParquet, zstd). The `height`
  * is measured where the contributing source has it (OSM `height`, Esri Community Maps, LiDAR
  * derived); `num_floors` × the floor ruler when only that is there. Pinned release: the STAC

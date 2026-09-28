@@ -33,6 +33,9 @@ import {
   BUILDING_DM_MAX,
   BUILDING_TIER,
   CANOPY_PERCENTILE,
+  GLOBFP_CAL_MIN_PAIRS,
+  GLOBFP_CAL_OVER_SHARE,
+  GLOBFP_CAL_TILE_CELLS,
   GLOBFP_3D,
   META_CHM,
   OVERTURE_BUILDINGS,
@@ -112,13 +115,37 @@ export function rasterizeRing(grid: DemGrid, ring: Ring, visit: (i: number) => v
   }
 }
 
-/** The buildings layer being built: the higher tier wins a cell, and the taller within a tier. */
+/** Footprint area in m² of a [lng, lat] ring (shoelace on the local plane). */
+export function ringAreaM2(ring: Ring): number {
+  const lat0 = ring[0][1], kx = 111_320 * Math.cos((lat0 * Math.PI) / 180), ky = 110_540
+  let a = 0
+  for (let k = 0, j = ring.length - 1; k < ring.length; j = k++) a += ring[j][0] * kx * ring[k][1] * ky - ring[k][0] * kx * ring[j][1] * ky
+  return Math.abs(a) / 2
+}
+
+/** Area on one byte, log scale (1 m² … ~2.6 km²): only compared, never read back as m². */
+const areaCode = (m2: number) => Math.min(255, Math.max(1, Math.round(12 * Math.log2(1 + m2))))
+
+/**
+ * The buildings layer being built: the higher tier wins a cell, and the taller within a tier.
+ * Overture must be read before 3D-GloBFP: a 3D-GloBFP footprint whose centroid falls on an
+ * Overture cell with height is a pair for `calibrateGlobfp` (INV-EPa, `GLOBFP_CAL_*`).
+ */
 export class BuildingRaster {
   readonly cells: Uint16Array
   readonly counts = { overture: 0, globfp: 0, unmeasured: 0 }
+  /** area code of the 3D-GloBFP footprint that holds each cell (0: none) */
+  private globfpArea: Uint8Array | null = null
+  /** per calibration tile: Overture / 3D-GloBFP of its pairs, and the largest paired area code */
+  private readonly pairs = new Map<number, { ratios: number[]; maxArea: number }>()
 
   constructor(readonly grid: DemGrid) {
     this.cells = new Uint16Array(grid.width * grid.height)
+  }
+
+  private tileOf(i: number): number {
+    const tw = Math.ceil(this.grid.width / GLOBFP_CAL_TILE_CELLS)
+    return Math.floor(Math.floor(i / this.grid.width) / GLOBFP_CAL_TILE_CELLS) * tw + Math.floor((i % this.grid.width) / GLOBFP_CAL_TILE_CELLS)
   }
 
   readonly add: BuildingSink = (ring, tier, heightM) => {
@@ -126,9 +153,54 @@ export class BuildingRaster {
     if (tier === BUILDING_TIER.OVERTURE) this.counts.overture++
     else if (tier === BUILDING_TIER.GLOBFP) this.counts.globfp++
     else this.counts.unmeasured++
+    let code = 0
+    if (tier === BUILDING_TIER.GLOBFP && heightM && ring.length >= 3) {
+      code = areaCode(ringAreaM2(ring))
+      this.globfpArea ??= new Uint8Array(this.cells.length)
+      const n = ring.length
+      const r = Math.round((this.grid.north - ring.reduce((s, p) => s + p[1], 0) / n) / this.grid.res)
+      const c = Math.round((ring.reduce((s, p) => s + p[0], 0) / n - this.grid.west) / this.grid.res)
+      if (r >= 0 && c >= 0 && r < this.grid.height && c < this.grid.width) {
+        const at = decodeBuilding(this.cells[r * this.grid.width + c])
+        if (at.tier === BUILDING_TIER.OVERTURE && at.heightM > 0) {
+          const t = this.tileOf(r * this.grid.width + c)
+          const p = this.pairs.get(t) ?? this.pairs.set(t, { ratios: [], maxArea: 0 }).get(t)!
+          p.ratios.push(at.heightM / heightM)
+          p.maxArea = Math.max(p.maxArea, code)
+        }
+      }
+    }
     rasterizeRing(this.grid, ring, i => {
-      if (v > this.cells[i]) this.cells[i] = v
+      if (v > this.cells[i]) {
+        this.cells[i] = v
+        if (code) this.globfpArea![i] = code
+      }
     })
+  }
+
+  /**
+   * INV-EPa (#772): rescales the 3D-GloBFP cells of each tile where the Overture pairs say the
+   * estimate is taller (`GLOBFP_CAL_*`). Call once, after every source was added.
+   */
+  calibrateGlobfp(): { tiles: number; cells: number } {
+    const out = { tiles: 0, cells: 0 }
+    const scale = new Map<number, { k: number; maxArea: number }>()
+    for (const [t, p] of this.pairs) {
+      if (p.ratios.length < GLOBFP_CAL_MIN_PAIRS) continue
+      if (p.ratios.filter(x => x < 1).length < GLOBFP_CAL_OVER_SHARE * p.ratios.length) continue
+      const sorted = [...p.ratios].sort((a, b) => a - b)
+      scale.set(t, { k: sorted[Math.floor(sorted.length / 2)], maxArea: p.maxArea })
+    }
+    if (!scale.size || !this.globfpArea) return out
+    out.tiles = scale.size
+    for (let i = 0; i < this.cells.length; i++) {
+      if (this.cells[i] >> 14 !== BUILDING_TIER.GLOBFP) continue
+      const s = scale.get(this.tileOf(i))
+      if (!s || this.globfpArea[i] > s.maxArea) continue
+      this.cells[i] = encodeBuilding(BUILDING_TIER.GLOBFP, Math.max(0.1, decodeBuilding(this.cells[i]).heightM * s.k))
+      out.cells++
+    }
+    return out
   }
 }
 

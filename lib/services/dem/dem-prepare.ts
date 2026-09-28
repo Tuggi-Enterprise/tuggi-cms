@@ -357,6 +357,8 @@ export async function prepareCityDem(input: PrepareCityDemInput): Promise<DemMan
       failures.push(...r.failures)
       tiles.push(...r.tiles)
     }
+    const calibrated = raster.calibrateGlobfp()
+    console.error(`EP ${input.city}: 3D-GloBFP calibrated on ${calibrated.tiles} tiles, ${calibrated.cells} cells`)
     let builtCells = 0
     for (let i = 0; i < raster.cells.length; i++) if (raster.cells[i]) builtCells++
     extra.push({
@@ -384,7 +386,7 @@ export async function prepareCityDem(input: PrepareCityDemInput): Promise<DemMan
       record: { layer: 'canopy', source: obstacles.canopy.source, version: obstacles.canopy.version, attribution: obstacles.canopy.attribution, file: 'canopy.u8', tiles: canopy.tiles },
       data: canopy.values,
     })
-    obstacleChecks = { buildings: { ...raster.counts, cells: builtCells }, canopy: { treeCells, landHoles: holes } }
+    obstacleChecks = { buildings: { ...raster.counts, cells: builtCells, globfpCalibrated: calibrated }, canopy: { treeCells, landHoles: holes } }
   }
   const layers: DemLayerRecord[] = []
   const write = (file: string, data: Float32Array | Uint16Array | Uint8Array) => {
