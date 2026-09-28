@@ -7,8 +7,10 @@
  * a summit that is not measured prominent, a viewpoint and a church of unknown height are
  * classed by what the terrain and their footprint say.
  *
- * PROVISIONAL: every number in this file comes from the engine audit (2026-09-27) and has
- * no `BR-*` of its own yet — `produto` registers it (#775). Until then this is their only home.
+ * Reach, count and TP radius (`RECOGNITION_ANGLE_DEG`, `APPARENT_REACH_CEILING_M`, `CLASS_LIMITS`,
+ * `NO_COUNT_CAP`, `maxEdgeDistanceFor`) are BR-POI-009 (operator, 2026-09-28). Every other number
+ * here comes from the engine audit (2026-09-27) and stays provisional (#775) until `produto`
+ * registers it.
  */
 import { GeoPoint } from '../types/interfaces';
 
@@ -196,10 +198,11 @@ export interface ClassLimits {
   maxFarTPs: number;
 }
 
-// No count cap (operator, 2026-09-28, #772 experiment): every TP that survives reach (E6), sight
-// (E8) and spacing (E10) is kept. The near/far split stays (`sizeReachFarFromM`); only the count goes.
+// No count cap (BR-POI-009 item 2): every TP that survives reach (E6), sight (E8) and spacing
+// (E10) is kept; the cooldown per POI absorbs the density (BR-AUDIO-004). The near/far split stays (`sizeReachFarFromM`); only the count goes.
 const NO_COUNT_CAP = Infinity;
 
+/** Reach floor and TP radius per class: BR-POI-009 (items 1 and "raio máximo do TP"). */
 export const CLASS_LIMITS: Record<VisibilityClass, ClassLimits> = {
   [VisibilityClass.POINT_LOW]: { maxEdgeDistanceM: 60, maxRadiusM: 30, maxTPs: NO_COUNT_CAP, maxFarTPs: NO_COUNT_CAP },
   [VisibilityClass.STRUCTURE]: { maxEdgeDistanceM: 100, maxRadiusM: 40, maxTPs: NO_COUNT_CAP, maxFarTPs: NO_COUNT_CAP },
@@ -209,15 +212,15 @@ export const CLASS_LIMITS: Record<VisibilityClass, ClassLimits> = {
 };
 
 /**
- * E6 by apparent size (INV-E6, BR-AUDIO-010): a passer-by recognises the POI while it fills
- * at least this angle. Provisional, #775 — not the E8 pass mark (`MIN_APPARENT_ANGLE_DEG`).
+ * E6 by apparent size (INV-E6, BR-POI-009, BR-AUDIO-010): a passer-by recognises the POI while it fills
+ * at least this angle. BR-POI-009 item 1 — not the E8 pass mark (`MIN_APPARENT_ANGLE_DEG`).
  */
 export const RECOGNITION_ANGLE_DEG = 2;
-/** Ceiling of the apparent-size reach, from the edge. Provisional, #775. */
+/** Ceiling of the apparent-size reach, from the edge. BR-POI-009 item 1. */
 export const APPARENT_REACH_CEILING_M = 1_500;
 
 /**
- * Max edge distance for the class (INV-E6). `landmark_high`: the urban horizon, or the sanity
+ * Max edge distance for the class (INV-E6, BR-POI-009 item 1). `landmark_high`: the urban horizon, or the sanity
  * cap on elevated terrain (real prominence). Every other class: its size S (max of the height
  * and the longest extent of the footprint) over tan(RECOGNITION_ANGLE_DEG), never below the
  * class table (the floor) nor above APPARENT_REACH_CEILING_M. A 3 m bust reaches ~86 m.

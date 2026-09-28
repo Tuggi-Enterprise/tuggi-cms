@@ -99,7 +99,7 @@ describe('BR-AUDIO-010 — visibility class comes from physical attributes, not 
   })
 })
 
-describe('BR-AUDIO-010 — per-class cap replaces the 300 m floor and the single cap', () => {
+describe('BR-POI-009, BR-AUDIO-010 — per-class cap replaces the 300 m floor and the single cap', () => {
   it('a low POI fan stays at the class cap, not at 300 m', () => {
     assert.equal(fanHorizonM({ cls: VisibilityClass.POINT_LOW, effectiveHeightM: 1.7, prominenceM: 0 }), 60)
     assert.equal(fanHorizonM({ cls: VisibilityClass.AREA, effectiveHeightM: 1.7, prominenceM: 0 }), 60)
@@ -211,7 +211,7 @@ describe('BR-AUDIO-010 — distance to the EDGE everywhere, not to the center', 
   })
 })
 
-describe('BR-AUDIO-010 — proximity before road type; one spacing rule for every TP', () => {
+describe('BR-POI-009, BR-AUDIO-010 — proximity before road type; one spacing rule for every TP', () => {
   const offset = (m: { n?: number; e?: number }) => ({ lat: PIN.lat + (m.n ?? 0) / M_PER_DEG_LAT, lng: PIN.lng + (m.e ?? 0) / mPerDegLng })
   const tp = (at: { lat: number; lng: number }, distance: number, extra: Record<string, unknown> = {}) =>
     ({ id: `${at.lat},${at.lng}`, location: at, distance, radius: 30, quality: 0.8, expectedBearing: 0, type: 'primary', ...extra }) as any

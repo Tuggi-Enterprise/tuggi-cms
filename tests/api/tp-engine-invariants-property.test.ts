@@ -57,7 +57,7 @@ describe('P2, BR-AUDIO-010 — mover o pino dentro da borda não muda o conjunto
   })
 })
 
-describe('P4/P8, BR-AUDIO-010 — aumentar a altura do POI nunca reduz o alcance', () => {
+describe('P4/P8, BR-POI-009, BR-AUDIO-010 — aumentar a altura do POI nunca reduz o alcance', () => {
   it('fanHorizonM é não-decrescente em effectiveHeightM, para toda combinação de classe/proeminência', () => {
     const heights = [0, 5, 10, 30, 60, 100, 300, 800, 1500]
     for (const cls of [undefined, VisibilityClass.LANDMARK_HIGH, VisibilityClass.STRUCTURE, VisibilityClass.POINT_LOW]) {

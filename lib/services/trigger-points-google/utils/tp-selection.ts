@@ -62,8 +62,8 @@ export function perimeterSectors(ring: LatLng[]): { count: number; sectorOf: (p:
 }
 
 /**
- * Min distance between two TPs: their GPS circles never overlap, it grows with range, and
- * it never goes below the class floor. With 15 m radii the floor was 30 m and the Museu do
+ * Min distance between two TPs (BR-POI-009 item 3): their GPS circles never overlap, it grows
+ * with range (10%), and it never goes below the class floor. With 15 m radii the floor was 30 m and the Museu do
  * Amanhã got 16 TPs in 200 m of waterfront (#779).
  */
 export function minSpacingM(

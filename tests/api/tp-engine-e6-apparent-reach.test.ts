@@ -17,12 +17,12 @@ import { buildClassification } from '@/lib/services/trigger-points-google/servic
 import { selectSpacedTriggerPoints } from '@/lib/services/trigger-points-google/utils/tp-selection'
 import type { TriggerPoint } from '@/lib/services/trigger-points-google/types/interfaces'
 
-// Motor de TP (#772) — E6, alcance pelo tamanho aparente (experimento, #775). Fonte:
+// Motor de TP (#772) — E6, alcance pelo tamanho aparente (BR-POI-009). Fonte:
 // docs/arquitetura/cms/motor-de-tp.md, linha E6. Unidade: funções puras, sem rede e sem banco.
 
 const perDeg = 1 / Math.tan((RECOGNITION_ANGLE_DEG * Math.PI) / 180)
 
-describe('INV-E6, BR-AUDIO-010 — alcance = tamanho / tan(ângulo de reconhecimento), entre o teto da classe e o teto aparente', () => {
+describe('INV-E6, BR-POI-009, BR-AUDIO-010 — alcance = tamanho / tan(ângulo de reconhecimento), entre o teto da classe e o teto aparente', () => {
   it('busto de 3 m alcança ~86 m (acima do piso de 60 m do point_low)', () => {
     const reach = maxEdgeDistanceFor(VisibilityClass.POINT_LOW, 0, 3)
     assert.equal(reach, 86)
@@ -58,7 +58,7 @@ describe('INV-E6, BR-AUDIO-010 — alcance = tamanho / tan(ângulo de reconhecim
     assert.equal(tall.searchRadius, tall.maxEdgeDistanceM)
   })
 
-  it('BR-POI-009: o morro sob o POI conta no tamanho — capela de 0 m num morro de 31 m (Capela da Guia, Cabo Frio) alcança 31 / tan 2°', () => {
+  it('o morro sob o POI conta no tamanho — capela de 0 m num morro de 31 m (Capela da Guia, Cabo Frio) alcança 31 / tan 2°', () => {
     const onHill = buildClassification(VisibilityClass.POINT_LOW, { heightM: 0, prominenceM: 34, localProminenceM: 31, areaM2: 0, extentM: 0 })
     assert.equal(tpReachCapM(onHill), Math.round(31 * perDeg))
     // proeminência desconhecida não soma; e nunca encolhe o que a altura ou a pegada já davam
@@ -67,7 +67,7 @@ describe('INV-E6, BR-AUDIO-010 — alcance = tamanho / tan(ângulo de reconhecim
   })
 })
 
-describe('INV-E6 / INV-E10, BR-AUDIO-010 — sem teto de quantidade: depois da visada, só o espaçamento corta (#772, 2026-09-28)', () => {
+describe('INV-E6 / INV-E10, BR-POI-009, BR-AUDIO-010 — sem teto de quantidade: depois da visada, só o espaçamento corta (#772, 2026-09-28)', () => {
   const C = { lat: -22.9, lng: -43.2 }
   const tp = (id: string, distance: number, dLat: number, type = 'residential', quality = 0.5, dLng = 0): TriggerPoint => ({
     id, location: { lat: C.lat + dLat, lng: C.lng + dLng }, radius: 30, distance, quality,
@@ -136,7 +136,7 @@ describe('INV-E6 / INV-E10, BR-AUDIO-010 — sem teto de quantidade: depois da v
   })
 })
 
-describe('INV-E6, BR-AUDIO-010 — além do teto da classe só via de turista, medida na borda simplificada', () => {
+describe('INV-E6, BR-POI-009, BR-AUDIO-010 — além do teto da classe só via de turista, medida na borda simplificada', () => {
   const M_LAT = 110_540
   const M_LNG = 111_320 * Math.cos((-22.9 * Math.PI) / 180)
   const C = { lat: -22.9, lng: -43.2 }
