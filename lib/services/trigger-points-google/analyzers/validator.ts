@@ -1,12 +1,12 @@
 // Validador e ranker de trigger points
 
 import { POIData, GeographicContext, TriggerPointCandidate, TriggerPoint, BoundaryData } from '../types/interfaces';
-import { calculateOptimalRadius, calculateDistance, calculateBearing, extractBuildingHeight, normalizeAngleDifference, isPointInPolygon, calculateDistanceToBoundary } from '../utils/calculations';
-import { getFanReachAtBearing } from '../utils/fan-reach';
-import { ElevationAnalysisService } from '../services/elevation-service';
-import { loadTriggerPointsConfig, TriggerPointsConfig, TRIGGER_POINTS_CONSTANTS, POIGroup } from '../config/trigger-points-config';
+import { calculateOptimalRadius, calculateDistance, calculateBearing, extractBuildingHeight, isPointInPolygon, calculateDistanceToBoundary, distanceToLineSegment } from '../utils/calculations';
+import { SANITY_MAX_TP_DISTANCE_M, proximityBand, proximityRankScore } from '../config/visibility-class';
+import { tpReachCapM } from '../utils/validation';
+import { TRIGGER_POINTS_CONSTANTS } from '../config/trigger-points-config';
 import { GoogleAPIsService } from '../services/google-apis.service';
-import { SRTMLocalService } from '../../srtm-local-service';
+import { DemStore } from '../../dem/dem-store';
 import { resolveStreetSpeedKmh, calculateGpsAwareRadius, isApproachableForBearing } from '../../../geometry';
 
 export class TriggerPointValidator {
@@ -18,72 +18,6 @@ export class TriggerPointValidator {
   }
 
   /**
-   * Calcula limite dinâmico de TPs baseado nos candidatos reais
-   * NOVA FÓRMULA: Mais permissiva para itens altos e grandes
-   */
-  private calculateDynamicTPLimit(candidates: TriggerPointCandidate[], fallbackLimit: number, boundary?: BoundaryData, context?: GeographicContext, config?: TriggerPointsConfig): number {
-    if (candidates.length === 0) {
-      return Math.max(3, fallbackLimit);
-    }
-    
-    // Carregar configuração
-    const cfg = config || loadTriggerPointsConfig();
-    
-    // 🎯 NOVA LÓGICA: Base mais permissiva baseada em características do POI
-    let basePercentage = cfg.maxTriggerPoints.basePercentage;
-    let maxLimit = cfg.maxTriggerPoints.limits.max;
-    
-    // 🏢 AJUSTE POR ALTURA DO POI
-    if (boundary?.height) {
-      const poiHeight = boundary.height;
-      if (poiHeight > TRIGGER_POINTS_CONSTANTS.height.extremelyTallThreshold) {
-        // POIs muito altos (>100m) - muito mais permissivo
-        basePercentage = cfg.maxTriggerPoints.heightAdjustments.extremely_tall.percentage;
-        maxLimit = cfg.maxTriggerPoints.heightAdjustments.extremely_tall.maxLimit;
-      } else if (poiHeight > TRIGGER_POINTS_CONSTANTS.height.veryTallThreshold) {
-        // POIs altos (50-100m) - mais permissivo
-        basePercentage = cfg.maxTriggerPoints.heightAdjustments.very_tall.percentage;
-        maxLimit = cfg.maxTriggerPoints.heightAdjustments.very_tall.maxLimit;
-      } else if (poiHeight > TRIGGER_POINTS_CONSTANTS.height.tallThreshold) {
-        // POIs médios (20-50m) - moderadamente permissivo
-        basePercentage = cfg.maxTriggerPoints.heightAdjustments.tall.percentage;
-        maxLimit = cfg.maxTriggerPoints.heightAdjustments.tall.maxLimit;
-      }
-    }
-    
-    // 🏞️ AJUSTE POR ÁREA DO POI
-    if (boundary?.area_m2) {
-      const area = boundary.area_m2;
-      if (area > TRIGGER_POINTS_CONSTANTS.height.veryLargeAreaThreshold) { // >1km²
-        basePercentage = Math.max(basePercentage, cfg.maxTriggerPoints.areaAdjustments.very_large.percentage);
-        maxLimit = Math.max(maxLimit, cfg.maxTriggerPoints.areaAdjustments.very_large.maxLimit);
-      } else if (area > TRIGGER_POINTS_CONSTANTS.height.largeAreaThreshold) { // >0.5km²
-        basePercentage = Math.max(basePercentage, cfg.maxTriggerPoints.areaAdjustments.large.percentage);
-        maxLimit = Math.max(maxLimit, cfg.maxTriggerPoints.areaAdjustments.large.maxLimit);
-      }
-    }
-    
-    // 🏔️ AJUSTE POR ELEVAÇÃO (landmarks em montanhas)
-    if (boundary?.elevation && context) {
-      const elevationDiff = boundary.elevation.center - boundary.elevation.average;
-      if (elevationDiff > TRIGGER_POINTS_CONSTANTS.height.highElevationThreshold) {
-        basePercentage = Math.max(basePercentage, cfg.maxTriggerPoints.elevationAdjustments.high_landmark.percentage);
-        maxLimit = Math.max(maxLimit, cfg.maxTriggerPoints.elevationAdjustments.high_landmark.maxLimit);
-      }
-    }
-    
-    // Calcular limite base
-    const baseLimit = Math.min(Math.floor(candidates.length * basePercentage), maxLimit);
-    
-    // 🎯 NOVA ABORDAGEM: Confiar 100% no sistema de filtragem de visibilidade e qualidade
-    // Removemos os multiplicadores artificiais e deixamos o sistema de validação fazer seu trabalho
-    const finalLimit = Math.max(cfg.maxTriggerPoints.limits.min, baseLimit);
-    
-    
-    return finalLimit;
-  }
-
-  /**
    * Valida e rankeia candidatos a trigger points (NOVO: distância mínima + visibilidade)
    * 🎯 ATUALIZADO: Usa configurações específicas do grupo do POI
    */
@@ -92,40 +26,28 @@ export class TriggerPointValidator {
     poiData: POIData,
     context: GeographicContext,
     boundary: BoundaryData,
-    maxTriggerPoints: number = 50,
-    minDistanceBetweenTPs: number = 40, // metros (aumentado para melhor qualidade)
     options: {
       simulateApproach?: boolean;
       validateCorridor?: boolean;
       clusterIntersections?: boolean;
       intersectionClusterRadiusM?: number;
-      qualityFixFanCap?: boolean;
+      /** Filled with the reason of every candidate this step drops, for the E9 trace. */
+      why?: Map<object, string>;
     } = {}
   ): Promise<TriggerPoint[]> {
-    // NÃO sobrescrever maxTriggerPoints/minDistanceBetweenTPs com a classificação:
-    // o predictor já injeta os valores corretos (`safety ceiling 5000` em
-    // calculateDynamicTPLimit + minDistance calculado em calculateMinDistance).
-    // O controle real de quantidade vive em applyOptions (density thinning).
-    // 🚀 OTIMIZAÇÃO: Calcular elevação base UMA ÚNICA VEZ para evitar centenas de chamadas de API
-    let baseElevation: number | null = null;
-    if (boundary?.elevation && boundary.elevation.center > 0) {
-      baseElevation = await ElevationAnalysisService.estimateRegionalBaseElevation(boundary.center, context, poiData);
-    }
-    
-    // 🎯 NOVO: Confiar 100% no limite calculado pelo predictor (sem recalcular)
-    // O predictor já calculou o limite baseado na área e características do POI
-    const dynamicMaxTPs = maxTriggerPoints;
-    
-    
+    // No spacing here (BR-POI-009 item 3): the one spacing ruler is E10
+    // (`tp-selection#selectSpacedTriggerPoints`), traced per candidate. The fixed 30/70 m
+    // type-aware dedup that lived here cut far candidates with no trace (Convento, Cabo Frio,
+    // 2026-09-28: SW candidate at 146 m absorbed by a nearer primary).
     try {
       // ✅ VALIDAÇÃO BÁSICA COMPLETA
       const basicValidCandidates = [];
       for (const candidate of candidates) {
-        const isValid = await this.isValidCandidate(candidate, poiData, context, boundary, baseElevation, {
-          qualityFixFanCap: options.qualityFixFanCap,
-        });
+        const isValid = await this.isValidCandidate(candidate, poiData, context, boundary);
         if (isValid) {
           basicValidCandidates.push(candidate);
+        } else {
+          options.why?.set(candidate, 'basic validation (quality, confidence, reach, speed)');
         }
       }
       
@@ -140,18 +62,10 @@ export class TriggerPointValidator {
       // Aqui descartamos candidatos cuja rua é one-way e cuja única direção de
       // tráfego resultaria em "back" relativo ao POI. Vias bidirecionais sempre
       // passam (alguém indo na direção certa pode disparar).
-      // One-way validation:
-      //
-      // Modo fan: DESLIGADO. Motivo: a direção de way no OSM tem inconsistências
-      // (alguns segmentos desenhados na direção contrária ao tráfego real),
-      // gerando falsos positivos de rejeição em ruas de mão única famosas
-      // (ex: 5th Ave em Manhattan). O app `tuggi-drive-v2` já filtra
-      // `direction=back` em runtime — TPs gerados em ruas de mão errada
-      // simplesmente não disparam, sem prejuízo. Aqui apenas LOGAMOS o que
-      // SERIA rejeitado, pra monitoramento.
-      //
-      // Modo categórico (sem fan): mantém pre-filter (legado).
-      const fanModeForOneway = !!boundary.visibilityFan?.polygons?.length;
+      // One-way validation, in every mode, by the local tangent at the candidate
+      // (the old first→last chord gave false rejections on curved ways, which is why
+      // fan mode used to only log). A TP that cannot fire in any legal direction wastes
+      // a slot of the POI (BR-AUDIO-010).
       const onewayWouldReject: string[] = [];
       const onewayValidCandidates = basicValidCandidates.filter(c => {
         const streetTags: any = (c.street as any)?.tags || {};
@@ -165,18 +79,22 @@ export class TriggerPointValidator {
         // TP está DENTRO do boundary do POI? Não aplica one-way.
         if (isPointInPolygon(c.location, boundary.coordinates)) return true;
 
-        const ok = isApproachableForBearing(streetCoords, oneway, c.expectedBearing);
+        // Local tangent at the candidate, not the way's first→last chord — the chord is
+        // what made fan mode only log (BR-AUDIO-010: never emit a TP that cannot fire).
+        const ok = isApproachableForBearing(streetCoords, oneway, c.expectedBearing, c.location);
 
         if (!ok) {
           onewayWouldReject.push(`${c.street?.id} (${(c.street as any)?.name || 'unnamed'}) oneway=${oneway}, bearing=${c.expectedBearing.toFixed(0)}°`);
-          // Modo fan: NÃO descarta, só registra. Modo categórico: descarta.
-          return fanModeForOneway;
+          // The app blocks a "back" trigger: a one-way street that only flows away from the POI
+          // can never fire (BR-AUDIO-010). Explicit in the trace (Convento dos Anjos, 2026-09-28).
+          options.why?.set(c, `one-way ${oneway} flows away from the POI (${(c.street as any)?.name || c.street?.id})`);
+          return false;
         }
         return true;
       });
 
       if (onewayWouldReject.length > 0) {
-        const action = fanModeForOneway ? 'flagged-only (fan mode, app filters runtime)' : 'DISCARDED';
+        const action = 'DISCARDED';
         console.log(`🚦 One-way validation: ${action} ${onewayWouldReject.length}/${basicValidCandidates.length} candidate(s):`);
         for (const r of onewayWouldReject.slice(0, 10)) console.log(`   → ${r}`);
         if (onewayWouldReject.length > 10) console.log(`   → (+${onewayWouldReject.length - 10} more)`);
@@ -185,7 +103,10 @@ export class TriggerPointValidator {
       
       // ✅ ORDENAR POR PRIORIDADE (RÁPIDO - sem verificação de visibilidade)
       // Ordenar por prioridade: FRONT STREETS primeiro, depois por qualidade
+      // Proximity band to the edge first (BR-AUDIO-010), then front street, then quality.
       const rankedCandidates = onewayValidCandidates.sort((a, b) => {
+        const bandDiff = proximityBand(a.distance) - proximityBand(b.distance);
+        if (bandDiff !== 0) return bandDiff;
         const aIsFrontStreet = this.isTPOnFrontStreet(a, boundary);
         const bIsFrontStreet = this.isTPOnFrontStreet(b, boundary);
         
@@ -198,35 +119,14 @@ export class TriggerPointValidator {
       });
       
       
-      // ✅ FILTRO DE PROXIMIDADE — duas variantes:
-      //
-      // Modo fan (type-aware smart dedup):
-      //   - Pré-classifica cada candidato como 'primary' (alto valor: intersection,
-      //     rua principal, perto do POI, addr:street match) ou 'secondary'.
-      //   - Dedup com thresholds DIFERENTES por type:
-      //       primary+primary próximos: 20m + 30° (muito permissivo)
-      //       secondary+secondary próximos: 50m + 45° (atual)
-      //       mixed (primary vs secondary próximos): primary sempre vence
-      //
-      // Modo categórico (fallback): spacing tradicional por distância apenas.
-      const fanActiveForSpacing = !!boundary.visibilityFan?.polygons?.length;
-      let distanceFilteredCandidates: TriggerPointCandidate[];
-      if (fanActiveForSpacing) {
-        // Tag cada candidato com primaryScore e predictedType
+      // Only the intersection clustering stays (option, 25 m < any E10 spacing): it picks
+      // which of two corner TPs on different streets survives; E10 would keep one anyway.
+      let distanceFilteredCandidates: TriggerPointCandidate[] = rankedCandidates;
+      if (boundary.visibilityFan?.polygons?.length) {
         this.classifyCandidatesByPrimaryScore(rankedCandidates, boundary);
-        distanceFilteredCandidates = this.selectCandidatesWithTypeAwareDedup(rankedCandidates, dynamicMaxTPs);
-
-        // Pós-processamento: intersection clustering.
-        // Default ON em modo fan. Resolve "corner POIs" onde múltiplos segmentos
-        // OSM do mesmo cruzamento (ruas diferentes) sobrevivem ao dedup
-        // type-aware por terem bearings muito diferentes (>45°).
-        const clusterEnabled = options.clusterIntersections !== false;
-        if (clusterEnabled) {
-          const radiusM = options.intersectionClusterRadiusM ?? 25;
-          distanceFilteredCandidates = this.clusterIntersections(distanceFilteredCandidates, radiusM);
+        if (options.clusterIntersections !== false) {
+          distanceFilteredCandidates = this.clusterIntersections(rankedCandidates, options.intersectionClusterRadiusM ?? 25, options.why);
         }
-      } else {
-        distanceFilteredCandidates = this.selectCandidatesWithMinDistance(rankedCandidates, dynamicMaxTPs, minDistanceBetweenTPs, boundary, context);
       }
 
       // Validação de visibilidade já aconteceu via fan (ray-cast 2.5D) em
@@ -308,40 +208,26 @@ export class TriggerPointValidator {
     //    baixo pra TPs em cantos de POIs grandes.
     //  - threshold 0.55 → 0.50 (achievable por secondary street + edge + intersection)
     //  - intersection bonus 0.15 → 0.20 (esquinas valem mais)
+    // Proximity before road type (BR-AUDIO-010): the band to the EDGE dominates the
+    // score; road type only breaks ties (config/visibility-class.ts#proximityRankScore).
+    // Closest band is primary on its own; the next one needs an intersection or the
+    // POI address street.
     const PRIMARY_THRESHOLD = 0.50;
     const INTERSECTION_RADIUS_M = 30;
-    const INTERSECTION_BONUS = 0.20;
+    const INTERSECTION_BONUS = 0.10;
     const addrStreet = (boundary.address?.street || '').toLowerCase().trim();
-
-    const streetClassScore: Record<string, number> = {
-      motorway: 0.30,
-      trunk: 0.25,
-      primary: 0.20,
-      secondary: 0.15,
-      tertiary: 0.10,
-      residential: 0.05,
-      unclassified: 0.03,
-      living_street: 0.03,
-      service: 0.02,
-      pedestrian: 0.05,
-    };
 
     let primaryCount = 0;
     for (const cand of candidates) {
       let score = 0;
       const breakdown: any = {};
 
-      // 1. Street class
-      const sc = streetClassScore[cand.street?.type] ?? 0;
-      score += sc; breakdown.streetClass = sc;
-
-      // 2. Proximity to boundary EDGE (FIX: usa distância à aresta, 0 se dentro)
+      // 1–2. Proximity band to the edge, road type as tie-break
       const distToEdge = calculateDistanceToBoundary(cand.location, boundary.coordinates);
-      let proximityBonus = 0;
-      if (distToEdge <= 30) proximityBonus = 0.15;
-      else if (distToEdge <= 100) proximityBonus = 0.10;
-      else if (distToEdge <= 500) proximityBonus = 0.05;
-      score += proximityBonus; breakdown.proximity = proximityBonus;
+      const band = proximityBand(distToEdge);
+      const proximity = band === 0 ? 0.5 : band === 1 ? 0.35 : band === 2 ? 0.2 : band === 3 ? 0.1 : 0;
+      const tie = proximityRankScore(distToEdge, cand.street?.type) * 0.04;
+      score += proximity + tie; breakdown.proximity = proximity; breakdown.streetClass = tie;
 
       // 3. Intersection: outro candidato com street.id diferente em raio 30m
       const hasIntersection = candidates.some(other => {
@@ -373,101 +259,7 @@ export class TriggerPointValidator {
   }
 
   /**
-   * Type-aware dedup. Aplica thresholds DIFERENTES por type:
-   *  - primary+primary próximos: 20m + 30° (muito permissivo)
-   *  - secondary+secondary próximos: 50m + 45° (atual)
-   *  - mixed: primary vence, secondary descartado
-   *
-   * Ordem de processamento: primaries primeiro (asc quality), depois secondaries
-   * (asc quality). Isso garante que primaries "ocupam" o espaço antes dos
-   * secondaries serem avaliados.
-   */
-  private selectCandidatesWithTypeAwareDedup(
-    candidates: TriggerPointCandidate[],
-    maxTriggerPoints: number
-  ): TriggerPointCandidate[] {
-    // Sort: primaries primeiro, dentro de cada grupo por quality desc
-    const sorted = [...candidates].sort((a, b) => {
-      const aPrim = a.predictedType === 'primary' ? 1 : 0;
-      const bPrim = b.predictedType === 'primary' ? 1 : 0;
-      if (aPrim !== bPrim) return bPrim - aPrim;
-      return b.quality - a.quality;
-    });
-
-    const selected: TriggerPointCandidate[] = [];
-    let droppedRedundant = 0;
-    let droppedByMixed = 0;
-    let droppedByCap = 0;
-
-    // Thresholds bumpados (round 2):
-    //  - Hard floor 15m: pares < 15m sempre dedup (radii sobrepostos, duplicata física)
-    //  - Primary+Primary: 30m + 45° (era 20m + 30°)
-    //  - Secondary+Secondary: 70m + 60° (era 50m + 45°)
-    //  - Primary absorve Secondary: 70m + 60° (era 50m + 45°)
-    const HARD_FLOOR_M = 15;
-
-    for (const cand of sorted) {
-      if (selected.length >= maxTriggerPoints) { droppedByCap++; continue; }
-
-      const candType = cand.predictedType || 'secondary';
-      let isRedundant = false;
-
-      for (const existing of selected) {
-        const existingType = existing.predictedType || 'secondary';
-        const dist = calculateDistance(cand.location, existing.location);
-        const bearingDiff = Math.abs(normalizeAngleDifference(existing.expectedBearing - cand.expectedBearing));
-        const qualityGap = existing.quality - cand.quality;
-
-        // Hard floor: TPs colados são duplicata física, dropa independente de type/bearing
-        if (dist < HARD_FLOOR_M) {
-          isRedundant = true;
-          droppedRedundant++;
-          break;
-        }
-
-        let thresholdDist: number, thresholdBearing: number, requireQualityGap: boolean;
-        if (candType === 'primary' && existingType === 'primary') {
-          // Primary vs Primary: permissivo
-          thresholdDist = 30; thresholdBearing = 45; requireQualityGap = true;
-        } else if (candType === 'primary' && existingType === 'secondary') {
-          // Primary sendo avaliado contra Secondary — primary nunca perde
-          continue;
-        } else if (candType === 'secondary' && existingType === 'primary') {
-          // Mixed: secondary perde pra primary se "próximos"
-          thresholdDist = 70; thresholdBearing = 60; requireQualityGap = false;
-          if (dist < thresholdDist && bearingDiff < thresholdBearing) {
-            isRedundant = true;
-            droppedByMixed++;
-            break;
-          }
-          continue;
-        } else {
-          // Secondary vs Secondary: mais agressivo
-          thresholdDist = 70; thresholdBearing = 60; requireQualityGap = true;
-        }
-
-        if (dist < thresholdDist && bearingDiff < thresholdBearing) {
-          if (requireQualityGap && qualityGap < 0.05) continue;
-          isRedundant = true;
-          droppedRedundant++;
-          break;
-        }
-      }
-
-      if (!isRedundant) selected.push(cand);
-    }
-
-    const finalPrim = selected.filter(c => c.predictedType === 'primary').length;
-    const finalSec = selected.length - finalPrim;
-    console.log(
-      `🏷️ Type-aware dedup: kept ${selected.length}/${candidates.length} (${finalPrim} primary + ${finalSec} secondary). ` +
-      `Dropped: ${droppedRedundant} redundant same-type, ${droppedByMixed} secondary-absorbed-by-primary, ${droppedByCap} by cap.`
-    );
-    return selected;
-  }
-
-  /**
-   * Intersection clustering (pós-dedup).
+   * Intersection clustering.
    *
    * O type-aware dedup é bearing-aware: dois TPs próximos com bearings >45°
    * de diferença são considerados approaches distintos e ambos sobrevivem.
@@ -485,7 +277,8 @@ export class TriggerPointValidator {
    */
   private clusterIntersections(
     candidates: TriggerPointCandidate[],
-    radiusM: number
+    radiusM: number,
+    why?: Map<object, string>
   ): TriggerPointCandidate[] {
     if (candidates.length <= 1) return candidates;
 
@@ -518,6 +311,7 @@ export class TriggerPointValidator {
       if (winner) {
         const dropName = cand.street?.name || cand.street?.id || '?';
         const winName = winner.street?.name || winner.street?.id || '?';
+        why?.set(cand, `intersection cluster ${radiusM} m: ${winName} wins`);
         clusterLog.push(`${dropName} (score=${(cand.primaryScore ?? cand.quality).toFixed(2)}) → ${winName} (score=${(winner.primaryScore ?? winner.quality).toFixed(2)})`);
         continue;
       }
@@ -535,151 +329,6 @@ export class TriggerPointValidator {
       if (clusterLog.length > 10) console.log(`   → (+${clusterLog.length - 10} more)`);
     }
     return selected;
-  }
-
-  /**
-   * Smart dedup bearing-aware (modo fan).
-   *
-   * Princípio: dois candidatos são considerados "duplicatas" só quando
-   * fisicamente próximos E apontando pra mesma direção. Caso contrário,
-   * mesmo se próximos, ambos são mantidos (ruas perpendiculares no cruzamento,
-   * ruas paralelas próximas, approaches distintos).
-   *
-   * "Errar por mais": empate de quality (diff < threshold) mantém os dois.
-   * Só dropa o claramente pior.
-   *
-   * Complexidade: O(n²) por par. Pra n típico (<300 candidatos) é trivial.
-   */
-  private selectCandidatesWithBearingDedup(
-    rankedCandidates: TriggerPointCandidate[],
-    maxTriggerPoints: number,
-    config: { proximityM: number; bearingDeltaDeg: number; qualityTieDelta: number }
-  ): TriggerPointCandidate[] {
-    const selected: TriggerPointCandidate[] = [];
-    let droppedRedundant = 0;
-    let droppedByCap = 0;
-
-    // Já chega ordenado por (front-street, quality desc). Iteração greedy.
-    for (const cand of rankedCandidates) {
-      if (selected.length >= maxTriggerPoints) {
-        droppedByCap++;
-        continue;
-      }
-
-      const isRedundant = selected.some(existing => {
-        const dist = calculateDistance(cand.location, existing.location);
-        if (dist >= config.proximityM) return false;
-
-        // Diferença angular tratada com wrap-around (0/360°)
-        const diff = Math.abs(normalizeAngleDifference(existing.expectedBearing - cand.expectedBearing));
-        if (diff >= config.bearingDeltaDeg) return false;
-
-        // Empate de quality: NÃO considera redundante (mantém ambos)
-        const qualityGap = existing.quality - cand.quality;
-        if (qualityGap < config.qualityTieDelta) return false;
-
-        // Caiu nos 3 critérios → redundante de fato
-        return true;
-      });
-
-      if (isRedundant) {
-        droppedRedundant++;
-        continue;
-      }
-
-      selected.push(cand);
-    }
-
-    console.log(`👁️ Smart dedup: kept ${selected.length}/${rankedCandidates.length} (dropped ${droppedRedundant} as redundant, ${droppedByCap} by max cap=${maxTriggerPoints}). Thresholds: dist<${config.proximityM}m AND |Δbearing|<${config.bearingDeltaDeg}° AND Δquality≥${config.qualityTieDelta}`);
-    return selected;
-  }
-
-  /**
-   * NOVO: Seleciona candidatos garantindo distância mínima entre eles (mantém como candidatos)
-   * ✅ OTIMIZAÇÃO: Mantém candidatos para aplicar verificação de visibilidade depois
-   */
-  private selectCandidatesWithMinDistance(
-    rankedCandidates: TriggerPointCandidate[],
-    maxTriggerPoints: number,
-    minDistance: number,
-    boundary: BoundaryData,
-    context: GeographicContext
-  ): TriggerPointCandidate[] {
-    const selectedCandidates: TriggerPointCandidate[] = [];
-    let rejectedCount = 0;
-    
-    // Issue 2.4b — Cobertura completa. Apenas honramos `minDistance` configurada
-    // (vinda de `GROUP_CONFIGS.minDistanceBetweenTPs`). Removidos:
-    //  1. O override "forced 60m para POIs pequenos" — bloqueava cobertura em pier/edifícios.
-    //  2. O override "forced 80m para FLAT+dense" — bloqueava cobertura em parques urbanos.
-    //  3. A duplicação do raio (`STANDARD_TP_RADIUS * 2`) — usava valor hardcoded de 20m
-    //     e era inconsistente com o radius adaptativo (audio-aware). Esse "espaçamento de
-    //     segurança" não tem propósito funcional: o app já tem cooldown de 10min por POI,
-    //     então TPs próximos não causam disparos duplicados.
-    const adjustedMinDistance = minDistance;
-    const minDistanceBetweenCenters = adjustedMinDistance;
-    
-    for (const candidate of rankedCandidates) {
-      // Verificar se já temos o máximo de candidatos
-      if (selectedCandidates.length >= maxTriggerPoints) {
-        break;
-      }
-      
-      // Verificar distância mínima com candidatos já selecionados
-      const isTooClose = selectedCandidates.some(existing => {
-        const distanceBetweenCenters = calculateDistance(candidate.location, existing.location);
-        return distanceBetweenCenters < minDistanceBetweenCenters;
-      });
-      
-      if (isTooClose) {
-        rejectedCount++;
-        continue;
-      }
-      
-      // Candidato aprovado - manter como candidato (não converter ainda)
-      selectedCandidates.push(candidate);
-    }
-    
-    return selectedCandidates;
-  }
-
-  /**
-   * LEGACY: Seleciona TPs garantindo distância mínima entre eles (converte para TriggerPoint)
-   * ⚠️ Usado apenas quando necessário converter diretamente para TriggerPoint
-   */
-  private selectTriggerPointsWithMinDistance(
-    rankedCandidates: TriggerPointCandidate[],
-    maxTriggerPoints: number,
-    minDistance: number,
-    boundary: BoundaryData,
-    context: GeographicContext
-  ): TriggerPoint[] {
-    const selectedTPs: TriggerPoint[] = [];
-    let rejectedCount = 0;
-    
-    // Issue 2.4b — Cobertura completa (mesma lógica de selectCandidatesWithMinDistance):
-    // honra apenas `minDistance` da config; sem overrides forçados nem duplicação de raio.
-    const adjustedMinDistance = minDistance;
-    const minDistanceBetweenCenters = adjustedMinDistance;
-    
-    for (const candidate of rankedCandidates) {
-      if (selectedTPs.length >= maxTriggerPoints) break;
-      
-      const isTooClose = selectedTPs.some(existingTP => {
-        const distanceBetweenCenters = calculateDistance(candidate.location, existingTP.location);
-        return distanceBetweenCenters < minDistanceBetweenCenters;
-      });
-      
-      if (isTooClose) {
-        rejectedCount++;
-        continue;
-      }
-      
-      const triggerPoint = this.convertToTriggerPoint(candidate, selectedTPs.length, boundary, context);
-      selectedTPs.push(triggerPoint);
-    }
-    
-    return selectedTPs;
   }
 
   private calculateBuildingCentroid(building: any): { lat: number; lng: number } {
@@ -1005,9 +654,7 @@ export class TriggerPointValidator {
     candidate: TriggerPointCandidate,
     poiData: POIData,
     context: GeographicContext,
-    boundary?: BoundaryData,
-    cachedBaseElevation?: number | null,
-    opts?: { qualityFixFanCap?: boolean }
+    boundary?: BoundaryData
   ): Promise<boolean> {
     // Verificar qualidade mínima
     if (candidate.quality < 0.3) {
@@ -1026,57 +673,13 @@ export class TriggerPointValidator {
       return false;
     }
     
-    // Distância máxima do candidato ao centroide do POI.
-    //
-    // Modo fan-driven: PULA a checagem por completo. O FAN-WALK já filtrou
-    // fisicamente (fan polygons + boundary + safety 100m). Se um candidato
-    // chegou aqui, ele passou pela visibilidade — não há razão pra rejeitar
-    // por distância arbitrária. Casos típicos onde a regra antiga atrapalha:
-    //  - POIs storefront com fan degenerado (max=30m): a regra rejeitava TPs
-    //    legítimos em ruas adjacentes a 35-100m.
-    //  - Infraestruturas vizinhas visíveis (Roosevelt Island Bridge a 1.5km
-    //    da Queensboro): a regra cortava antes mesmo do fan opinar.
-    //
-    // Modo categórico (fallback, sem fan): mantém regra antiga.
-    const fanForDistance = !!boundary?.visibilityFan?.polygons?.length;
-    if (!fanForDistance) {
-      let maxDistance = 1000;
-      if (boundary?.elevation && boundary.elevation.center > 0 && cachedBaseElevation !== null) {
-        const poiElevation = boundary.elevation.center;
-        const baseElevation = cachedBaseElevation || await ElevationAnalysisService.estimateRegionalBaseElevation(boundary.center, context, poiData);
-        const elevationDiff = poiElevation - baseElevation;
-        if (elevationDiff > 150) maxDistance = 15000;
-        else if (elevationDiff > 50) maxDistance = 4000;
-      } else if (context.urbanDensity.level === 'rural') {
-        maxDistance = 3000;
-        console.log(`🌾 Rural area without elevation data → extending max distance to ${maxDistance}m`);
-      }
-
-      if (candidate.distance > maxDistance) {
-        console.log(`🚫 Candidate rejected: distance ${candidate.distance.toFixed(0)}m > ${maxDistance}m`);
-        return false;
-      }
-    } else if (opts?.qualityFixFanCap !== false && boundary) {
-      // Phase 2.A — cap por visibilidade real (default on desde 2026-05-29).
-      // O fan mode antigo pulava qualquer cap apostando que o fan filtrava
-      // fisicamente, mas o fan tem resolução grossa (5° × 100m) e candidatos
-      // vazavam (Vail Lake: fan_mean 297m, TP a 6527m). Aqui fechamos esse
-      // vazamento usando a distância visível do fan na direção do candidato
-      // como teto, com 10% de folga para absorver ruído de fatias adjacentes.
-      //
-      // Validado em A/B (200 POIs California, 2026-05-29): -61% de TPs no
-      // bucket 200-1500m (zona "TP em rua longe"), Robert W. Crown Beach
-      // max_d 2474m → 644m, sem aumento em exit_path errors. Storefronts com
-      // fan colapsado continuam protegidos por buildFrontalArrivalTP que roda
-      // depois do validateAndRankPoints.
-      //
-      // Kill-switch: pass options.qualityFixFanCap = false para desligar.
-      const bearingPoiToCandidate = calculateBearing(boundary.center, candidate.location);
-      const fanReach = getFanReachAtBearing(boundary.visibilityFan, bearingPoiToCandidate);
-      if (Number.isFinite(fanReach) && candidate.distance > fanReach * 1.1) {
-        console.log(`🚫 Candidate rejected (Phase 2.A fan cap): distance ${candidate.distance.toFixed(0)}m > fanReach@${bearingPoiToCandidate.toFixed(0)}° ${fanReach.toFixed(0)}m × 1.1`);
-        return false;
-      }
+    // INV-E6: the ONE reach, from the edge (`tpReachCapM`) — the same the street search and the
+    // candidate walk used. The fan cap (fan reach × 1.1) and the elevation ladder
+    // (1/4/15 km) were two more rulers; visibility is the sight line's job (E8).
+    const reachM = tpReachCapM(boundary?.classification);
+    if (candidate.distance > reachM) {
+      console.log(`🚫 Candidate rejected: ${candidate.distance.toFixed(0)}m from the edge > reach ${reachM}m`);
+      return false;
     }
 
     // Verificar acessibilidade
@@ -1289,7 +892,7 @@ export class TriggerPointValidator {
       const point2 = boundary.coordinates[(i + 1) % boundary.coordinates.length];
       
       // Calcular distância do TP para o segmento de linha
-      const distance = this.distanceToLineSegment(tpLocation, point1, point2);
+      const distance = distanceToLineSegment(tpLocation, point1, point2);
       
       if (distance < minDistance) {
         minDistance = distance;
@@ -1304,45 +907,6 @@ export class TriggerPointValidator {
     }
     
     return false;
-  }
-
-  /**
-   * NOVO: Calcula distância de um ponto para um segmento de linha (MELHORIA INCREMENTAL)
-   */
-  private distanceToLineSegment(
-    point: { lat: number; lng: number },
-    lineStart: { lat: number; lng: number },
-    lineEnd: { lat: number; lng: number }
-  ): number {
-    // Calcular distância usando fórmula de distância ponto-linha
-    const A = point.lat - lineStart.lat;
-    const B = point.lng - lineStart.lng;
-    const C = lineEnd.lat - lineStart.lat;
-    const D = lineEnd.lng - lineStart.lng;
-    
-    const dot = A * C + B * D;
-    const lenSq = C * C + D * D;
-    
-    if (lenSq === 0) {
-      // Linha degenerada (ponto)
-      return calculateDistance(point, lineStart);
-    }
-    
-    const param = dot / lenSq;
-    
-    let closestPoint;
-    if (param < 0) {
-      closestPoint = lineStart;
-    } else if (param > 1) {
-      closestPoint = lineEnd;
-    } else {
-      closestPoint = {
-        lat: lineStart.lat + param * C,
-        lng: lineStart.lng + param * D
-      };
-    }
-    
-    return calculateDistance(point, closestPoint);
   }
 
   /**
@@ -1643,8 +1207,8 @@ export class TriggerPointValidator {
     }
     
     // Verificar distância
-    if (tp.distance < 0 || tp.distance > 2000) {
-      issues.push(`Invalid distance: ${tp.distance}m (must be between 0-2000m)`);
+    if (tp.distance < 0 || tp.distance > SANITY_MAX_TP_DISTANCE_M) {
+      issues.push(`Invalid distance: ${tp.distance}m (must be between 0-${SANITY_MAX_TP_DISTANCE_M}m)`);
     }
     
     // Verificar tipo
@@ -1849,11 +1413,8 @@ export class TriggerPointValidator {
     points: Array<{ lat: number; lng: number }>
   ): Promise<number[]> {
     try {
-      const srtm = SRTMLocalService.getInstance();
-      const results = await Promise.all(
-        points.map(p => srtm.getElevation(p.lat, p.lng))
-      );
-      return results.map(e => e ?? 0);
+      const dem = DemStore.getInstance();
+      return points.map(p => dem.ground(p.lat, p.lng) ?? 0);
       
     } catch (error) {
       console.warn('Failed to get elevations from SRTM Local Service:', error);

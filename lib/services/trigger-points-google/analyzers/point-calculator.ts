@@ -1,15 +1,28 @@
 // Calculador de pontos ótimos para trigger points
 
 import { POIData, BoundaryData, GeographicContext, StreetData, TriggerPointCandidate } from '../types/interfaces';
-import { calculateDistance, calculateBearing, calculateDistanceToBoundary, isPointInPolygon, findClosestPointOnBoundary } from '../utils/calculations';
+import { calculateBearing, calculateDistance, findClosestPointOnBoundary, samplePolylineAround } from '../utils/calculations';
+import { edgeDistanceFarLaneM, poiEdgeRing, streetEdgeReach, streetFootOnEdgeFarLane, tpReachCapM } from '../utils/validation';
 import { TRIGGER_POINTS_CONSTANTS } from '../config/trigger-points-config';
-import { POIClassifierService } from '../services/poi-classifier.service';
+import {
+  EDGE_BAND_M,
+  FAR_CANDIDATES_PER_CELL,
+  farWayTypes,
+  landmarkStreetTier,
+  observerPath,
+  FAR_CELL_SPACING_M,
+  FAR_RINGS_M,
+  LANDMARK_CELL_RINGS_M,
+  landmarkSectorOf,
+  VisibilityClass,
+  proximityRankScore,
+  sizeReachFarFromM,
+} from '../config/visibility-class';
+import { measureAndClassify } from '../services/poi-classifier.service';
 
 export class OptimalPointCalculator {
-  private poiClassifier: POIClassifierService;
   
   constructor() {
-    this.poiClassifier = new POIClassifierService();
   }
   
   /**
@@ -20,11 +33,7 @@ export class OptimalPointCalculator {
     streets: StreetData[],
     boundary: BoundaryData,
     context: GeographicContext,
-    /**
-     * SSOT do searchRadius — passado pelo predictor com o valor já computado
-     * em `street-analyzer.findAccessibleStreetsWithMetadata`. Se não informado,
-     * cai no fallback derivado de `classification.searchRadius` (legado).
-     */
+    /** the reach the street search used (`tpReachCapM`); recomputed from the class when absent */
     upstreamSearchRadius?: number
   ): Promise<TriggerPointCandidate[]> {
     // 🎯 USAR CLASSIFICAÇÃO DO BOUNDARY (já calculada no boundary-detector)
@@ -34,14 +43,15 @@ export class OptimalPointCalculator {
       console.warn(`⚠️ No classification found in boundary, using fallback`);
       // Fallback: criar classificação padrão APENAS se não existe classificação
       // ✅ IMPORTANTE: Não recategorizar se já existe classificação (evitar redundância)
-      const fallbackClassification = await this.poiClassifier.classifyPOI(
+      const { classification: fallbackClassification } = await measureAndClassify({
         poiData,
-        boundary.height,
-        boundary.elevation ? { center: boundary.elevation.center } : undefined,
-        boundary.area_m2,
+        boundary: boundary.coordinates,
+        synthetic: boundary.synthetic,
+        areaM2: boundary.area_m2,
+        tags: boundary.osmTags,
+        knownHeightM: boundary.height,
         context,
-        boundary.osmTags
-      );
+      });
       boundary.classification = fallbackClassification;
       classification = fallbackClassification; // ✅ CORREÇÃO: Atualizar variável local também
     }
@@ -51,11 +61,10 @@ export class OptimalPointCalculator {
       throw new Error('Classification is still undefined after fallback creation');
     }
     
-    // SSOT: searchRadius computado pelo street-analyzer e propagado via
-    // `upstreamSearchRadius`. Fallback (legado) re-deriva de classification.
+    // INV-E6: one reach — the one the street search used (`tpReachCapM`, from the edge).
     const searchRadius = upstreamSearchRadius !== undefined && upstreamSearchRadius > 0
       ? upstreamSearchRadius
-      : (classification.searchRadius || 300);
+      : tpReachCapM(classification);
 
     // Filtrar ruas após classificação — usar apenas as dentro do raio calculado
     const filteredStreets = this.filterStreetsByRadius(streets, boundary, searchRadius);
@@ -71,7 +80,7 @@ export class OptimalPointCalculator {
     }
 
     console.log(`👁️ FAN-WALK STRATEGY: Walking each street and dropping candidates spaced by minDistanceBetweenTPs`);
-    const candidates = await this.calculateFanWalkStrategy(filteredStreets, poiData, boundary, context, classification);
+    const candidates = await this.calculateFanWalkStrategy(filteredStreets, poiData, boundary, context, classification, searchRadius);
 
     // Ordenar candidatos por qualidade
     candidates.sort((a, b) => b.quality - a.quality);
@@ -142,100 +151,29 @@ export class OptimalPointCalculator {
     return subStreets;
   }
 
+  /**
+   * E6 — the SAME reach as the street search (`validation#streetEdgeReach` with
+   * `tpReachCapM`), then only the stretches outside the boundary (issue 1.8). The street
+   * search already dropped and traced what is beyond reach; here it is a guard, not a 2nd ruler.
+   */
   private filterStreetsByRadius(
     streets: StreetData[],
     boundary: BoundaryData,
     searchRadius: number
   ): StreetData[] {
     if (!streets || streets.length === 0) return streets;
-    if (!boundary.coordinates || boundary.coordinates.length === 0) return streets;
-
     const filtered: StreetData[] = [];
-
-    // Arquitetura: fan = MEDIDOR DE ALCANCE (max distance), per-TP = VERIFICADOR.
-    //
-    // O fan computa `maxDistanceM` (até onde o POI é visível em ALGUMA direção).
-    // Usamos isso como RAIO para o filtro inicial — permissivo, captura streets
-    // que o polígono do fan rejeitaria por edge effects ou ray-cast errors
-    // (ex: Vieira Souto/Ipanema do Cristo, onde fan polygon under-shoots).
-    //
-    // O per-TP check downstream faz ray-cast EXATO ponto a ponto e rejeita
-    // os falsos positivos (ex: Av. Niemeyer atrás de Vidigal/Dois Irmãos).
-    //
-    // Quando o fan COLAPSA, `buildFanCollapseFallback` no predictor cobre.
-    const fanMaxM = boundary.visibilityFan?.maxDistanceM ?? 0;
-    const useFanRadius = fanMaxM > 0;
-    const effectiveRadius = useFanRadius ? fanMaxM : searchRadius;
-    const maxAllowedDistance = effectiveRadius + 20;
-
-    if (useFanRadius) {
-      console.log(`🔍 Filtering streets by FAN-DERIVED RADIUS: ${fanMaxM}m (per-TP check downstream validates exact LOS)`);
-    } else {
-      console.log(`🔍 Filtering streets and points by radius: ${searchRadius}m (max: ${maxAllowedDistance}m)`);
-    }
-
     for (const street of streets) {
       if (!street.coordinates || street.coordinates.length === 0) continue;
-
-      const validPoints: Array<{ lat: number; lng: number }> = [];
-      let minDistanceToBoundary = Infinity;
-      let maxDistanceToBoundary = 0;
-
-      for (const streetPoint of street.coordinates) {
-        const distanceToBoundary = calculateDistanceToBoundary(streetPoint, boundary.coordinates);
-
-        minDistanceToBoundary = Math.min(minDistanceToBoundary, distanceToBoundary);
-        maxDistanceToBoundary = Math.max(maxDistanceToBoundary, distanceToBoundary);
-
-        // Aceite unificado: dentro do raio efetivo OU dentro do boundary OU
-        // colado (≤30m) à aresta (safety net calçada perimetral).
-        // Sem mais split fan/radius — o per-TP check faz o filtro fino.
-        const accepted =
-          distanceToBoundary <= maxAllowedDistance ||
-          isPointInPolygon(streetPoint, boundary.coordinates) ||
-          distanceToBoundary <= 30;
-
-        if (accepted) {
-          validPoints.push(streetPoint);
-        }
-      }
-      
-      // ✅ REGRA: Aprovar ruas que têm pelo menos 1 ponto válido dentro do raio
-      // A função findPointAtDistanceFromBoundary funciona perfeitamente com 1 ponto,
-      // então não há necessidade de exigir 2+ pontos para "formar um segmento"
-      // Se tem 1 ponto válido dentro do raio, podemos usar esse ponto diretamente
-      if (validPoints.length >= 1) {
-        // Se tem apenas 1 ponto, duplicar para manter compatibilidade (mas não é necessário)
-        const pointsToUse = validPoints.length >= 2
-          ? validPoints
-          : [validPoints[0], validPoints[0]]; // Duplicar ponto para manter formato de segmento
-
-        // 🆕 Boundary segmentation (issue 1.8):
-        // Quando o boundary OSM "invade" a calçada/faixa da rua perimetral, a regra
-        // antiga rejeitava o candidato como "dentro do boundary". Aqui dividimos a
-        // rua em trechos dentro/fora do polígono e usamos apenas os trechos externos.
-        const subStreets = this.segmentStreetByBoundary(street, pointsToUse, boundary);
-        for (const sub of subStreets) {
-          filtered.push(sub);
-        }
-
-        if (subStreets.length === 0) {
-          const streetName = street.name || street.id || 'unnamed';
-          console.log(`🚫 Street ${street.id} (${streetName}): Rejected - fully internal to boundary`);
-        } else if (validPoints.length < street.coordinates.length) {
-          console.log(`✂️ Street ${street.id}: Filtered ${street.coordinates.length - validPoints.length} points outside radius (kept ${validPoints.length}/${street.coordinates.length}) → ${subStreets.length} external sub-segment(s)`);
-        }
-      } else {
-        const streetName = street.name || street.id || 'unnamed';
-        const distRange = `${minDistanceToBoundary.toFixed(0)}m-${maxDistanceToBoundary.toFixed(0)}m from boundary`;
-        const reason = `outside radius (${distRange}, max allowed: ${maxAllowedDistance.toFixed(0)}m${useFanRadius ? ' = fan max' : ''})`;
-        console.log(`🚫 Street ${street.id} (${streetName}): Rejected - ${reason}`);
-      }
+      if (!streetEdgeReach(street, boundary, searchRadius).within) continue;
+      const pointsToUse = street.coordinates.length >= 2
+        ? street.coordinates
+        : [street.coordinates[0], street.coordinates[0]];
+      for (const sub of this.segmentStreetByBoundary(street, pointsToUse, boundary)) filtered.push(sub);
     }
-    
     return filtered;
   }
-  
+
   /**
    * 👁️ FAN-WALK STRATEGY — usada quando o visibility map está ativo.
    *
@@ -252,122 +190,102 @@ export class OptimalPointCalculator {
     poiData: POIData,
     boundary: BoundaryData,
     context: GeographicContext,
-    classification: any
+    classification: any,
+    reachM: number = tpReachCapM(classification)
   ): Promise<TriggerPointCandidate[]> {
     const candidates: TriggerPointCandidate[] = [];
     const minSpacing = classification.minDistanceBetweenTPs || 40;
-    // Usa fan max distance como raio — mesmo critério que filterStreetsByRadius.
-    // Per-TP check downstream valida cada candidato individual com ray-cast exato.
-    const fanRadiusM = boundary.visibilityFan!.maxDistanceM || 0;
+    const ring = poiEdgeRing(boundary);
+    // `area`/`linear` walk at a quarter of the spacing: E10 takes one TP per perimeter sector
+    // (INV-E10d), and with one candidate every `minSpacing` a sector whose street is in reach for
+    // under 100 m got none, or only one inside its neighbour's spacing (Estádio Nilton Santos: 2 of
+    // 5 sectors bare at a half, none at a quarter, #772).
+    const farFromM = sizeReachFarFromM(classification.group);
+    const farTypes = farWayTypes(boundary.physical);
+    const walkStepM = ring && (classification.group === VisibilityClass.AREA || classification.group === VisibilityClass.LINEAR)
+      ? minSpacing / 4
+      : minSpacing;
 
     for (const street of streets) {
       if (!street.coordinates || street.coordinates.length < 2) continue;
 
-      // Visibilidade é GATE: mantém só os pontos onde o POI é fisicamente
-      // visível (inside any fan OR inside boundary OR ≤30m da aresta —
-      // calçada perimetral). Pontos invisíveis não viram TP.
-      //
-      // Quando todos os pontos da rua são invisíveis, a rua é descartada.
-      // Se TODAS as ruas forem descartadas (fan colapsado completamente),
-      // o predictor cai em `buildFanCollapseFallback`.
-      const visiblePoints = street.coordinates.filter(p => {
-        const distToBoundary = calculateDistanceToBoundary(p, boundary.coordinates);
-        if (distToBoundary <= fanRadiusM + 20) return true;
-        if (isPointInPolygon(p, boundary.coordinates)) return true;
-        return distToBoundary <= 30;
-      });
-      if (visiblePoints.length === 0) continue;
+      // INV-E7b: the first candidate is the foot of the perpendicular from the POI edge on the
+      // street, then outwards both ways, one every `minSpacing` meters of arc length.
+      const foot = streetFootOnEdgeFarLane(street.coordinates, boundary);
+      if (!foot || foot.edgeDistanceM > reachM) continue;
+      const touristWay = farTypes === null || farTypes.includes(street.type);
 
-      // Caminha pelos pontos visíveis em ordem, droppando candidato a cada
-      // `minSpacing` metros acumulados.
-      let accumulatedDist = minSpacing; // garantir candidato no primeiro ponto
-      let streetCandidates = 0;
-      for (let i = 0; i < visiblePoints.length; i++) {
-        if (i > 0) {
-          accumulatedDist += calculateDistance(visiblePoints[i - 1], visiblePoints[i]);
-        }
-        if (accumulatedDist < minSpacing && i > 0) continue;
-        accumulatedDist = 0;
-
-        const pointOnStreet = visiblePoints[i];
-
-        // Quality 100% física — fan já validou visibilidade. Restam só
-        // qualidade da rua (tipo OSM) e proximidade ao POI.
-        const quality = this.calculateFanWalkQuality(pointOnStreet, boundary, street);
-
-        // Bearing aponta para o ponto mais próximo do boundary — KISS, sempre correto
-        // para qualquer forma de POI (parque, prédio, montanha).
-        const closestOnBoundary = findClosestPointOnBoundary(pointOnStreet, boundary.coordinates);
-        const expectedBearing = calculateBearing(pointOnStreet, closestOnBoundary);
-        const distance = calculateDistance(pointOnStreet, boundary.center);
-
+      for (const pointOnStreet of samplePolylineAround(street.coordinates, foot.point, walkStepM)) {
+        const edgeDistance = edgeDistanceFarLaneM(pointOnStreet, boundary);
+        if (edgeDistance > reachM) continue;
+        // INV-E6 by size: beyond the class table, a tourist way only (`sizeReachFarFromM`).
+        if (farFromM !== null && edgeDistance > farFromM && !touristWay) continue;
+        // Bearing points at the closest point of the edge — right for any POI shape.
+        const target = ring ? findClosestPointOnBoundary(pointOnStreet, ring) : boundary.center;
         candidates.push({
           location: pointOnStreet,
-          distance,
-          quality,
+          distance: edgeDistance,
+          quality: 0.4 + 0.55 * proximityRankScore(edgeDistance, street.type),
           street,
-          expectedBearing,
+          expectedBearing: calculateBearing(pointOnStreet, target),
           confidence: 0.85,
         });
-        streetCandidates++;
-      }
-      if (streetCandidates > 0) {
-        console.log(`  ↳ ${street.id} (${street.name || 'unnamed'}): ${streetCandidates} candidate(s) from ${visiblePoints.length} visible point(s)`);
       }
     }
 
-    console.log(`👁️ FAN-WALK: generated ${candidates.length} candidates from ${streets.length} streets`);
-    return candidates;
+    // Far candidates are sampled by cell (INV-E7c). Outside `landmark_high` far starts at the
+    // class table and E10 keeps only `maxFarTPs` of them: a cell holds FAR_CANDIDATES_PER_CELL,
+    // not every tourist-way candidate (INV-E6 by size).
+    const out = farFromM === null
+      ? sampleFarBySectorAndRing(candidates, boundary.center)
+      : sampleFarBySectorAndRing(candidates, boundary.center, farFromM, false);
+    console.log(`👁️ FAN-WALK: ${out.length} candidates (${candidates.length} walked) from ${streets.length} streets, reach ${reachM} m`);
+    return out;
   }
+}
 
-  /**
-   * Quality score 100% físico — sem bônus categóricos por urbanDensity ou
-   * elevationType. Usado pelo FAN-WALK (modo visibility-driven).
-   *
-   * Sinais:
-   *  - Tipo de rua OSM (motorway/primary > residential > unknown)
-   *  - Proximidade ao POI (mais perto = melhor, capped)
-   *  - Confiança do registro OSM da rua
-   *
-   * Pré-condição: o ponto JÁ passou pelo filtro de visibilidade do fan.
-   * Visibilidade não entra no score porque é gate upstream.
-   */
-  private calculateFanWalkQuality(
-    point: { lat: number; lng: number },
-    boundary: BoundaryData,
-    street: StreetData
-  ): number {
-    // Base: 0.6 (já validado pelo fan)
-    let q = 0.6;
-
-    // Tipo de rua — preferência por vias com tráfego real
-    const streetTypeScore: Record<string, number> = {
-      motorway: 0.25,
-      trunk: 0.22,
-      primary: 0.20,
-      secondary: 0.17,
-      tertiary: 0.14,
-      residential: 0.10,
-      unclassified: 0.08,
-      living_street: 0.06,
-      service: 0.04,
-      pedestrian: 0.05,
-      footway: 0.03,
-      cycleway: 0.03,
-    };
-    q += streetTypeScore[street.type] ?? 0.05;
-
-    // Proximidade ao POI (capped: ganho diminui ao se aproximar muito)
-    const distanceToBoundary = calculateDistanceToBoundary(point, boundary.coordinates);
-    if (distanceToBoundary <= 50) q += 0.10;
-    else if (distanceToBoundary <= 200) q += 0.05;
-    else if (distanceToBoundary <= 500) q += 0.02;
-    // > 500m: sem bônus, mas também sem penalidade (fan já validou visibilidade)
-
-    // Confiança do dado da rua
-    if (street.confidence > 0.8) q += 0.03;
-
-    return Math.min(1.0, Math.max(0, q));
+/**
+ * INV-E7c / INV-E10c: a landmark's candidates FAR from the edge, sampled along the streets in
+ * reach and spread by direction. Beyond EDGE_BAND_M the walked candidates go into cells of
+ * (sector `landmarkSectorOf` seen from the POI × distance ring FAR_RINGS_M), FAR_CELL_SPACING_M
+ * apart. Inside the last E10 inner ring a cell keeps EVERY tourist-street candidate (by street
+ * length: 6 per cell left the orla of Copacabana and the south shore of the Lagoa without one),
+ * and the other streets fill up to FAR_CANDIDATES_PER_CELL; in the horizon, tourist streets only,
+ * FAR_CANDIDATES_PER_CELL per cell (E10 takes nothing else there). The near band stays whole.
+ */
+export function sampleFarBySectorAndRing(
+  candidates: TriggerPointCandidate[],
+  centre: { lat: number; lng: number },
+  /** where far starts: EDGE_BAND_M for a landmark, the class table otherwise (`sizeReachFarFromM`) */
+  farFromM = EDGE_BAND_M,
+  /** a landmark keeps every inner tourist-way candidate (E10 fills 28 cells); the other classes keep 2 */
+  keepEveryInnerTouristWay = true
+): TriggerPointCandidate[] {
+  const near = candidates.filter(c => c.distance <= farFromM);
+  const innerLimitM = LANDMARK_CELL_RINGS_M[LANDMARK_CELL_RINGS_M.length - 1];
+  const cells = new Map<string, TriggerPointCandidate[]>();
+  for (const c of candidates) {
+    if (c.distance <= farFromM) continue;
+    if (c.distance > innerLimitM && landmarkStreetTier(c.street?.type) > 0) continue;
+    const ringIdx = FAR_RINGS_M.findIndex(r => c.distance <= r);
+    const sector = landmarkSectorOf(calculateBearing(centre, c.location), c.distance);
+    const key = `${sector}:${ringIdx}`;
+    (cells.get(key) ?? cells.set(key, []).get(key)!).push(c);
   }
-
+  const far: TriggerPointCandidate[] = [];
+  for (const cell of cells.values()) {
+    // Tourist streets first (INV-E10a): by quality alone the cell filled up with tracks and service lanes.
+    cell.sort((a, b) => landmarkStreetTier(a.street?.type) - landmarkStreetTier(b.street?.type) || b.quality - a.quality);
+    const inner = cell[0].distance <= innerLimitM;
+    const kept: TriggerPointCandidate[] = [];
+    for (const c of cell) {
+      const byLength = keepEveryInnerTouristWay && inner && landmarkStreetTier(c.street?.type) === 0;
+      if (!byLength && kept.length >= FAR_CANDIDATES_PER_CELL) break;
+      if (kept.some(k => observerPath(k.street?.type) === observerPath(c.street?.type)
+        && calculateDistance(k.location, c.location) < FAR_CELL_SPACING_M)) continue;
+      kept.push(c);
+    }
+    far.push(...kept);
+  }
+  return [...near, ...far];
 }

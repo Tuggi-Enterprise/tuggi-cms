@@ -2,23 +2,31 @@
 
 import { GeographicContextAnalyzer } from './geographic-analyzer';
 import { BoundaryDetector } from './boundary-detector';
-import { StreetAnalyzer } from '../analyzers/street-analyzer';
+import { StreetAnalyzer, isObserverWay } from '../analyzers/street-analyzer';
 import { OptimalPointCalculator } from '../analyzers/point-calculator';
 import { TriggerPointValidator } from '../analyzers/validator';
 import { GoogleAPIsService } from '../services/google-apis.service';
 import { POIData, TriggerPoint, TriggerPointGenerationOptions, TriggerPointPredictionResult, BoundaryData, GeographicContext, TriggerPointCandidate, StreetData } from '../types/interfaces';
-import { calculateBearing, calculateDistance, findClosestPointOnBoundary } from '../utils/calculations';
+import { calculateBearing, calculateDistance, findClosestPointOnBoundary, closestStreetPointToPoi, closestPointOnPolyline } from '../utils/calculations';
 import { deterministicTPId } from '../utils/deterministic';
-import { loadTriggerPointsConfig, TriggerPointsConfig, TRIGGER_POINTS_CONSTANTS, POIGroup } from '../config/trigger-points-config';
+import { TRIGGER_POINTS_CONSTANTS } from '../config/trigger-points-config';
+import { VisibilityClass, LANDMARK_MIN_PROMINENCE_M, EDGE_BAND_M, SANITY_MAX_TP_DISTANCE_M, fanHorizonM, heightFromTags, isCarStreet } from '../config/visibility-class';
+import { DemNotPreparedError, DemStore } from '../../dem/dem-store';
 import { emitDebugQuality, DebugQualitySnapshot } from '../debug-quality-logger';
+import { selectSpacedTriggerPoints, applyTpPostConditions, bestStreetPointOutside, REACH_RESCUE_METHOD } from '../utils/tp-selection';
+import { poiEdgeRing } from '../utils/validation';
+
+/** Radii searched around the border for the rescue TP (INV-E11b), closest first. Provisional (#775). */
+const REACH_RESCUE_RINGS_M = [150, 500, 1_500];
+import { EngineTraceRow, TracedPrediction, candidateKey, edgeDistanceM, SIGHT_TRACE_LIMIT, poiTraceRows, sightTraceValue, stepTraceRows } from '../utils/engine-trace';
+import { VisibilityMapBuilder } from '../analyzers/visibility-map-builder';
 
 // Defaults baked into VisibilityMapBuilder.buildFan() — used by debug-quality
 // emission when the fan is present (the boundary.visibilityFan type flattens
 // stats but drops directionCount/stepM/maxHorizonM diagnostics). Keep in sync
-// with visibility-map-builder.ts:90-92.
+// with visibility-map-builder.ts#buildFan; the step is the relief grid spacing.
 const FAN_DEFAULT_HORIZON_M = 10000;
 const FAN_DEFAULT_DIRECTION_COUNT = 72;
-const FAN_DEFAULT_STEP_M = 100;
 
 export class CoreTriggerPointPredictor {
   private geographicAnalyzer: GeographicContextAnalyzer;
@@ -49,13 +57,110 @@ export class CoreTriggerPointPredictor {
   }
 
   /**
-   * Prediz trigger points para um POI (resultado completo)
+   * Prediz trigger points para um POI (resultado completo), com o rastro por etapa (E0).
    */
   async predictTriggerPointsComplete(
     poiData: POIData,
     options: TriggerPointGenerationOptions = {}
+  ): Promise<TracedPrediction> {
+    // EP (#782, INV-EPb/c): the relief of the POI's city must be prepared on disk, with the
+    // reach of a TP around it. Otherwise the POI does not generate — no other source stands in.
+    const pin = poiData.location;
+    const cover = DemStore.getInstance().coverage(pin?.lat, pin?.lng, SANITY_MAX_TP_DISTANCE_M);
+    if (!cover.ok) throw new DemNotPreparedError(cover.reason);
+    const candidateRows: EngineTraceRow[] = [];
+    const result = await this.predictWithTrace(poiData, options, candidateRows);
+    const poiId = poiData.id ?? '';
+    const trace = [...poiTraceRows(poiId, result.boundary), ...candidateRows];
+    if (result.triggerPoints.length === 0) {
+      const rescue = this.buildReachRescueTP(poiData, result.boundary, result.context);
+      if (rescue) {
+        result.triggerPoints = [rescue];
+        result.metadata.finalPoints = 1;
+        trace.push({
+          poi_id: poiId, stage: 'E11', rule: 'tp-selection#bestStreetPointOutside', candidate: candidateKey(rescue.location),
+          value: `reach rescue; ${rescue.street?.type ?? ''} ${rescue.street?.name ?? ''}; edge ${Math.round(rescue.distance)} m`.trim(),
+          limit: 'no TP within the class reach (INV-E11b)', decision: 'kept',
+        });
+      }
+    }
+    if (result.metadata.fallbackUsed) {
+      // Fallback TPs skip E8–E10 (motor-de-tp.md, "Fallback que fura as etapas"): say so per TP.
+      trace.push(...result.triggerPoints.map(tp => ({
+        poi_id: poiId, stage: 'E7' as const, rule: 'trigger-point-predictor#fallback', candidate: candidateKey(tp.location),
+        value: `fallback ${tp.generationMethod ?? tp.type ?? ''}; edge ${Math.round(edgeDistanceM(tp.location, result.boundary))} m`,
+        limit: `optimal=${result.metadata.optimalPointsFound}; streets=${result.metadata.streetCount}`, decision: 'kept' as const,
+      })));
+    }
+    if (result.triggerPoints.length === 0) {
+      // "Why this POI has no TP", in one row: the counts at each exit of the engine.
+      const md = result.metadata;
+      trace.push({
+        poi_id: poiId, stage: 'E7', rule: 'trigger-point-predictor#predictTriggerPointsComplete', candidate: '',
+        value: `0 TPs; streets=${md.streetCount}; candidates=${md.optimalPointsFound}; on street=${md.streetValidatedCandidates ?? '-'}; validated=${md.validatedPoints}; fallback=${md.fallbackUsed}`,
+        limit: `search ${md.searchRadius} m`, decision: 'dropped',
+      });
+    }
+    return { ...result, trace };
+  }
+
+  /**
+   * INV-E11b: the one TP of a POI that ended with none. Streets along the border in widening
+   * rings — a POI with no footprint of its own is searched around its 10 m point circle, because
+   * the border by identity leaves summits and busts without one (Morro do Patronato, 2026-09-27) — access-filtered like the perimeter pass (no tunnel, no ferry,
+   * no `service`), car streets before footways; the TP goes through E11 like any other, under
+   * the sanity cap.
+   */
+  private buildReachRescueTP(poiData: POIData, boundary: BoundaryData | undefined, context: any): TriggerPoint | null {
+    const drawn = boundary?.coordinates && boundary.coordinates.length >= 3 ? boundary.coordinates : undefined;
+    const ring = poiEdgeRing(boundary) ?? drawn;
+    if (!boundary || !ring) return null;
+    const { LocalOSMFetcher } = require('../services/local-osm-fetcher');
+    const fetcher = LocalOSMFetcher.getInstance();
+    // Car streets first, in every ring, then any accessible way: the app is used driving (BR-POI-008).
+    const passes = [true, false].flatMap(carOnly => REACH_RESCUE_RINGS_M.map(radiusM => ({ carOnly, radiusM })));
+    for (const { carOnly, radiusM } of passes) {
+      const streets = (fetcher.fetchStreetsAlongBoundary(ring, radiusM) ?? [] as StreetData[]).filter((s: StreetData) =>
+        isObserverWay(s) && !s.type.startsWith('aerialway') && s.type !== 'ferry' && (!carOnly || isCarStreet(s.type)));
+      const best = bestStreetPointOutside(streets, ring);
+      if (!best) continue;
+      const { resolveStreetSpeedKmh, calculateGpsAwareRadius } = require('../../../geometry');
+      const cfg = TRIGGER_POINTS_CONSTANTS.triggerPoint;
+      const tags: any = (best.street as any).tags || {};
+      const radius = calculateGpsAwareRadius(resolveStreetSpeedKmh(tags.maxspeed, best.street.type), cfg.gpsPingWindowSec,
+        cfg.gpsPingSafetyFactor, { min: cfg.minRadiusM, max: boundary.classification?.maxTPRadiusM ?? cfg.maxRadiusM });
+      const tp: TriggerPoint = {
+        id: deterministicTPId(poiData.id, `reach_rescue_${best.street.id}`, best.point.lat, best.point.lng),
+        location: best.point,
+        radius,
+        expectedBearing: calculateBearing(best.point, findClosestPointOnBoundary(best.point, ring)),
+        bearingThreshold: cfg.defaultBearingThreshold,
+        type: 'primary',
+        priority: 1,
+        confidence: 0.5,
+        quality: 0.5,
+        street: best.street,
+        distance: best.edgeDistanceM,
+        generationMethod: REACH_RESCUE_METHOD,
+        contextData: context,
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+      };
+      const kept = applyTpPostConditions([tp], poiData.location, boundary).kept;
+      console.log(`🛟 Reach rescue (INV-E11b): ${best.street.type} "${best.street.name ?? best.street.id}" at ${Math.round(best.edgeDistanceM)} m from the edge (ring ${radiusM} m) → ${kept.length ? 'kept' : 'dropped by E11'}`);
+      if (kept.length) return kept[0];
+    }
+    return null;
+  }
+
+  private async predictWithTrace(
+    poiData: POIData,
+    options: TriggerPointGenerationOptions,
+    trace: EngineTraceRow[]
   ): Promise<TriggerPointPredictionResult> {
     const startTime = Date.now();
+    const poiId = poiData.id ?? '';
+    const edge = (c: { location: { lat: number; lng: number } }) => `edge ${Math.round(edgeDistanceM(c.location, _boundary))} m`;
 
     // Phase 0 instrumentation. Captured progressively as the pipeline advances;
     // a single closure emits one JSON line on whichever exit path we take.
@@ -88,7 +193,7 @@ export class CoreTriggerPointPredictor {
         search_radius_m: _searchRadius,
         fan_max_horizon_m: fan ? (options.visibilityMaxHorizonM ?? FAN_DEFAULT_HORIZON_M) : undefined,
         fan_direction_count: fan ? FAN_DEFAULT_DIRECTION_COUNT : undefined,
-        fan_step_m: fan ? FAN_DEFAULT_STEP_M : undefined,
+        fan_step_m: fan ? Math.round(DemStore.getInstance().sampleM) : undefined,
         fan_sample_points: fan?.samplePoints?.length,
         fan_mean_visible_m: fan?.meanDistanceM,
         fan_max_visible_m: fan?.maxDistanceM,
@@ -214,6 +319,16 @@ export class CoreTriggerPointPredictor {
       const streetAnalysisResult = await this.streetAnalyzer.findAccessibleStreetsWithMetadata(poiData, boundary, context);
       const accessibleStreets = streetAnalysisResult.streets;
       _searchRadius = streetAnalysisResult.searchRadius;
+      if (!boundary.classification) {
+        trace.push({ poi_id: poiId, stage: 'E6', rule: 'validation#tpReachCapM', candidate: '',
+          value: `no class: reach ${streetAnalysisResult.searchRadius} m`, limit: 'class required (INV-E5c)', decision: 'kept' });
+      }
+      trace.push(...streetAnalysisResult.rejectedStreets.map(r => ({
+        poi_id: poiId, stage: 'E6' as const, rule: 'street-analyzer#filterStreetsByReach', candidate: '',
+        value: `${r.name || r.id}; edge ${r.edgeDistanceM === null ? '?' : Math.round(r.edgeDistanceM)} m`,
+        limit: r.reason === 'street_ceiling' ? `street ceiling (reach ${r.limitM} m)` : `reach ${r.limitM} m`,
+        decision: 'dropped' as const,
+      })));
 
       if (accessibleStreets.length === 0) {
         console.error('❌ ========================================');
@@ -268,7 +383,7 @@ export class CoreTriggerPointPredictor {
         
         // ✅ LÓGICA CORRIGIDA: Para POIs HIGH, filtrar apenas por buildings bloqueando (não por classificação)
         // Para outros POIs, usar classificação front/side
-        const isHighElevationPOI = boundary.classification?.group === POIGroup.HIGH;
+        const isHighElevationPOI = boundary.classification?.group === VisibilityClass.LANDMARK_HIGH;
         
         let validStreets: StreetData[];
         if (isHighElevationPOI) {
@@ -300,6 +415,10 @@ export class CoreTriggerPointPredictor {
       // ✅ Usar apenas ruas front/side (sem buildings bloqueando)
       const optimalPoints = await this.pointCalculator.calculateOptimalPoints(poiData, streetsForOptimalPoints, boundary, context, streetAnalysisResult.searchRadius);
       _optimalCount = optimalPoints.length;
+      trace.push(...stepTraceRows({
+        poiId, stage: 'E7', rule: 'point-calculator#calculateOptimalPoints', before: optimalPoints, after: optimalPoints,
+        value: c => `${edge(c)}; ${c.street?.type ?? ''} ${c.streetName ?? ''}`.trim(), limit: `search ${streetAnalysisResult.searchRadius} m`,
+      }));
 
       if (optimalPoints.length === 0) {
         console.warn('⚠️ No optimal points calculated, using fallback strategy');
@@ -331,9 +450,8 @@ export class CoreTriggerPointPredictor {
       //
       // O fan é coarse (72 direções × interpolação angular + polygon edge effects).
       // Aqui re-checamos cada candidato VIA ray-cast EXATO POI → candidato
-      // location. Bate o terreno em intervalos fixos de 100m, com short-circuit
-      // ao primeiro bloqueio. Cache por POI compartilha pixels SRTM entre
-      // candidatos da mesma região.
+      // location, over the relief surface at the grid spacing (~30 m, #782), com
+      // short-circuit ao primeiro bloqueio.
       //
       // Casos que isso pega que o fan não pega:
       //  - Cristo → Av. Niemeyer: bloqueado por morros estreitos entre 5-6km
@@ -344,16 +462,45 @@ export class CoreTriggerPointPredictor {
         boundary,
       );
       _postLOSCount = visibleOptimalPoints.length;
+      trace.push(...stepTraceRows({
+        poiId, stage: 'E8', rule: 'visibility-map-builder#measureSight', before: optimalPoints, after: visibleOptimalPoints,
+        value: c => `${edge(c)}; ${sightTraceValue(c.metadata?.sight)}`, limit: SIGHT_TRACE_LIMIT,
+      }));
 
       if (visibleOptimalPoints.length === 0) {
-        console.warn('⚠️ Per-TP LOS check rejected all candidates — using fan-walk output without per-TP filter');
-        // Falha defensiva: prefere falsos positivos a zero TPs
+        // Line of sight is mandatory (BR-AUDIO-010): with no visible candidate, fall back
+        // to the frontal TPs next to the POI — never to the unchecked candidates.
+        console.warn('⚠️ Per-TP LOS check rejected all candidates — using frontal TPs next to the POI');
+        const fallbackPoints = await this.buildFanCollapseFallback(poiData, boundary, context, accessibleStreets);
+        _finalTPs = fallbackPoints;
+        emitDebugIfEnabled('no_visible_candidates');
+        return {
+          triggerPoints: fallbackPoints,
+          boundary,
+          context,
+          processingTime: Date.now() - startTime,
+          metadata: {
+            boundarySource: boundary.source,
+            boundaryConfidence: boundary.confidence,
+            streetCount: accessibleStreets.length,
+            optimalPointsFound: optimalPoints.length,
+            validatedPoints: fallbackPoints.length,
+            finalPoints: fallbackPoints.length,
+            fallbackUsed: true,
+            searchRadius: streetAnalysisResult.searchRadius,
+            elevationAnalysis: streetAnalysisResult.elevationAnalysis
+          }
+        };
       }
-      const candidatesPostLOS = visibleOptimalPoints.length > 0 ? visibleOptimalPoints : optimalPoints;
+      const candidatesPostLOS = visibleOptimalPoints;
 
       // 5. Validação de candidatos em ruas (NOVO PASSO)
       const streetValidatedCandidates = await this.validateCandidatesOnStreets(candidatesPostLOS, accessibleStreets);
       _streetValidatedCount = streetValidatedCandidates.length;
+      trace.push(...stepTraceRows({
+        poiId, stage: 'E7', rule: 'trigger-point-predictor#validateCandidatesOnStreets', before: candidatesPostLOS, after: streetValidatedCandidates,
+        value: edge, limit: `≤ ${TRIGGER_POINTS_CONSTANTS.distances.maxDistanceFromStreet} m from a street`,
+      }));
 
       if (streetValidatedCandidates.length === 0) {
         console.warn('⚠️ No candidates validated on streets, using fallback strategy');
@@ -382,46 +529,36 @@ export class CoreTriggerPointPredictor {
         };
       }
       
-      // 6. Validação e ranking com distância mínima
-      const maxTPs = options.maxTriggerPoints || this.calculateDynamicTPLimit(boundary, context, streetAnalysisResult.searchRadius);
-      
-      // 🎯 NOVO: Usar configuração do grupo se disponível, senão calcular
-      let minDistance: number;
-      if (boundary.classification?.minDistanceBetweenTPs) {
-        minDistance = boundary.classification.minDistanceBetweenTPs;
-      } else {
-        minDistance = this.calculateMinDistance(context, boundary);
-      }
-      
+      // 6. One-way and intersection clustering; spacing is E10, in applyOptions (BR-POI-009).
+      const e9Why = new Map<object, string>();
       const validatedPoints = await this.validator.validateAndRankPoints(
         streetValidatedCandidates,
         poiData,
         context,
         boundary,
-        maxTPs,
-        minDistance,
         {
           simulateApproach: options.simulateApproach,
           validateCorridor: options.validateCorridor,
           clusterIntersections: options.clusterIntersections,
           intersectionClusterRadiusM: options.intersectionClusterRadiusM,
-          qualityFixFanCap: options.qualityFixFanCap,
+          why: e9Why,
         }
       );
       _validatedCount = validatedPoints.length;
+      trace.push(...stepTraceRows<{ location: { lat: number; lng: number } }>({
+        poiId, stage: 'E9-E10', rule: 'validator#validateAndRankPoints', before: streetValidatedCandidates, after: validatedPoints,
+        value: c => [edge(c), e9Why.get(c)].filter(Boolean).join('; '), limit: 'one-way; intersection cluster 25 m (spacing is E10)',
+      }));
 
-      // 7. Aplicar opções de filtro adicionais (se houver)
-      const filteredPoints = this.applyOptions(validatedPoints, options, boundary);
-      
-      // 8. Otimização já foi feita em selectTriggerPointsWithMinDistance
-
-      // 8.5. KISS: garantir TPs "frontais" na rua de endereço do POI quando ela
-      // está populada no OSM. Crítico pra storefront POIs (lojas, museus,
-      // restaurantes) cujo fan de visibilidade colapsa por estarem dentro de
-      // prédios grandes. Emite até 2 TPs (upstream + downstream) pra garantir
-      // que ao menos um dispare como "front" em qualquer sentido de aproximação.
-      const frontalTPs = this.buildFrontalArrivalTP(poiData, boundary, context, accessibleStreets, filteredPoints);
-      for (const t of frontalTPs) filteredPoints.push(t);
+      // 7. Frontal TPs on the streets touching the POI edge (storefront POIs whose fan
+      // collapses inside a large building), then ONE spacing/cap pass over all TPs —
+      // frontal included (BR-AUDIO-010: ≥2r between every TP of the POI).
+      const frontalTPs = this.buildFrontalArrivalTP(poiData, boundary, context, accessibleStreets, []);
+      trace.push(...stepTraceRows({
+        poiId, stage: 'E7', rule: 'trigger-point-predictor#buildFrontalArrivalTP', before: frontalTPs, after: frontalTPs,
+        value: edge, limit: 'addr:street frontage (skips E8–E10)',
+      }));
+      const filteredPoints = this.applyOptions([...frontalTPs, ...validatedPoints], options, boundary, poiData.location, trace);
 
       // Geofence: o app usa o boundary polygon diretamente para point-in-polygon.
       // Não gerar TP do tipo geofence — é redundante e polui o DB.
@@ -501,9 +638,24 @@ export class CoreTriggerPointPredictor {
     context: GeographicContext,
     boundary?: BoundaryData
   ): Promise<TriggerPoint[]> {
+    const candidates = await this.buildRecoveryFallbackCandidates(poiData, context, boundary);
+    // Teto de sanidade (BR-AUDIO-010): fallback longe do POI é descartado, não gravado.
+    const { kept, dropped, reachCapM } = applyTpPostConditions(candidates, poiData.location, boundary);
+    for (const { tp, reason } of dropped) {
+      console.warn(`🚫 [FALLBACK] TP ${tp.id} dropped: ${reason} (reach cap ${reachCapM}m)`);
+    }
+    return kept;
+  }
+
+  private async buildRecoveryFallbackCandidates(
+    poiData: POIData,
+    context: GeographicContext,
+    boundary?: BoundaryData
+  ): Promise<TriggerPoint[]> {
     
-    // USAR BOUNDARY.CENTER em vez de poiData.location
-    const centerPoint = boundary?.center || poiData.location;
+    // Âncora é o pino do POI: boundary.center de um polígono errado arrastava o
+    // fallback para longe (auditoria de TP, 2026-09-27).
+    const centerPoint = poiData.location;
     
     try {
       // ESTRATÉGIA INTELIGENTE: Usar funções existentes para buscar ruas reais no OSM
@@ -593,8 +745,10 @@ export class CoreTriggerPointPredictor {
     context: GeographicContext,
     boundary?: BoundaryData
   ): TriggerPoint[] {
-    const streetPoint = street.coordinates[0];
-    const distance = calculateDistance(centerPoint, streetPoint);
+    const foot = closestStreetPointToPoi(street, centerPoint, boundary?.coordinates);
+    const streetPoint = foot?.point ?? street.coordinates[0];
+    // Distance to the edge when there is one (BR-AUDIO-010).
+    const distance = foot?.distance ?? calculateDistance(centerPoint, streetPoint);
     
     // Usar boundary mais próximo para bearing, não centro
     const closestBoundaryPoint = boundary?.coordinates 
@@ -640,8 +794,8 @@ export class CoreTriggerPointPredictor {
     for (const street of streets) {
       if (street.coordinates.length === 0) continue;
       
-      const streetPoint = street.coordinates[0];
-      const distance = calculateDistance(centerPoint, streetPoint);
+      const distance = closestStreetPointToPoi(street, centerPoint)?.distance
+        ?? calculateDistance(centerPoint, street.coordinates[0]);
       
       // Score baseado em: proximidade (menor = melhor) + tipo de rua (primary = melhor)
       let score = 1000 / (distance + 1); // Inverter distância (mais próximo = score maior)
@@ -668,10 +822,9 @@ export class CoreTriggerPointPredictor {
   /**
    * Cria 1 TP mínimo quando nem Google Roads funciona
    */
-  private createMinimalDirectionalTP(poiData: POIData, context: GeographicContext, boundary?: BoundaryData): TriggerPoint[] {
+  private createMinimalDirectionalTP(poiData: POIData, context: GeographicContext, _boundary?: BoundaryData): TriggerPoint[] {
     
-    // USAR BOUNDARY.CENTER em vez de poiData.location
-    const centerPoint = boundary?.center || poiData.location;
+    const centerPoint = poiData.location;
     
     const direction = 180; // Sul (direção comum de aproximação)
     const distance = 30; // Muito próximo
@@ -733,8 +886,10 @@ export class CoreTriggerPointPredictor {
     const out: TriggerPoint[] = [];
 
     // 1. Frontal TPs (upstream + downstream)
-    const frontalTPs = this.buildFrontalArrivalTP(poiData, boundary, context, accessibleStreets, out);
-    for (const t of frontalTPs) out.push(t);
+    // Every engine output passes E11 (INV-E11): the pre_generated save path of
+    // generate-batch trusts this output as-is.
+    const frontalTPs = applyTpPostConditions(this.buildFrontalArrivalTP(poiData, boundary, context, accessibleStreets, out), poiData.location, boundary).kept;
+    for (const t of selectSpacedTriggerPoints(frontalTPs, boundary.classification, boundary.center ?? poiData.location, undefined, poiEdgeRing(boundary))) out.push(t);
 
     if (out.length > 0) {
       console.log(`🛟 Fan-collapse fallback: emitted ${out.length} frontal TP(s)`);
@@ -743,7 +898,8 @@ export class CoreTriggerPointPredictor {
 
     // Último recurso: legacy single-TP fallback
     console.warn('🛟 Fan-collapse fallback: no frontal TPs available, falling back to legacy single-TP');
-    return await this.generateFallbackTriggerPoints(poiData, boundary, context, accessibleStreets);
+    const legacy = await this.generateFallbackTriggerPoints(poiData, boundary, context, accessibleStreets);
+    return applyTpPostConditions(legacy, poiData.location, boundary).kept;
   }
 
   private async generateFallbackTriggerPoints(
@@ -935,7 +1091,11 @@ export class CoreTriggerPointPredictor {
       id: 'minimal_fallback_1',
       location: point,
       radius: 30,
-      expectedBearing: direction,
+      // TP→POI (the heading that sees the POI ahead); `direction` is POI→TP.
+      expectedBearing: calculateBearing(
+        point,
+        boundary?.coordinates?.length ? findClosestPointOnBoundary(point, boundary.coordinates) : (boundary?.center ?? poiData.location)
+      ),
       bearingThreshold: TRIGGER_POINTS_CONSTANTS.triggerPoint.fallbackBearingThreshold,
       type: 'primary',
       priority: 1,
@@ -1004,9 +1164,8 @@ export class CoreTriggerPointPredictor {
     for (const street of streets) {
       if (!street.coordinates || street.coordinates.length === 0) continue;
       
-      // Calcular distância do POI para a rua (usar primeira coordenada como referência)
-      const streetPoint = street.coordinates[0];
-      const distance = calculateDistance(poiLocation, streetPoint);
+      // Distance to the closest point of the whole street, not its first vertex.
+      const distance = closestStreetPointToPoi(street, poiLocation)?.distance ?? Infinity;
       
       const streetName = street.name || street.id || 'unnamed';
       const streetType = (street.tags as any)?.highway || 'unknown';
@@ -1077,8 +1236,10 @@ export class CoreTriggerPointPredictor {
     // USAR BOUNDARY.CENTER em vez de poiData.location
     const centerPoint = boundary?.center || poiData.location;
     
-    const streetPoint = street.coordinates[0];
-    const distanceToPOI = calculateDistance(centerPoint, streetPoint); // ✅ DRY: usar função importada
+    // Closest point of the whole street to the POI edge, not its first vertex (BR-AUDIO-010).
+    const foot = closestStreetPointToPoi(street, poiData.location, boundary?.coordinates);
+    const streetPoint = foot?.point ?? street.coordinates[0];
+    const distanceToPOI = foot?.distance ?? calculateDistance(centerPoint, streetPoint);
     
     
     // Criar apenas 1 TP principal na rua mais próxima
@@ -1147,15 +1308,16 @@ export class CoreTriggerPointPredictor {
   }
   
   /**
-   * Per-TP exact line-of-sight filter. Rejeita candidatos cujo ray-cast
-   * preciso POI → location bate em terreno.
+   * Per-TP exact line-of-sight filter (INV-E8, INV-E8b): each candidate sees the aims of the POI
+   * (`VisibilityMapBuilder#sightAims`) and passes when the visible part spans at least
+   * `MIN_APPARENT_ANGLE_DEG` (`VisibilityMapBuilder#measureSight`). The measure stays on
+   * `candidate.metadata.sight` for the E8 trace.
    *
    * Detalhes:
-   *  - Sample interval fixo 100m (não proporcional → não miss peaks estreitos)
-   *  - Margem SRTM 15m (noise vertical típico do dataset)
-   *  - Cache de elevação por POI (compartilha pixels entre candidatos)
+   *  - Walk at the obstacle lattice (~15 m) over `DemStore#obstacle` (#783)
+   *  - `SIGHT_NOISE_MARGIN_M` (GLO-30 vertical accuracy)
    *  - Paraleliza em lotes de 200 (cobre I/O do SQLite local sem stall)
-   *  - Short-circuit no primeiro bloqueio
+   *  - Short-circuit no primeiro bloqueio, por alvo
    */
   private async filterCandidatesByExactLOS(
     candidates: TriggerPointCandidate[],
@@ -1165,27 +1327,17 @@ export class CoreTriggerPointPredictor {
 
     const { VisibilityMapBuilder } = await import('../analyzers/visibility-map-builder');
     const { LocalOSMFetcher } = await import('../services/local-osm-fetcher');
-    const { SRTMLocalService } = await import('../../srtm-local-service');
-
-    // Mesma fórmula de poiTop que attachVisibilityFan (com max pra peaks naturais).
-    const isStructurePOI = (boundary.height ?? 0) > 20;
-    const poiGround = isStructurePOI
-      ? (boundary.elevation?.average ?? boundary.elevation?.center ?? 0)
-      : (boundary.elevation?.max ?? boundary.elevation?.center ?? boundary.elevation?.average ?? 0);
-    const poiHeight = Math.max(boundary.height ?? 0, 1.7);
-    const poiTop = poiGround + poiHeight;
 
     // ── Pre-fetch building tops pro check de urban-canyon ──────────────────
-    // Filtro de altura ≥8m: só buildings que PODEM bloquear linha de visão
-    // perto do observador (line altitude ~5-15m a 50-100m do observador).
-    // Sem height tag explícito → descartamos (casa residencial típica).
+    // Only buildings with a MEASURED height (tag) ≥ 8 m, on the ground (GEDTM30). The rest,
+    // houses included, is already in the relief surface the sight line walks (#782).
     const fanRadius = boundary.visibilityFan?.maxDistanceM ?? 0;
-    const buildingTops: Array<{ centroid: { lat: number; lng: number }; topAltitudeM: number }> = [];
+    const buildingTops: Array<{ centroid: { lat: number; lng: number }; topAltitudeM: number; polygon: Array<{ lat: number; lng: number }> }> = [];
 
     if (fanRadius > 100) {
       const fetcher = LocalOSMFetcher.getInstance();
       const data = fetcher.fetchAsOverpassData(boundary.center, fanRadius, { includeBuildings: true });
-      const srtm = SRTMLocalService.getInstance();
+      const dem = DemStore.getInstance();
 
       const MIN_BLOCKING_HEIGHT_M = 8;
       if (data?.elements) {
@@ -1194,23 +1346,17 @@ export class CoreTriggerPointPredictor {
           const geometry = el.geometry.map((g: any) => ({ lat: g.lat, lng: g.lon ?? g.lng }));
           if (geometry.length < 3) continue;
 
-          let height = 0;
-          if (el.tags.height) {
-            const m = String(el.tags.height).match(/(\d+(?:\.\d+)?)/);
-            if (m) height = parseFloat(m[1]);
-          }
-          if (!height && el.tags['building:levels']) {
-            const lv = parseFloat(el.tags['building:levels']);
-            if (!isNaN(lv) && lv > 0) height = lv * 3.5;
-          }
+          // one floor ruler (INV-E3); untagged buildings stay out of this check (see MIN_BLOCKING_HEIGHT_M)
+          const height = heightFromTags(el.tags)?.heightM ?? 0;
           if (!height || height < MIN_BLOCKING_HEIGHT_M) continue;
 
           const centroid = {
             lat: geometry.reduce((s: number, p: any) => s + p.lat, 0) / geometry.length,
             lng: geometry.reduce((s: number, p: any) => s + p.lng, 0) / geometry.length,
           };
-          const groundAlt = (await srtm.getElevation(centroid.lat, centroid.lng)) ?? 0;
-          buildingTops.push({ centroid, topAltitudeM: groundAlt + height });
+          const groundAlt = dem.ground(centroid.lat, centroid.lng);
+          if (groundAlt === null) continue;
+          buildingTops.push({ centroid, topAltitudeM: groundAlt + height, polygon: geometry });
         }
       }
     }
@@ -1227,11 +1373,20 @@ export class CoreTriggerPointPredictor {
       arr.push(b);
       buildingGrid.set(key, arr);
     }
+    // INV-E8b (#784): every aim of the POI — top, mid-height, edge points, the edge point facing
+    // the candidate and, on a relief landmark, its upper half — and only its footprint is not an
+    // obstacle. It replaced one aim on the edge point facing the candidate.
+    const aims = VisibilityMapBuilder.sightAims(boundary);
+    const footprint = boundary.coordinates?.length >= 3 ? boundary.coordinates : null;
+    const aimBox = {
+      minLat: Math.min(...aims.map(a => a.at.lat)), maxLat: Math.max(...aims.map(a => a.at.lat)),
+      minLng: Math.min(...aims.map(a => a.at.lng)), maxLng: Math.max(...aims.map(a => a.at.lng)),
+    };
     const candidatesBuildingsForLOS = (tp: TriggerPointCandidate) => {
-      const minLat = Math.floor(Math.min(boundary.center.lat, tp.location.lat) / GRID_CELL_DEG) - 1;
-      const maxLat = Math.floor(Math.max(boundary.center.lat, tp.location.lat) / GRID_CELL_DEG) + 1;
-      const minLng = Math.floor(Math.min(boundary.center.lng, tp.location.lng) / GRID_CELL_DEG) - 1;
-      const maxLng = Math.floor(Math.max(boundary.center.lng, tp.location.lng) / GRID_CELL_DEG) + 1;
+      const minLat = Math.floor(Math.min(aimBox.minLat, tp.location.lat) / GRID_CELL_DEG) - 1;
+      const maxLat = Math.floor(Math.max(aimBox.maxLat, tp.location.lat) / GRID_CELL_DEG) + 1;
+      const minLng = Math.floor(Math.min(aimBox.minLng, tp.location.lng) / GRID_CELL_DEG) - 1;
+      const maxLng = Math.floor(Math.max(aimBox.maxLng, tp.location.lng) / GRID_CELL_DEG) + 1;
       const out: typeof buildingTops = [];
       for (let lat = minLat; lat <= maxLat; lat++) {
         for (let lng = minLng; lng <= maxLng; lng++) {
@@ -1242,7 +1397,6 @@ export class CoreTriggerPointPredictor {
       return out;
     };
 
-    const elevCache = new Map<string, number>();
     const startMs = Date.now();
     const BATCH = 200;
     const survivors: TriggerPointCandidate[] = [];
@@ -1252,19 +1406,19 @@ export class CoreTriggerPointPredictor {
       const batch = candidates.slice(i, i + BATCH);
       const results = await Promise.all(
         batch.map(c =>
-          VisibilityMapBuilder.checkExactVisibility(
-            boundary.center,
-            poiTop,
-            c.location,
-            {
-              elevCache,
-              buildingTops: candidatesBuildingsForLOS(c),
-            }
-          )
+          VisibilityMapBuilder.measureSight([...aims, ...VisibilityMapBuilder.facingAims(boundary, c.location)], c.location, {
+            footprint, buildingTops: candidatesBuildingsForLOS(c),
+          })
         )
       );
       for (let j = 0; j < batch.length; j++) {
-        if (results[j]) survivors.push(batch[j]);
+        // a trail on the relief landmark's own slope is not where it is heard (INV-E8b, #784)
+        if (results[j].passes && VisibilityMapBuilder.onOwnSlope(boundary, batch[j])) {
+          results[j] = { ...results[j], passes: false, ownSlope: true };
+        }
+        // the E8 trace reads it (INV-E8b)
+        batch[j].metadata = { ...(batch[j].metadata || {}), sight: results[j] };
+        if (results[j].passes) survivors.push(batch[j]);
         else blocked++;
       }
     }
@@ -1309,14 +1463,10 @@ export class CoreTriggerPointPredictor {
     const maxDistanceFromStreet = TRIGGER_POINTS_CONSTANTS.distances.maxDistanceFromStreet;
     
     for (const street of accessibleStreets) {
-      // Verificar se o candidato está próximo a qualquer ponto da rua
-      for (const streetPoint of street.coordinates) {
-        const distance = calculateDistance(candidateLocation, streetPoint);
-        
-        if (distance <= maxDistanceFromStreet) {
-          return true;
-        }
-      }
+      // Distance to the polyline, not to its vertices: fan-walk candidates are
+      // interpolated along the street (BR-AUDIO-010).
+      const proj = closestPointOnPolyline(candidateLocation, street.coordinates);
+      if (proj && proj.distance <= maxDistanceFromStreet) return true;
     }
     
     return false;
@@ -1325,90 +1475,41 @@ export class CoreTriggerPointPredictor {
   /**
    * Aplica opções de filtro aos trigger points
    */
-  private applyOptions(triggerPoints: TriggerPoint[], options: TriggerPointGenerationOptions, boundary?: BoundaryData): TriggerPoint[] {
+  private applyOptions(
+    triggerPoints: TriggerPoint[],
+    options: TriggerPointGenerationOptions,
+    boundary: BoundaryData | undefined,
+    poiPin: { lat: number; lng: number },
+    trace?: EngineTraceRow[]
+  ): TriggerPoint[] {
     let filtered = [...triggerPoints];
-
-    // Filtrar por qualidade mínima (override explícito do caller)
     if (options.minQuality !== undefined) {
       filtered = filtered.filter(tp => tp.quality >= options.minQuality!);
     }
-
-    // ── Density-based thinning + coverage guarantee ──────────────────────────
-    //
-    // Princípio: substituímos cap-based dedup (radius + bearing-sector) por
-    // uma única regra de densidade SEM cap por setor ou total.
-    //
-    //   Spacing(tp) = max(2 × tp.radius, 150m, tp.distance × 0.10)
-    //
-    //   Intuição:
-    //     - 2 × radius  → círculos GPS nunca se sobrepõem
-    //     - 150m floor  → nunca dois TPs colados (UX: audio não atropela)
-    //     - 10% radial  → escala com distância. TP a 5km do POI precisa de
-    //                     500m até o vizinho; TP a 1km, 100m (floor 150m).
-    //                     Naturalmente cria gradiente: TPs densos perto do POI
-    //                     (zona urbana de aproximação) e esparsos longe
-    //                     (highway, aproximação macro).
-    //
-    // Depois, coverage guarantee: cada slice angular de 22.5° (16 slices) com
-    // candidatos VÍSIVEIS tem pelo menos 1 TP. Garante que "regiões" não fiquem
-    // vazias mesmo quando a thinning corta todos os candidatos delas.
-    //
-    // N (total de TPs) é EMERGENTE da regra de densidade, não decretado.
-
-    const { calculateDistance } = require('../utils/calculations');
-
-    // Sort: primary > secondary, depois quality desc.
-    filtered.sort((a, b) => {
-      if (a.type === 'primary' && b.type !== 'primary') return -1;
-      if (b.type === 'primary' && a.type !== 'primary') return 1;
-      return b.quality - a.quality;
-    });
-
-    const minSpacingM = (tp: TriggerPoint) => Math.max(
-      tp.radius * 2,
-      150,
-      tp.distance * 0.10
-    );
-
-    const accepted: TriggerPoint[] = [];
-    for (const tp of filtered) {
-      const tooClose = accepted.some(a => {
-        const minDist = Math.max(minSpacingM(tp), minSpacingM(a));
-        return calculateDistance(tp.location, a.location) < minDist;
-      });
-      if (!tooClose) accepted.push(tp);
+    // Same post-conditions as the save and the dry-run (INV-E11): the engine never emits a TP
+    // the save would drop, so a closer candidate takes its slot before spacing (#779).
+    const post = applyTpPostConditions(filtered, poiPin, boundary);
+    const passed = post.kept;
+    const why = new Map<TriggerPoint, string>();
+    const accepted = selectSpacedTriggerPoints(passed, boundary?.classification, boundary?.center ?? poiPin, why, poiEdgeRing(boundary));
+    if (trace) {
+      const poiId = trace[0]?.poi_id ?? '';
+      const edge = (tp: TriggerPoint) => `edge ${Math.round(edgeDistanceM(tp.location, boundary))} m`;
+      trace.push(...passed.map(tp => ({ poi_id: poiId, stage: 'E11' as const, rule: 'tp-selection#applyTpPostConditions',
+        candidate: candidateKey(tp.location), value: edge(tp), limit: `reach ${post.reachCapM} m`, decision: 'kept' as const })));
+      trace.push(...post.dropped.map(d => ({ poi_id: poiId, stage: 'E11' as const, rule: 'tp-selection#applyTpPostConditions',
+        candidate: candidateKey(d.tp.location), value: `${d.reason}; ${edge(d.tp)}`, limit: `reach ${post.reachCapM} m`, decision: 'dropped' as const })));
+      const c = boundary?.classification;
+      trace.push(...stepTraceRows({ poiId, stage: 'E10', rule: 'tp-selection#selectSpacedTriggerPoints', before: passed, after: accepted,
+        value: tp => [edge(tp), why.get(tp)].filter(Boolean).join('; '), limit: `spacing ≥ ${c?.minDistanceBetweenTPs ?? 0} m; near ≤ ${c?.maxTriggerPoints ?? '∞'}; far ≤ ${c?.maxFarTriggerPoints ?? '∞'}` }));
     }
-    console.log(`📐 Density thinning: ${filtered.length} → ${accepted.length} TPs (spacing = max(2×radius, 150m, 10% × radial-to-POI))`);
-
-    // Coverage guarantee — 16 slices angulares de 22.5°.
-    const SLICE_COUNT = 16;
-    const SLICE_DEG = 360 / SLICE_COUNT;
-    const sliceOf = (bearing: number) => Math.floor((((bearing % 360) + 360) % 360) / SLICE_DEG);
-
-    let coverageAdded = 0;
-    for (let s = 0; s < SLICE_COUNT; s++) {
-      if (accepted.some(tp => sliceOf(tp.expectedBearing) === s)) continue;
-      // Slice vazia — buscar melhor candidato dessa direção.
-      // (Se a slice não tem candidatos, fan não alcança lá: nada a adicionar.)
-      const sliceCandidates = filtered.filter(c => sliceOf(c.expectedBearing) === s);
-      if (sliceCandidates.length === 0) continue;
-      sliceCandidates.sort((a, b) => b.quality - a.quality);
-      accepted.push(sliceCandidates[0]);
-      coverageAdded++;
-    }
-    if (coverageAdded > 0) {
-      console.log(`🎯 Coverage guarantee: filled ${coverageAdded} empty 22.5° slice(s) with best available candidate`);
-    }
-
-    // Cap explícito do caller (não cap automático).
     if (options.maxTriggerPoints !== undefined && accepted.length > options.maxTriggerPoints) {
       console.log(`✂️ Caller-set max: trimming ${accepted.length} → ${options.maxTriggerPoints}`);
       return accepted.slice(0, options.maxTriggerPoints);
     }
-
     return accepted;
   }
-  
+
   /**
    * Camada 1 — Detecta o prédio que CONTÉM o POI e usa sua altura como altura
    * efetiva (`boundary.height`) para o ray-cast 2.5D.
@@ -1419,8 +1520,8 @@ export class CoreTriggerPointPredictor {
    * abriga o POI — afinal, é a fachada desse prédio que o usuário vê da rua.
    *
    * Algoritmo: procurar entre `boundary.buildings` quem contém o centroide
-   * do POI. Usar sua altura (com fallbacks: tag height, building:levels × 3.5,
-   * defaultHouseHeight). Só substitui se a altura encontrada for maior que a
+   * do POI. Usar sua altura (tag height, building:levels × a régua única de andar, ou a altura
+   * medida pelo relevo: superfície − chão no centro do prédio, #782). Só substitui se a altura encontrada for maior que a
    * altura semântica original.
    */
   private useContainingBuildingHeight(boundary: BoundaryData): void {
@@ -1448,7 +1549,6 @@ export class CoreTriggerPointPredictor {
     }
 
     const { isPointInPolygon, extractBuildingHeight } = require('../utils/calculations');
-    const defaultHouseHeight = TRIGGER_POINTS_CONSTANTS.obstructions.defaultHouseHeight;
 
     for (const b of buildings) {
       const geom = b.geometry;
@@ -1462,7 +1562,12 @@ export class CoreTriggerPointPredictor {
       if (!h && b.tags) {
         h = extractBuildingHeight(b.tags) || 0;
       }
-      if (!h) h = defaultHouseHeight; // 6m fallback
+      // No tag: the host height the buildings layer measured (Overture → 3D-GloBFP), else
+      // surface − ground (#782, #783) — never a guess.
+      if (!h) {
+        const c = coords.reduce((a: { lat: number; lng: number }, p: { lat: number; lng: number }) => ({ lat: a.lat + p.lat / coords.length, lng: a.lng + p.lng / coords.length }), { lat: 0, lng: 0 });
+        h = DemStore.getInstance().buildingAt(c.lat, c.lng)?.heightM ?? 0;
+      }
 
       if (h > currentHeight) {
         console.log(`🏢 Containing building detected: using height ${h}m (was ${currentHeight}m semantic)`);
@@ -1521,57 +1626,28 @@ export class CoreTriggerPointPredictor {
       //    ESB: ground=42m, height=443m → poiTop deve ser 485m, não 528m.
       //
       // Threshold height>20m distingue (storefront/edifício vs natural).
-      const isStructurePOI = (boundary.height ?? 0) > 20;
-      const poiGround = isStructurePOI
-        ? (boundary.elevation?.average ?? boundary.elevation?.center ?? 0)
-        : (boundary.elevation?.max ?? boundary.elevation?.center ?? boundary.elevation?.average ?? 0);
-      const poiHeight = Math.max(boundary.height ?? 0, 1.7);
+      const { groundM: poiGround, heightM: poiHeight, topM: poiTop } = VisibilityMapBuilder.poiSightTarget(boundary);
 
-      let regionalBase = poiGround; // fallback se SRTM falhar → elevationDiff vira 0
-      try {
-        const { SRTMLocalService } = require('../../srtm-local-service');
-        const srtm = SRTMLocalService.getInstance();
-        // 4 pontos cardeais a ~2km (KISS, sem dependência de context)
-        const samplingRadiusDeg = 0.02;
-        const samples = await Promise.all([
-          srtm.getElevation(boundary.center.lat + samplingRadiusDeg, boundary.center.lng),
-          srtm.getElevation(boundary.center.lat - samplingRadiusDeg, boundary.center.lng),
-          srtm.getElevation(boundary.center.lat, boundary.center.lng + samplingRadiusDeg),
-          srtm.getElevation(boundary.center.lat, boundary.center.lng - samplingRadiusDeg),
-        ]);
-        const valid = samples.filter((s: number | null) => s !== null && !isNaN(s as number)) as number[];
-        if (valid.length > 0) {
-          valid.sort((a, b) => a - b);
-          regionalBase = valid[Math.floor(valid.length / 2)]; // mediana
-        }
-      } catch (e) {
-        // SRTM indisponível, fica com regionalBase = poiGround → elevationDiff=0
-      }
+      // Prominence over the city base, measured once in E4 (P8) — the fan no longer samples a
+      // base of its own. Below landmark prominence it is urban SRTM noise, whatever the tags say
+      // (2026-09-27). Prominence already includes the height (INV-E4b).
+      const prominence = boundary.physical?.prominenceM ?? null;
+      const elevated = prominence !== null && prominence >= LANDMARK_MIN_PROMINENCE_M;
+      const effectiveElevationContribution = elevated ? prominence : 0;
+      const effectiveHeight = elevated ? Math.max(prominence, poiHeight) : poiHeight;
+      const elevationDiff = prominence ?? 0;
 
-      const elevationDiff = Math.max(0, poiGround - regionalBase);
-      // Filtra ruído SRTM urbano (≤100m). Apenas POIs naturalmente elevados
-      // (montanha, plateau, mountain peak) ganham extensão de horizon.
-      const SIGNIFICANT_ELEVATION_DIFF_M = 100;
-      const effectiveElevationContribution = elevationDiff >= SIGNIFICANT_ELEVATION_DIFF_M ? elevationDiff : 0;
-      const effectiveHeight = poiHeight + effectiveElevationContribution;
-
-      // horizon × 15: regra heurística — POI de 30m visível ~450m de longe em situação
-      // típica. Floor 300m (audio approach mínimo de driving). Cap 15km (Cristo).
-      //
-      // POIs em terreno PLANO (arranha-céus urbanos como ESB): visibilidade física vai a
-      // quilômetros mas usuário que visita se aproxima de ≤2km. TPs além disso disparam
-      // o audio guide cedo demais → cap 2km. Cap só ativo quando o terreno não tem
-      // elevação significativa (effectiveElevationContribution == 0).
-      //
-      // POIs em terreno ELEVADO (Cristo, picos, mirantes): usuário dirige ao longo de
-      // estradas que circundam o maciço → alcance completo (~11km para Cristo).
-      const URBAN_HORIZON_CAP_M = 2000;
+      // Horizon per visibility class (BR-AUDIO-010): a low/local class stays at its cap —
+      // the old 300 m floor no longer applies to a POI without height. A tall landmark
+      // goes to 15·h, up to 2 km on flat terrain or to the sanity cap when prominent.
       const isUrbanTerrain = effectiveElevationContribution === 0;
-      const horizonDefault = isUrbanTerrain
-        ? Math.max(300, Math.min(URBAN_HORIZON_CAP_M, Math.round(effectiveHeight * 15)))
-        : Math.max(300, Math.min(15_000, Math.round(effectiveHeight * 15)));
+      const horizonDefault = fanHorizonM({
+        cls: boundary.classification?.group,
+        effectiveHeightM: effectiveHeight,
+        prominenceM: effectiveElevationContribution,
+      });
       const horizon = maxHorizonM ?? horizonDefault;
-      console.log(`🔭 Horizon: ${horizon}m (height=${poiHeight.toFixed(0)}m, elevDiff=${elevationDiff.toFixed(0)}m${effectiveElevationContribution > 0 ? ' (significant — POI naturally elevated)' : ' (filtered as SRTM noise)'}, effectiveHeight=${effectiveHeight.toFixed(0)}m, terrain=${isUrbanTerrain ? 'urban-flat (cap 2km)' : 'elevated'}, ${maxHorizonM ? 'user-override' : 'auto'})`);
+      console.log(`🔭 Horizon: ${horizon}m (height=${poiHeight.toFixed(0)}m, elevDiff=${elevationDiff.toFixed(0)}m${effectiveElevationContribution > 0 ? ' (significant — POI naturally elevated)' : ' (filtered as SRTM noise)'}, effectiveHeight=${effectiveHeight.toFixed(0)}m, terrain=${isUrbanTerrain ? 'urban-flat' : 'elevated'}, class=${boundary.classification?.group ?? 'none'}, ${maxHorizonM ? 'user-override' : 'auto'})`);
 
       const fetcher = LocalOSMFetcher.getInstance();
       const overpassLike = fetcher.fetchAsOverpassData(poiData.location, horizon, {
@@ -1583,17 +1659,7 @@ export class CoreTriggerPointPredictor {
         for (const el of overpassLike.elements) {
           if (el.tags?.building && el.geometry && Array.isArray(el.geometry)) {
             const geometry = el.geometry.map((g: any) => ({ lat: g.lat, lng: g.lon ?? g.lng }));
-            const heightTag = el.tags['height'];
-            const levelsTag = el.tags['building:levels'];
-            let height = 0;
-            if (heightTag) {
-              const m = String(heightTag).match(/(\d+(?:\.\d+)?)/);
-              if (m) height = parseFloat(m[1]);
-            }
-            if (!height && levelsTag) {
-              const lv = parseFloat(levelsTag);
-              if (!isNaN(lv) && lv > 0) height = lv * 3.5;
-            }
+            const height = heightFromTags(el.tags)?.heightM ?? 0; // one floor ruler (INV-E3)
             buildings.push({ id: String(el.id), geometry, height, tags: el.tags });
           }
         }
@@ -1621,10 +1687,6 @@ export class CoreTriggerPointPredictor {
         console.log(`👁️ Memory cap: trimmed buildings ${originalCount} → ${MAX_BUILDINGS} (closest to POI center)`);
       }
 
-      // POI top altitude: usa altitude SRTM absoluta pra ray-cast (precisa de
-      // coordenada Z consistente com prédios e terreno). Independente da
-      // fórmula de horizon, que usa elevation DIFF filtrada.
-      const poiTop = poiGround + poiHeight;
 
       console.log(`👁️ Building visibility fan: POI top=${poiTop.toFixed(1)}m (ground ${poiGround} + height ${poiHeight}), buildings considered=${buildings.length}, horizon=${horizon}m`);
 
@@ -1680,7 +1742,7 @@ export class CoreTriggerPointPredictor {
   ): TriggerPoint[] {
     if (!accessibleStreets.length) return [];
 
-    const { calculateBearing, calculateDistance, calculateDistanceToBoundary, closestPointOnPolyline, walkAlongPolyline, findClosestPointOnBoundary } = require('../utils/calculations');
+    const { calculateBearing, calculateDistance, calculateDistanceToBoundary, closestPointOnPolyline, walkAlongPolyline, findClosestPointOnBoundary, streetFootOnEdge } = require('../utils/calculations');
     const { resolveStreetSpeedKmh, calculateGpsAwareRadius } = require('../../../geometry');
     const cfg = TRIGGER_POINTS_CONSTANTS.triggerPoint;
     const groupCap = boundary.classification?.maxTPRadiusM ?? cfg.maxRadiusM;
@@ -1690,9 +1752,9 @@ export class CoreTriggerPointPredictor {
     // IMPORTANTE: NÃO usar `accessibleStreets` aqui — ele vem da pipeline principal
     // que pode sofrer SQL LIMIT (15k rows por bbox grande). Para raios pequenos
     // (100m), fazemos query direta no SQLite com baixíssima chance de LIMIT.
-    const PERIMETER_RADIUS_M = 80;
+    // Perimeter reach: the class edge cap, never beyond the edge band (BR-AUDIO-010).
+    const PERIMETER_RADIUS_M = Math.min(EDGE_BAND_M, boundary.classification?.maxEdgeDistanceM ?? 80);
     const PERIMETER_FETCH_RADIUS_M = 150; // buffer extra pra garantir cobertura
-    const MAX_PERIMETER_STREETS = 8;
 
     const { LocalOSMFetcher } = require('../services/local-osm-fetcher');
     const fetcher = LocalOSMFetcher.getInstance();
@@ -1700,8 +1762,7 @@ export class CoreTriggerPointPredictor {
     // Query direta de raio pequeno — retorna no máximo ~20-50 ruas, nunca atinge LIMIT
     const rawPerimeterStreets: StreetData[] | null = fetcher.fetchStreetsAlongBoundary(
       boundary.coordinates,
-      PERIMETER_FETCH_RADIUS_M,
-      4 // até 4 sample points no boundary
+      PERIMETER_FETCH_RADIUS_M
     );
 
     const addrStreet = boundary.address?.street;
@@ -1711,24 +1772,11 @@ export class CoreTriggerPointPredictor {
     const streetDistances: Array<{ street: StreetData; dist: number }> = [];
     for (const s of rawPerimeterStreets ?? []) {
       if (!s.coordinates?.length) continue;
-      // isStreetAccessible check (inline para não importar o analisador aqui)
-      const ACCESSIBLE = new Set([
-        'motorway','trunk','primary','secondary','tertiary','residential',
-        'living_street','unclassified','motorway_link','trunk_link',
-        'primary_link','secondary_link','tertiary_link','bus_guideway',
-        'ferry','waterway','cycleway','footway','pedestrian','path',
-        'railway_rail','railway_light_rail','railway_tram','railway_subway',
-        'railway_monorail','railway_narrow_gauge','railway_preserved',
-        'aerialway_cable_car','aerialway_gondola','aerialway_chair_lift','aerialway_mixed_lift',
-      ]);
-      if (!ACCESSIBLE.has(s.type)) continue;
-      if ((s as any).tags?.tunnel === 'yes' || (s as any).tags?.covered === 'yes') continue;
+      // Mesma régua de isStreetAccessible (SSOT em street-analyzer).
+      if (!isObserverWay(s)) continue;
 
-      let minDist = Infinity;
-      for (const p of s.coordinates) {
-        const d = calculateDistanceToBoundary(p, boundary.coordinates);
-        if (d < minDist) minDist = d;
-      }
+      // Whole polyline, not vertices (BR-AUDIO-010).
+      const minDist = streetFootOnEdge(s.coordinates, boundary.center, boundary.coordinates)?.edgeDistanceM ?? Infinity;
       const isAddrMatch = addrLower && (s.name || '').toLowerCase().includes(addrLower);
       if (minDist <= PERIMETER_RADIUS_M || isAddrMatch) {
         streetDistances.push({ street: s, dist: minDist });
@@ -1740,9 +1788,9 @@ export class CoreTriggerPointPredictor {
       return [];
     }
 
-    // Ordenar por distância e limitar ao cap
+    // Every adjacent street, closest first; spacing in `applyOptions` decides, not a count (#772).
     streetDistances.sort((a, b) => a.dist - b.dist);
-    const candidates = streetDistances.slice(0, MAX_PERIMETER_STREETS);
+    const candidates = streetDistances;
     console.log(`🏠 Perimeter TPs: ${candidates.length} ruas adjacentes (≤${PERIMETER_RADIUS_M}m)`);
 
     const tps: TriggerPoint[] = [];
@@ -1754,7 +1802,9 @@ export class CoreTriggerPointPredictor {
         ? street.fullCoordinates
         : street.coordinates;
 
-      const projection = closestPointOnPolyline(boundary.center, polyline);
+      // Anchor on the foot of the perpendicular on the POI EDGE, not on the center.
+      const foot = streetFootOnEdge(polyline, boundary.center, boundary.coordinates);
+      const projection = foot ? closestPointOnPolyline(foot.point, polyline) : null;
       if (!projection) continue;
 
       const tags: any = (street as any).tags || {};
@@ -1766,8 +1816,9 @@ export class CoreTriggerPointPredictor {
         { min: cfg.minRadiusM, max: groupCap }
       );
 
-      // 2 TPs por rua: upstream e downstream — garante disparo em qualquer sentido
-      const offsetM = 25;
+      // 2 TPs per street, upstream and downstream, one radius each side of the foot:
+      // exactly 2r apart, so both survive the single spacing rule.
+      const offsetM = radius;
       const upstreamPoint = walkAlongPolyline(polyline, projection, -offsetM);
       const downstreamPoint = walkAlongPolyline(polyline, projection, +offsetM);
       const upToDown = calculateDistance(upstreamPoint, downstreamPoint);
@@ -1793,7 +1844,7 @@ export class CoreTriggerPointPredictor {
           confidence: 0.95,
           quality: 0.95,
           street,
-          distance: calculateDistance(f.location, boundary.center),
+          distance: calculateDistanceToBoundary(f.location, boundary.coordinates),
           generationMethod: 'local_osm',
           contextData: context,
           createdAt: new Date().toISOString(),
@@ -2027,78 +2078,5 @@ export class CoreTriggerPointPredictor {
     
     return stats;
   }
-  
-  /**
-   * Calcula limite dinâmico de TPs baseado em características matemáticas do POI
-   * Substitui o limite fixo de 50 por cálculo baseado em área, elevação e altura
-   */
-  /**
-   * Issue 2.4b — Cobertura completa.
-   *
-   * Premissa: não perder usuário vindo de qualquer lado. O controle real de
-   * sobreposição é `minDistanceBetweenTPs`. O limite por grupo no config é
-   * apenas um teto de segurança (200-500); aqui apenas o respeitamos.
-   *
-   * Antes: a função impunha um segundo teto por "área de cobertura" (1 TP
-   * por 0.1km²) que entrava em conflito com a meta de 1 TP por rua perimetral.
-   */
-  private calculateDynamicTPLimit(boundary: BoundaryData, context: GeographicContext, searchRadius?: number): number {
-    // Safety ceiling — não é "o cap" do POI.
-    //
-    // O controle real de quantos TPs são gerados vive em `applyOptions`:
-    // greedy density thinning com spacing escalado por distância radial ao POI
-    // + coverage guarantee por slice angular. A quantidade final é EMERGENTE,
-    // não decretada — POI grande/visível-de-longe gera mais TPs sem cap;
-    // POI pequeno gera poucos, sem padding artificial.
-    //
-    // Este número existe só pra evitar runaway em edge cases (POI degenerado
-    // que vire fan-walk de 100k candidatos). 5000 é alto o suficiente pra
-    // nunca limitar legitimamente.
-    const SAFETY_CEILING = 5000;
-    console.log(`📊 TP safety ceiling: ${SAFETY_CEILING} (real control is density thinning in applyOptions)`);
-    return SAFETY_CEILING;
-  }
 
-  
-  /**
-   * Calcula distância mínima entre TPs baseado no contexto e tamanho do POI
-   */
-  private calculateMinDistance(context: GeographicContext, boundary: BoundaryData, config?: TriggerPointsConfig): number {
-    // Carregar configuração
-    const cfg = config || loadTriggerPointsConfig();
-    
-    let baseDistance = cfg.minDistance.baseDistance[context.urbanDensity.level];
-    
-    console.log(`📏 Calculating minimum distance between TPs (20m range each)...`);
-    
-    // Ajustar baseado no tamanho do POI
-    if (boundary.area_m2 > 500000) { // POIs muito grandes (>50 hectares)
-      baseDistance *= cfg.minDistance.areaMultipliers.very_large;
-      console.log(`🏞️ Large POI adjustment: +${((cfg.minDistance.areaMultipliers.very_large - 1) * 100).toFixed(0)}% distance`);
-    } else if (boundary.area_m2 > 100000) { // POIs grandes (>10 hectares)
-      baseDistance *= cfg.minDistance.areaMultipliers.large;
-      console.log(`🏛️ Medium POI adjustment: +${((cfg.minDistance.areaMultipliers.large - 1) * 100).toFixed(0)}% distance`);
-    }
-    
-    // Ajustar baseado na elevação (POIs altos = TPs mais distantes)
-    if (boundary.elevation) {
-      const elevationDiff = boundary.elevation.center - boundary.elevation.average;
-      if (elevationDiff > 50) {
-        baseDistance *= cfg.minDistance.elevationMultipliers.high;
-        console.log(`⛰️ High elevation adjustment: +${((cfg.minDistance.elevationMultipliers.high - 1) * 100).toFixed(0)}% distance`);
-      }
-    }
-    
-    // Ajustar baseado na altura do POI
-    if (boundary.height && boundary.height > 50) {
-      baseDistance *= cfg.minDistance.heightMultipliers.tall;
-      console.log(`🏢 Tall POI adjustment: +${((cfg.minDistance.heightMultipliers.tall - 1) * 100).toFixed(0)}% distance`);
-    }
-    
-    // Limites de segurança otimizados para range de 20m
-    const minDistance = Math.max(cfg.minDistance.limits.min, Math.min(baseDistance, cfg.minDistance.limits.max));
-    
-    console.log(`✅ Minimum distance calculated: ${minDistance}m (base: ${baseDistance.toFixed(0)}m) - TP range: 20m`);
-    return Math.round(minDistance);
-  }
 }

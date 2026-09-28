@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { getSupabaseRouteHandler } from '@/lib/core/supabase-client'
 import { cookies } from 'next/headers'
 import { getSupabase } from '../../../../lib/core/supabase-client'
+import { stampGenerationMethod } from '../../../../lib/services/dem/dem-sources'
 
 export const maxDuration = 60 // Vercel Hobby plan limit (max 60s)
 
@@ -308,13 +309,15 @@ export async function POST(request: NextRequest) {
         const { CoreTriggerPointPredictor } = await import('@/lib/services/trigger-points-google/core/trigger-point-predictor')
         const { TriggerPointSavingService } = await import('@/lib/services/trigger-point-saving')
         
-        const predictor = new CoreTriggerPointPredictor()
-        const predictionResult = await predictor.predictTriggerPointsComplete(poiData, {
-          maxSearchRadius: 1000,
-          minQuality: 0.4
-        })
+        const { TP_ENGINE_OPTIONS } = await import('@/lib/services/poi-migration-pipeline')
+        const { applyTpPostConditions } = await import('@/lib/services/trigger-points-google/utils/tp-selection')
 
-        if (!predictionResult.triggerPoints || predictionResult.triggerPoints.length === 0) {
+        const predictor = new CoreTriggerPointPredictor()
+        const predictionResult = await predictor.predictTriggerPointsComplete(poiData, { ...TP_ENGINE_OPTIONS })
+        // Same options and post-conditions as the pipeline save and the dry-run (INV-E11, BR-AUDIO-010).
+        const keptTPs = applyTpPostConditions(predictionResult.triggerPoints ?? [], poiData.location, predictionResult.boundary).kept
+
+        if (keptTPs.length === 0) {
           // No trigger points generated
           results.failed++
           results.results.push({
@@ -331,7 +334,7 @@ export async function POST(request: NextRequest) {
         }
 
         // Convert and save trigger points
-        const triggerPointsToSave = predictionResult.triggerPoints.map(tp => ({
+        const triggerPointsToSave = keptTPs.map(tp => ({
           attraction_id: poi.id,
           lat: tp.location.lat,
           lng: tp.location.lng,
@@ -343,7 +346,7 @@ export async function POST(request: NextRequest) {
           is_active: true,
           access: 'car' as 'walk' | 'car' | 'both',
           confidence: tp.confidence || 0.5,
-          generation_method: tp.generationMethod || 'local_osm',
+          generation_method: stampGenerationMethod(tp.generationMethod || 'local_osm'), // #782
           geometry_geojson: tp.geometryGeoJson || null,
           boundary_source: predictionResult.boundary?.source || 'unknown'
         }))
@@ -361,8 +364,8 @@ export async function POST(request: NextRequest) {
           console.log(`✅ ${poi.name}: Generated and saved ${saveResult.saved} TPs`)
           
           // Auto-approval logic: If we have good trigger points, activate the POI
-          const maxConfidence = predictionResult.triggerPoints.length > 0
-            ? Math.max(...predictionResult.triggerPoints.map(tp => tp.confidence || 0))
+          const maxConfidence = keptTPs.length > 0
+            ? Math.max(...keptTPs.map(tp => tp.confidence || 0))
             : 0
             
           const shouldAutoApprove = saveResult.saved >= 1 && maxConfidence > 0.4
@@ -386,7 +389,7 @@ export async function POST(request: NextRequest) {
             }
           }
 
-          const approvedTPs = predictionResult.triggerPoints.filter(tp => 
+          const approvedTPs = keptTPs.filter(tp => 
             (tp.confidence || 0) >= 0.7 && 
             (tp.type === 'primary' || tp.type === 'secondary')
           )

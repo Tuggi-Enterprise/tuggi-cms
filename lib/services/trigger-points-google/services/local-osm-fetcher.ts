@@ -4,6 +4,7 @@ import fs from 'fs';
 import { POIData, BoundaryData, StreetData } from '../types/interfaces';
 import { BuildingData, OSMDataBundle } from './osm-data-fetcher';
 import { TRIGGER_POINTS_CONSTANTS } from '../config/trigger-points-config';
+import { isPublicWay } from '../config/visibility-class';
 
 /**
  * 🌍 LOCAL OSM FETCHER — Singleton
@@ -16,6 +17,9 @@ import { TRIGGER_POINTS_CONSTANTS } from '../config/trigger-points-config';
  * - DRY: Helpers centralizados (calculateBBox, toOverpassElement, queryStreets, queryBuildings)
  * - KISS: Interface simples com fallback transparente (retorna null = cache miss)
  */
+/** Sanity bound on the query points along one edge (fetchStreetsAlongBoundary). */
+const BOUNDARY_SAMPLE_CAP = 600;
+
 export class LocalOSMFetcher {
   private static instance: LocalOSMFetcher;
   private db: Database.Database | null = null;
@@ -152,8 +156,29 @@ export class LocalOSMFetcher {
    * Caminho legado: mantido pra retrocompatibilidade com máquinas que ainda não
    * rodaram o hotfix. Resultado é semanticamente idêntico — mesmas rows.
    */
-  private queryStreets(bbox: { minLat: number; maxLat: number; minLng: number; maxLng: number }) {
+  /**
+   * Every street read goes through here, so a way closed to the public never reaches E7 on any
+   * path (main, perimeter, reach rescue, far tiles): `config/visibility-class#isPublicWay`.
+   */
+  private queryStreets(bbox: { minLat: number; maxLat: number; minLng: number; maxLng: number }, types?: string[]): any[] {
+    return this.queryStreetRows(bbox, types).filter((row: any) =>
+      !row.tags_json || !/"(access|military)"/.test(row.tags_json) || isPublicWay(JSON.parse(row.tags_json)));
+  }
+
+  private queryStreetRows(bbox: { minLat: number; maxLat: number; minLng: number; maxLng: number }, types?: string[]): any[] {
     if (!this.db) return [];
+    if (types?.length) {
+      const marks = types.map(() => '?').join(',');
+      const sql = this.rtreeAvailable.streets
+        ? `SELECT s.id, s.name, s.type, s.geometry_json, s.tags_json FROM streets s
+           JOIN streets_rtree r ON r.rowid = s.rowid
+           WHERE r.min_lat <= ? AND r.max_lat >= ? AND r.min_lng <= ? AND r.max_lng >= ? AND s.type IN (${marks})
+           LIMIT ?`
+        : `SELECT id, name, type, geometry_json, tags_json FROM streets
+           WHERE min_lat <= ? AND max_lat >= ? AND min_lng <= ? AND max_lng >= ? AND type IN (${marks})
+           LIMIT ?`;
+      return this.db.prepare(sql).all(bbox.maxLat, bbox.minLat, bbox.maxLng, bbox.minLng, ...types, TRIGGER_POINTS_CONSTANTS.memory.maxStreetsPerQuery) as any[];
+    }
     // LIMIT aplicado no SQL — impede Statement.all() de materializar centenas de
     // milhares de rows em JS (OOM fatal em POIs grandes como Central Park).
     // O cap pós-query por distância (maxStreetsPerPOI) reduz ainda mais.
@@ -437,15 +462,13 @@ export class LocalOSMFetcher {
    */
   public fetchStreetsAlongBoundary(
     boundaryCoords: Array<{ lat: number; lng: number }>,
-    radiusPerPointM: number = 200,
-    maxSamplePoints: number = 16
+    radiusPerPointM: number = 200
   ): StreetData[] | null {
     if (!this.db) return null;
     if (!boundaryCoords || boundaryCoords.length === 0) return null;
 
     try {
-      // Amostragem proporcional ao perímetro
-      const samples = this.sampleBoundaryPoints(boundaryCoords, maxSamplePoints);
+      const samples = this.sampleBoundaryPoints(boundaryCoords, radiusPerPointM);
       if (samples.length === 0) return null;
 
       const seen = new Set<string>();
@@ -479,56 +502,94 @@ export class LocalOSMFetcher {
   }
 
   /**
+   * Streets of the given types in a disc of `radiusM` around `center`, queried tile by tile
+   * (`tileM`) so the per-query LIMIT never cuts a whole direction off: one bbox of 30 km hit
+   * the LIMIT and returned whatever the index gave first (E7, INV-E7c, #772).
+   */
+  public fetchStreetsInTiles(
+    center: { lat: number; lng: number },
+    radiusM: number,
+    types: string[],
+    tileM: number
+  ): StreetData[] | null {
+    if (!this.db) return null;
+    const seen = new Set<string>();
+    const out: StreetData[] = [];
+    const n = Math.ceil(radiusM / tileM);
+    for (let i = -n; i < n; i++) {
+      for (let j = -n; j < n; j++) {
+        // skip tiles whose nearest corner is beyond the disc
+        const dn = Math.max(0, i * tileM, -(i + 1) * tileM), de = Math.max(0, j * tileM, -(j + 1) * tileM);
+        if (dn * dn + de * de > radiusM * radiusM) continue;
+        const lat0 = center.lat + (i * tileM) / 111000;
+        const lat1 = center.lat + ((i + 1) * tileM) / 111000;
+        const k = 111000 * Math.cos((center.lat * Math.PI) / 180);
+        const lng0 = center.lng + (j * tileM) / k;
+        const lng1 = center.lng + ((j + 1) * tileM) / k;
+        for (const row of this.queryStreets({ minLat: lat0, maxLat: lat1, minLng: lng0, maxLng: lng1 }, types)) {
+          const id = String(row.id);
+          if (seen.has(id)) continue;
+          seen.add(id);
+          out.push({
+            id: row.id,
+            name: row.name || 'Unknown Street',
+            type: row.type || 'residential',
+            coordinates: JSON.parse(row.geometry_json),
+            accessibility: 'public',
+            confidence: 0.9,
+            tags: row.tags_json ? JSON.parse(row.tags_json) : {},
+          });
+        }
+      }
+    }
+    return out;
+  }
+
+  /**
    * Amostra N pontos distribuídos ao longo do perímetro de um polígono.
    * Mesma lógica do VisibilityMapBuilder.sampleBoundary — refatorável depois.
    */
+  /**
+   * Points along the edge, one every `spacingM` (the query radius), so the query squares overlap
+   * and every stretch of the edge is searched out to the radius. A fixed count (4 up to 2 km of
+   * perimeter, 12 beyond) with a 60 m radius left most of the edge unsearched: the Estádio Nilton
+   * Santos (1 km) had streets on four sides and candidates on two; the Lagoa Rodrigo de Freitas
+   * lost 1 km of Av. Borges de Medeiros (#772). BOUNDARY_SAMPLE_CAP is only a sanity bound.
+   */
   private sampleBoundaryPoints(
     coords: Array<{ lat: number; lng: number }>,
-    maxCount: number
+    spacingM: number
   ): Array<{ lat: number; lng: number }> {
     if (coords.length === 0) return [];
-
-    // Perímetro
+    const segLen = (a: { lat: number; lng: number }, b: { lat: number; lng: number }) => {
+      const dLat = (b.lat - a.lat) * 111_000;
+      const dLng = (b.lng - a.lng) * 111_000 * Math.cos(a.lat * Math.PI / 180);
+      return Math.sqrt(dLat * dLat + dLng * dLng);
+    };
     let perimeter = 0;
-    for (let i = 0; i < coords.length - 1; i++) {
-      const dLat = (coords[i + 1].lat - coords[i].lat) * 111_000;
-      const dLng = (coords[i + 1].lng - coords[i].lng) * 111_000 * Math.cos(coords[i].lat * Math.PI / 180);
-      perimeter += Math.sqrt(dLat * dLat + dLng * dLng);
-    }
-
-    // Centroide
+    for (let i = 0; i < coords.length - 1; i++) perimeter += segLen(coords[i], coords[i + 1]);
     const centroid = {
       lat: coords.reduce((s, c) => s + c.lat, 0) / coords.length,
       lng: coords.reduce((s, c) => s + c.lng, 0) / coords.length,
     };
+    if (perimeter <= spacingM) return [centroid];
 
-    let n: number;
-    if (perimeter < 400) n = 1;
-    else if (perimeter < 2000) n = 4;
-    else if (perimeter < 5000) n = 8;
-    else n = Math.min(maxCount, 12);
-
-    if (n === 1) return [centroid];
-
-    const samples: Array<{ lat: number; lng: number }> = [centroid];
-    const spacing = perimeter / n;
+    const step = Math.max(spacingM, perimeter / BOUNDARY_SAMPLE_CAP);
+    const samples: Array<{ lat: number; lng: number }> = [coords[0]];
     let walked = 0;
-    let nextTarget = spacing;
-    for (let i = 0; i < coords.length - 1 && samples.length < n; i++) {
-      const dLat = (coords[i + 1].lat - coords[i].lat) * 111_000;
-      const dLng = (coords[i + 1].lng - coords[i].lng) * 111_000 * Math.cos(coords[i].lat * Math.PI / 180);
-      const segLen = Math.sqrt(dLat * dLat + dLng * dLng);
-      while (walked + segLen >= nextTarget && samples.length < n) {
-        const t = (nextTarget - walked) / segLen;
+    let nextTarget = step;
+    for (let i = 0; i < coords.length - 1; i++) {
+      const len = segLen(coords[i], coords[i + 1]);
+      while (len > 0 && walked + len >= nextTarget) {
+        const t = (nextTarget - walked) / len;
         samples.push({
           lat: coords[i].lat + (coords[i + 1].lat - coords[i].lat) * t,
           lng: coords[i].lng + (coords[i + 1].lng - coords[i].lng) * t,
         });
-        nextTarget += spacing;
+        nextTarget += step;
       }
-      walked += segLen;
+      walked += len;
     }
-
     return samples;
   }
 
@@ -602,12 +663,93 @@ export class LocalOSMFetcher {
   }
 
   /**
+   * Surveyed summits (`natural=peak|volcano` nodes with `ele`) in a bbox — the ground-top read
+   * of the TP engine (E4, INV-E4a). SRTM here is a 90 m grid and puts Corcovado at 568 m;
+   * the summit node says 710. null without the local DB.
+   */
+  public fetchSummits(
+    bbox: { minLat: number; maxLat: number; minLng: number; maxLng: number }
+  ): Array<{ lat: number; lng: number; tags: Record<string, unknown> }> | null {
+    if (!this.db) return null;
+    try {
+      const stmt = this.rtreeAvailable.pois
+        ? this.db.prepare(`
+            SELECT p.geometry_json, p.tags_json FROM pois p
+            JOIN pois_rtree r ON r.rowid = p.rowid
+            WHERE json_extract(p.tags_json, '$.natural') IN ('peak', 'volcano')
+              AND json_extract(p.tags_json, '$.ele') IS NOT NULL
+              AND r.min_lat <= ? AND r.max_lat >= ?
+              AND r.min_lng <= ? AND r.max_lng >= ?
+          `)
+        : this.db.prepare(`
+            SELECT geometry_json, tags_json FROM pois
+            WHERE json_extract(tags_json, '$.natural') IN ('peak', 'volcano')
+              AND json_extract(tags_json, '$.ele') IS NOT NULL
+              AND min_lat <= ? AND max_lat >= ?
+              AND min_lng <= ? AND max_lng >= ?
+          `);
+      const rows = stmt.all(bbox.maxLat, bbox.minLat, bbox.maxLng, bbox.minLng) as any[];
+      const out: Array<{ lat: number; lng: number; tags: Record<string, unknown> }> = [];
+      for (const row of rows ?? []) {
+        try {
+          const geom = JSON.parse(row.geometry_json);
+          const point = Array.isArray(geom) ? geom[0] : geom;
+          if (!point || typeof point.lat !== 'number') continue;
+          out.push({ lat: point.lat, lng: point.lng ?? point.lon, tags: JSON.parse(row.tags_json || '{}') });
+        } catch {
+          // ignora rows com geometry/tags inválidos
+        }
+      }
+      return out;
+    } catch (error) {
+      console.error(`❌ [LocalOSMFetcher] Error fetching summits:`, error);
+      return null;
+    }
+  }
+
+  /**
+   * E1 (INV-E1a, "OSM that contains the pin"): every mapped area whose bounding box holds the
+   * pin — `pois` (ways and multipolygons) and `buildings` — as Overpass elements. The caller
+   * decides which one is the border (`boundary-choice#chooseContainingBoundary`).
+   * null when the local DB is not available (the caller goes to Overpass). `marginM` widens the
+   * box around the pin: a border of the POI's identity may stand next to it (INV-E1c).
+   */
+  public fetchAreasContaining(pin: { lat: number; lng: number }, marginM = 0): any[] | null {
+    if (!this.db) return null;
+    try {
+      const out: any[] = [];
+      const dLat = marginM / 110_540;
+      const dLng = marginM / (111_320 * Math.cos((pin.lat * Math.PI) / 180));
+      for (const table of ['pois', 'buildings'] as const) {
+        const cols = table === 'pois' ? 'p.id, p.osm_id, p.osm_type, p.geometry_json, p.tags_json' : 'p.id, p.geometry_json, p.tags_json';
+        const rtree = this.rtreeAvailable[table];
+        const rows = this.db.prepare(rtree
+          ? `SELECT ${cols} FROM ${table} p JOIN ${table}_rtree r ON r.rowid = p.rowid
+             WHERE r.min_lat <= ? AND r.max_lat >= ? AND r.min_lng <= ? AND r.max_lng >= ?`
+          : `SELECT ${cols} FROM ${table} p
+             WHERE p.min_lat <= ? AND p.max_lat >= ? AND p.min_lng <= ? AND p.max_lng >= ?`
+        ).all(pin.lat + dLat, pin.lat - dLat, pin.lng + dLng, pin.lng - dLng) as any[];
+        for (const row of rows) {
+          const el = this.toOverpassElement(row, 'way');
+          if (el.type !== 'node') out.push(el);
+        }
+      }
+      return out;
+    } catch (error) {
+      console.error(`❌ [LocalOSMFetcher] Error fetching areas containing the pin:`, error);
+      return null;
+    }
+  }
+
+  /**
    * Busca um elemento OSM específico por tipo e ID no banco local.
-   * Estratégia de busca (em ordem de prioridade):
-   *   1. Coluna osm_id na tabela pois (mais rápido, dados importados com pbf2json)
-   *   2. Campo @id dentro de tags_json (fallback para dados importados com osmium)
-   *   3. Busca em streets e buildings por tags_json @id
-   * Retorna null se não encontrado (= fallback para Overpass online).
+   *
+   * No OSM o id só é único DENTRO do tipo: node 123 e way 123 são elementos diferentes.
+   * Toda busca aqui casa tipo E id — sem tipo, a busca devolvia outro elemento e o boundary
+   * nascia no lugar errado (auditoria de TP, 2026-09-27). Estratégias:
+   *   1. Colunas osm_id + osm_type na tabela pois (pbf2json)
+   *   2. "@id" + "@type" dentro de tags_json em pois, streets e buildings (osmium)
+   * Retorna null se não encontrado (= fallback para Overpass online, que também é tipado).
    */
   public fetchElementById(
     osmType: string,
@@ -618,12 +760,6 @@ export class LocalOSMFetcher {
     try {
       let row: any = null;
 
-      // ═══════════════════════════════════════════════════════════════
-      // ESTRATÉGIA 1: Buscar pela coluna osm_id (dados importados via pbf2json)
-      // A coluna osm_id contém o ID numérico real do OSM diretamente
-      // ═══════════════════════════════════════════════════════════════
-      
-      // 1a. Buscar na tabela pois por osm_id + osm_type
       const poiByColStmt = this.db.prepare(`
         SELECT id, osm_id, osm_type, geometry_json, tags_json FROM pois
         WHERE osm_id = ? AND osm_type = ? LIMIT 1
@@ -633,61 +769,21 @@ export class LocalOSMFetcher {
         console.log(`🚀 [LocalOSMFetcher] Found element ${osmType}(${osmId}) by ID column in 'pois'`);
       }
 
-      // 1b. Buscar na tabela pois por osm_id apenas (sem filtro de tipo)
-      if (!row) {
-        const poiByIdStmt = this.db.prepare(`
-          SELECT id, osm_id, osm_type, geometry_json, tags_json FROM pois
-          WHERE osm_id = ? LIMIT 1
-        `);
-        row = poiByIdStmt.get(osmId) as any;
-      }
+      // O índice de expressão em json_extract(tags_json, '$."@id"') resolve o id; o
+      // "@type" filtra as poucas linhas que sobram. CAST para INTEGER casa o tipo do índice.
+      const osmIdInt = parseInt(osmId, 10);
+      const isNumericId = Number.isFinite(osmIdInt) && String(osmIdInt) === String(osmId).trim();
 
-      // ═══════════════════════════════════════════════════════════════
-      // ESTRATÉGIA 2: Buscar pelo campo @id dentro de tags_json (osmium format)
-      // Ex: {"@type":"way","@id":40666277,"name":"Mugar Property"}
-      //
-      // Usa json_extract com índice em expressão para evitar full-scan:
-      //   CREATE INDEX idx_<tbl>_realosmid ON <tbl>(json_extract(tags_json, '$."@id"'));
-      // O CAST para INTEGER é necessário para casar o tipo do índice (o @id no JSON
-      // é numérico). Sem o índice essa query também varre a tabela inteira.
-      // ═══════════════════════════════════════════════════════════════
-      if (!row) {
-        const osmIdInt = parseInt(osmId, 10);
-        const useNumeric = Number.isFinite(osmIdInt) && String(osmIdInt) === String(osmId).trim();
-
-        if (useNumeric) {
-          // 2a. Buscar na tabela pois via índice de expressão
-          const poiStmt = this.db.prepare(`
-            SELECT id, osm_id, osm_type, geometry_json, tags_json FROM pois
-            WHERE json_extract(tags_json, '$."@id"') = ? LIMIT 1
-          `);
-          row = poiStmt.get(osmIdInt) as any;
-
-          // 2b. Buscar na tabela streets via índice de expressão
-          if (!row) {
-            const streetStmt = this.db.prepare(`
-              SELECT id, geometry_json, tags_json FROM streets
-              WHERE json_extract(tags_json, '$."@id"') = ? LIMIT 1
-            `);
-            row = streetStmt.get(osmIdInt) as any;
-          }
-
-          // 2c. Buscar na tabela buildings via índice de expressão
-          if (!row) {
-            const buildingStmt = this.db.prepare(`
-              SELECT id, geometry_json, tags_json FROM buildings
-              WHERE json_extract(tags_json, '$."@id"') = ? LIMIT 1
-            `);
-            row = buildingStmt.get(osmIdInt) as any;
-          }
-        } else {
-          // Fallback: osmId não-numérico (raro) — mantém LIKE como último recurso.
-          const searchPattern = `%"@id":${osmId}%`;
-          const poiStmt = this.db.prepare(`
-            SELECT id, osm_id, osm_type, geometry_json, tags_json FROM pois
-            WHERE tags_json LIKE ? LIMIT 1
-          `);
-          row = poiStmt.get(searchPattern) as any;
+      if (!row && isNumericId) {
+        for (const table of ['pois', 'streets', 'buildings'] as const) {
+          const columns = table === 'pois' ? 'id, osm_id, osm_type, geometry_json, tags_json' : 'id, geometry_json, tags_json';
+          row = this.db.prepare(`
+            SELECT ${columns} FROM ${table}
+            WHERE json_extract(tags_json, '$."@id"') = ?
+              AND json_extract(tags_json, '$."@type"') = ?
+            LIMIT 1
+          `).get(osmIdInt, osmType) as any;
+          if (row) break;
         }
       }
 

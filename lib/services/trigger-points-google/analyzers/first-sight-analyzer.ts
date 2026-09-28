@@ -29,6 +29,7 @@ import {
   resolveStreetSpeedKmh,
 } from '../../../geometry';
 import { TRIGGER_POINTS_CONSTANTS } from '../config/trigger-points-config';
+import { heightFromTags } from '../config/visibility-class';
 
 export interface FirstSightOptions {
   /** Distância máxima a caminhar a partir do POI (m) */
@@ -149,11 +150,7 @@ export class FirstSightAnalyzer {
         lng: c.lon ?? c.lng,
       }));
 
-      let buildingHeightM = Number(b.height) || 0;
-      if (!buildingHeightM && b.tags) {
-        const lv = parseFloat(b.tags['building:levels']);
-        if (!isNaN(lv) && lv > 0) buildingHeightM = lv * 3.5;
-      }
+      let buildingHeightM = Number(b.height) || heightFromTags(b.tags)?.heightM || 0;
       if (!buildingHeightM) buildingHeightM = defaultHouseHeight;
 
       const centroid = buildingCentroid(coords);

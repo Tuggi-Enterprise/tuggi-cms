@@ -5,6 +5,7 @@
  */
 
 import { TriggerPoint } from '../types/interfaces'
+import { stampGenerationMethod } from '../../dem/dem-sources'
 
 export interface TriggerPointForDB {
   lat: number
@@ -86,9 +87,10 @@ export function convertTriggerPointToDB(
   // Build generation_method — preserva o método declarado no TP (issue 1.3).
   // Antes: hardcoded 'google_apis' independente da origem real.
   const baseMethod = tp.generationMethod || 'local_osm'
-  const generation_method = boundarySource
+  // #782: the relief sources travel with the method (reprocess by data version)
+  const generation_method = stampGenerationMethod(boundarySource
     ? `${baseMethod}_${boundarySource}`
-    : baseMethod
+    : baseMethod)
 
   return {
     lat: tp.location.lat,
@@ -104,7 +106,7 @@ export function convertTriggerPointToDB(
     score_factors,
     generation_method,
     validation_notes: reasoning,
-    access: 'both', // Default access
+    // `access` ausente: o default do banco ('car') vale.
     // Issue 2.4 — propagar polígono para TPs do tipo 'geofence'
     geometry_geojson: tp.geometryGeoJson ?? null,
   }

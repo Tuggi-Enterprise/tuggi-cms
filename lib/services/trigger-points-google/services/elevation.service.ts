@@ -5,7 +5,8 @@ import { GoogleAPIsService } from './google-apis.service';
 import { BoundaryData, GeographicContext, POIData } from '../types/interfaces';
 import { TRIGGER_POINTS_CONSTANTS } from '../config/trigger-points-config';
 import { ElevationAnalysisService } from './elevation-service';
-import { SRTMLocalService } from '../../srtm-local-service';
+import { DemStore } from '../../dem/dem-store';
+import { heightFromTags } from '../config/visibility-class';
 
 export interface ElevationData {
   ground: number; // elevação do solo (metros acima do nível do mar)
@@ -73,38 +74,34 @@ export class ElevationService {
         confidence = osmElevation.confidence;
       }
 
-      // Estratégia 2: SRTM Local (100% Offline)
+      // Estratégia 2: the prepared ground relief (GEDTM30, disk, #782)
       //
-      // ⚠️ SRTM tem grid de 30m e suaviza picos estreitos — pode subestimar
-      // peaks naturais em 50-200m (ex: Pão de Açúcar OSM ele=392m vs SRTM=278m).
+      // ⚠️ A 30 m grid still smooths narrow peaks — it can underestimate
+      // natural peaks by tens of metres (Pão de Açúcar: OSM ele=392m vs grid ~330m).
       // OSM `ele` tag é hand-curated e é a fonte canônica pra peaks.
       //
-      // Estratégia: usar o MAIOR entre OSM ele_tag e SRTM. Em POI urbano
-      // sem OSM ele (groundElevation=0), SRTM vence naturalmente. Em peak
+      // Estratégia: usar o MAIOR entre OSM ele_tag e o chão medido. Em POI urbano
+      // sem OSM ele (groundElevation=0), o chão medido vence naturalmente. Em peak
       // com OSM ele, OSM vence (mais preciso).
       try {
-        const srtmResult = await this.getElevationFromLocalSRTM(location);
-        if (srtmResult.confidence > 0.5) {
-          if (srtmResult.ground > groundElevation) {
-            groundElevation = srtmResult.ground;
-            groundSource = 'local_srtm';
+        const demResult = await this.getGroundFromDem(location);
+        if (demResult.confidence > 0.5) {
+          if (demResult.ground > groundElevation) {
+            groundElevation = demResult.ground;
+            groundSource = 'dem_ground';
           } else if (groundSource === 'ele_tag') {
-            console.log(`📊 Keeping OSM ele_tag (${groundElevation}m) over SRTM (${srtmResult.ground}m) — peak likely smoothed by SRTM grid`);
+            console.log(`📊 Keeping OSM ele_tag (${groundElevation}m) over the ground grid (${demResult.ground}m) — peak likely smoothed by the grid`);
           }
           confidence = Math.max(confidence, 0.8);
         }
       } catch (error) {
-        console.warn('⚠️ Local SRTM failed, using OSM or fallback ground');
+        console.warn('⚠️ No prepared ground here, using OSM or fallback ground');
       }
 
-      // Se groundElevation ainda for 0, usar regionalBase como ground
-      if (groundElevation === 0) {
-        groundElevation = regionalBase;
-        groundSource = 'regional_base';
-      }
-
+      // No invented ground: a city base is not the POI ground (INV-E4c). Confidence stays as measured.
+      const baseForDiff = regionalBase ?? groundElevation;
       const totalElevation = groundElevation + structureHeight;
-      const elevationDiff = totalElevation - regionalBase;
+      const elevationDiff = totalElevation - baseForDiff;
       const isElevated = elevationDiff > 50; // Threshold do usuário
 
       console.log(`📊 Current Elevation State: Ground=${groundElevation}m, Structure=${structureHeight}m, Total=${totalElevation}m, Base=${regionalBase}m, Diff=${elevationDiff}m`);
@@ -119,7 +116,7 @@ export class ElevationService {
           total: totalElevation,
           relative: {
             aboveNeighborhood: elevationDiff,
-            neighborhoodAverage: regionalBase,
+            neighborhoodAverage: baseForDiff,
             prominence: Math.min(1.0, Math.max(0.1, elevationDiff / 200)), // Estimativa de proeminência
             isElevated: isElevated
           },
@@ -140,7 +137,7 @@ export class ElevationService {
       // Atualizar com ground do Google mas manter structure do OSM se for melhor
       const finalGround = googleElevation.ground;
       const finalTotal = finalGround + structureHeight;
-      const finalDiff = finalTotal - regionalBase;
+      const finalDiff = finalTotal - (regionalBase ?? finalGround);
       
       return {
         ...googleElevation,
@@ -150,7 +147,7 @@ export class ElevationService {
         relative: {
           ...googleElevation.relative,
           aboveNeighborhood: finalDiff,
-          neighborhoodAverage: regionalBase,
+          neighborhoodAverage: baseForDiff,
           isElevated: finalDiff > 50 || googleElevation.relative.isElevated
         }
       };
@@ -162,22 +159,22 @@ export class ElevationService {
   }
 
   /**
-   * Estratégia 2: SRTM Local (100% Offline, dados NASA 30m)
+   * Estratégia 2: the prepared relief (GEDTM30 ground, from disk, #782)
    */
-  private async getElevationFromLocalSRTM(
+  private async getGroundFromDem(
     location: { lat: number; lng: number }
   ): Promise<ElevationData> {
-    console.log(`🌍 Using Local SRTM Elevation (100% Offline, 0ms latency)...`);
+    console.log(`🌍 Using the prepared ground relief (GEDTM30, disk)...`);
     
     try {
-      const srtm = SRTMLocalService.getInstance();
-      const elevation = await srtm.getElevation(location.lat, location.lng);
+      // Ground (GEDTM30) from the prepared relief on disk (#782, INV-EPc).
+      const elevation = DemStore.getInstance().ground(location.lat, location.lng);
       
       if (elevation === null) {
-        throw new Error('No elevation data from Local SRTM');
+        throw new Error('No ground in the prepared relief');
       }
 
-      console.log(`✅ Local SRTM: ${elevation}m (NASA data)`);
+      console.log(`✅ Ground (GEDTM30): ${elevation.toFixed(1)}m`);
 
       return {
         ground: elevation,
@@ -188,16 +185,16 @@ export class ElevationService {
           prominence: 0.5,
           isElevated: elevation > 500
         },
-        confidence: 0.9, // High confidence for SRTM
-        source: 'estimated', // Keeping legacy type, but we know it's SRTM
+        confidence: 0.9, // measured ground
+        source: 'estimated', // legacy type; the value is the measured ground (GEDTM30)
         details: {
-          groundSource: 'local_srtm',
-          method: 'srtm_data'
+          groundSource: 'dem_ground',
+          method: 'dem_ground'
         }
       };
 
     } catch (error) {
-      console.error('Local SRTM error:', error);
+      console.error('Prepared ground error:', error);
       throw error;
     }
   }
@@ -237,11 +234,9 @@ export class ElevationService {
       structureHeight = this.parseElevationValue(tags['building:height']);
       structureSource = 'building_height_tag';
     } else if (tags['building:levels']) {
-      const levels = parseInt(tags['building:levels']);
-      if (!isNaN(levels) && levels > 0) {
-        structureHeight = levels * 3.5; // ~3.5m por andar
-        structureSource = 'building_levels_tag';
-      }
+      // one floor ruler (INV-E3): config/visibility-class#heightFromTags
+      structureHeight = heightFromTags(tags)?.heightM ?? null;
+      if (structureHeight !== null) structureSource = 'building_levels_tag';
     }
 
     // Se temos dados OSM válidos
@@ -277,9 +272,9 @@ export class ElevationService {
       };
     }
 
-    // Se não temos dados OSM, usar SRTM Local como fallback (100% offline)
-    console.log(`⚠️ No elevation data in OSM tags, falling back to Local SRTM`);
-    return this.getElevationFromLocalSRTM(location);
+    // Se não temos dados OSM, usar o chão preparado (disco, #782)
+    console.log(`⚠️ No elevation data in OSM tags, falling back to the prepared ground`);
+    return this.getGroundFromDem(location);
   }
 
   /**

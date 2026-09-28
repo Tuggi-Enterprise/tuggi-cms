@@ -1,203 +1,250 @@
-import { GeographicContext, POIData } from '../types/interfaces';
-import { SRTMLocalService } from '../../srtm-local-service';
+import { GeographicContext, GeoPoint, POIData } from '../types/interfaces';
+import { DemStore } from '../../dem/dem-store';
 import { LRUCacheWithTTL } from '../utils/lru-cache';
+import { LocalReverseGeocoder } from '../../local-reverse-geocoder';
+import { calculateDistance, calculateDistanceToPolygon } from '../utils/calculations';
+import {
+  CITY_BASE_GRID_STEP_M,
+  CITY_BASE_RADIUS_M,
+  LOCAL_BASE_DIRECTIONS,
+  LOCAL_BASE_PERCENTILE,
+  LOCAL_BASE_RING_M,
+  RELIEF_FOOT_FRACTION,
+  RELIEF_MAX_RADIUS_M,
+  RELIEF_MIN_M,
+  RELIEF_RAYS,
+  RELIEF_SADDLE_RISE_M,
+  RELIEF_STEP_M,
+  RELIEF_TOP_MAX_HIGHER_SHARE,
+  RELIEF_TOP_RING_M,
+  SUMMIT_MATCH_M,
+  landPercentile,
+} from '../config/visibility-class';
+
+type LatLng = { lat: number; lng: number };
+type ElevationReader = (lat: number, lng: number) => Promise<number | null>;
+
+export interface CityBase {
+  /** null when the DEM gave nothing (INV-E4c) */
+  baseM: number | null;
+  /** `geonames:<id>` (city centre) or `poi_cell:<lat,lng>` when no city was found */
+  source: string;
+}
+
+export interface GroundTop {
+  /** terrain at the highest point of the boundary; null when the DEM failed (INV-E4c) */
+  groundM: number | null;
+  at: LatLng | null;
+  source: 'ele_tag' | 'summit_ele' | 'dem_boundary_max' | 'built_base' | 'none';
+}
 
 /**
- * Serviço centralizado para análise de elevação
- * Fonte única de verdade para cálculos de elevação base regional
+ * E4 reads the bare GROUND (GEDTM30), from disk (#782, INV-EPc): the base of the POI, of the
+ * TP and of the observer eye. The surface (buildings, trees) is the obstacle of E8, not a ground.
+ */
+const groundReader: ElevationReader = async (lat, lng) => DemStore.getInstance().ground(lat, lng);
+
+function offsetM(o: LatLng, northM: number, eastM: number): LatLng {
+  return {
+    lat: o.lat + northM / 110_540,
+    lng: o.lng + eastM / (111_320 * Math.cos((o.lat * Math.PI) / 180)),
+  };
+}
+
+function parseEle(raw: unknown): number | null {
+  const m = String(raw ?? '').match(/-?\d+(?:[.,]\d+)?/);
+  if (!m) return null;
+  const n = parseFloat(m[0].replace(',', '.'));
+  return Number.isFinite(n) ? n : null;
+}
+
+/**
+ * E4 — elevation (P8). The single home of the city base and of the POI ground.
  */
 export class ElevationAnalysisService {
-  // ✅ LRU cache: max 1000 entries, TTL 24h. Antes era Map<> ilimitado e sem TTL.
-  // Em batch 10k POIs (cidade grande), poderia crescer indefinidamente.
-  private static elevationCache = new LRUCacheWithTTL<string, number>(1000, 24 * 60 * 60 * 1000);
+  // One entry per city (or per 0.1° cell without a city). Deterministic: the key and the
+  // value come from the city, never from the first POI that asked.
+  private static cityBaseCache = new LRUCacheWithTTL<string, CityBase>(1000, 24 * 60 * 60 * 1000);
+
+  static clearCache(): void {
+    this.cityBaseCache.clear();
+  }
 
   /**
-   * Limpa o cache de elevação (útil para testes ou entre diferentes POIs)
+   * City centre for the base: the GeoNames city named like the POI's city, nearest to the pin
+   * (≤100 km); else the most populous city within 30 km; else null.
    */
-  static clearCache(): void {
-    this.elevationCache.clear();
-    console.log(`🗑️ [ElevationService] Cache cleared`);
+  static cityCentre(pin: LatLng, cityName?: string): { id: string; centre: LatLng } | null {
+    return LocalReverseGeocoder.getInstance().cityCentre(pin.lat, pin.lng, cityName);
   }
-  
+
   /**
-   * Estima a elevação base regional para comparação usando APIs dinâmicas
-   * FONTE ÚNICA DE VERDADE - usada por todos os analyzers
+   * INV-E4b: ONE base per city, computed in one place — the lower quartile of the land ground
+   * samples on a grid of CITY_BASE_RADIUS_M around the city centre. Cached per city; it was
+   * per city but set by the 1st POI, then a 2 km ring around each POI, which is a local base,
+   * not the city's (P8). No invented fallback (20/400/500/600 m): no ground → null.
+   */
+  static async cityBaseElevation(
+    pin: LatLng,
+    cityName?: string,
+    read: ElevationReader = groundReader
+  ): Promise<CityBase> {
+    const city = this.cityCentre(pin, cityName);
+    const key = city ? `geonames:${city.id}` : `poi_cell:${pin.lat.toFixed(1)},${pin.lng.toFixed(1)}`;
+    const cached = this.cityBaseCache.get(key);
+    if (cached) return cached;
+    const centre = city?.centre ?? { lat: Number(pin.lat.toFixed(1)), lng: Number(pin.lng.toFixed(1)) };
+    const reads: Promise<number | null>[] = [];
+    const n = Math.floor(CITY_BASE_RADIUS_M / CITY_BASE_GRID_STEP_M);
+    for (let i = -n; i <= n; i++) {
+      for (let j = -n; j <= n; j++) {
+        if ((i * i + j * j) * CITY_BASE_GRID_STEP_M ** 2 > CITY_BASE_RADIUS_M ** 2) continue;
+        const p = offsetM(centre, i * CITY_BASE_GRID_STEP_M, j * CITY_BASE_GRID_STEP_M);
+        reads.push(read(p.lat, p.lng));
+      }
+    }
+    const result: CityBase = { baseM: landPercentile(await Promise.all(reads)), source: key };
+    this.cityBaseCache.set(key, result);
+    return result;
+  }
+
+  /**
+   * Local base (E4, #772): median of the land ground samples on a ring of LOCAL_BASE_RING_M
+   * around the pin. The class asks for prominence over this too, so a POI on a plateau does
+   * not become a landmark because the city below is low. null when the ring is all sea or the
+   * DEM gave nothing (INV-E4c).
+   */
+  static async localBaseElevation(pin: LatLng, read: ElevationReader = groundReader): Promise<number | null> {
+    const reads: Promise<number | null>[] = [];
+    for (let k = 0; k < LOCAL_BASE_DIRECTIONS; k++) {
+      const a = (2 * Math.PI * k) / LOCAL_BASE_DIRECTIONS;
+      const p = offsetM(pin, LOCAL_BASE_RING_M * Math.cos(a), LOCAL_BASE_RING_M * Math.sin(a));
+      reads.push(read(p.lat, p.lng));
+    }
+    return landPercentile(await Promise.all(reads), LOCAL_BASE_PERCENTILE);
+  }
+
+  /**
+   * INV-E4a (#772): the ground around a built POI — the median GEDTM30 ground one relief cell
+   * (`DemStore#stepM`) outside each vertex of its boundary, away from the centroid, where the 1″
+   * DTM no longer reads the building as terrain. null with no boundary or no DEM.
+   */
+  static async builtBaseM(boundary: LatLng[] | undefined, read: ElevationReader = groundReader): Promise<number | null> {
+    if (!boundary || boundary.length < 3) return null;
+    const c = { lat: boundary.reduce((s, p) => s + p.lat, 0) / boundary.length, lng: boundary.reduce((s, p) => s + p.lng, 0) / boundary.length };
+    const outM = DemStore.getInstance().stepM;
+    const kx = 111_320 * Math.cos((c.lat * Math.PI) / 180);
+    const vals = (await Promise.all(boundary.map(p => {
+      const n = (p.lat - c.lat) * 110_540, e = (p.lng - c.lng) * kx, r = Math.hypot(n, e) || 1;
+      return read(p.lat + (n / r) * outM / 110_540, p.lng + (e / r) * outM / kx);
+    }))).filter((v): v is number => v !== null && Number.isFinite(v)).sort((a, b) => a - b);
+    return vals.length ? vals[Math.floor(vals.length / 2)] : null;
+  }
+
+  /**
+   * BR-POI-009 item 1 (#772): the POI is the top of its relief — on a ring of RELIEF_TOP_RING_M
+   * around its highest point (E4), at most RELIEF_TOP_MAX_HIGHER_SHARE of the land samples stand
+   * at or above it. A POI on a slope or on the flat is not. null when the DEM gave nothing.
+   */
+  static async isReliefTop(top: LatLng | null, groundTopM: number | null, read: ElevationReader = groundReader): Promise<boolean | null> {
+    if (!top || groundTopM === null) return null;
+    const reads: Promise<number | null>[] = [];
+    for (let k = 0; k < LOCAL_BASE_DIRECTIONS; k++) {
+      const a = (2 * Math.PI * k) / LOCAL_BASE_DIRECTIONS;
+      const p = offsetM(top, RELIEF_TOP_RING_M * Math.cos(a), RELIEF_TOP_RING_M * Math.sin(a));
+      reads.push(read(p.lat, p.lng));
+    }
+    const land = (await Promise.all(reads)).filter((v): v is number => v !== null && Number.isFinite(v) && v > 0);
+    if (!land.length) return null;
+    return land.filter(v => v >= groundTopM).length <= land.length * RELIEF_TOP_MAX_HIGHER_SHARE;
+  }
+
+  /**
+   * E1 (#772): the footprint of a hill that has none mapped — where its slope ends, measured on
+   * the DEM. From the pin, RELIEF_RAYS rays walk out every RELIEF_STEP_M until the terrain comes
+   * down to `base + RELIEF_FOOT_FRACTION × relief` (interpolated), or climbs RELIEF_SADDLE_RISE_M
+   * past its lowest point (a saddle to the next hill: the foot is that lowest point), or reaches
+   * RELIEF_MAX_RADIUS_M. null when the pin is not RELIEF_MIN_M above the local base, or the DEM
+   * gave nothing. The Morro do Patronato was a 10 m circle and `point_low` with one TP.
+   */
+  static async reliefFootprint(pin: LatLng, localBaseM: number | null, read: ElevationReader = groundReader): Promise<LatLng[] | null> {
+    const top = await read(pin.lat, pin.lng);
+    if (top === null || localBaseM === null || top - localBaseM < RELIEF_MIN_M) return null;
+    const foot = localBaseM + (top - localBaseM) * RELIEF_FOOT_FRACTION;
+    const rays = await Promise.all(Array.from({ length: RELIEF_RAYS }, async (_, k) => {
+      const a = (2 * Math.PI * k) / RELIEF_RAYS;
+      const along = (d: number) => offsetM(pin, d * Math.cos(a), d * Math.sin(a));
+      let prev = top, prevD = 0, low = top, lowD = 0;
+      for (let d = RELIEF_STEP_M; d <= RELIEF_MAX_RADIUS_M; d += RELIEF_STEP_M) {
+        const p = along(d);
+        const e = (await read(p.lat, p.lng)) ?? prev;
+        if (e <= foot) return along(prevD + ((d - prevD) * (prev - foot)) / Math.max(prev - e, 1e-6));
+        if (e < low) { low = e; lowD = d; }
+        if (e >= low + RELIEF_SADDLE_RISE_M) return along(lowD);
+        prev = e; prevD = d;
+      }
+      return along(RELIEF_MAX_RADIUS_M);
+    }));
+    return [...rays, rays[0]];
+  }
+
+  /**
+   * Legacy entry point, kept for geographic-analyzer and elevation.service: the same city base,
+   * as a number or null.
    */
   static async estimateRegionalBaseElevation(
-    location: { lat: number; lng: number }, 
-    context: GeographicContext,
+    location: LatLng,
+    _context?: GeographicContext,
     poiData?: POIData
-  ): Promise<number> {
-    // 🚀 VERIFICAR CACHE PRIMEIRO
-    const cacheKey = poiData?.city && poiData?.country 
-      ? `${poiData.city}-${poiData.country}` 
-      : `${location.lat.toFixed(4)}-${location.lng.toFixed(4)}`;
-    
-    if (this.elevationCache.has(cacheKey)) {
-      const cachedValue = this.elevationCache.get(cacheKey)!;
-      console.log(`🚀 [ElevationService] Using cached elevation: ${cachedValue}m (key: ${cacheKey})`);
-      return cachedValue;
-    }
-    
-    console.log(`🏞️ [ElevationService] Estimating regional base elevation for (${location.lat.toFixed(4)}, ${location.lng.toFixed(4)})`);
-    
-    // 🌍 Amostragem de elevação regional (rápida e 100% offline via SRTM)
-    try {
-      const regionalElevation = await this.sampleRegionalElevation(location, context);
-      if (regionalElevation !== null) {
-        console.log(`🗺️ [ElevationService] Regional elevation from sampling: ${regionalElevation}m`);
-        // 🚀 SALVAR NO CACHE
-        this.elevationCache.set(cacheKey, regionalElevation);
-        return regionalElevation;
-      }
-    } catch (error) {
-      console.warn(`⚠️ [ElevationService] Failed to sample regional elevation:`, error);
-    }
-    
-    // 📊 ESTRATÉGIA 3: Estimativa baseada em contexto (último recurso)
-    let baseElevation = 500; // Default global average
-    
-    if (context.elevationContext && context.elevationContext.variance) {
-      if (context.elevationContext.variance < 50) {
-        baseElevation = 400;
-        console.log(`📊 [ElevationService] Low elevation variance (${context.elevationContext.variance.toFixed(1)}m) → flat area base: ${baseElevation}m`);
-      } else if (context.elevationContext.variance > 200) {
-        baseElevation = 600;
-        console.log(`📊 [ElevationService] High elevation variance (${context.elevationContext.variance.toFixed(1)}m) → mountainous area base: ${baseElevation}m`);
-      }
-    }
-    
-    // 🌊 VERIFICAR SE É CIDADE COSTEIRA PRIMEIRO (coordenadas próximas ao oceano)
-    const isCoastalCity = await this.isCoastalLocation(location);
-    if (isCoastalCity) {
-      baseElevation = 20; // Cidades costeiras ficam ao nível do mar
-      console.log(`🏖️ [ElevationService] Coastal city detected → base: ${baseElevation}m`);
-    } else {
-      switch (context.urbanDensity.level) {
-        case 'very_dense':
-        case 'dense':
-          baseElevation = 400; // Cidades grandes tendem a ter elevação moderada
-          console.log(`🏙️ [ElevationService] Dense urban area → base: ${baseElevation}m`);
-          break;
-        case 'rural':
-          baseElevation += 100;
-          console.log(`🌾 [ElevationService] Rural area adjustment → base: ${baseElevation}m`);
-          break;
-      }
-    }
-    
-    console.log(`✅ [ElevationService] Fallback estimated base elevation: ${baseElevation}m`);
-    // 🚀 SALVAR NO CACHE
-    this.elevationCache.set(cacheKey, baseElevation);
-    return baseElevation;
+  ): Promise<number | null> {
+    return (await this.cityBaseElevation(location, poiData?.city)).baseM;
   }
-
-
 
   /**
-   * Amostra elevação regional fazendo múltiplas consultas ao redor do POI
+   * INV-E4a: the POI ground is the terrain at the HIGHEST point of its boundary, not at the
+   * pin or centroid (Cristo read 522 m at the centroid, the summit is ~710 m). Candidates: the
+   * ground (GEDTM30) on every vertex, on an interior grid and at the pin; the POI `ele` tag; the
+   * `ele` of a surveyed summit (`natural=peak`) inside or within SUMMIT_MATCH_M of the boundary.
+   * A 30 m grid still flattens a narrow summit (Corcovado reads ~630 m), so a surveyed value
+   * above it wins.
    */
-  private static async sampleRegionalElevation(location: { lat: number; lng: number }, context: GeographicContext): Promise<number | null> {
-    try {
-      // Definir raio de amostragem baseado na densidade urbana
-      const samplingRadius = context.urbanDensity.level === 'very_dense' || context.urbanDensity.level === 'dense' 
-        ? 0.02 // ~2km para áreas urbanas
-        : 0.05; // ~5km para áreas rurais
-      
-      // 4 pontos cardeais ao redor do POI
-      const samplePoints = [
-        { lat: location.lat + samplingRadius, lng: location.lng }, // Norte
-        { lat: location.lat - samplingRadius, lng: location.lng }, // Sul  
-        { lat: location.lat, lng: location.lng + samplingRadius }, // Leste
-        { lat: location.lat, lng: location.lng - samplingRadius }  // Oeste
-      ];
-      
-      console.log(`🎯 [ElevationService] Sampling regional elevation at ${(samplingRadius * 111).toFixed(1)}km radius (${samplePoints.length} points)`);
-      
-      const srtm = SRTMLocalService.getInstance();
-      const validElevations: number[] = [];
-      
-      // Amostragem local SRTM é tão rápida que podemos fazer em série ou Promise.all.
-      // Catch per-sample rejections so one bad tile (e.g. > 60°N) doesn't crash the worker.
-      const results = await Promise.all(
-        samplePoints.map(p =>
-          srtm.getElevation(p.lat, p.lng).catch(err => {
-            console.error(`[ElevationService] sample failed at ${p.lat},${p.lng}:`, err);
-            return null;
-          })
-        )
-      );
-      
-      for (const ele of results) {
-        if (ele !== null && !isNaN(ele)) {
-          validElevations.push(ele);
-        }
+  static async groundTop(
+    a: { pin: LatLng; boundary?: LatLng[]; tags?: Record<string, unknown>; peaks?: Array<{ lat: number; lng: number; ele?: unknown; tags?: Record<string, unknown> }> },
+    read: ElevationReader = groundReader
+  ): Promise<GroundTop> {
+    const pts: LatLng[] = [a.pin, ...(a.boundary ?? [])];
+    if (a.boundary && a.boundary.length >= 3) {
+      const lats = a.boundary.map(p => p.lat), lngs = a.boundary.map(p => p.lng);
+      const [s, n, w, e] = [Math.min(...lats), Math.max(...lats), Math.min(...lngs), Math.max(...lngs)];
+      const k = 6;
+      for (let i = 0; i <= k; i++) for (let j = 0; j <= k; j++) {
+        const p = { lat: s + ((n - s) * i) / k, lng: w + ((e - w) * j) / k };
+        if (calculateDistanceToPolygon(p, a.boundary) === 0) pts.push(p);
       }
-      
-      if (validElevations.length === 0) {
-        console.log(`❌ [ElevationService] No valid SRTM elevation samples found`);
-        return null;
-      }
-      
-      // Calcular mediana (mais robusta que média)
-      const sortedElevations = validElevations.sort((a: number, b: number) => a - b);
-      const medianElevation = sortedElevations[Math.floor(sortedElevations.length / 2)];
-      
-      console.log(`📊 [ElevationService] Regional elevation samples: [${validElevations.map((e: number) => e.toFixed(0)).join(', ')}]m`);
-      console.log(`🎯 [ElevationService] Regional median elevation: ${medianElevation}m`);
-      
-      return medianElevation;
-    } catch (error) {
-      console.error('[ElevationService] Error sampling regional elevation:', error);
-      return null;
     }
-  }
-
-
-
-  /**
-   * Detecta se uma localização é costeira usando amostragem de elevação dinâmica
-   */
-  private static async isCoastalLocation(location: { lat: number; lng: number }): Promise<boolean> {
-    try {
-      // 🌊 ESTRATÉGIA DINÂMICA: Amostrar elevação em 4 direções cardeais próximas
-      const samplingRadius = 0.01; // ~1km
-      const samplePoints = [
-        { lat: location.lat + samplingRadius, lng: location.lng }, // Norte
-        { lat: location.lat - samplingRadius, lng: location.lng }, // Sul  
-        { lat: location.lat, lng: location.lng + samplingRadius }, // Leste
-        { lat: location.lat, lng: location.lng - samplingRadius }  // Oeste
-      ];
-      
-      const srtm = SRTMLocalService.getInstance();
-      const validElevations: number[] = [];
-      
-      const results = await Promise.all(
-        samplePoints.map(p => srtm.getElevation(p.lat, p.lng))
-      );
-      
-      for (const ele of results) {
-        if (ele !== null && !isNaN(ele)) {
-          validElevations.push(ele);
-        }
+    let best: GroundTop = { groundM: null, at: null, source: 'none' };
+    const vals = await Promise.all(pts.map(p => read(p.lat, p.lng)));
+    vals.forEach((v, i) => {
+      if (v !== null && Number.isFinite(v) && (best.groundM === null || v > best.groundM)) {
+        best = { groundM: v, at: pts[i], source: 'dem_boundary_max' };
       }
-      
-      if (validElevations.length >= 2) {
-        const avgElevation = validElevations.reduce((a: number, b: number) => a + b, 0) / validElevations.length;
-        const isCoastal = avgElevation < 100; // Se a média da região é < 100m, provavelmente é costeira
-        
-        console.log(`🌊 [ElevationService] Coastal detection: avg elevation ${avgElevation.toFixed(0)}m → coastal: ${isCoastal}`);
-        return isCoastal;
-      }
-      
-      return false;
-    } catch (error) {
-      console.warn(`⚠️ [ElevationService] Coastal detection failed:`, error);
-      return false;
+    });
+    const tagEle = parseEle(a.tags?.ele);
+    if (tagEle !== null && (best.groundM === null || tagEle > best.groundM)) {
+      best = { groundM: tagEle, at: a.pin, source: 'ele_tag' };
     }
+    for (const pk of a.peaks ?? []) {
+      const ele = parseEle(pk.ele ?? pk.tags?.ele);
+      if (ele === null) continue;
+      const near = a.boundary && a.boundary.length >= 3
+        ? calculateDistanceToPolygon(pk, a.boundary) <= SUMMIT_MATCH_M
+        : calculateDistance(pk, a.pin) <= SUMMIT_MATCH_M;
+      if (near && (best.groundM === null || ele > best.groundM)) {
+        best = { groundM: ele, at: { lat: pk.lat, lng: pk.lng }, source: 'summit_ele' };
+      }
+    }
+    return best;
   }
-
-
 
   /**
    * Calcula diferença de elevação e determina se é alta elevação
@@ -207,14 +254,15 @@ export class ElevationAnalysisService {
     location: { lat: number; lng: number },
     context: GeographicContext,
     poiData?: POIData
-  ): Promise<{ baseElevation: number; elevationDiff: number; isHighVisibility: boolean }> {
+  ): Promise<{ baseElevation: number | null; elevationDiff: number; isHighVisibility: boolean }> {
     const baseElevation = await this.estimateRegionalBaseElevation(location, context, poiData);
-    const elevationDiff = poiElevation - baseElevation;
+    // No base (DEM failed): no difference claimed (INV-E4c).
+    const elevationDiff = baseElevation === null ? 0 : poiElevation - baseElevation;
     const isHighVisibility = elevationDiff > 200;
     
     console.log(`📏 [ElevationService] Elevation analysis:`);
     console.log(`  📍 POI elevation: ${poiElevation.toFixed(1)}m`);
-    console.log(`  🏞️ Base elevation: ${baseElevation.toFixed(1)}m`);
+    console.log(`  🏞️ Base elevation: ${baseElevation?.toFixed(1) ?? 'unknown'}m`);
     console.log(`  📈 Difference: ${elevationDiff.toFixed(1)}m`);
     console.log(`  🎯 High visibility: ${isHighVisibility}`);
     

@@ -191,6 +191,9 @@ export interface TriggerPointsManagerProps {
   // the opener could not assemble it (e.g. deep-link/map path).
   attractionCoordinates?: { lat: number; lng: number } | null
   attractionTypes?: string[]
+  // Real address of the POI, sent to the engine; never a hard-coded default.
+  attractionCountry?: string
+  attractionCity?: string
   onClose?: () => void
   onUpdate?: () => void
   // When provided, the manager renders a [Trigger Points | Boundary] mode toggle and

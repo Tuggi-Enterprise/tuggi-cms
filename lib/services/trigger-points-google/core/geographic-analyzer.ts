@@ -4,7 +4,7 @@
 import { POIData, GeographicContext, BoundaryData } from '../types/interfaces';
 import { calculateVariance, calculateBearing, calculateDistance } from '../utils/calculations';
 import { ElevationAnalysisService } from '../services/elevation-service';
-import { SRTMLocalService } from '../../srtm-local-service';
+import { DemStore } from '../../dem/dem-store';
 
 export class GeographicContextAnalyzer {
   constructor() {
@@ -199,11 +199,11 @@ export class GeographicContextAnalyzer {
         poiData
       );
       
-      // Buscar elevação real do ponto via SRTM Local (100% offline)
-      const srtm = SRTMLocalService.getInstance();
-      const poiElevation = await srtm.getElevation(location.lat, location.lng) ?? baseElevation;
+      // Ground at the point, from the prepared relief on disk (#782, INV-EPc)
+      const poiElevation = DemStore.getInstance().ground(location.lat, location.lng) ?? baseElevation;
       
-      const elevationDiff = poiElevation - baseElevation;
+      // no city base or no ground (DEM failed): no elevation claim (INV-E4c)
+      const elevationDiff = poiElevation === null || baseElevation === null ? 0 : poiElevation - baseElevation;
       
       // Classificar baseado na diferença
       let type: 'flat' | 'mountainous' | 'hilly' = 'flat';

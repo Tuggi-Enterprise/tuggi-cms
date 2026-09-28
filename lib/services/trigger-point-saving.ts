@@ -80,7 +80,8 @@ export class TriggerPointSavingService {
       score_factors: tp.score_factors || null,
       generation_method: tp.generation_method,
       validation_notes: tp.validation_notes,
-      access: tp.access || 'both',
+      // Sem `access` o default do banco ('car') vale; o motor não inventa 'both'.
+      ...(tp.access ? { access: tp.access } : {}),
       custom_description_id: tp.custom_description_id || null,
       // Issue 2.4: persistir o polígono GeoJSON para TPs do tipo 'geofence'
       ...(tp.geometry_geojson ? { geometry_geojson: tp.geometry_geojson } : {}),
@@ -265,7 +266,7 @@ export class TriggerPointSavingService {
           score_factors: tp.score_factors || null,
           generation_method: tp.generation_method,
           validation_notes: tp.validation_notes,
-          access: tp.access || 'both'
+          access: tp.access
         }
       })
 
@@ -492,7 +493,7 @@ export class TriggerPointSavingService {
       // antigos que não traziam generation_method.
       generation_method: tp.generation_method || `local_osm_${boundarySource}`,
       validation_notes: tp.reasoning || tp.validation_notes,
-      access: tp.access || 'both',
+      access: tp.access,
       // Issue 2.4 — preservar polígono para TPs geofence
       geometry_geojson: tp.geometry_geojson ?? null,
     }))

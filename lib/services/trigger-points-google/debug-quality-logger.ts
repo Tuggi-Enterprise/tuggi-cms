@@ -45,7 +45,7 @@ export interface DebugQualitySnapshot {
   tp_count_final?: number;
   tp_distances_m?: number[];
 
-  exit_path: 'main' | 'manual_boundary' | 'estimated_boundary' | 'no_streets' | 'no_optimal_points' | 'no_street_candidates' | 'error';
+  exit_path: 'main' | 'manual_boundary' | 'estimated_boundary' | 'no_streets' | 'no_optimal_points' | 'no_street_candidates' | 'no_visible_candidates' | 'error';
   processing_time_ms?: number;
 }
 

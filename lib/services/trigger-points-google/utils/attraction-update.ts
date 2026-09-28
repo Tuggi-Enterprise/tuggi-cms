@@ -80,11 +80,6 @@ export async function updateAttractionWithTPMetadata(
       updateData.boundary_area_m2 = calculatePolygonAreaInM2(boundary.coordinates) // ✅ DRY: usar função SSOT
     }
 
-    // Update generation_strategy from classification
-    if (boundary?.classification?.strategy) {
-      updateData.generation_strategy = boundary.classification.strategy
-    }
-
     // Update generation_range from searchRadius
     if (metadata?.searchRadius != null) {
       updateData.generation_range = metadata.searchRadius

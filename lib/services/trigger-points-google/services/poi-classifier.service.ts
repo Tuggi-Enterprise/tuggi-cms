@@ -1,397 +1,218 @@
 /**
- * 🎯 POI CLASSIFIER SERVICE
- * =========================
- * 
- * Classifica POIs em 4 GRUPOS UNIVERSAIS baseados em características físicas:
- * 1. 🏔️ HIGH: Alta elevação + qualquer altura (visível de longe)
- * 2. 🏗️ MEDIUM: Baixa elevação + estrutura alta (torres, edifícios isolados)
- * 3. 🏙️ CANYON: Baixa elevação + estrutura média + área densa (visibilidade restrita)
- * 4. 🏞️ FLAT: Baixa elevação + estrutura baixa (visibilidade local)
- * 
- * NÃO classifica por tipo de POI (stadium, park, etc.) - apenas por física!
+ * POI CLASSIFIER SERVICE — BR-AUDIO-010.
+ *
+ * Measures the POI physical attributes (height, prominence, area, shape) and delegates
+ * to the pure `classifyVisibility` (config/visibility-class.ts). No POI name decides
+ * anything here (engine-agnostic, epic #772).
  */
 
-import { BoundaryData, GeographicContext, POIData } from '../types/interfaces';
-import { POIGroup, GROUP_CONFIGS } from '../config/trigger-points-config';
-import { ElevationAnalysisService } from './elevation-service';
+import { GeographicContext, GeoPoint, POIData } from '../types/interfaces';
+import {
+  VisibilityClass,
+  CLASS_LIMITS,
+  ClassRule,
+  HeightSource,
+  maxEdgeDistanceFor,
+  boundaryShape,
+  SUMMIT_MATCH_M,
+  prominenceOverCityM,
+  resolveHeightM,
+  footprintStructureHeight,
+  visibilityClassRule,
+  BUILT_BASE_MIN_RELIEF_CELLS,
+} from '../config/visibility-class';
+import { ElevationAnalysisService, GroundTop } from './elevation-service';
+import { DemStore } from '../../dem/dem-store';
+import { LocalOSMFetcher } from './local-osm-fetcher';
+
+/** Summits from the local OSM DB around the boundary (E4): not every detector path collects them. */
+function summitsAround(pin: GeoPoint, boundary?: GeoPoint[]) {
+  const pts = [pin, ...(boundary ?? [])];
+  const pad = SUMMIT_MATCH_M / 110_000;
+  const lats = pts.map(p => p.lat), lngs = pts.map(p => p.lng);
+  return LocalOSMFetcher.getInstance().fetchSummits({
+    minLat: Math.min(...lats) - pad, maxLat: Math.max(...lats) + pad,
+    minLng: Math.min(...lngs) - pad, maxLng: Math.max(...lngs) + pad,
+  }) ?? [];
+}
+
+/**
+ * E3 + E4 + E5 measured once per POI (P8). Everything downstream — fan, sight line, reach,
+ * trace — reads these numbers instead of measuring again.
+ */
+export interface PoiPhysical {
+  heightM: number;
+  heightSource: HeightSource;
+  /** share of the footprint the buildings layer covers, and the height it measured (#783) */
+  footprintBuilt: { share: number | null; heightM: number | null; source: string | null };
+  /** terrain at the highest point of the boundary (INV-E4a); null when the DEM failed */
+  groundTopM: number | null;
+  groundSource: GroundTop['source'];
+  /** where that highest point is */
+  topPoint: GeoPoint | null;
+  cityBaseM: number | null;
+  cityBaseSource: string;
+  /** ground top + height − city base (INV-E4b); null when a terrain number is missing (INV-E4c) */
+  prominenceM: number | null;
+  /** ground top + height − local base (ring of LOCAL_BASE_RING_M); null when unknown */
+  localBaseM: number | null;
+  localProminenceM: number | null;
+  /**
+   * The local prominence of the relief the POI stands on top of (BR-POI-009 item 1): localProminenceM
+   * when the ground comes down all around its top (`elevation-service#isReliefTop`), 0 on a slope
+   * or on the flat, null when unknown. The size S and the far ways read this, never the raw one.
+   */
+  reliefProminenceM: number | null;
+  areaM2: number;
+  classRule: ClassRule;
+}
 
 export interface POIClassification {
-  group: POIGroup;
-  strategy: 'circular' | 'linear' | 'standard';
+  group: VisibilityClass;
+  /** street search radius, from the EDGE */
   searchRadius: number;
+  /** max distance from the TP to the edge */
+  maxEdgeDistanceM: number;
   maxTriggerPoints: number;
-  /** Issue 2.7 — teto do radius do TP por grupo (cap da fórmula audio-aware) */
+  maxFarTriggerPoints: number;
+  /** cap on the TP radius */
   maxTPRadiusM: number;
+  /** min spacing between TPs = 2 × maxTPRadiusM */
   minDistanceBetweenTPs: number;
-  visibilityThreshold: number;
-  streetPriority: string[];
-  blockStreets: string[];
   metadata: {
     height: number;
-    elevation: number;
-    elevationDiff: number;
+    heightSource: string;
+    elevation: number | null;
+    /** prominence over the city base; null = unknown (DEM failed), never a silent 0 */
+    elevationDiff: number | null;
     area: number;
     urbanDensity: string;
     reasoning: string;
   };
 }
 
-export class POIClassifierService {
-  
-  /**
-   * Classifica um POI em um dos 4 grupos universais
-   * Baseado em: Elevação × Altura × Densidade × Área
-   */
-  async classifyPOI(
-    poiData: POIData,
-    poiHeight: number | undefined,
-    poiElevation: { center: number } | undefined,
-    area: number,
-    context: GeographicContext,
-    osmTags?: any
-  ): Promise<POIClassification> {
-    // ====================================================================
-    // ✅ PRIORIDADE 0: VERIFICAR CATEGORIA OSM (SIMPLICIDADE MÁXIMA)
-    // ====================================================================
-    // Se POI tem categoria OSM de pico/montanha, classificar como HIGH imediatamente
-    // Não precisa calcular densidade ou elevationDiff - já sabemos que é alto
-    // ====================================================================
-    
-    const isHighElevationPOIByCategory = this.checkHighElevationCategory(poiData, osmTags);
-    
-    if (isHighElevationPOIByCategory) {
-      //console.log(`🏔️ [HIGH GROUP] High elevation POI detected by OSM category (peak/mountain/volcano)`);
-      //console.log(`   → Category already indicates HIGH - skipping density calculation`);
-      //console.log(`   → Visible from long distances due to natural elevation`);
-      
-      // Usar elevação se disponível, senão usar valor padrão baseado em categoria
-      const effectiveElevation = poiElevation?.center || 800; // Default para peaks
-      const effectiveElevationDiff = poiElevation?.center ? 
-        (await this.calculateElevationDiff(poiData, poiElevation, context)) : 200; // Default 200m diff
-      
-      const config = GROUP_CONFIGS[POIGroup.HIGH];
-      // 🛡️ PROTEÇÃO: elevationDiff pode ser negativo se baseElevation > center (evitar NaN no sqrt)
-      const safeElevationDiff = Math.max(0, effectiveElevationDiff);
-      const theoreticalRange = Math.sqrt(safeElevationDiff) * 200;
-      const calculatedRange = Math.max(theoreticalRange, config.searchRadius.min!);
-      const finalRadius = Math.min(calculatedRange, config.searchRadius.max!);
-      
-      //console.log(`   → Radius: ${finalRadius.toFixed(0)}m (category-based: peak/mountain)`);
-      
-      return {
-        group: POIGroup.HIGH,
-        strategy: config.strategy,
-        searchRadius: Math.round(finalRadius),
-        maxTriggerPoints: config.maxTriggerPoints,
-        maxTPRadiusM: config.maxTPRadiusM,
-        minDistanceBetweenTPs: config.minDistanceBetweenTPs,
-        visibilityThreshold: config.visibilityThreshold,
-        streetPriority: config.streetPriority,
-        blockStreets: config.blockStreets,
-        metadata: {
-          height: poiHeight || 0,
-          elevation: effectiveElevation,
-          elevationDiff: effectiveElevationDiff,
-          area,
-          urbanDensity: context.urbanDensity.level,
-          reasoning: `HIGH: OSM category indicates peak/mountain/volcano (visible from long distances)`
-        }
-      };
-    }
-    
-    // PASSO 1: Calcular métricas base
-    let elevationDiff = 0;
-    let baseElevation: number | null = null;
-    
-    // ✅ PRIORIDADE 1: ELEVAÇÃO - Se temos dados de elevação, calcular elevationDiff
-    if (poiElevation && poiElevation.center > 0) {
-      baseElevation = await ElevationAnalysisService.estimateRegionalBaseElevation(
-        { lat: poiData.location.lat, lng: poiData.location.lng },
-        context,
-        poiData
-      );
-      elevationDiff = poiElevation.center - baseElevation;
-      
-    } else {
-      console.warn(`⚠️ [NO ELEVATION DATA]: Cannot calculate elevation difference`);
-    }
-    
-    const height = poiHeight || 0;
-    
-    // PASSO 2: Classificar altura do POI
-    const isHighStructure = height > 50;      // Torre, edifício alto
-    const isMediumStructure = height >= 10 && height <= 50; // Edifício médio
-    const isLowStructure = height < 10;       // Baixo ou sem altura
-    
-    // PASSO 3: Classificar elevação
-    // ✅ PRIORIDADE MÁXIMA: Elevação > 150m = HIGH (independente de densidade)
-    // ✅ TAMBÉM: Se POI tem elevação absoluta muito alta (>800m) E altura significativa (>0m),
-    //    considerar HIGH mesmo que elevationDiff não seja > 150m (pode ser erro no baseElevation)
-    const isHighElevation = elevationDiff > 150; // Pico, montanha
-    const isVeryHighAbsoluteElevation = (poiElevation?.center || 0) > 800 && height > 0; // Pico absoluto alto
-    const isLowElevation = elevationDiff <= 150 && !isVeryHighAbsoluteElevation;
-    const isVeryLowElevation = elevationDiff <= 50;
-    
-    // PASSO 4: Classificar densidade (usado apenas para CANYON e MEDIUM, NÃO para HIGH)
-    const isDenseArea = 
-      context.urbanDensity.level === 'very_dense' || 
-      context.urbanDensity.level === 'dense';
-    
-    // PASSO 5: Classificar área
-    const isLargeArea = area > 50000;
-    
-    // ====================================================================
-    // GRUPO 1: HIGH - PRIORIDADE MÁXIMA (ELEVAÇÃO > DENSIDADE)
-    // ====================================================================
-    // Critérios: ALTA elevação + QUALQUER altura
-    // Exemplos: Pico do Jaraguá, Cristo Redentor, Pão de Açúcar
-    // Lógica: Se está em local alto, é visível de longe independente da altura
-    // ✅ IMPORTANTE: Elevação tem PRIORIDADE sobre densidade (rural não impede HIGH)
-    // ✅ TAMBÉM: POIs com elevação absoluta muito alta (>800m) são HIGH mesmo se elevationDiff < 150m
-    // ====================================================================
-    
-    if (isHighElevation || isVeryHighAbsoluteElevation) {
-      const reason = isHighElevation 
-        ? `elevation diff: ${elevationDiff.toFixed(1)}m` 
-        : `absolute elevation: ${poiElevation?.center || 0}m (very high peak)`;
-      
-      //console.log(`🏔️ [HIGH GROUP] High elevation POI detected (${reason})`);
-      //console.log(`   → Elevation has PRIORITY over density (${context.urbanDensity.level})`);
-      //console.log(`   → Visible from long distances due to elevation, regardless of urban density`);
-      
-      // Usar elevationDiff se disponível, senão usar elevação absoluta como proxy
-      const effectiveElevationDiff = isHighElevation ? elevationDiff : Math.max((poiElevation?.center || 0) - 500, 200);
-      const config = GROUP_CONFIGS[POIGroup.HIGH];
-      
-      // 🛡️ PROTEÇÃO: elevationDiff pode ser negativo se baseElevation > center (evitar NaN no sqrt)
-      const safeElevationDiff = Math.max(0, effectiveElevationDiff);
-      const theoreticalRange = Math.sqrt(safeElevationDiff) * 200;
-      const calculatedRange = Math.max(theoreticalRange, config.searchRadius.min!);
-      const finalRadius = Math.min(calculatedRange, config.searchRadius.max!);
-      
-      
-      return {
-        group: POIGroup.HIGH,
-        strategy: config.strategy,
-        searchRadius: Math.round(finalRadius),
-        maxTriggerPoints: config.maxTriggerPoints,
-        maxTPRadiusM: config.maxTPRadiusM,
-        minDistanceBetweenTPs: config.minDistanceBetweenTPs,
-        visibilityThreshold: config.visibilityThreshold,
-        streetPriority: config.streetPriority,
-        blockStreets: config.blockStreets,
-        metadata: {
-          height,
-          elevation: poiElevation?.center || 0,
-          elevationDiff: isHighElevation ? elevationDiff : effectiveElevationDiff,
-          area,
-          urbanDensity: context.urbanDensity.level,
-          reasoning: isHighElevation 
-            ? `HIGH: Elevation diff ${elevationDiff.toFixed(0)}m (visible from long distances)`
-            : `HIGH: Absolute elevation ${poiElevation?.center || 0}m (very high peak, visible from long distances)`
-        }
-      };
-    }
-    
-    // ====================================================================
-    // GRUPO 3: CANYON (MOVED UP - CHECK BEFORE MEDIUM)
-    // ====================================================================
-    // Critérios: BAIXA elevação + (MÉDIA altura OU ALTA altura em área densa) + ÁREA DENSA + área pequena/média
-    // Exemplos: Edifício Copan, prédios em centros urbanos densos
-    // Lógica: POI médio/alto cercado por outros prédios similares, visibilidade muito limitada
-    // ====================================================================
-    
-    // 🔍 DEBUG: Log detalhado para diagnóstico
-    if (isLowElevation && (isMediumStructure || (isHighStructure && isDenseArea)) && isDenseArea && !isLargeArea) {
-      const config = GROUP_CONFIGS[POIGroup.CANYON];
-      
-      return {
-        group: POIGroup.CANYON,
-        strategy: config.strategy,
-        searchRadius: config.searchRadius.fixed!,
-        maxTriggerPoints: config.maxTriggerPoints,
-        maxTPRadiusM: config.maxTPRadiusM,
-        minDistanceBetweenTPs: config.minDistanceBetweenTPs,
-        visibilityThreshold: config.visibilityThreshold,
-        streetPriority: config.streetPriority,
-        blockStreets: config.blockStreets,
-        metadata: {
-          height,
-          elevation: poiElevation?.center || 0,
-          elevationDiff,
-          area,
-          urbanDensity: context.urbanDensity.level,
-          reasoning: `CANYON: ${isHighStructure && isDenseArea ? 'Tall' : 'Medium'} structure ${height}m in ${context.urbanDensity.level} area (urban canyon effect)`
-        }
-      };
-    }
-    
-    // ====================================================================
-    // GRUPO 2: MEDIUM
-    // ====================================================================
-    // Critérios: BAIXA elevação + ALTA altura (>50m) + ÁREA NÃO DENSA
-    // Exemplos: Torre Eiffel, Sagrada Família, Edifício Itália (se isolado)
-    // Lógica: POI alto mas no nível do chão, visível de média distância
-    // ====================================================================
-    
-    if (isLowElevation && isHighStructure && !isDenseArea) {
-      const config = GROUP_CONFIGS[POIGroup.MEDIUM];
-      const calculatedRadius = height * 15;  // altura × 15
-      const finalRadius = Math.max(
-        config.searchRadius.min!,
-        Math.min(calculatedRadius, config.searchRadius.max!)
-      );
-      
-      
-      return {
-        group: POIGroup.MEDIUM,
-        strategy: config.strategy,
-        searchRadius: Math.round(finalRadius),
-        maxTriggerPoints: config.maxTriggerPoints,
-        maxTPRadiusM: config.maxTPRadiusM,
-        minDistanceBetweenTPs: config.minDistanceBetweenTPs,
-        visibilityThreshold: config.visibilityThreshold,
-        streetPriority: config.streetPriority,
-        blockStreets: config.blockStreets,
-        metadata: {
-          height,
-          elevation: poiElevation?.center || 0,
-          elevationDiff,
-          area,
-          urbanDensity: context.urbanDensity.level,
-          reasoning: `MEDIUM: Tall structure ${height}m at ground level (visible from medium distances)`
-        }
-      };
-    }
-    
-    
-    // ====================================================================
-    // GRUPO 4: FLAT
-    // ====================================================================
-    // Critérios: 
-    // - BAIXA elevação + BAIXA altura (<10m)
-    // - OU BAIXA elevação + MÉDIA altura em área NÃO densa
-    // - OU MUITO BAIXA elevação + área grande (parques)
-    // Exemplos: Parque Ibirapuera, praças, monumentos baixos, estádios
-    // Lógica: POI baixo ou médio sem obstruções, visibilidade limitada à vizinhança
-    // ====================================================================
-    
-    const config = GROUP_CONFIGS[POIGroup.FLAT];
-    
-    let reasoning: string;
-    if (isLowStructure) {
-      reasoning = `FLAT: Low structure ${height}m (visibility limited to surroundings)`;
-    } else if (isMediumStructure && !isDenseArea) {
-      reasoning = `FLAT: Medium structure ${height}m in non-dense area (visibility limited to surroundings)`;
-    } else if (isVeryLowElevation && isLargeArea) {
-      reasoning = `FLAT: Large flat area ${area.toFixed(0)}m² with low elevation (visibility limited to surroundings)`;
-    } else {
-      reasoning = `FLAT: Default classification (low elevation ${elevationDiff.toFixed(0)}m, height ${height}m)`;
-    }
-    
-    
-    return {
-      group: POIGroup.FLAT,
-      strategy: config.strategy,
-      searchRadius: config.searchRadius.fixed!,
-      maxTriggerPoints: config.maxTriggerPoints,
-        maxTPRadiusM: config.maxTPRadiusM,
-      minDistanceBetweenTPs: config.minDistanceBetweenTPs,
-      visibilityThreshold: config.visibilityThreshold,
-      streetPriority: config.streetPriority,
-      blockStreets: config.blockStreets,
-      metadata: {
-        height,
-        elevation: poiElevation?.center || 0,
-        elevationDiff,
-        area,
-        urbanDensity: context.urbanDensity.level,
-        reasoning
-      }
-    };
+/** Builds the classification from the class — numbers live in CLASS_LIMITS. */
+export function buildClassification(
+  cls: VisibilityClass,
+  m: {
+    heightM: number; heightSource?: string; elevationM?: number | null; prominenceM: number | null; areaM2: number; urbanDensity?: string;
+    /** longest extent of the real footprint (`boundaryShape`); 0 for a synthetic circle (INV-E1b) */
+    extentM?: number;
+    /**
+     * Local prominence of the relief the POI tops (`PoiPhysical#reliefProminenceM`): what the
+     * passer-by sees standing up is the POI plus the hill under it. A 0 m chapel on a 31 m hill
+     * (Capela da Guia, Cabo Frio) reached 60 m; its hilltop is seen from the canal bridge. A bust
+     * at the foot of a slope tops nothing (0). null = unknown, not counted.
+     */
+    reliefProminenceM?: number | null;
   }
-  
-  /**
-   * Verifica se POI tem categoria OSM que indica alta elevação (peak, mountain, volcano)
-   * SIMPLICIDADE: Se tem essa categoria, já sabemos que é HIGH
-   */
-  private checkHighElevationCategory(poiData: POIData, osmTags?: any): boolean {
-    // 1. Verificar no nome do POI (já detectado no boundary-detector)
-    const nameLower = poiData.name.toLowerCase();
-    const isPeakInName = nameLower.includes('pico') ||
-                        nameLower.includes('morro') ||
-                        nameLower.includes('cristo') ||
-                        nameLower.includes('mountain') ||
-                        nameLower.includes('montanha') ||
-                        nameLower.includes('peak') ||
-                        nameLower.includes('volcano') ||
-                        nameLower.includes('vulcão');
-    
-    if (isPeakInName) {
-      console.log(`🏔️ Peak/mountain detected in POI name: "${poiData.name}"`);
-      return true;
-    }
-    
-    // 2. Verificar tags OSM
-    if (!osmTags) {
-      return false;
-    }
-    
-    // Verificar tags comuns de peaks/mountains
-    const highElevationTags = [
-      'natural=peak',
-      'natural=mountain',
-      'natural=volcano',
-      'natural=mountain_range',
-      'type=peak',
-      'class=peak',
-      'place=mountain',
-      'tourism=peak',
-      'tourism=mountain'
-    ];
-    
-    // Verificar se alguma tag corresponde
-    for (const [key, value] of Object.entries(osmTags)) {
-      const tagString = `${key}=${value}`.toLowerCase();
-      
-      if (highElevationTags.some(tag => tagString.includes(tag.toLowerCase()))) {
-        console.log(`🏔️ High elevation category detected in OSM tags: ${key}=${value}`);
-        return true;
-      }
-      
-      // Verificar valores específicos
-      if (key === 'natural' && (value === 'peak' || value === 'mountain' || value === 'volcano')) {
-        console.log(`🏔️ High elevation category detected in OSM tags: natural=${value}`);
-        return true;
-      }
-      
-      if (key === 'type' && value === 'peak') {
-        console.log(`🏔️ High elevation category detected in OSM tags: type=${value}`);
-        return true;
-      }
-      
-      if (key === 'class' && value === 'peak') {
-        console.log(`🏔️ High elevation category detected in OSM tags: class=${value}`);
-        return true;
-      }
-    }
-    
-    return false;
-  }
-  
-  /**
-   * Calcula elevationDiff (helper para evitar duplicação)
-   */
-  private async calculateElevationDiff(
-    poiData: POIData,
-    poiElevation: { center: number },
-    context: GeographicContext
-  ): Promise<number> {
-    const baseElevation = await ElevationAnalysisService.estimateRegionalBaseElevation(
-      { lat: poiData.location.lat, lng: poiData.location.lng },
-      context,
-      poiData
-    );
-    return poiElevation.center - baseElevation;
-  }
+): POIClassification {
+  const limits = CLASS_LIMITS[cls];
+  // INV-E6: the reach is decided here, once, and read by `tpReachCapM` everywhere.
+  // The size S of BR-POI-009 item 1: the largest of height (with the terrain under it) and extent.
+  const maxEdge = maxEdgeDistanceFor(cls, m.prominenceM, Math.max(m.heightM, m.reliefProminenceM ?? 0, m.extentM ?? 0));
+  return {
+    group: cls,
+    searchRadius: maxEdge,
+    maxEdgeDistanceM: maxEdge,
+    maxTriggerPoints: limits.maxTPs,
+    maxFarTriggerPoints: limits.maxFarTPs,
+    maxTPRadiusM: limits.maxRadiusM,
+    minDistanceBetweenTPs: 2 * limits.maxRadiusM,
+    metadata: {
+      height: m.heightM,
+      heightSource: m.heightSource ?? 'none',
+      elevation: m.elevationM ?? null,
+      elevationDiff: m.prominenceM,
+      area: m.areaM2,
+      urbanDensity: m.urbanDensity ?? 'unknown',
+      reasoning: `${cls}: height ${m.heightM.toFixed(1)}m, prominence ${m.prominenceM === null ? 'unknown' : `${m.prominenceM.toFixed(0)}m`}, area ${m.areaM2.toFixed(0)}m²`,
+    },
+  };
+}
+
+export interface MeasureInput {
+  poiData: POIData;
+  /** boundary ring; for a synthetic one it still locates the ground, but has no area or shape */
+  boundary?: GeoPoint[];
+  synthetic?: boolean;
+  areaM2: number;
+  tags?: Record<string, unknown>;
+  /** height measured on another element (building aggregation, host) */
+  knownHeightM?: number;
+  /** surveyed summits nearby (`natural=peak` with `ele`) */
+  peaks?: Array<{ lat: number; lng: number; tags?: Record<string, unknown> }>;
+  context?: GeographicContext;
+}
+
+/** E3 → E4 → E5 for one POI. The only caller of `visibilityClassRule` with measured data. */
+export async function measureAndClassify(a: MeasureInput): Promise<{ classification: POIClassification; physical: PoiPhysical }> {
+  // E3 (#783): the buildings layer on the footprint, after the OSM tags and the OSM host. A
+  // synthetic circle is not a footprint (INV-E1b): the building under a park's pin is not the park.
+  const footprint = a.synthetic ? null : DemStore.getInstance().footprintBuildings(a.boundary ?? []);
+  const { heightM, source: heightSource } = resolveHeightM(a.tags, a.knownHeightM, footprint && footprintStructureHeight(footprint));
+  const measuredTop = await ElevationAnalysisService.groundTop({
+    pin: a.poiData.location,
+    boundary: a.boundary,
+    tags: a.tags,
+    peaks: [...(a.peaks ?? []), ...summitsAround(a.poiData.location, a.boundary)],
+  });
+  // INV-E4a (#772): a built POI wide enough for GEDTM30 to read it as terrain stands on the
+  // ground around it; the maximum inside would count its height twice.
+  const stepM = DemStore.getInstance().stepM;
+  const wideBuilt = !a.synthetic && heightM > 0 && measuredTop.source === 'dem_boundary_max' && measuredTop.groundM !== null
+    && (a.areaM2 || 0) >= BUILT_BASE_MIN_RELIEF_CELLS * stepM * stepM;
+  const builtBase = wideBuilt ? await ElevationAnalysisService.builtBaseM(a.boundary) : null;
+  const top = builtBase !== null && builtBase < measuredTop.groundM!
+    ? { ...measuredTop, groundM: builtBase, source: 'built_base' as const }
+    : measuredTop;
+  const [base, localBaseM] = await Promise.all([
+    ElevationAnalysisService.cityBaseElevation(a.poiData.location, a.poiData.city),
+    ElevationAnalysisService.localBaseElevation(a.poiData.location),
+  ]);
+  const prominenceM = prominenceOverCityM(top.groundM, heightM, base.baseM);
+  const localProminenceM = prominenceOverCityM(top.groundM, heightM, localBaseM);
+  const onTop = localProminenceM === null ? null : await ElevationAnalysisService.isReliefTop(top.at, top.groundM);
+  const reliefProminenceM = onTop === null ? null : onTop ? localProminenceM : 0;
+  const areaM2 = a.synthetic ? 0 : a.areaM2 || 0;
+  const { cls, rule } = visibilityClassRule({
+    heightM,
+    prominenceM,
+    localProminenceM,
+    areaM2,
+    boundary: a.synthetic ? undefined : a.boundary,
+  });
+  return {
+    classification: buildClassification(cls, {
+      heightM,
+      heightSource,
+      elevationM: top.groundM,
+      prominenceM,
+      areaM2,
+      // A synthetic circle is drawn, not measured: it is no size (INV-E1b), like its area.
+      extentM: a.synthetic ? 0 : boundaryShape(a.boundary).lengthM,
+      reliefProminenceM,
+      urbanDensity: a.context?.urbanDensity?.level,
+    }),
+    physical: {
+      heightM,
+      heightSource,
+      footprintBuilt: {
+        share: footprint?.cells ? footprint.builtCells / footprint.cells : null,
+        heightM: footprint?.heightM ?? null,
+        source: footprint?.source ?? null,
+      },
+      groundTopM: top.groundM,
+      groundSource: top.source,
+      topPoint: top.at,
+      cityBaseM: base.baseM,
+      cityBaseSource: base.source,
+      prominenceM,
+      localBaseM,
+      localProminenceM,
+      reliefProminenceM,
+      areaM2,
+      classRule: rule,
+    },
+  };
 }

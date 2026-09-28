@@ -1,0 +1,194 @@
+import { describe, it } from 'node:test'
+import assert from 'node:assert/strict'
+import {
+  APPARENT_REACH_CEILING_M,
+  CLASS_LIMITS,
+  RECOGNITION_ANGLE_DEG,
+  SANITY_MAX_TP_DISTANCE_M,
+  URBAN_LANDMARK_HORIZON_M,
+  VisibilityClass,
+  maxEdgeDistanceFor,
+  sizeReachFarFromM,
+} from '@/lib/services/trigger-points-google/config/visibility-class'
+import { COARSE_EDGE_TOLERANCE_M, coarseEdgeRing, edgeDistanceFarLaneM, edgeDistanceM, tpReachCapM } from '@/lib/services/trigger-points-google/utils/validation'
+import { calculateDistanceToPolygon } from '@/lib/services/trigger-points-google/utils/calculations'
+import { OptimalPointCalculator } from '@/lib/services/trigger-points-google/analyzers/point-calculator'
+import { buildClassification } from '@/lib/services/trigger-points-google/services/poi-classifier.service'
+import { ElevationAnalysisService } from '@/lib/services/trigger-points-google/services/elevation-service'
+import { selectSpacedTriggerPoints } from '@/lib/services/trigger-points-google/utils/tp-selection'
+import type { TriggerPoint } from '@/lib/services/trigger-points-google/types/interfaces'
+
+// Motor de TP (#772) — E6, alcance pelo tamanho aparente (BR-POI-009). Fonte:
+// docs/arquitetura/cms/motor-de-tp.md, linha E6. Unidade: funções puras, sem rede e sem banco.
+
+const perDeg = 1 / Math.tan((RECOGNITION_ANGLE_DEG * Math.PI) / 180)
+
+describe('INV-E6, BR-POI-009, BR-AUDIO-010 — alcance = tamanho / tan(ângulo de reconhecimento), entre o teto da classe e o teto aparente', () => {
+  it('busto de 3 m alcança ~86 m (acima do piso de 60 m do point_low)', () => {
+    const reach = maxEdgeDistanceFor(VisibilityClass.POINT_LOW, 0, 3)
+    assert.equal(reach, 86)
+  })
+
+  it('a fórmula é S / tan(2°) ≈ 28,6 × S', () => {
+    assert.equal(maxEdgeDistanceFor(VisibilityClass.STRUCTURE, 0, 20), Math.round(20 * perDeg))
+    assert.ok(Math.abs(perDeg - 28.6) < 0.1)
+  })
+
+  it('piso: objeto pequeno nunca fica abaixo do teto antigo da classe', () => {
+    for (const cls of [VisibilityClass.POINT_LOW, VisibilityClass.STRUCTURE, VisibilityClass.AREA, VisibilityClass.LINEAR]) {
+      assert.equal(maxEdgeDistanceFor(cls, 0, 0), CLASS_LIMITS[cls].maxEdgeDistanceM, cls)
+      assert.equal(maxEdgeDistanceFor(cls, 0, 1), CLASS_LIMITS[cls].maxEdgeDistanceM, cls)
+    }
+  })
+
+  it('teto: pegada de 13 km (ponte) para em 1.500 m', () => {
+    assert.equal(maxEdgeDistanceFor(VisibilityClass.LINEAR, 0, 13_000), APPARENT_REACH_CEILING_M)
+    assert.equal(APPARENT_REACH_CEILING_M, 1_500)
+  })
+
+  it('landmark_high não muda: horizonte urbano, ou teto de sanidade quando proeminente', () => {
+    assert.equal(maxEdgeDistanceFor(VisibilityClass.LANDMARK_HIGH, 0, 400), URBAN_LANDMARK_HORIZON_M)
+    assert.equal(maxEdgeDistanceFor(VisibilityClass.LANDMARK_HIGH, 700, 400), SANITY_MAX_TP_DISTANCE_M)
+  })
+
+  it('a classificação grava o alcance em maxEdgeDistanceM, e tpReachCapM o lê: S = max(altura, extensão da pegada)', () => {
+    const tall = buildClassification(VisibilityClass.STRUCTURE, { heightM: 20, prominenceM: 0, areaM2: 400, extentM: 10 })
+    const wide = buildClassification(VisibilityClass.STRUCTURE, { heightM: 10, prominenceM: 0, areaM2: 400, extentM: 30 })
+    assert.equal(tpReachCapM(tall), Math.round(20 * perDeg))
+    assert.equal(tpReachCapM(wide), Math.round(30 * perDeg))
+    assert.equal(tall.searchRadius, tall.maxEdgeDistanceM)
+  })
+
+  it('BR-POI-009: the relief under the POI counts in the size — a 0 m chapel on top of a 31 m hill (Capela da Guia, Cabo Frio) reaches 31 / tan 2°', () => {
+    const onHill = buildClassification(VisibilityClass.POINT_LOW, { heightM: 0, prominenceM: 34, reliefProminenceM: 31, areaM2: 0, extentM: 0 })
+    assert.equal(tpReachCapM(onHill), Math.round(31 * perDeg))
+    // unknown relief adds nothing, and never shrinks what the height or the footprint gave
+    assert.equal(tpReachCapM(buildClassification(VisibilityClass.POINT_LOW, { heightM: 3, prominenceM: null, reliefProminenceM: null, areaM2: 0 })), 86)
+    assert.equal(tpReachCapM(buildClassification(VisibilityClass.STRUCTURE, { heightM: 10, prominenceM: 0, reliefProminenceM: -5, areaM2: 400, extentM: 30 })), Math.round(30 * perDeg))
+  })
+
+  it('BR-POI-009: a POI on a slope tops no relief — the bust at the foot of a slope (Busto Mazzini, 10 m over the 2 km median) stays at the floor', async () => {
+    const top = { lat: -22.9, lng: -43.1 }
+    const northM = (lat: number) => (lat - top.lat) * 110_540
+    // the slope climbs 1 m every 10 m to the north: the ring at 100 m has half its bearings above the top
+    const slope = async (lat: number) => 20 + northM(lat) / 10
+    assert.equal(await ElevationAnalysisService.isReliefTop(top, 20, slope), false)
+    // a hilltop: the ground comes down on every bearing
+    const hill = async (lat: number, lng: number) => 35 - Math.hypot(northM(lat), (lng - top.lng) * 102_000) / 10
+    assert.equal(await ElevationAnalysisService.isReliefTop(top, 35, hill), true)
+    // on the slope the relief is 0, so the size is the bust itself
+    assert.equal(tpReachCapM(buildClassification(VisibilityClass.POINT_LOW, { heightM: 0, prominenceM: 10, reliefProminenceM: 0, areaM2: 0, extentM: 0 })), CLASS_LIMITS[VisibilityClass.POINT_LOW].maxEdgeDistanceM)
+  })
+})
+
+describe('INV-E6 / INV-E10, BR-POI-009, BR-AUDIO-010 — sem teto de quantidade: depois da visada, só o espaçamento corta (#772, 2026-09-28)', () => {
+  const C = { lat: -22.9, lng: -43.2 }
+  const tp = (id: string, distance: number, dLat: number, type = 'residential', quality = 0.5, dLng = 0): TriggerPoint => ({
+    id, location: { lat: C.lat + dLat, lng: C.lng + dLng }, radius: 30, distance, quality,
+    expectedBearing: 0, street: { type } as any,
+  } as any)
+  const pointLow = () => buildClassification(VisibilityClass.POINT_LOW, { heightM: 10, prominenceM: 0, areaM2: 100 })
+
+  it('nenhuma classe tem teto de contagem, perto ou longe; a divisa perto/longe continua em CLASS_LIMITS', () => {
+    for (const cls of [VisibilityClass.POINT_LOW, VisibilityClass.STRUCTURE, VisibilityClass.AREA, VisibilityClass.LINEAR]) {
+      assert.equal(CLASS_LIMITS[cls].maxTPs, Infinity, cls)
+      assert.equal(CLASS_LIMITS[cls].maxFarTPs, Infinity, cls)
+      assert.equal(sizeReachFarFromM(cls), CLASS_LIMITS[cls].maxEdgeDistanceM, cls)
+    }
+    assert.equal(CLASS_LIMITS[VisibilityClass.LANDMARK_HIGH].maxFarTPs, Infinity)
+    assert.equal(sizeReachFarFromM(VisibilityClass.LANDMARK_HIGH), null)
+  })
+
+  it('point_low com 4 perto e 3 longe espaçados fica com os 7', () => {
+    const near = [0, 1, 2, 3].map(i => tp(`n${i}`, 20 + i, i * 0.001))
+    const far = [0, 1, 2].map(i => tp(`f${i}`, 250, 0.01 + i * 0.001, 'primary'))
+    const out = selectSpacedTriggerPoints([...far, ...near], pointLow(), C)
+    assert.deepEqual(out.map(t => t.id).sort(), ['f0', 'f1', 'f2', 'n0', 'n1', 'n2', 'n3'])
+  })
+
+  it('o espaçamento é o único corte: 1 perto + 5 longe espaçados = 6; um longe colado no outro sai', () => {
+    const far = [0, 1, 2, 3, 4].map(i => tp(`f${i}`, 200, 0.01 + i * 0.001, 'primary'))
+    assert.equal(selectSpacedTriggerPoints([...far, tp('n0', 20, 0)], pointLow(), C).length, 6)
+    const glued = tp('g', 200, 0.01 + 0.00005, 'primary', 0.1) // ~5 m do f0, abaixo de minSpacingM
+    const out = selectSpacedTriggerPoints([...far, glued, tp('n0', 20, 0)], pointLow(), C)
+    assert.equal(out.length, 6)
+    assert.ok(!out.some(t => t.id === 'g'))
+  })
+
+  it('o setor sem TP, o caminho que ninguém usa (a barca) e o de maior qualidade entram todos', () => {
+    const near = tp('n0', 20, 0.0003)
+    const sameSectorStreet = tp('A', 300, 0.003, 'residential', 0.9)
+    const otherSector = tp('B', 300, -0.003, 'primary', 0.5)
+    const sameSectorFerry = tp('C', 450, 0.0045, 'ferry', 0.3, 0.0005)
+    const out = selectSpacedTriggerPoints([sameSectorStreet, otherSector, sameSectorFerry, near], pointLow(), C)
+    assert.deepEqual(out.filter(t => t.distance > 60).map(t => t.id).sort(), ['A', 'B', 'C'])
+  })
+
+  it('#786: quem vai embarcado entra — o VLT e a barca ficam ambos, com a orla (Museu do Amanhã)', () => {
+    const near = tp('n0', 20, 0.0003)
+    const tram = tp('T', 150, 0.0014, 'railway_tram', 0.5)
+    const ferry = tp('F', 150, -0.001, 'ferry', 0.8, 0.001)
+    const orla = tp('P', 150, -0.0015, 'pedestrian', 0.9)
+    const tramGlued = tp('T2', 150, 0.00145, 'railway_tram', 0.4) // ~5 m do VLT: o espaçamento segue cortando
+    const out = selectSpacedTriggerPoints([orla, ferry, tram, tramGlued, near], pointLow(), C)
+    assert.deepEqual(out.filter(t => t.distance > 60).map(t => t.id).sort(), ['F', 'P', 'T'])
+  })
+
+  it('area: todo trecho de perímetro espaçado entra — a Linha Vermelha oeste do Fundão (X) também (INV-E10d)', () => {
+    const M_LAT = 110_540, M_LNG = 111_320 * Math.cos((C.lat * Math.PI) / 180)
+    const polar = (deg: number, m: number) => ({ lat: C.lat + (m * Math.cos((deg * Math.PI) / 180)) / M_LAT, lng: C.lng + (m * Math.sin((deg * Math.PI) / 180)) / M_LNG })
+    const ring = Array.from({ length: 361 }, (_, i) => polar(i % 360, 500))
+    const at = (id: string, deg: number, out: number, type: string, quality: number) => ({ ...tp(id, out, 0, type, quality), location: polar(deg, 500 + out) })
+    const area = buildClassification(VisibilityClass.AREA, { heightM: 0, prominenceM: 0, areaM2: 785_000, extentM: 1000 })
+    const near = at('n0', 0, 20, 'primary', 0.9)
+    const besideNear = at('W', 5, 150, 'motorway', 1) // mesmo trecho da borda do TP perto
+    const gap = at('X', 30, 150, 'motorway', 0.9) // mesmo setor de 45°, outro trecho da borda
+    const y = at('Y', 200, 150, 'motorway', 0.5)
+    const z = at('Z', 260, 150, 'motorway', 0.4)
+    const out = selectSpacedTriggerPoints([besideNear, gap, y, z, near], area, C, undefined, ring)
+    assert.deepEqual(out.filter(t => t.distance > 100).map(t => t.id).sort(), ['W', 'X', 'Y', 'Z'])
+  })
+})
+
+describe('INV-E6, BR-POI-009, BR-AUDIO-010 — além do teto da classe só via de turista, medida na borda simplificada', () => {
+  const M_LAT = 110_540
+  const M_LNG = 111_320 * Math.cos((-22.9 * Math.PI) / 180)
+  const C = { lat: -22.9, lng: -43.2 }
+  const at = (n: number, e: number) => ({ lat: C.lat + n / M_LAT, lng: C.lng + e / M_LNG })
+  // 1.000 vértices num círculo de 500 m: o Fundão tem 1.005 (#772)
+  const circle = Array.from({ length: 1000 }, (_, i) => at(500 * Math.sin((2 * Math.PI * i) / 1000), 500 * Math.cos((2 * Math.PI * i) / 1000)))
+  const ring = [...circle, circle[0]]
+  const area = buildClassification(VisibilityClass.AREA, { heightM: 0, prominenceM: 0, areaM2: 785_000, extentM: 1000 })
+
+  it('a borda simplificada tem bem menos vértices e nenhum vértice real a mais de COARSE_EDGE_TOLERANCE_M dela', () => {
+    const coarse = coarseEdgeRing(ring)
+    assert.ok(coarse.length < ring.length / 5, `${coarse.length} vértices`)
+    for (const p of ring) assert.ok(calculateDistanceToPolygon(p, coarse) <= COARSE_EDGE_TOLERANCE_M + 0.5)
+  })
+
+  it('perto do teto da classe a distância é a exata; longe, dentro da tolerância', () => {
+    const b = { center: C, coordinates: ring, classification: area }
+    const near = at(540, 0)
+    const far = at(1300, 0)
+    assert.equal(edgeDistanceFarLaneM(near, b), edgeDistanceM(near, b))
+    assert.ok(Math.abs(edgeDistanceFarLaneM(far, b) - edgeDistanceM(far, b)) <= COARSE_EDGE_TOLERANCE_M)
+  })
+
+  it('landmark_high é sempre medido na borda real', () => {
+    const lm = buildClassification(VisibilityClass.LANDMARK_HIGH, { heightM: 100, prominenceM: 0, areaM2: 785_000 })
+    const b = { center: C, coordinates: ring, classification: lm }
+    const far = at(1300, 0)
+    assert.equal(edgeDistanceFarLaneM(far, b), edgeDistanceM(far, b))
+  })
+
+  it('o leque anda uma rua residencial só até o teto da classe; uma avenida, até o alcance pelo tamanho', async () => {
+    const b = { center: C, coordinates: ring, classification: area, visibilityFan: { polygons: [[C]], maxDistanceM: 1500 } } as any
+    const street = (id: string, type: string) => ({ id, name: id, type, coordinates: [at(530, -2000), at(530, 2000)] })
+    const calc = new OptimalPointCalculator() as any
+    const reach = tpReachCapM(area)
+    const res = await calc.calculateFanWalkStrategy([street('res', 'residential')], { id: 'x', name: 'x', location: C }, b, {}, area, reach)
+    const ave = await calc.calculateFanWalkStrategy([street('ave', 'primary')], { id: 'x', name: 'x', location: C }, b, {}, area, reach)
+    assert.ok(res.length > 0 && res.every((c: any) => c.distance <= CLASS_LIMITS[VisibilityClass.AREA].maxEdgeDistanceM))
+    assert.ok(ave.some((c: any) => c.distance > CLASS_LIMITS[VisibilityClass.AREA].maxEdgeDistanceM))
+  })
+})

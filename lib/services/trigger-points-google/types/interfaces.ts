@@ -57,8 +57,19 @@ export interface BoundaryData {
   area_m2: number;
   perimeter_m: number;
   confidence: number;
-  source: 'google_places' | 'osm' | 'estimated' | 'manual' | 'manual_drawing' | 'nominatim' | 'unified_overpass' | 'estimated_boundary' | 'osm_nominatim' | 'osm_reverse_geocoding' | 'osm_nearby_features'; // ✅ Adicionado 'manual', 'manual_drawing' e 'nominatim' para boundaries do banco
+  /** `synthetic`: a circle drawn around a point, from any path (INV-E1b). `estimated` is the last-resort circle, with its own predictor branch. */
+  source: 'google_places' | 'osm' | 'synthetic' | 'dem_relief' | 'estimated' | 'manual' | 'manual_drawing' | 'nominatim' | 'unified_overpass' | 'estimated_boundary' | 'osm_nominatim' | 'osm_reverse_geocoding' | 'osm_nearby_features';
+  /** E1 candidates refused on the way to this border, with the reason (trace, INV-E1c) */
+  rejected?: import('../utils/boundary-choice').BoundaryRejection[];
   osmIdentified?: boolean; // ✅ Flag: OSM identificou o POI? (para POIs manuais, indica se OSM encontrou dados)
+  /**
+   * The coordinates are a circle drawn around a point (OSM node, estimated fallback), not
+   * the POI footprint. Area and shape of a synthetic boundary say nothing about the POI and
+   * never enter the visibility class (BR-AUDIO-010).
+   */
+  synthetic?: boolean;
+  /** E3/E4/E5 measured once on the final boundary (P8): height, ground top, city base, prominence */
+  physical?: import('../services/poi-classifier.service').PoiPhysical;
   elevation?: {
     min: number;
     max: number;
@@ -197,7 +208,7 @@ export interface TriggerPoint {
   quality: number;
   street: StreetData;
   distance: number;
-  generationMethod: 'local_osm' | 'overpass_fallback' | 'estimated' | 'fallback_recovery';
+  generationMethod: 'local_osm' | 'overpass_fallback' | 'estimated' | 'fallback_recovery' | 'reach_rescue';
   contextData?: GeographicContext;
   // Para TPs do tipo 'geofence': polígono que define a área de disparo.
   // O save layer persiste isso (depois da migração que adiciona a coluna)
@@ -263,16 +274,6 @@ export interface TriggerPointGenerationOptions {
    * `scripts/migrate-pois-batch.ts`.
    */
   debugQuality?: boolean;
-  /**
-   * Phase 2.A — Cap-by-visibility. Candidate TPs are rejected if their
-   * distance from the POI center exceeds the visibility fan's reach in the
-   * candidate's bearing (with 10% slack). Targets the "fan_mean ~300m but
-   * TP at 2km" pattern seen in Phase 0 (Vail Lake, Robert W. Crown Beach,
-   * etc.). **On by default** since 2026-05-29 after A/B validated -61% TPs in
-   * 200-1500m bucket without regressions. Pass `false` to disable as a
-   * kill-switch; `--quality-fix-fan-cap false` on the batch script.
-   */
-  qualityFixFanCap?: boolean;
 }
 
 export interface TriggerPointGenerationResult {

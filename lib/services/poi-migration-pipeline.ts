@@ -8,8 +8,15 @@ import { MigrationResult, MigrationService } from './migration-service'
 import ProcessingService from '@/lib/core/processing-service'
 import { getSupabase } from '@/lib/core/supabase-client'
 import { HomologEnrichmentService } from './poi-processing/homolog-enrichment.service'
+import { stampGenerationMethod } from './dem/dem-sources'
 
 const supabase = getSupabase('service')
+
+/**
+ * Opções do motor de TP usadas na gravação e no dry-run. Sem maxSearchRadius — o motor
+ * calcula dinamicamente via fan de visibilidade (o cap de 1000m cortava POIs grandes).
+ */
+export const TP_ENGINE_OPTIONS = { clusterIntersections: true, minQuality: 0.3 } as const
 
 /**
  * Language the POI description is authored in. Translations always start from it, and the
@@ -52,10 +59,6 @@ export interface PipelineOptions {
   // per POI from the predictor. No behavior change. Pure observation, gated
   // by `--debug-quality true` on `scripts/migrate-pois-batch.ts`.
   debug_quality?: boolean
-  // Phase 2.A — Cap candidate TPs by the visibility fan's reach in their
-  // bearing. Closes the "fan_mean ~300m but TP at 2km" leak observed in
-  // Phase 0. Off by default; opt in via `--quality-fix-fan-cap true`.
-  quality_fix_fan_cap?: boolean
 }
 
 export interface PipelineStepResult {
@@ -96,8 +99,7 @@ export class PoiMigrationPipeline {
       mode = 'enrichment_migration_triggers', // NEW DEFAULT: Enrichment -> Migration -> Triggers
       languages = ['pt-br'],
       voice_gender = 'male',
-      debug_quality = false,
-      quality_fix_fan_cap = false
+      debug_quality = false
     } = options
 
     try {
@@ -111,7 +113,7 @@ export class PoiMigrationPipeline {
         
         // Directly to Step 4: Generate Trigger Points
         console.log(`📍 Step 4: Generating trigger points for ${attraction_id}...`)
-        const triggerPointsStep = await this.executeTriggerPointsStep(attraction_id, { debug_quality, quality_fix_fan_cap })
+        const triggerPointsStep = await this.executeTriggerPointsStep(attraction_id, { debug_quality })
         steps.push(triggerPointsStep)
 
         if (!triggerPointsStep.success) {
@@ -126,34 +128,9 @@ export class PoiMigrationPipeline {
            }
         }
         
-        // Auto-approve POI if trigger points were generated successfully
-        // Since we're not generating descriptions/audio anymore, TPs are the main criteria
-        if (triggerPointsStep.data?.trigger_points_saved > 0) {
-          const maxConfidence = triggerPointsStep.data?.confidence_score || 0
-          const shouldAutoApprove = triggerPointsStep.data.trigger_points_saved >= 1 && maxConfidence > 0.4
-          
-          if (shouldAutoApprove) {
-            console.log(`🚀 Auto-approving POI ${attraction_id} (${triggerPointsStep.data.trigger_points_saved} TPs, max confidence: ${maxConfidence})`)
-            const { error: approveError } = await supabase
-              .schema('core')
-              .from('attractions')
-              .update({ 
-                approved: true,
-                processing_status: 'completed'
-              })
-              .eq('id', attraction_id)
-            
-            if (approveError) {
-              console.error(`⚠️  Failed to auto-approve POI: ${approveError.message}`)
-              warnings.push(`Failed to auto-approve POI: ${approveError.message}`)
-            } else {
-              console.log(`✅ POI auto-approved and marked as completed`)
-            }
-          } else {
-            console.log(`⏳ POI not auto-approved (TPs: ${triggerPointsStep.data.trigger_points_saved}, confidence: ${maxConfidence})`)
-          }
-        }
-        
+        // Reprocessar TP não aprova POI: aprovação é decisão de curadoria, e a
+        // confiança do motor não é critério para publicar (auditoria de TP, 2026-09-27).
+        // `auto_approve_if_satisfactory` não vale neste modo.
         console.log(`✅ Trigger points reprocessed successfully for ${attraction_id}`)
         return {
           success: true,
@@ -333,7 +310,7 @@ export class PoiMigrationPipeline {
 
       // Step 4: Generate Trigger Points
       console.log(`📍 Step 4: Generating trigger points for ${attraction_id}...`)
-      const triggerPointsStep = await this.executeTriggerPointsStep(attraction_id, { debug_quality, quality_fix_fan_cap })
+      const triggerPointsStep = await this.executeTriggerPointsStep(attraction_id, { debug_quality })
       steps.push(triggerPointsStep)
 
       // If trigger points fail, rollback and stop (critical for approval)
@@ -727,11 +704,42 @@ export class PoiMigrationPipeline {
   }
 
   /**
+   * Entrada do motor de TP a partir do POI do core. Uma só montagem para a gravação
+   * (executeTriggerPointsStep) e para o dry-run (lib/services/tp-dry-run), para que o
+   * dry-run meça exatamente o que seria gravado.
+   */
+  static buildEngineInput(poi: any, coordinate: { latitude: number; longitude: number }) {
+    const osmId = poi.osm_id
+    const osmType = poi.osm_type || poi.osm_element_type
+    if (osmId) {
+      console.log(`   🔗 Engine input with OSM ID: ${osmType}(${osmId})`)
+    } else {
+      console.log(`   ⚠️ Engine input WITHOUT OSM ID (fallback mode)`)
+    }
+    return {
+      id: poi.id,
+      name: poi.name,
+      location: { lat: coordinate.latitude, lng: coordinate.longitude },
+      // The category never reaches the engine: class, reach and border come from what is measured
+      // on the POI (operator, 2026-09-27; BR-AUDIO-010).
+      type: 'point_of_interest',
+      country: poi.country,
+      city: poi.city,
+      state: poi.state,
+      osm_id: osmId,
+      osm_type: osmType,
+      // No `estimated_height_m`: it is registered data, not measured. Height comes from the OSM
+      // tags or a building inside the footprint (INV-E3, operator 2026-09-27).
+      tags: poi.osm_tags
+    }
+  }
+
+  /**
    * Step 4: Generate Trigger Points
    */
   private static async executeTriggerPointsStep(
     attraction_id: string,
-    opts: { debug_quality?: boolean; quality_fix_fan_cap?: boolean } = {}
+    opts: { debug_quality?: boolean } = {}
   ): Promise<PipelineStepResult> {
     const stepStart = Date.now()
 
@@ -756,38 +764,7 @@ export class PoiMigrationPipeline {
       console.log(`   ✅ POI loaded: ${poi.name} (${poi.city}, ${poi.state})`)
       console.log(`   📍 Coordinates: ${coordinate.latitude}, ${coordinate.longitude}`)
       
-      const lat = coordinate.latitude
-      const lng = coordinate.longitude
-
-      // Prepare POI data for trigger points generation (same format as /trigger-points-single)
-      
-      // ✅ Ensure OSM ID/Type are passed (handling potential property name variations)
-      const osmId = poi.osm_id;
-      const osmType = poi.osm_type || (poi as any).osm_element_type;
-      
-      if (osmId) {
-        console.log(`   🔗 Migrating with OSM ID: ${osmType}(${osmId})`);
-      } else {
-        console.log(`   ⚠️ Migrating WITHOUT OSM ID (fallback mode)`);
-      }
-
-      const poiData = {
-        id: poi.id,
-        name: poi.name,
-        location: {
-          lat: lat,
-          lng: lng
-        },
-        type: poi.category || 'point_of_interest',
-        country: poi.country,
-        city: poi.city,
-        state: poi.state,
-        osm_id: osmId,
-        osm_type: osmType,
-        height: poi.estimated_height_m,
-        tags: poi.osm_tags
-      }
-
+      const poiData = PoiMigrationPipeline.buildEngineInput(poi, coordinate)
 
       // Use CoreTriggerPointPredictor (same motor as /trigger-points-single page)
       console.log(`   🎯 Calling CoreTriggerPointPredictor (new motor - same as /trigger-points-single)...`)
@@ -795,12 +772,8 @@ export class PoiMigrationPipeline {
       
       const predictor = new CoreTriggerPointPredictor()
       const predictionResult = await predictor.predictTriggerPointsComplete(poiData, {
-        // Sem maxSearchRadius — o motor calcula dinamicamente via fan de visibilidade.
-        // O cap de 1000m estava cortando TPs em POIs grandes (Central Park, aeroportos).
-        clusterIntersections: true,
-        minQuality: 0.3,
-        debugQuality: opts.debug_quality,
-        qualityFixFanCap: opts.quality_fix_fan_cap
+        ...TP_ENGINE_OPTIONS,
+        debugQuality: opts.debug_quality
       })
 
       if (!predictionResult.triggerPoints || predictionResult.triggerPoints.length === 0) {
@@ -821,8 +794,28 @@ export class PoiMigrationPipeline {
       console.log(`   💾 Saving trigger points to database...`)
       const { TriggerPointSavingService } = await import('./trigger-point-saving')
       
+      // E11 post-conditions (INV-E11, BR-AUDIO-010): the same step the dry-run runs, so its
+      // numbers predict this save. A TP far from, inside, or unfireable for the POI never
+      // reaches the database.
+      const { applyTpPostConditions } = await import('./trigger-points-google/utils/tp-selection')
+      const post = applyTpPostConditions(predictionResult.triggerPoints, poiData.location, predictionResult.boundary)
+      if (post.dropped.length > 0) {
+        const byReason = post.dropped.reduce<Record<string, number>>((acc, d) => ({ ...acc, [d.reason]: (acc[d.reason] ?? 0) + 1 }), {})
+        console.warn(`   🚫 ${post.dropped.length} TP(s) dropped by post-conditions (reach cap ${post.reachCapM}m): ${JSON.stringify(byReason)}`)
+      }
+      if (post.kept.length === 0) {
+        const errorMsg = `All ${triggerPointsCount} trigger points failed the post-conditions (reach cap ${post.reachCapM}m)`
+        console.error(`   ❌ ${errorMsg}`)
+        return {
+          step: 'trigger_points',
+          success: false,
+          error: errorMsg,
+          processing_time: Date.now() - stepStart
+        }
+      }
+
       // Convert TriggerPoint[] to TriggerPointSaveData[]
-      const triggerPointsToSave = predictionResult.triggerPoints.map(tp => ({
+      const triggerPointsToSave = post.kept.map(tp => ({
         attraction_id,
         lat: tp.location.lat,
         lng: tp.location.lng,
@@ -832,9 +825,10 @@ export class PoiMigrationPipeline {
         type: tp.type,
         priority: tp.priority || 1,
         is_active: true,
-        access: 'both' as 'walk' | 'car' | 'both',
+        // `access` fica de fora: o motor não sabe o modo, e o default do banco ('car') vale.
         confidence: tp.confidence || 0.5,
-        generation_method: tp.generationMethod || 'local_osm',
+        // #782: the relief sources travel with the method, so a batch is reprocessable by data version
+        generation_method: stampGenerationMethod(tp.generationMethod || 'local_osm'),
         boundary_source: predictionResult.boundary?.source || 'unknown',
         // TPs do tipo geofence carregam o polígono GeoJSON; requer a migração
         // 20260515_add_geofence_trigger_type.sql aplicada.

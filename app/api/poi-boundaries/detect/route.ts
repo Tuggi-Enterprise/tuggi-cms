@@ -5,6 +5,8 @@ import { CoreTriggerPointPredictor } from '@/lib/services/trigger-points-google/
 import { TriggerPointSavingService } from '@/lib/services/trigger-point-saving'
 import { convertTriggerPointsToDB } from '@/lib/services/trigger-points-google/utils/conversion'
 import { POIData } from '@/lib/services/trigger-points-google/types/interfaces'
+import { applyTpPostConditions } from '@/lib/services/trigger-points-google/utils/tp-selection'
+import { TP_ENGINE_OPTIONS } from '@/lib/services/poi-migration-pipeline'
 
 interface POIBoundaryRequest {
   attraction_id: string
@@ -126,12 +128,11 @@ export async function POST(request: NextRequest) {
     }
     
     // Generate trigger points using the modular system
-    const predictionResult = await predictor.predictTriggerPointsComplete(poiData, {
-      maxSearchRadius: 1000,
-      minQuality: 0.4
-    })
+    const predictionResult = await predictor.predictTriggerPointsComplete(poiData, { ...TP_ENGINE_OPTIONS })
+    // Same options and post-conditions as the pipeline save and the dry-run (INV-E11, BR-AUDIO-010).
+    const keptTPs = applyTpPostConditions(predictionResult.triggerPoints ?? [], poiData.location, predictionResult.boundary).kept
     
-    if (!predictionResult.triggerPoints || predictionResult.triggerPoints.length === 0) {
+    if (keptTPs.length === 0) {
       return NextResponse.json({
         success: false,
         error: 'No trigger points generated',
@@ -141,7 +142,7 @@ export async function POST(request: NextRequest) {
     
     // Convert trigger points to the format expected by this API
     const convertedTPs = convertTriggerPointsToDB(
-      predictionResult.triggerPoints,
+      keptTPs,
       predictionResult.boundary?.source || 'unknown'
     )
     

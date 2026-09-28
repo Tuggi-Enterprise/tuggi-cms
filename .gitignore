@@ -41,6 +41,7 @@ output/chunks/
 output/preview-*.txt
 output/category-analysis-*.txt
 output/all-categories.txt
+output/tp-dry-run-*
 
 # Keep documentation and configs
 !output/*.md
@@ -78,6 +79,7 @@ data/*.geojsonseq
 
 # SRTM elevation cache (binary HGT tiles, downloaded on demand)
 data/srtm-cache/
+data/dem-cache/
 
 # Dado pessoal de terceiros e material de prospecção NÃO entram neste repo.
 # Lugar deles é ../Tuggi-negocio/, fora do alcance dos agentes (CLAUDE.md).

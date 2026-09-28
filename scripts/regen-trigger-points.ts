@@ -18,6 +18,10 @@
  *   # (abrir N terminais com o mesmo comando para N workers)
  *
  *   npx tsx scripts/regen-trigger-points.ts --status ny-2026-05-18
+ *
+ *   # Dry-run: gera e mede, sem gravar nada (nem TP, nem aprovação, nem fila)
+ *   npx tsx scripts/regen-trigger-points.ts --dry-run --bbox=-43.85,-23.10,-43.05,-22.70 --limit 50
+ *   npx tsx scripts/regen-trigger-points.ts --dry-run --ids <uuid>,<uuid>
  */
 
 import { PoiMigrationPipeline } from '../lib/services/poi-migration-pipeline'
@@ -66,7 +70,6 @@ async function regenSingle(attractionId: string) {
   console.log(`\n🔄 Regenerando TPs para: ${attractionId}`)
   const result = await PoiMigrationPipeline.executePipeline(attractionId, {
     mode: 'reprocess_triggers_core',
-    auto_approve_if_satisfactory: true,
   })
   console.log(`✅ Concluído:`, JSON.stringify(result, null, 2))
 }
@@ -163,7 +166,6 @@ async function runBatch(batchId: string) {
     try {
       await PoiMigrationPipeline.executePipeline(attractionId, {
         mode: 'reprocess_triggers_core',
-        auto_approve_if_satisfactory: true,
       })
       processed++
       const elapsed = ((Date.now() - startMs) / 1000).toFixed(0)
@@ -249,6 +251,42 @@ async function resetStuck(batchId: string) {
   console.log(`✅ ${count || 0} itens "processing" resetados para "pending".`)
 }
 
+// ─── Dry-run: gera e mede, sem gravar ──────────────────────────────────────────
+
+async function dryRun(opts: { ids?: string[]; bbox?: [number, number, number, number]; limit?: number }) {
+  const { dryRunPoi, listAttractionIdsInBbox, toCsvLines, summarizePoi, DRY_RUN_CSV_COLUMNS, TRACE_CSV_COLUMNS, toTraceCsvLines } =
+    await import('../lib/services/tp-dry-run')
+
+  let ids = opts.ids ?? (opts.bbox ? await listAttractionIdsInBbox(opts.bbox) : [])
+  if (opts.limit) ids = ids.slice(0, opts.limit)
+  if (!ids.length) { console.log('Nenhum POI para o dry-run.'); return }
+
+  const outDir = path.join(__dirname, '../output')
+  fs.mkdirSync(outDir, { recursive: true })
+  const stamp = new Date().toISOString().replace(/[:.]/g, '-')
+  const csvPath = path.join(outDir, `tp-dry-run-${stamp}.csv`)
+  const summaryPath = path.join(outDir, `tp-dry-run-${stamp}.summary.json`)
+  const tracePath = path.join(outDir, `tp-dry-run-${stamp}.trace.csv`)
+  fs.writeFileSync(csvPath, DRY_RUN_CSV_COLUMNS.join(',') + '\n')
+  fs.writeFileSync(tracePath, TRACE_CSV_COLUMNS.join(',') + '\n')
+
+  console.log(`🧪 Dry-run de ${ids.length} POIs — nada é gravado. CSV: ${csvPath}`)
+  const summaries = []
+  for (const [i, attractionId] of ids.entries()) {
+    const result = await dryRunPoi(attractionId)
+    const lines = toCsvLines(result.rows)
+    if (lines.length) fs.appendFileSync(csvPath, lines.join('\n') + '\n')
+    const traceLines = toTraceCsvLines(result.trace)
+    if (traceLines.length) fs.appendFileSync(tracePath, traceLines.join('\n') + '\n')
+    const summary = summarizePoi(result)
+    summaries.push(summary)
+    // Resumo reescrito a cada POI: um crash no meio não perde o que já foi medido.
+    fs.writeFileSync(summaryPath, JSON.stringify({ bbox: opts.bbox ?? null, total: ids.length, pois: summaries }, null, 2))
+    console.log(`[${i + 1}/${ids.length}] ${summary.poi_name || attractionId}: atual ${summary.current.count} (${summary.current.beyond_cap} além do teto) → gerado ${summary.generated.count} (cortados: ${JSON.stringify(summary.generated.dropped)})${summary.error ? ` ❌ ${summary.error}` : ''}`)
+  }
+  console.log(`\n✅ Dry-run concluído.\n   ${csvPath}\n   ${tracePath}\n   ${summaryPath}`)
+}
+
 // ─── main ─────────────────────────────────────────────────────────────────────
 
 async function main() {
@@ -263,8 +301,24 @@ async function main() {
   const city          = get('--city')
   const state         = get('--state')
   const country       = get('--country')
+  // `--bbox=-43.85,...` (com "=") evita que o valor negativo pareça outra flag.
+  const getEq = (flag: string) => args.find(a => a.startsWith(`${flag}=`))?.slice(flag.length + 1) ?? get(flag)
 
-  if (id) {
+  if (args.includes('--dry-run')) {
+    const idsArg = getEq('--ids') ?? id
+    const bboxArg = getEq('--bbox')
+    const limitArg = getEq('--limit')
+    const bbox = bboxArg?.split(',').map(Number)
+    if (bbox && (bbox.length !== 4 || bbox.some(n => !Number.isFinite(n)))) {
+      console.error('❌ --bbox espera minLng,minLat,maxLng,maxLat'); process.exit(1)
+    }
+    if (!idsArg && !bbox) { console.error('❌ --dry-run exige --ids ou --bbox'); process.exit(1) }
+    await dryRun({
+      ids: idsArg?.split(',').map(s => s.trim()).filter(Boolean),
+      bbox: bbox as [number, number, number, number] | undefined,
+      limit: limitArg ? parseInt(limitArg, 10) : undefined,
+    })
+  } else if (id) {
     await regenSingle(id)
   } else if (createBatchId) {
     await createBatch(createBatchId, { city, state, country })
@@ -290,6 +344,10 @@ Uso:
 
   # Ver progresso
   npx tsx scripts/regen-trigger-points.ts --status ny-2026-05-18
+
+  # Dry-run: gera e mede sem gravar (CSV + resumo em output/)
+  npx tsx scripts/regen-trigger-points.ts --dry-run --bbox=-43.85,-23.10,-43.05,-22.70 [--limit 50]
+  npx tsx scripts/regen-trigger-points.ts --dry-run --ids <uuid>,<uuid>
 
   # Resetar itens travados (após crash de worker)
   npx tsx scripts/regen-trigger-points.ts --reset-stuck ny-2026-05-18
