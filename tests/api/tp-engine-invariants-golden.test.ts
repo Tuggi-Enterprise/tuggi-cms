@@ -159,7 +159,8 @@ const GOLDEN: Check[] = [
   { poi: 'Praia do Recreio dos Bandeirantes', id: POI_ID.praiaDoRecreio, city: CITY, noneInsideBoundary: true },
   { poi: 'Sala de Leitura da Cidade das Artes', id: POI_ID.cidadeDasArtes, city: CITY, noneInsideBoundary: true },
   { poi: 'Museu do Amanhã', id: POI_ID.museuDoAmanha, city: CITY, noneInsideBoundary: true },
-  { poi: 'Busto Prof. Mazzini Bueno', id: POI_ID.bustoMazziniBueno, city: CITY, countRange: [1, 4], maxDistToBoundaryM: 60, noneInsideBoundary: true },
+  // The ground under the bust counts in its reach since c7d63eb7 (BR-POI-009 item 1): 60 m -> 288 m, 2 -> 6 TPs. No count cap (BR-POI-009 item 2).
+  { poi: 'Busto Prof. Mazzini Bueno', id: POI_ID.bustoMazziniBueno, city: CITY, countRange: [1, Infinity], maxDistToBoundaryM: 300, noneInsideBoundary: true },
   { poi: 'Igreja Nossa Senhora de Fátima', id: POI_ID.igrejaFatima, city: CITY, noneInsideBoundary: true },
   { poi: 'Manguinhos', id: POI_ID.manguinhos, city: CITY, noneInsideBoundary: true },
   { poi: 'Monumento Árvore de Natal', id: POI_ID.arvoreDeNatal, city: 'Niterói', countRange: [1, 4], noneInsideBoundary: true },
