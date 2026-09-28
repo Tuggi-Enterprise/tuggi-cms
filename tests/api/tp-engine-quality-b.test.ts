@@ -317,3 +317,33 @@ describe('BR-AUDIO-010 — what the CMS saves is what the engine computed', () =
     assert.equal(/access: 'both'/.test(readFileSync('lib/services/geometric-pov-generator.ts', 'utf8')), false)
   })
 })
+
+describe('INV-E8, BR-POI-009 — line of sight rejects every candidate (#774)', () => {
+  it('falls back to the frontal TP next to the POI, never to the unchecked candidates', async () => {
+    const { CoreTriggerPointPredictor } = await import('../../lib/services/trigger-points-google/core/trigger-point-predictor')
+    const cls = buildClassification(VisibilityClass.STRUCTURE, { heightM: 12, prominenceM: 12, areaM2: 400 })
+    const boundary = { source: 'osm', confidence: 0.9, center: PIN, coordinates: rect(20, 20), classification: cls, cachedContext: context } as any
+    const at = (n: number) => ({ lat: PIN.lat + n / M_PER_DEG_LAT, lng: PIN.lng })
+    const street = { id: 'w1', name: 'Rua A', type: 'residential', coordinates: [at(-40), at(200)] } as any
+    const tp = (id: string, n: number) => ({ id, location: at(n), distance: n - 10, radius: 20, quality: 0.8, expectedBearing: 180, type: 'secondary' }) as any
+    const unchecked = [tp('behind-hill-1', 40), tp('behind-hill-2', 90)]
+    const frontal = { ...tp('frontal', -22), distance: 12, expectedBearing: 0 }
+
+    const p = new CoreTriggerPointPredictor() as any
+    p.boundaryDetector = { detectBoundary: async () => ({ success: true, data: boundary }) }
+    p.attachEntrancesFromLocalOSM = () => {}
+    p.useContainingBuildingHeight = () => {}
+    p.attachVisibilityFan = async () => {}
+    p.streetAnalyzer = { findAccessibleStreetsWithMetadata: async () => ({ streets: [street], searchRadius: 100, elevationAnalysis: null, rejectedStreets: [] }) }
+    p.pointCalculator = { calculateOptimalPoints: async () => unchecked }
+    p.validator = { validateAndRankPoints: async (c: unknown[]) => c }
+    p.filterCandidatesByExactLOS = async () => []
+    let frontalCalls = 0
+    p.buildFrontalArrivalTP = () => { frontalCalls++; return [frontal] }
+
+    const out = await p.predictWithTrace({ id: 'poi', name: 'x', type: 'museum', country: 'Brasil', city: 'Rio de Janeiro', location: PIN } as POIData, {}, [])
+    assert.equal(frontalCalls, 1)
+    assert.deepEqual(out.triggerPoints.map((t: any) => t.id), ['frontal'])
+    assert.equal(out.metadata.fallbackUsed, true)
+  })
+})
