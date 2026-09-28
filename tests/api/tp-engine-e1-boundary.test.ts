@@ -285,3 +285,42 @@ describe('INV-E1b — a drawn circle leaves with source=synthetic on every path 
     assert.equal(manual.data?.source, 'manual')
   })
 })
+
+describe('INV-E1a — a stored border is judged like a curated id (BR-POI-009, BR-AUDIO-010, #779)', () => {
+  const lngLat = (half: number, c: LatLng = PIN) => square(half, c).map(p => [p.lon, p.lat])
+  const run = async () => {
+    const { BoundaryDetector } = await import('../../lib/services/trigger-points-google/core/boundary-detector')
+    const d = new BoundaryDetector() as any
+    d.detectContainingBoundary = async () => ({ success: false })
+    d.detectOSMBoundary = async () => ({ success: false })
+    d.withClassification = async (b: unknown) => b
+    return d.detectBoundary({ id: 'x', name: 'x', location: PIN })
+  }
+
+  it('BR-POI-009: a stored polygon with the pin 1.9 km outside is refused for the pin circle (Monumento dos Combatentes da FAB)', async () => {
+    dbRow = { geojson: { type: 'Polygon', coordinates: [lngLat(1600, { lat: PIN.lat, lng: PIN.lng + 3500 * M_LNG })] }, boundary_source: 'osm' }
+    const r = await run()
+    assert.equal(r.metadata.strategy, 'estimated_fallback')
+    assert.equal(r.data.synthetic, true)
+    assert.ok(r.data.area_m2 < 1_000, `${r.data.area_m2} m²`)
+    assert.ok(r.data.rejected.some((x: { element: string }) => x.element === 'database'))
+  })
+
+  it('BR-POI-009: a stored `estimated` border is an old guess, not a footprint (Escultura Encontro das Águas, 0.83 ha)', async () => {
+    const circle = Array.from({ length: 17 }, (_, i) => [
+      PIN.lng + 51 * M_LNG * Math.sin(((i % 16) / 16) * 2 * Math.PI),
+      PIN.lat + 51 * M_LAT * Math.cos(((i % 16) / 16) * 2 * Math.PI),
+    ])
+    dbRow = { geojson: { type: 'Polygon', coordinates: [circle] }, boundary_source: 'estimated' }
+    const r = await run()
+    assert.equal(r.data.source, 'synthetic')
+    assert.ok(r.data.area_m2 < 1_000, `${r.data.area_m2} m²`)
+  })
+
+  it('a stored polygon holding the pin is still the border', async () => {
+    dbRow = { geojson: { type: 'Polygon', coordinates: [lngLat(80)] }, boundary_source: 'manual' }
+    const r = await run()
+    assert.equal(r.metadata.strategy, 'database_fallback')
+    assert.equal(r.data.source, 'manual')
+  })
+})

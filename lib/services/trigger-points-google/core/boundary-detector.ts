@@ -193,7 +193,20 @@ export class BoundaryDetector {
       let dbBoundaryResult: ProcessingResult<BoundaryData> | null = null;
       if (poiData.id) {
         dbBoundaryResult = await this.fetchBoundaryFromDatabase(poiData.id);
-        if (dbBoundaryResult.success && dbBoundaryResult.data) {
+        // BR-AUDIO-010, BR-POI-009 (#779): a stored border is judged like a curated id. The Monumento
+        // dos Combatentes da FAB had a stored 10.3 km² polygon with the pin 1.9 km outside it. A
+        // stored `estimated` border is an earlier run's guess, not a footprint: the Escultura
+        // Encontro das Águas kept a 0.83 ha circle; the pin circle below replaces it.
+        const stored = dbBoundaryResult.data;
+        const storedReject = !dbBoundaryResult.success || !stored ? null
+          : stored.source === 'estimated' ? 'stored border is an earlier estimate, not a footprint'
+          : isCuratedBoundaryImplausible(poiData.location, stored.coordinates) ? 'stored border is implausible (pin outside, > 500 m from the edge)'
+          : null;
+        if (storedReject) {
+          this.rejections.push({ element: 'database', reason: storedReject });
+          dbBoundaryResult = null;
+        }
+        if (dbBoundaryResult?.success && dbBoundaryResult.data) {
           return {
             success: true,
             data: await this.withClassification({ ...dbBoundaryResult.data, rejected: this.rejections.length ? [...this.rejections] : undefined }, poiData),
