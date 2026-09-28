@@ -12,10 +12,6 @@
 import { Suspense, useEffect, useState } from 'react';
 import { usePathname, useRouter, useSearchParams } from 'next/navigation';
 import {
-  useSessionContext,
-  useSupabaseClient,
-} from '@supabase/auth-helpers-react';
-import {
   AlertCircle,
   ArrowLeft,
   Calendar,
@@ -30,6 +26,7 @@ import Link from 'next/link';
 import { useTranslations } from 'next-intl';
 import { Container } from '@/components/ui/Container';
 import { formatDuration } from '@/lib/format/duration';
+import { useCmsUser } from '@/lib/hooks/useCmsUser';
 import {
   redemptionGrant,
   type CouponRedemption,
@@ -122,7 +119,7 @@ export function CouponRedemptionsView({
             <tr>
               <th className="px-4 py-3 text-left">{t('headers.code')}</th>
               <th className="px-4 py-3 text-left">{t('headers.owner')}</th>
-              <th className="px-4 py-3 text-left">{t('headers.user')}</th>
+              <th className="px-4 py-3 text-left">{t('headers.nickname')}</th>
               <th className="px-4 py-3 text-left">{t('headers.redeemedAt')}</th>
               <th className="px-4 py-3 text-left">{t('headers.granted')}</th>
             </tr>
@@ -164,8 +161,8 @@ export function CouponRedemptionsView({
                     {r.owner_name ?? <span className="text-gray-400">—</span>}
                   </td>
                   <td className="px-4 py-3 text-gray-700 max-w-[260px]">
-                    <p className="truncate" title={r.user_email ?? undefined}>
-                      {r.user_email ?? '—'}
+                    <p className="truncate" title={r.nickname ?? undefined}>
+                      {r.nickname ?? '—'}
                     </p>
                   </td>
                   <td className="px-4 py-3 text-xs text-gray-500">
@@ -190,10 +187,9 @@ function AdminCouponRedemptionsContent() {
   const router = useRouter();
   const pathname = usePathname();
   const searchParams = useSearchParams();
-  const { session, isLoading: sessionLoading } = useSessionContext();
-  const supabase = useSupabaseClient();
-  const [isAuthorized, setIsAuthorized] = useState(false);
-  const [authChecking, setAuthChecking] = useState(true);
+  // Same gate as the route: admin only. `/api/auth/check` already proved the session server-side.
+  const { isAdmin, isLoading: authChecking } = useCmsUser();
+  const isAuthorized = !authChecking && isAdmin;
 
   const coupon = (searchParams.get('coupon') ?? '').toUpperCase();
   const owner = searchParams.get('owner') ?? '';
@@ -210,33 +206,8 @@ function AdminCouponRedemptionsContent() {
   const [unavailable, setUnavailable] = useState(false);
 
   useEffect(() => {
-    const checkAuth = async () => {
-      if (sessionLoading) return;
-      if (!session) {
-        router.push('/login');
-        return;
-      }
-      try {
-        const { data: cmsUser } = await supabase
-          .schema('core')
-          .from('cms_users')
-          .select('role')
-          .eq('email', session.user.email)
-          .single();
-        if (cmsUser?.role !== 'admin') {
-          router.push('/unauthorized');
-          return;
-        }
-        setIsAuthorized(true);
-      } catch (err) {
-        console.error('Auth error:', err);
-        router.push('/unauthorized');
-      } finally {
-        setAuthChecking(false);
-      }
-    };
-    checkAuth();
-  }, [session, sessionLoading, router, supabase]);
+    if (!authChecking && !isAdmin) router.push('/unauthorized');
+  }, [authChecking, isAdmin, router]);
 
   /** `push` keeps the previous filter in history; `replace` for typing, one entry per word. */
   const setFilter = (next: { coupon?: string; owner?: string }, mode: 'push' | 'replace' = 'push') => {

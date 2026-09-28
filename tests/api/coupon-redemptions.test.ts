@@ -33,7 +33,7 @@ function row(over: Record<string, unknown>) {
     owner_client_id: OWNER,
     owner_name: 'Farol Tur',
     user_id: crypto.randomUUID(),
-    user_email: 'turista@example.com',
+    nickname: 'turista',
     redeemed_at: '2026-09-20T12:00:00Z',
     minutes_granted: null,
     days_granted: null,
@@ -63,16 +63,17 @@ function createFakeService() {
   }
 }
 
+/** Cookie-bound client as `withAuth` uses it: `getUser()` then the `core.cms_users` lookup. */
 function createFakeAuthClient() {
   const chain: any = {
     select: () => chain,
     eq: () => chain,
-    single: async () => ({ data: { id: 'cms-1', role, is_active: true }, error: null }),
+    maybeSingle: async () => ({ data: { email: 'operator@tuggi.app', role, is_active: true }, error: null }),
   }
   return {
     auth: {
-      getSession: async () => ({
-        data: { session: { user: { email: 'someone@tuggi.app' } } },
+      getUser: async () => ({
+        data: { user: { id: 'operator-1', email: 'operator@tuggi.app' } },
         error: null,
       }),
     },

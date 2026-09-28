@@ -2817,7 +2817,7 @@
       "headers": {
         "code": "Code",
         "owner": "Partner",
-        "user": "User",
+        "nickname": "Nickname",
         "redeemedAt": "Redeemed at",
         "granted": "Granted"
       },

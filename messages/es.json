@@ -2799,7 +2799,7 @@
       "headers": {
         "code": "Código",
         "owner": "Socio",
-        "user": "Usuario",
+        "nickname": "Apodo",
         "redeemedAt": "Canjeado el",
         "granted": "Concedido"
       },

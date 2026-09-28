@@ -6,7 +6,10 @@
  * prints the unit the redemption carries, never an inferred one.
  */
 
-/** One row of `drive.list_coupon_redemptions`. `user_email` is personal data: never log it. */
+/**
+ * One row of `drive.list_coupon_redemptions`. The screen identifies the account by `nickname` only
+ * (operator decision 2026-09-28, #787); `null` when the account never set one.
+ */
 export interface CouponRedemption {
   redemption_id: string
   coupon_id: string
@@ -14,7 +17,7 @@ export interface CouponRedemption {
   owner_client_id: string | null
   owner_name: string | null
   user_id: string
-  user_email: string | null
+  nickname: string | null
   redeemed_at: string
   minutes_granted: number | null
   days_granted: number | null

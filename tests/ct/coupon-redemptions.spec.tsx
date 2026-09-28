@@ -21,7 +21,7 @@ function row(over: Partial<CouponRedemption>): CouponRedemption {
     owner_client_id: 'o-1',
     owner_name: 'Farol Tur',
     user_id: `u-${n}`,
-    user_email: `turista${n}@example.com`,
+    nickname: `turista${n}`,
     redeemed_at: '2026-09-20T12:00:00Z',
     minutes_granted: null,
     days_granted: null,

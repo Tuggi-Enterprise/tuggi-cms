@@ -3060,7 +3060,7 @@
       "headers": {
         "code": "Código",
         "owner": "Parceiro",
-        "user": "Usuário",
+        "nickname": "Apelido",
         "redeemedAt": "Resgatado em",
         "granted": "Concedido"
       },
