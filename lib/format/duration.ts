@@ -34,6 +34,20 @@ export const MINUTE_OPTIONS: readonly number[] = Array.from(
   (_, index) => index * MINUTES_PER_BLOCK
 )
 
+/**
+ * A numeric column that may not exist yet, kept apart from a measured zero.
+ *
+ * The RPCs belong to `data` and gain columns before the migration is applied. `Number(x || 0)`
+ * reads a missing column as `0`, and on a screen `0` is an assertion — "nobody consumed".
+ * `null` is the only honest answer for a column that did not come back; `formatDurationOrDash`
+ * prints an em dash for it. Bigint may arrive as a string; both parse.
+ */
+export function optionalMinutes(value: unknown): number | null {
+  if (value == null) return null
+  const parsed = Number(value)
+  return Number.isFinite(parsed) ? parsed : null
+}
+
 /** Formats whole minutes as `5 h 20 min`, `45 min`, `12 h`, `0 min`. */
 export function formatDuration(minutes: number | null | undefined): string {
   if (minutes == null || !Number.isFinite(minutes) || minutes <= 0) return '0 min'

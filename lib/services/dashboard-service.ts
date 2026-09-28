@@ -17,6 +17,7 @@
 import { getSupabaseClient } from '@/lib/core/supabase-client'
 import { fetchDashboardRoute, type RpcResult } from '@/lib/api/dashboard-fetch'
 import { nameMatchFilter } from '@/lib/shared/name-search'
+import { optionalMinutes } from '@/lib/format/duration'
 import { ENTITLEMENT_STATES } from '@/lib/credit/entitlement'
 import type { EntitlementState, GrantSource } from '@/lib/credit/entitlement'
 
@@ -45,19 +46,7 @@ export type { EntitlementState, GrantSource }
  * of how this repo talks to its own routes (CLAUDE.md §6).
  */
 
-/**
- * A numeric column that may not exist yet, kept apart from a measured zero.
- *
- * The RPCs of the dashboard belong to `data` and gain columns before the migration is
- * applied here. `Number(x || 0)` reads a missing column as `0`, and on a screen `0`
- * is an assertion — "nobody consumed", "nobody pays". `null` is the only honest answer
- * for a column that did not come back, and the surface prints an em dash for it.
- */
-function optionalMinutes(value: unknown): number | null {
-  if (value == null) return null
-  const parsed = Number(value)
-  return Number.isFinite(parsed) ? parsed : null
-}
+// `optionalMinutes` lives in `lib/format/duration.ts` since #787 (the coupon owners page reads it too).
 
 // ============================================================================
 // TIPOS

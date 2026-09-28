@@ -774,9 +774,9 @@ test('#749 · BR-RANKING-004: the ratio divides the two axes of the score, and t
 
 test('#741: the subtitle names the two totals the ratio divides', () => {
   const expected = {
-    pt: '52 pts de disparo · 4,5 pts de km',
-    en: '52 pts from triggers · 4,5 pts from km',
-    es: '52 pts de disparo · 4,5 pts de km',
+    pt: '52,00 pts de disparo · 4,50 pts de km',
+    en: '52,00 pts from triggers · 4,50 pts from km',
+    es: '52,00 pts de disparo · 4,50 pts de km',
   }
 
   for (const locale of LOCALES) {
@@ -785,7 +785,10 @@ test('#741: the subtitle names the two totals the ratio divides', () => {
       messages: messages(locale),
       namespace: 'Pages.Dashboard.ranking',
     })
-    const args = { triggers: '52', km: '4,5' } as never
+    // The two arguments arrive ALREADY formatted, by `formatPoints` — two decimals, always
+    // (`BR-RANKING-004`, `tests/api/ranking-points-format.test.ts`). The fixture carries them in
+    // that shape so the assertion is the string the operator actually reads.
+    const args = { triggers: '52,00', km: '4,50' } as never
 
     // Two anonymous `pts` on a card labelled `Disparo ÷ km` would be readable only as the two
     // sides of that division; they say which is which so the reading survives a zero denominator.

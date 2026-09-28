@@ -7,6 +7,7 @@ import {
   ChevronRight,
   CheckCircle,
   Gift,
+  ListChecks,
   Plus,
   Search,
   Power,
@@ -16,6 +17,7 @@ import {
 import Link from 'next/link';
 import { useTranslations } from 'next-intl';
 import type { Coupon } from '@/types/coupons';
+import { formatCouponGrant } from '@/lib/coupons/grant';
 
 interface CouponsListAdminProps {
   onCreateNew: () => void;
@@ -155,6 +157,14 @@ export function CouponsListAdmin({
               {t('ownerPerformance')}
             </Link>
           )}
+          {!isScopedToOwner && (
+            <Link
+              href="/admin/coupons/redemptions"
+              className="inline-flex items-center gap-1.5 rounded-lg border border-gray-300 px-3 py-2 text-sm font-semibold text-gray-700 hover:bg-gray-50 transition">
+              <ListChecks size={14} />
+              {t('redemptions')}
+            </Link>
+          )}
           <button
             onClick={onCreateNew}
             className="inline-flex items-center gap-1.5 rounded-lg bg-tuggi-blue px-4 py-2 text-sm font-semibold text-white shadow-sm hover:bg-tuggi-blue/90 transition">
@@ -265,7 +275,7 @@ export function CouponsListAdmin({
                       )}
                     </td>
                   )}
-                  <td className="px-4 py-3">{c.duration_days} {t('days')}</td>
+                  <td className="px-4 py-3">{formatCouponGrant(c, t('days'))}</td>
                   <td className="px-4 py-3 text-xs">
                     <span className="rounded-full bg-gray-100 px-2 py-0.5 text-gray-700">
                       {c.eligibility === 'new_subscribers_only'
@@ -278,8 +288,17 @@ export function CouponsListAdmin({
                       </span>
                     )}
                   </td>
-                  <td className="px-4 py-3 text-gray-700">
-                    {c.redeemed_count}
+                  <td className="px-4 py-3 text-gray-700" onClick={(e) => e.stopPropagation()}>
+                    {c.redeemed_count > 0 ? (
+                      <Link
+                        href={`/admin/coupons/redemptions?coupon=${encodeURIComponent(c.code)}`}
+                        className="hover:text-tuggi-blue hover:underline"
+                        title={t('openRedemptions')}>
+                        {c.redeemed_count}
+                      </Link>
+                    ) : (
+                      c.redeemed_count
+                    )}
                     <span className="text-gray-400">
                       {' '}
                       / {c.max_redemptions ?? '∞'}

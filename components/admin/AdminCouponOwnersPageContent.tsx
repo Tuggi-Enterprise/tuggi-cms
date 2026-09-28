@@ -17,6 +17,7 @@ import {
   ArrowLeft,
   Award,
   Calendar,
+  Clock,
   Gift,
   TrendingUp,
   Users,
@@ -24,6 +25,7 @@ import {
 import Link from 'next/link';
 import { useTranslations } from 'next-intl';
 import { Container } from '@/components/ui/Container';
+import { formatDurationOrDash, optionalMinutes } from '@/lib/format/duration';
 
 interface OwnerPerformance {
   owner_client_id: string;
@@ -34,6 +36,11 @@ interface OwnerPerformance {
   active_coupon_count: number;
   redeemed_total: number;
   days_granted_total: number;
+  /**
+   * Minutes granted by `minutes` coupons (BR-MONETIZACAO-047), bigint. New column of the RPC
+   * (#787): absent until the migration is applied, and then the page prints `—`, not `0 min`.
+   */
+  minutes_granted_total?: number | string | null;
   unique_users: number;
   converted_to_paid: number;
   last_redeemed_at: string | null;
@@ -123,6 +130,10 @@ function AdminCouponOwnersContent() {
   const totalRedemptions = owners.reduce((s, o) => s + o.redeemed_total, 0);
   const totalConverted = owners.reduce((s, o) => s + o.converted_to_paid, 0);
   const totalDays = owners.reduce((s, o) => s + Number(o.days_granted_total), 0);
+  const ownerMinutes = owners.map(o => optionalMinutes(o.minutes_granted_total));
+  const totalMinutes = ownerMinutes.some(m => m != null)
+    ? ownerMinutes.reduce<number>((s, m) => s + (m ?? 0), 0)
+    : null;
 
   return (
     <div className="cms-width min-h-screen bg-gray-50/50">
@@ -143,7 +154,7 @@ function AdminCouponOwnersContent() {
         </div>
 
         {/* Summary cards */}
-        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 mb-6">
+        <div className="grid grid-cols-1 sm:grid-cols-4 gap-3 mb-6">
           <div className="rounded-lg border border-gray-200 bg-white p-4">
             <p className="text-xs uppercase tracking-wider text-gray-500 flex items-center gap-1">
               <Gift size={12} /> {t('totalRedemptions')}
@@ -169,6 +180,14 @@ function AdminCouponOwnersContent() {
             </p>
             <p className="mt-1 text-2xl font-bold text-gray-900">{totalDays}</p>
           </div>
+          <div className="rounded-lg border border-gray-200 bg-white p-4">
+            <p className="text-xs uppercase tracking-wider text-gray-500 flex items-center gap-1">
+              <Clock size={12} /> {t('hoursGranted')}
+            </p>
+            <p className="mt-1 text-2xl font-bold text-gray-900">
+              {formatDurationOrDash(totalMinutes)}
+            </p>
+          </div>
         </div>
 
         {error && (
@@ -187,19 +206,20 @@ function AdminCouponOwnersContent() {
                 <th className="px-4 py-3 text-left">{t('headers.uniqueUsers')}</th>
                 <th className="px-4 py-3 text-left">{t('headers.converted')}</th>
                 <th className="px-4 py-3 text-left">{t('headers.daysGranted')}</th>
+                <th className="px-4 py-3 text-left">{t('headers.hoursGranted')}</th>
                 <th className="px-4 py-3 text-left">{t('headers.lastRedeemed')}</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-100">
               {loading ? (
                 <tr>
-                  <td colSpan={7} className="px-4 py-10 text-center text-gray-400">
+                  <td colSpan={8} className="px-4 py-10 text-center text-gray-400">
                     {t('loading')}
                   </td>
                 </tr>
               ) : owners.length === 0 ? (
                 <tr>
-                  <td colSpan={7} className="px-4 py-10 text-center text-gray-400">
+                  <td colSpan={8} className="px-4 py-10 text-center text-gray-400">
                     {t('empty')}
                   </td>
                 </tr>
@@ -239,7 +259,12 @@ function AdminCouponOwnersContent() {
                       </span>
                     </td>
                     <td className="px-4 py-3 font-bold text-gray-900">
-                      {o.redeemed_total}
+                      <Link
+                        href={`/admin/coupons/redemptions?owner=${o.owner_client_id}`}
+                        className="hover:text-tuggi-blue hover:underline"
+                        title={t('openRedemptions')}>
+                        {o.redeemed_total}
+                      </Link>
                     </td>
                     <td className="px-4 py-3 text-gray-700 inline-flex items-center gap-1">
                       <Users size={12} className="text-gray-400" />
@@ -253,6 +278,9 @@ function AdminCouponOwnersContent() {
                     </td>
                     <td className="px-4 py-3 text-gray-700">
                       {o.days_granted_total}
+                    </td>
+                    <td className="px-4 py-3 text-gray-700">
+                      {formatDurationOrDash(optionalMinutes(o.minutes_granted_total))}
                     </td>
                     <td className="px-4 py-3 text-xs text-gray-500">
                       {formatDate(o.last_redeemed_at)}

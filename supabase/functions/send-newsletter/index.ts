@@ -10,6 +10,7 @@
 //   POST /process-scheduled   -> drains due campaigns (cron)                   [machine]
 //   POST /preview             { content, language } -> rendered HTML             [admin]
 //   POST /send-test           { content, email, language }                       [admin]
+//   POST /ranking             { recipients[] } -> the automatic ranking e-mail  [machine]
 //   POST /translate           { source, targetLanguages }                        [admin]
 //   POST /audience-breakdown  { campaignId } | { audienceFilters, content, defaultLanguage }
 //                             -> recipient count per language                    [admin]
@@ -481,6 +482,105 @@ Deno.serve(async (req) => {
       }
       console.log(`[${requestId}] ✉️ test e-mail sent by ${auth.email}`);
       return json({ success: true, id: sent.data?.id });
+    }
+
+    /**
+     * ---- /ranking : the automatic ranking e-mail — BR-COMUNICACAO-017 item 8 ----
+     *
+     * **Why it is a route HERE and not an Edge Function of its own.** Everything a ranking e-mail
+     * needs already exists in this file and nowhere else: the Resend pacing and retry cursor, the
+     * batch endpoint, the HMAC that signs an unsubscribe link, the RFC 8058 one-click headers and
+     * the branded layout. BR-COMUNICACAO-017 item 5 says there is ONE unsubscribe mechanism, and
+     * a second sender would need a second copy of the signer — the exact defect CLAUDE.md §6
+     * calls out. So the decision lives in `daily-gamification-orchestrator` (who gets which
+     * sentence) and the delivery lives here (how a Tuggi e-mail leaves), which is the same split
+     * the daily push already uses with `firebase-push-notification/send`.
+     *
+     * **It is NOT public.** It sits below `requireAdmin`, so the caller is an operator or the
+     * machine key the orchestrator carries. The subject and body arrive as text because the
+     * caller resolved them from `_shared/ranking-comm-i18n.ts`, the single catalogue; this route
+     * chooses no sentence and invents none.
+     *
+     * **What it does not do, and the absence is deliberate:** no cadence check (there is no
+     * arbiter — BR-COMUNICACAO-017 item 4.b; the orchestrator logs how many left unarbitrated)
+     * and no `newsletter_recipients` row, because that table requires a `campaign_id` and this
+     * dispatch is not a campaign. Both are `data`'s, and both are named in the #747 report.
+     */
+    if (path === '/ranking') {
+      if (!RESEND_API_KEY) return json({ error: 'RESEND_API_KEY ausente' }, 500);
+      const { recipients } = await req.json().catch(() => ({ recipients: null }));
+      if (!Array.isArray(recipients)) return json({ error: 'recipients[] required' }, 400);
+      if (recipients.length === 0) return json({ success: true, sent: 0, failed: 0, total: 0 });
+
+      // One pacing cursor for the whole dispatch, so the gap between batches survives the loop.
+      const pace = { nextAt: 0 };
+      let sent = 0;
+      let failed = 0;
+      const byPiece: Record<string, number> = {};
+
+      for (const group of chunk(recipients, BATCH_SIZE)) {
+        const emails: any[] = [];
+        for (const r of group) {
+          const lang = String(r.lang || 'en');
+          // The three fields of `EmailCopyKeys` map onto the layout's legacy shape: `heading` is
+          // the title block and `body` is the single paragraph. There is NO button, and that is
+          // `design`'s call, not an omission — `EmailCopyKeys` carries no label, and a button
+          // whose text we invented would be text written by the wrong owner (CLAUDE.md §1).
+          const content: NewsletterContent = {
+            subject: String(r.subject || ''),
+            title: String(r.heading || ''),
+            paragraphs: [String(r.body || '')],
+          };
+          const unsubscribeUrl = await buildUnsubscribeUrl(r.email, APP_URL, NEWSLETTER_SECRET, lang);
+          const oneClickUrl = await buildOneClickUrl(r.email, FUNCTIONS_URL, NEWSLETTER_SECRET);
+          // `utm_campaign` is a GA4 dimension and it is the PIECE, never the recipient: it has to
+          // stay countable without identifying anybody (BR-RANKING-002, and the log carries no
+          // PII either).
+          const renderOpts = {
+            unsubscribeUrl,
+            locale: lang,
+            utmCampaign: `ranking-${String(r.piece || 'unknown')}`,
+          };
+          emails.push({
+            from: RESEND_FROM,
+            to: [r.email],
+            subject: content.subject || 'Tuggi',
+            html: renderEmail(content, renderOpts),
+            text: renderText(content, renderOpts),
+            headers: unsubscribeHeaders(oneClickUrl),
+          });
+          byPiece[String(r.piece)] = (byPiece[String(r.piece)] || 0) + 1;
+        }
+
+        const res = await resendFetch(
+          RESEND_BATCH_URL,
+          {
+            method: 'POST',
+            headers: {
+              Authorization: `Bearer ${RESEND_API_KEY}`,
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify(emails),
+          },
+          pace,
+          'ranking e-mail'
+        );
+
+        if (!res.ok) {
+          const reason =
+            `HTTP ${res.status} after ${res.attempts} attempt(s): ` +
+            (res.data?.message || res.data?.name || 'batch error');
+          console.error(`[${requestId}] ❌ ranking e-mail batch failed: ${reason}`);
+          failed += emails.length;
+          continue;
+        }
+        sent += emails.length;
+      }
+
+      console.log(
+        `[${requestId}] 📧 ranking e-mail: sent=${sent} failed=${failed} pieces=${JSON.stringify(byPiece)}`
+      );
+      return json({ success: true, sent, failed, total: recipients.length, pieces: byPiece });
     }
 
     // ---- /translate : traduz o conteúdo para os idiomas alvo (reusa GEMINI dos secrets) ----

@@ -499,14 +499,15 @@ test('#756: BR-RANKING-003, DS-COMPONENTE-088 — the seal asks for the floor, a
     cycle: 'week',
   })
 
-  // ONE CHARGED MINUTE BELOW IT DOES NOT — 9,97, and no rounding anywhere on the way
-  // (`BR-RANKING-003` item 6: the charged minute is worth 0,03 point).
-  const oneMinuteShort = PODIUM_POINTS_FLOOR - 0.03
-  assert.equal(oneMinuteShort, 9.97, 'the fixture really is a hair under the floor')
+  // ONE ENTITLED KILOMETRE BELOW IT DOES NOT — 9,89, and no rounding anywhere on the way
+  // (`BR-RANKING-003` item 8 over `BR-RANKING-004` item 3: the kilometre is worth 0,11 point,
+  // and it is the axis that puts the decimal on the score since 2026-09-16).
+  const oneKilometreShort = PODIUM_POINTS_FLOOR - 0.11
+  assert.equal(oneKilometreShort, 9.89, 'the fixture really is a hair under the floor')
   assert.equal(
-    rankSeal(1, { points_official: oneMinuteShort }, closedWeek, now),
+    rankSeal(1, { points_official: oneKilometreShort }, closedWeek, now),
     null,
-    '9,97 is not 10: a rounded comparison would draw a gold seal here'
+    '9,89 is not 10: a rounded comparison would draw a gold seal here'
   )
   assert.equal(rankSeal(1, { points_official: PODIUM_POINTS_FLOOR - 0.0001 }, closedWeek, now), null)
 })
