@@ -2,6 +2,15 @@ import Database from 'better-sqlite3';
 import * as path from 'path';
 import * as fs from 'fs';
 import * as readline from 'readline';
+import { heightFromTags } from './trigger-points-google/config/visibility-class';
+
+/**
+ * `buildings.height` of the local OSM db: the engine's one floor ruler (INV-E3, #778), 6 m when
+ * the element carries no height. Readers prefer the tags, so this only feeds the untagged case.
+ */
+export function storedBuildingHeightM(tags: Record<string, unknown>): number {
+  return heightFromTags(tags)?.heightM ?? 6;
+}
 
 /**
  * Service to manage and query local OSM data (extracted from PBF/GeoJSON)
@@ -218,9 +227,7 @@ export class OSMLocalDataService {
         }
         
         if (tags.building || tags.natural === 'wood' || tags.landuse === 'forest') {
-          let height = 6; // Default
-          if (tags.height) height = parseFloat(tags.height);
-          else if (tags['building:levels']) height = parseInt(tags['building:levels']) * 3.5;
+          const height = storedBuildingHeightM(tags);
 
           insertBuilding.run(
             `osm_building_${osmId}`,

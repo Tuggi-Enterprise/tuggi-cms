@@ -9,6 +9,7 @@ import {
   BUILDING_LEVEL_HEIGHT_M, heightFromTags, LANDMARK_MIN_PROMINENCE_M, SANITY_MAX_TP_DISTANCE_M, VisibilityClass, maxEdgeDistanceFor,
 } from '../../lib/services/trigger-points-google/config/visibility-class'
 import { OSMDataFetcher } from '../../lib/services/trigger-points-google/services/osm-data-fetcher'
+import { storedBuildingHeightM } from '../../lib/services/osm-local-data-service'
 
 const MIGRATIONS = join(process.cwd(), 'supabase/migrations')
 
@@ -47,5 +48,13 @@ describe('#781 TP engine SSOT', () => {
       if (!file.endsWith('.ts')) continue
       assert.doesNotMatch(readFileSync(join(engine, file), 'utf8'), literal, file)
     }
+  })
+
+  it('INV-E3 (#778): the local OSM db stores building height with heightFromTags, not ×3.5', () => {
+    for (const tags of [{ height: '12 m' }, { 'building:height': '9' }, { 'building:levels': '4' }]) {
+      assert.equal(storedBuildingHeightM(tags), heightFromTags(tags)!.heightM)
+    }
+    assert.equal(storedBuildingHeightM({ 'building:levels': '4' }), 4 * BUILDING_LEVEL_HEIGHT_M)
+    assert.equal(storedBuildingHeightM({ building: 'yes' }), 6)
   })
 })
