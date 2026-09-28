@@ -2661,7 +2661,7 @@
   "Coupons": {
     "list": {
       "title": "Cupones",
-      "subtitle": "Horas de guía (o días, en cupones antiguos) canjeables en la app o en landing pages.",
+      "subtitle": "Horas de guía o días de acceso, canjeables en la app o en landing pages.",
       "ownerPerformance": "Rendimiento por owner",
       "newCoupon": "Nuevo cupón",
       "searchPlaceholder": "Buscar por código",
@@ -2755,7 +2755,7 @@
       "grantKindDays": "Días",
       "hours": "Horas de guía",
       "hoursHelp": "Número entero de 1 a 45. El saldo no caduca y solo se gasta con la guía activa y en movimiento.",
-      "daysHelp": "Formato antiguo. Los cupones de socios nuevos conceden horas."
+      "daysHelp": "Acceso ilimitado durante el número de días indicado, contados desde el canje."
     },
     "owners": {
       "title": "Rendimiento por owner",

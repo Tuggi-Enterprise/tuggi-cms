@@ -2922,7 +2922,7 @@
   "Coupons": {
     "list": {
       "title": "Cupons",
-      "subtitle": "Horas de guia (ou dias, nos cupons antigos) resgatáveis pelo app ou por landing page.",
+      "subtitle": "Horas de guia ou dias de acesso, resgatáveis pelo app ou por landing page.",
       "ownerPerformance": "Desempenho por owner",
       "newCoupon": "Novo cupom",
       "searchPlaceholder": "Buscar por código",
@@ -3016,7 +3016,7 @@
       "grantKindDays": "Dias",
       "hours": "Horas de guia",
       "hoursHelp": "Número inteiro de 1 a 45. O saldo não expira e só é gasto com o guia ativo e em movimento.",
-      "daysHelp": "Formato antigo. Cupons de parceria novos concedem horas."
+      "daysHelp": "Acesso ilimitado pelo número de dias informado, contados a partir do resgate."
     },
     "owners": {
       "title": "Desempenho por owner",

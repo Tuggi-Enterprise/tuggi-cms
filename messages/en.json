@@ -2679,7 +2679,7 @@
   "Coupons": {
     "list": {
       "title": "Coupons",
-      "subtitle": "Guide hours (or days, on legacy coupons) redeemable in the app or on landing pages.",
+      "subtitle": "Guide hours or days of access, redeemable in the app or on landing pages.",
       "ownerPerformance": "Owner performance",
       "newCoupon": "New coupon",
       "searchPlaceholder": "Search by code",
@@ -2773,7 +2773,7 @@
       "grantKindDays": "Days",
       "hours": "Guide hours",
       "hoursHelp": "Whole number from 1 to 45. The balance never expires and is only used while the guide is on and moving.",
-      "daysHelp": "Legacy format. New partner coupons grant hours."
+      "daysHelp": "Unlimited access for the number of days entered, counted from redemption."
     },
     "owners": {
       "title": "Owner performance",
