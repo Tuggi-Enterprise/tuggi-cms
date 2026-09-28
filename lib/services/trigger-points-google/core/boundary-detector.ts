@@ -8,6 +8,7 @@ import { convertViewportToPolygon, calculatePolygonArea, calculatePolygonAreaInM
 import { ElevationAnalysisService } from '../services/elevation-service';
 import { TRIGGER_POINTS_CONSTANTS } from '../config/trigger-points-config';
 import { isCuratedBoundaryImplausible } from '../utils/osm-validation';
+import { DemStore } from '../../dem/dem-store';
 import { assembleOuterRings, chainSameIdentity, chooseContainingBoundary, corridorRing, footprintRing, IDENTITY_NEAR_PIN_M, LINE_CORRIDOR_HALF_WIDTH_M, outerRing, type BoundaryRejection, type OsmAreaElement } from '../utils/boundary-choice';
 
 /**
@@ -23,6 +24,13 @@ function peakPoints(peaks: any[] | undefined): Array<{ lat: number; lng: number;
   return (peaks ?? [])
     .filter(p => p?.coordinates?.length)
     .map(p => ({ lat: p.coordinates[0].lat, lng: p.coordinates[0].lng, tags: p.tags }));
+}
+
+/** Most of the ring is under a building of the buildings layer (E3's measure, #783). */
+const BUILT_SHARE_MIN = 0.5;
+function ringIsBuilt(ring: Array<{ lat: number; lng: number }>): boolean {
+  const f = DemStore.getInstance().footprintBuildings(ring);
+  return f.cells > 0 && f.builtCells / f.cells >= BUILT_SHARE_MIN;
 }
 
 export class BoundaryDetector {
@@ -1076,7 +1084,7 @@ out geom tags;
       }
     }
     const { chosen, rejected } = chooseContainingBoundary(
-      poiData.location, { name: poiData.name, namedOnly: narrowing || (poiData.osm_type === 'node' && !!poiData.osm_id) }, elements ?? []
+      poiData.location, { name: poiData.name, namedOnly: narrowing || (poiData.osm_type === 'node' && !!poiData.osm_id), isBuilt: ringIsBuilt }, elements ?? []
     );
     if (narrowing) {
       if (!chosen || chosen.areaM2 >= smallerThanM2 || String(chosen.element.id) === String(poiData.osm_id)) return { success: false, error: 'No smaller element of the POI identity', processingTime: 0 };

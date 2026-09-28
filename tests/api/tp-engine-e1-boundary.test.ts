@@ -85,6 +85,23 @@ describe('INV-E1c — the element holding the pin is chosen by identity and geom
     assert.equal(choice.chooseContainingBoundary(PIN, { name: 'Igreja X', namedOnly: true }, [square_, church]).chosen?.element.id, 9)
   })
 
+  it('BR-POI-009, INV-E1c: a built element of akin name holding the pin is the border (Igreja Matriz ~ "Paróquia … Martiz", Cabo Frio); a square of akin name is not built', () => {
+    const church = { type: 'way', id: 40, tags: { name: 'Paróquia Nossa Senhora da Assunção Martiz' }, geometry: square(15) }
+    const plaza = { type: 'way', id: 41, tags: { name: 'Praça Nossa Senhora da Assunção' }, geometry: square(60) }
+    const poi = 'Igreja Matriz da Nossa Senhora da Assunção'
+    assert.ok(choice.akinPoiName(church.tags, poi))
+    assert.ok(!choice.akinPoiName({ name: 'Maracanã' }, 'Estádio do Maracanã'), 'one shared word is not an identity')
+    assert.ok(!choice.akinPoiName({ name: 'Rua Nossa Senhora de Copacabana' }, poi))
+    // the buildings layer covers the church (900 m²), not the square (14,400 m²)
+    const churchBuilt = (ring: LatLng[]) => calculatePolygonAreaInM2(ring) < 2_000
+    assert.equal(choice.chooseContainingBoundary(PIN, { name: poi, isBuilt: churchBuilt }, [plaza, church]).chosen?.element.id, 40)
+    assert.equal(choice.chooseContainingBoundary(PIN, { name: poi, isBuilt: churchBuilt }, [plaza]).chosen, undefined, 'the square alone is ground')
+    assert.equal(choice.chooseContainingBoundary(PIN, { name: poi, isBuilt: () => false }, [plaza, church]).chosen, undefined,
+      'not built: the akin element is the ground, as before')
+    assert.equal(choice.chooseContainingBoundary(PIN, { name: poi, namedOnly: true, isBuilt: () => true }, [church]).chosen, undefined,
+      'a curated node id keeps its own identity: exact name only')
+  })
+
   it('INV-E1a/c (#786): `short_name` and `;` lists are the element\'s names — the stadium is the Maracanã, and the smallest of the identity wins', () => {
     const stadium = { type: 'relation', id: 30, tags: { name: 'Estádio Jornalista Mário Filho', short_name: 'Maracanã' }, geometry: square(150, { lat: PIN.lat + 170 * M_LAT, lng: PIN.lng }) }
     const hood = { type: 'relation', id: 31, tags: { boundary: 'administrative', name: 'Maracanã' }, geometry: square(700) }

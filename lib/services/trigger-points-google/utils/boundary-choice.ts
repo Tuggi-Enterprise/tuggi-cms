@@ -54,6 +54,47 @@ export function carriesPoiName(tags: Tags, poiName: string | null | undefined): 
   return name !== '' && elementNames(tags).includes(name);
 }
 
+/** Joining words that never tell two names apart. */
+const NAME_JOINERS = new Set(['a', 'as', 'o', 'os', 'da', 'das', 'de', 'do', 'dos', 'e']);
+
+const nameTokens = (s: unknown): string[] => normName(s).split(' ').filter(t => t !== '' && !NAME_JOINERS.has(t));
+
+/** One edit or one swap of neighbours apart (`matriz`/`martiz`), for words of 5+ letters. */
+function sameWord(a: string, b: string): boolean {
+  if (a === b) return true;
+  if (a.length < 5 || b.length < 5 || Math.abs(a.length - b.length) > 1) return false;
+  const d: number[][] = Array.from({ length: a.length + 1 }, (_, i) => [i, ...Array(b.length).fill(0)]);
+  for (let j = 1; j <= b.length; j++) d[0][j] = j;
+  for (let i = 1; i <= a.length; i++) {
+    for (let j = 1; j <= b.length; j++) {
+      const cost = a[i - 1] === b[j - 1] ? 0 : 1;
+      d[i][j] = Math.min(d[i - 1][j] + 1, d[i][j - 1] + 1, d[i - 1][j - 1] + cost);
+      if (i > 1 && j > 1 && a[i - 1] === b[j - 2] && a[i - 2] === b[j - 1]) d[i][j] = Math.min(d[i][j], d[i - 2][j - 2] + 1);
+    }
+  }
+  return d[a.length][b.length] <= 1;
+}
+
+/**
+ * Akin identity: one of the element's names is the POI's name with at most ONE word swapped on
+ * each side and 2+ words shared, typos of one letter forgiven. "Igreja Matriz da Nossa Senhora da
+ * Assunção" ~ "Paróquia Nossa Senhora da Assunção Martiz" (Cabo Frio); "Estádio do Maracanã" is
+ * not "Maracanã" (one shared word). Weaker than `carriesPoiName`: "Igreja X" ~ "Praça X" too, so
+ * the caller also asks the element to be built (`chooseContainingBoundary`, `isBuilt`).
+ */
+export function akinPoiName(tags: Tags, poiName: string | null | undefined): boolean {
+  const poi = nameTokens(poiName);
+  if (poi.length < 2) return false;
+  return ['name', 'name:pt', 'official_name', 'alt_name', 'short_name']
+    .flatMap(k => String(tags?.[k] ?? '').split(';'))
+    .some(n => {
+      const el = nameTokens(n);
+      const shared = poi.filter(t => el.some(u => sameWord(t, u))).length;
+      const elShared = el.filter(u => poi.some(t => sameWord(t, u))).length;
+      return shared >= 2 && poi.length - shared <= 1 && el.length - elShared <= 1;
+    });
+}
+
 /**
  * The pin stands on a named element of another name: it is the ground the POI is on (a square,
  * a park, a neighbourhood), not the POI. The Monumento Árvore de Natal took the Praça do Radio
@@ -145,6 +186,9 @@ const isClosed = (ring: LatLng[]): boolean =>
  *    Reserva pin is on the promenade, off the sand, and a 248 m² kiosk under it took the border;
  * 2. otherwise an UNNAMED element, and only one smaller than the smallest named element of another
  *    name at the pin — whatever holds the ground the POI stands on is not the POI either;
+ * 2a. without a node id, an element holding the pin whose name is akin (`akinPoiName`) and that
+ *    the buildings layer says is built (`isBuilt`) — the church polygon named "Paróquia …" under the
+ *    pin of "Igreja Matriz …" (Cabo Frio); a square of the same name is not built;
  * 3. `namedOnly`: only step 1 applies. A POI with a curated node id has its own identity, because
  *    an unnamed polygon under a bust is the square, not the bust; and a POI whose typed id already
  *    gave a border only gives way to a smaller element of its name (Maracanã, #786).
@@ -152,13 +196,14 @@ const isClosed = (ring: LatLng[]): boolean =>
  */
 export function chooseContainingBoundary(
   pin: LatLng,
-  poi: { name?: string | null; namedOnly?: boolean },
+  poi: { name?: string | null; namedOnly?: boolean; isBuilt?: (ring: LatLng[]) => boolean },
   elements: OsmAreaElement[],
 ): { chosen?: ChosenBoundary; rejected: BoundaryRejection[] } {
   const rejected: BoundaryRejection[] = [];
   const named: ChosenBoundary[] = [];
   const other: ChosenBoundary[] = [];
   const unnamed: ChosenBoundary[] = [];
+  const akin: ChosenBoundary[] = [];
   const seen = new Set<string>();
 
   for (const el of elements) {
@@ -174,12 +219,14 @@ export function chooseContainingBoundary(
       continue;
     }
     if (!isPointInPolygon(pin, ring)) continue;
-    if (elementNames(el.tags).length > 0) other.push(candidate);
+    if (!poi.namedOnly && poi.isBuilt && akinPoiName(el.tags, poi.name) && poi.isBuilt(ring)) akin.push(candidate);
+    else if (elementNames(el.tags).length > 0) other.push(candidate);
     else unnamed.push(candidate);
   }
   const byArea = (a: ChosenBoundary, b: ChosenBoundary) => a.areaM2 - b.areaM2;
   named.sort(byArea);
   if (named[0]) return { chosen: named[0], rejected };
+  if (akin.length) return { chosen: akin.sort(byArea)[0], rejected };
 
   const key = (c: ChosenBoundary) => `${c.element.type}/${c.element.id}`;
   for (const c of other) rejected.push({ element: key(c), reason: NAMED_GROUND_REASON });
