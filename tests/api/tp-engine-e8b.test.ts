@@ -29,21 +29,39 @@ const poi = (half: number, h: number) => ({
 async function withRelief<T>(
   obstacle: (n: number, e: number) => number | null,
   fn: () => Promise<T>,
+  measured: (n: number, e: number) => boolean = () => false,
 ): Promise<T> {
   const dem = DemStore.getInstance() as any
-  const original = { ground: dem.ground, obstacle: dem.obstacle }
+  const original = { ground: dem.ground, obstacle: dem.obstacle, obstacleMeasured: dem.obstacleMeasured }
   dem.ground = () => GROUND
   dem.obstacle = (lat: number, lng: number) => obstacle(northOf({ lat }), eastOf({ lng }))
+  dem.obstacleMeasured = (lat: number, lng: number) => measured(northOf({ lat }), eastOf({ lng }))
   try {
     return await fn()
   } finally {
     dem.ground = original.ground
     dem.obstacle = original.obstacle
+    dem.obstacleMeasured = original.obstacleMeasured
   }
 }
 
 const sight = async (p: ReturnType<typeof poi>, observer: { lat: number; lng: number }) =>
   VisibilityMapBuilder.measureSight(VisibilityMapBuilder.sightAims(p), observer, { footprint: p.coordinates })
+
+describe('INV-E8, BR-POI-009 — a measured height is not forgiven the surface noise (#772)', () => {
+  // N. S. de Fátima (Rio): a 10 m church 160 m away, behind a row of houses standing 3–5 m over
+  // the sight line. As GLO-30 surface the row is noise (4 m); as a measured height it is a wall.
+  const church = poi(10, 10)
+  const observer = at(160, 0)
+  const houses = (n: number) => (n > 110 && n < 130 ? GROUND + 7 : GROUND) // ~3 m over the line to the roof
+  it('INV-E8: the same 3 m over the line hides the POI when the height is measured, and not when it is the surface', async () => {
+    const asSurface = await withRelief(houses, () => sight(church, observer))
+    const asMeasured = await withRelief(houses, () => sight(church, observer), n => n > 110 && n < 130)
+    assert.ok(asSurface.passes, 'surface: inside the 4 m of GLO-30 noise')
+    assert.equal(asMeasured.visible, 0, 'measured: every aim is behind the houses')
+    assert.equal(asMeasured.passes, false)
+  })
+})
 
 describe('INV-E8b, BR-AUDIO-010 — the sight line aims at many points of the POI', () => {
   it('INV-E8b: top and mid-height over the top point, and the edge points from the ground to the POI height', async () => {

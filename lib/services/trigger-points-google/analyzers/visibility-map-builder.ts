@@ -77,10 +77,20 @@ const EARTH_RADIUS_M = 6_371_000;
 export const REFRACTION_K = 0.13;
 /**
  * How far an obstacle may stand above the sight line before it blocks: the absolute vertical
- * accuracy of Copernicus GLO-30 (< 4 m LE90, Copernicus DEM Product Handbook). One margin for the
- * surface and for tagged buildings, in the fan and per candidate (#782; SRTM needed 15 m).
+ * accuracy of Copernicus GLO-30 (< 4 m LE90, Copernicus DEM Product Handbook) (#782; SRTM needed
+ * 15 m). The fan (an outer reach) forgives it everywhere; per candidate (INV-E8) only where the
+ * obstacle is the GLO-30 surface itself.
  */
 export const SIGHT_NOISE_MARGIN_M = 4;
+/**
+ * INV-E8, per candidate: what a MEASURED height (building layer, canopy, `height` tag) may stand
+ * above the sight line before it blocks — the roof edge, not the surface noise. With the 4 m of
+ * the surface, 9 m houses and trees 3–5 m over the line let a 10 m church be "seen" through them
+ * (N. S. de Fátima, Rio), and 11–14 m buildings a 13 m church from 0.9–1 km (Matriz, Cabo Frio).
+ * At 0 m a 6 m house 60 m from the observer on the canal bridge hid the Capela da Guia by 0.7 m
+ * (#772, 2026-09-28).
+ */
+export const SIGHT_MEASURED_MARGIN_M = 1;
 
 /** Drop of a point d metres away below the tangent plane at the origin: curvature minus refraction. */
 export function curvatureDropM(d: number): number {
@@ -95,6 +105,7 @@ export interface SightRelief {
   ground(lat: number, lng: number): number | null;
   surface(lat: number, lng: number): number | null;
   obstacle(lat: number, lng: number): number | null;
+  obstacleMeasured?(lat: number, lng: number): boolean;
 }
 
 type BuildingTop = { centroid: GeoPoint; topAltitudeM: number; polygon: GeoPoint[] };
@@ -630,7 +641,8 @@ export class VisibilityMapBuilder {
       const p = this.offsetByBearing(poi, bearingDeg, d);
       const top = dem.obstacle(p.lat, p.lng);
       if (top === null) continue;
-      if ((top - curvatureDropM(d) - marginM - poiTopAltitudeM) / d > sightSlope) return false;
+      const forgivenM = dem.obstacleMeasured?.(p.lat, p.lng) ? SIGHT_MEASURED_MARGIN_M : marginM;
+      if ((top - curvatureDropM(d) - forgivenM - poiTopAltitudeM) / d > sightSlope) return false;
     }
 
     // Buildings with a measured height (ground + tag). Foco no observador: a linha está mais
@@ -651,7 +663,7 @@ export class VisibilityMapBuilder {
         if (t === null) continue;
         const d = t * distanceM;
         if (d < ownM) continue; // the POI itself, or inside its own stretch (INV-E8b)
-        if ((b.topAltitudeM - curvatureDropM(d) - marginM - poiTopAltitudeM) / d > sightSlope) {
+        if ((b.topAltitudeM - curvatureDropM(d) - SIGHT_MEASURED_MARGIN_M - poiTopAltitudeM) / d > sightSlope) { // a tagged height is measured
           return false; // prédio bloqueia
         }
       }

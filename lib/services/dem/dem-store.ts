@@ -233,6 +233,20 @@ export class DemStore {
   }
 
   /**
+   * INV-E8 (#772): whether `obstacle` here is a measured height — a building tier (Overture,
+   * 3D-GloBFP) or the canopy above the surface — rather than the GLO-30 surface itself. The sight
+   * line forgives only the surface its vertical noise (`SIGHT_NOISE_MARGIN_M`).
+   */
+  obstacleMeasured(lat: number, lng: number): boolean {
+    const s = this.surface(lat, lng)
+    const g = this.ground(lat, lng)
+    if (s === null || g === null) return false
+    const b = this.cell('buildings', lat, lng)
+    if (b !== null && b >> 14 >= BUILDING_TIER.GLOBFP) return true
+    return g + (this.cell('canopy', lat, lng) ?? 0) > s
+  }
+
+  /**
    * Height of the building standing at this point (E2, the host): the measured tier of the
    * buildings layer, else surface − ground (#783). null outside every prepared city.
    */
