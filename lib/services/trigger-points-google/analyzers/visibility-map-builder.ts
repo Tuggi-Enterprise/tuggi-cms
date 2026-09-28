@@ -28,7 +28,7 @@
  */
 
 import type { BuildingData } from '../services/osm-data-fetcher';
-import { calculateDistance, isPointInPolygon } from '../utils/calculations';
+import { calculateDistance, findClosestPointOnBoundary, isPointInPolygon } from '../utils/calculations';
 import { DemStore } from '../../dem/dem-store';
 import { MIN_APPARENT_ANGLE_DEG, heightFromTags } from '../config/visibility-class';
 
@@ -100,7 +100,7 @@ export interface SightRelief {
 type BuildingTop = { centroid: GeoPoint; topAltitudeM: number; polygon: GeoPoint[] };
 
 /** INV-E8b: one point of the POI the sight line aims at (altitude in metres). */
-export interface SightAim { at: GeoPoint; altM: number; kind: 'top' | 'mid' | 'edge' }
+export interface SightAim { at: GeoPoint; altM: number; kind: 'top' | 'mid' | 'edge' | 'relief' }
 
 /** INV-E8b: graded sight from one observer; `fraction` and `angleDeg` go to the E8 trace. */
 export interface SightMeasure { visible: number; total: number; fraction: number; angleDeg: number; passes: boolean }
@@ -112,6 +112,9 @@ export interface SightMeasure { visible: number; total: number; fraction: number
  */
 export const EDGE_AIM_COUNT = 12;
 const EDGE_AIM_LEVELS = [0, 0.5, 1] as const;
+/** INV-E8b, relief landmark: 8 bearings × rings to 800 m, cut where the upper half ends (#784). */
+const RELIEF_AIM_BEARINGS = 8;
+const RELIEF_AIM_RINGS_M = [50, 100, 200, 400, 800] as const;
 
 /**
  * FAN ONLY: buildings this close to the POI (beyond its own boundary) are the POI itself or glued
@@ -389,23 +392,37 @@ export class VisibilityMapBuilder {
    * INV-E8b (#784) — the points of the POI the sight line aims at: the top and the mid-height
    * over the highest point of the boundary (E4), and `EDGE_AIM_COUNT` points evenly spaced on the
    * boundary, each at `EDGE_AIM_LEVELS` of the POI height over the ground at that point. The mid
-   * height runs from the lowest edge ground to the top, so a hill's mid aim is on its body.
+   * height runs from the lowest edge ground to the top, so a hill's mid aim is on its body. A
+   * synthetic circle is not a footprint: its edge stands on the POI ground (E4), not on the DEM
+   * under the circle — at the Cristo the GEDTM30 reads 513 m for a 710 m summit.
+   *
+   * A relief landmark (`landmark_prominence`) is the mountain, not the circle on its summit: it
+   * also aims at the top of what stands on the upper half of its relief (ground above the summit
+   * minus half the local prominence), along `RELIEF_AIM_BEARINGS` bearings at `RELIEF_AIM_RINGS_M`.
+   * Its own slope stays an obstacle: the far side of the mountain is not seen.
    */
   static sightAims(
     boundary: {
       coordinates?: GeoPoint[];
       center?: GeoPoint;
-      physical?: { groundTopM: number | null; heightM: number; topPoint?: GeoPoint | null };
+      synthetic?: boolean;
+      physical?: {
+        groundTopM: number | null;
+        heightM: number;
+        topPoint?: GeoPoint | null;
+        classRule?: string;
+        localProminenceM?: number | null;
+      };
       height?: number;
       elevation?: { center?: number };
     },
-    relief: Pick<SightRelief, 'ground'> = DemStore.getInstance()
+    relief: Pick<SightRelief, 'ground' | 'obstacle'> = DemStore.getInstance()
   ): SightAim[] {
     const { groundM, heightM, topM } = this.poiSightTarget(boundary);
     const ring = boundary.coordinates && boundary.coordinates.length >= 3 ? boundary.coordinates : [];
     const topAt = boundary.physical?.topPoint ?? boundary.center ?? (ring.length ? this.polygonCentroid(ring) : null);
     const edge = ring.length ? this.evenlyAlongRing(ring, EDGE_AIM_COUNT) : [];
-    const edgeGround = edge.map(v => relief.ground(v.lat, v.lng) ?? groundM);
+    const edgeGround = edge.map(v => (boundary.synthetic ? groundM : relief.ground(v.lat, v.lng) ?? groundM));
     const baseM = Math.min(groundM, ...edgeGround);
     const aims: SightAim[] = topAt
       ? [{ at: topAt, altM: topM, kind: 'top' }, { at: topAt, altM: (baseM + topM) / 2, kind: 'mid' }]
@@ -413,7 +430,39 @@ export class VisibilityMapBuilder {
     edge.forEach((v, i) => {
       for (const f of EDGE_AIM_LEVELS) aims.push({ at: v, altM: edgeGround[i] + f * heightM, kind: 'edge' });
     });
+    const ph = boundary.physical;
+    if (topAt && ph?.classRule === 'landmark_prominence' && ph.localProminenceM) {
+      const upperHalfM = groundM - ph.localProminenceM / 2;
+      for (let k = 0; k < RELIEF_AIM_BEARINGS; k++) {
+        for (const r of RELIEF_AIM_RINGS_M) {
+          const at = this.offsetByBearing(topAt, (k * 360) / RELIEF_AIM_BEARINGS, r);
+          const g = relief.ground(at.lat, at.lng);
+          const top = relief.obstacle(at.lat, at.lng);
+          if (g === null || top === null || g < upperHalfM) break; // left the upper half on this bearing
+          aims.push({ at, altM: top, kind: 'relief' });
+        }
+      }
+    }
     return aims;
+  }
+
+  /**
+   * INV-E8b (#784) — the edge point facing one observer (nearest point of the boundary), with the
+   * same levels as the sampled edge points: next to a 13 km bridge the 12 sampled points are a
+   * kilometre away, and the stretch the observer stands beside must be an aim too.
+   */
+  static facingAims(
+    boundary: Parameters<typeof VisibilityMapBuilder.sightAims>[0],
+    observer: GeoPoint,
+    relief: Pick<SightRelief, 'ground'> = DemStore.getInstance()
+  ): SightAim[] {
+    const ring = boundary.coordinates && boundary.coordinates.length >= 3 ? boundary.coordinates : null;
+    if (!ring) return [];
+    const { groundM, heightM } = this.poiSightTarget(boundary);
+    const { lat, lng } = findClosestPointOnBoundary(observer, ring);
+    const at = { lat, lng };
+    const g = boundary.synthetic ? groundM : relief.ground(at.lat, at.lng) ?? groundM;
+    return EDGE_AIM_LEVELS.map(f => ({ at, altM: g + f * heightM, kind: 'edge' as const }));
   }
 
   /**
@@ -532,7 +581,7 @@ export class VisibilityMapBuilder {
     const ownM = (ring ? (this.lastCrossingT(poi, target, ring) ?? 0) : 0) * distanceM + stepM;
 
     for (let d = stepM; d <= distanceM - cellM + 1e-6; d += stepM) {
-      if (d < ownM) continue;
+      if (d < ownM - 1e-6) continue; // the first cell past the footprint is tested
       const p = this.offsetByBearing(poi, bearingDeg, d);
       const top = dem.obstacle(p.lat, p.lng);
       if (top === null) continue;

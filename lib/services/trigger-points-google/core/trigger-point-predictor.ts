@@ -1384,8 +1384,9 @@ export class CoreTriggerPointPredictor {
       arr.push(b);
       buildingGrid.set(key, arr);
     }
-    // INV-E8b (#784): every aim of the POI — top, mid-height, edge points — and only its
-    // footprint is not an obstacle. It replaced one aim on the edge point facing the candidate.
+    // INV-E8b (#784): every aim of the POI — top, mid-height, edge points, the edge point facing
+    // the candidate and, on a relief landmark, its upper half — and only its footprint is not an
+    // obstacle. It replaced one aim on the edge point facing the candidate.
     const aims = VisibilityMapBuilder.sightAims(boundary);
     const footprint = boundary.coordinates?.length >= 3 ? boundary.coordinates : null;
     const aimBox = {
@@ -1416,7 +1417,9 @@ export class CoreTriggerPointPredictor {
       const batch = candidates.slice(i, i + BATCH);
       const results = await Promise.all(
         batch.map(c =>
-          VisibilityMapBuilder.measureSight(aims, c.location, { footprint, buildingTops: candidatesBuildingsForLOS(c) })
+          VisibilityMapBuilder.measureSight([...aims, ...VisibilityMapBuilder.facingAims(boundary, c.location)], c.location, {
+            footprint, buildingTops: candidatesBuildingsForLOS(c),
+          })
         )
       );
       for (let j = 0; j < batch.length; j++) {

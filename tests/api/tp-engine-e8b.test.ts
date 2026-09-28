@@ -59,6 +59,45 @@ describe('INV-E8b, BR-AUDIO-010 — the sight line aims at many points of the PO
     })
   })
 
+  it('INV-E8b: a synthetic circle is not a footprint — its edge aims stand on the POI ground, not on the DEM under it', async () => {
+    await withRelief(() => GROUND, async () => {
+      const aims = VisibilityMapBuilder.sightAims({ ...poi(10, 2), synthetic: true, physical: { groundTopM: 710, heightM: 2, topPoint: PIN } })
+      assert.equal(Math.min(...aims.map(a => a.altM)), 710, 'the DEM reads 5 m under a 710 m summit')
+    })
+  })
+
+  it('INV-E8b: a relief landmark aims at the upper half of its relief, and stops where it ends', async () => {
+    const dem = DemStore.getInstance() as any
+    const original = { ground: dem.ground, obstacle: dem.obstacle }
+    // a cone: 400 m at the top, down 1 m per metre; local prominence 600 → upper half above 100 m
+    const cone = (lat: number, lng: number) => Math.max(0, 400 - Math.hypot(northOf({ lat }), eastOf({ lng })))
+    dem.ground = cone
+    dem.obstacle = (lat: number, lng: number) => cone(lat, lng) + 10
+    try {
+      const peak = { ...poi(10, 0), synthetic: true, physical: { groundTopM: 400, heightM: 0, topPoint: PIN, classRule: 'landmark_prominence', localProminenceM: 600 } }
+      const relief = VisibilityMapBuilder.sightAims(peak).filter(a => a.kind === 'relief')
+      assert.equal(relief.length, 8 * 3, '50, 100 and 200 m on 8 bearings; 400 m is below the upper half')
+      assert.ok(relief.every(a => Math.abs(a.altM - (cone(a.at.lat, a.at.lng) + 10)) < 1e-6), 'the aim is the top of what stands there')
+      const plain = VisibilityMapBuilder.sightAims({ ...peak, physical: { ...peak.physical, classRule: 'point_low' } })
+      assert.equal(plain.filter(a => a.kind === 'relief').length, 0)
+    } finally {
+      dem.ground = original.ground
+      dem.obstacle = original.obstacle
+    }
+  })
+
+  it('INV-E8b: next to a long POI, the edge point facing the observer is an aim (the sampled ones are far)', async () => {
+    const bridge = { coordinates: box(-5, 5, -5000, 5000), center: PIN, physical: { groundTopM: GROUND, heightM: 0, topPoint: PIN } }
+    const observer = at(-40, 3000)
+    await withRelief(() => GROUND, async () => {
+      const facing = VisibilityMapBuilder.facingAims(bridge, observer)
+      assert.equal(facing.length, 3)
+      assert.ok(Math.abs(eastOf(facing[0].at) - 3000) < 1 && Math.abs(northOf(facing[0].at) + 5) < 1)
+      const s = await VisibilityMapBuilder.measureSight([...VisibilityMapBuilder.sightAims(bridge), ...facing], observer, { footprint: bridge.coordinates })
+      assert.equal(s.passes, true, `${s.angleDeg}`)
+    })
+  })
+
   it('INV-E8b: a building between the street and a low POI hides it — where the 50 m exclusion used to see through', async () => {
     const p = poi(10, 6)
     const observer = at(-110, 0) // 100 m from the edge

@@ -38,8 +38,9 @@ export const LANDMARK_MIN_HEIGHT_M = 30;
 export const STRUCTURE_BUILT_SHARE_MIN = 0.8;
 /**
  * Smallest angle the visible part of the POI must span in the observer's view for the candidate
- * to pass the sight line (INV-E8b, #784). CALIBRATION PENDING.
- * Provisional (#775).
+ * to pass the sight line (INV-E8b, #784). Calibrated on the 36 POIs (#784): the visible candidates
+ * leave a gap between ~0.1° and ~0.3° (below it, one aim or a sliver; above it, the POI), and
+ * 0.2° is a 35 m object at 10 km. Provisional (#775).
  */
 export const MIN_APPARENT_ANGLE_DEG = 0.2;
 /**
