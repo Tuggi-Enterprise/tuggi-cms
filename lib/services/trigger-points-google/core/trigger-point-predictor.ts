@@ -1412,6 +1412,10 @@ export class CoreTriggerPointPredictor {
         )
       );
       for (let j = 0; j < batch.length; j++) {
+        // a trail on the relief landmark's own slope is not where it is heard (INV-E8b, #784)
+        if (results[j].passes && VisibilityMapBuilder.onOwnSlope(boundary, batch[j])) {
+          results[j] = { ...results[j], passes: false, ownSlope: true };
+        }
         // the E8 trace reads it (INV-E8b)
         batch[j].metadata = { ...(batch[j].metadata || {}), sight: results[j] };
         if (results[j].passes) survivors.push(batch[j]);

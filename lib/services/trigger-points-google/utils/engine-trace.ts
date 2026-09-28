@@ -79,9 +79,9 @@ export function poiTraceRows(poiId: string, boundary: BoundaryData | undefined):
 }
 
 /** INV-E8b: what the E8 row of a candidate says about its sight — aims seen and apparent angle. */
-export function sightTraceValue(sight: { visible: number; total: number; fraction: number; angleDeg: number } | undefined): string {
+export function sightTraceValue(sight: { visible: number; total: number; fraction: number; angleDeg: number; ownSlope?: boolean } | undefined): string {
   if (!sight) return 'sight not measured';
-  return `sight ${sight.visible}/${sight.total} aims (${Math.round(sight.fraction * 100)}%), ${sight.angleDeg.toFixed(2)}°`;
+  return `sight ${sight.visible}/${sight.total} aims (${Math.round(sight.fraction * 100)}%), ${sight.angleDeg.toFixed(2)}°${sight.ownSlope ? '; own slope' : ''}`;
 }
 
 /** INV-E8b: the limit column of the E8 rows. */

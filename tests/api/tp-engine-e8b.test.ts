@@ -105,6 +105,21 @@ describe('INV-E8b, BR-AUDIO-010 — the sight line aims at many points of the PO
     })
   })
 
+  it('INV-E8b: a trail on the relief landmark\'s own slope is not where it is heard — the city, the road and the summit are (#784, BR-AUDIO-010)', () => {
+    // a cone: 1000 m at the top, down 1 m per metre, local base 100 m — the Mirante Vista para a
+    // Cidade has its trails 0.5–0.9 km out on the massif, above its 395 m local base
+    const cone = { ground: (lat: number, lng: number) => Math.max(0, 1_000 - Math.hypot(northOf({ lat }), eastOf({ lng }))) }
+    const peak = { center: PIN, physical: { classRule: 'landmark_prominence', localBaseM: 100, topPoint: PIN } }
+    const tp = (e: number, type: string) => ({ location: at(0, e), distance: e, street: { type } })
+    assert.equal(VisibilityMapBuilder.onOwnSlope(peak, tp(500, 'path'), cone), true, 'a trail halfway up')
+    assert.equal(VisibilityMapBuilder.onOwnSlope(peak, tp(500, 'tertiary'), cone), false, 'a road on the mountain stays')
+    assert.equal(VisibilityMapBuilder.onOwnSlope(peak, tp(60, 'path'), cone), false, 'the trail at the summit is the POI (EDGE_BAND_M)')
+    assert.equal(VisibilityMapBuilder.onOwnSlope(peak, tp(950, 'path'), cone), false, 'below the local base: the city around it')
+    const valley = { ground: (lat: number, lng: number) => (Math.abs(eastOf({ lng }) - 400) < 50 ? 50 : cone.ground(lat, lng)) }
+    assert.equal(VisibilityMapBuilder.onOwnSlope(peak, tp(500, 'path'), valley), false, 'a valley between: another hill')
+    assert.equal(VisibilityMapBuilder.onOwnSlope({ ...peak, physical: { ...peak.physical, classRule: 'point_low' } }, tp(500, 'path'), cone), false)
+  })
+
   it('INV-E8b: next to a long POI, the edge point facing the observer is an aim (the sampled ones are far)', async () => {
     const bridge = { coordinates: box(-5, 5, -5000, 5000), center: PIN, physical: { groundTopM: GROUND, heightM: 0, topPoint: PIN } }
     const observer = at(-40, 3000)
@@ -178,5 +193,6 @@ describe('INV-E8 — the E8 trace row of every candidate carries the fraction an
   it('INV-E8: sight value', () => {
     assert.equal(sightTraceValue({ visible: 19, total: 38, fraction: 0.5, angleDeg: 1.234 }), 'sight 19/38 aims (50%), 1.23°')
     assert.equal(sightTraceValue(undefined), 'sight not measured')
+    assert.equal(sightTraceValue({ visible: 5, total: 74, fraction: 5 / 74, angleDeg: 66.5, ownSlope: true }), 'sight 5/74 aims (7%), 66.50°; own slope')
   })
 })

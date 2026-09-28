@@ -30,7 +30,7 @@
 import type { BuildingData } from '../services/osm-data-fetcher';
 import { calculateDistance, findClosestPointOnBoundary, isPointInPolygon } from '../utils/calculations';
 import { DemStore } from '../../dem/dem-store';
-import { MIN_APPARENT_ANGLE_DEG, heightFromTags } from '../config/visibility-class';
+import { EDGE_BAND_M, LANDMARK_AVOID_STREET_TYPES, MIN_APPARENT_ANGLE_DEG, RELIEF_STEP_M, heightFromTags } from '../config/visibility-class';
 
 export type GeoPoint = { lat: number; lng: number };
 
@@ -103,7 +103,7 @@ type BuildingTop = { centroid: GeoPoint; topAltitudeM: number; polygon: GeoPoint
 export interface SightAim { at: GeoPoint; altM: number; kind: 'top' | 'mid' | 'edge' | 'relief'; ringM?: number }
 
 /** INV-E8b: graded sight from one observer; `fraction` and `angleDeg` go to the E8 trace. */
-export interface SightMeasure { visible: number; total: number; fraction: number; angleDeg: number; passes: boolean }
+export interface SightMeasure { visible: number; total: number; fraction: number; angleDeg: number; passes: boolean; ownSlope?: boolean }
 
 /**
  * INV-E8b: boundary points the sight line aims at, and the share of the POI height each one
@@ -508,6 +508,36 @@ export class VisibilityMapBuilder {
       angleDeg,
       passes: summitSeen && angleDeg >= MIN_APPARENT_ANGLE_DEG,
     };
+  }
+
+  /**
+   * INV-E8b (#784) — a relief landmark is heard from the city around it and from far, not from the
+   * forest on its own slope. A trail (`LANDMARK_AVOID_STREET_TYPES`) beyond `EDGE_BAND_M` of the
+   * edge is on that slope when the ground from it to the summit never comes down to the local base
+   * (E4): the whole walk is the landmark's own relief. The summit test alone does not cut it: the
+   * trails under the Mirante Vista para a Cidade, 0.5–0.9 km out and 250–350 m under the top, do
+   * see the summit, and until the count cap left (BR-POI-009) the cap was what kept them out.
+   * The city, a road on the mountain (Vista Chinesa) and the ride up (cable car, train) stay.
+   */
+  static onOwnSlope(
+    boundary: { center?: GeoPoint; physical?: { classRule?: string; localBaseM?: number | null; topPoint?: GeoPoint | null } | null },
+    candidate: { location: GeoPoint; distance: number; street?: { type?: string } | null },
+    relief: Pick<SightRelief, 'ground'> = DemStore.getInstance()
+  ): boolean {
+    const ph = boundary.physical;
+    const top = ph?.topPoint ?? boundary.center;
+    if (ph?.classRule !== 'landmark_prominence' || ph.localBaseM == null || !top) return false;
+    if (!LANDMARK_AVOID_STREET_TYPES.includes(candidate.street?.type ?? '') || candidate.distance <= EDGE_BAND_M) return false;
+    const steps = Math.max(1, Math.ceil(calculateDistance(candidate.location, top) / RELIEF_STEP_M));
+    for (let i = 0; i <= steps; i++) {
+      const t = i / steps;
+      const g = relief.ground(
+        candidate.location.lat + (top.lat - candidate.location.lat) * t,
+        candidate.location.lng + (top.lng - candidate.location.lng) * t
+      );
+      if (g === null || g <= ph.localBaseM) return false;
+    }
+    return true;
   }
 
   /** Largest angle between two aims seen from the observer eye (local metres, curvature included). */
