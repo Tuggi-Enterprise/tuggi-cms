@@ -16,9 +16,11 @@ import {
   SUMMIT_MATCH_M,
   prominenceOverCityM,
   resolveHeightM,
+  footprintStructureHeight,
   visibilityClassRule,
 } from '../config/visibility-class';
 import { ElevationAnalysisService, GroundTop } from './elevation-service';
+import { DemStore } from '../../dem/dem-store';
 import { LocalOSMFetcher } from './local-osm-fetcher';
 
 /** Summits from the local OSM DB around the boundary (E4): not every detector path collects them. */
@@ -39,6 +41,8 @@ function summitsAround(pin: GeoPoint, boundary?: GeoPoint[]) {
 export interface PoiPhysical {
   heightM: number;
   heightSource: HeightSource;
+  /** share of the footprint the buildings layer covers, and the height it measured (#783) */
+  footprintBuilt: { share: number | null; heightM: number | null; source: string | null };
   /** terrain at the highest point of the boundary (INV-E4a); null when the DEM failed */
   groundTopM: number | null;
   groundSource: GroundTop['source'];
@@ -122,7 +126,10 @@ export interface MeasureInput {
 
 /** E3 → E4 → E5 for one POI. The only caller of `visibilityClassRule` with measured data. */
 export async function measureAndClassify(a: MeasureInput): Promise<{ classification: POIClassification; physical: PoiPhysical }> {
-  const { heightM, source: heightSource } = resolveHeightM(a.tags, a.knownHeightM);
+  // E3 (#783): the buildings layer on the footprint, after the OSM tags and the OSM host. A
+  // synthetic circle is not a footprint (INV-E1b): the building under a park's pin is not the park.
+  const footprint = a.synthetic ? null : DemStore.getInstance().footprintBuildings(a.boundary ?? []);
+  const { heightM, source: heightSource } = resolveHeightM(a.tags, a.knownHeightM, footprint && footprintStructureHeight(footprint));
   const top = await ElevationAnalysisService.groundTop({
     pin: a.poiData.location,
     boundary: a.boundary,
@@ -155,6 +162,11 @@ export async function measureAndClassify(a: MeasureInput): Promise<{ classificat
     physical: {
       heightM,
       heightSource,
+      footprintBuilt: {
+        share: footprint?.cells ? footprint.builtCells / footprint.cells : null,
+        heightM: footprint?.heightM ?? null,
+        source: footprint?.source ?? null,
+      },
       groundTopM: top.groundM,
       groundSource: top.source,
       topPoint: top.at,

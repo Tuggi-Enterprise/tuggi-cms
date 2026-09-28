@@ -10,7 +10,7 @@ const PIN = { lat: -22.9519, lng: -43.2105 }
 const M_PER_DEG_LAT = 110_540
 const mPerDegLng = 111_320 * Math.cos((PIN.lat * Math.PI) / 180)
 const offset = (m: { n?: number; e?: number }) => ({ lat: PIN.lat + (m.n ?? 0) / M_PER_DEG_LAT, lng: PIN.lng + (m.e ?? 0) / mPerDegLng })
-const flatDem = { ground: () => 0, surface: () => 0 }
+const flatDem = { ground: () => 0, surface: () => 0, obstacle: () => 0 }
 
 // TP engine audit, 2026-09-27, slice C (#779). Visual check on 11 Rio POIs.
 

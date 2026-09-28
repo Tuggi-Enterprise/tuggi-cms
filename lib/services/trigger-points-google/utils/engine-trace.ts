@@ -12,6 +12,7 @@ import {
   CLASS_LIMITS,
   LANDMARK_MIN_HEIGHT_M,
   LANDMARK_MIN_PROMINENCE_M,
+  STRUCTURE_BUILT_SHARE_MIN,
   STRUCTURE_MIN_HEIGHT_M,
   VisibilityClass,
 } from '../config/visibility-class';
@@ -51,7 +52,10 @@ export function poiTraceRows(poiId: string, boundary: BoundaryData | undefined):
       `source=${boundary.source}; synthetic=${!!boundary.synthetic}; vertices=${boundary.coordinates?.length ?? 0}; area=${Math.round(boundary.area_m2 ?? 0)} m²`),
     // INV-E1c: every candidate refused on the way, with the reason.
     ...(boundary.rejected ?? []).map(r => row('E1', 'boundary-choice#chooseContainingBoundary', `${r.element}: ${r.reason}`, '', 'dropped')),
-    row('E3', 'visibility-class#resolveHeightM', `${m(ph?.heightM ?? boundary.height)} (${ph?.heightSource ?? 'unmeasured'})`),
+    // #783: what the buildings layer measured on the footprint, and the share it had to cover.
+    row('E3', 'visibility-class#resolveHeightM', `${m(ph?.heightM ?? boundary.height)} (${ph?.heightSource ?? 'unmeasured'})${
+      ph?.footprintBuilt?.share == null ? '' : `; layer: built ${Math.round(ph.footprintBuilt.share * 100)}%, ${m(ph.footprintBuilt.heightM)} (${ph.footprintBuilt.source ?? 'no building'})`
+    }`, `built ≥ ${Math.round(STRUCTURE_BUILT_SHARE_MIN * 100)}%`),
     row('E4', 'elevation-service#groundTop', `${m(ph?.groundTopM)} (${ph?.groundSource ?? 'unmeasured'})`, '',
       ph?.groundTopM === null ? 'dropped' : 'kept'),
     row('E4', 'elevation-service#cityBaseElevation', `${m(ph?.cityBaseM)} (${ph?.cityBaseSource ?? 'unmeasured'})`, '',

@@ -194,7 +194,7 @@ export class CoreTriggerPointPredictor {
         search_radius_m: _searchRadius,
         fan_max_horizon_m: fan ? (options.visibilityMaxHorizonM ?? FAN_DEFAULT_HORIZON_M) : undefined,
         fan_direction_count: fan ? FAN_DEFAULT_DIRECTION_COUNT : undefined,
-        fan_step_m: fan ? Math.round(DemStore.getInstance().stepM) : undefined,
+        fan_step_m: fan ? Math.round(DemStore.getInstance().sampleM) : undefined,
         fan_sample_points: fan?.samplePoints?.length,
         fan_mean_visible_m: fan?.meanDistanceM,
         fan_max_visible_m: fan?.maxDistanceM,
@@ -1568,10 +1568,11 @@ export class CoreTriggerPointPredictor {
       if (!h && b.tags) {
         h = extractBuildingHeight(b.tags) || 0;
       }
-      // No tag: the height the relief measured on the host (surface − ground, #782), never a guess.
+      // No tag: the host height the buildings layer measured (Overture → 3D-GloBFP), else
+      // surface − ground (#782, #783) — never a guess.
       if (!h) {
         const c = coords.reduce((a: { lat: number; lng: number }, p: { lat: number; lng: number }) => ({ lat: a.lat + p.lat / coords.length, lng: a.lng + p.lng / coords.length }), { lat: 0, lng: 0 });
-        h = DemStore.getInstance().obstacleHeight(c.lat, c.lng) ?? 0;
+        h = DemStore.getInstance().buildingAt(c.lat, c.lng)?.heightM ?? 0;
       }
 
       if (h > currentHeight) {

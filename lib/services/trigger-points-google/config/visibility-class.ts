@@ -29,6 +29,14 @@ export enum VisibilityClass {
 export const STRUCTURE_MIN_HEIGHT_M = 5;
 export const LANDMARK_MIN_HEIGHT_M = 30;
 /**
+ * Share of a footprint that building footprints must cover for the buildings layer to lend the
+ * POI its height (INV-E3, #783): the footprint IS a building. Measured on the obstacle lattice
+ * (`DemStore#footprintBuildings`): Nilton Santos, Museu do Amanhã 100 %, Igreja de Fátima 83 %;
+ * the Maracanã neighbourhood polygon 51 %, Ilha das Cobras 51 %, Manguinhos 39 %, a park 1 %.
+ * Provisional (#775).
+ */
+export const STRUCTURE_BUILT_SHARE_MIN = 0.8;
+/**
  * Prominence threshold of a landmark, over the city base AND over the local ring
  * (`LOCAL_BASE_RING_M`). Below this it is urban SRTM noise.
  */
@@ -273,22 +281,41 @@ export function heightFromTags(
   return null;
 }
 
-export type HeightSource = TagHeightSource | 'known' | 'none';
+/** Where a height measured by the buildings layer came from (#783; `dem-store#BuildingHeightSource`). */
+export type FootprintHeightSource = 'overture' | '3d-globfp' | 'dem_surface';
+export type HeightSource = TagHeightSource | 'known' | FootprintHeightSource | 'none';
 
 /**
  * Physical POI height (INV-E3): measured on the element (`heightFromTags`) → height measured on
- * another element (`knownHeightM`: building aggregation, host) → 0. There is no height by type:
- * a church or a statue with no measured height is 0, and its class comes from the terrain and
- * its footprint (operator, 2026-09-27; BR-AUDIO-010).
+ * another OSM element (`knownHeightM`: building aggregation, host) → the buildings layer on the
+ * footprint (`footprint`: Overture → 3D-GloBFP → surface − ground; #783) → 0. There is no
+ * height by type: a church or a statue with no measured height is 0, and its class comes from
+ * the terrain and its footprint (operator, 2026-09-27; BR-AUDIO-010). Pure.
  */
 export function resolveHeightM(
   tags: Record<string, unknown> | undefined,
-  knownHeightM?: number
+  knownHeightM?: number,
+  footprint?: { heightM: number; source: FootprintHeightSource } | null
 ): { heightM: number; source: HeightSource } {
   const measured = heightFromTags(tags);
   if (measured) return measured;
   if (knownHeightM && knownHeightM > 0) return { heightM: knownHeightM, source: 'known' };
+  if (footprint && footprint.heightM > 0) return { heightM: footprint.heightM, source: footprint.source };
   return { heightM: 0, source: 'none' };
+}
+
+/**
+ * The buildings-layer height a footprint lends the POI (INV-E3, #783): only when the measured
+ * buildings cover at least `STRUCTURE_BUILT_SHARE_MIN` of it. Pure.
+ */
+export function footprintStructureHeight(fp: {
+  cells: number;
+  builtCells: number;
+  heightM: number | null;
+  source: FootprintHeightSource | null;
+}): { heightM: number; source: FootprintHeightSource } | null {
+  if (!fp.cells || fp.heightM === null || !fp.source) return null;
+  return fp.builtCells / fp.cells >= STRUCTURE_BUILT_SHARE_MIN ? { heightM: fp.heightM, source: fp.source } : null;
 }
 
 /**

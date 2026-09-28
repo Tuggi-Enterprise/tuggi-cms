@@ -245,9 +245,13 @@ export class DemStore {
 
   /**
    * INV-E3 (#783): the buildings measured inside a footprint (ring of lat/lng), cell centre in
-   * the ring; a footprint smaller than a cell reads the cell under its vertex mean. The height is
-   * the tallest building of the best tier present (Overture → 3D-GloBFP → surface − ground over
-   * the footprints with no height).
+   * the ring; a footprint smaller than a cell reads the cell under its vertex mean. The height
+   * comes from the best tier present (Overture → 3D-GloBFP → surface − ground over the footprints
+   * with no height):
+   *  - Overture is measured: the tallest building;
+   *  - 3D-GloBFP is a per-building estimate (XGBoost, RMSE up to 14.6 m): the building that covers
+   *    most of the footprint (the taller on a tie). One small sub-footprint estimated at 70.7 m on
+   *    the Museu do Amanhã, whose other 26 cells read ~10 m, is not the museum.
    */
   footprintBuildings(ring: Array<{ lat: number; lng: number }>): FootprintBuildings {
     const none: FootprintBuildings = { cells: 0, builtCells: 0, heightM: null, source: null }
@@ -275,15 +279,22 @@ export class DemStore {
     }
     let built = 0, bestTier = 0, best = 0
     const unmeasured: number[] = []
+    const globfpCells = new Map<number, number>() // height (dm) → cells
     for (const i of visited) {
       const v = cells[i], tier = v >> 14
       if (!tier) continue
       built++
       if (tier === BUILDING_TIER.UNMEASURED) unmeasured.push(i)
+      if (tier === BUILDING_TIER.GLOBFP) globfpCells.set(v & BUILDING_DM_MAX, (globfpCells.get(v & BUILDING_DM_MAX) ?? 0) + 1)
       const h = (v & BUILDING_DM_MAX) / 10
       if (tier > bestTier || (tier === bestTier && h > best)) { bestTier = tier; best = h }
     }
     if (!built) return { cells: visited.length, builtCells: 0, heightM: null, source: null }
+    if (bestTier === BUILDING_TIER.GLOBFP) {
+      let dm = 0, n = 0
+      for (const [h, c] of globfpCells) if (c > n || (c === n && h > dm)) { dm = h; n = c }
+      best = dm / 10
+    }
     if (TIER_SOURCE[bestTier]) return { cells: visited.length, builtCells: built, heightM: best, source: TIER_SOURCE[bestTier] }
     let top = 0
     for (const i of unmeasured) {

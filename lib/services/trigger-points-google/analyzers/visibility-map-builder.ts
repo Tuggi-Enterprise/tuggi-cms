@@ -87,10 +87,14 @@ export function curvatureDropM(d: number): number {
   return ((1 - REFRACTION_K) * d * d) / (2 * EARTH_RADIUS_M);
 }
 
-/** The two relief layers the sight line reads (E4/E8); `DemStore` in the engine, a stub in tests. */
+/**
+ * What the sight line reads (E4/E8); `DemStore` in the engine, a stub in tests. `obstacle` is the
+ * top of what stands there: measured building or canopy over the ground, else the surface (#783).
+ */
 export interface SightRelief {
   ground(lat: number, lng: number): number | null;
   surface(lat: number, lng: number): number | null;
+  obstacle(lat: number, lng: number): number | null;
 }
 
 type BuildingTop = { centroid: GeoPoint; topAltitudeM: number; polygon: GeoPoint[] };
@@ -144,7 +148,9 @@ export class VisibilityMapBuilder {
     const maxHorizonM = options.maxHorizonM ?? 10_000;
     const directionCount = options.directionCount ?? 72;
     const dem = DemStore.getInstance();
-    const stepM = options.stepM ?? dem.stepM;
+    // Walk at the obstacle lattice (~15 m, #783); the observer's own relief cell stays out.
+    const stepM = options.stepM ?? dem.sampleM;
+    const cellM = options.stepM ?? dem.stepM;
     const observerEyeHeightM = options.observerEyeHeightM ?? OBSERVER_EYE_HEIGHT_M;
     const minVisibleDistanceM = options.minVisibleDistanceM ?? 30;
 
@@ -180,7 +186,8 @@ export class VisibilityMapBuilder {
           stepM,
           observerEyeHeightM,
           minVisibleDistanceM,
-          skipNearM
+          skipNearM,
+          cellM
         );
       });
       const distances = await Promise.all(promises);
@@ -366,13 +373,14 @@ export class VisibilityMapBuilder {
 
   /**
    * INV-E8 — per-candidate sight line, after the fan-walk: from the observer eye (ground at the
-   * TP + `OBSERVER_EYE_HEIGHT_M`) to the POI top, over the relief SURFACE (Copernicus GLO-30:
-   * ground + buildings + trees) and the buildings with a measured height, walked at the grid
-   * spacing (~30 m; it was 100 m over SRTM 90 m). Short-circuits on the first obstacle.
+   * TP + `OBSERVER_EYE_HEIGHT_M`) to the POI top, over `DemStore#obstacle` — measured building
+   * (Overture, 3D-GloBFP) or canopy (Meta/WRI) over the ground, else the relief SURFACE
+   * (Copernicus GLO-30) — and the buildings with a tagged height, walked at the obstacle lattice
+   * (~15 m, #783; it was 30 m, and 100 m over SRTM 90 m). Short-circuits on the first obstacle.
    *
    * Neither end's own cell is an obstacle: samples within `SKIP_NEAR_POI_M` of the POI are the
-   * POI itself (its facade, its pedestal), and the observer's own sample is the street he stands
-   * on — at 30 m the surface there mixes in the facades beside the avenue (#782).
+   * POI itself (its facade, its pedestal), and the observer's own relief cell (~30 m) is the
+   * street he stands on — at 30 m the surface there mixes in the facades beside the avenue (#782).
    */
   static async checkExactVisibility(
     poi: GeoPoint,
@@ -386,13 +394,15 @@ export class VisibilityMapBuilder {
     } = {}
   ): Promise<boolean> {
     const dem: SightRelief = DemStore.getInstance();
-    const stepM = options.sampleIntervalM ?? DemStore.getInstance().stepM;
+    // Walked at the obstacle lattice (~15 m, #783); each end keeps its relief cell (~30 m) out.
+    const stepM = options.sampleIntervalM ?? DemStore.getInstance().sampleM;
+    const cellM = options.sampleIntervalM ?? DemStore.getInstance().stepM;
     const marginM = options.noiseMarginM ?? SIGHT_NOISE_MARGIN_M;
     const observerEyeHeightM = options.observerEyeHeightM ?? OBSERVER_EYE_HEIGHT_M;
     const buildingTops = options.buildingTops;
 
     const distanceM = calculateDistance(poi, target);
-    if (distanceM < stepM) return true; // inside one grid cell: nothing can stand between
+    if (distanceM < cellM) return true; // inside one relief cell: nothing can stand between
 
     // No ground under the observer: the candidate cannot be judged, so it does not pass (INV-E8).
     const observerGround = dem.ground(target.lat, target.lng);
@@ -402,12 +412,12 @@ export class VisibilityMapBuilder {
     const sightSlope = (observerEyeAlt - poiTopAltitudeM) / distanceM;
     const bearingDeg = this.bearing(poi, target);
 
-    for (let d = stepM; d <= distanceM - stepM; d += stepM) {
+    for (let d = cellM; d <= distanceM - cellM + 1e-6; d += stepM) {
       if (d < SKIP_NEAR_POI_M) continue;
       const p = this.offsetByBearing(poi, bearingDeg, d);
-      const surface = dem.surface(p.lat, p.lng);
-      if (surface === null) continue;
-      if ((surface - curvatureDropM(d) - marginM - poiTopAltitudeM) / d > sightSlope) return false;
+      const top = dem.obstacle(p.lat, p.lng);
+      if (top === null) continue;
+      if ((top - curvatureDropM(d) - marginM - poiTopAltitudeM) / d > sightSlope) return false;
     }
 
     // Buildings with a measured height (ground + tag). Foco no observador: a linha está mais
@@ -490,9 +500,9 @@ export class VisibilityMapBuilder {
   }
 
   /**
-   * For a single direction, walks outward from the POI at the grid spacing up to the horizon and
-   * returns the FARTHEST distance at which the POI top is visible — not the first blocked step.
-   * One pass: the steepest obstacle slope seen so far (surface, and the tagged buildings passed)
+   * For a single direction, walks outward from the POI at the obstacle lattice up to the horizon
+   * and returns the FARTHEST distance at which the POI top is visible — not the first blocked step.
+   * One pass: the steepest obstacle slope seen so far (`DemStore#obstacle`, and the tagged buildings passed)
    * against the slope of the line to the observer eye at each step.
    */
   private static computeMaxVisibleDistance(
@@ -505,7 +515,8 @@ export class VisibilityMapBuilder {
     stepM: number,
     observerEyeHeightM: number,
     minVisibleDistanceM: number,
-    skipNearM = SKIP_NEAR_POI_M
+    skipNearM = SKIP_NEAR_POI_M,
+    cellM = stepM
   ): number {
     // Pre-filter: keep only buildings whose footprint touches the ray corridor
     // (within ~50m perpendicular distance to the ray). This avoids O(N) per step.
@@ -515,13 +526,14 @@ export class VisibilityMapBuilder {
       .sort((a, b) => a.distanceFromPoi - b.distanceFromPoi);
 
     let lastVisibleD = minVisibleDistanceM;
-    // Steepest obstacle strictly before the current observer sample (his own cell is the street).
+    // Steepest obstacle at least one relief cell before the current observer sample (his own
+    // cell is the street): samples wait in `pending` until the observer is a cell past them.
     let maxSlope = -Infinity;
-    let pendingSlope = -Infinity;
+    const pending: Array<{ d: number; slope: number }> = [];
     let bi = 0;
 
     for (let d = stepM; d <= maxHorizonM; d += stepM) {
-      maxSlope = Math.max(maxSlope, pendingSlope);
+      while (pending.length && pending[0].d <= d - cellM + 1e-6) maxSlope = Math.max(maxSlope, pending.shift()!.slope);
       while (bi < buildingsSorted.length && buildingsSorted[bi].distanceFromPoi < d) {
         const b = buildingsSorted[bi++];
         const s = b.distanceFromPoi;
@@ -537,10 +549,8 @@ export class VisibilityMapBuilder {
         const eye = ground + observerEyeHeightM - curvatureDropM(d);
         if ((eye - poiTopAltitudeM) / d >= maxSlope) lastVisibleD = d;
       }
-      const surface = dem.surface(p.lat, p.lng);
-      pendingSlope = surface === null || d < skipNearM
-        ? -Infinity
-        : (surface - curvatureDropM(d) - SIGHT_NOISE_MARGIN_M - poiTopAltitudeM) / d;
+      const top = dem.obstacle(p.lat, p.lng);
+      if (top !== null && d >= skipNearM) pending.push({ d, slope: (top - curvatureDropM(d) - SIGHT_NOISE_MARGIN_M - poiTopAltitudeM) / d });
     }
 
     return Math.max(lastVisibleD, minVisibleDistanceM);
