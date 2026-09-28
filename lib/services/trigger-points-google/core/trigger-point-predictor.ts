@@ -1322,7 +1322,7 @@ export class CoreTriggerPointPredictor {
    * Per-TP exact line-of-sight filter (INV-E8, INV-E8b): each candidate sees the aims of the POI
    * (`VisibilityMapBuilder#sightAims`) and passes when the visible part spans at least
    * `MIN_APPARENT_ANGLE_DEG` (`VisibilityMapBuilder#measureSight`). The measure stays on
-   * `candidate.metadata.sight` for the E8 trace and the E10 tie-break.
+   * `candidate.metadata.sight` for the E8 trace.
    *
    * Detalhes:
    *  - Walk at the obstacle lattice (~15 m) over `DemStore#obstacle` (#783)
@@ -1423,7 +1423,7 @@ export class CoreTriggerPointPredictor {
         )
       );
       for (let j = 0; j < batch.length; j++) {
-        // E8 trace and E10 tie-break read it (INV-E8b)
+        // the E8 trace reads it (INV-E8b)
         batch[j].metadata = { ...(batch[j].metadata || {}), sight: results[j] };
         if (results[j].passes) survivors.push(batch[j]);
         else blocked++;

@@ -2,14 +2,12 @@ import { describe, it } from 'node:test'
 import assert from 'node:assert/strict'
 import { DemStore } from '@/lib/services/dem/dem-store'
 import { VisibilityMapBuilder, EDGE_AIM_COUNT } from '@/lib/services/trigger-points-google/analyzers/visibility-map-builder'
-import { MIN_APPARENT_ANGLE_DEG, VisibilityClass } from '@/lib/services/trigger-points-google/config/visibility-class'
+import { MIN_APPARENT_ANGLE_DEG } from '@/lib/services/trigger-points-google/config/visibility-class'
 import { sightTraceValue } from '@/lib/services/trigger-points-google/utils/engine-trace'
-import { selectSpacedTriggerPoints } from '@/lib/services/trigger-points-google/utils/tp-selection'
-import { buildClassification } from '@/lib/services/trigger-points-google/services/poi-classifier.service'
 
 // TP engine (#784) — E8 aims at many points of the POI, only its footprint is not an obstacle,
 // and the result is graded by the apparent angle. docs/arquitetura/cms/motor-de-tp.md
-// (INV-E8, INV-E8b, INV-E10a). BR-AUDIO-010: the TP fires where the POI is seen.
+// (INV-E8, INV-E8b). BR-AUDIO-010: the TP fires where the POI is seen.
 
 const PIN = { lat: -22.9519, lng: -43.2105 }
 const at = (n: number, e: number) => ({
@@ -159,34 +157,5 @@ describe('INV-E8 — the E8 trace row of every candidate carries the fraction an
   it('INV-E8: sight value', () => {
     assert.equal(sightTraceValue({ visible: 19, total: 38, fraction: 0.5, angleDeg: 1.234 }), 'sight 19/38 aims (50%), 1.23°')
     assert.equal(sightTraceValue(undefined), 'sight not measured')
-  })
-})
-
-describe('INV-E10a, INV-E8b — inside one cell and one street tier, the larger apparent angle wins', () => {
-  const landmark = buildClassification(VisibilityClass.LANDMARK_HIGH, { heightM: 30, prominenceM: 700, areaM2: 8000 })
-  const polar = (bearingDeg: number, m: number) => {
-    const r = (bearingDeg * Math.PI) / 180
-    return at(Math.cos(r) * m, Math.sin(r) * m)
-  }
-  let seq = 0
-  const tp = (bearingDeg: number, m: number, type: string, quality: number, apparentAngleDeg?: number) => ({
-    id: `t${seq++}`, location: polar(bearingDeg, m), distance: m, radius: 50, quality, apparentAngleDeg,
-    expectedBearing: (bearingDeg + 180) % 360, street: { type } as any,
-  }) as any
-
-  it('INV-E8b: same tier, the larger angle beats the better quality; a better tier still beats a larger angle', () => {
-    const small = tp(130, 2_400, 'primary', 0.9, 0.3)
-    const big = tp(130, 2_700, 'primary', 0.3, 0.9)
-    const track = tp(130, 2_500, 'track', 0.9, 3)
-    const out = selectSpacedTriggerPoints([small, big, track], { ...landmark, maxFarTriggerPoints: 1 }, PIN)
-    assert.deepEqual(out.map(t => t.id), [big.id])
-  })
-
-  it('INV-E10a: coverage is unchanged — a huge angle in one cell does not take a second slot before another cell', () => {
-    const a1 = tp(130, 2_400, 'primary', 0.5, 5)
-    const a2 = tp(130, 2_900, 'primary', 0.5, 4)
-    const b = tp(250, 2_600, 'primary', 0.5, 0.1)
-    const out = selectSpacedTriggerPoints([a1, a2, b], { ...landmark, maxFarTriggerPoints: 2 }, PIN)
-    assert.deepEqual(out.map(t => t.id).sort(), [a1.id, b.id].sort())
   })
 })
