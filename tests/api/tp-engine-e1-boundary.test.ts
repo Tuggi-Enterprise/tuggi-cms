@@ -324,3 +324,32 @@ describe('INV-E1a — a stored border is judged like a curated id (BR-POI-009, B
     assert.equal(r.data.source, 'manual')
   })
 })
+
+describe('INV-E1c — a smaller element of the identity narrows the typed border only at the pin (BR-POI-009, #779)', () => {
+  const narrow = async (element: { type: string; id: number; tags: Record<string, string>; geometry: unknown }) => {
+    const { BoundaryDetector } = await import('../../lib/services/trigger-points-google/core/boundary-detector')
+    const { LocalOSMFetcher } = await import('../../lib/services/trigger-points-google/services/local-osm-fetcher')
+    const local = LocalOSMFetcher.getInstance() as any
+    const restore = local.fetchAreasContaining
+    local.fetchAreasContaining = () => [element]
+    const d = new BoundaryDetector() as any
+    d.detectOSMBoundaryByID = async (id: string) => ({ success: true, data: { osmId: id } })
+    try {
+      return await d.detectContainingBoundary({ id: 'x', name: element.tags.name, osm_id: 462451555, osm_type: 'way', location: PIN }, undefined, 1_820_000)
+    } finally {
+      local.fetchAreasContaining = restore
+    }
+  }
+
+  it('BR-POI-009: the skating rink of the same name 74 m off the pin does not replace the park holding it (Parque dos Patins)', async () => {
+    const rink = { type: 'way', id: 261938652, tags: { name: 'Parque dos Patins', leisure: 'pitch' }, geometry: square(25, { lat: PIN.lat, lng: PIN.lng + 99 * M_LNG }) }
+    assert.equal((await narrow(rink)).success, false)
+  })
+
+  it('INV-E1c (#786): the stadium 17 m off the pin, on the street, still narrows the neighbourhood (Maracanã)', async () => {
+    const stadium = { type: 'way', id: 1, tags: { name: 'Estádio', short_name: 'Maracanã' }, geometry: square(150, { lat: PIN.lat, lng: PIN.lng + 167 * M_LNG }) }
+    const r = await narrow({ ...stadium, tags: { ...stadium.tags, name: 'Maracanã' } })
+    assert.equal(r.success, true)
+    assert.equal(r.data.osmId, '1')
+  })
+})

@@ -4,7 +4,7 @@ import { heightFromTags, SANITY_MAX_TP_DISTANCE_M, VisibilityClass } from '../co
 import { GoogleAPIsService } from '../services/google-apis.service';
 import { ElevationService } from '../services/elevation.service';
 import { POIData, GeographicContext, BoundaryData, ProcessingResult } from '../types/interfaces';
-import { convertViewportToPolygon, calculatePolygonArea, calculatePolygonAreaInM2, calculatePolygonCenter, calculatePolygonPerimeter, calculateDistance, isPointInPolygon, isDrawnCircle } from '../utils/calculations';
+import { convertViewportToPolygon, calculatePolygonArea, calculatePolygonAreaInM2, calculatePolygonCenter, calculatePolygonPerimeter, calculateDistance, calculateDistanceToPolygon, isPointInPolygon, isDrawnCircle } from '../utils/calculations';
 import { ElevationAnalysisService } from '../services/elevation-service';
 import { TRIGGER_POINTS_CONSTANTS } from '../config/trigger-points-config';
 import { isCuratedBoundaryImplausible } from '../utils/osm-validation';
@@ -1100,7 +1100,13 @@ out geom tags;
       poiData.location, { name: poiData.name, namedOnly: narrowing || (poiData.osm_type === 'node' && !!poiData.osm_id), isBuilt: ringIsBuilt }, elements ?? []
     );
     if (narrowing) {
-      if (!chosen || chosen.areaM2 >= smallerThanM2 || String(chosen.element.id) === String(poiData.osm_id)) return { success: false, error: 'No smaller element of the POI identity', processingTime: 0 };
+      // Only a smaller element at the pin narrows the typed border (INV-E1c, BR-POI-009): holding it,
+      // or within IDENTITY_NEAR_PIN_M of its edge — the Maracanã pin is 17 m off the stadium (#786).
+      // The Parque dos Patins (7.7 ha, pin inside) gave way to its skating rink, 74 m off (#779).
+      if (!chosen || chosen.areaM2 >= smallerThanM2 || String(chosen.element.id) === String(poiData.osm_id)
+        || (!isPointInPolygon(poiData.location, chosen.ring) && calculateDistanceToPolygon(poiData.location, chosen.ring) > IDENTITY_NEAR_PIN_M)) {
+        return { success: false, error: 'No smaller element of the POI identity at the pin', processingTime: 0 };
+      }
     } else this.rejections.push(...rejected);
     if (!chosen) return { success: false, error: 'No OSM area fits the POI at the pin', processingTime: 0 };
     return this.detectOSMBoundaryByID(String(chosen.element.id), chosen.element.type, poiData, {
