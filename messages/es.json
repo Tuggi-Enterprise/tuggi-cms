@@ -2661,7 +2661,7 @@
   "Coupons": {
     "list": {
       "title": "Cupones",
-      "subtitle": "Días de Premium gratuitos canjeables vía modal in-app o landing pages de marketing.",
+      "subtitle": "Horas de guía (o días, en cupones antiguos) canjeables en la app o en landing pages.",
       "ownerPerformance": "Rendimiento por owner",
       "newCoupon": "Nuevo cupón",
       "searchPlaceholder": "Buscar por código",
@@ -2698,7 +2698,9 @@
         "loadFailed": "No se pudieron cargar cupones",
         "updateFailed": "Error al actualizar cupón",
         "updateNetwork": "No se pudo actualizar cupón"
-      }
+      },
+      "redemptions": "Canjes",
+      "openRedemptions": "Ver canjes de este cupón"
     },
     "form": {
       "createTitle": "Crear cupón",
@@ -2734,7 +2736,7 @@
       "validation": {
         "codeMinLength": "El código debe tener al menos 3 caracteres.",
         "durationMin": "La duración debe ser de al menos 1 día.",
-        "hoursMin": "Ingresa un número entero de horas, desde 1.",
+        "hoursRange": "Indica un número entero de horas entre 1 y 45.",
         "aboveCap": "El cupón supera el tope de {hours} h por canje."
       },
       "errors": {
@@ -2748,11 +2750,12 @@
         "updated": "Cupón {code} actualizado."
       },
       "redemptionWarning": "Este cupón ya tiene {count} canje(s). Los cambios en duración, elegibilidad o límites solo afectan canjes futuros — los ya consumidos no cambian.",
-      "grantKind": "Otorga",
-      "grantKindHours": "Horas de saldo",
-      "grantKindDays": "Días de acceso",
-      "hours": "Horas",
-      "hoursHelp": "Se suman al saldo de horas del turista al canjear."
+      "grantKind": "Concede",
+      "grantKindHours": "Horas",
+      "grantKindDays": "Días",
+      "hours": "Horas de guía",
+      "hoursHelp": "Número entero de 1 a 45. El saldo no caduca y solo se gasta con la guía activa y en movimiento.",
+      "daysHelp": "Formato antiguo. Los cupones de socios nuevos conceden horas."
     },
     "owners": {
       "title": "Rendimiento por owner",
@@ -2778,7 +2781,40 @@
         "loadFailed": "Error al cargar el rendimiento",
         "loadNetwork": "No se pudo cargar el rendimiento por owner"
       },
-      "hoursGranted": "Horas otorgadas"
+      "hoursGranted": "Horas concedidas",
+      "openRedemptions": "Ver canjes de este socio"
+    },
+    "redemptions": {
+      "title": "Canjes de cupón",
+      "subtitle": "Quién canjeó cada cupón y cuánto se concedió.",
+      "cards": {
+        "redemptions": "Canjes",
+        "hoursGranted": "Horas concedidas",
+        "daysGranted": "Días concedidos"
+      },
+      "searchPlaceholder": "Código del cupón",
+      "ownerAll": "Todos los socios",
+      "clearFilters": "Limpiar filtros",
+      "filterByCode": "Filtrar por este código",
+      "headers": {
+        "code": "Código",
+        "owner": "Socio",
+        "user": "Usuario",
+        "redeemedAt": "Canjeado el",
+        "granted": "Concedido"
+      },
+      "days": "{count, plural, one {# día} other {# días}}",
+      "loading": "Cargando…",
+      "empty": "Todavía no hay canjes.",
+      "emptyFiltered": "No hay canjes para este filtro.",
+      "unavailable": "La lista de canjes aún no está disponible. Inténtalo más tarde.",
+      "pagination": "Página {current} de {total} · {count} canjes",
+      "prev": "Anterior",
+      "next": "Siguiente",
+      "errors": {
+        "loadFailed": "Error al cargar los canjes",
+        "loadNetwork": "No se pudieron cargar los canjes"
+      }
     }
   },
   "Finance": {

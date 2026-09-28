@@ -188,7 +188,7 @@ export function CouponFormDrawer({
       form.grant_kind === 'minutes' &&
       !(Number.isInteger(form.grant_minutes) && (form.grant_minutes ?? 0) >= 1)
     ) {
-      setError(t('validation.hoursMin'));
+      setError(t('validation.hoursRange'));
       return;
     }
 
@@ -385,6 +385,7 @@ export function CouponFormDrawer({
                   onChange={e => set('duration_days', parseInt(e.target.value) || 1)}
                   className="w-full rounded-xl border border-gray-200 bg-gray-50 px-3 py-2 text-sm font-semibold text-gray-900 focus:outline-none focus:ring-2 focus:ring-tuggi-blue/30"
                 />
+                <p className="mt-1 text-xs text-gray-500">{t('daysHelp')}</p>
               </div>
             )}
           </div>

@@ -259,7 +259,12 @@ function AdminCouponOwnersContent() {
                       </span>
                     </td>
                     <td className="px-4 py-3 font-bold text-gray-900">
-                      {o.redeemed_total}
+                      <Link
+                        href={`/admin/coupons/redemptions?owner=${o.owner_client_id}`}
+                        className="hover:text-tuggi-blue hover:underline"
+                        title={t('openRedemptions')}>
+                        {o.redeemed_total}
+                      </Link>
                     </td>
                     <td className="px-4 py-3 text-gray-700 inline-flex items-center gap-1">
                       <Users size={12} className="text-gray-400" />

@@ -2679,7 +2679,7 @@
   "Coupons": {
     "list": {
       "title": "Coupons",
-      "subtitle": "Free Premium days redeemable via the in-app modal or marketing landing pages.",
+      "subtitle": "Guide hours (or days, on legacy coupons) redeemable in the app or on landing pages.",
       "ownerPerformance": "Owner performance",
       "newCoupon": "New coupon",
       "searchPlaceholder": "Search by code",
@@ -2716,7 +2716,9 @@
         "loadFailed": "Could not load coupons",
         "updateFailed": "Failed to update coupon",
         "updateNetwork": "Could not update coupon"
-      }
+      },
+      "redemptions": "Redemptions",
+      "openRedemptions": "See redemptions of this coupon"
     },
     "form": {
       "createTitle": "Create coupon",
@@ -2752,7 +2754,7 @@
       "validation": {
         "codeMinLength": "Code must be at least 3 characters.",
         "durationMin": "Duration must be at least 1 day.",
-        "hoursMin": "Enter a whole number of hours, 1 or more.",
+        "hoursRange": "Enter a whole number of hours between 1 and 45.",
         "aboveCap": "The coupon exceeds the cap of {hours} h per redemption."
       },
       "errors": {
@@ -2767,10 +2769,11 @@
       },
       "redemptionWarning": "This coupon already has {count} redemption(s). Changes to duration, eligibility or limits only affect future redemptions — already consumed ones don't change.",
       "grantKind": "Grants",
-      "grantKindHours": "Hours of balance",
-      "grantKindDays": "Days of access",
-      "hours": "Hours",
-      "hoursHelp": "Added to the tourist's hour balance on redemption."
+      "grantKindHours": "Hours",
+      "grantKindDays": "Days",
+      "hours": "Guide hours",
+      "hoursHelp": "Whole number from 1 to 45. The balance never expires and is only used while the guide is on and moving.",
+      "daysHelp": "Legacy format. New partner coupons grant hours."
     },
     "owners": {
       "title": "Owner performance",
@@ -2796,7 +2799,40 @@
         "loadFailed": "Failed to load performance",
         "loadNetwork": "Could not load owner performance"
       },
-      "hoursGranted": "Hours granted"
+      "hoursGranted": "Hours granted",
+      "openRedemptions": "See redemptions of this partner"
+    },
+    "redemptions": {
+      "title": "Coupon redemptions",
+      "subtitle": "Who redeemed each coupon and how much was granted.",
+      "cards": {
+        "redemptions": "Redemptions",
+        "hoursGranted": "Hours granted",
+        "daysGranted": "Days granted"
+      },
+      "searchPlaceholder": "Coupon code",
+      "ownerAll": "All partners",
+      "clearFilters": "Clear filters",
+      "filterByCode": "Filter by this code",
+      "headers": {
+        "code": "Code",
+        "owner": "Partner",
+        "user": "User",
+        "redeemedAt": "Redeemed at",
+        "granted": "Granted"
+      },
+      "days": "{count, plural, one {# day} other {# days}}",
+      "loading": "Loading…",
+      "empty": "No redemptions yet.",
+      "emptyFiltered": "No redemptions for this filter.",
+      "unavailable": "The redemptions list is not available yet. Try again later.",
+      "pagination": "Page {current} of {total} · {count} redemptions",
+      "prev": "Previous",
+      "next": "Next",
+      "errors": {
+        "loadFailed": "Failed to load redemptions",
+        "loadNetwork": "Could not load redemptions"
+      }
     }
   },
   "Finance": {

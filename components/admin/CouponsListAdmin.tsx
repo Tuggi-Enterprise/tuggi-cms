@@ -7,6 +7,7 @@ import {
   ChevronRight,
   CheckCircle,
   Gift,
+  ListChecks,
   Plus,
   Search,
   Power,
@@ -156,6 +157,14 @@ export function CouponsListAdmin({
               {t('ownerPerformance')}
             </Link>
           )}
+          {!isScopedToOwner && (
+            <Link
+              href="/admin/coupons/redemptions"
+              className="inline-flex items-center gap-1.5 rounded-lg border border-gray-300 px-3 py-2 text-sm font-semibold text-gray-700 hover:bg-gray-50 transition">
+              <ListChecks size={14} />
+              {t('redemptions')}
+            </Link>
+          )}
           <button
             onClick={onCreateNew}
             className="inline-flex items-center gap-1.5 rounded-lg bg-tuggi-blue px-4 py-2 text-sm font-semibold text-white shadow-sm hover:bg-tuggi-blue/90 transition">
@@ -279,8 +288,17 @@ export function CouponsListAdmin({
                       </span>
                     )}
                   </td>
-                  <td className="px-4 py-3 text-gray-700">
-                    {c.redeemed_count}
+                  <td className="px-4 py-3 text-gray-700" onClick={(e) => e.stopPropagation()}>
+                    {c.redeemed_count > 0 ? (
+                      <Link
+                        href={`/admin/coupons/redemptions?coupon=${encodeURIComponent(c.code)}`}
+                        className="hover:text-tuggi-blue hover:underline"
+                        title={t('openRedemptions')}>
+                        {c.redeemed_count}
+                      </Link>
+                    ) : (
+                      c.redeemed_count
+                    )}
                     <span className="text-gray-400">
                       {' '}
                       / {c.max_redemptions ?? '∞'}

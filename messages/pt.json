@@ -2922,7 +2922,7 @@
   "Coupons": {
     "list": {
       "title": "Cupons",
-      "subtitle": "Dias de Premium gratuito resgatáveis pelo modal in-app ou landing pages de marketing.",
+      "subtitle": "Horas de guia (ou dias, nos cupons antigos) resgatáveis pelo app ou por landing page.",
       "ownerPerformance": "Desempenho por owner",
       "newCoupon": "Novo cupom",
       "searchPlaceholder": "Buscar por código",
@@ -2959,7 +2959,9 @@
         "loadFailed": "Não foi possível carregar cupons",
         "updateFailed": "Falha ao atualizar cupom",
         "updateNetwork": "Não foi possível atualizar cupom"
-      }
+      },
+      "redemptions": "Resgates",
+      "openRedemptions": "Ver resgates deste cupom"
     },
     "form": {
       "createTitle": "Criar cupom",
@@ -2995,7 +2997,7 @@
       "validation": {
         "codeMinLength": "O código deve ter ao menos 3 caracteres.",
         "durationMin": "A duração deve ser de pelo menos 1 dia.",
-        "hoursMin": "Informe um número inteiro de horas, a partir de 1.",
+        "hoursRange": "Informe um número inteiro de horas entre 1 e 45.",
         "aboveCap": "O cupom passa do teto de {hours} h por resgate."
       },
       "errors": {
@@ -3010,10 +3012,11 @@
       },
       "redemptionWarning": "Este cupom já tem {count} resgate(s). Alterações em duração, elegibilidade ou limites afetam apenas resgates futuros — os já consumidos não mudam.",
       "grantKind": "Concede",
-      "grantKindHours": "Horas de saldo",
-      "grantKindDays": "Dias de acesso",
-      "hours": "Horas",
-      "hoursHelp": "Somadas ao saldo de horas do turista no resgate."
+      "grantKindHours": "Horas",
+      "grantKindDays": "Dias",
+      "hours": "Horas de guia",
+      "hoursHelp": "Número inteiro de 1 a 45. O saldo não expira e só é gasto com o guia ativo e em movimento.",
+      "daysHelp": "Formato antigo. Cupons de parceria novos concedem horas."
     },
     "owners": {
       "title": "Desempenho por owner",
@@ -3039,7 +3042,40 @@
         "loadFailed": "Falha ao carregar desempenho",
         "loadNetwork": "Não foi possível carregar o desempenho por owner"
       },
-      "hoursGranted": "Horas concedidas"
+      "hoursGranted": "Horas concedidas",
+      "openRedemptions": "Ver resgates deste parceiro"
+    },
+    "redemptions": {
+      "title": "Resgates de cupom",
+      "subtitle": "Quem resgatou cada cupom e quanto foi concedido.",
+      "cards": {
+        "redemptions": "Resgates",
+        "hoursGranted": "Horas concedidas",
+        "daysGranted": "Dias concedidos"
+      },
+      "searchPlaceholder": "Código do cupom",
+      "ownerAll": "Todos os parceiros",
+      "clearFilters": "Limpar filtros",
+      "filterByCode": "Filtrar por este código",
+      "headers": {
+        "code": "Código",
+        "owner": "Parceiro",
+        "user": "Usuário",
+        "redeemedAt": "Resgatado em",
+        "granted": "Concedido"
+      },
+      "days": "{count, plural, one {# dia} other {# dias}}",
+      "loading": "Carregando…",
+      "empty": "Nenhum resgate ainda.",
+      "emptyFiltered": "Nenhum resgate para este filtro.",
+      "unavailable": "A lista de resgates ainda não está disponível. Tente de novo mais tarde.",
+      "pagination": "Página {current} de {total} · {count} resgates",
+      "prev": "Anterior",
+      "next": "Próxima",
+      "errors": {
+        "loadFailed": "Falha ao carregar resgates",
+        "loadNetwork": "Não foi possível carregar os resgates"
+      }
     }
   },
   "PartnerForm": {
