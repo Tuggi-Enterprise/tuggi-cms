@@ -1,6 +1,5 @@
-import { NextRequest, NextResponse } from 'next/server'
-import { getSupabaseRouteHandler } from '@/lib/core/supabase-client'
-import { cookies } from 'next/headers'
+import { NextResponse } from 'next/server'
+import { withAuth } from '@/lib/auth-middleware'
 import { PoiMigrationPipeline, PipelineOptions } from '@/lib/services/poi-migration-pipeline'
 
 export const maxDuration = 60 // Vercel Hobby plan limit (max 60s)
@@ -8,21 +7,13 @@ export const maxDuration = 60 // Vercel Hobby plan limit (max 60s)
 /**
  * API Endpoint: Migrate single POI from homolog to core
  * POST /api/migration/migrate-poi
+ *
+ * Gate: `withAuth({ roles: ['admin'] })` (#780). It used to accept any session via
+ * `getSession()`, which reads the cookie without revalidating the JWT, and then wrote to
+ * production as service role. Same gate as `migrate-batch`.
  */
-export async function POST(request: NextRequest) {
+export const POST = withAuth({ roles: ['admin'] }, async (request) => {
   try {
-// Authentication check
-    const cookieStore = await cookies()
-    const supabase = getSupabaseRouteHandler(cookieStore)
-    const { data: { session }, error: authError } = await supabase.auth.getSession()
-
-    if (authError || !session) {
-      return NextResponse.json(
-        { error: 'Unauthorized - Authentication required' },
-        { status: 401 }
-      )
-    }
-
     const body = await request.json()
     const {
       poi_uuid_id,
@@ -86,6 +77,4 @@ export async function POST(request: NextRequest) {
       { status: 500 }
     )
   }
-}
-
-
+})
