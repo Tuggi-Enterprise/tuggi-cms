@@ -2296,6 +2296,7 @@
       "snap_roads_on": "Follow roads (snap to roads)",
       "snap_roads_off": "Straight lines (manual)",
       "stops": "Stops",
+      "kml_geometry_confirm": "This route's line was imported from a KML file. Changing the stops replaces it with a recalculated line. Continue?",
       "save_required": "To save, fill in:",
       "waypoints_title": "Waypoints",
       "search_poi": "Search POI",

@@ -2305,6 +2305,7 @@
       "snap_roads_on": "Seguir vias (snap to roads)",
       "snap_roads_off": "Linhas retas (manual)",
       "stops": "Paradas",
+      "kml_geometry_confirm": "Esta rota tem o traçado importado de um arquivo KML. Mudar as paradas substitui esse traçado por um recalculado. Continuar?",
       "save_required": "Para salvar, preencha:",
       "waypoints_title": "Pontos de Passagem",
       "search_poi": "Buscar POI",

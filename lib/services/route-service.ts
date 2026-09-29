@@ -9,6 +9,7 @@
 
 import { SupabaseClient } from '@supabase/supabase-js'
 import { OSRMService, LatLng, RouteResult } from './routing/OSRMService'
+import { mustRegenerate, storedLineToLatLngs } from './routing/route-geometry'
 
 // Characteristic Enums
 export type AccessibilityLevel = 'accessible' | 'partial' | 'not_accessible' | 'unknown';
@@ -33,12 +34,13 @@ export interface CustomRoute {
   client_id: string;
   created_by?: string;
   updated_by?: string;
-  geometry?: string; // WKT or GeoJSON
+  geometry?: unknown; // as PostgREST serializes geography: hex EWKB (or GeoJSON) — read with storedLineToLatLngs
   waypoints?: LatLng[];
   metadata?: {
     distance?: number;
     duration?: number;
-    source?: 'osrm' | 'manual';
+    source?: 'osrm' | 'manual' | 'kml';
+    [key: string]: unknown;
   };
   is_active: boolean;
   created_at: string;
@@ -194,29 +196,41 @@ export class RouteService {
       throw new Error('Route not found')
     }
 
-    let geometry = oldRoute.geometry
+    // #790: the stored line is the SSOT. It is regenerated only when the stops' path or a known
+    // snap state changed — never for name/description/characteristics edits. A KML import has
+    // 10k+ line points and ~16 stops; rebuilding it from the stops destroys the route.
+    let geometry: string | undefined
     let metadata = oldRoute.metadata
+    const regenerate = Boolean(data.waypoints && data.waypoints.length >= 2) && mustRegenerate(
+      { waypoints: oldRoute.waypoints, source: oldRoute.metadata?.source },
+      { waypoints: data.waypoints!, snapToRoads: data.snap_to_roads },
+    )
 
-    // If waypoints changed, recalculate geometry
-    if (data.waypoints && data.waypoints.length >= 2) {
+    if (regenerate) {
+      const waypoints = data.waypoints!
       if (data.snap_to_roads) {
         try {
-          const routeResult = await OSRMService.getRoute(data.waypoints)
+          const routeResult = await OSRMService.getRoute(waypoints)
           geometry = OSRMService.toWKT(routeResult.coordinates)
           metadata = {
+            ...oldRoute.metadata,
             distance: routeResult.distance,
             duration: routeResult.duration,
             source: 'osrm'
           }
         } catch (error) {
           console.error('RouteService: OSRM routing failed during update:', error)
-          geometry = OSRMService.toWKT(data.waypoints)
-          metadata = { source: 'manual' }
+          geometry = OSRMService.toWKT(waypoints)
+          metadata = { ...oldRoute.metadata, source: 'manual' }
         }
       } else {
-        geometry = OSRMService.toWKT(data.waypoints)
+        geometry = OSRMService.toWKT(waypoints)
         metadata = { ...oldRoute.metadata, source: 'manual' }
       }
+    } else {
+      // upsert_custom_route always rewrites the column from p_geometry_wkt: send the stored line back.
+      const stored = storedLineToLatLngs(oldRoute.geometry)
+      geometry = stored.length >= 2 ? OSRMService.toWKT(stored) : undefined
     }
 
     const { data: route, error } = await supabase

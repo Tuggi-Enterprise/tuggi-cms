@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { RouteService } from '@/lib/services/route-service'
 import { withAuth } from '@/lib/auth-middleware'
+import { storedLineToLatLngs } from '@/lib/services/routing/route-geometry'
 
 /**
  * PORTÃO (#780): `withAuth({ roles: ['admin', 'client'] })` nos três métodos. Quem chama é o editor
@@ -29,7 +30,8 @@ export const GET = withAuth<Params>({ roles: ['admin', 'client'] }, async (_requ
       )
     }
 
-    return NextResponse.json({ route })
+    // #790: the editor draws and keeps the stored line; it must not rebuild it from the stops.
+    return NextResponse.json({ route: { ...route, geometry_coords: storedLineToLatLngs(route.geometry) } })
   } catch (error) {
     console.error('GET /api/routes/[id] error:', error)
     return NextResponse.json(

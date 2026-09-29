@@ -28,6 +28,7 @@ import { GOOGLE_MAPS_LIBRARIES, GOOGLE_MAPS_VERSION } from '@/lib/maps-config'
 import { useCmsUser } from '@/lib/hooks/useCmsUser'
 import { ROUTE_LANGUAGES, localeToLangCode } from '@/lib/constants/route-languages'
 import { RouteTranslationsPanel } from './RouteTranslationsPanel'
+import { mustRegenerate, storedSnapToRoads } from '@/lib/services/routing/route-geometry'
 
 // SSOT: language catalogue is in lib/constants/route-languages.ts
 // Alias kept for backward-compat with JSX below (uses .name not .label)
@@ -114,6 +115,11 @@ function RouteEditorModalInner({
   const [duration,       setDuration]       = useState<number | null>(null)
   const [isGenerating,   setIsGenerating]   = useState(false)
   const [isActive,       setIsActive]       = useState(true)
+  // #790: what is stored for an existing route. The stored line is kept (and shown) until the
+  // stops' path or a known snap state changes — see lib/services/routing/route-geometry.ts.
+  const storedRouteRef = useRef<{
+    waypoints: LatLng[]; source?: string; geometry: LatLng[]; distance: number | null; duration: number | null
+  } | null>(null)
 
   // ── Characteristics state ──────────────────────────────────────────────────
   const [accessibility,   setAccessibility]   = useState('unknown')
@@ -184,11 +190,18 @@ function RouteEditorModalInner({
         setCountry(route.country || '')
         setRegion(route.region || '')
         setContentLanguage(route.metadata?.content_language || localeToLangCode(locale))
+        storedRouteRef.current = {
+          waypoints: route.waypoints || [],
+          source: route.metadata?.source,
+          geometry: route.geometry_coords || [],
+          distance: route.metadata?.distance ?? null,
+          duration: route.metadata?.duration ?? null,
+        }
         setWaypoints(route.waypoints || [])
-        setSnapToRoads(route.metadata?.source === 'osrm' || true)
+        setSnapToRoads(storedSnapToRoads(route.metadata?.source) ?? true)
         setRouteGeometry(route.geometry_coords || [])
-        setDistance(route.metadata?.distance || null)
-        setDuration(route.metadata?.duration || null)
+        setDistance(route.metadata?.distance ?? null)
+        setDuration(route.metadata?.duration ?? null)
         setIsActive(route.is_active ?? true)
         setAccessibility(route.accessibility || 'unknown')
         setDrivability(route.drivability || 'unknown')
@@ -270,6 +283,13 @@ function RouteEditorModalInner({
   // ── Generate route geometry ────────────────────────────────────────────────
   useEffect(() => {
     async function generate() {
+      const stored = storedRouteRef.current
+      if (stored && !mustRegenerate(stored, { waypoints, snapToRoads })) {
+        setRouteGeometry(stored.geometry)
+        setDistance(stored.distance)
+        setDuration(stored.duration)
+        return
+      }
       if (waypoints.length < 2) {
         setRouteGeometry([])
         setDistance(null)
@@ -598,6 +618,11 @@ function RouteEditorModalInner({
     if (!name.trim() || !country.trim() || !region.trim() || waypoints.length < 2) {
       if (!name.trim() || !country.trim() || !region.trim()) setActiveTab('content')
       else setActiveTab('route')
+      return
+    }
+    const stored = storedRouteRef.current
+    if (stored?.source === 'kml' && mustRegenerate(stored, { waypoints, snapToRoads })
+        && !window.confirm(t('kml_geometry_confirm'))) {
       return
     }
     try {
