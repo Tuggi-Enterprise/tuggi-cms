@@ -835,39 +835,10 @@ export class PoiMigrationPipeline {
         geometry_geojson: tp.geometryGeoJson || null,
       }))
       
-      const saveResult = await TriggerPointSavingService.saveTriggerPoints(
-        attraction_id,
-        triggerPointsToSave,
-        {
-          mode: 'replace_all',
-          boundarySource: predictionResult.boundary?.source || 'unknown'
-        }
-      )
-
-      const savedCount = saveResult.saved || 0
-
-      // Validate that at least one trigger point was saved
-      if (savedCount === 0) {
-        const errorMsg = saveResult.errors && saveResult.errors.length > 0
-          ? `Failed to save trigger points: ${saveResult.errors.join('; ')}`
-          : 'No trigger points were saved to database (generated but not persisted)'
-        console.error(`   ❌ ${errorMsg}`)
-        return {
-          step: 'trigger_points',
-          success: false,
-          error: errorMsg,
-          processing_time: Date.now() - stepStart
-        }
-      }
-
-      // Log warnings if there were errors but some TPs were saved
-      if (saveResult.errors && saveResult.errors.length > 0) {
-        console.warn(`   ⚠️  Some errors occurred but ${savedCount} trigger points were saved: ${saveResult.errors.join('; ')}`)
-      }
-
-      console.log(`   ✅ Saved ${savedCount} trigger points to database`)
-
-      // Save boundary geometry if it was found and not yet saved
+      // The border goes in BEFORE the TPs (#779, BR-POI-009): `core.tg_reject_tp_beyond_distance_cap`
+      // measures each inserted TP to the border stored at that moment, and the post-conditions
+      // measured to this one (`withinDatabaseCap`). Saved after, the database measured to the old
+      // one — a 10 m synthetic circle on Morro do Telégrafo — and refused the whole replace.
       if (predictionResult.boundary?.coordinates && predictionResult.boundary.coordinates.length >= 3) {
         console.log(`   💾 Saving boundary geometry from source: ${predictionResult.boundary.source}...`)
         
@@ -906,6 +877,38 @@ export class PoiMigrationPipeline {
           console.warn(`   ⚠️ Exception while saving boundary geometry:`, e)
         }
       }
+
+      const saveResult = await TriggerPointSavingService.saveTriggerPoints(
+        attraction_id,
+        triggerPointsToSave,
+        {
+          mode: 'replace_all',
+          boundarySource: predictionResult.boundary?.source || 'unknown'
+        }
+      )
+
+      const savedCount = saveResult.saved || 0
+
+      // Validate that at least one trigger point was saved
+      if (savedCount === 0) {
+        const errorMsg = saveResult.errors && saveResult.errors.length > 0
+          ? `Failed to save trigger points: ${saveResult.errors.join('; ')}`
+          : 'No trigger points were saved to database (generated but not persisted)'
+        console.error(`   ❌ ${errorMsg}`)
+        return {
+          step: 'trigger_points',
+          success: false,
+          error: errorMsg,
+          processing_time: Date.now() - stepStart
+        }
+      }
+
+      // Log warnings if there were errors but some TPs were saved
+      if (saveResult.errors && saveResult.errors.length > 0) {
+        console.warn(`   ⚠️  Some errors occurred but ${savedCount} trigger points were saved: ${saveResult.errors.join('; ')}`)
+      }
+
+      console.log(`   ✅ Saved ${savedCount} trigger points to database`)
 
       // Calculate max confidence from saved trigger points
       const maxConfidence = predictionResult.triggerPoints.length > 0

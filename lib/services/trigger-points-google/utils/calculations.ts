@@ -20,6 +20,40 @@ export function calculateDistance(
   return R * c;
 }
 
+/** WGS84 semi-major axis and first eccentricity squared: the ellipsoid of PostGIS `geography`. */
+const WGS84_A_M = 6_378_137;
+const WGS84_E2 = 0.00669437999014;
+
+/**
+ * Distance on the WGS84 ellipsoid, the metric of `ST_DWithin(geography, geography, m)` (use_spheroid
+ * defaults to true). Local radii of curvature at the mean latitude: < 1 m off GeographicLib up to
+ * tens of km. `calculateDistance` (sphere, R = 6371 km) is off by up to 0.4 % at Rio's latitude —
+ * 60 m at 15 km — so a check that must agree with the database measures here (BR-POI-009, #779).
+ */
+export function spheroidDistanceM(a: GeoPoint, b: GeoPoint): number {
+  const phi = ((a.lat + b.lat) / 2) * Math.PI / 180;
+  const w = 1 - WGS84_E2 * Math.sin(phi) ** 2;
+  const meridianRadius = (WGS84_A_M * (1 - WGS84_E2)) / w ** 1.5;
+  const primeVerticalRadius = WGS84_A_M / Math.sqrt(w);
+  let dLng = b.lng - a.lng;
+  if (dLng > 180) dLng -= 360;
+  if (dLng < -180) dLng += 360;
+  const dy = meridianRadius * (b.lat - a.lat) * Math.PI / 180;
+  const dx = primeVerticalRadius * Math.cos(phi) * dLng * Math.PI / 180;
+  return Math.hypot(dx, dy);
+}
+
+/** `calculateDistanceToPolygon` in the `spheroidDistanceM` metric: 0 inside, else to the nearest edge. */
+export function spheroidDistanceToPolygonM(point: GeoPoint, polygon: GeoPoint[]): number {
+  if (isPointInPolygon(point, polygon)) return 0;
+  let min = Infinity;
+  for (let i = 0; i < polygon.length; i++) {
+    const foot = closestPointOnSegment(point, polygon[i], polygon[(i + 1) % polygon.length]).point;
+    min = Math.min(min, spheroidDistanceM(point, foot));
+  }
+  return min;
+}
+
 /**
  * Calcula o bearing (direção) entre dois pontos em graus
  */

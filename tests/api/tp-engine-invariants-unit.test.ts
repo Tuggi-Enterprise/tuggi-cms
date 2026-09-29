@@ -1,5 +1,7 @@
 import { describe, it, mock } from 'node:test'
 import assert from 'node:assert/strict'
+import fs from 'node:fs'
+import path from 'node:path'
 import {
   VisibilityClass,
   classifyVisibility,
@@ -8,7 +10,9 @@ import {
   fanHorizonM,
   LANDMARK_MIN_PROMINENCE_M,
   BUILDING_LEVEL_HEIGHT_M,
+  SANITY_MAX_TP_DISTANCE_M,
 } from '@/lib/services/trigger-points-google/config/visibility-class'
+import { calculateDistance, spheroidDistanceM, spheroidDistanceToPolygonM } from '@/lib/services/trigger-points-google/utils/calculations'
 import { tpReachCapM, UNCLASSIFIED_MAX_TP_DISTANCE_M } from '@/lib/services/trigger-points-google/utils/validation'
 import { applyTpPostConditions, bestStreetPointOutside, dropInsidePoi, REACH_RESCUE_METHOD } from '@/lib/services/trigger-points-google/utils/tp-selection'
 import { measureAndClassify } from '@/lib/services/trigger-points-google/services/poi-classifier.service'
@@ -244,5 +248,62 @@ describe('INV-E11b, BR-AUDIO-010 — POI com borda nunca termina com 0 TP (Ilha 
     assert.deepEqual(dropped.map(d => [d.tp.id, d.reason]), [['plain', 'beyond_reach']])
     const inside = tp({ id: 'inside', location: PIN, generationMethod: REACH_RESCUE_METHOD })
     assert.deepEqual(applyTpPostConditions([inside], PIN, boundary).kept, [], 'resgate dentro da borda também cai')
+  })
+})
+
+describe('BR-POI-009, #779 — o teto de sanidade do motor mede o que o banco mede', () => {
+  const fixture = JSON.parse(fs.readFileSync(path.join(process.cwd(), 'tests/api/fixtures/morro-do-telegrafo-779.json'), 'utf8'))
+  const telegrafoPin = fixture.pin as { lat: number; lng: number }
+  const landmark = { classification: { maxEdgeDistanceM: SANITY_MAX_TP_DISTANCE_M } }
+
+  it('spheroidDistanceM concorda com o GeographicLib (WGS84, a métrica do geography do PostGIS) a menos de 1 m', () => {
+    // Oráculo: geographiclib 2.x, Geodesic.WGS84.Inverse, a partir do pino do Morro do Telégrafo.
+    const oracle: Array<[number, number, number]> = [
+      [-22.7686919, -43.2350197, 14950.13],
+      [-22.9036919, -43.0880197, 15081.48],
+      [-22.8036919, -43.1350197, 15098.76],
+      [-23.0236919, -43.3150197, 15617.58],
+      [fixture.farTp.lat, fixture.farTp.lng, 15112.88],
+    ]
+    for (const [lat, lng, meters] of oracle) {
+      assert.ok(Math.abs(spheroidDistanceM(telegrafoPin, { lat, lng }) - meters) < 1, `${lat},${lng}`)
+    }
+  })
+
+  it('Morro do Telégrafo: o TP recusado com TGP09 cai como beyond_reach quando a borda gravada é o círculo sintético', () => {
+    const far = tp({ id: 'far', location: fixture.farTp })
+    const { kept, dropped } = applyTpPostConditions([far], telegrafoPin, { ...landmark, coordinates: fixture.storedRing, synthetic: true })
+    assert.deepEqual(kept, [])
+    assert.deepEqual(dropped, [{ tp: far, reason: 'beyond_reach' }])
+  })
+
+  it('Morro do Telégrafo: o mesmo TP fica quando a borda gravada é a que o motor detectou (gravada antes dos TPs)', () => {
+    const far = tp({ id: 'far', location: fixture.farTp })
+    assert.ok(spheroidDistanceToPolygonM(fixture.farTp, fixture.engineRing) < SANITY_MAX_TP_DISTANCE_M - 100)
+    const { kept } = applyTpPostConditions([far], telegrafoPin, { ...landmark, coordinates: fixture.engineRing })
+    assert.deepEqual(kept.map(t => t.id), ['far'])
+  })
+
+  it('a leste do Rio a esfera de 6371 km encurta a distância: 15 010 m no elipsoide cai, 14 990 m fica', () => {
+    // GeographicLib Direct, azimute 90° a partir do pino; o haversine mede o de fora abaixo de 15 000 m.
+    const out = tp({ id: 'out', location: { lat: -22.903624552581306, lng: -43.088716501052254 } })
+    const inn = tp({ id: 'in', location: { lat: -22.903624731935082, lng: -43.08891144189545 } })
+    assert.ok(calculateDistance(telegrafoPin, out.location) < SANITY_MAX_TP_DISTANCE_M, 'premissa: o haversine deixava passar')
+    const { kept, dropped } = applyTpPostConditions([out, inn], telegrafoPin, landmark)
+    assert.deepEqual(kept.map(t => t.id), ['in'])
+    assert.deepEqual(dropped, [{ tp: out, reason: 'beyond_reach' }])
+  })
+
+  it('geofence fica isento, como no trigger do banco', () => {
+    // 15 010 m no elipsoide: só o passe do banco o derrubaria, e o banco isenta geofence
+    const fence = tp({ id: 'fence', type: 'geofence', location: { lat: -22.903624552581306, lng: -43.088716501052254 } })
+    assert.deepEqual(applyTpPostConditions([fence], telegrafoPin, landmark).kept.map(t => t.id), ['fence'])
+  })
+
+  it('o pipeline grava a borda antes dos TPs: o trigger mede contra a borda gravada no INSERT', () => {
+    const src = fs.readFileSync(path.join(process.cwd(), 'lib/services/poi-migration-pipeline.ts'), 'utf8')
+    const boundary = src.indexOf("rpc('update_boundary_geometry'")
+    const save = src.indexOf('TriggerPointSavingService.saveTriggerPoints(')
+    assert.ok(boundary > 0 && save > 0 && boundary < save)
   })
 })

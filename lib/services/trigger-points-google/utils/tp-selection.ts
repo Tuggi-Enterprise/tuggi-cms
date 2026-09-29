@@ -5,7 +5,7 @@
  * frontal TPs included. Numbers live in config/visibility-class.ts.
  */
 import { StreetData, TriggerPoint } from '../types/interfaces';
-import { calculateBearing, calculateDistance, calculateDistanceToPolygon, closestPointOnSegment } from './calculations';
+import { calculateBearing, calculateDistance, calculateDistanceToPolygon, closestPointOnSegment, spheroidDistanceM, spheroidDistanceToPolygonM } from './calculations';
 import { EDGE_BAND_M, LANDMARK_CELL_RINGS_M, PERIMETER_SECTOR_M, SANITY_MAX_TP_DISTANCE_M, VisibilityClass, isCarStreet, landmarkSectorOf, landmarkStreetTier, observerPath, proximityBand, proximityRankScore, sizeReachFarFromM } from '../config/visibility-class';
 import { partitionByPoiReach, poiEdgeRing, tpReachCapM } from './validation';
 
@@ -340,6 +340,27 @@ export function bestStreetPointOutside(
 
 export type TpDropReason = 'beyond_reach' | 'inside_poi';
 
+/**
+ * Below the sanity cap for the database-parity pass. The metric agrees with PostGIS to < 1 m;
+ * the rest is the foot of the perpendicular (planar here, geodesic there), which can only make
+ * this side measure LONGER, never shorter.
+ */
+const DB_CAP_MARGIN_M = 5;
+
+/**
+ * BR-POI-009 sanity cap exactly as `core.tg_reject_tp_beyond_distance_cap` measures it (#779):
+ * `ST_DWithin(geography)` to the border the save leaves in `attraction_coordinate` — the drawn
+ * ring, synthetic circle included (the pipeline writes it before the TPs) — else to the pin;
+ * `geofence` exempt. `poiEdgeRing` skips the synthetic circle and the haversine sphere drifts
+ * 0.4 %: Morro do Telégrafo passed here at 15 136 m from the pin and the database refused it.
+ */
+function withinDatabaseCap(tp: TriggerPoint, poiPin: LatLng, boundary?: { coordinates?: LatLng[] } | null): boolean {
+  if (tp.type === 'geofence') return true;
+  const ring = boundary?.coordinates && boundary.coordinates.length >= 3 ? boundary.coordinates : undefined;
+  const d = ring ? spheroidDistanceToPolygonM(tp.location, ring) : spheroidDistanceM(tp.location, poiPin);
+  return d <= SANITY_MAX_TP_DISTANCE_M - DB_CAP_MARGIN_M;
+}
+
 type PostConditionBoundary = NonNullable<Parameters<typeof dropInsidePoi>[1]> & {
   classification?: { group?: VisibilityClass; maxEdgeDistanceM?: number };
 };
@@ -348,7 +369,8 @@ type PostConditionBoundary = NonNullable<Parameters<typeof dropInsidePoi>[1]> & 
  * E11 post-conditions (INV-E11, BR-AUDIO-010): the ONE step that decides which TPs are
  * written. The save (`poi-migration-pipeline`), the API routes that save, the dry-run
  * (`tp-dry-run`) and the engine itself call it, so a dry-run number predicts the save.
- * Order: reach cap (`tpReachCapM`, measured to the edge) → not inside the POI.
+ * Order: reach cap (`tpReachCapM`, measured to the edge) → the database's sanity cap
+ * (`withinDatabaseCap`) → not inside the POI.
  */
 export function applyTpPostConditions<T extends TriggerPoint>(
   tps: T[],
@@ -365,7 +387,9 @@ export function applyTpPostConditions<T extends TriggerPoint>(
   const dropped: Array<{ tp: T; reason: TpDropReason }> = [...reach.dropped, ...sane.dropped].map(d => ({ tp: d.item, reason: 'beyond_reach' }));
   // OSM `oneway` is not a post-condition (INV-E9, BR-POI-009): the TP also serves walkers and
   // cyclists, and the map's one-way is often stale (operator, 2026-09-28).
-  const reachable = [...reach.kept, ...sane.kept];
+  const capped = [...reach.kept, ...sane.kept];
+  const reachable = capped.filter(tp => withinDatabaseCap(tp, poiPin, boundary));
+  for (const tp of capped) if (!reachable.includes(tp)) dropped.push({ tp, reason: 'beyond_reach' });
   const kept = dropInsidePoi(reachable, boundary);
   for (const tp of reachable) if (!kept.includes(tp)) dropped.push({ tp, reason: 'inside_poi' });
   return { kept, dropped, reachCapM };
