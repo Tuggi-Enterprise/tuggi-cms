@@ -74,6 +74,7 @@ import {
   Store,
   Target,
   Trophy,
+  Flag,
   Upload,
   UserCog,
   Users,
@@ -166,6 +167,8 @@ function catalogue(): { basic: NavEntry[]; modules: NavEntry[] } {
               // O placar de pontuação (#741). Depois de `Base de Usuários` porque é leitura
               // SOBRE a mesma base, com uma régua a mais: quem pontuou no período.
               item('/dashboard/reports/ranking', 'ranking', Trophy),
+              // Quem iniciou, está em andamento e concluiu cada roteiro (#794).
+              item('/dashboard/reports/route-progress', 'route_progress', Flag),
             ],
           },
         ],

@@ -100,7 +100,8 @@
     "main_navigation": "Navegação principal",
     "menu": "Menu",
     "switch_language": "Trocar idioma",
-    "ranking": "Placar"
+    "ranking": "Placar",
+    "route_progress": "Progresso de roteiros"
   },
   "Pages": {
     "Login": {
@@ -557,6 +558,28 @@
         "calibration": {
           "floor": "piso"
         }
+      },
+      "route_progress": {
+        "title": "Progresso de roteiros",
+        "caption": "Por roteiro: quem iniciou, quem está em andamento e quem concluiu (todas as paradas). Escolha um roteiro para ver a lista por usuário.",
+        "route": "Roteiro",
+        "started": "Iniciaram",
+        "in_progress": "Em andamento",
+        "completed": "Concluíram",
+        "loading": "Carregando…",
+        "empty_summary": "Nenhum roteiro com progresso registrado.",
+        "empty_users": "Nenhum usuário neste roteiro.",
+        "users_of": "Usuários em {route}",
+        "person": "Usuário",
+        "status": "Status",
+        "status_in_progress": "Em andamento",
+        "status_completed": "Concluiu",
+        "stops": "Paradas",
+        "started_at": "Iniciou em",
+        "last_activity_at": "Última atividade",
+        "completed_at": "Concluiu em",
+        "error_forbidden": "Só administrador da plataforma vê este painel.",
+        "error_generic": "Não foi possível carregar"
       }
     },
     "POIMigration": {

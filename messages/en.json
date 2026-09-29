@@ -100,7 +100,8 @@
     "main_navigation": "Main navigation",
     "menu": "Menu",
     "switch_language": "Switch language",
-    "ranking": "Scoreboard"
+    "ranking": "Scoreboard",
+    "route_progress": "Route progress"
   },
   "Pages": {
     "Login": {
@@ -559,6 +560,28 @@
         "calibration": {
           "floor": "floor"
         }
+      },
+      "route_progress": {
+        "title": "Route progress",
+        "caption": "Per route: who started, who is in progress and who completed it (all stops). Pick a route to see the list per user.",
+        "route": "Route",
+        "started": "Started",
+        "in_progress": "In progress",
+        "completed": "Completed",
+        "loading": "Loading…",
+        "empty_summary": "No route with recorded progress.",
+        "empty_users": "No users on this route.",
+        "users_of": "Users on {route}",
+        "person": "User",
+        "status": "Status",
+        "status_in_progress": "In progress",
+        "status_completed": "Completed",
+        "stops": "Stops",
+        "started_at": "Started at",
+        "last_activity_at": "Last activity",
+        "completed_at": "Completed at",
+        "error_forbidden": "Only a platform admin can see this panel.",
+        "error_generic": "Could not load"
       }
     },
     "POIMigration": {
