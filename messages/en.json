@@ -2371,7 +2371,20 @@
       "required_title_field": "Title",
       "required_country_field": "Country",
       "required_region_field": "Region / City",
-      "required_waypoints": "Minimum 2 points on map"
+      "required_waypoints": "Minimum 2 points on map",
+      "mode_partner_title": "Mode and partner",
+      "travel_mode_label": "How it is travelled",
+      "travel_mode_car": "Car",
+      "travel_mode_walk": "On foot",
+      "travel_mode_bike": "Bike",
+      "partner_label": "Partner",
+      "partner_none": "None (Tuggi route)",
+      "partner_new": "New partner",
+      "partner_name_placeholder": "Partner name",
+      "partner_description_placeholder": "Short description (optional)",
+      "partner_create": "Create",
+      "partner_create_error": "Error creating partner",
+      "partners_load_error": "Could not load partners"
     }
   },
   "Geofences": {

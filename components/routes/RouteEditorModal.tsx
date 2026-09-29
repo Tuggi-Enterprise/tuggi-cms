@@ -20,7 +20,7 @@ import {
   Plus, RefreshCw, Route, PenTool, CheckCircle, XCircle, Edit, Link2,
   ExternalLink, Accessibility, Car, Mountain, Sun, Moon, Sunrise,
   Camera, Trees, Building2, Wheat, ParkingCircle, ChevronDown, MapPin, Globe,
-  FileText, Languages, AlertTriangle, GripVertical,
+  FileText, Languages, AlertTriangle, GripVertical, Footprints, Bike, Handshake,
 } from 'lucide-react'
 import { useTranslations, useLocale } from 'next-intl'
 import { cn } from '@/lib/utils'
@@ -29,6 +29,7 @@ import { useCmsUser } from '@/lib/hooks/useCmsUser'
 import { ROUTE_LANGUAGES, localeToLangCode } from '@/lib/constants/route-languages'
 import { RouteTranslationsPanel } from './RouteTranslationsPanel'
 import { mustRegenerate, storedSnapToRoads } from '@/lib/services/routing/route-geometry'
+import { TRAVEL_MODES, type TravelMode, type RoutePartner } from '@/lib/routes/route-ownership'
 
 // SSOT: language catalogue is in lib/constants/route-languages.ts
 // Alias kept for backward-compat with JSX below (uses .name not .label)
@@ -83,7 +84,7 @@ function RouteEditorModalInner({
 }: Omit<RouteEditorModalProps, 'isOpen'>) {
   const t       = useTranslations('CustomRoutes.editor')
   const commonT = useTranslations('Common')
-  const { canEdit, isViewer } = useCmsUser()
+  const { canEdit, isViewer, isAdmin } = useCmsUser()
   const locale    = useLocale()
   const isEditing = Boolean(routeId)
 
@@ -105,6 +106,14 @@ function RouteEditorModalInner({
   const [clientId,    setClientId]    = useState('')
   const [country,     setCountry]     = useState('')
   const [region,      setRegion]      = useState('')
+  // #792: how the route is travelled and who owns it — not the TP `bike` of the trigger-point calc.
+  const [travelMode,  setTravelMode]  = useState<TravelMode>('car')
+  const [partnerId,   setPartnerId]   = useState<string>('')
+  const [partners,    setPartners]    = useState<RoutePartner[]>([])
+  const [partnersError, setPartnersError] = useState(false)
+  const [newPartnerName, setNewPartnerName] = useState('')
+  const [newPartnerDescription, setNewPartnerDescription] = useState('')
+  const [isCreatingPartner, setIsCreatingPartner] = useState(false)
   const [isSaving,    setIsSaving]    = useState(false)
 
   // ── Route geometry state ───────────────────────────────────────────────────
@@ -189,6 +198,8 @@ function RouteEditorModalInner({
         setClientId(route.client_id || '')
         setCountry(route.country || '')
         setRegion(route.region || '')
+        setTravelMode(route.travel_mode || 'car')
+        setPartnerId(route.partner_id || '')
         setContentLanguage(route.metadata?.content_language || localeToLangCode(locale))
         storedRouteRef.current = {
           waypoints: route.waypoints || [],
@@ -213,6 +224,33 @@ function RouteEditorModalInner({
       .catch(err => console.error('Error loading route:', err))
       .finally(() => setIsLoadingRoute(false))
   }, [routeId])
+
+  // ── Partners (#792) ────────────────────────────────────────────────────────
+  useEffect(() => {
+    fetch('/api/routes/partners')
+      .then(r => (r.ok ? r.json() : Promise.reject(new Error(`HTTP ${r.status}`))))
+      .then(data => setPartners(data.partners ?? []))
+      .catch(err => { console.error('Error loading route partners:', err); setPartnersError(true) })
+  }, [])
+
+  const createPartner = async () => {
+    if (!newPartnerName.trim()) return
+    try {
+      setIsCreatingPartner(true)
+      const res  = await fetch('/api/routes/partners', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name: newPartnerName, short_description: newPartnerDescription }),
+      })
+      const data = await res.json()
+      if (!res.ok) { alert(`${t('partner_create_error')}: ${data.error}`); return }
+      const created: RoutePartner = data.partner
+      setPartners(prev => [...prev, created].sort((a, b) => a.name.localeCompare(b.name)))
+      setPartnerId(created.id)
+      setNewPartnerName('')
+      setNewPartnerDescription('')
+    } catch { alert(t('partner_create_error')) } finally { setIsCreatingPartner(false) }
+  }
 
   // ── Close with animation ───────────────────────────────────────────────────
   const handleClose = () => {
@@ -639,6 +677,7 @@ function RouteEditorModalInner({
           best_time: bestTime, road_conditions: roadConditions, photogenic_rating: photogenicRating,
           stops_count: stopsCount || waypoints.length,
           country: country || null, region: region || null,
+          travel_mode: travelMode, partner_id: partnerId || null,
           content_language: contentLanguage,
         }),
       })
@@ -1228,6 +1267,78 @@ function RouteEditorModalInner({
                             <p className="text-[10px] text-amber-600 mt-1">{t('required_field')}</p>
                           )}
                         </div>
+                      </div>
+                    </section>
+
+                    {/* MODE AND PARTNER (#792) */}
+                    <section className="space-y-3 pt-1 border-t border-gray-100 dark:border-gray-800">
+                      <h3 className="text-[10px] font-bold text-gray-400 uppercase tracking-widest flex items-center gap-1.5">
+                        <Handshake className="h-3.5 w-3.5" /> {t('mode_partner_title')}
+                      </h3>
+                      <div>
+                        <label className="block text-xs font-semibold text-gray-600 dark:text-gray-400 mb-1">{t('travel_mode_label')}</label>
+                        <div className="grid grid-cols-3 gap-2" role="radiogroup" aria-label={t('travel_mode_label')}>
+                          {TRAVEL_MODES.map(id => {
+                            const Icon = id === 'car' ? Car : id === 'walk' ? Footprints : Bike
+                            return (
+                              <button key={id} type="button" role="radio" aria-checked={travelMode === id}
+                                onClick={() => setTravelMode(id)}
+                                className={cn('flex items-center justify-center gap-1.5 py-2 px-3 rounded-xl border-2 transition-all text-xs font-bold',
+                                  travelMode === id ? 'bg-tuggi-blue/10 border-tuggi-blue text-tuggi-blue' : 'bg-gray-50 dark:bg-gray-800 border-transparent hover:border-gray-200 text-gray-500'
+                                )}
+                              >
+                                <Icon className="h-4 w-4" /> {t(`travel_mode_${id}`)}
+                              </button>
+                            )
+                          })}
+                        </div>
+                      </div>
+                      <div>
+                        <label htmlFor="route-partner" className="block text-xs font-semibold text-gray-600 dark:text-gray-400 mb-1">{t('partner_label')}</label>
+                        <select
+                          id="route-partner"
+                          value={partnerId}
+                          onChange={e => setPartnerId(e.target.value)}
+                          className="w-full px-3 py-2.5 bg-gray-50 dark:bg-gray-800 border border-transparent rounded-xl focus:ring-2 focus:ring-tuggi-blue transition-all text-sm"
+                        >
+                          <option value="">{t('partner_none')}</option>
+                          {partners.map(p => (
+                            <option key={p.id} value={p.id}>{p.name}</option>
+                          ))}
+                        </select>
+                        {partnersError && (
+                          <p className="text-[10px] text-amber-600 mt-1">{t('partners_load_error')}</p>
+                        )}
+                        {isAdmin && (
+                          <div className="mt-2 grid grid-cols-[1fr_1.5fr_auto] gap-2">
+                            <input
+                              type="text"
+                              value={newPartnerName}
+                              onChange={e => setNewPartnerName(e.target.value)}
+                              maxLength={120}
+                              placeholder={t('partner_name_placeholder')}
+                              aria-label={t('partner_new')}
+                              className="px-3 py-2 bg-gray-50 dark:bg-gray-800 border-none rounded-xl focus:ring-2 focus:ring-tuggi-blue text-xs"
+                            />
+                            <input
+                              type="text"
+                              value={newPartnerDescription}
+                              onChange={e => setNewPartnerDescription(e.target.value)}
+                              maxLength={280}
+                              placeholder={t('partner_description_placeholder')}
+                              aria-label={t('partner_description_placeholder')}
+                              className="px-3 py-2 bg-gray-50 dark:bg-gray-800 border-none rounded-xl focus:ring-2 focus:ring-tuggi-blue text-xs"
+                            />
+                            <button
+                              type="button"
+                              onClick={createPartner}
+                              disabled={!newPartnerName.trim() || isCreatingPartner}
+                              className="flex items-center gap-1 px-3 py-2 rounded-xl bg-tuggi-blue text-white text-xs font-bold disabled:opacity-40"
+                            >
+                              <Plus className="h-3.5 w-3.5" /> {t('partner_create')}
+                            </button>
+                          </div>
+                        )}
                       </div>
                     </section>
 

@@ -2353,7 +2353,20 @@
       "required_title_field": "Título",
       "required_country_field": "País",
       "required_region_field": "Región / Ciudad",
-      "required_waypoints": "Mínimo 2 puntos en el mapa"
+      "required_waypoints": "Mínimo 2 puntos en el mapa",
+      "mode_partner_title": "Modo y socio",
+      "travel_mode_label": "Cómo se recorre",
+      "travel_mode_car": "Coche",
+      "travel_mode_walk": "A pie",
+      "travel_mode_bike": "Bici",
+      "partner_label": "Socio",
+      "partner_none": "Ninguno (ruta Tuggi)",
+      "partner_new": "Nuevo socio",
+      "partner_name_placeholder": "Nombre del socio",
+      "partner_description_placeholder": "Descripción corta (opcional)",
+      "partner_create": "Crear",
+      "partner_create_error": "Error al crear el socio",
+      "partners_load_error": "No se pudieron cargar los socios"
     }
   },
   "Geofences": {

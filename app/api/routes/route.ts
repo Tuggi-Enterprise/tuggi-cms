@@ -3,6 +3,7 @@ import { getSupabaseRouteHandler } from '@/lib/core/supabase-client'
 import { RouteService } from '@/lib/services/route-service'
 import { cookies } from 'next/headers'
 import { namePattern } from '@/lib/shared/name-search'
+import { parseRouteOwnership } from '@/lib/routes/route-ownership'
 
 /**
  * GET /api/routes
@@ -165,6 +166,11 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'country and region are required' }, { status: 400 })
     }
 
+    const ownership = parseRouteOwnership(body)
+    if ('error' in ownership) {
+      return NextResponse.json({ error: ownership.error }, { status: 400 })
+    }
+
     const userId = session.user.id
 
     const route = await RouteService.createRoute(supabaseAuth, {
@@ -183,13 +189,14 @@ export async function POST(request: NextRequest) {
       stops_count:       body.stops_count,
     }, userId)
 
-    // Set country/region if provided (not handled by RouteService yet)
-    if (route?.id && (body.country || body.region)) {
-      await (supabaseAuth as any)
+    // Fields `upsert_custom_route` does not carry: country/region, and travel mode + partner (#792).
+    if (route?.id) {
+      const { error: extrasError } = await (supabaseAuth as any)
         .schema('core')
         .from('custom_routes')
-        .update({ country: body.country || null, region: body.region || null })
+        .update({ country: body.country || null, region: body.region || null, ...ownership.patch })
         .eq('id', route.id)
+      if (extrasError) throw new Error(`Route created, but saving its fields failed: ${extrasError.message}`)
     }
 
     return NextResponse.json({ route }, { status: 201 })

@@ -2380,7 +2380,20 @@
       "required_title_field": "Título",
       "required_country_field": "País",
       "required_region_field": "Região / Cidade",
-      "required_waypoints": "Mínimo 2 pontos no mapa"
+      "required_waypoints": "Mínimo 2 pontos no mapa",
+      "mode_partner_title": "Modo e parceiro",
+      "travel_mode_label": "Como se percorre",
+      "travel_mode_car": "Carro",
+      "travel_mode_walk": "A pé",
+      "travel_mode_bike": "Bike",
+      "partner_label": "Parceiro",
+      "partner_none": "Nenhum (roteiro Tuggi)",
+      "partner_new": "Novo parceiro",
+      "partner_name_placeholder": "Nome do parceiro",
+      "partner_description_placeholder": "Descrição curta (opcional)",
+      "partner_create": "Criar",
+      "partner_create_error": "Erro ao criar parceiro",
+      "partners_load_error": "Não foi possível carregar os parceiros"
     }
   },
   "Geofences": {

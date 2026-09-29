@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { RouteService } from '@/lib/services/route-service'
 import { withAuth } from '@/lib/auth-middleware'
 import { storedLineToLatLngs } from '@/lib/services/routing/route-geometry'
+import { parseRouteOwnership } from '@/lib/routes/route-ownership'
 
 /**
  * PORTÃO (#780): `withAuth({ roles: ['admin', 'client'] })` nos três métodos. Quem chama é o editor
@@ -50,7 +51,9 @@ export const GET = withAuth<Params>({ roles: ['admin', 'client'] }, async (_requ
  *   description?: string,
  *   waypoints?: [{ lat, lng }],
  *   is_active?: boolean,
- *   snap_to_roads?: boolean
+ *   snap_to_roads?: boolean,
+ *   travel_mode?: 'car' | 'walk' | 'bike',   // #792
+ *   partner_id?: uuid | null                 // #792, core.custom_route_partners
  * }
  */
 export const PUT = withAuth<Params>({ roles: ['admin', 'client'] }, async (request: NextRequest, ctx, auth) => {
@@ -58,6 +61,11 @@ export const PUT = withAuth<Params>({ roles: ['admin', 'client'] }, async (reque
     const supabaseAuth = auth.supabase
     const { id } = (await ctx.params) as Params
     const body = await request.json()
+
+    const ownership = parseRouteOwnership(body)
+    if ('error' in ownership) {
+      return NextResponse.json({ error: ownership.error }, { status: 400 })
+    }
 
     // Get the authenticated user ID
     const userId = auth.user.id
@@ -80,7 +88,7 @@ export const PUT = withAuth<Params>({ roles: ['admin', 'client'] }, async (reque
     }, userId)
 
     // Persist extra fields not handled by RouteService
-    const extras: Record<string, any> = {}
+    const extras: Record<string, any> = { ...ownership.patch }
     if (body.country  !== undefined) extras.country = body.country
     if (body.region   !== undefined) extras.region  = body.region
 
@@ -92,8 +100,9 @@ export const PUT = withAuth<Params>({ roles: ['admin', 'client'] }, async (reque
     }
 
     if (Object.keys(extras).length > 0) {
-      await (supabaseAuth as any)
+      const { error: extrasError } = await (supabaseAuth as any)
         .schema('core').from('custom_routes').update(extras).eq('id', id)
+      if (extrasError) throw new Error(`Failed to save route fields: ${extrasError.message}`)
     }
 
     return NextResponse.json({ route })

@@ -10,6 +10,7 @@
 import { SupabaseClient } from '@supabase/supabase-js'
 import { OSRMService, LatLng, RouteResult } from './routing/OSRMService'
 import { mustRegenerate, storedLineToLatLngs } from './routing/route-geometry'
+import type { TravelMode } from '@/lib/routes/route-ownership'
 
 // Characteristic Enums
 export type AccessibilityLevel = 'accessible' | 'partial' | 'not_accessible' | 'unknown';
@@ -19,6 +20,7 @@ export type ScenicProfile = 'panoramic' | 'historical' | 'nature' | 'urban' | 'r
 export type BestTime = 'morning' | 'afternoon' | 'night' | 'sunset';
 export type RoadCondition = 'paved' | 'dirt' | 'steep' | 'curves';
 export type ResourceStatus = 'yes' | 'partial' | 'no' | 'unknown';
+
 
 export interface RouteResources {
   parking?: ResourceStatus;
@@ -54,6 +56,8 @@ export interface CustomRoute {
   resources?: RouteResources;
   photogenic_rating?: PhotgenicRating;
   stops_count?: number;
+  travel_mode?: TravelMode;
+  partner_id?: string | null;
 }
 
 export interface CreateRouteRequest {
