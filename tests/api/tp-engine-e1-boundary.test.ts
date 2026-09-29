@@ -285,3 +285,89 @@ describe('INV-E1b — a drawn circle leaves with source=synthetic on every path 
     assert.equal(manual.data?.source, 'manual')
   })
 })
+
+describe('INV-E1a — a stored border is judged like a curated id (BR-POI-009, BR-AUDIO-010, #779)', () => {
+  const lngLat = (half: number, c: LatLng = PIN) => square(half, c).map(p => [p.lon, p.lat])
+  const run = async () => {
+    const { BoundaryDetector } = await import('../../lib/services/trigger-points-google/core/boundary-detector')
+    const d = new BoundaryDetector() as any
+    d.detectContainingBoundary = async () => ({ success: false })
+    d.detectOSMBoundary = async () => ({ success: false })
+    d.withClassification = async (b: unknown) => b
+    return d.detectBoundary({ id: 'x', name: 'x', location: PIN })
+  }
+
+  it('BR-POI-009: a stored polygon with the pin 1.9 km outside is refused for the pin circle (Monumento dos Combatentes da FAB)', async () => {
+    dbRow = { geojson: { type: 'Polygon', coordinates: [lngLat(1600, { lat: PIN.lat, lng: PIN.lng + 3500 * M_LNG })] }, boundary_source: 'osm' }
+    const r = await run()
+    assert.equal(r.metadata.strategy, 'estimated_fallback')
+    assert.equal(r.data.synthetic, true)
+    assert.ok(r.data.area_m2 < 1_000, `${r.data.area_m2} m²`)
+    assert.ok(r.data.rejected.some((x: { element: string }) => x.element === 'database'))
+  })
+
+  it('BR-POI-009: a stored `estimated` border is an old guess, not a footprint (Escultura Encontro das Águas, 0.83 ha)', async () => {
+    const circle = Array.from({ length: 17 }, (_, i) => [
+      PIN.lng + 51 * M_LNG * Math.sin(((i % 16) / 16) * 2 * Math.PI),
+      PIN.lat + 51 * M_LAT * Math.cos(((i % 16) / 16) * 2 * Math.PI),
+    ])
+    dbRow = { geojson: { type: 'Polygon', coordinates: [circle] }, boundary_source: 'estimated' }
+    const r = await run()
+    assert.equal(r.data.source, 'synthetic')
+    assert.ok(r.data.area_m2 < 1_000, `${r.data.area_m2} m²`)
+  })
+
+  it('a stored polygon holding the pin is still the border', async () => {
+    dbRow = { geojson: { type: 'Polygon', coordinates: [lngLat(80)] }, boundary_source: 'manual' }
+    const r = await run()
+    assert.equal(r.metadata.strategy, 'database_fallback')
+    assert.equal(r.data.source, 'manual')
+  })
+})
+
+describe('INV-E1c — a smaller element of the identity narrows the typed border only at the pin (BR-POI-009, #779)', () => {
+  const narrow = async (element: { type: string; id: number; tags: Record<string, string>; geometry: unknown }) => {
+    const { BoundaryDetector } = await import('../../lib/services/trigger-points-google/core/boundary-detector')
+    const { LocalOSMFetcher } = await import('../../lib/services/trigger-points-google/services/local-osm-fetcher')
+    const local = LocalOSMFetcher.getInstance() as any
+    const restore = local.fetchAreasContaining
+    local.fetchAreasContaining = () => [element]
+    const d = new BoundaryDetector() as any
+    d.detectOSMBoundaryByID = async (id: string) => ({ success: true, data: { osmId: id } })
+    try {
+      return await d.detectContainingBoundary({ id: 'x', name: element.tags.name, osm_id: 462451555, osm_type: 'way', location: PIN }, undefined, 1_820_000)
+    } finally {
+      local.fetchAreasContaining = restore
+    }
+  }
+
+  it('BR-POI-009: the skating rink of the same name 74 m off the pin does not replace the park holding it (Parque dos Patins)', async () => {
+    const rink = { type: 'way', id: 261938652, tags: { name: 'Parque dos Patins', leisure: 'pitch' }, geometry: square(25, { lat: PIN.lat, lng: PIN.lng + 99 * M_LNG }) }
+    assert.equal((await narrow(rink)).success, false)
+  })
+
+  it('INV-E1c (#786): the stadium 17 m off the pin, on the street, still narrows the neighbourhood (Maracanã)', async () => {
+    const stadium = { type: 'way', id: 1, tags: { name: 'Estádio', short_name: 'Maracanã' }, geometry: square(150, { lat: PIN.lat, lng: PIN.lng + 167 * M_LNG }) }
+    const r = await narrow({ ...stadium, tags: { ...stadium.tags, name: 'Maracanã' } })
+    assert.equal(r.success, true)
+    assert.equal(r.data.osmId, '1')
+  })
+})
+
+describe('INV-E1a — the ways of a line POI are its identity whatever the letter case (BR-POI-009, #779)', () => {
+  it('BR-POI-009: the query asks Overpass for the name ignoring case, escaped (Rio Pavuna / "Rio pavuna")', () => {
+    const q = choice.sameIdentityWaysQuery(674849609, ['Rio pavuna', 'Av. "A" (1)'], 30_000)
+    assert.match(q, /way\(674849609\)->\.a;/)
+    assert.ok(q.includes('way(around.a:30000)["name"~"^Rio pavuna$",i];'), q)
+    assert.ok(q.includes('["official_name"~"^Rio pavuna$",i];'), q)
+    assert.ok(q.includes('["name"~"^Av\\\\. \\"A\\" \\\\(1\\\\)$",i];'), q)
+  })
+
+  it('BR-POI-009: a way named "Rio Pavuna" continues a river whose curated way is "Rio pavuna"', () => {
+    const at = (m: number) => ({ lat: PIN.lat, lon: PIN.lng + m * M_LNG })
+    const start = { id: 1, tags: { waterway: 'stream', name: 'Rio pavuna' }, geometry: [at(0), at(100)] }
+    const ways = [{ id: 2, tags: { waterway: 'stream', name: 'Rio Pavuna' }, geometry: [at(100), at(900)] }]
+    const xs = choice.chainSameIdentity(start, ways).map(p => Math.round((p.lng - PIN.lng) / M_LNG))
+    assert.equal(Math.max(...xs), 900)
+  })
+})

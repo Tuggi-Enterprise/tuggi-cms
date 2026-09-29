@@ -281,6 +281,24 @@ export function chainSameIdentity(start: Way, ways: Way[]): LatLng[] {
   return extend([...extend(line(start))].reverse());
 }
 
+/**
+ * Overpass query for the ways around `wayId` carrying one of `names` as `name`/`official_name`,
+ * matched regardless of letter case: the same river is "Rio Pavuna" on some ways and "Rio pavuna"
+ * on others, and an exact match cut its corridor where the case changes (#779). `chainSameIdentity`
+ * compares the names the same way (`elementNames`).
+ */
+export function sameIdentityWaysQuery(wayId: string | number, names: string[], aroundM: number): string {
+  const re = (n: string) => `^${n.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`;
+  const ql = (s: string) => s.replace(/\\/g, '\\\\').replace(/"/g, '\\"');
+  const sel = names.flatMap(n => ['name', 'official_name'].map(k => `way(around.a:${aroundM})["${k}"~"${ql(re(n))}",i];`));
+  return `
+[out:json][timeout:60];
+way(${wayId})->.a;
+(${sel.join('')});
+out geom;
+`;
+}
+
 /** Closed ring of a corridor `halfWidthM` each side of a polyline (offset along vertex normals). */
 export function corridorRing(line: LatLng[], halfWidthM: number): LatLng[] {
   if (line.length < 2) return [];

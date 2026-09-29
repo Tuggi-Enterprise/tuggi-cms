@@ -4,12 +4,12 @@ import { heightFromTags, SANITY_MAX_TP_DISTANCE_M, VisibilityClass } from '../co
 import { GoogleAPIsService } from '../services/google-apis.service';
 import { ElevationService } from '../services/elevation.service';
 import { POIData, GeographicContext, BoundaryData, ProcessingResult } from '../types/interfaces';
-import { convertViewportToPolygon, calculatePolygonArea, calculatePolygonAreaInM2, calculatePolygonCenter, calculatePolygonPerimeter, calculateDistance, isPointInPolygon, isDrawnCircle } from '../utils/calculations';
+import { convertViewportToPolygon, calculatePolygonArea, calculatePolygonAreaInM2, calculatePolygonCenter, calculatePolygonPerimeter, calculateDistance, calculateDistanceToPolygon, isPointInPolygon, isDrawnCircle } from '../utils/calculations';
 import { ElevationAnalysisService } from '../services/elevation-service';
 import { TRIGGER_POINTS_CONSTANTS } from '../config/trigger-points-config';
 import { isCuratedBoundaryImplausible } from '../utils/osm-validation';
 import { DemStore } from '../../dem/dem-store';
-import { assembleOuterRings, chainSameIdentity, chooseContainingBoundary, corridorRing, footprintRing, IDENTITY_NEAR_PIN_M, LINE_CORRIDOR_HALF_WIDTH_M, outerRing, type BoundaryRejection, type OsmAreaElement } from '../utils/boundary-choice';
+import { assembleOuterRings, chainSameIdentity, sameIdentityWaysQuery, chooseContainingBoundary, corridorRing, footprintRing, IDENTITY_NEAR_PIN_M, LINE_CORRIDOR_HALF_WIDTH_M, outerRing, type BoundaryRejection, type OsmAreaElement } from '../utils/boundary-choice';
 
 /**
  * Radius of the circle that marks a POI with no footprint of its own: an OSM node, a pin with
@@ -193,7 +193,20 @@ export class BoundaryDetector {
       let dbBoundaryResult: ProcessingResult<BoundaryData> | null = null;
       if (poiData.id) {
         dbBoundaryResult = await this.fetchBoundaryFromDatabase(poiData.id);
-        if (dbBoundaryResult.success && dbBoundaryResult.data) {
+        // BR-AUDIO-010, BR-POI-009 (#779): a stored border is judged like a curated id. The Monumento
+        // dos Combatentes da FAB had a stored 10.3 km² polygon with the pin 1.9 km outside it. A
+        // stored `estimated` border is an earlier run's guess, not a footprint: the Escultura
+        // Encontro das Águas kept a 0.83 ha circle; the pin circle below replaces it.
+        const stored = dbBoundaryResult.data;
+        const storedReject = !dbBoundaryResult.success || !stored ? null
+          : stored.source === 'estimated' ? 'stored border is an earlier estimate, not a footprint'
+          : isCuratedBoundaryImplausible(poiData.location, stored.coordinates) ? 'stored border is implausible (pin outside, > 500 m from the edge)'
+          : null;
+        if (storedReject) {
+          this.rejections.push({ element: 'database', reason: storedReject });
+          dbBoundaryResult = null;
+        }
+        if (dbBoundaryResult?.success && dbBoundaryResult.data) {
           return {
             success: true,
             data: await this.withClassification({ ...dbBoundaryResult.data, rejected: this.rejections.length ? [...this.rejections] : undefined }, poiData),
@@ -1087,7 +1100,13 @@ out geom tags;
       poiData.location, { name: poiData.name, namedOnly: narrowing || (poiData.osm_type === 'node' && !!poiData.osm_id), isBuilt: ringIsBuilt }, elements ?? []
     );
     if (narrowing) {
-      if (!chosen || chosen.areaM2 >= smallerThanM2 || String(chosen.element.id) === String(poiData.osm_id)) return { success: false, error: 'No smaller element of the POI identity', processingTime: 0 };
+      // Only a smaller element at the pin narrows the typed border (INV-E1c, BR-POI-009): holding it,
+      // or within IDENTITY_NEAR_PIN_M of its edge — the Maracanã pin is 17 m off the stadium (#786).
+      // The Parque dos Patins (7.7 ha, pin inside) gave way to its skating rink, 74 m off (#779).
+      if (!chosen || chosen.areaM2 >= smallerThanM2 || String(chosen.element.id) === String(poiData.osm_id)
+        || (!isPointInPolygon(poiData.location, chosen.ring) && calculateDistanceToPolygon(poiData.location, chosen.ring) > IDENTITY_NEAR_PIN_M)) {
+        return { success: false, error: 'No smaller element of the POI identity at the pin', processingTime: 0 };
+      }
     } else this.rejections.push(...rejected);
     if (!chosen) return { success: false, error: 'No OSM area fits the POI at the pin', processingTime: 0 };
     return this.detectOSMBoundaryByID(String(chosen.element.id), chosen.element.type, poiData, {
@@ -2315,13 +2334,7 @@ out tags;
     const names = ['name', 'official_name'].map(k => element.tags?.[k]).filter((n: unknown) => typeof n === 'string' && n !== '');
     let ways: any[] = [];
     if (names.length > 0) {
-      const esc = (n: string) => n.replace(/\\/g, '\\\\').replace(/"/g, '\\"');
-      const query = `
-[out:json][timeout:60];
-way(${element.id})->.a;
-(${names.map((n: string) => `way(around.a:${SANITY_MAX_TP_DISTANCE_M})["name"="${esc(n)}"];way(around.a:${SANITY_MAX_TP_DISTANCE_M})["official_name"="${esc(n)}"];`).join('')});
-out geom;
-`;
+      const query = sameIdentityWaysQuery(element.id, names, SANITY_MAX_TP_DISTANCE_M);
       try {
         const response = await this.retryOSMQuery(query, `ways of the same identity as way(${element.id})`, 3, 2000);
         ways = (await response.json()).elements ?? [];

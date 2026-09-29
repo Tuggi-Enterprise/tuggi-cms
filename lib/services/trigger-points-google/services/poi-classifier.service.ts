@@ -19,6 +19,7 @@ import {
   resolveHeightM,
   footprintStructureHeight,
   visibilityClassRule,
+  isWaterBody,
   BUILT_BASE_MIN_RELIEF_CELLS,
 } from '../config/visibility-class';
 import { ElevationAnalysisService, GroundTop } from './elevation-service';
@@ -181,6 +182,7 @@ export async function measureAndClassify(a: MeasureInput): Promise<{ classificat
     localProminenceM,
     areaM2,
     boundary: a.synthetic ? undefined : a.boundary,
+    waterBody: isWaterBody(a.tags),
   });
   return {
     classification: buildClassification(cls, {

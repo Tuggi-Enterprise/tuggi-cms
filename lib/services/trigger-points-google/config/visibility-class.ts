@@ -5,7 +5,8 @@
  * prominence over the terrain, boundary area and shape. No name, category or type tag
  * (`natural`, `tourism`, `place`, `building`, …) decides class or reach (operator, 2026-09-27):
  * a summit that is not measured prominent, a viewpoint and a church of unknown height are
- * classed by what the terrain and their footprint say.
+ * classed by what the terrain and their footprint say. One exception, `isWaterBody`: water is
+ * never the top of a relief (BR-POI-009), and a river corridor climbing a hill measured as one.
  *
  * Reach, count and TP radius (`RECOGNITION_ANGLE_DEG`, `APPARENT_REACH_CEILING_M`, `CLASS_LIMITS`,
  * `NO_COUNT_CAP`, `maxEdgeDistanceFor`) are BR-POI-009 (operator, 2026-09-28). Every other number
@@ -433,6 +434,23 @@ export interface PhysicalAttributes {
   areaM2: number;
   /** footprint; omitted when synthetic — a drawn circle has no shape */
   boundary?: GeoPoint[];
+  /** the POI is a body of water (`isWaterBody`): never `landmark_high` */
+  waterBody?: boolean;
+}
+
+/** `waterway` values that are a body of water (a waterfall or a dam is not). */
+const WATERWAYS = new Set(['river', 'stream', 'canal', 'drain', 'ditch', 'brook', 'tidal_channel', 'riverbank']);
+/** `natural` values that are a body of water. */
+const NATURAL_WATER = new Set(['water', 'bay', 'strait']);
+
+/**
+ * BR-POI-009 (#779): a river, canal, bay or lagoon is never the top of a relief, so it is never
+ * `landmark_high`. Its corridor climbs the hills it drains, and the ground at its highest point
+ * read as prominence: Rio pavuna and Rio Cação Vermelho got TPs 8–10 km from the water.
+ */
+export function isWaterBody(tags: Record<string, unknown> | undefined | null): boolean {
+  const t = tags ?? undefined;
+  return WATERWAYS.has(tagValue(t, 'waterway')) || NATURAL_WATER.has(tagValue(t, 'natural')) || tagValue(t, 'water') !== '';
 }
 
 /**
@@ -443,10 +461,10 @@ export type ClassRule =
   | 'landmark_height' | 'landmark_prominence' | 'linear_shape' | 'area_size' | 'structure_height' | 'point_low';
 
 export function visibilityClassRule(a: PhysicalAttributes): { cls: VisibilityClass; rule: ClassRule } {
-  if (a.heightM >= LANDMARK_MIN_HEIGHT_M) return { cls: VisibilityClass.LANDMARK_HIGH, rule: 'landmark_height' };
+  if (!a.waterBody && a.heightM >= LANDMARK_MIN_HEIGHT_M) return { cls: VisibilityClass.LANDMARK_HIGH, rule: 'landmark_height' };
   // Relief is a landmark only when prominent over the city AND its ring, whatever its tags: the
   // Morro do Patronato (91 m over the city, 77 m local) got 32 TPs up to 2.6 km (#772).
-  if (isProminentLandmark(a)) return { cls: VisibilityClass.LANDMARK_HIGH, rule: 'landmark_prominence' };
+  if (!a.waterBody && isProminentLandmark(a)) return { cls: VisibilityClass.LANDMARK_HIGH, rule: 'landmark_prominence' };
   // A structure of known height is a structure whatever its footprint: the Museu do Amanhã is
   // long and narrow, and it is still a 15 m building seen from the street (#772).
   if (a.heightM >= STRUCTURE_MIN_HEIGHT_M) return { cls: VisibilityClass.STRUCTURE, rule: 'structure_height' };
