@@ -337,9 +337,14 @@ export function streetFootOnEdge(
   const hasBoundary = !!boundaryCoords && boundaryCoords.length >= 3;
   const edgeDist = (p: GeoPoint) => hasBoundary ? calculateDistanceToBoundary(p, boundaryCoords!) : calculateDistance(p, poiPin);
   const seeds: GeoPoint[] = [...polyline];
+  const seen = new Set(polyline.map(p => `${p.lat},${p.lng}`));
   for (const target of hasBoundary ? boundaryCoords! : [poiPin]) {
     const proj = closestPointOnPolyline(target, polyline);
-    if (proj) seeds.push(proj.point);
+    if (!proj) continue;
+    const key = `${proj.point.lat},${proj.point.lng}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    seeds.push(proj.point);
   }
   let best: { point: GeoPoint; edgeDistanceM: number } | null = null;
   for (const p of seeds) {

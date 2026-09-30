@@ -25,6 +25,7 @@
  */
 
 import { PoiMigrationPipeline } from '../lib/services/poi-migration-pipeline'
+import { runInChild, reportChildFailure } from '../lib/utils/run-in-child'
 import { createClient } from '@supabase/supabase-js'
 import { randomUUID } from 'crypto'
 import * as os from 'os'
@@ -63,6 +64,14 @@ const db = createClient(SUPABASE_URL, SERVICE_KEY, {
 })
 
 const WORKER_ID = `${os.hostname()}-${process.pid}`
+
+/**
+ * Deadline of one POI in the queue (#779). A healthy POI takes ~25 s; a landmark whose edge
+ * is a large park (7,616 vertices, 46,444 streets in reach) spent hours in a synchronous loop
+ * and held its worker. Past this, the POI goes to `failed` with `timeout…` and the worker goes on.
+ */
+const POI_TIMEOUT_MS = 5 * 60_000
+const CHILD_FLAG = '--pipeline-child'
 
 // ─── POI único ───────────────────────────────────────────────────────────────
 
@@ -161,18 +170,16 @@ async function runBatch(batchId: string) {
 
     process.stdout.write(`[${processed + failed + 1}] ${attractionId}... `)
 
-    let errorMsg: string | null = null
-
-    try {
-      await PoiMigrationPipeline.executePipeline(attractionId, {
-        mode: 'reprocess_triggers_core',
-      })
+    // Each POI in its own process, killed at POI_TIMEOUT_MS: the hang is synchronous, so a
+    // timer in this process would never fire (#779).
+    const outcome = await runInChild(__filename, [CHILD_FLAG, attractionId], POI_TIMEOUT_MS)
+    const errorMsg = outcome.ok ? null : outcome.error.slice(0, 200)
+    const elapsed = ((Date.now() - startMs) / 1000).toFixed(0)
+    if (outcome.ok) {
       processed++
-      const elapsed = ((Date.now() - startMs) / 1000).toFixed(0)
       const rate = (processed / parseFloat(elapsed || '1')).toFixed(2)
       console.log(`✅  (${elapsed}s, ${rate} POIs/s)`)
-    } catch (e: any) {
-      errorMsg = e.message?.slice(0, 200)
+    } else {
       failed++
       console.log(`❌ ${errorMsg}`)
     }
@@ -304,7 +311,12 @@ async function main() {
   // `--bbox=-43.85,...` (com "=") evita que o valor negativo pareça outra flag.
   const getEq = (flag: string) => args.find(a => a.startsWith(`${flag}=`))?.slice(flag.length + 1) ?? get(flag)
 
-  if (args.includes('--dry-run')) {
+  if (args[0] === CHILD_FLAG) {
+    // Worker child (runBatch): one POI, and the parent owns the queue row.
+    const result = await PoiMigrationPipeline.executePipeline(args[1], { mode: 'reprocess_triggers_core' })
+    if (!result.success) return reportChildFailure(result.error ?? 'pipeline failed')
+    process.exit(0)
+  } else if (args.includes('--dry-run')) {
     const idsArg = getEq('--ids') ?? id
     const bboxArg = getEq('--bbox')
     const limitArg = getEq('--limit')
@@ -356,4 +368,7 @@ Uso:
   }
 }
 
-main().catch(e => { console.error(e); process.exit(1) })
+main().catch(e => {
+  if (process.argv[2] === CHILD_FLAG) return reportChildFailure(e instanceof Error ? e.message : String(e))
+  console.error(e); process.exit(1)
+})
