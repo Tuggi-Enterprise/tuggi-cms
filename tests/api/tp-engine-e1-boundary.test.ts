@@ -420,3 +420,20 @@ describe('INV-E1a — with storedReference, a detection of another footprint giv
     assert.equal((await run(37, false)).metadata.strategy, 'osm_priority')
   })
 })
+
+describe('INV-E3 — only the POI own buildings lend it height on the Nominatim path (BR-AUDIO-010, #779)', () => {
+  const ring = (half: number, c: LatLng = PIN) => square(half, c).map(p => ({ lat: p.lat, lng: p.lon }))
+  const at = (dxM: number) => ({ lat: PIN.lat, lng: PIN.lng + dxM * M_LNG })
+
+  it('BR-AUDIO-010: a tower 80 m from a 10 m point circle lends nothing (Escultura Baleia Metálica took the B32 123 m)', () => {
+    const tower = { geometry: square(20, at(80)), tags: { height: '123' } }
+    assert.deepEqual(choice.buildingsOfPoi([tower], ring(10), PIN), [])
+  })
+
+  it('BR-AUDIO-010: the building holding the pin and those inside the POI ring are kept', () => {
+    const host = { geometry: square(30), tags: { height: '40' } }
+    const inside = { geometry: square(5, at(100)), tags: { height: '12' } }
+    const outside = { geometry: square(5, at(300)), tags: { height: '90' } }
+    assert.deepEqual(choice.buildingsOfPoi([host, inside, outside], ring(150), PIN), [host, inside])
+  })
+})

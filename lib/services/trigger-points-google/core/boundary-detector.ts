@@ -9,7 +9,7 @@ import { ElevationAnalysisService } from '../services/elevation-service';
 import { TRIGGER_POINTS_CONSTANTS } from '../config/trigger-points-config';
 import { isCuratedBoundaryImplausible } from '../utils/osm-validation';
 import { DemStore } from '../../dem/dem-store';
-import { assembleOuterRings, chainSameIdentity, sameIdentityWaysQuery, chooseContainingBoundary, corridorRing, footprintRing, IDENTITY_NEAR_PIN_M, LINE_CORRIDOR_HALF_WIDTH_M, outerRing, sameFootprint, type BoundaryRejection, type OsmAreaElement } from '../utils/boundary-choice';
+import { assembleOuterRings, chainSameIdentity, sameIdentityWaysQuery, chooseContainingBoundary, corridorRing, footprintRing, IDENTITY_NEAR_PIN_M, LINE_CORRIDOR_HALF_WIDTH_M, outerRing, sameFootprint, buildingsOfPoi, type BoundaryRejection, type OsmAreaElement } from '../utils/boundary-choice';
 
 /**
  * Radius of the circle that marks a POI with no footprint of its own: an OSM node, a pin with
@@ -1718,9 +1718,11 @@ out geom tags;
                   // SISTEMA ESCALÁVEL: Se não encontrou altura via OSM ID, usar dados consolidados primeiro
                   if (!poiHeight) {
                     // 🚀 NOVA LÓGICA: Usar dados consolidados se disponíveis
-                    if (consolidatedBuildings && consolidatedBuildings.length > 0) {
-                      console.log(`🚀 CONSOLIDATION BENEFIT: Using consolidated buildings data for height analysis (${consolidatedBuildings.length} buildings)`);
-                      poiHeight = this.extractHeightFromMultipleElements(consolidatedBuildings, center, {
+                    // #779: only the POI's own buildings; the query brought the neighbourhood (buildingsOfPoi).
+                    const ownBuildings = buildingsOfPoi(consolidatedBuildings ?? [], processed.coordinates, poiData.location);
+                    if (ownBuildings.length > 0) {
+                      console.log(`🚀 CONSOLIDATION BENEFIT: Using consolidated buildings data for height analysis (${ownBuildings.length}/${consolidatedBuildings.length} buildings of the POI)`);
+                      poiHeight = this.extractHeightFromMultipleElements(ownBuildings, center, {
                         type: 'polygon',
                         coordinates: processed.coordinates,
                         center,
@@ -2141,7 +2143,7 @@ out tags;
     
     const heightData: Array<{ height: number; element: any; distance: number; type: string }> = [];
     
-    // Analisar cada elemento (todos já estão dentro do boundary)
+    // Analisar cada elemento (o chamador passa só os do POI: buildingsOfPoi, #779)
     for (const element of elements) {
       const height = this.extractOSMHeight(element);
       if (height && height > 0) {

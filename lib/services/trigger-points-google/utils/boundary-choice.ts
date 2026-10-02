@@ -333,3 +333,23 @@ export function sameFootprint(a: LatLng[], b: LatLng[], pin: LatLng): boolean {
   const [x, y] = [calculatePolygonAreaInM2(a), calculatePolygonAreaInM2(b)];
   return Math.max(x, y) <= SAME_FOOTPRINT_AREA_RATIO * Math.min(x, y);
 }
+
+/**
+ * The buildings that can lend the POI their height (INV-E3, `knownHeightM`): the one whose ring
+ * holds the pin (host) and those whose centre lies inside the POI ring. The Nominatim path loads
+ * buildings 150–600 m around the POI; taken whole, the B32 tower beside Escultura Baleia
+ * Metálica lent a 2 m sculpture 123 m, made it `landmark_high` and spread 23 TPs beyond 500 m
+ * (#779, BR-AUDIO-010).
+ */
+export function buildingsOfPoi<T extends { geometry?: Array<{ lat: number; lng?: number; lon?: number }> }>(
+  buildings: T[],
+  poiRing: LatLng[],
+  pin: LatLng
+): T[] {
+  return buildings.filter(b => {
+    const ring = (b.geometry ?? []).map(p => ({ lat: p.lat, lng: p.lng ?? p.lon ?? NaN }))
+    if (ring.length < 3 || ring.some(p => !Number.isFinite(p.lng))) return false
+    const centre = { lat: ring.reduce((s, p) => s + p.lat, 0) / ring.length, lng: ring.reduce((s, p) => s + p.lng, 0) / ring.length }
+    return isPointInPolygon(pin, ring) || isPointInPolygon(centre, poiRing)
+  })
+}
