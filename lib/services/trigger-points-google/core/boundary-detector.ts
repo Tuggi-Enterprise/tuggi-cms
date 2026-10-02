@@ -9,7 +9,7 @@ import { ElevationAnalysisService } from '../services/elevation-service';
 import { TRIGGER_POINTS_CONSTANTS } from '../config/trigger-points-config';
 import { isCuratedBoundaryImplausible } from '../utils/osm-validation';
 import { DemStore } from '../../dem/dem-store';
-import { assembleOuterRings, chainSameIdentity, sameIdentityWaysQuery, chooseContainingBoundary, corridorRing, footprintRing, IDENTITY_NEAR_PIN_M, LINE_CORRIDOR_HALF_WIDTH_M, outerRing, type BoundaryRejection, type OsmAreaElement } from '../utils/boundary-choice';
+import { assembleOuterRings, chainSameIdentity, sameIdentityWaysQuery, chooseContainingBoundary, corridorRing, footprintRing, IDENTITY_NEAR_PIN_M, LINE_CORRIDOR_HALF_WIDTH_M, outerRing, sameFootprint, type BoundaryRejection, type OsmAreaElement } from '../utils/boundary-choice';
 
 /**
  * Radius of the circle that marks a POI with no footprint of its own: an OSM node, a pin with
@@ -123,7 +123,7 @@ export class BoundaryDetector {
    * PRIORIDADE 2: OSM por nome (mais preciso)
    * PRIORIDADE 3: Fallback estimado
    */
-  async detectBoundary(poiData: POIData): Promise<ProcessingResult<BoundaryData>> {
+  async detectBoundary(poiData: POIData, opts: { storedReference?: boolean } = {}): Promise<ProcessingResult<BoundaryData>> {
     const startTime = Date.now();
     
     try {
@@ -162,6 +162,19 @@ export class BoundaryDetector {
       }
 
       if (!osmBoundaryResult?.success && pointCircle) osmBoundaryResult = pointCircle;
+
+      // #779, boundary as reference (épico #772): with `storedReference`, a detection that is not
+      // the stored footprint gives way to it, judged by the database branch below as always. In
+      // São Paulo the detector took the pitch inside Parque Chácara do Jockey and the river under
+      // the Cebolão after the operator had fixed both borders.
+      const detected = osmBoundaryResult?.success ? osmBoundaryResult.data?.coordinates : undefined;
+      if (opts.storedReference && poiData.id && detected && detected.length >= 3) {
+        const stored = (await this.fetchBoundaryFromDatabase(poiData.id)).data;
+        if (stored && !sameFootprint(detected, stored.coordinates, poiData.location)) {
+          this.rejections.push({ element: 'osm', reason: 'not the stored reference border (#779)' });
+          osmBoundaryResult = null;
+        }
+      }
 
       // 2. Se OSM encontrou boundary, usar OSM (PRIORIDADE)
       if (osmBoundaryResult?.success && osmBoundaryResult.data) {

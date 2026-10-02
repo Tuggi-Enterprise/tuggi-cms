@@ -318,3 +318,18 @@ export function corridorRing(line: LatLng[], halfWidthM: number): LatLng[] {
   const left = side(1), right = side(-1).reverse();
   return [...left, ...right, left[0]];
 }
+
+/** Area ratio under which two rings that agree on the pin are the same footprint (#779). */
+export const SAME_FOOTPRINT_AREA_RATIO = 1.25;
+
+/**
+ * Two borders are the same footprint when they agree on holding the pin and their areas are
+ * within `SAME_FOOTPRINT_AREA_RATIO`. Used to keep a detection that matches the stored reference
+ * border, and to drop one that picked another element (Parque Chácara do Jockey: 0.54 ha football
+ * pitch against the 16.8 ha park, #779).
+ */
+export function sameFootprint(a: LatLng[], b: LatLng[], pin: LatLng): boolean {
+  if (isPointInPolygon(pin, a) !== isPointInPolygon(pin, b)) return false;
+  const [x, y] = [calculatePolygonAreaInM2(a), calculatePolygonAreaInM2(b)];
+  return Math.max(x, y) <= SAME_FOOTPRINT_AREA_RATIO * Math.min(x, y);
+}

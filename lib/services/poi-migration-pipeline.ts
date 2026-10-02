@@ -59,6 +59,8 @@ export interface PipelineOptions {
   // per POI from the predictor. No behavior change. Pure observation, gated
   // by `--debug-quality true` on `scripts/migrate-pois-batch.ts`.
   debug_quality?: boolean
+  // #779: the stored border wins over a detection of another footprint (`--stored-boundary`).
+  stored_boundary_reference?: boolean
 }
 
 export interface PipelineStepResult {
@@ -99,7 +101,8 @@ export class PoiMigrationPipeline {
       mode = 'enrichment_migration_triggers', // NEW DEFAULT: Enrichment -> Migration -> Triggers
       languages = ['pt-br'],
       voice_gender = 'male',
-      debug_quality = false
+      debug_quality = false,
+      stored_boundary_reference = false
     } = options
 
     try {
@@ -113,7 +116,7 @@ export class PoiMigrationPipeline {
         
         // Directly to Step 4: Generate Trigger Points
         console.log(`📍 Step 4: Generating trigger points for ${attraction_id}...`)
-        const triggerPointsStep = await this.executeTriggerPointsStep(attraction_id, { debug_quality })
+        const triggerPointsStep = await this.executeTriggerPointsStep(attraction_id, { debug_quality, stored_boundary_reference })
         steps.push(triggerPointsStep)
 
         if (!triggerPointsStep.success) {
@@ -310,7 +313,7 @@ export class PoiMigrationPipeline {
 
       // Step 4: Generate Trigger Points
       console.log(`📍 Step 4: Generating trigger points for ${attraction_id}...`)
-      const triggerPointsStep = await this.executeTriggerPointsStep(attraction_id, { debug_quality })
+      const triggerPointsStep = await this.executeTriggerPointsStep(attraction_id, { debug_quality, stored_boundary_reference })
       steps.push(triggerPointsStep)
 
       // If trigger points fail, rollback and stop (critical for approval)
@@ -739,7 +742,7 @@ export class PoiMigrationPipeline {
    */
   private static async executeTriggerPointsStep(
     attraction_id: string,
-    opts: { debug_quality?: boolean } = {}
+    opts: { debug_quality?: boolean; stored_boundary_reference?: boolean } = {}
   ): Promise<PipelineStepResult> {
     const stepStart = Date.now()
 
@@ -773,7 +776,8 @@ export class PoiMigrationPipeline {
       const predictor = new CoreTriggerPointPredictor()
       const predictionResult = await predictor.predictTriggerPointsComplete(poiData, {
         ...TP_ENGINE_OPTIONS,
-        debugQuality: opts.debug_quality
+        debugQuality: opts.debug_quality,
+        storedBoundaryReference: opts.stored_boundary_reference
       })
 
       if (!predictionResult.triggerPoints || predictionResult.triggerPoints.length === 0) {

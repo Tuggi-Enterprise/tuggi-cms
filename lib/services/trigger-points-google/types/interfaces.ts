@@ -259,6 +259,8 @@ export interface TriggerPointGenerationOptions {
   simulateApproach?: boolean;
   /** Issue 2.3 — Validação de corredor via OSRM (testa se rua leva ao POI). */
   validateCorridor?: boolean;
+  /** #779: the stored border wins over a detection of another footprint (`BoundaryDetector.detectBoundary`). */
+  storedBoundaryReference?: boolean;
   /**
    * Cap superior pra busca de visibilidade. Default ~300m-15km (auto-scale
    * baseado em altura efetiva do POI). Decisão de produto pra override manual.
