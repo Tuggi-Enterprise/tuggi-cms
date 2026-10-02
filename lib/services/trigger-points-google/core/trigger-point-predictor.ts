@@ -221,7 +221,7 @@ export class CoreTriggerPointPredictor {
       // ✅ REFATORADO: Buscar dados OSM primeiro, depois calcular densidade e classificar
       // Não fazer cálculo inicial de contexto sem dados - isso causa redundância
       // 1. Detecção de boundary (busca dados OSM com raio padrão 500m, calcula densidade, classifica)
-      const boundaryResult = await this.boundaryDetector.detectBoundary(poiData);
+      const boundaryResult = await this.boundaryDetector.detectBoundary(poiData, { storedReference: options.storedBoundaryReference });
       if (!boundaryResult.success || !boundaryResult.data) {
         throw new Error(`Boundary detection failed: ${boundaryResult.error}`);
       }

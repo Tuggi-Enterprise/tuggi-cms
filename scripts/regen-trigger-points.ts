@@ -22,6 +22,9 @@
  *   # Dry-run: gera e mede, sem gravar nada (nem TP, nem aprovação, nem fila)
  *   npx tsx scripts/regen-trigger-points.ts --dry-run --bbox=-43.85,-23.10,-43.05,-22.70 --limit 50
  *   npx tsx scripts/regen-trigger-points.ts --dry-run --ids <uuid>,<uuid>
+ *
+ *   # Borda gravada como referência (#779): a detecção que não é a borda gravada cede a ela
+ *   npx tsx scripts/regen-trigger-points.ts --id <uuid> --stored-boundary
  */
 
 import { PoiMigrationPipeline } from '../lib/services/poi-migration-pipeline'
@@ -75,10 +78,11 @@ const CHILD_FLAG = '--pipeline-child'
 
 // ─── POI único ───────────────────────────────────────────────────────────────
 
-async function regenSingle(attractionId: string) {
-  console.log(`\n🔄 Regenerando TPs para: ${attractionId}`)
+async function regenSingle(attractionId: string, storedBoundary = false) {
+  console.log(`\n🔄 Regenerando TPs para: ${attractionId}${storedBoundary ? ' (borda gravada como referência)' : ''}`)
   const result = await PoiMigrationPipeline.executePipeline(attractionId, {
     mode: 'reprocess_triggers_core',
+    stored_boundary_reference: storedBoundary,
   })
   console.log(`✅ Concluído:`, JSON.stringify(result, null, 2))
 }
@@ -260,7 +264,7 @@ async function resetStuck(batchId: string) {
 
 // ─── Dry-run: gera e mede, sem gravar ──────────────────────────────────────────
 
-async function dryRun(opts: { ids?: string[]; bbox?: [number, number, number, number]; limit?: number }) {
+async function dryRun(opts: { ids?: string[]; bbox?: [number, number, number, number]; limit?: number; storedBoundary?: boolean }) {
   const { dryRunPoi, listAttractionIdsInBbox, toCsvLines, summarizePoi, DRY_RUN_CSV_COLUMNS, TRACE_CSV_COLUMNS, toTraceCsvLines } =
     await import('../lib/services/tp-dry-run')
 
@@ -280,7 +284,7 @@ async function dryRun(opts: { ids?: string[]; bbox?: [number, number, number, nu
   console.log(`🧪 Dry-run de ${ids.length} POIs — nada é gravado. CSV: ${csvPath}`)
   const summaries = []
   for (const [i, attractionId] of ids.entries()) {
-    const result = await dryRunPoi(attractionId)
+    const result = await dryRunPoi(attractionId, { storedBoundaryReference: opts.storedBoundary })
     const lines = toCsvLines(result.rows)
     if (lines.length) fs.appendFileSync(csvPath, lines.join('\n') + '\n')
     const traceLines = toTraceCsvLines(result.trace)
@@ -309,6 +313,8 @@ async function main() {
   const state         = get('--state')
   const country       = get('--country')
   // `--bbox=-43.85,...` (com "=") evita que o valor negativo pareça outra flag.
+  // #779: the stored border wins over a detection of another footprint (--id and --dry-run only).
+  const storedBoundary = args.includes('--stored-boundary')
   const getEq = (flag: string) => args.find(a => a.startsWith(`${flag}=`))?.slice(flag.length + 1) ?? get(flag)
 
   if (args[0] === CHILD_FLAG) {
@@ -329,9 +335,10 @@ async function main() {
       ids: idsArg?.split(',').map(s => s.trim()).filter(Boolean),
       bbox: bbox as [number, number, number, number] | undefined,
       limit: limitArg ? parseInt(limitArg, 10) : undefined,
+      storedBoundary,
     })
   } else if (id) {
-    await regenSingle(id)
+    await regenSingle(id, storedBoundary)
   } else if (createBatchId) {
     await createBatch(createBatchId, { city, state, country })
   } else if (runBatchId) {
@@ -360,6 +367,9 @@ Uso:
   # Dry-run: gera e mede sem gravar (CSV + resumo em output/)
   npx tsx scripts/regen-trigger-points.ts --dry-run --bbox=-43.85,-23.10,-43.05,-22.70 [--limit 50]
   npx tsx scripts/regen-trigger-points.ts --dry-run --ids <uuid>,<uuid>
+
+  # Borda gravada como referência (#779): a detecção que não é a borda gravada cede a ela
+  npx tsx scripts/regen-trigger-points.ts --id <uuid> --stored-boundary   (vale também com --dry-run)
 
   # Resetar itens travados (após crash de worker)
   npx tsx scripts/regen-trigger-points.ts --reset-stuck ny-2026-05-18

@@ -134,7 +134,7 @@ async function fetchCurrentTriggerPoints(attractionId: string): Promise<TpMetric
   }))
 }
 
-export async function dryRunPoi(attractionId: string): Promise<PoiDryRunResult> {
+export async function dryRunPoi(attractionId: string, opts: { storedBoundaryReference?: boolean } = {}): Promise<PoiDryRunResult> {
   const loaded = await MigrationService.loadPOIWithCoordinates(attractionId)
   if (!loaded.success || !loaded.data) {
     return { attraction_id: attractionId, poi_name: '', error: loaded.error ?? 'POI not found', rows: [], trace: [] }
@@ -155,7 +155,7 @@ export async function dryRunPoi(attractionId: string): Promise<PoiDryRunResult> 
   })
 
   try {
-    const prediction = await new CoreTriggerPointPredictor().predictTriggerPointsComplete(poiData, { ...TP_ENGINE_OPTIONS })
+    const prediction = await new CoreTriggerPointPredictor().predictTriggerPointsComplete(poiData, { ...TP_ENGINE_OPTIONS, ...opts })
     const post = applyTpPostConditions(prediction.triggerPoints ?? [], poiData.location, prediction.boundary)
     const capM = post.reachCapM
     // The engine already traced its own E11; the fallback exits and anything cut here are added.

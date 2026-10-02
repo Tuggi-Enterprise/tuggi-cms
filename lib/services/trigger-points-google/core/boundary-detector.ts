@@ -9,7 +9,7 @@ import { ElevationAnalysisService } from '../services/elevation-service';
 import { TRIGGER_POINTS_CONSTANTS } from '../config/trigger-points-config';
 import { isCuratedBoundaryImplausible } from '../utils/osm-validation';
 import { DemStore } from '../../dem/dem-store';
-import { assembleOuterRings, chainSameIdentity, sameIdentityWaysQuery, chooseContainingBoundary, corridorRing, footprintRing, IDENTITY_NEAR_PIN_M, LINE_CORRIDOR_HALF_WIDTH_M, outerRing, type BoundaryRejection, type OsmAreaElement } from '../utils/boundary-choice';
+import { assembleOuterRings, chainSameIdentity, sameIdentityWaysQuery, chooseContainingBoundary, corridorRing, footprintRing, IDENTITY_NEAR_PIN_M, LINE_CORRIDOR_HALF_WIDTH_M, outerRing, sameFootprint, buildingsOfPoi, type BoundaryRejection, type OsmAreaElement } from '../utils/boundary-choice';
 
 /**
  * Radius of the circle that marks a POI with no footprint of its own: an OSM node, a pin with
@@ -123,7 +123,7 @@ export class BoundaryDetector {
    * PRIORIDADE 2: OSM por nome (mais preciso)
    * PRIORIDADE 3: Fallback estimado
    */
-  async detectBoundary(poiData: POIData): Promise<ProcessingResult<BoundaryData>> {
+  async detectBoundary(poiData: POIData, opts: { storedReference?: boolean } = {}): Promise<ProcessingResult<BoundaryData>> {
     const startTime = Date.now();
     
     try {
@@ -162,6 +162,21 @@ export class BoundaryDetector {
       }
 
       if (!osmBoundaryResult?.success && pointCircle) osmBoundaryResult = pointCircle;
+
+      // #779, boundary as reference (épico #772): with `storedReference`, a detection that is not
+      // the stored footprint gives way to it, judged by the database branch below as always. In
+      // São Paulo the detector took the pitch inside Parque Chácara do Jockey and the river under
+      // the Cebolão after the operator had fixed both borders.
+      // A stored point circle is no footprint: no area tells it from a building (Casa do Sertanista).
+      const detected = osmBoundaryResult?.success ? osmBoundaryResult.data : undefined;
+      if (opts.storedReference && poiData.id && detected && detected.coordinates.length >= 3) {
+        const stored = (await this.fetchBoundaryFromDatabase(poiData.id)).data;
+        const detectedSynthetic = !!detected.synthetic || isDrawnCircle(detected.coordinates);
+        if (stored && (detectedSynthetic !== !!stored.synthetic || !sameFootprint(detected.coordinates, stored.coordinates, poiData.location))) {
+          this.rejections.push({ element: 'osm', reason: 'not the stored reference border (#779)' });
+          osmBoundaryResult = null;
+        }
+      }
 
       // 2. Se OSM encontrou boundary, usar OSM (PRIORIDADE)
       if (osmBoundaryResult?.success && osmBoundaryResult.data) {
@@ -1708,9 +1723,11 @@ out geom tags;
                   // SISTEMA ESCALÁVEL: Se não encontrou altura via OSM ID, usar dados consolidados primeiro
                   if (!poiHeight) {
                     // 🚀 NOVA LÓGICA: Usar dados consolidados se disponíveis
-                    if (consolidatedBuildings && consolidatedBuildings.length > 0) {
-                      console.log(`🚀 CONSOLIDATION BENEFIT: Using consolidated buildings data for height analysis (${consolidatedBuildings.length} buildings)`);
-                      poiHeight = this.extractHeightFromMultipleElements(consolidatedBuildings, center, {
+                    // #779: only the POI's own buildings; the query brought the neighbourhood (buildingsOfPoi).
+                    const ownBuildings = buildingsOfPoi(consolidatedBuildings ?? [], processed.coordinates, poiData.location);
+                    if (ownBuildings.length > 0) {
+                      console.log(`🚀 CONSOLIDATION BENEFIT: Using consolidated buildings data for height analysis (${ownBuildings.length}/${consolidatedBuildings.length} buildings of the POI)`);
+                      poiHeight = this.extractHeightFromMultipleElements(ownBuildings, center, {
                         type: 'polygon',
                         coordinates: processed.coordinates,
                         center,
@@ -2131,7 +2148,7 @@ out tags;
     
     const heightData: Array<{ height: number; element: any; distance: number; type: string }> = [];
     
-    // Analisar cada elemento (todos já estão dentro do boundary)
+    // Analisar cada elemento (o chamador passa só os do POI: buildingsOfPoi, #779)
     for (const element of elements) {
       const height = this.extractOSMHeight(element);
       if (height && height > 0) {

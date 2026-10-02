@@ -384,3 +384,69 @@ describe('INV-E1a — the ways of a line POI are its identity whatever the lette
     assert.equal(Math.max(...xs), 900)
   })
 })
+
+describe('INV-E1a — with storedReference, a detection of another footprint gives way to the stored border (BR-AUDIO-010, #779)', () => {
+  const lngLat = (half: number) => square(half).map(p => [p.lon, p.lat])
+  const ring = (half: number) => square(half).map(p => ({ lat: p.lat, lng: p.lon }))
+  const run = async (detectedHalf: number, storedReference: boolean) => {
+    const { BoundaryDetector } = await import('../../lib/services/trigger-points-google/core/boundary-detector')
+    const d = new BoundaryDetector() as any
+    d.detectContainingBoundary = async () => ({ success: true, data: { type: 'polygon', coordinates: ring(detectedHalf), area_m2: calculatePolygonAreaInM2(ring(detectedHalf)) } })
+    d.withClassification = async (b: unknown) => b
+    return d.detectBoundary({ id: 'x', name: 'x', location: PIN }, { storedReference })
+  }
+
+  it('BR-AUDIO-010: the pitch inside the park is not the park (Parque Chácara do Jockey, 0.54 ha against 16.8 ha)', async () => {
+    dbRow = { geojson: { type: 'Polygon', coordinates: [lngLat(200)] }, boundary_source: 'osm' }
+    const r = await run(37, true)
+    assert.equal(r.metadata.strategy, 'database_fallback')
+    assert.equal(r.data.source, 'osm')
+    assert.ok(r.data.area_m2 > 150_000, `${r.data.area_m2} m²`)
+    assert.ok(r.data.rejected.some((x: { element: string }) => x.element === 'osm'))
+  })
+
+  it('BR-AUDIO-010: a stored point circle wins over the neighbour element (Catedral da Sé took the building beside it)', async () => {
+    const circle = Array.from({ length: 33 }, (_, i) => [
+      PIN.lng + 10 * M_LNG * Math.sin(((i % 32) / 32) * 2 * Math.PI),
+      PIN.lat + 10 * M_LAT * Math.cos(((i % 32) / 32) * 2 * Math.PI),
+    ])
+    dbRow = { geojson: { type: 'Polygon', coordinates: [circle] }, boundary_source: 'synthetic' }
+    const r = await run(18, true)
+    assert.equal(r.data.source, 'synthetic')
+    assert.ok(r.data.area_m2 < 400, `${r.data.area_m2} m²`)
+  })
+
+  it('BR-AUDIO-010: a stored point circle wins over a building of the same area (Casa do Sertanista, 385 m² against 334 m²)', async () => {
+    dbRow = { geojson: { type: 'Polygon', coordinates: [Array.from({ length: 33 }, (_, i) => [
+      PIN.lng + 10.3 * M_LNG * Math.sin(((i % 32) / 32) * 2 * Math.PI),
+      PIN.lat + 10.3 * M_LAT * Math.cos(((i % 32) / 32) * 2 * Math.PI),
+    ])] }, boundary_source: 'synthetic' }
+    const r = await run(10, true)
+    assert.equal(r.metadata.strategy, 'database_fallback')
+    assert.equal(r.data.synthetic, true)
+  })
+
+  it('a detection of the stored footprint is kept as detected, and without the option nothing changes', async () => {
+    dbRow = { geojson: { type: 'Polygon', coordinates: [lngLat(41)] }, boundary_source: 'osm' }
+    assert.equal((await run(40, true)).metadata.strategy, 'osm_priority')
+    dbRow = { geojson: { type: 'Polygon', coordinates: [lngLat(200)] }, boundary_source: 'osm' }
+    assert.equal((await run(37, false)).metadata.strategy, 'osm_priority')
+  })
+})
+
+describe('INV-E3 — only the POI own buildings lend it height on the Nominatim path (BR-AUDIO-010, #779)', () => {
+  const ring = (half: number, c: LatLng = PIN) => square(half, c).map(p => ({ lat: p.lat, lng: p.lon }))
+  const at = (dxM: number) => ({ lat: PIN.lat, lng: PIN.lng + dxM * M_LNG })
+
+  it('BR-AUDIO-010: a tower 80 m from a 10 m point circle lends nothing (Escultura Baleia Metálica took the B32 123 m)', () => {
+    const tower = { geometry: square(20, at(80)), tags: { height: '123' } }
+    assert.deepEqual(choice.buildingsOfPoi([tower], ring(10), PIN), [])
+  })
+
+  it('BR-AUDIO-010: the building holding the pin and those inside the POI ring are kept', () => {
+    const host = { geometry: square(30), tags: { height: '40' } }
+    const inside = { geometry: square(5, at(100)), tags: { height: '12' } }
+    const outside = { geometry: square(5, at(300)), tags: { height: '90' } }
+    assert.deepEqual(choice.buildingsOfPoi([host, inside, outside], ring(150), PIN), [host, inside])
+  })
+})
