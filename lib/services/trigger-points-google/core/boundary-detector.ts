@@ -167,10 +167,12 @@ export class BoundaryDetector {
       // the stored footprint gives way to it, judged by the database branch below as always. In
       // São Paulo the detector took the pitch inside Parque Chácara do Jockey and the river under
       // the Cebolão after the operator had fixed both borders.
-      const detected = osmBoundaryResult?.success ? osmBoundaryResult.data?.coordinates : undefined;
-      if (opts.storedReference && poiData.id && detected && detected.length >= 3) {
+      // A stored point circle is no footprint: no area tells it from a building (Casa do Sertanista).
+      const detected = osmBoundaryResult?.success ? osmBoundaryResult.data : undefined;
+      if (opts.storedReference && poiData.id && detected && detected.coordinates.length >= 3) {
         const stored = (await this.fetchBoundaryFromDatabase(poiData.id)).data;
-        if (stored && !sameFootprint(detected, stored.coordinates, poiData.location)) {
+        const detectedSynthetic = !!detected.synthetic || isDrawnCircle(detected.coordinates);
+        if (stored && (detectedSynthetic !== !!stored.synthetic || !sameFootprint(detected.coordinates, stored.coordinates, poiData.location))) {
           this.rejections.push({ element: 'osm', reason: 'not the stored reference border (#779)' });
           osmBoundaryResult = null;
         }

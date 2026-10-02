@@ -403,6 +403,16 @@ describe('INV-E1a — with storedReference, a detection of another footprint giv
     assert.ok(r.data.area_m2 < 400, `${r.data.area_m2} m²`)
   })
 
+  it('BR-AUDIO-010: a stored point circle wins over a building of the same area (Casa do Sertanista, 385 m² against 334 m²)', async () => {
+    dbRow = { geojson: { type: 'Polygon', coordinates: [Array.from({ length: 33 }, (_, i) => [
+      PIN.lng + 10.3 * M_LNG * Math.sin(((i % 32) / 32) * 2 * Math.PI),
+      PIN.lat + 10.3 * M_LAT * Math.cos(((i % 32) / 32) * 2 * Math.PI),
+    ])] }, boundary_source: 'synthetic' }
+    const r = await run(10, true)
+    assert.equal(r.metadata.strategy, 'database_fallback')
+    assert.equal(r.data.synthetic, true)
+  })
+
   it('a detection of the stored footprint is kept as detected, and without the option nothing changes', async () => {
     dbRow = { geojson: { type: 'Polygon', coordinates: [lngLat(41)] }, boundary_source: 'osm' }
     assert.equal((await run(40, true)).metadata.strategy, 'osm_priority')
