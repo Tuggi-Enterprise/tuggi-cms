@@ -1097,7 +1097,12 @@ out geom tags;
       }
     }
     const { chosen, rejected } = chooseContainingBoundary(
-      poiData.location, { name: poiData.name, namedOnly: narrowing || (poiData.osm_type === 'node' && !!poiData.osm_id), isBuilt: ringIsBuilt }, elements ?? []
+      poiData.location, {
+        name: poiData.name,
+        namedOnly: narrowing || (poiData.osm_type === 'node' && !!poiData.osm_id),
+        isBuilt: ringIsBuilt,
+        namedInside: ring => LocalOSMFetcher.getInstance().namedNodesInside(ring) ?? [],
+      }, elements ?? []
     );
     if (narrowing) {
       // Only a smaller element at the pin narrows the typed border (INV-E1c, BR-POI-009): holding it,

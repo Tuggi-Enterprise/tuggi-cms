@@ -5,6 +5,7 @@ import { POIData, BoundaryData, StreetData } from '../types/interfaces';
 import { BuildingData, OSMDataBundle } from './osm-data-fetcher';
 import { TRIGGER_POINTS_CONSTANTS } from '../config/trigger-points-config';
 import { isPublicWay } from '../config/visibility-class';
+import { isPointInPolygon } from '../utils/calculations';
 
 /**
  * 🌍 LOCAL OSM FETCHER — Singleton
@@ -703,6 +704,39 @@ export class LocalOSMFetcher {
       return out;
     } catch (error) {
       console.error(`❌ [LocalOSMFetcher] Error fetching summits:`, error);
+      return null;
+    }
+  }
+
+  /**
+   * E1 (INV-E1c, BR-POI-009): the tags of every named OSM node standing inside `ring`. An unnamed
+   * area holding a named place of another name is the ground under it, not a POI: the 100 km²
+   * forest of the Maciço da Pedra Branca holds 112 named peaks and streams (#779).
+   * null when the local DB is not available.
+   */
+  public namedNodesInside(ring: Array<{ lat: number; lng: number }>): Array<Record<string, unknown>> | null {
+    if (!this.db || ring.length < 3) return null;
+    try {
+      const lats = ring.map(p => p.lat);
+      const lngs = ring.map(p => p.lng);
+      const box = [Math.min(...lats), Math.max(...lats), Math.min(...lngs), Math.max(...lngs)];
+      const rows = this.db.prepare(this.rtreeAvailable.pois
+        ? `SELECT p.geometry_json, p.tags_json FROM pois p JOIN pois_rtree r ON r.rowid = p.rowid
+           WHERE r.min_lat >= ? AND r.max_lat <= ? AND r.min_lng >= ? AND r.max_lng <= ? AND p.osm_type = 'node'`
+        : `SELECT geometry_json, tags_json FROM pois
+           WHERE min_lat >= ? AND max_lat <= ? AND min_lng >= ? AND max_lng <= ? AND osm_type = 'node'`
+      ).all(...box) as Array<{ geometry_json: string; tags_json: string | null }>;
+      const out: Array<Record<string, unknown>> = [];
+      for (const row of rows) {
+        const tags = row.tags_json ? JSON.parse(row.tags_json) : null;
+        if (!tags?.name) continue;
+        const g = JSON.parse(row.geometry_json);
+        const p = Array.isArray(g) ? g[0] : g;
+        if (p && isPointInPolygon({ lat: p.lat, lng: p.lng ?? p.lon }, ring)) out.push(tags);
+      }
+      return out;
+    } catch (error) {
+      console.error(`❌ [LocalOSMFetcher] Error fetching named nodes inside a ring:`, error);
       return null;
     }
   }

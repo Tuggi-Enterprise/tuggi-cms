@@ -185,7 +185,9 @@ const isClosed = (ring: LatLng[]): boolean =>
  *    pin, only be as plausible as a curated id (`isCuratedBoundaryImplausible`): the Praia da
  *    Reserva pin is on the promenade, off the sand, and a 248 m² kiosk under it took the border;
  * 2. otherwise an UNNAMED element, and only one smaller than the smallest named element of another
- *    name at the pin — whatever holds the ground the POI stands on is not the POI either;
+ *    name at the pin — whatever holds the ground the POI stands on is not the POI either — and
+ *    holding no named place of another name (`namedInside`, BR-POI-009): the unnamed 100 km²
+ *    forest of the Maciço da Pedra Branca holds 112 named peaks and was the border of each (#779);
  * 2a. without a node id, an element holding the pin whose name is akin (`akinPoiName`) and that
  *    the buildings layer says is built (`isBuilt`) — the church polygon named "Paróquia …" under the
  *    pin of "Igreja Matriz …" (Cabo Frio); a square of the same name is not built;
@@ -196,7 +198,13 @@ const isClosed = (ring: LatLng[]): boolean =>
  */
 export function chooseContainingBoundary(
   pin: LatLng,
-  poi: { name?: string | null; namedOnly?: boolean; isBuilt?: (ring: LatLng[]) => boolean },
+  poi: {
+    name?: string | null;
+    namedOnly?: boolean;
+    isBuilt?: (ring: LatLng[]) => boolean;
+    /** Tags of the named places standing inside the ring (the local DB's nodes). */
+    namedInside?: (ring: LatLng[]) => Tags[];
+  },
   elements: OsmAreaElement[],
 ): { chosen?: ChosenBoundary; rejected: BoundaryRejection[] } {
   const rejected: BoundaryRejection[] = [];
@@ -235,7 +243,13 @@ export function chooseContainingBoundary(
   for (const c of unnamed.sort(byArea)) {
     if (poi.namedOnly) rejected.push({ element: key(c), reason: 'unnamed area under a POI with its own node id' });
     else if (c.areaM2 >= groundM2) rejected.push({ element: key(c), reason: `unnamed area ${Math.round(c.areaM2)} m² holds the named ground at the pin` });
-    else fitting.push(c);
+    else {
+      // Only until one fits: the smallest wins, and a forest's ring is costly to search.
+      const held = fitting.length ? undefined
+        : poi.namedInside?.(c.ring).find(t => !carriesPoiName(t, poi.name) && !akinPoiName(t, poi.name));
+      if (held) rejected.push({ element: key(c), reason: `unnamed area holds "${elementNames(held)[0]}": ${NAMED_GROUND_REASON}` });
+      else fitting.push(c);
+    }
   }
   return { chosen: fitting[0], rejected };
 }

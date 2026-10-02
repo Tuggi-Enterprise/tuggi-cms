@@ -70,6 +70,19 @@ describe('INV-E1c — the element holding the pin is chosen by identity and geom
     assert.ok(r.rejected.some(x => x.element === 'way/5' && /holds the named ground/.test(x.reason)))
   })
 
+  it('BR-POI-009, INV-E1c (#779): an unnamed area holding a named place of another name is ground, not the POI — the peak keeps the pin circle (Pico Alto do Boqueirão in the 100 km² Pedra Branca forest)', () => {
+    const city = { type: 'relation', id: 2697338, tags: { boundary: 'administrative', name: 'Rio de Janeiro' }, geometry: square(20000) }
+    const suburb = { type: 'relation', id: 5515740, tags: { boundary: 'administrative', name: 'Guaratiba' }, geometry: square(9000) }
+    const forest = { type: 'relation', id: 4033046, tags: { natural: 'wood' }, geometry: square(5000) }
+    const peaks = [{ name: 'Morro da Ilha', natural: 'peak' }, { name: 'Pico Alto do Boqueirão', natural: 'peak' }]
+    const r = choice.chooseContainingBoundary(PIN, { name: 'Pico Alto do Boqueirão', namedInside: () => peaks }, [city, suburb, forest])
+    assert.equal(r.chosen, undefined)
+    assert.ok(r.rejected.some(x => x.element === 'relation/4033046' && /holds "morro da ilha"/.test(x.reason)))
+    // Only the POI itself inside: the unnamed area may still be its border.
+    const own = choice.chooseContainingBoundary(PIN, { name: 'Pico Alto do Boqueirão', namedInside: () => [peaks[1]] }, [city, suburb, forest])
+    assert.equal(own.chosen?.element.id, 4033046)
+  })
+
   it('the tags of the element never decide: a place relation with the POI name is its border, one with another name is not', () => {
     const rel = { type: 'relation', id: 7, tags: { boundary: 'administrative', admin_level: '10', name: 'Maracanã' }, geometry: square(800) }
     assert.equal(choice.chooseContainingBoundary(PIN, { name: 'maracana' }, [rel]).chosen?.element.id, 7)
