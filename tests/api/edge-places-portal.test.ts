@@ -138,3 +138,73 @@ test('BR-B2B-051 item 6: a provider failure answers 502 before any write', () =>
   assert.ok(failure > 0 && write > 0)
   assert.ok(failure < write, 'the failure path must return before the update')
 })
+
+/** Records the chain the claim builds and answers with `rows`. */
+function fakeGenerations(rows: unknown[] | null, error: { code?: string } | null = null) {
+  const calls: Array<[string, ...unknown[]]> = []
+  const query: any = {
+    eq: (...a: unknown[]) => (calls.push(['eq', ...a]), query),
+    is: (...a: unknown[]) => (calls.push(['is', ...a]), query),
+    or: (...a: unknown[]) => (calls.push(['or', ...a]), query),
+    select: (...a: unknown[]) => (calls.push(['select', ...a]), query),
+    then: (resolve: (v: unknown) => unknown) => resolve({ data: rows, error }),
+  }
+  const client = {
+    from: (table: string) => {
+      calls.push(['from', table])
+      return { update: (values: Record<string, unknown>) => (calls.push(['update', values]), query) }
+    },
+  }
+  return { client, calls }
+}
+
+const GEN = '3f2a9c1e-8b4d-4e2f-9a7b-1c2d3e4f5a6b'
+const NOW = new Date('2026-10-04T12:00:00.000Z')
+
+test('#820 claim: unclaimed or abandoned (> 60 s) only — the TTL keeps a dead call from locking forever', () => {
+  assert.equal(mod.PLACE_STORY_CLAIM_TTL_MS, 60_000)
+  assert.equal(mod.storyClaimFilter(NOW), 'claimed_at.is.null,claimed_at.lt.2026-10-04T11:59:00.000Z')
+})
+
+test('#820 claim (BR-B2B-051 item 6): conditional on the id, output_text null and the TTL; one row = claimed', async () => {
+  const { client, calls } = fakeGenerations([{ id: GEN }])
+  assert.equal(await mod.claimStoryGeneration(client, GEN, NOW), 'claimed')
+  assert.deepEqual(calls, [
+    ['from', 'place_generations'],
+    ['update', { claimed_at: NOW.toISOString() }],
+    ['eq', 'id', GEN],
+    ['is', 'output_text', null],
+    ['or', 'claimed_at.is.null,claimed_at.lt.2026-10-04T11:59:00.000Z'],
+    ['select', 'id'],
+  ])
+})
+
+test('#820 claim: zero rows means another call holds it — busy, the providers are not called', async () => {
+  assert.equal(await mod.claimStoryGeneration(fakeGenerations([]).client, GEN, NOW), 'busy')
+  assert.equal(await mod.claimStoryGeneration(fakeGenerations(null).client, GEN, NOW), 'busy')
+  assert.equal(await mod.claimStoryGeneration(fakeGenerations(null, { code: '42501' }).client, GEN, NOW), 'error')
+})
+
+test('#820 release (BR-B2B-051 item 6): clears claimed_at only while output_text is still null', async () => {
+  const { client, calls } = fakeGenerations([{ id: GEN }])
+  await mod.releaseStoryGeneration(client, GEN)
+  assert.deepEqual(calls.slice(0, 4), [
+    ['from', 'place_generations'],
+    ['update', { claimed_at: null }],
+    ['eq', 'id', GEN],
+    ['is', 'output_text', null],
+  ])
+})
+
+test('#820: the claim comes before the model, busy is 409, and every 502 after it releases', () => {
+  const src = source('places-story-preview')
+  const claim = src.indexOf('await claimStoryGeneration(partner, generation.id)')
+  const model = src.indexOf('await runGeminiPromptWithUsage(')
+  assert.ok(claim > 0 && claim < model, 'claim must precede the provider call')
+  assert.match(src, /claim === 'busy'\) return json\(409/)
+  const afterClaim = src.slice(claim)
+  const failures = afterClaim.split("return json(502, { error: 'generation_failed' })").length - 1
+  const releases = afterClaim.split('await releaseStoryGeneration(partner, generation.id)').length - 1
+  // the claim's own 'error' answer is the one 502 that holds nothing to release
+  assert.equal(releases, failures - 1)
+})
