@@ -269,7 +269,11 @@ async function generate(clientId: string, body: Record<string, unknown>, operato
 
   // A client born from the Portal Locais already has its instrument: the electronic acceptance
   // (BR-B2B-047, item 1). Generating a contract would put a second one over it (#812).
-  if (await isPortalClient(clientId)) {
+  const portalClient = await isPortalClient(clientId)
+  if (portalClient === null) {
+    return NextResponse.json({ error: 'portal_lookup_failed' }, { status: 503 })
+  }
+  if (portalClient) {
     return NextResponse.json({ error: 'portal_skips_contract' }, { status: 409 })
   }
 

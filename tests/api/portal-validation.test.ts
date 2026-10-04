@@ -63,14 +63,14 @@ test('contract §8.3: the state machine SQLSTATEs become the route status', () =
 
 test('BR-B2B-049 item 7: the POI exists and attraction_id is written BEFORE the approved transition', () => {
   const src = read('lib/services/portal-validation-service.ts')
-  const body = src.slice(src.indexOf('export async function approvePortalSubmission'))
-  const create = body.indexOf('createPlaceFromPrefill(prefill, clientId, operator)')
-  const link = body.indexOf(".update({ attraction_id: place.attractionId })")
+  const body = src.slice(src.indexOf('async function approveClaimed'))
+  const create = body.indexOf('createPrefilledPlace(prefill, operator)')
+  const link = body.indexOf('.update({ attraction_id: created.attractionId })')
   const approve = body.indexOf("transition(submission.id, 'approved'")
   assert.ok(create > 0 && link > create && approve > link)
 })
 
-test('#812: status is never written by UPDATE — only answers/attraction_id are', () => {
+test('#812: status is never written by UPDATE — only attraction_id and the approval claim are', () => {
   const src = read('lib/services/portal-validation-service.ts')
   assert.doesNotMatch(src, /update\(\{[^}]*status/)
   assert.match(src, /rpc\('transition_place_submission'/)
@@ -88,6 +88,8 @@ test('BR-B2B-047 item 1: the contract route refuses to generate for a portal cli
   const generate = src.slice(src.indexOf('async function generate('))
   const guard = generate.indexOf('await isPortalClient(clientId)')
   assert.ok(guard > 0, 'guard missing')
+  // security review: the lookup fails closed — an error refuses instead of generating
+  assert.match(generate, /portalClient === null\) \{\s*return NextResponse\.json\(\{ error: 'portal_lookup_failed' \}, \{ status: 503 \}\)/)
   assert.ok(guard < generate.indexOf('loadPlatformOwner()'), 'guard after the generation started')
   assert.match(generate, /portal_skips_contract/)
 })

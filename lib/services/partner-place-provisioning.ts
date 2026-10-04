@@ -141,18 +141,41 @@ export async function createPlaceFromPrefill(
   prefill: PlacePrefill,
   clientId: string,
   operator: SupabaseClient
-): Promise<
+): Promise<PrefillWriteOutcome> {
+  const created = await createPrefilledPlace(prefill, operator)
+  if (created.status === 'failed') return created
+  return applyPlacePrefill(created.attractionId, prefill, clientId, operator)
+}
+
+type PrefillWriteOutcome =
   | { status: 'created'; attractionId: string }
   | Extract<PartnerPlaceOutcome, { status: 'failed' }>
-> {
-  let attractionId: string
+
+/** The one non-repeatable write: the row itself (`cms_create_place`). */
+export async function createPrefilledPlace(
+  prefill: PlacePrefill,
+  operator: SupabaseClient
+): Promise<PrefillWriteOutcome> {
   try {
-    attractionId = await placeService.create(prefill.create, operator)
+    return { status: 'created', attractionId: await placeService.create(prefill.create, operator) }
   } catch (error) {
-    console.error('[partner-approval] place creation refused for client', clientId, error)
+    console.error('[partner-approval] place creation refused', error)
     return { status: 'failed', reason: 'create_failed', attractionId: null }
   }
+}
 
+/**
+ * Everything after the row — client link, details, coordinate. Every write is an UPDATE of the
+ * same values, so running it again on a place that already has them is a no-op: that is what
+ * lets the portal's approval retry a half-written POI instead of approving it without offer
+ * and without pin.
+ */
+export async function applyPlacePrefill(
+  attractionId: string,
+  prefill: PlacePrefill,
+  clientId: string,
+  operator: SupabaseClient
+): Promise<PrefillWriteOutcome> {
   try {
     await placeService.updateAttraction(
       attractionId,
