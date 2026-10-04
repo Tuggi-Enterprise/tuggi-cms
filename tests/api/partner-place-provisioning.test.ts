@@ -361,3 +361,98 @@ test('#360: a place created and not linked names itself, because nothing deletes
 
   assert.deepEqual(outcome, { status: 'failed', reason: 'link_failed', attractionId: ATTRACTION_ID })
 })
+
+// ── The portal's keys (contract §8.1 / §8.2, #812) ───────────────────────────────────────────
+
+function portalAnswers(overrides: PartnerAnswers = {}): PartnerAnswers {
+  return answers({
+    address: 'Rua das Pedras',
+    address_complement: '',
+    address_number: '120',
+    opening_hours: JSON.stringify({ tuesday: [{ open: '12:00', close: '23:00' }], saturday: [{ open: '18:00', close: '02:00' }] }),
+    lat: '-22.7469',
+    lng: '-41.8817',
+    whatsapp: '(22) 99999-0000',
+    price_range: '2',
+    subtypes: JSON.stringify(['seafood', 'brazilian']),
+    amenities: JSON.stringify(['card_and_pix', 'wifi', 'wheelchair_accessible', 'sea_view', 'unknown_id']),
+    offer_enabled: 'true',
+    offer_free: 'Caipirinha de cortesia na compra de um prato',
+    offer_subscriber: 'Sobremesa grátis para assinante',
+    ...overrides,
+  })
+}
+
+test('BR-B2B-053: the two offers land on app_benefit and subscriber_benefit, only when enabled', () => {
+  const on = buildPlacePrefill(portalAnswers())!
+  assert.equal(on.details.app_benefit, 'Caipirinha de cortesia na compra de um prato')
+  assert.equal(on.details.subscriber_benefit, 'Sobremesa grátis para assinante')
+
+  const off = buildPlacePrefill(portalAnswers({ offer_enabled: '' }))!
+  assert.equal('app_benefit' in off.details, false, 'a text the partner switched off is not an offer')
+  assert.equal('subscriber_benefit' in off.details, false)
+})
+
+test('BR-B2B-053 / BR-B2B-010 item 6: the old form still never writes an offer', () => {
+  const prefill = buildPlacePrefill(answers())!
+  assert.deepEqual(prefill.details, {})
+  assert.equal(prefill.coordinate, null, 'the form asks for no coordinate')
+})
+
+test('#812: address parts, opening hours, WhatsApp and the pin come from the portal', () => {
+  const prefill = buildPlacePrefill(portalAnswers())!
+  assert.equal(prefill.attraction.street_name, 'Rua das Pedras')
+  assert.equal(prefill.attraction.house_number, '120')
+  assert.equal(prefill.attraction.neighborhood, 'Centro')
+  assert.deepEqual(prefill.attraction.opening_hours, {
+    tuesday: [{ open: '12:00', close: '23:00' }],
+    saturday: [{ open: '18:00', close: '02:00' }],
+  })
+  assert.equal(prefill.attraction.contact_whatsapp, '22999990000')
+  assert.deepEqual(prefill.coordinate, { latitude: -22.7469, longitude: -41.8817 })
+})
+
+test('#812: the old form address is not split into street_name without a number', () => {
+  const prefill = buildPlacePrefill(answers())!
+  assert.equal('street_name' in prefill.attraction, false)
+  assert.equal('house_number' in prefill.attraction, false)
+})
+
+test('#812: amenities, price range and subtypes follow contract §8.2', () => {
+  const prefill = buildPlacePrefill(portalAnswers())!
+  assert.equal(prefill.attraction.payment_credit_cards, 'yes')
+  assert.equal(prefill.attraction.wheelchair_accessible, true)
+  assert.equal(prefill.details.has_wifi, true)
+  assert.equal(prefill.details.price_range, 2)
+  assert.deepEqual(prefill.details.tags, ['seafood', 'brazilian', 'sea_view'])
+})
+
+test('#812: malformed portal values are dropped, never guessed', () => {
+  const prefill = buildPlacePrefill(
+    portalAnswers({
+      opening_hours: JSON.stringify({ funday: [{ open: '9', close: '18:00' }] }),
+      lat: '91',
+      whatsapp: '123',
+      price_range: '5',
+      amenities: 'not json',
+    })
+  )!
+  assert.equal('opening_hours' in prefill.attraction, false)
+  assert.equal(prefill.coordinate, null)
+  assert.equal('contact_whatsapp' in prefill.attraction, false)
+  assert.equal('price_range' in prefill.details, false)
+  assert.deepEqual(prefill.details.tags, ['seafood', 'brazilian'])
+})
+
+test('BR-B2B-011 / BR-B2B-010: the portal prefill cannot reach approval or prominence either', () => {
+  const prefill = buildPlacePrefill(portalAnswers())!
+  const written = Object.keys({ ...prefill.create, ...prefill.attraction, ...prefill.details })
+  for (const column of PLACE_PREFILL_NEVER_WRITES) {
+    assert.equal(written.includes(column), false, `${column} is reachable from a portal answer`)
+  }
+  assert.equal(JSON.stringify(prefill).includes('99999-0000'), false, 'the representative phone stays off')
+})
+
+test('#802: fitness_center is a category with a catalogue type', () => {
+  assert.equal(buildPlacePrefill(answers({ category: 'fitness_center' }))?.create.place_type, 'service')
+})

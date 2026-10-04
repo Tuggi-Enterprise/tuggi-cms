@@ -19,9 +19,9 @@
  *    drift, a story nudged on the way in stops being flagged on the way out, and nobody sees it.
  */
 
-import type { PartnerFieldId } from './fields'
+import type { PartnerFieldId, PortalFieldId } from './fields'
 
-export type PartnerAnswers = Partial<Record<PartnerFieldId, string>>
+export type PartnerAnswers = Partial<Record<PartnerFieldId | PortalFieldId, string>>
 
 /**
  * The quality nudge of step 3. It never blocks anything and never says "rejected" — the gate-2
