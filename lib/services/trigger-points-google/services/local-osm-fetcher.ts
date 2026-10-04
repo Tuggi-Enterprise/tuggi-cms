@@ -1,73 +1,101 @@
 import Database from 'better-sqlite3';
-import path from 'path';
-import fs from 'fs';
 import { POIData, BoundaryData, StreetData } from '../types/interfaces';
 import { BuildingData, OSMDataBundle } from './osm-data-fetcher';
 import { TRIGGER_POINTS_CONSTANTS } from '../config/trigger-points-config';
 import { isPublicWay } from '../config/visibility-class';
 import { isPointInPolygon } from '../utils/calculations';
+import { listOsmRegions, localOsmDir, regionAt, OsmRegion } from '../../local-osm-regions';
 
 /**
  * 🌍 LOCAL OSM FETCHER — Singleton
  * 
- * Consulta o banco SQLite local (data/local_osm.db) para obter ruas, prédios
- * e boundaries sem depender de APIs externas (Overpass, Nominatim).
+ * Consulta as bases SQLite locais (uma por país/região, `local-osm-regions`) para obter ruas,
+ * prédios e boundaries sem depender de APIs externas (Overpass, Nominatim).
  * 
  * Princípios:
- * - Singleton: Uma única conexão SQLite reutilizada por todo o processo
+ * - Singleton: uma conexão SQLite por região, aberta no primeiro uso e reutilizada pelo processo
  * - DRY: Helpers centralizados (calculateBBox, toOverpassElement, queryStreets, queryBuildings)
  * - KISS: Interface simples com fallback transparente (retorna null = cache miss)
  */
 /** Sanity bound on the query points along one edge (fetchStreetsAlongBoundary). */
 const BOUNDARY_SAMPLE_CAP = 600;
 
+type RtreeFlags = { pois: boolean; streets: boolean; buildings: boolean };
+
+/** One local OSM region (`local-osm-regions`), opened read-only on first use. */
+interface RegionHandle extends Pick<OsmRegion, 'name' | 'covers'> {
+  dbPath?: string;
+  db: Database.Database | null;
+  rtree: RtreeFlags;
+}
+
 export class LocalOSMFetcher {
   private static instance: LocalOSMFetcher;
+  /** One file per country or region (#833, L1); every query picks the one covering its point. */
+  private regions: RegionHandle[] = [];
+  // The region selected by `select()`. Every public method selects first and then runs
+  // synchronously (better-sqlite3 has no await), so concurrent POIs never see each other's pick.
   private db: Database.Database | null = null;
-  private dbPath: string;
-  // Detected at startup so per-query checks are free. See hotfix-osm-rtree-index.ts.
-  private rtreeAvailable: { pois: boolean; streets: boolean; buildings: boolean } = {
-    pois: false,
-    streets: false,
-    buildings: false
-  };
+  // Detected per region on open, so per-query checks are free. See hotfix-osm-rtree-index.ts.
+  private rtreeAvailable: RtreeFlags = { pois: false, streets: false, buildings: false };
 
   private constructor() {
-    this.dbPath = path.join(process.cwd(), 'data', 'local_osm.db');
-
+    const dir = localOsmDir();
     try {
-      if (!fs.existsSync(this.dbPath)) {
-        console.log(`⚠️ [LocalOSMFetcher] Local OSM DB not found at ${this.dbPath}`);
-        return;
-      }
+      this.regions = listOsmRegions(dir).map(r => ({ ...r, db: null, rtree: { pois: false, streets: false, buildings: false } }));
+    } catch (error) {
+      console.error(`❌ [LocalOSMFetcher] Invalid local OSM directory ${dir}:`, error);
+    }
+    if (this.regions.length === 0) {
+      console.log(`⚠️ [LocalOSMFetcher] No local OSM region in ${dir}`);
+    } else {
+      console.log(`✅ [LocalOSMFetcher] Local OSM regions in ${dir}: ${this.regions.map(r => r.name).join(', ')}`);
+    }
+  }
 
-      this.db = new Database(this.dbPath, { readonly: true });
-      console.log(`✅ [LocalOSMFetcher] Connected to local OSM database`);
+  /** Names of the local regions, for the coverage gate (`local-osm-regions#requireLocalOsmCoverage`). */
+  public regionList(): Array<Pick<OsmRegion, 'name' | 'covers'>> {
+    return this.regions;
+  }
 
+  private open(region: RegionHandle): boolean {
+    if (region.db) return true;
+    if (!region.dbPath) return false;
+    try {
+      const db = new Database(region.dbPath, { readonly: true });
       // Probe for R-tree spatial indexes — used by queryStreets/queryBuildings
       // when present. Missing = falls back transparently to the legacy b-tree.
-      const checkRtree = (name: string): boolean => {
-        const row = this.db!.prepare(
-          `SELECT 1 FROM sqlite_master WHERE type='table' AND name=?`
-        ).get(name) as { 1: number } | undefined;
-        return Boolean(row);
-      };
-      this.rtreeAvailable = {
-        pois: checkRtree('pois_rtree'),
-        streets: checkRtree('streets_rtree'),
-        buildings: checkRtree('buildings_rtree')
-      };
-      const available = Object.entries(this.rtreeAvailable)
-        .filter(([, v]) => v)
-        .map(([k]) => k);
-      if (available.length > 0) {
-        console.log(`🗺️  [LocalOSMFetcher] R-tree spatial index detected for: ${available.join(', ')}`);
-      } else {
-        console.log(`ℹ️  [LocalOSMFetcher] R-tree spatial index not present — using b-tree fallback. Run scripts/hotfix-osm-rtree-index.ts to enable.`);
-      }
+      const has = (name: string) => Boolean(db.prepare(`SELECT 1 FROM sqlite_master WHERE type='table' AND name=?`).get(name));
+      region.rtree = { pois: has('pois_rtree'), streets: has('streets_rtree'), buildings: has('buildings_rtree') };
+      region.db = db;
+      const available = Object.entries(region.rtree).filter(([, v]) => v).map(([k]) => k);
+      console.log(available.length > 0
+        ? `🗺️  [LocalOSMFetcher] ${region.name}: R-tree spatial index detected for: ${available.join(', ')}`
+        : `ℹ️  [LocalOSMFetcher] ${region.name}: R-tree spatial index not present — using b-tree fallback. Run scripts/hotfix-osm-rtree-index.ts to enable.`);
+      return true;
     } catch (error) {
-      console.error(`❌ [LocalOSMFetcher] Failed to connect to local database:`, error);
+      console.error(`❌ [LocalOSMFetcher] Failed to open ${region.dbPath}:`, error);
+      return false;
     }
+  }
+
+  private use(region: RegionHandle | null): boolean {
+    if (!region || !this.open(region)) {
+      this.db = null;
+      return false;
+    }
+    this.db = region.db;
+    this.rtreeAvailable = region.rtree;
+    return true;
+  }
+
+  /** Selects the region covering the point; false (= no local data) outside every region. */
+  private select(point: { lat: number; lng: number } | undefined): boolean {
+    return this.use(point ? regionAt(this.regions, point.lat, point.lng) : null);
+  }
+
+  private bboxCentre(b: { minLat: number; maxLat: number; minLng: number; maxLng: number }) {
+    return { lat: (b.minLat + b.maxLat) / 2, lng: (b.minLng + b.maxLng) / 2 };
   }
 
   public static getInstance(): LocalOSMFetcher {
@@ -289,7 +317,7 @@ export class LocalOSMFetcher {
    * Retorna null se não houver dados suficientes (0 ruas = cache miss).
    */
   public fetchLocalData(poiData: POIData, radius: number): OSMDataBundle | null {
-    if (!this.db) return null;
+    if (!this.select(poiData.location)) return null;
 
     try {
       const searchRadius = Math.min(radius, 500) * 1.2;
@@ -376,7 +404,7 @@ export class LocalOSMFetcher {
    * Busca ruas estendidas por raio. Retorna null se cache miss.
    */
   public fetchExtendedStreets(center: { lat: number; lng: number }, radius: number): StreetData[] | null {
-    if (!this.db) return null;
+    if (!this.select(center)) return null;
 
     try {
       const bbox = this.calculateBBox(center, radius);
@@ -408,7 +436,7 @@ export class LocalOSMFetcher {
       targetOsmType?: string;
     } = {}
   ): { elements: any[] } | null {
-    if (!this.db) return null;
+    if (!this.select(center)) return null;
 
     try {
       const bbox = this.calculateBBox(center, radiusMeters);
@@ -465,8 +493,8 @@ export class LocalOSMFetcher {
     boundaryCoords: Array<{ lat: number; lng: number }>,
     radiusPerPointM: number = 200
   ): StreetData[] | null {
-    if (!this.db) return null;
     if (!boundaryCoords || boundaryCoords.length === 0) return null;
+    if (!this.select(boundaryCoords[0])) return null;
 
     try {
       const samples = this.sampleBoundaryPoints(boundaryCoords, radiusPerPointM);
@@ -513,7 +541,7 @@ export class LocalOSMFetcher {
     types: string[],
     tileM: number
   ): StreetData[] | null {
-    if (!this.db) return null;
+    if (!this.select(center)) return null;
     const seen = new Set<string>();
     const out: StreetData[] = [];
     const n = Math.ceil(radiusM / tileM);
@@ -605,7 +633,7 @@ export class LocalOSMFetcher {
   public fetchEntrances(
     bbox: { minLat: number; maxLat: number; minLng: number; maxLng: number }
   ): Array<{ lat: number; lng: number; kind: 'main' | 'yes' | 'other' }> | null {
-    if (!this.db) return null;
+    if (!this.select(this.bboxCentre(bbox))) return null;
 
     try {
       // Caminho rápido: R-tree narrows down primeiro; json_extract substitui o
@@ -671,7 +699,7 @@ export class LocalOSMFetcher {
   public fetchSummits(
     bbox: { minLat: number; maxLat: number; minLng: number; maxLng: number }
   ): Array<{ lat: number; lng: number; tags: Record<string, unknown> }> | null {
-    if (!this.db) return null;
+    if (!this.select(this.bboxCentre(bbox))) return null;
     try {
       const stmt = this.rtreeAvailable.pois
         ? this.db.prepare(`
@@ -715,7 +743,7 @@ export class LocalOSMFetcher {
    * null when the local DB is not available.
    */
   public namedNodesInside(ring: Array<{ lat: number; lng: number }>): Array<Record<string, unknown>> | null {
-    if (!this.db || ring.length < 3) return null;
+    if (ring.length < 3 || !this.select(ring[0])) return null;
     try {
       const lats = ring.map(p => p.lat);
       const lngs = ring.map(p => p.lng);
@@ -749,7 +777,7 @@ export class LocalOSMFetcher {
    * box around the pin: a border of the POI's identity may stand next to it (INV-E1c).
    */
   public fetchAreasContaining(pin: { lat: number; lng: number }, marginM = 0): any[] | null {
-    if (!this.db) return null;
+    if (!this.select(pin)) return null;
     try {
       const out: any[] = [];
       const dLat = marginM / 110_540;
@@ -789,6 +817,18 @@ export class LocalOSMFetcher {
     osmType: string,
     osmId: string
   ): { elements: any[] } | null {
+    // No coordinate here: the first region holding the id answers (neighbouring extracts share
+    // their border buffer, and either copy of an element is the same element).
+    for (const region of this.regions) {
+      if (!this.use(region)) continue;
+      const found = this.elementByIdInSelected(osmType, osmId);
+      if (found) return found;
+    }
+    console.log(`⚠️ [LocalOSMFetcher] Element ${osmType}(${osmId}) NOT found in local database.`);
+    return null;
+  }
+
+  private elementByIdInSelected(osmType: string, osmId: string): { elements: any[] } | null {
     if (!this.db) return null;
 
     try {
@@ -821,10 +861,7 @@ export class LocalOSMFetcher {
         }
       }
 
-      if (!row) {
-        console.log(`⚠️ [LocalOSMFetcher] Element ${osmType}(${osmId}) NOT found in local database.`);
-        return null;
-      }
+      if (!row) return null;
 
       const element = this.toOverpassElement(row, osmType);
       console.log(`🚀 [LocalOSMFetcher] Found ${osmType}(${osmId}) in local DB`);

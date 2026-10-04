@@ -13,28 +13,21 @@ export function storedBuildingHeightM(tags: Record<string, unknown>): number {
 }
 
 /**
- * Service to manage and query local OSM data (extracted from PBF/GeoJSON)
+ * Writes and queries ONE local OSM region database (`local-osm-regions#regionDbPath`, #833).
+ * The importer behind `scripts/manage-osm.ts --import-pbf`; the engine reads through
+ * `LocalOSMFetcher`.
  */
 export class OSMLocalDataService {
   private db: Database.Database;
-  private static instance: OSMLocalDataService;
 
-  private constructor() {
-    const dataDir = path.join(process.cwd(), 'data');
-    if (!fs.existsSync(dataDir)) {
-      fs.mkdirSync(dataDir, { recursive: true });
-    }
-
-    const dbPath = path.join(dataDir, 'local_osm.db');
+  constructor(dbPath: string) {
+    fs.mkdirSync(path.dirname(dbPath), { recursive: true });
     this.db = new Database(dbPath);
     this.init();
   }
 
-  public static getInstance(): OSMLocalDataService {
-    if (!OSMLocalDataService.instance) {
-      OSMLocalDataService.instance = new OSMLocalDataService();
-    }
-    return OSMLocalDataService.instance;
+  public close(): void {
+    this.db.close();
   }
 
   private init() {
@@ -92,10 +85,10 @@ export class OSMLocalDataService {
   /**
    * Imports a GeoJSON Sequence file (line-delimited JSON) into the local database
    */
-  public async importGeoJSONSeq(filePath: string): Promise<void> {
-    const fileStream = fs.createReadStream(filePath);
+  public async importGeoJSONSeq(input: string | NodeJS.ReadableStream): Promise<void> {
+    // A stream lets `osmium export -o -` feed the import without a temp file of several GB.
     const rl = readline.createInterface({
-      input: fileStream,
+      input: typeof input === 'string' ? fs.createReadStream(input) : input,
       crlfDelay: Infinity
     });
 

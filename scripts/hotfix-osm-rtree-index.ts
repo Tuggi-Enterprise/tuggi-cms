@@ -1,5 +1,5 @@
 /**
- * Hotfix: R-tree spatial indexes on data/local_osm.db so bbox queries from
+ * Hotfix: R-tree spatial indexes on a local OSM region database so bbox queries from
  * LocalOSMFetcher run in O(log N) instead of full-scanning the b-tree index.
  *
  * Why this exists:
@@ -16,41 +16,49 @@
  *   detects them at startup and joins through them; falls back transparently
  *   to the b-tree path on machines that haven't applied the hotfix yet.
  *
- * Safe to run on any machine. Idempotent — if a virtual table already has the
- * same row count as its source, it is skipped. Partial state (a previous run
- * that was interrupted mid-INSERT) is detected and rebuilt.
+ * Safe to run on any machine. Idempotent — an R-tree with the same row count AND the same
+ * highest rowid as its source is skipped; anything else (missing, partial, or stale after a
+ * re-import moved the rowids, L9 #833) is rebuilt. `--force` rebuilds regardless; the import
+ * (`scripts/manage-osm.ts --import-pbf`) always passes it. See `lib/services/osm-rtree-index`.
  *
  * Usage:
- *   npx tsx scripts/hotfix-osm-rtree-index.ts                 # default DB
- *   npx tsx scripts/hotfix-osm-rtree-index.ts --db /path.db
+ *   npx tsx scripts/hotfix-osm-rtree-index.ts --region pt
+ *   npx tsx scripts/hotfix-osm-rtree-index.ts --db /path.db --force
  *   npx tsx scripts/hotfix-osm-rtree-index.ts --dry-run       # inspect only
  *   npx tsx scripts/hotfix-osm-rtree-index.ts --only buildings  # one table
  */
 
 import Database from 'better-sqlite3'
 import { existsSync, statSync } from 'fs'
-import { join, resolve } from 'path'
+import { resolve } from 'path'
+import { regionDbPath } from '../lib/services/local-osm-regions'
 
-type TableName = 'pois' | 'streets' | 'buildings'
+import { rebuildRtree, rtreeIsCurrent, rtreeState, OsmTable as TableName, RtreeState } from '../lib/services/osm-rtree-index'
 
 interface Options {
   dbPath: string
   dryRun: boolean
+  force: boolean
   only?: TableName
 }
 
 function parseArgs(): Options {
   const args = process.argv.slice(2)
   const opts: Options = {
-    dbPath: join(process.cwd(), 'data', 'local_osm.db'),
-    dryRun: false
+    dbPath: '',
+    dryRun: false,
+    force: false
   }
   for (let i = 0; i < args.length; i++) {
     const a = args[i]
     if (a === '--db' && args[i + 1]) {
       opts.dbPath = resolve(args[++i])
+    } else if (a === '--region' && args[i + 1]) {
+      opts.dbPath = regionDbPath(args[++i])
     } else if (a === '--dry-run') {
       opts.dryRun = true
+    } else if (a === '--force') {
+      opts.force = true
     } else if (a === '--only' && args[i + 1]) {
       const t = args[++i] as TableName
       if (t !== 'pois' && t !== 'streets' && t !== 'buildings') {
@@ -63,8 +71,10 @@ function parseArgs(): Options {
 Usage: npx tsx scripts/hotfix-osm-rtree-index.ts [options]
 
 Options:
-  --db <path>      Path to local_osm.db (default: ./data/local_osm.db)
+  --db <path>      Path to the region database
+  --region <name>  Region database in LOCAL_OSM_DIR (default data/osm): <name>.db
   --dry-run        Inspect only, do not create or populate indexes
+  --force          Rebuild even when the R-tree looks current
   --only <table>   Build only one of: pois, streets, buildings
   --help, -h       Show this message
 `)
@@ -93,7 +103,7 @@ function main() {
   const runStart = Date.now()
 
   console.log('━'.repeat(70))
-  console.log('🗺️  Hotfix: R-tree spatial indexes on local_osm.db')
+  console.log('🗺️  Hotfix: R-tree spatial indexes on a local OSM region')
   console.log('━'.repeat(70))
   console.log(`DB:         ${opts.dbPath}`)
   console.log(`Dry-run:    ${opts.dryRun}`)
@@ -101,9 +111,12 @@ function main() {
   console.log(`Started at: ${new Date().toISOString()}`)
   console.log()
 
+  if (!opts.dbPath) {
+    console.error(`❌ Pass --db <path> or --region <name> (one database per region, #833)`)
+    process.exit(1)
+  }
   if (!existsSync(opts.dbPath)) {
     console.error(`❌ Database not found at ${opts.dbPath}`)
-    console.error(`   Pass --db <path> if your local_osm.db lives elsewhere.`)
     process.exit(1)
   }
 
@@ -139,34 +152,20 @@ function main() {
     : TABLES
 
   console.log('\n📊 Pre-flight diagnostics')
-  const sourceCounts: Record<string, number> = {}
-  const rtreeCounts: Record<string, number | null> = {}
+  const states: Partial<Record<TableName, RtreeState>> = {}
 
   for (const t of targets) {
     const t0 = Date.now()
-    const src = db.prepare(`SELECT COUNT(*) AS c FROM ${t.name}`).get() as { c: number }
-    sourceCounts[t.name] = src.c
-
-    // Does the virtual table exist?
-    const exists = db.prepare(
-      `SELECT 1 FROM sqlite_master WHERE type='table' AND name=?`
-    ).get(t.rtree) as { 1: number } | undefined
-
-    if (exists) {
-      const r = db.prepare(`SELECT COUNT(*) AS c FROM ${t.rtree}`).get() as { c: number }
-      rtreeCounts[t.name] = r.c
-    } else {
-      rtreeCounts[t.name] = null
-    }
-
-    const rt = rtreeCounts[t.name]
+    const st = rtreeState(db, t.name)
+    states[t.name] = st
     const status =
-      rt === null ? '(missing)'
-      : rt === sourceCounts[t.name] ? '(✅ complete)'
-      : rt === 0 ? '(empty)'
-      : `(partial: ${fmt(rt)} of ${fmt(sourceCounts[t.name])})`
+      st.rtCount === null ? '(missing)'
+      : rtreeIsCurrent(st) ? '(✅ complete)'
+      : st.rtCount === 0 ? '(empty)'
+      : st.rtCount === st.srcCount ? `(stale: max rowid ${st.rtMaxRowid} vs ${st.srcMaxRowid})`
+      : `(partial: ${fmt(st.rtCount)} of ${fmt(st.srcCount)})`
 
-    console.log(`   ${t.name.padEnd(10)}: src=${fmt(sourceCounts[t.name]).padStart(12)}   rtree=${rt === null ? 'n/a' : fmt(rt).padStart(12)} ${status}  (${ms(t0)})`)
+    console.log(`   ${t.name.padEnd(10)}: src=${fmt(st.srcCount).padStart(12)}   rtree=${st.rtCount === null ? 'n/a' : fmt(st.rtCount).padStart(12)} ${status}  (${ms(t0)})`)
   }
 
   if (opts.dryRun) {
@@ -175,42 +174,18 @@ function main() {
     return
   }
 
-  console.log('\n🏗️  Building R-tree virtual tables (idempotent)\n')
+  console.log('\n🏗️  Building R-tree virtual tables\n')
 
   for (const t of targets) {
-    const srcCount = sourceCounts[t.name]
-    const rtCount = rtreeCounts[t.name]
-
-    if (rtCount === srcCount && srcCount > 0) {
-      console.log(`   ⏭️  ${t.rtree} already complete (${fmt(srcCount)} rows), skipping`)
+    const st = states[t.name]!
+    if (!opts.force && rtreeIsCurrent(st)) {
+      console.log(`   ⏭️  ${t.rtree} already complete (${fmt(st.srcCount)} rows), skipping`)
       continue
     }
-
-    // Partial state (e.g., previous run was Ctrl+C'd): drop + rebuild.
-    if (rtCount !== null && rtCount !== srcCount) {
-      console.log(`   🗑️  ${t.rtree} is partial (${fmt(rtCount)}/${fmt(srcCount)}), dropping for clean rebuild`)
-      db.exec(`DROP TABLE IF EXISTS ${t.rtree}`)
-    }
-
-    console.log(`   ▸ ${t.rtree} from ${t.name} (${fmt(srcCount)} rows, est. ${t.estimate})...`)
+    console.log(`   ▸ ${t.rtree} from ${t.name} (${fmt(st.srcCount)} rows, est. ${t.estimate})...`)
     const t0 = Date.now()
-
-    db.exec(`CREATE VIRTUAL TABLE IF NOT EXISTS ${t.rtree} USING rtree(rowid, min_lat, max_lat, min_lng, max_lng)`)
-
-    // Single INSERT under a transaction — far faster than batched INSERTs for R-tree.
-    const tx = db.transaction(() => {
-      db.exec(`
-        INSERT INTO ${t.rtree} (rowid, min_lat, max_lat, min_lng, max_lng)
-        SELECT rowid, min_lat, max_lat, min_lng, max_lng
-        FROM ${t.name}
-        WHERE min_lat IS NOT NULL AND max_lat IS NOT NULL
-          AND min_lng IS NOT NULL AND max_lng IS NOT NULL
-      `)
-    })
-    tx()
-
-    const verify = db.prepare(`SELECT COUNT(*) AS c FROM ${t.rtree}`).get() as { c: number }
-    console.log(`     ✅ inserted ${fmt(verify.c)} rows in ${ms(t0)}`)
+    const n = rebuildRtree(db, t.name)
+    console.log(`     ✅ inserted ${fmt(n)} rows in ${ms(t0)}`)
   }
 
   // ── Smoke test ───────────────────────────────────────────────────────

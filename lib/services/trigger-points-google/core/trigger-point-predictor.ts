@@ -12,6 +12,8 @@ import { deterministicTPId } from '../utils/deterministic';
 import { TRIGGER_POINTS_CONSTANTS } from '../config/trigger-points-config';
 import { VisibilityClass, LANDMARK_MIN_PROMINENCE_M, EDGE_BAND_M, SANITY_MAX_TP_DISTANCE_M, fanHorizonM, heightFromTags, isCarStreet } from '../config/visibility-class';
 import { DemNotPreparedError, DemStore } from '../../dem/dem-store';
+import { requireLocalOsmCoverage } from '../../local-osm-regions';
+import { LocalOSMFetcher } from '../services/local-osm-fetcher';
 import { emitDebugQuality, DebugQualitySnapshot } from '../debug-quality-logger';
 import { selectSpacedTriggerPoints, applyTpPostConditions, bestStreetPointOutside, REACH_RESCUE_METHOD } from '../utils/tp-selection';
 import { poiEdgeRing } from '../utils/validation';
@@ -68,6 +70,9 @@ export class CoreTriggerPointPredictor {
     // (only the first POI of the cell waits); a cell that cannot be prepared fails the POI — no
     // other source stands in.
     const pin = poiData.location;
+    // L1 (#833): a POI outside every local OSM region fails here, before the relief is prepared,
+    // instead of reaching the public Overpass in silence. TP_ALLOW_OVERPASS=1 opts in.
+    requireLocalOsmCoverage(pin?.lat, pin?.lng, LocalOSMFetcher.getInstance().regionList());
     const dem = DemStore.getInstance();
     if (Number.isFinite(pin?.lat) && Number.isFinite(pin?.lng) && !dem.preparedFor(pin.lat, pin.lng, SANITY_MAX_TP_DISTANCE_M)) {
       const { ensureDemCell } = await import('../../dem/dem-prepare');

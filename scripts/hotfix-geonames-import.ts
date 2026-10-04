@@ -1,5 +1,6 @@
 /**
- * Hotfix: GeoNames offline reverse-geocoder data on data/local_osm.db.
+ * Hotfix: GeoNames offline reverse-geocoder data in its own database, data/osm/geonames.db
+ * (`local-osm-regions#geonamesDbPath`; worldwide, so it is not inside any country's file, #833).
  *
  * Why this exists:
  *   The homolog enrichment service called Nominatim (and Photon) for every
@@ -10,7 +11,7 @@
  * What it does:
  *   Downloads the GeoNames cities500 dataset (~25 MB, CC-BY 4.0 — ~195k cities
  *   worldwide with population >500), plus the admin1 and country code tables.
- *   Imports them into three new tables in local_osm.db, builds an R-tree
+ *   Imports them into three new tables in geonames.db, builds an R-tree
  *   spatial index over the cities, and runs a smoke test against known
  *   coordinates. `LocalReverseGeocoder` then resolves city/state/country
  *   offline in <1 ms per POI — no Nominatim calls needed for the 95%+ of POIs
@@ -41,7 +42,8 @@ import {
 } from 'fs'
 import { writeFile } from 'fs/promises'
 import { createInterface } from 'readline'
-import { join, resolve } from 'path'
+import { dirname, join, resolve } from 'path'
+import { geonamesDbPath } from '../lib/services/local-osm-regions'
 import { tmpdir, platform } from 'os'
 
 const GEONAMES_CITIES_URL    = 'https://download.geonames.org/export/dump/cities500.zip'
@@ -57,7 +59,7 @@ interface Options {
 function parseArgs(): Options {
   const args = process.argv.slice(2)
   const opts: Options = {
-    dbPath: join(process.cwd(), 'data', 'local_osm.db'),
+    dbPath: geonamesDbPath(),
     dryRun: false,
     keepTemp: false
   }
@@ -74,7 +76,7 @@ function parseArgs(): Options {
 Usage: npx tsx scripts/hotfix-geonames-import.ts [options]
 
 Options:
-  --db <path>      Path to local_osm.db (default: ./data/local_osm.db)
+  --db <path>      Path to the GeoNames database (default: $LOCAL_OSM_DIR/geonames.db, data/osm/geonames.db)
   --dry-run        Inspect counts only, no download/import
   --keep-temp      Keep the downloaded files after import (for debugging)
   --help, -h       Show this message
@@ -260,7 +262,7 @@ async function main() {
   const runStart = Date.now()
 
   console.log('━'.repeat(70))
-  console.log('🌍 Hotfix: GeoNames offline reverse-geocoder for local_osm.db')
+  console.log('🌍 Hotfix: GeoNames offline reverse-geocoder')
   console.log('━'.repeat(70))
   console.log(`DB:         ${opts.dbPath}`)
   console.log(`Dry-run:    ${opts.dryRun}`)
@@ -268,12 +270,15 @@ async function main() {
   console.log()
 
   if (!existsSync(opts.dbPath)) {
-    console.error(`❌ Database not found at ${opts.dbPath}`)
-    console.error(`   Pass --db <path> if your local_osm.db lives elsewhere.`)
-    process.exit(1)
+    if (opts.dryRun) {
+      console.error(`❌ Database not found at ${opts.dbPath}`)
+      process.exit(1)
+    }
+    mkdirSync(dirname(opts.dbPath), { recursive: true })
+    console.log(`🆕 Creating ${opts.dbPath}`)
   }
 
-  const sizeGb = (statSync(opts.dbPath).size / (1024 ** 3)).toFixed(2)
+  const sizeGb = existsSync(opts.dbPath) ? (statSync(opts.dbPath).size / (1024 ** 3)).toFixed(2) : "0.00"
   console.log(`📦 DB size on disk: ${sizeGb} GB`)
 
   const db = new Database(opts.dbPath, { readonly: opts.dryRun })
