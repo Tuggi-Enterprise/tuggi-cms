@@ -24,11 +24,16 @@
  *   npx tsx scripts/regen-trigger-points.ts --dry-run --ids <uuid>,<uuid>
  *
  *   # Borda gravada como referência (#779): a detecção que não é a borda gravada cede a ela
+ *   # Vale para --id, --dry-run e --run-batch (cada POI da fila, inclusive no processo filho).
  *   npx tsx scripts/regen-trigger-points.ts --id <uuid> --stored-boundary
+ *   npx tsx scripts/regen-trigger-points.ts --run-batch sp-2026-10-04 --stored-boundary
  */
 
 import { PoiMigrationPipeline } from '../lib/services/poi-migration-pipeline'
 import { runInChild, reportChildFailure } from '../lib/utils/run-in-child'
+import {
+  QUEUE_CHILD_FLAG, STORED_BOUNDARY_FLAG, parseQueueChildArgs, queueChildArgs, regenPipelineOptions, storedBoundaryLogSuffix,
+} from '../lib/services/tp-regen-options'
 import { createClient } from '@supabase/supabase-js'
 import { randomUUID } from 'crypto'
 import * as os from 'os'
@@ -74,16 +79,13 @@ const WORKER_ID = `${os.hostname()}-${process.pid}`
  * and held its worker. Past this, the POI goes to `failed` with `timeout…` and the worker goes on.
  */
 const POI_TIMEOUT_MS = 5 * 60_000
-const CHILD_FLAG = '--pipeline-child'
+const CHILD_FLAG = QUEUE_CHILD_FLAG
 
 // ─── POI único ───────────────────────────────────────────────────────────────
 
 async function regenSingle(attractionId: string, storedBoundary = false) {
-  console.log(`\n🔄 Regenerando TPs para: ${attractionId}${storedBoundary ? ' (borda gravada como referência)' : ''}`)
-  const result = await PoiMigrationPipeline.executePipeline(attractionId, {
-    mode: 'reprocess_triggers_core',
-    stored_boundary_reference: storedBoundary,
-  })
+  console.log(`\n🔄 Regenerando TPs para: ${attractionId}${storedBoundaryLogSuffix(storedBoundary)}`)
+  const result = await PoiMigrationPipeline.executePipeline(attractionId, regenPipelineOptions(storedBoundary))
   console.log(`✅ Concluído:`, JSON.stringify(result, null, 2))
 }
 
@@ -156,8 +158,8 @@ async function createBatch(batchId: string, filters: {
 
 // ─── Worker: consome fila ─────────────────────────────────────────────────────
 
-async function runBatch(batchId: string) {
-  console.log(`🚀 Worker ${WORKER_ID} iniciado para batch "${batchId}"`)
+async function runBatch(batchId: string, storedBoundary = false) {
+  console.log(`🚀 Worker ${WORKER_ID} iniciado para batch "${batchId}"${storedBoundaryLogSuffix(storedBoundary)}`)
   let processed = 0, failed = 0
   const startMs = Date.now()
 
@@ -172,11 +174,11 @@ async function runBatch(batchId: string) {
       break
     }
 
-    process.stdout.write(`[${processed + failed + 1}] ${attractionId}... `)
+    process.stdout.write(`[${processed + failed + 1}] ${attractionId}${storedBoundaryLogSuffix(storedBoundary)}... `)
 
     // Each POI in its own process, killed at POI_TIMEOUT_MS: the hang is synchronous, so a
     // timer in this process would never fire (#779).
-    const outcome = await runInChild(__filename, [CHILD_FLAG, attractionId], POI_TIMEOUT_MS)
+    const outcome = await runInChild(__filename, queueChildArgs(attractionId, storedBoundary), POI_TIMEOUT_MS)
     const errorMsg = outcome.ok ? null : outcome.error.slice(0, 200)
     const elapsed = ((Date.now() - startMs) / 1000).toFixed(0)
     if (outcome.ok) {
@@ -313,13 +315,14 @@ async function main() {
   const state         = get('--state')
   const country       = get('--country')
   // `--bbox=-43.85,...` (com "=") evita que o valor negativo pareça outra flag.
-  // #779: the stored border wins over a detection of another footprint (--id and --dry-run only).
-  const storedBoundary = args.includes('--stored-boundary')
+  // #779: the stored border wins over a detection of another footprint (--id, --dry-run, --run-batch).
+  const storedBoundary = args.includes(STORED_BOUNDARY_FLAG)
   const getEq = (flag: string) => args.find(a => a.startsWith(`${flag}=`))?.slice(flag.length + 1) ?? get(flag)
 
   if (args[0] === CHILD_FLAG) {
     // Worker child (runBatch): one POI, and the parent owns the queue row.
-    const result = await PoiMigrationPipeline.executePipeline(args[1], { mode: 'reprocess_triggers_core' })
+    const child = parseQueueChildArgs(args)
+    const result = await PoiMigrationPipeline.executePipeline(child.attractionId, regenPipelineOptions(child.storedBoundary))
     if (!result.success) return reportChildFailure(result.error ?? 'pipeline failed')
     process.exit(0)
   } else if (args.includes('--dry-run')) {
@@ -342,7 +345,7 @@ async function main() {
   } else if (createBatchId) {
     await createBatch(createBatchId, { city, state, country })
   } else if (runBatchId) {
-    await runBatch(runBatchId)
+    await runBatch(runBatchId, storedBoundary)
   } else if (statusId) {
     await batchStatus(statusId)
   } else if (resetId) {
@@ -359,7 +362,7 @@ Uso:
     --city "New York" --state "NY" --country "United States"
 
   # 2. Rodar workers (1 por terminal, quantos quiser)
-  npx tsx scripts/regen-trigger-points.ts --run-batch ny-2026-05-18
+  npx tsx scripts/regen-trigger-points.ts --run-batch ny-2026-05-18 [--stored-boundary]
 
   # Ver progresso
   npx tsx scripts/regen-trigger-points.ts --status ny-2026-05-18
@@ -369,7 +372,8 @@ Uso:
   npx tsx scripts/regen-trigger-points.ts --dry-run --ids <uuid>,<uuid>
 
   # Borda gravada como referência (#779): a detecção que não é a borda gravada cede a ela
-  npx tsx scripts/regen-trigger-points.ts --id <uuid> --stored-boundary   (vale também com --dry-run)
+  # Vale com --id, --dry-run e --run-batch
+  npx tsx scripts/regen-trigger-points.ts --id <uuid> --stored-boundary
 
   # Resetar itens travados (após crash de worker)
   npx tsx scripts/regen-trigger-points.ts --reset-stuck ny-2026-05-18
