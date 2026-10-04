@@ -388,12 +388,11 @@ export class DemStore {
   private list(): LoadedCity[] {
     if (this.cities) return this.cities
     const out: LoadedCity[] = []
-    const entries = fs.existsSync(this.dir) ? fs.readdirSync(this.dir, { withFileTypes: true }) : []
-    for (const e of entries) {
-      if (!e.isDirectory()) continue
-      const file = path.join(this.dir, e.name, DEM_MANIFEST_FILE)
+    // a linked area directory counts (a second cache sharing areas already prepared)
+    for (const name of fs.existsSync(this.dir) ? fs.readdirSync(this.dir) : []) {
+      const file = path.join(this.dir, name, DEM_MANIFEST_FILE)
       if (!fs.existsSync(file)) continue
-      out.push({ dir: path.join(this.dir, e.name), manifest: JSON.parse(fs.readFileSync(file, 'utf8')), layers: {} })
+      out.push({ dir: path.join(this.dir, name), manifest: JSON.parse(fs.readFileSync(file, 'utf8')), layers: {} })
     }
     this.cities = out
     return out
