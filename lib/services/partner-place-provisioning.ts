@@ -44,7 +44,7 @@
 
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { placeService } from '@/lib/core/place-service'
-import { buildPlacePrefill } from '@/lib/partner-form/place-prefill'
+import { buildPlacePrefill, type PlacePrefill } from '@/lib/partner-form/place-prefill'
 import { findPromotedSubmission } from '@/lib/services/partner-proposal-admin-service'
 
 /**
@@ -58,7 +58,13 @@ export type PartnerPlaceOutcome =
       status: 'skipped'
       reason: 'no_promoted_proposal' | 'nothing_to_prefill' | 'already_provisioned'
     }
-  | { status: 'failed'; reason: 'lookup_failed' | 'create_failed' | 'link_failed'; attractionId: string | null }
+  | {
+      status: 'failed'
+      // `details_failed` / `coordinate_failed` only from the portal's keys (`createPlaceFromPrefill`);
+      // the old form's prefill has no details and no coordinate, so its route never sees them.
+      reason: 'lookup_failed' | 'create_failed' | 'link_failed' | 'details_failed' | 'coordinate_failed'
+      attractionId: string | null
+    }
 
 /**
  * A place already linked to this client, if there is one.
@@ -120,6 +126,25 @@ export async function provisionPartnerPlace(
   }
   if (linked) return { status: 'skipped', reason: 'already_provisioned' }
 
+  return createPlaceFromPrefill(prefill, clientId, operator)
+}
+
+/**
+ * The writes of one prefill, shared by the old form (`provisionPartnerPlace`) and the portal's
+ * approval (`approvePortalSubmission`, #812) — one path, so the allowlist cannot be honoured by
+ * one and skipped by the other.
+ *
+ * `operator` is the operator's session client: `cms_create_place` and
+ * `cms_set_attraction_coordinate` refuse `service_role` (their gate reads the JWT e-mail).
+ */
+export async function createPlaceFromPrefill(
+  prefill: PlacePrefill,
+  clientId: string,
+  operator: SupabaseClient
+): Promise<
+  | { status: 'created'; attractionId: string }
+  | Extract<PartnerPlaceOutcome, { status: 'failed' }>
+> {
   let attractionId: string
   try {
     attractionId = await placeService.create(prefill.create, operator)
@@ -137,6 +162,29 @@ export async function provisionPartnerPlace(
   } catch (error) {
     console.error('[partner-approval] place created but not linked', attractionId, error)
     return { status: 'failed', reason: 'link_failed', attractionId }
+  }
+
+  if (Object.keys(prefill.details).length > 0) {
+    try {
+      await placeService.updateDetails(attractionId, prefill.details, operator)
+    } catch (error) {
+      console.error('[partner-approval] place details not written', attractionId, error)
+      return { status: 'failed', reason: 'details_failed', attractionId }
+    }
+  }
+
+  if (prefill.coordinate) {
+    try {
+      await placeService.setCoordinate(
+        attractionId,
+        prefill.coordinate.latitude,
+        prefill.coordinate.longitude,
+        operator
+      )
+    } catch (error) {
+      console.error('[partner-approval] place coordinate not written', attractionId, error)
+      return { status: 'failed', reason: 'coordinate_failed', attractionId }
+    }
   }
 
   return { status: 'created', attractionId }
