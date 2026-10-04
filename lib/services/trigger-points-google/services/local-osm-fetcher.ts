@@ -89,9 +89,9 @@ export class LocalOSMFetcher {
     return true;
   }
 
-  /** Selects the region covering the point; false (= no local data) outside every region. */
-  private select(point: { lat: number; lng: number } | undefined): boolean {
-    return this.use(point ? regionAt(this.regions, point.lat, point.lng) : null);
+  /** Selects the region covering the point; null (= no local data) outside every region. */
+  private select(point: { lat: number; lng: number } | undefined): Database.Database | null {
+    return this.use(point ? regionAt(this.regions, point.lat, point.lng) : null) ? this.db : null;
   }
 
   private bboxCentre(b: { minLat: number; maxLat: number; minLng: number; maxLng: number }) {
@@ -317,7 +317,8 @@ export class LocalOSMFetcher {
    * Retorna null se não houver dados suficientes (0 ruas = cache miss).
    */
   public fetchLocalData(poiData: POIData, radius: number): OSMDataBundle | null {
-    if (!this.select(poiData.location)) return null;
+    const db = this.select(poiData.location);
+    if (!db) return null;
 
     try {
       const searchRadius = Math.min(radius, 500) * 1.2;
@@ -341,7 +342,7 @@ export class LocalOSMFetcher {
       let tags: Record<string, string> = {};
       
       if (poiData.osm_id && poiData.osm_type) {
-        const stmt = this.db.prepare(`
+        const stmt = db.prepare(`
           SELECT geometry_json, tags_json FROM pois
           WHERE osm_type = ? AND osm_id = ? LIMIT 1
         `);
@@ -356,7 +357,7 @@ export class LocalOSMFetcher {
       if (!boundary && poiData.name) {
         // Caminho rápido R-tree + b-tree fallback — ver doc em queryStreets().
         const stmt = this.rtreeAvailable.pois
-          ? this.db.prepare(`
+          ? db.prepare(`
               SELECT p.osm_id, p.geometry_json, p.tags_json FROM pois p
               JOIN pois_rtree r ON r.rowid = p.rowid
               WHERE json_extract(p.tags_json, '$.name') = ?
@@ -364,7 +365,7 @@ export class LocalOSMFetcher {
                 AND r.min_lng <= ? AND r.max_lng >= ?
               LIMIT 1
             `)
-          : this.db.prepare(`
+          : db.prepare(`
               SELECT osm_id, geometry_json, tags_json FROM pois
               WHERE json_extract(tags_json, '$.name') = ?
                 AND min_lat <= ? AND max_lat >= ?
@@ -404,7 +405,8 @@ export class LocalOSMFetcher {
    * Busca ruas estendidas por raio. Retorna null se cache miss.
    */
   public fetchExtendedStreets(center: { lat: number; lng: number }, radius: number): StreetData[] | null {
-    if (!this.select(center)) return null;
+    const db = this.select(center);
+    if (!db) return null;
 
     try {
       const bbox = this.calculateBBox(center, radius);
@@ -436,7 +438,8 @@ export class LocalOSMFetcher {
       targetOsmType?: string;
     } = {}
   ): { elements: any[] } | null {
-    if (!this.select(center)) return null;
+    const db = this.select(center);
+    if (!db) return null;
 
     try {
       const bbox = this.calculateBBox(center, radiusMeters);
@@ -458,7 +461,7 @@ export class LocalOSMFetcher {
 
       // 3. Specific POI
       if (options.targetOsmId && options.targetOsmType) {
-        const stmt = this.db.prepare(`
+        const stmt = db.prepare(`
           SELECT id, geometry_json, tags_json FROM pois
           WHERE osm_type = ? AND osm_id = ? LIMIT 1
         `);
@@ -494,7 +497,8 @@ export class LocalOSMFetcher {
     radiusPerPointM: number = 200
   ): StreetData[] | null {
     if (!boundaryCoords || boundaryCoords.length === 0) return null;
-    if (!this.select(boundaryCoords[0])) return null;
+    const db = this.select(boundaryCoords[0]);
+    if (!db) return null;
 
     try {
       const samples = this.sampleBoundaryPoints(boundaryCoords, radiusPerPointM);
@@ -541,7 +545,8 @@ export class LocalOSMFetcher {
     types: string[],
     tileM: number
   ): StreetData[] | null {
-    if (!this.select(center)) return null;
+    const db = this.select(center);
+    if (!db) return null;
     const seen = new Set<string>();
     const out: StreetData[] = [];
     const n = Math.ceil(radiusM / tileM);
@@ -633,7 +638,8 @@ export class LocalOSMFetcher {
   public fetchEntrances(
     bbox: { minLat: number; maxLat: number; minLng: number; maxLng: number }
   ): Array<{ lat: number; lng: number; kind: 'main' | 'yes' | 'other' }> | null {
-    if (!this.select(this.bboxCentre(bbox))) return null;
+    const db = this.select(this.bboxCentre(bbox));
+    if (!db) return null;
 
     try {
       // Caminho rápido: R-tree narrows down primeiro; json_extract substitui o
@@ -641,14 +647,14 @@ export class LocalOSMFetcher {
       // não quando "entrance" aparece em qualquer outro campo do tags_json).
       // Fallback b-tree pra máquinas que ainda não rodaram hotfix-osm-rtree-index.
       const stmt = this.rtreeAvailable.pois
-        ? this.db.prepare(`
+        ? db.prepare(`
             SELECT p.geometry_json, p.tags_json FROM pois p
             JOIN pois_rtree r ON r.rowid = p.rowid
             WHERE json_extract(p.tags_json, '$.entrance') IS NOT NULL
               AND r.min_lat <= ? AND r.max_lat >= ?
               AND r.min_lng <= ? AND r.max_lng >= ?
           `)
-        : this.db.prepare(`
+        : db.prepare(`
             SELECT geometry_json, tags_json FROM pois
             WHERE tags_json LIKE '%"entrance"%'
               AND min_lat <= ? AND max_lat >= ?
@@ -699,10 +705,11 @@ export class LocalOSMFetcher {
   public fetchSummits(
     bbox: { minLat: number; maxLat: number; minLng: number; maxLng: number }
   ): Array<{ lat: number; lng: number; tags: Record<string, unknown> }> | null {
-    if (!this.select(this.bboxCentre(bbox))) return null;
+    const db = this.select(this.bboxCentre(bbox));
+    if (!db) return null;
     try {
       const stmt = this.rtreeAvailable.pois
-        ? this.db.prepare(`
+        ? db.prepare(`
             SELECT p.geometry_json, p.tags_json FROM pois p
             JOIN pois_rtree r ON r.rowid = p.rowid
             WHERE json_extract(p.tags_json, '$.natural') IN ('peak', 'volcano')
@@ -710,7 +717,7 @@ export class LocalOSMFetcher {
               AND r.min_lat <= ? AND r.max_lat >= ?
               AND r.min_lng <= ? AND r.max_lng >= ?
           `)
-        : this.db.prepare(`
+        : db.prepare(`
             SELECT geometry_json, tags_json FROM pois
             WHERE json_extract(tags_json, '$.natural') IN ('peak', 'volcano')
               AND json_extract(tags_json, '$.ele') IS NOT NULL
@@ -743,12 +750,13 @@ export class LocalOSMFetcher {
    * null when the local DB is not available.
    */
   public namedNodesInside(ring: Array<{ lat: number; lng: number }>): Array<Record<string, unknown>> | null {
-    if (ring.length < 3 || !this.select(ring[0])) return null;
+    const db = ring.length < 3 ? null : this.select(ring[0]);
+    if (!db) return null;
     try {
       const lats = ring.map(p => p.lat);
       const lngs = ring.map(p => p.lng);
       const box = [Math.min(...lats), Math.max(...lats), Math.min(...lngs), Math.max(...lngs)];
-      const rows = this.db.prepare(this.rtreeAvailable.pois
+      const rows = db.prepare(this.rtreeAvailable.pois
         ? `SELECT p.geometry_json, p.tags_json FROM pois p JOIN pois_rtree r ON r.rowid = p.rowid
            WHERE r.min_lat >= ? AND r.max_lat <= ? AND r.min_lng >= ? AND r.max_lng <= ? AND p.osm_type = 'node'`
         : `SELECT geometry_json, tags_json FROM pois
@@ -777,7 +785,8 @@ export class LocalOSMFetcher {
    * box around the pin: a border of the POI's identity may stand next to it (INV-E1c).
    */
   public fetchAreasContaining(pin: { lat: number; lng: number }, marginM = 0): any[] | null {
-    if (!this.select(pin)) return null;
+    const db = this.select(pin);
+    if (!db) return null;
     try {
       const out: any[] = [];
       const dLat = marginM / 110_540;
@@ -785,7 +794,7 @@ export class LocalOSMFetcher {
       for (const table of ['pois', 'buildings'] as const) {
         const cols = table === 'pois' ? 'p.id, p.osm_id, p.osm_type, p.geometry_json, p.tags_json' : 'p.id, p.geometry_json, p.tags_json';
         const rtree = this.rtreeAvailable[table];
-        const rows = this.db.prepare(rtree
+        const rows = db.prepare(rtree
           ? `SELECT ${cols} FROM ${table} p JOIN ${table}_rtree r ON r.rowid = p.rowid
              WHERE r.min_lat <= ? AND r.max_lat >= ? AND r.min_lng <= ? AND r.max_lng >= ?`
           : `SELECT ${cols} FROM ${table} p
