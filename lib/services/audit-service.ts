@@ -52,6 +52,9 @@ export type AuditAction =
   | 'APPROVE_PORTAL_SUBMISSION'
   | 'REQUEST_PORTAL_CHANGES'
   | 'REJECT_PORTAL_SUBMISSION'
+  // The whole CPF of a portal signer, shown on the operator's explicit click (#812): the screen
+  // carries only the mask, and this row is who saw the number and when.
+  | 'REVEAL_PORTAL_CPF'
   // Pointing the client at a place the catalogue ALREADY carried (#409), which is the ordinary
   // act and not the exception: the three clients that used `CREATE_PARTNER_PLACE` each got an
   // empty second row beside an establishment that was already published. This row is what

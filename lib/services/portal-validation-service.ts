@@ -38,19 +38,20 @@ function partner() {
   return getSupabaseService().schema('partner')
 }
 
-/** Closed list of refusal reasons, from the #812 spec. The id goes to the audit log. */
-export const PORTAL_REFUSAL_REASONS = [
-  'ineligible',
-  'duplicate',
-  'nothing_to_tell',
-  'irregular_company',
-  'other',
-] as const
-export type PortalRefusalReason = (typeof PORTAL_REFUSAL_REASONS)[number]
-
-/** The note the spec asks for: at least 10 characters after trimming. */
-export const PORTAL_NOTE_MIN = 10
-export const PORTAL_NOTE_MAX = 2000
+// The closed lists and limits live in the pure module, so the screen reads them without pulling
+// this file (and the service client) into the browser bundle.
+export {
+  PORTAL_NOTE_MAX,
+  PORTAL_NOTE_MIN,
+  PORTAL_REFUSAL_REASONS,
+  type PortalRefusalReason,
+} from '@/lib/partnerships/portal-review'
+import {
+  PORTAL_NOTE_MAX,
+  PORTAL_NOTE_MIN,
+  PORTAL_REFUSAL_REASONS,
+  type PortalRefusalReason,
+} from '@/lib/partnerships/portal-review'
 
 export type PortalDecision =
   | { action: 'approve' }

@@ -7,6 +7,10 @@
  * `{ "action": "reject", "reason": PortalRefusalReason, "note": string }`.
  *
  * 409 `status_conflict` when another operator acted first (the spec's conflict state).
+ *
+ * GET reads the submission for the validation screen, CPF masked
+ * (`portal-submission-review-service.ts`); `GET ?reveal=cpf` returns the signer's whole CPF
+ * and leaves an audit row — the number is never in the page before the click.
  */
 
 import { NextResponse } from 'next/server'
@@ -18,6 +22,7 @@ import {
   rejectPortalSubmission,
   requestPortalChanges,
 } from '@/lib/services/portal-validation-service'
+import { getPortalSubmissionReview, revealPortalSignerCpf } from '@/lib/services/portal-submission-review-service'
 
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
 
@@ -26,6 +31,35 @@ const AUDIT = {
   request_changes: 'REQUEST_PORTAL_CHANGES',
   reject: 'REJECT_PORTAL_SUBMISSION',
 } as const
+
+export const GET = withRateLimit(120, 60_000)(
+  withAuth<{ submissionId: string }>({ roles: ['admin'] }, async (req, ctx, auth) => {
+    const params = await ctx.params
+    const submissionId = params?.submissionId
+    if (!submissionId || !UUID_PATTERN.test(submissionId)) {
+      return NextResponse.json({ error: 'invalid_submission_id' }, { status: 400 })
+    }
+
+    if (new URL(req.url).searchParams.get('reveal') === 'cpf') {
+      const revealed = await revealPortalSignerCpf(submissionId)
+      if (!revealed.ok) return NextResponse.json({ error: revealed.error }, { status: revealed.httpStatus })
+      await logAuditEvent({
+        request: req,
+        action: 'REVEAL_PORTAL_CPF',
+        entity: 'PARTNER_PROPOSAL',
+        entityId: submissionId,
+        userId: auth.user.id,
+        userEmail: auth.user.email ?? null,
+        description: `Portal submission ${submissionId}: signer CPF revealed`,
+      })
+      return NextResponse.json({ cpf: revealed.cpf }, { headers: { 'Cache-Control': 'no-store' } })
+    }
+
+    const outcome = await getPortalSubmissionReview(submissionId)
+    if (!outcome.ok) return NextResponse.json({ error: outcome.error }, { status: outcome.httpStatus })
+    return NextResponse.json(outcome.review, { headers: { 'Cache-Control': 'no-store' } })
+  })
+)
 
 export const POST = withRateLimit(30, 60_000)(
   withAuth<{ submissionId: string }>({ roles: ['admin'] }, async (req, ctx, auth) => {
