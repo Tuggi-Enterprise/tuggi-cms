@@ -47,6 +47,11 @@ export type AuditAction =
   // made by a side-effect and not by the Places screen, so the row that says which approval
   // produced which POI is the only way back from one to the other.
   | 'CREATE_PARTNER_PLACE'
+  // The operator's three decisions on a Portal Locais submission (#812). The state machine keeps
+  // its own transition log; this row is what ties the decision to the CMS session that made it.
+  | 'APPROVE_PORTAL_SUBMISSION'
+  | 'REQUEST_PORTAL_CHANGES'
+  | 'REJECT_PORTAL_SUBMISSION'
   // Pointing the client at a place the catalogue ALREADY carried (#409), which is the ordinary
   // act and not the exception: the three clients that used `CREATE_PARTNER_PLACE` each got an
   // empty second row beside an establishment that was already published. This row is what

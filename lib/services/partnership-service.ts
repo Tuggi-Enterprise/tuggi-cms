@@ -57,8 +57,12 @@ import {
 import {
   derivePipelineState,
   detailTarget,
+  isPortalBoardStatus,
+  portalDetailTarget,
+  PORTAL_BOARD_STATUSES,
   type DetailTarget,
   type PipelineState,
+  type PortalBoardStatus,
 } from '@/lib/partnerships/pipeline'
 import { normalizeState } from '@/lib/shared/location-normalize'
 import type { PartnerAnswers } from '@/lib/partner-form/schema'
@@ -233,6 +237,8 @@ export interface ClientDirectoryRow {
    */
   triage: TriageFacts
   discardReason: string | null
+  /** `portal` for a row of `partner.place_submissions` (#812). Absent = the old form or a client. */
+  origin?: 'form' | 'portal'
 }
 
 export interface ClientDirectory {
@@ -313,9 +319,10 @@ async function loadDirectoryPayload(): Promise<DirectoryPayload> {
 }
 
 export async function loadClientDirectory(operator: SupabaseClient): Promise<ClientDirectory> {
-  const [payload, placeRows] = await Promise.all([
+  const [payload, placeRows, portalSubmissions] = await Promise.all([
     loadDirectoryPayload(),
     loadAllPartnerPlaces(operator),
+    loadPortalSubmissions(),
   ])
 
   const submissions = payload.submissions
@@ -434,12 +441,60 @@ export async function loadClientDirectory(operator: SupabaseClient): Promise<Cli
     }
   })
 
+  // The portal's submissions (#812). The row is the SUBMISSION until it is live; the client the
+  // approval created is found through the POI it links (`attraction_id` → `partner_client_id`),
+  // and claimed below so it does not show up a second time as a client nobody proposed.
+  const clientOfPlace = new Map(placeRows.map((place) => [place.attractionId, place.partnerClientId]))
+  const portalClaimed: string[] = []
+  for (const row of portalSubmissions) {
+    const answers = row.answers ?? {}
+    const clientId = row.attraction_id ? clientOfPlace.get(row.attraction_id) ?? null : null
+    if (clientId) portalClaimed.push(clientId)
+    const client = clientId ? clients.get(clientId) ?? null : null
+    const state = derivePipelineState({
+      origin: 'portal',
+      portalStatus: row.status,
+      proposalStatus: 'submitted',
+      conference: NO_CONFERENCE.conference,
+      clientId,
+      contract: 'none',
+      placeCount: 0,
+      publishedPlaceCount: 0,
+    })
+    rows.push({
+      submissionId: row.id,
+      clientId,
+      state,
+      target: portalDetailTarget(state, { submissionId: row.id, clientId }),
+      name: answers.trade_name ?? client?.name ?? null,
+      taxId: answers.tax_id ?? null,
+      city: answers.city ?? null,
+      region: normalizeState('Brazil', answers.state, answers.city) ?? answers.state ?? null,
+      country: 'Brazil',
+      clientType: client?.clientType ?? null,
+      status: client?.status ?? null,
+      contract: 'none',
+      fee: client?.fee ?? NO_FEE,
+      contractTier: null,
+      planChoice: isPlanChoice(answers.plan_choice) ? answers.plan_choice : null,
+      duplicateCount: 0,
+      since: row.status_changed_at ?? row.submitted_at,
+      places: summarizePlaces([]),
+      // No triage clock: the portal's is the 2-business-day one of `validation-clock` (#812),
+      // and an empty place list keeps the 72-hour counter from ever counting this row.
+      triage: { approvedAt: null, places: [] },
+      discardReason: null,
+      origin: 'portal',
+    })
+  }
+
   // The other half of the list: every client no proposal claims. The 10 that predate the form,
   // and every registration somebody typed by hand — invisible in the queue until now.
   const claimed = new Set(
     submissions
       .map((row) => row.promoted_client_id)
       .filter((id): id is string => typeof id === 'string')
+      .concat(portalClaimed)
   )
 
   for (const client of clients.values()) {
@@ -501,6 +556,35 @@ export async function loadClientDirectory(operator: SupabaseClient): Promise<Cli
  * the seam and nothing else: no decision is taken here that was not already taken by the reads
  * these replace, which is what makes the change reviewable against the old code line by line.
  */
+
+interface PortalSubmissionRow {
+  id: string
+  status: PortalBoardStatus
+  answers: PartnerAnswers | null
+  attraction_id: string | null
+  submitted_at: string | null
+  status_changed_at: string | null
+}
+
+/**
+ * The portal's submissions the operator has work or history on — never `draft` nor
+ * `awaiting_payment` (BR-B2B-049). Read with `service_role`: the table has no grant to anyone
+ * else. Until migration `20261004120000` is applied the table does not exist, and the board goes
+ * on without these rows rather than without the board.
+ */
+async function loadPortalSubmissions(): Promise<PortalSubmissionRow[]> {
+  const { data, error } = await service()
+    .from('place_submissions')
+    .select('id, status, answers, attraction_id, submitted_at, status_changed_at')
+    .in('status', PORTAL_BOARD_STATUSES as unknown as string[])
+    .order('status_changed_at', { ascending: false })
+    .limit(DIRECTORY_SUBMISSION_CAP)
+  if (error || !data) {
+    console.error('[partnerships] portal submissions read failed:', error?.code ?? 'no_data')
+    return []
+  }
+  return (data as PortalSubmissionRow[]).filter((row) => isPortalBoardStatus(row.status))
+}
 
 /** The live contract per client. The function already picked it; this only reshapes it. */
 function indexLiveContracts(rows: DirectoryPayload['contracts']): Map<string, PipelineContract> {

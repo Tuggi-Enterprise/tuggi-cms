@@ -61,15 +61,61 @@ export type PipelineState =
   | 'published'
   | 'discarded'
   | 'refused_at_triage'
+  // The Portal Locais (#812, BR-B2B-049). Its own states because its acts are its own: the
+  // validation replaces the conference, the acceptance replaces the contract, and refusing
+  // refunds and ends — unlike `refused_at_triage`, which keeps the partnership (BR-B2B-010).
+  | 'in_validation'
+  | 'changes_requested'
+  | 'approved_awaiting_narration'
+  | 'portal_refused'
+
+/**
+ * `partner.place_submissions.status` (BR-B2B-049). `draft` and `awaiting_payment` are not the
+ * operator's work — the client or the gateway acts — so they never reach the board, and the
+ * type of `PipelineInput.portalStatus` says so.
+ */
+export type PortalStatus =
+  | 'draft'
+  | 'awaiting_payment'
+  | 'in_review'
+  | 'changes_requested'
+  | 'approved'
+  | 'live'
+  | 'rejected'
+
+export type PortalBoardStatus = Exclude<PortalStatus, 'draft' | 'awaiting_payment'>
+
+export const PORTAL_BOARD_STATUSES: readonly PortalBoardStatus[] = [
+  'in_review',
+  'changes_requested',
+  'approved',
+  'live',
+  'rejected',
+]
+
+export function isPortalBoardStatus(value: unknown): value is PortalBoardStatus {
+  return (PORTAL_BOARD_STATUSES as readonly unknown[]).includes(value)
+}
+
+const PORTAL_STATE: Readonly<Record<PortalBoardStatus, PipelineState>> = {
+  in_review: 'in_validation',
+  changes_requested: 'changes_requested',
+  approved: 'approved_awaiting_narration',
+  live: 'published',
+  rejected: 'portal_refused',
+}
 
 /** The states that are still work. The queue's default filter (criterion 4). */
 export const IN_PROGRESS_STATES: PipelineState[] = [
   'proposal_received',
   'in_conference',
+  'in_validation',
+  'changes_requested',
   'client_created',
   'contract_sent',
   'contract_signed',
   'place_in_curation',
+  'approved_awaiting_narration',
   'refusal_not_communicated',
 ]
 
@@ -82,7 +128,7 @@ export const IN_PROGRESS_STATES: PipelineState[] = [
  * partner was told", never "the relationship is over" — before the communication the state is
  * `refusal_not_communicated`, which is work.
  */
-export const TERMINAL_STATES: PipelineState[] = ['discarded', 'refused_at_triage']
+export const TERMINAL_STATES: PipelineState[] = ['discarded', 'refused_at_triage', 'portal_refused']
 
 /** Every state, in pipeline order — the order the queue's counters are shown in. */
 export const PIPELINE_STATES: PipelineState[] = IN_PROGRESS_STATES.concat(
@@ -132,9 +178,19 @@ export interface PipelineInput {
    * this is an `any`, not an arithmetic, and the clock closes on the same predicate.
    */
   uncommunicatedRefusal?: boolean
+  /**
+   * Where the row came from. `portal` reads `portalStatus` and nothing else: the portal has no
+   * conference, no promotion and no contract (BR-B2B-047, item 1), and a client created by its
+   * approval would otherwise fall into `client_created` and sit in the wrong column.
+   */
+  origin?: 'form' | 'portal'
+  portalStatus?: PortalBoardStatus
 }
 
 export function derivePipelineState(input: PipelineInput): PipelineState {
+  // BEFORE the client branch, on purpose — see `origin`.
+  if (input.origin === 'portal' && input.portalStatus) return PORTAL_STATE[input.portalStatus]
+
   if (input.proposalStatus === 'discarded') return 'discarded'
 
   if (input.clientId) {
@@ -213,6 +269,18 @@ export function derivePipelineState(input: PipelineInput): PipelineState {
 export type DetailTarget =
   | { kind: 'client'; clientId: string; tab: 'partnership' }
   | { kind: 'proposal'; submissionId: string }
+  // A portal row is the submission until it is live (#812): the validation screen decides it.
+  | { kind: 'validation'; submissionId: string }
+
+export function portalDetailTarget(
+  state: PipelineState,
+  ids: { submissionId: string; clientId: string | null }
+): DetailTarget {
+  if (state === 'published' && ids.clientId) {
+    return { kind: 'client', clientId: ids.clientId, tab: 'partnership' }
+  }
+  return { kind: 'validation', submissionId: ids.submissionId }
+}
 
 export function detailTarget(
   state: PipelineState,

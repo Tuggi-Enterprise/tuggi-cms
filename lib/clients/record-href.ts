@@ -48,6 +48,9 @@ export function recordHref(
   target: DetailTarget
 ): string {
   if (target.kind === 'proposal') return proposalHref(locale, current, target.submissionId)
+  if (target.kind === 'validation') {
+    return `/${locale}/admin/partnerships/validation/${target.submissionId}`
+  }
 
   const params = new URLSearchParams(current.toString())
   for (const key of RECORD_PARAMS) params.delete(key)

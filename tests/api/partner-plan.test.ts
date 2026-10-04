@@ -271,7 +271,8 @@ test('#409 · a promoção grava o percentual zero da faixa grátis, e não deix
   assert.match(source, /function commercialTermsOfChoice/)
   assert.match(source, /answers\.plan_choice === 'map_only'/)
   assert.match(source, /commission_rate: 0/)
-  assert.match(source, /commercialTermsOfChoice\(command\.answers\)/)
+  // #812: the insert moved to `createPromotedClient`, which the portal's approval shares.
+  assert.match(source, /commercialTermsOfChoice\(answers\)/)
 
   // E AS DUAS PORTAS MANDAM O MESMO VALOR DE PARTIDA. A faixa paga recebe
   // `DEFAULT_COMMISSION_RATE` — decidido em 2026-08-18, num lugar só —, e é isso que permite à
