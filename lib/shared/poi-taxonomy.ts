@@ -638,3 +638,20 @@ export function priorityLevel(primaryCategory: string | null, input: ClassifyInp
 
   return 3
 }
+
+/**
+ * #779: a natural landform (group `nature`) — the only POI the TP engine gives a relief footprint,
+ * the slope it stands on. A viewpoint counts only with nothing built at it: `tourism=viewpoint` on
+ * a summit is the summit; on a tower, a terrace or a house it is the building. A church, theatre
+ * or station on a hill keeps its own border (Paróquia N. Sra. da Conceição took 41 ha of slope).
+ */
+export function isNaturalLandform(category: string | null | undefined, osmTags?: Record<string, any> | null): boolean {
+  // A canonical category (`mountain`) is not always a raw OSM value the dictionary maps.
+  const canonical = category && SPECIFIC_TO_GROUP[category] ? category : null
+  const r = canonical ? null : classify({ osm_category: category ?? null, osm_tags: osmTags ?? null })
+  const specific = canonical ?? (r?.confidence === 'high' ? r.primary_category : null)
+  if (!specific || SPECIFIC_TO_GROUP[specific] !== 'nature') return false
+  if (specific !== 'viewpoint') return true
+  const t = osmTags ?? {}
+  return !(t.building && t.building !== 'no') && !t.man_made
+}

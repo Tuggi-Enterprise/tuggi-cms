@@ -9,6 +9,7 @@ import { ElevationAnalysisService } from '../services/elevation-service';
 import { TRIGGER_POINTS_CONSTANTS } from '../config/trigger-points-config';
 import { isCuratedBoundaryImplausible } from '../utils/osm-validation';
 import { DemStore } from '../../dem/dem-store';
+import { isNaturalLandform } from '../../../shared/poi-taxonomy';
 import { assembleOuterRings, chainSameIdentity, sameIdentityWaysQuery, chooseContainingBoundary, corridorRing, footprintRing, IDENTITY_NEAR_PIN_M, LINE_CORRIDOR_HALF_WIDTH_M, outerRing, sameFootprint, buildingsOfPoi, type BoundaryRejection, type OsmAreaElement } from '../utils/boundary-choice';
 
 /**
@@ -128,6 +129,27 @@ export class BoundaryDetector {
     
     try {
       this.rejections = [];
+      // #779: a border a person corrected (CMS drawing, correction SQL) is the footprint. The
+      // `rj-estado` batch re-detected and rewrote 2,186 of the 2,189 borders of Rio; it no longer
+      // detects over a curated one, and the pipeline does not write it back (`curated`).
+      if (poiData.id) {
+        const stored = await this.fetchBoundaryFromDatabase(poiData.id);
+        if (stored.success && stored.data?.curated) {
+          return {
+            success: true,
+            data: await this.withClassification(stored.data, poiData),
+            processingTime: Date.now() - startTime,
+            metadata: {
+              step: 'boundary_detection',
+              status: 'completed',
+              timestamp: new Date().toISOString(),
+              strategy: 'curated_stored',
+              database_boundary_found: true,
+              osm_boundary_found: false
+            }
+          };
+        }
+      }
       // INV-E1a: OSM by typed id → OSM that contains the pin → online search → drawn circle.
       let osmBoundaryResult: ProcessingResult<BoundaryData> | null = null;
       // A node id has no footprint: its circle only marks the point, and is the last resort.
@@ -215,6 +237,9 @@ export class BoundaryDetector {
         const stored = dbBoundaryResult.data;
         const storedReject = !dbBoundaryResult.success || !stored ? null
           : stored.source === 'estimated' ? 'stored border is an earlier estimate, not a footprint'
+          // #779: a stored slope is derived each run, never a footprint — kept, it would hold a
+          // church on its 41 ha of hillside after the relief rule stopped drawing it.
+          : stored.source === 'dem_relief' ? 'stored border is an earlier relief derivation, not a footprint'
           : isCuratedBoundaryImplausible(poiData.location, stored.coordinates) ? 'stored border is implausible (pin outside, > 500 m from the edge)'
           : null;
         if (storedReject) {
@@ -282,7 +307,10 @@ export class BoundaryDetector {
     // the slope as its border, measured on the DEM — never a mapped polygon by its type. Not for a
     // `landmark_high`: its reach is the horizon, and the slope would only take its trail and cable
     // car TPs away (inside the border, INV-E11).
-    if (!boundary.synthetic || measured.classification?.group === VisibilityClass.LANDMARK_HIGH || !physical) return measured;
+    // Only a natural landform takes the slope (#779): a church, a theatre or a station on a hill
+    // took 0.9–41 ha of hillside in Rio and São Paulo. Nor a curated border: a person chose it.
+    if (!boundary.synthetic || boundary.curated || measured.classification?.group === VisibilityClass.LANDMARK_HIGH || !physical) return measured;
+    if (!isNaturalLandform(poiData.category, (poiData.osm_tags ?? (poiData as POIData & { tags?: Record<string, unknown> }).tags) as Record<string, any> | undefined)) return measured;
     const ring = await ElevationAnalysisService.reliefFootprint(poiData.location, physical.localBaseM);
     if (!ring) return measured;
     const areaM2 = calculatePolygonAreaInM2(ring);
@@ -437,6 +465,10 @@ export class BoundaryDetector {
       const confidence = metadata?.boundary_confidence ? Number(metadata.boundary_confidence) : 0.8;
       
       const storedSource = (metadata?.boundary_source as BoundaryData['source'] | null) || 'manual';
+      // #779: the marker of a corrected border. The detector writes 0.9 or 0.5, never 1; the CMS
+      // drawing routes write 1.0, and so must a correction SQL (keeping its `osm`/`synthetic` source).
+      const curated = (metadata?.boundary_confidence != null && Number(metadata.boundary_confidence) >= 1)
+        || metadata?.boundary_source === 'manual' || metadata?.boundary_source === 'manual_drawing';
       const boundary: BoundaryData = {
         type: 'polygon',
         coordinates,
@@ -448,6 +480,7 @@ export class BoundaryDetector {
         // 'estimated' and the curator's 'manual'/'manual_drawing' keep their predictor branches.
         source: synthetic && !['estimated', 'manual', 'manual_drawing'].includes(storedSource) ? 'synthetic' : storedSource,
         synthetic,
+        curated,
         // Metadata adicional
         osmTags: undefined,
         classification: undefined
