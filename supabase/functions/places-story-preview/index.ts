@@ -9,8 +9,14 @@
 //
 // NOTHING IS WRITTEN ON FAILURE, and that is the retry contract: a 502 leaves `output_text`
 // null, so the portal retries with the SAME id and the failed attempt does not cost the place
-// one of its two previews (BR-B2B-051, item 6). The write is conditional on `output_text` still
-// being null, so two concurrent calls cannot both deliver: the second one gets 409.
+// one of its two previews (BR-B2B-051, item 6).
+//
+// ONLY ONE CALL REACHES THE PROVIDERS (#820, security review). Before the model, a conditional
+// UPDATE of `claimed_at` takes the generation (`claimStoryGeneration`); a concurrent call with
+// the same id gets 409 without spending Gemini/TTS. Every 502 after the claim gives it back, and
+// a claim older than `PLACE_STORY_CLAIM_TTL_MS` is taken again, so a function that died
+// mid-call does not lock the id forever. The final write stays conditional on `output_text`
+// null as the second fence.
 
 import { createAdminClient } from '../_shared/supabase-client.ts';
 import { isPlacesSecret, PLACES_SECRET_HEADER } from '../_shared/places-secret.ts';
@@ -18,6 +24,7 @@ import { runGeminiPromptWithUsage } from '../_shared/translationUtility.ts';
 import { synthesizeSpeech } from '../_shared/ttsGenerator.ts';
 import {
   buildPlaceStoryPrompt,
+  claimStoryGeneration,
   cleanStoryText,
   parseStoryPreviewRequest,
   placeStoryCostMicros,
@@ -26,6 +33,7 @@ import {
   PLACE_STORY_MODEL,
   PLACE_STORY_PROMPT_VERSION,
   PLACE_STORY_VOICE,
+  releaseStoryGeneration,
 } from '../_shared/place-story-preview.ts';
 
 const json = (status: number, body: unknown) =>
@@ -93,6 +101,10 @@ Deno.serve(async (req: Request) => {
     return json(502, { error: 'generation_failed' });
   }
 
+  const claim = await claimStoryGeneration(partner, generation.id);
+  if (claim === 'error') return json(502, { error: 'generation_failed' });
+  if (claim === 'busy') return json(409, { error: 'already_generated' });
+
   let text: string;
   let inputTokens = 0;
   let outputTokens = 0;
@@ -122,6 +134,7 @@ Deno.serve(async (req: Request) => {
       '[places-story-preview] provider failed',
       error instanceof Error ? error.message.slice(0, 200) : 'unknown',
     );
+    await releaseStoryGeneration(partner, generation.id);
     return json(502, { error: 'generation_failed' });
   }
 
@@ -142,6 +155,7 @@ Deno.serve(async (req: Request) => {
     .select('id');
   if (writeError) {
     console.error('[places-story-preview] write failed', writeError.code);
+    await releaseStoryGeneration(partner, generation.id);
     return json(502, { error: 'generation_failed' });
   }
   if (!written || written.length === 0) return json(409, { error: 'already_generated' });

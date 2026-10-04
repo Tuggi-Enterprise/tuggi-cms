@@ -146,3 +146,66 @@ export function shapeMovementResponse(row: Record<string, unknown>): MovementRes
     window_days: Number(row.window_days),
   };
 }
+
+// ── The claim (#820, security review) ──────────────────────────────────────────────────────
+// N parallel calls with the same pending `generation_id` used to reach Gemini/TTS N times,
+// with the same keys that narrate to the tourist. A conditional UPDATE of `claimed_at` BEFORE
+// the model is the lock: Postgres re-checks the WHERE of the second UPDATE after the first one
+// commits, so exactly one call gets the row back. The TTL is what keeps a function that died
+// mid-call from locking the generation forever.
+
+/** A claim older than this is abandoned and can be taken again. */
+export const PLACE_STORY_CLAIM_TTL_MS = 60_000;
+
+/** The `.or()` filter that admits an unclaimed generation or an abandoned claim. */
+export function storyClaimFilter(now: Date): string {
+  const staleBefore = new Date(now.getTime() - PLACE_STORY_CLAIM_TTL_MS).toISOString();
+  return `claimed_at.is.null,claimed_at.lt.${staleBefore}`;
+}
+
+interface ClaimQuery
+  extends PromiseLike<{ data: unknown[] | null; error: { code?: string } | null }> {
+  eq(column: string, value: string): ClaimQuery;
+  is(column: string, value: null): ClaimQuery;
+  or(filter: string): ClaimQuery;
+  select(columns: string): ClaimQuery;
+}
+
+/** The slice of the `partner` schema client the claim uses. */
+export interface GenerationTable {
+  from(table: 'place_generations'): { update(values: Record<string, unknown>): ClaimQuery };
+}
+
+export type StoryClaim = 'claimed' | 'busy' | 'error';
+
+/** Takes the generation for this call, or says someone else holds it (or it is done). */
+export async function claimStoryGeneration(
+  partner: GenerationTable,
+  generationId: string,
+  now: Date = new Date(),
+): Promise<StoryClaim> {
+  const { data, error } = await partner
+    .from('place_generations')
+    .update({ claimed_at: now.toISOString() })
+    .eq('id', generationId)
+    .is('output_text', null)
+    .or(storyClaimFilter(now))
+    .select('id');
+  if (error) return 'error';
+  return data && data.length > 0 ? 'claimed' : 'busy';
+}
+
+/** Gives the claim back on failure, so the portal's retry with the same id is not a 409. */
+export async function releaseStoryGeneration(
+  partner: GenerationTable,
+  generationId: string,
+): Promise<void> {
+  const { error } = await partner
+    .from('place_generations')
+    .update({ claimed_at: null })
+    .eq('id', generationId)
+    .is('output_text', null)
+    .select('id');
+  // A failed release only delays the retry by the TTL; it never double-bills.
+  if (error) console.error('[places-story-preview] claim release failed', error.code);
+}
