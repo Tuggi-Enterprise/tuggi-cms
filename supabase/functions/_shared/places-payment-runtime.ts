@@ -1,0 +1,108 @@
+// _shared/places-payment-runtime.ts — the Deno wiring of `_shared/places-payment.ts` (#811).
+//
+// Everything with a side effect the tests replace lives here: the Supabase clients, the Asaas
+// client from the secrets, Resend. The logic stays in `places-payment.ts`, which the CMS tests
+// load under Node; this file imports esm.sh and runs only in the Edge runtime.
+//
+// Secrets: ASAAS_API_KEY, ASAAS_BASE_URL (sandbox `https://api-sandbox.asaas.com/v3`, production
+// `https://api.asaas.com/v3` — no default: an unset URL refuses, it never guesses the environment),
+// ASAAS_WEBHOOK_TOKEN (webhook only), RESEND_API_KEY, RESEND_FROM, PARTNER_ALERT_TO.
+
+import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
+import { createAdminClient, getPublishableKey, getSupabaseUrl } from './supabase-client.ts';
+import { asaasClient } from './asaas.ts';
+import { saoPauloDate, type Deps, type Rpc, type SubscriptionIds } from './places-payment.ts';
+
+const RESEND_URL = 'https://api.resend.com/emails';
+
+export function asaasFromEnv() {
+  const baseUrl = (Deno.env.get('ASAAS_BASE_URL') ?? '').trim();
+  const apiKey = (Deno.env.get('ASAAS_API_KEY') ?? '').trim();
+  if (!baseUrl || !apiKey) return null;
+  return asaasClient({ baseUrl, apiKey, fetch: (url, init) => fetch(url, init) });
+}
+
+// deno-lint-ignore no-explicit-any
+function rpcOf(client: any): Rpc {
+  return async (schema, fn, args) => {
+    try {
+      const { data, error } = await client.schema(schema).rpc(fn, args);
+      return { data, error: error ? { code: error.code, details: error.details, message: error.message } : null };
+    } catch {
+      return { data: null, error: { code: 'network' } };
+    }
+  };
+}
+
+async function sendEmail(to: string, subject: string, text: string): Promise<boolean> {
+  const key = (Deno.env.get('RESEND_API_KEY') ?? '').trim();
+  if (!key) return false;
+  try {
+    const res = await fetch(RESEND_URL, {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${key}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        from: (Deno.env.get('RESEND_FROM') ?? 'Tuggi <news@tuggi.app>').trim(),
+        to: [to],
+        subject,
+        text,
+      }),
+      signal: AbortSignal.timeout(10_000),
+    });
+    return res.ok;
+  } catch {
+    return false;
+  }
+}
+
+/** Ids and outcomes only (see `Deps.alert`). Log line first: the e-mail may fail. */
+async function alert(what: string, fields: Record<string, string | number | null | undefined>): Promise<void> {
+  console.error('[places-payment][ALERT]', what, JSON.stringify(fields));
+  const to = (Deno.env.get('PARTNER_ALERT_TO') ?? 'suporte@tuggi.app').trim();
+  const lines = Object.entries(fields).map(([k, v]) => `${k}: ${v ?? '—'}`);
+  await sendEmail(to, `[Tuggi pagamento] ${what}`, [`Alerta da EF de pagamento do Com história (#811): ${what}`, '', ...lines].join('\n'));
+}
+
+export function baseDeps(asaas: NonNullable<ReturnType<typeof asaasFromEnv>>): Deps {
+  const admin = createAdminClient();
+  return {
+    asaas,
+    admin: rpcOf(admin),
+    subscriptionIds: async (submissionId: string): Promise<SubscriptionIds | null> => {
+      const { data, error } = await admin
+        .schema('partner')
+        .from('place_acceptances')
+        .select('place_subscriptions(id, provider_subscription_id, provider_customer_id, canceled_at)')
+        .eq('submission_id', submissionId)
+        .maybeSingle();
+      if (error) throw new Error(`subscription read ${error.code}`);
+      const raw = data?.place_subscriptions;
+      const s = Array.isArray(raw) ? raw[0] : raw;
+      return s
+        ? { subscription_id: s.id, provider_subscription_id: s.provider_subscription_id, provider_customer_id: s.provider_customer_id, canceled_at: s.canceled_at }
+        : null;
+    },
+    alert,
+    today: () => saoPauloDate(new Date()),
+    now: () => new Date(),
+  };
+}
+
+/** The user's JWT on every `core.portal_*` call: the database proves the owner (demand 4). */
+export function userDeps(jwt: string) {
+  const client = createClient(getSupabaseUrl(), getPublishableKey(), {
+    auth: { autoRefreshToken: false, persistSession: false, detectSessionInUrl: false },
+    global: { headers: { Authorization: `Bearer ${jwt}` } },
+  });
+  return {
+    user: rpcOf(client),
+    userEmail: async () => {
+      const { data } = await client.auth.getUser(jwt);
+      return data?.user?.email ?? null;
+    },
+    sendEmail,
+  };
+}
+
+export const json = (status: number, body: unknown) =>
+  new Response(JSON.stringify(body), { status, headers: { 'Content-Type': 'application/json' } });
