@@ -3550,7 +3550,8 @@
       "amenities": "Comodidades",
       "languages": "Idiomas",
       "postalCode": "CEP {value}",
-      "closed": "fechado"
+      "closed": "fechado",
+      "facadeAlt": "Fachada de {name}"
     },
     "days": {
       "monday": "Seg",
@@ -3606,6 +3607,11 @@
       "warning": "Confira: a oferta parece prometer algo do Tuggi ou dinheiro."
     },
     "photos": {
+      "title": "Fotos ({count})",
+      "check": "Sem cardápio, preço ou pessoa identificável",
+      "limitFree": "até 3",
+      "limitPaid": "até 6",
+      "alt": "Foto {index} de {count} de {name}",
       "none": "Nenhuma foto enviada."
     },
     "acceptance": {

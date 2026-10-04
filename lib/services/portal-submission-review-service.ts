@@ -18,6 +18,12 @@ import { getSupabaseService } from '@/lib/core/supabase-client'
 import type { PartnerAnswers } from '@/lib/partner-form/schema'
 import { maskCpf, onlyDigits } from '@/lib/partnerships/portal-review'
 import { operatorLabel } from '@/lib/services/operator-label'
+import {
+  isPhotoSetFrozen,
+  photoCutoff,
+  readSubmissionPhotos,
+  type SubmissionPhoto,
+} from '@/lib/services/place-submission-photos'
 
 function partner() {
   return getSupabaseService().schema('partner')
@@ -76,6 +82,9 @@ export interface PortalSubmissionReview {
   sameTaxId: { id: string; tradeName: string | null; status: string }[]
   /** The oldest other submission in `in_review`, for "Próximo da fila". */
   nextInReviewId: string | null
+  /** Facade first, then the gallery — already capped by plan and cutoff, with short-lived
+   * signed URLs (#809, contract §8.5). Empty when there is none or Storage is unreachable. */
+  photos: SubmissionPhoto[]
 }
 
 export type PortalReviewOutcome =
@@ -203,7 +212,14 @@ export async function getPortalSubmissionReview(submissionId: string): Promise<P
   const operatorIds = new Set<string>()
   for (const t of transitions) if (t.actor_kind === 'operator' && t.actor_user_id) operatorIds.add(t.actor_user_id)
   for (const m of messages) if (m.author_kind === 'operator' && m.author_user_id) operatorIds.add(m.author_user_id)
-  const names = await operatorNames([...operatorIds])
+  const [names, photos] = await Promise.all([
+    operatorNames([...operatorIds]),
+    // The set the operator approves: frozen at the last submit while out of the editable statuses.
+    readSubmissionPhotos(submission.id, {
+      planChoice: acceptanceRow?.plan_choice ?? answers.plan_choice,
+      cutoff: isPhotoSetFrozen(submission.status) ? photoCutoff(transitions) : null,
+    }),
+  ])
 
   const history: PortalHistoryEntry[] = [
     ...transitions.map((t) => ({
@@ -262,6 +278,7 @@ export async function getPortalSubmissionReview(submissionId: string): Promise<P
         (d) => ({ id: d.id, status: d.status, tradeName: d.trade_name })
       ),
       nextInReviewId: ((nextRead.data ?? []) as { id: string }[])[0]?.id ?? null,
+      photos,
     },
   }
 }

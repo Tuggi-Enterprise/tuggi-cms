@@ -97,9 +97,11 @@ export function ValidationReview({ locale, submissionId }: { locale: string; sub
   const plan = review?.acceptance?.planChoice ?? answers.plan_choice
   const paid = isPaidPlan(plan)
   const offers = offersOf(answers)
+  const photos = review?.photos ?? []
+  const facadePhoto = photos.find((p) => p.role === 'facade') ?? null
   const items = useMemo(
-    () => conferenceItems({ planChoice: plan, hasOffers: offers.length > 0, photoCount: 0 }),
-    [plan, offers.length]
+    () => conferenceItems({ planChoice: plan, hasOffers: offers.length > 0, photoCount: photos.length }),
+    [plan, offers.length, photos.length]
   )
 
   const queueHref = `/${locale}/admin/clients`
@@ -456,9 +458,16 @@ export function ValidationReview({ locale, submissionId }: { locale: string; sub
               </div>
               <div>
                 <p className="mb-1 text-xs font-medium text-gray-600">{t('place.facade')}</p>
-                <div className="flex h-60 items-center justify-center rounded-xl bg-gray-100 p-4 text-center text-sm dark:bg-gray-800">
-                  {t('place.noFacade')}
-                </div>
+                {facadePhoto ? (
+                  <a href={facadePhoto.url} target="_blank" rel="noreferrer" className="block h-60 overflow-hidden rounded-xl bg-gray-100 dark:bg-gray-800">
+                    {/* eslint-disable-next-line @next/next/no-img-element -- short-lived signed URL of a private bucket */}
+                    <img src={facadePhoto.url} alt={t('place.facadeAlt', { name: tradeName })} className="h-full w-full object-cover" />
+                  </a>
+                ) : (
+                  <div className="flex h-60 items-center justify-center rounded-xl bg-gray-100 p-4 text-center text-sm dark:bg-gray-800">
+                    {t('place.noFacade')}
+                  </div>
+                )}
               </div>
             </div>
             <p className="mt-3 break-words text-sm text-gray-800 dark:text-gray-200">
@@ -569,8 +578,43 @@ export function ValidationReview({ locale, submissionId }: { locale: string; sub
             </section>
           ) : null}
 
-          {/* 5 · Fotos — the portal does not send photos yet (contract §8.1 has no key). */}
-          <p className="px-2 text-sm text-gray-600 dark:text-gray-400">{t('photos.none')}</p>
+          {/* 5 · Fotos — capped by plan and cutoff on the server (#809, contract §8.5). */}
+          {photos.length > 0 ? (
+            <section className={`${CARD} p-6`}>
+              {blockHeader(
+                t('photos.title', { count: photos.length }),
+                'photos',
+                t('photos.check'),
+                <>
+                  <span className="ml-2 text-sm font-normal text-gray-600 dark:text-gray-400">
+                    {t(paid ? 'photos.limitPaid' : 'photos.limitFree')}
+                  </span>
+                  {changed('photos')}
+                </>
+              )}
+              <ul className="grid grid-cols-2 gap-3 md:grid-cols-4">
+                {photos.map((photo, index) => (
+                  <li key={photo.path} className="relative aspect-[4/3] overflow-hidden rounded-xl bg-gray-100 dark:bg-gray-800">
+                    <a href={photo.url} target="_blank" rel="noreferrer" className="block h-full w-full">
+                      {/* eslint-disable-next-line @next/next/no-img-element -- short-lived signed URL of a private bucket */}
+                      <img
+                        src={photo.url}
+                        alt={t('photos.alt', { index: index + 1, count: photos.length, name: tradeName })}
+                        className="h-full w-full object-cover"
+                      />
+                    </a>
+                    {photo.role === 'facade' ? (
+                      <span className="absolute left-2 top-2 rounded-md bg-white/90 px-2 py-0.5 text-xs font-medium text-gray-900">
+                        {t('place.facade')}
+                      </span>
+                    ) : null}
+                  </li>
+                ))}
+              </ul>
+            </section>
+          ) : (
+            <p className="px-2 text-sm text-gray-600 dark:text-gray-400">{t('photos.none')}</p>
+          )}
 
           {/* Aceite */}
           <section className={`${CARD} p-6`}>
