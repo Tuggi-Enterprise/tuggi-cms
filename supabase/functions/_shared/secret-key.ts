@@ -16,6 +16,8 @@
  * the available NAMES and never a value, not even a prefix.
  */
 
+import { constantTimeEqual } from './constant-time.ts';
+
 /**
  * Name of this project's secret key inside `SUPABASE_SECRET_KEYS`.
  * Declared once; no other module may spell it out — the only literal copy lives
@@ -115,5 +117,11 @@ export function isOwnSecretKey(token: string): boolean {
     .map((k) => k.trim())
     .filter((k) => k.length > 0);
 
-  return accepted.includes(candidate);
+  // Constant time, and every accepted key is compared even after a match: `includes` stopped at
+  // the first differing byte, and the timing said how much of a guess was right (#830).
+  let matched = false;
+  for (const key of accepted) {
+    if (constantTimeEqual(candidate, key)) matched = true;
+  }
+  return matched;
 }
