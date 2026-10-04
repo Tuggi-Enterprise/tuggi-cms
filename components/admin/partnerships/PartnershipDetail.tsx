@@ -69,6 +69,11 @@ const STATE_ORDER: Record<PipelineState, number> = {
   published: 5,
   discarded: 0,
   refused_at_triage: 4,
+  // The portal (#812). Its rows open the validation screen, not this one, until they are live.
+  in_validation: 1,
+  changes_requested: 1,
+  approved_awaiting_narration: 4,
+  portal_refused: 0,
 }
 
 /**

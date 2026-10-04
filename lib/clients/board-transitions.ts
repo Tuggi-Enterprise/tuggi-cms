@@ -67,13 +67,14 @@ export const BOARD_COLUMNS: BoardColumnId[] = [
  */
 export const COLUMN_STATES: Record<BoardColumnId, PipelineState[]> = {
   proposal: ['proposal_received'],
-  conference: ['in_conference'],
+  // The portal's validation is this column's work too (#812): same people, same queue.
+  conference: ['in_conference', 'in_validation', 'changes_requested'],
   client: ['client_created'],
   contract_sent: ['contract_sent'],
   contract_signed: ['contract_signed'],
-  curation: ['place_in_curation'],
+  curation: ['place_in_curation', 'approved_awaiting_narration'],
   published: ['published'],
-  closed: ['discarded', 'refused_at_triage'],
+  closed: ['discarded', 'refused_at_triage', 'portal_refused'],
 }
 
 /**
@@ -156,6 +157,9 @@ export type BoardAct =
   | 'open_discard'
   /** `POST …/triage-refusal/communicate` — closes the 72-hour clock. */
   | 'communicate_refusal'
+  // A portal row (#812): approve, ask for changes and refuse all happen in the validation
+  // screen — approving creates a POI and spends TTS, so no drag does it.
+  | 'open_validation'
 
 /**
  * Why a drag did not happen. Each reason is rendered from `messages/pt.json`; `missing` carries
@@ -175,6 +179,8 @@ export type BlockReason =
   | 'blocking_pendencies'
   | 'places_unresolved'
   | 'not_closable'
+  // The portal's acceptance IS the contract (BR-B2B-047, item 1): no promotion, no instrument.
+  | 'portal_skips_contract'
 
 export type TransitionPlan =
   | { kind: 'act'; act: BoardAct }
@@ -203,6 +209,8 @@ export function planTransition(
   to: BoardColumnId
 ): TransitionPlan {
   if (from === to) return { kind: 'noop' }
+
+  if (row.origin === 'portal') return planPortalTransition(row, from, to)
 
   // `closed` is the one column reachable from several places, so it is decided before the
   // ordering: dragging a proposal there is a discard, and dragging a place there is a refusal.
@@ -268,6 +276,26 @@ export function planTransition(
  * board reloaded — a gesture that looks like it worked and did not. Registered as an open
  * question; until it has a state, this refuses.
  */
+/**
+ * A portal row moves `conference` → `curation` (approve) or `conference` → `closed` (refuse), and
+ * both open the validation screen. The three contract columns do not exist for it.
+ */
+function planPortalTransition(
+  row: ClientDirectoryRow,
+  from: BoardColumnId,
+  to: BoardColumnId
+): TransitionPlan {
+  if (to === 'client' || to === 'contract_sent' || to === 'contract_signed') {
+    return { kind: 'blocked', reason: 'portal_skips_contract' }
+  }
+  if (from === 'conference' && (to === 'curation' || to === 'closed')) {
+    if (!row.submissionId) return { kind: 'blocked', reason: 'no_submission' }
+    return { kind: 'act', act: 'open_validation' }
+  }
+  if (indexOfColumn(to) < indexOfColumn(from)) return { kind: 'backwards' }
+  return { kind: 'blocked', reason: 'not_closable' }
+}
+
 function planClosing(row: ClientDirectoryRow, from: BoardColumnId): TransitionPlan {
   if (from === 'proposal' || from === 'conference') {
     if (!row.submissionId) return { kind: 'blocked', reason: 'no_submission' }
@@ -286,7 +314,11 @@ function planClosing(row: ClientDirectoryRow, from: BoardColumnId): TransitionPl
  */
 export function nextAct(row: ClientDirectoryRow, column: BoardColumnId): BoardAct | null {
   if (row.state === ALERT_STATE) return 'communicate_refusal'
-  const next = BOARD_COLUMNS[indexOfColumn(column) + 1]
+  // The portal skips three columns, so "the next one" is `curation`, not `client`.
+  const next =
+    row.origin === 'portal' && column === 'conference'
+      ? 'curation'
+      : BOARD_COLUMNS[indexOfColumn(column) + 1]
   if (!next) return null
   const plan = planTransition(row, column, next)
   return plan.kind === 'act' ? plan.act : null

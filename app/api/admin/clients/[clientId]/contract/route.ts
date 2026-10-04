@@ -14,6 +14,7 @@
 
 import { NextRequest, NextResponse } from 'next/server'
 import { withAuth, withRateLimit } from '@/lib/auth-middleware'
+import { isPortalClient } from '@/lib/services/portal-validation-service'
 import { getSupabaseService } from '@/lib/core/supabase-client'
 import {
   buildSnapshot,
@@ -265,6 +266,12 @@ export const POST = withRateLimit(20, 60_000)(
 async function generate(clientId: string, body: Record<string, unknown>, operatorId: string) {
   const client = await loadClient(clientId)
   if (!client) return NextResponse.json({ error: 'client_not_found' }, { status: 404 })
+
+  // A client born from the Portal Locais already has its instrument: the electronic acceptance
+  // (BR-B2B-047, item 1). Generating a contract would put a second one over it (#812).
+  if (await isPortalClient(clientId)) {
+    return NextResponse.json({ error: 'portal_skips_contract' }, { status: 409 })
+  }
 
   const platformOwner = await loadPlatformOwner()
   const regularity = await loadRegularity(clientId)

@@ -79,6 +79,14 @@ export function useBoardActs({
           return { kind: 'navigated' }
         }
 
+        case 'open_validation': {
+          // A portal row (#812): approving, asking for changes and refusing are decided on the
+          // validation screen, never by a drop.
+          if (!row.submissionId) return { kind: 'refused', reason: 'no_submission' }
+          navigate(`/${locale}/admin/partnerships/validation/${row.submissionId}?${back}`)
+          return { kind: 'navigated' }
+        }
+
         case 'open_contract': {
           if (!row.clientId) return { kind: 'refused', reason: 'no_client' }
           navigate(`/${locale}/admin/clients/${row.clientId}/contract?${back}`)
