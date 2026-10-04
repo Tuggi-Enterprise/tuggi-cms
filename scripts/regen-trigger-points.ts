@@ -30,6 +30,9 @@
  */
 
 import { PoiMigrationPipeline } from '../lib/services/poi-migration-pipeline'
+import { MigrationService } from '../lib/services/migration-service'
+import { ensureDemCell } from '../lib/services/dem/dem-prepare'
+import { SANITY_MAX_TP_DISTANCE_M } from '../lib/services/trigger-points-google/config/visibility-class'
 import { runInChild, reportChildFailure } from '../lib/utils/run-in-child'
 import {
   QUEUE_CHILD_FLAG, STORED_BOUNDARY_FLAG, parseQueueChildArgs, queueChildArgs, regenPipelineOptions, storedBoundaryLogSuffix,
@@ -176,9 +179,14 @@ async function runBatch(batchId: string, storedBoundary = false) {
 
     process.stdout.write(`[${processed + failed + 1}] ${attractionId}${storedBoundaryLogSuffix(storedBoundary)}... `)
 
+    // #831: the relief of the POI's 1° cell is prepared here, outside the POI deadline (one
+    // cell takes 2–11 min); a cell that cannot be prepared fails the item, the old TPs stay.
+    const reliefError = await prepareReliefOf(attractionId)
     // Each POI in its own process, killed at POI_TIMEOUT_MS: the hang is synchronous, so a
     // timer in this process would never fire (#779).
-    const outcome = await runInChild(__filename, queueChildArgs(attractionId, storedBoundary), POI_TIMEOUT_MS)
+    const outcome = reliefError
+      ? { ok: false as const, error: reliefError, timedOut: false }
+      : await runInChild(__filename, queueChildArgs(attractionId, storedBoundary), POI_TIMEOUT_MS)
     const errorMsg = outcome.ok ? null : outcome.error.slice(0, 200)
     const elapsed = ((Date.now() - startMs) / 1000).toFixed(0)
     if (outcome.ok) {
@@ -204,6 +212,19 @@ async function runBatch(batchId: string, storedBoundary = false) {
 
   const totalS = ((Date.now() - startMs) / 1000).toFixed(1)
   console.log(`\n📊 Worker: ${processed} ok, ${failed} falhou em ${totalS}s`)
+}
+
+/** #831: prepares the relief cell of the POI if no prepared area covers it; the error, or null. */
+async function prepareReliefOf(attractionId: string): Promise<string | null> {
+  const loaded = await MigrationService.loadPOIWithCoordinates(attractionId)
+  if (!loaded.success || !loaded.data) return null // the child reports the missing POI
+  const { latitude: lat, longitude: lng } = loaded.data.coordinate
+  try {
+    await ensureDemCell({ lat, lng, marginM: SANITY_MAX_TP_DISTANCE_M })
+    return null
+  } catch (err) {
+    return err instanceof Error ? err.message : String(err)
+  }
 }
 
 // ─── Status ───────────────────────────────────────────────────────────────────

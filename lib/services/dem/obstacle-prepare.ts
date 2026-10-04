@@ -40,7 +40,7 @@ import {
   META_CHM,
   OVERTURE_BUILDINGS,
 } from './dem-sources'
-import type { DemGrid, DemTileRecord } from './dem-store'
+import type { DemGrid, DemLayerRecord, DemTileRecord } from './dem-store'
 import { BUILDING_LEVEL_HEIGHT_M } from '../trigger-points-google/config/visibility-class'
 
 export type DemArea = { south: number; west: number; north: number; east: number }
@@ -550,6 +550,21 @@ export function globfpReader(cacheDir: string): BuildingReader {
       return { tiles, failures }
     },
   }
+}
+
+/**
+ * #831: the files in `cacheDir` an area was built from — the 3D-GloBFP zips and the Meta/WRI
+ * canopy tiles its manifest lists. The world grid stays: every area reads it.
+ */
+export function obstacleSourceFiles(cacheDir: string, layers: Array<Pick<DemLayerRecord, 'layer' | 'tiles'>>): string[] {
+  const out: string[] = []
+  for (const l of layers) {
+    for (const t of l.tiles) {
+      if (l.layer === 'buildings' && t.url !== GLOBFP_3D.worldGridUrl && t.name.endsWith('.zip')) out.push(path.join(cacheDir, GLOBFP_3D.id, t.name))
+      if (l.layer === 'canopy' && /^\d+$/.test(t.name)) out.push(path.join(cacheDir, META_CHM.id, `${t.name}.tif`))
+    }
+  }
+  return out
 }
 
 // ── Meta / WRI canopy height ──────────────────────────────────────────────────

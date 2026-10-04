@@ -151,18 +151,20 @@ describe('INV-EPc / INV-E4 — E1–E11 read the relief from disk only, bilinear
     fs.rmSync(dir, { recursive: true })
   })
 
-  it('INV-EPb: the engine refuses a POI whose city relief is not prepared, before E1', async () => {
+  it('INV-EPb (#831): the engine prepares the cell of a POI with no relief, and refuses it before E1 when the cell cannot be prepared', async () => {
     const { CoreTriggerPointPredictor } = await import('../../lib/services/trigger-points-google/core/trigger-point-predictor')
-    const dem = DemStore.getInstance() as any
-    const original = dem.coverage
-    dem.coverage = () => ({ ok: false, reason: 'EP: no prepared relief covers the pin' })
+    const holder = DemStore as unknown as { instance: DemStore | null }
+    const original = holder.instance
+    holder.instance = new DemStore(fs.mkdtempSync(path.join(tmp, 'empty-')))
+    process.env.DEM_MIN_FREE_GB = '1000000' // the floor refuses before any download
     try {
       await assert.rejects(
         new CoreTriggerPointPredictor().predictTriggerPointsComplete({ id: 'x', name: 'x', location: { lat: 1, lng: 1 } } as any),
-        (e: unknown) => e instanceof DemNotPreparedError && /no prepared relief/.test((e as Error).message),
+        (e: unknown) => e instanceof DemNotPreparedError && /EP cell-1n1e: .* below the floor/.test((e as Error).message),
       )
     } finally {
-      dem.coverage = original
+      holder.instance = original
+      delete process.env.DEM_MIN_FREE_GB
     }
   })
 

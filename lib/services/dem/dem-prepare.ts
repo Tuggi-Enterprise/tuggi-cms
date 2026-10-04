@@ -17,6 +17,7 @@
  */
 
 import * as fs from 'fs'
+import * as os from 'os'
 import * as path from 'path'
 import { createHash } from 'crypto'
 import { fromUrl } from 'geotiff'
@@ -32,6 +33,7 @@ import {
   BuildingRaster,
   globfpReader,
   metaChmReader,
+  obstacleSourceFiles,
   overtureReader,
   type BuildingReader,
   type CanopyReader,
@@ -39,6 +41,8 @@ import {
 } from './obstacle-prepare'
 import {
   DEM_MANIFEST_FILE,
+  DemNotPreparedError,
+  DemStore,
   defaultDemCacheDir,
   nearestCell,
   obstacleGrid,
@@ -413,4 +417,163 @@ export async function prepareCityDem(input: PrepareCityDemInput): Promise<DemMan
   }
   writeAtomic(path.join(cityDir, DEM_MANIFEST_FILE), JSON.stringify(manifest, null, 2))
   return manifest
+}
+
+// ── #831: the relief by 1° cell, prepared by the generation itself ─────────────
+
+/** The 1°×1° cell of a point, named by its south-west corner (the Copernicus tile of the same name). */
+export interface DemCell {
+  south: number
+  west: number
+}
+
+export function demCellOf(lat: number, lng: number): DemCell {
+  return { south: Math.floor(lat), west: Math.floor(lng) }
+}
+
+/** Stable directory name of a cell: S23/W047 → `cell-23s47w`, N48/E16 → `cell-48n16e`. */
+export function demCellId(cell: DemCell): string {
+  return `cell-${Math.abs(cell.south)}${cell.south < 0 ? 's' : 'n'}${Math.abs(cell.west)}${cell.west < 0 ? 'w' : 'e'}`
+}
+
+/** The whole cell grown by `marginM`: any POI inside it has its TP reach inside the area. */
+export function demCellArea(cell: DemCell, marginM: number): DemArea {
+  return cityDemArea([{ lat: cell.south, lng: cell.west }, { lat: cell.south + 1, lng: cell.west + 1 }], marginM)
+}
+
+/**
+ * Free-disk floor of an automatic preparation, `DEM_MIN_FREE_GB` (default 10). One cell downloads
+ * ~0.4 GB in Brazil and up to several GB of canopy tiles and building zips before cleaning them up.
+ */
+export function demMinFreeBytes(): number {
+  const gb = Number(process.env.DEM_MIN_FREE_GB)
+  return (Number.isFinite(gb) && gb >= 0 ? gb : 10) * 1024 ** 3
+}
+
+/** A failed cell is not prepared again before this, so a queue of its POIs does not download it once per POI. */
+export const DEM_CELL_RETRY_AFTER_MS = 30 * 60_000
+
+const LOCK_POLL_MS = 2_000
+const LOCKS_DIR = '_locks'
+
+function processAlive(pid: number): boolean {
+  try {
+    process.kill(pid, 0)
+    return true
+  } catch (err) {
+    return (err as NodeJS.ErrnoException).code === 'EPERM'
+  }
+}
+
+/**
+ * Lock of one cell between workers (processes on this machine): a file created with O_EXCL. A
+ * lock whose process died (the queue kills a POI child at its deadline) is taken over.
+ */
+function tryLock(file: string): boolean {
+  fs.mkdirSync(path.dirname(file), { recursive: true })
+  for (let attempt = 0; attempt < 2; attempt++) {
+    try {
+      fs.writeFileSync(file, JSON.stringify({ pid: process.pid, host: os.hostname(), at: new Date().toISOString() }), { flag: 'wx' })
+      return true
+    } catch (err) {
+      if ((err as NodeJS.ErrnoException).code !== 'EEXIST') throw err
+      let holder: { pid?: number; host?: string } = {}
+      try {
+        holder = JSON.parse(fs.readFileSync(file, 'utf8'))
+      } catch {
+        // half-written by a process that died: stale once it is not fresh
+        if (Date.now() - fs.statSync(file).mtimeMs < 60_000) return false
+      }
+      const stale = !holder.pid || (holder.host === os.hostname() && !processAlive(holder.pid))
+      if (!stale) return false
+      fs.rmSync(file, { force: true })
+    }
+  }
+  return false
+}
+
+function readCellManifest(dir: string, id: string): DemManifest | null {
+  const file = path.join(dir, id, DEM_MANIFEST_FILE)
+  return fs.existsSync(file) ? (JSON.parse(fs.readFileSync(file, 'utf8')) as DemManifest) : null
+}
+
+export interface EnsureDemCellInput {
+  lat: number
+  lng: number
+  marginM: number
+  dir?: string
+  /** the preparation of the cell's area; `prepareCityDem` with the real sources by default */
+  prepare?: (input: { city: string; area: DemArea; marginM: number; dir: string }) => Promise<DemManifest>
+  now?: () => Date
+}
+
+/**
+ * #831: makes sure the relief covers the point ± `marginM`, preparing its 1° cell when no
+ * prepared area does (the areas prepared by city or bbox before #831 still count). Only the first
+ * POI of a cell waits; a second worker on the same cell waits for the lock and reads the result.
+ * Returns whether this call prepared the cell. Throws `DemNotPreparedError` when the cell cannot
+ * be made ready (disk floor, failed download, a failure younger than `DEM_CELL_RETRY_AFTER_MS`).
+ */
+export async function ensureDemCell(input: EnsureDemCellInput): Promise<boolean> {
+  const dir = input.dir ?? defaultDemCacheDir()
+  const now = () => (input.now?.() ?? new Date()).getTime()
+  const cell = demCellOf(input.lat, input.lng)
+  const id = demCellId(cell)
+  const lockFile = path.join(dir, LOCKS_DIR, `${id}.lock`)
+  const failedRecently = () => {
+    const m = readCellManifest(dir, id)
+    return m?.status === 'failed' && now() - Date.parse(m.preparedAt) < DEM_CELL_RETRY_AFTER_MS ? m : null
+  }
+  for (;;) {
+    if (new DemStore(dir).preparedFor(input.lat, input.lng, input.marginM)) return false
+    const failed = failedRecently()
+    if (failed) throw new DemNotPreparedError(`EP ${id}: ${failed.failures.join('; ')} (prepared at ${failed.preparedAt}; retried after ${DEM_CELL_RETRY_AFTER_MS / 60_000} min)`)
+    if (process.env.VERCEL) throw new DemNotPreparedError(`EP ${id}: the relief is prepared on the generation machine, not in a Function`)
+    if (tryLock(lockFile)) {
+      try {
+        // another worker may have finished between the check and the lock
+        if (new DemStore(dir).preparedFor(input.lat, input.lng, input.marginM)) return false
+        const free = fs.statfsSync(dir)
+        const freeBytes = free.bavail * free.bsize
+        if (freeBytes < demMinFreeBytes()) {
+          throw new DemNotPreparedError(`EP ${id}: ${(freeBytes / 1024 ** 3).toFixed(1)} GB free in ${dir}, below the floor of ${(demMinFreeBytes() / 1024 ** 3).toFixed(1)} GB (DEM_MIN_FREE_GB)`)
+        }
+        const area = demCellArea(cell, input.marginM)
+        const t0 = Date.now()
+        console.error(`EP ${id}: preparing the cell for ${input.lat.toFixed(4)},${input.lng.toFixed(4)}`)
+        const prepare = input.prepare ?? (args => prepareCityDem(args))
+        const manifest = await prepare({ city: id, area, marginM: input.marginM, dir })
+        if (manifest.status !== 'ok') throw new DemNotPreparedError(`EP ${id}: ${manifest.failures.join('; ')}`)
+        // checked (size and sha256 of every layer) before the sources it was built from go
+        const cover = new DemStore(dir).coverage(input.lat, input.lng, input.marginM)
+        if (!cover.ok) throw new DemNotPreparedError(cover.reason)
+        cleanSources(dir, manifest, lockFile)
+        console.error(`EP ${id}: ready in ${Math.round((Date.now() - t0) / 1000)} s`)
+        return true
+      } finally {
+        fs.rmSync(lockFile, { force: true })
+      }
+    }
+    await new Promise(r => setTimeout(r, LOCK_POLL_MS))
+  }
+}
+
+/**
+ * The downloaded files a prepared area was built from are not read at runtime (`DemStore` reads
+ * the area directory only): they go once the area is checked. Skipped while another cell is being
+ * prepared, because neighbouring cells share canopy tiles and building zips.
+ */
+function cleanSources(dir: string, manifest: DemManifest, ownLock: string): void {
+  const others = fs.readdirSync(path.dirname(ownLock)).filter(f => f.endsWith('.lock') && path.join(path.dirname(ownLock), f) !== ownLock)
+  if (others.length) {
+    console.error(`EP ${manifest.city}: sources kept, ${others.length} other cell(s) in preparation`)
+    return
+  }
+  let bytes = 0
+  for (const file of obstacleSourceFiles(path.join(dir, '_sources'), manifest.layers)) {
+    if (!fs.existsSync(file)) continue
+    bytes += fs.statSync(file).size
+    fs.rmSync(file, { force: true })
+  }
+  console.error(`EP ${manifest.city}: ${(bytes / 1024 ** 3).toFixed(2)} GB of sources removed`)
 }
