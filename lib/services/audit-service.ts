@@ -202,10 +202,14 @@ export function getUserAgent(request: NextRequest): string | null {
  * Centralized audit logger.
  * Errors are swallowed to avoid breaking the main flow.
  */
-export async function logAuditEvent(input: AuditLogInput): Promise<void> {
+/**
+ * Returns whether the row was written. Most callers tolerate a failed write and ignore the result;
+ * a caller whose response is only acceptable WITH the audit row (e.g. revealing a CPF) must check it.
+ */
+export async function logAuditEvent(input: AuditLogInput): Promise<boolean> {
   try {
     const supabase = getSupabase('service')
-    await supabase
+    const { error } = await supabase
       .schema('core')
       .from('audit_logs')
       .insert({
@@ -221,7 +225,13 @@ export async function logAuditEvent(input: AuditLogInput): Promise<void> {
         resource_type: input.entity,
         resource_id: input.entityId ?? null
       })
+    if (error) {
+      console.error('Audit log insert failed:', error.code)
+      return false
+    }
+    return true
   } catch (error) {
     console.error('Audit log insert failed:', error)
+    return false
   }
 }

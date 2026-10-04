@@ -43,7 +43,8 @@ export const GET = withRateLimit(120, 60_000)(
     if (new URL(req.url).searchParams.get('reveal') === 'cpf') {
       const revealed = await revealPortalSignerCpf(submissionId)
       if (!revealed.ok) return NextResponse.json({ error: revealed.error }, { status: revealed.httpStatus })
-      await logAuditEvent({
+      // Fails closed: the whole CPF only leaves with the row that says who saw it.
+      const audited = await logAuditEvent({
         request: req,
         action: 'REVEAL_PORTAL_CPF',
         entity: 'PARTNER_PROPOSAL',
@@ -52,6 +53,7 @@ export const GET = withRateLimit(120, 60_000)(
         userEmail: auth.user.email ?? null,
         description: `Portal submission ${submissionId}: signer CPF revealed`,
       })
+      if (!audited) return NextResponse.json({ error: 'audit_failed' }, { status: 503 })
       return NextResponse.json({ cpf: revealed.cpf }, { headers: { 'Cache-Control': 'no-store' } })
     }
 

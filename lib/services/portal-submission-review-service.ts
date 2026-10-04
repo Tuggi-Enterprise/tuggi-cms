@@ -283,6 +283,19 @@ async function operatorNames(ids: string[]): Promise<Map<string, string>> {
 export async function revealPortalSignerCpf(
   submissionId: string
 ): Promise<{ ok: true; cpf: string } | { ok: false; httpStatus: 404 | 503; error: string }> {
+  // Same 404 as the screen read: a draft is not reviewable, so its CPF is not revealable either.
+  const { data: submission, error: statusError } = await partner()
+    .from('place_submissions')
+    .select('status')
+    .eq('id', submissionId)
+    .maybeSingle()
+  if (statusError) {
+    console.error('[portal-review] status read failed', statusError.code)
+    return { ok: false, httpStatus: 503, error: 'lookup_failed' }
+  }
+  const status = (submission as { status: string } | null)?.status
+  if (!status || status === 'draft') return { ok: false, httpStatus: 404, error: 'not_found' }
+
   const { data, error } = await partner()
     .from('place_acceptances')
     .select('signer_cpf')
