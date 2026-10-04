@@ -232,35 +232,10 @@ export class CoreTriggerPointPredictor {
       // Usado como bearing target prioritário em point-calculator.ts.
       this.attachEntrancesFromLocalOSM(boundary);
 
-      // ✅ REGRA: Se boundary é manual (ou manual_drawing), ignorar e não processar
-      // POIs manuais não devem ter TPs recalculados automaticamente
-      if (boundary.source === 'manual' || boundary.source === 'manual_drawing') {
+      // #779: a curator's border ('manual'/'manual_drawing') no longer skips generation. It is now
+      // the protected footprint (`curated`), and skipping zeroed the batch for those POIs; the TPs
+      // a curator placed or edited survive the replace on their own (`replace_trigger_points_atomic`).
 
-        const processingTime = Date.now() - startTime;
-        _context = await this.geographicAnalyzer.analyzeGeographicContext(poiData, boundary);
-        _finalTPs = [];
-        emitDebugIfEnabled('manual_boundary');
-        return {
-          triggerPoints: [],
-          boundary,
-          context: _context,
-          processingTime,
-          metadata: {
-            boundarySource: boundary.source,
-            boundaryConfidence: boundary.confidence,
-            streetCount: 0,
-            optimalPointsFound: 0,
-            validatedPoints: 0,
-            finalPoints: 0,
-            fallbackUsed: false,
-            searchRadius: 0,
-            elevationAnalysis: null,
-            skipped: true,
-            skipReason: 'manual_boundary'
-          }
-        };
-      }
-      
       // 2. Criar contexto geográfico a partir do boundary.
       // ✅ OPTIMIZATION: boundary-detector já computou context durante
       // classification (com mesmos dados OSM); reusa via `boundary.cachedContext`

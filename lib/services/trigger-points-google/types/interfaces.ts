@@ -32,6 +32,8 @@ export interface POIData {
   osm_id?: string | number;
   osm_type?: 'node' | 'way' | 'relation';
   osm_tags?: any; // Tags OSM do POI
+  /** `core.attractions.category`: read only to decide whether the relief footprint applies (#779). */
+  category?: string | null;
 }
 
 export interface GeographicContext {
@@ -80,6 +82,12 @@ export interface BoundaryData {
    * never enter the visibility class (BR-AUDIO-010).
    */
   synthetic?: boolean;
+  /**
+   * Stored border a person corrected (#779): `boundary_confidence = 1` (CMS drawing, correction
+   * SQL) or source `manual`/`manual_drawing`. Detection never replaces it and the batch never
+   * writes over it.
+   */
+  curated?: boolean;
   /** E3/E4/E5 measured once on the final boundary (P8): height, ground top, city base, prominence */
   physical?: import('../services/poi-classifier.service').PoiPhysical;
   elevation?: {

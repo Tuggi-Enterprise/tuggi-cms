@@ -23,7 +23,7 @@ function square(half: number, c: LatLng = PIN) {
 }
 
 let choice: typeof import('../../lib/services/trigger-points-google/utils/boundary-choice')
-let dbRow: { geojson: unknown; boundary_source: string | null }
+let dbRow: { geojson: unknown; boundary_source: string | null; boundary_confidence?: number }
 
 before(async () => {
   mock.module('@/lib/core/supabase-client', {
@@ -33,7 +33,7 @@ before(async () => {
           rpc: async () => ({ data: dbRow.geojson, error: null }),
           from: () => ({
             select: () => ({
-              eq: () => ({ maybeSingle: async () => ({ data: { boundary_source: dbRow.boundary_source }, error: null }) }),
+              eq: () => ({ maybeSingle: async () => ({ data: { boundary_source: dbRow.boundary_source, boundary_confidence: dbRow.boundary_confidence ?? null }, error: null }) }),
             }),
           }),
         }),
@@ -331,10 +331,40 @@ describe('INV-E1a — a stored border is judged like a curated id (BR-POI-009, B
   })
 
   it('a stored polygon holding the pin is still the border', async () => {
-    dbRow = { geojson: { type: 'Polygon', coordinates: [lngLat(80)] }, boundary_source: 'manual' }
+    dbRow = { geojson: { type: 'Polygon', coordinates: [lngLat(80)] }, boundary_source: 'osm' }
     const r = await run()
     assert.equal(r.metadata.strategy, 'database_fallback')
-    assert.equal(r.data.source, 'manual')
+    assert.equal(r.data.source, 'osm')
+  })
+
+  it('#779: a corrected border (confidence 1, or manual) wins over a detection and is marked curated', async () => {
+    const { BoundaryDetector } = await import('../../lib/services/trigger-points-google/core/boundary-detector')
+    const d = new BoundaryDetector() as any
+    d.detectContainingBoundary = async () => ({ success: true, data: { type: 'polygon', coordinates: square(300).map(p => ({ lat: p.lat, lng: p.lon })), area_m2: 360_000 } })
+    d.withClassification = async (b: unknown) => b
+    for (const row of [
+      { geojson: { type: 'Polygon', coordinates: [lngLat(80)] }, boundary_source: 'osm', boundary_confidence: 1 },
+      { geojson: { type: 'Polygon', coordinates: [lngLat(80)] }, boundary_source: 'manual' },
+    ]) {
+      dbRow = row
+      const r = await d.detectBoundary({ id: 'x', name: 'x', location: PIN })
+      assert.equal(r.metadata.strategy, 'curated_stored')
+      assert.equal(r.data.curated, true)
+      assert.equal(r.data.source, row.boundary_source)
+    }
+    // The detector's own writes (0.9 osm) stay re-detectable.
+    dbRow = { geojson: { type: 'Polygon', coordinates: [lngLat(80)] }, boundary_source: 'osm', boundary_confidence: 0.9 }
+    assert.notEqual((await d.detectBoundary({ id: 'x', name: 'x', location: PIN })).metadata.strategy, 'curated_stored')
+  })
+})
+
+describe('#779 — the relief footprint is for a natural landform only (BR-POI-009)', () => {
+  it('a peak or a bare viewpoint takes the slope; a church, a station or a built viewpoint does not', async () => {
+    const { isNaturalLandform } = await import('../../lib/shared/poi-taxonomy')
+    for (const c of ['peak', 'hill', 'mountain', 'viewpoint']) assert.equal(isNaturalLandform(c), true, c)
+    for (const c of ['church', 'station', 'theatre', 'artwork', 'house', 'amusement_park', null]) assert.equal(isNaturalLandform(c), false, String(c))
+    assert.equal(isNaturalLandform('viewpoint', { tourism: 'viewpoint', man_made: 'tower' }), false)
+    assert.equal(isNaturalLandform(null, { natural: 'peak' }), true)
   })
 })
 

@@ -723,9 +723,11 @@ export class PoiMigrationPipeline {
       id: poi.id,
       name: poi.name,
       location: { lat: coordinate.latitude, lng: coordinate.longitude },
-      // The category never reaches the engine: class, reach and border come from what is measured
-      // on the POI (operator, 2026-09-27; BR-AUDIO-010).
+      // The category never decides class or reach: those come from what is measured on the POI
+      // (operator, 2026-09-27; BR-AUDIO-010). It only keeps the relief footprint to a natural
+      // landform (#779, `isNaturalLandform`).
       type: 'point_of_interest',
+      category: poi.category ?? null,
       country: poi.country,
       city: poi.city,
       state: poi.state,
@@ -843,7 +845,10 @@ export class PoiMigrationPipeline {
       // measures each inserted TP to the border stored at that moment, and the post-conditions
       // measured to this one (`withinDatabaseCap`). Saved after, the database measured to the old
       // one — a 10 m synthetic circle on Morro do Telégrafo — and refused the whole replace.
-      if (predictionResult.boundary?.coordinates && predictionResult.boundary.coordinates.length >= 3) {
+      // #779: a curated border (CMS drawing, correction SQL) is never written over by the batch.
+      if (predictionResult.boundary?.curated) {
+        console.log(`   🔒 Curated boundary kept (${predictionResult.boundary.source}, confidence 1)`)
+      } else if (predictionResult.boundary?.coordinates && predictionResult.boundary.coordinates.length >= 3) {
         console.log(`   💾 Saving boundary geometry from source: ${predictionResult.boundary.source}...`)
         
         try {
