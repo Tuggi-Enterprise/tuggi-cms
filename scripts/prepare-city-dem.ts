@@ -5,6 +5,7 @@
  *
  *   npx tsx --env-file=.env --env-file=.env.local scripts/prepare-city-dem.ts --city "Rio de Janeiro"
  *   npx tsx scripts/prepare-city-dem.ts --city "Rio de Janeiro" --bbox -23.1,-43.8,-22.75,-43.1
+ *   npx tsx scripts/prepare-city-dem.ts --cell 48.2,16.37    # #831: the whole 1° cell, as the generation does
  *
  * The area is the box of the city's POI pins (core.attractions, read only) and of the
  * city-base circle, within CITY_POINTS_MAX_KM of the city centre. Exit code 1 when the city
@@ -13,7 +14,7 @@
 
 import { getSupabase } from '@/lib/core/supabase-client'
 import { LocalReverseGeocoder } from '@/lib/services/local-reverse-geocoder'
-import { cityDemArea, prepareCityDem } from '@/lib/services/dem/dem-prepare'
+import { cityDemArea, demCellId, demCellOf, ensureDemCell, prepareCityDem } from '@/lib/services/dem/dem-prepare'
 import { CITY_BASE_RADIUS_M, SANITY_MAX_TP_DISTANCE_M } from '@/lib/services/trigger-points-google/config/visibility-class'
 
 /** A pin farther than this from the city centre is a data error, not the city. */
@@ -52,6 +53,13 @@ async function cityPins(city: string): Promise<LatLng[]> {
 }
 
 async function main() {
+  const cell = arg('cell')
+  if (cell) {
+    const [lat, lng] = cell.split(',').map(Number)
+    const prepared = await ensureDemCell({ lat, lng, marginM: SANITY_MAX_TP_DISTANCE_M })
+    console.log(`${demCellId(demCellOf(lat, lng))}: ${prepared ? 'prepared' : 'already covered'}`)
+    return
+  }
   const city = arg('city')
   if (!city) throw new Error('--city is required')
   const bbox = arg('bbox')

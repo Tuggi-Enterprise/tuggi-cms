@@ -63,10 +63,18 @@ export class CoreTriggerPointPredictor {
     poiData: POIData,
     options: TriggerPointGenerationOptions = {}
   ): Promise<TracedPrediction> {
-    // EP (#782, INV-EPb/c): the relief of the POI's city must be prepared on disk, with the
-    // reach of a TP around it. Otherwise the POI does not generate — no other source stands in.
+    // EP (#782, INV-EPb/c): the relief around the POI must be prepared on disk, with the reach
+    // of a TP around it. #831: when no prepared area covers it, its 1° cell is prepared here
+    // (only the first POI of the cell waits); a cell that cannot be prepared fails the POI — no
+    // other source stands in.
     const pin = poiData.location;
-    const cover = DemStore.getInstance().coverage(pin?.lat, pin?.lng, SANITY_MAX_TP_DISTANCE_M);
+    const dem = DemStore.getInstance();
+    if (Number.isFinite(pin?.lat) && Number.isFinite(pin?.lng) && !dem.preparedFor(pin.lat, pin.lng, SANITY_MAX_TP_DISTANCE_M)) {
+      const { ensureDemCell } = await import('../../dem/dem-prepare');
+      await ensureDemCell({ lat: pin.lat, lng: pin.lng, marginM: SANITY_MAX_TP_DISTANCE_M, dir: dem.dir });
+      dem.refresh(); // prepared here or by another worker meanwhile
+    }
+    const cover = dem.coverage(pin?.lat, pin?.lng, SANITY_MAX_TP_DISTANCE_M);
     if (!cover.ok) throw new DemNotPreparedError(cover.reason);
     const candidateRows: EngineTraceRow[] = [];
     const result = await this.predictWithTrace(poiData, options, candidateRows);

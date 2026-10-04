@@ -94,8 +94,9 @@ export const DEM_MANIFEST_FILE = 'manifest.json'
 /** Metres per degree of latitude (the same constant as `elevation-service#offsetM`). */
 const M_PER_DEG_LAT = 110_540
 
+/** `DEM_CACHE_DIR` when set (a test or a second cache on another disk), else `data/dem-cache`. */
 export function defaultDemCacheDir(): string {
-  return path.join(process.cwd(), 'data', 'dem-cache')
+  return process.env.DEM_CACHE_DIR || path.join(process.cwd(), 'data', 'dem-cache')
 }
 
 /** The obstacle lattice of a city: the relief lattice split in OBSTACLE_SUBDIV, corner on corner. */
@@ -173,7 +174,7 @@ export class DemStore {
   private static instance: DemStore | null = null
   private cities: LoadedCity[] | null = null
 
-  constructor(private readonly dir: string = defaultDemCacheDir()) {}
+  constructor(readonly dir: string = defaultDemCacheDir()) {}
 
   static getInstance(): DemStore {
     if (!DemStore.instance) DemStore.instance = new DemStore()
@@ -324,18 +325,44 @@ export class DemStore {
    */
   coverage(lat: number, lng: number, marginM: number): DemCoverage {
     if (!Number.isFinite(lat) || !Number.isFinite(lng)) return { ok: false, reason: 'EP: the POI has no valid pin' }
-    const dLat = marginM / M_PER_DEG_LAT
-    const dLng = marginM / (111_320 * Math.cos((lat * Math.PI) / 180))
-    const corners: Array<[number, number]> = [[lat - dLat, lng - dLng], [lat - dLat, lng + dLng], [lat + dLat, lng - dLng], [lat + dLat, lng + dLng]]
-    const inside = (c: LoadedCity) => corners.every(([a, b]) => gridContains(c.manifest.grid, a, b))
-    const covering = this.list().filter(inside)
+    const covering = this.covering(lat, lng, marginM)
     const good = covering.find(c => c.manifest.status === 'ok' && this.load(c))
     if (good) return { ok: true, city: good.manifest.city, manifest: good.manifest }
     const failed = covering.find(c => c.manifest.status === 'failed' || c.broken)
     if (failed) {
       return { ok: false, reason: `EP ${failed.manifest.city}: ${failed.broken ?? failed.manifest.failures.join('; ')}` }
     }
-    return { ok: false, reason: `EP: no prepared relief covers ${lat.toFixed(4)},${lng.toFixed(4)} ± ${marginM} m in ${this.dir} (run scripts/prepare-city-dem.ts)` }
+    return { ok: false, reason: `EP: no prepared relief covers ${lat.toFixed(4)},${lng.toFixed(4)} ± ${marginM} m in ${this.dir} (the generation prepares its 1° cell, #831)` }
+  }
+
+  /**
+   * #831: is the square of ±marginM around the point inside an area whose manifest says `ok`?
+   * Reads the manifests only — no layer is loaded or hashed — so a queue worker can ask it per
+   * POI without holding the relief in memory. `coverage` is still the check before E1.
+   */
+  preparedFor(lat: number, lng: number, marginM: number): DemManifest | null {
+    return this.covering(lat, lng, marginM).find(c => c.manifest.status === 'ok')?.manifest ?? null
+  }
+
+  /**
+   * #831: picks up an area prepared after the first read (the automatic preparation of a cell).
+   * Areas already loaded keep their layers.
+   */
+  refresh(): void {
+    const known = new Map((this.cities ?? []).map(c => [c.dir, c]))
+    this.cities = null
+    this.cities = this.list().map(c => {
+      const prev = known.get(c.dir)
+      return prev && prev.manifest.preparedAt === c.manifest.preparedAt ? prev : c
+    })
+  }
+
+  private covering(lat: number, lng: number, marginM: number): LoadedCity[] {
+    if (!Number.isFinite(lat) || !Number.isFinite(lng)) return []
+    const dLat = marginM / M_PER_DEG_LAT
+    const dLng = marginM / (111_320 * Math.cos((lat * Math.PI) / 180))
+    const corners: Array<[number, number]> = [[lat - dLat, lng - dLng], [lat - dLat, lng + dLng], [lat + dLat, lng - dLng], [lat + dLat, lng + dLng]]
+    return this.list().filter(c => corners.every(([a, b]) => gridContains(c.manifest.grid, a, b)))
   }
 
   /** Nearest cell of an obstacle layer; null outside every prepared city. */
