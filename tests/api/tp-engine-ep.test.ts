@@ -1,4 +1,4 @@
-import { after, describe, it } from 'node:test'
+import { after, describe, it, mock } from 'node:test'
 import assert from 'node:assert/strict'
 import fs from 'node:fs'
 import os from 'node:os'
@@ -153,10 +153,13 @@ describe('INV-EPc / INV-E4 — E1–E11 read the relief from disk only, bilinear
 
   it('INV-EPb (#831): the engine prepares the cell of a POI with no relief, and refuses it before E1 when the cell cannot be prepared', async () => {
     const { CoreTriggerPointPredictor } = await import('../../lib/services/trigger-points-google/core/trigger-point-predictor')
+    const { LocalOSMFetcher } = await import('../../lib/services/trigger-points-google/services/local-osm-fetcher')
     const holder = DemStore as unknown as { instance: DemStore | null }
     const original = holder.instance
     holder.instance = new DemStore(fs.mkdtempSync(path.join(tmp, 'empty-')))
     process.env.DEM_MIN_FREE_GB = '1000000' // the floor refuses before any download
+    // the local OSM gate (#833) comes first: here a region covers the pin, so the relief decides
+    const regions = mock.method(LocalOSMFetcher.prototype, 'regionList', () => [{ name: 'any', covers: () => true }])
     try {
       await assert.rejects(
         new CoreTriggerPointPredictor().predictTriggerPointsComplete({ id: 'x', name: 'x', location: { lat: 1, lng: 1 } } as any),
@@ -165,6 +168,7 @@ describe('INV-EPc / INV-E4 — E1–E11 read the relief from disk only, bilinear
     } finally {
       holder.instance = original
       delete process.env.DEM_MIN_FREE_GB
+      regions.mock.restore()
     }
   })
 

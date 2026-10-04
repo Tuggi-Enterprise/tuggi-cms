@@ -1,7 +1,7 @@
 import { describe, it } from 'node:test'
 import assert from 'node:assert/strict'
 import { existsSync } from 'node:fs'
-import { join } from 'node:path'
+import { regionDbPath } from '@/lib/services/local-osm-regions'
 
 // Motor de TP (#772) — camada "conjunto de referência" (golden) da estratégia de teste.
 // Fonte: docs/arquitetura/cms/motor-de-tp.md, tabela "Conjunto de referência". Roda o motor
@@ -17,12 +17,13 @@ import { join } from 'node:path'
 // coluna "Esperado" nomeia lugares) e a classe por POI, citando `{ todo }` onde a `-e` diverge —
 // sem enfraquecer a asserção.
 
-const LOCAL_OSM_DB = join(process.cwd(), 'data', 'local_osm.db')
+// The Sudeste region (#833: one database per region, `local-osm-regions`).
+const LOCAL_OSM_DB = regionDbPath('br')
 const HAS_LOCAL_OSM = existsSync(LOCAL_OSM_DB)
 const HAS_SUPABASE_ENV = !!(process.env.NEXT_PUBLIC_SUPABASE_URL && (process.env.SUPABASE_SECRET_KEY || process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY))
 const CAN_RUN = HAS_LOCAL_OSM && HAS_SUPABASE_ENV
 const SKIP_REASON = !HAS_LOCAL_OSM
-  ? `local_osm.db ausente em ${LOCAL_OSM_DB} — golden do motor de TP pulado (INV-E1..E11 sem cobertura de regressão nesta rodada)`
+  ? `base OSM local da região br ausente em ${LOCAL_OSM_DB} — golden do motor de TP pulado (INV-E1..E11 sem cobertura de regressão nesta rodada)`
   : 'credenciais Supabase ausentes no ambiente — golden precisa resolver o POI pelo nome (core.attractions)'
 
 /** id em core.attractions — o nome não é único (há várias "Nossa Senhora de Fátima") nem igual ao do banco */

@@ -19,8 +19,8 @@
  */
 
 import Database from 'better-sqlite3'
-import path from 'path'
 import fs from 'fs'
+import { geonamesDbPath } from './local-osm-regions'
 
 export interface ReverseGeocodeResult {
   city: string | null
@@ -39,10 +39,10 @@ export class LocalReverseGeocoder {
   private nearestStmt: Database.Statement | null = null
 
   private constructor() {
-    const dbPath = path.join(process.cwd(), 'data', 'local_osm.db')
+    const dbPath = geonamesDbPath()
     try {
       if (!fs.existsSync(dbPath)) {
-        console.log(`⚠️ [LocalReverseGeocoder] local_osm.db not found at ${dbPath}`)
+        console.log(`⚠️ [LocalReverseGeocoder] GeoNames database not found at ${dbPath} (npx tsx scripts/hotfix-geonames-import.ts)`)
         return
       }
       this.db = new Database(dbPath, { readonly: true })

@@ -19,7 +19,8 @@
 
 import Database from 'better-sqlite3'
 import { existsSync, statSync } from 'fs'
-import { join, resolve } from 'path'
+import { resolve } from 'path'
+import { regionDbPath } from '../lib/services/local-osm-regions'
 
 interface Options {
   dbPath: string
@@ -30,7 +31,7 @@ interface Options {
 function parseArgs(): Options {
   const args = process.argv.slice(2)
   const opts: Options = {
-    dbPath: join(process.cwd(), 'data', 'local_osm.db'),
+    dbPath: '',
     dryRun: false,
     skipAnalyze: false
   }
@@ -38,6 +39,8 @@ function parseArgs(): Options {
     const a = args[i]
     if (a === '--db' && args[i + 1]) {
       opts.dbPath = resolve(args[++i])
+    } else if (a === '--region' && args[i + 1]) {
+      opts.dbPath = regionDbPath(args[++i])
     } else if (a === '--dry-run') {
       opts.dryRun = true
     } else if (a === '--skip-analyze') {
@@ -47,7 +50,8 @@ function parseArgs(): Options {
 Usage: npx tsx scripts/hotfix-osm-id-index.ts [options]
 
 Options:
-  --db <path>       Path to local_osm.db (default: ./data/local_osm.db)
+  --db <path>       Path to the region database
+  --region <name>   Region database in LOCAL_OSM_DIR (default data/osm): <name>.db
   --dry-run         Inspect only, do not create indexes
   --skip-analyze    Skip ANALYZE at the end (re-run later as 'ANALYZE;')
   --help, -h        Show this message
@@ -84,9 +88,12 @@ function main() {
   console.log(`Started at: ${new Date().toISOString()}`)
   console.log()
 
+  if (!opts.dbPath) {
+    console.error(`❌ Pass --db <path> or --region <name> (one database per region, #833)`)
+    process.exit(1)
+  }
   if (!existsSync(opts.dbPath)) {
     console.error(`❌ Database not found at ${opts.dbPath}`)
-    console.error(`   Pass --db <path> if your local_osm.db lives elsewhere.`)
     process.exit(1)
   }
 

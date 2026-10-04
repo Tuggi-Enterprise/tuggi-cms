@@ -61,7 +61,7 @@ describe('BR-AUDIO-010 — osm_id só identifica o elemento junto com o tipo', (
       }
     }
     const fetcher = Object.create(LocalOSMFetcher.prototype)
-    fetcher.db = db
+    fetcher.regions = [{ name: 'test', covers: () => true, db, rtree: { pois: false, streets: false, buildings: false } }]
     return fetcher as Pick<ReturnType<typeof LocalOSMFetcher.getInstance>, "fetchElementById">
   }
   const point = JSON.stringify([{ lat: -22.903, lon: -43.174 }, { lat: -22.9031, lon: -43.1741 }])
