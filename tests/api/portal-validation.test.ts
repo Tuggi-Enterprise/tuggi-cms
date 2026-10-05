@@ -78,7 +78,7 @@ test('#812: status is never written by UPDATE — only attraction_id and the app
 
 test('#812: one allowlist each — PROMOTION_MAP for the client, buildPlacePrefill for the place', () => {
   const src = read('lib/services/portal-validation-service.ts')
-  assert.match(src, /buildPromotionPlan\(answers, null/)
+  assert.match(src, /buildPromotionPlan\(portalAnswers, null/)
   assert.match(src, /buildPlacePrefill\(answers\)/)
   assert.match(src, /createPromotedClient\(write\.updates, answers\)/)
 })

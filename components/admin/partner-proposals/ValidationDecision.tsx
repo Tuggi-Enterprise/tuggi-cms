@@ -84,7 +84,7 @@ export function ValidationDecision({
 
   const [dialog, setDialog] = useState<Dialog>(null)
   const [busy, setBusy] = useState(false)
-  const [error, setError] = useState<{ text: string; attractionId?: string | null } | null>(null)
+  const [error, setError] = useState<{ text: string; attractionId?: string | null; detail?: string } | null>(null)
 
   const [areas, setAreas] = useState<AdjustmentArea[]>([])
   const [changesNote, setChangesNote] = useState('')
@@ -157,7 +157,7 @@ export function ValidationDecision({
     if (!outcome) return
     if (outcome.failed) {
       if (outcome.error === 'approval_in_progress') setError({ text: t('dialogs.approveBusy') })
-      else if (outcome.attractionId) setError({ text: t('dialogs.approvePartial'), attractionId: outcome.attractionId })
+      else if (outcome.attractionId) setError({ text: t('dialogs.approvePartial'), attractionId: outcome.attractionId, detail: outcome.error })
       else setError({ text: t('dialogs.approveError') })
       return
     }
@@ -253,6 +253,7 @@ export function ValidationDecision({
             {t('dialogs.openPlace')}
           </Link>
         ) : null}
+        {error.detail ? <span className="mt-1 block text-xs opacity-80">{error.detail}</span> : null}
       </span>
     </div>
   ) : null

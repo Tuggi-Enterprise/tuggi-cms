@@ -36,6 +36,8 @@ interface World {
   applyFails: false | 'details_failed' | 'coordinate_failed'
   calls: string[]
   updates: Record<string, unknown>[]
+  acceptanceEmail: string | null
+  clientInsert: Record<string, unknown> | null
 }
 let w: World
 
@@ -49,6 +51,8 @@ function reset(over: Partial<World> = {}) {
     applyFails: false,
     calls: [],
     updates: [],
+    acceptanceEmail: 'dono@bardoze.com.br',
+    clientInsert: null,
     ...over,
   }
 }
@@ -84,9 +88,18 @@ function submissionsTable() {
   return q
 }
 
+function acceptancesTable() {
+  const q: any = {
+    select: () => q,
+    eq: () => q,
+    maybeSingle: async () => ({ data: w.acceptanceEmail ? { email: w.acceptanceEmail } : null, error: null }),
+  }
+  return q
+}
+
 const service = {
   schema: () => ({
-    from: () => submissionsTable(),
+    from: (table: string) => (table === 'place_acceptances' ? acceptancesTable() : submissionsTable()),
     rpc: async (_name: string, args: Record<string, unknown>) => {
       w.calls.push(`transition:${args.p_to}`)
       return { data: args.p_to, error: null }
@@ -133,8 +146,9 @@ before(async () => {
         w.calls.push('find_client_by_tax_id')
         return null
       },
-      createPromotedClient: async () => {
+      createPromotedClient: async (updates: Record<string, unknown>) => {
         w.calls.push('create_client')
+        w.clientInsert = updates
         return { ok: true, clientId: CLIENT, created: true }
       },
     },
@@ -230,4 +244,18 @@ test('#812: not in_review → 409 before any claim', async () => {
 test('#812: the approval claim expires in 60 s, so a request that died does not lock the submission', () => {
   assert.equal(mod.PORTAL_APPROVAL_CLAIM_TTL_MS, 60_000)
   assert.equal(mod.approvalClaimFilter(NOW), 'approval_claimed_at.is.null,approval_claimed_at.lt.2026-10-04T11:59:00.000Z')
+})
+
+test('BR-B2B-049 item 7: the new client carries the acceptance e-mail — the portal never asks representative_email, and partner.clients.email is NOT NULL', async () => {
+  const out = await mod.approvePortalSubmission(SUB, operator, 'op', NOW)
+  assert.equal(out.ok, true)
+  assert.equal(w.clientInsert?.email, 'dono@bardoze.com.br')
+})
+
+test('BR-B2B-049 item 7: no acceptance e-mail → 503 with the POI, no client created, NOT approved', async () => {
+  reset({ acceptanceEmail: null })
+  const out = await mod.approvePortalSubmission(SUB, operator, 'op', NOW)
+  assert.deepEqual(out, { ok: false, httpStatus: 503, error: 'lookup_failed', attractionId: POI })
+  assert.ok(!w.calls.includes('create_client'))
+  assert.ok(!w.calls.includes('transition:approved'))
 })

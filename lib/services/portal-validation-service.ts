@@ -232,7 +232,7 @@ async function approveClaimed(
     attractionId = created.attractionId
   }
 
-  const client = await resolveApprovalClient(attractionId, answers, operator)
+  const client = await resolveApprovalClient(submission.id, attractionId, answers, operator)
   if (!client.ok) return { ok: false, httpStatus: 503, error: client.error, attractionId }
 
   const place = await applyPlacePrefill(attractionId, prefill, client.clientId, operator)
@@ -248,6 +248,7 @@ async function approveClaimed(
  * the POI is unapproved and only `CMS admins can read attractions` sees it.
  */
 async function resolveApprovalClient(
+  submissionId: string,
   attractionId: string,
   answers: PartnerAnswers,
   operator: SupabaseClient
@@ -268,12 +269,31 @@ async function resolveApprovalClient(
   const existing = answers.tax_id ? await findClientByTaxId(answers.tax_id) : null
   if (existing) return { ok: true, clientId: existing.id as string }
 
-  const plan = buildPromotionPlan(answers, null, {
+  // `partner.clients.email` is NOT NULL, and the portal never asks `representative_email` (the
+  // public form's source for it in PROMOTION_MAP): the portal's e-mail is the acceptance's.
+  const email = await acceptanceEmailOf(submissionId)
+  if (!email) return { ok: false, error: 'lookup_failed' }
+  const portalAnswers: PartnerAnswers = { ...answers, representative_email: email }
+  const plan = buildPromotionPlan(portalAnswers, null, {
     categoryLabel: CATEGORY_LABELS[answers.category ?? ''] ?? null,
   })
   const write = resolvePromotionWrite(plan, { approved: [] })
   const created = await createPromotedClient(write.updates, answers)
   return created.ok ? { ok: true, clientId: created.clientId } : { ok: false, error: 'client_write_failed' }
+}
+
+/** The e-mail the client accepted the terms with (`partner.place_acceptances.email`). */
+async function acceptanceEmailOf(submissionId: string): Promise<string | null> {
+  const { data, error } = await partner()
+    .from('place_acceptances')
+    .select('email')
+    .eq('submission_id', submissionId)
+    .maybeSingle()
+  if (error || !data) {
+    console.error('[portal-validation] acceptance read failed', error?.code ?? 'no_row')
+    return null
+  }
+  return (data as { email: string | null }).email || null
 }
 
 /**
