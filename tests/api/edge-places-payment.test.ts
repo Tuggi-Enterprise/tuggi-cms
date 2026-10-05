@@ -72,6 +72,7 @@ function deps(asaas: ReturnType<typeof fakeAsaas>, db: ReturnType<typeof fakeDb>
     asaas: asaas.client,
     admin: db.rpc,
     subscriptionIds: async () => null,
+    subscriptionById: async () => null,
     alert: async (what: string, fields: Record<string, unknown>) => {
       alerts.push({ what, fields })
     },

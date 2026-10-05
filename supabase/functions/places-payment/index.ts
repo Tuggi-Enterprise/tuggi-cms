@@ -8,11 +8,12 @@
 // owner" — the database proves it in `core.portal_*` (demand 4 of the security review). Deploy
 // with `--no-verify-jwt`, like the other `places-*`: the token is checked by the database call.
 //
-// Body: { action: 'checkout' | 'cancel_renewal' | 'refund' | 'withdraw', submission_id, ... }.
-// The card goes to Asaas in the same request and is never stored, logged or echoed.
+// Body: { action: 'checkout' | 'checkout_pix' | 'cancel_renewal' | 'refund' | 'withdraw', submission_id, ... }.
+// The card goes to Asaas in the same request and is never stored, logged or echoed. `checkout_pix`
+// answers { result: 'pix', pix: { payload, image, expires_at } }: the QR of the first charge.
 
 import { isPlacesSecret, PLACES_SECRET_HEADER } from '../_shared/places-secret.ts';
-import { cancelRenewal, checkout, requestRefund, withdraw, type PortalDeps } from '../_shared/places-payment.ts';
+import { cancelRenewal, checkout, checkoutPix, requestRefund, withdraw, type PortalDeps } from '../_shared/places-payment.ts';
 import { asaasFromEnv, baseDeps, json, userDeps } from '../_shared/places-payment-runtime.ts';
 
 Deno.serve(async (req: Request) => {
@@ -40,6 +41,8 @@ Deno.serve(async (req: Request) => {
     const r =
       body.action === 'checkout'
         ? await checkout(deps, body)
+        : body.action === 'checkout_pix'
+          ? await checkoutPix(deps, body)
         : body.action === 'cancel_renewal'
           ? await cancelRenewal(deps, submissionId)
           : body.action === 'refund'

@@ -63,6 +63,23 @@ async function alert(what: string, fields: Record<string, string | number | null
   await sendEmail(to, `[Tuggi pagamento] ${what}`, [`Alerta da EF de pagamento do Com história (#811): ${what}`, '', ...lines].join('\n'));
 }
 
+const SUBSCRIPTION_COLUMNS = 'id, status, payment_method, provider_subscription_id, provider_customer_id, provider_authorization_id, canceled_at';
+
+// deno-lint-ignore no-explicit-any
+function toIds(s: any): SubscriptionIds | null {
+  return s
+    ? {
+        subscription_id: s.id,
+        status: s.status,
+        payment_method: s.payment_method ?? null,
+        provider_subscription_id: s.provider_subscription_id ?? null,
+        provider_customer_id: s.provider_customer_id ?? null,
+        provider_authorization_id: s.provider_authorization_id ?? null,
+        canceled_at: s.canceled_at ?? null,
+      }
+    : null;
+}
+
 export function baseDeps(asaas: NonNullable<ReturnType<typeof asaasFromEnv>>): Deps {
   const admin = createAdminClient();
   return {
@@ -72,15 +89,17 @@ export function baseDeps(asaas: NonNullable<ReturnType<typeof asaasFromEnv>>): D
       const { data, error } = await admin
         .schema('partner')
         .from('place_acceptances')
-        .select('place_subscriptions(id, provider_subscription_id, provider_customer_id, canceled_at)')
+        .select(`place_subscriptions(${SUBSCRIPTION_COLUMNS})`)
         .eq('submission_id', submissionId)
         .maybeSingle();
       if (error) throw new Error(`subscription read ${error.code}`);
       const raw = data?.place_subscriptions;
-      const s = Array.isArray(raw) ? raw[0] : raw;
-      return s
-        ? { subscription_id: s.id, provider_subscription_id: s.provider_subscription_id, provider_customer_id: s.provider_customer_id, canceled_at: s.canceled_at }
-        : null;
+      return toIds(Array.isArray(raw) ? raw[0] : raw);
+    },
+    subscriptionById: async (subscriptionId: string): Promise<SubscriptionIds | null> => {
+      const { data, error } = await admin.schema('partner').from('place_subscriptions').select(SUBSCRIPTION_COLUMNS).eq('id', subscriptionId).maybeSingle();
+      if (error) throw new Error(`subscription read ${error.code}`);
+      return toIds(data);
     },
     alert,
     today: () => saoPauloDate(new Date()),

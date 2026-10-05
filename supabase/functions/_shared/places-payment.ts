@@ -32,7 +32,14 @@
 // exist: a forged or foreign event) → 200 + alert.
 
 import { constantTimeEqual } from './constant-time.ts';
-import { AsaasError, type AsaasClient, type AsaasCardHolder, type AsaasCreditCard, type AsaasPayment } from './asaas.ts';
+import {
+  AsaasError,
+  type AsaasClient,
+  type AsaasCardHolder,
+  type AsaasCreditCard,
+  type AsaasPayment,
+  type AsaasPixAuthorization,
+} from './asaas.ts';
 
 // ─── dependencies ─────────────────────────────────────────────────────────────────────────────
 
@@ -43,8 +50,11 @@ export type Rpc = (schema: 'partner' | 'core', fn: string, args: Record<string, 
 /** What the EF needs of `partner.place_subscriptions`, read with `service_role`. */
 export type SubscriptionIds = {
   subscription_id: string;
+  status: string;
+  payment_method: string | null;
   provider_subscription_id: string | null;
   provider_customer_id: string | null;
+  provider_authorization_id: string | null;
   canceled_at: string | null;
 };
 
@@ -53,6 +63,8 @@ export type Deps = {
   /** `service_role`. */
   admin: Rpc;
   subscriptionIds: (submissionId: string) => Promise<SubscriptionIds | null>;
+  /** Same row, by `partner.place_subscriptions.id` (the uuid of `externalReference`/`contractId`). */
+  subscriptionById: (subscriptionId: string) => Promise<SubscriptionIds | null>;
   /** Operator alert. Fields are ids and outcomes only — never a name, a document or an e-mail. */
   alert: (what: string, fields: Record<string, string | number | null | undefined>) => Promise<void>;
   /** Today in America/Sao_Paulo, `YYYY-MM-DD`. */
@@ -86,6 +98,18 @@ export function subscriptionIdFromReference(ref: unknown): string | null {
 }
 
 export const isUuid = (v: unknown): v is string => typeof v === 'string' && UUID.test(v);
+
+/**
+ * Pix Automático `contractId` (max 35 chars, so the uuid without hyphens). It is the only field of
+ * the authorization we set and Asaas gives back on the re-read: it maps the authorization to
+ * `partner.place_subscriptions` before there is an Asaas subscription to map it by.
+ */
+export const contractIdOf = (subscriptionId: string): string => subscriptionId.replace(/-/g, '').toLowerCase();
+export function subscriptionIdFromContractId(contractId: unknown): string | null {
+  if (typeof contractId !== 'string' || !/^[0-9a-f]{32}$/i.test(contractId.trim())) return null;
+  const h = contractId.trim().toLowerCase();
+  return `${h.slice(0, 8)}-${h.slice(8, 12)}-${h.slice(12, 16)}-${h.slice(16, 20)}-${h.slice(20)}`;
+}
 
 export const PAID_STATUSES = new Set(['CONFIRMED', 'RECEIVED']);
 /** Refunds that exist or may still land. Only a CANCELLED refund lets us ask again. */
@@ -255,37 +279,19 @@ export async function checkout(deps: PortalDeps, body: unknown): Promise<Reply> 
 
   const owner = await ownerRow(deps, input.submissionId);
   if (isReply(owner)) return owner;
-
-  const { data, error } = await deps.admin('partner', 'place_payment_checkout', { p_submission_id: owner.submission_id });
-  if (error) return isBusinessError(error) ? portalErrorReply(error) : reply(502, { error: 'unavailable' });
-  const co = firstRow<CheckoutRow>(data);
-  if (!co) return reply(502, { error: 'unavailable' });
-  // Null `next_due_date` = paid and waiting for approval; not `pending_payment` = nothing to pay.
-  if (co.status !== 'pending_payment' || !co.attachable || !co.next_due_date) {
-    return reply(409, { error: 'not_payable', reason: co.status });
-  }
+  const co = await payableCheckout(deps, owner.submission_id);
+  if (isReply(co)) return co;
 
   try {
-    // Demand 5, and the retry: a live subscription already PAID for this reference is attached,
-    // not charged again; one that is not paid is deleted before the new one.
-    const settled = await clearLiveSubscriptions(deps, owner.submission_id, co);
-    if (settled) return settled;
-
-    const customer =
-      (await deps.asaas.findCustomerByReference(co.subscription_id)) ??
-      (await deps.asaas.createCustomer({
-        name: co.customer_name,
-        cpfCnpj: co.customer_tax_id.replace(/[.\-/\s]/g, '').toUpperCase(),
-        email: co.customer_email,
-        externalReference: co.subscription_id,
-      }));
+    const customer = await prepareCustomer(deps, owner.submission_id, co);
+    if (isReply(customer)) return customer;
 
     let created;
     try {
       created = await deps.asaas.createCardSubscription({
         customer: customer.id,
         value: toReais(co.next_amount_cents),
-        nextDueDate: co.next_due_date,
+        nextDueDate: co.next_due_date!,
         cycle: co.billing_cycle,
         description: `Tuggi · Com história · ${co.billing_period} ${co.billing_period === 1 ? 'mês' : 'meses'}`,
         externalReference: co.external_reference,
@@ -318,7 +324,7 @@ export async function checkout(deps: PortalDeps, body: unknown): Promise<Reply> 
     }
 
     const payments = await deps.asaas.listSubscriptionPayments(created.id);
-    await holdNextChargeUntilApproval(deps, created.id, co.next_due_date, co.billing_period, payments);
+    await holdNextChargeUntilApproval(deps, created.id, co.next_due_date!, co.billing_period, payments);
     const paid = payments.some((p) => PAID_STATUSES.has(p.status));
     return reply(200, { result: paid ? 'paid' : 'processing' });
   } catch (e) {
@@ -328,6 +334,136 @@ export async function checkout(deps: PortalDeps, body: unknown): Promise<Reply> 
     }
     throw e;
   }
+}
+
+/** `place_payment_checkout`, refused unless there is a first period to pay now. */
+async function payableCheckout(deps: Deps, submissionId: string): Promise<CheckoutRow | Reply> {
+  const { data, error } = await deps.admin('partner', 'place_payment_checkout', { p_submission_id: submissionId });
+  if (error) return isBusinessError(error) ? portalErrorReply(error) : reply(502, { error: 'unavailable' });
+  const co = firstRow<CheckoutRow>(data);
+  if (!co) return reply(502, { error: 'unavailable' });
+  // Null `next_due_date` = paid and waiting for approval; not `pending_payment` = nothing to pay.
+  if (co.status !== 'pending_payment' || !co.attachable || !co.next_due_date) {
+    return reply(409, { error: 'not_payable', reason: co.status });
+  }
+  return co;
+}
+
+/**
+ * Common to both methods, before anything new is created in Asaas: demand 5 (a live subscription
+ * already PAID is attached, not charged again; an unpaid one is ended), then the customer, then
+ * any Pix QR of an earlier attempt is cancelled — switching method must not leave a second way
+ * to pay the same period open. Asaas errors propagate (the callers answer `provider_unavailable`).
+ */
+async function prepareCustomer(deps: PortalDeps, submissionId: string, co: CheckoutRow): Promise<{ id: string } | Reply> {
+  const settled = await clearLiveSubscriptions(deps, submissionId, co);
+  if (settled) return settled;
+  const customer =
+    (await deps.asaas.findCustomerByReference(co.subscription_id)) ??
+    (await deps.asaas.createCustomer({
+      name: co.customer_name,
+      cpfCnpj: co.customer_tax_id.replace(/[.\-/\s]/g, '').toUpperCase(),
+      email: co.customer_email,
+      externalReference: co.subscription_id,
+    }));
+  await cancelOpenPixAuthorizations(deps, customer.id);
+  return customer;
+}
+
+/**
+ * Authorizations still waiting for the QR to be paid (`CREATED`) are cancelled. Best effort: if it
+ * fails, the old QR still expires in `PIX_QR_EXPIRATION_SECONDS`, and paying it after another
+ * payment lands as `not_applicable`, which alerts the operator to refund.
+ */
+async function cancelOpenPixAuthorizations(deps: Deps, customerId: string): Promise<void> {
+  try {
+    const open = (await deps.asaas.listPixAutomaticAuthorizations(customerId)).filter(
+      (a) => a.customerId === customerId && (a.status ?? '').toUpperCase() === 'CREATED',
+    );
+    for (const a of open) await deps.asaas.cancelPixAutomaticAuthorization(a.id);
+  } catch (e) {
+    console.error('[places-payment] cancel open pix authorizations', e instanceof Error ? e.message : 'unknown');
+  }
+}
+
+// ─── portal: checkout (Pix Automático) ─────────────────────────────────────────────────────────
+
+/** Seconds the QR of the first charge stays payable; the portal polls for as long. */
+export const PIX_QR_EXPIRATION_SECONDS = 30 * 60;
+
+export type PixQr = { payload: string; image: string | null; expires_at: string | null };
+
+export function pixQrOf(a: AsaasPixAuthorization): PixQr | null {
+  const payload = a.payload ?? a.immediateQrCode?.payload ?? null;
+  if (!payload) return null;
+  return {
+    payload,
+    image: a.encodedImage ?? a.immediateQrCode?.encodedImage ?? null,
+    expires_at: a.immediateQrCode?.expirationDate ?? null,
+  };
+}
+
+/**
+ * Pix Automático, journey 3 (term 4.1; contract §3.1): one QR pays the first period
+ * (`immediateQrCode.originalValue` = `next_amount_cents`, coupon included) and authorizes the
+ * renewals (`value` = `renewal_amount_cents`, `paymentCreationMode: SUBSCRIPTION`).
+ *
+ * NOTHING IS ATTACHED HERE. Asaas creates the subscription only when the payer's bank activates the
+ * authorization, so `attach_place_subscription` (which needs the `sub_…`) runs in the webhook, on
+ * `PIX_AUTOMATIC_RECURRING_AUTHORIZATION_ACTIVATED`. The first charge is confirmed before that, by
+ * its `PAYMENT_RECEIVED`, mapped through the customer's `externalReference` (see the webhook).
+ *
+ * `startDate` = one period after today: the recurrence never starts before the earliest possible
+ * renewal (approval + N months), and the sweep moves the renewal to the right date after approval.
+ */
+export async function checkoutPix(deps: PortalDeps, body: unknown): Promise<Reply> {
+  const submissionId = (body as Record<string, unknown> | null)?.submission_id;
+  if (!isUuid(submissionId)) return reply(400, { error: 'invalid', field: 'submission_id' });
+  const owner = await ownerRow(deps, submissionId.toLowerCase());
+  if (isReply(owner)) return owner;
+  const co = await payableCheckout(deps, owner.submission_id);
+  if (isReply(co)) return co;
+
+  try {
+    const customer = await prepareCustomer(deps, owner.submission_id, co);
+    if (isReply(customer)) return customer;
+    const description = `Tuggi Com história ${co.billing_period} ${co.billing_period === 1 ? 'mês' : 'meses'}`;
+    const auth = await deps.asaas.createPixAutomaticAuthorization({
+      customerId: customer.id,
+      contractId: contractIdOf(co.subscription_id),
+      description,
+      frequency: co.billing_cycle,
+      startDate: addMonths(co.next_due_date!, co.billing_period),
+      value: toReais(co.renewal_amount_cents),
+      immediateQrCode: {
+        expirationSeconds: PIX_QR_EXPIRATION_SECONDS,
+        originalValue: toReais(co.next_amount_cents),
+        description,
+      },
+    });
+    const qr = pixQrOf(auth);
+    if (!qr) {
+      await deps.alert('pix_qr_missing', { subscription_id: co.subscription_id, authorization_id: auth.id });
+      await deps.asaas.cancelPixAutomaticAuthorization(auth.id).catch(() => true);
+      return reply(502, { error: 'provider_unavailable' });
+    }
+    return reply(200, { result: 'pix', pix: qr });
+  } catch (e) {
+    if (e instanceof AsaasError) {
+      console.error('[places-payment] checkout_pix asaas', e.message);
+      return reply(502, { error: 'provider_unavailable' });
+    }
+    throw e;
+  }
+}
+
+/** Ends the provider side of a subscription: the Asaas subscription and, on Pix, the authorization. */
+async function endProviderSubscription(
+  deps: Deps,
+  ids: { provider_subscription_id: string | null; provider_authorization_id?: string | null },
+): Promise<void> {
+  if (ids.provider_subscription_id) await deps.asaas.deleteSubscription(ids.provider_subscription_id);
+  if (ids.provider_authorization_id) await deps.asaas.cancelPixAutomaticAuthorization(ids.provider_authorization_id);
 }
 
 /**
@@ -374,12 +510,13 @@ async function clearLiveSubscriptions(deps: PortalDeps, submissionId: string, co
     if (payments.some((p) => PAID_STATUSES.has(p.status))) {
       const sub = candidates.get(id) ?? (await deps.asaas.getSubscription(id));
       const customer = (sub as { customer?: string }).customer ?? ids?.provider_customer_id ?? null;
+      const pix = id === ids?.provider_subscription_id && ids?.payment_method === 'pix_automatic';
       const { error } = await deps.admin('partner', 'attach_place_subscription', {
         p_subscription_id: co.subscription_id,
-        p_payment_method: 'credit_card',
+        p_payment_method: pix ? 'pix_automatic' : 'credit_card',
         p_provider_customer_id: customer,
         p_provider_subscription_id: id,
-        p_provider_authorization_id: null,
+        p_provider_authorization_id: pix ? ids?.provider_authorization_id ?? null : null,
       });
       if (error && !(error.code === 'TGP10')) {
         await deps.alert('attach_failed', { subscription_id: co.subscription_id, provider_subscription_id: id, code: error.code });
@@ -390,7 +527,10 @@ async function clearLiveSubscriptions(deps: PortalDeps, submissionId: string, co
   }
 
   for (const id of candidates.keys()) {
-    await deps.asaas.deleteSubscription(id);
+    await endProviderSubscription(deps, {
+      provider_subscription_id: id,
+      provider_authorization_id: id === ids?.provider_subscription_id ? ids?.provider_authorization_id : null,
+    });
   }
   if (ids?.provider_subscription_id && !ids.canceled_at) {
     const { error } = await deps.admin('partner', 'cancel_place_subscription', {
@@ -439,7 +579,7 @@ export async function cancelRenewal(deps: PortalDeps, submissionId: string): Pro
   if (!ids) return reply(404, { error: 'not_found' });
   try {
     // Asaas first: if the database fails after this, `SUBSCRIPTION_DELETED` closes the same state.
-    if (ids.provider_subscription_id) await deps.asaas.deleteSubscription(ids.provider_subscription_id);
+    await endProviderSubscription(deps, ids);
   } catch (e) {
     console.error('[places-payment] cancel asaas', e instanceof Error ? e.message : 'unknown');
     return reply(502, { error: 'provider_unavailable' });
@@ -490,7 +630,7 @@ async function ownerRefund(deps: PortalDeps, submissionId: string, fn: string, e
   if (ids?.provider_subscription_id && !ids.canceled_at) {
     // Contract §3.3: a live subscription in `pending_payment` is not in the refund list.
     try {
-      await deps.asaas.deleteSubscription(ids.provider_subscription_id);
+      await endProviderSubscription(deps, ids);
       await deps.admin('partner', 'cancel_place_subscription', {
         p_event_id: null,
         p_event_type: null,
@@ -587,6 +727,14 @@ const PAYMENT_EVENTS = new Set([
   'PAYMENT_REFUNDED',
 ]);
 const SUBSCRIPTION_END_EVENTS = new Set(['SUBSCRIPTION_DELETED', 'SUBSCRIPTION_INACTIVATED']);
+/** A recurring Pix charge the payer's bank refused to schedule or settle (contract §3.2: `fail`). */
+const PIX_INSTRUCTION_REFUSED = 'PIX_AUTOMATIC_RECURRING_PAYMENT_INSTRUCTION_REFUSED';
+const PIX_AUTHORIZATION_ACTIVATED = 'PIX_AUTOMATIC_RECURRING_AUTHORIZATION_ACTIVATED';
+const PIX_AUTHORIZATION_END_EVENTS = new Set([
+  'PIX_AUTOMATIC_RECURRING_AUTHORIZATION_CANCELLED',
+  'PIX_AUTOMATIC_RECURRING_AUTHORIZATION_EXPIRED',
+  'PIX_AUTOMATIC_RECURRING_AUTHORIZATION_REFUSED',
+]);
 
 type PaymentFn = 'confirm_place_charge' | 'fail_place_charge' | 'settle_place_refund';
 
@@ -595,17 +743,26 @@ export function paymentAction(eventType: string, status: string): PaymentFn | nu
   if (PAID_STATUSES.has(status)) return 'confirm_place_charge';
   if (status === 'REFUNDED') return 'settle_place_refund';
   if (status === 'OVERDUE') return 'fail_place_charge';
-  if (status === 'PENDING' && eventType === 'PAYMENT_CREDIT_CARD_CAPTURE_REFUSED') return 'fail_place_charge';
+  if (status === 'PENDING' && (eventType === 'PAYMENT_CREDIT_CARD_CAPTURE_REFUSED' || eventType === PIX_INSTRUCTION_REFUSED)) {
+    return 'fail_place_charge';
+  }
   return null;
 }
 
-/** Demand 2: both re-read ids. */
-export function paymentArgs(fn: PaymentFn, eventId: string, eventType: string, p: AsaasPayment, today: string) {
+/** Demand 2: both re-read ids (`ids` overrides them when they were resolved from the customer). */
+export function paymentArgs(
+  fn: PaymentFn,
+  eventId: string,
+  eventType: string,
+  p: AsaasPayment,
+  today: string,
+  ids?: { subscriptionId: string | null; providerSubscriptionId: string | null },
+) {
   const base = {
     p_event_id: eventId,
     p_event_type: eventType,
-    p_subscription_id: subscriptionIdFromReference(p.externalReference),
-    p_provider_subscription_id: p.subscription ?? null,
+    p_subscription_id: ids ? ids.subscriptionId : subscriptionIdFromReference(p.externalReference),
+    p_provider_subscription_id: ids ? ids.providerSubscriptionId : p.subscription ?? null,
     p_provider_payment_id: p.id,
   };
   if (fn === 'settle_place_refund') return base;
@@ -641,8 +798,11 @@ export async function handleAsaasWebhook(
   let fn: string;
   let args: Record<string, unknown>;
   try {
-    if (PAYMENT_EVENTS.has(eventType)) {
-      const paymentId = str((b.payment as Record<string, unknown>)?.id);
+    if (PAYMENT_EVENTS.has(eventType) || eventType === PIX_INSTRUCTION_REFUSED) {
+      const paymentId =
+        eventType === PIX_INSTRUCTION_REFUSED
+          ? str((b.paymentInstruction as Record<string, unknown>)?.paymentId)
+          : str((b.payment as Record<string, unknown>)?.id);
       if (!paymentId) return reply(400, { error: 'invalid_body' });
       const p = await deps.asaas.getPayment(paymentId);
       const action = paymentAction(eventType, (p.status ?? '').toUpperCase());
@@ -651,7 +811,43 @@ export async function handleAsaasWebhook(
         return reply(200, { outcome: 'stale' });
       }
       fn = action;
-      args = paymentArgs(action, eventId, eventType, p, deps.today());
+      args = paymentArgs(action, eventId, eventType, p, deps.today(), await chargeIds(deps, p));
+    } else if (eventType === PIX_AUTHORIZATION_ACTIVATED) {
+      return await pixAuthorizationActivated(deps, b, eventId, eventType, log);
+    } else if (PIX_AUTHORIZATION_END_EVENTS.has(eventType)) {
+      const authId = str((b.authorization as Record<string, unknown>)?.id);
+      if (!authId) return reply(400, { error: 'invalid_body' });
+      const a = await deps.asaas.getPixAutomaticAuthorization(authId);
+      if ((a.status ?? '').toUpperCase() === 'ACTIVE') {
+        log('stale:ACTIVE');
+        return reply(200, { outcome: 'stale' });
+      }
+      const ref = subscriptionIdFromContractId(a.contractId);
+      const row = ref ? await deps.subscriptionById(ref) : null;
+      if (!ref || !row) {
+        await deps.alert('unknown_subscription', { event_id: eventId, event_type: eventType, authorization_id: a.id });
+        log('unknown_subscription');
+        return reply(200, { outcome: 'unknown_subscription' });
+      }
+      // Only the authorization that renews this plan ends the renewal: the attached one, or — when
+      // none is attached yet — the one whose QR paid the period (consent refused after the money).
+      // An old QR that expired after the owner paid some other way is noise.
+      const attached = row.provider_authorization_id === a.id;
+      const paidUnattached = !row.provider_subscription_id && (row.status === 'paid' || row.status === 'past_due');
+      if (!attached && !paidUnattached) {
+        log('stale:not_attached');
+        return reply(200, { outcome: 'stale' });
+      }
+      // The Asaas subscription of an ended authorization would only generate charges nobody can pay.
+      if (attached && row.provider_subscription_id) await deps.asaas.deleteSubscription(row.provider_subscription_id);
+      fn = 'cancel_place_subscription';
+      args = {
+        p_event_id: eventId,
+        p_event_type: eventType,
+        p_subscription_id: ref,
+        p_provider_subscription_id: row.provider_subscription_id,
+        p_actor_kind: 'provider',
+      };
     } else if (SUBSCRIPTION_END_EVENTS.has(eventType)) {
       const subId = str((b.subscription as Record<string, unknown>)?.id);
       if (!subId) return reply(400, { error: 'invalid_body' });
@@ -720,10 +916,98 @@ export async function handleAsaasWebhook(
   return reply(200, { outcome });
 }
 
+/**
+ * The two ids of a re-read charge. A card charge carries `externalReference` (we send it). A Pix
+ * Automático charge is generated by Asaas from the authorization and carries neither our reference
+ * nor — for the first, immediate charge — a subscription we have attached (the `sub_…` exists only
+ * after the activation, which comes AFTER `PAYMENT_RECEIVED`). So, without a reference, the plan is
+ * found through the customer, whose `externalReference` is our uuid (one customer per plan, created
+ * in `prepareCustomer`); and while nothing is attached, `p_provider_subscription_id` goes null, or
+ * the database would call the first charge a `subscription_mismatch` and drop the payment.
+ */
+async function chargeIds(deps: Deps, p: AsaasPayment): Promise<{ subscriptionId: string | null; providerSubscriptionId: string | null }> {
+  const ref = subscriptionIdFromReference(p.externalReference);
+  if (ref || !p.customer) return { subscriptionId: ref, providerSubscriptionId: p.subscription ?? null };
+  const c = await deps.asaas.getCustomer(p.customer);
+  const viaCustomer = isUuid(c.externalReference) ? c.externalReference.toLowerCase() : null;
+  if (!viaCustomer) return { subscriptionId: null, providerSubscriptionId: p.subscription ?? null };
+  const row = await deps.subscriptionById(viaCustomer);
+  return { subscriptionId: viaCustomer, providerSubscriptionId: row?.provider_subscription_id ? p.subscription ?? null : null };
+}
+
+/**
+ * `PIX_AUTOMATIC_RECURRING_AUTHORIZATION_ACTIVATED`: the payer's bank consented and Asaas created
+ * the subscription. Re-read, then `attach_place_subscription` with the re-read ids. Idempotent by
+ * state, not by event id (the attach records no event): an authorization already attached is a
+ * `duplicate_event`, and nothing is touched — a resend must never re-hold a charge the sweep aligned.
+ */
+async function pixAuthorizationActivated(
+  deps: Deps,
+  b: Record<string, unknown>,
+  eventId: string,
+  eventType: string,
+  log: (outcome: string) => void,
+): Promise<Reply> {
+  const authId = str((b.authorization as Record<string, unknown>)?.id);
+  if (!authId) return reply(400, { error: 'invalid_body' });
+  const a = await deps.asaas.getPixAutomaticAuthorization(authId);
+  if ((a.status ?? '').toUpperCase() !== 'ACTIVE') {
+    log(`stale:${a.status}`);
+    return reply(200, { outcome: 'stale' });
+  }
+  const ref = subscriptionIdFromContractId(a.contractId);
+  const row = ref ? await deps.subscriptionById(ref) : null;
+  if (!ref || !row || !a.customerId) {
+    await deps.alert('unknown_subscription', { event_id: eventId, event_type: eventType, authorization_id: a.id });
+    log('unknown_subscription');
+    return reply(200, { outcome: 'unknown_subscription' });
+  }
+  if (!a.subscriptionId) {
+    // The doc says the subscription is born with the activation; if the re-read races it, Asaas resends.
+    console.error('[places-payment-webhook]', eventId, eventType, 'subscription_not_ready');
+    return reply(500, { error: 'subscription_not_ready' });
+  }
+  if (row.provider_authorization_id === a.id && row.provider_subscription_id === a.subscriptionId) {
+    log('duplicate_event');
+    return reply(200, { outcome: 'duplicate_event' });
+  }
+
+  const { error } = await deps.admin('partner', 'attach_place_subscription', {
+    p_subscription_id: ref,
+    p_payment_method: 'pix_automatic',
+    p_provider_customer_id: a.customerId,
+    p_provider_subscription_id: a.subscriptionId,
+    p_provider_authorization_id: a.id,
+  });
+  if (error) {
+    if (error.code === 'TGP10' || error.code === 'TGP01') {
+      // Another live subscription (the owner paid by card meanwhile), a refunded plan (withdrawal
+      // before the activation) or no plan: this authorization would charge for nothing.
+      await endProviderSubscription(deps, { provider_subscription_id: a.subscriptionId, provider_authorization_id: a.id });
+      await deps.alert('pix_authorization_discarded', { event_id: eventId, subscription_id: ref, authorization_id: a.id, reason: error.details ?? error.code });
+      log('discarded');
+      return reply(200, { outcome: 'discarded' });
+    }
+    console.error('[places-payment-webhook]', eventId, eventType, 'db_error', error.code ?? 'unknown');
+    if (error.code === 'TGP22') await deps.alert('webhook_tgp22', { event_id: eventId, event_type: eventType, field: error.details });
+    return reply(500, { error: 'db_error' });
+  }
+  // Same as the card checkout: no renewal before the approval; the sweep aligns it after.
+  const months = FREQUENCY_MONTHS[(a.frequency ?? '').toUpperCase()];
+  const payments = months ? await deps.asaas.listSubscriptionPayments(a.subscriptionId).catch(() => null) : null;
+  if (months && payments) await holdNextChargeUntilApproval(deps, a.subscriptionId, deps.today(), months, payments);
+  else await deps.alert('hold_next_charge_failed', { provider_subscription_id: a.subscriptionId, error: months ? 'list_failed' : `frequency ${a.frequency}` });
+  log('applied');
+  return reply(200, { outcome: 'applied' });
+}
+
+const FREQUENCY_MONTHS: Record<string, number> = { MONTHLY: 1, QUARTERLY: 3, SEMIANNUALLY: 6 };
+
 // ─── daily sweep ───────────────────────────────────────────────────────────────────────────────
 
 type ExpiredRow = {
   subscription_id: string;
+  payment_method: string | null;
   provider_subscription_id: string | null;
   canceled_at: string | null;
 };
@@ -756,7 +1040,9 @@ export async function runSweep(deps: Deps): Promise<Record<string, unknown>> {
     for (const r of (Array.isArray(expired.data) ? expired.data : []) as ExpiredRow[]) {
       if (!r.provider_subscription_id || r.canceled_at) continue;
       try {
-        await deps.asaas.deleteSubscription(r.provider_subscription_id);
+        // Pix: the authorization too, or the payer's bank keeps showing a live consent.
+        const auth = r.payment_method === 'pix_automatic' ? (await deps.subscriptionById(r.subscription_id))?.provider_authorization_id : null;
+        await endProviderSubscription(deps, { provider_subscription_id: r.provider_subscription_id, provider_authorization_id: auth });
         const { error } = await deps.admin('partner', 'cancel_place_subscription', {
           p_event_id: null,
           p_event_type: null,

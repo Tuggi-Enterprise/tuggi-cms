@@ -43,6 +43,7 @@ export type AsaasPayment = {
   id: string;
   status: string;
   value: number;
+  customer?: string | null;
   subscription?: string | null;
   externalReference?: string | null;
   billingType?: string;
@@ -80,6 +81,41 @@ export type AsaasCardHolder = {
   postalCode: string;
   addressNumber: string;
   phone: string;
+};
+
+/**
+ * Pix Automático authorization (doc conferred 2026-10-05:
+ * https://docs.asaas.com/reference/criar-uma-autorizacao-pix-automatico). With
+ * `paymentCreationMode: SUBSCRIPTION` Asaas creates the subscription only when the payer's bank
+ * ACTIVATES the authorization, so `subscriptionId` is null until then. The copy-and-paste code and
+ * the image of the immediate QR (journey 3) are read from the top level or from `immediateQrCode`:
+ * the doc shows both shapes.
+ */
+export type AsaasPixAuthorization = {
+  id: string;
+  status: string;
+  customerId?: string | null;
+  contractId?: string | null;
+  subscriptionId?: string | null;
+  frequency?: string | null;
+  payload?: string | null;
+  encodedImage?: string | null;
+  immediateQrCode?: {
+    payload?: string | null;
+    encodedImage?: string | null;
+    expirationDate?: string | null;
+    conciliationIdentifier?: string | null;
+  } | null;
+};
+
+export type PixAuthorizationRequest = {
+  customerId: string;
+  contractId: string;
+  description: string;
+  frequency: string;
+  startDate: string;
+  value: number;
+  immediateQrCode: { expirationSeconds: number; originalValue: number; description: string };
 };
 
 type List<T> = { data?: T[] | null };
@@ -124,6 +160,9 @@ export function asaasClient(cfg: AsaasConfig) {
       // Asaas e-mails (invoice, reminders) off: the Tuggi tells the place, in the Tuggi voice.
       call<{ id: string }>('POST', '/customers', { ...c, notificationDisabled: true }),
 
+    getCustomer: (id: string) =>
+      call<{ id: string; externalReference?: string | null }>('GET', `/customers/${encodeURIComponent(id)}`),
+
     listSubscriptionsByReference: async (externalReference: string) =>
       (await call<List<AsaasSubscription>>('GET', `/subscriptions?${q({ externalReference })}`)).data ?? [],
 
@@ -162,6 +201,31 @@ export function asaasClient(cfg: AsaasConfig) {
           `/payments?${q({ subscription, ...(status ? { status } : {}) })}`,
         )
       ).data ?? [],
+
+    /** Journey 3: the first charge is paid with the QR that also authorizes the recurrence. */
+    createPixAutomaticAuthorization: (a: PixAuthorizationRequest) =>
+      call<AsaasPixAuthorization>('POST', '/pix/automatic/authorizations', {
+        ...a,
+        paymentCreationMode: 'SUBSCRIPTION',
+        // Term 4.6: retries within 7 days of the renewal date.
+        retryPolicy: 'ALLOW_THREE_IN_SEVEN_DAYS',
+      }),
+
+    getPixAutomaticAuthorization: (id: string) =>
+      call<AsaasPixAuthorization>('GET', `/pix/automatic/authorizations/${encodeURIComponent(id)}`),
+
+    listPixAutomaticAuthorizations: async (customerId: string) =>
+      (await call<List<AsaasPixAuthorization>>('GET', `/pix/automatic/authorizations?${q({ customerId })}`)).data ?? [],
+
+    /** 404 = gone, 400 = no longer cancellable (already ended): both are what the caller wanted. */
+    cancelPixAutomaticAuthorization: async (id: string): Promise<true> => {
+      try {
+        await call('DELETE', `/pix/automatic/authorizations/${encodeURIComponent(id)}`);
+      } catch (e) {
+        if (!(e instanceof AsaasError && (e.status === 404 || e.status === 400))) throw e;
+      }
+      return true;
+    },
 
     getPayment: (id: string) => call<AsaasPayment>('GET', `/payments/${encodeURIComponent(id)}`),
 
