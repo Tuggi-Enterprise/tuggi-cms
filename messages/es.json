@@ -93,6 +93,7 @@
     "section_diagnostics": "Diagnóstico",
     "coupons": "Cupones",
     "audit_logs": "Registros de Auditoría",
+    "reward_settings": "Horas concedidas",
     "user_base": "Base de Usuarios",
     "finance": "Finanzas",
     "materials": "Material",
@@ -1133,7 +1134,7 @@
         "title": "Contenido de la notificación",
         "label_title": "Título",
         "label_body": "Cuerpo del mensaje",
-        "label_image": "URL de la imagen (opcional)",
+        "label_image": "Imagen (URL https, opcional)",
         "label_badge": "Contador del badge (icono de la app)",
         "placeholder_title": "Ej.: ¡Una oferta personalizada para ti! 🎁",
         "placeholder_body": "Escribe el contenido principal de la notificación...",
@@ -1146,7 +1147,8 @@
         "campaign_type_label": "Clave de la campaña",
         "campaign_type_placeholder": "ej.: promo_verano_2026",
         "campaign_type_hint": "Va en data.type y es lo que separa esta campaña de las demás en el informe. Sin ella todas son la misma línea.",
-        "campaign_type_required": "La clave de la campaña es obligatoria."
+        "campaign_type_required": "La clave de la campaña es obligatoria.",
+        "image_invalid": "La imagen necesita una dirección https://. La app no muestra otra."
       },
       "scheduling": {
         "title": "Programación",
@@ -1157,9 +1159,7 @@
       },
       "advanced": {
         "title": "Ajustes avanzados",
-        "hint": "Deep link, badge y prioridad. Casi nunca hace falta tocarlo.",
-        "label_link": "Deep link (URL o ruta)",
-        "placeholder_link": "ej.: /ruta/123 o https://...",
+        "hint": "Imagen, badge y prioridad. Casi nunca hace falta cambiarlos.",
         "label_priority": "Prioridad alta",
         "priority_hint": "Solo para mensajes urgentes. Firebase degrada a quien abusa, y el castigo alcanza a todos los push de la app, incluido el diario."
       },
@@ -1276,6 +1276,23 @@
         "empty_body": "Crea la primera plantilla para reutilizar campañas habituales.",
         "empty_cta": "Crear plantilla",
         "load_failed": "No se pudieron cargar las plantillas: {error}"
+      },
+      "destination": {
+        "label": "Destino en la app",
+        "placeholder": "Elige adónde lleva el toque",
+        "hint": "Obligatorio. Es el botón del mensaje en el buzón de la app.",
+        "label_external": "Enlace externo (http/https)",
+        "external_invalid": "Usa una dirección completa que empiece con https://",
+        "options": {
+          "map": "Mapa",
+          "guide_start": "Activar la guía",
+          "earn": "Ganar horas",
+          "stamps": "Sellos (invitar amigos)",
+          "ranking": "Clasificación semanal",
+          "plans": "Pases",
+          "trips": "Mis viajes (Pasaporte)",
+          "external": "Enlace externo"
+        }
       }
     },
     "Marketing": {

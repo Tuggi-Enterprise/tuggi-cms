@@ -59,6 +59,14 @@ import {
   type PushLanguage,
 } from '@/lib/services/notification-service';
 import { dashboardService } from '@/lib/services/dashboard-service';
+import {
+  DESTINATION_CHOICES,
+  EXTERNAL_DESTINATION,
+  destinationKey,
+  destinationLink,
+  isHttpsUrl,
+  type DestinationChoice,
+} from '@/lib/notifications/app-destination';
 
 /**
  * WHAT THE DEVICE ACTUALLY SHOWS, and the reason the counters are these numbers.
@@ -84,6 +92,8 @@ export function NotificationManager() {
   const [campaignType, setCampaignType] = useState('');
   const [imageUrl, setImageUrl] = useState('');
   const [badge, setBadge] = useState<number | undefined>(undefined);
+  /** Required since #860: one of the app routes, or `external` + `deepLink`. */
+  const [destination, setDestination] = useState<DestinationChoice | ''>('');
   const [deepLink, setDeepLink] = useState('');
   const [isHighPriority, setIsHighPriority] = useState(false);
   const [filters, setFilters] = useState<AudienceFilters>({});
@@ -106,6 +116,7 @@ export function NotificationManager() {
   const imageFieldId = useId();
   const badgeFieldId = useId();
   const deepLinkId = useId();
+  const destinationId = useId();
   const scheduleId = useId();
   const defaultLangId = useId();
   const activeLangId = useId();
@@ -141,11 +152,16 @@ export function NotificationManager() {
   }, [filledLanguages, filters.language, isDirect, defaultLang]);
 
   const normalizedType = toCampaignType(campaignType);
+  const link = destinationLink(destination, deepLink);
+  const trimmedImage = imageUrl.trim();
+  const imageOk = trimmedImage === '' || isHttpsUrl(trimmedImage);
   const canOpenConfirm =
     canEdit &&
     !isSending &&
     normalizedType.length > 0 &&
     targetLanguages.length > 0 &&
+    link !== null &&
+    imageOk &&
     (!isDirect || selectedUsers.length > 0);
 
   // Load users for Direct Push. A busca vai ao banco: a lista sem termo traz só
@@ -183,7 +199,7 @@ export function NotificationManager() {
     return {
       title: content.title,
       body: content.body,
-      imageUrl: imageUrl || undefined,
+      imageUrl: trimmedImage || undefined,
       badge,
       data: {
         /**
@@ -196,7 +212,13 @@ export function NotificationManager() {
          * carried, because the function swaps title and body and leaves `data` alone.
          */
         type: normalizedType,
-        ...(deepLink ? { url: deepLink } : {}),
+        /**
+         * #860: the link is required and comes from the closed list (`app-destination.ts`).
+         * `url`, not a new key — contract §2.2 forbids a fourth spelling. `image_url` is what
+         * the app's inbox detail reads (spec #860 §3.D); `imageUrl` above is the FCM banner.
+         */
+        ...(link ? { url: link } : {}),
+        ...(trimmedImage ? { image_url: trimmedImage } : {}),
       },
     };
   };
@@ -217,6 +239,7 @@ export function NotificationManager() {
     setCampaignType('');
     setImageUrl('');
     setBadge(undefined);
+    setDestination('');
     setDeepLink('');
     setIsHighPriority(false);
     setScheduleAt('');
@@ -580,6 +603,50 @@ export function NotificationManager() {
                       placeholder={t('content.placeholder_body')}
                     />
                   </div>
+                  {/* #860: required, closed list. The same for every language of the campaign. */}
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div className="grid gap-2">
+                      <Label htmlFor={destinationId} className="font-bold text-gray-700 dark:text-gray-300">
+                        {t('destination.label')}
+                      </Label>
+                      <Select
+                        id={destinationId}
+                        required
+                        value={destination}
+                        onValueChange={(v) => setDestination(v as DestinationChoice | '')}
+                      >
+                        <SelectItem value="" disabled>
+                          {t('destination.placeholder')}
+                        </SelectItem>
+                        {DESTINATION_CHOICES.map((c) => (
+                          <SelectItem key={c} value={c}>
+                            {t(`destination.options.${destinationKey(c)}`)}
+                          </SelectItem>
+                        ))}
+                      </Select>
+                      <p className="text-xs text-gray-500">{t('destination.hint')}</p>
+                    </div>
+                    {destination === EXTERNAL_DESTINATION && (
+                      <div className="grid gap-2">
+                        <Label htmlFor={deepLinkId} className="font-bold text-gray-700 dark:text-gray-300">
+                          {t('destination.label_external')}
+                        </Label>
+                        <Input
+                          id={deepLinkId}
+                          type="url"
+                          required
+                          aria-invalid={deepLink.trim() !== '' && link === null}
+                          className="rounded-xl border-gray-200 dark:border-gray-700 focus:ring-tuggi-blue focus:border-tuggi-blue"
+                          value={deepLink}
+                          onChange={(e) => setDeepLink(e.target.value)}
+                          placeholder="https://tuggi.app/..."
+                        />
+                        {deepLink.trim() !== '' && link === null && (
+                          <p className="text-xs font-bold text-red-700">{t('destination.external_invalid')}</p>
+                        )}
+                      </div>
+                    )}
+                  </div>
                 </CardContent>
               </Card>
 
@@ -634,19 +701,6 @@ export function NotificationManager() {
                   <span className="ml-2 text-xs font-normal text-gray-400">{t('advanced.hint')}</span>
                 </summary>
                 <div className="px-6 pb-6 space-y-6">
-                  <div className="grid gap-2">
-                    <Label htmlFor={deepLinkId} className="font-bold text-gray-700 dark:text-gray-300">
-                      {t('advanced.label_link')}
-                    </Label>
-                    <Input
-                      id={deepLinkId}
-                      className="rounded-xl border-gray-200 dark:border-gray-700 focus:ring-tuggi-blue focus:border-tuggi-blue"
-                      value={deepLink}
-                      onChange={(e) => setDeepLink(e.target.value)}
-                      placeholder={t('advanced.placeholder_link')}
-                    />
-                  </div>
-
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                     <div className="grid gap-2">
                       <Label htmlFor={imageFieldId} className="font-bold text-gray-700 dark:text-gray-300">
@@ -655,10 +709,15 @@ export function NotificationManager() {
                       <Input
                         id={imageFieldId}
                         className="rounded-xl border-gray-200 dark:border-gray-700 focus:ring-tuggi-blue focus:border-tuggi-blue"
+                        type="url"
+                        aria-invalid={!imageOk}
                         value={imageUrl}
                         onChange={(e) => setImageUrl(e.target.value)}
                         placeholder="https://example.com/image.png"
                       />
+                      {!imageOk && (
+                        <p className="text-xs font-bold text-red-700">{t('content.image_invalid')}</p>
+                      )}
                     </div>
                     <div className="grid gap-2">
                       <Label htmlFor={badgeFieldId} className="font-bold text-gray-700 dark:text-gray-300">
@@ -788,9 +847,9 @@ export function NotificationManager() {
                         {active.body || t('preview.placeholder_body')}
                       </p>
                     </div>
-                    {imageUrl && (
+                    {imageOk && trimmedImage && (
                       <div className="mt-4 rounded-2xl overflow-hidden border border-gray-100 dark:border-gray-800">
-                        <img src={imageUrl} alt="" className="w-full h-40 object-cover bg-gray-100" />
+                        <img src={trimmedImage} alt="" className="w-full h-40 object-cover bg-gray-100" />
                       </div>
                     )}
                   </div>

@@ -268,12 +268,20 @@ export interface SynthesisOptions {
    * system audio turn it off.
    */
   dramaticPause?: boolean;
+  /**
+   * A full Google voice name (`pt-BR-Standard-B`) that bypasses the tier resolution. For the one
+   * caller that needs a voice outside both tiers — the Portal Locais preview, on Standard voices
+   * (BR-B2B-051, item 4). The language code still comes from `language`.
+   */
+  fullVoiceName?: string;
 }
 
 export interface SynthesisResult {
   audio: ArrayBuffer;
   voice: ResolvedVoice;
   encoding: 'MP3' | 'LINEAR16';
+  /** Characters Google bills for this request: the whole SSML string, tags included. */
+  billedCharacters: number;
 }
 
 /**
@@ -297,11 +305,13 @@ export const synthesizeSpeech = async (
     audioEncoding = 'MP3',
     effectsProfile = true,
     dramaticPause = true,
+    fullVoiceName,
   } = options;
 
   console.log(`[TTS] Starting audio generation for language: ${language}, gender: ${gender}, tier: ${tier}`);
 
-  const voiceConfig = getVoiceConfig(language, gender, tier, voiceName);
+  const resolvedVoice = getVoiceConfig(language, gender, tier, voiceName);
+  const voiceConfig = fullVoiceName ? { ...resolvedVoice, name: fullVoiceName } : resolvedVoice;
   let sanitizedText = escapeSsml(text);
 
   // Dynamic Prosody: Inject a dramatic pause after the first phrase (POI Name)
@@ -317,10 +327,9 @@ export const synthesizeSpeech = async (
 
   // Use SSML for better control over the narration
   // Adding a short 500ms break at the beginning helps with Bluetooth devices that might clip the start
+  const ssml = `<speak><break time="500ms"/>${sanitizedText}</speak>`;
   const requestBody = {
-    input: {
-      ssml: `<speak><break time="500ms"/>${sanitizedText}</speak>`
-    },
+    input: { ssml },
     voice: {
       languageCode: voiceConfig.languageCode,
       name: voiceConfig.name,
@@ -377,7 +386,12 @@ export const synthesizeSpeech = async (
   const audioBuffer = Uint8Array.from(atob(data.audioContent), c => c.charCodeAt(0));
   console.log(`[TTS] Audio buffer size: ${audioBuffer.byteLength} bytes`);
 
-  return { audio: audioBuffer.buffer, voice: voiceConfig, encoding: audioEncoding };
+  return {
+    audio: audioBuffer.buffer,
+    voice: voiceConfig,
+    encoding: audioEncoding,
+    billedCharacters: ssml.length,
+  };
 };
 
 /**

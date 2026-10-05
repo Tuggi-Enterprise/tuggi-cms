@@ -52,6 +52,32 @@ export type PartnerFieldId =
   | 'story_event'
   | 'plan_choice'
 
+/**
+ * Keys only the Portal Locais (`tuggi-places`) writes, into `partner.place_submissions.answers`
+ * — `docs/contracts/partner-proposal-answers.md` §8.1. Not form fields: the conference of the
+ * old form never renders them, so they are not in `PARTNER_FORM_FIELDS`. What the approval
+ * reads from them is `place-prefill.ts`.
+ */
+export type PortalFieldId =
+  | 'address_number'
+  | 'lat'
+  | 'lng'
+  | 'amenities'
+  | 'languages'
+  | 'whatsapp'
+  | 'subtypes'
+  | 'price_range'
+  | 'signature_item'
+  | 'story_script'
+  | 'offer_enabled'
+  | 'offer_free'
+  | 'offer_subscriber'
+  | 'billing_period'
+  | 'voucher_code'
+  | 'representative_cpf'
+  | 'referral_source'
+  | 'referral_code'
+
 export interface PartnerAnswerField {
   id: PartnerFieldId
   step: 1 | 2 | 3
@@ -65,6 +91,7 @@ export const PARTNER_CATEGORIES = [
   'inn',
   'shop',
   'attraction',
+  'fitness_center',
   'other',
 ] as const
 

@@ -318,8 +318,8 @@ export const placeService = {
     return data as string
   },
 
-  async updateDetails(attractionId: string, patch: Record<string, any>) {
-    const { error } = await client()
+  async updateDetails(attractionId: string, patch: Record<string, any>, db?: SupabaseClient) {
+    const { error } = await client(db)
       .schema('core')
       .from('place_details')
       .update(patch)
@@ -547,8 +547,8 @@ export const placeService = {
   },
 
   /** Set/edit the place's coordinate (upsert in core.attraction_coordinate). */
-  async setCoordinate(attractionId: string, latitude: number, longitude: number) {
-    const { error } = await client()
+  async setCoordinate(attractionId: string, latitude: number, longitude: number, db?: SupabaseClient) {
+    const { error } = await client(db)
       .schema('core')
       .rpc('cms_set_attraction_coordinate', {
         p_attraction_id: attractionId,

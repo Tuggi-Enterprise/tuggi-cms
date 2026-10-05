@@ -77,18 +77,24 @@ const buildThinkingConfig = (model: string): Record<string, unknown> | undefined
  * Retorna texto + usageMetadata. Coleta o motivo de falha de CADA modelo (status
  * HTTP / finishReason) p/ diagnóstico — antes só o erro do último era exposto.
  */
-const runGeminiPromptWithUsage = async (
+// Tradução no gemini-2.5-flash-lite (barato: $0.10/$0.40, testado ativo e OK em
+// multiscript). Fallback vivo no 3.1-flash-lite se o 2.5-flash-lite flapar.
+const DEFAULT_GEMINI_MODELS: readonly string[] = [
+    'gemini-2.5-flash-lite',
+    'gemini-3.1-flash-lite'
+];
+
+/**
+ * Exported for callers that must pin ONE model, priced on it (the Portal Locais preview,
+ * BR-B2B-051 item 4, passes `['gemini-2.5-flash-lite']`). Translation keeps the fallback list.
+ */
+export const runGeminiPromptWithUsage = async (
     prompt: string,
     apiKey: string,
     maxOutputTokens = 2048,
-    temperature = 0.3
+    temperature = 0.3,
+    models: readonly string[] = DEFAULT_GEMINI_MODELS
 ): Promise<GeminiTextResult> => {
-    // Tradução no gemini-2.5-flash-lite (barato: $0.10/$0.40, testado ativo e OK em
-    // multiscript). Fallback vivo no 3.1-flash-lite se o 2.5-flash-lite flapar.
-    const models = [
-        'gemini-2.5-flash-lite',
-        'gemini-3.1-flash-lite'
-    ];
 
     let lastError: Error | null = null;
     const attempts: string[] = [];

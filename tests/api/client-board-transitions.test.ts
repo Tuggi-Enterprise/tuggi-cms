@@ -459,3 +459,85 @@ test('#409 · the board never filters on its own: it hands the rail its own view
     buildDirectoryView(SPREAD, applied).rows.map((item) => item.clientId)
   )
 })
+
+// ── The Portal Locais on the same board (#812, BR-B2B-049, BR-B2B-047) ────────────────────────
+
+import {
+  PORTAL_BOARD_STATUSES,
+  derivePipelineState,
+  isPortalBoardStatus,
+  portalDetailTarget,
+} from '@/lib/partnerships/pipeline'
+import { recordHref } from '@/lib/clients/record-href'
+
+const NO_CONF = { documentsSeen: [], reviewedAt: null, reviewedBy: null } as unknown as Parameters<
+  typeof derivePipelineState
+>[0]['conference']
+
+function portalState(status: (typeof PORTAL_BOARD_STATUSES)[number], clientId: string | null = null) {
+  return derivePipelineState({
+    origin: 'portal',
+    portalStatus: status,
+    proposalStatus: 'submitted',
+    conference: NO_CONF,
+    clientId,
+    contract: 'none',
+    placeCount: 0,
+    publishedPlaceCount: 0,
+  })
+}
+
+test('BR-B2B-049: each board status of the portal maps to one state and one column', () => {
+  assert.equal(columnOf(portalState('in_review')), 'conference')
+  assert.equal(columnOf(portalState('changes_requested')), 'conference')
+  assert.equal(columnOf(portalState('approved')), 'curation')
+  assert.equal(columnOf(portalState('live')), 'published')
+  assert.equal(columnOf(portalState('rejected')), 'closed')
+  assert.deepEqual(unmappedStates(), [])
+})
+
+test('BR-B2B-049: draft and awaiting_payment never reach the board', () => {
+  assert.equal(isPortalBoardStatus('draft'), false)
+  assert.equal(isPortalBoardStatus('awaiting_payment'), false)
+  assert.equal(isPortalBoardStatus('in_review'), true)
+})
+
+test('BR-B2B-047: a portal client without a contract is not `client_created` — the branch runs first', () => {
+  assert.equal(portalState('approved', 'client-9'), 'approved_awaiting_narration')
+})
+
+test('BR-B2B-047 item 1: a portal card cannot be dropped on the contract columns', () => {
+  const portal = row({ origin: 'portal', state: 'in_validation', clientId: null })
+  for (const to of ['client', 'contract_sent', 'contract_signed'] as BoardColumnId[]) {
+    assert.deepEqual(planTransition(portal, 'conference', to), {
+      kind: 'blocked',
+      reason: 'portal_skips_contract',
+    })
+  }
+})
+
+test('#812: approving and refusing a portal card open the validation screen, never act on the drop', () => {
+  const portal = row({ origin: 'portal', state: 'in_validation', clientId: null })
+  assert.deepEqual(planTransition(portal, 'conference', 'curation'), { kind: 'act', act: 'open_validation' })
+  assert.deepEqual(planTransition(portal, 'conference', 'closed'), { kind: 'act', act: 'open_validation' })
+  assert.equal(nextAct(portal, 'conference'), 'open_validation')
+})
+
+test('#812: the form rows keep their old acts', () => {
+  const form = row({ state: 'in_conference', clientId: null })
+  assert.deepEqual(planTransition(form, 'conference', 'client'), { kind: 'act', act: 'open_promotion' })
+})
+
+test('#812: a portal row opens the validation screen until it is live', () => {
+  const ids = { submissionId: 'sub-7', clientId: 'client-7' }
+  assert.deepEqual(portalDetailTarget('in_validation', ids), { kind: 'validation', submissionId: 'sub-7' })
+  assert.deepEqual(portalDetailTarget('published', ids), {
+    kind: 'client',
+    clientId: 'client-7',
+    tab: 'partnership',
+  })
+  assert.equal(
+    recordHref('pt', new URLSearchParams(), { kind: 'validation', submissionId: 'sub-7' }),
+    '/pt/admin/partnerships/validation/sub-7'
+  )
+})
