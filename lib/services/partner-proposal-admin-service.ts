@@ -572,7 +572,10 @@ export async function createPromotedClient(
     .select('id')
     .single()
 
-  if (error || !data) return { ok: false, reason: 'write_failed' }
+  if (error || !data) {
+    console.error('[partner-proposal] client insert failed', error?.code ?? 'no_row')
+    return { ok: false, reason: 'write_failed' }
+  }
   return { ok: true, clientId: (data as { id: string }).id, created: true }
 }
 
