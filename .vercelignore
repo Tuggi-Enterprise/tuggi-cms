@@ -25,3 +25,5 @@ db-clone/
 .env.development.local
 .env.test.local
 .env.production.local 
+# Testes importam supabase/functions (ignorado acima) e o next build faz type-check deles; não vão ao deploy.
+tests/
