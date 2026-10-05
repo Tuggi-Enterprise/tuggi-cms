@@ -215,7 +215,7 @@ export function asaasClient(cfg: AsaasConfig) {
       call<AsaasPixAuthorization>('GET', `/pix/automatic/authorizations/${encodeURIComponent(id)}`),
 
     listPixAutomaticAuthorizations: async (customerId: string) =>
-      (await call<List<AsaasPixAuthorization>>('GET', `/pix/automatic/authorizations?${q({ customerId })}`)).data ?? [],
+      (await call<List<AsaasPixAuthorization>>('GET', `/pix/automatic/authorizations?${q({ customerId, status: 'CREATED', limit: '100' })}`)).data ?? [],
 
     /** 404 = gone, 400 = no longer cancellable (already ended): both are what the caller wanted. */
     cancelPixAutomaticAuthorization: async (id: string): Promise<true> => {
