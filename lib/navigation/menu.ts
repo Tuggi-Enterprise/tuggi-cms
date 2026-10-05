@@ -62,6 +62,7 @@ import {
   Coins,
   Database,
   Gift,
+  Hourglass,
   Handshake,
   LayoutDashboard,
   Mail,
@@ -252,6 +253,8 @@ function catalogue(): { basic: NavEntry[]; modules: NavEntry[] } {
               item('/admin/users', 'cms_team', UserCog),
               item('/users/app', 'app_users', Smartphone),
               item('/admin/audit-logs', 'audit_logs', Activity),
+              // Os números das horas concedidas (#855): escrita só por `drive.set_reward_setting`.
+              item('/admin/reward-settings', 'reward_settings', Hourglass),
             ],
           },
         ],
