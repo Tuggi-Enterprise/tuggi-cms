@@ -1146,7 +1146,7 @@
         "title": "Notification content",
         "label_title": "Title",
         "label_body": "Message body",
-        "label_image": "Image URL (optional)",
+        "label_image": "Image (https URL, optional)",
         "label_badge": "Badge count (app icon)",
         "placeholder_title": "e.g. A personalised offer for you! 🎁",
         "placeholder_body": "Write the main content of the notification...",
@@ -1159,7 +1159,8 @@
         "campaign_type_label": "Campaign key",
         "campaign_type_placeholder": "e.g. summer_promo_2026",
         "campaign_type_hint": "Goes into data.type and is what separates this campaign from the others in the report. Without it they all become one line.",
-        "campaign_type_required": "The campaign key is required."
+        "campaign_type_required": "The campaign key is required.",
+        "image_invalid": "The image needs an https:// address. The app shows no other."
       },
       "scheduling": {
         "title": "Scheduling",
@@ -1170,9 +1171,7 @@
       },
       "advanced": {
         "title": "Advanced settings",
-        "hint": "Deep link, badge and priority. Rarely needs touching.",
-        "label_link": "Deep link (URL or route)",
-        "placeholder_link": "e.g. /trail/123 or https://...",
+        "hint": "Image, badge and priority. Rarely needs changing.",
         "label_priority": "High priority",
         "priority_hint": "Urgent messages only. Firebase deprioritises apps that overuse it, and the penalty hits every push the app sends, the daily one included.",
         "priority_hint_short": "Urgent messages only."
@@ -1290,6 +1289,23 @@
         "empty_body": "Create the first template to reuse common campaigns.",
         "empty_cta": "Create template",
         "load_failed": "Could not load the templates: {error}"
+      },
+      "destination": {
+        "label": "Destination in the app",
+        "placeholder": "Choose where the tap goes",
+        "hint": "Required. It is the message button in the app inbox.",
+        "label_external": "External link (http/https)",
+        "external_invalid": "Use a full address starting with https://",
+        "options": {
+          "map": "Map",
+          "guide_start": "Turn on the guide",
+          "earn": "Earn hours",
+          "stamps": "Stamps (invite friends)",
+          "ranking": "Weekly leaderboard",
+          "plans": "Passes",
+          "trips": "My trips (Passport)",
+          "external": "External link"
+        }
       }
     },
     "Marketing": {

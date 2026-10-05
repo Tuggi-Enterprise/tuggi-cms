@@ -1144,7 +1144,7 @@
         "title": "Conteúdo da notificação",
         "label_title": "Título",
         "label_body": "Corpo da mensagem",
-        "label_image": "URL da imagem (opcional)",
+        "label_image": "Imagem (URL https, opcional)",
         "label_badge": "Contagem de badge (ícone do app)",
         "placeholder_title": "Ex.: Oferta personalizada para você! 🎁",
         "placeholder_body": "Escreva o conteúdo principal da notificação...",
@@ -1157,7 +1157,8 @@
         "campaign_type_label": "Chave da campanha",
         "campaign_type_placeholder": "ex.: promo_verao_2026",
         "campaign_type_hint": "Vai em data.type e é o que separa esta campanha das outras no relatório. Sem ela, tudo vira a mesma linha.",
-        "campaign_type_required": "A chave da campanha é obrigatória."
+        "campaign_type_required": "A chave da campanha é obrigatória.",
+        "image_invalid": "A imagem precisa de um endereço https://. O app não mostra outro."
       },
       "scheduling": {
         "title": "Agendamento",
@@ -1168,9 +1169,7 @@
       },
       "advanced": {
         "title": "Configurações avançadas",
-        "hint": "Deep link, badge e prioridade. Quase nunca é preciso mexer.",
-        "label_link": "Deep link (URL ou rota)",
-        "placeholder_link": "ex.: /trilha/123 ou https://...",
+        "hint": "Imagem, badge e prioridade. Quase nunca é preciso mexer.",
         "label_priority": "Alta prioridade",
         "priority_hint": "Só para mensagem urgente. O Firebase rebaixa quem abusa, e o rebaixamento atinge todos os pushes do app, inclusive o diário."
       },
@@ -1287,6 +1286,23 @@
         "empty_body": "Crie o primeiro modelo para reaproveitar campanhas comuns.",
         "empty_cta": "Criar modelo",
         "load_failed": "Não foi possível carregar os modelos: {error}"
+      },
+      "destination": {
+        "label": "Destino no app",
+        "placeholder": "Escolha para onde o toque leva",
+        "hint": "Obrigatório. É o botão da mensagem no Correio do app.",
+        "label_external": "Link externo (http/https)",
+        "external_invalid": "Use um endereço completo começando com https://",
+        "options": {
+          "map": "Mapa",
+          "guide_start": "Ligar o guia",
+          "earn": "Ganhar horas",
+          "stamps": "Carimbos (convidar amigos)",
+          "ranking": "Placar da semana",
+          "plans": "Passes",
+          "trips": "Minhas viagens (Passaporte)",
+          "external": "Link externo"
+        }
       }
     },
     "Marketing": {
