@@ -228,6 +228,14 @@ export function asaasClient(cfg: AsaasConfig) {
       return true;
     },
 
+    /**
+     * A one-off Pix charge (`POST /v3/payments`, `billingType: PIX`), outside any subscription: the
+     * early-termination fee of a Pix Automático plan, whose authorized `value` cannot change.
+     * `invoiceUrl` is the page where the payer gets the QR (the customer has Asaas e-mails off).
+     */
+    createPixPayment: (c: { customer: string; value: number; dueDate: string; description: string }) =>
+      call<AsaasPayment & { invoiceUrl?: string | null }>('POST', '/payments', { ...c, billingType: 'PIX' }),
+
     getPayment: (id: string) => call<AsaasPayment>('GET', `/payments/${encodeURIComponent(id)}`),
 
     deletePayment: (id: string) => call('DELETE', `/payments/${encodeURIComponent(id)}`),

@@ -1,7 +1,7 @@
 // _shared/places-payment.ts — the payment of the Com história plan (#811, épico #802).
 //
 // Contract: `docs/contracts/places-pagamento.md` (workspace). Rules: BR-B2B-044, BR-B2B-045,
-// BR-B2B-046, BR-B2B-049, BR-B2B-055; term `locais-2026-10-v2`, clauses 4.1–4.7.
+// BR-B2B-046, BR-B2B-049, BR-B2B-055; term `locais-2026-10-v7`, clauses 4.1–4.7.
 //
 // Three Edge Functions wire this module and do nothing else:
 //   - `places-payment`         the portal's Worker (`x-places-secret` + the user's JWT), or — the
@@ -38,11 +38,15 @@
 //
 // MONTHLY WITH A COMMITMENT (operator 2026-10-06, #863, BR-B2B-045/046, contract
 // places-portal-rascunho §8): every Asaas subscription is `MONTHLY` and charges one fee; every date
-// sum is ONE month; `billing_period` (1/3/6) is only the commitment length. Turning the renewal off
-// (`core.portal_cancel_renewal`) does not stop the fees: `cancelRenewal` sets the subscription's
-// `endDate` to the eve of the commitment end, and the sweep DELETEs it once the last fee is paid
-// (`partner.place_commitments_ending`). Each `PAYMENT_CONFIRMED`/`RECEIVED` is one fee, checked by
-// `confirm_place_charge`; after it, `syncNextAmount` moves `value` to the next fee (voucher diluted).
+// sum is ONE month; `billing_period` (1/3/6) is only the commitment length. Each
+// `PAYMENT_CONFIRMED`/`RECEIVED` is one fee, checked by `confirm_place_charge`; after it,
+// `syncNextAmount` moves `value` to the next fee (voucher diluted).
+//
+// CANCEL (operator 2026-10-06, places-portal-rascunho §8.4): it takes effect at once — no new fee,
+// the story stays up to `paid_through`. Inside the commitment the database prices ONE charge, the
+// discount given on the months used (`early_termination_fee_cents`), due on `paid_through` by the
+// same method (`cancelRenewal`). The cancellation never waits for that charge (CDC art. 39); an
+// unpaid one is not chased (BR-B2B-046 item 7).
 
 import { constantTimeEqual } from './constant-time.ts';
 import {
@@ -389,7 +393,11 @@ async function payableCheckout(deps: Deps, submissionId: string): Promise<Checko
   return payableRow(firstRow<CheckoutRow>(data));
 }
 
-/** Null `next_due_date` = paid and waiting for approval; not `pending_payment` = nothing to pay. */
+/**
+ * Payable = `pending_payment`, attachable, with a due date (today). Not `pending_payment` = nothing
+ * to pay. A null `next_due_date` is no longer "paid, waiting for approval" — the paid month starts at
+ * the first payment (20261006160000) — it only guards a row with no charge to make.
+ */
 function payableRow<T extends CheckoutRow>(co: T | null): T | Reply {
   if (!co) return reply(502, { error: 'unavailable' });
   if (co.status !== 'pending_payment' || !co.attachable || !co.next_due_date) {
@@ -620,14 +628,47 @@ async function discardSubscription(deps: Deps, providerSubscriptionId: string, w
   }
 }
 
-// ─── portal: cancel renewal, regret refund, withdrawal ─────────────────────────────────────────
+// ─── portal: cancel, regret refund, withdrawal ─────────────────────────────────────────────────
+
+/** `core.portal_cancel_quote`: what cancelling now costs, shown to the owner BEFORE the confirm (§8.4). */
+export type CancelQuote = {
+  fee_cents: number;
+  months_paid: number;
+  months_remaining: number;
+  service_ends_at: string | null;
+  charge_on: string | null;
+};
+
+/** The quote of cancelling now, with the user's JWT (the function proves the owner). Writes nothing. */
+export async function cancelQuote(deps: PortalDeps, submissionId: string): Promise<Reply> {
+  if (!isUuid(submissionId)) return reply(400, { error: 'invalid', field: 'submission_id' });
+  const { data, error } = await deps.user('core', 'portal_cancel_quote', { p_submission_id: submissionId });
+  if (error) return isBusinessError(error) ? portalErrorReply(error) : reply(502, { error: 'unavailable' });
+  const q = firstRow<CancelQuote>(data);
+  if (!q || !Number.isInteger(q.fee_cents) || q.fee_cents < 0) return reply(502, { error: 'unavailable' });
+  return reply(200, {
+    quote: {
+      fee_cents: q.fee_cents,
+      months_paid: q.months_paid,
+      months_remaining: q.months_remaining,
+      service_ends_at: q.service_ends_at ?? null,
+      charge_on: q.charge_on ?? null,
+    },
+  });
+}
+
+/** What the cancel e-mail says about the one charge left; null = nothing more is charged. */
+export type CancelFee = { cents: number; chargeOn: string; method: 'credit_card' | 'pix_automatic'; invoiceUrl: string | null };
 
 /**
- * Cancel = do not renew (contract places-portal-rascunho §8.4, BR-B2B-055). The database first,
- * with the user's JWT (`core.portal_cancel_renewal` proves the owner); the fees of the commitment
- * go on. Then `endDate` at Asaas (`endAtCommitment`), so no fee is born after the commitment; if
- * Asaas fails the database is NOT undone: the sweep DELETEs the subscription once the last fee is
- * paid (`partner.place_commitments_ending`). Term 4.5: e-mail "no ato".
+ * Cancel (contract places-portal-rascunho §8.4, BR-B2B-055). The database first, with the user's JWT
+ * (`core.portal_cancel_renewal` proves the owner, ends the commitment at `paid_through` and prices
+ * the fee); then Asaas, best effort — if it fails the database is NOT undone and the operator is
+ * alerted. Term 4.5: e-mail "no ato".
+ *
+ * - fee 0 (one-month plan, commitment served): `endDate` = eve of `paid_through`, nothing more is
+ *   charged (`endAtCommitment`);
+ * - fee > 0: `chargeEarlyTermination` — the next charge, on `paid_through`, is the fee and the last.
  */
 export async function cancelRenewal(deps: PortalDeps, submissionId: string): Promise<Reply> {
   if (!isUuid(submissionId)) return reply(400, { error: 'invalid', field: 'submission_id' });
@@ -637,17 +678,37 @@ export async function cancelRenewal(deps: PortalDeps, submissionId: string): Pro
     await deps.alert('cancel_failed', { code: error.code });
     return reply(502, { error: 'unavailable' });
   }
-  const row = firstRow<{ outcome: string; renews: boolean; commitment_ends_at: string | null; paid_through: string | null }>(data);
+  const row = firstRow<{
+    outcome: string;
+    renews: boolean;
+    commitment_ends_at: string | null;
+    paid_through: string | null;
+    early_termination_fee_cents: number | null;
+  }>(data);
   if (!row || row.outcome === 'not_applicable') return reply(200, { result: 'not_renewing' });
 
+  const ends = row.paid_through ?? row.commitment_ends_at;
+  const chargeOn = ends ? saoPauloDate(new Date(ends)) : null;
+  const feeCents = Math.max(0, Math.round(row.early_termination_fee_cents ?? 0));
   const ids = await deps.subscriptionIds(submissionId);
-  if (ids && row.commitment_ends_at) await endAtCommitment(deps, ids, row.commitment_ends_at);
+  // The fee is owed by the term whether or not Asaas took the change: the e-mail states it, and a
+  // failure below alerts the operator to schedule it by hand.
+  let fee: CancelFee | null = null;
+  if (feeCents > 0 && chargeOn) {
+    const method = ids?.payment_method === 'pix_automatic' ? 'pix_automatic' : 'credit_card';
+    const invoiceUrl = ids ? await chargeEarlyTermination(deps, ids, feeCents, chargeOn) : null;
+    if (!ids) await deps.alert('cancel_fee_not_scheduled', { submission_id: submissionId, reason: 'no_subscription', fee_cents: feeCents });
+    fee = { cents: feeCents, chargeOn, method, invoiceUrl };
+  } else if (feeCents > 0) {
+    await deps.alert('cancel_fee_not_scheduled', { submission_id: submissionId, reason: 'no_paid_through', fee_cents: feeCents });
+  } else if (ids && ends) {
+    await endAtCommitment(deps, ids, ends);
+  }
 
   const to = await deps.userEmail();
   if (to) {
-    // The story stays up to the end of the commitment, not of the month already paid.
-    const end = row.commitment_ends_at ?? row.paid_through;
-    const sent = await deps.sendEmail(to, CANCEL_EMAIL.subject, CANCEL_EMAIL.text(end ? formatDateBr(saoPauloDate(new Date(end))) : null));
+    const until = ends ? formatDateBr(saoPauloDate(new Date(ends))) : null;
+    const sent = await deps.sendEmail(to, CANCEL_EMAIL.subject, CANCEL_EMAIL.text(until, fee));
     if (!sent) await deps.alert('cancel_email_failed', { subscription_id: ids?.subscription_id ?? null });
   }
   return reply(200, { result: 'canceled' });
@@ -661,6 +722,65 @@ async function endAtCommitment(deps: Deps, ids: SubscriptionIds, commitmentEndsA
     await deps.asaas.updateSubscription(ids.provider_subscription_id, { endDate });
   } catch (e) {
     await deps.alert('cancel_end_date_failed', { subscription_id: ids.subscription_id, error: e instanceof Error ? e.message : 'unknown' });
+  }
+}
+
+/**
+ * The early-termination fee, ONE charge due on `chargeOn` (= `paid_through`), by the plan's method.
+ * Returns the Pix QR page for the e-mail (null on card, or when it could not be had). A failure
+ * alerts the operator (`cancel_fee_not_scheduled`) and the cancellation stands either way.
+ *
+ * - Card: the same mechanism as `syncNextAmount` — PUT `value` = fee with `updatePendingPayments`
+ *   (the charge Asaas already generated for `chargeOn` becomes the fee) and `endDate` = `chargeOn`,
+ *   so it is the last; a charge already generated after `chargeOn` is deleted.
+ * - Pix Automático: in `SUBSCRIPTION` mode the authorized `value` is fixed and every charge of the
+ *   authorization must respect it (docs.asaas.com, "FAQ do Pix Automático", question 6; checked
+ *   2026-10-06). So the fee is a one-off Pix charge (`createPixPayment`, no `externalReference`: the
+ *   webhook maps it through the customer, like the first Pix charge), and the recurrence ends now —
+ *   subscription (its pending charge goes with it) and authorization. The QR page goes in the e-mail.
+ */
+async function chargeEarlyTermination(deps: Deps, ids: SubscriptionIds, feeCents: number, chargeOn: string): Promise<string | null> {
+  const fail = async (step: string, e?: unknown) => {
+    await deps.alert('cancel_fee_not_scheduled', {
+      subscription_id: ids.subscription_id,
+      reason: step,
+      fee_cents: feeCents,
+      error: e instanceof Error ? e.message : null,
+    });
+    return null;
+  };
+  if (ids.payment_method === 'pix_automatic') {
+    let invoiceUrl: string | null = null;
+    try {
+      if (!ids.provider_customer_id) throw new Error('no_customer');
+      const p = await deps.asaas.createPixPayment({
+        customer: ids.provider_customer_id,
+        value: toReais(feeCents),
+        dueDate: chargeOn,
+        description: 'Tuggi Com história: diferença do desconto (cancelamento antes do fim da fidelidade)',
+      });
+      invoiceUrl = p.invoiceUrl ?? null;
+      if (!invoiceUrl) await deps.alert('cancel_fee_invoice_missing', { subscription_id: ids.subscription_id, provider_payment_id: p.id });
+    } catch (e) {
+      await fail('pix_charge', e);
+    }
+    // Ended even if the one-off failed: the recurrence would charge a full monthly fee on `chargeOn`.
+    try {
+      if (!ids.canceled_at) await endProviderSubscription(deps, ids);
+    } catch (e) {
+      await fail('pix_end_recurrence', e);
+    }
+    return invoiceUrl;
+  }
+
+  if (!ids.provider_subscription_id || ids.canceled_at) return fail('no_live_subscription');
+  try {
+    await deps.asaas.updateSubscription(ids.provider_subscription_id, { value: toReais(feeCents), endDate: chargeOn, updatePendingPayments: true });
+    const pending = await deps.asaas.listSubscriptionPayments(ids.provider_subscription_id, 'PENDING');
+    for (const p of pending) if (p.dueDate && p.dueDate > chargeOn) await deps.asaas.deletePayment(p.id);
+    return null;
+  } catch (e) {
+    return fail('card_update', e);
   }
 }
 
@@ -1257,20 +1377,40 @@ export function formatDateBr(iso: string): string {
   return `${d}/${m}/${y}`;
 }
 
-/** Term 4.5: "a TUGGI confirma o cancelamento por e-mail no ato". */
+/** `12345` → `R$ 123,45`, the same format as the portal's `brl`. */
+export function formatBrl(cents: number): string {
+  const [int, dec] = (Math.round(cents) / 100).toFixed(2).split('.');
+  return `R$ ${int.replace(/\B(?=(\d{3})+(?!\d))/g, '.')},${dec}`;
+}
+
+/** Term 4.5: "a TUGGI confirma o cancelamento por e-mail no ato". Contract places-portal-rascunho §8.4. */
 export const CANCEL_EMAIL = {
-  subject: 'Renovação do Com história cancelada',
-  text: (until: string | null) =>
-    [
+  subject: 'Plano Com história cancelado',
+  text: (until: string | null, fee: CancelFee | null) => {
+    const feeLines = !fee
+      ? ['Nenhuma outra cobrança será feita.']
+      : fee.method === 'credit_card'
+        ? [
+            `Como o cancelamento veio antes do fim da fidelidade, cobramos uma única vez ${formatBrl(fee.cents)}, a diferença do desconto dos meses usados, no seu cartão em ${formatDateBr(fee.chargeOn)}. Depois disso, nada mais é cobrado.`,
+          ]
+        : [
+            `Como o cancelamento veio antes do fim da fidelidade, cobramos uma única vez ${formatBrl(fee.cents)}, a diferença do desconto dos meses usados, por Pix, com vencimento em ${formatDateBr(fee.chargeOn)}. O Pix Automático foi encerrado: esta cobrança não sai sozinha da sua conta.`,
+            fee.invoiceUrl ? `Para pagar, abra: ${fee.invoiceUrl}` : 'Mandamos o código Pix para pagamento por e-mail antes dessa data.',
+            'Depois disso, nada mais é cobrado.',
+          ];
+    return [
       'Olá,',
       '',
-      'Cancelamos a renovação automática do plano Com história. As mensalidades seguem até o fim da fidelidade, e nada é cobrado depois disso.',
+      'Cancelamos o seu plano Com história. Nenhuma mensalidade nova será cobrada.',
       until
         ? `A história do seu local continua no ar até ${until}. Depois disso, o local segue no mapa do app no plano No mapa, sem custo.`
-        : 'Quando a fidelidade terminar, o local segue no mapa do app no plano No mapa, sem custo.',
+        : 'O local segue no mapa do app no plano No mapa, sem custo.',
+      '',
+      ...feeLines,
       '',
       'Se mudar de ideia, contrate um novo período pelo portal.',
       '',
       'Equipe Tuggi',
-    ].join('\n'),
+    ].join('\n');
+  },
 };

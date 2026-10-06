@@ -13,14 +13,14 @@
 // constant time) + `token_sha256` of the draft cookie, no JWT; only `checkout` and `checkout_pix`.
 // The submission comes from `portal_draft_payment_checkout`, never from the body.
 //
-// Body: { action: 'checkout' | 'checkout_pix' | 'cancel_renewal' | 'refund' | 'withdraw', submission_id, ... }.
+// Body: { action: 'checkout' | 'checkout_pix' | 'cancel_quote' | 'cancel_renewal' | 'refund' | 'withdraw', submission_id, ... }.
 // The card goes to Asaas in the same request and is never stored, logged or echoed. `checkout_pix`
 // answers { result: 'pix', pix: { payload, image, expires_at } }: the QR of the first charge.
 
 import { isPlacesSecret, PLACES_SECRET_HEADER } from '../_shared/places-secret.ts';
 import { isDraftSecret } from '../_shared/places-draft-secret.ts';
 import { DRAFT_SECRET_HEADER } from '../_shared/places-portal-draft.ts';
-import { cancelRenewal, checkout, checkoutPix, draftCheckout, draftCheckoutPix, requestRefund, withdraw, type PortalDeps } from '../_shared/places-payment.ts';
+import { cancelQuote, cancelRenewal, checkout, checkoutPix, draftCheckout, draftCheckoutPix, requestRefund, withdraw, type PortalDeps } from '../_shared/places-payment.ts';
 import { asaasFromEnv, baseDeps, json, userDeps } from '../_shared/places-payment-runtime.ts';
 
 /** The cookie's checkout (#863). The secret is checked before the body is read. */
@@ -78,6 +78,8 @@ Deno.serve(async (req: Request) => {
         ? await checkout(deps, body)
         : body.action === 'checkout_pix'
           ? await checkoutPix(deps, body)
+        : body.action === 'cancel_quote'
+          ? await cancelQuote(deps, submissionId)
         : body.action === 'cancel_renewal'
           ? await cancelRenewal(deps, submissionId)
           : body.action === 'refund'
