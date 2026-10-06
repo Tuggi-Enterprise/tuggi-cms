@@ -1,44 +1,16 @@
+import { redirect } from 'next/navigation'
 import { CLIENT_DIRECTORY_PATH } from '@/lib/clients/directory-filter'
-import { NextIntlClientProvider } from 'next-intl'
-import ptMessages from '@/messages/pt.json'
-import { PartnershipDetail } from '@/components/admin/partnerships/PartnershipDetail'
 
 /**
- * The pipeline of one partnership, from state 3 onwards — the identity of the row changes
- * halfway, and from the client's creation it is the client (spec §2).
- *
- * THREE NAMESPACES TRAVEL TOGETHER, and each one for a reason:
- *  · `Partnerships` — this screen's own copy, pt only, same decision as the queue;
- *  · `Modals` — `PlaceFormModal` reads `Modals.PlaceDetails`, and `Abrir o local` opens it
- *    right here (spec §6.3: it is a modal, so it comes back on its own);
- *  · `Common` — the primitives the modal borrows.
- * A missing one would print the key name inside the modal instead of a field label.
+ * The standalone pipeline screen is gone (#875): the five bands are the `partnership` tab of the
+ * client record, the same `PartnershipDetail`. This address only forwards the links already out
+ * there — e-mails, bookmarks — to the record.
  */
-export default async function PartnershipDetailPage({
+export default async function PartnershipDetailRedirect({
   params,
 }: {
   params: Promise<{ locale: string; clientId: string }>
 }) {
   const { locale, clientId } = await params
-
-  return (
-    <NextIntlClientProvider
-      locale="pt"
-      messages={{
-        Partnerships: ptMessages.Partnerships,
-        Modals: ptMessages.Modals,
-        Common: ptMessages.Common,
-      }}
-    >
-      {/* The way back is the working set of the client list — `/admin/partnerships` was
-          retired, and it was only ever this filter with a screen around it. The same component
-          rendered as a tab of the record gets no `backHref`: there the way out is the tab
-          strip. */}
-      <PartnershipDetail
-        locale={locale}
-        clientId={clientId}
-        backHref={`/${locale}${CLIENT_DIRECTORY_PATH}`}
-      />
-    </NextIntlClientProvider>
-  )
+  redirect(`/${locale}${CLIENT_DIRECTORY_PATH}?${new URLSearchParams({ clientId, tab: 'partnership' }).toString()}`)
 }

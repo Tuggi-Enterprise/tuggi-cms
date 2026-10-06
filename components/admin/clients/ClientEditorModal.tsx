@@ -35,6 +35,7 @@ import { PartnershipTab } from '@/components/admin/clients/tabs/PartnershipTab'
 import { CouponsTab } from '@/components/admin/clients/tabs/CouponsTab'
 import { ContractTab } from '@/components/admin/clients/tabs/ContractTab'
 import { DEFAULT_CLIENT_TYPE, DEFAULT_COMMISSION_RATE, type Client } from '@/types/clients'
+import { RecordCacheProvider, type RecordRead } from '@/lib/hooks/use-record-cache'
 
 /**
  * `places` was called `pois` while the tab was only the welcome-POI picker. It now lists the
@@ -106,6 +107,16 @@ export function ClientEditorModal({
   // AbortController so that switching clients mid-fetch doesn't paint
   // the old client's data into the new client's modal.
   const fetchAbortRef = useRef<AbortController | null>(null)
+
+  /**
+   * The reads the tabs share, one cache per open record (#875). A save or an approval can change
+   * what the partnership and the contract answer, so both drop it; the next tab to mount re-reads.
+   */
+  const recordCache = useMemo(
+    () => new Map<string, Promise<RecordRead>>(),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [clientId, isOpen]
+  )
 
   // Sync the active tab with the URL `?tab=` whenever it changes. The
   // previous effect read initialTab once on open and never again, so a
@@ -217,6 +228,7 @@ export function ClientEditorModal({
         const merged = client ? { ...client, ...data.client } : (data.client as Client)
         setClient(merged)
         setEdited(merged)
+        recordCache.clear()
         setSuccess(t('messages.saved'))
         setTimeout(() => setSuccess(null), 2500)
       } else {
@@ -336,6 +348,7 @@ export function ClientEditorModal({
                 clientName={edited.name ?? client?.name}
                 canEdit
                 onChanged={(next) => {
+                  recordCache.clear()
                   setClient((prev) => prev ? { ...prev, ...next } : prev)
                   setEdited((prev) => ({ ...prev, ...next }))
                 }}
@@ -476,6 +489,7 @@ export function ClientEditorModal({
 
                 {/* Right content area */}
                 <main className="flex-1 overflow-y-auto p-4 lg:p-8">
+                <RecordCacheProvider cache={recordCache}>
             {activeTab === 'partnership' && (
               <PartnershipTab
                 client={client}
@@ -510,11 +524,19 @@ export function ClientEditorModal({
               />
             )}
             {activeTab === 'places' && (
-              <PlacesTab client={client} edited={edited} updateField={updateField} canEdit clientId={clientId} />
+              <PlacesTab
+                client={client}
+                edited={edited}
+                updateField={updateField}
+                canEdit
+                clientId={clientId}
+                onOpenPipeline={() => setActiveTab('partnership')}
+              />
             )}
             {activeTab === 'coupons' && (
               <CouponsTab client={client} edited={edited} updateField={updateField} canEdit clientId={clientId} />
             )}
+                </RecordCacheProvider>
                 </main>
 
                 {/*

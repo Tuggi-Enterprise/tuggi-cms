@@ -12,47 +12,17 @@
  * `.claude/rules/codigo-em-ingles.md` governs code and the spec governs the surface.
  */
 
-import { useEffect, useState } from 'react'
 import { useLocale } from 'next-intl'
 import { FileSignature } from 'lucide-react'
 import { SectionHeader } from '@/components/admin/clients/shared/SectionHeader'
 import { formatDate, formatFee } from '@/lib/contract/snapshot'
 import { returnParams } from '@/lib/navigation/return-to'
+import { useClientContract } from '@/components/admin/clients/shared/use-client-contract'
 import type { ClientEditorTabProps } from './ProfileTab'
-
-interface Summary {
-  contract: {
-    status: 'draft' | 'sent' | 'signed' | 'superseded' | 'terminated'
-    tier: 'free' | 'paid'
-    templateVersion: string
-    createdAt: string
-    sentAt: string | null
-    snapshot: { monthlyFeeCents: number | null; isCourtesy: boolean }
-    feeDivergence: { diverges: boolean; registrationFeeCents: number | null }
-  } | null
-  acceptance: { acceptedAt: string; signerName: string } | null
-}
 
 export function ContractTab({ clientId }: ClientEditorTabProps) {
   const locale = useLocale()
-  const [summary, setSummary] = useState<Summary | null>(null)
-  const [failed, setFailed] = useState(false)
-
-  useEffect(() => {
-    if (!clientId) return
-    let active = true
-    fetch(`/api/admin/clients/${clientId}/contract`)
-      .then((response) => (response.ok ? response.json() : Promise.reject(new Error('load failed'))))
-      .then((data: Summary) => {
-        if (active) setSummary(data)
-      })
-      .catch(() => {
-        if (active) setFailed(true)
-      })
-    return () => {
-      active = false
-    }
-  }, [clientId])
+  const { summary, failed } = useClientContract(clientId)
 
   const contract = summary?.contract ?? null
   const acceptance = summary?.acceptance ?? null

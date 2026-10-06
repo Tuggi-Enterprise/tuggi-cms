@@ -14,7 +14,7 @@
 import { useCallback, useEffect, useMemo, useState, Suspense } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
 import { NextIntlClientProvider, useLocale, useMessages } from 'next-intl'
-import ptMessages from '@/messages/pt.json'
+import { PtOverlayProvider, type PtOverlay } from '@/lib/i18n/pt-overlay'
 import { ClientDirectory } from '@/components/admin/clients/ClientDirectory'
 import { ClientBoard } from '@/components/admin/clients/ClientBoard'
 import { useClientDirectory } from '@/lib/hooks/use-client-directory'
@@ -27,7 +27,7 @@ import { applyFilters, parseFilters, type DirectoryFilters } from '@/lib/clients
 import { recordHref } from '@/lib/clients/record-href'
 import type { ClientDirectoryRow } from '@/lib/services/partnership-service'
 
-function AdminClientsContent() {
+function AdminClientsContent({ ptMessages }: { ptMessages: PtOverlay }) {
   const router = useRouter()
   const searchParams = useSearchParams()
   const { session, isLoading: sessionLoading } = useSessionContext()
@@ -290,6 +290,7 @@ function AdminClientsContent() {
         )}
       </NextIntlClientProvider>
 
+      <PtOverlayProvider value={ptMessages}>
       <ClientEditorModal
         clientId={clientId ?? undefined}
         isOpen={Boolean(clientId) || isCreateNew}
@@ -309,18 +310,19 @@ function AdminClientsContent() {
           directory.reload()
         }}
       />
+      </PtOverlayProvider>
     </>
   )
 }
 
-export function AdminClientsPageContent() {
+export function AdminClientsPageContent({ ptMessages }: { ptMessages: PtOverlay }) {
   return (
     <Suspense fallback={
       <div className="flex items-center justify-center min-h-screen">
         <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-tuggi-blue mx-auto" />
       </div>
     }>
-      <AdminClientsContent />
+      <AdminClientsContent ptMessages={ptMessages} />
     </Suspense>
   )
 }

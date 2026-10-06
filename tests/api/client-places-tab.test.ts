@@ -42,7 +42,8 @@ test('the places tab reads the readiness, it does not compute it', () => {
 
   assert.match(
     tab,
-    /fetch\(`\/api\/admin\/partnerships\/clients\/\$\{clientId\}`\)/,
+    // Through the record cache since #875: the partnership tab and this one share one read.
+    /read<\{ detail\?: PartnershipDetail \}>\(`\/api\/admin\/partnerships\/clients\/\$\{clientId\}`, \{ fresh \}\)/,
     'the tab must read the same answer the pipeline and the queue read'
   )
   // Deciding what is missing has one owner. A second implementation would let the record and

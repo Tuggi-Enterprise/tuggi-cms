@@ -1,6 +1,5 @@
 'use client'
 
-import { useEffect, useState } from 'react'
 import { Scale, Landmark, Percent } from 'lucide-react'
 import { useTranslations } from 'next-intl'
 import type { Client } from '@/types/clients'
@@ -11,6 +10,7 @@ import { formatDate, formatFee } from '@/lib/contract/snapshot'
 import { registrationMoneyKind } from '@/lib/partnerships/publish-plan'
 import { paymentStance } from '@/lib/clients/partner-plan'
 import { PaymentStanceBadge } from '@/components/admin/clients/shared/PaymentStanceBadge'
+import { useClientContract } from '@/components/admin/clients/shared/use-client-contract'
 import type { ClientEditorTabProps } from './ProfileTab'
 
 function v<K extends keyof Client>(client: Client | null, edited: Partial<Client>, k: K): string {
@@ -28,30 +28,13 @@ function v<K extends keyof Client>(client: Client | null, edited: Partial<Client
  * the partner.
  */
 function useSignedContract(clientId?: string) {
-  const [signed, setSigned] = useState<{ acceptedAt: string; feeCents: number | null; courtesy: boolean } | null>(
-    null
-  )
-
-  useEffect(() => {
-    if (!clientId) return
-    let active = true
-    fetch(`/api/admin/clients/${clientId}/contract`)
-      .then((response) => (response.ok ? response.json() : null))
-      .then((data) => {
-        if (!active || !data?.acceptance || !data?.contract) return
-        setSigned({
-          acceptedAt: data.acceptance.acceptedAt,
-          feeCents: data.contract.snapshot?.monthlyFeeCents ?? null,
-          courtesy: Boolean(data.contract.snapshot?.isCourtesy),
-        })
-      })
-      .catch(() => undefined)
-    return () => {
-      active = false
-    }
-  }, [clientId])
-
-  return signed
+  const { summary } = useClientContract(clientId)
+  if (!summary?.acceptance || !summary.contract) return null
+  return {
+    acceptedAt: summary.acceptance.acceptedAt,
+    feeCents: summary.contract.snapshot?.monthlyFeeCents ?? null,
+    courtesy: Boolean(summary.contract.snapshot?.isCourtesy),
+  }
 }
 
 export function FiscalPaymentsTab({ client, edited, updateField, canEdit, clientId }: ClientEditorTabProps) {
