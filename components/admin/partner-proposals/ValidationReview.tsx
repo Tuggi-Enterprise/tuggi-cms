@@ -28,7 +28,6 @@ import {
   CreditCard,
   Eye,
   EyeOff,
-  ExternalLink,
   FileSignature,
   Gift,
   History,
@@ -297,9 +296,6 @@ export function ValidationReview({
   const lng = Number(answers.lng)
   const hasPin = answers.lat !== undefined && answers.lng !== undefined && Number.isFinite(lat) && Number.isFinite(lng)
   const mapsUrl = hasPin ? `https://www.google.com/maps/search/?api=1&query=${lat},${lng}` : null
-  const streetViewUrl = hasPin
-    ? `https://www.google.com/maps/@?api=1&map_action=pano&viewpoint=${lat},${lng}`
-    : null
   const hours = parseJson<Record<string, { open: string; close: string }[]>>(answers.opening_hours, {})
   const amenities = parseJson<string[]>(answers.amenities, [])
   const languages = parseJson<string[]>(answers.languages, [])
@@ -525,7 +521,7 @@ export function ValidationReview({
                 color="indigo-500"
                 aside={changed('place', 'facade')}
               >
-                <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
+                <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
                   <div className="space-y-1">
                     <p className={FIELD_LABEL}>{t('place.map')}</p>
                     <div className="h-60 overflow-hidden rounded-2xl bg-gray-50 dark:bg-gray-800">
@@ -541,22 +537,6 @@ export function ValidationReview({
                         />
                       ) : (
                         <p className="p-4 text-sm">{t('place.noPin')}</p>
-                      )}
-                    </div>
-                  </div>
-                  <div className="space-y-1">
-                    <p className={FIELD_LABEL}>{t('place.streetView')}</p>
-                    <div className="flex h-60 flex-col items-center justify-center gap-2 rounded-2xl bg-gray-50 p-4 text-center text-sm dark:bg-gray-800">
-                      {streetViewUrl ? (
-                        <>
-                          <p>{t('place.streetViewHint')}</p>
-                          <a className="inline-flex items-center gap-1 font-bold text-primary-800 hover:underline dark:text-tuggi-blue" href={streetViewUrl} target="_blank" rel="noreferrer">
-                            {t('place.openStreetView')}
-                            <ExternalLink className="h-3 w-3" aria-hidden="true" />
-                          </a>
-                        </>
-                      ) : (
-                        <p>{t('place.noPin')}</p>
                       )}
                     </div>
                   </div>
