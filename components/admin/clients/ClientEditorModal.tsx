@@ -22,11 +22,11 @@ import {
   FileSignature, Handshake,
 } from 'lucide-react'
 import { useTranslations } from 'next-intl'
-import { cn } from '@/lib/utils'
 import { useDialogShell } from '@/lib/hooks/use-dialog-shell'
 import { taxConfigFor } from '@/components/admin/clients/shared/countries'
 import { ApprovalHeaderControls } from '@/components/admin/clients/shared/ApprovalHeaderControls'
 import { RecordShell } from '@/components/admin/clients/shared/RecordShell'
+import { RecordTabs } from '@/components/admin/clients/shared/RecordTabs'
 import { ProfileTab } from '@/components/admin/clients/tabs/ProfileTab'
 import { FiscalPaymentsTab } from '@/components/admin/clients/tabs/FiscalPaymentsTab'
 import { TeamTab } from '@/components/admin/clients/tabs/TeamTab'
@@ -64,7 +64,7 @@ interface ClientEditorModalProps {
   onSaved?: (clientId: string) => void
 }
 
-interface TabDef { id: ClientEditorTab; labelKey: string; icon: typeof Building2; placeholder?: boolean }
+interface TabDef { id: ClientEditorTab; labelKey: string; icon: typeof Building2 }
 const TABS: TabDef[] = [
   // First because it is the work: the five states of the pipeline, in the record that owns
   // them. It is the same `PartnershipDetail` the standalone page renders, so the two cannot
@@ -348,47 +348,14 @@ export function ClientEditorModal({
             THE TABS ARE ONE LIST RENDERED TWICE, and never two lists.
             Nine tabs whose enabling rule depends on `isEditing` is exactly the kind of thing
             that drifts when copied: a second copy would keep showing `Locais` on a registration
-            being born long after the first stopped. `renderTab` is the single rule; the two
-            containers below differ in direction and in nothing else.
+            being born long after the first stopped. `isDisabled` is the single rule, and
+            `RecordTabs` draws the sidebar and the phone strip from the one list.
           */}
           {(() => {
             // A registration being born has no pipeline, no team, no places and no coupons
             // to show — all four are keyed by an id that does not exist until the save.
             const isDisabled = (tab: (typeof TABS)[number]) =>
-              tab.placeholder || (!isEditing && (tab.id === 'partnership' || tab.id === 'team' || tab.id === 'places' || tab.id === 'coupons'))
-
-            const tabButtons = (compact: boolean) =>
-              TABS.map((tab) => {
-                const disabled = isDisabled(tab)
-                return (
-                  <button
-                    key={tab.id}
-                    onClick={() => !disabled && setActiveTab(tab.id)}
-                    disabled={disabled}
-                    aria-current={activeTab === tab.id ? 'page' : undefined}
-                    className={cn(
-                      'flex items-center gap-3 rounded-2xl font-bold text-sm transition-all duration-300 text-left',
-                      // A phone taps these with a thumb: 44px tall, side by side, and the label
-                      // never wraps mid-strip.
-                      compact
-                        ? 'min-h-[44px] shrink-0 whitespace-nowrap px-4 py-2'
-                        : 'w-full px-4 py-3',
-                      activeTab === tab.id
-                        ? 'bg-tuggi-blue text-white'
-                        : disabled
-                          ? 'text-gray-300 cursor-not-allowed'
-                          : 'text-gray-500 dark:text-gray-400 hover:text-tuggi-blue hover:bg-tuggi-blue/5',
-                    )}
-                    title={disabled ? tTabs('comingSoon') : undefined}
-                  >
-                    <tab.icon className={cn('h-5 w-5 shrink-0', activeTab === tab.id && 'animate-pulse')} />
-                    <span className={compact ? undefined : 'flex-1'}>{tTabs(tab.labelKey)}</span>
-                    {tab.placeholder && !compact && (
-                      <span className="text-[9px] font-bold uppercase tracking-widest text-gray-300">{tTabs('soonBadge')}</span>
-                    )}
-                  </button>
-                )
-              })
+              !isEditing && (tab.id === 'partnership' || tab.id === 'team' || tab.id === 'places' || tab.id === 'coupons')
 
             const saveBlock = (
               <>
@@ -431,28 +398,19 @@ export function ClientEditorModal({
 
             return (
               <>
-                {/* Sidebar — the monitor's shape, where 288px beside the content costs nothing. */}
-                <aside className="hidden lg:flex w-72 bg-white dark:bg-gray-900 border-r border-gray-100/50 dark:border-gray-800 p-6 flex-col gap-2 z-20 shrink-0">
-                  <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest px-3 mb-2">
-                    {tTabs('configuration')}
-                  </p>
-
-                  {tabButtons(false)}
-
-                  <div className="my-2 border-t border-gray-100 dark:border-gray-800" />
-
-                  <div className="mt-auto space-y-3">{saveBlock}</div>
-                </aside>
-
-                {/* The phone's shape: the same tabs as a strip that scrolls sideways, above the
-                    panel they open. On a 390px screen the 288px sidebar left ~43px for the
-                    record itself — which is to say, it left none. */}
-                <nav
-                  aria-label={tTabs('configuration')}
-                  className="lg:hidden flex gap-2 overflow-x-auto border-b border-gray-100 dark:border-gray-800 px-4 py-2 shrink-0"
-                >
-                  {tabButtons(true)}
-                </nav>
+                <RecordTabs
+                  tabs={TABS.map((tab) => ({
+                    id: tab.id,
+                    label: tTabs(tab.labelKey),
+                    icon: tab.icon,
+                    disabled: isDisabled(tab),
+                  }))}
+                  active={activeTab}
+                  onSelect={setActiveTab}
+                  heading={tTabs('configuration')}
+                  disabledTitle={tTabs('comingSoon')}
+                  footer={saveBlock}
+                />
 
                 {/* Right content area */}
                 <main className="flex-1 overflow-y-auto p-4 lg:p-8">

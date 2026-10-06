@@ -1,15 +1,15 @@
-import { NextIntlClientProvider } from 'next-intl'
-import ptMessages from '@/messages/pt.json'
-import { ValidationReview } from '@/components/admin/partner-proposals/ValidationReview'
+import { redirect } from 'next/navigation'
 import { RETURN_TO_PARAM, parseReturnTo } from '@/lib/navigation/return-to'
+import { recordHref } from '@/lib/clients/record-href'
 
 /**
  * Validation of one Portal Locais submission (#812, BR-B2B-049, BR-B2B-048, BR-B2B-053) — spec
- * `docs/design/spec-validacao-portal-locais-2026-10.md`. The board's "Conferir o cadastro"
- * lands here (`lib/clients/record-href.ts`, target `validation`).
+ * `docs/design/spec-validacao-portal-locais-2026-10.md`.
  *
- * `PartnerForm` travels along for the category labels — one copy of them, the one the
- * presential review reads too.
+ * NOT A SCREEN ANY MORE (#870, operator 2026-10-06): the validation opens in the side drawer over
+ * the client board, `/admin/clients?validation=<id>` (`ValidationModal`). This address stays alive
+ * as a redirect so the links already out there — e-mails, bookmarks — land on that drawer, with
+ * the filters of `?returnTo=` when the board they came from was the client board.
  */
 export default async function PortalValidationPage({
   params,
@@ -19,16 +19,10 @@ export default async function PortalValidationPage({
   searchParams: Promise<Record<string, string | string[] | undefined>>
 }) {
   const { locale, submissionId } = await params
-  // The board this screen was opened from, filters and all (#870) — the `X` goes back to it.
   const raw = (await searchParams)[RETURN_TO_PARAM]
   const returnTo = parseReturnTo(Array.isArray(raw) ? raw[0] : raw)
+  const [path, query = ''] = (returnTo ?? '').split('?')
+  const board = new URLSearchParams(path === '/admin/clients' ? query : '')
 
-  return (
-    <NextIntlClientProvider
-      locale="pt"
-      messages={{ PartnerValidation: ptMessages.PartnerValidation, PartnerForm: ptMessages.PartnerForm }}
-    >
-      <ValidationReview locale={locale} submissionId={submissionId} returnTo={returnTo} />
-    </NextIntlClientProvider>
-  )
+  redirect(recordHref(locale, board, { kind: 'validation', submissionId }))
 }

@@ -11,5 +11,11 @@ export default function LocalizedAdminClientsPage() {
     Partnerships: ptJson.Partnerships,
     Clients: { directory: ptJson.Clients.directory, board: ptJson.Clients.board },
   }
-  return <AdminClientsPageContent ptMessages={ptMessages} />
+  // The portal validation opens in a drawer over this list (#870); the messages its page used.
+  const validationMessages = {
+    PartnerValidation: ptJson.PartnerValidation,
+    PartnerForm: ptJson.PartnerForm,
+    Clients: ptJson.Clients,
+  }
+  return <AdminClientsPageContent ptMessages={ptMessages} validationMessages={validationMessages} />
 }

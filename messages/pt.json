@@ -3609,7 +3609,7 @@
     },
     "changedBadge": "alterado",
     "company": {
-      "title": "1 · Empresa",
+      "title": "Empresa",
       "check": "CNPJ ativo e sem cadastro duplicado",
       "noDuplicate": "Nenhum outro cadastro com este CNPJ",
       "duplicate": "Já existe {name} ({state}) com este CNPJ",
@@ -3631,14 +3631,11 @@
       "cpfDiffers": "O CPF do aceite difere do cadastro."
     },
     "place": {
-      "title": "2 · Local",
+      "title": "Local",
       "check": "O pino está na porta, e bate com o endereço e a fachada",
       "map": "Mapa",
-      "streetView": "Street View",
       "facade": "Fachada",
       "noPin": "O cadastro não tem pino.",
-      "openStreetView": "Abrir o Street View neste ponto",
-      "streetViewHint": "Confira se a fachada do Street View é a do local.",
       "noFacade": "Nenhuma foto de fachada enviada.",
       "openMaps": "Ver no Google Maps",
       "hint": "Procure o pino na porta de entrada, não no meio do quarteirão nem no centro da rua.",
@@ -3651,7 +3648,8 @@
       "languages": "Idiomas",
       "postalCode": "CEP {value}",
       "closed": "fechado",
-      "facadeAlt": "Fachada de {name}"
+      "facadeAlt": "Fachada de {name}",
+      "address": "Endereço"
     },
     "days": {
       "monday": "Seg",
@@ -3684,7 +3682,7 @@
       "it": "Italiano"
     },
     "story": {
-      "title": "3 · História",
+      "title": "História",
       "check": "Até 15 s, sobre o lugar, sem oferta nem preço",
       "told": "O que o local contou",
       "founder": "Quem fundou",
@@ -3699,7 +3697,7 @@
       "freePlan": "Plano No mapa: sem história. O app fala só o nome do local."
     },
     "offers": {
-      "title": "4 · Ofertas",
+      "title": "Ofertas",
       "check": "Ofertas do próprio local, com a condição escrita",
       "rule": "Benefício do próprio estabelecimento, com a condição no texto. Não pode: horas, passe ou acesso ao Tuggi; dinheiro ou Pix; dado pessoal além de mostrar o app.",
       "free": "A todos os turistas",
@@ -3732,7 +3730,9 @@
       "marketing": "Aceita receber novidades: {value}",
       "yes": "sim",
       "no": "não",
-      "missing": "O aceite deste cadastro não foi encontrado."
+      "missing": "O aceite deste cadastro não foi encontrado.",
+      "loginLabel": "Login",
+      "marketingLabel": "Novidades por e-mail"
     },
     "history": {
       "title": "Histórico",
@@ -3823,6 +3823,14 @@
       "changes": "Pedido enviado. O prazo pausou até o local responder.",
       "rejectedRefund": "Recusado. O reembolso de {total} foi pedido.",
       "rejected": "Recusado."
+    },
+    "tabs": {
+      "heading": "Conferência",
+      "place": "Dados do local",
+      "story": "História e ofertas",
+      "photos": "Fotos",
+      "acceptance": "Aceite e plano",
+      "history": "Histórico"
     }
   },
   "Partnerships": {

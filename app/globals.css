@@ -235,7 +235,13 @@
 
    E NÃO ESTÁ EM `@layer components` porque de lá o Tailwind só emite o que ele reconhece como
    classe usada; em CSS puro, a regra existe sempre. */
-:where(.cms-width) > * {
+/* `:not(.fixed)` — O DRAWER NÃO É FAIXA. Um modal lateral (`fixed inset-0 flex justify-end`)
+   montado como filho direto da casca — `POIDetailsModal` em /pois, e qualquer painel que a tela
+   renderize dentro do próprio `cms-width` — herdava `width: 100%; max-width: 1600px;
+   margin-inline: auto`: o véu virava uma caixa de 1600px centralizada e o painel, colado à
+   direita DELA, deixava 160px de faixa à direita numa tela de 1920 (operador, 2026-10-06). Em
+   1280 nada aparecia, porque 100% < 1600. O `:where()` de fora mantém a especificidade em 0. */
+:where(.cms-width) > :where(:not(.fixed)) {
   /* `width: 100%` NÃO É REDUNDÂNCIA — é a linha que faz isto funcionar dentro de um flex.
      Num contêiner `flex flex-col`, `margin-inline: auto` CANCELA o `align-items: stretch`: a
      margem automática come o espaço livre e o filho passa a se dimensionar pelo próprio

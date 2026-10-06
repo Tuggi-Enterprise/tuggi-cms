@@ -13,7 +13,7 @@ import { isPaidPlan } from '@/lib/partnerships/portal-review'
 import type { ClientPortalRecord } from '@/lib/services/portal-submission-review-service'
 import type { ClientOrigin } from './use-client-contract'
 
-const TERM = 'text-[10px] font-bold uppercase tracking-widest text-gray-400'
+const TERM = 'text-[10px] font-bold uppercase tracking-widest text-gray-500'
 const VALUE = 'text-sm font-semibold text-gray-900 dark:text-white break-words'
 
 function Row({ label, children }: { label: string; children: React.ReactNode }) {
