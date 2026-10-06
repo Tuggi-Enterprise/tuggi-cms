@@ -74,6 +74,7 @@ function deps(asaas: ReturnType<typeof fakeAsaas>, db: ReturnType<typeof fakeDb>
     admin: db.rpc,
     subscriptionIds: async () => null,
     subscriptionById: async () => null,
+    expiredLiveCards: async () => [],
     alert: async (what: string, fields: Record<string, unknown>) => {
       alerts.push({ what, fields })
     },
@@ -476,6 +477,15 @@ test('#863 §8.4: cancel quote — not the caller\'s (TGP01) 404, non-uuid 400 b
   assert.equal(user.calls.length, 1)
   const bad = portal(fakeAsaas([]), fakeDb({}), fakeDb({ portal_cancel_quote: { data: [{ fee_cents: -1 }] } }))
   assert.equal((await pay.cancelQuote(bad.d as never, SUBMISSION)).status, 502)
+  const noDate = portal(fakeAsaas([]), fakeDb({}), fakeDb({ portal_cancel_quote: { data: [{ fee_cents: 13500, months_paid: 2, months_remaining: 4, service_ends_at: '2027-01-06T15:00:00Z', charge_on: null }] } }))
+  assert.equal((await pay.cancelQuote(noDate.d as never, SUBMISSION)).status, 502)
+})
+
+test('#863 §8.4 BR-B2B-046 item 6: fee 0 (regret window, one-month plan) — charge_on null; no paid plan — the row of zeros goes back as is (the portal offers no confirm)', async () => {
+  const free = portal(fakeAsaas([]), fakeDb({}), fakeDb({ portal_cancel_quote: { data: [{ fee_cents: 0, months_paid: 1, months_remaining: 5, service_ends_at: '2026-11-06T15:00:00Z', charge_on: null }] } }))
+  assert.deepEqual((await pay.cancelQuote(free.d as never, SUBMISSION)).body, { quote: { fee_cents: 0, months_paid: 1, months_remaining: 5, service_ends_at: '2026-11-06T15:00:00Z', charge_on: null } })
+  const none = portal(fakeAsaas([]), fakeDb({}), fakeDb({ portal_cancel_quote: { data: [{ fee_cents: 0, months_paid: 0, months_remaining: 0, service_ends_at: null, charge_on: null }] } }))
+  assert.deepEqual(await pay.cancelQuote(none.d as never, SUBMISSION), { status: 200, body: { quote: { fee_cents: 0, months_paid: 0, months_remaining: 0, service_ends_at: null, charge_on: null } } })
 })
 
 test('#863 §8.4 BR-B2B-055, BR-B2B-046: cancel with fee 0 — endDate = eve of paid_through, no new fee; e-mail says when the story leaves and that nothing else is charged (term 4.5)', async () => {
@@ -625,6 +635,55 @@ test('#811: the sweep cancels an expired subscription in Asaas and in the databa
   assert.equal(s.expired, 1)
   assert.deepEqual(asaas.calls.map((c) => `${c.method} ${c.path}`), ['DELETE /subscriptions/sub_9'])
   assert.equal(db.calls.find((c) => c.fn === 'cancel_place_subscription')!.args.p_actor_kind, 'system')
+})
+
+test('#863 places-pagamento §3.3 BR-B2B-046 item 7 (20261006170000 D6): an expired CARD row with an unpaid fee keeps its Asaas subscription until the day after charge_on; then, or once paid, the DELETE runs', async () => {
+  const card = (over: Record<string, unknown>) => ({ subscription_id: SUB_UUID, provider_subscription_id: 'sub_c', paid_through: '2026-10-04T15:00:00Z', early_termination_fee_cents: 13500, early_termination_paid_at: null, ...over })
+  const sweep = async (today: string, rows: unknown[], expired: unknown[] = []) => {
+    const asaas = fakeAsaas([at('DELETE', '/subscriptions/', 200, { deleted: true })])
+    const db = fakeDb({
+      place_pending_refunds: { data: [] },
+      expire_place_subscriptions: { data: expired },
+      cancel_place_subscription: { data: [{ outcome: 'applied' }] },
+      place_commitments_ending: { data: [] },
+      place_renewal_schedule: { data: [] },
+    })
+    const { d, alerts } = deps(asaas, db, { today: () => today, expiredLiveCards: async () => rows })
+    return { s: await pay.runSweep(d), deletes: asaas.calls.filter((c) => c.method === 'DELETE').map((c) => c.path), db, alerts }
+  }
+  // the day it expires (= charge_on): the expire RPC hands the card row back, and it is held
+  const day = await sweep('2026-10-04', [card({})], [{ subscription_id: SUB_UUID, payment_method: 'credit_card', provider_subscription_id: 'sub_c', canceled_at: null }])
+  assert.deepEqual(day.deletes, [])
+  assert.equal(day.s.fee_held, 1)
+  assert.ok(!day.db.calls.some((c) => c.fn === 'cancel_place_subscription'))
+  // the day after: unpaid is forgiven — DELETE, then cancel_place_subscription(…system)
+  const after = await sweep('2026-10-05', [card({})])
+  assert.deepEqual(after.deletes, ['/subscriptions/sub_c'])
+  assert.equal(after.s.expired_card, 1)
+  assert.equal(after.db.calls.find((c) => c.fn === 'cancel_place_subscription')!.args.p_actor_kind, 'system')
+  // paid on the day, or no fee: nothing to hold
+  assert.deepEqual((await sweep('2026-10-04', [card({ early_termination_paid_at: '2026-10-04T12:00:00Z' })])).deletes, ['/subscriptions/sub_c'])
+  assert.deepEqual((await sweep('2026-10-04', [card({ early_termination_fee_cents: 0 })])).deletes, ['/subscriptions/sub_c'])
+  // a read error leaves them for tomorrow, alerted; Pix rows of the expire RPC still end there
+  const broken = await sweep('2026-10-04', [], [{ subscription_id: SUB_UUID, payment_method: 'pix_automatic', provider_subscription_id: 'sub_p', canceled_at: null }])
+  assert.deepEqual(broken.deletes, ['/subscriptions/sub_p'])
+})
+
+test('#863 (20261006170000 D6): earlyTerminationFeeHeld compares São Paulo dates — paid_through 01:00Z is still the previous day there', () => {
+  const r = { subscription_id: SUB_UUID, provider_subscription_id: 'sub_c', paid_through: '2026-10-05T01:00:00Z', early_termination_fee_cents: 13500, early_termination_paid_at: null }
+  assert.equal(pay.earlyTerminationFeeHeld(r, '2026-10-04'), true)
+  assert.equal(pay.earlyTerminationFeeHeld(r, '2026-10-05'), false)
+  assert.equal(pay.earlyTerminationFeeHeld({ ...r, early_termination_fee_cents: null }, '2026-10-04'), false)
+})
+
+test('#863 (20261006170000 D6): the expired-cards read failing alerts and DELETEs nothing on card', async () => {
+  const asaas = fakeAsaas([at('DELETE', '/subscriptions/', 200, { deleted: true })])
+  const db = fakeDb({ place_pending_refunds: { data: [] }, expire_place_subscriptions: { data: [{ subscription_id: SUB_UUID, payment_method: 'credit_card', provider_subscription_id: 'sub_c', canceled_at: null }] }, place_commitments_ending: { data: [] }, place_renewal_schedule: { data: [] } })
+  const { d, alerts } = deps(asaas, db, { expiredLiveCards: async () => { throw new Error('expired cards read 500') } })
+  const s = await pay.runSweep(d)
+  assert.equal(s.expired_card, 'db_error')
+  assert.equal(asaas.calls.length, 0)
+  assert.ok(alerts.some((a) => a.what === 'sweep_expired_cards_failed'))
 })
 
 // ─── #863: the cookie's checkout and the access link after the first charge ─────────────────────

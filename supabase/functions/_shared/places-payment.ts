@@ -75,6 +75,15 @@ export type SubscriptionIds = {
   canceled_at: string | null;
 };
 
+/** A row of `Deps.expiredLiveCards` (columns of 20261006170000). */
+export type ExpiredCardRow = {
+  subscription_id: string;
+  provider_subscription_id: string;
+  paid_through: string | null;
+  early_termination_fee_cents: number | null;
+  early_termination_paid_at: string | null;
+};
+
 export type Deps = {
   asaas: AsaasClient;
   /** `service_role`. */
@@ -87,6 +96,13 @@ export type Deps = {
   /** Today in America/Sao_Paulo, `YYYY-MM-DD`. */
   today: () => string;
   now: () => Date;
+  /**
+   * `partner.place_subscriptions` already expired on CARD whose Asaas subscription was not ended yet
+   * (`status` = 'expired', `canceled_at` null, `provider_subscription_id` set): the sweep ends them
+   * here, except while the early-termination fee is still due (`earlyTerminationFeeHeld`). Throws on
+   * a read error.
+   */
+  expiredLiveCards: () => Promise<ExpiredCardRow[]>;
   /** `place_subscriptions.acceptance_id → place_acceptances.submission_id`, by our id or Asaas' `sub_…`. */
   submissionOfSubscription: (subscriptionId: string | null, providerSubscriptionId: string | null) => Promise<string | null>;
   /** `issueAccessLink` of `places-portal-draft.ts` (#863, §7.3): the access e-mail of a settled submission. */
@@ -630,7 +646,11 @@ async function discardSubscription(deps: Deps, providerSubscriptionId: string, w
 
 // ─── portal: cancel, regret refund, withdrawal ─────────────────────────────────────────────────
 
-/** `core.portal_cancel_quote`: what cancelling now costs, shown to the owner BEFORE the confirm (§8.4). */
+/**
+ * `core.portal_cancel_quote`: what cancelling now costs, shown to the owner BEFORE the confirm (§8.4).
+ * `charge_on` is null when `fee_cents` is 0 (also inside the 7-day regret window); an owned
+ * submission without a paid plan answers a row of zeros with `service_ends_at` null.
+ */
 export type CancelQuote = {
   fee_cents: number;
   months_paid: number;
@@ -645,14 +665,16 @@ export async function cancelQuote(deps: PortalDeps, submissionId: string): Promi
   const { data, error } = await deps.user('core', 'portal_cancel_quote', { p_submission_id: submissionId });
   if (error) return isBusinessError(error) ? portalErrorReply(error) : reply(502, { error: 'unavailable' });
   const q = firstRow<CancelQuote>(data);
-  if (!q || !Number.isInteger(q.fee_cents) || q.fee_cents < 0) return reply(502, { error: 'unavailable' });
+  const count = (n: unknown) => Number.isInteger(n) && (n as number) >= 0;
+  if (!q || !count(q.fee_cents) || !count(q.months_paid) || !count(q.months_remaining)) return reply(502, { error: 'unavailable' });
+  if (q.fee_cents > 0 && !q.charge_on) return reply(502, { error: 'unavailable' });
   return reply(200, {
     quote: {
       fee_cents: q.fee_cents,
       months_paid: q.months_paid,
       months_remaining: q.months_remaining,
       service_ends_at: q.service_ends_at ?? null,
-      charge_on: q.charge_on ?? null,
+      charge_on: q.fee_cents > 0 ? q.charge_on : null,
     },
   });
 }
@@ -666,7 +688,7 @@ export type CancelFee = { cents: number; chargeOn: string; method: 'credit_card'
  * the fee); then Asaas, best effort — if it fails the database is NOT undone and the operator is
  * alerted. Term 4.5: e-mail "no ato".
  *
- * - fee 0 (one-month plan, commitment served): `endDate` = eve of `paid_through`, nothing more is
+ * - fee 0 (one-month plan, commitment served, 7-day regret window): `endDate` = eve of `paid_through`, nothing more is
  *   charged (`endAtCommitment`);
  * - fee > 0: `chargeEarlyTermination` — the next charge, on `paid_through`, is the fee and the last.
  */
@@ -683,13 +705,14 @@ export async function cancelRenewal(deps: PortalDeps, submissionId: string): Pro
     renews: boolean;
     commitment_ends_at: string | null;
     paid_through: string | null;
-    early_termination_fee_cents: number | null;
+    /** 0 when nothing is owed, never null (20261006170000). */
+    early_termination_fee_cents: number;
   }>(data);
   if (!row || row.outcome === 'not_applicable') return reply(200, { result: 'not_renewing' });
 
   const ends = row.paid_through ?? row.commitment_ends_at;
   const chargeOn = ends ? saoPauloDate(new Date(ends)) : null;
-  const feeCents = Math.max(0, Math.round(row.early_termination_fee_cents ?? 0));
+  const feeCents = Number.isInteger(row.early_termination_fee_cents) && row.early_termination_fee_cents > 0 ? row.early_termination_fee_cents : 0;
   const ids = await deps.subscriptionIds(submissionId);
   // The fee is owed by the term whether or not Asaas took the change: the e-mail states it, and a
   // failure below alerts the operator to schedule it by hand.
@@ -1265,6 +1288,17 @@ type ScheduleRow = {
   renewal_amount_cents: number;
 };
 
+/**
+ * Contract places-pagamento §3.3 (20261006170000 D6, BR-B2B-046 item 7): on card, the fee is the
+ * pending charge of the Asaas subscription, due on `charge_on` (= `paid_through`, São Paulo). Its
+ * DELETE waits until the day after; paid by then it was confirmed, unpaid the DELETE forgives it.
+ */
+export function earlyTerminationFeeHeld(r: ExpiredCardRow, today: string): boolean {
+  if (!r.early_termination_fee_cents || r.early_termination_fee_cents <= 0) return false;
+  if (r.early_termination_paid_at || !r.paid_through) return false;
+  return today <= saoPauloDate(new Date(r.paid_through));
+}
+
 /** `partner.place_commitments_ending()`: renewal off, last fee of the commitment paid. */
 type EndingRow = {
   subscription_id: string;
@@ -1283,6 +1317,8 @@ export async function runSweep(deps: Deps): Promise<Record<string, unknown>> {
   const refunds = await pendingRefunds(deps);
   summary.refunds = refunds ? await processRefunds(deps, refunds) : 'db_error';
 
+  // Card rows are ended by `expiredLiveCards` below, not here: the expiry comes at `paid_through`,
+  // the same day the early-termination fee is charged, and the DELETE would erase it (§3.3).
   const expired = await deps.admin('partner', 'expire_place_subscriptions', {});
   if (expired.error) {
     summary.expired = 'db_error';
@@ -1290,10 +1326,30 @@ export async function runSweep(deps: Deps): Promise<Record<string, unknown>> {
   } else {
     let n = 0;
     for (const r of (Array.isArray(expired.data) ? expired.data : []) as ExpiredRow[]) {
-      if (!r.provider_subscription_id || r.canceled_at) continue;
+      if (!r.provider_subscription_id || r.canceled_at || r.payment_method === 'credit_card') continue;
       if (await endSubscription(deps, r, 'sweep_expire_cancel_failed')) n++;
     }
     summary.expired = n;
+  }
+
+  // Every expired card row still live at Asaas, today's and the ones held before: a read error
+  // leaves them for tomorrow (they stay expired with `canceled_at` null).
+  try {
+    let n = 0;
+    let held = 0;
+    const today = deps.today();
+    for (const r of await deps.expiredLiveCards()) {
+      if (earlyTerminationFeeHeld(r, today)) {
+        held++;
+        continue;
+      }
+      if (await endSubscription(deps, { ...r, payment_method: 'credit_card' }, 'sweep_expire_cancel_failed')) n++;
+    }
+    summary.expired_card = n;
+    summary.fee_held = held;
+  } catch (e) {
+    summary.expired_card = 'db_error';
+    await deps.alert('sweep_expired_cards_failed', { error: e instanceof Error ? e.message : 'unknown' });
   }
 
   // §8.5: DELETE and not `endDate` — it also removes a fee already generated after the end; a fee

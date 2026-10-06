@@ -12,7 +12,7 @@
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
 import { createAdminClient, getPublishableKey, getSupabaseUrl } from './supabase-client.ts';
 import { asaasClient } from './asaas.ts';
-import { saoPauloDate, type Deps, type Rpc, type SubscriptionIds } from './places-payment.ts';
+import { saoPauloDate, type Deps, type ExpiredCardRow, type Rpc, type SubscriptionIds } from './places-payment.ts';
 import { issueAccessLink } from './places-portal-draft.ts';
 import { accessLinkDeps } from './places-access-link-runtime.ts';
 
@@ -107,6 +107,19 @@ export function baseDeps(asaas: NonNullable<ReturnType<typeof asaasFromEnv>>): D
     alert,
     today: () => saoPauloDate(new Date()),
     now: () => new Date(),
+    expiredLiveCards: async (): Promise<ExpiredCardRow[]> => {
+      const { data, error } = await admin
+        .schema('partner')
+        .from('place_subscriptions')
+        .select('id, provider_subscription_id, paid_through, early_termination_fee_cents, early_termination_paid_at')
+        .eq('status', 'expired')
+        .eq('payment_method', 'credit_card')
+        .is('canceled_at', null)
+        .not('provider_subscription_id', 'is', null);
+      if (error) throw new Error(`expired cards read ${error.code}`);
+      // deno-lint-ignore no-explicit-any
+      return (data ?? []).map(({ id, ...r }: any) => ({ subscription_id: id, ...r }));
+    },
     submissionOfSubscription: async (subscriptionId, providerSubscriptionId) => {
       if (!subscriptionId && !providerSubscriptionId) return null;
       const q = admin.schema('partner').from('place_subscriptions').select('place_acceptances(submission_id)');
