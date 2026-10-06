@@ -29,15 +29,16 @@ const CLAIM = 'Zm9vYmFyYmF6cXV4cXV1eGZvb2JhcmJhenF1eHF1dXg'
 const SID = '11111111-2222-4333-8444-555555555555'
 const USER = '99999999-8888-4777-8666-555555555555'
 const SESSION = '77777777-6666-4555-8444-333333333333'
-const ACCEPT = { terms_version: 'locais-2026-10-v3', terms_sha256: 'b'.repeat(64), activation_commitment: { sticker: true, display: false, social: true }, marketing_consent: false }
+const ACCEPT = { terms_version: 'locais-2026-10-v4', terms_sha256: 'b'.repeat(64), activation_commitment: { sticker: true, display: false, social: true }, marketing_consent: false }
+const DRAWN = 'RHJhd25CeVRoZUZ1bmN0aW9uLW5vdC10aGUtV29ya2V'
 const JPEG = Buffer.from([0xff, 0xd8, 0xff, 0xe0, 1, 2, 3]).toString('base64')
 
 type Call = { fn: string; args: Record<string, unknown> }
 
-function fake(answers: Partial<Record<string, { data?: unknown; error?: unknown }>> = {}) {
+function fake(answers: Partial<Record<string, { data?: unknown; error?: unknown }>> = {}, settled: string | null = null) {
   const calls: Call[] = []
   const log: string[] = []
-  const mails: { to: string; subject: string; html: string; text: string }[] = []
+  const mails: { to: string; subject: string; html: string; text: string; fromName?: string }[] = []
   const deps = {
     rpc: async (fn: string, args: Record<string, unknown>) => {
       calls.push({ fn, args })
@@ -65,13 +66,24 @@ function fake(answers: Partial<Record<string, { data?: unknown; error?: unknown 
       },
       claims: async (jwt: string) => (jwt === 'good' ? { sub: USER, sessionId: SESSION } : null),
     },
-    sendEmail: async (to: string, subject: string, html: string, text: string) => {
+    sendEmail: async (to: string, subject: string, html: string, text: string, fromName?: string) => {
       log.push('sendEmail')
-      mails.push({ to, subject, html, text })
+      mails.push({ to, subject, html, text, fromName })
       return true
     },
     sha256Hex: async (s: string) => `sha(${s})`,
     uuid: () => '44444444-2222-4333-8444-555555555555',
+    randomToken: () => DRAWN,
+    submissions: {
+      tradeName: async (id: string) => {
+        log.push(`tradeName:${id}`)
+        return 'Bar do Zé'
+      },
+      settledOwnerless: async (email: string) => {
+        log.push(`settledOwnerless:${email}`)
+        return settled
+      },
+    },
     origin: 'https://places.tuggi.app',
   }
   return { deps, calls, log, mails }
@@ -90,7 +102,9 @@ test('#863: every database call is one of the fixed partner.portal_draft_* funct
     { action: 'photo_sign', token_sha256: TOKEN, paths: [`${SID}/facade/33333333-2222-4333-8444-555555555555.jpg`] },
     { action: 'photo_upload', token_sha256: TOKEN, role: 'facade', image_base64: JPEG },
     { action: 'photo_remove', token_sha256: TOKEN, path: `${SID}/facade/33333333-2222-4333-8444-555555555555.jpg` },
-    { action: 'request_link', purpose: 'accept', email: 'a@b.co', token_sha256: TOKEN, claim_token: CLAIM, accept: ACCEPT },
+    { action: 'request_link', purpose: 'access', email: 'a@b.co', token_sha256: TOKEN, claim_token: CLAIM },
+    { action: 'submit', token_sha256: TOKEN, accept: ACCEPT, ip: '203.0.113.9', user_agent: 'UA' },
+    { action: 'payment_state', token_sha256: TOKEN },
     { action: 'claim', claim_token: CLAIM },
     { action: 'rpc', fn: 'portal_draft_claim' },
   ]
@@ -130,47 +144,118 @@ test('#863: a claim without a valid user JWT is relogin, and nothing is called',
   assert.equal(f.calls.length, 0)
 })
 
-test('#863: the accept link records the claim (hash only) BEFORE the e-mail, then sends it', async () => {
-  const f = fake({ portal_draft_request_claim: { data: '2026-10-05T13:00:00Z' } })
-  const r = await mod.handle(f.deps, { action: 'request_link', purpose: 'accept', email: ' Dono@Bar.COM ', token_sha256: TOKEN, claim_token: CLAIM, accept: ACCEPT }, '')
+test('#863 (BR-B2B-047 item 3): submit is the clickwrap acceptance of the cookie — terms, IP and user agent go to portal_draft_submit', async () => {
+  const f = fake({ portal_draft_submit: { data: [{ submission_id: SID, status: 'awaiting_payment', acceptance_id: USER, total_cents: 54000 }] } })
+  const r = await mod.handle(f.deps, { action: 'submit', token_sha256: TOKEN, accept: ACCEPT, ip: '203.0.113.9', user_agent: 'Mozilla/5.0', submission_id: 'x', email: 'evil@x.co' }, '')
+  assert.deepEqual(r, { status: 200, body: { submission_id: SID, status: 'awaiting_payment', acceptance_id: USER, total_cents: 54000 } })
+  assert.deepEqual(f.calls, [{
+    fn: 'portal_draft_submit',
+    args: {
+      p_token_sha256: TOKEN, p_terms_version: 'locais-2026-10-v4', p_terms_sha256: 'b'.repeat(64), p_ip: '203.0.113.9', p_user_agent: 'Mozilla/5.0',
+      p_activation_commitment: { sticker: true, display: false, social: true }, p_marketing_consent: false,
+    },
+  }])
+  // Paid plan with a total: no link before the payment (operator, #863 issuecomment-6007476946).
+  assert.equal(f.mails.length, 0)
+})
+
+test('#863 (BR-B2B-049 item 2, BR-B2B-047): a submit that lands in in_review issues the link from the server and e-mails the acceptance address', async () => {
+  const f = fake({
+    portal_draft_submit: { data: [{ submission_id: SID, status: 'in_review', acceptance_id: USER, total_cents: 0 }] },
+    place_issue_claim: { data: [{ email: 'Dono@Bar.com', expires_at: '2026-10-06T13:00:00Z' }] },
+  })
+  const r = await mod.handle(f.deps, { action: 'submit', token_sha256: TOKEN, accept: ACCEPT, ip: null, user_agent: null }, '')
   assert.equal(r.status, 200)
-  assert.deepEqual(f.log, ['rpc:portal_draft_request_claim', 'ensureUser', 'magicLink', 'sendEmail'])
-  assert.deepEqual(f.calls[0].args, { p_token_sha256: TOKEN, p_claim_sha256: `sha(${CLAIM})`, p_email: 'dono@bar.com' })
+  assert.equal(r.body.link, 'sent')
+  assert.deepEqual(f.log, ['rpc:portal_draft_submit', 'rpc:place_issue_claim', `tradeName:${SID}`, 'ensureUser', 'magicLink', 'sendEmail'])
+  // The token is drawn HERE; only its hash goes to the database. The caller never picks the address.
+  assert.deepEqual(f.calls[1].args, { p_submission_id: SID, p_claim_sha256: `sha(${DRAWN})` })
   assert.equal(f.mails[0].to, 'dono@bar.com')
-})
-
-test('#863: a refused claim request (TGP29, 5 per hour) sends no e-mail', async () => {
-  const f = fake({ portal_draft_request_claim: { error: { code: 'TGP29', details: 'claim_requests' } } })
-  const r = await mod.handle(f.deps, { action: 'request_link', purpose: 'accept', email: 'a@b.co', token_sha256: TOKEN, claim_token: CLAIM, accept: ACCEPT }, '')
-  assert.deepEqual(r, { status: 429, body: { error: 'quota', detail: 'claim_requests' } })
-  assert.ok(!f.log.includes('sendEmail'))
-})
-
-test('#863: the link is built on our origin from checked values only (no href from the body)', async () => {
-  const f = fake({ portal_draft_request_claim: { data: 'x' } })
-  await mod.handle(f.deps, { action: 'request_link', purpose: 'accept', email: 'a@b.co', token_sha256: TOKEN, claim_token: CLAIM, accept: ACCEPT, url: 'https://evil.example/' }, '')
   const href = /href="([^"]+)"/.exec(f.mails[0].html)![1].replace(/&amp;/g, '&')
+  assert.deepEqual(Object.fromEntries(new URL(href).searchParams), { th: 'c'.repeat(56), tt: 'magiclink', c: DRAWN })
+})
+
+test('#863: an e-mail that fails after the acceptance does not undo it — 200 with link "failed"', async () => {
+  const f = fake({
+    portal_draft_submit: { data: [{ submission_id: SID, status: 'in_review', acceptance_id: USER, total_cents: 0 }] },
+    place_issue_claim: { error: { code: 'TGP29', details: 'claim_requests' } },
+  })
+  const r = await mod.handle(f.deps, { action: 'submit', token_sha256: TOKEN, accept: ACCEPT }, '')
+  assert.equal(r.status, 200)
+  assert.equal(r.body.link, 'failed')
+})
+
+test('#863: submit refusals — terms changed is 409 terms_changed, a bad IP or accept never reaches the database', async () => {
+  const f = fake({ portal_draft_submit: { error: { code: 'TGP09', details: 'terms_version', message: 'dono@bar.com' } } })
+  assert.deepEqual(await mod.handle(f.deps, { action: 'submit', token_sha256: TOKEN, accept: ACCEPT }, ''), { status: 409, body: { error: 'terms_changed' } })
+  const g = fake()
+  for (const b of [
+    { action: 'submit', token_sha256: TOKEN, accept: ACCEPT, ip: '1.2.3.4"><' },
+    { action: 'submit', token_sha256: TOKEN, accept: ACCEPT, user_agent: 'x'.repeat(1025) },
+    { action: 'submit', token_sha256: TOKEN, accept: { ...ACCEPT, terms_version: 'v1"><a' } },
+    { action: 'submit', token_sha256: TOKEN, accept: { ...ACCEPT, marketing_consent: 'yes' } },
+  ]) assert.equal((await mod.handle(g.deps, b, '')).status, 400)
+  assert.equal(g.calls.length, 0)
+})
+
+test('#863: payment_state answers pay-or-paid and no customer field (name, tax id, e-mail) leaves', async () => {
+  const f = fake({ portal_draft_payment_checkout: { data: [{ submission_id: SID, submission_status: 'awaiting_payment', status: 'pending_payment', next_amount_cents: 54000, customer_name: 'Bar LTDA', customer_tax_id: '12345678000195', customer_email: 'dono@bar.com' }] } })
+  const r = await mod.handle(f.deps, { action: 'payment_state', token_sha256: TOKEN }, '')
+  assert.deepEqual(r, { status: 200, body: { submission_id: SID, submission_status: 'awaiting_payment', payment_status: 'pending_payment', amount_cents: 54000 } })
+  const g = fake({ portal_draft_payment_checkout: { error: { code: 'TGP10', details: 'in_review' } } })
+  assert.deepEqual(await mod.handle(g.deps, { action: 'payment_state', token_sha256: TOKEN }, ''), { status: 409, body: { error: 'conflict', detail: 'in_review' } })
+})
+
+test('#863: "Reenviar o link" (access) records the claim BEFORE the e-mail; the acceptance link is gone', async () => {
+  const f = fake({ portal_draft_request_claim: { data: '2026-10-05T13:00:00Z' } }, SID)
+  const r = await mod.handle(f.deps, { action: 'request_link', purpose: 'access', email: ' Dono@Bar.COM ', token_sha256: TOKEN, claim_token: CLAIM }, '')
+  assert.equal(r.status, 200)
+  assert.deepEqual(f.log, ['rpc:portal_draft_request_claim', 'settledOwnerless:dono@bar.com', `tradeName:${SID}`, 'ensureUser', 'magicLink', 'sendEmail'])
+  assert.deepEqual(f.calls[0].args, { p_token_sha256: TOKEN, p_claim_sha256: `sha(${CLAIM})`, p_email: 'dono@bar.com' })
+  assert.equal(f.mails[0].fromName, 'Tuggi Locais')
+  const g = fake()
+  assert.equal((await mod.handle(g.deps, { action: 'request_link', purpose: 'accept', email: 'a@b.co', token_sha256: TOKEN, claim_token: CLAIM, accept: ACCEPT }, '')).status, 400)
+  assert.equal(g.calls.length, 0)
+})
+
+test('#863: a refused claim request (TGP10 before the acceptance settles, TGP29 5 per hour) sends no e-mail', async () => {
+  for (const error of [{ code: 'TGP29', details: 'claim_requests' }, { code: 'TGP10', details: 'payment_pending' }]) {
+    const f = fake({ portal_draft_request_claim: { error } })
+    const r = await mod.handle(f.deps, { action: 'request_link', purpose: 'access', email: 'a@b.co', token_sha256: TOKEN, claim_token: CLAIM }, '')
+    assert.ok(r.status === 429 || r.status === 409)
+    assert.ok(!f.log.includes('sendEmail'))
+  }
+})
+
+test('#863: the access e-mail — fixed text, the trade name only, the real validity, our origin (no href from the body)', async () => {
+  const f = fake({ portal_draft_request_claim: { data: 'x' } }, SID)
+  f.deps.submissions.tradeName = async () => '<b>Bar</b>\r\nBcc: x@y.z'
+  await mod.handle(f.deps, { action: 'request_link', purpose: 'access', email: 'a@b.co', token_sha256: TOKEN, claim_token: CLAIM, url: 'https://evil.example/' }, '')
+  const m = f.mails[0]
+  assert.equal(m.subject, '<b>Bar</b> Bcc: x@y.z está em validação no Tuggi')
+  assert.ok(!m.html.includes('<b>Bar'))
+  assert.ok(!m.html.includes('evil') && !m.text.includes('evil'))
+  assert.match(m.text, /O botão vale por 1 hora e funciona uma vez\. Depois disso, entre em places\.tuggi\.app com este e-mail, e mandamos outro\./)
+  assert.ok(!/\d{3}\.\d{3}\.\d{3}-\d{2}|CNPJ|R\$/.test(m.text), 'no CPF, CNPJ or amount')
+  const href = /href="([^"]+)"/.exec(m.html)![1].replace(/&amp;/g, '&')
   const u = new URL(href)
   assert.equal(u.origin + u.pathname, 'https://places.tuggi.app/entrar')
-  assert.deepEqual(Object.fromEntries(u.searchParams), { th: 'c'.repeat(56), tt: 'magiclink', c: CLAIM, tv: 'locais-2026-10-v3', ts: 'b'.repeat(64), ac: '101', mk: '0' })
-  assert.ok(!f.mails[0].html.includes('evil'))
+  assert.deepEqual(Object.fromEntries(u.searchParams), { th: 'c'.repeat(56), tt: 'magiclink', c: CLAIM })
 })
 
-test('#863: a malformed claim token, terms version or hash is refused before the database', async () => {
-  const f = fake()
-  const base = { action: 'request_link', purpose: 'accept', email: 'a@b.co', token_sha256: TOKEN, claim_token: CLAIM, accept: ACCEPT }
-  for (const b of [
-    { ...base, claim_token: '../../x' },
-    { ...base, accept: { ...ACCEPT, terms_version: 'v1"><a' } },
-    { ...base, accept: { ...ACCEPT, terms_sha256: 'z'.repeat(64) } },
-    { ...base, accept: { ...ACCEPT, marketing_consent: 'yes' } },
-  ]) {
-    assert.equal((await mod.handle(f.deps, b, '')).status, 400)
-  }
-  assert.equal(f.calls.length, 0)
+test('#863: the login of an e-mail with a settled ownerless submission issues a NEW access link of it (the promise of the access e-mail)', async () => {
+  const f = fake({ place_issue_claim: { data: [{ email: 'a@b.co', expires_at: 'x' }] } }, SID)
+  const r = await mod.handle(f.deps, { action: 'request_link', purpose: 'login', email: 'A@b.co' }, '')
+  assert.deepEqual(r, { status: 200, body: { ok: true } })
+  assert.deepEqual(f.calls, [{ fn: 'place_issue_claim', args: { p_submission_id: SID, p_claim_sha256: `sha(${DRAWN})` } }])
+  assert.match(f.mails[0].html, /c=RHJhd25CeVRoZUZ1bmN0aW9uLW5vdC10aGUtV29ya2V/)
+  // Not settled after all (TGP10): a plain sign-in, no claim in the link.
+  const g = fake({ place_issue_claim: { error: { code: 'TGP10', details: 'payment_pending' } } }, SID)
+  await mod.handle(g.deps, { action: 'request_link', purpose: 'login', email: 'a@b.co' }, '')
+  assert.ok(!g.mails[0].html.includes('c='))
 })
 
-test('#863: the login link needs no draft and goes to /entrar with the token hash only', async () => {
+test('#863: the login link with no settled submission needs no draft and goes to /entrar with the token hash only', async () => {
   const f = fake()
   const r = await mod.handle(f.deps, { action: 'request_link', purpose: 'login', email: 'a@b.co' }, '')
   assert.equal(r.status, 200)
@@ -215,9 +300,11 @@ test('#863: the photo list keeps only the paths of this draft', async () => {
 })
 
 test('#863: the function gates on its own secret, in constant time, and logs no PII', () => {
+  const gate = readFileSync(resolve(FUNCTIONS, '_shared/places-draft-secret.ts'), 'utf8')
+  assert.match(gate, /constantTimeEqual\(candidate, expected\)/)
+  assert.match(gate, /DRAFT_SECRET_ENV/)
   const src = readFileSync(resolve(FUNCTIONS, 'places-portal-draft/index.ts'), 'utf8')
-  assert.match(src, /constantTimeEqual\(candidate, expected\)/)
-  assert.match(src, /DRAFT_SECRET_ENV/)
+  assert.match(src, /isDraftSecret\(req\.headers\.get\(DRAFT_SECRET_HEADER\)/)
   assert.ok(!src.includes('places-secret.ts') && !/env\.get\('PLACES_CMS_SECRET'\)/.test(src), 'must not reuse the CMS secret')
   for (const line of src.split('\n').filter((l) => /console\.(log|error)/.test(l))) {
     assert.ok(!/email|token|answers|path\b/i.test(line.replace(/'\[places-portal-draft\][^']*'/, '')), `log line leaks: ${line.trim()}`)

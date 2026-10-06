@@ -1,8 +1,14 @@
 // _shared/places-portal-draft.ts — the logic of the Edge Function `places-portal-draft` (#863).
 //
-// The anonymous draft of the Portal Locais (`tuggi-places`) and the e-mail link that signs in
-// and claims it. Contract: `docs/contracts/places-portal-rascunho.md` (workspace). Rules:
-// BR-B2B-043 item 1 and edge cases, BR-B2B-047, BR-B2B-049 items 3 and 10.
+// The anonymous draft of the Portal Locais (`tuggi-places`), its clickwrap acceptance, and the
+// e-mail link that signs in and claims it. Contract: `docs/contracts/places-portal-rascunho.md`
+// (workspace), §7 since `20261006110000`. Rules: BR-B2B-043 item 1 and edge cases, BR-B2B-047
+// (item 3: clickwrap), BR-B2B-049 items 3 and 10, BR-B2B-055.
+//
+// The link comes AFTER the acceptance is settled (paid, or free): it opens the `/status` and signs
+// nothing (operator, #863 issuecomment-6007476946). It is issued here (`submit` that lands in
+// `in_review`, `request_link` `access` and `login`) and by the payment webhook
+// (`places-payment.ts`, through `issueAccessLink`).
 //
 // The ONLY place where `service_role` touches the anonymous draft (security review of #863,
 // option B): the portal's Worker holds no Supabase secret key. Every database call is one of a
@@ -35,6 +41,9 @@ export const DRAFT_RPCS = [
   'portal_draft_photo_allowed',
   'portal_draft_request_claim',
   'portal_draft_claim',
+  'portal_draft_submit',
+  'portal_draft_payment_checkout',
+  'place_issue_claim',
 ] as const;
 export type DraftRpc = (typeof DRAFT_RPCS)[number];
 
@@ -58,10 +67,30 @@ export type Deps = {
     /** The verified claims of a user JWT, or `null`. */
     claims(jwt: string): Promise<{ sub: string; sessionId: string } | null>;
   };
-  sendEmail(to: string, subject: string, html: string, text: string): Promise<boolean>;
+  /** `fromName` replaces the display name of `RESEND_FROM` (the access e-mail is from "Tuggi Locais"). */
+  sendEmail(to: string, subject: string, html: string, text: string, fromName?: string): Promise<boolean>;
   sha256Hex(s: string): Promise<string>;
   uuid(): string;
+  /** 32 random bytes, base64url (43 chars): the claim token of a link this function draws. */
+  randomToken(): string;
+  /**
+   * Service-role reads of `partner.place_submissions` for the access e-mail, outside the RPC list:
+   * the trade name (the only data of the submission the e-mail carries), and the latest ownerless
+   * submission of an e-mail past the acceptance and the payment (the login fallback, §7).
+   */
+  submissions: {
+    tradeName(submissionId: string): Promise<string | null>;
+    settledOwnerless(email: string): Promise<string | null>;
+  };
   origin: string;
+};
+
+/** What issuing the access link needs: the webhook of `places-payment` builds it too. */
+export type AccessLinkDeps = Pick<Deps, 'sendEmail' | 'sha256Hex' | 'randomToken' | 'origin'> & {
+  auth: Pick<Deps['auth'], 'ensureUser' | 'magicLink'>;
+  /** `partner.place_issue_claim(p_submission_id, p_claim_sha256)` with the service role. */
+  issueClaim(submissionId: string, claimSha256: string): Promise<{ data: unknown; error: RpcError | null }>;
+  tradeName(submissionId: string): Promise<string | null>;
 };
 
 export type Result = { status: number; body: Record<string, unknown> };
@@ -70,6 +99,8 @@ const HEX64 = /^[0-9a-f]{64}$/;
 const CLAIM_TOKEN = /^[A-Za-z0-9_-]{43}$/;
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
 const TERMS_VERSION = /^[a-z0-9][a-z0-9._-]{0,63}$/i;
+const IP = /^[0-9a-fA-F:.]{2,45}$/;
+const USER_AGENT_MAX = 1024;
 const PHOTO_PATH = /^([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})\/(facade|gallery)\/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\.(jpg|jpeg|png|webp)$/;
 const BASE64 = /^[A-Za-z0-9+/]+={0,2}$/;
 /** Shape only (printable, no space, ≤ 64); `partner.portal_draft_quote` judges the code. */
@@ -104,57 +135,82 @@ export function parseAccept(v: unknown): AcceptParams | null {
   return { termsVersion: a.terms_version, termsSha256: a.terms_sha256.toLowerCase(), sticker: k.sticker, display: k.display, social: k.social, marketing: a.marketing_consent };
 }
 
-const bit = (b: boolean) => (b ? '1' : '0');
-
 /**
  * The link of the e-mail. NO HREF COMES FROM THE BODY (`send-transactional` lesson): the origin
- * is ours, every value is checked against its shape above, and the parameter names are the
- * contract `tuggi-places` `parseEmailLink` reads (`places-portal-rascunho.md` §3).
+ * is ours, every value is checked against its shape, and the parameter names are the contract
+ * `tuggi-places` `parseEmailLink` reads (`places-portal-rascunho.md` §3). `claimToken`: the access
+ * link, which claims the ownerless submission; without it, a plain sign-in.
  */
-export function linkUrl(
-  origin: string,
-  link: { tokenHash: string; type: string },
-  accept?: { claimToken?: string; submissionId?: string; params: AcceptParams },
-): string {
+export function linkUrl(origin: string, link: { tokenHash: string; type: string }, claimToken?: string): string {
   const q = new URLSearchParams({ th: link.tokenHash, tt: link.type });
-  if (accept) {
-    if (accept.claimToken) q.set('c', accept.claimToken);
-    if (accept.submissionId) q.set('s', accept.submissionId);
-    const p = accept.params;
-    q.set('tv', p.termsVersion);
-    q.set('ts', p.termsSha256);
-    q.set('ac', bit(p.sticker) + bit(p.display) + bit(p.social));
-    q.set('mk', bit(p.marketing));
-  }
+  if (claimToken && CLAIM_TOKEN.test(claimToken)) q.set('c', claimToken);
   return `${origin}/entrar?${q.toString()}`;
 }
 
 const escapeHtml = (s: string) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
 
-/** The two e-mails. Fixed text, no value from the body except the URL built above. */
-export function linkEmail(purpose: 'login' | 'accept', url: string): { subject: string; html: string; text: string } {
-  const t =
-    purpose === 'accept'
-      ? {
-          subject: 'Tuggi: confirme o e-mail e assine o aceite do seu local',
-          lead: 'Você está cadastrando o seu local no Tuggi. Toque no botão para confirmar o seu e-mail: esse toque assina o termo de parceria com a Tuggi.',
-          cta: 'Confirmar e assinar',
-        }
-      : {
-          subject: 'Tuggi: seu link para entrar e acompanhar o cadastro',
-          lead: 'Você pediu para entrar no cadastro do seu local no Tuggi. Toque no botão para entrar e acompanhar.',
-          cta: 'Entrar',
-        };
+const PAGE_OPEN = '<!doctype html><html lang="pt-BR"><body style="margin:0;padding:24px;background:#F7F9FA;font-family:Arial,sans-serif;color:#1A1A1A">';
+const CARD_OPEN = '<div style="max-width:480px;margin:0 auto;background:#fff;border-radius:16px;padding:32px">';
+const P = 'font-size:16px;line-height:1.5;margin:0 0 16px';
+const SMALL = 'font-size:13px;line-height:1.5;color:#6B7280;margin:0 0 12px';
+const button = (url: string, label: string) =>
+  `<p style="margin:8px 0 24px"><a href="${escapeHtml(url)}" style="display:inline-block;background:#FF6F00;color:#fff;text-decoration:none;font-weight:bold;padding:14px 24px;border-radius:10px">${escapeHtml(label)}</a></p>`;
+
+/** The sign-in e-mail (`request_link` `login` with no settled submission). Fixed text, no value from the body except the URL. */
+export function linkEmail(url: string): { subject: string; html: string; text: string } {
+  const subject = 'Tuggi: seu link para entrar e acompanhar o cadastro';
+  const lead = 'Você pediu para entrar no cadastro do seu local no Tuggi. Toque no botão para entrar e acompanhar.';
   const help = 'O link vale por 1 hora e só funciona uma vez. Se você pediu mais de um, use o do e-mail mais recente. Se não foi você, ignore este e-mail: sem o toque, nada acontece. Dúvidas: suporte@tuggi.app.';
+  const html = [PAGE_OPEN, CARD_OPEN, `<p style="${P}">${escapeHtml(lead)}</p>`, button(url, 'Entrar'), `<p style="${SMALL}">${escapeHtml(help)}</p>`, '</div></body></html>'].join('');
+  return { subject, html, text: `${lead}\n\n${url}\n\n${help}` };
+}
+
+/** Sender display name of the access e-mail (spec of the `design`, #863 §2). */
+export const ACCESS_FROM_NAME = 'Tuggi Locais';
+
+/** The trade name as it may go in a subject: no control char, one line, ≤ 80 chars. */
+export function cleanTradeName(v: unknown): string | null {
+  if (typeof v !== 'string') return null;
+  const n = v.replace(/[\u0000-\u001f\u007f]+/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 80).trim();
+  return n || null;
+}
+
+/**
+ * The access e-mail (spec of the `design`, #863 §2): fixed text, the same for the paid and the free
+ * plan. The only data of the submission is the trade name — no CPF, CNPJ or amount (the e-mail is
+ * not confirmed, BR-B2B-043). "1 hora" is the real validity: `place_issue_claim` 1 h = GoTrue
+ * `otp_expiry` 3600. The host is the portal's, the one the link opens.
+ */
+export function accessEmail(tradeName: string | null, url: string, origin: string): { subject: string; html: string; text: string } {
+  const name = cleanTradeName(tradeName) ?? 'Seu local';
+  const host = new URL(origin).host;
+  const subject = `${name} está em validação no Tuggi`;
+  const preheader = 'Acompanhe o cadastro pelo link abaixo.';
+  const lines = {
+    hello: 'Olá,',
+    before: 'recebemos o cadastro de ',
+    after: ' no Tuggi, e a validação começou. Uma pessoa da Tuggi confere o local em até 2 dias úteis, e avisamos por este e-mail a cada etapa.',
+    lead: 'Pelo botão abaixo você acompanha a validação, envia documentos e edita o local.',
+    cta: 'Acompanhar o cadastro',
+    ttl: `O botão vale por 1 hora e funciona uma vez. Depois disso, entre em ${host} com este e-mail, e mandamos outro.`,
+    stranger: 'Não reconhece este cadastro? Escreva para suporte@tuggi.app.',
+    sign: 'Equipe Tuggi',
+  };
   const html = [
-    '<!doctype html><html lang="pt-BR"><body style="margin:0;padding:24px;background:#F7F9FA;font-family:Arial,sans-serif;color:#1A1A1A">',
-    '<div style="max-width:480px;margin:0 auto;background:#fff;border-radius:16px;padding:32px">',
-    `<p style="font-size:16px;line-height:1.5;margin:0 0 24px">${escapeHtml(t.lead)}</p>`,
-    `<p style="margin:0 0 24px"><a href="${escapeHtml(url)}" style="display:inline-block;background:#FF6F00;color:#fff;text-decoration:none;font-weight:bold;padding:14px 24px;border-radius:10px">${escapeHtml(t.cta)}</a></p>`,
-    `<p style="font-size:13px;line-height:1.5;color:#6B7280;margin:0">${escapeHtml(help)}</p>`,
+    PAGE_OPEN,
+    `<div style="display:none;max-height:0;overflow:hidden;opacity:0;mso-hide:all">${escapeHtml(preheader)}</div>`,
+    CARD_OPEN,
+    `<p style="${P}">${lines.hello}</p>`,
+    `<p style="${P}">${escapeHtml(lines.before)}<strong>${escapeHtml(name)}</strong>${escapeHtml(lines.after)}</p>`,
+    `<p style="${P}">${escapeHtml(lines.lead)}</p>`,
+    button(url, lines.cta),
+    `<p style="${SMALL}">${escapeHtml(lines.ttl)}</p>`,
+    `<p style="${SMALL}">${escapeHtml(lines.stranger)}</p>`,
+    `<p style="${P};margin:16px 0 0">${escapeHtml(lines.sign)}</p>`,
     '</div></body></html>',
   ].join('');
-  return { subject: t.subject, html, text: `${t.lead}\n\n${url}\n\n${help}` };
+  const text = [lines.hello, '', `${lines.before}${name}${lines.after}`, '', lines.lead, '', `${lines.cta}: ${url}`, '', lines.ttl, '', lines.stranger, '', lines.sign].join('\n');
+  return { subject, html, text };
 }
 
 /** Database error → Worker answer. Codes only: no message (PII) leaves. */
@@ -163,6 +219,9 @@ export function rpcFailure(e: RpcError): Result {
   switch (e.code) {
     case 'TGP01':
       return { status: 404, body: { error: 'not_found' } };
+    case 'TGP09':
+      // The terms changed between reading and accepting (`portal_draft_submit`): show them again.
+      return { status: 409, body: { error: 'terms_changed' } };
     case 'TGP10':
       return { status: 409, body: { error: 'conflict', ...(d ? { detail: d } : {}) } };
     case 'TGP22':
@@ -201,14 +260,53 @@ function decodeBase64(s: string): Uint8Array | null {
 /** JPEG/PNG/WebP by the magic bytes: the portal sends JPEG, the path says `.jpg`. */
 const isJpeg = (b: Uint8Array) => b.length > 3 && b[0] === 0xff && b[1] === 0xd8 && b[2] === 0xff;
 
-async function sendLink(deps: Deps, purpose: 'login' | 'accept', email: string, accept?: Parameters<typeof linkUrl>[2]): Promise<Result | null> {
+/** The sign-in e-mail: user ensured (marked as portal), GoTrue's hashed token, our own e-mail. `null` = sent. */
+async function sendLogin(deps: Deps, email: string): Promise<Result | null> {
   if (!(await deps.auth.ensureUser(email))) return { status: 502, body: { error: 'unavailable' } };
   const link = await deps.auth.magicLink(email);
   if (!link) return { status: 502, body: { error: 'unavailable' } };
-  const mail = linkEmail(purpose, linkUrl(deps.origin, link, accept));
-  if (!(await deps.sendEmail(email, mail.subject, mail.html, mail.text))) return { status: 502, body: { error: 'unavailable' } };
-  return null;
+  const mail = linkEmail(linkUrl(deps.origin, link));
+  return (await deps.sendEmail(email, mail.subject, mail.html, mail.text)) ? null : { status: 502, body: { error: 'unavailable' } };
 }
+
+/** The access e-mail to `email`, for a claim already recorded with `claimToken`'s hash. `null` = sent. */
+export async function mailAccessLink(d: AccessLinkDeps, email: string, claimToken: string, tradeName: string | null): Promise<Result | null> {
+  if (!(await d.auth.ensureUser(email))) return { status: 502, body: { error: 'unavailable' } };
+  const link = await d.auth.magicLink(email);
+  if (!link) return { status: 502, body: { error: 'unavailable' } };
+  const mail = accessEmail(tradeName, linkUrl(d.origin, link, claimToken), d.origin);
+  return (await d.sendEmail(email, mail.subject, mail.html, mail.text, ACCESS_FROM_NAME)) ? null : { status: 502, body: { error: 'unavailable' } };
+}
+
+export type AccessOutcome = { kind: 'sent' } | { kind: 'owned' } | { kind: 'failed'; result: Result };
+
+/**
+ * The server issues the access link of a settled submission (contract §7.3): a claim token drawn
+ * here, `place_issue_claim` records its hash for the ACCEPTANCE e-mail (the caller never picks the
+ * destination), then the e-mail. `owned` (`TGP10 draft_claimed`: it already has an owner, e.g. it
+ * was sent signed in) is no error and sends nothing.
+ */
+export async function issueAccessLink(d: AccessLinkDeps, submissionId: string): Promise<AccessOutcome> {
+  const claimToken = d.randomToken();
+  if (!CLAIM_TOKEN.test(claimToken)) return { kind: 'failed', result: { status: 502, body: { error: 'unavailable' } } };
+  const { data, error } = await d.issueClaim(submissionId, await d.sha256Hex(claimToken));
+  if (error) return error.code === 'TGP10' && error.details === 'draft_claimed' ? { kind: 'owned' } : { kind: 'failed', result: rpcFailure(error) };
+  const email = normalEmail(firstRow(data)?.email);
+  if (!email) return { kind: 'failed', result: { status: 502, body: { error: 'unavailable' } } };
+  const name = await d.tradeName(submissionId).catch(() => null);
+  const f = await mailAccessLink(d, email, claimToken, name);
+  return f ? { kind: 'failed', result: f } : { kind: 'sent' };
+}
+
+const accessDeps = (deps: Deps): AccessLinkDeps => ({
+  auth: deps.auth,
+  sendEmail: deps.sendEmail,
+  sha256Hex: deps.sha256Hex,
+  randomToken: deps.randomToken,
+  origin: deps.origin,
+  issueClaim: (submissionId, claimSha256) => deps.rpc('place_issue_claim', { p_submission_id: submissionId, p_claim_sha256: claimSha256 }),
+  tradeName: deps.submissions.tradeName,
+});
 
 /**
  * One request of the Worker. `jwt` is the user's access token, only for `claim`.
@@ -324,20 +422,68 @@ export async function handle(deps: Deps, raw: unknown, jwt: string): Promise<Res
     case 'request_link': {
       const email = normalEmail(b.email);
       if (!email) return bad('email');
-      if (b.purpose === 'login') return (await sendLink(deps, 'login', email)) ?? { status: 200, body: { ok: true } };
-      if (b.purpose !== 'accept') return bad('purpose');
-      const params = parseAccept(b.accept);
-      if (!params) return bad('accept');
-      // Signed-in owner (draft already in an account): no claim, the link only signs in and accepts.
-      if (b.token_sha256 === undefined && typeof b.submission_id === 'string' && UUID.test(b.submission_id)) {
-        return (await sendLink(deps, 'accept', email, { submissionId: b.submission_id, params })) ?? { status: 200, body: { ok: true } };
+      if (b.purpose === 'login') {
+        // §7: the owner who lost the access link (expired, other device) types the e-mail and gets
+        // a NEW access link of the latest settled ownerless submission — the promise of the access
+        // e-mail ("entre … com este e-mail, e mandamos outro"). None → a plain sign-in.
+        const sid = await deps.submissions.settledOwnerless(email).catch(() => null);
+        if (sid && UUID.test(sid)) {
+          const o = await issueAccessLink(accessDeps(deps), sid);
+          if (o.kind === 'sent') return { status: 200, body: { ok: true } };
+          if (o.kind === 'failed' && o.result.status !== 409) return o.result;
+        }
+        return (await sendLogin(deps, email)) ?? { status: 200, body: { ok: true } };
       }
+      if (b.purpose !== 'access') return bad('purpose');
+      // "Reenviar o link" of the cookie tab, only after the acceptance is settled (§7.4). The claim
+      // exists BEFORE the e-mail; the database checks the e-mail is the submission's.
       if (!token) return bad('token_sha256');
       if (typeof b.claim_token !== 'string' || !CLAIM_TOKEN.test(b.claim_token)) return bad('claim_token');
-      // The claim exists BEFORE the e-mail: a link that arrives always has a claim to redeem.
       const c = await call(deps, 'portal_draft_request_claim', { p_token_sha256: token, p_claim_sha256: await deps.sha256Hex(b.claim_token), p_email: email });
       if (!c.ok) return c.result;
-      return (await sendLink(deps, 'accept', email, { claimToken: b.claim_token, params })) ?? { status: 200, body: { ok: true, claim_expires_at: c.data } };
+      const sid = await deps.submissions.settledOwnerless(email).catch(() => null);
+      const name = sid && UUID.test(sid) ? await deps.submissions.tradeName(sid).catch(() => null) : null;
+      return (await mailAccessLink(accessDeps(deps), email, b.claim_token, name)) ?? { status: 200, body: { ok: true, claim_expires_at: c.data } };
+    }
+    case 'submit': {
+      // The clickwrap acceptance of the cookie's draft (§7.1, BR-B2B-047 item 3): the term marked
+      // plus the e-mail of step 1. IP and user agent are the browser's, read by the Worker.
+      const p = parseAccept(b.accept);
+      if (!p) return bad('accept');
+      const ip = b.ip === null || b.ip === undefined ? null : typeof b.ip === 'string' && IP.test(b.ip) ? b.ip : undefined;
+      if (ip === undefined) return bad('ip');
+      const ua = b.user_agent === null || b.user_agent === undefined ? null : typeof b.user_agent === 'string' && b.user_agent.length <= USER_AGENT_MAX ? b.user_agent : undefined;
+      if (ua === undefined) return bad('user_agent');
+      const r = await call(deps, 'portal_draft_submit', {
+        p_token_sha256: token,
+        p_terms_version: p.termsVersion,
+        p_terms_sha256: p.termsSha256,
+        p_ip: ip,
+        p_user_agent: ua,
+        p_activation_commitment: { sticker: p.sticker, display: p.display, social: p.social },
+        p_marketing_consent: p.marketing,
+      });
+      if (!r.ok) return r.result;
+      const row = firstRow(r.data);
+      if (!row || typeof row.submission_id !== 'string' || !UUID.test(row.submission_id)) return { status: 502, body: { error: 'unavailable' } };
+      const out = { submission_id: row.submission_id, status: row.status, acceptance_id: row.acceptance_id, total_cents: row.total_cents };
+      // Paid plan with a total: the tab charges next, and the webhook sends the link (§7.3 b).
+      if (row.status !== 'in_review') return { status: 200, body: out };
+      // Free, or a 100% voucher: settled now, the link goes now. The acceptance stands either way:
+      // a failed e-mail is `link: "failed"`, and the tab offers "Reenviar o link".
+      const o = await issueAccessLink(accessDeps(deps), row.submission_id);
+      return { status: 200, body: { ...out, link: o.kind === 'failed' ? 'failed' : 'sent' } };
+    }
+    case 'payment_state': {
+      // What the cookie tab needs after the acceptance (§7.2): pay, or paid. No customer field leaves.
+      const r = await call(deps, 'portal_draft_payment_checkout', { p_token_sha256: token });
+      if (!r.ok) return r.result;
+      const row = firstRow(r.data);
+      if (!row || typeof row.submission_id !== 'string') return { status: 502, body: { error: 'unavailable' } };
+      return {
+        status: 200,
+        body: { submission_id: row.submission_id, submission_status: row.submission_status, payment_status: row.status, amount_cents: row.next_amount_cents },
+      };
     }
     case 'claim': {
       if (typeof b.claim_token !== 'string' || !CLAIM_TOKEN.test(b.claim_token)) return bad('claim_token');

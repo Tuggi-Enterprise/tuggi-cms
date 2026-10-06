@@ -4,7 +4,10 @@
 // BR-B2B-046, BR-B2B-049, BR-B2B-055; term `locais-2026-10-v2`, clauses 4.1–4.7.
 //
 // Three Edge Functions wire this module and do nothing else:
-//   - `places-payment`         the portal's Worker (`x-places-secret` + the user's JWT);
+//   - `places-payment`         the portal's Worker (`x-places-secret` + the user's JWT), or — the
+//                              cookie's checkout before any account exists (#863, §7.2 of
+//                              `places-portal-rascunho.md`) — `x-places-draft-secret` + the sha256
+//                              of the draft cookie (`draftCheckout`, `draftCheckoutPix`);
 //   - `places-payment-webhook` Asaas (`asaas-access-token`);
 //   - `places-payment-sweep`   the daily cron (the project's secret key).
 // Every dependency (database, Asaas, e-mail, clock) is injected, so the CMS tests run the whole
@@ -18,6 +21,8 @@
 //   3. `p_amount_cents = Math.round(value * 100)`, from `value`, never `netValue` → `toCents`;
 //   4. every owner flow proves the owner with the user's JWT (`core.portal_get_subscription` or the
 //      `core.portal_*` it calls) and takes every id after that from the database → `ownerRow`;
+//      the cookie's checkout proves it with the cookie (`portal_draft_payment_checkout`), and every
+//      id comes from the database too → `draftPayable`;
 //   5. a live Asaas subscription with the same `externalReference` is settled before another one is
 //      attached → `clearLiveSubscriptions`;
 //   6. the webhook token is compared in constant time; no body is logged, only event id, type and
@@ -70,6 +75,10 @@ export type Deps = {
   /** Today in America/Sao_Paulo, `YYYY-MM-DD`. */
   today: () => string;
   now: () => Date;
+  /** `place_subscriptions.acceptance_id → place_acceptances.submission_id`, by our id or Asaas' `sub_…`. */
+  submissionOfSubscription: (subscriptionId: string | null, providerSubscriptionId: string | null) => Promise<string | null>;
+  /** `issueAccessLink` of `places-portal-draft.ts` (#863, §7.3): the access e-mail of a settled submission. */
+  accessLink: (submissionId: string) => Promise<'sent' | 'owned' | 'failed'>;
 };
 
 export type PortalDeps = Deps & {
@@ -183,10 +192,17 @@ const digits = (v: unknown) => str(v).replace(/\D/g, '');
  */
 export function parseCheckoutInput(body: unknown, today: string): CheckoutInput | { invalid: string } {
   const b = (body ?? {}) as Record<string, unknown>;
+  if (!isUuid(b.submission_id)) return { invalid: 'submission_id' };
+  const card = parseCardInput(b, today);
+  return 'invalid' in card ? card : { submissionId: (b.submission_id as string).toLowerCase(), ...card };
+}
+
+/** The card, its holder and the payer's IP: the whole checkout body but the submission. */
+export function parseCardInput(body: unknown, today: string): Omit<CheckoutInput, 'submissionId'> | { invalid: string } {
+  const b = (body ?? {}) as Record<string, unknown>;
   const card = (b.card ?? {}) as Record<string, unknown>;
   const holder = (b.holder ?? {}) as Record<string, unknown>;
 
-  if (!isUuid(b.submission_id)) return { invalid: 'submission_id' };
   const number = digits(card.number);
   if (number.length < 13 || number.length > 19 || !luhn(number)) return { invalid: 'card_number' };
   const holderName = str(card.holder_name);
@@ -219,7 +235,6 @@ export function parseCheckoutInput(body: unknown, today: string): CheckoutInput 
   if (!remoteIp || remoteIp.length > 45 || !/^[0-9a-fA-F:.]+$/.test(remoteIp)) return { invalid: 'remote_ip' };
 
   return {
-    submissionId: (b.submission_id as string).toLowerCase(),
     card: { holderName, number, expiryMonth: month.padStart(2, '0'), expiryYear: year, ccv },
     holder: { name, cpfCnpj, postalCode, addressNumber, phone },
     remoteIp,
@@ -281,9 +296,26 @@ export async function checkout(deps: PortalDeps, body: unknown): Promise<Reply> 
   if (isReply(owner)) return owner;
   const co = await payableCheckout(deps, owner.submission_id);
   if (isReply(co)) return co;
+  return chargeCard(deps, owner.submission_id, co, input);
+}
 
+/**
+ * The cookie's card checkout (#863, contract §7.2): accepted by clickwrap, no account yet. The
+ * submission and every id come from `portal_draft_payment_checkout(sha256 of the cookie)`; a
+ * `submission_id` in the body is ignored. Holder phone, postal code, number and document still come
+ * from the card form — the database gives none of them to a cookie.
+ */
+export async function draftCheckout(deps: Deps, body: unknown, tokenSha256: string): Promise<Reply> {
+  const input = parseCardInput(body, deps.today());
+  if ('invalid' in input) return reply(400, { error: 'invalid', field: input.invalid });
+  const co = await draftPayable(deps, tokenSha256);
+  if (isReply(co)) return co;
+  return chargeCard(deps, co.submission_id, co, input);
+}
+
+async function chargeCard(deps: Deps, submissionId: string, co: CheckoutRow, input: Omit<CheckoutInput, 'submissionId'>): Promise<Reply> {
   try {
-    const customer = await prepareCustomer(deps, owner.submission_id, co);
+    const customer = await prepareCustomer(deps, submissionId, co);
     if (isReply(customer)) return customer;
 
     let created;
@@ -340,13 +372,35 @@ export async function checkout(deps: PortalDeps, body: unknown): Promise<Reply> 
 async function payableCheckout(deps: Deps, submissionId: string): Promise<CheckoutRow | Reply> {
   const { data, error } = await deps.admin('partner', 'place_payment_checkout', { p_submission_id: submissionId });
   if (error) return isBusinessError(error) ? portalErrorReply(error) : reply(502, { error: 'unavailable' });
-  const co = firstRow<CheckoutRow>(data);
+  return payableRow(firstRow<CheckoutRow>(data));
+}
+
+/** Null `next_due_date` = paid and waiting for approval; not `pending_payment` = nothing to pay. */
+function payableRow<T extends CheckoutRow>(co: T | null): T | Reply {
   if (!co) return reply(502, { error: 'unavailable' });
-  // Null `next_due_date` = paid and waiting for approval; not `pending_payment` = nothing to pay.
   if (co.status !== 'pending_payment' || !co.attachable || !co.next_due_date) {
     return reply(409, { error: 'not_payable', reason: co.status });
   }
   return co;
+}
+
+const HEX64 = /^[0-9a-f]{64}$/;
+
+/**
+ * `portal_draft_payment_checkout` (§7.2): the same columns as `place_payment_checkout`, plus the
+ * submission. `TGP10` (`not_accepted`, or the status of a submission with no paid plan) →
+ * `409 not_payable` + `reason`, like the signed-in checkout; `TGP01` (no such cookie) → 404.
+ */
+async function draftPayable(deps: Deps, tokenSha256: string): Promise<(CheckoutRow & { submission_id: string }) | Reply> {
+  if (!HEX64.test(tokenSha256)) return reply(400, { error: 'invalid', field: 'token_sha256' });
+  const { data, error } = await deps.admin('partner', 'portal_draft_payment_checkout', { p_token_sha256: tokenSha256 });
+  if (error) {
+    if (error.code === 'TGP10') return reply(409, { error: 'not_payable', reason: error.details ?? null });
+    return isBusinessError(error) ? portalErrorReply(error) : reply(502, { error: 'unavailable' });
+  }
+  const co = firstRow<CheckoutRow & { submission_id: string }>(data);
+  if (co && !isUuid(co.submission_id)) return reply(502, { error: 'unavailable' });
+  return payableRow(co);
 }
 
 /**
@@ -355,7 +409,7 @@ async function payableCheckout(deps: Deps, submissionId: string): Promise<Checko
  * any Pix QR of an earlier attempt is cancelled — switching method must not leave a second way
  * to pay the same period open. Asaas errors propagate (the callers answer `provider_unavailable`).
  */
-async function prepareCustomer(deps: PortalDeps, submissionId: string, co: CheckoutRow): Promise<{ id: string } | Reply> {
+async function prepareCustomer(deps: Deps, submissionId: string, co: CheckoutRow): Promise<{ id: string } | Reply> {
   const settled = await clearLiveSubscriptions(deps, submissionId, co);
   if (settled) return settled;
   const customer =
@@ -423,9 +477,19 @@ export async function checkoutPix(deps: PortalDeps, body: unknown): Promise<Repl
   if (isReply(owner)) return owner;
   const co = await payableCheckout(deps, owner.submission_id);
   if (isReply(co)) return co;
+  return pixQr(deps, owner.submission_id, co);
+}
 
+/** The cookie's Pix checkout (#863, §7.2): the same QR, the submission from the cookie. */
+export async function draftCheckoutPix(deps: Deps, tokenSha256: string): Promise<Reply> {
+  const co = await draftPayable(deps, tokenSha256);
+  if (isReply(co)) return co;
+  return pixQr(deps, co.submission_id, co);
+}
+
+async function pixQr(deps: Deps, submissionId: string, co: CheckoutRow): Promise<Reply> {
   try {
-    const customer = await prepareCustomer(deps, owner.submission_id, co);
+    const customer = await prepareCustomer(deps, submissionId, co);
     if (isReply(customer)) return customer;
     const description = `Tuggi Com história ${co.billing_period} ${co.billing_period === 1 ? 'mês' : 'meses'}`;
     const auth = await deps.asaas.createPixAutomaticAuthorization({
@@ -492,7 +556,7 @@ async function holdNextChargeUntilApproval(
 }
 
 /** Returns a reply when an already-paid live subscription was (re)attached; null to go on. */
-async function clearLiveSubscriptions(deps: PortalDeps, submissionId: string, co: CheckoutRow): Promise<Reply | null> {
+async function clearLiveSubscriptions(deps: Deps, submissionId: string, co: CheckoutRow): Promise<Reply | null> {
   const ids = await deps.subscriptionIds(submissionId);
   const live = (await deps.asaas.listSubscriptionsByReference(co.external_reference)).filter(
     (s) => !s.deleted && s.status === 'ACTIVE',
@@ -901,7 +965,13 @@ export async function handleAsaasWebhook(
     if (error.code === 'TGP22') await deps.alert('webhook_tgp22', { event_id: eventId, event_type: eventType, field: error.details });
     return reply(500, { error: 'db_error' });
   }
-  const outcome = firstRow<{ outcome?: string }>(data)?.outcome ?? 'unknown';
+  const row = firstRow<{ outcome?: string; submission_status?: string }>(data);
+  const outcome = row?.outcome ?? 'unknown';
+  // #863 (§7.3 b): the first charge moved an ownerless submission to `in_review` — the access link
+  // goes now, from the server, whether or not the tab that paid is still open. Only on `applied`:
+  // a resend is `duplicate_event`, and the RECEIVED after the CONFIRMED of the same charge is
+  // `duplicate_charge`, so one charge sends one e-mail (a second would expire the first link).
+  const link = fn === 'confirm_place_charge' && outcome === 'applied' && row?.submission_status === 'in_review' ? await accessLinkAfterPayment(deps, args, eventId, eventType) : null;
   if (ALERT_OUTCOMES.has(outcome)) {
     await deps.alert(outcome, {
       event_id: eventId,
@@ -912,8 +982,27 @@ export async function handleAsaasWebhook(
       provider_payment_id: (args.p_provider_payment_id as string) ?? null,
     });
   }
-  log(outcome);
+  log(link ? `${outcome} link:${link}` : outcome);
   return reply(200, { outcome });
+}
+
+/**
+ * Best effort, and never a 500: the charge is already recorded, so a resend would only be a
+ * `duplicate_event` and send nothing. A failure alerts the operator; the owner still has
+ * "Reenviar o link" in the paying tab and the sign-in by e-mail, which issues a new access link.
+ */
+async function accessLinkAfterPayment(deps: Deps, args: Record<string, unknown>, eventId: string, eventType: string): Promise<'sent' | 'owned' | 'failed'> {
+  const subscriptionId = typeof args.p_subscription_id === 'string' ? args.p_subscription_id : null;
+  const providerSubscriptionId = typeof args.p_provider_subscription_id === 'string' ? args.p_provider_subscription_id : null;
+  let r: 'sent' | 'owned' | 'failed' = 'failed';
+  try {
+    const submissionId = await deps.submissionOfSubscription(subscriptionId, providerSubscriptionId);
+    if (submissionId) r = await deps.accessLink(submissionId);
+  } catch (e) {
+    console.error('[places-payment-webhook]', eventId, eventType, 'access_link', e instanceof Error ? e.message.slice(0, 120) : 'unknown');
+  }
+  if (r === 'failed') await deps.alert('access_link_failed', { event_id: eventId, event_type: eventType, subscription_id: subscriptionId, provider_subscription_id: providerSubscriptionId });
+  return r;
 }
 
 /**

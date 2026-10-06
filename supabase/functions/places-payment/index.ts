@@ -8,16 +8,51 @@
 // owner" — the database proves it in `core.portal_*` (demand 4 of the security review). Deploy
 // with `--no-verify-jwt`, like the other `places-*`: the token is checked by the database call.
 //
+// #863 (§7.2 of `places-portal-rascunho.md`): the cookie's checkout, before any account exists.
+// `x-places-draft-secret` (`PLACES_DRAFT_SECRET`, the Worker's secret of the anonymous draft,
+// constant time) + `token_sha256` of the draft cookie, no JWT; only `checkout` and `checkout_pix`.
+// The submission comes from `portal_draft_payment_checkout`, never from the body.
+//
 // Body: { action: 'checkout' | 'checkout_pix' | 'cancel_renewal' | 'refund' | 'withdraw', submission_id, ... }.
 // The card goes to Asaas in the same request and is never stored, logged or echoed. `checkout_pix`
 // answers { result: 'pix', pix: { payload, image, expires_at } }: the QR of the first charge.
 
 import { isPlacesSecret, PLACES_SECRET_HEADER } from '../_shared/places-secret.ts';
-import { cancelRenewal, checkout, checkoutPix, requestRefund, withdraw, type PortalDeps } from '../_shared/places-payment.ts';
+import { isDraftSecret } from '../_shared/places-draft-secret.ts';
+import { DRAFT_SECRET_HEADER } from '../_shared/places-portal-draft.ts';
+import { cancelRenewal, checkout, checkoutPix, draftCheckout, draftCheckoutPix, requestRefund, withdraw, type PortalDeps } from '../_shared/places-payment.ts';
 import { asaasFromEnv, baseDeps, json, userDeps } from '../_shared/places-payment-runtime.ts';
+
+/** The cookie's checkout (#863). The secret is checked before the body is read. */
+async function draftPayment(req: Request): Promise<Response> {
+  if (!isDraftSecret(req.headers.get(DRAFT_SECRET_HEADER), 'places-payment')) return json(401, { error: 'unauthorized' });
+  let body: Record<string, unknown>;
+  try {
+    body = (await req.json()) as Record<string, unknown>;
+  } catch {
+    return json(400, { error: 'invalid_body' });
+  }
+  if (body.action !== 'checkout' && body.action !== 'checkout_pix') return json(400, { error: 'invalid', field: 'action' });
+  const token = typeof body.token_sha256 === 'string' ? body.token_sha256 : '';
+  const asaas = asaasFromEnv();
+  if (!asaas) {
+    console.error('[places-payment] ASAAS_BASE_URL or ASAAS_API_KEY is not set');
+    return json(503, { error: 'unavailable' });
+  }
+  try {
+    const deps = baseDeps(asaas);
+    const r = body.action === 'checkout' ? await draftCheckout(deps, body, token) : await draftCheckoutPix(deps, token);
+    console.log('[places-payment] draft', String(body.action), r.status);
+    return json(r.status, r.body);
+  } catch (e) {
+    console.error('[places-payment] draft failed', e instanceof Error ? e.message.slice(0, 200) : 'unknown');
+    return json(502, { error: 'unavailable' });
+  }
+}
 
 Deno.serve(async (req: Request) => {
   if (req.method !== 'POST') return json(405, { error: 'method_not_allowed' });
+  if (req.headers.has(DRAFT_SECRET_HEADER)) return draftPayment(req);
   if (!isPlacesSecret(req.headers.get(PLACES_SECRET_HEADER))) return json(401, { error: 'unauthorized' });
   const jwt = (req.headers.get('authorization') ?? '').replace(/^Bearer\s+/i, '').trim();
   if (!jwt) return json(401, { error: 'relogin' });

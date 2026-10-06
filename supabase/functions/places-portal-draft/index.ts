@@ -1,54 +1,39 @@
 // Edge Function: places-portal-draft (#863, epic #802)
 //
-// The anonymous draft of the Portal Locais and the e-mail link that signs in and claims it.
+// The anonymous draft of the Portal Locais, its clickwrap acceptance (`submit`), and the e-mail
+// link — issued only once the acceptance is settled — that signs in and claims it.
 // Contract: `docs/contracts/places-portal-rascunho.md` (workspace); logic and the fixed list of
 // database functions in `_shared/places-portal-draft.ts`.
 //
 // Called server-to-server by the portal's Worker with `x-places-draft-secret` (its OWN secret,
-// `PLACES_DRAFT_SECRET` — not `PLACES_CMS_SECRET`, compared in constant time). `claim` also
-// carries the user's access token in `Authorization: Bearer`. Deploy with `--no-verify-jwt`: the
-// secret gates every call, and the user's token is verified here (`getClaims`).
+// `PLACES_DRAFT_SECRET` — not `PLACES_CMS_SECRET`, compared in constant time in
+// `_shared/places-draft-secret.ts`). `claim` also carries the user's access token in
+// `Authorization: Bearer`. Deploy with `--no-verify-jwt`: the secret gates every call, and the
+// user's token is verified here (`getClaims`).
 //
-// THIS IS THE ONLY CALLER OF `partner.portal_draft_*` (EXECUTE to service_role only): the Worker
-// holds no Supabase secret key (D2 of `20261004120000`).
+// THIS IS THE ONLY CALLER OF `partner.portal_draft_*` (EXECUTE to service_role only), but for
+// `portal_draft_payment_checkout`, which `places-payment` also calls for the cookie's checkout: the
+// Worker holds no Supabase secret key (D2 of `20261004120000`).
 //
 // Secrets: PLACES_DRAFT_SECRET, PLACES_PORTAL_ORIGIN (default https://places.tuggi.app),
 // RESEND_API_KEY, RESEND_FROM.
 
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
 import { createAdminClient, getPublishableKey, getSupabaseUrl } from '../_shared/supabase-client.ts';
-import { constantTimeEqual } from '../_shared/constant-time.ts';
+import { isDraftSecret } from '../_shared/places-draft-secret.ts';
+import { authAdmin, randomToken, sendEmail, sha256Hex, submissionReads } from '../_shared/places-access-link-runtime.ts';
 import {
-  DRAFT_SECRET_ENV,
   DRAFT_SECRET_HEADER,
   PHOTO_BUCKET,
   PORTAL_ORIGIN_ENV,
-  PORTAL_SIGNUP_ORIGIN,
   SIGNED_URL_TTL_S,
   handle,
   portalOrigin,
   type Deps,
 } from '../_shared/places-portal-draft.ts';
 
-const RESEND_URL = 'https://api.resend.com/emails';
-
 const json = (status: number, body: unknown) =>
   new Response(JSON.stringify(body), { status, headers: { 'Content-Type': 'application/json' } });
-
-function secretOk(provided: string | null): boolean {
-  const expected = (Deno.env.get(DRAFT_SECRET_ENV) ?? '').trim();
-  if (!expected) {
-    console.error(`[places-portal-draft] ${DRAFT_SECRET_ENV} is not set; refusing every call`);
-    return false;
-  }
-  const candidate = (provided ?? '').trim();
-  return !!candidate && constantTimeEqual(candidate, expected);
-}
-
-async function sha256Hex(s: string): Promise<string> {
-  const d = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(s));
-  return Array.from(new Uint8Array(d), (b) => b.toString(16).padStart(2, '0')).join('');
-}
 
 function deps(): Deps {
   const admin = createAdminClient();
@@ -83,15 +68,7 @@ function deps(): Deps {
       },
     },
     auth: {
-      async ensureUser(email) {
-        const { error } = await admin.auth.admin.createUser({ email, email_confirm: true, user_metadata: { signup_origin: PORTAL_SIGNUP_ORIGIN } });
-        return !error || error.code === 'email_exists' || error.status === 422;
-      },
-      async magicLink(email) {
-        const { data, error } = await admin.auth.admin.generateLink({ type: 'magiclink', email });
-        const p = data?.properties;
-        return !error && p?.hashed_token ? { tokenHash: p.hashed_token, type: p.verification_type || 'magiclink' } : null;
-      },
+      ...authAdmin(admin),
       async claims(jwt) {
         // `getClaims` verifies the signature (JWKS, or the Auth server for a symmetric key).
         const client = createClient(getSupabaseUrl(), getPublishableKey(), {
@@ -103,30 +80,18 @@ function deps(): Deps {
         return { sub: c.sub, sessionId: c.session_id };
       },
     },
-    async sendEmail(to, subject, html, text) {
-      const key = (Deno.env.get('RESEND_API_KEY') ?? '').trim();
-      if (!key) return false;
-      try {
-        const res = await fetch(RESEND_URL, {
-          method: 'POST',
-          headers: { Authorization: `Bearer ${key}`, 'Content-Type': 'application/json' },
-          body: JSON.stringify({ from: (Deno.env.get('RESEND_FROM') ?? 'Tuggi <news@tuggi.app>').trim(), to: [to], subject, html, text }),
-          signal: AbortSignal.timeout(10_000),
-        });
-        return res.ok;
-      } catch {
-        return false;
-      }
-    },
+    sendEmail,
     sha256Hex,
     uuid: () => crypto.randomUUID(),
+    randomToken,
+    submissions: submissionReads(admin),
     origin: portalOrigin(Deno.env.get(PORTAL_ORIGIN_ENV)),
   };
 }
 
 Deno.serve(async (req: Request) => {
   if (req.method !== 'POST') return json(405, { error: 'method_not_allowed' });
-  if (!secretOk(req.headers.get(DRAFT_SECRET_HEADER))) return json(401, { error: 'unauthorized' });
+  if (!isDraftSecret(req.headers.get(DRAFT_SECRET_HEADER), 'places-portal-draft')) return json(401, { error: 'unauthorized' });
   let body: unknown;
   try {
     body = await req.json();

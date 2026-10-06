@@ -68,6 +68,7 @@ function fakeDb(answers: Record<string, { data?: unknown; error?: { code?: strin
 
 function deps(asaas: ReturnType<typeof fakeAsaas>, db: ReturnType<typeof fakeDb>, extra: Record<string, unknown> = {}) {
   const alerts: { what: string; fields: Record<string, unknown> }[] = []
+  const links: string[] = []
   const d = {
     asaas: asaas.client,
     admin: db.rpc,
@@ -78,9 +79,14 @@ function deps(asaas: ReturnType<typeof fakeAsaas>, db: ReturnType<typeof fakeDb>
     },
     today: () => '2026-10-04',
     now: () => new Date('2026-10-04T12:00:00Z'),
+    submissionOfSubscription: async () => SUBMISSION,
+    accessLink: async (id: string) => {
+      links.push(id)
+      return 'sent' as const
+    },
     ...extra,
   }
-  return { d, alerts }
+  return { d, alerts, links }
 }
 
 const at = (method: string, prefix: string, status: number, body: unknown): Route => (c) =>
@@ -496,4 +502,91 @@ test('#811: the sweep cancels an expired subscription in Asaas and in the databa
   assert.equal(s.expired, 1)
   assert.deepEqual(asaas.calls.map((c) => `${c.method} ${c.path}`), ['DELETE /subscriptions/sub_9'])
   assert.equal(db.calls.find((c) => c.fn === 'cancel_place_subscription')!.args.p_actor_kind, 'system')
+})
+
+// ─── #863: the cookie's checkout and the access link after the first charge ─────────────────────
+
+const COOKIE = 'f'.repeat(64)
+const draftRow = { submission_id: SUBMISSION, submission_status: 'awaiting_payment', ...checkoutRow }
+const chargeRoutes = () => [
+  at('GET', '/subscriptions?', 200, { data: [] }),
+  at('GET', '/customers?', 200, { data: [] }),
+  at('POST', '/customers', 200, { id: 'cus_1' }),
+  at('POST', '/subscriptions', 200, { id: 'sub_new', status: 'ACTIVE', value: 540 }),
+  at('GET', '/payments?subscription=sub_new', 200, { data: [{ id: 'pay_1', status: 'CONFIRMED', value: 540, dueDate: '2026-10-04' }] }),
+  at('PUT', '/subscriptions/sub_new', 200, {}),
+]
+
+test('#863 (BR-B2B-043, BR-B2B-047): the cookie checkout takes the submission and every id from portal_draft_payment_checkout, never from the body', async () => {
+  const asaas = fakeAsaas(chargeRoutes())
+  const db = fakeDb({ portal_draft_payment_checkout: { data: [draftRow] }, attach_place_subscription: { data: 'pending_payment' } })
+  const { d } = deps(asaas, db)
+  const r = await pay.draftCheckout(d, { ...checkoutBody, submission_id: '00000000-0000-4000-8000-000000000000' }, COOKIE)
+  assert.deepEqual(r, { status: 200, body: { result: 'paid' } })
+  assert.deepEqual(db.calls.map((c) => c.fn), ['portal_draft_payment_checkout', 'attach_place_subscription'])
+  assert.deepEqual(db.calls[0].args, { p_token_sha256: COOKIE })
+  assert.equal(db.calls[1].args.p_subscription_id, SUB_UUID)
+  const created = asaas.calls.find((c) => c.method === 'POST' && c.path === '/subscriptions')!.body as Record<string, unknown>
+  // Holder data still comes from the card form; the e-mail is the acceptance's, from the database.
+  assert.equal((created.creditCardHolderInfo as Record<string, unknown>).phone, '22999998888')
+  assert.equal((created.creditCardHolderInfo as Record<string, unknown>).email, 'ze@example.com')
+})
+
+test('#863: the cookie checkout of a draft not yet accepted, or of a plan with nothing to pay, is 409 not_payable and touches no Asaas', async () => {
+  for (const [details, reason] of [['not_accepted', 'not_accepted'], ['in_review', 'in_review']]) {
+    const asaas = fakeAsaas([])
+    const { d } = deps(asaas, fakeDb({ portal_draft_payment_checkout: { error: { code: 'TGP10', details } } }))
+    assert.deepEqual(await pay.draftCheckout(d, checkoutBody, COOKIE), { status: 409, body: { error: 'not_payable', reason } })
+    assert.deepEqual(await pay.draftCheckoutPix(d, COOKIE), { status: 409, body: { error: 'not_payable', reason } })
+    assert.equal(asaas.calls.length, 0)
+  }
+  const paid = deps(fakeAsaas([]), fakeDb({ portal_draft_payment_checkout: { data: [{ ...draftRow, status: 'paid', next_due_date: null }] } }))
+  assert.deepEqual(await pay.draftCheckout(paid.d, checkoutBody, COOKIE), { status: 409, body: { error: 'not_payable', reason: 'paid' } })
+  const gone = deps(fakeAsaas([]), fakeDb({ portal_draft_payment_checkout: { error: { code: 'TGP01' } } }))
+  assert.equal((await pay.draftCheckoutPix(gone.d, COOKIE)).status, 404)
+})
+
+test('#863: a cookie hash out of shape, or a bad card, never reaches the database', async () => {
+  const db = fakeDb({})
+  const { d } = deps(fakeAsaas([]), db)
+  assert.deepEqual(await pay.draftCheckoutPix(d, 'A'.repeat(64)), { status: 400, body: { error: 'invalid', field: 'token_sha256' } })
+  assert.deepEqual(await pay.draftCheckout(d, { ...checkoutBody, card: { ...checkoutBody.card, number: '4111111111111112' } }, COOKIE), { status: 400, body: { error: 'invalid', field: 'card_number' } })
+  assert.equal(db.calls.length, 0)
+})
+
+test('#863 (BR-B2B-047): the first charge that moves an ownerless submission to in_review sends the access link, once', async () => {
+  const asaas = fakeAsaas([at('GET', '/payments/pay_1', 200, confirmedPayment)])
+  const db = fakeDb({ confirm_place_charge: { data: [{ outcome: 'applied', submission_status: 'in_review' }] } })
+  const seen: unknown[] = []
+  const { d, links } = deps(asaas, db, {
+    submissionOfSubscription: async (id: string | null, sub: string | null) => {
+      seen.push([id, sub])
+      return SUBMISSION
+    },
+  })
+  const r = await pay.handleAsaasWebhook(d, TOKEN, TOKEN, { id: 'evt_1', event: 'PAYMENT_CONFIRMED', payment: { id: 'pay_1' } })
+  assert.deepEqual(r, { status: 200, body: { outcome: 'applied' } })
+  assert.deepEqual(seen, [[SUB_UUID, 'sub_1']])
+  assert.deepEqual(links, [SUBMISSION])
+
+  // The RECEIVED after the CONFIRMED of the same charge, a resend, a renewal: no second e-mail.
+  for (const row of [{ outcome: 'duplicate_charge', submission_status: 'in_review' }, { outcome: 'duplicate_event' }, { outcome: 'applied', submission_status: 'approved' }]) {
+    const x = deps(fakeAsaas([at('GET', '/payments/pay_1', 200, confirmedPayment)]), fakeDb({ confirm_place_charge: { data: [row] } }))
+    await pay.handleAsaasWebhook(x.d, TOKEN, TOKEN, { id: 'evt_2', event: 'PAYMENT_RECEIVED', payment: { id: 'pay_1' } })
+    assert.deepEqual(x.links, [], JSON.stringify(row))
+  }
+})
+
+test('#863: an access link that fails after the charge is recorded is a 200 and an alert (a 500 would only resend a duplicate_event)', async () => {
+  const asaas = fakeAsaas([at('GET', '/payments/pay_1', 200, confirmedPayment)])
+  const db = fakeDb({ confirm_place_charge: { data: [{ outcome: 'applied', submission_status: 'in_review' }] } })
+  const { d, alerts } = deps(asaas, db, { accessLink: async () => 'failed' })
+  const r = await pay.handleAsaasWebhook(d, TOKEN, TOKEN, { id: 'evt_1', event: 'PAYMENT_CONFIRMED', payment: { id: 'pay_1' } })
+  assert.equal(r.status, 200)
+  assert.deepEqual(alerts.map((a) => a.what), ['access_link_failed'])
+  assert.ok(!JSON.stringify(alerts).includes('@'))
+  // Already owned (paid signed in): nothing to send, nothing to alert.
+  const owned = deps(fakeAsaas([at('GET', '/payments/pay_1', 200, confirmedPayment)]), fakeDb({ confirm_place_charge: { data: [{ outcome: 'applied', submission_status: 'in_review' }] } }), { accessLink: async () => 'owned' })
+  await pay.handleAsaasWebhook(owned.d, TOKEN, TOKEN, { id: 'evt_1', event: 'PAYMENT_CONFIRMED', payment: { id: 'pay_1' } })
+  assert.equal(owned.alerts.length, 0)
 })

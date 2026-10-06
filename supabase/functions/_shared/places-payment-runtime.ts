@@ -6,12 +6,15 @@
 //
 // Secrets: ASAAS_API_KEY, ASAAS_BASE_URL (sandbox `https://api-sandbox.asaas.com/v3`, production
 // `https://api.asaas.com/v3` — no default: an unset URL refuses, it never guesses the environment),
-// ASAAS_WEBHOOK_TOKEN (webhook only), RESEND_API_KEY, RESEND_FROM, PARTNER_ALERT_TO.
+// ASAAS_WEBHOOK_TOKEN (webhook only), RESEND_API_KEY, RESEND_FROM, PARTNER_ALERT_TO,
+// PLACES_DRAFT_SECRET (the cookie's checkout, #863) and PLACES_PORTAL_ORIGIN (the access link).
 
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
 import { createAdminClient, getPublishableKey, getSupabaseUrl } from './supabase-client.ts';
 import { asaasClient } from './asaas.ts';
 import { saoPauloDate, type Deps, type Rpc, type SubscriptionIds } from './places-payment.ts';
+import { issueAccessLink } from './places-portal-draft.ts';
+import { accessLinkDeps } from './places-access-link-runtime.ts';
 
 const RESEND_URL = 'https://api.resend.com/emails';
 
@@ -104,6 +107,16 @@ export function baseDeps(asaas: NonNullable<ReturnType<typeof asaasFromEnv>>): D
     alert,
     today: () => saoPauloDate(new Date()),
     now: () => new Date(),
+    submissionOfSubscription: async (subscriptionId, providerSubscriptionId) => {
+      if (!subscriptionId && !providerSubscriptionId) return null;
+      const q = admin.schema('partner').from('place_subscriptions').select('place_acceptances(submission_id)');
+      const { data, error } = await (subscriptionId ? q.eq('id', subscriptionId) : q.eq('provider_subscription_id', providerSubscriptionId)).maybeSingle();
+      if (error) throw new Error(`subscription read ${error.code}`);
+      const acc = data?.place_acceptances;
+      const sid = (Array.isArray(acc) ? acc[0] : acc)?.submission_id;
+      return typeof sid === 'string' ? sid : null;
+    },
+    accessLink: async (submissionId) => (await issueAccessLink(accessLinkDeps(admin), submissionId)).kind,
   };
 }
 
