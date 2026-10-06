@@ -276,12 +276,9 @@ test('#811 Pix §3.2: a refused recurring instruction with the charge still PEND
 
 const activated = { id: AUTH, status: 'ACTIVE', contractId: CONTRACT, customerId: 'cus_1', subscriptionId: 'sub_px', frequency: 'MONTHLY' }
 
-test('#811 Pix: ACTIVATED attaches the RE-READ ids (body ignored) and holds the next charge until approval', async () => {
+test('#811 Pix: ACTIVATED attaches the RE-READ ids (body ignored); BR-B2B-046: no PUT nextDueDate, the recurrence keeps its startDate', async () => {
   const asaas = fakeAsaas([
     at('GET', `/pix/automatic/authorizations/${AUTH}`, 200, activated),
-    at('GET', '/payments?subscription=sub_px', 200, { data: [{ id: 'pay_early', status: 'PENDING', value: 600, dueDate: '2026-11-04' }] }),
-    at('DELETE', '/payments/pay_early', 200, {}),
-    at('PUT', '/subscriptions/sub_px', 200, {}),
   ])
   const db = fakeDb({ attach_place_subscription: { data: 'paid' } })
   const { d } = deps(asaas, db, row({ status: 'paid' }))
@@ -290,8 +287,7 @@ test('#811 Pix: ACTIVATED attaches the RE-READ ids (body ignored) and holds the 
   assert.deepEqual(db.calls[0], { schema: 'partner', fn: 'attach_place_subscription', args: {
     p_subscription_id: SUB_UUID, p_payment_method: 'pix_automatic', p_provider_customer_id: 'cus_1', p_provider_subscription_id: 'sub_px', p_provider_authorization_id: AUTH,
   } })
-  assert.ok(paths(asaas).includes('DELETE /payments/pay_early'))
-  assert.deepEqual(asaas.calls.find((c) => c.method === 'PUT')!.body, { nextDueDate: '2026-12-04' })
+  assert.deepEqual(paths(asaas), [`GET /pix/automatic/authorizations/${AUTH}`])
 })
 
 test('#811 Pix: a resent ACTIVATED of the attached authorization touches nothing', async () => {

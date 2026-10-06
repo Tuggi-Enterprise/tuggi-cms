@@ -337,15 +337,13 @@ test('#811 demand 4: checkout of a submission that is not the caller\'s stops at
   assert.equal(asaas.calls.length + db.calls.length, 0)
 })
 
-test('#811 §8, #863 BR-B2B-045: MONTHLY subscription; first fee with coupon — value is the FIRST fee; attach; next fee held', async () => {
+test('#811 §8, #863 BR-B2B-045: MONTHLY subscription; first fee with coupon — value is the FIRST fee; attach; BR-B2B-046: no PUT nextDueDate, Asaas keeps its own date', async () => {
   const asaas = fakeAsaas([
     at('GET', '/subscriptions?', 200, { data: [] }),
     at('GET', '/customers?', 200, { data: [] }),
     at('POST', '/customers', 200, { id: 'cus_1' }),
     at('POST', '/subscriptions', 200, { id: 'sub_new', status: 'ACTIVE', value: 540 }),
     at('GET', '/payments?subscription=sub_new', 200, { data: [{ id: 'pay_1', status: 'CONFIRMED', value: 540, dueDate: '2026-10-04' }, { id: 'pay_2', status: 'PENDING', value: 540, dueDate: '2026-11-04' }] }),
-    at('DELETE', '/payments/pay_2', 200, { deleted: true }),
-    at('PUT', '/subscriptions/sub_new', 200, {}),
   ])
   const db = fakeDb({ place_payment_checkout: { data: [checkoutRow] }, attach_place_subscription: { data: 'pending_payment' } })
   const { d } = portal(asaas, db, owner())
@@ -368,10 +366,8 @@ test('#811 §8, #863 BR-B2B-045: MONTHLY subscription; first fee with coupon —
   assert.deepEqual(db.calls.map((c) => c.fn), ['place_payment_checkout', 'attach_place_subscription'])
   assert.equal(db.calls[1].args.p_subscription_id, SUB_UUID)
   assert.equal(db.calls[1].args.p_provider_subscription_id, 'sub_new')
-  // the early second fee (send + 1 month) is removed, the next one pushed past approval
-  assert.ok(asaas.calls.some((c) => c.method === 'DELETE' && c.path === '/payments/pay_2'))
-  const put = asaas.calls.find((c) => c.method === 'PUT')!.body as Record<string, unknown>
-  assert.equal(put.nextDueDate, '2026-12-04')
+  // BR-B2B-046: the paid month starts at the payment, so the second fee (payment + 1 month) stays
+  assert.ok(!asaas.calls.some((c) => c.method === 'PUT' || c.method === 'DELETE'))
 })
 
 test('#811 demand 5: a live subscription for the same reference that already charged is attached, not charged again', async () => {
@@ -514,38 +510,23 @@ test('#811: withdrawal outside the window answers 409 with the database reason',
   assert.deepEqual(await pay.withdraw(d as never, SUBMISSION), { status: 409, body: { error: 'not_allowed', reason: 'approved' } })
 })
 
-// ─── sweep: renewal alignment ────────────────────────────────────────────────────────────────
+// ─── sweep: next fee amount ────────────────────────────────────────────────────────────────
 
-// §8.5: renewal_date = the next fee, renewal_amount_cents = its amount (voucher diluted in the 1st commitment)
-const scheduleRow = { subscription_id: SUB_UUID, provider_subscription_id: 'sub_1', renewal_amount_cents: 12000, billing_period: 3, renewal_date: '2027-01-06', notice_date: '2027-02-27' }
+// §8.5: renewal_amount_cents = the next fee's amount (voucher diluted in the 1st commitment)
+const scheduleRow = { subscription_id: SUB_UUID, provider_subscription_id: 'sub_1', renewal_amount_cents: 12000 }
 
-test('#811 term 4.1, BR-B2B-046: a pending charge on the wrong date is removed and the subscription points at the next fee, with its amount', async () => {
+test('#863 §8.2, BR-B2B-046: the sweep moves value to the next fee and never touches nextDueDate', async () => {
   const asaas = fakeAsaas([
-    at('GET', '/payments?subscription=sub_1', 200, { data: [{ id: 'pay_early', status: 'PENDING', value: 108, dueDate: '2027-01-04' }] }),
-    at('DELETE', '/payments/pay_early', 200, { deleted: true }),
     at('GET', '/subscriptions/sub_1', 200, { id: 'sub_1', status: 'ACTIVE', value: 108, cycle: 'MONTHLY', nextDueDate: '2027-02-04' }),
     at('PUT', '/subscriptions/sub_1', 200, {}),
   ])
   const { d } = deps(asaas, fakeDb({}))
   assert.equal(await pay.alignRenewal(d, scheduleRow), true)
-  const put = asaas.calls.find((c) => c.method === 'PUT')!.body
-  assert.deepEqual(put, { nextDueDate: '2027-01-06', value: 120, updatePendingPayments: true })
+  assert.deepEqual(asaas.calls.find((c) => c.method === 'PUT')!.body, { value: 120, updatePendingPayments: true })
 })
 
-test('#811 BR-B2B-046 item 1: fee already generated on the right date — the subscription points ONE month after it', async () => {
+test('#811: a subscription with the right value is left alone (the sweep is idempotent)', async () => {
   const asaas = fakeAsaas([
-    at('GET', '/payments?subscription=sub_1', 200, { data: [{ id: 'pay_r', status: 'PENDING', value: 120, dueDate: '2027-01-06' }] }),
-    at('GET', '/subscriptions/sub_1', 200, { id: 'sub_1', status: 'ACTIVE', value: 120, cycle: 'MONTHLY', nextDueDate: '2027-04-06' }),
-    at('PUT', '/subscriptions/sub_1', 200, {}),
-  ])
-  const { d } = deps(asaas, fakeDb({}))
-  assert.equal(await pay.alignRenewal(d, scheduleRow), true)
-  assert.equal((asaas.calls.find((c) => c.method === 'PUT')!.body as { nextDueDate: string }).nextDueDate, '2027-02-06')
-})
-
-test('#811: an aligned subscription is left alone (the sweep is idempotent)', async () => {
-  const asaas = fakeAsaas([
-    at('GET', '/payments?subscription=sub_1', 200, { data: [{ id: 'pay_r', status: 'PENDING', value: 120, dueDate: '2027-01-06' }] }),
     at('GET', '/subscriptions/sub_1', 200, { id: 'sub_1', status: 'ACTIVE', value: 120, cycle: 'MONTHLY', nextDueDate: '2027-02-06' }),
   ])
   const { d } = deps(asaas, fakeDb({}))
