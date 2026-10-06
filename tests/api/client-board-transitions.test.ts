@@ -538,6 +538,22 @@ test('#812: a portal row opens the validation screen until it is live', () => {
   })
   assert.equal(
     recordHref('pt', new URLSearchParams(), { kind: 'validation', submissionId: 'sub-7' }),
-    '/pt/admin/partnerships/validation/sub-7'
+    '/pt/admin/partnerships/validation/sub-7?returnTo=%2Fadmin%2Fclients'
+  )
+})
+
+test('#870: the validation carries the board it came from, so its X goes back with the filters', () => {
+  const href = recordHref('pt', new URLSearchParams('view=table&state=in_validation&clientId=x'), {
+    kind: 'validation',
+    submissionId: 'sub-7',
+  })
+  const returnTo = new URL(href, 'https://cms.test').searchParams.get('returnTo')
+  assert.equal(returnTo, '/admin/clients?view=table&state=in_validation')
+})
+
+test('#870 (BR-B2B-049 item 8): after approving, the record opens on the places tab', () => {
+  assert.equal(
+    recordHref('pt', new URLSearchParams('view=table'), { kind: 'client', clientId: 'client-7', tab: 'places' }),
+    '/pt/admin/clients?view=table&clientId=client-7&tab=places'
   )
 })

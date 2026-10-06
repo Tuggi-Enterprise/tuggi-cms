@@ -267,7 +267,9 @@ export function derivePipelineState(input: PipelineInput): PipelineState {
  * already out there.
  */
 export type DetailTarget =
-  | { kind: 'client'; clientId: string; tab: 'partnership' }
+  // `places` is where the validation sends the operator after approving (#870): the next act is
+  // the boundary, and the POI card in `PlacesTab` is what leads to the place editor.
+  | { kind: 'client'; clientId: string; tab: 'partnership' | 'places' }
   | { kind: 'proposal'; submissionId: string }
   // A portal row is the submission until it is live (#812): the validation screen decides it.
   | { kind: 'validation'; submissionId: string }

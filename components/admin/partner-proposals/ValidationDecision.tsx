@@ -27,9 +27,11 @@ import {
   type AdjustmentArea,
 } from '@/lib/partnerships/portal-review'
 import { placeToolHref } from '@/lib/partnerships/place-tool'
+import { recordHref } from '@/lib/clients/record-href'
+import { RETURN_TO_PARAM } from '@/lib/navigation/return-to'
 import type { PortalSubmissionReview } from '@/lib/services/portal-submission-review-service'
 import { formatShortDate } from './format'
-import { CARD, CTA_LINK, FIELD } from './surface'
+import { CTA_LINK, FIELD } from './surface'
 
 export type DecisionResult =
   | { kind: 'approved'; paid: boolean; attractionId: string | null }
@@ -50,7 +52,10 @@ interface Props {
   onDecided: (result: DecisionResult) => void
   /** 409: someone else decided — the screen reloads read-only. */
   onConflict: () => void
-  nextRef: React.RefObject<HTMLAnchorElement | null>
+  /** The board the screen came from (`?returnTo=`), carried into the links that leave it. */
+  returnTo: string | null
+  /** Focus after a decision: "Abrir o cadastro do cliente" when there is a client, else "Próximo da fila". */
+  primaryRef: React.RefObject<HTMLAnchorElement | null>
 }
 
 const COUNTER_FROM = 1800
@@ -70,7 +75,8 @@ export function ValidationDecision({
   decided,
   onDecided,
   onConflict,
-  nextRef,
+  returnTo,
+  primaryRef,
 }: Props) {
   const t = useTranslations('PartnerValidation')
   const acceptance = review.acceptance
@@ -258,10 +264,24 @@ export function ValidationDecision({
     </div>
   ) : null
 
-  const queueHref = `/${locale}/admin/clients`
+  /*
+   * AFTER APPROVING, THE WAY OUT IS THE CLIENT RECORD (#870, BR-B2B-049 items 7-8): approving
+   * created the POI and the client and published nothing; the boundary and the publication are
+   * the operator's next acts, on the places tab of the record. Read from the payload and not from
+   * the click, so an approved submission opened later shows the same two shortcuts.
+   */
+  const approved = review.status === 'approved' || review.status === 'live'
+  const board = new URLSearchParams(returnTo?.split('?')[1] ?? '')
+  const clientHref = review.clientId
+    ? recordHref(locale, board, { kind: 'client', clientId: review.clientId, tab: 'places' })
+    : null
+  const nextHref = review.nextInReviewId
+    ? `/${locale}/admin/partnerships/validation/${review.nextInReviewId}` +
+      (returnTo ? `?${new URLSearchParams({ [RETURN_TO_PARAM]: returnTo }).toString()}` : '')
+    : null
 
   return (
-    <aside aria-label={t('decision.label')} className={`${CARD} sticky top-24 space-y-4 p-5 text-sm`}>
+    <aside aria-label={t('decision.label')} className="space-y-4 text-sm">
       <p className="font-semibold text-gray-900 dark:text-white">{planLine}</p>
       <p className="flex items-center gap-2 text-gray-700 dark:text-gray-300">
         {paymentLine.ok ? (
@@ -274,16 +294,28 @@ export function ValidationDecision({
 
       {decided ? (
         <div className="flex flex-col gap-2">
-          {review.nextInReviewId ? (
-            <Link ref={nextRef} className={CTA_LINK} href={`/${locale}/admin/partnerships/validation/${review.nextInReviewId}`}>
+          {approved && clientHref ? (
+            <Link ref={primaryRef} className={CTA_LINK} href={clientHref}>
+              {t('decision.openClient')}
+            </Link>
+          ) : null}
+          {approved && review.attractionId ? (
+            <Link
+              className="text-center underline"
+              href={placeToolHref({ locale, attractionId: review.attractionId, entityKind: 'place' })}
+            >
+              {t('decision.openPlace')}
+            </Link>
+          ) : null}
+          {nextHref ? (
+            <Link
+              ref={approved && clientHref ? undefined : primaryRef}
+              className={approved && clientHref ? 'text-center underline' : CTA_LINK}
+              href={nextHref}
+            >
               {t('decision.next')}
             </Link>
-          ) : (
-            <p>{t('decision.queueEmpty')}</p>
-          )}
-          <Link className="text-center underline" href={queueHref}>
-            {t('decision.backToQueue')}
-          </Link>
+          ) : null}
         </div>
       ) : (
         <>

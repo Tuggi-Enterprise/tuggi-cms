@@ -97,6 +97,10 @@ export interface PortalSubmissionReview {
   submittedAt: string | null
   statusChangedAt: string
   attractionId: string | null
+  /** The client the POI is linked to (`core.attractions.partner_client_id`) — where the operator
+   * goes after approving (#870). `null` before approval, on a partial approval, or when the read
+   * failed: the screen then just does not offer the shortcut. */
+  clientId: string | null
   acceptance: PortalReviewAcceptance | null
   payment: PortalReviewPayment | null
   history: PortalHistoryEntry[]
@@ -240,7 +244,7 @@ export async function getPortalSubmissionReview(submissionId: string): Promise<P
   const answeredCpf = answers.representative_cpf
   if (answeredCpf !== undefined) answers.representative_cpf = maskCpf(answeredCpf)
 
-  const [acceptanceRead, transitionsRead, messagesRead, duplicatesRead, nextRead] = await Promise.all([
+  const [acceptanceRead, transitionsRead, messagesRead, duplicatesRead, nextRead, clientRead] = await Promise.all([
     partner().from('place_acceptances').select(ACCEPTANCE_COLUMNS).eq('submission_id', submission.id).maybeSingle(),
     partner()
       .from('place_submission_transitions')
@@ -268,12 +272,26 @@ export async function getPortalSubmissionReview(submissionId: string): Promise<P
       .neq('id', submission.id)
       .order('submitted_at', { ascending: true })
       .limit(1),
+    submission.attraction_id
+      ? getSupabaseService()
+          .schema('core')
+          .from('attractions')
+          .select('partner_client_id')
+          .eq('id', submission.attraction_id)
+          .maybeSingle()
+      : Promise.resolve({ data: null, error: null }),
   ])
   if (acceptanceRead.error) return failed('acceptance', acceptanceRead.error.code)
   if (transitionsRead.error) return failed('transitions', transitionsRead.error.code)
   if (messagesRead.error) return failed('messages', messagesRead.error.code)
   if (duplicatesRead.error) return failed('duplicates', duplicatesRead.error.code)
   if (nextRead.error) return failed('next', nextRead.error.code)
+  // Soft on purpose: the client is a shortcut out of the screen, not part of the decision, and a
+  // failed read must not take the conference down with it.
+  if (clientRead.error) console.error('[portal-review] client read failed', clientRead.error.code)
+  const clientId = clientRead.error
+    ? null
+    : ((clientRead.data as { partner_client_id: string | null } | null)?.partner_client_id ?? null)
 
   const acceptanceRow = acceptanceRead.data as unknown as AcceptanceRow | null
   const subscriptions = await readSubscriptions(acceptanceRow ? [acceptanceRow] : [])
@@ -337,6 +355,7 @@ export async function getPortalSubmissionReview(submissionId: string): Promise<P
       submittedAt: submission.submitted_at,
       statusChangedAt: submission.status_changed_at,
       attractionId: submission.attraction_id,
+      clientId,
       acceptance,
       payment,
       history,
