@@ -33,7 +33,6 @@ import {
 } from '@/lib/partnerships/portal-review'
 import { placeToolHref } from '@/lib/partnerships/place-tool'
 import { recordHref } from '@/lib/clients/record-href'
-import { RETURN_TO_PARAM } from '@/lib/navigation/return-to'
 import type { PortalSubmissionReview } from '@/lib/services/portal-submission-review-service'
 import { formatShortDate } from './format'
 import { FIELD } from './surface'
@@ -265,9 +264,9 @@ export function ValidationDecision({
   const clientHref = review.clientId
     ? recordHref(locale, board, { kind: 'client', clientId: review.clientId, tab: 'places' })
     : null
+  // The next one opens in the same drawer, over the same board (#870, 2026-10-06).
   const nextHref = review.nextInReviewId
-    ? `/${locale}/admin/partnerships/validation/${review.nextInReviewId}` +
-      (returnTo ? `?${new URLSearchParams({ [RETURN_TO_PARAM]: returnTo }).toString()}` : '')
+    ? recordHref(locale, board, { kind: 'validation', submissionId: review.nextInReviewId })
     : null
 
   const status =

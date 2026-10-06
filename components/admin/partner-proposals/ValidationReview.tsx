@@ -38,6 +38,7 @@ import {
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { RecordShell } from '@/components/admin/clients/shared/RecordShell'
+import { recordHref } from '@/lib/clients/record-href'
 import { cn } from '@/lib/utils'
 import { RecordTabs, type RecordTab } from '@/components/admin/clients/shared/RecordTabs'
 import { FIELD_GRID, RecordSection } from '@/components/admin/clients/shared/RecordSection'
@@ -100,11 +101,14 @@ export function ValidationReview({
   locale,
   submissionId,
   returnTo = null,
+  titleId,
 }: {
   locale: string
   submissionId: string
   /** The board this screen was opened from (`lib/clients/record-href.ts`), already validated. */
   returnTo?: string | null
+  /** Set by `ValidationModal`: the dialog is named by this title, which becomes its `h2`. */
+  titleId?: string
 }) {
   const t = useTranslations('PartnerValidation')
   const tForm = useTranslations('PartnerForm')
@@ -344,7 +348,8 @@ export function ValidationReview({
 
   return (
     <RecordShell
-      titleAs="h1"
+      titleAs={titleId ? 'h2' : 'h1'}
+      titleId={titleId}
       icon={<ClipboardCheck className="h-5 w-5 text-tuggi-blue" aria-hidden="true" />}
       title={tradeName}
       subtitle={t('headerLine', {
@@ -444,7 +449,13 @@ export function ValidationReview({
                           name: other.tradeName ?? t('noTradeName'),
                           state: t(`status.${other.status}` as 'status.in_review'),
                         })}{' '}
-                        <Link className="underline" href={`/${locale}/admin/partnerships/validation/${other.id}`}>
+                        <Link
+                          className="underline"
+                          href={recordHref(locale, new URLSearchParams(returnTo?.split('?')[1] ?? ''), {
+                            kind: 'validation',
+                            submissionId: other.id,
+                          })}
+                        >
                           {t('company.open')}
                         </Link>
                       </Line>
@@ -522,6 +533,9 @@ export function ValidationReview({
                         <GoogleMapComponent
                           center={{ lat, lng }}
                           zoom={18}
+                          // Conference, not edition: the component draws a polygon by default.
+                          enableDrawing={false}
+                          showDrawingButton={false}
                           height="240px"
                           markers={[{ id: 'pin', position: { lat, lng }, title: tradeName }]}
                         />

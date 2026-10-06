@@ -19,6 +19,7 @@
 
 import { useCallback } from 'react'
 import { RETURN_TO_PARAM } from '@/lib/navigation/return-to'
+import { recordHref } from '@/lib/clients/record-href'
 import type { BoardAct } from '@/lib/clients/board-transitions'
 import type { ClientDirectoryRow } from '@/lib/services/partnership-service'
 
@@ -80,8 +81,14 @@ export function useBoardActs({
         case 'open_validation': {
           // A portal row (#812): approving, asking for changes and refusing are decided on the
           // validation screen, never by a drop.
+          // It opens in the drawer over this board (#870, 2026-10-06), like the record.
           if (!row.submissionId) return { kind: 'refused', reason: 'no_submission' }
-          navigate(`/${locale}/admin/partnerships/validation/${row.submissionId}?${back}`)
+          navigate(
+            recordHref(locale, new URLSearchParams(returnTo.split('?')[1] ?? ''), {
+              kind: 'validation',
+              submissionId: row.submissionId,
+            })
+          )
           return { kind: 'navigated' }
         }
 

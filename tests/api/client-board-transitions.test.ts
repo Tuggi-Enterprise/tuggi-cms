@@ -449,7 +449,7 @@ import {
   isPortalBoardStatus,
   portalDetailTarget,
 } from '@/lib/partnerships/pipeline'
-import { recordHref } from '@/lib/clients/record-href'
+import { recordHref, boardPath } from '@/lib/clients/record-href'
 
 const NO_CONF = { documentsSeen: [], reviewedAt: null, reviewedBy: null } as unknown as Parameters<
   typeof derivePipelineState
@@ -517,17 +517,19 @@ test('#812: a portal row opens the validation screen until it is live', () => {
   })
   assert.equal(
     recordHref('pt', new URLSearchParams(), { kind: 'validation', submissionId: 'sub-7' }),
-    '/pt/admin/partnerships/validation/sub-7?returnTo=%2Fadmin%2Fclients'
+    // #870 (2026-10-06): the validation opens in the drawer over the board, like the record.
+    '/pt/admin/clients?validation=sub-7'
   )
 })
 
-test('#870: the validation carries the board it came from, so its X goes back with the filters', () => {
+test('#870: the validation drawer opens over the board it came from, so closing it keeps the filters', () => {
   const href = recordHref('pt', new URLSearchParams('view=table&state=in_validation&clientId=x'), {
     kind: 'validation',
     submissionId: 'sub-7',
   })
-  const returnTo = new URL(href, 'https://cms.test').searchParams.get('returnTo')
-  assert.equal(returnTo, '/admin/clients?view=table&state=in_validation')
+  assert.equal(href, '/pt/admin/clients?view=table&state=in_validation&validation=sub-7')
+  // And closing it is the board's address without the drawer.
+  assert.equal(boardPath(new URL(href, 'https://cms.test').searchParams), '/admin/clients?view=table&state=in_validation')
 })
 
 test('#870 (BR-B2B-049 item 8): after approving, the record opens on the places tab', () => {
