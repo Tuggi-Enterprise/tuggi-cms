@@ -215,3 +215,34 @@ test('#341: no template of this function can point outside tuggi.app', async () 
     }
   }
 })
+
+test('#872 · BR-B2B-056: the acceptance link is our portal plus a well-formed token, never the caller\'s url', async () => {
+  const response = await send({
+    type: 'partner_acceptance_link',
+    to: 'dono@bardoze.com.br',
+    data: { token: TOKEN, name: 'Ana', trade_name: 'Bar do Zé', expires_at: '2026-11-05T15:00:00Z', url: ATTACKER },
+  })
+  assert.equal(response.status, 200)
+  assert.equal(sent.length, 1)
+  assert.equal(sent[0].subject, 'Termo de parceria da Tuggi para Bar do Zé')
+  assert.ok(hrefs(sent[0].html).includes(`https://partner.tuggi.app/aceite/${TOKEN}`))
+  assert.ok(!sent[0].html.includes(ATTACKER), 'the caller-supplied url reached the e-mail')
+  assert.match(sent[0].html, /O link vale até 05\/11\./)
+
+  // A configured origin of ours wins; anything that is not a bare https origin is ignored.
+  env.PLACES_PORTAL_ORIGIN = 'https://partner.staging.tuggi.app/'
+  sent = []
+  await send({ type: 'partner_acceptance_link', to: 'a@b.com', data: { token: TOKEN, trade_name: 'X' } })
+  assert.ok(hrefs(sent[0].html).includes(`https://partner.staging.tuggi.app/aceite/${TOKEN}`))
+
+  env.PLACES_PORTAL_ORIGIN = ATTACKER
+  sent = []
+  await send({ type: 'partner_acceptance_link', to: 'a@b.com', data: { token: TOKEN, trade_name: 'X' } })
+  assert.ok(hrefs(sent[0].html).includes(`https://partner.tuggi.app/aceite/${TOKEN}`))
+
+  // A "token" that is a path or a url is refused before it reaches an href.
+  sent = []
+  const forged = await send({ type: 'partner_acceptance_link', to: 'a@b.com', data: { token: '../../x' } })
+  assert.equal(forged.status, 500)
+  assert.equal(sent.length, 0)
+})

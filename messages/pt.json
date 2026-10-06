@@ -2905,7 +2905,8 @@
         "create_place": "Criar o local",
         "open_publish": "Publicar o local",
         "communicate_refusal": "Comunicar a recusa",
-        "open_validation": "Conferir o cadastro"
+        "open_validation": "Conferir o cadastro",
+        "copy_acceptance_link": "Copiar o link de aceite"
       },
       "blocked": {
         "no_submission": "Este cadastro não veio de uma proposta, então não há o que conferir nem descartar.",
@@ -2943,7 +2944,13 @@
         "write_failed": "Não deu para registrar a comunicação. O relógio das 72 horas continua correndo.",
         "unknown": "Não deu para completar. Tente de novo, e se repetir recarregue a página.",
         "unknown_action": "O pedido saiu incompleto desta tela. Recarregue a página e tente de novo.",
-        "gate_lookup_failed": "Não deu para conferir o aceite deste cliente. Nada mudou. Tente de novo em instantes."
+        "gate_lookup_failed": "Não deu para conferir o aceite deste cliente. Nada mudou. Tente de novo em instantes.",
+        "record_incomplete": "Falta um dado no cadastro para gerar o link. Abra a aba Contrato da ficha para ver qual.",
+        "already_accepted": "Este cliente já aceitou o termo.",
+        "paid_plan_unavailable": "Link de aceite para plano pago ainda não disponível.",
+        "no_terms": "Ainda não há termo para este tipo de parceiro.",
+        "issue_failed": "Não deu para gerar o link agora. Tente de novo em instantes.",
+        "copy_failed": "O link foi gerado, mas não deu para copiar. Abra a aba Contrato da ficha para copiar o link."
       },
       "backwards": "O fluxo anda para a frente. Para desfazer, abra a ficha.",
       "notAdjacent": "Falta a etapa {column} antes desta.",
@@ -2956,11 +2963,10 @@
       "columnsLabel": "Colunas do quadro",
       "acted": {
         "create_place": "Local criado. Ele está na curadoria.",
-        "communicate_refusal": "Recusa comunicada. O relógio parou."
+        "communicate_refusal": "Recusa comunicada. O relógio parou.",
+        "copy_acceptance_link": "Link copiado."
       },
-      "dismissRefusal": "Dispensar este aviso",
-      "copyAcceptanceLink": "Copiar o link de aceite",
-      "linkCopied": "Link copiado."
+      "dismissRefusal": "Dispensar este aviso"
     },
     "stance": {
       "paying": "Pagante",
@@ -3014,6 +3020,43 @@
         "startsAtApproval": "O período começa na aprovação",
         "reference": "Assinatura no Asaas",
         "noCharge": "Sem cobrança"
+      },
+      "acceptanceLink": {
+        "title": "Aceite do termo",
+        "pending": "Pendente",
+        "accepted": "Aceito",
+        "acceptedOn": "Aceite registrado em {date}.",
+        "goesTo": "O link vai para {email}.",
+        "send": "Enviar por e-mail",
+        "sendNew": "Gerar e enviar um link novo",
+        "copy": "Copiar o link",
+        "sending": "Enviando…",
+        "copying": "Gerando…",
+        "copyRenews": "Copiar gera um link novo. O link anterior deixa de valer.",
+        "sent": "Enviado em {date}, {time} para {email}. Vale até {until}.",
+        "sendFailed": "O link foi gerado, mas o e-mail não saiu. Copie o link e mande por outro canal.",
+        "validUntil": "Há um link válido até {until}.",
+        "expired": "O link venceu em {date}.",
+        "copied": "Link copiado.",
+        "copyFailed": "Não deu para copiar. Selecione o link acima e copie.",
+        "loadFailed": "Não deu para ler o aceite deste cliente agora.",
+        "errors": {
+          "record_incomplete": "Falta {field} no cadastro. Preencha na aba Perfil e gere o link de novo.",
+          "already_accepted": "Este cliente já aceitou o termo.",
+          "paid_plan_unavailable": "Link de aceite para plano pago ainda não disponível.",
+          "no_terms": "Ainda não há termo para este tipo de parceiro.",
+          "client_not_found": "O cadastro deste cliente não foi encontrado.",
+          "issue_failed": "Não deu para gerar o link agora. Tente de novo em instantes."
+        },
+        "fields": {
+          "legal_name": "a razão social",
+          "trade_name": "o nome fantasia",
+          "address": "o endereço",
+          "city": "a cidade",
+          "state": "a UF",
+          "tax_id": "um CNPJ válido",
+          "email": "o e-mail"
+        }
       }
     }
   },

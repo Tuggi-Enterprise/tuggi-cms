@@ -15,13 +15,14 @@
 //   'partner_rejected' -> to the user (registration not approved + reason)
 //   'partner_contract_sign'   -> to the legal representative (read and sign, #342, pt)
 //   'partner_contract_signed' -> to the legal representative (signed copy, #342, pt)
+//   'partner_acceptance_link' -> to the client's e-mail (read and accept the terms, #872, pt)
 //
 // lang: 'pt' | 'en' | 'es' | 'fr' | 'it' (normalized; defaults to 'pt'). Applies
 //       to the user-facing types; partner_new (team) is always pt.
 //
 // Secrets: RESEND_API_KEY, RESEND_FROM (default "Tuggi <news@tuggi.app>"),
 //          PARTNER_ALERT_TO (default "suporte@tuggi.app"), APP_URL (optional),
-//          PARTNER_FORM_ORIGIN (optional)
+//          PARTNER_FORM_ORIGIN (optional), PLACES_PORTAL_ORIGIN (optional)
 //
 // `partner_form_invite` WAS HERE AND IS GONE (#341, 2026-08-16). The partner form has no
 // invite: one address serves every establishment, it carries no token, and the team sends it
@@ -209,6 +210,61 @@ function contractHref(token: string): string {
     throw new Error('contract e-mail requires a well-formed signing token');
   }
   return `${ownOrigin('PARTNER_FORM_ORIGIN', DEFAULT_PARTNER_FORM_ORIGIN)}/${CONTRACT_LOCALE}/contrato/${token}`;
+}
+
+/**
+ * Where the partner portal lives (#874) — `tuggi-places`, which hosts the acceptance page.
+ * Twin of `lib/partnerships/acceptance-link.ts`, symbols `DEFAULT_PLACES_PORTAL_ORIGIN` and
+ * `ACCEPTANCE_PATH`; `tests/api/acceptance-link.test.ts` holds the two to the same address.
+ */
+const DEFAULT_PLACES_PORTAL_ORIGIN = 'https://partner.tuggi.app';
+const ACCEPTANCE_PATH = '/aceite/';
+
+function acceptanceHref(token: string): string {
+  if (!SIGNING_TOKEN_PATTERN.test(token)) {
+    throw new Error('acceptance e-mail requires a well-formed token');
+  }
+  return `${ownOrigin('PLACES_PORTAL_ORIGIN', DEFAULT_PLACES_PORTAL_ORIGIN)}${ACCEPTANCE_PATH}${token}`;
+}
+
+/** `dd/MM` in Brazilian civil time, or `null` for anything that is not a date. */
+function brasiliaDay(iso: unknown): string | null {
+  const parsed = new Date(String(iso ?? ''));
+  if (Number.isNaN(parsed.getTime())) return null;
+  return new Intl.DateTimeFormat('pt-BR', {
+    timeZone: 'America/Sao_Paulo',
+    day: '2-digit',
+    month: '2-digit',
+  }).format(parsed);
+}
+
+/**
+ * #872 — BR-B2B-056: the client who did not come through the portal reads and accepts the terms
+ * by link. Copy from the `design` spec of #872 §3. The link expires on the date the database set
+ * (`client_acceptance_link_ttl`), printed from `expires_at` and never recomputed here.
+ */
+function renderAcceptanceLink(data: Record<string, unknown>): {
+  subject: string;
+  html: string;
+} {
+  const name = esc(data.name ?? '');
+  const tradeName = esc(data.trade_name ?? '');
+  const href = acceptanceHref(String(data.token ?? ''));
+  const until = brasiliaDay(data.expires_at);
+  const greeting = name ? `Olá, ${name}.` : 'Olá.';
+  const validity = until ? `O link vale até ${until}. ` : '';
+
+  return {
+    subject: tradeName ? `Termo de parceria da Tuggi para ${tradeName}` : 'Termo de parceria da Tuggi',
+    html: shell(
+      'Termo de parceria',
+      `<p>${greeting}</p>
+       <p>Para seguir com o ${tradeName || 'seu estabelecimento'} na Tuggi, falta aceitar o termo de parceria. Abra o link, confira os dados e marque o aceite.</p>
+       ${ctaButton(href, 'Ler e aceitar o termo')}
+       <p>${validity}Se você não conhece a Tuggi, pode ignorar este e-mail.</p>`,
+      'Falta aceitar o termo de parceria.'
+    ),
+  };
 }
 
 /**
@@ -419,11 +475,13 @@ Deno.serve(async (req: Request) => {
           ? renderContractSign(data)
           : type === 'partner_contract_signed'
             ? renderContractSigned(data)
-            : EVENT_BY_TYPE[type]
-              ? renderLocalized(EVENT_BY_TYPE[type], lang, data)
-              : (() => {
-                  throw new Error(`unknown type: ${type}`);
-                })();
+            : type === 'partner_acceptance_link'
+              ? renderAcceptanceLink(data)
+              : EVENT_BY_TYPE[type]
+                ? renderLocalized(EVENT_BY_TYPE[type], lang, data)
+                : (() => {
+                    throw new Error(`unknown type: ${type}`);
+                  })();
 
     const res = await fetch(RESEND_URL, {
       method: 'POST',

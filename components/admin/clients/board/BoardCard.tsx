@@ -127,6 +127,8 @@ export function BoardCard({
     row.gateMissing.length > 0 &&
     (column === 'awaiting_acceptance' || column === 'curation')
   const gateId = `board-gate-${rowKey(row)}`
+  // The portal's acceptance comes with the registration (BR-B2B-056, item 5): no link for it.
+  const copiesLink = showGate && row.clientId !== null && row.origin !== 'portal' && row.gateMissing.includes('acceptance')
   const name = row.name || c('noName')
   // Tied to the row and not to a counter: two cards on screen must never share the id that
   // `aria-describedby` points at.
@@ -251,7 +253,22 @@ export function BoardCard({
       {showGate && (
         <p id={gateId} className="mt-2 flex items-start gap-1 text-xs text-gray-900 dark:text-gray-200">
           <Lock className="mt-0.5 h-3 w-3 shrink-0" aria-hidden="true" />
-          <span>{gateLine(row.gateMissing, p)}</span>
+          <span>
+            {gateLine(row.gateMissing, p)}
+            {/* The card only copies; sending is in the record's contract tab (spec #872 §3). */}
+            {copiesLink && (
+              <>
+                {' '}
+                <button
+                  type="button"
+                  onClick={() => onAct(row, 'copy_acceptance_link')}
+                  className="inline min-h-[24px] font-medium text-primary-800 underline underline-offset-4 dark:text-tuggi-blue"
+                >
+                  {t('acts.copy_acceptance_link')}
+                </button>
+              </>
+            )}
+          </span>
         </p>
       )}
 

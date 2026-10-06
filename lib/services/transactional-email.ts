@@ -46,6 +46,8 @@ export type TransactionalEmailType =
   | 'partner_rejected'
   | 'partner_contract_sign'
   | 'partner_contract_signed'
+  /** BR-B2B-056 (#872): the link to read and accept the terms, to the client's e-mail. Always `pt`. */
+  | 'partner_acceptance_link'
 
 export interface TransactionalEmailInput {
   type: TransactionalEmailType

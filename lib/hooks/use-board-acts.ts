@@ -117,6 +117,13 @@ export function useBoardActs({
           )
         }
 
+        case 'copy_acceptance_link': {
+          // BR-B2B-056: issuing is the only way to have a link — the database keeps only its
+          // hash — so copying here kills the link that went by e-mail. The tab says so.
+          if (!row.clientId) return { kind: 'refused', reason: 'no_client' }
+          return copyAcceptanceLink(row.clientId)
+        }
+
         default:
           return { kind: 'failed' }
       }
@@ -188,4 +195,29 @@ function readProvision(payload: Record<string, unknown> | null): ActOutcome | nu
     return { kind: 'refused', reason: place.reason }
   }
   return null
+}
+
+/** Issues a link and puts it on the clipboard. The card does not move, so nothing is reloaded. */
+async function copyAcceptanceLink(clientId: string): Promise<ActOutcome> {
+  let url: string
+  try {
+    const response = await fetch(`/api/admin/clients/${clientId}/acceptance-link`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ send: false }),
+    })
+    const payload = (await response.json().catch(() => null)) as { url?: string; error?: string } | null
+    if (!response.ok || !payload?.url) {
+      return payload?.error ? { kind: 'refused', reason: payload.error, detail: payload } : { kind: 'failed' }
+    }
+    url = payload.url
+  } catch {
+    return { kind: 'failed' }
+  }
+  try {
+    await navigator.clipboard.writeText(url)
+    return { kind: 'done' }
+  } catch {
+    return { kind: 'refused', reason: 'copy_failed' }
+  }
 }

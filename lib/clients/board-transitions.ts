@@ -144,6 +144,11 @@ export type BoardAct =
   // A portal row (#812): approve, ask for changes and refuse all happen in the validation
   // screen — approving creates a POI and spends TTS, so no drag does it.
   | 'open_validation'
+  /**
+   * `POST …/acceptance-link {send:false}` and the clipboard (BR-B2B-056, #872). Never produced by
+   * `planTransition`: it is the gate line's own button, and it moves no card.
+   */
+  | 'copy_acceptance_link'
 
 /**
  * Why a drag did not happen. Each reason is rendered from `messages/pt.json`.

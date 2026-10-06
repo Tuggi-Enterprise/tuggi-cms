@@ -2759,6 +2759,43 @@
         "startsAtApproval": "El período comienza con la aprobación",
         "reference": "Suscripción en Asaas",
         "noCharge": "Sin cobro"
+      },
+      "acceptanceLink": {
+        "title": "Aceptación del término",
+        "pending": "Pendiente",
+        "accepted": "Aceptado",
+        "acceptedOn": "Aceptación registrada el {date}.",
+        "goesTo": "El enlace va a {email}.",
+        "send": "Enviar por correo",
+        "sendNew": "Generar y enviar un enlace nuevo",
+        "copy": "Copiar el enlace",
+        "sending": "Enviando…",
+        "copying": "Generando…",
+        "copyRenews": "Copiar genera un enlace nuevo. El enlace anterior deja de valer.",
+        "sent": "Enviado el {date}, {time} a {email}. Vale hasta el {until}.",
+        "sendFailed": "El enlace se generó, pero el correo no salió. Copia el enlace y envíalo por otro canal.",
+        "validUntil": "Hay un enlace válido hasta el {until}.",
+        "expired": "El enlace venció el {date}.",
+        "copied": "Enlace copiado.",
+        "copyFailed": "No se pudo copiar. Selecciona el enlace de arriba y cópialo.",
+        "loadFailed": "No se pudo leer la aceptación de este cliente ahora.",
+        "errors": {
+          "record_incomplete": "Falta {field} en el registro. Complétalo en la pestaña Perfil y genera el enlace de nuevo.",
+          "already_accepted": "Este cliente ya aceptó el término.",
+          "paid_plan_unavailable": "El enlace de aceptación para el plan pago aún no está disponible.",
+          "no_terms": "Aún no hay término para este tipo de socio.",
+          "client_not_found": "No se encontró el registro de este cliente.",
+          "issue_failed": "No se pudo generar el enlace ahora. Inténtalo de nuevo en unos instantes."
+        },
+        "fields": {
+          "legal_name": "la razón social",
+          "trade_name": "el nombre comercial",
+          "address": "la dirección",
+          "city": "la ciudad",
+          "state": "el estado",
+          "tax_id": "un CNPJ válido",
+          "email": "el correo"
+        }
       }
     }
   },
