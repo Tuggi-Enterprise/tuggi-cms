@@ -2728,6 +2728,56 @@
     "stance": {
       "paying": "Paying",
       "not_paying": "Not paying"
+    },
+    "portal": {
+      "readError": "Could not load the portal data.",
+      "origin": {
+        "label": "Registration source",
+        "portal": "Places portal",
+        "proposal": "Proposal (old flow)",
+        "direct": "Registered directly in Studio",
+        "unknown": "Could not read the source."
+      },
+      "acceptance": {
+        "title": "Electronic acceptance",
+        "terms": "Terms {version} · accepted on {date}",
+        "hash": "Terms hash",
+        "signer": "Signer",
+        "signerLine": "{name} · {role} · CPF {cpf}",
+        "regularity": "Regularity",
+        "declared": "Declared an active CNPJ and a valid business licence",
+        "notDeclared": "No declaration",
+        "commitment": "Promotion commitment",
+        "commitmentNone": "None",
+        "sticker": "Sticker",
+        "display": "Display",
+        "social": "Social media",
+        "missing": "The acceptance of this submission was not found."
+      },
+      "subscription": {
+        "title": "Plan and subscription",
+        "plan": "Plan",
+        "planPaid": "With story · {months, plural, one {# month} other {# months}}",
+        "planFree": "On the map · free",
+        "amount": "Amount",
+        "amountLine": "{first} for the 1st period · {renewal} on renewal",
+        "status": "Status",
+        "statuses": {
+          "pending_payment": "Awaiting payment",
+          "paid": "Paid",
+          "past_due": "Renewal overdue",
+          "expired": "Expired",
+          "refund_pending": "Refund in progress",
+          "refunded": "Refunded"
+        },
+        "paidAt": "Paid on {date}",
+        "refundedAt": "Refunded on {date}",
+        "nextDue": "Next due date",
+        "renewalOff": "Renewal turned off · valid until {date}",
+        "startsAtApproval": "The period starts at approval",
+        "reference": "Asaas subscription",
+        "noCharge": "No charge"
+      }
     }
   },
   "Coupons": {

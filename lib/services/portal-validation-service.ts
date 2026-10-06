@@ -296,15 +296,20 @@ async function acceptanceEmailOf(submissionId: string): Promise<string | null> {
   return (data as { email: string | null }).email || null
 }
 
+/** A portal submission of a client, as the client record and the contract guard read it. */
+export interface ClientPortalSubmission {
+  id: string
+  status: string
+  attraction_id: string
+  submitted_at: string | null
+}
+
 /**
- * Whether a client came from the portal — a POI of theirs is the `attraction_id` of a
- * submission. The contract route refuses those: the portal's acceptance IS the instrument
- * (BR-B2B-047, item 1), and a second one would be generated over it.
- *
- * FAILS CLOSED (security review): `null` means the lookup failed, and the route refuses on it —
- * answering "not a portal client" on an error is how a second instrument gets generated.
+ * The portal submissions behind a client's places: a POI of theirs is the `attraction_id` of a
+ * submission (the link `resolveApprovalClient` writes). `null` when either read failed — the
+ * callers decide what failing means for them.
  */
-export async function isPortalClient(clientId: string): Promise<boolean | null> {
+export async function portalSubmissionsOfClient(clientId: string): Promise<ClientPortalSubmission[] | null> {
   const { data: places, error: placesError } = await getSupabaseService()
     .schema('core')
     .from('attractions')
@@ -315,21 +320,34 @@ export async function isPortalClient(clientId: string): Promise<boolean | null> 
     console.error('[portal-validation] client places lookup failed', placesError.code)
     return null
   }
-  if (!places || places.length === 0) return false
+  if (!places || places.length === 0) return []
 
   const { data, error } = await partner()
     .from('place_submissions')
-    .select('id')
+    .select('id, status, attraction_id, submitted_at')
     .in(
       'attraction_id',
       (places as { id: string }[]).map((place) => place.id)
     )
-    .limit(1)
+    .order('submitted_at', { ascending: false })
+    .limit(50)
   if (error) {
     // Before migration 20261004120000 the table does not exist: that also refuses, so the CMS
     // that carries this ships after the migration (release order, CLAUDE.md §2).
     console.error('[portal-validation] portal origin lookup failed', error.code)
     return null
   }
-  return (data ?? []).length > 0
+  return (data ?? []) as ClientPortalSubmission[]
+}
+
+/**
+ * Whether a client came from the portal. The contract route refuses those: the portal's
+ * acceptance IS the instrument (BR-B2B-047, item 1), and a second one would be generated over it.
+ *
+ * FAILS CLOSED (security review): `null` means the lookup failed, and the route refuses on it —
+ * answering "not a portal client" on an error is how a second instrument gets generated.
+ */
+export async function isPortalClient(clientId: string): Promise<boolean | null> {
+  const submissions = await portalSubmissionsOfClient(clientId)
+  return submissions === null ? null : submissions.length > 0
 }

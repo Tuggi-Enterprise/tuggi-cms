@@ -8,6 +8,9 @@
 
 import { useEffect, useState } from 'react'
 import { useRecordRead } from '@/lib/hooks/use-record-cache'
+import type { ClientPortalRecord } from '@/lib/services/portal-submission-review-service'
+
+export type ClientOrigin = 'portal' | 'proposal' | 'direct' | 'unknown'
 
 export interface ClientContractSummary {
   contract: {
@@ -20,6 +23,10 @@ export interface ClientContractSummary {
     feeDivergence: { diverges: boolean; registrationFeeCents: number | null }
   } | null
   acceptance: { acceptedAt: string; signerName: string } | null
+  /** #871: where the registration came from, and the portal's acceptance and subscription. */
+  origin: ClientOrigin
+  /** `null` when the portal read failed; `[]` for a client that never came through it. */
+  portal: ClientPortalRecord[] | null
 }
 
 export function useClientContract(clientId?: string): { summary: ClientContractSummary | null; failed: boolean } {

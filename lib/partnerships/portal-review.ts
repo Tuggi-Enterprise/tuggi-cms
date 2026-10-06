@@ -59,6 +59,16 @@ export function conferenceItems(input: {
   return items
 }
 
+/**
+ * The `externalReference` of a paid plan at Asaas — `com_historia_<n>m:<subscription uuid>`.
+ * The format is decided by the database (`sku || ':' || id` in the checkout function of
+ * `20261004200000_the_paid_period_starts_at_approval.sql`) and parsed back by
+ * `subscriptionIdFromReference` in the payment Edge Function; this only rebuilds it for display.
+ */
+export function asaasExternalReference(billingPeriod: number, subscriptionId: string): string {
+  return `com_historia_${billingPeriod}m:${subscriptionId}`
+}
+
 export function onlyDigits(value: string | null | undefined): string {
   return (value ?? '').replace(/\D/g, '')
 }

@@ -2976,6 +2976,56 @@
     "stance": {
       "paying": "Pagante",
       "not_paying": "Não pagante"
+    },
+    "portal": {
+      "readError": "Não foi possível carregar os dados do portal.",
+      "origin": {
+        "label": "Origem do cadastro",
+        "portal": "Portal Locais",
+        "proposal": "Proposta (fluxo antigo)",
+        "direct": "Cadastro direto no Studio",
+        "unknown": "Não foi possível ler a origem."
+      },
+      "acceptance": {
+        "title": "Aceite eletrônico",
+        "terms": "Termo {version} · aceito em {date}",
+        "hash": "Hash do termo",
+        "signer": "Signatário",
+        "signerLine": "{name} · {role} · CPF {cpf}",
+        "regularity": "Regularidade",
+        "declared": "Declarou CNPJ ativo e alvará vigente",
+        "notDeclared": "Sem declaração",
+        "commitment": "Compromisso de divulgação",
+        "commitmentNone": "Nenhum",
+        "sticker": "Adesivo",
+        "display": "Display",
+        "social": "Redes",
+        "missing": "O aceite deste envio não foi encontrado."
+      },
+      "subscription": {
+        "title": "Plano e assinatura",
+        "plan": "Plano",
+        "planPaid": "Com história · {months, plural, one {# mês} other {# meses}}",
+        "planFree": "No mapa · grátis",
+        "amount": "Valor",
+        "amountLine": "{first} no 1º período · {renewal} na renovação",
+        "status": "Status",
+        "statuses": {
+          "pending_payment": "Aguardando pagamento",
+          "paid": "Pago",
+          "past_due": "Renovação em atraso",
+          "expired": "Expirado",
+          "refund_pending": "Reembolso em andamento",
+          "refunded": "Reembolsado"
+        },
+        "paidAt": "Pago em {date}",
+        "refundedAt": "Reembolsado em {date}",
+        "nextDue": "Próximo vencimento",
+        "renewalOff": "Renovação desligada · vale até {date}",
+        "startsAtApproval": "O período começa na aprovação",
+        "reference": "Assinatura no Asaas",
+        "noCharge": "Sem cobrança"
+      }
     }
   },
   "Coupons": {

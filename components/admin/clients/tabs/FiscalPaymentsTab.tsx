@@ -1,6 +1,6 @@
 'use client'
 
-import { Scale, Landmark, Percent } from 'lucide-react'
+import { Scale, Landmark, Percent, CreditCard } from 'lucide-react'
 import { useTranslations } from 'next-intl'
 import type { Client } from '@/types/clients'
 import { taxConfigFor, usesBankingIBAN } from '@/components/admin/clients/shared/countries'
@@ -10,7 +10,8 @@ import { formatDate, formatFee } from '@/lib/contract/snapshot'
 import { registrationMoneyKind } from '@/lib/partnerships/publish-plan'
 import { paymentStance } from '@/lib/clients/partner-plan'
 import { PaymentStanceBadge } from '@/components/admin/clients/shared/PaymentStanceBadge'
-import { useClientContract } from '@/components/admin/clients/shared/use-client-contract'
+import { useClientContract, type ClientContractSummary } from '@/components/admin/clients/shared/use-client-contract'
+import { PortalSubscriptions } from '@/components/admin/clients/shared/PortalRecord'
 import type { ClientEditorTabProps } from './ProfileTab'
 
 function v<K extends keyof Client>(client: Client | null, edited: Partial<Client>, k: K): string {
@@ -27,8 +28,7 @@ function v<K extends keyof Client>(client: Client | null, edited: Partial<Client
  * froze its own value at acceptance — and finding that out later is finding it out from
  * the partner.
  */
-function useSignedContract(clientId?: string) {
-  const { summary } = useClientContract(clientId)
+function signedContractOf(summary: ClientContractSummary | null) {
   if (!summary?.acceptance || !summary.contract) return null
   return {
     acceptedAt: summary.acceptance.acceptedAt,
@@ -50,7 +50,11 @@ export function FiscalPaymentsTab({ client, edited, updateField, canEdit, client
    * a decision somebody took and the two may not look alike (the rule's edge case).
    */
   const commissionRate = edited.commission_rate ?? client?.commission_rate ?? null
-  const signedContract = useSignedContract(clientId)
+  const { summary } = useClientContract(clientId)
+  const signedContract = signedContractOf(summary)
+  // #871: a portal client's billing is its Asaas subscription, shown above the registration.
+  const portalRecords = summary?.origin === 'portal' ? (summary.portal ?? []) : []
+  const tPortal = useTranslations('Clients.portal.subscription')
   const isCourtesy = Boolean(edited.is_courtesy ?? client?.is_courtesy)
   const monthlyFeeCents = edited.monthly_fee_cents ?? client?.monthly_fee_cents ?? null
 
@@ -78,6 +82,15 @@ export function FiscalPaymentsTab({ client, edited, updateField, canEdit, client
 
   return (
     <div className="space-y-8 max-w-5xl mx-auto">
+      {portalRecords.length > 0 && (
+        <div className="bg-white dark:bg-gray-900 rounded-3xl border border-gray-200 dark:border-gray-800 p-5 lg:p-8 shadow-sm">
+          <SectionHeader icon={<CreditCard className="w-4 h-4 text-tuggi-blue" />} title={tPortal('title')} color="tuggi-blue" />
+          <div className="space-y-6">
+            <PortalSubscriptions records={portalRecords} />
+          </div>
+        </div>
+      )}
+
       {/* Legal */}
       <div className="bg-white dark:bg-gray-900 rounded-3xl border border-gray-200 dark:border-gray-800 p-5 lg:p-8 shadow-sm">
         <SectionHeader icon={<Scale className="w-4 h-4 text-purple-500" />} title={t('sections.legal')} color="purple-500" />
