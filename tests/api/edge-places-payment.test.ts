@@ -590,3 +590,12 @@ test('#863: an access link that fails after the charge is recorded is a 200 and 
   await pay.handleAsaasWebhook(owned.d, TOKEN, TOKEN, { id: 'evt_1', event: 'PAYMENT_CONFIRMED', payment: { id: 'pay_1' } })
   assert.equal(owned.alerts.length, 0)
 })
+
+test('parseCardInput aceita o cartão de aprovação do sandbox do Asaas, que não passa no Luhn (#811)', async () => {
+  const { parseCardInput } = pay;
+  const body = { card: { number: '4444 4444 4444 4444', holder_name: 'Teste', expiry_month: '12', expiry_year: '2034', ccv: '123' }, holder: { tax_id: '52998224725', postal_code: '05424150', address_number: '215', phone: '11994718890' }, remote_ip: '1.1.1.1' };
+  const ok = parseCardInput(body, '2026-10-06') as Record<string, unknown>;
+  assert.notEqual(ok.invalid, 'card_number');
+  const bad = parseCardInput({ ...body, card: { ...body.card, number: '4444 4444 4444 4445' } }, '2026-10-06') as Record<string, unknown>;
+  assert.equal(bad.invalid, 'card_number');
+});

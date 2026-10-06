@@ -170,7 +170,12 @@ export type CheckoutInput = {
   remoteIp: string;
 };
 
+/** Asaas sandbox approval card (docs.asaas.com, "Testando pagamento com cartão de crédito"). It fails
+ * Luhn; the production Asaas refuses it, so letting it through only skips our pre-check. */
+const ASAAS_SANDBOX_APPROVED_CARD = '4444444444444444';
+
 function luhn(digits: string): boolean {
+  if (digits === ASAAS_SANDBOX_APPROVED_CARD) return true;
   let sum = 0;
   for (let i = 0; i < digits.length; i++) {
     let n = Number(digits[digits.length - 1 - i]);
