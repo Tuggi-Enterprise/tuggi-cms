@@ -1,10 +1,13 @@
 // _shared/places-payment.ts — the payment of the Com história plan (#811, épico #802).
 //
 // Contract: `docs/contracts/places-pagamento.md` (workspace). Rules: BR-B2B-044, BR-B2B-045,
-// BR-B2B-046, BR-B2B-049, BR-B2B-055; term `locais-2026-10-v2`, clauses 4.1–4.7.
+// BR-B2B-046, BR-B2B-049, BR-B2B-055; term `locais-2026-10-v7`, clauses 4.1–4.7.
 //
 // Three Edge Functions wire this module and do nothing else:
-//   - `places-payment`         the portal's Worker (`x-places-secret` + the user's JWT);
+//   - `places-payment`         the portal's Worker (`x-places-secret` + the user's JWT), or — the
+//                              cookie's checkout before any account exists (#863, §7.2 of
+//                              `places-portal-rascunho.md`) — `x-places-draft-secret` + the sha256
+//                              of the draft cookie (`draftCheckout`, `draftCheckoutPix`);
 //   - `places-payment-webhook` Asaas (`asaas-access-token`);
 //   - `places-payment-sweep`   the daily cron (the project's secret key).
 // Every dependency (database, Asaas, e-mail, clock) is injected, so the CMS tests run the whole
@@ -18,6 +21,8 @@
 //   3. `p_amount_cents = Math.round(value * 100)`, from `value`, never `netValue` → `toCents`;
 //   4. every owner flow proves the owner with the user's JWT (`core.portal_get_subscription` or the
 //      `core.portal_*` it calls) and takes every id after that from the database → `ownerRow`;
+//      the cookie's checkout proves it with the cookie (`portal_draft_payment_checkout`), and every
+//      id comes from the database too → `draftPayable`;
 //   5. a live Asaas subscription with the same `externalReference` is settled before another one is
 //      attached → `clearLiveSubscriptions`;
 //   6. the webhook token is compared in constant time; no body is logged, only event id, type and
@@ -30,6 +35,18 @@
 // payment is not an outcome: answering 200 would drop a paid charge on the floor, and the place
 // would pay and stay in `awaiting_payment`. A 404 on the re-read IS an answer (the object does not
 // exist: a forged or foreign event) → 200 + alert.
+//
+// MONTHLY WITH A COMMITMENT (operator 2026-10-06, #863, BR-B2B-045/046, contract
+// places-portal-rascunho §8): every Asaas subscription is `MONTHLY` and charges one fee; every date
+// sum is ONE month; `billing_period` (1/3/6) is only the commitment length. Each
+// `PAYMENT_CONFIRMED`/`RECEIVED` is one fee, checked by `confirm_place_charge`; after it,
+// `syncNextAmount` moves `value` to the next fee (voucher diluted).
+//
+// CANCEL (operator 2026-10-06, places-portal-rascunho §8.4): it takes effect at once — no new fee,
+// the story stays up to `paid_through`. Inside the commitment the database prices ONE charge, the
+// discount given on the months used (`early_termination_fee_cents`), due on `paid_through` by the
+// same method (`cancelRenewal`). The cancellation never waits for that charge (CDC art. 39); an
+// unpaid one is not chased (BR-B2B-046 item 7).
 
 import { constantTimeEqual } from './constant-time.ts';
 import {
@@ -56,7 +73,22 @@ export type SubscriptionIds = {
   provider_customer_id: string | null;
   provider_authorization_id: string | null;
   canceled_at: string | null;
+  /** Set once at the cancel (20261006170000); null = renewal never turned off, or off before 170000. */
+  early_termination_fee_cents: number | null;
+  early_termination_paid_at: string | null;
 };
+
+/** A row of `Deps.expiredLiveCards` (columns of 20261006170000). */
+export type ExpiredCardRow = {
+  subscription_id: string;
+  provider_subscription_id: string;
+  paid_through: string | null;
+  early_termination_fee_cents: number | null;
+  early_termination_paid_at: string | null;
+};
+
+/** A row of `Deps.cancelsToRedo`: the subscription, plus the day the fee falls due. */
+export type CancelRedoRow = SubscriptionIds & { paid_through: string };
 
 export type Deps = {
   asaas: AsaasClient;
@@ -70,6 +102,24 @@ export type Deps = {
   /** Today in America/Sao_Paulo, `YYYY-MM-DD`. */
   today: () => string;
   now: () => Date;
+  /**
+   * `partner.place_subscriptions` already expired on CARD whose Asaas subscription was not ended yet
+   * (`status` = 'expired', `canceled_at` null, `provider_subscription_id` set): the sweep ends them
+   * here, except while the early-termination fee is still due (`earlyTerminationFeeHeld`). Throws on
+   * a read error.
+   */
+  expiredLiveCards: () => Promise<ExpiredCardRow[]>;
+  /**
+   * `partner.place_subscriptions` cancelled whose Asaas half may not have landed: `renews` false,
+   * `early_termination_fee_cents` set, `early_termination_paid_at` null, `canceled_at` null,
+   * `provider_subscription_id` and `paid_through` set. The sweep redoes `redoCancelAtAsaas` on them
+   * (it drops the rows past `paid_through`). Throws on a read error.
+   */
+  cancelsToRedo: () => Promise<CancelRedoRow[]>;
+  /** `place_subscriptions.acceptance_id → place_acceptances.submission_id`, by our id or Asaas' `sub_…`. */
+  submissionOfSubscription: (subscriptionId: string | null, providerSubscriptionId: string | null) => Promise<string | null>;
+  /** `issueAccessLink` of `places-portal-draft.ts` (#863, §7.3): the access e-mail of a settled submission. */
+  accessLink: (submissionId: string) => Promise<'sent' | 'owned' | 'failed'>;
 };
 
 export type PortalDeps = Deps & {
@@ -136,13 +186,18 @@ const firstRow = <T>(data: unknown): T | null => (Array.isArray(data) ? ((data[0
 /** A `TGP*` raised by our functions, or a 42501 of the portal. Anything else is an exception. */
 const isBusinessError = (e: DbError | null) => !!e?.code && /^(TGP\d\d|42501)$/.test(e.code);
 
-/** Contract §5: TGP01 → 404, TGP10 → 409, TGP22 → 422; 42501 (no e-mail session) → 401. */
+/**
+ * Contract §5: TGP01 → 404, TGP10 → 409, TGP11 → 409 `quote_changed` (the cancel fee moved since the
+ * quote, 20261006190000), TGP22 → 422; 42501 (no e-mail session) → 401.
+ */
 export function portalErrorReply(e: DbError): Reply {
   switch (e.code) {
     case 'TGP01':
       return reply(404, { error: 'not_found' });
     case 'TGP10':
       return reply(409, { error: 'not_allowed', reason: e.details ?? null });
+    case 'TGP11':
+      return reply(409, { error: 'quote_changed' });
     case 'TGP22':
       return reply(422, { error: 'invalid', field: e.details ?? null });
     case '42501':
@@ -161,7 +216,12 @@ export type CheckoutInput = {
   remoteIp: string;
 };
 
+/** Asaas sandbox approval card (docs.asaas.com, "Testando pagamento com cartão de crédito"). It fails
+ * Luhn; the production Asaas refuses it, so letting it through only skips our pre-check. */
+const ASAAS_SANDBOX_APPROVED_CARD = '4444444444444444';
+
 function luhn(digits: string): boolean {
+  if (digits === ASAAS_SANDBOX_APPROVED_CARD) return true;
   let sum = 0;
   for (let i = 0; i < digits.length; i++) {
     let n = Number(digits[digits.length - 1 - i]);
@@ -183,10 +243,17 @@ const digits = (v: unknown) => str(v).replace(/\D/g, '');
  */
 export function parseCheckoutInput(body: unknown, today: string): CheckoutInput | { invalid: string } {
   const b = (body ?? {}) as Record<string, unknown>;
+  if (!isUuid(b.submission_id)) return { invalid: 'submission_id' };
+  const card = parseCardInput(b, today);
+  return 'invalid' in card ? card : { submissionId: (b.submission_id as string).toLowerCase(), ...card };
+}
+
+/** The card, its holder and the payer's IP: the whole checkout body but the submission. */
+export function parseCardInput(body: unknown, today: string): Omit<CheckoutInput, 'submissionId'> | { invalid: string } {
+  const b = (body ?? {}) as Record<string, unknown>;
   const card = (b.card ?? {}) as Record<string, unknown>;
   const holder = (b.holder ?? {}) as Record<string, unknown>;
 
-  if (!isUuid(b.submission_id)) return { invalid: 'submission_id' };
   const number = digits(card.number);
   if (number.length < 13 || number.length > 19 || !luhn(number)) return { invalid: 'card_number' };
   const holderName = str(card.holder_name);
@@ -219,7 +286,6 @@ export function parseCheckoutInput(body: unknown, today: string): CheckoutInput 
   if (!remoteIp || remoteIp.length > 45 || !/^[0-9a-fA-F:.]+$/.test(remoteIp)) return { invalid: 'remote_ip' };
 
   return {
-    submissionId: (b.submission_id as string).toLowerCase(),
     card: { holderName, number, expiryMonth: month.padStart(2, '0'), expiryYear: year, ccv },
     holder: { name, cpfCnpj, postalCode, addressNumber, phone },
     remoteIp,
@@ -266,12 +332,14 @@ type CheckoutRow = {
 // ─── portal: checkout (card) ───────────────────────────────────────────────────────────────────
 
 /**
- * Card subscription for the first period (contract §3.1). The first charge is due today and Asaas
- * charges it on creation; the renewals are realigned to the approval by the daily sweep.
+ * Card subscription, `MONTHLY` (contract §3.1). The first fee is due today and Asaas charges it on
+ * creation; the next ones follow Asaas's own `nextDueDate` (payment + 1 month), which is where the
+ * paid month and the commitment start (BR-B2B-046, `confirm_place_charge`).
  *
- * FIRST CHARGE WITH A COUPON (contract §8): the subscription is created with `value` = the FIRST
- * charge (`next_amount_cents`). The sweep sets `value` = `renewal_amount_cents` on the first run
- * after approval, before any renewal is due. No second payment method, no token kept by us.
+ * COUPON (places-portal-rascunho §8.1–8.2): the subscription is created with `value` = the first
+ * fee (`next_amount_cents`, voucher diluted over the commitment's fees). After each applied charge
+ * `syncNextAmount` (and the sweep) moves `value` to the next fee — the full one from the renewal on.
+ * No second payment method, no token kept by us.
  */
 export async function checkout(deps: PortalDeps, body: unknown): Promise<Reply> {
   const input = parseCheckoutInput(body, deps.today());
@@ -281,9 +349,26 @@ export async function checkout(deps: PortalDeps, body: unknown): Promise<Reply> 
   if (isReply(owner)) return owner;
   const co = await payableCheckout(deps, owner.submission_id);
   if (isReply(co)) return co;
+  return chargeCard(deps, owner.submission_id, co, input);
+}
 
+/**
+ * The cookie's card checkout (#863, contract §7.2): accepted by clickwrap, no account yet. The
+ * submission and every id come from `portal_draft_payment_checkout(sha256 of the cookie)`; a
+ * `submission_id` in the body is ignored. Holder phone, postal code, number and document still come
+ * from the card form — the database gives none of them to a cookie.
+ */
+export async function draftCheckout(deps: Deps, body: unknown, tokenSha256: string): Promise<Reply> {
+  const input = parseCardInput(body, deps.today());
+  if ('invalid' in input) return reply(400, { error: 'invalid', field: input.invalid });
+  const co = await draftPayable(deps, tokenSha256);
+  if (isReply(co)) return co;
+  return chargeCard(deps, co.submission_id, co, input);
+}
+
+async function chargeCard(deps: Deps, submissionId: string, co: CheckoutRow, input: Omit<CheckoutInput, 'submissionId'>): Promise<Reply> {
   try {
-    const customer = await prepareCustomer(deps, owner.submission_id, co);
+    const customer = await prepareCustomer(deps, submissionId, co);
     if (isReply(customer)) return customer;
 
     let created;
@@ -324,7 +409,6 @@ export async function checkout(deps: PortalDeps, body: unknown): Promise<Reply> 
     }
 
     const payments = await deps.asaas.listSubscriptionPayments(created.id);
-    await holdNextChargeUntilApproval(deps, created.id, co.next_due_date!, co.billing_period, payments);
     const paid = payments.some((p) => PAID_STATUSES.has(p.status));
     return reply(200, { result: paid ? 'paid' : 'processing' });
   } catch (e) {
@@ -340,13 +424,39 @@ export async function checkout(deps: PortalDeps, body: unknown): Promise<Reply> 
 async function payableCheckout(deps: Deps, submissionId: string): Promise<CheckoutRow | Reply> {
   const { data, error } = await deps.admin('partner', 'place_payment_checkout', { p_submission_id: submissionId });
   if (error) return isBusinessError(error) ? portalErrorReply(error) : reply(502, { error: 'unavailable' });
-  const co = firstRow<CheckoutRow>(data);
+  return payableRow(firstRow<CheckoutRow>(data));
+}
+
+/**
+ * Payable = `pending_payment`, attachable, with a due date (today). Not `pending_payment` = nothing
+ * to pay. A null `next_due_date` is no longer "paid, waiting for approval" — the paid month starts at
+ * the first payment (20261006160000) — it only guards a row with no charge to make.
+ */
+function payableRow<T extends CheckoutRow>(co: T | null): T | Reply {
   if (!co) return reply(502, { error: 'unavailable' });
-  // Null `next_due_date` = paid and waiting for approval; not `pending_payment` = nothing to pay.
   if (co.status !== 'pending_payment' || !co.attachable || !co.next_due_date) {
     return reply(409, { error: 'not_payable', reason: co.status });
   }
   return co;
+}
+
+const HEX64 = /^[0-9a-f]{64}$/;
+
+/**
+ * `portal_draft_payment_checkout` (§7.2): the same columns as `place_payment_checkout`, plus the
+ * submission. `TGP10` (`not_accepted`, or the status of a submission with no paid plan) →
+ * `409 not_payable` + `reason`, like the signed-in checkout; `TGP01` (no such cookie) → 404.
+ */
+async function draftPayable(deps: Deps, tokenSha256: string): Promise<(CheckoutRow & { submission_id: string }) | Reply> {
+  if (!HEX64.test(tokenSha256)) return reply(400, { error: 'invalid', field: 'token_sha256' });
+  const { data, error } = await deps.admin('partner', 'portal_draft_payment_checkout', { p_token_sha256: tokenSha256 });
+  if (error) {
+    if (error.code === 'TGP10') return reply(409, { error: 'not_payable', reason: error.details ?? null });
+    return isBusinessError(error) ? portalErrorReply(error) : reply(502, { error: 'unavailable' });
+  }
+  const co = firstRow<CheckoutRow & { submission_id: string }>(data);
+  if (co && !isUuid(co.submission_id)) return reply(502, { error: 'unavailable' });
+  return payableRow(co);
 }
 
 /**
@@ -355,7 +465,7 @@ async function payableCheckout(deps: Deps, submissionId: string): Promise<Checko
  * any Pix QR of an earlier attempt is cancelled — switching method must not leave a second way
  * to pay the same period open. Asaas errors propagate (the callers answer `provider_unavailable`).
  */
-async function prepareCustomer(deps: PortalDeps, submissionId: string, co: CheckoutRow): Promise<{ id: string } | Reply> {
+async function prepareCustomer(deps: Deps, submissionId: string, co: CheckoutRow): Promise<{ id: string } | Reply> {
   const settled = await clearLiveSubscriptions(deps, submissionId, co);
   if (settled) return settled;
   const customer =
@@ -413,8 +523,8 @@ export function pixQrOf(a: AsaasPixAuthorization): PixQr | null {
  * `PIX_AUTOMATIC_RECURRING_AUTHORIZATION_ACTIVATED`. The first charge is confirmed before that, by
  * its `PAYMENT_RECEIVED`, mapped through the customer's `externalReference` (see the webhook).
  *
- * `startDate` = one period after today: the recurrence never starts before the earliest possible
- * renewal (approval + N months), and the sweep moves the renewal to the right date after approval.
+ * `startDate` = one month after today: the second fee, since the paid month starts at the first
+ * payment (BR-B2B-046).
  */
 export async function checkoutPix(deps: PortalDeps, body: unknown): Promise<Reply> {
   const submissionId = (body as Record<string, unknown> | null)?.submission_id;
@@ -423,9 +533,19 @@ export async function checkoutPix(deps: PortalDeps, body: unknown): Promise<Repl
   if (isReply(owner)) return owner;
   const co = await payableCheckout(deps, owner.submission_id);
   if (isReply(co)) return co;
+  return pixQr(deps, owner.submission_id, co);
+}
 
+/** The cookie's Pix checkout (#863, §7.2): the same QR, the submission from the cookie. */
+export async function draftCheckoutPix(deps: Deps, tokenSha256: string): Promise<Reply> {
+  const co = await draftPayable(deps, tokenSha256);
+  if (isReply(co)) return co;
+  return pixQr(deps, co.submission_id, co);
+}
+
+async function pixQr(deps: Deps, submissionId: string, co: CheckoutRow): Promise<Reply> {
   try {
-    const customer = await prepareCustomer(deps, owner.submission_id, co);
+    const customer = await prepareCustomer(deps, submissionId, co);
     if (isReply(customer)) return customer;
     const description = `Tuggi Com história ${co.billing_period} ${co.billing_period === 1 ? 'mês' : 'meses'}`;
     const auth = await deps.asaas.createPixAutomaticAuthorization({
@@ -433,7 +553,7 @@ export async function checkoutPix(deps: PortalDeps, body: unknown): Promise<Repl
       contractId: contractIdOf(co.subscription_id),
       description,
       frequency: co.billing_cycle,
-      startDate: addMonths(co.next_due_date!, co.billing_period),
+      startDate: addMonths(co.next_due_date!, 1),
       value: toReais(co.renewal_amount_cents),
       immediateQrCode: {
         expirationSeconds: PIX_QR_EXPIRATION_SECONDS,
@@ -466,33 +586,8 @@ async function endProviderSubscription(
   if (ids.provider_authorization_id) await deps.asaas.cancelPixAutomaticAuthorization(ids.provider_authorization_id);
 }
 
-/**
- * The second charge is generated by Asaas up to 40 days ahead, due one period after the SEND —
- * but the period starts at the approval (term 4.1). Until the sweep realigns it after approval,
- * the next charge is pushed two periods out and the early one is removed, so a slow validation
- * does not charge a renewal before there is a period to renew (`not_applicable` → refund).
- */
-async function holdNextChargeUntilApproval(
-  deps: Deps,
-  providerSubscriptionId: string,
-  firstDueDate: string,
-  months: number,
-  payments: AsaasPayment[],
-): Promise<void> {
-  try {
-    for (const p of payments) {
-      if (p.status === 'PENDING' && p.dueDate && p.dueDate > firstDueDate) await deps.asaas.deletePayment(p.id);
-    }
-    await deps.asaas.updateSubscription(providerSubscriptionId, { nextDueDate: addMonths(firstDueDate, 2 * months) });
-  } catch (e) {
-    // Not fatal: the charge is real and attached. The sweep realigns after approval; an early
-    // renewal lands as `not_applicable`, which alerts.
-    await deps.alert('hold_next_charge_failed', { provider_subscription_id: providerSubscriptionId, error: e instanceof Error ? e.message : 'unknown' });
-  }
-}
-
 /** Returns a reply when an already-paid live subscription was (re)attached; null to go on. */
-async function clearLiveSubscriptions(deps: PortalDeps, submissionId: string, co: CheckoutRow): Promise<Reply | null> {
+async function clearLiveSubscriptions(deps: Deps, submissionId: string, co: CheckoutRow): Promise<Reply | null> {
   const ids = await deps.subscriptionIds(submissionId);
   const live = (await deps.asaas.listSubscriptionsByReference(co.external_reference)).filter(
     (s) => !s.deleted && s.status === 'ACTIVE',
@@ -567,44 +662,242 @@ async function discardSubscription(deps: Deps, providerSubscriptionId: string, w
   }
 }
 
-// ─── portal: cancel renewal, regret refund, withdrawal ─────────────────────────────────────────
+// ─── portal: cancel, regret refund, withdrawal ─────────────────────────────────────────────────
 
-/** Contract §3.3 "Desligar renovação": owner → Asaas DELETE → database. Term 4.5: e-mail "no ato". */
-export async function cancelRenewal(deps: PortalDeps, submissionId: string): Promise<Reply> {
-  const owner = await ownerRow(deps, submissionId);
-  if (isReply(owner)) return owner;
-  if (!owner.renews) return reply(200, { result: 'not_renewing' });
+/**
+ * `core.portal_cancel_quote`: what cancelling now costs, shown to the owner BEFORE the confirm (§8.4).
+ * `charge_on` is null when `fee_cents` is 0 (also inside the 7-day regret window); an owned
+ * submission without a paid plan answers a row of zeros with `service_ends_at` null.
+ */
+export type CancelQuote = {
+  fee_cents: number;
+  months_paid: number;
+  months_remaining: number;
+  service_ends_at: string | null;
+  charge_on: string | null;
+};
 
-  const ids = await deps.subscriptionIds(owner.submission_id);
-  if (!ids) return reply(404, { error: 'not_found' });
-  try {
-    // Asaas first: if the database fails after this, `SUBSCRIPTION_DELETED` closes the same state.
-    await endProviderSubscription(deps, ids);
-  } catch (e) {
-    console.error('[places-payment] cancel asaas', e instanceof Error ? e.message : 'unknown');
-    return reply(502, { error: 'provider_unavailable' });
-  }
-  const { data, error } = await deps.admin('partner', 'cancel_place_subscription', {
-    p_event_id: null,
-    p_event_type: null,
-    p_subscription_id: ids.subscription_id,
-    p_provider_subscription_id: null,
-    p_actor_kind: 'client',
+/** The quote of cancelling now, with the user's JWT (the function proves the owner). Writes nothing. */
+export async function cancelQuote(deps: PortalDeps, submissionId: string): Promise<Reply> {
+  if (!isUuid(submissionId)) return reply(400, { error: 'invalid', field: 'submission_id' });
+  const { data, error } = await deps.user('core', 'portal_cancel_quote', { p_submission_id: submissionId });
+  if (error) return isBusinessError(error) ? portalErrorReply(error) : reply(502, { error: 'unavailable' });
+  const q = firstRow<CancelQuote>(data);
+  const count = (n: unknown) => Number.isInteger(n) && (n as number) >= 0;
+  if (!q || !count(q.fee_cents) || !count(q.months_paid) || !count(q.months_remaining)) return reply(502, { error: 'unavailable' });
+  if (q.fee_cents > 0 && !q.charge_on) return reply(502, { error: 'unavailable' });
+  return reply(200, {
+    quote: {
+      fee_cents: q.fee_cents,
+      months_paid: q.months_paid,
+      months_remaining: q.months_remaining,
+      service_ends_at: q.service_ends_at ?? null,
+      charge_on: q.fee_cents > 0 ? q.charge_on : null,
+    },
   });
+}
+
+/** What the cancel e-mail says about the one charge left; null = nothing more is charged. */
+export type CancelFee = { cents: number; chargeOn: string; method: 'credit_card' | 'pix_automatic'; invoiceUrl: string | null };
+
+/**
+ * Cancel (contract places-portal-rascunho §8.4, BR-B2B-055). The database first, with the user's JWT
+ * (`core.portal_cancel_renewal` proves the owner, ends the commitment at `paid_through` and prices
+ * the fee); then Asaas, best effort — if it fails the database is NOT undone and the operator is
+ * alerted. Term 4.5: e-mail "no ato".
+ *
+ * - fee 0 (one-month plan, commitment served, 7-day regret window): `endDate` = eve of `paid_through`, nothing more is
+ *   charged (`endAtCommitment`);
+ * - fee > 0: `chargeEarlyTermination` — the next charge, on `paid_through`, is the fee and the last.
+ *
+ * `expectedFeeCents` is the `fee_cents` the owner saw in the quote, a check only: the database
+ * recalculates and, if it differs (a monthly fee confirmed between quote and click), raises TGP11
+ * and writes nothing → 409 `quote_changed`. Absent = no check (the parameter is not even sent).
+ * `p_expected_fee_cents` exists from 20261006190000 on: PostgREST rejects an unknown parameter.
+ *
+ * Repeated call (`not_applicable`): `resumeCancelAtAsaas` redoes the idempotent Asaas half.
+ */
+export async function cancelRenewal(deps: PortalDeps, submissionId: string, expectedFeeCents?: unknown): Promise<Reply> {
+  if (!isUuid(submissionId)) return reply(400, { error: 'invalid', field: 'submission_id' });
+  if (expectedFeeCents != null && !(Number.isInteger(expectedFeeCents) && (expectedFeeCents as number) >= 0)) {
+    return reply(400, { error: 'invalid', field: 'expected_fee_cents' });
+  }
+  const args: Record<string, unknown> = { p_submission_id: submissionId };
+  if (expectedFeeCents != null) args.p_expected_fee_cents = expectedFeeCents;
+  const { data, error } = await deps.user('core', 'portal_cancel_renewal', args);
   if (error) {
     if (isBusinessError(error)) return portalErrorReply(error);
-    await deps.alert('cancel_failed', { subscription_id: ids.subscription_id, code: error.code });
+    await deps.alert('cancel_failed', { code: error.code });
     return reply(502, { error: 'unavailable' });
   }
-  const row = firstRow<{ outcome: string; paid_through: string | null }>(data);
+  const row = firstRow<{
+    outcome: string;
+    renews: boolean;
+    commitment_ends_at: string | null;
+    paid_through: string | null;
+    /** 0 when nothing is owed, never null (20261006170000). */
+    early_termination_fee_cents: number;
+  }>(data);
+  if (!row) return reply(200, { result: 'not_renewing' });
+  if (row.outcome === 'not_applicable') {
+    await resumeCancelAtAsaas(deps, submissionId, row);
+    return reply(200, { result: 'not_renewing' });
+  }
+
+  const ends = row.paid_through ?? row.commitment_ends_at;
+  const chargeOn = ends ? saoPauloDate(new Date(ends)) : null;
+  const feeCents = Number.isInteger(row.early_termination_fee_cents) && row.early_termination_fee_cents > 0 ? row.early_termination_fee_cents : 0;
+  const ids = await deps.subscriptionIds(submissionId);
+  // The fee is owed by the term whether or not Asaas took the change: the e-mail states it, and a
+  // failure below alerts the operator to schedule it by hand.
+  let fee: CancelFee | null = null;
+  if (feeCents > 0 && chargeOn) {
+    const method = ids?.payment_method === 'pix_automatic' ? 'pix_automatic' : 'credit_card';
+    const invoiceUrl = ids ? await chargeEarlyTermination(deps, ids, feeCents, chargeOn) : null;
+    if (!ids) await deps.alert('cancel_fee_not_scheduled', { submission_id: submissionId, reason: 'no_subscription', fee_cents: feeCents });
+    fee = { cents: feeCents, chargeOn, method, invoiceUrl };
+  } else if (feeCents > 0) {
+    await deps.alert('cancel_fee_not_scheduled', { submission_id: submissionId, reason: 'no_paid_through', fee_cents: feeCents });
+  } else if (ids && ends) {
+    await endAtCommitment(deps, ids, ends);
+  }
 
   const to = await deps.userEmail();
   if (to) {
-    const until = row?.paid_through ? formatDateBr(row.paid_through) : null;
-    const sent = await deps.sendEmail(to, CANCEL_EMAIL.subject, CANCEL_EMAIL.text(until));
-    if (!sent) await deps.alert('cancel_email_failed', { subscription_id: ids.subscription_id });
+    const until = ends ? formatDateBr(saoPauloDate(new Date(ends))) : null;
+    const sent = await deps.sendEmail(to, CANCEL_EMAIL.subject, CANCEL_EMAIL.text(until, fee));
+    if (!sent) await deps.alert('cancel_email_failed', { subscription_id: ids?.subscription_id ?? null });
   }
   return reply(200, { result: 'canceled' });
+}
+
+/**
+ * The Asaas half of a cancel may never have landed (Asaas failed — `cancel_fee_not_scheduled` /
+ * `cancel_end_date_failed` — or the EF died in between): on card the subscription is then live at the
+ * full monthly with no `endDate`, and Asaas would charge it on `paid_through`. The panel stops offering
+ * the button once the database cancelled, so two callers redo it: a repeated cancel
+ * (`resumeCancelAtAsaas`) and the daily sweep (`runSweep`, `cancelsToRedo`). Idempotent, from the row
+ * read with service_role:
+ *
+ * - fee > 0, card, not paid yet: `chargeEarlyTermination` again (PUT `value` = fee with
+ *   `updatePendingPayments`, `endDate`, later pendings deleted — the same request gives the same state);
+ * - fee 0: `endAtCommitment` again (`endDate` = eve of `paid_through`);
+ * - fee > 0 on Pix, not paid yet: only the recurrence is ended again (`endProviderSubscription`; a
+ *   404/400 there is "already gone"). Never `createPixPayment` — it is not idempotent, and the one-off
+ *   went (or alerted the operator) at the first call.
+ *
+ * Nothing when the fee column is null (renewal turned off before 20261006170000: the old rule still
+ * charges the commitment's months), when the fee is paid, when the subscription is already ended, or
+ * after `paid_through` (the expiry's turn). No e-mail: it went at the first call.
+ */
+async function redoCancelAtAsaas(deps: Deps, ids: SubscriptionIds, paidThrough: string): Promise<void> {
+  const chargeOn = saoPauloDate(new Date(paidThrough));
+  if (deps.today() > chargeOn) return;
+  if (!ids.provider_subscription_id || ids.canceled_at || ids.early_termination_fee_cents == null) return;
+  const fee = ids.early_termination_fee_cents;
+  if (fee === 0) return endAtCommitment(deps, ids, paidThrough);
+  if (ids.early_termination_paid_at) return;
+  if (ids.payment_method !== 'pix_automatic') {
+    await chargeEarlyTermination(deps, ids, fee, chargeOn);
+    return;
+  }
+  try {
+    await endProviderSubscription(deps, ids);
+  } catch (e) {
+    await deps.alert('cancel_fee_not_scheduled', {
+      subscription_id: ids.subscription_id,
+      reason: 'pix_end_recurrence',
+      fee_cents: fee,
+      error: e instanceof Error ? e.message : null,
+    });
+  }
+}
+
+/** Repeated cancel (`not_applicable`): `redoCancelAtAsaas` on the submission's subscription. */
+async function resumeCancelAtAsaas(
+  deps: Deps,
+  submissionId: string,
+  row: { renews: boolean; paid_through: string | null },
+): Promise<void> {
+  if (row.renews || !row.paid_through) return;
+  let ids: SubscriptionIds | null;
+  try {
+    ids = await deps.subscriptionIds(submissionId);
+  } catch (e) {
+    await deps.alert('cancel_resume_failed', { submission_id: submissionId, error: e instanceof Error ? e.message : 'unknown' });
+    return;
+  }
+  if (ids) await redoCancelAtAsaas(deps, ids, row.paid_through);
+}
+
+/** `endDate` = the eve of the commitment end (São Paulo): Asaas generates no fee from that day on. */
+async function endAtCommitment(deps: Deps, ids: SubscriptionIds, commitmentEndsAt: string): Promise<void> {
+  if (!ids.provider_subscription_id || ids.canceled_at) return;
+  try {
+    const endDate = shiftDays(saoPauloDate(new Date(commitmentEndsAt)), -1);
+    await deps.asaas.updateSubscription(ids.provider_subscription_id, { endDate });
+  } catch (e) {
+    await deps.alert('cancel_end_date_failed', { subscription_id: ids.subscription_id, error: e instanceof Error ? e.message : 'unknown' });
+  }
+}
+
+/**
+ * The early-termination fee, ONE charge due on `chargeOn` (= `paid_through`), by the plan's method.
+ * Returns the Pix QR page for the e-mail (null on card, or when it could not be had). A failure
+ * alerts the operator (`cancel_fee_not_scheduled`) and the cancellation stands either way.
+ *
+ * - Card: the same mechanism as `syncNextAmount` — PUT `value` = fee with `updatePendingPayments`
+ *   (the charge Asaas already generated for `chargeOn` becomes the fee) and `endDate` = `chargeOn`,
+ *   so it is the last; a charge already generated after `chargeOn` is deleted.
+ * - Pix Automático: in `SUBSCRIPTION` mode the authorized `value` is fixed and every charge of the
+ *   authorization must respect it (docs.asaas.com, "FAQ do Pix Automático", question 6; checked
+ *   2026-10-06). So the fee is a one-off Pix charge (`createPixPayment`, no `externalReference`: the
+ *   webhook maps it through the customer, like the first Pix charge), and the recurrence ends now —
+ *   subscription (its pending charge goes with it) and authorization. The QR page goes in the e-mail.
+ */
+async function chargeEarlyTermination(deps: Deps, ids: SubscriptionIds, feeCents: number, chargeOn: string): Promise<string | null> {
+  const fail = async (step: string, e?: unknown) => {
+    await deps.alert('cancel_fee_not_scheduled', {
+      subscription_id: ids.subscription_id,
+      reason: step,
+      fee_cents: feeCents,
+      error: e instanceof Error ? e.message : null,
+    });
+    return null;
+  };
+  if (ids.payment_method === 'pix_automatic') {
+    let invoiceUrl: string | null = null;
+    try {
+      if (!ids.provider_customer_id) throw new Error('no_customer');
+      const p = await deps.asaas.createPixPayment({
+        customer: ids.provider_customer_id,
+        value: toReais(feeCents),
+        dueDate: chargeOn,
+        description: 'Tuggi Com história: diferença do desconto (cancelamento antes do fim da fidelidade)',
+      });
+      invoiceUrl = p.invoiceUrl ?? null;
+      if (!invoiceUrl) await deps.alert('cancel_fee_invoice_missing', { subscription_id: ids.subscription_id, provider_payment_id: p.id });
+    } catch (e) {
+      await fail('pix_charge', e);
+    }
+    // Ended even if the one-off failed: the recurrence would charge a full monthly fee on `chargeOn`.
+    try {
+      if (!ids.canceled_at) await endProviderSubscription(deps, ids);
+    } catch (e) {
+      await fail('pix_end_recurrence', e);
+    }
+    return invoiceUrl;
+  }
+
+  if (!ids.provider_subscription_id || ids.canceled_at) return fail('no_live_subscription');
+  try {
+    await deps.asaas.updateSubscription(ids.provider_subscription_id, { value: toReais(feeCents), endDate: chargeOn, updatePendingPayments: true });
+    const pending = await deps.asaas.listSubscriptionPayments(ids.provider_subscription_id, 'PENDING');
+    for (const p of pending) if (p.dueDate && p.dueDate > chargeOn) await deps.asaas.deletePayment(p.id);
+    return null;
+  } catch (e) {
+    return fail('card_update', e);
+  }
 }
 
 /** Regret (BR-B2B-046 item 6) through `core.portal_request_refund`, then the Asaas part. */
@@ -901,7 +1194,16 @@ export async function handleAsaasWebhook(
     if (error.code === 'TGP22') await deps.alert('webhook_tgp22', { event_id: eventId, event_type: eventType, field: error.details });
     return reply(500, { error: 'db_error' });
   }
-  const outcome = firstRow<{ outcome?: string }>(data)?.outcome ?? 'unknown';
+  const row = firstRow<{ outcome?: string; submission_status?: string }>(data);
+  const outcome = row?.outcome ?? 'unknown';
+  // #863 (§7.3 b): the first charge moved an ownerless submission to `in_review` — the access link
+  // goes now, from the server, whether or not the tab that paid is still open. Only on `applied`:
+  // a resend is `duplicate_event`, and the RECEIVED after the CONFIRMED of the same charge is
+  // `duplicate_charge`, so one charge sends one e-mail (a second would expire the first link).
+  const applied = fn === 'confirm_place_charge' && outcome === 'applied';
+  const submissionId = applied ? await submissionOfCharge(deps, args, eventId, eventType) : null;
+  const link = applied && row?.submission_status === 'in_review' ? await accessLinkAfterPayment(deps, submissionId, args, eventId, eventType) : null;
+  if (submissionId) await syncNextAmount(deps, submissionId, args);
   if (ALERT_OUTCOMES.has(outcome)) {
     await deps.alert(outcome, {
       event_id: eventId,
@@ -912,8 +1214,75 @@ export async function handleAsaasWebhook(
       provider_payment_id: (args.p_provider_payment_id as string) ?? null,
     });
   }
-  log(outcome);
+  log(link ? `${outcome} link:${link}` : outcome);
   return reply(200, { outcome });
+}
+
+/**
+ * Contract §8.2: with a voucher the fee changes (diluted voucher → full fee at renewal). After an
+ * applied charge, re-read `next_amount_cents` and, if Asaas holds another `value`, PUT it with
+ * `updatePendingPayments` (the fee Asaas already generated changes too). Best effort, never a 500:
+ * the daily sweep (`alignRenewal`) sets the same value. No `sub_…` attached (Pix before the
+ * activation) → nothing to sync yet.
+ */
+async function syncNextAmount(deps: Deps, submissionId: string, args: Record<string, unknown>): Promise<void> {
+  const subscriptionId = typeof args.p_subscription_id === 'string' ? args.p_subscription_id : null;
+  try {
+    const ids = await deps.subscriptionIds(submissionId);
+    const providerSubscriptionId = ids?.canceled_at ? null : ids?.provider_subscription_id ?? null;
+    if (!providerSubscriptionId) return;
+    const { data, error } = await deps.admin('partner', 'place_payment_checkout', { p_submission_id: submissionId });
+    if (error) throw new Error(`db ${error.code}`);
+    const next = firstRow<CheckoutRow>(data)?.next_amount_cents;
+    if (typeof next !== 'number' || next <= 0) return;
+    const sub = await deps.asaas.getSubscription(providerSubscriptionId);
+    if (toCents(sub.value) === next) return;
+    await deps.asaas.updateSubscription(providerSubscriptionId, { value: toReais(next), updatePendingPayments: true });
+  } catch (e) {
+    await deps.alert('next_amount_sync_failed', { subscription_id: subscriptionId, error: e instanceof Error ? e.message : 'unknown' });
+  }
+}
+
+/**
+ * Best effort, and never a 500: the charge is already recorded, so a resend would only be a
+ * `duplicate_event` and send nothing. A failure alerts the operator; the owner still has
+ * "Reenviar o link" in the paying tab and the sign-in by e-mail, which issues a new access link.
+ */
+async function accessLinkAfterPayment(
+  deps: Deps,
+  submissionId: string | null,
+  args: Record<string, unknown>,
+  eventId: string,
+  eventType: string,
+): Promise<'sent' | 'owned' | 'failed'> {
+  let r: 'sent' | 'owned' | 'failed' = 'failed';
+  try {
+    if (submissionId) r = await deps.accessLink(submissionId);
+  } catch (e) {
+    console.error('[places-payment-webhook]', eventId, eventType, 'access_link', e instanceof Error ? e.message.slice(0, 120) : 'unknown');
+  }
+  if (r === 'failed') {
+    await deps.alert('access_link_failed', {
+      event_id: eventId,
+      event_type: eventType,
+      subscription_id: typeof args.p_subscription_id === 'string' ? args.p_subscription_id : null,
+      provider_subscription_id: typeof args.p_provider_subscription_id === 'string' ? args.p_provider_subscription_id : null,
+    });
+  }
+  return r;
+}
+
+/** The submission of an applied charge, looked up once for the access link and `syncNextAmount`; null on failure (never a 500). */
+async function submissionOfCharge(deps: Deps, args: Record<string, unknown>, eventId: string, eventType: string): Promise<string | null> {
+  try {
+    return await deps.submissionOfSubscription(
+      typeof args.p_subscription_id === 'string' ? args.p_subscription_id : null,
+      typeof args.p_provider_subscription_id === 'string' ? args.p_provider_subscription_id : null,
+    );
+  } catch (e) {
+    console.error('[places-payment-webhook]', eventId, eventType, 'submission_lookup', e instanceof Error ? e.message.slice(0, 120) : 'unknown');
+    return null;
+  }
 }
 
 /**
@@ -992,16 +1361,9 @@ async function pixAuthorizationActivated(
     if (error.code === 'TGP22') await deps.alert('webhook_tgp22', { event_id: eventId, event_type: eventType, field: error.details });
     return reply(500, { error: 'db_error' });
   }
-  // Same as the card checkout: no renewal before the approval; the sweep aligns it after.
-  const months = FREQUENCY_MONTHS[(a.frequency ?? '').toUpperCase()];
-  const payments = months ? await deps.asaas.listSubscriptionPayments(a.subscriptionId).catch(() => null) : null;
-  if (months && payments) await holdNextChargeUntilApproval(deps, a.subscriptionId, deps.today(), months, payments);
-  else await deps.alert('hold_next_charge_failed', { provider_subscription_id: a.subscriptionId, error: months ? 'list_failed' : `frequency ${a.frequency}` });
   log('applied');
   return reply(200, { outcome: 'applied' });
 }
-
-const FREQUENCY_MONTHS: Record<string, number> = { MONTHLY: 1, QUARTERLY: 3, SEMIANNUALLY: 6 };
 
 // ─── daily sweep ───────────────────────────────────────────────────────────────────────────────
 
@@ -1015,15 +1377,32 @@ type ExpiredRow = {
 type ScheduleRow = {
   subscription_id: string;
   provider_subscription_id: string;
+  /** The amount of the next fee (contract §8.5), = Asaas `value`. */
   renewal_amount_cents: number;
-  billing_period: number;
-  renewal_date: string;
-  notice_date: string;
 };
 
 /**
- * Contract §3.3, in this order: unfinished refunds, expirations (an expired place must not be
- * charged), then the renewal alignment. Each part runs even if the one before failed.
+ * Contract places-pagamento §3.3 (20261006170000 D6, BR-B2B-046 item 7): on card, the fee is the
+ * pending charge of the Asaas subscription, due on `charge_on` (= `paid_through`, São Paulo). Its
+ * DELETE waits until the day after; paid by then it was confirmed, unpaid the DELETE forgives it.
+ */
+export function earlyTerminationFeeHeld(r: ExpiredCardRow, today: string): boolean {
+  if (!r.early_termination_fee_cents || r.early_termination_fee_cents <= 0) return false;
+  if (r.early_termination_paid_at || !r.paid_through) return false;
+  return today <= saoPauloDate(new Date(r.paid_through));
+}
+
+/** `partner.place_commitments_ending()`: renewal off, last fee of the commitment paid. */
+type EndingRow = {
+  subscription_id: string;
+  payment_method: string | null;
+  provider_subscription_id: string | null;
+};
+
+/**
+ * Contract §3.3 and places-portal-rascunho §8.5, in this order: unfinished refunds, expirations (an
+ * expired place must not be charged), commitments that end without renewal, then the amount of the
+ * next fee. Each part runs even if the one before failed.
  */
 export async function runSweep(deps: Deps): Promise<Record<string, unknown>> {
   const summary: Record<string, unknown> = {};
@@ -1031,6 +1410,22 @@ export async function runSweep(deps: Deps): Promise<Record<string, unknown>> {
   const refunds = await pendingRefunds(deps);
   summary.refunds = refunds ? await processRefunds(deps, refunds) : 'db_error';
 
+  // places-portal-rascunho §8.4: the Asaas half of a cancel that did not land is redone every day
+  // until `paid_through` — the panel no longer offers the button. A read error leaves it for tomorrow.
+  try {
+    let n = 0;
+    for (const r of await deps.cancelsToRedo()) {
+      await redoCancelAtAsaas(deps, r, r.paid_through);
+      n++;
+    }
+    summary.cancel_redone = n;
+  } catch (e) {
+    summary.cancel_redone = 'db_error';
+    await deps.alert('sweep_cancel_redo_failed', { error: e instanceof Error ? e.message : 'unknown' });
+  }
+
+  // Card rows are ended by `expiredLiveCards` below, not here: the expiry comes at `paid_through`,
+  // the same day the early-termination fee is charged, and the DELETE would erase it (§3.3).
   const expired = await deps.admin('partner', 'expire_place_subscriptions', {});
   if (expired.error) {
     summary.expired = 'db_error';
@@ -1038,25 +1433,44 @@ export async function runSweep(deps: Deps): Promise<Record<string, unknown>> {
   } else {
     let n = 0;
     for (const r of (Array.isArray(expired.data) ? expired.data : []) as ExpiredRow[]) {
-      if (!r.provider_subscription_id || r.canceled_at) continue;
-      try {
-        // Pix: the authorization too, or the payer's bank keeps showing a live consent.
-        const auth = r.payment_method === 'pix_automatic' ? (await deps.subscriptionById(r.subscription_id))?.provider_authorization_id : null;
-        await endProviderSubscription(deps, { provider_subscription_id: r.provider_subscription_id, provider_authorization_id: auth });
-        const { error } = await deps.admin('partner', 'cancel_place_subscription', {
-          p_event_id: null,
-          p_event_type: null,
-          p_subscription_id: r.subscription_id,
-          p_provider_subscription_id: null,
-          p_actor_kind: 'system',
-        });
-        if (error) throw new Error(`db ${error.code}`);
-        n++;
-      } catch (e) {
-        await deps.alert('sweep_expire_cancel_failed', { subscription_id: r.subscription_id, error: e instanceof Error ? e.message : 'unknown' });
-      }
+      if (!r.provider_subscription_id || r.canceled_at || r.payment_method === 'credit_card') continue;
+      if (await endSubscription(deps, r, 'sweep_expire_cancel_failed')) n++;
     }
     summary.expired = n;
+  }
+
+  // Every expired card row still live at Asaas, today's and the ones held before: a read error
+  // leaves them for tomorrow (they stay expired with `canceled_at` null).
+  try {
+    let n = 0;
+    let held = 0;
+    const today = deps.today();
+    for (const r of await deps.expiredLiveCards()) {
+      if (earlyTerminationFeeHeld(r, today)) {
+        held++;
+        continue;
+      }
+      if (await endSubscription(deps, { ...r, payment_method: 'credit_card' }, 'sweep_expire_cancel_failed')) n++;
+    }
+    summary.expired_card = n;
+    summary.fee_held = held;
+  } catch (e) {
+    summary.expired_card = 'db_error';
+    await deps.alert('sweep_expired_cards_failed', { error: e instanceof Error ? e.message : 'unknown' });
+  }
+
+  // §8.5: DELETE and not `endDate` — it also removes a fee already generated after the end; a fee
+  // still unpaid is forgiven with it (BR-B2B-046 item 7: unpaid fee ends the plan with no debt).
+  const ending = await deps.admin('partner', 'place_commitments_ending', {});
+  if (ending.error) {
+    summary.ended = 'db_error';
+    await deps.alert('sweep_ending_failed', { code: ending.error.code });
+  } else {
+    let n = 0;
+    for (const r of (Array.isArray(ending.data) ? ending.data : []) as EndingRow[]) {
+      if (await endSubscription(deps, r, 'sweep_end_commitment_failed')) n++;
+    }
+    summary.ended = n;
   }
 
   const schedule = await deps.admin('partner', 'place_renewal_schedule', {});
@@ -1077,39 +1491,40 @@ export async function runSweep(deps: Deps): Promise<Record<string, unknown>> {
   return summary;
 }
 
+/** Asaas side first (Pix: the authorization too, or the payer's bank keeps a live consent), then `cancel_place_subscription(…'system')`. */
+async function endSubscription(
+  deps: Deps,
+  r: { subscription_id: string; payment_method: string | null; provider_subscription_id: string | null },
+  alertKey: string,
+): Promise<boolean> {
+  try {
+    const auth = r.payment_method === 'pix_automatic' ? (await deps.subscriptionById(r.subscription_id))?.provider_authorization_id : null;
+    await endProviderSubscription(deps, { provider_subscription_id: r.provider_subscription_id, provider_authorization_id: auth });
+    const { error } = await deps.admin('partner', 'cancel_place_subscription', {
+      p_event_id: null,
+      p_event_type: null,
+      p_subscription_id: r.subscription_id,
+      p_provider_subscription_id: null,
+      p_actor_kind: 'system',
+    });
+    if (error) throw new Error(`db ${error.code}`);
+    return true;
+  } catch (e) {
+    await deps.alert(alertKey, { subscription_id: r.subscription_id, error: e instanceof Error ? e.message : 'unknown' });
+    return false;
+  }
+}
+
 /**
- * Makes the Asaas subscription charge `renewal_amount_cents` on `renewal_date` and nothing before
- * it. `nextDueDate` does not move a charge Asaas already generated (up to 40 days ahead), so a
- * pending charge for THIS renewal on another date is deleted, and the subscription points either
- * at the renewal (nothing generated yet) or at the one after it (renewal already generated).
- * A pending charge more than half a period after the renewal belongs to the next cycle and stays.
+ * Backstop of `syncNextAmount` (contract §8.2): the Asaas subscription charges `renewal_amount_cents`
+ * — voucher diluted in the first commitment, full fee from the renewal on. The date is Asaas's own.
  * Returns true when something was changed.
  */
 export async function alignRenewal(deps: Deps, r: ScheduleRow): Promise<boolean> {
-  const target = r.renewal_date.slice(0, 10);
-  const halfPeriodEnd = shiftDays(target, r.billing_period * 15);
-  const pending = await deps.asaas.listSubscriptionPayments(r.provider_subscription_id, 'PENDING');
-  let changed = false;
-
-  const match = pending.find((p) => p.dueDate === target) ?? null;
-  for (const p of pending) {
-    if (p === match || !p.dueDate || p.dueDate >= halfPeriodEnd) continue;
-    await deps.asaas.deletePayment(p.id);
-    changed = true;
-  }
-
   const sub = await deps.asaas.getSubscription(r.provider_subscription_id);
-  const nextDueDate = match ? addMonths(target, r.billing_period) : target;
-  const valueOk = toCents(sub.value) === r.renewal_amount_cents && (!match || toCents(match.value) === r.renewal_amount_cents);
-  if (sub.nextDueDate !== nextDueDate || !valueOk) {
-    await deps.asaas.updateSubscription(r.provider_subscription_id, {
-      nextDueDate,
-      value: toReais(r.renewal_amount_cents),
-      updatePendingPayments: true,
-    });
-    changed = true;
-  }
-  return changed;
+  if (toCents(sub.value) === r.renewal_amount_cents) return false;
+  await deps.asaas.updateSubscription(r.provider_subscription_id, { value: toReais(r.renewal_amount_cents), updatePendingPayments: true });
+  return true;
 }
 
 function shiftDays(date: string, days: number): string {
@@ -1125,20 +1540,40 @@ export function formatDateBr(iso: string): string {
   return `${d}/${m}/${y}`;
 }
 
-/** Term 4.5: "a TUGGI confirma o cancelamento por e-mail no ato". */
+/** `12345` → `R$ 123,45`, the same format as the portal's `brl`. */
+export function formatBrl(cents: number): string {
+  const [int, dec] = (Math.round(cents) / 100).toFixed(2).split('.');
+  return `R$ ${int.replace(/\B(?=(\d{3})+(?!\d))/g, '.')},${dec}`;
+}
+
+/** Term 4.5: "a TUGGI confirma o cancelamento por e-mail no ato". Contract places-portal-rascunho §8.4. */
 export const CANCEL_EMAIL = {
-  subject: 'Renovação do Com história cancelada',
-  text: (until: string | null) =>
-    [
+  subject: 'Plano Com história cancelado',
+  text: (until: string | null, fee: CancelFee | null) => {
+    const feeLines = !fee
+      ? ['Nenhuma outra cobrança será feita.']
+      : fee.method === 'credit_card'
+        ? [
+            `Como o cancelamento veio antes do fim da fidelidade, cobramos uma única vez ${formatBrl(fee.cents)}, a diferença do desconto dos meses usados, no seu cartão em ${formatDateBr(fee.chargeOn)}. Depois disso, nada mais é cobrado.`,
+          ]
+        : [
+            `Como o cancelamento veio antes do fim da fidelidade, cobramos uma única vez ${formatBrl(fee.cents)}, a diferença do desconto dos meses usados, por Pix, com vencimento em ${formatDateBr(fee.chargeOn)}. O Pix Automático foi encerrado: esta cobrança não sai sozinha da sua conta.`,
+            fee.invoiceUrl ? `Para pagar, abra: ${fee.invoiceUrl}` : 'Mandamos o código Pix para pagamento por e-mail antes dessa data.',
+            'Depois disso, nada mais é cobrado.',
+          ];
+    return [
       'Olá,',
       '',
-      'Cancelamos a renovação automática do plano Com história. Nada mais será cobrado.',
+      'Cancelamos o seu plano Com história. Nenhuma mensalidade nova será cobrada.',
       until
         ? `A história do seu local continua no ar até ${until}. Depois disso, o local segue no mapa do app no plano No mapa, sem custo.`
-        : 'O local segue no mapa do app no plano No mapa, sem custo, quando o período pago terminar.',
+        : 'O local segue no mapa do app no plano No mapa, sem custo.',
+      '',
+      ...feeLines,
       '',
       'Se mudar de ideia, contrate um novo período pelo portal.',
       '',
       'Equipe Tuggi',
-    ].join('\n'),
+    ].join('\n');
+  },
 };

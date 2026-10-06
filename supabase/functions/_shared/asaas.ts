@@ -60,6 +60,7 @@ export type AsaasSubscription = {
   status: string;
   value: number;
   nextDueDate?: string | null;
+  endDate?: string | null;
   cycle?: string;
   billingType?: string;
   externalReference?: string | null;
@@ -181,7 +182,7 @@ export function asaasClient(cfg: AsaasConfig) {
     }) => call<AsaasSubscription>('POST', '/subscriptions', { ...s, billingType: 'CREDIT_CARD' }),
 
     /** `PUT /v3/subscriptions/{id}`. `nextDueDate` does not move charges already generated. */
-    updateSubscription: (id: string, patch: { value?: number; nextDueDate?: string; updatePendingPayments?: boolean }) =>
+    updateSubscription: (id: string, patch: { value?: number; nextDueDate?: string; endDate?: string; updatePendingPayments?: boolean }) =>
       call<AsaasSubscription>('PUT', `/subscriptions/${encodeURIComponent(id)}`, patch),
 
     /** 404 = already gone, which is what the caller wanted: true either way. */
@@ -226,6 +227,14 @@ export function asaasClient(cfg: AsaasConfig) {
       }
       return true;
     },
+
+    /**
+     * A one-off Pix charge (`POST /v3/payments`, `billingType: PIX`), outside any subscription: the
+     * early-termination fee of a Pix Automático plan, whose authorized `value` cannot change.
+     * `invoiceUrl` is the page where the payer gets the QR (the customer has Asaas e-mails off).
+     */
+    createPixPayment: (c: { customer: string; value: number; dueDate: string; description: string }) =>
+      call<AsaasPayment & { invoiceUrl?: string | null }>('POST', '/payments', { ...c, billingType: 'PIX' }),
 
     getPayment: (id: string) => call<AsaasPayment>('GET', `/payments/${encodeURIComponent(id)}`),
 

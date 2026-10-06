@@ -6,12 +6,15 @@
 //
 // Secrets: ASAAS_API_KEY, ASAAS_BASE_URL (sandbox `https://api-sandbox.asaas.com/v3`, production
 // `https://api.asaas.com/v3` — no default: an unset URL refuses, it never guesses the environment),
-// ASAAS_WEBHOOK_TOKEN (webhook only), RESEND_API_KEY, RESEND_FROM, PARTNER_ALERT_TO.
+// ASAAS_WEBHOOK_TOKEN (webhook only), RESEND_API_KEY, RESEND_FROM, PARTNER_ALERT_TO,
+// PLACES_DRAFT_SECRET (the cookie's checkout, #863) and PLACES_PORTAL_ORIGIN (the access link).
 
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
 import { createAdminClient, getPublishableKey, getSupabaseUrl } from './supabase-client.ts';
 import { asaasClient } from './asaas.ts';
-import { saoPauloDate, type Deps, type Rpc, type SubscriptionIds } from './places-payment.ts';
+import { saoPauloDate, type CancelRedoRow, type Deps, type ExpiredCardRow, type Rpc, type SubscriptionIds } from './places-payment.ts';
+import { issueAccessLink } from './places-portal-draft.ts';
+import { accessLinkDeps } from './places-access-link-runtime.ts';
 
 const RESEND_URL = 'https://api.resend.com/emails';
 
@@ -63,7 +66,8 @@ async function alert(what: string, fields: Record<string, string | number | null
   await sendEmail(to, `[Tuggi pagamento] ${what}`, [`Alerta da EF de pagamento do Com história (#811): ${what}`, '', ...lines].join('\n'));
 }
 
-const SUBSCRIPTION_COLUMNS = 'id, status, payment_method, provider_subscription_id, provider_customer_id, provider_authorization_id, canceled_at';
+const SUBSCRIPTION_COLUMNS =
+  'id, status, payment_method, provider_subscription_id, provider_customer_id, provider_authorization_id, canceled_at, early_termination_fee_cents, early_termination_paid_at';
 
 // deno-lint-ignore no-explicit-any
 function toIds(s: any): SubscriptionIds | null {
@@ -76,6 +80,8 @@ function toIds(s: any): SubscriptionIds | null {
         provider_customer_id: s.provider_customer_id ?? null,
         provider_authorization_id: s.provider_authorization_id ?? null,
         canceled_at: s.canceled_at ?? null,
+        early_termination_fee_cents: s.early_termination_fee_cents ?? null,
+        early_termination_paid_at: s.early_termination_paid_at ?? null,
       }
     : null;
 }
@@ -104,6 +110,44 @@ export function baseDeps(asaas: NonNullable<ReturnType<typeof asaasFromEnv>>): D
     alert,
     today: () => saoPauloDate(new Date()),
     now: () => new Date(),
+    expiredLiveCards: async (): Promise<ExpiredCardRow[]> => {
+      const { data, error } = await admin
+        .schema('partner')
+        .from('place_subscriptions')
+        .select('id, provider_subscription_id, paid_through, early_termination_fee_cents, early_termination_paid_at')
+        .eq('status', 'expired')
+        .eq('payment_method', 'credit_card')
+        .is('canceled_at', null)
+        .not('provider_subscription_id', 'is', null);
+      if (error) throw new Error(`expired cards read ${error.code}`);
+      // deno-lint-ignore no-explicit-any
+      return (data ?? []).map(({ id, ...r }: any) => ({ subscription_id: id, ...r }));
+    },
+    cancelsToRedo: async (): Promise<CancelRedoRow[]> => {
+      const { data, error } = await admin
+        .schema('partner')
+        .from('place_subscriptions')
+        .select(`${SUBSCRIPTION_COLUMNS}, paid_through`)
+        .eq('renews', false)
+        .not('early_termination_fee_cents', 'is', null)
+        .is('early_termination_paid_at', null)
+        .is('canceled_at', null)
+        .not('provider_subscription_id', 'is', null)
+        .not('paid_through', 'is', null);
+      if (error) throw new Error(`cancels to redo read ${error.code}`);
+      // deno-lint-ignore no-explicit-any
+      return (data ?? []).map((r: any) => ({ ...toIds(r)!, paid_through: r.paid_through }));
+    },
+    submissionOfSubscription: async (subscriptionId, providerSubscriptionId) => {
+      if (!subscriptionId && !providerSubscriptionId) return null;
+      const q = admin.schema('partner').from('place_subscriptions').select('place_acceptances(submission_id)');
+      const { data, error } = await (subscriptionId ? q.eq('id', subscriptionId) : q.eq('provider_subscription_id', providerSubscriptionId)).maybeSingle();
+      if (error) throw new Error(`subscription read ${error.code}`);
+      const acc = data?.place_acceptances;
+      const sid = (Array.isArray(acc) ? acc[0] : acc)?.submission_id;
+      return typeof sid === 'string' ? sid : null;
+    },
+    accessLink: async (submissionId) => (await issueAccessLink(accessLinkDeps(admin), submissionId)).kind,
   };
 }
 
