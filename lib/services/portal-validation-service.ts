@@ -32,6 +32,7 @@ import type { PartnerAnswers } from '@/lib/partner-form/schema'
 import type { PlacePrefill } from '@/lib/partner-form/place-prefill'
 import { applyPlacePrefill, createPrefilledPlace } from '@/lib/services/partner-place-provisioning'
 import { createPromotedClient, findClientByTaxId } from '@/lib/services/partner-proposal-admin-service'
+import { ClientService } from '@/lib/services/client-service'
 import ptMessages from '@/messages/pt.json'
 
 function partner() {
@@ -176,12 +177,14 @@ async function releaseApproval(submissionId: string): Promise<void> {
 /**
  * Approve: claim → POI (`createPrefilledPlace`, the operator's session, because
  * `cms_create_place` refuses `service_role`) → `attraction_id` → client → link, details and
- * coordinate → transition. See the header for why each step is safe to run again.
+ * coordinate → client approved (status + CMS user, `ClientService.approveClient`) → transition. See the header for why each step is safe to run again.
  */
 export async function approvePortalSubmission(
   submissionId: string,
   operator: SupabaseClient,
   actorUserId: string,
+  /** `core.cms_users.id` of the operator — `partner.clients.approved_by` references it. */
+  approverCmsUserId: string,
   now: Date = new Date()
 ): Promise<PortalActOutcome> {
   const { data, error } = await partner()
@@ -205,7 +208,7 @@ export async function approvePortalSubmission(
   if (claim === 'error') return { ok: false, httpStatus: 503, error: 'claim_failed' }
   if (claim === 'busy') return { ok: false, httpStatus: 409, error: 'approval_in_progress' }
 
-  const outcome = await approveClaimed(submission, answers, prefill, operator, actorUserId)
+  const outcome = await approveClaimed(submission, answers, prefill, operator, actorUserId, approverCmsUserId)
   if (!outcome.ok) await releaseApproval(submission.id)
   return outcome
 }
@@ -215,7 +218,8 @@ async function approveClaimed(
   answers: PartnerAnswers,
   prefill: PlacePrefill,
   operator: SupabaseClient,
-  actorUserId: string
+  actorUserId: string,
+  approverCmsUserId: string
 ): Promise<PortalActOutcome> {
   let attractionId = submission.attraction_id
   if (!attractionId) {
@@ -237,6 +241,12 @@ async function approveClaimed(
 
   const place = await applyPlacePrefill(attractionId, prefill, client.clientId, operator)
   if (place.status === 'failed') return { ok: false, httpStatus: 503, error: place.reason, attractionId }
+
+  // The relationship is approved by the same act (#872): `status = 'approved'` is what makes the
+  // client attributable (BR-MONETIZACAO-027) and creates its CMS user — the SAME function as the
+  // record's `Aprovar`, so there is one definition of "approved client".
+  const approval = await approveRelationship(client.clientId, approverCmsUserId)
+  if (!approval.ok) return { ok: false, httpStatus: 503, error: approval.error, attractionId }
 
   const outcome = await transition(submission.id, 'approved', actorUserId, null)
   return outcome.ok ? { ...outcome, attractionId, clientId: client.clientId } : { ...outcome, attractionId }
@@ -280,6 +290,35 @@ async function resolveApprovalClient(
   const write = resolvePromotionWrite(plan, { approved: [] })
   const created = await createPromotedClient(write.updates, answers)
   return created.ok ? { ok: true, clientId: created.clientId } : { ok: false, error: 'client_write_failed' }
+}
+
+/**
+ * `ClientService.approveClient` over the client's own e-mail and name — the same input the record's
+ * `Aprovar` sends (`ApprovalHeaderControls`). Retry-safe: an approved client is left as it is.
+ */
+async function approveRelationship(
+  clientId: string,
+  approverCmsUserId: string
+): Promise<{ ok: true } | { ok: false; error: string }> {
+  const { data, error } = await partner()
+    .from('clients')
+    .select('email, name')
+    .eq('id', clientId)
+    .maybeSingle()
+  const row = data as { email: string | null; name: string | null } | null
+  const email = row?.email?.trim() ?? ''
+  const name = row?.name?.trim() ?? ''
+  if (error || !email || !name) {
+    console.error('[portal-validation] client read for approval failed', error?.code ?? 'no_email_or_name')
+    return { ok: false, error: 'client_approval_failed' }
+  }
+  try {
+    await ClientService.approveClient(clientId, approverCmsUserId, email, name)
+    return { ok: true }
+  } catch (err) {
+    console.error('[portal-validation] client approval failed', err instanceof Error ? err.message : err)
+    return { ok: false, error: 'client_approval_failed' }
+  }
 }
 
 /** The e-mail the client accepted the terms with (`partner.place_acceptances.email`). */

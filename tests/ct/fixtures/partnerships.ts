@@ -62,6 +62,7 @@ export function queueRow(overrides: Partial<ClientDirectoryRow> = {}): ClientDir
     // that has not reached the client yet (#377, spec §3.1).
     triage: { approvedAt: null, places: [] },
     discardReason: null,
+    gateMissing: [],
     ...overrides,
   }
 }
@@ -78,7 +79,7 @@ export const QUEUE_ROWS_IN_PROGRESS: ClientDirectoryRow[] = [
   queueRow({
     submissionId: 'sub-0003',
     clientId: 'client-0003',
-    state: 'client_created',
+    state: 'awaiting_acceptance',
     target: { kind: 'client', clientId: 'client-0003', tab: 'partnership' },
     name: 'Locadora Costa Verde',
     since: '2026-08-07T09:00:00.000Z',
@@ -86,7 +87,7 @@ export const QUEUE_ROWS_IN_PROGRESS: ClientDirectoryRow[] = [
   queueRow({
     submissionId: 'sub-0004',
     clientId: 'client-0004',
-    state: 'contract_signed' as PipelineState,
+    state: 'awaiting_acceptance' as PipelineState,
     target: { kind: 'client', clientId: 'client-0004', tab: 'partnership' },
     name: 'Transfer Serra Acima',
     since: '2026-08-05T09:00:00.000Z',
@@ -112,8 +113,9 @@ export const BOARD_ROWS_EVERY_COLUMN: ClientDirectoryRow[] = QUEUE_ROWS_IN_PROGR
   queueRow({
     submissionId: 'sub-0006',
     clientId: 'client-0006',
-    state: 'contract_sent',
+    state: 'awaiting_acceptance',
     contract: 'sent',
+    gateMissing: ['acceptance'],
     status: 'approved',
     target: { kind: 'client', clientId: 'client-0006', tab: 'partnership' },
     name: 'Padaria Boa Vista',
@@ -181,7 +183,7 @@ export const BOARD_ROWS_EVERY_PLAN: ClientDirectoryRow[] = [
   queueRow({
     submissionId: 'plan-2',
     clientId: 'client-plan-2',
-    state: 'client_created',
+    state: 'awaiting_acceptance',
     status: 'approved',
     name: 'Paga por mês',
     fee: { monthlyFeeCents: 14900, isCourtesy: false, courtesyReason: null },
@@ -189,7 +191,7 @@ export const BOARD_ROWS_EVERY_PLAN: ClientDirectoryRow[] = [
   queueRow({
     submissionId: 'plan-3',
     clientId: 'client-plan-3',
-    state: 'client_created',
+    state: 'awaiting_acceptance',
     status: 'approved',
     name: 'Cortesia declarada',
     fee: {
@@ -201,14 +203,14 @@ export const BOARD_ROWS_EVERY_PLAN: ClientDirectoryRow[] = [
   queueRow({
     submissionId: 'plan-4',
     clientId: 'client-plan-4',
-    state: 'client_created',
+    state: 'awaiting_acceptance',
     status: 'approved',
     name: 'Ninguém declarou',
   }),
   queueRow({
     submissionId: 'plan-5',
     clientId: 'client-plan-5',
-    state: 'contract_signed',
+    state: 'awaiting_acceptance',
     status: 'approved',
     contract: 'signed',
     contractTier: 'free',
@@ -286,6 +288,7 @@ export function detailInCuration(): PartnershipDetail {
 
   return {
     state: 'place_in_curation',
+    gateMissing: [],
     client: client({
       id: 'client-0005',
       name: LONG_ESTABLISHMENT_NAME,
@@ -344,6 +347,7 @@ export function detailReadyToPublish(): PartnershipDetail {
 
   return {
     state: 'place_in_curation',
+    gateMissing: [],
     client: client({
       id: 'client-0006',
       name: 'Pousada Vista Mar',

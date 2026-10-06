@@ -86,7 +86,7 @@ export const POST = withRateLimit(30, 60_000)(
 
     const outcome =
       decision.action === 'approve'
-        ? await approvePortalSubmission(submissionId, auth.supabase, auth.user.id)
+        ? await approvePortalSubmission(submissionId, auth.supabase, auth.user.id, auth.cmsUser.id)
         : decision.action === 'request_changes'
           ? await requestPortalChanges(submissionId, auth.user.id, decision.note)
           : await rejectPortalSubmission(submissionId, auth.user.id, decision.note)

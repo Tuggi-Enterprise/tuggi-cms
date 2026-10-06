@@ -27,6 +27,7 @@
 import { isTriageOverdue, deriveTriageStatus } from '@/lib/partnerships/triage'
 import {
   IN_PROGRESS_STATES,
+  TERMINAL_STATES,
   PIPELINE_STATES,
   type PipelineState,
 } from '@/lib/partnerships/pipeline'
@@ -56,8 +57,11 @@ export interface DirectoryFilters {
    * keeps the three apart, and this is the one an operator filters a work queue by.
    */
   plan: string | null
-  /** A single pipeline state, `in_progress` for the working set, or `all`. */
-  state: PipelineState | 'in_progress' | 'all'
+  /**
+   * A single pipeline state, `in_progress` for the working set, `closed` for the terminal states
+   * the board keeps outside its columns (BR-B2B-057, item 6), or `all`.
+   */
+  state: PipelineState | 'in_progress' | 'closed' | 'all'
   onlyLate: boolean
 }
 
@@ -202,6 +206,7 @@ const MATCHERS: Record<FacetKey | 'search' | 'onlyLate', (row: ClientDirectoryRo
   state: (row, filters) => {
     if (filters.state === 'all') return true
     if (filters.state === 'in_progress') return IN_PROGRESS_STATES.indexOf(row.state) >= 0
+    if (filters.state === 'closed') return TERMINAL_STATES.indexOf(row.state) >= 0
     return row.state === filters.state
   },
   onlyLate: (row, filters) => !filters.onlyLate || isLate(row),
@@ -348,7 +353,7 @@ export function parseFilters(params: URLSearchParams): DirectoryFilters {
 
   const rawState = params.get(PARAM_KEYS.state)
   const state: DirectoryFilters['state'] =
-    rawState === 'in_progress' || rawState === 'all'
+    rawState === 'in_progress' || rawState === 'closed' || rawState === 'all'
       ? rawState
       : PIPELINE_STATES.indexOf(rawState as PipelineState) >= 0
         ? (rawState as PipelineState)

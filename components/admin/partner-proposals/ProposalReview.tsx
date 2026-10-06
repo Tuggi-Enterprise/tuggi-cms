@@ -251,7 +251,7 @@ export function ProposalReview({ locale, submissionId }: ProposalReviewProps) {
     proposalStatus: detail.submission.status,
     conference,
     clientId: null,
-    contract: 'none',
+    gateMissing: [],
     placeCount: 0,
     publishedPlaceCount: 0,
   })

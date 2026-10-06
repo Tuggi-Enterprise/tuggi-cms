@@ -91,7 +91,7 @@ test('#409 · every transition goes through the pure rule, and no route is calle
 
   // The board names no endpoint at all — every request lives in the act runner.
   assert.equal(board.indexOf('/api/'), -1, 'the board must not carry a route literal')
-  assert.match(code(ACTS), /\/api\/admin\/clients\/\$\{row\.clientId\}\/contract/)
+  assert.match(code(ACTS), /\/api\/admin\/partnerships\/clients\/\$\{row\.clientId\}\/places/)
 })
 
 test('#409 · WCAG 2.2 SC 2.5.7 — every act is a button on the card, not only a gesture', () => {
@@ -255,10 +255,10 @@ test('#409 · the whole esteira is Portuguese — the seam is between screens, n
     'components/admin/clients/board/BoardColumn.tsx',
   ])
 
-  // `contract_sent` is a state, so its label and its next step live with the rest of them.
+  // `awaiting_acceptance` is a state (#872), so its label and its next step live with the rest.
   const partnerships = messages('pt').Partnerships
-  assert.equal(typeof partnerships.states.contract_sent, 'string')
-  assert.equal(typeof partnerships.nextSteps.contract_sent, 'string')
+  assert.equal(typeof partnerships.states.awaiting_acceptance, 'string')
+  assert.equal(typeof partnerships.nextSteps.awaiting_acceptance, 'string')
 })
 
 // ── The front door ───────────────────────────────────────────────────────────────────────────
@@ -390,7 +390,7 @@ test('#409 · every reason these three routes can answer with has a sentence', (
   // The floor, the dismissal, and a sentence for each act that fires a request.
   assert.equal(typeof blocked.unknown, 'string', 'the generic failure has no sentence')
   assert.equal(typeof messages('pt').Clients.board.dismissRefusal, 'string')
-  for (const act of ['send_contract', 'create_place', 'communicate_refusal']) {
+  for (const act of ['create_place', 'communicate_refusal']) {
     assert.equal(
       typeof messages('pt').Clients.board.acted[act],
       'string',
