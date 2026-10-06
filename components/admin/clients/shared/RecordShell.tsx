@@ -12,7 +12,7 @@
  *
  * The owner of the screen keeps what is not frame: the modal keeps its backdrop, its focus trap
  * and its `role="dialog"` (passed through `...rest`); the pages keep their columns, which go in
- * `children` inside a `flex-1 overflow-hidden` row.
+ * `children`, inside a row that is `flex-col` on a phone and `lg:flex-row` on a monitor.
  *
  * Header layout — three children and `order`: on a phone `controls` wrap to their own line under
  * the title (`order-3 w-full`), on a monitor they sit inline (`lg:order-2`). Measured by
@@ -45,8 +45,6 @@ interface RecordShellProps extends Omit<HTMLAttributes<HTMLDivElement>, 'title'>
   /** …a drawer closes in place. */
   onClose?: () => void
   closeRef?: Ref<HTMLButtonElement>
-  /** Extra classes for the body row (it is already `flex-1 flex-col lg:flex-row overflow-hidden relative`). */
-  bodyClassName?: string
   children: ReactNode
 }
 
@@ -61,7 +59,6 @@ export function RecordShell({
   closeHref,
   onClose,
   closeRef,
-  bodyClassName,
   className,
   children,
   ...rest
@@ -75,7 +72,9 @@ export function RecordShell({
             <Title id={titleId} className="font-bold text-gray-900 dark:text-white truncate text-base leading-tight">
               {title}
             </Title>
-            {subtitle ? <p className="text-[10px] text-gray-400 font-medium truncate">{subtitle}</p> : null}
+            {/* `text-xs` gray-600, not the modal's old 10px gray-400 (2.5:1): the validation and the
+                proposal put real facts here, and axe in `partnerships-a11y.spec.tsx` reproves it. */}
+            {subtitle ? <p className="text-xs text-gray-600 dark:text-gray-400 font-medium truncate">{subtitle}</p> : null}
           </div>
         </div>
 
@@ -92,7 +91,7 @@ export function RecordShell({
         )}
       </div>
 
-      <div className={cn('flex-1 flex flex-col lg:flex-row overflow-hidden relative', bodyClassName)}>{children}</div>
+      <div className="flex-1 flex flex-col lg:flex-row overflow-hidden relative">{children}</div>
     </div>
   )
 }
