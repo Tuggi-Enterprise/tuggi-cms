@@ -549,6 +549,78 @@ test('#863: cancel twice — not_applicable answers not_renewing and writes noth
   assert.equal(asaas.calls.length, 0)
 })
 
+// security-reviewer #863: the database took the cancel but the Asaas half did not land (failed, or the EF died).
+const repeated = (fee: number) => ({
+  portal_cancel_renewal: { data: [{ outcome: 'not_applicable', renews: false, commitment_ends_at: '2027-01-06T15:00:00Z', paid_through: '2027-01-06T15:00:00Z', early_termination_fee_cents: fee }] },
+})
+const cancelled = (fee: number | null, extra: Record<string, unknown> = {}) => ({ ...cardIds, early_termination_fee_cents: fee, early_termination_paid_at: null, ...extra })
+
+test('#863 BR-B2B-046: cancel again on card with the fee unpaid — redoes the idempotent Asaas half (value = fee, updatePendingPayments, endDate = paid_through), no second e-mail', async () => {
+  const asaas = fakeAsaas([
+    at('PUT', '/subscriptions/sub_1', 200, {}),
+    at('GET', '/payments?subscription=sub_1&status=PENDING', 200, { data: [{ id: 'pay_a', status: 'PENDING', value: 82.5, dueDate: '2027-01-06' }] }),
+  ])
+  const { d, sent, alerts } = cancelPortal(asaas, fakeDb({}), fakeDb(repeated(13500)))
+  ;(d as Record<string, unknown>).subscriptionIds = async () => cancelled(13500)
+  assert.deepEqual(await pay.cancelRenewal(d as never, SUBMISSION), { status: 200, body: { result: 'not_renewing' } })
+  assert.deepEqual(asaas.calls.map((c) => `${c.method} ${c.path}`), ['PUT /subscriptions/sub_1', 'GET /payments?subscription=sub_1&status=PENDING'])
+  assert.deepEqual(asaas.calls[0].body, { value: 135, endDate: '2027-01-06', updatePendingPayments: true })
+  assert.deepEqual(sent, [])
+  assert.deepEqual(alerts, [])
+})
+
+test('#863: cancel again with fee 0 — redoes endDate = eve of paid_through', async () => {
+  const asaas = fakeAsaas([at('PUT', '/subscriptions/sub_1', 200, {})])
+  const { d } = cancelPortal(asaas, fakeDb({}), fakeDb(repeated(0)))
+  ;(d as Record<string, unknown>).subscriptionIds = async () => cancelled(0)
+  assert.deepEqual(await pay.cancelRenewal(d as never, SUBMISSION), { status: 200, body: { result: 'not_renewing' } })
+  assert.deepEqual(asaas.calls.map((c) => `${c.method} ${c.path} ${JSON.stringify(c.body)}`), ['PUT /subscriptions/sub_1 {"endDate":"2027-01-05"}'])
+})
+
+test('#863: cancel again redoes nothing when the fee is paid, on Pix with fee, before 170000 (fee column null), with the subscription ended, or after paid_through', async () => {
+  const cases: [string, number, Record<string, unknown>, string?][] = [
+    ['fee paid', 13500, { early_termination_paid_at: '2027-01-06T12:00:00Z', early_termination_payment_id: 'pay_a' }],
+    ['pix', 13500, { payment_method: 'pix_automatic' }],
+    ['pre-170000', 0, { early_termination_fee_cents: null }],
+    ['ended', 13500, { canceled_at: '2027-01-07T03:00:00Z' }],
+    ['past paid_through', 13500, {}, '2027-01-07'],
+  ]
+  for (const [why, fee, extra, today] of cases) {
+    const asaas = fakeAsaas([])
+    const { d } = cancelPortal(asaas, fakeDb({}), fakeDb(repeated(fee)))
+    ;(d as Record<string, unknown>).subscriptionIds = async () => cancelled(fee, extra)
+    if (today) (d as Record<string, unknown>).today = () => today
+    assert.deepEqual(await pay.cancelRenewal(d as never, SUBMISSION), { status: 200, body: { result: 'not_renewing' } }, why)
+    assert.equal(asaas.calls.length, 0, why)
+  }
+})
+
+test('#863 (20261006190000): the confirm sends the quoted fee as p_expected_fee_cents; TGP11 (fee moved) → 409 quote_changed, nothing at Asaas; absent → not sent; malformed → 400 before the database', async () => {
+  const user = fakeDb(cancelRow(0))
+  const asaas = fakeAsaas([at('PUT', '/subscriptions/sub_1', 200, {})])
+  const { d } = cancelPortal(asaas, fakeDb({}), user)
+  await pay.cancelRenewal(d as never, SUBMISSION, 0)
+  assert.deepEqual(user.calls[0].args, { p_submission_id: SUBMISSION, p_expected_fee_cents: 0 })
+
+  const moved = fakeDb({ portal_cancel_renewal: { error: { code: 'TGP11' } } })
+  const m2 = cancelPortal(fakeAsaas([]), fakeDb({}), moved)
+  assert.deepEqual(await pay.cancelRenewal(m2.d as never, SUBMISSION, 13500), { status: 409, body: { error: 'quote_changed' } })
+  assert.deepEqual(moved.calls[0].args, { p_submission_id: SUBMISSION, p_expected_fee_cents: 13500 })
+  assert.deepEqual(m2.sent, [])
+  assert.deepEqual(m2.alerts, [])
+
+  const plain = fakeDb(cancelRow(0))
+  await pay.cancelRenewal(cancelPortal(fakeAsaas([at('PUT', '/subscriptions/sub_1', 200, {})]), fakeDb({}), plain).d as never, SUBMISSION, null)
+  assert.deepEqual(plain.calls[0].args, { p_submission_id: SUBMISSION })
+
+  const bad = fakeDb(cancelRow(0))
+  const b = cancelPortal(fakeAsaas([]), fakeDb({}), bad)
+  for (const v of [-1, 1.5, '135', true]) {
+    assert.deepEqual(await pay.cancelRenewal(b.d as never, SUBMISSION, v), { status: 400, body: { error: 'invalid', field: 'expected_fee_cents' } })
+  }
+  assert.equal(bad.calls.length, 0)
+})
+
 test('#863: cancel of a submission that is not the caller\'s (TGP01) is a 404; a non-uuid is a 400 before the database', async () => {
   const user = fakeDb({ portal_cancel_renewal: { error: { code: 'TGP01' } } })
   const { d } = portal(fakeAsaas([]), fakeDb({}), user)

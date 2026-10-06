@@ -14,6 +14,7 @@
 // The submission comes from `portal_draft_payment_checkout`, never from the body.
 //
 // Body: { action: 'checkout' | 'checkout_pix' | 'cancel_quote' | 'cancel_renewal' | 'refund' | 'withdraw', submission_id, ... }.
+// `cancel_renewal` takes an optional `expected_fee_cents` (the quote the owner saw; 409 `quote_changed` if it moved).
 // The card goes to Asaas in the same request and is never stored, logged or echoed. `checkout_pix`
 // answers { result: 'pix', pix: { payload, image, expires_at } }: the QR of the first charge.
 
@@ -81,7 +82,7 @@ Deno.serve(async (req: Request) => {
         : body.action === 'cancel_quote'
           ? await cancelQuote(deps, submissionId)
         : body.action === 'cancel_renewal'
-          ? await cancelRenewal(deps, submissionId)
+          ? await cancelRenewal(deps, submissionId, body.expected_fee_cents)
           : body.action === 'refund'
             ? await requestRefund(deps, submissionId)
             : body.action === 'withdraw'

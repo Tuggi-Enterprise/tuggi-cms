@@ -66,7 +66,8 @@ async function alert(what: string, fields: Record<string, string | number | null
   await sendEmail(to, `[Tuggi pagamento] ${what}`, [`Alerta da EF de pagamento do Com história (#811): ${what}`, '', ...lines].join('\n'));
 }
 
-const SUBSCRIPTION_COLUMNS = 'id, status, payment_method, provider_subscription_id, provider_customer_id, provider_authorization_id, canceled_at';
+const SUBSCRIPTION_COLUMNS =
+  'id, status, payment_method, provider_subscription_id, provider_customer_id, provider_authorization_id, canceled_at, early_termination_fee_cents, early_termination_paid_at';
 
 // deno-lint-ignore no-explicit-any
 function toIds(s: any): SubscriptionIds | null {
@@ -79,6 +80,8 @@ function toIds(s: any): SubscriptionIds | null {
         provider_customer_id: s.provider_customer_id ?? null,
         provider_authorization_id: s.provider_authorization_id ?? null,
         canceled_at: s.canceled_at ?? null,
+        early_termination_fee_cents: s.early_termination_fee_cents ?? null,
+        early_termination_paid_at: s.early_termination_paid_at ?? null,
       }
     : null;
 }

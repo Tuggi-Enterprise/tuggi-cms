@@ -73,6 +73,9 @@ export type SubscriptionIds = {
   provider_customer_id: string | null;
   provider_authorization_id: string | null;
   canceled_at: string | null;
+  /** Set once at the cancel (20261006170000); null = renewal never turned off, or off before 170000. */
+  early_termination_fee_cents: number | null;
+  early_termination_paid_at: string | null;
 };
 
 /** A row of `Deps.expiredLiveCards` (columns of 20261006170000). */
@@ -173,13 +176,18 @@ const firstRow = <T>(data: unknown): T | null => (Array.isArray(data) ? ((data[0
 /** A `TGP*` raised by our functions, or a 42501 of the portal. Anything else is an exception. */
 const isBusinessError = (e: DbError | null) => !!e?.code && /^(TGP\d\d|42501)$/.test(e.code);
 
-/** Contract §5: TGP01 → 404, TGP10 → 409, TGP22 → 422; 42501 (no e-mail session) → 401. */
+/**
+ * Contract §5: TGP01 → 404, TGP10 → 409, TGP11 → 409 `quote_changed` (the cancel fee moved since the
+ * quote, 20261006190000), TGP22 → 422; 42501 (no e-mail session) → 401.
+ */
 export function portalErrorReply(e: DbError): Reply {
   switch (e.code) {
     case 'TGP01':
       return reply(404, { error: 'not_found' });
     case 'TGP10':
       return reply(409, { error: 'not_allowed', reason: e.details ?? null });
+    case 'TGP11':
+      return reply(409, { error: 'quote_changed' });
     case 'TGP22':
       return reply(422, { error: 'invalid', field: e.details ?? null });
     case '42501':
@@ -691,10 +699,22 @@ export type CancelFee = { cents: number; chargeOn: string; method: 'credit_card'
  * - fee 0 (one-month plan, commitment served, 7-day regret window): `endDate` = eve of `paid_through`, nothing more is
  *   charged (`endAtCommitment`);
  * - fee > 0: `chargeEarlyTermination` — the next charge, on `paid_through`, is the fee and the last.
+ *
+ * `expectedFeeCents` is the `fee_cents` the owner saw in the quote, a check only: the database
+ * recalculates and, if it differs (a monthly fee confirmed between quote and click), raises TGP11
+ * and writes nothing → 409 `quote_changed`. Absent = no check (the parameter is not even sent).
+ * `p_expected_fee_cents` exists from 20261006190000 on: PostgREST rejects an unknown parameter.
+ *
+ * Repeated call (`not_applicable`): `resumeCancelAtAsaas` redoes the idempotent Asaas half.
  */
-export async function cancelRenewal(deps: PortalDeps, submissionId: string): Promise<Reply> {
+export async function cancelRenewal(deps: PortalDeps, submissionId: string, expectedFeeCents?: unknown): Promise<Reply> {
   if (!isUuid(submissionId)) return reply(400, { error: 'invalid', field: 'submission_id' });
-  const { data, error } = await deps.user('core', 'portal_cancel_renewal', { p_submission_id: submissionId });
+  if (expectedFeeCents != null && !(Number.isInteger(expectedFeeCents) && (expectedFeeCents as number) >= 0)) {
+    return reply(400, { error: 'invalid', field: 'expected_fee_cents' });
+  }
+  const args: Record<string, unknown> = { p_submission_id: submissionId };
+  if (expectedFeeCents != null) args.p_expected_fee_cents = expectedFeeCents;
+  const { data, error } = await deps.user('core', 'portal_cancel_renewal', args);
   if (error) {
     if (isBusinessError(error)) return portalErrorReply(error);
     await deps.alert('cancel_failed', { code: error.code });
@@ -708,7 +728,11 @@ export async function cancelRenewal(deps: PortalDeps, submissionId: string): Pro
     /** 0 when nothing is owed, never null (20261006170000). */
     early_termination_fee_cents: number;
   }>(data);
-  if (!row || row.outcome === 'not_applicable') return reply(200, { result: 'not_renewing' });
+  if (!row) return reply(200, { result: 'not_renewing' });
+  if (row.outcome === 'not_applicable') {
+    await resumeCancelAtAsaas(deps, submissionId, row);
+    return reply(200, { result: 'not_renewing' });
+  }
 
   const ends = row.paid_through ?? row.commitment_ends_at;
   const chargeOn = ends ? saoPauloDate(new Date(ends)) : null;
@@ -735,6 +759,44 @@ export async function cancelRenewal(deps: PortalDeps, submissionId: string): Pro
     if (!sent) await deps.alert('cancel_email_failed', { subscription_id: ids?.subscription_id ?? null });
   }
   return reply(200, { result: 'canceled' });
+}
+
+/**
+ * A repeated cancel finds the database already cancelled, but the Asaas half may never have landed
+ * (Asaas failed — `cancel_fee_not_scheduled` / `cancel_end_date_failed` — or the EF died in between):
+ * on card the subscription is then live at the full monthly with no `endDate`, and Asaas would charge
+ * it on `paid_through`. Redo what is idempotent, from the row read with service_role:
+ *
+ * - fee > 0, card, not paid yet: `chargeEarlyTermination` again (PUT `value` = fee with
+ *   `updatePendingPayments`, `endDate`, later pendings deleted — the same request gives the same state);
+ * - fee 0: `endAtCommitment` again (`endDate` = eve of `paid_through`);
+ * - fee > 0 on Pix: not redone — `createPixPayment` is not idempotent, and the recurrence ended at the
+ *   first call (or that call alerted the operator).
+ *
+ * Nothing when the fee column is null (renewal turned off before 20261006170000: the old rule still
+ * charges the commitment's months), when the subscription is already ended, or after `paid_through`
+ * (the sweep's turn). No e-mail: it went at the first call.
+ */
+async function resumeCancelAtAsaas(
+  deps: Deps,
+  submissionId: string,
+  row: { renews: boolean; paid_through: string | null },
+): Promise<void> {
+  if (row.renews || !row.paid_through) return;
+  const chargeOn = saoPauloDate(new Date(row.paid_through));
+  if (deps.today() > chargeOn) return;
+  let ids: SubscriptionIds | null;
+  try {
+    ids = await deps.subscriptionIds(submissionId);
+  } catch (e) {
+    await deps.alert('cancel_resume_failed', { submission_id: submissionId, error: e instanceof Error ? e.message : 'unknown' });
+    return;
+  }
+  if (!ids || !ids.provider_subscription_id || ids.canceled_at || ids.early_termination_fee_cents == null) return;
+  const fee = ids.early_termination_fee_cents;
+  if (fee === 0) return endAtCommitment(deps, ids, row.paid_through);
+  if (ids.payment_method === 'pix_automatic' || ids.early_termination_paid_at) return;
+  await chargeEarlyTermination(deps, ids, fee, chargeOn);
 }
 
 /** `endDate` = the eve of the commitment end (São Paulo): Asaas generates no fee from that day on. */
