@@ -58,7 +58,11 @@ export function ActiveFilterChips({
 
   /** The label of one applied value — the pipeline's vocabulary, never this component's. */
   function valueLabel(key: FacetKey, value: string): string {
-    if (key === 'state') return value === 'in_progress' ? p('queue.inProgress') : p(`states.${value}`)
+    if (key === 'state') {
+      if (value === 'in_progress') return p('queue.inProgress')
+      if (value === 'closed') return p('queue.closed')
+      return p(`states.${value}`)
+    }
     if (key === 'contract') return t(`contractValues.${value}`)
     if (key === 'plan') return t(`planValues.${value}`)
     if (key === 'status') return t(`statusValues.${value}`)

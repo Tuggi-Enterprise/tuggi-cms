@@ -19,9 +19,10 @@ import { formatDate, formatFee } from '@/lib/contract/snapshot'
 import { returnParams } from '@/lib/navigation/return-to'
 import { useClientContract } from '@/components/admin/clients/shared/use-client-contract'
 import { OriginRow, PortalAcceptances } from '@/components/admin/clients/shared/PortalRecord'
+import { AcceptanceLinkPanel } from '@/components/admin/clients/shared/AcceptanceLinkPanel'
 import type { ClientEditorTabProps } from './ProfileTab'
 
-export function ContractTab({ clientId }: ClientEditorTabProps) {
+export function ContractTab({ clientId, client }: ClientEditorTabProps) {
   const locale = useLocale()
   const { summary, failed } = useClientContract(clientId)
 
@@ -55,6 +56,11 @@ export function ContractTab({ clientId }: ClientEditorTabProps) {
             </div>
           ) : null}
         </div>
+      ) : null}
+
+      {/* BR-B2B-056: who did not come through the portal accepts by link (#872). */}
+      {summary && !fromPortal && clientId ? (
+        <AcceptanceLinkPanel clientId={clientId} email={client?.email ?? null} />
       ) : null}
 
       {showGenerated ? (

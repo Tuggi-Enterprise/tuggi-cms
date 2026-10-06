@@ -43,6 +43,8 @@ export type AuditAction =
   // `reviewed_by` naming only the last operator, same need for the row that keeps the earlier
   // assertion. See `lib/services/client-conference-service.ts`.
   | 'REVIEW_CLIENT_CONFERENCE'
+  // BR-B2B-056 (#872): who issued an acceptance link, and whether it went by e-mail.
+  | 'ISSUE_ACCEPTANCE_LINK'
   // The place the approval creates (#360). It is a write into a catalogue of 2.2 million rows
   // made by a side-effect and not by the Places screen, so the row that says which approval
   // produced which POI is the only way back from one to the other.

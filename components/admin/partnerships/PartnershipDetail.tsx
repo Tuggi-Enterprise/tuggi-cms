@@ -23,7 +23,8 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 import { useRecordRead } from '@/lib/hooks/use-record-cache'
 import { useTranslations } from 'next-intl'
 import Link from 'next/link'
-import { ChevronDown, ChevronRight } from 'lucide-react'
+import { ChevronDown, ChevronRight, Lock } from 'lucide-react'
+import { gateLine } from '@/components/admin/clients/board/row-text'
 import { Button } from '@/components/ui/button'
 import { PlaceFormModal } from '@/components/place-management/PlaceFormModal'
 import { formatDate } from '@/components/admin/partner-proposals/format'
@@ -60,11 +61,8 @@ type Panel = { attractionId: string; kind: PanelKind } | null
 const STATE_ORDER: Record<PipelineState, number> = {
   proposal_received: 0,
   in_conference: 1,
-  client_created: 2,
-  // Band 3 as well, and not a band of its own: the act it waits for (`Cobrar a assinatura`) is
-  // the signing link, which lives in the client band beside the contract that produced it.
-  contract_sent: 3,
-  contract_signed: 3,
+  // Band 4, where `Criar o local` lives; the acceptance link is the record's contract tab (#872).
+  awaiting_acceptance: 3,
   place_in_curation: 4,
   refusal_not_communicated: 4,
   published: 5,
@@ -80,12 +78,8 @@ const STATE_ORDER: Record<PipelineState, number> = {
 /**
  * The state range each band covers, and it is what decides which band OPENS.
  *
- * Band 4 starts at `contract_signed` and not at `place_in_curation`, because the act that state
- * names — `Criar o local a partir da proposta`, the one the sticky header announces — lives in
- * band 4. Covering it with band 3 opened the band whose work had just finished (the signed
- * contract) and left the only act of the state behind a closed accordion, which to the operator
- * is a menu (DS-LAYOUT-003). `client_created` still opens band 3, where `Abrir a ficha do
- * cliente` is.
+ * Band 4 starts at `awaiting_acceptance` and not at `place_in_curation`, because the act that
+ * state names — `Criar o local a partir da proposta` — lives in band 4 (DS-LAYOUT-003).
  */
 const BAND_RANGE: Record<BandId, [number, number]> = {
   proposal: [0, 0],
@@ -405,6 +399,13 @@ export function PartnershipDetail({
                   contractHref={contractHref}
                   onOpenTab={onOpenTab}
                 />
+              )}
+              {/* BR-B2B-057: the same line the board card prints; the routes refuse the same way. */}
+              {band === 'place' && detail.gateMissing.length > 0 && (
+                <p className="mb-3 flex items-start gap-1 text-xs text-gray-900 dark:text-gray-200">
+                  <Lock className="mt-0.5 h-3 w-3 shrink-0" aria-hidden="true" />
+                  <span>{gateLine(detail.gateMissing, t)}</span>
+                </p>
               )}
               {band === 'place' && (
                 <PlaceBand

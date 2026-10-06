@@ -5,9 +5,8 @@
  *
  * THE SPLIT IS THE SAFETY RULE, and it is the same one `planTransition` encodes: `open_*` takes
  * the operator to the panel that asks, everything else is a single request the card fires. The
- * three acts behind a panel are the ones that cost money or cannot be taken back — the
- * promotion's per-column ticks, the contract's tier and payment method (BR-B2B-017), and the
- * publication that starts the monthly fee (BR-B2B-018). A drag is an ambiguous gesture and must
+ * acts behind a panel are the ones that cost money or cannot be taken back — the promotion's
+ * per-column ticks and the publication that starts the monthly fee (BR-B2B-018). A drag is an ambiguous gesture and must
  * never be the last thing between a partner and a bill.
  *
  * NOTHING MOVES OPTIMISTICALLY. The column is derived from the database; the card lands in the
@@ -72,8 +71,7 @@ export function useBoardActs({
       switch (act) {
         // ── The panels ──────────────────────────────────────────────────────────────────
         case 'record_conference':
-        case 'open_promotion':
-        case 'open_discard': {
+        case 'open_promotion': {
           if (!row.submissionId) return { kind: 'refused', reason: 'no_submission' }
           navigate(`/${locale}/admin/partnerships/proposals/${row.submissionId}?${back}`)
           return { kind: 'navigated' }
@@ -87,12 +85,6 @@ export function useBoardActs({
           return { kind: 'navigated' }
         }
 
-        case 'open_contract': {
-          if (!row.clientId) return { kind: 'refused', reason: 'no_client' }
-          navigate(`/${locale}/admin/clients/${row.clientId}/contract?${back}`)
-          return { kind: 'navigated' }
-        }
-
         case 'open_publish': {
           // Band 4 of the partnership tab: the publication panel, with the fee variant that
           // decides the sentence of the confirmation (DS-COMPONENTE-021, point 2).
@@ -102,11 +94,6 @@ export function useBoardActs({
         }
 
         // ── The requests ────────────────────────────────────────────────────────────────
-        case 'send_contract': {
-          if (!row.clientId) return { kind: 'refused', reason: 'no_client' }
-          return post(`/api/admin/clients/${row.clientId}/contract`, { action: 'send' }, reload)
-        }
-
         case 'create_place': {
           if (!row.clientId) return { kind: 'refused', reason: 'no_client' }
           return post(`/api/admin/partnerships/clients/${row.clientId}/places`, {}, reload, readProvision)
@@ -128,6 +115,13 @@ export function useBoardActs({
             { refusalId: owed.refusal.id },
             reload
           )
+        }
+
+        case 'copy_acceptance_link': {
+          // BR-B2B-056: issuing is the only way to have a link — the database keeps only its
+          // hash — so copying here kills the link that went by e-mail. The tab says so.
+          if (!row.clientId) return { kind: 'refused', reason: 'no_client' }
+          return copyAcceptanceLink(row.clientId)
         }
 
         default:
@@ -201,4 +195,29 @@ function readProvision(payload: Record<string, unknown> | null): ActOutcome | nu
     return { kind: 'refused', reason: place.reason }
   }
   return null
+}
+
+/** Issues a link and puts it on the clipboard. The card does not move, so nothing is reloaded. */
+async function copyAcceptanceLink(clientId: string): Promise<ActOutcome> {
+  let url: string
+  try {
+    const response = await fetch(`/api/admin/clients/${clientId}/acceptance-link`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ send: false }),
+    })
+    const payload = (await response.json().catch(() => null)) as { url?: string; error?: string } | null
+    if (!response.ok || !payload?.url) {
+      return payload?.error ? { kind: 'refused', reason: payload.error, detail: payload } : { kind: 'failed' }
+    }
+    url = payload.url
+  } catch {
+    return { kind: 'failed' }
+  }
+  try {
+    await navigator.clipboard.writeText(url)
+    return { kind: 'done' }
+  } catch {
+    return { kind: 'refused', reason: 'copy_failed' }
+  }
 }

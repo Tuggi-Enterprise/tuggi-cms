@@ -20,6 +20,7 @@ import { NextResponse } from 'next/server'
 import { withAuth, withRateLimit } from '@/lib/auth-middleware'
 import { logAuditEvent } from '@/lib/services/audit-service'
 import { provisionPartnerPlace } from '@/lib/services/partner-place-provisioning'
+import { checkAcceptanceGate, gateRefusalBody } from '@/lib/services/acceptance-gate-service'
 
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
 
@@ -29,6 +30,13 @@ export const POST = withRateLimit(20, 60_000)(
     const clientId = params?.clientId
     if (!clientId || !UUID_PATTERN.test(clientId)) {
       return NextResponse.json({ error: 'invalid_client_id' }, { status: 400 })
+    }
+
+    // BR-B2B-057, item 3: the curation needs slug, partner code and acceptance — refused here,
+    // not only hidden on the board.
+    const gate = await checkAcceptanceGate(clientId)
+    if (!gate.ok) {
+      return NextResponse.json(gateRefusalBody(gate), { status: gate.httpStatus })
     }
 
     const outcome = await provisionPartnerPlace(clientId, auth.supabase)

@@ -65,6 +65,8 @@ import {
   type PortalBoardStatus,
 } from '@/lib/partnerships/pipeline'
 import { normalizeState } from '@/lib/shared/location-normalize'
+import { missingGateItems, type GateItem } from '@/lib/partnerships/acceptance-gate'
+import { loadAcceptanceGate } from '@/lib/services/acceptance-gate-service'
 import type { PartnerAnswers } from '@/lib/partner-form/schema'
 import type { ContractState, ContractStatus } from '@/lib/contract/status'
 import type { ContractTier } from '@/lib/contract/snapshot'
@@ -239,6 +241,11 @@ export interface ClientDirectoryRow {
   discardReason: string | null
   /** `portal` for a row of `partner.place_submissions` (#812). Absent = the old form or a client. */
   origin?: 'form' | 'portal'
+  /**
+   * What the BR-B2B-057 gate still lacks (`partner.client_acceptance_gate`), in copy order.
+   * Empty for a row without a client: its gate is the promotion, which creates slug and code.
+   */
+  gateMissing: GateItem[]
 }
 
 export interface ClientDirectory {
@@ -328,6 +335,12 @@ export async function loadClientDirectory(operator: SupabaseClient): Promise<Cli
   const submissions = payload.submissions
   const clients = indexClients(payload.clients, new Map<string, PipelineClient>())
 
+  // BR-B2B-057: one read of the gate for every client. A board that cannot read it cannot place a
+  // single card honestly, so a failed read fails the list instead of guessing.
+  const gate = await loadAcceptanceGate([...clients.keys()])
+  if (!gate) throw new Error('acceptance gate read failed')
+  const gateOf = (clientId: string | null): GateItem[] => (clientId ? missingGateItems(gate.get(clientId)) : [])
+
   const contracts = indexLiveContracts(payload.contracts)
   const places = groupPlacesByClient(placeRows)
   // The conference reads the CLIENT and never the proposal annotation. Deriving it from the
@@ -383,7 +396,7 @@ export async function loadClientDirectory(operator: SupabaseClient): Promise<Cli
       // state has to fall back to the proposal, or the list would show a client-shaped row
       // whose detail route is a 404.
       clientId: client ? client.id : null,
-      contract: contract?.status ?? 'none',
+      gateMissing: gateOf(client?.id ?? null),
       placeCount: readiness.length,
       publishedPlaceCount: readiness.filter((item) => item.published).length,
       refusedPlaceCount: outcomes.filter(isRefusedAtTriage).length,
@@ -438,6 +451,7 @@ export async function loadClientDirectory(operator: SupabaseClient): Promise<Cli
       places: summarizePlaces(readiness),
       triage: { approvedAt: client?.approvedAt ?? null, places: outcomes },
       discardReason: row.status === 'discarded' ? row.discard_reason : null,
+      gateMissing: gateOf(client?.id ?? null),
     }
   })
 
@@ -457,7 +471,7 @@ export async function loadClientDirectory(operator: SupabaseClient): Promise<Cli
       proposalStatus: 'submitted',
       conference: NO_CONFERENCE.conference,
       clientId,
-      contract: 'none',
+      gateMissing: gateOf(clientId),
       placeCount: 0,
       publishedPlaceCount: 0,
     })
@@ -485,6 +499,7 @@ export async function loadClientDirectory(operator: SupabaseClient): Promise<Cli
       triage: { approvedAt: null, places: [] },
       discardReason: null,
       origin: 'portal',
+      gateMissing: gateOf(clientId),
     })
   }
 
@@ -511,7 +526,7 @@ export async function loadClientDirectory(operator: SupabaseClient): Promise<Cli
         proposalStatus: 'promoted',
         conference: (conferences.get(client.id) ?? NO_CONFERENCE).conference,
         clientId: client.id,
-        contract: contract?.status ?? 'none',
+        gateMissing: gateOf(client.id),
         placeCount: readiness.length,
         publishedPlaceCount: readiness.filter((item) => item.published).length,
         refusedPlaceCount: outcomes.filter(isRefusedAtTriage).length,
@@ -540,6 +555,7 @@ export async function loadClientDirectory(operator: SupabaseClient): Promise<Cli
       places: summarizePlaces(readiness),
       triage: { approvedAt: client.approvedAt, places: outcomes },
       discardReason: null,
+      gateMissing: gateOf(client.id),
     })
   }
 
@@ -691,6 +707,8 @@ export interface PartnershipPlace {
 }
 
 export interface PartnershipDetail {
+  /** What the BR-B2B-057 gate still lacks for this client, in copy order. */
+  gateMissing: GateItem[]
   state: PipelineState
   client: PipelineClient
   contract: PipelineContract | null
@@ -756,15 +774,19 @@ export async function loadPartnershipDetail(
   // Two rounds, not eight (#875): everything keyed by the client id goes in the first, and what
   // needs the places or the client row goes in the second. An absent client costs the first
   // round's reads, which is the rare case paying for the common one.
-  const [clients, contracts, places, submission, clientConference] = await Promise.all([
+  const [clients, contracts, places, submission, clientConference, gate] = await Promise.all([
     loadClients([clientId]),
     loadLiveContracts([clientId]),
     loadPartnerPlaces([clientId], operator),
     loadPromotedSubmission(clientId),
     getClientConference(clientId),
+    loadAcceptanceGate([clientId]),
   ])
   const client = clients.get(clientId)
   if (!client) return null
+  // BR-B2B-057: the state below depends on the gate, and a guess would be a wrong header.
+  if (!gate) throw new Error('acceptance gate read failed')
+  const gateMissing = missingGateItems(gate.get(clientId))
 
   const contract = contracts.get(clientId) ?? null
   const readiness = (places.get(clientId) ?? []).map((row) =>
@@ -794,12 +816,13 @@ export async function loadPartnershipDetail(
       proposalStatus: submission?.status ?? 'promoted',
       conference,
       clientId,
-      contract: contract?.status ?? 'none',
+      gateMissing,
       placeCount: readiness.length,
       publishedPlaceCount: readiness.filter((item) => item.published).length,
       refusedPlaceCount: outcomes.filter(isRefusedAtTriage).length,
       uncommunicatedRefusal: hasUncommunicatedRefusal(outcomes),
     }),
+    gateMissing,
     client,
     contract,
     conference: {

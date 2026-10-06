@@ -18,6 +18,7 @@ import { derivePartnerPlan, type PartnerPlan } from '@/lib/clients/partner-plan'
 import { formatMonthlyFee } from '@/lib/partnerships/publish-plan'
 import { COLUMN_STATES, type BoardAct, type BoardColumnId } from '@/lib/clients/board-transitions'
 import { nameKey } from '@/lib/shared/name-search'
+import type { GateItem } from '@/lib/partnerships/acceptance-gate'
 import type { ClientDirectoryRow } from '@/lib/services/partnership-service'
 
 type Translator = ReturnType<typeof useTranslations>
@@ -212,3 +213,16 @@ export function stepUnlessActSaysIt(
   return nameKey(step).includes(spoken) ? null : step
 }
 
+
+/**
+ * The sentence of the BR-B2B-057 gate — `Falta o aceite.`, `Faltam o aceite e o código do
+ * parceiro.` One function for the card's line, the refused drag and the server's refusal, so the
+ * three cannot read differently (spec #872 §2). `p` is the `Partnerships` translator, the
+ * vocabulary the record's partnership tab shares with the board.
+ */
+export function gateLine(missing: readonly GateItem[], p: Translator): string {
+  const words = missing.map((item) => p(`gateItems.${item}`))
+  // "a, b e c" — the Portuguese conjunction list (the project's TS lib has no `Intl.ListFormat`).
+  const items = words.length > 1 ? `${words.slice(0, -1).join(', ')} e ${words[words.length - 1]}` : words.join('')
+  return p('gate', { count: missing.length, items })
+}

@@ -1626,7 +1626,7 @@ test('o cabeçalho lê o estado e o próximo passo do mesmo módulo que a esteir
   // E o vocabulário existe onde os dois o procuram.
   const partnerships = JSON.parse(readFileSync(resolve(REPO_ROOT, 'messages/pt.json'), 'utf8'))
     .Partnerships
-  for (const state of ['proposal_received', 'in_conference', 'client_created']) {
+  for (const state of ['proposal_received', 'in_conference', 'awaiting_acceptance']) {
     assert.ok(partnerships.states[state], `states.${state} não existe`)
     assert.ok(partnerships.nextSteps[state], `nextSteps.${state} não existe`)
   }

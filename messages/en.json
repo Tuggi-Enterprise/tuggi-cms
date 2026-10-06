@@ -2777,6 +2777,43 @@
         "startsAtApproval": "The period starts at approval",
         "reference": "Asaas subscription",
         "noCharge": "No charge"
+      },
+      "acceptanceLink": {
+        "title": "Terms acceptance",
+        "pending": "Pending",
+        "accepted": "Accepted",
+        "acceptedOn": "Acceptance recorded on {date}.",
+        "goesTo": "The link goes to {email}.",
+        "send": "Send by e-mail",
+        "sendNew": "Create and send a new link",
+        "copy": "Copy the link",
+        "sending": "Sending…",
+        "copying": "Creating…",
+        "copyRenews": "Copying creates a new link. The previous link stops working.",
+        "sent": "Sent on {date}, {time} to {email}. Valid until {until}.",
+        "sendFailed": "The link was created, but the e-mail did not go out. Copy the link and send it another way.",
+        "validUntil": "There is a link valid until {until}.",
+        "expired": "The link expired on {date}.",
+        "copied": "Link copied.",
+        "copyFailed": "Could not copy. Select the link above and copy it.",
+        "loadFailed": "Could not read this client's acceptance right now.",
+        "errors": {
+          "record_incomplete": "The record is missing {field}. Fill it in on the Profile tab and create the link again.",
+          "already_accepted": "This client has already accepted the terms.",
+          "paid_plan_unavailable": "Acceptance links for the paid plan are not available yet.",
+          "no_terms": "There are no terms for this partner type yet.",
+          "client_not_found": "This client's record was not found.",
+          "issue_failed": "Could not create the link right now. Try again in a moment."
+        },
+        "fields": {
+          "legal_name": "the legal name",
+          "trade_name": "the trade name",
+          "address": "the address",
+          "city": "the city",
+          "state": "the state",
+          "tax_id": "a valid CNPJ",
+          "email": "the e-mail"
+        }
       }
     }
   },

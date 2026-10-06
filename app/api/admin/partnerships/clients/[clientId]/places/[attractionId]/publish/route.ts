@@ -31,6 +31,7 @@ import { withAuth, withRateLimit } from '@/lib/auth-middleware'
 import { logAuditEvent } from '@/lib/services/audit-service'
 import { placeService } from '@/lib/core/place-service'
 import { loadPartnerPlace } from '@/lib/services/partnership-service'
+import { checkAcceptanceGate, gateRefusalBody } from '@/lib/services/acceptance-gate-service'
 
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
 
@@ -67,6 +68,15 @@ export const POST = withRateLimit(30, 60_000)(
       const before = await loadPartnerPlace(clientId, attractionId, auth.supabase)
       if (!before) {
         return NextResponse.json({ error: 'place_not_linked' }, { status: 404 })
+      }
+
+      // BR-B2B-057, item 3: `Publicado` needs slug, partner code and acceptance. Taking a place
+      // OUT of the app is never gated.
+      if (approved) {
+        const gate = await checkAcceptanceGate(clientId)
+        if (!gate.ok) {
+          return NextResponse.json(gateRefusalBody(gate), { status: gate.httpStatus })
+        }
       }
 
       if (approved && !before.plan.offersAct) {

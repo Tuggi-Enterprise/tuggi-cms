@@ -34,6 +34,8 @@ export interface RouteContext<P extends RouteParams = RouteParams> {
 
 /** The row of `core.cms_users` that authorized this request. */
 export interface CmsUser {
+  /** `core.cms_users.id` — what `approved_by`-style columns reference (not the auth uid). */
+  id: string
   email: string
   role: Role
   is_active: boolean
@@ -117,7 +119,7 @@ export function withAuth<P extends RouteParams = RouteParams>(
       const { data: cmsUser, error: cmsError } = await supabase
         .schema('core')
         .from('cms_users')
-        .select('email, role, is_active')
+        .select('id, email, role, is_active')
         .eq('email', user.email)
         .eq('is_active', true)
         .maybeSingle()

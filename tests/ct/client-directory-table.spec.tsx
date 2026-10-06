@@ -51,7 +51,7 @@ function run(count: number, city = 'Santos', prefix = 'a') {
     queueRow({
       submissionId: `${prefix}-row-${index}`,
       clientId: `${prefix}-client-${index}`,
-      state: 'client_created',
+      state: 'awaiting_acceptance',
       status: 'approved',
       name: `Parceiro ${String(index).padStart(3, '0')}`,
       city,
