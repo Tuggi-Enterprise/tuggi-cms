@@ -44,6 +44,11 @@ export const DRAFT_RPCS = [
   'portal_draft_submit',
   'portal_draft_payment_checkout',
   'place_issue_claim',
+  // #872: the acceptance by link of a client created in the Studio (`aceite-por-link.md`). Same
+  // service-role boundary: the Worker has the token, this function has the key.
+  'client_acceptance_link_get',
+  'client_acceptance_link_terms',
+  'client_acceptance_link_accept',
 ] as const;
 export type DraftRpc = (typeof DRAFT_RPCS)[number];
 
@@ -256,6 +261,14 @@ export function rpcFailure(e: RpcError): Result {
       return { status: 422, body: { error: 'invalid', ...(d ? { field: d } : {}) } };
     case 'TGP29':
       return { status: 429, body: { error: 'quota', ...(d ? { detail: d } : {}) } };
+    case 'TGP30':
+      // #872: acceptance link unknown, revoked, used or expired — one answer (BR-B2B-056 item 7).
+      return { status: 404, body: { error: 'not_found' } };
+    case 'TGP31':
+    case 'TGP32':
+    case 'TGP33':
+      // #872: already accepted / paid plan by link not yet / no terms for the partner type.
+      return { status: 409, body: { error: 'conflict', detail: e.code.toLowerCase() } };
     case '42501':
       return { status: 403, body: { error: 'forbidden', ...(d ? { detail: d } : {}) } };
     case 'PGRST202':
@@ -265,6 +278,28 @@ export function rpcFailure(e: RpcError): Result {
       return { status: 502, body: { error: 'unavailable' } };
   }
 }
+
+/**
+ * #872: the signer of an acceptance by link (`aceite-por-link.md` §4). Shape only — the database
+ * validates the CPF, the 200-char limits and the declaration (`client_terms_invalid_field`), and
+ * answers `TGP22 <field>`. Empty name or role is allowed: the database falls back to the Studio record.
+ */
+export function parseSigner(v: unknown): Record<string, string> | null {
+  const s = obj(v);
+  if (!s) return null;
+  const out: Record<string, string> = {};
+  for (const k of ['representative_name', 'representative_role', 'representative_cpf'] as const) {
+    const x = s[k] ?? '';
+    if (typeof x !== 'string' || x.length > 200) return null;
+    out[k] = x;
+  }
+  if (s.legal_status_declaration !== true && s.legal_status_declaration !== 'true') return null;
+  out.legal_status_declaration = 'true';
+  return out;
+}
+
+/** #872: what the page of the link may read of `client_acceptance_link_get` — a fixed list of keys. */
+const LINK_GET_KEYS = ['state', 'accepted_at', 'expires_at', 'plan_choice', 'trade_name', 'legal_name', 'tax_id', 'email', 'representative_name', 'representative_role'];
 
 const firstRow = (data: unknown): Record<string, unknown> | null => obj(Array.isArray(data) ? data[0] : data);
 
@@ -516,6 +551,49 @@ export async function handle(deps: Deps, raw: unknown, jwt: string): Promise<Res
         status: 200,
         body: { submission_id: row.submission_id, submission_status: row.submission_status, payment_status: row.status, amount_cents: row.next_amount_cents },
       };
+    }
+    case 'acceptance_get': {
+      // #872 (BR-B2B-056 item 7): `invalid` | `accepted` (date only) | `open`. `token_sha256` is the
+      // sha256 of the LINK token, computed by the Worker; the raw token never comes here.
+      const r = await call(deps, 'client_acceptance_link_get', { p_token_sha256: token });
+      if (!r.ok) return r.result;
+      const row = obj(r.data);
+      if (!row || typeof row.state !== 'string') return { status: 502, body: { error: 'unavailable' } };
+      return { status: 200, body: Object.fromEntries(LINK_GET_KEYS.filter((k) => row[k] !== undefined).map((k) => [k, row[k]])) };
+    }
+    case 'acceptance_terms': {
+      // #872: the terms filled with the client record and the signer — asked again when the signer changes.
+      const signer = parseSigner(b.signer);
+      if (!signer) return bad('signer');
+      const r = await call(deps, 'client_acceptance_link_terms', { p_token_sha256: token, p_signer: signer });
+      if (!r.ok) return r.result;
+      const row = firstRow(r.data);
+      return row ? { status: 200, body: { terms_version: row.terms_version, body_html: row.body_html, sha256: row.sha256 } } : { status: 502, body: { error: 'unavailable' } };
+    }
+    case 'acceptance_accept': {
+      // #872 (BR-B2B-047 items 2 to 7, BR-B2B-056): the same evidence as `submit`; a used link
+      // answers the acceptance it already has (`already_accepted`), never a second one.
+      const signer = parseSigner(b.signer);
+      if (!signer) return bad('signer');
+      const p = parseAccept(b.accept);
+      if (!p) return bad('accept');
+      if (typeof b.ip !== 'string' || !IP.test(b.ip)) return bad('ip');
+      if (typeof b.user_agent !== 'string' || !b.user_agent || b.user_agent.length > USER_AGENT_MAX) return bad('user_agent');
+      const r = await call(deps, 'client_acceptance_link_accept', {
+        p_token_sha256: token,
+        p_signer: signer,
+        p_terms_version: p.termsVersion,
+        p_terms_sha256: p.termsSha256,
+        p_ip: b.ip,
+        p_user_agent: b.user_agent,
+        p_activation_commitment: { sticker: p.sticker, display: p.display, social: p.social },
+        p_marketing_consent: p.marketing,
+      });
+      if (!r.ok) return r.result;
+      const row = firstRow(r.data);
+      return row && typeof row.accepted_at === 'string'
+        ? { status: 200, body: { accepted_at: row.accepted_at, already_accepted: row.already_accepted === true } }
+        : { status: 502, body: { error: 'unavailable' } };
     }
     case 'claim': {
       if (typeof b.claim_token !== 'string' || !CLAIM_TOKEN.test(b.claim_token)) return bad('claim_token');
