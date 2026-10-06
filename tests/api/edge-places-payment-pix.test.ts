@@ -376,16 +376,34 @@ test('#811 Pix: the other authorization and instruction events are answered 200 
 
 // ─── owner actions and sweep ─────────────────────────────────────────────────────────────────
 
-test('#863 Pix BR-B2B-055 item 8, BR-B2B-046: cancel renewal keeps the subscription and the authorization — the fees go on to the end of the commitment', async () => {
-  const asaas = fakeAsaas([])
-  const db = fakeDb({ [pay.COMMITMENT_DB.stopRenewal]: { data: [{ outcome: 'applied', paid_through: '2027-01-06T03:00:00Z' }] } })
+test('#863 Pix BR-B2B-055 item 8, BR-B2B-046: cancel renewal keeps the subscription and the authorization — only endDate moves; the fees go on to the end of the commitment', async () => {
+  const asaas = fakeAsaas([at('PUT', '/subscriptions/sub_px', 200, {})])
+  const db = fakeDb({})
   const { d } = deps(asaas, db, row({ status: 'paid', payment_method: 'pix_automatic', provider_subscription_id: 'sub_px', provider_authorization_id: AUTH }), {
-    user: fakeDb({ portal_get_subscription: { data: [{ submission_id: SUBMISSION, status: 'paid', renews: true }] } }).rpc,
+    user: fakeDb({ portal_cancel_renewal: { data: [{ outcome: 'applied', renews: false, commitment_ends_at: '2027-03-06T15:00:00Z', paid_through: '2027-01-06T15:00:00Z' }] } }).rpc,
   })
   const r = await pay.cancelRenewal(d, SUBMISSION)
   assert.deepEqual(r, { status: 200, body: { result: 'canceled' } })
-  assert.deepEqual(paths(asaas), [])
-  assert.deepEqual(db.calls.map((c) => c.fn), [pay.COMMITMENT_DB.stopRenewal])
+  assert.deepEqual(paths(asaas), ['PUT /subscriptions/sub_px'])
+  assert.deepEqual(db.calls, [])
+})
+
+test('#863 Pix BR-B2B-046 item 7: commitment ending without renewal — the sweep ends the subscription AND the authorization', async () => {
+  const asaas = fakeAsaas([
+    at('DELETE', '/subscriptions/sub_px', 200, { deleted: true }),
+    at('DELETE', `/pix/automatic/authorizations/${AUTH}`, 200, {}),
+  ])
+  const db = fakeDb({
+    place_pending_refunds: { data: [] },
+    expire_place_subscriptions: { data: [] },
+    place_commitments_ending: { data: [{ subscription_id: SUB_UUID, payment_method: 'pix_automatic', provider_subscription_id: 'sub_px' }] },
+    cancel_place_subscription: { data: [{ outcome: 'applied' }] },
+    place_renewal_schedule: { data: [] },
+  })
+  const { d } = deps(asaas, db, row({ status: 'paid', payment_method: 'pix_automatic', provider_subscription_id: 'sub_px', provider_authorization_id: AUTH }))
+  const s = await pay.runSweep(d)
+  assert.equal(s.ended, 1)
+  assert.deepEqual(paths(asaas), ['DELETE /subscriptions/sub_px', `DELETE /pix/automatic/authorizations/${AUTH}`])
 })
 
 test('#811 Pix: the sweep ends the authorization of an expired Pix plan', async () => {
