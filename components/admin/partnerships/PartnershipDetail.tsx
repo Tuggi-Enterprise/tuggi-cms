@@ -20,6 +20,7 @@
  */
 
 import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useRecordRead } from '@/lib/hooks/use-record-cache'
 import { useTranslations } from 'next-intl'
 import Link from 'next/link'
 import { ChevronDown, ChevronRight } from 'lucide-react'
@@ -100,12 +101,6 @@ interface PartnershipDetailProps {
   locale: string
   clientId: string
   /**
-   * Where `Voltar para a fila` goes, when there is a queue behind this screen. Absent when the
-   * pipeline is a TAB of the client record: the way out of a tab is the tab strip, and a link
-   * back to a list the operator never came from is a false trail.
-   */
-  backHref?: string
-  /**
    * How to reach a neighbouring tab, when this pipeline is embedded in the client record.
    *
    * THIS IS WHERE THE ROUND TRIP DIES. Band 3 used to LINK at the client record and at the
@@ -120,7 +115,6 @@ interface PartnershipDetailProps {
 export function PartnershipDetail({
   locale,
   clientId,
-  backHref,
   onOpenTab,
 }: PartnershipDetailProps) {
   const t = useTranslations('Partnerships')
@@ -139,16 +133,19 @@ export function PartnershipDetail({
    */
   const [refusalUnknown, setRefusalUnknown] = useState(false)
 
-  const load = useCallback(async () => {
+  const read = useRecordRead()
+
+  /** `fresh` after an act; the first read may take the one the record's other tab already made. */
+  const load = useCallback(async (fresh: boolean = true) => {
     setLoading(true)
     try {
-      const response = await fetch(`/api/admin/partnerships/clients/${clientId}`)
+      const response = await read<{ detail?: Detail }>(`/api/admin/partnerships/clients/${clientId}`, { fresh })
       if (response.status === 404) {
         setFailure('not_found')
         setDetail(null)
         return
       }
-      const payload = response.ok ? await response.json() : null
+      const payload = response.ok ? response.body : null
       if (payload?.detail) {
         setDetail(payload.detail as Detail)
         setFailure('none')
@@ -160,10 +157,10 @@ export function PartnershipDetail({
     } finally {
       setLoading(false)
     }
-  }, [clientId])
+  }, [clientId, read])
 
   useEffect(() => {
-    void load()
+    void load(false)
   }, [load])
 
   const currentBand = useMemo<BandId>(() => {
@@ -287,21 +284,14 @@ export function PartnershipDetail({
               {t('detail.retry')}
             </Button>
           )}
-          {backHref && (
-            <Link
-              href={backHref}
-              className="inline-flex min-h-[24px] items-center text-sm font-medium text-primary-800 underline underline-offset-4"
-            >
-              {t('detail.backToQueue')}
-            </Link>
-          )}
         </div>
       </div>
     )
   }
 
   const name = detail.client.name ?? detail.client.companyName ?? ''
-  const returnTo = `/${locale}/admin/partnerships/clients/${clientId}`
+  // The pipeline lives in the record now (#875): a tool opened from here comes back to this tab.
+  const returnTo = `/${locale}/admin/clients?clientId=${clientId}&tab=partnership`
   const returnLabel = t('returnBar.label', { name })
 
   /**
@@ -347,15 +337,6 @@ export function PartnershipDetail({
 
   return (
     <div className="mx-auto w-full max-w-7xl px-6 py-6">
-      {backHref && (
-        <Link
-          href={backHref}
-          className="inline-flex min-h-[24px] items-center text-sm font-medium text-primary-800 underline underline-offset-4"
-        >
-          {t('detail.backToQueue')}
-        </Link>
-      )}
-
       {/* Sticky: in a partnership with three places, publishing must not mean scrolling back
           up, and the action of the current state is never behind a menu (DS-LAYOUT-003). */}
       <header className="sticky top-0 z-10 -mx-6 mb-5 mt-3 border-b border-gray-200 bg-white px-6 py-3">

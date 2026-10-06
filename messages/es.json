@@ -2710,6 +2710,56 @@
     "stance": {
       "paying": "De pago",
       "not_paying": "Sin pago"
+    },
+    "portal": {
+      "readError": "No fue posible cargar los datos del portal.",
+      "origin": {
+        "label": "Origen del registro",
+        "portal": "Portal Locais",
+        "proposal": "Propuesta (flujo antiguo)",
+        "direct": "Registro directo en Studio",
+        "unknown": "No fue posible leer el origen."
+      },
+      "acceptance": {
+        "title": "Aceptación electrónica",
+        "terms": "Término {version} · aceptado el {date}",
+        "hash": "Hash del término",
+        "signer": "Firmante",
+        "signerLine": "{name} · {role} · CPF {cpf}",
+        "regularity": "Regularidad",
+        "declared": "Declaró CNPJ activo y licencia vigente",
+        "notDeclared": "Sin declaración",
+        "commitment": "Compromiso de divulgación",
+        "commitmentNone": "Ninguno",
+        "sticker": "Adhesivo",
+        "display": "Display",
+        "social": "Redes",
+        "missing": "No se encontró la aceptación de este envío."
+      },
+      "subscription": {
+        "title": "Plan y suscripción",
+        "plan": "Plan",
+        "planPaid": "Con historia · {months, plural, one {# mes} other {# meses}}",
+        "planFree": "En el mapa · gratis",
+        "amount": "Valor",
+        "amountLine": "{first} en el 1.er período · {renewal} en la renovación",
+        "status": "Estado",
+        "statuses": {
+          "pending_payment": "Esperando pago",
+          "paid": "Pagado",
+          "past_due": "Renovación atrasada",
+          "expired": "Vencido",
+          "refund_pending": "Reembolso en curso",
+          "refunded": "Reembolsado"
+        },
+        "paidAt": "Pagado el {date}",
+        "refundedAt": "Reembolsado el {date}",
+        "nextDue": "Próximo vencimiento",
+        "renewalOff": "Renovación desactivada · válido hasta {date}",
+        "startsAtApproval": "El período comienza con la aprobación",
+        "reference": "Suscripción en Asaas",
+        "noCharge": "Sin cobro"
+      }
     }
   },
   "Coupons": {

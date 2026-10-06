@@ -22,7 +22,7 @@
  */
 
 import { NextIntlClientProvider, useLocale, useMessages } from 'next-intl'
-import ptMessages from '@/messages/pt.json'
+import { usePtOverlay } from '@/lib/i18n/pt-overlay'
 import { PartnershipDetail } from '@/components/admin/partnerships/PartnershipDetail'
 import type { ClientEditorTab } from '@/components/admin/clients/ClientEditorModal'
 import type { ClientEditorTabProps } from './ProfileTab'
@@ -34,6 +34,7 @@ interface PartnershipTabProps extends ClientEditorTabProps {
 export function PartnershipTab({ clientId, onOpenTab }: PartnershipTabProps) {
   const locale = useLocale()
   const messages = useMessages()
+  const ptMessages = usePtOverlay()
 
   // A registration that was never saved has no pipeline to read: the endpoint below is keyed
   // by the client id, and there is none yet.

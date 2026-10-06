@@ -753,26 +753,33 @@ export async function loadPartnershipDetail(
   clientId: string,
   operator: SupabaseClient
 ): Promise<PartnershipDetail | null> {
-  const clients = await loadClients([clientId])
-  const client = clients.get(clientId)
-  if (!client) return null
-
-  const [contracts, places, submission, clientConference] = await Promise.all([
+  // Two rounds, not eight (#875): everything keyed by the client id goes in the first, and what
+  // needs the places or the client row goes in the second. An absent client costs the first
+  // round's reads, which is the rare case paying for the common one.
+  const [clients, contracts, places, submission, clientConference] = await Promise.all([
+    loadClients([clientId]),
     loadLiveContracts([clientId]),
     loadPartnerPlaces([clientId], operator),
     loadPromotedSubmission(clientId),
     getClientConference(clientId),
   ])
+  const client = clients.get(clientId)
+  if (!client) return null
 
   const contract = contracts.get(clientId) ?? null
   const readiness = (places.get(clientId) ?? []).map((row) =>
     buildPlaceReadiness(row, readinessContextOf(contract?.tier ?? null))
   )
   const attractionIds = readiness.map((item) => item.place.attractionId)
-  const [trail, refusals] = await Promise.all([
-    loadPublicationTrail(attractionIds),
-    loadCurrentRefusals(attractionIds),
-  ])
+  const [trail, refusals, welcomeDivergence, conferenceByLabel, promotedByLabel, reviewedByLabel] =
+    await Promise.all([
+      loadPublicationTrail(attractionIds),
+      loadCurrentRefusals(attractionIds),
+      loadWelcomeDivergence(client.welcomePoiId, attractionIds, operator),
+      clientConference.reviewedBy ? operatorLabel(clientConference.reviewedBy) : null,
+      submission ? operatorLabel(submission.promoted_by) : null,
+      submission ? operatorLabel(submission.reviewed_by) : null,
+    ])
 
   const conference = clientConference.conference
 
@@ -798,18 +805,16 @@ export async function loadPartnershipDetail(
     conference: {
       record: conference,
       reviewedAt: clientConference.reviewedAt,
-      reviewedByLabel: clientConference.reviewedBy
-        ? await operatorLabel(clientConference.reviewedBy)
-        : null,
+      reviewedByLabel: conferenceByLabel,
     },
     submission: submission
       ? {
           id: submission.id,
           submittedAt: submission.submitted_at,
           promotedAt: submission.promoted_at,
-          promotedByLabel: await operatorLabel(submission.promoted_by),
+          promotedByLabel,
           reviewedAt: submission.reviewed_at,
-          reviewedByLabel: await operatorLabel(submission.reviewed_by),
+          reviewedByLabel,
           conference,
         }
       : null,
@@ -819,11 +824,7 @@ export async function loadPartnershipDetail(
       publishedBy: trail.get(item.place.attractionId) ?? null,
       refusal: refusals.get(item.place.attractionId) ?? null,
     })),
-    welcomeDivergence: await loadWelcomeDivergence(
-      client.welcomePoiId,
-      attractionIds,
-      operator
-    ),
+    welcomeDivergence,
     triage: { approvedAt: client.approvedAt, places: outcomes },
   }
 }

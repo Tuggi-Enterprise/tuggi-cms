@@ -609,7 +609,8 @@ test('#359 crit. 29: the pipeline screens hand the pt messages down explicitly',
   // The namespace lives only in `messages/pt.json` (spec §2), and an ABSENT key in next-intl
   // renders the KEY NAME. "Only pt" and "`/en/` never shows `Partnerships.title`" are both
   // true only because of this provider.
-  const page = 'app/[locale]/admin/partnerships/clients/[clientId]/page.tsx'
+  // #875: the standalone page became a redirect; the pt-only host left is the places tab.
+  const page = 'components/admin/clients/tabs/PlacesTab.tsx'
   const source = read(page)
   assert.match(source, /NextIntlClientProvider/, page)
   assert.match(source, /locale="pt"/, page)

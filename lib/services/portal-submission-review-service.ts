@@ -16,7 +16,8 @@
 
 import { getSupabaseService } from '@/lib/core/supabase-client'
 import type { PartnerAnswers } from '@/lib/partner-form/schema'
-import { maskCpf, onlyDigits } from '@/lib/partnerships/portal-review'
+import { asaasExternalReference, maskCpf, onlyDigits } from '@/lib/partnerships/portal-review'
+import { portalSubmissionsOfClient } from '@/lib/services/portal-validation-service'
 import { operatorLabel } from '@/lib/services/operator-label'
 import {
   isPhotoSetFrozen,
@@ -54,6 +55,27 @@ export interface PortalReviewPayment {
   status: string
   paidAt: string | null
   refundedAt: string | null
+  /** `card` or `pix_automatic`; null before the first checkout. */
+  paymentMethod: string | null
+  /** The renewal date (BR-B2B-046 item 1): null while in validation, set at approval. */
+  paidThrough: string | null
+  /** Renewal turned off — not a status: the paid period still runs (BR-B2B-055 item 8). */
+  canceledAt: string | null
+  renewalAmountCents: number | null
+  /** `sub_…` at Asaas, once attached. */
+  providerSubscriptionId: string | null
+  /** What Asaas carries as `externalReference` — `asaasExternalReference`. */
+  externalReference: string | null
+}
+
+/** One portal submission behind a client, as the client record shows it (#871). */
+export interface ClientPortalRecord {
+  submissionId: string
+  status: string
+  attractionId: string
+  submittedAt: string | null
+  acceptance: PortalReviewAcceptance | null
+  payment: PortalReviewPayment | null
 }
 
 export type PortalHistoryEntry =
@@ -114,6 +136,80 @@ interface AcceptanceRow {
   voucher_code: string | null
   voucher_discount_cents: number | null
   total_cents: number
+}
+
+const SUBSCRIPTION_COLUMNS =
+  'id, acceptance_id, status, paid_at, refunded_at, payment_method, paid_through, canceled_at, ' +
+  'renewal_amount_cents, provider_subscription_id, created_at'
+
+interface SubscriptionRow {
+  id: string
+  acceptance_id: string
+  status: string
+  paid_at: string | null
+  refunded_at: string | null
+  payment_method: string | null
+  paid_through: string | null
+  canceled_at: string | null
+  renewal_amount_cents: number | null
+  provider_subscription_id: string | null
+}
+
+/** The latest subscription of each acceptance — the one read both screens share. */
+async function readSubscriptions(
+  acceptances: AcceptanceRow[]
+): Promise<{ ok: true; byAcceptance: Map<string, PortalReviewPayment> } | { ok: false; code?: string }> {
+  const byAcceptance = new Map<string, PortalReviewPayment>()
+  if (acceptances.length === 0) return { ok: true, byAcceptance }
+  const { data, error } = await partner()
+    .from('place_subscriptions')
+    .select(SUBSCRIPTION_COLUMNS)
+    .in(
+      'acceptance_id',
+      acceptances.map((a) => a.id)
+    )
+    .order('created_at', { ascending: false })
+  if (error) return { ok: false, code: error.code }
+  const periodOf = new Map(acceptances.map((a) => [a.id, a.billing_period]))
+  for (const row of (data ?? []) as unknown as SubscriptionRow[]) {
+    if (byAcceptance.has(row.acceptance_id)) continue
+    const period = periodOf.get(row.acceptance_id) ?? null
+    byAcceptance.set(row.acceptance_id, {
+      status: row.status,
+      paidAt: row.paid_at,
+      refundedAt: row.refunded_at,
+      paymentMethod: row.payment_method,
+      paidThrough: row.paid_through,
+      canceledAt: row.canceled_at,
+      renewalAmountCents: row.renewal_amount_cents,
+      providerSubscriptionId: row.provider_subscription_id,
+      externalReference: period ? asaasExternalReference(period, row.id) : null,
+    })
+  }
+  return { ok: true, byAcceptance }
+}
+
+/** The acceptance as the operator may see it: CPF masked, never the whole number. */
+function toReviewAcceptance(row: AcceptanceRow, answeredCpf: string | undefined): PortalReviewAcceptance {
+  return {
+    termsVersion: row.terms_version,
+    termsHash: row.terms_sha256,
+    acceptedAt: row.accepted_at,
+    authMethod: row.auth_method,
+    email: row.email,
+    signerName: row.signer_name,
+    signerRole: row.signer_role,
+    signerCpfMasked: maskCpf(row.signer_cpf),
+    cpfDiffers: answeredCpf !== undefined && onlyDigits(answeredCpf) !== onlyDigits(row.signer_cpf),
+    legalStatusDeclared: row.legal_status_declared,
+    activationCommitment: row.activation_commitment ?? {},
+    marketingConsent: row.marketing_consent,
+    planChoice: row.plan_choice,
+    billingPeriod: row.billing_period,
+    voucherCode: row.voucher_code,
+    voucherDiscountCents: row.voucher_discount_cents,
+    totalCents: row.total_cents,
+  }
 }
 
 const failed = (what: string, code?: string): PortalReviewOutcome => {
@@ -180,19 +276,9 @@ export async function getPortalSubmissionReview(submissionId: string): Promise<P
   if (nextRead.error) return failed('next', nextRead.error.code)
 
   const acceptanceRow = acceptanceRead.data as unknown as AcceptanceRow | null
-  let payment: PortalReviewPayment | null = null
-  if (acceptanceRow) {
-    const { data: subscription, error: subscriptionError } = await partner()
-      .from('place_subscriptions')
-      .select('status, paid_at, refunded_at')
-      .eq('acceptance_id', acceptanceRow.id)
-      .order('created_at', { ascending: false })
-      .limit(1)
-      .maybeSingle()
-    if (subscriptionError) return failed('subscription', subscriptionError.code)
-    const sub = subscription as { status: string; paid_at: string | null; refunded_at: string | null } | null
-    if (sub) payment = { status: sub.status, paidAt: sub.paid_at, refundedAt: sub.refunded_at }
-  }
+  const subscriptions = await readSubscriptions(acceptanceRow ? [acceptanceRow] : [])
+  if (!subscriptions.ok) return failed('subscription', subscriptions.code)
+  const payment = acceptanceRow ? (subscriptions.byAcceptance.get(acceptanceRow.id) ?? null) : null
 
   const transitions = (transitionsRead.data ?? []) as {
     from_status: string
@@ -240,27 +326,7 @@ export async function getPortalSubmissionReview(submissionId: string): Promise<P
     })),
   ].sort((a, b) => a.at.localeCompare(b.at))
 
-  const acceptance: PortalReviewAcceptance | null = acceptanceRow
-    ? {
-        termsVersion: acceptanceRow.terms_version,
-        termsHash: acceptanceRow.terms_sha256,
-        acceptedAt: acceptanceRow.accepted_at,
-        authMethod: acceptanceRow.auth_method,
-        email: acceptanceRow.email,
-        signerName: acceptanceRow.signer_name,
-        signerRole: acceptanceRow.signer_role,
-        signerCpfMasked: maskCpf(acceptanceRow.signer_cpf),
-        cpfDiffers: answeredCpf !== undefined && onlyDigits(answeredCpf) !== onlyDigits(acceptanceRow.signer_cpf),
-        legalStatusDeclared: acceptanceRow.legal_status_declared,
-        activationCommitment: acceptanceRow.activation_commitment ?? {},
-        marketingConsent: acceptanceRow.marketing_consent,
-        planChoice: acceptanceRow.plan_choice,
-        billingPeriod: acceptanceRow.billing_period,
-        voucherCode: acceptanceRow.voucher_code,
-        voucherDiscountCents: acceptanceRow.voucher_discount_cents,
-        totalCents: acceptanceRow.total_cents,
-      }
-    : null
+  const acceptance = acceptanceRow ? toReviewAcceptance(acceptanceRow, answeredCpf) : null
 
   return {
     ok: true,
@@ -281,6 +347,53 @@ export async function getPortalSubmissionReview(submissionId: string): Promise<P
       photos,
     },
   }
+}
+
+/**
+ * The portal side of a client record (#871): every submission behind the client's places, with
+ * its acceptance — the contract of the portal (BR-B2B-047) — and its subscription at Asaas
+ * (BR-B2B-046). Same reads and same minimisation as the validation screen: CPF masked, no IP,
+ * no user agent. `[]` for a client that never came through the portal; `null` when a read failed.
+ */
+export async function getClientPortalRecords(clientId: string): Promise<ClientPortalRecord[] | null> {
+  const submissions = await portalSubmissionsOfClient(clientId)
+  if (submissions === null) return null
+  const visible = submissions.filter((s) => s.status !== 'draft')
+  if (visible.length === 0) return []
+  const ids = visible.map((s) => s.id)
+
+  const [acceptancesRead, cpfsRead] = await Promise.all([
+    partner().from('place_acceptances').select(`submission_id, ${ACCEPTANCE_COLUMNS}`).in('submission_id', ids),
+    partner().from('place_submissions').select('id, representative_cpf:answers->>representative_cpf').in('id', ids),
+  ])
+  if (acceptancesRead.error || cpfsRead.error) {
+    console.error('[portal-review] client record read failed', acceptancesRead.error?.code ?? cpfsRead.error?.code)
+    return null
+  }
+  const acceptances = (acceptancesRead.data ?? []) as unknown as (AcceptanceRow & { submission_id: string })[]
+  const subscriptions = await readSubscriptions(acceptances)
+  if (!subscriptions.ok) {
+    console.error('[portal-review] client record subscription read failed', subscriptions.code ?? 'no_code')
+    return null
+  }
+  const answeredCpf = new Map(
+    ((cpfsRead.data ?? []) as unknown as { id: string; representative_cpf: string | null }[]).map((r) => [
+      r.id,
+      r.representative_cpf ?? undefined,
+    ])
+  )
+
+  return visible.map((submission) => {
+    const row = acceptances.find((a) => a.submission_id === submission.id) ?? null
+    return {
+      submissionId: submission.id,
+      status: submission.status,
+      attractionId: submission.attraction_id,
+      submittedAt: submission.submitted_at,
+      acceptance: row ? toReviewAcceptance(row, answeredCpf.get(submission.id)) : null,
+      payment: row ? (subscriptions.byAcceptance.get(row.id) ?? null) : null,
+    }
+  })
 }
 
 /** The label of each operator (`operatorLabel`, the CMS's one resolver). CMS staff, never a

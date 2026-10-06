@@ -12,53 +12,52 @@
  * `.claude/rules/codigo-em-ingles.md` governs code and the spec governs the surface.
  */
 
-import { useEffect, useState } from 'react'
-import { useLocale } from 'next-intl'
+import { useLocale, useTranslations } from 'next-intl'
 import { FileSignature } from 'lucide-react'
 import { SectionHeader } from '@/components/admin/clients/shared/SectionHeader'
 import { formatDate, formatFee } from '@/lib/contract/snapshot'
 import { returnParams } from '@/lib/navigation/return-to'
+import { useClientContract } from '@/components/admin/clients/shared/use-client-contract'
+import { OriginRow, PortalAcceptances } from '@/components/admin/clients/shared/PortalRecord'
 import type { ClientEditorTabProps } from './ProfileTab'
-
-interface Summary {
-  contract: {
-    status: 'draft' | 'sent' | 'signed' | 'superseded' | 'terminated'
-    tier: 'free' | 'paid'
-    templateVersion: string
-    createdAt: string
-    sentAt: string | null
-    snapshot: { monthlyFeeCents: number | null; isCourtesy: boolean }
-    feeDivergence: { diverges: boolean; registrationFeeCents: number | null }
-  } | null
-  acceptance: { acceptedAt: string; signerName: string } | null
-}
 
 export function ContractTab({ clientId }: ClientEditorTabProps) {
   const locale = useLocale()
-  const [summary, setSummary] = useState<Summary | null>(null)
-  const [failed, setFailed] = useState(false)
+  const { summary, failed } = useClientContract(clientId)
 
-  useEffect(() => {
-    if (!clientId) return
-    let active = true
-    fetch(`/api/admin/clients/${clientId}/contract`)
-      .then((response) => (response.ok ? response.json() : Promise.reject(new Error('load failed'))))
-      .then((data: Summary) => {
-        if (active) setSummary(data)
-      })
-      .catch(() => {
-        if (active) setFailed(true)
-      })
-    return () => {
-      active = false
-    }
-  }, [clientId])
-
+  const tPortal = useTranslations('Clients.portal')
   const contract = summary?.contract ?? null
   const acceptance = summary?.acceptance ?? null
+  /**
+   * A portal client's contract IS its electronic acceptance (BR-B2B-047, #871): the card below
+   * shows it, and the generated-contract summary stays only if one was made before the portal.
+   */
+  const fromPortal = summary?.origin === 'portal'
+  const showGenerated = !fromPortal || contract !== null
 
   return (
     <div className="mx-auto max-w-5xl space-y-8">
+      {summary ? (
+        <div className="rounded-3xl border border-gray-200 bg-white p-5 shadow-sm lg:p-8 dark:border-gray-800 dark:bg-gray-900">
+          <dl className="grid grid-cols-1 gap-y-4 sm:grid-cols-2">
+            <OriginRow origin={summary.origin} />
+          </dl>
+          {summary.portal === null ? (
+            <p className="mt-4 text-sm text-gray-600">{tPortal('readError')}</p>
+          ) : fromPortal ? (
+            <div className="mt-6 space-y-6">
+              <SectionHeader
+                icon={<FileSignature className="h-4 w-4 text-indigo-500" />}
+                title={tPortal('acceptance.title')}
+                color="indigo-500"
+              />
+              <PortalAcceptances records={summary.portal} />
+            </div>
+          ) : null}
+        </div>
+      ) : null}
+
+      {showGenerated ? (
       <div className="rounded-3xl border border-gray-200 bg-white p-5 shadow-sm lg:p-8 dark:border-gray-800 dark:bg-gray-900">
         <SectionHeader
           icon={<FileSignature className="h-4 w-4 text-indigo-500" />}
@@ -125,6 +124,7 @@ export function ContractTab({ clientId }: ClientEditorTabProps) {
           Abrir a página do contrato
         </a>
       </div>
+      ) : null}
     </div>
   )
 }
