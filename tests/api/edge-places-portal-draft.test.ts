@@ -347,3 +347,108 @@ test('#863 (BR-B2B-045): quote of the anonymous draft is portal_draft_quote with
   const gone = await mod.handle(fake({ portal_draft_quote: { error: { code: 'TGP01' } } }).deps, { action: 'quote', token_sha256: TOKEN, billing_period: 3 }, '')
   assert.deepEqual(gone, { status: 404, body: { error: 'not_found' } })
 })
+
+// ---- #872 — aceite por link (BR-B2B-056, BR-B2B-047) -------------------------------------------
+
+const SIGNER = { representative_name: 'Ana Souza', representative_role: 'Sócia', representative_cpf: '52998224725', legal_status_declaration: true }
+const LINK_ACCEPT = { action: 'acceptance_accept', token_sha256: TOKEN, signer: SIGNER, accept: ACCEPT, ip: '203.0.113.9', user_agent: 'UA' }
+const LINK_ACTIONS = [
+  { action: 'acceptance_get', token_sha256: TOKEN },
+  { action: 'acceptance_terms', token_sha256: TOKEN, signer: SIGNER },
+  LINK_ACCEPT,
+]
+
+test('#872 (BR-B2B-056 item 7): rpcFailure maps TGP30 to one not_found, TGP31/32/33 to conflict with the code, and never leaks the message', () => {
+  assert.deepEqual(mod.rpcFailure({ code: 'TGP30', message: 'link of x@y.co' }), { status: 404, body: { error: 'not_found' } })
+  for (const code of ['TGP31', 'TGP32', 'TGP33']) {
+    assert.deepEqual(mod.rpcFailure({ code, message: 'cpf 529.982.247-25' }), { status: 409, body: { error: 'conflict', detail: code.toLowerCase() } })
+  }
+})
+
+test('#872 (BR-B2B-056): parseSigner refuses a missing declaration and any field over 200 characters; empty name or role is allowed', () => {
+  assert.ok(mod.parseSigner(SIGNER))
+  assert.deepEqual(mod.parseSigner({ ...SIGNER, legal_status_declaration: 'true' }), { ...SIGNER, legal_status_declaration: 'true' })
+  const { legal_status_declaration: _drop, ...noDecl } = SIGNER
+  assert.equal(mod.parseSigner(noDecl), null)
+  assert.equal(mod.parseSigner({ ...SIGNER, legal_status_declaration: false }), null)
+  assert.equal(mod.parseSigner({ ...SIGNER, legal_status_declaration: 'yes' }), null)
+  for (const k of ['representative_name', 'representative_role', 'representative_cpf']) {
+    assert.equal(mod.parseSigner({ ...SIGNER, [k]: 'x'.repeat(201) }), null, k)
+    assert.ok(mod.parseSigner({ ...SIGNER, [k]: 'x'.repeat(200) }), k)
+    assert.equal(mod.parseSigner({ ...SIGNER, [k]: 7 }), null, k)
+  }
+  assert.ok(mod.parseSigner({ legal_status_declaration: true }))
+  assert.equal(mod.parseSigner(null), null)
+  assert.equal(mod.parseSigner('x'), null)
+  assert.equal(mod.parseSigner([SIGNER]), null)
+})
+
+test('#872 (BR-B2B-056 item 7): acceptance_get hands the page only the LINK_GET_KEYS — no CPF, token, ip or client id', async () => {
+  const keys = ['state', 'accepted_at', 'expires_at', 'plan_choice', 'trade_name', 'legal_name', 'tax_id', 'email', 'representative_name', 'representative_role']
+  const row = Object.fromEntries(keys.map((k) => [k, k === 'state' ? 'open' : `v-${k}`]))
+  const dirty = { ...row, representative_cpf: '52998224725', token_sha256: TOKEN, client_id: SID, ip: '203.0.113.9', partner_code: 'ABC123' }
+  // the RPC returns jsonb (aceite-por-link.md §1): one object, not a table
+  for (const data of [dirty]) {
+    const f = fake({ client_acceptance_link_get: { data } })
+    const r = await mod.handle(f.deps, { action: 'acceptance_get', token_sha256: TOKEN }, '')
+    assert.deepEqual(r, { status: 200, body: row })
+    assert.deepEqual(f.calls, [{ fn: 'client_acceptance_link_get', args: { p_token_sha256: TOKEN } }])
+  }
+  const invalid = await mod.handle(fake({ client_acceptance_link_get: { data: { state: 'invalid', client_id: SID } } }).deps, { action: 'acceptance_get', token_sha256: TOKEN }, '')
+  assert.deepEqual(invalid, { status: 200, body: { state: 'invalid' } })
+  const noState = await mod.handle(fake({ client_acceptance_link_get: { data: null } }).deps, { action: 'acceptance_get', token_sha256: TOKEN }, '')
+  assert.deepEqual(noState, { status: 502, body: { error: 'unavailable' } })
+})
+
+test('#872 (BR-B2B-047, BR-B2B-056): acceptance_accept refuses a missing or malformed ip and user_agent before the database', async () => {
+  const f = fake()
+  const { ip: _ip, ...noIp } = LINK_ACCEPT
+  const { user_agent: _ua, ...noUa } = LINK_ACCEPT
+  assert.deepEqual(await mod.handle(f.deps, noIp, ''), { status: 400, body: { error: 'invalid', field: 'ip' } })
+  assert.deepEqual(await mod.handle(f.deps, { ...LINK_ACCEPT, ip: 'not an ip' }, ''), { status: 400, body: { error: 'invalid', field: 'ip' } })
+  assert.deepEqual(await mod.handle(f.deps, noUa, ''), { status: 400, body: { error: 'invalid', field: 'user_agent' } })
+  assert.deepEqual(await mod.handle(f.deps, { ...LINK_ACCEPT, user_agent: '' }, ''), { status: 400, body: { error: 'invalid', field: 'user_agent' } })
+  assert.deepEqual(await mod.handle(f.deps, { ...LINK_ACCEPT, user_agent: 'u'.repeat(1025) }, ''), { status: 400, body: { error: 'invalid', field: 'user_agent' } })
+  assert.deepEqual(await mod.handle(f.deps, { ...LINK_ACCEPT, signer: { ...SIGNER, legal_status_declaration: false } }, ''), { status: 400, body: { error: 'invalid', field: 'signer' } })
+  assert.equal(f.calls.length, 0)
+})
+
+test('#872 (BR-B2B-056): acceptance_accept sends the evidence to client_acceptance_link_accept and answers already_accepted without a second acceptance', async () => {
+  const f = fake({ client_acceptance_link_accept: { data: [{ accepted_at: '2026-10-06T12:00:00Z', already_accepted: false }] } })
+  const r = await mod.handle(f.deps, LINK_ACCEPT, '')
+  assert.deepEqual(r, { status: 200, body: { accepted_at: '2026-10-06T12:00:00Z', already_accepted: false } })
+  assert.equal(f.calls.length, 1)
+  assert.equal(f.calls[0].fn, 'client_acceptance_link_accept')
+  assert.equal(f.calls[0].args.p_token_sha256, TOKEN)
+  assert.equal(f.calls[0].args.p_ip, '203.0.113.9')
+  assert.equal(f.calls[0].args.p_user_agent, 'UA')
+  assert.deepEqual(f.calls[0].args.p_activation_commitment, { sticker: true, display: false, social: true })
+  const again = await mod.handle(fake({ client_acceptance_link_accept: { data: [{ accepted_at: '2026-10-06T12:00:00Z', already_accepted: true }] } }).deps, LINK_ACCEPT, '')
+  assert.equal((again.body as { already_accepted: boolean }).already_accepted, true)
+  const dead = await mod.handle(fake({ client_acceptance_link_accept: { error: { code: 'TGP30' } } }).deps, LINK_ACCEPT, '')
+  assert.deepEqual(dead, { status: 404, body: { error: 'not_found' } })
+})
+
+test('#872 (BR-B2B-056): the three link actions demand token_sha256 as lowercase hex-64, before any database call', async () => {
+  const f = fake()
+  for (const a of LINK_ACTIONS) {
+    for (const t of [undefined, '', 'a'.repeat(63), 'a'.repeat(65), 'A'.repeat(64), 'g'.repeat(64), 7, null]) {
+      const r = await mod.handle(f.deps, { ...a, token_sha256: t }, '')
+      assert.deepEqual(r, { status: 400, body: { error: 'invalid', field: 'token_sha256' } }, `${a.action} ${String(t)}`)
+    }
+  }
+  assert.equal(f.calls.length, 0)
+})
+
+test('#872 (BR-B2B-056): the three link actions are behind x-places-draft-secret — the gate runs before the body is read or any action is dispatched', () => {
+  const src = readFileSync(resolve(FUNCTIONS, 'places-portal-draft/index.ts'), 'utf8')
+  const gate = src.indexOf("isDraftSecret(req.headers.get(DRAFT_SECRET_HEADER), 'places-portal-draft')")
+  assert.ok(gate > 0)
+  assert.ok(gate < src.indexOf('req.json()'), 'secret checked before parsing the body')
+  assert.ok(gate < src.indexOf('handle(deps()'), 'secret checked before dispatch')
+  assert.match(src.slice(gate, gate + 200), /return json\(401, \{ error: 'unauthorized' \}\)/)
+  assert.equal(src.match(/Deno\.serve/g)?.length, 1, 'one entry point only')
+  assert.ok(!/acceptance_/.test(src), 'no link action is routed around the gate')
+  assert.equal(mod.DRAFT_SECRET_HEADER, 'x-places-draft-secret')
+  for (const rpc of ['client_acceptance_link_get', 'client_acceptance_link_terms', 'client_acceptance_link_accept']) assert.ok(mod.DRAFT_RPCS.includes(rpc), rpc)
+})
