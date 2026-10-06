@@ -247,7 +247,9 @@ test('the client record is a dialog, and the sheet beside it uses the same four 
   assert.match(modal, /aria-modal="true"/)
   // Named by the header's own `h2` rather than by a second copy of the partner's name.
   assert.match(modal, /aria-labelledby=\{titleId\}/)
-  assert.match(modal, /id=\{titleId\}/)
+  // The `h2` lives in the shared frame since #870 (`RecordShell`); the modal hands it the id.
+  assert.match(modal, /titleId=\{titleId\}/)
+  assert.match(read('components/admin/clients/shared/RecordShell.tsx'), /<Title id=\{titleId\}/)
 
   // ONE implementation of the four behaviours, for both surfaces. The sheet had three of them
   // written inline and the record had none — which is how the screen ended up with the correct

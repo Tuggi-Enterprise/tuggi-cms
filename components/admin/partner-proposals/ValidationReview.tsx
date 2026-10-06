@@ -15,9 +15,11 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import Link from 'next/link'
 import { useTranslations } from 'next-intl'
-import { AlertTriangle, Check, Eye, EyeOff, ExternalLink, X } from 'lucide-react'
+import { AlertTriangle, Check, ClipboardCheck, Eye, EyeOff, ExternalLink, X } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Checkbox } from '@/components/ui/checkbox'
+import { RecordShell } from '@/components/admin/clients/shared/RecordShell'
+import { cn } from '@/lib/utils'
 import { GoogleMapComponent } from '@/components/ui/GoogleMapComponent'
 import {
   STORY_WORD_LIMIT,
@@ -65,7 +67,24 @@ function Line({ tone, children }: { tone: 'ok' | 'warn' | 'bad'; children: React
   )
 }
 
-export function ValidationReview({ locale, submissionId }: { locale: string; submissionId: string }) {
+/** The pill in the header — the same shape as the client record's (`ApprovalHeaderControls`). */
+const PILL = 'inline-flex items-center px-3 py-1 rounded-full text-[10px] font-bold uppercase tracking-widest border'
+function pillTone(status: string): string {
+  if (status === 'approved' || status === 'live') return 'bg-green-50 border-green-200 text-green-700'
+  if (status === 'rejected') return 'bg-red-50 border-red-200 text-red-600'
+  return 'bg-orange-50 border-orange-200 text-orange-700'
+}
+
+export function ValidationReview({
+  locale,
+  submissionId,
+  returnTo = null,
+}: {
+  locale: string
+  submissionId: string
+  /** The board this screen was opened from (`lib/clients/record-href.ts`), already validated. */
+  returnTo?: string | null
+}) {
   const t = useTranslations('PartnerValidation')
   const tForm = useTranslations('PartnerForm')
   const [load, setLoad] = useState<Load>({ state: 'loading' })
@@ -74,7 +93,7 @@ export function ValidationReview({ locale, submissionId }: { locale: string; sub
   const [cpfError, setCpfError] = useState(false)
   const [result, setResult] = useState<DecisionResult | null>(null)
   const [copied, setCopied] = useState(false)
-  const nextRef = useRef<HTMLAnchorElement | null>(null)
+  const primaryRef = useRef<HTMLAnchorElement | null>(null)
 
   const fetchReview = useCallback(async () => {
     setLoad({ state: 'loading' })
@@ -104,7 +123,7 @@ export function ValidationReview({ locale, submissionId }: { locale: string; sub
     [plan, offers.length, photos.length]
   )
 
-  const queueHref = `/${locale}/admin/clients`
+  const queueHref = `/${locale}${returnTo ?? '/admin/clients'}`
   const back = (
     <Link href={queueHref} className="text-sm font-medium text-primary-800 underline dark:text-tuggi-blue">
       {t('back')}
@@ -211,7 +230,7 @@ export function ValidationReview({ locale, submissionId }: { locale: string; sub
   const onDecided = (decision: DecisionResult) => {
     setResult(decision)
     setTicks(new Set())
-    void fetchReview().then(() => requestAnimationFrame(() => nextRef.current?.focus()))
+    void fetchReview().then(() => requestAnimationFrame(() => primaryRef.current?.focus()))
   }
 
   const doneText = result
@@ -294,440 +313,441 @@ export function ValidationReview({ locale, submissionId }: { locale: string; sub
   )
 
   return (
-    <div className="space-y-5 p-6">
-      <header className={`${CARD} sticky top-0 z-30 space-y-1 p-5`}>
-        {back}
-        <h1 className="break-words text-2xl font-bold text-gray-900 dark:text-white">{tradeName}</h1>
-        <p className="text-sm text-gray-700 dark:text-gray-300">
-          {t('headerLine', {
-            category,
-            city: answers.city ?? '—',
-            state: answers.state ?? '—',
-            date: formatDateTime(review.submittedAt),
-          })}{' '}
-          · <strong>{t(`status.${status}` as 'status.in_review')}</strong>
-        </p>
-      </header>
+    <RecordShell
+      titleAs="h1"
+      icon={<ClipboardCheck className="h-5 w-5 text-tuggi-blue" aria-hidden="true" />}
+      title={tradeName}
+      subtitle={t('headerLine', {
+        category,
+        city: answers.city ?? '—',
+        state: answers.state ?? '—',
+        date: formatDateTime(review.submittedAt),
+      })}
+      controls={<span className={cn(PILL, pillTone(status))}>{t(`status.${status}` as 'status.in_review')}</span>}
+      closeLabel={t('close')}
+      closeHref={queueHref}
+    >
+      {/* THE HEADER DOES NOT SCROLL (#870): it used to be a `sticky top-0` card of variable height
+          over a `sticky top-24` aside, and a two-line title covered the plan line. Each column
+          scrolls on its own now, and neither needs `sticky`. */}
+      <div className="min-w-0 flex-1 space-y-5 overflow-y-auto p-4 lg:p-8">
+        {doneText ? (
+          <div role="status" className={`${CARD} space-y-1 border-green-800 p-4 text-sm`}>
+            <Line tone="ok">{doneText}</Line>
+          </div>
+        ) : null}
 
-      {doneText ? (
-        <div role="status" className={`${CARD} space-y-1 border-green-800 p-4 text-sm`}>
-          <Line tone="ok">{doneText}</Line>
-        </div>
-      ) : null}
-
-      {band ? (
-        <div className={`${CARD} border-secondary-700 p-4 text-sm`}>
-          <p>{band}</p>
-          {status === 'changes_requested' && lastMessage('operator') ? (
-            <p className="mt-2 whitespace-pre-wrap text-gray-700 dark:text-gray-300">{lastMessage('operator')?.body}</p>
-          ) : null}
-        </div>
-      ) : resubmitted ? (
-        <div className={`${CARD} space-y-2 border-primary-800 p-4 text-sm`}>
-          <p className="font-medium">
-            {t('bands.resubmitted', { date: formatShortDate(lastTransitionTo('in_review')?.at) })}
-          </p>
-          {lastMessage('operator') ? (
-            <p className="whitespace-pre-wrap">
-              <span className="font-medium">
-                {t('bands.operatorRequest', {
-                  author: operatorName(lastMessage('operator')?.actorName ?? null),
-                  date: formatDateTime(lastMessage('operator')?.at),
-                })}
-                :{' '}
-              </span>
-              {lastMessage('operator')?.body}
-            </p>
-          ) : null}
-          {lastMessage('partner') ? (
-            <p className="whitespace-pre-wrap">
-              <span className="font-medium">{t('bands.placeAnswer', { date: formatDateTime(lastMessage('partner')?.at) })}: </span>
-              {lastMessage('partner')?.body}
-            </p>
-          ) : null}
-        </div>
-      ) : null}
-
-      <div className="grid gap-5 lg:grid-cols-[minmax(0,1fr)_360px]">
-        <div className="min-w-0 space-y-5">
-          {/* 1 · Empresa */}
-          <section className={`${CARD} p-6`}>
-            {blockHeader(t('company.title'), 'company', t('company.check'), changed('company'))}
-            <div className="mb-4 space-y-2">
-              {review.sameTaxId.length === 0 ? (
-                <Line tone="ok">{t('company.noDuplicate')}</Line>
-              ) : (
-                review.sameTaxId.map((other) => (
-                  <Line key={other.id} tone="warn">
-                    {t('company.duplicate', {
-                      name: other.tradeName ?? t('noTradeName'),
-                      state: t(`status.${other.status}` as 'status.in_review'),
-                    })}{' '}
-                    <Link className="underline" href={`/${locale}/admin/partnerships/validation/${other.id}`}>
-                      {t('company.open')}
-                    </Link>
-                  </Line>
-                ))
-              )}
-              <Line tone="warn">
-                {t('company.receitaManual')}{' '}
-                <a
-                  className="underline"
-                  href={`https://solucoes.receita.fazenda.gov.br/servicos/cnpjreva/cnpjreva_solicitacao.asp?cnpj=${taxDigits}`}
-                  target="_blank"
-                  rel="noreferrer"
-                >
-                  {t('company.openReceita')}
-                </a>
-              </Line>
-            </div>
-            {dl([
-              [t('company.legalName'), answers.legal_name],
-              [t('company.taxId'), answers.tax_id],
-              [t('company.tradeName'), answers.trade_name],
-              [t('company.category'), category],
-              [t('company.priceRange'), answers.price_range ? '$'.repeat(Number(answers.price_range) || 0) : null],
-              [
-                t('company.representative'),
-                [answers.representative_name, answers.representative_role].filter(Boolean).join(' · '),
-              ],
-              [
-                t('company.phone'),
-                answers.representative_phone ? (
-                  <a className="underline" href={`tel:+${answers.representative_phone.replace(/\D/g, '')}`}>
-                    {answers.representative_phone}
-                  </a>
-                ) : null,
-              ],
-              [t('company.email'), acceptance?.email],
-            ])}
-            <div className="mt-4 flex flex-wrap items-center gap-3 text-sm">
-              <span className="text-xs font-medium uppercase tracking-wide text-gray-500">{t('company.cpf')}</span>
-              <span className="font-mono">
-                {cpf ? formatCpf(cpf) : (acceptance?.signerCpfMasked ?? answers.representative_cpf ?? '—')}
-              </span>
-              {acceptance ? (
-                <Button variant="ghost" size="sm" aria-pressed={cpf !== null} onClick={() => void revealCpf()}>
-                  {cpf ? <EyeOff className="mr-1 h-4 w-4" aria-hidden="true" /> : <Eye className="mr-1 h-4 w-4" aria-hidden="true" />}
-                  {cpf ? t('company.hideCpf') : t('company.showCpf')}
-                </Button>
-              ) : null}
-              {cpfError ? <span role="alert" className="text-destructive">{t('company.cpfError')}</span> : null}
-            </div>
-            {acceptance?.cpfDiffers ? (
-              <div className="mt-2">
-                <Line tone="warn">{t('company.cpfDiffers')}</Line>
-              </div>
+        {band ? (
+          <div className={`${CARD} border-secondary-700 p-4 text-sm`}>
+            <p>{band}</p>
+            {status === 'changes_requested' && lastMessage('operator') ? (
+              <p className="mt-2 whitespace-pre-wrap text-gray-700 dark:text-gray-300">{lastMessage('operator')?.body}</p>
             ) : null}
-          </section>
+          </div>
+        ) : resubmitted ? (
+          <div className={`${CARD} space-y-2 border-primary-800 p-4 text-sm`}>
+            <p className="font-medium">
+              {t('bands.resubmitted', { date: formatShortDate(lastTransitionTo('in_review')?.at) })}
+            </p>
+            {lastMessage('operator') ? (
+              <p className="whitespace-pre-wrap">
+                <span className="font-medium">
+                  {t('bands.operatorRequest', {
+                    author: operatorName(lastMessage('operator')?.actorName ?? null),
+                    date: formatDateTime(lastMessage('operator')?.at),
+                  })}
+                  :{' '}
+                </span>
+                {lastMessage('operator')?.body}
+              </p>
+            ) : null}
+            {lastMessage('partner') ? (
+              <p className="whitespace-pre-wrap">
+                <span className="font-medium">{t('bands.placeAnswer', { date: formatDateTime(lastMessage('partner')?.at) })}: </span>
+                {lastMessage('partner')?.body}
+              </p>
+            ) : null}
+          </div>
+        ) : null}
 
-          {/* 2 · Local */}
-          <section className={`${CARD} p-6`}>
-            {blockHeader(t('place.title'), 'place', t('place.check'), changed('place', 'facade'))}
-            <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
-              <div>
-                <p className="mb-1 text-xs font-medium text-gray-600">{t('place.map')}</p>
-                <div className="h-60 overflow-hidden rounded-xl bg-gray-100 dark:bg-gray-800">
-                  {hasPin ? (
-                    <GoogleMapComponent
-                      center={{ lat, lng }}
-                      zoom={18}
-                      height="240px"
-                      markers={[{ id: 'pin', position: { lat, lng }, title: tradeName }]}
-                    />
-                  ) : (
-                    <p className="p-4 text-sm">{t('place.noPin')}</p>
-                  )}
-                </div>
-              </div>
-              <div>
-                <p className="mb-1 text-xs font-medium text-gray-600">{t('place.streetView')}</p>
-                <div className="flex h-60 flex-col items-center justify-center gap-2 rounded-xl bg-gray-100 p-4 text-center text-sm dark:bg-gray-800">
-                  {streetViewUrl ? (
-                    <>
-                      <p>{t('place.streetViewHint')}</p>
-                      <a className="inline-flex items-center gap-1 underline" href={streetViewUrl} target="_blank" rel="noreferrer">
-                        {t('place.openStreetView')}
-                        <ExternalLink className="h-3 w-3" aria-hidden="true" />
-                      </a>
-                    </>
-                  ) : (
-                    <p>{t('place.noPin')}</p>
-                  )}
-                </div>
-              </div>
-              <div>
-                <p className="mb-1 text-xs font-medium text-gray-600">{t('place.facade')}</p>
-                {facadePhoto ? (
-                  <a href={facadePhoto.url} target="_blank" rel="noreferrer" className="block h-60 overflow-hidden rounded-xl bg-gray-100 dark:bg-gray-800">
-                    {/* eslint-disable-next-line @next/next/no-img-element -- short-lived signed URL of a private bucket */}
-                    <img src={facadePhoto.url} alt={t('place.facadeAlt', { name: tradeName })} className="h-full w-full object-cover" />
-                  </a>
+        {/* 1 · Empresa */}
+        <section className={`${CARD} p-6`}>
+          {blockHeader(t('company.title'), 'company', t('company.check'), changed('company'))}
+          <div className="mb-4 space-y-2">
+            {review.sameTaxId.length === 0 ? (
+              <Line tone="ok">{t('company.noDuplicate')}</Line>
+            ) : (
+              review.sameTaxId.map((other) => (
+                <Line key={other.id} tone="warn">
+                  {t('company.duplicate', {
+                    name: other.tradeName ?? t('noTradeName'),
+                    state: t(`status.${other.status}` as 'status.in_review'),
+                  })}{' '}
+                  <Link className="underline" href={`/${locale}/admin/partnerships/validation/${other.id}`}>
+                    {t('company.open')}
+                  </Link>
+                </Line>
+              ))
+            )}
+            <Line tone="warn">
+              {t('company.receitaManual')}{' '}
+              <a
+                className="underline"
+                href={`https://solucoes.receita.fazenda.gov.br/servicos/cnpjreva/cnpjreva_solicitacao.asp?cnpj=${taxDigits}`}
+                target="_blank"
+                rel="noreferrer"
+              >
+                {t('company.openReceita')}
+              </a>
+            </Line>
+          </div>
+          {dl([
+            [t('company.legalName'), answers.legal_name],
+            [t('company.taxId'), answers.tax_id],
+            [t('company.tradeName'), answers.trade_name],
+            [t('company.category'), category],
+            [t('company.priceRange'), answers.price_range ? '$'.repeat(Number(answers.price_range) || 0) : null],
+            [
+              t('company.representative'),
+              [answers.representative_name, answers.representative_role].filter(Boolean).join(' · '),
+            ],
+            [
+              t('company.phone'),
+              answers.representative_phone ? (
+                <a className="underline" href={`tel:+${answers.representative_phone.replace(/\D/g, '')}`}>
+                  {answers.representative_phone}
+                </a>
+              ) : null,
+            ],
+            [t('company.email'), acceptance?.email],
+          ])}
+          <div className="mt-4 flex flex-wrap items-center gap-3 text-sm">
+            <span className="text-xs font-medium uppercase tracking-wide text-gray-500">{t('company.cpf')}</span>
+            <span className="font-mono">
+              {cpf ? formatCpf(cpf) : (acceptance?.signerCpfMasked ?? answers.representative_cpf ?? '—')}
+            </span>
+            {acceptance ? (
+              <Button variant="ghost" size="sm" aria-pressed={cpf !== null} onClick={() => void revealCpf()}>
+                {cpf ? <EyeOff className="mr-1 h-4 w-4" aria-hidden="true" /> : <Eye className="mr-1 h-4 w-4" aria-hidden="true" />}
+                {cpf ? t('company.hideCpf') : t('company.showCpf')}
+              </Button>
+            ) : null}
+            {cpfError ? <span role="alert" className="text-destructive">{t('company.cpfError')}</span> : null}
+          </div>
+          {acceptance?.cpfDiffers ? (
+            <div className="mt-2">
+              <Line tone="warn">{t('company.cpfDiffers')}</Line>
+            </div>
+          ) : null}
+        </section>
+
+        {/* 2 · Local */}
+        <section className={`${CARD} p-6`}>
+          {blockHeader(t('place.title'), 'place', t('place.check'), changed('place', 'facade'))}
+          <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
+            <div>
+              <p className="mb-1 text-xs font-medium text-gray-600">{t('place.map')}</p>
+              <div className="h-60 overflow-hidden rounded-xl bg-gray-100 dark:bg-gray-800">
+                {hasPin ? (
+                  <GoogleMapComponent
+                    center={{ lat, lng }}
+                    zoom={18}
+                    height="240px"
+                    markers={[{ id: 'pin', position: { lat, lng }, title: tradeName }]}
+                  />
                 ) : (
-                  <div className="flex h-60 items-center justify-center rounded-xl bg-gray-100 p-4 text-center text-sm dark:bg-gray-800">
-                    {t('place.noFacade')}
-                  </div>
+                  <p className="p-4 text-sm">{t('place.noPin')}</p>
                 )}
               </div>
             </div>
-            <p className="mt-3 break-words text-sm text-gray-800 dark:text-gray-200">
-              {[
-                [answers.address, answers.address_number].filter(Boolean).join(', '),
-                answers.district,
-                [answers.city, answers.state].filter(Boolean).join('/'),
-                answers.postal_code ? t('place.postalCode', { value: answers.postal_code }) : null,
-              ]
-                .filter(Boolean)
-                .join(' · ')}
-              {mapsUrl ? (
-                <>
-                  {' · '}
-                  <a className="underline" href={mapsUrl} target="_blank" rel="noreferrer">
-                    {t('place.openMaps')}
-                  </a>
-                </>
-              ) : null}
-            </p>
-            <p className="mt-1 text-xs text-gray-600 dark:text-gray-400">{t('place.hint')}</p>
-            <div className="mt-4">
+            <div>
+              <p className="mb-1 text-xs font-medium text-gray-600">{t('place.streetView')}</p>
+              <div className="flex h-60 flex-col items-center justify-center gap-2 rounded-xl bg-gray-100 p-4 text-center text-sm dark:bg-gray-800">
+                {streetViewUrl ? (
+                  <>
+                    <p>{t('place.streetViewHint')}</p>
+                    <a className="inline-flex items-center gap-1 underline" href={streetViewUrl} target="_blank" rel="noreferrer">
+                      {t('place.openStreetView')}
+                      <ExternalLink className="h-3 w-3" aria-hidden="true" />
+                    </a>
+                  </>
+                ) : (
+                  <p>{t('place.noPin')}</p>
+                )}
+              </div>
+            </div>
+            <div>
+              <p className="mb-1 text-xs font-medium text-gray-600">{t('place.facade')}</p>
+              {facadePhoto ? (
+                <a href={facadePhoto.url} target="_blank" rel="noreferrer" className="block h-60 overflow-hidden rounded-xl bg-gray-100 dark:bg-gray-800">
+                  {/* eslint-disable-next-line @next/next/no-img-element -- short-lived signed URL of a private bucket */}
+                  <img src={facadePhoto.url} alt={t('place.facadeAlt', { name: tradeName })} className="h-full w-full object-cover" />
+                </a>
+              ) : (
+                <div className="flex h-60 items-center justify-center rounded-xl bg-gray-100 p-4 text-center text-sm dark:bg-gray-800">
+                  {t('place.noFacade')}
+                </div>
+              )}
+            </div>
+          </div>
+          <p className="mt-3 break-words text-sm text-gray-800 dark:text-gray-200">
+            {[
+              [answers.address, answers.address_number].filter(Boolean).join(', '),
+              answers.district,
+              [answers.city, answers.state].filter(Boolean).join('/'),
+              answers.postal_code ? t('place.postalCode', { value: answers.postal_code }) : null,
+            ]
+              .filter(Boolean)
+              .join(' · ')}
+            {mapsUrl ? (
+              <>
+                {' · '}
+                <a className="underline" href={mapsUrl} target="_blank" rel="noreferrer">
+                  {t('place.openMaps')}
+                </a>
+              </>
+            ) : null}
+          </p>
+          <p className="mt-1 text-xs text-gray-600 dark:text-gray-400">{t('place.hint')}</p>
+          <div className="mt-4">
+            {dl([
+              [
+                t('place.hours'),
+                Object.keys(hours).length === 0
+                  ? t('place.notInformed')
+                  : DAYS.map((day) => (
+                      <span key={day} className="block">
+                        {t(`days.${day}`)}:{' '}
+                        {hours[day]?.length
+                          ? hours[day].map((range) => `${range.open}–${range.close}`).join(', ')
+                          : t('place.closed')}
+                      </span>
+                    )),
+              ],
+              [t('place.whatsapp'), answers.whatsapp],
+              [t('place.instagram'), answers.instagram],
+              [t('place.website'), answers.website],
+              [
+                t('place.amenities'),
+                amenities
+                  .map((id) => (t.has(`amenityLabels.${id}`) ? t(`amenityLabels.${id}`) : id))
+                  .join(', '),
+              ],
+              [
+                t('place.languages'),
+                languages
+                  .map((id) => (t.has(`languageLabels.${id}`) ? t(`languageLabels.${id}`) : id))
+                  .join(', '),
+              ],
+            ])}
+          </div>
+        </section>
+
+        {/* 3 · História */}
+        {paid ? (
+          <section className={`${CARD} p-6`}>
+            {blockHeader(t('story.title'), 'story', t('story.check'), changed('story'))}
+            <div className="space-y-2 rounded-xl bg-gray-50 p-4 text-sm dark:bg-gray-800">
+              <p className="font-medium">{t('story.told')}</p>
               {dl([
-                [
-                  t('place.hours'),
-                  Object.keys(hours).length === 0
-                    ? t('place.notInformed')
-                    : DAYS.map((day) => (
-                        <span key={day} className="block">
-                          {t(`days.${day}`)}:{' '}
-                          {hours[day]?.length
-                            ? hours[day].map((range) => `${range.open}–${range.close}`).join(', ')
-                            : t('place.closed')}
-                        </span>
-                      )),
-                ],
-                [t('place.whatsapp'), answers.whatsapp],
-                [t('place.instagram'), answers.instagram],
-                [t('place.website'), answers.website],
-                [
-                  t('place.amenities'),
-                  amenities
-                    .map((id) => (t.has(`amenityLabels.${id}`) ? t(`amenityLabels.${id}`) : id))
-                    .join(', '),
-                ],
-                [
-                  t('place.languages'),
-                  languages
-                    .map((id) => (t.has(`languageLabels.${id}`) ? t(`languageLabels.${id}`) : id))
-                    .join(', '),
-                ],
+                [t('story.founder'), answers.story_founder],
+                [t('story.unique'), answers.story_unique],
+                [t('story.event'), answers.story_event],
+                [t('story.signature'), answers.signature_item],
               ])}
             </div>
-          </section>
-
-          {/* 3 · História */}
-          {paid ? (
-            <section className={`${CARD} p-6`}>
-              {blockHeader(t('story.title'), 'story', t('story.check'), changed('story'))}
-              <div className="space-y-2 rounded-xl bg-gray-50 p-4 text-sm dark:bg-gray-800">
-                <p className="font-medium">{t('story.told')}</p>
-                {dl([
-                  [t('story.founder'), answers.story_founder],
-                  [t('story.unique'), answers.story_unique],
-                  [t('story.event'), answers.story_event],
-                  [t('story.signature'), answers.signature_item],
-                ])}
-              </div>
-              <p className="mt-4 text-xs font-medium uppercase tracking-wide text-gray-500">{t('story.script')}</p>
-              {script ? (
-                <p className="mt-1 whitespace-pre-wrap text-base leading-relaxed text-gray-900 dark:text-gray-100">{script}</p>
-              ) : (
-                <p className="mt-1 text-sm">{t('story.noScript')}</p>
-              )}
-              <div className="mt-2 space-y-1">
-                <p className={`text-sm ${words > STORY_WORD_LIMIT ? 'text-destructive' : 'text-gray-700 dark:text-gray-300'}`}>
-                  {t('story.words', { count: words, limit: STORY_WORD_LIMIT })}
-                  {words > STORY_WORD_LIMIT ? ` ${t('story.tooLong', { limit: STORY_WORD_LIMIT })}` : null}
-                </p>
-                {storyOffer ? <Line tone="warn">{t('story.offer', { excerpt: storyOffer })}</Line> : null}
-              </div>
-            </section>
-          ) : (
-            <p className="px-2 text-sm text-gray-600 dark:text-gray-400">{t('story.freePlan')}</p>
-          )}
-
-          {/* 4 · Ofertas */}
-          {offers.length > 0 ? (
-            <section className={`${CARD} p-6`}>
-              {blockHeader(t('offers.title'), 'offers', t('offers.check'), changed('offers'))}
-              <p className="-mt-2 mb-4 text-xs text-gray-600 dark:text-gray-400">{t('offers.rule')}</p>
-              <div className="space-y-3 text-sm">
-                {(
-                  [
-                    ['free', answers.offer_free],
-                    ['subscriber', answers.offer_subscriber],
-                  ] as const
-                ).map(([kind, text]) =>
-                  text ? (
-                    <div key={kind}>
-                      <p className="text-xs font-medium uppercase tracking-wide text-gray-500">{t(`offers.${kind}`)}</p>
-                      <p className="break-words text-gray-900 dark:text-gray-100">{text}</p>
-                      {offerLooksLikeTuggiOrMoney(text) ? <Line tone="warn">{t('offers.warning')}</Line> : null}
-                    </div>
-                  ) : null
-                )}
-              </div>
-            </section>
-          ) : null}
-
-          {/* 5 · Fotos — capped by plan and cutoff on the server (#809, contract §8.5). */}
-          {photos.length > 0 ? (
-            <section className={`${CARD} p-6`}>
-              {blockHeader(
-                t('photos.title', { count: photos.length }),
-                'photos',
-                t('photos.check'),
-                <>
-                  <span className="ml-2 text-sm font-normal text-gray-600 dark:text-gray-400">
-                    {t(paid ? 'photos.limitPaid' : 'photos.limitFree')}
-                  </span>
-                  {changed('photos')}
-                </>
-              )}
-              <ul className="grid grid-cols-2 gap-3 md:grid-cols-4">
-                {photos.map((photo, index) => (
-                  <li key={photo.path} className="relative aspect-[4/3] overflow-hidden rounded-xl bg-gray-100 dark:bg-gray-800">
-                    <a href={photo.url} target="_blank" rel="noreferrer" className="block h-full w-full">
-                      {/* eslint-disable-next-line @next/next/no-img-element -- short-lived signed URL of a private bucket */}
-                      <img
-                        src={photo.url}
-                        alt={t('photos.alt', { index: index + 1, count: photos.length, name: tradeName })}
-                        className="h-full w-full object-cover"
-                      />
-                    </a>
-                    {photo.role === 'facade' ? (
-                      <span className="absolute left-2 top-2 rounded-md bg-white/90 px-2 py-0.5 text-xs font-medium text-gray-900">
-                        {t('place.facade')}
-                      </span>
-                    ) : null}
-                  </li>
-                ))}
-              </ul>
-            </section>
-          ) : (
-            <p className="px-2 text-sm text-gray-600 dark:text-gray-400">{t('photos.none')}</p>
-          )}
-
-          {/* Aceite */}
-          <section className={`${CARD} p-6`}>
-            <h2 className="mb-3 text-lg font-bold text-gray-900 dark:text-white">{t('acceptance.title')}</h2>
-            {acceptance ? (
-              <ul className="space-y-1 text-sm">
-                <li>
-                  {t('acceptance.terms', { version: acceptance.termsVersion, date: formatDateTime(acceptance.acceptedAt) })}
-                </li>
-                <li className="flex flex-wrap items-center gap-2">
-                  <span className="font-mono">{t('acceptance.hash', { hash: acceptance.termsHash.slice(0, 12) })}</span>
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    onClick={() => {
-                      void navigator.clipboard?.writeText(acceptance.termsHash).then(() => setCopied(true))
-                    }}
-                  >
-                    {t('acceptance.copyHash')}
-                  </Button>
-                  {copied ? <span role="status">{t('acceptance.copied')}</span> : null}
-                </li>
-                <li>
-                  {t('acceptance.login', {
-                    method: acceptance.authMethod === 'otp' ? t('acceptance.methodOtp') : t('acceptance.methodLink'),
-                  })}
-                </li>
-                {acceptance.legalStatusDeclared ? (
-                  <li>
-                    <Line tone="ok">{t('acceptance.declared')}</Line>
-                  </li>
-                ) : null}
-                <li>
-                  {(() => {
-                    const marked = (['sticker', 'display', 'social'] as const).filter(
-                      (key) => acceptance.activationCommitment[key]
-                    )
-                    return marked.length
-                      ? t('acceptance.commitment', { items: marked.map((key) => t(`acceptance.${key}`)).join(', ') })
-                      : t('acceptance.commitmentNone')
-                  })()}
-                </li>
-                <li>
-                  {t('acceptance.marketing', {
-                    value: acceptance.marketingConsent ? t('acceptance.yes') : t('acceptance.no'),
-                  })}
-                </li>
-              </ul>
+            <p className="mt-4 text-xs font-medium uppercase tracking-wide text-gray-500">{t('story.script')}</p>
+            {script ? (
+              <p className="mt-1 whitespace-pre-wrap text-base leading-relaxed text-gray-900 dark:text-gray-100">{script}</p>
             ) : (
-              <Line tone="warn">{t('acceptance.missing')}</Line>
+              <p className="mt-1 text-sm">{t('story.noScript')}</p>
             )}
+            <div className="mt-2 space-y-1">
+              <p className={`text-sm ${words > STORY_WORD_LIMIT ? 'text-destructive' : 'text-gray-700 dark:text-gray-300'}`}>
+                {t('story.words', { count: words, limit: STORY_WORD_LIMIT })}
+                {words > STORY_WORD_LIMIT ? ` ${t('story.tooLong', { limit: STORY_WORD_LIMIT })}` : null}
+              </p>
+              {storyOffer ? <Line tone="warn">{t('story.offer', { excerpt: storyOffer })}</Line> : null}
+            </div>
           </section>
+        ) : (
+          <p className="px-2 text-sm text-gray-600 dark:text-gray-400">{t('story.freePlan')}</p>
+        )}
 
-          {/* Histórico */}
+        {/* 4 · Ofertas */}
+        {offers.length > 0 ? (
           <section className={`${CARD} p-6`}>
-            <h2 className="mb-3 text-lg font-bold text-gray-900 dark:text-white">{t('history.title')}</h2>
-            {review.history.length === 0 ? (
-              <p className="text-sm">{t('history.empty')}</p>
-            ) : (
-              <ol className="space-y-2 text-sm">
-                {review.history.map((entry, index) => {
-                  const kind = entry.kind === 'transition' ? entry.actorKind : entry.authorKind
-                  const actor =
-                    kind === 'operator'
-                      ? entry.actorName
-                        ? t('history.operator', { name: entry.actorName })
-                        : t('history.operatorUnnamed')
-                      : kind === 'partner'
-                        ? t('history.place')
-                        : t('history.system')
-                  const head =
-                    entry.kind === 'transition'
-                      ? t('history.transition', {
-                          date: formatDateTime(entry.at),
-                          from: t(`status.${entry.from}` as 'status.in_review'),
-                          to: t(`status.${entry.to}` as 'status.in_review'),
-                          actor,
-                        })
-                      : t('history.message', { date: formatDateTime(entry.at), actor })
-                  const body = entry.kind === 'transition' ? entry.note : entry.body
-                  return (
-                    <li key={index}>
-                      {body ? (
-                        <details>
-                          <summary className="cursor-pointer">{head}</summary>
-                          <p className="mt-1 whitespace-pre-wrap pl-4 text-gray-700 dark:text-gray-300">{body}</p>
-                        </details>
-                      ) : (
-                        <p>{head}</p>
-                      )}
-                    </li>
-                  )
+            {blockHeader(t('offers.title'), 'offers', t('offers.check'), changed('offers'))}
+            <p className="-mt-2 mb-4 text-xs text-gray-600 dark:text-gray-400">{t('offers.rule')}</p>
+            <div className="space-y-3 text-sm">
+              {(
+                [
+                  ['free', answers.offer_free],
+                  ['subscriber', answers.offer_subscriber],
+                ] as const
+              ).map(([kind, text]) =>
+                text ? (
+                  <div key={kind}>
+                    <p className="text-xs font-medium uppercase tracking-wide text-gray-500">{t(`offers.${kind}`)}</p>
+                    <p className="break-words text-gray-900 dark:text-gray-100">{text}</p>
+                    {offerLooksLikeTuggiOrMoney(text) ? <Line tone="warn">{t('offers.warning')}</Line> : null}
+                  </div>
+                ) : null
+              )}
+            </div>
+          </section>
+        ) : null}
+
+        {/* 5 · Fotos — capped by plan and cutoff on the server (#809, contract §8.5). */}
+        {photos.length > 0 ? (
+          <section className={`${CARD} p-6`}>
+            {blockHeader(
+              t('photos.title', { count: photos.length }),
+              'photos',
+              t('photos.check'),
+              <>
+                <span className="ml-2 text-sm font-normal text-gray-600 dark:text-gray-400">
+                  {t(paid ? 'photos.limitPaid' : 'photos.limitFree')}
+                </span>
+                {changed('photos')}
+              </>
+            )}
+            <ul className="grid grid-cols-2 gap-3 md:grid-cols-4">
+              {photos.map((photo, index) => (
+                <li key={photo.path} className="relative aspect-[4/3] overflow-hidden rounded-xl bg-gray-100 dark:bg-gray-800">
+                  <a href={photo.url} target="_blank" rel="noreferrer" className="block h-full w-full">
+                    {/* eslint-disable-next-line @next/next/no-img-element -- short-lived signed URL of a private bucket */}
+                    <img
+                      src={photo.url}
+                      alt={t('photos.alt', { index: index + 1, count: photos.length, name: tradeName })}
+                      className="h-full w-full object-cover"
+                    />
+                  </a>
+                  {photo.role === 'facade' ? (
+                    <span className="absolute left-2 top-2 rounded-md bg-white/90 px-2 py-0.5 text-xs font-medium text-gray-900">
+                      {t('place.facade')}
+                    </span>
+                  ) : null}
+                </li>
+              ))}
+            </ul>
+          </section>
+        ) : (
+          <p className="px-2 text-sm text-gray-600 dark:text-gray-400">{t('photos.none')}</p>
+        )}
+
+        {/* Aceite */}
+        <section className={`${CARD} p-6`}>
+          <h2 className="mb-3 text-lg font-bold text-gray-900 dark:text-white">{t('acceptance.title')}</h2>
+          {acceptance ? (
+            <ul className="space-y-1 text-sm">
+              <li>
+                {t('acceptance.terms', { version: acceptance.termsVersion, date: formatDateTime(acceptance.acceptedAt) })}
+              </li>
+              <li className="flex flex-wrap items-center gap-2">
+                <span className="font-mono">{t('acceptance.hash', { hash: acceptance.termsHash.slice(0, 12) })}</span>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => {
+                    void navigator.clipboard?.writeText(acceptance.termsHash).then(() => setCopied(true))
+                  }}
+                >
+                  {t('acceptance.copyHash')}
+                </Button>
+                {copied ? <span role="status">{t('acceptance.copied')}</span> : null}
+              </li>
+              <li>
+                {t('acceptance.login', {
+                  method: acceptance.authMethod === 'otp' ? t('acceptance.methodOtp') : t('acceptance.methodLink'),
                 })}
-              </ol>
-            )}
-          </section>
-        </div>
+              </li>
+              {acceptance.legalStatusDeclared ? (
+                <li>
+                  <Line tone="ok">{t('acceptance.declared')}</Line>
+                </li>
+              ) : null}
+              <li>
+                {(() => {
+                  const marked = (['sticker', 'display', 'social'] as const).filter(
+                    (key) => acceptance.activationCommitment[key]
+                  )
+                  return marked.length
+                    ? t('acceptance.commitment', { items: marked.map((key) => t(`acceptance.${key}`)).join(', ') })
+                    : t('acceptance.commitmentNone')
+                })()}
+              </li>
+              <li>
+                {t('acceptance.marketing', {
+                  value: acceptance.marketingConsent ? t('acceptance.yes') : t('acceptance.no'),
+                })}
+              </li>
+            </ul>
+          ) : (
+            <Line tone="warn">{t('acceptance.missing')}</Line>
+          )}
+        </section>
 
-        <div>
-          <ValidationDecision
-            review={review}
-            tradeName={tradeName}
-            locale={locale}
-            done={done}
-            total={items.length}
-            readOnly={readOnly}
-            decided={decided}
-            onDecided={onDecided}
-            onConflict={() => void fetchReview()}
-            nextRef={nextRef}
-          />
-        </div>
+        {/* Histórico */}
+        <section className={`${CARD} p-6`}>
+          <h2 className="mb-3 text-lg font-bold text-gray-900 dark:text-white">{t('history.title')}</h2>
+          {review.history.length === 0 ? (
+            <p className="text-sm">{t('history.empty')}</p>
+          ) : (
+            <ol className="space-y-2 text-sm">
+              {review.history.map((entry, index) => {
+                const kind = entry.kind === 'transition' ? entry.actorKind : entry.authorKind
+                const actor =
+                  kind === 'operator'
+                    ? entry.actorName
+                      ? t('history.operator', { name: entry.actorName })
+                      : t('history.operatorUnnamed')
+                    : kind === 'partner'
+                      ? t('history.place')
+                      : t('history.system')
+                const head =
+                  entry.kind === 'transition'
+                    ? t('history.transition', {
+                        date: formatDateTime(entry.at),
+                        from: t(`status.${entry.from}` as 'status.in_review'),
+                        to: t(`status.${entry.to}` as 'status.in_review'),
+                        actor,
+                      })
+                    : t('history.message', { date: formatDateTime(entry.at), actor })
+                const body = entry.kind === 'transition' ? entry.note : entry.body
+                return (
+                  <li key={index}>
+                    {body ? (
+                      <details>
+                        <summary className="cursor-pointer">{head}</summary>
+                        <p className="mt-1 whitespace-pre-wrap pl-4 text-gray-700 dark:text-gray-300">{body}</p>
+                      </details>
+                    ) : (
+                      <p>{head}</p>
+                    )}
+                  </li>
+                )
+              })}
+            </ol>
+          )}
+        </section>
       </div>
-    </div>
+
+      <div className="shrink-0 overflow-y-auto border-t border-gray-100 p-6 dark:border-gray-800 lg:w-[360px] lg:border-l lg:border-t-0">
+        <ValidationDecision
+          review={review}
+          tradeName={tradeName}
+          locale={locale}
+          done={done}
+          total={items.length}
+          readOnly={readOnly}
+          decided={decided}
+          onDecided={onDecided}
+          onConflict={() => void fetchReview()}
+          returnTo={returnTo}
+          primaryRef={primaryRef}
+        />
+      </div>
+    </RecordShell>
   )
 }

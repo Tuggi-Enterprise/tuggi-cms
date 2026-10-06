@@ -3547,6 +3547,7 @@
   },
   "PartnerValidation": {
     "back": "← Fila de validação",
+    "close": "Voltar ao quadro",
     "loading": "Carregando o cadastro…",
     "readError": "Não foi possível abrir este cadastro.",
     "retry": "Tentar de novo",
@@ -3728,8 +3729,8 @@
       "reject": "Recusar",
       "shortcut": "Atalho: {key}",
       "next": "Próximo da fila",
-      "queueEmpty": "A fila está vazia.",
-      "backToQueue": "Voltar à fila"
+      "openClient": "Abrir o cadastro do cliente",
+      "openPlace": "Abrir o local no editor"
     },
     "dialogs": {
       "cancel": "Cancelar",
@@ -3785,8 +3786,8 @@
       "rejectError": "Não foi possível recusar. Nada foi alterado — tente de novo."
     },
     "done": {
-      "approvedPaid": "Aprovado. O local entra no app quando a narração ficar pronta.",
-      "approvedFree": "Aprovado. O local já está no app.",
+      "approvedPaid": "Aprovado. Faltam a narração, o boundary e a publicação.",
+      "approvedFree": "Aprovado. Falta desenhar o boundary e publicar.",
       "changes": "Pedido enviado. O prazo pausou até o local responder.",
       "rejectedRefund": "Recusado. O reembolso de {total} foi pedido.",
       "rejected": "Recusado."

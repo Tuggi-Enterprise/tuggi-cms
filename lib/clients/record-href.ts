@@ -47,9 +47,12 @@ export function recordHref(
   current: URLSearchParams,
   target: DetailTarget
 ): string {
-  if (target.kind === 'proposal') return proposalHref(locale, current, target.submissionId)
+  if (target.kind === 'proposal') {
+    return pageHref(locale, current, `/admin/partnerships/proposals/${target.submissionId}`)
+  }
+  // The validation is a page too, and its `X` goes back to the board it came from (#870).
   if (target.kind === 'validation') {
-    return `/${locale}/admin/partnerships/validation/${target.submissionId}`
+    return pageHref(locale, current, `/admin/partnerships/validation/${target.submissionId}`)
   }
 
   const params = new URLSearchParams(current.toString())
@@ -60,7 +63,7 @@ export function recordHref(
 }
 
 /**
- * A proposal is a PAGE and not a drawer, so the list does not stay behind it — the way back has
+ * A proposal — and a validation — is a PAGE and not a drawer, so the list does not stay behind it — the way back has
  * to be declared, which is what `returnTo` is for (DS-LAYOUT-006, point 2). Before this, the
  * proposal link carried no `returnTo` at all and the only way back was the browser's button,
  * which is the same defect the drawer had, one screen further along.
@@ -68,7 +71,7 @@ export function recordHref(
  * The path it returns to keeps the locale prefix off, because `parseReturnTo` accepts an in-app
  * path and the proposal screen pushes it as given.
  */
-function proposalHref(locale: string, current: URLSearchParams, submissionId: string): string {
+function pageHref(locale: string, current: URLSearchParams, path: string): string {
   // The list to come back to is the list, not the list with somebody's record open over it: a
   // `returnTo` carrying `clientId` would reopen the drawer the operator left through.
   const back = new URLSearchParams(current.toString())
@@ -76,5 +79,5 @@ function proposalHref(locale: string, current: URLSearchParams, submissionId: st
   const query = back.toString()
   const home = `/admin/clients${query ? `?${query}` : ''}`
   const params = new URLSearchParams({ [RETURN_TO_PARAM]: home })
-  return `/${locale}/admin/partnerships/proposals/${submissionId}?${params.toString()}`
+  return `/${locale}${path}?${params.toString()}`
 }
