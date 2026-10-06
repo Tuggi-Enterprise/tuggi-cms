@@ -77,6 +77,8 @@ function deps(asaas: ReturnType<typeof fakeAsaas>, db: ReturnType<typeof fakeDb>
     admin: db.rpc,
     subscriptionIds: async () => sub,
     subscriptionById: async (id: string) => (sub && id === SUB_UUID ? sub : null),
+    expiredLiveCards: async () => [],
+    cancelsToRedo: async () => [],
     alert: async (what: string, fields: Record<string, unknown>) => {
       alerts.push({ what, fields })
     },

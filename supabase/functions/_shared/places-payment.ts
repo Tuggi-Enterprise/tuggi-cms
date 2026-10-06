@@ -87,6 +87,9 @@ export type ExpiredCardRow = {
   early_termination_paid_at: string | null;
 };
 
+/** A row of `Deps.cancelsToRedo`: the subscription, plus the day the fee falls due. */
+export type CancelRedoRow = SubscriptionIds & { paid_through: string };
+
 export type Deps = {
   asaas: AsaasClient;
   /** `service_role`. */
@@ -106,6 +109,13 @@ export type Deps = {
    * a read error.
    */
   expiredLiveCards: () => Promise<ExpiredCardRow[]>;
+  /**
+   * `partner.place_subscriptions` cancelled whose Asaas half may not have landed: `renews` false,
+   * `early_termination_fee_cents` set, `early_termination_paid_at` null, `canceled_at` null,
+   * `provider_subscription_id` and `paid_through` set. The sweep redoes `redoCancelAtAsaas` on them
+   * (it drops the rows past `paid_through`). Throws on a read error.
+   */
+  cancelsToRedo: () => Promise<CancelRedoRow[]>;
   /** `place_subscriptions.acceptance_id → place_acceptances.submission_id`, by our id or Asaas' `sub_…`. */
   submissionOfSubscription: (subscriptionId: string | null, providerSubscriptionId: string | null) => Promise<string | null>;
   /** `issueAccessLink` of `places-portal-draft.ts` (#863, §7.3): the access e-mail of a settled submission. */
@@ -762,29 +772,54 @@ export async function cancelRenewal(deps: PortalDeps, submissionId: string, expe
 }
 
 /**
- * A repeated cancel finds the database already cancelled, but the Asaas half may never have landed
- * (Asaas failed — `cancel_fee_not_scheduled` / `cancel_end_date_failed` — or the EF died in between):
- * on card the subscription is then live at the full monthly with no `endDate`, and Asaas would charge
- * it on `paid_through`. Redo what is idempotent, from the row read with service_role:
+ * The Asaas half of a cancel may never have landed (Asaas failed — `cancel_fee_not_scheduled` /
+ * `cancel_end_date_failed` — or the EF died in between): on card the subscription is then live at the
+ * full monthly with no `endDate`, and Asaas would charge it on `paid_through`. The panel stops offering
+ * the button once the database cancelled, so two callers redo it: a repeated cancel
+ * (`resumeCancelAtAsaas`) and the daily sweep (`runSweep`, `cancelsToRedo`). Idempotent, from the row
+ * read with service_role:
  *
  * - fee > 0, card, not paid yet: `chargeEarlyTermination` again (PUT `value` = fee with
  *   `updatePendingPayments`, `endDate`, later pendings deleted — the same request gives the same state);
  * - fee 0: `endAtCommitment` again (`endDate` = eve of `paid_through`);
- * - fee > 0 on Pix: not redone — `createPixPayment` is not idempotent, and the recurrence ended at the
- *   first call (or that call alerted the operator).
+ * - fee > 0 on Pix, not paid yet: only the recurrence is ended again (`endProviderSubscription`; a
+ *   404/400 there is "already gone"). Never `createPixPayment` — it is not idempotent, and the one-off
+ *   went (or alerted the operator) at the first call.
  *
  * Nothing when the fee column is null (renewal turned off before 20261006170000: the old rule still
- * charges the commitment's months), when the subscription is already ended, or after `paid_through`
- * (the sweep's turn). No e-mail: it went at the first call.
+ * charges the commitment's months), when the fee is paid, when the subscription is already ended, or
+ * after `paid_through` (the expiry's turn). No e-mail: it went at the first call.
  */
+async function redoCancelAtAsaas(deps: Deps, ids: SubscriptionIds, paidThrough: string): Promise<void> {
+  const chargeOn = saoPauloDate(new Date(paidThrough));
+  if (deps.today() > chargeOn) return;
+  if (!ids.provider_subscription_id || ids.canceled_at || ids.early_termination_fee_cents == null) return;
+  const fee = ids.early_termination_fee_cents;
+  if (fee === 0) return endAtCommitment(deps, ids, paidThrough);
+  if (ids.early_termination_paid_at) return;
+  if (ids.payment_method !== 'pix_automatic') {
+    await chargeEarlyTermination(deps, ids, fee, chargeOn);
+    return;
+  }
+  try {
+    await endProviderSubscription(deps, ids);
+  } catch (e) {
+    await deps.alert('cancel_fee_not_scheduled', {
+      subscription_id: ids.subscription_id,
+      reason: 'pix_end_recurrence',
+      fee_cents: fee,
+      error: e instanceof Error ? e.message : null,
+    });
+  }
+}
+
+/** Repeated cancel (`not_applicable`): `redoCancelAtAsaas` on the submission's subscription. */
 async function resumeCancelAtAsaas(
   deps: Deps,
   submissionId: string,
   row: { renews: boolean; paid_through: string | null },
 ): Promise<void> {
   if (row.renews || !row.paid_through) return;
-  const chargeOn = saoPauloDate(new Date(row.paid_through));
-  if (deps.today() > chargeOn) return;
   let ids: SubscriptionIds | null;
   try {
     ids = await deps.subscriptionIds(submissionId);
@@ -792,11 +827,7 @@ async function resumeCancelAtAsaas(
     await deps.alert('cancel_resume_failed', { submission_id: submissionId, error: e instanceof Error ? e.message : 'unknown' });
     return;
   }
-  if (!ids || !ids.provider_subscription_id || ids.canceled_at || ids.early_termination_fee_cents == null) return;
-  const fee = ids.early_termination_fee_cents;
-  if (fee === 0) return endAtCommitment(deps, ids, row.paid_through);
-  if (ids.payment_method === 'pix_automatic' || ids.early_termination_paid_at) return;
-  await chargeEarlyTermination(deps, ids, fee, chargeOn);
+  if (ids) await redoCancelAtAsaas(deps, ids, row.paid_through);
 }
 
 /** `endDate` = the eve of the commitment end (São Paulo): Asaas generates no fee from that day on. */
@@ -1378,6 +1409,20 @@ export async function runSweep(deps: Deps): Promise<Record<string, unknown>> {
 
   const refunds = await pendingRefunds(deps);
   summary.refunds = refunds ? await processRefunds(deps, refunds) : 'db_error';
+
+  // places-portal-rascunho §8.4: the Asaas half of a cancel that did not land is redone every day
+  // until `paid_through` — the panel no longer offers the button. A read error leaves it for tomorrow.
+  try {
+    let n = 0;
+    for (const r of await deps.cancelsToRedo()) {
+      await redoCancelAtAsaas(deps, r, r.paid_through);
+      n++;
+    }
+    summary.cancel_redone = n;
+  } catch (e) {
+    summary.cancel_redone = 'db_error';
+    await deps.alert('sweep_cancel_redo_failed', { error: e instanceof Error ? e.message : 'unknown' });
+  }
 
   // Card rows are ended by `expiredLiveCards` below, not here: the expiry comes at `paid_through`,
   // the same day the early-termination fee is charged, and the DELETE would erase it (§3.3).

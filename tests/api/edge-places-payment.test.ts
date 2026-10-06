@@ -75,6 +75,7 @@ function deps(asaas: ReturnType<typeof fakeAsaas>, db: ReturnType<typeof fakeDb>
     subscriptionIds: async () => null,
     subscriptionById: async () => null,
     expiredLiveCards: async () => [],
+    cancelsToRedo: async () => [],
     alert: async (what: string, fields: Record<string, unknown>) => {
       alerts.push({ what, fields })
     },
@@ -577,10 +578,19 @@ test('#863: cancel again with fee 0 — redoes endDate = eve of paid_through', a
   assert.deepEqual(asaas.calls.map((c) => `${c.method} ${c.path} ${JSON.stringify(c.body)}`), ['PUT /subscriptions/sub_1 {"endDate":"2027-01-05"}'])
 })
 
-test('#863: cancel again redoes nothing when the fee is paid, on Pix with fee, before 170000 (fee column null), with the subscription ended, or after paid_through', async () => {
+test('#863: cancel again on Pix with the fee unpaid — ends the recurrence again (subscription + authorization), never a second one-off Pix', async () => {
+  const asaas = fakeAsaas([at('DELETE', '/subscriptions/sub_1', 404, { errors: [] }), at('DELETE', '/pix/automatic/authorizations/aut_1', 400, { errors: [] })])
+  const { d, alerts } = cancelPortal(asaas, fakeDb({}), fakeDb(repeated(13500)))
+  ;(d as Record<string, unknown>).subscriptionIds = async () => cancelled(13500, { payment_method: 'pix_automatic', provider_authorization_id: 'aut_1' })
+  assert.deepEqual(await pay.cancelRenewal(d as never, SUBMISSION), { status: 200, body: { result: 'not_renewing' } })
+  assert.deepEqual(asaas.calls.map((c) => `${c.method} ${c.path}`), ['DELETE /subscriptions/sub_1', 'DELETE /pix/automatic/authorizations/aut_1'])
+  assert.deepEqual(alerts, [])
+})
+
+test('#863: cancel again redoes nothing when the fee is paid, on Pix with fee paid, before 170000 (fee column null), with the subscription ended, or after paid_through', async () => {
   const cases: [string, number, Record<string, unknown>, string?][] = [
     ['fee paid', 13500, { early_termination_paid_at: '2027-01-06T12:00:00Z', early_termination_payment_id: 'pay_a' }],
-    ['pix', 13500, { payment_method: 'pix_automatic' }],
+    ['pix paid', 13500, { payment_method: 'pix_automatic', early_termination_paid_at: '2027-01-06T12:00:00Z' }],
     ['pre-170000', 0, { early_termination_fee_cents: null }],
     ['ended', 13500, { canceled_at: '2027-01-07T03:00:00Z' }],
     ['past paid_through', 13500, {}, '2027-01-07'],
@@ -756,6 +766,67 @@ test('#863 (20261006170000 D6): the expired-cards read failing alerts and DELETE
   assert.equal(s.expired_card, 'db_error')
   assert.equal(asaas.calls.length, 0)
   assert.ok(alerts.some((a) => a.what === 'sweep_expired_cards_failed'))
+})
+
+// security-reviewer #863: the panel drops the button once the database cancelled, so the sweep redoes the Asaas half.
+const sweepDb = () => fakeDb({ place_pending_refunds: { data: [] }, expire_place_subscriptions: { data: [] }, place_commitments_ending: { data: [] }, place_renewal_schedule: { data: [] } })
+const redoRow = (over: Record<string, unknown> = {}) => ({
+  ...cancelled(13500), status: 'active', provider_authorization_id: null, paid_through: '2027-01-06T15:00:00Z', ...over,
+})
+
+test('#863 places-portal-rascunho §8.4 BR-B2B-046: the sweep redoes a card cancel whose Asaas half did not land — value = fee, endDate = paid_through, later pendings deleted; the same every day', async () => {
+  for (const day of ['2026-10-04', '2026-10-05', '2027-01-06']) {
+    const asaas = fakeAsaas([
+      at('PUT', '/subscriptions/sub_1', 200, {}),
+      at('GET', '/payments?subscription=sub_1&status=PENDING', 200, { data: [{ id: 'pay_a', status: 'PENDING', dueDate: '2027-01-06' }, { id: 'pay_b', status: 'PENDING', dueDate: '2027-02-06' }] }),
+      at('DELETE', '/payments/pay_b', 200, { deleted: true }),
+    ])
+    const { d, alerts } = deps(asaas, sweepDb(), { today: () => day, cancelsToRedo: async () => [redoRow()] })
+    const s = await pay.runSweep(d)
+    assert.equal(s.cancel_redone, 1, day)
+    assert.deepEqual(asaas.calls.map((c) => `${c.method} ${c.path}`), ['PUT /subscriptions/sub_1', 'GET /payments?subscription=sub_1&status=PENDING', 'DELETE /payments/pay_b'], day)
+    assert.deepEqual(asaas.calls[0].body, { value: 135, endDate: '2027-01-06', updatePendingPayments: true }, day)
+    assert.ok(!asaas.calls.some((c) => c.method === 'POST'), day)
+    assert.deepEqual(alerts, [], day)
+  }
+  // fee 0: endDate = eve of paid_through
+  const zero = fakeAsaas([at('PUT', '/subscriptions/sub_1', 200, {})])
+  await pay.runSweep(deps(zero, sweepDb(), { cancelsToRedo: async () => [redoRow({ early_termination_fee_cents: 0 })] }).d)
+  assert.deepEqual(zero.calls.map((c) => `${c.method} ${c.path} ${JSON.stringify(c.body)}`), ['PUT /subscriptions/sub_1 {"endDate":"2027-01-05"}'])
+})
+
+test('#863 §8.4: the sweep redoes nothing for a paid fee, an ended subscription, a pre-170000 row (fee null) or past paid_through', async () => {
+  const cases: [string, Record<string, unknown>, string?][] = [
+    ['paid', { early_termination_paid_at: '2027-01-06T12:00:00Z' }],
+    ['ended', { canceled_at: '2027-01-07T03:00:00Z' }],
+    ['pre-170000', { early_termination_fee_cents: null }],
+    ['past paid_through', {}, '2027-01-07'],
+  ]
+  for (const [why, over, today] of cases) {
+    const asaas = fakeAsaas([])
+    const { d } = deps(asaas, sweepDb(), { cancelsToRedo: async () => [redoRow(over)], ...(today ? { today: () => today } : {}) })
+    await pay.runSweep(d)
+    assert.equal(asaas.calls.length, 0, why)
+  }
+})
+
+test('#863 §8.4: on Pix the sweep only ends the recurrence again (404/400 = already gone) — never a one-off Pix', async () => {
+  const asaas = fakeAsaas([at('DELETE', '/subscriptions/sub_1', 404, { errors: [] }), at('DELETE', '/pix/automatic/authorizations/aut_1', 400, { errors: [] })])
+  const { d, alerts } = deps(asaas, sweepDb(), { cancelsToRedo: async () => [redoRow({ payment_method: 'pix_automatic', provider_authorization_id: 'aut_1' })] })
+  const s = await pay.runSweep(d)
+  assert.equal(s.cancel_redone, 1)
+  assert.deepEqual(asaas.calls.map((c) => `${c.method} ${c.path}`), ['DELETE /subscriptions/sub_1', 'DELETE /pix/automatic/authorizations/aut_1'])
+  assert.deepEqual(alerts, [])
+})
+
+test('#863 §8.4: the cancels-to-redo read failing alerts and the rest of the sweep still runs', async () => {
+  const asaas = fakeAsaas([at('DELETE', '/subscriptions/', 200, { deleted: true })])
+  const db = fakeDb({ place_pending_refunds: { data: [] }, expire_place_subscriptions: { data: [{ subscription_id: SUB_UUID, payment_method: 'pix_automatic', provider_subscription_id: 'sub_p', canceled_at: null }] }, cancel_place_subscription: { data: [{ outcome: 'applied' }] }, place_commitments_ending: { data: [] }, place_renewal_schedule: { data: [] } })
+  const { d, alerts } = deps(asaas, db, { cancelsToRedo: async () => { throw new Error('cancels to redo read 500') } })
+  const s = await pay.runSweep(d)
+  assert.equal(s.cancel_redone, 'db_error')
+  assert.equal(s.expired, 1)
+  assert.ok(alerts.some((a) => a.what === 'sweep_cancel_redo_failed'))
 })
 
 // ─── #863: the cookie's checkout and the access link after the first charge ─────────────────────

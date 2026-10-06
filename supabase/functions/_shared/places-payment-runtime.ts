@@ -12,7 +12,7 @@
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
 import { createAdminClient, getPublishableKey, getSupabaseUrl } from './supabase-client.ts';
 import { asaasClient } from './asaas.ts';
-import { saoPauloDate, type Deps, type ExpiredCardRow, type Rpc, type SubscriptionIds } from './places-payment.ts';
+import { saoPauloDate, type CancelRedoRow, type Deps, type ExpiredCardRow, type Rpc, type SubscriptionIds } from './places-payment.ts';
 import { issueAccessLink } from './places-portal-draft.ts';
 import { accessLinkDeps } from './places-access-link-runtime.ts';
 
@@ -122,6 +122,21 @@ export function baseDeps(asaas: NonNullable<ReturnType<typeof asaasFromEnv>>): D
       if (error) throw new Error(`expired cards read ${error.code}`);
       // deno-lint-ignore no-explicit-any
       return (data ?? []).map(({ id, ...r }: any) => ({ subscription_id: id, ...r }));
+    },
+    cancelsToRedo: async (): Promise<CancelRedoRow[]> => {
+      const { data, error } = await admin
+        .schema('partner')
+        .from('place_subscriptions')
+        .select(`${SUBSCRIPTION_COLUMNS}, paid_through`)
+        .eq('renews', false)
+        .not('early_termination_fee_cents', 'is', null)
+        .is('early_termination_paid_at', null)
+        .is('canceled_at', null)
+        .not('provider_subscription_id', 'is', null)
+        .not('paid_through', 'is', null);
+      if (error) throw new Error(`cancels to redo read ${error.code}`);
+      // deno-lint-ignore no-explicit-any
+      return (data ?? []).map((r: any) => ({ ...toIds(r)!, paid_through: r.paid_through }));
     },
     submissionOfSubscription: async (subscriptionId, providerSubscriptionId) => {
       if (!subscriptionId && !providerSubscriptionId) return null;
