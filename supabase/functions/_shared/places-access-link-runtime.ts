@@ -62,11 +62,6 @@ export function authAdmin(admin: Admin): Pick<Deps['auth'], 'ensureUser' | 'magi
 export function submissionReads(admin: Admin): Deps['submissions'] {
   const table = () => admin.schema('partner').from('place_submissions');
   return {
-    async tradeName(submissionId) {
-      const { data, error } = await table().select('trade_name:answers->>trade_name').eq('id', submissionId).maybeSingle();
-      if (error) throw new Error(`submission read ${error.code}`);
-      return typeof data?.trade_name === 'string' ? data.trade_name : null;
-    },
     async settledOwnerless(email) {
       // `contact_email` is stored lower-cased (`place_clean_email`); partial index
       // `place_submissions_anonymous_contact_email_idx` (account_id IS NULL).
@@ -100,6 +95,5 @@ export function accessLinkDeps(admin: Admin = createAdminClient()): AccessLinkDe
         return { data: null, error: { code: 'network' } };
       }
     },
-    tradeName: (id) => submissionReads(admin).tradeName(id),
   };
 }

@@ -74,12 +74,10 @@ export type Deps = {
   /** 32 random bytes, base64url (43 chars): the claim token of a link this function draws. */
   randomToken(): string;
   /**
-   * Service-role reads of `partner.place_submissions` for the access e-mail, outside the RPC list:
-   * the trade name (the only data of the submission the e-mail carries), and the latest ownerless
+   * Service-role read of `partner.place_submissions`, outside the RPC list: the latest ownerless
    * submission of an e-mail past the acceptance and the payment (the login fallback, §7).
    */
   submissions: {
-    tradeName(submissionId: string): Promise<string | null>;
     settledOwnerless(email: string): Promise<string | null>;
   };
   origin: string;
@@ -90,7 +88,6 @@ export type AccessLinkDeps = Pick<Deps, 'sendEmail' | 'sha256Hex' | 'randomToken
   auth: Pick<Deps['auth'], 'ensureUser' | 'magicLink'>;
   /** `partner.place_issue_claim(p_submission_id, p_claim_sha256)` with the service role. */
   issueClaim(submissionId: string, claimSha256: string): Promise<{ data: unknown; error: RpcError | null }>;
-  tradeName(submissionId: string): Promise<string | null>;
 };
 
 export type Result = { status: number; body: Record<string, unknown> };
@@ -168,28 +165,21 @@ export function linkEmail(url: string): { subject: string; html: string; text: s
 /** Sender display name of the access e-mail (spec of the `design`, #863 §2). */
 export const ACCESS_FROM_NAME = 'Tuggi Locais';
 
-/** The trade name as it may go in a subject: no control char, one line, ≤ 80 chars. */
-export function cleanTradeName(v: unknown): string | null {
-  if (typeof v !== 'string') return null;
-  const n = v.replace(/[\u0000-\u001f\u007f]+/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 80).trim();
-  return n || null;
-}
-
 /**
  * The access e-mail (spec of the `design`, #863 §2): fixed text, the same for the paid and the free
- * plan. The only data of the submission is the trade name — no CPF, CNPJ or amount (the e-mail is
- * not confirmed, BR-B2B-043). "1 hora" is the real validity: `place_issue_claim` 1 h = GoTrue
+ * plan, with NO data of the submission — no trade name, CPF, CNPJ or amount. The e-mail is not
+ * confirmed (BR-B2B-043), so anyone can aim it at any address: a trade name typed by the caller in
+ * a subject sent from our domain with valid DKIM would be phishing with our brand (security review
+ * of #863). "1 hora" is the real validity: `place_issue_claim` 1 h = GoTrue
  * `otp_expiry` 3600. The host is the portal's, the one the link opens.
  */
-export function accessEmail(tradeName: string | null, url: string, origin: string): { subject: string; html: string; text: string } {
-  const name = cleanTradeName(tradeName) ?? 'Seu local';
+export function accessEmail(url: string, origin: string): { subject: string; html: string; text: string } {
   const host = new URL(origin).host;
-  const subject = `${name} está em validação no Tuggi`;
+  const subject = 'Seu local está em validação no Tuggi';
   const preheader = 'Acompanhe o cadastro pelo link abaixo.';
   const lines = {
     hello: 'Olá,',
-    before: 'recebemos o cadastro de ',
-    after: ' no Tuggi, e a validação começou. Uma pessoa da Tuggi confere o local em até 2 dias úteis, e avisamos por este e-mail a cada etapa.',
+    received: 'recebemos o cadastro do seu local no Tuggi, e a validação começou. Uma pessoa da Tuggi confere o local em até 2 dias úteis, e avisamos por este e-mail a cada etapa.',
     lead: 'Pelo botão abaixo você acompanha a validação, envia documentos e edita o local.',
     cta: 'Acompanhar o cadastro',
     ttl: `O botão vale por 1 hora e funciona uma vez. Depois disso, entre em ${host} com este e-mail, e mandamos outro.`,
@@ -201,7 +191,7 @@ export function accessEmail(tradeName: string | null, url: string, origin: strin
     `<div style="display:none;max-height:0;overflow:hidden;opacity:0;mso-hide:all">${escapeHtml(preheader)}</div>`,
     CARD_OPEN,
     `<p style="${P}">${lines.hello}</p>`,
-    `<p style="${P}">${escapeHtml(lines.before)}<strong>${escapeHtml(name)}</strong>${escapeHtml(lines.after)}</p>`,
+    `<p style="${P}">${escapeHtml(lines.received)}</p>`,
     `<p style="${P}">${escapeHtml(lines.lead)}</p>`,
     button(url, lines.cta),
     `<p style="${SMALL}">${escapeHtml(lines.ttl)}</p>`,
@@ -209,7 +199,7 @@ export function accessEmail(tradeName: string | null, url: string, origin: strin
     `<p style="${P};margin:16px 0 0">${escapeHtml(lines.sign)}</p>`,
     '</div></body></html>',
   ].join('');
-  const text = [lines.hello, '', `${lines.before}${name}${lines.after}`, '', lines.lead, '', `${lines.cta}: ${url}`, '', lines.ttl, '', lines.stranger, '', lines.sign].join('\n');
+  const text = [lines.hello, '', lines.received, '', lines.lead, '', `${lines.cta}: ${url}`, '', lines.ttl, '', lines.stranger, '', lines.sign].join('\n');
   return { subject, html, text };
 }
 
@@ -270,11 +260,11 @@ async function sendLogin(deps: Deps, email: string): Promise<Result | null> {
 }
 
 /** The access e-mail to `email`, for a claim already recorded with `claimToken`'s hash. `null` = sent. */
-export async function mailAccessLink(d: AccessLinkDeps, email: string, claimToken: string, tradeName: string | null): Promise<Result | null> {
+export async function mailAccessLink(d: AccessLinkDeps, email: string, claimToken: string): Promise<Result | null> {
   if (!(await d.auth.ensureUser(email))) return { status: 502, body: { error: 'unavailable' } };
   const link = await d.auth.magicLink(email);
   if (!link) return { status: 502, body: { error: 'unavailable' } };
-  const mail = accessEmail(tradeName, linkUrl(d.origin, link, claimToken), d.origin);
+  const mail = accessEmail(linkUrl(d.origin, link, claimToken), d.origin);
   return (await d.sendEmail(email, mail.subject, mail.html, mail.text, ACCESS_FROM_NAME)) ? null : { status: 502, body: { error: 'unavailable' } };
 }
 
@@ -293,8 +283,7 @@ export async function issueAccessLink(d: AccessLinkDeps, submissionId: string): 
   if (error) return error.code === 'TGP10' && error.details === 'draft_claimed' ? { kind: 'owned' } : { kind: 'failed', result: rpcFailure(error) };
   const email = normalEmail(firstRow(data)?.email);
   if (!email) return { kind: 'failed', result: { status: 502, body: { error: 'unavailable' } } };
-  const name = await d.tradeName(submissionId).catch(() => null);
-  const f = await mailAccessLink(d, email, claimToken, name);
+  const f = await mailAccessLink(d, email, claimToken);
   return f ? { kind: 'failed', result: f } : { kind: 'sent' };
 }
 
@@ -305,7 +294,6 @@ const accessDeps = (deps: Deps): AccessLinkDeps => ({
   randomToken: deps.randomToken,
   origin: deps.origin,
   issueClaim: (submissionId, claimSha256) => deps.rpc('place_issue_claim', { p_submission_id: submissionId, p_claim_sha256: claimSha256 }),
-  tradeName: deps.submissions.tradeName,
 });
 
 /**
@@ -430,6 +418,10 @@ export async function handle(deps: Deps, raw: unknown, jwt: string): Promise<Res
         if (sid && UUID.test(sid)) {
           const o = await issueAccessLink(accessDeps(deps), sid);
           if (o.kind === 'sent') return { status: 200, body: { ok: true } };
+          // TGP29 (5 links/h of this submission) answers like a sent link and sends nothing: a 429
+          // only for an e-mail with an ownerless submission would tell anyone that it registered a
+          // place (security review of #863). The address owner already has the links of this hour.
+          if (o.kind === 'failed' && o.result.status === 429) return { status: 200, body: { ok: true } };
           if (o.kind === 'failed' && o.result.status !== 409) return o.result;
         }
         return (await sendLogin(deps, email)) ?? { status: 200, body: { ok: true } };
@@ -441,9 +433,7 @@ export async function handle(deps: Deps, raw: unknown, jwt: string): Promise<Res
       if (typeof b.claim_token !== 'string' || !CLAIM_TOKEN.test(b.claim_token)) return bad('claim_token');
       const c = await call(deps, 'portal_draft_request_claim', { p_token_sha256: token, p_claim_sha256: await deps.sha256Hex(b.claim_token), p_email: email });
       if (!c.ok) return c.result;
-      const sid = await deps.submissions.settledOwnerless(email).catch(() => null);
-      const name = sid && UUID.test(sid) ? await deps.submissions.tradeName(sid).catch(() => null) : null;
-      return (await mailAccessLink(accessDeps(deps), email, b.claim_token, name)) ?? { status: 200, body: { ok: true, claim_expires_at: c.data } };
+      return (await mailAccessLink(accessDeps(deps), email, b.claim_token)) ?? { status: 200, body: { ok: true, claim_expires_at: c.data } };
     }
     case 'submit': {
       // The clickwrap acceptance of the cookie's draft (§7.1, BR-B2B-047 item 3): the term marked

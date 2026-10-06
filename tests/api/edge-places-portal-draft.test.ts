@@ -75,10 +75,6 @@ function fake(answers: Partial<Record<string, { data?: unknown; error?: unknown 
     uuid: () => '44444444-2222-4333-8444-555555555555',
     randomToken: () => DRAWN,
     submissions: {
-      tradeName: async (id: string) => {
-        log.push(`tradeName:${id}`)
-        return 'Bar do Zé'
-      },
       settledOwnerless: async (email: string) => {
         log.push(`settledOwnerless:${email}`)
         return settled
@@ -167,7 +163,7 @@ test('#863 (BR-B2B-049 item 2, BR-B2B-047): a submit that lands in in_review iss
   const r = await mod.handle(f.deps, { action: 'submit', token_sha256: TOKEN, accept: ACCEPT, ip: null, user_agent: null }, '')
   assert.equal(r.status, 200)
   assert.equal(r.body.link, 'sent')
-  assert.deepEqual(f.log, ['rpc:portal_draft_submit', 'rpc:place_issue_claim', `tradeName:${SID}`, 'ensureUser', 'magicLink', 'sendEmail'])
+  assert.deepEqual(f.log, ['rpc:portal_draft_submit', 'rpc:place_issue_claim', 'ensureUser', 'magicLink', 'sendEmail'])
   // The token is drawn HERE; only its hash goes to the database. The caller never picks the address.
   assert.deepEqual(f.calls[1].args, { p_submission_id: SID, p_claim_sha256: `sha(${DRAWN})` })
   assert.equal(f.mails[0].to, 'dono@bar.com')
@@ -210,7 +206,7 @@ test('#863: "Reenviar o link" (access) records the claim BEFORE the e-mail; the 
   const f = fake({ portal_draft_request_claim: { data: '2026-10-05T13:00:00Z' } }, SID)
   const r = await mod.handle(f.deps, { action: 'request_link', purpose: 'access', email: ' Dono@Bar.COM ', token_sha256: TOKEN, claim_token: CLAIM }, '')
   assert.equal(r.status, 200)
-  assert.deepEqual(f.log, ['rpc:portal_draft_request_claim', 'settledOwnerless:dono@bar.com', `tradeName:${SID}`, 'ensureUser', 'magicLink', 'sendEmail'])
+  assert.deepEqual(f.log, ['rpc:portal_draft_request_claim', 'ensureUser', 'magicLink', 'sendEmail'])
   assert.deepEqual(f.calls[0].args, { p_token_sha256: TOKEN, p_claim_sha256: `sha(${CLAIM})`, p_email: 'dono@bar.com' })
   assert.equal(f.mails[0].fromName, 'Tuggi Locais')
   const g = fake()
@@ -227,13 +223,15 @@ test('#863: a refused claim request (TGP10 before the acceptance settles, TGP29 
   }
 })
 
-test('#863: the access e-mail — fixed text, the trade name only, the real validity, our origin (no href from the body)', async () => {
+test('#863: the access e-mail — fixed subject and text with no data of the submission, the real validity, our origin (no href from the body)', async () => {
+  // Security review of #863: the e-mail is not confirmed, so a caller-typed trade name in the subject
+  // of a DKIM-signed e-mail from our domain is phishing with our brand. Nothing of the draft goes in.
   const f = fake({ portal_draft_request_claim: { data: 'x' } }, SID)
-  f.deps.submissions.tradeName = async () => '<b>Bar</b>\r\nBcc: x@y.z'
   await mod.handle(f.deps, { action: 'request_link', purpose: 'access', email: 'a@b.co', token_sha256: TOKEN, claim_token: CLAIM, url: 'https://evil.example/' }, '')
   const m = f.mails[0]
-  assert.equal(m.subject, '<b>Bar</b> Bcc: x@y.z está em validação no Tuggi')
-  assert.ok(!m.html.includes('<b>Bar'))
+  assert.equal(m.subject, 'Seu local está em validação no Tuggi')
+  assert.ok(!f.log.some((l) => l.startsWith('settledOwnerless')), 'no read of the submission for the e-mail')
+  assert.ok(!m.text.includes('Bar do Zé') && !m.html.includes('Bar do Zé'), 'no trade name in the body')
   assert.ok(!m.html.includes('evil') && !m.text.includes('evil'))
   assert.match(m.text, /O botão vale por 1 hora e funciona uma vez\. Depois disso, entre em places\.tuggi\.app com este e-mail, e mandamos outro\./)
   assert.ok(!/\d{3}\.\d{3}\.\d{3}-\d{2}|CNPJ|R\$/.test(m.text), 'no CPF, CNPJ or amount')
@@ -253,6 +251,16 @@ test('#863: the login of an e-mail with a settled ownerless submission issues a 
   const g = fake({ place_issue_claim: { error: { code: 'TGP10', details: 'payment_pending' } } }, SID)
   await mod.handle(g.deps, { action: 'request_link', purpose: 'login', email: 'a@b.co' }, '')
   assert.ok(!g.mails[0].html.includes('c='))
+})
+
+test('#863: login with an ownerless submission over its 5 links/h (TGP29) answers 200 ok and sends nothing — same answer as any e-mail', async () => {
+  // Security review of #863: a 429 only here would tell anyone that the e-mail registered a place.
+  const f = fake({ place_issue_claim: { error: { code: 'TGP29', details: 'claim_requests' } } }, SID)
+  const r = await mod.handle(f.deps, { action: 'request_link', purpose: 'login', email: 'a@b.co' }, '')
+  assert.deepEqual(r, { status: 200, body: { ok: true } })
+  assert.ok(!f.log.includes('sendEmail'))
+  const g = fake()
+  assert.deepEqual(await mod.handle(g.deps, { action: 'request_link', purpose: 'login', email: 'a@b.co' }, ''), r)
 })
 
 test('#863: the login link with no settled submission needs no draft and goes to /entrar with the token hash only', async () => {
