@@ -8,6 +8,9 @@
  *
  * 409 `status_conflict` when another operator acted first (the spec's conflict state).
  *
+ * An approval asks for the client's e-mail (#813, `notifyPortalApproval`) AFTER the transition;
+ * `notified: false` means the place is approved and the e-mail did not go.
+ *
  * GET reads the submission for the validation screen, CPF masked
  * (`portal-submission-review-service.ts`); `GET ?reveal=cpf` returns the signer's whole CPF
  * and leaves an audit row — the number is never in the page before the click.
@@ -23,6 +26,7 @@ import {
   requestPortalChanges,
 } from '@/lib/services/portal-validation-service'
 import { getPortalSubmissionReview, revealPortalSignerCpf } from '@/lib/services/portal-submission-review-service'
+import { notifyPortalApproval } from '@/lib/services/portal-transition-email'
 
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
 
@@ -109,6 +113,13 @@ export const POST = withRateLimit(30, 60_000)(
             : `Portal submission ${submissionId}: changes requested`,
     })
 
-    return NextResponse.json({ ok: true, status: outcome.status, attractionId: outcome.attractionId ?? null })
+    let notified: boolean | null = null
+    if (decision.action === 'approve') {
+      const { data } = await auth.supabase.auth.getSession()
+      notified = await notifyPortalApproval(data.session?.access_token, submissionId)
+      if (!notified) console.error('[portal-validation] approval e-mail not sent', submissionId)
+    }
+
+    return NextResponse.json({ ok: true, status: outcome.status, attractionId: outcome.attractionId ?? null, notified })
   })
 )

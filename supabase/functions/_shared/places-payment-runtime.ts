@@ -59,7 +59,7 @@ async function sendEmail(to: string, subject: string, text: string): Promise<boo
 }
 
 /** Ids and outcomes only (see `Deps.alert`). Log line first: the e-mail may fail. */
-async function alert(what: string, fields: Record<string, string | number | null | undefined>): Promise<void> {
+export async function alert(what: string, fields: Record<string, string | number | null | undefined>): Promise<void> {
   console.error('[places-payment][ALERT]', what, JSON.stringify(fields));
   const to = (Deno.env.get('PARTNER_ALERT_TO') ?? 'suporte@tuggi.app').trim();
   const lines = Object.entries(fields).map(([k, v]) => `${k}: ${v ?? '—'}`);

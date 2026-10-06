@@ -203,6 +203,44 @@ export function accessEmail(url: string, origin: string): { subject: string; htm
   return { subject, html, text };
 }
 
+/**
+ * The portal e-mail layout of `accessEmail`, for the transition e-mails of #813
+ * (`places-transition-email.ts`): paragraphs, one button, small print, signature. Every string is
+ * escaped; `links` are extra lines shown as links (the app stores).
+ */
+export function portalMail(m: {
+  subject: string;
+  preheader: string;
+  paragraphs: string[];
+  cta: { label: string; url: string };
+  links?: { label: string; url: string }[];
+  small: string[];
+}): { subject: string; html: string; text: string } {
+  const sign = 'Equipe Tuggi';
+  const links = m.links ?? [];
+  const html = [
+    PAGE_OPEN,
+    `<div style="display:none;max-height:0;overflow:hidden;opacity:0;mso-hide:all">${escapeHtml(m.preheader)}</div>`,
+    CARD_OPEN,
+    ...m.paragraphs.map((p) => `<p style="${P}">${escapeHtml(p)}</p>`),
+    button(m.cta.url, m.cta.label),
+    ...links.map((l) => `<p style="${P}"><a href="${escapeHtml(l.url)}" style="color:#1A1A1A">${escapeHtml(l.label)}</a></p>`),
+    ...m.small.map((p) => `<p style="${SMALL}">${escapeHtml(p)}</p>`),
+    `<p style="${P};margin:16px 0 0">${escapeHtml(sign)}</p>`,
+    '</div></body></html>',
+  ].join('');
+  const text = [
+    ...m.paragraphs.flatMap((p) => [p, '']),
+    `${m.cta.label}: ${m.cta.url}`,
+    '',
+    ...links.flatMap((l) => [`${l.label}: ${l.url}`]),
+    ...(links.length ? [''] : []),
+    ...m.small.flatMap((p) => [p, '']),
+    sign,
+  ].join('\n');
+  return { subject: m.subject, html, text };
+}
+
 /** Database error → Worker answer. Codes only: no message (PII) leaves. */
 export function rpcFailure(e: RpcError): Result {
   const d = typeof e.details === 'string' && e.details ? e.details.slice(0, 64) : undefined;
@@ -259,12 +297,15 @@ async function sendLogin(deps: Deps, email: string): Promise<Result | null> {
   return (await deps.sendEmail(email, mail.subject, mail.html, mail.text)) ? null : { status: 502, body: { error: 'unavailable' } };
 }
 
+/** What an e-mail with the claim link says: `accessEmail` by default; #813 passes the approval one. */
+export type LinkMail = (url: string, origin: string) => { subject: string; html: string; text: string };
+
 /** The access e-mail to `email`, for a claim already recorded with `claimToken`'s hash. `null` = sent. */
-export async function mailAccessLink(d: AccessLinkDeps, email: string, claimToken: string): Promise<Result | null> {
+export async function mailAccessLink(d: AccessLinkDeps, email: string, claimToken: string, build: LinkMail = accessEmail): Promise<Result | null> {
   if (!(await d.auth.ensureUser(email))) return { status: 502, body: { error: 'unavailable' } };
   const link = await d.auth.magicLink(email);
   if (!link) return { status: 502, body: { error: 'unavailable' } };
-  const mail = accessEmail(linkUrl(d.origin, link, claimToken), d.origin);
+  const mail = build(linkUrl(d.origin, link, claimToken), d.origin);
   return (await d.sendEmail(email, mail.subject, mail.html, mail.text, ACCESS_FROM_NAME)) ? null : { status: 502, body: { error: 'unavailable' } };
 }
 
@@ -276,14 +317,14 @@ export type AccessOutcome = { kind: 'sent' } | { kind: 'owned' } | { kind: 'fail
  * destination), then the e-mail. `owned` (`TGP10 draft_claimed`: it already has an owner, e.g. it
  * was sent signed in) is no error and sends nothing.
  */
-export async function issueAccessLink(d: AccessLinkDeps, submissionId: string): Promise<AccessOutcome> {
+export async function issueAccessLink(d: AccessLinkDeps, submissionId: string, build: LinkMail = accessEmail): Promise<AccessOutcome> {
   const claimToken = d.randomToken();
   if (!CLAIM_TOKEN.test(claimToken)) return { kind: 'failed', result: { status: 502, body: { error: 'unavailable' } } };
   const { data, error } = await d.issueClaim(submissionId, await d.sha256Hex(claimToken));
   if (error) return error.code === 'TGP10' && error.details === 'draft_claimed' ? { kind: 'owned' } : { kind: 'failed', result: rpcFailure(error) };
   const email = normalEmail(firstRow(data)?.email);
   if (!email) return { kind: 'failed', result: { status: 502, body: { error: 'unavailable' } } };
-  const f = await mailAccessLink(d, email, claimToken);
+  const f = await mailAccessLink(d, email, claimToken, build);
   return f ? { kind: 'failed', result: f } : { kind: 'sent' };
 }
 
