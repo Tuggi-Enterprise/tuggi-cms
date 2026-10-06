@@ -31,6 +31,7 @@ export const DRAFT_RPCS = [
   'portal_draft_save',
   'portal_draft_consume_generation',
   'portal_draft_get_terms',
+  'portal_draft_quote',
   'portal_draft_photo_allowed',
   'portal_draft_request_claim',
   'portal_draft_claim',
@@ -71,6 +72,8 @@ const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
 const TERMS_VERSION = /^[a-z0-9][a-z0-9._-]{0,63}$/i;
 const PHOTO_PATH = /^([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})\/(facade|gallery)\/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\.(jpg|jpeg|png|webp)$/;
 const BASE64 = /^[A-Za-z0-9+/]+={0,2}$/;
+/** Shape only (printable, no space, ≤ 64); `partner.portal_draft_quote` judges the code. */
+const VOUCHER = /^[\x21-\x7e]{1,64}$/;
 
 const obj = (v: unknown): Record<string, unknown> | null => (v && typeof v === 'object' && !Array.isArray(v) ? (v as Record<string, unknown>) : null);
 const bad = (field: string): Result => ({ status: 400, body: { error: 'invalid', field } });
@@ -255,7 +258,19 @@ export async function handle(deps: Deps, raw: unknown, jwt: string): Promise<Res
       const r = await call(deps, 'portal_draft_get_terms', { p_token_sha256: token });
       if (!r.ok) return r.result;
       const row = firstRow(r.data);
-      return row ? { status: 200, body: { terms_version: row.terms_version, body_html: row.body_html, sha256: row.sha256 } } : { status: 404, body: { error: 'not_found' } };
+      // Zero rows = no `plan_choice` yet: an empty 200, not a 404 — the Worker clears the cookie on 404.
+      return { status: 200, body: row ? { terms_version: row.terms_version, body_html: row.body_html, sha256: row.sha256, published_at: row.published_at } : {} };
+    }
+    case 'quote': {
+      // The same row as `core.portal_quote` (BR-B2B-045); quoting never redeems the voucher.
+      const period = b.billing_period;
+      if (typeof period !== 'number' || !Number.isInteger(period) || period < 1 || period > 120) return bad('billing_period');
+      const code = b.voucher_code === undefined || b.voucher_code === null ? null : b.voucher_code;
+      if (code !== null && (typeof code !== 'string' || !VOUCHER.test(code))) return bad('voucher_code');
+      const r = await call(deps, 'portal_draft_quote', { p_token_sha256: token, p_billing_period: period, p_voucher_code: code });
+      if (!r.ok) return r.result;
+      const row = firstRow(r.data);
+      return row ? { status: 200, body: row } : { status: 502, body: { error: 'unavailable' } };
     }
     case 'photo_list': {
       const g = await call(deps, 'portal_draft_get', { p_token_sha256: token });

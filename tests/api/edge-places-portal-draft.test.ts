@@ -85,6 +85,7 @@ test('#863: every database call is one of the fixed partner.portal_draft_* funct
     { action: 'save', token_sha256: TOKEN, answers: {} },
     { action: 'consume_generation', token_sha256: TOKEN, kind: 'story_preview' },
     { action: 'terms', token_sha256: TOKEN },
+    { action: 'quote', token_sha256: TOKEN, billing_period: 3, voucher_code: 'BEMVINDO' },
     { action: 'photo_list', token_sha256: TOKEN },
     { action: 'photo_sign', token_sha256: TOKEN, paths: [`${SID}/facade/33333333-2222-4333-8444-555555555555.jpg`] },
     { action: 'photo_upload', token_sha256: TOKEN, role: 'facade', image_base64: JPEG },
@@ -221,4 +222,33 @@ test('#863: the function gates on its own secret, in constant time, and logs no 
   for (const line of src.split('\n').filter((l) => /console\.(log|error)/.test(l))) {
     assert.ok(!/email|token|answers|path\b/i.test(line.replace(/'\[places-portal-draft\][^']*'/, '')), `log line leaks: ${line.trim()}`)
   }
+})
+
+test('#863 (BR-B2B-045, BR-B2B-055): terms of the anonymous draft carry published_at; no plan_choice yet is an empty 200, not a 404', async () => {
+  const row = { terms_version: 'locais-2026-10-v3', body_html: '<p>x</p>', sha256: 'b'.repeat(64), published_at: '2026-10-01T00:00:00Z' }
+  const f = fake({ portal_draft_get_terms: { data: [row] } })
+  const r = await mod.handle(f.deps, { action: 'terms', token_sha256: TOKEN }, '')
+  assert.deepEqual(r, { status: 200, body: row })
+  assert.deepEqual(f.calls, [{ fn: 'portal_draft_get_terms', args: { p_token_sha256: TOKEN } }])
+  assert.deepEqual(await mod.handle(fake({ portal_draft_get_terms: { data: [] } }).deps, { action: 'terms', token_sha256: TOKEN }, ''), { status: 200, body: {} })
+  const bad = await mod.handle(fake({ portal_draft_get_terms: { error: { code: 'TGP22', details: 'plan_choice' } } }).deps, { action: 'terms', token_sha256: TOKEN }, '')
+  assert.deepEqual(bad, { status: 422, body: { error: 'invalid', field: 'plan_choice' } })
+})
+
+test('#863 (BR-B2B-045): quote of the anonymous draft is portal_draft_quote with the voucher; shape checked before the database', async () => {
+  const row = { pricing_version: 'p1', monthly_base_cents: 9900, billing_period: 3, base_total_cents: 29700, period_discount_percent: 10, period_discount_cents: 2970, voucher_status: 'applied', voucher_discount_cents: 1000, total_cents: 25730 }
+  const f = fake({ portal_draft_quote: { data: [row] } })
+  const r = await mod.handle(f.deps, { action: 'quote', token_sha256: TOKEN, billing_period: 3, voucher_code: 'BEMVINDO' }, '')
+  assert.deepEqual(r, { status: 200, body: row })
+  assert.deepEqual(f.calls, [{ fn: 'portal_draft_quote', args: { p_token_sha256: TOKEN, p_billing_period: 3, p_voucher_code: 'BEMVINDO' } }])
+  await mod.handle(f.deps, { action: 'quote', token_sha256: TOKEN, billing_period: 1 }, '')
+  assert.equal(f.calls[1].args.p_voucher_code, null)
+  const g = fake()
+  for (const b of [{ billing_period: '3' }, { billing_period: 2.5 }, { billing_period: 0 }, { billing_period: 3, voucher_code: 'A B' }, { billing_period: 3, voucher_code: 'x'.repeat(65) }, { billing_period: 3, voucher_code: 7 }]) {
+    assert.equal((await mod.handle(g.deps, { action: 'quote', token_sha256: TOKEN, ...b }, '')).status, 400)
+  }
+  assert.equal((await mod.handle(g.deps, { action: 'quote', billing_period: 3 }, '')).status, 400)
+  assert.equal(g.calls.length, 0)
+  const gone = await mod.handle(fake({ portal_draft_quote: { error: { code: 'TGP01' } } }).deps, { action: 'quote', token_sha256: TOKEN, billing_period: 3 }, '')
+  assert.deepEqual(gone, { status: 404, body: { error: 'not_found' } })
 })
