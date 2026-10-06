@@ -67,7 +67,7 @@ export function RecordTabs<T extends string>({ tabs, active, onSelect, heading, 
     <>
       {/* Sidebar — the monitor's shape, where 288px beside the content costs nothing. */}
       <aside className="hidden lg:flex w-72 bg-white dark:bg-gray-900 border-r border-gray-100/50 dark:border-gray-800 p-6 flex-col gap-2 z-20 shrink-0 overflow-y-auto">
-        <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest px-3 mb-2">{heading}</p>
+        <p className="text-[10px] font-bold text-gray-500 uppercase tracking-widest px-3 mb-2">{heading}</p>
         {buttons(false)}
         <div className="my-2 border-t border-gray-100 dark:border-gray-800" />
         {footer ? <div className="mt-auto space-y-3">{footer}</div> : null}

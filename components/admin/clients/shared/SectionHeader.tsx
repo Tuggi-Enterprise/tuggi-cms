@@ -36,7 +36,7 @@ interface SectionHeaderProps {
  */
 export function SectionHeader({ icon, title, color = 'tuggi-blue' }: SectionHeaderProps) {
   return (
-    <h2 className="text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-6 flex items-center gap-2.5">
+    <h2 className="text-[10px] font-bold text-gray-500 uppercase tracking-widest mb-6 flex items-center gap-2.5">
       <div className={cn('p-1.5 rounded-lg', COLOR_TINTS[color])}>{icon}</div>
       {title}
     </h2>

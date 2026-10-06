@@ -418,7 +418,7 @@ export function ProposalReview({ locale, submissionId }: ProposalReviewProps) {
       closeLabel={t('review.back')}
       closeHref={`/${locale}${CLIENT_DIRECTORY_PATH}`}
     >
-      <div className="min-w-0 flex-1 overflow-y-auto bg-gray-50 p-4 dark:bg-gray-950 lg:p-8">
+      <div className="min-w-0 flex-1 overflow-y-auto p-4 lg:p-8">
         <div className="mx-auto w-full max-w-6xl">
 
           {/* ESTE CNPJ JÁ É CLIENTE, e desde 2026-08-19 é aqui que a operação descobre isso.

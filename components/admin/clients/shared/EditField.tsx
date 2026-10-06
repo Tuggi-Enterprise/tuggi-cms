@@ -3,7 +3,7 @@
 import type { ReactNode } from 'react'
 import { cn } from '@/lib/utils'
 
-export const FIELD_LABEL = 'text-[10px] font-bold text-gray-400 uppercase tracking-widest'
+export const FIELD_LABEL = 'text-[10px] font-bold text-gray-500 uppercase tracking-widest'
 const VALUE = 'text-sm font-bold text-gray-900 dark:text-white'
 
 interface EditFieldProps {
