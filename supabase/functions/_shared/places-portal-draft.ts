@@ -133,16 +133,16 @@ export function linkEmail(purpose: 'login' | 'accept', url: string): { subject: 
   const t =
     purpose === 'accept'
       ? {
-          subject: 'Confirme o seu e-mail para assinar o aceite',
-          lead: 'Toque no botão para confirmar o seu e-mail e assinar o aceite do cadastro do seu local no Tuggi.',
+          subject: 'Tuggi: confirme o e-mail e assine o aceite do seu local',
+          lead: 'Você está cadastrando o seu local no Tuggi. Toque no botão para confirmar o seu e-mail: esse toque assina o termo de parceria com a Tuggi.',
           cta: 'Confirmar e assinar',
         }
       : {
-          subject: 'Seu link de acesso ao Tuggi Locais',
-          lead: 'Toque no botão para entrar e acompanhar o cadastro do seu local no Tuggi.',
+          subject: 'Tuggi: seu link para entrar e acompanhar o cadastro',
+          lead: 'Você pediu para entrar no cadastro do seu local no Tuggi. Toque no botão para entrar e acompanhar.',
           cta: 'Entrar',
         };
-  const help = 'O link vale por 1 hora e só funciona uma vez. Se você pediu mais de um, use o do e-mail mais recente. Se não foi você, ignore este e-mail.';
+  const help = 'O link vale por 1 hora e só funciona uma vez. Se você pediu mais de um, use o do e-mail mais recente. Se não foi você, ignore este e-mail: sem o toque, nada acontece. Dúvidas: suporte@tuggi.app.';
   const html = [
     '<!doctype html><html lang="pt-BR"><body style="margin:0;padding:24px;background:#F7F9FA;font-family:Arial,sans-serif;color:#1A1A1A">',
     '<div style="max-width:480px;margin:0 auto;background:#fff;border-radius:16px;padding:32px">',
