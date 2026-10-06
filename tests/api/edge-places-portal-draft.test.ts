@@ -140,10 +140,10 @@ test('#863: a claim without a valid user JWT is relogin, and nothing is called',
   assert.equal(f.calls.length, 0)
 })
 
-test('#863 (BR-B2B-047 item 3): submit is the clickwrap acceptance of the cookie — terms, IP and user agent go to portal_draft_submit', async () => {
-  const f = fake({ portal_draft_submit: { data: [{ submission_id: SID, status: 'awaiting_payment', acceptance_id: USER, total_cents: 54000 }] } })
+test('#863 (BR-B2B-047 item 3, BR-B2B-045, BR-B2B-046 §8.8): submit is the clickwrap acceptance of the cookie — terms, IP and user agent go to portal_draft_submit; the monthly fee is passed through', async () => {
+  const f = fake({ portal_draft_submit: { data: [{ submission_id: SID, status: 'awaiting_payment', acceptance_id: USER, total_cents: 54000, committed_monthly_cents: 18000 }] } })
   const r = await mod.handle(f.deps, { action: 'submit', token_sha256: TOKEN, accept: ACCEPT, ip: '203.0.113.9', user_agent: 'Mozilla/5.0', submission_id: 'x', email: 'evil@x.co' }, '')
-  assert.deepEqual(r, { status: 200, body: { submission_id: SID, status: 'awaiting_payment', acceptance_id: USER, total_cents: 54000 } })
+  assert.deepEqual(r, { status: 200, body: { submission_id: SID, status: 'awaiting_payment', acceptance_id: USER, total_cents: 54000, committed_monthly_cents: 18000 } })
   assert.deepEqual(f.calls, [{
     fn: 'portal_draft_submit',
     args: {

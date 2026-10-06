@@ -456,7 +456,8 @@ export async function handle(deps: Deps, raw: unknown, jwt: string): Promise<Res
       if (!r.ok) return r.result;
       const row = firstRow(r.data);
       if (!row || typeof row.submission_id !== 'string' || !UUID.test(row.submission_id)) return { status: 502, body: { error: 'unavailable' } };
-      const out = { submission_id: row.submission_id, status: row.status, acceptance_id: row.acceptance_id, total_cents: row.total_cents };
+      // §8.8: the monthly fee comes from the database; no screen divides `total_cents` (BR-B2B-045, BR-B2B-046).
+      const out = { submission_id: row.submission_id, status: row.status, acceptance_id: row.acceptance_id, total_cents: row.total_cents, committed_monthly_cents: row.committed_monthly_cents ?? null };
       // Paid plan with a total: the tab charges next, and the webhook sends the link (§7.3 b).
       if (row.status !== 'in_review') return { status: 200, body: out };
       // Free, or a 100% voucher: settled now, the link goes now. The acceptance stands either way:
