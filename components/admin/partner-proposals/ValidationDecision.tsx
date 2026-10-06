@@ -1,8 +1,11 @@
 'use client'
 
 /**
- * The aside of the Portal Locais validation screen and its three dialogs (#812, spec §3 and §5):
- * Aprovar · Pedir ajuste · Recusar. Every act posts to
+ * The decision of the Portal Locais validation screen and its three dialogs (#812, spec §3 and §5):
+ * Aprovar · Pedir ajuste · Recusar. Since #870 the acts sit in the record header, in the shape of
+ * the client record's `ApprovalHeaderControls` (status pill, then the buttons), and the plan line
+ * and the operator's conference live in the sidebar footer (`DecisionSummary`), where the client
+ * record keeps its save block. Every act posts to
  * `app/api/admin/partnerships/validation/[submissionId]/route.ts`, which ends in
  * `partner.transition_place_submission` (BR-B2B-049).
  *
@@ -13,10 +16,11 @@
 import { useEffect, useRef, useState } from 'react'
 import Link from 'next/link'
 import { useTranslations } from 'next-intl'
-import { AlertTriangle, Check, Info, Loader2 } from 'lucide-react'
+import { AlertTriangle, ArrowRight, Building2, Check, CheckCircle, Clock, Info, Loader2, MapPin, MessageSquare, XCircle } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Checkbox } from '@/components/ui/checkbox'
 import { DialogShell } from '@/components/admin/credit/DialogShell'
+import { cn } from '@/lib/utils'
 import { formatFee } from '@/lib/contract/snapshot'
 import {
   ADJUSTMENT_AREAS,
@@ -25,13 +29,14 @@ import {
   PORTAL_REFUSAL_REASONS,
   isPaidPlan,
   type AdjustmentArea,
+  type ConferenceItem,
 } from '@/lib/partnerships/portal-review'
 import { placeToolHref } from '@/lib/partnerships/place-tool'
 import { recordHref } from '@/lib/clients/record-href'
 import { RETURN_TO_PARAM } from '@/lib/navigation/return-to'
 import type { PortalSubmissionReview } from '@/lib/services/portal-submission-review-service'
 import { formatShortDate } from './format'
-import { CTA_LINK, FIELD } from './surface'
+import { FIELD } from './surface'
 
 export type DecisionResult =
   | { kind: 'approved'; paid: boolean; attractionId: string | null }
@@ -59,6 +64,14 @@ interface Props {
 }
 
 const COUNTER_FROM = 1800
+
+/** The pill and the buttons of `ApprovalHeaderControls`, so the two records read the same (#870). */
+const PILL = 'inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-[10px] font-bold uppercase tracking-widest border'
+const ACT =
+  'inline-flex min-h-[44px] items-center gap-1.5 rounded-xl px-3 py-1.5 text-xs font-bold transition-all disabled:cursor-not-allowed disabled:opacity-50 lg:min-h-0'
+const NEUTRAL = 'border border-gray-200 bg-white text-gray-700 hover:bg-gray-50 dark:border-gray-700 dark:bg-gray-900 dark:text-gray-200'
+/** The "Marque os N itens" line in the sidebar, which "Aprovar" points at. */
+const MISSING_ID = 'approve-missing'
 
 function isTextField(target: EventTarget | null): boolean {
   if (!(target instanceof HTMLElement)) return false
@@ -219,29 +232,6 @@ export function ValidationDecision({
     setChangesNote(next.length ? `${t('dialogs.areasPrefix', { list })}\n${body.replace(/^\n/, '')}` : body)
   }
 
-  const planLine = (() => {
-    if (!paid) return t('decision.planFree')
-    const totalText = formatFee(totalCents)
-    const amount =
-      acceptance?.voucherCode && acceptance.voucherDiscountCents
-        ? t('decision.voucher', {
-            total: totalText,
-            code: acceptance.voucherCode,
-            discount: formatFee(acceptance.voucherDiscountCents),
-          })
-        : totalText
-    return t('decision.planPaid', { months: acceptance?.billingPeriod ?? Number(review.answers.billing_period ?? 1), total: amount })
-  })()
-
-  const paymentLine = (() => {
-    const status = review.payment?.status
-    if (status === 'refund_pending') return { ok: false, text: t('decision.refundPending') }
-    if (status === 'refunded') return { ok: true, text: t('decision.refunded', { date: formatShortDate(review.payment?.refundedAt) }) }
-    if (!paid || totalCents === 0) return { ok: true, text: t('decision.noCharge') }
-    if (status === 'paid') return { ok: true, text: t('decision.paid', { date: formatShortDate(review.payment?.paidAt) }) }
-    return { ok: false, text: t('decision.pendingPayment') }
-  })()
-
   const busyLabel = (label: string) => (
     <>
       <Loader2 className="mr-2 h-4 w-4 animate-spin" aria-hidden="true" />
@@ -280,83 +270,76 @@ export function ValidationDecision({
       (returnTo ? `?${new URLSearchParams({ [RETURN_TO_PARAM]: returnTo }).toString()}` : '')
     : null
 
+  const status =
+    review.status === 'approved' || review.status === 'live'
+      ? { icon: CheckCircle, className: 'bg-green-50 border-green-200 text-green-700' }
+      : review.status === 'rejected'
+        ? { icon: XCircle, className: 'bg-red-50 border-red-200 text-red-600' }
+        : { icon: Clock, className: 'bg-orange-50 border-orange-200 text-orange-700' }
+  const Icon = status.icon
   return (
-    <aside aria-label={t('decision.label')} className="space-y-4 text-sm">
-      <p className="font-semibold text-gray-900 dark:text-white">{planLine}</p>
-      <p className="flex items-center gap-2 text-gray-700 dark:text-gray-300">
-        {paymentLine.ok ? (
-          <Check className="h-4 w-4 text-green-800" aria-hidden="true" />
-        ) : (
-          <AlertTriangle className="h-4 w-4 text-secondary-700" aria-hidden="true" />
-        )}
-        {paymentLine.text}
-      </p>
+    <div className="flex flex-wrap items-center gap-2">
+      <span className={cn(PILL, status.className)}>
+        <Icon className="h-3.5 w-3.5" aria-hidden="true" />
+        {t(`status.${review.status}` as 'status.in_review')}
+      </span>
 
       {decided ? (
-        <div className="flex flex-col gap-2">
+        <>
           {approved && clientHref ? (
-            <Link ref={primaryRef} className={CTA_LINK} href={clientHref}>
+            <Link ref={primaryRef} className={cn(ACT, 'bg-primary-800 text-white hover:brightness-90')} href={clientHref}>
+              <Building2 className="h-3.5 w-3.5" aria-hidden="true" />
               {t('decision.openClient')}
             </Link>
           ) : null}
           {approved && review.attractionId ? (
-            <Link
-              className="text-center underline"
-              href={placeToolHref({ locale, attractionId: review.attractionId, entityKind: 'place' })}
-            >
+            <Link className={cn(ACT, NEUTRAL)} href={placeToolHref({ locale, attractionId: review.attractionId, entityKind: 'place' })}>
+              <MapPin className="h-3.5 w-3.5" aria-hidden="true" />
               {t('decision.openPlace')}
             </Link>
           ) : null}
           {nextHref ? (
             <Link
               ref={approved && clientHref ? undefined : primaryRef}
-              className={approved && clientHref ? 'text-center underline' : CTA_LINK}
+              className={cn(ACT, approved && clientHref ? NEUTRAL : 'bg-primary-800 text-white hover:brightness-90')}
               href={nextHref}
             >
+              <ArrowRight className="h-3.5 w-3.5" aria-hidden="true" />
               {t('decision.next')}
             </Link>
           ) : null}
-        </div>
-      ) : (
+        </>
+      ) : readOnly ? null : (
         <>
-          <p aria-live="polite" className="text-gray-700 dark:text-gray-300">
-            {t('decision.progress', { done, total })}
-          </p>
-          <div className="flex flex-col gap-2">
-            <Button
-              variant="cta"
-              className="w-full"
-              disabled={!canApprove}
-              aria-describedby={missing > 0 ? 'approve-missing' : undefined}
-              title={t('decision.shortcut', { key: 'A' })}
-              onClick={() => open('approve')}
-            >
-              {t('decision.approve')}
-            </Button>
-            {missing > 0 && !readOnly ? (
-              <p id="approve-missing" className="text-xs text-gray-600 dark:text-gray-400">
-                {t('decision.missing', { count: missing })}
-              </p>
-            ) : null}
-            <Button
-              variant="outline"
-              className="w-full"
-              disabled={readOnly}
-              title={t('decision.shortcut', { key: 'J' })}
-              onClick={() => open('changes')}
-            >
-              {t('decision.requestChanges')}
-            </Button>
-            <Button
-              variant="outline"
-              className="w-full text-destructive"
-              disabled={readOnly}
-              title={t('decision.shortcut', { key: 'R' })}
-              onClick={() => open('reject')}
-            >
-              {t('decision.reject')}
-            </Button>
-          </div>
+          <button
+            type="button"
+            className={cn(ACT, 'bg-green-700 text-white hover:bg-green-800')}
+            disabled={!canApprove}
+            aria-describedby={missing > 0 ? MISSING_ID : undefined}
+            title={t('decision.shortcut', { key: 'A' })}
+            onClick={() => open('approve')}
+          >
+            <CheckCircle className="h-3.5 w-3.5" aria-hidden="true" />
+            {t('decision.approve')}
+          </button>
+          <button
+            type="button"
+            className={cn(ACT, NEUTRAL)}
+            title={t('decision.shortcut', { key: 'J' })}
+            onClick={() => open('changes')}
+          >
+            <MessageSquare className="h-3.5 w-3.5" aria-hidden="true" />
+            {t('decision.requestChanges')}
+          </button>
+          <button
+            type="button"
+            className={cn(ACT, 'border border-red-200 bg-red-50 text-red-700 hover:bg-red-100')}
+            title={t('decision.shortcut', { key: 'R' })}
+            onClick={() => open('reject')}
+          >
+            <XCircle className="h-3.5 w-3.5" aria-hidden="true" />
+            {t('decision.reject')}
+          </button>
         </>
       )}
 
@@ -530,6 +513,113 @@ export function ValidationDecision({
         </fieldset>
         {errorBox}
       </DialogShell>
-    </aside>
+    </div>
+  )
+}
+
+/**
+ * THE SIDEBAR FOOTER of the validation record (#870) — where the client record keeps its save
+ * block: what the place bought and whether it is paid, then the operator's conference. The ticks
+ * do not persist (spec §3): they are an attention ruler, not a record. They sit here, and not on
+ * each section, because the sections are spread over tabs and "Aprovar" waits for all of them.
+ */
+export function DecisionSummary({
+  review,
+  items,
+  ticks,
+  onToggle,
+  readOnly,
+  decided,
+  describesApprove = false,
+}: {
+  review: PortalSubmissionReview
+  items: readonly ConferenceItem[]
+  ticks: ReadonlySet<ConferenceItem>
+  onToggle: (item: ConferenceItem, on: boolean) => void
+  readOnly: boolean
+  decided: boolean
+  /** Only one of the two copies (sidebar, phone) carries the id "Aprovar" points at. */
+  describesApprove?: boolean
+}) {
+  const t = useTranslations('PartnerValidation')
+  const acceptance = review.acceptance
+  const plan = acceptance?.planChoice ?? review.answers.plan_choice
+  const paid = isPaidPlan(plan)
+  const totalCents = acceptance?.totalCents ?? 0
+  const done = items.filter((item) => ticks.has(item)).length
+  const missing = items.length - done
+
+  const planLine = (() => {
+    if (!paid) return t('decision.planFree')
+    const totalText = formatFee(totalCents)
+    const amount =
+      acceptance?.voucherCode && acceptance.voucherDiscountCents
+        ? t('decision.voucher', {
+            total: totalText,
+            code: acceptance.voucherCode,
+            discount: formatFee(acceptance.voucherDiscountCents),
+          })
+        : totalText
+    return t('decision.planPaid', { months: acceptance?.billingPeriod ?? Number(review.answers.billing_period ?? 1), total: amount })
+  })()
+
+  const paymentLine = (() => {
+    const status = review.payment?.status
+    if (status === 'refund_pending') return { ok: false, text: t('decision.refundPending') }
+    if (status === 'refunded') return { ok: true, text: t('decision.refunded', { date: formatShortDate(review.payment?.refundedAt) }) }
+    if (!paid || totalCents === 0) return { ok: true, text: t('decision.noCharge') }
+    if (status === 'paid') return { ok: true, text: t('decision.paid', { date: formatShortDate(review.payment?.paidAt) }) }
+    return { ok: false, text: t('decision.pendingPayment') }
+  })()
+
+  return (
+    <section aria-label={t('decision.label')} className="space-y-3">
+      <div className="space-y-1 rounded-xl border border-gray-200 bg-gray-50 p-3 dark:border-gray-700 dark:bg-gray-800">
+        <p className="text-sm font-bold text-gray-900 dark:text-white">{planLine}</p>
+        <p className="flex items-center gap-1.5 text-xs font-semibold text-gray-600 dark:text-gray-300">
+          {paymentLine.ok ? (
+            <Check className="h-3.5 w-3.5 shrink-0 text-green-700" aria-hidden="true" />
+          ) : (
+            <AlertTriangle className="h-3.5 w-3.5 shrink-0 text-amber-600" aria-hidden="true" />
+          )}
+          {paymentLine.text}
+        </p>
+      </div>
+
+      {decided ? null : (
+        <div
+          className={cn(
+            'rounded-xl border p-3',
+            missing > 0
+              ? 'border-amber-200 bg-amber-50 dark:border-amber-800/30 dark:bg-amber-900/20'
+              : 'border-green-200 bg-green-50 dark:border-green-800/30 dark:bg-green-900/20'
+          )}
+        >
+          <p aria-live="polite" className="mb-2 text-xs font-bold text-gray-900 dark:text-white">
+            {t('decision.progress', { done, total: items.length })}
+          </p>
+          <ul className="space-y-2">
+            {items.map((item) => (
+              <li key={item}>
+                <label className="flex cursor-pointer items-start gap-2 text-xs font-semibold text-gray-700 dark:text-gray-200">
+                  <Checkbox
+                    className="mt-0.5"
+                    checked={ticks.has(item)}
+                    disabled={readOnly}
+                    onCheckedChange={(on) => onToggle(item, on === true)}
+                  />
+                  {t(`${item}.check` as 'company.check')}
+                </label>
+              </li>
+            ))}
+          </ul>
+          {missing > 0 && !readOnly ? (
+            <p id={describesApprove ? MISSING_ID : undefined} className="mt-2 text-xs text-amber-800 dark:text-amber-400">
+              {t('decision.missing', { count: missing })}
+            </p>
+          ) : null}
+        </div>
+      )}
+    </section>
   )
 }

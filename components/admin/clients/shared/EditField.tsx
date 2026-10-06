@@ -1,6 +1,10 @@
 'use client'
 
+import type { ReactNode } from 'react'
 import { cn } from '@/lib/utils'
+
+export const FIELD_LABEL = 'text-[10px] font-bold text-gray-400 uppercase tracking-widest'
+const VALUE = 'text-sm font-bold text-gray-900 dark:text-white'
 
 interface EditFieldProps {
   label: string
@@ -38,7 +42,7 @@ export function EditField({
 
   return (
     <div className={cn('space-y-1', fullWidth && 'sm:col-span-2')}>
-      <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest">{label}</p>
+      <p className={FIELD_LABEL}>{label}</p>
       {isEditing ? (
         multiline ? (
           <textarea
@@ -69,8 +73,22 @@ export function EditField({
           {value}
         </a>
       ) : (
-        <p className="text-sm font-bold text-gray-900 dark:text-white break-all">{value || '-'}</p>
+        <p className={cn(VALUE, 'break-all')}>{value || '-'}</p>
       )}
+    </div>
+  )
+}
+
+/**
+ * The read-only face of `EditField` for a value that is not a plain string — a link, a list, a
+ * button beside the value. Same label, same weight; used by the portal validation (#870).
+ */
+export function ReadField({ label, children, fullWidth }: { label: string; children: ReactNode; fullWidth?: boolean }) {
+  const empty = children == null || children === '' || (Array.isArray(children) && children.length === 0)
+  return (
+    <div className={cn('space-y-1', fullWidth && 'sm:col-span-2')}>
+      <p className={FIELD_LABEL}>{label}</p>
+      <div className={cn(VALUE, 'break-words')}>{empty ? '-' : children}</div>
     </div>
   )
 }

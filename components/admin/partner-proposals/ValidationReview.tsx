@@ -2,10 +2,13 @@
 
 /**
  * The Portal Locais validation screen (#812, spec
- * `docs/design/spec-validacao-portal-locais-2026-10.md`): header, context band, the conference
- * blocks on the left (Empresa · Local · História · Ofertas · Fotos, in the order of BR-B2B-048
- * item 4 — what fails earliest comes first), Aceite and Histórico below them, and the decision
- * aside (`ValidationDecision`).
+ * `docs/design/spec-validacao-portal-locais-2026-10.md`), in the shape of the client record
+ * (#870, "o mesmo modelo do antigo"): `RecordShell` header with the acts (`ValidationDecision`),
+ * `RecordTabs` on the left — Dados do local · História e ofertas · Fotos · Aceite e plano ·
+ * Histórico — with the plan and the conference pinned under them (`DecisionSummary`), and the
+ * open tab drawn with the client tabs' cards and fields (`RecordSection`, `ReadField`). Aceite and
+ * plano are the client record's own `PortalRecord` cards. The conference order is still
+ * BR-B2B-048 item 4: what fails earliest comes first.
  *
  * The operator's ticks do NOT persist (spec §3): they are an attention ruler, not a record.
  * The CPF arrives masked and is fetched whole only on "Mostrar CPF"; it goes back to the mask
@@ -15,11 +18,31 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import Link from 'next/link'
 import { useTranslations } from 'next-intl'
-import { AlertTriangle, Check, ClipboardCheck, Eye, EyeOff, ExternalLink, X } from 'lucide-react'
+import {
+  AlertTriangle,
+  BookOpen,
+  Building2,
+  Check,
+  ClipboardCheck,
+  Copy,
+  CreditCard,
+  Eye,
+  EyeOff,
+  ExternalLink,
+  FileSignature,
+  Gift,
+  History,
+  Image as ImageIcon,
+  MapPin,
+  X,
+} from 'lucide-react'
 import { Button } from '@/components/ui/button'
-import { Checkbox } from '@/components/ui/checkbox'
 import { RecordShell } from '@/components/admin/clients/shared/RecordShell'
 import { cn } from '@/lib/utils'
+import { RecordTabs, type RecordTab } from '@/components/admin/clients/shared/RecordTabs'
+import { FIELD_GRID, RecordSection } from '@/components/admin/clients/shared/RecordSection'
+import { FIELD_LABEL, ReadField } from '@/components/admin/clients/shared/EditField'
+import { PortalAcceptances, PortalSubscriptions } from '@/components/admin/clients/shared/PortalRecord'
 import { GoogleMapComponent } from '@/components/ui/GoogleMapComponent'
 import {
   STORY_WORD_LIMIT,
@@ -34,16 +57,22 @@ import {
   type AdjustmentArea,
   type ConferenceItem,
 } from '@/lib/partnerships/portal-review'
-import type { PortalHistoryEntry, PortalSubmissionReview } from '@/lib/services/portal-submission-review-service'
+import type {
+  ClientPortalRecord,
+  PortalHistoryEntry,
+  PortalSubmissionReview,
+} from '@/lib/services/portal-submission-review-service'
 import { formatDateTime, formatShortDate } from './format'
 import { CARD } from './surface'
-import { ValidationDecision, type DecisionResult } from './ValidationDecision'
+import { DecisionSummary, ValidationDecision, type DecisionResult } from './ValidationDecision'
 
 type Load =
   | { state: 'loading' }
   | { state: 'error' }
   | { state: 'not_found' }
   | { state: 'ready'; review: PortalSubmissionReview }
+
+type ValidationTab = 'place' | 'story' | 'photos' | 'acceptance' | 'history'
 
 const DAYS = ['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday'] as const
 
@@ -67,14 +96,6 @@ function Line({ tone, children }: { tone: 'ok' | 'warn' | 'bad'; children: React
   )
 }
 
-/** The pill in the header — the same shape as the client record's (`ApprovalHeaderControls`). */
-const PILL = 'inline-flex items-center px-3 py-1 rounded-full text-[10px] font-bold uppercase tracking-widest border'
-function pillTone(status: string): string {
-  if (status === 'approved' || status === 'live') return 'bg-green-50 border-green-200 text-green-700'
-  if (status === 'rejected') return 'bg-red-50 border-red-200 text-red-600'
-  return 'bg-orange-50 border-orange-200 text-orange-700'
-}
-
 export function ValidationReview({
   locale,
   submissionId,
@@ -87,6 +108,8 @@ export function ValidationReview({
 }) {
   const t = useTranslations('PartnerValidation')
   const tForm = useTranslations('PartnerForm')
+  const tPortal = useTranslations('Clients.portal')
+  const [tab, setTab] = useState<ValidationTab>('place')
   const [load, setLoad] = useState<Load>({ state: 'loading' })
   const [ticks, setTicks] = useState<Set<ConferenceItem>>(new Set())
   const [cpf, setCpf] = useState<string | null>(null)
@@ -199,7 +222,7 @@ export function ValidationReview({
   const changedAreas = resubmitted ? areasNamedIn(lastMessage('operator')?.body, areaLabels) : []
   const changed = (...areas: AdjustmentArea[]) =>
     areas.some((area) => changedAreas.includes(area)) ? (
-      <span className="ml-2 rounded-full bg-primary-50 px-2 py-0.5 text-xs font-medium text-primary-800">
+      <span className="inline-flex items-center rounded-full border border-primary-100 bg-primary-50 px-3 py-1 text-[10px] font-bold uppercase tracking-widest text-primary-800">
         {t('changedBadge')}
       </span>
     ) : null
@@ -253,25 +276,6 @@ export function ValidationReview({
       return next
     })
 
-  const blockHeader = (title: string, item: ConferenceItem | null, label: string | null, badge: React.ReactNode) => (
-    <div className="mb-4 flex flex-wrap items-start justify-between gap-3">
-      <h2 className="text-lg font-bold text-gray-900 dark:text-white">
-        {title}
-        {badge}
-      </h2>
-      {item && label ? (
-        <label className="flex min-h-6 cursor-pointer items-center gap-2 text-sm font-medium">
-          <Checkbox
-            checked={ticks.has(item)}
-            disabled={readOnly}
-            onCheckedChange={(on) => toggle(item, on === true)}
-          />
-          {label}
-        </label>
-      ) : null}
-    </div>
-  )
-
   async function revealCpf() {
     if (cpf) return setCpf(null)
     setCpfError(false)
@@ -301,15 +305,41 @@ export function ValidationReview({
   const category = answers.category ? tForm.has(`categories.${answers.category}`) ? tForm(`categories.${answers.category}`) : answers.category : '—'
   const taxDigits = (answers.tax_id ?? '').replace(/[^0-9A-Za-z]/g, '')
 
-  const dl = (rows: [string, React.ReactNode][]) => (
-    <dl className="grid grid-cols-1 gap-x-6 gap-y-2 text-sm sm:grid-cols-2">
-      {rows.map(([label, value]) => (
-        <div key={label}>
-          <dt className="text-xs font-medium uppercase tracking-wide text-gray-500">{label}</dt>
-          <dd className="break-words text-gray-900 dark:text-gray-100">{value || '—'}</dd>
-        </div>
-      ))}
-    </dl>
+  const changedTab = (...areas: AdjustmentArea[]) =>
+    areas.some((area) => changedAreas.includes(area)) ? (
+      <span className="h-2 w-2 shrink-0 rounded-full bg-primary-800">
+        <span className="sr-only">{t('changedBadge')}</span>
+      </span>
+    ) : undefined
+
+  const tabs: RecordTab<ValidationTab>[] = [
+    { id: 'place', label: t('tabs.place'), icon: Building2, badge: changedTab('company', 'place', 'facade') },
+    { id: 'story', label: t('tabs.story'), icon: BookOpen, badge: changedTab('story', 'offers') },
+    { id: 'photos', label: t('tabs.photos'), icon: ImageIcon, badge: changedTab('photos') },
+    { id: 'acceptance', label: t('tabs.acceptance'), icon: FileSignature },
+    { id: 'history', label: t('tabs.history'), icon: History },
+  ]
+
+  /** The client record's `ContractTab` reads the same pair through `ClientPortalRecord`. */
+  const portalRecord: ClientPortalRecord = {
+    submissionId: review.id,
+    status: review.status,
+    attractionId: review.attractionId ?? '',
+    submittedAt: review.submittedAt,
+    acceptance,
+    payment: review.payment,
+  }
+
+  const summary = (describesApprove: boolean) => (
+    <DecisionSummary
+      review={review}
+      items={items}
+      ticks={ticks}
+      onToggle={toggle}
+      readOnly={readOnly}
+      decided={decided}
+      describesApprove={describesApprove}
+    />
   )
 
   return (
@@ -323,417 +353,7 @@ export function ValidationReview({
         state: answers.state ?? '—',
         date: formatDateTime(review.submittedAt),
       })}
-      controls={<span className={cn(PILL, pillTone(status))}>{t(`status.${status}` as 'status.in_review')}</span>}
-      closeLabel={t('close')}
-      closeHref={queueHref}
-    >
-      {/* THE HEADER DOES NOT SCROLL (#870): it used to be a `sticky top-0` card of variable height
-          over a `sticky top-24` aside, and a two-line title covered the plan line. Each column
-          scrolls on its own now, and neither needs `sticky`. */}
-      <div className="min-w-0 flex-1 space-y-5 overflow-y-auto p-4 lg:p-8">
-        {doneText ? (
-          <div role="status" className={`${CARD} space-y-1 border-green-800 p-4 text-sm`}>
-            <Line tone="ok">{doneText}</Line>
-          </div>
-        ) : null}
-
-        {band ? (
-          <div className={`${CARD} border-secondary-700 p-4 text-sm`}>
-            <p>{band}</p>
-            {status === 'changes_requested' && lastMessage('operator') ? (
-              <p className="mt-2 whitespace-pre-wrap text-gray-700 dark:text-gray-300">{lastMessage('operator')?.body}</p>
-            ) : null}
-          </div>
-        ) : resubmitted ? (
-          <div className={`${CARD} space-y-2 border-primary-800 p-4 text-sm`}>
-            <p className="font-medium">
-              {t('bands.resubmitted', { date: formatShortDate(lastTransitionTo('in_review')?.at) })}
-            </p>
-            {lastMessage('operator') ? (
-              <p className="whitespace-pre-wrap">
-                <span className="font-medium">
-                  {t('bands.operatorRequest', {
-                    author: operatorName(lastMessage('operator')?.actorName ?? null),
-                    date: formatDateTime(lastMessage('operator')?.at),
-                  })}
-                  :{' '}
-                </span>
-                {lastMessage('operator')?.body}
-              </p>
-            ) : null}
-            {lastMessage('partner') ? (
-              <p className="whitespace-pre-wrap">
-                <span className="font-medium">{t('bands.placeAnswer', { date: formatDateTime(lastMessage('partner')?.at) })}: </span>
-                {lastMessage('partner')?.body}
-              </p>
-            ) : null}
-          </div>
-        ) : null}
-
-        {/* 1 · Empresa */}
-        <section className={`${CARD} p-6`}>
-          {blockHeader(t('company.title'), 'company', t('company.check'), changed('company'))}
-          <div className="mb-4 space-y-2">
-            {review.sameTaxId.length === 0 ? (
-              <Line tone="ok">{t('company.noDuplicate')}</Line>
-            ) : (
-              review.sameTaxId.map((other) => (
-                <Line key={other.id} tone="warn">
-                  {t('company.duplicate', {
-                    name: other.tradeName ?? t('noTradeName'),
-                    state: t(`status.${other.status}` as 'status.in_review'),
-                  })}{' '}
-                  <Link className="underline" href={`/${locale}/admin/partnerships/validation/${other.id}`}>
-                    {t('company.open')}
-                  </Link>
-                </Line>
-              ))
-            )}
-            <Line tone="warn">
-              {t('company.receitaManual')}{' '}
-              <a
-                className="underline"
-                href={`https://solucoes.receita.fazenda.gov.br/servicos/cnpjreva/cnpjreva_solicitacao.asp?cnpj=${taxDigits}`}
-                target="_blank"
-                rel="noreferrer"
-              >
-                {t('company.openReceita')}
-              </a>
-            </Line>
-          </div>
-          {dl([
-            [t('company.legalName'), answers.legal_name],
-            [t('company.taxId'), answers.tax_id],
-            [t('company.tradeName'), answers.trade_name],
-            [t('company.category'), category],
-            [t('company.priceRange'), answers.price_range ? '$'.repeat(Number(answers.price_range) || 0) : null],
-            [
-              t('company.representative'),
-              [answers.representative_name, answers.representative_role].filter(Boolean).join(' · '),
-            ],
-            [
-              t('company.phone'),
-              answers.representative_phone ? (
-                <a className="underline" href={`tel:+${answers.representative_phone.replace(/\D/g, '')}`}>
-                  {answers.representative_phone}
-                </a>
-              ) : null,
-            ],
-            [t('company.email'), acceptance?.email],
-          ])}
-          <div className="mt-4 flex flex-wrap items-center gap-3 text-sm">
-            <span className="text-xs font-medium uppercase tracking-wide text-gray-500">{t('company.cpf')}</span>
-            <span className="font-mono">
-              {cpf ? formatCpf(cpf) : (acceptance?.signerCpfMasked ?? answers.representative_cpf ?? '—')}
-            </span>
-            {acceptance ? (
-              <Button variant="ghost" size="sm" aria-pressed={cpf !== null} onClick={() => void revealCpf()}>
-                {cpf ? <EyeOff className="mr-1 h-4 w-4" aria-hidden="true" /> : <Eye className="mr-1 h-4 w-4" aria-hidden="true" />}
-                {cpf ? t('company.hideCpf') : t('company.showCpf')}
-              </Button>
-            ) : null}
-            {cpfError ? <span role="alert" className="text-destructive">{t('company.cpfError')}</span> : null}
-          </div>
-          {acceptance?.cpfDiffers ? (
-            <div className="mt-2">
-              <Line tone="warn">{t('company.cpfDiffers')}</Line>
-            </div>
-          ) : null}
-        </section>
-
-        {/* 2 · Local */}
-        <section className={`${CARD} p-6`}>
-          {blockHeader(t('place.title'), 'place', t('place.check'), changed('place', 'facade'))}
-          <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
-            <div>
-              <p className="mb-1 text-xs font-medium text-gray-600">{t('place.map')}</p>
-              <div className="h-60 overflow-hidden rounded-xl bg-gray-100 dark:bg-gray-800">
-                {hasPin ? (
-                  <GoogleMapComponent
-                    center={{ lat, lng }}
-                    zoom={18}
-                    height="240px"
-                    markers={[{ id: 'pin', position: { lat, lng }, title: tradeName }]}
-                  />
-                ) : (
-                  <p className="p-4 text-sm">{t('place.noPin')}</p>
-                )}
-              </div>
-            </div>
-            <div>
-              <p className="mb-1 text-xs font-medium text-gray-600">{t('place.streetView')}</p>
-              <div className="flex h-60 flex-col items-center justify-center gap-2 rounded-xl bg-gray-100 p-4 text-center text-sm dark:bg-gray-800">
-                {streetViewUrl ? (
-                  <>
-                    <p>{t('place.streetViewHint')}</p>
-                    <a className="inline-flex items-center gap-1 underline" href={streetViewUrl} target="_blank" rel="noreferrer">
-                      {t('place.openStreetView')}
-                      <ExternalLink className="h-3 w-3" aria-hidden="true" />
-                    </a>
-                  </>
-                ) : (
-                  <p>{t('place.noPin')}</p>
-                )}
-              </div>
-            </div>
-            <div>
-              <p className="mb-1 text-xs font-medium text-gray-600">{t('place.facade')}</p>
-              {facadePhoto ? (
-                <a href={facadePhoto.url} target="_blank" rel="noreferrer" className="block h-60 overflow-hidden rounded-xl bg-gray-100 dark:bg-gray-800">
-                  {/* eslint-disable-next-line @next/next/no-img-element -- short-lived signed URL of a private bucket */}
-                  <img src={facadePhoto.url} alt={t('place.facadeAlt', { name: tradeName })} className="h-full w-full object-cover" />
-                </a>
-              ) : (
-                <div className="flex h-60 items-center justify-center rounded-xl bg-gray-100 p-4 text-center text-sm dark:bg-gray-800">
-                  {t('place.noFacade')}
-                </div>
-              )}
-            </div>
-          </div>
-          <p className="mt-3 break-words text-sm text-gray-800 dark:text-gray-200">
-            {[
-              [answers.address, answers.address_number].filter(Boolean).join(', '),
-              answers.district,
-              [answers.city, answers.state].filter(Boolean).join('/'),
-              answers.postal_code ? t('place.postalCode', { value: answers.postal_code }) : null,
-            ]
-              .filter(Boolean)
-              .join(' · ')}
-            {mapsUrl ? (
-              <>
-                {' · '}
-                <a className="underline" href={mapsUrl} target="_blank" rel="noreferrer">
-                  {t('place.openMaps')}
-                </a>
-              </>
-            ) : null}
-          </p>
-          <p className="mt-1 text-xs text-gray-600 dark:text-gray-400">{t('place.hint')}</p>
-          <div className="mt-4">
-            {dl([
-              [
-                t('place.hours'),
-                Object.keys(hours).length === 0
-                  ? t('place.notInformed')
-                  : DAYS.map((day) => (
-                      <span key={day} className="block">
-                        {t(`days.${day}`)}:{' '}
-                        {hours[day]?.length
-                          ? hours[day].map((range) => `${range.open}–${range.close}`).join(', ')
-                          : t('place.closed')}
-                      </span>
-                    )),
-              ],
-              [t('place.whatsapp'), answers.whatsapp],
-              [t('place.instagram'), answers.instagram],
-              [t('place.website'), answers.website],
-              [
-                t('place.amenities'),
-                amenities
-                  .map((id) => (t.has(`amenityLabels.${id}`) ? t(`amenityLabels.${id}`) : id))
-                  .join(', '),
-              ],
-              [
-                t('place.languages'),
-                languages
-                  .map((id) => (t.has(`languageLabels.${id}`) ? t(`languageLabels.${id}`) : id))
-                  .join(', '),
-              ],
-            ])}
-          </div>
-        </section>
-
-        {/* 3 · História */}
-        {paid ? (
-          <section className={`${CARD} p-6`}>
-            {blockHeader(t('story.title'), 'story', t('story.check'), changed('story'))}
-            <div className="space-y-2 rounded-xl bg-gray-50 p-4 text-sm dark:bg-gray-800">
-              <p className="font-medium">{t('story.told')}</p>
-              {dl([
-                [t('story.founder'), answers.story_founder],
-                [t('story.unique'), answers.story_unique],
-                [t('story.event'), answers.story_event],
-                [t('story.signature'), answers.signature_item],
-              ])}
-            </div>
-            <p className="mt-4 text-xs font-medium uppercase tracking-wide text-gray-500">{t('story.script')}</p>
-            {script ? (
-              <p className="mt-1 whitespace-pre-wrap text-base leading-relaxed text-gray-900 dark:text-gray-100">{script}</p>
-            ) : (
-              <p className="mt-1 text-sm">{t('story.noScript')}</p>
-            )}
-            <div className="mt-2 space-y-1">
-              <p className={`text-sm ${words > STORY_WORD_LIMIT ? 'text-destructive' : 'text-gray-700 dark:text-gray-300'}`}>
-                {t('story.words', { count: words, limit: STORY_WORD_LIMIT })}
-                {words > STORY_WORD_LIMIT ? ` ${t('story.tooLong', { limit: STORY_WORD_LIMIT })}` : null}
-              </p>
-              {storyOffer ? <Line tone="warn">{t('story.offer', { excerpt: storyOffer })}</Line> : null}
-            </div>
-          </section>
-        ) : (
-          <p className="px-2 text-sm text-gray-600 dark:text-gray-400">{t('story.freePlan')}</p>
-        )}
-
-        {/* 4 · Ofertas */}
-        {offers.length > 0 ? (
-          <section className={`${CARD} p-6`}>
-            {blockHeader(t('offers.title'), 'offers', t('offers.check'), changed('offers'))}
-            <p className="-mt-2 mb-4 text-xs text-gray-600 dark:text-gray-400">{t('offers.rule')}</p>
-            <div className="space-y-3 text-sm">
-              {(
-                [
-                  ['free', answers.offer_free],
-                  ['subscriber', answers.offer_subscriber],
-                ] as const
-              ).map(([kind, text]) =>
-                text ? (
-                  <div key={kind}>
-                    <p className="text-xs font-medium uppercase tracking-wide text-gray-500">{t(`offers.${kind}`)}</p>
-                    <p className="break-words text-gray-900 dark:text-gray-100">{text}</p>
-                    {offerLooksLikeTuggiOrMoney(text) ? <Line tone="warn">{t('offers.warning')}</Line> : null}
-                  </div>
-                ) : null
-              )}
-            </div>
-          </section>
-        ) : null}
-
-        {/* 5 · Fotos — capped by plan and cutoff on the server (#809, contract §8.5). */}
-        {photos.length > 0 ? (
-          <section className={`${CARD} p-6`}>
-            {blockHeader(
-              t('photos.title', { count: photos.length }),
-              'photos',
-              t('photos.check'),
-              <>
-                <span className="ml-2 text-sm font-normal text-gray-600 dark:text-gray-400">
-                  {t(paid ? 'photos.limitPaid' : 'photos.limitFree')}
-                </span>
-                {changed('photos')}
-              </>
-            )}
-            <ul className="grid grid-cols-2 gap-3 md:grid-cols-4">
-              {photos.map((photo, index) => (
-                <li key={photo.path} className="relative aspect-[4/3] overflow-hidden rounded-xl bg-gray-100 dark:bg-gray-800">
-                  <a href={photo.url} target="_blank" rel="noreferrer" className="block h-full w-full">
-                    {/* eslint-disable-next-line @next/next/no-img-element -- short-lived signed URL of a private bucket */}
-                    <img
-                      src={photo.url}
-                      alt={t('photos.alt', { index: index + 1, count: photos.length, name: tradeName })}
-                      className="h-full w-full object-cover"
-                    />
-                  </a>
-                  {photo.role === 'facade' ? (
-                    <span className="absolute left-2 top-2 rounded-md bg-white/90 px-2 py-0.5 text-xs font-medium text-gray-900">
-                      {t('place.facade')}
-                    </span>
-                  ) : null}
-                </li>
-              ))}
-            </ul>
-          </section>
-        ) : (
-          <p className="px-2 text-sm text-gray-600 dark:text-gray-400">{t('photos.none')}</p>
-        )}
-
-        {/* Aceite */}
-        <section className={`${CARD} p-6`}>
-          <h2 className="mb-3 text-lg font-bold text-gray-900 dark:text-white">{t('acceptance.title')}</h2>
-          {acceptance ? (
-            <ul className="space-y-1 text-sm">
-              <li>
-                {t('acceptance.terms', { version: acceptance.termsVersion, date: formatDateTime(acceptance.acceptedAt) })}
-              </li>
-              <li className="flex flex-wrap items-center gap-2">
-                <span className="font-mono">{t('acceptance.hash', { hash: acceptance.termsHash.slice(0, 12) })}</span>
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  onClick={() => {
-                    void navigator.clipboard?.writeText(acceptance.termsHash).then(() => setCopied(true))
-                  }}
-                >
-                  {t('acceptance.copyHash')}
-                </Button>
-                {copied ? <span role="status">{t('acceptance.copied')}</span> : null}
-              </li>
-              <li>
-                {t('acceptance.login', {
-                  method: acceptance.authMethod === 'otp' ? t('acceptance.methodOtp') : t('acceptance.methodLink'),
-                })}
-              </li>
-              {acceptance.legalStatusDeclared ? (
-                <li>
-                  <Line tone="ok">{t('acceptance.declared')}</Line>
-                </li>
-              ) : null}
-              <li>
-                {(() => {
-                  const marked = (['sticker', 'display', 'social'] as const).filter(
-                    (key) => acceptance.activationCommitment[key]
-                  )
-                  return marked.length
-                    ? t('acceptance.commitment', { items: marked.map((key) => t(`acceptance.${key}`)).join(', ') })
-                    : t('acceptance.commitmentNone')
-                })()}
-              </li>
-              <li>
-                {t('acceptance.marketing', {
-                  value: acceptance.marketingConsent ? t('acceptance.yes') : t('acceptance.no'),
-                })}
-              </li>
-            </ul>
-          ) : (
-            <Line tone="warn">{t('acceptance.missing')}</Line>
-          )}
-        </section>
-
-        {/* Histórico */}
-        <section className={`${CARD} p-6`}>
-          <h2 className="mb-3 text-lg font-bold text-gray-900 dark:text-white">{t('history.title')}</h2>
-          {review.history.length === 0 ? (
-            <p className="text-sm">{t('history.empty')}</p>
-          ) : (
-            <ol className="space-y-2 text-sm">
-              {review.history.map((entry, index) => {
-                const kind = entry.kind === 'transition' ? entry.actorKind : entry.authorKind
-                const actor =
-                  kind === 'operator'
-                    ? entry.actorName
-                      ? t('history.operator', { name: entry.actorName })
-                      : t('history.operatorUnnamed')
-                    : kind === 'partner'
-                      ? t('history.place')
-                      : t('history.system')
-                const head =
-                  entry.kind === 'transition'
-                    ? t('history.transition', {
-                        date: formatDateTime(entry.at),
-                        from: t(`status.${entry.from}` as 'status.in_review'),
-                        to: t(`status.${entry.to}` as 'status.in_review'),
-                        actor,
-                      })
-                    : t('history.message', { date: formatDateTime(entry.at), actor })
-                const body = entry.kind === 'transition' ? entry.note : entry.body
-                return (
-                  <li key={index}>
-                    {body ? (
-                      <details>
-                        <summary className="cursor-pointer">{head}</summary>
-                        <p className="mt-1 whitespace-pre-wrap pl-4 text-gray-700 dark:text-gray-300">{body}</p>
-                      </details>
-                    ) : (
-                      <p>{head}</p>
-                    )}
-                  </li>
-                )
-              })}
-            </ol>
-          )}
-        </section>
-      </div>
-
-      <div className="shrink-0 overflow-y-auto border-t border-gray-100 p-6 dark:border-gray-800 lg:w-[360px] lg:border-l lg:border-t-0">
+      controls={
         <ValidationDecision
           review={review}
           tradeName={tradeName}
@@ -747,6 +367,458 @@ export function ValidationReview({
           returnTo={returnTo}
           primaryRef={primaryRef}
         />
+      }
+      closeLabel={t('close')}
+      closeHref={queueHref}
+    >
+      {/* THE CLIENT RECORD'S SHAPE (#870): tabs on the left with the decision pinned under them,
+          one tab open on the right, acts in the header. The header does not scroll; neither
+          column needs `sticky`. */}
+      <RecordTabs tabs={tabs} active={tab} onSelect={setTab} heading={t('tabs.heading')} footer={summary(true)} />
+
+      <div className="min-w-0 flex-1 overflow-y-auto p-4 lg:p-8">
+        <div className="mx-auto max-w-5xl space-y-8">
+          {doneText ? (
+            <div role="status" className="flex items-start gap-2 rounded-2xl border border-green-200 bg-green-50 p-4 text-sm font-semibold text-green-800 dark:border-green-800/30 dark:bg-green-900/20 dark:text-green-400">
+              <Check className="mt-0.5 h-4 w-4 shrink-0" aria-hidden="true" />
+              {doneText}
+            </div>
+          ) : null}
+
+          {band ? (
+            <div
+              className={cn(
+                'rounded-2xl border p-4 text-sm font-semibold',
+                status === 'approved' || status === 'live'
+                  ? 'border-green-200 bg-green-50 text-green-800 dark:border-green-800/30 dark:bg-green-900/20 dark:text-green-400'
+                  : status === 'rejected'
+                    ? 'border-red-200 bg-red-50 text-red-700 dark:border-red-800/30 dark:bg-red-900/20 dark:text-red-400'
+                    : 'border-amber-200 bg-amber-50 text-amber-900 dark:border-amber-800/30 dark:bg-amber-900/20 dark:text-amber-300'
+              )}
+            >
+              <p>{band}</p>
+              {status === 'changes_requested' && lastMessage('operator') ? (
+                <p className="mt-2 whitespace-pre-wrap font-normal">{lastMessage('operator')?.body}</p>
+              ) : null}
+            </div>
+          ) : resubmitted ? (
+            <div className="space-y-2 rounded-2xl border border-primary-100 bg-primary-50 p-4 text-sm text-gray-900 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-100">
+              <p className="font-semibold">
+                {t('bands.resubmitted', { date: formatShortDate(lastTransitionTo('in_review')?.at) })}
+              </p>
+              {lastMessage('operator') ? (
+                <p className="whitespace-pre-wrap">
+                  <span className="font-semibold">
+                    {t('bands.operatorRequest', {
+                      author: operatorName(lastMessage('operator')?.actorName ?? null),
+                      date: formatDateTime(lastMessage('operator')?.at),
+                    })}
+                    :{' '}
+                  </span>
+                  {lastMessage('operator')?.body}
+                </p>
+              ) : null}
+              {lastMessage('partner') ? (
+                <p className="whitespace-pre-wrap">
+                  <span className="font-semibold">{t('bands.placeAnswer', { date: formatDateTime(lastMessage('partner')?.at) })}: </span>
+                  {lastMessage('partner')?.body}
+                </p>
+              ) : null}
+            </div>
+          ) : null}
+
+          {tab === 'place' ? (
+            <>
+              <RecordSection
+                icon={<Building2 className="h-4 w-4 text-tuggi-blue" />}
+                title={t('company.title')}
+                aside={changed('company')}
+              >
+                <div className="mb-6 space-y-2">
+                  {review.sameTaxId.length === 0 ? (
+                    <Line tone="ok">{t('company.noDuplicate')}</Line>
+                  ) : (
+                    review.sameTaxId.map((other) => (
+                      <Line key={other.id} tone="warn">
+                        {t('company.duplicate', {
+                          name: other.tradeName ?? t('noTradeName'),
+                          state: t(`status.${other.status}` as 'status.in_review'),
+                        })}{' '}
+                        <Link className="underline" href={`/${locale}/admin/partnerships/validation/${other.id}`}>
+                          {t('company.open')}
+                        </Link>
+                      </Line>
+                    ))
+                  )}
+                  <Line tone="warn">
+                    {t('company.receitaManual')}{' '}
+                    <a
+                      className="underline"
+                      href={`https://solucoes.receita.fazenda.gov.br/servicos/cnpjreva/cnpjreva_solicitacao.asp?cnpj=${taxDigits}`}
+                      target="_blank"
+                      rel="noreferrer"
+                    >
+                      {t('company.openReceita')}
+                    </a>
+                  </Line>
+                </div>
+                <div className={FIELD_GRID}>
+                  <ReadField label={t('company.tradeName')}>{answers.trade_name}</ReadField>
+                  <ReadField label={t('company.legalName')}>{answers.legal_name}</ReadField>
+                  <ReadField label={t('company.taxId')}>{answers.tax_id}</ReadField>
+                  <ReadField label={t('company.category')}>{category}</ReadField>
+                  <ReadField label={t('company.priceRange')}>
+                    {answers.price_range ? '$'.repeat(Number(answers.price_range) || 0) : null}
+                  </ReadField>
+                  <ReadField label={t('company.representative')}>
+                    {[answers.representative_name, answers.representative_role].filter(Boolean).join(' · ')}
+                  </ReadField>
+                  <ReadField label={t('company.phone')}>
+                    {answers.representative_phone ? (
+                      <a className="text-tuggi-blue hover:underline" href={`tel:+${answers.representative_phone.replace(/\D/g, '')}`}>
+                        {answers.representative_phone}
+                      </a>
+                    ) : null}
+                  </ReadField>
+                  <ReadField label={t('company.email')}>{acceptance?.email}</ReadField>
+                  <ReadField label={t('company.cpf')} fullWidth>
+                    <span className="flex flex-wrap items-center gap-3">
+                      <span className="font-mono">
+                        {cpf ? formatCpf(cpf) : (acceptance?.signerCpfMasked ?? answers.representative_cpf ?? '—')}
+                      </span>
+                      {acceptance ? (
+                        <button
+                          type="button"
+                          aria-pressed={cpf !== null}
+                          onClick={() => void revealCpf()}
+                          className="inline-flex items-center gap-1 rounded-lg px-2 py-1 text-xs font-bold text-primary-800 hover:bg-tuggi-blue/5 dark:text-tuggi-blue"
+                        >
+                          {cpf ? <EyeOff className="h-3.5 w-3.5" aria-hidden="true" /> : <Eye className="h-3.5 w-3.5" aria-hidden="true" />}
+                          {cpf ? t('company.hideCpf') : t('company.showCpf')}
+                        </button>
+                      ) : null}
+                      {cpfError ? <span role="alert" className="text-xs text-destructive">{t('company.cpfError')}</span> : null}
+                    </span>
+                  </ReadField>
+                </div>
+                {acceptance?.cpfDiffers ? (
+                  <div className="mt-4">
+                    <Line tone="warn">{t('company.cpfDiffers')}</Line>
+                  </div>
+                ) : null}
+              </RecordSection>
+
+              <RecordSection
+                icon={<MapPin className="h-4 w-4 text-indigo-500" />}
+                title={t('place.title')}
+                color="indigo-500"
+                aside={changed('place', 'facade')}
+              >
+                <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
+                  <div className="space-y-1">
+                    <p className={FIELD_LABEL}>{t('place.map')}</p>
+                    <div className="h-60 overflow-hidden rounded-2xl bg-gray-50 dark:bg-gray-800">
+                      {hasPin ? (
+                        <GoogleMapComponent
+                          center={{ lat, lng }}
+                          zoom={18}
+                          height="240px"
+                          markers={[{ id: 'pin', position: { lat, lng }, title: tradeName }]}
+                        />
+                      ) : (
+                        <p className="p-4 text-sm">{t('place.noPin')}</p>
+                      )}
+                    </div>
+                  </div>
+                  <div className="space-y-1">
+                    <p className={FIELD_LABEL}>{t('place.streetView')}</p>
+                    <div className="flex h-60 flex-col items-center justify-center gap-2 rounded-2xl bg-gray-50 p-4 text-center text-sm dark:bg-gray-800">
+                      {streetViewUrl ? (
+                        <>
+                          <p>{t('place.streetViewHint')}</p>
+                          <a className="inline-flex items-center gap-1 font-bold text-primary-800 hover:underline dark:text-tuggi-blue" href={streetViewUrl} target="_blank" rel="noreferrer">
+                            {t('place.openStreetView')}
+                            <ExternalLink className="h-3 w-3" aria-hidden="true" />
+                          </a>
+                        </>
+                      ) : (
+                        <p>{t('place.noPin')}</p>
+                      )}
+                    </div>
+                  </div>
+                  <div className="space-y-1">
+                    <p className={FIELD_LABEL}>{t('place.facade')}</p>
+                    {facadePhoto ? (
+                      <a href={facadePhoto.url} target="_blank" rel="noreferrer" className="block h-60 overflow-hidden rounded-2xl bg-gray-50 dark:bg-gray-800">
+                        {/* eslint-disable-next-line @next/next/no-img-element -- short-lived signed URL of a private bucket */}
+                        <img src={facadePhoto.url} alt={t('place.facadeAlt', { name: tradeName })} className="h-full w-full object-cover" />
+                      </a>
+                    ) : (
+                      <div className="flex h-60 items-center justify-center rounded-2xl bg-gray-50 p-4 text-center text-sm dark:bg-gray-800">
+                        {t('place.noFacade')}
+                      </div>
+                    )}
+                  </div>
+                </div>
+
+                <div className={`mt-6 ${FIELD_GRID}`}>
+                  <ReadField label={t('place.address')} fullWidth>
+                    {[
+                      [answers.address, answers.address_number].filter(Boolean).join(', '),
+                      answers.district,
+                      [answers.city, answers.state].filter(Boolean).join('/'),
+                      answers.postal_code ? t('place.postalCode', { value: answers.postal_code }) : null,
+                    ]
+                      .filter(Boolean)
+                      .join(' · ')}
+                    {mapsUrl ? (
+                      <>
+                        {' · '}
+                        <a className="text-tuggi-blue hover:underline" href={mapsUrl} target="_blank" rel="noreferrer">
+                          {t('place.openMaps')}
+                        </a>
+                      </>
+                    ) : null}
+                    <span className="mt-1 block text-xs font-medium text-gray-500">{t('place.hint')}</span>
+                  </ReadField>
+                  <ReadField label={t('place.hours')}>
+                    {Object.keys(hours).length === 0
+                      ? t('place.notInformed')
+                      : DAYS.map((day) => (
+                          <span key={day} className="block">
+                            {t(`days.${day}`)}:{' '}
+                            {hours[day]?.length
+                              ? hours[day].map((range) => `${range.open}–${range.close}`).join(', ')
+                              : t('place.closed')}
+                          </span>
+                        ))}
+                  </ReadField>
+                  <div className="space-y-6">
+                    <ReadField label={t('place.whatsapp')}>{answers.whatsapp}</ReadField>
+                    <ReadField label={t('place.instagram')}>{answers.instagram}</ReadField>
+                    <ReadField label={t('place.website')}>{answers.website}</ReadField>
+                  </div>
+                  <ReadField label={t('place.amenities')}>
+                    {amenities.map((id) => (t.has(`amenityLabels.${id}`) ? t(`amenityLabels.${id}`) : id)).join(', ')}
+                  </ReadField>
+                  <ReadField label={t('place.languages')}>
+                    {languages.map((id) => (t.has(`languageLabels.${id}`) ? t(`languageLabels.${id}`) : id)).join(', ')}
+                  </ReadField>
+                </div>
+              </RecordSection>
+            </>
+          ) : null}
+
+          {tab === 'story' ? (
+            <>
+              {paid ? (
+                <RecordSection
+                  icon={<BookOpen className="h-4 w-4 text-purple-500" />}
+                  title={t('story.title')}
+                  color="purple-500"
+                  aside={changed('story')}
+                >
+                  <p className="mb-6 text-xs leading-relaxed text-gray-500">{t('story.told')}</p>
+                  <div className={FIELD_GRID}>
+                    <ReadField label={t('story.founder')}>{answers.story_founder}</ReadField>
+                    <ReadField label={t('story.unique')}>{answers.story_unique}</ReadField>
+                    <ReadField label={t('story.event')}>{answers.story_event}</ReadField>
+                    <ReadField label={t('story.signature')}>{answers.signature_item}</ReadField>
+                    <ReadField label={t('story.script')} fullWidth>
+                      {script ? (
+                        <span className="block whitespace-pre-wrap rounded-xl bg-gray-50 p-4 text-base font-medium leading-relaxed dark:bg-gray-800">
+                          {script}
+                        </span>
+                      ) : (
+                        t('story.noScript')
+                      )}
+                    </ReadField>
+                  </div>
+                  <div className="mt-3 space-y-1">
+                    <p className={`text-xs font-semibold ${words > STORY_WORD_LIMIT ? 'text-destructive' : 'text-gray-600 dark:text-gray-300'}`}>
+                      {t('story.words', { count: words, limit: STORY_WORD_LIMIT })}
+                      {words > STORY_WORD_LIMIT ? ` ${t('story.tooLong', { limit: STORY_WORD_LIMIT })}` : null}
+                    </p>
+                    {storyOffer ? <Line tone="warn">{t('story.offer', { excerpt: storyOffer })}</Line> : null}
+                  </div>
+                </RecordSection>
+              ) : (
+                <RecordSection icon={<BookOpen className="h-4 w-4 text-purple-500" />} title={t('story.title')} color="purple-500">
+                  <p className="text-sm text-gray-600 dark:text-gray-300">{t('story.freePlan')}</p>
+                </RecordSection>
+              )}
+
+              {offers.length > 0 ? (
+                <RecordSection
+                  icon={<Gift className="h-4 w-4 text-pink-500" />}
+                  title={t('offers.title')}
+                  color="pink-500"
+                  aside={changed('offers')}
+                >
+                  <p className="mb-6 text-xs leading-relaxed text-gray-500">{t('offers.rule')}</p>
+                  <div className={FIELD_GRID}>
+                    {(
+                      [
+                        ['free', answers.offer_free],
+                        ['subscriber', answers.offer_subscriber],
+                      ] as const
+                    ).map(([kind, text]) =>
+                      text ? (
+                        <ReadField key={kind} label={t(`offers.${kind}`)}>
+                          {text}
+                          {offerLooksLikeTuggiOrMoney(text) ? (
+                            <span className="mt-1 block font-normal">
+                              <Line tone="warn">{t('offers.warning')}</Line>
+                            </span>
+                          ) : null}
+                        </ReadField>
+                      ) : null
+                    )}
+                  </div>
+                </RecordSection>
+              ) : null}
+            </>
+          ) : null}
+
+          {tab === 'photos' ? (
+            /* Capped by plan and cutoff on the server (#809, contract §8.5). */
+            <RecordSection
+              icon={<ImageIcon className="h-4 w-4 text-amber-500" />}
+              title={t('photos.title', { count: photos.length })}
+              color="amber-500"
+              aside={
+                <span className="flex items-center gap-2 text-xs font-semibold text-gray-500">
+                  {t(paid ? 'photos.limitPaid' : 'photos.limitFree')}
+                  {changed('photos')}
+                </span>
+              }
+            >
+              {photos.length > 0 ? (
+                <ul className="grid grid-cols-2 gap-4 md:grid-cols-4">
+                  {photos.map((photo, index) => (
+                    <li key={photo.path} className="relative aspect-[4/3] overflow-hidden rounded-2xl bg-gray-50 dark:bg-gray-800">
+                      <a href={photo.url} target="_blank" rel="noreferrer" className="block h-full w-full">
+                        {/* eslint-disable-next-line @next/next/no-img-element -- short-lived signed URL of a private bucket */}
+                        <img
+                          src={photo.url}
+                          alt={t('photos.alt', { index: index + 1, count: photos.length, name: tradeName })}
+                          className="h-full w-full object-cover"
+                        />
+                      </a>
+                      {photo.role === 'facade' ? (
+                        <span className="absolute left-2 top-2 rounded-full bg-white/90 px-2 py-0.5 text-[10px] font-bold uppercase tracking-widest text-gray-900">
+                          {t('place.facade')}
+                        </span>
+                      ) : null}
+                    </li>
+                  ))}
+                </ul>
+              ) : (
+                <p className="text-sm text-gray-600 dark:text-gray-300">{t('photos.none')}</p>
+              )}
+            </RecordSection>
+          ) : null}
+
+          {tab === 'acceptance' ? (
+            <>
+              <RecordSection
+                icon={<FileSignature className="h-4 w-4 text-indigo-500" />}
+                title={t('acceptance.title')}
+                color="indigo-500"
+                aside={
+                  acceptance ? (
+                    <span className="flex items-center gap-2">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          void navigator.clipboard?.writeText(acceptance.termsHash).then(() => setCopied(true))
+                        }}
+                        className="inline-flex items-center gap-1 rounded-lg px-2 py-1 text-xs font-bold text-primary-800 hover:bg-tuggi-blue/5 dark:text-tuggi-blue"
+                      >
+                        <Copy className="h-3.5 w-3.5" aria-hidden="true" />
+                        {t('acceptance.copyHash')}
+                      </button>
+                      {copied ? <span role="status" className="text-xs font-semibold text-green-700">{t('acceptance.copied')}</span> : null}
+                    </span>
+                  ) : null
+                }
+              >
+                {acceptance ? (
+                  <div className="space-y-6">
+                    <PortalAcceptances records={[portalRecord]} />
+                    <div className={FIELD_GRID}>
+                      <ReadField label={t('acceptance.loginLabel')}>
+                        {acceptance.authMethod === 'otp' ? t('acceptance.methodOtp') : t('acceptance.methodLink')}
+                      </ReadField>
+                      <ReadField label={t('acceptance.marketingLabel')}>
+                        {acceptance.marketingConsent ? t('acceptance.yes') : t('acceptance.no')}
+                      </ReadField>
+                    </div>
+                  </div>
+                ) : (
+                  <Line tone="warn">{t('acceptance.missing')}</Line>
+                )}
+              </RecordSection>
+
+              {acceptance ? (
+                <RecordSection
+                  icon={<CreditCard className="h-4 w-4 text-green-500" />}
+                  title={tPortal('subscription.title')}
+                  color="green-500"
+                >
+                  <PortalSubscriptions records={[portalRecord]} />
+                </RecordSection>
+              ) : null}
+            </>
+          ) : null}
+
+          {tab === 'history' ? (
+            <RecordSection icon={<History className="h-4 w-4 text-tuggi-blue" />} title={t('history.title')}>
+              {review.history.length === 0 ? (
+                <p className="text-sm text-gray-600 dark:text-gray-300">{t('history.empty')}</p>
+              ) : (
+                <ol className="space-y-3 text-sm font-semibold text-gray-900 dark:text-white">
+                  {review.history.map((entry, index) => {
+                    const kind = entry.kind === 'transition' ? entry.actorKind : entry.authorKind
+                    const actor =
+                      kind === 'operator'
+                        ? entry.actorName
+                          ? t('history.operator', { name: entry.actorName })
+                          : t('history.operatorUnnamed')
+                        : kind === 'partner'
+                          ? t('history.place')
+                          : t('history.system')
+                    const head =
+                      entry.kind === 'transition'
+                        ? t('history.transition', {
+                            date: formatDateTime(entry.at),
+                            from: t(`status.${entry.from}` as 'status.in_review'),
+                            to: t(`status.${entry.to}` as 'status.in_review'),
+                            actor,
+                          })
+                        : t('history.message', { date: formatDateTime(entry.at), actor })
+                    const body = entry.kind === 'transition' ? entry.note : entry.body
+                    return (
+                      <li key={index}>
+                        {body ? (
+                          <details>
+                            <summary className="cursor-pointer">{head}</summary>
+                            <p className="mt-1 whitespace-pre-wrap pl-4 font-normal text-gray-700 dark:text-gray-300">{body}</p>
+                          </details>
+                        ) : (
+                          <p>{head}</p>
+                        )}
+                      </li>
+                    )
+                  })}
+                </ol>
+              )}
+            </RecordSection>
+          ) : null}
+
+          {/* The phone has no sidebar: the decision goes under the open tab. */}
+          <div className="lg:hidden">{summary(false)}</div>
+        </div>
       </div>
     </RecordShell>
   )

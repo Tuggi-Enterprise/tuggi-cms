@@ -9,7 +9,8 @@ import { RETURN_TO_PARAM, parseReturnTo } from '@/lib/navigation/return-to'
  * lands here (`lib/clients/record-href.ts`, target `validation`).
  *
  * `PartnerForm` travels along for the category labels — one copy of them, the one the
- * presential review reads too.
+ * presential review reads too — and `Clients` for the acceptance and subscription cards, which are
+ * the client record's own (`PortalRecord`, #870).
  */
 export default async function PortalValidationPage({
   params,
@@ -26,7 +27,11 @@ export default async function PortalValidationPage({
   return (
     <NextIntlClientProvider
       locale="pt"
-      messages={{ PartnerValidation: ptMessages.PartnerValidation, PartnerForm: ptMessages.PartnerForm }}
+      messages={{
+        PartnerValidation: ptMessages.PartnerValidation,
+        PartnerForm: ptMessages.PartnerForm,
+        Clients: ptMessages.Clients,
+      }}
     >
       <ValidationReview locale={locale} submissionId={submissionId} returnTo={returnTo} />
     </NextIntlClientProvider>
