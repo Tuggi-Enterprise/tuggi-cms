@@ -10,6 +10,7 @@
 
 import { test, before } from 'node:test'
 import assert from 'node:assert/strict'
+import { readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
 import { pathToFileURL } from 'node:url'
 
@@ -41,6 +42,7 @@ function fakeAsaas(answer: (c: Call) => { status: number; body: unknown } | unde
     const call = { method: init.method ?? 'GET', path: u.pathname.replace(/^\/v3/, ''), body: init.body ? JSON.parse(String(init.body)) : undefined }
     calls.push(call)
     const hit = answer(call)
+    if (hit?.status === 0) throw new TypeError('network') // AsaasError(0): timeout or no route
     return hit
       ? new Response(JSON.stringify(hit.body), { status: hit.status })
       : new Response(JSON.stringify({ errors: [{ code: 'not_found' }] }), { status: 404 })
@@ -134,14 +136,71 @@ test('contract §3.5: TGP10 from record_place_payout_transfer is a critical aler
   assert.equal(critical.fields.transfer_id, 'tra_1')
 })
 
-test('a failed POST leaves the payout released, alerts, and records nothing', async () => {
-  const asaas = fakeAsaas((c) => (c.method === 'POST' ? { status: 400, body: { errors: [{ code: 'invalid_pixAddressKey' }] } } : undefined))
-  const h = harness({ release_place_payout: applied }, asaas)
+const rejected400 = { status: 400, body: { errors: [{ code: 'invalid_pixAddressKey', description: 'Chave inválida' }] } }
+const transferList = (data: unknown[], hasMore = false) => ({ status: 200, body: { object: 'list', hasMore, data } })
+
+for (const status of [0, 429, 500, 503]) {
+  test(`contract §3.5: POST answered ${status || 'network/timeout'} leaves the payout released: no fail_place_payout_release, no re-read, no second POST`, async () => {
+    const asaas = fakeAsaas((c) => (c.method === 'POST' ? { status, body: {} } : undefined))
+    const h = harness({ release_place_payout: applied }, asaas)
+    const r = await mod.releasePayout(h.deps, { payoutId: PAYOUT, releasedBy: ADMIN })
+    assert.equal(r.status, 502)
+    assert.equal(r.body.error, 'transfer_failed')
+    assert.deepEqual(h.rpc.map((c) => c.fn), ['release_place_payout'])
+    assert.equal(asaas.calls.length, 1, 'one POST and nothing else')
+    assert.equal(h.alerts[0].what, 'payout_transfer_failed')
+    assert.equal(h.alerts[0].fields.payout_status, 'released')
+    assert.equal(h.mails.length, 0)
+  })
+}
+
+test('contract §3.5: a 400 with no transfer at Asaas for the payout → fail_place_payout_release(asaas_rejected: …), one POST', async () => {
+  const asaas = fakeAsaas((c) =>
+    c.method === 'POST' ? rejected400 : c.path === '/transfers' ? transferList([{ id: 'tra_other', status: 'DONE', externalReference: 'outro' }]) : undefined,
+  )
+  const h = harness({ release_place_payout: applied, fail_place_payout_release: { data: [{ outcome: 'applied', status: 'failed' }] } }, asaas)
   const r = await mod.releasePayout(h.deps, { payoutId: PAYOUT, releasedBy: ADMIN })
   assert.equal(r.status, 502)
-  assert.deepEqual(h.rpc.map((c) => c.fn), ['release_place_payout'])
-  assert.equal(h.alerts[0].what, 'payout_transfer_failed')
+  assert.deepEqual(h.rpc.map((c) => c.fn), ['release_place_payout', 'fail_place_payout_release'])
+  assert.deepEqual(h.rpc[1].args, { p_payout_id: PAYOUT, p_reason: 'asaas_rejected: invalid_pixAddressKey' })
+  assert.deepEqual(asaas.calls.map((c) => `${c.method} ${c.path}`), ['POST /transfers', 'GET /transfers'])
+  assert.equal(h.alerts[0].fields.payout_status, 'failed')
   assert.equal(h.mails.length, 0)
+})
+
+test('contract §3.5: a 400 whose payout IS at Asaas (externalReference) stays released, critical alert, no second POST', async () => {
+  const asaas = fakeAsaas((c) =>
+    c.method === 'POST' ? rejected400 : c.path === '/transfers' ? transferList([{ id: 'tra_9', status: 'PENDING', externalReference: PAYOUT }]) : undefined,
+  )
+  const h = harness({ release_place_payout: applied }, asaas)
+  await mod.releasePayout(h.deps, { payoutId: PAYOUT, releasedBy: ADMIN })
+  assert.deepEqual(h.rpc.map((c) => c.fn), ['release_place_payout'])
+  assert.ok(h.alerts.some((a) => a.what === 'CRITICAL payout_rejected_but_transfer_found'))
+  assert.equal(asaas.calls.filter((c) => c.method === 'POST').length, 1)
+})
+
+test('contract §3.5: a 400 whose re-read fails or runs out of pages stays released (unknown is not absent)', async () => {
+  for (const list of [{ status: 500, body: {} }, transferList([], true)]) {
+    const asaas = fakeAsaas((c) => (c.method === 'POST' ? rejected400 : c.path === '/transfers' ? list : undefined))
+    const h = harness({ release_place_payout: applied }, asaas)
+    await mod.releasePayout(h.deps, { payoutId: PAYOUT, releasedBy: ADMIN })
+    assert.deepEqual(h.rpc.map((c) => c.fn), ['release_place_payout'])
+    assert.equal(asaas.calls.filter((c) => c.method === 'POST').length, 1)
+    assert.equal(h.alerts[h.alerts.length - 1]?.fields.payout_status, 'released')
+  }
+})
+
+test('security #903: places-payout serves the CMS server only — an admin JWT is 403, the machine key (service_role) passes', () => {
+  assert.deepEqual(mod.machineOnly({ role: 'admin' }), { status: 403, body: { error: 'forbidden' } })
+  assert.deepEqual(mod.machineOnly({ role: 'super_admin' }), { status: 403, body: { error: 'forbidden' } })
+  assert.deepEqual(mod.machineOnly({}), { status: 403, body: { error: 'forbidden' } })
+  assert.equal(mod.machineOnly({ role: 'service_role' }), null)
+  // `requireAdmin` imports esm.sh (Node cannot load the EF): the wiring is proved by position.
+  const src = readFileSync(resolve(SHARED, '../places-payout/index.ts'), 'utf8')
+  const gate = src.indexOf('requireAdmin(req)')
+  const machine = src.indexOf('machineOnly(auth)')
+  assert.ok(gate > 0 && machine > gate, 'machineOnly right after requireAdmin')
+  assert.ok(machine < src.indexOf('req.json()'), 'before the body is read')
 })
 
 test('a failed payout released again transfers, but does not e-mail the place a second time', async () => {

@@ -157,6 +157,9 @@ export type AsaasScheduleInvoice = {
 
 type List<T> = { data?: T[] | null; hasMore?: boolean | null };
 
+/** `GET /v3/transfers` publishes `limit` max 10. */
+export const TRANSFER_PAGE = 10;
+
 /**
  * `POST /v3/transfers` and `GET /v3/transfers/{id}` (#903, doc conferred 2026-10-07:
  * https://docs.asaas.com/reference/transferir-para-conta-de-outra-instituicao-ou-chave-pix).
@@ -353,6 +356,18 @@ export function asaasClient(cfg: AsaasConfig) {
       }),
 
     getTransfer: (id: string) => call<AsaasTransfer>('GET', `/transfers/${encodeURIComponent(id)}`),
+
+    /**
+     * `GET /v3/transfers`, one PIX page created since `since` (`YYYY-MM-DD`). Doc conferred
+     * 2026-10-07 (https://docs.asaas.com/reference/listar-transferencias): the filters are
+     * `dateCreated[ge|le]`, `transferDate[ge|le]` and `type`; there is NO `externalReference`
+     * filter, so the caller matches it in the page; `limit` is at most 10.
+     */
+    listPixTransfersSince: async (since: string, offset: number) =>
+      await call<List<AsaasTransfer>>(
+        'GET',
+        `/transfers?${q({ 'dateCreated[ge]': since, type: 'PIX', offset: String(offset), limit: String(TRANSFER_PAGE) })}`,
+      ),
 
     /** `POST /v3/payments/{id}/refund`. Asynchronous: the refund is born PENDING. */
     refundPayment: (id: string, value: number, description: string) =>

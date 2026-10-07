@@ -16,9 +16,11 @@
 // the row lock + move to `released` is the only gate, and `unchanged` (double click, retry,
 // concurrent call) returns before Asaas is touched. After the POST, `record_place_payout_transfer`;
 // its TGP10 (or any failure) is a CRITICAL ALERT with the payout and transfer ids — never a second
-// POST. A POST that fails leaves the payout `released`: the money may have left (timeout) and the
-// database offers no way back from `released` on purpose (§3.5, risk residual); the pending item
-// `payout_stuck_released` tells the operator to search Asaas by `externalReference` = payout id.
+// POST. A POST that fails leaves the payout `released` (the money may have left: timeout, 5xx) and
+// the pending item `payout_stuck_released` tells the operator to search Asaas by `externalReference`
+// = payout id. The one way back is `fail_place_payout_release`, and only for a 400 confirmed by a
+// re-read (`rejectedRelease`): a `failed` payout can be released again, so calling it with the Pix
+// sent pays the place twice.
 //
 // THE PARTNER NEVER SEES THE STATEMENT (B2, term clause 13). The e-mails carry the month's total and
 // the number of purchases, nothing per purchase: no gross value, price or product.
@@ -26,7 +28,7 @@
 // Pure: every side effect is injected (`PayoutDeps`), wired for Deno in `places-payout-runtime.ts`;
 // the CMS tests load this file under Node (`tests/api/edge-places-payout.test.ts`).
 
-import { AsaasError, type AsaasClient, type AsaasTransfer } from './asaas.ts';
+import { AsaasError, TRANSFER_PAGE, type AsaasClient, type AsaasTransfer } from './asaas.ts';
 import { ACCESS_FROM_NAME, portalMail } from './places-portal-draft.ts';
 import { formatBrl, formatCnpjKey, type DbError, type Rpc } from './places-payment.ts';
 
@@ -55,7 +57,7 @@ export type PayoutContext = {
 export type PayoutDeps = {
   /** `service_role`. */
   admin: Rpc;
-  asaas: Pick<AsaasClient, 'createPixTransfer' | 'getTransfer'>;
+  asaas: Pick<AsaasClient, 'createPixTransfer' | 'getTransfer' | 'listPixTransfersSince'>;
   /** `null` = no such payout. Throws on a read error. */
   payoutContext(payoutId: string): Promise<PayoutContext | null>;
   /** Every live (not cancelled) payout of the month. Throws on a read error. */
@@ -129,6 +131,15 @@ export function payoutZeroEmail(p: PayoutContext): { subject: string; html: stri
   });
 }
 
+/**
+ * The EF serves the CMS's Next server only (its machine key → `requireAdmin` sets `service_role`).
+ * A CMS admin's JWT also passes `requireAdmin`, and from the browser it would skip the CMS route's
+ * "amount shown" check and FINANCE module and pick `released_by` itself: 403.
+ */
+export function machineOnly(auth: { role?: string }): Reply | null {
+  return auth.role === 'service_role' ? null : reply(403, { error: 'forbidden' });
+}
+
 const errOf = (e: DbError) => ({ code: e.code ?? null, detail: typeof e.details === 'string' ? e.details.slice(0, 64) : null });
 
 export type ReleaseInput = { payoutId: string; releasedBy: string };
@@ -152,7 +163,8 @@ export function parsePeriod(body: unknown): string | null {
  *
  * 200 `{result: 'sent', transfer_id}` · 200 `{result: 'unchanged', status}` (no Asaas call) ·
  * 404 `not_found` · 409 `{error: 'not_releasable', reason}` (TGP10: `not_positive`, `no_pix_key`
- * or the status) · 502 `{error: 'transfer_failed', codes}` (the payout stays `released`) ·
+ * or the status) · 502 `{error: 'transfer_failed', codes}` (the payout stays `released`, or goes
+ * `failed` on a 400 confirmed absent at Asaas: `rejectedRelease`) ·
  * 500 `failed` (database).
  */
 export async function releasePayout(deps: PayoutDeps, input: ReleaseInput): Promise<Reply> {
@@ -192,9 +204,17 @@ export async function releasePayout(deps: PayoutDeps, input: ReleaseInput): Prom
   } catch (e) {
     const status = e instanceof AsaasError ? e.status : 0;
     const codes = e instanceof AsaasError ? e.codes.join(',') : '';
-    // Timeout or 5xx: the transfer may exist. 4xx: it does not. Either way no second POST here,
-    // and the payout stays `released` until the operator settles it (pending `payout_stuck_released`).
-    await deps.alert('payout_transfer_failed', { payout_id: input.payoutId, amount_cents: amountCents, http_status: status, codes, search: 'externalReference = payout_id' });
+    // Never a second POST. Only a 400 may move the payout to `failed` (`rejectedRelease`); 0 (network,
+    // timeout), 401, 403, 408, 429 and 5xx leave it `released` for the pending `payout_stuck_released`.
+    const failed = status === 400 && (await rejectedRelease(deps, input.payoutId, codes));
+    await deps.alert('payout_transfer_failed', {
+      payout_id: input.payoutId,
+      amount_cents: amountCents,
+      http_status: status,
+      codes,
+      payout_status: failed ? 'failed' : 'released',
+      search: failed ? null : 'externalReference = payout_id',
+    });
     return reply(502, { error: 'transfer_failed', codes: codes || null });
   }
 
@@ -216,6 +236,53 @@ export async function releasePayout(deps: PayoutDeps, input: ReleaseInput): Prom
     if (!sent) await deps.alert('payout_email_failed', { payout_id: input.payoutId, kind: 'paid' });
   }
   return reply(200, { result: 'sent', transfer_id: transfer.id, recorded: !recorded.error });
+}
+
+/** Pages of `GET /v3/transfers` read before giving up (10 per page): far above a day of payouts. */
+const TRANSFER_SEARCH_PAGES = 20;
+
+/**
+ * Did Asaas create a PIX transfer with `externalReference` = the payout, since yesterday (UTC; the
+ * day of the POST in Brasília is covered)? `null` = could not tell (read error, or the pages ran out).
+ */
+async function transferExists(asaas: Pick<AsaasClient, 'listPixTransfersSince'>, payoutId: string): Promise<boolean | null> {
+  const since = new Date(Date.now() - 86_400_000).toISOString().slice(0, 10);
+  try {
+    for (let page = 0; page < TRANSFER_SEARCH_PAGES; page++) {
+      const list = await asaas.listPixTransfersSince(since, page * TRANSFER_PAGE);
+      if ((list.data ?? []).some((t) => t.externalReference === payoutId)) return true;
+      if (!list.hasMore) return false;
+    }
+  } catch {
+    // Unknown is not "absent".
+  }
+  return null;
+}
+
+/**
+ * A 400 to `POST /v3/transfers` → `fail_place_payout_release` (contract §3.5), so the screen shows
+ * "Falhou: …" and the button "Reenviar repasse". The Asaas doc (conferred 2026-10-07:
+ * docs/transferencia-para-contas-de-outra-instituicao-pix-ted, reference/codigos-http-das-respostas)
+ * says 400 is "dado obrigatório ausente, inválido ou não atende às regras da operação" and does NOT
+ * say the transfer was not created. So the second path: before failing, re-read the PIX transfers
+ * of the day and fail only when none carries this `externalReference` (the list has no such filter;
+ * it is matched in the page). Anything but a clean "absent" leaves the payout `released`.
+ */
+async function rejectedRelease(deps: PayoutDeps, payoutId: string, codes: string): Promise<boolean> {
+  const exists = await transferExists(deps.asaas, payoutId);
+  if (exists !== false) {
+    if (exists) await deps.alert('CRITICAL payout_rejected_but_transfer_found', { payout_id: payoutId, codes });
+    return false;
+  }
+  const r = await deps.admin('partner', 'fail_place_payout_release', {
+    p_payout_id: payoutId,
+    p_reason: `asaas_rejected: ${codes || 'http_400'}`,
+  });
+  if (r.error) {
+    await deps.alert('payout_fail_release_failed', { payout_id: payoutId, code: r.error.code ?? null });
+    return false;
+  }
+  return true;
 }
 
 /**

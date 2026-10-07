@@ -4,6 +4,7 @@
 // `docs/contracts/places-pagamento.md` §3.5 (workspace).
 //
 // Caller: the CMS's Next server only, with its own secret key (`requireAdmin` machine bypass).
+// A CMS admin's JWT is refused with 403 (`machineOnly`).
 // The admin gate (B1: only an admin releases) and the "amount shown = amount on the server"
 // check live in the CMS route `POST /api/finance/payouts/{id}/release`, which is the only door.
 //
@@ -17,7 +18,7 @@
 // Never log a body or a Pix key: ids and outcomes only.
 
 import { requireAdmin } from '../_shared/auth-middleware.ts';
-import { notifyClosedPeriod, parsePeriod, parseRelease, releasePayout } from '../_shared/places-payout.ts';
+import { machineOnly, notifyClosedPeriod, parsePeriod, parseRelease, releasePayout } from '../_shared/places-payout.ts';
 import { payoutDeps } from '../_shared/places-payout-runtime.ts';
 import { asaasFromEnv, json } from '../_shared/places-payment-runtime.ts';
 
@@ -25,6 +26,8 @@ Deno.serve(async (req: Request) => {
   if (req.method !== 'POST') return json(405, { error: 'method_not_allowed' });
   const auth = await requireAdmin(req);
   if (auth instanceof Response) return auth;
+  const denied = machineOnly(auth);
+  if (denied) return json(denied.status, denied.body);
 
   const body = await req.json().catch(() => null);
   const action = (body as Record<string, unknown> | null)?.action;
