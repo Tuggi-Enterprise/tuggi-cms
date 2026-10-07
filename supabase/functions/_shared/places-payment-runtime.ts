@@ -16,7 +16,7 @@ import { createAdminClient, getPublishableKey, getSupabaseUrl } from './supabase
 import { asaasClient } from './asaas.ts';
 import { saoPauloDate, type CancelRedoRow, type Deps, type ExpiredCardRow, type Rpc, type SubscriptionIds } from './places-payment.ts';
 import { issueAccessLink } from './places-portal-draft.ts';
-import { INVOICE_ENV, parseInvoiceConfig, type InvoiceTarget } from './places-invoice.ts';
+import { INVOICE_ENV, MirrorReadError, parseInvoiceConfig, type InvoiceTarget } from './places-invoice.ts';
 import { accessLinkDeps } from './places-access-link-runtime.ts';
 
 const RESEND_URL = 'https://api.resend.com/emails';
@@ -107,7 +107,7 @@ export function baseDeps(asaas: NonNullable<ReturnType<typeof asaasFromEnv>>): D
     sendEmail,
     invoiceStatusOf: async (providerInvoiceId: string): Promise<string | null> => {
       const { data, error } = await admin.schema('partner').from('place_invoices').select('status').eq('provider_invoice_id', providerInvoiceId).maybeSingle();
-      if (error) throw new Error(`invoice read ${error.code}`);
+      if (error) throw new MirrorReadError(error.code ?? null); // classified by `recordInvoice` (200 + alert when permanent)
       return data?.status ?? null;
     },
     invoiceTargets: async (): Promise<InvoiceTarget[]> => {

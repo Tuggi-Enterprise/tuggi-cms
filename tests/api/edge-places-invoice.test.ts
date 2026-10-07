@@ -521,3 +521,77 @@ test('#901 BR-B2B-046: an AUTHORIZED invoice whose data changes (new PDF link) i
   assert.deepEqual(await hook(m.d, invEvent('e2', 'INVOICE_UPDATED')), { status: 200, body: { outcome: 'updated' } })
   assert.equal(m.emails.length, 1)
 })
+
+// ─── 6. security review (M1, B2) and the design's e-mail ─────────────────────────────────────────
+
+for (const code of ['PGRST202', '42883', '42P01', 'PGRST205', 'TGP22']) {
+  test(`#901 BR-B2B-046 M1: a permanent database error (${code}) recording the invoice answers 200 and alerts — 500 would pause the Asaas queue`, async () => {
+    const db = fakeDb({ record_place_invoice: { error: { code, details: 'p_status' } } })
+    const { d, alerts, emails } = deps(fakeAsaas([at('GET', '/invoices/inv_1', 200, invoiceBody('AUTHORIZED'))]), db)
+    assert.deepEqual(await hook(d, invEvent('e1', 'INVOICE_AUTHORIZED')), { status: 200, body: { outcome: 'db_rejected' } })
+    assert.deepEqual(alerts.map((a) => a.what), [code === 'TGP22' ? 'invoice_tgp22' : 'invoice_db_rejected'])
+    assert.equal(emails.length, 0)
+  })
+
+  test(`#901 BR-B2B-046 M1: a permanent database error (${code}) reading the mirror status (invoiceStatusOf) answers 200 and alerts`, async () => {
+    const db = fakeDb({ record_place_invoice: { data: [{ outcome: 'inserted' }] } })
+    const { d, alerts, emails } = deps(fakeAsaas([at('GET', '/invoices/inv_1', 200, invoiceBody('AUTHORIZED'))]), db, {
+      invoiceStatusOf: async () => { throw new inv.MirrorReadError(code) },
+    })
+    assert.deepEqual(await hook(d, invEvent('e1', 'INVOICE_AUTHORIZED')), { status: 200, body: { outcome: 'db_rejected' } })
+    assert.deepEqual(alerts.map((a) => [a.what, a.fields.code, a.fields.step]), [['invoice_db_rejected', code, 'invoice_status_read']])
+    assert.equal(db.calls.length, 0)
+    assert.equal(emails.length, 0)
+  })
+}
+
+test('#901 BR-B2B-046 M1: a transient database error reading the mirror status answers 500 (Asaas resends) and alerts nothing', async () => {
+  for (const thrown of [new Error('boom'), null]) {
+    const db = fakeDb({ record_place_invoice: { data: [{ outcome: 'inserted' }] } })
+    const { d, alerts } = deps(fakeAsaas([at('GET', '/invoices/inv_1', 200, invoiceBody('AUTHORIZED'))]), db, {
+      invoiceStatusOf: async () => { throw thrown ?? new inv.MirrorReadError('57014') },
+    })
+    assert.deepEqual(await hook(d, invEvent('e1', 'INVOICE_AUTHORIZED')), { status: 500, body: { error: 'db_error' } })
+    assert.deepEqual(alerts, [])
+  }
+})
+
+for (const [label, payment, amount, alertWhat] of [
+  ['refund_unexpected_status', { ...paid, status: 'PENDING' }, 19990, 'refund_unexpected_status'],
+  ['refund_amount_above_charge', paid, 99999, 'refund_amount_above_charge'],
+] as const) {
+  test(`#901 BR-B2B-046 B2: a refund skipped (${label}) does not cancel the invoice of the payment`, async () => {
+    const asaas = fakeAsaas([
+      invList('payment=pay_1', 200, { data: [invOf('AUTHORIZED')], hasMore: false }),
+      at('GET', '/payments/pay_1', 200, payment),
+    ])
+    const { d, alerts } = deps(asaas, fakeDb({}))
+    assert.deepEqual(await pay.processRefunds(d, [{ ...refundRow('pay_1'), amount_cents: amount }]), { requested: 0, skipped: 1, failed: 0 })
+    assert.deepEqual(alerts.map((a) => a.what), [alertWhat])
+    assert.equal(asaas.calls.filter((c) => c.path.startsWith('/invoices')).length, 0)
+  })
+}
+
+test('#901 BR-B2B-046 B2: a refund that Asaas refuses does not cancel the invoice either', async () => {
+  const asaas = fakeAsaas([
+    invList('payment=pay_1', 200, { data: [invOf('AUTHORIZED')], hasMore: false }),
+    at('GET', '/payments/pay_1', 200, paid),
+    at('POST', '/payments/pay_1/refund', 400, { errors: [{ code: 'invalid_action' }] }),
+  ])
+  const { d } = deps(asaas, fakeDb({}))
+  assert.deepEqual(await pay.processRefunds(d, [refundRow('pay_1')]), { requested: 0, skipped: 0, failed: 1 })
+  assert.equal(asaas.calls.filter((c) => c.path.startsWith('/invoices')).length, 0)
+})
+
+test('#901: the invoice e-mail carries the design subject, the number and the value; a null number or value drops its line', async () => {
+  const m = mirror({ current: 'AUTHORIZED' })
+  await hook(m.d, invEvent('e1', 'INVOICE_AUTHORIZED'))
+  assert.equal(m.emails[0].subject, 'Nota fiscal da sua mensalidade Com história')
+  assert.equal(
+    m.emails[0].text,
+    'Olá,\n\nA nota fiscal da sua mensalidade do plano Com história foi emitida.\n\nNúmero: 42\nValor: R$ 99,90\n\nPara baixar o PDF, abra: https://x/pdf\n\nEquipe Tuggi',
+  )
+  const bare = inv.INVOICE_EMAIL.text('https://x/pdf', null, null)
+  assert.doesNotMatch(bare, /Número:|Valor:/)
+  assert.doesNotMatch(bare, /\n\n\n/)
+})

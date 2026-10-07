@@ -29,7 +29,7 @@
 import type { AsaasClient, AsaasInvoice, AsaasInvoiceTaxes, AsaasPayment } from './asaas.ts';
 import { AsaasError } from './asaas.ts';
 import type { Rpc } from './places-payment.ts';
-import { isUuid, subscriptionIdFromReference, toCents } from './places-payment.ts';
+import { formatBrl, isUuid, subscriptionIdFromReference, toCents } from './places-payment.ts';
 
 export type InvoiceConfig = { serviceCode: string; serviceName: string; issRate: number };
 
@@ -119,15 +119,45 @@ export function invoiceRecordArgs(inv: AsaasInvoice, status: InvoiceStatus, subs
 
 const MIRROR_ALERTS = new Set(['unknown_subscription', 'subscription_mismatch', 'payment_mismatch']);
 
-// TODO(#901 design): subject and sentence of the invoice e-mail are placeholders until the design writes them.
+/** Text by the design (#901, comment 6040645900). A null number or value drops its line. */
 export const INVOICE_EMAIL = {
-  subject: 'Sua nota fiscal do Tuggi',
-  text: (pdfUrl: string) => `Sua nota fiscal: ${pdfUrl}`,
+  subject: 'Nota fiscal da sua mensalidade Com história',
+  text: (pdfUrl: string, number: string | null, valueCents: number | null) => {
+    const facts = [number ? `Número: ${number}` : null, valueCents !== null ? `Valor: ${formatBrl(valueCents)}` : null].filter((l): l is string => !!l);
+    return [
+      'Olá,',
+      '',
+      'A nota fiscal da sua mensalidade do plano Com história foi emitida.',
+      '',
+      ...(facts.length ? [...facts, ''] : []),
+      `Para baixar o PDF, abra: ${pdfUrl}`,
+      '',
+      'Equipe Tuggi',
+    ].join('\n');
+  },
 };
 
 /**
+ * A database error retrying cannot fix: the function or the table is not there (migration not
+ * applied — `PGRST202`/`42883`, `PGRST205`/`42P01`) or the data is refused (`TGP22`). The webhook
+ * answers 200 to these: Asaas pauses the whole queue after 15 non-200 answers in a row
+ * (https://docs.asaas.com/docs/fila-pausada), and the `INVOICE_*` queue is the `PAYMENT_*` one.
+ * The daily sweep re-reads and records once the cause is fixed.
+ */
+const PERMANENT_DB_CODES = new Set(['PGRST202', '42883', 'PGRST205', '42P01', 'TGP22']);
+export const isPermanentDbError = (code: string | null | undefined) => !!code && PERMANENT_DB_CODES.has(code);
+
+/** Thrown by `InvoiceDeps.invoiceStatusOf` when the mirror cannot be read; carries the database code. */
+export class MirrorReadError extends Error {
+  constructor(readonly code: string | null) {
+    super(`invoice read ${code ?? 'unknown'}`);
+  }
+}
+
+/**
  * Records one re-read invoice in the mirror. Returns the database outcome, or `ignored` (no payment),
- * `unknown_status`, or `db_error` (the caller decides between 500 and "tomorrow").
+ * `unknown_status`, `db_error` (transient: the caller decides between 500 and "tomorrow") or
+ * `db_rejected` (permanent, already alerted: see `isPermanentDbError`).
  *
  * Delivery (#901 item 6): the Asaas doc says `notificationDisabled` turns off the BILLING
  * notifications and says nothing about the invoice e-mail, so the Tuggi sends the PDF link itself,
@@ -142,12 +172,23 @@ export async function recordInvoice(deps: InvoiceDeps, inv: AsaasInvoice, subscr
   }
   const args = invoiceRecordArgs(inv, status, subscriptionHint);
   if (!args) return 'ignored';
-  const before = status === 'AUTHORIZED' ? await deps.invoiceStatusOf(inv.id) : null;
+  let before: string | null = null;
+  try {
+    if (status === 'AUTHORIZED') before = await deps.invoiceStatusOf(inv.id);
+  } catch (e) {
+    const code = e instanceof MirrorReadError ? e.code : null;
+    console.error('[places-invoice] invoice status read', inv.id, code ?? 'unknown');
+    if (!isPermanentDbError(code)) return 'db_error';
+    await deps.alert('invoice_db_rejected', { provider_invoice_id: inv.id, step: 'invoice_status_read', code });
+    return 'db_rejected';
+  }
   const { data, error } = await deps.admin('partner', 'record_place_invoice', args);
   if (error) {
     console.error('[places-invoice] record_place_invoice', inv.id, error.code ?? 'unknown');
+    if (!isPermanentDbError(error.code)) return 'db_error';
     if (error.code === 'TGP22') await deps.alert('invoice_tgp22', { provider_invoice_id: inv.id, field: error.details ?? null });
-    return 'db_error';
+    else await deps.alert('invoice_db_rejected', { provider_invoice_id: inv.id, step: 'record_place_invoice', code: error.code });
+    return 'db_rejected';
   }
   const row = (Array.isArray(data) ? data[0] : data) as { outcome?: string } | null;
   const outcome = row?.outcome ?? 'unknown';
@@ -170,7 +211,7 @@ async function sendInvoiceEmail(deps: InvoiceDeps, inv: AsaasInvoice): Promise<v
   try {
     const email = inv.customer ? str((await deps.asaas.getCustomer(inv.customer)).email) : null;
     if (!pdf || !email) throw new Error(!pdf ? 'no_pdf' : 'no_email');
-    if (!(await deps.sendEmail(email, INVOICE_EMAIL.subject, INVOICE_EMAIL.text(pdf)))) throw new Error('send_failed');
+    if (!(await deps.sendEmail(email, INVOICE_EMAIL.subject, INVOICE_EMAIL.text(pdf, str(inv.number), typeof inv.value === 'number' ? toCents(inv.value) : null)))) throw new Error('send_failed');
   } catch (e) {
     await deps.alert('invoice_email_failed', { provider_invoice_id: inv.id, error: e instanceof Error ? e.message : 'unknown' });
   }
@@ -200,7 +241,8 @@ export async function handleInvoiceEvent(
   }
   const outcome = await recordInvoice(deps, inv);
   log(outcome);
-  // A database failure → 500, so Asaas resends (the upsert makes the resend harmless).
+  // A transient database failure → 500, so Asaas resends (the upsert makes the resend harmless). A
+  // permanent one (`db_rejected`) → 200: it was alerted, and 500 would pause the queue (`isPermanentDbError`).
   return outcome === 'db_error' ? { status: 500, body: { error: 'db_error' } } : { status: 200, body: { outcome } };
 }
 
@@ -331,7 +373,7 @@ export async function reconcileInvoices(deps: InvoiceDeps, targets: InvoiceTarge
       for (const inv of await deps.asaas.listInvoices({ customer, effectiveDateFrom: from })) {
         const o = await recordInvoice(deps, inv, hint);
         if (o === 'inserted' || o === 'updated') out.recorded++;
-        if (o === 'db_error') out.mirror_failed++;
+        if (o === 'db_error' || o === 'db_rejected') out.mirror_failed++;
       }
     } catch (e) {
       out.mirror_failed++;

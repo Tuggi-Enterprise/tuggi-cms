@@ -1011,8 +1011,6 @@ export async function processRefunds(deps: Deps, rows: RefundRow[]): Promise<{ r
     }
   }
   for (const r of rows) {
-    // #901: a refunded payment keeps no valid invoice. Idempotent by the re-read; never throws.
-    await cancelPaymentInvoices(deps, r.provider_payment_id, r.subscription_id);
     if (deps.now().getTime() - new Date(r.pending_since).getTime() > REFUND_STALE_MS) {
       await deps.alert('refund_stale', { subscription_id: r.subscription_id, provider_payment_id: r.provider_payment_id, pending_since: r.pending_since });
     }
@@ -1032,6 +1030,9 @@ export async function processRefunds(deps: Deps, rows: RefundRow[]): Promise<{ r
       }
       await deps.asaas.refundPayment(p.id, toReais(r.amount_cents), 'Tuggi: devolução integral');
       out.requested++;
+      // #901: only a payment actually refunded loses its invoice — never on a skip (unexpected status,
+      // amount above the charge) nor on a failed refund. Never throws.
+      await cancelPaymentInvoices(deps, r.provider_payment_id, r.subscription_id);
     } catch (e) {
       out.failed++;
       await deps.alert('refund_failed', { provider_payment_id: r.provider_payment_id, error: e instanceof Error ? e.message : 'unknown' });
