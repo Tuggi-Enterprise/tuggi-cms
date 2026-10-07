@@ -25,6 +25,7 @@ import {
 import { PLACE_TYPES } from '@/lib/core/place-service'
 import type { PartnerAnswers } from '@/lib/partner-form/schema'
 import type { PartnerPlaceOutcome } from '@/lib/services/partner-place-provisioning'
+import { descriptionRpc, descriptionTable, freshDescWorld, type DescWorld } from './setup/fake-description-db'
 
 const CLIENT_ID = '44444444-4444-4444-4444-444444444444'
 const SUBMISSION_ID = '33333333-3333-3333-3333-333333333333'
@@ -140,6 +141,8 @@ interface FakeState {
   lookupFails: boolean
   createFails: boolean
   linkFails: boolean
+  /** The tier's description (#888): `core.attraction_descriptions` and its two RPCs. */
+  desc: DescWorld
   recorded: Recorded
 }
 
@@ -160,6 +163,8 @@ function freshState(overrides: Partial<FakeState> = {}): FakeState {
     lookupFails: false,
     createFails: false,
     linkFails: false,
+    // The place is born linked to CLIENT_ID, so the policy reads a partner with no fee on record.
+    desc: freshDescWorld({ name: 'Cantina do Zé', partnerClientId: CLIENT_ID }),
     recorded: { rpcs: [], updates: [] },
     ...overrides,
   }
@@ -192,6 +197,7 @@ function createFakeService() {
 /** The OPERATOR's side: the identity `cms_create_place` and the RLS policies answer to. */
 function createFakeOperator() {
   const from = (table: string) => {
+    if (table === 'attraction_descriptions') return descriptionTable(state.desc)
     let operation: 'select' | 'update' = 'select'
     let patch: Record<string, unknown> = {}
     const chain: any = {
@@ -224,6 +230,9 @@ function createFakeOperator() {
     schema: () => ({
       from,
       rpc: async (name: string, args: Record<string, unknown>) => {
+        if (name === 'cms_place_description_facts' || name === 'cms_apply_name_only_description') {
+          return descriptionRpc(state.desc, name, args)
+        }
         state.recorded.rpcs.push({ name, args })
         if (state.createFails) return { data: null, error: { message: 'not authorized to create places' } }
         return { data: ATTRACTION_ID, error: null }
@@ -232,6 +241,7 @@ function createFakeOperator() {
   }
 }
 
+let applyPrefillDescription: typeof import('@/lib/services/partner-place-provisioning').applyPrefillDescription
 let provisionPartnerPlace: (
   clientId: string,
   operator: any
@@ -249,6 +259,7 @@ before(async () => {
 
   const effects = await import('@/lib/services/partner-place-provisioning')
   provisionPartnerPlace = effects.provisionPartnerPlace as any
+  applyPrefillDescription = effects.applyPrefillDescription
 })
 
 test('BR-B2B-033: provisioning creates the place already linked to the client', async () => {
@@ -290,22 +301,99 @@ test('BR-B2B-011: nothing this act writes approves, activates or promotes the pl
   }
 })
 
-test('BR-B2B-018: no coordinate is invented, and no description is written', async () => {
+test('BR-B2B-018: no coordinate is invented, and nothing but the free tier\'s name is written as description', async () => {
   // The form asks for no latitude/longitude, so `cms_set_attraction_coordinate` is not called
-  // with a guess — and the fee starts on the publication of the POI with the description on
-  // air (item 1), which is a write this path does not have.
+  // with a guess. Since #888 the place IS born with its tier's description — here the free one
+  // (no fee on record): the name, text only — and it is born unapproved (the fee starts on the
+  // publication, item 1), which the next test proves.
   state = freshState()
 
   await provisionPartnerPlace(CLIENT_ID, createFakeOperator())
 
-  assert.equal(state.recorded.rpcs.length, 1, 'one RPC: the creation')
+  assert.equal(state.recorded.rpcs.length, 1, 'one place-writing RPC: the creation')
   assert.equal(state.recorded.rpcs[0].args.p_latitude, null)
   assert.equal(state.recorded.rpcs[0].args.p_longitude, null)
   assert.equal(
     state.recorded.updates.some((update) => update.table !== 'attractions'),
     false,
-    'no description, no place_details, no billing'
+    'no place_details, no billing'
   )
+  assert.equal(state.desc.row?.description, 'Cantina do Zé')
+  assert.equal(state.desc.row?.audio_url, null)
+})
+
+// ── #888: the old form's tier, and the description it leaves ────────────────────────────────
+
+test('BR-B2B-016 item 9 · #888: the old form without a monthly fee → the description is the name, even with story_script', async () => {
+  state = freshState()
+  state.submissions[0].answers = answers({ story_script: 'Uma história que não paga.' })
+
+  const outcome = await provisionPartnerPlace(CLIENT_ID, createFakeOperator())
+
+  assert.deepEqual(outcome, { status: 'created', attractionId: ATTRACTION_ID })
+  assert.equal(state.desc.row?.description, 'Cantina do Zé')
+  assert.deepEqual(state.desc.row?.generation_meta, { kind: 'partner_name_only' })
+})
+
+test('BR-B2B-016 item 1 · BR-B2B-025 · #888: the old form with a monthly fee → the trimmed story_script is the description', async () => {
+  state = freshState()
+  state.desc.monthlyFeeCents = 29900
+  state.desc.contractTier = 'paid'
+  state.submissions[0].answers = answers({ story_script: '  Uma história que paga.  ' })
+
+  const outcome = await provisionPartnerPlace(CLIENT_ID, createFakeOperator())
+
+  assert.deepEqual(outcome, { status: 'created', attractionId: ATTRACTION_ID })
+  assert.equal(state.desc.row?.description, 'Uma história que paga.')
+  assert.deepEqual(state.desc.row?.generation_meta, { kind: 'partner_story_script' })
+  assert.equal(state.desc.row?.audio_url, null)
+})
+
+test('BR-B2B-016 · #888: the old form with a monthly fee and NO story_script → created, nothing written (no_story)', async () => {
+  state = freshState()
+  state.desc.monthlyFeeCents = 29900
+  state.desc.contractTier = 'paid'
+
+  const outcome = await provisionPartnerPlace(CLIENT_ID, createFakeOperator())
+
+  assert.deepEqual(outcome, { status: 'created', attractionId: ATTRACTION_ID })
+  assert.equal(state.desc.row, null)
+  assert.equal(state.desc.writes.length, 0)
+})
+
+test('BR-B2B-017 item 6 · #888: the old form\'s plan_choice = map_and_description WITHOUT a fee stays free — a request is not a payment', async () => {
+  state = freshState()
+  state.desc.planChoice = 'map_and_description'
+  state.submissions[0].answers = answers({ plan_choice: 'map_and_description', story_script: 'Quero a história no ar.' })
+
+  await provisionPartnerPlace(CLIENT_ID, createFakeOperator())
+
+  assert.equal(state.desc.row?.description, 'Cantina do Zé')
+  assert.deepEqual(state.desc.row?.generation_meta, { kind: 'partner_name_only' })
+})
+
+test('BR-B2B-016 · #888: the description RPC failing → description_failed carrying the attractionId; a retry of the description converges', async () => {
+  state = freshState()
+  state.desc.failAt = 'name_only'
+
+  const outcome = await provisionPartnerPlace(CLIENT_ID, createFakeOperator())
+
+  assert.deepEqual(outcome, { status: 'failed', reason: 'description_failed', attractionId: ATTRACTION_ID })
+  assert.equal(state.desc.row, null)
+
+  state.desc.failAt = null
+  const retry = await applyPrefillDescription(ATTRACTION_ID, { story: null, acceptedPlanChoice: null }, createFakeOperator() as any)
+  assert.deepEqual(retry, { status: 'created', attractionId: ATTRACTION_ID })
+  assert.equal((state.desc as DescWorld).row?.description, 'Cantina do Zé')
+})
+
+test('BR-B2B-016 · #888: a place that failed to link never reaches the description step', async () => {
+  state = freshState({ linkFails: true })
+
+  const outcome = await provisionPartnerPlace(CLIENT_ID, createFakeOperator())
+
+  assert.deepEqual(outcome, { status: 'failed', reason: 'link_failed', attractionId: ATTRACTION_ID })
+  assert.equal(state.desc.rpcs.length, 0)
 })
 
 test('BR-B2B-033: a client that already has a place is not given a second one by this act', async () => {

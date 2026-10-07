@@ -38,6 +38,11 @@ interface World {
   calls: string[]
   updates: Record<string, unknown>[]
   acceptanceEmail: string | null
+  /** `place_acceptances.plan_choice` — what the client accepted and paid (#888). */
+  acceptancePlanChoice: string | null
+  /** `applyPrefillDescription` answering `failed` / `created` (#888). */
+  descriptionFails: boolean
+  describedWith: { attractionId: string; description: unknown }[]
   clientInsert: Record<string, unknown> | null
   /** `ClientService.approveClient` throwing (#872). */
   approveFails: boolean
@@ -56,6 +61,9 @@ function reset(over: Partial<World> = {}) {
     calls: [],
     updates: [],
     acceptanceEmail: 'dono@bardoze.com.br',
+    acceptancePlanChoice: 'map_and_description',
+    descriptionFails: false,
+    describedWith: [],
     clientInsert: null,
     approveFails: false,
     approvedWith: null,
@@ -107,7 +115,7 @@ function acceptancesTable() {
   const q: any = {
     select: () => q,
     eq: () => q,
-    maybeSingle: async () => ({ data: w.acceptanceEmail ? { email: w.acceptanceEmail } : null, error: null }),
+    maybeSingle: async () => ({ data: w.acceptanceEmail ? { email: w.acceptanceEmail, plan_choice: w.acceptancePlanChoice } : null, error: null }),
   }
   return q
 }
@@ -154,6 +162,12 @@ before(async () => {
         if (w.applyFails) return { status: 'failed', reason: w.applyFails, attractionId: id }
         return { status: 'created', attractionId: id }
       },
+      applyPrefillDescription: async (id: string, description: unknown) => {
+        w.calls.push(`describe:${id}`)
+        w.describedWith.push({ attractionId: id, description })
+        if (w.descriptionFails) return { status: 'failed', reason: 'description_failed', attractionId: id }
+        return { status: 'created', attractionId: id }
+      },
     },
   })
   mock.module('@/lib/services/partner-proposal-admin-service', {
@@ -196,6 +210,7 @@ test('BR-B2B-049 item 7: claim → POI → attraction_id → client → link/det
     'write_attraction_id',
     'create_client',
     `apply:${POI}:${CLIENT}`,
+    `describe:${POI}`,
     'approve_client',
     'transition:approved',
   ])
@@ -219,7 +234,7 @@ test('#872: the client approval failing → 503, claim released, NOT approved; t
   const retry = await mod.approvePortalSubmission(SUB, operator, 'op', CMS_OP, NOW)
   assert.equal(retry.ok, true)
   assert.ok(!w.calls.includes('create_poi') && !w.calls.includes('create_client'))
-  assert.deepEqual(w.calls.slice(-2), ['approve_client', 'transition:approved'])
+  assert.deepEqual(w.calls.slice(-3), [`describe:${POI}`, 'approve_client', 'transition:approved'])
 })
 
 test('#812 security: a submission without tax_id does not look a client up by CNPJ, and gets one client', async () => {
@@ -272,6 +287,7 @@ test('BR-B2B-049 item 7: a retry after the POI row but before the client resolve
     'claim',
     'create_client',
     `apply:${POI}:${CLIENT}`,
+    `describe:${POI}`,
     'approve_client',
     'transition:approved',
   ])
@@ -309,4 +325,59 @@ test('BR-B2B-049 item 7: no acceptance e-mail → 503 with the POI, no client cr
   assert.deepEqual(out, { ok: false, httpStatus: 503, error: 'lookup_failed', attractionId: POI })
   assert.ok(!w.calls.includes('create_client'))
   assert.ok(!w.calls.includes('transition:approved'))
+})
+
+// ── #888: the place is born with its tier's description ──────────────────────────────────────
+
+const STORY = 'Meu avô Aurélio abriu o bar em 1962, no galpão do antigo mercado de peixe.'
+
+test('BR-B2B-016 item 1 · BR-B2B-018 · #888: the approval hands the description step the story and the tier the client ACCEPTED', async () => {
+  reset({ submission: { id: SUB, status: 'in_review', answers: { ...ANSWERS, story_script: STORY }, attraction_id: null } })
+  const out = await mod.approvePortalSubmission(SUB, operator, 'op', CMS_OP, NOW)
+  assert.equal(out.ok, true)
+  assert.deepEqual(w.describedWith, [
+    { attractionId: POI, description: { story: STORY, acceptedPlanChoice: 'map_and_description' } },
+  ])
+  assert.ok(w.calls.indexOf(`apply:${POI}:${CLIENT}`) < w.calls.indexOf(`describe:${POI}`), 'after the link: the policy reads the client through the place')
+  assert.ok(w.calls.indexOf(`describe:${POI}`) < w.calls.indexOf('transition:approved'), 'before the transition the client sees')
+})
+
+test('BR-B2B-016 item 9 · #888: a free acceptance (map_only) passes the free tier, and no story_script passes null', async () => {
+  reset({ acceptancePlanChoice: 'map_only' })
+  await mod.approvePortalSubmission(SUB, operator, 'op', CMS_OP, NOW)
+  assert.deepEqual(w.describedWith[0].description, { story: null, acceptedPlanChoice: 'map_only' })
+})
+
+test('#888: a plan_choice the form no longer offers reads as no tier (null), never as paid', async () => {
+  reset({ acceptancePlanChoice: 'legacy_gold' })
+  await mod.approvePortalSubmission(SUB, operator, 'op', CMS_OP, NOW)
+  assert.equal((w.describedWith[0].description as any).acceptedPlanChoice, null)
+})
+
+test('BR-B2B-016 · #888: the description failing → 503 description_failed with the POI, claim released, NOT approved, no client approval', async () => {
+  reset({ descriptionFails: true })
+  const out = await mod.approvePortalSubmission(SUB, operator, 'op', CMS_OP, NOW)
+  assert.deepEqual(out, { ok: false, httpStatus: 503, error: 'description_failed', attractionId: POI })
+  assert.ok(!w.calls.includes('approve_client'))
+  assert.ok(!w.calls.includes('transition:approved'))
+  assert.equal(w.calls[w.calls.length - 1], 'release')
+})
+
+test('#888: after description_failed the retry converges — no second POI, no second client, then approved', async () => {
+  reset({ descriptionFails: true })
+  await mod.approvePortalSubmission(SUB, operator, 'op', CMS_OP, NOW)
+  w.descriptionFails = false
+  w.calls = []
+  const out = await mod.approvePortalSubmission(SUB, operator, 'op', CMS_OP, NOW)
+  assert.deepEqual(out, { ok: true, status: 'approved', attractionId: POI, clientId: CLIENT })
+  assert.ok(!w.calls.includes('create_poi') && !w.calls.includes('create_client'))
+  assert.ok(w.calls.includes(`describe:${POI}`))
+})
+
+test('#888: the acceptance missing → lookup_failed BEFORE the description step; nothing described, claim released', async () => {
+  reset({ acceptanceEmail: null })
+  const out = await mod.approvePortalSubmission(SUB, operator, 'op', CMS_OP, NOW)
+  assert.deepEqual(out, { ok: false, httpStatus: 503, error: 'lookup_failed', attractionId: POI })
+  assert.deepEqual(w.describedWith, [])
+  assert.equal(w.calls[w.calls.length - 1], 'release')
 })
