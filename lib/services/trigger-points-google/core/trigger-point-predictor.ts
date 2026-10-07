@@ -188,7 +188,7 @@ export class CoreTriggerPointPredictor {
       const radiusM = Math.max(200, calculatePolygonPerimeter(ring) / 1_000);
       for (const s of fetcher.fetchStreetsAlongBoundary(ring, radiusM, ADMIN_BORDER_ROAD_TYPES) ?? []) byId.set(String(s.id), s);
     }
-    const triggerPoints = adminBorderTriggerPoints(poiId, parts, [...byId.values()]);
+    const triggerPoints = adminBorderTriggerPoints(poiId, poiData.location, parts, [...byId.values()]);
     trace.push(...triggerPoints.map(tp => ({
       poi_id: poiId, stage: 'E7' as const, rule: 'admin-border-tps#adminBorderTriggerPoints', candidate: candidateKey(tp.location),
       value: `${tp.street.type} ${tp.street.name ?? tp.street.id}; radius ${tp.radius} m`, limit: `parts=${parts.length}; roads=${byId.size}`, decision: 'kept' as const,

@@ -3,9 +3,12 @@
  * stored border is an OSM administrative boundary (`boundary_source = 'osm_admin'`) gets no TP
  * spread over its area. It gets one TP on each main road that crosses the border, just inside, so
  * whoever drives in hears which municipality they entered. Small, service and private ways carry
- * none. The app plays it on entry and not on exit by its own direction lock, so the TP needs only
- * the inward bearing. An island municipality is entered by ferry: the route stops at the pier, so its
- * TP stands out at sea on the route (`ADMIN_BORDER_SEA_METHOD`, BR-POI-010).
+ * none. An island municipality is entered by ferry: the route stops at the pier, so its TP stands
+ * out at sea on the route (`ADMIN_BORDER_SEA_METHOD`, BR-POI-010).
+ *
+ * The road decides where the TP stands, never where it points: every TP of the mode faces the POI pin
+ * (BR-POI-010, operator 2026-10-07), which sits near the town centre. OSM way direction can be wrong,
+ * and the app locks by the pin relative to the user's heading anyway (BR-AUDIO-010).
  *
  * Pure: the caller hands in the border parts and the roads (`LocalOSMFetcher`, which already drops
  * ways closed by `access`/`military` — `config/visibility-class#isPublicWay`).
@@ -96,14 +99,15 @@ function segmentCrossing(a: LatLng, b: LatLng, c: LatLng, d: LatLng): number | n
   return t >= 0 && t <= 1 && u >= 0 && u <= 1 ? t : null;
 }
 
-interface Entry { street: StreetData; point: LatLng; bearing: number; score: number; sea?: boolean }
+interface Entry { street: StreetData; point: LatLng; score: number; sea?: boolean }
 
 /**
  * One TP per main road entering the border, ~`ADMIN_BORDER_TP_INSET_M` inside along the road,
  * deduplicated to `ADMIN_BORDER_TP_MIN_SPACING_M` (busiest road first; on a dual carriageway the
  * inbound one). Every polygon part counts: a municipality with islands or exclaves exists.
+ * `pin` is the POI pin (`core.attraction_coordinate`): every TP's `expectedBearing` points at it.
  */
-export function adminBorderTriggerPoints(poiId: string, parts: LatLng[][], streets: StreetData[]): TriggerPoint[] {
+export function adminBorderTriggerPoints(poiId: string, pin: LatLng, parts: LatLng[][], streets: StreetData[]): TriggerPoint[] {
   const rings = parts.filter(r => r.length >= 3);
   const inside = (p: LatLng) => rings.some(r => isPointInPolygon(p, r));
   const edgeM = (p: LatLng) => Math.min(...rings.map(r =>
@@ -122,23 +126,21 @@ export function adminBorderTriggerPoints(poiId: string, parts: LatLng[][], stree
   /** Walks `distM` along the road from `start` (on segment `seg`), joining ways end to end. */
   const walk = (street: StreetData, seg: number, start: LatLng, dir: 1 | -1, distM: number) => {
     let way = street, coords = way.coordinates, cur = start, i = dir === 1 ? seg + 1 : seg, remaining = distM;
-    let bearing = calculateBearing(start, coords[i]);
     const visited = new Set<StreetData>([way]);
     for (let hops = 0; ; hops++) {
       for (; i >= 0 && i < coords.length; i += dir) {
         const next = coords[i];
         const d = calculateDistance(cur, next);
-        if (d > 0) bearing = calculateBearing(cur, next);
         if (d >= remaining && d > 0) {
           const r = remaining / d;
-          return { point: { lat: cur.lat + (next.lat - cur.lat) * r, lng: cur.lng + (next.lng - cur.lng) * r }, bearing, ended: false };
+          return { point: { lat: cur.lat + (next.lat - cur.lat) * r, lng: cur.lng + (next.lng - cur.lng) * r }, ended: false };
         }
         remaining -= d;
         cur = next;
       }
       const options = (byNode.get(nodeKey(cur)) ?? []).filter(w => !visited.has(w));
       const nextWay = options.find(w => w.type === way.type) ?? options.sort((x, y) => roadRank(y.type) - roadRank(x.type))[0];
-      if (!nextWay || hops >= MAX_STITCH_HOPS) return { point: cur, bearing, ended: true }; // the road ends short of the inset
+      if (!nextWay || hops >= MAX_STITCH_HOPS) return { point: cur, ended: true }; // the road ends short of the inset
       visited.add(nextWay);
       way = nextWay;
       coords = way.coordinates;
@@ -186,12 +188,13 @@ export function adminBorderTriggerPoints(poiId: string, parts: LatLng[][], stree
       const ferryTp = s.type === 'ferry' ? walk(s, k, crossing, dir, ADMIN_BORDER_TP_INSET_M) : null;
       const tp = ferryTp ? (inside(ferryTp.point) ? ferryTp : null) : entryPoint(s, k, crossing, dir);
       if (!tp) continue;
-      entries.push({ street: s, point: tp.point, bearing: tp.bearing, score: roadRank(s.type) * 2 + (travel.includes(dir) ? 1 : 0) });
+      // Travel direction only ranks: of a dual carriageway, the inbound one keeps the spacing.
+      entries.push({ street: s, point: tp.point, score: roadRank(s.type) * 2 + (travel.includes(dir) ? 1 : 0) });
     }
   }
 
   // Sea TP (BR-POI-010): a ferry that never enters a part but ends at its pier gets the TP out at
-  // sea, on the route, facing the pier. A route that does enter took the crossing path above.
+  // sea, on the route. A route that does enter took the crossing path above.
   for (const s of roads) {
     if (s.type !== 'ferry') continue;
     const c = s.coordinates;
@@ -208,8 +211,7 @@ export function adminBorderTriggerPoints(poiId: string, parts: LatLng[][], stree
         && r.reduce((m, a, i) => Math.min(m, calculateDistanceToLineSegment(end, a, r[(i + 1) % r.length])), Infinity) <= ADMIN_BORDER_FERRY_PIER_MAX_M);
       if (!pierOf) continue;
       const tp = walk(s, seg, end, dir, ADMIN_BORDER_SEA_OFFSET_M);
-      // Walked out to sea; the ship comes the other way.
-      entries.push({ street: s, point: tp.point, bearing: (tp.bearing + 180) % 360, score: roadRank(s.type) * 2 + 1, sea: true });
+      entries.push({ street: s, point: tp.point, score: roadRank(s.type) * 2 + 1, sea: true });
     }
   }
 
@@ -223,7 +225,7 @@ export function adminBorderTriggerPoints(poiId: string, parts: LatLng[][], stree
     id: deterministicTPId(poiId, `${e.sea ? ADMIN_BORDER_SEA_METHOD : 'admin_border'}_${e.street.id}`, e.point.lat, e.point.lng),
     location: e.point,
     radius: ADMIN_BORDER_TP_RADIUS_M,
-    expectedBearing: e.bearing,
+    expectedBearing: calculateBearing(e.point, pin),
     bearingThreshold: TRIGGER_POINTS_CONSTANTS.triggerPoint.defaultBearingThreshold,
     type: 'primary' as const,
     priority: 1,
