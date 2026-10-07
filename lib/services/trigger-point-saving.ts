@@ -7,6 +7,7 @@
 
 import { getSupabaseService } from '../core/supabase-client'
 import type { TriggerPointDbType } from './trigger-points-google/types/interfaces'
+import { dropGeneratedDuplicates, isReplaceSurvivor, storedTpToSamePoi, type DuplicateDropReason, type SamePoiTp } from './trigger-points-google/utils/same-poi-dedupe'
 
 // Get appropriate Supabase client based on context
 // Use service client on server (bypasses RLS), fallback to server client if service key not available
@@ -57,6 +58,8 @@ export interface SaveResult {
   skipped: number
   errors: string[]
   savedIds?: string[]
+  /** replace_all: generated TPs not written because a stored survivor or a sibling covers them (BR-POI-009) */
+  duplicates?: Array<{ lat: number; lng: number; reason: DuplicateDropReason }>
 }
 
 export class TriggerPointSavingService {
@@ -339,11 +342,30 @@ export class TriggerPointSavingService {
           }
         })
 
+        // BR-POI-009 (2026-10-07): no two TPs of the POI on the same spot. The stored TPs this
+        // replace keeps (curator's, CMS-edited) and the generated ones go through the one rule;
+        // a generated TP it drops is not written. Empty is valid here: the survivors cover the
+        // POI, and the replace still removes the stale engine TPs.
+        const survivors = await this.loadReplaceSurvivors(attractionId)
+        const now = Date.now()
+        const generated = tpsForRPC.map((tp: any, idx: number): SamePoiTp & { row: any } => ({
+          id: `generated:${idx}`, poiId: attractionId, location: { lat: tp.lat, lng: tp.lng },
+          radius: tp.radius_meters ?? 20, humanApproved: tp.manual_status === 'approved', recency: now, row: tp,
+        }))
+        const dedupe = dropGeneratedDuplicates(generated, survivors)
+        results.duplicates = dedupe.dropped.map(d => ({ lat: d.tp.location.lat, lng: d.tp.location.lng, reason: d.reason }))
+        if (dedupe.dropped.length > 0) {
+          console.log(`🧹 [saveTriggerPoints] ${dedupe.dropped.length} generated TP(s) duplicate a kept one (BR-POI-009): ${dedupe.dropped.map(d => d.reason).join(', ')}`)
+        }
+        if (dedupe.outrankedSurvivors.length > 0) {
+          console.log(`🧹 [saveTriggerPoints] ${dedupe.outrankedSurvivors.length} stored TP(s) now duplicate a generated one; left for the cleanup: ${dedupe.outrankedSurvivors.map(s => s.id).join(', ')}`)
+        }
+
         const { data: rpcData, error: rpcError } = await supabase
           .schema('core')
           .rpc('replace_trigger_points_atomic', {
             p_attraction_id: attractionId,
-            p_trigger_points: tpsForRPC,
+            p_trigger_points: dedupe.kept.map(g => g.row),
           })
 
         if (rpcError) {
@@ -357,7 +379,8 @@ export class TriggerPointSavingService {
         results.skipped = triggerPoints.length - results.saved
         results.savedIds = insertedRows.map(r => r.id)
 
-        if (results.saved > 0) {
+        // all generated covered by survivors (BR-POI-009) is a completed replace, not a failure
+        if (results.saved > 0 || dedupe.kept.length === 0) {
           await this.markPOIAsProcessed(attractionId)
         }
 
@@ -610,6 +633,29 @@ export class TriggerPointSavingService {
   /**
    * Mark POI as processed
    */
+  /**
+   * The stored TPs `replace_trigger_points_atomic` keeps (`isReplaceSurvivor`), as `SamePoiTp`.
+   * The coordinates come from the view; the predicate's `updated_by` only from the table.
+   */
+  static async loadReplaceSurvivors(attractionId: string): Promise<SamePoiTp[]> {
+    const core = getSupabaseClient().schema('core')
+    const { data: rows, error } = await core
+      .from('attraction_trigger_points')
+      .select('id, generation_method, updated_by')
+      .eq('attraction_id', attractionId)
+    if (error) throw new Error(`survivor TPs query failed: ${error.message}`)
+    const ids = (rows ?? []).filter(isReplaceSurvivor).map(r => r.id as string)
+    if (ids.length === 0) return []
+    const { data: coords, error: coordsError } = await core
+      .from('trigger_points_with_coords')
+      .select('id, attraction_id, latitude, longitude, radius_meters, manual_status, updated_at, created_at')
+      .in('id', ids)
+      // a deactivated TP does not fire, so it covers nothing (replace step 5 keeps them for visits)
+      .not('is_active', 'is', false)
+    if (coordsError) throw new Error(`survivor TPs coordinates query failed: ${coordsError.message}`)
+    return (coords ?? []).map(storedTpToSamePoi)
+  }
+
   static async markPOIAsProcessed(attractionId: string): Promise<void> {
     try {
       const supabase = getSupabaseClient()

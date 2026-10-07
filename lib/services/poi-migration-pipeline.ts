@@ -879,8 +879,11 @@ export class PoiMigrationPipeline {
 
       const savedCount = saveResult.saved || 0
 
-      // Validate that at least one trigger point was saved
-      if (savedCount === 0) {
+      // Validate that at least one trigger point was saved — unless every generated TP duplicates a
+      // stored one the replace keeps (BR-POI-009): then the POI is covered and nothing is missing.
+      const coveredBySurvivors = savedCount === 0 && (saveResult.errors?.length ?? 0) === 0
+        && (saveResult.duplicates?.length ?? 0) > 0
+      if (savedCount === 0 && !coveredBySurvivors) {
         const errorMsg = saveResult.errors && saveResult.errors.length > 0
           ? `Failed to save trigger points: ${saveResult.errors.join('; ')}`
           : 'No trigger points were saved to database (generated but not persisted)'
@@ -929,6 +932,7 @@ export class PoiMigrationPipeline {
           trigger_points_generated: triggerPointsCount,
           trigger_points_saved: savedCount,
           trigger_points_skipped: saveResult.skipped || 0,
+          trigger_points_duplicates: saveResult.duplicates?.length ?? 0,
           confidence_score: maxConfidence,
           boundary_source: predictionResult.boundary?.source || 'unknown',
           ...boundaryClear

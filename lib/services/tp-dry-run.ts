@@ -18,6 +18,8 @@ import { BoundaryDetector } from './trigger-points-google/core/boundary-detector
 import { calculateDistance, calculateDistanceToPolygon } from './trigger-points-google/utils/calculations'
 import { UNCLASSIFIED_MAX_TP_DISTANCE_M, distanceFromPoiM, poiEdgeRing } from './trigger-points-google/utils/validation'
 import { applyTpPostConditions, type TpDropReason } from './trigger-points-google/utils/tp-selection'
+import { dropGeneratedDuplicates, type DuplicateDropReason } from './trigger-points-google/utils/same-poi-dedupe'
+import { TriggerPointSavingService } from './trigger-point-saving'
 import { DemNotPreparedError } from './dem/dem-store'
 import {
   TRACE_CSV_COLUMNS,
@@ -35,8 +37,8 @@ export interface TpMetricInput {
   generation_method: string | null
   radius_m: number | null
   bearing: number | null
-  /** generated only: why the post-conditions dropped it; empty when kept */
-  drop_reason?: TpDropReason | ''
+  /** generated only: why the post-conditions or the same-POI dedupe dropped it; empty when kept */
+  drop_reason?: TpDropReason | DuplicateDropReason | ''
 }
 
 export interface TpMetricRow extends TpMetricInput {
@@ -49,7 +51,7 @@ export interface TpMetricRow extends TpMetricInput {
   dist_to_boundary_m: number | null
   /** the POI class save cap (tpReachCapM) would drop this TP */
   beyond_cap: boolean
-  drop_reason: TpDropReason | ''
+  drop_reason: TpDropReason | DuplicateDropReason | ''
 }
 
 export interface PoiDryRunResult {
@@ -171,6 +173,12 @@ export async function dryRunPoi(attractionId: string, opts: { storedBoundaryRefe
     const prediction = await new CoreTriggerPointPredictor().predictTriggerPointsComplete(poiData, { ...TP_ENGINE_OPTIONS, ...opts })
     const post = applyTpPostConditions(prediction.triggerPoints ?? [], poiData.location, prediction.boundary)
     const capM = post.reachCapM
+    // The save's same-POI dedupe (BR-POI-009), so this number still predicts the save.
+    const now = Date.now()
+    const dedupe = dropGeneratedDuplicates(
+      post.kept.map(tp => ({ ...tp, poiId: attractionId, humanApproved: false, recency: now })),
+      await TriggerPointSavingService.loadReplaceSurvivors(attractionId),
+    )
     // The engine already traced its own E11; the fallback exits and anything cut here are added.
     const e11 = (tp: { location: { lat: number; lng: number } }, reason: string): EngineTraceRow => ({
       poi_id: attractionId, stage: 'E11', rule: 'tp-selection#applyTpPostConditions', candidate: candidateKey(tp.location),
@@ -182,6 +190,7 @@ export async function dryRunPoi(attractionId: string, opts: { storedBoundaryRefe
       ...(prediction.trace ?? []),
       ...(prediction.metadata?.fallbackUsed ? post.kept.map(tp => e11(tp, '')) : []),
       ...post.dropped.map(d => e11(d.tp, d.reason)),
+      ...dedupe.dropped.map(d => e11(d.tp, d.reason)),
     ]
     // Before × after under the same cap: the class the engine assigns now.
     for (const r of rows) r.beyond_cap = (r.dist_to_boundary_m ?? r.dist_to_pin_m) > capM
@@ -192,7 +201,8 @@ export async function dryRunPoi(attractionId: string, opts: { storedBoundaryRefe
       boundaryCoords: poiEdgeRing(prediction.boundary),
       boundarySource: prediction.boundary?.source ?? null,
       tps: [
-        ...post.kept.map(tp => ({ tp, reason: '' as const })),
+        ...dedupe.kept.map(tp => ({ tp, reason: '' as const })),
+        ...dedupe.dropped,
         ...post.dropped,
       ].map(({ tp, reason }) => ({
         lat: tp.location.lat,
@@ -248,8 +258,11 @@ export function summarizePoi(result: PoiDryRunResult) {
       max_dist_to_pin_m: rows.length ? Math.max(...rows.map(r => r.dist_to_pin_m)) : null,
     }
   }
-  const dropped: Record<TpDropReason, number> = { beyond_reach: 0, inside_poi: 0 }
-  for (const r of result.rows) if (r.source === 'generated' && r.drop_reason) dropped[r.drop_reason]++
+  const dropped: Record<TpDropReason | 'duplicate', number> = { beyond_reach: 0, inside_poi: 0, duplicate: 0 }
+  for (const r of result.rows) {
+    if (r.source !== 'generated' || !r.drop_reason) continue
+    dropped[r.drop_reason.startsWith('duplicate_of:') ? 'duplicate' : r.drop_reason as TpDropReason]++
+  }
   return {
     attraction_id: result.attraction_id, poi_name: result.poi_name, error: result.error,
     current: side('current'), generated: { ...side('generated'), dropped },
