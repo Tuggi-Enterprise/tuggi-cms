@@ -7,13 +7,16 @@
 // Secrets: ASAAS_API_KEY, ASAAS_BASE_URL (sandbox `https://api-sandbox.asaas.com/v3`, production
 // `https://api.asaas.com/v3` — no default: an unset URL refuses, it never guesses the environment),
 // ASAAS_WEBHOOK_TOKEN (webhook only), RESEND_API_KEY, RESEND_FROM, PARTNER_ALERT_TO,
-// PLACES_DRAFT_SECRET (the cookie's checkout, #863) and PLACES_PORTAL_ORIGIN (the access link).
+// PLACES_DRAFT_SECRET (the cookie's checkout, #863), PLACES_PORTAL_ORIGIN (the access link) and the
+// invoice's ASAAS_INVOICE_SERVICE_CODE, ASAAS_INVOICE_SERVICE_NAME, ASAAS_INVOICE_ISS_RATE (#901,
+// `places-invoice.ts`; unset = no invoice configured, one alert per subscription).
 
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
 import { createAdminClient, getPublishableKey, getSupabaseUrl } from './supabase-client.ts';
 import { asaasClient } from './asaas.ts';
 import { saoPauloDate, type CancelRedoRow, type Deps, type ExpiredCardRow, type Rpc, type SubscriptionIds } from './places-payment.ts';
 import { issueAccessLink } from './places-portal-draft.ts';
+import { INVOICE_ENV, parseInvoiceConfig, type InvoiceTarget } from './places-invoice.ts';
 import { accessLinkDeps } from './places-access-link-runtime.ts';
 
 const RESEND_URL = 'https://api.resend.com/emails';
@@ -86,9 +89,44 @@ function toIds(s: any): SubscriptionIds | null {
     : null;
 }
 
+/** The invoice secrets; a set-but-invalid one is logged by name (never the value). */
+function invoiceConfigFromEnv() {
+  const config = parseInvoiceConfig((name) => Deno.env.get(name));
+  if (!config && Object.values(INVOICE_ENV).some((n) => (Deno.env.get(n) ?? '').trim())) {
+    console.error('[places-payment] invoice secrets incomplete or invalid:', Object.values(INVOICE_ENV).join(', '));
+  }
+  return config;
+}
+
+const INVOICE_TARGET_DAYS = 40;
+
 export function baseDeps(asaas: NonNullable<ReturnType<typeof asaasFromEnv>>): Deps {
   const admin = createAdminClient();
   return {
+    invoiceConfig: invoiceConfigFromEnv(),
+    sendEmail,
+    invoiceStatusOf: async (providerInvoiceId: string): Promise<string | null> => {
+      const { data, error } = await admin.schema('partner').from('place_invoices').select('status').eq('provider_invoice_id', providerInvoiceId).maybeSingle();
+      if (error) throw new Error(`invoice read ${error.code}`);
+      return data?.status ?? null;
+    },
+    invoiceTargets: async (): Promise<InvoiceTarget[]> => {
+      const since = new Date(Date.now() - INVOICE_TARGET_DAYS * 24 * 3600 * 1000).toISOString();
+      const { data, error } = await admin
+        .schema('partner')
+        .from('place_subscriptions')
+        .select('id, provider_subscription_id, provider_customer_id, canceled_at')
+        .not('provider_customer_id', 'is', null)
+        .or(`canceled_at.is.null,canceled_at.gt.${since}`);
+      if (error) throw new Error(`invoice targets read ${error.code}`);
+      // deno-lint-ignore no-explicit-any
+      return (data ?? []).map((r: any) => ({
+        subscription_id: r.id,
+        // an ended plan's subscription is gone at Asaas: only its invoices are re-read
+        provider_subscription_id: r.canceled_at ? null : r.provider_subscription_id ?? null,
+        provider_customer_id: r.provider_customer_id,
+      }));
+    },
     asaas,
     admin: rpcOf(admin),
     subscriptionIds: async (submissionId: string): Promise<SubscriptionIds | null> => {

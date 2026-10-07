@@ -9,6 +9,10 @@
 // called, and the database gets the re-read values. Idempotency: the Asaas event `id`
 // (`place_payment_events` UNIQUE), recorded in the same transaction as the change.
 //
+// Since #901 it also takes the `INVOICE_*` events (`_shared/places-invoice.ts` `handleInvoiceEvent`):
+// the invoice is re-read and upserted by `inv_` (`partner.record_place_invoice`), so a resend converges.
+// The Asaas webhook must have those events enabled.
+//
 // Deploy with `--no-verify-jwt` (Asaas sends no Supabase JWT). Answers 200 for every business
 // outcome; 500 only when the database or the re-read fails, so Asaas resends.
 // Never log the body: it carries name, CPF/CNPJ, e-mail and phone.
