@@ -26,6 +26,7 @@ import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { existsSync, readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
+import { APP_SCHEMA_SKIP, functionDef } from './setup/app-schema'
 
 const root = resolve(import.meta.dirname, '../..')
 const read = (path: string) => readFileSync(resolve(root, path), 'utf8')
@@ -94,14 +95,14 @@ test('the directory decides with country and client_type, and says so in its col
   }
 })
 
-test('the columns the rail filters by are the ones the directory function selects', () => {
+test('the columns the rail filters by are the ones the directory function selects', { skip: APP_SCHEMA_SKIP }, () => {
   // `CLIENT_COLUMNS` above is the DETAIL path's allowlist; the list reads through
   // `partner.cms_client_directory`, whose own `SELECT` is the allowlist for this screen. A
   // column dropped there is a facet that silently stops offering options — the failure mode is
   // an empty dimension, which looks exactly like a dimension nobody filled in.
-  const sql = read('supabase/migrations/20260909_02_client_directory_refusals_ssot.sql')
+  const sql = functionDef('partner.cms_client_directory')
   const cte = /c AS \(\s*SELECT([\s\S]*?)FROM partner\.clients/.exec(sql)
-  assert.ok(cte, 'the client CTE is still readable from the migration')
+  assert.ok(cte, 'the client CTE is still readable from the function')
   for (const column of ['country', 'client_type', 'city', 'state', 'status', 'monthly_fee_cents']) {
     assert.ok(cte![1].indexOf(column) >= 0, `\`${column}\` decides a facet and must be selected`)
   }

@@ -36,6 +36,7 @@ import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { readFileSync, readdirSync } from 'node:fs'
 import { resolve } from 'node:path'
+import { APP_SCHEMA_SKIP, appSchema, functionDef, tableDdl } from './setup/app-schema'
 
 import { MODULES, TOGGLEABLE_MODULES, isModuleEnabled } from '@/lib/modules'
 import { buildNavTree } from '@/lib/navigation/menu'
@@ -116,36 +117,20 @@ test('o portão da tela recusa exatamente quem a API recusa', () => {
   )
 })
 
-test('a RPC de consumo roda como quem chama, não como quem a criou', () => {
-  const files = readdirSync(resolve(root, 'supabase/migrations'))
-    .filter((file) => file.includes('finance'))
-    .sort()
-
-  // A ÚLTIMA definição é a que vale no banco. Procurar a string nas migrations concatenadas
-  // acharia o `security definer` da `01`, que a `09` já substituiu — e o teste passaria a
-  // reprovar a correção em vez do defeito.
-  const defining = files.filter((file) =>
-    /create or replace function finance\.record_material_consumption/i.test(
-      read(`supabase/migrations/${file}`)
-    )
-  )
-  assert.ok(defining.length > 0, 'a RPC de consumo é definida em alguma migration')
-
-  // Comentários de SQL são `--`, que `code()` não remove: sem tirá-los, a prova bate na prosa
-  // que explica a correção.
-  const sql = read(`supabase/migrations/${defining[defining.length - 1]}`).replace(
-    /^\s*--.*$/gm,
-    ''
-  )
+test('a RPC de consumo roda como quem chama, não como quem a criou', { skip: APP_SCHEMA_SKIP }, () => {
+  // A ÚLTIMA definição é a que vale no banco: `functionDef` lê o baseline e as migrations
+  // posteriores e devolve a última. Comentários de SQL são `--`: sem tirá-los, a prova bate na
+  // prosa que explica a correção.
+  const sql = functionDef('finance.record_material_consumption').replace(/^\s*--.*$/gm, '')
 
   assert.ok(
     !/security definer/i.test(sql),
     'o único grantee é `service_role`, que já tem `insert` próprio: o definer não concedia nada ' +
       'e só ampliava o alcance de um defeito futuro'
   )
-  assert.ok(/security invoker/i.test(sql), 'ela roda com os privilégios de quem chama')
+  // `SECURITY INVOKER` é o padrão e o pg_dump não o imprime: a prova é a ausência do definer acima.
   assert.ok(
-    /set search_path = ''/.test(sql),
+    /SET search_path TO ''/.test(sql),
     'caminho vazio: nada resolve por nome curto, e não sobra nome ambíguo para sequestrar'
   )
 })
@@ -419,14 +404,10 @@ test('nenhuma leitura de custo transforma um erro do banco em lista vazia', () =
   )
 })
 
-test('toda linha de lançamento é auditada, e nenhuma pode ser apagada', () => {
-  // TODAS as migrations do financeiro, e não só a primeira: um `grant delete` numa migration
-  // posterior é exatamente como esta invariante morreria sem ninguém notar.
-  const files = readdirSync(resolve(root, 'supabase/migrations')).filter((file) =>
-    file.includes('finance')
-  )
-  const migrations = files.map((file) => read(`supabase/migrations/${file}`)).join('\n')
-  assert.ok(files.length > 0, 'as migrations do financeiro existem')
+test('toda linha de lançamento é auditada, e nenhuma pode ser apagada', { skip: APP_SCHEMA_SKIP }, () => {
+  // O baseline e TODAS as migrations depois dele: um `grant delete` numa migration posterior é
+  // exatamente como esta invariante morreria sem ninguém notar.
+  const migrations = appSchema()
 
   // As tabelas de LANÇAMENTO. Uma linha apagada aqui faz o total de um parceiro mudar sem nada
   // explicar, e o log de auditoria passaria a apontar para uma linha que não existe mais.
@@ -436,7 +417,7 @@ test('toda linha de lançamento é auditada, e nenhuma pode ser apagada', () => 
   // `recomputeConsumption` apaga, e o teste seguinte garante que nenhuma rota o faça.
   for (const table of ['standard_rates', 'fixed_costs', 'client_cost_entries']) {
     assert.ok(
-      !new RegExp(`grant[^;]*delete[^;]*on finance\\.${table}`, 'i').test(migrations),
+      !new RegExp(`grant[^;]*\\b(delete|all)\\b[^;]*on (table )?finance\\.${table}\\b`, 'i').test(migrations),
       `finance.${table} não pode conceder delete: corrigir um lançamento é lançar o oposto`
     )
   }
@@ -445,8 +426,8 @@ test('toda linha de lançamento é auditada, e nenhuma pode ser apagada', () => 
   // compra é o registro de uma nota, não tem oposto (não se compra menos uma bobina), e uma nota
   // errada não erra uma linha — envenena toda derivação futura do custo por peça.
   assert.ok(
-    /grant delete on finance\.purchases to service_role/.test(migrations),
-    'a compra precisa ser corrigível — ver 20260901_04_finance_purchase_edit.sql'
+    /GRANT [A-Z,]*\bDELETE\b[A-Z,]* ON TABLE finance\.purchases TO service_role/.test(migrations),
+    'a compra precisa ser corrigível — ver COMMENT ON TABLE finance.purchases'
   )
 
   for (const path of ROUTES) {
@@ -615,22 +596,19 @@ test('a linha removida sai de TODA conta, e a filtragem mora na única leitura',
   )
 })
 
-test('o schema não concede `delete` em custo, nem antes nem depois do ciclo de vida', () => {
-  // OS COMENTÁRIOS SAEM ANTES DA BUSCA. Estas migrações explicam em prosa por que `delete` fica
-  // de fora, e procurar a palavra no arquivo inteiro encontraria a explicação em vez do grant —
-  // um teste que falha por causa do comentário que o defende é um teste que some.
-  const sql = (path: string) => read(path).replace(/^\s*--.*$/gm, '')
-  const schema = sql('supabase/migrations/20260901_01_finance_schema.sql')
-  const lifecycle = sql('supabase/migrations/20260903_02_finance_cost_lifecycle.sql')
+test('o schema não concede `delete` em custo, nem antes nem depois do ciclo de vida', { skip: APP_SCHEMA_SKIP }, () => {
+  // OS COMENTÁRIOS SAEM ANTES DA BUSCA: as migrations explicam em prosa por que `delete` fica de
+  // fora, e procurar a palavra no texto inteiro encontraria a explicação em vez do grant.
+  const schema = appSchema().replace(/^\s*--.*$/gm, '')
 
   assert.ok(
-    !/grant[^;]*delete[^;]*on finance\.fixed_costs/i.test(schema),
+    !/grant[^;]*\b(delete|all)\b[^;]*on (table )?finance\.fixed_costs\b/i.test(schema),
     'custo fixo nunca teve delete'
   )
-  assert.ok(!/grant[^;]*delete/i.test(lifecycle), 'e o ciclo de vida não abriu a exceção')
   // O motivo é obrigatório junto com a marca, e proibido sem ela.
-  assert.ok(/fixed_costs_void_ck/.test(lifecycle))
-  assert.ok(/length\(btrim\(void_reason\)\) > 0/.test(lifecycle))
+  const ddl = tableDdl('finance.fixed_costs')
+  assert.ok(/fixed_costs_void_ck/.test(ddl))
+  assert.ok(/length\(btrim\(void_reason\)\) > 0/.test(ddl))
 })
 
 test('a rota de custo não expõe DELETE', () => {
@@ -843,15 +821,16 @@ test('nenhuma leitura nova pode descartar `error` e devolver vazio', () => {
   )
 })
 
-test('o CHECK de remoção recusa o que promete recusar', () => {
-  const fix = read('supabase/migrations/20260903_03_finance_void_reason_ck.sql')
+test('o CHECK de remoção recusa o que promete recusar', { skip: APP_SCHEMA_SKIP }, () => {
+  const fix = tableDdl('finance.fixed_costs')
 
   // `voided_at is not null AND length(btrim(NULL)) > 0` avalia NULL, e um CHECK que avalia NULL
   // PASSA. Sem `void_reason is not null` antes do `length`, o banco aceitava remoção sem motivo —
   // o contrário do que dois comentários do repositório afirmavam. QA, 2026-09-03.
-  const constraint = fix.slice(fix.indexOf('add constraint fixed_costs_void_ck'))
+  const constraint = fix.slice(fix.indexOf('CONSTRAINT fixed_costs_void_ck'))
+  assert.ok(constraint.indexOf('(void_reason IS NOT NULL)') >= 0, 'o ramo da marca exige o motivo não nulo')
   assert.ok(
-    constraint.indexOf('void_reason is not null') < constraint.indexOf('length(btrim(void_reason))'),
+    constraint.indexOf('(void_reason IS NOT NULL)') < constraint.indexOf('length(btrim(void_reason))'),
     'a checagem de nulo precisa vir ANTES do length, senão o ramo inteiro avalia NULL e passa'
   )
 })

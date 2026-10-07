@@ -1,4 +1,4 @@
-import { describe, it } from 'node:test'
+import { describe, it, mock } from 'node:test'
 import assert from 'node:assert/strict'
 import {
   VisibilityClass,
@@ -74,6 +74,14 @@ describe('BR-AUDIO-010 — a peak or hill is a landmark, and its prominence is m
     const { ElevationAnalysisService } = await import('../../lib/services/trigger-points-google/services/elevation-service')
     // lower quartile of land samples around the city centre; the hill does not lift the base
     const read = async (lat: number) => (lat > -22.83 ? 300 : 8)
+    // The city centre comes from the GeoNames db (`data/osm/geonames.db`), which is a local
+    // artefact and absent in CI: without it every POI falls to its own 0.1° cell and the test
+    // measured the environment, not the rule. The lookup is pinned to São Gonçalo's GeoNames
+    // centre; what is under test is that the key and the centre come from the city.
+    const centre = mock.method(ElevationAnalysisService, 'cityCentre', () => ({
+      id: '3448636',
+      centre: { lat: -22.82694, lng: -43.05389 },
+    }))
     ElevationAnalysisService.clearCache()
     try {
       const onHill = await ElevationAnalysisService.cityBaseElevation({ lat: -22.80, lng: -43.05 }, 'São Gonçalo', read)
@@ -81,7 +89,9 @@ describe('BR-AUDIO-010 — a peak or hill is a landmark, and its prominence is m
       assert.equal(onHill.source, onPlain.source)
       assert.equal(onHill.baseM, onPlain.baseM)
       assert.equal(onHill.baseM, 8)
+      assert.equal(onHill.source, 'geonames:3448636')
     } finally {
+      centre.mock.restore()
       ElevationAnalysisService.clearCache()
     }
   })

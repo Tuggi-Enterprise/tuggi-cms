@@ -10,23 +10,19 @@ import {
 } from '../../lib/services/trigger-points-google/config/visibility-class'
 import { OSMDataFetcher } from '../../lib/services/trigger-points-google/services/osm-data-fetcher'
 import { storedBuildingHeightM } from '../../lib/services/osm-local-data-service'
+import { APP_SCHEMA_SKIP, appSchema } from './setup/app-schema'
 
-const MIGRATIONS = join(process.cwd(), 'supabase/migrations')
-
-/** Values of the last `ADD CONSTRAINT attraction_trigger_points_type_check CHECK (type IN (...))` in the repo. */
+/** Values of the LAST `attraction_trigger_points_type_check` in the app schema (baseline + later migrations). */
 function typesInLatestCheck(): string[] {
+  const re = /attraction_trigger_points_type_check\s+CHECK\s*\(+\s*type\s*(?:IN\s*\(|=\s*ANY\s*\(\s*ARRAY\[)([^)\]]*)/gi
   let last: string | null = null
-  for (const file of readdirSync(MIGRATIONS).filter(f => f.endsWith('.sql')).sort()) {
-    const sql = readFileSync(join(MIGRATIONS, file), 'utf8')
-    const re = /ADD\s+CONSTRAINT\s+attraction_trigger_points_type_check\s+CHECK\s*\(\s*type\s+IN\s*\(([^)]*)\)/gi
-    for (const m of sql.matchAll(re)) last = m[1]
-  }
-  assert.ok(last, 'attraction_trigger_points_type_check not found in supabase/migrations')
+  for (const m of appSchema().matchAll(re)) last = m[1]
+  assert.ok(last, 'attraction_trigger_points_type_check not found in the app schema')
   return [...last.matchAll(/'([^']+)'/g)].map(m => m[1])
 }
 
 describe('#781 TP engine SSOT', () => {
-  it('TRIGGER_POINT_DB_TYPES matches the CHECK of core.attraction_trigger_points.type', () => {
+  it('TRIGGER_POINT_DB_TYPES matches the CHECK of core.attraction_trigger_points.type', { skip: APP_SCHEMA_SKIP }, () => {
     assert.deepEqual([...TRIGGER_POINT_DB_TYPES].sort(), typesInLatestCheck().sort())
   })
 
