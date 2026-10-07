@@ -1637,7 +1637,10 @@
         "identity": "Identidade",
         "commerce": "Comércio",
         "amenities": "Comodidades",
-        "publish": "Publicação"
+        "publish": "Publicação",
+        "hours": "Horário de funcionamento",
+        "contact": "Contato",
+        "offers": "Ofertas ao turista"
       },
       "labels": {
         "location": "Localização",
@@ -1658,7 +1661,11 @@
         "approved": "Aprovado",
         "active": "Ativo",
         "priority": "Prioridade",
-        "address": "Endereço no cadastro"
+        "address": "Endereço no cadastro",
+        "whatsapp": "WhatsApp",
+        "website": "Site",
+        "app_benefit": "Oferta para quem usa o app",
+        "subscriber_benefit": "Oferta para assinante"
       },
       "amenities": {
         "wifi": "Wi-Fi",
@@ -1666,7 +1673,11 @@
         "delivery": "Delivery",
         "takeaway": "Para viagem",
         "alcohol": "Serve álcool",
-        "reservations": "Reservas"
+        "reservations": "Reservas",
+        "cards": "Cartão e Pix",
+        "pets": "Aceita pets",
+        "air_conditioning": "Ar-condicionado",
+        "wheelchair": "Acessível a cadeirantes"
       },
       "tags_hint": "separadas por vírgula",
       "cuisine_hint": "separadas por vírgula",
@@ -1697,7 +1708,48 @@
         "cancel": "Cancelar",
         "confirmAction": "Apagar"
       },
-      "address_none": "Sem endereço no cadastro — o pino é o que localiza este local."
+      "address_none": "Sem endereço no cadastro — o pino é o que localiza este local.",
+      "hours": {
+        "closed": "Fechado",
+        "open": "Abre",
+        "close": "Fecha",
+        "remove": "Remover faixa",
+        "add": "Faixa",
+        "invalid": "Horário incompleto: preencha abertura e fechamento de cada faixa, ou remova a faixa.",
+        "days": {
+          "monday": "Seg",
+          "tuesday": "Ter",
+          "wednesday": "Qua",
+          "thursday": "Qui",
+          "friday": "Sex",
+          "saturday": "Sáb",
+          "sunday": "Dom"
+        }
+      },
+      "whatsapp_hint": "só números, com DDD",
+      "whatsapp_invalid": "WhatsApp inválido: use de 10 a 15 dígitos, com DDD.",
+      "partner": {
+        "heading": "O que o parceiro informou",
+        "tier": "Plano",
+        "source": "Fonte",
+        "not_informed": "Não informado",
+        "no_registration": "Este parceiro não tem cadastro com respostas para mostrar.",
+        "signature_item": "Prato ou item da casa",
+        "instagram": "Instagram",
+        "subtypes": "Especialidades",
+        "languages": "Idiomas atendidos",
+        "story_script": "História enviada",
+        "tiers": {
+          "paid_tier": "Com história (pago)",
+          "free_tier": "No mapa (grátis)",
+          "operator_exception": "No mapa, com exceção do operador",
+          "not_a_partner": "Sem parceiro"
+        },
+        "sources": {
+          "portal": "Portal de locais",
+          "proposal": "Formulário de parceria"
+        }
+      }
     },
     "POIDetails": {
       "trigger_disabled": {

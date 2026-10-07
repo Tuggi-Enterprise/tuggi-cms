@@ -1633,7 +1633,10 @@
         "identity": "Identidad",
         "commerce": "Comercio",
         "amenities": "Comodidades",
-        "publish": "Publicación"
+        "publish": "Publicación",
+        "hours": "Horario de atención",
+        "contact": "Contacto",
+        "offers": "Ofertas al turista"
       },
       "labels": {
         "location": "Ubicación",
@@ -1654,7 +1657,11 @@
         "approved": "Aprobado",
         "active": "Activo",
         "priority": "Prioridad",
-        "address": "Dirección en el registro"
+        "address": "Dirección en el registro",
+        "whatsapp": "WhatsApp",
+        "website": "Sitio web",
+        "app_benefit": "Oferta para quien usa la app",
+        "subscriber_benefit": "Oferta para suscriptor"
       },
       "amenities": {
         "wifi": "Wi-Fi",
@@ -1662,7 +1669,11 @@
         "delivery": "Delivery",
         "takeaway": "Para llevar",
         "alcohol": "Sirve alcohol",
-        "reservations": "Reservas"
+        "reservations": "Reservas",
+        "cards": "Tarjeta y Pix",
+        "pets": "Acepta mascotas",
+        "air_conditioning": "Aire acondicionado",
+        "wheelchair": "Accesible en silla de ruedas"
       },
       "tags_hint": "separadas por comas",
       "cuisine_hint": "separadas por comas",
@@ -1675,7 +1686,48 @@
       "location_detecting": "Detectando ciudad, estado y país…",
       "location_detected": "Ubicación detectada:",
       "error_save": "Error al guardar el lugar",
-      "address_none": "Sin dirección en el registro — el pin es lo que ubica este lugar."
+      "address_none": "Sin dirección en el registro — el pin es lo que ubica este lugar.",
+      "hours": {
+        "closed": "Cerrado",
+        "open": "Abre",
+        "close": "Cierra",
+        "remove": "Quitar franja",
+        "add": "Franja",
+        "invalid": "Horario incompleto: complete apertura y cierre de cada franja, o quítela.",
+        "days": {
+          "monday": "Lun",
+          "tuesday": "Mar",
+          "wednesday": "Mié",
+          "thursday": "Jue",
+          "friday": "Vie",
+          "saturday": "Sáb",
+          "sunday": "Dom"
+        }
+      },
+      "whatsapp_hint": "solo números, con código de área",
+      "whatsapp_invalid": "WhatsApp inválido: use de 10 a 15 dígitos, con código de área.",
+      "partner": {
+        "heading": "Lo que informó el socio",
+        "tier": "Plan",
+        "source": "Origen",
+        "not_informed": "No informado",
+        "no_registration": "Este socio no tiene respuestas de registro para mostrar.",
+        "signature_item": "Plato o ítem de la casa",
+        "instagram": "Instagram",
+        "subtypes": "Especialidades",
+        "languages": "Idiomas atendidos",
+        "story_script": "Historia enviada",
+        "tiers": {
+          "paid_tier": "Con historia (pago)",
+          "free_tier": "En el mapa (gratis)",
+          "operator_exception": "En el mapa, con excepción del operador",
+          "not_a_partner": "Sin socio"
+        },
+        "sources": {
+          "portal": "Portal de locales",
+          "proposal": "Formulario de alianza"
+        }
+      }
     },
     "POIDetails": {
       "trigger_disabled": {

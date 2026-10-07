@@ -21,6 +21,22 @@ export const PLACE_TYPES = ['restaurant', 'bar', 'cafe', 'shop', 'hotel', 'servi
 
 export type PlaceType = (typeof PLACE_TYPES)[number]
 
+/**
+ * #886 — what the place editor shows beyond the RPC: the `core.attractions` columns the partner's
+ * registration fills (`PLACE_PREFILL_COLUMNS`) and the offers on `core.place_details` (BR-B2B-053).
+ */
+export const PLACE_EDITOR_ATTRACTION_COLUMNS = [
+  'opening_hours',
+  'website',
+  'contact_whatsapp',
+  'payment_credit_cards',
+  'pet_friendly',
+  'air_conditioning',
+  'wheelchair_accessible',
+] as const
+
+export const PLACE_EDITOR_DETAIL_COLUMNS = ['app_benefit', 'subscriber_benefit'] as const
+
 export interface PlaceListItem {
   id: string
   name: string
@@ -261,7 +277,35 @@ export const placeService = {
     if (error) throw new Error(error.message)
     const place = (data?.[0] as any) || null
     if (!place) return null
-    return { ...place, ...(await placeService.getAddressColumns(id)) }
+    const editorRead = placeService.getEditorColumns(id)
+    const withAddress = { ...place, ...(await placeService.getAddressColumns(id)) }
+    const editor = await editorRead
+    return {
+      ...withAddress,
+      ...editor.attraction,
+      place_details: { ...(place.place_details || {}), ...editor.details },
+    }
+  },
+
+  /**
+   * #886 — the columns the partner's registration fills (`place-prefill.ts`) and the place editor
+   * shows, read beside the RPC like the address. `get_place_details` does not return them; widening
+   * it is the `data`'s, and until then a failed read is empty — the editor opens with blank fields
+   * instead of not opening.
+   */
+  async getEditorColumns(
+    attractionId: string,
+    db?: SupabaseClient
+  ): Promise<{ attraction: Record<string, unknown>; details: Record<string, unknown> }> {
+    const core = client(db).schema('core')
+    const [attraction, details] = await Promise.all([
+      core.from('attractions').select(PLACE_EDITOR_ATTRACTION_COLUMNS.join(', ')).eq('id', attractionId).maybeSingle(),
+      core.from('place_details').select(PLACE_EDITOR_DETAIL_COLUMNS.join(', ')).eq('attraction_id', attractionId).maybeSingle(),
+    ])
+    return {
+      attraction: (attraction.error ? null : (attraction.data as Record<string, unknown> | null)) ?? {},
+      details: (details.error ? null : (details.data as Record<string, unknown> | null)) ?? {},
+    }
   },
 
   /**

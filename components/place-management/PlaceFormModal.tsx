@@ -4,13 +4,17 @@
  * PlaceFormModal — gestão de Locais/Comércios no "modal de POI management" (drawer
  * com abas). Aba Details = campos específicos (core.attractions + core.place_details;
  * horário/acessibilidade reusam attractions). Boundary e Trigger Points vêm do
- * EntityManagementDrawer (keyed por attraction_id). Descrição/Áudio: próximo incremento.
+ * EntityManagementDrawer (keyed por attraction_id).
+ *
+ * #886: everything the partner's registration writes (`place-prefill.ts`) is shown and editable
+ * here — hours, WhatsApp, website, offers, the attraction-level amenity flags — and what has no
+ * column is shown read-only by `PartnerRegistrationPanel`.
  */
 import { useEffect, useState } from 'react'
 import { useQueryClient } from '@tanstack/react-query'
 import { useTranslations } from 'next-intl'
 import { PlaceDeleteControl } from '@/components/place-management/PlaceDeleteControl'
-import { Store, Info, Sparkles, Loader2 } from 'lucide-react'
+import { Store, Info, Sparkles, Loader2, Clock, Phone, Gift } from 'lucide-react'
 import { PLACE_TYPES, placeService } from '@/lib/core/place-service'
 import { usePlaceDetails } from '@/lib/hooks/use-places'
 import { useReverseGeocode } from '@/lib/hooks/use-reverse-geocode'
@@ -22,6 +26,9 @@ import { applyNameOnlyDescription, descriptionPolicyKey } from '@/lib/hooks/use-
 import { EntityManagementDrawer } from '@/components/entity-management/EntityManagementDrawer'
 import { LocationPicker } from '@/components/entity-management/LocationPicker'
 import { PublishingControls } from '@/components/entity-management/PublishingControls'
+import { OpeningHoursEditor } from '@/components/place-management/OpeningHoursEditor'
+import { PartnerRegistrationPanel } from '@/components/place-management/PartnerRegistrationPanel'
+import { normalizeWhatsapp, parseOpeningHours, type OpeningHours } from '@/lib/partner-form/place-prefill'
 
 interface PlaceFormModalProps {
   placeId?: string | null
@@ -40,6 +47,27 @@ const AMENITIES: { key: string; t: string }[] = [
   { key: 'serves_alcohol', t: 'alcohol' },
   { key: 'accepts_reservations', t: 'reservations' },
 ]
+
+/**
+ * The `core.attractions` flags the partner's amenities fill (`place-prefill.ts`, `AMENITY_TARGETS`).
+ * Three are OSM-shaped text (`yes`), `wheelchair_accessible` is boolean. Written only when the
+ * checkbox changed: an OSM `no` or `limited` the import brought must not become `null` because the
+ * operator saved something else.
+ */
+const ATTRACTION_FLAGS: { key: string; t: string; yes: string | boolean }[] = [
+  { key: 'payment_credit_cards', t: 'cards', yes: 'yes' },
+  { key: 'pet_friendly', t: 'pets', yes: 'yes' },
+  { key: 'air_conditioning', t: 'air_conditioning', yes: 'yes' },
+  { key: 'wheelchair_accessible', t: 'wheelchair', yes: true },
+]
+
+const isYes = (v: unknown) => v === true || v === 'yes'
+
+/** The stored hours as the editor holds them — anything `parseOpeningHours` refuses opens empty. */
+function hoursOf(value: unknown): OpeningHours {
+  if (!value) return {}
+  return parseOpeningHours(typeof value === 'string' ? value : JSON.stringify(value)) ?? {}
+}
 
 const fieldLabel = 'block text-[10px] font-black text-gray-500 uppercase tracking-tighter mb-1.5 ml-1'
 const fieldInput = 'w-full px-4 py-3 bg-gray-50 dark:bg-gray-900/50 border border-transparent rounded-xl focus:bg-white dark:focus:bg-gray-900 focus:ring-2 focus:ring-tuggi-blue transition-all dark:text-white font-medium outline-none'
@@ -85,6 +113,12 @@ export function PlaceFormModal({ placeId, isOpen, onClose, onSaved, initialTab }
         has_takeaway: !!pd.has_takeaway,
         serves_alcohol: !!pd.serves_alcohol,
         accepts_reservations: !!pd.accepts_reservations,
+        app_benefit: pd.app_benefit || '',
+        subscriber_benefit: pd.subscriber_benefit || '',
+        opening_hours: hoursOf(details.opening_hours),
+        website: details.website || '',
+        contact_whatsapp: details.contact_whatsapp || '',
+        ...Object.fromEntries(ATTRACTION_FLAGS.map((f) => [f.key, isYes(details[f.key])])),
       })
     } else if (!isEdit) {
       setForm({ name: '', city: '', state: '', country: '', latitude: '', longitude: '', place_type: '' })
@@ -159,7 +193,25 @@ export function PlaceFormModal({ placeId, isOpen, onClose, onSaved, initialTab }
         throw new Error(missingFieldsMessage())
       }
 
+      // Hours and contact are validated before anything is written: a half-saved place is worse
+      // than a refused save.
+      const hours = form.opening_hours as OpeningHours
+      const hasHours = Object.keys(hours ?? {}).length > 0
+      const openingHours = hasHours ? parseOpeningHours(JSON.stringify(hours)) : null
+      if (hasHours && !openingHours) throw new Error(t('hours.invalid'))
+      const whatsappTyped = String(form.contact_whatsapp || '').trim()
+      const whatsapp = whatsappTyped ? normalizeWhatsapp(whatsappTyped) : null
+      if (whatsappTyped && !whatsapp) throw new Error(t('whatsapp_invalid'))
+      const flagPatch: Record<string, unknown> = {}
+      for (const f of ATTRACTION_FLAGS) {
+        if (!!form[f.key] !== isYes(details?.[f.key])) flagPatch[f.key] = form[f.key] ? f.yes : null
+      }
+
       await placeService.updateAttraction(placeId as string, {
+        opening_hours: openingHours,
+        website: String(form.website || '').trim() || null,
+        contact_whatsapp: whatsapp,
+        ...flagPatch,
         name: form.name,
         city: form.city,
         state: form.state || null,
@@ -183,6 +235,9 @@ export function PlaceFormModal({ placeId, isOpen, onClose, onSaved, initialTab }
         has_takeaway: !!form.has_takeaway,
         serves_alcohol: !!form.serves_alcohol,
         accepts_reservations: !!form.accepts_reservations,
+        // BR-B2B-053: the offers the partner wrote, corrected here.
+        app_benefit: String(form.app_benefit || '').trim() || null,
+        subscriber_benefit: String(form.subscriber_benefit || '').trim() || null,
       })
       await placeService.setCoordinate(placeId as string, Number(form.latitude), Number(form.longitude))
 
@@ -429,9 +484,64 @@ export function PlaceFormModal({ placeId, isOpen, onClose, onSaved, initialTab }
                   <span className="text-sm font-medium text-gray-700 dark:text-gray-300">{t(`amenities.${a.t}`)}</span>
                 </label>
               ))}
+              {ATTRACTION_FLAGS.map((f) => (
+                <label key={f.key} className="flex items-center gap-2 cursor-pointer">
+                  <input type="checkbox" checked={!!form[f.key]} onChange={(e) => set(f.key, e.target.checked)} className="w-4 h-4 rounded accent-tuggi-blue" />
+                  <span className="text-sm font-medium text-gray-700 dark:text-gray-300">{t(`amenities.${f.t}`)}</span>
+                </label>
+              ))}
             </div>
           </section>
 
+          {/* Hours */}
+          <section className={sectionCard}>
+            <h4 className={sectionTitle}><Clock className="h-4 w-4 text-tuggi-blue" />{t('sections.hours')}</h4>
+            <OpeningHoursEditor
+              value={(form.opening_hours as OpeningHours) ?? {}}
+              onChange={(v) => set('opening_hours', v)}
+              disabled={!canEdit}
+            />
+          </section>
+
+          {/* Contact */}
+          <section className={sectionCard}>
+            <h4 className={sectionTitle}><Phone className="h-4 w-4 text-tuggi-blue" />{t('sections.contact')}</h4>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div>
+                <label className={fieldLabel}>{L('whatsapp')} <span className="text-gray-400 normal-case tracking-normal font-medium">({t('whatsapp_hint')})</span></label>
+                <input className={fieldInput} inputMode="tel" value={form.contact_whatsapp || ''} onChange={(e) => set('contact_whatsapp', e.target.value)} />
+              </div>
+              <div>
+                <label className={fieldLabel}>{L('website')}</label>
+                <input className={fieldInput} value={form.website || ''} onChange={(e) => set('website', e.target.value)} />
+              </div>
+            </div>
+          </section>
+
+          {/* Offers — BR-B2B-053 */}
+          <section className={sectionCard}>
+            <h4 className={sectionTitle}><Gift className="h-4 w-4 text-tuggi-blue" />{t('sections.offers')}</h4>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div>
+                <label className={fieldLabel}>{L('app_benefit')}</label>
+                <textarea rows={2} className={fieldInput} value={form.app_benefit || ''} onChange={(e) => set('app_benefit', e.target.value)} />
+              </div>
+              <div>
+                <label className={fieldLabel}>{L('subscriber_benefit')}</label>
+                <textarea rows={2} className={fieldInput} value={form.subscriber_benefit || ''} onChange={(e) => set('subscriber_benefit', e.target.value)} />
+              </div>
+            </div>
+          </section>
+
+          {placeId && (
+            <PartnerRegistrationPanel
+              attractionId={placeId}
+              enabled={isOpen}
+              sectionCard={sectionCard}
+              sectionTitle={sectionTitle}
+              fieldLabel={fieldLabel}
+            />
+          )}
         </>
       )}
     </EntityManagementDrawer>
