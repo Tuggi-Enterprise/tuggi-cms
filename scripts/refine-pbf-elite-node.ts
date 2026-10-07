@@ -2,7 +2,8 @@ import { spawnSync, spawn } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
 import { splitOnLineFeed } from '../lib/services/osm-local-data-service';
-import { shouldFilterPOI, CATEGORIES } from '../lib/shared/poi-filter';
+import { shouldFilterPOI, pickCategory, CATEGORIES } from '../lib/shared/poi-filter';
+import { articlesByWikidata } from '../lib/services/wikidata-sitelinks';
 import { polygonContains, type RegionPolygon } from '../lib/services/local-osm-regions';
 
 /**
@@ -131,6 +132,19 @@ async function main() {
   // 3. Stage 3: Unified Elite Filtering
   console.log('\n🚀 Stage 3: Unified Elite Filtering (line-by-line)...');
   
+  // A listed building with no other tag stays only with a Wikipedia article (touristNoiseReason).
+  // OSM often carries just the `wikidata` of such a building, so its article is looked up first.
+  const bareIds: string[] = [];
+  for await (const line of splitOnLineFeed(fs.createReadStream(geojsonSeqPath))) {
+    const clean = line.trim().replace(/^\x1e/, '').trim();
+    if (!clean) continue;
+    let p: any;
+    try { p = JSON.parse(clean).properties; } catch { continue; }
+    if (p && p.wikidata && !p.wikipedia && !pickCategory(p)) bareIds.push(String(p.wikidata).split(';')[0].trim());
+  }
+  const articles = await articlesByWikidata(bareIds);
+  console.log(`   Listed buildings with only wikidata: ${bareIds.length.toLocaleString()} | with a Wikipedia article: ${articles.size.toLocaleString()}`);
+
   // Split on \n only: node:readline also breaks on U+2028/U+2029, which osmium leaves raw inside
   // tag values, and both halves of such a feature failed JSON.parse and were dropped.
   const rl = splitOnLineFeed(fs.createReadStream(geojsonSeqPath));
@@ -164,6 +178,9 @@ async function main() {
       if (!cleanLine) continue;
 
       const feature = JSON.parse(cleanLine);
+      const fp = feature.properties || {};
+      const article = !fp.wikipedia && fp.wikidata ? articles.get(String(fp.wikidata).split(';')[0].trim()) : undefined;
+      if (article) fp.wikipedia = article;
       const filterResult = shouldFilterPOI(feature);
       let abroad = false;
       if (!filterResult.remove && border) {

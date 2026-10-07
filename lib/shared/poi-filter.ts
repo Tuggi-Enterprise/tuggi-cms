@@ -115,6 +115,60 @@ export function isMinorWithoutReference(props: any, hasHardReference: boolean): 
   return false;
 }
 
+const EMPTY_TAG_VALUES = new Set(['yes', 'no', 'true', 'false']);
+
+/**
+ * The category is the OSM key that got the object past Stage 1, in the priority order of
+ * CATEGORIES. Two traps this walks around:
+ *  - Keys admitted only by the tail of CATEGORIES (man_made, waterway, geological, aeroway, place)
+ *    were absent here, so lighthouses, waterfalls, towns and aerodromes landed with a null
+ *    category: 458 of Iceland's 2,747 POIs, and the same in the German, Dutch and Swiss imports.
+ *  - `tourism=yes` / `historic=yes` carry no category at all, yet sit at the head of the order and
+ *    used to win: the waterfall Rjúkandi (tourism=yes + waterway=waterfall) came in as "yes".
+ *    Skipping the empty values lets the describing tag through.
+ * undefined means the object got in only by `heritage` or by an empty `historic`/`tourism`: a
+ * listed building with no other tag.
+ */
+export function pickCategory(props: any): string | undefined {
+  const ordered = [
+    props.tourism, props.historic, props.leisure, props.natural, props.amenity,
+    props.aerialway, props.man_made, props.waterway, props.geological, props.aeroway, props.place,
+  ];
+  const found = ordered.find(v => v && !EMPTY_TAG_VALUES.has(String(v).toLowerCase()));
+  if (found) return found;
+  // Boolean-flag categories: the key itself names the category, so skipping the empty value
+  // would leave nothing (mountain_pass=yes -> "mountain_pass").
+  if (props.mountain_pass) return 'mountain_pass';
+  // Stage 1 keys outside the list above (CATEGORIES): take the value.
+  if (props.railway === 'funicular') return 'funicular';
+  if (props.landuse === 'cemetery') return 'cemetery';
+  return undefined;
+}
+
+// Ski-area lifts. A cable car (Pendelbahn) and a funicular stay out: those are the summit rides.
+export const SKI_LIFTS = ['chair_lift', 'gondola', 'mixed_lift'];
+
+/**
+ * Noise that a tag or a register vouches for, and a tourist does not. Austria (2026-10-07):
+ *  - listed buildings with no other tag (Pfarrhof, Bauernhaus, Wohnhaus): 2,129, every one with
+ *    heritage=2 from the BDA. The register also mints one Wikidata item per monument (1,402 in the
+ *    Q37M-Q38M range alone), so `wikidata` vouches for nothing here: only an encyclopedia article
+ *    does — the `wikipedia` tag, which refine-pbf-elite-node fills from the Wikidata sitelinks
+ *    before this runs (lib/services/wikidata-sitelinks). 1,807 had no article;
+ *  - war memorials: 409 of 590 with no wikipedia/wikidata;
+ *  - ski-area chair lifts and gondolas: 399 of 520;
+ *  - tourism=gallery, almost always an art dealer or a studio: 261 of 273.
+ */
+export function touristNoiseReason(props: any): string | null {
+  if (!props.wikipedia && !pickCategory(props)) return 'BARE_HERITAGE: listed building with no Wikipedia article';
+  if (props.wikipedia || props.wikidata) return null;
+  const memorialType = String(props.memorial || props['memorial:type'] || '');
+  if (props.historic === 'memorial' && memorialType === 'war_memorial') return 'WAR_MEMORIAL: no wikipedia/wikidata';
+  if (SKI_LIFTS.includes(String(props.aerialway)) && !props.tourism && !props.historic) return `SKI_LIFT: aerialway=${props.aerialway} without wikipedia/wikidata`;
+  if (props.tourism === 'gallery') return 'GALLERY: commercial gallery without wikipedia/wikidata';
+  return null;
+}
+
 export const FILTER_CONFIG = {
   // Categories that are completely blocked unless they are famous (Wiki/Wikidata)
   TAG_BLOCKLIST: [
@@ -337,6 +391,9 @@ export function shouldFilterPOI(poi: any): POIFilterResult {
   if (isMinorWithoutReference(props, hasHardReference)) {
     return { remove: true, reason: `MINOR: ${props.historic ? 'historic=' + props.historic : props.aerialway ? 'aerialway=' + props.aerialway : props.water ? 'water=' + props.water : props.amenity ? 'amenity=' + props.amenity : 'leisure=' + props.leisure} sem wiki/heritage` };
   }
+
+  const noise = touristNoiseReason(props);
+  if (noise) return { remove: true, reason: noise };
 
   // --- 2. ELITE EXCEPTIONS (Full exemption if recognized landmark) ---
   const isCulturalExemption = (

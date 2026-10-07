@@ -8,6 +8,7 @@
 import 'dotenv/config';
 import { getSupabase } from '../lib/core/supabase-client';
 import { normalizeLocation } from '../lib/shared/location-normalize';
+import { pickCategory } from '../lib/shared/poi-filter';
 import fs from 'node:fs';
 import { splitOnLineFeed } from '../lib/services/osm-local-data-service';
 import { createHash } from 'node:crypto';
@@ -63,34 +64,6 @@ function getPointFromGeometry(geometry: any): { lat: number; lon: number } | nul
     return null;
   }
   return null;
-}
-
-/**
- * The category is the OSM key that got the object past Stage 1, in the priority order of
- * CATEGORIES (lib/shared/poi-filter). Two traps this walks around:
- *  - Keys admitted only by the tail of CATEGORIES (man_made, waterway, geological, aeroway, place)
- *    were absent here, so lighthouses, waterfalls, towns and aerodromes landed with a null
- *    category: 458 of Iceland's 2,747 POIs, and the same in the German, Dutch and Swiss imports.
- *  - `tourism=yes` / `historic=yes` carry no category at all, yet sit at the head of the order and
- *    used to win: the waterfall Rjúkandi (tourism=yes + waterway=waterfall) came in as "yes".
- *    Skipping the empty values lets the describing tag through.
- */
-const EMPTY_TAG_VALUES = new Set(['yes', 'no', 'true', 'false']);
-
-function pickCategory(props: any): string | undefined {
-  const ordered = [
-    props.tourism, props.historic, props.leisure, props.natural, props.amenity,
-    props.aerialway, props.man_made, props.waterway, props.geological, props.aeroway, props.place,
-  ];
-  const found = ordered.find(v => v && !EMPTY_TAG_VALUES.has(String(v).toLowerCase()));
-  if (found) return found;
-  // Boolean-flag categories: the key itself names the category, so skipping the empty value
-  // would leave nothing (mountain_pass=yes -> "mountain_pass").
-  if (props.mountain_pass) return 'mountain_pass';
-  // Stage 1 keys outside the list above (lib/shared/poi-filter#CATEGORIES): take the value.
-  if (props.railway === 'funicular') return 'funicular';
-  if (props.landuse === 'cemetery') return 'cemetery';
-  return undefined;
 }
 
 function geoJsonToWkt(geometry: any): string | null {
