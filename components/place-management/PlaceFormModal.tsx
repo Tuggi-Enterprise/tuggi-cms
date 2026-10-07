@@ -168,7 +168,7 @@ export function PlaceFormModal({ placeId, isOpen, onClose, onSaved, initialTab }
         is_active: !!form.is_active,
         priority_level: Number(form.priority_level) || 3,
       })
-      await placeService.updateDetails(placeId as string, {
+      await placeService.upsertDetails(placeId as string, {
         place_type: form.place_type || null,
         cuisine: String(form.cuisine || '').split(',').map((s: string) => s.trim()).filter(Boolean),
         price_range: form.price_range === '' ? null : Number(form.price_range),

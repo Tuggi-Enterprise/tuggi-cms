@@ -318,12 +318,17 @@ export const placeService = {
     return data as string
   },
 
-  async updateDetails(attractionId: string, patch: Record<string, any>, db?: SupabaseClient) {
+  /**
+   * Writes the given `place_details` columns, creating the row when the place has none (#885).
+   * An imported `poi` carries no row, and an UPDATE there matched nothing without error — the
+   * offer, amenities and tags vanished in silence. Only the keys in `patch` are sent, so on
+   * conflict PostgREST updates those and leaves every other column as it was.
+   */
+  async upsertDetails(attractionId: string, patch: Record<string, any>, db?: SupabaseClient) {
     const { error } = await client(db)
       .schema('core')
       .from('place_details')
-      .update(patch)
-      .eq('attraction_id', attractionId)
+      .upsert({ ...patch, attraction_id: attractionId }, { onConflict: 'attraction_id' })
     if (error) throw new Error(error.message)
   },
 
