@@ -12,11 +12,16 @@
  * minutes old and the operator's tab may have been open all afternoon. A client-side check is a
  * courtesy; this is the gate.
  *
- * IT WRITES ONE COLUMN ON THE CATALOGUE. `partner_client_id`, and nothing else — not `approved`
- * (BR-B2B-011: the triage is a human decision, and a place that was already approved STAYS
- * approved because linking is not a publication), not `priority_level`, not `is_tuggi_partner`
- * (BR-B2B-010, item 6: same treatment as any POI). Linking is a statement about who the place
- * belongs to.
+ * THE LINK IS ONE COLUMN, `partner_client_id` — not `approved` (BR-B2B-011: the triage is a
+ * human decision, and a place that was already approved STAYS approved because linking is not a
+ * publication), not `priority_level`, not `is_tuggi_partner` (BR-B2B-010, item 6: same treatment
+ * as any POI). Linking is a statement about who the place belongs to.
+ *
+ * AND THEN THE REGISTRATION FOLLOWS IT (#885, BR-B2B-033 item 5): `mergeRegistrationIntoPlace`
+ * merges the client's registration into the POI — the catalogue keeps name, address and pin, the
+ * partner's hours, contact, amenities and offers enter, tags unite — and applies the tier's
+ * description (#888). The allowlist is `buildPlacePrefill`'s, so `PLACE_PREFILL_NEVER_WRITES`
+ * holds here too.
  *
  * ─────────────────────────────────────────────────────────────────────────────────────────────
  * AND IT ADOPTS THE WELCOME POI, because they were never two facts.
@@ -41,7 +46,7 @@ import { NextResponse } from 'next/server'
 import { withAuth, withRateLimit } from '@/lib/auth-middleware'
 import { getSupabaseService } from '@/lib/core/supabase-client'
 import { logAuditEvent } from '@/lib/services/audit-service'
-import { applyDescriptionPolicyToPlace } from '@/lib/services/place-description-policy-service'
+import { mergeRegistrationIntoPlace } from '@/lib/services/partner-place-provisioning'
 import { verdictFor, type LinkCandidate } from '@/lib/partnerships/place-link'
 
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
@@ -163,25 +168,13 @@ export const POST = withRateLimit(20, 60_000)(
       }
     }
 
-    /**
-     * THE PLACE JUST BECAME A PARTNER'S, so what Tuggi says about it just changed — BR-B2B-016,
-     * item 1. A free-tier partner's content is the name, and this is the moment it starts being
-     * owed. Best-effort on purpose: the link IS done, the pipeline reads `partner_client_id` and
-     * not this, and the description tab shows the state either way.
-     *
-     * It never overwrites a narration the catalogue already had — `applyNameOnlyDescription`
-     * refuses that, and it must, because the 5th edge case of BR-B2B-016 says a partner POI already
-     * published with a description does not lose it. Most rows this route links are exactly that.
-     */
-    try {
-      const outcome = await applyDescriptionPolicyToPlace(attractionId, auth.supabase)
-      if (outcome === 'blocked') {
-        console.info(
-          `[partnerships] ${attractionId} keeps the description it already had (BR-B2B-016, 5th edge case).`
-        )
-      }
-    } catch (policyError) {
-      console.error('[partnerships] name-only description not applied:', policyError)
+    // The registration and the tier's description follow the link (#885, #888). Best-effort on
+    // purpose and reported as data: the link IS done, and the pipeline reads `partner_client_id`.
+    // The description never overwrites a narration the catalogue already had (BR-B2B-016, 5th
+    // edge case) — most rows this route links are exactly that.
+    const registration = await mergeRegistrationIntoPlace(clientId, attractionId, auth.supabase)
+    if (registration.status === 'failed') {
+      console.error(`[partnerships] registration not merged into ${attractionId}: ${registration.reason}`)
     }
 
     await logAuditEvent({
@@ -201,6 +194,7 @@ export const POST = withRateLimit(20, 60_000)(
       ok: true,
       linked: true,
       welcomeAdopted,
+      registration,
       place: { ...candidate, partnerClientId: clientId },
     })
   })

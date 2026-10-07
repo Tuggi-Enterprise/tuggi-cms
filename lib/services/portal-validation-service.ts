@@ -364,6 +364,30 @@ async function acceptanceOf(
   return { email: row.email || null, planChoice }
 }
 
+/**
+ * The portal registration of ONE place (#885, `mergeRegistrationIntoPlace`): the answers of the
+ * latest submission whose POI it is, and the tier accepted on it (`acceptanceOf`). `null` when the
+ * place has no portal submission; `undefined` when the read failed.
+ */
+export async function portalRegistrationOfPlace(
+  attractionId: string
+): Promise<{ answers: PartnerAnswers; acceptedPlanChoice: PlanChoice | null } | null | undefined> {
+  const { data, error } = await partner()
+    .from('place_submissions')
+    .select('id, answers')
+    .eq('attraction_id', attractionId)
+    .order('submitted_at', { ascending: false })
+    .limit(1)
+  if (error) {
+    console.error('[portal-validation] place registration lookup failed', error.code)
+    return undefined
+  }
+  const submission = (data as { id: string; answers: PartnerAnswers | null }[] | null)?.[0]
+  if (!submission) return null
+  const acceptance = await acceptanceOf(submission.id)
+  return { answers: submission.answers ?? {}, acceptedPlanChoice: acceptance?.planChoice ?? null }
+}
+
 /** A portal submission of a client, as the client record and the contract guard read it. */
 export interface ClientPortalSubmission {
   id: string
