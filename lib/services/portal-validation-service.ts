@@ -45,6 +45,9 @@ function partner() {
   return getSupabaseService().schema('partner')
 }
 
+/** The `partner` schema client, injectable so the publish → `live` path is tested without a database. */
+type PartnerSchema = Pick<ReturnType<typeof partner>, 'from' | 'rpc'>
+
 // The closed lists and limits live in the pure module, so the screen reads them without pulling
 // this file (and the service client) into the browser bundle.
 export {
@@ -111,11 +114,12 @@ export function transitionErrorOf(code: string | undefined): { httpStatus: numbe
 
 async function transition(
   submissionId: string,
-  to: 'approved' | 'changes_requested' | 'rejected',
+  to: 'approved' | 'changes_requested' | 'rejected' | 'live',
   actorUserId: string,
-  note: string | null
+  note: string | null,
+  db: PartnerSchema = partner()
 ): Promise<PortalActOutcome> {
-  const { data, error } = await partner().rpc('transition_place_submission', {
+  const { data, error } = await db.rpc('transition_place_submission', {
     p_submission_id: submissionId,
     p_to: to,
     p_actor_kind: 'operator',
@@ -131,6 +135,47 @@ async function transition(
 
 export function requestPortalChanges(submissionId: string, actorUserId: string, note: string) {
   return transition(submissionId, 'changes_requested', actorUserId, note)
+}
+
+/**
+ * PUBLISHED → `live` AT THE ACT (#906, BR-B2B-049 item 8). Called by the publish route right after
+ * `placeService.setApproved(…, true)` succeeded, so the portal says "Publicado" the moment the
+ * operator publishes, not the next morning.
+ *
+ * "Published" is ONE criterion, `core.attractions.approved = true`, the column the act writes. The
+ * daily `places-payment-sweep` (`runTransitionEmails`, `_shared/places-transition-email.ts`) reads
+ * the same column and catches every other publish path, plus anything this call missed.
+ *
+ * Only a submission in `approved` moves: no submission, or one in another status, is nothing to do.
+ * Never throws and never undoes the publication — a failure is logged and the sweep repairs it.
+ * Returns the submissions that went live, so the caller sends their "no ar" e-mail (the sweep only
+ * mails what IT moves).
+ */
+export async function markPortalSubmissionLive(
+  attractionId: string,
+  actorUserId: string,
+  db: PartnerSchema = partner()
+): Promise<string[]> {
+  try {
+    const { data, error } = await db
+      .from('place_submissions')
+      .select('id')
+      .eq('attraction_id', attractionId)
+      .eq('status', 'approved')
+    if (error) {
+      console.error('[portal-validation] live lookup failed', attractionId, error.code)
+      return []
+    }
+    const live: string[] = []
+    for (const row of (data ?? []) as { id: string }[]) {
+      const outcome = await transition(row.id, 'live', actorUserId, null, db)
+      if (outcome.ok) live.push(row.id)
+    }
+    return live
+  } catch (error) {
+    console.error('[portal-validation] live transition threw', attractionId, error instanceof Error ? error.message : 'unknown')
+    return []
+  }
 }
 
 /** Refusing refunds (the database moves a paid subscription to `refund_pending`, BR-B2B-046). */

@@ -8,9 +8,11 @@
 //  · approval — `places-portal-notify`, called by the CMS route right after the operator's
 //    `in_review → approved` (`app/api/admin/partnerships/validation/[submissionId]/route.ts`). The
 //    transition happens once (TGP10 on a second one), so the e-mail does too.
-//  · no ar — the daily sweep: an `approved` submission whose POI was published
-//    (`core.attractions.approved`) goes `approved → live` (actor `system`) and THEN gets the e-mail.
-//    The state machine is the once-guard; the sweep catches every publish path, including the POI
+//  · no ar — at the act (#906): the CMS publish route moves the submission `approved → live`
+//    (actor `operator`) and then calls `places-portal-notify` with `live`. The daily sweep is the
+//    net: an `approved` submission whose POI was published (`core.attractions.approved`) goes
+//    `approved → live` (actor `system`) and THEN gets the e-mail. The state machine is the
+//    once-guard on both paths; the sweep catches every other publish path, including the POI
 //    screen, which writes from the browser.
 //  · kit reminder — the daily sweep, `KIT_REMINDER_AFTER_MS` after the approval, only while still
 //    `approved` (the "no ar" e-mail already reminds of the kit). Once-guard:
@@ -122,15 +124,18 @@ export function kitReminderEmail(): LinkMail {
     });
 }
 
-/** The body of `places-portal-notify`. Only `approved` exists. */
-export function parseNotify(body: unknown): { event: 'approved'; submissionId: string } | null {
+export type NotifyEvent = 'approved' | 'live';
+
+/** The body of `places-portal-notify`: `approved` (#813) or `live` (#906). */
+export function parseNotify(body: unknown): { event: NotifyEvent; submissionId: string } | null {
   if (!body || typeof body !== 'object' || Array.isArray(body)) return null;
   const b = body as Record<string, unknown>;
-  if (b.event !== 'approved' || typeof b.submission_id !== 'string' || !UUID.test(b.submission_id)) return null;
-  return { event: 'approved', submissionId: b.submission_id };
+  if (b.event !== 'approved' && b.event !== 'live') return null;
+  if (typeof b.submission_id !== 'string' || !UUID.test(b.submission_id)) return null;
+  return { event: b.event, submissionId: b.submission_id };
 }
 
-export type NotifyOutcome = 'sent' | 'not_found' | 'not_approved' | 'failed';
+export type NotifyOutcome = 'sent' | 'not_found' | 'not_approved' | 'not_live' | 'failed';
 
 /**
  * The approval e-mail. An ownerless submission (cookie flow, #863) gets the claim link — the only
@@ -159,6 +164,23 @@ async function send(d: TransitionDeps, to: string | null, build: LinkMail): Prom
   if (!to) return false;
   const mail = build(statusUrl(d.origin), d.origin);
   return d.sendEmail(to, mail.subject, mail.html, mail.text, ACCESS_FROM_NAME);
+}
+
+/**
+ * The "no ar" e-mail at the act (#906): the CMS publish route calls this right after its own
+ * `approved → live`. Only a submission in `live` gets it — the transition happens once, so the
+ * e-mail does too, the same guard as `notifyApproved`.
+ */
+export async function notifyLive(d: TransitionDeps, submissionId: string): Promise<NotifyOutcome> {
+  let t: NoticeTarget | null;
+  try {
+    t = await d.target(submissionId);
+  } catch {
+    return 'failed';
+  }
+  if (!t) return 'not_found';
+  if (t.status !== 'live') return 'not_live';
+  return (await send(d, t.email, liveEmail(t.plan))) ? 'sent' : 'failed';
 }
 
 /**
