@@ -2931,6 +2931,7 @@
         "link_failed": "O local foi criado, mas não ficou vinculado a este cliente. Abra a aba Locais e confira antes de repetir.",
         "details_failed": "O local foi criado, mas as comodidades e as ofertas não foram gravadas. Confira na ficha do local.",
         "coordinate_failed": "O local foi criado, mas o pino não foi gravado. Coloque o pino na ficha do local.",
+        "description_failed": "O local foi criado, mas a descrição não foi gravada. Confira na aba de descrição do local.",
         "no_promoted_proposal": "Este cliente não veio de uma proposta, então não há formulário de onde criar o local. Crie o local pela aba Locais.",
         "nothing_to_prefill": "A proposta não trouxe dados suficientes para criar o local. Crie o local pela aba Locais.",
         "already_provisioned": "Este cliente já tem local vinculado. Ele está na aba Locais.",

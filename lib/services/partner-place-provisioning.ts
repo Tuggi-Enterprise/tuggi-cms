@@ -25,8 +25,10 @@
  * THE FOUR THINGS THIS IS NOT, each one a rule and each one visible in the code below:
  *  · it does not APPROVE the place — `core.cms_create_place` inserts `approved = false`, and
  *    BR-B2B-011 keeps the three triage gates as a human decision;
- *  · it does not start the BILLING — BR-B2B-018, item 1: the fee starts on the publication of
- *    the POI with the description on air, and nothing here writes a description;
+ *  · it does not start the BILLING — BR-B2B-018, item 1: the fee starts on the PUBLICATION of
+ *    the POI with the description on air. Since #888 the place is born WITH its tier's description
+ *    (`applyPartnerPlaceDescription`: the name on the free tier, `story_script` on the paid one),
+ *    but it is born unapproved, so nothing is on air until a person publishes it;
  *  · it does not give PROMINENCE — BR-B2B-010, item 6. See `PLACE_PREFILL_NEVER_WRITES`;
  *  · it does not make the client's place UNIQUE — BR-B2B-033, item 3, is 1 client : N places.
  *    The guard below stops THIS act from running twice, not the operator from registering the
@@ -46,6 +48,10 @@ import type { SupabaseClient } from '@supabase/supabase-js'
 import { placeService } from '@/lib/core/place-service'
 import { buildPlacePrefill, type PlacePrefill } from '@/lib/partner-form/place-prefill'
 import { findPromotedSubmission } from '@/lib/services/partner-proposal-admin-service'
+import {
+  applyPartnerPlaceDescription,
+  type PartnerDescriptionInput,
+} from '@/lib/services/place-description-policy-service'
 
 /**
  * What the act did about the place, as data. The route reports it and never throws on it: the
@@ -62,7 +68,13 @@ export type PartnerPlaceOutcome =
       status: 'failed'
       // `details_failed` / `coordinate_failed` only from the portal's keys (`createPlaceFromPrefill`);
       // the old form's prefill has no details and no coordinate, so its route never sees them.
-      reason: 'lookup_failed' | 'create_failed' | 'link_failed' | 'details_failed' | 'coordinate_failed'
+      reason:
+        | 'lookup_failed'
+        | 'create_failed'
+        | 'link_failed'
+        | 'details_failed'
+        | 'coordinate_failed'
+        | 'description_failed'
       attractionId: string | null
     }
 
@@ -126,7 +138,12 @@ export async function provisionPartnerPlace(
   }
   if (linked) return { status: 'skipped', reason: 'already_provisioned' }
 
-  return createPlaceFromPrefill(prefill, clientId, operator)
+  // The old form's `plan_choice` is a REQUEST, not a payment, so no `acceptedPlanChoice`: the tier
+  // is whatever the client record says (`derivePartnerPlan`).
+  return createPlaceFromPrefill(prefill, clientId, operator, {
+    story: submission.answers?.story_script ?? null,
+    acceptedPlanChoice: null,
+  })
 }
 
 /**
@@ -140,11 +157,32 @@ export async function provisionPartnerPlace(
 export async function createPlaceFromPrefill(
   prefill: PlacePrefill,
   clientId: string,
-  operator: SupabaseClient
+  operator: SupabaseClient,
+  description: PartnerDescriptionInput
 ): Promise<PrefillWriteOutcome> {
   const created = await createPrefilledPlace(prefill, operator)
   if (created.status === 'failed') return created
-  return applyPlacePrefill(created.attractionId, prefill, clientId, operator)
+  const applied = await applyPlacePrefill(created.attractionId, prefill, clientId, operator)
+  if (applied.status === 'failed') return applied
+  return applyPrefillDescription(created.attractionId, description, operator)
+}
+
+/**
+ * The tier's description (#888), after the place is linked — the policy reads the client through
+ * `partner_client_id`. Repeatable: it never writes over a description, so a retry converges.
+ */
+export async function applyPrefillDescription(
+  attractionId: string,
+  description: PartnerDescriptionInput,
+  operator: SupabaseClient
+): Promise<PrefillWriteOutcome> {
+  try {
+    await applyPartnerPlaceDescription(attractionId, description, operator)
+  } catch (error) {
+    console.error('[partner-approval] place description not written', attractionId, error)
+    return { status: 'failed', reason: 'description_failed', attractionId }
+  }
+  return { status: 'created', attractionId }
 }
 
 type PrefillWriteOutcome =

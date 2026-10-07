@@ -27,6 +27,7 @@
 
 import type { PartnerPlan } from '@/lib/clients/partner-plan'
 import { paymentStance } from '@/lib/clients/partner-plan'
+import type { PlanChoice } from '@/lib/partner-form/fields'
 import type { PartnerAnswers } from '@/lib/partner-form/schema'
 
 /**
@@ -68,6 +69,18 @@ export interface DescriptionPolicyFacts {
    */
   plan: PartnerPlan | null
   exception: DescriptionException | null
+  /**
+   * The tier a Portal Locais client ACCEPTED AND PAID (`partner.place_acceptances.plan_choice`).
+   * Absent everywhere else, and absent means "the portal has nothing to say".
+   *
+   * It exists because the portal's money does not live where `plan` reads it: the portal never
+   * writes `partner.clients.monthly_fee_cents` and has no `partner_contracts` row (the acceptance IS
+   * the instrument, BR-B2B-047, item 1), so `derivePartnerPlan` answers `undeclared` about a client
+   * that already paid. On the portal the first monthly payment is confirmed BEFORE validation starts
+   * (BR-B2B-046, item 1; BR-B2B-049), so a submission that reached the operator on
+   * `map_and_description` is paying — not requesting. #888.
+   */
+  acceptedPlanChoice?: PlanChoice | null
 }
 
 export interface DescriptionPolicyDecision {
@@ -111,7 +124,9 @@ export function describeDescriptionPolicy(
   // values answer a finer question than this one, and re-writing `kind === 'paid'` here is how the
   // two readings would start to disagree. `undeclared` and `requested` land in `not_paying`, which
   // is TRUE about the money: neither is billing anything today.
-  const paying = facts.plan ? paymentStance(facts.plan.kind) === 'paying' : false
+  const paying =
+    (facts.plan ? paymentStance(facts.plan.kind) === 'paying' : false) ||
+    facts.acceptedPlanChoice === 'map_and_description'
 
   if (paying) {
     return {
