@@ -142,13 +142,46 @@ export function outerRing(points: LatLng[], pin: LatLng): LatLng[] {
   return footprintRing(rings, pin) ?? points;
 }
 
-/** Of closed rings, the footprint: the largest holding the pin; without one, the largest. */
-export function footprintRing(rings: LatLng[][], pin: LatLng): LatLng[] | undefined {
+/** Of closed rings, the footprint: the largest holding the pin; without one (or no pin), the largest. */
+export function footprintRing(rings: LatLng[][], pin: LatLng | undefined): LatLng[] | undefined {
   const byArea = rings.map(r => ({ r, a: calculatePolygonAreaInM2(r) })).sort((x, y) => y.a - x.a);
-  return (byArea.find(x => isPointInPolygon(pin, x.r)) ?? byArea[0])?.r;
+  return ((pin && byArea.find(x => isPointInPolygon(pin, x.r))) || byArea[0])?.r;
+}
+
+/**
+ * Outer rings of a stored GeoJSON border, one per polygon part (BR-POI-009). The pipeline stores
+ * MultiPolygons of N parts (Gargalo do Tejo: 128) and GeometryCollections of polygon + stray
+ * line (Castelo dos Mouros); reading only part 0 put Rio Douro's TPs on a 5 ha piece 7.5 km from
+ * the pin. Holes (inner rings) are not parts; lines and points in a collection are dropped.
+ */
+export function polygonOuterRings(geometry: any): LatLng[][] {
+  const ring = (coords: unknown): LatLng[] =>
+    Array.isArray(coords) ? coords.map((c: [number, number]) => ({ lng: c[0], lat: c[1] })) : [];
+  switch (geometry?.type) {
+    case 'Polygon':
+      return [ring(geometry.coordinates?.[0])].filter(r => r.length >= 3);
+    case 'MultiPolygon':
+      return (geometry.coordinates ?? []).map((p: unknown[]) => ring(p?.[0])).filter((r: LatLng[]) => r.length >= 3);
+    case 'GeometryCollection':
+      return (geometry.geometries ?? []).flatMap(polygonOuterRings);
+    default:
+      return [];
+  }
 }
 
 const samePoint = (a: LatLng, b: LatLng): boolean => a.lat === b.lat && a.lng === b.lng;
+
+/**
+ * The GeoJSON the pipeline saves for a border, the inverse of `polygonOuterRings`: a Polygon of
+ * the border ring, or — for a municipal border (BR-POI-010) — a MultiPolygon of every part, so
+ * islands and exclaves survive the save. Rings are closed.
+ */
+export function boundaryGeoJson(boundary: { coordinates: LatLng[]; adminParts?: LatLng[][] }): { type: 'Polygon' | 'MultiPolygon'; coordinates: unknown } {
+  const closed = (r: LatLng[]) => (samePoint(r[0], r[r.length - 1]) ? r : [...r, r[0]]).map(c => [c.lng, c.lat]);
+  return boundary.adminParts?.length
+    ? { type: 'MultiPolygon', coordinates: boundary.adminParts.map(p => [closed(p)]) }
+    : { type: 'Polygon', coordinates: [closed(boundary.coordinates)] };
+}
 
 /**
  * Overpass returns a relation as members, each outer way with its own geometry, and a border is

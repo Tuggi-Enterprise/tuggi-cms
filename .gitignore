@@ -124,3 +124,10 @@ design/*.html
 # A mesma regra nas subpastas, que a de cima nao alcanca.
 design/**/*.html
 !design/**/*.dc.html
+
+# Local OSM regions (one SQLite per country, #833) and their Geofabrik boundaries
+data/osm/
+omsData/*.poly
+omsData/*.md5
+# Local analysis output (dry-runs, snapshots, ad-hoc scripts)
+output/

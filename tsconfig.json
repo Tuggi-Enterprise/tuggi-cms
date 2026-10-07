@@ -53,6 +53,8 @@
     ".next",
     "scripts/**/*",
     "plugins/**/*",
+    // Scratch scripts, gitignored: never part of the build, must not gate the type-check.
+    "output/**/*",
     // #162: tests/rls-security.test.ts nunca rodou (nem o `check-all` nem o
     // pre-commit chegavam a executar) e tem 41 erros de tipo pré-existentes
     // — falta @types/jest/@types/mocha e um shape de sessão que não bate

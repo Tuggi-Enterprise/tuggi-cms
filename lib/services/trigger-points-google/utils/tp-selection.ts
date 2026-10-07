@@ -5,9 +5,10 @@
  * frontal TPs included. Numbers live in config/visibility-class.ts.
  */
 import { StreetData, TriggerPoint } from '../types/interfaces';
-import { calculateBearing, calculateDistance, calculateDistanceToPolygon, closestPointOnSegment, spheroidDistanceM, spheroidDistanceToPolygonM } from './calculations';
+import { calculateBearing, calculateDistance, calculateDistanceToPolygon, closestPointOnSegment, isPointInPolygon, spheroidDistanceM, spheroidDistanceToPolygonM } from './calculations';
 import { EDGE_BAND_M, LANDMARK_CELL_RINGS_M, PERIMETER_SECTOR_M, SANITY_MAX_TP_DISTANCE_M, VisibilityClass, isCarStreet, landmarkSectorOf, landmarkStreetTier, observerPath, proximityBand, proximityRankScore, sizeReachFarFromM } from '../config/visibility-class';
 import { partitionByPoiReach, poiEdgeRing, tpReachCapM } from './validation';
+import { ADMIN_BORDER_SEA_MAX_EDGE_M, ADMIN_BORDER_SEA_METHOD, isAdminBorder } from './admin-border-tps';
 
 type SelectionClassification = {
   group?: VisibilityClass;
@@ -363,6 +364,8 @@ function withinDatabaseCap(tp: TriggerPoint, poiPin: LatLng, boundary?: { coordi
 
 type PostConditionBoundary = NonNullable<Parameters<typeof dropInsidePoi>[1]> & {
   classification?: { group?: VisibilityClass; maxEdgeDistanceM?: number };
+  source?: string;
+  adminParts?: LatLng[][];
 };
 
 /**
@@ -377,6 +380,18 @@ export function applyTpPostConditions<T extends TriggerPoint>(
   poiPin: LatLng,
   boundary?: PostConditionBoundary | null
 ): { kept: T[]; dropped: Array<{ tp: T; reason: TpDropReason }>; reachCapM: number } {
+  // BR-POI-009, municipal exception (2026-10-07): the TP stands INSIDE the administrative border
+  // by design (`admin-border-tps`). No class reach; inside a stored part, the database cap
+  // measures 0 m (the border is curated, so the save leaves every part in place). The one TP allowed
+  // outside is the ferry's sea TP (BR-POI-010), within `ADMIN_BORDER_SEA_MAX_EDGE_M` — far under the
+  // database cap (`SANITY_MAX_TP_DISTANCE_M`, measured to the same stored parts).
+  if (isAdminBorder(boundary)) {
+    const parts = boundary?.adminParts?.length ? boundary.adminParts : boundary?.coordinates ? [boundary.coordinates] : [];
+    const kept = tps.filter(tp => parts.some(r => isPointInPolygon(tp.location, r))
+      || (tp.generationMethod === ADMIN_BORDER_SEA_METHOD
+        && parts.some(r => calculateDistanceToPolygon(tp.location, r) <= ADMIN_BORDER_SEA_MAX_EDGE_M)));
+    return { kept, dropped: tps.filter(tp => !kept.includes(tp)).map(tp => ({ tp, reason: 'beyond_reach' as const })), reachCapM: 0 };
+  }
   const reachCapM = tpReachCapM(boundary?.classification);
   const ring = poiEdgeRing(boundary);
   // The rescue TP (INV-E11b) answers to the sanity cap, not to the class reach: it exists

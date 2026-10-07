@@ -5,6 +5,7 @@ import { TRIGGER_POINTS_CONSTANTS } from '../config/trigger-points-config';
 import { isPublicWay } from '../config/visibility-class';
 import { isPointInPolygon } from '../utils/calculations';
 import { listOsmRegions, localOsmDir, regionAt, OsmRegion } from '../../local-osm-regions';
+import { findMunicipality, type Municipality, type PoiOsmElement } from '../../admin-boundaries';
 
 /**
  * 🌍 LOCAL OSM FETCHER — Singleton
@@ -494,7 +495,9 @@ export class LocalOSMFetcher {
    */
   public fetchStreetsAlongBoundary(
     boundaryCoords: Array<{ lat: number; lng: number }>,
-    radiusPerPointM: number = 200
+    radiusPerPointM: number = 200,
+    /** Only these `streets.type` values (municipal border mode: main roads, `admin-border-tps`). */
+    types?: readonly string[]
   ): StreetData[] | null {
     if (!boundaryCoords || boundaryCoords.length === 0) return null;
     const db = this.select(boundaryCoords[0]);
@@ -509,7 +512,7 @@ export class LocalOSMFetcher {
 
       for (const sp of samples) {
         const bbox = this.calculateBBox(sp, radiusPerPointM);
-        const rows = this.queryStreets(bbox);
+        const rows = this.queryStreets(bbox, types ? [...types] : undefined);
         for (const row of rows) {
           const id = String(row.id);
           if (seen.has(id)) continue;
@@ -808,6 +811,22 @@ export class LocalOSMFetcher {
       return out;
     } catch (error) {
       console.error(`❌ [LocalOSMFetcher] Error fetching areas containing the pin:`, error);
+      return null;
+    }
+  }
+
+  /**
+   * BR-POI-010: the municipality whose seat is the POI's OSM element (`admin-boundaries#findMunicipality`),
+   * from the region covering the pin. null outside every region, and for a region whose import found no
+   * country (or predates BR-POI-010).
+   */
+  public municipalityAt(pin: { lat: number; lng: number } | undefined, element: PoiOsmElement): Municipality | null {
+    const region = pin ? regionAt(this.regions, pin.lat, pin.lng) : null;
+    if (!pin || !region || !this.use(region)) return null;
+    try {
+      return findMunicipality(this.db!, pin, element);
+    } catch (error) {
+      console.error(`❌ [LocalOSMFetcher] Error reading municipal borders:`, error);
       return null;
     }
   }

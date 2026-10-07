@@ -79,7 +79,7 @@ describe('local OSM region by coordinate (#833, L1)', () => {
   })
 
   it('a region name is a file name: lowercase, digits and "-" only', () => {
-    assert.equal(regionDbPath('br', '/x'), '/x/br.db')
+    assert.equal(regionDbPath('br', '/x'), path.join('/x', 'br.db'))
     assert.throws(() => regionDbPath('../br', '/x'), /Invalid OSM region name/)
   })
 

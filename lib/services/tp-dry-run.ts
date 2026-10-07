@@ -95,9 +95,22 @@ export function measureTriggerPoints(args: {
 }
 
 /** IDs de atração cujo pino cai no bbox [minLng, minLat, maxLng, maxLat]. */
-export async function listAttractionIdsInBbox(bbox: [number, number, number, number]): Promise<string[]> {
+export async function listAttractionIdsInBbox(bbox: [number, number, number, number], limit?: number): Promise<string[]> {
   const [minLng, minLat, maxLng, maxLat] = bbox
   const supabase = getSupabase('service')
+  if (limit) {
+    // ~2.7M coordinates: ordering a country-sized bbox times out (8 s, Portugal 2026-10-05);
+    // a sample of N needs no order, and the same query returns in ~0.3 s.
+    const { data, error } = await supabase
+      .schema('core')
+      .from('attraction_coordinate')
+      .select('attraction_id')
+      .gte('latitude', minLat).lte('latitude', maxLat)
+      .gte('longitude', minLng).lte('longitude', maxLng)
+      .limit(limit)
+    if (error) throw new Error(`bbox query failed: ${error.message}`)
+    return (data ?? []).map((r: { attraction_id: string }) => r.attraction_id)
+  }
   const PAGE = 1000
   const ids: string[] = []
   for (let page = 0; ; page++) {

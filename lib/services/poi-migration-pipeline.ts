@@ -9,6 +9,9 @@ import ProcessingService from '@/lib/core/processing-service'
 import { getSupabase } from '@/lib/core/supabase-client'
 import { HomologEnrichmentService } from './poi-processing/homolog-enrichment.service'
 import { stampGenerationMethod } from './dem/dem-sources'
+import { boundaryGeoJson } from './trigger-points-google/utils/boundary-choice'
+import { isAdminBorder } from './trigger-points-google/utils/admin-border-tps'
+import { clearStoredBoundary } from './stored-boundary'
 
 const supabase = getSupabase('service')
 
@@ -105,6 +108,10 @@ export class PoiMigrationPipeline {
       stored_boundary_reference = false
     } = options
 
+    // Set once this run owns the homolog row / a core row it may have to undo.
+    let claimedHomologRow = false
+    let rollbackTarget: string | undefined
+
     try {
       // SPECIAL MODE: Reprocess Triggers (Core Only)
       if (mode === 'reprocess_triggers_core') {
@@ -148,10 +155,10 @@ export class PoiMigrationPipeline {
       const shouldProcess = await MigrationService.shouldProcessPOI(uuid_id)
       if (!shouldProcess.should_process) {
         console.log(`⏭️  Skipping POI ${uuid_id}: ${shouldProcess.reason}`)
-        
+
         // If it's already in core, we consider this a successful "already done" state
         const isDuplicateInRange = shouldProcess.reason?.includes('already exists')
-        
+
         return {
           success: true,
           skipped: true,
@@ -174,16 +181,44 @@ export class PoiMigrationPipeline {
           warnings: [`Skipped: ${claim.reason}`]
         }
       }
+      claimedHomologRow = true
 
-      // Step 0: Enrichment (Homolog) - NEW STEP
+      // Homolog → core ordering, owned here and nowhere else: copy to core, run the remaining
+      // steps, and only then delete the homolog row (operator decision, 2026-10-06). Any failure
+      // rolls core back and leaves the homolog row as `failed`, with the error, ready to retry.
+      const succeed = async (attraction_id: string): Promise<PipelineResult> => {
+        const deleteStep = await this.completeHomologMigration(uuid_id)
+        steps.push(deleteStep)
+        if (!deleteStep.success) {
+          warnings.push(`Failed to delete from homolog: ${deleteStep.error}`)
+        }
+        return {
+          success: true,
+          attraction_id,
+          steps,
+          total_time: Date.now() - startTime,
+          warnings: warnings.length > 0 ? warnings : undefined
+        }
+      }
+      const fail = async (error: string, attraction_id?: string): Promise<PipelineResult> => {
+        await this.failHomologMigration(uuid_id, attraction_id, error)
+        return {
+          success: false,
+          attraction_id,
+          steps,
+          total_time: Date.now() - startTime,
+          error,
+          warnings: warnings.length > 0 ? warnings : undefined
+        }
+      }
+
+      // Step 0: Enrichment (Homolog)
       console.log(`🌍 Step 0: Enriching Homolog POI ${uuid_id}...`)
       const enrichmentStep = await this.executeEnrichmentStep(uuid_id)
       steps.push(enrichmentStep)
 
       if (!enrichmentStep.success) {
-        // We log error but maybe we can continue if it's just enrichment failure?
-        // User said: "Fez o enriquecimento e salvou, vai pegar o mesmo poi, vai migrar..."
-        // Use logic implies strict dependency.
+        // Enrichment is best-effort: the migration still runs with the homolog data as it is.
         console.warn(`⚠️ Enrichment failed for ${uuid_id}: ${enrichmentStep.error}. Continuing with migration anyway...`)
       } else {
         console.log(`✅ Enrichment successful/completed for ${uuid_id}`)
@@ -195,44 +230,41 @@ export class PoiMigrationPipeline {
       steps.push(migrationStep)
 
       if (!migrationStep.success) {
+        // migratePOI already undid its own partial core writes; nothing of ours to roll back.
         console.error(`❌ Migration failed for ${uuid_id}: ${migrationStep.error}`)
-        // Mark as failed
-        await MigrationService.updateProcessingStatus(uuid_id, 'failed', migrationStep.error)
-        return {
-          success: false,
-          steps,
-          total_time: Date.now() - startTime,
-          error: migrationStep.error || 'Migration failed'
-        }
+        return fail(migrationStep.error || 'Migration failed')
       }
       console.log(`✅ Migration successful for ${uuid_id}, attraction_id: ${migrationStep.data?.attraction_id}`)
 
       const attraction_id = migrationStep.data?.attraction_id
       if (!attraction_id) {
-        return {
-          success: false,
-          steps,
-          total_time: Date.now() - startTime,
-          error: 'Migration succeeded but no attraction_id returned'
-        }
+        return fail('Migration succeeded but no attraction_id returned')
       }
 
-      // If mode is migration_only, stop here
-      if (mode === 'migration_only') {
+      // Self-healed duplicate: the POI already lived in core and migratePOI removed the homolog
+      // row. Nothing of ours to run on, and nothing of ours to roll back.
+      if (migrationStep.data?.self_healed) {
         return {
           success: true,
           attraction_id,
           steps,
-          total_time: Date.now() - startTime
+          total_time: Date.now() - startTime,
+          warnings: migrationStep.data.warnings
         }
+      }
+      rollbackTarget = attraction_id
+
+      // If mode is migration_only, stop here
+      if (mode === 'migration_only') {
+        return succeed(attraction_id)
       }
 
       // NOTE: Description and Audio steps are effectively DISABLED for the standard flow now,
       // but we keep the code reachable if explicitly requested via mode settings or future flags.
       // The user stated: "We will not generate description and neither generate audio anymore."
-      
+
       const shouldGenerateDescription = mode === 'migration_description' || mode === 'migration_description_audio'
-      
+
       if (shouldGenerateDescription) {
           // Step 2: Generate Description
           console.log(`📝 Step 2: Generating description for ${attraction_id}...`)
@@ -242,49 +274,29 @@ export class PoiMigrationPipeline {
           // If description fails, rollback and stop pipeline (critical step)
           if (!descriptionStep.success) {
             console.error(`❌ Description generation failed for ${attraction_id}: ${descriptionStep.error}`)
-            // Rollback: remove POI from core
-            await MigrationService.rollbackMigration(attraction_id)
-            // Mark as failed
-            await MigrationService.updateProcessingStatus(uuid_id, 'failed', descriptionStep.error)
-            return {
-              success: false,
-              attraction_id,
-              steps,
-              total_time: Date.now() - startTime,
-              error: `Description generation failed: ${descriptionStep.error}`,
-              warnings
-            }
+            return fail(`Description generation failed: ${descriptionStep.error}`, attraction_id)
           }
           console.log(`✅ Description generated successfully for ${attraction_id}`)
       } else {
           console.log(`⏭️  Skipping Description Step (Disabled by default)`)
       }
-      console.log(`✅ Description generated successfully for ${attraction_id}`)
 
       // If mode is migration_description, stop here
       if (mode === 'migration_description') {
-        return {
-          success: true,
-          attraction_id,
-          steps,
-          total_time: Date.now() - startTime,
-          warnings: warnings.length > 0 ? warnings : undefined
-        }
+        return succeed(attraction_id)
       }
 
       // Step 3: Audio (Skipped if description was skipped or auto_generate_audio is false)
       if (shouldGenerateDescription && auto_generate_audio) {
-          if (auto_generate_audio) {
-            console.log(`⏳ Waiting 1s for pt-br audio to be persisted...`)
-            await new Promise(resolve => setTimeout(resolve, 1000))
-          }
-          
+          console.log(`⏳ Waiting 1s for pt-br audio to be persisted...`)
+          await new Promise(resolve => setTimeout(resolve, 1000))
+
           // Check if audio was generated (pt-br)
           const audioStep = await this.checkAudioStep(attraction_id)
           steps.push(audioStep)
 
           // Step 3b: Generate audio for every language the operator selected (BR-IDIOMA-001)
-          if (audioStep.success && auto_generate_audio) {
+          if (audioStep.success) {
             console.log(`⏳ Waiting 500ms before generating multi-language audios...`)
             await new Promise(resolve => setTimeout(resolve, 500))
 
@@ -298,17 +310,9 @@ export class PoiMigrationPipeline {
            console.log(`⏭️  Skipping Audio Steps (Disabled by default)`)
       }
 
-      // If mode is migration_description_audio, stop here
+      // If mode is migration_description_audio, stop here (migrated, not approved yet)
       if (mode === 'migration_description_audio') {
-        // Mark as migrated (but not approved yet)
-        await MigrationService.updateProcessingStatus(uuid_id, 'migrated')
-        return {
-          success: true,
-          attraction_id,
-          steps,
-          total_time: Date.now() - startTime,
-          warnings: warnings.length > 0 ? warnings : undefined
-        }
+        return succeed(attraction_id)
       }
 
       // Step 4: Generate Trigger Points
@@ -319,51 +323,21 @@ export class PoiMigrationPipeline {
       // If trigger points fail, rollback and stop (critical for approval)
       if (!triggerPointsStep.success) {
         console.error(`❌ Trigger points generation failed for ${attraction_id}: ${triggerPointsStep.error}`)
-        // Rollback: remove POI from core
-        await MigrationService.rollbackMigration(attraction_id)
-        // Mark as failed
-        await MigrationService.updateProcessingStatus(uuid_id, 'failed', triggerPointsStep.error)
-        return {
-          success: false,
-          attraction_id,
-          steps,
-          total_time: Date.now() - startTime,
-          error: `Trigger points generation failed: ${triggerPointsStep.error}`,
-          warnings
-        }
+        return fail(`Trigger points generation failed: ${triggerPointsStep.error}`, attraction_id)
       }
       console.log(`✅ Trigger points generated successfully for ${attraction_id}`)
 
-      // NEW SIMPLIFIED FLOW: For enrichment_migration_triggers mode,
-      // auto-approve and delete from homolog immediately after trigger points succeed
+      // SIMPLIFIED FLOW (enrichment_migration_triggers): auto-approve right after trigger points
       if (mode === 'enrichment_migration_triggers') {
         console.log(`🚀 Simplified approval flow (enrichment_migration_triggers mode)...`)
-        
-        const simplifiedApprovalStep = await this.executeSimplifiedApprovalStep(attraction_id, uuid_id)
+
+        const simplifiedApprovalStep = await this.executeSimplifiedApprovalStep(attraction_id)
         steps.push(simplifiedApprovalStep)
-        
+
         if (!simplifiedApprovalStep.success) {
-          // Rollback: remove POI from core
-          await MigrationService.rollbackMigration(attraction_id)
-          // Mark as failed
-          await MigrationService.updateProcessingStatus(uuid_id, 'failed', simplifiedApprovalStep.error)
-          return {
-            success: false,
-            attraction_id,
-            steps,
-            total_time: Date.now() - startTime,
-            error: `Simplified approval failed: ${simplifiedApprovalStep.error}`,
-            warnings
-          }
+          return fail(`Simplified approval failed: ${simplifiedApprovalStep.error}`, attraction_id)
         }
-        
-        return {
-          success: true,
-          attraction_id,
-          steps,
-          total_time: Date.now() - startTime,
-          warnings: warnings.length > 0 ? warnings : undefined
-        }
+        return succeed(attraction_id)
       }
 
       // Step 5: Auto-approve if criteria met (FULL mode with description/audio)
@@ -372,53 +346,23 @@ export class PoiMigrationPipeline {
         steps.push(approvalStep)
 
         if (!approvalStep.success) {
-          // Rollback: remove POI from core
-          await MigrationService.rollbackMigration(attraction_id)
-          // Mark as failed
-          await MigrationService.updateProcessingStatus(uuid_id, 'failed', approvalStep.error)
-          return {
-            success: false,
-            attraction_id,
-            steps,
-            total_time: Date.now() - startTime,
-            error: `Approval failed: ${approvalStep.error}`,
-            warnings
-          }
+          return fail(`Approval failed: ${approvalStep.error}`, attraction_id)
         }
 
         // Step 6: Remove duplicate POIs by coordinates (only if approved)
-        if (approvalStep.success && approvalStep.data?.approved) {
+        if (approvalStep.data?.approved) {
           const cleanupStep = await this.executeRemoveDuplicatesStep(attraction_id)
           steps.push(cleanupStep)
-          
+
           if (!cleanupStep.success) {
             warnings.push(`Failed to remove duplicate POIs: ${cleanupStep.error}`)
             // Don't fail the whole migration if cleanup fails
           }
         }
-
-        // Step 7: Remove from homolog (only if approved)
-        if (approvalStep.success && approvalStep.data?.approved) {
-          const deleteStep = await this.executeDeleteFromHomologStep(uuid_id)
-          steps.push(deleteStep)
-          
-          if (!deleteStep.success) {
-            warnings.push(`Failed to delete from homolog: ${deleteStep.error}`)
-            // Don't fail the whole migration if delete fails - POI is already in core and approved
-          }
-        }
-      } else {
-        // Even if not auto-approved, mark as migrated (manual approval later)
-        await MigrationService.updateProcessingStatus(uuid_id, 'migrated')
       }
 
-      return {
-        success: true,
-        attraction_id,
-        steps,
-        total_time: Date.now() - startTime,
-        warnings: warnings.length > 0 ? warnings : undefined
-      }
+      // Not auto-approved: the POI is in core awaiting manual approval, and the pipeline is done.
+      return succeed(attraction_id)
     } catch (error) {
       console.error('❌ Pipeline exception for POI:', uuid_id)
       console.error('   Error:', error)
@@ -426,12 +370,61 @@ export class PoiMigrationPipeline {
         console.error('   Stack:', error.stack)
       }
       console.error('   Steps completed before error:', steps.length)
+      const message = error instanceof Error ? error.message : 'Unknown error during pipeline execution'
+      if (claimedHomologRow) {
+        await this.failHomologMigration(uuid_id, rollbackTarget, message)
+      }
       return {
         success: false,
+        attraction_id: rollbackTarget,
         steps,
         total_time: Date.now() - startTime,
-        error: error instanceof Error ? error.message : 'Unknown error during pipeline execution'
+        error: message
       }
+    }
+  }
+
+  /**
+   * Failure of a claimed homolog POI: undo the core copy (cascades to coordinate, descriptions,
+   * trigger points) and keep the homolog row as `failed` with the error. Never deletes homolog.
+   */
+  private static async failHomologMigration(
+    uuid_id: string,
+    attraction_id: string | undefined,
+    error: string
+  ): Promise<void> {
+    let message = error
+    if (attraction_id) {
+      const rollback = await MigrationService.rollbackMigration(attraction_id)
+      if (!rollback.success) {
+        message = `${error} | core rollback failed: ${rollback.error}`
+      }
+    }
+    await MigrationService.updateProcessingStatus(uuid_id, 'failed', message)
+  }
+
+  /**
+   * Last step of a successful pipeline: the POI now lives in core, so the homolog row goes.
+   * If the delete fails the row is marked `migrated`, so no worker picks it up again.
+   */
+  private static async completeHomologMigration(uuid_id: string): Promise<PipelineStepResult> {
+    const stepStart = Date.now()
+    console.log(`🗑️  Removing POI ${uuid_id} from homolog (pipeline finished)...`)
+    const result = await MigrationService.safeDeleteFromHomolog(uuid_id)
+    if (!result.success) {
+      await MigrationService.updateProcessingStatus(uuid_id, 'migrated', result.error)
+      return {
+        step: 'delete_from_homolog',
+        success: false,
+        error: result.error,
+        processing_time: Date.now() - stepStart
+      }
+    }
+    return {
+      step: 'delete_from_homolog',
+      success: true,
+      data: { deleted: true },
+      processing_time: Date.now() - stepStart
     }
   }
 
@@ -526,7 +519,9 @@ export class PoiMigrationPipeline {
         step: 'migration',
         success: result.success,
         error: result.error,
-        data: result.attraction_id ? { attraction_id: result.attraction_id } : undefined,
+        data: result.attraction_id
+          ? { attraction_id: result.attraction_id, self_healed: result.self_healed, warnings: result.warnings }
+          : undefined,
         processing_time: Date.now() - stepStart
       }
     } catch (error) {
@@ -852,22 +847,8 @@ export class PoiMigrationPipeline {
         console.log(`   💾 Saving boundary geometry from source: ${predictionResult.boundary.source}...`)
         
         try {
-          const coords = predictionResult.boundary.coordinates
-          // Ensure polygon is closed for GeoJSON
-          const closedCoords = [...coords];
-          if (
-            closedCoords[0].lat !== closedCoords[closedCoords.length - 1].lat ||
-            closedCoords[0].lng !== closedCoords[closedCoords.length - 1].lng
-          ) {
-            closedCoords.push({ ...closedCoords[0] });
-          }
-          
-          const geoJsonCoords = closedCoords.map(c => [c.lng, c.lat]);
-          const geoJson = {
-            type: 'Polygon',
-            coordinates: [geoJsonCoords]
-          };
-          const geoJsonString = JSON.stringify(geoJson);
+          // BR-POI-010: a municipal border is saved with every part (islands, exclaves), not only the pin's.
+          const geoJsonString = JSON.stringify(boundaryGeoJson(predictionResult.boundary));
           
           const { error: boundaryError } = await supabase.schema('core').rpc('update_boundary_geometry', {
             p_attraction_id: attraction_id,
@@ -919,6 +900,23 @@ export class PoiMigrationPipeline {
 
       console.log(`   ✅ Saved ${savedCount} trigger points to database`)
 
+      // BR-POI-010 (operator, 2026-10-06): a municipal border stays in the database only while its
+      // TPs are inserted — the cap trigger measures them to it, and a large concelho has TPs past
+      // 15 km from the pin. Left stored, the app plays the city audio to whoever is inside the
+      // border. The next run re-detects it from the seat (`BoundaryDetector#municipalityBoundary`).
+      // A failed clear is logged and traced; the TPs stay.
+      let boundaryClear: { boundary_cleared?: boolean; boundary_clear_error?: string } = {}
+      if (isAdminBorder(predictionResult.boundary)) {
+        try {
+          const { error } = await clearStoredBoundary(supabase, attraction_id)
+          boundaryClear = error ? { boundary_cleared: false, boundary_clear_error: error } : { boundary_cleared: true }
+        } catch (e) {
+          boundaryClear = { boundary_cleared: false, boundary_clear_error: e instanceof Error ? e.message : String(e) }
+        }
+        if (boundaryClear.boundary_cleared) console.log(`   🧹 Municipal border cleared after the TPs (BR-POI-010)`)
+        else console.warn(`   ⚠️ Failed to clear the municipal border (BR-POI-010): ${boundaryClear.boundary_clear_error}`)
+      }
+
       // Calculate max confidence from saved trigger points
       const maxConfidence = predictionResult.triggerPoints.length > 0
         ? Math.max(...predictionResult.triggerPoints.map(tp => tp.confidence || 0))
@@ -932,7 +930,8 @@ export class PoiMigrationPipeline {
           trigger_points_saved: savedCount,
           trigger_points_skipped: saveResult.skipped || 0,
           confidence_score: maxConfidence,
-          boundary_source: predictionResult.boundary?.source || 'unknown'
+          boundary_source: predictionResult.boundary?.source || 'unknown',
+          ...boundaryClear
         },
         processing_time: Date.now() - stepStart
       }
@@ -1080,11 +1079,10 @@ export class PoiMigrationPipeline {
   /**
    * Simplified Approval Step for enrichment_migration_triggers mode
    * Only requires: Migration successful + Trigger Points (≥1 with confidence > 0.4)
-   * Auto-activates POI and deletes from homolog
+   * Auto-activates POI. The homolog row is deleted by the pipeline afterwards.
    */
   private static async executeSimplifiedApprovalStep(
-    attraction_id: string,
-    uuid_id: string
+    attraction_id: string
   ): Promise<PipelineStepResult> {
     const stepStart = Date.now()
 
@@ -1153,36 +1151,13 @@ export class PoiMigrationPipeline {
         }
       }
 
-      // Step 2: Delete from homolog (POI now lives only in core)
-      console.log(`   🗑️ Deleting POI from homolog ${uuid_id}...`)
-      const deleteResult = await MigrationService.safeDeleteFromHomolog(uuid_id)
-      
-      if (!deleteResult.success) {
-        // Log warning but don't fail - POI is already activated in core
-        console.warn(`   ⚠️ Failed to delete from homolog: ${deleteResult.error}`)
-        return {
-          step: 'simplified_approval',
-          success: true,
-          data: { 
-            approved: true,
-            deleted_from_homolog: false,
-            warning: deleteResult.error
-          },
-          processing_time: Date.now() - stepStart
-        }
-      }
-
-      // Step 3: Mark as migrated in processing status
-      await MigrationService.updateProcessingStatus(uuid_id, 'migrated')
-
-      console.log(`   ✅ Simplified approval complete: POI activated and removed from homolog`)
+      console.log(`   ✅ Simplified approval complete: POI activated`)
 
       return {
         step: 'simplified_approval',
         success: true,
         data: { 
           approved: true, 
-          deleted_from_homolog: true,
           trigger_points_count: triggerPointsCount,
           max_confidence: maxConfidence
         },
@@ -1403,42 +1378,6 @@ export class PoiMigrationPipeline {
       console.error(`❌ Error removing duplicates:`, error)
       return {
         step: 'remove_duplicates',
-        success: false,
-        error: error instanceof Error ? error.message : 'Unknown error',
-        processing_time: Date.now() - stepStart
-      }
-    }
-  }
-
-  /**
-   * Step 7: Delete from homolog (only after successful approval)
-   */
-  private static async executeDeleteFromHomologStep(uuid_id: string): Promise<PipelineStepResult> {
-    const stepStart = Date.now()
-
-    try {
-      console.log(`🗑️  Step 7: Removing POI ${uuid_id} from homolog...`)
-      const result = await MigrationService.safeDeleteFromHomolog(uuid_id)
-
-      if (!result.success) {
-        return {
-          step: 'delete_from_homolog',
-          success: false,
-          error: result.error,
-          processing_time: Date.now() - stepStart
-        }
-      }
-
-      console.log(`✅ Removed POI ${uuid_id} from homolog`)
-      return {
-        step: 'delete_from_homolog',
-        success: true,
-        data: { deleted: true },
-        processing_time: Date.now() - stepStart
-      }
-    } catch (error) {
-      return {
-        step: 'delete_from_homolog',
         success: false,
         error: error instanceof Error ? error.message : 'Unknown error',
         processing_time: Date.now() - stepStart
