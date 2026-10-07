@@ -31,6 +31,11 @@ import {
 import type { PartnerAnswers } from '@/lib/partner-form/schema'
 import { PLAN_CHOICES, type PlanChoice } from '@/lib/partner-form/fields'
 import { operatorLabel } from '@/lib/services/operator-label'
+import { portalRegistrationOfPlace } from '@/lib/services/portal-validation-service'
+import {
+  partnerRegistrationSummary,
+  type PartnerRegistrationSummary,
+} from '@/lib/partnerships/partner-registration'
 
 /** The language a place's description is born in. Every other one is translated out of it. */
 export const BASE_LANGUAGE = 'pt-br'
@@ -124,6 +129,12 @@ export interface PlaceDescriptionPolicyView {
   story: PartnerStoryInput | null
   /** Whether a description is already stored in the base language, and what it says today. */
   baseDescription: BaseDescription | null
+  /**
+   * #886 — what the partner informed that has no column on the place, allowlisted
+   * (`partnerRegistrationSummary`; nothing of the representative, BR-B2B-030). `null` on every place
+   * with no partner, and on a partner with no registration.
+   */
+  registration: PartnerRegistrationSummary | null
 }
 
 /** The outcomes `core.cms_apply_name_only_description` reports. `blocked` is not a failure. */
@@ -179,7 +190,25 @@ export async function loadPlaceDescriptionPolicy(
     // Only a partner has input, and only the ones that may generate need it.
     story: decision.policy === 'partner_story' ? partnerStoryInput(row.proposal_answers) : null,
     baseDescription,
+    registration: row.partner_client_id ? await registrationSummaryOf(attractionId, row) : null,
   }
+}
+
+/**
+ * The place's portal submission when there is one, else the old form's promoted proposal — the
+ * order `registrationOf` in `partner-place-provisioning.ts` uses. A failed portal read falls back
+ * to the proposal: this is a read-only panel, and the policy above must not fail because of it.
+ */
+async function registrationSummaryOf(
+  attractionId: string,
+  row: FactsRow
+): Promise<PartnerRegistrationSummary | null> {
+  const portal = await portalRegistrationOfPlace(attractionId).catch((e: unknown) => {
+    console.error('[description-policy] portal registration read failed:', e instanceof Error ? e.message : e)
+    return undefined
+  })
+  if (portal) return partnerRegistrationSummary(portal.answers, 'portal')
+  return partnerRegistrationSummary(row.proposal_answers, 'proposal')
 }
 
 /**
