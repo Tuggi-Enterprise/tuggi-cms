@@ -169,6 +169,9 @@ test('o 503 do lado do app diz o que aconteceu, e não desenha veredito nenhum',
     </Wrapper>
   )
 
+  // #902: a seção que abre é Pendências, que tem leitura própria e não mostra o erro do quadro.
+  // O 503 do app é lido numa seção que depende dele.
+  await component.getByRole('button', { name: SECTIONS.partners }).click()
   await expect(component.getByRole('alert')).toContainText('usuários do app')
   // Nenhum veredito é afirmado sobre parceiro nenhum enquanto a leitura não responde.
   await expect(component.getByText('Só custo')).toHaveCount(0)

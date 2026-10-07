@@ -38,6 +38,15 @@ import {
 import type { PartnerMixRow, PassPrice } from '@/lib/finance/overview'
 import type { BillingStart } from '@/lib/finance/billing'
 import { parseRcEvent, type RcEvent } from '@/lib/finance/app-revenue'
+import {
+  PENDING_KINDS,
+  receivedByClient,
+  saoPauloDate,
+  type PendingItem,
+  type PlaceCharge,
+  type PlaceInvoice,
+  type PlaceSubscription,
+} from '@/lib/finance/place-billing'
 import { consumesCost, planConsumption, type OrderShipment } from '@/lib/finance/consumption'
 import type { MaterialKind } from '@/lib/partner-form/fields'
 import {
@@ -1239,12 +1248,16 @@ export async function loadFinanceOverview(
   cap = 500,
   now = new Date().toISOString().slice(0, 10)
 ): Promise<FinanceOverviewResult> {
-  const [allPartners, consumption, costEntries, excluded] = await Promise.all([
+  const [allPartners, consumption, costEntries, excluded, placeSubscriptions] = await Promise.all([
     loadPartners(cap),
     loadConsumption(),
     loadCostEntries(),
     loadExcludedAccounts('client'),
+    loadPlaceSubscriptions(),
   ])
+  // A RECEITA REAL NÃO DERRUBA O QUADRO: sem ela, cada linha cai no declarado e diz isso
+  // ("declarado" ao lado do valor). Não há número sem rótulo, então não há número mentindo.
+  const received = placeSubscriptions ? receivedByClient(placeSubscriptions) : new Map<string, number>()
 
   // Sem as linhas de custo não há tela: uma lista vazia por erro afirmaria que ninguém custou
   // nada, que é a única coisa que este módulo não pode dizer por engano.
@@ -1340,6 +1353,7 @@ export async function loadFinanceOverview(
       approvedAt: partner.approvedAt,
       stance: paymentStance(plan.kind),
       monthlyFeeCents: partner.monthlyFeeCents,
+      receivedRevenueCents: received.get(partner.id) ?? null,
       consumption: consumptionByClient.get(partner.id) ?? [],
       costEntries: entriesByClient.get(partner.id) ?? [],
       ordersAwaitingShipment: awaitingShipment.get(partner.id) ?? 0,
@@ -2089,4 +2103,210 @@ export async function loadCommissionRates(): Promise<Map<string, number> | null>
     if (row.id && typeof row.commission_rate === 'number') rates.set(row.id, row.commission_rate)
   }
   return rates
+}
+
+// ── O Com história: assinatura, cobrança, nota e pendência (#902) ─────────────────────────────
+//
+// Tudo `service_role` e só leitura. Escrita nessas tabelas é das funções do #900, chamadas pelas
+// Edge Functions do Asaas — nenhuma linha aqui grava. Contrato: `places-pagamento.md` §3.5 e §4.
+//
+// `null` é LEITURA RECUSADA, nunca lista vazia: antes da migration `20261007160000` a tabela de
+// notas e a view não existem, e a tela tem de dizer que não leu — "Nada pendente" por erro é o
+// pior erro possível dela (spec do #902, §2).
+
+/** Assinaturas que já pagaram alguma vez, com as cobranças e o nome do local. Sem as notas. */
+export async function loadPlaceSubscriptions(): Promise<PlaceSubscription[] | null> {
+  const partner = getSupabaseService().schema('partner')
+  const [subscriptions, charges] = await Promise.all([
+    partner
+      .from('place_subscriptions')
+      .select(
+        'id, acceptance_id, status, payment_method, paid_at, paid_through, renews, renewal_amount_cents, canceled_at, expired_at, early_termination_fee_cents, early_termination_paid_at, place_acceptances(client_id, legal_name, email, billing_period, place_submissions(attraction_id))'
+      )
+      .neq('status', 'pending_payment')
+      .limit(2000),
+    partner
+      .from('place_subscription_charges')
+      .select('subscription_id, provider_payment_id, kind, status, amount_cents, due_date, paid_on, refunded_at')
+      .order('due_date', { ascending: false, nullsFirst: false })
+      .limit(20000),
+  ])
+  if (subscriptions.error || charges.error) return null
+
+  type Row = Record<string, any>
+  const rows = (subscriptions.data ?? []) as Row[]
+  const attractionIds = Array.from(
+    new Set(
+      rows
+        .map((row) => row.place_acceptances?.place_submissions?.attraction_id as string | null)
+        .filter((id): id is string => typeof id === 'string')
+    )
+  )
+
+  const attractions = new Map<string, { name: string; partnerClientId: string | null; entityKind: string | null }>()
+  for (const batch of chunk(attractionIds)) {
+    const { data, error } = await getSupabaseService()
+      .schema('core')
+      .from('attractions')
+      .select('id, name, partner_client_id, entity_kind')
+      .in('id', batch)
+    if (error) return null
+    for (const row of (data ?? []) as Row[]) {
+      attractions.set(String(row.id), {
+        name: String(row.name),
+        partnerClientId: row.partner_client_id ?? null,
+        entityKind: row.entity_kind ?? null,
+      })
+    }
+  }
+
+  const chargesBySubscription = new Map<string, PlaceCharge[]>()
+  for (const row of (charges.data ?? []) as Row[]) {
+    const list = chargesBySubscription.get(row.subscription_id) ?? []
+    list.push({
+      providerPaymentId: String(row.provider_payment_id),
+      kind: row.kind,
+      status: row.status,
+      amountCents: Number(row.amount_cents),
+      dueDate: row.due_date ?? null,
+      paidOn: row.paid_on ?? null,
+      refundedOn: saoPauloDate(row.refunded_at ?? null),
+      invoice: null,
+    })
+    chargesBySubscription.set(row.subscription_id, list)
+  }
+
+  return rows.map((row) => {
+    const acceptance = row.place_acceptances ?? {}
+    const attractionId: string | null = acceptance.place_submissions?.attraction_id ?? null
+    const attraction = attractionId ? attractions.get(attractionId) : undefined
+    return {
+      id: String(row.id),
+      acceptanceId: String(row.acceptance_id),
+      // A mesma coalescência da view: o aceite por link carrega o cliente; o do portal chega a
+      // ele pelo POI publicado.
+      clientId: acceptance.client_id ?? attraction?.partnerClientId ?? null,
+      attractionId,
+      attractionEntityKind: attraction?.entityKind ?? null,
+      placeName: attraction?.name ?? String(acceptance.legal_name ?? row.id),
+      contactEmail: String(acceptance.email ?? ''),
+      billingPeriod: typeof acceptance.billing_period === 'number' ? acceptance.billing_period : null,
+      paymentMethod: row.payment_method ?? null,
+      status: row.status,
+      paidAt: row.paid_at ?? null,
+      paidThrough: saoPauloDate(row.paid_through ?? null),
+      renews: row.renews !== false,
+      renewalAmountCents: typeof row.renewal_amount_cents === 'number' ? row.renewal_amount_cents : null,
+      canceledAt: row.canceled_at ?? null,
+      expiredAt: row.expired_at ?? null,
+      earlyTerminationFeeCents:
+        typeof row.early_termination_fee_cents === 'number' ? row.early_termination_fee_cents : null,
+      earlyTerminationPaidOn: saoPauloDate(row.early_termination_paid_at ?? null),
+      charges: chargesBySubscription.get(String(row.id)) ?? [],
+    }
+  })
+}
+
+/** As notas espelhadas (`partner.place_invoices`, #900). Sem payload: o corpo traz o tomador. */
+export async function loadPlaceInvoices(): Promise<PlaceInvoice[] | null> {
+  const { data, error } = await getSupabaseService()
+    .schema('partner')
+    .from('place_invoices')
+    .select('provider_invoice_id, provider_payment_id, status, number, pdf_url, xml_url, status_description, updated_at')
+    .limit(20000)
+  if (error) return null
+  return ((data ?? []) as Record<string, any>[]).map((row) => ({
+    providerInvoiceId: String(row.provider_invoice_id),
+    providerPaymentId: row.provider_payment_id ?? null,
+    status: row.status,
+    number: row.number ?? null,
+    pdfUrl: row.pdf_url ?? null,
+    xmlUrl: row.xml_url ?? null,
+    statusDescription: row.status_description ?? null,
+    updatedAt: String(row.updated_at),
+  }))
+}
+
+/** Repasses pagos — a parte "repasse" de Saídas. O resto do repasse é do #903. */
+export async function loadPaidPayouts(): Promise<{ paidOn: string; amountCents: number }[] | null> {
+  const { data, error } = await getSupabaseService()
+    .schema('partner')
+    .from('place_payouts')
+    .select('amount_cents, paid_at')
+    .eq('status', 'paid')
+    .limit(5000)
+  if (error) return null
+  return ((data ?? []) as Record<string, any>[])
+    .map((row) => ({ paidOn: saoPauloDate(row.paid_at ?? null), amountCents: Number(row.amount_cents) }))
+    .filter((row): row is { paidOn: string; amountCents: number } => row.paidOn !== null)
+}
+
+/**
+ * A view de pendências, com o nome do local e o contato de quem aceitou o contrato.
+ *
+ * O enriquecimento NÃO derruba a lista: sem nome a linha sai com "—", e a pendência continua
+ * lá. Quem derruba é só a leitura da view.
+ */
+export async function loadFinancePendingItems(): Promise<PendingItem[] | null> {
+  const { data, error } = await getSupabaseService()
+    .schema('partner')
+    .from('finance_pending_items')
+    .select('kind, severity, object_type, object_id, subscription_id, client_id, period_month, amount_cents, reference_date, detail')
+    .limit(1000)
+  if (error) return null
+
+  type Row = Record<string, any>
+  const rows = ((data ?? []) as Row[]).filter((row) => (PENDING_KINDS as readonly string[]).includes(row.kind))
+
+  const [loadedSubscriptions, loadedInvoices] = await Promise.all([loadPlaceSubscriptions(), loadPlaceInvoices()])
+  const subscriptions = loadedSubscriptions ?? []
+  // `invoice_error` cobre `ERROR` e `CANCELLATION_DENIED`; a tela diz qual, e quem sabe é a nota.
+  const invoiceStatus = new Map((loadedInvoices ?? []).map((invoice) => [invoice.providerInvoiceId, invoice.status]))
+  const bySubscription = new Map(subscriptions.map((sub) => [sub.id, sub]))
+  const byAcceptance = new Map(subscriptions.map((sub) => [sub.acceptanceId, sub]))
+  const byClient = new Map(
+    subscriptions.filter((sub) => sub.clientId !== null).map((sub) => [sub.clientId as string, sub])
+  )
+
+  const clientIds = Array.from(
+    new Set(rows.map((row) => row.client_id as string | null).filter((id): id is string => !!id && !byClient.has(id)))
+  )
+  const clientNames = new Map<string, string>()
+  for (const batch of chunk(clientIds)) {
+    const { data: clients } = await getSupabaseService()
+      .schema('partner')
+      .from('clients')
+      .select('id, name, company_name')
+      .in('id', batch)
+    for (const client of (clients ?? []) as Row[]) {
+      clientNames.set(String(client.id), String(client.name ?? client.company_name ?? client.id))
+    }
+  }
+
+  return rows.map((row) => {
+    // `payout_without_pix_key` traz o contrato em `detail`; os outros chegam pela assinatura ou
+    // pelo cliente do repasse.
+    const sub =
+      (row.subscription_id && bySubscription.get(row.subscription_id)) ||
+      (row.kind === 'payout_without_pix_key' && row.detail && byAcceptance.get(row.detail)) ||
+      (row.client_id && byClient.get(row.client_id)) ||
+      null
+    return {
+      kind: row.kind,
+      severity: row.severity === 'critical' ? 'critical' : 'warning',
+      objectType: String(row.object_type),
+      objectId: String(row.object_id),
+      subscriptionId: row.subscription_id ?? null,
+      clientId: row.client_id ?? null,
+      periodMonth: row.period_month ?? null,
+      amountCents: typeof row.amount_cents === 'number' ? row.amount_cents : null,
+      referenceDate: row.reference_date ?? null,
+      detail: row.kind === 'payout_without_pix_key' ? null : (row.detail ?? null),
+      placeName: sub ? sub.placeName : (row.client_id ? clientNames.get(row.client_id) ?? null : null),
+      attractionId: sub ? sub.attractionId : null,
+      attractionEntityKind: sub ? sub.attractionEntityKind : null,
+      contactEmail: row.kind === 'payout_without_pix_key' && sub ? sub.contactEmail : null,
+      invoiceStatus: row.object_type === 'invoice' ? invoiceStatus.get(String(row.object_id)) ?? null : null,
+    }
+  })
 }

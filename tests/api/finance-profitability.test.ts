@@ -72,6 +72,7 @@ function facts(over: Partial<ClientFinanceFacts> = {}): ClientFinanceFacts {
     horizonInvoices: over.horizonInvoices === undefined ? null : over.horizonInvoices,
     stance: over.stance ?? 'paying',
     monthlyFeeCents: over.monthlyFeeCents === undefined ? 10_000 : over.monthlyFeeCents,
+    receivedRevenueCents: over.receivedRevenueCents,
     consumption: over.consumption ?? [line()],
     costEntries: over.costEntries ?? [],
     ordersAwaitingShipment: over.ordersAwaitingShipment ?? 0,
@@ -461,4 +462,30 @@ test('nada na Fase 1 converte minutos em dinheiro', () => {
       `${file} multiplica minutos por dinheiro — o valor da compra do app não existe no CMS`
     )
   }
+})
+
+// ── #902: a receita recebida do Asaas substitui a declarada ────────────────────────────────────
+
+test('BR-B2B-046 #902: receita recebida substitui o calendário declarado, e revenueSource diz qual vale', () => {
+  const declared = assessClient(facts(), NOW)
+  assert.equal(declared.revenueSource, 'declared')
+  assert.ok(declared.revenueCents > 0, 'premissa: o calendário declarado gera receita neste caso')
+
+  const received = assessClient(facts({ receivedRevenueCents: 12_345 }), NOW)
+  assert.equal(received.revenueSource, 'received')
+  assert.equal(received.revenueCents, 12_345, 'o recebido SUBSTITUI, não soma')
+  assert.equal(received.marginCents, 12_345 - received.directCostCents, 'a margem usa a receita que vale')
+})
+
+test('BR-B2B-046 #902: receivedRevenueCents null ou ausente cai no declarado', () => {
+  const base = assessClient(facts(), NOW)
+  assert.equal(assessClient(facts({ receivedRevenueCents: null }), NOW).revenueSource, 'declared')
+  assert.equal(assessClient(facts({ receivedRevenueCents: null }), NOW).revenueCents, base.revenueCents)
+})
+
+test('BR-B2B-046 #902: recebido ZERO é recebido — não volta ao declarado', () => {
+  // Cliente com cobrança espelhada e nada pago ainda: a verdade é R$ 0, não o calendário.
+  const zero = assessClient(facts({ receivedRevenueCents: 0 }), NOW)
+  assert.equal(zero.revenueSource, 'received')
+  assert.equal(zero.revenueCents, 0)
 })

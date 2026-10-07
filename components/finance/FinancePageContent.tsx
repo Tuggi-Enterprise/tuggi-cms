@@ -61,12 +61,19 @@ import { OverviewPanel, type ProjectionBase } from './OverviewPanel'
 import { ClientProfitabilityTable } from './ClientProfitabilityTable'
 import { CatalogPanel, type UnitCostView } from './CatalogPanel'
 import { StructurePanel } from './StructurePanel'
+import { PendingPanel, type PendingState } from './PendingPanel'
+import { SubscriptionsPanel } from './SubscriptionsPanel'
+import { isPayoutPending } from '@/lib/finance/place-billing'
 
 // A Visão geral entra PRIMEIRO, e é a única seção que junta os dois lados do negócio — a
 // mensalidade do parceiro e a compra do turista. As outras três respondem por um parceiro, por um
 // produto e pela operação; nenhuma respondia "quanto entra, quanto sai, e quando isso vira".
-type Section = 'overview' | 'partners' | 'catalog' | 'structure'
-const SECTIONS: readonly Section[] = ['overview', 'partners', 'catalog', 'structure']
+//
+// PENDÊNCIAS ENTRA ANTES DELA, e é a seção inicial (#902): o que precisa de ação vem antes do
+// que só informa. Repasses é o #903 — a seção existe para o contador e a ação "Ver repasses".
+type Section = 'pending' | 'overview' | 'subscriptions' | 'payouts' | 'partners' | 'catalog' | 'structure'
+const SECTIONS: readonly Section[] = ['pending', 'overview', 'subscriptions', 'payouts', 'partners', 'catalog', 'structure']
+const PANELS_WITH_OWN_READ: readonly Section[] = ['pending', 'subscriptions', 'payouts']
 
 /**
  * ── OS TRÊS CONTRATOS DE REDE DESTA TELA, EXPORTADOS ──────────────────────────────────────────
@@ -119,7 +126,39 @@ export interface PurchasesPayload {
 
 export function FinancePageContent() {
   const t = useTranslations('Finance')
-  const [section, setSection] = useState<Section>('overview')
+  const [section, setSection] = useState<Section>('pending')
+  // AS PENDÊNCIAS TÊM LEITURA PRÓPRIA, fora do `load` do quadro: a falha de uma não pode esconder
+  // a outra, e o contador do menu precisa delas em qualquer seção.
+  const [pending, setPending] = useState<PendingState>({ status: 'loading' })
+  const [focusSubscriptionId, setFocusSubscriptionId] = useState<string | null>(null)
+  // Remonta Mensalidades no "Recarregar" do topo, para ela refazer a própria leitura.
+  const [reloadKey, setReloadKey] = useState(0)
+
+  const loadPending = useCallback(async () => {
+    setPending({ status: 'loading' })
+    try {
+      const response = await fetch('/api/finance/pending')
+      if (!response.ok) {
+        setPending({ status: 'error' })
+        return
+      }
+      const body = await response.json()
+      setPending({ status: 'ready', items: body.items, checkedAt: body.checkedAt, viewerIsAdmin: body.viewerIsAdmin })
+    } catch {
+      setPending({ status: 'error' })
+    }
+  }, [])
+
+  useEffect(() => {
+    void loadPending()
+  }, [loadPending])
+
+  const counter = (option: Section): number | null => {
+    if (pending.status !== 'ready') return null
+    if (option === 'pending') return pending.items.length
+    if (option === 'payouts') return pending.items.filter((item) => isPayoutPending(item.kind)).length
+    return null
+  }
   // O MÊS DA ESTRUTURA MORA AQUI, e não dentro do painel, porque quem busca é esta casca: o
   // recorte é aplicado no SERVIDOR (`summarizeStructure` lê a vigência no fim da janela), e um
   // filtro que o navegador aplicasse sobre o total já somado não conseguiria refazer essa leitura.
@@ -221,6 +260,8 @@ export function FinancePageContent() {
                     }`}
                   >
                     {t(`sections.${option}`)}
+                    {/* Contador em texto, e some no zero (spec do #902, §1). */}
+                    {(counter(option) ?? 0) > 0 && ` ${counter(option)}`}
                   </button>
                 ))}
               </nav>
@@ -247,7 +288,11 @@ export function FinancePageContent() {
               </div>
               <Button
                 variant="outline"
-                onClick={() => void load()}
+                onClick={() => {
+                  void load()
+                  void loadPending()
+                  setReloadKey((key) => key + 1)
+                }}
                 disabled={loading}
                 className="flex-shrink-0 gap-2"
               >
@@ -260,13 +305,37 @@ export function FinancePageContent() {
             </div>
           </div>
 
-          {loading && (
+          {section === 'pending' && (
+            <PendingPanel
+              state={pending}
+              onReload={() => void loadPending()}
+              onOpenSubscription={(id) => {
+                setFocusSubscriptionId(id)
+                setSection('subscriptions')
+              }}
+              onOpenPayouts={() => setSection('payouts')}
+            />
+          )}
+
+          {section === 'subscriptions' && (
+            <SubscriptionsPanel key={reloadKey} focusSubscriptionId={focusSubscriptionId} />
+          )}
+
+          {section === 'payouts' && (
+            <p className="rounded-3xl border border-gray-200 bg-white/70 px-5 py-6 text-sm text-gray-600 dark:border-gray-800 dark:bg-gray-900/70 dark:text-gray-400">
+              {t('payouts.placeholder')}
+            </p>
+          )}
+
+          {/* As três seções acima têm leitura e estado próprios; o carregando e o erro daqui são
+              do quadro de lucratividade e das seções que desenham sobre ele. */}
+          {loading && !PANELS_WITH_OWN_READ.includes(section) && (
             <p className="rounded-3xl border border-gray-200 bg-white/70 px-5 py-8 text-center text-sm text-gray-600 dark:border-gray-800 dark:bg-gray-900/70 dark:text-gray-400">
               {t('loading')}
             </p>
           )}
 
-          {!loading && error && (
+          {!loading && error && !PANELS_WITH_OWN_READ.includes(section) && (
             <div
               role="alert"
               className="rounded-3xl border border-amber-300 bg-amber-50 px-5 py-6 dark:border-amber-900 dark:bg-amber-950/40"
@@ -284,7 +353,7 @@ export function FinancePageContent() {
                   número um piso" já a carrega — e o teto é literalmente o assunto daquele cartão.
                   Nas outras três seções o cartão não existe, e sem esta linha o operador leria
                   uma tabela cortada sem saber que ela foi cortada. */}
-              {overview.truncated && section !== 'overview' && (
+              {overview.truncated && section !== 'overview' && !PANELS_WITH_OWN_READ.includes(section) && (
                 <p role="status" className="mb-4 text-[11px] text-amber-800 dark:text-amber-300">
                   {t('truncated')}
                 </p>

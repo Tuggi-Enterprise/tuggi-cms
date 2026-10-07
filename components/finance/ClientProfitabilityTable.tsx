@@ -315,7 +315,15 @@ export function ClientProfitabilityTable({ clients }: { clients: ClientProfitabi
                 </td>
                 <td className={`${NUM} ${EDGE}`}>{money(client.directCostCents, client.currency)}</td>
                 <td className={NUM}>{money(client.standardCostCents, client.currency)}</td>
-                <td className={`${NUM} ${EDGE}`}>{money(client.revenueCents, client.currency)}</td>
+                {/* RECEBIDO OU DECLARADO, E A TELA DIZ QUAL (#902 item 3). Sem cobrança real no
+                    Asaas o valor é o calendário de `monthly_fee_cents`, e leva a palavra ao lado —
+                    só onde há mensalidade declarada: zero de quem não paga não é declaração. */}
+                <td className={`${NUM} ${EDGE}`}>
+                  {money(client.revenueCents, client.currency)}
+                  {client.revenueSource === 'declared' && client.monthlyFeeCents !== null && (
+                    <span className={`ml-1 text-[11px] font-normal ${DIM}`}>{t('table.declared')}</span>
+                  )}
+                </td>
                 <td className={`${NUM} font-semibold`}>
                   {money(client.marginCents, client.currency)}
                 </td>
