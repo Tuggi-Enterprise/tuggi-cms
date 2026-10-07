@@ -1,13 +1,14 @@
 /**
  * #870 — the validation and the proposal conference live in the record's frame, and approving
- * does not promise publication (BR-B2B-049 items 7-8). The browser half (focus, overlap,
- * shortcuts) is `tests/ct/validation-record.spec.tsx`; this is the part that has to break at
+ * does not promise publication (BR-B2B-049 items 7-8). #890: the validation is the Validação tab of
+ * the client record (`ValidationTab.tsx`); `ValidationReview`/`ValidationModal` no longer exist. The
+ * browser half is `tests/ct/validation-tab.spec.tsx`; this is the part that has to break at
  * `npm run test:api` speed.
  */
 
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { readFileSync } from 'node:fs'
+import { existsSync, readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import pt from '../../messages/pt.json'
 import { recordHref, boardPath } from '../../lib/clients/record-href'
@@ -19,11 +20,21 @@ const code = (source: string) => source.replace(/\/\*[\s\S]*?\*\//g, '').replace
 
 const FRAMES = [
   'components/admin/clients/ClientEditorModal.tsx',
-  'components/admin/partner-proposals/ValidationReview.tsx',
   'components/admin/partner-proposals/ProposalReview.tsx',
 ]
 
-test('#870: the modal, the validation and the proposal conference use the one RecordShell', () => {
+test('#890: the validation is a tab of the record — ValidationReview and ValidationModal are gone, ValidationTab is mounted by the modal', () => {
+  for (const gone of [
+    'components/admin/partner-proposals/ValidationReview.tsx',
+    'components/admin/partner-proposals/ValidationModal.tsx',
+  ]) {
+    assert.equal(existsSync(join(process.cwd(), gone)), false, `${gone} must not come back`)
+  }
+  assert.equal(existsSync(join(process.cwd(), 'components/admin/clients/tabs/ValidationTab.tsx')), true)
+  assert.match(read('components/admin/clients/ClientEditorModal.tsx'), /<ValidationTab\b/)
+})
+
+test('#870: the modal and the proposal conference use the one RecordShell', () => {
   for (const file of FRAMES) {
     const source = read(file)
     assert.match(source, /import \{ RecordShell \} from '@\/components\/admin\/clients\/shared\/RecordShell'/, file)
@@ -32,7 +43,7 @@ test('#870: the modal, the validation and the proposal conference use the one Re
 })
 
 test('#870: the validation header is outside the scrolling area — no sticky, no top-24', () => {
-  for (const file of ['components/admin/partner-proposals/ValidationReview.tsx', 'components/admin/partner-proposals/ValidationDecision.tsx']) {
+  for (const file of ['components/admin/clients/tabs/ValidationTab.tsx', 'components/admin/partner-proposals/ValidationDecision.tsx']) {
     const source = code(read(file))
     assert.doesNotMatch(source, /\bsticky\b/, `${file} still has a sticky`)
     assert.doesNotMatch(source, /\btop-24\b/, `${file} still has top-24`)
@@ -44,10 +55,11 @@ test('#870: the validation header is outside the scrolling area — no sticky, n
   assert.doesNotMatch(code(shell), /\bsticky\b/)
 })
 
-test('#870: the validation page reads returnTo and hands it to the screen', () => {
+test('#890: the old validation route redirects to the record (?validation=), keeping the board filters of returnTo', () => {
   const page = read('app/[locale]/admin/partnerships/validation/[submissionId]/page.tsx')
-  assert.match(page, /RETURN_TO_PARAM|returnTo/)
-  assert.match(page, /returnTo/)
+  assert.match(page, /redirect\(recordHref\(locale, board, \{ kind: 'validation', submissionId \}\)\)/)
+  assert.match(page, /RETURN_TO_PARAM/)
+  assert.match(page, /parseReturnTo/)
 })
 
 test('#870: the validation "X" returns to the board with its filters, and not to the record that was open', () => {
@@ -78,11 +90,30 @@ test('#870 (BR-B2B-049 items 7-8): approved copy does not say the place is alrea
   }
 })
 
-test('#870: the decision copy has the two shortcuts, and the removed keys are gone and not used', () => {
-  const decision = pt.PartnerValidation.decision as Record<string, string>
-  assert.equal(decision.openClient, 'Abrir o cadastro do cliente')
+test('#890: "Abrir o cadastro do cliente" and the orphan close key are gone; "Abrir o local no editor" stays, once, in the Local section', () => {
+  const validation = pt.PartnerValidation as Record<string, unknown>
+  const decision = validation.decision as Record<string, string>
+  assert.equal(decision.openClient, undefined)
   assert.equal(decision.openPlace, 'Abrir o local no editor')
-  assert.equal(pt.PartnerValidation.close, 'Voltar ao quadro')
+  assert.equal(validation.close, undefined, 'only the removed ValidationModal read PartnerValidation.close')
+  for (const file of [
+    'components/admin/clients/tabs/ValidationTab.tsx',
+    'components/admin/partner-proposals/ValidationDecision.tsx',
+    'components/admin/clients/ClientEditorModal.tsx',
+  ]) {
+    assert.doesNotMatch(read(file), /decision\.openClient|PartnerValidation\.close/, file)
+  }
+  const tab = read('components/admin/clients/tabs/ValidationTab.tsx')
+  assert.equal((tab.match(/t\('decision\.openPlace'\)/g) ?? []).length, 1)
+  assert.equal(
+    (read('components/admin/partner-proposals/ValidationDecision.tsx').match(/decision\.openPlace|t\('openPlace'\)/g) ?? []).length,
+    0,
+    'the header link is gone (#890)'
+  )
+})
+
+test('#870: the removed decision keys are gone and not used', () => {
+  const decision = pt.PartnerValidation.decision as Record<string, string>
   assert.equal(decision.backToQueue, undefined)
   assert.equal(decision.queueEmpty, undefined)
   const source = read('components/admin/partner-proposals/ValidationDecision.tsx')

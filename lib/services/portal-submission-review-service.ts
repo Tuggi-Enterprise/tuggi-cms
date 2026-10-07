@@ -18,6 +18,7 @@ import { getSupabaseService } from '@/lib/core/supabase-client'
 import type { PartnerAnswers } from '@/lib/partner-form/schema'
 import { asaasExternalReference, maskCpf, onlyDigits } from '@/lib/partnerships/portal-review'
 import { portalSubmissionsOfClient } from '@/lib/services/portal-validation-service'
+import { findClientByTaxId } from '@/lib/services/partner-proposal-admin-service'
 import { operatorLabel } from '@/lib/services/operator-label'
 import {
   isPhotoSetFrozen,
@@ -101,6 +102,9 @@ export interface PortalSubmissionReview {
    * goes after approving (#870). `null` before approval, on a partial approval, or when the read
    * failed: the screen then just does not offer the shortcut. */
   clientId: string | null
+  /** Whose record the validation opens in (#890): the linked client, else the one with the same
+   * CNPJ — the same lookup `resolveApprovalClient` makes when approving. `null` = pre-registration. */
+  recordClientId: string | null
   acceptance: PortalReviewAcceptance | null
   payment: PortalReviewPayment | null
   history: PortalHistoryEntry[]
@@ -293,6 +297,10 @@ export async function getPortalSubmissionReview(submissionId: string): Promise<P
     ? null
     : ((clientRead.data as { partner_client_id: string | null } | null)?.partner_client_id ?? null)
 
+  // Soft like the link above: a failed lookup opens the pre-registration, never takes the screen down.
+  const recordClientId =
+    clientId ?? (answers.tax_id ? ((await findClientByTaxId(answers.tax_id))?.id ?? null) : null)
+
   const acceptanceRow = acceptanceRead.data as unknown as AcceptanceRow | null
   const subscriptions = await readSubscriptions(acceptanceRow ? [acceptanceRow] : [])
   if (!subscriptions.ok) return failed('subscription', subscriptions.code)
@@ -356,6 +364,7 @@ export async function getPortalSubmissionReview(submissionId: string): Promise<P
       statusChangedAt: submission.status_changed_at,
       attractionId: submission.attraction_id,
       clientId,
+      recordClientId,
       acceptance,
       payment,
       history,

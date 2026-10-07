@@ -2,10 +2,11 @@
 
 /**
  * The decision of the Portal Locais validation screen and its three dialogs (#812, spec §3 and §5):
- * Aprovar · Pedir ajuste · Recusar. Since #870 the acts sit in the record header, in the shape of
- * the client record's `ApprovalHeaderControls` (status pill, then the buttons), and the plan line
- * and the operator's conference live in the sidebar footer (`DecisionSummary`), where the client
- * record keeps its save block. Every act posts to
+ * Aprovar · Pedir ajuste · Recusar. Since #890 both are mounted by `ClientEditorModal`: the acts in
+ * the client record's header while the submission is undecided — in place of
+ * `ApprovalHeaderControls`, so there is one "Aprovar" per header — and the plan line and the
+ * conference in the sidebar footer (`DecisionSummary`) while the Validação tab is open. The way
+ * out after a decision is in the tab (`ValidationTab`), not here. Every act posts to
  * `app/api/admin/partnerships/validation/[submissionId]/route.ts`, which ends in
  * `partner.transition_place_submission` (BR-B2B-049).
  *
@@ -16,7 +17,8 @@
 import { useEffect, useRef, useState } from 'react'
 import Link from 'next/link'
 import { useTranslations } from 'next-intl'
-import { AlertTriangle, ArrowRight, Building2, Check, CheckCircle, Clock, Info, Loader2, MapPin, MessageSquare, XCircle } from 'lucide-react'
+import { AlertTriangle, Check, CheckCircle, Clock, Info, Loader2, MessageSquare, XCircle } from 'lucide-react'
+import { STATUS_PILL } from '@/components/admin/clients/shared/ApprovalHeaderControls'
 import { Button } from '@/components/ui/button'
 import { Checkbox } from '@/components/ui/checkbox'
 import { DialogShell } from '@/components/admin/credit/DialogShell'
@@ -32,7 +34,6 @@ import {
   type ConferenceItem,
 } from '@/lib/partnerships/portal-review'
 import { placeToolHref } from '@/lib/partnerships/place-tool'
-import { recordHref } from '@/lib/clients/record-href'
 import type { PortalSubmissionReview } from '@/lib/services/portal-submission-review-service'
 import { formatShortDate } from './format'
 import { FIELD } from './surface'
@@ -56,16 +57,13 @@ interface Props {
   onDecided: (result: DecisionResult) => void
   /** 409: someone else decided — the screen reloads read-only. */
   onConflict: () => void
-  /** The board the screen came from (`?returnTo=`), carried into the links that leave it. */
-  returnTo: string | null
-  /** Focus after a decision: "Abrir o cadastro do cliente" when there is a client, else "Próximo da fila". */
-  primaryRef: React.RefObject<HTMLAnchorElement | null>
+  /** A / J / R only while the Validação tab is open (#890): on Perfil, "A" is a letter. */
+  shortcuts: boolean
 }
 
 const COUNTER_FROM = 1800
 
-/** The pill and the buttons of `ApprovalHeaderControls`, so the two records read the same (#870). */
-const PILL = 'inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-[10px] font-bold uppercase tracking-widest border'
+/** The buttons of `ApprovalHeaderControls`, so the header reads the same in both states (#870). */
 const ACT =
   'inline-flex min-h-[44px] items-center gap-1.5 rounded-xl px-3 py-1.5 text-xs font-bold transition-all disabled:cursor-not-allowed disabled:opacity-50 lg:min-h-0'
 const NEUTRAL = 'border border-gray-200 bg-white text-gray-700 hover:bg-gray-50 dark:border-gray-700 dark:bg-gray-900 dark:text-gray-200'
@@ -87,8 +85,7 @@ export function ValidationDecision({
   decided,
   onDecided,
   onConflict,
-  returnTo,
-  primaryRef,
+  shortcuts,
 }: Props) {
   const t = useTranslations('PartnerValidation')
   const acceptance = review.acceptance
@@ -124,7 +121,7 @@ export function ValidationDecision({
 
   // A / J / R open the dialogs when the focus is not in a text field (spec §3).
   useEffect(() => {
-    if (readOnly) return
+    if (readOnly || !shortcuts) return
     const onKey = (event: KeyboardEvent) => {
       if (dialog || event.metaKey || event.ctrlKey || event.altKey || isTextField(event.target)) return
       const key = event.key.toLowerCase()
@@ -136,7 +133,7 @@ export function ValidationDecision({
     }
     document.addEventListener('keydown', onKey)
     return () => document.removeEventListener('keydown', onKey)
-  }, [readOnly, dialog, canApprove])
+  }, [readOnly, shortcuts, dialog, canApprove])
 
   const refundTotal = charged ? formatFee(totalCents) : null
 
@@ -253,22 +250,6 @@ export function ValidationDecision({
     </div>
   ) : null
 
-  /*
-   * AFTER APPROVING, THE WAY OUT IS THE CLIENT RECORD (#870, BR-B2B-049 items 7-8): approving
-   * created the POI and the client and published nothing; the boundary and the publication are
-   * the operator's next acts, on the places tab of the record. Read from the payload and not from
-   * the click, so an approved submission opened later shows the same two shortcuts.
-   */
-  const approved = review.status === 'approved' || review.status === 'live'
-  const board = new URLSearchParams(returnTo?.split('?')[1] ?? '')
-  const clientHref = review.clientId
-    ? recordHref(locale, board, { kind: 'client', clientId: review.clientId, tab: 'places' })
-    : null
-  // The next one opens in the same drawer, over the same board (#870, 2026-10-06).
-  const nextHref = review.nextInReviewId
-    ? recordHref(locale, board, { kind: 'validation', submissionId: review.nextInReviewId })
-    : null
-
   const status =
     review.status === 'approved' || review.status === 'live'
       ? { icon: CheckCircle, className: 'bg-green-50 border-green-200 text-green-700' }
@@ -278,37 +259,12 @@ export function ValidationDecision({
   const Icon = status.icon
   return (
     <div className="flex flex-wrap items-center gap-2">
-      <span className={cn(PILL, status.className)}>
+      <span className={cn(STATUS_PILL, status.className)}>
         <Icon className="h-3.5 w-3.5" aria-hidden="true" />
         {t(`status.${review.status}` as 'status.in_review')}
       </span>
 
-      {decided ? (
-        <>
-          {approved && clientHref ? (
-            <Link ref={primaryRef} className={cn(ACT, 'bg-primary-800 text-white hover:brightness-90')} href={clientHref}>
-              <Building2 className="h-3.5 w-3.5" aria-hidden="true" />
-              {t('decision.openClient')}
-            </Link>
-          ) : null}
-          {approved && review.attractionId ? (
-            <Link className={cn(ACT, NEUTRAL)} href={placeToolHref({ locale, attractionId: review.attractionId, entityKind: 'place' })}>
-              <MapPin className="h-3.5 w-3.5" aria-hidden="true" />
-              {t('decision.openPlace')}
-            </Link>
-          ) : null}
-          {nextHref ? (
-            <Link
-              ref={approved && clientHref ? undefined : primaryRef}
-              className={cn(ACT, approved && clientHref ? NEUTRAL : 'bg-primary-800 text-white hover:brightness-90')}
-              href={nextHref}
-            >
-              <ArrowRight className="h-3.5 w-3.5" aria-hidden="true" />
-              {t('decision.next')}
-            </Link>
-          ) : null}
-        </>
-      ) : readOnly ? null : (
+      {decided || readOnly ? null : (
         <>
           <button
             type="button"

@@ -62,11 +62,15 @@ test('#875: the `pending` routes no longer exist, and nothing in the three apps 
 
 test('#875: the modal drops the record cache on save and on approve/reject, and the tabs read through it', () => {
   const modal = read('components/admin/clients/ClientEditorModal.tsx')
-  assert.equal((modal.match(/recordCache\.clear\(\)/g) ?? []).length, 2, 'save + ApprovalHeaderControls.onChanged')
+  assert.equal(
+    (modal.match(/recordCache\.clear\(\)/g) ?? []).length,
+    3,
+    'save + ApprovalHeaderControls.onChanged + the validation decision (#890: approve/reject of the portal submission)'
+  )
   const save = modal.indexOf('recordCache.clear()')
   assert.ok(modal.lastIndexOf('setClient(merged)', save) > 0, 'cleared after the saved state is in')
   assert.match(modal, /<RecordCacheProvider cache=\{recordCache\}>/)
-  for (const tab of ['PartnershipTab', 'ProfileTab', 'FiscalPaymentsTab', 'ContractTab', 'PlacesTab']) {
+  for (const tab of ['PartnershipTab', 'ProfileTab', 'FiscalPaymentsTab', 'ContractTab', 'PlacesTab', 'ValidationTab']) {
     assert.match(modal, new RegExp(`<${tab}\\b`), `${tab} stays inside the provider`)
   }
   // The readers go through the cache; the acts (POST to a sub-path) are plain fetches on purpose.

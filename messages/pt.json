@@ -2660,6 +2660,7 @@
       },
       "loading": "Carregando…",
       "tabs": {
+        "validation": "Validação",
         "partnership": "Parceria",
         "profile": "Perfil",
         "fiscal": "Fiscal & Pagamentos",
@@ -2670,7 +2671,8 @@
         "coupons": "Cupons",
         "configuration": "Configuração",
         "comingSoon": "Em breve",
-        "soonBadge": "em breve"
+        "soonBadge": "em breve",
+        "afterApproval": "Disponível depois de aprovar"
       },
       "save": "Salvar",
       "missingTitle": "Faltam para salvar",
@@ -3048,7 +3050,15 @@
         "sticker": "Adesivo",
         "display": "Display",
         "social": "Redes",
-        "missing": "O aceite deste envio não foi encontrado."
+        "missing": "O aceite deste envio não foi encontrado.",
+        "login": "Login",
+        "methodOtp": "código de e-mail",
+        "methodLink": "link",
+        "marketing": "Novidades por e-mail",
+        "yes": "sim",
+        "no": "não",
+        "copyHash": "Copiar hash",
+        "copied": "Hash copiado."
       },
       "subscription": {
         "title": "Plano e assinatura",
@@ -3632,7 +3642,6 @@
   },
   "PartnerValidation": {
     "back": "← Fila de validação",
-    "close": "Voltar ao quadro",
     "loading": "Carregando o cadastro…",
     "readError": "Não foi possível abrir este cadastro.",
     "retry": "Tentar de novo",
@@ -3769,23 +3778,16 @@
       "title": "Aceite",
       "terms": "Termo {version} · aceito em {date}",
       "hash": "Hash {hash}…",
-      "copyHash": "Copiar hash",
-      "copied": "Hash copiado.",
-      "login": "Login por {method}",
-      "methodOtp": "código de e-mail",
-      "methodLink": "link",
       "declared": "Declarou CNPJ ativo e alvará vigente",
       "commitment": "Compromisso de divulgação: {items}",
       "commitmentNone": "Compromisso de divulgação: nenhum",
       "sticker": "Adesivo",
       "display": "Display",
       "social": "Redes",
-      "marketing": "Aceita receber novidades: {value}",
-      "yes": "sim",
-      "no": "não",
       "missing": "O aceite deste cadastro não foi encontrado.",
-      "loginLabel": "Login",
-      "marketingLabel": "Novidades por e-mail"
+      "linked": "O aceite e o plano estão em Contrato e em Fiscal & Pagamentos.",
+      "openContract": "Ver Contrato",
+      "openFiscal": "Ver Fiscal & Pagamentos"
     },
     "history": {
       "title": "Histórico",
@@ -3814,7 +3816,6 @@
       "reject": "Recusar",
       "shortcut": "Atalho: {key}",
       "next": "Próximo da fila",
-      "openClient": "Abrir o cadastro do cliente",
       "openPlace": "Abrir o local no editor"
     },
     "dialogs": {
@@ -3875,16 +3876,19 @@
       "approvedFree": "Aprovado. Falta desenhar o boundary e publicar.",
       "changes": "Pedido enviado. O prazo pausou até o local responder.",
       "rejectedRefund": "Recusado. O reembolso de {total} foi pedido.",
-      "rejected": "Recusado."
+      "rejected": "Recusado.",
+      "openPlaces": "Ir para Locais"
     },
-    "tabs": {
-      "heading": "Conferência",
-      "place": "Dados do local",
-      "story": "História e ofertas",
-      "photos": "Fotos",
-      "acceptance": "Aceite e plano",
-      "history": "Histórico"
-    }
+    "diff": {
+      "title": "Diferenças para o cadastro",
+      "unchanged": "{count, plural, one {# campo igual ao cadastro} other {# campos iguais ao cadastro}}",
+      "hint": "Aprovar não muda o cadastro. Para usar o que veio do portal, edite em Perfil ou em Fiscal & Pagamentos.",
+      "none": "Empresa e endereço batem com o cadastro.",
+      "field": "Campo",
+      "current": "No cadastro",
+      "portal": "No portal"
+    },
+    "otherSubmissions": "Outros envios:"
   },
   "Partnerships": {
     "title": "Parcerias",

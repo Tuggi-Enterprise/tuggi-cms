@@ -2543,6 +2543,7 @@
       },
       "loading": "Cargando…",
       "tabs": {
+        "validation": "Validación",
         "partnership": "Alianza",
         "profile": "Perfil",
         "fiscal": "Fiscal y Pagos",
@@ -2553,7 +2554,8 @@
         "coupons": "Cupones",
         "configuration": "Configuración",
         "comingSoon": "Próximamente",
-        "soonBadge": "pronto"
+        "soonBadge": "pronto",
+        "afterApproval": "Disponible después de aprobar"
       },
       "save": "Guardar",
       "missingTitle": "Faltan para guardar",
@@ -2786,7 +2788,15 @@
         "sticker": "Adhesivo",
         "display": "Display",
         "social": "Redes",
-        "missing": "No se encontró la aceptación de este envío."
+        "missing": "No se encontró la aceptación de este envío.",
+        "login": "Inicio de sesión",
+        "methodOtp": "código por e-mail",
+        "methodLink": "enlace",
+        "marketing": "Novedades por e-mail",
+        "yes": "sí",
+        "no": "no",
+        "copyHash": "Copiar hash",
+        "copied": "Hash copiado."
       },
       "subscription": {
         "title": "Plan y suscripción",
