@@ -51,3 +51,11 @@ describe('elite filter: keys added for the Austrian capitals', () => {
     assert.equal(f({ name: 'Friedhof Liebing', landuse: 'cemetery' }).remove, true)
   })
 })
+
+describe('elite filter: a description is not fame for golf courses, marinas and resorts', () => {
+  it('drops them without a hard reference', () => {
+    assert.equal(f({ name: 'Golfclub Montafon', leisure: 'golf_course', description: '18-Loch-Platz im Tal' }).remove, true)
+    assert.equal(f({ name: 'Segelclub Ebensee', leisure: 'marina', description: 'Hafen des Segelclubs' }).remove, true)
+    assert.equal(f({ name: 'Hafen Bregenz Marina', leisure: 'marina', wikidata: 'Q3' }).remove, false)
+  })
+})

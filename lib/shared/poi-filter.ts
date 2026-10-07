@@ -99,7 +99,9 @@ export const MINOR_HISTORIC = ['wayside_cross', 'wayside_shrine', 'tree_shrine',
 export const TOURIST_AERIALWAYS = ['cable_car', 'gondola', 'chair_lift', 'mixed_lift', 'funicular'];
 export const MINOR_WATER = ['pond', 'reservoir', 'basin', 'wastewater', 'fishpond', 'canal', 'lock', 'harbour', 'moat', 'groundwater', 'river', 'stream', 'ditch', 'drain'];
 export const MINOR_AMENITY = ['library', 'arts_centre', 'grave_yard'];
-export const MINOR_LEISURE = ['water_park', 'dog_park', 'tanning_salon', 'ice_rink', 'sports_hall', 'indoor_play', 'firepit', 'disc_golf_course', 'track', 'miniature_golf'];
+// golf_course and marina sat in RESTRICTED_UTILITY, where any description counts as fame: 169 golf
+// courses and 116 yacht-club harbours of Austria passed that way. resort: one holiday-flat park as 26 ways.
+export const MINOR_LEISURE = ['water_park', 'dog_park', 'tanning_salon', 'ice_rink', 'sports_hall', 'indoor_play', 'firepit', 'disc_golf_course', 'track', 'miniature_golf', 'golf_course', 'marina', 'resort'];
 
 /** The MINOR_* gate: true when the object enters only by one of those tags and has no hard reference. */
 export function isMinorWithoutReference(props: any, hasHardReference: boolean): boolean {
