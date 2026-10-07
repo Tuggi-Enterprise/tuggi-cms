@@ -54,14 +54,16 @@ const admin = {
   },
 }
 
-let runtime: typeof import('../../supabase/functions/_shared/places-story-suspension-runtime')
+// Typed locally and imported by URL so `tsc` (Node) does not follow into the Deno-only graph.
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+let runtime: { suspensionDeps: () => Record<string, (...args: any[]) => Promise<any>> }
 
 before(async () => {
   const url = (f: string) => pathToFileURL(path.join(SHARED, f)).href
   mock.module(url('supabase-client.ts'), { namedExports: { createAdminClient: () => admin } })
   mock.module(url('places-payment-runtime.ts'), { namedExports: { alert: async () => {} } })
   mock.module(url('read-model.ts'), { namedExports: { rebuildReadModel: async () => {} } })
-  runtime = await import('../../supabase/functions/_shared/places-story-suspension-runtime')
+  runtime = await import(url('places-story-suspension-runtime.ts'))
 })
 
 const reset = () => {
