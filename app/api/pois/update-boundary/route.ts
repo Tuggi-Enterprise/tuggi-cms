@@ -4,6 +4,7 @@ import { cookies } from 'next/headers'
 import { invalidatePOICache } from '@/lib/cache/poi-cache-invalidator'
 import { getSupabase } from '@/lib/core/supabase-client'
 import { logAuditEvent } from '@/lib/services/audit-service'
+import { clearStoredBoundary } from '@/lib/services/stored-boundary'
 
 // A área do polígono tem um dono: lib/utils/geometry.ts. Esta rota mantinha a terceira
 // cópia da mesma conta — e as três estavam erradas do mesmo jeito.
@@ -183,24 +184,12 @@ export async function POST(request: NextRequest) {
     if (clear_boundary === true || body.boundary === null) {
       console.log(`🧹 Clearing boundary for POI: ${attractionId}`)
 
-      const { error: clearError } = await supabase
-        .schema('core')
-        .from('attraction_coordinate')
-        .update({
-          boundary_geometry: null,
-          boundary_type: null,
-          boundary_source: null,
-          boundary_confidence: null,
-          boundary_area_m2: null,
-          boundary_centroid_lat: null,
-          boundary_centroid_lng: null,
-        })
-        .eq('attraction_id', attractionId)
+      const { error: clearError } = await clearStoredBoundary(supabase, attractionId)
 
       if (clearError) {
         console.error('❌ Error clearing boundary:', clearError)
         return NextResponse.json(
-          { error: 'Failed to clear boundary', details: clearError.message },
+          { error: 'Failed to clear boundary', details: clearError },
           { status: 500 }
         )
       }

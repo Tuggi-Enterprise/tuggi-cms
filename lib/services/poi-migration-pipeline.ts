@@ -10,6 +10,8 @@ import { getSupabase } from '@/lib/core/supabase-client'
 import { HomologEnrichmentService } from './poi-processing/homolog-enrichment.service'
 import { stampGenerationMethod } from './dem/dem-sources'
 import { boundaryGeoJson } from './trigger-points-google/utils/boundary-choice'
+import { isAdminBorder } from './trigger-points-google/utils/admin-border-tps'
+import { clearStoredBoundary } from './stored-boundary'
 
 const supabase = getSupabase('service')
 
@@ -898,6 +900,23 @@ export class PoiMigrationPipeline {
 
       console.log(`   ✅ Saved ${savedCount} trigger points to database`)
 
+      // BR-POI-010 (operator, 2026-10-06): a municipal border stays in the database only while its
+      // TPs are inserted — the cap trigger measures them to it, and a large concelho has TPs past
+      // 15 km from the pin. Left stored, the app plays the city audio to whoever is inside the
+      // border. The next run re-detects it from the seat (`BoundaryDetector#municipalityBoundary`).
+      // A failed clear is logged and traced; the TPs stay.
+      let boundaryClear: { boundary_cleared?: boolean; boundary_clear_error?: string } = {}
+      if (isAdminBorder(predictionResult.boundary)) {
+        try {
+          const { error } = await clearStoredBoundary(supabase, attraction_id)
+          boundaryClear = error ? { boundary_cleared: false, boundary_clear_error: error } : { boundary_cleared: true }
+        } catch (e) {
+          boundaryClear = { boundary_cleared: false, boundary_clear_error: e instanceof Error ? e.message : String(e) }
+        }
+        if (boundaryClear.boundary_cleared) console.log(`   🧹 Municipal border cleared after the TPs (BR-POI-010)`)
+        else console.warn(`   ⚠️ Failed to clear the municipal border (BR-POI-010): ${boundaryClear.boundary_clear_error}`)
+      }
+
       // Calculate max confidence from saved trigger points
       const maxConfidence = predictionResult.triggerPoints.length > 0
         ? Math.max(...predictionResult.triggerPoints.map(tp => tp.confidence || 0))
@@ -911,7 +930,8 @@ export class PoiMigrationPipeline {
           trigger_points_saved: savedCount,
           trigger_points_skipped: saveResult.skipped || 0,
           confidence_score: maxConfidence,
-          boundary_source: predictionResult.boundary?.source || 'unknown'
+          boundary_source: predictionResult.boundary?.source || 'unknown',
+          ...boundaryClear
         },
         processing_time: Date.now() - stepStart
       }
