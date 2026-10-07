@@ -14,14 +14,17 @@
  *   ?mode=new                 → criar
  *   ?clientId={id}            → editar
  *   ?clientId={id}&tab=...    → deep-link para uma aba específica
+ *   ?validation={id}          → validation of a portal submission, in its client's record (#890);
+ *                               with no client yet (same CNPJ or linked), a pre-registration where
+ *                               only the Validação tab is enabled
  */
 
 import { useCallback, useEffect, useId, useMemo, useRef, useState } from 'react'
 import {
   Save, Loader2, Building2, Scale, Users, MapPin, Gift, AlertTriangle, Plus, Edit, Smartphone,
-  FileSignature, Handshake,
+  FileSignature, Handshake, ClipboardCheck,
 } from 'lucide-react'
-import { useTranslations } from 'next-intl'
+import { useLocale, useTranslations } from 'next-intl'
 import { useDialogShell } from '@/lib/hooks/use-dialog-shell'
 import { taxConfigFor } from '@/components/admin/clients/shared/countries'
 import { ApprovalHeaderControls } from '@/components/admin/clients/shared/ApprovalHeaderControls'
@@ -35,6 +38,11 @@ import { PlacesTab } from '@/components/admin/clients/tabs/PlacesTab'
 import { PartnershipTab } from '@/components/admin/clients/tabs/PartnershipTab'
 import { CouponsTab } from '@/components/admin/clients/tabs/CouponsTab'
 import { ContractTab } from '@/components/admin/clients/tabs/ContractTab'
+import { ValidationTab, useValidationRecord } from '@/components/admin/clients/tabs/ValidationTab'
+import { DecisionSummary, ValidationDecision } from '@/components/admin/partner-proposals/ValidationDecision'
+import { formatDateTime } from '@/components/admin/partner-proposals/format'
+import { useClientContract } from '@/components/admin/clients/shared/use-client-contract'
+import type { ClientPortalRecord } from '@/lib/services/portal-submission-review-service'
 import { DEFAULT_CLIENT_TYPE, DEFAULT_COMMISSION_RATE, type Client } from '@/types/clients'
 import { RecordCacheProvider, type RecordRead } from '@/lib/hooks/use-record-cache'
 
@@ -45,6 +53,7 @@ import { RecordCacheProvider, type RecordRead } from '@/lib/hooks/use-record-cac
  * already out there keep landing here.
  */
 export type ClientEditorTab =
+  | 'validation'
   | 'partnership'
   | 'profile'
   | 'fiscal'
@@ -62,10 +71,37 @@ interface ClientEditorModalProps {
   onClose: () => void
   /** Called after a successful create — receives the saved id so the host can update the URL. */
   onSaved?: (clientId: string) => void
+  /** `?validation=` — the portal submission the record opens on (#890). */
+  validationId?: string
+  /** `/admin/clients?…&validation=<id>` with the board's filters (`recordHref`). */
+  validationHref?: (submissionId: string) => string
+  /** The board behind the drawer, with locale. */
+  boardHref?: string
+}
+
+/**
+ * The client's portal submissions, read through the record cache `ContractTab` and `FiscalPaymentsTab`
+ * already share — mounted inside the provider and rendering nothing, so the modal learns which
+ * submission the Validação tab shows without a second read of `/contract`.
+ */
+function PortalSubmissionsReader({
+  clientId,
+  onRead,
+}: {
+  clientId?: string
+  onRead: (records: ClientPortalRecord[]) => void
+}) {
+  const { summary } = useClientContract(clientId)
+  useEffect(() => {
+    onRead(summary?.portal ?? [])
+  }, [summary, onRead])
+  return null
 }
 
 interface TabDef { id: ClientEditorTab; labelKey: string; icon: typeof Building2 }
 const TABS: TabDef[] = [
+  // Only when there is a portal submission (#890): the operator's queue work, before the pipeline.
+  { id: 'validation', labelKey: 'validation', icon: ClipboardCheck },
   // First because it is the work: the five states of the pipeline, in the record that owns
   // them. It is the same `PartnershipDetail` the standalone page renders, so the two cannot
   // disagree about a state.
@@ -82,19 +118,43 @@ const TABS: TabDef[] = [
 ]
 
 export function ClientEditorModal({
-  clientId,
+  clientId: clientIdProp,
   isOpen,
   mode,
   initialTab = 'profile',
   onClose,
   onSaved,
+  validationId,
+  validationHref = (id) => `?validation=${id}`,
+  boardHref = '/admin/clients',
 }: ClientEditorModalProps) {
   const t = useTranslations('Clients.editor')
   const titleId = useId()
   /** Focus lands on `Fechar` and not on a field — a phone would raise the keyboard over the record. */
   const closeRef = useDialogShell(isOpen, onClose) as React.RefObject<HTMLButtonElement | null>
   const tTabs = useTranslations('Clients.editor.tabs')
-  const isEditing = mode === 'edit' && Boolean(clientId)
+  const tValidation = useTranslations('PartnerValidation')
+  const tForm = useTranslations('PartnerForm')
+  const locale = useLocale()
+
+  /*
+   * THE VALIDATION DECIDES WHOSE RECORD THIS IS when it opened by `?validation=`: the client the
+   * place is linked to, else the one with the same CNPJ (`recordClientId`). Neither → the
+   * pre-registration. Opened by `?clientId=`, the tab shows the URL's submission or the newest.
+   */
+  const [portalRecords, setPortalRecords] = useState<ClientPortalRecord[]>([])
+  const newestSubmission = useMemo(
+    () =>
+      [...portalRecords].sort((a, b) => String(b.submittedAt ?? '').localeCompare(String(a.submittedAt ?? '')))[0]
+        ?.submissionId ?? null,
+    [portalRecords]
+  )
+  // A closed drawer or another record must not keep the last client's submissions alive.
+  useEffect(() => setPortalRecords([]), [clientIdProp, validationId, isOpen])
+  const validation = useValidationRecord(validationId ?? newestSubmission)
+  const clientId = clientIdProp ?? validation.review?.recordClientId ?? undefined
+  const preRegistration = Boolean(validationId) && !clientId
+  const isEditing = (mode === 'edit' || Boolean(validationId)) && Boolean(clientId)
   const [activeTab, setActiveTab] = useState<ClientEditorTab>(initialTab)
   const [client, setClient] = useState<Client | null>(null)
   const [edited, setEdited] = useState<Partial<Client>>({})
@@ -183,14 +243,17 @@ export function ClientEditorModal({
     setEdited((prev) => ({ ...prev, [field]: value }))
   }, [])
 
+  const review = validation.review
+  const reviewAnswers = review?.answers
   const headerName = useMemo(() => {
-    if (mode === 'new') return t('header.newClient')
+    if (preRegistration) return reviewAnswers?.trade_name || tValidation('noTradeName')
+    if (mode === 'new' && !validationId) return t('header.newClient')
     // O FANTASIA PRIMEIRO, e a razão social como reserva. O operador procura `Cozi +`, que é o
     // que está na fachada e no material; `Cozimais Restaurante e Café` é o nome do contrato e
     // não identifica o cliente para quem abriu o registro. Mesma inversão que trocava os
     // rótulos dos dois campos na aba Perfil (2026-08-26).
     return edited.name || client?.name || edited.company_name || client?.company_name || t('header.noName')
-  }, [mode, edited, client, t])
+  }, [mode, edited, client, t, preRegistration, reviewAnswers, tValidation, validationId])
 
   // Missing-fields validation (only the bare minimum to allow save).
   const missing: string[] = []
@@ -306,9 +369,19 @@ export function ClientEditorModal({
         title={headerName}
         titleId={titleId}
         subtitle={
-          isEditing && client
-            ? `${client.email}${client.client_type ? ` · ${client.client_type}` : ''}${client.country ? ` · ${client.country}` : ''}`
-            : null
+          preRegistration && reviewAnswers && review
+            ? tValidation('headerLine', {
+                category:
+                  reviewAnswers.category && tForm.has(`categories.${reviewAnswers.category}`)
+                    ? tForm(`categories.${reviewAnswers.category}`)
+                    : (reviewAnswers.category ?? '—'),
+                city: reviewAnswers.city ?? '—',
+                state: reviewAnswers.state ?? '—',
+                date: formatDateTime(review.submittedAt),
+              })
+            : isEditing && client
+              ? `${client.email}${client.client_type ? ` · ${client.client_type}` : ''}${client.country ? ` · ${client.country}` : ''}`
+              : null
         }
         /*
           ONE MOUNT OF `ApprovalHeaderControls`, two placements (inline on a monitor, its own
@@ -316,7 +389,28 @@ export function ClientEditorModal({
           `openAction` state and two dialogs for one decision.
         */
         controls={
-          isEditing && clientId ? (
+          /*
+           * ONE "APROVAR" PER HEADER (#890): while the submission is undecided its acts own the
+           * header — approving it approves the client too (`approveRelationship`). Decided, the
+           * header is the client's again; with no client, the submission's pill stays.
+           */
+          review && (validation.undecided || !clientId) ? (
+            <ValidationDecision
+              review={review}
+              tradeName={reviewAnswers?.trade_name || tValidation('noTradeName')}
+              locale={locale}
+              done={validation.items.filter((item) => validation.ticks.has(item)).length}
+              total={validation.items.length}
+              readOnly={validation.readOnly}
+              decided={validation.decided}
+              onDecided={(decision) => {
+                recordCache.clear()
+                validation.onDecided(decision)
+              }}
+              onConflict={() => void validation.refetch()}
+              shortcuts={activeTab === 'validation'}
+            />
+          ) : isEditing && clientId ? (
             <ApprovalHeaderControls
               clientId={clientId}
               status={currentStatus}
@@ -354,8 +448,25 @@ export function ClientEditorModal({
           {(() => {
             // A registration being born has no pipeline, no team, no places and no coupons
             // to show — all four are keyed by an id that does not exist until the save.
+            // The pre-registration has no client yet: everything but the validation waits for it.
             const isDisabled = (tab: (typeof TABS)[number]) =>
-              !isEditing && (tab.id === 'partnership' || tab.id === 'team' || tab.id === 'places' || tab.id === 'coupons')
+              preRegistration
+                ? tab.id !== 'validation'
+                : !isEditing && (tab.id === 'partnership' || tab.id === 'team' || tab.id === 'places' || tab.id === 'coupons')
+            const hasValidation = Boolean(validation.submissionId)
+            const onValidation = activeTab === 'validation' && hasValidation
+            const decisionSummary = (describesApprove: boolean) =>
+              review ? (
+                <DecisionSummary
+                  review={review}
+                  items={validation.items}
+                  ticks={validation.ticks}
+                  onToggle={validation.toggle}
+                  readOnly={validation.readOnly}
+                  decided={validation.decided}
+                  describesApprove={describesApprove}
+                />
+              ) : null
 
             const saveBlock = (
               <>
@@ -399,22 +510,44 @@ export function ClientEditorModal({
             return (
               <>
                 <RecordTabs
-                  tabs={TABS.map((tab) => ({
+                  tabs={TABS.filter((tab) => tab.id !== 'validation' || hasValidation).map((tab) => ({
                     id: tab.id,
                     label: tTabs(tab.labelKey),
                     icon: tab.icon,
                     disabled: isDisabled(tab),
+                    badge:
+                      tab.id === 'validation' && review?.status === 'in_review' ? (
+                        <span className="h-2 w-2 shrink-0 rounded-full bg-primary-800" aria-hidden="true" />
+                      ) : undefined,
                   }))}
                   active={activeTab}
                   onSelect={setActiveTab}
                   heading={tTabs('configuration')}
-                  disabledTitle={tTabs('comingSoon')}
-                  footer={saveBlock}
+                  disabledTitle={preRegistration ? tTabs('afterApproval') : tTabs('comingSoon')}
+                  footer={
+                    <>
+                      {onValidation ? decisionSummary(true) : null}
+                      {preRegistration ? null : saveBlock}
+                    </>
+                  }
                 />
 
                 {/* Right content area */}
                 <main className="flex-1 overflow-y-auto p-4 lg:p-8">
                 <RecordCacheProvider cache={recordCache}>
+            {clientId ? <PortalSubmissionsReader clientId={clientId} onRead={setPortalRecords} /> : null}
+            {onValidation && (
+              <ValidationTab
+                record={validation}
+                locale={locale}
+                client={clientId ? client : null}
+                validationHref={validationHref}
+                boardHref={boardHref}
+                otherSubmissions={portalRecords.filter((r) => r.submissionId !== validation.submissionId)}
+                onOpenTab={setActiveTab}
+                phoneSummary={decisionSummary(false)}
+              />
+            )}
             {activeTab === 'partnership' && (
               <PartnershipTab
                 client={client}
@@ -472,9 +605,11 @@ export function ClientEditorModal({
                   gets forgotten. `pb-[env(safe-area-inset-bottom)]` keeps it clear of the
                   iPhone home indicator.
                 */}
-                <div className="lg:hidden shrink-0 space-y-3 border-t border-gray-100 bg-white p-4 pb-[calc(1rem+env(safe-area-inset-bottom))] dark:border-gray-800 dark:bg-gray-900">
-                  {saveBlock}
-                </div>
+                {preRegistration ? null : (
+                  <div className="lg:hidden shrink-0 space-y-3 border-t border-gray-100 bg-white p-4 pb-[calc(1rem+env(safe-area-inset-bottom))] dark:border-gray-800 dark:bg-gray-900">
+                    {saveBlock}
+                  </div>
+                )}
               </>
             )
           })()}

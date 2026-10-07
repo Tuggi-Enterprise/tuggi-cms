@@ -2509,6 +2509,7 @@
       },
       "loading": "Loading…",
       "tabs": {
+        "validation": "Validation",
         "partnership": "Partnership",
         "profile": "Profile",
         "fiscal": "Fiscal & Payments",
@@ -2519,7 +2520,8 @@
         "coupons": "Coupons",
         "configuration": "Configuration",
         "comingSoon": "Coming soon",
-        "soonBadge": "soon"
+        "soonBadge": "soon",
+        "afterApproval": "Available after approval"
       },
       "save": "Save",
       "missingTitle": "Missing to save",
@@ -2752,7 +2754,15 @@
         "sticker": "Sticker",
         "display": "Display",
         "social": "Social media",
-        "missing": "The acceptance of this submission was not found."
+        "missing": "The acceptance of this submission was not found.",
+        "login": "Login",
+        "methodOtp": "e-mail code",
+        "methodLink": "link",
+        "marketing": "News by e-mail",
+        "yes": "yes",
+        "no": "no",
+        "copyHash": "Copy hash",
+        "copied": "Hash copied."
       },
       "subscription": {
         "title": "Plan and subscription",

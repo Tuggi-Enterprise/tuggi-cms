@@ -6,6 +6,10 @@ import { useTranslations } from 'next-intl'
 import { cn } from '@/lib/utils'
 import type { ClientStatus } from '@/types/clients'
 
+/** The status pill of a record header — this one and the validation's (`ValidationDecision`, #890). */
+export const STATUS_PILL =
+  'inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-[10px] font-bold uppercase tracking-widest border'
+
 interface ApprovalHeaderControlsProps {
   clientId: string
   status: ClientStatus
@@ -122,7 +126,7 @@ export function ApprovalHeaderControls({
     // `Aprovar` and `Recusar` on a client record, and a 26px target for a decision that sends
     // an e-mail is the shape that gets tapped by accident.
     <div className="relative flex flex-wrap items-center gap-2">
-      <span className={cn('inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-[10px] font-bold uppercase tracking-widest border', badge.className)}>
+      <span className={cn(STATUS_PILL, badge.className)}>
         <Icon className="w-3.5 h-3.5" />
         {badge.label}
       </span>

@@ -7,7 +7,9 @@
  * masks the CPF (BR-B2B-043 item 1) — nothing here can unmask it.
  */
 
+import { useState } from 'react'
 import { useTranslations } from 'next-intl'
+import { Copy } from 'lucide-react'
 import { formatDate, formatFee } from '@/lib/contract/snapshot'
 import { isPaidPlan } from '@/lib/partnerships/portal-review'
 import type { ClientPortalRecord } from '@/lib/services/portal-submission-review-service'
@@ -30,6 +32,29 @@ export function OriginRow({ origin }: { origin: ClientOrigin }) {
   return <Row label={t('label')}>{t(origin)}</Row>
 }
 
+/** The hash is what a dispute quotes; copying it by hand from a 64-char mono line is where it breaks. */
+function CopyHash({ hash }: { hash: string }) {
+  const t = useTranslations('Clients.portal.acceptance')
+  const [copied, setCopied] = useState(false)
+  return (
+    <span className="mt-1 flex items-center gap-2">
+      <button
+        type="button"
+        onClick={() => void navigator.clipboard?.writeText(hash).then(() => setCopied(true))}
+        className="inline-flex items-center gap-1 rounded-lg px-2 py-1 text-xs font-bold text-primary-800 hover:bg-tuggi-blue/5 dark:text-tuggi-blue"
+      >
+        <Copy className="h-3.5 w-3.5" aria-hidden="true" />
+        {t('copyHash')}
+      </button>
+      {copied ? <span role="status" className="text-xs font-semibold text-green-700">{t('copied')}</span> : null}
+    </span>
+  )
+}
+
+/**
+ * The acceptance as the record shows it — in the Validação tab before the link, in Contrato after
+ * it (#890): login method, marketing consent and "Copiar hash" live here so neither tab loses them.
+ */
 export function PortalAcceptances({ records }: { records: ClientPortalRecord[] }) {
   const t = useTranslations('Clients.portal.acceptance')
   return (
@@ -45,6 +70,7 @@ export function PortalAcceptances({ records }: { records: ClientPortalRecord[] }
               </Row>
               <Row label={t('hash')}>
                 <span className="font-mono text-xs">{acceptance.termsHash}</span>
+                <CopyHash hash={acceptance.termsHash} />
               </Row>
               <Row label={t('signer')}>
                 {t('signerLine', {
@@ -62,6 +88,8 @@ export function PortalAcceptances({ records }: { records: ClientPortalRecord[] }
                   return marked.length ? marked.map((key) => t(key)).join(', ') : t('commitmentNone')
                 })()}
               </Row>
+              <Row label={t('login')}>{acceptance.authMethod === 'otp' ? t('methodOtp') : t('methodLink')}</Row>
+              <Row label={t('marketing')}>{acceptance.marketingConsent ? t('yes') : t('no')}</Row>
             </>
           )}
         </dl>

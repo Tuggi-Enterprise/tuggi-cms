@@ -25,13 +25,12 @@ import { useSupabaseClient, useSessionContext } from '@supabase/auth-helpers-rea
 import { RETURN_TO_PARAM, parseReturnTo } from '@/lib/navigation/return-to'
 import { applyFilters, parseFilters, type DirectoryFilters } from '@/lib/clients/directory-filter'
 import { recordHref, boardPath, VALIDATION_PARAM } from '@/lib/clients/record-href'
-import { ValidationModal } from '@/components/admin/partner-proposals/ValidationModal'
 import type { AbstractIntlMessages } from 'next-intl'
 import type { ClientDirectoryRow } from '@/lib/services/partnership-service'
 
 interface ContentProps {
   ptMessages: PtOverlay
-  /** What the validation drawer speaks — pt only, like the page it replaced (#408, #870). */
+  /** What the Validação tab of the record speaks — pt only, like the page it replaced (#408, #870, #890). */
   validationMessages: AbstractIntlMessages
 }
 
@@ -211,6 +210,7 @@ function AdminClientsContent({ ptMessages, validationMessages }: ContentProps) {
     params.delete('new')
     params.delete('mode')
     params.delete('tab')
+    params.delete(VALIDATION_PARAM)
     // A `returnTo` that did not survive `parseReturnTo` is not carried into the next URL: it
     // would sit in the address bar looking like a promise nothing keeps.
     params.delete(RETURN_TO_PARAM)
@@ -299,12 +299,31 @@ function AdminClientsContent({ ptMessages, validationMessages }: ContentProps) {
         )}
       </NextIntlClientProvider>
 
+      {/*
+        THE VALIDATION IS A TAB OF THIS RECORD (#890), and it speaks pt like the page it replaced:
+        `PartnerValidation` exists only in pt, and the categories and promotion labels it reads are
+        overlaid in pt too, so one tab never mixes two languages.
+      */}
+      <NextIntlClientProvider
+        locale={locale}
+        messages={{
+          ...messages,
+          PartnerValidation: (validationMessages as Record<string, AbstractIntlMessages>).PartnerValidation,
+          PartnerForm: (validationMessages as Record<string, AbstractIntlMessages>).PartnerForm,
+          PartnerProposals: (validationMessages as Record<string, AbstractIntlMessages>).PartnerProposals,
+        }}
+      >
       <PtOverlayProvider value={ptMessages}>
       <ClientEditorModal
         clientId={clientId ?? undefined}
-        isOpen={Boolean(clientId) || isCreateNew}
-        mode={clientId ? 'edit' : 'new'}
-        initialTab={initialTab}
+        isOpen={Boolean(clientId) || isCreateNew || Boolean(validationId)}
+        mode={clientId || validationId ? 'edit' : 'new'}
+        initialTab={validationId ? 'validation' : initialTab}
+        validationId={validationId ?? undefined}
+        validationHref={(id) =>
+          recordHref(locale, new URLSearchParams(searchParams.toString()), { kind: 'validation', submissionId: id })
+        }
+        boardHref={`/${locale}${boardPath(new URLSearchParams(searchParams.toString()))}`}
         onClose={closeDrawers}
         onSaved={(savedId) => {
           // After a successful create, update the URL to ?clientId={savedId}
@@ -320,19 +339,7 @@ function AdminClientsContent({ ptMessages, validationMessages }: ContentProps) {
         }}
       />
       </PtOverlayProvider>
-
-      {validationId ? (
-        <NextIntlClientProvider locale="pt" messages={validationMessages}>
-          <ValidationModal
-            locale={locale}
-            submissionId={validationId}
-            returnTo={boardPath(new URLSearchParams(searchParams.toString()))}
-            onClose={() =>
-              router.push(`/${locale}${boardPath(new URLSearchParams(searchParams.toString()))}`, { scroll: false })
-            }
-          />
-        </NextIntlClientProvider>
-      ) : null}
+      </NextIntlClientProvider>
     </>
   )
 }

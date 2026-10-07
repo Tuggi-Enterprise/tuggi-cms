@@ -15,7 +15,6 @@ import { NextIntlClientProvider } from 'next-intl'
 import ptMessages from '@/messages/pt.json'
 import { ClientEditorModal } from '@/components/admin/clients/ClientEditorModal'
 import { PoiDrawerHost } from './side-drawer-hosts'
-import { ValidationModal } from '@/components/admin/partner-proposals/ValidationModal'
 
 const NOOP = () => {}
 
@@ -47,7 +46,8 @@ const DRAWERS = {
   'client record': () => <ClientEditorModal isOpen mode="new" onClose={NOOP} />,
   'POI management': () => <PoiDrawerHost />,
   'portal validation': () => (
-    <ValidationModal locale="pt" submissionId="sub-1" returnTo="/admin/clients" onClose={NOOP} />
+    // #890: the validation is the client record opened on its Validação tab.
+    <ClientEditorModal isOpen mode="edit" validationId="sub-1" initialTab="validation" onClose={NOOP} />
   ),
 } as const
 
