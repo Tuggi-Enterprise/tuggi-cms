@@ -37,7 +37,6 @@ export async function GET(request: NextRequest) {
         country_filter: null,
         state_filter: null,
         city_filter: null,
-        google_types_filter: null,
         category_filter: null,
         content_status_filter: 'all',
         group_status_filter: 'all',

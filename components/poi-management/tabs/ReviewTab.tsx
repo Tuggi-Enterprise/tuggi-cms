@@ -7,7 +7,7 @@
  */
 
 import { useTranslations } from 'next-intl'
-import { CheckCircle, Star, FileText, Volume2, Target, Info } from 'lucide-react'
+import { CheckCircle, FileText, Volume2, Target, Info } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { getScoreColor, getScoreBackgroundColor, getScoreDescription } from '@/lib/score/compute'
 import { usePOIModalContext } from '../POIModalContext'
@@ -72,33 +72,18 @@ export function ReviewTab() {
                       <div>
                          <p className="text-xs font-medium text-gray-700 dark:text-gray-300">{tCommon('labels.types')}</p>
                         <div className="flex flex-wrap gap-1">
-                          {getPoi()?.google_types && getPoi()!.google_types!.length > 0 ? (
-                            getPoi()!.google_types!.slice(0, 3).map((type: string, index: number) => (
-                              <span
-                                key={index}
-                                className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-blue-100 text-blue-800 dark:bg-blue-900/20 dark:text-blue-300"
-                              >
-                                {type.replace(/_/g, ' ')}
-                               </span>
-                             ))
-                           ) : (
-                             <span className="text-gray-500 dark:text-gray-400 text-xs">{t('labels.no_types')}</span>
-                           )}
-                          {getPoi()?.google_types && getPoi()!.google_types!.length > 3 && (
-                            <span className="text-xs text-gray-500 dark:text-gray-400">+{getPoi()!.google_types!.length - 3} more</span>
+                          {getPoi()?.category ? (
+                            <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-blue-100 text-blue-800 dark:bg-blue-900/20 dark:text-blue-300">
+                              {getPoi()!.category!.replace(/_/g, ' ')}
+                            </span>
+                          ) : (
+                            <span className="text-gray-500 dark:text-gray-400 text-xs">{t('labels.no_types')}</span>
                           )}
                         </div>
                       </div>
                       <div>
                          <p className="text-xs font-medium text-gray-700 dark:text-gray-300">{tCommon('labels.location')}</p>
                          <p className="text-gray-900 dark:text-white truncate">{getPoi()?.city || 'N/A'}, {getPoi()?.state || getPoi()?.country || 'N/A'}</p>
-                      </div>
-                      <div>
-                         <p className="text-xs font-medium text-gray-700 dark:text-gray-300">{t('labels.rating')}</p>
-                        <div className="flex items-center gap-1">
-                          <Star className="h-3 w-3 text-yellow-400" />
-                          <span className="text-gray-900 dark:text-white">{getPoi()?.rating?.toFixed(1) || 'N/A'}</span>
-                        </div>
                       </div>
                     </div>
 

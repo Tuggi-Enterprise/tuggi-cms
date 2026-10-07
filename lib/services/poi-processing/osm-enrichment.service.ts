@@ -35,7 +35,6 @@ export interface POIEnrichmentInput {
   name: string
   city: string
   country: string
-  google_place_id?: string
   lat?: number
   lng?: number
 }
@@ -139,7 +138,7 @@ export class OSMEnrichmentService {
    * Enrich POI with OSM data
    */
   static async enrichPOI(input: POIEnrichmentInput): Promise<EnrichmentResult> {
-    const { poi_id, name, city, country, google_place_id, lat, lng } = input
+    const { poi_id, name, city, country, lat, lng } = input
     
     console.log(`🔄 Starting OSM enrichment for POI: ${name} (${city}, ${country})`)
 

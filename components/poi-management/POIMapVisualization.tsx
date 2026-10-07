@@ -29,10 +29,7 @@ export interface POI {
   website: string | null
   formatted_phone_number: string | null
   business_status: string | null
-  price_level: number | null
   opening_hours: any | null
-  photos_references: string[] | null
-  google_place_id: string | null
   user_id: string | null
   coordinates?: {
     latitude: number

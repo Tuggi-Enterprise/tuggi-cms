@@ -88,7 +88,7 @@ export const GET = withAuth({ roles: ['admin', 'client', 'editor'] }, async func
     const { data: pois } = await supabase
       .schema('core')
       .from('attractions')
-      .select('id, name, google_types, category')
+      .select('id, name, category')
       .in('id', ids);
     details = pois || [];
   }
@@ -145,7 +145,6 @@ export const POST = withAuth({ roles: ['admin', 'client', 'editor'] }, async fun
         .select(`
           id, 
           name, 
-          google_types, 
           category,
           coordinates:attraction_coordinate(latitude, longitude)
         `)
@@ -227,7 +226,6 @@ export const POST = withAuth({ roles: ['admin', 'client', 'editor'] }, async fun
         .select(`
           id, 
           name, 
-          google_types, 
           category,
           coordinates:attraction_coordinate(latitude, longitude)
         `)

@@ -196,18 +196,6 @@ export class MigrationService {
       return value
     }
 
-    // JSONB → TEXT[] (categories → google_types)
-    if (field === 'google_types' && value) {
-      if (typeof value === 'object') {
-        if (Array.isArray(value)) {
-          return value.map((v: any) => String(v))
-        }
-        // If it's an object, extract values
-        return Object.values(value).map((v: any) => String(v))
-      }
-      return [String(value)]
-    }
-
     // TEXT → BOOLEAN conversions
     const booleanFields = ['wheelchair_accessible', 'wheelchair_toilets']
     if (booleanFields.includes(field)) {
@@ -414,7 +402,7 @@ export class MigrationService {
     // Convert fields that need type conversion
     const fieldsToConvert = [
       'local_traditions', 'seasonal_attractions', 'public_transport', 'access_points',
-      'opening_hours', 'google_types', 'wheelchair_accessible', 'wheelchair_toilets',
+      'opening_hours', 'wheelchair_accessible', 'wheelchair_toilets',
       'unesco_inscription_date'
     ]
 
@@ -422,11 +410,6 @@ export class MigrationService {
       if (poi[field] !== undefined && poi[field] !== null) {
         mapped[field] = this.convertFieldValue(field, poi[field])
       }
-    }
-
-    // Handle categories → google_types conversion
-    if (poi.categories) {
-      mapped.google_types = this.convertFieldValue('google_types', poi.categories)
     }
 
     // Canonical taxonomy (SSOT) — derive primary_category + macro group + importance.

@@ -259,7 +259,6 @@ const saveImageReference = async (
   attractionId: string,
   publicUrl: string,
   storagePath: string,
-  reference: string,
   altText?: string
 ): Promise<string> => {
   const { data, error } = await supabaseAdmin
@@ -269,7 +268,7 @@ const saveImageReference = async (
       attraction_id: attractionId,
       image_url: publicUrl,
       storage_path: storagePath,
-      photo_reference: reference,
+      image_source: 'wikidata',
       alt_text: altText || `Image from Wikidata for attraction ${attractionId}`
     })
     .select('id')
@@ -399,7 +398,6 @@ serve(async (req) => {
       attractionId,
       publicUrlData.publicUrl,
       storagePath,
-      bestImage.title,
       `${bestImage.description || attractionName} - ${bestImage.author} (${bestImage.license})`
     );
 

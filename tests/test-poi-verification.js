@@ -64,7 +64,6 @@ async function testPOIVerification(poiId) {
         city,
         state,
         country,
-        google_types,
         category,
         approved,
         created_at
@@ -105,7 +104,6 @@ async function testPOIVerification(poiId) {
     console.log(`   Nome: ${poi.name}`)
     console.log(`   Localização: ${poi.city}, ${poi.state}, ${poi.country}`)
     console.log(`   Categoria: ${poi.category}`)
-    console.log(`   Google Types: ${JSON.stringify(poi.google_types)}`)
     console.log(`   Aprovado: ${poi.approved}`)
     console.log('')
 

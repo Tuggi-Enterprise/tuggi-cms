@@ -83,7 +83,7 @@ The function expects these tables:
   - `id` (uuid)
   - `attraction_id` (text)
   - `storage_path` (text) - Path in bucket
-  - `photo_reference` (text) - Original Google reference
+  - `image_source` (text) - Origin of the image (e.g. `wikimedia_commons`)
   - `created_at` (timestamp)
 - `core.attraction_coordinate` - POI coordinates
 

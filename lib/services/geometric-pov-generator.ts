@@ -40,7 +40,7 @@ export class GeometricPOVGenerator {
         lng: coords?.longitude || 0,
         city: attraction.city,
         country: attraction.country,
-        google_types: attraction.google_types || []
+        category: attraction.category
       }
       
       console.log(`📍 POI Input coordinates: ${poiInput.lat}, ${poiInput.lng}`)
@@ -77,10 +77,10 @@ export class GeometricPOVGenerator {
   }
   
   private createPOIProfile(poi: POIInput): POIProfile {
-    const types = (poi.google_types || []).map(t => String(t).toLowerCase())
+    const types = poi.category ? [poi.category.toLowerCase()] : []
     
-    // Classificação baseada em google_types
-    const profile = this.classifyByGoogleTypes(types, poi)
+    // Classificação baseada na categoria do POI
+    const profile = this.classifyByTypes(types, poi)
     
     console.log(`🎯 POI Profile for ${poi.name}:`, {
       type: profile.type,
@@ -93,7 +93,7 @@ export class GeometricPOVGenerator {
     return profile
   }
 
-  private classifyByGoogleTypes(types: string[], poi: POIInput): POIProfile {
+  private classifyByTypes(types: string[], poi: POIInput): POIProfile {
     // Landmarks elevados (visíveis de muito longe)
     if (types.some(t => ['mountain', 'natural_feature', 'peak'].includes(t)) ||
         poi.name.toLowerCase().includes('pico') ||
@@ -180,7 +180,7 @@ export class GeometricPOVGenerator {
   }
 
   private detectEnvironment(poi: POIInput): 'dense_urban' | 'mixed' | 'open_natural' | 'large_area' {
-    const types = (poi.google_types || []).map(t => String(t).toLowerCase())
+    const types = poi.category ? [poi.category.toLowerCase()] : []
     const name = (poi.name || '').toLowerCase()
     const address = (poi.formatted_address || poi.vicinity || '').toLowerCase()
 

@@ -105,8 +105,7 @@ export async function GET(request: NextRequest) {
         updated_at,
         owner_id,
         created_by,
-        google_types,
-        rating,
+        category,
         image_url,
         formatted_address,
         attraction_coordinate(latitude, longitude),
@@ -157,8 +156,7 @@ export async function GET(request: NextRequest) {
         updated_at: poi.updated_at,
         owner_id: poi.owner_id,
         created_by: poi.created_by,
-        google_types: poi.google_types,
-        rating: poi.rating,
+        category: poi.category,
         image_url: poi.image_url,
         formatted_address: poi.formatted_address,
         coordinates: poi.attraction_coordinate?.[0] ? {
@@ -241,8 +239,7 @@ export async function POST(request: NextRequest) {
       latitude,
       longitude,
       description,
-      formatted_address,
-      google_types
+      formatted_address
     } = body
 
     // Validate required fields
@@ -284,7 +281,6 @@ export async function POST(request: NextRequest) {
         country: country.trim(),
         description: description?.trim() || null,
         formatted_address: formatted_address?.trim() || null,
-        google_types: google_types || [],
         created_by: cmsUser.id,
         owner_id: ownerIdToUse,
         approved: false,

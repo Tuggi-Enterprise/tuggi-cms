@@ -23,7 +23,6 @@ interface EnrichmentRequest {
   name: string;
   city: string;
   country: string;
-  google_place_id?: string;
 }
 
 interface OSMData {
@@ -35,7 +34,7 @@ interface OSMData {
 export const POST = withAuth({ roles: ['admin', 'client', 'editor'] }, async (request: NextRequest) => {
   try {
     const body: EnrichmentRequest = await request.json();
-    const { poi_id, name, city, country, google_place_id } = body;
+    const { poi_id, name, city, country } = body;
 
     console.log(`🔄 Starting OSM enrichment for POI: ${name} (${city}, ${country})`);
 

@@ -50,7 +50,6 @@ export interface Attraction {
   description?: string
   latitude?: number
   longitude?: number
-  google_types?: string[]
 }
 
 export interface AttractionCoordinate {

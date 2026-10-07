@@ -407,7 +407,6 @@ const saveImageReference = async (
   publicUrl: string,
   storagePath: string,
   source: 'wikimedia_commons',
-  reference: string,
   altText?: string
 ): Promise<string> => {
   // Insert into attraction_image table with your existing schema
@@ -418,7 +417,7 @@ const saveImageReference = async (
       attraction_id: attractionId,
       image_url: publicUrl,
       storage_path: storagePath,
-      photo_reference: reference,
+      image_source: source,
       alt_text: altText || `Image from ${source} for attraction ${attractionId}`
     })
     .select('id')
@@ -556,7 +555,6 @@ serve(async (req) => {
       let imageData: ArrayBuffer;
       let fileName: string;
       let folderId: string;
-      let reference: string;
       let altText: string;
       let contentType: string = 'image/jpeg';
 
@@ -572,7 +570,6 @@ serve(async (req) => {
         imageData = wikimediaImageData;
         fileName = generateWikimediaFilename(attractionName, imageInfo.title, 1);
         folderId = `wikimedia-${attractionId.substring(0, 8)}`; // Use attraction ID prefix for folder
-        reference = imageInfo.title;
         altText = `${imageInfo.description || attractionName} - ${imageInfo.author} (${imageInfo.license})`;
         contentType = imageInfo.mime || 'image/jpeg';
 
@@ -606,7 +603,6 @@ serve(async (req) => {
         publicUrlData.publicUrl,
         storagePath,
         imageSource,
-        reference,
         altText
       );
       
