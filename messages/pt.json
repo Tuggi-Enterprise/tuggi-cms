@@ -4088,6 +4088,7 @@
       "publishedLineUndated": "Está no app.",
       "trailPublished": "{name} publicado em {date} por {person}.",
       "trailPublishedAnonymous": "{name} publicado em {date}.",
+      "trailPublishedUndated": "{name} publicado.",
       "billingStarted": "Mensalidade iniciada em {date}.",
       "unpublishAction": "Tirar do app",
       "unpublishTitle": "Tirar {name} do app.",

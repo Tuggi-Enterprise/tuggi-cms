@@ -38,6 +38,7 @@ import type { PartnershipDetail as Detail, PartnershipPlace } from '@/lib/servic
 import { PendencyList } from './PendencyList'
 import { PlaceLinkPanel } from './PlaceLinkPanel'
 import { WelcomeDivergenceCard } from './WelcomeDivergenceCard'
+import { trailPublishedLines } from './trail-text'
 import { PublishPanel, UnpublishPanel } from './PublishPanel'
 import { CommunicationPanel, RefusalPanel, RefusalSummary, type RefusalOutcome } from './TriageRefusalPanel'
 import { triageDeadlineText, triageText } from './triage-text'
@@ -1024,9 +1025,7 @@ function Trail({ detail }: { detail: Detail }) {
       : null,
     // Named, unlike band 5's line: there the place's name is already in the `<p>` above, and
     // here a partnership with N places would otherwise be N identical rows.
-    ...detail.places
-      .filter((place) => place.publishedBy)
-      .map((place) => trailPublishedLine(place, t)),
+    ...trailPublishedLines(detail.places, t),
   ].filter((line): line is string => typeof line === 'string')
 
   if (entries.length === 0) {
@@ -1089,26 +1088,6 @@ function publishedLine(
     return t('publish.publishedLineAnonymous', { date: formatDate(place.publishedBy.at) })
   }
   return t('publish.publishedLine', {
-    date: formatDate(place.publishedBy.at),
-    person: place.publishedBy.by,
-  })
-}
-
-/** The same fact as `publishedLine`, carrying the name — only the trail needs it. */
-function trailPublishedLine(
-  place: PartnershipPlace,
-  t: ReturnType<typeof useTranslations>
-): string {
-  const name = place.readiness.place.name
-  if (!place.publishedBy) return t('publish.publishedLineUndated')
-  if (!place.publishedBy.by) {
-    return t('publish.trailPublishedAnonymous', {
-      name,
-      date: formatDate(place.publishedBy.at),
-    })
-  }
-  return t('publish.trailPublished', {
-    name,
     date: formatDate(place.publishedBy.at),
     person: place.publishedBy.by,
   })
