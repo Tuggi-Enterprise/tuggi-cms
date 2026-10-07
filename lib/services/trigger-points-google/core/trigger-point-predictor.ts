@@ -12,6 +12,9 @@ import { deterministicTPId } from '../utils/deterministic';
 import { TRIGGER_POINTS_CONSTANTS } from '../config/trigger-points-config';
 import { VisibilityClass, LANDMARK_MIN_PROMINENCE_M, EDGE_BAND_M, SANITY_MAX_TP_DISTANCE_M, fanHorizonM, heightFromTags, isCarStreet } from '../config/visibility-class';
 import { DemNotPreparedError, DemStore } from '../../dem/dem-store';
+// Static on purpose: on Node 22.23 a dynamic `import()` skips `mock.module`, and the BR-POI-010
+// test proves that an osm_admin border never calls it.
+import { ensureDemCell } from '../../dem/dem-prepare';
 import { requireLocalOsmCoverage } from '../../local-osm-regions';
 import { LocalOSMFetcher } from '../services/local-osm-fetcher';
 import { emitDebugQuality, DebugQualitySnapshot } from '../debug-quality-logger';
@@ -81,7 +84,6 @@ export class CoreTriggerPointPredictor {
     if (!admin) {
       const dem = DemStore.getInstance();
       if (Number.isFinite(pin?.lat) && Number.isFinite(pin?.lng) && !dem.preparedFor(pin.lat, pin.lng, SANITY_MAX_TP_DISTANCE_M)) {
-        const { ensureDemCell } = await import('../../dem/dem-prepare');
         await ensureDemCell({ lat: pin.lat, lng: pin.lng, marginM: SANITY_MAX_TP_DISTANCE_M, dir: dem.dir });
         dem.refresh(); // prepared here or by another worker meanwhile
       }
