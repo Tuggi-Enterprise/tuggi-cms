@@ -3590,7 +3590,6 @@
   },
   "PartnerValidation": {
     "back": "← Fila de validação",
-    "close": "Voltar ao quadro",
     "loading": "Carregando o cadastro…",
     "readError": "Não foi possível abrir este cadastro.",
     "retry": "Tentar de novo",
