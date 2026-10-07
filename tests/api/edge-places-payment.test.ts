@@ -1040,3 +1040,35 @@ test('#898 BR-B2B-046 BR-B2B-019: the free month that was never paid (paid_at an
   assert.deepEqual(alerts, [])
   assert.deepEqual(sent, [])
 })
+
+// ─── #904: payout Pix key ──────────────────────────────────────────────────────────────────────
+
+test('#904 BR-B2B-044: confirm_pix_key writes through the owner RPC and sends the anti-fraud e-mail every time', async () => {
+  const asaas = fakeAsaas([])
+  const user = fakeDb({
+    portal_confirm_payout_pix_key: { data: '12345678000195' },
+    portal_get_submission: { data: [{ answers: { representative_name: 'José da Silva', trade_name: 'Bar do Zé' } }] },
+  })
+  const x = portal(asaas, fakeDb({}), user)
+  const mail = { subject: '', text: '' }
+  ;(x.d as Record<string, unknown>).sendEmail = async (to: string, subject: string, text: string) => { x.sent.push(to); mail.subject = subject; mail.text = text; return true }
+  const r = await pay.confirmPixKey(x.d as never, SUBMISSION)
+  assert.equal(r.status, 200)
+  assert.deepEqual(r.body, { result: 'confirmed', pix_key: '12345678000195' })
+  assert.deepEqual(user.calls[0], { schema: 'core', fn: 'portal_confirm_payout_pix_key', args: { p_submission_id: SUBMISSION } })
+  assert.deepEqual(x.sent, ['ze@example.com'])
+  assert.equal(mail.subject, 'Chave Pix confirmada no portal Tuggi')
+  // 2026-10-04T12:00Z = 09:00 in São Paulo
+  assert.match(mail.text, /^Olá, José\.\n/)
+  assert.match(mail.text, /A chave Pix CNPJ 12\.345\.678\/0001-95 foi confirmada no portal do Bar do Zé em 04\/10\/2026, às 09:00\./)
+  assert.equal(asaas.calls.length, 0)
+})
+
+test('#904: confirm_pix_key maps TGP01 → 404 and TGP10 → 409 without e-mail', async () => {
+  for (const [code, status] of [['TGP01', 404], ['TGP10', 409]] as const) {
+    const x = portal(fakeAsaas([]), fakeDb({}), fakeDb({ portal_confirm_payout_pix_key: { error: { code, details: 'not_paid_plan' } } }))
+    const r = await pay.confirmPixKey(x.d as never, SUBMISSION)
+    assert.equal(r.status, status)
+    assert.equal(x.sent.length, 0)
+  }
+})
