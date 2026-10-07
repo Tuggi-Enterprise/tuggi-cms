@@ -13,7 +13,8 @@
 // constant time) + `token_sha256` of the draft cookie, no JWT; only `checkout` and `checkout_pix`.
 // The submission comes from `portal_draft_payment_checkout`, never from the body.
 //
-// Body: { action: 'checkout' | 'checkout_pix' | 'cancel_quote' | 'cancel_renewal' | 'refund' | 'withdraw', submission_id, ... }.
+// Body: { action: 'checkout' | 'checkout_pix' | 'cancel_quote' | 'cancel_renewal' | 'refund' | 'withdraw' | 'confirm_pix_key', submission_id, ... }.
+// `confirm_pix_key` (#904): the owner confirms the payout Pix key (the contract's CNPJ) + anti-fraud e-mail.
 // `cancel_renewal` takes an optional `expected_fee_cents` (the quote the owner saw; 409 `quote_changed` if it moved).
 // The card goes to Asaas in the same request and is never stored, logged or echoed. `checkout` and
 // `checkout_pix` in the free month (#898) charge nothing and answer
@@ -23,7 +24,7 @@
 import { isPlacesSecret, PLACES_SECRET_HEADER } from '../_shared/places-secret.ts';
 import { isDraftSecret } from '../_shared/places-draft-secret.ts';
 import { DRAFT_SECRET_HEADER } from '../_shared/places-portal-draft.ts';
-import { cancelQuote, cancelRenewal, checkout, checkoutPix, draftCheckout, draftCheckoutPix, requestRefund, withdraw, type PortalDeps } from '../_shared/places-payment.ts';
+import { cancelQuote, cancelRenewal, checkout, confirmPixKey, checkoutPix, draftCheckout, draftCheckoutPix, requestRefund, withdraw, type PortalDeps } from '../_shared/places-payment.ts';
 import { asaasFromEnv, baseDeps, json, userDeps } from '../_shared/places-payment-runtime.ts';
 
 /** The cookie's checkout (#863). The secret is checked before the body is read. */
@@ -89,6 +90,8 @@ Deno.serve(async (req: Request) => {
             ? await requestRefund(deps, submissionId)
             : body.action === 'withdraw'
               ? await withdraw(deps, submissionId)
+            : body.action === 'confirm_pix_key'
+              ? await confirmPixKey(deps, submissionId)
               : { status: 400, body: { error: 'invalid', field: 'action' } };
     console.log('[places-payment]', String(body.action).slice(0, 20), r.status);
     return json(r.status, r.body);

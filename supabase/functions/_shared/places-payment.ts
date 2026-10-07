@@ -1601,3 +1601,80 @@ export const CANCEL_EMAIL = {
     ].join('\n');
   },
 };
+
+// ─── portal: payout Pix key (#904) ─────────────────────────────────────────────────────────────
+
+/**
+ * The owner confirms the payout Pix key (contract places-pagamento §3.5, term 5.4, BR-B2B-044). No
+ * key comes from the request: `core.portal_confirm_payout_pix_key` proves the owner by `auth.uid()`,
+ * writes the contract's CNPJ and returns the canonical key. Then the anti-fraud e-mail, at EVERY
+ * confirmation (design spec of #904 §4), to the session's e-mail (confirmed by the access link) —
+ * a failure there alerts the operator and does not undo the key.
+ *
+ * Called only through this EF (with the user's JWT), never from the browser: the e-mail is the side
+ * effect, like `portal_request_refund` (§3.4). TGP01 → 404, TGP10 (`not_paid_plan` | `refused`) → 409.
+ */
+export async function confirmPixKey(deps: PortalDeps, submissionId: string): Promise<Reply> {
+  if (!isUuid(submissionId)) return reply(400, { error: 'invalid', field: 'submission_id' });
+  const { data, error } = await deps.user('core', 'portal_confirm_payout_pix_key', { p_submission_id: submissionId });
+  if (error) {
+    if (isBusinessError(error)) return portalErrorReply(error);
+    await deps.alert('pix_key_confirm_failed', { code: error.code });
+    return reply(502, { error: 'unavailable' });
+  }
+  const key = typeof data === 'string' ? data : null;
+  if (!key) {
+    await deps.alert('pix_key_confirm_failed', { code: 'empty' });
+    return reply(502, { error: 'unavailable' });
+  }
+
+  const to = await deps.userEmail();
+  const sub = await deps.user('core', 'portal_get_submission', { p_submission_id: submissionId });
+  const answers = (firstRow<{ answers?: Record<string, unknown> }>(sub.data)?.answers ?? {}) as Record<string, unknown>;
+  const text = PIX_KEY_EMAIL.text({
+    firstName: firstNameOf(answers.representative_name),
+    placeName: typeof answers.trade_name === 'string' ? answers.trade_name.trim() : '',
+    key,
+    at: deps.now(),
+  });
+  const sent = to ? await deps.sendEmail(to, PIX_KEY_EMAIL.subject, text) : false;
+  if (!sent) await deps.alert('pix_key_email_failed', { submission_id: submissionId });
+  return reply(200, { result: 'confirmed', pix_key: key });
+}
+
+const firstNameOf = (v: unknown): string => (typeof v === 'string' ? (v.trim().split(/\s+/)[0] ?? '') : '');
+
+/** Canonical CNPJ (14 chars, alphanumeric allowed) → `12.ABC.345/01DE-35`; same as the portal's `formatCnpj` (`tuggi-places/src/lib/cnpj.ts`). */
+export function formatCnpjKey(key: string): string {
+  const c = key.replace(/[^0-9A-Za-z]/g, '').toUpperCase();
+  if (c.length !== 14) return c;
+  return `${c.slice(0, 2)}.${c.slice(2, 5)}.${c.slice(5, 8)}/${c.slice(8, 12)}-${c.slice(12)}`;
+}
+
+/** `dd/mm/aaaa` and `hh:mm` in America/Sao_Paulo. */
+export function saoPauloDateTime(d: Date): { date: string; time: string } {
+  const p = Object.fromEntries(
+    new Intl.DateTimeFormat('pt-BR', { timeZone: 'America/Sao_Paulo', day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit', hourCycle: 'h23' })
+      .formatToParts(d)
+      .map((x) => [x.type, x.value]),
+  );
+  return { date: `${p.day}/${p.month}/${p.year}`, time: `${p.hour}:${p.minute}` };
+}
+
+/** Anti-fraud notice of #904 (design spec §4). States only the key, the place and the moment. */
+export const PIX_KEY_EMAIL = {
+  subject: 'Chave Pix confirmada no portal Tuggi',
+  text: (v: { firstName: string; placeName: string; key: string; at: Date }) => {
+    const { date, time } = saoPauloDateTime(v.at);
+    const where = v.placeName ? `no portal do ${v.placeName}` : 'no portal Tuggi';
+    return [
+      v.firstName ? `Olá, ${v.firstName}.` : 'Olá.',
+      '',
+      `A chave Pix CNPJ ${formatCnpjKey(v.key)} foi confirmada ${where} em ${date}, às ${time}. É nela que a Tuggi paga a sua comissão.`,
+      '',
+      'Não foi você? Responda este e-mail agora.',
+      '',
+      'Equipe Tuggi',
+    ].join('\n');
+  },
+};
