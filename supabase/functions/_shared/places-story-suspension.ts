@@ -115,7 +115,8 @@ export async function reconcilePartnerStories(deps: SuspensionDeps): Promise<Sus
       if (outcome !== 'none') summary[outcome]++;
     } catch (e) {
       summary.failed++;
-      await deps.alert('story_suspension_failed', { attraction_id: attractionId, error: e instanceof Error ? e.message.slice(0, 200) : 'unknown' });
+      try { await deps.alert('story_suspension_failed', { attraction_id: attractionId, error: e instanceof Error ? e.message.slice(0, 200) : 'unknown' }); } catch { // a failed alert must not stop the loop (security review #889, R4)
+      }
     }
   }
   return summary;
