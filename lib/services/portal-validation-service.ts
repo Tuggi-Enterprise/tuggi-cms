@@ -19,7 +19,8 @@
  *    the submission, not only by CNPJ, which a submission may not carry — then by CNPJ, then
  *    created;
  *  · link, details and coordinate are re-applied on EVERY attempt (`applyPlacePrefill`), so a
- *    retry finishes a half-written POI instead of approving it without offer and without pin.
+ *    retry finishes a half-written POI instead of approving it without offer and without pin;
+ *  · so is the tier's description (#888, `applyPrefillDescription`), which never writes over one.
  * A failure halfway leaves the submission `in_review`, gives the claim back, and the next click
  * converges; the transition, which is the only thing the portal shows the client, happens last.
  */
@@ -30,7 +31,12 @@ import { buildPromotionPlan, resolvePromotionWrite } from '@/lib/partner-form/pr
 import { buildPlacePrefill } from '@/lib/partner-form/place-prefill'
 import type { PartnerAnswers } from '@/lib/partner-form/schema'
 import type { PlacePrefill } from '@/lib/partner-form/place-prefill'
-import { applyPlacePrefill, createPrefilledPlace } from '@/lib/services/partner-place-provisioning'
+import {
+  applyPlacePrefill,
+  applyPrefillDescription,
+  createPrefilledPlace,
+} from '@/lib/services/partner-place-provisioning'
+import { PLAN_CHOICES, type PlanChoice } from '@/lib/partner-form/fields'
 import { createPromotedClient, findClientByTaxId } from '@/lib/services/partner-proposal-admin-service'
 import { ClientService } from '@/lib/services/client-service'
 import ptMessages from '@/messages/pt.json'
@@ -236,11 +242,27 @@ async function approveClaimed(
     attractionId = created.attractionId
   }
 
-  const client = await resolveApprovalClient(submission.id, attractionId, answers, operator)
+  const acceptance = await acceptanceOf(submission.id)
+  if (!acceptance) return { ok: false, httpStatus: 503, error: 'lookup_failed', attractionId }
+
+  const client = await resolveApprovalClient(attractionId, answers, acceptance.email, operator)
   if (!client.ok) return { ok: false, httpStatus: 503, error: client.error, attractionId }
 
   const place = await applyPlacePrefill(attractionId, prefill, client.clientId, operator)
   if (place.status === 'failed') return { ok: false, httpStatus: 503, error: place.reason, attractionId }
+
+  // #888: the place is born with its tier's description — `story_script` on the paid tier, the
+  // name on the free one. The tier is the one the client accepted AND paid on the portal (payment
+  // is confirmed before validation, BR-B2B-046 item 1), and `describeDescriptionPolicy` decides.
+  // Text only: nothing here generates or queues audio (the app voices the description).
+  const described = await applyPrefillDescription(
+    attractionId,
+    { story: answers.story_script ?? null, acceptedPlanChoice: acceptance.planChoice },
+    operator
+  )
+  if (described.status === 'failed') {
+    return { ok: false, httpStatus: 503, error: described.reason, attractionId }
+  }
 
   // The relationship is approved by the same act (#872): `status = 'approved'` is what makes the
   // client attributable (BR-MONETIZACAO-027) and creates its CMS user — the SAME function as the
@@ -258,9 +280,9 @@ async function approveClaimed(
  * the POI is unapproved and only `CMS admins can read attractions` sees it.
  */
 async function resolveApprovalClient(
-  submissionId: string,
   attractionId: string,
   answers: PartnerAnswers,
+  acceptanceEmail: string | null,
   operator: SupabaseClient
 ): Promise<{ ok: true; clientId: string } | { ok: false; error: string }> {
   const { data, error } = await operator
@@ -281,9 +303,8 @@ async function resolveApprovalClient(
 
   // `partner.clients.email` is NOT NULL, and the portal never asks `representative_email` (the
   // public form's source for it in PROMOTION_MAP): the portal's e-mail is the acceptance's.
-  const email = await acceptanceEmailOf(submissionId)
-  if (!email) return { ok: false, error: 'lookup_failed' }
-  const portalAnswers: PartnerAnswers = { ...answers, representative_email: email }
+  if (!acceptanceEmail) return { ok: false, error: 'lookup_failed' }
+  const portalAnswers: PartnerAnswers = { ...answers, representative_email: acceptanceEmail }
   const plan = buildPromotionPlan(portalAnswers, null, {
     categoryLabel: CATEGORY_LABELS[answers.category ?? ''] ?? null,
   })
@@ -321,18 +342,26 @@ async function approveRelationship(
   }
 }
 
-/** The e-mail the client accepted the terms with (`partner.place_acceptances.email`). */
-async function acceptanceEmailOf(submissionId: string): Promise<string | null> {
+/**
+ * What the client accepted (`partner.place_acceptances`): the e-mail it accepted with, and the tier
+ * it accepted and paid — the acceptance IS the instrument (BR-B2B-047, item 1). `null` when the
+ * read failed or there is no acceptance; a tier the form no longer offers reads `null`.
+ */
+async function acceptanceOf(
+  submissionId: string
+): Promise<{ email: string | null; planChoice: PlanChoice | null } | null> {
   const { data, error } = await partner()
     .from('place_acceptances')
-    .select('email')
+    .select('email, plan_choice')
     .eq('submission_id', submissionId)
     .maybeSingle()
   if (error || !data) {
     console.error('[portal-validation] acceptance read failed', error?.code ?? 'no_row')
     return null
   }
-  return (data as { email: string | null }).email || null
+  const row = data as { email: string | null; plan_choice: string | null }
+  const planChoice = PLAN_CHOICES.find((choice) => choice === row.plan_choice) ?? null
+  return { email: row.email || null, planChoice }
 }
 
 /** A portal submission of a client, as the client record and the contract guard read it. */

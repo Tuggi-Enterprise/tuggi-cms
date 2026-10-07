@@ -29,6 +29,7 @@ import {
   type PartnerStoryInput,
 } from '@/lib/partnerships/place-description-policy'
 import type { PartnerAnswers } from '@/lib/partner-form/schema'
+import type { PlanChoice } from '@/lib/partner-form/fields'
 import { operatorLabel } from '@/lib/services/operator-label'
 
 /** The language a place's description is born in. Every other one is translated out of it. */
@@ -123,7 +124,9 @@ function core(db: SupabaseClient) {
 /** `null` when the attraction does not exist, or when the caller is not a CMS user. */
 export async function loadPlaceDescriptionPolicy(
   attractionId: string,
-  db: SupabaseClient
+  db: SupabaseClient,
+  /** The portal's paid tier, when the caller is the portal's approval — `DescriptionPolicyFacts`. */
+  acceptedPlanChoice: PlanChoice | null = null
 ): Promise<PlaceDescriptionPolicyView | null> {
   const { data, error } = await core(db).rpc('cms_place_description_facts', {
     p_attraction_id: attractionId,
@@ -143,6 +146,7 @@ export async function loadPlaceDescriptionPolicy(
     partnerClientId: row.partner_client_id,
     plan,
     exception,
+    acceptedPlanChoice,
   })
 
   const text = (row.base_description ?? '').trim()
@@ -201,7 +205,10 @@ export async function applyDescriptionPolicyToPlace(
 ): Promise<NameOnlyOutcome> {
   const view = await loadPlaceDescriptionPolicy(attractionId, db)
   if (!view || view.decision.policy !== 'name_only') return 'not_applicable'
+  return applyNameOnly(attractionId, db)
+}
 
+async function applyNameOnly(attractionId: string, db: SupabaseClient): Promise<NameOnlyOutcome> {
   const { data, error } = await core(db).rpc('cms_apply_name_only_description', {
     p_attraction_id: attractionId,
     p_language: BASE_LANGUAGE,
@@ -210,6 +217,95 @@ export async function applyDescriptionPolicyToPlace(
 
   if (error) throw new Error(error.message)
   return (data as NameOnlyOutcome) ?? 'skipped'
+}
+
+/** `generation_meta.kind` of a description written from the partner's own text (`story_script`). */
+export const PARTNER_STORY_SCRIPT_KIND = 'partner_story_script'
+
+/** What the partner's registration brings to the description. */
+export interface PartnerDescriptionInput {
+  /** `answers.story_script` — the portal's paid-tier text (≤ 600 chars). `null` on the old form. */
+  story: string | null
+  /** Only the portal's approval passes it — see `DescriptionPolicyFacts.acceptedPlanChoice`. */
+  acceptedPlanChoice: PlanChoice | null
+}
+
+/**
+ * `NameOnlyOutcome`, plus `no_story`: the tier is the paid one and the registration brought no
+ * text — the studio produces it (gate 2 of BR-B2B-011 is a person, not this function).
+ */
+export type PartnerDescriptionOutcome = NameOnlyOutcome | 'no_story'
+
+/**
+ * THE PLACE BORN FROM A PARTNER'S REGISTRATION CARRIES WHAT ITS TIER GIVES IT — #888, and the one
+ * entry point for it: the place created on approval (`approvePortalSubmission`,
+ * `createPlaceFromPrefill`) and the catalogue POI linked to the registration (#885) both call this.
+ *
+ *  · `name_only` (free tier) → the description IS the name, by `cms_apply_name_only_description`
+ *    (BR-B2B-016, item 9) — without it the place is mute (`hasDescriptiveAudio`).
+ *  · `partner_story` (paid tier, or the operator's exception) → `story_script` becomes the pt
+ *    description (BR-B2B-016, item 1; BR-B2B-025 — Tuggi narrates what the establishment asserts).
+ *  · `curation` → nothing.
+ *
+ * The tier is `describeDescriptionPolicy`'s, never read here a second time.
+ *
+ * NEVER WRITES OVER A DESCRIPTION (BR-B2B-016, 5th edge case), and the guard is in the statement,
+ * not in an `if` between a read and a write: the insert is `ON CONFLICT DO NOTHING`, and the only
+ * row it may replace is the name-only one (`generation_meta.kind = partner_name_only`), by a
+ * conditional UPDATE. A catalogue description, an operator's edit and a `[PROCESSING]` row answer
+ * `blocked`. Running it again answers `unchanged`.
+ *
+ * It writes TEXT ONLY: `audio_url` stays `NULL` and nothing is queued — the app voices the
+ * description itself (operator, 2026-10-06).
+ *
+ * `db` is the OPERATOR's session client: the RPC and the table's write policies gate on the CMS
+ * editor's JWT.
+ */
+export async function applyPartnerPlaceDescription(
+  attractionId: string,
+  input: PartnerDescriptionInput,
+  db: SupabaseClient
+): Promise<PartnerDescriptionOutcome> {
+  const view = await loadPlaceDescriptionPolicy(attractionId, db, input.acceptedPlanChoice)
+  if (!view) return 'not_applicable'
+  if (view.decision.policy === 'name_only') return applyNameOnly(attractionId, db)
+  if (view.decision.policy !== 'partner_story') return 'not_applicable'
+
+  const story = (input.story ?? '').trim()
+  if (!story) return 'no_story'
+  if (view.baseDescription?.text === story) return 'unchanged'
+
+  const row = {
+    attraction_id: attractionId,
+    language: BASE_LANGUAGE,
+    gender: BASE_GENDER,
+    description: story,
+    audio_url: null,
+    updated_at: new Date().toISOString(),
+    // Same reasoning as the name-only row: the establishment answers for what it asserts
+    // (BR-B2B-025, item 4 — Tuggi does not verify third-party facts), and the operator who just
+    // approved the registration is the human review (BR-B2B-011, gate 2).
+    verification_status: 'approved',
+    generation_meta: { kind: PARTNER_STORY_SCRIPT_KIND },
+  }
+
+  const inserted = await core(db)
+    .from('attraction_descriptions')
+    .upsert(row, { onConflict: 'attraction_id,language,gender', ignoreDuplicates: true })
+    .select('id')
+  if (inserted.error) throw new Error(inserted.error.message)
+  if ((inserted.data ?? []).length > 0) return 'written'
+
+  const replaced = await core(db)
+    .from('attraction_descriptions')
+    .update(row)
+    .eq('attraction_id', attractionId)
+    .eq('language', BASE_LANGUAGE)
+    .eq('gender', BASE_GENDER)
+    .eq('generation_meta->>kind', 'partner_name_only')
+    .select('id')
+  if (replaced.error) throw new Error(replaced.error.message)
+  return (replaced.data ?? []).length > 0 ? 'written' : 'blocked'
 }
 
 /**
