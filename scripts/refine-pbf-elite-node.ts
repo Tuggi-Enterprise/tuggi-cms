@@ -4,6 +4,7 @@ import path from 'node:path';
 import { splitOnLineFeed } from '../lib/services/osm-local-data-service';
 import { shouldFilterPOI, pickCategory, CATEGORIES } from '../lib/shared/poi-filter';
 import { articlesByWikidata } from '../lib/services/wikidata-sitelinks';
+import { scenicRoadFeatures } from '../lib/services/osm-scenic-roads';
 import { polygonContains, type RegionPolygon } from '../lib/services/local-osm-regions';
 
 /**
@@ -12,7 +13,7 @@ import { polygonContains, type RegionPolygon } from '../lib/services/local-osm-r
  * carried Italian lakes and Czech nature reserves that way. The national border is the
  * admin_level=2 relation tagged ISO3166-1=<code>, assembled by osmium from the same PBF.
  */
-function nationalBorder(inputPath: string, iso: string, outputDir: string, timestamp: number): RegionPolygon {
+export function nationalBorder(inputPath: string, iso: string, outputDir: string, timestamp: number): RegionPolygon {
   const relPbf = path.join(outputDir, `border-${timestamp}.osm.pbf`);
   const relJson = path.join(outputDir, `border-${timestamp}.geojson`);
   const f = spawnSync('osmium', ['tags-filter', inputPath, `r/ISO3166-1=${iso}`, '-o', relPbf, '--overwrite']);
@@ -53,6 +54,25 @@ function metresToBorder(border: RegionPolygon, lng: number, lat: number): number
 
 // A summit or pass on the border line falls on either side of it by a few metres of mapping.
 const BORDER_TOLERANCE_M = 150;
+
+/**
+ * One feature per scenic road (lib/services/osm-scenic-roads), with the member ways past the border
+ * cut: the importer pins the POI on the first coordinate, and the Timmelsjoch road starts in Italy.
+ */
+export async function scenicRoadsInside(inputPath: string, workDir: string, tag: string, border: RegionPolygon | null): Promise<any[]> {
+  const inside = (pt: number[]) => !border || polygonContains(border, pt[1], pt[0]) || metresToBorder(border, pt[0], pt[1]) <= BORDER_TOLERANCE_M;
+  const roads = await scenicRoadFeatures(inputPath, workDir, tag);
+  // A road of the neighbour that touches the border stays out: the Deutsche Alpenstraße has 13 of its
+  // 29 member ways on the Austrian side of the line (or the extract's idea of it).
+  return roads.filter(road => {
+    const all = road.geometry.coordinates;
+    const strictly = all.filter((line: number[][]) => !border || polygonContains(border, line[0][1], line[0][0])).length;
+    if (strictly * 2 <= all.length) return false;
+    const lines = all.filter((line: number[][]) => inside(line[0]));
+    road.geometry.coordinates = lines;
+    return true;
+  });
+}
 
 async function main() {
   const args = process.argv.slice(2);
@@ -128,6 +148,12 @@ async function main() {
   
   const stage2Stats = fs.statSync(geojsonSeqPath);
   console.log(`✅ Stage 2 complete: ${geojsonSeqPath} (${stage2Stats.size} bytes)`);
+
+  // Scenic roads are route relations, which osmium export does not emit: built apart, appended so
+  // Stage 3 judges them like everything else.
+  const scenicRoads = await scenicRoadsInside(inputPath, outputDir, String(timestamp), border);
+  for (const road of scenicRoads) fs.appendFileSync(geojsonSeqPath, JSON.stringify(road) + '\n');
+  console.log(`   Scenic roads (route=road + scenic=yes) appended: ${scenicRoads.length}`);
 
   // 3. Stage 3: Unified Elite Filtering
   console.log('\n🚀 Stage 3: Unified Elite Filtering (line-by-line)...');

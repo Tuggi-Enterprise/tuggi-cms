@@ -142,7 +142,16 @@ export function pickCategory(props: any): string | undefined {
   // Stage 1 keys outside the list above (CATEGORIES): take the value.
   if (props.railway === 'funicular') return 'funicular';
   if (props.landuse === 'cemetery') return 'cemetery';
+  if (isScenicRoad(props)) return 'scenic_road';
   return undefined;
+}
+
+/**
+ * A scenic road relation (Großglockner-Hochalpenstraße, Nockalmstraße): one POI for the whole road,
+ * built by lib/services/osm-scenic-roads. Its member ways stay out, as every road does.
+ */
+export function isScenicRoad(props: any): boolean {
+  return props.type === 'route' && props.route === 'road' && props.scenic === 'yes';
 }
 
 // Ski-area lifts. A cable car (Pendelbahn) and a funicular stay out: those are the summit rides.
@@ -369,6 +378,8 @@ export function shouldFilterPOI(poi: any): POIFilterResult {
   if (isMarkerNoise && !hasHardReference) {
     return { remove: true, reason: `MARKER_NOISE: Marco sem valor (${props.historic || props.man_made || props.highway || props.marker})` };
   }
+
+  if (isScenicRoad(props)) return { remove: false };
 
   if (props.route || props.type === "route") {
     return { remove: true, reason: "Category: Rota/Trajeto (não é um ponto fixo)" };
