@@ -69,6 +69,9 @@ export type AuditAction =
   // cliente sem deixar rastro nenhum no registro — que continua no catálogo, intacto e no ar.
   // Sem esta linha, "por que este parceiro não tem mais local?" não tem resposta.
   | 'UNLINK_PARTNER_PLACE'
+  // `Puxar dados do cadastro` (#885): the client's registration merged into a place already
+  // linked to it (BR-B2B-033, item 5). Overwrites the operational facts, so it leaves a row.
+  | 'PULL_PARTNER_REGISTRATION'
   // Which of the client's places greets the tourist on `/d/{slug}`. It is a separate action
   // from the link because it is a separate question: linking says whose place it is, this says
   // which one speaks first. Written by hand only when the client has more than one place —

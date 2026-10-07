@@ -4176,6 +4176,15 @@
       "unlinking": "Desvinculando…",
       "failed": "Não foi possível desvincular agora. Tente de novo."
     },
+    "registration": {
+      "action": "Puxar dados do cadastro",
+      "pulling": "Puxando…",
+      "applied": "Cadastro aplicado. Nome, endereço e pino do catálogo foram mantidos.",
+      "noRegistration": "Este cliente não tem cadastro para puxar.",
+      "nothingToPrefill": "O cadastro não traz dados deste local.",
+      "notLinked": "Este local não está mais vinculado a este cliente.",
+      "failed": "Não foi possível puxar agora. Tente de novo."
+    },
     "gate": "{count, plural, one {Falta {items}.} other {Faltam {items}.}}",
     "gateItems": {
       "acceptance": "o aceite",

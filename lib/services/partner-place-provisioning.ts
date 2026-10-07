@@ -46,11 +46,22 @@
 
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { placeService } from '@/lib/core/place-service'
-import { buildPlacePrefill, type PlacePrefill } from '@/lib/partner-form/place-prefill'
+import {
+  buildPlacePrefill,
+  CATALOGUE_WINS_COLUMNS,
+  mergePlacePrefill,
+  type CataloguePlace,
+  type PlacePrefill,
+  type PrefillWrite,
+} from '@/lib/partner-form/place-prefill'
+import type { PartnerAnswers } from '@/lib/partner-form/schema'
+import type { PlanChoice } from '@/lib/partner-form/fields'
 import { findPromotedSubmission } from '@/lib/services/partner-proposal-admin-service'
+import { portalRegistrationOfPlace } from '@/lib/services/portal-validation-service'
 import {
   applyPartnerPlaceDescription,
   type PartnerDescriptionInput,
+  type PartnerDescriptionOutcome,
 } from '@/lib/services/place-description-policy-service'
 
 /**
@@ -62,7 +73,15 @@ export type PartnerPlaceOutcome =
   | { status: 'created'; attractionId: string }
   | {
       status: 'skipped'
-      reason: 'no_promoted_proposal' | 'nothing_to_prefill' | 'already_provisioned'
+      reason: 'no_promoted_proposal' | 'nothing_to_prefill' | 'already_provisioned' | 'not_linked'
+    }
+  | {
+      // #885 — the registration merged into a catalogue POI (`mergeRegistrationIntoPlace`).
+      // `prefill` says whether there was a registration to bring; the description runs either way.
+      status: 'merged'
+      attractionId: string
+      prefill: 'applied' | 'no_promoted_proposal' | 'nothing_to_prefill'
+      description: PartnerDescriptionOutcome
     }
   | {
       status: 'failed'
@@ -207,17 +226,35 @@ export async function createPrefilledPlace(
  * same values, so running it again on a place that already has them is a no-op: that is what
  * lets the portal's approval retry a half-written POI instead of approving it without offer
  * and without pin.
+ *
+ * `mode`: `replace` is the place this act just created — nothing to protect. `merge` is a POI
+ * the catalogue already carries (#885): the writes go through `mergePlacePrefill`, BR-B2B-033
+ * item 5 — the catalogue keeps its identity and coordinate, the partner wins on the operational
+ * facts, tags unite. One path for both, so the allowlist cannot be honoured by one and skipped by
+ * the other.
  */
 export async function applyPlacePrefill(
   attractionId: string,
   prefill: PlacePrefill,
   clientId: string,
-  operator: SupabaseClient
+  operator: SupabaseClient,
+  mode: 'replace' | 'merge' = 'replace'
 ): Promise<PrefillWriteOutcome> {
+  let write: PrefillWrite = {
+    attraction: prefill.attraction,
+    details: prefill.details,
+    coordinate: prefill.coordinate,
+  }
+  if (mode === 'merge') {
+    const catalogue = await readCataloguePlace(attractionId, operator)
+    if (!catalogue) return { status: 'failed', reason: 'lookup_failed', attractionId }
+    write = mergePlacePrefill(prefill, catalogue)
+  }
+
   try {
     await placeService.updateAttraction(
       attractionId,
-      { ...prefill.attraction, partner_client_id: clientId },
+      { ...write.attraction, partner_client_id: clientId },
       operator
     )
   } catch (error) {
@@ -225,21 +262,21 @@ export async function applyPlacePrefill(
     return { status: 'failed', reason: 'link_failed', attractionId }
   }
 
-  if (Object.keys(prefill.details).length > 0) {
+  if (Object.keys(write.details).length > 0) {
     try {
-      await placeService.updateDetails(attractionId, prefill.details, operator)
+      await placeService.updateDetails(attractionId, write.details, operator)
     } catch (error) {
       console.error('[partner-approval] place details not written', attractionId, error)
       return { status: 'failed', reason: 'details_failed', attractionId }
     }
   }
 
-  if (prefill.coordinate) {
+  if (write.coordinate) {
     try {
       await placeService.setCoordinate(
         attractionId,
-        prefill.coordinate.latitude,
-        prefill.coordinate.longitude,
+        write.coordinate.latitude,
+        write.coordinate.longitude,
         operator
       )
     } catch (error) {
@@ -249,4 +286,109 @@ export async function applyPlacePrefill(
   }
 
   return { status: 'created', attractionId }
+}
+
+/**
+ * What the catalogue POI carries that the merge must not overwrite — read with the operator's
+ * session, the identity about to write. `null` when any read failed: merging blind would let the
+ * registration's spelling overwrite the curated name, so it fails closed.
+ */
+async function readCataloguePlace(
+  attractionId: string,
+  operator: SupabaseClient
+): Promise<CataloguePlace | null> {
+  const core = operator.schema('core')
+  const [attraction, details, coordinate] = await Promise.all([
+    core.from('attractions').select(CATALOGUE_WINS_COLUMNS.join(', ')).eq('id', attractionId).maybeSingle(),
+    core.from('place_details').select('tags').eq('attraction_id', attractionId).maybeSingle(),
+    core
+      .from('attraction_coordinate')
+      .select('attraction_id', { count: 'exact', head: true })
+      .eq('attraction_id', attractionId),
+  ])
+  if (attraction.error || !attraction.data || details.error || coordinate.error) {
+    console.error('[partner-link] catalogue place read failed', attractionId)
+    return null
+  }
+  const tags = (details.data as { tags: unknown } | null)?.tags
+  return {
+    identity: attraction.data as unknown as CataloguePlace['identity'],
+    tags: Array.isArray(tags) ? tags.filter((tag): tag is string => typeof tag === 'string') : null,
+    hasCoordinate: (coordinate.count ?? 0) > 0,
+  }
+}
+
+/**
+ * The registration behind a place: the portal submission of THIS place when there is one (its
+ * answers, and the tier the client accepted and paid there), else the old form's proposal promoted
+ * into the client — whose `plan_choice` is a request, not a payment, so no accepted tier.
+ * `undefined` when the portal lookup failed.
+ */
+async function registrationOf(
+  clientId: string,
+  attractionId: string
+): Promise<{ answers: PartnerAnswers; acceptedPlanChoice: PlanChoice | null } | null | undefined> {
+  const portal = await portalRegistrationOfPlace(attractionId)
+  if (portal === undefined) return undefined
+  if (portal) return portal
+  const submission = await findPromotedSubmission(clientId)
+  return submission ? { answers: submission.answers ?? {}, acceptedPlanChoice: null } : null
+}
+
+/**
+ * #885 — THE CLIENT'S REGISTRATION ON A CATALOGUE POI LINKED TO IT. Called by the link route,
+ * right after the link, and by `Puxar dados do cadastro` on a place already linked (the clients
+ * linked before this existed). Same act both times, and idempotent: the merge writes the same
+ * values again (BR-B2B-033, item 5) and the description never writes over one (#888).
+ *
+ * The description runs even without a registration — a free-tier partner's place is owed its name
+ * (BR-B2B-016, item 9) whatever the form said.
+ *
+ * Answers as data, never throws: the link is done before this runs, and a 500 would read as the
+ * link having failed.
+ */
+export async function mergeRegistrationIntoPlace(
+  clientId: string,
+  attractionId: string,
+  operator: SupabaseClient
+): Promise<PartnerPlaceOutcome> {
+  const { data, error } = await operator
+    .schema('core')
+    .from('attractions')
+    .select('partner_client_id')
+    .eq('id', attractionId)
+    .maybeSingle()
+  if (error) return { status: 'failed', reason: 'lookup_failed', attractionId }
+  if ((data as { partner_client_id: string | null } | null)?.partner_client_id !== clientId) {
+    return { status: 'skipped', reason: 'not_linked' }
+  }
+
+  const registration = await registrationOf(clientId, attractionId)
+  if (registration === undefined) return { status: 'failed', reason: 'lookup_failed', attractionId }
+
+  let prefillState: Extract<PartnerPlaceOutcome, { status: 'merged' }>['prefill'] = 'no_promoted_proposal'
+  if (registration) {
+    const prefill = buildPlacePrefill(registration.answers)
+    prefillState = 'nothing_to_prefill'
+    if (prefill) {
+      const applied = await applyPlacePrefill(attractionId, prefill, clientId, operator, 'merge')
+      if (applied.status === 'failed') return applied
+      prefillState = 'applied'
+    }
+  }
+
+  try {
+    const description = await applyPartnerPlaceDescription(
+      attractionId,
+      {
+        story: registration?.answers.story_script ?? null,
+        acceptedPlanChoice: registration?.acceptedPlanChoice ?? null,
+      },
+      operator
+    )
+    return { status: 'merged', attractionId, prefill: prefillState, description }
+  } catch (descriptionError) {
+    console.error('[partner-link] place description not written', attractionId, descriptionError)
+    return { status: 'failed', reason: 'description_failed', attractionId }
+  }
 }

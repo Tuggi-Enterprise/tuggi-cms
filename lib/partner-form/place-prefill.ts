@@ -322,3 +322,84 @@ export function buildPlacePrefill(answers: PartnerAnswers): PlacePrefill | null 
     coordinate: coordinateOf(answers),
   }
 }
+
+/**
+ * THE MERGE ON A CATALOGUE POI — BR-B2B-033, item 5 (#885). Creating a place has nothing to
+ * overwrite; linking the registration to a POI the catalogue already carries does, and the rule
+ * is two-sided:
+ *  · the CATALOGUE wins on identity — name, address, postal code, city/state, coordinate — and the
+ *    partner only fills what is empty. The registration spells `BAIRES BISTRO` where the catalogue
+ *    has `Baires Bistrô`;
+ *  · the PARTNER wins on the operational facts — every other column the prefill carries (hours,
+ *    contact, amenities and flags, price range, offers). Tags are the union: nothing of the
+ *    catalogue's leaves.
+ * A column on neither list (`country`, `place_type`) is not written. Running it again over its own
+ * result writes the same values: idempotent. `PLACE_PREFILL_NEVER_WRITES` holds, because the input
+ * is the same allowlisted prefill.
+ */
+export const CATALOGUE_WINS_COLUMNS = [
+  'name',
+  'city',
+  'state',
+  'formatted_address',
+  'postal_code',
+  'street_name',
+  'house_number',
+  'neighborhood',
+] as const
+
+export type CatalogueWinsColumn = (typeof CATALOGUE_WINS_COLUMNS)[number]
+
+/** What the catalogue POI already carries, as far as the merge needs to know. */
+export interface CataloguePlace {
+  identity: Partial<Record<CatalogueWinsColumn, string | null>>
+  tags: string[] | null
+  hasCoordinate: boolean
+}
+
+/** The writes of a prefill — what `applyPlacePrefill` sends, in either mode. */
+export interface PrefillWrite {
+  attraction: Record<string, PrefillValue>
+  details: Partial<Record<PlacePrefillDetailColumn, PrefillValue>>
+  coordinate: PlacePrefill['coordinate']
+}
+
+function isEmpty(value: string | null | undefined): boolean {
+  return value === null || value === undefined || value.trim() === ''
+}
+
+/** BR-B2B-033, item 5: the prefill as it may land on a POI the catalogue already curates. */
+export function mergePlacePrefill(prefill: PlacePrefill, catalogue: CataloguePlace): PrefillWrite {
+  const partnerIdentity: Partial<Record<CatalogueWinsColumn, PrefillValue | null>> = {
+    name: prefill.create.name,
+    city: prefill.create.city,
+    state: prefill.create.state,
+    formatted_address: prefill.attraction.formatted_address,
+    postal_code: prefill.attraction.postal_code,
+    street_name: prefill.attraction.street_name,
+    house_number: prefill.attraction.house_number,
+    neighborhood: prefill.attraction.neighborhood,
+  }
+
+  const attraction: Record<string, PrefillValue> = {}
+  for (const column of CATALOGUE_WINS_COLUMNS) {
+    const value = partnerIdentity[column]
+    if (value === null || value === undefined || value === '') continue
+    if (isEmpty(catalogue.identity[column])) attraction[column] = value
+  }
+  for (const [column, value] of Object.entries(prefill.attraction)) {
+    if ((CATALOGUE_WINS_COLUMNS as readonly string[]).includes(column) || value === undefined) continue
+    attraction[column] = value
+  }
+
+  const details: PrefillWrite['details'] = { ...prefill.details }
+  if (Array.isArray(prefill.details.tags)) {
+    details.tags = [...new Set([...(catalogue.tags ?? []), ...(prefill.details.tags as string[])])]
+  }
+
+  return {
+    attraction,
+    details,
+    coordinate: catalogue.hasCoordinate ? null : prefill.coordinate,
+  }
+}

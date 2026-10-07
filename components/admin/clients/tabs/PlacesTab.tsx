@@ -47,6 +47,7 @@ import { PendencyList } from '@/components/admin/partnerships/PendencyList'
 import { placeToolHref } from '@/lib/partnerships/place-tool'
 import type { PendencyId } from '@/lib/partnerships/place-readiness'
 import type { PartnershipDetail, PartnershipPlace } from '@/lib/services/partnership-service'
+import type { PartnerPlaceOutcome } from '@/lib/services/partner-place-provisioning'
 import type { ClientEditorTabProps } from './ProfileTab'
 
 export function PlacesTab(props: ClientEditorTabProps & { onOpenPipeline: () => void }) {
@@ -249,6 +250,7 @@ function PartnerPlaces({
               canChooseWelcome={detail.places.length > 1 || !detail.client.welcomePoiId}
               onWelcomeChanged={load}
               onUnlinked={load}
+              onPulled={load}
             />
           ))}
         </div>
@@ -279,6 +281,7 @@ function Place({
   canChooseWelcome,
   onWelcomeChanged,
   onUnlinked,
+  onPulled,
 }: {
   place: PartnershipPlace
   placeHref: (place: PartnershipPlace, pendency?: PendencyId) => string
@@ -287,6 +290,7 @@ function Place({
   canChooseWelcome: boolean
   onWelcomeChanged: () => Promise<void>
   onUnlinked: () => Promise<void>
+  onPulled: () => Promise<void>
 }) {
   const t = useTranslations('Partnerships')
   const attractionId = place.readiness.place.attractionId
@@ -295,6 +299,8 @@ function Place({
   const [confirmingUnlink, setConfirmingUnlink] = useState(false)
   const [unlinking, setUnlinking] = useState(false)
   const [unlinkFailed, setUnlinkFailed] = useState(false)
+  const [pulling, setPulling] = useState(false)
+  const [pullResult, setPullResult] = useState<PullResult | null>(null)
 
   async function chooseWelcome() {
     setChoosing(true)
@@ -345,6 +351,28 @@ function Place({
     await onUnlinked()
     setUnlinking(false)
     setConfirmingUnlink(false)
+  }
+
+  /**
+   * PUXAR DADOS DO CADASTRO (#885): a mesma mescla que o vínculo roda (BR-B2B-033, item 5), para o
+   * local que já estava vinculado antes dela. Idempotente — sem passo de confirmação. A rota
+   * responde o resultado como dado, e ele vira uma linha aqui.
+   */
+  async function pullRegistration() {
+    setPulling(true)
+    setPullResult(null)
+    try {
+      const response = await fetch(
+        `/api/admin/partnerships/clients/${clientId}/places/${attractionId}/registration`,
+        { method: 'POST' }
+      )
+      const body = (await response.json().catch(() => null)) as { outcome?: PartnerPlaceOutcome } | null
+      setPullResult(response.ok && body?.outcome ? pullResultOf(body.outcome) : 'failed')
+    } catch {
+      setPullResult('failed')
+    }
+    await onPulled()
+    setPulling(false)
   }
 
   return (
@@ -400,6 +428,15 @@ function Place({
             soltá-lo. Desvincular existe para o registro ERRADO — a duplicata vazia vinculada no
             lugar do estabelecimento publicado —, e é dali que o operador segue para vincular o
             certo, na busca que reaparece quando a lista esvazia. */}
+        <button
+          type="button"
+          disabled={pulling}
+          onClick={() => void pullRegistration()}
+          className="inline-flex min-h-[24px] items-center text-sm font-medium text-primary-800 underline underline-offset-4 disabled:opacity-60"
+        >
+          {pulling ? t('registration.pulling') : t('registration.action')}
+        </button>
+
         {!confirmingUnlink && (
           <button
             type="button"
@@ -437,6 +474,12 @@ function Place({
         </div>
       )}
 
+      {pullResult && (
+        <p role="status" className="mt-2 text-xs text-gray-900 dark:text-white">
+          {t(`registration.${pullResult}`)}
+        </p>
+      )}
+
       {unlinkFailed && (
         <p role="alert" className="mt-2 text-xs text-gray-900 dark:text-white">
           {t('unlink.failed')}
@@ -444,4 +487,15 @@ function Place({
       )}
     </article>
   )
+}
+
+type PullResult = 'applied' | 'noRegistration' | 'nothingToPrefill' | 'notLinked' | 'failed'
+
+function pullResultOf(outcome: PartnerPlaceOutcome): PullResult {
+  if (outcome.status === 'merged') {
+    if (outcome.prefill === 'applied') return 'applied'
+    return outcome.prefill === 'nothing_to_prefill' ? 'nothingToPrefill' : 'noRegistration'
+  }
+  if (outcome.status === 'skipped' && outcome.reason === 'not_linked') return 'notLinked'
+  return 'failed'
 }
