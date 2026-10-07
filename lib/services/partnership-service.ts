@@ -113,7 +113,7 @@ const SUBMISSION_COLUMNS =
  * second source of the same fact gets born.
  */
 const CLIENT_COLUMNS =
-  'id, name, company_name, city, state, country, client_type, tax_id, status, approved_at, ' +
+  'id, name, company_name, city, state, country, client_type, tax_id, status, approved_at, approved_by, ' +
   'created_at, monthly_fee_cents, is_courtesy, courtesy_reason, welcome_poi_id'
 
 interface SubmissionRow {
@@ -145,6 +145,8 @@ export interface PipelineClient {
   taxId: string | null
   status: string | null
   approvedAt: string | null
+  /** Auth uid of who approved the client (`approveClient`). Resolved to a name only in the detail. */
+  approvedBy: string | null
   createdAt: string | null
   fee: PartnerFee
   /**
@@ -781,6 +783,11 @@ export interface PartnershipDetail {
   gateMissing: GateItem[]
   state: PipelineState
   client: PipelineClient
+  /**
+   * Who approved the partnership, as an operator reads it — the ONE source of the approval line
+   * in band 3 and in the trail (#909): the promoter of the proposal, else `clients.approved_by`.
+   */
+  approvedByLabel: string | null
   contract: PipelineContract | null
   /**
    * The conference of BR-B2B-022, item 3, READ FROM THE CLIENT and no longer from the proposal
@@ -872,6 +879,9 @@ export async function loadPartnershipDetail(
       submission ? operatorLabel(submission.promoted_by) : null,
       submission ? operatorLabel(submission.reviewed_by) : null,
     ])
+  // #909: the promotion names the approver on the form path; a client created directly has no
+  // proposal, and `approveClient` wrote `approved_by`. One more lookup, and only for that case.
+  const approvedByLabel = promotedByLabel ?? (await operatorLabel(client.approvedBy))
 
   const conference = clientConference.conference
 
@@ -894,6 +904,7 @@ export async function loadPartnershipDetail(
     }),
     gateMissing,
     client,
+    approvedByLabel,
     contract,
     conference: {
       record: conference,
@@ -1126,6 +1137,7 @@ function indexClients(
       taxId: (row.tax_id as string) ?? null,
       status: (row.status as string) ?? null,
       approvedAt: (row.approved_at as string) ?? null,
+      approvedBy: (row.approved_by as string) ?? null,
       createdAt: (row.created_at as string) ?? null,
       welcomePoiId: (row.welcome_poi_id as string) ?? null,
       fee: {

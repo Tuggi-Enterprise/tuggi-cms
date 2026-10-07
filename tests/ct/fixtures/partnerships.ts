@@ -248,6 +248,7 @@ function client(overrides: Partial<PipelineClient> & { id: string; fee: PartnerF
     taxId: null,
     status: 'active',
     approvedAt: null,
+    approvedBy: null,
     createdAt: null,
     ...overrides,
   }
@@ -289,6 +290,7 @@ export function detailInCuration(): PartnershipDetail {
   return {
     state: 'place_in_curation',
     gateMissing: [],
+    approvedByLabel: 'ana@tuggi.app',
     client: client({
       id: 'client-0005',
       name: LONG_ESTABLISHMENT_NAME,
@@ -348,6 +350,7 @@ export function detailReadyToPublish(): PartnershipDetail {
   return {
     state: 'place_in_curation',
     gateMissing: [],
+    approvedByLabel: 'ana@tuggi.app',
     client: client({
       id: 'client-0006',
       name: 'Pousada Vista Mar',

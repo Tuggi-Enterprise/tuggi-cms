@@ -41,6 +41,7 @@ import { WelcomeDivergenceCard } from './WelcomeDivergenceCard'
 import { PublishPanel, UnpublishPanel } from './PublishPanel'
 import { CommunicationPanel, RefusalPanel, RefusalSummary, type RefusalOutcome } from './TriageRefusalPanel'
 import { triageDeadlineText, triageText } from './triage-text'
+import { clientApprovedText } from './approval-text'
 
 type BandId = 'proposal' | 'conference' | 'client' | 'place' | 'publication'
 type BandStatus = 'done' | 'current' | 'future'
@@ -611,7 +612,7 @@ function ClientBand({
   onOpenTab?: (tab: 'profile' | 'fiscal' | 'contract') => void
 }) {
   const t = useTranslations('Partnerships')
-  const { client, contract, submission } = detail
+  const { client, contract } = detail
 
   return (
     <div className="space-y-1 text-sm text-gray-900">
@@ -621,16 +622,7 @@ function ClientBand({
           one is what BR-B2B-010, item 4, starts the clock on. They are shown apart, with the
           date of each. */}
       {client.approvedAt ? (
-        submission?.promotedByLabel ? (
-          <p>
-            {t('detail.clientApprovedBy', {
-              date: formatDate(client.approvedAt),
-              person: submission.promotedByLabel,
-            })}
-          </p>
-        ) : (
-          <p>{t('detail.clientApproved', { date: formatDate(client.approvedAt) })}</p>
-        )
+        <p>{clientApprovedText(client.approvedAt, detail.approvedByLabel, t)}</p>
       ) : (
         <p>{t('detail.clientNotApproved')}</p>
       )}
@@ -1025,7 +1017,7 @@ function Trail({ detail }: { detail: Detail }) {
       ? t('detail.clientCreated', { date: formatDate(detail.client.createdAt) })
       : null,
     detail.client.approvedAt
-      ? t('detail.clientApproved', { date: formatDate(detail.client.approvedAt) })
+      ? clientApprovedText(detail.client.approvedAt, detail.approvedByLabel, t)
       : null,
     detail.contract?.signed
       ? t('detail.contractSigned', { date: formatDate(detail.contract.signedAt) })
