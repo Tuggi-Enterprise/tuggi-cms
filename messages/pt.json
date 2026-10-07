@@ -4313,7 +4313,10 @@
     "title": "Financeiro",
     "subtitle": "O que cada parceiro custou, o que ele paga, e se a conta fecha",
     "sections": {
+      "pending": "Pendências",
       "overview": "Visão geral",
+      "subscriptions": "Mensalidades",
+      "payouts": "Repasses",
       "partners": "Parceiros",
       "catalog": "Catálogo e compras",
       "structure": "Estrutura"
@@ -4396,7 +4399,8 @@
       "totals": "Soma dos {count} filtrados",
       "showing": "{shown} de {total}",
       "sortBy": "Ordenar por {column}",
-      "totalsIgnored": "Fora da soma: {currencies}"
+      "totalsIgnored": "Fora da soma: {currencies}",
+      "declared": "declarado"
     },
     "catalog": {
       "product": "Produto",
@@ -4701,6 +4705,116 @@
       "legal": "Jurídico e contratos",
       "insurance": "Seguros",
       "consulting": "Consultorias"
+    },
+    "pending": {
+      "columns": {
+        "severity": "Gravidade",
+        "what": "O que é",
+        "place": "Local",
+        "amount": "Valor",
+        "since": "Desde",
+        "action": "Ação"
+      },
+      "severity": {
+        "critical": "Urgente",
+        "warning": "Atenção"
+      },
+      "kind": {
+        "charge_without_invoice": "Paga sem nota fiscal",
+        "invoice_error": "Nota com erro: {reason}",
+        "invoice_cancellation_denied": "Cancelamento da nota negado: {reason}",
+        "refund_invoice_not_canceled": "Reembolsada, nota ainda ativa",
+        "charge_overdue": "Cobrança vencida",
+        "payout_period_not_calculated": "Repasse de {month} não apurado",
+        "payout_not_released": "Repasse de {month} a liberar até {deadline}",
+        "payout_failed": "Repasse falhou: {reason}",
+        "payout_without_pix_key": "Sem chave Pix confirmada"
+      },
+      "noReason": "sem motivo informado",
+      "action": {
+        "viewCharge": "Ver cobrança",
+        "viewPayouts": "Ver repasses",
+        "viewPlace": "Ver local",
+        "adminOnly": "Só admin"
+      },
+      "daysAgo": "há {count, plural, =0 {0 dias} one {# dia} other {# dias}}",
+      "empty": "Nada pendente. Conferido às {time}.",
+      "error": "Não deu para ler as pendências.",
+      "reload": "Recarregar"
+    },
+    "subscriptions": {
+      "stats": {
+        "received": "Receita do mês",
+        "recurring": "Recorrente mensal",
+        "inflow": "Entradas",
+        "outflow": "Saídas"
+      },
+      "month": "Mês",
+      "filter": {
+        "all": "Todas",
+        "overdue": "Atrasadas",
+        "without_invoice": "Sem nota",
+        "canceled": "Canceladas"
+      },
+      "columns": {
+        "place": "Local",
+        "plan": "Plano e prazo",
+        "method": "Meio",
+        "subscription": "Assinatura",
+        "lastCharge": "Última cobrança",
+        "lastInvoice": "Nota da última cobrança",
+        "nextCharge": "Próxima cobrança"
+      },
+      "chargeColumns": {
+        "due": "Vencimento",
+        "amount": "Valor",
+        "paidOn": "Pago em",
+        "status": "Status",
+        "invoice": "Nota"
+      },
+      "plan": "Com história · {count, plural, one {# mês} other {# meses}}",
+      "planNoPeriod": "Com história",
+      "method": {
+        "credit_card": "Cartão",
+        "pix_automatic": "Pix",
+        "pix": "Pix"
+      },
+      "subscriptionStatus": {
+        "paid": "Em dia",
+        "past_due": "Atrasada",
+        "expired": "Encerrada",
+        "refund_pending": "Reembolso pendente",
+        "refunded": "Reembolsada",
+        "canceled": "Cancelada"
+      },
+      "chargeStatus": {
+        "upcoming": "A vencer",
+        "paid": "Paga",
+        "overdue": "Vencida",
+        "refund_pending": "Reembolsada",
+        "refunded": "Estornada"
+      },
+      "invoiceStatus": {
+        "SCHEDULED": "Agendada",
+        "SYNCHRONIZED": "Enviada à prefeitura",
+        "AUTHORIZED": "Autorizada",
+        "PROCESSING_CANCELLATION": "Cancelando",
+        "CANCELED": "Cancelada",
+        "CANCELLATION_DENIED": "Cancelamento negado",
+        "ERROR": "Erro",
+        "none": "Sem nota"
+      },
+      "pdf": "PDF",
+      "xml": "XML",
+      "expand": "Mostrar cobranças de {place}",
+      "noCharges": "Nenhuma cobrança espelhada ainda.",
+      "noNext": "—",
+      "empty": "Nenhum local no Com história em {month}.",
+      "emptyFilter": "Nenhuma assinatura neste filtro.",
+      "error": "Não deu para ler as mensalidades."
+    },
+    "payouts": {
+      "placeholder": "Repasses chegam no próximo card (#903). As pendências de repasse já aparecem em Pendências."
     }
   }
 }

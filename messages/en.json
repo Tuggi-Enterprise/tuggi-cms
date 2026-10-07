@@ -3039,7 +3039,10 @@
     "title": "Finance",
     "subtitle": "What each partner cost, what they pay, and whether it adds up",
     "sections": {
+      "pending": "Pending items",
       "overview": "Overview",
+      "subscriptions": "Subscriptions",
+      "payouts": "Payouts",
       "partners": "Partners",
       "catalog": "Catalog and purchases",
       "structure": "Structure"
@@ -3122,7 +3125,8 @@
       "totals": "Sum of the {count} filtered",
       "showing": "{shown} of {total}",
       "sortBy": "Sort by {column}",
-      "totalsIgnored": "Out of the sum: {currencies}"
+      "totalsIgnored": "Out of the sum: {currencies}",
+      "declared": "declared"
     },
     "catalog": {
       "product": "Product",
@@ -3427,6 +3431,116 @@
       "legal": "Legal and contracts",
       "insurance": "Insurance",
       "consulting": "Consulting"
+    },
+    "pending": {
+      "columns": {
+        "severity": "Severity",
+        "what": "What it is",
+        "place": "Place",
+        "amount": "Amount",
+        "since": "Since",
+        "action": "Action"
+      },
+      "severity": {
+        "critical": "Urgent",
+        "warning": "Attention"
+      },
+      "kind": {
+        "charge_without_invoice": "Paid without invoice",
+        "invoice_error": "Invoice with error: {reason}",
+        "invoice_cancellation_denied": "Invoice cancellation denied: {reason}",
+        "refund_invoice_not_canceled": "Refunded, invoice still active",
+        "charge_overdue": "Overdue charge",
+        "payout_period_not_calculated": "Payout for {month} not calculated",
+        "payout_not_released": "Payout for {month} to release by {deadline}",
+        "payout_failed": "Payout failed: {reason}",
+        "payout_without_pix_key": "No confirmed Pix key"
+      },
+      "noReason": "no reason given",
+      "action": {
+        "viewCharge": "View charge",
+        "viewPayouts": "View payouts",
+        "viewPlace": "View place",
+        "adminOnly": "Admin only"
+      },
+      "daysAgo": "{count, plural, =0 {0 days} one {# day} other {# days}} ago",
+      "empty": "Nothing pending. Checked at {time}.",
+      "error": "Could not read the pending items.",
+      "reload": "Reload"
+    },
+    "subscriptions": {
+      "stats": {
+        "received": "Revenue this month",
+        "recurring": "Monthly recurring",
+        "inflow": "Inflows",
+        "outflow": "Outflows"
+      },
+      "month": "Month",
+      "filter": {
+        "all": "All",
+        "overdue": "Overdue",
+        "without_invoice": "No invoice",
+        "canceled": "Canceled"
+      },
+      "columns": {
+        "place": "Place",
+        "plan": "Plan and term",
+        "method": "Method",
+        "subscription": "Subscription",
+        "lastCharge": "Last charge",
+        "lastInvoice": "Last charge invoice",
+        "nextCharge": "Next charge"
+      },
+      "chargeColumns": {
+        "due": "Due date",
+        "amount": "Amount",
+        "paidOn": "Paid on",
+        "status": "Status",
+        "invoice": "Invoice"
+      },
+      "plan": "With story · {count, plural, one {# month} other {# months}}",
+      "planNoPeriod": "With story",
+      "method": {
+        "credit_card": "Card",
+        "pix_automatic": "Pix",
+        "pix": "Pix"
+      },
+      "subscriptionStatus": {
+        "paid": "Up to date",
+        "past_due": "Past due",
+        "expired": "Ended",
+        "refund_pending": "Refund pending",
+        "refunded": "Refunded",
+        "canceled": "Canceled"
+      },
+      "chargeStatus": {
+        "upcoming": "Upcoming",
+        "paid": "Paid",
+        "overdue": "Overdue",
+        "refund_pending": "Refunded",
+        "refunded": "Charged back"
+      },
+      "invoiceStatus": {
+        "SCHEDULED": "Scheduled",
+        "SYNCHRONIZED": "Sent to city hall",
+        "AUTHORIZED": "Authorized",
+        "PROCESSING_CANCELLATION": "Canceling",
+        "CANCELED": "Canceled",
+        "CANCELLATION_DENIED": "Cancellation denied",
+        "ERROR": "Error",
+        "none": "No invoice"
+      },
+      "pdf": "PDF",
+      "xml": "XML",
+      "expand": "Show charges for {place}",
+      "noCharges": "No charge mirrored yet.",
+      "noNext": "—",
+      "empty": "No place in With story in {month}.",
+      "emptyFilter": "No subscription in this filter.",
+      "error": "Could not read the subscriptions."
+    },
+    "payouts": {
+      "placeholder": "Payouts arrive in the next card (#903). Payout pending items already show under Pending items."
     }
   }
 }

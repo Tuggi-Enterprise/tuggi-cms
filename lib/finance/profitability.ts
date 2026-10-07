@@ -116,6 +116,12 @@ export interface ClientFinanceFacts {
   stance: PaymentStance
   /** `partner.clients.monthly_fee_cents`. Ausente NÃO é zero — BR-B2B-017, item 6. */
   monthlyFeeCents: number | null
+  /**
+   * O que o Asaas de fato recebeu deste cliente no Com história (#902), ou `null` quando ele não
+   * tem cobrança espelhada. Presente, ele SUBSTITUI a receita do calendário declarado — e a tela
+   * diz qual das duas está vendo, por `revenueSource`.
+   */
+  receivedRevenueCents?: number | null
   consumption: readonly ConsumptionRecord[]
   costEntries: readonly CostEntryRecord[]
   /**
@@ -215,6 +221,8 @@ export interface ClientProfitability {
    * publicação, com o proporcional na primeira fatura. Zero quando não paga ou não começou.
    */
   revenueCents: number
+  /** `received` = cobranças reais do Asaas; `declared` = calendário de `monthly_fee_cents`. */
+  revenueSource: 'received' | 'declared'
   /** MC I = receita − custo direto. Negativa é o normal no começo de uma parceria. */
   marginCents: number
   /** Faturas VENCIDAS. A primeira conta como uma, embora carregue o proporcional junto. */
@@ -336,7 +344,10 @@ export function assessClient(facts: ClientFinanceFacts, now: string): ClientProf
     asOf: now,
   })
   const monthsBilled = billed.invoices
-  const revenueCents = billed.cents
+  // A RECEITA REAL VENCE A DECLARADA (#902 item 3). Sem cobrança espelhada, o calendário segue
+  // valendo — e a linha sai marcada `declared`, para o operador não confundir um com o outro.
+  const received = facts.receivedRevenueCents ?? null
+  const revenueCents = received ?? billed.cents
 
   const paybackMonths =
     fee !== null && fee > 0 && cost.directCostCents > 0
@@ -360,6 +371,7 @@ export function assessClient(facts: ClientFinanceFacts, now: string): ClientProf
     directCostCents: cost.directCostCents,
     standardCostCents: cost.standardCostCents,
     revenueCents,
+    revenueSource: received === null ? ('declared' as const) : ('received' as const),
     marginCents: revenueCents - cost.directCostCents,
     monthsBilled,
     monthlyFeeCents: fee !== null && fee > 0 ? fee : null,

@@ -60,7 +60,8 @@ const CARD =
 const HEAD =
   'px-3 py-2 text-left text-[10px] font-bold uppercase tracking-widest text-gray-500 dark:text-gray-400'
 const CELL = 'px-3 py-2.5 text-sm text-gray-800 dark:text-gray-200'
-const INPUT =
+/** O campo do financeiro. Exportado para o seletor de mês de Mensalidades ser o mesmo. */
+export const INPUT =
   'min-h-[32px] w-full rounded-lg border border-gray-300 bg-white px-2 py-1 text-sm text-gray-900 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-100'
 
 export function StructurePanel({

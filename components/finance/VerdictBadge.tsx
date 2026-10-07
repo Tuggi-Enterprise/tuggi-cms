@@ -22,6 +22,21 @@ import { useTranslations } from 'next-intl'
 import type { FinanceVerdict } from '@/lib/finance/profitability'
 
 /**
+ * As quatro tintas de estado do financeiro, com nome do que dizem. Exportadas porque Pendências e
+ * Mensalidades (#902) pintam com elas — uma segunda cópia das classes seria um segundo âmbar.
+ * Sempre ao lado de texto (DS-A11Y-003): a cor reforça, não informa.
+ */
+export const TINT = {
+  attention:
+    'bg-amber-50 text-amber-900 ring-amber-200 dark:bg-amber-950/40 dark:text-amber-200 dark:ring-amber-900',
+  urgent: 'bg-red-50 text-red-900 ring-red-200 dark:bg-red-950/40 dark:text-red-200 dark:ring-red-900',
+  neutral:
+    'bg-gray-100 text-gray-800 ring-gray-300 dark:bg-gray-800/60 dark:text-gray-200 dark:ring-gray-700',
+  ok: 'bg-emerald-50 text-emerald-900 ring-emerald-200 dark:bg-emerald-950/40 dark:text-emerald-200 dark:ring-emerald-900',
+} as const
+export type Tint = keyof typeof TINT
+
+/**
  * A tinta de cada veredito.
  *
  * `text-primary-800` e não `text-tuggi-blue` de dia: a marca mede 2,70:1 sobre branco e reprova
@@ -29,22 +44,17 @@ import type { FinanceVerdict } from '@/lib/finance/profitability'
  * a mesma medição lida em duas superfícies, como na esteira de parcerias.
  */
 const TONE: Record<FinanceVerdict, string> = {
-  uncosted:
-    'bg-amber-50 text-amber-900 ring-amber-200 dark:bg-amber-950/40 dark:text-amber-200 dark:ring-amber-900',
-  undated:
-    'bg-gray-100 text-gray-800 ring-gray-300 dark:bg-gray-800/60 dark:text-gray-200 dark:ring-gray-700',
-  no_return:
-    'bg-red-50 text-red-900 ring-red-200 dark:bg-red-950/40 dark:text-red-200 dark:ring-red-900',
+  uncosted: TINT.attention,
+  undated: TINT.neutral,
+  no_return: TINT.urgent,
   // Cinza, como `undated`, e não vermelho: os dois são "não sei", e pintá-lo de má notícia
   // faria a tela acusar o parceiro pela permissão que falta.
-  unknown_return:
-    'bg-gray-100 text-gray-800 ring-gray-300 dark:bg-gray-800/60 dark:text-gray-200 dark:ring-gray-700',
+  unknown_return: TINT.neutral,
   non_monetary_return:
     'bg-sky-50 text-primary-800 ring-sky-200 dark:bg-sky-950/40 dark:text-tuggi-blue dark:ring-sky-900',
   payback_pending:
     'bg-orange-50 text-gray-900 ring-secondary-700/50 dark:bg-orange-950/40 dark:text-orange-100 dark:ring-orange-900',
-  profitable:
-    'bg-emerald-50 text-emerald-900 ring-emerald-200 dark:bg-emerald-950/40 dark:text-emerald-200 dark:ring-emerald-900',
+  profitable: TINT.ok,
 }
 
 export function VerdictBadge({ verdict }: { verdict: FinanceVerdict }) {

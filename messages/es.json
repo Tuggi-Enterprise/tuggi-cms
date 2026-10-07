@@ -3021,7 +3021,10 @@
     "title": "Finanzas",
     "subtitle": "Lo que costó cada socio, lo que paga, y si la cuenta cierra",
     "sections": {
+      "pending": "Pendientes",
       "overview": "Visión general",
+      "subscriptions": "Mensualidades",
+      "payouts": "Repasos",
       "partners": "Socios",
       "catalog": "Catálogo y compras",
       "structure": "Estructura"
@@ -3104,7 +3107,8 @@
       "totals": "Suma de los {count} filtrados",
       "showing": "{shown} de {total}",
       "sortBy": "Ordenar por {column}",
-      "totalsIgnored": "Fuera de la suma: {currencies}"
+      "totalsIgnored": "Fuera de la suma: {currencies}",
+      "declared": "declarado"
     },
     "catalog": {
       "product": "Producto",
@@ -3409,6 +3413,116 @@
       "legal": "Jurídico y contratos",
       "insurance": "Seguros",
       "consulting": "Consultorías"
+    },
+    "pending": {
+      "columns": {
+        "severity": "Gravedad",
+        "what": "Qué es",
+        "place": "Lugar",
+        "amount": "Valor",
+        "since": "Desde",
+        "action": "Acción"
+      },
+      "severity": {
+        "critical": "Urgente",
+        "warning": "Atención"
+      },
+      "kind": {
+        "charge_without_invoice": "Pagada sin factura",
+        "invoice_error": "Factura con error: {reason}",
+        "invoice_cancellation_denied": "Cancelación de la factura denegada: {reason}",
+        "refund_invoice_not_canceled": "Reembolsada, factura aún activa",
+        "charge_overdue": "Cobro vencido",
+        "payout_period_not_calculated": "Repaso de {month} no calculado",
+        "payout_not_released": "Repaso de {month} a liberar hasta {deadline}",
+        "payout_failed": "Repaso falló: {reason}",
+        "payout_without_pix_key": "Sin clave Pix confirmada"
+      },
+      "noReason": "sin motivo informado",
+      "action": {
+        "viewCharge": "Ver cobro",
+        "viewPayouts": "Ver repasos",
+        "viewPlace": "Ver lugar",
+        "adminOnly": "Solo admin"
+      },
+      "daysAgo": "hace {count, plural, =0 {0 días} one {# día} other {# días}}",
+      "empty": "Nada pendiente. Verificado a las {time}.",
+      "error": "No se pudieron leer los pendientes.",
+      "reload": "Recargar"
+    },
+    "subscriptions": {
+      "stats": {
+        "received": "Ingresos del mes",
+        "recurring": "Recurrente mensual",
+        "inflow": "Entradas",
+        "outflow": "Salidas"
+      },
+      "month": "Mes",
+      "filter": {
+        "all": "Todas",
+        "overdue": "Atrasadas",
+        "without_invoice": "Sin factura",
+        "canceled": "Canceladas"
+      },
+      "columns": {
+        "place": "Lugar",
+        "plan": "Plan y plazo",
+        "method": "Medio",
+        "subscription": "Suscripción",
+        "lastCharge": "Último cobro",
+        "lastInvoice": "Factura del último cobro",
+        "nextCharge": "Próximo cobro"
+      },
+      "chargeColumns": {
+        "due": "Vencimiento",
+        "amount": "Valor",
+        "paidOn": "Pagado el",
+        "status": "Estado",
+        "invoice": "Factura"
+      },
+      "plan": "Con historia · {count, plural, one {# mes} other {# meses}}",
+      "planNoPeriod": "Con historia",
+      "method": {
+        "credit_card": "Tarjeta",
+        "pix_automatic": "Pix",
+        "pix": "Pix"
+      },
+      "subscriptionStatus": {
+        "paid": "Al día",
+        "past_due": "Atrasada",
+        "expired": "Terminada",
+        "refund_pending": "Reembolso pendiente",
+        "refunded": "Reembolsada",
+        "canceled": "Cancelada"
+      },
+      "chargeStatus": {
+        "upcoming": "Por vencer",
+        "paid": "Pagada",
+        "overdue": "Vencida",
+        "refund_pending": "Reembolsada",
+        "refunded": "Contracargo"
+      },
+      "invoiceStatus": {
+        "SCHEDULED": "Programada",
+        "SYNCHRONIZED": "Enviada al municipio",
+        "AUTHORIZED": "Autorizada",
+        "PROCESSING_CANCELLATION": "Cancelando",
+        "CANCELED": "Cancelada",
+        "CANCELLATION_DENIED": "Cancelación denegada",
+        "ERROR": "Error",
+        "none": "Sin factura"
+      },
+      "pdf": "PDF",
+      "xml": "XML",
+      "expand": "Mostrar cobros de {place}",
+      "noCharges": "Ningún cobro reflejado todavía.",
+      "noNext": "—",
+      "empty": "Ningún lugar en Con historia en {month}.",
+      "emptyFilter": "Ninguna suscripción en este filtro.",
+      "error": "No se pudieron leer las mensualidades."
+    },
+    "payouts": {
+      "placeholder": "Los repasos llegan en el próximo card (#903). Los pendientes de repaso ya aparecen en Pendientes."
     }
   }
 }
