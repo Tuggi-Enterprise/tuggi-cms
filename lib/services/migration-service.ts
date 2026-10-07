@@ -8,6 +8,7 @@
 import { getSupabase } from '@/lib/core/supabase-client'
 import { classify, importanceScore, isNotable, priorityLevel } from '@/lib/shared/poi-taxonomy'
 import { normalizeLocation } from '@/lib/shared/location-normalize'
+import { LocalOSMFetcher } from './trigger-points-google/services/local-osm-fetcher'
 
 const supabase = getSupabase('service')
 
@@ -255,6 +256,21 @@ export class MigrationService {
   }
 
   /**
+   * BR-POI-010 (operator, 2026-10-06): a POI whose OSM element is the seat of its municipality
+   * (`admin-boundaries#findMunicipality`, via the region's local OSM base) enters core as `city`,
+   * whatever its `place` (`town`, `village`…). The seat link is the only criterion — no name, no
+   * word, no `place` value — so it holds for every country. Not a seat, or no local base for the
+   * pin's region: the homolog value, as before.
+   */
+  static coreOsmCategory(poi: any, coord: any): string | null {
+    const own = poi.category || poi.primary_category || null
+    const pin = { lat: Number(coord?.latitude), lng: Number(coord?.longitude) }
+    if (!Number.isFinite(pin.lat) || !Number.isFinite(pin.lng)) return own
+    const seat = LocalOSMFetcher.getInstance().municipalityAt(pin, { osm_type: poi.osm_type, osm_id: poi.osm_id })
+    return seat ? 'city' : own
+  }
+
+  /**
    * Map POI data from homolog to core format
    */
   static mapHomologToCore(poi: any, coord: any): any {
@@ -281,7 +297,7 @@ export class MigrationService {
       osm_type: poi.osm_type,
       place_id: poi.place_id,
       importance: poi.importance,
-      osm_category: poi.category || poi.primary_category,
+      osm_category: this.coreOsmCategory(poi, coord),
       osm_tags: poi.osm_properties, // JSONB to JSONB
       
       // Processing metadata
