@@ -7,9 +7,9 @@
  *
  * Empty `value` is NOT "closed every day": `core.is_poi_open_now` treats null as open, so the
  * editor says so in one line instead of seven "Fechado". "Closed" per day only once some day has a
- * range — that is when the app reads a missing day as closed. `unreadable` is a stored value the
- * editor cannot parse (Google `weekday_text` array from `poi-import-service.ts`), shown read-only
- * so the operator can retype it.
+ * range — that is when the app reads a missing day as closed. `unreadable` is a value saved in a
+ * format the editor cannot read, shown read-only so the operator can retype it — never
+ * overwritten until they do.
  */
 
 import { useTranslations } from 'next-intl'

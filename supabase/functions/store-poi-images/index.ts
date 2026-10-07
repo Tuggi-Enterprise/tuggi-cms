@@ -13,7 +13,6 @@ import {
 } from '../_shared/validation-schemas.ts';
 import { createAuditLogger } from '../_shared/audit-logger.ts';
 
-const GOOGLE_API_KEY = Deno.env.get('VITE_GOOGLE_MAPS_API_KEY') || '';
 const PROJECT_URL = Deno.env.get('PROJECT_URL') || '';
 const ANON_KEY = Deno.env.get('ANON_KEY') || '';
 const SERVICE_ROLE_KEY = Deno.env.get('SERVICE_ROLE_KEY') || '';
@@ -24,13 +23,9 @@ const supabaseAdmin = createClient(PROJECT_URL, SERVICE_ROLE_KEY);
 interface RequestBody {
   attractionId: string;
   attractionName: string;
-  imageSource: 'google_places' | 'wikimedia_commons';
+  // Google Places removido em 2026-10-06 (ordem do operador: sem dado pago do Google).
+  imageSource: 'wikimedia_commons';
   
-  // Para Google Places (existente)
-  googlePlaceId?: string;
-  photoReferences?: string[];
-  
-  // Para Wikimedia Commons (novo)
   wikimediaUrl?: string;
   osmTags?: any;
 }
@@ -40,29 +35,6 @@ interface StoredImage {
   url: string;
   storage_path: string;
 }
-
-// Helper to clean and validate a photo reference
-const cleanPhotoReference = (ref: string): string => {
-  if (ref.startsWith('http')) {
-    try {
-      const url = new URL(ref);
-      const params = new URLSearchParams(url.search);
-      const extractedRef = params.get('photoreference');
-      if (extractedRef) {
-        return extractedRef;
-      }
-    } catch (e) {
-      console.error('Failed to parse URL:', e);
-    }
-  }
-  return ref;
-};
-
-// Generate filename using your existing pattern: placeId_timestamp.jpg
-const generateFilename = (googlePlaceId: string, index: number): string => {
-  const timestamp = Date.now();
-  return `${googlePlaceId}_${timestamp}_${index}.jpg`;
-};
 
 // Generate filename for Wikimedia Commons images
 const generateWikimediaFilename = (attractionName: string, imageTitle: string, index: number = 1): string => {
@@ -93,25 +65,6 @@ const getFileExtension = (imageTitle: string): string => {
     return `.${match[1].toLowerCase()}`;
   }
   return '.jpg'; // Default fallback
-};
-
-// Download image from Google Places API with optimized size
-const downloadGooglePhoto = async (photoReference: string, maxWidth: string = '1024'): Promise<ArrayBuffer> => {
-  const cleanRef = cleanPhotoReference(photoReference);
-  const googleUrl = `https://maps.googleapis.com/maps/api/place/photo?maxwidth=${maxWidth}&photoreference=${cleanRef}&key=${GOOGLE_API_KEY}`;
-  
-  const response = await fetch(googleUrl, {
-    method: 'GET',
-    headers: {
-      'Accept': 'image/jpeg, image/png, image/webp, image/*'
-    }
-  });
-
-  if (!response.ok) {
-    throw new Error(`Failed to fetch image from Google API: ${response.statusText}`);
-  }
-
-  return await response.arrayBuffer();
 };
 
 // Extract and download image from Wikimedia Commons
@@ -453,7 +406,7 @@ const saveImageReference = async (
   attractionId: string,
   publicUrl: string,
   storagePath: string,
-  source: 'google_places' | 'wikimedia_commons',
+  source: 'wikimedia_commons',
   reference: string,
   altText?: string
 ): Promise<string> => {
@@ -530,14 +483,12 @@ serve(async (req) => {
     const body = await req.json() as RequestBody;
     console.log(`[${requestId}] Request body received:`, JSON.stringify(body, null, 2));
     
-    const { attractionId, attractionName, imageSource, googlePlaceId, photoReferences, wikimediaUrl, osmTags } = body;
+    const { attractionId, attractionName, imageSource, wikimediaUrl, osmTags } = body;
     
     console.log(`[${requestId}] Parsed values:`, {
       attractionId: !!attractionId,
       attractionName: !!attractionName,
       imageSource,
-      googlePlaceId: !!googlePlaceId,
-      photoReferences: photoReferences?.length || 0,
       wikimediaUrl: !!wikimediaUrl,
       osmTags: !!osmTags,
       osmTagsWikimediaCommons: !!osmTags?.wikimedia_commons
@@ -563,20 +514,14 @@ serve(async (req) => {
       );
     }
 
-    if (imageSource === 'google_places' && (!photoReferences || photoReferences.length === 0)) {
+    if (imageSource !== 'wikimedia_commons') {
       return new Response(
-        JSON.stringify({ error: 'photoReferences are required for google_places source' }),
-        { 
-          status: 400, 
-          headers: { 
-            ...corsHeaders,
-            'Content-Type': 'application/json' 
-          } 
-        }
+        JSON.stringify({ error: `Unsupported imageSource: ${imageSource}` }),
+        { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
       );
     }
 
-    if (imageSource === 'wikimedia_commons' && !wikimediaUrl && !osmTags?.wikimedia_commons) {
+    if (!wikimediaUrl && !osmTags?.wikimedia_commons) {
       console.log(`[${requestId}] Wikimedia validation failed:`, {
         wikimediaUrl: !!wikimediaUrl,
         osmTags: !!osmTags,
@@ -594,27 +539,12 @@ serve(async (req) => {
       );
     }
 
-    if (imageSource === 'google_places' && !GOOGLE_API_KEY) {
-      return new Response(
-        JSON.stringify({ error: 'Google API key not configured' }),
-        { 
-          status: 500, 
-          headers: { 
-            ...corsHeaders,
-            'Content-Type': 'application/json' 
-          } 
-        }
-      );
-    }
-
     console.log(`[${requestId}] Processing image from ${imageSource} for attraction ${attractionId}`);
     
     // Debug environment variables (without exposing secrets)
     console.log(`[${requestId}] Environment check:`, {
-      hasGoogleKey: !!GOOGLE_API_KEY,
       hasProjectUrl: !!PROJECT_URL,
       hasServiceKey: !!SERVICE_ROLE_KEY,
-      googleKeyLength: GOOGLE_API_KEY?.length || 0,
       projectUrl: PROJECT_URL,
       imageSource
     });
@@ -630,18 +560,7 @@ serve(async (req) => {
       let altText: string;
       let contentType: string = 'image/jpeg';
 
-      if (imageSource === 'google_places') {
-        // Process Google Places image
-        const photoRef = photoReferences[0]; // Only process first image
-        console.log(`[${requestId}] Processing Google Places photo: ${photoRef}`);
-
-        imageData = await downloadGooglePhoto(photoRef, '1024');
-        fileName = generateFilename(googlePlaceId, 1);
-        folderId = googlePlaceId;
-        reference = photoRef;
-        altText = `Image from Google Places for ${attractionName}`;
-
-      } else if (imageSource === 'wikimedia_commons') {
+      if (imageSource === 'wikimedia_commons') {
         // Process Wikimedia Commons image
         console.log(`[${requestId}] Processing Wikimedia Commons image`);
         
@@ -734,7 +653,7 @@ serve(async (req) => {
       JSON.stringify({
         success: storedImages.length > 0,
         processed: storedImages.length,
-        total: imageSource === 'google_places' ? (photoReferences?.length || 0) : 1,
+        total: 1,
         imageSource,
         images: storedImages,
         errors: errors.length > 0 ? errors : undefined

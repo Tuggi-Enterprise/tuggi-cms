@@ -70,8 +70,8 @@ function hoursOf(value: unknown): OpeningHours {
 }
 
 /**
- * A stored value `hoursOf` cannot read, as text for the operator to retype (#886) — the Google
- * import writes `weekday_text`, an array of lines. `null` when there is nothing or it was read.
+ * A value saved in a format `hoursOf` cannot read, as text for the operator to retype (#886).
+ * `null` when there is nothing or it was read.
  */
 function unreadableHoursOf(value: unknown): string | null {
   if (!value || Object.keys(hoursOf(value)).length > 0) return null

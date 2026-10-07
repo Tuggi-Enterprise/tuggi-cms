@@ -12,34 +12,6 @@ export interface PolygonStats {
   area: number
 }
 
-export interface EnhancedPlaceResult {
-  place_id: string
-  name: string
-  formatted_address: string
-  geometry: {
-    location: {
-      lat: number
-      lng: number
-    }
-  }
-  rating?: number
-  user_ratings_total?: number
-  price_level?: number
-  photos?: Array<{
-    photo_reference: string
-    width: number
-    height: number
-  }>
-  opening_hours?: {
-    open_now?: boolean
-    weekday_text?: string[]
-  }
-  types: string[]
-  thumbnail?: string
-  isSelected: boolean
-  alreadyExists: boolean
-}
-
 export interface POICategory {
   value: string
   label: string

@@ -1,5 +1,4 @@
 import { POIInput, POVItem, POVGenerationMetrics } from '@/types/pov-types'
-import { enrichPOIData, POIEnrichmentData } from '@/lib/googlePlaces'
 
 interface POIProfile {
   type: 'landmark' | 'large_area' | 'building' | 'natural_feature' | 'infrastructure'
@@ -46,13 +45,6 @@ export class GeometricPOVGenerator {
       
       console.log(`📍 POI Input coordinates: ${poiInput.lat}, ${poiInput.lng}`)
       
-      // 1. Enriquecer dados do POI usando Google Places API (se disponível)
-      let enrichedData: POIEnrichmentData | null = null
-      if (attraction.google_place_id) {
-        console.log(`🔍 Attempting to enrich POI data using google_place_id: ${attraction.google_place_id}`)
-        enrichedData = await enrichPOIData(attraction.google_place_id)
-      }
-
       // 2. Criar perfil do POI
       const profile = this.createPOIProfile(poiInput)
       
