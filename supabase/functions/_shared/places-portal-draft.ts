@@ -22,7 +22,8 @@
 export const DRAFT_SECRET_HEADER = 'x-places-draft-secret';
 export const DRAFT_SECRET_ENV = 'PLACES_DRAFT_SECRET';
 export const PORTAL_ORIGIN_ENV = 'PLACES_PORTAL_ORIGIN';
-export const DEFAULT_PORTAL_ORIGIN = 'https://places.tuggi.app';
+/** The portal (#874). Same value as `tuggi-places` `src/lib/portal-origin.ts` `PORTAL_ORIGIN`. */
+export const DEFAULT_PORTAL_ORIGIN = 'https://partner.tuggi.app';
 /** `raw_user_meta_data.signup_origin` of a portal account: the app's trigger makes no tourist of it (`20261004150000`). */
 export const PORTAL_SIGNUP_ORIGIN = 'places_portal';
 export const PHOTO_BUCKET = 'place-submission-photos';

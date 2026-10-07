@@ -15,7 +15,7 @@
 // `portal_draft_payment_checkout`, which `places-payment` also calls for the cookie's checkout: the
 // Worker holds no Supabase secret key (D2 of `20261004120000`).
 //
-// Secrets: PLACES_DRAFT_SECRET, PLACES_PORTAL_ORIGIN (default https://places.tuggi.app),
+// Secrets: PLACES_DRAFT_SECRET, PLACES_PORTAL_ORIGIN (default https://partner.tuggi.app),
 // RESEND_API_KEY, RESEND_FROM.
 
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';

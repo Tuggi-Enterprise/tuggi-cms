@@ -271,10 +271,10 @@ test('#863: the login link with no settled submission needs no draft and goes to
   assert.match(f.mails[0].text, /^.*\n\nhttps:\/\/places\.tuggi\.app\/entrar\?th=c{56}&tt=magiclink\n/)
 })
 
-test('#863: the portal origin only accepts https://host', () => {
+test('#863 #874: the portal origin only accepts https://host; the default is partner.tuggi.app', () => {
   assert.equal(mod.portalOrigin('https://places.tuggi.app/'), 'https://places.tuggi.app')
   assert.equal(mod.portalOrigin('https://staging.places.tuggi.app:8443'), 'https://staging.places.tuggi.app:8443')
-  for (const v of [undefined, '', 'http://places.tuggi.app', 'https://x.app/path', 'javascript:alert(1)']) assert.equal(mod.portalOrigin(v), 'https://places.tuggi.app')
+  for (const v of [undefined, '', 'http://places.tuggi.app', 'https://x.app/path', 'javascript:alert(1)']) assert.equal(mod.portalOrigin(v), 'https://partner.tuggi.app')
 })
 
 test('#863: SQLSTATEs map to codes, never to the message', () => {
