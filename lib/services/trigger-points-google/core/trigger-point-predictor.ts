@@ -6,7 +6,7 @@ import { StreetAnalyzer, isObserverWay } from '../analyzers/street-analyzer';
 import { OptimalPointCalculator } from '../analyzers/point-calculator';
 import { TriggerPointValidator } from '../analyzers/validator';
 import { GoogleAPIsService } from '../services/google-apis.service';
-import { POIData, TriggerPoint, TriggerPointGenerationOptions, TriggerPointPredictionResult, BoundaryData, GeographicContext, TriggerPointCandidate, StreetData } from '../types/interfaces';
+import { POIData, TriggerPoint, TriggerPointGenerationOptions, TriggerPointPredictionResult, BoundaryData, GeographicContext, TriggerPointCandidate, StreetData, ProcessingResult } from '../types/interfaces';
 import { calculateBearing, calculateDistance, findClosestPointOnBoundary, closestStreetPointToPoi, closestPointOnPolyline } from '../utils/calculations';
 import { deterministicTPId } from '../utils/deterministic';
 import { TRIGGER_POINTS_CONSTANTS } from '../config/trigger-points-config';
@@ -17,6 +17,8 @@ import { LocalOSMFetcher } from '../services/local-osm-fetcher';
 import { emitDebugQuality, DebugQualitySnapshot } from '../debug-quality-logger';
 import { selectSpacedTriggerPoints, applyTpPostConditions, bestStreetPointOutside, REACH_RESCUE_METHOD } from '../utils/tp-selection';
 import { poiEdgeRing } from '../utils/validation';
+import { ADMIN_BORDER_ROAD_TYPES, adminBorderTriggerPoints, isAdminBorder } from '../utils/admin-border-tps';
+import { calculatePolygonPerimeter } from '../utils/calculations';
 
 /** Radii searched around the border for the rescue TP (INV-E11b), closest first. Provisional (#775). */
 const REACH_RESCUE_RINGS_M = [150, 500, 1_500];
@@ -73,19 +75,25 @@ export class CoreTriggerPointPredictor {
     // L1 (#833): a POI outside every local OSM region fails here, before the relief is prepared,
     // instead of reaching the public Overpass in silence. TP_ALLOW_OVERPASS=1 opts in.
     requireLocalOsmCoverage(pin?.lat, pin?.lng, LocalOSMFetcher.getInstance().regionList());
-    const dem = DemStore.getInstance();
-    if (Number.isFinite(pin?.lat) && Number.isFinite(pin?.lng) && !dem.preparedFor(pin.lat, pin.lng, SANITY_MAX_TP_DISTANCE_M)) {
-      const { ensureDemCell } = await import('../../dem/dem-prepare');
-      await ensureDemCell({ lat: pin.lat, lng: pin.lng, marginM: SANITY_MAX_TP_DISTANCE_M, dir: dem.dir });
-      dem.refresh(); // prepared here or by another worker meanwhile
+    // BR-POI-010: a municipal border reads no relief — its TPs stand on the roads crossing it,
+    // always inside — so the relief is neither prepared nor required for it.
+    const admin = await this.boundaryDetector.adminBoundaryOf(poiData);
+    if (!admin) {
+      const dem = DemStore.getInstance();
+      if (Number.isFinite(pin?.lat) && Number.isFinite(pin?.lng) && !dem.preparedFor(pin.lat, pin.lng, SANITY_MAX_TP_DISTANCE_M)) {
+        const { ensureDemCell } = await import('../../dem/dem-prepare');
+        await ensureDemCell({ lat: pin.lat, lng: pin.lng, marginM: SANITY_MAX_TP_DISTANCE_M, dir: dem.dir });
+        dem.refresh(); // prepared here or by another worker meanwhile
+      }
+      const cover = dem.coverage(pin?.lat, pin?.lng, SANITY_MAX_TP_DISTANCE_M);
+      if (!cover.ok) throw new DemNotPreparedError(cover.reason);
     }
-    const cover = dem.coverage(pin?.lat, pin?.lng, SANITY_MAX_TP_DISTANCE_M);
-    if (!cover.ok) throw new DemNotPreparedError(cover.reason);
     const candidateRows: EngineTraceRow[] = [];
-    const result = await this.predictWithTrace(poiData, options, candidateRows);
+    const result = await this.predictWithTrace(poiData, options, candidateRows, admin ?? undefined);
     const poiId = poiData.id ?? '';
     const trace = [...poiTraceRows(poiId, result.boundary), ...candidateRows];
-    if (result.triggerPoints.length === 0) {
+    // The rescue TP stands outside the border; a municipality with no road in has no entry to mark.
+    if (result.triggerPoints.length === 0 && !isAdminBorder(result.boundary)) {
       const rescue = this.buildReachRescueTP(poiData, result.boundary, result.context);
       if (rescue) {
         result.triggerPoints = [rescue];
@@ -166,10 +174,50 @@ export class CoreTriggerPointPredictor {
     return null;
   }
 
+  /**
+   * Municipal border mode (`utils/admin-border-tps`): roads of the main types along every part of
+   * the border, from the local OSM. A query box per border sample at least half the sample step
+   * wide, so no crossing falls between two boxes on a long border.
+   */
+  private predictAdminBorder(poiData: POIData, boundary: BoundaryData, trace: EngineTraceRow[], startTime: number): TriggerPointPredictionResult {
+    const poiId = poiData.id ?? '';
+    const parts = boundary.adminParts?.length ? boundary.adminParts : [boundary.coordinates];
+    const fetcher = LocalOSMFetcher.getInstance();
+    const byId = new Map<string, StreetData>();
+    for (const ring of parts) {
+      const radiusM = Math.max(200, calculatePolygonPerimeter(ring) / 1_000);
+      for (const s of fetcher.fetchStreetsAlongBoundary(ring, radiusM, ADMIN_BORDER_ROAD_TYPES) ?? []) byId.set(String(s.id), s);
+    }
+    const triggerPoints = adminBorderTriggerPoints(poiId, poiData.location, parts, [...byId.values()]);
+    trace.push(...triggerPoints.map(tp => ({
+      poi_id: poiId, stage: 'E7' as const, rule: 'admin-border-tps#adminBorderTriggerPoints', candidate: candidateKey(tp.location),
+      value: `${tp.street.type} ${tp.street.name ?? tp.street.id}; radius ${tp.radius} m`, limit: `parts=${parts.length}; roads=${byId.size}`, decision: 'kept' as const,
+    })));
+    console.log(`🏛️ Municipal border (osm_admin): ${parts.length} part(s), ${byId.size} main roads near the border → ${triggerPoints.length} TPs`);
+    return {
+      triggerPoints,
+      boundary,
+      processingTime: Date.now() - startTime,
+      metadata: {
+        boundarySource: boundary.source,
+        boundaryConfidence: boundary.confidence,
+        streetCount: byId.size,
+        optimalPointsFound: triggerPoints.length,
+        validatedPoints: triggerPoints.length,
+        finalPoints: triggerPoints.length,
+        fallbackUsed: false,
+        searchRadius: 0,
+        elevationAnalysis: null,
+      },
+    };
+  }
+
   private async predictWithTrace(
     poiData: POIData,
     options: TriggerPointGenerationOptions,
-    trace: EngineTraceRow[]
+    trace: EngineTraceRow[],
+    /** The municipal border already found by `predictTriggerPointsComplete` (BR-POI-010). */
+    adminBoundary?: BoundaryData
   ): Promise<TriggerPointPredictionResult> {
     const startTime = Date.now();
     const poiId = poiData.id ?? '';
@@ -234,12 +282,23 @@ export class CoreTriggerPointPredictor {
       // ✅ REFATORADO: Buscar dados OSM primeiro, depois calcular densidade e classificar
       // Não fazer cálculo inicial de contexto sem dados - isso causa redundância
       // 1. Detecção de boundary (busca dados OSM com raio padrão 500m, calcula densidade, classifica)
-      const boundaryResult = await this.boundaryDetector.detectBoundary(poiData, { storedReference: options.storedBoundaryReference });
+      const boundaryResult: ProcessingResult<BoundaryData> = adminBoundary
+        ? { success: true, data: adminBoundary, processingTime: 0 }
+        : await this.boundaryDetector.detectBoundary(poiData, { storedReference: options.storedBoundaryReference });
       if (!boundaryResult.success || !boundaryResult.data) {
         throw new Error(`Boundary detection failed: ${boundaryResult.error}`);
       }
       const boundary = boundaryResult.data;
       _boundary = boundary;
+
+      // BR-POI-010: an administrative border takes one TP per main road crossing it, just
+      // inside — no fan, no sight line, no reach by size.
+      if (isAdminBorder(boundary)) {
+        const result = this.predictAdminBorder(poiData, boundary, trace, startTime);
+        _finalTPs = result.triggerPoints;
+        emitDebugIfEnabled('admin_border');
+        return result;
+      }
 
       // Enriquecer boundary com pontos de entrada OSM (entrance=main/yes) do banco local.
       // Usado como bearing target prioritário em point-calculator.ts.
