@@ -23,7 +23,10 @@ import type { SupabaseClient } from '@supabase/supabase-js'
 import { derivePartnerPlan, planFactsFromRow, type PartnerPlan } from '@/lib/clients/partner-plan'
 import {
   describeDescriptionPolicy,
+  partnerNarrationFacts,
   partnerStoryInput,
+  type PartnerNarrationFacts,
+  type PlaceFactsRow,
   type DescriptionException,
   type DescriptionPolicyDecision,
   type PartnerStoryInput,
@@ -34,6 +37,7 @@ import { operatorLabel } from '@/lib/services/operator-label'
 import { portalRegistrationOfPlace } from '@/lib/services/portal-validation-service'
 import {
   partnerRegistrationSummary,
+  type PartnerRegistrationSource,
   type PartnerRegistrationSummary,
 } from '@/lib/partnerships/partner-registration'
 
@@ -135,6 +139,11 @@ export interface PlaceDescriptionPolicyView {
    * with no partner, and on a partner with no registration.
    */
   registration: PartnerRegistrationSummary | null
+  /**
+   * #887 — the registration's facts for the generator (`partner_input.facts`), the place editor's
+   * values first (`partnerNarrationFacts`). Only under `partner_story`, like `story`.
+   */
+  facts: PartnerNarrationFacts | null
 }
 
 /** The outcomes `core.cms_apply_name_only_description` reports. `blocked` is not a failure. */
@@ -190,7 +199,34 @@ export async function loadPlaceDescriptionPolicy(
     // Only a partner has input, and only the ones that may generate need it.
     story: decision.policy === 'partner_story' ? partnerStoryInput(row.proposal_answers) : null,
     baseDescription,
-    registration: row.partner_client_id ? await registrationSummaryOf(attractionId, row) : null,
+    ...(await registrationOfPlace(attractionId, row, decision.policy === 'partner_story', db)),
+  }
+}
+
+/**
+ * What the partner registered, for the editor's read-only panel (#886) and the generator's facts
+ * (#887). `registration`/`facts` are `null` on a place with no partner, and `facts` is `null` unless
+ * the place may generate.
+ */
+async function registrationOfPlace(
+  attractionId: string,
+  row: FactsRow,
+  wantsFacts: boolean,
+  db: SupabaseClient
+): Promise<Pick<PlaceDescriptionPolicyView, 'registration' | 'facts'>> {
+  if (!row.partner_client_id) return { registration: null, facts: null }
+  const [registered, place] = await Promise.all([
+    registrationAnswersOf(attractionId, row),
+    wantsFacts
+      ? placeFactsOf(attractionId, db).catch((e: unknown) => {
+          console.error('[description-policy] place facts read failed:', e instanceof Error ? e.message : e)
+          return null
+        })
+      : Promise.resolve(null),
+  ])
+  return {
+    registration: partnerRegistrationSummary(registered.answers, registered.source),
+    facts: wantsFacts ? partnerNarrationFacts(registered.answers, place) : null,
   }
 }
 
@@ -199,16 +235,57 @@ export async function loadPlaceDescriptionPolicy(
  * order `registrationOf` in `partner-place-provisioning.ts` uses. A failed portal read falls back
  * to the proposal: this is a read-only panel, and the policy above must not fail because of it.
  */
-async function registrationSummaryOf(
+async function registrationAnswersOf(
   attractionId: string,
   row: FactsRow
-): Promise<PartnerRegistrationSummary | null> {
+): Promise<{ answers: PartnerAnswers | null; source: PartnerRegistrationSource }> {
   const portal = await portalRegistrationOfPlace(attractionId).catch((e: unknown) => {
     console.error('[description-policy] portal registration read failed:', e instanceof Error ? e.message : e)
     return undefined
   })
-  if (portal) return partnerRegistrationSummary(portal.answers, 'portal')
-  return partnerRegistrationSummary(row.proposal_answers, 'proposal')
+  if (portal) return { answers: portal.answers, source: 'portal' }
+  return { answers: row.proposal_answers, source: 'proposal' }
+}
+
+/**
+ * The place's own values for the facts, with the operator's identity. `null` when the read failed —
+ * the facts then come from the answers alone, and the generation is not blocked by it.
+ */
+async function placeFactsOf(attractionId: string, db: SupabaseClient): Promise<PlaceFactsRow | null> {
+  const [attraction, details] = await Promise.all([
+    core(db)
+      .from('attractions')
+      .select('opening_hours, payment_credit_cards, pet_friendly, air_conditioning, wheelchair_accessible')
+      .eq('id', attractionId)
+      .maybeSingle(),
+    core(db)
+      .from('place_details')
+      .select('place_type, cuisine, tags, price_range, has_delivery, accepts_reservations, has_wifi, has_outdoor_seating')
+      .eq('attraction_id', attractionId)
+      .maybeSingle(),
+  ])
+  if (attraction.error || details.error) {
+    console.error('[description-policy] place facts read failed:', attraction.error?.code ?? details.error?.code)
+    return null
+  }
+  const a = (attraction.data ?? {}) as Record<string, unknown>
+  const d = details.data as Record<string, any> | null
+  return {
+    hasDetailsRow: !!d,
+    place_type: d?.place_type ?? null,
+    cuisine: Array.isArray(d?.cuisine) ? d.cuisine : null,
+    tags: Array.isArray(d?.tags) ? d.tags : null,
+    price_range: typeof d?.price_range === 'number' ? d.price_range : null,
+    has_delivery: d?.has_delivery ?? null,
+    accepts_reservations: d?.accepts_reservations ?? null,
+    has_wifi: d?.has_wifi ?? null,
+    has_outdoor_seating: d?.has_outdoor_seating ?? null,
+    opening_hours: a.opening_hours ?? null,
+    payment_credit_cards: a.payment_credit_cards ?? null,
+    pet_friendly: a.pet_friendly ?? null,
+    air_conditioning: a.air_conditioning ?? null,
+    wheelchair_accessible: a.wheelchair_accessible ?? null,
+  }
 }
 
 /**

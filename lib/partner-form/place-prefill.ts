@@ -168,8 +168,8 @@ export interface PlacePrefill {
   coordinate: { latitude: number; longitude: number } | null
 }
 
-/** Amenity id (contract §8.2) → where it lands. */
-const AMENITY_TARGETS: Readonly<
+/** Amenity id (contract §8.2) → where it lands. The narration facts (#887) read it back. */
+export const AMENITY_TARGETS: Readonly<
   Record<string, { attraction: PlacePrefillColumn; value: PrefillValue } | { details: PlacePrefillDetailColumn } | { tag: string }>
 > = {
   card_and_pix: { attraction: 'payment_credit_cards', value: 'yes' },
