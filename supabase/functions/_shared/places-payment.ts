@@ -847,7 +847,8 @@ async function endAtCommitment(deps: Deps, ids: SubscriptionIds, commitmentEndsA
  * take the story down now, and it stays up to the end of the free month (BR-B2B-046 item 9,
  * `place_story_entitled`, `renews` = false). `expire_place_subscriptions` returns it at that date and
  * the sweep (`expiredLiveCards` → `endSubscription`) cancels it; the DELETE there answers 404 = done.
- * Money that still lands is `not_applicable` and refunded. A failure alerts the operator: the fee
+ * Money that still lands is `not_applicable`: the EF only alerts (`ALERT_OUTCOMES`), the refund is
+ * manual (operator). A DELETE failure alerts the operator: the fee
  * would otherwise be charged on its date.
  */
 async function endFreeMonth(deps: Deps, ids: SubscriptionIds): Promise<void> {
