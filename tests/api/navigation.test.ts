@@ -198,6 +198,8 @@ test('o catálogo do admin é exatamente este — apagar um destino tem de doer'
     '/admin/coupons',
     '/admin/materials',
     '/admin/poi-trigger-map',
+    // Os números das horas concedidas (#855).
+    '/admin/reward-settings',
     '/admin/users',
     '/clients/coordinator',
     '/dashboard',

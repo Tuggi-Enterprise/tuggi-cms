@@ -82,7 +82,7 @@ test.describe('#409 — a 390px screen does not scroll sideways', () => {
         <BoardHarness />
       </Wrapper>
     )
-    await expect(page.getByRole('heading', { name: BOARD.columns.proposal })).toBeVisible()
+    await expect(page.getByRole('heading', { name: BOARD.columns.conference })).toBeVisible()
     await expectNoHorizontalOverflow(page)
   })
 
@@ -172,7 +172,7 @@ test.describe('#409 — the facets on a phone', () => {
 // ── One column at a time, and every act still reachable ──────────────────────────────────────
 
 test.describe('#409 — the columns on a phone', () => {
-  test('one column is shown, and the picker names all eight with their counts', async ({
+  test('one column is shown, and the picker names all four with their counts', async ({
     mount,
     page,
   }) => {
@@ -184,7 +184,7 @@ test.describe('#409 — the columns on a phone', () => {
     )
 
     const picker = page.getByRole('tablist', { name: BOARD.columnPickerLabel })
-    await expect(picker.getByRole('tab')).toHaveCount(8)
+    await expect(picker.getByRole('tab')).toHaveCount(4)
 
     // Exactly one column heading is on screen. On a monitor all eight are; that difference is
     // the change, and it is what the picker exists to compensate for.
@@ -192,7 +192,7 @@ test.describe('#409 — the columns on a phone', () => {
       name: new RegExp(Object.values(BOARD.columns).join('|')),
     })
     await expect(headings).toHaveCount(1)
-    await expect(page.getByRole('heading', { name: BOARD.columns.proposal })).toBeVisible()
+    await expect(page.getByRole('heading', { name: BOARD.columns.conference })).toBeVisible()
   })
 
   test('tapping a chip swaps which column is shown', async ({ mount, page }) => {
@@ -204,10 +204,10 @@ test.describe('#409 — the columns on a phone', () => {
     )
 
     const picker = page.getByRole('tablist', { name: BOARD.columnPickerLabel })
-    await picker.getByRole('tab', { name: new RegExp(BOARD.columns.contract_signed) }).click()
+    await picker.getByRole('tab', { name: new RegExp(BOARD.columns.awaiting_acceptance) }).click()
 
-    await expect(page.getByRole('heading', { name: BOARD.columns.contract_signed })).toBeVisible()
-    await expect(page.getByRole('heading', { name: BOARD.columns.proposal })).toBeHidden()
+    await expect(page.getByRole('heading', { name: BOARD.columns.awaiting_acceptance })).toBeVisible()
+    await expect(page.getByRole('heading', { name: BOARD.columns.conference, exact: true })).toBeHidden()
     await expectNoHorizontalOverflow(page)
   })
 
@@ -245,7 +245,7 @@ test.describe('#409 — axe-core at 390px', () => {
         <BoardHarness />
       </Wrapper>
     )
-    await expect(page.getByRole('heading', { name: BOARD.columns.proposal })).toBeVisible()
+    await expect(page.getByRole('heading', { name: BOARD.columns.conference })).toBeVisible()
     await axeClean(page)
   })
 

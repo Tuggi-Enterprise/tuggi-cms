@@ -18,11 +18,12 @@
  */
 
 import Link from 'next/link'
-import { X } from 'lucide-react'
+import { Lock, X } from 'lucide-react'
 import { useTranslations } from 'next-intl'
 import { deriveTriageStatus, type TriageStatus } from '@/lib/partnerships/triage'
 import { triageText } from '@/components/admin/partnerships/triage-text'
 import {
+  gateLine,
   idleFor,
   placeLine,
   planDivergence,
@@ -33,8 +34,10 @@ import {
 } from '@/components/admin/clients/board/row-text'
 import { derivePartnerPlan, paymentStance, type PaymentStance } from '@/lib/clients/partner-plan'
 import {
+  ALERT_STATE,
   isTerminalColumn,
   nextAct,
+  nextPlan,
   type BoardAct,
   type BoardColumnId,
 } from '@/lib/clients/board-transitions'
@@ -115,6 +118,17 @@ export function BoardCard({
   const p = useTranslations('Partnerships')
 
   const act = nextAct(row, column)
+  // BR-B2B-057: the act the gate holds back stays on screen, `aria-disabled` and described by the
+  // line of what is missing (spec #872 §2). None in the alert band, whose act is the refusal.
+  const move = row.state === ALERT_STATE ? null : nextPlan(row, column)
+  const gatedAct = move?.kind === 'blocked' && move.reason === 'gate_missing' ? move.act ?? null : null
+  const showGate =
+    row.state !== ALERT_STATE &&
+    row.gateMissing.length > 0 &&
+    (column === 'awaiting_acceptance' || column === 'curation')
+  const gateId = `board-gate-${rowKey(row)}`
+  // The portal's acceptance comes with the registration (BR-B2B-056, item 5): no link for it.
+  const copiesLink = showGate && row.clientId !== null && row.origin !== 'portal' && row.gateMissing.includes('acceptance')
   const name = row.name || c('noName')
   // Tied to the row and not to a counter: two cards on screen must never share the id that
   // `aria-describedby` points at.
@@ -129,7 +143,7 @@ export function BoardCard({
    * byte for byte the heading, and in 4 of the 7 steps the text is the label of the button below.
    */
   const stateLine = stateUnlessColumnSaysIt(row, column, p, t)
-  const stepLine = stepUnlessActSaysIt(row, act, p, t)
+  const stepLine = stepUnlessActSaysIt(row, act ?? gatedAct, p, t)
   const plan = derivePartnerPlan(row)
   const divergence = planDivergence(plan, t)
   const stance = paymentStance(plan.kind)
@@ -236,6 +250,28 @@ export function BoardCard({
         </span>
       )}
 
+      {showGate && (
+        <p id={gateId} className="mt-2 flex items-start gap-1 text-xs text-gray-900 dark:text-gray-200">
+          <Lock className="mt-0.5 h-3 w-3 shrink-0" aria-hidden="true" />
+          <span>
+            {gateLine(row.gateMissing, p)}
+            {/* The card only copies; sending is in the record's contract tab (spec #872 §3). */}
+            {copiesLink && (
+              <>
+                {' '}
+                <button
+                  type="button"
+                  onClick={() => onAct(row, 'copy_acceptance_link')}
+                  className="inline min-h-[24px] font-medium text-primary-800 underline underline-offset-4 dark:text-tuggi-blue"
+                >
+                  {t('acts.copy_acceptance_link')}
+                </button>
+              </>
+            )}
+          </span>
+        </p>
+      )}
+
       <div className="mt-3 flex items-center justify-between gap-2">
         <Link
           href={hrefFor(row)}
@@ -255,6 +291,19 @@ export function BoardCard({
             className="inline-flex min-h-[24px] items-center rounded-lg border border-primary-800 px-2 py-1 text-xs font-medium text-primary-800 transition-colors hover:bg-primary-800/5 dark:border-tuggi-blue dark:text-tuggi-blue"
           >
             {t(`acts.${act}`)}
+          </button>
+        )}
+
+        {!act && gatedAct && (
+          // `aria-disabled`, not `disabled`: it keeps the focus, so the reason is read (spec #872 §2).
+          <button
+            type="button"
+            aria-disabled="true"
+            aria-describedby={showGate ? gateId : undefined}
+            onClick={(event) => event.preventDefault()}
+            className="inline-flex min-h-[24px] cursor-not-allowed items-center rounded-lg border border-primary-800 px-2 py-1 text-xs font-medium text-primary-800 opacity-50 dark:border-tuggi-blue dark:text-tuggi-blue"
+          >
+            {t(`acts.${gatedAct}`)}
           </button>
         )}
       </div>

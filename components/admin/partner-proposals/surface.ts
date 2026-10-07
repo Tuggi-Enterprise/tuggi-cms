@@ -11,8 +11,10 @@
  *
  * THE SHELL IS `/pois`'s, THE INK IS NOT, and the two halves are separable on purpose.
  *
- * The CMS's visual language is the glass panel: `rounded-3xl`, `backdrop-blur-xl`, a hairline
- * border and a wide shadow, over `bg-gray-50 dark:bg-gray-950` — 36 files draw it. What these
+ * The card is the client record's (#870, "todos os cadastros precisam ser iguais"): solid white,
+ * `rounded-3xl`, hairline border, `shadow-sm`, on a white page — `RECORD_CARD` in
+ * `components/admin/clients/shared/RecordSection.tsx` without its padding, which each block here
+ * sets on its own. It used to be `/pois`'s glass panel over `bg-gray-50`. What these
  * screens do NOT take from `/pois` is the paint. That screen writes text and draws informative
  * icons in `text-tuggi-blue` (#00A8E8, 2.70:1 on white — SC 1.4.3 asks 4.5:1). Here the ink stays
  * `text-primary-800` (#00719F, 5.44:1) in daylight and becomes `text-tuggi-blue` in the dark,
@@ -23,9 +25,7 @@
  * 2.51:1 at 10px — a defect of the pattern, reported to `design` in
  * `docs/dev/briefing-design-parcerias.md`.
  */
-export const CARD =
-  'rounded-3xl border border-gray-200 bg-white/70 shadow-2xl shadow-black/5 backdrop-blur-xl ' +
-  'dark:border-gray-800 dark:bg-gray-900/70'
+export const CARD = 'rounded-3xl border border-gray-200 bg-white shadow-sm dark:border-gray-800 dark:bg-gray-900'
 
 /** One typed control, in the shape the rest of the CMS uses. */
 export const FIELD =

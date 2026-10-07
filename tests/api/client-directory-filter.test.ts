@@ -40,7 +40,7 @@ function row(overrides: Partial<ClientDirectoryRow>): ClientDirectoryRow {
   return {
     submissionId: null,
     clientId: 'c1',
-    state: 'client_created',
+    state: 'awaiting_acceptance',
     target: { kind: 'client', clientId: 'c1', tab: 'partnership' },
     name: 'Cliente',
     taxId: null,
@@ -58,6 +58,7 @@ function row(overrides: Partial<ClientDirectoryRow>): ClientDirectoryRow {
     places: PLACES as ClientDirectoryRow['places'],
     triage: { approvedAt: null, places: [] },
     discardReason: null,
+    gateMissing: [],
     ...overrides,
   }
 }

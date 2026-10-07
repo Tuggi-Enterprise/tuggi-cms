@@ -52,7 +52,7 @@ test.describe('#409 — axe-core over every state of the board', () => {
         <BoardHarness />
       </Wrapper>
     )
-    await expect(page.getByRole('heading', { name: BOARD.columns.proposal })).toBeVisible()
+    await expect(page.getByRole('heading', { name: BOARD.columns.conference })).toBeVisible()
     await axeClean(page)
   })
 
@@ -122,12 +122,16 @@ test('#409 — a card carries its state in words, so the column is never the onl
    * coluna para descobrir onde o cartão está.
    */
   const card = page.getByRole('article', {
-    name: `Padaria Boa Vista — ${ptMessages.Partnerships.states.contract_sent}`,
+    name: `Padaria Boa Vista — ${ptMessages.Partnerships.states.awaiting_acceptance}`,
   })
   await expect(card).toBeVisible()
-  // E o passo continua visível aqui, porque `Cobrar a assinatura do parceiro` não é o rótulo de
-  // botão nenhum — nesta coluna quem assina é o parceiro e não há ato a disparar.
-  await expect(card).toContainText(ptMessages.Partnerships.nextSteps.contract_sent)
+  // #872 · BR-B2B-057: the gate line says what is missing, and the held act keeps its place with
+  // `aria-disabled`, described by that line (spec §2).
+  await expect(card).toContainText('Falta o aceite.')
+  const held = card.getByRole('button', { name: ptMessages.Clients.board.acts.create_place })
+  await expect(held).toHaveAttribute('aria-disabled', 'true')
+  const describedBy = await held.getAttribute('aria-describedby')
+  await expect(page.locator(`[id="${describedBy}"]`)).toContainText('Falta o aceite.')
 })
 
 test('#409 — every figure on a card is named: `Parado há` and `Triagem`, never three bare numbers', async ({
@@ -382,7 +386,7 @@ test('#409 — a truncated set turns every column count into a floor, not a fact
     </Wrapper>
   )
 
-  const proposal = page.getByRole('region', { name: BOARD.columns.proposal })
+  const proposal = page.getByRole('region', { name: BOARD.columns.conference })
   // `≥ 1`, never `1`: what the server's cap dropped are the OLDEST rows, which is exactly what
   // fills these columns. A number that reads as a fact and is a lower bound is the defect that
   // made `{n} com a triagem vencida` open an empty table.
@@ -435,10 +439,13 @@ test('#409 · WCAG 2.2 SC 2.5.7 — every act on a card is reachable by keyboard
   await act.focus()
   await expect(act).toBeFocused()
 
-  // `Contrato enviado` is the one column whose act is the partner's, so its card offers none —
-  // and must not offer a button that does nothing (BR-B2B-026, item 5).
-  const waiting = page.getByRole('article', { name: 'Padaria Boa Vista' })
-  await expect(waiting.getByRole('button')).toHaveCount(0)
+  // #872 · BR-B2B-057: a card held by the gate keeps its act reachable by keyboard, so the reason
+  // is read — `aria-disabled`, never `disabled`, which would drop it from the tab order.
+  const waiting = page.getByRole('article', { name: new RegExp('^Padaria Boa Vista') })
+  const held = waiting.getByRole('button', { name: BOARD.acts.create_place })
+  await held.focus()
+  await expect(held).toBeFocused()
+  await expect(held).toHaveAttribute('aria-disabled', 'true')
 })
 
 // ── Criterion 25, carried over: the brand blue never paints a word ───────────────────────────

@@ -11,10 +11,9 @@
  *  · giving `refusal_not_communicated` a column, which files an act owed to somebody outside
  *    the company away as progress (DS-COPY-020, point 5);
  *  · adding a pipeline state without a column, which makes rows disappear from the board;
- *  · letting a drag FIRE the promotion, the first contract or the publication instead of
- *    opening the panel that asks (BR-B2B-018 — that last one starts the monthly fee);
- *  · letting a drag onto `Contrato assinado` do anything at all (BR-B2B-026, item 5: the
- *    partner signs, not us);
+ *  · letting a drag FIRE the promotion or the publication instead of opening the panel that
+ *    asks (BR-B2B-018 — that last one starts the monthly fee);
+ *  · letting a card into curation or publication with the BR-B2B-057 gate closed;
  *  · publishing with a blocking pendency on the least advanced place (BR-B2B-011);
  *  · letting the board filter on its own, which makes the facet rail count one set and the
  *    columns render another.
@@ -35,13 +34,15 @@ import {
   buildBoardView,
   columnOf,
   nextAct,
+  nextPlan,
   planTransition,
   unmappedStates,
   type BoardColumnId,
 } from '@/lib/clients/board-transitions'
 import { EMPTY_FILTERS, buildDirectoryView, type DirectoryFilters } from '@/lib/clients/directory-filter'
-import { PIPELINE_STATES, type PipelineState } from '@/lib/partnerships/pipeline'
+import { PIPELINE_STATES, TERMINAL_STATES, type PipelineState } from '@/lib/partnerships/pipeline'
 import type { ClientDirectoryRow } from '@/lib/services/partnership-service'
+import type { GateItem } from '@/lib/partnerships/acceptance-gate'
 
 const PLACES = { total: 0, published: 0, blocking: 0, silencing: 0, improving: 0, allReady: false }
 
@@ -49,7 +50,7 @@ function row(overrides: Partial<ClientDirectoryRow> = {}): ClientDirectoryRow {
   return {
     submissionId: 'sub-1',
     clientId: 'client-1',
-    state: 'client_created',
+    state: 'awaiting_acceptance',
     target: { kind: 'client', clientId: 'client-1', tab: 'partnership' },
     name: 'Cantina do Zé',
     taxId: null,
@@ -67,6 +68,7 @@ function row(overrides: Partial<ClientDirectoryRow> = {}): ClientDirectoryRow {
     places: { ...PLACES },
     triage: { approvedAt: null, places: [] },
     discardReason: null,
+    gateMissing: [],
     ...overrides,
   }
 }
@@ -78,7 +80,11 @@ const filters = (overrides: Partial<DirectoryFilters> = {}): DirectoryFilters =>
 
 // ── The mapping — DS-COPY-020 ────────────────────────────────────────────────────────────────
 
-test('#409 · every pipeline state has exactly one home: a column, or the alert band', () => {
+test('#872 · BR-B2B-057 item 1: four columns, in this order', () => {
+  assert.deepEqual(BOARD_COLUMNS, ['conference', 'awaiting_acceptance', 'curation', 'published'])
+})
+
+test('#409 · BR-B2B-057 item 6: every non-terminal state has exactly one home — a column, or the alert band', () => {
   assert.deepEqual(unmappedStates(), [], 'a state with no column is a row that vanishes')
 
   const seen = new Map<PipelineState, BoardColumnId>()
@@ -89,11 +95,26 @@ test('#409 · every pipeline state has exactly one home: a column, or the alert 
     }
   }
 
-  // Total: every state is either mapped or the alert.
+  // Total: every state is either mapped, the alert, or closed (outside the board).
   for (const state of PIPELINE_STATES) {
     if (state === ALERT_STATE) continue
+    if (TERMINAL_STATES.includes(state)) {
+      assert.equal(columnOf(state), null, `${state} is closed and must not be a column`)
+      continue
+    }
     assert.equal(typeof columnOf(state), 'string', `${state} has no column`)
   }
+})
+
+test('#872 · BR-B2B-057 item 6: the closed rows leave the board and are counted for the table link', () => {
+  const view = buildBoardView(
+    [row({ state: 'discarded' }), row({ clientId: 'c2', state: 'portal_refused' }), row({ clientId: 'c3' })],
+    filters()
+  )
+  assert.equal(view.closedCount, 2)
+  assert.equal(view.columns.reduce((sum, column) => sum + column.total, 0), 1)
+  const closed = buildDirectoryView([row({ state: 'discarded' }), row({ clientId: 'c3' })], filters({ state: 'closed' }))
+  assert.deepEqual(closed.rows.map((item) => item.state), ['discarded'])
 })
 
 test('#409 · DS-COPY-020 point 5: a refusal nobody communicated gets no column', () => {
@@ -124,90 +145,70 @@ test('#409 · dragging backwards is refused everywhere, and fires nothing', () =
 })
 
 test('#409 · skipping a column names the obligation of the FIRST edge, never a chain', () => {
-  const plan = planTransition(row({ state: 'proposal_received', clientId: null }), 'proposal', 'client')
-  assert.deepEqual(plan, { kind: 'not_adjacent', nextColumn: 'conference' })
+  const plan = planTransition(row({ state: 'proposal_received', clientId: null }), 'conference', 'curation')
+  assert.deepEqual(plan, { kind: 'not_adjacent', nextColumn: 'awaiting_acceptance' })
 
-  assert.deepEqual(planTransition(row(), 'client', 'client'), { kind: 'noop' })
+  assert.deepEqual(planTransition(row(), 'awaiting_acceptance', 'awaiting_acceptance'), { kind: 'noop' })
 })
 
 // ── The acts, edge by edge ───────────────────────────────────────────────────────────────────
 
-test('#409 · 1 → 2: the conference of a proposal, and never of a promoted one', () => {
+test('#409 · conference → awaiting: the conference of a proposal, then the promotion — never of a promoted one', () => {
   const fresh = row({ state: 'proposal_received', clientId: null })
-  assert.deepEqual(planTransition(fresh, 'proposal', 'conference'), {
+  assert.deepEqual(planTransition(fresh, 'conference', 'awaiting_acceptance'), {
     kind: 'act',
     act: 'record_conference',
   })
+  // DS-COMPONENTE-018: the promotion is OPENED, not fired.
+  const ready = row({ state: 'in_conference', clientId: null })
+  assert.deepEqual(planTransition(ready, 'conference', 'awaiting_acceptance'), {
+    kind: 'act',
+    act: 'open_promotion',
+  })
 
-  const promoted = row({ state: 'proposal_received' })
-  assert.deepEqual(planTransition(promoted, 'proposal', 'conference'), {
+  const promoted = row({ state: 'in_conference' })
+  assert.deepEqual(planTransition(promoted, 'conference', 'awaiting_acceptance'), {
     kind: 'blocked',
     reason: 'already_promoted',
   })
 
   const orphan = row({ state: 'proposal_received', clientId: null, submissionId: null })
-  assert.deepEqual(planTransition(orphan, 'proposal', 'conference'), {
+  assert.deepEqual(planTransition(orphan, 'conference', 'awaiting_acceptance'), {
     kind: 'blocked',
     reason: 'no_submission',
   })
 })
 
-test('#409 · DS-COMPONENTE-018: 2 → 3 OPENS the promotion, it does not fire it', () => {
-  const ready = row({ state: 'in_conference', clientId: null })
-  assert.deepEqual(planTransition(ready, 'conference', 'client'), {
-    kind: 'act',
-    act: 'open_promotion',
+test('#872 · BR-B2B-057 item 3: awaiting → curation creates the place only with the gate open', () => {
+  assert.deepEqual(planTransition(row(), 'awaiting_acceptance', 'curation'), { kind: 'act', act: 'create_place' })
+
+  // The gate closed: blocked with the list, and the act it holds so the card keeps the button.
+  const manual = row({ gateMissing: ['acceptance'] })
+  assert.deepEqual(planTransition(manual, 'awaiting_acceptance', 'curation'), {
+    kind: 'blocked',
+    reason: 'gate_missing',
+    missing: ['acceptance'],
+    act: 'create_place',
   })
-})
+  assert.equal(nextAct(manual, 'awaiting_acceptance'), null)
+  assert.deepEqual(nextPlan(manual, 'awaiting_acceptance'), planTransition(manual, 'awaiting_acceptance', 'curation'))
 
-test('#409 · BR-B2B-022: 3 → 4 sends a draft, and opens the page when there is no contract', () => {
-  const drafted = row({ contract: 'draft' })
-  assert.deepEqual(planTransition(drafted, 'client', 'contract_sent'), {
-    kind: 'act',
-    act: 'send_contract',
+  // The place exists and only the gate is missing: no act to hold (spec #872 §2).
+  const placed = row({ gateMissing: ['acceptance', 'partner_code'], places: { ...PLACES, total: 1 } })
+  assert.deepEqual(planTransition(placed, 'awaiting_acceptance', 'curation'), {
+    kind: 'blocked',
+    reason: 'gate_missing',
+    missing: ['acceptance', 'partner_code'],
   })
 
-  // No contract yet: `generate` needs tier, payment method and QR delivery, and a gesture
-  // chooses none of them. BR-B2B-017 — the price is not a side effect of a drag.
-  for (const state of ['none', 'superseded', 'terminated'] as const) {
-    assert.deepEqual(planTransition(row({ contract: state }), 'client', 'contract_sent'), {
-      kind: 'act',
-      act: 'open_contract',
-    })
-  }
-
-  const proposalOnly = row({ clientId: null })
-  assert.deepEqual(planTransition(proposalOnly, 'client', 'contract_sent'), {
+  assert.deepEqual(planTransition(row({ clientId: null }), 'awaiting_acceptance', 'curation'), {
     kind: 'blocked',
     reason: 'no_client',
   })
 })
 
-test('#409 · BR-B2B-026 item 5: 4 → 5 is the partner’s act, and produces none of ours', () => {
-  const sent = row({ state: 'contract_sent', contract: 'sent' })
-  assert.deepEqual(planTransition(sent, 'contract_sent', 'contract_signed'), {
-    kind: 'blocked',
-    reason: 'partner_acts',
-  })
-  assert.equal(nextAct(sent, 'contract_sent'), null)
-})
-
-test('#409 · 5 → 6 provisions the place, once', () => {
-  const signed = row({ state: 'contract_signed', contract: 'signed' })
-  assert.deepEqual(planTransition(signed, 'contract_signed', 'curation'), {
-    kind: 'act',
-    act: 'create_place',
-  })
-
-  const provisioned = row({ contract: 'signed', places: { ...PLACES, total: 1 } })
-  assert.deepEqual(planTransition(provisioned, 'contract_signed', 'curation'), {
-    kind: 'blocked',
-    reason: 'place_exists',
-  })
-})
-
-test('#409 · BR-B2B-011: 6 → 7 opens the publication, and a blocking pendency stops it', () => {
-  const ready = row({ state: 'place_in_curation', contract: 'signed', places: { ...PLACES, total: 1 } })
+test('#409 · BR-B2B-011: curation → published opens the publication, and a blocking pendency stops it', () => {
+  const ready = row({ state: 'place_in_curation', places: { ...PLACES, total: 1 } })
   assert.deepEqual(planTransition(ready, 'curation', 'published'), {
     kind: 'act',
     act: 'open_publish',
@@ -225,19 +226,27 @@ test('#409 · BR-B2B-011: 6 → 7 opens the publication, and a blocking pendency
     kind: 'blocked',
     reason: 'no_place',
   })
+
+  // BR-B2B-057 item 3: `Publicado` needs the gate too, and the gate is read first.
+  assert.deepEqual(planTransition(row({ ...ready, gateMissing: ['slug'] }), 'curation', 'published'), {
+    kind: 'blocked',
+    reason: 'gate_missing',
+    missing: ['slug'],
+    act: 'open_publish',
+  })
 })
 
 test('#409 · BR-B2B-018: the acts a GESTURE can fire are a closed list, and it is the safe one', () => {
   // Every act any edge can produce, over rows covering every shape the board has.
   const produced = new Set<string>()
   const rows = [
-    row({ clientId: null, submissionId: 's1' }),
-    row({ contract: 'none' }),
-    row({ contract: 'draft' }),
-    row({ contract: 'sent' }),
-    row({ contract: 'signed' }),
-    row({ contract: 'signed', places: { ...PLACES, total: 1 } }),
-    row({ contract: 'signed', places: { ...PLACES, total: 3, published: 1, blocking: 2 } }),
+    row({ clientId: null, submissionId: 's1', state: 'proposal_received' }),
+    row({ clientId: null, submissionId: 's1', state: 'in_conference' }),
+    row({ gateMissing: ['acceptance'] }),
+    row(),
+    row({ places: { ...PLACES, total: 1 } }),
+    row({ places: { ...PLACES, total: 3, published: 1, blocking: 2 } }),
+    row({ origin: 'portal', state: 'in_validation', clientId: null }),
   ]
   for (const candidate of rows) {
     for (const from of BOARD_COLUMNS) {
@@ -248,42 +257,16 @@ test('#409 · BR-B2B-018: the acts a GESTURE can fire are a closed list, and it 
     }
   }
 
-  // The three acts that cost money or cannot be taken back reach the operator ONLY as a panel:
-  // the promotion's per-column ticks, the contract's tier and price (BR-B2B-017), and the
-  // publication that starts the monthly fee (BR-B2B-018). No `promote_*`, `publish_*` or
-  // `discard_*` variant that writes on its own may exist in the union at all.
-  const firedDirectly = ['record_conference', 'send_contract', 'create_place']
-  const openedAsPanel = ['open_promotion', 'open_contract', 'open_publish', 'open_discard']
+  // The acts that cost money or cannot be taken back reach the operator ONLY as a panel: the
+  // promotion's per-column ticks and the publication that starts the monthly fee (BR-B2B-018).
+  const firedDirectly = ['record_conference', 'create_place']
+  const openedAsPanel = ['open_promotion', 'open_publish', 'open_validation']
 
   assert.deepEqual(
     Array.from(produced).sort(),
     firedDirectly.concat(openedAsPanel).sort(),
     'an act appeared that is neither a safe request nor a panel'
   )
-})
-
-// ── Closing ──────────────────────────────────────────────────────────────────────────────────
-
-test('#409 · Encerrados has two doors: discarding a proposal, and nothing else yet', () => {
-  const fresh = row({ state: 'proposal_received', clientId: null })
-  assert.deepEqual(planTransition(fresh, 'proposal', 'closed'), {
-    kind: 'act',
-    act: 'open_discard',
-  })
-  assert.deepEqual(planTransition(row({ state: 'in_conference', clientId: null }), 'conference', 'closed'), {
-    kind: 'act',
-    act: 'open_discard',
-  })
-
-  // A CLIENT is not closable here: `clients.status = 'rejected'` is not read by
-  // `derivePipelineState`, so a rejected client re-derives `client_created` and the card would
-  // come back to column 3 on the next read — a gesture that looks like it worked and did not.
-  for (const from of ['client', 'contract_sent', 'contract_signed', 'curation', 'published'] as BoardColumnId[]) {
-    assert.deepEqual(planTransition(row(), from, 'closed'), {
-      kind: 'blocked',
-      reason: 'not_closable',
-    })
-  }
 })
 
 // ── What the row says it owes — the column and the card read the same line ───────────────────
@@ -302,7 +285,7 @@ test('#409 · the pendencies of a place belong to the states whose work IS the p
   // signature. A true fact about the wrong step is still the wrong answer.
   const stuck = { ...PLACES, total: 3, published: 1, blocking: 1, silencing: 2 }
 
-  for (const state of ['client_created', 'contract_sent', 'contract_signed'] as const) {
+  for (const state of ['awaiting_acceptance'] as const) {
     assert.equal(
       whatIsMissing(row({ state, places: stuck }), keys),
       `nextSteps.${state}`,
@@ -329,9 +312,7 @@ test('#409 · the pendencies of a place belong to the states whose work IS the p
 const SPREAD: ClientDirectoryRow[] = [
   row({ clientId: null, submissionId: 's1', state: 'proposal_received' }),
   row({ clientId: null, submissionId: 's2', state: 'in_conference' }),
-  row({ clientId: 'c3', state: 'client_created' }),
-  row({ clientId: 'c4', state: 'contract_sent', contract: 'sent' }),
-  row({ clientId: 'c5', state: 'contract_signed', contract: 'signed' }),
+  row({ clientId: 'c3', state: 'awaiting_acceptance', gateMissing: ['acceptance'] }),
   row({ clientId: 'c6', state: 'place_in_curation', contract: 'signed' }),
   row({ clientId: 'c7', state: 'published', contract: 'signed' }),
   row({ clientId: 'c8', state: 'discarded' }),
@@ -354,10 +335,11 @@ function publishedIn(view: ReturnType<typeof buildBoardView>) {
   return view.columns.find((candidate) => candidate.id === 'published')!
 }
 
-test('#409 · no row is lost: the columns plus the alert are exactly what the rail counted', () => {
+test('#409 · no row is lost: the columns plus the alert plus the closed are exactly what the rail counted', () => {
   for (const applied of [filters(), filters({ state: 'in_progress' }), filters({ search: 'zé' })]) {
     const view = buildBoardView(SPREAD, applied)
-    const carried = view.columns.reduce((sum, column) => sum + column.total, 0) + view.alert.length
+    const carried =
+      view.columns.reduce((sum, column) => sum + column.total, 0) + view.alert.length + view.closedCount
     assert.equal(carried, buildDirectoryView(SPREAD, applied).rows.length)
   }
 })
@@ -386,9 +368,8 @@ test('#409 · a terminal column shows its first page by default, and counts the 
 })
 
 /**
- * THE WINDOW IS A PROPERTY OF BEING TERMINAL, not of being named `published`. `Encerrados` grows
- * without bound for the same reason and is windowed by the same rule; every working column is
- * the queue, and a queue that hid part of itself would be a board that under-reports the work.
+ * THE WINDOW IS A PROPERTY OF BEING TERMINAL, not of being named `published`; every working column
+ * is the queue, and a queue that hid part of itself would be a board that under-reports the work.
  */
 test('#409 · every terminal column windows, and no working column does', () => {
   const many = BOARD_COLUMNS.flatMap((id) =>
@@ -457,5 +438,103 @@ test('#409 · the board never filters on its own: it hands the rail its own view
   assert.deepEqual(
     view.directory.rows.map((item) => item.clientId),
     buildDirectoryView(SPREAD, applied).rows.map((item) => item.clientId)
+  )
+})
+
+// ── The Portal Locais on the same board (#812, BR-B2B-049, BR-B2B-047) ────────────────────────
+
+import {
+  PORTAL_BOARD_STATUSES,
+  derivePipelineState,
+  isPortalBoardStatus,
+  portalDetailTarget,
+} from '@/lib/partnerships/pipeline'
+import { recordHref, boardPath } from '@/lib/clients/record-href'
+
+const NO_CONF = { documentsSeen: [], reviewedAt: null, reviewedBy: null } as unknown as Parameters<
+  typeof derivePipelineState
+>[0]['conference']
+
+function portalState(
+  status: (typeof PORTAL_BOARD_STATUSES)[number],
+  clientId: string | null = null,
+  gateMissing: GateItem[] = []
+) {
+  return derivePipelineState({
+    origin: 'portal',
+    portalStatus: status,
+    proposalStatus: 'submitted',
+    conference: NO_CONF,
+    clientId,
+    gateMissing,
+    placeCount: 0,
+    publishedPlaceCount: 0,
+  })
+}
+
+test('BR-B2B-049: each board status of the portal maps to one state and one column', () => {
+  assert.equal(columnOf(portalState('in_review')), 'conference')
+  assert.equal(columnOf(portalState('changes_requested')), 'conference')
+  assert.equal(columnOf(portalState('approved')), 'curation')
+  assert.equal(columnOf(portalState('live')), 'published')
+  assert.equal(columnOf(portalState('rejected')), null, 'closed rows are not a column (BR-B2B-057 item 6)')
+  assert.deepEqual(unmappedStates(), [])
+})
+
+test('BR-B2B-049: draft and awaiting_payment never reach the board', () => {
+  assert.equal(isPortalBoardStatus('draft'), false)
+  assert.equal(isPortalBoardStatus('awaiting_payment'), false)
+  assert.equal(isPortalBoardStatus('in_review'), true)
+})
+
+test('BR-B2B-057 item 2: an approved portal row passes through `Aguardando aceite` without stopping', () => {
+  assert.equal(portalState('approved', 'client-9'), 'approved_awaiting_narration')
+  // …unless the gate is not open — a code still missing keeps it there, with no act to fire.
+  assert.equal(portalState('approved', 'client-9', ['partner_code']), 'awaiting_acceptance')
+  const portal = row({ origin: 'portal', state: 'awaiting_acceptance', gateMissing: ['partner_code'] })
+  assert.deepEqual(planTransition(portal, 'awaiting_acceptance', 'curation'), {
+    kind: 'blocked',
+    reason: 'gate_missing',
+    missing: ['partner_code'],
+  })
+  assert.equal(nextAct(portal, 'awaiting_acceptance'), null)
+})
+
+test('#812: approving a portal card opens the validation screen, never acts on the drop', () => {
+  const portal = row({ origin: 'portal', state: 'in_validation', clientId: null })
+  assert.deepEqual(planTransition(portal, 'conference', 'awaiting_acceptance'), { kind: 'act', act: 'open_validation' })
+  assert.deepEqual(planTransition(portal, 'conference', 'curation'), { kind: 'act', act: 'open_validation' })
+  assert.equal(nextAct(portal, 'conference'), 'open_validation')
+})
+
+test('#812: a portal row opens the validation screen until it is live', () => {
+  const ids = { submissionId: 'sub-7', clientId: 'client-7' }
+  assert.deepEqual(portalDetailTarget('in_validation', ids), { kind: 'validation', submissionId: 'sub-7' })
+  assert.deepEqual(portalDetailTarget('published', ids), {
+    kind: 'client',
+    clientId: 'client-7',
+    tab: 'partnership',
+  })
+  assert.equal(
+    recordHref('pt', new URLSearchParams(), { kind: 'validation', submissionId: 'sub-7' }),
+    // #870 (2026-10-06): the validation opens in the drawer over the board, like the record.
+    '/pt/admin/clients?validation=sub-7'
+  )
+})
+
+test('#870: the validation drawer opens over the board it came from, so closing it keeps the filters', () => {
+  const href = recordHref('pt', new URLSearchParams('view=table&state=in_validation&clientId=x'), {
+    kind: 'validation',
+    submissionId: 'sub-7',
+  })
+  assert.equal(href, '/pt/admin/clients?view=table&state=in_validation&validation=sub-7')
+  // And closing it is the board's address without the drawer.
+  assert.equal(boardPath(new URL(href, 'https://cms.test').searchParams), '/admin/clients?view=table&state=in_validation')
+})
+
+test('#870 (BR-B2B-049 item 8): after approving, the record opens on the places tab', () => {
+  assert.equal(
+    recordHref('pt', new URLSearchParams('view=table'), { kind: 'client', clientId: 'client-7', tab: 'places' }),
+    '/pt/admin/clients?view=table&clientId=client-7&tab=places'
   )
 })

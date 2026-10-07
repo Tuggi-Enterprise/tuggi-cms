@@ -93,6 +93,7 @@
     "section_diagnostics": "Diagnóstico",
     "coupons": "Cupones",
     "audit_logs": "Registros de Auditoría",
+    "reward_settings": "Horas concedidas",
     "user_base": "Base de Usuarios",
     "finance": "Finanzas",
     "materials": "Material",
@@ -1133,7 +1134,7 @@
         "title": "Contenido de la notificación",
         "label_title": "Título",
         "label_body": "Cuerpo del mensaje",
-        "label_image": "URL de la imagen (opcional)",
+        "label_image": "Imagen (URL https, opcional)",
         "label_badge": "Contador del badge (icono de la app)",
         "placeholder_title": "Ej.: ¡Una oferta personalizada para ti! 🎁",
         "placeholder_body": "Escribe el contenido principal de la notificación...",
@@ -1146,7 +1147,8 @@
         "campaign_type_label": "Clave de la campaña",
         "campaign_type_placeholder": "ej.: promo_verano_2026",
         "campaign_type_hint": "Va en data.type y es lo que separa esta campaña de las demás en el informe. Sin ella todas son la misma línea.",
-        "campaign_type_required": "La clave de la campaña es obligatoria."
+        "campaign_type_required": "La clave de la campaña es obligatoria.",
+        "image_invalid": "La imagen necesita una dirección https://. La app no muestra otra."
       },
       "scheduling": {
         "title": "Programación",
@@ -1157,9 +1159,7 @@
       },
       "advanced": {
         "title": "Ajustes avanzados",
-        "hint": "Deep link, badge y prioridad. Casi nunca hace falta tocarlo.",
-        "label_link": "Deep link (URL o ruta)",
-        "placeholder_link": "ej.: /ruta/123 o https://...",
+        "hint": "Imagen, badge y prioridad. Casi nunca hace falta cambiarlos.",
         "label_priority": "Prioridad alta",
         "priority_hint": "Solo para mensajes urgentes. Firebase degrada a quien abusa, y el castigo alcanza a todos los push de la app, incluido el diario."
       },
@@ -1276,6 +1276,23 @@
         "empty_body": "Crea la primera plantilla para reutilizar campañas habituales.",
         "empty_cta": "Crear plantilla",
         "load_failed": "No se pudieron cargar las plantillas: {error}"
+      },
+      "destination": {
+        "label": "Destino en la app",
+        "placeholder": "Elige adónde lleva el toque",
+        "hint": "Obligatorio. Es el botón del mensaje en el buzón de la app.",
+        "label_external": "Enlace externo (http/https)",
+        "external_invalid": "Usa una dirección completa que empiece con https://",
+        "options": {
+          "map": "Mapa",
+          "guide_start": "Activar la guía",
+          "earn": "Ganar horas",
+          "stamps": "Sellos (invitar amigos)",
+          "ranking": "Clasificación semanal",
+          "plans": "Pases",
+          "trips": "Mis viajes (Pasaporte)",
+          "external": "Enlace externo"
+        }
       }
     },
     "Marketing": {
@@ -2693,6 +2710,93 @@
     "stance": {
       "paying": "De pago",
       "not_paying": "Sin pago"
+    },
+    "portal": {
+      "readError": "No fue posible cargar los datos del portal.",
+      "origin": {
+        "label": "Origen del registro",
+        "portal": "Portal Locais",
+        "proposal": "Propuesta (flujo antiguo)",
+        "direct": "Registro directo en Studio",
+        "unknown": "No fue posible leer el origen."
+      },
+      "acceptance": {
+        "title": "Aceptación electrónica",
+        "terms": "Término {version} · aceptado el {date}",
+        "hash": "Hash del término",
+        "signer": "Firmante",
+        "signerLine": "{name} · {role} · CPF {cpf}",
+        "regularity": "Regularidad",
+        "declared": "Declaró CNPJ activo y licencia vigente",
+        "notDeclared": "Sin declaración",
+        "commitment": "Compromiso de divulgación",
+        "commitmentNone": "Ninguno",
+        "sticker": "Adhesivo",
+        "display": "Display",
+        "social": "Redes",
+        "missing": "No se encontró la aceptación de este envío."
+      },
+      "subscription": {
+        "title": "Plan y suscripción",
+        "plan": "Plan",
+        "planPaid": "Con historia · {months, plural, one {# mes} other {# meses}}",
+        "planFree": "En el mapa · gratis",
+        "amount": "Valor",
+        "amountLine": "{first} en el 1.er período · {renewal} en la renovación",
+        "status": "Estado",
+        "statuses": {
+          "pending_payment": "Esperando pago",
+          "paid": "Pagado",
+          "past_due": "Renovación atrasada",
+          "expired": "Vencido",
+          "refund_pending": "Reembolso en curso",
+          "refunded": "Reembolsado"
+        },
+        "paidAt": "Pagado el {date}",
+        "refundedAt": "Reembolsado el {date}",
+        "nextDue": "Próximo vencimiento",
+        "renewalOff": "Renovación desactivada · válido hasta {date}",
+        "startsAtApproval": "El período comienza con la aprobación",
+        "reference": "Suscripción en Asaas",
+        "noCharge": "Sin cobro"
+      },
+      "acceptanceLink": {
+        "title": "Aceptación del término",
+        "pending": "Pendiente",
+        "accepted": "Aceptado",
+        "acceptedOn": "Aceptación registrada el {date}.",
+        "goesTo": "El enlace va a {email}.",
+        "send": "Enviar por correo",
+        "sendNew": "Generar y enviar un enlace nuevo",
+        "copy": "Copiar el enlace",
+        "sending": "Enviando…",
+        "copying": "Generando…",
+        "copyRenews": "Copiar genera un enlace nuevo. El enlace anterior deja de valer.",
+        "sent": "Enviado el {date}, {time} a {email}. Vale hasta el {until}.",
+        "sendFailed": "El enlace se generó, pero el correo no salió. Copia el enlace y envíalo por otro canal.",
+        "validUntil": "Hay un enlace válido hasta el {until}.",
+        "expired": "El enlace venció el {date}.",
+        "copied": "Enlace copiado.",
+        "copyFailed": "No se pudo copiar. Selecciona el enlace de arriba y cópialo.",
+        "loadFailed": "No se pudo leer la aceptación de este cliente ahora.",
+        "errors": {
+          "record_incomplete": "Falta {field} en el registro. Complétalo en la pestaña Perfil y genera el enlace de nuevo.",
+          "already_accepted": "Este cliente ya aceptó el término.",
+          "paid_plan_unavailable": "El enlace de aceptación para el plan pago aún no está disponible.",
+          "no_terms": "Aún no hay término para este tipo de socio.",
+          "client_not_found": "No se encontró el registro de este cliente.",
+          "issue_failed": "No se pudo generar el enlace ahora. Inténtalo de nuevo en unos instantes."
+        },
+        "fields": {
+          "legal_name": "la razón social",
+          "trade_name": "el nombre comercial",
+          "address": "la dirección",
+          "city": "la ciudad",
+          "state": "el estado",
+          "tax_id": "un CNPJ válido",
+          "email": "el correo"
+        }
+      }
     }
   },
   "Coupons": {

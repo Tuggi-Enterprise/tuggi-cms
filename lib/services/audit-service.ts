@@ -43,10 +43,20 @@ export type AuditAction =
   // `reviewed_by` naming only the last operator, same need for the row that keeps the earlier
   // assertion. See `lib/services/client-conference-service.ts`.
   | 'REVIEW_CLIENT_CONFERENCE'
+  // BR-B2B-056 (#872): who issued an acceptance link, and whether it went by e-mail.
+  | 'ISSUE_ACCEPTANCE_LINK'
   // The place the approval creates (#360). It is a write into a catalogue of 2.2 million rows
   // made by a side-effect and not by the Places screen, so the row that says which approval
   // produced which POI is the only way back from one to the other.
   | 'CREATE_PARTNER_PLACE'
+  // The operator's three decisions on a Portal Locais submission (#812). The state machine keeps
+  // its own transition log; this row is what ties the decision to the CMS session that made it.
+  | 'APPROVE_PORTAL_SUBMISSION'
+  | 'REQUEST_PORTAL_CHANGES'
+  | 'REJECT_PORTAL_SUBMISSION'
+  // The whole CPF of a portal signer, shown on the operator's explicit click (#812): the screen
+  // carries only the mask, and this row is who saw the number and when.
+  | 'REVEAL_PORTAL_CPF'
   // Pointing the client at a place the catalogue ALREADY carried (#409), which is the ordinary
   // act and not the exception: the three clients that used `CREATE_PARTNER_PLACE` each got an
   // empty second row beside an establishment that was already published. This row is what
@@ -194,10 +204,14 @@ export function getUserAgent(request: NextRequest): string | null {
  * Centralized audit logger.
  * Errors are swallowed to avoid breaking the main flow.
  */
-export async function logAuditEvent(input: AuditLogInput): Promise<void> {
+/**
+ * Returns whether the row was written. Most callers tolerate a failed write and ignore the result;
+ * a caller whose response is only acceptable WITH the audit row (e.g. revealing a CPF) must check it.
+ */
+export async function logAuditEvent(input: AuditLogInput): Promise<boolean> {
   try {
     const supabase = getSupabase('service')
-    await supabase
+    const { error } = await supabase
       .schema('core')
       .from('audit_logs')
       .insert({
@@ -213,7 +227,13 @@ export async function logAuditEvent(input: AuditLogInput): Promise<void> {
         resource_type: input.entity,
         resource_id: input.entityId ?? null
       })
+    if (error) {
+      console.error('Audit log insert failed:', error.code)
+      return false
+    }
+    return true
   } catch (error) {
     console.error('Audit log insert failed:', error)
+    return false
   }
 }

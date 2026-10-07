@@ -155,24 +155,21 @@ export class ClientService {
    * Approve a client registration and create associated CMS user
    */
   static async approveClient(clientId: string, approverUserId: string, cmsUserEmail: string, cmsUserName: string): Promise<Client> {
-    // 1. Create CMS user with role 'client'
-    const { data: cmsUser, error: cmsError } = await getSupabase()
-      .schema('core')
-      .from('cms_users')
-      .insert([
-        {
-          email: cmsUserEmail,
-          full_name: cmsUserName,
-          role: 'client',
-          is_active: true
-        }
-      ])
-      .select()
+    // RETRY-SAFE since #872: the portal approval calls this too, and a click that died halfway
+    // must converge on the next one instead of failing on its own first write.
+    const { data: current, error: readError } = await getSupabase()
+      .schema('partner')
+      .from('clients')
+      .select('*')
+      .eq('id', clientId)
       .single()
-
-    if (cmsError) {
-      throw new Error(`Failed to create CMS user: ${cmsError.message}`)
+    if (readError || !current) {
+      throw new Error(`Failed to read client: ${readError?.message ?? 'not found'}`)
     }
+    if (current.status === 'approved' && current.cms_user_id) return current as Client
+
+    // 1. CMS user with role 'client' — or the one an earlier attempt already created
+    const cmsUserId = await ensureClientCmsUser(cmsUserEmail, cmsUserName)
 
     // 2. Update client with approval status and link to CMS user
     const { data: client, error: clientError } = await getSupabase()
@@ -180,7 +177,7 @@ export class ClientService {
       .from('clients')
       .update({
         status: 'approved',
-        cms_user_id: cmsUser.id,
+        cms_user_id: cmsUserId,
         approved_by: approverUserId,
         approved_at: new Date().toISOString()
       })
@@ -192,18 +189,22 @@ export class ClientService {
       throw new Error(`Failed to approve client: ${clientError.message}`)
     }
 
-    // 3. Link the CMS user as 'owner' of the client
-    await getSupabase()
+    // 3. Link the CMS user as 'owner' of the client (UNIQUE (client_id, cms_user_id): a retry
+    //    that finds the link already there is the same state)
+    const { error: linkError } = await getSupabase()
       .schema('partner')
       .from('client_cms_users')
       .insert([
         {
           client_id: clientId,
-          cms_user_id: cmsUser.id,
+          cms_user_id: cmsUserId,
           client_role: 'owner',
           linked_by: approverUserId
         }
       ])
+    if (linkError && linkError.code !== '23505') {
+      console.error('[clients] owner link not written', clientId, linkError.code)
+    }
 
     return client as Client
   }
@@ -288,4 +289,35 @@ export class ClientService {
 
     return (data || []) as any[]
   }
+}
+
+/**
+ * The CMS user of an approved client. `core.cms_users.email` is UNIQUE: when the address already
+ * has a `client` user (an earlier attempt of the same approval, or the same owner with a second
+ * establishment) that user is reused; an address that belongs to staff is refused, never linked.
+ */
+async function ensureClientCmsUser(email: string, fullName: string): Promise<string> {
+  const { data, error } = await getSupabase()
+    .schema('core')
+    .from('cms_users')
+    .insert([{ email, full_name: fullName, role: 'client', is_active: true }])
+    .select('id')
+    .single()
+  if (!error && data) return (data as { id: string }).id
+  if (error?.code !== '23505') {
+    throw new Error(`Failed to create CMS user: ${error?.message ?? 'no row'}`)
+  }
+  const { data: existing, error: lookupError } = await getSupabase()
+    .schema('core')
+    .from('cms_users')
+    .select('id, role')
+    .eq('email', email)
+    .single()
+  if (lookupError || !existing) {
+    throw new Error(`Failed to read CMS user: ${lookupError?.message ?? 'not found'}`)
+  }
+  if ((existing as { role: string }).role !== 'client') {
+    throw new Error('Failed to create CMS user: the e-mail belongs to a staff account')
+  }
+  return (existing as { id: string }).id
 }

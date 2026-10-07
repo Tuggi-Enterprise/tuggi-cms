@@ -130,25 +130,12 @@ export function BoardColumn({
           </button>
         )}
 
-        {/* The whole archive still has a door out, and the two doors of `Encerrados` are two
-            links: `discarded` and `refused_at_triage` are different outcomes, and merging them
-            into one filter value would need a vocabulary `parseFilters` does not have. */}
+        {/* The whole archive still has a door out: the table, filtered on this state. */}
         {terminal && column.total > 0 && (
           <div className="flex flex-col gap-1 px-1 pt-1">
-            {column.id === 'closed' ? (
-              <>
-                <Link href={seeAllHref('discarded')} className={SEE_ALL}>
-                  {t('seeAllDiscarded', { count: column.total })}
-                </Link>
-                <Link href={seeAllHref('refused_at_triage')} className={SEE_ALL}>
-                  {t('seeAllRefused', { count: column.total })}
-                </Link>
-              </>
-            ) : (
-              <Link href={seeAllHref('published')} className={SEE_ALL}>
-                {t('seeAll', { count: column.total })}
-              </Link>
-            )}
+            <Link href={seeAllHref('published')} className={SEE_ALL}>
+              {t('seeAll', { count: column.total })}
+            </Link>
           </div>
         )}
       </div>

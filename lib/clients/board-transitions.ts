@@ -13,11 +13,14 @@
  * obligations for it are met; it does not fetch, it does not write, and it does not choose copy.
  * The component fires the act and the messages file names it.
  *
- * THREE ACTS ARE DELIBERATELY NOT FIRED BY THE GESTURE, and they are the ones that cost money or
- * cannot be taken back: promoting a proposal, generating the first contract and publishing a
- * place. Each needs a choice the operator has to make with their eyes open — the promotion's
- * per-column ticks, the contract's tier and payment method, the sentence that starts the monthly
- * fee (BR-B2B-018). A drag is an ambiguous gesture; `open_*` acts open the panel that asks.
+ * TWO ACTS ARE DELIBERATELY NOT FIRED BY THE GESTURE, and they are the ones that cost money or
+ * cannot be taken back: promoting a proposal and publishing a place. Each needs a choice the
+ * operator has to make with their eyes open — the promotion's per-column ticks, the sentence that
+ * starts the monthly fee (BR-B2B-018). A drag is an ambiguous gesture; `open_*` acts open the
+ * panel that asks.
+ *
+ * THE GATE OF BR-B2B-057 is read here from `row.gateMissing` and enforced again by the server in
+ * the routes that create and publish a place (`checkAcceptanceGate`); the screen only mirrors it.
  *
  * Nothing here is React and nothing here fetches: it is proven by
  * `tests/api/client-board-transitions.test.ts` without a database or a browser, the same way
@@ -29,52 +32,40 @@ import {
   type DirectoryFilters,
   type DirectoryView,
 } from '@/lib/clients/directory-filter'
-import { PIPELINE_STATES, type PipelineState } from '@/lib/partnerships/pipeline'
+import { PIPELINE_STATES, TERMINAL_STATES, type PipelineState } from '@/lib/partnerships/pipeline'
+import type { GateItem } from '@/lib/partnerships/acceptance-gate'
 import type { ClientDirectoryRow } from '@/lib/services/partnership-service'
 
 /**
- * The eight columns, in pipeline order. Ids are English (CLAUDE.md §6); the labels an operator
- * reads live in `messages/pt.json` under `Clients.board.columns`.
+ * The four columns of BR-B2B-057, in pipeline order. Ids are English (CLAUDE.md §6); the labels
+ * an operator reads live in `messages/pt.json` under `Clients.board.columns`.
  */
-export type BoardColumnId =
-  | 'proposal'
-  | 'conference'
-  | 'client'
-  | 'contract_sent'
-  | 'contract_signed'
-  | 'curation'
-  | 'published'
-  | 'closed'
+export type BoardColumnId = 'conference' | 'awaiting_acceptance' | 'curation' | 'published'
 
-export const BOARD_COLUMNS: BoardColumnId[] = [
-  'proposal',
-  'conference',
-  'client',
-  'contract_sent',
-  'contract_signed',
-  'curation',
-  'published',
-  'closed',
-]
+export const BOARD_COLUMNS: BoardColumnId[] = ['conference', 'awaiting_acceptance', 'curation', 'published']
 
 /**
  * Which pipeline states each column holds — the ONE mapping, and the reason this module exists
  * rather than a `switch` inside the component.
  *
- * It has to be TOTAL and DISJOINT over `PIPELINE_STATES` minus `ALERT_STATE`, and a test proves
- * both. A state with no column is a row that silently vanishes from the board, which is the one
- * failure mode a work queue may not have; a state in two columns is a row that is counted twice.
+ * It has to be TOTAL and DISJOINT over `PIPELINE_STATES` minus `ALERT_STATE` and the terminal
+ * states, and a test proves both. A state with no column is a row that silently vanishes from the
+ * board; a state in two columns is a row that is counted twice.
+ *
+ * THE TERMINAL STATES ARE NOT A COLUMN (BR-B2B-057, item 6): closing is not a stage, and the
+ * board reaches them by a link to the table already filtered on them (`CLOSED_STATES`).
  */
 export const COLUMN_STATES: Record<BoardColumnId, PipelineState[]> = {
-  proposal: ['proposal_received'],
-  conference: ['in_conference'],
-  client: ['client_created'],
-  contract_sent: ['contract_sent'],
-  contract_signed: ['contract_signed'],
-  curation: ['place_in_curation'],
+  // "Proposta recebida" is the same person doing the same conference (spec #872 §1), and the
+  // portal's validation is this column's work too (#812).
+  conference: ['proposal_received', 'in_conference', 'in_validation', 'changes_requested'],
+  awaiting_acceptance: ['awaiting_acceptance'],
+  curation: ['place_in_curation', 'approved_awaiting_narration'],
   published: ['published'],
-  closed: ['discarded', 'refused_at_triage'],
 }
+
+/** The states outside the board, reached by `Ver os encerrados na tabela`. */
+export const CLOSED_STATES: readonly PipelineState[] = TERMINAL_STATES
 
 /**
  * The one state that gets no column.
@@ -91,7 +82,7 @@ export const ALERT_STATE: PipelineState = 'refusal_not_communicated'
  * a board is what is still owed, and a column that accumulates every partnership ever delivered
  * stops being read at all.
  */
-export const TERMINAL_COLUMNS: BoardColumnId[] = ['published', 'closed']
+export const TERMINAL_COLUMNS: BoardColumnId[] = ['published']
 
 /**
  * How many rows a terminal column shows at a time, and how many `Ver mais` adds.
@@ -140,45 +131,49 @@ export function isTerminalColumn(column: BoardColumnId): boolean {
  * header.
  */
 export type BoardAct =
-  /** Band 2 of the proposal: tick the documents seen in person. */
+  /** The proposal's conference band: tick the documents seen in person. */
   | 'record_conference'
   /** Opens the proposal's promotion panel — the per-column ticks are a person's decision. */
   | 'open_promotion'
-  /** `POST …/contract {action:'send'}`, for a contract already generated. */
-  | 'send_contract'
-  /** Opens the contract page — `generate` needs tier, payment method and QR delivery. */
-  | 'open_contract'
-  /** `POST …/places` — provisions the place from the promoted proposal. */
+  /** `POST …/places` — provisions the place from the promoted proposal. Gated (BR-B2B-057). */
   | 'create_place'
-  /** Opens the publication panel. Starts the monthly fee, so never fired by a gesture. */
+  /** Opens the publication panel. Starts the monthly fee, so never fired by a gesture. Gated. */
   | 'open_publish'
-  /** Opens the discard panel — the reason is mandatory. */
-  | 'open_discard'
   /** `POST …/triage-refusal/communicate` — closes the 72-hour clock. */
   | 'communicate_refusal'
+  // A portal row (#812): approve, ask for changes and refuse all happen in the validation
+  // screen — approving creates a POI and spends TTS, so no drag does it.
+  | 'open_validation'
+  /**
+   * `POST …/acceptance-link {send:false}` and the clipboard (BR-B2B-056, #872). Never produced by
+   * `planTransition`: it is the gate line's own button, and it moves no card.
+   */
+  | 'copy_acceptance_link'
 
 /**
- * Why a drag did not happen. Each reason is rendered from `messages/pt.json`; `missing` carries
- * the obligations the operator can act on, when the row already knows them.
+ * Why a drag did not happen. Each reason is rendered from `messages/pt.json`.
  *
- * `partner_acts` is not a failure and not a block — it is the one edge whose act belongs to
- * somebody else, and saying "you cannot" without saying "because they have not signed yet"
- * reads as a broken screen.
+ * `gate_missing` is BR-B2B-057, item 3: the same sentence the card prints, the drag answers and
+ * the server's refusal carries (`missing`, in copy order).
  */
 export type BlockReason =
   | 'no_submission'
   | 'already_promoted'
   | 'no_client'
-  | 'partner_acts'
   | 'place_exists'
   | 'no_place'
   | 'blocking_pendencies'
-  | 'places_unresolved'
   | 'not_closable'
+  | 'gate_missing'
 
 export type TransitionPlan =
   | { kind: 'act'; act: BoardAct }
-  | { kind: 'blocked'; reason: BlockReason }
+  /**
+   * `missing` travels with `gate_missing`; `act` is the act the gate is holding back, so the card
+   * can keep the button in place with `aria-disabled` (spec #872 §2). Absent when there is no act
+   * to hold — a portal row whose place exists and only the code is missing.
+   */
+  | { kind: 'blocked'; reason: BlockReason; missing?: GateItem[]; act?: BoardAct }
   /** The card was dropped where it already is. */
   | { kind: 'noop' }
   /** A pipeline runs one way. Undoing an act is done in the record, never by a gesture. */
@@ -188,6 +183,13 @@ export type TransitionPlan =
 
 function indexOfColumn(column: BoardColumnId): number {
   return BOARD_COLUMNS.indexOf(column)
+}
+
+function gateBlock(row: ClientDirectoryRow, act?: BoardAct): TransitionPlan | null {
+  if (row.gateMissing.length === 0) return null
+  return act
+    ? { kind: 'blocked', reason: 'gate_missing', missing: row.gateMissing, act }
+    : { kind: 'blocked', reason: 'gate_missing', missing: row.gateMissing }
 }
 
 /**
@@ -204,10 +206,7 @@ export function planTransition(
 ): TransitionPlan {
   if (from === to) return { kind: 'noop' }
 
-  // `closed` is the one column reachable from several places, so it is decided before the
-  // ordering: dragging a proposal there is a discard, and dragging a place there is a refusal.
-  // Neither is "moving one step forward".
-  if (to === 'closed') return planClosing(row, from)
+  if (row.origin === 'portal') return planPortalTransition(row, from, to)
 
   const fromIndex = indexOfColumn(from)
   const toIndex = indexOfColumn(to)
@@ -217,64 +216,53 @@ export function planTransition(
   }
 
   switch (from) {
-    case 'proposal':
-      // The conference of a promoted proposal is the CLIENT's, and it is registered on the
-      // contract page. Sending the operator to the proposal's band would open a screen that
-      // cannot answer.
-      if (row.clientId) return { kind: 'blocked', reason: 'already_promoted' }
-      if (!row.submissionId) return { kind: 'blocked', reason: 'no_submission' }
-      return { kind: 'act', act: 'record_conference' }
-
     case 'conference':
+      // Leaving the conference is the promotion, which creates the client — and the client is
+      // born with its slug and its partner code (BR-B2B-057, item 3, first step).
       if (!row.submissionId) return { kind: 'blocked', reason: 'no_submission' }
       if (row.clientId) return { kind: 'blocked', reason: 'already_promoted' }
-      return { kind: 'act', act: 'open_promotion' }
+      return { kind: 'act', act: row.state === 'proposal_received' ? 'record_conference' : 'open_promotion' }
 
-    case 'client':
+    case 'awaiting_acceptance': {
       if (!row.clientId) return { kind: 'blocked', reason: 'no_client' }
-      // A contract already generated only has to leave; one that does not exist has to be
-      // priced first, and no gesture chooses a tier.
-      return { kind: 'act', act: row.contract === 'draft' ? 'send_contract' : 'open_contract' }
+      const act: BoardAct | undefined = row.places.total === 0 ? 'create_place' : undefined
+      const gated = gateBlock(row, act)
+      if (gated) return gated
+      if (!act) return { kind: 'blocked', reason: 'place_exists' }
+      return { kind: 'act', act }
+    }
 
-    case 'contract_sent':
-      // BR-B2B-026, item 5. The only edge whose act is the partner's: the card comes back, and
-      // the column offers re-sending the link instead of pretending there is nothing to do.
-      return { kind: 'blocked', reason: 'partner_acts' }
-
-    case 'contract_signed':
-      if (!row.clientId) return { kind: 'blocked', reason: 'no_client' }
-      if (row.places.total > 0) return { kind: 'blocked', reason: 'place_exists' }
-      return { kind: 'act', act: 'create_place' }
-
-    case 'curation':
+    case 'curation': {
+      const gated = gateBlock(row, 'open_publish')
+      if (gated) return gated
       if (row.places.total === 0) return { kind: 'blocked', reason: 'no_place' }
       // `blocking` is the count OF THE LEAST ADVANCED PLACE (`summarizePlaces`), which is the
       // one the publication panel opens on. Summing across places would hide which is stuck.
       if (row.places.blocking > 0) return { kind: 'blocked', reason: 'blocking_pendencies' }
       return { kind: 'act', act: 'open_publish' }
+    }
 
     default:
-      // `published` has nothing after it but `closed`, handled above.
       return { kind: 'blocked', reason: 'not_closable' }
   }
 }
 
 /**
- * Dropping onto `Encerrados`, which has two doors and no third.
- *
- * A CLIENT IS NOT CLOSABLE HERE, and the omission is deliberate rather than forgotten:
- * `partner.clients.status = 'rejected'` is not read by `derivePipelineState` at all, so a
- * rejected client would keep deriving `client_created` and reappear in column 3 the moment the
- * board reloaded — a gesture that looks like it worked and did not. Registered as an open
- * question; until it has a state, this refuses.
+ * A portal row is decided in the validation screen: from the conference, the drop opens it
+ * (approving lands in curation, passing through `Aguardando aceite` when the gate is open).
+ * After the approval the gate is the only thing the board can say about it.
  */
-function planClosing(row: ClientDirectoryRow, from: BoardColumnId): TransitionPlan {
-  if (from === 'proposal' || from === 'conference') {
+function planPortalTransition(
+  row: ClientDirectoryRow,
+  from: BoardColumnId,
+  to: BoardColumnId
+): TransitionPlan {
+  if (indexOfColumn(to) < indexOfColumn(from)) return { kind: 'backwards' }
+  if (from === 'conference' && (to === 'awaiting_acceptance' || to === 'curation')) {
     if (!row.submissionId) return { kind: 'blocked', reason: 'no_submission' }
-    if (row.clientId) return { kind: 'blocked', reason: 'already_promoted' }
-    return { kind: 'act', act: 'open_discard' }
+    return { kind: 'act', act: 'open_validation' }
   }
-  return { kind: 'blocked', reason: 'not_closable' }
+  return gateBlock(row) ?? { kind: 'blocked', reason: 'not_closable' }
 }
 
 /**
@@ -286,10 +274,17 @@ function planClosing(row: ClientDirectoryRow, from: BoardColumnId): TransitionPl
  */
 export function nextAct(row: ClientDirectoryRow, column: BoardColumnId): BoardAct | null {
   if (row.state === ALERT_STATE) return 'communicate_refusal'
+  const plan = nextPlan(row, column)
+  return plan?.kind === 'act' ? plan.act : null
+}
+
+/**
+ * The plan to the next column — what the card's button reads, so a gate-blocked act stays on
+ * screen with `aria-disabled` and the same sentence the drag would answer.
+ */
+export function nextPlan(row: ClientDirectoryRow, column: BoardColumnId): TransitionPlan | null {
   const next = BOARD_COLUMNS[indexOfColumn(column) + 1]
-  if (!next) return null
-  const plan = planTransition(row, column, next)
-  return plan.kind === 'act' ? plan.act : null
+  return next ? planTransition(row, column, next) : null
 }
 
 export interface BoardColumnView {
@@ -312,6 +307,8 @@ export interface BoardView {
   columns: BoardColumnView[]
   /** The rows owed to somebody outside the company. Above the board, never inside it. */
   alert: ClientDirectoryRow[]
+  /** How many rows are closed (BR-B2B-057, item 6) — outside the board, behind a link. */
+  closedCount: number
   /** Handed through from `buildDirectoryView` so the rail and the board agree. */
   directory: DirectoryView
 }
@@ -354,10 +351,15 @@ export function buildBoardView(
     BOARD_COLUMNS.map((column) => [column, [] as ClientDirectoryRow[]])
   )
   const alert: ClientDirectoryRow[] = []
+  let closedCount = 0
 
   for (const row of directory.rows) {
+    if (row.state === ALERT_STATE) {
+      alert.push(row)
+      continue
+    }
     const column = columnOf(row.state)
-    if (column === null) alert.push(row)
+    if (column === null) closedCount += 1
     else buckets.get(column)!.push(row)
   }
 
@@ -375,7 +377,7 @@ export function buildBoardView(
     return { id, total: all.length, rows: visible, overflow: all.length - visible.length }
   })
 
-  return { columns, alert, directory }
+  return { columns, alert, closedCount, directory }
 }
 
 /**
@@ -383,5 +385,7 @@ export function buildBoardView(
  * list the board is built from, and not on a copy of it that would age separately.
  */
 export function unmappedStates(): PipelineState[] {
-  return PIPELINE_STATES.filter((state) => state !== ALERT_STATE && columnOf(state) === null)
+  return PIPELINE_STATES.filter(
+    (state) => state !== ALERT_STATE && !CLOSED_STATES.includes(state) && columnOf(state) === null
+  )
 }

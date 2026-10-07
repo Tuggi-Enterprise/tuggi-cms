@@ -400,7 +400,9 @@ test('#409 · a welcome POI that is not the client\'s place is shown, not hidden
   // pin while `partner_client_id` points nowhere, and band 4 read `este cliente ainda não tem
   // local vinculado` over a partner that has one on air — with `Criar um local novo` as the
   // next move, which is how the duplicate is born.
-  assert.match(service, /welcomeDivergence: await loadWelcomeDivergence\(/)
+  // Read in the second parallel round of `loadPartnershipDetail` since #875.
+  assert.match(service, /loadWelcomeDivergence\(client\.welcomePoiId, attractionIds, operator\)/)
+  assert.match(service, /\n    welcomeDivergence,\n/)
 
   // Only when the two POINTERS DISAGREE: the query costs nothing in the ordinary case, and a
   // divergence card over a client whose welcome POI IS its place would be noise.

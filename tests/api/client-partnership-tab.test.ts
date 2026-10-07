@@ -35,14 +35,11 @@ const TAB = 'components/admin/clients/tabs/PartnershipTab.tsx'
 const PAGE = 'app/[locale]/admin/partnerships/clients/[clientId]/page.tsx'
 const DETAIL = 'components/admin/partnerships/PartnershipDetail.tsx'
 
-test('one pipeline, two hosts — the tab renders the same component the page does', () => {
-  for (const host of [TAB, PAGE]) {
-    assert.match(
-      read(host),
-      /import \{ PartnershipDetail \}|PartnershipDetail\b/,
-      `${host} must render PartnershipDetail, not a copy of the five bands`
-    )
-  }
+test('one pipeline, one host — the tab renders PartnershipDetail, the old page only forwards to it', () => {
+  assert.match(read(TAB), /import \{ PartnershipDetail \}/, `${TAB} must render PartnershipDetail`)
+  // #875: the standalone screen became a redirect to the record's partnership tab.
+  assert.match(read(PAGE), /redirect\(/, `${PAGE} forwards the links already out there`)
+  assert.match(read(PAGE), /tab: 'partnership'/, `${PAGE} lands on the partnership tab`)
   // The bands themselves are declared once, in the component both hosts render.
   const tab = read(TAB)
   for (const band of ['ProposalBand', 'ConferenceBand', 'ClientBand', 'PlaceBand']) {
@@ -50,7 +47,7 @@ test('one pipeline, two hosts — the tab renders the same component the page do
   }
 })
 
-test('the way back is chrome, and only the standalone page has a queue behind it', () => {
+test('the way back is chrome, and the record has no queue behind it', () => {
   /*
    * THE WAY BACK IS THE LIST, and until 2026-08-24 it was the list FILTERED to the working set —
    * which is what `/admin/partnerships` had been all along, one filter with a screen around it.
@@ -62,11 +59,8 @@ test('the way back is chrome, and only the standalone page has a queue behind it
    * The destination is a constant now, for the reason the four copies of it demonstrated: three
    * carried the filter and one did not.
    */
-  assert.match(
-    read(PAGE),
-    /backHref=\{`\/\$\{locale\}\$\{CLIENT_DIRECTORY_PATH\}`\}/,
-    'the standalone page draws the way back to the list it came from'
-  )
+  // #875: the standalone page is gone, and with it the only host that passed `backHref`.
+  assert.equal(read(DETAIL).indexOf('backHref'), -1, 'no host draws a way back to a queue')
   // The prop, not the word: the docblock above explains why this host does not pass one.
   assert.equal(
     read(TAB).indexOf('backHref='),

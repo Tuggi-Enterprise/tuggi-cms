@@ -19,57 +19,80 @@
  */
 
 import type { ConferenceRecord } from '@/lib/partner-form/regularity'
-import { isSigned, type ContractState } from '@/lib/contract/status'
+import type { GateItem } from '@/lib/partnerships/acceptance-gate'
 
 /**
- * THE TEN LABELS — the spec's eight plus two this pipeline needs.
+ * The labels of the pipeline. Since #872 (BR-B2B-057) the board has four stages, and the three
+ * contract states (`client_created`, `contract_sent`, `contract_signed`) are gone: the contract
+ * of a new partner is an electronic acceptance (BR-B2B-056), and what sits between the client
+ * and the curation is `awaiting_acceptance` — the client exists and the gate is not open yet
+ * (the acceptance, the partner code or the slug), or the place does not exist yet.
  *
- * `contract_sent` is the second of the two, and it arrived with the board (#409). The fact was
- * always in the database — `partner.partner_contracts.status = 'sent'` — and the pipeline threw
- * it away by asking a boolean: `draft` and `sent` both answered "not signed" and collapsed into
- * one label, which hid the only distinction that changes who is holding up the work. A contract
- * in `draft` is owed BY US; a contract `sent` is owed BY THE PARTNER, and the only acts left on
- * this side are to re-send the link or wait. One label for both told the operator to do
- * something about a row where there was nothing to do.
- *
- * `refused_at_triage` is the spec's seventh, and it arrived with the card that gave the outcome
- * of the triage a place to live (#377, `partner.partner_triage_refusals`): while nothing recorded
- * it, a refused partnership would have sat in the queue looking overdue forever, which is why
- * spec §9, question 3, held both it and the `Triagem` column back.
- *
- * `refusal_not_communicated` is the spec's eighth and the reason there are two: the refusal was
- * DECIDED and the partner has not been told. One label for both facts hid the second, and the row
- * left the default filter still owing the communication — with the 72-hour clock running and
- * counted in `{n} com a triagem vencida`, which then opened an empty table. That is DS-COPY-020,
- * point 5, and its edge case names this defect.
- *
- * `client_created` is the extra one, and it is not an invention of convenience: promoting a
- * proposal writes `partner.clients` and NOTHING about a contract (`promoteProposal`), so every
- * partnership passes through "the client exists, the contract is not signed yet". Without this
- * id those rows derive to no state at all and vanish from the queue — which is the one failure
- * mode a work queue may not have. Its copy is built out of the spec's own vocabulary for band
- * 3 (`Cliente criado em 14/08 · … · Contrato assinado em 15/08`) and is flagged to `design`.
+ * `refused_at_triage` arrived with `partner.partner_triage_refusals` (#377). `refusal_not_communicated`
+ * is DS-COPY-020, point 5: a refusal decided and not yet told to the partner is still work.
  */
 export type PipelineState =
   | 'proposal_received'
   | 'in_conference'
-  | 'client_created'
-  | 'contract_sent'
-  | 'contract_signed'
+  | 'awaiting_acceptance'
   | 'place_in_curation'
   | 'refusal_not_communicated'
   | 'published'
   | 'discarded'
   | 'refused_at_triage'
+  // The Portal Locais (#812, BR-B2B-049). Its own states because its acts are its own: the
+  // validation replaces the conference, the acceptance replaces the contract, and refusing
+  // refunds and ends — unlike `refused_at_triage`, which keeps the partnership (BR-B2B-010).
+  | 'in_validation'
+  | 'changes_requested'
+  | 'approved_awaiting_narration'
+  | 'portal_refused'
+
+/**
+ * `partner.place_submissions.status` (BR-B2B-049). `draft` and `awaiting_payment` are not the
+ * operator's work — the client or the gateway acts — so they never reach the board, and the
+ * type of `PipelineInput.portalStatus` says so.
+ */
+export type PortalStatus =
+  | 'draft'
+  | 'awaiting_payment'
+  | 'in_review'
+  | 'changes_requested'
+  | 'approved'
+  | 'live'
+  | 'rejected'
+
+export type PortalBoardStatus = Exclude<PortalStatus, 'draft' | 'awaiting_payment'>
+
+export const PORTAL_BOARD_STATUSES: readonly PortalBoardStatus[] = [
+  'in_review',
+  'changes_requested',
+  'approved',
+  'live',
+  'rejected',
+]
+
+export function isPortalBoardStatus(value: unknown): value is PortalBoardStatus {
+  return (PORTAL_BOARD_STATUSES as readonly unknown[]).includes(value)
+}
+
+const PORTAL_STATE: Readonly<Record<PortalBoardStatus, PipelineState>> = {
+  in_review: 'in_validation',
+  changes_requested: 'changes_requested',
+  approved: 'approved_awaiting_narration',
+  live: 'published',
+  rejected: 'portal_refused',
+}
 
 /** The states that are still work. The queue's default filter (criterion 4). */
 export const IN_PROGRESS_STATES: PipelineState[] = [
   'proposal_received',
   'in_conference',
-  'client_created',
-  'contract_sent',
-  'contract_signed',
+  'in_validation',
+  'changes_requested',
+  'awaiting_acceptance',
   'place_in_curation',
+  'approved_awaiting_narration',
   'refusal_not_communicated',
 ]
 
@@ -82,7 +105,7 @@ export const IN_PROGRESS_STATES: PipelineState[] = [
  * partner was told", never "the relationship is over" — before the communication the state is
  * `refusal_not_communicated`, which is work.
  */
-export const TERMINAL_STATES: PipelineState[] = ['discarded', 'refused_at_triage']
+export const TERMINAL_STATES: PipelineState[] = ['discarded', 'refused_at_triage', 'portal_refused']
 
 /** Every state, in pipeline order — the order the queue's counters are shown in. */
 export const PIPELINE_STATES: PipelineState[] = IN_PROGRESS_STATES.concat(
@@ -109,12 +132,10 @@ export interface PipelineInput {
   /** The client the proposal was promoted into, if any. */
   clientId: string | null
   /**
-   * `partner.partner_contracts.status` of that client's LIVE contract, or `none` when there is
-   * no contract at all. A status and not a boolean since the board: `sent` is a state of its own
-   * — the instrument left the building and the partner has not signed it — and a `signed: false`
-   * could not tell it apart from `draft`, which is work still on this side of the door.
+   * What the BR-B2B-057 gate still lacks for this client (`missingGateItems` over
+   * `partner.client_acceptance_gate`). Empty = slug, partner code and acceptance are there.
    */
-  contract: ContractState
+  gateMissing: readonly GateItem[]
   /** How many places carry `core.attractions.partner_client_id = clientId`. */
   placeCount: number
   /** How many of them satisfy the read model's visibility predicate. */
@@ -132,54 +153,46 @@ export interface PipelineInput {
    * this is an `any`, not an arithmetic, and the clock closes on the same predicate.
    */
   uncommunicatedRefusal?: boolean
+  /**
+   * Where the row came from. `portal` reads `portalStatus` and nothing else: the portal has no
+   * conference, no promotion and no contract (BR-B2B-047, item 1). Its approved row passes
+   * through `awaiting_acceptance` without stopping when the gate is open (BR-B2B-057, item 2).
+   */
+  origin?: 'form' | 'portal'
+  portalStatus?: PortalBoardStatus
 }
 
 export function derivePipelineState(input: PipelineInput): PipelineState {
+  // BEFORE the client branch, on purpose — see `origin`.
+  if (input.origin === 'portal' && input.portalStatus) {
+    const state = PORTAL_STATE[input.portalStatus]
+    // BR-B2B-057, item 2: the portal row already carries its acceptance and passes through
+    // `Aguardando aceite` without stopping — unless the gate is not open (a code still missing).
+    if (state === 'approved_awaiting_narration' && input.gateMissing.length > 0) return 'awaiting_acceptance'
+    return state
+  }
+
   if (input.proposalStatus === 'discarded') return 'discarded'
 
   if (input.clientId) {
     // DS-COPY-020, point 5 — ABOVE everything else this branch can say, including `published`.
     // A refusal decided and not communicated is an act owed to somebody outside the company, so
-    // the row is work whatever the rest of the partnership looks like: it keeps its next step
-    // (`Comunicar a recusa ao parceiro`) and stays in the default filter until the stamp exists.
-    // It is also what keeps `{n} com a triagem vencida` and that filter from disagreeing — the
-    // clock cannot be overdue on a place whose refusal was communicated.
+    // the row is work whatever the rest of the partnership looks like.
     if (input.uncommunicatedRefusal === true) return 'refusal_not_communicated'
 
     const refused = input.refusedPlaceCount ?? 0
-    // DECIDED, not "finished": a place is resolved when it is in the app or its triage refused
-    // it. Below that line there is still work, and the row belongs in the work queue.
+    // DECIDED, not "finished": a place is resolved when it is in the app or its triage refused it.
     const resolved = input.publishedPlaceCount + refused
 
     if (input.placeCount > 0 && resolved >= input.placeCount) {
-      // Every place in the app: the partnership is delivered. One of three still in curation is
-      // NOT `Publicado` — the queue shows the least advanced place (DS-COMPONENTE-020). And a
-      // partnership whose every place was refused AND communicated is terminal, with the
-      // partnership intact (BR-B2B-010, 6th edge case); the communication is already guaranteed
-      // by the check above.
+      // Every place in the app: the partnership is delivered (legacy published places included —
+      // the gate stops a transition, it does not take a place out of the app).
       return input.publishedPlaceCount > 0 ? 'published' : 'refused_at_triage'
     }
-    // THE CONTRACT OUTRANKS A PLACE NOBODY PUBLISHED, and the order is the whole reason the
-    // pipeline has three states between the client and the curation instead of one.
-    //
-    // Until 2026-08-23 approving the client CREATED the place by itself, `approved = false`
-    // and before anybody generated a contract, so reading `placeCount > 0` first sent EVERY
-    // approved partnership straight to `place_in_curation`. The automatic creation is gone —
-    // it produced a duplicate every time — but the order below stays, because the operator can
-    // link the place on day one just the same: the two contract states would never be reached,
-    // and the next step
-    // read `Publicar o local` for a partner with no instrument signed. BR-B2B-026, item 5, puts
-    // the term of the agreement at the signature, and BR-B2B-018 starts the fee at the
-    // publication — publishing first is billing without a contract behind it.
-    //
-    // A place that exists is not a state; a place the partnership is ALLOWED to publish is. So
-    // below `published` the unsigned contract wins, and `place_in_curation` names what it says:
-    // the instrument is in force and the place is what is left.
-    if (!isSigned(input.contract)) {
-      return input.contract === 'sent' ? 'contract_sent' : 'client_created'
-    }
-    if (input.placeCount > 0) return 'place_in_curation'
-    return 'contract_signed'
+    // BR-B2B-057, item 3: the curation needs slug, partner code AND acceptance, and a place to
+    // curate. Missing any of the four, the row waits in `Aguardando aceite`.
+    if (input.gateMissing.length > 0 || input.placeCount === 0) return 'awaiting_acceptance'
+    return 'place_in_curation'
   }
 
   return conferenceStarted(input.conference) ? 'in_conference' : 'proposal_received'
@@ -211,8 +224,22 @@ export function derivePipelineState(input: PipelineInput): PipelineState {
  * already out there.
  */
 export type DetailTarget =
-  | { kind: 'client'; clientId: string; tab: 'partnership' }
+  // `places` is where the validation sends the operator after approving (#870): the next act is
+  // the boundary, and the POI card in `PlacesTab` is what leads to the place editor.
+  | { kind: 'client'; clientId: string; tab: 'partnership' | 'places' }
   | { kind: 'proposal'; submissionId: string }
+  // A portal row is the submission until it is live (#812): the validation screen decides it.
+  | { kind: 'validation'; submissionId: string }
+
+export function portalDetailTarget(
+  state: PipelineState,
+  ids: { submissionId: string; clientId: string | null }
+): DetailTarget {
+  if (state === 'published' && ids.clientId) {
+    return { kind: 'client', clientId: ids.clientId, tab: 'partnership' }
+  }
+  return { kind: 'validation', submissionId: ids.submissionId }
+}
 
 export function detailTarget(
   state: PipelineState,

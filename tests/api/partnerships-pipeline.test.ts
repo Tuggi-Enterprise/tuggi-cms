@@ -41,6 +41,7 @@ import {
   detailTarget,
 } from '@/lib/partnerships/pipeline'
 import { EMPTY_CONFERENCE, type ConferenceRecord } from '@/lib/partner-form/regularity'
+import type { GateItem } from '@/lib/partnerships/acceptance-gate'
 import { PUBLIC_PATH_PREFIXES } from '@/lib/roles'
 import { deriveTriageStatus, isTriageOverdue } from '@/lib/partnerships/triage'
 
@@ -340,7 +341,7 @@ test('#359 crit. 3 · DS-COPY-020: every state derives from the condition the sp
     proposalStatus: 'submitted' as const,
     conference: conference(),
     clientId: null,
-    contract: 'none' as const,
+    gateMissing: [] as GateItem[],
     placeCount: 0,
     publishedPlaceCount: 0,
   }
@@ -360,99 +361,22 @@ test('#359 crit. 3 · DS-COPY-020: every state derives from the condition the sp
   assert.equal(conferenceStarted(conference()), false)
   assert.equal(conferenceStarted(conference({ documentsSeen: ['business_license'] })), true)
 
+  // #872 · BR-B2B-057: between the client and the curation there is one stage, and it waits for
+  // the gate (slug, partner code, acceptance) AND the place. Any of the four missing keeps it there.
+  const promoted = { ...base, proposalStatus: 'promoted' as const, clientId: CLIENT_ID }
+  assert.equal(derivePipelineState({ ...promoted, gateMissing: ['acceptance'] }), 'awaiting_acceptance')
+  assert.equal(derivePipelineState({ ...promoted, gateMissing: [] }), 'awaiting_acceptance', 'no place yet')
   assert.equal(
-    derivePipelineState({ ...base, proposalStatus: 'promoted', clientId: CLIENT_ID }),
-    'client_created'
+    derivePipelineState({ ...promoted, gateMissing: ['acceptance'], placeCount: 1 }),
+    'awaiting_acceptance',
+    'a place without the acceptance is not curation: publishing would bill with nothing accepted'
   )
-  assert.equal(
-    derivePipelineState({
-      ...base,
-      proposalStatus: 'promoted',
-      clientId: CLIENT_ID,
-      contract: 'signed' as const,
-    }),
-    'contract_signed'
-  )
-  // #409 · BR-B2B-026 item 5: `sent` is a state of its own — the instrument left the building
-  // and the only acts left on this side are to re-send the link or wait. `draft` is NOT: a
-  // contract nobody sent is still work here, and it reads as `client_created`.
-  assert.equal(
-    derivePipelineState({
-      ...base,
-      proposalStatus: 'promoted',
-      clientId: CLIENT_ID,
-      contract: 'sent' as const,
-    }),
-    'contract_sent'
-  )
-  assert.equal(
-    derivePipelineState({
-      ...base,
-      proposalStatus: 'promoted',
-      clientId: CLIENT_ID,
-      contract: 'draft' as const,
-    }),
-    'client_created'
-  )
-
-  assert.equal(
-    derivePipelineState({
-      ...base,
-      proposalStatus: 'promoted',
-      clientId: CLIENT_ID,
-      contract: 'signed' as const,
-      placeCount: 1,
-    }),
-    'place_in_curation'
-  )
-
-  // #409 · BR-B2B-018: approving the client CREATES the place, before any contract exists
-  // (`applyPartnerApprovalEffects`). An unpublished place therefore proves nothing about the
-  // instrument, and reading it first sent every approved partnership to `place_in_curation`
-  // with `Publicar o local` as its next step — publishing, and so billing, with nothing signed.
-  assert.equal(
-    derivePipelineState({
-      ...base,
-      proposalStatus: 'promoted',
-      clientId: CLIENT_ID,
-      contract: 'none' as const,
-      placeCount: 1,
-    }),
-    'client_created'
-  )
-  assert.equal(
-    derivePipelineState({
-      ...base,
-      proposalStatus: 'promoted',
-      clientId: CLIENT_ID,
-      contract: 'sent' as const,
-      placeCount: 1,
-    }),
-    'contract_sent'
-  )
+  assert.equal(derivePipelineState({ ...promoted, gateMissing: [], placeCount: 1 }), 'place_in_curation')
 
   // A place already in the app still wins: it is delivered, whatever the paperwork says, and
-  // hiding that would make the queue lie about what tourists can see.
+  // hiding that would make the queue lie about what tourists can see (BR-B2B-057, item 5).
   assert.equal(
-    derivePipelineState({
-      ...base,
-      proposalStatus: 'promoted',
-      clientId: CLIENT_ID,
-      contract: 'none' as const,
-      placeCount: 1,
-      publishedPlaceCount: 1,
-    }),
-    'published'
-  )
-  assert.equal(
-    derivePipelineState({
-      ...base,
-      proposalStatus: 'promoted',
-      clientId: CLIENT_ID,
-      contract: 'signed' as const,
-      placeCount: 1,
-      publishedPlaceCount: 1,
-    }),
+    derivePipelineState({ ...promoted, gateMissing: ['acceptance'], placeCount: 1, publishedPlaceCount: 1 }),
     'published'
   )
   assert.equal(derivePipelineState({ ...base, proposalStatus: 'discarded' }), 'discarded')
@@ -464,7 +388,7 @@ test('#359 crit. 5 · DS-COMPONENTE-020: one of three published is NOT `Publicad
       proposalStatus: 'promoted',
       conference: conference(),
       clientId: CLIENT_ID,
-      contract: 'signed' as const,
+      gateMissing: [],
       placeCount: 3,
       publishedPlaceCount: 2,
     }),
@@ -486,7 +410,7 @@ test('#359 \u00b7 spec \u00a72: the identity of the row changes halfway, and so 
   // From the client onwards the object is the client, and the client record is where the five
   // bands live now \u2014 the same header, one click from the fiscal data and the contract.
   assert.deepEqual(
-    detailTarget('contract_signed', { submissionId: SUBMISSION_ID, clientId: CLIENT_ID }),
+    detailTarget('awaiting_acceptance', { submissionId: SUBMISSION_ID, clientId: CLIENT_ID }),
     { kind: 'client', clientId: CLIENT_ID, tab: 'partnership' }
   )
   assert.deepEqual(
@@ -609,7 +533,8 @@ test('#359 crit. 29: the pipeline screens hand the pt messages down explicitly',
   // The namespace lives only in `messages/pt.json` (spec §2), and an ABSENT key in next-intl
   // renders the KEY NAME. "Only pt" and "`/en/` never shows `Partnerships.title`" are both
   // true only because of this provider.
-  const page = 'app/[locale]/admin/partnerships/clients/[clientId]/page.tsx'
+  // #875: the standalone page became a redirect; the pt-only host left is the places tab.
+  const page = 'components/admin/clients/tabs/PlacesTab.tsx'
   const source = read(page)
   assert.match(source, /NextIntlClientProvider/, page)
   assert.match(source, /locale="pt"/, page)
@@ -691,15 +616,6 @@ test('#359 crit. 34: no pipeline surface is public', () => {
 })
 
 test('#390 · BR-B2B-026 item 4: the band that says `Assinar o contrato` links to the contract', () => {
-  // The esteira named the next step of `client_created` and offered no way to take it: the
-  // operator left for the client list, opened the modal and hunted for the tab. The step and
-  // the door now live in the same band.
-  assert.match(
-    messages().Partnerships.nextSteps.client_created,
-    /contrato/i,
-    'the next step of this state is still the contract'
-  )
-
   // The href moved into `contractHref`, which composes the same path and adds the way back —
   // so the assertion is on the destination, not on the shape of the JSX attribute.
   const detail = read('components/admin/partnerships/PartnershipDetail.tsx')
@@ -872,8 +788,7 @@ test('#359 · DS-COMPONENTE-021, 3rd/4th edge cases: refusing the act refuses th
 test('#359 · DS-LAYOUT-003: the act the header names is in the band that opens', () => {
   const detail = read('components/admin/partnerships/PartnershipDetail.tsx')
 
-  // `contract_signed` opens band 4, where `Criar o local a partir da proposta` lives — not
-  // band 3, whose work is the contract that has just been signed.
+  // `awaiting_acceptance` opens band 4, where `Criar o local a partir da proposta` lives (#872).
   assert.match(detail, /client: \[2, 2\]/)
   assert.match(detail, /place: \[3, 4\]/)
 
@@ -1154,6 +1069,13 @@ let COMMUNICATE: (req: any, ctx: any) => Promise<Response>
  */
 let loadPartnerPlaceLive: typeof import('@/lib/services/partnership-service')['loadPartnerPlace']
 
+/**
+ * Stand-in of `partner.client_acceptance_gate` behind `checkAcceptanceGate` (#872). Open by
+ * default, so the publication tests keep proving what they proved; the gate test closes it.
+ */
+let gateAnswer: { ok: true } | { ok: false; httpStatus: number; error: string; missing?: string[] } = { ok: true }
+const gateAsked: string[] = []
+
 before(async () => {
   process.env.NEXT_PUBLIC_APP_URL ??= 'https://cms.tuggi.app'
 
@@ -1167,6 +1089,17 @@ before(async () => {
       getSupabase: () => createFakeDb(() => state),
       getSupabaseRouteHandler: () => createFakeAuthClient(() => state),
       getSupabaseClient: () => createFakeDb(() => state),
+    },
+  })
+
+  mock.module('@/lib/services/acceptance-gate-service', {
+    namedExports: {
+      checkAcceptanceGate: async (clientId: string) => {
+        gateAsked.push(clientId)
+        return gateAnswer
+      },
+      gateRefusalBody: (check: { error: string; missing?: string[] }) =>
+        check.missing ? { error: check.error, missing: check.missing } : { error: check.error },
     },
   })
 
@@ -1279,6 +1212,32 @@ test('#359 crit. 17 · DS-COMPONENTE-021 pt. 2: the route refuses the act it can
     'and nothing was written'
   )
   assert.equal(state.attractions[0].approved, false)
+})
+
+test('#872 · BR-B2B-057 item 3: publishing without the acceptance is refused by the SERVER, and writes nothing', async () => {
+  state = freshState()
+  gateAnswer = { ok: false, httpStatus: 409, error: 'gate_missing', missing: ['acceptance'] }
+  try {
+    const response = await PUBLISH(request({ approved: true }), context)
+    assert.equal(response.status, 409)
+    assert.deepEqual(await response.json(), { error: 'gate_missing', missing: ['acceptance'] })
+    assert.equal(state.writes.filter((write) => write.table === 'attractions').length, 0)
+    assert.equal(gateAsked[gateAsked.length - 1], CLIENT_ID)
+
+    // Taking a place OUT of the app is never gated.
+    state.attractions[0].approved = true
+    const out = await PUBLISH(request({ approved: false }), context)
+    assert.equal(out.status, 200)
+
+    // A gate that could not be read refuses too (fails closed).
+    state = freshState()
+    gateAnswer = { ok: false, httpStatus: 503, error: 'gate_lookup_failed' }
+    const unknown = await PUBLISH(request({ approved: true }), context)
+    assert.equal(unknown.status, 503)
+    assert.equal(state.attractions[0].approved, false)
+  } finally {
+    gateAnswer = { ok: true }
+  }
 })
 
 test('#359 crit. 17: registering the courtesy with a reason lets the same request through', async () => {

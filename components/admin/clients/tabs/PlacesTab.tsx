@@ -35,9 +35,10 @@
  */
 
 import { useCallback, useEffect, useState } from 'react'
+import { useRecordRead } from '@/lib/hooks/use-record-cache'
 import { NextIntlClientProvider, useLocale, useTranslations } from 'next-intl'
 import { MapPin } from 'lucide-react'
-import ptMessages from '@/messages/pt.json'
+import { usePtOverlay } from '@/lib/i18n/pt-overlay'
 import { Button } from '@/components/ui/button'
 import { SectionHeader } from '@/components/admin/clients/shared/SectionHeader'
 import { PlaceLinkPanel } from '@/components/admin/partnerships/PlaceLinkPanel'
@@ -48,11 +49,12 @@ import type { PendencyId } from '@/lib/partnerships/place-readiness'
 import type { PartnershipDetail, PartnershipPlace } from '@/lib/services/partnership-service'
 import type { ClientEditorTabProps } from './ProfileTab'
 
-export function PlacesTab(props: ClientEditorTabProps) {
+export function PlacesTab(props: ClientEditorTabProps & { onOpenPipeline: () => void }) {
   // Read OUTSIDE the Portuguese provider below: the vocabulary of the pipeline is pt-only, but
   // the routes it links to are the operator's own, and `/pt/pois/...` for somebody working in
   // `en` is a locale switch nobody asked for.
   const locale = useLocale()
+  const ptMessages = usePtOverlay()
 
   return (
     <div className="mx-auto max-w-5xl space-y-8">
@@ -61,13 +63,21 @@ export function PlacesTab(props: ClientEditorTabProps) {
         locale="pt"
         messages={{ Partnerships: ptMessages.Partnerships }}
       >
-        <PartnerPlaces clientId={props.clientId} locale={locale} />
+        <PartnerPlaces clientId={props.clientId} locale={locale} onOpenPipeline={props.onOpenPipeline} />
       </NextIntlClientProvider>
     </div>
   )
 }
 
-function PartnerPlaces({ clientId, locale }: { clientId?: string; locale: string }) {
+function PartnerPlaces({
+  clientId,
+  locale,
+  onOpenPipeline,
+}: {
+  clientId?: string
+  locale: string
+  onOpenPipeline: () => void
+}) {
   const t = useTranslations('Partnerships')
   const [detail, setDetail] = useState<PartnershipDetail | null>(null)
   // A client with no id was never saved, so there is nothing to wait for — derived, not set
@@ -82,21 +92,23 @@ function PartnerPlaces({ clientId, locale }: { clientId?: string; locale: string
    * whose body sets state cascades renders, and keeping the two apart also makes the same call
    * reusable after the create below. Same shape as `ContractManager`.
    */
-  const fetchDetail = useCallback(async (): Promise<PartnershipDetail | null> => {
+  const read = useRecordRead()
+
+  /** `fresh` after an act; the first read may take the one the partnership tab already made. */
+  const fetchDetail = useCallback(async (fresh: boolean): Promise<PartnershipDetail | null> => {
     if (!clientId) return null
     try {
-      const response = await fetch(`/api/admin/partnerships/clients/${clientId}`)
-      const payload = response.ok ? await response.json() : null
-      return (payload?.detail as PartnershipDetail | undefined) ?? null
+      const response = await read<{ detail?: PartnershipDetail }>(`/api/admin/partnerships/clients/${clientId}`, { fresh })
+      return (response.ok ? response.body?.detail : null) ?? null
     } catch {
       return null
     }
-  }, [clientId])
+  }, [clientId, read])
 
   const load = useCallback(async () => {
     setLoading(true)
     setFailed(false)
-    const next = await fetchDetail()
+    const next = await fetchDetail(true)
     if (next) setDetail(next)
     else setFailed(true)
     setLoading(false)
@@ -105,7 +117,7 @@ function PartnerPlaces({ clientId, locale }: { clientId?: string; locale: string
   useEffect(() => {
     if (!clientId) return
     let active = true
-    void fetchDetail().then((next) => {
+    void fetchDetail(false).then((next) => {
       if (!active) return
       if (next) setDetail(next)
       else setFailed(true)
@@ -245,12 +257,15 @@ function PartnerPlaces({ clientId, locale }: { clientId?: string; locale: string
       {/* The pipeline is where the place is PUBLISHED or REFUSED — that decision belongs to the
           partnership, not to the record, and this tab does not offer it twice. */}
       {!loading && !failed && detail && (
-        <a
-          href={`/admin/partnerships/clients/${clientId}`}
+        // The pipeline is the neighbouring tab of this record (#875): switched in place, with
+        // no navigation and no second read.
+        <button
+          type="button"
+          onClick={onOpenPipeline}
           className="mt-6 inline-flex min-h-[24px] items-center text-sm font-medium text-primary-800 underline underline-offset-4"
         >
           {t('clientPlaces.pipelineLink')}
-        </a>
+        </button>
       )}
     </div>
   )

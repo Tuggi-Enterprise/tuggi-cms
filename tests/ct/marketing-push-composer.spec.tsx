@@ -119,6 +119,15 @@ async function composeMinimum(page: Page) {
   await page.getByLabel(PUSH.content.campaign_type_label).fill('promo_verao_2026')
   await page.getByLabel(PUSH.content.label_title, { exact: true }).fill('Uma oferta para você')
   await page.getByLabel(PUSH.content.label_body, { exact: true }).fill('Toque para ver o que preparamos hoje.')
+  await page.getByLabel(PUSH.destination.label).selectOption('/plans')
+}
+
+/** Sends what is composed: opens the confirmation, types the count, confirms. */
+async function confirmSend(page: Page, count = '1234') {
+  await page.getByRole('button', { name: PUSH.actions.send_now }).click()
+  const dialog = page.getByRole('dialog')
+  await dialog.getByRole('textbox').fill(count)
+  await dialog.getByRole('button', { name: /Enviar para/ }).click()
 }
 
 let nativeDialogs: string[] = []
@@ -387,4 +396,72 @@ test('DS-A11Y-013: the confirmation dialog is modal, named, and Escape closes it
 
   await page.keyboard.press('Escape')
   await expect(dialog).toBeHidden()
+})
+
+/**
+ * #860 spec `design` §5: "Destino no app" is required and closed. Without it the send stays
+ * shut; with an app route the link leaves as `tuggi://<route>` in `data.url` (contract §2.2).
+ */
+test('#860: the destination is required, and an app route leaves as tuggi:// in data.url', async ({ mount, page }) => {
+  await mockReads(page)
+  const calls = await mockSend(page)
+  await mount(<PushComposerHarness />)
+
+  await page.getByLabel(PUSH.content.campaign_type_label).fill('promo_verao_2026')
+  await page.getByLabel(PUSH.content.label_title, { exact: true }).fill('Uma oferta para você')
+  await page.getByLabel(PUSH.content.label_body, { exact: true }).fill('Toque para ver o que preparamos hoje.')
+  await expect(page.getByRole('button', { name: PUSH.actions.send_now })).toBeDisabled()
+
+  const select = page.getByLabel(PUSH.destination.label)
+  const options = await select.locator('option:not([disabled])').evaluateAll((els) =>
+    els.map((e) => (e as HTMLOptionElement).value)
+  )
+  expect(options).toEqual(['/map', '/guide-start', '/earn', '/stamps', '/ranking', '/plans', '/trips', 'external'])
+
+  await select.selectOption('/trips')
+  await confirmSend(page)
+  await expect.poll(() => calls.length).toBe(1)
+  expect(calls[0].notification.data.url).toBe('tuggi://trips')
+  expect(calls[0].notification.data.image_url).toBeUndefined()
+})
+
+test('#860: "Link externo" needs an http(s) URL before the send opens', async ({ mount, page }) => {
+  await mockReads(page)
+  const calls = await mockSend(page)
+  await mount(<PushComposerHarness />)
+
+  await composeMinimum(page)
+  await page.getByLabel(PUSH.destination.label).selectOption('external')
+  const send = page.getByRole('button', { name: PUSH.actions.send_now })
+  await expect(send).toBeDisabled()
+
+  await page.getByLabel(PUSH.destination.label_external).fill('tuggi.app/promo')
+  await expect(page.getByText(PUSH.destination.external_invalid)).toBeVisible()
+  await expect(send).toBeDisabled()
+
+  await page.getByLabel(PUSH.destination.label_external).fill('https://tuggi.app/promo')
+  await confirmSend(page)
+  await expect.poll(() => calls.length).toBe(1)
+  expect(calls[0].notification.data.url).toBe('https://tuggi.app/promo')
+})
+
+/** #860 §3.D: the app shows `data.image_url` only when https, so the composer refuses the rest. */
+test('#860: an https image rides in data.image_url and in the FCM imageUrl; http blocks the send', async ({ mount, page }) => {
+  await mockReads(page)
+  const calls = await mockSend(page)
+  await mount(<PushComposerHarness />)
+
+  await composeMinimum(page)
+  await page.locator('details > summary').click()
+  const image = page.getByLabel(PUSH.content.label_image)
+  await image.fill('http://cdn.example.com/a.png')
+  await expect(page.getByText(PUSH.content.image_invalid)).toBeVisible()
+  await expect(page.getByRole('button', { name: PUSH.actions.send_now })).toBeDisabled()
+
+  await image.fill('https://cdn.example.com/a.png')
+  await confirmSend(page)
+  await expect.poll(() => calls.length).toBe(1)
+  expect(calls[0].notification.data.image_url).toBe('https://cdn.example.com/a.png')
+  expect(calls[0].notification.imageUrl).toBe('https://cdn.example.com/a.png')
+  expect(calls[0].notification.data.url).toBe('tuggi://plans')
 })

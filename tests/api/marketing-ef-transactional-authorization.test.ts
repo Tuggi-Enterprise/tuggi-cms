@@ -16,8 +16,8 @@
  *
  *  - POSITION — that no route, present or future, is answered in front of the gate. A seventh
  *    template or a second path would slip past an end-to-end test that never asks for it;
- *  - THE KEY SET — `isOwnSecretKey` in `_shared/secret-key.ts`, which imports nothing and reads
- *    only `Deno.env`, run against the four secret keys this project actually holds. It is
+ *  - THE KEY SET — `isOwnSecretKey` in `_shared/secret-key.ts`, which imports only the pure
+ *    `constant-time.ts` and reads only `Deno.env`, run against the four secret keys this project actually holds. It is
  *    loaded through a path built at run time, because a static import would end in `.ts` and
  *    fail `npm run type-check` for the whole repo.
  *

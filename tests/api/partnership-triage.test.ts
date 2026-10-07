@@ -540,7 +540,7 @@ test('#377 · a partnership whose every place was refused AND communicated is `R
     proposalStatus: 'promoted' as const,
     conference: EMPTY_CONFERENCE,
     clientId: CLIENT_ID,
-    contract: 'signed' as const,
+    gateMissing: [],
     // Every case below is a refusal the partner was already told about: without this, the state is
     // `Recusa não comunicada` and the next test is the one that says so.
     uncommunicatedRefusal: false,
@@ -579,7 +579,7 @@ test('#377 · DS-COPY-020 point 5: a refusal nobody communicated is WORK, and it
     proposalStatus: 'promoted' as const,
     conference: EMPTY_CONFERENCE,
     clientId: CLIENT_ID,
-    contract: 'signed' as const,
+    gateMissing: [],
   }
 
   // The row `design` measured: one place, refused, not communicated. It used to derive
@@ -683,7 +683,7 @@ test('#377 · DS-COPY-020 point 5: the overdue counter and the default filter ca
       proposalStatus: 'promoted',
       conference: EMPTY_CONFERENCE,
       clientId: CLIENT_ID,
-      contract: 'signed' as const,
+      gateMissing: [],
       placeCount: places.length,
       publishedPlaceCount: places.filter((place) => place.published).length,
       refusedPlaceCount: places.filter(isRefusedAtTriage).length,

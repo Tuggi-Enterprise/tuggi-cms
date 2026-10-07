@@ -14,7 +14,7 @@
 import { useCallback, useEffect, useMemo, useState, Suspense } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
 import { NextIntlClientProvider, useLocale, useMessages } from 'next-intl'
-import ptMessages from '@/messages/pt.json'
+import { PtOverlayProvider, type PtOverlay } from '@/lib/i18n/pt-overlay'
 import { ClientDirectory } from '@/components/admin/clients/ClientDirectory'
 import { ClientBoard } from '@/components/admin/clients/ClientBoard'
 import { useClientDirectory } from '@/lib/hooks/use-client-directory'
@@ -24,10 +24,18 @@ import { ClientEditorModal, type ClientEditorTab } from '@/components/admin/clie
 import { useSupabaseClient, useSessionContext } from '@supabase/auth-helpers-react'
 import { RETURN_TO_PARAM, parseReturnTo } from '@/lib/navigation/return-to'
 import { applyFilters, parseFilters, type DirectoryFilters } from '@/lib/clients/directory-filter'
-import { recordHref } from '@/lib/clients/record-href'
+import { recordHref, boardPath, VALIDATION_PARAM } from '@/lib/clients/record-href'
+import { ValidationModal } from '@/components/admin/partner-proposals/ValidationModal'
+import type { AbstractIntlMessages } from 'next-intl'
 import type { ClientDirectoryRow } from '@/lib/services/partnership-service'
 
-function AdminClientsContent() {
+interface ContentProps {
+  ptMessages: PtOverlay
+  /** What the validation drawer speaks — pt only, like the page it replaced (#408, #870). */
+  validationMessages: AbstractIntlMessages
+}
+
+function AdminClientsContent({ ptMessages, validationMessages }: ContentProps) {
   const router = useRouter()
   const searchParams = useSearchParams()
   const { session, isLoading: sessionLoading } = useSessionContext()
@@ -35,6 +43,7 @@ function AdminClientsContent() {
   const locale = useLocale()
   const messages = useMessages()
   const clientId = searchParams.get('clientId')
+  const validationId = searchParams.get(VALIDATION_PARAM)
   // Backwards compat — old links use ?new=true, the new editor reads ?mode=new.
   const isCreateNew = searchParams.get('mode') === 'new' || searchParams.get('new') === 'true'
   // `?tab=pois` is the old name of the places tab, kept working so links already out there
@@ -290,6 +299,7 @@ function AdminClientsContent() {
         )}
       </NextIntlClientProvider>
 
+      <PtOverlayProvider value={ptMessages}>
       <ClientEditorModal
         clientId={clientId ?? undefined}
         isOpen={Boolean(clientId) || isCreateNew}
@@ -309,18 +319,32 @@ function AdminClientsContent() {
           directory.reload()
         }}
       />
+      </PtOverlayProvider>
+
+      {validationId ? (
+        <NextIntlClientProvider locale="pt" messages={validationMessages}>
+          <ValidationModal
+            locale={locale}
+            submissionId={validationId}
+            returnTo={boardPath(new URLSearchParams(searchParams.toString()))}
+            onClose={() =>
+              router.push(`/${locale}${boardPath(new URLSearchParams(searchParams.toString()))}`, { scroll: false })
+            }
+          />
+        </NextIntlClientProvider>
+      ) : null}
     </>
   )
 }
 
-export function AdminClientsPageContent() {
+export function AdminClientsPageContent({ ptMessages, validationMessages }: ContentProps) {
   return (
     <Suspense fallback={
       <div className="flex items-center justify-center min-h-screen">
         <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-tuggi-blue mx-auto" />
       </div>
     }>
-      <AdminClientsContent />
+      <AdminClientsContent ptMessages={ptMessages} validationMessages={validationMessages} />
     </Suspense>
   )
 }

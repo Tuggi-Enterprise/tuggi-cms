@@ -500,7 +500,7 @@ async function createMaterialOrder(
  */
 export const PROMOTED_CLIENT_TYPE: ClientType = 'venue'
 
-type ClientWriteOutcome =
+export type ClientWriteOutcome =
   | { ok: true; clientId: string; created: boolean }
   | { ok: false; reason: 'write_failed' }
 
@@ -547,20 +547,35 @@ async function writeClient(command: PromotionCommand): Promise<ClientWriteOutcom
     return { ok: true, clientId: command.clientId, created: false }
   }
 
+  return createPromotedClient(command.updates, command.answers)
+}
+
+/**
+ * The insert half of `writeClient`, exported for the portal's approval (#812): same client type,
+ * same commercial terms of `plan_choice`, same allowlist upstream — one door into
+ * `partner.clients` for both forms.
+ */
+export async function createPromotedClient(
+  updates: Partial<Record<PromotableColumn, string>>,
+  answers: PartnerAnswers
+): Promise<ClientWriteOutcome> {
   const { data, error } = await service()
     .from(CLIENTS)
     // `status` is NOT part of the promotion (it is on the never-written list): a new record is
     // born pending because that is what `partner.clients` does with a new record, and approving
     // the partnership is another decision on the client's own page (BR-B2B-010, item 1).
     .insert({
-      ...command.updates,
+      ...updates,
       client_type: PROMOTED_CLIENT_TYPE,
-      ...commercialTermsOfChoice(command.answers),
+      ...commercialTermsOfChoice(answers),
     })
     .select('id')
     .single()
 
-  if (error || !data) return { ok: false, reason: 'write_failed' }
+  if (error || !data) {
+    console.error('[partner-proposal] client insert failed', error?.code ?? 'no_row')
+    return { ok: false, reason: 'write_failed' }
+  }
   return { ok: true, clientId: (data as { id: string }).id, created: true }
 }
 

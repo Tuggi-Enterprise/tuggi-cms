@@ -22,6 +22,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { useTranslations } from 'next-intl'
+import Link from 'next/link'
 import {
   DndContext,
   DragOverlay,
@@ -58,7 +59,8 @@ import {
   overdueCount,
   type DirectoryFilters,
 } from '@/lib/clients/directory-filter'
-import { rowKey } from '@/components/admin/clients/board/row-text'
+import { gateLine, rowKey } from '@/components/admin/clients/board/row-text'
+import { readGateMissing } from '@/lib/partnerships/acceptance-gate'
 import { ActiveFilterChips } from '@/components/admin/clients/ActiveFilterChips'
 import { formatDeadline } from '@/components/admin/partner-proposals/format'
 import type { ActOutcome } from '@/lib/hooks/use-board-acts'
@@ -134,7 +136,7 @@ export function ClientBoard({
    * thumb is currently on is not. Putting it in the address bar would also mean `Limpar filtros`
    * had one more key to reason about, for nothing.
    */
-  const [phoneColumn, setPhoneColumn] = useState<BoardColumnId>('proposal')
+  const [phoneColumn, setPhoneColumn] = useState<BoardColumnId>('conference')
   const desktop = useIsDesktop()
 
   const board = useMemo(
@@ -211,11 +213,12 @@ export function ClientBoard({
       if (plan.kind === 'backwards') return t('backwards')
       if (plan.kind === 'not_adjacent') return t('notAdjacent', { column: t(`columns.${plan.nextColumn}`) })
       if (plan.kind === 'blocked') {
+        if (plan.reason === 'gate_missing') return gateLine(plan.missing ?? row.gateMissing, p)
         return t(`blocked.${plan.reason}`, { count: row.places.blocking })
       }
       return t('dropInvalid', { column: t(`columns.${to}`) })
     },
-    [t]
+    [t, p]
   )
 
   /**
@@ -244,13 +247,19 @@ export function ClientBoard({
           : t('blocked.already_communicated_undated')
       }
 
+      // BR-B2B-057: the server's refusal carries the same list the card prints.
+      if (outcome.reason === 'gate_missing') {
+        const missing = readGateMissing(outcome.detail?.missing)
+        if (missing.length > 0) return gateLine(missing, p)
+      }
+
       if (!t.has(`blocked.${outcome.reason}`)) {
         console.warn('[board] act refused with an unnamed reason:', act, outcome.reason)
         return t('blocked.unknown')
       }
       return t(`blocked.${outcome.reason}`)
     },
-    [t]
+    [t, p]
   )
 
   /**
@@ -545,7 +554,7 @@ export function ClientBoard({
                     <div className="w-72 rotate-1">
                       <BoardCard
                         row={dragging}
-                        column={columnOf(dragging.state) ?? 'client'}
+                        column={columnOf(dragging.state) ?? 'conference'}
                         hrefFor={hrefFor}
                         triage={triage.get(rowKey(dragging)) ?? NOT_STARTED}
                         onAct={runAct}
@@ -591,6 +600,18 @@ export function ClientBoard({
                   ))}
               </div>
             )
+          )}
+
+          {/* BR-B2B-057, item 6: the closed rows are not a column; the table holds them. */}
+          {!loading && board.closedCount > 0 && (
+            <p className="px-1 pb-4">
+              <Link
+                href={seeAllHref('closed')}
+                className="inline-flex min-h-[44px] items-center text-xs font-medium text-primary-800 underline underline-offset-4 dark:text-tuggi-blue lg:min-h-[24px]"
+              >
+                {t('seeClosed', { count: board.closedCount })}
+              </Link>
+            </p>
           )}
 
           {!loading && board.directory.rows.length === 0 && (

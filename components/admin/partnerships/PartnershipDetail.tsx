@@ -20,9 +20,11 @@
  */
 
 import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useRecordRead } from '@/lib/hooks/use-record-cache'
 import { useTranslations } from 'next-intl'
 import Link from 'next/link'
-import { ChevronDown, ChevronRight } from 'lucide-react'
+import { ChevronDown, ChevronRight, Lock } from 'lucide-react'
+import { gateLine } from '@/components/admin/clients/board/row-text'
 import { Button } from '@/components/ui/button'
 import { PlaceFormModal } from '@/components/place-management/PlaceFormModal'
 import { formatDate } from '@/components/admin/partner-proposals/format'
@@ -59,27 +61,25 @@ type Panel = { attractionId: string; kind: PanelKind } | null
 const STATE_ORDER: Record<PipelineState, number> = {
   proposal_received: 0,
   in_conference: 1,
-  client_created: 2,
-  // Band 3 as well, and not a band of its own: the act it waits for (`Cobrar a assinatura`) is
-  // the signing link, which lives in the client band beside the contract that produced it.
-  contract_sent: 3,
-  contract_signed: 3,
+  // Band 4, where `Criar o local` lives; the acceptance link is the record's contract tab (#872).
+  awaiting_acceptance: 3,
   place_in_curation: 4,
   refusal_not_communicated: 4,
   published: 5,
   discarded: 0,
   refused_at_triage: 4,
+  // The portal (#812). Its rows open the validation screen, not this one, until they are live.
+  in_validation: 1,
+  changes_requested: 1,
+  approved_awaiting_narration: 4,
+  portal_refused: 0,
 }
 
 /**
  * The state range each band covers, and it is what decides which band OPENS.
  *
- * Band 4 starts at `contract_signed` and not at `place_in_curation`, because the act that state
- * names — `Criar o local a partir da proposta`, the one the sticky header announces — lives in
- * band 4. Covering it with band 3 opened the band whose work had just finished (the signed
- * contract) and left the only act of the state behind a closed accordion, which to the operator
- * is a menu (DS-LAYOUT-003). `client_created` still opens band 3, where `Abrir a ficha do
- * cliente` is.
+ * Band 4 starts at `awaiting_acceptance` and not at `place_in_curation`, because the act that
+ * state names — `Criar o local a partir da proposta` — lives in band 4 (DS-LAYOUT-003).
  */
 const BAND_RANGE: Record<BandId, [number, number]> = {
   proposal: [0, 0],
@@ -95,12 +95,6 @@ interface PartnershipDetailProps {
   locale: string
   clientId: string
   /**
-   * Where `Voltar para a fila` goes, when there is a queue behind this screen. Absent when the
-   * pipeline is a TAB of the client record: the way out of a tab is the tab strip, and a link
-   * back to a list the operator never came from is a false trail.
-   */
-  backHref?: string
-  /**
    * How to reach a neighbouring tab, when this pipeline is embedded in the client record.
    *
    * THIS IS WHERE THE ROUND TRIP DIES. Band 3 used to LINK at the client record and at the
@@ -115,7 +109,6 @@ interface PartnershipDetailProps {
 export function PartnershipDetail({
   locale,
   clientId,
-  backHref,
   onOpenTab,
 }: PartnershipDetailProps) {
   const t = useTranslations('Partnerships')
@@ -134,16 +127,19 @@ export function PartnershipDetail({
    */
   const [refusalUnknown, setRefusalUnknown] = useState(false)
 
-  const load = useCallback(async () => {
+  const read = useRecordRead()
+
+  /** `fresh` after an act; the first read may take the one the record's other tab already made. */
+  const load = useCallback(async (fresh: boolean = true) => {
     setLoading(true)
     try {
-      const response = await fetch(`/api/admin/partnerships/clients/${clientId}`)
+      const response = await read<{ detail?: Detail }>(`/api/admin/partnerships/clients/${clientId}`, { fresh })
       if (response.status === 404) {
         setFailure('not_found')
         setDetail(null)
         return
       }
-      const payload = response.ok ? await response.json() : null
+      const payload = response.ok ? response.body : null
       if (payload?.detail) {
         setDetail(payload.detail as Detail)
         setFailure('none')
@@ -155,10 +151,10 @@ export function PartnershipDetail({
     } finally {
       setLoading(false)
     }
-  }, [clientId])
+  }, [clientId, read])
 
   useEffect(() => {
-    void load()
+    void load(false)
   }, [load])
 
   const currentBand = useMemo<BandId>(() => {
@@ -282,21 +278,14 @@ export function PartnershipDetail({
               {t('detail.retry')}
             </Button>
           )}
-          {backHref && (
-            <Link
-              href={backHref}
-              className="inline-flex min-h-[24px] items-center text-sm font-medium text-primary-800 underline underline-offset-4"
-            >
-              {t('detail.backToQueue')}
-            </Link>
-          )}
         </div>
       </div>
     )
   }
 
   const name = detail.client.name ?? detail.client.companyName ?? ''
-  const returnTo = `/${locale}/admin/partnerships/clients/${clientId}`
+  // The pipeline lives in the record now (#875): a tool opened from here comes back to this tab.
+  const returnTo = `/${locale}/admin/clients?clientId=${clientId}&tab=partnership`
   const returnLabel = t('returnBar.label', { name })
 
   /**
@@ -342,15 +331,6 @@ export function PartnershipDetail({
 
   return (
     <div className="mx-auto w-full max-w-7xl px-6 py-6">
-      {backHref && (
-        <Link
-          href={backHref}
-          className="inline-flex min-h-[24px] items-center text-sm font-medium text-primary-800 underline underline-offset-4"
-        >
-          {t('detail.backToQueue')}
-        </Link>
-      )}
-
       {/* Sticky: in a partnership with three places, publishing must not mean scrolling back
           up, and the action of the current state is never behind a menu (DS-LAYOUT-003). */}
       <header className="sticky top-0 z-10 -mx-6 mb-5 mt-3 border-b border-gray-200 bg-white px-6 py-3">
@@ -419,6 +399,13 @@ export function PartnershipDetail({
                   contractHref={contractHref}
                   onOpenTab={onOpenTab}
                 />
+              )}
+              {/* BR-B2B-057: the same line the board card prints; the routes refuse the same way. */}
+              {band === 'place' && detail.gateMissing.length > 0 && (
+                <p className="mb-3 flex items-start gap-1 text-xs text-gray-900 dark:text-gray-200">
+                  <Lock className="mt-0.5 h-3 w-3 shrink-0" aria-hidden="true" />
+                  <span>{gateLine(detail.gateMissing, t)}</span>
+                </p>
               )}
               {band === 'place' && (
                 <PlaceBand

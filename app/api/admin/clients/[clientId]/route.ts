@@ -17,6 +17,10 @@ import {
 } from '@/lib/services/client-editable-fields'
 import { describeClientUniqueViolation } from '@/lib/services/client-unique-conflicts'
 
+/** The 409 of a client that other records still point at (`23503`). */
+const CLIENT_IN_USE =
+  'Este cliente tem registros ligados a ele, como o aceite do termo ou o código do parceiro, e não pode ser excluído.'
+
 async function getAdminUser(request: NextRequest) {
   const cookieStore = await cookies()
   const supabaseAuth = getSupabaseRouteHandler(cookieStore)
@@ -236,6 +240,12 @@ export async function DELETE(
       .eq('id', clientId)
 
     if (deleteError) {
+      // 23503: something still points at this client with ON DELETE RESTRICT — an acceptance
+      // (evidence, BR-B2B-047), the partner code (BR-B2B-058), a place. One sentence, not the
+      // constraint name.
+      if (deleteError.code === '23503') {
+        return NextResponse.json({ error: CLIENT_IN_USE }, { status: 409 })
+      }
       return NextResponse.json({ error: deleteError.message }, { status: 500 })
     }
 

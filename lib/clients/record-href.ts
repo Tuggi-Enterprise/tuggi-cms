@@ -27,13 +27,21 @@ import type { DetailTarget } from '@/lib/partnerships/pipeline'
 import { RETURN_TO_PARAM } from '@/lib/navigation/return-to'
 
 /**
+ * The portal validation opened OVER the board, in the same 85vw drawer as the record (#870,
+ * operator 2026-10-06): `/admin/clients?<filters>&validation=<submissionId>`. The old page
+ * `/admin/partnerships/validation/<id>` survives as a redirect to this address, so e-mails and
+ * links already out there land on the same drawer.
+ */
+export const VALIDATION_PARAM = 'validation'
+
+/**
  * The parameters the record OWNS, and which therefore never survive from the previous address.
  *
  * `mode` and `new` open the creation form; carrying either into a link that opens an existing
  * record would render the editor in two modes at once. `clientId` and `tab` are overwritten
  * rather than preserved, for the same reason.
  */
-const RECORD_PARAMS = ['clientId', 'tab', 'mode', 'new'] as const
+const RECORD_PARAMS = ['clientId', 'tab', 'mode', 'new', VALIDATION_PARAM] as const
 
 /**
  * Where `Abrir` on `/admin/clients` points, with every filter the operator has applied kept.
@@ -47,13 +55,35 @@ export function recordHref(
   current: URLSearchParams,
   target: DetailTarget
 ): string {
-  if (target.kind === 'proposal') return proposalHref(locale, current, target.submissionId)
+  if (target.kind === 'proposal') {
+    return pageHref(locale, current, `/admin/partnerships/proposals/${target.submissionId}`)
+  }
+  const params = boardParams(current)
+  // The validation is a drawer over the board, like the record; closing it is the board's own
+  // address (`boardPath`), filters and all.
+  if (target.kind === 'validation') {
+    params.set(VALIDATION_PARAM, target.submissionId)
+  } else {
+    params.set('clientId', target.clientId)
+    params.set('tab', target.tab)
+  }
+  return `/${locale}/admin/clients?${params.toString()}`
+}
 
+/** The list's query with whatever drawer was open over it taken off. */
+function boardParams(current: URLSearchParams): URLSearchParams {
   const params = new URLSearchParams(current.toString())
   for (const key of RECORD_PARAMS) params.delete(key)
-  params.set('clientId', target.clientId)
-  params.set('tab', target.tab)
-  return `/${locale}/admin/clients?${params.toString()}`
+  return params
+}
+
+/**
+ * The board itself, without locale — what closing a drawer goes back to, and the `returnTo` a
+ * page that leaves the board carries.
+ */
+export function boardPath(current: URLSearchParams): string {
+  const query = boardParams(current).toString()
+  return `/admin/clients${query ? `?${query}` : ''}`
 }
 
 /**
@@ -65,13 +95,9 @@ export function recordHref(
  * The path it returns to keeps the locale prefix off, because `parseReturnTo` accepts an in-app
  * path and the proposal screen pushes it as given.
  */
-function proposalHref(locale: string, current: URLSearchParams, submissionId: string): string {
+function pageHref(locale: string, current: URLSearchParams, path: string): string {
   // The list to come back to is the list, not the list with somebody's record open over it: a
   // `returnTo` carrying `clientId` would reopen the drawer the operator left through.
-  const back = new URLSearchParams(current.toString())
-  for (const key of RECORD_PARAMS) back.delete(key)
-  const query = back.toString()
-  const home = `/admin/clients${query ? `?${query}` : ''}`
-  const params = new URLSearchParams({ [RETURN_TO_PARAM]: home })
-  return `/${locale}/admin/partnerships/proposals/${submissionId}?${params.toString()}`
+  const params = new URLSearchParams({ [RETURN_TO_PARAM]: boardPath(current) })
+  return `/${locale}${path}?${params.toString()}`
 }
