@@ -3820,7 +3820,7 @@
       "cancel": "Cancelar",
       "conflict": "Outra pessoa já decidiu este cadastro. A tela vai recarregar.",
       "approveTitle": "Aprovar {name}?",
-      "approvePaid": "Cria o local no app e gera a narração. O local vai ao ar quando a narração ficar pronta.",
+      "approvePaid": "Cria o local no app. Ele vai ao ar quando você publicar o local.",
       "approveFree": "Cria o local no app e coloca no ar agora. O app fala só o nome.",
       "approveOffers": "As ofertas aparecem na ficha do local depois da próxima versão do app nas lojas.",
       "approveEmail": "O local recebe o aviso por e-mail.",
