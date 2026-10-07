@@ -235,6 +235,8 @@ export function ClientBoard({
       if (outcome.kind === 'done') {
         return t.has(`acted.${act}`) ? t(`acted.${act}`) : null
       }
+      // #906: the board's `Publicado` has one sentence for any failure, refusal included.
+      if (act === 'publish_portal_place') return t('blocked.publish_failed')
       if (outcome.kind === 'failed') return t('blocked.unknown')
 
       // The one sentence that names a fact from the answer instead of only the code. The stamp
@@ -304,13 +306,14 @@ export function ClientBoard({
 
       const plan = planTransition(row, from, to)
       if (plan.kind === 'act') {
-        onAct(row, plan.act)
+        // `runAct`, not `onAct`: a drop that fails has to say so, like the button (#906).
+        void runAct(row, plan.act)
         return
       }
       if (plan.kind === 'noop') return
       setNotice({ key: rowKey(row), message: explain(plan, row, to), tone: 'refused' })
     },
-    [dragging, explain, onAct]
+    [dragging, explain, runAct]
   )
 
   /**

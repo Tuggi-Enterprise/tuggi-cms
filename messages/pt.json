@@ -2957,7 +2957,8 @@
         "open_publish": "Publicar o local",
         "communicate_refusal": "Comunicar a recusa",
         "open_validation": "Conferir o cadastro",
-        "copy_acceptance_link": "Copiar o link de aceite"
+        "copy_acceptance_link": "Copiar o link de aceite",
+        "publish_portal_place": "Publicar o local"
       },
       "blocked": {
         "no_submission": "Este cadastro não veio de uma proposta, então não há o que conferir nem descartar.",
@@ -3003,7 +3004,8 @@
         "paid_plan_unavailable": "Link de aceite para plano pago ainda não disponível.",
         "no_terms": "Ainda não há termo para este tipo de parceiro.",
         "issue_failed": "Não deu para gerar o link agora. Tente de novo em instantes.",
-        "copy_failed": "O link foi gerado, mas não deu para copiar. Abra a aba Contrato da ficha para copiar o link."
+        "copy_failed": "O link foi gerado, mas não deu para copiar. Abra a aba Contrato da ficha para copiar o link.",
+        "publish_failed": "Não deu para publicar agora. Tente de novo."
       },
       "backwards": "O fluxo anda para a frente. Para desfazer, abra a ficha.",
       "notAdjacent": "Falta a etapa {column} antes desta.",
@@ -3017,7 +3019,8 @@
       "acted": {
         "create_place": "Local criado. Ele está na curadoria.",
         "communicate_refusal": "Recusa comunicada. O relógio parou.",
-        "copy_acceptance_link": "Link copiado."
+        "copy_acceptance_link": "Link copiado.",
+        "publish_portal_place": "Local publicado."
       },
       "dismissRefusal": "Dispensar este aviso"
     },
@@ -3820,7 +3823,7 @@
       "cancel": "Cancelar",
       "conflict": "Outra pessoa já decidiu este cadastro. A tela vai recarregar.",
       "approveTitle": "Aprovar {name}?",
-      "approvePaid": "Cria o local no app e gera a narração. O local vai ao ar quando a narração ficar pronta.",
+      "approvePaid": "Cria o local no app. Ele vai ao ar quando você publicar o local.",
       "approveFree": "Cria o local no app e coloca no ar agora. O app fala só o nome.",
       "approveOffers": "As ofertas aparecem na ficha do local depois da próxima versão do app nas lojas.",
       "approveEmail": "O local recebe o aviso por e-mail.",
@@ -3940,7 +3943,7 @@
       "refused_at_triage": "Recusado na triagem",
       "in_validation": "Em validação",
       "changes_requested": "Ajuste com o local",
-      "approved_awaiting_narration": "Aprovado, esperando a narração",
+      "approved_awaiting_narration": "Aprovado, falta publicar o local",
       "portal_refused": "Recusado no portal"
     },
     "nextSteps": {
@@ -3954,7 +3957,7 @@
       "refused_at_triage": "—",
       "in_validation": "Conferir e decidir",
       "changes_requested": "Esperar o local responder",
-      "approved_awaiting_narration": "Publicar quando a narração ficar pronta",
+      "approved_awaiting_narration": "Publicar o local",
       "portal_refused": "—"
     },
     "triage": {

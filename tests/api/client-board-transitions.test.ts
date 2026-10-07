@@ -538,3 +538,34 @@ test('#870 (BR-B2B-049 item 8): after approving, the record opens on the places 
     '/pt/admin/clients?view=table&clientId=client-7&tab=places'
   )
 })
+
+test('BR-B2B-049 item 8 (#906): `Publicado` on an approved portal card fires the publication itself', () => {
+  const portal = row({
+    origin: 'portal',
+    state: 'approved_awaiting_narration',
+    clientId: 'client-9',
+    attractionId: '88eb7d4f-0000-4000-8000-000000000001',
+  })
+  assert.deepEqual(planTransition(portal, 'curation', 'published'), { kind: 'act', act: 'publish_portal_place' })
+  // The card's button and the drop cannot disagree (WCAG 2.2 SC 2.5.7).
+  assert.equal(nextAct(portal, 'curation'), 'publish_portal_place')
+  // A submission that names no POI has nothing to publish.
+  assert.deepEqual(planTransition({ ...portal, attractionId: null }, 'curation', 'published'), {
+    kind: 'blocked',
+    reason: 'no_place',
+  })
+})
+
+test('BR-B2B-049 item 8 (#906): any other portal state dropped on `Publicado` keeps refusing', () => {
+  for (const [state, from] of [
+    ['in_validation', 'conference'],
+    ['changes_requested', 'conference'],
+    ['awaiting_acceptance', 'awaiting_acceptance'],
+  ] as [PipelineState, BoardColumnId][]) {
+    const portal = row({ origin: 'portal', state, clientId: 'client-9', attractionId: 'poi-9' })
+    const plan = planTransition(portal, from, 'published')
+    assert.ok(plan.kind !== 'act', state)
+  }
+  const portal = row({ origin: 'portal', state: 'place_in_curation', clientId: 'client-9', attractionId: 'poi-9' })
+  assert.deepEqual(planTransition(portal, 'curation', 'published'), { kind: 'blocked', reason: 'not_closable' })
+})

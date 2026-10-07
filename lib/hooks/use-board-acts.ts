@@ -106,6 +106,16 @@ export function useBoardActs({
           return post(`/api/admin/partnerships/clients/${row.clientId}/places`, {}, reload, readProvision)
         }
 
+        case 'publish_portal_place': {
+          // #906: the record's own publish route — publication, `live` and the e-mail in one act.
+          if (!row.clientId || !row.attractionId) return { kind: 'refused', reason: 'no_place' }
+          return post(
+            `/api/admin/partnerships/clients/${row.clientId}/places/${row.attractionId}/publish`,
+            { approved: true },
+            reload
+          )
+        }
+
         case 'communicate_refusal': {
           // The place the refusal is on. `hasUncommunicatedRefusal` decided the row's state;
           // this finds WHICH one, from the same facts, so the two cannot pick different places.

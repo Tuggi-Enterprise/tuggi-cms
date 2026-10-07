@@ -242,6 +242,11 @@ export interface ClientDirectoryRow {
   /** `portal` for a row of `partner.place_submissions` (#812). Absent = the old form or a client. */
   origin?: 'form' | 'portal'
   /**
+   * The POI a portal submission created (`place_submissions.attraction_id`) — what the board's
+   * `Publicado` publishes (#906). Absent on every other row: those publish from the record.
+   */
+  attractionId?: string | null
+  /**
    * What the BR-B2B-057 gate still lacks (`partner.client_acceptance_gate`), in copy order.
    * Empty for a row without a client: its gate is the promotion, which creates slug and code.
    */
@@ -499,6 +504,7 @@ export async function loadClientDirectory(operator: SupabaseClient): Promise<Cli
       triage: { approvedAt: null, places: [] },
       discardReason: null,
       origin: 'portal',
+      attractionId: row.attraction_id ?? null,
       gateMissing: gateOf(clientId),
     })
   }

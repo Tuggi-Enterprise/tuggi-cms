@@ -83,7 +83,8 @@ test('#409 · one read, one filter: the board owns neither', () => {
 test('#409 · every transition goes through the pure rule, and no route is called around it', () => {
   const board = code(BOARD)
   assert.match(board, /const plan = planTransition\(row, from, to\)/)
-  assert.match(board, /if \(plan\.kind === 'act'\) \{\s*onAct\(row, plan\.act\)/)
+  // #906: through `runAct`, so a drop that fails says so like the button does.
+  assert.match(board, /if \(plan\.kind === 'act'\) \{[\s\S]{0,160}?void runAct\(row, plan\.act\)/)
 
   // No optimistic move: the column is derived, so the only thing that moves a card is the list
   // being read again.
