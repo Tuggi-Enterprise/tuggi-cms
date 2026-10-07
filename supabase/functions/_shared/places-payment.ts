@@ -65,6 +65,15 @@
 
 import { constantTimeEqual } from './constant-time.ts';
 import {
+  cancelPaymentInvoices,
+  configureSubscriptionInvoices,
+  ensureOneOffInvoice,
+  handleInvoiceEvent,
+  reconcileInvoices,
+  type InvoiceDeps,
+  type InvoiceTarget,
+} from './places-invoice.ts';
+import {
   AsaasError,
   type AsaasClient,
   type AsaasCardHolder,
@@ -110,7 +119,7 @@ export type ExpiredCardRow = {
 /** A row of `Deps.cancelsToRedo`: the subscription, plus the day the fee falls due. */
 export type CancelRedoRow = SubscriptionIds & { paid_through: string };
 
-export type Deps = {
+export type Deps = InvoiceDeps & {
   asaas: AsaasClient;
   /** `service_role`. */
   admin: Rpc;
@@ -140,6 +149,8 @@ export type Deps = {
   submissionOfSubscription: (subscriptionId: string | null, providerSubscriptionId: string | null) => Promise<string | null>;
   /** `issueAccessLink` of `places-portal-draft.ts` (#863, §7.3): the access e-mail of a settled submission. */
   accessLink: (submissionId: string) => Promise<'sent' | 'owned' | 'failed'>;
+  /** Plans whose invoices the sweep reconciles (#901): live, or ended in the last 40 days. Throws on a read error. */
+  invoiceTargets: () => Promise<InvoiceTarget[]>;
 };
 
 export type PortalDeps = Deps & {
@@ -147,7 +158,6 @@ export type PortalDeps = Deps & {
   user: Rpc;
   /** E-mail of the session's user, from the Auth (not from the request body). */
   userEmail: () => Promise<string | null>;
-  sendEmail: (to: string, subject: string, text: string) => Promise<boolean>;
 };
 
 export type Reply = { status: number; body: Record<string, unknown> };
@@ -454,6 +464,8 @@ async function startSubscription(
       await deps.alert('attach_failed', { subscription_id: co.subscription_id, provider_subscription_id: created.id, code: attached.error.code });
       return reply(502, { error: 'unavailable' });
     }
+    // #901: the NFS-e of every fee, issued on the payment's confirmation. Never fails the checkout.
+    await configureSubscriptionInvoices(deps, created.id, co.subscription_id);
 
     if (!freeMonth) {
       const payments = await deps.asaas.listSubscriptionPayments(created.id);
@@ -1018,6 +1030,9 @@ export async function processRefunds(deps: Deps, rows: RefundRow[]): Promise<{ r
       }
       await deps.asaas.refundPayment(p.id, toReais(r.amount_cents), 'Tuggi: devolução integral');
       out.requested++;
+      // #901: only a payment actually refunded loses its invoice — never on a skip (unexpected status,
+      // amount above the charge) nor on a failed refund. Never throws.
+      await cancelPaymentInvoices(deps, r.provider_payment_id, r.subscription_id);
     } catch (e) {
       out.failed++;
       await deps.alert('refund_failed', { provider_payment_id: r.provider_payment_id, error: e instanceof Error ? e.message : 'unknown' });
@@ -1100,6 +1115,8 @@ export async function handleAsaasWebhook(
   if (!eventId || !eventType) return reply(400, { error: 'invalid_body' });
   const log = (outcome: string) => console.log('[places-payment-webhook]', eventId, eventType, outcome);
 
+  if (eventType.startsWith('INVOICE_')) return await handleInvoiceEvent(deps, b, eventId, eventType);
+
   if (eventType.startsWith('PAYMENT_CHARGEBACK')) {
     // Contract §8: not handled — the operator answers the dispute.
     await deps.alert('chargeback', { event_id: eventId, event_type: eventType, provider_payment_id: str((b.payment as Record<string, unknown>)?.id) });
@@ -1109,6 +1126,7 @@ export async function handleAsaasWebhook(
 
   let fn: string;
   let args: Record<string, unknown>;
+  let paid: AsaasPayment | null = null;
   try {
     if (PAYMENT_EVENTS.has(eventType) || eventType === PIX_INSTRUCTION_REFUSED) {
       const paymentId =
@@ -1124,6 +1142,7 @@ export async function handleAsaasWebhook(
       }
       fn = action;
       args = paymentArgs(action, eventId, eventType, p, deps.today(), await chargeIds(deps, p));
+      paid = p;
     } else if (eventType === PIX_AUTHORIZATION_ACTIVATED) {
       return await pixAuthorizationActivated(deps, b, eventId, eventType, log);
     } else if (PIX_AUTHORIZATION_END_EVENTS.has(eventType)) {
@@ -1223,6 +1242,16 @@ export async function handleAsaasWebhook(
   const submissionId = applied ? await submissionOfCharge(deps, args, eventId, eventType) : null;
   const link = applied && row?.submission_status === 'in_review' ? await accessLinkAfterPayment(deps, submissionId, args, eventId, eventType) : null;
   if (submissionId) await syncNextAmount(deps, submissionId, args);
+  // #901: a confirmed one-off charge (no subscription, so no invoiceSettings) gets its invoice now, in
+  // the month of the payment. On a resend too (`duplicate_event`): a transient failure answers 500.
+  if (fn === 'confirm_place_charge' && paid && !paid.subscription && !ALERT_OUTCOMES.has(outcome)) {
+    try {
+      await ensureOneOffInvoice(deps, paid, (args.p_subscription_id as string | null) ?? null);
+    } catch (e) {
+      console.error('[places-payment-webhook]', eventId, eventType, 'invoice_schedule_failed', e instanceof Error ? e.message : 'unknown');
+      return reply(500, { error: 'invoice_schedule_failed' });
+    }
+  }
   if (ALERT_OUTCOMES.has(outcome)) {
     await deps.alert(outcome, {
       event_id: eventId,
@@ -1506,6 +1535,14 @@ export async function runSweep(deps: Deps): Promise<Record<string, unknown>> {
       }
     }
     summary.aligned = changed;
+  }
+
+  // #901: invoice settings backfill and the mirror of the invoices, re-read from Asaas.
+  try {
+    summary.invoices = await reconcileInvoices(deps, await deps.invoiceTargets());
+  } catch (e) {
+    summary.invoices = 'db_error';
+    await deps.alert('sweep_invoices_failed', { error: e instanceof Error ? e.message : 'unknown' });
   }
   return summary;
 }

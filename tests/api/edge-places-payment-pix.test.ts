@@ -45,6 +45,8 @@ function fakeAsaas(routes: Route[]) {
       const hit = r(call)
       if (hit) return new Response(JSON.stringify(hit.body), { status: hit.status })
     }
+    // #901: an empty invoice list unless a route says otherwise
+    if (call.method === 'GET' && call.path.startsWith('/invoices?')) return new Response(JSON.stringify({ data: [], hasMore: false }), { status: 200 })
     return new Response(JSON.stringify({ errors: [{ code: 'not_found' }] }), { status: 404 })
   }
   return { client: asaasMod.asaasClient({ baseUrl: 'https://api-sandbox.asaas.com/v3', apiKey: 'k', fetch }), calls }
@@ -88,6 +90,10 @@ function deps(asaas: ReturnType<typeof fakeAsaas>, db: ReturnType<typeof fakeDb>
     userEmail: async () => 'ze@example.com',
     sendEmail: async () => true,
     accessLink: async () => 'owned' as const,
+    // #901: no invoice secrets and no live plan by default (the invoice tests set their own)
+    invoiceConfig: null,
+    invoiceStatusOf: async () => null,
+    invoiceTargets: async () => [],
     ...extra,
   }
   return { d, alerts }

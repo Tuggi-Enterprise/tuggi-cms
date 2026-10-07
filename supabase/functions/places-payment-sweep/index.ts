@@ -14,6 +14,9 @@
 // the partner pays again (`reconcilePartnerStories`, `_shared/places-story-suspension.ts`,
 // BR-B2B-019). Database only — it runs even when Asaas is not configured.
 //
+// Since #901 `runSweep` also backfills the subscriptions' invoice settings and re-reads the invoices
+// into `partner.place_invoices` (`reconcileInvoices`, `_shared/places-invoice.ts`).
+//
 // Caller: a pg_cron job with the project's secret key (`requireAdmin`, machine bypass), the same
 // pattern as `daily-gamification-orchestrator`. Deploy with `--no-verify-jwt`.
 
