@@ -339,37 +339,48 @@ test('#811 demand 4: checkout of a submission that is not the caller\'s stops at
   assert.equal(asaas.calls.length + db.calls.length, 0)
 })
 
-test('#811 §8, #863 BR-B2B-045: MONTHLY subscription; first fee with coupon — value is the FIRST fee; attach; BR-B2B-046: no PUT nextDueDate, Asaas keeps its own date', async () => {
+test('#898 BR-B2B-045 BR-B2B-046: card — MONTHLY subscription whose first fee (coupon included) is due in 30 days; nothing charged now; attached with that date; access link sent', async () => {
   const asaas = fakeAsaas([
     at('GET', '/subscriptions?', 200, { data: [] }),
     at('GET', '/customers?', 200, { data: [] }),
     at('POST', '/customers', 200, { id: 'cus_1' }),
     at('POST', '/subscriptions', 200, { id: 'sub_new', status: 'ACTIVE', value: 540 }),
-    at('GET', '/payments?subscription=sub_new', 200, { data: [{ id: 'pay_1', status: 'CONFIRMED', value: 540, dueDate: '2026-10-04' }, { id: 'pay_2', status: 'PENDING', value: 540, dueDate: '2026-11-04' }] }),
   ])
   const db = fakeDb({ place_payment_checkout: { data: [checkoutRow] }, attach_place_subscription: { data: 'pending_payment' } })
-  const { d } = portal(asaas, db, owner())
+  const { d, links } = portal(asaas, db, owner())
   const r = await pay.checkout(d as never, checkoutBody)
-  assert.deepEqual(r, { status: 200, body: { result: 'paid' } })
+  assert.deepEqual(r, { status: 200, body: { result: 'scheduled', first_charge_on: '2026-11-03' } })
 
   const created = asaas.calls.find((c) => c.method === 'POST' && c.path === '/subscriptions')!.body as Record<string, unknown>
   assert.equal(created.value, 540)
   assert.equal(created.cycle, 'MONTHLY')
   assert.equal(created.billingType, 'CREDIT_CARD')
   assert.equal(created.externalReference, REF)
-  assert.equal(created.nextDueDate, '2026-10-04')
+  // Asaas charges on nextDueDate unless it is today (docs.asaas.com, criando-assinatura-com-cartao-de-credito)
+  assert.equal(created.nextDueDate, '2026-11-03')
   assert.equal(created.remoteIp, '203.0.113.9')
   assert.equal((created.creditCardHolderInfo as Record<string, unknown>).email, 'ze@example.com')
   const customer = asaas.calls.find((c) => c.method === 'POST' && c.path === '/customers')!.body as Record<string, unknown>
   assert.equal(customer.cpfCnpj, '12345678000195')
   assert.equal(customer.externalReference, SUB_UUID)
+  assert.equal(customer.notificationDisabled, true)
 
   // the ids come from the database (checkout row), never from the request
   assert.deepEqual(db.calls.map((c) => c.fn), ['place_payment_checkout', 'attach_place_subscription'])
   assert.equal(db.calls[1].args.p_subscription_id, SUB_UUID)
+  assert.equal(db.calls[1].args.p_payment_method, 'credit_card')
   assert.equal(db.calls[1].args.p_provider_subscription_id, 'sub_new')
-  // BR-B2B-046: the paid month starts at the payment, so the second fee (payment + 1 month) stays
-  assert.ok(!asaas.calls.some((c) => c.method === 'PUT' || c.method === 'DELETE'))
+  assert.equal(db.calls[1].args.p_first_charge_on, '2026-11-03')
+  assert.deepEqual(links, [SUBMISSION])
+  // nothing is charged, refunded, moved or read back
+  assert.ok(!asaas.calls.some((c) => c.method === 'PUT' || c.method === 'DELETE' || c.path.startsWith('/payments')))
+})
+
+test('#898 BR-B2B-046: firstChargeOn is 30 calendar days after the checkout, across month and year', () => {
+  assert.equal(pay.FREE_MONTH_DAYS, 30)
+  assert.equal(pay.firstChargeOn('2026-10-07'), '2026-11-06')
+  assert.equal(pay.firstChargeOn('2026-12-15'), '2027-01-14')
+  assert.equal(pay.firstChargeOn('2027-02-01'), '2027-03-03')
 })
 
 test('#811 demand 5: a live subscription for the same reference that already charged is attached, not charged again', async () => {
@@ -398,7 +409,7 @@ test('#811 demand 5: a live unpaid subscription for the same reference is delete
   const db = fakeDb({ place_payment_checkout: { data: [checkoutRow] }, attach_place_subscription: { data: 'pending_payment' } })
   const { d } = portal(asaas, db, owner())
   const r = await pay.checkout(d as never, checkoutBody)
-  assert.deepEqual(r.body, { result: 'processing' })
+  assert.deepEqual(r.body, { result: 'scheduled', first_charge_on: '2026-11-03' })
   const del = asaas.calls.findIndex((c) => c.method === 'DELETE' && c.path === '/subscriptions/sub_old')
   const post = asaas.calls.findIndex((c) => c.method === 'POST' && c.path === '/subscriptions')
   assert.ok(del >= 0 && del < post)
@@ -490,7 +501,7 @@ test('#863 §8.4 BR-B2B-046 item 6: fee 0 (regret window, one-month plan) — ch
 })
 
 test('#863 §8.4 BR-B2B-055, BR-B2B-046: cancel with fee 0 — endDate = eve of paid_through, no new fee; e-mail says when the story leaves and that nothing else is charged (term 4.5)', async () => {
-  const asaas = fakeAsaas([at('PUT', '/subscriptions/sub_1', 200, {})])
+  const asaas = fakeAsaas([at('PUT', '/subscriptions/sub_1', 200, {}), at('GET', '/payments?subscription=sub_1&status=PENDING', 200, { data: [] })])
   const db = fakeDb({})
   const user = fakeDb(cancelRow(0))
   const { d, sent, mail } = cancelPortal(asaas, db, user)
@@ -499,7 +510,7 @@ test('#863 §8.4 BR-B2B-055, BR-B2B-046: cancel with fee 0 — endDate = eve of 
   assert.deepEqual(user.calls, [{ schema: 'core', fn: 'portal_cancel_renewal', args: { p_submission_id: SUBMISSION } }])
   // the owner never reaches cancel_place_subscription(…'client') (§8.4)
   assert.deepEqual(db.calls, [])
-  assert.deepEqual(asaas.calls.map((c) => `${c.method} ${c.path}`), ['PUT /subscriptions/sub_1'])
+  assert.deepEqual(asaas.calls.map((c) => `${c.method} ${c.path}`), ['PUT /subscriptions/sub_1', 'GET /payments?subscription=sub_1&status=PENDING'])
   assert.deepEqual(asaas.calls[0].body, { endDate: '2027-01-05' })
   assert.deepEqual(sent, ['ze@example.com'])
   assert.match(mail.text, /no ar até 06\/01\/2027/)
@@ -543,6 +554,34 @@ test('#863 §8.4: the cancel e-mail formats the fee like the portal (thousands, 
   assert.equal(pay.CANCEL_EMAIL.subject, 'Plano Com história cancelado')
 })
 
+test('#898 BR-B2B-046: cancel inside the free month (nothing paid, no paid_through) — the Asaas subscription and its pending first fee are deleted, the plan is cancelled, nothing is charged', async () => {
+  const asaas = fakeAsaas([at('DELETE', '/subscriptions/sub_1', 200, { deleted: true })])
+  const db = fakeDb({ cancel_place_subscription: { data: [{ outcome: 'applied' }] } })
+  const user = fakeDb({ portal_cancel_renewal: { data: [{ outcome: 'applied', renews: false, commitment_ends_at: null, paid_through: null, early_termination_fee_cents: 0 }] } })
+  const { d, mail, alerts } = cancelPortal(asaas, db, user)
+  assert.deepEqual(await pay.cancelRenewal(d as never, SUBMISSION), { status: 200, body: { result: 'canceled' } })
+  assert.deepEqual(asaas.calls.map((c) => `${c.method} ${c.path}`), ['DELETE /subscriptions/sub_1'])
+  assert.deepEqual(db.calls.map((c) => [c.fn, c.args.p_actor_kind]), [['cancel_place_subscription', 'client']])
+  assert.deepEqual(alerts, [])
+  assert.match(mail.text, /Nenhuma outra cobrança/)
+  assert.doesNotMatch(mail.text, /R\$/)
+})
+
+test('#898: cancel inside the free month with Asaas down — the operator is alerted (the first fee would be charged on its date)', async () => {
+  const asaas = fakeAsaas([at('DELETE', '/subscriptions/sub_1', 503, {})])
+  const user = fakeDb({ portal_cancel_renewal: { data: [{ outcome: 'applied', renews: false, commitment_ends_at: null, paid_through: null, early_termination_fee_cents: 0 }] } })
+  const { d, alerts } = cancelPortal(asaas, fakeDb({}), user)
+  assert.equal((await pay.cancelRenewal(d as never, SUBMISSION)).status, 200)
+  assert.deepEqual(alerts.map((a) => a.what), ['cancel_free_month_failed'])
+})
+
+test('#898: the cancel e-mail of a Pix subscription says the Pix code arrives by e-mail, not that Pix Automático ended', () => {
+  const text = pay.CANCEL_EMAIL.text('06/01/2027', { cents: 13500, chargeOn: '2027-01-06', method: 'pix', invoiceUrl: null })
+  assert.match(text, /R\$ 135,00/)
+  assert.match(text, /código Pix chega por e-mail/)
+  assert.doesNotMatch(text, /Pix Automático/)
+})
+
 test('#863: cancel twice — not_applicable answers not_renewing and writes nothing at Asaas', async () => {
   const asaas = fakeAsaas([])
   const { d } = portal(asaas, fakeDb({}), fakeDb({ portal_cancel_renewal: { data: [{ outcome: 'not_applicable', renews: false, commitment_ends_at: null, paid_through: null }] } }))
@@ -571,11 +610,11 @@ test('#863 BR-B2B-046: cancel again on card with the fee unpaid — redoes the i
 })
 
 test('#863: cancel again with fee 0 — redoes endDate = eve of paid_through', async () => {
-  const asaas = fakeAsaas([at('PUT', '/subscriptions/sub_1', 200, {})])
+  const asaas = fakeAsaas([at('PUT', '/subscriptions/sub_1', 200, {}), at('GET', '/payments?subscription=sub_1&status=PENDING', 200, { data: [] })])
   const { d } = cancelPortal(asaas, fakeDb({}), fakeDb(repeated(0)))
   ;(d as Record<string, unknown>).subscriptionIds = async () => cancelled(0)
   assert.deepEqual(await pay.cancelRenewal(d as never, SUBMISSION), { status: 200, body: { result: 'not_renewing' } })
-  assert.deepEqual(asaas.calls.map((c) => `${c.method} ${c.path} ${JSON.stringify(c.body)}`), ['PUT /subscriptions/sub_1 {"endDate":"2027-01-05"}'])
+  assert.deepEqual(asaas.calls.map((c) => `${c.method} ${c.path} ${JSON.stringify(c.body)}`), ['PUT /subscriptions/sub_1 {"endDate":"2027-01-05"}', 'GET /payments?subscription=sub_1&status=PENDING undefined'])
 })
 
 test('#863: cancel again on Pix with the fee unpaid — ends the recurrence again (subscription + authorization), never a second one-off Pix', async () => {
@@ -790,9 +829,9 @@ test('#863 places-portal-rascunho §8.4 BR-B2B-046: the sweep redoes a card canc
     assert.deepEqual(alerts, [], day)
   }
   // fee 0: endDate = eve of paid_through
-  const zero = fakeAsaas([at('PUT', '/subscriptions/sub_1', 200, {})])
+  const zero = fakeAsaas([at('PUT', '/subscriptions/sub_1', 200, {}), at('GET', '/payments?subscription=sub_1&status=PENDING', 200, { data: [] })])
   await pay.runSweep(deps(zero, sweepDb(), { cancelsToRedo: async () => [redoRow({ early_termination_fee_cents: 0 })] }).d)
-  assert.deepEqual(zero.calls.map((c) => `${c.method} ${c.path} ${JSON.stringify(c.body)}`), ['PUT /subscriptions/sub_1 {"endDate":"2027-01-05"}'])
+  assert.deepEqual(zero.calls.map((c) => `${c.method} ${c.path} ${JSON.stringify(c.body)}`), ['PUT /subscriptions/sub_1 {"endDate":"2027-01-05"}', 'GET /payments?subscription=sub_1&status=PENDING undefined'])
 })
 
 test('#863 §8.4: the sweep redoes nothing for a paid fee, an ended subscription, a pre-170000 row (fee null) or past paid_through', async () => {
@@ -847,7 +886,7 @@ test('#863 (BR-B2B-043, BR-B2B-047): the cookie checkout takes the submission an
   const db = fakeDb({ portal_draft_payment_checkout: { data: [draftRow] }, attach_place_subscription: { data: 'pending_payment' } })
   const { d } = deps(asaas, db)
   const r = await pay.draftCheckout(d, { ...checkoutBody, submission_id: '00000000-0000-4000-8000-000000000000' }, COOKIE)
-  assert.deepEqual(r, { status: 200, body: { result: 'paid' } })
+  assert.deepEqual(r, { status: 200, body: { result: 'scheduled', first_charge_on: '2026-11-03' } })
   assert.deepEqual(db.calls.map((c) => c.fn), ['portal_draft_payment_checkout', 'attach_place_subscription'])
   assert.deepEqual(db.calls[0].args, { p_token_sha256: COOKIE })
   assert.equal(db.calls[1].args.p_subscription_id, SUB_UUID)

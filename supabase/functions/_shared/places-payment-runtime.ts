@@ -116,7 +116,7 @@ export function baseDeps(asaas: NonNullable<ReturnType<typeof asaasFromEnv>>): D
         .from('place_subscriptions')
         .select('id, provider_subscription_id, paid_through, early_termination_fee_cents, early_termination_paid_at')
         .eq('status', 'expired')
-        .eq('payment_method', 'credit_card')
+        .in('payment_method', ['credit_card', 'pix'])   // fees charged by the subscription itself (#898)
         .is('canceled_at', null)
         .not('provider_subscription_id', 'is', null);
       if (error) throw new Error(`expired cards read ${error.code}`);

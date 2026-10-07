@@ -87,6 +87,7 @@ function deps(asaas: ReturnType<typeof fakeAsaas>, db: ReturnType<typeof fakeDb>
     user: fakeDb({ portal_get_subscription: { data: [{ submission_id: SUBMISSION, status: 'pending_payment', renews: false }] } }).rpc,
     userEmail: async () => 'ze@example.com',
     sendEmail: async () => true,
+    accessLink: async () => 'owned' as const,
     ...extra,
   }
   return { d, alerts }
@@ -110,48 +111,38 @@ test('#811 Pix: contractId is the plan uuid without hyphens (≤ 35 chars) and m
   assert.equal(pay.subscriptionIdFromContractId(null), null)
 })
 
-test('#811 Pix: the QR is read from the top level or from immediateQrCode', () => {
-  assert.deepEqual(pay.pixQrOf({ id: 'a', status: 'CREATED', payload: 'pix-code', encodedImage: 'iVBOR', immediateQrCode: { expirationDate: '2026-10-04 12:30:00' } }), {
-    payload: 'pix-code', image: 'iVBOR', expires_at: '2026-10-04 12:30:00',
-  })
-  assert.deepEqual(pay.pixQrOf({ id: 'a', status: 'CREATED', immediateQrCode: { payload: 'p2', encodedImage: 'img2' } }), { payload: 'p2', image: 'img2', expires_at: null })
-  assert.equal(pay.pixQrOf({ id: 'a', status: 'CREATED', payload: null, immediateQrCode: {} }), null)
-})
+// ─── checkout (#898: Pix subscription, free first month) ──────────────────────────────────────
 
-// ─── checkout ────────────────────────────────────────────────────────────────────────────────
-
-test('#811 Pix term 4.1: journey 3 — first charge with the coupon, renewals at the price, nothing attached yet', async () => {
+test('#898 BR-B2B-045 BR-B2B-046: checkout_pix creates a Pix subscription (not Pix Automático) whose first fee is due in 30 days, charges nothing now, attaches it with that date and sends the access link', async () => {
   const asaas = fakeAsaas([
     at('GET', '/subscriptions?', 200, { data: [] }),
     at('GET', '/customers?', 200, { data: [{ id: 'cus_1' }] }),
-    at('GET', '/pix/automatic/authorizations?', 200, { data: [
-      { id: 'auth_old', status: 'CREATED', customerId: 'cus_1' },
-      { id: 'auth_other_customer', status: 'CREATED', customerId: 'cus_9' },
-      { id: 'auth_done', status: 'CANCELLED', customerId: 'cus_1' },
-    ] }),
-    at('DELETE', '/pix/automatic/authorizations/auth_old', 200, { status: 'CANCELLED' }),
-    at('POST', '/pix/automatic/authorizations', 200, { id: AUTH, status: 'CREATED', payload: '00020101pix', encodedImage: 'iVBOR', immediateQrCode: { expirationDate: '2026-10-04 12:30:00' } }),
+    at('PUT', '/customers/cus_1', 200, { id: 'cus_1' }),
+    at('POST', '/subscriptions', 200, { id: 'sub_px', status: 'ACTIVE', value: 540 }),
   ])
-  const db = fakeDb({ place_payment_checkout: { data: [checkoutRow] } })
-  const { d } = deps(asaas, db)
+  const db = fakeDb({ place_payment_checkout: { data: [checkoutRow] }, attach_place_subscription: { data: 'pending_payment' } })
+  const links: string[] = []
+  const { d } = deps(asaas, db, null, { accessLink: async (id: string) => (links.push(id), 'sent') })
   const r = await pay.checkoutPix(d, { submission_id: SUBMISSION })
-  assert.deepEqual(r, { status: 200, body: { result: 'pix', pix: { payload: '00020101pix', image: 'iVBOR', expires_at: '2026-10-04 12:30:00' } } })
+  assert.deepEqual(r, { status: 200, body: { result: 'scheduled', first_charge_on: '2026-11-03' } })
 
-  const body = asaas.calls.find((c) => c.method === 'POST' && c.path === '/pix/automatic/authorizations')!.body as Record<string, unknown>
-  assert.equal(body.customerId, 'cus_1')
-  assert.equal(body.contractId, CONTRACT)
-  assert.equal(body.paymentCreationMode, 'SUBSCRIPTION')
-  assert.equal(body.retryPolicy, 'ALLOW_THREE_IN_SEVEN_DAYS')
-  // #863 (BR-B2B-045, operator 2026-10-06): monthly fee with a commitment; the 2nd fee one month after.
-  assert.equal(body.frequency, 'MONTHLY')
-  assert.equal(body.value, 600)
-  assert.equal(body.startDate, '2026-11-04')
-  assert.ok(String(body.description).length <= 35)
-  assert.deepEqual(body.immediateQrCode, { expirationSeconds: pay.PIX_QR_EXPIRATION_SECONDS, originalValue: 540, description: body.description })
-  // Only the open QR of this customer is cancelled.
-  assert.ok(paths(asaas).includes('DELETE /pix/automatic/authorizations/auth_old'))
-  assert.ok(!paths(asaas).some((p) => p.includes('auth_other_customer') || p.includes('auth_done')))
-  assert.deepEqual(db.calls.map((c) => c.fn), ['place_payment_checkout'])
+  const body = asaas.calls.find((c) => c.method === 'POST' && c.path === '/subscriptions')!.body as Record<string, unknown>
+  assert.equal(body.billingType, 'PIX')
+  assert.equal(body.customer, 'cus_1')
+  assert.equal(body.nextDueDate, '2026-11-03')
+  assert.equal(body.cycle, 'MONTHLY')
+  assert.equal(body.value, 540)
+  assert.equal(body.externalReference, REF)
+  // the payer pays each fee by hand: Asaas notifications on, so the QR reaches them
+  assert.deepEqual(asaas.calls.find((c) => c.method === 'PUT' && c.path === '/customers/cus_1')!.body, { notificationDisabled: false })
+  assert.ok(!paths(asaas).some((p) => p.includes('/pix/automatic') || p.startsWith('POST /payments')))
+
+  assert.deepEqual(db.calls.map((c) => c.fn), ['place_payment_checkout', 'attach_place_subscription'])
+  assert.deepEqual(db.calls[1].args, {
+    p_subscription_id: SUB_UUID, p_payment_method: 'pix', p_provider_customer_id: 'cus_1',
+    p_provider_subscription_id: 'sub_px', p_provider_authorization_id: null, p_first_charge_on: '2026-11-03',
+  })
+  assert.deepEqual(links, [SUBMISSION])
 })
 
 test('#811 Pix demand 4: checkout_pix of a submission that is not the caller\'s stops at the database', async () => {
@@ -163,61 +154,41 @@ test('#811 Pix demand 4: checkout_pix of a submission that is not the caller\'s 
   assert.equal(asaas.calls.length + db.calls.length, 0)
 })
 
-test('#811 Pix: a QR missing from the answer is a provider failure, and the authorization is cancelled', async () => {
+test('#898: an attach that fails deletes the subscription just created (it would charge in a month) and alerts', async () => {
   const asaas = fakeAsaas([
     at('GET', '/subscriptions?', 200, { data: [] }),
     at('GET', '/customers?', 200, { data: [{ id: 'cus_1' }] }),
-    at('GET', '/pix/automatic/authorizations?', 200, { data: [] }),
-    at('POST', '/pix/automatic/authorizations', 200, { id: AUTH, status: 'CREATED', payload: null }),
-    at('DELETE', `/pix/automatic/authorizations/${AUTH}`, 200, {}),
+    at('PUT', '/customers/cus_1', 200, { id: 'cus_1' }),
+    at('POST', '/subscriptions', 200, { id: 'sub_px', status: 'ACTIVE', value: 540 }),
+    at('GET', '/payments?subscription=sub_px', 200, { data: [{ id: 'pay_1', status: 'PENDING', value: 540, dueDate: '2026-11-03' }] }),
+    at('DELETE', '/subscriptions/sub_px', 200, { deleted: true }),
   ])
-  const { d, alerts } = deps(asaas, fakeDb({ place_payment_checkout: { data: [checkoutRow] } }))
+  const db = fakeDb({ place_payment_checkout: { data: [checkoutRow] }, attach_place_subscription: { error: { code: 'PGRST202' } } })
+  const { d, alerts } = deps(asaas, db)
   const r = await pay.checkoutPix(d, { submission_id: SUBMISSION })
   assert.equal(r.status, 502)
-  assert.equal(alerts[0].what, 'pix_qr_missing')
-  assert.ok(paths(asaas).includes(`DELETE /pix/automatic/authorizations/${AUTH}`))
+  assert.ok(paths(asaas).includes('DELETE /subscriptions/sub_px'))
+  assert.ok(!paths(asaas).some((p) => p.includes('/refund')))
+  assert.deepEqual(alerts.map((a) => a.what), ['subscription_discarded:attach_failed', 'attach_failed'])
 })
 
-test('#811 switching card → Pix: the unpaid live card subscription is deleted and cancelled before the authorization', async () => {
+test('#811 switching card → Pix: the unpaid live card subscription is deleted and cancelled before the Pix one is created', async () => {
   const asaas = fakeAsaas([
     at('GET', '/subscriptions?', 200, { data: [{ id: 'sub_card', status: 'ACTIVE' }] }),
     at('GET', '/payments?subscription=sub_card', 200, { data: [{ id: 'pay_c', status: 'PENDING', value: 540 }] }),
     at('DELETE', '/subscriptions/sub_card', 200, { deleted: true }),
     at('GET', '/customers?', 200, { data: [{ id: 'cus_1' }] }),
-    at('GET', '/pix/automatic/authorizations?', 200, { data: [] }),
-    at('POST', '/pix/automatic/authorizations', 200, { id: AUTH, status: 'CREATED', payload: 'p' }),
+    at('PUT', '/customers/cus_1', 200, { id: 'cus_1' }),
+    at('POST', '/subscriptions', 200, { id: 'sub_px', status: 'ACTIVE', value: 540 }),
   ])
-  const db = fakeDb({ place_payment_checkout: { data: [checkoutRow] }, cancel_place_subscription: { data: [{ outcome: 'applied' }] } })
+  const db = fakeDb({ place_payment_checkout: { data: [checkoutRow] }, cancel_place_subscription: { data: [{ outcome: 'applied' }] }, attach_place_subscription: { data: 'pending_payment' } })
   const { d } = deps(asaas, db, row({ payment_method: 'credit_card', provider_subscription_id: 'sub_card' }))
   const r = await pay.checkoutPix(d, { submission_id: SUBMISSION })
   assert.equal(r.status, 200)
   const p = paths(asaas)
-  assert.ok(p.indexOf('DELETE /subscriptions/sub_card') < p.indexOf('POST /pix/automatic/authorizations'))
-  assert.deepEqual(db.calls.map((c) => c.fn), ['place_payment_checkout', 'cancel_place_subscription'])
+  assert.ok(p.indexOf('DELETE /subscriptions/sub_card') < p.indexOf('POST /subscriptions'))
+  assert.deepEqual(db.calls.map((c) => c.fn), ['place_payment_checkout', 'cancel_place_subscription', 'attach_place_subscription'])
   assert.equal(db.calls[1].args.p_actor_kind, 'client')
-})
-
-test('#811 switching Pix → card: the open Pix QR is cancelled before the card is charged', async () => {
-  const asaas = fakeAsaas([
-    at('GET', '/subscriptions?', 200, { data: [] }),
-    at('GET', '/customers?', 200, { data: [{ id: 'cus_1' }] }),
-    at('GET', '/pix/automatic/authorizations?', 200, { data: [{ id: 'auth_old', status: 'CREATED', customerId: 'cus_1' }] }),
-    at('DELETE', '/pix/automatic/authorizations/auth_old', 200, {}),
-    at('POST', '/subscriptions', 200, { id: 'sub_new', status: 'ACTIVE', value: 540 }),
-    at('GET', '/payments?subscription=sub_new', 200, { data: [{ id: 'pay_1', status: 'CONFIRMED', value: 540, dueDate: '2026-10-04' }] }),
-    at('PUT', '/subscriptions/sub_new', 200, {}),
-  ])
-  const db = fakeDb({ place_payment_checkout: { data: [checkoutRow] }, attach_place_subscription: { data: 'paid' } })
-  const { d } = deps(asaas, db)
-  const body = {
-    submission_id: SUBMISSION, remote_ip: '200.1.2.3',
-    card: { number: '4111 1111 1111 1111', holder_name: 'ZE', expiry_month: '12', expiry_year: '2030', ccv: '123' },
-    holder: { cpf_cnpj: '12345678000195', postal_code: '01001000', address_number: '10', phone: '11999999999' },
-  }
-  const r = await pay.checkout(d, body)
-  assert.deepEqual(r, { status: 200, body: { result: 'paid' } })
-  const p = paths(asaas)
-  assert.ok(p.indexOf('DELETE /pix/automatic/authorizations/auth_old') < p.indexOf('POST /subscriptions'))
 })
 
 // ─── webhook ─────────────────────────────────────────────────────────────────────────────────
@@ -379,12 +350,16 @@ const pixCancel = (fee: number) => fakeDb({
 }).rpc
 const pixLive = row({ status: 'paid', payment_method: 'pix_automatic', provider_subscription_id: 'sub_px', provider_authorization_id: AUTH })
 
-test('#863 Pix §8.4 BR-B2B-046: cancel with fee 0 — only endDate moves to the eve of paid_through; nothing else is charged', async () => {
-  const asaas = fakeAsaas([at('PUT', '/subscriptions/sub_px', 200, {})])
+test('#863 #898 Pix §8.4 BR-B2B-046: cancel with fee 0 — endDate moves to the eve of paid_through and the fee Asaas already generated for paid_through is deleted; nothing else is charged', async () => {
+  const asaas = fakeAsaas([
+    at('PUT', '/subscriptions/sub_px', 200, {}),
+    at('GET', '/payments?subscription=sub_px&status=PENDING', 200, { data: [{ id: 'pay_next', status: 'PENDING', value: 600, dueDate: '2027-01-06' }] }),
+    at('DELETE', '/payments/pay_next', 200, { deleted: true }),
+  ])
   const db = fakeDb({})
   const { d } = deps(asaas, db, pixLive, { user: pixCancel(0) })
   assert.deepEqual(await pay.cancelRenewal(d, SUBMISSION), { status: 200, body: { result: 'canceled' } })
-  assert.deepEqual(paths(asaas), ['PUT /subscriptions/sub_px'])
+  assert.deepEqual(paths(asaas), ['PUT /subscriptions/sub_px', 'GET /payments?subscription=sub_px&status=PENDING', 'DELETE /payments/pay_next'])
   assert.deepEqual(asaas.calls[0].body, { endDate: '2027-01-05' })
   assert.deepEqual(db.calls, [])
 })

@@ -85,7 +85,8 @@ export type AsaasCardHolder = {
 };
 
 /**
- * Pix Automático authorization (doc conferred 2026-10-05:
+ * Pix Automático authorization — read and cancelled only: no checkout creates one since #898; plans
+ * that paid by journey 3 before it still renew on it (doc conferred 2026-10-05:
  * https://docs.asaas.com/reference/criar-uma-autorizacao-pix-automatico). With
  * `paymentCreationMode: SUBSCRIPTION` Asaas creates the subscription only when the payer's bank
  * ACTIVATES the authorization, so `subscriptionId` is null until then. The copy-and-paste code and
@@ -107,16 +108,6 @@ export type AsaasPixAuthorization = {
     expirationDate?: string | null;
     conciliationIdentifier?: string | null;
   } | null;
-};
-
-export type PixAuthorizationRequest = {
-  customerId: string;
-  contractId: string;
-  description: string;
-  frequency: string;
-  startDate: string;
-  value: number;
-  immediateQrCode: { expirationSeconds: number; originalValue: number; description: string };
 };
 
 type List<T> = { data?: T[] | null };
@@ -181,6 +172,24 @@ export function asaasClient(cfg: AsaasConfig) {
       remoteIp: string;
     }) => call<AsaasSubscription>('POST', '/subscriptions', { ...s, billingType: 'CREDIT_CARD' }),
 
+    /**
+     * Subscription paid by Pix (`billingType: PIX`, https://docs.asaas.com/reference/criar-nova-assinatura):
+     * every fee is an ordinary Pix charge the payer pays by hand — no debit, no authorization. Asaas
+     * generates each one ahead of its `dueDate` (40 days by default, docs.asaas.com "Assinaturas").
+     */
+    createPixSubscription: (s: {
+      customer: string;
+      value: number;
+      nextDueDate: string;
+      cycle: string;
+      description: string;
+      externalReference: string;
+    }) => call<AsaasSubscription>('POST', '/subscriptions', { ...s, billingType: 'PIX' }),
+
+    /** `PUT /v3/customers/{id}` (https://docs.asaas.com/reference/atualizar-cliente-existente). */
+    setCustomerNotifications: (id: string, enabled: boolean) =>
+      call<{ id: string }>('PUT', `/customers/${encodeURIComponent(id)}`, { notificationDisabled: !enabled }),
+
     /** `PUT /v3/subscriptions/{id}`. `nextDueDate` does not move charges already generated. */
     updateSubscription: (id: string, patch: { value?: number; nextDueDate?: string; endDate?: string; updatePendingPayments?: boolean }) =>
       call<AsaasSubscription>('PUT', `/subscriptions/${encodeURIComponent(id)}`, patch),
@@ -203,20 +212,8 @@ export function asaasClient(cfg: AsaasConfig) {
         )
       ).data ?? [],
 
-    /** Journey 3: the first charge is paid with the QR that also authorizes the recurrence. */
-    createPixAutomaticAuthorization: (a: PixAuthorizationRequest) =>
-      call<AsaasPixAuthorization>('POST', '/pix/automatic/authorizations', {
-        ...a,
-        paymentCreationMode: 'SUBSCRIPTION',
-        // Term 4.6: retries within 7 days of the renewal date.
-        retryPolicy: 'ALLOW_THREE_IN_SEVEN_DAYS',
-      }),
-
     getPixAutomaticAuthorization: (id: string) =>
       call<AsaasPixAuthorization>('GET', `/pix/automatic/authorizations/${encodeURIComponent(id)}`),
-
-    listPixAutomaticAuthorizations: async (customerId: string) =>
-      (await call<List<AsaasPixAuthorization>>('GET', `/pix/automatic/authorizations?${q({ customerId, status: 'CREATED', limit: '100' })}`)).data ?? [],
 
     /** 404 = gone, 400 = no longer cancellable (already ended): both are what the caller wanted. */
     cancelPixAutomaticAuthorization: async (id: string): Promise<true> => {

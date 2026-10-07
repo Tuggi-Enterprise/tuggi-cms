@@ -42,6 +42,16 @@
 // `PAYMENT_CONFIRMED`/`RECEIVED` is one fee, checked by `confirm_place_charge`; after it,
 // `syncNextAmount` moves `value` to the next fee (voucher diluted).
 //
+// FREE FIRST MONTH (operator 2026-10-07, #898, BR-B2B-046): the checkout charges nothing. Card and
+// Pix both create a MONTHLY Asaas subscription whose first fee falls due `FREE_MONTH_DAYS` after
+// today (`firstChargeOn`), attach it with that date (`p_first_charge_on`) and the database sends the
+// submission to validation at once. Card: Asaas validates the card on creation and charges on
+// `nextDueDate` unless it is today (https://docs.asaas.com/docs/criando-assinatura-com-cartao-de-credito).
+// Pix: `billingType: PIX`, an ordinary charge per fee, paid by hand (not Pix Automático, whose only
+// journey on Asaas charges at once); the Pix customer gets the Asaas notifications, the only thing
+// that hands them the QR. A fee unpaid on its date is `PAYMENT_OVERDUE` → `fail_place_charge`, the
+// same for both (BR-B2B-019). Cancelling before the first charge deletes it (`endAtCommitment`).
+//
 // CANCEL (operator 2026-10-06, places-portal-rascunho §8.4): it takes effect at once — no new fee,
 // the story stays up to `paid_through`. Inside the commitment the database prices ONE charge, the
 // discount given on the months used (`early_termination_fee_cents`), due on `paid_through` by the
@@ -55,7 +65,6 @@ import {
   type AsaasCardHolder,
   type AsaasCreditCard,
   type AsaasPayment,
-  type AsaasPixAuthorization,
 } from './asaas.ts';
 
 // ─── dependencies ─────────────────────────────────────────────────────────────────────────────
@@ -65,6 +74,12 @@ export type RpcResult = { data: unknown; error: DbError | null };
 export type Rpc = (schema: 'partner' | 'core', fn: string, args: Record<string, unknown>) => Promise<RpcResult>;
 
 /** What the EF needs of `partner.place_subscriptions`, read with `service_role`. */
+/** `pix` = Asaas subscription paid by Pix (#898); `pix_automatic` = journey 3, only on older plans. */
+export type PaymentMethod = 'credit_card' | 'pix' | 'pix_automatic';
+
+/** Methods whose fees are charges of the Asaas subscription itself (`value`/`endDate` move them): not Pix Automático. */
+export const chargedBySubscription = (method: string | null | undefined): boolean => method === 'credit_card' || method === 'pix';
+
 export type SubscriptionIds = {
   subscription_id: string;
   status: string;
@@ -103,7 +118,7 @@ export type Deps = {
   today: () => string;
   now: () => Date;
   /**
-   * `partner.place_subscriptions` already expired on CARD whose Asaas subscription was not ended yet
+   * `partner.place_subscriptions` already expired on CARD or PIX subscription (#898) whose Asaas subscription was not ended yet
    * (`status` = 'expired', `canceled_at` null, `provider_subscription_id` set): the sweep ends them
    * here, except while the early-termination fee is still due (`earlyTerminationFeeHeld`). Throws on
    * a read error.
@@ -176,6 +191,12 @@ export function addMonths(date: string, months: number): string {
   first.setUTCDate(Math.min(d, last));
   return first.toISOString().slice(0, 10);
 }
+
+/** Days from the checkout to the first fee: the free first month (BR-B2B-046, operator 2026-10-07). */
+export const FREE_MONTH_DAYS = 30;
+
+/** The first fee's due date, São Paulo: today + `FREE_MONTH_DAYS`. Nothing is charged before it. */
+export const firstChargeOn = (today: string): string => shiftDays(today, FREE_MONTH_DAYS);
 
 export function saoPauloDate(d: Date): string {
   return new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Sao_Paulo' }).format(d);
@@ -367,19 +388,11 @@ export async function draftCheckout(deps: Deps, body: unknown, tokenSha256: stri
 }
 
 async function chargeCard(deps: Deps, submissionId: string, co: CheckoutRow, input: Omit<CheckoutInput, 'submissionId'>): Promise<Reply> {
-  try {
-    const customer = await prepareCustomer(deps, submissionId, co);
-    if (isReply(customer)) return customer;
-
-    let created;
+  return startFreeMonth(deps, submissionId, co, 'credit_card', async (customerId, base) => {
     try {
-      created = await deps.asaas.createCardSubscription({
-        customer: customer.id,
-        value: toReais(co.next_amount_cents),
-        nextDueDate: co.next_due_date!,
-        cycle: co.billing_cycle,
-        description: `Tuggi · Com história · ${co.billing_period} ${co.billing_period === 1 ? 'mês' : 'meses'}`,
-        externalReference: co.external_reference,
+      return await deps.asaas.createCardSubscription({
+        ...base,
+        customer: customerId,
         creditCard: input.card,
         creditCardHolderInfo: { ...input.holder, email: co.customer_email },
         remoteIp: input.remoteIp,
@@ -389,31 +402,63 @@ async function chargeCard(deps: Deps, submissionId: string, co: CheckoutRow, inp
       if (e instanceof AsaasError && e.status === 400) return reply(402, { error: 'card_refused' });
       throw e;
     }
+  });
+}
+
+type SubscriptionBase = { value: number; nextDueDate: string; cycle: string; description: string; externalReference: string };
+
+/**
+ * Both methods (#898): the subscription is created with the first fee due on `firstChargeOn`, and
+ * attached with that date. Nothing is charged now, so the answer is `scheduled` + the date. The
+ * database moved the submission to validation in the attach, so the access link goes here, from the
+ * server — for a submission with an owner `accessLink` answers `owned` and sends nothing.
+ */
+async function startFreeMonth(
+  deps: Deps,
+  submissionId: string,
+  co: CheckoutRow,
+  method: Exclude<PaymentMethod, 'pix_automatic'>,
+  create: (customerId: string, base: SubscriptionBase) => Promise<{ id: string } | Reply>,
+): Promise<Reply> {
+  try {
+    const customer = await prepareCustomer(deps, submissionId, co);
+    if (isReply(customer)) return customer;
+    // Pix fees are paid by hand: the Asaas notification (charge created, due soon, overdue) is what
+    // hands the payer the QR. The card needs none (Asaas charges it).
+    if (method === 'pix') await deps.asaas.setCustomerNotifications(customer.id, true);
+
+    const firstCharge = firstChargeOn(deps.today());
+    const created = await create(customer.id, {
+      value: toReais(co.next_amount_cents),
+      nextDueDate: firstCharge,
+      cycle: co.billing_cycle,
+      description: `Tuggi · Com história · ${co.billing_period} ${co.billing_period === 1 ? 'mês' : 'meses'}`,
+      externalReference: co.external_reference,
+    });
+    if (isReply(created)) return created;
 
     const attached = await deps.admin('partner', 'attach_place_subscription', {
       p_subscription_id: co.subscription_id,
-      p_payment_method: 'credit_card',
+      p_payment_method: method,
       p_provider_customer_id: customer.id,
       p_provider_subscription_id: created.id,
       p_provider_authorization_id: null,
+      p_first_charge_on: firstCharge,
     });
     if (attached.error) {
-      if (attached.error.code === 'TGP10' && attached.error.details === 'renewing') {
-        // Contract §3.1: another subscription won the race; this one would be an orphan charging.
-        await discardSubscription(deps, created.id, 'checkout_race');
-        return reply(409, { error: 'not_allowed', reason: 'renewing' });
-      }
-      // Kept on purpose: it may already be charged, and the next checkout attaches it (above).
+      // Nothing was charged: a subscription we cannot attach is deleted, or it would charge in a month.
+      await discardSubscription(deps, created.id, attached.error.code === 'TGP10' ? 'checkout_race' : 'attach_failed');
+      if (attached.error.code === 'TGP10' && attached.error.details === 'renewing') return reply(409, { error: 'not_allowed', reason: 'renewing' });
       await deps.alert('attach_failed', { subscription_id: co.subscription_id, provider_subscription_id: created.id, code: attached.error.code });
       return reply(502, { error: 'unavailable' });
     }
 
-    const payments = await deps.asaas.listSubscriptionPayments(created.id);
-    const paid = payments.some((p) => PAID_STATUSES.has(p.status));
-    return reply(200, { result: paid ? 'paid' : 'processing' });
+    const link = await deps.accessLink(submissionId).catch(() => 'failed' as const);
+    if (link === 'failed') await deps.alert('access_link_failed', { subscription_id: co.subscription_id, provider_subscription_id: created.id });
+    return reply(200, { result: 'scheduled', first_charge_on: firstCharge });
   } catch (e) {
     if (e instanceof AsaasError) {
-      console.error('[places-payment] checkout asaas', e.message);
+      console.error('[places-payment] checkout asaas', method, e.message);
       return reply(502, { error: 'provider_unavailable' });
     }
     throw e;
@@ -461,9 +506,9 @@ async function draftPayable(deps: Deps, tokenSha256: string): Promise<(CheckoutR
 
 /**
  * Common to both methods, before anything new is created in Asaas: demand 5 (a live subscription
- * already PAID is attached, not charged again; an unpaid one is ended), then the customer, then
- * any Pix QR of an earlier attempt is cancelled — switching method must not leave a second way
- * to pay the same period open. Asaas errors propagate (the callers answer `provider_unavailable`).
+ * already PAID is attached, not charged again; an unpaid one is ended — switching method must not
+ * leave a second subscription charging the same month), then the customer. Asaas errors propagate
+ * (the callers answer `provider_unavailable`).
  */
 async function prepareCustomer(deps: Deps, submissionId: string, co: CheckoutRow): Promise<{ id: string } | Reply> {
   const settled = await clearLiveSubscriptions(deps, submissionId, co);
@@ -476,55 +521,15 @@ async function prepareCustomer(deps: Deps, submissionId: string, co: CheckoutRow
       email: co.customer_email,
       externalReference: co.subscription_id,
     }));
-  await cancelOpenPixAuthorizations(deps, customer.id);
   return customer;
 }
 
-/**
- * Authorizations still waiting for the QR to be paid (`CREATED`) are cancelled. Best effort: if it
- * fails, the old QR still expires in `PIX_QR_EXPIRATION_SECONDS`, and paying it after another
- * payment lands as `not_applicable`, which alerts the operator to refund.
- */
-async function cancelOpenPixAuthorizations(deps: Deps, customerId: string): Promise<void> {
-  try {
-    const open = (await deps.asaas.listPixAutomaticAuthorizations(customerId)).filter(
-      (a) => a.customerId === customerId && (a.status ?? '').toUpperCase() === 'CREATED',
-    );
-    for (const a of open) await deps.asaas.cancelPixAutomaticAuthorization(a.id);
-  } catch (e) {
-    console.error('[places-payment] cancel open pix authorizations', e instanceof Error ? e.message : 'unknown');
-  }
-}
-
-// ─── portal: checkout (Pix Automático) ─────────────────────────────────────────────────────────
-
-/** Seconds the QR of the first charge stays payable; the portal polls for as long. */
-export const PIX_QR_EXPIRATION_SECONDS = 30 * 60;
-
-export type PixQr = { payload: string; image: string | null; expires_at: string | null };
-
-export function pixQrOf(a: AsaasPixAuthorization): PixQr | null {
-  const payload = a.payload ?? a.immediateQrCode?.payload ?? null;
-  if (!payload) return null;
-  return {
-    payload,
-    image: a.encodedImage ?? a.immediateQrCode?.encodedImage ?? null,
-    expires_at: a.immediateQrCode?.expirationDate ?? null,
-  };
-}
+// ─── portal: checkout (Pix) ────────────────────────────────────────────────────────────────────
 
 /**
- * Pix Automático, journey 3 (term 4.1; contract §3.1): one QR pays the first period
- * (`immediateQrCode.originalValue` = `next_amount_cents`, coupon included) and authorizes the
- * renewals (`value` = `renewal_amount_cents`, `paymentCreationMode: SUBSCRIPTION`).
- *
- * NOTHING IS ATTACHED HERE. Asaas creates the subscription only when the payer's bank activates the
- * authorization, so `attach_place_subscription` (which needs the `sub_…`) runs in the webhook, on
- * `PIX_AUTOMATIC_RECURRING_AUTHORIZATION_ACTIVATED`. The first charge is confirmed before that, by
- * its `PAYMENT_RECEIVED`, mapped through the customer's `externalReference` (see the webhook).
- *
- * `startDate` = one month after today: the second fee, since the paid month starts at the first
- * payment (BR-B2B-046).
+ * Pix (#898): an Asaas subscription with `billingType: PIX`, the first fee on `firstChargeOn` — the
+ * same free month and the same attach as the card. Not Pix Automático: on Asaas its only journey
+ * (3) charges the first fee at once (https://docs.asaas.com/docs/automatic-pix).
  */
 export async function checkoutPix(deps: PortalDeps, body: unknown): Promise<Reply> {
   const submissionId = (body as Record<string, unknown> | null)?.submission_id;
@@ -533,48 +538,20 @@ export async function checkoutPix(deps: PortalDeps, body: unknown): Promise<Repl
   if (isReply(owner)) return owner;
   const co = await payableCheckout(deps, owner.submission_id);
   if (isReply(co)) return co;
-  return pixQr(deps, owner.submission_id, co);
+  return pixSubscription(deps, owner.submission_id, co);
 }
 
-/** The cookie's Pix checkout (#863, §7.2): the same QR, the submission from the cookie. */
+/** The cookie's Pix checkout (#863, §7.2): the same subscription, the submission from the cookie. */
 export async function draftCheckoutPix(deps: Deps, tokenSha256: string): Promise<Reply> {
   const co = await draftPayable(deps, tokenSha256);
   if (isReply(co)) return co;
-  return pixQr(deps, co.submission_id, co);
+  return pixSubscription(deps, co.submission_id, co);
 }
 
-async function pixQr(deps: Deps, submissionId: string, co: CheckoutRow): Promise<Reply> {
-  try {
-    const customer = await prepareCustomer(deps, submissionId, co);
-    if (isReply(customer)) return customer;
-    const description = `Tuggi Com história ${co.billing_period} ${co.billing_period === 1 ? 'mês' : 'meses'}`;
-    const auth = await deps.asaas.createPixAutomaticAuthorization({
-      customerId: customer.id,
-      contractId: contractIdOf(co.subscription_id),
-      description,
-      frequency: co.billing_cycle,
-      startDate: addMonths(co.next_due_date!, 1),
-      value: toReais(co.renewal_amount_cents),
-      immediateQrCode: {
-        expirationSeconds: PIX_QR_EXPIRATION_SECONDS,
-        originalValue: toReais(co.next_amount_cents),
-        description,
-      },
-    });
-    const qr = pixQrOf(auth);
-    if (!qr) {
-      await deps.alert('pix_qr_missing', { subscription_id: co.subscription_id, authorization_id: auth.id });
-      await deps.asaas.cancelPixAutomaticAuthorization(auth.id).catch(() => true);
-      return reply(502, { error: 'provider_unavailable' });
-    }
-    return reply(200, { result: 'pix', pix: qr });
-  } catch (e) {
-    if (e instanceof AsaasError) {
-      console.error('[places-payment] checkout_pix asaas', e.message);
-      return reply(502, { error: 'provider_unavailable' });
-    }
-    throw e;
-  }
+function pixSubscription(deps: Deps, submissionId: string, co: CheckoutRow): Promise<Reply> {
+  return startFreeMonth(deps, submissionId, co, 'pix', (customerId, base) =>
+    deps.asaas.createPixSubscription({ ...base, customer: customerId }),
+  );
 }
 
 /** Ends the provider side of a subscription: the Asaas subscription and, on Pix, the authorization. */
@@ -605,13 +582,16 @@ async function clearLiveSubscriptions(deps: Deps, submissionId: string, co: Chec
     if (payments.some((p) => PAID_STATUSES.has(p.status))) {
       const sub = candidates.get(id) ?? (await deps.asaas.getSubscription(id));
       const customer = (sub as { customer?: string }).customer ?? ids?.provider_customer_id ?? null;
-      const pix = id === ids?.provider_subscription_id && ids?.payment_method === 'pix_automatic';
+      const method =
+        id === ids?.provider_subscription_id && ids?.payment_method
+          ? ids.payment_method
+          : (sub as { billingType?: string }).billingType === 'PIX' ? 'pix' : 'credit_card';
       const { error } = await deps.admin('partner', 'attach_place_subscription', {
         p_subscription_id: co.subscription_id,
-        p_payment_method: pix ? 'pix_automatic' : 'credit_card',
+        p_payment_method: method,
         p_provider_customer_id: customer,
         p_provider_subscription_id: id,
-        p_provider_authorization_id: pix ? ids?.provider_authorization_id ?? null : null,
+        p_provider_authorization_id: method === 'pix_automatic' ? ids?.provider_authorization_id ?? null : null,
       });
       if (error && !(error.code === 'TGP10')) {
         await deps.alert('attach_failed', { subscription_id: co.subscription_id, provider_subscription_id: id, code: error.code });
@@ -698,7 +678,7 @@ export async function cancelQuote(deps: PortalDeps, submissionId: string): Promi
 }
 
 /** What the cancel e-mail says about the one charge left; null = nothing more is charged. */
-export type CancelFee = { cents: number; chargeOn: string; method: 'credit_card' | 'pix_automatic'; invoiceUrl: string | null };
+export type CancelFee = { cents: number; chargeOn: string; method: PaymentMethod; invoiceUrl: string | null };
 
 /**
  * Cancel (contract places-portal-rascunho §8.4, BR-B2B-055). The database first, with the user's JWT
@@ -752,7 +732,7 @@ export async function cancelRenewal(deps: PortalDeps, submissionId: string, expe
   // failure below alerts the operator to schedule it by hand.
   let fee: CancelFee | null = null;
   if (feeCents > 0 && chargeOn) {
-    const method = ids?.payment_method === 'pix_automatic' ? 'pix_automatic' : 'credit_card';
+    const method: PaymentMethod = ids?.payment_method === 'pix_automatic' || ids?.payment_method === 'pix' ? ids.payment_method : 'credit_card';
     const invoiceUrl = ids ? await chargeEarlyTermination(deps, ids, feeCents, chargeOn) : null;
     if (!ids) await deps.alert('cancel_fee_not_scheduled', { submission_id: submissionId, reason: 'no_subscription', fee_cents: feeCents });
     fee = { cents: feeCents, chargeOn, method, invoiceUrl };
@@ -760,6 +740,10 @@ export async function cancelRenewal(deps: PortalDeps, submissionId: string, expe
     await deps.alert('cancel_fee_not_scheduled', { submission_id: submissionId, reason: 'no_paid_through', fee_cents: feeCents });
   } else if (ids && ends) {
     await endAtCommitment(deps, ids, ends);
+  } else if (ids?.provider_subscription_id && !ids.canceled_at) {
+    // #898: cancelled inside the free month — no fee was ever charged, so no `paid_through`. The
+    // subscription goes, and its first fee (already generated, Asaas does it 40 days ahead) with it.
+    await endFreeMonth(deps, ids);
   }
 
   const to = await deps.userEmail();
@@ -830,14 +814,42 @@ async function resumeCancelAtAsaas(
   if (ids) await redoCancelAtAsaas(deps, ids, row.paid_through);
 }
 
-/** `endDate` = the eve of the commitment end (São Paulo): Asaas generates no fee from that day on. */
+/**
+ * `endDate` = the eve of the commitment end (São Paulo): Asaas generates no fee from that day on.
+ * A fee it ALREADY generated (40 days ahead, docs.asaas.com "Assinaturas") is not touched by `endDate`
+ * (memory of #811: `nextDueDate`/`endDate` only steer charges not generated yet), so a pending one due
+ * after `endDate` is deleted too — otherwise the card would still be charged on `paid_through` (#898).
+ */
 async function endAtCommitment(deps: Deps, ids: SubscriptionIds, commitmentEndsAt: string): Promise<void> {
   if (!ids.provider_subscription_id || ids.canceled_at) return;
   try {
     const endDate = shiftDays(saoPauloDate(new Date(commitmentEndsAt)), -1);
     await deps.asaas.updateSubscription(ids.provider_subscription_id, { endDate });
+    const pending = await deps.asaas.listSubscriptionPayments(ids.provider_subscription_id, 'PENDING');
+    for (const p of pending) if (p.dueDate && p.dueDate > endDate) await deps.asaas.deletePayment(p.id);
   } catch (e) {
     await deps.alert('cancel_end_date_failed', { subscription_id: ids.subscription_id, error: e instanceof Error ? e.message : 'unknown' });
+  }
+}
+
+/**
+ * Cancel inside the free month (#898, BR-B2B-046): nothing was paid, so nothing is owed. DELETE of
+ * the Asaas subscription removes its pending fee; then `cancel_place_subscription(…'client')`, like
+ * the withdrawal. A failure alerts the operator: the fee would otherwise be charged on its date.
+ */
+async function endFreeMonth(deps: Deps, ids: SubscriptionIds): Promise<void> {
+  try {
+    await endProviderSubscription(deps, ids);
+    const { error } = await deps.admin('partner', 'cancel_place_subscription', {
+      p_event_id: null,
+      p_event_type: null,
+      p_subscription_id: ids.subscription_id,
+      p_provider_subscription_id: null,
+      p_actor_kind: 'client',
+    });
+    if (error) throw new Error(`db ${error.code}`);
+  } catch (e) {
+    await deps.alert('cancel_free_month_failed', { subscription_id: ids.subscription_id, error: e instanceof Error ? e.message : 'unknown' });
   }
 }
 
@@ -889,6 +901,7 @@ async function chargeEarlyTermination(deps: Deps, ids: SubscriptionIds, feeCents
     return invoiceUrl;
   }
 
+  // Card and Pix subscription (#898): the fee is the subscription's own pending charge.
   if (!ids.provider_subscription_id || ids.canceled_at) return fail('no_live_subscription');
   try {
     await deps.asaas.updateSubscription(ids.provider_subscription_id, { value: toReais(feeCents), endDate: chargeOn, updatePendingPayments: true });
@@ -1424,7 +1437,7 @@ export async function runSweep(deps: Deps): Promise<Record<string, unknown>> {
     await deps.alert('sweep_cancel_redo_failed', { error: e instanceof Error ? e.message : 'unknown' });
   }
 
-  // Card rows are ended by `expiredLiveCards` below, not here: the expiry comes at `paid_through`,
+  // Card and Pix-subscription rows (#898) are ended by `expiredLiveCards` below, not here: the expiry comes at `paid_through`,
   // the same day the early-termination fee is charged, and the DELETE would erase it (§3.3).
   const expired = await deps.admin('partner', 'expire_place_subscriptions', {});
   if (expired.error) {
@@ -1433,7 +1446,7 @@ export async function runSweep(deps: Deps): Promise<Record<string, unknown>> {
   } else {
     let n = 0;
     for (const r of (Array.isArray(expired.data) ? expired.data : []) as ExpiredRow[]) {
-      if (!r.provider_subscription_id || r.canceled_at || r.payment_method === 'credit_card') continue;
+      if (!r.provider_subscription_id || r.canceled_at || chargedBySubscription(r.payment_method)) continue;
       if (await endSubscription(deps, r, 'sweep_expire_cancel_failed')) n++;
     }
     summary.expired = n;
@@ -1450,7 +1463,7 @@ export async function runSweep(deps: Deps): Promise<Record<string, unknown>> {
         held++;
         continue;
       }
-      if (await endSubscription(deps, { ...r, payment_method: 'credit_card' }, 'sweep_expire_cancel_failed')) n++;
+      if (await endSubscription(deps, { ...r, payment_method: null }, 'sweep_expire_cancel_failed')) n++;
     }
     summary.expired_card = n;
     summary.fee_held = held;
@@ -1555,6 +1568,11 @@ export const CANCEL_EMAIL = {
       : fee.method === 'credit_card'
         ? [
             `Como o cancelamento veio antes do fim da fidelidade, cobramos uma única vez ${formatBrl(fee.cents)}, a diferença do desconto dos meses usados, no seu cartão em ${formatDateBr(fee.chargeOn)}. Depois disso, nada mais é cobrado.`,
+          ]
+        : fee.method === 'pix'
+        ? [
+            `Como o cancelamento veio antes do fim da fidelidade, cobramos uma única vez ${formatBrl(fee.cents)}, a diferença do desconto dos meses usados, por Pix, com vencimento em ${formatDateBr(fee.chargeOn)}. O código Pix chega por e-mail antes dessa data.`,
+            'Depois disso, nada mais é cobrado.',
           ]
         : [
             `Como o cancelamento veio antes do fim da fidelidade, cobramos uma única vez ${formatBrl(fee.cents)}, a diferença do desconto dos meses usados, por Pix, com vencimento em ${formatDateBr(fee.chargeOn)}. O Pix Automático foi encerrado: esta cobrança não sai sozinha da sua conta.`,

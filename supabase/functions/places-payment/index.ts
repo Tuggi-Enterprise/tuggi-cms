@@ -15,8 +15,9 @@
 //
 // Body: { action: 'checkout' | 'checkout_pix' | 'cancel_quote' | 'cancel_renewal' | 'refund' | 'withdraw', submission_id, ... }.
 // `cancel_renewal` takes an optional `expected_fee_cents` (the quote the owner saw; 409 `quote_changed` if it moved).
-// The card goes to Asaas in the same request and is never stored, logged or echoed. `checkout_pix`
-// answers { result: 'pix', pix: { payload, image, expires_at } }: the QR of the first charge.
+// The card goes to Asaas in the same request and is never stored, logged or echoed. `checkout` and
+// `checkout_pix` charge nothing (#898, free first month): both answer
+// { result: 'scheduled', first_charge_on: 'YYYY-MM-DD' }.
 
 import { isPlacesSecret, PLACES_SECRET_HEADER } from '../_shared/places-secret.ts';
 import { isDraftSecret } from '../_shared/places-draft-secret.ts';
