@@ -538,6 +538,7 @@ export function ClientEditorModal({
             {clientId ? <PortalSubmissionsReader clientId={clientId} onRead={setPortalRecords} /> : null}
             {onValidation && (
               <ValidationTab
+                key={validation.submissionId ?? 'none'} // a new submission remounts: the revealed CPF never carries over (security review #890)
                 record={validation}
                 locale={locale}
                 client={clientId ? client : null}

@@ -81,6 +81,8 @@ type Load =
   | { state: 'ready'; review: PortalSubmissionReview }
 
 /** A submission the operator still decides — the header shows its acts, not the client's. */
+const SUBMISSION_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
+
 const UNDECIDED = ['in_review', 'changes_requested', 'awaiting_payment']
 
 export interface ValidationRecord {
@@ -112,6 +114,8 @@ export function useValidationRecord(submissionId: string | null): ValidationReco
 
   const refetch = useCallback(async () => {
     if (!submissionId) return setLoad({ state: 'idle' })
+    // The id comes raw from `?validation=`: anything but a UUID must not reach another admin route (security review #890).
+    if (!SUBMISSION_ID.test(submissionId)) return setLoad({ state: 'not_found' })
     setLoad((current) => (current.state === 'ready' && current.review.id === submissionId ? current : { state: 'loading' }))
     try {
       const response = await fetch(`/api/admin/partnerships/validation/${submissionId}`, { cache: 'no-store' })
@@ -346,7 +350,8 @@ export function ValidationTab({
           ? t('done.rejectedRefund', { total: result.refundTotal })
           : t('done.rejected')
     : null
-  const approvedNow = result?.kind === 'approved' && hasClient
+  // `review.clientId`, not `hasClient`: after approving a pre-registration the client loads later, and the focus must still land on "Ir para Locais" (design review #890).
+  const approvedNow = result?.kind === 'approved' && Boolean(review.clientId)
   const nextHref = review.nextInReviewId ? validationHref(review.nextInReviewId) : null
 
   async function revealCpf() {
@@ -383,7 +388,12 @@ export function ValidationTab({
    */
   const promotion = client
     ? buildPromotionPlan(
-        { ...answers, representative_email: answers.representative_email || acceptance?.email || undefined },
+        {
+          ...answers,
+          // display only: `joinAddress` drops the number, and the curator checks the address against the pin (design review #890)
+          address: [answers.address, answers.address_number].filter(Boolean).join(', ') || undefined,
+          representative_email: answers.representative_email || acceptance?.email || undefined,
+        },
         client as unknown as Record<string, unknown>,
         { categoryLabel }
       )
