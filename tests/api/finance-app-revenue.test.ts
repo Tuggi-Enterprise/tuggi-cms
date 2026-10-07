@@ -29,6 +29,7 @@ import {
   parseRcEvent,
   spendByUser,
   summarizeAppRevenue,
+  withProfilePartners,
   type RcEvent,
 } from '@/lib/finance/app-revenue'
 
@@ -97,7 +98,7 @@ test('linha sem `full_event` não vira um evento de R$ 0,00', () => {
   assert.equal(parseRcEvent({ full_event: { id: 'x' } }), null, 'sem preço não é compra')
 })
 
-test('o parceiro chega dentro de `subscriber_attributes`', () => {
+test('BR-MONETIZACAO-027 item 2 (v): the partner is drive.profiles.partner_id, never the RevenueCat attribute (#707)', () => {
   const parsed = parseRcEvent(
     metadata({
       subscriber_attributes: {
@@ -106,7 +107,9 @@ test('o parceiro chega dentro de `subscriber_attributes`', () => {
       },
     })
   )
-  assert.equal(parsed?.partnerId, '718f13f1-99ab-4a7a-8221-1fd58896f14c')
+  assert.equal(parsed?.partnerId, null, 'the parser does not read the attribute')
+  const [attributed] = withProfilePartners([parsed as RcEvent], new Map([['user-1', 'profile-partner']]))
+  assert.equal(attributed.partnerId, 'profile-partner')
 })
 
 // ── O QUE É RECEITA ───────────────────────────────────────────────────────────────────────────
@@ -253,9 +256,8 @@ test('quem comprou em duas moedas tem duas linhas — somá-las exigiria câmbio
 })
 
 test('a comissão do parceiro é sobre o LÍQUIDO, como o contrato promete', () => {
-  const attributes = { partner_id: { value: 'parceiro-1', updated_at_ms: 1 } }
   const { lines } = commissionByPartner(
-    [event({ id: 'a', subscriber_attributes: attributes })],
+    withProfilePartners([event({ id: 'a' })], new Map([['user-1', 'parceiro-1']])),
     new Map([['parceiro-1', 0.2]])
   )
 
@@ -269,9 +271,8 @@ test('a comissão do parceiro é sobre o LÍQUIDO, como o contrato promete', () 
 })
 
 test('parceiro sem taxa cadastrada é NOMEADO, e não vira zero', () => {
-  const attributes = { partner_id: { value: 'sem-taxa', updated_at_ms: 1 } }
   const { lines, withoutRate } = commissionByPartner(
-    [event({ id: 'a', subscriber_attributes: attributes })],
+    withProfilePartners([event({ id: 'a' })], new Map([['user-1', 'sem-taxa']])),
     new Map()
   )
 
@@ -459,7 +460,9 @@ test('o serviço lê o jsonb, e não as colunas vazias ao lado dele', () => {
   const start = source.indexOf('export async function loadRcEvents')
   const fn = source.slice(start, source.indexOf('export async function loadCommissionRates'))
 
-  assert.ok(/\.select\('metadata'\)/.test(fn), 'o payload vive em metadata')
+  assert.ok(/\.select\('user_id, metadata'\)/.test(fn), 'o payload vive em metadata')
+  // BR-MONETIZACAO-027 item 2 (v), #903: the attribution comes from the profile.
+  assert.ok(/from\('profiles'\)[\s\S]*partner_id/.test(fn), 'the partner is drive.profiles.partner_id')
   assert.ok(
     !/price_local/.test(fn),
     'essas colunas estão nulas em 100% das linhas — quem ler delas lê vazio'

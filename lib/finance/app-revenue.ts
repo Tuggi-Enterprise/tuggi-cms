@@ -66,8 +66,20 @@ export interface RcEvent {
   purchasedAt: string
   /** ISO, ou `null` em compra de uma vez. É ele que separa recorrente de avulso. */
   expiresAt: string | null
-  /** O parceiro que trouxe esta pessoa, vindo de `subscriber_attributes.partner_id`. */
+  /**
+   * The partner the person is attributed to: `drive.profiles.partner_id` (BR-MONETIZACAO-027 item
+   * 2 (v), BR-B2B-002 first touch), set by `withProfilePartners`. The parser leaves it `null` on
+   * purpose: the RevenueCat attribute `subscriber_attributes.partner_id` is NOT the attribution
+   * (#707 — the app set it late or not at all), and reading two origins is how the commission
+   * screen and the payout would disagree.
+   */
   partnerId: string | null
+  /** `transaction_id` of the store. A refund carries the transaction it undoes. */
+  transactionId: string | null
+  /** `cancel_reason`. `CUSTOMER_SUPPORT` on a `CANCELLATION` is a refund (RevenueCat doc). */
+  cancelReason: string | null
+  /** `event_timestamp_ms`: when the event happened (a refund's date; `purchasedAt` is the purchase's). */
+  occurredAt: string | null
 }
 
 /** Um número, ou `null` — e `null` nunca vira zero. */
@@ -102,9 +114,6 @@ export function parseRcEvent(metadata: unknown): RcEvent | null {
   const eventId = typeof event.id === 'string' ? event.id : ''
   if (!userId || !eventId || !Number.isFinite(priceLocal)) return null
 
-  // O parceiro chega dentro de `subscriber_attributes`, num objeto `{ value, updated_at_ms }`.
-  const attributes = (event.subscriber_attributes ?? {}) as Record<string, { value?: unknown }>
-  const partner = attributes.partner_id?.value
   const purchasedAt = isoFromMs(event.purchased_at_ms) ?? isoFromMs(event.event_timestamp_ms)
 
   return {
@@ -125,8 +134,50 @@ export function parseRcEvent(metadata: unknown): RcEvent | null {
     periodType: String(event.period_type ?? 'NORMAL'),
     purchasedAt: purchasedAt ?? '',
     expiresAt: isoFromMs(event.expiration_at_ms),
-    partnerId: typeof partner === 'string' && partner ? partner : null,
+    partnerId: null,
+    transactionId: typeof event.transaction_id === 'string' && event.transaction_id ? event.transaction_id : null,
+    cancelReason: typeof event.cancel_reason === 'string' ? event.cancel_reason : null,
+    occurredAt: isoFromMs(event.event_timestamp_ms),
   }
+}
+
+/**
+ * The events with the partner of `drive.profiles.partner_id` (BR-MONETIZACAO-027 item 2 (v)). The
+ * map is user id → partner id; a user absent from it has no attribution.
+ */
+export function withProfilePartners(
+  events: readonly RcEvent[],
+  partnerByUser: ReadonlyMap<string, string | null>
+): RcEvent[] {
+  return events.map((event) => ({ ...event, partnerId: partnerByUser.get(event.userId) ?? null }))
+}
+
+/**
+ * Paid production revenue: a paid event type, `PRODUCTION`, not a trial, with a positive price.
+ * The one filter behind every "what came in" of this module and of the payout (`payouts.ts`).
+ */
+export function isPaidRevenue(event: RcEvent): boolean {
+  return (
+    event.environment === 'PRODUCTION' &&
+    PAID_EVENT_TYPES.includes(event.type) &&
+    event.periodType !== 'TRIAL' &&
+    event.priceLocal > 0
+  )
+}
+
+/** A refund of a production purchase (RevenueCat: `CANCELLATION` with `cancel_reason = CUSTOMER_SUPPORT`). */
+export function isRefund(event: RcEvent): boolean {
+  return (
+    event.environment === 'PRODUCTION' &&
+    event.type === 'CANCELLATION' &&
+    event.cancelReason === 'CUSTOMER_SUPPORT' &&
+    event.transactionId !== null
+  )
+}
+
+/** What the Tuggi kept, in the purchase currency: gross minus the store (no `takehome` = gross). */
+export function netCentsOf(event: RcEvent): number {
+  return Math.round(cents(event.priceLocal) * (event.takehome ?? 1))
 }
 
 /** Um total numa moeda. `net` já desconta a loja. */
@@ -268,9 +319,7 @@ export function spendByUser(events: readonly RcEvent[]): UserSpend[] {
   for (const event of events) {
     if (seen.has(event.eventId)) continue
     seen.add(event.eventId)
-    if (event.environment !== 'PRODUCTION') continue
-    if (!PAID_EVENT_TYPES.includes(event.type)) continue
-    if (event.periodType === 'TRIAL' || !(event.priceLocal > 0)) continue
+    if (!isPaidRevenue(event)) continue
 
     const key = `${event.userId}|${event.currency}`
     const row = rows.get(key) ?? {
@@ -282,9 +331,8 @@ export function spendByUser(events: readonly RcEvent[]): UserSpend[] {
       countryCode: event.countryCode,
       partnerId: event.partnerId,
     }
-    const gross = cents(event.priceLocal)
-    row.grossCents += gross
-    row.netCents += Math.round(gross * (event.takehome ?? 1))
+    row.grossCents += cents(event.priceLocal)
+    row.netCents += netCentsOf(event)
     row.transactions += 1
     // O parceiro pode chegar só numa das compras: a primeira que o traz manda.
     if (!row.partnerId && event.partnerId) row.partnerId = event.partnerId
@@ -308,6 +356,9 @@ export interface PartnerCommission {
 
 /**
  * A comissão de cada parceiro, sobre a receita que o QR dele produziu.
+ *
+ * The partner is the event's `partnerId`, i.e. `drive.profiles.partner_id` set by
+ * `withProfilePartners` (#903, closes #707) — the same origin as the payout of `payouts.ts`.
  *
  * A BASE É O LÍQUIDO, e o contrato diz isso: *"a receita líquida dos turistas que chegarem pelo
  * seu QR Code"*. Calcular sobre o bruto pagaria ao parceiro uma fatia da comissão que a loja já

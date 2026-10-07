@@ -35,6 +35,9 @@ export const PENDING_KINDS = [
   'payout_not_released',
   'payout_failed',
   'payout_without_pix_key',
+  // #903 (migration `20261007180000`): released > 15 min with no transfer recorded — search Asaas
+  // for externalReference = payout id (`places-pagamento.md` §3.5, residual risk).
+  'payout_stuck_released',
 ] as const
 export type PendingKind = (typeof PENDING_KINDS)[number]
 export type PendingSeverity = 'warning' | 'critical'

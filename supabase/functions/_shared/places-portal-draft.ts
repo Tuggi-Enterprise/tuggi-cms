@@ -212,13 +212,14 @@ export function accessEmail(url: string, origin: string): { subject: string; htm
 /**
  * The portal e-mail layout of `accessEmail`, for the transition e-mails of #813
  * (`places-transition-email.ts`): paragraphs, one button, small print, signature. Every string is
- * escaped; `links` are extra lines shown as links (the app stores).
+ * escaped; `links` are extra lines shown as links (the app stores). `cta` is optional: the payout
+ * e-mail of #903 (`places-payout.ts`) asks for nothing to click.
  */
 export function portalMail(m: {
   subject: string;
   preheader: string;
   paragraphs: string[];
-  cta: { label: string; url: string };
+  cta?: { label: string; url: string };
   links?: { label: string; url: string }[];
   small: string[];
 }): { subject: string; html: string; text: string } {
@@ -229,7 +230,7 @@ export function portalMail(m: {
     `<div style="display:none;max-height:0;overflow:hidden;opacity:0;mso-hide:all">${escapeHtml(m.preheader)}</div>`,
     CARD_OPEN,
     ...m.paragraphs.map((p) => `<p style="${P}">${escapeHtml(p)}</p>`),
-    button(m.cta.url, m.cta.label),
+    ...(m.cta ? [button(m.cta.url, m.cta.label)] : []),
     ...links.map((l) => `<p style="${P}"><a href="${escapeHtml(l.url)}" style="color:#1A1A1A">${escapeHtml(l.label)}</a></p>`),
     ...m.small.map((p) => `<p style="${SMALL}">${escapeHtml(p)}</p>`),
     `<p style="${P};margin:16px 0 0">${escapeHtml(sign)}</p>`,
@@ -237,8 +238,7 @@ export function portalMail(m: {
   ].join('');
   const text = [
     ...m.paragraphs.flatMap((p) => [p, '']),
-    `${m.cta.label}: ${m.cta.url}`,
-    '',
+    ...(m.cta ? [`${m.cta.label}: ${m.cta.url}`, ''] : []),
     ...links.flatMap((l) => [`${l.label}: ${l.url}`]),
     ...(links.length ? [''] : []),
     ...m.small.flatMap((p) => [p, '']),

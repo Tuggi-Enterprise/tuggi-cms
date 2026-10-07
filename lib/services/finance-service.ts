@@ -37,7 +37,7 @@ import {
 } from '@/lib/finance/cost-taxonomy'
 import type { PartnerMixRow, PassPrice } from '@/lib/finance/overview'
 import type { BillingStart } from '@/lib/finance/billing'
-import { parseRcEvent, type RcEvent } from '@/lib/finance/app-revenue'
+import { parseRcEvent, withProfilePartners, type RcEvent } from '@/lib/finance/app-revenue'
 import {
   PENDING_KINDS,
   receivedByClient,
@@ -2063,19 +2063,44 @@ export async function loadRcEvents(limit = 5000): Promise<RcEvent[] | null> {
   const { data, error } = await getSupabaseService()
     .schema('drive')
     .from('subscription_history')
-    .select('metadata')
+    .select('user_id, metadata')
     .order('created_at', { ascending: false })
     .limit(limit)
 
   if (error) return null
 
+  // The row's `user_id` is the profile; the payload's `app_user_id` is the fallback.
   const events: RcEvent[] = []
-  for (const row of (data ?? []) as { metadata: unknown }[]) {
+  const profileOf = new Map<string, string>()
+  for (const row of (data ?? []) as { user_id: string | null; metadata: unknown }[]) {
     const event = parseRcEvent(row.metadata)
-    if (event) events.push(event)
+    if (!event) continue
+    events.push(event)
+    profileOf.set(event.userId, row.user_id ?? event.userId)
   }
-  return events
+
+  // THE ATTRIBUTION IS `drive.profiles.partner_id` (BR-MONETIZACAO-027 item 2 (v), BR-B2B-002),
+  // not the RevenueCat attribute the payload carries (#707). One origin for the commission screen
+  // and for the payout (#903). Without the profiles there is no attribution: `null`, never "nobody".
+  const profileIds = Array.from(new Set(profileOf.values())).filter((id) => UUID_RE.test(id))
+  const partnerOfProfile = new Map<string, string | null>()
+  for (const batch of chunk(profileIds)) {
+    const { data: profiles, error: profilesError } = await getSupabaseService()
+      .schema('drive')
+      .from('profiles')
+      .select('id, partner_id')
+      .in('id', batch)
+    if (profilesError) return null
+    for (const row of (profiles ?? []) as { id: string; partner_id: string | null }[]) {
+      partnerOfProfile.set(row.id, row.partner_id ?? null)
+    }
+  }
+  const partnerByUser = new Map<string, string | null>()
+  for (const [userId, profileId] of profileOf) partnerByUser.set(userId, partnerOfProfile.get(profileId) ?? null)
+  return withProfilePartners(events, partnerByUser)
 }
+
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
 
 /**
  * A taxa de comissão de cada parceiro, como fração.

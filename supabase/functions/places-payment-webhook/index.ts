@@ -13,6 +13,10 @@
 // the invoice is re-read and upserted by `inv_` (`partner.record_place_invoice`), so a resend converges.
 // The Asaas webhook must have those events enabled.
 //
+// Since #903 it also takes TRANSFER_DONE / TRANSFER_FAILED / TRANSFER_CANCELLED of the payout's Pix
+// (`_shared/places-payout.ts` `handleTransferEvent`): the transfer is re-read and
+// `partner.settle_place_payout_transfer` converges by state. Enable those events too.
+//
 // Deploy with `--no-verify-jwt` (Asaas sends no Supabase JWT). Answers 200 for every business
 // outcome; 500 only when the database or the re-read fails, so Asaas resends.
 // Never log the body: it carries name, CPF/CNPJ, e-mail and phone.

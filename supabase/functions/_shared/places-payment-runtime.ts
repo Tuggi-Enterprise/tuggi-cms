@@ -29,7 +29,7 @@ export function asaasFromEnv() {
 }
 
 // deno-lint-ignore no-explicit-any
-function rpcOf(client: any): Rpc {
+export function rpcOf(client: any): Rpc {
   return async (schema, fn, args) => {
     try {
       const { data, error } = await client.schema(schema).rpc(fn, args);
@@ -186,6 +186,18 @@ export function baseDeps(asaas: NonNullable<ReturnType<typeof asaasFromEnv>>): D
       return typeof sid === 'string' ? sid : null;
     },
     accessLink: async (submissionId) => (await issueAccessLink(accessLinkDeps(admin), submissionId)).kind,
+    sentPayouts: async () => {
+      const { data, error } = await admin
+        .schema('partner')
+        .from('place_payouts')
+        .select('id, provider_transfer_id')
+        .eq('status', 'sent')
+        .not('provider_transfer_id', 'is', null)
+        .limit(500);
+      if (error) throw new Error(`sent payouts read ${error.code}`);
+      // deno-lint-ignore no-explicit-any
+      return (data ?? []).map((r: any) => ({ payout_id: r.id, provider_transfer_id: r.provider_transfer_id }));
+    },
   };
 }
 

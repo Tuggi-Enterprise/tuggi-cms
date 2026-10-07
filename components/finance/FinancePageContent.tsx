@@ -62,6 +62,7 @@ import { ClientProfitabilityTable } from './ClientProfitabilityTable'
 import { CatalogPanel, type UnitCostView } from './CatalogPanel'
 import { StructurePanel } from './StructurePanel'
 import { PendingPanel, type PendingState } from './PendingPanel'
+import { PayoutsPanel } from './PayoutsPanel'
 import { SubscriptionsPanel } from './SubscriptionsPanel'
 import { isPayoutPending } from '@/lib/finance/place-billing'
 
@@ -321,11 +322,7 @@ export function FinancePageContent() {
             <SubscriptionsPanel key={reloadKey} focusSubscriptionId={focusSubscriptionId} />
           )}
 
-          {section === 'payouts' && (
-            <p className="rounded-3xl border border-gray-200 bg-white/70 px-5 py-6 text-sm text-gray-600 dark:border-gray-800 dark:bg-gray-900/70 dark:text-gray-400">
-              {t('payouts.placeholder')}
-            </p>
-          )}
+          {section === 'payouts' && <PayoutsPanel key={reloadKey} />}
 
           {/* As três seções acima têm leitura e estado próprios; o carregando e o erro daqui são
               do quadro de lucratividade e das seções que desenham sobre ele. */}

@@ -17,6 +17,14 @@
 // Since #901 `runSweep` also backfills the subscriptions' invoice settings and re-reads the invoices
 // into `partner.place_invoices` (`reconcileInvoices`, `_shared/places-invoice.ts`).
 //
+// Since #903 it re-reads the transfer of every `sent` payout (`reconcileSentPayouts`, inside
+// `runSweep`) and asks the CMS to close the month before (`triggerPayoutClose`): the payout
+// calculation lives in the CMS (`lib/finance/payouts.ts`), so the job calls the CMS route
+// `POST /api/finance/payouts/close` with CMS_JOB_SECRET; the route closes only a month never
+// calculated, so the daily call repairs a failed day 1 and is a no-op otherwise. Secrets:
+// CMS_ORIGIN (e.g. `https://cms.tuggi.app`) and CMS_JOB_SECRET (the same value on the CMS); unset =
+// skipped, and the pending item `payout_period_not_calculated` is the net.
+//
 // Caller: a pg_cron job with the project's secret key (`requireAdmin`, machine bypass), the same
 // pattern as `daily-gamification-orchestrator`. Deploy with `--no-verify-jwt`.
 
@@ -27,6 +35,7 @@ import { runTransitionEmails } from '../_shared/places-transition-email.ts';
 import { transitionDeps } from '../_shared/places-transition-email-runtime.ts';
 import { reconcilePartnerStories } from '../_shared/places-story-suspension.ts';
 import { suspensionDeps } from '../_shared/places-story-suspension-runtime.ts';
+import { triggerPayoutClose } from '../_shared/places-payout.ts';
 
 Deno.serve(async (req: Request) => {
   if (req.method !== 'POST') return json(405, { error: 'method_not_allowed' });
@@ -46,6 +55,11 @@ Deno.serve(async (req: Request) => {
     console.error('[places-payment-sweep] story suspension failed', e instanceof Error ? e.message.slice(0, 200) : 'unknown');
     databaseOnly.story_suspension = 'failed';
   }
+  databaseOnly.payout_close = await triggerPayoutClose(
+    (url, init) => fetch(url, init),
+    (Deno.env.get('CMS_ORIGIN') ?? '').trim(),
+    (Deno.env.get('CMS_JOB_SECRET') ?? '').trim(),
+  );
 
   const asaas = asaasFromEnv();
   if (!asaas) {

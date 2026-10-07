@@ -157,6 +157,21 @@ export type AsaasScheduleInvoice = {
 
 type List<T> = { data?: T[] | null; hasMore?: boolean | null };
 
+/**
+ * `POST /v3/transfers` and `GET /v3/transfers/{id}` (#903, doc conferred 2026-10-07:
+ * https://docs.asaas.com/reference/transferir-para-conta-de-outra-instituicao-ou-chave-pix).
+ * `status`: PENDING, BANK_PROCESSING, DONE, CANCELLED, FAILED. `authorized` is false while the
+ * account's critical-action token (SMS/APP) waits for the operator: the transfer stays PENDING.
+ */
+export type AsaasTransfer = {
+  id: string;
+  status: string;
+  value?: number;
+  authorized?: boolean | null;
+  failReason?: string | null;
+  externalReference?: string | null;
+};
+
 export function asaasClient(cfg: AsaasConfig) {
   const base = cfg.baseUrl.replace(/\/+$/, '');
 
@@ -320,6 +335,24 @@ export function asaasClient(cfg: AsaasConfig) {
      * PROCESSING_CANCELLATION and ends CANCELED or CANCELLATION_DENIED.
      */
     cancelInvoice: (id: string) => call<AsaasInvoice>('POST', `/invoices/${encodeURIComponent(id)}/cancel`, { cancelOnlyOnAsaas: false }),
+
+    /**
+     * `POST /v3/transfers` by Pix key (#903). NO IDEMPOTENCY at Asaas and a sent Pix does not come
+     * back: the caller calls this only after `partner.release_place_payout` returned `applied`, and
+     * never twice for the same release. `externalReference` = the payout uuid, the operator's way
+     * back to the transfer when the database lost it.
+     */
+    createPixTransfer: (t: { valueCents: number; pixKey: string; description: string; externalReference: string }) =>
+      call<AsaasTransfer>('POST', '/transfers', {
+        value: Math.round(t.valueCents) / 100,
+        operationType: 'PIX',
+        pixAddressKey: t.pixKey,
+        pixAddressKeyType: 'CNPJ',
+        description: t.description,
+        externalReference: t.externalReference,
+      }),
+
+    getTransfer: (id: string) => call<AsaasTransfer>('GET', `/transfers/${encodeURIComponent(id)}`),
 
     /** `POST /v3/payments/{id}/refund`. Asynchronous: the refund is born PENDING. */
     refundPayment: (id: string, value: number, description: string) =>

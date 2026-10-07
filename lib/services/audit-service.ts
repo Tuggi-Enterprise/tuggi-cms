@@ -146,6 +146,10 @@ export type AuditAction =
   | 'CREATE_FINANCE_PASS_PRICE'
   | 'CREATE_FINANCE_EXCLUSION'
   | 'RESTORE_FINANCE_EXCLUSION'
+  // #903: the place payout. Releasing moves money out (Pix); calculating fixes what is owed.
+  | 'CALCULATE_FINANCE_PAYOUTS'
+  | 'RELEASE_FINANCE_PAYOUT'
+  | 'RECORD_FINANCE_PAYOUT_INVOICE'
 
 export type AuditEntity = 'USER' | 'POI' | 'AUTH' | 'CLIENT' | 'PARTNER_PROPOSAL' | 'FINANCE'
 
