@@ -37,7 +37,7 @@ import { SANITY_MAX_TP_DISTANCE_M } from '../lib/services/trigger-points-google/
 import { ReusableChild, serveParentRequests } from '../lib/utils/run-in-child'
 import { DemStore } from '../lib/services/dem/dem-store'
 import {
-  QUEUE_CHILD_FLAG, STORED_BOUNDARY_FLAG, parseQueueChildArgs, queueChildArgs, regenPipelineOptions, storedBoundaryLogSuffix,
+  QUEUE_CHILD_FLAG, STORED_BOUNDARY_FLAG, parseIdsFile, parseQueueChildArgs, queueChildArgs, regenPipelineOptions, storedBoundaryLogSuffix,
 } from '../lib/services/tp-regen-options'
 import { createClient } from '@supabase/supabase-js'
 import { randomUUID } from 'crypto'
@@ -104,7 +104,7 @@ async function regenSingle(attractionId: string, storedBoundary = false) {
 // ─── Criar fila ──────────────────────────────────────────────────────────────
 
 async function createBatch(batchId: string, filters: {
-  city?: string; state?: string; country?: string
+  city?: string; state?: string; country?: string; ids?: string[]
 }) {
   // Verificar se batch já existe (só informa, não bloqueia — o insert usa ON CONFLICT DO NOTHING)
   const { count: existingCount } = await db
@@ -116,12 +116,12 @@ async function createBatch(batchId: string, filters: {
     console.log(`ℹ️  Batch "${batchId}" já tem ${existingCount} itens — adicionando apenas os que faltam.`)
   }
 
-  // Buscar IDs com paginação (Supabase limita por request)
+  // Buscar IDs com paginação (Supabase limita por request); --ids-file já traz a lista (#779)
   const PAGE = 1000
-  const allIds: string[] = []
+  const allIds: string[] = filters.ids ? [...filters.ids] : []
   let page = 0
 
-  while (true) {
+  while (!filters.ids) {
     // Offset pages without ORDER BY may skip or repeat rows; by id it stays <0.5 s (Portugal, 35.8k).
     let q = db.from('attractions').select('id')
       .order('id')
@@ -394,7 +394,13 @@ async function main() {
   } else if (id) {
     await regenSingle(id, storedBoundary)
   } else if (createBatchId) {
-    await createBatch(createBatchId, { city, state, country })
+    const idsFile = get('--ids-file')
+    if (idsFile && (city || state || country)) {
+      console.error('❌ --ids-file não se combina com --city/--state/--country'); process.exit(1)
+    }
+    const ids = idsFile ? parseIdsFile(fs.readFileSync(idsFile, 'utf8')) : undefined
+    if (ids && !ids.length) { console.error(`❌ --ids-file sem ids: ${idsFile}`); process.exit(1) }
+    await createBatch(createBatchId, { city, state, country, ids })
   } else if (runBatchId) {
     await runBatch(runBatchId, storedBoundary)
   } else if (statusId) {
@@ -411,6 +417,8 @@ Uso:
   npx tsx scripts/regen-trigger-points.ts \\
     --create-batch ny-2026-05-18 \\
     --city "New York" --state "NY" --country "United States"
+  # ou só os POIs listados, um id por linha (#779)
+  npx tsx scripts/regen-trigger-points.ts --create-batch <id> --ids-file <caminho>
 
   # 2. Rodar workers (1 por terminal, quantos quiser)
   npx tsx scripts/regen-trigger-points.ts --run-batch ny-2026-05-18 [--stored-boundary]

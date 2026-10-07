@@ -10,7 +10,7 @@ import { TRIGGER_POINTS_CONSTANTS } from '../config/trigger-points-config';
 import { isCuratedBoundaryImplausible } from '../utils/osm-validation';
 import { DemStore } from '../../dem/dem-store';
 import { isNaturalLandform } from '../../../shared/poi-taxonomy';
-import { assembleOuterRings, chainSameIdentity, sameIdentityWaysQuery, chooseContainingBoundary, corridorRing, footprintRing, polygonOuterRings, IDENTITY_NEAR_PIN_M, LINE_CORRIDOR_HALF_WIDTH_M, outerRing, sameFootprint, buildingsOfPoi, type BoundaryRejection, type OsmAreaElement } from '../utils/boundary-choice';
+import { boundaryFate, isMunicipalElement, type BoundaryFate, type OwnIdLookup, assembleOuterRings, chainSameIdentity, sameIdentityWaysQuery, chooseContainingBoundary, corridorRing, footprintRing, polygonOuterRings, IDENTITY_NEAR_PIN_M, LINE_CORRIDOR_HALF_WIDTH_M, outerRing, sameFootprint, buildingsOfPoi, type BoundaryRejection, type OsmAreaElement } from '../utils/boundary-choice';
 
 /**
  * Radius of the circle that marks a POI with no footprint of its own: an OSM node, a pin with
@@ -18,6 +18,20 @@ import { assembleOuterRings, chainSameIdentity, sameIdentityWaysQuery, chooseCon
  * street in front of the Igreja da Penna and the TP landed inside it (#772).
  */
 export const POINT_CIRCLE_RADIUS_M = 10;
+
+/** `detectOSMBoundaryByID` errors that say what became of the POI's own id (BR-POI-010). */
+export const OSM_ID_GONE = 'OSM element not found';
+export const OSM_ID_MUNICIPAL = 'OSM element is a municipality and the POI is not its seat';
+export const OSM_ID_UNREACHABLE = 'OSM could not be asked for the element';
+
+/** BR-POI-010: what the own-id lookup says. Any other failure came after the element was read: alive. */
+export function ownIdLookupOf(byId: { success: boolean; error?: string }): OwnIdLookup {
+  if (byId.success) return 'found';
+  if (byId.error === OSM_ID_GONE) return 'gone';
+  if (byId.error === OSM_ID_MUNICIPAL) return 'municipal';
+  if (byId.error === OSM_ID_UNREACHABLE) return 'unknown';
+  return 'found';
+}
 import { getSupabase } from '../../../core/supabase-client';
 
 /** Surveyed summits for the ground-top read (E4): one point per `processOSMPeaks` element. */
@@ -132,8 +146,10 @@ export class BoundaryDetector {
       // #779: a border a person corrected (CMS drawing, correction SQL) is the footprint. The
       // `rj-estado` batch re-detected and rewrote 2,186 of the 2,189 borders of Rio; it no longer
       // detects over a curated one, and the pipeline does not write it back (`curated`).
+      let storedBorder: BoundaryData | undefined;
       if (poiData.id) {
         const stored = await this.fetchBoundaryFromDatabase(poiData.id);
+        storedBorder = stored.success ? stored.data : undefined;
         if (stored.success && stored.data?.curated) {
           return {
             success: true,
@@ -169,6 +185,13 @@ export class BoundaryDetector {
           }
         };
       }
+      // BR-POI-010 (#779): a stored `osm` border was read from an element; without the POI's own
+      // id there is no element to read it again from, and it came from an earlier run that closed
+      // a passing river as a polygon (Cachoeira das 27 Voltas, 7 km²).
+      const storedForFate = storedBorder && { source: storedBorder.storedSource, curated: storedBorder.curated };
+      let fate: BoundaryFate = boundaryFate(storedForFate, 'none');
+      if (!(poiData.osm_id && poiData.osm_type) && fate.fate === 'point') return this.ownPoint(poiData, fate, startTime);
+
       // INV-E1a: OSM by typed id → OSM that contains the pin → online search → drawn circle.
       let osmBoundaryResult: ProcessingResult<BoundaryData> | null = null;
       // A node id has no footprint: its circle only marks the point, and is the last resort.
@@ -176,6 +199,12 @@ export class BoundaryDetector {
 
       if (poiData.osm_id && poiData.osm_type) {
         const byId = await this.detectOSMBoundaryByID(String(poiData.osm_id), poiData.osm_type, poiData);
+        // BR-POI-010: the id gone or a municipality → point; alive → its geometry, never the stored one.
+        fate = boundaryFate(storedForFate, ownIdLookupOf(byId));
+        if (fate.fate === 'point') return this.ownPoint(poiData, fate, startTime);
+        if (fate.fate === 'retry') {
+          return { success: false, error: `${OSM_ID_UNREACHABLE}; the stored osm border is not reused (BR-POI-010)`, processingTime: Date.now() - startTime };
+        }
         if (byId.success && byId.data?.synthetic) pointCircle = byId;
         else osmBoundaryResult = byId;
         // INV-E1c: the pin in more than one polygon of the POI's identity — the smallest wins. The
@@ -210,8 +239,9 @@ export class BoundaryDetector {
       // the Cebolão after the operator had fixed both borders.
       // A stored point circle is no footprint: no area tells it from a building (Casa do Sertanista).
       const detected = osmBoundaryResult?.success ? osmBoundaryResult.data : undefined;
-      if (opts.storedReference && poiData.id && detected && detected.coordinates.length >= 3) {
-        const stored = (await this.fetchBoundaryFromDatabase(poiData.id)).data;
+      // BR-POI-010: never over the POI's own live id, nor for a stored `osm` border.
+      if (opts.storedReference && fate.fate === 'detect' && storedBorder?.storedSource !== 'osm' && detected && detected.coordinates.length >= 3) {
+        const stored = storedBorder;
         const detectedSynthetic = !!detected.synthetic || isDrawnCircle(detected.coordinates);
         if (stored && (detectedSynthetic !== !!stored.synthetic || !sameFootprint(detected.coordinates, stored.coordinates, poiData.location))) {
           this.rejections.push({ element: 'osm', reason: 'not the stored reference border (#779)' });
@@ -259,6 +289,9 @@ export class BoundaryDetector {
           // #779: a stored slope is derived each run, never a footprint — kept, it would hold a
           // church on its 41 ha of hillside after the relief rule stopped drawing it.
           : stored.source === 'dem_relief' ? 'stored border is an earlier relief derivation, not a footprint'
+          // BR-POI-010 (#779): a stored `osm` border is read from its element again or dropped, never
+          // reused — the Capela Santa Quitéria kept a 30 km² border of a way gone from OSM.
+          : stored.storedSource === 'osm' ? 'stored osm border is never a fallback (BR-POI-010)'
           : isCuratedBoundaryImplausible(poiData.location, stored.coordinates) ? 'stored border is implausible (pin outside, > 500 m from the edge)'
           : null;
         if (storedReject) {
@@ -314,6 +347,27 @@ export class BoundaryDetector {
     }
   }
   
+  /** BR-POI-010 rules 3 and 4: the POI's border is its point — the circle a node gets (INV-E1b). */
+  private async ownPoint(poiData: POIData, fate: BoundaryFate, startTime: number): Promise<ProcessingResult<BoundaryData>> {
+    const reason = fate.rule === 4 ? 'own OSM element is a municipality, and the POI is not its seat (BR-POI-010)'
+      : 'stored osm border without a live OSM id (BR-POI-010)';
+    this.rejections.push({ element: fate.rule === 4 ? 'osm' : 'database', reason });
+    const point = await this.createEstimatedBoundary(poiData);
+    return {
+      success: true,
+      data: await this.withClassification({ ...point, osmIdentified: fate.rule === 4, rejected: [...this.rejections] }, poiData),
+      processingTime: Date.now() - startTime,
+      metadata: {
+        step: 'boundary_detection',
+        status: 'completed',
+        timestamp: new Date().toISOString(),
+        strategy: fate.rule === 4 ? 'point_municipal_id' : 'point_stored_osm_dropped',
+        database_boundary_found: false,
+        osm_boundary_found: false,
+      }
+    };
+  }
+
   /**
    * BR-POI-010: the municipal border of a POI whose OSM element is the seat of its municipality
    * (`admin-boundaries#findMunicipality`), every part kept; null when it is not one. Not curated: the pipeline writes it once as
@@ -479,11 +533,8 @@ export class BoundaryDetector {
         coordinates = this.createCircularBoundary(center, POINT_CIRCLE_RADIUS_M);
         synthetic = true;
       } else if (geometry.type === 'LineString') {
-        // LineString: usar coordenadas diretamente
-        coordinates = geometry.coordinates.map((coord: [number, number]) => ({
-          lng: coord[0],
-          lat: coord[1]
-        }));
+        // BR-POI-010 (#779): a line is no border; read as a ring it closed a river over a church.
+        return { success: false, error: 'Stored border is a line, not a polygon', processingTime: 0 };
       } else {
         console.warn(`⚠️ Unsupported geometry type: ${geometry.type}`);
         // Fallback: usar coordenadas do centro se disponível
@@ -540,6 +591,7 @@ export class BoundaryDetector {
         // A stored drawn circle is still a drawn circle (INV-E1b): earlier runs saved it as 'osm'.
         // 'estimated' and the curator's 'manual'/'manual_drawing' keep their predictor branches.
         source: synthetic && !['estimated', 'manual', 'manual_drawing'].includes(storedSource) ? 'synthetic' : storedSource,
+        storedSource: metadata?.boundary_source ?? null,
         synthetic,
         curated,
         ...(admin && parts.length > 0 ? { adminParts: parts } : {}),
@@ -600,28 +652,27 @@ export class BoundaryDetector {
 ${osmType}(${osmID});
 out geom;
 `;
-        const response = await this.retryOSMQuery(
-          query,
-          `OSM ID query: ${osmType}(${osmID})`,
-          7,
-          2000
-        );
-        
-        if (!response.ok) {
-          console.warn(`⚠️ OSM query failed for ${osmType}(${osmID}): ${response.status}`);
-          return { success: false, error: `OSM query failed: ${response.status}`, processingTime: 0 };
+        let data: any;
+        try {
+          const response = await this.retryOSMQuery(query, `OSM ID query: ${osmType}(${osmID})`, 7, 2000);
+          data = await response.json();
+        } catch (error) {
+          console.warn(`⚠️ OSM query failed for ${osmType}(${osmID}):`, error instanceof Error ? error.message : error);
+          return { success: false, error: OSM_ID_UNREACHABLE, processingTime: 0 };
         }
-        
-        const data = await response.json();
         elements = data.elements || [];
       }
       
       if (elements.length === 0) {
         console.warn(`⚠️ No OSM element found for ${osmType}(${osmID})`);
-        return { success: false, error: 'OSM element not found', processingTime: 0 };
+        return { success: false, error: OSM_ID_GONE, processingTime: 0 };
       }
       
       const element = elements[0];
+      if (!chosen && isMunicipalElement(element.tags)) {
+        console.warn(`🚫 ${osmType}(${osmID}) is a municipality, and the POI is not its seat (BR-POI-010)`);
+        return { success: false, error: OSM_ID_MUNICIPAL, processingTime: 0 };
+      }
 
       // Processar geometria
       let coordinates: Array<{ lat: number; lng: number }> = [];
@@ -1457,6 +1508,13 @@ out geom tags;
             const exactNameMatch = result.display_name?.toLowerCase().includes(poiData.name.toLowerCase()) ||
                                    poiData.name.toLowerCase().includes(result.display_name?.toLowerCase() || '');
             const maxDistance = result.osm_id && exactNameMatch ? IDENTITY_NEAR_PIN_M : 10;
+
+            // BR-POI-010: the same name never lends a municipality.
+            // Nominatim gives no admin_level: cities and municipalities rank 13–16 (Nominatim docs, "Place Ranking").
+            if (isMunicipalElement({ ...(result.extratags ?? {}), [result.class ?? result.category ?? '']: result.type, admin_level: Number(result.place_rank) <= 16 ? 8 : 10 })) {
+              this.rejections.push({ element: `${result.osm_type}/${result.osm_id}`, reason: 'municipality: only the seat takes its border (BR-POI-010)' });
+              continue;
+            }
 
             // Validar distância, categoria e localidade (threshold dinâmico)
             if (!this.validateNominatimResult(result, poiData, maxDistance)) {

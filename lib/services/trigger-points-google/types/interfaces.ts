@@ -92,6 +92,8 @@ export interface BoundaryData {
    * writes over it.
    */
   curated?: boolean;
+  /** A stored border's RAW `boundary_source` (null when none was recorded) — `source` is defaulted (BR-POI-010). */
+  storedSource?: string | null;
   /** E3/E4/E5 measured once on the final boundary (P8): height, ground top, city base, prominence */
   physical?: import('../services/poi-classifier.service').PoiPhysical;
   elevation?: {

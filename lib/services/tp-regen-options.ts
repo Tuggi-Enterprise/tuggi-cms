@@ -25,3 +25,22 @@ export function queueChildArgs(storedBoundary: boolean): string[] {
 export function parseQueueChildArgs(args: string[]): { storedBoundary: boolean } {
   return { storedBoundary: args.includes(STORED_BOUNDARY_FLAG) }
 }
+
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
+
+/**
+ * `--create-batch <id> --ids-file <path>` (#779): the queue takes exactly the POIs listed, one
+ * id per line — for a regeneration targeted at the POIs a simulation found, not a whole state.
+ * Blank lines and `#` comments are skipped, repeats collapse, and any other line throws: a
+ * typo must not shrink the queue in silence.
+ */
+export function parseIdsFile(text: string): string[] {
+  const ids = new Set<string>()
+  text.split(/\r?\n/).forEach((raw, i) => {
+    const line = raw.trim()
+    if (!line || line.startsWith('#')) return
+    if (!UUID_RE.test(line)) throw new Error(`--ids-file: linha ${i + 1} não é um id de POI: "${line}"`)
+    ids.add(line.toLowerCase())
+  })
+  return [...ids]
+}
