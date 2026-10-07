@@ -83,18 +83,26 @@ export const POST = withRateLimit(30, 60_000)(
         }
       }
 
-      if (approved && !before.plan.offersAct) {
+      // ALREADY IN THE APP is the same destination, not a refusal (#906): the board's
+      // `Publicado` reaches a portal submission whose POI was published before it was approved
+      // (Reserve ON, 2026-10-07). Nothing starts that has not already started, so the plan is not
+      // asked again and the `approved_at`/`approved_by` stamp of the real publication is kept.
+      const alreadyPublished = approved && before.readiness.place.approved
+
+      if (approved && !alreadyPublished && !before.plan.offersAct) {
         return NextResponse.json(
           { error: 'publish_not_offered', variant: before.plan.variant },
           { status: 409 }
         )
       }
 
-      try {
-        await placeService.setApproved(attractionId, approved, auth.user.id, auth.supabase)
-      } catch (error) {
-        console.error('[partnerships] place approval write refused:', error)
-        return NextResponse.json({ error: 'write_failed' }, { status: 503 })
+      if (!alreadyPublished) {
+        try {
+          await placeService.setApproved(attractionId, approved, auth.user.id, auth.supabase)
+        } catch (error) {
+          console.error('[partnerships] place approval write refused:', error)
+          return NextResponse.json({ error: 'write_failed' }, { status: 503 })
+        }
       }
 
       // BR-B2B-049 item 8 (#906): the portal submission behind this place goes `approved → live`

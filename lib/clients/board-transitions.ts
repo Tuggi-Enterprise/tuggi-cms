@@ -145,6 +145,14 @@ export type BoardAct =
   // screen — approving creates a POI and spends TTS, so no drag does it.
   | 'open_validation'
   /**
+   * `POST …/places/{attractionId}/publish {approved:true}` for a portal row in `approved` (#906,
+   * BR-B2B-049 item 8). The SAME act as the record's `Publicar`, not a second transition: the
+   * route publishes the POI (or finds it already published), moves the submission to `live` and
+   * sends the "no ar" e-mail. Fired by the gesture because the portal partner already paid and
+   * accepted: there is no fee sentence left to read (the reason `open_publish` is a panel).
+   */
+  | 'publish_portal_place'
+  /**
    * `POST …/acceptance-link {send:false}` and the clipboard (BR-B2B-056, #872). Never produced by
    * `planTransition`: it is the gate line's own button, and it moves no card.
    */
@@ -261,6 +269,15 @@ function planPortalTransition(
   if (from === 'conference' && (to === 'awaiting_acceptance' || to === 'curation')) {
     if (!row.submissionId) return { kind: 'blocked', reason: 'no_submission' }
     return { kind: 'act', act: 'open_validation' }
+  }
+  // #906: `Publicado` for an approved submission is the publication itself. Only this state;
+  // every other portal drop keeps refusing.
+  if (from === 'curation' && to === 'published' && row.state === 'approved_awaiting_narration') {
+    const gated = gateBlock(row, 'publish_portal_place')
+    if (gated) return gated
+    if (!row.clientId) return { kind: 'blocked', reason: 'no_client' }
+    if (!row.attractionId) return { kind: 'blocked', reason: 'no_place' }
+    return { kind: 'act', act: 'publish_portal_place' }
   }
   return gateBlock(row) ?? { kind: 'blocked', reason: 'not_closable' }
 }
