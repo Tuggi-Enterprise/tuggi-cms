@@ -5,8 +5,8 @@
  * It models, from the code under test:
  *  - `core.attractions`: read by id (`maybeSingle`), UPDATE applied only when EVERY filter holds
  *    (`eq`, and the `is('partner_client_id', null)` race guard);
- *  - `core.place_details`: UPDATE only touches a row that EXISTS — PostgREST answers 204 and no error
- *    for an UPDATE that matched nothing, which is the whole point of the `place_details` risk case;
+ *  - `core.place_details`: UPSERT on `attraction_id` — creates the row a POI lacks, otherwise merges
+ *    only the keys sent (PostgREST `merge-duplicates`), which is what the #885 case proves;
  *  - `core.attraction_coordinate`: a head count; `cms_set_attraction_coordinate` makes it 1;
  *  - `partner.place_submissions` / `place_acceptances` / `partner_form_submissions` / `clients`;
  *  - the description rows, through `fake-description-db.ts` (the #888 fake).
@@ -20,7 +20,7 @@ export const POI = '77777777-7777-4777-8777-777777777777'
 
 export interface WriteRecord {
   table: string
-  op: 'update'
+  op: 'update' | 'upsert'
   patch: Record<string, unknown>
   filters: [string, string, unknown][]
   /** true when a row matched and was changed. */
@@ -88,11 +88,12 @@ export function freshWorld(over: Partial<World> = {}): World {
 interface Q {
   table: string
   schema: string
-  op: 'select' | 'update'
+  op: 'select' | 'update' | 'upsert'
   cols: string
   patch: Record<string, unknown>
   filters: [string, string, unknown][]
   head: boolean
+  onConflict?: string
 }
 
 const ok = (data: unknown, extra: Record<string, unknown> = {}) => ({ data, error: null, ...extra })
@@ -115,15 +116,18 @@ function resolve(w: World, q: Q): any {
       w.writes.push({ table: q.table, op: 'update', patch: q.patch, filters: q.filters, touched })
       return ok(touched ? [{ id: POI }] : [])
     }
-    if (q.table === 'place_details') {
-      // UPDATE, not upsert: a POI without the row matches nothing and PostgREST says nothing.
-      const touched = w.details !== null
-      if (w.details) Object.assign(w.details, q.patch)
-      w.writes.push({ table: q.table, op: 'update', patch: q.patch, filters: q.filters, touched })
-      return ok(touched ? [{ attraction_id: POI }] : [])
-    }
     if (q.table === 'clients') return ok([{ id: CLIENT }])
     return bad(`unexpected update on ${q.table}`)
+  }
+
+  if (q.op === 'upsert') {
+    if (q.table === 'place_details' && q.onConflict === 'attraction_id') {
+      // The table defaults (`tags`/`cuisine` '{}', `is_tuggi_partner` false) fill a created row.
+      w.details = { tags: [], cuisine: [], is_tuggi_partner: false, ...(w.details ?? {}), ...q.patch }
+      w.writes.push({ table: q.table, op: 'upsert', patch: q.patch, filters: q.filters, touched: true })
+      return ok(null)
+    }
+    return bad(`unexpected upsert on ${q.table}`)
   }
 
   w.reads.push(`${q.schema}.${q.table}`)
@@ -164,6 +168,12 @@ function from(w: World, schema: string, table: string) {
     update: (patch: Record<string, unknown>) => {
       q.op = 'update'
       q.patch = patch
+      return chain
+    },
+    upsert: (row: Record<string, unknown>, opts?: { onConflict?: string }) => {
+      q.op = 'upsert'
+      q.patch = row
+      q.onConflict = opts?.onConflict
       return chain
     },
     eq: (column: string, value: unknown) => (q.filters.push(['eq', column, value]), chain),

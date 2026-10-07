@@ -404,22 +404,24 @@ test('BR-B2B-033 item 5 · a registration with nothing to prefill → merged + n
 
 // ── risk: place_details row absent ──────────────────────────────────────────────────────────
 
-test('RISK #885 · CURRENT BEHAVIOUR (known defect): a POI with no place_details row loses offers/amenities/tags in silence', async () => {
+test('RISK #885 · BR-B2B-033 item 5 · a POI with no place_details row gets the row, and the offer, amenities and tags land on it', async () => {
   linked()
   w.details = null
   w.portal = { id: 'sub-1', answers: answers({ offer_enabled: 'true', offer_free: '10% off', price_range: '2' }) }
 
   const out = await merge()
 
-  // What the operator is told: success.
   assert.deepEqual(out, { status: 'merged', attractionId: POI, prefill: 'applied', description: 'written' })
-  // What the database holds: no details row, so the UPDATE matched nothing and nothing was created.
   const detailsWrite = w.writes.find((x) => x.table === 'place_details')
   assert.ok(detailsWrite, 'the details were sent')
-  assert.ok('app_benefit' in detailsWrite.patch && 'has_wifi' in detailsWrite.patch && 'tags' in detailsWrite.patch)
-  assert.equal(detailsWrite.touched, false, 'UPDATE of a missing row matches zero rows and raises no error')
-  assert.equal(w.details, null, 'the offer, wifi and tags are gone — no row was created')
-  // The attraction columns of the same registration DID land: the loss is partial and invisible.
+  assert.equal(detailsWrite.op, 'upsert', 'an UPDATE of a missing row matches nothing and raises no error')
+  assert.equal(detailsWrite.patch.attraction_id, POI)
+  // What the database holds now: the row, with what the registration brought.
+  const row = w.details as Record<string, unknown> | null // `w.details = null` above narrowed it
+  assert.ok(row, 'the place_details row was created')
+  assert.ok(row.app_benefit, 'the offer landed')
+  assert.equal(row.has_wifi, true, 'the amenities landed')
+  assert.ok(Array.isArray(row.tags) && row.tags.length > 0, 'the tags landed')
   assert.deepEqual(w.attraction!.opening_hours, { monday: [{ open: '12:00', close: '23:00' }] })
 })
 

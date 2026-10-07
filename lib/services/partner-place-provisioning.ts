@@ -264,7 +264,7 @@ export async function applyPlacePrefill(
 
   if (Object.keys(write.details).length > 0) {
     try {
-      await placeService.updateDetails(attractionId, write.details, operator)
+      await placeService.upsertDetails(attractionId, write.details, operator)
     } catch (error) {
       console.error('[partner-approval] place details not written', attractionId, error)
       return { status: 'failed', reason: 'details_failed', attractionId }
