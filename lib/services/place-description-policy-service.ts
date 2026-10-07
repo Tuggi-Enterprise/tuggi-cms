@@ -29,7 +29,7 @@ import {
   type PartnerStoryInput,
 } from '@/lib/partnerships/place-description-policy'
 import type { PartnerAnswers } from '@/lib/partner-form/schema'
-import type { PlanChoice } from '@/lib/partner-form/fields'
+import { PLAN_CHOICES, type PlanChoice } from '@/lib/partner-form/fields'
 import { operatorLabel } from '@/lib/services/operator-label'
 
 /** The language a place's description is born in. Every other one is translated out of it. */
@@ -73,6 +73,18 @@ interface FactsRow {
   base_description: string | null
   base_has_audio: boolean | null
   base_generation_kind: string | null
+  /**
+   * The tier accepted in the places portal (`partner.place_acceptances`), migration
+   * `20261006250000` — the LAST column. OPTIONAL ON PURPOSE: until the operator applies it the RPC
+   * does not return the column, and `undefined` must read as "no acceptance", never as a failure.
+   */
+  accepted_plan_choice?: string | null
+}
+
+/** `accepted_plan_choice` as a `PlanChoice`, or `null` — absent column and unknown value included. */
+function acceptedPlanChoiceOf(row: FactsRow): PlanChoice | null {
+  const v = row.accepted_plan_choice
+  return (PLAN_CHOICES as readonly string[]).includes(v ?? '') ? (v as PlanChoice) : null
 }
 
 export interface BaseDescription {
@@ -146,7 +158,8 @@ export async function loadPlaceDescriptionPolicy(
     partnerClientId: row.partner_client_id,
     plan,
     exception,
-    acceptedPlanChoice,
+    // The approval's explicit argument wins; otherwise the acceptance the database recorded.
+    acceptedPlanChoice: acceptedPlanChoice ?? acceptedPlanChoiceOf(row),
   })
 
   const text = (row.base_description ?? '').trim()
@@ -296,6 +309,9 @@ export async function applyPartnerPlaceDescription(
   if (inserted.error) throw new Error(inserted.error.message)
   if ((inserted.data ?? []).length > 0) return 'written'
 
+  // TWIN IN DENO: `supabase/functions/_shared/places-story-suspension.ts` (`reconcilePartnerStories`) does
+  // this same conditional UPDATE for the payment sweep (BR-B2B-019 item 6), under `service_role`,
+  // because this RPC path needs an operator's JWT. Change one, change the other.
   const replaced = await core(db)
     .from('attraction_descriptions')
     .update(row)
