@@ -110,10 +110,7 @@ export function OptimizedOSMMap({
       website: null,
       formatted_phone_number: null,
       business_status: null,
-      price_level: null,
       opening_hours: null,
-      photos_references: null,
-      google_place_id: null,
       user_id: null,
       
       // Ensure selection state is passed

@@ -18,7 +18,6 @@ export async function GET(request: NextRequest) {
     const country = searchParams.get('country') || ''
     const state = searchParams.get('state') || ''
     const city = searchParams.get('city') || ''
-    const googleTypes = searchParams.get('googleTypes') || ''
     const category = searchParams.get('category') || ''
     const contentStatus = searchParams.get('contentStatus') || 'all'
     const groupStatus = searchParams.get('groupStatus') || 'all'
@@ -35,7 +34,7 @@ export async function GET(request: NextRequest) {
     const endIndex = startIndex + limit - 1
     
     console.log('🔍 POI Search API:', {
-      search, status, country, state, city, googleTypes, category, contentStatus,
+      search, status, country, state, city, category, contentStatus,
       groupStatus, scoreFilter, triggerPointsFilter, page, limit, all
     })
     
@@ -45,7 +44,7 @@ export async function GET(request: NextRequest) {
 
     // Enhanced caching for better performance with large datasets
     const sortedParams = Object.entries({
-      search, status, country, state, city, googleTypes, category, contentStatus,
+      search, status, country, state, city, category, contentStatus,
       groupStatus, scoreFilter, triggerPointsFilter, page, limit, ownerId
     })
       .filter(([_, value]) => value !== null && value !== undefined && value !== '' && value !== 'all')
@@ -84,7 +83,6 @@ export async function GET(request: NextRequest) {
       country_filter: country || null,
       state_filter: state || null,
       city_filter: city || null,
-      google_types_filter: googleTypes || null,
       category_filter: category || null,
       content_status_filter: contentStatus,
       group_status_filter: groupStatus,
@@ -223,10 +221,7 @@ export async function GET(request: NextRequest) {
       city: row.city,
       state: row.state,
       country: row.country,
-      google_place_id: row.google_place_id,
-      google_types: row.google_types,
       category: row.category,
-      rating: row.rating,
       image_url: row.image_url,
       approved: row.approved,
       created_at: row.created_at,

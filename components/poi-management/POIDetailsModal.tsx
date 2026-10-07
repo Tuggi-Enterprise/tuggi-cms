@@ -16,7 +16,6 @@ import { POI_CATEGORIES } from '@/constants/poi-importer'
 import { TriggerPointsManager } from './TriggerPointsManager'
 import { GoogleMapComponent, extractPolygonCoordinates } from '@/components/ui/GoogleMapComponent'
 import { VerificationBadge } from '@/components/verification/VerificationBadge'
-import { getFullSizeImageUrl } from '@/lib/imageUtils'
 import { useAuthenticatedFunctionCall } from '@/lib/hooks/useAuthenticatedFunctionCall'
 import { useCmsUser } from '@/lib/hooks/useCmsUser'
 import { poiService } from '@/lib/core/poi-service'
@@ -63,21 +62,15 @@ export interface POI {
   approved: boolean
   approved_by: string | null
   approved_at: string | null
-  rating: number | null
   image_url: string | null
   created_at: string
   updated_at: string
-  user_ratings_total: number | null
   formatted_address: string | null
   vicinity: string | null
   website: string | null
   formatted_phone_number: string | null
   business_status: string | null
-  price_level: number | null
   opening_hours: any | null
-  google_types: string[] | null
-  photos_references: string[] | null
-  google_place_id: string | null
   user_id: string | null
   owner_id?: string | null
   coordinates?: {
@@ -465,8 +458,7 @@ export function POIDetailsModal({ poi, isOpen, onClose, onUpdate, onPOIUpdated, 
           poi_id: currentPoi.id,
           name: currentPoi.name,
           city: currentPoi.city,
-          country: currentPoi.country,
-          google_place_id: currentPoi.google_place_id || undefined
+          country: currentPoi.country
         })
       })
 
@@ -1527,18 +1519,13 @@ export function POIDetailsModal({ poi, isOpen, onClose, onUpdate, onPOIUpdated, 
         state: currentPoi.state || undefined,
         formatted_address: currentPoi.formatted_address || undefined,
         vicinity: currentPoi.vicinity || undefined,
-        google_types: currentPoi.google_types || (currentPoi.category ? [currentPoi.category] : ['tourist_attraction']),
-        rating: currentPoi.rating || undefined,
-        user_ratings_total: currentPoi.user_ratings_total || undefined,
-        price_level: currentPoi.price_level || undefined,
+        category: currentPoi.category || undefined,
         business_status: currentPoi.business_status || undefined,
         opening_hours: currentPoi.opening_hours || undefined,
         website: currentPoi.website || undefined,
         formatted_phone_number: currentPoi.formatted_phone_number || undefined,
-        photos_references: currentPoi.photos_references || undefined,
         image_url: currentPoi.image_url || undefined,
         reference_links: referenceLinks.filter(link => !!link.trim()) || undefined,
-        google_place_id: poi?.google_place_id || undefined,
         lat: poi?.coordinates?.latitude || undefined,
         lng: poi?.coordinates?.longitude || undefined
       }

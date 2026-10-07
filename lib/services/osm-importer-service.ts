@@ -302,10 +302,6 @@ export class OSMImporterService {
         osm_tags: poi.properties,
         
         // NO Google fields - these remain NULL for OSM imports
-        google_place_id: null,
-        google_types: null,
-        rating: null,
-        price_level: null,
         business_status: null,
         
         // Import tracking

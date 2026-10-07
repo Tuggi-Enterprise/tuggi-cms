@@ -16,7 +16,6 @@ export async function GET(request: NextRequest) {
     const status = searchParams.get('status') || 'all'
     const country = searchParams.get('country') || ''
     const city = searchParams.get('city') || ''
-    const googleTypes = searchParams.get('googleTypes') || ''
     const category = searchParams.get('category') || ''
     
     // Generate cache key based on all parameters
@@ -25,7 +24,6 @@ export async function GET(request: NextRequest) {
     status,
     country,
     city,
-    googleTypes,
     category
   })
     .filter(([_, value]) => value !== null && value !== undefined && value !== '')
@@ -45,7 +43,7 @@ export async function GET(request: NextRequest) {
     console.log('📊 POI Stats: Processing fresh data...')
     
     console.log('📊 POI Stats API:', {
-      search, status, country, city, googleTypes, category
+      search, status, country, city, category
     })
     
     // Fetch all POIs using pagination to overcome Supabase 1000 limit
@@ -65,7 +63,6 @@ export async function GET(request: NextRequest) {
           approved,
           city,
           country,
-          google_types,
           category,
           name,
           image_url,
@@ -101,10 +98,6 @@ export async function GET(request: NextRequest) {
       
       if (city) {
         baseQuery = baseQuery.eq('city', city)
-      }
-      
-      if (googleTypes) {
-        baseQuery = baseQuery.contains('google_types', [googleTypes])
       }
       
       if (category) {

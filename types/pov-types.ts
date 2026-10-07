@@ -6,7 +6,7 @@ export interface POIInput {
   country: string
   formatted_address?: string
   vicinity?: string
-  google_types?: string[]
+  category?: string
 }
 
 export interface POVItem {

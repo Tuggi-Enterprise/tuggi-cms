@@ -420,8 +420,7 @@ class ProcessingService {
                 poi_id: poi.id,
                 name: poi.name,
                 city: poi.city,
-                country: poi.country,
-                google_place_id: poi.google_place_id
+                country: poi.country
               })
             })
             

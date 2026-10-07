@@ -29,21 +29,15 @@ export interface POI {
   approved: boolean
   approved_by?: string
   approved_at?: string
-  rating?: number
   image_url?: string
   created_at: string
   updated_at: string
-  user_ratings_total?: number
   formatted_address?: string
   vicinity?: string
   website?: string
   formatted_phone_number?: string
   business_status?: string
-  price_level?: number
   opening_hours?: any
-  google_types?: string[]
-  photos_references?: string[]
-  google_place_id?: string
   user_id?: string
   /** FK to clients table - indicates which client owns this POI */
   owner_id?: string
@@ -98,7 +92,6 @@ export interface POISearchFilters {
   country?: string
   state?: string
   city?: string
-  googleTypes?: string
   category?: string
   osmCategory?: string
   contentStatus?: 'all' | 'missing_description' | 'missing_audio' | 'complete'
@@ -225,7 +218,6 @@ class POIService {
         country_filter: filters.country || null,
         state_filter: filters.state || null,
         city_filter: filters.city || null,
-        google_types_filter: filters.googleTypes || null,
         category_filter: filters.category || null,
         osm_category_filter: filters.osmCategory || null,
         content_status_filter: filters.contentStatus || 'all',
@@ -470,7 +462,6 @@ class POIService {
         country_filter: filters.country || null,
         state_filter: filters.state || null,
         city_filter: filters.city || null,
-        google_types_filter: filters.googleTypes || null,
         category_filter: filters.category || null,
         osm_category_filter: filters.osmCategory || null,
         content_status_filter: filters.contentStatus || 'all',
@@ -727,7 +718,6 @@ class POIService {
         country_filter: filters?.country || null,
         state_filter: filters?.state || null,
         city_filter: filters?.city || null,
-        google_types_filter: filters?.googleTypes || null,
         category_filter: filters?.category || null,
         content_status_filter: filters?.contentStatus || 'all',
         group_status_filter: filters?.groupStatus || 'all',
@@ -898,7 +888,6 @@ class POIService {
       is_active: data.is_active ?? true,
       approved_by: data.approved_by,
       approved_at: data.approved_at,
-      rating: 0,
       created_at: data.created_at,
       updated_at: data.updated_at,
       formatted_address: data.formatted_address || data.address || null,

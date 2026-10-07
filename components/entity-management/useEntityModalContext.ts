@@ -68,7 +68,6 @@ export function useEntityModalContext(opts: Options): POIModalContextValue {
       id: entityId,
       name,
       coordinates: coordinates ? { latitude: coordinates.latitude, longitude: coordinates.longitude } : undefined,
-      google_types: [] as string[],
     }),
     [entityId, name, coordinates]
   )

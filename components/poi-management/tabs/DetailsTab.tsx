@@ -11,7 +11,7 @@ import { useTranslations } from 'next-intl'
 import { Calendar, CheckCircle, ExternalLink, Globe, Info, MapPin, Save, Star, Target, Trash2, User, Users, XCircle } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { formatDate } from '@/lib/utils'
-import { getFullSizeImageUrl } from '@/lib/imageUtils'
+import { getBestImageUrl } from '@/lib/imageUtils'
 import { usePOIModalContext } from '../POIModalContext'
 
 export function DetailsTab() {
@@ -216,27 +216,6 @@ export function DetailsTab() {
                           </select>
                         </div>
 
-                        {/* Google Types Badge Cloud */}
-                        {getPoi()?.google_types && getPoi()!.google_types!.length > 0 && (
-                          <div className="pt-2">
-                             <label className="block text-[10px] font-black text-gray-400 uppercase tracking-tighter mb-3 ml-1">
-                                {t('labels.google_types', { count: getPoi()!.google_types!.length })}
-                              </label>
-                            <div className="flex flex-wrap gap-1.5">
-                              {getPoi()?.google_types?.slice(0, 8).map((type: string, index: number) => (
-                                <span
-                                  key={index}
-                                  className="inline-flex items-center px-2 py-0.5 rounded-md text-[9px] font-black uppercase bg-gray-100 dark:bg-gray-700 text-gray-500 dark:text-gray-400 tracking-tighter"
-                                >
-                                  {type.replace(/_/g, ' ')}
-                                </span>
-                              ))}
-                              {getPoi()!.google_types!.length > 8 && (
-                                <span className="text-[9px] font-bold text-gray-400 px-1">+{getPoi()!.google_types!.length - 8} more</span>
-                              )}
-                            </div>
-                          </div>
-                        )}
                       </div>
                     </div>
 
@@ -293,7 +272,7 @@ export function DetailsTab() {
                         {(() => {
                           const currentPoiForImage = getPoi()
                           if (!currentPoiForImage) return null
-                          const fullSizeImageUrl = getFullSizeImageUrl(currentPoiForImage)
+                          const fullSizeImageUrl = getBestImageUrl(currentPoiForImage)
                           return (fullSizeImageUrl || images.length > 0) && (
                             <div className="bg-gray-50 dark:bg-gray-900/50 rounded-lg p-6 border border-gray-200 dark:border-gray-700 h-full flex flex-col justify-between">
                               <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
@@ -406,17 +385,6 @@ export function DetailsTab() {
                                 );
                               })()}
 
-                              {getPoi()?.google_place_id && (
-                                <div className="bg-white dark:bg-gray-800 rounded-md p-4 border border-gray-200 dark:border-gray-700">
-                                  <div className="flex items-start space-x-3">
-                                    <ExternalLink className="h-5 w-5 text-gray-400 mt-0.5 flex-shrink-0" />
-                                    <div>
-                                      <div className="text-sm font-medium text-gray-700 dark:text-gray-300">{t('labels.google_place_id')}</div>
-                                      <div className="text-xs text-gray-500 dark:text-gray-400 font-mono break-all">{getPoi()!.google_place_id}</div>
-                                    </div>
-                                  </div>
-                                </div>
-                              )}
                             </div>
                           </div>
                         </div>

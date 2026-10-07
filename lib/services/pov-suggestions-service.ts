@@ -7,7 +7,6 @@ export interface POI {
   name: string
   lat: number
   lng: number
-  google_types?: string[]
   category?: string
   urban_density?: string
 }
@@ -628,19 +627,19 @@ export class POVSuggestionsService {
   /**
    * Classifica categoria do POI
    */
-  private classifyPOICategory(googleTypes: string[], name: string): string {
-    console.log(`🏷️ Classifying POI: "${name}" with types: [${googleTypes.join(', ')}]`)
+  private classifyPOICategory(types: string[], name: string): string {
+    console.log(`🏷️ Classifying POI: "${name}" with types: [${types.join(', ')}]`)
     
-    if (googleTypes.includes('park') || googleTypes.includes('natural_feature')) {
+    if (types.includes('park') || types.includes('natural_feature')) {
       return 'park'
     }
-    if (googleTypes.includes('shopping_mall') || name.toLowerCase().includes('shopping')) {
+    if (types.includes('shopping_mall') || name.toLowerCase().includes('shopping')) {
       return 'shopping'
     }
-    if (googleTypes.includes('museum') || googleTypes.includes('tourist_attraction')) {
+    if (types.includes('museum') || types.includes('tourist_attraction')) {
       return 'landmark'
     }
-    if (googleTypes.includes('establishment') || googleTypes.includes('point_of_interest')) {
+    if (types.includes('establishment') || types.includes('point_of_interest')) {
       return 'building'
     }
     

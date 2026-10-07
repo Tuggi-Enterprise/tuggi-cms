@@ -9,7 +9,7 @@
  */
 
 import { useTranslations } from 'next-intl'
-import { Users, CheckCircle, MapPin, Star, Loader2, Save, Plus, Trash2 } from 'lucide-react'
+import { Users, CheckCircle, MapPin, Loader2, Save, Plus, Trash2 } from 'lucide-react'
 import { GoogleMapComponent } from '@/components/ui/GoogleMapComponent'
 import { cn } from '@/lib/utils'
 import { usePOIModalContext } from '../POIModalContext'
@@ -170,12 +170,6 @@ export function GroupPoisTab() {
                         </p>
                       )}
                     </div>
-                    {p.rating && (
-                      <div className="flex items-center gap-1 text-sm text-gray-500 dark:text-gray-400">
-                        <Star className="h-4 w-4 text-yellow-400" />
-                        {p.rating.toFixed(1)}
-                      </div>
-                    )}
                   </div>
                 ))}
               </div>
