@@ -16,6 +16,7 @@ import type { useTranslations } from 'next-intl'
 import { daysUntil } from '@/lib/partner-form/regularity'
 import { derivePartnerPlan, type PartnerPlan } from '@/lib/clients/partner-plan'
 import { formatMonthlyFee } from '@/lib/partnerships/publish-plan'
+import { formatDate } from '@/lib/contract/snapshot'
 import { COLUMN_STATES, type BoardAct, type BoardColumnId } from '@/lib/clients/board-transitions'
 import { nameKey } from '@/lib/shared/name-search'
 import type { GateItem } from '@/lib/partnerships/acceptance-gate'
@@ -64,6 +65,10 @@ const PLACE_IS_THE_WORK = ['place_in_curation', 'published', 'refusal_not_commun
 export function whatIsMissing(row: ClientDirectoryRow, p: Translator): string {
   // The act owed to somebody OUTSIDE the company wins the column (DS-COPY-020, points 2 and 5).
   if (row.state === 'refusal_not_communicated') return p('nextSteps.refusal_not_communicated')
+
+  // A portal submission in the app says since when (#908): its POI is not in `places`, so the
+  // place counts below have nothing to say about it.
+  if (row.state === 'published' && row.liveAt) return p('queue.liveSince', { date: formatDate(row.liveAt) })
 
   if (PLACE_IS_THE_WORK.indexOf(row.state) < 0) return p(`nextSteps.${row.state}`)
 
@@ -121,6 +126,11 @@ export function planLine(row: ClientDirectoryRow, t: Translator): string {
    */
   switch (plan.kind) {
     case 'paid':
+      // The portal's acceptance charges a PERIOD, not a month (BR-B2B-045): `R$ 375,00/mês` for a
+      // 3-month total would triple the partner's fee on screen (#908).
+      if (plan.source === 'acceptance') {
+        return t('plan.portalPaid', { months: plan.periodMonths ?? 1, value: formatMonthlyFee(plan.feeCents ?? 0) })
+      }
       return t('plan.paid', { value: formatMonthlyFee(plan.feeCents ?? 0) })
     case 'courtesy':
       // The REASON is not on the card either. `BR-B2B-017`, item 6, requires a courtesy to carry

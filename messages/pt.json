@@ -2927,6 +2927,7 @@
       "idleLine": "Parado há {value}",
       "plan": {
         "paid": "{value}/mês",
+        "portalPaid": "Com história, {months, plural, one {# mês} other {# meses}}, {value}",
         "courtesy": "Cortesia",
         "undeclared": "Sem plano declarado",
         "free": "Sem mensalidade",
@@ -3895,6 +3896,7 @@
     "title": "Parcerias",
     "subtitle": "Do formulário ao app, numa fila só: a proposta, o cliente, o contrato e o local.",
     "queue": {
+      "liveSince": "No ar desde {date}",
       "searchLabel": "Buscar",
       "searchPlaceholder": "Estabelecimento, CNPJ ou cidade",
       "stateLabel": "Estado",

@@ -30,9 +30,10 @@
 import type { ContractTier } from '@/lib/contract/snapshot'
 import { PLAN_CHOICES, type PlanChoice } from '@/lib/partner-form/fields'
 import { registrationMoneyKind, type PartnerFee } from '@/lib/partnerships/publish-plan'
+import { isPaidPlan } from '@/lib/partnerships/portal-review'
 
 /** Whose answer the line is showing. Never omitted: it is what keeps the three apart. */
-export type PlanSource = 'contract' | 'registration' | 'proposal'
+export type PlanSource = 'contract' | 'registration' | 'proposal' | 'acceptance'
 
 /**
  * What the line says.
@@ -62,6 +63,20 @@ export interface PartnerPlan {
   /** Only for `requested` — what the establishment asked for, before anybody priced it. */
   requested: PlanChoice | null
   divergence: PlanDivergence | null
+  /** Only for source `acceptance` on `paid`: the months the portal acceptance paid for (BR-B2B-045). */
+  periodMonths?: number | null
+}
+
+/**
+ * What a Portal Locais submission ACCEPTED (`partner.place_acceptances`): tier, period and total.
+ * The portal writes no fee on the registration and no contract — the acceptance IS the instrument
+ * (BR-B2B-047, item 1) — so without this fact a paying portal client reads `undeclared`. #908.
+ */
+export interface PortalAcceptanceFacts {
+  planChoice: string | null
+  billingPeriod: number | null
+  /** What the acceptance charged for the whole period, in cents. */
+  totalCents: number | null
 }
 
 /** The facts of one row this decision needs. A subset, so the test can build one by hand. */
@@ -71,6 +86,8 @@ export interface PlanFacts {
   planChoice: PlanChoice | null
   /** The live contract's tier, or `null` when there is no contract. */
   contractTier: ContractTier | null
+  /** Only on a portal row with an acceptance. It outranks everything else: it is what was paid. */
+  portalAcceptance?: PortalAcceptanceFacts | null
 }
 
 /**
@@ -82,6 +99,21 @@ export interface PlanFacts {
 const registrationKind = registrationMoneyKind
 
 export function derivePartnerPlan(facts: PlanFacts): PartnerPlan {
+  // 0 · A PORTAL ACCEPTANCE: the portal's money lives here and nowhere else (#908).
+  const accepted = facts.portalAcceptance
+  if (accepted) {
+    const paid = isPaidPlan(accepted.planChoice)
+    return {
+      source: 'acceptance',
+      kind: paid ? 'paid' : 'free',
+      feeCents: paid ? accepted.totalCents : null,
+      courtesyReason: null,
+      requested: null,
+      divergence: null,
+      periodMonths: paid ? accepted.billingPeriod : null,
+    }
+  }
+
   const registration = registrationKind(facts.fee)
   const feeCents = registration === 'paid' ? facts.fee.monthlyFeeCents : null
   const courtesyReason =
@@ -179,6 +211,8 @@ export type PlanFacet = 'paid' | 'courtesy' | 'undeclared'
 
 export function planFacetValue(facts: PlanFacts): PlanFacet | null {
   if (!facts.clientId) return null
+  // The portal answered on the acceptance: paid is paid, the free tier has nothing to fill in.
+  if (facts.portalAcceptance) return isPaidPlan(facts.portalAcceptance.planChoice) ? 'paid' : null
   // The free tier the establishment chose has no answer to give either, and for the same
   // reason: the rail exists to find registrations somebody still has to fill in, and this one
   // was answered on the form. A `map_only` client filed under `undeclared` is a row the
