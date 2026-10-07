@@ -69,6 +69,16 @@ function hoursOf(value: unknown): OpeningHours {
   return parseOpeningHours(typeof value === 'string' ? value : JSON.stringify(value)) ?? {}
 }
 
+/**
+ * A stored value `hoursOf` cannot read, as text for the operator to retype (#886) — the Google
+ * import writes `weekday_text`, an array of lines. `null` when there is nothing or it was read.
+ */
+function unreadableHoursOf(value: unknown): string | null {
+  if (!value || Object.keys(hoursOf(value)).length > 0) return null
+  if (Array.isArray(value)) return value.map(String).join('\n') || null
+  return typeof value === 'string' ? value : JSON.stringify(value, null, 2)
+}
+
 const fieldLabel = 'block text-[10px] font-black text-gray-500 uppercase tracking-tighter mb-1.5 ml-1'
 const fieldInput = 'w-full px-4 py-3 bg-gray-50 dark:bg-gray-900/50 border border-transparent rounded-xl focus:bg-white dark:focus:bg-gray-900 focus:ring-2 focus:ring-tuggi-blue transition-all dark:text-white font-medium outline-none'
 const sectionCard = 'bg-white dark:bg-gray-800/40 rounded-2xl p-6 border border-gray-100 dark:border-gray-700/50 shadow-sm'
@@ -116,6 +126,7 @@ export function PlaceFormModal({ placeId, isOpen, onClose, onSaved, initialTab }
         app_benefit: pd.app_benefit || '',
         subscriber_benefit: pd.subscriber_benefit || '',
         opening_hours: hoursOf(details.opening_hours),
+        opening_hours_touched: false,
         website: details.website || '',
         contact_whatsapp: details.contact_whatsapp || '',
         ...Object.fromEntries(ATTRACTION_FLAGS.map((f) => [f.key, isYes(details[f.key])])),
@@ -194,7 +205,9 @@ export function PlaceFormModal({ placeId, isOpen, onClose, onSaved, initialTab }
       }
 
       // Hours and contact are validated before anything is written: a half-saved place is worse
-      // than a refused save.
+      // than a refused save. Hours are written only when the operator edited them, like the flags:
+      // a stored value the editor cannot read opens empty and must not become null on an unrelated
+      // save (#886).
       const hours = form.opening_hours as OpeningHours
       const hasHours = Object.keys(hours ?? {}).length > 0
       const openingHours = hasHours ? parseOpeningHours(JSON.stringify(hours)) : null
@@ -208,7 +221,7 @@ export function PlaceFormModal({ placeId, isOpen, onClose, onSaved, initialTab }
       }
 
       await placeService.updateAttraction(placeId as string, {
-        opening_hours: openingHours,
+        ...(form.opening_hours_touched ? { opening_hours: openingHours } : {}),
         website: String(form.website || '').trim() || null,
         contact_whatsapp: whatsapp,
         ...flagPatch,
@@ -498,8 +511,9 @@ export function PlaceFormModal({ placeId, isOpen, onClose, onSaved, initialTab }
             <h4 className={sectionTitle}><Clock className="h-4 w-4 text-tuggi-blue" />{t('sections.hours')}</h4>
             <OpeningHoursEditor
               value={(form.opening_hours as OpeningHours) ?? {}}
-              onChange={(v) => set('opening_hours', v)}
+              onChange={(v) => setForm((p) => ({ ...p, opening_hours: v, opening_hours_touched: true }))}
               disabled={!canEdit}
+              unreadable={isEdit ? unreadableHoursOf(details?.opening_hours) : null}
             />
           </section>
 
