@@ -10,9 +10,9 @@
  * ERRO NUNCA VIRA "NADA PENDENTE". O estado vazio só renderiza com leitura `ready` e lista vazia;
  * a falha tem estado próprio. É o critério 2 da spec, e o pior erro possível desta tela.
  *
- * AÇÃO SEM ENDPOINT NÃO VIRA BOTÃO. Reemitir nota, cancelar nota (#901) e liberar/reenviar repasse
- * (#903) ainda não existem: a linha de nota leva a "Ver cobrança" e a de repasse a "Ver
- * repasses". Para o editor, a linha de repasse diz "Só admin" (§3.5, B1).
+ * AÇÃO SEM ENDPOINT NÃO VIRA BOTÃO. Reemitir nota e cancelar nota (#901) ainda não existem: a
+ * linha de nota leva a "Ver cobrança". A de repasse leva a "Ver repasses", onde o admin libera e
+ * reenvia (#903). Para o editor, a linha de repasse diz "Só admin" (§3.5, B1).
  */
 
 import { useLocale, useTranslations } from 'next-intl'
@@ -96,6 +96,8 @@ export function PendingPanel({
           : t('kind.invoice_error', { reason })
       case 'payout_failed':
         return t('kind.payout_failed', { reason })
+      case 'payout_stuck_released':
+        return t('kind.payout_stuck_released', { payout: item.objectId })
       case 'payout_period_not_calculated':
         return t('kind.payout_period_not_calculated', { month: monthYear(item.periodMonth) })
       case 'payout_not_released':
@@ -119,7 +121,7 @@ export function PendingPanel({
         </a>
       ) : null
     }
-    if (item.kind === 'payout_not_released' || item.kind === 'payout_failed') {
+    if (item.kind === 'payout_not_released' || item.kind === 'payout_failed' || item.kind === 'payout_stuck_released') {
       if (!viewerIsAdmin) return <span className={`text-sm ${DIM}`}>{t('action.adminOnly')}</span>
       return (
         <button type="button" className={LINK} onClick={onOpenPayouts}>

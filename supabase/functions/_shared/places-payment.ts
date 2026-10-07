@@ -73,6 +73,7 @@ import {
   type InvoiceDeps,
   type InvoiceTarget,
 } from './places-invoice.ts';
+import { handleTransferEvent, reconcileSentPayouts, type SentPayout } from './places-payout.ts';
 import {
   AsaasError,
   type AsaasClient,
@@ -151,6 +152,8 @@ export type Deps = InvoiceDeps & {
   accessLink: (submissionId: string) => Promise<'sent' | 'owned' | 'failed'>;
   /** Plans whose invoices the sweep reconciles (#901): live, or ended in the last 40 days. Throws on a read error. */
   invoiceTargets: () => Promise<InvoiceTarget[]>;
+  /** Payouts in `sent` (#903), whose transfer the sweep re-reads. Throws on a read error. */
+  sentPayouts: () => Promise<SentPayout[]>;
 };
 
 export type PortalDeps = Deps & {
@@ -1116,6 +1119,8 @@ export async function handleAsaasWebhook(
   const log = (outcome: string) => console.log('[places-payment-webhook]', eventId, eventType, outcome);
 
   if (eventType.startsWith('INVOICE_')) return await handleInvoiceEvent(deps, b, eventId, eventType);
+  // #903: the payout's Pix. Re-read and settled in `places-payout.ts`; a database error throws (500, resend).
+  if (eventType.startsWith('TRANSFER_')) return await handleTransferEvent(deps, b, eventId, eventType);
 
   if (eventType.startsWith('PAYMENT_CHARGEBACK')) {
     // Contract §8: not handled — the operator answers the dispute.
@@ -1543,6 +1548,14 @@ export async function runSweep(deps: Deps): Promise<Record<string, unknown>> {
   } catch (e) {
     summary.invoices = 'db_error';
     await deps.alert('sweep_invoices_failed', { error: e instanceof Error ? e.message : 'unknown' });
+  }
+
+  // #903: a payout `sent` whose TRANSFER_* webhook was lost is settled from the re-read transfer.
+  try {
+    summary.payouts = await reconcileSentPayouts(deps, await deps.sentPayouts());
+  } catch (e) {
+    summary.payouts = 'db_error';
+    await deps.alert('sweep_payouts_failed', { error: e instanceof Error ? e.message : 'unknown' });
   }
   return summary;
 }

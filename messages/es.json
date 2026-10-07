@@ -3436,7 +3436,8 @@
         "payout_period_not_calculated": "Repaso de {month} no calculado",
         "payout_not_released": "Repaso de {month} a liberar hasta {deadline}",
         "payout_failed": "Repaso falló: {reason}",
-        "payout_without_pix_key": "Sin clave Pix confirmada"
+        "payout_without_pix_key": "Sin clave Pix confirmada",
+        "payout_stuck_released": "Repase liberado sin transferencia registrada. Busque en Asaas la transferencia con referencia externa {payout}"
       },
       "noReason": "sin motivo informado",
       "action": {
@@ -3522,7 +3523,74 @@
       "error": "No se pudieron leer las mensualidades."
     },
     "payouts": {
-      "placeholder": "Los repasos llegan en el próximo card (#903). Los pendientes de repaso ya aparecen en Pendientes."
+      "band": "Liquidación de {month}, sobre lo recibido en {previous} · Pagar hasta {deadline} ({days, plural, =0 {0 días hábiles} one {# día hábil} other {# días hábiles}} restantes)",
+      "late": "Atrasado:",
+      "month": "Mes de las compras",
+      "stats": {
+        "toRelease": "Por liberar",
+        "sent": "Enviado",
+        "paid": "Pagado",
+        "failed": "Falló",
+        "places": "{count, plural, =0 {ningún local} one {# local} other {# locales}}"
+      },
+      "columns": {
+        "place": "Local",
+        "taxId": "CNPJ",
+        "purchases": "Compras",
+        "discounts": "Descuentos",
+        "amount": "A pagar",
+        "pixKey": "Clave Pix",
+        "invoice": "Factura del local",
+        "status": "Estado",
+        "action": "Acción"
+      },
+      "status": {
+        "calculated": "Por liberar",
+        "released": "Liberado",
+        "sent": "Enviado al banco",
+        "paid": "Pagado el {date}",
+        "failed": "Falló: {reason}",
+        "cancelled": "Cancelado"
+      },
+      "action": {
+        "release": "Liberar",
+        "resend": "Reenviar repase",
+        "noPixKey": "Sin clave Pix. El local la confirma en el portal.",
+        "negative": "Sin valor. {amount} se descuenta el próximo mes.",
+        "zero": "Sin compras en el mes.",
+        "adminOnly": "Solo admin"
+      },
+      "confirm": {
+        "question": "¿Pagar <b>{amount}</b> por Pix a la clave CNPJ <b>{key}</b>?",
+        "confirm": "Confirmar Pix",
+        "sending": "Enviando…",
+        "back": "Volver"
+      },
+      "amountChanged": "El valor cambió a {amount}. Revíselo y libere de nuevo.",
+      "releaseError": "No se pudo liberar ({code}). Si el Pix pudo haber salido, aparece en Pendientes para revisar en Asaas.",
+      "invoiceAttach": "Adjuntar factura",
+      "invoiceSave": "Guardar",
+      "invoiceError": "No se pudo guardar la factura.",
+      "statement": {
+        "date": "Fecha",
+        "product": "Producto",
+        "received": "Valor recibido",
+        "commission": "10 %",
+        "purchase": "Compra en la app",
+        "refund": "Reembolso de la compra del {date}",
+        "carry": "Saldo negativo de un mes anterior",
+        "total": "Total"
+      },
+      "close": {
+        "button": "Liquidar {month}",
+        "running": "Liquidando…",
+        "missingRate": "Falta el tipo de cambio de {currencies}. Declárelo y liquide de nuevo.",
+        "error": "No se pudo liquidar ({code})."
+      },
+      "notCalculated": "El repase de {month} aún no fue liquidado. La liquidación corre el día 1.",
+      "empty": "Ningún local con comisión en {month}.",
+      "error": "No se pudieron leer los repases.",
+      "reload": "Recargar"
     }
   }
 }

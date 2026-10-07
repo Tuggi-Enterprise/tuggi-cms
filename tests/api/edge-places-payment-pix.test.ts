@@ -94,6 +94,8 @@ function deps(asaas: ReturnType<typeof fakeAsaas>, db: ReturnType<typeof fakeDb>
     invoiceConfig: null,
     invoiceStatusOf: async () => null,
     invoiceTargets: async () => [],
+    // #903: no payout in `sent` by default
+    sentPayouts: async () => [],
     ...extra,
   }
   return { d, alerts }

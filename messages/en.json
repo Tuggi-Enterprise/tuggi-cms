@@ -3454,7 +3454,8 @@
         "payout_period_not_calculated": "Payout for {month} not calculated",
         "payout_not_released": "Payout for {month} to release by {deadline}",
         "payout_failed": "Payout failed: {reason}",
-        "payout_without_pix_key": "No confirmed Pix key"
+        "payout_without_pix_key": "No confirmed Pix key",
+        "payout_stuck_released": "Payout released with no transfer recorded. Search Asaas for the transfer with external reference {payout}"
       },
       "noReason": "no reason given",
       "action": {
@@ -3540,7 +3541,74 @@
       "error": "Could not read the subscriptions."
     },
     "payouts": {
-      "placeholder": "Payouts arrive in the next card (#903). Payout pending items already show under Pending items."
+      "band": "Calculation of {month}, on what was received in {previous} · Pay by {deadline} ({days, plural, =0 {0 business days} one {# business day} other {# business days}} left)",
+      "late": "Late:",
+      "month": "Purchase month",
+      "stats": {
+        "toRelease": "To release",
+        "sent": "Sent",
+        "paid": "Paid",
+        "failed": "Failed",
+        "places": "{count, plural, =0 {no place} one {# place} other {# places}}"
+      },
+      "columns": {
+        "place": "Place",
+        "taxId": "CNPJ",
+        "purchases": "Purchases",
+        "discounts": "Discounts",
+        "amount": "To pay",
+        "pixKey": "Pix key",
+        "invoice": "Place invoice",
+        "status": "Status",
+        "action": "Action"
+      },
+      "status": {
+        "calculated": "To release",
+        "released": "Released",
+        "sent": "Sent to the bank",
+        "paid": "Paid on {date}",
+        "failed": "Failed: {reason}",
+        "cancelled": "Cancelled"
+      },
+      "action": {
+        "release": "Release",
+        "resend": "Resend payout",
+        "noPixKey": "No Pix key. The place confirms it in the portal.",
+        "negative": "No value. {amount} is deducted next month.",
+        "zero": "No purchases this month.",
+        "adminOnly": "Admin only"
+      },
+      "confirm": {
+        "question": "Pay <b>{amount}</b> by Pix to the CNPJ key <b>{key}</b>?",
+        "confirm": "Confirm Pix",
+        "sending": "Sending…",
+        "back": "Back"
+      },
+      "amountChanged": "The amount changed to {amount}. Check it and release again.",
+      "releaseError": "Could not release ({code}). If the Pix may have left, it shows in Pending to check in Asaas.",
+      "invoiceAttach": "Add invoice",
+      "invoiceSave": "Save",
+      "invoiceError": "Could not save the invoice.",
+      "statement": {
+        "date": "Date",
+        "product": "Product",
+        "received": "Amount received",
+        "commission": "10 %",
+        "purchase": "App purchase",
+        "refund": "Refund of the purchase of {date}",
+        "carry": "Negative balance of an earlier month",
+        "total": "Total"
+      },
+      "close": {
+        "button": "Calculate {month}",
+        "running": "Calculating…",
+        "missingRate": "Missing exchange rate for {currencies}. Declare it and calculate again.",
+        "error": "Could not calculate ({code})."
+      },
+      "notCalculated": "The payout of {month} has not been calculated yet. It runs on day 1.",
+      "empty": "No place earned commission in {month}.",
+      "error": "Could not read the payouts.",
+      "reload": "Reload"
     }
   }
 }
