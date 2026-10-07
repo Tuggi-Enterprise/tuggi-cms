@@ -31,10 +31,19 @@ export const ADMIN_BORDER_TP_RADIUS_M = 150;
 /** Two TPs of the same POI closer than this are one entry (dual carriageway, road and its link). */
 export const ADMIN_BORDER_TP_MIN_SPACING_M = 300;
 /**
- * A TP closer than this to the border, after walking the inset along the road, is on a road that
- * skirts the border instead of entering (Alenquer's EN 115 weaves across it every ~400 m).
+ * A TP closer than this to the border is on a road that skirts the border instead of entering
+ * (Alenquer's EN 115 weaves across it every ~400 m).
  */
 export const ADMIN_BORDER_TP_MIN_EDGE_M = ADMIN_BORDER_TP_INSET_M / 2;
+/**
+ * A road still near the border at the inset slides its TP inward along the road, up to this far from
+ * the crossing, until it stands `ADMIN_BORDER_TP_MIN_EDGE_M` inside: a road that crosses a river border
+ * and follows the bank (Aljezur's EN 120 at the Seixe, 60 m from the border at the inset) or crosses at
+ * a slant still enters. One that leaves again, ends, or never gets that deep skirts the border.
+ */
+export const ADMIN_BORDER_ENTRY_PROBE_M = 400;
+/** Step of that slide; also the tolerance for a road drawn a few metres outside a border it follows. */
+const ENTRY_PROBE_STEP_M = 25;
 /**
  * BR-POI-010, island municipality (operator, 2026-10-06: "Vila do Corvo poderia ter POIs no mar, no
  * caminho dos navios"): the OSM polygon follows the coastline and the ferry route stops at the pier,
@@ -122,14 +131,14 @@ export function adminBorderTriggerPoints(poiId: string, parts: LatLng[][], stree
         if (d > 0) bearing = calculateBearing(cur, next);
         if (d >= remaining && d > 0) {
           const r = remaining / d;
-          return { point: { lat: cur.lat + (next.lat - cur.lat) * r, lng: cur.lng + (next.lng - cur.lng) * r }, bearing };
+          return { point: { lat: cur.lat + (next.lat - cur.lat) * r, lng: cur.lng + (next.lng - cur.lng) * r }, bearing, ended: false };
         }
         remaining -= d;
         cur = next;
       }
       const options = (byNode.get(nodeKey(cur)) ?? []).filter(w => !visited.has(w));
       const nextWay = options.find(w => w.type === way.type) ?? options.sort((x, y) => roadRank(y.type) - roadRank(x.type))[0];
-      if (!nextWay || hops >= MAX_STITCH_HOPS) return { point: cur, bearing }; // the road ends short of the inset
+      if (!nextWay || hops >= MAX_STITCH_HOPS) return { point: cur, bearing, ended: true }; // the road ends short of the inset
       visited.add(nextWay);
       way = nextWay;
       coords = way.coordinates;
@@ -137,6 +146,21 @@ export function adminBorderTriggerPoints(poiId: string, parts: LatLng[][], stree
       dir = forward ? 1 : -1;
       i = forward ? 1 : coords.length - 2;
     }
+  };
+
+  /**
+   * Where a road crossing inward has entered: the first point from the inset on, along the road, that
+   * stands `ADMIN_BORDER_TP_MIN_EDGE_M` inside the border. null when the road leaves first, ends, or
+   * never gets that deep within `ADMIN_BORDER_ENTRY_PROBE_M`. At the inset it is the inset point.
+   */
+  const entryPoint = (street: StreetData, seg: number, crossing: LatLng, dir: 1 | -1) => {
+    for (let d = ADMIN_BORDER_TP_INSET_M; d <= ADMIN_BORDER_ENTRY_PROBE_M; d += ENTRY_PROBE_STEP_M) {
+      const p = walk(street, seg, crossing, dir, d);
+      const isIn = inside(p.point);
+      if (isIn && edgeM(p.point) >= ADMIN_BORDER_TP_MIN_EDGE_M) return p;
+      if ((!isIn && edgeM(p.point) > ENTRY_PROBE_STEP_M) || p.ended) return null;
+    }
+    return null;
   };
 
   const entries: Entry[] = [];
@@ -157,10 +181,11 @@ export function adminBorderTriggerPoints(poiId: string, parts: LatLng[][], stree
       const tt = t ?? (bIn ? 1 : 0);
       const crossing = { lat: c[k].lat + (c[k + 1].lat - c[k].lat) * tt, lng: c[k].lng + (c[k + 1].lng - c[k].lng) * tt };
       const dir: 1 | -1 = bIn ? 1 : -1;
-      const tp = walk(s, k, crossing, dir, ADMIN_BORDER_TP_INSET_M);
       // The road leaves again before the inset, or runs along the border: nobody has entered.
       // A ferry ends at the pier, on the coast: its end is the arrival, so the edge rule does not apply.
-      if (!inside(tp.point) || (s.type !== 'ferry' && edgeM(tp.point) < ADMIN_BORDER_TP_MIN_EDGE_M)) continue;
+      const ferryTp = s.type === 'ferry' ? walk(s, k, crossing, dir, ADMIN_BORDER_TP_INSET_M) : null;
+      const tp = ferryTp ? (inside(ferryTp.point) ? ferryTp : null) : entryPoint(s, k, crossing, dir);
+      if (!tp) continue;
       entries.push({ street: s, point: tp.point, bearing: tp.bearing, score: roadRank(s.type) * 2 + (travel.includes(dir) ? 1 : 0) });
     }
   }

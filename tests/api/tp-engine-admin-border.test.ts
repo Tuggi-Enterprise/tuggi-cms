@@ -146,6 +146,22 @@ describe('BR-POI-009 — municipal border: one TP per main road entering the mun
     assert.equal(e.adminBorderTriggerPoints('poi', [MUNICIPALITY], [way('skirting', 'primary', zig)]).length, 0)
   })
 
+  it('BR-POI-010: a road crossing a river border and following the bank before turning inland still enters (Aljezur, EN 120 at the Seixe)', async () => {
+    const e = await engine()
+    // Crosses the north border, runs 60 m inside along it for 250 m, then turns south.
+    const bank = way('en120', 'primary', [at(-300, HALF + 500), at(-300, HALF - 60), at(-50, HALF - 60), at(-50, 0)])
+    const tps = e.adminBorderTriggerPoints('poi', [MUNICIPALITY], [bank])
+    assert.equal(tps.length, 1)
+    assert.ok(e.edgeM(tps[0].location, MUNICIPALITY) >= e.ADMIN_BORDER_TP_MIN_EDGE_M, 'the TP slides inward until the road has entered')
+    assert.ok(e.calculateDistance(tps[0].location, at(-300, HALF)) <= e.ADMIN_BORDER_ENTRY_PROBE_M, 'never farther than the probe')
+  })
+
+  it('BR-POI-010: a road running along the border past the probe, never that deep, gives no TP', async () => {
+    const e = await engine()
+    const along = way('along', 'primary', [at(-1_200, HALF + 500), at(-1_200, HALF - 40), at(1_200, HALF - 40), at(1_200, HALF + 500)])
+    assert.equal(e.adminBorderTriggerPoints('poi', [MUNICIPALITY], [along]).length, 0)
+  })
+
   it('BR-POI-010: only the main road types and ferries carry a TP; every other border source leaves the mode off', async () => {
     const e = await engine()
     assert.deepEqual([...e.ADMIN_BORDER_ROAD_TYPES].sort(), [
