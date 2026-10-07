@@ -52,6 +52,36 @@ describe('BR-POI-009 — municipal border: one TP per main road entering the mun
     assert.deepEqual(tps.map(t => t.street.type).sort(), ['motorway', 'trunk'])
   })
 
+  it('BR-POI-010: an island municipality is entered by ferry — the route crossing its coast carries the TP (Vila do Corvo)', async () => {
+    const e = await engine()
+    const ferry = way('f1', 'ferry', [at(0, -HALF - 3_000), at(0, -HALF + 600)])
+    const tps = e.adminBorderTriggerPoints('poi', [MUNICIPALITY], [ferry])
+    assert.equal(tps.length, 1)
+    assert.equal(tps[0].street.type, 'ferry')
+  })
+
+  it('BR-POI-010: a ferry ending at the pier 20 m off the coast gets one TP out at sea, ~300 m along the route, facing the pier', async () => {
+    const e = await engine()
+    // Route from the south, bending once, ending 20 m south of the coast (the polygon follows the coastline).
+    const ferry = way('f_corvo', 'ferry', [at(-2_000, -HALF - 5_000), at(0, -HALF - 1_000), at(0, -HALF - 20)])
+    const tps = e.adminBorderTriggerPoints('poi', [MUNICIPALITY], [ferry])
+    assert.equal(tps.length, 1)
+    const tp = tps[0]
+    assert.equal(tp.generationMethod, e.ADMIN_BORDER_SEA_METHOD)
+    assert.ok(!e.isPointInPolygon(tp.location, MUNICIPALITY), 'out at sea')
+    const d = e.edgeM(tp.location, MUNICIPALITY)
+    assert.ok(Math.abs(d - 320) <= 5, `${d.toFixed(1)} m from the border`)
+    assert.ok(Math.abs(tp.distance - d) <= 1, 'distance carries the edge distance')
+    assert.ok(Math.abs(tp.expectedBearing) < 2 || Math.abs(tp.expectedBearing - 360) < 2, `bearing ${tp.expectedBearing}: northbound, to the pier`)
+    assert.equal(tp.radius, 150)
+  })
+
+  it('BR-POI-010: a ferry ending far from the coast (the other island) gives no sea TP', async () => {
+    const e = await engine()
+    const ferry = way('f_far', 'ferry', [at(0, -HALF - 5_000), at(0, -HALF - 400)])
+    assert.equal(e.adminBorderTriggerPoints('poi', [MUNICIPALITY], [ferry]).length, 0)
+  })
+
   it('each TP stands inside the border, ~150 m from it along the road, radius 150 m', async () => {
     const e = await engine()
     for (const tp of e.adminBorderTriggerPoints('poi', [MUNICIPALITY], ROADS)) {
@@ -104,11 +134,11 @@ describe('BR-POI-009 — municipal border: one TP per main road entering the mun
     assert.equal(e.adminBorderTriggerPoints('poi', [MUNICIPALITY], [way('skirting', 'primary', zig)]).length, 0)
   })
 
-  it('only the main road types carry a TP; every other border source leaves the mode off', async () => {
+  it('BR-POI-010: only the main road types and ferries carry a TP; every other border source leaves the mode off', async () => {
     const e = await engine()
     assert.deepEqual([...e.ADMIN_BORDER_ROAD_TYPES].sort(), [
       'motorway', 'motorway_link', 'primary', 'primary_link', 'secondary', 'secondary_link',
-      'tertiary', 'tertiary_link', 'trunk', 'trunk_link'].sort())
+      'tertiary', 'tertiary_link', 'trunk', 'trunk_link', 'ferry'].sort())
     for (const source of ['osm', 'manual', 'manual_drawing', 'synthetic', 'estimated', 'dem_relief', 'unknown'] as const) {
       assert.equal(e.isAdminBorder({ source }), false, source)
     }
@@ -127,6 +157,18 @@ describe('BR-POI-009 — E11 keeps the municipal TP inside its border (save and 
     assert.equal(admin.kept.length, 3)
     const normal = applyTpPostConditions(tps, C, { source: 'osm', coordinates: MUNICIPALITY })
     assert.ok(normal.dropped.some(d => d.reason === 'inside_poi'), 'the normal engine is unchanged')
+  })
+
+  it('BR-POI-010: osm_admin keeps the ferry sea TP outside the border; a road TP outside is still dropped', async () => {
+    const e = await engine()
+    const { applyTpPostConditions } = await import('../../lib/services/trigger-points-google/utils/tp-selection')
+    const ferry = way('f_corvo', 'ferry', [at(0, -HALF - 5_000), at(0, -HALF - 20)])
+    const [sea] = e.adminBorderTriggerPoints('poi', [MUNICIPALITY], [ferry])
+    const road = { ...sea, id: 'road_out', generationMethod: 'local_osm' as const }
+    const farSea = { ...sea, id: 'sea_far', location: at(0, -HALF - 1_500) }
+    const r = applyTpPostConditions([sea, road, farSea], C, { source: 'osm_admin', coordinates: MUNICIPALITY, adminParts: [MUNICIPALITY] })
+    assert.deepEqual(r.kept.map(t => t.id), [sea.id])
+    assert.deepEqual(r.dropped.map(d => d.tp.id).sort(), ['road_out', 'sea_far'])
   })
 })
 

@@ -4,7 +4,8 @@
  * spread over its area. It gets one TP on each main road that crosses the border, just inside, so
  * whoever drives in hears which municipality they entered. Small, service and private ways carry
  * none. The app plays it on entry and not on exit by its own direction lock, so the TP needs only
- * the inward bearing.
+ * the inward bearing. An island municipality is entered by ferry: the route stops at the pier, so its
+ * TP stands out at sea on the route (`ADMIN_BORDER_SEA_METHOD`, BR-POI-010).
  *
  * Pure: the caller hands in the border parts and the roads (`LocalOSMFetcher`, which already drops
  * ways closed by `access`/`military` — `config/visibility-class#isPublicWay`).
@@ -20,7 +21,9 @@ type LatLng = { lat: number; lng: number };
 export const ADMIN_BORDER_SOURCE = 'osm_admin';
 /** Main roads, busiest first; each `_link` ranks just under its road. Everything else is skipped. */
 const MAIN_ROAD_ORDER = ['motorway', 'trunk', 'primary', 'secondary', 'tertiary'];
-export const ADMIN_BORDER_ROAD_TYPES: readonly string[] = MAIN_ROAD_ORDER.flatMap(t => [t, `${t}_link`]);
+// Ferry too (operator, 2026-10-06): an island municipality is entered only by sea, and a river crossing
+// (Lisboa–Almada) is an entry like a bridge. Ranked last: a road crossing wins the spacing over a ferry.
+export const ADMIN_BORDER_ROAD_TYPES: readonly string[] = [...MAIN_ROAD_ORDER.flatMap(t => [t, `${t}_link`]), 'ferry'];
 /** How far inside the border the TP stands, measured along the road. */
 export const ADMIN_BORDER_TP_INSET_M = 150;
 /** Fixed: the TP stands on a fast road and the app does not widen the radius by speed (BR-AUDIO-010). */
@@ -32,6 +35,19 @@ export const ADMIN_BORDER_TP_MIN_SPACING_M = 300;
  * skirts the border instead of entering (Alenquer's EN 115 weaves across it every ~400 m).
  */
 export const ADMIN_BORDER_TP_MIN_EDGE_M = ADMIN_BORDER_TP_INSET_M / 2;
+/**
+ * BR-POI-010, island municipality (operator, 2026-10-06: "Vila do Corvo poderia ter POIs no mar, no
+ * caminho dos navios"): the OSM polygon follows the coastline and the ferry route stops at the pier,
+ * just outside it (Corvo: 21 m), so the route never crosses. A ferry end outside a part and at most
+ * this far from its edge is the pier of that part.
+ */
+export const ADMIN_BORDER_FERRY_PIER_MAX_M = 300;
+/** The sea TP stands this far from the pier, out to sea along the route. */
+export const ADMIN_BORDER_SEA_OFFSET_M = 300;
+/** E11 keeps a sea TP only this close to the border; nothing else of the mode may stand outside. */
+export const ADMIN_BORDER_SEA_MAX_EDGE_M = 1_000;
+/** generationMethod that marks the sea TP; E11 (`tp-selection#applyTpPostConditions`) reads it. */
+export const ADMIN_BORDER_SEA_METHOD = 'admin_border_sea' as const;
 /** Ways joined end to end while walking inward; OSM splits a road at every tag change. */
 const MAX_STITCH_HOPS = 20;
 
@@ -40,6 +56,7 @@ export function isAdminBorder(boundary?: { source?: BoundaryData['source'] | str
 }
 
 function roadRank(type: string): number {
+  if (type === 'ferry') return 0; // below every road, but kept
   const i = MAIN_ROAD_ORDER.indexOf(type.replace(/_link$/, ''));
   return i < 0 ? -1 : (MAIN_ROAD_ORDER.length - i) * 2 - (type.endsWith('_link') ? 1 : 0);
 }
@@ -70,7 +87,7 @@ function segmentCrossing(a: LatLng, b: LatLng, c: LatLng, d: LatLng): number | n
   return t >= 0 && t <= 1 && u >= 0 && u <= 1 ? t : null;
 }
 
-interface Entry { street: StreetData; point: LatLng; bearing: number; score: number }
+interface Entry { street: StreetData; point: LatLng; bearing: number; score: number; sea?: boolean }
 
 /**
  * One TP per main road entering the border, ~`ADMIN_BORDER_TP_INSET_M` inside along the road,
@@ -142,8 +159,30 @@ export function adminBorderTriggerPoints(poiId: string, parts: LatLng[][], stree
       const dir: 1 | -1 = bIn ? 1 : -1;
       const tp = walk(s, k, crossing, dir, ADMIN_BORDER_TP_INSET_M);
       // The road leaves again before the inset, or runs along the border: nobody has entered.
-      if (!inside(tp.point) || edgeM(tp.point) < ADMIN_BORDER_TP_MIN_EDGE_M) continue;
+      // A ferry ends at the pier, on the coast: its end is the arrival, so the edge rule does not apply.
+      if (!inside(tp.point) || (s.type !== 'ferry' && edgeM(tp.point) < ADMIN_BORDER_TP_MIN_EDGE_M)) continue;
       entries.push({ street: s, point: tp.point, bearing: tp.bearing, score: roadRank(s.type) * 2 + (travel.includes(dir) ? 1 : 0) });
+    }
+  }
+
+  // Sea TP (BR-POI-010): a ferry that never enters a part but ends at its pier gets the TP out at
+  // sea, on the route, facing the pier. A route that does enter took the crossing path above.
+  for (const s of roads) {
+    if (s.type !== 'ferry') continue;
+    const c = s.coordinates;
+    const ends = [
+      { end: c[0], seg: 0, dir: 1 as const },
+      { end: c[c.length - 1], seg: c.length - 2, dir: -1 as const },
+    ];
+    for (const { end, seg, dir } of ends) {
+      // A ferry split in OSM continues on the next way: only the route's real end is a pier.
+      if ((byNode.get(nodeKey(end)) ?? []).some(w => w !== s && w.type === 'ferry')) continue;
+      const pierOf = rings.some(r => !c.some(p => isPointInPolygon(p, r))
+        && r.reduce((m, a, i) => Math.min(m, calculateDistanceToLineSegment(end, a, r[(i + 1) % r.length])), Infinity) <= ADMIN_BORDER_FERRY_PIER_MAX_M);
+      if (!pierOf) continue;
+      const tp = walk(s, seg, end, dir, ADMIN_BORDER_SEA_OFFSET_M);
+      // Walked out to sea; the ship comes the other way.
+      entries.push({ street: s, point: tp.point, bearing: (tp.bearing + 180) % 360, score: roadRank(s.type) * 2 + 1, sea: true });
     }
   }
 
@@ -154,7 +193,7 @@ export function adminBorderTriggerPoints(poiId: string, parts: LatLng[][], stree
 
   const now = new Date().toISOString();
   return kept.map(e => ({
-    id: deterministicTPId(poiId, `admin_border_${e.street.id}`, e.point.lat, e.point.lng),
+    id: deterministicTPId(poiId, `${e.sea ? ADMIN_BORDER_SEA_METHOD : 'admin_border'}_${e.street.id}`, e.point.lat, e.point.lng),
     location: e.point,
     radius: ADMIN_BORDER_TP_RADIUS_M,
     expectedBearing: e.bearing,
@@ -165,8 +204,8 @@ export function adminBorderTriggerPoints(poiId: string, parts: LatLng[][], stree
     quality: 0.9,
     street: e.street,
     // Edge distance, as every TP of the engine: inside the border it is 0 (the DB cap measures the same).
-    distance: 0,
-    generationMethod: 'local_osm' as const,
+    distance: e.sea ? edgeM(e.point) : 0,
+    generationMethod: e.sea ? ADMIN_BORDER_SEA_METHOD : ('local_osm' as const),
     createdAt: now,
     updatedAt: now,
   }));
