@@ -43,6 +43,23 @@ export function municipalityAdminLevel(country: string): number {
   return MUNICIPALITY_ADMIN_LEVEL_BY_COUNTRY[country.toUpperCase()] ?? DEFAULT_MUNICIPALITY_ADMIN_LEVEL
 }
 
+/**
+ * SSOT — higher `admin_level`s where a country maps a municipality that sits outside the municipal
+ * level, by ISO 3166-1 alpha-2. A relation at one of these levels counts as a municipality only
+ * when no relation at the municipal level is centred inside it: a unit that groups municipalities
+ * (a district, a state) has them as children; a city that IS its own district (or state) has none.
+ * AT, measured 2026-10-07: the 15 Statutarstädte are `admin_level=6` (Wien, also a state, is 4),
+ * none of them with a level-8 Gemeinde inside.
+ */
+export const STANDALONE_MUNICIPALITY_LEVELS_BY_COUNTRY: Readonly<Record<string, readonly number[]>> = {
+  AT: [6, 4],
+}
+
+/** Every `admin_level` a municipality of the country may sit at: the municipal level first, then the standalone ones. */
+export function municipalityAdminLevels(country: string): number[] {
+  return [municipalityAdminLevel(country), ...(STANDALONE_MUNICIPALITY_LEVELS_BY_COUNTRY[country.toUpperCase()] ?? [])]
+}
+
 export const ADMIN_BOUNDARIES_TABLE = 'admin_boundaries'
 export const ADMIN_BOUNDARY_SEATS_TABLE = 'admin_boundary_seats'
 export const REGION_METADATA_TABLE = 'region_metadata'
@@ -177,8 +194,10 @@ export interface AdminBoundaryImport {
   byLevel: Record<string, number>
   /** Of those, the ones with a seat (`scanMunicipalSeats`), by `admin_level`. */
   seatsByLevel: Record<string, number>
-  /** Kept: at the municipal level, centre inside the region's `.poly`. */
+  /** Kept: at the municipal level, centre inside the region's `.poly` (standalone ones included). */
   kept: number
+  /** Of the kept, the ones at a standalone level (`STANDALONE_MUNICIPALITY_LEVELS_BY_COUNTRY`), by `admin_level`. */
+  standaloneByLevel: Record<string, number>
   /** Of the kept, the ones with a seat stored in `admin_boundary_seats` (BR-POI-010 matching). */
   keptWithSeat: number
   /** Of those, the ones seated by `label` because they have no `admin_centre`. */
@@ -276,7 +295,10 @@ export async function importAdminBoundaries(
     }
 
     const level = country ? municipalityAdminLevel(country) : null
-    db.prepare(`DELETE FROM ${ADMIN_BOUNDARIES_TABLE} WHERE admin_level IS NOT ?`).run(level)
+    const standaloneLevels = country ? municipalityAdminLevels(country).slice(1) : []
+    db.prepare(`DELETE FROM ${ADMIN_BOUNDARIES_TABLE} WHERE admin_level IS NOT ? AND admin_level NOT IN (${standaloneLevels.map(() => '?').join(',')})`)
+      .run(level, ...standaloneLevels)
+    const standaloneByLevel = keepStandaloneWithoutChildren(db, level, standaloneLevels)
     db.exec(`DELETE FROM ${ADMIN_BOUNDARY_SEATS_TABLE} WHERE relation_id NOT IN (SELECT osm_id FROM ${ADMIN_BOUNDARIES_TABLE})`)
     if (country) db.prepare(`INSERT OR REPLACE INTO ${REGION_METADATA_TABLE} (key, value) VALUES ('country', ?)`).run(country)
     else db.exec(`DELETE FROM ${REGION_METADATA_TABLE} WHERE key = 'country'`)
@@ -287,7 +309,7 @@ export async function importAdminBoundaries(
     `).get() as { withSeat: number; byLabel: number }
     db.exec('COMMIT')
     return {
-      country, countrySource, level, byLevel, seatsByLevel, kept,
+      country, countrySource, level, byLevel, seatsByLevel, kept, standaloneByLevel,
       keptWithSeat: seatCounts.withSeat, keptSeatedByLabel: seatCounts.byLabel,
       outsideRegion: level === null ? 0 : outsideByLevel[String(level)] ?? 0,
     }
@@ -295,6 +317,54 @@ export async function importAdminBoundaries(
     db.exec('ROLLBACK')
     throw e
   }
+}
+
+/** Vertices sampled from a municipality's outer rings, off the other relation's border, to test whether it lies inside it. */
+const CHILD_SAMPLE_VERTICES = 24
+/**
+ * Share of the sampled vertices that must fall inside a relation for the municipality to be its
+ * child. Not the bbox centre: an elongated neighbour (Rum, beside Innsbruck — measured 2026-10-07)
+ * has its centre inside the city. Vertices on the shared border (the same OSM nodes, so the same
+ * coordinates) are left out, as the point test answers either way there: what remains of a child
+ * lies inside, of a neighbour outside — every Gemeinde of a small Bezirk (Hermagor) touches its border.
+ */
+const CHILD_INSIDE_SHARE = 0.9
+
+/**
+ * Drops the relations at a standalone level that have a relation at the municipal level inside
+ * them (they group municipalities); returns the ones kept, by `admin_level`.
+ */
+function keepStandaloneWithoutChildren(db: Database.Database, level: number | null, standaloneLevels: number[]): Record<string, number> {
+  const kept: Record<string, number> = {}
+  if (level === null || standaloneLevels.length === 0) return kept
+  const municipalities = (db.prepare(`
+    SELECT geometry_geojson, min_lat, max_lat, min_lng, max_lng FROM ${ADMIN_BOUNDARIES_TABLE} WHERE admin_level = ?
+  `).all(level) as Array<{ geometry_geojson: string; min_lat: number; max_lat: number; min_lng: number; max_lng: number }>)
+    .map(m => ({
+      bbox: { minLat: m.min_lat, maxLat: m.max_lat, minLng: m.min_lng, maxLng: m.max_lng },
+      vertices: polygonsOf(JSON.parse(m.geometry_geojson)).flatMap(p => p[0] ?? []),
+    }))
+  const key = ([lng, lat]: [number, number]) => `${lng},${lat}`
+  const isChild = (geometry: Geometry, border: Set<string>, vertices: Ring) => {
+    const off = vertices.filter(v => !border.has(key(v)))
+    const step = Math.max(1, Math.floor(off.length / CHILD_SAMPLE_VERTICES))
+    const sample = off.filter((_, i) => i % step === 0)
+    return sample.length > 0 && sample.filter(([lng, lat]) => adminGeometryContains(geometry, lat, lng)).length >= CHILD_INSIDE_SHARE * sample.length
+  }
+  const overlaps = (a: Bbox, b: Bbox) => a.minLat <= b.maxLat && a.maxLat >= b.minLat && a.minLng <= b.maxLng && a.maxLng >= b.minLng
+  const candidates = db.prepare(`
+    SELECT osm_id, admin_level, geometry_geojson, min_lat, max_lat, min_lng, max_lng FROM ${ADMIN_BOUNDARIES_TABLE}
+    WHERE admin_level IN (${standaloneLevels.map(() => '?').join(',')})
+  `).all(...standaloneLevels) as Array<{ osm_id: number; admin_level: number; geometry_geojson: string; min_lat: number; max_lat: number; min_lng: number; max_lng: number }>
+  const drop = db.prepare(`DELETE FROM ${ADMIN_BOUNDARIES_TABLE} WHERE osm_id = ?`)
+  for (const c of candidates) {
+    const bbox = { minLat: c.min_lat, maxLat: c.max_lat, minLng: c.min_lng, maxLng: c.max_lng }
+    const geometry = JSON.parse(c.geometry_geojson)
+    const border = new Set(polygonsOf(geometry).flatMap(p => p.flatMap(ring => ring.map(key))))
+    if (municipalities.some(m => overlaps(bbox, m.bbox) && isChild(geometry, border, m.vertices))) drop.run(c.osm_id)
+    else kept[String(c.admin_level)] = (kept[String(c.admin_level)] ?? 0) + 1
+  }
+  return kept
 }
 
 /** The `admin_level` most relations with a seat sit at (ties: the lower level); null when no seat was found. */
@@ -362,12 +432,14 @@ export function findMunicipality(db: Database.Database, pin: { lat: number; lng:
   if (!country) return null
   const hasSeats = db.prepare(`SELECT 1 FROM sqlite_master WHERE type='table' AND name=?`).get(ADMIN_BOUNDARY_SEATS_TABLE)
   if (!hasSeats) return null
+  const levels = municipalityAdminLevels(country)
   const rows = db.prepare(`
     SELECT b.osm_id, b.name, b.geometry_geojson
     FROM ${ADMIN_BOUNDARY_SEATS_TABLE} s JOIN ${ADMIN_BOUNDARIES_TABLE} b ON b.osm_id = s.relation_id
-    WHERE s.seat_type = ? AND s.seat_id = ? AND b.admin_level = ?
+    WHERE s.seat_type = ? AND s.seat_id = ? AND b.admin_level IN (${levels.map(() => '?').join(',')})
       AND b.min_lat <= ? AND b.max_lat >= ? AND b.min_lng <= ? AND b.max_lng >= ?
-  `).all(seatType, seatId, municipalityAdminLevel(country), pin.lat, pin.lat, pin.lng, pin.lng) as Array<{ osm_id: number; name: string; geometry_geojson: string }>
+    ORDER BY b.admin_level DESC
+  `).all(seatType, seatId, ...levels, pin.lat, pin.lat, pin.lng, pin.lng) as Array<{ osm_id: number; name: string; geometry_geojson: string }>
   for (const row of rows) {
     const geometry = JSON.parse(row.geometry_geojson)
     if (adminGeometryContains(geometry, pin.lat, pin.lng)) return { osmId: row.osm_id, name: row.name, geometry }

@@ -97,7 +97,7 @@ describe('BR-POI-010 — import keeps the municipalities of the region, whole', 
     const spanish = line('relation', 2, { admin_level: '7', name: 'Tui' }, { type: 'Polygon', coordinates: [sq(ELSEWHERE, 0.05)] })
     const memberWay = line('way', 3, { admin_level: '7', name: 'Angra do Heroísmo' }, FREGUESIA_GEOMETRY)
     const r = await importAdminBoundaries(db, lines(ANGRA_LINE, FREGUESIA_LINE, spanish, memberWay, PORTUGAL_LINE, SPAIN_LINE), { region: parsePoly(POLY_PT) })
-    assert.deepEqual(r, { country: 'PT', countrySource: 'admin_level=2', level: 7, byLevel: { 7: 1, 8: 1 }, seatsByLevel: {}, kept: 1, keptWithSeat: 0, keptSeatedByLabel: 0, outsideRegion: 1 })
+    assert.deepEqual(r, { country: 'PT', countrySource: 'admin_level=2', level: 7, byLevel: { 7: 1, 8: 1 }, seatsByLevel: {}, kept: 1, standaloneByLevel: {}, keptWithSeat: 0, keptSeatedByLabel: 0, outsideRegion: 1 })
     const rows = db.prepare('SELECT osm_id, admin_level, name, geometry_geojson FROM admin_boundaries').all() as any[]
     assert.equal(rows.length, 1)
     assert.equal(rows[0].osm_id, 7448382)
@@ -143,6 +143,71 @@ describe('BR-POI-010 — import keeps the municipalities of the region, whole', 
     assert.equal(municipalityAdminLevel('US'), 8)
     assert.equal(municipalityAdminLevel('BR'), 8)
     assert.equal(municipalityAdminLevel('ZZ'), 8)
+  })
+})
+
+describe('BR-POI-010 — a city outside the municipal level (Austrian Statutarstadt, Wien) is a municipality', () => {
+  const AT: LatLng = { lat: 47.5, lng: 14 }
+  const POLY_AT = `at\n1\n${sq(AT, 1).map(([x, y]) => `   ${x}   ${y}`).join('\n')}\nEND\nEND\n`
+  const poly = (o: LatLng, d: number) => ({ type: 'Polygon', coordinates: [sq(o, d)] })
+  const GRAZ: LatLng = { lat: 46.8, lng: 14.6 }
+  const WIEN: LatLng = { lat: 48.2, lng: 14.6 }
+  const STEIERMARK: LatLng = { lat: 47.3, lng: 14.0 }
+  const BEZIRK: LatLng = { lat: 46.9, lng: 13.4 }
+  const at = () => lines(
+    line('relation', 16239, { admin_level: '2', name: 'Österreich', 'ISO3166-1': 'AT' }, poly(AT, 2)),
+    line('relation', 35183, { admin_level: '4', name: 'Steiermark' }, poly(STEIERMARK, 0.3)),
+    line('relation', 1, { admin_level: '8', name: 'Gemeinde in Steiermark' }, poly(STEIERMARK, 0.05)),
+    line('relation', 109166, { admin_level: '4', name: 'Wien' }, poly(WIEN, 0.1)),
+    line('relation', 9, { admin_level: '9', name: 'Innere Stadt' }, poly(WIEN, 0.02)),
+    // The Gemeinde shares the Bezirk's south-west corner: the same nodes on both borders, one vertex inside.
+    line('relation', 2, { admin_level: '6', name: 'Bezirk Murau' }, { type: 'Polygon', coordinates: [[[13.3, 46.8], [13.3, 47.0], [13.3, 47.2], [13.7, 47.2], [13.7, 46.8], [13.5, 46.8], [13.3, 46.8]]] }),
+    line('relation', 3, { admin_level: '8', name: 'Murau' }, { type: 'Polygon', coordinates: [[[13.3, 46.8], [13.3, 47.0], [13.5, 47.0], [13.5, 46.8], [13.3, 46.8]]] }),
+    line('relation', 34719, { admin_level: '6', name: 'Graz' }, poly(GRAZ, 0.1)),
+    // A neighbour wrapped around Graz (U-shaped): its bbox centre is inside Graz, its border is not.
+    line('relation', 5, { admin_level: '8', name: 'Rum' }, { type: 'Polygon', coordinates: [[[14.45, 46.65], [14.75, 46.65], [14.75, 46.95], [14.72, 46.95], [14.72, 46.68], [14.48, 46.68], [14.48, 46.95], [14.45, 46.95], [14.45, 46.65]]] }),
+  )
+  // Graz is the seat of its own relation AND of the state; the Bezirk is seated at its main Gemeinde.
+  const seats = new Map([
+    [35183, [{ type: 'node' as const, id: 20, role: 'admin_centre' as const }]],
+    [34719, [{ type: 'node' as const, id: 20, role: 'admin_centre' as const }]],
+    [109166, [{ type: 'node' as const, id: 10, role: 'admin_centre' as const }]],
+    [2, [{ type: 'node' as const, id: 30, role: 'admin_centre' as const }]],
+    [3, [{ type: 'node' as const, id: 30, role: 'admin_centre' as const }]],
+    [1, [{ type: 'node' as const, id: 40, role: 'admin_centre' as const }]],
+  ])
+
+  it('AT keeps the level-6/4 relations with no level-8 relation inside (Graz, Wien; a neighbour wrapped around is not inside), drops the ones that group Gemeinden', async () => {
+    const { importAdminBoundaries } = await import('../../lib/services/admin-boundaries')
+    const { parsePoly } = await import('../../lib/services/local-osm-regions')
+    const db = new Database(':memory:')
+    const r = await importAdminBoundaries(db, at(), { region: parsePoly(POLY_AT), seatScan: { seated: new Set(), seats } })
+    assert.equal(r.level, 8)
+    assert.deepEqual(r.standaloneByLevel, { 4: 1, 6: 1 })
+    const ids = (db.prepare('SELECT osm_id FROM admin_boundaries ORDER BY osm_id').all() as any[]).map(x => x.osm_id)
+    assert.deepEqual(ids, [1, 3, 5, 34719, 109166])
+  })
+
+  it('the seat of the city takes its own border; the seat of a state or a Bezirk never does', async () => {
+    const { importAdminBoundaries, findMunicipality } = await import('../../lib/services/admin-boundaries')
+    const { parsePoly } = await import('../../lib/services/local-osm-regions')
+    const db = new Database(':memory:')
+    await importAdminBoundaries(db, at(), { region: parsePoly(POLY_AT), seatScan: { seated: new Set(), seats } })
+    assert.equal(findMunicipality(db, GRAZ, { osm_type: 'node', osm_id: 20 })?.name, 'Graz')
+    assert.equal(findMunicipality(db, WIEN, { osm_type: 'node', osm_id: 10 })?.name, 'Wien')
+    assert.equal(findMunicipality(db, STEIERMARK, { osm_type: 'node', osm_id: 20 }), null, 'the state seat outside Graz')
+    assert.equal(findMunicipality(db, BEZIRK, { osm_type: 'node', osm_id: 30 })?.name, 'Murau', 'the Gemeinde, not the Bezirk')
+  })
+
+  it('Portugal has no standalone level: a level-6 relation without children stays out', async () => {
+    const { importAdminBoundaries, municipalityAdminLevels } = await import('../../lib/services/admin-boundaries')
+    const { parsePoly } = await import('../../lib/services/local-osm-regions')
+    assert.deepEqual(municipalityAdminLevels('PT'), [7])
+    assert.deepEqual(municipalityAdminLevels('at'), [8, 6, 4])
+    const db = new Database(':memory:')
+    const distrito = line('relation', 4, { admin_level: '6', name: 'Distrito' }, { type: 'Polygon', coordinates: [sq({ lat: 39, lng: -27.5 }, 0.05)] })
+    const r = await importAdminBoundaries(db, lines(ANGRA_LINE, distrito, PORTUGAL_LINE), { region: parsePoly(POLY_PT) })
+    assert.deepEqual([r.kept, r.standaloneByLevel], [1, {}])
   })
 })
 
