@@ -10,7 +10,7 @@ import { TRIGGER_POINTS_CONSTANTS } from '../config/trigger-points-config';
 import { isCuratedBoundaryImplausible } from '../utils/osm-validation';
 import { DemStore } from '../../dem/dem-store';
 import { isNaturalLandform } from '../../../shared/poi-taxonomy';
-import { assembleOuterRings, chainSameIdentity, sameIdentityWaysQuery, chooseContainingBoundary, corridorRing, footprintRing, IDENTITY_NEAR_PIN_M, LINE_CORRIDOR_HALF_WIDTH_M, outerRing, sameFootprint, buildingsOfPoi, type BoundaryRejection, type OsmAreaElement } from '../utils/boundary-choice';
+import { assembleOuterRings, chainSameIdentity, sameIdentityWaysQuery, chooseContainingBoundary, corridorRing, footprintRing, polygonOuterRings, IDENTITY_NEAR_PIN_M, LINE_CORRIDOR_HALF_WIDTH_M, outerRing, sameFootprint, buildingsOfPoi, type BoundaryRejection, type OsmAreaElement } from '../utils/boundary-choice';
 
 /**
  * Radius of the circle that marks a POI with no footprint of its own: an OSM node, a pin with
@@ -137,7 +137,8 @@ export class BoundaryDetector {
         if (stored.success && stored.data?.curated) {
           return {
             success: true,
-            data: await this.withClassification(stored.data, poiData),
+            // An administrative border needs no class: its TPs are on the roads crossing it (BR-POI-010).
+            data: stored.data.source === 'osm_admin' ? stored.data : await this.withClassification(stored.data, poiData),
             processingTime: Date.now() - startTime,
             metadata: {
               step: 'boundary_detection',
@@ -149,6 +150,24 @@ export class BoundaryDetector {
             }
           };
         }
+      }
+      // BR-POI-010: a POI named after the municipality its pin stands in takes the municipal border.
+      const municipality = await this.municipalityBoundary(poiData);
+      if (municipality) {
+        return {
+          success: true,
+          data: municipality,
+          processingTime: Date.now() - startTime,
+          metadata: {
+            step: 'boundary_detection',
+            status: 'completed',
+            timestamp: new Date().toISOString(),
+            strategy: 'osm_admin_municipality',
+            database_boundary_found: false,
+            osm_boundary_found: true,
+            osm_identified: true
+          }
+        };
       }
       // INV-E1a: OSM by typed id → OSM that contains the pin → online search → drawn circle.
       let osmBoundaryResult: ProcessingResult<BoundaryData> | null = null;
@@ -296,6 +315,47 @@ export class BoundaryDetector {
   }
   
   /**
+   * BR-POI-010: the municipal border of a POI named after its municipality (`admin-boundaries`),
+   * every part kept; null when it is not one. Not curated: the pipeline writes it once as
+   * `osm_admin`, and from then on the stored border is read as curated.
+   */
+  async municipalityBoundary(poiData: Pick<POIData, 'name' | 'location'>): Promise<BoundaryData | null> {
+    const { LocalOSMFetcher } = await import('../services/local-osm-fetcher');
+    const found = LocalOSMFetcher.getInstance().municipalityAt(poiData.location, poiData.name);
+    const parts = found ? polygonOuterRings(found.geometry) : [];
+    if (!found || parts.length === 0) return null;
+    const coordinates = footprintRing(parts, poiData.location) ?? parts[0];
+    console.log(`🏛️ Municipality "${found.name}" (relation ${found.osmId}): municipal border, ${parts.length} part(s) (BR-POI-010)`);
+    return {
+      id: found.osmId,
+      type: 'polygon',
+      coordinates,
+      center: calculatePolygonCenter(coordinates),
+      area_m2: calculatePolygonAreaInM2(coordinates),
+      perimeter_m: calculatePolygonPerimeter(coordinates),
+      confidence: 0.9,
+      source: 'osm_admin',
+      synthetic: false,
+      curated: false,
+      osmIdentified: true,
+      adminParts: parts,
+    };
+  }
+
+  /**
+   * The municipal border of a POI before anything else runs, so the engine can skip the relief
+   * (BR-POI-010): the stored `osm_admin` border, else the detected one. A border a person curated
+   * that is not administrative wins over the name: null.
+   */
+  async adminBoundaryOf(poiData: Pick<POIData, 'id' | 'name' | 'location'>): Promise<BoundaryData | null> {
+    if (poiData.id) {
+      const stored = await this.fetchBoundaryFromDatabase(poiData.id);
+      if (stored.success && stored.data?.curated) return stored.data.source === 'osm_admin' ? stored.data : null;
+    }
+    return this.municipalityBoundary(poiData);
+  }
+
+  /**
    * Every boundary leaves the detector classified (BR-AUDIO-010). The DB fallback and the
    * estimated circle had no class, and the POI fell into the 300 m unclassified cap — a
    * 2.6 km beach got 1 TP (Praia do Recreio, #779).
@@ -401,21 +461,15 @@ export class BoundaryDetector {
       let coordinates: Array<{lat: number, lng: number}> = [];
       let synthetic = metadata?.boundary_source === 'estimated';
       
-      // Extrair coordenadas do GeoJSON
-      if (geometry.type === 'Polygon' && geometry.coordinates && geometry.coordinates[0]) {
-        // GeoJSON Polygon: coordinates[0] é o anel externo
-        coordinates = geometry.coordinates[0].map((coord: [number, number]) => ({
-          lng: coord[0], // GeoJSON usa [lng, lat]
-          lat: coord[1]
-        }));
-      } else if (geometry.type === 'MultiPolygon' && geometry.coordinates) {
-        // MultiPolygon: usar o primeiro polígono
-        if (geometry.coordinates[0] && geometry.coordinates[0][0]) {
-          coordinates = geometry.coordinates[0][0].map((coord: [number, number]) => ({
-            lng: coord[0],
-            lat: coord[1]
-          }));
-        }
+      // BR-POI-009: the border is one ring, so of N polygon parts it is the part holding the pin;
+      // without one, the largest (`footprintRing`). Parts away from the pin are not covered.
+      const parts = polygonOuterRings(geometry);
+      const multiPart = parts.length > 1;
+      if (parts.length > 0) {
+        const pin = metadata?.latitude != null && metadata?.longitude != null
+          ? { lat: Number(metadata.latitude), lng: Number(metadata.longitude) }
+          : undefined;
+        coordinates = footprintRing(parts, pin) ?? parts[0];
       } else if (geometry.type === 'Point') {
         // Point: criar boundary circular pequeno
         const center = {
@@ -461,14 +515,21 @@ export class BoundaryDetector {
       // Calcular centro e área
       const center = calculatePolygonCenter(coordinates);
       // ✅ Se metadata já tem área em m², usar; senão calcular usando função SSOT
-      const area = metadata?.boundary_area_m2 ? Number(metadata.boundary_area_m2) : calculatePolygonAreaInM2(coordinates);
+      // The stored area of a multi-part border sums every part; the border is the chosen part.
+      const area = metadata?.boundary_area_m2 && !multiPart ? Number(metadata.boundary_area_m2) : calculatePolygonAreaInM2(coordinates);
       const confidence = metadata?.boundary_confidence ? Number(metadata.boundary_confidence) : 0.8;
       
-      const storedSource = (metadata?.boundary_source as BoundaryData['source'] | null) || 'manual';
+      // BR-POI-009: a border stored without a source is not the curator's. Read as 'manual' it was
+      // written back as 'manual' and became curated on the next run (3,592 borders in Portugal).
+      const storedSource = (metadata?.boundary_source as BoundaryData['source'] | null) || 'unknown';
       // #779: the marker of a corrected border. The detector writes 0.9 or 0.5, never 1; the CMS
       // drawing routes write 1.0, and so must a correction SQL (keeping its `osm`/`synthetic` source).
+      // Only a source actually stored counts, never the fallback above.
+      // BR-POI-009: an `osm_admin` border was set on purpose and holds every part of the municipality;
+      // curated, the batch never writes the pin's part alone over it.
+      const admin = metadata?.boundary_source === 'osm_admin';
       const curated = (metadata?.boundary_confidence != null && Number(metadata.boundary_confidence) >= 1)
-        || metadata?.boundary_source === 'manual' || metadata?.boundary_source === 'manual_drawing';
+        || metadata?.boundary_source === 'manual' || metadata?.boundary_source === 'manual_drawing' || admin;
       const boundary: BoundaryData = {
         type: 'polygon',
         coordinates,
@@ -481,6 +542,7 @@ export class BoundaryDetector {
         source: synthetic && !['estimated', 'manual', 'manual_drawing'].includes(storedSource) ? 'synthetic' : storedSource,
         synthetic,
         curated,
+        ...(admin && parts.length > 0 ? { adminParts: parts } : {}),
         // Metadata adicional
         osmTags: undefined,
         classification: undefined

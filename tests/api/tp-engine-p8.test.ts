@@ -110,7 +110,8 @@ describe('INV-E4a/b/c / BR-AUDIO-010 — ground at the top of the boundary, one 
     ElevationAnalysisService.clearCache()
     const poi = { id: 'c', name: 'x', location: PIN, city: 'Rio de Janeiro', country: 'Brazil' } as any
     const { classification, physical } = await withDem(
-      (lat, lng) => (Math.abs(lat - PIN.lat) < 0.001 && Math.abs(lng - PIN.lng) < 0.001 ? 700 : 10),
+      // a peak (~110 m across): the RELIEF_TOP_RING_M ring around its top comes down to 10 m
+      (lat, lng) => (Math.abs(lat - PIN.lat) < 0.0005 && Math.abs(lng - PIN.lng) < 0.0005 ? 700 : 10),
       () => measureAndClassify({ poiData: poi, boundary: square(20), areaM2: 1600, tags: { man_made: 'monument', height: '12' } })
     )
     ElevationAnalysisService.clearCache()
@@ -123,6 +124,27 @@ describe('INV-E4a/b/c / BR-AUDIO-010 — ground at the top of the boundary, one 
     assert.deepEqual(VisibilityMapBuilder.poiSightTarget({ physical }), { groundM: 700, heightM: 12, topM: 712 })
     // a host building raised afterwards (E2) is what the sight line sees; the class keeps its own
     assert.equal(VisibilityMapBuilder.poiSightTarget({ physical, height: 30 }).topM, 730)
+  })
+
+  it('BR-POI-009: a small POI on the slope of a mountain is not landmark_high — it stands on the hill, it is not the hill (Fonte da Peninha, 2026-10-05)', async () => {
+    const { measureAndClassify } = await import('../../lib/services/trigger-points-google/services/poi-classifier.service')
+    const { ElevationAnalysisService } = await import('../../lib/services/trigger-points-google/services/elevation-service')
+    ElevationAnalysisService.clearCache()
+    const poi = { id: 's', name: 'x', location: PIN, city: 'Rio de Janeiro', country: 'Brazil' } as any
+    // a cone whose summit (450 m) is 150 m north of the pin: the pin is ~300 m up its slope,
+    // prominent over the city and over its 2 km ring, and the ground keeps rising uphill of it
+    const summit = at(150, 0)
+    const cone = (lat: number, lng: number) => {
+      const n = (lat - summit.lat) * 110_540, e = (lng - summit.lng) * 111_320 * Math.cos((PIN.lat * Math.PI) / 180)
+      return Math.max(10, 450 - Math.hypot(n, e))
+    }
+    const { classification, physical } = await withDem(
+      cone,
+      () => measureAndClassify({ poiData: poi, boundary: square(4), areaM2: 16, tags: { amenity: 'fountain' } })
+    )
+    ElevationAnalysisService.clearCache()
+    assert.ok((physical.prominenceM ?? 0) >= 100, `prominent over the city (${physical.prominenceM})`)
+    assert.notEqual(classification.group, VisibilityClass.LANDMARK_HIGH)
   })
 })
 

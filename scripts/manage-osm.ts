@@ -1,6 +1,7 @@
 import { OSMCacheService } from '../lib/services/osm-cache-service';
-import { OSMLocalDataService } from '../lib/services/osm-local-data-service';
-import { LOCAL_OSM_DIR_ENV, geonamesDbPath, listOsmRegions, localOsmDir, parsePoly, regionDbPath } from '../lib/services/local-osm-regions';
+import { OSMLocalDataService, splitOnLineFeed } from '../lib/services/osm-local-data-service';
+import { scanMunicipalSeats, seatLevelWarning } from '../lib/services/admin-boundaries';
+import { LOCAL_OSM_DIR_ENV, geonamesDbPath, listOsmRegions, localOsmDir, parsePoly, regionDbPath, type RegionPolygon } from '../lib/services/local-osm-regions';
 import { spawn, spawnSync } from 'node:child_process';
 import * as path from 'node:path';
 import * as fs from 'node:fs';
@@ -49,7 +50,7 @@ async function main() {
       process.exitCode = 1;
       return;
     }
-    parsePoly(fs.readFileSync(polySource, 'utf8')); // fail before hours of import, not after
+    const regionPoly = parsePoly(fs.readFileSync(polySource, 'utf8')); // fail before hours of import, not after
 
     // Optional flag to skip the post-import hotfixes (~30-90 min total).
     // Useful for quick partial imports or debugging. Default: hotfixes run.
@@ -71,9 +72,11 @@ async function main() {
       if (hasOsmium) {
         console.log('💎 Using Osmium for high-performance import...');
         await importWithOsmium(pbfPath, localData, dir);
+        await importMunicipalBorders(pbfPath, localData, region, regionPoly, dir);
       } else {
         console.log('⚙️ Osmium not found. Using pbf2json fallback...');
         await importWithPbf2Json(pbfPath, localData);
+        console.warn('⚠️ Municipal borders (BR-POI-010) need osmium: run --import-admin once it is installed.');
       }
     } finally {
       localData.close();
@@ -93,6 +96,30 @@ async function main() {
       console.log(`\nℹ️  ${geonamesDbPath(dir)} is missing (city/state/country offline): npx tsx scripts/hotfix-geonames-import.ts`);
     }
     console.log(`\n✅ Region "${region}" ready: ${finalDb}`);
+  }
+  else if (command === '--import-admin') {
+    // Only the municipal borders (BR-POI-010), into an existing region database: minutes, not the
+    // hours of a full --import-pbf. `--db` writes elsewhere (a trial run).
+    const pbfPath = args[1];
+    const region = argValue(args, '--region');
+    if (!pbfPath || !region || !fs.existsSync(pbfPath)) {
+      console.error('❌ Usage: --import-admin <file> --region <name> [--poly <file>] [--db <file>]');
+      process.exitCode = 1;
+      return;
+    }
+    const polySource = argValue(args, '--poly') ?? polyBesidePbf(pbfPath);
+    if (!fs.existsSync(polySource)) {
+      console.error(`❌ Boundary not found: ${polySource}. Pass --poly <file>.`);
+      process.exitCode = 1;
+      return;
+    }
+    const dbPath = argValue(args, '--db') ?? regionDbPath(region);
+    const localData = new OSMLocalDataService(dbPath);
+    try {
+      await importMunicipalBorders(pbfPath, localData, region, parsePoly(fs.readFileSync(polySource, 'utf8')), path.dirname(path.resolve(dbPath)));
+    } finally {
+      localData.close();
+    }
   }
   else if (command === '--clear-cache') {
     console.log('🧹 Clearing all OSM cache...');
@@ -118,6 +145,8 @@ Usage:
                                                                Import PBF into <region>.db (runs hotfixes after).
                                                                --poly defaults to the Geofabrik <region>.poly beside the PBF
   npx tsx scripts/manage-osm.ts --import-pbf <file> --region <name> --skip-hotfixes
+  npx tsx scripts/manage-osm.ts --import-admin <file> --region <name> [--poly <file>] [--db <file>]
+                                                               Only the municipal borders (BR-POI-010) into <region>.db
   npx tsx scripts/manage-osm.ts --clear-cache                  Clear all query cache
   npx tsx scripts/manage-osm.ts --status                       List local regions
     `);
@@ -148,7 +177,10 @@ async function runPostImportHotfixes(dbPath: string): Promise<void> {
     console.log(`  npx tsx ${h.args.join(' ')}`);
 
     // shell on Windows only, so cmd finds `npx.cmd`; elsewhere the paths go through untouched.
-    const r = spawnSync('npx', ['tsx', ...h.args], { stdio: 'inherit', cwd: process.cwd(), shell: process.platform === 'win32' });
+    // With a shell, args are concatenated unescaped: quote them, or "C:\Users\Leandro Ramos\..." is cut at the space.
+    const win = process.platform === 'win32';
+    const args = win ? h.args.map(a => (/\s/.test(a) ? `"${a}"` : a)) : h.args;
+    const r = spawnSync('npx', ['tsx', ...args], { stdio: 'inherit', cwd: process.cwd(), shell: win });
 
     if (r.status !== 0) {
       console.warn(`  ⚠️  ${h.name} exited with status ${r.status} — continuing with the next hotfix.`);
@@ -196,9 +228,69 @@ async function importWithOsmium(pbfPath: string, localData: OSMLocalDataService,
     const status = await exited;
     if (status !== 0) throw new Error(`osmium export failed (status ${status})`);
   } finally {
-    if (fs.existsSync(filteredPbf)) fs.unlinkSync(filteredPbf);
+    // On Windows osmium may still hold the file right after a failure; a cleanup error must not
+    // replace the import error that got us here.
+    try {
+      if (fs.existsSync(filteredPbf)) fs.unlinkSync(filteredPbf);
+    } catch (e) {
+      console.warn(`⚠️ Could not delete ${filteredPbf} (${(e as NodeJS.ErrnoException).code}); delete it by hand.`);
+    }
   }
   console.log('🏁 Success!');
+}
+
+/**
+ * Municipal borders, whole (BR-POI-010): the `boundary=administrative` relations assembled by
+ * osmium into polygons, kept at the municipal level of the region's country (detected in the
+ * extract, `admin-boundaries#importAdminBoundaries`) and inside its `.poly`. Prints, for the human,
+ * the count per level and the independent seat check (`admin-boundaries#seatLevelWarning`).
+ */
+async function importMunicipalBorders(pbfPath: string, localData: OSMLocalDataService, region: string, poly: RegionPolygon, dir: string) {
+  const filteredPbf = path.join(dir, '.admin_boundaries.osm.pbf');
+  console.log('🏛️  Municipal borders: filtering boundary=administrative relations...');
+  const filter = spawnSync('osmium', ['tags-filter', pbfPath, 'r/boundary=administrative', '-o', filteredPbf, '--overwrite'], { stdio: 'inherit' });
+  if (filter.status !== 0) throw new Error(`osmium tags-filter (admin) failed (status ${filter.status})`);
+  try {
+    const seats = await streamOsmium(['cat', filteredPbf, '-f', 'opl,add_metadata=false', '-o', '-'], scanMunicipalSeats, 'cat (seats)');
+    const result = await streamOsmium(
+      ['export', filteredPbf, '-f', 'geojsonseq', '--geometry-types=polygon', '--attributes', 'type,id', '-o', '-'],
+      lines => localData.importAdminBoundaries(lines, { region: poly, seats }),
+      'export (admin)',
+    );
+    const perLevel = (m: Record<string, number>) => Object.entries(m).sort(([a], [b]) => Number(a) - Number(b)).map(([l, n]) => `${l}→${n}`).join(', ') || 'none';
+    console.log(`   Relations centred inside ${region}.poly, by admin_level: ${perLevel(result.byLevel)}`);
+    console.log(`   Of those, with a city/town/village seat:            ${perLevel(result.seatsByLevel)}`);
+    if (!result.country || result.level === null) {
+      console.warn(`⚠️ No country found in the extract (no admin_level=2 relation with ISO3166-1 holding the region, no ISO3166-2 subdivision inside it): municipal border mode stays OFF for "${region}".`);
+      return;
+    }
+    console.log(`   Country: ${result.country} (from ${result.countrySource}) → municipal admin_level ${result.level} (admin-boundaries#MUNICIPALITY_ADMIN_LEVEL_BY_COUNTRY)`);
+    console.log(`   ✅ ${result.kept} municipalities kept at admin_level ${result.level} (${result.outsideRegion} centred outside ${region}.poly, dropped). Check the count against the country's.`);
+    const warning = seatLevelWarning(result);
+    if (warning) console.warn(`\n⚠️⚠️ CHECK THE MUNICIPAL LEVEL: ${warning}\n`);
+  } finally {
+    try {
+      if (fs.existsSync(filteredPbf)) fs.unlinkSync(filteredPbf);
+    } catch (e) {
+      console.warn(`⚠️ Could not delete ${filteredPbf} (${(e as NodeJS.ErrnoException).code}); delete it by hand.`);
+    }
+  }
+}
+
+/** Runs osmium with its stdout as lines into `consume`; fails on a non-zero exit, kills osmium if `consume` throws. */
+async function streamOsmium<T>(args: string[], consume: (lines: AsyncIterable<string>) => Promise<T>, label: string): Promise<T> {
+  const child = spawn('osmium', args, { stdio: ['ignore', 'pipe', 'inherit'] });
+  const exited = new Promise<number | null>(resolve => child.on('close', resolve));
+  let result: T;
+  try {
+    result = await consume(splitOnLineFeed(child.stdout));
+  } catch (e) {
+    child.kill();
+    throw e;
+  }
+  const status = await exited;
+  if (status !== 0) throw new Error(`osmium ${label} failed (status ${status})`);
+  return result;
 }
 
 async function importWithPbf2Json(pbfPath: string, localData: OSMLocalDataService) {

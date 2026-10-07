@@ -173,6 +173,7 @@ export type DemCoverage =
 export class DemStore {
   private static instance: DemStore | null = null
   private cities: LoadedCity[] | null = null
+  private lastLoaded: LoadedCity | null = null
 
   constructor(readonly dir: string = defaultDemCacheDir()) {}
 
@@ -402,8 +403,19 @@ export class DemStore {
    * Loads the four layers once, checking size and sha256 against the manifest (EP: "íntegro").
    * A city prepared before #783 has no obstacle layers and does not generate until prepared again.
    */
+  /**
+   * Drops the layers of every area but the last one read (~440 MB per 1° cell). A process that
+   * serves POI after POI (the queue child, `ReusableChild`) calls it between POIs, so it holds
+   * what a process per POI held — the next POI in the same cell skips the load. Values read
+   * afterwards are the same: a dropped area loads again on its next read.
+   */
+  keepOnlyLastLoaded(): void {
+    for (const c of this.cities ?? []) if (c !== this.lastLoaded) c.layers = {}
+  }
+
   private load(c: LoadedCity): boolean {
     if (c.broken) return false
+    this.lastLoaded = c
     if (c.layers.surface && c.layers.ground && c.layers.buildings && c.layers.canopy) return true
     const og = c.manifest.obstacleGrid
     const missing = (['surface', 'ground', 'buildings', 'canopy'] as const).filter(l => !c.manifest.layers.some(r => r.layer === l))

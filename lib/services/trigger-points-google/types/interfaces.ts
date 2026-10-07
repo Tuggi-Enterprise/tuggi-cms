@@ -72,7 +72,11 @@ export interface BoundaryData {
   perimeter_m: number;
   confidence: number;
   /** `synthetic`: a circle drawn around a point, from any path (INV-E1b). `estimated` is the last-resort circle, with its own predictor branch. */
-  source: 'google_places' | 'osm' | 'synthetic' | 'dem_relief' | 'estimated' | 'manual' | 'manual_drawing' | 'nominatim' | 'unified_overpass' | 'estimated_boundary' | 'osm_nominatim' | 'osm_reverse_geocoding' | 'osm_nearby_features';
+  /** `unknown`: a stored border with no recorded source; never curated (BR-POI-009).
+   *  `osm_admin`: an OSM administrative boundary — municipal border mode (`utils/admin-border-tps`). */
+  source: 'google_places' | 'osm' | 'synthetic' | 'dem_relief' | 'estimated' | 'manual' | 'manual_drawing' | 'nominatim' | 'unified_overpass' | 'estimated_boundary' | 'osm_nominatim' | 'osm_reverse_geocoding' | 'osm_nearby_features' | 'unknown' | 'osm_admin';
+  /** Every polygon part of an `osm_admin` border (islands, exclaves); `coordinates` stays the pin's part. */
+  adminParts?: Array<{ lat: number; lng: number }>[];
   /** E1 candidates refused on the way to this border, with the reason (trace, INV-E1c) */
   rejected?: import('../utils/boundary-choice').BoundaryRejection[];
   osmIdentified?: boolean; // ✅ Flag: OSM identificou o POI? (para POIs manuais, indica se OSM encontrou dados)
@@ -361,7 +365,8 @@ export interface SystemConfig {
 export interface TriggerPointPredictionResult {
   triggerPoints: TriggerPoint[];
   boundary: BoundaryData;
-  context: GeographicContext;
+  /** Absent in the municipal border mode, which reads no density, relief or street pattern. */
+  context?: GeographicContext;
   processingTime: number;
   metadata: {
     boundarySource: BoundaryData['source']; // ✅ SSOT: Usar referência direta ao tipo de source do BoundaryData

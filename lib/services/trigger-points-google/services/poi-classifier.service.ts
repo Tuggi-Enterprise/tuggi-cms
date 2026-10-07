@@ -179,7 +179,9 @@ export async function measureAndClassify(a: MeasureInput): Promise<{ classificat
   const { cls, rule } = visibilityClassRule({
     heightM,
     prominenceM,
-    localProminenceM,
+    // Measured, not tagged: a POI that is not the top of its relief stands on the hill, it is not
+    // the hill — a 2 m fountain on a slope read 993 m and got TPs 12 km away (Portugal, 2026-10-05).
+    localProminenceM: onTop === false ? 0 : localProminenceM,
     areaM2,
     boundary: a.synthetic ? undefined : a.boundary,
     waterBody: isWaterBody(a.tags),

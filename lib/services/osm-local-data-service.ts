@@ -1,8 +1,29 @@
 import Database from 'better-sqlite3';
 import * as path from 'path';
 import * as fs from 'fs';
-import * as readline from 'readline';
 import { heightFromTags } from './trigger-points-google/config/visibility-class';
+import { importAdminBoundaries, type AdminBoundaryImport } from './admin-boundaries';
+import type { RegionPolygon } from './local-osm-regions';
+
+/**
+ * Lines of a GeoJSON Sequence, split on "\n" only. `readline` also ends a line at U+2028/U+2029,
+ * which JSON allows unescaped inside strings — one OSM name carrying U+2028 (Portugal, node
+ * 5616265535) cut a feature in half and rolled back the whole country import.
+ */
+export async function* splitOnLineFeed(input: NodeJS.ReadableStream): AsyncGenerator<string> {
+  const decoder = new TextDecoder('utf-8');
+  let pending = '';
+  for await (const chunk of input as AsyncIterable<Buffer | string>) {
+    pending += typeof chunk === 'string' ? chunk : decoder.decode(chunk, { stream: true });
+    let end: number;
+    while ((end = pending.indexOf('\n')) >= 0) {
+      yield pending.slice(0, end).replace(/\r$/, '');
+      pending = pending.slice(end + 1);
+    }
+  }
+  pending += decoder.decode();
+  if (pending) yield pending.replace(/\r$/, '');
+}
 
 /**
  * `buildings.height` of the local OSM db: the engine's one floor ruler (INV-E3, #778), 6 m when
@@ -87,10 +108,7 @@ export class OSMLocalDataService {
    */
   public async importGeoJSONSeq(input: string | NodeJS.ReadableStream): Promise<void> {
     // A stream lets `osmium export -o -` feed the import without a temp file of several GB.
-    const rl = readline.createInterface({
-      input: typeof input === 'string' ? fs.createReadStream(input) : input,
-      crlfDelay: Infinity
-    });
+    const rl = splitOnLineFeed(typeof input === 'string' ? fs.createReadStream(input) : input);
 
     const insertStreet = this.db.prepare(`
       INSERT OR REPLACE INTO streets (id, name, type, geometry_json, min_lat, max_lat, min_lng, max_lng, tags_json)
@@ -258,6 +276,11 @@ export class OSMLocalDataService {
       this.db.exec('ROLLBACK');
       throw e;
     }
+  }
+
+  /** Municipal borders, whole (BR-POI-010): `admin-boundaries#importAdminBoundaries` on this database. */
+  public importAdminBoundaries(lines: AsyncIterable<string>, opts: { region: RegionPolygon; seats?: ReadonlySet<number> }): Promise<AdminBoundaryImport> {
+    return importAdminBoundaries(this.db, lines, opts);
   }
 
   /**

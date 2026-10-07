@@ -32,8 +32,10 @@
 import { PoiMigrationPipeline } from '../lib/services/poi-migration-pipeline'
 import { MigrationService } from '../lib/services/migration-service'
 import { ensureDemCell } from '../lib/services/dem/dem-prepare'
+import { BoundaryDetector } from '../lib/services/trigger-points-google/core/boundary-detector'
 import { SANITY_MAX_TP_DISTANCE_M } from '../lib/services/trigger-points-google/config/visibility-class'
-import { runInChild, reportChildFailure } from '../lib/utils/run-in-child'
+import { ReusableChild, serveParentRequests } from '../lib/utils/run-in-child'
+import { DemStore } from '../lib/services/dem/dem-store'
 import {
   QUEUE_CHILD_FLAG, STORED_BOUNDARY_FLAG, parseQueueChildArgs, queueChildArgs, regenPipelineOptions, storedBoundaryLogSuffix,
 } from '../lib/services/tp-regen-options'
@@ -82,6 +84,13 @@ const WORKER_ID = `${os.hostname()}-${process.pid}`
  * and held its worker. Past this, the POI goes to `failed` with `timeout…` and the worker goes on.
  */
 const POI_TIMEOUT_MS = 5 * 60_000
+/**
+ * POIs one child serves before it is replaced. A fresh child costs ~5–8 s (modules under tsx,
+ * the local OSM region, the relief); 200 POIs spread it to <0.05 s per POI and bound any cache
+ * that grows per POI to 200 POIs' worth. The relief, the largest (~440 MB per 1° cell), is
+ * trimmed to one cell after every POI (`DemStore.keepOnlyLastLoaded`).
+ */
+const POIS_PER_CHILD = 200
 const CHILD_FLAG = QUEUE_CHILD_FLAG
 
 // ─── POI único ───────────────────────────────────────────────────────────────
@@ -113,7 +122,9 @@ async function createBatch(batchId: string, filters: {
   let page = 0
 
   while (true) {
+    // Offset pages without ORDER BY may skip or repeat rows; by id it stays <0.5 s (Portugal, 35.8k).
     let q = db.from('attractions').select('id')
+      .order('id')
       .range(page * PAGE, (page + 1) * PAGE - 1)
 
     if (filters.country) q = q.eq('country', filters.country)
@@ -165,28 +176,24 @@ async function runBatch(batchId: string, storedBoundary = false) {
   console.log(`🚀 Worker ${WORKER_ID} iniciado para batch "${batchId}"${storedBoundaryLogSuffix(storedBoundary)}`)
   let processed = 0, failed = 0
   const startMs = Date.now()
+  // The POIs run in a child kept between them and killed at POI_TIMEOUT_MS: the hang is
+  // synchronous, so a timer in this process would never fire (#779).
+  const child = new ReusableChild(__filename, queueChildArgs(storedBoundary), POIS_PER_CHILD)
 
+  // The next POI is claimed (and its relief prepared) while the child works on this one: the
+  // round trips between two POIs (~0.9 s of ~4 s) overlap with the engine instead of adding up.
+  let next = claimNext(batchId)
   while (true) {
-    // Claim atômico via SKIP LOCKED — só 1 worker pega cada POI
-    const { data: attractionId, error: claimErr } = await db
-      .rpc('claim_next_regen', { p_batch_id: batchId, p_worker_id: WORKER_ID })
-
-    if (claimErr) { console.error('❌ Erro no claim:', claimErr.message); break }
-    if (!attractionId) {
-      console.log(`\n✅ Worker concluído — fila vazia.`)
-      break
-    }
+    const item = await next
+    if (!item) break
+    next = claimNext(batchId)
+    const { attractionId, reliefError } = item
 
     process.stdout.write(`[${processed + failed + 1}] ${attractionId}${storedBoundaryLogSuffix(storedBoundary)}... `)
 
-    // #831: the relief of the POI's 1° cell is prepared here, outside the POI deadline (one
-    // cell takes 2–11 min); a cell that cannot be prepared fails the item, the old TPs stay.
-    const reliefError = await prepareReliefOf(attractionId)
-    // Each POI in its own process, killed at POI_TIMEOUT_MS: the hang is synchronous, so a
-    // timer in this process would never fire (#779).
     const outcome = reliefError
       ? { ok: false as const, error: reliefError, timedOut: false }
-      : await runInChild(__filename, queueChildArgs(attractionId, storedBoundary), POI_TIMEOUT_MS)
+      : await child.run(attractionId, POI_TIMEOUT_MS)
     const errorMsg = outcome.ok ? null : outcome.error.slice(0, 200)
     const elapsed = ((Date.now() - startMs) / 1000).toFixed(0)
     if (outcome.ok) {
@@ -210,16 +217,34 @@ async function runBatch(batchId: string, storedBoundary = false) {
       .eq('attraction_id', attractionId)
   }
 
+  child.close()
   const totalS = ((Date.now() - startMs) / 1000).toFixed(1)
   console.log(`\n📊 Worker: ${processed} ok, ${failed} falhou em ${totalS}s`)
 }
 
-/** #831: prepares the relief cell of the POI if no prepared area covers it; the error, or null. */
+/**
+ * Claims the next POI of the queue (atomic, SKIP LOCKED: one worker per POI) and prepares its
+ * relief; null when the queue is empty or the claim fails.
+ */
+async function claimNext(batchId: string): Promise<{ attractionId: string; reliefError: string | null } | null> {
+  const { data: attractionId, error } = await db.rpc('claim_next_regen', { p_batch_id: batchId, p_worker_id: WORKER_ID })
+  if (error) { console.error('❌ Erro no claim:', error.message); return null }
+  if (!attractionId) { console.log(`\n✅ Worker concluído — fila vazia.`); return null }
+  // #831: the relief of the POI's 1° cell is prepared here, outside the POI deadline (one
+  // cell takes 2–11 min); a cell that cannot be prepared fails the item, the old TPs stay.
+  return { attractionId, reliefError: await prepareReliefOf(attractionId) }
+}
+
+/**
+ * #831: prepares the relief cell of the POI if no prepared area covers it; the error, or null.
+ * BR-POI-010: a municipal border reads no relief, so its cell is not prepared.
+ */
 async function prepareReliefOf(attractionId: string): Promise<string | null> {
   const loaded = await MigrationService.loadPOIWithCoordinates(attractionId)
   if (!loaded.success || !loaded.data) return null // the child reports the missing POI
   const { latitude: lat, longitude: lng } = loaded.data.coordinate
   try {
+    if (await new BoundaryDetector().adminBoundaryOf({ id: attractionId, name: loaded.data.poi.name, location: { lat, lng } })) return null
     await ensureDemCell({ lat, lng, marginM: SANITY_MAX_TP_DISTANCE_M })
     return null
   } catch (err) {
@@ -291,7 +316,7 @@ async function dryRun(opts: { ids?: string[]; bbox?: [number, number, number, nu
   const { dryRunPoi, listAttractionIdsInBbox, toCsvLines, summarizePoi, DRY_RUN_CSV_COLUMNS, TRACE_CSV_COLUMNS, toTraceCsvLines } =
     await import('../lib/services/tp-dry-run')
 
-  let ids = opts.ids ?? (opts.bbox ? await listAttractionIdsInBbox(opts.bbox) : [])
+  let ids = opts.ids ?? (opts.bbox ? await listAttractionIdsInBbox(opts.bbox, opts.limit) : [])
   if (opts.limit) ids = ids.slice(0, opts.limit)
   if (!ids.length) { console.log('Nenhum POI para o dry-run.'); return }
 
@@ -341,11 +366,16 @@ async function main() {
   const getEq = (flag: string) => args.find(a => a.startsWith(`${flag}=`))?.slice(flag.length + 1) ?? get(flag)
 
   if (args[0] === CHILD_FLAG) {
-    // Worker child (runBatch): one POI, and the parent owns the queue row.
-    const child = parseQueueChildArgs(args)
-    const result = await PoiMigrationPipeline.executePipeline(child.attractionId, regenPipelineOptions(child.storedBoundary))
-    if (!result.success) return reportChildFailure(result.error ?? 'pipeline failed')
-    process.exit(0)
+    // Worker child (runBatch): one POI per request, and the parent owns the queue rows.
+    const options = regenPipelineOptions(parseQueueChildArgs(args).storedBoundary)
+    serveParentRequests(async attractionId => {
+      try {
+        const result = await PoiMigrationPipeline.executePipeline(String(attractionId), options)
+        return result.success ? null : result.error ?? 'pipeline failed'
+      } finally {
+        DemStore.getInstance().keepOnlyLastLoaded()
+      }
+    })
   } else if (args.includes('--dry-run')) {
     const idsArg = getEq('--ids') ?? id
     const bboxArg = getEq('--bbox')
@@ -404,6 +434,5 @@ Uso:
 }
 
 main().catch(e => {
-  if (process.argv[2] === CHILD_FLAG) return reportChildFailure(e instanceof Error ? e.message : String(e))
   console.error(e); process.exit(1)
 })

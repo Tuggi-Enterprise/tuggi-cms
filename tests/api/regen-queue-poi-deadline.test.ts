@@ -1,11 +1,15 @@
 /**
- * #779 — no POI holds the TP regen queue (`scripts/regen-trigger-points.ts#runBatch`).
+ * #779 — no POI holds the TP regen queue (`scripts/regen-trigger-points.ts#runBatch`), and the
+ * queue child is reused between POIs (`lib/utils/run-in-child.ts#ReusableChild`).
  *
  * Mutations that turn this suite red:
  *  · racing the POI against a timer in the same process — a synchronous loop never yields,
  *    and the timer never fires (the Rio queue sat hours on six relief POIs);
  *  · a timed-out POI that does not say `timeout` — the queue row is how the operator finds it;
- *  · a failed pipeline that exits 0 — the queue would mark it `done`;
+ *  · a failed pipeline answered as success — the queue would mark it `done`;
+ *  · a fork per POI again — the ~8 s of modules, OSM region and relief come back on every POI;
+ *  · a POI that fails or throws taking the child down with it;
+ *  · the killed child reused for the next POI, or a child never replaced (`maxRequests`);
  *  · `streetFootOnEdge` answering differently after the seed dedup (BR-POI-009 reach is
  *    measured on this foot; the dedup only removes repeated points).
  *
@@ -16,34 +20,78 @@ import assert from 'node:assert/strict'
 import * as fs from 'fs'
 import * as os from 'os'
 import * as path from 'path'
-import { runInChild } from '../../lib/utils/run-in-child'
+import { pathToFileURL } from 'url'
+import { ReusableChild } from '../../lib/utils/run-in-child'
 import { streetFootOnEdge, calculateDistanceToBoundary, closestPointOnPolyline } from '../../lib/services/trigger-points-google/utils/calculations'
 
 const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'run-in-child-'))
-const script = (name: string, body: string) => {
-  const p = path.join(dir, name)
-  fs.writeFileSync(p, body)
-  return p
-}
+/** A queue child on the real `serveParentRequests`: the request names what it does. */
+const childPath = path.join(dir, 'child.ts')
+fs.writeFileSync(childPath, `
+import { serveParentRequests } from ${JSON.stringify(pathToFileURL(path.resolve('lib/utils/run-in-child.ts')).href)}
+let served = 0
+serveParentRequests(async request => {
+  served++
+  const r = request as { op: string; msg?: string }
+  if (r.op === 'served') return 'served=' + served
+  if (r.op === 'fail') return r.msg ?? 'failed'
+  if (r.op === 'throw') throw new Error(r.msg)
+  if (r.op === 'exit') process.exit(3)
+  if (r.op === 'spin') { const t = Date.now(); while (Date.now() - t < 60_000) {} }
+  return null
+})
+`)
+const LONG = 60_000
 
-test('#779 a synchronous loop is killed at the deadline and reported as timeout', async () => {
-  const spin = script('spin.mjs', 'const t = Date.now(); while (Date.now() - t < 60_000) {}\n')
-  const t0 = Date.now()
-  const r = await runInChild(spin, [], 500)
-  assert.equal(r.ok, false)
-  assert.ok(!r.ok && r.timedOut && r.error.startsWith('timeout'), JSON.stringify(r))
-  assert.ok(Date.now() - t0 < 10_000, 'the parent went on long before the loop would end')
+test('#779 one child serves POI after POI, keeping its state', async () => {
+  const c = new ReusableChild(childPath, [], 200)
+  try {
+    assert.deepEqual(await c.run({ op: 'ok' }, LONG), { ok: true })
+    assert.deepEqual(await c.run({ op: 'ok' }, LONG), { ok: true })
+    assert.deepEqual(await c.run({ op: 'served' }, LONG), { ok: false, timedOut: false, error: 'served=3' })
+    assert.equal(c.started, 1)
+  } finally { c.close() }
 })
 
-test('#779 a child that finishes in time is ok', async () => {
-  const r = await runInChild(script('ok.mjs', 'process.exit(0)\n'), [], 10_000)
-  assert.deepEqual(r, { ok: true })
+test('#779 a synchronous loop is killed at the deadline, reported as timeout, and the next POI runs in a new child', async () => {
+  const c = new ReusableChild(childPath, [], 200)
+  try {
+    await c.run({ op: 'ok' }, LONG) // the child is up: the deadline below measures the POI only
+    const t0 = Date.now()
+    const r = await c.run({ op: 'spin' }, 1_500)
+    assert.ok(!r.ok && r.timedOut && r.error.startsWith('timeout'), JSON.stringify(r))
+    assert.ok(Date.now() - t0 < 15_000, 'the parent went on long before the loop would end')
+    assert.deepEqual(await c.run({ op: 'served' }, LONG), { ok: false, timedOut: false, error: 'served=1' })
+    assert.equal(c.started, 2)
+  } finally { c.close() }
 })
 
-test('#779 a reported failure reaches the parent with its message, not as timeout', async () => {
-  const fail = script('fail.mjs', "process.send({ error: 'No trigger points generated' }, () => process.exit(1))\n")
-  const r = await runInChild(fail, [], 10_000)
-  assert.deepEqual(r, { ok: false, timedOut: false, error: 'No trigger points generated' })
+test('#779 a failed or throwing POI reaches the parent with its message, and the child goes on', async () => {
+  const c = new ReusableChild(childPath, [], 200)
+  try {
+    assert.deepEqual(await c.run({ op: 'fail', msg: 'No trigger points generated' }, LONG), { ok: false, timedOut: false, error: 'No trigger points generated' })
+    assert.deepEqual(await c.run({ op: 'throw', msg: 'Failed to load POI' }, LONG), { ok: false, timedOut: false, error: 'Failed to load POI' })
+    assert.deepEqual(await c.run({ op: 'ok' }, LONG), { ok: true })
+    assert.equal(c.started, 1)
+  } finally { c.close() }
+})
+
+test('#779 a child that dies mid-POI fails that POI, and the next one gets a new child', async () => {
+  const c = new ReusableChild(childPath, [], 200)
+  try {
+    assert.deepEqual(await c.run({ op: 'exit' }, LONG), { ok: false, timedOut: false, error: 'child exited with code 3' })
+    assert.deepEqual(await c.run({ op: 'ok' }, LONG), { ok: true })
+    assert.equal(c.started, 2)
+  } finally { c.close() }
+})
+
+test('#779 the child is replaced after maxRequests POIs', async () => {
+  const c = new ReusableChild(childPath, [], 2)
+  try {
+    for (let i = 0; i < 3; i++) assert.deepEqual(await c.run({ op: 'ok' }, LONG), { ok: true })
+    assert.deepEqual(await c.run({ op: 'served' }, LONG), { ok: false, timedOut: false, error: 'served=2' })
+    assert.equal(c.started, 2)
+  } finally { c.close() }
 })
 
 // The pre-dedup `streetFootOnEdge`, kept here as the oracle.

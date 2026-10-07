@@ -9,6 +9,7 @@ import ProcessingService from '@/lib/core/processing-service'
 import { getSupabase } from '@/lib/core/supabase-client'
 import { HomologEnrichmentService } from './poi-processing/homolog-enrichment.service'
 import { stampGenerationMethod } from './dem/dem-sources'
+import { boundaryGeoJson } from './trigger-points-google/utils/boundary-choice'
 
 const supabase = getSupabase('service')
 
@@ -852,22 +853,8 @@ export class PoiMigrationPipeline {
         console.log(`   💾 Saving boundary geometry from source: ${predictionResult.boundary.source}...`)
         
         try {
-          const coords = predictionResult.boundary.coordinates
-          // Ensure polygon is closed for GeoJSON
-          const closedCoords = [...coords];
-          if (
-            closedCoords[0].lat !== closedCoords[closedCoords.length - 1].lat ||
-            closedCoords[0].lng !== closedCoords[closedCoords.length - 1].lng
-          ) {
-            closedCoords.push({ ...closedCoords[0] });
-          }
-          
-          const geoJsonCoords = closedCoords.map(c => [c.lng, c.lat]);
-          const geoJson = {
-            type: 'Polygon',
-            coordinates: [geoJsonCoords]
-          };
-          const geoJsonString = JSON.stringify(geoJson);
+          // BR-POI-010: a municipal border is saved with every part (islands, exclaves), not only the pin's.
+          const geoJsonString = JSON.stringify(boundaryGeoJson(predictionResult.boundary));
           
           const { error: boundaryError } = await supabase.schema('core').rpc('update_boundary_geometry', {
             p_attraction_id: attraction_id,
