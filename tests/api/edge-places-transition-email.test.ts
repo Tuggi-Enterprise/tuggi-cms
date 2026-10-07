@@ -135,9 +135,10 @@ test('#813: no transition e-mail carries data of the submission, nor "sem multa"
   }
 })
 
-test('parseNotify accepts only {event: approved, submission_id: uuid}', () => {
+test('parseNotify accepts only {event: approved | live, submission_id: uuid}', () => {
   assert.deepEqual(mod.parseNotify({ event: 'approved', submission_id: SID }), { event: 'approved', submissionId: SID })
-  assert.equal(mod.parseNotify({ event: 'live', submission_id: SID }), null)
+  assert.deepEqual(mod.parseNotify({ event: 'live', submission_id: SID }), { event: 'live', submissionId: SID })
+  assert.equal(mod.parseNotify({ event: 'rejected', submission_id: SID }), null)
   assert.equal(mod.parseNotify({ event: 'approved', submission_id: 'x' }), null)
   assert.equal(mod.parseNotify(null), null)
 })
@@ -170,6 +171,36 @@ test('#813: an unpublished approved place is not moved to live', async () => {
   const f = fake({ rows: [{ submissionId: SID, email: 'a@b.co', plan: 'map_only', published: false, approvedAt: NOW.toISOString() }] })
   await mod.runTransitionEmails(f.deps)
   assert.deepEqual(f.live, [])
+})
+
+test('BR-B2B-049 item 8 (#906): the sweep reconciles a place published long ago and leaves an unpublished one approved', async () => {
+  const old = new Date(NOW.getTime() - 20 * DAY).toISOString()
+  const f = fake({
+    rows: [
+      { submissionId: SID, email: 'antigo@local.com', plan: 'map_only', published: true, approvedAt: old },
+      { submissionId: SID2, email: 'sem-contorno@local.com', plan: 'map_and_description', published: false, approvedAt: old },
+    ],
+  })
+  const out = await mod.runTransitionEmails(f.deps)
+  assert.deepEqual(f.live, [SID])
+  assert.equal(out.live, 1)
+  assert.deepEqual(f.mails.filter((m) => m.to === 'antigo@local.com').map((m) => m.subject), ['Seu local está no mapa do Tuggi'])
+  // the unpublished one only gets the kit reminder, never "no ar"
+  assert.deepEqual(f.mails.filter((m) => m.to === 'sem-contorno@local.com').map((m) => m.subject), ['Já imprimiu o kit do seu local?'])
+})
+
+test('BR-B2B-049 item 10 (#906): "no ar" at the act goes only to a submission already in live', async () => {
+  const isLive = fake({ target: { submissionId: SID, status: 'live', email: 'dono@local.com', plan: 'map_only' } })
+  assert.equal(await mod.notifyLive(isLive.deps, SID), 'sent')
+  assert.equal(isLive.mails.length, 1)
+  assert.equal(isLive.mails[0].to, 'dono@local.com')
+  assert.ok(isLive.mails[0].text.includes(mod.APP_STORE_URL))
+  assert.deepEqual(isLive.live, [], 'notifyLive never moves the submission itself')
+
+  const stillApproved = fake()
+  assert.equal(await mod.notifyLive(stillApproved.deps, SID), 'not_live')
+  assert.equal(await mod.notifyLive(fake({ target: null }).deps, SID), 'not_found')
+  assert.equal(stillApproved.mails.length, 0)
 })
 
 // ─── kit reminder ──────────────────────────────────────────────────────────────────────────────
@@ -231,6 +262,23 @@ test('#813: notifyPortalApproval calls places-portal-notify with the operator to
   assert.equal((seen[0].init.headers as Record<string, string>).Authorization, 'Bearer jwt-1')
   assert.deepEqual(JSON.parse(String(seen[0].init.body)), { event: 'approved', submission_id: SID })
   assert.equal(await notify.notifyPortalApproval(null, SID), false)
+})
+
+test('#906: notifyPortalLive calls places-portal-notify with event live', async () => {
+  process.env.NEXT_PUBLIC_SUPABASE_URL = 'https://proj.supabase.co'
+  const seen: { url: string; init: RequestInit }[] = []
+  const ok = await notify.notifyPortalLive('jwt-2', SID, (async (url: string, init: RequestInit) => {
+    seen.push({ url, init })
+    return new Response('{}', { status: 200 })
+  }) as unknown as typeof fetch)
+  assert.equal(ok, true)
+  assert.equal(seen[0].url, 'https://proj.supabase.co/functions/v1/places-portal-notify')
+  assert.deepEqual(JSON.parse(String(seen[0].init.body)), { event: 'live', submission_id: SID })
+})
+
+test('#906: places-portal-notify routes event live to notifyLive', () => {
+  const src = readFileSync(resolve(FUNCTIONS, 'places-portal-notify/index.ts'), 'utf8')
+  assert.match(src, /parsed\.event === 'live'\s*\? await notifyLive\(deps, parsed\.submissionId\)/)
 })
 
 test('#813: the decision route asks for the e-mail only on approve, after the transition', () => {

@@ -8,6 +8,8 @@
  * front of tourists and when. Nothing on this path can reach `commission_rate`,
  * `monthly_fee_cents`, `is_courtesy`, the client's `status` or the `slug`, and it is not a
  * denylist that keeps them out: there is no patch object here for a second key to be added to.
+ * The one write that follows is the state machine's, not a column: publishing moves the portal
+ * submission behind the place `approved → live` (#906, BR-B2B-049 item 8).
  *
  * THE PLAN IS REBUILT FROM THE DATABASE, exactly like the promotion route. The panel's plan is
  * a rendering; this one is the decision. That is what makes DS-COMPONENTE-021, point 2, real
@@ -32,6 +34,8 @@ import { logAuditEvent } from '@/lib/services/audit-service'
 import { placeService } from '@/lib/core/place-service'
 import { loadPartnerPlace } from '@/lib/services/partnership-service'
 import { checkAcceptanceGate, gateRefusalBody } from '@/lib/services/acceptance-gate-service'
+import { markPortalSubmissionLive } from '@/lib/services/portal-validation-service'
+import { notifyPortalLive } from '@/lib/services/portal-transition-email'
 
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
 
@@ -91,6 +95,21 @@ export const POST = withRateLimit(30, 60_000)(
       } catch (error) {
         console.error('[partnerships] place approval write refused:', error)
         return NextResponse.json({ error: 'write_failed' }, { status: 503 })
+      }
+
+      // BR-B2B-049 item 8 (#906): the portal submission behind this place goes `approved → live`
+      // now, and its "no ar" e-mail with it. After the write, never instead of it: a failure here
+      // is logged, the place stays published, and the daily sweep moves the submission.
+      if (approved) {
+        const live = await markPortalSubmissionLive(attractionId, auth.user.id)
+        if (live.length > 0) {
+          const { data } = await auth.supabase.auth.getSession()
+          for (const submissionId of live) {
+            if (!(await notifyPortalLive(data.session?.access_token, submissionId))) {
+              console.error('[partnerships] "no ar" e-mail not sent', submissionId)
+            }
+          }
+        }
       }
 
       await logAuditEvent({
