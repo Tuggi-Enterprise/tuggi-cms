@@ -10,6 +10,10 @@
 // `_shared/places-transition-email.ts`): published place → `live` + "no ar" e-mail, and the one kit
 // reminder. That part does not need Asaas and runs even when the payment part cannot.
 //
+// Since #889 it also takes the paid description off when the payment ends, and puts it back when
+// the partner pays again (`reconcilePartnerStories`, `_shared/places-story-suspension.ts`,
+// BR-B2B-019). Database only — it runs even when Asaas is not configured.
+//
 // Caller: a pg_cron job with the project's secret key (`requireAdmin`, machine bypass), the same
 // pattern as `daily-gamification-orchestrator`. Deploy with `--no-verify-jwt`.
 
@@ -18,31 +22,39 @@ import { runSweep } from '../_shared/places-payment.ts';
 import { asaasFromEnv, baseDeps, json } from '../_shared/places-payment-runtime.ts';
 import { runTransitionEmails } from '../_shared/places-transition-email.ts';
 import { transitionDeps } from '../_shared/places-transition-email-runtime.ts';
+import { reconcilePartnerStories } from '../_shared/places-story-suspension.ts';
+import { suspensionDeps } from '../_shared/places-story-suspension-runtime.ts';
 
 Deno.serve(async (req: Request) => {
   if (req.method !== 'POST') return json(405, { error: 'method_not_allowed' });
   const auth = await requireAdmin(req);
   if (auth instanceof Response) return auth;
 
-  let emails: Record<string, unknown>;
+  let databaseOnly: Record<string, unknown>;
   try {
-    emails = await runTransitionEmails(transitionDeps());
+    databaseOnly = await runTransitionEmails(transitionDeps());
   } catch (e) {
     console.error('[places-payment-sweep] transition e-mails failed', e instanceof Error ? e.message.slice(0, 200) : 'unknown');
-    emails = { transition_emails: 'failed' };
+    databaseOnly = { transition_emails: 'failed' };
+  }
+  try {
+    databaseOnly.story_suspension = await reconcilePartnerStories(suspensionDeps());
+  } catch (e) {
+    console.error('[places-payment-sweep] story suspension failed', e instanceof Error ? e.message.slice(0, 200) : 'unknown');
+    databaseOnly.story_suspension = 'failed';
   }
 
   const asaas = asaasFromEnv();
   if (!asaas) {
     console.error('[places-payment-sweep] ASAAS_BASE_URL or ASAAS_API_KEY is not set');
-    return json(503, { error: 'unavailable', ...emails });
+    return json(503, { error: 'unavailable', ...databaseOnly });
   }
   try {
-    const summary = { ...(await runSweep(baseDeps(asaas))), ...emails };
+    const summary = { ...(await runSweep(baseDeps(asaas))), ...databaseOnly };
     console.log('[places-payment-sweep]', JSON.stringify(summary));
     return json(200, summary);
   } catch (e) {
     console.error('[places-payment-sweep] failed', e instanceof Error ? e.message.slice(0, 200) : 'unknown');
-    return json(500, { error: 'failed', ...emails });
+    return json(500, { error: 'failed', ...databaseOnly });
   }
 });
