@@ -150,7 +150,9 @@ describe('#831 — the relief is prepared by 1° cell, by the generation itself 
     await assert.rejects(ensureDemCell({ ...pin, marginM: MARGIN_M, dir, prepare: failing.prepare, now: () => t }), /HTTP 503.*retried after/)
     assert.equal(failing.areas.length, 1)
     const ok = fakePrepare(pin)
-    const later = () => new Date(t.getTime() + DEM_CELL_RETRY_AFTER_MS + 1)
+    // The failed manifest is stamped by `prepareCityDem` with the real clock, some ms after `t`:
+    // "later" counts from now, or a slow disk leaves it inside the window and the test flakes.
+    const later = () => new Date(Date.now() + DEM_CELL_RETRY_AFTER_MS + 1)
     assert.equal(await ensureDemCell({ ...pin, marginM: MARGIN_M, dir, prepare: ok.prepare, now: later }), true)
   })
 

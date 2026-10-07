@@ -26,6 +26,7 @@ import {
 import { COST_CATEGORIES, COST_ITEM_HINTS } from '@/lib/finance/cost-taxonomy'
 import { assessClient, type ClientFinanceFacts } from '@/lib/finance/profitability'
 import { summarizeFinance } from '@/lib/finance/summary'
+import { APP_SCHEMA_SKIP, tableDdl } from './setup/app-schema'
 
 const root = resolve(import.meta.dirname, '../..')
 const read = (path: string) => readFileSync(resolve(root, path), 'utf8')
@@ -122,13 +123,11 @@ test('o custo fixo não tem cliente, em lugar nenhum do módulo', () => {
     'nada em structure.ts rateia custo fixo por cliente'
   )
 
-  const migration = read('supabase/migrations/20260901_01_finance_schema.sql')
-  const fixedCostsDdl = migration.slice(
-    migration.indexOf('create table if not exists finance.fixed_costs'),
-    migration.indexOf('comment on table finance.fixed_costs')
-  )
+})
+
+test('a tabela de custo fixo não tem cliente', { skip: APP_SCHEMA_SKIP }, () => {
   assert.ok(
-    !/client_id/.test(fixedCostsDdl),
+    !/client_id/.test(tableDdl('finance.fixed_costs')),
     'a tabela de custo fixo não pode ter client_id — ela cobre na camada acima'
   )
 })
@@ -497,12 +496,8 @@ test('sem taxa, as duas continuam nomeando a moeda em vez de somá-la', () => {
 
 // ── O VOCABULÁRIO ─────────────────────────────────────────────────────────────────────────────
 
-test('o CHECK do banco e o vocabulário do TypeScript são a MESMA lista', () => {
-  const migration = read('supabase/migrations/20260902_03_finance_cost_taxonomy.sql')
-  const check = migration.slice(
-    migration.indexOf('fixed_costs_category_ck check'),
-    migration.indexOf('comment on column finance.fixed_costs.category')
-  )
+test('o CHECK do banco e o vocabulário do TypeScript são a MESMA lista', { skip: APP_SCHEMA_SKIP }, () => {
+  const check = /CONSTRAINT fixed_costs_category_ck CHECK .*/.exec(tableDdl('finance.fixed_costs'))?.[0] ?? ''
 
   for (const category of COST_CATEGORIES) {
     assert.ok(check.includes(`'${category}'`), `o banco precisa aceitar \`${category}\``)

@@ -2990,6 +2990,7 @@
         "invalid_body": "O pedido saiu incompleto desta tela. Recarregue a página e tente de novo.",
         "invalid_refusal_id": "O pedido saiu incompleto desta tela. Recarregue a página e tente de novo.",
         "place_not_linked": "Este local não está mais vinculado a este cliente. Recarregue a lista.",
+        "not_linked": "Este local não está mais vinculado a este cliente. Recarregue a lista.",
         "refusal_not_found": "A recusa que você tentou comunicar não existe mais. Recarregue a lista.",
         "already_communicated": "Esta recusa já tinha sido comunicada em {date}. Nada mudou.",
         "already_communicated_undated": "Esta recusa já tinha sido comunicada. Nada mudou.",

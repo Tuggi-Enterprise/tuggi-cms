@@ -530,17 +530,23 @@ test('#742 · DS-COPY-062 item 5: the km label names access, never distance and 
  * values of `time_credit_grants.source` do not include one, and no prize hour was ever emitted).
  * The seal of position is expressly NOT covered by this (item 3): it is internal display of a
  * position on a surface the Tuggi operates, and the symbol suspended by item 1 is the Passport's.
+ *
+ * Since 2026-10-04 the prize IN HOURS exists and is affirmable within BR-RANKING-011 item 8 (the
+ * status line of BR-RANKING-006). The operator's screen that sets those hours (#855,
+ * `Navigation.reward_settings`) names them, and that is the only exemption: any other string that
+ * speaks of a prize still fails here, and the Passport symbol stays suspended.
  */
 test('#742 · BR-RANKING-006: no message of the CMS asserts that the scoreboard pays anything', () => {
   /* `premium` and `premissa` are not prizes, and the CMS has plenty of both — the word this rule
      is about is the noun and the verb of awarding, in the three languages. */
   const PRIZE = /pr[êe]mi[oa]|premiaç|premiad|prize|reward|recompensa|hora[s]? gr[áa]tis|free hour|hora[s]? gratis/i
+  const HOUR_PRIZE_SETTINGS = new Set(['Navigation.reward_settings'])
 
   for (const locale of LOCALES) {
     const offending: string[] = []
     const walk = (node: unknown, path: string) => {
       if (typeof node === 'string') {
-        if (PRIZE.test(node)) offending.push(`${path} = ${node}`)
+        if (PRIZE.test(node) && !HOUR_PRIZE_SETTINGS.has(path)) offending.push(`${path} = ${node}`)
       } else if (node && typeof node === 'object') {
         for (const [key, value] of Object.entries(node)) walk(value, path ? `${path}.${key}` : key)
       }

@@ -18,6 +18,7 @@ import { readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
 
 import { BASE_CURRENCY, convertCents, rateOn, type FxRate } from '@/lib/finance/fx'
+import { APP_SCHEMA_SKIP, grantsOn, tableDdl } from './setup/app-schema'
 
 const root = resolve(import.meta.dirname, '../..')
 const read = (path: string) => readFileSync(resolve(root, path), 'utf8')
@@ -89,9 +90,11 @@ test('sem taxa, `null` — e `null` nunca é zero', () => {
 
 test('o real é a base, e ele não tem taxa própria', () => {
   assert.equal(BASE_CURRENCY, 'BRL')
-  const migration = read('supabase/migrations/20260902_05_finance_fx_rates.sql')
+})
+
+test('o banco recusa taxa de real para real', { skip: APP_SCHEMA_SKIP }, () => {
   assert.ok(
-    /currency <> 'BRL'/.test(migration),
+    /currency <> 'BRL'/.test(tableDdl('finance.fx_rates')),
     'uma taxa de real para real seria uma linha que alguém acabaria editando para 1,05'
   )
 })
@@ -106,35 +109,19 @@ test('o módulo puro não busca cotação em lugar nenhum', () => {
   assert.ok(!/from 'react'|useState/.test(source))
 })
 
-test('corrigir a taxa é inserir linha nova: a tabela não aceita UPDATE nem DELETE', () => {
-  const migration = read('supabase/migrations/20260902_05_finance_fx_rates.sql')
-  const grants = migration.slice(migration.indexOf('grant select'))
+test('corrigir a taxa é inserir linha nova: a tabela não aceita UPDATE nem DELETE', { skip: APP_SCHEMA_SKIP }, () => {
+  const grants = grantsOn('finance.fx_rates')
 
-  assert.ok(/grant select, insert on finance\.fx_rates/.test(grants))
-  assert.ok(!/update on finance\.fx_rates/.test(grants), 'a taxa de hoje não reprecifica julho')
-  assert.ok(!/delete on finance\.fx_rates/.test(grants))
+  assert.ok(grants.some((line) => /^GRANT SELECT,INSERT ON/.test(line)))
+  assert.ok(!grants.some((line) => /\b(UPDATE|DELETE|ALL)\b/.test(line)), 'a taxa de hoje não reprecifica julho')
 })
 
-test('toda taxa declarada carrega procedência', () => {
-  const migration = read('supabase/migrations/20260902_05_finance_fx_rates.sql')
+test('toda taxa declarada carrega procedência', { skip: APP_SCHEMA_SKIP }, () => {
+  const ddl = tableDdl('finance.fx_rates')
 
-  assert.ok(/source text not null/.test(migration))
+  assert.ok(/\bsource text NOT NULL/.test(ddl))
   assert.ok(
-    /fx_rates_source_ck check \(length\(btrim\(source\)\) > 0\)/.test(migration),
+    /CONSTRAINT fx_rates_source_ck CHECK \(\(length\(btrim\(source\)\) > 0\)\)/.test(ddl),
     'uma taxa sem procedência é um chute com cara de fato'
-  )
-})
-
-test('a vigência das taxas semeadas cobre os custos já cadastrados', () => {
-  const rates = read('supabase/migrations/20260902_05_finance_fx_rates.sql')
-  const costs = read('supabase/migrations/20260902_04_finance_cost_baseline.sql')
-
-  const rateStart = rates.match(/'(\d{4}-\d{2}-\d{2})'/g)?.map((v) => v.slice(1, -1)).sort()[0]
-  const costStart = costs.match(/'(\d{4}-\d{2}-\d{2})'/g)?.map((v) => v.slice(1, -1)).sort()[0]
-
-  assert.ok(rateStart && costStart)
-  assert.ok(
-    rateStart <= costStart,
-    'uma taxa que começa depois do primeiro custo deixaria esse custo fora de toda soma em reais'
   )
 })

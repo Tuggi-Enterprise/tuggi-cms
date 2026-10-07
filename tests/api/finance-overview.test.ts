@@ -32,6 +32,7 @@ import {
   type PartnerMixRow,
 } from '@/lib/finance/overview'
 import type { FixedCostRecord } from '@/lib/finance/structure'
+import { APP_SCHEMA_SKIP, grantsOn, tableDdl } from './setup/app-schema'
 
 const root = resolve(import.meta.dirname, '../..')
 const read = (path: string) => readFileSync(resolve(root, path), 'utf8')
@@ -476,23 +477,16 @@ test('o módulo puro não conhece Supabase, fetch nem React', () => {
   assert.ok(!/from 'react'|useState|useEffect/.test(source))
 })
 
-test('as duas tabelas novas nascem sem `delete`, e a exclusão se desfaz por escrita', () => {
-  const migration = read('supabase/migrations/20260902_01_finance_overview.sql')
-
-  // AS INSTRUÇÕES, NÃO A PROSA. Os comentários desta migration explicam por que `delete` está
-  // fora dela, e um regex sobre o arquivo inteiro casa com a própria explicação — foi o que
-  // aconteceu na primeira versão deste teste, que passou a acusar o texto que a defende.
-  const grants = migration
-    .split('\n')
-    .filter((row) => /^\s*grant\s/i.test(row))
-    .map((row) => row.toLowerCase())
-
-  assert.ok(grants.length >= 2, 'a migration concede acesso às duas tabelas')
-  for (const grant of grants) {
-    assert.ok(
-      !/\bdelete\b/.test(grant),
-      `preço é histórico e exclusão se desfaz por escrita — nenhum delete: ${grant.trim()}`
-    )
+test('as duas tabelas novas nascem sem `delete`, e a exclusão se desfaz por escrita', { skip: APP_SCHEMA_SKIP }, () => {
+  for (const table of ['finance.pass_prices', 'finance.excluded_accounts']) {
+    const grants = grantsOn(table)
+    assert.ok(grants.length >= 1, `o banco concede acesso a ${table}`)
+    for (const grant of grants) {
+      assert.ok(
+        !/\b(DELETE|ALL)\b/.test(grant),
+        `preço é histórico e exclusão se desfaz por escrita — nenhum delete: ${grant}`
+      )
+    }
   }
-  assert.ok(/removed_at/.test(migration), 'e é `removed_at` que desfaz a marca')
+  assert.ok(/\bremoved_at\b/.test(tableDdl('finance.excluded_accounts')), 'e é `removed_at` que desfaz a marca')
 })
