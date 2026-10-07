@@ -76,6 +76,18 @@ describe('BR-POI-009 — municipal border: one TP per main road entering the mun
     assert.equal(tp.radius, 150)
   })
 
+  it('BR-POI-010: two ferry routes ending at the same pier are two arrivals, a split route is one (Santa Cruz da Graciosa)', async () => {
+    const e = await engine()
+    const pier = at(0, -HALF - 20)
+    const fromWest = way('Velas – Graciosa', 'ferry', [at(-6_000, -HALF - 3_000), pier])
+    const fromEast = way('Graciosa – Praia da Vitória', 'ferry', [at(6_000, -HALF - 3_000), pier])
+    assert.equal(e.adminBorderTriggerPoints('poi', [MUNICIPALITY], [fromWest, fromEast]).length, 2)
+    // the same route split by OSM in two ways at a node out at sea: the node is not a pier
+    const a = way('Linha', 'ferry', [at(0, -HALF - 6_000), at(0, -HALF - 2_000)])
+    const b = way('Linha', 'ferry', [at(0, -HALF - 2_000), pier])
+    assert.equal(e.adminBorderTriggerPoints('poi', [MUNICIPALITY], [a, b]).length, 1)
+  })
+
   it('BR-POI-010: a ferry ending far from the coast (the other island) gives no sea TP', async () => {
     const e = await engine()
     const ferry = way('f_far', 'ferry', [at(0, -HALF - 5_000), at(0, -HALF - 400)])

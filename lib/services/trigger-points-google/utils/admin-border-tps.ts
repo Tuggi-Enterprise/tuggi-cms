@@ -175,8 +175,10 @@ export function adminBorderTriggerPoints(poiId: string, parts: LatLng[][], stree
       { end: c[c.length - 1], seg: c.length - 2, dir: -1 as const },
     ];
     for (const { end, seg, dir } of ends) {
-      // A ferry split in OSM continues on the next way: only the route's real end is a pier.
-      if ((byNode.get(nodeKey(end)) ?? []).some(w => w !== s && w.type === 'ferry')) continue;
+      // A ferry split in OSM continues on the next way of the same route (same name): only the route's
+      // real end is a pier. Two routes meeting at one pier (Graciosa: from Velas and from Praia da
+      // Vitória) are two arrivals, not a split.
+      if ((byNode.get(nodeKey(end)) ?? []).some(w => w !== s && w.type === 'ferry' && (w.name ?? '') === (s.name ?? ''))) continue;
       const pierOf = rings.some(r => !c.some(p => isPointInPolygon(p, r))
         && r.reduce((m, a, i) => Math.min(m, calculateDistanceToLineSegment(end, a, r[(i + 1) % r.length])), Infinity) <= ADMIN_BORDER_FERRY_PIER_MAX_M);
       if (!pierOf) continue;
