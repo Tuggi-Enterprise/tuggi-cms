@@ -3940,7 +3940,7 @@
       "refused_at_triage": "Recusado na triagem",
       "in_validation": "Em validação",
       "changes_requested": "Ajuste com o local",
-      "approved_awaiting_narration": "Aprovado, esperando a narração",
+      "approved_awaiting_narration": "Aprovado, falta publicar o local",
       "portal_refused": "Recusado no portal"
     },
     "nextSteps": {
@@ -3954,7 +3954,7 @@
       "refused_at_triage": "—",
       "in_validation": "Conferir e decidir",
       "changes_requested": "Esperar o local responder",
-      "approved_awaiting_narration": "Publicar quando a narração ficar pronta",
+      "approved_awaiting_narration": "Publicar o local",
       "portal_refused": "—"
     },
     "triage": {
