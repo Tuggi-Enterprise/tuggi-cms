@@ -62,9 +62,12 @@ export const GET = withRateLimit(60, 60_000)(
       month,
       currency: 'BRL',
       totals: summarizePlaceMonth({ month, subscriptions: withInvoices, payoutsPaid }),
+      // #902 gate: the contact e-mail never leaves the server here (only payout_without_pix_key shows it).
+      // eslint-disable-next-line @typescript-eslint/no-unused-vars
       subscriptions: withInvoices
         .filter((subscription) => activeInMonth(subscription, month))
-        .sort((a, b) => a.placeName.localeCompare(b.placeName, 'pt-BR')),
+        .sort((a, b) => a.placeName.localeCompare(b.placeName, 'pt-BR'))
+        .map(({ contactEmail, ...rest }) => rest),
     })
   })
 )
