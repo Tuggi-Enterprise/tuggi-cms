@@ -15,11 +15,10 @@
  *
  * Used by (every WRITE path + the dropdowns, so values never drift again):
  *   1. lib/services/osm-importer-service.ts      (OSM ingestion)
- *   2. lib/services/poi-import-service.ts         (Google Places import)
- *   3. scripts/import-geojson-homolog.ts          (GeoJSON CLI import)
- *   4. components/poi-management/tabs/DetailsTab   (CMS manual edit — on save)
- *   5. CMS country/state dropdowns                (CANONICAL_COUNTRIES list)
- *   6. supabase/migrations/…normalise-country-state…  (one-time backfill — same rules)
+ *   2. scripts/import-geojson-homolog.ts          (GeoJSON CLI import)
+ *   3. components/poi-management/tabs/DetailsTab   (CMS manual edit — on save)
+ *   4. CMS country/state dropdowns                (CANONICAL_COUNTRIES list)
+ *   5. supabase/migrations/…normalise-country-state…  (one-time backfill — same rules)
  *
  * This is the TS twin of the 19 SQL backfill batches: same mappings, one place.
  * The coverage map (tuggi-enterprise update-coverage.mjs) keeps its OWN

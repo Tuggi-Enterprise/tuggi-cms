@@ -57,7 +57,6 @@ interface APIConfig {
 // API Types
 export type APIType = 
   | 'google-maps' 
-  | 'google-places' 
   | 'google-elevation'
   | 'google-gemini'
   | 'google-tts'
@@ -115,15 +114,6 @@ export class APIManager {
       baseUrl: 'https://maps.googleapis.com/maps/api',
       apiKey: Deno.env.get('GOOGLE_MAPS_API_KEY'),
       rateLimit: { requests: 1000, window: 60000 }, // 1000 requests per minute
-      retry: { attempts: 3, delay: 1000 },
-      timeout: 10000,
-      headers: { 'User-Agent': 'TuggiCMS/1.0' }
-    })
-    
-    this.configs.set('google-places', {
-      baseUrl: 'https://maps.googleapis.com/maps/api/place',
-      apiKey: Deno.env.get('GOOGLE_MAPS_API_KEY'),
-      rateLimit: { requests: 1000, window: 60000 },
       retry: { attempts: 3, delay: 1000 },
       timeout: 10000,
       headers: { 'User-Agent': 'TuggiCMS/1.0' }
@@ -383,10 +373,6 @@ export class APIManager {
     return this.request('google-maps', endpoint, { params })
   }
   
-  async getGooglePlacesData(endpoint: string, params: Record<string, any> = {}) {
-    return this.request('google-places', endpoint, { params })
-  }
-  
   async getGoogleElevationData(params: Record<string, any>) {
     return this.request('google-elevation', 'json', { params })
   }
@@ -502,8 +488,6 @@ export const api = {
   google: {
     maps: (endpoint: string, params?: Record<string, any>) => 
       getAPIManager().getGoogleMapsData(endpoint, params),
-    places: (endpoint: string, params?: Record<string, any>) => 
-      getAPIManager().getGooglePlacesData(endpoint, params),
     elevation: (params: Record<string, any>) => 
       getAPIManager().getGoogleElevationData(params),
     gemini: (prompt: string, model?: string) => 
