@@ -4,9 +4,12 @@
  * region's country in `region_metadata`. The other local tables flatten geometry to a list of
  * points, which is useless as a border.
  *
+ * Each municipality's seat (its `admin_centre` member, else its `label` member) goes to
+ * `admin_boundary_seats`: the POI whose OSM element IS that seat stands for the municipality.
+ *
  * Written by `scripts/manage-osm.ts` (`--import-pbf`, or `--import-admin` alone); read by
- * `LocalOSMFetcher#municipalityAt`, which turns a POI named after its municipality into the
- * municipal border mode (`utils/admin-border-tps`).
+ * `LocalOSMFetcher#municipalityAt`, which turns the seat POI into the municipal border mode
+ * (`utils/admin-border-tps`). No name takes part: names change by language and country.
  */
 import type Database from 'better-sqlite3'
 import { polygonContains, type RegionPolygon } from './local-osm-regions'
@@ -41,20 +44,32 @@ export function municipalityAdminLevel(country: string): number {
 }
 
 export const ADMIN_BOUNDARIES_TABLE = 'admin_boundaries'
+export const ADMIN_BOUNDARY_SEATS_TABLE = 'admin_boundary_seats'
 export const REGION_METADATA_TABLE = 'region_metadata'
 
 function createAdminTables(db: Database.Database): void {
+  // Derived from the PBF and rebuilt whole by every import: a table from before the seats (it
+  // carried a normalized name, `name_norm`) is replaced, not migrated.
+  const columns = db.prepare(`PRAGMA table_info(${ADMIN_BOUNDARIES_TABLE})`).all() as Array<{ name: string }>
+  if (columns.some(c => c.name === 'name_norm')) db.exec(`DROP TABLE ${ADMIN_BOUNDARIES_TABLE}`)
   db.exec(`
     CREATE TABLE IF NOT EXISTS ${ADMIN_BOUNDARIES_TABLE} (
       osm_id INTEGER PRIMARY KEY,
       admin_level INTEGER NOT NULL,
       name TEXT NOT NULL,
-      name_norm TEXT NOT NULL,
       geometry_geojson TEXT NOT NULL,
       min_lat REAL, max_lat REAL, min_lng REAL, max_lng REAL
     )
   `)
-  db.exec(`CREATE INDEX IF NOT EXISTS idx_${ADMIN_BOUNDARIES_TABLE}_name ON ${ADMIN_BOUNDARIES_TABLE}(name_norm)`)
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS ${ADMIN_BOUNDARY_SEATS_TABLE} (
+      relation_id INTEGER NOT NULL,
+      seat_type TEXT NOT NULL,
+      seat_id INTEGER NOT NULL,
+      role TEXT NOT NULL,
+      PRIMARY KEY (seat_type, seat_id, relation_id)
+    )
+  `)
   db.exec(`CREATE TABLE IF NOT EXISTS ${REGION_METADATA_TABLE} (key TEXT PRIMARY KEY, value TEXT NOT NULL)`)
 }
 
@@ -64,21 +79,6 @@ export function regionCountry(db: Database.Database): string | null {
   if (!hasTable) return null
   const row = db.prepare(`SELECT value FROM ${REGION_METADATA_TABLE} WHERE key = 'country'`).get() as { value: string } | undefined
   return row?.value ?? null
-}
-
-/**
- * Name of a municipality for matching: no accent, no case, no punctuation, and without the
- * "Município de" / "Concelho de" (da/do/das/dos) a POI carries and the OSM relation does not.
- * "Câmara Municipal de X" is NOT stripped: in Portugal it names the town hall, a building with
- * its own footprint, not the municipality.
- */
-export function normalizeMunicipalityName(name: string | null | undefined): string {
-  return (name ?? '')
-    .normalize('NFD').replace(/\p{M}/gu, '')
-    .toLowerCase()
-    .replace(/[^\p{L}\p{N}]+/gu, ' ')
-    .trim()
-    .replace(/^(municipio|concelho) (de|da|do|das|dos) /, '')
 }
 
 type Ring = Array<[number, number]>
@@ -113,16 +113,33 @@ export function adminGeometryContains(geometry: Geometry, lat: number, lng: numb
 }
 
 const SEAT_PLACES = new Set(['city', 'town', 'village'])
+const OPL_MEMBER_TYPE = { n: 'node', w: 'way', r: 'relation' } as const
+
+/** The OSM element a municipality is seated at, in the vocabulary of `core.attractions.osm_type`. */
+export interface Seat {
+  type: 'node' | 'way' | 'relation'
+  id: number
+  role: 'admin_centre' | 'label'
+}
+
+export interface MunicipalSeatScan {
+  /** Relations with a city/town/village seat — the independent check of the level (`seatLevelWarning`). */
+  seated: Set<number>
+  /** Every relation's seat members: its `admin_centre` members, or its `label` members when it has no `admin_centre`. */
+  seats: Map<number, Seat[]>
+}
 
 /**
- * Independent check of the municipal level: the ids of the `boundary=administrative` relations
- * that have a seat — `place=city|town|village` on the relation itself, or an `admin_centre`/`label`
- * member node with that `place`. Reads `osmium cat -f opl,add_metadata=false` over the filtered
- * extract (nodes come before relations in OPL, so a member's tags are known when its relation is read).
+ * The seats of the `boundary=administrative` relations, from `osmium cat -f opl,add_metadata=false`
+ * over the filtered extract (nodes come before relations in OPL, so a member's tags are known when
+ * its relation is read). Two answers: `seats`, the members the POI matching reads (BR-POI-010),
+ * whatever their tags; and `seated`, the relations with `place=city|town|village` on the relation
+ * itself or on an `admin_centre`/`label` member node, for the level check.
  */
-export async function scanMunicipalSeats(lines: AsyncIterable<string>): Promise<Set<number>> {
+export async function scanMunicipalSeats(lines: AsyncIterable<string>): Promise<MunicipalSeatScan> {
   const placeNodes = new Set<number>()
   const seated = new Set<number>()
+  const seats = new Map<number, Seat[]>()
   for await (const raw of lines) {
     const line = raw.trim()
     const kind = line[0]
@@ -136,13 +153,17 @@ export async function scanMunicipalSeats(lines: AsyncIterable<string>): Promise<
       if (isSeatPlace) placeNodes.add(id)
       continue
     }
-    const members = fields.find(f => f.startsWith('M'))?.slice(1) ?? ''
-    if (isSeatPlace || members.split(',').some(m => {
-      const match = /^n(\d+)@(admin_centre|label)$/.exec(m)
-      return match !== null && placeNodes.has(Number(match[1]))
-    })) seated.add(id)
+    const members: Seat[] = []
+    for (const m of (fields.find(f => f.startsWith('M'))?.slice(1) ?? '').split(',')) {
+      const match = /^([nwr])(\d+)@(admin_centre|label)$/.exec(m)
+      if (match) members.push({ type: OPL_MEMBER_TYPE[match[1] as 'n' | 'w' | 'r'], id: Number(match[2]), role: match[3] as Seat['role'] })
+    }
+    if (isSeatPlace || members.some(m => m.type === 'node' && placeNodes.has(m.id))) seated.add(id)
+    const centres = members.filter(m => m.role === 'admin_centre')
+    const chosen = centres.length > 0 ? centres : members
+    if (chosen.length > 0) seats.set(id, chosen)
   }
-  return seated
+  return { seated, seats }
 }
 
 export interface AdminBoundaryImport {
@@ -158,6 +179,10 @@ export interface AdminBoundaryImport {
   seatsByLevel: Record<string, number>
   /** Kept: at the municipal level, centre inside the region's `.poly`. */
   kept: number
+  /** Of the kept, the ones with a seat stored in `admin_boundary_seats` (BR-POI-010 matching). */
+  keptWithSeat: number
+  /** Of those, the ones seated by `label` because they have no `admin_centre`. */
+  keptSeatedByLabel: number
   /** At the municipal level but centred outside the `.poly` (a neighbour leaking into the extract's buffer). */
   outsideRegion: number
 }
@@ -181,14 +206,8 @@ const ISO_ALPHA2 = /^[A-Z]{2}$/
 export async function importAdminBoundaries(
   db: Database.Database,
   lines: AsyncIterable<string>,
-  opts: { region: RegionPolygon; seats?: ReadonlySet<number> },
+  opts: { region: RegionPolygon; seatScan?: MunicipalSeatScan },
 ): Promise<AdminBoundaryImport> {
-  createAdminTables(db)
-  const insert = db.prepare(`
-    INSERT OR REPLACE INTO ${ADMIN_BOUNDARIES_TABLE}
-      (osm_id, admin_level, name, name_norm, geometry_geojson, min_lat, max_lat, min_lng, max_lng)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-  `)
   const byLevel: Record<string, number> = {}
   const seatsByLevel: Record<string, number> = {}
   const outsideByLevel: Record<string, number> = {}
@@ -198,8 +217,18 @@ export async function importAdminBoundaries(
   const count = (m: Record<string, number>, k: string) => { m[k] = (m[k] ?? 0) + 1 }
   db.exec('BEGIN')
   try {
-    // A rebuild of a table derived from the PBF: a relation gone from OSM must not linger.
+    createAdminTables(db)
+    const insert = db.prepare(`
+      INSERT OR REPLACE INTO ${ADMIN_BOUNDARIES_TABLE}
+        (osm_id, admin_level, name, geometry_geojson, min_lat, max_lat, min_lng, max_lng)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+    `)
+    const insertSeat = db.prepare(`
+      INSERT OR REPLACE INTO ${ADMIN_BOUNDARY_SEATS_TABLE} (relation_id, seat_type, seat_id, role) VALUES (?, ?, ?, ?)
+    `)
+    // A rebuild of tables derived from the PBF: a relation gone from OSM must not linger.
     db.exec(`DELETE FROM ${ADMIN_BOUNDARIES_TABLE}`)
+    db.exec(`DELETE FROM ${ADMIN_BOUNDARY_SEATS_TABLE}`)
     for await (const raw of lines) {
       const line = raw.trim().replace(/^\x1e/, '')
       if (!line) continue
@@ -222,14 +251,15 @@ export async function importAdminBoundaries(
       }
       count(byLevel, level)
       const osmId = Number(p['@id'])
-      if (opts.seats?.has(osmId)) count(seatsByLevel, level)
+      if (opts.seatScan?.seated.has(osmId)) count(seatsByLevel, level)
       const prefix = /^([A-Z]{2})-/.exec(String(p['ISO3166-2'] ?? ''))?.[1]
       if (prefix) count(subdivisionPrefixes, prefix)
       if (samples.length < COUNTRY_VOTE_SAMPLES) samples.push(centre)
       // Every level goes in: the country, and so the municipal level, is only known at the end.
       if (p.name && /^\d+$/.test(level)) {
-        insert.run(osmId, Number(level), p.name, normalizeMunicipalityName(p.name),
+        insert.run(osmId, Number(level), p.name,
           JSON.stringify(feature.geometry), bbox.minLat, bbox.maxLat, bbox.minLng, bbox.maxLng)
+        for (const seat of opts.seatScan?.seats.get(osmId) ?? []) insertSeat.run(osmId, seat.type, seat.id, seat.role)
       }
     }
 
@@ -247,12 +277,18 @@ export async function importAdminBoundaries(
 
     const level = country ? municipalityAdminLevel(country) : null
     db.prepare(`DELETE FROM ${ADMIN_BOUNDARIES_TABLE} WHERE admin_level IS NOT ?`).run(level)
+    db.exec(`DELETE FROM ${ADMIN_BOUNDARY_SEATS_TABLE} WHERE relation_id NOT IN (SELECT osm_id FROM ${ADMIN_BOUNDARIES_TABLE})`)
     if (country) db.prepare(`INSERT OR REPLACE INTO ${REGION_METADATA_TABLE} (key, value) VALUES ('country', ?)`).run(country)
     else db.exec(`DELETE FROM ${REGION_METADATA_TABLE} WHERE key = 'country'`)
     const kept = (db.prepare(`SELECT COUNT(*) AS n FROM ${ADMIN_BOUNDARIES_TABLE}`).get() as { n: number }).n
+    const seatCounts = db.prepare(`
+      SELECT COUNT(DISTINCT relation_id) AS withSeat, COUNT(DISTINCT CASE WHEN role = 'label' THEN relation_id END) AS byLabel
+      FROM ${ADMIN_BOUNDARY_SEATS_TABLE}
+    `).get() as { withSeat: number; byLabel: number }
     db.exec('COMMIT')
     return {
       country, countrySource, level, byLevel, seatsByLevel, kept,
+      keptWithSeat: seatCounts.withSeat, keptSeatedByLabel: seatCounts.byLabel,
       outsideRegion: level === null ? 0 : outsideByLevel[String(level)] ?? 0,
     }
   } catch (e) {
@@ -305,21 +341,33 @@ export interface Municipality {
   geometry: { type: string; coordinates: unknown }
 }
 
+/** The OSM element of a POI, as `core.attractions` carries it (`osm_type`, `osm_id`). */
+export interface PoiOsmElement {
+  osm_type?: string | null
+  osm_id?: string | number | null
+}
+
 /**
- * The municipality a POI stands for: same normalized name, the municipal level of the region's
- * country, AND the pin inside its polygon. A POI not named after its municipality (a church, a
- * freguesia) matches nothing. null also when the database has no country (imported before
- * BR-POI-010, or none found in the extract).
+ * The municipality a POI stands for: its OSM element IS the seat of a relation at the municipal
+ * level of the region's country (`admin_boundary_seats`), AND the pin lies inside that polygon
+ * (sanity guard). No name takes part: a POI named after the town but standing on another element
+ * (a cable-car station, a peak) matches nothing, nor does a POI without `osm_id`. null also when
+ * the database has no country or no seats (imported before the seat matching of BR-POI-010).
  */
-export function findMunicipality(db: Database.Database, pin: { lat: number; lng: number }, poiName: string | null | undefined): Municipality | null {
-  const name = normalizeMunicipalityName(poiName)
-  if (!name || !Number.isFinite(pin?.lat) || !Number.isFinite(pin?.lng)) return null
+export function findMunicipality(db: Database.Database, pin: { lat: number; lng: number }, element: PoiOsmElement): Municipality | null {
+  const seatType = element.osm_type
+  const seatId = element.osm_id == null || element.osm_id === '' ? NaN : Number(element.osm_id)
+  if (!seatType || !Number.isSafeInteger(seatId) || !Number.isFinite(pin?.lat) || !Number.isFinite(pin?.lng)) return null
   const country = regionCountry(db)
   if (!country) return null
+  const hasSeats = db.prepare(`SELECT 1 FROM sqlite_master WHERE type='table' AND name=?`).get(ADMIN_BOUNDARY_SEATS_TABLE)
+  if (!hasSeats) return null
   const rows = db.prepare(`
-    SELECT osm_id, name, geometry_geojson FROM ${ADMIN_BOUNDARIES_TABLE}
-    WHERE name_norm = ? AND admin_level = ? AND min_lat <= ? AND max_lat >= ? AND min_lng <= ? AND max_lng >= ?
-  `).all(name, municipalityAdminLevel(country), pin.lat, pin.lat, pin.lng, pin.lng) as Array<{ osm_id: number; name: string; geometry_geojson: string }>
+    SELECT b.osm_id, b.name, b.geometry_geojson
+    FROM ${ADMIN_BOUNDARY_SEATS_TABLE} s JOIN ${ADMIN_BOUNDARIES_TABLE} b ON b.osm_id = s.relation_id
+    WHERE s.seat_type = ? AND s.seat_id = ? AND b.admin_level = ?
+      AND b.min_lat <= ? AND b.max_lat >= ? AND b.min_lng <= ? AND b.max_lng >= ?
+  `).all(seatType, seatId, municipalityAdminLevel(country), pin.lat, pin.lat, pin.lng, pin.lng) as Array<{ osm_id: number; name: string; geometry_geojson: string }>
   for (const row of rows) {
     const geometry = JSON.parse(row.geometry_geojson)
     if (adminGeometryContains(geometry, pin.lat, pin.lng)) return { osmId: row.osm_id, name: row.name, geometry }

@@ -2,7 +2,7 @@ import Database from 'better-sqlite3';
 import * as path from 'path';
 import * as fs from 'fs';
 import { heightFromTags } from './trigger-points-google/config/visibility-class';
-import { importAdminBoundaries, type AdminBoundaryImport } from './admin-boundaries';
+import { importAdminBoundaries, type AdminBoundaryImport, type MunicipalSeatScan } from './admin-boundaries';
 import type { RegionPolygon } from './local-osm-regions';
 
 /**
@@ -279,7 +279,7 @@ export class OSMLocalDataService {
   }
 
   /** Municipal borders, whole (BR-POI-010): `admin-boundaries#importAdminBoundaries` on this database. */
-  public importAdminBoundaries(lines: AsyncIterable<string>, opts: { region: RegionPolygon; seats?: ReadonlySet<number> }): Promise<AdminBoundaryImport> {
+  public importAdminBoundaries(lines: AsyncIterable<string>, opts: { region: RegionPolygon; seatScan?: MunicipalSeatScan }): Promise<AdminBoundaryImport> {
     return importAdminBoundaries(this.db, lines, opts);
   }
 

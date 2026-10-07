@@ -244,7 +244,7 @@ async function prepareReliefOf(attractionId: string): Promise<string | null> {
   if (!loaded.success || !loaded.data) return null // the child reports the missing POI
   const { latitude: lat, longitude: lng } = loaded.data.coordinate
   try {
-    if (await new BoundaryDetector().adminBoundaryOf({ id: attractionId, name: loaded.data.poi.name, location: { lat, lng } })) return null
+    if (await new BoundaryDetector().adminBoundaryOf({ id: attractionId, location: { lat, lng }, osm_type: loaded.data.poi.osm_type, osm_id: loaded.data.poi.osm_id })) return null
     await ensureDemCell({ lat, lng, marginM: SANITY_MAX_TP_DISTANCE_M })
     return null
   } catch (err) {

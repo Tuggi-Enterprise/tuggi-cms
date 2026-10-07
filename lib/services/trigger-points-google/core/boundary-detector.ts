@@ -151,7 +151,7 @@ export class BoundaryDetector {
           };
         }
       }
-      // BR-POI-010: a POI named after the municipality its pin stands in takes the municipal border.
+      // BR-POI-010: a POI whose OSM element is the seat of its municipality takes the municipal border.
       const municipality = await this.municipalityBoundary(poiData);
       if (municipality) {
         return {
@@ -315,13 +315,13 @@ export class BoundaryDetector {
   }
   
   /**
-   * BR-POI-010: the municipal border of a POI named after its municipality (`admin-boundaries`),
-   * every part kept; null when it is not one. Not curated: the pipeline writes it once as
+   * BR-POI-010: the municipal border of a POI whose OSM element is the seat of its municipality
+   * (`admin-boundaries#findMunicipality`), every part kept; null when it is not one. Not curated: the pipeline writes it once as
    * `osm_admin`, and from then on the stored border is read as curated.
    */
-  async municipalityBoundary(poiData: Pick<POIData, 'name' | 'location'>): Promise<BoundaryData | null> {
+  async municipalityBoundary(poiData: Pick<POIData, 'location' | 'osm_type' | 'osm_id'>): Promise<BoundaryData | null> {
     const { LocalOSMFetcher } = await import('../services/local-osm-fetcher');
-    const found = LocalOSMFetcher.getInstance().municipalityAt(poiData.location, poiData.name);
+    const found = LocalOSMFetcher.getInstance().municipalityAt(poiData.location, poiData);
     const parts = found ? polygonOuterRings(found.geometry) : [];
     if (!found || parts.length === 0) return null;
     const coordinates = footprintRing(parts, poiData.location) ?? parts[0];
@@ -345,9 +345,9 @@ export class BoundaryDetector {
   /**
    * The municipal border of a POI before anything else runs, so the engine can skip the relief
    * (BR-POI-010): the stored `osm_admin` border, else the detected one. A border a person curated
-   * that is not administrative wins over the name: null.
+   * that is not administrative wins over the seat: null.
    */
-  async adminBoundaryOf(poiData: Pick<POIData, 'id' | 'name' | 'location'>): Promise<BoundaryData | null> {
+  async adminBoundaryOf(poiData: Pick<POIData, 'id' | 'location' | 'osm_type' | 'osm_id'>): Promise<BoundaryData | null> {
     if (poiData.id) {
       const stored = await this.fetchBoundaryFromDatabase(poiData.id);
       if (stored.success && stored.data?.curated) return stored.data.source === 'osm_admin' ? stored.data : null;

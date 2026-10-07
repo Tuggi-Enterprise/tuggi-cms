@@ -1,8 +1,9 @@
 /**
  * BR-POI-010 — municipal borders from the local OSM: the region's country is read from the extract,
  * the municipal admin_level comes from one table by country (Portugal: 7, default 8), and the
- * borders are imported whole and inside the region's `.poly`; a POI named after the municipality
- * its pin stands in takes that border as `osm_admin`, and an `osm_admin` POI reads no relief.
+ * borders are imported whole and inside the region's `.poly` with their seat (`admin_centre`, else
+ * `label`); a POI whose OSM element IS that seat, pin inside, takes the border as `osm_admin` — no
+ * name takes part — and an `osm_admin` POI reads no relief.
  */
 import { describe, it, mock, before, after } from 'node:test'
 import assert from 'node:assert/strict'
@@ -21,7 +22,11 @@ const ANGRA_GEOMETRY = { type: 'MultiPolygon', coordinates: [[sq(ANGRA, 0.05), s
 const FREGUESIA_GEOMETRY = { type: 'Polygon', coordinates: [sq(ANGRA, 0.01)] }
 const POLY_PT = `pt\n1\n${sq(ANGRA, 1).map(([x, y]) => `   ${x}   ${y}`).join('\n')}\nEND\nEND\n`
 const ELSEWHERE: LatLng = { lat: 10, lng: 10 }
-const poi = (id: string, name: string, location: LatLng) => ({ id, name, location, type: 'attraction', country: 'Portugal', city: 'Angra do Heroísmo' }) as any
+/** The seat of Angra (its `admin_centre` node) and of the freguesia Sé (level 8, never municipal). */
+const ANGRA_SEAT = { osm_type: 'node', osm_id: '100' } as const
+const SE_SEAT = { osm_type: 'node', osm_id: 200 } as const
+const poi = (id: string, name: string, location: LatLng, element: { osm_type?: string; osm_id?: string | number } = {}) =>
+  ({ id, name, location, type: 'attraction', country: 'Portugal', city: 'Angra do Heroísmo', ...element }) as any
 const POLY_ZZ = `zz\n1\n${sq(ELSEWHERE, 1).map(([x, y]) => `   ${x}   ${y}`).join('\n')}\nEND\nEND\n`
 
 const line = (type: string, id: number, tags: Record<string, unknown>, geometry: unknown) =>
@@ -51,14 +56,16 @@ before(async () => {
     const shift = (g: any) => JSON.parse(JSON.stringify(g), (k, v) => (Array.isArray(v) && typeof v[0] === 'number' ? [v[0] - ANGRA.lng + at.lng, v[1] - ANGRA.lat + at.lat] : v))
     const ll = [line('relation', 7448382, { admin_level: '7', name: 'Angra do Heroísmo' }, shift(ANGRA_GEOMETRY)), line('relation', 1, { admin_level: '8', name: 'Sé' }, shift(FREGUESIA_GEOMETRY))]
     if (region === 'pt') ll.push(PORTUGAL_LINE)
-    await db.importAdminBoundaries(lines(...ll), { region: parsePoly(polyText) })
+    const seatScan = { seated: new Set<number>(), seats: new Map([[7448382, [{ type: 'node' as const, id: 100, role: 'admin_centre' as const }]]]) }
+    await db.importAdminBoundaries(lines(...ll), { region: parsePoly(polyText), seatScan })
     db.close()
     // Rows on disk in both, whatever the import kept: the lookup must refuse the freguesia by its
     // level, and `zz` (no country) by the missing country, not by absence.
     const raw = new Database(path.join(dir, `${region}.db`))
     const bbox = [at.lat - 1, at.lat + 1, at.lng - 1, at.lng + 1]
-    raw.prepare(`INSERT OR REPLACE INTO admin_boundaries VALUES (7448382, 7, 'Angra do Heroísmo', 'angra do heroismo', ?, ?, ?, ?, ?)`).run(JSON.stringify(shift(ANGRA_GEOMETRY)), ...bbox)
-    raw.prepare(`INSERT OR REPLACE INTO admin_boundaries VALUES (1, 8, 'Sé', 'se', ?, ?, ?, ?, ?)`).run(JSON.stringify(shift(FREGUESIA_GEOMETRY)), ...bbox)
+    raw.prepare(`INSERT OR REPLACE INTO admin_boundaries VALUES (7448382, 7, 'Angra do Heroísmo', ?, ?, ?, ?, ?)`).run(JSON.stringify(shift(ANGRA_GEOMETRY)), ...bbox)
+    raw.prepare(`INSERT OR REPLACE INTO admin_boundaries VALUES (1, 8, 'Sé', ?, ?, ?, ?, ?)`).run(JSON.stringify(shift(FREGUESIA_GEOMETRY)), ...bbox)
+    raw.prepare(`INSERT OR REPLACE INTO admin_boundary_seats VALUES (7448382, 'node', 100, 'admin_centre'), (1, 'node', 200, 'admin_centre')`).run()
     raw.close()
   }
   mock.module('../../lib/services/dem/dem-prepare', {
@@ -90,12 +97,42 @@ describe('BR-POI-010 — import keeps the municipalities of the region, whole', 
     const spanish = line('relation', 2, { admin_level: '7', name: 'Tui' }, { type: 'Polygon', coordinates: [sq(ELSEWHERE, 0.05)] })
     const memberWay = line('way', 3, { admin_level: '7', name: 'Angra do Heroísmo' }, FREGUESIA_GEOMETRY)
     const r = await importAdminBoundaries(db, lines(ANGRA_LINE, FREGUESIA_LINE, spanish, memberWay, PORTUGAL_LINE, SPAIN_LINE), { region: parsePoly(POLY_PT) })
-    assert.deepEqual(r, { country: 'PT', countrySource: 'admin_level=2', level: 7, byLevel: { 7: 1, 8: 1 }, seatsByLevel: {}, kept: 1, outsideRegion: 1 })
+    assert.deepEqual(r, { country: 'PT', countrySource: 'admin_level=2', level: 7, byLevel: { 7: 1, 8: 1 }, seatsByLevel: {}, kept: 1, keptWithSeat: 0, keptSeatedByLabel: 0, outsideRegion: 1 })
     const rows = db.prepare('SELECT osm_id, admin_level, name, geometry_geojson FROM admin_boundaries').all() as any[]
     assert.equal(rows.length, 1)
     assert.equal(rows[0].osm_id, 7448382)
     assert.deepEqual(JSON.parse(rows[0].geometry_geojson), ANGRA_GEOMETRY, 'MultiPolygon with its hole, untouched')
     assert.equal(regionCountry(db), 'PT', 'the country is written into the region database for the reader')
+  })
+
+  it('each kept municipality stores its seat: admin_centre, else label; the seat of a dropped relation goes with it', async () => {
+    const { importAdminBoundaries, scanMunicipalSeats } = await import('../../lib/services/admin-boundaries')
+    const { parsePoly } = await import('../../lib/services/local-osm-regions')
+    const db = new Database(':memory:')
+    const praia = line('relation', 5, { admin_level: '7', name: 'Praia da Vitória' }, { type: 'Polygon', coordinates: [sq({ lat: 38.73, lng: -27.06 }, 0.03)] })
+    async function* opl() {
+      yield 'r7448382 Tboundary=administrative,admin_level=7 Mw9@outer,n100@admin_centre,n101@label'
+      yield 'r5 Tboundary=administrative,admin_level=7 Mw9@outer,n500@label'
+      yield 'r1 Tboundary=administrative,admin_level=8 Mw9@outer,n200@admin_centre'
+    }
+    const r = await importAdminBoundaries(db, lines(ANGRA_LINE, praia, FREGUESIA_LINE, PORTUGAL_LINE), { region: parsePoly(POLY_PT), seatScan: await scanMunicipalSeats(opl()) })
+    assert.deepEqual([r.kept, r.keptWithSeat, r.keptSeatedByLabel], [2, 2, 1])
+    const rows = db.prepare('SELECT relation_id, seat_type, seat_id, role FROM admin_boundary_seats ORDER BY relation_id').all()
+    assert.deepEqual(rows, [
+      { relation_id: 5, seat_type: 'node', seat_id: 500, role: 'label' },
+      { relation_id: 7448382, seat_type: 'node', seat_id: 100, role: 'admin_centre' },
+    ])
+  })
+
+  it('a database from before the seats (admin_boundaries with name_norm) is rebuilt by the import', async () => {
+    const { importAdminBoundaries } = await import('../../lib/services/admin-boundaries')
+    const { parsePoly } = await import('../../lib/services/local-osm-regions')
+    const db = new Database(':memory:')
+    db.exec('CREATE TABLE admin_boundaries (osm_id INTEGER PRIMARY KEY, admin_level INTEGER NOT NULL, name TEXT NOT NULL, name_norm TEXT NOT NULL, geometry_geojson TEXT NOT NULL, min_lat REAL, max_lat REAL, min_lng REAL, max_lng REAL)')
+    const r = await importAdminBoundaries(db, lines(ANGRA_LINE, PORTUGAL_LINE), { region: parsePoly(POLY_PT) })
+    assert.equal(r.kept, 1)
+    const columns = (db.prepare('PRAGMA table_info(admin_boundaries)').all() as Array<{ name: string }>).map(c => c.name)
+    assert.ok(!columns.includes('name_norm'))
   })
 
   it('the municipal level is one table by ISO 3166-1 country: PT 7, DE/US/BR 8, an unlisted country 8', async () => {
@@ -156,7 +193,21 @@ describe('BR-POI-010 — seat check at import: a hint for the human, never a swi
       'r11 Tboundary=administrative,admin_level=8 Mw9@outer,n3@subarea',
     ]
     async function* plain() { yield* opl }
-    assert.deepEqual([...await scanMunicipalSeats(plain())].sort((a, b) => a - b), [7, 9, 10])
+    assert.deepEqual([...(await scanMunicipalSeats(plain())).seated].sort((a, b) => a - b), [7, 9, 10])
+  })
+
+  it('the seat members read for the POI matching: admin_centre of any type, label only without admin_centre, whatever the tags', async () => {
+    const { scanMunicipalSeats } = await import('../../lib/services/admin-boundaries')
+    async function* opl() {
+      yield 'n1 Tplace=town x-27.2 y38.6'
+      yield 'r7 Tboundary=administrative,admin_level=7 Mw9@outer,w44@admin_centre,n1@label'
+      yield 'r8 Tboundary=administrative,admin_level=7 Mw9@outer,n3@label'
+      yield 'r9 Tboundary=administrative,admin_level=7 Mw9@outer,n3@subarea'
+    }
+    const { seats } = await scanMunicipalSeats(opl())
+    assert.deepEqual(seats.get(7), [{ type: 'way', id: 44, role: 'admin_centre' }])
+    assert.deepEqual(seats.get(8), [{ type: 'node', id: 3, role: 'label' }])
+    assert.equal(seats.has(9), false)
   })
 
   it('warns when few relations at the table level have a seat and the seats sit at another level', async () => {
@@ -172,40 +223,48 @@ describe('BR-POI-010 — seat check at import: a hint for the human, never a swi
   })
 })
 
-describe('BR-POI-010 — a POI named after its municipality, with the pin inside, matches it', () => {
-  it('"Município de"/"Concelho de" are dropped, accents and case ignored; "Câmara Municipal de" is the town hall', async () => {
-    const { normalizeMunicipalityName: n } = await import('../../lib/services/admin-boundaries')
-    assert.equal(n('Município de Angra do Heroísmo'), n('Angra do Heroísmo'))
-    assert.equal(n('Concelho da Horta'), 'horta')
-    assert.equal(n('MUNICIPIO DO PORTO'), 'porto')
-    assert.notEqual(n('Câmara Municipal de Lisboa'), n('Lisboa'))
-  })
-
-  it('"Município de Angra do Heroísmo" takes the relation of Angra; a pin in the islet too; in the enclave or outside, no', async () => {
+describe('BR-POI-010 — the POI whose OSM element is the seat of its municipality, pin inside, matches it', () => {
+  it('the seat node takes the relation of Angra; a pin in the islet too; in the enclave or outside, no', async () => {
     const { LocalOSMFetcher } = await import('../../lib/services/trigger-points-google/services/local-osm-fetcher')
     const f = LocalOSMFetcher.getInstance()
-    assert.equal(f.municipalityAt(ANGRA, 'Município de Angra do Heroísmo')?.osmId, 7448382)
-    assert.equal(f.municipalityAt(ISLET, 'Município de Angra do Heroísmo')?.osmId, 7448382)
-    assert.equal(f.municipalityAt({ lat: 38.68, lng: -27.24 }, 'Município de Angra do Heroísmo'), null, 'enclave')
-    assert.equal(f.municipalityAt({ lat: 38.75, lng: -27.218 }, 'Município de Angra do Heroísmo'), null, 'outside')
+    assert.equal(f.municipalityAt(ANGRA, ANGRA_SEAT)?.osmId, 7448382)
+    assert.equal(f.municipalityAt(ANGRA, { osm_type: 'node', osm_id: 100 })?.osmId, 7448382, 'osm_id as number or text')
+    assert.equal(f.municipalityAt(ISLET, ANGRA_SEAT)?.osmId, 7448382)
+    assert.equal(f.municipalityAt({ lat: 38.68, lng: -27.24 }, ANGRA_SEAT), null, 'enclave')
+    assert.equal(f.municipalityAt({ lat: 38.75, lng: -27.218 }, ANGRA_SEAT), null, 'outside')
   })
 
-  it('a freguesia (level 8) never matches, nor a POI not named after the municipality', async () => {
+  it('the same id with another type, another element in the same place (a cable-car station), or no osm_id: no', async () => {
     const { LocalOSMFetcher } = await import('../../lib/services/trigger-points-google/services/local-osm-fetcher')
     const f = LocalOSMFetcher.getInstance()
-    assert.equal(f.municipalityAt(ANGRA, 'Sé'), null)
-    assert.equal(f.municipalityAt(ANGRA, 'Sé Catedral de Angra do Heroísmo'), null)
+    assert.equal(f.municipalityAt(ANGRA, { osm_type: 'way', osm_id: 100 }), null)
+    assert.equal(f.municipalityAt(ANGRA, { osm_type: 'way', osm_id: 110361614 }), null)
+    assert.equal(f.municipalityAt(ANGRA, {}), null)
+    assert.equal(f.municipalityAt(ANGRA, { osm_type: 'node', osm_id: null }), null)
   })
 
-  it('a region whose import found no country: nothing changes, even with the same borders on disk', async () => {
+  it('a name never matches: "Município de Angra do Heroísmo" without the seat element stays out', async () => {
+    const { BoundaryDetector } = await import('../../lib/services/trigger-points-google/core/boundary-detector')
+    stored = null
+    const d = new BoundaryDetector()
+    assert.equal(await d.municipalityBoundary(poi('angra', 'Município de Angra do Heroísmo', ANGRA)), null)
+    assert.equal(await d.municipalityBoundary(poi('angra', 'Angra do Heroísmo', ANGRA, { osm_type: 'way', osm_id: 110361614 })), null)
+  })
+
+  it('the seat of a freguesia (level 8) never matches', async () => {
     const { LocalOSMFetcher } = await import('../../lib/services/trigger-points-google/services/local-osm-fetcher')
-    assert.equal(LocalOSMFetcher.getInstance().municipalityAt(ELSEWHERE, 'Angra do Heroísmo'), null)
+    assert.equal(LocalOSMFetcher.getInstance().municipalityAt(ANGRA, SE_SEAT), null)
+  })
+
+  it('a region whose import found no country: nothing changes, even with the same borders and seats on disk', async () => {
+    const { LocalOSMFetcher } = await import('../../lib/services/trigger-points-google/services/local-osm-fetcher')
+    assert.equal(LocalOSMFetcher.getInstance().municipalityAt(ELSEWHERE, ANGRA_SEAT), null)
   })
 
   it('detection: the border becomes the municipality, osm_admin, every part, not curated (the pipeline writes it)', async () => {
     stored = null
     const { BoundaryDetector } = await import('../../lib/services/trigger-points-google/core/boundary-detector')
-    const r = await new BoundaryDetector().detectBoundary({ id: 'angra', name: 'Município de Angra do Heroísmo', location: ANGRA } as any)
+    const r = await new BoundaryDetector().detectBoundary({ id: 'angra', name: 'Angra do Heroísmo', location: ANGRA, ...ANGRA_SEAT } as any)
     assert.equal(r.data?.source, 'osm_admin')
     assert.equal(r.data?.adminParts?.length, 2)
     assert.equal(r.data?.curated, false)
@@ -216,7 +275,7 @@ describe('BR-POI-010 — a POI named after its municipality, with the pin inside
     const { boundaryGeoJson } = await import('../../lib/services/trigger-points-google/utils/boundary-choice')
     const { BoundaryDetector } = await import('../../lib/services/trigger-points-google/core/boundary-detector')
     stored = null
-    const b = (await new BoundaryDetector().municipalityBoundary({ name: 'Angra do Heroísmo', location: ANGRA }))!
+    const b = (await new BoundaryDetector().municipalityBoundary({ location: ANGRA, ...ANGRA_SEAT }))!
     const g = boundaryGeoJson(b) as { type: string; coordinates: number[][][][] }
     assert.equal(g.type, 'MultiPolygon')
     assert.equal(g.coordinates.length, 2)
@@ -224,10 +283,10 @@ describe('BR-POI-010 — a POI named after its municipality, with the pin inside
     assert.equal(boundaryGeoJson({ coordinates: b.coordinates }).type, 'Polygon')
   })
 
-  it('a border a person curated, not administrative, wins over the name', async () => {
+  it('a border a person curated, not administrative, wins over the seat', async () => {
     stored = { geojson: FREGUESIA_GEOMETRY, boundary_source: 'manual_drawing', boundary_confidence: 1 }
     const { BoundaryDetector } = await import('../../lib/services/trigger-points-google/core/boundary-detector')
-    assert.equal(await new BoundaryDetector().adminBoundaryOf({ id: 'angra', name: 'Município de Angra do Heroísmo', location: ANGRA }), null)
+    assert.equal(await new BoundaryDetector().adminBoundaryOf({ id: 'angra', location: ANGRA, ...ANGRA_SEAT }), null)
     stored = null
   })
 })
@@ -238,7 +297,7 @@ describe('BR-POI-010 — a municipal border reads no relief', () => {
     const predictor = new CoreTriggerPointPredictor()
     ensureDemCellCalls = 0
     stored = null
-    const detected = await predictor.predictTriggerPointsComplete(poi('angra', 'Município de Angra do Heroísmo', ANGRA))
+    const detected = await predictor.predictTriggerPointsComplete(poi('angra', 'Angra do Heroísmo', ANGRA, ANGRA_SEAT))
     assert.equal(detected.boundary?.source, 'osm_admin')
     stored = { geojson: ANGRA_GEOMETRY, boundary_source: 'osm_admin', boundary_confidence: 0.9 }
     const kept = await predictor.predictTriggerPointsComplete(poi('angra', 'Angra (renamed)', ANGRA))
