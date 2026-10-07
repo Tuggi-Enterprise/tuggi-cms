@@ -95,7 +95,7 @@ function deps(asaas: ReturnType<typeof fakeAsaas>, db: ReturnType<typeof fakeDb>
 
 const checkoutRow = {
   subscription_id: SUB_UUID, status: 'pending_payment', attachable: true, external_reference: REF, billing_cycle: 'MONTHLY',
-  billing_period: 3, next_amount_cents: 54000, renewal_amount_cents: 60000, next_due_date: '2026-10-04',
+  billing_period: 3, next_amount_cents: 54000, renewal_amount_cents: 60000, next_due_date: '2026-11-03',   // the database's D+30 (#898)
   customer_name: 'Bar do Zé LTDA', customer_tax_id: '12.345.678/0001-95', customer_email: 'ze@example.com',
 }
 
@@ -140,7 +140,7 @@ test('#898 BR-B2B-045 BR-B2B-046: checkout_pix creates a Pix subscription (not P
   assert.deepEqual(db.calls.map((c) => c.fn), ['place_payment_checkout', 'attach_place_subscription'])
   assert.deepEqual(db.calls[1].args, {
     p_subscription_id: SUB_UUID, p_payment_method: 'pix', p_provider_customer_id: 'cus_1',
-    p_provider_subscription_id: 'sub_px', p_provider_authorization_id: null, p_first_charge_on: '2026-11-03',
+    p_provider_subscription_id: 'sub_px', p_provider_authorization_id: null,
   })
   assert.deepEqual(links, [SUBMISSION])
 })
