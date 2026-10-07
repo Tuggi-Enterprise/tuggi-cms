@@ -12,6 +12,8 @@
  *   --debug-quality true       Emit one [TP_DEBUG_QUALITY] JSON line per POI (Phase 0 of TP quality plan).
  *                              Pure observation, no behavior change. Lines appear in migration-log-<ts>.log.
  *                              Extract them with: grep TP_DEBUG_QUALITY <log>
+ *   --ids <file>               Only these homolog uuid_ids (one per line, or a JSON array). Other filters
+ *                              still apply. Used for fixed samples before a country-wide batch.
  *   --from-core true           Reprocess TPs on existing core.attractions instead of migrating homolog.pois.
  *                              Forces mode=reprocess_triggers_core. Uses the same country/state/city/category
  *                              filters but reads from core.attractions. Skips enrichment + migration; runs
@@ -87,6 +89,7 @@ interface ScriptOptions {
   shuffle?: boolean
   debug_quality?: boolean
   from_core?: boolean
+  ids?: string[]
 }
 
 /**
@@ -209,6 +212,11 @@ async function main() {
         case 'from-core':
           options.from_core = value === 'true'
           break
+        case 'ids': {
+          const raw = fs.readFileSync(value, 'utf8').trim()
+          options.ids = raw.startsWith('[') ? JSON.parse(raw) : raw.split(/\s+/).filter(Boolean)
+          break
+        }
       }
     }
   }
@@ -311,6 +319,7 @@ async function main() {
 
     if (options.approved !== undefined) query = query.eq('approved', options.approved)
     if (options.category && options.category !== 'all') query = query.eq('category', options.category)
+    if (options.ids) query = query.in('uuid_id', options.ids)
 
     // Bounding-box filter (lat/lon) — usado p/ migrar por região quando state é NULL
     // (ex.: Canadá importado sem state; recorta províncias por longitude).
