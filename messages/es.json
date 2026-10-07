@@ -1689,6 +1689,7 @@
       "address_none": "Sin dirección en el registro — el pin es lo que ubica este lugar.",
       "hours": {
         "closed": "Cerrado",
+        "empty": "Sin horario cargado. La app muestra este lugar como abierto.",
         "open": "Abre",
         "close": "Cierra",
         "remove": "Quitar franja",

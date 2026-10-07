@@ -1711,6 +1711,7 @@
       "address_none": "Sem endereço no cadastro — o pino é o que localiza este local.",
       "hours": {
         "closed": "Fechado",
+        "empty": "Sem horário cadastrado. O app mostra este local como aberto.",
         "open": "Abre",
         "close": "Fecha",
         "remove": "Remover faixa",

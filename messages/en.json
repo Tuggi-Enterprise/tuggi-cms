@@ -1702,6 +1702,7 @@
       "address_none": "No address on record — the pin is what locates this place.",
       "hours": {
         "closed": "Closed",
+        "empty": "No hours set. The app shows this place as open.",
         "open": "Opens",
         "close": "Closes",
         "remove": "Remove range",

@@ -4,6 +4,12 @@
  * Opening hours by weekday, in the `core.is_poi_open_now` shape that `parseOpeningHours` accepts
  * (`Record<day, {open, close}[]>`) — #886. A day with no range is closed and is left out of the
  * JSON. Validation is the caller's, at save, through `parseOpeningHours`.
+ *
+ * Empty `value` is NOT "closed every day": `core.is_poi_open_now` treats null as open, so the
+ * editor says so in one line instead of seven "Fechado". "Closed" per day only once some day has a
+ * range — that is when the app reads a missing day as closed. `unreadable` is a stored value the
+ * editor cannot parse (Google `weekday_text` array from `poi-import-service.ts`), shown read-only
+ * so the operator can retype it.
  */
 
 import { useTranslations } from 'next-intl'
@@ -14,13 +20,15 @@ interface Props {
   value: OpeningHours
   onChange: (value: OpeningHours) => void
   disabled?: boolean
+  unreadable?: string | null
 }
 
 const timeInput =
   'px-2 py-1.5 bg-gray-50 dark:bg-gray-900/50 border border-transparent rounded-lg text-sm font-medium dark:text-white outline-none focus:ring-2 focus:ring-tuggi-blue disabled:opacity-60'
 
-export function OpeningHoursEditor({ value, onChange, disabled }: Props) {
+export function OpeningHoursEditor({ value, onChange, disabled, unreadable }: Props) {
   const t = useTranslations('Modals.PlaceDetails.hours')
+  const isEmpty = Object.keys(value).length === 0
 
   const setDay = (day: string, ranges: { open: string; close: string }[]) => {
     const next = { ...value }
@@ -31,13 +39,19 @@ export function OpeningHoursEditor({ value, onChange, disabled }: Props) {
 
   return (
     <div className="space-y-2">
+      {isEmpty && <p className="text-sm italic text-gray-500 dark:text-gray-400">{t('empty')}</p>}
+      {unreadable && (
+        <pre className="whitespace-pre-wrap rounded-lg bg-gray-50 px-3 py-2 font-sans text-xs text-gray-600 dark:bg-gray-900/50 dark:text-gray-300">
+          {unreadable}
+        </pre>
+      )}
       {OPENING_HOURS_WEEKDAYS.map((day) => {
         const ranges = value[day] ?? []
         return (
           <div key={day} className="flex items-start gap-3">
             <span className="w-10 pt-1.5 text-xs font-black text-gray-500 uppercase">{t(`days.${day}`)}</span>
             <div className="flex flex-1 flex-wrap items-center gap-2">
-              {ranges.length === 0 && (
+              {ranges.length === 0 && !isEmpty && (
                 <span className="pt-1 text-sm italic text-gray-400 dark:text-gray-500">{t('closed')}</span>
               )}
               {ranges.map((range, i) => (
