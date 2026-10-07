@@ -9,7 +9,7 @@ import 'dotenv/config';
 import { getSupabase } from '../lib/core/supabase-client';
 import { normalizeLocation } from '../lib/shared/location-normalize';
 import fs from 'node:fs';
-import readline from 'node:readline';
+import { splitOnLineFeed } from '../lib/services/osm-local-data-service';
 import { createHash } from 'node:crypto';
 import path from 'node:path';
 
@@ -87,6 +87,9 @@ function pickCategory(props: any): string | undefined {
   // Boolean-flag categories: the key itself names the category, so skipping the empty value
   // would leave nothing (mountain_pass=yes -> "mountain_pass").
   if (props.mountain_pass) return 'mountain_pass';
+  // Stage 1 keys outside the list above (lib/shared/poi-filter#CATEGORIES): take the value.
+  if (props.railway === 'funicular') return 'funicular';
+  if (props.landuse === 'cemetery') return 'cemetery';
   return undefined;
 }
 
@@ -296,7 +299,9 @@ async function main() {
   }
 
   // Driver: stream the file, accumulate batches of BATCH_SIZE features, flush each.
-  const rl = readline.createInterface({ input: fs.createReadStream(filePath), crlfDelay: Infinity });
+  // \n only (lib/services/osm-local-data-service#splitOnLineFeed): JSON.stringify leaves U+2028/U+2029
+  // raw, node:readline splits on them, and the feature was dropped by the silent catch below.
+  const rl = splitOnLineFeed(fs.createReadStream(filePath));
   let batch: any[] = [];
   for await (let line of rl) {
     line = line.trim();

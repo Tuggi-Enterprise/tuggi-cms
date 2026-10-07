@@ -1,14 +1,65 @@
 import { spawnSync, spawn } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
-import readline from 'node:readline';
+import { splitOnLineFeed } from '../lib/services/osm-local-data-service';
 import { shouldFilterPOI, CATEGORIES } from '../lib/shared/poi-filter';
+import { polygonContains, type RegionPolygon } from '../lib/services/local-osm-regions';
+
+/**
+ * A Geofabrik country extract reaches kilometres past the border (its .poly is a buffer), and the
+ * importer stamps every row with the one country passed on the command line. The Austrian extract
+ * carried Italian lakes and Czech nature reserves that way. The national border is the
+ * admin_level=2 relation tagged ISO3166-1=<code>, assembled by osmium from the same PBF.
+ */
+function nationalBorder(inputPath: string, iso: string, outputDir: string, timestamp: number): RegionPolygon {
+  const relPbf = path.join(outputDir, `border-${timestamp}.osm.pbf`);
+  const relJson = path.join(outputDir, `border-${timestamp}.geojson`);
+  const f = spawnSync('osmium', ['tags-filter', inputPath, `r/ISO3166-1=${iso}`, '-o', relPbf, '--overwrite']);
+  if (f.status !== 0) throw new Error(`osmium tags-filter (border) failed: ${f.stderr}`);
+  const e = spawnSync('osmium', ['export', relPbf, '--geometry-types=polygon', '-o', relJson, '--overwrite']);
+  if (e.status !== 0) throw new Error(`osmium export (border) failed: ${e.stderr}`);
+  const fc = JSON.parse(fs.readFileSync(relJson, 'utf8'));
+  fs.unlinkSync(relPbf);
+  fs.unlinkSync(relJson);
+  const country = fc.features.find((x: any) => x.properties?.admin_level === '2');
+  if (!country) throw new Error(`No admin_level=2 relation with ISO3166-1=${iso} in ${inputPath}`);
+  const polys = country.geometry.type === 'Polygon' ? [country.geometry.coordinates] : country.geometry.coordinates;
+  return { outer: polys.map((p: any) => p[0]), holes: polys.flatMap((p: any) => p.slice(1)) };
+}
+
+/** Same point the homolog importer stores as lat/lon: the first coordinate of the geometry. */
+function firstPoint(geometry: any): [number, number] | null {
+  let c = geometry?.coordinates;
+  while (Array.isArray(c) && Array.isArray(c[0])) c = c[0];
+  return Array.isArray(c) && typeof c[0] === 'number' ? [c[0], c[1]] : null;
+}
+
+/** Metres from a point to the nearest border segment (equirectangular; fine at this scale). */
+function metresToBorder(border: RegionPolygon, lng: number, lat: number): number {
+  const kx = 111320 * Math.cos((lat * Math.PI) / 180), ky = 110540;
+  let best = Infinity;
+  for (const ring of [...border.outer, ...border.holes]) {
+    for (let i = 1; i < ring.length; i++) {
+      const ax = (ring[i - 1][0] - lng) * kx, ay = (ring[i - 1][1] - lat) * ky;
+      const bx = (ring[i][0] - lng) * kx, by = (ring[i][1] - lat) * ky;
+      const dx = bx - ax, dy = by - ay, len = dx * dx + dy * dy;
+      const t = len ? Math.max(0, Math.min(1, -(ax * dx + ay * dy) / len)) : 0;
+      best = Math.min(best, Math.hypot(ax + t * dx, ay + t * dy));
+    }
+  }
+  return best;
+}
+
+// A summit or pass on the border line falls on either side of it by a few metres of mapping.
+const BORDER_TOLERANCE_M = 150;
 
 async function main() {
   const args = process.argv.slice(2);
   const inputPath = args[0];
   const country = args[1] || 'Spain';
-  
+  const isoAt = args.indexOf('--iso');
+  const iso = isoAt >= 0 ? args[isoAt + 1] : undefined;
+
   if (!inputPath) {
     console.error('❌ Please provide the PBF file path');
     process.exit(1);
@@ -28,6 +79,9 @@ async function main() {
   console.log(`📁 Input: ${inputPath}`);
   console.log(`📁 Output: ${finalOutputPath}`);
   console.log(`🌍 Country: ${country}`);
+  const border = iso ? nationalBorder(inputPath, iso, outputDir, timestamp) : null;
+  if (border) console.log(`🧭 Clipping to the ISO3166-1=${iso} border (${border.outer.length} outer rings, ±${BORDER_TOLERANCE_M} m)`);
+  else console.warn('⚠️  No --iso <code>: the extract buffer past the border is kept and stamped with this country.');
   console.log('');
 
   // 1. Stage 1: Categorical Filter
@@ -77,18 +131,25 @@ async function main() {
   // 3. Stage 3: Unified Elite Filtering
   console.log('\n🚀 Stage 3: Unified Elite Filtering (line-by-line)...');
   
-  const fileStream = fs.createReadStream(geojsonSeqPath);
-  const rl = readline.createInterface({
-    input: fileStream,
-    crlfDelay: Infinity
-  });
+  // Split on \n only: node:readline also breaks on U+2028/U+2029, which osmium leaves raw inside
+  // tag values, and both halves of such a feature failed JSON.parse and were dropped.
+  const rl = splitOnLineFeed(fs.createReadStream(geojsonSeqPath));
 
   const outFile = fs.createWriteStream(finalOutputPath);
   outFile.write('{"type":"FeatureCollection","features":[\n');
 
   let processed = 0;
   let kept = 0;
+  let outsideBorder = 0;
+  let samePlaceDropped = 0;
+  const byPlace = new Map<string, { objectKey: string; areal: boolean; features: any[] }>();
   let first = true;
+  const write = (feature: any) => {
+    if (!first) outFile.write(',\n');
+    outFile.write(JSON.stringify(feature));
+    kept++;
+    first = false;
+  };
 
   for await (const line of rl) {
     const trimmedLine = line.trim();
@@ -104,12 +165,29 @@ async function main() {
 
       const feature = JSON.parse(cleanLine);
       const filterResult = shouldFilterPOI(feature);
+      let abroad = false;
+      if (!filterResult.remove && border) {
+        const pt = firstPoint(feature.geometry);
+        abroad = !pt || (!polygonContains(border, pt[1], pt[0]) && metresToBorder(border, pt[0], pt[1]) > BORDER_TOLERANCE_M);
+        if (abroad) outsideBorder++;
+      }
 
-      if (!filterResult.remove) {
-        if (!first) outFile.write(',\n');
-        outFile.write(JSON.stringify(feature));
-        kept++;
-        first = false;
+      // One place mapped as many objects (each segment of a funicular, of a rail trail, of a city
+      // wall; a node beside the building) carries the same name and wikidata on every piece: 607
+      // extra rows in Austria, Schloßbergbahn x8. One object per place is written at the end, an
+      // areal one when there is one (it is what carries boundary_geometry), with all its variants.
+      const p = feature.properties || {};
+      if (!filterResult.remove && !abroad && p.wikidata && p.name) {
+        const placeKey = `${p.name}|${p.wikidata}`;
+        const objectKey = `${p['@type']}/${p['@id']}`;
+        const isAreal = /Polygon$/.test(feature.geometry?.type ?? '');
+        const held = byPlace.get(placeKey);
+        if (!held) byPlace.set(placeKey, { objectKey, areal: isAreal, features: [feature] });
+        else if (held.objectKey === objectKey) { held.features.push(feature); held.areal ||= isAreal; }
+        else if (isAreal && !held.areal) { samePlaceDropped++; byPlace.set(placeKey, { objectKey, areal: true, features: [feature] }); }
+        else samePlaceDropped++;
+      } else if (!filterResult.remove && !abroad) {
+        write(feature);
       }
       
       if (processed % 1000 === 0) {
@@ -120,6 +198,7 @@ async function main() {
     }
   }
 
+  for (const held of byPlace.values()) held.features.forEach(write);
   outFile.write('\n]}');
   outFile.end();
 
@@ -130,6 +209,8 @@ async function main() {
   console.log(`📊 Results:`);
   console.log(`   Total Processed: ${processed.toLocaleString()}`);
   console.log(`   Total Kept: ${kept.toLocaleString()}`);
+  if (border) console.log(`   Outside the ${iso} border (dropped after the filter): ${outsideBorder.toLocaleString()}`);
+  console.log(`   Same name + wikidata as an earlier object (dropped): ${samePlaceDropped.toLocaleString()}`);
   console.log(`   Filter Rate: ${((1 - kept/processed) * 100).toFixed(1)}%`);
 
   // Cleanup

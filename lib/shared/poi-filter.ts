@@ -54,7 +54,14 @@ export const CATEGORIES = [
   "place=neighbourhood",
   "place=town",
   "place=village",
-  "place=square"
+  "place=square",
+  // Austrian capitals (2026-10-07) were missing OK Linz, the Festspielhaus St. Pölten, the
+  // Festungsbahn and the Petersfriedhof: none of these keys reached Stage 1. They pass only with
+  // wikipedia/wikidata/heritage (isMinorWithoutReference).
+  "amenity=arts_centre",
+  "railway=funicular",
+  "landuse=cemetery",
+  "amenity=grave_yard"
 ];
 
 /**
@@ -82,6 +89,29 @@ export const INFO_FURNITURE = ['board', 'map', 'guidepost', 'route_marker', 'aud
 // (41k in Germany alone), a plaque is a wall sign. Each victim has their own Wikidata item, so the
 // wikidata guard does not apply here.
 export const MEMORIAL_NOISE = ['stolperstein', 'plaque', 'stone', 'ghost_bike'];
+
+// Objects whose own tag is the only "fame" they carry, so isFamous lets every one of them through.
+// Austria (2026-10-07): 7,617 wayside crosses and shrines (historic=* counts as fame), ~700 ski
+// tows, lift stations and goods ropeways (the whole `aerialway` key is a Stage 1 category), 585
+// abandoned rail beds (half of them roads today), ~1,000 ponds, reservoirs and basins, ~380 branch
+// libraries and ~200 municipal pools. Each one stays only with wikipedia/wikidata/heritage.
+export const MINOR_HISTORIC = ['wayside_cross', 'wayside_shrine', 'tree_shrine', 'railway'];
+export const TOURIST_AERIALWAYS = ['cable_car', 'gondola', 'chair_lift', 'mixed_lift', 'funicular'];
+export const MINOR_WATER = ['pond', 'reservoir', 'basin', 'wastewater', 'fishpond', 'canal', 'lock', 'harbour', 'moat', 'groundwater', 'river', 'stream', 'ditch', 'drain'];
+export const MINOR_AMENITY = ['library', 'arts_centre', 'grave_yard'];
+export const MINOR_LEISURE = ['water_park', 'dog_park', 'tanning_salon', 'ice_rink', 'sports_hall', 'indoor_play', 'firepit', 'disc_golf_course', 'track', 'miniature_golf'];
+
+/** The MINOR_* gate: true when the object enters only by one of those tags and has no hard reference. */
+export function isMinorWithoutReference(props: any, hasHardReference: boolean): boolean {
+  if (hasHardReference) return false;
+  if (MINOR_HISTORIC.includes(String(props.historic))) return true;
+  // Only when the lift is the reason it got in: a lift that is also tourism=* or historic=* keeps the normal path.
+  if (props.aerialway && !props.tourism && !props.historic && !TOURIST_AERIALWAYS.includes(String(props.aerialway))) return true;
+  if (props.natural === 'water' && MINOR_WATER.includes(String(props.water))) return true;
+  if (!props.tourism && !props.historic && (props.railway === 'funicular' || props.landuse === 'cemetery')) return true;
+  if (!props.tourism && !props.historic && (MINOR_AMENITY.includes(String(props.amenity)) || MINOR_LEISURE.includes(String(props.leisure)))) return true;
+  return false;
+}
 
 export const FILTER_CONFIG = {
   // Categories that are completely blocked unless they are famous (Wiki/Wikidata)
@@ -300,6 +330,10 @@ export function shouldFilterPOI(poi: any): POIFilterResult {
   const memorialType = String(props.memorial || props["memorial:type"] || "");
   if (MEMORIAL_NOISE.includes(memorialType)) {
     return { remove: true, reason: `MEMORIAL_NOISE: memorial=${memorialType}` };
+  }
+
+  if (isMinorWithoutReference(props, hasHardReference)) {
+    return { remove: true, reason: `MINOR: ${props.historic ? 'historic=' + props.historic : props.aerialway ? 'aerialway=' + props.aerialway : props.water ? 'water=' + props.water : props.amenity ? 'amenity=' + props.amenity : 'leisure=' + props.leisure} sem wiki/heritage` };
   }
 
   // --- 2. ELITE EXCEPTIONS (Full exemption if recognized landmark) ---
