@@ -311,7 +311,8 @@ describe('INV-E1a — a stored border is judged like a curated id (BR-POI-009, B
   }
 
   it('BR-POI-009: a stored polygon with the pin 1.9 km outside is refused for the pin circle (Monumento dos Combatentes da FAB)', async () => {
-    dbRow = { geojson: { type: 'Polygon', coordinates: [lngLat(1600, { lat: PIN.lat, lng: PIN.lng + 3500 * M_LNG })] }, boundary_source: 'osm' }
+    // Source not recorded: a stored `osm` border without an id is dropped before (BR-POI-010).
+    dbRow = { geojson: { type: 'Polygon', coordinates: [lngLat(1600, { lat: PIN.lat, lng: PIN.lng + 3500 * M_LNG })] }, boundary_source: null }
     const r = await run()
     assert.equal(r.metadata.strategy, 'estimated_fallback')
     assert.equal(r.data.synthetic, true)
@@ -330,11 +331,11 @@ describe('INV-E1a — a stored border is judged like a curated id (BR-POI-009, B
     assert.ok(r.data.area_m2 < 1_000, `${r.data.area_m2} m²`)
   })
 
-  it('a stored polygon holding the pin is still the border', async () => {
-    dbRow = { geojson: { type: 'Polygon', coordinates: [lngLat(80)] }, boundary_source: 'osm' }
+  it('a stored polygon of no recorded source, holding the pin, is still the border', async () => {
+    dbRow = { geojson: { type: 'Polygon', coordinates: [lngLat(80)] }, boundary_source: null }
     const r = await run()
     assert.equal(r.metadata.strategy, 'database_fallback')
-    assert.equal(r.data.source, 'osm')
+    assert.equal(r.data.source, 'unknown')
   })
 
   it('#779: a corrected border (confidence 1, or manual) wins over a detection and is marked curated', async () => {
@@ -427,10 +428,10 @@ describe('INV-E1a — with storedReference, a detection of another footprint giv
   }
 
   it('BR-AUDIO-010: the pitch inside the park is not the park (Parque Chácara do Jockey, 0.54 ha against 16.8 ha)', async () => {
-    dbRow = { geojson: { type: 'Polygon', coordinates: [lngLat(200)] }, boundary_source: 'osm' }
+    dbRow = { geojson: { type: 'Polygon', coordinates: [lngLat(200)] }, boundary_source: null }
     const r = await run(37, true)
     assert.equal(r.metadata.strategy, 'database_fallback')
-    assert.equal(r.data.source, 'osm')
+    assert.equal(r.data.source, 'unknown')
     assert.ok(r.data.area_m2 > 150_000, `${r.data.area_m2} m²`)
     assert.ok(r.data.rejected.some((x: { element: string }) => x.element === 'osm'))
   })
@@ -457,9 +458,9 @@ describe('INV-E1a — with storedReference, a detection of another footprint giv
   })
 
   it('a detection of the stored footprint is kept as detected, and without the option nothing changes', async () => {
-    dbRow = { geojson: { type: 'Polygon', coordinates: [lngLat(41)] }, boundary_source: 'osm' }
+    dbRow = { geojson: { type: 'Polygon', coordinates: [lngLat(41)] }, boundary_source: null }
     assert.equal((await run(40, true)).metadata.strategy, 'osm_priority')
-    dbRow = { geojson: { type: 'Polygon', coordinates: [lngLat(200)] }, boundary_source: 'osm' }
+    dbRow = { geojson: { type: 'Polygon', coordinates: [lngLat(200)] }, boundary_source: null }
     assert.equal((await run(37, false)).metadata.strategy, 'osm_priority')
   })
 })

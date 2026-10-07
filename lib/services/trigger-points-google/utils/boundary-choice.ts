@@ -4,8 +4,9 @@
  *
  * Identity and geometry only (operator, 2026-09-27): the name says WHICH element is the POI; no
  * category, geocoder class or type tag (`leisure`, `natural`, `place`, `building`, …) decides
- * whether an element may be its border. Every element that contains the pin and is refused
- * leaves a reason for the trace (E0).
+ * whether an element may be its border — with one exception, the municipality (BR-POI-010,
+ * `isMunicipalElement`). Every element that contains the pin and is refused leaves a reason for
+ * the trace (E0).
  */
 import { calculatePolygonAreaInM2, isPointInPolygon } from './calculations';
 import { isCuratedBoundaryImplausible } from './osm-validation';
@@ -46,6 +47,49 @@ export function elementNames(tags: Tags): string[] {
   return ['name', 'name:pt', 'official_name', 'alt_name', 'short_name']
     .flatMap(k => String(tags?.[k] ?? '').split(';'))
     .map(normName).filter(n => n !== '');
+}
+
+/**
+ * BR-POI-010: an administrative area, or the urban area of a city or town, is a POI's border only
+ * through the seat mode (`BoundaryDetector#municipalityBoundary`, the `admin_centre`). Neither the
+ * same name nor the POI's own id lends it: Lagoa Formosa, the lake, took the municipality's
+ * relation 315134 (842 km²) by name; Bom Despacho's own way 936775250 is `place=town`, and the
+ * seat is node 246672623 (#779).
+ */
+export function isMunicipalElement(tags: Tags): boolean {
+  if (['city', 'town'].includes(String(tags?.place ?? ''))) return true;
+  if (String(tags?.boundary ?? '') !== 'administrative') return false;
+  // Municipality or larger (8 in Brazil); a neighbourhood (9, 10) is a POI of its own (Maracanã).
+  const level = Number(tags?.admin_level);
+  return !Number.isFinite(level) || level <= 8;
+}
+
+/** What the POI's own OSM id gave in this run. `unknown`: OSM could not be asked. */
+export type OwnIdLookup = 'none' | 'found' | 'gone' | 'municipal' | 'unknown';
+
+/**
+ * BR-POI-010 (#779, operator 2026-10-07): what becomes of the stored border. `stored.source` is
+ * the RAW `boundary_source` — never the detector's defaulted value (null is not `osm`).
+ * 1. curated (manual, manual_drawing, confidence 1, the seat's osm_admin): never touched;
+ * 4. the own id is a municipality and the POI is not the seat (the seat returned before): point;
+ * 2. the own id is alive: its geometry replaces the stored border, which never comes back;
+ * 3. stored `osm` and no id, or the id is gone: point. When OSM could not be asked, `retry`: the
+ *    POI fails this run instead of losing a border to a network error.
+ * Otherwise (`detect`) detection runs as before; a stored `osm` border is still never a fallback.
+ */
+export type BoundaryFate =
+  | { fate: 'keep'; rule: 1 }
+  | { fate: 'own_id'; rule: 2 }
+  | { fate: 'point'; rule: 3 | 4 }
+  | { fate: 'retry'; rule: 3 }
+  | { fate: 'detect'; rule: null };
+
+export function boundaryFate(stored: { source?: string | null; curated?: boolean } | null | undefined, ownId: OwnIdLookup): BoundaryFate {
+  if (stored?.curated) return { fate: 'keep', rule: 1 };
+  if (ownId === 'municipal') return { fate: 'point', rule: 4 };
+  if (ownId === 'found') return { fate: 'own_id', rule: 2 };
+  if (stored?.source !== 'osm') return { fate: 'detect', rule: null };
+  return ownId === 'unknown' ? { fate: 'retry', rule: 3 } : { fate: 'point', rule: 3 };
 }
 
 /** Identity: the element carries the POI's own name. Compared for identity, never read for kind. */
@@ -131,15 +175,16 @@ export function splitRings(points: LatLng[]): LatLng[][] {
       i = start + 2;
     }
   }
-  if (start === 0) return points.length >= 3 ? [points] : [];
+  // BR-POI-010 (#779): a line that never closes is no ring. Read as one, a river or a road passing
+  // the pin became the border of a church (Itaobim, 265 km²).
   return rings;
 }
 
-/** The ring that is the footprint: the largest ring holding the pin; without one, the largest. */
+/** The ring that is the footprint: the largest ring holding the pin; without one, the largest. Empty when none closes. */
 export function outerRing(points: LatLng[], pin: LatLng): LatLng[] {
   const rings = splitRings(points);
-  if (rings.length <= 1) return rings[0] ?? points;
-  return footprintRing(rings, pin) ?? points;
+  if (rings.length <= 1) return rings[0] ?? [];
+  return footprintRing(rings, pin) ?? [];
 }
 
 /** Of closed rings, the footprint: the largest holding the pin; without one (or no pin), the largest. */
@@ -255,12 +300,18 @@ export function chooseContainingBoundary(
     const ring = el.type === 'relation' ? outerRing(points, pin) : points;
     if (!isClosed(ring) || isVia(el.tags)) continue;
     const candidate = { element: el, ring, areaM2: calculatePolygonAreaInM2(ring) };
+    // BR-POI-010: a municipality is never the border by name; holding the pin, it stays ground.
+    const municipal = isMunicipalElement(el.tags);
+    if (municipal && carriesPoiName(el.tags, poi.name)) {
+      rejected.push({ element: key, reason: 'municipality: only the seat takes its border (BR-POI-010)' });
+      continue;
+    }
     if (carriesPoiName(el.tags, poi.name)) {
       if (!isCuratedBoundaryImplausible(pin, ring)) named.push(candidate);
       continue;
     }
     if (!isPointInPolygon(pin, ring)) continue;
-    if (!poi.namedOnly && poi.isBuilt && akinPoiName(el.tags, poi.name) && poi.isBuilt(ring)) akin.push(candidate);
+    if (!municipal && !poi.namedOnly && poi.isBuilt && akinPoiName(el.tags, poi.name) && poi.isBuilt(ring)) akin.push(candidate);
     else if (elementNames(el.tags).length > 0) other.push(candidate);
     else unnamed.push(candidate);
   }
