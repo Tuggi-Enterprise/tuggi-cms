@@ -17,6 +17,8 @@ export interface MigrationResult {
   error?: string
   warnings?: string[]
   migrated_fields?: string[]
+  /** The POI already lived in core and its homolog row was removed: nothing left to run. */
+  self_healed?: boolean
 }
 
 export interface DuplicateCheckResult {
@@ -565,6 +567,7 @@ export class MigrationService {
           success: true,
           attraction_id: duplicateCheck.existing_id,
           migrated_fields: ['(Self-healed duplicate)'],
+          self_healed: true,
           warnings: [`Duplicate resolved: POI already existed in core and was removed from homolog (Type: ${duplicateCheck.duplicate_type})`]
         }
       }
@@ -763,26 +766,9 @@ export class MigrationService {
         }
       }
 
-      // 9. Delete from homolog after successful migration
-      // Skip archiving for successful migration (it now lives in core)
-      await supabase.schema('core').rpc('set_session_setting', { p_name: 'tuggi.skip_archive', p_value: 'true' })
-
-      // First delete coordinates (to avoid FK issues if cascade is missing)
-      await supabase
-        .schema('homolog')
-        .from('coordinates')
-        .delete()
-        .eq('poi_uuid_id', uuid_id)
-
-      // Then delete the POI itself
-      await supabase
-        .schema('homolog')
-        .from('pois')
-        .delete()
-        .eq('uuid_id', uuid_id)
-
-      // Reset skip archiving
-      await supabase.schema('core').rpc('set_session_setting', { p_name: 'tuggi.skip_archive', p_value: 'false' })
+      // The homolog row is NOT deleted here. It is the only copy of the source data while the
+      // rest of the pipeline runs; PoiMigrationPipeline deletes it once every step succeeded
+      // (completeHomologMigration). Deleting it here lost 4 POIs on 2026-10-06 when Step 4 failed.
 
       // 9. Release lock
       await supabase
@@ -874,7 +860,8 @@ export class MigrationService {
   }
 
   /**
-   * Safely delete POI from homolog (only after successful approval)
+   * Delete a POI from homolog. Callers: the end of a successful pipeline
+   * (PoiMigrationPipeline.completeHomologMigration) and the already-in-core self-healing.
    * Does NOT add to blacklist - POIs migrated successfully don't need blacklist
    */
   static async safeDeleteFromHomolog(uuid_id: string): Promise<{ success: boolean; error?: string }> {
@@ -1207,11 +1194,14 @@ export class MigrationService {
         updateData.last_migration_attempt_at = new Date().toISOString()
       }
 
-      await supabase
+      const { error: updateError } = await supabase
         .schema('homolog')
         .from('pois')
         .update(updateData)
         .eq('uuid_id', uuid_id)
+      if (updateError) {
+        console.error(`Error updating processing status of ${uuid_id}:`, updateError.message)
+      }
     } catch (error) {
       console.error('Error updating processing status:', error)
       // Don't throw - status update is not critical
