@@ -112,21 +112,26 @@ before(async () => {
       getSupabaseService: () => ({ ...service, auth: { admin: { getUserById: async () => ({ data: null, error: null }) } } }),
     },
   })
-  // The REAL description step; only the POI create/link writes are faked.
-  const real = await import('@/lib/services/partner-place-provisioning')
-  mock.module('@/lib/services/partner-place-provisioning', {
+  // #885: partner-place-provisioning is no longer mockable by name: it imports portal-validation-service
+  // (circular) and partner-proposal-admin-service, so importing the real one first caches the real
+  // ones before any fake exists. The seam is one level down: the REAL provisioning (and the REAL
+  // description step) run, only the POI writes in `placeService` are faked.
+  mock.module('@/lib/core/place-service', {
     namedExports: {
-      createPrefilledPlace: async () => ({ status: 'created', attractionId: POI }),
-      applyPlacePrefill: async (id: string, _p: unknown, clientId: string) => {
-        d.partnerClientId = clientId // the link is what lets the policy see a partner
-        return { status: 'created', attractionId: id }
+      placeService: {
+        create: async () => POI,
+        updateAttraction: async (_id: string, patch: Record<string, unknown>) => {
+          if (patch.partner_client_id) d.partnerClientId = String(patch.partner_client_id) // the link is what lets the policy see a partner
+        },
+        upsertDetails: async () => undefined,
+        setCoordinate: async () => undefined,
       },
-      applyPrefillDescription: real.applyPrefillDescription,
     },
   })
   mock.module('@/lib/services/partner-proposal-admin-service', {
     namedExports: {
       findClientByTaxId: async () => null,
+      findPromotedSubmission: async () => null, // imported by partner-place-provisioning
       createPromotedClient: async () => ({ ok: true, clientId: CLIENT, created: true }),
     },
   })
