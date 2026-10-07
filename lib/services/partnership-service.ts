@@ -70,6 +70,7 @@ import { loadAcceptanceGate } from '@/lib/services/acceptance-gate-service'
 import type { PartnerAnswers } from '@/lib/partner-form/schema'
 import type { ContractState, ContractStatus } from '@/lib/contract/status'
 import type { ContractTier } from '@/lib/contract/snapshot'
+import type { PortalAcceptanceFacts } from '@/lib/clients/partner-plan'
 import { PLAN_CHOICES, type PlanChoice } from '@/lib/partner-form/fields'
 
 /**
@@ -247,6 +248,13 @@ export interface ClientDirectoryRow {
    */
   attractionId?: string | null
   /**
+   * What a portal submission accepted (`partner.place_acceptances`) — where the portal's money
+   * lives, read by `derivePartnerPlan` (#908). Absent on every other row.
+   */
+  portalAcceptance?: PortalAcceptanceFacts | null
+  /** When a portal submission first went live: `min(created_at)` of its `live` transitions (#908). */
+  liveAt?: string | null
+  /**
    * What the BR-B2B-057 gate still lacks (`partner.client_acceptance_gate`), in copy order.
    * Empty for a row without a client: its gate is the promotion, which creates slug and code.
    */
@@ -383,6 +391,8 @@ export async function loadClientDirectory(operator: SupabaseClient): Promise<Cli
     return { readiness, outcomes, contract }
   }
 
+  const portalFacts = await loadPortalFacts(portalSubmissions.map((row) => row.id))
+
   const rows: ClientDirectoryRow[] = submissions.map((row) => {
     const clientId = row.promoted_client_id
     const client = clientId ? clients.get(clientId) ?? null : null
@@ -505,6 +515,8 @@ export async function loadClientDirectory(operator: SupabaseClient): Promise<Cli
       discardReason: null,
       origin: 'portal',
       attractionId: row.attraction_id ?? null,
+      portalAcceptance: portalFacts.acceptances.get(row.id) ?? null,
+      liveAt: portalFacts.liveAt.get(row.id) ?? null,
       gateMissing: gateOf(clientId),
     })
   }
@@ -606,6 +618,58 @@ async function loadPortalSubmissions(): Promise<PortalSubmissionRow[]> {
     return []
   }
   return (data as PortalSubmissionRow[]).filter((row) => isPortalBoardStatus(row.status))
+}
+
+interface PortalFacts {
+  acceptances: Map<string, PortalAcceptanceFacts>
+  liveAt: Map<string, string>
+}
+
+/**
+ * The acceptance and the first `live` transition of each portal submission on the board (#908).
+ * A failed read degrades to the row without them, logged, the same way `loadPortalSubmissions`
+ * degrades: the board stays up and the card falls back to what the registration says.
+ */
+async function loadPortalFacts(submissionIds: string[]): Promise<PortalFacts> {
+  const facts: PortalFacts = { acceptances: new Map(), liveAt: new Map() }
+  if (submissionIds.length === 0) return facts
+  const [acceptancesRead, transitionsRead] = await Promise.all([
+    service()
+      .from('place_acceptances')
+      .select('submission_id, plan_choice, billing_period, total_cents')
+      .in('submission_id', submissionIds),
+    service()
+      .from('place_submission_transitions')
+      .select('submission_id, created_at')
+      .in('submission_id', submissionIds)
+      .eq('to_status', 'live')
+      .order('created_at', { ascending: true }),
+  ])
+  if (acceptancesRead.error) {
+    console.error('[partnerships] portal acceptances read failed:', acceptancesRead.error.code ?? 'no_code')
+  } else {
+    for (const row of (acceptancesRead.data ?? []) as {
+      submission_id: string
+      plan_choice: string | null
+      billing_period: number | null
+      total_cents: number | null
+    }[]) {
+      facts.acceptances.set(row.submission_id, {
+        planChoice: row.plan_choice,
+        billingPeriod: row.billing_period,
+        totalCents: row.total_cents,
+      })
+    }
+  }
+  if (transitionsRead.error) {
+    console.error('[partnerships] portal live transitions read failed:', transitionsRead.error.code ?? 'no_code')
+  } else {
+    // Ascending, so the first one kept per submission is the `min(created_at)`.
+    for (const row of (transitionsRead.data ?? []) as { submission_id: string; created_at: string }[]) {
+      if (!facts.liveAt.has(row.submission_id)) facts.liveAt.set(row.submission_id, row.created_at)
+    }
+  }
+  return facts
 }
 
 /** The live contract per client. The function already picked it; this only reshapes it. */
