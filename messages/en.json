@@ -1646,7 +1646,10 @@
         "identity": "Identity",
         "commerce": "Commerce",
         "amenities": "Amenities",
-        "publish": "Publishing"
+        "publish": "Publishing",
+        "hours": "Opening hours",
+        "contact": "Contact",
+        "offers": "Offers to tourists"
       },
       "labels": {
         "location": "Location",
@@ -1667,7 +1670,11 @@
         "approved": "Approved",
         "active": "Active",
         "priority": "Priority",
-        "address": "Address on record"
+        "address": "Address on record",
+        "whatsapp": "WhatsApp",
+        "website": "Website",
+        "app_benefit": "Offer for app users",
+        "subscriber_benefit": "Offer for subscribers"
       },
       "amenities": {
         "wifi": "Wi-Fi",
@@ -1675,7 +1682,11 @@
         "delivery": "Delivery",
         "takeaway": "Takeaway",
         "alcohol": "Serves alcohol",
-        "reservations": "Reservations"
+        "reservations": "Reservations",
+        "cards": "Card and Pix",
+        "pets": "Pet friendly",
+        "air_conditioning": "Air conditioning",
+        "wheelchair": "Wheelchair accessible"
       },
       "tags_hint": "comma-separated",
       "cuisine_hint": "comma-separated",
@@ -1688,7 +1699,48 @@
       "location_detecting": "Detecting city, state and country…",
       "location_detected": "Location detected:",
       "error_save": "Failed to save place",
-      "address_none": "No address on record — the pin is what locates this place."
+      "address_none": "No address on record — the pin is what locates this place.",
+      "hours": {
+        "closed": "Closed",
+        "open": "Opens",
+        "close": "Closes",
+        "remove": "Remove range",
+        "add": "Range",
+        "invalid": "Incomplete hours: fill in opening and closing for each range, or remove it.",
+        "days": {
+          "monday": "Mon",
+          "tuesday": "Tue",
+          "wednesday": "Wed",
+          "thursday": "Thu",
+          "friday": "Fri",
+          "saturday": "Sat",
+          "sunday": "Sun"
+        }
+      },
+      "whatsapp_hint": "digits only, with area code",
+      "whatsapp_invalid": "Invalid WhatsApp: use 10 to 15 digits, with area code.",
+      "partner": {
+        "heading": "What the partner informed",
+        "tier": "Plan",
+        "source": "Source",
+        "not_informed": "Not informed",
+        "no_registration": "This partner has no registration answers to show.",
+        "signature_item": "Signature item",
+        "instagram": "Instagram",
+        "subtypes": "Specialties",
+        "languages": "Languages spoken",
+        "story_script": "Story sent",
+        "tiers": {
+          "paid_tier": "With story (paid)",
+          "free_tier": "On the map (free)",
+          "operator_exception": "On the map, with operator exception",
+          "not_a_partner": "No partner"
+        },
+        "sources": {
+          "portal": "Places portal",
+          "proposal": "Partnership form"
+        }
+      }
     },
     "POIDetails": {
       "trigger_disabled": {

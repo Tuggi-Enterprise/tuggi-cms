@@ -186,11 +186,15 @@ const AMENITY_TARGETS: Readonly<
   sea_view: { tag: 'sea_view' },
 }
 
-const WEEKDAYS = ['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday']
+/** The keys of `core.is_poi_open_now`'s JSON, in week order. The place editor (#886) reads this list. */
+export const OPENING_HOURS_WEEKDAYS = ['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday'] as const
+
+export type OpeningHours = Record<string, { open: string; close: string }[]>
+
 const HHMM = /^([01]\d|2[0-3]):[0-5]\d$/
 
 /** A JSON array of strings, or `[]`. The portal serialises lists into one string (§8.1). */
-function stringList(value: unknown): string[] {
+export function stringList(value: unknown): string[] {
   try {
     const parsed: unknown = JSON.parse(text(value))
     return Array.isArray(parsed) ? parsed.filter((item): item is string => typeof item === 'string') : []
@@ -200,7 +204,7 @@ function stringList(value: unknown): string[] {
 }
 
 /** The `core.is_poi_open_now` shape, or `null` — free text from the old form lands here. */
-export function parseOpeningHours(value: unknown): Record<string, { open: string; close: string }[]> | null {
+export function parseOpeningHours(value: unknown): OpeningHours | null {
   let parsed: unknown
   try {
     parsed = JSON.parse(text(value))
@@ -211,14 +215,23 @@ export function parseOpeningHours(value: unknown): Record<string, { open: string
   const entries = Object.entries(parsed as Record<string, unknown>)
   if (entries.length === 0) return null
   for (const [day, ranges] of entries) {
-    if (!WEEKDAYS.includes(day) || !Array.isArray(ranges) || ranges.length === 0) return null
+    if (!(OPENING_HOURS_WEEKDAYS as readonly string[]).includes(day) || !Array.isArray(ranges) || ranges.length === 0) return null
     for (const range of ranges) {
       const r = range as { open?: unknown; close?: unknown }
       if (typeof r?.open !== 'string' || typeof r?.close !== 'string') return null
       if (!HHMM.test(r.open) || !HHMM.test(r.close)) return null
     }
   }
-  return parsed as Record<string, { open: string; close: string }[]>
+  return parsed as OpeningHours
+}
+
+/**
+ * The establishment's WhatsApp as `contact_whatsapp` holds it — digits only, 10 to 15 of them — or
+ * `null`. The approval's prefill and the place editor (#886) both write the column through this.
+ */
+export function normalizeWhatsapp(value: unknown): string | null {
+  const digits = text(value).replace(/\D/g, '')
+  return digits.length >= 10 && digits.length <= 15 ? digits : null
 }
 
 function coordinateOf(answers: PartnerAnswers): PlacePrefill['coordinate'] {
@@ -276,8 +289,8 @@ export function buildPlacePrefill(answers: PartnerAnswers): PlacePrefill | null 
   if (district && number) attraction.neighborhood = district
   const hours = parseOpeningHours(answers.opening_hours)
   if (hours) attraction.opening_hours = hours
-  const whatsapp = text(answers.whatsapp).replace(/\D/g, '')
-  if (whatsapp.length >= 10 && whatsapp.length <= 15) attraction.contact_whatsapp = whatsapp
+  const whatsapp = normalizeWhatsapp(answers.whatsapp)
+  if (whatsapp) attraction.contact_whatsapp = whatsapp
 
   const details: PlacePrefill['details'] = {}
   if (text(answers.offer_enabled) === 'true') {
