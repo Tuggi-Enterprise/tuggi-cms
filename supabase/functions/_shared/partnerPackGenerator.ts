@@ -60,6 +60,27 @@ export interface PartnerPackInput {
      * paid tier already was before 2026-08-14 and is liberated with no further decision.
      */
     withOffer: boolean;
+    /**
+     * #887 — what the establishment REGISTERED beyond the story (BR-B2B-044 item 3), built by the
+     * CMS (`partnerNarrationFacts` in `lib/partnerships/place-description-policy.ts`): the place
+     * editor's values first, the submission's answers for the rest. Empty keys are omitted there.
+     * CONTEXT for the narration, never a list to read out — see `FACTS_RULES`. Optional: a call
+     * without it behaves as before.
+     */
+    facts?: PartnerFacts;
+}
+
+/** Wire shape of `partner_input.facts`. Twin of `PartnerNarrationFacts` in the CMS. */
+export interface PartnerFacts {
+    category?: string;
+    subtypes?: string[];
+    signature_item?: string;
+    amenities?: string[];
+    has_delivery?: boolean;
+    accepts_reservations?: boolean;
+    price_range?: number;
+    languages?: string[];
+    opening_hours?: Record<string, { open: string; close: string }[]>;
 }
 
 export interface PartnerPackResult {
@@ -94,6 +115,50 @@ const OFFER_CLOSING_RULES = (handle: string) => [
 ].join('\n');
 
 /**
+ * WHAT THE FACTS ARE FOR — BR-B2B-044 item 3, decided by the operator on 2026-10-06: they are the
+ * context of the narration (what is eaten, what is special), never its content. Hours and price
+ * are never spoken — they change, and the app already shows both. An amenity is spoken only when
+ * it is what sets the place apart, and never as a list.
+ */
+const FACTS_RULES = [
+    ``,
+    `REGISTERED FACTS — <facts> inside <partner_input> is what the establishment registered beyond its story. It is CONTEXT, not content:`,
+    `- Use it to know what kind of place this is and what is eaten or made here. The signature item may appear as a concrete detail when it serves the thread you chose.`,
+    `- NEVER say opening hours, days of the week, prices or the price range — not in the narration and not in <master_facts>. They change, and the app already shows them.`,
+    `- An amenity may be said ONLY if it is what sets this place apart (a sea view, live music), at most one, woven into a sentence. Never a list of amenities.`,
+    `- Delivery, booking, payment, wifi, accessibility and languages spoken are never said: they are the service sheet.`,
+    `- The facts never replace the story. The thread still comes from the answers.`,
+].join('\n');
+
+/** One `<fact>` line per non-empty key. Values are escaped like every other partner value. */
+const renderFacts = (facts: PartnerFacts | undefined): string => {
+    if (!facts || typeof facts !== 'object') return '';
+    const lines: string[] = [];
+    const add = (key: string, value: string) => {
+        const clean = escapeForPrompt(value);
+        if (clean) lines.push(`<fact k="${key}">${clean}</fact>`);
+    };
+    const list = (value: unknown): string =>
+        Array.isArray(value) ? value.filter((item) => typeof item === 'string').join(', ') : '';
+
+    if (typeof facts.category === 'string') add('category', facts.category);
+    add('subtypes', list(facts.subtypes));
+    if (typeof facts.signature_item === 'string') add('signature_item', facts.signature_item);
+    add('amenities', list(facts.amenities));
+    if (facts.has_delivery === true) add('delivery', 'yes');
+    if (facts.accepts_reservations === true) add('reservations', 'yes');
+    if (typeof facts.price_range === 'number') add('price_range', '$'.repeat(Math.min(4, Math.max(1, facts.price_range))));
+    add('languages', list(facts.languages));
+    if (facts.opening_hours && typeof facts.opening_hours === 'object') {
+        const days = Object.entries(facts.opening_hours)
+            .filter(([, ranges]) => Array.isArray(ranges))
+            .map(([day, ranges]) => `${day} ${ranges.map((r) => `${r?.open}-${r?.close}`).join(' ')}`);
+        add('opening_hours', days.join('; '));
+    }
+    return lines.length > 0 ? `<facts>\n${lines.join('\n')}\n</facts>` : '';
+};
+
+/**
  * THE PARTNER'S TEXT IS UNTRUSTED INPUT, and the frame around it is what makes it readable.
  *
  * Everything in `<partner_input>` was typed into a public form by someone outside the company
@@ -111,16 +176,18 @@ const escapeForPrompt = (value: string): string =>
         .replace(/["]/g, "'")
         .trim();
 
-/**
- * The narration, from the partner's own words. Throws when every model attempt failed — the caller
- * turns that into a message, and a failed generation writes nothing.
- */
-export const generatePartnerPack = async (
+export interface PartnerPrompt {
+    systemInstruction: string;
+    composeUser: string;
+    withOffer: boolean;
+}
+
+/** The two prompt halves, pure — what `generatePartnerPack` sends, and what a snapshot test reads. */
+export const buildPartnerPrompt = (
     input: PartnerPackInput,
     language: string,
-    apiKey: string,
     audioDuration: number,
-): Promise<PartnerPackResult> => {
+): PartnerPrompt => {
     const audioTarget = `${audioDuration}s`;
     const maxChars = Math.floor(audioDuration * charsPerSecondFor(language));
     const langName = getLanguageName(language);
@@ -128,6 +195,7 @@ export const generatePartnerPack = async (
     // The offer only exists when there is something to point at. A closing that invites the
     // listener to follow an establishment nowhere is worse than no closing.
     const withOffer = input.withOffer && !!input.socialHandle;
+    const facts = renderFacts(input.facts);
 
     const systemInstruction = [
         `You are Tuggi, a charismatic local guide speaking through the traveler's earphones. The listener is passing in front of this establishment RIGHT NOW, and the app has just told them which side of the road it is on. In about ${audioTarget} of speech, make them want to walk in.`,
@@ -146,11 +214,12 @@ export const generatePartnerPack = async (
         `1. HARD RULE — the narration's literal first words are the establishment's name, exactly as written in <partner_input>. No warm-up before it ("Olha só", "Este é", "Imagine", "This is").`,
         `2. SELECT ONE THREAD. You will receive more than fits in ${audioTarget}. Choose the SINGLE most specific thing and tell only that, well: a named person and what they did, what stood at this address before, a dated change, the one thing that exists here and nowhere else. A tight story beats a rushed inventory. (The threads you drop still go into <master_facts>.)`,
         `3. THE SUBSTITUTE TEST decides what counts as specific, and you apply it to every sentence: swap this establishment's name for another of the same kind in the same city. If the sentence stays true, it is not about this place — cut it. "Ambiente acolhedor", "sabores autorais", "feito com afeto", "uma experiência para guardar na memória" all survive the swap and are therefore not content. A founder's name, a predecessor business, a dated reversal do not survive it.`,
-        `4. NO SERVICE SHEET, and this holds even though the input may be full of one: opening hours, prices, the menu, dishes on offer, payment, delivery, booking and contact are never the story. They are what every establishment has.`,
+        `4. NO SERVICE SHEET, and this holds even though the input may be full of one: opening hours, prices, the menu, payment, delivery, booking and contact are never the story. They are what every establishment has.`,
         `5. OPEN A LOOP: right after the name, hook them with the thread — a person, a tension, an implied question. Never open with a flat definition ("X é um restaurante que...").`,
         `6. CLOSE THE LOOP: land the resolution at the end of the story. Never announce it ("Uma curiosidade é que", "Sabia que", "Interestingly").`,
         `7. Vary the rhythm — mix a short punch with a longer flowing sentence. Warm and conversational, clear for a curious 15-year-old.`,
         `8. If the input is thin, tell a SHORTER, honest story. Never pad, never gush, never fill the time with praise.`,
+        ...(facts ? [FACTS_RULES] : []),
         ...(withOffer ? [OFFER_CLOSING_RULES(input.socialHandle as string)] : []),
         ``,
         `VOICE & TTS:`,
@@ -191,11 +260,27 @@ export const generatePartnerPack = async (
     const composeUser = [
         `<partner_input name="${escapeForPrompt(input.name)}" city="${escapeForPrompt(input.city)}">`,
         answers,
+        ...(facts ? [facts] : []),
         `</partner_input>`,
         withOffer
             ? `\nThe establishment's social handle, for the closing: ${input.socialHandle}`
             : `\nThere is no commercial closing in this narration. Tell the story and stop.`,
     ].join('\n');
+
+    return { systemInstruction, composeUser, withOffer };
+};
+
+/**
+ * The narration, from the partner's own words. Throws when every model attempt failed — the caller
+ * turns that into a message, and a failed generation writes nothing.
+ */
+export const generatePartnerPack = async (
+    input: PartnerPackInput,
+    language: string,
+    apiKey: string,
+    audioDuration: number,
+): Promise<PartnerPackResult> => {
+    const { systemInstruction, composeUser, withOffer } = buildPartnerPrompt(input, language, audioDuration);
 
     // Same ladder as the compose step of `generateMasterPack`, and for the same reason: the
     // flash-lite is there for when 2.5-flash flaps with a retirement 404 mid-rollout.
@@ -223,7 +308,7 @@ export const generatePartnerPack = async (
         if (!parsed) { attempts.push(`${model}: extraction failed`); lastError = new Error('extraction failed'); continue; }
 
         console.log(
-            `[PartnerPack] model=${model} blocks=${input.blocks.length} offer=${withOffer} descLen=${parsed.description.length}`,
+            `[PartnerPack] model=${model} blocks=${input.blocks.length} facts=${Object.keys(input.facts ?? {}).length} offer=${withOffer} descLen=${parsed.description.length}`,
         );
 
         return {

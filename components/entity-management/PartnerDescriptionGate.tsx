@@ -131,6 +131,9 @@ export function PartnerDescriptionGate({
           blocks: story.blocks,
           socialHandle: handle,
           withOffer: withOffer && !!handle,
+          // #887: the registration's facts, the editor's values first. Context for the narration;
+          // the generator's prompt keeps hours and price out of the audio (BR-B2B-044 item 3).
+          ...(view.facts ? { facts: view.facts } : {}),
         },
       })
 

@@ -29,6 +29,12 @@ import type { PartnerPlan } from '@/lib/clients/partner-plan'
 import { paymentStance } from '@/lib/clients/partner-plan'
 import type { PlanChoice } from '@/lib/partner-form/fields'
 import type { PartnerAnswers } from '@/lib/partner-form/schema'
+import {
+  AMENITY_TARGETS,
+  parseOpeningHours,
+  stringList,
+  type OpeningHours,
+} from '@/lib/partner-form/place-prefill'
 
 /**
  * What the place may carry in the description's place.
@@ -239,4 +245,120 @@ export function normalizedHandle(raw: string | null): string | null {
   const handle = withoutUrl.replace(/^@+/, '').trim()
 
   return handle || null
+}
+
+/**
+ * THE REGISTRATION'S FACTS, AS CONTEXT FOR THE NARRATION — #887, BR-B2B-044 item 3.
+ *
+ * Wire shape of `partner_input.facts` (`supabase/functions/_shared/partnerPackGenerator.ts`,
+ * `PartnerFacts`; contract `docs/contracts/edge-functions.md`). Every key is optional and an empty
+ * one is OMITTED, never sent blank — same reason as `partnerStoryInput`: a label with no answer is
+ * read as input and the model narrates the gap (BR-B2B-025). Booleans travel only when `true`.
+ *
+ * Opening hours and price range travel because the generator needs to know what NOT to say, and
+ * its prompt forbids speaking them (BR-B2B-044 item 3).
+ */
+export interface PartnerNarrationFacts {
+  category?: string
+  subtypes?: string[]
+  signature_item?: string
+  /** Amenity ids of contract §8.2, minus `delivery` and `accepts_reservations`, which have their own keys. */
+  amenities?: string[]
+  has_delivery?: true
+  accepts_reservations?: true
+  price_range?: number
+  languages?: string[]
+  opening_hours?: OpeningHours
+}
+
+/**
+ * What the place carries today, as far as the facts go: `core.place_details` and the
+ * `core.attractions` columns the prefill writes. `null` when the place could not be read.
+ */
+export interface PlaceFactsRow {
+  /** `true` when a `place_details` row exists — then its booleans are the operator's word. */
+  hasDetailsRow: boolean
+  place_type: string | null
+  cuisine: string[] | null
+  tags: string[] | null
+  price_range: number | null
+  has_delivery: boolean | null
+  accepts_reservations: boolean | null
+  has_wifi: boolean | null
+  has_outdoor_seating: boolean | null
+  opening_hours: unknown
+  payment_credit_cards: unknown
+  pet_friendly: unknown
+  air_conditioning: unknown
+  wheelchair_accessible: unknown
+}
+
+const OWN_KEY_AMENITIES = new Set(['delivery', 'accepts_reservations'])
+
+/** The amenity ids the place carries, read back through the prefill's own map. */
+function amenitiesOfPlace(place: PlaceFactsRow): string[] {
+  const tags = new Set(place.tags ?? [])
+  const yes = (v: unknown) => v === true || v === 'yes'
+  return Object.entries(AMENITY_TARGETS)
+    .filter(([, target]) => {
+      if ('attraction' in target) return yes(place[target.attraction as keyof PlaceFactsRow])
+      if ('details' in target) return place[target.details as keyof PlaceFactsRow] === true
+      return tags.has(target.tag)
+    })
+    .map(([id]) => id)
+}
+
+function nonEmptyList(list: string[] | null | undefined): string[] | undefined {
+  const clean = (list ?? []).map((item) => item.trim()).filter(Boolean)
+  return clean.length > 0 ? clean : undefined
+}
+
+/**
+ * THE EDITOR WINS OVER THE SUBMISSION: what the operator corrected in the place editor (#886) is
+ * read first, and the answers only fill what the place does not carry. `signature_item` and
+ * `languages` have no column, so they always come from the answers.
+ *
+ * Returns `null` when no fact survived.
+ */
+export function partnerNarrationFacts(
+  answers: PartnerAnswers | null,
+  place: PlaceFactsRow | null
+): PartnerNarrationFacts | null {
+  const a = answers ?? {}
+  const facts: PartnerNarrationFacts = {}
+
+  const category = place?.place_type?.trim() || (a.category ?? '').trim()
+  if (category) facts.category = category
+
+  const subtypes = nonEmptyList(place?.cuisine) ?? nonEmptyList(stringList(a.subtypes))
+  if (subtypes) facts.subtypes = subtypes
+
+  const signature = (a.signature_item ?? '').trim()
+  if (signature) facts.signature_item = signature
+
+  const answeredAmenities = stringList(a.amenities)
+  const amenityIds = place?.hasDetailsRow ? amenitiesOfPlace(place) : answeredAmenities
+  const amenities = nonEmptyList(amenityIds.filter((id) => !OWN_KEY_AMENITIES.has(id)))
+  if (amenities) facts.amenities = amenities
+
+  const delivery = place?.hasDetailsRow ? place.has_delivery === true : answeredAmenities.includes('delivery')
+  if (delivery) facts.has_delivery = true
+  const reservations = place?.hasDetailsRow
+    ? place.accepts_reservations === true
+    : answeredAmenities.includes('accepts_reservations')
+  if (reservations) facts.accepts_reservations = true
+
+  const answeredPrice = Number((a.price_range ?? '').trim())
+  const price = place?.price_range ?? (Number.isInteger(answeredPrice) && answeredPrice >= 1 && answeredPrice <= 4 ? answeredPrice : null)
+  if (price) facts.price_range = price
+
+  const languages = nonEmptyList(stringList(a.languages))
+  if (languages) facts.languages = languages
+
+  const hours =
+    (place?.opening_hours ? parseOpeningHours(typeof place.opening_hours === 'string' ? place.opening_hours : JSON.stringify(place.opening_hours)) : null) ??
+    parseOpeningHours(a.opening_hours)
+  if (hours) facts.opening_hours = hours
+
+  return Object.keys(facts).length > 0 ? facts : null
 }
