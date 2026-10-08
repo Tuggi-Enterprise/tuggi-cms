@@ -543,8 +543,9 @@ test('#863 §8.4 BR-B2B-055, BR-B2B-046: cancel with fee 0 — endDate = eve of 
   const r = await pay.cancelRenewal(d as never, SUBMISSION)
   assert.deepEqual(r, { status: 200, body: { result: 'canceled' } })
   assert.deepEqual(user.calls, [{ schema: 'core', fn: 'portal_cancel_renewal', args: { p_submission_id: SUBMISSION } }])
-  // the owner never reaches cancel_place_subscription(…'client') (§8.4)
-  assert.deepEqual(db.calls, [])
+  // the owner never reaches cancel_place_subscription(…'client') (§8.4); the only service_role
+  // call is the #913 survey record (BR-B2B-060 item 7)
+  assert.deepEqual(db.calls.map((c) => c.fn), ['record_place_cancellation_feedback'])
   assert.deepEqual(asaas.calls.map((c) => `${c.method} ${c.path}`), ['PUT /subscriptions/sub_1', 'GET /payments?subscription=sub_1&status=PENDING'])
   assert.deepEqual(asaas.calls[0].body, { endDate: '2027-01-05' })
   assert.deepEqual(sent, ['ze@example.com'])
@@ -660,7 +661,7 @@ test('#898 BR-B2B-046 item 9: cancel inside the free month (nothing paid, no pai
   ;(d as Record<string, unknown>).subscriptionIds = async () => freeMonthIds
   assert.deepEqual(await pay.cancelRenewal(d as never, SUBMISSION), { status: 200, body: { result: 'canceled' } })
   assert.deepEqual(asaas.calls.map((c) => `${c.method} ${c.path}`), ['DELETE /subscriptions/sub_1'])
-  assert.deepEqual(db.calls, [])
+  assert.deepEqual(db.calls.map((c) => c.fn), ['record_place_cancellation_feedback']) // #913: the survey record is the only service_role call
   assert.deepEqual(alerts, [])
   assert.match(mail.text, /Você não terá mais nenhuma cobrança\./)
   assert.doesNotMatch(mail.text, /R\$/)

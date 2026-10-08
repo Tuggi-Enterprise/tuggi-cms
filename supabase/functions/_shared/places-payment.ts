@@ -699,6 +699,63 @@ export async function cancelQuote(deps: PortalDeps, submissionId: string): Promi
   });
 }
 
+// ─── portal: cancellation survey (#913, BR-B2B-060) ───────────────────────────────────────────
+
+/** BR-B2B-060 item 3: the closed list. A new code is an amendment of the rule. */
+export const CANCEL_REASONS = ['too_expensive', 'no_results', 'few_tourists', 'closing_business', 'portal_or_payment_issue', 'other'] as const;
+export type CancelReason = (typeof CANCEL_REASONS)[number];
+/** BR-B2B-060 item 4. */
+export const CANCEL_COMMENT_MAX = 1000;
+/** The consent text is the checkbox label as shown (~110 chars today); longer is not a label. */
+const CONSENT_TEXT_MAX = 500;
+
+export type CancelFeedback = { reason: CancelReason | null; comment: string | null; contactConsent: boolean; contactConsentText: string | null };
+
+/**
+ * BR-B2B-060 item 6: an invalid answer is dropped, field by field, and never blocks the cancel.
+ * Reason off the list → null; comment trimmed, empty or over 1000 → null; consent without its text
+ * (or with a text too long to be the label) → false. Anything that is not an object → all empty.
+ */
+export function sanitizeCancelFeedback(raw: unknown): CancelFeedback {
+  const o = raw && typeof raw === 'object' && !Array.isArray(raw) ? (raw as Record<string, unknown>) : {};
+  const reason = (CANCEL_REASONS as readonly unknown[]).includes(o.reason) ? (o.reason as CancelReason) : null;
+  const comment = typeof o.comment === 'string' ? o.comment.trim() : '';
+  const consentText = typeof o.contact_consent_text === 'string' ? o.contact_consent_text.trim() : '';
+  const consent = o.contact_consent === true && consentText.length > 0 && consentText.length <= CONSENT_TEXT_MAX;
+  return {
+    reason,
+    comment: comment && comment.length <= CANCEL_COMMENT_MAX ? comment : null,
+    contactConsent: consent,
+    contactConsentText: consent ? consentText : null,
+  };
+}
+
+/**
+ * BR-B2B-060 item 7: one record per cancellation made in the portal, answered or not (the CMS
+ * measures the answer rate over all of them). `partner.record_place_cancellation_feedback` does not
+ * check the owner: the subscription comes from `subscriptionIds` of the submission whose cancel
+ * `core.portal_cancel_renewal` just accepted with the user's JWT. Item 6: a failure is logged (code
+ * only, no answer text) and never undoes nor fails the cancel.
+ */
+async function recordCancelFeedback(deps: Deps, ids: SubscriptionIds | null, fb: CancelFeedback): Promise<void> {
+  if (!ids) {
+    console.error('[places-payment] cancel feedback not recorded', 'no_subscription');
+    return;
+  }
+  try {
+    const { error } = await deps.admin('partner', 'record_place_cancellation_feedback', {
+      p_subscription_id: ids.subscription_id,
+      p_reason: fb.reason,
+      p_comment: fb.comment,
+      p_contact_consent: fb.contactConsent,
+      p_contact_consent_text: fb.contactConsentText,
+    });
+    if (error) console.error('[places-payment] cancel feedback not recorded', error.code ?? 'unknown');
+  } catch (e) {
+    console.error('[places-payment] cancel feedback not recorded', e instanceof Error ? e.message.slice(0, 200) : 'unknown');
+  }
+}
+
 /** What the cancel e-mail says about the one charge left; null = nothing more is charged. */
 export type CancelFee = { cents: number; chargeOn: string; method: PaymentMethod; invoiceUrl: string | null };
 
@@ -718,8 +775,12 @@ export type CancelFee = { cents: number; chargeOn: string; method: PaymentMethod
  * `p_expected_fee_cents` exists from 20261006190000 on: PostgREST rejects an unknown parameter.
  *
  * Repeated call (`not_applicable`): `resumeCancelAtAsaas` redoes the idempotent Asaas half.
+ *
+ * `feedback` (#913, BR-B2B-060): the optional survey of the portal's cancel flow. Sanitized
+ * (`sanitizeCancelFeedback`) and recorded only after the cancel took effect, on every new cancel,
+ * even without it; a repeated call records nothing (it is not a new cancel).
  */
-export async function cancelRenewal(deps: PortalDeps, submissionId: string, expectedFeeCents?: unknown): Promise<Reply> {
+export async function cancelRenewal(deps: PortalDeps, submissionId: string, expectedFeeCents?: unknown, feedback?: unknown): Promise<Reply> {
   if (!isUuid(submissionId)) return reply(400, { error: 'invalid', field: 'submission_id' });
   if (expectedFeeCents != null && !(Number.isInteger(expectedFeeCents) && (expectedFeeCents as number) >= 0)) {
     return reply(400, { error: 'invalid', field: 'expected_fee_cents' });
@@ -768,10 +829,13 @@ export async function cancelRenewal(deps: PortalDeps, submissionId: string, expe
     await endFreeMonth(deps, ids);
   }
 
+  const answers = sanitizeCancelFeedback(feedback);
+  await recordCancelFeedback(deps, ids, answers);
+
   const to = await deps.userEmail();
   if (to) {
     const until = ends ? formatDateBr(saoPauloDate(new Date(ends))) : null;
-    const mail = CANCEL_EMAIL.build(until, fee);
+    const mail = CANCEL_EMAIL.build(until, fee, answers.reason !== null || answers.comment !== null);
     const sent = await deps.sendEmail(to, mail.subject, mail.text, { html: mail.html, fromName: CANCEL_EMAIL.fromName, replyTo: CANCEL_EMAIL.replyTo });
     if (!sent) await deps.alert('cancel_email_failed', { subscription_id: ids?.subscription_id ?? null });
   }
@@ -1634,7 +1698,8 @@ export const CANCEL_EMAIL = {
   subject: 'Seu plano Com história foi cancelado',
   replyTo: SUPPORT_EMAIL,
   fromName: ACCESS_FROM_NAME,
-  build: (until: string | null, fee: CancelFee | null): { subject: string; html: string; text: string } => {
+  /** `answered` (#913, BR-B2B-060 item 9): the portal survey kept a reason or a comment; the closing thanks instead of asking. */
+  build: (until: string | null, fee: CancelFee | null, answered = false): { subject: string; html: string; text: string } => {
     const last = fee
       ? `As mensalidades param aqui. Como o cancelamento veio antes do fim da fidelidade, há uma última cobrança de ${formatBrl(fee.cents)}, a diferença do desconto dos meses usados,`
       : '';
@@ -1665,7 +1730,11 @@ export const CANCEL_EMAIL = {
         'Se quiser voltar, o seu local continua cadastrado. É só entrar e contratar o plano Com história de novo.',
       ],
       cta: { label: 'Entrar', url: PORTAL_URL },
-      closing: ['Pode contar para a gente por que cancelou? Basta responder este e-mail. Uma linha já nos ajuda a melhorar.'],
+      closing: [
+        answered
+          ? 'Obrigado por contar o motivo no portal. Se quiser dizer mais alguma coisa, é só responder este e-mail.'
+          : 'Pode contar para a gente por que cancelou? Basta responder este e-mail. Uma linha já nos ajuda a melhorar.',
+      ],
       small: [],
     });
   },

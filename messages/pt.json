@@ -2560,6 +2560,53 @@
     "drawWarning": "⚠️ É necessário desenhar o boundary no mapa antes de salvar."
   },
   "Clients": {
+    "cancellations": {
+      "link": "Cancelamentos",
+      "title": "Cancelamentos",
+      "subtitle": "Cancelamentos do Com história feitos no portal, com o motivo e o pedido de contato.",
+      "backToClients": "Voltar para clientes",
+      "headers": {
+        "place": "Local",
+        "canceledAt": "Cancelado em",
+        "reason": "Motivo",
+        "comment": "Comentário",
+        "contact": "Contato"
+      },
+      "reasons": {
+        "too_expensive": "Ficou caro",
+        "no_results": "Sem o resultado esperado",
+        "few_tourists": "Poucos turistas",
+        "closing_business": "Fechando ou mudando o negócio",
+        "portal_or_payment_issue": "Problema no portal ou no pagamento",
+        "other": "Outro",
+        "none": "Não respondeu"
+      },
+      "contact": {
+        "pending": "Pendente",
+        "done": "Falamos em {date}",
+        "doneBy": "Falamos em {date}, por {name}",
+        "declined": "Não aceitou"
+      },
+      "filters": {
+        "contactAll": "Todo contato",
+        "pending": "Pendente",
+        "done": "Já falamos",
+        "declined": "Não aceitou",
+        "reasonAll": "Todos os motivos"
+      },
+      "markContacted": "Marcar que falamos",
+      "undo": "Desfazer",
+      "saveFailed": "Não deu para salvar. Tente de novo.",
+      "loading": "Carregando…",
+      "empty": "Nenhum cancelamento ainda.",
+      "emptyFiltered": "Nenhum cancelamento para este filtro.",
+      "clearFilters": "Limpar filtros",
+      "unavailable": "A lista de cancelamentos ainda não está disponível. Tente de novo mais tarde.",
+      "loadFailed": "Não foi possível carregar os cancelamentos.",
+      "pagination": "Página {current} de {total} · {count} cancelamentos",
+      "prev": "Anterior",
+      "next": "Próxima"
+    },
     "directory": {
       "title": "Parcerias",
       "subtitle": "Todo parceiro e toda proposta numa lista só — inclusive quem ainda não virou cliente.",

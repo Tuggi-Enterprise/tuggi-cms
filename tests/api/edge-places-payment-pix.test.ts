@@ -369,7 +369,7 @@ test('#863 #898 Pix §8.4 BR-B2B-046: cancel with fee 0 — endDate moves to the
   assert.deepEqual(await pay.cancelRenewal(d, SUBMISSION), { status: 200, body: { result: 'canceled' } })
   assert.deepEqual(paths(asaas), ['PUT /subscriptions/sub_px', 'GET /payments?subscription=sub_px&status=PENDING', 'DELETE /payments/pay_next'])
   assert.deepEqual(asaas.calls[0].body, { endDate: '2027-01-05' })
-  assert.deepEqual(db.calls, [])
+  assert.deepEqual(db.calls.map((c) => c.fn), ['record_place_cancellation_feedback']) // #913: the survey record is the only service_role call
 })
 
 test('#863 Pix §8.4 BR-B2B-046: cancel with fee — the authorized value is fixed (Asaas FAQ Pix Automático q.6), so the fee is a one-off Pix due on paid_through, and the recurrence ends now (subscription + authorization); the QR page goes in the e-mail', async () => {
@@ -394,7 +394,7 @@ test('#863 Pix §8.4 BR-B2B-046: cancel with fee — the authorized value is fix
   assert.equal(body.dueDate, '2027-01-06')
   // no externalReference: the webhook maps it through the customer, like the first Pix charge
   assert.equal(body.externalReference, undefined)
-  assert.deepEqual(db.calls, [])
+  assert.deepEqual(db.calls.map((c) => c.fn), ['record_place_cancellation_feedback']) // #913: the survey record is the only service_role call
   assert.deepEqual(alerts, [])
   assert.match(mail, /há uma última cobrança de R\$ 135,00, a diferença do desconto dos meses usados, por Pix, com vencimento em 06\/01\/2027/)
   assert.match(mail, /https:\/\/sandbox\.asaas\.com\/i\/abc/)

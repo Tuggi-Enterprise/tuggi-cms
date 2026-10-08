@@ -16,6 +16,8 @@
 // Body: { action: 'checkout' | 'checkout_pix' | 'cancel_quote' | 'cancel_renewal' | 'refund' | 'withdraw' | 'confirm_pix_key', submission_id, ... }.
 // `confirm_pix_key` (#904): the owner confirms the payout Pix key (the contract's CNPJ) + anti-fraud e-mail.
 // `cancel_renewal` takes an optional `expected_fee_cents` (the quote the owner saw; 409 `quote_changed` if it moved).
+// `cancel_renewal` also takes an optional `feedback` { reason, comment, contact_consent, contact_consent_text }
+// (#913, BR-B2B-060): sanitized, recorded after the cancel; never changes the cancel's answer.
 // The card goes to Asaas in the same request and is never stored, logged or echoed. `checkout` and
 // `checkout_pix` in the free month (#898) charge nothing and answer
 // { result: 'scheduled', first_charge_on: 'YYYY-MM-DD' } — the database's `next_due_date`; an
@@ -85,7 +87,7 @@ Deno.serve(async (req: Request) => {
         : body.action === 'cancel_quote'
           ? await cancelQuote(deps, submissionId)
         : body.action === 'cancel_renewal'
-          ? await cancelRenewal(deps, submissionId, body.expected_fee_cents)
+          ? await cancelRenewal(deps, submissionId, body.expected_fee_cents, body.feedback)
           : body.action === 'refund'
             ? await requestRefund(deps, submissionId)
             : body.action === 'withdraw'

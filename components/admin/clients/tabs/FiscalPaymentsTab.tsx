@@ -12,6 +12,7 @@ import { paymentStance } from '@/lib/clients/partner-plan'
 import { PaymentStanceBadge } from '@/components/admin/clients/shared/PaymentStanceBadge'
 import { useClientContract, type ClientContractSummary } from '@/components/admin/clients/shared/use-client-contract'
 import { PortalSubscriptions } from '@/components/admin/clients/shared/PortalRecord'
+import { PortalCancellations } from '@/components/admin/clients/shared/PortalCancellations'
 import type { ClientEditorTabProps } from './ProfileTab'
 
 function v<K extends keyof Client>(client: Client | null, edited: Partial<Client>, k: K): string {
@@ -92,6 +93,8 @@ export function FiscalPaymentsTab({ client, edited, updateField, canEdit, client
         <SectionHeader icon={<CreditCard className="w-4 h-4 text-tuggi-blue" />} title={tPortal('title')} color="tuggi-blue" />
         <div className="space-y-6">
           {portalRecords.length > 0 && <PortalSubscriptions records={portalRecords} />}
+          {/* #913, BR-B2B-060 item 7: the cancel's survey and the contact pendency, below the subscription. */}
+          {portalRecords.length > 0 && clientId && <PortalCancellations clientId={clientId} />}
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-y-6 gap-x-10">
             <div className="space-y-1">
               <div className="flex flex-wrap items-center gap-2">

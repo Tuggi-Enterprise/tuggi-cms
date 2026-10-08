@@ -2533,6 +2533,53 @@
     "drawWarning": "⚠️ Es necesario dibujar el boundary en el mapa antes de guardar."
   },
   "Clients": {
+    "cancellations": {
+      "link": "Cancelaciones",
+      "title": "Cancelaciones",
+      "subtitle": "Cancelaciones del Com história hechas en el portal, con el motivo y el pedido de contacto.",
+      "backToClients": "Volver a clientes",
+      "headers": {
+        "place": "Local",
+        "canceledAt": "Cancelado el",
+        "reason": "Motivo",
+        "comment": "Comentario",
+        "contact": "Contacto"
+      },
+      "reasons": {
+        "too_expensive": "Muy caro",
+        "no_results": "Sin el resultado esperado",
+        "few_tourists": "Pocos turistas",
+        "closing_business": "Cierra o cambia el negocio",
+        "portal_or_payment_issue": "Problema en el portal o en el pago",
+        "other": "Otro",
+        "none": "No respondió"
+      },
+      "contact": {
+        "pending": "Pendiente",
+        "done": "Hablamos el {date}",
+        "doneBy": "Hablamos el {date}, por {name}",
+        "declined": "No aceptó"
+      },
+      "filters": {
+        "contactAll": "Todo contacto",
+        "pending": "Pendiente",
+        "done": "Ya hablamos",
+        "declined": "No aceptó",
+        "reasonAll": "Todos los motivos"
+      },
+      "markContacted": "Marcar que hablamos",
+      "undo": "Deshacer",
+      "saveFailed": "No se pudo guardar. Inténtalo de nuevo.",
+      "loading": "Cargando…",
+      "empty": "Ninguna cancelación todavía.",
+      "emptyFiltered": "Ninguna cancelación para este filtro.",
+      "clearFilters": "Limpiar filtros",
+      "unavailable": "La lista de cancelaciones aún no está disponible. Inténtalo más tarde.",
+      "loadFailed": "No se pudieron cargar las cancelaciones.",
+      "pagination": "Página {current} de {total} · {count} cancelaciones",
+      "prev": "Anterior",
+      "next": "Siguiente"
+    },
     "editor": {
       "header": {
         "newClient": "Nuevo cliente",

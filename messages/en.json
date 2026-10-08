@@ -2551,6 +2551,53 @@
     "drawWarning": "⚠️ It is required to draw the boundary on the map before saving."
   },
   "Clients": {
+    "cancellations": {
+      "link": "Cancellations",
+      "title": "Cancellations",
+      "subtitle": "Com história cancellations made in the portal, with the reason and the contact request.",
+      "backToClients": "Back to clients",
+      "headers": {
+        "place": "Place",
+        "canceledAt": "Cancelled on",
+        "reason": "Reason",
+        "comment": "Comment",
+        "contact": "Contact"
+      },
+      "reasons": {
+        "too_expensive": "Too expensive",
+        "no_results": "Not the expected result",
+        "few_tourists": "Few tourists",
+        "closing_business": "Closing or changing the business",
+        "portal_or_payment_issue": "Portal or payment problem",
+        "other": "Other",
+        "none": "No answer"
+      },
+      "contact": {
+        "pending": "Pending",
+        "done": "Talked on {date}",
+        "doneBy": "Talked on {date}, by {name}",
+        "declined": "Declined"
+      },
+      "filters": {
+        "contactAll": "Any contact",
+        "pending": "Pending",
+        "done": "Talked",
+        "declined": "Declined",
+        "reasonAll": "All reasons"
+      },
+      "markContacted": "Mark as talked",
+      "undo": "Undo",
+      "saveFailed": "Could not save. Try again.",
+      "loading": "Loading…",
+      "empty": "No cancellations yet.",
+      "emptyFiltered": "No cancellations for this filter.",
+      "clearFilters": "Clear filters",
+      "unavailable": "The cancellations list is not available yet. Try again later.",
+      "loadFailed": "Could not load the cancellations.",
+      "pagination": "Page {current} of {total} · {count} cancellations",
+      "prev": "Previous",
+      "next": "Next"
+    },
     "editor": {
       "header": {
         "newClient": "New client",
