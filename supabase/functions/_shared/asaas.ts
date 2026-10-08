@@ -182,9 +182,40 @@ export type AsaasCustomerAddress = { postalCode: string; addressNumber: string }
 export type AsaasCustomer = {
   id: string;
   externalReference?: string | null;
+  name?: string | null;
+  cpfCnpj?: string | null;
   email?: string | null;
+  mobilePhone?: string | null;
   postalCode?: string | null;
   addressNumber?: string | null;
+  notificationDisabled?: boolean | null;
+  deleted?: boolean | null;
+};
+
+/** The fields `PUT /v3/customers/{id}` changes; an omitted field keeps its value (doc, 2026-10-08). */
+export type AsaasCustomerPatch = Partial<{
+  name: string;
+  cpfCnpj: string;
+  email: string;
+  mobilePhone: string;
+  postalCode: string;
+  addressNumber: string;
+  externalReference: string;
+  notificationDisabled: boolean;
+}>;
+
+/**
+ * A billing notification of a customer. Asaas creates the set together with the customer; the API
+ * only reads and edits it (doc conferred 2026-10-08:
+ * https://docs.asaas.com/reference/recuperar-notificacoes-de-um-cliente and
+ * https://docs.asaas.com/reference/atualizar-notificacoes-existentes-em-lote).
+ */
+export type AsaasNotification = {
+  id: string;
+  event?: string;
+  enabled?: boolean;
+  whatsappEnabledForCustomer?: boolean;
+  deleted?: boolean;
 };
 
 /** `GET /v3/transfers` publishes `limit` max 10. */
@@ -242,9 +273,28 @@ export function asaasClient(cfg: AsaasConfig) {
     findCustomerByReference: async (externalReference: string) =>
       (await call<List<AsaasCustomer>>('GET', `/customers?${q({ externalReference })}`)).data?.[0] ?? null,
 
-    createCustomer: (c: { name: string; cpfCnpj: string; email: string; externalReference: string } & AsaasCustomerAddress) =>
-      // Asaas e-mails (invoice, reminders) off: the Tuggi tells the place, in the Tuggi voice.
-      call<AsaasCustomer>('POST', '/customers', { ...c, notificationDisabled: true }),
+    createCustomer: (
+      c: { name: string; cpfCnpj: string; email: string; externalReference: string; mobilePhone?: string; notificationDisabled?: boolean } & AsaasCustomerAddress,
+    ) =>
+      // Asaas e-mails (invoice, reminders) off unless the caller says otherwise: the portal checkout
+      // tells the place in the Tuggi voice; the legacy partners (`places-legacy-customers`) get Asaas'.
+      call<AsaasCustomer>('POST', '/customers', { notificationDisabled: true, ...c }),
+
+    /** `GET /v3/customers?cpfCnpj=` (https://docs.asaas.com/reference/listar-clientes). Asaas allows duplicates. */
+    findCustomersByCpfCnpj: async (cpfCnpj: string) =>
+      (await call<List<AsaasCustomer>>('GET', `/customers?${q({ cpfCnpj })}`)).data ?? [],
+
+    /** `PUT /v3/customers/{id}`, partial: send only what changes. */
+    updateCustomer: (id: string, patch: AsaasCustomerPatch) =>
+      call<AsaasCustomer>('PUT', `/customers/${encodeURIComponent(id)}`, patch),
+
+    /** `GET /v3/customers/{id}/notifications`. */
+    listCustomerNotifications: async (id: string) =>
+      (await call<List<AsaasNotification>>('GET', `/customers/${encodeURIComponent(id)}/notifications`)).data ?? [],
+
+    /** `PUT /v3/notifications/batch`: edits existing notifications only; the ones not listed stay as they are. */
+    updateNotifications: (customer: string, notifications: ({ id: string } & Partial<Omit<AsaasNotification, 'id' | 'event' | 'deleted'>>)[]) =>
+      call<{ notifications?: AsaasNotification[] }>('PUT', '/notifications/batch', { customer, notifications }),
 
     getCustomer: (id: string) => call<AsaasCustomer>('GET', `/customers/${encodeURIComponent(id)}`),
 
