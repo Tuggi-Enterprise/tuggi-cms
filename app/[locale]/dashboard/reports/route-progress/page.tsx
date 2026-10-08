@@ -15,7 +15,7 @@
 import { useEffect, useState } from 'react'
 import { useLocale, useTranslations } from 'next-intl'
 import { Flag } from 'lucide-react'
-import { CELL, DenseTableScroller, DIM, HEAD, HEAD_NUM, NUM } from '@/components/ui/dense-table'
+import { CELL, DenseTableScroller, DIM, HEAD_SOLO, HEAD_SOLO_NUM, NUM } from '@/components/ui/dense-table'
 import { AppUserLink } from '@/components/dashboard/AppUserLink'
 import { fetchDashboardRoute, type RpcError } from '@/lib/api/dashboard-fetch'
 import { UNKNOWN_VALUE } from '@/lib/format/unknown'
@@ -103,10 +103,10 @@ export default function RouteProgressReportPage() {
             <table className="w-full border-collapse">
               <thead>
                 <tr>
-                  <th scope="col" className={HEAD}>{t('route')}</th>
-                  <th scope="col" className={HEAD_NUM}>{t('started')}</th>
-                  <th scope="col" className={HEAD_NUM}>{t('in_progress')}</th>
-                  <th scope="col" className={HEAD_NUM}>{t('completed')}</th>
+                  <th scope="col" className={HEAD_SOLO}>{t('route')}</th>
+                  <th scope="col" className={HEAD_SOLO_NUM}>{t('started')}</th>
+                  <th scope="col" className={HEAD_SOLO_NUM}>{t('in_progress')}</th>
+                  <th scope="col" className={HEAD_SOLO_NUM}>{t('completed')}</th>
                 </tr>
               </thead>
               <tbody>
@@ -163,12 +163,12 @@ export default function RouteProgressReportPage() {
               <table className="w-full min-w-[860px] border-collapse">
                 <thead>
                   <tr>
-                    <th scope="col" className={HEAD}>{t('person')}</th>
-                    <th scope="col" className={HEAD}>{t('status')}</th>
-                    <th scope="col" className={HEAD_NUM}>{t('stops')}</th>
-                    <th scope="col" className={HEAD}>{t('started_at')}</th>
-                    <th scope="col" className={HEAD}>{t('last_activity_at')}</th>
-                    <th scope="col" className={HEAD}>{t('completed_at')}</th>
+                    <th scope="col" className={HEAD_SOLO}>{t('person')}</th>
+                    <th scope="col" className={HEAD_SOLO}>{t('status')}</th>
+                    <th scope="col" className={HEAD_SOLO_NUM}>{t('stops')}</th>
+                    <th scope="col" className={HEAD_SOLO}>{t('started_at')}</th>
+                    <th scope="col" className={HEAD_SOLO}>{t('last_activity_at')}</th>
+                    <th scope="col" className={HEAD_SOLO}>{t('completed_at')}</th>
                   </tr>
                 </thead>
                 <tbody>

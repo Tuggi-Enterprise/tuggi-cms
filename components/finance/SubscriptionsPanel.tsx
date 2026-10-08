@@ -14,7 +14,7 @@
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useTranslations } from 'next-intl'
 import { ChevronDown, ChevronRight, Banknote, Repeat, ArrowDownLeft, ArrowUpRight } from 'lucide-react'
-import { CELL, DIM, DenseTableScroller, FilterChip, HEAD, HEAD_NUM, NUM } from '@/components/ui/dense-table'
+import { CELL, DIM, DenseTableScroller, FilterChip, HEAD_SOLO, HEAD_SOLO_NUM, NUM } from '@/components/ui/dense-table'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { StatCard, StatCardRow } from '@/components/ui/StatCard'
@@ -24,6 +24,7 @@ import {
   isCanceled,
   isPaidWithoutInvoice,
   matchesFilter,
+  nextChargeDate,
   saoPauloDate,
   type PlaceCharge,
   type PlaceInvoice,
@@ -236,13 +237,13 @@ export function SubscriptionsPanel({ focusSubscriptionId }: { focusSubscriptionI
             <table className="w-full min-w-[1100px] border-collapse">
               <thead>
                 <tr>
-                  <th scope="col" className={HEAD}>{t('columns.place')}</th>
-                  <th scope="col" className={HEAD}>{t('columns.plan')}</th>
-                  <th scope="col" className={HEAD}>{t('columns.method')}</th>
-                  <th scope="col" className={HEAD}>{t('columns.subscription')}</th>
-                  <th scope="col" className={HEAD}>{t('columns.lastCharge')}</th>
-                  <th scope="col" className={HEAD}>{t('columns.lastInvoice')}</th>
-                  <th scope="col" className={HEAD}>{t('columns.nextCharge')}</th>
+                  <th scope="col" className={HEAD_SOLO}>{t('columns.place')}</th>
+                  <th scope="col" className={HEAD_SOLO}>{t('columns.plan')}</th>
+                  <th scope="col" className={HEAD_SOLO}>{t('columns.method')}</th>
+                  <th scope="col" className={HEAD_SOLO}>{t('columns.subscription')}</th>
+                  <th scope="col" className={HEAD_SOLO}>{t('columns.lastCharge')}</th>
+                  <th scope="col" className={HEAD_SOLO}>{t('columns.lastInvoice')}</th>
+                  <th scope="col" className={HEAD_SOLO}>{t('columns.nextCharge')}</th>
                 </tr>
               </thead>
               <tbody>
@@ -256,6 +257,7 @@ export function SubscriptionsPanel({ focusSubscriptionId }: { focusSubscriptionI
                   const last = sub.charges[0] ?? null
                   const status = isCanceled(sub) && sub.canceledAt !== null ? 'canceled' : sub.status
                   const charges = visibleCharges(sub)
+                  const nextCharge = nextChargeDate(sub, today)
                   return (
                     <Fragment key={sub.id}>
                       <tr
@@ -313,7 +315,7 @@ export function SubscriptionsPanel({ focusSubscriptionId }: { focusSubscriptionI
                         </td>
                         <td className={CELL}>{last ? invoiceCell(last.invoice, false) : '—'}</td>
                         <td className={`${CELL} whitespace-nowrap tabular-nums`}>
-                          {sub.renews && !isCanceled(sub) ? date(sub.paidThrough) : t('noNext')}
+                          {nextCharge ? date(nextCharge) : t('noNext')}
                         </td>
                       </tr>
                       {open && (
@@ -325,11 +327,11 @@ export function SubscriptionsPanel({ focusSubscriptionId }: { focusSubscriptionI
                               <table className="w-full border-collapse">
                                 <thead>
                                   <tr>
-                                    <th scope="col" className={HEAD}>{t('chargeColumns.due')}</th>
-                                    <th scope="col" className={HEAD_NUM}>{t('chargeColumns.amount')}</th>
-                                    <th scope="col" className={HEAD}>{t('chargeColumns.paidOn')}</th>
-                                    <th scope="col" className={HEAD}>{t('chargeColumns.status')}</th>
-                                    <th scope="col" className={HEAD}>{t('chargeColumns.invoice')}</th>
+                                    <th scope="col" className={HEAD_SOLO}>{t('chargeColumns.due')}</th>
+                                    <th scope="col" className={HEAD_SOLO_NUM}>{t('chargeColumns.amount')}</th>
+                                    <th scope="col" className={HEAD_SOLO}>{t('chargeColumns.paidOn')}</th>
+                                    <th scope="col" className={HEAD_SOLO}>{t('chargeColumns.status')}</th>
+                                    <th scope="col" className={HEAD_SOLO}>{t('chargeColumns.invoice')}</th>
                                   </tr>
                                 </thead>
                                 <tbody>

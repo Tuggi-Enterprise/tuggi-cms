@@ -30,6 +30,7 @@ import {
   daysBetween,
   isPaidWithoutInvoice,
   matchesFilter,
+  nextChargeDate,
   pickInvoice,
   receivedByClient,
   saoPauloDate,
@@ -83,8 +84,8 @@ function sub(over: Partial<PlaceSubscription> = {}): PlaceSubscription {
     createdAt: over.createdAt ?? null,
     contractEndsOn: over.contractEndsOn ?? null,
     paidAt: over.paidAt === undefined ? '2026-08-10T15:00:00Z' : over.paidAt,
-    paidThrough: '2026-09-10',
-    renews: true,
+    paidThrough: over.paidThrough === undefined ? '2026-09-10' : over.paidThrough,
+    renews: over.renews ?? true,
     renewalAmountCents: over.renewalAmountCents === undefined ? 10_000 : over.renewalAmountCents,
     canceledAt: over.canceledAt ?? null,
     expiredAt: over.expiredAt ?? null,
@@ -367,4 +368,24 @@ test('#918: the CMS contract review is highlighted from 30 days before the date 
   assert.equal(contractReviewDue(sub({ origin: 'cms_contract', contractEndsOn: null }), '2027-09-19'), false)
   assert.equal(contractReviewDue(sub({ origin: 'cms_contract', contractEndsOn: '2027-09-20', canceledAt: '2027-01-01T00:00:00Z' }), '2027-09-19'), false)
   assert.equal(contractReviewDue(sub({ contractEndsOn: '2027-09-20' }), '2027-09-19'), false)
+})
+
+test('#918: the next charge of a CMS contract is the next DUE_DAY_OF_MONTH (the PENDING one Asaas holds), not paidThrough', () => {
+  const contract = (over: Partial<PlaceSubscription> = {}) =>
+    sub({ origin: 'cms_contract', status: 'pending_payment', paidAt: null, paidThrough: null, charges: [], ...over })
+  // the PENDING charge of 2026-10-20 is not recorded: the row still shows it
+  assert.equal(nextChargeDate(contract(), '2026-10-08'), '2026-10-20')
+  assert.equal(nextChargeDate(contract(), '2026-10-20'), '2026-10-20')
+  // the day after, it is overdue (recorded as such, or not yet): the next is the following month
+  assert.equal(nextChargeDate(contract(), '2026-10-21'), '2026-11-20')
+  assert.equal(nextChargeDate(contract(), '2026-12-25'), '2027-01-20')
+  // paid early: the charge of the 20th is recorded, so the next is the following month, whatever paidThrough says
+  const paidEarly = contract({ status: 'paid', paidThrough: '2026-11-15', charges: [charge({ dueDate: '2026-10-20', paidOn: '2026-10-15' })] })
+  assert.equal(nextChargeDate(paidEarly, '2026-10-16'), '2026-11-20')
+  // nothing next once it no longer renews
+  assert.equal(nextChargeDate(contract({ canceledAt: '2026-10-01T00:00:00Z' }), '2026-10-08'), null)
+  assert.equal(nextChargeDate(contract({ renews: false }), '2026-10-08'), null)
+  // the portal keeps paidThrough
+  assert.equal(nextChargeDate(sub(), '2026-08-20'), '2026-09-10')
+  assert.equal(nextChargeDate(sub({ renews: false }), '2026-08-20'), null)
 })

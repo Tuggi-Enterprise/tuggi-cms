@@ -7,6 +7,8 @@
  * BR-B2B-046.
  */
 
+import { DUE_DAY_OF_MONTH } from '@/lib/contract/template'
+
 /** O fuso do contrato: `paid_on`, `competence_month` e o prazo do repasse são de São Paulo. */
 export const BILLING_TIME_ZONE = 'America/Sao_Paulo'
 
@@ -192,6 +194,29 @@ export function contractReviewDue(subscription: PlaceSubscription, today: string
   const endsOn = subscription.contractEndsOn
   if (endsOn === null || subscription.origin !== 'cms_contract' || isCanceled(subscription)) return false
   return daysBetween(today, endsOn) <= CONTRACT_REVIEW_NOTICE_DAYS
+}
+
+/**
+ * A data da próxima cobrança (`YYYY-MM-DD`), ou `null` quando não há próxima (cancelada, sem renovação).
+ *
+ * Portal: `paidThrough`, o fim do mês pago. Contrato do CMS (#918): a assinatura `legacy:` do Asaas
+ * vence todo dia `DUE_DAY_OF_MONTH`, pague o cliente quando pagar, e a cobrança ainda `PENDING` não é
+ * gravada em `place_subscription_charges` (só paga, vencida ou estornada). Por isso é o primeiro dia
+ * `DUE_DAY_OF_MONTH` de hoje em diante; se a cobrança desse dia já está gravada (paga adiantada), o do
+ * mês seguinte. `paidThrough` ali conta da confirmação e não é vencimento. `today` é de São Paulo.
+ */
+export function nextChargeDate(subscription: PlaceSubscription, today: string): string | null {
+  if (!subscription.renews || isCanceled(subscription)) return null
+  if (subscription.origin !== 'cms_contract') return subscription.paidThrough
+  const day = String(DUE_DAY_OF_MONTH).padStart(2, '0')
+  let year = Number(today.slice(0, 4))
+  let month = Number(today.slice(5, 7)) + (Number(today.slice(8, 10)) > DUE_DAY_OF_MONTH ? 1 : 0)
+  for (;;) {
+    if (month > 12) [year, month] = [year + 1, 1]
+    const due = `${year}-${String(month).padStart(2, '0')}-${day}`
+    if (!subscription.charges.some((charge) => charge.dueDate === due)) return due
+    month += 1
+  }
 }
 
 /**

@@ -13,7 +13,7 @@
 import { Fragment, useCallback, useEffect, useRef, useState } from 'react'
 import { useLocale, useTranslations } from 'next-intl'
 import { Banknote, ChevronDown, ChevronRight, Send, CheckCircle2, AlertTriangle } from 'lucide-react'
-import { CELL, DIM, DenseTableScroller, HEAD, HEAD_NUM, NUM } from '@/components/ui/dense-table'
+import { CELL, DIM, DenseTableScroller, HEAD_SOLO, HEAD_SOLO_NUM, NUM } from '@/components/ui/dense-table'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { StatCard, StatCardRow } from '@/components/ui/StatCard'
@@ -369,15 +369,15 @@ export function PayoutsPanel() {
             <table className="w-full min-w-[1100px] border-collapse">
               <thead>
                 <tr>
-                  <th scope="col" className={HEAD}>{t('columns.place')}</th>
-                  <th scope="col" className={HEAD}>{t('columns.taxId')}</th>
-                  <th scope="col" className={HEAD_NUM}>{t('columns.purchases')}</th>
-                  <th scope="col" className={HEAD_NUM}>{t('columns.discounts')}</th>
-                  <th scope="col" className={HEAD_NUM}>{t('columns.amount')}</th>
-                  <th scope="col" className={HEAD}>{t('columns.pixKey')}</th>
-                  <th scope="col" className={HEAD}>{t('columns.invoice')}</th>
-                  <th scope="col" className={HEAD}>{t('columns.status')}</th>
-                  <th scope="col" className={HEAD}>{t('columns.action')}</th>
+                  <th scope="col" className={HEAD_SOLO}>{t('columns.place')}</th>
+                  <th scope="col" className={HEAD_SOLO}>{t('columns.taxId')}</th>
+                  <th scope="col" className={HEAD_SOLO_NUM}>{t('columns.purchases')}</th>
+                  <th scope="col" className={HEAD_SOLO_NUM}>{t('columns.discounts')}</th>
+                  <th scope="col" className={HEAD_SOLO_NUM}>{t('columns.amount')}</th>
+                  <th scope="col" className={HEAD_SOLO}>{t('columns.pixKey')}</th>
+                  <th scope="col" className={HEAD_SOLO}>{t('columns.invoice')}</th>
+                  <th scope="col" className={HEAD_SOLO}>{t('columns.status')}</th>
+                  <th scope="col" className={HEAD_SOLO}>{t('columns.action')}</th>
                 </tr>
               </thead>
               <tbody>
@@ -443,10 +443,10 @@ export function PayoutsPanel() {
                               <table className="w-full max-w-3xl border-collapse">
                                 <thead>
                                   <tr>
-                                    <th scope="col" className={HEAD}>{t('statement.date')}</th>
-                                    <th scope="col" className={HEAD}>{t('statement.product')}</th>
-                                    <th scope="col" className={HEAD_NUM}>{t('statement.received')}</th>
-                                    <th scope="col" className={HEAD_NUM}>{t('statement.commission')}</th>
+                                    <th scope="col" className={HEAD_SOLO}>{t('statement.date')}</th>
+                                    <th scope="col" className={HEAD_SOLO}>{t('statement.product')}</th>
+                                    <th scope="col" className={HEAD_SOLO_NUM}>{t('statement.received')}</th>
+                                    <th scope="col" className={HEAD_SOLO_NUM}>{t('statement.commission')}</th>
                                   </tr>
                                 </thead>
                                 <tbody>
