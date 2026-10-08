@@ -21,7 +21,7 @@
 
 import { useCallback, useEffect, useId, useMemo, useRef, useState } from 'react'
 import {
-  Save, Loader2, Building2, Scale, Users, MapPin, Gift, AlertTriangle, Plus, Edit, Smartphone,
+  Save, Loader2, Building2, Scale, Users, MapPin, Gift, AlertTriangle, Plus, Edit,
   FileSignature, Handshake,
 } from 'lucide-react'
 import { useLocale, useTranslations } from 'next-intl'
@@ -32,7 +32,7 @@ import { RecordShell } from '@/components/admin/clients/shared/RecordShell'
 import { RecordTabs } from '@/components/admin/clients/shared/RecordTabs'
 import { ProfileTab } from '@/components/admin/clients/tabs/ProfileTab'
 import { FiscalPaymentsTab } from '@/components/admin/clients/tabs/FiscalPaymentsTab'
-import { TeamTab } from '@/components/admin/clients/tabs/TeamTab'
+import { AffiliateNetworkSection, TeamTab } from '@/components/admin/clients/tabs/TeamTab'
 import { AppUsersTab, type AppUserLite } from '@/components/admin/clients/tabs/AppUsersTab'
 import { PlacesTab } from '@/components/admin/clients/tabs/PlacesTab'
 import { PartnershipTab } from '@/components/admin/clients/tabs/PartnershipTab'
@@ -51,6 +51,10 @@ import { RecordCacheProvider, type RecordRead } from '@/lib/hooks/use-record-cac
  * places linked to the client by `partner_client_id`, and the old name described the widget
  * rather than the subject — `AdminClientsPageContent` still accepts `?tab=pois` so the links
  * already out there keep landing here.
+ *
+ * `team` is Pessoas since #911: the CMS logins and the app users of the client in one tab, because
+ * both answer who is tied to it. The id stayed `team` so `?tab=team` links keep working, and
+ * `?tab=appusers` opens it too (`AdminClientsPageContent`).
  */
 export type ClientEditorTab =
   | 'partnership'
@@ -58,7 +62,6 @@ export type ClientEditorTab =
   | 'fiscal'
   | 'contract'
   | 'team'
-  | 'appusers'
   | 'places'
   | 'coupons'
 
@@ -107,8 +110,7 @@ const TABS: TabDef[] = [
   // Summary only: the contract has its own route (#342). A long document with an audit
   // trail does not fit in a modal, but its STATE has to be where the team already looks.
   { id: 'contract', labelKey: 'contract', icon: FileSignature },
-  { id: 'team', labelKey: 'team', icon: Users },
-  { id: 'appusers', labelKey: 'appusers', icon: Smartphone },
+  { id: 'team', labelKey: 'people', icon: Users },
   { id: 'places', labelKey: 'places', icon: MapPin },
   { id: 'coupons', labelKey: 'coupons', icon: Gift },
 ]
@@ -131,6 +133,7 @@ export function ClientEditorModal({
   const tTabs = useTranslations('Clients.editor.tabs')
   const tValidation = useTranslations('PartnerValidation')
   const tForm = useTranslations('PartnerForm')
+  const tProfile = useTranslations('Clients.profile')
   const locale = useLocale()
 
   /*
@@ -376,7 +379,10 @@ export function ClientEditorModal({
                 date: formatDateTime(review.submittedAt),
               })
             : isEditing && client
-              ? `${client.email}${client.client_type ? ` · ${client.client_type}` : ''}${client.country ? ` · ${client.country}` : ''}`
+              ? // #911: the type in words, and no country (it is in Perfil and in Fiscal).
+                [client.email, client.client_type && tProfile.has(`clientTypes.${client.client_type}`) ? tProfile(`clientTypes.${client.client_type}`) : client.client_type]
+                  .filter(Boolean)
+                  .join(' · ')
               : null
         }
         /*
@@ -442,13 +448,14 @@ export function ClientEditorModal({
             `RecordTabs` draws the sidebar and the phone strip from the one list.
           */}
           {(() => {
-            // A registration being born has no pipeline, no team, no places and no coupons
-            // to show — all four are keyed by an id that does not exist until the save.
+            // A registration being born has no pipeline, no places and no coupons to show, all
+            // keyed by an id that does not exist until the save. Pessoas stays open: an app user
+            // can be staged for the link before the save (#911).
             // The pre-registration has no client yet: everything but the submission waits for it.
             const isDisabled = (tab: (typeof TABS)[number]) =>
               preRegistration
                 ? tab.id !== 'partnership'
-                : !isEditing && (tab.id === 'partnership' || tab.id === 'team' || tab.id === 'places' || tab.id === 'coupons')
+                : !isEditing && (tab.id === 'partnership' || tab.id === 'places' || tab.id === 'coupons')
             const hasValidation = Boolean(validation.submissionId)
             const onValidation = activeTab === 'partnership' && hasValidation
             const decisionSummary = (describesApprove: boolean) =>
@@ -519,7 +526,7 @@ export function ClientEditorModal({
                   active={activeTab}
                   onSelect={setActiveTab}
                   heading={tTabs('configuration')}
-                  disabledTitle={preRegistration ? tTabs('afterApproval') : tTabs('comingSoon')}
+                  disabledTitle={preRegistration ? tTabs('afterApproval') : tTabs('afterSave')}
                   footer={
                     <>
                       {onValidation ? decisionSummary(true) : null}
@@ -560,18 +567,23 @@ export function ClientEditorModal({
               <ContractTab client={client} edited={edited} updateField={updateField} canEdit clientId={clientId} />
             )}
             {activeTab === 'team' && (
-              <TeamTab client={client} edited={edited} updateField={updateField} canEdit clientId={clientId} />
-            )}
-            {activeTab === 'appusers' && (
-              <AppUsersTab
-                client={client}
-                edited={edited}
-                updateField={updateField}
-                canEdit
-                clientId={clientId}
-                stagedUsers={stagedAppUsers}
-                onStageChange={setStagedAppUsers}
-              />
+              // Pessoas (#911): two components in one tab, the affiliate network last because it
+              // is set once in the life of a client, and absent until the client exists.
+              <div className="space-y-8 max-w-5xl mx-auto">
+                <TeamTab client={client} edited={edited} updateField={updateField} canEdit clientId={clientId} />
+                <AppUsersTab
+                  client={client}
+                  edited={edited}
+                  updateField={updateField}
+                  canEdit
+                  clientId={clientId}
+                  stagedUsers={stagedAppUsers}
+                  onStageChange={setStagedAppUsers}
+                />
+                {clientId ? (
+                  <AffiliateNetworkSection client={client} edited={edited} updateField={updateField} canEdit clientId={clientId} />
+                ) : null}
+              </div>
             )}
             {activeTab === 'places' && (
               <PlacesTab

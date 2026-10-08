@@ -180,6 +180,13 @@ const blockTitles = (page: Page) => page.locator('section > div > h2')
  * <title>/<html lang> of its own.
  */
 async function expectNoAxeViolations(page: Page, scope: 'main' | '#root') {
+  // The drawer slides in over a dimmed page: mid-animation, axe measured the overlay showing through
+  // and failed contrast under load (#911). Infinite animations (pulse, spinner) are not the drawer.
+  await page.waitForFunction(() =>
+    document
+      .getAnimations()
+      .every((a) => a.playState !== 'running' || a.effect?.getComputedTiming().endTime === Infinity)
+  )
   const results = await new AxeBuilder({ page })
     .include(scope)
     .withTags(['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa', 'wcag22aa'])
@@ -222,7 +229,7 @@ test.describe('#910 §11 — the record menu', () => {
     await mountModal(mount)
     await expect(blockTitles(page).filter({ hasText: /^Empresa$/ })).toHaveCount(1)
     await expect(tab(page, 'Parceria')).toBeEnabled()
-    for (const name of ['Perfil', 'Fiscal & Pagamentos', 'Contrato', 'Equipe', 'Locais', 'Cupons']) {
+    for (const name of ['Perfil', 'Fiscal & Pagamentos', 'Contrato', 'Pessoas', 'Locais', 'Cupons']) {
       await expect(tab(page, name)).toBeDisabled()
     }
     for (const title of ['O local', 'Publicação', 'Contrato']) {

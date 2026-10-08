@@ -2544,13 +2544,11 @@
         "profile": "Perfil",
         "fiscal": "Fiscal y Pagos",
         "contract": "Contrato",
-        "team": "Equipo",
-        "appusers": "Usuarios de la App",
+        "people": "Personas",
         "places": "Lugares",
         "coupons": "Cupones",
         "configuration": "Configuración",
-        "comingSoon": "Próximamente",
-        "soonBadge": "pronto",
+        "afterSave": "Disponible después de guardar",
         "afterApproval": "Disponible después de aprobar"
       },
       "save": "Guardar",
@@ -2603,8 +2601,8 @@
     "profile": {
       "sections": {
         "identity": "Identidad",
-        "attribution": "Atribución (socio / consumer-facing)",
-        "attributionHelp": "Campos usados en pantallas del app donde aparece el socio (atribución de cupón, página de descarga, etc.).",
+        "attribution": "Apariencia en la app",
+        "attributionEmpty": "Apariencia en la app: avatar, @ y bio (vacío)",
         "address": "Dirección"
       },
       "fields": {
@@ -2612,7 +2610,7 @@
         "companyName": "Razón social",
         "email": "Email principal",
         "phone": "Teléfono",
-        "slug": "Slug (URL pública /d/...)",
+        "slug": "Slug (dirección /d/…)",
         "slugAutoPlaceholder": "generado automáticamente",
         "website": "Sitio web",
         "industry": "Industria",
@@ -2639,8 +2637,8 @@
         "venue": "Lugar"
       },
       "qr": {
-        "title": "QR Code de Atribución",
-        "subtitle": "Link universal de descarga con atribución al cliente. Imprime en banners, vouchers, postales.",
+        "title": "Enlace público y QR",
+        "subtitle": "Para imprimir en banner, voucher y tarjeta.",
         "targetUrl": "URL destino",
         "noSlugWarning": "Sin slug definido — el QR usará el fallback legado /download?ID={id}. Define un slug arriba para una URL amigable /d/'{slug}'.",
         "scanLabel": "Escanea para atribuir descargas",
@@ -2687,22 +2685,22 @@
       }
     },
     "team": {
-      "section": "Usuarios vinculados",
+      "section": "Logins en el CMS",
+      "saveFirst": "Guarda el cliente para crear logins.",
       "linkUser": "Vincular usuario",
       "user": "Usuario",
       "role": "Rol",
       "actions": "Acciones",
+      "unlinkLabel": "Desvincular {who}",
       "userSelect": "Seleccionar…",
       "userLoading": "Cargando…",
       "confirmLink": "Confirmar vínculo",
-      "emptyTitle": "Cliente aún no guardado",
-      "emptyDesc": "Guarda el cliente primero para vincular usuarios CMS.",
       "noLinkedUsers": "Ningún usuario vinculado a este cliente",
-      "coordinatorTitle": "Programa de afiliados",
+      "coordinatorTitle": "Red de afiliados",
       "coordinatorHelp": "Un coordinador gestiona empresas-hijas y ve los registros atribuidos a ellas.",
       "isCoordinator": "Es coordinador de afiliados",
       "parentCoordinator": "Coordinador (paraguas)",
-      "parentCoordinatorHelp": "Vincula esta empresa bajo un coordinador. Solo admin.",
+      "parentCoordinatorHelp": "Vincula esta empresa bajo un coordinador.",
       "noParent": "Ninguno (empresa independiente)",
       "createLogin": "Crear acceso",
       "createLoginTitle": "Nuevo acceso",
@@ -2715,7 +2713,7 @@
       "roles": {
         "viewer": "Visualizador",
         "manager": "Gerente",
-        "owner": "Owner"
+        "owner": "Dueño"
       },
       "errors": {
         "loadFailed": "Error al cargar usuarios",
@@ -2731,10 +2729,11 @@
       }
     },
     "appUsers": {
-      "section": "Usuarios de la app vinculados",
+      "section": "Usuarios de la app",
       "linkUser": "Vincular usuario",
       "user": "Usuario",
       "actions": "Acciones",
+      "unlinkLabel": "Desvincular {who}",
       "searchPlaceholder": "Buscar por nombre o email…",
       "noResults": "No se encontraron usuarios de la app",
       "noLinkedUsers": "Ningún usuario de la app vinculado a este cliente",
@@ -2752,7 +2751,8 @@
       "emptyTitle": "Cliente aún no guardado",
       "emptyHeader": "Cupones",
       "emptyDesc": "Guarda el cliente para comenzar a vincular cupones.",
-      "scopedBanner": "Solo cupones atribuidos a este cliente. Los cupones genéricos (sin owner) aparecen solo en <link>búsqueda global</link>."
+      "scopedBanner": "Solo los cupones de este cliente. Los demás están en <link>Cupones</link>.",
+      "emptyScoped": "Ningún cupón para este cliente."
     },
     "stance": {
       "paying": "De pago",
@@ -2769,6 +2769,7 @@
       },
       "acceptance": {
         "title": "Aceptación electrónica",
+        "termLabel": "Término",
         "terms": "Término {version} · aceptado el {date}",
         "hash": "Hash del término",
         "signer": "Firmante",

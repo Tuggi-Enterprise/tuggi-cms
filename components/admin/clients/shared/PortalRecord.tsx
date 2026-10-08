@@ -65,7 +65,8 @@ export function PortalAcceptances({ records }: { records: ClientPortalRecord[] }
             <p className="text-sm text-gray-600">{t('missing')}</p>
           ) : (
             <>
-              <Row label={t('title')}>
+              {/* "Termo", not "Aceite eletrônico" again: the card around it already carries that title (#911). */}
+              <Row label={t('termLabel')}>
                 {t('terms', { version: acceptance.termsVersion, date: formatDate(acceptance.acceptedAt) })}
               </Row>
               <Row label={t('hash')}>

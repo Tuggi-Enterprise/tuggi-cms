@@ -23,6 +23,7 @@ import AxeBuilder from '@axe-core/playwright'
 import { PartnershipDetail } from '@/components/admin/partnerships/PartnershipDetail'
 import { ProposalReview } from '@/components/admin/partner-proposals/ProposalReview'
 import { ContractManager } from '@/components/admin/contract/ContractManager'
+import { clientRecordMessages } from '@/lib/i18n/client-record-messages'
 import { DirectoryHarness, Wrapper } from './helpers'
 import ptMessages from '@/messages/pt.json'
 
@@ -261,7 +262,7 @@ test.describe('criteria 23/25/26 — axe-core, contrast, and 24x24 targets', () 
     )
     const component = await mount(
       <Wrapper>
-        <ContractManager clientId="client-0005" />
+        <ContractManager clientId="client-0005" recordMessages={clientRecordMessages()} />
       </Wrapper>
     )
     await expect(component.getByRole('heading', { name: 'Contrato de parceria' })).toBeVisible({

@@ -1,4 +1,5 @@
 import { ContractManager } from '@/components/admin/contract/ContractManager'
+import { clientRecordMessages } from '@/lib/i18n/client-record-messages'
 import {
   RETURN_LABEL_PARAM,
   RETURN_TO_PARAM,
@@ -41,5 +42,12 @@ export default async function ClientContractPage({
   const returnTo = parseReturnTo(first(RETURN_TO_PARAM))
   const returnLabel = parseReturnLabel(first(RETURN_LABEL_PARAM), returnTo)
 
-  return <ContractManager clientId={clientId} returnTo={returnTo} returnLabel={returnLabel} />
+  return (
+    <ContractManager
+      clientId={clientId}
+      returnTo={returnTo}
+      returnLabel={returnLabel}
+      recordMessages={clientRecordMessages()}
+    />
+  )
 }

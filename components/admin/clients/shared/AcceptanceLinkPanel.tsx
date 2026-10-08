@@ -8,7 +8,7 @@
  * the previous link (the one that went by e-mail, too) stops working — the panel says so.
  */
 
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useState, type ReactNode } from 'react'
 import { useTranslations } from 'next-intl'
 import { FileSignature } from 'lucide-react'
 import { SectionHeader } from '@/components/admin/clients/shared/SectionHeader'
@@ -32,7 +32,16 @@ const time = (iso: string) =>
     .format(new Date(iso))
     .replace(':', 'h')
 
-export function AcceptanceLinkPanel({ clientId, email }: { clientId: string; email: string | null }) {
+export function AcceptanceLinkPanel({
+  clientId,
+  email,
+  lead,
+}: {
+  clientId: string
+  email: string | null
+  /** The first lines of the card, under its title: `ContractTab` puts the origin here (#911). */
+  lead?: ReactNode
+}) {
   const t = useTranslations('Clients.portal.acceptanceLink')
   const [gate, setGate] = useState<GateAnswer | null>(null)
   const [loadFailed, setLoadFailed] = useState(false)
@@ -100,7 +109,14 @@ export function AcceptanceLinkPanel({ clientId, email }: { clientId: string; ema
     }
   }
 
-  if (loadFailed) return <p className="text-sm text-gray-600">{t('loadFailed')}</p>
+  if (loadFailed) {
+    return (
+      <div className="space-y-4">
+        {lead}
+        <p className="text-sm text-gray-600">{t('loadFailed')}</p>
+      </div>
+    )
+  }
   if (!gate) return null
   // A signed legacy contract or the portal's acceptance is shown by the cards around this one.
   if (gate.acceptanceSource && gate.acceptanceSource !== 'link') return null
@@ -116,6 +132,7 @@ export function AcceptanceLinkPanel({ clientId, email }: { clientId: string; ema
           {accepted ? t('accepted') : t('pending')}
         </span>
       </div>
+      {lead}
 
       {accepted ? (
         <p className="mt-3 text-sm text-gray-900 dark:text-gray-200">{t('acceptedOn', { date: day(gate.acceptedAt!) })}</p>

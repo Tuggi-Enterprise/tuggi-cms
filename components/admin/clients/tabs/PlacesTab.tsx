@@ -182,9 +182,6 @@ function PartnerPlaces({
         icon={<MapPin className="h-4 w-4 text-primary-800" />}
         title={t('clientPlaces.title')}
       />
-      <p className="mb-6 text-xs leading-relaxed text-gray-600 dark:text-gray-400">
-        {t('clientPlaces.body')}
-      </p>
 
       {loading && <p className="text-sm text-gray-700 dark:text-gray-300">{t('clientPlaces.loading')}</p>}
 

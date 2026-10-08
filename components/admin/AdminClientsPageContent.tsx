@@ -14,7 +14,7 @@
 import { useCallback, useEffect, useMemo, useState, Suspense } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
 import { NextIntlClientProvider, useLocale, useMessages } from 'next-intl'
-import { PtOverlayProvider, type PtOverlay } from '@/lib/i18n/pt-overlay'
+import { ClientRecordProviders, type ClientRecordMessages } from '@/components/admin/clients/ClientRecordProviders'
 import { ClientDirectory } from '@/components/admin/clients/ClientDirectory'
 import { ClientBoard } from '@/components/admin/clients/ClientBoard'
 import { useClientDirectory } from '@/lib/hooks/use-client-directory'
@@ -25,16 +25,15 @@ import { useSupabaseClient, useSessionContext } from '@supabase/auth-helpers-rea
 import { RETURN_TO_PARAM, parseReturnTo } from '@/lib/navigation/return-to'
 import { applyFilters, parseFilters, type DirectoryFilters } from '@/lib/clients/directory-filter'
 import { recordHref, boardPath, VALIDATION_PARAM } from '@/lib/clients/record-href'
-import type { AbstractIntlMessages } from 'next-intl'
 import type { ClientDirectoryRow } from '@/lib/services/partnership-service'
 
 interface ContentProps {
-  ptMessages: PtOverlay
-  /** What the Parceria tab of the record speaks — pt only, like the page it replaced (#408, #870, #890). */
-  validationMessages: AbstractIntlMessages
+  /** The pt namespaces of the board and of the record — `lib/i18n/client-record-messages`. */
+  recordMessages: ClientRecordMessages
 }
 
-function AdminClientsContent({ ptMessages, validationMessages }: ContentProps) {
+function AdminClientsContent({ recordMessages }: ContentProps) {
+  const { ptMessages } = recordMessages
   const router = useRouter()
   const searchParams = useSearchParams()
   const { session, isLoading: sessionLoading } = useSessionContext()
@@ -46,10 +45,11 @@ function AdminClientsContent({ ptMessages, validationMessages }: ContentProps) {
   // Backwards compat — old links use ?new=true, the new editor reads ?mode=new.
   const isCreateNew = searchParams.get('mode') === 'new' || searchParams.get('new') === 'true'
   // Old tab names, kept working so links already out there keep landing on the same panel:
-  // `?tab=pois` is the places tab, and `?tab=validation` is the Parceria tab since #910.
+  // `?tab=pois` is the places tab, `?tab=validation` is the Parceria tab since #910, and
+  // `?tab=appusers` is Pessoas since #911.
   const requestedTab = searchParams.get('tab')
   const initialTab =
-    ((requestedTab === 'pois' ? 'places' : requestedTab === 'validation' ? 'partnership' : requestedTab) as ClientEditorTab | null) ??
+    ((requestedTab === 'pois' ? 'places' : requestedTab === 'validation' ? 'partnership' : requestedTab === 'appusers' ? 'team' : requestedTab) as ClientEditorTab | null) ??
     'profile'
   /**
    * Where closing the record sends the operator — DS-LAYOUT-006, point 2.
@@ -303,19 +303,9 @@ function AdminClientsContent({ ptMessages, validationMessages }: ContentProps) {
 
       {/*
         THE VALIDATION IS A TAB OF THIS RECORD (#890), and it speaks pt like the page it replaced:
-        `PartnerValidation` exists only in pt, and the categories and promotion labels it reads are
-        overlaid in pt too, so one tab never mixes two languages.
+        `ClientRecordProviders` carries those namespaces, here and on the contract page.
       */}
-      <NextIntlClientProvider
-        locale={locale}
-        messages={{
-          ...messages,
-          PartnerValidation: (validationMessages as Record<string, AbstractIntlMessages>).PartnerValidation,
-          PartnerForm: (validationMessages as Record<string, AbstractIntlMessages>).PartnerForm,
-          PartnerProposals: (validationMessages as Record<string, AbstractIntlMessages>).PartnerProposals,
-        }}
-      >
-      <PtOverlayProvider value={ptMessages}>
+      <ClientRecordProviders messages={recordMessages}>
       <ClientEditorModal
         clientId={clientId ?? undefined}
         isOpen={Boolean(clientId) || isCreateNew || Boolean(validationId)}
@@ -340,20 +330,19 @@ function AdminClientsContent({ ptMessages, validationMessages }: ContentProps) {
           directory.reload()
         }}
       />
-      </PtOverlayProvider>
-      </NextIntlClientProvider>
+      </ClientRecordProviders>
     </>
   )
 }
 
-export function AdminClientsPageContent({ ptMessages, validationMessages }: ContentProps) {
+export function AdminClientsPageContent({ recordMessages }: ContentProps) {
   return (
     <Suspense fallback={
       <div className="flex items-center justify-center min-h-screen">
         <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-tuggi-blue mx-auto" />
       </div>
     }>
-      <AdminClientsContent ptMessages={ptMessages} validationMessages={validationMessages} />
+      <AdminClientsContent recordMessages={recordMessages} />
     </Suspense>
   )
 }

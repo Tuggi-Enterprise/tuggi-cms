@@ -2562,13 +2562,11 @@
         "profile": "Profile",
         "fiscal": "Fiscal & Payments",
         "contract": "Contract",
-        "team": "Team",
-        "appusers": "App Users",
+        "people": "People",
         "places": "Places",
         "coupons": "Coupons",
         "configuration": "Configuration",
-        "comingSoon": "Coming soon",
-        "soonBadge": "soon",
+        "afterSave": "Available after saving",
         "afterApproval": "Available after approval"
       },
       "save": "Save",
@@ -2621,8 +2619,8 @@
     "profile": {
       "sections": {
         "identity": "Identity",
-        "attribution": "Attribution (partner / consumer-facing)",
-        "attributionHelp": "Fields used on app screens where the partner appears (coupon attribution, download page, etc.).",
+        "attribution": "Appearance in the app",
+        "attributionEmpty": "Appearance in the app: avatar, @ and bio (empty)",
         "address": "Address"
       },
       "fields": {
@@ -2630,7 +2628,7 @@
         "companyName": "Legal name",
         "email": "Primary email",
         "phone": "Phone",
-        "slug": "Slug (public URL /d/...)",
+        "slug": "Slug (address /d/…)",
         "slugAutoPlaceholder": "auto-generated",
         "website": "Website",
         "industry": "Industry",
@@ -2657,8 +2655,8 @@
         "venue": "Place"
       },
       "qr": {
-        "title": "Revenue QR Code",
-        "subtitle": "Universal download link with client attribution. Print on banners, vouchers, postcards.",
+        "title": "Public link and QR",
+        "subtitle": "For printing on banners, vouchers and cards.",
         "targetUrl": "Target URL",
         "noSlugWarning": "No slug set — the QR will use the legacy /download?ID={id} fallback. Set a slug above for a friendly /d/'{slug}' URL.",
         "scanLabel": "Scan to attribute downloads",
@@ -2705,22 +2703,22 @@
       }
     },
     "team": {
-      "section": "Linked users",
+      "section": "CMS logins",
+      "saveFirst": "Save the client to create logins.",
       "linkUser": "Link user",
       "user": "User",
       "role": "Role",
       "actions": "Actions",
+      "unlinkLabel": "Unlink {who}",
       "userSelect": "Select…",
       "userLoading": "Loading…",
       "confirmLink": "Confirm link",
-      "emptyTitle": "Client not yet saved",
-      "emptyDesc": "Save the client first to link CMS users.",
       "noLinkedUsers": "No users linked to this client",
-      "coordinatorTitle": "Affiliate program",
+      "coordinatorTitle": "Affiliate network",
       "coordinatorHelp": "A coordinator manages sub-companies and sees the signups attributed to them.",
       "isCoordinator": "Is affiliate coordinator",
       "parentCoordinator": "Coordinator (umbrella)",
-      "parentCoordinatorHelp": "Links this company under a coordinator. Admin only.",
+      "parentCoordinatorHelp": "Links this company under a coordinator.",
       "noParent": "None (standalone company)",
       "createLogin": "Create login",
       "createLoginTitle": "New access login",
@@ -2749,10 +2747,11 @@
       }
     },
     "appUsers": {
-      "section": "Linked app users",
+      "section": "App users",
       "linkUser": "Link app user",
       "user": "User",
       "actions": "Actions",
+      "unlinkLabel": "Unlink {who}",
       "searchPlaceholder": "Search by name or email…",
       "noResults": "No app users found",
       "noLinkedUsers": "No app users linked to this client",
@@ -2770,7 +2769,8 @@
       "emptyTitle": "Client not yet saved",
       "emptyHeader": "Coupons",
       "emptyDesc": "Save the client to start linking coupons.",
-      "scopedBanner": "Only coupons attributed to this client. Generic coupons (no owner) only appear in <link>global search</link>."
+      "scopedBanner": "Only this client's coupons. The others are in <link>Coupons</link>.",
+      "emptyScoped": "No coupons for this client."
     },
     "stance": {
       "paying": "Paying",
@@ -2787,6 +2787,7 @@
       },
       "acceptance": {
         "title": "Electronic acceptance",
+        "termLabel": "Terms",
         "terms": "Terms {version} · accepted on {date}",
         "hash": "Terms hash",
         "signer": "Signer",

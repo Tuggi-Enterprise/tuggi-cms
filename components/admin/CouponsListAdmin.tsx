@@ -25,8 +25,11 @@ interface CouponsListAdminProps {
   /**
    * When set, scopes the list to a single owner — used by the per-client
    * Coupons tab in the Clients editor. The Owner column collapses (every
-   * row would repeat the same name), the page heading shifts to "Coupons"
-   * without the global subtitle, and the API call passes ?owner_client_id.
+   * row would repeat the same name), the API call passes ?owner_client_id,
+   * and the page heading goes (#911): the record's menu already says Cupons.
+   * "Novo cupom" moves to the search row, and a client with no coupon and no
+   * search or filter typed sees one sentence and the button, not an empty
+   * table under a search bar.
    */
   ownerClientId?: string;
   /**
@@ -46,6 +49,7 @@ export function CouponsListAdmin({
   onEditCoupon,
 }: CouponsListAdminProps) {
   const t = useTranslations('Coupons.list');
+  const tClient = useTranslations('Clients.coupons');
   const isScopedToOwner = Boolean(ownerClientId);
   const [coupons, setCoupons] = useState<Coupon[]>([]);
   const [loading, setLoading] = useState(true);
@@ -135,44 +139,64 @@ export function CouponsListAdmin({
     return new Date(iso).toLocaleDateString();
   };
 
+  // Inside the record the button takes the record's accessible ink (#911, axe in CT); the global
+  // page keeps its own.
+  const newCouponButton = (
+    <button
+      onClick={onCreateNew}
+      className={`inline-flex items-center gap-1.5 rounded-lg px-4 py-2 text-sm font-semibold text-white shadow-sm transition ${
+        isScopedToOwner ? 'bg-primary-800 hover:bg-primary-800/90' : 'bg-tuggi-blue hover:bg-tuggi-blue/90'
+      }`}>
+      <Plus size={16} />
+      {t('newCoupon')}
+    </button>
+  );
+
+  if (
+    isScopedToOwner &&
+    !loading &&
+    !error &&
+    coupons.length === 0 &&
+    !searchInput &&
+    status === 'all'
+  ) {
+    return (
+      <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-gray-200 bg-white p-4">
+        <p className="text-sm text-gray-700">{tClient('emptyScoped')}</p>
+        {newCouponButton}
+      </div>
+    );
+  }
+
   return (
     <div className="space-y-4">
-      {/* Header */}
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <div>
-          <h1 className="text-2xl font-bold text-gray-900 flex items-center gap-2">
-            <Gift size={22} className="text-tuggi-orange" />
-            {t('title')}
-          </h1>
-          {!isScopedToOwner && (
+      {/* Header — the global page's; inside a client record the menu already names it. */}
+      {!isScopedToOwner && (
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div>
+            <h1 className="text-2xl font-bold text-gray-900 flex items-center gap-2">
+              <Gift size={22} className="text-tuggi-orange" />
+              {t('title')}
+            </h1>
             <p className="text-sm text-gray-500">{t('subtitle')}</p>
-          )}
-        </div>
-        <div className="flex items-center gap-2">
-          {!isScopedToOwner && (
+          </div>
+          <div className="flex items-center gap-2">
             <Link
               href="/admin/coupons/owners"
               className="inline-flex items-center gap-1.5 rounded-lg border border-gray-300 px-3 py-2 text-sm font-semibold text-gray-700 hover:bg-gray-50 transition">
               <TrendingUp size={14} />
               {t('ownerPerformance')}
             </Link>
-          )}
-          {!isScopedToOwner && (
             <Link
               href="/admin/coupons/redemptions"
               className="inline-flex items-center gap-1.5 rounded-lg border border-gray-300 px-3 py-2 text-sm font-semibold text-gray-700 hover:bg-gray-50 transition">
               <ListChecks size={14} />
               {t('redemptions')}
             </Link>
-          )}
-          <button
-            onClick={onCreateNew}
-            className="inline-flex items-center gap-1.5 rounded-lg bg-tuggi-blue px-4 py-2 text-sm font-semibold text-white shadow-sm hover:bg-tuggi-blue/90 transition">
-            <Plus size={16} />
-            {t('newCoupon')}
-          </button>
+            {newCouponButton}
+          </div>
         </div>
-      </div>
+      )}
 
       {/* Filters */}
       <div className="flex flex-wrap items-center gap-3 rounded-lg border border-gray-200 bg-white p-3">
@@ -194,6 +218,7 @@ export function CouponsListAdmin({
           <option value="active">{t('statusActive')}</option>
           <option value="inactive">{t('statusInactive')}</option>
         </select>
+        {isScopedToOwner && <div className="ml-auto">{newCouponButton}</div>}
       </div>
 
       {/* Error */}

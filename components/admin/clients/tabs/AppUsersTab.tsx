@@ -168,7 +168,7 @@ export function AppUsersTab({
           {canEdit && (
             <button
               onClick={() => { setShowAdd((v) => !v); setQuery(''); setResults([]) }}
-              className="inline-flex items-center gap-1.5 rounded-xl bg-tuggi-blue px-3 py-1.5 text-xs font-bold text-white hover:bg-tuggi-blue/90 transition-all"
+              className="inline-flex items-center gap-1.5 rounded-xl bg-primary-800 px-3 py-1.5 text-xs font-bold text-white hover:bg-primary-800/90 transition-all"
             >
               <Plus className="w-3.5 h-3.5" /> {t('linkUser')}
             </button>
@@ -204,7 +204,7 @@ export function AppUsersTab({
               {searching ? (
                 <div className="py-6 flex justify-center"><Loader2 className="w-4 h-4 animate-spin text-tuggi-blue" /></div>
               ) : results.filter((r) => !linkedIds.has(r.user_id)).length === 0 ? (
-                <p className="py-6 text-center text-xs text-gray-400">{t('noResults')}</p>
+                <p className="py-6 text-center text-xs text-gray-600">{t('noResults')}</p>
               ) : results.filter((r) => !linkedIds.has(r.user_id)).map((r) => (
                 <button
                   key={r.user_id}
@@ -216,7 +216,7 @@ export function AppUsersTab({
                     <span className="block text-sm font-medium text-gray-900 dark:text-white truncate">
                       {r.full_name || r.nickname || t('unnamed')}
                     </span>
-                    <span className="block text-[11px] text-gray-400 truncate">{r.email || `@${r.nickname ?? ''}`}</span>
+                    <span className="block text-[11px] text-gray-600 truncate">{r.email || `@${r.nickname ?? ''}`}</span>
                   </span>
                   <span className="flex items-center gap-2 flex-shrink-0">
                     {r.client_id && r.client_id !== clientId && (
@@ -244,26 +244,27 @@ export function AppUsersTab({
           <table className="w-full">
             <thead className="bg-gray-50 dark:bg-gray-800/50">
               <tr>
-                <th className="px-5 py-3 text-left text-[10px] font-bold text-gray-400 uppercase tracking-widest">{t('user')}</th>
-                <th className="px-5 py-3 text-right text-[10px] font-bold text-gray-400 uppercase tracking-widest">{t('actions')}</th>
+                <th className="px-5 py-3 text-left text-[10px] font-bold text-gray-600 uppercase tracking-widest">{t('user')}</th>
+                <th className="px-5 py-3"><span className="sr-only">{t('actions')}</span></th>
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-100 dark:divide-gray-800">
               {loading ? (
                 <tr><td colSpan={2} className="px-5 py-8 text-center"><Loader2 className="w-5 h-5 animate-spin text-tuggi-blue mx-auto" /></td></tr>
               ) : rows.length === 0 ? (
-                <tr><td colSpan={2} className="px-5 py-8 text-center text-gray-400 text-xs font-medium">{t('noLinkedUsers')}</td></tr>
+                <tr><td colSpan={2} className="px-5 py-8 text-center text-gray-600 text-xs font-medium">{t('noLinkedUsers')}</td></tr>
               ) : rows.map((u) => (
                 <tr key={u.user_id} className="group hover:bg-gray-50 dark:hover:bg-gray-800/20 transition-colors">
                   <td className="px-5 py-4">
                     <div className="font-bold text-gray-900 dark:text-white text-sm">{u.full_name || u.nickname || t('unnamed')}</div>
-                    <div className="text-[11px] text-gray-400 font-medium">{u.email || `@${u.nickname ?? ''}`}</div>
+                    <div className="text-[11px] text-gray-600 font-medium">{u.email || `@${u.nickname ?? ''}`}</div>
                   </td>
                   <td className="px-5 py-4 text-right">
                     {canEdit && (
                       <button
                         onClick={() => unlink(u.user_id)}
                         disabled={busyId === u.user_id}
+                        aria-label={t('unlinkLabel', { who: u.full_name || u.nickname || u.email || t('unnamed') })}
                         className="p-2 text-gray-300 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20 rounded-lg transition-all disabled:opacity-50"
                       >
                         {busyId === u.user_id ? <Loader2 className="w-4 h-4 animate-spin" /> : <Trash2 className="w-4 h-4" />}
