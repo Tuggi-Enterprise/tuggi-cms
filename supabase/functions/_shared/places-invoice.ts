@@ -4,12 +4,20 @@
 // Contract: `docs/contracts/places-pagamento.md` §0 and §3.5 (workspace). BR-B2B-046.
 //
 // When the invoice is issued (operator, 2026-10-07): in the month of the PAYMENT.
-//   - Monthly fee: the Asaas subscription carries `invoiceSettings` with
-//     `effectiveDatePeriod: ON_PAYMENT_CONFIRMATION` — set on creation (`configureSubscriptionInvoices`)
-//     and by the daily sweep for any live subscription still without it (backfill, `reconcileInvoices`).
+//   - #914 (operator, 2026-10-08): nothing of the invoice runs in the checkout. Asaas validates the
+//     customer's address on `invoiceSettings` and refused the Pix checkout for it; the invoice is a
+//     step AFTER a confirmed payment (`invoiceAfterPayment`, from the webhook once the charge is
+//     recorded, and from the daily sweep for what escaped).
+//   - Monthly fee: the FIRST confirmed payment of a subscription without `invoiceSettings` gets its own
+//     invoice (`ensurePaymentInvoice`), then the subscription gets `invoiceSettings` with
+//     `effectiveDatePeriod: ON_PAYMENT_CONFIRMATION` for the next ones (`configureSubscriptionInvoices`).
+//     Why both: the create doc only says existing charges "podem ser consideradas", and an
+//     ON_PAYMENT_CONFIRMATION trigger already past is not a promise; the update doc says the rules
+//     reach charges "que ainda não possuam nota fiscal criada", so scheduling first never duplicates.
+//     A subscription that already has settings is left to Asaas (scheduling too would race it).
 //   - One-off charge (no `subscription`: the early-termination fee of a Pix Automático plan, and the
 //     first QR charge of journey 3): scheduled with `effectiveDate` = the day the confirmation arrives
-//     (`ensureOneOffInvoice`), never before the money.
+//     (`ensurePaymentInvoice`), never before the money.
 //   - Free month: no payment, so no invoice.
 //
 // The mirror (`partner.record_place_invoice`) is an upsert by `inv_` of the RE-READ invoice, so a
@@ -21,15 +29,15 @@
 //   ASAAS_INVOICE_SERVICE_CODE  municipal service code (`municipalServiceCode`), from the accountant;
 //   ASAAS_INVOICE_SERVICE_NAME  its name (`municipalServiceName`, required to schedule an invoice);
 //   ASAAS_INVOICE_ISS_RATE      ISS rate in percent (`taxes.iss`, e.g. `2` or `2.5`).
-// Without all three, nothing is configured nor scheduled: one alert per subscription, never a failed
-// checkout. PIS, COFINS, CSLL, INSS and IR go as 0 and ISS is not withheld by the taker.
+// Without all three, nothing is configured nor scheduled: one alert per confirmed payment, never a
+// failed checkout. PIS, COFINS, CSLL, INSS and IR go as 0 and ISS is not withheld by the taker.
 //
 // Never log an invoice body: it carries the taker's CPF/CNPJ, name and e-mail.
 
 import type { AsaasClient, AsaasInvoice, AsaasInvoiceTaxes, AsaasPayment } from './asaas.ts';
 import { AsaasError } from './asaas.ts';
 import type { Rpc } from './places-payment.ts';
-import { formatBrl, isUuid, subscriptionIdFromReference, toCents } from './places-payment.ts';
+import { formatBrl, isUuid, PAID_STATUSES, subscriptionIdFromReference, toCents } from './places-payment.ts';
 
 export type InvoiceConfig = { serviceCode: string; serviceName: string; issRate: number };
 
@@ -248,20 +256,17 @@ export async function handleInvoiceEvent(
 }
 
 /**
- * Sets `invoiceSettings` on a subscription that has none. Never throws: a failure alerts and the
+ * Sets `invoiceSettings` on a subscription that has none. Only after a confirmed payment
+ * (`invoiceAfterPayment`), never from the checkout (#914). Never throws: a failure alerts and the
  * daily sweep tries again. Returns what happened.
  */
-export async function configureSubscriptionInvoices(
+async function configureSubscriptionInvoices(
   deps: InvoiceDeps,
   providerSubscriptionId: string,
   subscriptionId: string,
-  opts: { alertWhenUnconfigured: boolean } = { alertWhenUnconfigured: true },
 ): Promise<'configured' | 'already' | 'unconfigured' | 'failed'> {
   const c = deps.invoiceConfig;
-  if (!c) {
-    if (opts.alertWhenUnconfigured) await deps.alert('invoice_config_missing', { subscription_id: subscriptionId, provider_subscription_id: providerSubscriptionId });
-    return 'unconfigured';
-  }
+  if (!c) return 'unconfigured'; // callers alert (`invoiceAfterPayment`) or stay silent (sweep)
   try {
     if (await deps.asaas.getSubscriptionInvoiceSettings(providerSubscriptionId)) return 'already';
     await deps.asaas.createSubscriptionInvoiceSettings(providerSubscriptionId, {
@@ -283,12 +288,12 @@ export async function configureSubscriptionInvoices(
 }
 
 /**
- * The invoice of a confirmed one-off payment (no `subscription`), scheduled for today — the month of
- * the payment. Idempotent by the re-read: a payment with a live invoice is left alone. Throws only a
- * transient `AsaasError`, so the webhook answers 500 and Asaas resends (the charge is then a
- * `duplicate_event`, and this runs again); anything else alerts and returns `failed`.
+ * The invoice of one confirmed payment, scheduled for today — the month of the payment. Idempotent by
+ * the re-read: a payment with a live invoice is left alone. Throws only a transient `AsaasError`, so
+ * the webhook answers 500 and Asaas resends (the charge is then a `duplicate_event`, and this runs
+ * again); anything else alerts and returns `failed`.
  */
-export async function ensureOneOffInvoice(deps: InvoiceDeps, p: AsaasPayment, subscriptionId: string | null): Promise<string> {
+export async function ensurePaymentInvoice(deps: InvoiceDeps, p: AsaasPayment, subscriptionId: string | null): Promise<string> {
   const c = deps.invoiceConfig;
   if (!c) {
     await deps.alert('invoice_config_missing', { subscription_id: subscriptionId, provider_payment_id: p.id });
@@ -319,6 +324,35 @@ export async function ensureOneOffInvoice(deps: InvoiceDeps, p: AsaasPayment, su
     await deps.alert('invoice_not_scheduled', { subscription_id: subscriptionId, provider_payment_id: p.id, error: e instanceof Error ? e.message : 'unknown' });
     return 'failed';
   }
+}
+
+/**
+ * #914: the invoice step, only AFTER payment(s) confirmed and recorded. One-off → its own invoice.
+ * Subscription: with `invoiceSettings` already there, Asaas issues it (nothing here: scheduling too
+ * would race Asaas into a second invoice); without, each paid payment gets its own invoice FIRST, then
+ * the settings for the next ones (see the header for why that order never duplicates). Throws only a
+ * transient `AsaasError` (the webhook answers 500, the sweep counts it); the rest alerts.
+ */
+export async function invoiceAfterPayment(deps: InvoiceDeps, paid: AsaasPayment[], subscriptionId: string | null, providerSubscriptionId: string | null): Promise<string> {
+  if (!providerSubscriptionId) {
+    let last = 'none';
+    for (const p of paid) last = await ensurePaymentInvoice(deps, p, subscriptionId);
+    return last;
+  }
+  if (!deps.invoiceConfig) {
+    await deps.alert('invoice_config_missing', { subscription_id: subscriptionId, provider_subscription_id: providerSubscriptionId });
+    return 'unconfigured';
+  }
+  if (!subscriptionId) return 'unknown_subscription';
+  try {
+    if (await deps.asaas.getSubscriptionInvoiceSettings(providerSubscriptionId)) return 'covered';
+  } catch (e) {
+    if (e instanceof AsaasError && e.transient) throw e;
+    await deps.alert('invoice_settings_failed', { subscription_id: subscriptionId, provider_subscription_id: providerSubscriptionId, error: e instanceof Error ? e.message : 'unknown' });
+    return 'failed';
+  }
+  for (const p of paid) await ensurePaymentInvoice(deps, p, subscriptionId);
+  return await configureSubscriptionInvoices(deps, providerSubscriptionId, subscriptionId);
 }
 
 /**
@@ -356,18 +390,27 @@ export function reconcileFrom(today: string): string {
 }
 
 /**
- * Daily, inside `places-payment-sweep`: (1) backfill `invoiceSettings` on every live subscription
- * still without it — nothing, silently, while the secrets are missing (the alert was the
- * checkout's); (2) re-read the invoices of each customer since the start of last month and record them.
+ * Daily, inside `places-payment-sweep`: (1) what the webhook missed — a live subscription without
+ * `invoiceSettings` and with at least one paid charge gets `invoiceAfterPayment` (one without a paid
+ * charge is left alone: the invoice never comes before the money, #914); nothing, silently, while the
+ * secrets are missing (the alert was the webhook's); (2) re-read the invoices of each customer since
+ * the start of last month and record them.
  */
 export async function reconcileInvoices(deps: InvoiceDeps, targets: InvoiceTarget[]): Promise<Record<string, number | string>> {
   const out = { configured: 0, settings_failed: 0, recorded: 0, mirror_failed: 0 };
   const from = reconcileFrom(deps.today());
   for (const t of targets) {
-    if (t.provider_subscription_id && deps.invoiceConfig) {
-      const r = await configureSubscriptionInvoices(deps, t.provider_subscription_id, t.subscription_id, { alertWhenUnconfigured: false });
+    if (!t.provider_subscription_id || !deps.invoiceConfig) continue;
+    try {
+      if (await deps.asaas.getSubscriptionInvoiceSettings(t.provider_subscription_id)) continue;
+      const paid = (await deps.asaas.listSubscriptionPayments(t.provider_subscription_id)).filter((p) => PAID_STATUSES.has(p.status));
+      if (!paid.length) continue;
+      const r = await invoiceAfterPayment(deps, paid, t.subscription_id, t.provider_subscription_id);
       if (r === 'configured') out.configured++;
       if (r === 'failed') out.settings_failed++;
+    } catch (e) {
+      out.settings_failed++;
+      console.error('[places-invoice] reconcile settings', t.subscription_id, e instanceof Error ? e.message : 'unknown');
     }
   }
   for (const customer of new Set(targets.map((t) => t.provider_customer_id).filter((c): c is string => !!c))) {

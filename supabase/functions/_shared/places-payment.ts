@@ -66,8 +66,7 @@
 import { constantTimeEqual } from './constant-time.ts';
 import {
   cancelPaymentInvoices,
-  configureSubscriptionInvoices,
-  ensureOneOffInvoice,
+  invoiceAfterPayment,
   handleInvoiceEvent,
   reconcileInvoices,
   type InvoiceDeps,
@@ -483,9 +482,8 @@ async function startSubscription(
       await deps.alert('attach_failed', { subscription_id: co.subscription_id, provider_subscription_id: created.id, code: attached.error.code });
       return reply(502, { error: 'unavailable' });
     }
-    // #901: the NFS-e of every fee, issued on the payment's confirmation. Never fails the checkout
-    // (#914: an invoice is a CMS pending item, never the client's): it alerts, and the sweep retries.
-    await configureSubscriptionInvoices(deps, created.id, co.subscription_id);
+    // #914: no invoice here (not even `invoiceSettings`, whose address check refused the Pix
+    // checkout). The NFS-e is a step after the payment: `invoiceAfterPayment`, from the webhook.
 
     if (!freeMonth) {
       const payments = await deps.asaas.listSubscriptionPayments(created.id);
@@ -1393,11 +1391,12 @@ export async function handleAsaasWebhook(
   const submissionId = applied ? await submissionOfCharge(deps, args, eventId, eventType) : null;
   const link = applied && row?.submission_status === 'in_review' ? await accessLinkAfterPayment(deps, submissionId, args, eventId, eventType) : null;
   if (submissionId) await syncNextAmount(deps, submissionId, args);
-  // #901: a confirmed one-off charge (no subscription, so no invoiceSettings) gets its invoice now, in
-  // the month of the payment. On a resend too (`duplicate_event`): a transient failure answers 500.
-  if (fn === 'confirm_place_charge' && paid && !paid.subscription && !ALERT_OUTCOMES.has(outcome)) {
+  // #901/#914: the invoice, only now that the charge is recorded (`invoiceAfterPayment`: one-off, or a
+  // subscription's first paid fee + its invoiceSettings). On a resend too (`duplicate_event`); a
+  // transient Asaas failure answers 500 (the charge stays recorded; the resend is a duplicate).
+  if (fn === 'confirm_place_charge' && paid && !ALERT_OUTCOMES.has(outcome)) {
     try {
-      await ensureOneOffInvoice(deps, paid, (args.p_subscription_id as string | null) ?? null);
+      await invoiceAfterPayment(deps, [paid], (args.p_subscription_id as string | null) ?? null, paid.subscription ?? null);
     } catch (e) {
       console.error('[places-payment-webhook]', eventId, eventType, 'invoice_schedule_failed', e instanceof Error ? e.message : 'unknown');
       return reply(500, { error: 'invoice_schedule_failed' });

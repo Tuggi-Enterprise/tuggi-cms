@@ -172,40 +172,72 @@ function checkoutRoutes(extra: Route[] = []): Route[] {
 }
 const checkoutDb = () => fakeDb({ place_payment_checkout: { data: [checkoutRow] }, attach_place_subscription: { data: 'pending_payment' } })
 
-test('#901 BR-B2B-046: checkout with the three secrets configures the invoice on payment confirmation, after attaching the subscription', async () => {
-  const asaas = fakeAsaas(checkoutRoutes([at('POST', '/subscriptions/sub_px/invoiceSettings', 200, { id: 'cfg' })]))
-  const { d, alerts } = deps(asaas, checkoutDb())
-  assert.deepEqual(await pay.checkoutPix(d, { submission_id: SUBMISSION, address: ADDRESS }), { status: 200, body: { result: 'scheduled', first_charge_on: '2026-11-03' } })
-  const [cfg] = posts(asaas, '/subscriptions/sub_px/invoiceSettings')
-  assert.equal(posts(asaas, '/subscriptions/sub_px/invoiceSettings').length, 1)
-  assert.equal(posts(asaas, '/subscriptions').length, 2) // the subscription itself, then its invoice settings
-  assert.deepEqual(cfg.body, {
-    municipalServiceCode: '1.03',
-    municipalServiceName: 'Processamento de dados',
-    effectiveDatePeriod: 'ON_PAYMENT_CONFIRMATION',
-    observations: 'Tuggi · Com história',
-    taxes: { retainIss: false, iss: 2.5, pis: 0, cofins: 0, csll: 0, inss: 0, ir: 0 },
-  })
+test('#914 BR-B2B-046: the checkout touches no invoice endpoint, with or without the secrets, and raises no invoice alert', async () => {
+  for (const invoiceConfig of [CFG, null]) {
+    const asaas = fakeAsaas(checkoutRoutes())
+    const db = checkoutDb()
+    const { d, alerts } = deps(asaas, db, { invoiceConfig })
+    assert.deepEqual(await pay.checkoutPix(d, { submission_id: SUBMISSION, address: ADDRESS }), { status: 200, body: { result: 'scheduled', first_charge_on: '2026-11-03' } })
+    assert.equal(posts(asaas, '/subscriptions').length, 1)
+    assert.deepEqual(db.calls.map((c) => c.fn), ['place_payment_checkout', 'attach_place_subscription'])
+    assert.ok(!asaas.calls.some((c) => c.path.toLowerCase().includes('invoice')), asaas.calls.map((c) => c.path).join(' | '))
+    assert.deepEqual(alerts, [])
+  }
+})
+
+// ─── 1b. the subscription's first paid fee (#914: the invoice is a step after the payment) ──────
+
+const subFee = { id: 'pay_s', status: 'RECEIVED', value: 540, customer: 'cus_1', subscription: 'sub_1', externalReference: REF, billingType: 'PIX', paymentDate: '2026-10-04' }
+const subFeeEvent = { id: 'evt_s', event: 'PAYMENT_RECEIVED', payment: { id: 'pay_s' } }
+const subFeeRoutes = (extra: Route[] = []): Route[] => [
+  ...extra,
+  at('GET', '/payments/pay_s', 200, subFee),
+  at('GET', '/subscriptions/sub_1/invoiceSettings', 404, { errors: [{ code: 'not_found' }] }),
+  at('POST', '/subscriptions/sub_1/invoiceSettings', 200, { id: 'cfg' }),
+  at('POST', '/invoices', 200, { id: 'inv_s', status: 'SCHEDULED', payment: 'pay_s', externalReference: SUB_UUID, value: 540, effectiveDate: '2026-10-04' }),
+]
+
+test('#914 BR-B2B-046: the first paid fee of a subscription without settings gets ITS invoice, then the settings, both after the charge is recorded', async () => {
+  const log: string[] = []
+  const asaas = fakeAsaas(subFeeRoutes(), log)
+  const db = fakeDb({ confirm_place_charge: { data: [{ outcome: 'applied' }] }, record_place_invoice: { data: [{ outcome: 'inserted' }] } }, log)
+  const { d, alerts } = deps(asaas, db)
+  assert.deepEqual(await hook(d, subFeeEvent), { status: 200, body: { outcome: 'applied' } })
+  const confirmed = log.indexOf('db confirm_place_charge')
+  const invoice = log.indexOf('asaas POST /invoices')
+  const settings = log.indexOf('asaas POST /subscriptions/sub_1/invoiceSettings')
+  assert.ok(confirmed >= 0 && confirmed < invoice && invoice < settings, log.join(' | '))
+  assert.equal((posts(asaas, '/invoices')[0].body as Record<string, unknown>).payment, 'pay_s')
+  assert.equal((posts(asaas, '/subscriptions/sub_1/invoiceSettings')[0].body as Record<string, unknown>).effectiveDatePeriod, 'ON_PAYMENT_CONFIRMATION')
   assert.deepEqual(alerts, [])
 })
 
-test('#901 BR-B2B-046: checkout without the invoice secrets still creates the subscription, touches no invoice endpoint and raises invoice_config_missing', async () => {
-  const asaas = fakeAsaas(checkoutRoutes())
-  const db = checkoutDb()
-  const { d, alerts } = deps(asaas, db, { invoiceConfig: null })
-  assert.deepEqual(await pay.checkoutPix(d, { submission_id: SUBMISSION, address: ADDRESS }), { status: 200, body: { result: 'scheduled', first_charge_on: '2026-11-03' } })
-  assert.equal(posts(asaas, '/subscriptions').length, 1)
-  assert.deepEqual(db.calls.map((c) => c.fn), ['place_payment_checkout', 'attach_place_subscription'])
-  assert.ok(!asaas.calls.some((c) => c.path.includes('invoice')))
-  assert.deepEqual(alerts.map((a) => a.what), ['invoice_config_missing'])
-  assert.equal(alerts[0].fields.provider_subscription_id, 'sub_px')
+test('#914 BR-B2B-046: a subscription that already has settings is left to Asaas (no second invoice), and a resend does not schedule again', async () => {
+  const asaas = fakeAsaas(subFeeRoutes([at('GET', '/subscriptions/sub_1/invoiceSettings', 200, { effectiveDatePeriod: 'ON_PAYMENT_CONFIRMATION' })]))
+  const { d } = deps(asaas, fakeDb({ confirm_place_charge: { data: [{ outcome: 'duplicate_event' }] } }))
+  assert.equal((await hook(d, subFeeEvent)).status, 200)
+  assert.equal(posts(asaas, '/invoices').length, 0)
+  assert.equal(posts(asaas, '/subscriptions/').length, 0)
 })
 
-test('#901 BR-B2B-046: an invoiceSettings failure never fails the checkout; it alerts and leaves the backfill to the sweep', async () => {
-  const asaas = fakeAsaas(checkoutRoutes([at('POST', '/subscriptions/sub_px/invoiceSettings', 400, { errors: [{ code: 'invalid_action' }] })]))
-  const { d, alerts } = deps(asaas, checkoutDb())
-  assert.equal((await pay.checkoutPix(d, { submission_id: SUBMISSION, address: ADDRESS })).status, 200)
+test('#914 BR-B2B-046: settings refused for the customer address in the webhook alert with the Asaas description and leave the recorded charge alone (200)', async () => {
+  const refused = { errors: [{ code: 'invalid_action', description: 'Endereço do cliente incompleto.; CEP do cliente é inválido.' }] }
+  const asaas = fakeAsaas(subFeeRoutes([at('POST', '/subscriptions/sub_1/invoiceSettings', 400, refused)]))
+  const db = fakeDb({ confirm_place_charge: { data: [{ outcome: 'applied' }] }, record_place_invoice: { data: [{ outcome: 'inserted' }] } })
+  const { d, alerts } = deps(asaas, db)
+  assert.deepEqual(await hook(d, subFeeEvent), { status: 200, body: { outcome: 'applied' } })
+  assert.equal(db.calls.filter((c) => c.fn === 'confirm_place_charge').length, 1)
+  assert.ok(!db.calls.some((c) => c.fn !== 'confirm_place_charge' && c.fn !== 'record_place_invoice'), 'nothing undoes or rewrites the charge')
   assert.deepEqual(alerts.map((a) => a.what), ['invoice_settings_failed'])
+  assert.match(String(alerts[0].fields.error), /CEP do cliente é inválido/)
+})
+
+test('#914 BR-B2B-046: a paid fee with the secrets missing records the charge and alerts invoice_config_missing, touching no invoice endpoint', async () => {
+  const asaas = fakeAsaas(subFeeRoutes())
+  const { d, alerts } = deps(asaas, fakeDb({ confirm_place_charge: { data: [{ outcome: 'applied' }] } }), { invoiceConfig: null })
+  assert.equal((await hook(d, subFeeEvent)).status, 200)
+  assert.ok(!asaas.calls.some((c) => c.path.toLowerCase().includes('invoice')))
+  assert.deepEqual(alerts.map((a) => a.what), ['invoice_config_missing'])
 })
 
 // ─── 2. one-off charge ──────────────────────────────────────────────────────────────────────────
@@ -246,8 +278,8 @@ test('#901 BR-B2B-046: the creation of the one-off charge (cancelRenewal) schedu
   const r2 = deps(a2, fakeDb({ fail_place_charge: { data: [{ outcome: 'applied' }] } }))
   await hook(r2.d, feeEvent('evt_o', 'PAYMENT_OVERDUE'))
   assert.equal(posts(a2, '/invoices').length, 0)
-  // a subscription fee carries invoiceSettings: no per-payment invoice
-  const a3 = fakeAsaas([at('GET', '/payments/pay_s', 200, { ...oneOff, id: 'pay_s', subscription: 'sub_1', externalReference: REF }), at('GET', '/customers/cus_1', 200, { id: 'cus_1', externalReference: SUB_UUID })])
+  // a subscription fee whose subscription carries invoiceSettings: no per-payment invoice
+  const a3 = fakeAsaas([at('GET', '/payments/pay_s', 200, { ...oneOff, id: 'pay_s', subscription: 'sub_1', externalReference: REF }), at('GET', '/customers/cus_1', 200, { id: 'cus_1', externalReference: SUB_UUID }), at('GET', '/subscriptions/sub_1/invoiceSettings', 200, { effectiveDatePeriod: 'ON_PAYMENT_CONFIRMATION' })])
   const r3 = deps(a3, fakeDb({ confirm_place_charge: { data: [{ outcome: 'applied' }] } }), { subscriptionById: async () => subRow, subscriptionIds: async () => ({ ...subRow, provider_subscription_id: 'sub_1' }) })
   await hook(r3.d, { id: 'evt_s', event: 'PAYMENT_CONFIRMED', payment: { id: 'pay_s' } })
   assert.equal(posts(a3, '/invoices').length, 0)
@@ -462,20 +494,27 @@ const targets = [
   { subscription_id: SUB2, provider_subscription_id: 'sub_done', provider_customer_id: 'cus_2' },
 ]
 
-test('#901 BR-B2B-046: the sweep backfills invoiceSettings only where it is missing and never rewrites an existing one', async () => {
+test('#914 BR-B2B-046: the sweep configures only a subscription without settings AND with a paid charge (its invoice first), and never rewrites one', async () => {
+  const SUB3 = 'cccccccc-3333-4333-8333-333333333333'
   const asaas = fakeAsaas([
     at('GET', '/subscriptions/sub_new/invoiceSettings', 404, {}),
     at('GET', '/subscriptions/sub_done/invoiceSettings', 200, { effectiveDatePeriod: 'ON_PAYMENT_CONFIRMATION' }),
+    at('GET', '/subscriptions/sub_unpaid/invoiceSettings', 404, {}),
+    at('GET', '/payments?subscription=sub_new', 200, { data: [{ id: 'pay_n', status: 'RECEIVED', value: 540, subscription: 'sub_new' }, { id: 'pay_p', status: 'PENDING', value: 540, subscription: 'sub_new' }] }),
+    at('GET', '/payments?subscription=sub_unpaid', 200, { data: [{ id: 'pay_u', status: 'PENDING', value: 540, subscription: 'sub_unpaid' }] }),
+    at('POST', '/invoices', 200, { id: 'inv_n', status: 'SCHEDULED', payment: 'pay_n', externalReference: SUB_UUID, value: 540 }),
     at('POST', '/subscriptions/sub_new/invoiceSettings', 200, {}),
   ])
-  const { d } = deps(asaas, fakeDb({}), { invoiceTargets: async () => targets })
+  const all = [...targets, { subscription_id: SUB3, provider_subscription_id: 'sub_unpaid', provider_customer_id: 'cus_3' }]
+  const { d } = deps(asaas, fakeDb({ record_place_invoice: { data: [{ outcome: 'inserted' }] } }), { invoiceTargets: async () => all })
   const s = await pay.runSweep(d)
   assert.equal(s.invoices.configured, 1)
   assert.deepEqual(posts(asaas, '/subscriptions/').map((c) => c.path), ['/subscriptions/sub_new/invoiceSettings'])
+  assert.deepEqual(posts(asaas, '/invoices').map((c) => (c.body as Record<string, unknown>).payment), ['pay_n'])
   assert.equal(s.invoices.settings_failed, 0)
 })
 
-test('#901 BR-B2B-046: the sweep skips the backfill in silence while the secrets are missing (the alert is the checkout\'s), and an ended plan has no subscription to configure', async () => {
+test('#901 BR-B2B-046: the sweep skips the backfill in silence while the secrets are missing (the alert is the webhook\'s), and an ended plan has no subscription to configure', async () => {
   const none = fakeAsaas([])
   const a = deps(none, fakeDb({}), { invoiceConfig: null, invoiceTargets: async () => targets })
   await pay.runSweep(a.d)

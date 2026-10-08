@@ -116,7 +116,6 @@ test('#914 BR-B2B-046: checkout_pix creates the Asaas customer with the CEP and 
     at('GET', '/customers?', 200, { data: [] }),
     at('POST', '/customers', 200, { id: 'cus_1' }),
     at('PUT', '/customers/cus_1', 200, { id: 'cus_1' }),
-    at('POST', '/subscriptions/sub_px/invoiceSettings', 200, { id: 'cfg' }),
     at('POST', '/subscriptions', 200, { id: 'sub_px', status: 'ACTIVE', value: 540 }),
   ])
   const { d, alerts } = deps(asaas, checkoutDb())
@@ -132,7 +131,6 @@ test('#914 BR-B2B-046: the card checkout creates the customer with the holder CE
     at('GET', '/subscriptions?', 200, { data: [] }),
     at('GET', '/customers?', 200, { data: [] }),
     at('POST', '/customers', 200, { id: 'cus_1' }),
-    at('POST', '/subscriptions/sub_c/invoiceSettings', 200, { id: 'cfg' }),
     at('POST', '/subscriptions', 200, { id: 'sub_c', status: 'ACTIVE', value: 540 }),
   ])
   const { d } = deps(asaas, checkoutDb())
@@ -142,13 +140,11 @@ test('#914 BR-B2B-046: the card checkout creates the customer with the holder CE
   assert.equal(customer.addressNumber, '215')
 })
 
-test('#914: a customer found without an address is updated (PUT) before the subscription and before its invoice settings', async () => {
+test('#914: a customer found without an address is updated (PUT) before the subscription', async () => {
   const asaas = fakeAsaas([
     at('GET', '/subscriptions?', 200, { data: [] }),
     at('GET', '/customers?', 200, { data: [{ id: 'cus_1' }] }),
     at('PUT', '/customers/cus_1', 200, { id: 'cus_1' }),
-    at('GET', '/subscriptions/sub_px/invoiceSettings', 404, { errors: [{ code: 'not_found' }] }),
-    at('POST', '/subscriptions/sub_px/invoiceSettings', 200, { id: 'cfg' }),
     at('POST', '/subscriptions', 200, { id: 'sub_px', status: 'ACTIVE', value: 540 }),
   ])
   const { d, alerts } = deps(asaas, checkoutDb())
@@ -158,7 +154,6 @@ test('#914: a customer found without an address is updated (PUT) before the subs
   assert.ok(addressPut >= 0, 'the address PUT was sent')
   assert.deepEqual(asaas.calls[addressPut].body, { postalCode: '28950000', addressNumber: '12' })
   assert.ok(addressPut < order.indexOf('POST /subscriptions'))
-  assert.ok(addressPut < order.indexOf('POST /subscriptions/sub_px/invoiceSettings'))
   assert.deepEqual(alerts, [])
 })
 
@@ -166,7 +161,6 @@ test('#914: a customer that already has this CEP and number is not written again
   const asaas = fakeAsaas([
     at('GET', '/subscriptions?', 200, { data: [] }),
     at('GET', '/customers?', 200, { data: [{ id: 'cus_1', postalCode: '28950000', addressNumber: '12' }] }),
-    at('POST', '/subscriptions/sub_c/invoiceSettings', 200, { id: 'cfg' }),
     at('POST', '/subscriptions', 200, { id: 'sub_c', status: 'ACTIVE', value: 540 }),
   ])
   const { d } = deps(asaas, checkoutDb())
@@ -256,29 +250,42 @@ test('#914: a database refusal of that record alerts and still answers paid (the
   assert.deepEqual(alerts.map((a) => a.what), ['checkout_confirm_failed'])
 })
 
-test('#914 BR-B2B-046: the invoice settings refused for the customer address never fail the checkout, and the alert carries the Asaas description', async () => {
-  const asaas = fakeAsaas([
+test('#914 BR-B2B-046: no checkout path calls anything of the invoice: new Pix, card, and the paid subscription the checkout records', async () => {
+  const noInvoice = (a: { calls: { path: string }[] }) => assert.ok(!a.calls.some((c) => c.path.toLowerCase().includes('invoice')), a.calls.map((c) => c.path).join(' | '))
+  const fresh = () => fakeAsaas([
     at('GET', '/subscriptions?', 200, { data: [] }),
     at('GET', '/customers?', 200, { data: [{ id: 'cus_1', postalCode: '28950000', addressNumber: '12' }] }),
     at('PUT', '/customers/cus_1', 200, { id: 'cus_1' }),
-    at('POST', '/subscriptions/sub_px/invoiceSettings', 400, CEP_REFUSED),
     at('POST', '/subscriptions', 200, { id: 'sub_px', status: 'ACTIVE', value: 540 }),
   ])
-  const { d, alerts } = deps(asaas, checkoutDb())
-  assert.deepEqual(await pay.checkoutPix(d, pixBody()), { status: 200, body: { result: 'scheduled', first_charge_on: '2026-11-03' } })
-  assert.deepEqual(alerts.map((a) => a.what), ['invoice_settings_failed'])
-  assert.equal(alerts[0].fields.error, 'asaas 400 invalid_action: Endereço do cliente incompleto.; CEP do cliente é inválido.')
+  const pix = fresh()
+  assert.equal((await pay.checkoutPix(deps(pix, checkoutDb()).d, pixBody())).status, 200)
+  noInvoice(pix)
+  const card = fresh()
+  assert.equal((await pay.checkout(deps(card, checkoutDb()).d, { ...cardBody, holder: { ...cardBody.holder, postal_code: '28950000', address_number: '12' } })).status, 200)
+  noInvoice(card)
+  const paid = fakeAsaas([
+    at('GET', '/subscriptions?', 200, { data: [{ id: 'sub_old', status: 'ACTIVE', value: 540, customer: 'cus_1', billingType: 'PIX' }] }),
+    at('GET', '/payments?subscription=sub_old', 200, { data: [{ id: 'pay_1', status: 'RECEIVED', value: 540, subscription: 'sub_old', externalReference: REF, paymentDate: '2026-10-04' }] }),
+  ])
+  const db = fakeDb({
+    place_payment_checkout: { data: [{ ...checkoutRow, next_due_date: '2026-10-04' }] },
+    attach_place_subscription: { data: 'pending_payment' },
+    confirm_place_charge: { data: [{ outcome: 'applied', subscription_status: 'paid', submission_status: 'in_review' }] },
+  })
+  assert.deepEqual(await pay.checkoutPix(deps(paid, db).d, pixBody()), { status: 200, body: { result: 'paid' } })
+  noInvoice(paid)
 })
 
 test('#914: a one-off charge whose invoice lookup is refused is not a 500 (a 500 would be resent until the Asaas queue pauses)', async () => {
   const asaas = fakeAsaas([at('GET', '/invoices?', 400, CEP_REFUSED)])
   const { d, alerts } = deps(asaas, fakeDb({}))
-  const r = await inv.ensureOneOffInvoice(d, { id: 'pay_fee', status: 'RECEIVED', value: 120 }, SUB_UUID)
+  const r = await inv.ensurePaymentInvoice(d, { id: 'pay_fee', status: 'RECEIVED', value: 120 }, SUB_UUID)
   assert.equal(r, 'failed')
   assert.deepEqual(alerts.map((a) => a.what), ['invoice_not_scheduled'])
   // a transient failure still throws, so the webhook answers 500 and Asaas resends
   const down = fakeAsaas([at('GET', '/invoices?', 503, {})])
-  await assert.rejects(inv.ensureOneOffInvoice(deps(down, fakeDb({})).d, { id: 'pay_fee', status: 'RECEIVED', value: 120 }, SUB_UUID))
+  await assert.rejects(inv.ensurePaymentInvoice(deps(down, fakeDb({})).d, { id: 'pay_fee', status: 'RECEIVED', value: 120 }, SUB_UUID))
 })
 
 // ─── item 4: the alert says what Asaas said ────────────────────────────────────────────────────

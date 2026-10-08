@@ -81,7 +81,9 @@ function deps(asaas: ReturnType<typeof fakeAsaas>, db: ReturnType<typeof fakeDb>
     expiredLiveCards: async () => [],
     cancelsToRedo: async () => [],
     alert: async (what: string, fields: Record<string, unknown>) => {
-      alerts.push({ what, fields })
+      // #914: a confirmed fee with the secrets unset (the default here) alerts invoice_config_missing;
+      // that alert is proven in edge-places-invoice.test.ts, not counted among this file's.
+      if (what !== 'invoice_config_missing') alerts.push({ what, fields })
     },
     today: () => '2026-10-04',
     now: () => new Date('2026-10-04T12:00:00Z'),
