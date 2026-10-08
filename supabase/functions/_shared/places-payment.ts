@@ -76,6 +76,7 @@ import {
 } from './places-invoice.ts';
 import { handleTransferEvent, reconcileSentPayouts, type SentPayout } from './places-payout.ts';
 import { ACCESS_FROM_NAME, portalMail } from './places-portal-draft.ts';
+import { LEGACY_DUE_DAY, isLegacySubscriptionReference, legacySubscriptionReference } from './places-legacy-customers.ts';
 import {
   AsaasError,
   type AsaasClient,
@@ -157,7 +158,16 @@ export type Deps = InvoiceDeps & {
   invoiceTargets: () => Promise<InvoiceTarget[]>;
   /** Payouts in `sent` (#903), whose transfer the sweep re-reads. Throws on a read error. */
   sentPayouts: () => Promise<SentPayout[]>;
+  /**
+   * #916: the legacy mark of a submission (`legacy_client_id`, `legacy_fee_ended_at`), read with
+   * service_role; null = not a legacy submission. Throws on a read error.
+   */
+  legacyOf: (submissionId: string) => Promise<LegacyMark | null>;
+  /** #916: `core.clients.id` of every legacy submission whose fee ended. Throws on a read error. */
+  legacyFeesEnded: () => Promise<string[]>;
 };
+
+export type LegacyMark = { client_id: string; fee_ended_at: string | null };
 
 export type PortalDeps = Deps & {
   /** The user's JWT: the database proves the owner. */
@@ -492,6 +502,8 @@ async function startSubscription(
     }
     // #914: no invoice here (not even `invoiceSettings`, whose address check refused the Pix
     // checkout). The NFS-e is a step after the payment: `invoiceAfterPayment`, from the webhook.
+    // #916: the new plan is attached, so the legacy fee of a client from before the portal ends now.
+    await endLegacyAfterMigration(deps, submissionId);
 
     if (!freeMonth) {
       const payments = await deps.asaas.listSubscriptionPayments(created.id);
@@ -713,6 +725,7 @@ async function clearLiveSubscriptions(deps: Deps, submissionId: string, co: Chec
       for (const p of payments.filter((p) => PAID_STATUSES.has(p.status))) {
         await confirmFromCheckout(deps, submissionId, co.subscription_id, id, p);
       }
+      await endLegacyAfterMigration(deps, submissionId);
       return reply(200, { result: 'paid' });
     }
   }
@@ -1331,6 +1344,11 @@ export async function handleAsaasWebhook(
           : str((b.payment as Record<string, unknown>)?.id);
       if (!paymentId) return reply(400, { error: 'invalid_body' });
       const p = await deps.asaas.getPayment(paymentId);
+      // #916: a charge of the legacy fee is not a portal plan: no database function, no alert.
+      if (await isLegacyCharge(deps, p)) {
+        log('legacy');
+        return reply(200, { outcome: 'legacy' });
+      }
       const action = paymentAction(eventType, (p.status ?? '').toUpperCase());
       if (!action) {
         log(`stale:${p.status}`);
@@ -1386,6 +1404,11 @@ export async function handleAsaasWebhook(
         reference = s.externalReference ?? null;
       } catch (e) {
         if (!(e instanceof AsaasError && e.status === 404)) throw e;
+      }
+      if (isLegacySubscriptionReference(reference)) {
+        // #916: the legacy subscription ended (our own `cancel_legacy`, the migration or the operator).
+        log('legacy');
+        return reply(200, { outcome: 'legacy' });
       }
       if (!ended) {
         log('stale:ACTIVE');
@@ -1741,6 +1764,27 @@ export async function runSweep(deps: Deps): Promise<Record<string, unknown>> {
     summary.aligned = changed;
   }
 
+  // #916: a legacy fee ended in the database whose Asaas subscription is still live (the DELETE failed
+  // or the EF died in between) is ended here. The legacy fee falls due on day 20 and this runs daily.
+  try {
+    let n = 0;
+    for (const clientId of await deps.legacyFeesEnded()) {
+      try {
+        const ended = await endLegacySubscriptions(deps, clientId);
+        if (ended > 0) {
+          n += ended;
+          await deps.alert('legacy_subscription_ended_by_sweep', { client_id: clientId, ended });
+        }
+      } catch (e) {
+        await deps.alert('sweep_legacy_end_failed', { client_id: clientId, error: e instanceof Error ? e.message : 'unknown' });
+      }
+    }
+    summary.legacy_ended = n;
+  } catch (e) {
+    summary.legacy_ended = 'db_error';
+    await deps.alert('sweep_legacy_read_failed', { error: e instanceof Error ? e.message : 'unknown' });
+  }
+
   // #901: invoice settings backfill and the mirror of the invoices, re-read from Asaas.
   try {
     summary.invoices = await reconcileInvoices(deps, await deps.invoiceTargets());
@@ -1871,6 +1915,174 @@ export const CANCEL_EMAIL = {
       small: [],
     });
   },
+};
+
+// ─── legacy clients from before the portal (#916) ─────────────────────────────────────────────
+
+/** A legacy boleto can also be settled by hand in the Asaas panel. */
+const LEGACY_PAID_STATUSES = new Set([...PAID_STATUSES, 'RECEIVED_IN_CASH']);
+
+/**
+ * The legacy Asaas subscriptions still live, found by `legacy:<client_id>` and only by it: the
+ * portal's subscription on the same customer (`com_historia_<n>m:<uuid>`) is never touched.
+ */
+async function liveLegacySubscriptions(deps: Deps, clientId: string) {
+  const ref = legacySubscriptionReference(clientId);
+  return (await deps.asaas.listSubscriptionsByReference(ref)).filter(
+    (s) => !s.deleted && s.status === 'ACTIVE' && (s.externalReference ?? '').trim().toLowerCase() === ref,
+  );
+}
+
+/**
+ * `DELETE` of every live legacy subscription of the client; the number ended. The DELETE also removes
+ * the pending and overdue charges and keeps the paid ones (https://docs.asaas.com/reference/remover-assinatura):
+ * an overdue legacy fee is forgiven (operator, #916). Throws on an Asaas failure.
+ */
+export async function endLegacySubscriptions(deps: Deps, clientId: string): Promise<number> {
+  const live = await liveLegacySubscriptions(deps, clientId);
+  for (const s of live) await deps.asaas.deleteSubscription(s.id);
+  return live.length;
+}
+
+/** The first day `LEGACY_DUE_DAY` strictly after `today` (`YYYY-MM-DD`). */
+export function nextLegacyDueDate(today: string): string {
+  const month = Number(today.slice(8, 10)) < LEGACY_DUE_DAY ? today.slice(0, 7) : addMonths(`${today.slice(0, 7)}-01`, 1).slice(0, 7);
+  return `${month}-${String(LEGACY_DUE_DAY).padStart(2, '0')}`;
+}
+
+/**
+ * When a cancelled legacy plan ends (operator, #916): with a month already paid — a fee paid whose due
+ * date is less than a month ago, or later — on the next due day; otherwise today (`null`).
+ */
+export function legacyEndsOn(payments: AsaasPayment[], today: string): string | null {
+  const monthAgo = addMonths(today, -1);
+  const paid = payments.some((p) => LEGACY_PAID_STATUSES.has((p.status ?? '').toUpperCase()) && typeof p.dueDate === 'string' && p.dueDate > monthAgo);
+  return paid ? nextLegacyDueDate(today) : null;
+}
+
+async function legacyPaidUntil(deps: Deps, clientId: string): Promise<string | null> {
+  const payments: AsaasPayment[] = [];
+  for (const s of await liveLegacySubscriptions(deps, clientId)) payments.push(...(await deps.asaas.listSubscriptionPayments(s.id)));
+  return legacyEndsOn(payments, deps.today());
+}
+
+/** Is this re-read charge one of the legacy fee? By its reference, or by its subscription's when it has none of ours. */
+async function isLegacyCharge(deps: Deps, p: AsaasPayment): Promise<boolean> {
+  if (isLegacySubscriptionReference(p.externalReference)) return true;
+  if (subscriptionIdFromReference(p.externalReference) || !p.subscription) return false;
+  try {
+    return isLegacySubscriptionReference((await deps.asaas.getSubscription(p.subscription)).externalReference);
+  } catch {
+    // Not knowing is not legacy: the charge goes on the portal path, as before #916.
+    return false;
+  }
+}
+
+/**
+ * The owner of a legacy submission that still pays the fee: the user's JWT proves the owner
+ * (`core.portal_get_submission`, whose `legacy_monthly_fee_cents` is set only then) and the client id
+ * comes from the database after that (demand 4).
+ */
+async function legacyPayingOwner(deps: PortalDeps, submissionId: string): Promise<{ clientId: string } | Reply> {
+  const { data, error } = await deps.user('core', 'portal_get_submission', { p_submission_id: submissionId });
+  if (error) return isBusinessError(error) ? portalErrorReply(error) : reply(502, { error: 'unavailable' });
+  const row = firstRow<{ submission_id?: string; legacy_monthly_fee_cents?: number | null }>(data);
+  if (!row?.submission_id) return reply(404, { error: 'not_found' });
+  const fee = row.legacy_monthly_fee_cents;
+  const mark = typeof fee === 'number' && fee > 0 ? await deps.legacyOf(row.submission_id) : null;
+  return mark ? { clientId: mark.client_id } : reply(409, { error: 'not_allowed', reason: 'not_legacy_paid' });
+}
+
+/** `cancel_legacy_quote` (#916): when the legacy plan would end if cancelled now. Writes nothing. */
+export async function legacyCancelQuote(deps: PortalDeps, submissionId: string): Promise<Reply> {
+  if (!isUuid(submissionId)) return reply(400, { error: 'invalid', field: 'submission_id' });
+  const owner = await legacyPayingOwner(deps, submissionId);
+  if (isReply(owner)) return owner;
+  try {
+    return reply(200, { ends_on: await legacyPaidUntil(deps, owner.clientId) });
+  } catch (e) {
+    if (e instanceof AsaasError) return reply(502, { error: 'provider_unavailable' });
+    throw e;
+  }
+}
+
+/**
+ * `cancel_legacy` (#916): the client from before the portal drops the legacy fee and stays on the map
+ * plan, with no fee (operator 2026-10-08, BR-B2B-060). The database first, with the user's JWT
+ * (`core.portal_end_legacy_fee` proves the owner, records `legacy_fee_ended_at`, zeroes the fee and
+ * answers the client id); then the Asaas subscription, best effort — a failure alerts, and the daily
+ * sweep ends it (`legacyFeesEnded`). Then the confirmation e-mail. `ends_on` null = it ended today.
+ */
+export async function cancelLegacy(deps: PortalDeps, submissionId: string): Promise<Reply> {
+  if (!isUuid(submissionId)) return reply(400, { error: 'invalid', field: 'submission_id' });
+  const { data, error } = await deps.user('core', 'portal_end_legacy_fee', { p_submission_id: submissionId });
+  if (error) {
+    if (isBusinessError(error)) return portalErrorReply(error);
+    await deps.alert('legacy_cancel_failed', { submission_id: submissionId, code: error.code });
+    return reply(502, { error: 'unavailable' });
+  }
+  const v = Array.isArray(data) ? data[0] : data;
+  const clientId = isUuid(v) ? v.toLowerCase() : null;
+  let endsOn: string | null = null;
+  try {
+    if (!clientId) throw new Error('no client id');
+    endsOn = await legacyPaidUntil(deps, clientId);
+    await endLegacySubscriptions(deps, clientId);
+  } catch (e) {
+    await deps.alert('legacy_subscription_end_failed', { submission_id: submissionId, client_id: clientId, error: e instanceof Error ? e.message : 'unknown' });
+  }
+  const to = await deps.userEmail();
+  if (to) {
+    const mail = LEGACY_CANCEL_EMAIL.build(endsOn ? formatDateBr(endsOn) : null);
+    const sent = await deps.sendEmail(to, mail.subject, mail.text, { html: mail.html, fromName: ACCESS_FROM_NAME, replyTo: SUPPORT_EMAIL });
+    if (!sent) await deps.alert('legacy_cancel_email_failed', { submission_id: submissionId });
+  }
+  return reply(200, { result: 'canceled', ends_on: endsOn });
+}
+
+/**
+ * After a new plan is attached (#916): a legacy submission whose fee still runs ends it, `migrated`
+ * (`partner.place_end_legacy_fee`), then the legacy Asaas subscription. In this order, so a refused
+ * card never leaves the client with no plan. Never fails the checkout: a failure alerts, and the sweep
+ * ends the Asaas side of every fee the database ended.
+ */
+async function endLegacyAfterMigration(deps: Deps, submissionId: string): Promise<void> {
+  let mark: LegacyMark | null = null;
+  try {
+    mark = await deps.legacyOf(submissionId);
+    if (!mark) return;
+    if (!mark.fee_ended_at) {
+      const { error } = await deps.admin('partner', 'place_end_legacy_fee', { p_submission_id: submissionId, p_reason: 'migrated' });
+      // A business refusal: a legacy client that pays no fee (nothing to end).
+      if (error && !isBusinessError(error)) throw new Error(`db ${error.code ?? 'unknown'}`);
+    }
+    await endLegacySubscriptions(deps, mark.client_id);
+  } catch (e) {
+    await deps.alert('legacy_migration_end_failed', { submission_id: submissionId, client_id: mark?.client_id ?? null, error: e instanceof Error ? e.message : 'unknown' });
+  }
+}
+
+/**
+ * The legacy cancel confirmation. No text for it in the #916 spec: the closing sentence is the spec's
+ * own (step 3 of the cancel), in the portal layout and sender of every portal e-mail. `design` validates.
+ */
+export const LEGACY_CANCEL_EMAIL = {
+  subject: 'Seu plano mensal no Tuggi foi cancelado',
+  build: (until: string | null): { subject: string; html: string; text: string } =>
+    portalMail({
+      subject: LEGACY_CANCEL_EMAIL.subject,
+      preheader: 'Confirmamos o cancelamento do seu plano.',
+      paragraphs: [
+        'Olá,',
+        'Confirmamos o cancelamento do seu plano mensal, contratado antes do portal.',
+        until
+          ? `Seu plano termina em ${until}, quando acabaria o mês já pago. Depois disso não há nova cobrança nem taxa de saída.`
+          : 'Seu plano termina hoje. Não há cobrança nem taxa de saída.',
+        'O seu local continua no mapa do app, sem custo.',
+      ],
+      cta: { label: 'Entrar', url: PORTAL_URL },
+      small: [],
+    }),
 };
 
 // ─── portal: payout Pix key (#904) ─────────────────────────────────────────────────────────────

@@ -271,3 +271,26 @@ export async function registerLegacyCustomers(asaas: AsaasClient, rows: LegacyCl
 export function isDryRun(body: unknown): boolean {
   return !(body && typeof body === 'object' && (body as Record<string, unknown>).dry_run === false);
 }
+
+// ─── the legacy subscription at Asaas (#916) ───────────────────────────────────────────────────
+
+/**
+ * `externalReference` of the legacy monthly fee's Asaas subscription: `legacy:<core.clients.id>`.
+ * Never the bare uuid: the portal webhook reads a uuid on the customer as a `place_subscriptions` id
+ * (`chargeIds`), and every legacy charge would become an `unknown_subscription` alert. The portal's
+ * own subscriptions use `com_historia_<n>m:<uuid>` on the same customer, so this prefix is what tells
+ * the two apart when the legacy one is ended (`places-payment.ts` `endLegacySubscriptions`).
+ */
+export const LEGACY_SUBSCRIPTION_PREFIX = 'legacy:';
+
+export const legacySubscriptionReference = (clientId: string): string => `${LEGACY_SUBSCRIPTION_PREFIX}${clientId.trim().toLowerCase()}`;
+
+export const isLegacySubscriptionReference = (ref: unknown): boolean =>
+  typeof ref === 'string' && ref.trim().toLowerCase().startsWith(LEGACY_SUBSCRIPTION_PREFIX);
+
+/**
+ * Due day of the legacy fee: the same value as `DUE_DAY_OF_MONTH` of the CMS contract
+ * (`lib/contract/template.ts`), which Deno cannot import. `tests/api/edge-places-legacy-access.test.ts`
+ * holds the two equal.
+ */
+export const LEGACY_DUE_DAY = 20;

@@ -200,6 +200,23 @@ export function baseDeps(asaas: NonNullable<ReturnType<typeof asaasFromEnv>>): D
       // deno-lint-ignore no-explicit-any
       return (data ?? []).map((r: any) => ({ payout_id: r.id, provider_transfer_id: r.provider_transfer_id }));
     },
+    // #916: the mirror submission of a client from before the portal (`legacy_client_id`).
+    legacyOf: async (submissionId) => {
+      const { data, error } = await admin.schema('partner').from('place_submissions').select('legacy_client_id, legacy_fee_ended_at').eq('id', submissionId).maybeSingle();
+      if (error) throw new Error(`legacy read ${error.code}`);
+      return typeof data?.legacy_client_id === 'string' ? { client_id: data.legacy_client_id, fee_ended_at: data.legacy_fee_ended_at ?? null } : null;
+    },
+    legacyFeesEnded: async () => {
+      const { data, error } = await admin
+        .schema('partner')
+        .from('place_submissions')
+        .select('legacy_client_id')
+        .not('legacy_client_id', 'is', null)
+        .not('legacy_fee_ended_at', 'is', null);
+      if (error) throw new Error(`legacy fees read ${error.code}`);
+      // deno-lint-ignore no-explicit-any
+      return (data ?? []).map((r: any) => r.legacy_client_id as string);
+    },
   };
 }
 
