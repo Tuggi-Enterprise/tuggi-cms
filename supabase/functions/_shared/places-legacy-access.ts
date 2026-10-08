@@ -12,7 +12,9 @@
 // Rerun: the seed answers the submission it already made, a claimed submission is `owned` (nothing
 // is sent), and an unclaimed one gets a new link (the database caps it at 5 an hour).
 
-import { portalMail, type AccessOutcome, type LinkMail, type RpcError } from './places-portal-draft.ts';
+import { legacyAccessEmail, type AccessOutcome, type LinkMail, type RpcError } from './places-portal-draft.ts';
+
+export { legacyAccessEmail };
 
 /** Who may get the link: every approved venue. The database refuses the ones it cannot mirror. */
 export const LEGACY_ACCESS_FILTER = { client_type: 'venue', status: 'approved' } as const;
@@ -21,7 +23,7 @@ export const LEGACY_ACCESS_COLUMNS = 'id, name, monthly_fee_cents, is_courtesy';
 export type LegacyAccessRow = { id: string; name?: string | null; monthly_fee_cents?: number | null; is_courtesy?: boolean | null };
 
 /** Pays the legacy fee: a fee above zero and no courtesy (the same reading as `cms_place_description_facts`). */
-export const isPayingLegacy = (r: LegacyAccessRow): boolean => (r.monthly_fee_cents ?? 0) > 0 && r.is_courtesy !== true;
+export const isPayingLegacy = (r: Pick<LegacyAccessRow, 'monthly_fee_cents' | 'is_courtesy'>): boolean => (r.monthly_fee_cents ?? 0) > 0 && r.is_courtesy !== true;
 
 /**
  * Resend accepts 10 requests per second per team (resend.com/docs/api-reference/rate-limit, 429
@@ -29,39 +31,6 @@ export const isPayingLegacy = (r: LegacyAccessRow): boolean => (r.monthly_fee_ce
  * this pause keeps it below even if Auth answers instantly.
  */
 export const SEND_SPACING_MS = 150;
-
-/** One line of the place name: our database's, but still no control character and no runaway length. */
-export function placeNameForMail(raw: unknown): string {
-  const s = typeof raw === 'string' ? raw.replace(/[\u0000-\u001f\u007f]+/g, ' ').replace(/\s+/g, ' ').trim() : '';
-  return s.length > 120 ? `${s.slice(0, 119)}…` : s;
-}
-
-/**
- * The legacy access e-mail (spec of `design`, #916 §1). The place name goes in the body because it
- * comes from `core.clients`, typed by the operator, never by whoever asks for a link (the reason
- * `accessEmail` carries none). No name → "o seu local". Sender `ACCESS_FROM_NAME`, set by `mailAccessLink`. "1 hora" is `place_issue_claim` 1 h = GoTrue
- * `otp_expiry` 3600, as in `accessEmail`.
- */
-export function legacyAccessEmail(url: string, origin: string, v: { placeName: string; paying: boolean }): { subject: string; html: string; text: string } {
-  const host = new URL(origin).host;
-  const name = placeNameForMail(v.placeName) || 'seu local';
-  return portalMail({
-    subject: 'Acesse o portal do seu local no Tuggi',
-    preheader: 'Veja o seu plano e mude quando quiser.',
-    paragraphs: [
-      'Olá,',
-      `o ${name} já está no app do Tuggi, e agora você acompanha a sua conta pelo portal de parceiros.`,
-      v.paying
-        ? 'Lá você vê o seu plano, o valor e o vencimento, e pode trocar de plano ou cancelar quando quiser, sem taxa de saída.'
-        : 'Lá você vê o seu plano e pode adicionar a história em áudio do seu local quando quiser.',
-    ],
-    cta: { label: 'Entrar no portal', url },
-    small: [
-      `O botão vale por 1 hora e funciona uma vez. Depois disso, entre em ${host} com este e-mail, e mandamos outro.`,
-      'Não reconhece este local? Escreva para suporte@tuggi.app.',
-    ],
-  });
-}
 
 export type LegacyAccessStatus = 'would_send' | 'sent' | 'owned' | 'refused' | 'failed';
 

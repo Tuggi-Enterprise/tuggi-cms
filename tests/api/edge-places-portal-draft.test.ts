@@ -35,7 +35,11 @@ const JPEG = Buffer.from([0xff, 0xd8, 0xff, 0xe0, 1, 2, 3]).toString('base64')
 
 type Call = { fn: string; args: Record<string, unknown> }
 
-function fake(answers: Partial<Record<string, { data?: unknown; error?: unknown }>> = {}, settled: string | null = null) {
+function fake(
+  answers: Partial<Record<string, { data?: unknown; error?: unknown }>> = {},
+  settled: string | null = null,
+  legacy: { placeName: string; paying: boolean } | null = null,
+) {
   const calls: Call[] = []
   const log: string[] = []
   const mails: { to: string; subject: string; html: string; text: string; fromName?: string }[] = []
@@ -79,6 +83,8 @@ function fake(answers: Partial<Record<string, { data?: unknown; error?: unknown 
         log.push(`settledOwnerless:${email}`)
         return settled
       },
+      // #916: a portal submission by default
+      legacyMail: async () => legacy,
     },
     origin: 'https://places.tuggi.app',
   }
@@ -251,6 +257,21 @@ test('#863: the login of an e-mail with a settled ownerless submission issues a 
   const g = fake({ place_issue_claim: { error: { code: 'TGP10', details: 'payment_pending' } } }, SID)
   await mod.handle(g.deps, { action: 'request_link', purpose: 'login', email: 'a@b.co' }, '')
   assert.ok(!g.mails[0].html.includes('c='))
+})
+
+test('#916 spec §1: /entrar with the e-mail of a client from before the portal gets a NEW access link in the legacy e-mail, not the validation one', async () => {
+  const f = fake({ place_issue_claim: { data: [{ email: 'a@b.co', expires_at: 'x' }] } }, SID, { placeName: 'Bar do Zé', paying: true })
+  const r = await mod.handle(f.deps, { action: 'request_link', purpose: 'login', email: 'a@b.co' }, '')
+  assert.deepEqual(r, { status: 200, body: { ok: true } })
+  assert.equal(f.mails[0].subject, 'Acesse o portal do seu local no Tuggi')
+  assert.equal(f.mails[0].fromName, 'Tuggi Locais')
+  assert.match(f.mails[0].text, /o Bar do Zé já está no app do Tuggi/)
+  assert.match(f.mails[0].html, /c=RHJhd25CeVRoZUZ1bmN0aW9uLW5vdC10aGUtV29ya2V/)
+  assert.doesNotMatch(f.mails[0].text, /validação/)
+  // a portal submission keeps the validation e-mail
+  const g = fake({ place_issue_claim: { data: [{ email: 'a@b.co', expires_at: 'x' }] } }, SID)
+  await mod.handle(g.deps, { action: 'request_link', purpose: 'login', email: 'a@b.co' }, '')
+  assert.equal(g.mails[0].subject, 'Seu local está em validação no Tuggi')
 })
 
 test('#863: login with an ownerless submission over its 5 links/h (TGP29) answers 200 ok and sends nothing — same answer as any e-mail', async () => {
