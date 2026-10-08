@@ -16,7 +16,7 @@ import { createAdminClient, getPublishableKey, getSupabaseUrl } from './supabase
 import { asaasClient } from './asaas.ts';
 import { SUPPORT_EMAIL, saoPauloDate, type CancelRedoRow, type Deps, type ExpiredCardRow, type Rpc, type SubscriptionIds } from './places-payment.ts';
 import { issueAccessLink } from './places-portal-draft.ts';
-import { INVOICE_ENV, MirrorReadError, parseInvoiceConfig, type InvoiceTarget } from './places-invoice.ts';
+import { INVOICE_ENV, MirrorReadError, parseInvoiceConfig, type InvoiceOrigin, type InvoiceTarget } from './places-invoice.ts';
 import { accessLinkDeps, fromWithName } from './places-access-link-runtime.ts';
 
 const RESEND_URL = 'https://api.resend.com/emails';
@@ -124,11 +124,20 @@ export function baseDeps(asaas: NonNullable<ReturnType<typeof asaasFromEnv>>): D
       // deno-lint-ignore no-explicit-any
       return (data ?? []).map((r: any) => ({
         subscription_id: r.id,
-        // an ended plan's subscription is gone at Asaas: only its invoices are re-read. #918: neither
-        // invoiceSettings nor a scheduled NFS-e on a CMS contract; its invoices are re-read all the same.
-        provider_subscription_id: r.canceled_at || r.origin === 'cms_contract' ? null : r.provider_subscription_id ?? null,
+        // an ended plan's subscription is gone at Asaas: only its invoices are re-read.
+        provider_subscription_id: r.canceled_at ? null : r.provider_subscription_id ?? null,
         provider_customer_id: r.provider_customer_id,
+        // #918: the CMS contract gets its NFS-e by the same flow, with its own text (`INVOICE_TEXT`).
+        origin: r.origin === 'cms_contract' ? 'cms_contract' : 'portal',
       }));
+    },
+    invoiceOriginOf: async (providerPaymentId: string): Promise<InvoiceOrigin> => {
+      const charge = await admin.schema('partner').from('place_subscription_charges').select('subscription_id').eq('provider_payment_id', providerPaymentId).maybeSingle();
+      if (charge.error) throw new Error(`invoice origin read ${charge.error.code}`);
+      if (!charge.data?.subscription_id) return 'portal';
+      const sub = await admin.schema('partner').from('place_subscriptions').select('origin').eq('id', charge.data.subscription_id).maybeSingle();
+      if (sub.error) throw new Error(`invoice origin read ${sub.error.code}`);
+      return sub.data?.origin === 'cms_contract' ? 'cms_contract' : 'portal';
     },
     asaas,
     admin: rpcOf(admin),

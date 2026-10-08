@@ -1345,7 +1345,8 @@ export async function handleAsaasWebhook(
   let fn: string;
   let args: Record<string, unknown>;
   let paid: AsaasPayment | null = null;
-  // #918: the charge is of a CMS contract (`legacy:<client_id>`): no access link, no fee sync, no NFS-e step.
+  // #918: the charge is of a CMS contract (`legacy:<client_id>`): no access link, no fee sync; its NFS-e
+  // goes by the same step as any charge, with the contract's text (`INVOICE_TEXT`).
   let contract = false;
   try {
     if (PAYMENT_EVENTS.has(eventType) || eventType === PIX_INSTRUCTION_REFUSED) {
@@ -1484,8 +1485,7 @@ export async function handleAsaasWebhook(
   // goes now, from the server, whether or not the tab that paid is still open. Only on `applied`:
   // a resend is `duplicate_event`, and the RECEIVED after the CONFIRMED of the same charge is
   // `duplicate_charge`, so one charge sends one e-mail (a second would expire the first link).
-  // #918: a CMS contract has no portal owner to link, no voucher to sync, and its NFS-e is not
-  // scheduled here (the mirror records the invoices Asaas has; Finance shows "Sem nota" otherwise).
+  // #918: a CMS contract has no portal owner to link and no voucher to sync.
   const applied = !contract && fn === 'confirm_place_charge' && outcome === 'applied';
   const submissionId = applied ? await submissionOfCharge(deps, args, eventId, eventType) : null;
   const link = applied && row?.submission_status === 'in_review' ? await accessLinkAfterPayment(deps, submissionId, args, eventId, eventType) : null;
@@ -1493,9 +1493,10 @@ export async function handleAsaasWebhook(
   // #901/#914: the invoice, only now that the charge is recorded (`invoiceAfterPayment`: one-off, or a
   // subscription's first paid fee + its invoiceSettings). On a resend too (`duplicate_event`); a
   // transient Asaas failure answers 500 (the charge stays recorded; the resend is a duplicate).
-  if (!contract && fn === 'confirm_place_charge' && paid && !ALERT_OUTCOMES.has(outcome)) {
+  // #918 (operator 2026-10-08): the CMS contract too, same flow, its own text.
+  if (fn === 'confirm_place_charge' && paid && !ALERT_OUTCOMES.has(outcome)) {
     try {
-      await invoiceAfterPayment(deps, [paid], (args.p_subscription_id as string | null) ?? null, paid.subscription ?? null);
+      await invoiceAfterPayment(deps, [paid], (args.p_subscription_id as string | null) ?? null, paid.subscription ?? null, contract ? 'cms_contract' : 'portal');
     } catch (e) {
       console.error('[places-payment-webhook]', eventId, eventType, 'invoice_schedule_failed', e instanceof Error ? e.message : 'unknown');
       return reply(500, { error: 'invoice_schedule_failed' });
@@ -2084,7 +2085,18 @@ export type ContractMirrorOutcome = {
   /** Dry run: charges by the function that would record them (`none` = still pending). Real run: by outcome. */
   charges?: Record<string, number>;
   code?: string | null;
+  /** The contract review date asked for (`YYYY-MM-DD`): what the dry run would write, what the real run wrote. */
+  contract_ends_on?: string;
+  /** Real run: `set_contract_place_subscription_end` → `updated` | `unchanged` | `db_error:<code>`. */
+  contract_ends_on_outcome?: string;
 };
+
+/** A `YYYY-MM-DD` that is a real calendar date, else null (`2027-02-30` is null). */
+export function calendarDate(raw: unknown): string | null {
+  if (typeof raw !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(raw)) return null;
+  const d = new Date(`${raw}T00:00:00Z`);
+  return !Number.isNaN(d.getTime()) && d.toISOString().slice(0, 10) === raw ? raw : null;
+}
 
 /** Event id of a recovered charge: one per charge and status, so a rerun is a `duplicate_event`. */
 export const mirrorEventId = (p: AsaasPayment): string => `mirror:${p.id}:${(p.status ?? '').toUpperCase()}`;
@@ -2099,13 +2111,16 @@ const pause = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
  * Dry run (the default): Asaas GETs only, no database call. Idempotent: the registration by `sub_`,
  * each charge by its event id (and by `pay_` in the functions). `spacingMs` between two Asaas calls
  * (the rate limit is per account: `LEGACY_ASAAS_SPACING_MS`). An error on one client is its `failed`.
+ * `contractEndsOn` (operator 2026-10-08): the internal contract review date, written on each registered
+ * row by `set_contract_place_subscription_end`. Not an end: the Asaas subscription has no `endDate`.
  */
 export async function mirrorContractSubscriptions(
   deps: Pick<Deps, 'asaas' | 'admin' | 'today'>,
   clientIds: string[],
   dryRun: boolean,
-  opts: { spacingMs?: number; sleep?: (ms: number) => Promise<void> } = {},
+  opts: { spacingMs?: number; sleep?: (ms: number) => Promise<void>; contractEndsOn?: string } = {},
 ): Promise<ContractMirrorOutcome[]> {
+  const endsOn = opts.contractEndsOn ? { contract_ends_on: opts.contractEndsOn } : {};
   const spacing = opts.spacingMs ?? LEGACY_ASAAS_SPACING_MS;
   const sleep = opts.sleep ?? pause;
   let asaasCalls = 0;
@@ -2129,7 +2144,7 @@ export async function mirrorContractSubscriptions(
         const count = (k: string) => (charges[k] = (charges[k] ?? 0) + 1);
         if (dryRun) {
           for (const p of payments) count(paymentAction(MIRROR_EVENT_TYPE, (p.status ?? '').toUpperCase()) ?? 'none');
-          outcomes.push({ client_id: clientId, status: 'would_register', subscription_id: s.id, charges });
+          outcomes.push({ client_id: clientId, status: 'would_register', subscription_id: s.id, charges, ...endsOn });
           continue;
         }
         const reg = await registerContractSubscription(deps, s);
@@ -2138,6 +2153,11 @@ export async function mirrorContractSubscriptions(
           continue;
         }
         const ids = { subscriptionId: reg.subscriptionId, providerSubscriptionId: s.id };
+        let endsOnOutcome: string | undefined;
+        if (opts.contractEndsOn) {
+          const { data, error } = await deps.admin('partner', 'set_contract_place_subscription_end', { p_subscription_id: reg.subscriptionId, p_ends_on: opts.contractEndsOn });
+          endsOnOutcome = error ? `db_error:${error.code ?? 'unknown'}` : String(firstRow<string>(data) ?? 'unknown');
+        }
         for (const p of payments) {
           const action = paymentAction(MIRROR_EVENT_TYPE, (p.status ?? '').toUpperCase());
           if (!action) {
@@ -2147,7 +2167,14 @@ export async function mirrorContractSubscriptions(
           const { data, error } = await deps.admin('partner', action, paymentArgs(action, mirrorEventId(p), MIRROR_EVENT_TYPE, p, deps.today(), ids));
           count(error ? `db_error:${error.code ?? 'unknown'}` : `${action}:${firstRow<{ outcome?: string }>(data)?.outcome ?? 'unknown'}`);
         }
-        outcomes.push({ client_id: clientId, status: 'registered', subscription_id: s.id, register: reg.outcome, charges });
+        outcomes.push({
+          client_id: clientId,
+          status: 'registered',
+          subscription_id: s.id,
+          register: reg.outcome,
+          charges,
+          ...(endsOnOutcome ? { ...endsOn, contract_ends_on_outcome: endsOnOutcome } : {}),
+        });
       }
     } catch (e) {
       outcomes.push({ client_id: clientId, status: 'failed', code: e instanceof AsaasError ? (e.status ? `http ${e.status}` : 'network') : 'unexpected' });

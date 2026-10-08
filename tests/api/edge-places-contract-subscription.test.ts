@@ -12,8 +12,12 @@
  *  · the charge function called with the client id, or without the `sub_`;
  *  · a refused registration (mismatch, no mirror) still calling the charge function, or not alerting;
  *  · a database error of the registration answered 200 (Asaas would not resend);
- *  · the NFS-e step, the access link or the fee sync run on a CMS contract charge;
- *  · the dry run calling the database, or a rerun recording a charge twice.
+ *  · the access link or the fee sync run on a CMS contract charge;
+ *  · the NFS-e of a CMS contract charge skipped, or saying "Com história" (operator 2026-10-08: same
+ *    flow as any client, text "Tuggi: mensalidade do local no app"), on the invoice or on its e-mail;
+ *  · the dry run calling the database, or a rerun recording a charge twice;
+ *  · the mirror not writing `contract_ends_on` on each registered row, writing it on a dry run, or
+ *    taking a date that is not a calendar date.
  *
  * Run with: npm run test:api
  */
@@ -30,9 +34,11 @@ const SHARED = resolve(import.meta.dirname, '../../supabase/functions/_shared')
 type Mod = any
 let pay: Mod
 let asaasMod: Mod
+let inv: Mod
 
 before(async () => {
   pay = await import(pathToFileURL(resolve(SHARED, 'places-payment.ts')).href)
+  inv = await import(pathToFileURL(resolve(SHARED, 'places-invoice.ts')).href)
   asaasMod = await import(pathToFileURL(resolve(SHARED, 'asaas.ts')).href)
 })
 
@@ -107,6 +113,7 @@ function deps(asaas: ReturnType<typeof fakeAsaas>, db: ReturnType<typeof fakeDb>
     legacyOf: async () => null,
     legacyFeesEnded: async () => [],
     sendEmail: async () => true,
+    invoiceOriginOf: async () => 'cms_contract',
     ...extra,
   }
   return { d, alerts, side }
@@ -118,8 +125,17 @@ const paidCharge = { id: 'pay_l', status: 'RECEIVED', value: 100, subscription: 
 
 // ─── webhook ─────────────────────────────────────────────────────────────────────────────────
 
+const CONTRACT_SERVICE = 'Tuggi: mensalidade do local no app'
+/** The NFS-e routes of a subscription with no invoiceSettings and a payment with no invoice yet. */
+const invoiceRoutes: Route[] = [
+  at('GET', '/subscriptions/sub_legacy/invoiceSettings', 404, { errors: [{ code: 'not_found' }] }),
+  at('GET', '/invoices?', 200, { data: [], hasMore: false }),
+  at('POST', '/invoices', 200, { id: 'inv_1', status: 'SCHEDULED', payment: 'pay_l' }),
+  at('POST', '/subscriptions/sub_legacy/invoiceSettings', 200, {}),
+]
+
 test('#918 §3.8: a paid CMS contract charge registers the subscription from the re-read, THEN confirms it with the row uuid and the sub_', async () => {
-  const asaas = fakeAsaas([at('GET', '/payments/pay_l', 200, paidCharge), at('GET', '/subscriptions/sub_legacy', 200, legacySub)])
+  const asaas = fakeAsaas([at('GET', '/payments/pay_l', 200, paidCharge), at('GET', '/subscriptions/sub_legacy/invoiceSettings', 404, {}), at('GET', '/subscriptions/sub_legacy', 200, legacySub), ...invoiceRoutes])
   const db = fakeDb({ register_contract_place_subscription: registered('inserted'), confirm_place_charge: { data: [{ outcome: 'applied', submission_status: 'live' }] } })
   const { d, alerts, side } = deps(asaas, db)
 
@@ -127,7 +143,8 @@ test('#918 §3.8: a paid CMS contract charge registers the subscription from the
 
   assert.deepEqual(r, { status: 200, body: { outcome: 'applied' } })
   // the order is the contract: the charge function records the event id even on unknown_subscription
-  assert.deepEqual(db.calls.map((c) => c.fn), ['register_contract_place_subscription', 'confirm_place_charge'])
+  // (then the NFS-e step records the scheduled invoice)
+  assert.deepEqual(db.calls.map((c) => c.fn), ['register_contract_place_subscription', 'confirm_place_charge', 'record_place_invoice'])
   assert.deepEqual(db.calls[0].args, { p_client_id: CLIENT, p_provider_customer_id: 'cus_1', p_provider_subscription_id: 'sub_legacy', p_amount_cents: 10000 })
   const confirm = db.calls[1].args
   assert.equal(confirm.p_subscription_id, ROW_ID)
@@ -136,9 +153,64 @@ test('#918 §3.8: a paid CMS contract charge registers the subscription from the
   assert.equal(confirm.p_amount_cents, 10000)
   assert.equal(confirm.p_paid_on, '2026-10-19')
   assert.equal(alerts.length, 0)
-  // no portal owner, no voucher, no NFS-e scheduled by us: no Asaas write, no access link, no fee sync
+  // no portal owner, no voucher: no access link, no fee sync
   assert.deepEqual(side, [])
-  assert.ok(!asaas.calls.some((c) => c.method !== 'GET' || c.path.startsWith('/invoices')))
+})
+
+test('#918 BR-B2B-046: a paid CMS contract charge gets its NFS-e by the same flow as any client, with the contract text, never "Com história"', async () => {
+  const asaas = fakeAsaas([at('GET', '/payments/pay_l', 200, paidCharge), ...invoiceRoutes, at('GET', '/subscriptions/sub_legacy', 200, legacySub)])
+  const db = fakeDb({ register_contract_place_subscription: registered(), confirm_place_charge: { data: [{ outcome: 'applied', submission_status: 'live' }] } })
+  const { d, alerts } = deps(asaas, db)
+
+  const r = await pay.handleAsaasWebhook(d, TOKEN, TOKEN, { id: 'evt_n', event: 'PAYMENT_RECEIVED', payment: { id: 'pay_l' } })
+
+  assert.equal(r.status, 200)
+  assert.equal(alerts.length, 0)
+  const writes = asaas.calls.filter((c) => c.method === 'POST')
+  assert.deepEqual(writes.map((c) => c.path), ['/invoices', '/subscriptions/sub_legacy/invoiceSettings'])
+  const scheduled = writes[0].body as Record<string, unknown>
+  assert.equal(scheduled.payment, 'pay_l')
+  assert.equal(scheduled.serviceDescription, CONTRACT_SERVICE)
+  assert.equal(scheduled.observations, CONTRACT_SERVICE)
+  assert.equal(scheduled.externalReference, ROW_ID)
+  assert.equal((writes[1].body as Record<string, unknown>).observations, CONTRACT_SERVICE)
+  assert.equal((writes[1].body as Record<string, unknown>).effectiveDatePeriod, 'ON_PAYMENT_CONFIRMATION')
+  assert.doesNotMatch(JSON.stringify(writes.map((c) => c.body)), /Com hist/)
+})
+
+test('#918: the daily sweep reconciles a CMS contract like any plan, with the contract text', async () => {
+  const asaas = fakeAsaas([
+    at('GET', '/subscriptions/sub_legacy/invoiceSettings', 404, {}),
+    at('GET', '/payments?subscription=sub_legacy', 200, { data: [paidCharge], hasMore: false }),
+    ...invoiceRoutes,
+  ])
+  const { d } = deps(asaas, fakeDb({}))
+  const out = await inv.reconcileInvoices(d, [{ subscription_id: ROW_ID, provider_subscription_id: 'sub_legacy', provider_customer_id: 'cus_1', origin: 'cms_contract' }])
+  assert.equal(out.configured, 1)
+  const scheduled = asaas.calls.find((c) => c.method === 'POST' && c.path === '/invoices')
+  assert.equal((scheduled?.body as Record<string, unknown>).serviceDescription, CONTRACT_SERVICE)
+})
+
+test('#918: the authorized NFS-e e-mail of a CMS contract names the contract service, never "Com história"; a portal one keeps its text', async () => {
+  const authorized = { id: 'inv_1', status: 'AUTHORIZED', payment: 'pay_l', customer: 'cus_1', pdfUrl: 'https://x/pdf', number: '42', value: 100, externalReference: ROW_ID }
+  const send = async (origin: string) => {
+    const emails: { subject: string; text: string }[] = []
+    const asaas = fakeAsaas([at('GET', '/customers/cus_1', 200, { id: 'cus_1', email: 'a@b.c' })])
+    const db = fakeDb({ record_place_invoice: { data: [{ outcome: 'inserted' }] } })
+    const { d, alerts } = deps(asaas, db, {
+      invoiceOriginOf: async (pay: string) => (assert.equal(pay, 'pay_l'), origin),
+      sendEmail: async (_to: string, subject: string, text: string) => (emails.push({ subject, text }), true),
+    })
+    assert.equal(await inv.recordInvoice(d, authorized), 'inserted')
+    assert.equal(alerts.length, 0)
+    return emails[0]
+  }
+  const contract = await send('cms_contract')
+  assert.equal(contract.subject, 'Nota fiscal da sua mensalidade Tuggi')
+  assert.match(contract.text, new RegExp(CONTRACT_SERVICE))
+  assert.doesNotMatch(contract.subject + contract.text, /Com hist/)
+  const portal = await send('portal')
+  assert.equal(portal.subject, 'Nota fiscal da sua mensalidade Com história')
 })
 
 test('#918: a boleto marked paid in cash in the Asaas panel is a paid charge too', async () => {
@@ -299,4 +371,40 @@ test('#918: mirror reports a refused registration and a failed Asaas read per cl
   assert.deepEqual(out[0], { client_id: CLIENT, status: 'refused', subscription_id: 'sub_legacy', register: 'amount_mismatch', code: undefined })
   assert.deepEqual(out[1], { client_id: CLIENT_2, status: 'failed', code: 'http 503' })
   assert.deepEqual(db.calls.map((c) => c.fn), ['register_contract_place_subscription'])
+})
+
+test('#918: mirror with contract_ends_on writes the review date on each registered row after registering; the dry run only says it', async () => {
+  const dry = await pay.mirrorContractSubscriptions({ asaas: fakeAsaas(mirrorRoutes()).client, admin: fakeDb({}).rpc, today: () => '2026-10-08' }, [CLIENT], true, {
+    sleep: async () => {},
+    contractEndsOn: '2027-09-20',
+  })
+  assert.equal(dry[0].status, 'would_register')
+  assert.equal(dry[0].contract_ends_on, '2027-09-20')
+
+  const db = fakeDb({
+    register_contract_place_subscription: registered('inserted'),
+    set_contract_place_subscription_end: { data: 'updated' },
+    confirm_place_charge: { data: [{ outcome: 'applied' }] },
+    fail_place_charge: { data: [{ outcome: 'applied' }] },
+  })
+  const real = await pay.mirrorContractSubscriptions({ asaas: fakeAsaas(mirrorRoutes()).client, admin: db.rpc, today: () => '2026-10-08' }, [CLIENT], false, {
+    sleep: async () => {},
+    contractEndsOn: '2027-09-20',
+  })
+  assert.equal(real[0].contract_ends_on, '2027-09-20')
+  assert.equal(real[0].contract_ends_on_outcome, 'updated')
+  assert.deepEqual(db.calls.slice(0, 2).map((c) => c.fn), ['register_contract_place_subscription', 'set_contract_place_subscription_end'])
+  assert.deepEqual(db.calls[1].args, { p_subscription_id: ROW_ID, p_ends_on: '2027-09-20' })
+
+  // without the field, the RPC is never called
+  const plain = fakeDb({ register_contract_place_subscription: registered(), confirm_place_charge: { data: [{ outcome: 'applied' }] }, fail_place_charge: { data: [{ outcome: 'applied' }] } })
+  await pay.mirrorContractSubscriptions({ asaas: fakeAsaas(mirrorRoutes()).client, admin: plain.rpc, today: () => '2026-10-08' }, [CLIENT], false, { sleep: async () => {} })
+  assert.ok(!plain.calls.some((c) => c.fn === 'set_contract_place_subscription_end'))
+})
+
+test('#918: contract_ends_on accepts only a calendar YYYY-MM-DD', () => {
+  assert.equal(pay.calendarDate('2027-09-20'), '2027-09-20')
+  for (const bad of ['2027-02-30', '20/09/2027', '2027-9-20', '2027-09-20T00:00:00Z', '', null, 20270920]) {
+    assert.equal(pay.calendarDate(bad), null, String(bad))
+  }
 })

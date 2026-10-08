@@ -3546,6 +3546,7 @@
       "plan": "With story · {count, plural, one {# month} other {# months}}",
       "planNoPeriod": "With story",
       "planCmsContract": "CMS contract",
+      "contractReview": "Contract review: {date}",
       "method": {
         "credit_card": "Card",
         "pix_automatic": "Pix",

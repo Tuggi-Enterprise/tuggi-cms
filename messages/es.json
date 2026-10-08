@@ -3528,6 +3528,7 @@
       "plan": "Con historia · {count, plural, one {# mes} other {# meses}}",
       "planNoPeriod": "Con historia",
       "planCmsContract": "Contrato CMS",
+      "contractReview": "Revisión del contrato: {date}",
       "method": {
         "credit_card": "Tarjeta",
         "pix_automatic": "Pix",

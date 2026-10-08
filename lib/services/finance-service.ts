@@ -2146,7 +2146,7 @@ export async function loadPlaceSubscriptions(): Promise<PlaceSubscription[] | nu
     partner
       .from('place_subscriptions')
       .select(
-        'id, origin, acceptance_id, legacy_client_id, legacy_submission_id, status, payment_method, created_at, paid_at, paid_through, renews, renewal_amount_cents, canceled_at, expired_at, early_termination_fee_cents, early_termination_paid_at, place_acceptances(client_id, legal_name, email, billing_period, place_submissions(attraction_id)), contract_submission:place_submissions!place_subscriptions_legacy_submission_fkey(attraction_id)'
+        'id, origin, acceptance_id, legacy_client_id, legacy_submission_id, contract_ends_on, status, payment_method, created_at, paid_at, paid_through, renews, renewal_amount_cents, canceled_at, expired_at, early_termination_fee_cents, early_termination_paid_at, place_acceptances(client_id, legal_name, email, billing_period, place_submissions(attraction_id)), contract_submission:place_submissions!place_subscriptions_legacy_submission_fkey(attraction_id)'
       )
       .limit(2000),
     partner
@@ -2242,6 +2242,7 @@ export async function loadPlaceSubscriptions(): Promise<PlaceSubscription[] | nu
       paymentMethod: row.payment_method ?? null,
       status: row.status,
       createdAt: row.created_at ?? null,
+      contractEndsOn: row.contract_ends_on ?? null,
       paidAt: row.paid_at ?? null,
       paidThrough: saoPauloDate(row.paid_through ?? null),
       renews: row.renews !== false,

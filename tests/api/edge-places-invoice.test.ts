@@ -138,6 +138,7 @@ function deps(asaas: ReturnType<typeof fakeAsaas>, db: ReturnType<typeof fakeDb>
     accessLink: async () => 'owned' as const,
     submissionOfSubscription: async () => SUBMISSION,
     invoiceConfig: CFG,
+    invoiceOriginOf: async () => 'portal',
     invoiceStatusOf: async () => null,
     invoiceTargets: async () => [],
     // #903: no payout in `sent` by default

@@ -1,4 +1,5 @@
-// _shared/places-invoice.ts — the NFS-e of the Com história plan (#901, mirror #900).
+// _shared/places-invoice.ts — the NFS-e of the Com história plan (#901, mirror #900) and of the CMS
+// contract (#918, same flow; only the text changes: `INVOICE_TEXT`).
 //
 // Term 3.5: "os valores incluem os tributos devidos pela TUGGI, que emite o documento fiscal".
 // Contract: `docs/contracts/places-pagamento.md` §0 and §3.5 (workspace). BR-B2B-046.
@@ -38,6 +39,10 @@ import type { AsaasClient, AsaasInvoice, AsaasInvoiceTaxes, AsaasPayment } from 
 import { AsaasError } from './asaas.ts';
 import type { Rpc } from './places-payment.ts';
 import { formatBrl, isUuid, PAID_STATUSES, subscriptionIdFromReference, toCents } from './places-payment.ts';
+import { LEGACY_SUBSCRIPTION_DESCRIPTION } from './places-legacy-customers.ts';
+
+/** `place_subscriptions.origin` (contract §3.8): a portal plan, or the CMS contract from before the portal. */
+export type InvoiceOrigin = 'portal' | 'cms_contract';
 
 export type InvoiceConfig = { serviceCode: string; serviceName: string; issRate: number };
 
@@ -52,6 +57,8 @@ export type InvoiceDeps = {
   invoiceStatusOf: (providerInvoiceId: string) => Promise<string | null>;
   /** Text-only unless `mail.html`; `fromName` names the sender; `replyTo` goes as Resend's `reply_to` (omitted, replies go to the sender). */
   sendEmail: (to: string, subject: string, text: string, mail?: { html?: string; fromName?: string; replyTo?: string }) => Promise<boolean>;
+  /** Origin of the subscription the `pay_` belongs to; a charge not mirrored → `portal`. Throws on a read error. */
+  invoiceOriginOf: (providerPaymentId: string) => Promise<InvoiceOrigin>;
 };
 
 /** A live (or just ended) plan the sweep reconciles. */
@@ -59,6 +66,7 @@ export type InvoiceTarget = {
   subscription_id: string;
   provider_subscription_id: string | null;
   provider_customer_id: string | null;
+  origin: InvoiceOrigin;
 };
 
 export const INVOICE_ENV = {
@@ -79,7 +87,25 @@ export function parseInvoiceConfig(get: (name: string) => string | undefined): I
 
 const taxesOf = (c: InvoiceConfig): AsaasInvoiceTaxes => ({ retainIss: false, iss: c.issRate, pis: 0, cofins: 0, csll: 0, inss: 0, ir: 0 });
 
-const OBSERVATIONS = 'Tuggi · Com história';
+/**
+ * What the NFS-e and its e-mail say, by origin: the only place (#918). The CMS contract is not the
+ * Com história plan (operator 2026-10-08): its service is the text of its Asaas subscription, never
+ * "Com história". `serviceDescription` and `observations` go on the invoice; the rest, on the e-mail.
+ */
+export const INVOICE_TEXT: Record<InvoiceOrigin, { serviceDescription: string; observations: string; subject: string; issued: string }> = {
+  portal: {
+    serviceDescription: 'Tuggi Com história',
+    observations: 'Tuggi · Com história',
+    subject: 'Nota fiscal da sua mensalidade Com história',
+    issued: 'A nota fiscal da sua mensalidade do plano Com história foi emitida.',
+  },
+  cms_contract: {
+    serviceDescription: LEGACY_SUBSCRIPTION_DESCRIPTION,
+    observations: LEGACY_SUBSCRIPTION_DESCRIPTION,
+    subject: 'Nota fiscal da sua mensalidade Tuggi',
+    issued: `A nota fiscal do serviço "${LEGACY_SUBSCRIPTION_DESCRIPTION}" foi emitida.`,
+  },
+};
 
 /** The statuses `partner.record_place_invoice` accepts — exactly the Asaas ones (doc + webhook, 2026-10-07). */
 export const INVOICE_STATUSES = [
@@ -130,13 +156,13 @@ const MIRROR_ALERTS = new Set(['unknown_subscription', 'subscription_mismatch', 
 
 /** Text by the design (#901, comment 6040645900). A null number or value drops its line. */
 export const INVOICE_EMAIL = {
-  subject: 'Nota fiscal da sua mensalidade Com história',
-  text: (pdfUrl: string, number: string | null, valueCents: number | null) => {
+  subject: (origin: InvoiceOrigin = 'portal') => INVOICE_TEXT[origin].subject,
+  text: (pdfUrl: string, number: string | null, valueCents: number | null, origin: InvoiceOrigin = 'portal') => {
     const facts = [number ? `Número: ${number}` : null, valueCents !== null ? `Valor: ${formatBrl(valueCents)}` : null].filter((l): l is string => !!l);
     return [
       'Olá,',
       '',
-      'A nota fiscal da sua mensalidade do plano Com história foi emitida.',
+      INVOICE_TEXT[origin].issued,
       '',
       ...(facts.length ? [...facts, ''] : []),
       `Para baixar o PDF, abra: ${pdfUrl}`,
@@ -220,7 +246,9 @@ async function sendInvoiceEmail(deps: InvoiceDeps, inv: AsaasInvoice): Promise<v
   try {
     const email = inv.customer ? str((await deps.asaas.getCustomer(inv.customer)).email) : null;
     if (!pdf || !email) throw new Error(!pdf ? 'no_pdf' : 'no_email');
-    if (!(await deps.sendEmail(email, INVOICE_EMAIL.subject, INVOICE_EMAIL.text(pdf, str(inv.number), typeof inv.value === 'number' ? toCents(inv.value) : null)))) throw new Error('send_failed');
+    const origin = await deps.invoiceOriginOf(str(inv.payment) as string);
+    const text = INVOICE_EMAIL.text(pdf, str(inv.number), typeof inv.value === 'number' ? toCents(inv.value) : null, origin);
+    if (!(await deps.sendEmail(email, INVOICE_EMAIL.subject(origin), text))) throw new Error('send_failed');
   } catch (e) {
     await deps.alert('invoice_email_failed', { provider_invoice_id: inv.id, error: e instanceof Error ? e.message : 'unknown' });
   }
@@ -264,6 +292,7 @@ async function configureSubscriptionInvoices(
   deps: InvoiceDeps,
   providerSubscriptionId: string,
   subscriptionId: string,
+  origin: InvoiceOrigin,
 ): Promise<'configured' | 'already' | 'unconfigured' | 'failed'> {
   const c = deps.invoiceConfig;
   if (!c) return 'unconfigured'; // callers alert (`invoiceAfterPayment`) or stay silent (sweep)
@@ -273,7 +302,7 @@ async function configureSubscriptionInvoices(
       municipalServiceCode: c.serviceCode,
       municipalServiceName: c.serviceName,
       effectiveDatePeriod: 'ON_PAYMENT_CONFIRMATION',
-      observations: OBSERVATIONS,
+      observations: INVOICE_TEXT[origin].observations,
       taxes: taxesOf(c),
     });
     return 'configured';
@@ -293,7 +322,7 @@ async function configureSubscriptionInvoices(
  * the webhook answers 500 and Asaas resends (the charge is then a `duplicate_event`, and this runs
  * again); anything else alerts and returns `failed`.
  */
-export async function ensurePaymentInvoice(deps: InvoiceDeps, p: AsaasPayment, subscriptionId: string | null): Promise<string> {
+export async function ensurePaymentInvoice(deps: InvoiceDeps, p: AsaasPayment, subscriptionId: string | null, origin: InvoiceOrigin = 'portal'): Promise<string> {
   const c = deps.invoiceConfig;
   if (!c) {
     await deps.alert('invoice_config_missing', { subscription_id: subscriptionId, provider_payment_id: p.id });
@@ -307,8 +336,8 @@ export async function ensurePaymentInvoice(deps: InvoiceDeps, p: AsaasPayment, s
     if (existing.some((i) => LIVE.has(invoiceStatus(i.status) as InvoiceStatus))) return 'already';
     const inv = await deps.asaas.scheduleInvoice({
       payment: p.id,
-      serviceDescription: 'Tuggi Com história',
-      observations: OBSERVATIONS,
+      serviceDescription: INVOICE_TEXT[origin].serviceDescription,
+      observations: INVOICE_TEXT[origin].observations,
       externalReference: subscriptionId,
       value: p.value,
       deductions: 0,
@@ -333,10 +362,16 @@ export async function ensurePaymentInvoice(deps: InvoiceDeps, p: AsaasPayment, s
  * the settings for the next ones (see the header for why that order never duplicates). Throws only a
  * transient `AsaasError` (the webhook answers 500, the sweep counts it); the rest alerts.
  */
-export async function invoiceAfterPayment(deps: InvoiceDeps, paid: AsaasPayment[], subscriptionId: string | null, providerSubscriptionId: string | null): Promise<string> {
+export async function invoiceAfterPayment(
+  deps: InvoiceDeps,
+  paid: AsaasPayment[],
+  subscriptionId: string | null,
+  providerSubscriptionId: string | null,
+  origin: InvoiceOrigin = 'portal',
+): Promise<string> {
   if (!providerSubscriptionId) {
     let last = 'none';
-    for (const p of paid) last = await ensurePaymentInvoice(deps, p, subscriptionId);
+    for (const p of paid) last = await ensurePaymentInvoice(deps, p, subscriptionId, origin);
     return last;
   }
   if (!deps.invoiceConfig) {
@@ -351,8 +386,8 @@ export async function invoiceAfterPayment(deps: InvoiceDeps, paid: AsaasPayment[
     await deps.alert('invoice_settings_failed', { subscription_id: subscriptionId, provider_subscription_id: providerSubscriptionId, error: e instanceof Error ? e.message : 'unknown' });
     return 'failed';
   }
-  for (const p of paid) await ensurePaymentInvoice(deps, p, subscriptionId);
-  return await configureSubscriptionInvoices(deps, providerSubscriptionId, subscriptionId);
+  for (const p of paid) await ensurePaymentInvoice(deps, p, subscriptionId, origin);
+  return await configureSubscriptionInvoices(deps, providerSubscriptionId, subscriptionId, origin);
 }
 
 /**
@@ -405,7 +440,7 @@ export async function reconcileInvoices(deps: InvoiceDeps, targets: InvoiceTarge
       if (await deps.asaas.getSubscriptionInvoiceSettings(t.provider_subscription_id)) continue;
       const paid = (await deps.asaas.listSubscriptionPayments(t.provider_subscription_id)).filter((p) => PAID_STATUSES.has(p.status));
       if (!paid.length) continue;
-      const r = await invoiceAfterPayment(deps, paid, t.subscription_id, t.provider_subscription_id);
+      const r = await invoiceAfterPayment(deps, paid, t.subscription_id, t.provider_subscription_id, t.origin);
       if (r === 'configured') out.configured++;
       if (r === 'failed') out.settings_failed++;
     } catch (e) {

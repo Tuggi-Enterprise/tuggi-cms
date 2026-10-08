@@ -26,6 +26,7 @@ import assert from 'node:assert/strict'
 
 import {
   activeInMonth,
+  contractReviewDue,
   daysBetween,
   isPaidWithoutInvoice,
   matchesFilter,
@@ -80,6 +81,7 @@ function sub(over: Partial<PlaceSubscription> = {}): PlaceSubscription {
     paymentMethod: 'credit_card',
     status: over.status ?? 'paid',
     createdAt: over.createdAt ?? null,
+    contractEndsOn: over.contractEndsOn ?? null,
     paidAt: over.paidAt === undefined ? '2026-08-10T15:00:00Z' : over.paidAt,
     paidThrough: '2026-09-10',
     renews: true,
@@ -355,4 +357,14 @@ test('#918 §3.8: a paid CMS contract charge counts in received and inflow, and 
   assert.equal(matchesFilter(sub({ origin: 'cms_contract', canceledAt: '2026-11-01T00:00:00Z' }), 'canceled'), true)
   // and in the client's real revenue (profitability)
   assert.equal(receivedByClient([contract]).get('client-1'), 10_000)
+})
+
+test('#918: the CMS contract review is highlighted from 30 days before the date on, only on a live cms_contract row', () => {
+  const contract = sub({ origin: 'cms_contract', contractEndsOn: '2027-09-20' })
+  assert.equal(contractReviewDue(contract, '2027-08-20'), false)
+  assert.equal(contractReviewDue(contract, '2027-08-21'), true)
+  assert.equal(contractReviewDue(contract, '2027-10-01'), true)
+  assert.equal(contractReviewDue(sub({ origin: 'cms_contract', contractEndsOn: null }), '2027-09-19'), false)
+  assert.equal(contractReviewDue(sub({ origin: 'cms_contract', contractEndsOn: '2027-09-20', canceledAt: '2027-01-01T00:00:00Z' }), '2027-09-19'), false)
+  assert.equal(contractReviewDue(sub({ contractEndsOn: '2027-09-20' }), '2027-09-19'), false)
 })

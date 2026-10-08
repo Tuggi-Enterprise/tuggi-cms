@@ -20,6 +20,7 @@ import { Button } from '@/components/ui/button'
 import { StatCard, StatCardRow } from '@/components/ui/StatCard'
 import { formatMoney } from '@/lib/finance/money'
 import {
+  contractReviewDue,
   isCanceled,
   isPaidWithoutInvoice,
   matchesFilter,
@@ -282,6 +283,15 @@ export function SubscriptionsPanel({ focusSubscriptionId }: { focusSubscriptionI
                             : sub.billingPeriod
                               ? t('plan', { count: sub.billingPeriod })
                               : t('planNoPeriod')}
+                          {sub.origin === 'cms_contract' && sub.contractEndsOn && (
+                            <span className="block text-xs tabular-nums">
+                              {contractReviewDue(sub, today) ? (
+                                <Badge className={`${BADGE} ${TINT.attention}`}>{t('contractReview', { date: date(sub.contractEndsOn) })}</Badge>
+                              ) : (
+                                <span className={DIM}>{t('contractReview', { date: date(sub.contractEndsOn) })}</span>
+                              )}
+                            </span>
+                          )}
                         </td>
                         <td className={CELL}>{sub.paymentMethod ? t(`method.${sub.paymentMethod}`) : '—'}</td>
                         <td className={CELL}>

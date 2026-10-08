@@ -9,6 +9,8 @@
 // - `"action": "mirror"` (#918): the subscriptions of the action above into `place_subscriptions`
 //   (origin `cms_contract`) and their charges, through the webhook's own functions
 //   (`mirrorContractSubscriptions`, `_shared/places-payment.ts`). Needs migration 20261008140000.
+//   Optional `"contract_ends_on": "YYYY-MM-DD"`: the contract review date written on each registered
+//   row (`set_contract_place_subscription_end`); the dry run says it would.
 //
 // Body `{ "dry_run": true }` (the default, also for an empty body): reads Asaas (GET only), never
 // writes the database, and answers what would be sent. `{ "dry_run": false }` writes. Idempotent: running it again changes
@@ -21,7 +23,7 @@
 import { requireAdmin } from '../_shared/auth-middleware.ts';
 import { createAdminClient } from '../_shared/supabase-client.ts';
 import { asaasFromEnv, json, rpcOf } from '../_shared/places-payment-runtime.ts';
-import { mirrorContractSubscriptions, saoPauloDate } from '../_shared/places-payment.ts';
+import { calendarDate, mirrorContractSubscriptions, saoPauloDate } from '../_shared/places-payment.ts';
 import {
   LEGACY_COLUMNS,
   LEGACY_FEE_COLUMNS,
@@ -47,6 +49,9 @@ Deno.serve(async (req: Request) => {
   const dryRun = isDryRun(body);
   const action = (body as { action?: unknown } | null)?.action ?? 'customers';
   if (!ACTIONS.includes(action as (typeof ACTIONS)[number])) return json(400, { error: 'unknown_action' });
+  const rawEndsOn = (body as { contract_ends_on?: unknown } | null)?.contract_ends_on;
+  const contractEndsOn = rawEndsOn === undefined ? undefined : calendarDate(rawEndsOn);
+  if (contractEndsOn === null || (contractEndsOn && action !== 'mirror')) return json(400, { error: 'invalid', field: 'contract_ends_on' });
   const environment = asaasEnvironment((Deno.env.get('ASAAS_BASE_URL') ?? '').trim());
   const asaas = asaasFromEnv();
   if (!asaas) return json(503, { error: 'asaas_not_configured' });
@@ -73,6 +78,7 @@ Deno.serve(async (req: Request) => {
           { asaas, admin: rpcOf(admin), today: () => today },
           ((data ?? []) as unknown as LegacyFeeRow[]).map((r) => r.id),
           dryRun,
+          { contractEndsOn },
         )
       : action === 'subscriptions'
         ? await createLegacySubscriptions(asaas, (data ?? []) as unknown as LegacyFeeRow[], dryRun, today)

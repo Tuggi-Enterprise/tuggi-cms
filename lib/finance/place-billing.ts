@@ -172,8 +172,26 @@ export interface PlaceSubscription {
   earlyTerminationFeeCents: number | null
   /** `YYYY-MM-DD`, São Paulo. */
   earlyTerminationPaidOn: string | null
+  /**
+   * `YYYY-MM-DD`: data interna de revisão do contrato do CMS (#918, `contract_ends_on`). Não é fim:
+   * o contrato é por prazo indeterminado e a cobrança no Asaas renova sozinha. `null` no portal.
+   */
+  contractEndsOn: string | null
   /** Da mais nova para a mais antiga, por vencimento. */
   charges: PlaceCharge[]
+}
+
+/** Dias de antecedência do alerta de renovação do contrato do CMS (operador, 2026-10-08, #918). */
+export const CONTRACT_REVIEW_NOTICE_DAYS = 30
+
+/**
+ * A revisão do contrato do CMS está a `CONTRACT_REVIEW_NOTICE_DAYS` dias ou menos (ou já passou),
+ * com o contrato vivo. `today` é `YYYY-MM-DD` de São Paulo.
+ */
+export function contractReviewDue(subscription: PlaceSubscription, today: string): boolean {
+  const endsOn = subscription.contractEndsOn
+  if (endsOn === null || subscription.origin !== 'cms_contract' || isCanceled(subscription)) return false
+  return daysBetween(today, endsOn) <= CONTRACT_REVIEW_NOTICE_DAYS
 }
 
 /**
