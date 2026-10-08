@@ -223,26 +223,28 @@ export function placeNameForMail(raw: unknown): string {
 /**
  * The legacy access e-mail (spec of `design`, #916 §1). The place name goes in the body because it
  * comes from `core.clients`, typed by the operator, never by whoever asks for a link (the reason
- * `accessEmail` carries none). No name → "o seu local". Sender `ACCESS_FROM_NAME`, set by `mailAccessLink`. Also
- * the e-mail of `request_link` `login` for a legacy submission (#916: `/entrar` with that e-mail). "1 hora" is `place_issue_claim` 1 h = GoTrue
- * `otp_expiry` 3600, as in `accessEmail`.
+ * `accessEmail` carries none). It opens a sentence, so no article ("o"/"a" depends on the name);
+ * no name → "Seu local". Sender `ACCESS_FROM_NAME`, set by `mailAccessLink`. Also the e-mail of
+ * `request_link` `login` for a legacy submission (#916: `/entrar` with that e-mail). Announces the
+ * portal: no word on cancelling, switching plan or the free plan, and no link validity (an expired
+ * link lands on the sign-in, which sends another).
  */
 export function legacyAccessEmail(url: string, origin: string, v: { placeName: string; paying: boolean }): { subject: string; html: string; text: string } {
   const host = new URL(origin).host;
-  const name = placeNameForMail(v.placeName) || 'seu local';
+  const name = placeNameForMail(v.placeName) || 'Seu local';
   return portalMail({
-    subject: 'Acesse o portal do seu local no Tuggi',
-    preheader: 'Veja o seu plano e mude quando quiser.',
+    subject: 'Conheça o novo portal do seu local no Tuggi',
+    preheader: 'Uma novidade para quem está no app do Tuggi.',
     paragraphs: [
       'Olá,',
-      `o ${name} já está no app do Tuggi, e agora você acompanha a sua conta pelo portal de parceiros.`,
+      'O Tuggi está evoluindo e melhorando a experiência de quem está com a gente. Criamos um portal para você acompanhar as informações do seu estabelecimento sempre que quiser.',
       v.paying
-        ? 'Lá você vê o seu plano, o valor e o vencimento, e pode trocar de plano ou cancelar quando quiser, sem taxa de saída.'
-        : 'Lá você vê o seu plano e, quando quiser adicionar a história em áudio do seu local, é só pedir por lá.',
+        ? `${name} já está no app do Tuggi, e agora você acompanha a sua conta pelo portal, onde vê o seu plano e o valor.`
+        : `${name} já está no app do Tuggi, e agora você acompanha tudo pelo portal. Quando quiser adicionar a história em áudio do local, é só pedir por lá.`,
     ],
-    cta: { label: 'Entrar no portal', url },
+    cta: { label: 'Conhecer o portal', url },
     small: [
-      `O botão vale por 1 hora e funciona uma vez. Depois disso, entre em ${host} com este e-mail, e mandamos outro.`,
+      `Se o botão não abrir, entre em ${host} com este e-mail.`,
       'Não reconhece este local? Escreva para suporte@tuggi.app.',
     ],
   });

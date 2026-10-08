@@ -263,9 +263,9 @@ test('#916 spec §1: /entrar with the e-mail of a client from before the portal 
   const f = fake({ place_issue_claim: { data: [{ email: 'a@b.co', expires_at: 'x' }] } }, SID, { placeName: 'Bar do Zé', paying: true })
   const r = await mod.handle(f.deps, { action: 'request_link', purpose: 'login', email: 'a@b.co' }, '')
   assert.deepEqual(r, { status: 200, body: { ok: true } })
-  assert.equal(f.mails[0].subject, 'Acesse o portal do seu local no Tuggi')
+  assert.equal(f.mails[0].subject, 'Conheça o novo portal do seu local no Tuggi')
   assert.equal(f.mails[0].fromName, 'Tuggi Locais')
-  assert.match(f.mails[0].text, /o Bar do Zé já está no app do Tuggi/)
+  assert.match(f.mails[0].text, /Bar do Zé já está no app do Tuggi/)
   assert.match(f.mails[0].html, /c=RHJhd25CeVRoZUZ1bmN0aW9uLW5vdC10aGUtV29ya2V/)
   assert.doesNotMatch(f.mails[0].text, /validação/)
   // a portal submission keeps the validation e-mail

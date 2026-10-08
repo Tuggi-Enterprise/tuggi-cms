@@ -41,31 +41,32 @@ const ORIGIN = 'https://partner.tuggi.app'
 
 // ─── the e-mail ──────────────────────────────────────────────────────────────────────────────
 
-test('#916 spec §1: legacy access e-mail, paying variant: subject, preheader, the place name, no exit fee, the button and the two small lines', () => {
+test('#916 spec §1: legacy access e-mail, paying variant: subject, preheader, the portal announced, the place name, plan and amount, the button and the two small lines', () => {
   const m = access.legacyAccessEmail('https://partner.tuggi.app/auth?x=1', ORIGIN, { placeName: 'Bar do Zé', paying: true })
-  assert.equal(m.subject, 'Acesse o portal do seu local no Tuggi')
-  assert.match(m.html, /Veja o seu plano e mude quando quiser\./)
-  assert.match(m.text, /^Olá,\n\no Bar do Zé já está no app do Tuggi, e agora você acompanha a sua conta pelo portal de parceiros\./)
-  assert.match(m.text, /Lá você vê o seu plano, o valor e o vencimento, e pode trocar de plano ou cancelar quando quiser, sem taxa de saída\./)
-  assert.match(m.text, /Entrar no portal: https:\/\/partner\.tuggi\.app\/auth\?x=1/)
-  assert.match(m.text, /O botão vale por 1 hora e funciona uma vez\. Depois disso, entre em partner\.tuggi\.app com este e-mail, e mandamos outro\./)
+  assert.equal(m.subject, 'Conheça o novo portal do seu local no Tuggi')
+  assert.match(m.html, /Uma novidade para quem está no app do Tuggi\./)
+  assert.match(m.text, /^Olá,\n\nO Tuggi está evoluindo e melhorando a experiência de quem está com a gente\. Criamos um portal para você acompanhar as informações do seu estabelecimento sempre que quiser\./)
+  assert.match(m.text, /\n\nBar do Zé já está no app do Tuggi, e agora você acompanha a sua conta pelo portal, onde vê o seu plano e o valor\./)
+  assert.match(m.text, /Conhecer o portal: https:\/\/partner\.tuggi\.app\/auth\?x=1/)
+  assert.match(m.text, /Se o botão não abrir, entre em partner\.tuggi\.app com este e-mail\./)
   assert.match(m.text, /Não reconhece este local\? Escreva para suporte@tuggi\.app\./)
   assert.match(m.text, /Equipe Tuggi$/)
-  assert.doesNotMatch(m.text, /história em áudio/)
+  assert.doesNotMatch(m.text, /cancel|trocar de plano|taxa de saída|1 hora|funciona uma vez|história em áudio/)
 })
 
-test('#916 spec §1: legacy access e-mail, free variant speaks of the audio story, not of price or cancelling', () => {
+test('#916 spec §1: legacy access e-mail, free variant offers the audio story and never says free, plan, price or cancelling', () => {
   const m = access.legacyAccessEmail('https://x.test/a', ORIGIN, { placeName: 'Pousada Sol', paying: false })
-  assert.match(m.text, /Lá você vê o seu plano e, quando quiser adicionar a história em áudio do seu local, é só pedir por lá\./)
-  assert.doesNotMatch(m.text, /taxa de saída|cancelar/)
+  assert.match(m.text, /Pousada Sol já está no app do Tuggi, e agora você acompanha tudo pelo portal\. Quando quiser adicionar a história em áudio do local, é só pedir por lá\./)
+  assert.doesNotMatch(m.text, /gratuit|grátis|plano|valor|cancel|taxa de saída|1 hora/i)
 })
 
-test('#916: the place name is escaped in the HTML, flattened to one line, and absent → "o seu local"', () => {
+test('#916: the place name is escaped in the HTML, flattened to one line, and absent → "Seu local", capitalised', () => {
   const m = access.legacyAccessEmail('https://x.test/a', ORIGIN, { placeName: '<b>Bar</b>\n& Cia', paying: true })
-  assert.match(m.html, /o &lt;b&gt;Bar&lt;\/b&gt; &amp; Cia já está/)
+  assert.match(m.html, />&lt;b&gt;Bar&lt;\/b&gt; &amp; Cia já está/)
   assert.doesNotMatch(m.html, /<b>Bar/)
   const none = access.legacyAccessEmail('https://x.test/a', ORIGIN, { placeName: '  ', paying: true })
-  assert.match(none.text, /o seu local já está no app/)
+  assert.match(none.text, /\n\nSeu local já está no app/)
+  assert.doesNotMatch(none.text, /\n\no /)
 })
 
 // ─── the run ─────────────────────────────────────────────────────────────────────────────────
@@ -109,7 +110,7 @@ test('#916: real run seeds, then sends the link of THAT submission with the righ
   const out = await access.runLegacyAccess(d, rows, false)
   assert.deepEqual(seeded, rows.map((r) => r.id))
   assert.equal(mails[0].submissionId, `5${CLIENT.slice(1)}`)
-  assert.match(mails[0].text, /sem taxa de saída/)
+  assert.match(mails[0].text, /onde vê o seu plano e o valor/)
   assert.match(mails[1].text, /história em áudio/)
   assert.match(mails[2].text, /história em áudio/)
   assert.deepEqual(out.map((r: { status: string }) => r.status), ['sent', 'sent', 'sent'])
