@@ -10,8 +10,12 @@
 // fields it lacks; a value already there is reported in `differs` and never overwritten.
 //
 // WhatsApp: Asaas creates the customer's notifications with the customer; we switch
-// `whatsappEnabledForCustomer` on in the ones that are enabled (`PUT /v3/notifications/batch`, doc
-// conferred 2026-10-08). Asaas charges a fee per notification sent.
+// `whatsappEnabledForCustomer` on in the ones that are enabled, one `PUT /v3/notifications/{id}` each
+// (doc conferred 2026-10-08). Not the batch route: an event that refuses WhatsApp ("Evento inválido
+// para ativação da notificação por WhatsApp", production 2026-10-08) fails the whole batch, and the doc
+// does not list which events accept it. That refusal is `skipped`, not `failed`. An existing customer
+// goes through this step too, so a rerun fixes the ones already created. Asaas charges a fee per
+// notification sent.
 //
 // Never log what this returns: it carries name and address number. CPF/CNPJ, phone and e-mail leave
 // masked.
@@ -130,9 +134,12 @@ export type LegacyOutcome = {
   missing?: Field[];
   /** Fields Asaas already has with another value: kept, not overwritten. */
   differs?: string[];
-  whatsapp?: { switched_on: number } | { would_switch_on: number | 'after_create' } | { failed: string };
+  whatsapp?: WhatsappResult | { would_switch_on: number | 'after_create' } | { failed: string };
   description?: string;
 };
+
+/** Events, by name. `errors`: any refusal other than the event not accepting WhatsApp. */
+export type WhatsappResult = { switched_on: string[]; skipped: string[]; errors?: { event: string; description: string }[] };
 
 function describe(e: unknown): string {
   if (e instanceof AsaasError) {
@@ -225,18 +232,32 @@ async function processOne(asaas: AsaasClient, row: LegacyClientRow, dryRun: bool
     }
   }
   const whatsapp = await switchWhatsapp(asaas, existing.id);
-  const switched = 'switched_on' in whatsapp && whatsapp.switched_on > 0;
+  const switched = 'switched_on' in whatsapp && whatsapp.switched_on.length > 0;
   return { ...result, status: changes || switched ? 'updated' : 'unchanged', whatsapp };
 }
 
-async function switchWhatsapp(asaas: AsaasClient, customerId: string): Promise<{ switched_on: number } | { failed: string }> {
+/** Asaas's refusal for an event that does not take WhatsApp. No documented code: matched on the text. */
+const WHATSAPP_REFUSED = /evento inv[aá]lido/i;
+
+async function switchWhatsapp(asaas: AsaasClient, customerId: string): Promise<WhatsappResult | { failed: string }> {
+  let targets: Awaited<ReturnType<typeof whatsappTargets>>;
   try {
-    const targets = await whatsappTargets(asaas, customerId);
-    if (targets.length) await asaas.updateNotifications(customerId, targets.map((n) => ({ id: n.id, whatsappEnabledForCustomer: true })));
-    return { switched_on: targets.length };
+    targets = await whatsappTargets(asaas, customerId);
   } catch (e) {
     return { failed: describe(e) };
   }
+  const out: WhatsappResult = { switched_on: [], skipped: [] };
+  for (const n of targets) {
+    const event = n.event ?? n.id;
+    try {
+      await asaas.updateNotification(n.id, { whatsappEnabledForCustomer: true });
+      out.switched_on.push(event);
+    } catch (e) {
+      if (e instanceof AsaasError && e.descriptions.some((d) => WHATSAPP_REFUSED.test(d))) out.skipped.push(event);
+      else (out.errors ??= []).push({ event, description: describe(e) });
+    }
+  }
+  return out;
 }
 
 /** One client at a time: an Asaas error on one becomes its `failed` and the others go on. */

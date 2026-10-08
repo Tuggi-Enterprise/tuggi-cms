@@ -208,7 +208,7 @@ export type AsaasCustomerPatch = Partial<{
  * A billing notification of a customer. Asaas creates the set together with the customer; the API
  * only reads and edits it (doc conferred 2026-10-08:
  * https://docs.asaas.com/reference/recuperar-notificacoes-de-um-cliente and
- * https://docs.asaas.com/reference/atualizar-notificacoes-existentes-em-lote).
+ * https://docs.asaas.com/reference/atualizar-notificacao-existente).
  */
 export type AsaasNotification = {
   id: string;
@@ -292,9 +292,14 @@ export function asaasClient(cfg: AsaasConfig) {
     listCustomerNotifications: async (id: string) =>
       (await call<List<AsaasNotification>>('GET', `/customers/${encodeURIComponent(id)}/notifications`)).data ?? [],
 
-    /** `PUT /v3/notifications/batch`: edits existing notifications only; the ones not listed stay as they are. */
-    updateNotifications: (customer: string, notifications: ({ id: string } & Partial<Omit<AsaasNotification, 'id' | 'event' | 'deleted'>>)[]) =>
-      call<{ notifications?: AsaasNotification[] }>('PUT', '/notifications/batch', { customer, notifications }),
+    /**
+     * `PUT /v3/notifications/{id}` (doc conferred 2026-10-08:
+     * https://docs.asaas.com/reference/atualizar-notificacao-existente). One at a time on purpose: the
+     * batch route fails whole when one event refuses a channel (WhatsApp, measured in production
+     * 2026-10-08).
+     */
+    updateNotification: (id: string, patch: Partial<Omit<AsaasNotification, 'id' | 'event' | 'deleted'>>) =>
+      call<AsaasNotification>('PUT', `/notifications/${encodeURIComponent(id)}`, patch),
 
     getCustomer: (id: string) => call<AsaasCustomer>('GET', `/customers/${encodeURIComponent(id)}`),
 

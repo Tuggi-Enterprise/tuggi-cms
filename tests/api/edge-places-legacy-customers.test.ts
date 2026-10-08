@@ -124,18 +124,76 @@ test('real run, new customer: POST /customers with notifications on, then WhatsA
   const asaas = fakeAsaas([
     (c) => (c.method === 'POST' && c.path === '/customers' ? { status: 200, body: { id: 'cus_1' } } : undefined),
     (c) => (c.method === 'GET' && c.path === '/customers/cus_1/notifications' ? { status: 200, body: NOTIFICATIONS } : undefined),
-    (c) => (c.method === 'PUT' && c.path === '/notifications/batch' ? { status: 200, body: { notifications: [] } } : undefined),
+    (c) => (c.method === 'PUT' && c.path === '/notifications/not_1' ? { status: 200, body: { id: 'not_1' } } : undefined),
   ])
   const [out] = await legacy.registerLegacyCustomers(asaas.client, [ROW], false)
   assert.equal(out.status, 'created')
   assert.equal(out.asaas_id, 'cus_1')
-  assert.deepEqual(out.whatsapp, { switched_on: 1 })
-  const [post, batch] = writes(asaas.calls)
+  assert.deepEqual(out.whatsapp, { switched_on: ['PAYMENT_CREATED'], skipped: [] })
+  const ws = writes(asaas.calls)
+  assert.equal(ws.length, 2)
+  const [post, put] = ws
   assert.equal((post.body as Record<string, unknown>).notificationDisabled, false)
   assert.equal((post.body as Record<string, unknown>).externalReference, ROW.id)
-  assert.deepEqual(batch.body, { customer: 'cus_1', notifications: [{ id: 'not_1', whatsappEnabledForCustomer: true }] })
+  assert.deepEqual(put.body, { whatsappEnabledForCustomer: true })
   // customer only: nothing that charges
-  assert.ok(asaas.calls.every((c) => !/^\/(subscriptions|payments|pix)/.test(c.path)))
+  assert.ok(asaas.calls.every((c) => !/^\/(subscriptions|payments|pix|transfers)/.test(c.path)))
+})
+
+const REFUSED = { status: 400, body: { errors: [{ code: 'invalid_action', description: 'Falha na atualização da notificação not_9: Evento inválido para ativação da notificação por WhatsApp.' }] } }
+
+test('WhatsApp goes one notification at a time: an event that refuses it is skipped and the others switch on', async () => {
+  const asaas = fakeAsaas([
+    (c) => (c.method === 'POST' && c.path === '/customers' ? { status: 200, body: { id: 'cus_1' } } : undefined),
+    (c) =>
+      c.method === 'GET' && c.path === '/customers/cus_1/notifications'
+        ? { status: 200, body: { data: [
+            { id: 'not_9', event: 'PAYMENT_UPDATED', enabled: true, whatsappEnabledForCustomer: false },
+            { id: 'not_1', event: 'PAYMENT_CREATED', enabled: true, whatsappEnabledForCustomer: false },
+            { id: 'not_2', event: 'PAYMENT_OVERDUE', enabled: true, whatsappEnabledForCustomer: false },
+          ] } }
+        : undefined,
+    (c) => (c.method === 'PUT' && c.path === '/notifications/not_9' ? REFUSED : undefined),
+    (c) => (c.method === 'PUT' && c.path.startsWith('/notifications/') ? { status: 200, body: {} } : undefined),
+  ])
+  const [out] = await legacy.registerLegacyCustomers(asaas.client, [ROW], false)
+  assert.equal(out.status, 'created')
+  assert.deepEqual(out.whatsapp, { switched_on: ['PAYMENT_CREATED', 'PAYMENT_OVERDUE'], skipped: ['PAYMENT_UPDATED'] })
+  assert.ok(!asaas.calls.some((c) => c.path === '/notifications/batch'))
+})
+
+test('rerun on an existing complete customer switches WhatsApp on and reports updated; already on gets no PUT', async () => {
+  const existing = { id: 'cus_1', externalReference: ROW.id, name: 'Pousada Mar Ltda', cpfCnpj: '12345678000195', email: 'contato@pousadamar.com.br', mobilePhone: '22998765432', postalCode: '28950-000', addressNumber: '359', notificationDisabled: false }
+  const asaas = fakeAsaas([
+    (c) => (c.method === 'GET' && c.path.startsWith('/customers?externalReference=') ? { status: 200, body: { data: [existing] } } : undefined),
+    (c) => (c.method === 'GET' && c.path === '/customers/cus_1/notifications' ? { status: 200, body: NOTIFICATIONS } : undefined),
+    (c) => (c.method === 'PUT' && c.path === '/notifications/not_1' ? { status: 200, body: {} } : undefined),
+  ])
+  const [out] = await legacy.registerLegacyCustomers(asaas.client, [ROW], false)
+  assert.equal(out.status, 'updated')
+  assert.deepEqual(out.whatsapp, { switched_on: ['PAYMENT_CREATED'], skipped: [] })
+  // not_2 already on, not_3 disabled: no PUT for either
+  assert.deepEqual(writes(asaas.calls).map((c) => c.path), ['/notifications/not_1'])
+})
+
+test('an Asaas error other than the refused event is reported per event, and the rest goes on', async () => {
+  const asaas = fakeAsaas([
+    (c) => (c.method === 'POST' && c.path === '/customers' ? { status: 200, body: { id: 'cus_1' } } : undefined),
+    (c) =>
+      c.method === 'GET' && c.path === '/customers/cus_1/notifications'
+        ? { status: 200, body: { data: [
+            { id: 'not_1', event: 'PAYMENT_CREATED', enabled: true },
+            { id: 'not_2', event: 'PAYMENT_OVERDUE', enabled: true },
+          ] } }
+        : undefined,
+    (c) => (c.method === 'PUT' && c.path === '/notifications/not_1' ? { status: 500, body: {} } : undefined),
+    (c) => (c.method === 'PUT' && c.path === '/notifications/not_2' ? { status: 200, body: {} } : undefined),
+  ])
+  const [out] = await legacy.registerLegacyCustomers(asaas.client, [ROW], false)
+  assert.deepEqual(out.whatsapp.switched_on, ['PAYMENT_OVERDUE'])
+  assert.deepEqual(out.whatsapp.skipped, [])
+  assert.equal(out.whatsapp.errors.length, 1)
+  assert.equal(out.whatsapp.errors[0].event, 'PAYMENT_CREATED')
 })
 
 test('idempotent: found by externalReference and complete = unchanged, no write', async () => {
