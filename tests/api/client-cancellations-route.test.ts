@@ -110,12 +110,12 @@ test('#913 BR-B2B-060 item 7: only an admin reaches the list and the mark', asyn
   assert.deepEqual(calls, [], 'no RPC before the gate')
 })
 
-test('#913 BR-B2B-060 item 7: mark and undo run on the admin session (contacted_by = auth.uid()), never on service_role', async () => {
+test('#913 BR-B2B-060 item 7: mark and undo run on service_role and carry the admin as p_actor (authenticated has no USAGE on partner)', async () => {
   assert.equal((await contacted.POST(act('POST'), ctx())).status, 200)
   assert.equal((await contacted.DELETE(act('DELETE'), ctx())).status, 200)
   assert.deepEqual(calls, [
-    { client: 'operator', schema: 'partner', fn: 'mark_place_cancellation_contacted', args: { p_feedback_id: FEEDBACK } },
-    { client: 'operator', schema: 'partner', fn: 'unmark_place_cancellation_contacted', args: { p_feedback_id: FEEDBACK } },
+    { client: 'service', schema: 'partner', fn: 'mark_place_cancellation_contacted', args: { p_feedback_id: FEEDBACK, p_actor: OPERATOR_UID } },
+    { client: 'service', schema: 'partner', fn: 'unmark_place_cancellation_contacted', args: { p_feedback_id: FEEDBACK, p_actor: OPERATOR_UID } },
   ])
 })
 
@@ -140,7 +140,7 @@ test('#913 BR-B2B-060 item 5: the database refusals of the mark: 42501 → 403, 
   }
 })
 
-test('#913 BR-B2B-060 item 7: the list runs on the admin session, newest first, every cancel (unanswered too), with the operator name and no e-mail nor consent text', async () => {
+test('#913 BR-B2B-060 item 7: the list runs on service_role behind the admin gate, newest first, every cancel (unanswered too), with the operator name and no e-mail nor consent text', async () => {
   answers = {
     list_place_cancellation_feedback: {
       data: [
@@ -153,7 +153,7 @@ test('#913 BR-B2B-060 item 7: the list runs on the admin session, newest first, 
   const r = await list.GET(get())
   assert.equal(r.status, 200)
   const body = await r.json()
-  assert.deepEqual(calls.map((c) => `${c.client} ${c.schema}.${c.fn}`), ['operator partner.list_place_cancellation_feedback'])
+  assert.deepEqual(calls.map((c) => `${c.client} ${c.schema}.${c.fn}`), ['service partner.list_place_cancellation_feedback'])
   assert.deepEqual(body.cancellations.map((c: { feedbackId: string }) => c.feedbackId), ['2', '3', '1'])
   assert.deepEqual(body.cancellations[0], {
     feedbackId: '2',

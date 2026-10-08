@@ -3,8 +3,9 @@
  *
  * Admin-only. The cancellations of the Com história made in the portal with their survey
  * (#913, BR-B2B-060 item 7): `partner.list_place_cancellation_feedback()`, which checks
- * `core.is_caller_platform_admin()` in its body, so it runs on the admin's own session, not on
- * service_role. The list and the client record read this same route (`clientId=` for the record).
+ * `core.is_caller_platform_admin()` in its body. It runs on service_role: `authenticated` has no
+ * USAGE on schema `partner` (42501, a 403 in production on 2026-10-08), and `withAuth` is the admin
+ * check. The list and the client record read this same route (`clientId=` for the record).
  *
  * The RPC takes no filter: filter, order and page are here (a few rows per month). Nothing from a
  * row goes to the log, only the code. Until the migration is applied the function does not exist:
@@ -13,6 +14,7 @@
 
 import { NextRequest, NextResponse } from 'next/server'
 import { withAuth } from '@/lib/auth-middleware'
+import { getSupabaseService } from '@/lib/core/supabase-client'
 import { UUID } from '@/lib/finance/input'
 import { operatorLabel } from '@/lib/services/operator-label'
 import {
@@ -32,7 +34,7 @@ function positiveInt(raw: string | null, fallback: number, max: number): number 
   return Math.min(n, max)
 }
 
-export const GET = withAuth({ roles: ['admin'] }, async (request: NextRequest, _ctx, auth) => {
+export const GET = withAuth({ roles: ['admin'] }, async (request: NextRequest) => {
   const params = request.nextUrl.searchParams
   const contact = params.get('contact')
   const reason = params.get('reason')
@@ -41,7 +43,7 @@ export const GET = withAuth({ roles: ['admin'] }, async (request: NextRequest, _
   const limit = positiveInt(params.get('limit'), DEFAULT_LIMIT, MAX_LIMIT)
   const page = positiveInt(params.get('page'), 1, Number.MAX_SAFE_INTEGER)
 
-  const { data, error } = await auth.supabase.schema('partner').rpc('list_place_cancellation_feedback')
+  const { data, error } = await getSupabaseService().schema('partner').rpc('list_place_cancellation_feedback')
   if (error) {
     console.error('[cancellations] list refused:', error.code)
     const e = contactErrorStatus(error.code)
