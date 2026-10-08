@@ -395,7 +395,7 @@ test('#863 Pix §8.4 BR-B2B-046: cancel with fee — the authorized value is fix
   assert.equal(body.externalReference, undefined)
   assert.deepEqual(db.calls, [])
   assert.deepEqual(alerts, [])
-  assert.match(mail, /uma única vez R\$ 135,00, a diferença do desconto dos meses usados, por Pix, com vencimento em 06\/01\/2027/)
+  assert.match(mail, /há uma última cobrança de R\$ 135,00, a diferença do desconto dos meses usados, por Pix, com vencimento em 06\/01\/2027/)
   assert.match(mail, /https:\/\/sandbox\.asaas\.com\/i\/abc/)
 })
 

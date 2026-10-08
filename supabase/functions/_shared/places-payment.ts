@@ -770,7 +770,7 @@ export async function cancelRenewal(deps: PortalDeps, submissionId: string, expe
   const to = await deps.userEmail();
   if (to) {
     const until = ends ? formatDateBr(saoPauloDate(new Date(ends))) : null;
-    const sent = await deps.sendEmail(to, CANCEL_EMAIL.subject, CANCEL_EMAIL.text(until, fee));
+    const sent = await deps.sendEmail(to, CANCEL_EMAIL.subject, CANCEL_EMAIL.text(until, fee), CANCEL_EMAIL.replyTo);
     if (!sent) await deps.alert('cancel_email_failed', { subscription_id: ids?.subscription_id ?? null });
   }
   return reply(200, { result: 'canceled' });
@@ -1616,36 +1616,45 @@ export function formatBrl(cents: number): string {
 }
 
 /** Term 4.5: "a TUGGI confirma o cancelamento por e-mail no ato". Contract places-portal-rascunho §8.4. */
+/** The support inbox: where the owner's replies land, and the operator-alert fallback (runtime `alert`). */
+export const SUPPORT_EMAIL = 'suporte@tuggi.app';
+
+/** Text approved by the operator on 2026-10-08 (written by `design`). Replies go to `SUPPORT_EMAIL`. */
 export const CANCEL_EMAIL = {
-  subject: 'Plano Com história cancelado',
+  subject: 'Seu plano Com história foi cancelado',
+  replyTo: SUPPORT_EMAIL,
   text: (until: string | null, fee: CancelFee | null) => {
+    const last = fee
+      ? `As mensalidades param aqui. Como o cancelamento veio antes do fim da fidelidade, há uma última cobrança de ${formatBrl(fee.cents)}, a diferença do desconto dos meses usados,`
+      : '';
     const feeLines = !fee
-      ? ['Nenhuma outra cobrança será feita.']
+      ? ['Você não terá mais nenhuma cobrança.']
       : fee.method === 'credit_card'
-        ? [
-            `Como o cancelamento veio antes do fim da fidelidade, cobramos uma única vez ${formatBrl(fee.cents)}, a diferença do desconto dos meses usados, no seu cartão em ${formatDateBr(fee.chargeOn)}. Depois disso, nada mais é cobrado.`,
-          ]
+        ? [`${last} no seu cartão em ${formatDateBr(fee.chargeOn)}. Depois dela, nada mais é cobrado.`]
         : fee.method === 'pix'
         ? [
-            `Como o cancelamento veio antes do fim da fidelidade, cobramos uma única vez ${formatBrl(fee.cents)}, a diferença do desconto dos meses usados, por Pix, com vencimento em ${formatDateBr(fee.chargeOn)}. O código Pix chega por e-mail antes dessa data.`,
-            'Depois disso, nada mais é cobrado.',
+            `${last} por Pix, com vencimento em ${formatDateBr(fee.chargeOn)}. O código Pix chega por e-mail antes dessa data. Depois desse pagamento, nada mais é cobrado.`,
           ]
         : [
-            `Como o cancelamento veio antes do fim da fidelidade, cobramos uma única vez ${formatBrl(fee.cents)}, a diferença do desconto dos meses usados, por Pix, com vencimento em ${formatDateBr(fee.chargeOn)}. O Pix Automático foi encerrado: esta cobrança não sai sozinha da sua conta.`,
-            fee.invoiceUrl ? `Para pagar, abra: ${fee.invoiceUrl}` : 'Mandamos o código Pix para pagamento por e-mail antes dessa data.',
-            'Depois disso, nada mais é cobrado.',
+            `${last} por Pix, com vencimento em ${formatDateBr(fee.chargeOn)}. O Pix Automático já foi encerrado, então esse valor não sai sozinho da sua conta. ${
+              fee.invoiceUrl ? `Para pagar, abra ${fee.invoiceUrl}` : 'O código Pix chega por e-mail antes dessa data.'
+            }`,
+            'Depois desse pagamento, nada mais é cobrado.',
           ];
     return [
       'Olá,',
       '',
-      'Cancelamos o seu plano Com história. Nenhuma mensalidade nova será cobrada.',
+      'Confirmamos o cancelamento do seu plano Com história. Obrigado por ter mostrado o seu local aos turistas que usam o Tuggi, vamos sentir falta da sua história no app.',
+      '',
       until
         ? `A história do seu local continua no ar até ${until}. Depois disso, o local segue no mapa do app no plano No mapa, sem custo.`
         : 'O local segue no mapa do app no plano No mapa, sem custo.',
       '',
       ...feeLines,
       '',
-      'Se mudar de ideia, contrate um novo período pelo portal.',
+      'Se quiser voltar, o seu local continua cadastrado. É só entrar em https://partner.tuggi.app e contratar o plano Com história de novo.',
+      '',
+      'Pode contar para a gente por que cancelou? Basta responder este e-mail. Uma linha já nos ajuda a melhorar.',
       '',
       'Equipe Tuggi',
     ].join('\n');

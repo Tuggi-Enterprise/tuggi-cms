@@ -14,7 +14,7 @@
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
 import { createAdminClient, getPublishableKey, getSupabaseUrl } from './supabase-client.ts';
 import { asaasClient } from './asaas.ts';
-import { saoPauloDate, type CancelRedoRow, type Deps, type ExpiredCardRow, type Rpc, type SubscriptionIds } from './places-payment.ts';
+import { SUPPORT_EMAIL, saoPauloDate, type CancelRedoRow, type Deps, type ExpiredCardRow, type Rpc, type SubscriptionIds } from './places-payment.ts';
 import { issueAccessLink } from './places-portal-draft.ts';
 import { INVOICE_ENV, MirrorReadError, parseInvoiceConfig, type InvoiceTarget } from './places-invoice.ts';
 import { accessLinkDeps } from './places-access-link-runtime.ts';
@@ -40,7 +40,7 @@ export function rpcOf(client: any): Rpc {
   };
 }
 
-async function sendEmail(to: string, subject: string, text: string): Promise<boolean> {
+async function sendEmail(to: string, subject: string, text: string, replyTo?: string): Promise<boolean> {
   const key = (Deno.env.get('RESEND_API_KEY') ?? '').trim();
   if (!key) return false;
   try {
@@ -52,6 +52,7 @@ async function sendEmail(to: string, subject: string, text: string): Promise<boo
         to: [to],
         subject,
         text,
+        ...(replyTo ? { reply_to: replyTo } : {}),
       }),
       signal: AbortSignal.timeout(10_000),
     });
@@ -64,7 +65,7 @@ async function sendEmail(to: string, subject: string, text: string): Promise<boo
 /** Ids and outcomes only (see `Deps.alert`). Log line first: the e-mail may fail. */
 export async function alert(what: string, fields: Record<string, string | number | null | undefined>): Promise<void> {
   console.error('[places-payment][ALERT]', what, JSON.stringify(fields));
-  const to = (Deno.env.get('PARTNER_ALERT_TO') ?? 'suporte@tuggi.app').trim();
+  const to = (Deno.env.get('PARTNER_ALERT_TO') ?? SUPPORT_EMAIL).trim();
   const lines = Object.entries(fields).map(([k, v]) => `${k}: ${v ?? '—'}`);
   await sendEmail(to, `[Tuggi pagamento] ${what}`, [`Alerta da EF de pagamento do Com história (#811): ${what}`, '', ...lines].join('\n'));
 }

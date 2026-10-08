@@ -495,8 +495,8 @@ const cardIds = { subscription_id: SUB_UUID, payment_method: 'credit_card', prov
 
 function cancelPortal(asaas: ReturnType<typeof fakeAsaas>, db: ReturnType<typeof fakeDb>, user: ReturnType<typeof fakeDb>) {
   const x = portal(asaas, db, user)
-  const mail = { subject: '', text: '' }
-  ;(x.d as Record<string, unknown>).sendEmail = async (to: string, subject: string, text: string) => { x.sent.push(to); mail.subject = subject; mail.text = text; return true }
+  const mail = { subject: '', text: '', replyTo: undefined as string | undefined }
+  ;(x.d as Record<string, unknown>).sendEmail = async (to: string, subject: string, text: string, replyTo?: string) => { x.sent.push(to); mail.subject = subject; mail.text = text; mail.replyTo = replyTo; return true }
   ;(x.d as Record<string, unknown>).subscriptionIds = async () => cardIds
   return { ...x, mail }
 }
@@ -544,8 +544,10 @@ test('#863 §8.4 BR-B2B-055, BR-B2B-046: cancel with fee 0 — endDate = eve of 
   assert.deepEqual(asaas.calls.map((c) => `${c.method} ${c.path}`), ['PUT /subscriptions/sub_1', 'GET /payments?subscription=sub_1&status=PENDING'])
   assert.deepEqual(asaas.calls[0].body, { endDate: '2027-01-05' })
   assert.deepEqual(sent, ['ze@example.com'])
+  assert.equal(mail.subject, 'Seu plano Com história foi cancelado')
+  assert.equal(mail.replyTo, 'suporte@tuggi.app')
   assert.match(mail.text, /no ar até 06\/01\/2027/)
-  assert.match(mail.text, /Nenhuma outra cobrança/)
+  assert.match(mail.text, /Você não terá mais nenhuma cobrança\./)
   assert.doesNotMatch(mail.text, /R\$/)
 })
 
@@ -565,7 +567,8 @@ test('#863 §8.4 BR-B2B-046: card cancel with fee — the charge already generat
   assert.deepEqual(asaas.calls[0].body, { value: 135, endDate: '2027-01-06', updatePendingPayments: true })
   assert.deepEqual(alerts, [])
   assert.match(mail.text, /no ar até 06\/01\/2027/)
-  assert.match(mail.text, /uma única vez R\$ 135,00, a diferença do desconto dos meses usados, no seu cartão em 06\/01\/2027/)
+  assert.match(mail.text, /há uma última cobrança de R\$ 135,00, a diferença do desconto dos meses usados, no seu cartão em 06\/01\/2027/)
+  assert.equal(mail.replyTo, 'suporte@tuggi.app')
 })
 
 test('#863 §8.4: Asaas down on cancel — the database is not undone, the operator is alerted, the owner still gets 200 and the e-mail still states the fee', async () => {
@@ -582,7 +585,44 @@ test('#863 §8.4: Asaas down on cancel — the database is not undone, the opera
 test('#863 §8.4: the cancel e-mail formats the fee like the portal (thousands, cents)', () => {
   assert.equal(pay.formatBrl(13500), 'R$ 135,00')
   assert.equal(pay.formatBrl(123456), 'R$ 1.234,56')
-  assert.equal(pay.CANCEL_EMAIL.subject, 'Plano Com história cancelado')
+  assert.equal(pay.CANCEL_EMAIL.subject, 'Seu plano Com história foi cancelado')
+})
+
+const D = 'Se quiser voltar, o seu local continua cadastrado. É só entrar em https://partner.tuggi.app e contratar o plano Com história de novo.\n\nPode contar para a gente por que cancelou? Basta responder este e-mail. Uma linha já nos ajuda a melhorar.\n\nEquipe Tuggi'
+const A = 'Olá,\n\nConfirmamos o cancelamento do seu plano Com história. Obrigado por ter mostrado o seu local aos turistas que usam o Tuggi, vamos sentir falta da sua história no app.'
+const B_UNTIL = 'A história do seu local continua no ar até 06/01/2027. Depois disso, o local segue no mapa do app no plano No mapa, sem custo.'
+const B_NONE = 'O local segue no mapa do app no plano No mapa, sem custo.'
+const LAST = 'As mensalidades param aqui. Como o cancelamento veio antes do fim da fidelidade, há uma última cobrança de R$ 135,00, a diferença do desconto dos meses usados,'
+const fee = (method: string, invoiceUrl: string | null = null) => ({ cents: 13500, chargeOn: '2027-01-06', method, invoiceUrl }) as never
+
+test('#863 §8.4 BR-B2B-046: cancel e-mail (text approved 2026-10-08) — blocks A, B, C, D, E word for word, one per variant of C', () => {
+  const t = (until: string | null, f: unknown) => pay.CANCEL_EMAIL.text(until, f as never)
+  assert.equal(pay.CANCEL_EMAIL.subject, 'Seu plano Com história foi cancelado')
+  assert.equal(pay.CANCEL_EMAIL.replyTo, 'suporte@tuggi.app')
+  assert.equal(t('06/01/2027', null), [A, B_UNTIL, 'Você não terá mais nenhuma cobrança.', D].join('\n\n'))
+  assert.equal(t(null, null), [A, B_NONE, 'Você não terá mais nenhuma cobrança.', D].join('\n\n'))
+  assert.equal(
+    t('06/01/2027', fee('credit_card')),
+    [A, B_UNTIL, `${LAST} no seu cartão em 06/01/2027. Depois dela, nada mais é cobrado.`, D].join('\n\n'),
+  )
+  assert.equal(
+    t('06/01/2027', fee('pix')),
+    [A, B_UNTIL, `${LAST} por Pix, com vencimento em 06/01/2027. O código Pix chega por e-mail antes dessa data. Depois desse pagamento, nada mais é cobrado.`, D].join('\n\n'),
+  )
+  const auto = `${LAST} por Pix, com vencimento em 06/01/2027. O Pix Automático já foi encerrado, então esse valor não sai sozinho da sua conta.`
+  assert.equal(
+    t('06/01/2027', fee('pix_automatic', 'https://sandbox.asaas.com/i/abc')),
+    [A, B_UNTIL, `${auto} Para pagar, abra https://sandbox.asaas.com/i/abc\nDepois desse pagamento, nada mais é cobrado.`, D].join('\n\n'),
+  )
+  assert.equal(
+    t('06/01/2027', fee('pix_automatic')),
+    [A, B_UNTIL, `${auto} O código Pix chega por e-mail antes dessa data.\nDepois desse pagamento, nada mais é cobrado.`, D].join('\n\n'),
+  )
+  // the old text said "nenhuma cobrança" twice; each variant now says the charge part once, and nothing old is left
+  for (const text of [t(null, null), t('06/01/2027', fee('credit_card')), t('06/01/2027', fee('pix')), t('06/01/2027', fee('pix_automatic'))]) {
+    assert.ok((text.match(/cobrança/g) ?? []).length <= 1, text)
+    assert.doesNotMatch(text, /Cancelamos o seu|Nenhuma (outra|mensalidade)|cobramos uma única vez|Mandamos o código|Se mudar de ideia|pelo portal/)
+  }
 })
 
 const freeMonthIds = { ...cardIds, status: 'pending_payment' }
@@ -597,7 +637,7 @@ test('#898 BR-B2B-046 item 9: cancel inside the free month (nothing paid, no pai
   assert.deepEqual(asaas.calls.map((c) => `${c.method} ${c.path}`), ['DELETE /subscriptions/sub_1'])
   assert.deepEqual(db.calls, [])
   assert.deepEqual(alerts, [])
-  assert.match(mail.text, /Nenhuma outra cobrança/)
+  assert.match(mail.text, /Você não terá mais nenhuma cobrança\./)
   assert.doesNotMatch(mail.text, /R\$/)
 })
 
@@ -1052,11 +1092,13 @@ test('#904 BR-B2B-044: confirm_pix_key writes through the owner RPC and sends th
     portal_get_submission: { data: [{ answers: { representative_name: 'José da Silva', trade_name: 'Bar do Zé' } }] },
   })
   const x = portal(asaas, fakeDb({}), user)
-  const mail = { subject: '', text: '' }
-  ;(x.d as Record<string, unknown>).sendEmail = async (to: string, subject: string, text: string) => { x.sent.push(to); mail.subject = subject; mail.text = text; return true }
+  const mail = { subject: '', text: '', args: 0 }
+  ;(x.d as Record<string, unknown>).sendEmail = async (to: string, subject: string, text: string, ...rest: unknown[]) => { x.sent.push(to); mail.subject = subject; mail.text = text; mail.args = 3 + rest.length; return true }
   const r = await pay.confirmPixKey(x.d as never, SUBMISSION)
   assert.equal(r.status, 200)
   assert.deepEqual(r.body, { result: 'confirmed', pix_key: '12345678000195' })
+  // reply_to is only the cancel e-mail's: this one is sent with the three arguments
+  assert.equal(mail.args, 3)
   assert.deepEqual(user.calls[0], { schema: 'core', fn: 'portal_confirm_payout_pix_key', args: { p_submission_id: SUBMISSION } })
   assert.deepEqual(x.sent, ['ze@example.com'])
   assert.equal(mail.subject, 'Chave Pix confirmada no portal Tuggi')
