@@ -137,18 +137,31 @@ export interface PlaceCharge {
   invoice: PlaceInvoice | null
 }
 
+/**
+ * `portal`: nasceu de um aceite do portal. `cms_contract` (#918): a mensalidade do contrato do CMS,
+ * anterior ao portal (`legacy:<client_id>` no Asaas), sem aceite. Mesma tabela, mesmas cobranças e
+ * notas (`places-pagamento.md` §3.8).
+ */
+export type SubscriptionOrigin = 'portal' | 'cms_contract'
+
 export interface PlaceSubscription {
   id: string
-  acceptanceId: string
+  origin: SubscriptionOrigin
+  /** `null` só em `cms_contract`. */
+  acceptanceId: string | null
   clientId: string | null
+  /** Razão social do aceite; em `cms_contract`, o nome do cliente no CMS. */
+  clientName: string | null
   attractionId: string | null
   attractionEntityKind: string | null
   placeName: string
   contactEmail: string
   /** 1, 3 ou 6 — `place_acceptances.billing_period` (BR-B2B-045). */
   billingPeriod: number | null
-  paymentMethod: 'credit_card' | 'pix_automatic' | 'pix' | null
+  paymentMethod: 'credit_card' | 'pix_automatic' | 'pix' | 'bank_slip_or_pix' | null
   status: 'pending_payment' | 'paid' | 'past_due' | 'expired' | 'refund_pending' | 'refunded'
+  /** Instante ISO da criação da linha: o começo do contrato do CMS antes da 1ª cobrança paga. */
+  createdAt: string | null
   paidAt: string | null
   /** `YYYY-MM-DD`, São Paulo: fim do mês pago = próxima cobrança. */
   paidThrough: string | null
@@ -227,13 +240,24 @@ function monthBounds(month: string): { from: string; to: string } {
 const inMonth = (date: string | null, month: string) => date !== null && date.slice(0, 7) === month
 
 /**
+ * O contrato do CMS corre antes da 1ª cobrança paga (a view conta a 1ª vencida como pendência,
+ * §3.8): `pending_payment` dele é contrato vivo, não rascunho de checkout.
+ */
+function contractRunsUnpaid(subscription: PlaceSubscription): boolean {
+  return subscription.origin === 'cms_contract' && subscription.status === 'pending_payment' && subscription.canceledAt === null
+}
+
+/**
  * Quem estava no Com história no mês: pagou alguma vez até o fim dele e não tinha saído antes
- * do começo. `pending_payment` nunca pagou — é rascunho de checkout, não assinatura.
+ * do começo. `pending_payment` nunca pagou — é rascunho de checkout, não assinatura. O contrato do
+ * CMS (#918) conta desde que a linha existe, pago ou não.
  */
 export function activeInMonth(subscription: PlaceSubscription, month: string): boolean {
   const { from, to } = monthBounds(month)
-  const paidOn = saoPauloDate(subscription.paidAt)
-  if (paidOn === null || paidOn > to) return false
+  const startedOn = saoPauloDate(
+    subscription.paidAt ?? (subscription.origin === 'cms_contract' ? subscription.createdAt : null)
+  )
+  if (startedOn === null || startedOn > to) return false
   const left = [saoPauloDate(subscription.canceledAt), saoPauloDate(subscription.expiredAt)]
     .filter((date): date is string => date !== null)
     .sort()[0]
@@ -264,7 +288,7 @@ export function summarizePlaceMonth(input: {
   let refundedCents = 0
 
   for (const subscription of input.subscriptions) {
-    if (subscription.status === 'paid' || subscription.status === 'past_due') {
+    if (subscription.status === 'paid' || subscription.status === 'past_due' || contractRunsUnpaid(subscription)) {
       recurringCents += subscription.renewalAmountCents ?? subscription.charges[0]?.amountCents ?? 0
     }
     if (inMonth(subscription.earlyTerminationPaidOn, input.month)) {

@@ -6,9 +6,12 @@
 //   their billing notifications. No subscription, no charge.
 // - `"action": "subscriptions"` (#917): one monthly subscription each at Asaas, `legacy:<client_id>`,
 //   first due on the next day 20. Needs the customer from the action above.
+// - `"action": "mirror"` (#918): the subscriptions of the action above into `place_subscriptions`
+//   (origin `cms_contract`) and their charges, through the webhook's own functions
+//   (`mirrorContractSubscriptions`, `_shared/places-payment.ts`). Needs migration 20261008140000.
 //
-// Body `{ "dry_run": true }` (the default, also for an empty body): reads Asaas (GET only) and
-// answers what would be sent. `{ "dry_run": false }` writes. Idempotent: running it again changes
+// Body `{ "dry_run": true }` (the default, also for an empty body): reads Asaas (GET only), never
+// writes the database, and answers what would be sent. `{ "dry_run": false }` writes. Idempotent: running it again changes
 // nothing the first run did.
 //
 // Which Asaas: the `ASAAS_BASE_URL` secret, the same one the payment functions read; the answer
@@ -17,8 +20,8 @@
 
 import { requireAdmin } from '../_shared/auth-middleware.ts';
 import { createAdminClient } from '../_shared/supabase-client.ts';
-import { asaasFromEnv, json } from '../_shared/places-payment-runtime.ts';
-import { saoPauloDate } from '../_shared/places-payment.ts';
+import { asaasFromEnv, json, rpcOf } from '../_shared/places-payment-runtime.ts';
+import { mirrorContractSubscriptions, saoPauloDate } from '../_shared/places-payment.ts';
 import {
   LEGACY_COLUMNS,
   LEGACY_FEE_COLUMNS,
@@ -31,7 +34,7 @@ import {
   type LegacyFeeRow,
 } from '../_shared/places-legacy-customers.ts';
 
-const ACTIONS = ['customers', 'subscriptions'] as const;
+const ACTIONS = ['customers', 'subscriptions', 'mirror'] as const;
 
 Deno.serve(async (req: Request) => {
   if (req.method !== 'POST') return json(405, { error: 'method_not_allowed' });
@@ -48,10 +51,11 @@ Deno.serve(async (req: Request) => {
   const asaas = asaasFromEnv();
   if (!asaas) return json(503, { error: 'asaas_not_configured' });
 
-  const { data, error } = await createAdminClient()
+  const admin = createAdminClient();
+  const { data, error } = await admin
     .schema('core')
     .from('clients')
-    .select(action === 'subscriptions' ? LEGACY_FEE_COLUMNS : LEGACY_COLUMNS)
+    .select(action === 'customers' ? LEGACY_COLUMNS : LEGACY_FEE_COLUMNS)
     .eq('client_type', LEGACY_FILTER.client_type)
     .eq('status', LEGACY_FILTER.status)
     .eq('monthly_fee_cents', LEGACY_FILTER.monthly_fee_cents)
@@ -62,10 +66,17 @@ Deno.serve(async (req: Request) => {
     return json(500, { error: 'clients_read_failed' });
   }
 
+  const today = saoPauloDate(new Date());
   const results =
-    action === 'subscriptions'
-      ? await createLegacySubscriptions(asaas, (data ?? []) as unknown as LegacyFeeRow[], dryRun, saoPauloDate(new Date()))
-      : await registerLegacyCustomers(asaas, (data ?? []) as unknown as LegacyClientRow[], dryRun);
+    action === 'mirror'
+      ? await mirrorContractSubscriptions(
+          { asaas, admin: rpcOf(admin), today: () => today },
+          ((data ?? []) as unknown as LegacyFeeRow[]).map((r) => r.id),
+          dryRun,
+        )
+      : action === 'subscriptions'
+        ? await createLegacySubscriptions(asaas, (data ?? []) as unknown as LegacyFeeRow[], dryRun, today)
+        : await registerLegacyCustomers(asaas, (data ?? []) as unknown as LegacyClientRow[], dryRun);
   const counts: Record<string, number> = {};
   for (const r of results) counts[r.status] = (counts[r.status] ?? 0) + 1;
   // Counts only: the customers results carry name and address number.

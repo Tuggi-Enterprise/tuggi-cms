@@ -3527,12 +3527,15 @@
       },
       "plan": "Con historia · {count, plural, one {# mes} other {# meses}}",
       "planNoPeriod": "Con historia",
+      "planCmsContract": "Contrato CMS",
       "method": {
         "credit_card": "Tarjeta",
         "pix_automatic": "Pix",
-        "pix": "Pix"
+        "pix": "Pix",
+        "bank_slip_or_pix": "Boleto o Pix"
       },
       "subscriptionStatus": {
+        "pending_payment": "Esperando pago",
         "paid": "Al día",
         "past_due": "Atrasada",
         "expired": "Terminada",

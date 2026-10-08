@@ -76,7 +76,13 @@ import {
 } from './places-invoice.ts';
 import { handleTransferEvent, reconcileSentPayouts, type SentPayout } from './places-payout.ts';
 import { ACCESS_FROM_NAME, portalMail } from './places-portal-draft.ts';
-import { findLiveLegacySubscriptions, isLegacySubscriptionReference, nextLegacyDueDate } from './places-legacy-customers.ts';
+import {
+  LEGACY_ASAAS_SPACING_MS,
+  LEGACY_SUBSCRIPTION_PREFIX,
+  findLiveLegacySubscriptions,
+  isLegacySubscriptionReference,
+  nextLegacyDueDate,
+} from './places-legacy-customers.ts';
 export { nextLegacyDueDate };
 import {
   AsaasError,
@@ -85,6 +91,7 @@ import {
   type AsaasCreditCard,
   type AsaasCustomerAddress,
   type AsaasPayment,
+  type AsaasSubscription,
 } from './asaas.ts';
 
 // ─── dependencies ─────────────────────────────────────────────────────────────────────────────
@@ -1275,7 +1282,8 @@ type PaymentFn = 'confirm_place_charge' | 'fail_place_charge' | 'settle_place_re
 
 /** Demand 1: the function follows the RE-READ status. Null = nothing to apply. */
 export function paymentAction(eventType: string, status: string): PaymentFn | null {
-  if (PAID_STATUSES.has(status)) return 'confirm_place_charge';
+  // #918: a boleto of the CMS contract can be marked paid in cash in the Asaas panel.
+  if (PAID_STATUSES.has(status) || status === 'RECEIVED_IN_CASH') return 'confirm_place_charge';
   if (status === 'REFUNDED') return 'settle_place_refund';
   if (status === 'OVERDUE') return 'fail_place_charge';
   if (status === 'PENDING' && (eventType === 'PAYMENT_CREDIT_CARD_CAPTURE_REFUSED' || eventType === PIX_INSTRUCTION_REFUSED)) {
@@ -1337,6 +1345,8 @@ export async function handleAsaasWebhook(
   let fn: string;
   let args: Record<string, unknown>;
   let paid: AsaasPayment | null = null;
+  // #918: the charge is of a CMS contract (`legacy:<client_id>`): no access link, no fee sync, no NFS-e step.
+  let contract = false;
   try {
     if (PAYMENT_EVENTS.has(eventType) || eventType === PIX_INSTRUCTION_REFUSED) {
       const paymentId =
@@ -1345,10 +1355,17 @@ export async function handleAsaasWebhook(
           : str((b.payment as Record<string, unknown>)?.id);
       if (!paymentId) return reply(400, { error: 'invalid_body' });
       const p = await deps.asaas.getPayment(paymentId);
-      // #916: a charge of the legacy fee is not a portal plan: no database function, no alert.
-      if (await isLegacyCharge(deps, p)) {
-        log('legacy');
-        return reply(200, { outcome: 'legacy' });
+      // #918 (contract §3.8): a charge of the CMS contract subscription registers that subscription
+      // in place_subscriptions FIRST, then goes to the same function as any charge, with its uuid.
+      const legacy = await legacySubscriptionOf(deps, p);
+      let ids: { subscriptionId: string | null; providerSubscriptionId: string | null };
+      if (legacy) {
+        const reg = await registerContractSubscription(deps, legacy);
+        if (!reg.ok) return await contractRefused(deps, reg, eventId, eventType, log, { provider_subscription_id: legacy.id, provider_payment_id: p.id });
+        ids = { subscriptionId: reg.subscriptionId, providerSubscriptionId: legacy.id };
+        contract = true;
+      } else {
+        ids = await chargeIds(deps, p);
       }
       const action = paymentAction(eventType, (p.status ?? '').toUpperCase());
       if (!action) {
@@ -1356,7 +1373,7 @@ export async function handleAsaasWebhook(
         return reply(200, { outcome: 'stale' });
       }
       fn = action;
-      args = paymentArgs(action, eventId, eventType, p, deps.today(), await chargeIds(deps, p));
+      args = paymentArgs(action, eventId, eventType, p, deps.today(), ids);
       paid = p;
     } else if (eventType === PIX_AUTHORIZATION_ACTIVATED) {
       return await pixAuthorizationActivated(deps, b, eventId, eventType, log);
@@ -1399,27 +1416,36 @@ export async function handleAsaasWebhook(
       if (!subId) return reply(400, { error: 'invalid_body' });
       let ended = true;
       let reference: string | null = null;
+      let s: AsaasSubscription | null = null;
       try {
-        const s = await deps.asaas.getSubscription(subId);
+        s = await deps.asaas.getSubscription(subId);
         ended = !!s.deleted || s.status !== 'ACTIVE';
         reference = s.externalReference ?? null;
       } catch (e) {
         if (!(e instanceof AsaasError && e.status === 404)) throw e;
       }
-      if (isLegacySubscriptionReference(reference)) {
-        // #916: the legacy subscription ended (our own `cancel_legacy`, the migration or the operator).
-        log('legacy');
-        return reply(200, { outcome: 'legacy' });
-      }
       if (!ended) {
         log('stale:ACTIVE');
         return reply(200, { outcome: 'stale' });
+      }
+      let subscriptionId = subscriptionIdFromReference(reference);
+      if (s && isLegacySubscriptionReference(reference)) {
+        // #918: the CMS contract subscription ended (`cancel_legacy`, the migration, the operator):
+        // registered first, then cancelled like any other. A client whose fee already ended and that
+        // was never registered has no row to end (#916: nothing to record, no alert).
+        const reg = await registerContractSubscription(deps, s);
+        if (!reg.ok && reg.outcome === 'not_paying') {
+          log('legacy');
+          return reply(200, { outcome: 'legacy' });
+        }
+        if (!reg.ok) return await contractRefused(deps, reg, eventId, eventType, log, { provider_subscription_id: subId });
+        subscriptionId = reg.subscriptionId;
       }
       fn = 'cancel_place_subscription';
       args = {
         p_event_id: eventId,
         p_event_type: eventType,
-        p_subscription_id: subscriptionIdFromReference(reference),
+        p_subscription_id: subscriptionId,
         p_provider_subscription_id: subId,
         p_actor_kind: 'provider',
       };
@@ -1458,14 +1484,16 @@ export async function handleAsaasWebhook(
   // goes now, from the server, whether or not the tab that paid is still open. Only on `applied`:
   // a resend is `duplicate_event`, and the RECEIVED after the CONFIRMED of the same charge is
   // `duplicate_charge`, so one charge sends one e-mail (a second would expire the first link).
-  const applied = fn === 'confirm_place_charge' && outcome === 'applied';
+  // #918: a CMS contract has no portal owner to link, no voucher to sync, and its NFS-e is not
+  // scheduled here (the mirror records the invoices Asaas has; Finance shows "Sem nota" otherwise).
+  const applied = !contract && fn === 'confirm_place_charge' && outcome === 'applied';
   const submissionId = applied ? await submissionOfCharge(deps, args, eventId, eventType) : null;
   const link = applied && row?.submission_status === 'in_review' ? await accessLinkAfterPayment(deps, submissionId, args, eventId, eventType) : null;
   if (submissionId) await syncNextAmount(deps, submissionId, args);
   // #901/#914: the invoice, only now that the charge is recorded (`invoiceAfterPayment`: one-off, or a
   // subscription's first paid fee + its invoiceSettings). On a resend too (`duplicate_event`); a
   // transient Asaas failure answers 500 (the charge stays recorded; the resend is a duplicate).
-  if (fn === 'confirm_place_charge' && paid && !ALERT_OUTCOMES.has(outcome)) {
+  if (!contract && fn === 'confirm_place_charge' && paid && !ALERT_OUTCOMES.has(outcome)) {
     try {
       await invoiceAfterPayment(deps, [paid], (args.p_subscription_id as string | null) ?? null, paid.subscription ?? null);
     } catch (e) {
@@ -1955,16 +1983,177 @@ async function legacyPaidUntil(deps: Deps, clientId: string): Promise<string | n
   return legacyEndsOn(payments, deps.today());
 }
 
-/** Is this re-read charge one of the legacy fee? By its reference, or by its subscription's when it has none of ours. */
-async function isLegacyCharge(deps: Deps, p: AsaasPayment): Promise<boolean> {
-  if (isLegacySubscriptionReference(p.externalReference)) return true;
-  if (subscriptionIdFromReference(p.externalReference) || !p.subscription) return false;
+/**
+ * The CMS contract subscription of a re-read charge (`legacy:<client_id>`, #917), re-read from Asaas:
+ * by the charge's reference, or by its subscription's when it has none of ours. Null = not one.
+ * A charge that says `legacy:` and whose subscription cannot be read throws (500, Asaas resends):
+ * the registration needs the re-read. One with no reference of ours whose subscription read fails is
+ * not legacy (the portal path, as before #916); the `mirror` action recovers it if it was.
+ */
+async function legacySubscriptionOf(deps: Deps, p: AsaasPayment): Promise<AsaasSubscription | null> {
+  const byReference = isLegacySubscriptionReference(p.externalReference);
+  if (!p.subscription || (!byReference && subscriptionIdFromReference(p.externalReference))) return null;
+  let s: AsaasSubscription;
   try {
-    return isLegacySubscriptionReference((await deps.asaas.getSubscription(p.subscription)).externalReference);
-  } catch {
-    // Not knowing is not legacy: the charge goes on the portal path, as before #916.
-    return false;
+    s = await deps.asaas.getSubscription(p.subscription);
+  } catch (e) {
+    if (byReference) throw e;
+    return null;
   }
+  return isLegacySubscriptionReference(s.externalReference) ? s : null;
+}
+
+export type ContractRegistration =
+  | { ok: true; outcome: 'inserted' | 'unchanged'; subscriptionId: string }
+  | {
+      ok: false;
+      /** `db_error` is transient or our defect (`code`); the rest are answers that write nothing. */
+      outcome: 'bad_reference' | 'not_paying' | 'no_mirror' | 'subscription_mismatch' | 'amount_mismatch' | 'db_error';
+      code?: string | null;
+    };
+
+/**
+ * `partner.register_contract_place_subscription` (contract §3.8) with the re-read subscription:
+ * `customer`, `id`, `value` x 100, and the client of `legacy:<client_id>`. Idempotent by `sub_`.
+ * Never throws and never alerts: the webhook and the `mirror` action decide what a refusal means.
+ */
+export async function registerContractSubscription(deps: Pick<Deps, 'admin'>, s: AsaasSubscription): Promise<ContractRegistration> {
+  const clientId = (s.externalReference ?? '').trim().slice(LEGACY_SUBSCRIPTION_PREFIX.length).toLowerCase();
+  if (!isUuid(clientId)) return { ok: false, outcome: 'bad_reference' };
+  const { data, error } = await deps.admin('partner', 'register_contract_place_subscription', {
+    p_client_id: clientId,
+    p_provider_customer_id: s.customer ?? null,
+    p_provider_subscription_id: s.id,
+    p_amount_cents: toCents(s.value),
+  });
+  if (error) {
+    if (error.code === 'TGP10') return { ok: false, outcome: 'not_paying' };
+    if (error.code === 'TGP01') return { ok: false, outcome: 'no_mirror' };
+    return { ok: false, outcome: 'db_error', code: error.code ?? null };
+  }
+  const row = firstRow<{ outcome?: string; subscription_id?: string }>(data);
+  if ((row?.outcome === 'inserted' || row?.outcome === 'unchanged') && isUuid(row.subscription_id)) {
+    return { ok: true, outcome: row.outcome, subscriptionId: row.subscription_id };
+  }
+  if (row?.outcome === 'subscription_mismatch' || row?.outcome === 'amount_mismatch') return { ok: false, outcome: row.outcome };
+  return { ok: false, outcome: 'db_error', code: 'unexpected_outcome' };
+}
+
+/** Alert name of a registration that wrote nothing. */
+const CONTRACT_ALERTS: Record<string, string> = {
+  bad_reference: 'unknown_subscription',
+  not_paying: 'legacy_not_paying',
+  no_mirror: 'legacy_no_mirror',
+  subscription_mismatch: 'subscription_mismatch',
+  amount_mismatch: 'amount_mismatch',
+};
+
+/**
+ * The webhook's answer to a registration that wrote nothing. A database error is a 500 (Demand 7:
+ * nothing was claimed, so the resend reprocesses it); a business answer alerts and is a 200.
+ */
+async function contractRefused(
+  deps: Deps,
+  reg: Extract<ContractRegistration, { ok: false }>,
+  eventId: string,
+  eventType: string,
+  log: (outcome: string) => void,
+  ids: Record<string, string>,
+): Promise<Reply> {
+  if (reg.outcome === 'db_error') {
+    console.error('[places-payment-webhook]', eventId, eventType, 'db_error', reg.code ?? 'unknown');
+    if (reg.code === 'TGP22') await deps.alert('webhook_tgp22', { event_id: eventId, event_type: eventType, function: 'register_contract_place_subscription' });
+    return reply(500, { error: 'db_error' });
+  }
+  await deps.alert(CONTRACT_ALERTS[reg.outcome], { event_id: eventId, event_type: eventType, function: 'register_contract_place_subscription', ...ids });
+  log(reg.outcome);
+  return reply(200, { outcome: reg.outcome });
+}
+
+// ─── action `mirror` of places-legacy-customers: the CMS contracts already at Asaas (#918) ──────
+
+export type ContractMirrorStatus = 'would_register' | 'registered' | 'no_subscription' | 'refused' | 'failed';
+
+/** Client id, Asaas ids, outcomes and counts only: never a name, a document or an e-mail. */
+export type ContractMirrorOutcome = {
+  client_id: string;
+  status: ContractMirrorStatus;
+  subscription_id?: string;
+  /** `register_contract_place_subscription`: inserted | unchanged | the refusal. */
+  register?: string;
+  /** Dry run: charges by the function that would record them (`none` = still pending). Real run: by outcome. */
+  charges?: Record<string, number>;
+  code?: string | null;
+};
+
+/** Event id of a recovered charge: one per charge and status, so a rerun is a `duplicate_event`. */
+export const mirrorEventId = (p: AsaasPayment): string => `mirror:${p.id}:${(p.status ?? '').toUpperCase()}`;
+export const MIRROR_EVENT_TYPE = 'MIRROR';
+
+const pause = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
+
+/**
+ * The webhook events of the CMS contracts that passed before #918 (contract §3.8): for each paying
+ * client, its live `legacy:<client_id>` subscriptions are registered, then every charge Asaas holds
+ * goes to the function the webhook would call, oldest due date first, under `mirrorEventId`.
+ * Dry run (the default): Asaas GETs only, no database call. Idempotent: the registration by `sub_`,
+ * each charge by its event id (and by `pay_` in the functions). `spacingMs` between two Asaas calls
+ * (the rate limit is per account: `LEGACY_ASAAS_SPACING_MS`). An error on one client is its `failed`.
+ */
+export async function mirrorContractSubscriptions(
+  deps: Pick<Deps, 'asaas' | 'admin' | 'today'>,
+  clientIds: string[],
+  dryRun: boolean,
+  opts: { spacingMs?: number; sleep?: (ms: number) => Promise<void> } = {},
+): Promise<ContractMirrorOutcome[]> {
+  const spacing = opts.spacingMs ?? LEGACY_ASAAS_SPACING_MS;
+  const sleep = opts.sleep ?? pause;
+  let asaasCalls = 0;
+  const paced = async <T>(call: () => Promise<T>): Promise<T> => {
+    if (asaasCalls++ > 0) await sleep(spacing);
+    return await call();
+  };
+  const outcomes: ContractMirrorOutcome[] = [];
+  for (const clientId of clientIds) {
+    try {
+      const live = await paced(() => findLiveLegacySubscriptions(deps.asaas, clientId));
+      if (!live.length) {
+        outcomes.push({ client_id: clientId, status: 'no_subscription' });
+        continue;
+      }
+      for (const s of live) {
+        const payments = (await paced(() => deps.asaas.listSubscriptionPayments(s.id)))
+          .filter((p) => !p.deleted)
+          .sort((a, b) => (a.dueDate ?? '').localeCompare(b.dueDate ?? ''));
+        const charges: Record<string, number> = {};
+        const count = (k: string) => (charges[k] = (charges[k] ?? 0) + 1);
+        if (dryRun) {
+          for (const p of payments) count(paymentAction(MIRROR_EVENT_TYPE, (p.status ?? '').toUpperCase()) ?? 'none');
+          outcomes.push({ client_id: clientId, status: 'would_register', subscription_id: s.id, charges });
+          continue;
+        }
+        const reg = await registerContractSubscription(deps, s);
+        if (!reg.ok) {
+          outcomes.push({ client_id: clientId, status: reg.outcome === 'db_error' ? 'failed' : 'refused', subscription_id: s.id, register: reg.outcome, code: reg.code });
+          continue;
+        }
+        const ids = { subscriptionId: reg.subscriptionId, providerSubscriptionId: s.id };
+        for (const p of payments) {
+          const action = paymentAction(MIRROR_EVENT_TYPE, (p.status ?? '').toUpperCase());
+          if (!action) {
+            count('pending');
+            continue;
+          }
+          const { data, error } = await deps.admin('partner', action, paymentArgs(action, mirrorEventId(p), MIRROR_EVENT_TYPE, p, deps.today(), ids));
+          count(error ? `db_error:${error.code ?? 'unknown'}` : `${action}:${firstRow<{ outcome?: string }>(data)?.outcome ?? 'unknown'}`);
+        }
+        outcomes.push({ client_id: clientId, status: 'registered', subscription_id: s.id, register: reg.outcome, charges });
+      }
+    } catch (e) {
+      outcomes.push({ client_id: clientId, status: 'failed', code: e instanceof AsaasError ? (e.status ? `http ${e.status}` : 'network') : 'unexpected' });
+    }
+  }
+  return outcomes;
 }
 
 /**

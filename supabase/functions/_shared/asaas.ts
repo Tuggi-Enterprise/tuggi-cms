@@ -74,6 +74,8 @@ export type AsaasSubscription = {
   id: string;
   status: string;
   value: number;
+  /** `cus_…` (docs.asaas.com/reference/recuperar-uma-unica-assinatura, conferred 2026-10-08). */
+  customer?: string | null;
   nextDueDate?: string | null;
   endDate?: string | null;
   cycle?: string;

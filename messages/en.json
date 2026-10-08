@@ -3545,12 +3545,15 @@
       },
       "plan": "With story · {count, plural, one {# month} other {# months}}",
       "planNoPeriod": "With story",
+      "planCmsContract": "CMS contract",
       "method": {
         "credit_card": "Card",
         "pix_automatic": "Pix",
-        "pix": "Pix"
+        "pix": "Pix",
+        "bank_slip_or_pix": "Bank slip or Pix"
       },
       "subscriptionStatus": {
+        "pending_payment": "Awaiting payment",
         "paid": "Up to date",
         "past_due": "Past due",
         "expired": "Ended",

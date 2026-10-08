@@ -117,15 +117,16 @@ export function baseDeps(asaas: NonNullable<ReturnType<typeof asaasFromEnv>>): D
       const { data, error } = await admin
         .schema('partner')
         .from('place_subscriptions')
-        .select('id, provider_subscription_id, provider_customer_id, canceled_at')
+        .select('id, provider_subscription_id, provider_customer_id, canceled_at, origin')
         .not('provider_customer_id', 'is', null)
         .or(`canceled_at.is.null,canceled_at.gt.${since}`);
       if (error) throw new Error(`invoice targets read ${error.code}`);
       // deno-lint-ignore no-explicit-any
       return (data ?? []).map((r: any) => ({
         subscription_id: r.id,
-        // an ended plan's subscription is gone at Asaas: only its invoices are re-read
-        provider_subscription_id: r.canceled_at ? null : r.provider_subscription_id ?? null,
+        // an ended plan's subscription is gone at Asaas: only its invoices are re-read. #918: neither
+        // invoiceSettings nor a scheduled NFS-e on a CMS contract; its invoices are re-read all the same.
+        provider_subscription_id: r.canceled_at || r.origin === 'cms_contract' ? null : r.provider_subscription_id ?? null,
         provider_customer_id: r.provider_customer_id,
       }));
     },

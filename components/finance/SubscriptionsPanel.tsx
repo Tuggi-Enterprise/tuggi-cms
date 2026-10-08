@@ -272,9 +272,16 @@ export function SubscriptionsPanel({ focusSubscriptionId }: { focusSubscriptionI
                             {open ? <ChevronDown className="h-4 w-4" aria-hidden="true" /> : <ChevronRight className="h-4 w-4" aria-hidden="true" />}
                             {sub.placeName}
                           </button>
+                          {sub.clientName && sub.clientName !== sub.placeName && (
+                            <span className={`block pl-5 text-xs font-normal ${DIM}`}>{sub.clientName}</span>
+                          )}
                         </th>
                         <td className={`${CELL} whitespace-nowrap`}>
-                          {sub.billingPeriod ? t('plan', { count: sub.billingPeriod }) : t('planNoPeriod')}
+                          {sub.origin === 'cms_contract'
+                            ? t('planCmsContract')
+                            : sub.billingPeriod
+                              ? t('plan', { count: sub.billingPeriod })
+                              : t('planNoPeriod')}
                         </td>
                         <td className={CELL}>{sub.paymentMethod ? t(`method.${sub.paymentMethod}`) : '—'}</td>
                         <td className={CELL}>

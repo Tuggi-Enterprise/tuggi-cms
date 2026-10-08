@@ -68,8 +68,10 @@ function charge(over: Partial<PlaceCharge> = {}): PlaceCharge {
 function sub(over: Partial<PlaceSubscription> = {}): PlaceSubscription {
   return {
     id: over.id ?? 'sub-1',
-    acceptanceId: 'acc-1',
+    origin: over.origin ?? 'portal',
+    acceptanceId: over.origin === 'cms_contract' ? null : 'acc-1',
     clientId: over.clientId === undefined ? 'client-1' : over.clientId,
+    clientName: over.clientName ?? null,
     attractionId: null,
     attractionEntityKind: null,
     placeName: over.placeName ?? 'Baires Bistrô',
@@ -77,6 +79,7 @@ function sub(over: Partial<PlaceSubscription> = {}): PlaceSubscription {
     billingPeriod: 1,
     paymentMethod: 'credit_card',
     status: over.status ?? 'paid',
+    createdAt: over.createdAt ?? null,
     paidAt: over.paidAt === undefined ? '2026-08-10T15:00:00Z' : over.paidAt,
     paidThrough: '2026-09-10',
     renews: true,
@@ -319,4 +322,37 @@ test('#902: receivedByClient soma duas assinaturas do mesmo cliente', () => {
     sub({ id: 'b', clientId: 'c1', charges: [charge({ amountCents: 2_000 })] }),
   ])
   assert.equal(map.get('c1'), 3_000)
+})
+
+// ── #918: the CMS contract subscription (origin cms_contract, contract §3.8) ──────────────────
+
+test('#918 §3.8: a CMS contract runs before its first paid charge: in the month table from its creation, and in the recurring total', () => {
+  const contract = sub({ id: 'k', origin: 'cms_contract', status: 'pending_payment', paidAt: null, createdAt: '2026-10-08T22:00:00Z', charges: [] })
+  assert.equal(activeInMonth(contract, '2026-10'), true)
+  assert.equal(activeInMonth(contract, '2026-09'), false, 'not before the row exists')
+  const totals = summarizePlaceMonth({ month: '2026-10', subscriptions: [contract], payoutsPaid: [] })
+  assert.equal(totals.recurringCents, 10_000)
+  assert.equal(totals.receivedCents, 0)
+  // a portal pending_payment is a checkout draft: out of both
+  const draft = sub({ id: 'd', status: 'pending_payment', paidAt: null, createdAt: '2026-10-08T22:00:00Z', charges: [] })
+  assert.equal(activeInMonth(draft, '2026-10'), false)
+  assert.equal(summarizePlaceMonth({ month: '2026-10', subscriptions: [draft], payoutsPaid: [] }).recurringCents, 0)
+})
+
+test('#918 §3.8: a paid CMS contract charge counts in received and inflow, and in the filters, like any charge', () => {
+  const contract = sub({
+    id: 'k',
+    origin: 'cms_contract',
+    paidAt: '2026-10-19T15:00:00Z',
+    charges: [charge({ providerPaymentId: 'pay_oct', paidOn: '2026-10-19', dueDate: '2026-10-20' }), charge({ providerPaymentId: 'pay_sep', status: 'overdue', paidOn: null, dueDate: '2026-09-20' })],
+  })
+  const totals = summarizePlaceMonth({ month: '2026-10', subscriptions: [contract], payoutsPaid: [] })
+  assert.equal(totals.receivedCents, 10_000)
+  assert.equal(totals.inflowCents, 10_000)
+  assert.equal(totals.recurringCents, 10_000)
+  assert.equal(matchesFilter(contract, 'overdue'), true)
+  assert.equal(matchesFilter(contract, 'without_invoice'), true)
+  assert.equal(matchesFilter(sub({ origin: 'cms_contract', canceledAt: '2026-11-01T00:00:00Z' }), 'canceled'), true)
+  // and in the client's real revenue (profitability)
+  assert.equal(receivedByClient([contract]).get('client-1'), 10_000)
 })

@@ -2146,9 +2146,8 @@ export async function loadPlaceSubscriptions(): Promise<PlaceSubscription[] | nu
     partner
       .from('place_subscriptions')
       .select(
-        'id, acceptance_id, status, payment_method, paid_at, paid_through, renews, renewal_amount_cents, canceled_at, expired_at, early_termination_fee_cents, early_termination_paid_at, place_acceptances(client_id, legal_name, email, billing_period, place_submissions(attraction_id))'
+        'id, origin, acceptance_id, legacy_client_id, legacy_submission_id, status, payment_method, created_at, paid_at, paid_through, renews, renewal_amount_cents, canceled_at, expired_at, early_termination_fee_cents, early_termination_paid_at, place_acceptances(client_id, legal_name, email, billing_period, place_submissions(attraction_id)), contract_submission:place_submissions!place_subscriptions_legacy_submission_fkey(attraction_id)'
       )
-      .neq('status', 'pending_payment')
       .limit(2000),
     partner
       .from('place_subscription_charges')
@@ -2159,14 +2158,34 @@ export async function loadPlaceSubscriptions(): Promise<PlaceSubscription[] | nu
   if (subscriptions.error || charges.error) return null
 
   type Row = Record<string, any>
-  const rows = (subscriptions.data ?? []) as Row[]
-  const attractionIds = Array.from(
-    new Set(
-      rows
-        .map((row) => row.place_acceptances?.place_submissions?.attraction_id as string | null)
-        .filter((id): id is string => typeof id === 'string')
-    )
+  // `pending_payment` do portal é rascunho de checkout; o do contrato do CMS (#918) é contrato que
+  // já corre antes da 1ª cobrança paga. Filtrado aqui, e não no PostgREST, para não depender de `or`.
+  const rows = ((subscriptions.data ?? []) as Row[]).filter(
+    (row) => row.status !== 'pending_payment' || row.origin === 'cms_contract'
   )
+  // O POI: pelo aceite no portal; no contrato do CMS, pelo envio espelho (`legacy_submission_id`, §3.8).
+  const attractionOf = (row: Row): string | null =>
+    row.place_acceptances?.place_submissions?.attraction_id ?? row.contract_submission?.attraction_id ?? null
+  const attractionIds = Array.from(
+    new Set(rows.map(attractionOf).filter((id): id is string => typeof id === 'string'))
+  )
+
+  // O nome do cliente do contrato do CMS: não há aceite com razão social, há o cadastro.
+  const contractClientIds = Array.from(
+    new Set(rows.map((row) => row.legacy_client_id as string | null).filter((id): id is string => typeof id === 'string'))
+  )
+  const clientNames = new Map<string, string>()
+  for (const batch of chunk(contractClientIds)) {
+    const { data, error } = await getSupabaseService()
+      .schema('partner')
+      .from('clients')
+      .select('id, name, company_name')
+      .in('id', batch)
+    if (error) return null
+    for (const row of (data ?? []) as Row[]) {
+      clientNames.set(String(row.id), String(row.name ?? row.company_name ?? row.id))
+    }
+  }
 
   const attractions = new Map<string, { name: string; partnerClientId: string | null; entityKind: string | null }>()
   for (const batch of chunk(attractionIds)) {
@@ -2203,21 +2222,26 @@ export async function loadPlaceSubscriptions(): Promise<PlaceSubscription[] | nu
 
   return rows.map((row) => {
     const acceptance = row.place_acceptances ?? {}
-    const attractionId: string | null = acceptance.place_submissions?.attraction_id ?? null
+    const attractionId = attractionOf(row)
     const attraction = attractionId ? attractions.get(attractionId) : undefined
+    const contractClient: string | null = row.legacy_client_id ?? null
+    const clientName: string | null = contractClient ? clientNames.get(contractClient) ?? null : acceptance.legal_name ?? null
     return {
       id: String(row.id),
-      acceptanceId: String(row.acceptance_id),
-      // A mesma coalescência da view: o aceite por link carrega o cliente; o do portal chega a
-      // ele pelo POI publicado.
-      clientId: acceptance.client_id ?? attraction?.partnerClientId ?? null,
+      origin: row.origin === 'cms_contract' ? 'cms_contract' : 'portal',
+      acceptanceId: row.acceptance_id ?? null,
+      // A mesma coalescência da view: o aceite por link carrega o cliente; o contrato do CMS, o
+      // `legacy_client_id`; o do portal chega a ele pelo POI publicado.
+      clientId: acceptance.client_id ?? contractClient ?? attraction?.partnerClientId ?? null,
+      clientName,
       attractionId,
       attractionEntityKind: attraction?.entityKind ?? null,
-      placeName: attraction?.name ?? String(acceptance.legal_name ?? row.id),
+      placeName: attraction?.name ?? String(clientName ?? row.id),
       contactEmail: String(acceptance.email ?? ''),
       billingPeriod: typeof acceptance.billing_period === 'number' ? acceptance.billing_period : null,
       paymentMethod: row.payment_method ?? null,
       status: row.status,
+      createdAt: row.created_at ?? null,
       paidAt: row.paid_at ?? null,
       paidThrough: saoPauloDate(row.paid_through ?? null),
       renews: row.renews !== false,
@@ -2288,7 +2312,9 @@ export async function loadFinancePendingItems(): Promise<PendingItem[] | null> {
   // `invoice_error` cobre `ERROR` e `CANCELLATION_DENIED`; a tela diz qual, e quem sabe é a nota.
   const invoiceStatus = new Map((loadedInvoices ?? []).map((invoice) => [invoice.providerInvoiceId, invoice.status]))
   const bySubscription = new Map(subscriptions.map((sub) => [sub.id, sub]))
-  const byAcceptance = new Map(subscriptions.map((sub) => [sub.acceptanceId, sub]))
+  const byAcceptance = new Map(
+    subscriptions.filter((sub) => sub.acceptanceId !== null).map((sub) => [sub.acceptanceId as string, sub])
+  )
   const byClient = new Map(
     subscriptions.filter((sub) => sub.clientId !== null).map((sub) => [sub.clientId as string, sub])
   )

@@ -437,29 +437,34 @@ test('#916: the sweep ends a legacy subscription still live after the database e
 
 // ─── payment: webhook ────────────────────────────────────────────────────────────────────────
 
-test('#916: a charge of the legacy subscription answers 200 legacy — no database call, no unknown_subscription alert', async () => {
-  for (const p of [
-    { id: 'pay_l', status: 'RECEIVED', value: 100, subscription: 'sub_legacy', externalReference: LEGACY_REF, customer: 'cus_1' },
+// #918 replaced the #916 discard: the legacy charge is recorded (details in edge-places-contract-subscription.test.ts).
+test('#918 (was #916): a charge of the legacy subscription registers the CMS contract, then goes to the charge function — no unknown_subscription alert', async () => {
+  for (const [p, fn] of [
+    [{ id: 'pay_l', status: 'RECEIVED', value: 100, subscription: 'sub_legacy', externalReference: LEGACY_REF, customer: 'cus_1' }, 'confirm_place_charge'],
     // no reference on the charge: the subscription's says it
-    { id: 'pay_l', status: 'OVERDUE', value: 100, subscription: 'sub_legacy', externalReference: null, customer: 'cus_1' },
-  ]) {
-    const asaas = fakeAsaas([at('GET', '/payments/pay_l', 200, p), at('GET', '/subscriptions/sub_legacy', 200, legacySub)])
-    const db = fakeDb({})
+    [{ id: 'pay_l', status: 'OVERDUE', value: 100, subscription: 'sub_legacy', externalReference: null, customer: 'cus_1' }, 'fail_place_charge'],
+  ] as const) {
+    const asaas = fakeAsaas([at('GET', '/payments/pay_l', 200, p), at('GET', '/subscriptions/sub_legacy', 200, { ...legacySub, customer: 'cus_1' })])
+    const db = fakeDb({
+      register_contract_place_subscription: { data: [{ outcome: 'unchanged', subscription_id: '77777777-6666-4555-8444-333333333333', submission_id: SUBMISSION }] },
+      [fn]: { data: [{ outcome: 'applied' }] },
+    })
     const { d, alerts } = deps(asaas, db)
     const r = await pay.handleAsaasWebhook(d, TOKEN, TOKEN, { id: 'evt_l', event: 'PAYMENT_RECEIVED', payment: { id: 'pay_l' } })
-    assert.deepEqual(r, { status: 200, body: { outcome: 'legacy' } })
-    assert.equal(db.calls.length, 0)
+    assert.deepEqual(r, { status: 200, body: { outcome: 'applied' } })
+    assert.deepEqual(db.calls.map((c) => c.fn), ['register_contract_place_subscription', fn])
     assert.equal(alerts.length, 0)
   }
 })
 
-test('#916: SUBSCRIPTION_DELETED of the legacy subscription answers 200 legacy, no alert', async () => {
-  const asaas = fakeAsaas([at('GET', '/subscriptions/sub_legacy', 200, { ...legacySub, deleted: true })])
-  const db = fakeDb({})
+test('#918 (was #916): SUBSCRIPTION_DELETED of a legacy subscription never registered, whose fee already ended (cancel_legacy), answers 200 legacy, no alert', async () => {
+  const asaas = fakeAsaas([at('GET', '/subscriptions/sub_legacy', 200, { ...legacySub, customer: 'cus_1', deleted: true })])
+  const db = fakeDb({ register_contract_place_subscription: { error: { code: 'TGP10', details: 'not_paying' } } })
   const { d, alerts } = deps(asaas, db)
   const r = await pay.handleAsaasWebhook(d, TOKEN, TOKEN, { id: 'evt_d', event: 'SUBSCRIPTION_DELETED', subscription: { id: 'sub_legacy' } })
   assert.deepEqual(r, { status: 200, body: { outcome: 'legacy' } })
-  assert.equal(db.calls.length + alerts.length, 0)
+  assert.deepEqual(db.calls.map((c) => c.fn), ['register_contract_place_subscription'])
+  assert.equal(alerts.length, 0)
 })
 
 test('#916: a portal charge still goes to the database; the legacy check never turns a failed subscription read into a 500', async () => {

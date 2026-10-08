@@ -364,9 +364,11 @@ test('#917: the calls to Asaas are spaced one second apart between clients, neve
   assert.deepEqual(log, ['sleep 1000 after 2 calls', 'sleep 1000 after 4 calls'])
 })
 
-test('#917 index.ts: action subscriptions, unknown action refused, today in São Paulo', () => {
+test('#917/#918 index.ts: actions subscriptions and mirror, unknown action refused, today in São Paulo', () => {
   const src = readFileSync(resolve(FUNCTIONS, 'places-legacy-customers/index.ts'), 'utf8')
-  assert.match(src, /ACTIONS = \['customers', 'subscriptions'\]/)
+  assert.match(src, /ACTIONS = \['customers', 'subscriptions', 'mirror'\]/)
   assert.match(src, /error: 'unknown_action'/)
-  assert.match(src, /createLegacySubscriptions\(asaas,.*saoPauloDate\(new Date\(\)\)\)/)
+  assert.match(src, /const today = saoPauloDate\(new Date\(\)\)/)
+  assert.match(src, /createLegacySubscriptions\(asaas,.*dryRun, today\)/)
+  assert.match(src, /mirrorContractSubscriptions\(/)
 })
