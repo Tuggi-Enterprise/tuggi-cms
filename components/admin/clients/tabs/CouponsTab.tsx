@@ -1,7 +1,7 @@
 'use client'
 
 import { useState } from 'react'
-import { Gift, AlertCircle } from 'lucide-react'
+import { Gift } from 'lucide-react'
 import Link from 'next/link'
 import { useTranslations } from 'next-intl'
 import { CouponsListAdmin } from '@/components/admin/CouponsListAdmin'
@@ -61,22 +61,20 @@ export function CouponsTab({ clientId }: ClientEditorTabProps) {
   // handler da tag (renderiza o <Link>) — sem isso, t() parseia a ICU e quebra com
   // FORMATTING_ERROR ("context variable link was not provided").
   const banner = t.rich('scopedBanner', {
-    link: (chunks) => <Link href="/admin/coupons" className="font-bold underline">{chunks}</Link>,
+    link: (chunks) => <Link href="/admin/coupons" className="font-semibold underline">{chunks}</Link>,
   })
 
   return (
-    <div className="space-y-6 max-w-5xl mx-auto">
-      <div className="flex items-center gap-2 rounded-xl border border-tuggi-blue/20 bg-tuggi-blue/5 px-4 py-3 text-xs text-tuggi-blue">
-        <AlertCircle className="w-4 h-4 shrink-0" />
-        <p>{banner}</p>
-      </div>
-
+    <div className="space-y-4 max-w-5xl mx-auto">
       <CouponsListAdmin
         key={reloadKey}
         ownerClientId={clientId}
         onCreateNew={openCreate}
         onEditCoupon={openEdit}
       />
+
+      {/* A line under the list, not a band over it (#911): it is where the other coupons are. */}
+      <p className="text-xs text-gray-600">{banner}</p>
 
       <CouponFormDrawer
         isOpen={drawerOpen}

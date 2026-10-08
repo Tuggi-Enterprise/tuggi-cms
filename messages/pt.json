@@ -2661,13 +2661,11 @@
         "profile": "Perfil",
         "fiscal": "Fiscal & Pagamentos",
         "contract": "Contrato",
-        "team": "Equipe",
-        "appusers": "Usuários do App",
+        "people": "Pessoas",
         "places": "Locais",
         "coupons": "Cupons",
         "configuration": "Configuração",
-        "comingSoon": "Em breve",
-        "soonBadge": "em breve",
+        "afterSave": "Disponível depois de salvar",
         "afterApproval": "Disponível depois de aprovar"
       },
       "save": "Salvar",
@@ -2720,8 +2718,8 @@
     "profile": {
       "sections": {
         "identity": "Identidade",
-        "attribution": "Atribuição (parceiro / consumer-facing)",
-        "attributionHelp": "Campos usados nas telas do app onde o parceiro aparece (atribuição de cupom, página de download, etc.).",
+        "attribution": "Aparência no app",
+        "attributionEmpty": "Aparência no app: avatar, @ e bio (vazio)",
         "address": "Endereço"
       },
       "fields": {
@@ -2729,7 +2727,7 @@
         "companyName": "Razão social",
         "email": "Email principal",
         "phone": "Telefone",
-        "slug": "Slug (URL pública /d/...)",
+        "slug": "Slug (endereço /d/…)",
         "slugAutoPlaceholder": "gerado automaticamente",
         "website": "Website",
         "industry": "Indústria",
@@ -2756,8 +2754,8 @@
         "venue": "Local"
       },
       "qr": {
-        "title": "QR Code de Atribuição",
-        "subtitle": "Link universal de download com atribuição ao cliente. Imprima em banners, vouchers, cartões.",
+        "title": "Link público e QR",
+        "subtitle": "Para imprimir em banner, voucher e cartão.",
         "targetUrl": "URL alvo",
         "noSlugWarning": "Sem slug definido — o QR vai usar o fallback legado /download?ID={id}. Defina um slug acima para uma URL amigável /d/'{slug}'.",
         "scanLabel": "Escaneie para atribuir downloads",
@@ -2769,7 +2767,7 @@
       },
       "material": {
         "title": "Material de divulgação",
-        "help": "O que o parceiro pediu para exibir o Tuggi no estabelecimento. O primeiro pedido vem da proposta; os seguintes são reposições que a equipe registra aqui.",
+        "help": "O primeiro pedido vem da proposta. Reposição se registra aqui.",
         "loading": "Carregando os pedidos…",
         "empty": "Nenhum pedido registrado para este parceiro.",
         "notesPlaceholder": "Observação do pedido (opcional) — endereço de entrega, prazo combinado…",
@@ -2840,22 +2838,22 @@
       }
     },
     "team": {
-      "section": "Usuários vinculados",
+      "section": "Logins no CMS",
+      "saveFirst": "Salve o cliente para criar logins.",
       "linkUser": "Vincular usuário",
       "user": "Usuário",
       "role": "Papel",
       "actions": "Ações",
+      "unlinkLabel": "Desvincular {who}",
       "userSelect": "Selecionar…",
       "userLoading": "Carregando…",
       "confirmLink": "Confirmar vínculo",
-      "emptyTitle": "Cliente ainda não salvo",
-      "emptyDesc": "Salve o cliente primeiro para vincular usuários CMS.",
       "noLinkedUsers": "Nenhum usuário vinculado a este cliente",
-      "coordinatorTitle": "Programa de afiliados",
+      "coordinatorTitle": "Rede de afiliados",
       "coordinatorHelp": "Um coordenador gerencia empresas-filhas e vê os cadastros atribuídos a elas.",
       "isCoordinator": "É coordenador de afiliados",
       "parentCoordinator": "Coordenador (guarda-chuva)",
-      "parentCoordinatorHelp": "Vincula esta empresa sob um coordenador. Só admin.",
+      "parentCoordinatorHelp": "Vincula esta empresa sob um coordenador.",
       "noParent": "Nenhum (empresa independente)",
       "createLogin": "Criar login",
       "createLoginTitle": "Novo login de acesso",
@@ -2868,7 +2866,7 @@
       "roles": {
         "viewer": "Visualizador",
         "manager": "Gerente",
-        "owner": "Owner"
+        "owner": "Dono"
       },
       "errors": {
         "loadFailed": "Falha ao carregar usuários",
@@ -2884,10 +2882,11 @@
       }
     },
     "appUsers": {
-      "section": "Usuários do app vinculados",
+      "section": "Usuários do app",
       "linkUser": "Vincular usuário",
       "user": "Usuário",
       "actions": "Ações",
+      "unlinkLabel": "Desvincular {who}",
       "searchPlaceholder": "Buscar por nome ou email…",
       "noResults": "Nenhum usuário do app encontrado",
       "noLinkedUsers": "Nenhum usuário do app vinculado a este cliente",
@@ -2905,7 +2904,8 @@
       "emptyTitle": "Cliente ainda não salvo",
       "emptyHeader": "Cupons",
       "emptyDesc": "Salve o cliente para começar a vincular cupons.",
-      "scopedBanner": "Apenas cupons atribuídos a este cliente. Cupons genéricos (sem owner) aparecem só na <link>busca global</link>."
+      "scopedBanner": "Só os cupons deste cliente. Os outros estão em <link>Cupons</link>.",
+      "emptyScoped": "Nenhum cupom para este cliente."
     },
     "board": {
       "title": "Quadro",
@@ -3036,6 +3036,7 @@
       },
       "acceptance": {
         "title": "Aceite eletrônico",
+        "termLabel": "Termo",
         "terms": "Termo {version} · aceito em {date}",
         "hash": "Hash do termo",
         "signer": "Signatário",
@@ -4170,8 +4171,7 @@
     },
     "clientPlaces": {
       "title": "Locais que aparecem no app",
-      "body": "Cada local abaixo é um POI ligado a este cliente. O conteúdo dele — descrição, áudio, trigger points e polígono — se edita no editor de POI; aqui ficam a ligação, o que falta e a porta de entrada.",
-      "pipelineLink": "Ver a esteira desta parceria",
+      "pipelineLink": "Ver na aba Parceria",
       "returnLabel": "Voltar para os locais do cliente",
       "creating": "Criando o local…",
       "createFailed": "Não foi possível criar o local agora. Confira se ele já não existe e tente de novo.",

@@ -143,7 +143,7 @@ test('the tab is labelled in all three locales; its Portuguese-only copy is in p
   // `Partnerships` is Portuguese-only by decision (#408, spec §2) — the same reason the tab
   // carries its own provider. Copying it into en/es would create the second source.
   const pt = messages('pt').Partnerships.clientPlaces
-  for (const key of ['title', 'body', 'pipelineLink', 'returnLabel', 'createFailed']) {
+  for (const key of ['title', 'pipelineLink', 'returnLabel', 'createFailed']) {
     assert.equal(typeof pt[key], 'string', `pt must carry Partnerships.clientPlaces.${key}`)
   }
   for (const locale of ['en', 'es']) {

@@ -19,6 +19,7 @@
 import { useCallback, useEffect, useState } from 'react'
 import { ContractText } from '@/components/contract/ContractText'
 import { ClientEditorModal } from '@/components/admin/clients/ClientEditorModal'
+import { ClientRecordProviders, type ClientRecordMessages } from '@/components/admin/clients/ClientRecordProviders'
 import { Button } from '@/components/ui/button'
 import { Checkbox } from '@/components/ui/checkbox'
 import { PARTNER_DOCUMENT_KINDS, type PartnerDocumentKind } from '@/lib/partner-form/fields'
@@ -117,8 +118,11 @@ export function ContractManager({
   clientId,
   returnTo = null,
   returnLabel = null,
+  recordMessages,
 }: {
   clientId: string
+  /** What the client record opened from the checklist reads besides the locale (#911). */
+  recordMessages: ClientRecordMessages
   /** Already validated by the page; see `lib/navigation/return-to`. */
   returnTo?: string | null
   returnLabel?: string | null
@@ -492,6 +496,7 @@ export function ContractManager({
 
       {/* Closing it re-reads the checklist: the item the operator just resolved disappears with
           no manual reload, which is the whole point of bringing the record here. */}
+        <ClientRecordProviders messages={recordMessages}>
         <ClientEditorModal
           clientId={editing?.clientId}
           isOpen={editing !== null}
@@ -503,6 +508,7 @@ export function ContractManager({
           }}
           onSaved={() => void reload()}
         />
+        </ClientRecordProviders>
       </div>
     </div>
   )

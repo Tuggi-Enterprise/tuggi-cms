@@ -2,7 +2,7 @@
 
 /**
  * THE TABS OF A RECORD, one list rendered twice and never two lists: a 288px sidebar on a monitor
- * (eyebrow, tabs, and a footer pinned to its bottom) and a strip that scrolls sideways on a phone.
+ * (tabs, and a footer pinned to its bottom) and a strip that scrolls sideways on a phone.
  *
  * Extracted from `ClientEditorModal` for #870 ("todos os cadastros precisam ser iguais"): the
  * portal validation (`ValidationReview`) and the proposal conference (`ProposalReview`) render
@@ -27,7 +27,10 @@ interface RecordTabsProps<T extends string> {
   tabs: readonly RecordTab<T>[]
   active: T
   onSelect: (id: T) => void
-  /** The eyebrow over the tabs on a monitor, and the phone strip's `aria-label`. */
+  /**
+   * The name of the menu, for a screen reader only: the sidebar's and the phone strip's `aria-label`.
+   * It used to be printed over the tabs as well, a word that told the operator nothing (#911).
+   */
   heading: string
   /** `title` of a disabled tab. */
   disabledTitle?: string
@@ -66,8 +69,9 @@ export function RecordTabs<T extends string>({ tabs, active, onSelect, heading, 
   return (
     <>
       {/* Sidebar — the monitor's shape, where 288px beside the content costs nothing. */}
-      <aside className="hidden lg:flex w-72 bg-white dark:bg-gray-900 border-r border-gray-100/50 dark:border-gray-800 p-6 flex-col gap-2 z-20 shrink-0 overflow-y-auto">
-        <p className="text-[10px] font-bold text-gray-500 uppercase tracking-widest px-3 mb-2">{heading}</p>
+      <aside
+        aria-label={heading}
+        className="hidden lg:flex w-72 bg-white dark:bg-gray-900 border-r border-gray-100/50 dark:border-gray-800 p-6 flex-col gap-2 z-20 shrink-0 overflow-y-auto">
         {buttons(false)}
         <div className="my-2 border-t border-gray-100 dark:border-gray-800" />
         {footer ? <div className="mt-auto space-y-3">{footer}</div> : null}

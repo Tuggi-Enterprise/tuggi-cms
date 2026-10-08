@@ -1,6 +1,6 @@
 'use client'
 
-import { useMemo, useState, useSyncExternalStore } from 'react'
+import { useMemo, useState, useSyncExternalStore, type ReactNode } from 'react'
 import { QrCode, Download, Copy, Check, AlertTriangle, Share2 } from 'lucide-react'
 import { QRCodeCanvas } from 'qrcode.react'
 import { useTranslations } from 'next-intl'
@@ -12,6 +12,11 @@ interface ClientQrCodeProps {
   clientId?: string
   /** Preferred URL component — when present we route to /d/{slug}. */
   slug?: string
+  /**
+   * The slug field, drawn at the top of this card (#911): changing the slug changes the QR, and the
+   * two used to sit three cards apart. Only `ProfileTab` passes it.
+   */
+  children?: ReactNode
 }
 
 /**
@@ -51,7 +56,7 @@ function detectShareFile(): boolean {
   return shareFileSupport
 }
 
-export function ClientQrCode({ clientId, slug }: ClientQrCodeProps) {
+export function ClientQrCode({ clientId, slug, children }: ClientQrCodeProps) {
   const t = useTranslations('Clients.profile.qr')
   const [copied, setCopied] = useState(false)
 
@@ -136,12 +141,17 @@ export function ClientQrCode({ clientId, slug }: ClientQrCodeProps) {
     }, 'image/png')
   }
 
-  // Without an id AND without a slug we can't build any URL — bail out.
-  if (!finalUrl) return null
+  // The QR is of a saved client: a registration being born has nothing to attribute to yet, and
+  // then the card is only the slug field it carries.
+  const showQr = Boolean(clientId) && Boolean(finalUrl)
+  if (!showQr && !children) return null
 
   return (
     <div className="bg-white dark:bg-gray-900 rounded-3xl border border-gray-200 dark:border-gray-800 p-5 lg:p-8 shadow-sm">
       <SectionHeader icon={<QrCode className="w-4 h-4 text-tuggi-blue" />} title={t('title')} />
+      {children ? <div className={showQr ? 'mb-6' : undefined}>{children}</div> : null}
+      {showQr ? (
+      <>
       <p className="text-xs text-gray-500 mb-6 leading-relaxed">{t('subtitle')}</p>
 
       {!hasSlug && (
@@ -160,6 +170,8 @@ export function ClientQrCode({ clientId, slug }: ClientQrCodeProps) {
           <div className="p-3 lg:p-5 bg-white border-2 border-gray-50 rounded-3xl shadow-sm max-w-full overflow-hidden">
             <QRCodeCanvas
               id={canvasId}
+              // The canvas is an image: named by the address it encodes (#911, axe `role-img-alt`).
+              aria-label={finalUrl}
               value={finalUrl}
               size={220}
               // Error correction H tolerates up to ~30% module damage —
@@ -230,6 +242,8 @@ export function ClientQrCode({ clientId, slug }: ClientQrCodeProps) {
           </div>
         </div>
       </div>
+      </>
+      ) : null}
     </div>
   )
 }
