@@ -28,6 +28,8 @@ Deno.serve(async (req: Request) => {
   if (req.method !== 'POST') return json(405, { error: 'method_not_allowed' });
   const auth = await requireAdmin(req);
   if (auth instanceof Response) return auth;
+  // Machine key only: a CMS admin JWT also passes requireAdmin, and this writes to Asaas production.
+  if (auth.role !== 'service_role') return json(403, { error: 'forbidden' });
 
   const dryRun = isDryRun(await req.json().catch(() => null));
   const environment = asaasEnvironment((Deno.env.get('ASAAS_BASE_URL') ?? '').trim());
