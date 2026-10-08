@@ -80,6 +80,7 @@ import {
   type AsaasClient,
   type AsaasCardHolder,
   type AsaasCreditCard,
+  type AsaasCustomerAddress,
   type AsaasPayment,
 } from './asaas.ts';
 
@@ -310,10 +311,9 @@ export function parseCardInput(body: unknown, today: string): Omit<CheckoutInput
   if (!/^(\d{11}|[0-9A-Z]{12}\d{2})$/.test(cpfCnpj)) return { invalid: 'holder_cpf_cnpj' };
   const name = str(holder.name) || holderName;
   if (name.length < 2 || name.length > 100) return { invalid: 'holder_name' };
-  const postalCode = digits(holder.postal_code);
-  if (postalCode.length !== 8) return { invalid: 'holder_postal_code' };
-  const addressNumber = str(holder.address_number);
-  if (!addressNumber || addressNumber.length > 10) return { invalid: 'holder_address_number' };
+  const address = parseAddressInput(holder);
+  if ('invalid' in address) return { invalid: `holder_${address.invalid}` };
+  const { postalCode, addressNumber } = address;
   const phone = digits(holder.phone);
   if (phone.length < 10 || phone.length > 11) return { invalid: 'holder_phone' };
   const remoteIp = str(b.remote_ip);
@@ -324,6 +324,19 @@ export function parseCardInput(body: unknown, today: string): Omit<CheckoutInput
     holder: { name, cpfCnpj, postalCode, addressNumber, phone },
     remoteIp,
   };
+}
+
+/**
+ * #914: the payer's CEP and number, required by every method — the Asaas customer is born with them
+ * (Asaas fills the rest from the CEP), or the NFS-e is refused. Card: from `holder`; Pix: `address`.
+ */
+export function parseAddressInput(raw: unknown): AsaasCustomerAddress | { invalid: 'postal_code' | 'address_number' } {
+  const a = (raw ?? {}) as Record<string, unknown>;
+  const postalCode = digits(a.postal_code);
+  if (postalCode.length !== 8) return { invalid: 'postal_code' };
+  const addressNumber = str(a.address_number);
+  if (!addressNumber || addressNumber.length > 10) return { invalid: 'address_number' };
+  return { postalCode, addressNumber };
 }
 
 // ─── portal: owner proof ───────────────────────────────────────────────────────────────────────
@@ -401,7 +414,8 @@ export async function draftCheckout(deps: Deps, body: unknown, tokenSha256: stri
 }
 
 async function chargeCard(deps: Deps, submissionId: string, co: CheckoutRow, input: Omit<CheckoutInput, 'submissionId'>): Promise<Reply> {
-  return startSubscription(deps, submissionId, co, 'credit_card', async (customerId, base) => {
+  const address = { postalCode: input.holder.postalCode, addressNumber: input.holder.addressNumber };
+  return startSubscription(deps, submissionId, co, 'credit_card', address, async (customerId, base) => {
     try {
       return await deps.asaas.createCardSubscription({
         ...base,
@@ -434,10 +448,11 @@ async function startSubscription(
   submissionId: string,
   co: CheckoutRow,
   method: Exclude<PaymentMethod, 'pix_automatic'>,
+  address: AsaasCustomerAddress,
   create: (customerId: string, base: SubscriptionBase) => Promise<{ id: string } | Reply>,
 ): Promise<Reply> {
   try {
-    const customer = await prepareCustomer(deps, submissionId, co);
+    const customer = await prepareCustomer(deps, submissionId, co, address);
     if (isReply(customer)) return customer;
     // Pix fees are paid by hand: the Asaas notification (charge created, due soon, overdue) is what
     // hands the payer the QR. The card needs none (Asaas charges it).
@@ -468,7 +483,8 @@ async function startSubscription(
       await deps.alert('attach_failed', { subscription_id: co.subscription_id, provider_subscription_id: created.id, code: attached.error.code });
       return reply(502, { error: 'unavailable' });
     }
-    // #901: the NFS-e of every fee, issued on the payment's confirmation. Never fails the checkout.
+    // #901: the NFS-e of every fee, issued on the payment's confirmation. Never fails the checkout
+    // (#914: an invoice is a CMS pending item, never the client's): it alerts, and the sweep retries.
     await configureSubscriptionInvoices(deps, created.id, co.subscription_id);
 
     if (!freeMonth) {
@@ -529,21 +545,46 @@ async function draftPayable(deps: Deps, tokenSha256: string): Promise<(CheckoutR
 /**
  * Common to both methods, before anything new is created in Asaas: demand 5 (a live subscription
  * already PAID is attached, not charged again; an unpaid one is ended — switching method must not
- * leave a second subscription charging the same month), then the customer. Asaas errors propagate
- * (the callers answer `provider_unavailable`).
+ * leave a second subscription charging the same month), then the customer, with the payer's CEP and
+ * number (#914): created with them, or updated when the one found has another (or none — customers
+ * created before #914). Asaas errors propagate (the callers answer `provider_unavailable`), except
+ * a 400 on the customer itself: that is the payer's data, `customerDataReply`.
  */
-async function prepareCustomer(deps: Deps, submissionId: string, co: CheckoutRow): Promise<{ id: string } | Reply> {
+async function prepareCustomer(deps: Deps, submissionId: string, co: CheckoutRow, address: AsaasCustomerAddress): Promise<{ id: string } | Reply> {
   const settled = await clearLiveSubscriptions(deps, submissionId, co);
   if (settled) return settled;
-  const customer =
-    (await deps.asaas.findCustomerByReference(co.subscription_id)) ??
-    (await deps.asaas.createCustomer({
-      name: co.customer_name,
-      cpfCnpj: co.customer_tax_id.replace(/[.\-/\s]/g, '').toUpperCase(),
-      email: co.customer_email,
-      externalReference: co.subscription_id,
-    }));
-  return customer;
+  try {
+    const found = await deps.asaas.findCustomerByReference(co.subscription_id);
+    if (!found) {
+      return await deps.asaas.createCustomer({
+        name: co.customer_name,
+        cpfCnpj: co.customer_tax_id.replace(/[.\-/\s]/g, '').toUpperCase(),
+        email: co.customer_email,
+        externalReference: co.subscription_id,
+        ...address,
+      });
+    }
+    if (digits(found.postalCode) !== address.postalCode || str(found.addressNumber) !== address.addressNumber) {
+      await deps.asaas.setCustomerAddress(found.id, address);
+    }
+    return found;
+  } catch (e) {
+    if (e instanceof AsaasError && e.status === 400) return customerDataReply(deps, co, e);
+    throw e;
+  }
+}
+
+/**
+ * #914: Asaas refused the customer (CEP not found, number, document). Nothing was created, and paying
+ * again with the same data fails the same way: `422 customer_data` + the field the payer must fix
+ * (`postal_code`, `address_number`; `null` = a datum of the acceptance, fixed by support). The field
+ * comes from the masked `description`: Asaas publishes no code per field (doc 2026-10-08).
+ */
+async function customerDataReply(deps: Deps, co: CheckoutRow, e: AsaasError): Promise<Reply> {
+  const text = e.descriptions.join(' ');
+  const field = /\bCEP\b/i.test(text) ? 'postal_code' : /n[úu]mero/i.test(text) ? 'address_number' : null;
+  await deps.alert('customer_data_refused', { subscription_id: co.subscription_id, field, error: e.message });
+  return reply(422, { error: 'customer_data', field });
 }
 
 // ─── portal: checkout (Pix) ────────────────────────────────────────────────────────────────────
@@ -554,24 +595,29 @@ async function prepareCustomer(deps: Deps, submissionId: string, co: CheckoutRow
  * (3) charges the first fee at once (https://docs.asaas.com/docs/automatic-pix).
  */
 export async function checkoutPix(deps: PortalDeps, body: unknown): Promise<Reply> {
-  const submissionId = (body as Record<string, unknown> | null)?.submission_id;
+  const b = (body ?? {}) as Record<string, unknown>;
+  const submissionId = b.submission_id;
   if (!isUuid(submissionId)) return reply(400, { error: 'invalid', field: 'submission_id' });
+  const address = parseAddressInput(b.address);
+  if ('invalid' in address) return reply(400, { error: 'invalid', field: address.invalid });
   const owner = await ownerRow(deps, submissionId.toLowerCase());
   if (isReply(owner)) return owner;
   const co = await payableCheckout(deps, owner.submission_id);
   if (isReply(co)) return co;
-  return pixSubscription(deps, owner.submission_id, co);
+  return pixSubscription(deps, owner.submission_id, co, address);
 }
 
-/** The cookie's Pix checkout (#863, §7.2): the same subscription, the submission from the cookie. */
-export async function draftCheckoutPix(deps: Deps, tokenSha256: string): Promise<Reply> {
+/** The cookie's Pix checkout (#863, §7.2): the same subscription, the submission from the cookie; the address from the body (#914). */
+export async function draftCheckoutPix(deps: Deps, body: unknown, tokenSha256: string): Promise<Reply> {
+  const address = parseAddressInput(((body ?? {}) as Record<string, unknown>).address);
+  if ('invalid' in address) return reply(400, { error: 'invalid', field: address.invalid });
   const co = await draftPayable(deps, tokenSha256);
   if (isReply(co)) return co;
-  return pixSubscription(deps, co.submission_id, co);
+  return pixSubscription(deps, co.submission_id, co, address);
 }
 
-function pixSubscription(deps: Deps, submissionId: string, co: CheckoutRow): Promise<Reply> {
-  return startSubscription(deps, submissionId, co, 'pix', (customerId, base) =>
+function pixSubscription(deps: Deps, submissionId: string, co: CheckoutRow, address: AsaasCustomerAddress): Promise<Reply> {
+  return startSubscription(deps, submissionId, co, 'pix', address, (customerId, base) =>
     deps.asaas.createPixSubscription({ ...base, customer: customerId }),
   );
 }
@@ -619,6 +665,9 @@ async function clearLiveSubscriptions(deps: Deps, submissionId: string, co: Chec
         await deps.alert('attach_failed', { subscription_id: co.subscription_id, provider_subscription_id: id, code: error.code });
         return reply(502, { error: 'unavailable' });
       }
+      for (const p of payments.filter((p) => PAID_STATUSES.has(p.status))) {
+        await confirmFromCheckout(deps, submissionId, co.subscription_id, id, p);
+      }
       return reply(200, { result: 'paid' });
     }
   }
@@ -643,6 +692,37 @@ async function clearLiveSubscriptions(deps: Deps, submissionId: string, co: Chec
     }
   }
   return null;
+}
+
+/**
+ * #914: the loop. The portal learns a payment only from `core.portal_get_subscription`, and the
+ * database only from the webhook. A charge PAID at Asaas whose webhook did not apply (lost, queue
+ * paused, refused) left the plan `pending_payment`: the page waited, the poll ran out, "pay" came back,
+ * and this checkout found the money, answered `paid` WITHOUT recording it, and the poll waited again.
+ * Now the re-read charge is recorded here, with the webhook's own function: idempotent by the payment
+ * id, so the webhook that arrives later is a `duplicate_charge`. No event id (`NULL` claims nothing).
+ * Never fails the checkout: the webhook stays the other way in.
+ */
+async function confirmFromCheckout(deps: Deps, submissionId: string, subscriptionId: string, providerSubscriptionId: string, p: AsaasPayment): Promise<void> {
+  const args = {
+    ...paymentArgs('confirm_place_charge', 'checkout', 'checkout', p, deps.today(), { subscriptionId, providerSubscriptionId }),
+    p_event_id: null,
+    p_event_type: null,
+  };
+  const { data, error } = await deps.admin('partner', 'confirm_place_charge', args);
+  if (error) {
+    await deps.alert('checkout_confirm_failed', { subscription_id: subscriptionId, provider_payment_id: p.id, code: error.code ?? null });
+    return;
+  }
+  const row = firstRow<{ outcome?: string; submission_status?: string }>(data);
+  const outcome = row?.outcome ?? 'unknown';
+  if (ALERT_OUTCOMES.has(outcome)) {
+    await deps.alert(outcome, { event_id: 'checkout', function: 'confirm_place_charge', subscription_id: subscriptionId, provider_subscription_id: providerSubscriptionId, provider_payment_id: p.id });
+    return;
+  }
+  if (outcome !== 'applied') return;
+  if (row?.submission_status === 'in_review') await accessLinkAfterPayment(deps, submissionId, args, 'checkout', 'checkout');
+  await syncNextAmount(deps, submissionId, args);
 }
 
 /** Delete a subscription we must not keep, giving back whatever it already charged. */

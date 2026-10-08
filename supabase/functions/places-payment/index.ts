@@ -22,6 +22,8 @@
 // `checkout_pix` in the free month (#898) charge nothing and answer
 // { result: 'scheduled', first_charge_on: 'YYYY-MM-DD' } — the database's `next_due_date`; an
 // acceptance with no trial answers { result: 'paid' | 'processing' }.
+// #914: `checkout_pix` takes `address` { postal_code, address_number } (the card takes them in
+// `holder`); Asaas refusing the customer's data answers 422 { error: 'customer_data', field }.
 
 import { isPlacesSecret, PLACES_SECRET_HEADER } from '../_shared/places-secret.ts';
 import { isDraftSecret } from '../_shared/places-draft-secret.ts';
@@ -47,7 +49,7 @@ async function draftPayment(req: Request): Promise<Response> {
   }
   try {
     const deps = baseDeps(asaas);
-    const r = body.action === 'checkout' ? await draftCheckout(deps, body, token) : await draftCheckoutPix(deps, token);
+    const r = body.action === 'checkout' ? await draftCheckout(deps, body, token) : await draftCheckoutPix(deps, body, token);
     console.log('[places-payment] draft', String(body.action), r.status);
     return json(r.status, r.body);
   } catch (e) {

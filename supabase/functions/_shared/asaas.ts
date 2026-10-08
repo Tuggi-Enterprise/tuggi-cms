@@ -11,7 +11,9 @@
 // flow against a mocked Asaas. The function `index.ts` files pass the real `fetch`.
 //
 // NEVER LOG A BODY. A customer carries name, CPF/CNPJ and e-mail; a subscription request carries
-// the card. What leaves this module in an error is the HTTP status and the Asaas error codes.
+// the card. What leaves this module in an error is the HTTP status, the Asaas error codes and their
+// `description` (#914: the code alone, `invalid_action`, does not say what to fix), with every
+// e-mail and every run of 5+ digits masked (`safeDescription`): the text is Asaas', not ours.
 
 export type AsaasFetch = (url: string, init: RequestInit) => Promise<Response>;
 
@@ -25,13 +27,26 @@ export type AsaasConfig = {
 export const ASAAS_USER_AGENT = 'Tuggi-Places/1.0';
 export const ASAAS_TIMEOUT_MS = 60_000;
 
+/** An Asaas error `description`, safe for a log or an alert: e-mails and digit runs (CPF, CEP, card) masked, 200 chars. */
+export function safeDescription(raw: unknown): string {
+  if (typeof raw !== 'string') return '';
+  return raw
+    .replace(/[^\s@]+@[^\s@]+/g, '[email]')
+    .replace(/\d[\d.\-/ ]{3,}\d/g, (m) => (m.replace(/\D/g, '').length >= 5 ? '[n]' : m))
+    .replace(/\s+/g, ' ')
+    .trim()
+    .slice(0, 200);
+}
+
 /** A non-2xx answer from Asaas. `status` 0 = network failure or timeout (nothing is known). */
 export class AsaasError extends Error {
   constructor(
     readonly status: number,
     readonly codes: string[],
+    /** #914: what Asaas says is wrong, already masked by `safeDescription`. */
+    readonly descriptions: string[] = [],
   ) {
-    super(`asaas ${status}${codes.length ? ` ${codes.join(',')}` : ''}`);
+    super(`asaas ${status}${codes.length ? ` ${codes.join(',')}` : ''}${descriptions.length ? `: ${descriptions.join('; ')}` : ''}`);
   }
   /** Transport or Asaas-side failure: retrying later can succeed. */
   get transient(): boolean {
@@ -157,6 +172,21 @@ export type AsaasScheduleInvoice = {
 
 type List<T> = { data?: T[] | null; hasMore?: boolean | null };
 
+/**
+ * #914: the customer's address. Asaas fills street, district and city from `postalCode`
+ * (https://docs.asaas.com/reference/criar-novo-cliente), and refuses the NFS-e of a customer
+ * without it ("Endereço do cliente incompleto.; CEP do cliente é inválido.", `invalid_action`).
+ */
+export type AsaasCustomerAddress = { postalCode: string; addressNumber: string };
+
+export type AsaasCustomer = {
+  id: string;
+  externalReference?: string | null;
+  email?: string | null;
+  postalCode?: string | null;
+  addressNumber?: string | null;
+};
+
 /** `GET /v3/transfers` publishes `limit` max 10. */
 export const TRANSFER_PAGE = 10;
 
@@ -196,10 +226,11 @@ export function asaasClient(cfg: AsaasConfig) {
     }
     const data = (await res.json().catch(() => null)) as Record<string, unknown> | null;
     if (!res.ok) {
-      const errors = Array.isArray(data?.errors) ? (data!.errors as { code?: unknown }[]) : [];
+      const errors = Array.isArray(data?.errors) ? (data!.errors as { code?: unknown; description?: unknown }[]) : [];
       throw new AsaasError(
         res.status,
         errors.map((e) => (typeof e?.code === 'string' ? e.code : '')).filter(Boolean),
+        errors.map((e) => safeDescription(e?.description)).filter(Boolean),
       );
     }
     return data as T;
@@ -209,14 +240,17 @@ export function asaasClient(cfg: AsaasConfig) {
 
   return {
     findCustomerByReference: async (externalReference: string) =>
-      (await call<List<{ id: string }>>('GET', `/customers?${q({ externalReference })}`)).data?.[0] ?? null,
+      (await call<List<AsaasCustomer>>('GET', `/customers?${q({ externalReference })}`)).data?.[0] ?? null,
 
-    createCustomer: (c: { name: string; cpfCnpj: string; email: string; externalReference: string }) =>
+    createCustomer: (c: { name: string; cpfCnpj: string; email: string; externalReference: string } & AsaasCustomerAddress) =>
       // Asaas e-mails (invoice, reminders) off: the Tuggi tells the place, in the Tuggi voice.
-      call<{ id: string }>('POST', '/customers', { ...c, notificationDisabled: true }),
+      call<AsaasCustomer>('POST', '/customers', { ...c, notificationDisabled: true }),
 
-    getCustomer: (id: string) =>
-      call<{ id: string; externalReference?: string | null; email?: string | null }>('GET', `/customers/${encodeURIComponent(id)}`),
+    getCustomer: (id: string) => call<AsaasCustomer>('GET', `/customers/${encodeURIComponent(id)}`),
+
+    /** `PUT /v3/customers/{id}` (https://docs.asaas.com/reference/atualizar-cliente-existente), #914. */
+    setCustomerAddress: (id: string, a: AsaasCustomerAddress) =>
+      call<AsaasCustomer>('PUT', `/customers/${encodeURIComponent(id)}`, { postalCode: a.postalCode, addressNumber: a.addressNumber }),
 
     listSubscriptionsByReference: async (externalReference: string) =>
       (await call<List<AsaasSubscription>>('GET', `/subscriptions?${q({ externalReference })}`)).data ?? [],

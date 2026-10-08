@@ -31,6 +31,8 @@ before(async () => {
 
 const SUB_UUID = '11111111-2222-4333-8444-555555555555'
 const SUBMISSION = '99999999-8888-4777-8666-555555555555'
+// #914: the payer's CEP and number, sent by every Pix checkout (the card sends them in `holder`)
+const ADDRESS = { postal_code: '28950-000', address_number: '12' }
 const REF = `com_historia_3m:${SUB_UUID}`
 const TOKEN = 'whk-token-123'
 
@@ -391,7 +393,7 @@ test('#898 BR-B2B-046 (SSOT): the first fee date is the database next_due_date a
   assert.equal((pay as Record<string, unknown>).firstChargeOn, undefined)
   const asaas = fakeAsaas([
     at('GET', '/subscriptions?', 200, { data: [] }),
-    at('GET', '/customers?', 200, { data: [{ id: 'cus_1' }] }),
+    at('GET', '/customers?', 200, { data: [{ id: 'cus_1', postalCode: '28950000', addressNumber: '12' }] }),
     at('POST', '/subscriptions', 200, { id: 'sub_new', status: 'ACTIVE', value: 540 }),
   ])
   const db = fakeDb({ place_payment_checkout: { data: [{ ...checkoutRow, next_due_date: '2026-11-17' }] }, attach_place_subscription: { data: 'pending_payment' } })
@@ -403,7 +405,7 @@ test('#898 BR-B2B-046 (SSOT): the first fee date is the database next_due_date a
 test('#898 BR-B2B-047: an acceptance with no trial (next_due_date = today) is charged at once, as before — processing, no access link from the checkout', async () => {
   const asaas = fakeAsaas([
     at('GET', '/subscriptions?', 200, { data: [] }),
-    at('GET', '/customers?', 200, { data: [{ id: 'cus_1' }] }),
+    at('GET', '/customers?', 200, { data: [{ id: 'cus_1', postalCode: '28950000', addressNumber: '12' }] }),
     at('POST', '/subscriptions', 200, { id: 'sub_new', status: 'ACTIVE', value: 540 }),
     at('GET', '/payments?subscription=sub_new', 200, { data: [{ id: 'pay_1', status: 'PENDING', value: 540 }] }),
   ])
@@ -432,7 +434,7 @@ test('#811 demand 5: a live unpaid subscription for the same reference is delete
     at('GET', '/subscriptions?', 200, { data: [{ id: 'sub_old', status: 'ACTIVE', value: 540 }] }),
     at('GET', '/payments?subscription=sub_old', 200, { data: [{ id: 'pay_0', status: 'PENDING', value: 540 }] }),
     at('DELETE', '/subscriptions/sub_old', 200, { deleted: true }),
-    at('GET', '/customers?', 200, { data: [{ id: 'cus_1' }] }),
+    at('GET', '/customers?', 200, { data: [{ id: 'cus_1', postalCode: '28950000', addressNumber: '12' }] }),
     at('POST', '/subscriptions', 200, { id: 'sub_new', status: 'ACTIVE', value: 540 }),
     at('GET', '/payments?subscription=sub_new', 200, { data: [] }),
     at('PUT', '/subscriptions/sub_new', 200, {}),
@@ -449,7 +451,7 @@ test('#811 demand 5: a live unpaid subscription for the same reference is delete
 test('#811 §3.1: TGP10 renewing after the new subscription exists → it is refunded and deleted', async () => {
   const asaas = fakeAsaas([
     at('GET', '/subscriptions?', 200, { data: [] }),
-    at('GET', '/customers?', 200, { data: [{ id: 'cus_1' }] }),
+    at('GET', '/customers?', 200, { data: [{ id: 'cus_1', postalCode: '28950000', addressNumber: '12' }] }),
     at('POST', '/subscriptions', 200, { id: 'sub_new', status: 'ACTIVE', value: 540 }),
     at('GET', '/payments?subscription=sub_new', 200, { data: [{ id: 'pay_1', status: 'CONFIRMED', value: 540 }] }),
     at('POST', '/payments/pay_1/refund', 200, {}),
@@ -467,7 +469,7 @@ test('#811 §3.1: TGP10 renewing after the new subscription exists → it is ref
 test('#811: refused card → 402, nothing attached', async () => {
   const asaas = fakeAsaas([
     at('GET', '/subscriptions?', 200, { data: [] }),
-    at('GET', '/customers?', 200, { data: [{ id: 'cus_1' }] }),
+    at('GET', '/customers?', 200, { data: [{ id: 'cus_1', postalCode: '28950000', addressNumber: '12' }] }),
     at('POST', '/subscriptions', 400, { errors: [{ code: 'invalid_creditCard', description: 'Transação não autorizada' }] }),
   ])
   const db = fakeDb({ place_payment_checkout: { data: [checkoutRow] } })
@@ -1022,19 +1024,19 @@ test('#863: the cookie checkout of a draft not yet accepted, or of a plan with n
     const asaas = fakeAsaas([])
     const { d } = deps(asaas, fakeDb({ portal_draft_payment_checkout: { error: { code: 'TGP10', details } } }))
     assert.deepEqual(await pay.draftCheckout(d, checkoutBody, COOKIE), { status: 409, body: { error: 'not_payable', reason } })
-    assert.deepEqual(await pay.draftCheckoutPix(d, COOKIE), { status: 409, body: { error: 'not_payable', reason } })
+    assert.deepEqual(await pay.draftCheckoutPix(d, { address: ADDRESS }, COOKIE), { status: 409, body: { error: 'not_payable', reason } })
     assert.equal(asaas.calls.length, 0)
   }
   const paid = deps(fakeAsaas([]), fakeDb({ portal_draft_payment_checkout: { data: [{ ...draftRow, status: 'paid', next_due_date: null }] } }))
   assert.deepEqual(await pay.draftCheckout(paid.d, checkoutBody, COOKIE), { status: 409, body: { error: 'not_payable', reason: 'paid' } })
   const gone = deps(fakeAsaas([]), fakeDb({ portal_draft_payment_checkout: { error: { code: 'TGP01' } } }))
-  assert.equal((await pay.draftCheckoutPix(gone.d, COOKIE)).status, 404)
+  assert.equal((await pay.draftCheckoutPix(gone.d, { address: ADDRESS }, COOKIE)).status, 404)
 })
 
 test('#863: a cookie hash out of shape, or a bad card, never reaches the database', async () => {
   const db = fakeDb({})
   const { d } = deps(fakeAsaas([]), db)
-  assert.deepEqual(await pay.draftCheckoutPix(d, 'A'.repeat(64)), { status: 400, body: { error: 'invalid', field: 'token_sha256' } })
+  assert.deepEqual(await pay.draftCheckoutPix(d, { address: ADDRESS }, 'A'.repeat(64)), { status: 400, body: { error: 'invalid', field: 'token_sha256' } })
   assert.deepEqual(await pay.draftCheckout(d, { ...checkoutBody, card: { ...checkoutBody.card, number: '4111111111111112' } }, COOKIE), { status: 400, body: { error: 'invalid', field: 'card_number' } })
   assert.equal(db.calls.length, 0)
 })

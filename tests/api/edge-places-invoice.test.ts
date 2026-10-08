@@ -73,6 +73,8 @@ before(async () => {
 })
 
 const SUBMISSION = '99999999-8888-4777-8666-555555555555'
+// #914: the payer's CEP and number, sent by every Pix checkout (the card sends them in `holder`)
+const ADDRESS = { postal_code: '28950-000', address_number: '12' }
 const REF = `com_historia_3m:${SUB_UUID}`
 const TOKEN = 'whk-token-123'
 const CFG = { serviceCode: '1.03', serviceName: 'Processamento de dados', issRate: 2.5 }
@@ -163,7 +165,7 @@ function checkoutRoutes(extra: Route[] = []): Route[] {
   return [
     ...extra,
     at('GET', '/subscriptions?', 200, { data: [] }),
-    at('GET', '/customers?', 200, { data: [{ id: 'cus_1' }] }),
+    at('GET', '/customers?', 200, { data: [{ id: 'cus_1', postalCode: '28950000', addressNumber: '12' }] }),
     at('PUT', '/customers/cus_1', 200, { id: 'cus_1' }),
     at('POST', '/subscriptions', 200, { id: 'sub_px', status: 'ACTIVE', value: 540 }),
   ]
@@ -173,7 +175,7 @@ const checkoutDb = () => fakeDb({ place_payment_checkout: { data: [checkoutRow] 
 test('#901 BR-B2B-046: checkout with the three secrets configures the invoice on payment confirmation, after attaching the subscription', async () => {
   const asaas = fakeAsaas(checkoutRoutes([at('POST', '/subscriptions/sub_px/invoiceSettings', 200, { id: 'cfg' })]))
   const { d, alerts } = deps(asaas, checkoutDb())
-  assert.deepEqual(await pay.checkoutPix(d, { submission_id: SUBMISSION }), { status: 200, body: { result: 'scheduled', first_charge_on: '2026-11-03' } })
+  assert.deepEqual(await pay.checkoutPix(d, { submission_id: SUBMISSION, address: ADDRESS }), { status: 200, body: { result: 'scheduled', first_charge_on: '2026-11-03' } })
   const [cfg] = posts(asaas, '/subscriptions/sub_px/invoiceSettings')
   assert.equal(posts(asaas, '/subscriptions/sub_px/invoiceSettings').length, 1)
   assert.equal(posts(asaas, '/subscriptions').length, 2) // the subscription itself, then its invoice settings
@@ -191,7 +193,7 @@ test('#901 BR-B2B-046: checkout without the invoice secrets still creates the su
   const asaas = fakeAsaas(checkoutRoutes())
   const db = checkoutDb()
   const { d, alerts } = deps(asaas, db, { invoiceConfig: null })
-  assert.deepEqual(await pay.checkoutPix(d, { submission_id: SUBMISSION }), { status: 200, body: { result: 'scheduled', first_charge_on: '2026-11-03' } })
+  assert.deepEqual(await pay.checkoutPix(d, { submission_id: SUBMISSION, address: ADDRESS }), { status: 200, body: { result: 'scheduled', first_charge_on: '2026-11-03' } })
   assert.equal(posts(asaas, '/subscriptions').length, 1)
   assert.deepEqual(db.calls.map((c) => c.fn), ['place_payment_checkout', 'attach_place_subscription'])
   assert.ok(!asaas.calls.some((c) => c.path.includes('invoice')))
@@ -202,7 +204,7 @@ test('#901 BR-B2B-046: checkout without the invoice secrets still creates the su
 test('#901 BR-B2B-046: an invoiceSettings failure never fails the checkout; it alerts and leaves the backfill to the sweep', async () => {
   const asaas = fakeAsaas(checkoutRoutes([at('POST', '/subscriptions/sub_px/invoiceSettings', 400, { errors: [{ code: 'invalid_action' }] })]))
   const { d, alerts } = deps(asaas, checkoutDb())
-  assert.equal((await pay.checkoutPix(d, { submission_id: SUBMISSION })).status, 200)
+  assert.equal((await pay.checkoutPix(d, { submission_id: SUBMISSION, address: ADDRESS })).status, 200)
   assert.deepEqual(alerts.map((a) => a.what), ['invoice_settings_failed'])
 })
 

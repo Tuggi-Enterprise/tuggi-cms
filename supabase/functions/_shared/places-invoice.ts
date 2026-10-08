@@ -284,9 +284,9 @@ export async function configureSubscriptionInvoices(
 
 /**
  * The invoice of a confirmed one-off payment (no `subscription`), scheduled for today — the month of
- * the payment. Idempotent by the re-read: a payment with a live invoice is left alone. Throws a
- * transient `AsaasError` so the webhook answers 500 and Asaas resends (the charge is then a
- * `duplicate_event`, and this runs again).
+ * the payment. Idempotent by the re-read: a payment with a live invoice is left alone. Throws only a
+ * transient `AsaasError`, so the webhook answers 500 and Asaas resends (the charge is then a
+ * `duplicate_event`, and this runs again); anything else alerts and returns `failed`.
  */
 export async function ensureOneOffInvoice(deps: InvoiceDeps, p: AsaasPayment, subscriptionId: string | null): Promise<string> {
   const c = deps.invoiceConfig;
@@ -295,9 +295,11 @@ export async function ensureOneOffInvoice(deps: InvoiceDeps, p: AsaasPayment, su
     return 'unconfigured';
   }
   if (!subscriptionId) return 'unknown_subscription';
-  const existing = await deps.asaas.listInvoices({ payment: p.id });
-  if (existing.some((i) => LIVE.has(invoiceStatus(i.status) as InvoiceStatus))) return 'already';
   try {
+    // #914: inside the try. A permanent refusal here used to escape as a 500, and Asaas resent the
+    // charge's event until the queue paused (15 failures): every later payment then stopped arriving.
+    const existing = await deps.asaas.listInvoices({ payment: p.id });
+    if (existing.some((i) => LIVE.has(invoiceStatus(i.status) as InvoiceStatus))) return 'already';
     const inv = await deps.asaas.scheduleInvoice({
       payment: p.id,
       serviceDescription: 'Tuggi Com história',

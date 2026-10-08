@@ -28,6 +28,8 @@ before(async () => {
 const SUB_UUID = '11111111-2222-4333-8444-555555555555'
 const CONTRACT = '11111111222243338444555555555555'
 const SUBMISSION = '99999999-8888-4777-8666-555555555555'
+// #914: the payer's CEP and number, sent by every Pix checkout (the card sends them in `holder`)
+const ADDRESS = { postal_code: '28950-000', address_number: '12' }
 const REF = `com_historia_3m:${SUB_UUID}`
 const TOKEN = 'whk-token-123'
 const AUTH = 'a33047b1-fb19-4b68-9373-a7ba8a8162aa'
@@ -124,14 +126,14 @@ test('#811 Pix: contractId is the plan uuid without hyphens (≤ 35 chars) and m
 test('#898 BR-B2B-045 BR-B2B-046: checkout_pix creates a Pix subscription (not Pix Automático) whose first fee is due in 30 days, charges nothing now, attaches it with that date and sends the access link', async () => {
   const asaas = fakeAsaas([
     at('GET', '/subscriptions?', 200, { data: [] }),
-    at('GET', '/customers?', 200, { data: [{ id: 'cus_1' }] }),
+    at('GET', '/customers?', 200, { data: [{ id: 'cus_1', postalCode: '28950000', addressNumber: '12' }] }),
     at('PUT', '/customers/cus_1', 200, { id: 'cus_1' }),
     at('POST', '/subscriptions', 200, { id: 'sub_px', status: 'ACTIVE', value: 540 }),
   ])
   const db = fakeDb({ place_payment_checkout: { data: [checkoutRow] }, attach_place_subscription: { data: 'pending_payment' } })
   const links: string[] = []
   const { d } = deps(asaas, db, null, { accessLink: async (id: string) => (links.push(id), 'sent') })
-  const r = await pay.checkoutPix(d, { submission_id: SUBMISSION })
+  const r = await pay.checkoutPix(d, { submission_id: SUBMISSION, address: ADDRESS })
   assert.deepEqual(r, { status: 200, body: { result: 'scheduled', first_charge_on: '2026-11-03' } })
 
   const body = asaas.calls.find((c) => c.method === 'POST' && c.path === '/subscriptions')!.body as Record<string, unknown>
@@ -157,7 +159,7 @@ test('#811 Pix demand 4: checkout_pix of a submission that is not the caller\'s 
   const asaas = fakeAsaas([])
   const db = fakeDb({})
   const { d } = deps(asaas, db, null, { user: fakeDb({ portal_get_subscription: { error: { code: 'TGP01' } } }).rpc })
-  assert.equal((await pay.checkoutPix(d, { submission_id: SUBMISSION })).status, 404)
+  assert.equal((await pay.checkoutPix(d, { submission_id: SUBMISSION, address: ADDRESS })).status, 404)
   assert.equal((await pay.checkoutPix(d, { submission_id: 'nope' })).status, 400)
   assert.equal(asaas.calls.length + db.calls.length, 0)
 })
@@ -165,7 +167,7 @@ test('#811 Pix demand 4: checkout_pix of a submission that is not the caller\'s 
 test('#898: an attach that fails deletes the subscription just created (it would charge in a month) and alerts', async () => {
   const asaas = fakeAsaas([
     at('GET', '/subscriptions?', 200, { data: [] }),
-    at('GET', '/customers?', 200, { data: [{ id: 'cus_1' }] }),
+    at('GET', '/customers?', 200, { data: [{ id: 'cus_1', postalCode: '28950000', addressNumber: '12' }] }),
     at('PUT', '/customers/cus_1', 200, { id: 'cus_1' }),
     at('POST', '/subscriptions', 200, { id: 'sub_px', status: 'ACTIVE', value: 540 }),
     at('GET', '/payments?subscription=sub_px', 200, { data: [{ id: 'pay_1', status: 'PENDING', value: 540, dueDate: '2026-11-03' }] }),
@@ -173,7 +175,7 @@ test('#898: an attach that fails deletes the subscription just created (it would
   ])
   const db = fakeDb({ place_payment_checkout: { data: [checkoutRow] }, attach_place_subscription: { error: { code: 'PGRST202' } } })
   const { d, alerts } = deps(asaas, db)
-  const r = await pay.checkoutPix(d, { submission_id: SUBMISSION })
+  const r = await pay.checkoutPix(d, { submission_id: SUBMISSION, address: ADDRESS })
   assert.equal(r.status, 502)
   assert.ok(paths(asaas).includes('DELETE /subscriptions/sub_px'))
   assert.ok(!paths(asaas).some((p) => p.includes('/refund')))
@@ -185,13 +187,13 @@ test('#811 switching card → Pix: the unpaid live card subscription is deleted 
     at('GET', '/subscriptions?', 200, { data: [{ id: 'sub_card', status: 'ACTIVE' }] }),
     at('GET', '/payments?subscription=sub_card', 200, { data: [{ id: 'pay_c', status: 'PENDING', value: 540 }] }),
     at('DELETE', '/subscriptions/sub_card', 200, { deleted: true }),
-    at('GET', '/customers?', 200, { data: [{ id: 'cus_1' }] }),
+    at('GET', '/customers?', 200, { data: [{ id: 'cus_1', postalCode: '28950000', addressNumber: '12' }] }),
     at('PUT', '/customers/cus_1', 200, { id: 'cus_1' }),
     at('POST', '/subscriptions', 200, { id: 'sub_px', status: 'ACTIVE', value: 540 }),
   ])
   const db = fakeDb({ place_payment_checkout: { data: [checkoutRow] }, cancel_place_subscription: { data: [{ outcome: 'applied' }] }, attach_place_subscription: { data: 'pending_payment' } })
   const { d } = deps(asaas, db, row({ payment_method: 'credit_card', provider_subscription_id: 'sub_card' }))
-  const r = await pay.checkoutPix(d, { submission_id: SUBMISSION })
+  const r = await pay.checkoutPix(d, { submission_id: SUBMISSION, address: ADDRESS })
   assert.equal(r.status, 200)
   const p = paths(asaas)
   assert.ok(p.indexOf('DELETE /subscriptions/sub_card') < p.indexOf('POST /subscriptions'))
