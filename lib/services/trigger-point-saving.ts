@@ -25,6 +25,17 @@ const getSupabaseClient = () => {
 // Simple in-memory lock to prevent concurrent processing of same POI
 const processingLocks = new Map<string, Promise<any>>()
 
+/**
+ * Bearing as the database stores it: [0, 360). `expected_bearing` is `real` (float4), so a value
+ * like 359.99999999999997 passes the JS range check and is rounded to 360 on insert, failing
+ * `chk_bearing_range` and aborting the POI's whole atomic replace (#779, Pico Ovo da Pata).
+ */
+export function toDbBearing(bearing: number | null | undefined): number | null | undefined {
+  if (bearing == null || !Number.isFinite(bearing)) return bearing
+  const b = ((bearing % 360) + 360) % 360
+  return Math.fround(b) >= 360 ? 0 : b
+}
+
 export interface TriggerPointSaveData {
   attraction_id: string
   lat: number
@@ -72,7 +83,7 @@ export class TriggerPointSavingService {
       attraction_id: tp.attraction_id,
       location: `SRID=4326;POINT(${tp.lng} ${tp.lat})`,
       radius_meters: tp.radius_meters || 20,
-      expected_bearing: tp.expected_bearing,
+      expected_bearing: toDbBearing(tp.expected_bearing),
       bearing_threshold: tp.bearing_threshold || 30,
       type: tp.type,
       priority: tp.priority || this.getDefaultPriority(tp.type),
@@ -138,7 +149,7 @@ export class TriggerPointSavingService {
       updateData.location = `SRID=4326;POINT(${tp.lng} ${tp.lat})`
     }
     if (tp.radius_meters != null) updateData.radius_meters = tp.radius_meters
-    if (tp.expected_bearing != null) updateData.expected_bearing = tp.expected_bearing
+    if (tp.expected_bearing != null) updateData.expected_bearing = toDbBearing(tp.expected_bearing)
     if (tp.bearing_threshold != null) updateData.bearing_threshold = tp.bearing_threshold
     if (tp.type) updateData.type = tp.type
     if (tp.priority != null) updateData.priority = tp.priority
