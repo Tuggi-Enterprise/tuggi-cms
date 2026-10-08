@@ -1,5 +1,6 @@
-// _shared/places-legacy-customers.ts — the partners that pay R$ 100/month from before the portal,
-// registered as Asaas customers (customer only: no subscription, no charge).
+// _shared/places-legacy-customers.ts — the partners that pay R$ 100/month from before the portal:
+// registered as Asaas customers (`registerLegacyCustomers`), then given their monthly fee
+// subscription (`createLegacySubscriptions`, #917). Two actions of the same function, run apart.
 //
 // Caller: `places-legacy-customers/index.ts`, run by hand by the operator. Pure and import-free but
 // the types, so the CMS tests run it under Node against a mocked Asaas.
@@ -20,7 +21,7 @@
 // Never log what this returns: it carries name and address number. CPF/CNPJ, phone and e-mail leave
 // masked.
 
-import { AsaasError, type AsaasClient, type AsaasCustomer, type AsaasCustomerPatch } from './asaas.ts';
+import { AsaasError, type AsaasClient, type AsaasCustomer, type AsaasCustomerPatch, type AsaasSubscription } from './asaas.ts';
 
 /** Who is a legacy partner (measured 2026-10-08: 7 rows). `pending` stays out. */
 export const LEGACY_FILTER = { client_type: 'venue', status: 'approved', monthly_fee_cents: 10000, is_courtesy: false } as const;
@@ -294,3 +295,125 @@ export const isLegacySubscriptionReference = (ref: unknown): boolean =>
  * holds the two equal.
  */
 export const LEGACY_DUE_DAY = 20;
+
+/** The first day `LEGACY_DUE_DAY` strictly after `today` (`YYYY-MM-DD`). */
+export function nextLegacyDueDate(today: string): string {
+  let y = Number(today.slice(0, 4));
+  let m = Number(today.slice(5, 7));
+  if (Number(today.slice(8, 10)) >= LEGACY_DUE_DAY) {
+    m += 1;
+    if (m > 12) [y, m] = [y + 1, 1];
+  }
+  return `${y}-${String(m).padStart(2, '0')}-${String(LEGACY_DUE_DAY).padStart(2, '0')}`;
+}
+
+/**
+ * The legacy Asaas subscriptions still live, found by `legacy:<client_id>` and only by it: the
+ * portal's subscription on the same customer (`com_historia_<n>m:<uuid>`) is never touched. The
+ * `GET /v3/subscriptions?externalReference=` filter (docs.asaas.com/reference/listar-assinaturas,
+ * conferred 2026-10-08) is re-checked here for an exact match.
+ */
+export async function findLiveLegacySubscriptions(asaas: Pick<AsaasClient, 'listSubscriptionsByReference'>, clientId: string): Promise<AsaasSubscription[]> {
+  const ref = legacySubscriptionReference(clientId);
+  return (await asaas.listSubscriptionsByReference(ref)).filter(
+    (s) => !s.deleted && s.status === 'ACTIVE' && (s.externalReference ?? '').trim().toLowerCase() === ref,
+  );
+}
+
+// ─── action `subscriptions`: the legacy monthly fee at Asaas (#917) ────────────────────────────
+
+export const LEGACY_FEE_COLUMNS = 'id, monthly_fee_cents';
+
+export type LegacyFeeRow = { id: string; monthly_fee_cents?: number | null };
+
+export const LEGACY_SUBSCRIPTION_DESCRIPTION = 'Tuggi: mensalidade do local no app';
+
+/** Pause between two clients: the Asaas rate limit is per account, and it blocked the account (and the portal checkout with it) on 2026-10-08. */
+export const LEGACY_ASAAS_SPACING_MS = 1000;
+
+export type LegacySubscriptionPayload = {
+  customer: string;
+  value: number;
+  nextDueDate: string;
+  cycle: 'MONTHLY';
+  description: string;
+  externalReference: string;
+};
+
+export type LegacySubscriptionStatus = 'would_create' | 'created' | 'already' | 'no_customer' | 'failed';
+
+/** No name, e-mail or CPF/CNPJ: client id and Asaas ids only. */
+export type LegacySubscriptionOutcome = {
+  client_id: string;
+  status: LegacySubscriptionStatus;
+  customer_id?: string;
+  subscription_id?: string;
+  payload?: LegacySubscriptionPayload;
+  description?: string;
+};
+
+const sleepMs = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
+
+async function subscribeOne(asaas: AsaasClient, row: LegacyFeeRow, dryRun: boolean, nextDueDate: string): Promise<LegacySubscriptionOutcome> {
+  const out: LegacySubscriptionOutcome = { client_id: row.id, status: 'failed' };
+  const cents = row.monthly_fee_cents;
+  if (typeof cents !== 'number' || !Number.isInteger(cents) || cents <= 0) return { ...out, description: 'monthly_fee_cents is not a positive integer' };
+
+  let customer: AsaasCustomer | null;
+  try {
+    customer = await asaas.findCustomerByReference(row.id);
+  } catch (e) {
+    return { ...out, description: `customer lookup: ${describe(e)}` };
+  }
+  if (!customer || customer.deleted) return { ...out, status: 'no_customer' };
+  out.customer_id = customer.id;
+
+  let live: AsaasSubscription[];
+  try {
+    live = await findLiveLegacySubscriptions(asaas, row.id);
+  } catch (e) {
+    return { ...out, description: `subscription lookup: ${describe(e)}` };
+  }
+  if (live.length) return { ...out, status: 'already', subscription_id: live[0].id };
+
+  const payload: LegacySubscriptionPayload = {
+    customer: customer.id,
+    value: cents / 100,
+    nextDueDate,
+    cycle: 'MONTHLY',
+    description: LEGACY_SUBSCRIPTION_DESCRIPTION,
+    externalReference: legacySubscriptionReference(row.id),
+  };
+  if (dryRun) return { ...out, status: 'would_create', payload };
+  try {
+    const created = await asaas.createUndefinedSubscription(payload);
+    return { ...out, status: 'created', subscription_id: created.id };
+  } catch (e) {
+    return { ...out, description: describe(e) };
+  }
+}
+
+/**
+ * One monthly subscription per legacy client, `billingType: UNDEFINED` (boleto or Pix, the payer
+ * picks), first due on the next `LEGACY_DUE_DAY` after `today` (São Paulo), no `endDate`.
+ * Idempotent by `legacy:<client_id>`: a client with one live is `already`, never doubled. A client
+ * without an Asaas customer is `no_customer` (run the `customers` action first). One client at a
+ * time, `spacingMs` apart; an error on one becomes its `failed` and the others go on.
+ */
+export async function createLegacySubscriptions(
+  asaas: AsaasClient,
+  rows: LegacyFeeRow[],
+  dryRun: boolean,
+  today: string,
+  opts: { spacingMs?: number; sleep?: (ms: number) => Promise<void> } = {},
+): Promise<LegacySubscriptionOutcome[]> {
+  const spacing = opts.spacingMs ?? LEGACY_ASAAS_SPACING_MS;
+  const sleep = opts.sleep ?? sleepMs;
+  const nextDueDate = nextLegacyDueDate(today);
+  const outcomes: LegacySubscriptionOutcome[] = [];
+  for (const [i, row] of rows.entries()) {
+    if (i > 0) await sleep(spacing);
+    outcomes.push(await subscribeOne(asaas, row, dryRun, nextDueDate));
+  }
+  return outcomes;
+}

@@ -264,11 +264,109 @@ test('environment comes from ASAAS_BASE_URL', () => {
   assert.equal(legacy.asaasEnvironment(''), 'unknown')
 })
 
-test('index.ts: admin only, reads the legacy filter, never charges', () => {
+test('index.ts: admin only, reads the legacy filter; the only subscription it creates is the legacy fee (#917)', () => {
   const src = readFileSync(resolve(FUNCTIONS, 'places-legacy-customers/index.ts'), 'utf8')
   assert.match(src, /requireAdmin\(req\)/)
+  assert.match(src, /auth\.role !== 'service_role'/)
   for (const col of ['client_type', 'status', 'monthly_fee_cents', 'is_courtesy']) assert.match(src, new RegExp(`\\.eq\\('${col}', LEGACY_FILTER\\.${col}\\)`))
   assert.deepEqual(legacy.LEGACY_FILTER, { client_type: 'venue', status: 'approved', monthly_fee_cents: 10000, is_courtesy: false })
   const shared = readFileSync(resolve(FUNCTIONS, '_shared/places-legacy-customers.ts'), 'utf8')
   assert.doesNotMatch(src + shared, /createCardSubscription|createPixSubscription|createPixPayment|refundPayment|createPixTransfer/)
+  assert.equal((shared.match(/createUndefinedSubscription\(/g) ?? []).length, 1)
+})
+
+// ─── action subscriptions (#917) ──────────────────────────────────────────────────────────────
+
+const CUS = { id: 'cus_000001', externalReference: ROW.id, deleted: false }
+const FEE_ROW = { id: ROW.id, monthly_fee_cents: 10000 }
+const ROW_B = { id: 'bbbbbbbb-1111-4222-8333-444444444444', monthly_fee_cents: 10000 }
+const refOf = (id: string) => `legacy:${id}`
+const customerByRef = (id: string, cus: unknown) => (c: Call) =>
+  c.method === 'GET' && c.path === `/customers?externalReference=${id}` ? { status: 200, body: { data: [cus] } } : undefined
+const subsByRef = (id: string, data: unknown[]) => (c: Call) =>
+  c.method === 'GET' && c.path === `/subscriptions?externalReference=${encodeURIComponent(refOf(id))}` ? { status: 200, body: { data } } : undefined
+const noSubs = (c: Call) => (c.method === 'GET' && c.path.startsWith('/subscriptions?') ? { status: 200, body: { data: [] } } : undefined)
+const created = (c: Call) => (c.method === 'POST' && c.path === '/subscriptions' ? { status: 200, body: { id: 'sub_new', status: 'ACTIVE', value: 100 } } : undefined)
+const noSleep = { sleep: async () => {} }
+
+test('#917: nextDueDate is the next day 20 strictly after today', () => {
+  assert.equal(legacy.nextLegacyDueDate('2026-10-08'), '2026-10-20')
+  assert.equal(legacy.nextLegacyDueDate('2026-10-19'), '2026-10-20')
+  assert.equal(legacy.nextLegacyDueDate('2026-10-20'), '2026-11-20')
+  assert.equal(legacy.nextLegacyDueDate('2026-12-25'), '2027-01-20')
+})
+
+test('#917: real run POSTs one monthly UNDEFINED subscription, legacy:<client_id>, value from monthly_fee_cents, due on the next day 20, no endDate', async () => {
+  const { client, calls } = fakeAsaas([customerByRef(ROW.id, CUS), noSubs, created])
+  const [r] = await legacy.createLegacySubscriptions(client, [{ ...FEE_ROW, monthly_fee_cents: 12345 }], false, '2026-10-08', noSleep)
+  assert.deepEqual(r, { client_id: ROW.id, status: 'created', customer_id: 'cus_000001', subscription_id: 'sub_new' })
+  const posts = writes(calls)
+  assert.equal(posts.length, 1)
+  assert.deepEqual(posts[0], {
+    method: 'POST',
+    path: '/subscriptions',
+    body: {
+      customer: 'cus_000001',
+      value: 123.45,
+      nextDueDate: '2026-10-20',
+      cycle: 'MONTHLY',
+      description: 'Tuggi: mensalidade do local no app',
+      externalReference: `legacy:${ROW.id}`,
+      billingType: 'UNDEFINED',
+    },
+  })
+  assert.ok(!('endDate' in (posts[0].body as object)))
+  assert.ok(legacy.isLegacySubscriptionReference((posts[0].body as { externalReference: string }).externalReference))
+})
+
+test('#917: idempotent: a live legacy:<client_id> subscription is already, no POST; a deleted or inactive one does not count', async () => {
+  const live = { id: 'sub_live', status: 'ACTIVE', externalReference: refOf(ROW.id), deleted: false }
+  const a = fakeAsaas([customerByRef(ROW.id, CUS), subsByRef(ROW.id, [live]), created])
+  const [r] = await legacy.createLegacySubscriptions(a.client, [FEE_ROW], false, '2026-10-08', noSleep)
+  assert.equal(r.status, 'already')
+  assert.equal(r.subscription_id, 'sub_live')
+  assert.equal(writes(a.calls).length, 0)
+
+  const dead = [{ ...live, deleted: true }, { ...live, id: 'sub_off', status: 'INACTIVE' }, { ...live, id: 'sub_portal', externalReference: `com_historia_12m:${ROW.id}` }]
+  const b = fakeAsaas([customerByRef(ROW.id, CUS), subsByRef(ROW.id, dead), created])
+  const [s] = await legacy.createLegacySubscriptions(b.client, [FEE_ROW], false, '2026-10-08', noSleep)
+  assert.equal(s.status, 'created')
+})
+
+test('#917: dry run never POSTs and answers the payload, with no name, e-mail or CPF/CNPJ', async () => {
+  const { client, calls } = fakeAsaas([customerByRef(ROW.id, CUS), noSubs, created])
+  const [r] = await legacy.createLegacySubscriptions(client, [FEE_ROW], true, '2026-10-08', noSleep)
+  assert.equal(r.status, 'would_create')
+  assert.equal(r.payload.externalReference, `legacy:${ROW.id}`)
+  assert.equal(r.payload.nextDueDate, '2026-10-20')
+  assert.equal(r.payload.value, 100)
+  assert.equal(writes(calls).length, 0)
+  assert.doesNotMatch(JSON.stringify(r), /Pousada|@|12345678/)
+})
+
+test('#917: a client without Asaas customer is no_customer, a bad fee is failed, an Asaas error is failed, and the next one goes on', async () => {
+  const boom = (c: Call) => (c.method === 'POST' && c.path === '/subscriptions' && (c.body as { externalReference: string }).externalReference === refOf(ROW.id) ? { status: 400, body: { errors: [{ code: 'invalid_customer', description: 'Cliente inválido' }] } } : undefined)
+  const { client } = fakeAsaas([customerByRef(ROW.id, CUS), customerByRef(ROW_B.id, { ...CUS, id: 'cus_b' }), noSubs, boom, created])
+  const rows = [{ id: 'cccccccc-1111-4222-8333-444444444444', monthly_fee_cents: 10000 }, { ...ROW_B, monthly_fee_cents: null }, FEE_ROW, ROW_B]
+  const out = await legacy.createLegacySubscriptions(client, rows, false, '2026-10-08', noSleep)
+  assert.deepEqual(out.map((o: { status: string }) => o.status), ['no_customer', 'failed', 'failed', 'created'])
+  assert.match(out[2].description, /Cliente inválido/)
+})
+
+test('#917: the calls to Asaas are spaced one second apart between clients, never before the first', async () => {
+  const { client, calls } = fakeAsaas([customerByRef(ROW.id, CUS), customerByRef(ROW_B.id, CUS), noSubs, created])
+  const log: string[] = []
+  const sleep = async (ms: number) => {
+    log.push(`sleep ${ms} after ${calls.length} calls`)
+  }
+  await legacy.createLegacySubscriptions(client, [FEE_ROW, ROW_B, FEE_ROW], true, '2026-10-08', { sleep })
+  assert.equal(legacy.LEGACY_ASAAS_SPACING_MS, 1000)
+  assert.deepEqual(log, ['sleep 1000 after 2 calls', 'sleep 1000 after 4 calls'])
+})
+
+test('#917 index.ts: action subscriptions, unknown action refused, today in São Paulo', () => {
+  const src = readFileSync(resolve(FUNCTIONS, 'places-legacy-customers/index.ts'), 'utf8')
+  assert.match(src, /ACTIONS = \['customers', 'subscriptions'\]/)
+  assert.match(src, /error: 'unknown_action'/)
+  assert.match(src, /createLegacySubscriptions\(asaas,.*saoPauloDate\(new Date\(\)\)\)/)
 })

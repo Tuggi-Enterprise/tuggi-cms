@@ -338,6 +338,19 @@ export function asaasClient(cfg: AsaasConfig) {
       externalReference: string;
     }) => call<AsaasSubscription>('POST', '/subscriptions', { ...s, billingType: 'PIX' }),
 
+    /**
+     * Subscription the payer settles by boleto or Pix, his pick (`billingType: UNDEFINED`,
+     * https://docs.asaas.com/reference/criar-nova-assinatura, conferred 2026-10-08). The legacy fee (#917).
+     */
+    createUndefinedSubscription: (s: {
+      customer: string;
+      value: number;
+      nextDueDate: string;
+      cycle: string;
+      description: string;
+      externalReference: string;
+    }) => call<AsaasSubscription>('POST', '/subscriptions', { ...s, billingType: 'UNDEFINED' }),
+
     /** `PUT /v3/customers/{id}` (https://docs.asaas.com/reference/atualizar-cliente-existente). */
     setCustomerNotifications: (id: string, enabled: boolean) =>
       call<{ id: string }>('PUT', `/customers/${encodeURIComponent(id)}`, { notificationDisabled: !enabled }),

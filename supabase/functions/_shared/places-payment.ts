@@ -76,7 +76,8 @@ import {
 } from './places-invoice.ts';
 import { handleTransferEvent, reconcileSentPayouts, type SentPayout } from './places-payout.ts';
 import { ACCESS_FROM_NAME, portalMail } from './places-portal-draft.ts';
-import { LEGACY_DUE_DAY, isLegacySubscriptionReference, legacySubscriptionReference } from './places-legacy-customers.ts';
+import { findLiveLegacySubscriptions, isLegacySubscriptionReference, nextLegacyDueDate } from './places-legacy-customers.ts';
+export { nextLegacyDueDate };
 import {
   AsaasError,
   type AsaasClient,
@@ -1924,16 +1925,8 @@ export const CANCEL_EMAIL = {
 /** A legacy boleto can also be settled by hand in the Asaas panel. */
 const LEGACY_PAID_STATUSES = new Set([...PAID_STATUSES, 'RECEIVED_IN_CASH']);
 
-/**
- * The legacy Asaas subscriptions still live, found by `legacy:<client_id>` and only by it: the
- * portal's subscription on the same customer (`com_historia_<n>m:<uuid>`) is never touched.
- */
-async function liveLegacySubscriptions(deps: Deps, clientId: string) {
-  const ref = legacySubscriptionReference(clientId);
-  return (await deps.asaas.listSubscriptionsByReference(ref)).filter(
-    (s) => !s.deleted && s.status === 'ACTIVE' && (s.externalReference ?? '').trim().toLowerCase() === ref,
-  );
-}
+/** The legacy subscriptions still live, by `legacy:<client_id>` only (`findLiveLegacySubscriptions`). */
+const liveLegacySubscriptions = (deps: Deps, clientId: string) => findLiveLegacySubscriptions(deps.asaas, clientId);
 
 /**
  * `DELETE` of every live legacy subscription of the client; the number ended. The DELETE also removes
@@ -1944,12 +1937,6 @@ export async function endLegacySubscriptions(deps: Deps, clientId: string): Prom
   const live = await liveLegacySubscriptions(deps, clientId);
   for (const s of live) await deps.asaas.deleteSubscription(s.id);
   return live.length;
-}
-
-/** The first day `LEGACY_DUE_DAY` strictly after `today` (`YYYY-MM-DD`). */
-export function nextLegacyDueDate(today: string): string {
-  const month = Number(today.slice(8, 10)) < LEGACY_DUE_DAY ? today.slice(0, 7) : addMonths(`${today.slice(0, 7)}-01`, 1).slice(0, 7);
-  return `${month}-${String(LEGACY_DUE_DAY).padStart(2, '0')}`;
 }
 
 /**
