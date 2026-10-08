@@ -74,6 +74,7 @@ import {
   type InvoiceTarget,
 } from './places-invoice.ts';
 import { handleTransferEvent, reconcileSentPayouts, type SentPayout } from './places-payout.ts';
+import { ACCESS_FROM_NAME, portalMail } from './places-portal-draft.ts';
 import {
   AsaasError,
   type AsaasClient,
@@ -770,7 +771,8 @@ export async function cancelRenewal(deps: PortalDeps, submissionId: string, expe
   const to = await deps.userEmail();
   if (to) {
     const until = ends ? formatDateBr(saoPauloDate(new Date(ends))) : null;
-    const sent = await deps.sendEmail(to, CANCEL_EMAIL.subject, CANCEL_EMAIL.text(until, fee), CANCEL_EMAIL.replyTo);
+    const mail = CANCEL_EMAIL.build(until, fee);
+    const sent = await deps.sendEmail(to, mail.subject, mail.text, { html: mail.html, fromName: CANCEL_EMAIL.fromName, replyTo: CANCEL_EMAIL.replyTo });
     if (!sent) await deps.alert('cancel_email_failed', { subscription_id: ids?.subscription_id ?? null });
   }
   return reply(200, { result: 'canceled' });
@@ -1619,11 +1621,20 @@ export function formatBrl(cents: number): string {
 /** The support inbox: where the owner's replies land, and the operator-alert fallback (runtime `alert`). */
 export const SUPPORT_EMAIL = 'suporte@tuggi.app';
 
-/** Text approved by the operator on 2026-10-08 (written by `design`). Replies go to `SUPPORT_EMAIL`. */
+/** Where the cancel e-mail sends the owner back to (the portal, where the plan is contracted again). */
+export const PORTAL_URL = 'https://partner.tuggi.app';
+
+/**
+ * Text approved by the operator on 2026-10-08 (written by `design`), in the portal's HTML layout
+ * (`portalMail`, sender `ACCESS_FROM_NAME`) like every other portal e-mail. The portal link is the
+ * button ("Entrar", the label of `linkEmail`); the text part keeps it as `Entrar: <url>`. Replies go
+ * to `SUPPORT_EMAIL` (this e-mail only). `small` is empty: the portal e-mails share no small print.
+ */
 export const CANCEL_EMAIL = {
   subject: 'Seu plano Com história foi cancelado',
   replyTo: SUPPORT_EMAIL,
-  text: (until: string | null, fee: CancelFee | null) => {
+  fromName: ACCESS_FROM_NAME,
+  build: (until: string | null, fee: CancelFee | null): { subject: string; html: string; text: string } => {
     const last = fee
       ? `As mensalidades param aqui. Como o cancelamento veio antes do fim da fidelidade, há uma última cobrança de ${formatBrl(fee.cents)}, a diferença do desconto dos meses usados,`
       : '';
@@ -1641,23 +1652,22 @@ export const CANCEL_EMAIL = {
             }`,
             'Depois desse pagamento, nada mais é cobrado.',
           ];
-    return [
-      'Olá,',
-      '',
-      'Confirmamos o cancelamento do seu plano Com história. Obrigado por ter mostrado o seu local aos turistas que usam o Tuggi, vamos sentir falta da sua história no app.',
-      '',
-      until
-        ? `A história do seu local continua no ar até ${until}. Depois disso, o local segue no mapa do app no plano No mapa, sem custo.`
-        : 'O local segue no mapa do app no plano No mapa, sem custo.',
-      '',
-      ...feeLines,
-      '',
-      'Se quiser voltar, o seu local continua cadastrado. É só entrar em https://partner.tuggi.app e contratar o plano Com história de novo.',
-      '',
-      'Pode contar para a gente por que cancelou? Basta responder este e-mail. Uma linha já nos ajuda a melhorar.',
-      '',
-      'Equipe Tuggi',
-    ].join('\n');
+    return portalMail({
+      subject: CANCEL_EMAIL.subject,
+      preheader: 'Confirmamos o cancelamento do seu plano Com história.',
+      paragraphs: [
+        'Olá,',
+        'Confirmamos o cancelamento do seu plano Com história. Obrigado por ter mostrado o seu local aos turistas que usam o Tuggi, vamos sentir falta da sua história no app.',
+        until
+          ? `A história do seu local continua no ar até ${until}. Depois disso, o local segue no mapa do app no plano No mapa, sem custo.`
+          : 'O local segue no mapa do app no plano No mapa, sem custo.',
+        ...feeLines,
+        'Se quiser voltar, o seu local continua cadastrado. É só entrar e contratar o plano Com história de novo.',
+      ],
+      cta: { label: 'Entrar', url: PORTAL_URL },
+      closing: ['Pode contar para a gente por que cancelou? Basta responder este e-mail. Uma linha já nos ajuda a melhorar.'],
+      small: [],
+    });
   },
 };
 

@@ -380,9 +380,10 @@ test('#863 Pix §8.4 BR-B2B-046: cancel with fee — the authorized value is fix
   ])
   const db = fakeDb({})
   let mail = ''
+  let opts: { html?: string; fromName?: string; replyTo?: string } = {}
   const { d, alerts } = deps(asaas, db, row({ ...pixLive, provider_customer_id: 'cus_px' }), {
     user: pixCancel(13500),
-    sendEmail: async (_to: string, _s: string, text: string) => { mail = text; return true },
+    sendEmail: async (_to: string, _s: string, text: string, m?: typeof opts) => { mail = text; opts = m ?? {}; return true },
   })
   assert.deepEqual(await pay.cancelRenewal(d, SUBMISSION), { status: 200, body: { result: 'canceled' } })
   assert.deepEqual(paths(asaas), ['POST /payments', 'DELETE /subscriptions/sub_px', `DELETE /pix/automatic/authorizations/${AUTH}`])
@@ -397,6 +398,11 @@ test('#863 Pix §8.4 BR-B2B-046: cancel with fee — the authorized value is fix
   assert.deepEqual(alerts, [])
   assert.match(mail, /há uma última cobrança de R\$ 135,00, a diferença do desconto dos meses usados, por Pix, com vencimento em 06\/01\/2027/)
   assert.match(mail, /https:\/\/sandbox\.asaas\.com\/i\/abc/)
+  assert.match(mail, /Entrar: https:\/\/partner\.tuggi\.app/)
+  assert.match(opts.html ?? '', /<a href="https:\/\/partner\.tuggi\.app"[^>]*>Entrar<\/a>/)
+  assert.match(opts.html ?? '', /https:\/\/sandbox\.asaas\.com\/i\/abc/)
+  assert.equal(opts.fromName, 'Tuggi Locais')
+  assert.equal(opts.replyTo, 'suporte@tuggi.app')
 })
 
 test('#863 Pix §8.4: the one-off fee charge fails — the recurrence still ends (it would charge a full monthly), the operator is alerted', async () => {

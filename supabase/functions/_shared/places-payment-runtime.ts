@@ -17,7 +17,7 @@ import { asaasClient } from './asaas.ts';
 import { SUPPORT_EMAIL, saoPauloDate, type CancelRedoRow, type Deps, type ExpiredCardRow, type Rpc, type SubscriptionIds } from './places-payment.ts';
 import { issueAccessLink } from './places-portal-draft.ts';
 import { INVOICE_ENV, MirrorReadError, parseInvoiceConfig, type InvoiceTarget } from './places-invoice.ts';
-import { accessLinkDeps } from './places-access-link-runtime.ts';
+import { accessLinkDeps, fromWithName } from './places-access-link-runtime.ts';
 
 const RESEND_URL = 'https://api.resend.com/emails';
 
@@ -40,7 +40,7 @@ export function rpcOf(client: any): Rpc {
   };
 }
 
-async function sendEmail(to: string, subject: string, text: string, replyTo?: string): Promise<boolean> {
+async function sendEmail(to: string, subject: string, text: string, mail: { html?: string; fromName?: string; replyTo?: string } = {}): Promise<boolean> {
   const key = (Deno.env.get('RESEND_API_KEY') ?? '').trim();
   if (!key) return false;
   try {
@@ -48,11 +48,12 @@ async function sendEmail(to: string, subject: string, text: string, replyTo?: st
       method: 'POST',
       headers: { Authorization: `Bearer ${key}`, 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        from: (Deno.env.get('RESEND_FROM') ?? 'Tuggi <news@tuggi.app>').trim(),
+        from: fromWithName((Deno.env.get('RESEND_FROM') ?? 'Tuggi <news@tuggi.app>').trim(), mail.fromName),
         to: [to],
         subject,
+        ...(mail.html ? { html: mail.html } : {}),
         text,
-        ...(replyTo ? { reply_to: replyTo } : {}),
+        ...(mail.replyTo ? { reply_to: mail.replyTo } : {}),
       }),
       signal: AbortSignal.timeout(10_000),
     });

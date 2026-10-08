@@ -42,8 +42,8 @@ export type InvoiceDeps = {
   invoiceConfig: InvoiceConfig | null;
   /** The mirror's current status of an `inv_`, null when not mirrored yet. */
   invoiceStatusOf: (providerInvoiceId: string) => Promise<string | null>;
-  /** `replyTo` goes as Resend's `reply_to`; omitted, replies go to the sender. */
-  sendEmail: (to: string, subject: string, text: string, replyTo?: string) => Promise<boolean>;
+  /** Text-only unless `mail.html`; `fromName` names the sender; `replyTo` goes as Resend's `reply_to` (omitted, replies go to the sender). */
+  sendEmail: (to: string, subject: string, text: string, mail?: { html?: string; fromName?: string; replyTo?: string }) => Promise<boolean>;
 };
 
 /** A live (or just ended) plan the sweep reconciles. */

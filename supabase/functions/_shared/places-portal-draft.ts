@@ -220,17 +220,21 @@ export function portalMail(m: {
   preheader: string;
   paragraphs: string[];
   cta?: { label: string; url: string };
+  /** Paragraphs after the button (the cancel e-mail's closing question). */
+  closing?: string[];
   links?: { label: string; url: string }[];
   small: string[];
 }): { subject: string; html: string; text: string } {
   const sign = 'Equipe Tuggi';
   const links = m.links ?? [];
+  const closing = m.closing ?? [];
   const html = [
     PAGE_OPEN,
     `<div style="display:none;max-height:0;overflow:hidden;opacity:0;mso-hide:all">${escapeHtml(m.preheader)}</div>`,
     CARD_OPEN,
     ...m.paragraphs.map((p) => `<p style="${P}">${escapeHtml(p)}</p>`),
     ...(m.cta ? [button(m.cta.url, m.cta.label)] : []),
+    ...closing.map((p) => `<p style="${P}">${escapeHtml(p)}</p>`),
     ...links.map((l) => `<p style="${P}"><a href="${escapeHtml(l.url)}" style="color:#1A1A1A">${escapeHtml(l.label)}</a></p>`),
     ...m.small.map((p) => `<p style="${SMALL}">${escapeHtml(p)}</p>`),
     `<p style="${P};margin:16px 0 0">${escapeHtml(sign)}</p>`,
@@ -239,6 +243,7 @@ export function portalMail(m: {
   const text = [
     ...m.paragraphs.flatMap((p) => [p, '']),
     ...(m.cta ? [`${m.cta.label}: ${m.cta.url}`, ''] : []),
+    ...closing.flatMap((p) => [p, '']),
     ...links.flatMap((l) => [`${l.label}: ${l.url}`]),
     ...(links.length ? [''] : []),
     ...m.small.flatMap((p) => [p, '']),
