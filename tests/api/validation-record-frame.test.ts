@@ -1,8 +1,9 @@
 /**
  * #870 — the validation and the proposal conference live in the record's frame, and approving
- * does not promise publication (BR-B2B-049 items 7-8). #890: the validation is the Validação tab of
- * the client record (`ValidationTab.tsx`); `ValidationReview`/`ValidationModal` no longer exist. The
- * browser half is `tests/ct/validation-tab.spec.tsx`; this is the part that has to break at
+ * does not promise publication (BR-B2B-049 items 7-8). #890 put the validation in the client record;
+ * #910 made it part of the Parceria tab (`PortalSubmission.tsx`, placed by `PartnershipDetail`), and
+ * `ValidationReview`/`ValidationModal`/`ValidationTab` no longer exist. The browser half is
+ * `tests/ct/validation-tab.spec.tsx` and `tests/ct/partnership-tab-910.spec.tsx`; this is the part that has to break at
  * `npm run test:api` speed.
  */
 
@@ -23,15 +24,18 @@ const FRAMES = [
   'components/admin/partner-proposals/ProposalReview.tsx',
 ]
 
-test('#890: the validation is a tab of the record — ValidationReview and ValidationModal are gone, ValidationTab is mounted by the modal', () => {
+test('#890 · #910: the validation is part of the Parceria tab — ValidationReview, ValidationModal and ValidationTab are gone', () => {
   for (const gone of [
     'components/admin/partner-proposals/ValidationReview.tsx',
     'components/admin/partner-proposals/ValidationModal.tsx',
+    'components/admin/clients/tabs/ValidationTab.tsx',
   ]) {
     assert.equal(existsSync(join(process.cwd(), gone)), false, `${gone} must not come back`)
   }
-  assert.equal(existsSync(join(process.cwd(), 'components/admin/clients/tabs/ValidationTab.tsx')), true)
-  assert.match(read('components/admin/clients/ClientEditorModal.tsx'), /<ValidationTab\b/)
+  assert.equal(existsSync(join(process.cwd(), 'components/admin/clients/shared/PortalSubmission.tsx')), true)
+  const modal = read('components/admin/clients/ClientEditorModal.tsx')
+  assert.match(modal, /<PartnershipTab\b[\s\S]{0,200}submission=\{/)
+  assert.match(read('components/admin/partnerships/PartnershipDetail.tsx'), /<SubmissionBlocks\b/)
 })
 
 test('#870: the modal and the proposal conference use the one RecordShell', () => {
@@ -43,7 +47,11 @@ test('#870: the modal and the proposal conference use the one RecordShell', () =
 })
 
 test('#870: the validation header is outside the scrolling area — no sticky, no top-24', () => {
-  for (const file of ['components/admin/clients/tabs/ValidationTab.tsx', 'components/admin/partner-proposals/ValidationDecision.tsx']) {
+  for (const file of [
+    'components/admin/clients/shared/PortalSubmission.tsx',
+    'components/admin/partnerships/PartnershipDetail.tsx',
+    'components/admin/partner-proposals/ValidationDecision.tsx',
+  ]) {
     const source = code(read(file))
     assert.doesNotMatch(source, /\bsticky\b/, `${file} still has a sticky`)
     assert.doesNotMatch(source, /\btop-24\b/, `${file} still has top-24`)
@@ -97,13 +105,13 @@ test('#890: "Abrir o cadastro do cliente" and the orphan close key are gone; "Ab
   assert.equal(decision.openPlace, 'Abrir o local no editor')
   assert.equal(validation.close, undefined, 'only the removed ValidationModal read PartnerValidation.close')
   for (const file of [
-    'components/admin/clients/tabs/ValidationTab.tsx',
+    'components/admin/clients/shared/PortalSubmission.tsx',
     'components/admin/partner-proposals/ValidationDecision.tsx',
     'components/admin/clients/ClientEditorModal.tsx',
   ]) {
     assert.doesNotMatch(read(file), /decision\.openClient|PartnerValidation\.close/, file)
   }
-  const tab = read('components/admin/clients/tabs/ValidationTab.tsx')
+  const tab = read('components/admin/clients/shared/PortalSubmission.tsx')
   assert.equal((tab.match(/t\('decision\.openPlace'\)/g) ?? []).length, 1)
   assert.equal(
     (read('components/admin/partner-proposals/ValidationDecision.tsx').match(/decision\.openPlace|t\('openPlace'\)/g) ?? []).length,

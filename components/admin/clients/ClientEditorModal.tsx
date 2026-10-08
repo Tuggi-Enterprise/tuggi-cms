@@ -14,15 +14,15 @@
  *   ?mode=new                 → criar
  *   ?clientId={id}            → editar
  *   ?clientId={id}&tab=...    → deep-link para uma aba específica
- *   ?validation={id}          → validation of a portal submission, in its client's record (#890);
- *                               with no client yet (same CNPJ or linked), a pre-registration where
- *                               only the Validação tab is enabled
+ *   ?validation={id}          → validation of a portal submission, in its client's record (#890), on
+ *                               the Parceria tab (#910); with no client yet (same CNPJ or linked), a
+ *                               pre-registration where only the Parceria tab is enabled
  */
 
 import { useCallback, useEffect, useId, useMemo, useRef, useState } from 'react'
 import {
   Save, Loader2, Building2, Scale, Users, MapPin, Gift, AlertTriangle, Plus, Edit, Smartphone,
-  FileSignature, Handshake, ClipboardCheck,
+  FileSignature, Handshake,
 } from 'lucide-react'
 import { useLocale, useTranslations } from 'next-intl'
 import { useDialogShell } from '@/lib/hooks/use-dialog-shell'
@@ -38,7 +38,7 @@ import { PlacesTab } from '@/components/admin/clients/tabs/PlacesTab'
 import { PartnershipTab } from '@/components/admin/clients/tabs/PartnershipTab'
 import { CouponsTab } from '@/components/admin/clients/tabs/CouponsTab'
 import { ContractTab } from '@/components/admin/clients/tabs/ContractTab'
-import { ValidationTab, useValidationRecord } from '@/components/admin/clients/tabs/ValidationTab'
+import { useValidationRecord } from '@/components/admin/clients/shared/PortalSubmission'
 import { DecisionSummary, ValidationDecision } from '@/components/admin/partner-proposals/ValidationDecision'
 import { formatDateTime } from '@/components/admin/partner-proposals/format'
 import { useClientContract } from '@/components/admin/clients/shared/use-client-contract'
@@ -53,7 +53,6 @@ import { RecordCacheProvider, type RecordRead } from '@/lib/hooks/use-record-cac
  * already out there keep landing here.
  */
 export type ClientEditorTab =
-  | 'validation'
   | 'partnership'
   | 'profile'
   | 'fiscal'
@@ -82,7 +81,7 @@ interface ClientEditorModalProps {
 /**
  * The client's portal submissions, read through the record cache `ContractTab` and `FiscalPaymentsTab`
  * already share — mounted inside the provider and rendering nothing, so the modal learns which
- * submission the Validação tab shows without a second read of `/contract`.
+ * submission the Parceria tab shows without a second read of `/contract`.
  */
 function PortalSubmissionsReader({
   clientId,
@@ -100,11 +99,8 @@ function PortalSubmissionsReader({
 
 interface TabDef { id: ClientEditorTab; labelKey: string; icon: typeof Building2 }
 const TABS: TabDef[] = [
-  // Only when there is a portal submission (#890): the operator's queue work, before the pipeline.
-  { id: 'validation', labelKey: 'validation', icon: ClipboardCheck },
-  // First because it is the work: the five states of the pipeline, in the record that owns
-  // them. It is the same `PartnershipDetail` the standalone page renders, so the two cannot
-  // disagree about a state.
+  // First because it is the work: the portal submission and the pipeline in one tab (#910), in the
+  // record that owns them.
   { id: 'partnership', labelKey: 'partnership', icon: Handshake },
   { id: 'profile', labelKey: 'profile', icon: Building2 },
   { id: 'fiscal', labelKey: 'fiscal', icon: Scale },
@@ -408,7 +404,7 @@ export function ClientEditorModal({
                 validation.onDecided(decision)
               }}
               onConflict={() => void validation.refetch()}
-              shortcuts={activeTab === 'validation'}
+              shortcuts={activeTab === 'partnership'}
             />
           ) : isEditing && clientId ? (
             <ApprovalHeaderControls
@@ -448,13 +444,13 @@ export function ClientEditorModal({
           {(() => {
             // A registration being born has no pipeline, no team, no places and no coupons
             // to show — all four are keyed by an id that does not exist until the save.
-            // The pre-registration has no client yet: everything but the validation waits for it.
+            // The pre-registration has no client yet: everything but the submission waits for it.
             const isDisabled = (tab: (typeof TABS)[number]) =>
               preRegistration
-                ? tab.id !== 'validation'
+                ? tab.id !== 'partnership'
                 : !isEditing && (tab.id === 'partnership' || tab.id === 'team' || tab.id === 'places' || tab.id === 'coupons')
             const hasValidation = Boolean(validation.submissionId)
-            const onValidation = activeTab === 'validation' && hasValidation
+            const onValidation = activeTab === 'partnership' && hasValidation
             const decisionSummary = (describesApprove: boolean) =>
               review ? (
                 <DecisionSummary
@@ -510,13 +506,13 @@ export function ClientEditorModal({
             return (
               <>
                 <RecordTabs
-                  tabs={TABS.filter((tab) => tab.id !== 'validation' || hasValidation).map((tab) => ({
+                  tabs={TABS.map((tab) => ({
                     id: tab.id,
                     label: tTabs(tab.labelKey),
                     icon: tab.icon,
                     disabled: isDisabled(tab),
                     badge:
-                      tab.id === 'validation' && review?.status === 'in_review' ? (
+                      tab.id === 'partnership' && review?.status === 'in_review' ? (
                         <span className="h-2 w-2 shrink-0 rounded-full bg-primary-800" aria-hidden="true" />
                       ) : undefined,
                   }))}
@@ -536,27 +532,22 @@ export function ClientEditorModal({
                 <main className="flex-1 overflow-y-auto p-4 lg:p-8">
                 <RecordCacheProvider cache={recordCache}>
             {clientId ? <PortalSubmissionsReader clientId={clientId} onRead={setPortalRecords} /> : null}
-            {onValidation && (
-              <ValidationTab
-                key={validation.submissionId ?? 'none'} // a new submission remounts: the revealed CPF never carries over (security review #890)
-                record={validation}
-                locale={locale}
-                client={clientId ? client : null}
-                validationHref={validationHref}
-                boardHref={boardHref}
-                otherSubmissions={portalRecords.filter((r) => r.submissionId !== validation.submissionId)}
-                onOpenTab={setActiveTab}
-                phoneSummary={decisionSummary(false)}
-              />
-            )}
             {activeTab === 'partnership' && (
               <PartnershipTab
-                client={client}
-                edited={edited}
-                updateField={updateField}
-                canEdit
                 clientId={clientId}
                 onOpenTab={setActiveTab}
+                submission={
+                  hasValidation
+                    ? {
+                        record: validation,
+                        client: clientId ? client : null,
+                        validationHref,
+                        boardHref,
+                        otherSubmissions: portalRecords.filter((r) => r.submissionId !== validation.submissionId),
+                      }
+                    : undefined
+                }
+                phoneSummary={hasValidation ? decisionSummary(false) : null}
               />
             )}
             {activeTab === 'profile' && (

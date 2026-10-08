@@ -101,7 +101,7 @@ test.describe('#875 — one read of the detail and one of the contract across th
     await component.getByRole('button', { name: 'tab-contract' }).click()
     await expect(component.getByText('Origem do cadastro')).toBeVisible()
     await component.getByRole('button', { name: 'tab-fiscal' }).click()
-    await expect(component.getByText('Plano e assinatura')).toHaveCount(0) // the old case: no portal block
+    await expect(component.getByText('Assinatura no Asaas')).toHaveCount(0) // the old case: no portal subscription (#910 §9 keeps the card for the fee)
     await component.getByRole('button', { name: 'tab-contract' }).click()
     await expect(component.getByText('Origem do cadastro')).toBeVisible()
     await component.getByRole('button', { name: 'tab-partnership' }).click()
@@ -285,7 +285,7 @@ test.describe('#871 — FiscalPaymentsTab', () => {
     await expect(component.getByText('Assinatura no Asaas')).toHaveCount(0)
   })
 
-  test('the old case: a client outside the portal has no "Plano e assinatura" block', async ({ mount, page }) => {
+  test('the old case: a client outside the portal has no portal subscription in "Plano e assinatura" (#910 §9)', async ({ mount, page }) => {
     await mockEndpoints(page, contractAnswer({ origin: 'direct', portal: [] }))
     const component = await mount(
       <Wrapper>

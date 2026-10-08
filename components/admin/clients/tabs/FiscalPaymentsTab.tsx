@@ -82,31 +82,156 @@ export function FiscalPaymentsTab({ client, edited, updateField, canEdit, client
 
   return (
     <div className="space-y-8 max-w-5xl mx-auto">
-      {portalRecords.length > 0 && (
-        <div className="bg-white dark:bg-gray-900 rounded-3xl border border-gray-200 dark:border-gray-800 p-5 lg:p-8 shadow-sm">
-          <SectionHeader icon={<CreditCard className="w-4 h-4 text-tuggi-blue" />} title={tPortal('title')} color="tuggi-blue" />
-          <div className="space-y-6">
-            <PortalSubscriptions records={portalRecords} />
+      {/*
+        PLAN AND SUBSCRIPTION, FOR EVERY CLIENT (#910 §9): what the portal charges and what the
+        registration says the contract is worth, in one card — the operator compares the two
+        without scrolling past two other cards. Same fields and behaviour as before; only the card
+        they sit in changed.
+      */}
+      <div className="bg-white dark:bg-gray-900 rounded-3xl border border-gray-200 dark:border-gray-800 p-5 lg:p-8 shadow-sm">
+        <SectionHeader icon={<CreditCard className="w-4 h-4 text-tuggi-blue" />} title={tPortal('title')} color="tuggi-blue" />
+        <div className="space-y-6">
+          {portalRecords.length > 0 && <PortalSubscriptions records={portalRecords} />}
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-y-6 gap-x-10">
+            <div className="space-y-1">
+              <div className="flex flex-wrap items-center gap-2">
+                <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest">{t('fields.monthlyFee')}</p>
+                <PaymentStanceBadge stance={stance} />
+              </div>
+              {isEditing ? (
+                <>
+                  <input
+                    type="number"
+                    step="0.01"
+                    min="0"
+                    value={monthlyFeeCents === null ? '' : monthlyFeeCents / 100}
+                    disabled={isCourtesy}
+                    onChange={(e) =>
+                      updateField(
+                        'monthly_fee_cents',
+                        e.target.value === '' ? null : Math.round(parseFloat(e.target.value) * 100)
+                      )
+                    }
+                    className="w-full px-3 py-2 bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl text-sm font-semibold text-gray-900 dark:text-white outline-none focus:ring-2 focus:ring-tuggi-blue/30 disabled:opacity-50"
+                  />
+                  <p className="text-[10px] text-gray-400 mt-1">{t('fields.monthlyFeeHelp')}</p>
+                  <label className="inline-flex items-center gap-2 mt-2">
+                    <input
+                      type="checkbox"
+                      checked={isCourtesy}
+                      onChange={(e) => updateField('is_courtesy', e.target.checked)}
+                      className="rounded border-gray-300 text-tuggi-blue focus:ring-tuggi-blue/30"
+                    />
+                    <span className="text-sm text-gray-700">{t('fields.courtesy')}</span>
+                  </label>
+                  {isCourtesy && (
+                    <EditField
+                      label={t('fields.courtesyReason')}
+                      value={v(client, edited, 'courtesy_reason')}
+                      isEditing={isEditing}
+                      onChange={(val) => updateField('courtesy_reason', val)}
+                    />
+                  )}
+                </>
+              ) : (
+                <p className="text-2xl font-bold text-gray-900 dark:text-white">
+                  {isCourtesy ? t('fields.courtesy') : formatFee(monthlyFeeCents)}
+                </p>
+              )}
+              {signedContract && (
+                <p className="mt-2 rounded-lg border border-amber-400 bg-amber-50 p-2 text-xs text-gray-900">
+                  {t('fields.frozenValueNote', {
+                    date: formatDate(signedContract.acceptedAt),
+                    value: signedContract.courtesy ? t('fields.courtesy') : formatFee(signedContract.feeCents),
+                  })}
+                </p>
+              )}
+            </div>
           </div>
         </div>
-      )}
+      </div>
 
+      {/* Commission, and the flag of the platform's own account */}
+      <div className="bg-white dark:bg-gray-900 rounded-3xl border border-gray-200 dark:border-gray-800 p-5 lg:p-8 shadow-sm">
+        <SectionHeader icon={<Percent className="w-4 h-4 text-amber-500" />} title={t('sections.commission')} color="amber-500" />
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-y-6 gap-x-10">
+          {isEditing ? (
+            <div className="space-y-1">
+              <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest">{t('fields.commissionRate')}</p>
+              {/*
+                THE OPERATOR TYPES `10`, AND THE COLUMN STORES `0.1`.
+                
+                The field used to be the raw rate — `step="0.001"`, `max="1"` — under a label
+                that reads `Taxa de comissão`. Typing `10` into it meant 1000%, and typing `0.1`
+                is a translation the person should not be doing. The percentage is the unit the
+                decision is taken in; the fraction is how the column happens to store it.
+                
+                `Math.round` on the product because binary floats turn `0.07 * 100` into
+                `7.000000000000001`, and a rate is not worth persisting with that tail.
+              */}
+              <div className="flex items-center gap-2">
+                <input
+                  type="number"
+                  step="0.1"
+                  min="0"
+                  max="100"
+                  inputMode="decimal"
+                  value={commissionRate === null ? '' : Math.round(commissionRate * 1000) / 10}
+                  onChange={(e) => {
+                    const typed = e.target.value
+                    updateField(
+                      'commission_rate',
+                      typed === ''
+                        ? (undefined as never)
+                        : Math.round(parseFloat(typed) * 10) / 1000
+                    )
+                  }}
+                  className="w-full px-3 py-2 bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl text-sm font-semibold text-gray-900 dark:text-white outline-none focus:ring-2 focus:ring-tuggi-blue/30"
+                />
+                <span className="text-sm font-semibold text-gray-500 dark:text-gray-400" aria-hidden="true">
+                  %
+                </span>
+              </div>
+              <p className="text-[10px] text-gray-400 mt-1">{t('fields.commissionRateHelp')}</p>
+            </div>
+          ) : (
+            <div className="space-y-1">
+              <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest">{t('fields.commissionRate')}</p>
+              <p className="text-2xl font-bold text-gray-900 dark:text-white">
+                {commissionRate === null ? '—' : `${(commissionRate * 100).toFixed(1)}%`}
+              </p>
+            </div>
+          )}
+          {isEditing && (
+            <div className="space-y-1">
+              <label className="inline-flex items-center gap-2 mt-1">
+                <input
+                  type="checkbox"
+                  checked={Boolean(edited.is_platform_owner ?? client?.is_platform_owner)}
+                  onChange={(e) => updateField('is_platform_owner', e.target.checked)}
+                  className="rounded border-gray-300 text-tuggi-blue focus:ring-tuggi-blue/30"
+                />
+                <span className="text-sm text-gray-700">{t('fields.isPlatformOwnerHelp')}</span>
+              </label>
+            </div>
+          )}
+        </div>
+      </div>
       {/* Legal */}
       <div className="bg-white dark:bg-gray-900 rounded-3xl border border-gray-200 dark:border-gray-800 p-5 lg:p-8 shadow-sm">
         <SectionHeader icon={<Scale className="w-4 h-4 text-purple-500" />} title={t('sections.legal')} color="purple-500" />
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-y-6 gap-x-10">
-          <EditField
-            label={taxConfig.label}
-            value={v(client, edited, 'tax_id')}
-            isEditing={isEditing}
-            onChange={(val) => updateField('tax_id', val)}
-            placeholder={taxConfig.placeholder}
-          />
-          <div className="space-y-1">
-            <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest">{t('fields.taxIdType')}</p>
-            <span className="inline-flex px-3 py-1 rounded-lg text-[11px] font-bold uppercase tracking-widest bg-purple-50 text-purple-600 border border-purple-100">
-              {currentCountry ? t('fields.taxIdAutoCountry', { type: taxConfig.type }) : t('fields.taxIdSelectCountry')}
-            </span>
+          {/* The field's label already names the document of the country (`taxConfig.label`); with no
+              country there is no document to name yet, and the help says what to do (#910 §9). */}
+          <div>
+            <EditField
+              label={taxConfig.label}
+              value={v(client, edited, 'tax_id')}
+              isEditing={isEditing}
+              onChange={(val) => updateField('tax_id', val)}
+              placeholder={taxConfig.placeholder}
+            />
+            {currentCountry ? null : <p className="text-[10px] text-gray-400 mt-1">{t('fields.taxIdSelectCountry')}</p>}
           </div>
           <EditField
             label={t('fields.legalRepName')}
@@ -191,127 +316,6 @@ export function FiscalPaymentsTab({ client, edited, updateField, canEdit, client
         </div>
       </div>
 
-      {/* Commission */}
-      <div className="bg-white dark:bg-gray-900 rounded-3xl border border-gray-200 dark:border-gray-800 p-5 lg:p-8 shadow-sm">
-        <SectionHeader icon={<Percent className="w-4 h-4 text-amber-500" />} title={t('sections.commission')} color="amber-500" />
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-y-6 gap-x-10">
-          {isEditing ? (
-            <div className="space-y-1">
-              <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest">{t('fields.commissionRate')}</p>
-              {/*
-                THE OPERATOR TYPES `10`, AND THE COLUMN STORES `0.1`.
-                
-                The field used to be the raw rate — `step="0.001"`, `max="1"` — under a label
-                that reads `Taxa de comissão`. Typing `10` into it meant 1000%, and typing `0.1`
-                is a translation the person should not be doing. The percentage is the unit the
-                decision is taken in; the fraction is how the column happens to store it.
-                
-                `Math.round` on the product because binary floats turn `0.07 * 100` into
-                `7.000000000000001`, and a rate is not worth persisting with that tail.
-              */}
-              <div className="flex items-center gap-2">
-                <input
-                  type="number"
-                  step="0.1"
-                  min="0"
-                  max="100"
-                  inputMode="decimal"
-                  value={commissionRate === null ? '' : Math.round(commissionRate * 1000) / 10}
-                  onChange={(e) => {
-                    const typed = e.target.value
-                    updateField(
-                      'commission_rate',
-                      typed === ''
-                        ? (undefined as never)
-                        : Math.round(parseFloat(typed) * 10) / 1000
-                    )
-                  }}
-                  className="w-full px-3 py-2 bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl text-sm font-semibold text-gray-900 dark:text-white outline-none focus:ring-2 focus:ring-tuggi-blue/30"
-                />
-                <span className="text-sm font-semibold text-gray-500 dark:text-gray-400" aria-hidden="true">
-                  %
-                </span>
-              </div>
-              <p className="text-[10px] text-gray-400 mt-1">{t('fields.commissionRateHelp')}</p>
-            </div>
-          ) : (
-            <div className="space-y-1">
-              <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest">{t('fields.commissionRate')}</p>
-              <p className="text-2xl font-bold text-gray-900 dark:text-white">
-                {commissionRate === null ? '—' : `${(commissionRate * 100).toFixed(1)}%`}
-              </p>
-            </div>
-          )}
-          <div className="space-y-1">
-            <div className="flex flex-wrap items-center gap-2">
-              <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest">{t('fields.monthlyFee')}</p>
-              <PaymentStanceBadge stance={stance} />
-            </div>
-            {isEditing ? (
-              <>
-                <input
-                  type="number"
-                  step="0.01"
-                  min="0"
-                  value={monthlyFeeCents === null ? '' : monthlyFeeCents / 100}
-                  disabled={isCourtesy}
-                  onChange={(e) =>
-                    updateField(
-                      'monthly_fee_cents',
-                      e.target.value === '' ? null : Math.round(parseFloat(e.target.value) * 100)
-                    )
-                  }
-                  className="w-full px-3 py-2 bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl text-sm font-semibold text-gray-900 dark:text-white outline-none focus:ring-2 focus:ring-tuggi-blue/30 disabled:opacity-50"
-                />
-                <p className="text-[10px] text-gray-400 mt-1">{t('fields.monthlyFeeHelp')}</p>
-                <label className="inline-flex items-center gap-2 mt-2">
-                  <input
-                    type="checkbox"
-                    checked={isCourtesy}
-                    onChange={(e) => updateField('is_courtesy', e.target.checked)}
-                    className="rounded border-gray-300 text-tuggi-blue focus:ring-tuggi-blue/30"
-                  />
-                  <span className="text-sm text-gray-700">{t('fields.courtesy')}</span>
-                </label>
-                {isCourtesy && (
-                  <EditField
-                    label={t('fields.courtesyReason')}
-                    value={v(client, edited, 'courtesy_reason')}
-                    isEditing={isEditing}
-                    onChange={(val) => updateField('courtesy_reason', val)}
-                  />
-                )}
-              </>
-            ) : (
-              <p className="text-2xl font-bold text-gray-900 dark:text-white">
-                {isCourtesy ? t('fields.courtesy') : formatFee(monthlyFeeCents)}
-              </p>
-            )}
-            {signedContract && (
-              <p className="mt-2 rounded-lg border border-amber-400 bg-amber-50 p-2 text-xs text-gray-900">
-                {t('fields.frozenValueNote', {
-                  date: formatDate(signedContract.acceptedAt),
-                  value: signedContract.courtesy ? t('fields.courtesy') : formatFee(signedContract.feeCents),
-                })}
-              </p>
-            )}
-          </div>
-          {isEditing && (
-            <div className="space-y-1">
-              <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest">{t('fields.isPlatformOwner')}</p>
-              <label className="inline-flex items-center gap-2 mt-1">
-                <input
-                  type="checkbox"
-                  checked={Boolean(edited.is_platform_owner ?? client?.is_platform_owner)}
-                  onChange={(e) => updateField('is_platform_owner', e.target.checked)}
-                  className="rounded border-gray-300 text-tuggi-blue focus:ring-tuggi-blue/30"
-                />
-                <span className="text-sm text-gray-700">{t('fields.isPlatformOwnerHelp')}</span>
-              </label>
-            </div>
-          )}
-        </div>
-      </div>
     </div>
   )
 }

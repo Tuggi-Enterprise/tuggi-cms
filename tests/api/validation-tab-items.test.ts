@@ -1,7 +1,7 @@
 /**
  * #890 — nothing that only the validation knew may be lost in the move into the client record.
  * The spec's list "Só na validação" (12 items) is the checklist: every item must still be rendered
- * by `ValidationTab.tsx` (or by the file the spec sends it to: `PortalRecord.tsx` for the acceptance,
+ * by `PortalSubmission.tsx` since #910, placed in the Parceria tab by `PartnershipDetail` (or by the file the spec sends it to: `PortalRecord.tsx` for the acceptance,
  * `ValidationDecision.tsx` for the acts and the summary). Rules: BR-B2B-011 (only the checklist
  * enables "Aprovar"), BR-B2B-048 item 4 (the conference order), BR-B2B-049 (no promise of publication).
  *
@@ -18,7 +18,8 @@ import { join } from 'node:path'
 import pt from '../../messages/pt.json'
 
 const read = (path: string) => readFileSync(join(process.cwd(), path), 'utf8')
-const TAB = 'components/admin/clients/tabs/ValidationTab.tsx'
+const TAB = 'components/admin/clients/shared/PortalSubmission.tsx'
+const DETAIL = 'components/admin/partnerships/PartnershipDetail.tsx'
 const PORTAL = 'components/admin/clients/shared/PortalRecord.tsx'
 const DECISION = 'components/admin/partner-proposals/ValidationDecision.tsx'
 const MODAL = 'components/admin/clients/ClientEditorModal.tsx'
@@ -32,7 +33,8 @@ const ITEMS: { item: string; file: string; patterns: RegExp[] }[] = [
   { item: '6 · offers: the Tuggi/money warning', file: TAB, patterns: [/offerLooksLikeTuggiOrMoney/] },
   { item: '7 · photos: plan limit (paid and free), facade badge, none', file: TAB, patterns: [/photos\.limitPaid/, /photos\.limitFree/, /photos\.none/] },
   { item: '8 · acceptance: login method, marketing consent, Copiar hash, missing', file: PORTAL, patterns: [/authMethod/, /marketingConsent/, /copyHash/, /t\('missing'\)/] },
-  { item: '9 · history with the empty state', file: TAB, patterns: [/history\.empty/] },
+  // #910 §6: the history is one list with the pipeline's facts, and a block with no entry does not render.
+  { item: '9 · history, merged by date, hidden when empty', file: DETAIL, patterns: [/useSubmissionHistory\(review\)/, /mergeHistory\(/, /history\.length > 0 \?/] },
   { item: '10 · decision summary: plan line, voucher, payment/refund, checklist counter and missing', file: DECISION, patterns: [/voucher/, /refund/, /progress/, /missing/] },
   { item: '11 · acts: three dialogs, A/J/R shortcuts, 409 conflict, next in queue', file: DECISION, patterns: [/'approve'/, /'changes'/, /'reject'/, /onConflict/, /keydown/, /\bnext\b/] },
   { item: '12 · load states: loading, read error with retry, not found', file: TAB, patterns: [/loading/, /readError/, /retry/, /notFound/] },
@@ -53,7 +55,7 @@ test('#890 · the review carries recordClientId = linked client, else the CNPJ l
   assert.match(read('lib/services/portal-validation-service.ts'), /findClientByTaxId/)
 })
 
-test('#890 · pre-registration: only Validação is enabled (title "Disponível depois de aprovar") and the save block is not rendered', () => {
+test('#890 · pre-registration: only Parceria is enabled (#910) (title "Disponível depois de aprovar") and the save block is not rendered', () => {
   const modal = read(MODAL)
   assert.match(modal, /const preRegistration = Boolean\(validationId\) && !clientId/)
   assert.match(modal, /disabledTitle=\{preRegistration \? tTabs\('afterApproval'\)/)
@@ -69,17 +71,17 @@ test('#890 · one "Aprovar" per header: the submission acts own the controls whi
   assert.equal((modal.match(/<ApprovalHeaderControls\b/g) ?? []).length, 1)
 })
 
-test('#890 · A/J/R are armed only on the Validação tab; the summary footer only with it open', () => {
+test('#890 · A/J/R are armed only on the Parceria tab (#910); the summary footer only with it open', () => {
   const modal = read(MODAL)
-  assert.match(modal, /shortcuts=\{activeTab === 'validation'\}/)
+  assert.match(modal, /shortcuts=\{activeTab === 'partnership'\}/)
   assert.match(modal, /\{onValidation \? decisionSummary\(true\) : null\}/)
   const decision = read(DECISION)
   assert.match(decision, /if \(readOnly \|\| !shortcuts\) return/)
 })
 
-test('#890 · the Validação tab unmounts when left, so a revealed CPF goes back to its mask; the CPF only comes from the reveal route', () => {
+test('#890 · the Parceria tab unmounts when left, so a revealed CPF goes back to its mask; the CPF only comes from the reveal route', () => {
   const modal = read(MODAL)
-  assert.match(modal, /\{onValidation && \(\s*<ValidationTab/, 'conditional mount, not display:none — the cpf state dies with it')
+  assert.match(modal, /\{activeTab === 'partnership' && \(\s*<PartnershipTab/, 'conditional mount, not display:none — the cpf state dies with it')
   const tab = read(TAB)
   assert.match(tab, /const \[cpf, setCpf\] = useState<string \| null>\(null\)/)
   assert.match(tab, /\?reveal=cpf/)

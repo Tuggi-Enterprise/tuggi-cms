@@ -2558,7 +2558,6 @@
       },
       "loading": "Loading…",
       "tabs": {
-        "validation": "Validation",
         "partnership": "Partnership",
         "profile": "Profile",
         "fiscal": "Fiscal & Payments",
@@ -2677,8 +2676,6 @@
         "commission": "Commission"
       },
       "fields": {
-        "taxIdType": "Tax ID type",
-        "taxIdAutoCountry": "Auto: {type}",
         "taxIdSelectCountry": "Select a country first",
         "legalRepName": "Legal representative",
         "legalRepNamePlaceholder": "Full name",
@@ -2704,7 +2701,6 @@
         "courtesy": "Courtesy (no monthly fee)",
         "courtesyReason": "Reason for the courtesy",
         "frozenValueNote": "There is a contract signed on {date} for {value}. This field is the value for the NEXT contract or amendment — editing it does not change what was already signed.",
-        "isPlatformOwner": "Platform owner?",
         "isPlatformOwnerHelp": "Check if the client is Tuggi itself (accounting split)"
       }
     },

@@ -43,6 +43,8 @@ export function Wrapper({ children }: { children: React.ReactNode }) {
         // nothing about the copy the operator reads.
         PartnerProposals: ptMessages.PartnerProposals,
         PartnerForm: ptMessages.PartnerForm,
+        // #910: the Parceria tab's history title and the submission blocks are `PartnerValidation`'s.
+        PartnerValidation: ptMessages.PartnerValidation,
         Modals: ptMessages.Modals,
         Common: ptMessages.Common,
         // The unified list is the screen that absorbed the queue, and its own copy is

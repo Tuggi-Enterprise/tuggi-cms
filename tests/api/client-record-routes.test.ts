@@ -70,7 +70,8 @@ test('#875: the modal drops the record cache on save and on approve/reject, and 
   const save = modal.indexOf('recordCache.clear()')
   assert.ok(modal.lastIndexOf('setClient(merged)', save) > 0, 'cleared after the saved state is in')
   assert.match(modal, /<RecordCacheProvider cache=\{recordCache\}>/)
-  for (const tab of ['PartnershipTab', 'ProfileTab', 'FiscalPaymentsTab', 'ContractTab', 'PlacesTab', 'ValidationTab']) {
+  // #910: the portal submission is part of PartnershipTab, inside the same provider.
+  for (const tab of ['PartnershipTab', 'ProfileTab', 'FiscalPaymentsTab', 'ContractTab', 'PlacesTab']) {
     assert.match(modal, new RegExp(`<${tab}\\b`), `${tab} stays inside the provider`)
   }
   // The readers go through the cache; the acts (POST to a sub-path) are plain fetches on purpose.

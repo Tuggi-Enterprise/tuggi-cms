@@ -1,11 +1,11 @@
 'use client'
 
 /**
- * The Portal Locais validation as a tab of the client record (#890, spec of `design` in the card):
- * validation and client registration are one thing, and the base is the client. What was the
- * `ValidationReview` drawer (#812, #870) is here as one scroll, in the conference order
- * (`conferenceItems`, BR-B2B-048 item 4): state band · differences to the record · company ·
- * place · story · offers · photos · acceptance and plan · history.
+ * The Portal Locais submission inside the client record's Parceria tab (#890, #910). Validation and
+ * client registration are one thing, and the base is the client: these are the submission's blocks,
+ * and `PartnershipDetail` places them in the tab's one order (state band · differences to the record ·
+ * company · place · story · offers · photos · acceptance and plan · ... · history), conference order
+ * of `conferenceItems`, BR-B2B-048 item 4.
  *
  * What the record already shows is not repeated: with a client, the `PROMOTION_MAP` columns live
  * in Perfil and Fiscal & Pagamentos, and only where the portal DIFFERS does it appear here
@@ -14,14 +14,12 @@
  *
  * The acts (`ValidationDecision`) sit in the record header and the conference (`DecisionSummary`)
  * in the sidebar footer; `useValidationRecord` is the one state the three share. Approving still
- * calls `approvePortalSubmission` through the same route — this card moved surface, not rule.
+ * calls `approvePortalSubmission` through the same route.
  *
- * The operator's ticks do NOT persist: they are an attention ruler, not a record. The CPF arrives
- * masked and is fetched whole only on "Mostrar CPF"; it goes back to the mask when the tab
- * unmounts, because it only ever lived in this component's state.
+ * The operator's ticks do NOT persist: they are an attention ruler, not a record.
  */
 
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import Link from 'next/link'
 import { useTranslations } from 'next-intl'
 import {
@@ -36,7 +34,6 @@ import {
   FileSignature,
   GitCompare,
   Gift,
-  History,
   Image as ImageIcon,
   MapPin,
   X,
@@ -48,7 +45,7 @@ import { FIELD_LABEL, ReadField } from '@/components/admin/clients/shared/EditFi
 import { PortalAcceptances, PortalSubscriptions } from '@/components/admin/clients/shared/PortalRecord'
 import { GoogleMapComponent } from '@/components/ui/GoogleMapComponent'
 import { CARD } from '@/components/admin/partner-proposals/surface'
-import { formatDateTime, formatShortDate } from '@/components/admin/partner-proposals/format'
+import { formatDate, formatDateTime, formatShortDate } from '@/components/admin/partner-proposals/format'
 import type { DecisionResult } from '@/components/admin/partner-proposals/ValidationDecision'
 import { buildPromotionPlan } from '@/lib/partner-form/promotion'
 import { placeToolHref } from '@/lib/partnerships/place-tool'
@@ -210,7 +207,8 @@ const ACT =
 const NEUTRAL = 'border border-gray-200 bg-white text-gray-700 hover:bg-gray-50 dark:border-gray-700 dark:bg-gray-900 dark:text-gray-200'
 const PRIMARY = 'bg-primary-800 text-white hover:brightness-90'
 
-interface ValidationTabProps {
+
+export interface SubmissionProps {
   record: ValidationRecord
   locale: string
   /** The record's client as saved — `null` in the pre-registration. */
@@ -222,47 +220,60 @@ interface ValidationTabProps {
   /** The client's other portal submissions (`getClientPortalRecords`), current one excluded. */
   otherSubmissions: ClientPortalRecord[]
   onOpenTab: (tab: ClientEditorTab) => void
-  /** `DecisionSummary` for the phone, which has no sidebar. */
-  phoneSummary: React.ReactNode
 }
 
-export function ValidationTab({
-  record,
-  locale,
-  client,
-  validationHref,
-  boardHref,
-  otherSubmissions,
-  onOpenTab,
-  phoneSummary,
-}: ValidationTabProps) {
-  const t = useTranslations('PartnerValidation')
-  const tForm = useTranslations('PartnerForm')
-  const tPortal = useTranslations('Clients.portal')
-  const tPromotion = useTranslations('PartnerProposals.promotion')
-  const [cpf, setCpf] = useState<string | null>(null)
-  const [cpfError, setCpfError] = useState(false)
-  const { load, review, result, primaryRef } = record
+/** One line of the Parceria tab's history: the submission's and the pipeline's, merged by date (#910 §6). */
+export interface HistoryEntry {
+  at: string | null
+  key: string
+  node: ReactNode
+}
 
-  const back = (
-    <Link href={boardHref} className="text-sm font-medium text-primary-800 underline dark:text-tuggi-blue">
-      {t('back')}
-    </Link>
+function lastTransitionTo(review: PortalSubmissionReview, to: string) {
+  return [...review.history].reverse().find((h) => h.kind === 'transition' && h.to === to) as
+    | Extract<PortalHistoryEntry, { kind: 'transition' }>
+    | undefined
+}
+
+function lastMessage(review: PortalSubmissionReview, authorKind: string) {
+  return [...review.history].reverse().find((h) => h.kind === 'message' && h.authorKind === authorKind) as
+    | Extract<PortalHistoryEntry, { kind: 'message' }>
+    | undefined
+}
+
+function isResubmitted(review: PortalSubmissionReview): boolean {
+  return (
+    review.status === 'in_review' &&
+    review.history.some((h) => h.kind === 'transition' && h.from === 'changes_requested' && h.to === 'in_review')
   )
+}
 
+/** The approval is in the submission's own history: the pipeline's "Cliente criado" and "Parceria aprovada" repeat it (#910 §6). */
+export function submissionWasApproved(review: PortalSubmissionReview | null): boolean {
+  return Boolean(review && lastTransitionTo(review, 'approved'))
+}
+
+/**
+ * The submission's read while it is not ready, in the place of its blocks (#910 §8): the pipeline
+ * half of the tab stays usable meanwhile.
+ */
+export function SubmissionReadState({ record, boardHref }: Pick<SubmissionProps, 'record' | 'boardHref'>) {
+  const t = useTranslations('PartnerValidation')
+  const { load } = record
+
+  if (load.state === 'ready') return null
   if (load.state === 'loading' || load.state === 'idle') {
     return (
-      <div className="mx-auto max-w-5xl space-y-8" aria-busy="true">
+      <div className="space-y-8" aria-busy="true">
         <span className="sr-only">{t('loading')}</span>
         <div className={`${CARD} h-40 animate-pulse`} />
         <div className={`${CARD} h-80 animate-pulse`} />
-        <div className={`${CARD} h-[200px] animate-pulse`} />
       </div>
     )
   }
   if (load.state === 'error') {
     return (
-      <div role="alert" className={`${CARD} mx-auto max-w-5xl space-y-3 p-6`}>
+      <div role="alert" className={`${CARD} space-y-3 p-6`}>
         <p className="font-semibold">{t('readError')}</p>
         <Button variant="outline" onClick={() => void record.refetch()}>
           {t('retry')}
@@ -270,70 +281,44 @@ export function ValidationTab({
       </div>
     )
   }
-  if (load.state === 'not_found' || !review) {
-    return (
-      <div className={`${CARD} mx-auto max-w-5xl space-y-3 p-6`}>
-        <p className="font-semibold">{t('notFound')}</p>
-        {back}
-      </div>
-    )
-  }
+  return (
+    <div className={`${CARD} space-y-3 p-6`}>
+      <p className="font-semibold">{t('notFound')}</p>
+      <Link href={boardHref} className="text-sm font-medium text-primary-800 underline dark:text-tuggi-blue">
+        {t('back')}
+      </Link>
+    </div>
+  )
+}
 
-  const answers = review.answers
-  const tradeName = answers.trade_name || t('noTradeName')
+/**
+ * The submission's line in the state band (#910 §3): the decision just taken, and the state of a
+ * submission that is NOT approved. An approved one does not repeat it: the fact is in the history.
+ */
+export function SubmissionBand({
+  record,
+  validationHref,
+  onOpenTab,
+}: Pick<SubmissionProps, 'record' | 'validationHref' | 'onOpenTab'>) {
+  const t = useTranslations('PartnerValidation')
+  const { review, result, primaryRef } = record
+  if (!review) return null
+
   const status = review.status
-  const decided = record.decided
-  const hasClient = client !== null
-  const plan = review.acceptance?.planChoice ?? answers.plan_choice
-  const paid = isPaidPlan(plan)
-  const offers = offersOf(answers)
-  const photos = review.photos
-  const facadePhoto = photos.find((p) => p.role === 'facade') ?? null
-
-  const lastTransitionTo = (to: string) =>
-    [...review.history].reverse().find((h) => h.kind === 'transition' && h.to === to) as
-      | Extract<PortalHistoryEntry, { kind: 'transition' }>
-      | undefined
-  const lastMessage = (authorKind: string) =>
-    [...review.history].reverse().find((h) => h.kind === 'message' && h.authorKind === authorKind) as
-      | Extract<PortalHistoryEntry, { kind: 'message' }>
-      | undefined
-
-  const resubmitted =
-    status === 'in_review' &&
-    review.history.some((h) => h.kind === 'transition' && h.from === 'changes_requested' && h.to === 'in_review')
-  const areaLabels = Object.fromEntries(
-    (['company', 'place', 'facade', 'story', 'offers', 'photos'] as AdjustmentArea[]).map((area) => [
-      area,
-      t(`dialogs.areas.${area}`),
-    ])
-  ) as Record<AdjustmentArea, string>
-  const changedAreas = resubmitted ? areasNamedIn(lastMessage('operator')?.body, areaLabels) : []
-  const changed = (...areas: AdjustmentArea[]) =>
-    areas.some((area) => changedAreas.includes(area)) ? (
-      <span className="inline-flex items-center rounded-full border border-primary-100 bg-primary-50 px-3 py-1 text-[10px] font-bold uppercase tracking-widest text-primary-800">
-        {t('changedBadge')}
-      </span>
-    ) : null
-
   const operatorName = (name: string | null) => name ?? t('bands.someone')
+  const operatorMessage = lastMessage(review, 'operator')
+  const partnerMessage = lastMessage(review, 'partner')
 
   const band = (() => {
-    if (decided) {
-      if (status === 'live') {
-        return t('bands.live', { date: formatShortDate(lastTransitionTo('live')?.at ?? review.statusChangedAt) })
-      }
-      if (status === 'approved') {
-        const tr = lastTransitionTo('approved')
-        return t('bands.approved', { name: operatorName(tr?.actorName ?? null), date: formatShortDate(tr?.at) })
-      }
-      const tr = lastTransitionTo('rejected')
+    if (status === 'approved' || status === 'live') return null
+    if (status === 'rejected') {
+      const tr = lastTransitionTo(review, 'rejected')
       if (tr && tr.actorKind !== 'operator') return t('bands.withdrawn', { date: formatShortDate(tr.at) })
       return t('bands.rejected', { name: operatorName(tr?.actorName ?? null), date: formatShortDate(tr?.at) })
     }
     if (status === 'awaiting_payment') return t('bands.awaitingPayment')
     if (status === 'changes_requested') {
-      const tr = lastTransitionTo('changes_requested')
+      const tr = lastTransitionTo(review, 'changes_requested')
       return t('bands.changesRequested', { date: formatShortDate(tr?.at), name: operatorName(tr?.actorName ?? null) })
     }
     return null
@@ -350,9 +335,144 @@ export function ValidationTab({
           ? t('done.rejectedRefund', { total: result.refundTotal })
           : t('done.rejected')
     : null
-  // `review.clientId`, not `hasClient`: after approving a pre-registration the client loads later, and the focus must still land on "Ir para Locais" (design review #890).
+  // `review.clientId`, not the record's client: after approving a pre-registration the client loads later, and the focus must still land on "Ir para Locais" (design review #890).
   const approvedNow = result?.kind === 'approved' && Boolean(review.clientId)
   const nextHref = review.nextInReviewId ? validationHref(review.nextInReviewId) : null
+
+  return (
+    <>
+      {doneText ? (
+        <div role="status" className="space-y-3 rounded-2xl border border-green-200 bg-green-50 p-4 text-sm font-semibold text-green-800 dark:border-green-800/30 dark:bg-green-900/20 dark:text-green-400">
+          <p className="flex items-start gap-2">
+            <Check className="mt-0.5 h-4 w-4 shrink-0" aria-hidden="true" />
+            {doneText}
+          </p>
+          {approvedNow || nextHref ? (
+            <div className="flex flex-wrap gap-2">
+              {approvedNow ? (
+                <button
+                  type="button"
+                  ref={(node) => {
+                    primaryRef.current = node
+                  }}
+                  className={cn(ACT, PRIMARY)}
+                  onClick={() => onOpenTab('places')}
+                >
+                  <MapPin className="h-3.5 w-3.5" aria-hidden="true" />
+                  {t('done.openPlaces')}
+                </button>
+              ) : null}
+              {nextHref ? (
+                <Link
+                  ref={
+                    approvedNow
+                      ? undefined
+                      : (node) => {
+                          primaryRef.current = node
+                        }
+                  }
+                  className={cn(ACT, approvedNow ? NEUTRAL : PRIMARY)}
+                  href={nextHref}
+                >
+                  <ArrowRight className="h-3.5 w-3.5" aria-hidden="true" />
+                  {t('decision.next')}
+                </Link>
+              ) : null}
+            </div>
+          ) : null}
+        </div>
+      ) : null}
+
+      {band ? (
+        <div
+          className={cn(
+            'rounded-2xl border p-4 text-sm font-semibold',
+            status === 'rejected'
+              ? 'border-red-200 bg-red-50 text-red-700 dark:border-red-800/30 dark:bg-red-900/20 dark:text-red-400'
+              : 'border-amber-200 bg-amber-50 text-amber-900 dark:border-amber-800/30 dark:bg-amber-900/20 dark:text-amber-300'
+          )}
+        >
+          <p>{band}</p>
+          {status === 'changes_requested' && operatorMessage ? (
+            <p className="mt-2 whitespace-pre-wrap font-normal">{operatorMessage.body}</p>
+          ) : null}
+        </div>
+      ) : isResubmitted(review) ? (
+        <div className="space-y-2 rounded-2xl border border-primary-100 bg-primary-50 p-4 text-sm text-gray-900 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-100">
+          <p className="font-semibold">{t('bands.resubmitted', { date: formatShortDate(lastTransitionTo(review, 'in_review')?.at) })}</p>
+          {operatorMessage ? (
+            <p className="whitespace-pre-wrap">
+              <span className="font-semibold">
+                {t('bands.operatorRequest', {
+                  author: operatorName(operatorMessage.actorName ?? null),
+                  date: formatDateTime(operatorMessage.at),
+                })}
+                :{' '}
+              </span>
+              {operatorMessage.body}
+            </p>
+          ) : null}
+          {partnerMessage ? (
+            <p className="whitespace-pre-wrap">
+              <span className="font-semibold">{t('bands.placeAnswer', { date: formatDateTime(partnerMessage.at) })}: </span>
+              {partnerMessage.body}
+            </p>
+          ) : null}
+        </div>
+      ) : null}
+    </>
+  )
+}
+
+/**
+ * Blocks 2 to 8 of the Parceria tab (#910 §2), in the conference order of BR-B2B-048 item 4.
+ *
+ * `collapsed` is the submission after the decision (§5): a record, not work. Blocks 3 to 8 go into
+ * a closed `<details>`, the differences (block 2) do not, and the acceptance shows itself whole,
+ * because the "linked" variant that pointed at Contrato and Fiscal is gone.
+ *
+ * The CPF arrives masked and is fetched whole only on "Mostrar CPF"; it lives in this component's
+ * state only, so leaving the tab puts it back behind the mask.
+ */
+export function SubmissionBlocks({
+  record,
+  locale,
+  client,
+  validationHref,
+  otherSubmissions,
+  collapsed,
+}: Omit<SubmissionProps, 'boardHref' | 'onOpenTab'> & { collapsed: boolean }) {
+  const t = useTranslations('PartnerValidation')
+  const tForm = useTranslations('PartnerForm')
+  const tPortal = useTranslations('Clients.portal')
+  const tPromotion = useTranslations('PartnerProposals.promotion')
+  const [cpf, setCpf] = useState<string | null>(null)
+  const [cpfError, setCpfError] = useState(false)
+  const { review } = record
+  if (!review) return null
+
+  const answers = review.answers
+  const tradeName = answers.trade_name || t('noTradeName')
+  const hasClient = client !== null
+  const plan = review.acceptance?.planChoice ?? answers.plan_choice
+  const paid = isPaidPlan(plan)
+  const offers = offersOf(answers)
+  const photos = review.photos
+  const facadePhoto = photos.find((p) => p.role === 'facade') ?? null
+
+  const areaLabels = Object.fromEntries(
+    (['company', 'place', 'facade', 'story', 'offers', 'photos'] as AdjustmentArea[]).map((area) => [
+      area,
+      t(`dialogs.areas.${area}`),
+    ])
+  ) as Record<AdjustmentArea, string>
+  const changedAreas = isResubmitted(review) ? areasNamedIn(lastMessage(review, 'operator')?.body, areaLabels) : []
+  const changed = (...areas: AdjustmentArea[]) =>
+    areas.some((area) => changedAreas.includes(area)) ? (
+      <span className="inline-flex items-center rounded-full border border-primary-100 bg-primary-50 px-3 py-1 text-[10px] font-bold uppercase tracking-widest text-primary-800">
+        {t('changedBadge')}
+      </span>
+    ) : null
 
   async function revealCpf() {
     if (cpf) return setCpf(null)
@@ -409,142 +529,20 @@ export function ValidationTab({
     payment: review.payment,
   }
 
-  return (
-    <div className="mx-auto max-w-5xl space-y-8">
-      {otherSubmissions.length > 0 ? (
-        <p className="flex flex-wrap gap-x-3 gap-y-1 text-xs font-semibold text-gray-600 dark:text-gray-300">
-          <span>{t('otherSubmissions')}</span>
-          {otherSubmissions.map((other) => (
-            <Link key={other.submissionId} className="text-primary-800 underline dark:text-tuggi-blue" href={validationHref(other.submissionId)}>
-              {t(`status.${other.status}` as 'status.in_review')} · {formatShortDate(other.submittedAt)}
-            </Link>
-          ))}
-        </p>
-      ) : null}
+  const others =
+    otherSubmissions.length > 0 ? (
+      <p className="flex flex-wrap gap-x-3 gap-y-1 text-xs font-semibold text-gray-600 dark:text-gray-300">
+        <span>{t('otherSubmissions')}</span>
+        {otherSubmissions.map((other) => (
+          <Link key={other.submissionId} className="text-primary-800 underline dark:text-tuggi-blue" href={validationHref(other.submissionId)}>
+            {t(`status.${other.status}` as 'status.in_review')} · {formatShortDate(other.submittedAt)}
+          </Link>
+        ))}
+      </p>
+    ) : null
 
-      {/* 1 · state */}
-      {doneText ? (
-        <div role="status" className="space-y-3 rounded-2xl border border-green-200 bg-green-50 p-4 text-sm font-semibold text-green-800 dark:border-green-800/30 dark:bg-green-900/20 dark:text-green-400">
-          <p className="flex items-start gap-2">
-            <Check className="mt-0.5 h-4 w-4 shrink-0" aria-hidden="true" />
-            {doneText}
-          </p>
-          {approvedNow || nextHref ? (
-            <div className="flex flex-wrap gap-2">
-              {approvedNow ? (
-                <button
-                  type="button"
-                  ref={(node) => {
-                    primaryRef.current = node
-                  }}
-                  className={cn(ACT, PRIMARY)}
-                  onClick={() => onOpenTab('places')}
-                >
-                  <MapPin className="h-3.5 w-3.5" aria-hidden="true" />
-                  {t('done.openPlaces')}
-                </button>
-              ) : null}
-              {nextHref ? (
-                <Link
-                  ref={
-                    approvedNow
-                      ? undefined
-                      : (node) => {
-                          primaryRef.current = node
-                        }
-                  }
-                  className={cn(ACT, approvedNow ? NEUTRAL : PRIMARY)}
-                  href={nextHref}
-                >
-                  <ArrowRight className="h-3.5 w-3.5" aria-hidden="true" />
-                  {t('decision.next')}
-                </Link>
-              ) : null}
-            </div>
-          ) : null}
-        </div>
-      ) : null}
-
-      {band ? (
-        <div
-          className={cn(
-            'rounded-2xl border p-4 text-sm font-semibold',
-            status === 'approved' || status === 'live'
-              ? 'border-green-200 bg-green-50 text-green-800 dark:border-green-800/30 dark:bg-green-900/20 dark:text-green-400'
-              : status === 'rejected'
-                ? 'border-red-200 bg-red-50 text-red-700 dark:border-red-800/30 dark:bg-red-900/20 dark:text-red-400'
-                : 'border-amber-200 bg-amber-50 text-amber-900 dark:border-amber-800/30 dark:bg-amber-900/20 dark:text-amber-300'
-          )}
-        >
-          <p>{band}</p>
-          {status === 'changes_requested' && lastMessage('operator') ? (
-            <p className="mt-2 whitespace-pre-wrap font-normal">{lastMessage('operator')?.body}</p>
-          ) : null}
-        </div>
-      ) : resubmitted ? (
-        <div className="space-y-2 rounded-2xl border border-primary-100 bg-primary-50 p-4 text-sm text-gray-900 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-100">
-          <p className="font-semibold">{t('bands.resubmitted', { date: formatShortDate(lastTransitionTo('in_review')?.at) })}</p>
-          {lastMessage('operator') ? (
-            <p className="whitespace-pre-wrap">
-              <span className="font-semibold">
-                {t('bands.operatorRequest', {
-                  author: operatorName(lastMessage('operator')?.actorName ?? null),
-                  date: formatDateTime(lastMessage('operator')?.at),
-                })}
-                :{' '}
-              </span>
-              {lastMessage('operator')?.body}
-            </p>
-          ) : null}
-          {lastMessage('partner') ? (
-            <p className="whitespace-pre-wrap">
-              <span className="font-semibold">{t('bands.placeAnswer', { date: formatDateTime(lastMessage('partner')?.at) })}: </span>
-              {lastMessage('partner')?.body}
-            </p>
-          ) : null}
-        </div>
-      ) : null}
-
-      {/* 2 · differences to the record — only when the record is a client's */}
-      {promotion ? (
-        <RecordSection icon={<GitCompare className="h-4 w-4 text-tuggi-blue" />} title={t('diff.title')}>
-          {promotion.entries.length === 0 ? (
-            <Line tone="ok">{t('diff.none')}</Line>
-          ) : (
-            <div className="space-y-3">
-              <div className="overflow-x-auto">
-                <table className="w-full text-left text-sm">
-                  <thead className="text-[10px] font-bold uppercase tracking-widest text-gray-500">
-                    <tr>
-                      <th scope="col" className="px-2 py-2">{t('diff.field')}</th>
-                      <th scope="col" className="px-2 py-2">{t('diff.current')}</th>
-                      <th scope="col" className="px-2 py-2">{t('diff.portal')}</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-gray-100 dark:divide-gray-800">
-                    {promotion.entries.map((entry) => (
-                      <tr key={entry.column}>
-                        <th scope="row" className="px-2 py-2 font-semibold text-gray-700 dark:text-gray-300">
-                          {tPromotion(`fields.${entry.column}`)}
-                        </th>
-                        <td className="break-words px-2 py-2 text-gray-600 dark:text-gray-400">{entry.current || '—'}</td>
-                        <td className="break-words px-2 py-2 font-semibold text-gray-900 dark:text-white">{entry.proposed}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-              {promotion.unchanged.length > 0 ? (
-                <p className="text-xs font-semibold text-gray-600 dark:text-gray-300">
-                  {t('diff.unchanged', { count: promotion.unchanged.length })}
-                </p>
-              ) : null}
-              <p className="text-xs text-gray-500">{t('diff.hint')}</p>
-            </div>
-          )}
-        </RecordSection>
-      ) : null}
-
+  const blocks = (
+    <>
       {/* 3 · company */}
       <RecordSection icon={<Building2 className="h-4 w-4 text-tuggi-blue" />} title={t('company.title')} aside={changed('company')}>
         <div className="mb-6 space-y-2">
@@ -828,20 +826,8 @@ export function ValidationTab({
         )}
       </RecordSection>
 
-      {/* 8 · acceptance and plan — here until the link, in Contrato and Fiscal after it */}
-      {review.clientId ? (
-        <RecordSection icon={<FileSignature className="h-4 w-4 text-indigo-500" />} title={t('acceptance.title')} color="indigo-500">
-          <p className="mb-4 text-sm text-gray-700 dark:text-gray-300">{t('acceptance.linked')}</p>
-          <div className="flex flex-wrap gap-2">
-            <button type="button" className={cn(ACT, NEUTRAL)} onClick={() => onOpenTab('contract')}>
-              {t('acceptance.openContract')}
-            </button>
-            <button type="button" className={cn(ACT, NEUTRAL)} onClick={() => onOpenTab('fiscal')}>
-              {t('acceptance.openFiscal')}
-            </button>
-          </div>
-        </RecordSection>
-      ) : (
+      {/* 8 · acceptance and plan — while the submission is not linked, or inside the record of it */}
+      {collapsed || !review.clientId ? (
         <>
           <RecordSection icon={<FileSignature className="h-4 w-4 text-indigo-500" />} title={t('acceptance.title')} color="indigo-500">
             {acceptance ? <PortalAcceptances records={[portalRecord]} /> : <Line tone="warn">{t('acceptance.missing')}</Line>}
@@ -852,53 +838,108 @@ export function ValidationTab({
             </RecordSection>
           ) : null}
         </>
-      )}
-
-      {/* 9 · history */}
-      <RecordSection icon={<History className="h-4 w-4 text-tuggi-blue" />} title={t('history.title')}>
-        {review.history.length === 0 ? (
-          <p className="text-sm text-gray-600 dark:text-gray-300">{t('history.empty')}</p>
-        ) : (
-          <ol className="space-y-3 text-sm font-semibold text-gray-900 dark:text-white">
-            {review.history.map((entry, index) => {
-              const kind = entry.kind === 'transition' ? entry.actorKind : entry.authorKind
-              const actor =
-                kind === 'operator'
-                  ? entry.actorName
-                    ? t('history.operator', { name: entry.actorName })
-                    : t('history.operatorUnnamed')
-                  : kind === 'partner'
-                    ? t('history.place')
-                    : t('history.system')
-              const head =
-                entry.kind === 'transition'
-                  ? t('history.transition', {
-                      date: formatDateTime(entry.at),
-                      from: t(`status.${entry.from}` as 'status.in_review'),
-                      to: t(`status.${entry.to}` as 'status.in_review'),
-                      actor,
-                    })
-                  : t('history.message', { date: formatDateTime(entry.at), actor })
-              const body = entry.kind === 'transition' ? entry.note : entry.body
-              return (
-                <li key={index}>
-                  {body ? (
-                    <details>
-                      <summary className="cursor-pointer">{head}</summary>
-                      <p className="mt-1 whitespace-pre-wrap pl-4 font-normal text-gray-700 dark:text-gray-300">{body}</p>
-                    </details>
-                  ) : (
-                    <p>{head}</p>
-                  )}
-                </li>
-              )
-            })}
-          </ol>
-        )}
-      </RecordSection>
-
-      {/* The phone has no sidebar: the conference goes under the tab. */}
-      <div className="lg:hidden">{phoneSummary}</div>
-    </div>
+      ) : null}
+    </>
   )
+
+  if (collapsed) {
+    return (
+      <details className="rounded-3xl border border-gray-200 bg-white p-5 shadow-sm dark:border-gray-800 dark:bg-gray-900 lg:p-8">
+        <summary className="cursor-pointer text-sm font-semibold text-gray-900 dark:text-white">
+          {t('submissionSummary', { date: formatDate(review.submittedAt) })}
+        </summary>
+        <div className="mt-8 space-y-8">
+          {blocks}
+          {others}
+        </div>
+      </details>
+    )
+  }
+
+  return (
+    <>
+      {others}
+
+      {/* 2 · differences to the record — only when the record is a client's */}
+      {promotion ? (
+        <RecordSection icon={<GitCompare className="h-4 w-4 text-tuggi-blue" />} title={t('diff.title')}>
+          {promotion.entries.length === 0 ? (
+            <Line tone="ok">{t('diff.none')}</Line>
+          ) : (
+            <div className="space-y-3">
+              <div className="overflow-x-auto">
+                <table className="w-full text-left text-sm">
+                  <thead className="text-[10px] font-bold uppercase tracking-widest text-gray-500">
+                    <tr>
+                      <th scope="col" className="px-2 py-2">{t('diff.field')}</th>
+                      <th scope="col" className="px-2 py-2">{t('diff.current')}</th>
+                      <th scope="col" className="px-2 py-2">{t('diff.portal')}</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-gray-100 dark:divide-gray-800">
+                    {promotion.entries.map((entry) => (
+                      <tr key={entry.column}>
+                        <th scope="row" className="px-2 py-2 font-semibold text-gray-700 dark:text-gray-300">
+                          {tPromotion(`fields.${entry.column}`)}
+                        </th>
+                        <td className="break-words px-2 py-2 text-gray-600 dark:text-gray-400">{entry.current || '—'}</td>
+                        <td className="break-words px-2 py-2 font-semibold text-gray-900 dark:text-white">{entry.proposed}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+              {promotion.unchanged.length > 0 ? (
+                <p className="text-xs font-semibold text-gray-600 dark:text-gray-300">
+                  {t('diff.unchanged', { count: promotion.unchanged.length })}
+                </p>
+              ) : null}
+              <p className="text-xs text-gray-500">{t('diff.hint')}</p>
+            </div>
+          )}
+        </RecordSection>
+      ) : null}
+
+      {blocks}
+    </>
+  )
+}
+
+/** The submission's history, one entry per transition or message, in the shape it always had (#910 §6). */
+export function useSubmissionHistory(review: PortalSubmissionReview | null): HistoryEntry[] {
+  const t = useTranslations('PartnerValidation')
+  if (!review) return []
+  return review.history.map((entry, index) => {
+    const kind = entry.kind === 'transition' ? entry.actorKind : entry.authorKind
+    const actor =
+      kind === 'operator'
+        ? entry.actorName
+          ? t('history.operator', { name: entry.actorName })
+          : t('history.operatorUnnamed')
+        : kind === 'partner'
+          ? t('history.place')
+          : t('history.system')
+    const head =
+      entry.kind === 'transition'
+        ? t('history.transition', {
+            date: formatDateTime(entry.at),
+            from: t(`status.${entry.from}` as 'status.in_review'),
+            to: t(`status.${entry.to}` as 'status.in_review'),
+            actor,
+          })
+        : t('history.message', { date: formatDateTime(entry.at), actor })
+    const body = entry.kind === 'transition' ? entry.note : entry.body
+    return {
+      at: entry.at,
+      key: `submission-${index}`,
+      node: body ? (
+        <details>
+          <summary className="cursor-pointer">{head}</summary>
+          <p className="mt-1 whitespace-pre-wrap pl-4 font-normal text-gray-700 dark:text-gray-300">{body}</p>
+        </details>
+      ) : (
+        head
+      ),
+    }
+  })
 }

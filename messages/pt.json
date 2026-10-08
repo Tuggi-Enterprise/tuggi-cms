@@ -2657,7 +2657,6 @@
       },
       "loading": "Carregando…",
       "tabs": {
-        "validation": "Validação",
         "partnership": "Parceria",
         "profile": "Perfil",
         "fiscal": "Fiscal & Pagamentos",
@@ -2812,8 +2811,6 @@
         "commission": "Comissão"
       },
       "fields": {
-        "taxIdType": "Tipo de tax ID",
-        "taxIdAutoCountry": "Auto: {type}",
         "taxIdSelectCountry": "Selecione o país primeiro",
         "legalRepName": "Representante legal",
         "legalRepNamePlaceholder": "Nome completo",
@@ -2839,7 +2836,6 @@
         "courtesy": "Cortesia (sem mensalidade)",
         "courtesyReason": "Motivo da cortesia",
         "frozenValueNote": "Existe contrato assinado em {date} com {value}. Este campo é o valor para o próximo contrato ou aditivo — editá-lo não muda o que já foi assinado.",
-        "isPlatformOwner": "Platform owner?",
         "isPlatformOwnerHelp": "Marque se o cliente é a própria Tuggi (split contábil)"
       }
     },
@@ -3665,8 +3661,6 @@
       "operatorRequest": "Pedido do operador ({author}, {date})",
       "placeAnswer": "Resposta do local ({date})",
       "changesRequested": "Ajuste pedido em {date} por {name}. O prazo está pausado até o local responder.",
-      "approved": "Aprovado por {name} em {date}.",
-      "live": "No ar desde {date}.",
       "rejected": "Recusado por {name} em {date}.",
       "withdrawn": "O local desistiu em {date}.",
       "someone": "operador"
@@ -3786,10 +3780,7 @@
       "sticker": "Adesivo",
       "display": "Display",
       "social": "Redes",
-      "missing": "O aceite deste cadastro não foi encontrado.",
-      "linked": "O aceite e o plano estão em Contrato e em Fiscal & Pagamentos.",
-      "openContract": "Ver Contrato",
-      "openFiscal": "Ver Fiscal & Pagamentos"
+      "missing": "O aceite deste cadastro não foi encontrado."
     },
     "history": {
       "title": "Histórico",
@@ -3798,8 +3789,7 @@
       "operator": "Operador {name}",
       "operatorUnnamed": "Operador",
       "place": "Local",
-      "system": "Sistema",
-      "empty": "Sem histórico."
+      "system": "Sistema"
     },
     "decision": {
       "label": "Decisão",
@@ -3890,7 +3880,8 @@
       "current": "No cadastro",
       "portal": "No portal"
     },
-    "otherSubmissions": "Outros envios:"
+    "otherSubmissions": "Outros envios:",
+    "submissionSummary": "Ver o cadastro enviado em {date}"
   },
   "Partnerships": {
     "title": "Parcerias",
@@ -4104,46 +4095,28 @@
       "notFoundTitle": "Esta parceria não existe.",
       "errorTitle": "Não foi possível carregar a parceria.",
       "retry": "Tentar de novo",
-      "bandStatus": {
-        "done": "concluída",
-        "current": "em andamento",
-        "future": "ainda não"
-      },
-      "bands": {
-        "proposal": "1 · Proposta recebida",
-        "conference": "2 · Conferência de regularidade",
-        "client": "3 · Cliente e contrato",
-        "place": "4 · O local",
-        "publication": "5 · Publicação"
-      },
-      "toggle": "Abrir ou fechar a faixa {band}",
       "proposalLine": "Recebida em {date}.",
-      "proposalLineUndated": "Proposta recebida.",
       "proposalLink": "Ver a proposta",
-      "proposalMissing": "Este cliente não veio do formulário de parceria.",
       "conferenceLine": "Conferida por {person} em {date}.",
       "conferenceLineAnonymous": "Conferência registrada em {date}.",
-      "conferenceNone": "Nenhuma conferência registrada ainda.",
-      "conferenceDerived": "Derivado de você já ter começado a registrar a conferência. Não existe campo de “em análise”.",
       "clientCreated": "Cliente criado em {date}.",
       "clientApproved": "Parceria aprovada em {date}.",
       "clientApprovedBy": "Parceria aprovada em {date} por {person}.",
-      "clientNotApproved": "Parceria ainda não aprovada.",
-      "clientSeparateActs": "Aprovar a parceria e assinar o contrato são atos diferentes. Aprovar a parceria também não aprova o local.",
       "contractSigned": "Contrato assinado em {date}.",
       "contractSignedBy": "Contrato assinado em {date} por {person}.",
       "contractNotSigned": "Contrato ainda não assinado.",
-      "openClient": "Abrir a ficha do cliente",
       "openContract": "Abrir o contrato",
-      "feeLine": "Faixa paga: {fee} por mês.",
-      "feeCourtesy": "Cortesia: {reason}.",
-      "feeUndeclared": "Sem valor mensal registrado e sem cortesia.",
       "placeHeading": "{name}",
       "placeCount": "{count, plural, one {# local} other {# locais}}",
-      "publicationBefore": "Ainda não publicado. Publicar é o que coloca o local no app — e, na faixa paga, o que inicia a mensalidade.",
-      "trail": "Trilha",
-      "trailEmpty": "Nada registrado ainda.",
-      "openPlace": "Abrir o local"
+      "openPlace": "Abrir o local",
+      "blockPlace": "O local",
+      "blockPublication": "Publicação",
+      "blockContract": "Contrato",
+      "regularityLine": "Regularidade conferida por {person} em {date}.",
+      "regularityLineAnonymous": "Regularidade conferida em {date}.",
+      "portalTermsLine": "Termo {version} aceito em {date}.",
+      "noPlaceLinked": "Nenhum local vinculado.",
+      "linkInPlaces": "Vincular em Locais"
     },
     "returnBar": {
       "label": "Voltar para a esteira de {name}"
