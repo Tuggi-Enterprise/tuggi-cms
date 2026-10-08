@@ -1,7 +1,7 @@
 'use client'
 
 /**
- * Client-side content of /admin/clients/cancellations — card #913, BR-B2B-060 item 7, spec
+ * Client-side content of /admin/clients/cancellations, card #913, BR-B2B-060 item 7, spec
  * `docs/design/spec-cancelamento-places-2026-10.md` §5. Shell, table, pagination and states copy
  * `AdminCouponRedemptionsPageContent`.
  *

@@ -1,5 +1,5 @@
 /**
- * #913 — the cancellation survey of the Portal Locais (BR-B2B-060), on the EF side: `cancel_renewal`
+ * #913: the cancellation survey of the Portal Locais (BR-B2B-060), on the EF side: `cancel_renewal`
  * takes an optional `feedback`, sanitizes it, records it after the cancel, and the cancel e-mail
  * thanks instead of asking when a reason or a comment came.
  *

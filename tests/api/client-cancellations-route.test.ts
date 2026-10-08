@@ -1,5 +1,5 @@
 /**
- * #913 — the CMS side of the portal cancellation survey (BR-B2B-060 item 7): the list
+ * #913: the CMS side of the portal cancellation survey (BR-B2B-060 item 7): the list
  * (`GET /api/admin/clients/cancellations`) and "Marcar que falamos" / "Desfazer"
  * (`POST|DELETE /api/admin/clients/cancellations/<id>/contacted`).
  *
@@ -124,7 +124,7 @@ test('#913: a non-uuid id is 400 before the database', async () => {
   assert.deepEqual(calls, [])
 })
 
-test('#913 BR-B2B-060 item 5: the database refusals of the mark — 42501 → 403, 22023 no_contact_consent → 409, P0002 → 404', async () => {
+test('#913 BR-B2B-060 item 5: the database refusals of the mark: 42501 → 403, 22023 no_contact_consent → 409, P0002 → 404', async () => {
   const cases: [string, string, number, string][] = [
     ['42501', 'permission denied', 403, 'forbidden'],
     ['22023', 'no_contact_consent', 409, 'no_contact_consent'],
@@ -200,7 +200,7 @@ test('#913: the list before the migration is 503 not_available; a gate refusal i
   assert.equal((await list.GET(get())).status, 403)
 })
 
-test('#913 BR-B2B-060 items 5 and 7: the contact state — no consent is "Não aceitou", consent without contact is pending, with contact is done', () => {
+test('#913 BR-B2B-060 items 5 and 7: the contact state: no consent is "Não aceitou", consent without contact is pending, with contact is done', () => {
   assert.equal(lib.contactStateOf({ contact_consent: false, contacted_at: null }), 'declined')
   assert.equal(lib.contactStateOf({ contact_consent: true, contacted_at: null }), 'pending')
   assert.equal(lib.contactStateOf({ contact_consent: true, contacted_at: '2026-10-08T15:00:00Z' }), 'done')
