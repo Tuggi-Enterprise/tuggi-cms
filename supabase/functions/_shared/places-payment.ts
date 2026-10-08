@@ -1871,6 +1871,8 @@ export const PORTAL_URL = 'https://partner.tuggi.app';
  * button ("Entrar", the label of `linkEmail`); the text part keeps it as `Entrar: <url>`. Replies go
  * to `SUPPORT_EMAIL` (this e-mail only). `small` is empty: the portal e-mails share no small print.
  */
+const CANCEL_ASK_REASON = 'Pode contar para a gente por que cancelou? Basta responder este e-mail. Uma linha já nos ajuda a melhorar.';
+
 export const CANCEL_EMAIL = {
   subject: 'Seu plano Com história foi cancelado',
   replyTo: SUPPORT_EMAIL,
@@ -1910,7 +1912,7 @@ export const CANCEL_EMAIL = {
       closing: [
         answered
           ? 'Obrigado por contar o motivo no portal. Se quiser dizer mais alguma coisa, é só responder este e-mail.'
-          : 'Pode contar para a gente por que cancelou? Basta responder este e-mail. Uma linha já nos ajuda a melhorar.',
+          : CANCEL_ASK_REASON,
       ],
       small: [],
     });
@@ -2027,7 +2029,11 @@ export async function cancelLegacy(deps: PortalDeps, submissionId: string): Prom
   try {
     if (!clientId) throw new Error('no client id');
     endsOn = await legacyPaidUntil(deps, clientId);
-    await endLegacySubscriptions(deps, clientId);
+    // The database proved a paying legacy client: no live `legacy:<id>` means the fee may still run
+    // under a reference we do not know (security review, #916). The flow does not change.
+    if ((await endLegacySubscriptions(deps, clientId)) === 0) {
+      await deps.alert('legacy_subscription_not_found', { submission_id: submissionId, client_id: clientId });
+    }
   } catch (e) {
     await deps.alert('legacy_subscription_end_failed', { submission_id: submissionId, client_id: clientId, error: e instanceof Error ? e.message : 'unknown' });
   }
@@ -2051,15 +2057,24 @@ async function endLegacyAfterMigration(deps: Deps, submissionId: string): Promis
   try {
     mark = await deps.legacyOf(submissionId);
     if (!mark) return;
+    let endedNow = false;
     if (!mark.fee_ended_at) {
       const { error } = await deps.admin('partner', 'place_end_legacy_fee', { p_submission_id: submissionId, p_reason: 'migrated' });
       // A business refusal: a legacy client that pays no fee (nothing to end).
       if (error && !isBusinessError(error)) throw new Error(`db ${error.code ?? 'unknown'}`);
+      endedNow = !error;
     }
-    await endLegacySubscriptions(deps, mark.client_id);
+    // Only a fee the database ended now proves a paying client: with no live `legacy:<id>`, the fee may
+    // still run under a reference we do not know (security review, #916).
+    if ((await endLegacySubscriptions(deps, mark.client_id)) === 0 && endedNow) {
+      await deps.alert('legacy_subscription_not_found', { submission_id: submissionId, client_id: mark.client_id });
+    }
   } catch (e) {
     await deps.alert('legacy_migration_end_failed', { submission_id: submissionId, client_id: mark?.client_id ?? null, error: e instanceof Error ? e.message : 'unknown' });
   }
+  // The mirror stays `live`, so the story written in the wizard never enters the CMS review queue:
+  // the operator is told there is a story to validate and publish (security review, #916).
+  if (mark) await deps.alert('legacy_migrated', { submission_id: submissionId });
 }
 
 /**
@@ -2081,6 +2096,8 @@ export const LEGACY_CANCEL_EMAIL = {
         'O seu local continua no mapa do app, sem custo.',
       ],
       cta: { label: 'Entrar', url: PORTAL_URL },
+      // The legacy cancel has no reason step (design, #916): the e-mail is where the reason comes from.
+      closing: [CANCEL_ASK_REASON],
       small: [],
     }),
 };

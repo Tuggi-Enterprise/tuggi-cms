@@ -238,7 +238,7 @@ export function legacyAccessEmail(url: string, origin: string, v: { placeName: s
       `o ${name} já está no app do Tuggi, e agora você acompanha a sua conta pelo portal de parceiros.`,
       v.paying
         ? 'Lá você vê o seu plano, o valor e o vencimento, e pode trocar de plano ou cancelar quando quiser, sem taxa de saída.'
-        : 'Lá você vê o seu plano e pode adicionar a história em áudio do seu local quando quiser.',
+        : 'Lá você vê o seu plano e, quando quiser adicionar a história em áudio do seu local, é só pedir por lá.',
     ],
     cta: { label: 'Entrar no portal', url },
     small: [

@@ -56,7 +56,7 @@ test('#916 spec §1: legacy access e-mail, paying variant: subject, preheader, t
 
 test('#916 spec §1: legacy access e-mail, free variant speaks of the audio story, not of price or cancelling', () => {
   const m = access.legacyAccessEmail('https://x.test/a', ORIGIN, { placeName: 'Pousada Sol', paying: false })
-  assert.match(m.text, /Lá você vê o seu plano e pode adicionar a história em áudio do seu local quando quiser\./)
+  assert.match(m.text, /Lá você vê o seu plano e, quando quiser adicionar a história em áudio do seu local, é só pedir por lá\./)
   assert.doesNotMatch(m.text, /taxa de saída|cancelar/)
 })
 
@@ -258,14 +258,31 @@ test('#916 BR-B2B-060: cancel_legacy — the database first with the user JWT, t
   assert.match(mails[0].text, /Seu plano termina em 20\/10\/2026, quando acabaria o mês já pago\. Depois disso não há nova cobrança nem taxa de saída\./)
   assert.equal(mails[0].opts.fromName, 'Tuggi Locais')
   assert.equal(mails[0].opts.replyTo, 'suporte@tuggi.app')
+  // design ajuste 2: no reason step in the legacy cancel, so the e-mail asks it
+  assert.match(mails[0].text, /Pode contar para a gente por que cancelou\? Basta responder este e-mail\. Uma linha já nos ajuda a melhorar\./)
 })
 
-test('#916: cancel_legacy with no month paid (or no Asaas subscription yet) ends today', async () => {
-  const asaas = fakeAsaas([subsByLegacyRef([])])
-  const { d, mails } = deps(asaas, fakeDb({}), { user: payingOwner().rpc })
+test('#916: cancel_legacy with no month paid ends today', async () => {
+  const asaas = fakeAsaas([
+    subsByLegacyRef([legacySub]),
+    at('GET', '/payments?subscription=sub_legacy', 200, { data: [] }),
+    at('DELETE', '/subscriptions/sub_legacy', 200, { deleted: true }),
+  ])
+  const { d, alerts, mails } = deps(asaas, fakeDb({}), { user: payingOwner().rpc })
   const r = await pay.cancelLegacy(d, SUBMISSION)
   assert.deepEqual(r, { status: 200, body: { result: 'canceled', ends_on: null } })
   assert.match(mails[0].text, /Seu plano termina hoje\. Não há cobrança nem taxa de saída\./)
+  assert.equal(alerts.length, 0)
+})
+
+test('#916 (security): cancel_legacy of a paying client with no live legacy:<id> at Asaas alerts legacy_subscription_not_found, and the flow does not change', async () => {
+  const asaas = fakeAsaas([subsByLegacyRef([])])
+  const { d, alerts, mails } = deps(asaas, fakeDb({}), { user: payingOwner().rpc })
+  const r = await pay.cancelLegacy(d, SUBMISSION)
+  assert.deepEqual(r, { status: 200, body: { result: 'canceled', ends_on: null } })
+  assert.deepEqual(alerts.map((a) => a.what), ['legacy_subscription_not_found'])
+  assert.deepEqual(alerts[0].fields, { submission_id: SUBMISSION, client_id: CLIENT })
+  assert.equal(mails.length, 1)
 })
 
 test('#916: cancel_legacy refused by the database (not the owner, not a paying legacy) touches nothing at Asaas', async () => {
@@ -346,7 +363,17 @@ test('#916: the paying legacy client migrates — AFTER the new plan is attached
   const order = asaas.calls.map((c) => `${c.method} ${c.path.split('?')[0]}`)
   assert.ok(order.indexOf('POST /subscriptions') < order.indexOf('DELETE /subscriptions/sub_legacy'))
   assert.deepEqual(asaas.calls.filter((c) => c.method === 'DELETE').map((c) => c.path), ['/subscriptions/sub_legacy'])
-  assert.equal(alerts.length, 0)
+  // security: the mirror stays live, so the operator is told there is a story to validate
+  assert.deepEqual(alerts.map((a) => [a.what, a.fields]), [['legacy_migrated', { submission_id: SUBMISSION }]])
+})
+
+test('#916 (security): the paying legacy client migrates with no live legacy:<id> at Asaas — legacy_subscription_not_found, then legacy_migrated; the checkout still succeeds', async () => {
+  const asaas = fakeAsaas([...checkoutRoutes(), subsByLegacyRef([])])
+  const db = fakeDb({ place_payment_checkout: { data: [checkoutRow] }, attach_place_subscription: { data: 'pending_payment' }, place_end_legacy_fee: { data: CLIENT } })
+  const { d, alerts } = deps(asaas, db, { user: owner().rpc })
+  assert.equal((await pay.checkout(d, checkoutBody)).status, 200)
+  assert.deepEqual(alerts.map((a) => a.what), ['legacy_subscription_not_found', 'legacy_migrated'])
+  assert.deepEqual(alerts[0].fields, { submission_id: SUBMISSION, client_id: CLIENT })
 })
 
 test('#916: refused card — the legacy fee is NOT ended (the client never stays without a plan)', async () => {
@@ -367,24 +394,27 @@ test('#916: a portal submission (not legacy) checks out as before; a legacy fee 
   {
     const asaas = fakeAsaas(checkoutRoutes())
     const db = fakeDb({ place_payment_checkout: { data: [checkoutRow] }, attach_place_subscription: { data: 'pending_payment' } })
-    const { d } = deps(asaas, db, { user: owner().rpc, legacyOf: async () => null })
+    const { d, alerts } = deps(asaas, db, { user: owner().rpc, legacyOf: async () => null })
     assert.equal((await pay.checkout(d, checkoutBody)).status, 200)
+    assert.ok(!alerts.some((a) => a.what.startsWith('legacy')))
     assert.deepEqual(db.calls.map((c) => c.fn), ['place_payment_checkout', 'attach_place_subscription'])
     assert.ok(!asaas.calls.some((c) => c.path.includes('legacy')))
   }
   {
     const asaas = fakeAsaas([...checkoutRoutes(), subsByLegacyRef([])])
     const db = fakeDb({ place_payment_checkout: { data: [checkoutRow] }, attach_place_subscription: { data: 'pending_payment' } })
-    const { d } = deps(asaas, db, { user: owner().rpc, legacyOf: async () => ({ client_id: CLIENT, fee_ended_at: '2026-10-01T00:00:00Z' }) })
+    const { d, alerts } = deps(asaas, db, { user: owner().rpc, legacyOf: async () => ({ client_id: CLIENT, fee_ended_at: '2026-10-01T00:00:00Z' }) })
     assert.equal((await pay.checkout(d, checkoutBody)).status, 200)
     assert.ok(!db.calls.some((c) => c.fn === 'place_end_legacy_fee'))
+    // a fee ended before proves nothing about Asaas: no legacy_subscription_not_found
+    assert.deepEqual(alerts.map((a) => a.what), ['legacy_migrated'])
   }
   {
     const asaas = fakeAsaas([...checkoutRoutes(), at('GET', `/subscriptions?externalReference=${encodeURIComponent(LEGACY_REF)}`, 503, {})])
     const db = fakeDb({ place_payment_checkout: { data: [checkoutRow] }, attach_place_subscription: { data: 'pending_payment' }, place_end_legacy_fee: { data: CLIENT } })
     const { d, alerts } = deps(asaas, db, { user: owner().rpc })
     assert.equal((await pay.checkout(d, checkoutBody)).status, 200)
-    assert.deepEqual(alerts.map((a) => a.what), ['legacy_migration_end_failed'])
+    assert.deepEqual(alerts.map((a) => a.what), ['legacy_migration_end_failed', 'legacy_migrated'])
   }
 })
 
