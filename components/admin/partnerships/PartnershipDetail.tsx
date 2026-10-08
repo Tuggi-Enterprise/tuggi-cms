@@ -1,125 +1,97 @@
 'use client'
 
 /**
- * One partnership, whole — the five states in the same order, always, and none of them hidden.
+ * The client record's Parceria tab, whole (#910): one tab for what used to be Validação and
+ * Parceria, in one fixed order, and a block with no data does not render — not even with a
+ * sentence about its absence.
  *
- * The current band opens; the ones behind it collapse to a line with who and when; the ones
- * ahead stay legible with what they will demand. Somebody arriving at state 3 has to be able
- * to see, without clicking, that a trigger point and an audio still stand between the contract
- * and the place saying anything.
+ *   1  state band — the pipeline's state, next step and clock; under it the submission's band
+ *   2–8  the portal submission, while it is being validated (`SubmissionBlocks`)
+ *   9  O local — while a place is not published, or there is none
+ *   10 Publicação — once a place is published
+ *   11 Contrato — regularity, the contract or the portal term, and the way to the Contrato tab
+ *   12 the submission after the decision, collapsed
+ *   13 Histórico — the submission's history and the pipeline's dated facts, merged by date
  *
- * WHAT THIS SCREEN IS NOT. It is not the client's record, not the place editor, not the
- * trigger-point editor and not the boundary drawing (DS-LAYOUT-006, 1st edge case). The fiscal
- * data, the banking data, the team, the coupons and the contract stay on
- * `/admin/clients/{id}`; band 3 shows what the pipeline decides and links to the rest. Copying
- * three fields "for convenience" is how the second source of the same fact gets born.
+ * "In validation" is the predicate that already gives the record header the submission's acts:
+ * a submission exists and it is undecided, or there is no client yet. Anything else is the
+ * pipeline ("esteira").
  *
- * EVERY BAND IS A `<section>` WITH A HEADING, its toggle is a `<button aria-expanded>`, and the
- * situation of each one (`concluída`, `em andamento`, `ainda não`) is TEXT — never an icon and
- * never a colour on its own (DS-A11Y-003).
+ * The two reads (the pipeline, keyed by the client, and the submission) each keep their own
+ * skeleton and their own error in the place of their blocks: the tab never waits blank for both.
+ *
+ * WHAT THIS SCREEN IS NOT. It is not the place editor, not the trigger-point editor and not the
+ * boundary drawing (DS-LAYOUT-006, 1st edge case). The fiscal data, the banking data, the team, the
+ * coupons and the contract stay in their own tabs; this tab shows what the pipeline decides and
+ * switches to the rest. Copying three fields "for convenience" is how the second source of the
+ * same fact gets born.
  */
 
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import { useRecordRead } from '@/lib/hooks/use-record-cache'
 import { useTranslations } from 'next-intl'
 import Link from 'next/link'
-import { ChevronDown, ChevronRight, Lock } from 'lucide-react'
+import { FileSignature, History, Lock, MapPin, Radio } from 'lucide-react'
 import { gateLine } from '@/components/admin/clients/board/row-text'
 import { Button } from '@/components/ui/button'
 import { PlaceFormModal } from '@/components/place-management/PlaceFormModal'
 import { formatDate } from '@/components/admin/partner-proposals/format'
-import { formatMonthlyFee } from '@/lib/partnerships/publish-plan'
+import { RecordSection } from '@/components/admin/clients/shared/RecordSection'
+import { useClientContract } from '@/components/admin/clients/shared/use-client-contract'
+import {
+  SubmissionBand,
+  SubmissionBlocks,
+  SubmissionReadState,
+  submissionWasApproved,
+  useSubmissionHistory,
+  type HistoryEntry,
+  type SubmissionProps,
+} from '@/components/admin/clients/shared/PortalSubmission'
+import type { ClientEditorTab } from '@/components/admin/clients/ClientEditorModal'
 import type { PendencyId } from '@/lib/partnerships/place-readiness'
-import { IN_PROGRESS_STATES, type PipelineState } from '@/lib/partnerships/pipeline'
+import { IN_PROGRESS_STATES } from '@/lib/partnerships/pipeline'
 import { deriveTriageStatus, type TriageGate } from '@/lib/partnerships/triage'
 import { returnParams } from '@/lib/navigation/return-to'
 import { placeToolHref } from '@/lib/partnerships/place-tool'
 import type { PartnershipDetail as Detail, PartnershipPlace } from '@/lib/services/partnership-service'
 import { PendencyList } from './PendencyList'
-import { PlaceLinkPanel } from './PlaceLinkPanel'
-import { WelcomeDivergenceCard } from './WelcomeDivergenceCard'
 import { trailPublishedLines } from './trail-text'
 import { PublishPanel, UnpublishPanel } from './PublishPanel'
 import { CommunicationPanel, RefusalPanel, RefusalSummary, type RefusalOutcome } from './TriageRefusalPanel'
 import { triageDeadlineText, triageText } from './triage-text'
 import { clientApprovedText } from './approval-text'
 
-type BandId = 'proposal' | 'conference' | 'client' | 'place' | 'publication'
-type BandStatus = 'done' | 'current' | 'future'
 type PanelKind = 'publish' | 'unpublish' | 'refuse' | 'communicate'
 type Panel = { attractionId: string; kind: PanelKind } | null
 
-/**
- * How far along the pipeline each state is. `discarded` reads as the very beginning.
- *
- * `refused_at_triage` sits at band 4, with the place: the refusal is a decision ABOUT THE PLACE
- * and the operator who comes back to the row goes to the place to read it. It is terminal without
- * being an ending — the partnership continues (BR-B2B-010, 6th edge case).
- *
- * `refusal_not_communicated` sits there too, and for a stronger reason: the act it is waiting for
- * (`Registrar a comunicação ao parceiro`) is a control inside band 4. Ordering it anywhere else
- * would open a band whose work is not the one the header names.
- */
-const STATE_ORDER: Record<PipelineState, number> = {
-  proposal_received: 0,
-  in_conference: 1,
-  // Band 4, where `Criar o local` lives; the acceptance link is the record's contract tab (#872).
-  awaiting_acceptance: 3,
-  place_in_curation: 4,
-  refusal_not_communicated: 4,
-  published: 5,
-  discarded: 0,
-  refused_at_triage: 4,
-  // The portal (#812). Its rows open the validation screen, not this one, until they are live.
-  in_validation: 1,
-  changes_requested: 1,
-  approved_awaiting_narration: 4,
-  portal_refused: 0,
-}
-
-/**
- * The state range each band covers, and it is what decides which band OPENS.
- *
- * Band 4 starts at `awaiting_acceptance` and not at `place_in_curation`, because the act that
- * state names — `Criar o local a partir da proposta` — lives in band 4 (DS-LAYOUT-003).
- */
-const BAND_RANGE: Record<BandId, [number, number]> = {
-  proposal: [0, 0],
-  conference: [1, 1],
-  client: [2, 2],
-  place: [3, 4],
-  publication: [5, 5],
-}
-
-const BANDS: BandId[] = ['proposal', 'conference', 'client', 'place', 'publication']
+const LINK_BUTTON =
+  'inline-flex min-h-[24px] items-center text-sm font-medium text-primary-800 underline underline-offset-4'
 
 interface PartnershipDetailProps {
   locale: string
-  clientId: string
-  /**
-   * How to reach a neighbouring tab, when this pipeline is embedded in the client record.
-   *
-   * THIS IS WHERE THE ROUND TRIP DIES. Band 3 used to LINK at the client record and at the
-   * contract — two page changes to fill one field and come back. Inside the record those two
-   * destinations are tabs, one click away, with no fetch and no navigation, so the band offers
-   * the act instead of a door to it. On the standalone page there is no tab strip and the
-   * links stay.
-   */
-  onOpenTab?: (tab: 'profile' | 'fiscal' | 'contract') => void
+  /** Absent in the pre-registration of a portal submission: there is no pipeline yet, only the submission. */
+  clientId?: string
+  /** The record's tab strip: the blocks switch tabs, never navigate. */
+  onOpenTab: (tab: ClientEditorTab) => void
+  /** The portal submission this record shows, when there is one. */
+  submission?: Omit<SubmissionProps, 'locale' | 'onOpenTab'>
+  /** `DecisionSummary` for the phone, which has no sidebar. */
+  phoneSummary?: React.ReactNode
 }
 
 export function PartnershipDetail({
   locale,
   clientId,
   onOpenTab,
+  submission,
+  phoneSummary,
 }: PartnershipDetailProps) {
   const t = useTranslations('Partnerships')
+  const tValidation = useTranslations('PartnerValidation')
 
   const [detail, setDetail] = useState<Detail | null>(null)
-  const [loading, setLoading] = useState(true)
+  const [loading, setLoading] = useState(Boolean(clientId))
   const [failure, setFailure] = useState<'none' | 'not_found' | 'error'>('none')
-  const [open, setOpen] = useState<BandId[]>([])
-  const [touched, setTouched] = useState(false)
   const [panel, setPanel] = useState<Panel>(null)
   const [editingPlaceId, setEditingPlaceId] = useState<string | null>(null)
   /**
@@ -133,6 +105,7 @@ export function PartnershipDetail({
 
   /** `fresh` after an act; the first read may take the one the record's other tab already made. */
   const load = useCallback(async (fresh: boolean = true) => {
+    if (!clientId) return
     setLoading(true)
     try {
       const response = await read<{ detail?: Detail }>(`/api/admin/partnerships/clients/${clientId}`, { fresh })
@@ -158,23 +131,6 @@ export function PartnershipDetail({
   useEffect(() => {
     void load(false)
   }, [load])
-
-  const currentBand = useMemo<BandId>(() => {
-    if (!detail) return 'proposal'
-    const order = STATE_ORDER[detail.state]
-    return BANDS.find((band) => order >= BAND_RANGE[band][0] && order <= BAND_RANGE[band][1]) ?? 'place'
-  }, [detail])
-
-  // The current band opens by itself, and stops doing so the moment the operator has an
-  // opinion — reopening what somebody just closed is the sort of help that costs a click.
-  const isOpen = (band: BandId) => (touched ? open.indexOf(band) >= 0 : band === currentBand)
-
-  function toggle(band: BandId) {
-    const currentlyOpen = isOpen(band)
-    const base = touched ? open : [currentBand]
-    setTouched(true)
-    setOpen(currentlyOpen ? base.filter((id) => id !== band) : base.concat(band))
-  }
 
   const publish = useCallback(
     async (attractionId: string, approved: boolean) => {
@@ -254,39 +210,12 @@ export function PartnershipDetail({
     [clientId]
   )
 
-  if (loading) {
-    return (
-      <div className="mx-auto w-full max-w-7xl px-6 py-6" aria-busy="true">
-        <span className="sr-only">{t('detail.loading')}</span>
-        <div className="h-8 w-1/3 animate-pulse rounded bg-gray-100" aria-hidden="true" />
-        <div className="mt-4 space-y-3" aria-hidden="true">
-          {BANDS.map((band) => (
-            <div key={band} className="h-12 animate-pulse rounded bg-gray-100" />
-          ))}
-        </div>
-      </div>
-    )
-  }
+  const review = submission?.record.review ?? null
+  const inValidation = Boolean(review) && (Boolean(submission?.record.undecided) || !clientId)
+  const submissionHistory = useSubmissionHistory(review)
 
-  if (failure === 'not_found' || !detail) {
-    return (
-      <div className="mx-auto w-full max-w-3xl px-6 py-10 text-center">
-        <p className="font-medium text-gray-900">
-          {failure === 'error' ? t('detail.errorTitle') : t('detail.notFoundTitle')}
-        </p>
-        <div className="mt-3 flex justify-center gap-3">
-          {failure === 'error' && (
-            <Button variant="outline" onClick={() => void load()}>
-              {t('detail.retry')}
-            </Button>
-          )}
-        </div>
-      </div>
-    )
-  }
-
-  const name = detail.client.name ?? detail.client.companyName ?? ''
-  // The pipeline lives in the record now (#875): a tool opened from here comes back to this tab.
+  const name = detail ? (detail.client.name ?? detail.client.companyName ?? '') : ''
+  // A tool opened from here comes back to this tab (#875).
   const returnTo = `/${locale}/admin/clients?clientId=${clientId}&tab=partnership`
   const returnLabel = t('returnBar.label', { name })
 
@@ -307,399 +236,299 @@ export function PartnershipDetail({
   }
 
   /**
-   * The client record, OPENED — and until this was written it was not.
-   *
-   * The link read `?client=`, and the screen on the other side reads `clientId`
-   * (`AdminClientsPageContent`): every `Abrir a ficha do cliente` landed the operator on the
-   * paginated client list with nothing open, to hunt by hand for the client they had just been
-   * looking at. Built here, out of one function, so the two callers cannot drift again.
-   *
-   * `tab` is an allowlisted deep link of `ClientEditorModal`; the way back travels with it,
-   * because the operator opened this to fill in one field and belongs back in the band.
+   * Variant (iv) of the publish panel sends the operator to the fee: the record's own Fiscal tab,
+   * by the address the record reads (`clientId` + `tab`), with the way back to this tab.
    */
-  function clientHref(tab?: 'profile' | 'fiscal' | 'contract'): string {
-    // The route parameter and not `detail.client.id`: this screen IS the pipeline of that
-    // client, and the two are the same id by construction of the endpoint above.
-    const query = new URLSearchParams({ clientId, ...returnParams(returnTo, returnLabel) })
-    if (tab) query.set('tab', tab)
-    return `/${locale}/admin/clients?${query.toString()}`
-  }
+  const fiscalHref = `/${locale}/admin/clients?${new URLSearchParams({
+    clientId: clientId ?? '',
+    tab: 'fiscal',
+    ...returnParams(returnTo, returnLabel),
+  }).toString()}`
 
-  /** The contract's own route — a long document with a trail, so it stays a page (#342). */
-  function contractHref(): string {
-    const query = new URLSearchParams(returnParams(returnTo, returnLabel))
-    return `/${locale}/admin/clients/${clientId}/contract?${query.toString()}`
-  }
+  const places = detail?.places ?? []
+  const showPlace = places.length === 0 || places.some((place) => !place.readiness.published)
+  const showPublication = places.some((place) => place.readiness.published)
+  const history = detail
+    ? mergeHistory(submissionHistory, pipelineHistory(detail, locale, t, submissionWasApproved(review)))
+    : submissionHistory
 
   return (
-    <div className="mx-auto w-full max-w-7xl px-6 py-6">
-      {/* Sticky: in a partnership with three places, publishing must not mean scrolling back
-          up, and the action of the current state is never behind a menu (DS-LAYOUT-003). */}
-      <header className="sticky top-0 z-10 -mx-6 mb-5 mt-3 border-b border-gray-200 bg-white px-6 py-3">
-        <h1 className="text-2xl font-semibold text-gray-900">{name}</h1>
-        <p className="mt-1 text-sm text-gray-800">
-          {[detail.client.taxId, cityLine(detail)].filter(Boolean).join(' · ')}
-        </p>
-        <p className="mt-1 text-sm font-medium text-gray-900">
-          {t(`states.${detail.state}`)}
-          {/* `published` and `discarded` have no next step, and the place to say so is not a
-              bare em dash hanging next to the state. */}
-          {IN_PROGRESS_STATES.indexOf(detail.state) >= 0 && (
-            <span className="ml-2 font-normal text-gray-800">
-              {t(`nextSteps.${detail.state}`)}
+    <div className="mx-auto w-full max-w-5xl space-y-8">
+      {/* 1 · state band. Not sticky: the record's header is what holds the top. */}
+      {detail ? (
+        <div className="space-y-1">
+          <p className="text-sm font-medium text-gray-900 dark:text-white">
+            {t(`states.${detail.state}`)}
+            {/* `published` and `discarded` have no next step, and the place to say so is not a
+                bare em dash hanging next to the state. */}
+            {IN_PROGRESS_STATES.indexOf(detail.state) >= 0 && (
+              <span className="ml-2 font-normal text-gray-800 dark:text-gray-200">{t(`nextSteps.${detail.state}`)}</span>
+            )}
+            {/* The clock, out of the SAME module the queue column reads — the list and the record
+                cannot disagree about a promise made to a partner (BR-B2B-010, item 4). */}
+            <span className="ml-2 font-normal text-gray-800 dark:text-gray-200" title={t('triage.deadlineTitle')}>
+              {headerClock(detail, t)}
             </span>
-          )}
-          {/* The clock, in the header the spec draws it in (§6.2) and out of the SAME module the
-              queue column reads — the list and the detail cannot disagree about a promise made to
-              a partner (BR-B2B-010, item 4). There is no second line here, so the instant of the
-              deadline comes in parentheses on this one (DS-COPY-025, point 5). */}
-          <span className="ml-2 font-normal text-gray-800" title={t('triage.deadlineTitle')}>
-            {headerClock(detail, t)}
-          </span>
-        </p>
-        {/* Criterion 33: the two states the refusal produces carry this line, and the screen offers
-            no action that removes the partnership — BR-B2B-010, 6th edge case, and BR-B2B-027,
-            item 3. Before the communication the state is `refusal_not_communicated`, and that is
-            precisely when the operator is about to write to the partner. */}
-        {(detail.state === 'refused_at_triage' ||
-          detail.state === 'refusal_not_communicated') && (
-          <p className="mt-1 text-sm font-medium text-gray-900">
-            {t('triage.partnershipContinues')}
           </p>
-        )}
-      </header>
+          {/* Criterion 33: the two states the refusal produces carry this line, and the screen offers
+              no action that removes the partnership — BR-B2B-010, 6th edge case, and BR-B2B-027, item 3. */}
+          {(detail.state === 'refused_at_triage' || detail.state === 'refusal_not_communicated') && (
+            <p className="text-sm font-medium text-gray-900 dark:text-white">{t('triage.partnershipContinues')}</p>
+          )}
+        </div>
+      ) : null}
 
       {/* The refusal whose fate we do not know — raised out of the panel, because the panel closed.
           The act is append-only: repeating it is what creates two refusals, so no control here
           offers to (#377, item 3, and BR-B2B-011, item 5). */}
       {refusalUnknown && (
-        <div
-          role="alert"
-          className="mb-4 rounded-md border border-destructive/40 bg-destructive/5 p-3 text-sm text-gray-900"
-        >
+        <div role="alert" className="rounded-md border border-destructive/40 bg-destructive/5 p-3 text-sm text-gray-900">
           <p className="font-semibold">{t('triage.refuseUnknownTitle')}</p>
           <p className="mt-1">{t('triage.refuseUnknownBody')}</p>
         </div>
       )}
 
-      <div className="flex flex-col gap-6 lg:flex-row">
-        <div className="min-w-0 flex-1 space-y-3">
-          {BANDS.map((band) => (
-            <Band
-              key={band}
-              band={band}
-              status={bandStatus(band, detail)}
-              open={isOpen(band)}
-              onToggle={() => toggle(band)}
-            >
-              {band === 'proposal' && <ProposalBand detail={detail} locale={locale} />}
-              {band === 'conference' && <ConferenceBand detail={detail} />}
-              {band === 'client' && (
-                <ClientBand
-                  detail={detail}
-                  clientHref={clientHref}
-                  contractHref={contractHref}
-                  onOpenTab={onOpenTab}
-                />
-              )}
+      {submission ? (
+        <>
+          <SubmissionBand record={submission.record} validationHref={submission.validationHref} onOpenTab={onOpenTab} />
+          <SubmissionReadState record={submission.record} boardHref={submission.boardHref} />
+        </>
+      ) : null}
+
+      {/* 2 to 8 · the submission, while it is the work */}
+      {submission && inValidation ? <SubmissionBlocks {...submission} locale={locale} collapsed={false} /> : null}
+
+      {/* 9 to 11 · the pipeline, with its own skeleton and its own error */}
+      {clientId && loading && !detail ? (
+        <div className="space-y-8" aria-busy="true">
+          <span className="sr-only">{t('detail.loading')}</span>
+          <div className="h-40 animate-pulse rounded-3xl bg-gray-100" aria-hidden="true" />
+          <div className="h-24 animate-pulse rounded-3xl bg-gray-100" aria-hidden="true" />
+        </div>
+      ) : clientId && !detail ? (
+        <div role="alert" className="rounded-3xl border border-gray-200 bg-white p-6 text-center">
+          <p className="font-medium text-gray-900">
+            {failure === 'error' ? t('detail.errorTitle') : t('detail.notFoundTitle')}
+          </p>
+          {failure === 'error' && (
+            <Button variant="outline" className="mt-3" onClick={() => void load()}>
+              {t('detail.retry')}
+            </Button>
+          )}
+        </div>
+      ) : detail ? (
+        <>
+          {showPlace ? (
+            <RecordSection icon={<MapPin className="h-4 w-4 text-indigo-500" />} title={t('detail.blockPlace')} color="indigo-500">
               {/* BR-B2B-057: the same line the board card prints; the routes refuse the same way. */}
-              {band === 'place' && detail.gateMissing.length > 0 && (
+              {detail.gateMissing.length > 0 && (
                 <p className="mb-3 flex items-start gap-1 text-xs text-gray-900 dark:text-gray-200">
                   <Lock className="mt-0.5 h-3 w-3 shrink-0" aria-hidden="true" />
                   <span>{gateLine(detail.gateMissing, t)}</span>
                 </p>
               )}
-              {band === 'place' && (
-                <PlaceBand
-                  detail={detail}
-                  locale={locale}
-                  clientHref={clientHref}
-                  panel={panel}
-                  setPanel={setPanel}
-                  onOpenPlace={setEditingPlaceId}
-                  toolHref={toolHref}
-                  publish={publish}
-                  refuse={refuse}
-                  communicate={communicate}
-                  reload={load}
-                  refusalUnknown={refusalUnknown}
-                  setRefusalUnknown={setRefusalUnknown}
-                />
-              )}
-              {band === 'publication' && (
-                <PublicationBand
-                  detail={detail}
-                  panel={panel}
-                  setPanel={setPanel}
-                  publish={publish}
-                  reload={load}
-                />
-              )}
-            </Band>
-          ))}
-        </div>
+              <PlaceBand
+                detail={detail}
+                fiscalHref={fiscalHref}
+                onOpenTab={onOpenTab}
+                panel={panel}
+                setPanel={setPanel}
+                onOpenPlace={setEditingPlaceId}
+                toolHref={toolHref}
+                publish={publish}
+                refuse={refuse}
+                communicate={communicate}
+                reload={load}
+                refusalUnknown={refusalUnknown}
+                setRefusalUnknown={setRefusalUnknown}
+              />
+            </RecordSection>
+          ) : null}
 
-        <aside className="w-full shrink-0 lg:w-72">
-          <h2 className="text-sm font-semibold uppercase tracking-wide text-gray-900">
-            {t('detail.trail')}
-          </h2>
-          <Trail detail={detail} />
-        </aside>
-      </div>
+          {showPublication ? (
+            <RecordSection icon={<Radio className="h-4 w-4 text-green-500" />} title={t('detail.blockPublication')} color="green-500">
+              <PublicationBand detail={detail} panel={panel} setPanel={setPanel} publish={publish} reload={load} />
+            </RecordSection>
+          ) : null}
+
+          <ContractBlock detail={detail} clientId={detail.client.id} onOpenTab={onOpenTab} />
+        </>
+      ) : null}
+
+      {/* 12 · the submission after the decision: a record, not work */}
+      {submission && review && !inValidation ? <SubmissionBlocks {...submission} locale={locale} collapsed /> : null}
+
+      {/* 13 · history */}
+      {history.length > 0 ? (
+        <RecordSection icon={<History className="h-4 w-4 text-tuggi-blue" />} title={tValidation('history.title')}>
+          <ol className="space-y-3 text-sm font-semibold text-gray-900 dark:text-white">
+            {history.map((entry) => (
+              <li key={entry.key} className="break-words">
+                {entry.node}
+              </li>
+            ))}
+          </ol>
+        </RecordSection>
+      ) : null}
+
+      {/* The phone has no sidebar: the conference goes under the tab. */}
+      {phoneSummary ? <div className="lg:hidden">{phoneSummary}</div> : null}
 
       {/* `Abrir o local` is a modal, so it comes back on its own; closing it reloads the
           pipeline, and the pendency the operator just resolved disappears without a manual
           reload (DS-LAYOUT-006, point 3). */}
-      <PlaceFormModal
-        placeId={editingPlaceId}
-        isOpen={editingPlaceId !== null}
-        onClose={() => {
-          setEditingPlaceId(null)
-          void load()
-        }}
-        onSaved={() => void load()}
-      />
+      {clientId ? (
+        <PlaceFormModal
+          placeId={editingPlaceId}
+          isOpen={editingPlaceId !== null}
+          onClose={() => {
+            setEditingPlaceId(null)
+            void load()
+          }}
+          onSaved={() => void load()}
+        />
+      ) : null}
     </div>
   )
 }
 
-// ── The frame ────────────────────────────────────────────────────────────────────────────────
-
-function Band({
-  band,
-  status,
-  open,
-  onToggle,
-  children,
-}: {
-  band: BandId
-  status: BandStatus
-  open: boolean
-  onToggle: () => void
-  children: React.ReactNode
-}) {
-  const t = useTranslations('Partnerships')
-  const headingId = `band-${band}-heading`
-
-  return (
-    <section aria-labelledby={headingId} className="rounded-md border border-gray-200 bg-white">
-      <h2 id={headingId} className="text-base font-semibold text-gray-900">
-        <button
-          type="button"
-          onClick={onToggle}
-          aria-expanded={open}
-          aria-controls={`band-${band}-body`}
-          className="flex w-full items-center justify-between gap-3 px-4 py-3 text-left"
-        >
-          <span className="flex items-center gap-2">
-            {open ? (
-              <ChevronDown className="h-4 w-4 shrink-0 text-primary-800" aria-hidden="true" />
-            ) : (
-              <ChevronRight className="h-4 w-4 shrink-0 text-primary-800" aria-hidden="true" />
-            )}
-            {t(`detail.bands.${band}`)}
-          </span>
-          {/* Text, never an icon or a colour on its own (DS-A11Y-003). */}
-          <span className="text-xs font-normal text-gray-800">
-            {t(`detail.bandStatus.${status}`)}
-          </span>
-        </button>
-      </h2>
-      {open && (
-        <div id={`band-${band}-body`} className="border-t border-gray-100 px-4 py-3">
-          {children}
-        </div>
-      )}
-    </section>
-  )
-}
+// ── Block 11 · Contrato ──────────────────────────────────────────────────────────────────────
 
 /**
- * Band 5 is the one band the pipeline state cannot answer on its own. A partnership with three
- * places, two of them on air, is `place_in_curation` — and a band that reads `ainda não` while
- * two places are in front of tourists contradicts the queue, which counts `2 de 3 locais
- * publicados` from the same readiness report. The detail disagreeing with the list is the one
- * thing the single module exists to make impossible.
+ * Up to three lines and the way to the Contrato tab (#910 §4): the regularity conference, when it
+ * was registered; the generated contract of an old client, or the portal term the partner accepted;
+ * and "Abrir o contrato". The portal term comes from `useClientContract`, the read the Contrato tab
+ * makes, so the two tabs cannot tell different stories about the same acceptance.
  */
-function bandStatus(band: BandId, detail: Detail): BandStatus {
-  if (band === 'publication') {
-    if (detail.state === 'published') return 'done'
-    if (detail.places.some((place) => place.readiness.published)) return 'current'
-  }
-  const order = STATE_ORDER[detail.state]
-  const [from, to] = BAND_RANGE[band]
-  if (order > to) return 'done'
-  if (order >= from) return 'current'
-  return 'future'
-}
-
-// ── The five bands ───────────────────────────────────────────────────────────────────────────
-
-function ProposalBand({ detail, locale }: { detail: Detail; locale: string }) {
-  const t = useTranslations('Partnerships')
-  if (!detail.submission) {
-    return <p className="text-sm text-gray-800">{t('detail.proposalMissing')}</p>
-  }
-  return (
-    <div className="text-sm text-gray-900">
-      <p>
-        {detail.submission.submittedAt
-          ? t('detail.proposalLine', { date: formatDate(detail.submission.submittedAt) })
-          : t('detail.proposalLineUndated')}
-      </p>
-      <Link
-        href={`/${locale}/admin/partnerships/proposals/${detail.submission.id}`}
-        className="mt-2 inline-flex min-h-[24px] items-center text-sm font-medium text-primary-800 underline underline-offset-4"
-      >
-        {t('detail.proposalLink')}
-      </Link>
-    </div>
-  )
-}
-
-/**
- * Band 2 reads the CLIENT's conference, not the promoted proposal's.
- *
- * It used to read `detail.submission.conference`, and for a client that was never a proposal
- * there is no submission: the band said `conferenceNone` about a step the CMS gave nobody a way
- * to complete, and the pipeline stayed pinned there. The record moved to
- * `partner.client_conferences` on 2026-08-21 and the band followed it. Where it is FILLED IN is
- * the contract page, which is also where its absence refuses something.
- */
-function ConferenceBand({ detail }: { detail: Detail }) {
-  const t = useTranslations('Partnerships')
-  const { record, reviewedAt, reviewedByLabel } = detail.conference
-
-  if (!reviewedAt) {
-    return (
-      <div className="text-sm text-gray-900">
-        <p>{t('detail.conferenceNone')}</p>
-        {/* The criterion behind a derived state, shown rather than assumed
-            (DS-COMPONENTE-020, 1st edge case). */}
-        <p className="mt-2 text-xs text-gray-800">{t('detail.conferenceDerived')}</p>
-      </div>
-    )
-  }
-
-  const conference = record
-
-  return (
-    <div className="text-sm text-gray-900">
-      <p>
-        {reviewedByLabel
-          ? t('detail.conferenceLine', {
-              person: reviewedByLabel,
-              date: formatDate(reviewedAt),
-            })
-          : t('detail.conferenceLineAnonymous', { date: formatDate(reviewedAt) })}
-      </p>
-      {/* The licence trail line left on 2026-08-21: the conference is a tick, so there is no
-          number, municipality or validity to print. What the band still says is WHO conferred
-          and WHEN, which is the half of BR-B2B-030 item 2 the record still holds. */}
-      <p className="mt-2 text-xs text-gray-800">{t('detail.conferenceDerived')}</p>
-    </div>
-  )
-}
-
-function ClientBand({
+function ContractBlock({
   detail,
-  clientHref,
-  contractHref,
+  clientId,
   onOpenTab,
 }: {
   detail: Detail
-  clientHref: (tab?: 'profile' | 'fiscal' | 'contract') => string
-  contractHref: () => string
-  onOpenTab?: (tab: 'profile' | 'fiscal' | 'contract') => void
+  clientId: string
+  onOpenTab: (tab: ClientEditorTab) => void
 }) {
   const t = useTranslations('Partnerships')
-  const { client, contract } = detail
+  const { summary, failed } = useClientContract(clientId)
+  const { conference, contract } = detail
+
+  const portalTerm =
+    summary?.origin === 'portal'
+      ? ([...(summary.portal ?? [])]
+          .map((record) => record.acceptance)
+          .filter((acceptance): acceptance is NonNullable<typeof acceptance> => Boolean(acceptance))
+          .sort((a, b) => String(b.acceptedAt).localeCompare(String(a.acceptedAt)))[0] ?? null)
+      : null
 
   return (
-    <div className="space-y-1 text-sm text-gray-900">
-      {client.createdAt && <p>{t('detail.clientCreated', { date: formatDate(client.createdAt) })}</p>}
-
-      {/* Approving the partnership and signing the contract are DIFFERENT acts, and the first
-          one is what BR-B2B-010, item 4, starts the clock on. They are shown apart, with the
-          date of each. */}
-      {client.approvedAt ? (
-        <p>{clientApprovedText(client.approvedAt, detail.approvedByLabel, t)}</p>
-      ) : (
-        <p>{t('detail.clientNotApproved')}</p>
-      )}
-
-      {contract?.signed ? (
-        contract.signerName ? (
+    <RecordSection icon={<FileSignature className="h-4 w-4 text-indigo-500" />} title={t('detail.blockContract')} color="indigo-500">
+      <div className="space-y-1 text-sm text-gray-900 dark:text-gray-100">
+        {conference.reviewedAt ? (
           <p>
-            {t('detail.contractSignedBy', {
-              date: formatDate(contract.signedAt),
-              person: contract.signerName,
-            })}
+            {conference.reviewedByLabel
+              ? t('detail.regularityLine', { person: conference.reviewedByLabel, date: formatDate(conference.reviewedAt) })
+              : t('detail.regularityLineAnonymous', { date: formatDate(conference.reviewedAt) })}
           </p>
-        ) : (
-          <p>{t('detail.contractSigned', { date: formatDate(contract.signedAt) })}</p>
-        )
-      ) : (
-        <p>{t('detail.contractNotSigned')}</p>
-      )}
+        ) : null}
 
-      {/* BR-B2B-010, item 3: approving the partnership never approves the place, and no text
-          on this screen may suggest otherwise. */}
-      <p className="pt-1 text-xs text-gray-800">{t('detail.clientSeparateActs')}</p>
-
-      <p className="pt-2 text-gray-900">{feeLine(client.fee, t)}</p>
-
-      {/* The next step of `client_created` is `Assinar o contrato`, and until #390 this band
-          named the act without offering it: the operator left for the client list, opened the
-          modal and hunted for the tab. The contract has its own page, so the band links
-          straight at it — same shortcut shape as `Abrir a ficha do cliente` beside it, and no
-          new tab (DS-LAYOUT-006, pt. 4). */}
-      {/* Embedded in the client record these two are neighbouring tabs — no navigation, no
-          fetch, and no way to lose the pipeline on the way back. Standing on its own page the
-          band still links, because there is no tab strip to move to. */}
-      <div className="mt-2 flex flex-wrap items-center gap-x-4 gap-y-1">
-        {onOpenTab ? (
-          <>
-            <button
-              type="button"
-              onClick={() => onOpenTab('profile')}
-              className="inline-flex min-h-[24px] items-center text-sm font-medium text-primary-800 underline underline-offset-4"
-            >
-              {t('detail.openClient')}
-            </button>
-            <button
-              type="button"
-              onClick={() => onOpenTab('contract')}
-              className="inline-flex min-h-[24px] items-center text-sm font-medium text-primary-800 underline underline-offset-4"
-            >
-              {t('detail.openContract')}
-            </button>
-          </>
-        ) : (
-          <>
-            <Link
-              href={clientHref()}
-              className="inline-flex min-h-[24px] items-center text-sm font-medium text-primary-800 underline underline-offset-4"
-            >
-              {t('detail.openClient')}
-            </Link>
-            <Link
-              href={contractHref()}
-              className="inline-flex min-h-[24px] items-center text-sm font-medium text-primary-800 underline underline-offset-4"
-            >
-              {t('detail.openContract')}
-            </Link>
-          </>
-        )}
+        {portalTerm ? (
+          <p>{t('detail.portalTermsLine', { version: portalTerm.termsVersion, date: formatDate(portalTerm.acceptedAt) })}</p>
+        ) : summary?.origin === 'portal' ? null : summary || failed ? (
+          contract?.signed ? (
+            contract.signerName ? (
+              <p>{t('detail.contractSignedBy', { date: formatDate(contract.signedAt), person: contract.signerName })}</p>
+            ) : (
+              <p>{t('detail.contractSigned', { date: formatDate(contract.signedAt) })}</p>
+            )
+          ) : (
+            <p>{t('detail.contractNotSigned')}</p>
+          )
+        ) : null}
       </div>
-    </div>
+      <button type="button" onClick={() => onOpenTab('contract')} className={`mt-3 ${LINK_BUTTON}`}>
+        {t('detail.openContract')}
+      </button>
+    </RecordSection>
   )
 }
 
+// ── Block 13 · Histórico ─────────────────────────────────────────────────────────────────────
+
+/**
+ * The pipeline's dated facts, the lines the old side trail printed.
+ *
+ * It does not read `core.audit_logs` on purpose: everything shown here is a fact the pipeline
+ * already carries, and a second reading of the same events is a second chance for the two to
+ * disagree. The full audit history has its own screen, `/admin/audit-logs`.
+ *
+ * `approvedInSubmission`: the submission's history already has the transition to `approved`, so
+ * "Cliente criado" and "Parceria aprovada" would be the same fact with less information (#910 §6).
+ */
+function pipelineHistory(
+  detail: Detail,
+  locale: string,
+  t: ReturnType<typeof useTranslations>,
+  approvedInSubmission: boolean
+): HistoryEntry[] {
+  const entries: HistoryEntry[] = []
+  const proposal = detail.submission
+  if (proposal?.submittedAt) {
+    entries.push({
+      at: proposal.submittedAt,
+      key: 'proposal',
+      node: (
+        <>
+          {t('detail.proposalLine', { date: formatDate(proposal.submittedAt) })}{' '}
+          <Link href={`/${locale}/admin/partnerships/proposals/${proposal.id}`} className={LINK_BUTTON}>
+            {t('detail.proposalLink')}
+          </Link>
+        </>
+      ),
+    })
+  }
+  const { conference, client, contract } = detail
+  if (conference.reviewedAt) {
+    entries.push({
+      at: conference.reviewedAt,
+      key: 'conference',
+      node: conference.reviewedByLabel
+        ? t('detail.conferenceLine', { person: conference.reviewedByLabel, date: formatDate(conference.reviewedAt) })
+        : t('detail.conferenceLineAnonymous', { date: formatDate(conference.reviewedAt) }),
+    })
+  }
+  if (!approvedInSubmission && client.createdAt) {
+    entries.push({ at: client.createdAt, key: 'created', node: t('detail.clientCreated', { date: formatDate(client.createdAt) }) })
+  }
+  if (!approvedInSubmission && client.approvedAt) {
+    entries.push({ at: client.approvedAt, key: 'approved', node: clientApprovedText(client.approvedAt, detail.approvedByLabel, t) })
+  }
+  if (contract?.signed) {
+    entries.push({ at: contract.signedAt, key: 'contract', node: t('detail.contractSigned', { date: formatDate(contract.signedAt) }) })
+  }
+  // Named: a partnership with N places would otherwise be N identical rows.
+  for (const place of detail.places) {
+    const [line] = trailPublishedLines([place], t)
+    if (line) entries.push({ at: place.publishedBy?.at ?? null, key: `published-${place.readiness.place.attractionId}`, node: line })
+  }
+  return entries
+}
+
+/** One list, oldest first; an undated fact goes last, where it cannot claim an order it does not have. */
+function mergeHistory(...sources: HistoryEntry[][]): HistoryEntry[] {
+  const time = (entry: HistoryEntry) => {
+    const value = entry.at ? Date.parse(entry.at) : NaN
+    return Number.isNaN(value) ? Number.POSITIVE_INFINITY : value
+  }
+  return sources.flat().sort((a, b) => time(a) - time(b))
+}
+
+// ── Blocks 9 and 10 ──────────────────────────────────────────────────────────────────────────
+
 function PlaceBand({
   detail,
-  locale,
-  clientHref,
+  fiscalHref,
+  onOpenTab,
   panel,
   setPanel,
   onOpenPlace,
@@ -712,8 +541,8 @@ function PlaceBand({
   setRefusalUnknown,
 }: {
   detail: Detail
-  locale: string
-  clientHref: (tab?: 'profile' | 'fiscal' | 'contract') => string
+  fiscalHref: string
+  onOpenTab: (tab: ClientEditorTab) => void
   panel: Panel
   setPanel: (value: Panel) => void
   onOpenPlace: (id: string) => void
@@ -742,47 +571,24 @@ function PlaceBand({
     setCreating(false)
   }
 
+  /*
+   * NO PLACE LINKED (#910 §4): linking lives in the Locais tab, with the search and the welcome-place
+   * divergence, so the block says so and switches there. Creating from the proposal stays, when there
+   * is a proposal to create from: it is the SAME act the partner approval runs (`provisionPartnerPlace`).
+   */
   if (detail.places.length === 0) {
     return (
-      <div className="text-sm">
-        <p className="font-semibold text-gray-900">{t('pendencies.emptyTitle')}</p>
-        <p className="mt-1 text-gray-800">{t('pendencies.emptyBody')}</p>
-
-        {/* AND IT COMES FIRST WHEN IT EXISTS, above the search: telling an operator to look for
-            an establishment the client ALREADY points at is how the duplicate is born. */}
-        {detail.welcomeDivergence && (
-          <div className="mt-4">
-            <WelcomeDivergenceCard
-              clientId={detail.client.id}
-              locale={locale}
-              divergence={detail.welcomeDivergence}
-              onLinked={reload}
-            />
-          </div>
-        )}
-
-        {/* LINKING NOW HAS A WRITER (#409), and it goes FIRST. What stood here was a link to
-            `/places` under a comment saying this act had no surface in the CMS — a round trip
-            that ended in nothing. What that absence cost is measured: three of three clients
-            who used the create button below ended up with an empty second row beside an
-            establishment already published (`lib/partnerships/place-link`). */}
-        <div className="mt-4">
-          <PlaceLinkPanel clientId={detail.client.id} locale={locale} onLinked={reload} />
-        </div>
-
-        <p className="mt-4 text-xs text-gray-700">{t('placeLink.orCreate')}</p>
-        <div className="mt-2 flex flex-wrap items-center gap-3">
-          {/* Creating the place from the proposal is the SAME act the partner approval runs
-              (`provisionPartnerPlace`): prefilled from what the partner wrote and
-              linked by `partner_client_id`. Not a second implementation of the prefill. */}
-          <Button
-            type="button"
-            variant="outline"
-            disabled={creating}
-            onClick={() => void createFromProposal()}
-          >
-            {t('pendencies.emptyCreate')}
-          </Button>
+      <div className="space-y-3 text-sm text-gray-900 dark:text-gray-100">
+        <p>{t('detail.noPlaceLinked')}</p>
+        <div className="flex flex-wrap items-center gap-3">
+          <button type="button" onClick={() => onOpenTab('places')} className={LINK_BUTTON}>
+            {t('detail.linkInPlaces')}
+          </button>
+          {detail.submission ? (
+            <Button type="button" variant="outline" disabled={creating} onClick={() => void createFromProposal()}>
+              {t('pendencies.emptyCreate')}
+            </Button>
+          ) : null}
         </div>
       </div>
     )
@@ -854,7 +660,7 @@ function PlaceBand({
                   place={place}
                   // The fee and the courtesy live in `Fiscal e Pagamentos`, so variant (iv)'s
                   // way out opens that tab and not the record's front page.
-                  clientHref={clientHref('fiscal')}
+                  clientHref={fiscalHref}
                   onClose={() => setPanel(null)}
                   onPublished={async () => {
                     setPanel(null)
@@ -943,10 +749,6 @@ function PublicationBand({
   const t = useTranslations('Partnerships')
   const published = detail.places.filter((place) => place.readiness.published)
 
-  if (published.length === 0) {
-    return <p className="text-sm text-gray-900">{t('detail.publicationBefore')}</p>
-  }
-
   return (
     <div className="space-y-4">
       {published.map((place) => (
@@ -990,65 +792,12 @@ function PublicationBand({
   )
 }
 
-/**
- * The trail, built out of the pipeline's own dated events.
- *
- * It does not read `core.audit_logs` on purpose: everything shown here is a fact the five
- * bands already carry, and a second reading of the same events is a second chance for the two
- * to disagree. The full audit history has its own screen, `/admin/audit-logs`.
- */
-function Trail({ detail }: { detail: Detail }) {
-  const t = useTranslations('Partnerships')
-
-  const entries = [
-    detail.submission?.submittedAt
-      ? t('detail.proposalLine', { date: formatDate(detail.submission.submittedAt) })
-      : null,
-    // The client's conference, the same source band 2 reads. Reading `submission` here would
-    // put the trail and the band on two different records for the same act.
-    detail.conference.reviewedAt
-      ? detail.conference.reviewedByLabel
-        ? t('detail.conferenceLine', {
-            person: detail.conference.reviewedByLabel,
-            date: formatDate(detail.conference.reviewedAt),
-          })
-        : t('detail.conferenceLineAnonymous', { date: formatDate(detail.conference.reviewedAt) })
-      : null,
-    detail.client.createdAt
-      ? t('detail.clientCreated', { date: formatDate(detail.client.createdAt) })
-      : null,
-    detail.client.approvedAt
-      ? clientApprovedText(detail.client.approvedAt, detail.approvedByLabel, t)
-      : null,
-    detail.contract?.signed
-      ? t('detail.contractSigned', { date: formatDate(detail.contract.signedAt) })
-      : null,
-    // Named, unlike band 5's line: there the place's name is already in the `<p>` above, and
-    // here a partnership with N places would otherwise be N identical rows.
-    ...trailPublishedLines(detail.places, t),
-  ].filter((line): line is string => typeof line === 'string')
-
-  if (entries.length === 0) {
-    return <p className="mt-2 text-sm text-gray-800">{t('detail.trailEmpty')}</p>
-  }
-
-  return (
-    <ol className="mt-2 space-y-2 text-sm text-gray-800">
-      {entries.map((entry, index) => (
-        <li key={index} className="break-words border-l-2 border-gray-200 pl-3">
-          {entry}
-        </li>
-      ))}
-    </ol>
-  )
-}
-
 // ── Lines ────────────────────────────────────────────────────────────────────────────────────
 
 /**
- * `Triagem: venceu há 8 h (prazo 17/08, 04h00)` — the queue's two lines folded into one, because a
- * sticky header has no second line to give (DS-COPY-025, point 5, in the shape `design` wrote for
- * the detail). Same status, same texts, same module as the column.
+ * `Triagem: venceu há 8 h (prazo 17/08, 04h00)` — the queue's two lines folded into one, on the
+ * state band's single line (DS-COPY-025, point 5, in the shape `design` wrote for the detail). Same
+ * status, same texts, same module as the column.
  */
 function headerClock(detail: Detail, t: ReturnType<typeof useTranslations>): string {
   const status = deriveTriageStatus(detail.triage)
@@ -1057,26 +806,6 @@ function headerClock(detail: Detail, t: ReturnType<typeof useTranslations>): str
   return deadline
     ? t('triage.headerLineWithDeadline', { value, deadline })
     : t('triage.headerLine', { value })
-}
-
-function cityLine(detail: Detail): string {
-  const { city, region } = detail.client
-  if (!city) return ''
-  return region ? `${city}/${region}` : city
-}
-
-function feeLine(
-  fee: Detail['client']['fee'],
-  t: ReturnType<typeof useTranslations>
-): string {
-  if (fee.isCourtesy && (fee.courtesyReason ?? '').trim().length > 0) {
-    return t('detail.feeCourtesy', { reason: (fee.courtesyReason ?? '').trim() })
-  }
-  if (typeof fee.monthlyFeeCents === 'number') {
-    return t('detail.feeLine', { fee: formatMonthlyFee(fee.monthlyFeeCents) })
-  }
-  // Absent is an incomplete registration and is NOT zero — BR-B2B-017, item 6.
-  return t('detail.feeUndeclared')
 }
 
 function publishedLine(

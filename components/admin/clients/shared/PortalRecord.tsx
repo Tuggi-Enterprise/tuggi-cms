@@ -52,7 +52,7 @@ function CopyHash({ hash }: { hash: string }) {
 }
 
 /**
- * The acceptance as the record shows it — in the Validação tab before the link, in Contrato after
+ * The acceptance as the record shows it — in the Parceria tab before the link, in Contrato after
  * it (#890): login method, marketing consent and "Copiar hash" live here so neither tab loses them.
  */
 export function PortalAcceptances({ records }: { records: ClientPortalRecord[] }) {

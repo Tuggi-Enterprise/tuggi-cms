@@ -69,17 +69,16 @@ test('the way back is chrome, and the record has no queue behind it', () => {
   )
 })
 
-test('band 3 switches tabs when embedded, and links when it is on its own page', () => {
+test('#910 · the blocks switch tabs, and the links of the standalone page are gone with it', () => {
   const detail = read(DETAIL)
 
-  // Embedded: the act, not a door to it.
-  assert.match(detail, /onClick=\{\(\) => onOpenTab\('profile'\)\}/)
+  // The contract block and the empty place block take the act, not a door to it.
   assert.match(detail, /onClick=\{\(\) => onOpenTab\('contract'\)\}/)
-  // Standalone: the links survive, because there is no tab strip to move to.
-  assert.match(detail, /href=\{clientHref\(\)\}/)
-  assert.match(detail, /href=\{contractHref\(\)\}/)
-  // And the choice is made by the presence of the callback, never by a flag nobody sets.
-  assert.match(detail, /\{onOpenTab \?/)
+  assert.match(detail, /onClick=\{\(\) => onOpenTab\('places'\)\}/)
+  // The standalone page became a redirect (#875): its link branches have no caller and left (#910 §4).
+  assert.equal(detail.indexOf('clientHref('), -1)
+  assert.equal(detail.indexOf('contractHref('), -1)
+  assert.equal(detail.indexOf("t('detail.openClient')"), -1, 'the operator is already in the record')
 })
 
 test('the tab overlays the Portuguese namespace instead of replacing the record messages', () => {

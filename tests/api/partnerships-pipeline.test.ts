@@ -576,13 +576,10 @@ test('#359 crit. 30 to 32 · BR-B2B-010/011/022/029: what the copy may never cla
   assert.equal(copy.indexOf('portão 3'), -1)
   assert.equal(copy.indexOf('portao 3'), -1)
 
-  // The one thing the copy MUST say, because BR-B2B-010, item 3, is the promise most easily
-  // broken by a screen that puts the two acts side by side.
-  assert.match(
-    messages().Partnerships.detail.clientSeparateActs,
-    /não aprova o local/i,
-    'band 3 has to say that approving the partnership does not approve the place'
-  )
+  // #910 §4 took out `clientSeparateActs`, the sentence band 3 printed about the two acts: the
+  // Parceria tab shows the place's decision as its own block (O local, with Publicar and Recusar
+  // na triagem), and BR-B2B-010 item 3 forbids the claim above, which no key makes.
+  assert.equal(messages().Partnerships.detail.clientSeparateActs, undefined)
 })
 
 test('#359 crit. 20 · BR-B2B-018: `Tirar do app` says what is written, and nothing beyond it', () => {
@@ -615,23 +612,11 @@ test('#359 crit. 34: no pipeline surface is public', () => {
   }
 })
 
-test('#390 · BR-B2B-026 item 4: the band that says `Assinar o contrato` links to the contract', () => {
-  // The href moved into `contractHref`, which composes the same path and adds the way back —
-  // so the assertion is on the destination, not on the shape of the JSX attribute.
+test('#390 · #910 · BR-B2B-026 item 4: the Contrato block opens the record\'s Contrato tab', () => {
+  // #910 §4: inside the record the contract is a neighbouring tab, so the block switches to it.
   const detail = read('components/admin/partnerships/PartnershipDetail.tsx')
-  assert.match(
-    detail,
-    /\/admin\/clients\/\$\{clientId\}\/contract/,
-    'the client band links straight at the contract page'
-  )
-  assert.match(detail, /href=\{contractHref\(\)\}/, 'and the band uses that one builder')
+  assert.match(detail, /onClick=\{\(\) => onOpenTab\('contract'\)\}/, 'the Contrato block switches to the tab')
   assert.match(detail, /t\('detail\.openContract'\)/, 'and it is labelled by a key, not a literal')
-
-  // A link is only a door if the page is on the other side of it.
-  assert.equal(
-    existsSync(resolve(REPO_ROOT, 'app/[locale]/admin/clients/[clientId]/contract/page.tsx')),
-    true
-  )
 
   // #408: the CMS is Portuguese-only for now, and the label follows the rest of `Partnerships`
   // — one source of the text, not three that drift.
@@ -785,12 +770,13 @@ test('#359 · DS-COMPONENTE-021, 3rd/4th edge cases: refusing the act refuses th
   assert.match(panel, /const showTier = offersAct \|\| plan\.variant === 'undeclared'/)
 })
 
-test('#359 · DS-LAYOUT-003: the act the header names is in the band that opens', () => {
+test('#359 · #910 · DS-LAYOUT-003: the act the state names is on screen, in no accordion', () => {
   const detail = read('components/admin/partnerships/PartnershipDetail.tsx')
 
-  // `awaiting_acceptance` opens band 4, where `Criar o local a partir da proposta` lives (#872).
-  assert.match(detail, /client: \[2, 2\]/)
-  assert.match(detail, /place: \[3, 4\]/)
+  // #910 §4: no band collapses any more; the place block shows while a place is not published or
+  // there is none, which is where `Criar o local` and `Publicar` live.
+  assert.equal(detail.indexOf('aria-expanded'), -1)
+  assert.match(detail, /const showPlace = places\.length === 0 \|\| places\.some\(\(place\) => !place\.readiness\.published\)/)
 
   // `published` and `discarded` have no next step, and a bare em dash beside the state is not
   // the way to say so.
@@ -802,7 +788,7 @@ test('#359 · DS-COMPONENTE-020, pt. 4: the detail never contradicts the queue a
   // Band 5 cannot come from the pipeline state alone: a partnership with 2 of 3 places on air
   // is `place_in_curation`, and `ainda não` beside the queue's `2 de 3 locais publicados` is
   // the disagreement the single module exists to make impossible.
-  assert.match(detail, /detail\.places\.some\(\(place\) => place\.readiness\.published\)/)
+  assert.match(detail, /const showPublication = places\.some\(\(place\) => place\.readiness\.published\)/)
 
   // And a place that IS in the app does not read as "pronto para publicar". Only the branch
   // with no pendency at all splits — a published place with a `silences_app` pendency keeps

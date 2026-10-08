@@ -30,7 +30,7 @@ import type { ClientDirectoryRow } from '@/lib/services/partnership-service'
 
 interface ContentProps {
   ptMessages: PtOverlay
-  /** What the Validação tab of the record speaks — pt only, like the page it replaced (#408, #870, #890). */
+  /** What the Parceria tab of the record speaks — pt only, like the page it replaced (#408, #870, #890). */
   validationMessages: AbstractIntlMessages
 }
 
@@ -45,10 +45,12 @@ function AdminClientsContent({ ptMessages, validationMessages }: ContentProps) {
   const validationId = searchParams.get(VALIDATION_PARAM)
   // Backwards compat — old links use ?new=true, the new editor reads ?mode=new.
   const isCreateNew = searchParams.get('mode') === 'new' || searchParams.get('new') === 'true'
-  // `?tab=pois` is the old name of the places tab, kept working so links already out there
-  // keep landing on the same panel.
+  // Old tab names, kept working so links already out there keep landing on the same panel:
+  // `?tab=pois` is the places tab, and `?tab=validation` is the Parceria tab since #910.
   const requestedTab = searchParams.get('tab')
-  const initialTab = ((requestedTab === 'pois' ? 'places' : requestedTab) as ClientEditorTab | null) ?? 'profile'
+  const initialTab =
+    ((requestedTab === 'pois' ? 'places' : requestedTab === 'validation' ? 'partnership' : requestedTab) as ClientEditorTab | null) ??
+    'profile'
   /**
    * Where closing the record sends the operator — DS-LAYOUT-006, point 2.
    *
@@ -318,7 +320,7 @@ function AdminClientsContent({ ptMessages, validationMessages }: ContentProps) {
         clientId={clientId ?? undefined}
         isOpen={Boolean(clientId) || isCreateNew || Boolean(validationId)}
         mode={clientId || validationId ? 'edit' : 'new'}
-        initialTab={validationId ? 'validation' : initialTab}
+        initialTab={validationId ? 'partnership' : initialTab}
         validationId={validationId ?? undefined}
         validationHref={(id) =>
           recordHref(locale, new URLSearchParams(searchParams.toString()), { kind: 'validation', submissionId: id })

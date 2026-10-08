@@ -2540,7 +2540,6 @@
       },
       "loading": "Cargando…",
       "tabs": {
-        "validation": "Validación",
         "partnership": "Alianza",
         "profile": "Perfil",
         "fiscal": "Fiscal y Pagos",
@@ -2659,8 +2658,6 @@
         "commission": "Comisión"
       },
       "fields": {
-        "taxIdType": "Tipo de tax ID",
-        "taxIdAutoCountry": "Auto: {type}",
         "taxIdSelectCountry": "Selecciona el país primero",
         "legalRepName": "Representante legal",
         "legalRepNamePlaceholder": "Nombre completo",
@@ -2686,7 +2683,6 @@
         "courtesy": "Cortesía (sin mensualidad)",
         "courtesyReason": "Motivo de la cortesía",
         "frozenValueNote": "Existe un contrato firmado el {date} por {value}. Este campo es el valor para el PRÓXIMO contrato o anexo — editarlo no cambia lo que ya se firmó.",
-        "isPlatformOwner": "Platform owner?",
         "isPlatformOwnerHelp": "Marca si el cliente es Tuggi mismo (split contable)"
       }
     },

@@ -1,19 +1,12 @@
 'use client'
 
 /**
- * The partnership pipeline, inside the client record — the tab that made the record the single
- * entrance.
+ * Parceria, the record's one working tab (#910): the portal submission and the partnership pipeline
+ * in one order, rendered by `PartnershipDetail`. It used to be two tabs, Validação and Parceria, that
+ * told the same story twice; `?validation=` and the old `tab=validation` open here.
  *
- * WHAT IT REMOVES. The five bands lived on `/admin/partnerships/clients/{id}`, and band 3 said
- * `Assinar o contrato` while linking away at two other pages: the client record and the
- * contract. Filling one fiscal field meant leaving the pipeline, and reading the pipeline meant
- * leaving the record. Here they are neighbouring tabs — `onOpenTab` switches, with no
- * navigation and no fetch, so the operator never loses the state they were reading.
- *
- * IT IS THE SAME COMPONENT, not a copy. `PartnershipDetail` renders in both hosts; what it
- * takes from each is the chrome around it — the standalone page hands it a `backHref` for the
- * queue, this tab hands it the tab strip instead. A second implementation of the five bands is
- * exactly how the record and the queue would start disagreeing about a state.
+ * It is the tab of a saved client, and also of a pre-registration (a portal submission with no
+ * client yet), where it is the only tab enabled and shows the submission alone.
  *
  * THE MESSAGES ARE MERGED, NOT REPLACED. `Partnerships` is Portuguese-only by decision (#408),
  * but the pipeline opens `PlaceFormModal`, which reads `Modals` and `Common` in the operator's
@@ -24,28 +17,37 @@
 import { NextIntlClientProvider, useLocale, useMessages } from 'next-intl'
 import { usePtOverlay } from '@/lib/i18n/pt-overlay'
 import { PartnershipDetail } from '@/components/admin/partnerships/PartnershipDetail'
+import type { SubmissionProps } from '@/components/admin/clients/shared/PortalSubmission'
 import type { ClientEditorTab } from '@/components/admin/clients/ClientEditorModal'
-import type { ClientEditorTabProps } from './ProfileTab'
 
-interface PartnershipTabProps extends ClientEditorTabProps {
+interface PartnershipTabProps {
+  clientId?: string
   onOpenTab: (tab: ClientEditorTab) => void
+  /** The portal submission the record shows, when there is one. */
+  submission?: Omit<SubmissionProps, 'locale' | 'onOpenTab'>
+  /** `DecisionSummary` for the phone, which has no sidebar. */
+  phoneSummary?: React.ReactNode
 }
 
-export function PartnershipTab({ clientId, onOpenTab }: PartnershipTabProps) {
+export function PartnershipTab({ clientId, onOpenTab, submission, phoneSummary }: PartnershipTabProps) {
   const locale = useLocale()
   const messages = useMessages()
   const ptMessages = usePtOverlay()
-
-  // A registration that was never saved has no pipeline to read: the endpoint below is keyed
-  // by the client id, and there is none yet.
-  if (!clientId) return null
 
   return (
     <NextIntlClientProvider
       locale={locale}
       messages={{ ...messages, Partnerships: ptMessages.Partnerships }}
     >
-      <PartnershipDetail locale={locale} clientId={clientId} onOpenTab={onOpenTab} />
+      <PartnershipDetail
+        // A new submission remounts: the revealed CPF never carries over (security review #890).
+        key={submission?.record.submissionId ?? 'none'}
+        locale={locale}
+        clientId={clientId}
+        onOpenTab={onOpenTab}
+        submission={submission}
+        phoneSummary={phoneSummary}
+      />
     </NextIntlClientProvider>
   )
 }

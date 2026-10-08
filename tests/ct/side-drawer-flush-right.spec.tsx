@@ -15,6 +15,8 @@ import { NextIntlClientProvider } from 'next-intl'
 import ptMessages from '@/messages/pt.json'
 import { ClientEditorModal } from '@/components/admin/clients/ClientEditorModal'
 import { PoiDrawerHost } from './side-drawer-hosts'
+import { PtOverlayProvider } from '@/lib/i18n/pt-overlay'
+import { QueryProvider } from '@/components/providers/QueryProvider'
 
 const NOOP = () => {}
 
@@ -46,8 +48,15 @@ const DRAWERS = {
   'client record': () => <ClientEditorModal isOpen mode="new" onClose={NOOP} />,
   'POI management': () => <PoiDrawerHost />,
   'portal validation': () => (
-    // #890: the validation is the client record opened on its Validação tab.
-    <ClientEditorModal isOpen mode="edit" validationId="sub-1" initialTab="validation" onClose={NOOP} />
+    // #890, #910: the validation is the client record opened on its Parceria tab.
+    <PtOverlayProvider
+      value={{ Partnerships: ptMessages.Partnerships, Clients: { directory: ptMessages.Clients.directory, board: ptMessages.Clients.board } }}
+    >
+      {/* `PlaceFormModal`, under the Parceria tab, reads react-query like the app does. */}
+      <QueryProvider>
+        <ClientEditorModal isOpen mode="edit" validationId="sub-1" initialTab="partnership" onClose={NOOP} />
+      </QueryProvider>
+    </PtOverlayProvider>
   ),
 } as const
 

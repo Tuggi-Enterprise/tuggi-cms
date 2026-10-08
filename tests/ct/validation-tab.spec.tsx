@@ -1,5 +1,5 @@
 /**
- * #890 — the portal validation is the Validação tab of the client record (BR-B2B-011: only the
+ * #890 — the portal validation is in the client record; since #910 it is part of the Parceria tab (BR-B2B-011: only the
  * checklist enables "Aprovar"; BR-B2B-048 item 4: the conference order; BR-B2B-049 items 7-8).
  *
  * Real Chromium, the real `ClientEditorModal` + `ValidationTab` + `ValidationDecision` +
@@ -14,8 +14,12 @@ import type { Page } from '@playwright/test'
 import { NextIntlClientProvider } from 'next-intl'
 import ptMessages from '@/messages/pt.json'
 import { ClientEditorModal } from '@/components/admin/clients/ClientEditorModal'
+import { PtOverlayProvider } from '@/lib/i18n/pt-overlay'
+import { QueryProvider } from '@/components/providers/QueryProvider'
 
 const NOOP = () => {}
+/** A UUID: `useValidationRecord` refuses any other id before the fetch (security review #890). */
+const SUB = '5f0b6c1e-1d2a-4c3b-9e8f-0a1b2c3d4e5f'
 
 const ACCEPTANCE = {
   termsVersion: '2026-10',
@@ -39,7 +43,7 @@ const ACCEPTANCE = {
 
 function review(over: Record<string, unknown> = {}) {
   return {
-    id: 'sub-1',
+    id: SUB,
     status: 'in_review',
     answers: {
       trade_name: 'Padaria Santa Clara',
@@ -82,7 +86,7 @@ async function mockApi(page: Page, reviewBody: Record<string, unknown>) {
     const json = (body: unknown) =>
       route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(body) })
     if (url.includes('reveal=cpf')) return json({ cpf: '12345678909' })
-    if (url.includes('/api/admin/partnerships/validation/sub-1')) return json(reviewBody)
+    if (url.includes(`/api/admin/partnerships/validation/${SUB}`)) return json(reviewBody)
     if (url.includes('/api/admin/clients/client-1')) return json({ client: CLIENT })
     return json({})
   })
@@ -91,7 +95,13 @@ async function mockApi(page: Page, reviewBody: Record<string, unknown>) {
 const mountModal = (mount: Parameters<Parameters<typeof test>[2]>[0]['mount']) =>
   mount(
     <NextIntlClientProvider locale="pt" messages={ptMessages}>
-      <ClientEditorModal isOpen mode="edit" validationId="sub-1" initialTab="validation" onClose={NOOP} />
+      {/* The page hands the Portuguese-only namespaces down (#875); the Parceria tab overlays them. */}
+      <PtOverlayProvider value={{ Partnerships: ptMessages.Partnerships, Clients: { directory: ptMessages.Clients.directory, board: ptMessages.Clients.board } }}>
+        {/* `PlaceFormModal`, under the Parceria tab, reads react-query like the app does. */}
+        <QueryProvider>
+          <ClientEditorModal isOpen mode="edit" validationId={SUB} initialTab="partnership" onClose={NOOP} />
+        </QueryProvider>
+      </PtOverlayProvider>
     </NextIntlClientProvider>
   )
 
@@ -103,13 +113,13 @@ const decisionDialog = (page: Page) => page.getByRole('dialog', { name: /^(Aprov
 const approveButtons = (page: Page) => page.getByRole('button', { name: 'Aprovar', exact: true })
 
 test.describe('#890 — pre-registration (no client yet: the common case)', () => {
-  test('only the Validação tab is enabled, the others say "Disponível depois de aprovar", no save block', async ({ mount, page }) => {
+  test('only the Parceria tab is enabled (#910), the others say "Disponível depois de aprovar", no save block', async ({ mount, page }) => {
     await mockApi(page, review())
     await mountModal(mount)
     await expect(page.getByRole('heading', { name: 'Padaria Santa Clara' }).first()).toBeVisible()
 
-    await expect(tab(page, 'Validação')).toBeEnabled()
-    for (const name of ['Parceria', 'Perfil', 'Fiscal & Pagamentos', 'Contrato', 'Locais']) {
+    await expect(tab(page, 'Parceria')).toBeEnabled()
+    for (const name of ['Perfil', 'Fiscal & Pagamentos', 'Contrato', 'Locais']) {
       await expect(tab(page, name)).toBeDisabled()
       await expect(tab(page, name)).toHaveAttribute('title', 'Disponível depois de aprovar')
     }
@@ -130,7 +140,7 @@ test.describe('#890 — pre-registration (no client yet: the common case)', () =
     await expect(page.getByText(/itens? conferidos?/).first()).toBeVisible()
   })
 
-  test('BR-B2B-048 item 4 · J opens "Pedir ajuste" on the Validação tab (focus not in a field)', async ({ mount, page }) => {
+  test('BR-B2B-048 item 4 · J opens "Pedir ajuste" on the Parceria tab (focus not in a field)', async ({ mount, page }) => {
     await mockApi(page, review())
     await mountModal(mount)
     await expect(approveButtons(page)).toHaveCount(1)
@@ -169,14 +179,14 @@ test.describe('#890 — the CNPJ already has a client', () => {
     await expect(approveButtons(page)).toHaveCount(1)
   })
 
-  test('A / J / R do nothing outside the Validação tab', async ({ mount, page }) => {
+  test('A / J / R do nothing outside the Parceria tab', async ({ mount, page }) => {
     await mockApi(page, withClient())
     await mountModal(mount)
     await expect(page.getByText('Diferenças para o cadastro')).toBeVisible()
     await tab(page, 'Perfil').click()
     for (const key of ['a', 'j', 'r']) await page.keyboard.press(key)
     await expect(decisionDialog(page)).toHaveCount(0)
-    await tab(page, 'Validação').click()
+    await tab(page, 'Parceria').click()
     await page.keyboard.press('r')
     await expect(decisionDialog(page)).toBeVisible()
   })
@@ -187,7 +197,7 @@ test.describe('#890 — the CNPJ already has a client', () => {
     await page.getByRole('button', { name: 'Mostrar CPF' }).click()
     await expect(page.getByText('123.456.789-09')).toBeVisible()
     await tab(page, 'Perfil').click()
-    await tab(page, 'Validação').click()
+    await tab(page, 'Parceria').click()
     await expect(page.getByText('123.456.789-09')).toHaveCount(0)
     await expect(page.getByText('***.456.789-**').first()).toBeVisible()
     await expect(page.getByRole('button', { name: 'Mostrar CPF' })).toBeVisible()

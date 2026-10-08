@@ -129,13 +129,13 @@ test('#909 · one sentence: with a name it is `clientApprovedBy`, without it `cl
   assert.equal(clientApprovedText('2026-10-07T13:00:00.000Z', null, t), 'detail.clientApproved|07/10/2026|')
 })
 
-test('#909 · band 3 and the trail both print the approval through `clientApprovedText`', () => {
+test('#909 · #910: the history prints the approval through `clientApprovedText`, its one place in the tab', () => {
   const source = readFileSync(
     resolve(import.meta.dirname, '../../components/admin/partnerships/PartnershipDetail.tsx'),
     'utf8'
   )
     .replace(/\/\*[\s\S]*?\*\//g, '')
     .replace(/^\s*\/\/.*$/gm, '')
-  assert.equal(source.match(/clientApprovedText\(/g)?.length, 2)
+  assert.equal(source.match(/clientApprovedText\(/g)?.length, 1)
   assert.equal(source.indexOf("'detail.clientApproved"), -1)
 })

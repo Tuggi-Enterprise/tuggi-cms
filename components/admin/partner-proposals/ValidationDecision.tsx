@@ -5,8 +5,8 @@
  * Aprovar · Pedir ajuste · Recusar. Since #890 both are mounted by `ClientEditorModal`: the acts in
  * the client record's header while the submission is undecided — in place of
  * `ApprovalHeaderControls`, so there is one "Aprovar" per header — and the plan line and the
- * conference in the sidebar footer (`DecisionSummary`) while the Validação tab is open. The way
- * out after a decision is in the tab (`ValidationTab`), not here. Every act posts to
+ * conference in the sidebar footer (`DecisionSummary`) while the Parceria tab is open. The way
+ * out after a decision is in the tab (`SubmissionBand`), not here. Every act posts to
  * `app/api/admin/partnerships/validation/[submissionId]/route.ts`, which ends in
  * `partner.transition_place_submission` (BR-B2B-049).
  *
@@ -57,7 +57,7 @@ interface Props {
   onDecided: (result: DecisionResult) => void
   /** 409: someone else decided — the screen reloads read-only. */
   onConflict: () => void
-  /** A / J / R only while the Validação tab is open (#890): on Perfil, "A" is a letter. */
+  /** A / J / R only while the Parceria tab is open (#890): on Perfil, "A" is a letter. */
   shortcuts: boolean
 }
 

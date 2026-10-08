@@ -321,17 +321,20 @@ test('#409 · a refused candidate is shown WITH its reason, never filtered out',
 })
 
 test('#409 · searching comes BEFORE creating, on both surfaces that offer the act', () => {
-  for (const surface of [
-    'components/admin/partnerships/PartnershipDetail.tsx',
-    'components/admin/clients/tabs/PlacesTab.tsx',
-  ]) {
-    const source = code(surface)
-    const panel = source.indexOf('<PlaceLinkPanel')
-    const create = source.indexOf('pendencies.emptyCreate')
-    assert.ok(panel >= 0, `${surface} must offer linking`)
-    assert.ok(create >= 0, `${surface} must still offer creating`)
-    assert.ok(panel < create, `${surface} must offer the search BEFORE the create button`)
-  }
+  const places = code('components/admin/clients/tabs/PlacesTab.tsx')
+  const panel = places.indexOf('<PlaceLinkPanel')
+  const create = places.indexOf('pendencies.emptyCreate')
+  assert.ok(panel >= 0, 'PlacesTab must offer linking')
+  assert.ok(create >= 0, 'PlacesTab must still offer creating')
+  assert.ok(panel < create, 'PlacesTab must offer the search BEFORE the create button')
+
+  // #910 §4: the search lives in Locais only; the Parceria tab's place block sends the operator
+  // there, and that way comes before its own create button.
+  const detail = code('components/admin/partnerships/PartnershipDetail.tsx')
+  assert.equal(detail.indexOf('<PlaceLinkPanel'), -1, 'one search surface, in Locais')
+  const toPlaces = detail.indexOf("t('detail.linkInPlaces')")
+  const createHere = detail.indexOf('pendencies.emptyCreate')
+  assert.ok(toPlaces >= 0 && createHere >= 0 && toPlaces < createHere, 'Vincular em Locais comes before creating')
 
   // The dead link is gone: it pointed at `/places` under a comment saying the act had no writer.
   const band = code('components/admin/partnerships/PartnershipDetail.tsx')
@@ -428,15 +431,10 @@ test('#409 · the divergence card writes nothing itself, it uses the link route'
   // `event` is not fixed by clicking again, and a missing pin is fixed in the POI editor.
   assert.match(card, /refused\.\$\{refusal\}/)
 
-  // And it renders where the empty state is, on BOTH surfaces that offer the act.
-  for (const surface of [
-    'components/admin/partnerships/PartnershipDetail.tsx',
-    'components/admin/clients/tabs/PlacesTab.tsx',
-  ]) {
-    const source = code(surface)
-    assert.match(source, /<WelcomeDivergenceCard/, `${surface} must show the divergence`)
-    const card_ = source.indexOf('<WelcomeDivergenceCard')
-    const panel = source.indexOf('<PlaceLinkPanel')
-    assert.ok(card_ >= 0 && panel >= 0 && card_ < panel, `${surface}: the POI it already has comes first`)
-  }
+  // And it renders where the empty state is, in Locais, the one surface with the search (#910 §4).
+  const source = code('components/admin/clients/tabs/PlacesTab.tsx')
+  assert.match(source, /<WelcomeDivergenceCard/, 'PlacesTab must show the divergence')
+  const card_ = source.indexOf('<WelcomeDivergenceCard')
+  const panel = source.indexOf('<PlaceLinkPanel')
+  assert.ok(card_ >= 0 && panel >= 0 && card_ < panel, 'PlacesTab: the POI it already has comes first')
 })

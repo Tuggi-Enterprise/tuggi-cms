@@ -28,6 +28,7 @@ import ptMessages from '@/messages/pt.json'
 
 const DIRECTORY = ptMessages.Clients.directory
 const PARTNERSHIPS = ptMessages.Partnerships
+const NOOP = () => {}
 import {
   QUEUE_ROWS_IN_PROGRESS,
   LONG_ESTABLISHMENT_NAME,
@@ -120,7 +121,7 @@ test.describe('criterion 7 (DS-COMPONENTE-002) — the four states of the queue'
 
 // ── Criterion 24 — every band is a <section> with a heading and a coherent aria-expanded ───────
 
-test('criterion 24 — every detail band is a <section> with an <h2> and aria-expanded matches state', async ({
+test('criterion 24 · #910 — every block of the Parceria tab is a <section> with an <h2>, and none is an accordion', async ({
   mount,
   page,
 }) => {
@@ -128,47 +129,16 @@ test('criterion 24 — every detail band is a <section> with an <h2> and aria-ex
   await mockDetail(page, detail.client.id, detail)
   const component = await mount(
     <Wrapper>
-      <PartnershipDetail locale="pt" clientId={detail.client.id} />
+      <PartnershipDetail locale="pt" clientId={detail.client.id} onOpenTab={NOOP} />
     </Wrapper>
   )
   await expect(component.getByText('Carregando a parceria.')).toHaveCount(0, { timeout: 10_000 })
 
-  const sections = component.locator('section[aria-labelledby^="band-"]')
-  await expect(sections).toHaveCount(5)
-
-  for (let i = 0; i < 5; i++) {
-    const section = sections.nth(i)
-    await expect(section.locator('> h2')).toHaveCount(1)
-    const headingId = await section.locator('> h2').getAttribute('id')
-    const labelledBy = await section.getAttribute('aria-labelledby')
-    expect(labelledBy).toBe(headingId)
-
-    // Scoped to the heading's own button — an OPEN band's body can contain other buttons
-    // (`Abrir o local`, `Publicar…`), and the toggle must resolve to exactly one element.
-    const toggle = section.locator('h2 button[aria-expanded]')
-    await expect(toggle).toHaveCount(1)
-    await expect(toggle).toHaveAttribute('aria-expanded', /true|false/)
-  }
-
-  // Band 4 ("O local") is the current one for `place_in_curation` — it starts open, the
-  // others start collapsed. This is the derivation `bandStatus`/`currentBand` in
-  // `PartnershipDetail.tsx` compute from the state, not a guess.
-  const placeToggle = component.getByRole('button', { name: /4 · O local/ })
-  await expect(placeToggle).toHaveAttribute('aria-expanded', 'true')
-  const proposalToggle = component.getByRole('button', { name: /1 · Proposta recebida/ })
-  await expect(proposalToggle).toHaveAttribute('aria-expanded', 'false')
-
-  // The control genuinely drives the state, in both directions.
-  await proposalToggle.click()
-  await expect(proposalToggle).toHaveAttribute('aria-expanded', 'true')
-  await placeToggle.click()
-  await expect(placeToggle).toHaveAttribute('aria-expanded', 'false')
-  // `aria-controls` names a region that exists and toggles visibility with it.
-  const controlsId = await placeToggle.getAttribute('aria-controls')
-  expect(controlsId).toBeTruthy()
-  await expect(component.locator(`#${controlsId}`)).toHaveCount(0)
-  await placeToggle.click()
-  await expect(component.locator(`#${controlsId}`)).toHaveCount(1)
+  // `place_in_curation` with one unpublished place: O local, Contrato and Histórico.
+  // Each block is a `RecordSection`: a <section> whose header row holds its <h2>.
+  await expect(component.locator('section > div > h2')).toHaveText(['O local', 'Contrato', 'Histórico'])
+  // The five numbered bands with their toggles are gone (#910 §4).
+  await expect(component.locator('[aria-expanded]')).toHaveCount(0)
 })
 
 // ── Criterion 28 — no ancestor combines max-height with overflow-hidden; the 80-char name ──────
@@ -178,24 +148,20 @@ test('criterion 28 — 80-char name is whole in the detail and no text ancestor 
   await mockDetail(page, detail.client.id, detail)
   const component = await mount(
     <Wrapper>
-      <PartnershipDetail locale="pt" clientId={detail.client.id} />
+      <PartnershipDetail locale="pt" clientId={detail.client.id} onOpenTab={NOOP} />
     </Wrapper>
   )
   await expect(component.getByText('Carregando a parceria.')).toHaveCount(0, { timeout: 10_000 })
 
-  // Two places carry the 80-char name here: the header `<h1>` (client) and the place `<h3>`
-  // inside band 4. `textContent()`, never `toHaveAccessibleName` — this repo has already lost
-  // an assertion to that matcher swallowing a whitespace-join bug between inline children
-  // (see `.claude/agent-memory/qa` notes on this project's gotchas).
-  const heading = component.locator('h1')
-  await expect(heading).toHaveCount(1)
-  expect((await heading.textContent())?.trim()).toBe(LONG_ESTABLISHMENT_NAME)
-
+  // The place `<h3>` inside the O local block carries the 80-char name; the client's own name is
+  // the record header's, which this mount does not draw (#910 §3). `textContent()`, never
+  // `toHaveAccessibleName` — this repo has already lost an assertion to that matcher swallowing a
+  // whitespace-join bug between inline children (see `.claude/agent-memory/qa` notes).
   const placeHeading = component.locator('h3', { hasText: LONG_ESTABLISHMENT_NAME })
   await expect(placeHeading).toHaveCount(1)
   expect((await placeHeading.textContent())?.trim()).toBe(LONG_ESTABLISHMENT_NAME)
 
-  for (const locator of [heading, placeHeading]) {
+  for (const locator of [placeHeading]) {
     // Not clipped: the rendered box's scrollHeight never exceeds its clientHeight.
     const box = await locator.boundingBox()
     expect(box).not.toBeNull()
@@ -307,7 +273,7 @@ test.describe('criteria 23/25/26 — axe-core, contrast, and 24x24 targets', () 
     await assertNoAxeViolations(page)
   })
 
-  test('the detail, all five bands rendered (band 4 open with all three pendency classes)', async ({
+  test('the Parceria tab of an old client, O local with all three pendency classes (#910 §11 item 11)', async ({
     mount,
     page,
   }) => {
@@ -315,7 +281,7 @@ test.describe('criteria 23/25/26 — axe-core, contrast, and 24x24 targets', () 
     await mockDetail(page, detail.client.id, detail)
     const component = await mount(
       <Wrapper>
-        <PartnershipDetail locale="pt" clientId={detail.client.id} />
+        <PartnershipDetail locale="pt" clientId={detail.client.id} onOpenTab={NOOP} />
       </Wrapper>
     )
     await expect(component.getByText('Carregando a parceria.')).toHaveCount(0, { timeout: 10_000 })
@@ -331,7 +297,7 @@ test.describe('criteria 23/25/26 — axe-core, contrast, and 24x24 targets', () 
     await mockDetail(page, detail.client.id, detail)
     const component = await mount(
       <Wrapper>
-        <PartnershipDetail locale="pt" clientId={detail.client.id} />
+        <PartnershipDetail locale="pt" clientId={detail.client.id} onOpenTab={NOOP} />
       </Wrapper>
     )
     await expect(component.getByText('Carregando a parceria.')).toHaveCount(0, { timeout: 10_000 })
@@ -394,7 +360,7 @@ test('criterion 25 — #00A8E8 never paints text or an informative icon inside t
   await mockDetail(page, detail.client.id, detail)
   const detailComponent = await mount(
     <Wrapper>
-      <PartnershipDetail locale="pt" clientId={detail.client.id} />
+      <PartnershipDetail locale="pt" clientId={detail.client.id} onOpenTab={NOOP} />
     </Wrapper>
   )
   await expect(detailComponent.getByText('Carregando a parceria.')).toHaveCount(0, { timeout: 10_000 })
