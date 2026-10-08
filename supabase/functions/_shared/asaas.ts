@@ -334,6 +334,14 @@ export function asaasClient(cfg: AsaasConfig) {
 
     deletePayment: (id: string) => call('DELETE', `/payments/${encodeURIComponent(id)}`),
 
+    /**
+     * #914: the QR of a Pix charge (doc conferred 2026-10-08:
+     * https://docs.asaas.com/reference/obter-qr-code-para-pagamentos-via-pix). `encodedImage` is a
+     * base64 PNG, `payload` the copy-and-paste code; dynamic QR, paid once.
+     */
+    getPixQrCode: (id: string) =>
+      call<{ encodedImage?: string | null; payload?: string | null; expirationDate?: string | null }>('GET', `/payments/${encodeURIComponent(id)}/pixQrCode`),
+
     /** `GET /v3/subscriptions/{id}/invoiceSettings`; 404 = none configured (or no such subscription). */
     getSubscriptionInvoiceSettings: async (id: string) => {
       try {

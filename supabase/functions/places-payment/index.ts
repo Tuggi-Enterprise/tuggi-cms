@@ -21,7 +21,8 @@
 // The card goes to Asaas in the same request and is never stored, logged or echoed. `checkout` and
 // `checkout_pix` in the free month (#898) charge nothing and answer
 // { result: 'scheduled', first_charge_on: 'YYYY-MM-DD' } — the database's `next_due_date`; an
-// acceptance with no trial answers { result: 'paid' | 'processing' }.
+// acceptance with no trial answers { result: 'paid' | 'processing' }; #914: the Pix `processing` adds
+// `pix` { payload, image, expires_at }, the QR of today's charge (a second checkout answers the same one).
 // #914: `checkout_pix` takes `address` { postal_code, address_number } (the card takes them in
 // `holder`); Asaas refusing the customer's data answers 422 { error: 'customer_data', field }.
 

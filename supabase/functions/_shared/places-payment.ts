@@ -29,6 +29,7 @@
 //      outcome → `handleAsaasWebhook`;
 //   7. 500 only on a database exception (and, see below, on a transport failure of the re-read);
 //      alert on `amount_mismatch`, `subscription_mismatch`, `unknown_subscription`, `not_applicable`.
+//      (#914: not the `subscription_mismatch` of a SUBSCRIPTION_DELETED/INACTIVATED — a replaced sub_.)
 //
 // RE-READ THAT FAILS IN TRANSIT IS A 500 TOO. Demand 7 bars a 500 for a business outcome — that
 // would make Asaas resend forever and pause the queue after 15 failures. A timeout reading the
@@ -54,8 +55,9 @@
 // same for both (BR-B2B-019). Cancelling inside the free month deletes the Asaas subscription and
 // leaves the row alone: the story stays up to the end of the free month (BR-B2B-046 item 9,
 // `place_story_entitled`) and the sweep ends the row when `expire_place_subscriptions` returns it.
-// An acceptance with no trial (made before pricing 2026-10-07) gets `next_due_date` = today: Asaas
-// charges the card at once, and the Pix charge is due today (the old answer, `paid`/`processing`).
+// An acceptance with no trial (the same place again, BR-B2B-046 item 1, or made before pricing
+// 2026-10-07) gets `next_due_date` = today: Asaas charges the card at once, and the Pix charge is due
+// today (`paid`/`processing`; #914: the Pix answer carries that charge's QR, `pix`).
 //
 // CANCEL (operator 2026-10-06, places-portal-rascunho §8.4): it takes effect at once — no new fee,
 // the story stays up to `paid_through`. Inside the commitment the database prices ONE charge, the
@@ -438,9 +440,11 @@ type SubscriptionBase = { value: number; nextDueDate: string; cycle: string; des
  * - Free month (`next_due_date` after today): nothing is charged now, so the answer is `scheduled` +
  *   that date. The database moved the submission to validation in the attach, so the access link
  *   goes here, from the server — for a submission with an owner `accessLink` answers `owned`.
- * - No trial (due today, acceptance before pricing 2026-10-07): Asaas charges the card on creation;
- *   the Pix charge is due today and reaches the payer by the Asaas notification. `paid`/`processing`,
+ * - No trial (due today: the same place again, BR-B2B-046 item 1, or an acceptance before pricing
+ *   2026-10-07): Asaas charges the card on creation; the Pix charge is due today. `paid`/`processing`,
  *   and the webhook (`confirm_place_charge`) sends the submission to validation, as before #898.
+ *   #914: the Pix `processing` carries the QR of today's charge (`pix`), so the portal shows it; and
+ *   a Pix checkout again with that charge still open answers the same QR instead of a new subscription.
  */
 async function startSubscription(
   deps: Deps,
@@ -451,6 +455,10 @@ async function startSubscription(
   create: (customerId: string, base: SubscriptionBase) => Promise<{ id: string } | Reply>,
 ): Promise<Reply> {
   try {
+    if (method === 'pix') {
+      const open = await openPixCharge(deps, submissionId, co);
+      if (open) return open;
+    }
     const customer = await prepareCustomer(deps, submissionId, co, address);
     if (isReply(customer)) return customer;
     // Pix fees are paid by hand: the Asaas notification (charge created, due soon, overdue) is what
@@ -487,7 +495,8 @@ async function startSubscription(
 
     if (!freeMonth) {
       const payments = await deps.asaas.listSubscriptionPayments(created.id);
-      return reply(200, { result: payments.some((p) => PAID_STATUSES.has(p.status)) ? 'paid' : 'processing' });
+      if (payments.some((p) => PAID_STATUSES.has(p.status))) return reply(200, { result: 'paid' });
+      return reply(200, { result: 'processing', ...(method === 'pix' ? await pixOfCharges(deps, payments) : {}) });
     }
     const link = await deps.accessLink(submissionId).catch(() => 'failed' as const);
     if (link === 'failed') await deps.alert('access_link_failed', { subscription_id: co.subscription_id, provider_subscription_id: created.id });
@@ -499,6 +508,44 @@ async function startSubscription(
     }
     throw e;
   }
+}
+
+/**
+ * #914: the Pix to pay today, `{ pix: { payload, image, expires_at } }`, from the first PENDING
+ * charge. A QR that cannot be read is not a failure: the Asaas notification e-mails the same charge,
+ * so the answer is `processing` without `pix` and the portal says so.
+ */
+async function pixOfCharges(deps: Deps, payments: AsaasPayment[]): Promise<{ pix?: PixQr }> {
+  const open = payments.find((p) => p.status === 'PENDING');
+  if (!open) return {};
+  try {
+    const q = await deps.asaas.getPixQrCode(open.id);
+    if (!q.payload) return {};
+    return { pix: { payload: q.payload, image: q.encodedImage ?? null, expires_at: q.expirationDate ?? null } };
+  } catch (e) {
+    console.error('[places-payment] pix_qr', open.id, e instanceof Error ? e.message : 'unknown');
+    return {};
+  }
+}
+
+export type PixQr = { payload: string; image: string | null; expires_at: string | null };
+
+/**
+ * #914: no trial, Pix already attached and today's charge still open — a second "pay" (reload, the
+ * wait ran out) answers that charge's QR. Before, it deleted the subscription and created another:
+ * a new charge, a new Asaas e-mail, and the old one's `SUBSCRIPTION_DELETED` as a false alert.
+ * Paid, gone, or another method → `null`, and the checkout goes on as before (`clearLiveSubscriptions`).
+ */
+async function openPixCharge(deps: Deps, submissionId: string, co: CheckoutRow): Promise<Reply | null> {
+  if (co.next_due_date! > deps.today()) return null;
+  const ids = await deps.subscriptionIds(submissionId);
+  if (!ids?.provider_subscription_id || ids.canceled_at || ids.payment_method !== 'pix') return null;
+  const payments = await deps.asaas.listSubscriptionPayments(ids.provider_subscription_id).catch((e) => {
+    if (e instanceof AsaasError && e.status === 404) return [] as AsaasPayment[];
+    throw e;
+  });
+  if (payments.some((p) => PAID_STATUSES.has(p.status)) || !payments.some((p) => p.status === 'PENDING')) return null;
+  return reply(200, { result: 'processing', ...(await pixOfCharges(deps, payments)) });
 }
 
 /** `place_payment_checkout`, refused unless there is a first period to pay now. */
@@ -1401,6 +1448,13 @@ export async function handleAsaasWebhook(
       console.error('[places-payment-webhook]', eventId, eventType, 'invoice_schedule_failed', e instanceof Error ? e.message : 'unknown');
       return reply(500, { error: 'invoice_schedule_failed' });
     }
+  }
+  // #914: the end of a subscription that is no longer the plan's (a checkout again replaced it) is
+  // noise: the database answers `subscription_mismatch` and nothing changed. Logged, never alerted.
+  // A charge (`PAYMENT_*`) with the mismatch still alerts: that is money on a subscription we dropped.
+  if (outcome === 'subscription_mismatch' && SUBSCRIPTION_END_EVENTS.has(eventType)) {
+    log('superseded');
+    return reply(200, { outcome: 'superseded' });
   }
   if (ALERT_OUTCOMES.has(outcome)) {
     await deps.alert(outcome, {

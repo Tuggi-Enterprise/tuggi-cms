@@ -276,6 +276,26 @@ test('#811 demand 1: SUBSCRIPTION_DELETED cancels only if the re-read subscripti
   assert.deepEqual(db2.calls[0].args, { p_event_id: 'e2', p_event_type: 'SUBSCRIPTION_DELETED', p_subscription_id: SUB_UUID, p_provider_subscription_id: 'sub_1', p_actor_kind: 'provider' })
 })
 
+test('#914 BR-B2B-046: SUBSCRIPTION_DELETED of a sub_ a new checkout replaced (subscription_mismatch) is logged, not alerted', async () => {
+  for (const event of ['SUBSCRIPTION_DELETED', 'SUBSCRIPTION_INACTIVATED']) {
+    const asaas = fakeAsaas([at('GET', '/subscriptions/sub_old', 200, { id: 'sub_old', status: 'INACTIVE', deleted: true, value: 100, externalReference: REF })])
+    const db = fakeDb({ cancel_place_subscription: { data: [{ outcome: 'subscription_mismatch' }] } })
+    const { d, alerts } = deps(asaas, db)
+    const r = await pay.handleAsaasWebhook(d, TOKEN, TOKEN, { id: 'e_old', event, subscription: { id: 'sub_old' } })
+    assert.deepEqual(r, { status: 200, body: { outcome: 'superseded' } }, event)
+    assert.equal(alerts.length, 0, event)
+  }
+})
+
+test('#914: a paid charge (PAYMENT_*) with subscription_mismatch still alerts', async () => {
+  const asaas = fakeAsaas([at('GET', '/payments/pay_1', 200, confirmedPayment)])
+  const db = fakeDb({ confirm_place_charge: { data: [{ outcome: 'subscription_mismatch' }] } })
+  const { d, alerts } = deps(asaas, db)
+  const r = await pay.handleAsaasWebhook(d, TOKEN, TOKEN, { id: 'evt_m', event: 'PAYMENT_CONFIRMED', payment: { id: 'pay_1' } })
+  assert.equal(r.status, 200)
+  assert.deepEqual(alerts.map((a) => a.what), ['subscription_mismatch'])
+})
+
 test('#811: chargeback is not handled — 200 and an alert', async () => {
   const { d, alerts } = deps(fakeAsaas([]), fakeDb({}))
   const r = await pay.handleAsaasWebhook(d, TOKEN, TOKEN, { id: 'e', event: 'PAYMENT_CHARGEBACK_REQUESTED', payment: { id: 'pay_1' } })

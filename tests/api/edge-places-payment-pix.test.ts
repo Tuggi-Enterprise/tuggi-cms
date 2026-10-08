@@ -201,6 +201,76 @@ test('#811 switching card → Pix: the unpaid live card subscription is deleted 
   assert.equal(db.calls[1].args.p_actor_kind, 'client')
 })
 
+// ─── #914: same place again, no free month — the Pix is due today ────────────────────────────
+
+const dueToday = { ...checkoutRow, next_due_date: '2026-10-04', next_amount_cents: 10000 }
+const QR = { encodedImage: 'iVBORw0KGgo=', payload: '00020126580014br.gov.bcb.pix', expirationDate: '2026-10-04 23:59:59' }
+const PIX = { payload: QR.payload, image: QR.encodedImage, expires_at: QR.expirationDate }
+
+test('#914 BR-B2B-046: checkout_pix with no free month answers processing + the QR of today\'s charge', async () => {
+  const asaas = fakeAsaas([
+    at('GET', '/subscriptions?', 200, { data: [] }),
+    at('GET', '/customers?', 200, { data: [{ id: 'cus_1', postalCode: '28950000', addressNumber: '12' }] }),
+    at('PUT', '/customers/cus_1', 200, { id: 'cus_1' }),
+    at('POST', '/subscriptions', 200, { id: 'sub_px', status: 'ACTIVE', value: 100 }),
+    at('GET', '/payments?subscription=sub_px', 200, { data: [{ id: 'pay_t', status: 'PENDING', value: 100, dueDate: '2026-10-04' }] }),
+    at('GET', '/payments/pay_t/pixQrCode', 200, QR),
+  ])
+  const db = fakeDb({ place_payment_checkout: { data: [dueToday] }, attach_place_subscription: { data: 'awaiting_payment' } })
+  const links: string[] = []
+  const { d } = deps(asaas, db, null, { accessLink: async (id: string) => (links.push(id), 'sent') })
+  const r = await pay.checkoutPix(d, { submission_id: SUBMISSION, address: ADDRESS })
+  assert.deepEqual(r, { status: 200, body: { result: 'processing', pix: PIX } })
+  assert.equal((asaas.calls.find((c) => c.method === 'POST' && c.path === '/subscriptions')!.body as Record<string, unknown>).nextDueDate, '2026-10-04')
+  // no free month: the access link goes with the first payment (webhook), not here
+  assert.deepEqual(links, [])
+})
+
+test('#914: a QR that cannot be read is still processing (the Asaas e-mail carries the charge)', async () => {
+  const asaas = fakeAsaas([
+    at('GET', '/subscriptions?', 200, { data: [] }),
+    at('GET', '/customers?', 200, { data: [{ id: 'cus_1', postalCode: '28950000', addressNumber: '12' }] }),
+    at('PUT', '/customers/cus_1', 200, { id: 'cus_1' }),
+    at('POST', '/subscriptions', 200, { id: 'sub_px', status: 'ACTIVE', value: 100 }),
+    at('GET', '/payments?subscription=sub_px', 200, { data: [{ id: 'pay_t', status: 'PENDING', value: 100 }] }),
+    at('GET', '/payments/pay_t/pixQrCode', 503, {}),
+  ])
+  const db = fakeDb({ place_payment_checkout: { data: [dueToday] }, attach_place_subscription: { data: 'awaiting_payment' } })
+  const { d } = deps(asaas, db)
+  assert.deepEqual(await pay.checkoutPix(d, { submission_id: SUBMISSION, address: ADDRESS }), { status: 200, body: { result: 'processing' } })
+})
+
+test('#914: checkout_pix again with today\'s Pix still open answers the same QR — no new subscription, nothing deleted', async () => {
+  const asaas = fakeAsaas([
+    at('GET', '/payments?subscription=sub_px', 200, { data: [{ id: 'pay_t', status: 'PENDING', value: 100 }] }),
+    at('GET', '/payments/pay_t/pixQrCode', 200, QR),
+  ])
+  const db = fakeDb({ place_payment_checkout: { data: [dueToday] } })
+  const { d } = deps(asaas, db, row({ payment_method: 'pix', provider_subscription_id: 'sub_px' }))
+  const r = await pay.checkoutPix(d, { submission_id: SUBMISSION, address: ADDRESS })
+  assert.deepEqual(r, { status: 200, body: { result: 'processing', pix: PIX } })
+  assert.deepEqual(paths(asaas), ['GET /payments?subscription=sub_px', 'GET /payments/pay_t/pixQrCode'])
+  assert.deepEqual(db.calls.map((c) => c.fn), ['place_payment_checkout'])
+})
+
+test('#914: the reuse is only for an open Pix — a card plan, or a free month, goes the old way', async () => {
+  for (const [co, sub] of [[dueToday, row({ payment_method: 'credit_card', provider_subscription_id: 'sub_c' })], [checkoutRow, row({ payment_method: 'pix', provider_subscription_id: 'sub_px' })]] as const) {
+    const asaas = fakeAsaas([
+      at('GET', '/subscriptions?', 200, { data: [] }),
+      at('GET', '/payments?subscription=', 200, { data: [{ id: 'pay_o', status: 'PENDING', value: 100 }] }),
+      at('DELETE', '/subscriptions/', 200, { deleted: true }),
+      at('GET', '/customers?', 200, { data: [{ id: 'cus_1', postalCode: '28950000', addressNumber: '12' }] }),
+      at('PUT', '/customers/cus_1', 200, { id: 'cus_1' }),
+      at('POST', '/subscriptions', 200, { id: 'sub_new', status: 'ACTIVE', value: 100 }),
+      at('GET', '/payments/', 200, QR),
+    ])
+    const db = fakeDb({ place_payment_checkout: { data: [co] }, cancel_place_subscription: { data: [{ outcome: 'applied' }] }, attach_place_subscription: { data: 'pending_payment' } })
+    const { d } = deps(asaas, db, sub)
+    assert.equal((await pay.checkoutPix(d, { submission_id: SUBMISSION, address: ADDRESS })).status, 200)
+    assert.ok(paths(asaas).includes('POST /subscriptions'))
+  }
+})
+
 // ─── webhook ─────────────────────────────────────────────────────────────────────────────────
 
 const hook = (d: unknown, body: unknown) => pay.handleAsaasWebhook(d, TOKEN, TOKEN, body)
