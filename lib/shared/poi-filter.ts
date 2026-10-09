@@ -61,7 +61,17 @@ export const CATEGORIES = [
   "amenity=arts_centre",
   "railway=funicular",
   "landuse=cemetery",
-  "amenity=grave_yard"
+  "amenity=grave_yard",
+  // Czechia (2026-10-09): the Wikidata recall found whole classes cut at Stage 1 — 50 of 70
+  // monasteries (Kladruby, Teplá), the spa houses, the 4 national parks, 32 of 194 Karlovy Vary /
+  // Mariánské Lázně springs tagged only amenity=drinking_water + water_characteristic=mineral —
+  // and 12 cities (Praha, Brno) whose seat node is place=city (BR-POI-010 #4). Each still needs
+  // fame further down (RESTRICTED_UTILITY monastery, TAG_BLOCKLIST spa/drinking_water/type=boundary).
+  "amenity=monastery",
+  "amenity=spa",
+  "water_characteristic=mineral",
+  "boundary=national_park",
+  "place=city"
 ];
 
 /**
@@ -140,6 +150,12 @@ const EMPTY_TAG_VALUES = new Set(['yes', 'no', 'true', 'false']);
  * listed building with no other tag.
  */
 export function pickCategory(props: any): string | undefined {
+  // A national park relation usually also carries leisure=nature_reserve; the park is the more
+  // specific class (lib/shared/poi-taxonomy keeps national_park apart from nature_reserve).
+  if (props.boundary === 'national_park') return 'national_park';
+  // Mineral spring tagged as a tap: the homolog files them as `spring`, as natural=spring would be.
+  if (props.water_characteristic === 'mineral' && props.amenity === 'drinking_water'
+    && !props.tourism && !props.historic && !props.leisure && !props.natural) return 'spring';
   const ordered = [
     props.tourism, props.historic, props.leisure, props.natural, props.amenity,
     props.aerialway, props.man_made, props.waterway, props.geological, props.aeroway, props.place,
@@ -577,7 +593,7 @@ export function shouldFilterPOI(poi: any): POIFilterResult {
   }
 
   // --- 8. ICONIC NEIGHBOURHOODS, TOWNS AND SQUARES ---
-  if (["suburb", "neighbourhood", "town", "village", "square"].includes(props.place)) {
+  if (["city", "suburb", "neighbourhood", "town", "village", "square"].includes(props.place)) {
     // If it's a neighborhood/suburb/square, we keep it if it has a name and some importance 
     // or if it's explicitly famous. We are more lenient here to keep urban context.
     if (!name || name.length < 3) return { remove: true, reason: "PLACE: Nome muito curto" };
