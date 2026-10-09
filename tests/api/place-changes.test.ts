@@ -5,7 +5,8 @@
  * Pinned here: admin and editor only; refusing requires a reason and writes nothing else;
  * approving a photo copies the private file to `travel-app-images/partners/<attraction>/<request>.<ext>`
  * BEFORE the decision and passes the object path (never a URL); approving a text removes only this
- * place's voiced mp3s, after the decision; a failed cleanup answers 502 and approving again retries;
+ * place's voiced mp3s, after the decision, and never when the decision changed nothing (`unchanged`);
+ * a request no longer pending answers 409 before anything is copied; a failed cleanup answers 502;
  * the database refusals map to the route's answers.
  *
  * Run with: npm run test:api
@@ -86,7 +87,7 @@ before(async () => {
 beforeEach(() => {
   calls = []
   role = 'admin'
-  request = { id: REQ, attraction_id: ATTR, kind: 'photo', photo_path: PHOTO }
+  request = { id: REQ, attraction_id: ATTR, kind: 'photo', photo_path: PHOTO, status: 'pending' }
   rpc = { decide_place_change: { data: [{ outcome: 'approved', request_id: REQ }] } }
   audioFiles = []
   removeError = null
@@ -156,7 +157,7 @@ test('BR-B2B-061 item 2 · a copy that fails stops before the decision (502, app
 })
 
 test('BR-B2B-061 item 2 · approving a text removes only THIS place voiced mp3s, after the decision', async () => {
-  request = { id: REQ, attraction_id: ATTR, kind: 'text', photo_path: null }
+  request = { id: REQ, attraction_id: ATTR, kind: 'text', photo_path: null, status: 'pending' }
   audioFiles = [{ name: `${ATTR}-pt-br-male.mp3` }, { name: `${ATTR}-en-female.mp3` }, { name: `${SUB}-pt-br-male.mp3` }, { name: `${ATTR}-notes.txt` }]
   const res = await post({ decision: 'approved' })
   assert.equal(res.status, 200)
@@ -166,19 +167,37 @@ test('BR-B2B-061 item 2 · approving a text removes only THIS place voiced mp3s,
   assert.ok(!calls.some((c) => c.op === 'upload'))
 })
 
-test('BR-B2B-061 item 2 · a cleanup that fails answers 502; approving again (unchanged) cleans again', async () => {
-  request = { id: REQ, attraction_id: ATTR, kind: 'text', photo_path: null }
+test('BR-B2B-061 item 2 · a cleanup that fails answers 502', async () => {
+  request = { id: REQ, attraction_id: ATTR, kind: 'text', photo_path: null, status: 'pending' }
   audioFiles = [{ name: `${ATTR}-pt-br-male.mp3` }]
   removeError = { message: 'boom' }
   const first = await post({ decision: 'approved' })
   assert.equal(first.status, 502)
   assert.equal((await first.json()).error, 'audio_cleanup_failed')
-  removeError = null
+})
+
+test('BR-B2B-061 item 2 · a request no longer pending answers 409 before any copy, decision or removal', async () => {
+  for (const status of ['approved', 'rejected', 'withdrawn', 'superseded']) {
+    for (const kind of ['photo', 'text'] as const) {
+      calls = []
+      audioFiles = [{ name: `${ATTR}-pt-br-male.mp3` }]
+      request = { id: REQ, attraction_id: ATTR, kind, photo_path: kind === 'photo' ? PHOTO : null, status }
+      const res = await post({ decision: 'approved' })
+      assert.equal(res.status, 409, `${kind} ${status}`)
+      assert.equal((await res.json()).error, 'not_pending')
+      const ops = calls.map((c) => c.op)
+      for (const op of ['download', 'upload', 'rpc partner.decide_place_change', 'list', 'remove']) assert.ok(!ops.includes(op), `${kind} ${status}: ${op}`)
+    }
+  }
+})
+
+test('BR-B2B-061 item 2 · a text decision that changed nothing (unchanged, a race) removes no mp3', async () => {
+  request = { id: REQ, attraction_id: ATTR, kind: 'text', photo_path: null, status: 'pending' }
+  audioFiles = [{ name: `${ATTR}-pt-br-male.mp3` }]
   rpc.decide_place_change = { data: [{ outcome: 'unchanged' }] }
-  calls = []
-  const again = await post({ decision: 'approved' })
-  assert.equal(again.status, 200)
-  assert.equal(calls.filter((c) => c.op === 'remove').length, 1)
+  const res = await post({ decision: 'approved' })
+  assert.equal(res.status, 200)
+  assert.ok(!calls.some((c) => c.op === 'list' || c.op === 'remove'))
 })
 
 test('BR-B2B-061 · database refusals map to the route', async () => {

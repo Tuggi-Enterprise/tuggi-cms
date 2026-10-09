@@ -28,12 +28,13 @@
 // Since #923, body `{"payment_links": true}` runs ONLY `backfillPaymentLinks`: the operator's load of
 // the payments Asaas already issued (their link to pay, `partner.record_place_payment_link`). Safe to
 // rerun: an upsert by `pay_` with the re-read payment. The cron sends no body and runs the rest.
+// That mode answers 403 to anyone but the machine (`service_role`), CMS admins included.
 //
 // Caller: a pg_cron job with the project's secret key (`requireAdmin`, machine bypass), the same
 // pattern as `daily-gamification-orchestrator`. Deploy with `--no-verify-jwt`.
 
 import { requireAdmin } from '../_shared/auth-middleware.ts';
-import { backfillPaymentLinks, runSweep } from '../_shared/places-payment.ts';
+import { runPaymentLinksLoad, runSweep } from '../_shared/places-payment.ts';
 import { asaasFromEnv, baseDeps, json } from '../_shared/places-payment-runtime.ts';
 import { runTransitionEmails } from '../_shared/places-transition-email.ts';
 import { transitionDeps } from '../_shared/places-transition-email-runtime.ts';
@@ -48,16 +49,12 @@ Deno.serve(async (req: Request) => {
 
   const body = await req.json().catch(() => null);
   if (body && typeof body === 'object' && (body as Record<string, unknown>).payment_links === true) {
-    const asaas = asaasFromEnv();
-    if (!asaas) return json(503, { error: 'unavailable' });
-    try {
-      const payment_links = await backfillPaymentLinks(baseDeps(asaas));
-      console.log('[places-payment-sweep] payment_links', JSON.stringify(payment_links));
-      return json(200, { payment_links });
-    } catch (e) {
-      console.error('[places-payment-sweep] payment_links failed', e instanceof Error ? e.message.slice(0, 200) : 'unknown');
-      return json(500, { error: 'failed' });
-    }
+    // #923: the machine only (`runPaymentLinksLoad`), never a CMS admin session.
+    const r = await runPaymentLinksLoad(auth.role, () => {
+      const asaas = asaasFromEnv();
+      return asaas ? baseDeps(asaas) : null;
+    });
+    return json(r.status, r.body);
   }
 
   let databaseOnly: Record<string, unknown>;

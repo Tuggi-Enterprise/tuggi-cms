@@ -1364,6 +1364,28 @@ export async function backfillPaymentLinks(deps: Pick<Deps, 'asaas' | 'admin' | 
   return counts;
 }
 
+/**
+ * The sweep's `{"payment_links": true}` mode. `requireAdmin` also lets a CMS admin through; this load
+ * re-reads every live plan at Asaas, so it is the machine's only (the project's secret key, the same
+ * caller as the cron). `deps` is built only after the role passes; `null` = Asaas not configured.
+ */
+export async function runPaymentLinksLoad(
+  role: string | null | undefined,
+  deps: () => Pick<Deps, 'asaas' | 'admin' | 'alert' | 'invoiceTargets'> | null,
+): Promise<Reply> {
+  if (role !== 'service_role') return reply(403, { error: 'forbidden' });
+  const d = deps();
+  if (!d) return reply(503, { error: 'unavailable' });
+  try {
+    const payment_links = await backfillPaymentLinks(d);
+    console.log('[places-payment-sweep] payment_links', JSON.stringify(payment_links));
+    return reply(200, { payment_links });
+  } catch (e) {
+    console.error('[places-payment-sweep] payment_links failed', e instanceof Error ? e.message.slice(0, 200) : 'unknown');
+    return reply(500, { error: 'failed' });
+  }
+}
+
 /** Demand 1: the function follows the RE-READ status. Null = nothing to apply. */
 export function paymentAction(eventType: string, status: string): PaymentFn | null {
   // #918: a boleto of the CMS contract can be marked paid in cash in the Asaas panel.
@@ -1460,9 +1482,11 @@ export async function handleAsaasWebhook(
         ids = await chargeIds(deps, p);
       }
       // #923: the link first (after the CMS contract is registered, so its `sub_` is known). A database
-      // failure answers 500 before any money moved; the resend redoes both.
+      // failure on the link never blocks the money: it alerts and the money function still runs. The
+      // link is a convenience the sweep's `payment_links` load redoes; a 500 here would hold back the
+      // confirmation, and 15 in a row pause the whole Asaas queue.
       if (PAYMENT_LINK_ALSO.has(eventType) && (await recordPaymentLink(deps, p, eventId, eventType)) === 'db_error') {
-        return reply(500, { error: 'db_error' });
+        await deps.alert('payment_link_db_error', { event_id: eventId, event_type: eventType, provider_payment_id: p.id });
       }
       const action = paymentAction(eventType, (p.status ?? '').toUpperCase());
       if (!action) {

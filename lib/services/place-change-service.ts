@@ -7,9 +7,12 @@
  *  · photo: download the private file → upload to `travel-app-images/partners/<attraction>/<request>.<ext>`
  *    (upsert, the path is the proposal's own) → decide with the OBJECT PATH, never a URL: the database
  *    checks the object exists and builds the URL on the project host;
+ *  · a request that is no longer `pending` is refused (409 `not_pending`) BEFORE anything is copied:
+ *    an old proposal approved again would overwrite the photo or text live today;
  *  · text: decide (the database rewrites the base row and deletes the translations in one
- *    transaction) → remove the voiced mp3s of this place. Deciding again answers `unchanged`, so a
- *    failed cleanup is retried by approving again.
+ *    transaction) → remove the voiced mp3s of this place, only when the decision changed something
+ *    (`outcome !== 'unchanged'`): a repeated call must not erase audio voiced from the new text. A
+ *    failed cleanup answers 502 and is not retried by this route.
  * Then the app's read model is rebuilt for the place, best effort (the cron is the fallback).
  * Nothing from a row goes to the log: ids and codes only.
  */
@@ -56,7 +59,7 @@ export async function listPlaceChanges(db: SupabaseClient = getSupabaseService()
   return { ok: true, data: changes }
 }
 
-type RequestRow = { id: string; attraction_id: string; kind: 'photo' | 'text'; photo_path: string | null }
+type RequestRow = { id: string; attraction_id: string; kind: 'photo' | 'text'; photo_path: string | null; status: string }
 
 /** Copies the proposal to the public bucket; the object path, or `null` when the copy failed. */
 async function publishPhoto(db: SupabaseClient, r: RequestRow): Promise<string | null> {
@@ -106,7 +109,7 @@ export async function decidePlaceChange(
   const read = await db
     .schema('partner')
     .from('place_change_requests')
-    .select('id, attraction_id, kind, photo_path')
+    .select('id, attraction_id, kind, photo_path, status')
     .eq('id', requestId)
     .maybeSingle()
   if (read.error) {
@@ -116,6 +119,7 @@ export async function decidePlaceChange(
   }
   const r = read.data as RequestRow | null
   if (!r) return fail(404, 'not_found')
+  if (r.status !== 'pending') return fail(409, 'not_pending')
 
   let objectPath: string | null = null
   if (body.decision === 'approved' && r.kind === 'photo') {
@@ -138,7 +142,7 @@ export async function decidePlaceChange(
   const outcome = Array.isArray(data) && data[0] && typeof data[0].outcome === 'string' ? data[0].outcome : 'unknown'
   if (body.decision === 'rejected') return { ok: true, data: { outcome } }
 
-  if (r.kind === 'text' && !(await removeVoicedAudio(db, r.attraction_id))) {
+  if (r.kind === 'text' && outcome !== 'unchanged' && !(await removeVoicedAudio(db, r.attraction_id))) {
     console.error('[place-changes] audio cleanup failed:', r.id)
     return fail(502, 'audio_cleanup_failed')
   }

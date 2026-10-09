@@ -10,11 +10,13 @@
  *  · a value taken from the webhook body instead of the re-read payment (amount, due date, URLs);
  *  · PAYMENT_CREATED / UPDATED / DELETED / RESTORED ignored again, or a removal decided by the event
  *    name instead of the re-read `deleted`;
- *  · CONFIRMED / RECEIVED / OVERDUE not recording the link (the receipt never arrives), or a link
- *    database error answered 200 (Asaas would not resend), or the money function run before it;
+ *  · CONFIRMED / RECEIVED / OVERDUE not recording the link (the receipt never arrives), or the money
+ *    function run before it; a link database error on these blocking the money (500) instead of an
+ *    alert, or answered 200 on CREATED / UPDATED (link only: Asaas must resend);
  *  · a TGP22 (provider data refused) answered 500 — 15 in a row pause the whole Asaas queue;
  *  · a one-off charge (no sub_) sent to the database; the token check skipped;
- *  · the operator's load skipping a live subscription, or stopping on one that fails to list.
+ *  · the operator's load skipping a live subscription, or stopping on one that fails to list, or
+ *    running for a CMS admin instead of the machine only (`service_role`).
  *
  * Run with: npm run test:api
  */
@@ -180,13 +182,28 @@ test('#923: PAYMENT_OVERDUE records the link (to pay it late) and still fails th
   assert.deepEqual(db.calls.map((c) => c.fn), ['record_place_payment_link', 'fail_place_charge'])
 })
 
-test('#923: a database error on the link answers 500 (Asaas resends) and moves no money', async () => {
-  for (const type of ['PAYMENT_CREATED', 'PAYMENT_CONFIRMED']) {
-    const asaas = fakeAsaas([at('GET', '/payments/pay_1', 200, reread({ status: type === 'PAYMENT_CONFIRMED' ? 'CONFIRMED' : 'PENDING' }))])
-    const db = fakeDb({ record_place_payment_link: { error: { code: '57014' } } })
-    const r = await pay.handleAsaasWebhook(deps(asaas, db).d, TOKEN, TOKEN, event(type))
-    assert.equal(r.status, 500, type)
-    assert.deepEqual(db.calls.map((c) => c.fn), ['record_place_payment_link'], type)
+test('#923: a database error on a link-only event answers 500 (Asaas resends)', async () => {
+  const asaas = fakeAsaas([at('GET', '/payments/pay_1', 200, reread({ status: 'PENDING' }))])
+  const db = fakeDb({ record_place_payment_link: { error: { code: '57014' } } })
+  const r = await pay.handleAsaasWebhook(deps(asaas, db).d, TOKEN, TOKEN, event('PAYMENT_CREATED'))
+  assert.equal(r.status, 500)
+  assert.deepEqual(db.calls.map((c) => c.fn), ['record_place_payment_link'])
+})
+
+test('#923 BR-B2B-046: a database error on the link of a money event alerts and the money still moves (the sweep load redoes the link)', async () => {
+  const cases = [
+    ['PAYMENT_CONFIRMED', 'CONFIRMED', 'confirm_place_charge'],
+    ['PAYMENT_RECEIVED', 'RECEIVED', 'confirm_place_charge'],
+    ['PAYMENT_OVERDUE', 'OVERDUE', 'fail_place_charge'],
+  ] as const
+  for (const [type, st, fn] of cases) {
+    const asaas = fakeAsaas([at('GET', '/payments/pay_1', 200, reread({ status: st }))])
+    const db = fakeDb({ record_place_payment_link: { error: { code: '57014' } }, [fn]: { data: [{ outcome: 'applied' }] } })
+    const { d, alerts } = deps(asaas, db)
+    const r = await pay.handleAsaasWebhook(d, TOKEN, TOKEN, event(type))
+    assert.equal(r.status, 200, type)
+    assert.deepEqual(db.calls.map((c) => c.fn), ['record_place_payment_link', fn], type)
+    assert.deepEqual(alerts.filter((a) => a.what.startsWith('payment_link')).map((a) => a.what), ['payment_link_db_error'], type)
   }
 })
 
@@ -264,4 +281,24 @@ test('#923 contract portal-cobrancas §3 item 3: the operator load records every
   assert.deepEqual(counts, { recorded: 3, list_failed: 1 })
   assert.deepEqual(linkCalls(db).map((c) => c.args.p_provider_payment_id), ['pay_1', 'pay_2', 'pay_3'])
   assert.equal(asaas.calls.filter((c) => c.path.includes('sub_x')).length, 0)
+})
+
+test('#923: the operator load (sweep `payment_links`) runs only for the machine; a CMS admin gets 403 before any read', async () => {
+  for (const role of ['admin', 'super_admin', null]) {
+    let built = 0
+    const r = await pay.runPaymentLinksLoad(role, () => {
+      built++
+      return null
+    })
+    assert.equal(r.status, 403, String(role))
+    assert.equal(built, 0, String(role))
+  }
+  const asaas = fakeAsaas([at('GET', '/payments?subscription=sub_1', 200, { data: [reread()], hasMore: false })])
+  const db = fakeDb({ record_place_payment_link: recorded })
+  const targets = [{ subscription_id: 'a', provider_subscription_id: 'sub_1', provider_customer_id: 'cus_1', origin: 'portal' }]
+  const { d } = deps(asaas, db, { invoiceTargets: async () => targets })
+  const ok = await pay.runPaymentLinksLoad('service_role', () => d)
+  assert.equal(ok.status, 200)
+  assert.deepEqual(ok.body.payment_links, { recorded: 1 })
+  assert.equal((await pay.runPaymentLinksLoad('service_role', () => null)).status, 503)
 })
