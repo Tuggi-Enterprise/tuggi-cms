@@ -120,7 +120,33 @@ export const MINOR_NATURAL = ['spring', 'cliff', 'valley', 'wetland', 'grassland
 // Czechia (2026-10-09): ~1,300 neighbourhoods (housing estates, street corners) with no reference.
 export const MINOR_PLACE = ['neighbourhood'];
 
-/** The MINOR_* gate: true when the object enters only by one of those tags and has no hard reference. */
+/**
+ * What the object's Wikidata item says, resolved by the caller (lib/services/wikidata-sitelinks#wikidataFacts).
+ * The article itself travels as the `wikipedia` tag, which the caller fills from the sitelinks.
+ */
+export interface ReferenceFacts {
+  /** Wikidata P1435 (heritage designation). */
+  heritage?: boolean
+  /** A Wikivoyage page. */
+  wikivoyage?: boolean
+}
+
+export const REFERENCE_TOURISM = ['attraction', 'museum', 'viewpoint'];
+
+/**
+ * BR-POI-011 item 0 — public reference: a Wikipedia article in any language (tag `wikipedia` or
+ * `wikipedia:<lang>`, filled from the Wikidata sitelinks by the caller), a heritage tag, Wikidata
+ * P1435, a Wikivoyage page, or tourism=attraction|museum|viewpoint. `wikidata` alone is NOT one:
+ * the Czech water register minted an item for each of 9,758 ponds (2026-10-09).
+ */
+export function hasPublicReference(props: any, facts?: ReferenceFacts): boolean {
+  return !!props.wikipedia || Object.keys(props).some(k => k.startsWith('wikipedia:'))
+    || !!props.heritage || !!props.listed_status || !!props['ref:bic'] || !!props.unesco
+    || REFERENCE_TOURISM.includes(String(props.tourism))
+    || !!facts?.heritage || !!facts?.wikivoyage;
+}
+
+/** The MINOR_* gate: true when the object enters only by one of those tags and has no public reference (BR-POI-011 item 0). */
 export function isMinorWithoutReference(props: any, hasHardReference: boolean): boolean {
   if (hasHardReference) return false;
   if (MINOR_HISTORIC.includes(String(props.historic))) return true;
@@ -194,13 +220,89 @@ export const SKI_LIFTS = ['chair_lift', 'gondola', 'mixed_lift'];
  *  - ski-area chair lifts and gondolas: 399 of 520;
  *  - tourism=gallery, almost always an art dealer or a studio: 261 of 273.
  */
-export function touristNoiseReason(props: any): string | null {
+export function touristNoiseReason(props: any, hasReference: boolean = hasPublicReference(props)): string | null {
   if (!props.wikipedia && !pickCategory(props)) return 'BARE_HERITAGE: listed building with no Wikipedia article';
-  if (props.wikipedia || props.wikidata) return null;
+  // BR-POI-011 items 2–4: "without a reference" in the sense of item 0 — a bare wikidata is not one.
+  if (hasReference) return null;
   const memorialType = String(props.memorial || props['memorial:type'] || '');
-  if (props.historic === 'memorial' && memorialType === 'war_memorial') return 'WAR_MEMORIAL: no wikipedia/wikidata';
-  if (SKI_LIFTS.includes(String(props.aerialway)) && !props.tourism && !props.historic) return `SKI_LIFT: aerialway=${props.aerialway} without wikipedia/wikidata`;
-  if (props.tourism === 'gallery') return 'GALLERY: commercial gallery without wikipedia/wikidata';
+  if (props.historic === 'memorial' && memorialType === 'war_memorial') return 'WAR_MEMORIAL: no public reference';
+  if (SKI_LIFTS.includes(String(props.aerialway)) && !props.tourism && !props.historic) return `SKI_LIFT: aerialway=${props.aerialway} without a public reference`;
+  if (props.tourism === 'gallery') return 'GALLERY: commercial gallery without a public reference';
+  return null;
+}
+
+// ---- BR-POI-011 item 5, the part the Czech homolog cleanup found by hand (2026-10-09) ----
+// Ruins, generic names, non-roadside chapels and commerce/sport are in the cleanup, not yet in the text of item 5.
+// Each one passes the older gates because its own tag counts as fame (historic=*, a description) or
+// because a register minted a Wikidata item for it. CZ homolog, removed after import: 1,285 artworks,
+// 2,690 memorials/statues, 783 chapels, 190 trees, 252 trail signs, 703 ruins, 429 waters, 305 hills
+// below 1,000 m, 1,032 roadside crosses and shrines, 561 dams/adits/airfields, 242 generic names.
+
+/** BR-POI-011 item 5: a hill below this height enters only with a public reference. */
+export const MINOR_PEAK_MAX_ELE_M = 1000;
+/** Bodies of water that are not "minor" (item 5 names pond, reservoir, basin "and the other minor waters"). */
+export const MAJOR_WATER = ['lake', 'lagoon'];
+const ROADSIDE_HISTORIC = ['wayside_cross', 'wayside_shrine', 'wayside_chapel', 'tree_shrine'];
+const COMMERCE_TOURISM = ['hotel', 'guest_house', 'hostel', 'motel', 'apartment', 'camp_site', 'caravan_site', 'chalet'];
+const COMMERCE_AMENITY = ['restaurant', 'cafe', 'bar', 'pub', 'fast_food', 'biergarten'];
+const SPORT_VENUES = ['stadium', 'sports_centre', 'pitch', 'playground', 'fitness_centre'];
+const MEMORIAL_HISTORIC = ['memorial', 'monument', 'stone', 'tomb'];
+// Names that say "church", not "chapel": Czech names lead with the kind (Kostel sv. Václava), other
+// languages often compound it (Pfarrkirche). A place_of_worship that is none of these is a chapel.
+const CHURCH_NAME = /^(kostel|chrám|katedrála|bazilika|klášter|synagoga|sbor|modlitebna|evangelický|husův)|kirche|church|cathedral|église|eglise|chiesa|duomo|iglesia|igreja|catedral|kościół|kosciol|bazylika|katedra|münster|synagog|kloster|abbey|monastery/i;
+// Czech small religious objects named by kind (Boží muka, Kaplička, Smírčí kříž, Socha sv. Floriána).
+const ROADSIDE_RELIGIOUS_NAME = /^(kaple|kaplička|kaplice|boží muka|božích muk|kříž|křížek|smírčí kříž|zvonice|zvonička|výklenková kaple|kalvárie|mariánský sloup|socha sv|sv\.|svat[ýáé]|panna maria|jan nepomucký)/i;
+// A ruin is kept when it is the ruin of a sight (castle, fort, monastery, church, lookout tower).
+const RUIN_OF_A_SIGHT = /(hrad|hrád|tvrz|zámek|zámeč|klášter|kostel|kaple|castle|burg|schloss|kloster|kirche|rozhledn)/i;
+// Plague / Marian / Trinity column on a town square: a staple of Czech old towns, often only in cs-wiki by name.
+const PLAGUE_COLUMN = /(morový|mariánský|trojiční|nejsvětější trojice).*sloup|sloup.*(nejsvětější trojice|panny marie)/i;
+/**
+ * Names that only say what the object is. Czech (2026-10-09) — the filter has no country context, and
+ * the words do not collide with names in other languages; the next country's language goes here.
+ */
+export const GENERIC_NAMES = new Set([
+  'kaple', 'kaplička', 'kříž', 'křížek', 'pomník', 'památník', 'boží muka', 'socha', 'busta', 'hrob', 'hráz',
+  'hráz rybníka', 'fara', 'zvonice', 'zvonička', 'pomník padlým', 'pomník obětem', 'pomník obětem války',
+  'pomník obětem 1. světové války', 'pomník padlým v 1. světové válce', 'pomník obětem světových válek',
+  'obětem světových válek', 'obecní úřad', 'městský úřad', 'městská knihovna', 'místní knihovna',
+  'obecní knihovna', 'okresní soud', 'venkovská usedlost', 'měšťanský dům', 'památný strom', 'smírčí kříž',
+  'mlýn', 'studánka', 'pramen', 'památná lípa', 'lípa', 'dub', 'pamětní deska', 'kamenný kříž', 'litinový kříž',
+  'stadion', 'zimní stadion', 'hřiště', 'koupaliště', 'kříž s kristem',
+]);
+
+/**
+ * BR-POI-011 item 5: the object entered by one of these tags and has no public reference (item 0) —
+ * returns which one, or null. Places are out of scope (items 8 and 10, BR-POI-010).
+ */
+export function weakObjectReason(props: any, name: string, hasReference: boolean): string | null {
+  if (props.place) return null;
+  // A name that only says what it is ("Kaple", "Smírčí kříž") gives the audio nothing to tell, even when a
+  // register vouches for the object (P1435): only an article or a heritage tag spares it. CZ homolog: 242.
+  if (GENERIC_NAMES.has(name.toLowerCase().normalize('NFC').replace(/\s+/g, ' ').trim())
+    && !props.wikipedia && !Object.keys(props).some(k => k.startsWith('wikipedia:')) && !props.heritage) return 'generic-name';
+  if (hasReference) return null;
+  if (['zoo', 'theme_park'].includes(String(props.tourism)) || PLAGUE_COLUMN.test(name)) return null;
+  const historic = String(props.historic || '');
+  const isChurch = props.building === 'church' || CHURCH_NAME.test(name);
+  if (!isChurch && (ROADSIDE_HISTORIC.includes(historic) || ['chapel', 'wayside_shrine'].includes(String(props.building))
+    || props.memorial === 'cross'
+    || ((props.amenity === 'place_of_worship' || ['memorial', 'monument', 'stone'].includes(historic)) && ROADSIDE_RELIGIOUS_NAME.test(name)))) return 'roadside-religious';
+  if (MEMORIAL_HISTORIC.includes(historic)) return 'memorial-weak';
+  if (props.tourism === 'artwork') return 'artwork-weak';
+  if (props.amenity === 'place_of_worship' && !isChurch) return 'chapel-weak';
+  if (props.natural === 'tree') return 'tree-weak';
+  if (props.tourism === 'information' && !['office', 'visitor_centre', 'tourist_office'].includes(String(props.information))) return 'guidepost';
+  if (historic === 'ruins' && !RUIN_OF_A_SIGHT.test(name)) return 'ruins-weak';
+  if (props.natural === 'water' && !MAJOR_WATER.includes(String(props.water))) return 'water-weak';
+  if (props.natural === 'peak' && !(parseFloat(props.ele) >= MINOR_PEAK_MAX_ELE_M)) return 'peak-weak';
+  if (props.waterway === 'dam' || ['adit', 'mineshaft'].includes(String(props.man_made)) || ['mine', 'mine_shaft', 'district'].includes(historic)
+    || props.boundary === 'religious_administration' || props.aeroway === 'aerodrome') return 'minor-infra';
+  // Lodging, food, shops and sport venues are commerce, not a sight; a chain hotel carries a wikidata
+  // (ibis, Motel One). A historic one stays (Grandhotel Pupp has its article anyway). CZ homolog: 413.
+  if (!historic && (COMMERCE_TOURISM.includes(String(props.tourism)) || COMMERCE_AMENITY.includes(String(props.amenity)) || !!props.shop
+    || SPORT_VENUES.includes(String(props.leisure)) || props.highway === 'bus_stop' || props.public_transport === 'platform')) return 'commerce-sport';
+  // Item 10: monastery, spa, national park and mineral spring "always enter", subject to item 0.
+  if (['monastery', 'spa'].includes(String(props.amenity)) || props.boundary === 'national_park' || props.water_characteristic === 'mineral') return 'always-enter-unreferenced';
   return null;
 }
 
@@ -369,27 +471,33 @@ export const MARKER_NOISE_TAGS = ['boundary_stone', 'milestone', 'survey_point',
  * Centered filtering logic.
  * Handles both "tags" (Overpass) and "properties" (GeoJSON) formats.
  */
-export function shouldFilterPOI(poi: any): POIFilterResult {
+export function shouldFilterPOI(poi: any, facts?: ReferenceFacts): POIFilterResult {
   const props = poi.properties || poi.tags || {};
   const name = (props.name || "").trim();
   const nameLower = name.toLowerCase();
 
-  const hasWikipedia = !!props.wikipedia;
+  const hasWikipedia = !!props.wikipedia || Object.keys(props).some(k => k.startsWith("wikipedia:"));
   const hasHistoric = !!props.historic;
   const hasHeritage = !!props.heritage || !!props.listed_status || !!props['ref:bic'] || !!props.unesco;
+  // BR-POI-011 item 0 governs the gates of that rule (hasHardReference). Outside them a bare wikidata
+  // still counts as fame: squares, churches, bridges, caves, town halls (Czechia 2026-10-09: 237 + 84 +
+  // 43 + 36 + 21 kept by the operator's cleanup, none of them in BR-POI-011).
   const hasWikidata = !!props.wikidata;
+  // P1435 and Wikivoyage count wherever wikidata does; the article is filled into `wikipedia` by the
+  // caller.
+  const hasReferenceFacts = !!facts?.heritage || !!facts?.wikivoyage;
   const hasDescription = !!(props.description && props.description.trim().length > 5);
   
-  let isFamous = hasWikipedia || hasHeritage || hasHistoric || hasWikidata || hasDescription;
-  const hasReference = hasWikipedia || hasWikidata;
+  let isFamous = hasWikipedia || hasHeritage || hasHistoric || hasWikidata || hasReferenceFacts || hasDescription;
+  const hasReference = hasWikipedia || hasWikidata || hasReferenceFacts;
 
   // --- 1. BASIC FILTERS ---
   if (!name || name.length < 2) return { remove: true, reason: "Strict: Local sem nome" };
 
-  // Relevância "dura" p/ ruído estrutural: só wiki/wikidata/heritage contam.
-  // (hasHistoric NÃO conta aqui: historic=boundary_stone já marca hasHistoric=true,
-  //  então usar isFamous deixaria todo cippi passar.)
-  const hasHardReference = hasReference || hasHeritage;
+  // Hard reference for structural noise: BR-POI-011 item 0 (article, heritage, P1435, Wikivoyage,
+  // tourism=attraction|museum|viewpoint). hasHistoric does not count: historic=boundary_stone would
+  // let every border stone through. Bare wikidata does not count either (item 0).
+  const hasHardReference = hasPublicReference(props, facts);
 
   // Nome sem nenhuma letra (ex.: "16", "1/31", "1797", "40-193-0001-29") = ruído de OSM
   // (cippi de fronteira, marcos de km, anos/códigos soltos). Mantém só se referenciado.
@@ -416,7 +524,7 @@ export function shouldFilterPOI(poi: any): POIFilterResult {
     return { remove: true, reason: "OFF_CATEGORY: não casa nenhuma categoria do Stage 1" };
   }
 
-  if (props.tourism === "information" && INFO_FURNITURE.includes(String(props.information)) && !hasReference && !hasHeritage) {
+  if (props.tourism === "information" && INFO_FURNITURE.includes(String(props.information)) && !hasHardReference) {
     return { remove: true, reason: `INFO_FURNITURE: tourism=information/${props.information}` };
   }
 
@@ -426,11 +534,14 @@ export function shouldFilterPOI(poi: any): POIFilterResult {
   }
 
   if (isMinorWithoutReference(props, hasHardReference)) {
-    return { remove: true, reason: `MINOR: ${props.historic ? 'historic=' + props.historic : props.aerialway ? 'aerialway=' + props.aerialway : props.water ? 'water=' + props.water : props.amenity ? 'amenity=' + props.amenity : props.leisure ? 'leisure=' + props.leisure : props.natural ? 'natural=' + props.natural : 'place=' + props.place} sem wiki/heritage` };
+    return { remove: true, reason: `MINOR: ${props.railway === "funicular" ? "railway=funicular" : props.landuse === "cemetery" ? "landuse=cemetery" : props.historic ? 'historic=' + props.historic : props.aerialway ? 'aerialway=' + props.aerialway : props.water ? 'water=' + props.water : props.amenity ? 'amenity=' + props.amenity : props.leisure ? 'leisure=' + props.leisure : props.natural ? 'natural=' + props.natural : 'place=' + props.place} sem wiki/heritage` };
   }
 
-  const noise = touristNoiseReason(props);
+  const noise = touristNoiseReason(props, hasHardReference);
   if (noise) return { remove: true, reason: noise };
+
+  const weak = weakObjectReason(props, name, hasHardReference);
+  if (weak) return { remove: true, reason: `WEAK: ${weak} without a public reference (BR-POI-011 item 5)` };
 
   // --- 2. ELITE EXCEPTIONS (Full exemption if recognized landmark) ---
   const isCulturalExemption = (

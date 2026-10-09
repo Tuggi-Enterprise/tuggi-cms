@@ -12,7 +12,9 @@ const f = (properties: Record<string, string>) => shouldFilterPOI({ properties }
 
 describe('Stage 1 reaches monastery, spa, national park, mineral spring and city', () => {
   it('amenity=monastery: referenced monastery passes, unreferenced one does not', () => {
-    const p = { name: 'Klášter Kladruby', amenity: 'monastery', wikidata: 'Q1' }
+    const p = { name: 'Klášter Kladruby', amenity: 'monastery', wikidata: 'Q1', wikipedia: 'cs:Klášter Kladruby' }
+    // BR-POI-011 items 0 and 10: "always enter" is still subject to a public reference — a bare wikidata is not one.
+    assert.equal(f({ name: p.name, amenity: 'monastery', wikidata: 'Q1' }).remove, true)
     assert.equal(matchesEliteCategories(p), true)
     assert.equal(f(p).remove, false)
     assert.equal(pickCategory(p), 'monastery')
@@ -20,7 +22,7 @@ describe('Stage 1 reaches monastery, spa, national park, mineral spring and city
   })
 
   it('amenity=spa: referenced spa house passes, unreferenced one does not', () => {
-    const p = { name: 'Lázně III', amenity: 'spa', wikidata: 'Q2' }
+    const p = { name: 'Lázně III', amenity: 'spa', wikidata: 'Q2', wikipedia: 'cs:Lázně III (Karlovy Vary)' }
     assert.equal(matchesEliteCategories(p), true)
     assert.equal(f(p).remove, false)
     assert.equal(pickCategory(p), 'spa')
@@ -28,7 +30,7 @@ describe('Stage 1 reaches monastery, spa, national park, mineral spring and city
   })
 
   it('water_characteristic=mineral on a tap: referenced spring passes as `spring`, plain tap does not', () => {
-    const p = { name: 'Vřídlo', amenity: 'drinking_water', water_characteristic: 'mineral', wikidata: 'Q3' }
+    const p = { name: 'Vřídlo', amenity: 'drinking_water', water_characteristic: 'mineral', wikidata: 'Q3', wikipedia: 'cs:Vřídlo' }
     assert.equal(matchesEliteCategories(p), true)
     assert.equal(f(p).remove, false)
     assert.equal(pickCategory(p), 'spring')
@@ -37,7 +39,7 @@ describe('Stage 1 reaches monastery, spa, national park, mineral spring and city
   })
 
   it('boundary=national_park: the relation passes and is categorised national_park, not nature_reserve', () => {
-    const p = { name: 'Národní park Šumava', type: 'boundary', boundary: 'national_park', leisure: 'nature_reserve', wikidata: 'Q4' }
+    const p = { name: 'Národní park Šumava', type: 'boundary', boundary: 'national_park', leisure: 'nature_reserve', wikidata: 'Q4', wikipedia: 'cs:Národní park Šumava' }
     assert.equal(matchesEliteCategories({ name: p.name, type: 'boundary', boundary: 'national_park' }), true)
     assert.equal(f(p).remove, false)
     assert.equal(pickCategory(p), 'national_park')
