@@ -68,6 +68,10 @@ export type AsaasPayment = {
   clientPaymentDate?: string | null;
   deleted?: boolean;
   refunds?: { status?: string | null; value?: number | null }[] | null;
+  /** Page to pay, then to see the paid charge (docs.asaas.com/reference/recuperar-uma-unica-cobranca, 2026-10-08). */
+  invoiceUrl?: string | null;
+  /** Receipt of the confirmation, receipt, refund or removal (same page of the doc). */
+  transactionReceiptUrl?: string | null;
 };
 
 export type AsaasSubscription = {

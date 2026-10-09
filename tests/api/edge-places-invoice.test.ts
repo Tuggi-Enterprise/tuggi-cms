@@ -109,6 +109,8 @@ type RpcCall = { schema: string; fn: string; args: Record<string, unknown> }
 function fakeDb(answers: Record<string, { data?: unknown; error?: { code?: string; details?: string } | null }>, log: string[] = []) {
   const calls: RpcCall[] = []
   const rpc = async (schema: string, fn: string, args: Record<string, unknown>) => {
+    // #923: the payment link has its own suite (edge-places-payment-link.test.ts), kept out of these call lists.
+    if (fn === 'record_place_payment_link') return { data: [{ outcome: 'recorded' }], error: null }
     calls.push({ schema, fn, args })
     log.push(`db ${fn}`)
     const a = answers[fn] ?? { data: null }
