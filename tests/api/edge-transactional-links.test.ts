@@ -246,3 +246,14 @@ test('#872 · BR-B2B-056: the acceptance link is our portal plus a well-formed t
   assert.equal(forged.status, 500)
   assert.equal(sent.length, 0)
 })
+
+test('#919: the copy of a contract accepted in the portal points at the portal Contract section, never at a body URL', async () => {
+  // No signing token exists for this acceptance; the owner downloads the PDF behind their session.
+  const response = await send({
+    type: 'partner_contract_signed',
+    to: 'dono@bardoze.com.br',
+    data: { name: 'José', role: 'Proprietário ou sócio', legal_name: 'Bar do Zé Ltda', accepted_at: '2026-10-08T15:00:00Z', channel: 'portal', url: ATTACKER, token: ATTACKER },
+  })
+  assert.equal(response.status, 200)
+  assert.deepEqual(hrefs(sent[0].html), ['https://partner.tuggi.app/status/contrato'])
+})

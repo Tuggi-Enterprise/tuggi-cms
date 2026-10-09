@@ -227,6 +227,17 @@ function acceptanceHref(token: string): string {
   return `${ownOrigin('PLACES_PORTAL_ORIGIN', DEFAULT_PLACES_PORTAL_ORIGIN)}${ACCEPTANCE_PATH}${token}`;
 }
 
+/**
+ * #919: the copy of a contract accepted in the portal's Contract section has no signing token. It
+ * points at that section, where the owner downloads the signed PDF behind their own session. The
+ * path is the portal's route (`tuggi-places/src/lib/panel.ts`, `PANEL_SECTIONS`, key `contract`).
+ */
+const PORTAL_CONTRACT_PATH = '/status/contrato';
+
+function portalContractHref(): string {
+  return `${ownOrigin('PLACES_PORTAL_ORIGIN', DEFAULT_PLACES_PORTAL_ORIGIN)}${PORTAL_CONTRACT_PATH}`;
+}
+
 /** `dd/MM` in Brazilian civil time, or `null` for anything that is not a date. */
 function brasiliaDay(iso: unknown): string | null {
   const parsed = new Date(String(iso ?? ''));
@@ -379,7 +390,8 @@ function renderContractSigned(data: Record<string, unknown>): {
   const legalName = esc(data.legal_name ?? '');
   const acceptedAt = brasiliaMoment(data.accepted_at);
   const code = esc(data.verification_code ?? '');
-  const href = contractHref(String(data.token ?? ''));
+  // `channel` picks one of OUR two addresses; nothing in `data` is ever an href (#341).
+  const href = data.channel === 'portal' ? portalContractHref() : contractHref(String(data.token ?? ''));
 
   // The verification code is the one thing here that is worthless when absent, and a label
   // followed by nothing reads as a code the reader failed to see.
