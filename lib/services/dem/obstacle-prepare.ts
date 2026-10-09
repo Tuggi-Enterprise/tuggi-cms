@@ -22,7 +22,7 @@
 
 import * as fs from 'fs'
 import * as path from 'path'
-import { createHash } from 'crypto'
+import { createHash, randomBytes } from 'crypto'
 import { execFileSync } from 'child_process'
 import { Readable } from 'stream'
 import { pipeline } from 'stream/promises'
@@ -41,6 +41,7 @@ import {
   OVERTURE_BUILDINGS,
 } from './dem-sources'
 import type { DemGrid, DemLayerRecord, DemTileRecord } from './dem-store'
+import { withFileLock } from './file-lock'
 import { BUILDING_LEVEL_HEIGHT_M } from '../trigger-points-google/config/visibility-class'
 
 export type DemArea = { south: number; west: number; north: number; east: number }
@@ -297,20 +298,35 @@ function md5File(file: string): string {
   return h.digest('hex')
 }
 
-/** Downloads once into the cache; reuses a cached file whose size (and MD5, when given) match. */
-async function cachedDownload(url: string, file: string, expect: { size?: number; md5?: string }): Promise<void> {
-  const ok = () =>
-    fs.existsSync(file) &&
-    (!Number.isFinite(expect.size) || fs.statSync(file).size === expect.size) &&
-    (!expect.md5 || md5File(file) === expect.md5)
-  if (ok()) return
-  fs.mkdirSync(path.dirname(file), { recursive: true })
-  await withRetry(`download ${url}`, async () => {
-    const res = await fetch(url, { redirect: 'follow', headers: HTTP_HEADERS })
-    if (!res.ok || !res.body) throw new Error(`${res.status}`)
-    await pipeline(Readable.fromWeb(res.body as any), fs.createWriteStream(`${file}.part`))
-    fs.renameSync(`${file}.part`, file)
-    if (!ok()) throw new Error('size or MD5 does not match the publisher')
+/** The lock of one cached source file: `<dir>/_locks/<name>.lock`. */
+const sourceLock = (file: string) => path.join(path.dirname(file), '_locks', `${path.basename(file)}.lock`)
+
+/**
+ * Downloads once into the cache; reuses a cached file whose size (and MD5, when given) match.
+ * Safe between workers (#831): neighbouring cells share canopy tiles and building zips, so there
+ * is one lock per file in `_locks/` beside it, and a part file of this call only, checked before
+ * the atomic rename — the final name never holds a half-written or mismatching file.
+ */
+export async function cachedDownload(url: string, file: string, expect: { size?: number; md5?: string }): Promise<void> {
+  const matches = (f: string) =>
+    fs.existsSync(f) &&
+    (!Number.isFinite(expect.size) || fs.statSync(f).size === expect.size) &&
+    (!expect.md5 || md5File(f) === expect.md5)
+  if (matches(file)) return
+  await withFileLock(sourceLock(file), async () => {
+    if (matches(file)) return // another worker finished it while this one waited
+    await withRetry(`download ${url}`, async () => {
+      const part = `${file}.${process.pid}-${randomBytes(4).toString('hex')}.part`
+      try {
+        const res = await fetch(url, { redirect: 'follow', headers: HTTP_HEADERS })
+        if (!res.ok || !res.body) throw new Error(`${res.status}`)
+        await pipeline(Readable.fromWeb(res.body as any), fs.createWriteStream(part))
+        if (!matches(part)) throw new Error('size or MD5 does not match the publisher')
+        fs.renameSync(part, file)
+      } finally {
+        fs.rmSync(part, { force: true })
+      }
+    })
   })
 }
 
@@ -516,8 +532,11 @@ export function globfpReader(cacheDir: string): BuildingReader {
       try {
         const gridZip = path.join(dir, 'world_grid.zip')
         await cachedDownload(GLOBFP_3D.worldGridUrl, gridZip, {})
-        unzip(gridZip, path.join(dir, 'world_grid'))
-        const cells = readWorldGrid(path.join(dir, 'world_grid')).filter(g => intersects(g.box, area))
+        // unzip -o rewrites the files: no other worker reads them meanwhile
+        const cells = (await withFileLock(sourceLock(path.join(dir, 'world_grid')), async () => {
+          unzip(gridZip, path.join(dir, 'world_grid'))
+          return readWorldGrid(path.join(dir, 'world_grid'))
+        })).filter(g => intersects(g.box, area))
         type FigFile = { name: string; size: number; download_url: string; computed_md5: string }
         const listing: FigFile[] = []
         for (const article of GLOBFP_3D.figshareArticles) listing.push(...(await getJson<FigFile[]>(GLOBFP_3D.figshareFilesUrl(article))))
