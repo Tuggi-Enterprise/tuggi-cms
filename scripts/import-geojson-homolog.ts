@@ -9,6 +9,7 @@ import 'dotenv/config';
 import { getSupabase } from '../lib/core/supabase-client';
 import { normalizeLocation } from '../lib/shared/location-normalize';
 import { pickCategory } from '../lib/shared/poi-filter';
+import { representativePoint } from '../lib/utils/geometry';
 import fs from 'node:fs';
 import { splitOnLineFeed } from '../lib/services/osm-local-data-service';
 import { createHash } from 'node:crypto';
@@ -44,14 +45,17 @@ function generateUUID(osmId: any, osmType: string, name: string): string {
   ].join('-');
 }
 
+/**
+ * The pin (lat/lon): point inside an areal, middle of a linear (lib/utils/geometry#representativePoint).
+ * It used to be the first vertex of the ring: in the Czech homolog 12,396 of 12,456 areal/linear
+ * POIs sat on the edge, p50 28 m and up to 34 km off. MultiPoint/GeometryCollection keep the first coordinate.
+ */
 function getPointFromGeometry(geometry: any): { lat: number; lon: number } | null {
   if (!geometry || !geometry.coordinates) return null;
 
-  if (geometry.type === 'Point') {
-    return { lon: geometry.coordinates[0], lat: geometry.coordinates[1] };
-  }
-  
-  // For LineStrings, Polygons, etc., take the first point as a reference
+  const rep = representativePoint(geometry);
+  if (rep) return { lon: rep[0], lat: rep[1] };
+
   try {
     let coords = geometry.coordinates;
     while (Array.isArray(coords[0]) && typeof coords[0][0] !== 'number') {
