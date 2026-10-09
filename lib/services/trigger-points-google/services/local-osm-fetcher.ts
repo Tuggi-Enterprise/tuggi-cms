@@ -4,6 +4,7 @@ import { BuildingData, OSMDataBundle } from './osm-data-fetcher';
 import { TRIGGER_POINTS_CONSTANTS } from '../config/trigger-points-config';
 import { isPublicWay } from '../config/visibility-class';
 import { isPointInPolygon } from '../utils/calculations';
+import { outerRings } from '../utils/boundary-choice';
 import { listOsmRegions, localOsmDir, regionAt, OsmRegion } from '../../local-osm-regions';
 import { findMunicipality, type Municipality, type PoiOsmElement } from '../../admin-boundaries';
 
@@ -255,7 +256,11 @@ export class LocalOSMFetcher {
             AND min_lng <= ? AND max_lng >= ?
           LIMIT ?
         `);
-    return stmt.all(bbox.maxLat, bbox.minLat, bbox.maxLng, bbox.minLng, limit) as any[];
+    // One row per outer ring: the DB stores a multipolygon's rings in sequence (`outerRings`).
+    return (stmt.all(bbox.maxLat, bbox.minLat, bbox.maxLng, bbox.minLng, limit) as any[]).flatMap(row => {
+      const rings = outerRings(JSON.parse(row.geometry_json));
+      return rings.length <= 1 ? [row] : rings.map(r => ({ ...row, geometry_json: JSON.stringify(r) }));
+    });
   }
 
   /**
@@ -500,7 +505,9 @@ export class LocalOSMFetcher {
     types?: readonly string[]
   ): StreetData[] | null {
     if (!boundaryCoords || boundaryCoords.length === 0) return null;
-    const db = this.select(boundaryCoords[0]);
+    // The region of any vertex it covers, not of the first one: a border on a national frontier
+    // starts outside the extract (Lustenau, on the Rhine, 2026-10-09: vertex 0 off `at.poly`, 0 streets).
+    const db = this.select(boundaryCoords.find(p => regionAt(this.regions, p.lat, p.lng)) ?? boundaryCoords[0]);
     if (!db) return null;
 
     try {

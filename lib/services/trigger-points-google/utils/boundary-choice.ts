@@ -180,6 +180,19 @@ export function splitRings(points: LatLng[]): LatLng[][] {
   return rings;
 }
 
+/**
+ * The outer rings of a stored geometry: `splitRings` without the holes (a ring starting inside
+ * another ring of the same element). A building relation with several outer parts is several
+ * buildings: read as one ring, Weitra's relation 2374229 (5 houses up to 1.6k m² each, 14 km
+ * apart) became a 25 km² "building" holding 23 POIs, and E11 dropped every TP as inside it
+ * (INV-E11b, 2026-10-09).
+ */
+export function outerRings(points: LatLng[]): LatLng[][] {
+  const rings = splitRings(points);
+  if (rings.length <= 1) return rings;
+  return rings.filter(r => !rings.some(o => o !== r && isPointInPolygon(r[0], o)));
+}
+
 /** The ring that is the footprint: the largest ring holding the pin; without one, the largest. Empty when none closes. */
 export function outerRing(points: LatLng[], pin: LatLng): LatLng[] {
   const rings = splitRings(points);

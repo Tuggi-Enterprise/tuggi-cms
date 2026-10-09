@@ -9,7 +9,7 @@
  */
 import { describe, it, mock, before } from 'node:test'
 import assert from 'node:assert/strict'
-import { calculatePolygonAreaInM2 } from '../../lib/services/trigger-points-google/utils/calculations'
+import { calculatePolygonAreaInM2, isPointInPolygon } from '../../lib/services/trigger-points-google/utils/calculations'
 
 type LatLng = { lat: number; lng: number }
 const PIN: LatLng = { lat: -22.95, lng: -43.15 }
@@ -142,6 +142,17 @@ describe('INV-E1c — the element holding the pin is chosen by identity and geom
     const pts = [...square(10), ...square(5)].map(p => ({ lat: p.lat, lng: p.lon }))
     assert.deepEqual(choice.splitRings(pts).map(r => r.length), [5, 5])
     assert.equal(choice.splitRings(pts.slice(0, 5)).length, 1)
+  })
+
+  it('INV-E11b: outerRings reads a building relation with parts far apart as separate rings, holes dropped (Weitra, relation 2374229)', () => {
+    const far = { lat: PIN.lat + 0.1, lng: PIN.lng + 0.1 } // ~14 km away, like Weitra's 5 houses
+    const ll = (r: Array<{ lat: number; lon: number }>) => r.map(p => ({ lat: p.lat, lng: p.lon }))
+    const parts = choice.outerRings([...ll(square(10)), ...ll(square(10, far)), ...ll(square(4))])
+    assert.equal(parts.length, 2, 'two houses, the courtyard is a hole')
+    for (const r of parts) assert.ok(calculatePolygonAreaInM2(r) < 1_000, 'no ring spans the gap between the houses')
+    // A point between the houses is inside no building any more.
+    const between = { lat: PIN.lat + 0.05, lng: PIN.lng + 0.05 }
+    assert.ok(parts.every(r => !isPointInPolygon(between, r)))
   })
 })
 
