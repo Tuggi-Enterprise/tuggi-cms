@@ -89,6 +89,8 @@ export function suspensionDeps(): SuspensionDeps {
       if (del.error) throw new Error(`copies delete ${del.error.code}`);
 
       // The files of THIS place only, by exact path: list the folder, keep `{id}-*.mp3`, remove those.
+      // TWIN IN NODE: `lib/partnerships/place-changes.ts` (`voicedAudioPaths`), for the CMS approval of
+      // a new text (#922). Change one, change the other.
       const folder = `master_audio/${attractionId}`;
       const listed = await admin.storage.from(AUDIO_BUCKET).list(folder, { limit: 100 });
       if (listed.error) throw new Error('audio list failed');

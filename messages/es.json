@@ -2533,6 +2533,42 @@
     "drawWarning": "⚠️ Es necesario dibujar el boundary en el mapa antes de guardar."
   },
   "Clients": {
+    "placeChanges": {
+      "link": "Cambios del portal",
+      "title": "Cambios del portal",
+      "subtitle": "Fotos y textos que los socios enviaron por el portal. Lo que está publicado sigue publicado hasta la aprobación.",
+      "backToClients": "Volver a clientes",
+      "facade": "Foto de la fachada",
+      "photo": "Foto {n}",
+      "text": "Texto de la historia",
+      "live": "Publicado",
+      "proposed": "Propuesto",
+      "nothingLive": "Nada publicado",
+      "requestedAt": "Enviado el {date}",
+      "approve": "Aprobar",
+      "approving": "Aprobando…",
+      "refuse": "Rechazar",
+      "refuseConfirm": "Rechazar con este motivo",
+      "cancel": "Cancelar",
+      "noteLabel": "Motivo (el socio lo lee)",
+      "notePlaceholder": "Ej.: la foto está oscura y no muestra la fachada.",
+      "textNote": "Aprobar reemplaza el texto en portugués y borra las traducciones y los audios del lugar. La app traduce y genera el audio de nuevo.",
+      "empty": "Ningún cambio esperando aprobación.",
+      "loading": "Cargando…",
+      "loadFailed": "No se pudo cargar la cola. Intenta de nuevo.",
+      "unavailable": "La cola todavía no está en la base de datos.",
+      "approved": "Aprobado y publicado.",
+      "refused": "Rechazado. El socio ve el motivo en el portal.",
+      "errors": {
+        "not_found": "Este cambio ya no existe.",
+        "not_pending": "Este cambio ya fue decidido, o el socio lo deshizo o envió otro.",
+        "not_live": "El lugar ya no está publicado; no hay dónde publicar.",
+        "note_required": "Escribe el motivo del rechazo.",
+        "publish_failed": "La foto no se publicó. Aprueba de nuevo.",
+        "audio_cleanup_failed": "Aprobado, pero los audios antiguos no se borraron. Aprueba de nuevo para terminar.",
+        "failed": "No se pudo guardar. Intenta de nuevo."
+      }
+    },
     "cancellations": {
       "link": "Cancelaciones",
       "title": "Cancelaciones",
