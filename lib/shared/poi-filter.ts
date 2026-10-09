@@ -101,7 +101,14 @@ export const MINOR_WATER = ['pond', 'reservoir', 'basin', 'wastewater', 'fishpon
 export const MINOR_AMENITY = ['library', 'arts_centre', 'grave_yard'];
 // golf_course and marina sat in RESTRICTED_UTILITY, where any description counts as fame: 169 golf
 // courses and 116 yacht-club harbours of Austria passed that way. resort: one holiday-flat park as 26 ways.
-export const MINOR_LEISURE = ['water_park', 'dog_park', 'tanning_salon', 'ice_rink', 'sports_hall', 'indoor_play', 'firepit', 'disc_golf_course', 'track', 'miniature_golf', 'golf_course', 'marina', 'resort'];
+// Czechia (2026-10-09): ~2,060 neighbourhood parks and ~400 gardens with no reference, a park as
+// "Pizzerie Na Hřišti" among them.
+export const MINOR_LEISURE = ['water_park', 'dog_park', 'tanning_salon', 'ice_rink', 'sports_hall', 'indoor_play', 'firepit', 'disc_golf_course', 'track', 'miniature_golf', 'golf_course', 'marina', 'resort', 'park', 'garden'];
+// Czechia (2026-10-09), without any reference: 1,887 springs (studánky), ~660 cliffs, ~310 valleys,
+// ~290 wetlands, ~190 grasslands (model airfields, ski slopes), ~160 bare rocks, 88 bays of reservoirs.
+export const MINOR_NATURAL = ['spring', 'cliff', 'valley', 'wetland', 'grassland', 'bare_rock', 'bay'];
+// Czechia (2026-10-09): ~1,300 neighbourhoods (housing estates, street corners) with no reference.
+export const MINOR_PLACE = ['neighbourhood'];
 
 /** The MINOR_* gate: true when the object enters only by one of those tags and has no hard reference. */
 export function isMinorWithoutReference(props: any, hasHardReference: boolean): boolean {
@@ -112,6 +119,9 @@ export function isMinorWithoutReference(props: any, hasHardReference: boolean): 
   if (props.natural === 'water' && MINOR_WATER.includes(String(props.water))) return true;
   if (!props.tourism && !props.historic && (props.railway === 'funicular' || props.landuse === 'cemetery')) return true;
   if (!props.tourism && !props.historic && (MINOR_AMENITY.includes(String(props.amenity)) || MINOR_LEISURE.includes(String(props.leisure)))) return true;
+  // pickCategory order: a natural=* or place=* object is minor only when no earlier key got it in.
+  if (!props.tourism && !props.historic && !props.leisure && MINOR_NATURAL.includes(String(props.natural))) return true;
+  if (!props.tourism && !props.historic && !props.leisure && !props.natural && !props.amenity && MINOR_PLACE.includes(String(props.place))) return true;
   return false;
 }
 
@@ -400,7 +410,7 @@ export function shouldFilterPOI(poi: any): POIFilterResult {
   }
 
   if (isMinorWithoutReference(props, hasHardReference)) {
-    return { remove: true, reason: `MINOR: ${props.historic ? 'historic=' + props.historic : props.aerialway ? 'aerialway=' + props.aerialway : props.water ? 'water=' + props.water : props.amenity ? 'amenity=' + props.amenity : 'leisure=' + props.leisure} sem wiki/heritage` };
+    return { remove: true, reason: `MINOR: ${props.historic ? 'historic=' + props.historic : props.aerialway ? 'aerialway=' + props.aerialway : props.water ? 'water=' + props.water : props.amenity ? 'amenity=' + props.amenity : props.leisure ? 'leisure=' + props.leisure : props.natural ? 'natural=' + props.natural : 'place=' + props.place} sem wiki/heritage` };
   }
 
   const noise = touristNoiseReason(props);

@@ -76,6 +76,19 @@ describe('elite filter: register-vouched noise (BR-POI-004)', () => {
     assert.equal(f({ name: 'Spitz', place: 'village' }).remove, false)
   })
 
+  it('BR-POI-011 (Czechia, 2026-10-09): drops springs, cliffs, parks, gardens and neighbourhoods without a reference', () => {
+    assert.equal(f({ name: 'Studánka pod lesem', natural: 'spring' }).remove, true)
+    assert.equal(f({ name: 'Litovelský pramen', natural: 'spring', wikidata: 'Q7' }).remove, false)
+    assert.equal(f({ name: 'Krejčovická skála', natural: 'cliff' }).remove, true)
+    assert.equal(f({ name: 'Alšova vyhlídka', natural: 'cliff', tourism: 'viewpoint' }).remove, false, 'a viewpoint keeps the normal path')
+    assert.equal(f({ name: 'Pizzerie Na Hřišti', leisure: 'park' }).remove, true)
+    assert.equal(f({ name: 'Stromovka', leisure: 'park', wikipedia: 'cs:Stromovka' }).remove, false)
+    assert.equal(f({ name: 'růžový sad', leisure: 'garden' }).remove, true)
+    assert.equal(f({ name: 'Sídliště Novodvorská', place: 'neighbourhood' }).remove, true)
+    assert.equal(f({ name: 'Malá Strana', place: 'neighbourhood', wikidata: 'Q8' }).remove, false)
+    assert.match(f({ name: 'Studánka', natural: 'spring' }).reason ?? '', /natural=spring/)
+  })
+
   it('drops a war memorial, a ski lift and a gallery without wikipedia/wikidata', () => {
     assert.equal(f({ name: 'Kriegerdenkmal Lavant', historic: 'memorial', memorial: 'war_memorial', heritage: '2' }).remove, true)
     assert.equal(f({ name: 'Kriegerdenkmal Mauthausen', historic: 'memorial', memorial: 'war_memorial', wikidata: 'Q5' }).remove, false)
