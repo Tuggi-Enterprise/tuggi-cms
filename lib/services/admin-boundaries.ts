@@ -50,9 +50,13 @@ export function municipalityAdminLevel(country: string): number {
  * (a district, a state) has them as children; a city that IS its own district (or state) has none.
  * AT, measured 2026-10-07: the 15 Statutarstädte are `admin_level=6` (Wien, also a state, is 4),
  * none of them with a level-8 Gemeinde inside.
+ * CZ, measured 2026-10-09 on the Geofabrik extract: Praha (r435514) is kraj and obec at once, one
+ * relation at `admin_level=4` with only its městské části (9/10) inside; the 13 other kraje (4)
+ * group obce, and the statutory cities (Brno, Ostrava, Plzeň) are obce at 8.
  */
 export const STANDALONE_MUNICIPALITY_LEVELS_BY_COUNTRY: Readonly<Record<string, readonly number[]>> = {
   AT: [6, 4],
+  CZ: [4],
 }
 
 /** Every `admin_level` a municipality of the country may sit at: the municipal level first, then the standalone ones. */

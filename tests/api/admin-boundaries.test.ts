@@ -211,6 +211,39 @@ describe('BR-POI-010 — a city outside the municipal level (Austrian Statutarst
   })
 })
 
+describe('BR-POI-010 — Praha is kraj and obec in one level-4 relation, and is a municipality', () => {
+  const CZ: LatLng = { lat: 49.8, lng: 15.5 }
+  const POLY_CZ = `cz\n1\n${sq(CZ, 1.5).map(([x, y]) => `   ${x}   ${y}`).join('\n')}\nEND\nEND\n`
+  const poly = (o: LatLng, d: number) => ({ type: 'Polygon', coordinates: [sq(o, d)] })
+  const PRAHA: LatLng = { lat: 50.08, lng: 14.43 }
+  const BRNO: LatLng = { lat: 49.2, lng: 16.6 }
+  const JMK: LatLng = { lat: 49.0, lng: 16.6 }
+  const cz = () => lines(
+    line('relation', 51684, { admin_level: '2', name: 'Česko', 'ISO3166-1': 'CZ' }, poly(CZ, 2)),
+    line('relation', 435514, { admin_level: '4', name: 'Praha', 'ISO3166-2': 'CZ-10' }, poly(PRAHA, 0.15)),
+    line('relation', 15107966, { admin_level: '9', name: 'Praha 1' }, poly(PRAHA, 0.02)),
+    line('relation', 442311, { admin_level: '4', name: 'Jihomoravský kraj' }, poly(JMK, 0.5)),
+    line('relation', 438171, { admin_level: '8', name: 'Brno' }, poly(BRNO, 0.1)),
+  )
+  const seats = new Map([
+    [435514, [{ type: 'node' as const, id: 1601837931, role: 'admin_centre' as const }]],
+    [438171, [{ type: 'node' as const, id: 1601523251, role: 'admin_centre' as const }]],
+    [442311, [{ type: 'node' as const, id: 1601523251, role: 'admin_centre' as const }]],
+  ])
+
+  it('CZ keeps Praha (level 4, no obec inside) and Brno (8), drops the kraj that groups obce', async () => {
+    const { importAdminBoundaries, findMunicipality, municipalityAdminLevels } = await import('../../lib/services/admin-boundaries')
+    const { parsePoly } = await import('../../lib/services/local-osm-regions')
+    assert.deepEqual(municipalityAdminLevels('CZ'), [8, 4])
+    const db = new Database(':memory:')
+    const r = await importAdminBoundaries(db, cz(), { region: parsePoly(POLY_CZ), seatScan: { seated: new Set(), seats } })
+    assert.equal(r.level, 8)
+    assert.deepEqual(r.standaloneByLevel, { 4: 1 })
+    assert.equal(findMunicipality(db, PRAHA, { osm_type: 'node', osm_id: 1601837931 })?.name, 'Praha')
+    assert.equal(findMunicipality(db, BRNO, { osm_type: 'node', osm_id: 1601523251 })?.name, 'Brno', 'the statutory city, not its kraj')
+  })
+})
+
 describe('BR-POI-010 — the country is read from the extract, never configured', () => {
   it('the admin_level=2 relation holding the region wins over the neighbour the extract also carries', async () => {
     const { importAdminBoundaries } = await import('../../lib/services/admin-boundaries')
