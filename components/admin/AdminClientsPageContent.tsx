@@ -15,7 +15,7 @@ import { useCallback, useEffect, useMemo, useState, Suspense } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
 import { NextIntlClientProvider, useLocale, useMessages, useTranslations } from 'next-intl'
 import Link from 'next/link'
-import { ListChecks } from 'lucide-react'
+import { Images, ListChecks } from 'lucide-react'
 import { ClientRecordProviders, type ClientRecordMessages } from '@/components/admin/clients/ClientRecordProviders'
 import { ClientDirectory } from '@/components/admin/clients/ClientDirectory'
 import { ClientBoard } from '@/components/admin/clients/ClientBoard'
@@ -97,6 +97,7 @@ function AdminClientsContent({ recordMessages }: ContentProps) {
    */
   const board = isBoardView(searchParams.get(VIEW_PARAM))
   const tCancellations = useTranslations('Clients.cancellations')
+  const tChanges = useTranslations('Clients.placeChanges')
 
   const directory = useClientDirectory()
 
@@ -239,7 +240,7 @@ function AdminClientsContent({ recordMessages }: ContentProps) {
     router.replace(`/admin/clients${query ? `?${query}` : ''}`, { scroll: false })
   }
 
-  // #913: the portal cancellations (BR-B2B-060 item 7) sit beside the switch, in both views.
+  // #913: the portal cancellations (BR-B2B-060 item 7) sit beside the switch, in both views; #922 the changes queue too.
   const viewSwitch = (
     <span className="inline-flex flex-wrap items-center gap-2">
       <ViewSwitch board={board} onChange={switchView} />
@@ -249,6 +250,14 @@ function AdminClientsContent({ recordMessages }: ContentProps) {
       >
         <ListChecks size={14} />
         {tCancellations('link')}
+      </Link>
+      {/* #922: the portal's photo and text changes waiting for approval (BR-B2B-061 item 2). */}
+      <Link
+        href="/admin/clients/changes"
+        className="inline-flex items-center gap-1.5 rounded-lg border border-gray-300 px-3 py-2 text-sm font-semibold text-gray-700 hover:bg-gray-50 transition"
+      >
+        <Images size={14} />
+        {tChanges('link')}
       </Link>
     </span>
   )

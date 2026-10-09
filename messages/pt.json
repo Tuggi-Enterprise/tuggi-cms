@@ -2560,6 +2560,42 @@
     "drawWarning": "⚠️ É necessário desenhar o boundary no mapa antes de salvar."
   },
   "Clients": {
+    "placeChanges": {
+      "link": "Alterações do portal",
+      "title": "Alterações do portal",
+      "subtitle": "Fotos e textos que os parceiros mandaram pelo portal. O que está no ar continua no ar até a aprovação.",
+      "backToClients": "Voltar para clientes",
+      "facade": "Foto da fachada",
+      "photo": "Foto {n}",
+      "text": "Texto da história",
+      "live": "No ar",
+      "proposed": "Proposto",
+      "nothingLive": "Nada no ar",
+      "requestedAt": "Enviado em {date}",
+      "approve": "Aprovar",
+      "approving": "Aprovando…",
+      "refuse": "Recusar",
+      "refuseConfirm": "Recusar com este motivo",
+      "cancel": "Cancelar",
+      "noteLabel": "Motivo (o parceiro lê)",
+      "notePlaceholder": "Ex.: a foto está escura e não mostra a fachada.",
+      "textNote": "Aprovar troca o texto em português e apaga as traduções e os áudios do local. O app traduz e gera o áudio de novo.",
+      "empty": "Nenhuma alteração esperando aprovação.",
+      "loading": "Carregando…",
+      "loadFailed": "Não deu para carregar a fila. Tente de novo.",
+      "unavailable": "A fila ainda não está no banco.",
+      "approved": "Aprovado e publicado.",
+      "refused": "Recusado. O parceiro vê o motivo no portal.",
+      "errors": {
+        "not_found": "Esta alteração não existe mais.",
+        "not_pending": "Esta alteração já foi decidida, ou o parceiro desfez ou mandou outra.",
+        "not_live": "O local saiu do ar; não há onde publicar.",
+        "note_required": "Escreva o motivo da recusa.",
+        "publish_failed": "A foto não foi publicada. Aprove de novo.",
+        "audio_cleanup_failed": "Aprovado, mas os áudios antigos não saíram. Aprove de novo para concluir.",
+        "failed": "Não deu para salvar. Tente de novo."
+      }
+    },
     "cancellations": {
       "link": "Cancelamentos",
       "title": "Cancelamentos",

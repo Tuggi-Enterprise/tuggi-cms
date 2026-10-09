@@ -2551,6 +2551,42 @@
     "drawWarning": "⚠️ It is required to draw the boundary on the map before saving."
   },
   "Clients": {
+    "placeChanges": {
+      "link": "Portal changes",
+      "title": "Portal changes",
+      "subtitle": "Photos and texts partners sent through the portal. What is live stays live until approved.",
+      "backToClients": "Back to clients",
+      "facade": "Facade photo",
+      "photo": "Photo {n}",
+      "text": "Story text",
+      "live": "Live",
+      "proposed": "Proposed",
+      "nothingLive": "Nothing live",
+      "requestedAt": "Sent on {date}",
+      "approve": "Approve",
+      "approving": "Approving…",
+      "refuse": "Refuse",
+      "refuseConfirm": "Refuse with this reason",
+      "cancel": "Cancel",
+      "noteLabel": "Reason (the partner reads it)",
+      "notePlaceholder": "E.g.: the photo is dark and does not show the facade.",
+      "textNote": "Approving replaces the Portuguese text and deletes the place's translations and audio. The app translates and voices it again.",
+      "empty": "No change waiting for approval.",
+      "loading": "Loading…",
+      "loadFailed": "Could not load the queue. Try again.",
+      "unavailable": "The queue is not in the database yet.",
+      "approved": "Approved and published.",
+      "refused": "Refused. The partner sees the reason in the portal.",
+      "errors": {
+        "not_found": "This change no longer exists.",
+        "not_pending": "This change was already decided, or the partner undid it or sent another.",
+        "not_live": "The place is no longer live; nowhere to publish.",
+        "note_required": "Write the reason for the refusal.",
+        "publish_failed": "The photo was not published. Approve again.",
+        "audio_cleanup_failed": "Approved, but the old audio was not removed. Approve again to finish.",
+        "failed": "Could not save. Try again."
+      }
+    },
     "cancellations": {
       "link": "Cancellations",
       "title": "Cancellations",
