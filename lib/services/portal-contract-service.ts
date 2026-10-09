@@ -113,12 +113,32 @@ async function readContract(rpc: UserRpc, submissionId: string): Promise<Outcome
   return { ok: true, data: row as unknown as PortalContractRow }
 }
 
-/** The CMS contract the RPC named, and its acceptance. Service role, by that id only. */
+/**
+ * The CMS contract the RPC named, and its acceptance: finish the archive if it is missing, and
+ * send the signed copy from the request that archived it (contract §4, 2.d). The archive claim
+ * happens once per acceptance (`archiveSignedDocument`), so the copy goes once: whether the PDF
+ * was archived by the POST that accepted, by a retry, or by the first GET of the PDF after an
+ * acceptance recorded straight through the RPC. If the archive fails the acceptance stands, and
+ * the next GET/POST completes it. Service role, by that id only.
+ */
 async function finishArchive(contract: ContractRow, acceptance: AcceptanceRow | null): Promise<AcceptanceRow | null> {
   if (!acceptance) return null
   if (acceptance.signed_document_path) return acceptance
-  // Contract §4, 2.d: if this fails the acceptance stands, and the next GET/POST completes it.
-  return archiveSignedDocument(contract, acceptance)
+  const archived = await archiveSignedDocument(contract, acceptance)
+  if (!archived) return null
+  if (archived.archivedNow) {
+    const a = archived.acceptance
+    await sendSignedCopy({
+      to: a.recipient_email,
+      link: { portal: true },
+      signerName: a.signer_name,
+      signerRole: a.signer_role,
+      legalName: contract.snapshot.partner.legalName,
+      acceptedAt: a.accepted_at,
+      verificationCode: a.signed_document_hash ? shortHash(a.signed_document_hash) : '',
+    })
+  }
+  return archived.acceptance
 }
 
 // ── 1. The text to accept (state C) ─────────────────────────────────────────────────────
@@ -234,22 +254,6 @@ export async function acceptFromPortal(jwt: string, body: AcceptBody): Promise<O
   const contract = await getContract(row.contract_id)
   const archived = contract ? await finishArchive(contract, await getAcceptance(row.contract_id)) : null
   if (!archived?.signed_document_path) console.error('[portal-contract] archive pending for contract', row.contract_id)
-
-  // Only the request that created the acceptance sends the copy; a retry is the same fact twice.
-  if (created && contract) {
-    const acceptance = archived ?? (await getAcceptance(row.contract_id))
-    if (acceptance) {
-      await sendSignedCopy({
-        to: acceptance.recipient_email,
-        link: { portal: true },
-        signerName: acceptance.signer_name,
-        signerRole: acceptance.signer_role,
-        legalName: contract.snapshot.partner.legalName,
-        acceptedAt: acceptance.accepted_at,
-        verificationCode: acceptance.signed_document_hash ? shortHash(acceptance.signed_document_hash) : '',
-      })
-    }
-  }
 
   return { ok: true, data: { accepted_at: accepted.accepted_at, created, document_ready: !!archived?.signed_document_path } }
 }

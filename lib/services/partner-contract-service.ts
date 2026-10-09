@@ -478,7 +478,7 @@ export async function acceptContract(input: AcceptInput): Promise<AcceptOutcome>
   // already exists, writing the same path with the same content.
   const completed = acceptance.signed_document_hash
     ? acceptance
-    : await archiveSignedDocument(input.contract, acceptance)
+    : ((await archiveSignedDocument(input.contract, acceptance))?.acceptance ?? null)
 
   if (!completed) return { ok: false, reason: 'write_failed' }
 
@@ -575,11 +575,14 @@ export async function sendSignedCopy(input: {
  *
  * Exported for #919: the portal's acceptance is recorded by `core.portal_accept_contract` and the
  * archive is finished here, by the same function, never by a copy of it.
+ *
+ * `archivedNow` is true only for the request that won the claim: it happens once per acceptance,
+ * which is what lets the portal send the signed copy exactly once (#919).
  */
 export async function archiveSignedDocument(
   contract: ContractRow,
   acceptance: AcceptanceRow
-): Promise<AcceptanceRow | null> {
+): Promise<{ acceptance: AcceptanceRow; archivedNow: boolean } | null> {
   // `ip_address` and `user_agent` are on `acceptance` and stay there: the trail keeps them,
   // the operator surface shows them, and the artefact that travels to the partner does not
   // carry them (#390 — see the note on `AcceptanceStamp`).
@@ -633,7 +636,8 @@ export async function archiveSignedDocument(
     // pair the trail names; ours are an orphan object nobody reads. Returning the winner's
     // row is what keeps a real signature from answering 503 to the person who signed.
     console.warn('[contract] archive already claimed for contract', contract.id)
-    return await getAcceptance(contract.id)
+    const winner = await getAcceptance(contract.id)
+    return winner ? { acceptance: winner, archivedNow: false } : null
   }
 
   const { error: statusError } = await service()
@@ -645,7 +649,7 @@ export async function archiveSignedDocument(
     console.error('[contract] status update failed for contract', contract.id)
   }
 
-  return claimed
+  return { acceptance: claimed, archivedNow: true }
 }
 
 /** The version a new contract is generated with, exported so routes do not import two modules. */

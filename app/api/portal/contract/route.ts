@@ -6,8 +6,10 @@
  * barriers, because `withPublicRoute` proves nothing: `withRateLimit`; `PLACES_CMS_SECRET` plus the
  * portal user's JWT (`placesCaller`), and without both nothing runs; and ownership proved by the
  * database with that JWT before `service_role` touches anything (`portal-contract-service.ts`).
- * The IP and user agent in the body are the Worker's reading of the edge (`cf-connecting-ip`), which
- * is why they are only taken behind the secret.
+ * The IP and user agent in the body are what the Worker read at the edge (`cf-connecting-ip`). The
+ * database does not prove their origin: `core.portal_accept_contract` takes `p_ip`/`p_user_agent`
+ * from any caller with a portal session, so they are evidence declared by the channel, as in
+ * `portal_submit` (BR-B2B-047).
  */
 
 import { NextRequest, NextResponse } from 'next/server'

@@ -32,6 +32,7 @@ let serviceCalls: string[] = []
 let emails: Record<string, unknown>[] = []
 let acceptanceRow: Record<string, unknown> | null = null
 let signedUrlArgs: unknown[] = []
+let claimLost = false
 
 const snapshot = {
   templateVersion: ACTIVE_TEMPLATE_VERSION,
@@ -104,10 +105,12 @@ before(async () => {
         serviceCalls.push(`getAcceptance:${id}`)
         return acceptanceRow
       },
+      // The claim of the real function: only the first archive of an acceptance is `archivedNow`.
       archiveSignedDocument: async (_c: unknown, a: Record<string, unknown>) => {
         serviceCalls.push('archive')
+        if (claimLost || acceptanceRow?.signed_document_path) return { acceptance: { ...a, signed_document_path: 'cl-1/winner.pdf' }, archivedNow: false }
         acceptanceRow = { ...a, signed_document_hash: 'c'.repeat(64), signed_document_path: 'cl-1/archived.pdf' }
-        return acceptanceRow
+        return { acceptance: acceptanceRow, archivedNow: true }
       },
       sendSignedCopy: async (input: Record<string, unknown>) => {
         emails.push(input)
@@ -127,6 +130,7 @@ beforeEach(() => {
   emails = []
   acceptanceRow = null
   signedUrlArgs = []
+  claimLost = false
 })
 
 const headers = (over: Record<string, string> = {}) => ({ 'x-places-secret': SECRET, authorization: `Bearer ${JWT}`, ...over })
@@ -239,13 +243,40 @@ test('#919 BR-B2B-056 item 6: a retry (created = false) sends no second e-mail a
   assert.ok(!serviceCalls.includes('archive'))
 })
 
-test('#919: a retry after a failed archive completes it, still without e-mail', async () => {
+test('#919 BR-B2B-056 item 6: a retry after a failed archive completes it and sends the copy once', async () => {
   rpcAnswers.portal_get_contract = contractState('accepted')
   rpcAnswers.portal_accept_contract = { data: [{ acceptance_id: 'acc-1', contract_id: CONTRACT, accepted_at: '2026-10-08T15:00:00.000Z', created: false }] }
   acceptanceRow = signedAcceptance({ signed_document_hash: null, signed_document_path: null })
   const r = await POST(postReq(acceptBody()))
   assert.equal((await r.json()).document_ready, true)
   assert.ok(serviceCalls.includes('archive'))
+  assert.equal(emails.length, 1, 'the request that archived sends the copy')
+  await POST(postReq(acceptBody()))
+  assert.equal(emails.length, 1, 'a second retry sends nothing')
+})
+
+test('#919 BR-B2B-056 item 6: accepted straight through the RPC, the first GET of the PDF archives and sends the copy once', async () => {
+  rpcAnswers.portal_get_contract = contractState('accepted')
+  acceptanceRow = signedAcceptance({ signed_document_hash: null, signed_document_path: null })
+
+  assert.equal((await DOC(getReq('/api/portal/contract/document'))).status, 200)
+  assert.equal(serviceCalls.filter((c) => c === 'archive').length, 1)
+  assert.equal(emails.length, 1)
+  assert.deepEqual(emails[0].link, { portal: true })
+  assert.equal(emails[0].to, 'dono@bardoze.com.br')
+
+  assert.equal((await DOC(getReq('/api/portal/contract/document'))).status, 200)
+  assert.equal(serviceCalls.filter((c) => c === 'archive').length, 1, 'already archived: the second GET does not archive')
+  assert.equal(emails.length, 1, 'no second copy')
+})
+
+test('#919: a lost archive claim (another request archived first) sends no copy', async () => {
+  rpcAnswers.portal_get_contract = contractState('accepted')
+  acceptanceRow = signedAcceptance({ signed_document_hash: null, signed_document_path: null })
+  claimLost = true
+  const r = await DOC(getReq('/api/portal/contract/document'))
+  assert.equal(r.status, 200)
+  assert.equal(signedUrlArgs[1], 'cl-1/winner.pdf')
   assert.equal(emails.length, 0)
 })
 
