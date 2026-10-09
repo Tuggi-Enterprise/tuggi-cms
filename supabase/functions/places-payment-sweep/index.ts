@@ -25,11 +25,15 @@
 // CMS_ORIGIN (e.g. `https://cms.tuggi.app`) and CMS_JOB_SECRET (the same value on the CMS); unset =
 // skipped, and the pending item `payout_period_not_calculated` is the net.
 //
+// Since #923, body `{"payment_links": true}` runs ONLY `backfillPaymentLinks`: the operator's load of
+// the payments Asaas already issued (their link to pay, `partner.record_place_payment_link`). Safe to
+// rerun: an upsert by `pay_` with the re-read payment. The cron sends no body and runs the rest.
+//
 // Caller: a pg_cron job with the project's secret key (`requireAdmin`, machine bypass), the same
 // pattern as `daily-gamification-orchestrator`. Deploy with `--no-verify-jwt`.
 
 import { requireAdmin } from '../_shared/auth-middleware.ts';
-import { runSweep } from '../_shared/places-payment.ts';
+import { backfillPaymentLinks, runSweep } from '../_shared/places-payment.ts';
 import { asaasFromEnv, baseDeps, json } from '../_shared/places-payment-runtime.ts';
 import { runTransitionEmails } from '../_shared/places-transition-email.ts';
 import { transitionDeps } from '../_shared/places-transition-email-runtime.ts';
@@ -41,6 +45,20 @@ Deno.serve(async (req: Request) => {
   if (req.method !== 'POST') return json(405, { error: 'method_not_allowed' });
   const auth = await requireAdmin(req);
   if (auth instanceof Response) return auth;
+
+  const body = await req.json().catch(() => null);
+  if (body && typeof body === 'object' && (body as Record<string, unknown>).payment_links === true) {
+    const asaas = asaasFromEnv();
+    if (!asaas) return json(503, { error: 'unavailable' });
+    try {
+      const payment_links = await backfillPaymentLinks(baseDeps(asaas));
+      console.log('[places-payment-sweep] payment_links', JSON.stringify(payment_links));
+      return json(200, { payment_links });
+    } catch (e) {
+      console.error('[places-payment-sweep] payment_links failed', e instanceof Error ? e.message.slice(0, 200) : 'unknown');
+      return json(500, { error: 'failed' });
+    }
+  }
 
   let databaseOnly: Record<string, unknown>;
   try {

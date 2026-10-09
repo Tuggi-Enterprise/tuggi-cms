@@ -1280,6 +1280,90 @@ const PIX_AUTHORIZATION_END_EVENTS = new Set([
 
 type PaymentFn = 'confirm_place_charge' | 'fail_place_charge' | 'settle_place_refund';
 
+// ─── payment links (#923, contract portal-cobrancas.md §3) ─────────────────────────────────────
+
+/**
+ * Events whose only effect is the link of the charge (where to pay it, its amount and due date).
+ * `PAYMENT_CONFIRMED`/`RECEIVED`/`OVERDUE` record it too, next to their money function: that is how
+ * the receipt arrives. Idempotent by state, not by event id: the upsert by `pay_` takes the RE-READ
+ * payment, so a resend, or two events out of order, converge on what Asaas shows now.
+ */
+const PAYMENT_LINK_EVENTS = new Set(['PAYMENT_CREATED', 'PAYMENT_UPDATED', 'PAYMENT_DELETED', 'PAYMENT_RESTORED']);
+const PAYMENT_LINK_ALSO = new Set(['PAYMENT_CONFIRMED', 'PAYMENT_RECEIVED', 'PAYMENT_OVERDUE']);
+
+/** The arguments of `partner.record_place_payment_link`, from the re-read payment. Removed = the re-read `deleted`. */
+export function paymentLinkArgs(p: AsaasPayment) {
+  return {
+    p_provider_subscription_id: p.subscription ?? null,
+    p_provider_payment_id: p.id,
+    p_amount_cents: toCents(p.value),
+    p_due_date: p.dueDate ?? null,
+    p_invoice_url: str(p.invoiceUrl) || null,
+    p_receipt_url: str(p.transactionReceiptUrl) || null,
+    p_removed: p.deleted === true,
+  };
+}
+
+/**
+ * Records the link of one re-read payment. A one-off charge (no `sub_`, e.g. the early-termination
+ * fee) has nothing to record. `TGP22` is the provider's data refused by the database: alerted and
+ * answered 200, because a resend carries the same data and 15 failures in a row pause the whole Asaas
+ * queue — confirmations included. A refused URL (not an Asaas host) records the fee without its URLs.
+ * Any other database error
+ * is `db_error` and the caller answers 500, so Asaas resends.
+ */
+export async function recordPaymentLink(
+  deps: Pick<Deps, 'admin' | 'alert'>,
+  p: AsaasPayment,
+  eventId: string,
+  eventType: string,
+): Promise<string> {
+  if (!p.subscription) return 'no_subscription';
+  const args = paymentLinkArgs(p);
+  let { data, error } = await deps.admin('partner', 'record_place_payment_link', args);
+  if (error?.code === 'TGP22' && error.details === 'url') {
+    // A URL outside the Asaas hosts: the fee still enters the list (amount, due date), without the button.
+    await deps.alert('payment_link_refused', { event_id: eventId, event_type: eventType, provider_payment_id: p.id, field: 'url' });
+    ({ data, error } = await deps.admin('partner', 'record_place_payment_link', { ...args, p_invoice_url: null, p_receipt_url: null }));
+  }
+  if (error) {
+    if (error.code === 'TGP22') {
+      await deps.alert('payment_link_refused', { event_id: eventId, event_type: eventType, provider_payment_id: p.id, field: error.details ?? null });
+      return 'refused';
+    }
+    console.error('[places-payment-webhook]', eventId, eventType, 'payment_link_db_error', error.code ?? 'unknown');
+    return 'db_error';
+  }
+  const outcome = firstRow<{ outcome?: string }>(data)?.outcome ?? 'unknown';
+  if (outcome === 'subscription_mismatch') {
+    await deps.alert('payment_link_mismatch', { event_id: eventId, event_type: eventType, provider_payment_id: p.id, provider_subscription_id: p.subscription });
+  }
+  return outcome;
+}
+
+/**
+ * Operator's one-off load (and safe rerun): the payments Asaas already issued for every live plan
+ * (`invoiceTargets`, both origins), each recorded like a `PAYMENT_UPDATED`. Needed once at deploy:
+ * the first fee of each subscription is created with it, and that `PAYMENT_CREATED` was ignored
+ * before #923. Returns the count per outcome; one subscription failing to list is its own count.
+ */
+export async function backfillPaymentLinks(deps: Pick<Deps, 'asaas' | 'admin' | 'alert' | 'invoiceTargets'>): Promise<Record<string, number>> {
+  const counts: Record<string, number> = {};
+  const count = (k: string) => (counts[k] = (counts[k] ?? 0) + 1);
+  for (const t of await deps.invoiceTargets()) {
+    if (!t.provider_subscription_id) continue;
+    let payments: AsaasPayment[];
+    try {
+      payments = await deps.asaas.listSubscriptionPayments(t.provider_subscription_id);
+    } catch {
+      count('list_failed');
+      continue;
+    }
+    for (const p of payments) count(await recordPaymentLink(deps, p, 'backfill', 'PAYMENT_LINK_BACKFILL'));
+  }
+  return counts;
+}
+
 /** Demand 1: the function follows the RE-READ status. Null = nothing to apply. */
 export function paymentAction(eventType: string, status: string): PaymentFn | null {
   // #918: a boleto of the CMS contract can be marked paid in cash in the Asaas panel.
@@ -1349,6 +1433,13 @@ export async function handleAsaasWebhook(
   // goes by the same step as any charge, with the contract's text (`INVOICE_TEXT`).
   let contract = false;
   try {
+    if (PAYMENT_LINK_EVENTS.has(eventType)) {
+      const paymentId = str((b.payment as Record<string, unknown>)?.id);
+      if (!paymentId) return reply(400, { error: 'invalid_body' });
+      const linked = await recordPaymentLink(deps, await deps.asaas.getPayment(paymentId), eventId, eventType);
+      log(`link:${linked}`);
+      return linked === 'db_error' ? reply(500, { error: 'db_error' }) : reply(200, { outcome: linked });
+    }
     if (PAYMENT_EVENTS.has(eventType) || eventType === PIX_INSTRUCTION_REFUSED) {
       const paymentId =
         eventType === PIX_INSTRUCTION_REFUSED
@@ -1367,6 +1458,11 @@ export async function handleAsaasWebhook(
         contract = true;
       } else {
         ids = await chargeIds(deps, p);
+      }
+      // #923: the link first (after the CMS contract is registered, so its `sub_` is known). A database
+      // failure answers 500 before any money moved; the resend redoes both.
+      if (PAYMENT_LINK_ALSO.has(eventType) && (await recordPaymentLink(deps, p, eventId, eventType)) === 'db_error') {
+        return reply(500, { error: 'db_error' });
       }
       const action = paymentAction(eventType, (p.status ?? '').toUpperCase());
       if (!action) {

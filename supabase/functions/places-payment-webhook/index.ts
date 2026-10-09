@@ -17,6 +17,11 @@
 // (`_shared/places-payout.ts` `handleTransferEvent`): the transfer is re-read and
 // `partner.settle_place_payout_transfer` converges by state. Enable those events too.
 //
+// Since #923 it records the link of every charge of a place subscription (`recordPaymentLink`,
+// `partner.record_place_payment_link`, contract `portal-cobrancas.md` §3): PAYMENT_CREATED / UPDATED /
+// DELETED / RESTORED only that; CONFIRMED / RECEIVED / OVERDUE that too, before the money function.
+// Enable those four events on the Asaas webhook.
+//
 // Deploy with `--no-verify-jwt` (Asaas sends no Supabase JWT). Answers 200 for every business
 // outcome; 500 only when the database or the re-read fails, so Asaas resends.
 // Never log the body: it carries name, CPF/CNPJ, e-mail and phone.
