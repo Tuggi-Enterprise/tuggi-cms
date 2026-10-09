@@ -488,7 +488,7 @@ export async function acceptContract(input: AcceptInput): Promise<AcceptOutcome>
   if (won) {
     await sendSignedCopy({
       to: completed.recipient_email,
-      token: input.signingToken,
+      link: { token: input.signingToken },
       signerName: completed.signer_name,
       signerRole: completed.signer_role,
       legalName: input.contract.snapshot.partner.legalName,
@@ -514,10 +514,14 @@ export async function acceptContract(input: AcceptInput): Promise<AcceptOutcome>
  *
  * A failed e-mail never fails the acceptance: the signature is committed and the receipt
  * with the verification code is already on the signer's screen.
+ *
+ * #919: the acceptance made in the partner portal has no signing token. Its copy points at the
+ * portal's Contract section (`channel: 'portal'`), where the owner downloads the signed PDF
+ * behind their own session; `send-transactional` composes that address from its own origin too.
  */
-async function sendSignedCopy(input: {
+export async function sendSignedCopy(input: {
   to: string
-  token: string
+  link: { token: string } | { portal: true }
   signerName: string
   signerRole: string
   legalName: string
@@ -534,7 +538,7 @@ async function sendSignedCopy(input: {
       legal_name: input.legalName,
       accepted_at: input.acceptedAt,
       verification_code: input.verificationCode,
-      token: input.token,
+      ...('token' in input.link ? { token: input.link.token } : { channel: 'portal' }),
     },
     context: 'signed contract copy',
   })
@@ -568,8 +572,11 @@ async function sendSignedCopy(input: {
  * #341: the race is settled by Postgres, not by an `if` in JavaScript. Whoever loses the
  * claim returns the winner's row, so a legitimate signer never sees a failure, and its own
  * bytes stay in the bucket unnamed by any row.
+ *
+ * Exported for #919: the portal's acceptance is recorded by `core.portal_accept_contract` and the
+ * archive is finished here, by the same function, never by a copy of it.
  */
-async function archiveSignedDocument(
+export async function archiveSignedDocument(
   contract: ContractRow,
   acceptance: AcceptanceRow
 ): Promise<AcceptanceRow | null> {
