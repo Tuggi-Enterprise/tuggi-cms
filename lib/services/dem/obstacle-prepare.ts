@@ -549,7 +549,8 @@ export function globfpReader(cacheDir: string): BuildingReader {
           for (const f of files) {
             const zip = path.join(dir, f.name)
             await cachedDownload(f.download_url, zip, { size: f.size, md5: f.computed_md5 })
-            const out = path.join(dir, f.name.replace(/\.zip$/, ''))
+            // This call's own copy: a neighbouring cell reading the same zip removes its copy when done.
+            const out = path.join(dir, `${f.name.replace(/\.zip$/, '')}.${process.pid}-${randomBytes(4).toString('hex')}`)
             unzip(zip, out)
             try {
               const shp = fs.readdirSync(out).find(n => n.endsWith('.shp'))
