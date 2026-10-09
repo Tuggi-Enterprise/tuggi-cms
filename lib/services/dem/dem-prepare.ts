@@ -20,12 +20,13 @@ import * as fs from 'fs'
 import * as os from 'os'
 import * as path from 'path'
 import { createHash } from 'crypto'
-import { fromUrl } from 'geotiff'
+import { fromUrl, type GeoTIFFImage } from 'geotiff'
 import {
   COPERNICUS_GLO30,
   DEM_LATTICE_DEG,
   GEDTM30,
   copernicusTileName,
+  copernicusTileWidth,
   copernicusTileUrl,
   type DemLayer,
 } from './dem-sources'
@@ -124,8 +125,11 @@ async function head(url: string): Promise<{ etag: string | null; lastModified: s
   return { etag: res.headers.get('etag'), lastModified: res.headers.get('last-modified') }
 }
 
+/** The image of one tile COG, read by window over HTTP ranges. A test hands a synthetic one. */
+type OpenTile = (url: string) => Promise<Pick<GeoTIFFImage, 'getOrigin' | 'getResolution' | 'getWidth' | 'getHeight' | 'readRasters'>>
+
 /** Copernicus GLO-30 (surface), one COG per 1°×1° tile on AWS Open Data. */
-export function copernicusReader(): LayerReader {
+export function copernicusReader(openTile: OpenTile = async url => (await fromUrl(url)).getImage()): LayerReader {
   let tileList: Set<string> | null = null
   return {
     layer: 'surface',
@@ -167,18 +171,18 @@ export function copernicusReader(): LayerReader {
           }
           try {
             const meta = await withRetry(`HEAD ${name}`, () => head(url))
-            const image = await withRetry(`open ${name}`, async () => (await fromUrl(url)).getImage())
+            const image = await withRetry(`open ${name}`, () => openTile(url))
             const [ox, oy] = image.getOrigin()
             const [rx, ry] = image.getResolution()
             const tw = image.getWidth(), th = image.getHeight()
             // The georeference must match the name and the lattice (EP: "coordenadas batendo").
-            const lngStepArcsec = rx * 3600
+            // Above 50° a column is 1.5″, 2″… wide (`copernicusTileWidth`): read on that step, not refused.
             if (Math.abs(ox - west) > 1e-9 || Math.abs(oy - (south + 1)) > 1e-9 || Math.abs(ry + DEM_LATTICE_DEG) > 1e-12
-              || th !== 3600 || Math.abs(tw * rx - 1) > 1e-9 || Math.abs(lngStepArcsec - Math.round(lngStepArcsec)) > 1e-6) {
+              || th !== 3600 || tw !== copernicusTileWidth(south) || Math.abs(tw * rx - 1) > 1e-9) {
               failures.push(`${name}: georeference ${ox},${oy} res ${rx},${ry} size ${tw}×${th} does not match the tile`)
               continue
             }
-            const k = Math.round(lngStepArcsec)
+            const k = 3600 / tw
             // Grid rows/cols inside this tile.
             const rowLo = Math.max(0, nIdx - (south + 1) * 3600)
             const rowHi = Math.min(grid.height - 1, nIdx - (south * 3600 + 1))

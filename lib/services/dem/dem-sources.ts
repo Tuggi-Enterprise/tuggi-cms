@@ -54,6 +54,17 @@ export function copernicusTileName(southLat: number, westLng: number): string {
   return `Copernicus_DSM_COG_10_${ns}${lat}_00_${ew}${lng}_00_DEM`
 }
 
+/**
+ * Columns of a GLO-30 tile. The width shrinks with latitude (DGED product handbook, "tile
+ * width"): 1″ up to 50°, 1.5″ to 60°, 2″ to 70°, 3″ to 80°, 5″ to 85°, 10″ beyond; rows are 1″
+ * everywhere. The band is the tile edge nearest the equator.
+ */
+export function copernicusTileWidth(southLat: number): number {
+  const band = Math.min(Math.abs(southLat), Math.abs(southLat + 1))
+  const stepArcsec = band < 50 ? 1 : band < 60 ? 1.5 : band < 70 ? 2 : band < 80 ? 3 : band < 85 ? 5 : 10
+  return 3600 / stepArcsec
+}
+
 export function copernicusTileUrl(name: string): string {
   return `${COPERNICUS_GLO30.baseUrl}/${name}/${name}.tif`
 }
