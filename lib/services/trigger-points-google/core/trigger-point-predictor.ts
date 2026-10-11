@@ -372,12 +372,14 @@ export class CoreTriggerPointPredictor {
         trace.push({ poi_id: poiId, stage: 'E6', rule: 'validation#tpReachCapM', candidate: '',
           value: `no class: reach ${streetAnalysisResult.searchRadius} m`, limit: 'class required (INV-E5c)', decision: 'kept' });
       }
-      trace.push(...streetAnalysisResult.rejectedStreets.map(r => ({
+      // Loop, not push(...spread): a large boundary rejects 100k+ streets and the spread
+      // overflows the call stack (RangeError, Morava spring CZ 1d06dc63, 2026-10-11).
+      for (const r of streetAnalysisResult.rejectedStreets) trace.push({
         poi_id: poiId, stage: 'E6' as const, rule: 'street-analyzer#filterStreetsByReach', candidate: '',
         value: `${r.name || r.id}; edge ${r.edgeDistanceM === null ? '?' : Math.round(r.edgeDistanceM)} m`,
         limit: r.reason === 'street_ceiling' ? `street ceiling (reach ${r.limitM} m)` : `reach ${r.limitM} m`,
         decision: 'dropped' as const,
-      })));
+      });
 
       if (accessibleStreets.length === 0) {
         console.error('❌ ========================================');

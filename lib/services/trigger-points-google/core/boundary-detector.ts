@@ -1260,6 +1260,7 @@ out geom tags;
     const { chosen, rejected } = chooseContainingBoundary(
       poiData.location, {
         name: poiData.name,
+        wikidata: typeof tags?.wikidata === 'string' ? tags.wikidata : null,
         namedOnly: narrowing || (poiData.osm_type === 'node' && !!poiData.osm_id),
         isBuilt: ringIsBuilt,
         namedInside: ring => LocalOSMFetcher.getInstance().namedNodesInside(ring) ?? [],

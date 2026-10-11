@@ -291,6 +291,8 @@ export function chooseContainingBoundary(
   pin: LatLng,
   poi: {
     name?: string | null;
+    /** The POI's own `wikidata`: an element of its name with another one is another entity. */
+    wikidata?: string | null;
     namedOnly?: boolean;
     isBuilt?: (ring: LatLng[]) => boolean;
     /** Tags of the named places standing inside the ring (the local DB's nodes). */
@@ -320,6 +322,13 @@ export function chooseContainingBoundary(
       continue;
     }
     if (carriesPoiName(el.tags, poi.name)) {
+      // Same name, other entity: the spring "Morava" (Q179251) stands in the historic region "Morava"
+      // (Moravia, Q43266, 34,226 km²) and took it as its border (Czechia lot, 2026-10-11).
+      const elWikidata = typeof el.tags?.wikidata === 'string' ? el.tags.wikidata : '';
+      if (poi.wikidata && elWikidata && elWikidata !== poi.wikidata) {
+        rejected.push({ element: key, reason: `named ${elWikidata}, the POI is ${poi.wikidata}: another entity` });
+        continue;
+      }
       if (!isCuratedBoundaryImplausible(pin, ring)) named.push(candidate);
       continue;
     }

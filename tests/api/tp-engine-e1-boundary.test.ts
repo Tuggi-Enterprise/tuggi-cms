@@ -89,6 +89,17 @@ describe('INV-E1c — the element holding the pin is chosen by identity and geom
     assert.equal(choice.chooseContainingBoundary(PIN, { name: 'Estádio do Maracanã' }, [rel]).chosen, undefined)
   })
 
+  it('an element of the POI name with another wikidata is another entity: the spring Morava does not take Moravia', () => {
+    const region = { type: 'relation', id: 20275185, tags: { boundary: 'historic', place: 'region', name: 'Morava', wikidata: 'Q43266' }, geometry: square(5000) }
+    const own = { type: 'way', id: 11, tags: { name: 'Morava', wikidata: 'Q179251' }, geometry: square(20) }
+    const r = choice.chooseContainingBoundary(PIN, { name: 'Morava', wikidata: 'Q179251', namedOnly: true }, [region])
+    assert.equal(r.chosen, undefined)
+    assert.match(r.rejected[0].reason, /another entity/)
+    assert.equal(choice.chooseContainingBoundary(PIN, { name: 'Morava', wikidata: 'Q179251', namedOnly: true }, [region, own]).chosen?.element.id, 11)
+    assert.equal(choice.chooseContainingBoundary(PIN, { name: 'Morava', namedOnly: true }, [region]).chosen?.element.id, 20275185,
+      'without the POI wikidata the name still decides')
+  })
+
   it('a POI with its own node id takes only an element carrying its name (a bust does not take the square)', () => {
     const square_ = { type: 'way', id: 8, tags: {}, geometry: square(30) }
     const r = choice.chooseContainingBoundary(PIN, { name: 'Busto X', namedOnly: true }, [square_])
