@@ -1,6 +1,5 @@
 import Database from 'better-sqlite3';
-import { POIData, BoundaryData, StreetData } from '../types/interfaces';
-import { BuildingData, OSMDataBundle } from './osm-data-fetcher';
+import { StreetData } from '../types/interfaces';
 import { TRIGGER_POINTS_CONSTANTS } from '../config/trigger-points-config';
 import { isPublicWay } from '../config/visibility-class';
 import { isPointInPolygon } from '../utils/calculations';
@@ -276,135 +275,6 @@ export class LocalOSMFetcher {
       confidence: 0.9,
       tags: row.tags_json ? JSON.parse(row.tags_json) : {}
     }));
-  }
-
-  /**
-   * Cria um BoundaryData válido a partir de coordenadas, calculando center, area e perimeter.
-   */
-  private createBoundaryFromCoords(coords: Array<{lat: number; lng: number}>, id: string | number): BoundaryData {
-    // Calcular centro
-    const center = {
-      lat: coords.reduce((sum, c) => sum + c.lat, 0) / coords.length,
-      lng: coords.reduce((sum, c) => sum + c.lng, 0) / coords.length
-    };
-    
-    // Calcular área (Shoelace formula em m²) e perímetro
-    let area = 0;
-    let perimeter = 0;
-    for (let i = 0; i < coords.length; i++) {
-      const j = (i + 1) % coords.length;
-      // Shoelace em graus → converter para metros (~111000m por grau lat)
-      area += coords[i].lng * coords[j].lat - coords[j].lng * coords[i].lat;
-      // Distância entre pontos consecutivos
-      const dLat = (coords[j].lat - coords[i].lat) * 111000;
-      const dLng = (coords[j].lng - coords[i].lng) * 111000 * Math.cos(center.lat * Math.PI / 180);
-      perimeter += Math.sqrt(dLat * dLat + dLng * dLng);
-    }
-    const areaM2 = Math.abs(area / 2) * 111000 * 111000 * Math.cos(center.lat * Math.PI / 180);
-
-    return {
-      id,
-      type: 'polygon',
-      coordinates: coords,
-      center,
-      area_m2: areaM2,
-      perimeter_m: perimeter,
-      confidence: 0.9,
-      source: 'osm'
-    } as BoundaryData;
-  }
-
-  // ═══════════════════════════════════════════════════════════════════════════
-  // API PÚBLICA
-  // ═══════════════════════════════════════════════════════════════════════════
-
-  /**
-   * Busca dados OSM completos (ruas + prédios + boundary) para um POI.
-   * Retorna null se não houver dados suficientes (0 ruas = cache miss).
-   */
-  public fetchLocalData(poiData: POIData, radius: number): OSMDataBundle | null {
-    const db = this.select(poiData.location);
-    if (!db) return null;
-
-    try {
-      const searchRadius = Math.min(radius, 500) * 1.2;
-      const bbox = this.calculateBBox(poiData.location, searchRadius);
-
-      // 1. Streets
-      const streetRows = this.queryStreets(bbox);
-      const streets = this.toStreetData(streetRows);
-
-      // 2. Buildings
-      const buildingRows = this.queryBuildings(bbox);
-      const buildings: BuildingData[] = buildingRows.map(row => ({
-        id: row.id,
-        geometry: JSON.parse(row.geometry_json),
-        height: row.height || 0,
-        tags: row.tags_json ? JSON.parse(row.tags_json) : {}
-      }));
-
-      // 3. Boundary (por OSM ID ou nome)
-      let boundary: BoundaryData | null = null;
-      let tags: Record<string, string> = {};
-      
-      if (poiData.osm_id && poiData.osm_type) {
-        const stmt = db.prepare(`
-          SELECT geometry_json, tags_json FROM pois
-          WHERE osm_type = ? AND osm_id = ? LIMIT 1
-        `);
-        const row = stmt.get(poiData.osm_type, poiData.osm_id) as any;
-        if (row) {
-          const coords = JSON.parse(row.geometry_json);
-          boundary = this.createBoundaryFromCoords(coords, poiData.osm_id);
-          tags = row.tags_json ? JSON.parse(row.tags_json) : {};
-        }
-      }
-
-      if (!boundary && poiData.name) {
-        // Caminho rápido R-tree + b-tree fallback — ver doc em queryStreets().
-        const stmt = this.rtreeAvailable.pois
-          ? db.prepare(`
-              SELECT p.osm_id, p.geometry_json, p.tags_json FROM pois p
-              JOIN pois_rtree r ON r.rowid = p.rowid
-              WHERE json_extract(p.tags_json, '$.name') = ?
-                AND r.min_lat <= ? AND r.max_lat >= ?
-                AND r.min_lng <= ? AND r.max_lng >= ?
-              LIMIT 1
-            `)
-          : db.prepare(`
-              SELECT osm_id, geometry_json, tags_json FROM pois
-              WHERE json_extract(tags_json, '$.name') = ?
-                AND min_lat <= ? AND max_lat >= ?
-                AND min_lng <= ? AND max_lng >= ?
-              LIMIT 1
-            `);
-        const row = stmt.get(poiData.name, bbox.maxLat, bbox.minLat, bbox.maxLng, bbox.minLng) as any;
-        if (row) {
-          const coords = JSON.parse(row.geometry_json);
-          boundary = this.createBoundaryFromCoords(coords, row.osm_id);
-          tags = row.tags_json ? JSON.parse(row.tags_json) : {};
-        }
-      }
-
-      // Cache miss: 0 ruas = não temos dados suficientes
-      if (streets.length === 0) {
-        return null;
-      }
-
-      console.log(`🚀 [LocalOSMFetcher] Found locally: ${streets.length} streets, ${buildings.length} buildings, boundary=${boundary ? 'yes' : 'no'}`);
-
-      return {
-        boundary,
-        streets,
-        buildings,
-        osmTags: tags,
-        fetchedAt: new Date(),
-        searchRadius
-      };
-    } catch (error) {
-      console.error(`❌ [LocalOSMFetcher] Error querying local DB:`, error);
-      return null;
-    }
   }
 
   /**
@@ -749,40 +619,6 @@ export class LocalOSMFetcher {
       return out;
     } catch (error) {
       console.error(`❌ [LocalOSMFetcher] Error fetching summits:`, error);
-      return null;
-    }
-  }
-
-  /**
-   * E1 (INV-E1c, BR-POI-009): the tags of every named OSM node standing inside `ring`. An unnamed
-   * area holding a named place of another name is the ground under it, not a POI: the 100 km²
-   * forest of the Maciço da Pedra Branca holds 112 named peaks and streams (#779).
-   * null when the local DB is not available.
-   */
-  public namedNodesInside(ring: Array<{ lat: number; lng: number }>): Array<Record<string, unknown>> | null {
-    const db = ring.length < 3 ? null : this.select(ring[0]);
-    if (!db) return null;
-    try {
-      const lats = ring.map(p => p.lat);
-      const lngs = ring.map(p => p.lng);
-      const box = [Math.min(...lats), Math.max(...lats), Math.min(...lngs), Math.max(...lngs)];
-      const rows = db.prepare(this.rtreeAvailable.pois
-        ? `SELECT p.geometry_json, p.tags_json FROM pois p JOIN pois_rtree r ON r.rowid = p.rowid
-           WHERE r.min_lat >= ? AND r.max_lat <= ? AND r.min_lng >= ? AND r.max_lng <= ? AND p.osm_type = 'node'`
-        : `SELECT geometry_json, tags_json FROM pois
-           WHERE min_lat >= ? AND max_lat <= ? AND min_lng >= ? AND max_lng <= ? AND osm_type = 'node'`
-      ).all(...box) as Array<{ geometry_json: string; tags_json: string | null }>;
-      const out: Array<Record<string, unknown>> = [];
-      for (const row of rows) {
-        const tags = row.tags_json ? JSON.parse(row.tags_json) : null;
-        if (!tags?.name) continue;
-        const g = JSON.parse(row.geometry_json);
-        const p = Array.isArray(g) ? g[0] : g;
-        if (p && isPointInPolygon({ lat: p.lat, lng: p.lng ?? p.lon }, ring)) out.push(tags);
-      }
-      return out;
-    } catch (error) {
-      console.error(`❌ [LocalOSMFetcher] Error fetching named nodes inside a ring:`, error);
       return null;
     }
   }

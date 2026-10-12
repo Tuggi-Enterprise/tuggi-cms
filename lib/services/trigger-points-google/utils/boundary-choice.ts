@@ -2,9 +2,9 @@
  * E1 — which OSM element may be the POI border (docs/arquitetura/cms/motor-de-tp.md,
  * INV-E1a/b/c, BR-AUDIO-010). Pure: no network, no DB. The detector fetches, this decides.
  *
- * Identity and geometry only (operator, 2026-09-27): the name says WHICH element is the POI; no
- * category, geocoder class or type tag (`leisure`, `natural`, `place`, `building`, …) decides
- * whether an element may be its border — with one exception, the municipality (BR-POI-010,
+ * Fixed identity only (operator, 2026-10-11): an OSM id or a `wikidata` id says WHICH element is
+ * the POI; a name never does — the spring "Morava" took the 34,226 km² region of the same name.
+ * No category or type tag decides either, with one exception, the municipality (BR-POI-010,
  * `isMunicipalElement`). Every element that contains the pin and is refused leaves a reason for
  * the trace (E0).
  */
@@ -26,27 +26,14 @@ export interface OsmAreaElement {
   id: string | number;
   tags?: Record<string, unknown>;
   geometry?: Array<{ lat: number; lon?: number; lng?: number }>;
+  /** A relation's members as Overpass returns them (the local DB keeps none). */
+  members?: Array<{ type?: string; ref?: string | number; role?: string }>;
 }
 
 export interface ChosenBoundary {
   element: OsmAreaElement;
   ring: LatLng[];
   areaM2: number;
-}
-
-const normName = (s: unknown): string =>
-  String(s ?? '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[^a-z0-9]+/gi, ' ').trim().toLowerCase();
-
-/**
- * The element's own names, normalised (`name`, `name:pt`, `official_name`, `alt_name`,
- * `short_name`; a `;` list is several names). The Maracanã stadium is `name=Estádio Jornalista
- * Mário Filho`, `short_name=Maracanã`: without it the neighbourhood of the same name took the
- * border (#786).
- */
-export function elementNames(tags: Tags): string[] {
-  return ['name', 'name:pt', 'official_name', 'alt_name', 'short_name']
-    .flatMap(k => String(tags?.[k] ?? '').split(';'))
-    .map(normName).filter(n => n !== '');
 }
 
 /**
@@ -92,66 +79,20 @@ export function boundaryFate(stored: { source?: string | null; curated?: boolean
   return ownId === 'unknown' ? { fate: 'retry', rule: 3 } : { fate: 'point', rule: 3 };
 }
 
-/** Identity: the element carries the POI's own name. Compared for identity, never read for kind. */
-export function carriesPoiName(tags: Tags, poiName: string | null | undefined): boolean {
-  const name = normName(poiName);
-  return name !== '' && elementNames(tags).includes(name);
-}
-
-/** Joining words that never tell two names apart. */
-const NAME_JOINERS = new Set(['a', 'as', 'o', 'os', 'da', 'das', 'de', 'do', 'dos', 'e']);
-
-const nameTokens = (s: unknown): string[] => normName(s).split(' ').filter(t => t !== '' && !NAME_JOINERS.has(t));
-
-/** One edit or one swap of neighbours apart (`matriz`/`martiz`), for words of 5+ letters. */
-function sameWord(a: string, b: string): boolean {
-  if (a === b) return true;
-  if (a.length < 5 || b.length < 5 || Math.abs(a.length - b.length) > 1) return false;
-  const d: number[][] = Array.from({ length: a.length + 1 }, (_, i) => [i, ...Array(b.length).fill(0)]);
-  for (let j = 1; j <= b.length; j++) d[0][j] = j;
-  for (let i = 1; i <= a.length; i++) {
-    for (let j = 1; j <= b.length; j++) {
-      const cost = a[i - 1] === b[j - 1] ? 0 : 1;
-      d[i][j] = Math.min(d[i - 1][j] + 1, d[i][j - 1] + 1, d[i - 1][j - 1] + cost);
-      if (i > 1 && j > 1 && a[i - 1] === b[j - 2] && a[i - 2] === b[j - 1]) d[i][j] = Math.min(d[i][j], d[i - 2][j - 2] + 1);
-    }
-  }
-  return d[a.length][b.length] <= 1;
-}
-
 /**
- * Akin identity: one of the element's names is the POI's name with at most ONE word swapped on
- * each side and 2+ words shared, typos of one letter forgiven. "Igreja Matriz da Nossa Senhora da
- * Assunção" ~ "Paróquia Nossa Senhora da Assunção Martiz" (Cabo Frio); "Estádio do Maracanã" is
- * not "Maracanã" (one shared word). Weaker than `carriesPoiName`: "Igreja X" ~ "Praça X" too, so
- * the caller also asks the element to be built (`chooseContainingBoundary`, `isBuilt`).
- */
-export function akinPoiName(tags: Tags, poiName: string | null | undefined): boolean {
-  const poi = nameTokens(poiName);
-  if (poi.length < 2) return false;
-  return ['name', 'name:pt', 'official_name', 'alt_name', 'short_name']
-    .flatMap(k => String(tags?.[k] ?? '').split(';'))
-    .some(n => {
-      const el = nameTokens(n);
-      const shared = poi.filter(t => el.some(u => sameWord(t, u))).length;
-      const elShared = el.filter(u => poi.some(t => sameWord(t, u))).length;
-      return shared >= 2 && poi.length - shared <= 1 && el.length - elShared <= 1;
-    });
-}
-
-/**
- * The pin stands on a named element of another name: it is the ground the POI is on (a square,
- * a park, a neighbourhood), not the POI. The Monumento Árvore de Natal took the Praça do Radio
- * Amador (6,008 m²) with the avenue sidewalk in it (#772).
- */
-export const NAMED_GROUND_REASON = 'named element of another name: the ground the POI stands on';
-
-/**
- * How far from the pin a border of the POI's identity is looked for when the typed id already
- * gave one (INV-E1c): the Maracanã pin is 17 m off the stadium, on the street (#786). Same
- * widening as the identity match of the name search. Provisional (#775).
+ * How far around the pin an element tied to the POI by id is looked for (INV-E1c): a pin is often
+ * on the street beside its building (Maracanã, 17 m off the stadium, #786). Provisional (#775).
  */
 export const IDENTITY_NEAR_PIN_M = 50;
+
+/**
+ * Roles of a relation member that place a node on a map without making it part of the relation:
+ * the label of an area and the seat of a municipality. A POI that is such a node is not the area.
+ */
+const NON_IDENTITY_ROLES = new Set(['label', 'admin_centre']);
+
+/** An element refused because no id ties it to the POI, whatever its name. */
+export const NO_ID_LINK_REASON = 'no id ties it to the POI (same wikidata, or the POI node as a member): a name is not identity';
 
 /** A closed way that is a via (`highway`, `railway`), not an area: the TP stands on it (E6). */
 function isVia(tags: Tags): boolean {
@@ -271,41 +212,33 @@ const isClosed = (ring: LatLng[]): boolean =>
   ring.length >= 4 && ring[0].lat === ring[ring.length - 1].lat && ring[0].lng === ring[ring.length - 1].lng;
 
 /**
- * INV-E1a step "OSM that contains the pin", with INV-E1c by identity and geometry:
- * 1. an element carrying the POI's name wins (the smallest, when several do). It need not hold the
- *    pin, only be as plausible as a curated id (`isCuratedBoundaryImplausible`): the Praia da
- *    Reserva pin is on the promenade, off the sand, and a 248 m² kiosk under it took the border;
- * 2. otherwise an UNNAMED element, and only one smaller than the smallest named element of another
- *    name at the pin — whatever holds the ground the POI stands on is not the POI either — and
- *    holding no named place of another name (`namedInside`, BR-POI-009): the unnamed 100 km²
- *    forest of the Maciço da Pedra Branca holds 112 named peaks and was the border of each (#779);
- * 2a. without a node id, an element holding the pin whose name is akin (`akinPoiName`) and that
- *    the buildings layer says is built (`isBuilt`) — the church polygon named "Paróquia …" under the
- *    pin of "Igreja Matriz …" (Cabo Frio); a square of the same name is not built;
- * 3. `namedOnly`: only step 1 applies. A POI with a curated node id has its own identity, because
- *    an unnamed polygon under a bust is the square, not the bust; and a POI whose typed id already
- *    gave a border only gives way to a smaller element of its name (Maracanã, #786).
- * Otherwise only elements holding the pin are judged; without an id the pin is the only evidence.
+ * INV-E1a step "OSM that contains the pin", with INV-E1c by fixed identity (operator, 2026-10-11).
+ * An element is the border of a POI only when an id ties them:
+ * - the element carries the POI's own `wikidata` (the castle node and the castle polygon);
+ * - the POI is a node and a member of the relation (Overpass `members`), in a role other than
+ *   `label` or `admin_centre` (those place a node on an area without making it the area).
+ * Of the tied elements, the smallest that is plausible (`isCuratedBoundaryImplausible`: the pin is
+ * often on the street beside its building). A municipality never is one (BR-POI-010: only the
+ * seat, on its own path). A name ties nothing: the spring "Morava" (Q179251) stood in the historic
+ * region "Morava" (Q43266, 34,226 km²) and took it as its border; an unnamed polygon under a pin
+ * is the ground, not the POI. Without a tie there is no border here, and the caller draws the
+ * point circle (INV-E1b). Elements holding the pin that are refused go to the trace.
  */
 export function chooseContainingBoundary(
   pin: LatLng,
   poi: {
-    name?: string | null;
-    /** The POI's own `wikidata`: an element of its name with another one is another entity. */
+    /** The POI's own `wikidata`. */
     wikidata?: string | null;
-    namedOnly?: boolean;
-    isBuilt?: (ring: LatLng[]) => boolean;
-    /** Tags of the named places standing inside the ring (the local DB's nodes). */
-    namedInside?: (ring: LatLng[]) => Tags[];
+    /** The POI's OSM node id, when the POI is a node. */
+    nodeId?: string | number | null;
   },
   elements: OsmAreaElement[],
 ): { chosen?: ChosenBoundary; rejected: BoundaryRejection[] } {
   const rejected: BoundaryRejection[] = [];
-  const named: ChosenBoundary[] = [];
-  const other: ChosenBoundary[] = [];
-  const unnamed: ChosenBoundary[] = [];
-  const akin: ChosenBoundary[] = [];
+  const tied: ChosenBoundary[] = [];
   const seen = new Set<string>();
+  const wikidata = typeof poi.wikidata === 'string' ? poi.wikidata.trim() : '';
+  const nodeId = poi.nodeId == null ? '' : String(poi.nodeId);
 
   for (const el of elements) {
     const key = `${el.type}/${el.id}`;
@@ -314,51 +247,28 @@ export function chooseContainingBoundary(
     const points = el.geometry.map(toLatLng);
     const ring = el.type === 'relation' ? outerRing(points, pin) : points;
     if (!isClosed(ring) || isVia(el.tags)) continue;
-    const candidate = { element: el, ring, areaM2: calculatePolygonAreaInM2(ring) };
-    // BR-POI-010: a municipality is never the border by name; holding the pin, it stays ground.
-    const municipal = isMunicipalElement(el.tags);
-    if (municipal && carriesPoiName(el.tags, poi.name)) {
+    const holdsPin = isPointInPolygon(pin, ring);
+    const sameWikidata = wikidata !== '' && String(el.tags?.wikidata ?? '').trim() === wikidata;
+    const member = nodeId !== '' && el.type === 'relation' && (el.members ?? []).some(m =>
+      m.type === 'node' && String(m.ref) === nodeId && !NON_IDENTITY_ROLES.has(String(m.role ?? '')));
+    if (!sameWikidata && !member) {
+      if (holdsPin) rejected.push({ element: key, reason: NO_ID_LINK_REASON });
+      continue;
+    }
+    if (isMunicipalElement(el.tags)) {
       rejected.push({ element: key, reason: 'municipality: only the seat takes its border (BR-POI-010)' });
       continue;
     }
-    if (carriesPoiName(el.tags, poi.name)) {
-      // Same name, other entity: the spring "Morava" (Q179251) stands in the historic region "Morava"
-      // (Moravia, Q43266, 34,226 km²) and took it as its border (Czechia lot, 2026-10-11).
-      const elWikidata = typeof el.tags?.wikidata === 'string' ? el.tags.wikidata : '';
-      if (poi.wikidata && elWikidata && elWikidata !== poi.wikidata) {
-        rejected.push({ element: key, reason: `named ${elWikidata}, the POI is ${poi.wikidata}: another entity` });
-        continue;
-      }
-      if (!isCuratedBoundaryImplausible(pin, ring)) named.push(candidate);
+    if (!holdsPin && isCuratedBoundaryImplausible(pin, ring)) {
+      rejected.push({ element: key, reason: 'tied by id, but the pin is outside and far from its edge' });
       continue;
     }
-    if (!isPointInPolygon(pin, ring)) continue;
-    if (!municipal && !poi.namedOnly && poi.isBuilt && akinPoiName(el.tags, poi.name) && poi.isBuilt(ring)) akin.push(candidate);
-    else if (elementNames(el.tags).length > 0) other.push(candidate);
-    else unnamed.push(candidate);
+    tied.push({ element: el, ring, areaM2: calculatePolygonAreaInM2(ring) });
   }
-  const byArea = (a: ChosenBoundary, b: ChosenBoundary) => a.areaM2 - b.areaM2;
-  named.sort(byArea);
-  if (named[0]) return { chosen: named[0], rejected };
-  if (akin.length) return { chosen: akin.sort(byArea)[0], rejected };
-
-  const key = (c: ChosenBoundary) => `${c.element.type}/${c.element.id}`;
-  for (const c of other) rejected.push({ element: key(c), reason: NAMED_GROUND_REASON });
-  const groundM2 = Math.min(...other.map(c => c.areaM2));
-  const fitting: ChosenBoundary[] = [];
-  for (const c of unnamed.sort(byArea)) {
-    if (poi.namedOnly) rejected.push({ element: key(c), reason: 'unnamed area under a POI with its own node id' });
-    else if (c.areaM2 >= groundM2) rejected.push({ element: key(c), reason: `unnamed area ${Math.round(c.areaM2)} m² holds the named ground at the pin` });
-    else {
-      // Only until one fits: the smallest wins, and a forest's ring is costly to search.
-      const held = fitting.length ? undefined
-        : poi.namedInside?.(c.ring).find(t => !carriesPoiName(t, poi.name) && !akinPoiName(t, poi.name));
-      if (held) rejected.push({ element: key(c), reason: `unnamed area holds "${elementNames(held)[0]}": ${NAMED_GROUND_REASON}` });
-      else fitting.push(c);
-    }
-  }
-  return { chosen: fitting[0], rejected };
+  tied.sort((a, b) => a.areaM2 - b.areaM2);
+  return { chosen: tied[0], rejected };
 }
+
 
 // ── A POI mapped as a line (bridge, promenade) — INV-E1a ───────────────────────
 
@@ -371,17 +281,17 @@ export const LINE_CORRIDOR_HALF_WIDTH_M = 15;
 type Way = { id: string | number; tags?: Record<string, unknown>; geometry?: Array<{ lat: number; lon?: number; lng?: number }> };
 
 /**
- * The POI's curated way is open: the element is a line, and the POI is the whole run of ways of
- * the same identity (name) and the same via kind that continue it end to end. The Ponte
- * Rio-Niterói id is one 45-point motorway segment; read as a ring it was a 1,040 m² sliver.
- * Walks both ends, taking at each end the continuation that turns the least.
+ * The POI's curated way is open: the element is a line, and the POI is the whole run of ways TIED
+ * TO IT BY ID (`sameIdentityWaysQuery`: same `wikidata`, or members of the same waterway or bridge
+ * relation) and of the same via kind, continuing it end to end. The Ponte Rio-Niterói id is one
+ * 45-point motorway segment; read as a ring it was a 1,040 m² sliver. A shared name ties nothing
+ * (operator, 2026-10-11). Walks both ends, taking at each end the continuation that turns the least.
  */
-export function chainSameIdentity(start: Way, ways: Way[]): LatLng[] {
+export function chainSameIdentity(start: Way, tiedWays: Way[]): LatLng[] {
   const line = (w: Way) => (w.geometry ?? []).map(toLatLng);
-  const names = elementNames(start.tags);
   const kind = String(start.tags?.highway ?? start.tags?.railway ?? '');
-  const pool = ways.filter(w => String(w.id) !== String(start.id) && (w.geometry?.length ?? 0) >= 2
-    && elementNames(w.tags).some(n => names.includes(n)) && String(w.tags?.highway ?? w.tags?.railway ?? '') === kind)
+  const pool = tiedWays.filter(w => String(w.id) !== String(start.id) && (w.geometry?.length ?? 0) >= 2
+    && String(w.tags?.highway ?? w.tags?.railway ?? '') === kind)
     .map(line);
   const heading = (a: LatLng, b: LatLng) => Math.atan2(b.lat - a.lat, (b.lng - a.lng) * Math.cos((a.lat * Math.PI) / 180));
   const turn = (x: number, y: number) => Math.abs(Math.atan2(Math.sin(x - y), Math.cos(x - y)));
@@ -402,19 +312,19 @@ export function chainSameIdentity(start: Way, ways: Way[]): LatLng[] {
 }
 
 /**
- * Overpass query for the ways around `wayId` carrying one of `names` as `name`/`official_name`,
- * matched regardless of letter case: the same river is "Rio Pavuna" on some ways and "Rio pavuna"
- * on others, and an exact match cut its corridor where the case changes (#779). `chainSameIdentity`
- * compares the names the same way (`elementNames`).
+ * Overpass query for the ways within `aroundM` of `wayId` tied to it by id: carrying its
+ * `wikidata`, or members of the waterway or bridge relation it belongs to (a river's segments
+ * rarely carry their own wikidata; the river relation does). A route relation is not identity: a
+ * bus line crosses the bridge and leaves it.
  */
-export function sameIdentityWaysQuery(wayId: string | number, names: string[], aroundM: number): string {
-  const re = (n: string) => `^${n.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`;
-  const ql = (s: string) => s.replace(/\\/g, '\\\\').replace(/"/g, '\\"');
-  const sel = names.flatMap(n => ['name', 'official_name'].map(k => `way(around.a:${aroundM})["${k}"~"${ql(re(n))}",i];`));
+export function sameIdentityWaysQuery(wayId: string | number, wikidata: string | null | undefined, aroundM: number): string {
+  const qid = /^Q\d+$/.test(String(wikidata ?? '').trim()) ? String(wikidata).trim() : '';
+  const byWikidata = qid ? `way(around.a:${aroundM})["wikidata"="${qid}"];` : '';
   return `
 [out:json][timeout:60];
 way(${wayId})->.a;
-(${sel.join('')});
+rel(bw.a)["type"~"^(waterway|bridge)$"]->.r;
+(${byWikidata}way(r.r)(around.a:${aroundM}););
 out geom;
 `;
 }
@@ -452,24 +362,4 @@ export function sameFootprint(a: LatLng[], b: LatLng[], pin: LatLng): boolean {
   if (isPointInPolygon(pin, a) !== isPointInPolygon(pin, b)) return false;
   const [x, y] = [calculatePolygonAreaInM2(a), calculatePolygonAreaInM2(b)];
   return Math.max(x, y) <= SAME_FOOTPRINT_AREA_RATIO * Math.min(x, y);
-}
-
-/**
- * The buildings that can lend the POI their height (INV-E3, `knownHeightM`): the one whose ring
- * holds the pin (host) and those whose centre lies inside the POI ring. The Nominatim path loads
- * buildings 150–600 m around the POI; taken whole, the B32 tower beside Escultura Baleia
- * Metálica lent a 2 m sculpture 123 m, made it `landmark_high` and spread 23 TPs beyond 500 m
- * (#779, BR-AUDIO-010).
- */
-export function buildingsOfPoi<T extends { geometry?: Array<{ lat: number; lng?: number; lon?: number }> }>(
-  buildings: T[],
-  poiRing: LatLng[],
-  pin: LatLng
-): T[] {
-  return buildings.filter(b => {
-    const ring = (b.geometry ?? []).map(p => ({ lat: p.lat, lng: p.lng ?? p.lon ?? NaN }))
-    if (ring.length < 3 || ring.some(p => !Number.isFinite(p.lng))) return false
-    const centre = { lat: ring.reduce((s, p) => s + p.lat, 0) / ring.length, lng: ring.reduce((s, p) => s + p.lng, 0) / ring.length }
-    return isPointInPolygon(pin, ring) || isPointInPolygon(centre, poiRing)
-  })
 }

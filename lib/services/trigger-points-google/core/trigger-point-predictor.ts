@@ -1768,20 +1768,10 @@ export class CoreTriggerPointPredictor {
   }
 
   /**
-   * Garantia KISS: pelo menos 1 TP "frontal" na rua de endereço do POI.
-   *
-   * Caso: storefront POIs (lojas, museus, restaurantes) cujo OSM boundary é só
-   * o footprint do prédio (height=0). O fan de visibilidade colapsa porque
-   * os prédios adjacentes bloqueiam a linha de visão "ao chão" do POI. Mas o
-   * POI é VISÍVEL DA RUA — você passa em frente e vê a fachada.
-   *
-   * Solução: se `boundary.address.street` está populado, achamos a rua
-   * correspondente nas streets acessíveis e geramos 1 TP no ponto mais
-   * próximo da rua ao POI. Esse TP tem alta confiança porque o `addr:street`
-   * do OSM é a fonte canônica de "qual rua o POI faz fachada".
-   *
-   * Para POIs de esquina (raros com addr:street duplo), futuramente podemos
-   * gerar TPs em todas as ruas adjacentes não-obstruídas.
+   * Frontal TPs on every street touching the POI edge (≤ PERIMETER_RADIUS_M), for storefront POIs
+   * whose fan collapses inside a block of buildings: the façade is seen from the street in front.
+   * The street is chosen by geometry only — the address-name match left with the name search
+   * (INV-E1c, operator 2026-10-11).
    */
   private buildFrontalArrivalTP(
     poiData: POIData,
@@ -1815,9 +1805,6 @@ export class CoreTriggerPointPredictor {
       PERIMETER_FETCH_RADIUS_M
     );
 
-    const addrStreet = boundary.address?.street;
-    const addrLower = addrStreet?.toLowerCase().trim() ?? '';
-
     // Filtrar por acessibilidade e distância real ao polygon
     const streetDistances: Array<{ street: StreetData; dist: number }> = [];
     for (const s of rawPerimeterStreets ?? []) {
@@ -1827,8 +1814,7 @@ export class CoreTriggerPointPredictor {
 
       // Whole polyline, not vertices (BR-AUDIO-010).
       const minDist = streetFootOnEdge(s.coordinates, boundary.center, boundary.coordinates)?.edgeDistanceM ?? Infinity;
-      const isAddrMatch = addrLower && (s.name || '').toLowerCase().includes(addrLower);
-      if (minDist <= PERIMETER_RADIUS_M || isAddrMatch) {
+      if (minDist <= PERIMETER_RADIUS_M) {
         streetDistances.push({ street: s, dist: minDist });
       }
     }
