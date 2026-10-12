@@ -23,6 +23,16 @@ export const OSM_ID_GONE = 'OSM element not found';
 export const OSM_ID_MUNICIPAL = 'OSM element is a municipality and the POI is not its seat';
 export const OSM_ID_UNREACHABLE = 'OSM could not be asked for the element';
 
+/**
+ * Overpass under load answers HTTP 200 with a `remark` like "runtime error: Query timed out"
+ * or "runtime error: ... out of memory" and an empty `elements`. That body is a failure, not
+ * an answer: an empty result from it is not proof that the element is gone.
+ */
+export function isOverpassErrorBody(body: string): boolean {
+  const m = body.match(/"remark"\s*:\s*"([^"]*)"/);
+  return !!m && /runtime error|timed out|out of memory|rate_limited|too many requests/i.test(m[1]);
+}
+
 /** BR-POI-010: what the own-id lookup says. Any other failure came after the element was read: alive. */
 export function ownIdLookupOf(byId: { success: boolean; error?: string }): OwnIdLookup {
   if (byId.success) return 'found';
@@ -87,9 +97,19 @@ export class BoundaryDetector {
         });
         
         if (response.ok) {
-          return response;
+          // An overloaded Overpass answers 200 with a runtime-error `remark` and no elements.
+          // Accepting it reads as "element gone" and the regen overwrites good TPs with one
+          // point TP (Arena BRB Mané Garrincha, 21 → 1, 2026-10-12). Treat it as a failed try.
+          const body = await response.text();
+          if (isOverpassErrorBody(body)) {
+            console.warn(`⚠️ [RETRY ${attempt}/${maxRetries}] ${description} answered 200 with an error remark (mirror: ${new URL(mirror).hostname})`);
+            lastError = new Error(`Overpass error remark from ${new URL(mirror).hostname}`);
+            if (attempt < maxRetries) await new Promise(r => setTimeout(r, initialDelay * attempt));
+            continue;
+          }
+          return new Response(body, { status: response.status, headers: response.headers });
         }
-        
+
         console.warn(`⚠️ [RETRY ${attempt}/${maxRetries}] ${description} failed (mirror: ${new URL(mirror).hostname}): ${response.status}`);
         
         lastError = new Error(`OSM query failed: ${response.status}`);
