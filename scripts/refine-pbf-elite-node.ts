@@ -29,10 +29,21 @@ export function nationalBorder(inputPath: string, iso: string, outputDir: string
   const fc = JSON.parse(fs.readFileSync(relJson, 'utf8'));
   fs.unlinkSync(relPbf);
   fs.unlinkSync(relJson);
-  const country = fc.features.find((x: any) => x.properties?.admin_level === '2');
+  const country = nationalBorderFeature(fc.features, iso);
   if (!country) throw new Error(`No admin_level=2 relation with ISO3166-1=${iso} in ${inputPath}`);
   const polys = country.geometry.type === 'Polygon' ? [country.geometry.coordinates] : country.geometry.coordinates;
   return { outer: polys.map((p: any) => p[0]), holes: polys.flatMap((p: any) => p.slice(1)) };
+}
+
+/**
+ * The country's own relation among what `tags-filter r/ISO3166-1=<iso>` brings along: its member
+ * ways come too, and a closed one tagged admin_level=2 (Italy: "Acque Territoriali d'Italia -
+ * Ustica", way 46428050) is exported before the relation. Taking the first admin_level=2 feature
+ * clipped the whole Sud extract to that islet's waters (2026-10-12: 24,335 dropped, 0 kept).
+ */
+export function nationalBorderFeature(features: any[], iso: string): any | undefined {
+  return features.find((x: any) => x.properties?.admin_level === '2' && x.properties?.['ISO3166-1'] === iso
+    && /Polygon$/.test(x.geometry?.type ?? ''));
 }
 
 /** Metres from a point to the nearest border segment (equirectangular; fine at this scale). */

@@ -149,3 +149,14 @@ describe('wikidata-sitelinks#factsOf', () => {
     assert.deepEqual(factsOf({ sitelinks: { commonswiki: { title: 'X' } } }, []), { article: null, heritage: [], wikivoyage: false, titles: {} })
   })
 })
+
+describe('BR-POI-011 item 6: the national border is the ISO-tagged relation', () => {
+  it('a member way tagged admin_level=2 exported before the relation is not the border', async () => {
+    const { nationalBorderFeature } = await import('../../scripts/refine-pbf-elite-node')
+    const ring = [[0, 0], [1, 0], [1, 1], [0, 0]]
+    const ustica = { properties: { '@type': 'way', admin_level: '2', boundary: 'administrative' }, geometry: { type: 'MultiPolygon', coordinates: [[ring]] } }
+    const italy = { properties: { '@type': 'relation', admin_level: '2', 'ISO3166-1': 'IT' }, geometry: { type: 'MultiPolygon', coordinates: [[ring], [ring]] } }
+    assert.equal(nationalBorderFeature([ustica, italy], 'IT'), italy)
+    assert.equal(nationalBorderFeature([ustica], 'IT'), undefined)
+  })
+})
