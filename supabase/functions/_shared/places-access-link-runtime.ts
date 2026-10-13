@@ -19,9 +19,10 @@ export function fromWithName(from: string, name?: string): string {
   return `${name} <${address}>`;
 }
 
-export async function sendEmail(to: string, subject: string, html: string, text: string, fromName?: string): Promise<boolean> {
+/** Resend's message id, or `null` when it was not sent. */
+export async function sendEmailWithId(to: string, subject: string, html: string, text: string, fromName?: string): Promise<string | null> {
   const key = (Deno.env.get('RESEND_API_KEY') ?? '').trim();
-  if (!key) return false;
+  if (!key) return null;
   try {
     const res = await fetch(RESEND_URL, {
       method: 'POST',
@@ -29,10 +30,16 @@ export async function sendEmail(to: string, subject: string, html: string, text:
       body: JSON.stringify({ from: fromWithName((Deno.env.get('RESEND_FROM') ?? 'Tuggi <news@tuggi.app>').trim(), fromName), to: [to], subject, html, text }),
       signal: AbortSignal.timeout(10_000),
     });
-    return res.ok;
+    if (!res.ok) return null;
+    const id = ((await res.json().catch(() => null)) as { id?: unknown } | null)?.id;
+    return typeof id === 'string' && id ? id : '';
   } catch {
-    return false;
+    return null;
   }
+}
+
+export async function sendEmail(to: string, subject: string, html: string, text: string, fromName?: string): Promise<boolean> {
+  return (await sendEmailWithId(to, subject, html, text, fromName)) !== null;
 }
 
 export async function sha256Hex(s: string): Promise<string> {
