@@ -515,6 +515,13 @@ test('#812: amenities, price range and subtypes follow contract §8.2', () => {
   assert.deepEqual(prefill.details.tags, ['seafood', 'brazilian', 'sea_view'])
 })
 
+test('#931 BR-B2B-061 item 1: the signature item lands on place_details.signature_item, trimmed, up to 80', () => {
+  assert.equal(buildPlacePrefill(portalAnswers({ signature_item: '  Moqueca na telha ' }))!.details.signature_item, 'Moqueca na telha')
+  assert.equal(buildPlacePrefill(portalAnswers({ signature_item: 'x'.repeat(80) }))!.details.signature_item, 'x'.repeat(80))
+  assert.equal('signature_item' in buildPlacePrefill(portalAnswers({ signature_item: 'x'.repeat(81) }))!.details, false, 'cut is invented')
+  assert.equal('signature_item' in buildPlacePrefill(portalAnswers({ signature_item: '   ' }))!.details, false)
+})
+
 test('#812: malformed portal values are dropped, never guessed', () => {
   const prefill = buildPlacePrefill(
     portalAnswers({

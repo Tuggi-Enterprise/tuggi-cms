@@ -102,11 +102,15 @@ export const PLACE_PREFILL_COLUMNS = [
 
 export type PlacePrefillColumn = (typeof PLACE_PREFILL_COLUMNS)[number]
 
+/** BR-B2B-061 item 1: `core.place_details.signature_item` holds up to 80 characters. */
+export const SIGNATURE_ITEM_MAX = 80
+
 /** Columns of `core.place_details` this prefill may write. The offers are BR-B2B-053. */
 export const PLACE_PREFILL_DETAIL_COLUMNS = [
   'app_benefit',
   'subscriber_benefit',
   'price_range',
+  'signature_item',
   'has_wifi',
   'has_outdoor_seating',
   'accepts_reservations',
@@ -301,6 +305,10 @@ export function buildPlacePrefill(answers: PartnerAnswers): PlacePrefill | null 
   }
   const price = Number(text(answers.price_range))
   if (Number.isInteger(price) && price >= 1 && price <= 4) details.price_range = price
+  // #931 · BR-B2B-061 item 1: the signature item, as the partner wrote it, up to 80 characters.
+  // Longer is dropped, not cut: the portal caps it now, and a cut sentence is an invented one.
+  const signature = text(answers.signature_item)
+  if (signature && signature.length <= SIGNATURE_ITEM_MAX) details.signature_item = signature
 
   // `subtypes` has no column of its own (contract §8.1 names none): they go to `tags`, with the
   // amenities that are tags too.
