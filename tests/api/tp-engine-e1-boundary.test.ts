@@ -359,14 +359,18 @@ describe('INV-E1a — the ways of a line POI are tied to it by id, never by name
     const sibling = { type: 'way', id: 2, tags: { highway: 'motorway', wikidata: 'Q1' }, geometry: [at(100), at(300)] }
     const LONG = 300 * 2 * 0.9 // a corridor of 300 m, at least 90% of it
 
-    /** `sameIdentityCorridor(element)` with `local` as the DB answer (null = no region) and a mocked fetch. */
-    async function corridor(element: unknown, local: unknown[] | null, overpass: unknown[] = []) {
+    /**
+     * `sameIdentityCorridor(element)` with `local` as the DB's wikidata answer (null = no region),
+     * `relation` as its relation answer (null = region predating the relation table) and a mocked fetch.
+     */
+    async function corridor(element: unknown, local: unknown[] | null, overpass: unknown[] = [], relation: unknown[] | null = null) {
       const { BoundaryDetector } = await import('../../lib/services/trigger-points-google/core/boundary-detector')
       const { LocalOSMFetcher } = await import('../../lib/services/trigger-points-google/services/local-osm-fetcher')
       const fetcher = LocalOSMFetcher.getInstance() as any
-      const restore = { byWikidata: fetcher.fetchWaysByWikidata, regions: fetcher.regionList, fetch: globalThis.fetch }
+      const restore = { byWikidata: fetcher.fetchWaysByWikidata, byRelation: fetcher.fetchWaysByIdentityRelation, regions: fetcher.regionList, fetch: globalThis.fetch }
       const bodies: string[] = []
       fetcher.fetchWaysByWikidata = () => local
+      fetcher.fetchWaysByIdentityRelation = () => relation
       fetcher.regionList = () => (local ? [{ name: 'test', covers: () => true }] : [])
       globalThis.fetch = (async (_url: string, init: { body: string }) => {
         bodies.push(init.body)
@@ -377,6 +381,7 @@ describe('INV-E1a — the ways of a line POI are tied to it by id, never by name
         return { bodies, area: calculatePolygonAreaInM2(ring) }
       } finally {
         fetcher.fetchWaysByWikidata = restore.byWikidata
+        fetcher.fetchWaysByIdentityRelation = restore.byRelation
         fetcher.regionList = restore.regions
         globalThis.fetch = restore.fetch
       }
@@ -394,7 +399,15 @@ describe('INV-E1a — the ways of a line POI are tied to it by id, never by name
       assert.ok(r.area > 0, 'the segment alone is the corridor')
     })
 
-    it('BR-AUDIO-010: a bridge with no other way of its wikidata in the local DB asks Overpass the relation half only', async () => {
+    it('BR-AUDIO-010: a bridge whose region has the relation table takes the members from it, Overpass never called', async () => {
+      const r = await corridor(bridge, [bridge], [], [sibling])
+      assert.equal(r.bodies.length, 0)
+      assert.ok(r.area > LONG * choice.LINE_CORRIDOR_HALF_WIDTH_M, `${r.area} m²`)
+      const none = await corridor(bridge, [bridge], [], [])
+      assert.equal(none.bodies.length, 0, 'an empty answer from the table is "no relation", not "not imported"')
+    })
+
+    it('BR-AUDIO-010: a bridge with no other way of its wikidata, in a region predating the relation table, asks Overpass the relation half only', async () => {
       const r = await corridor(bridge, [bridge], [sibling])
       assert.equal(r.bodies.length, 1)
       assert.doesNotMatch(r.bodies[0], /wikidata/)
@@ -409,6 +422,63 @@ describe('INV-E1a — the ways of a line POI are tied to it by id, never by name
       const b = await corridor(bridge, null, [sibling])
       assert.match(b.bodies[0], /\["wikidata"="Q1"\]/)
       assert.ok(b.area > LONG * choice.LINE_CORRIDOR_HALF_WIDTH_M)
+    })
+
+    describe('on a real region database (the relation table present or absent)', () => {
+      const plain = { type: 'way', id: 11, tags: { highway: 'motorway', bridge: 'yes' }, geometry: [at(0), at(100)] }
+      const feature = (w: { id: number; tags: object; geometry: Array<{ lat: number; lon: number }> }) =>
+        JSON.stringify({ type: 'Feature', geometry: { type: 'LineString', coordinates: w.geometry.map(p => [p.lon, p.lat]) }, properties: { '@type': 'way', '@id': w.id, ...w.tags } })
+      /** A region DB holding the bridge way 11 and the way 12 continuing it; `relations` = OPL lines, undefined = no table. */
+      async function regionDb(relations?: string[]) {
+        const os = await import('node:os'), fs = await import('node:fs'), path = await import('node:path')
+        const { Readable } = await import('node:stream')
+        const { OSMLocalDataService } = await import('../../lib/services/osm-local-data-service')
+        const dbPath = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'tp-e1-rel-')), 'test.db')
+        const svc = new OSMLocalDataService(dbPath)
+        await svc.importGeoJSONSeq(Readable.from([[feature(plain), feature({ id: 12, tags: { highway: 'motorway' }, geometry: [at(100), at(300)] })].join('\n')]))
+        if (relations) await svc.importIdentityRelations((async function* () { yield* relations })())
+        svc.close()
+        return dbPath
+      }
+      async function onRegion(dbPath: string) {
+        const { BoundaryDetector } = await import('../../lib/services/trigger-points-google/core/boundary-detector')
+        const { LocalOSMFetcher } = await import('../../lib/services/trigger-points-google/services/local-osm-fetcher')
+        const fetcher = LocalOSMFetcher.getInstance() as any
+        const restore = { regions: fetcher.regions, fetch: globalThis.fetch }
+        const handle = { name: 'test', covers: () => true, dbPath, db: null as any, rtree: { pois: false, streets: false, buildings: false } }
+        fetcher.regions = [handle]
+        const bodies: string[] = []
+        globalThis.fetch = (async (_url: string, init: { body: string }) => {
+          bodies.push(init.body)
+          return new Response(JSON.stringify({ elements: [] }), { status: 200 })
+        }) as typeof fetch
+        try {
+          const ring = await (new BoundaryDetector() as any).sameIdentityCorridor(plain)
+          return { bodies, area: calculatePolygonAreaInM2(ring) }
+        } finally {
+          handle.db?.close()
+          fetcher.regions = restore.regions
+          globalThis.fetch = restore.fetch
+        }
+      }
+
+      it('BR-AUDIO-010: the bridge relation in the table ties way 12 to the corridor without calling Overpass', async () => {
+        const r = await onRegion(await regionDb(['n1 Tname=x', 'r900 Ttype=bridge,man_made=bridge Mw11@across,w12@across,w99@outline', 'r901 Ttype=route,route=bus Mw11@']))
+        assert.equal(r.bodies.length, 0)
+        assert.ok(r.area > LONG * choice.LINE_CORRIDOR_HALF_WIDTH_M, `${r.area} m²`)
+      })
+
+      it('BR-AUDIO-010: the table present with no relation for the way means no relation: Overpass is not called', async () => {
+        const r = await onRegion(await regionDb(['r901 Ttype=route,route=bus Mw11@,w12@']))
+        assert.equal(r.bodies.length, 0)
+        assert.ok(r.area > 0 && r.area < LONG * choice.LINE_CORRIDOR_HALF_WIDTH_M, 'a bus route ties nothing: the segment alone')
+      })
+
+      it('BR-AUDIO-010: a region imported before the table asks Overpass the relation half (transition)', async () => {
+        const r = await onRegion(await regionDb())
+        assert.equal(r.bodies.length, 1)
+        assert.match(r.bodies[0], /rel\(bw\.a\)/)
+      })
     })
 
     it('mayHaveIdentityRelation: waterway and bridge ways only', () => {

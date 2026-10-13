@@ -1266,10 +1266,11 @@ out geom;
    * kind that continue it end to end, as a corridor of the way's own `width`, else
    * LINE_CORRIDOR_HALF_WIDTH_M each side. The Ponte Rio-Niterói id is one 45-point motorway
    * segment, and read as a ring it was a 1,040 m² sliver. Overpass down: the segment alone.
-   * Local DB first (operator, 2026-10-13): the ways of its wikidata come from there. Overpass is
-   * asked only when no region covers the way (the whole query), or when the region holds no other
-   * way of that wikidata and the way may be in a waterway or bridge relation (the relation half
-   * alone: the local DB keeps no relation membership).
+   * Local DB first (operator, 2026-10-13): both halves come from there — the ways of its wikidata,
+   * and the members of its bridge or waterway relation (`LocalOSMFetcher#fetchWaysByIdentityRelation`).
+   * Overpass is asked only when no region covers the way (the whole query), or when the region
+   * predates the relation table, holds no other way of that wikidata and the way may be in such a
+   * relation (the relation half alone: transition until the region is reimported).
    */
   private async sameIdentityCorridor(element: any): Promise<Array<{ lat: number; lng: number }>> {
     const raw = String(element.tags?.wikidata ?? '').trim();
@@ -1282,7 +1283,14 @@ out geom;
     const local = !at || !regionAt(fetcher.regionList(), at.lat, at.lng) ? null : qid ? fetcher.fetchWaysByWikidata(at, SANITY_MAX_TP_DISTANCE_M, qid) : [];
     let ways: any[] = local ?? [];
     let source = 'local';
-    if (local === null || (!ways.some(w => String(w.id) !== String(element.id)) && mayHaveIdentityRelation(element.tags))) {
+    let relationFromOverpass = false;
+    if (local !== null && at && mayHaveIdentityRelation(element.tags)) {
+      const byRelation = fetcher.fetchWaysByIdentityRelation(at, SANITY_MAX_TP_DISTANCE_M, element.id);
+      // One copy per way id: a duplicate would let chainSameIdentity walk a way back over itself.
+      if (byRelation) ways = ways.concat(byRelation.filter(w => !ways.some(x => String(x.id) === String(w.id))));
+      else relationFromOverpass = !ways.some(w => String(w.id) !== String(element.id));
+    }
+    if (local === null || relationFromOverpass) {
       source = local ? 'local+overpass(relation)' : 'overpass';
       try {
         // The local DB answered the wikidata half (nothing there): ask Overpass for the relation half only.

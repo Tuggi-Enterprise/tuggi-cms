@@ -6,6 +6,7 @@ import { isPointInPolygon } from '../utils/calculations';
 import { outerRings } from '../utils/boundary-choice';
 import { listOsmRegions, localOsmDir, regionAt, OsmRegion } from '../../local-osm-regions';
 import { findMunicipality, type Municipality, type PoiOsmElement } from '../../admin-boundaries';
+import { IDENTITY_RELATION_TABLE } from '../../osm-local-data-service';
 
 /**
  * 🌍 LOCAL OSM FETCHER — Singleton
@@ -28,6 +29,8 @@ interface RegionHandle extends Pick<OsmRegion, 'name' | 'covers'> {
   dbPath?: string;
   db: Database.Database | null;
   rtree: RtreeFlags;
+  /** Holds `IDENTITY_RELATION_TABLE`; false = imported before it (the relation half goes to Overpass). */
+  identityRelations?: boolean;
 }
 
 export class LocalOSMFetcher {
@@ -68,6 +71,7 @@ export class LocalOSMFetcher {
       // when present. Missing = falls back transparently to the legacy b-tree.
       const has = (name: string) => Boolean(db.prepare(`SELECT 1 FROM sqlite_master WHERE type='table' AND name=?`).get(name));
       region.rtree = { pois: has('pois_rtree'), streets: has('streets_rtree'), buildings: has('buildings_rtree') };
+      region.identityRelations = has(IDENTITY_RELATION_TABLE);
       region.db = db;
       const available = Object.entries(region.rtree).filter(([, v]) => v).map(([k]) => k);
       console.log(available.length > 0
@@ -662,7 +666,7 @@ export class LocalOSMFetcher {
    * INV-E1a, the wikidata half of `boundary-choice#sameIdentityWaysQuery`: the ways within
    * `radiusM` (bounding box) of `center` carrying `wikidata`, from `streets` and `pois`, as
    * Overpass elements, one per way id. null when no region covers `center` (the caller goes to
-   * Overpass). The relation half has no local answer: the DB keeps no relation membership.
+   * Overpass). The relation half is `fetchWaysByIdentityRelation`.
    */
   public fetchWaysByWikidata(center: { lat: number; lng: number }, radiusM: number, wikidata: string): any[] | null {
     const db = this.select(center);
@@ -670,7 +674,9 @@ export class LocalOSMFetcher {
     try {
       const b = this.calculateBBox(center, radiusM);
       const byId = new Map<string, any>();
-      for (const table of ['streets', 'pois'] as const) {
+      // pois first: its row carries the way's own tags, while a `streets` row of a waterway gets
+      // `highway=waterway` from toOverpassElement and falls out of chainSameIdentity's via kind.
+      for (const table of ['pois', 'streets'] as const) {
         const cols = table === 'pois' ? 'p.id, p.osm_id, p.osm_type, p.geometry_json, p.tags_json' : 'p.id, p.type, p.geometry_json, p.tags_json';
         const only = table === 'pois' ? `AND p.osm_type = 'way'` : '';
         const rows = db.prepare(this.rtreeAvailable[table]
@@ -689,6 +695,42 @@ export class LocalOSMFetcher {
       return [...byId.values()];
     } catch (error) {
       console.error(`❌ [LocalOSMFetcher] Error fetching ways by wikidata:`, error);
+      return null;
+    }
+  }
+
+  /**
+   * INV-E1a, the relation half of `boundary-choice#sameIdentityWaysQuery`: the way members of every
+   * `type=bridge|waterway` relation holding `wayId` (`IDENTITY_RELATION_TABLE`), within `radiusM`
+   * (bounding box) of `center`, as Overpass elements. [] = the way is in no such relation. null
+   * when no region covers `center`, or when the region predates the table: only then does the
+   * caller ask Overpass. An empty answer is never read as "not imported".
+   */
+  public fetchWaysByIdentityRelation(center: { lat: number; lng: number }, radiusM: number, wayId: string | number): any[] | null {
+    const region = regionAt(this.regions, center.lat, center.lng);
+    if (!this.use(region) || !region!.identityRelations) return null;
+    const db = this.db!;
+    try {
+      const memberIds = (db.prepare(`
+        SELECT DISTINCT m.way_id FROM ${IDENTITY_RELATION_TABLE} a
+        JOIN ${IDENTITY_RELATION_TABLE} m ON m.relation_id = a.relation_id
+        WHERE a.way_id = ?`).all(Number(wayId)) as Array<{ way_id: number }>).map(r => r.way_id);
+      const b = this.calculateBBox(center, radiusM);
+      const byId = new Map<string, any>();
+      const inBox = 'max_lat >= ? AND min_lat <= ? AND max_lng >= ? AND min_lng <= ?';
+      const fromPois = db.prepare(`SELECT id, osm_id, osm_type, geometry_json, tags_json FROM pois WHERE id = ? AND ${inBox}`);
+      const fromStreets = db.prepare(`SELECT id, type, geometry_json, tags_json FROM streets WHERE id = ? AND ${inBox}`);
+      for (const id of memberIds) {
+        // Primary keys of the importer (`osm-local-data-service#importGeoJSONSeq`); pois first, for the way's own tags.
+        const row = fromPois.get(`osm_poi_way_${id}`, b.minLat, b.maxLat, b.minLng, b.maxLng)
+          ?? fromStreets.get(`osm_way_${id}`, b.minLat, b.maxLat, b.minLng, b.maxLng);
+        if (!row) continue;
+        const el = this.toOverpassElement(row, 'way');
+        if (el.type === 'way' && String(el.id) === String(id)) byId.set(String(id), el);
+      }
+      return [...byId.values()];
+    } catch (error) {
+      console.error(`❌ [LocalOSMFetcher] Error fetching ways by bridge/waterway relation:`, error);
       return null;
     }
   }
