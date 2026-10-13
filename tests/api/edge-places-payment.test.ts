@@ -31,6 +31,8 @@ before(async () => {
 
 const SUB_UUID = '11111111-2222-4333-8444-555555555555'
 const SUBMISSION = '99999999-8888-4777-8666-555555555555'
+// #914: the payer's CEP and number, sent by every Pix checkout (the card sends them in `holder`)
+const ADDRESS = { postal_code: '28950-000', address_number: '12' }
 const REF = `com_historia_3m:${SUB_UUID}`
 const TOKEN = 'whk-token-123'
 
@@ -61,6 +63,8 @@ type RpcCall = { schema: string; fn: string; args: Record<string, unknown> }
 function fakeDb(answers: Record<string, { data?: unknown; error?: { code?: string; details?: string } | null }>) {
   const calls: RpcCall[] = []
   const rpc = async (schema: 'partner' | 'core', fn: string, args: Record<string, unknown>) => {
+    // #923: the payment link has its own suite (edge-places-payment-link.test.ts), kept out of these call lists.
+    if (fn === 'record_place_payment_link') return { data: [{ outcome: 'recorded' }], error: null }
     calls.push({ schema, fn, args })
     const a = answers[fn] ?? { data: null }
     return { data: a.data ?? null, error: a.error ?? null }
@@ -79,7 +83,9 @@ function deps(asaas: ReturnType<typeof fakeAsaas>, db: ReturnType<typeof fakeDb>
     expiredLiveCards: async () => [],
     cancelsToRedo: async () => [],
     alert: async (what: string, fields: Record<string, unknown>) => {
-      alerts.push({ what, fields })
+      // #914: a confirmed fee with the secrets unset (the default here) alerts invoice_config_missing;
+      // that alert is proven in edge-places-invoice.test.ts, not counted among this file's.
+      if (what !== 'invoice_config_missing') alerts.push({ what, fields })
     },
     today: () => '2026-10-04',
     now: () => new Date('2026-10-04T12:00:00Z'),
@@ -94,6 +100,9 @@ function deps(asaas: ReturnType<typeof fakeAsaas>, db: ReturnType<typeof fakeDb>
     invoiceTargets: async () => [],
     // #903: no payout in `sent` by default
     sentPayouts: async () => [],
+    // #916: no legacy submission by default
+    legacyOf: async () => null,
+    legacyFeesEnded: async () => [],
     ...extra,
   }
   return { d, alerts, links }
@@ -272,6 +281,26 @@ test('#811 demand 1: SUBSCRIPTION_DELETED cancels only if the re-read subscripti
   assert.deepEqual(db2.calls[0].args, { p_event_id: 'e2', p_event_type: 'SUBSCRIPTION_DELETED', p_subscription_id: SUB_UUID, p_provider_subscription_id: 'sub_1', p_actor_kind: 'provider' })
 })
 
+test('#914 BR-B2B-046: SUBSCRIPTION_DELETED of a sub_ a new checkout replaced (subscription_mismatch) is logged, not alerted', async () => {
+  for (const event of ['SUBSCRIPTION_DELETED', 'SUBSCRIPTION_INACTIVATED']) {
+    const asaas = fakeAsaas([at('GET', '/subscriptions/sub_old', 200, { id: 'sub_old', status: 'INACTIVE', deleted: true, value: 100, externalReference: REF })])
+    const db = fakeDb({ cancel_place_subscription: { data: [{ outcome: 'subscription_mismatch' }] } })
+    const { d, alerts } = deps(asaas, db)
+    const r = await pay.handleAsaasWebhook(d, TOKEN, TOKEN, { id: 'e_old', event, subscription: { id: 'sub_old' } })
+    assert.deepEqual(r, { status: 200, body: { outcome: 'superseded' } }, event)
+    assert.equal(alerts.length, 0, event)
+  }
+})
+
+test('#914: a paid charge (PAYMENT_*) with subscription_mismatch still alerts', async () => {
+  const asaas = fakeAsaas([at('GET', '/payments/pay_1', 200, confirmedPayment)])
+  const db = fakeDb({ confirm_place_charge: { data: [{ outcome: 'subscription_mismatch' }] } })
+  const { d, alerts } = deps(asaas, db)
+  const r = await pay.handleAsaasWebhook(d, TOKEN, TOKEN, { id: 'evt_m', event: 'PAYMENT_CONFIRMED', payment: { id: 'pay_1' } })
+  assert.equal(r.status, 200)
+  assert.deepEqual(alerts.map((a) => a.what), ['subscription_mismatch'])
+})
+
 test('#811: chargeback is not handled — 200 and an alert', async () => {
   const { d, alerts } = deps(fakeAsaas([]), fakeDb({}))
   const r = await pay.handleAsaasWebhook(d, TOKEN, TOKEN, { id: 'e', event: 'PAYMENT_CHARGEBACK_REQUESTED', payment: { id: 'pay_1' } })
@@ -391,7 +420,7 @@ test('#898 BR-B2B-046 (SSOT): the first fee date is the database next_due_date a
   assert.equal((pay as Record<string, unknown>).firstChargeOn, undefined)
   const asaas = fakeAsaas([
     at('GET', '/subscriptions?', 200, { data: [] }),
-    at('GET', '/customers?', 200, { data: [{ id: 'cus_1' }] }),
+    at('GET', '/customers?', 200, { data: [{ id: 'cus_1', postalCode: '28950000', addressNumber: '12' }] }),
     at('POST', '/subscriptions', 200, { id: 'sub_new', status: 'ACTIVE', value: 540 }),
   ])
   const db = fakeDb({ place_payment_checkout: { data: [{ ...checkoutRow, next_due_date: '2026-11-17' }] }, attach_place_subscription: { data: 'pending_payment' } })
@@ -403,7 +432,7 @@ test('#898 BR-B2B-046 (SSOT): the first fee date is the database next_due_date a
 test('#898 BR-B2B-047: an acceptance with no trial (next_due_date = today) is charged at once, as before — processing, no access link from the checkout', async () => {
   const asaas = fakeAsaas([
     at('GET', '/subscriptions?', 200, { data: [] }),
-    at('GET', '/customers?', 200, { data: [{ id: 'cus_1' }] }),
+    at('GET', '/customers?', 200, { data: [{ id: 'cus_1', postalCode: '28950000', addressNumber: '12' }] }),
     at('POST', '/subscriptions', 200, { id: 'sub_new', status: 'ACTIVE', value: 540 }),
     at('GET', '/payments?subscription=sub_new', 200, { data: [{ id: 'pay_1', status: 'PENDING', value: 540 }] }),
   ])
@@ -432,7 +461,7 @@ test('#811 demand 5: a live unpaid subscription for the same reference is delete
     at('GET', '/subscriptions?', 200, { data: [{ id: 'sub_old', status: 'ACTIVE', value: 540 }] }),
     at('GET', '/payments?subscription=sub_old', 200, { data: [{ id: 'pay_0', status: 'PENDING', value: 540 }] }),
     at('DELETE', '/subscriptions/sub_old', 200, { deleted: true }),
-    at('GET', '/customers?', 200, { data: [{ id: 'cus_1' }] }),
+    at('GET', '/customers?', 200, { data: [{ id: 'cus_1', postalCode: '28950000', addressNumber: '12' }] }),
     at('POST', '/subscriptions', 200, { id: 'sub_new', status: 'ACTIVE', value: 540 }),
     at('GET', '/payments?subscription=sub_new', 200, { data: [] }),
     at('PUT', '/subscriptions/sub_new', 200, {}),
@@ -449,7 +478,7 @@ test('#811 demand 5: a live unpaid subscription for the same reference is delete
 test('#811 §3.1: TGP10 renewing after the new subscription exists → it is refunded and deleted', async () => {
   const asaas = fakeAsaas([
     at('GET', '/subscriptions?', 200, { data: [] }),
-    at('GET', '/customers?', 200, { data: [{ id: 'cus_1' }] }),
+    at('GET', '/customers?', 200, { data: [{ id: 'cus_1', postalCode: '28950000', addressNumber: '12' }] }),
     at('POST', '/subscriptions', 200, { id: 'sub_new', status: 'ACTIVE', value: 540 }),
     at('GET', '/payments?subscription=sub_new', 200, { data: [{ id: 'pay_1', status: 'CONFIRMED', value: 540 }] }),
     at('POST', '/payments/pay_1/refund', 200, {}),
@@ -467,7 +496,7 @@ test('#811 §3.1: TGP10 renewing after the new subscription exists → it is ref
 test('#811: refused card → 402, nothing attached', async () => {
   const asaas = fakeAsaas([
     at('GET', '/subscriptions?', 200, { data: [] }),
-    at('GET', '/customers?', 200, { data: [{ id: 'cus_1' }] }),
+    at('GET', '/customers?', 200, { data: [{ id: 'cus_1', postalCode: '28950000', addressNumber: '12' }] }),
     at('POST', '/subscriptions', 400, { errors: [{ code: 'invalid_creditCard', description: 'Transação não autorizada' }] }),
   ])
   const db = fakeDb({ place_payment_checkout: { data: [checkoutRow] } })
@@ -495,8 +524,12 @@ const cardIds = { subscription_id: SUB_UUID, payment_method: 'credit_card', prov
 
 function cancelPortal(asaas: ReturnType<typeof fakeAsaas>, db: ReturnType<typeof fakeDb>, user: ReturnType<typeof fakeDb>) {
   const x = portal(asaas, db, user)
-  const mail = { subject: '', text: '' }
-  ;(x.d as Record<string, unknown>).sendEmail = async (to: string, subject: string, text: string) => { x.sent.push(to); mail.subject = subject; mail.text = text; return true }
+  const mail = { subject: '', text: '', html: '', fromName: undefined as string | undefined, replyTo: undefined as string | undefined }
+  ;(x.d as Record<string, unknown>).sendEmail = async (to: string, subject: string, text: string, m?: { html?: string; fromName?: string; replyTo?: string }) => {
+    x.sent.push(to)
+    Object.assign(mail, { subject, text, html: m?.html ?? '', fromName: m?.fromName, replyTo: m?.replyTo })
+    return true
+  }
   ;(x.d as Record<string, unknown>).subscriptionIds = async () => cardIds
   return { ...x, mail }
 }
@@ -539,13 +572,18 @@ test('#863 §8.4 BR-B2B-055, BR-B2B-046: cancel with fee 0 — endDate = eve of 
   const r = await pay.cancelRenewal(d as never, SUBMISSION)
   assert.deepEqual(r, { status: 200, body: { result: 'canceled' } })
   assert.deepEqual(user.calls, [{ schema: 'core', fn: 'portal_cancel_renewal', args: { p_submission_id: SUBMISSION } }])
-  // the owner never reaches cancel_place_subscription(…'client') (§8.4)
-  assert.deepEqual(db.calls, [])
+  // the owner never reaches cancel_place_subscription(…'client') (§8.4); the only service_role
+  // call is the #913 survey record (BR-B2B-060 item 7)
+  assert.deepEqual(db.calls.map((c) => c.fn), ['record_place_cancellation_feedback'])
   assert.deepEqual(asaas.calls.map((c) => `${c.method} ${c.path}`), ['PUT /subscriptions/sub_1', 'GET /payments?subscription=sub_1&status=PENDING'])
   assert.deepEqual(asaas.calls[0].body, { endDate: '2027-01-05' })
   assert.deepEqual(sent, ['ze@example.com'])
+  assert.equal(mail.subject, 'Seu plano Com história foi cancelado')
+  assert.equal(mail.replyTo, 'suporte@tuggi.app')
+  assert.equal(mail.fromName, 'Tuggi Locais')
+  assert.match(mail.html, /<a href="https:\/\/partner\.tuggi\.app"[^>]*>Entrar<\/a>/)
   assert.match(mail.text, /no ar até 06\/01\/2027/)
-  assert.match(mail.text, /Nenhuma outra cobrança/)
+  assert.match(mail.text, /Você não terá mais nenhuma cobrança\./)
   assert.doesNotMatch(mail.text, /R\$/)
 })
 
@@ -565,7 +603,8 @@ test('#863 §8.4 BR-B2B-046: card cancel with fee — the charge already generat
   assert.deepEqual(asaas.calls[0].body, { value: 135, endDate: '2027-01-06', updatePendingPayments: true })
   assert.deepEqual(alerts, [])
   assert.match(mail.text, /no ar até 06\/01\/2027/)
-  assert.match(mail.text, /uma única vez R\$ 135,00, a diferença do desconto dos meses usados, no seu cartão em 06\/01\/2027/)
+  assert.match(mail.text, /há uma última cobrança de R\$ 135,00, a diferença do desconto dos meses usados, no seu cartão em 06\/01\/2027/)
+  assert.equal(mail.replyTo, 'suporte@tuggi.app')
 })
 
 test('#863 §8.4: Asaas down on cancel — the database is not undone, the operator is alerted, the owner still gets 200 and the e-mail still states the fee', async () => {
@@ -582,7 +621,63 @@ test('#863 §8.4: Asaas down on cancel — the database is not undone, the opera
 test('#863 §8.4: the cancel e-mail formats the fee like the portal (thousands, cents)', () => {
   assert.equal(pay.formatBrl(13500), 'R$ 135,00')
   assert.equal(pay.formatBrl(123456), 'R$ 1.234,56')
-  assert.equal(pay.CANCEL_EMAIL.subject, 'Plano Com história cancelado')
+  assert.equal(pay.CANCEL_EMAIL.subject, 'Seu plano Com história foi cancelado')
+})
+
+const D =
+  'Se quiser voltar, o seu local continua cadastrado. É só entrar e contratar o plano Com história de novo.\n\nEntrar: https://partner.tuggi.app\n\nPode contar para a gente por que cancelou? Basta responder este e-mail. Uma linha já nos ajuda a melhorar.\n\nEquipe Tuggi'
+const A = 'Olá,\n\nConfirmamos o cancelamento do seu plano Com história. Obrigado por ter mostrado o seu local aos turistas que usam o Tuggi, vamos sentir falta da sua história no app.'
+const B_UNTIL = 'A história do seu local continua no ar até 06/01/2027. Depois disso, o local segue no mapa do app no plano No mapa, sem custo.'
+const B_NONE = 'O local segue no mapa do app no plano No mapa, sem custo.'
+const LAST = 'As mensalidades param aqui. Como o cancelamento veio antes do fim da fidelidade, há uma última cobrança de R$ 135,00, a diferença do desconto dos meses usados,'
+const fee = (method: string, invoiceUrl: string | null = null) => ({ cents: 13500, chargeOn: '2027-01-06', method, invoiceUrl }) as never
+const cancelText = (until: string | null, f: unknown) => pay.CANCEL_EMAIL.build(until, f as never).text
+
+test('#863 §8.4 BR-B2B-046: cancel e-mail (text approved 2026-10-08) — plain text keeps blocks A, B, C, D, E word for word and the portal URL, one per variant of C', () => {
+  const t = cancelText
+  assert.equal(pay.CANCEL_EMAIL.subject, 'Seu plano Com história foi cancelado')
+  assert.equal(pay.CANCEL_EMAIL.replyTo, 'suporte@tuggi.app')
+  assert.equal(pay.CANCEL_EMAIL.fromName, 'Tuggi Locais')
+  assert.equal(t('06/01/2027', null), [A, B_UNTIL, 'Você não terá mais nenhuma cobrança.', D].join('\n\n'))
+  assert.equal(t(null, null), [A, B_NONE, 'Você não terá mais nenhuma cobrança.', D].join('\n\n'))
+  assert.equal(
+    t('06/01/2027', fee('credit_card')),
+    [A, B_UNTIL, `${LAST} no seu cartão em 06/01/2027. Depois dela, nada mais é cobrado.`, D].join('\n\n'),
+  )
+  assert.equal(
+    t('06/01/2027', fee('pix')),
+    [A, B_UNTIL, `${LAST} por Pix, com vencimento em 06/01/2027. O código Pix chega por e-mail antes dessa data. Depois desse pagamento, nada mais é cobrado.`, D].join('\n\n'),
+  )
+  const auto = `${LAST} por Pix, com vencimento em 06/01/2027. O Pix Automático já foi encerrado, então esse valor não sai sozinho da sua conta.`
+  assert.equal(
+    t('06/01/2027', fee('pix_automatic', 'https://sandbox.asaas.com/i/abc')),
+    [A, B_UNTIL, `${auto} Para pagar, abra https://sandbox.asaas.com/i/abc`, 'Depois desse pagamento, nada mais é cobrado.', D].join('\n\n'),
+  )
+  assert.equal(
+    t('06/01/2027', fee('pix_automatic')),
+    [A, B_UNTIL, `${auto} O código Pix chega por e-mail antes dessa data.`, 'Depois desse pagamento, nada mais é cobrado.', D].join('\n\n'),
+  )
+  // the old text said "nenhuma cobrança" twice; each variant now says the charge part once, and nothing old is left
+  for (const text of [t(null, null), t('06/01/2027', fee('credit_card')), t('06/01/2027', fee('pix')), t('06/01/2027', fee('pix_automatic'))]) {
+    assert.ok((text.match(/cobrança/g) ?? []).length <= 1, text)
+    assert.doesNotMatch(text, /Cancelamos o seu|Nenhuma (outra|mensalidade)|cobramos uma única vez|Mandamos o código|Se mudar de ideia|pelo portal/)
+  }
+})
+
+test('#863 §8.4: cancel e-mail in the portal layout — preheader, the blocks as paragraphs, the portal as the "Entrar" button (no raw URL in the paragraph), the reason question after it, no small print', () => {
+  const { subject, html } = pay.CANCEL_EMAIL.build('06/01/2027', fee('credit_card'))
+  assert.equal(subject, 'Seu plano Com história foi cancelado')
+  assert.match(html, /^<!doctype html>/i)
+  assert.match(html, /<div style="display:none[^"]*">Confirmamos o cancelamento do seu plano Com história\.<\/div>/)
+  const button = html.indexOf('<a href="https://partner.tuggi.app"')
+  assert.ok(button > 0)
+  assert.match(html, /<a href="https:\/\/partner\.tuggi\.app"[^>]*>Entrar<\/a>/)
+  assert.equal(html.split('https://partner.tuggi.app').length, 2, 'the URL is only the button')
+  assert.ok(html.indexOf('É só entrar e contratar o plano Com história de novo.') < button)
+  assert.ok(html.indexOf('Pode contar para a gente por que cancelou?') > button)
+  assert.ok(html.indexOf('Equipe Tuggi') > html.indexOf('Pode contar'))
+  assert.match(html, /há uma última cobrança de R\$ 135,00, a diferença do desconto dos meses usados, no seu cartão em 06\/01\/2027/)
+  assert.doesNotMatch(html, /font-size:13px/, 'no small print')
 })
 
 const freeMonthIds = { ...cardIds, status: 'pending_payment' }
@@ -595,9 +690,9 @@ test('#898 BR-B2B-046 item 9: cancel inside the free month (nothing paid, no pai
   ;(d as Record<string, unknown>).subscriptionIds = async () => freeMonthIds
   assert.deepEqual(await pay.cancelRenewal(d as never, SUBMISSION), { status: 200, body: { result: 'canceled' } })
   assert.deepEqual(asaas.calls.map((c) => `${c.method} ${c.path}`), ['DELETE /subscriptions/sub_1'])
-  assert.deepEqual(db.calls, [])
+  assert.deepEqual(db.calls.map((c) => c.fn), ['record_place_cancellation_feedback']) // #913: the survey record is the only service_role call
   assert.deepEqual(alerts, [])
-  assert.match(mail.text, /Nenhuma outra cobrança/)
+  assert.match(mail.text, /Você não terá mais nenhuma cobrança\./)
   assert.doesNotMatch(mail.text, /R\$/)
 })
 
@@ -631,7 +726,7 @@ test('#898: a paid row with no paid_through yet is never deleted by a cancel (on
 })
 
 test('#898: the cancel e-mail of a Pix subscription says the Pix code arrives by e-mail, not that Pix Automático ended', () => {
-  const text = pay.CANCEL_EMAIL.text('06/01/2027', { cents: 13500, chargeOn: '2027-01-06', method: 'pix', invoiceUrl: null })
+  const text = cancelText('06/01/2027', { cents: 13500, chargeOn: '2027-01-06', method: 'pix', invoiceUrl: null })
   assert.match(text, /R\$ 135,00/)
   assert.match(text, /código Pix chega por e-mail/)
   assert.doesNotMatch(text, /Pix Automático/)
@@ -956,19 +1051,19 @@ test('#863: the cookie checkout of a draft not yet accepted, or of a plan with n
     const asaas = fakeAsaas([])
     const { d } = deps(asaas, fakeDb({ portal_draft_payment_checkout: { error: { code: 'TGP10', details } } }))
     assert.deepEqual(await pay.draftCheckout(d, checkoutBody, COOKIE), { status: 409, body: { error: 'not_payable', reason } })
-    assert.deepEqual(await pay.draftCheckoutPix(d, COOKIE), { status: 409, body: { error: 'not_payable', reason } })
+    assert.deepEqual(await pay.draftCheckoutPix(d, { address: ADDRESS }, COOKIE), { status: 409, body: { error: 'not_payable', reason } })
     assert.equal(asaas.calls.length, 0)
   }
   const paid = deps(fakeAsaas([]), fakeDb({ portal_draft_payment_checkout: { data: [{ ...draftRow, status: 'paid', next_due_date: null }] } }))
   assert.deepEqual(await pay.draftCheckout(paid.d, checkoutBody, COOKIE), { status: 409, body: { error: 'not_payable', reason: 'paid' } })
   const gone = deps(fakeAsaas([]), fakeDb({ portal_draft_payment_checkout: { error: { code: 'TGP01' } } }))
-  assert.equal((await pay.draftCheckoutPix(gone.d, COOKIE)).status, 404)
+  assert.equal((await pay.draftCheckoutPix(gone.d, { address: ADDRESS }, COOKIE)).status, 404)
 })
 
 test('#863: a cookie hash out of shape, or a bad card, never reaches the database', async () => {
   const db = fakeDb({})
   const { d } = deps(fakeAsaas([]), db)
-  assert.deepEqual(await pay.draftCheckoutPix(d, 'A'.repeat(64)), { status: 400, body: { error: 'invalid', field: 'token_sha256' } })
+  assert.deepEqual(await pay.draftCheckoutPix(d, { address: ADDRESS }, 'A'.repeat(64)), { status: 400, body: { error: 'invalid', field: 'token_sha256' } })
   assert.deepEqual(await pay.draftCheckout(d, { ...checkoutBody, card: { ...checkoutBody.card, number: '4111111111111112' } }, COOKIE), { status: 400, body: { error: 'invalid', field: 'card_number' } })
   assert.equal(db.calls.length, 0)
 })
@@ -1052,11 +1147,13 @@ test('#904 BR-B2B-044: confirm_pix_key writes through the owner RPC and sends th
     portal_get_submission: { data: [{ answers: { representative_name: 'José da Silva', trade_name: 'Bar do Zé' } }] },
   })
   const x = portal(asaas, fakeDb({}), user)
-  const mail = { subject: '', text: '' }
-  ;(x.d as Record<string, unknown>).sendEmail = async (to: string, subject: string, text: string) => { x.sent.push(to); mail.subject = subject; mail.text = text; return true }
+  const mail = { subject: '', text: '', args: 0 }
+  ;(x.d as Record<string, unknown>).sendEmail = async (to: string, subject: string, text: string, ...rest: unknown[]) => { x.sent.push(to); mail.subject = subject; mail.text = text; mail.args = 3 + rest.length; return true }
   const r = await pay.confirmPixKey(x.d as never, SUBMISSION)
   assert.equal(r.status, 200)
   assert.deepEqual(r.body, { result: 'confirmed', pix_key: '12345678000195' })
+  // reply_to is only the cancel e-mail's: this one is sent with the three arguments
+  assert.equal(mail.args, 3)
   assert.deepEqual(user.calls[0], { schema: 'core', fn: 'portal_confirm_payout_pix_key', args: { p_submission_id: SUBMISSION } })
   assert.deepEqual(x.sent, ['ze@example.com'])
   assert.equal(mail.subject, 'Chave Pix confirmada no portal Tuggi')

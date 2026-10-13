@@ -6,6 +6,7 @@
 
 import { createAdminClient } from './supabase-client.ts';
 import { PORTAL_ORIGIN_ENV, PORTAL_SIGNUP_ORIGIN, portalOrigin, type AccessLinkDeps, type Deps } from './places-portal-draft.ts';
+import { isPayingLegacy } from './places-legacy-access.ts';
 
 const RESEND_URL = 'https://api.resend.com/emails';
 
@@ -75,6 +76,14 @@ export function submissionReads(admin: Admin): Deps['submissions'] {
         .maybeSingle();
       if (error) throw new Error(`submission read ${error.code}`);
       return typeof data?.id === 'string' ? data.id : null;
+    },
+    async legacyMail(submissionId) {
+      const { data, error } = await table().select('legacy_client_id').eq('id', submissionId).maybeSingle();
+      if (error) throw new Error(`submission read ${error.code}`);
+      if (typeof data?.legacy_client_id !== 'string') return null;
+      const c = await admin.schema('core').from('clients').select('name, monthly_fee_cents, is_courtesy').eq('id', data.legacy_client_id).maybeSingle();
+      if (c.error) throw new Error(`client read ${c.error.code}`);
+      return { placeName: c.data?.name ?? '', paying: isPayingLegacy(c.data ?? {}) };
     },
   };
 }

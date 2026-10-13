@@ -46,6 +46,12 @@ export const HEAD =
   'sticky top-7 z-10 bg-white/95 px-3 py-2.5 text-left text-[10px] font-bold uppercase tracking-widest text-gray-500 backdrop-blur dark:bg-gray-900/95 dark:text-gray-400'
 /** Dinheiro e contagem alinham à direita — é o que deixa a vírgula embaixo da vírgula. */
 export const HEAD_NUM = `${HEAD} text-right`
+/**
+ * Tabela SEM a faixa de grupos: a faixa de colunas gruda em `top-0`. `HEAD` com `top-7` sozinho
+ * desloca o cabeçalho 28px para baixo já em repouso, e ele cobre a primeira linha (#918, Mensalidades).
+ */
+export const HEAD_SOLO = HEAD.replace('top-7', 'top-0')
+export const HEAD_SOLO_NUM = `${HEAD_SOLO} text-right`
 export const CELL = 'px-3 py-2.5 text-sm text-gray-800 dark:text-gray-200 align-middle'
 export const NUM = `${CELL} text-right tabular-nums whitespace-nowrap`
 /**

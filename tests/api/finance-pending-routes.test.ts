@@ -295,3 +295,67 @@ test('#902: /subscriptions sem sessão responde 401', async () => {
   scenario = { user: null, cmsUser: null, tables: {} }
   assert.equal((await subscriptions(new Request(SUBS_URL))).status, 401)
 })
+
+test('#918 §3.8: /subscriptions shows the CMS contract row (no acceptance) with the client name, the POI of the mirror, and sums it; a portal checkout draft stays out', async () => {
+  asRole('admin')
+  healthyBilling()
+  scenario.tables.place_subscriptions = ok([
+    SUB_ROW,
+    {
+      ...SUB_ROW,
+      id: 'sub-k',
+      origin: 'cms_contract',
+      acceptance_id: null,
+      legacy_client_id: 'client-k',
+      legacy_submission_id: 'mirror-k',
+      status: 'paid',
+      payment_method: 'bank_slip_or_pix',
+      created_at: '2026-08-01T12:00:00Z',
+      paid_at: '2026-08-20T12:00:00Z',
+      place_acceptances: null,
+      contract_submission: { attraction_id: 'poi-k' },
+    },
+    {
+      ...SUB_ROW,
+      id: 'sub-k2',
+      origin: 'cms_contract',
+      acceptance_id: null,
+      legacy_client_id: 'client-k2',
+      legacy_submission_id: 'mirror-k2',
+      status: 'pending_payment',
+      payment_method: 'bank_slip_or_pix',
+      created_at: '2026-08-02T12:00:00Z',
+      paid_at: null,
+      renewal_amount_cents: 10_000,
+      place_acceptances: null,
+      contract_submission: { attraction_id: 'poi-k2' },
+    },
+    { ...SUB_ROW, id: 'sub-draft', status: 'pending_payment', paid_at: null },
+  ])
+  scenario.tables.place_subscription_charges = ok([
+    CHARGE_ROW,
+    { ...CHARGE_ROW, subscription_id: 'sub-k', provider_payment_id: 'pay_k', kind: 'first', amount_cents: 10_000, due_date: '2026-08-20', paid_on: '2026-08-20' },
+  ])
+  scenario.tables.attractions = ok([
+    { id: 'poi-k', name: 'Pousada Antiga', partner_client_id: 'client-k', entity_kind: 'place' },
+    { id: 'poi-k2', name: 'Bar Antigo', partner_client_id: 'client-k2', entity_kind: 'place' },
+  ])
+  scenario.tables.clients = ok([
+    { id: 'client-k', name: 'Pousada Antiga Ltda', company_name: null },
+    { id: 'client-k2', name: 'Bar Antigo ME', company_name: null },
+  ])
+
+  const body = await (await subscriptions(new Request(SUBS_URL))).json()
+  const byId = new Map(body.subscriptions.map((s: any) => [s.id, s]))
+  assert.deepEqual([...byId.keys()].sort(), ['sub-1', 'sub-k', 'sub-k2'], 'the portal draft stays out')
+  const k: any = byId.get('sub-k')
+  assert.equal(k.origin, 'cms_contract')
+  assert.equal(k.acceptanceId, null)
+  assert.equal(k.placeName, 'Pousada Antiga')
+  assert.equal(k.clientName, 'Pousada Antiga Ltda')
+  assert.equal(k.clientId, 'client-k')
+  assert.equal(k.paymentMethod, 'bank_slip_or_pix')
+  assert.equal((byId.get('sub-k2') as any).placeName, 'Bar Antigo')
+  assert.equal(body.totals.receivedCents, 20_000, 'the portal charge and the CMS contract charge')
+  assert.equal(body.totals.recurringCents, 30_000, 'portal + paid contract + contract running before its first payment')
+})

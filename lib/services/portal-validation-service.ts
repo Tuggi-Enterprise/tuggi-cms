@@ -410,24 +410,40 @@ async function acceptanceOf(
 }
 
 /**
+ * #916: the mirror submission of a client from before the portal (`legacy_client_id`, made by
+ * `partner.place_seed_legacy_submission` so the client reaches `/status`) is no portal registration
+ * while it has no acceptance: nobody registered the place through the portal and nobody accepted the
+ * portal terms. Once the client accepts a portal plan on it (`core.portal_accept_legacy_plan`), it is.
+ * Reads `legacy_client_id` (migration of #916): the CMS that carries this ships after it.
+ */
+export const PORTAL_REGISTRATION_COLUMNS = 'legacy_client_id, place_acceptances(id)'
+
+export function isLegacyMirror(row: { legacy_client_id?: string | null; place_acceptances?: unknown }): boolean {
+  const acceptance = Array.isArray(row.place_acceptances) ? row.place_acceptances[0] : row.place_acceptances
+  return !!row.legacy_client_id && !acceptance
+}
+
+/**
  * The portal registration of ONE place (#885, `mergeRegistrationIntoPlace`): the answers of the
  * latest submission whose POI it is, and the tier accepted on it (`acceptanceOf`). `null` when the
- * place has no portal submission; `undefined` when the read failed.
+ * place has no portal submission (#916: a legacy mirror is none); `undefined` when the read failed.
  */
 export async function portalRegistrationOfPlace(
   attractionId: string
 ): Promise<{ answers: PartnerAnswers; acceptedPlanChoice: PlanChoice | null } | null | undefined> {
   const { data, error } = await partner()
     .from('place_submissions')
-    .select('id, answers')
+    .select(`id, answers, ${PORTAL_REGISTRATION_COLUMNS}`)
     .eq('attraction_id', attractionId)
     .order('submitted_at', { ascending: false })
-    .limit(1)
+    .limit(5)
   if (error) {
     console.error('[portal-validation] place registration lookup failed', error.code)
     return undefined
   }
-  const submission = (data as { id: string; answers: PartnerAnswers | null }[] | null)?.[0]
+  const submission = (data as ({ id: string; answers: PartnerAnswers | null } & Parameters<typeof isLegacyMirror>[0])[] | null)?.find(
+    (row) => !isLegacyMirror(row)
+  )
   if (!submission) return null
   const acceptance = await acceptanceOf(submission.id)
   return { answers: submission.answers ?? {}, acceptedPlanChoice: acceptance?.planChoice ?? null }
@@ -443,8 +459,8 @@ export interface ClientPortalSubmission {
 
 /**
  * The portal submissions behind a client's places: a POI of theirs is the `attraction_id` of a
- * submission (the link `resolveApprovalClient` writes). `null` when either read failed — the
- * callers decide what failing means for them.
+ * submission (the link `resolveApprovalClient` writes), a legacy mirror left out (#916,
+ * `isLegacyMirror`). `null` when either read failed — the callers decide what failing means for them.
  */
 export async function portalSubmissionsOfClient(clientId: string): Promise<ClientPortalSubmission[] | null> {
   const { data: places, error: placesError } = await getSupabaseService()
@@ -461,7 +477,7 @@ export async function portalSubmissionsOfClient(clientId: string): Promise<Clien
 
   const { data, error } = await partner()
     .from('place_submissions')
-    .select('id, status, attraction_id, submitted_at')
+    .select(`id, status, attraction_id, submitted_at, ${PORTAL_REGISTRATION_COLUMNS}`)
     .in(
       'attraction_id',
       (places as { id: string }[]).map((place) => place.id)
@@ -474,7 +490,9 @@ export async function portalSubmissionsOfClient(clientId: string): Promise<Clien
     console.error('[portal-validation] portal origin lookup failed', error.code)
     return null
   }
-  return (data ?? []) as ClientPortalSubmission[]
+  return ((data ?? []) as (ClientPortalSubmission & Parameters<typeof isLegacyMirror>[0])[])
+    .filter((row) => !isLegacyMirror(row))
+    .map(({ id, status, attraction_id, submitted_at }) => ({ id, status, attraction_id, submitted_at }))
 }
 
 /**

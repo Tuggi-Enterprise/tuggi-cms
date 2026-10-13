@@ -11,7 +11,9 @@
 // flow against a mocked Asaas. The function `index.ts` files pass the real `fetch`.
 //
 // NEVER LOG A BODY. A customer carries name, CPF/CNPJ and e-mail; a subscription request carries
-// the card. What leaves this module in an error is the HTTP status and the Asaas error codes.
+// the card. What leaves this module in an error is the HTTP status, the Asaas error codes and their
+// `description` (#914: the code alone, `invalid_action`, does not say what to fix), with every
+// e-mail and every run of 5+ digits masked (`safeDescription`): the text is Asaas', not ours.
 
 export type AsaasFetch = (url: string, init: RequestInit) => Promise<Response>;
 
@@ -25,13 +27,26 @@ export type AsaasConfig = {
 export const ASAAS_USER_AGENT = 'Tuggi-Places/1.0';
 export const ASAAS_TIMEOUT_MS = 60_000;
 
+/** An Asaas error `description`, safe for a log or an alert: e-mails and digit runs (CPF, CEP, card) masked, 200 chars. */
+export function safeDescription(raw: unknown): string {
+  if (typeof raw !== 'string') return '';
+  return raw
+    .replace(/[^\s@]+@[^\s@]+/g, '[email]')
+    .replace(/\d[\d.\-/ ]{3,}\d/g, (m) => (m.replace(/\D/g, '').length >= 5 ? '[n]' : m))
+    .replace(/\s+/g, ' ')
+    .trim()
+    .slice(0, 200);
+}
+
 /** A non-2xx answer from Asaas. `status` 0 = network failure or timeout (nothing is known). */
 export class AsaasError extends Error {
   constructor(
     readonly status: number,
     readonly codes: string[],
+    /** #914: what Asaas says is wrong, already masked by `safeDescription`. */
+    readonly descriptions: string[] = [],
   ) {
-    super(`asaas ${status}${codes.length ? ` ${codes.join(',')}` : ''}`);
+    super(`asaas ${status}${codes.length ? ` ${codes.join(',')}` : ''}${descriptions.length ? `: ${descriptions.join('; ')}` : ''}`);
   }
   /** Transport or Asaas-side failure: retrying later can succeed. */
   get transient(): boolean {
@@ -53,12 +68,18 @@ export type AsaasPayment = {
   clientPaymentDate?: string | null;
   deleted?: boolean;
   refunds?: { status?: string | null; value?: number | null }[] | null;
+  /** Page to pay, then to see the paid charge (docs.asaas.com/reference/recuperar-uma-unica-cobranca, 2026-10-08). */
+  invoiceUrl?: string | null;
+  /** Receipt of the confirmation, receipt, refund or removal (same page of the doc). */
+  transactionReceiptUrl?: string | null;
 };
 
 export type AsaasSubscription = {
   id: string;
   status: string;
   value: number;
+  /** `cus_…` (docs.asaas.com/reference/recuperar-uma-unica-assinatura, conferred 2026-10-08). */
+  customer?: string | null;
   nextDueDate?: string | null;
   endDate?: string | null;
   cycle?: string;
@@ -157,6 +178,52 @@ export type AsaasScheduleInvoice = {
 
 type List<T> = { data?: T[] | null; hasMore?: boolean | null };
 
+/**
+ * #914: the customer's address. Asaas fills street, district and city from `postalCode`
+ * (https://docs.asaas.com/reference/criar-novo-cliente), and refuses the NFS-e of a customer
+ * without it ("Endereço do cliente incompleto.; CEP do cliente é inválido.", `invalid_action`).
+ */
+export type AsaasCustomerAddress = { postalCode: string; addressNumber: string };
+
+export type AsaasCustomer = {
+  id: string;
+  externalReference?: string | null;
+  name?: string | null;
+  cpfCnpj?: string | null;
+  email?: string | null;
+  mobilePhone?: string | null;
+  postalCode?: string | null;
+  addressNumber?: string | null;
+  notificationDisabled?: boolean | null;
+  deleted?: boolean | null;
+};
+
+/** The fields `PUT /v3/customers/{id}` changes; an omitted field keeps its value (doc, 2026-10-08). */
+export type AsaasCustomerPatch = Partial<{
+  name: string;
+  cpfCnpj: string;
+  email: string;
+  mobilePhone: string;
+  postalCode: string;
+  addressNumber: string;
+  externalReference: string;
+  notificationDisabled: boolean;
+}>;
+
+/**
+ * A billing notification of a customer. Asaas creates the set together with the customer; the API
+ * only reads and edits it (doc conferred 2026-10-08:
+ * https://docs.asaas.com/reference/recuperar-notificacoes-de-um-cliente and
+ * https://docs.asaas.com/reference/atualizar-notificacao-existente).
+ */
+export type AsaasNotification = {
+  id: string;
+  event?: string;
+  enabled?: boolean;
+  whatsappEnabledForCustomer?: boolean;
+  deleted?: boolean;
+};
+
 /** `GET /v3/transfers` publishes `limit` max 10. */
 export const TRANSFER_PAGE = 10;
 
@@ -196,10 +263,11 @@ export function asaasClient(cfg: AsaasConfig) {
     }
     const data = (await res.json().catch(() => null)) as Record<string, unknown> | null;
     if (!res.ok) {
-      const errors = Array.isArray(data?.errors) ? (data!.errors as { code?: unknown }[]) : [];
+      const errors = Array.isArray(data?.errors) ? (data!.errors as { code?: unknown; description?: unknown }[]) : [];
       throw new AsaasError(
         res.status,
         errors.map((e) => (typeof e?.code === 'string' ? e.code : '')).filter(Boolean),
+        errors.map((e) => safeDescription(e?.description)).filter(Boolean),
       );
     }
     return data as T;
@@ -209,14 +277,41 @@ export function asaasClient(cfg: AsaasConfig) {
 
   return {
     findCustomerByReference: async (externalReference: string) =>
-      (await call<List<{ id: string }>>('GET', `/customers?${q({ externalReference })}`)).data?.[0] ?? null,
+      (await call<List<AsaasCustomer>>('GET', `/customers?${q({ externalReference })}`)).data?.[0] ?? null,
 
-    createCustomer: (c: { name: string; cpfCnpj: string; email: string; externalReference: string }) =>
-      // Asaas e-mails (invoice, reminders) off: the Tuggi tells the place, in the Tuggi voice.
-      call<{ id: string }>('POST', '/customers', { ...c, notificationDisabled: true }),
+    createCustomer: (
+      c: { name: string; cpfCnpj: string; email: string; externalReference: string; mobilePhone?: string; notificationDisabled?: boolean } & AsaasCustomerAddress,
+    ) =>
+      // Asaas e-mails (invoice, reminders) off unless the caller says otherwise: the portal checkout
+      // tells the place in the Tuggi voice; the legacy partners (`places-legacy-customers`) get Asaas'.
+      call<AsaasCustomer>('POST', '/customers', { notificationDisabled: true, ...c }),
 
-    getCustomer: (id: string) =>
-      call<{ id: string; externalReference?: string | null; email?: string | null }>('GET', `/customers/${encodeURIComponent(id)}`),
+    /** `GET /v3/customers?cpfCnpj=` (https://docs.asaas.com/reference/listar-clientes). Asaas allows duplicates. */
+    findCustomersByCpfCnpj: async (cpfCnpj: string) =>
+      (await call<List<AsaasCustomer>>('GET', `/customers?${q({ cpfCnpj })}`)).data ?? [],
+
+    /** `PUT /v3/customers/{id}`, partial: send only what changes. */
+    updateCustomer: (id: string, patch: AsaasCustomerPatch) =>
+      call<AsaasCustomer>('PUT', `/customers/${encodeURIComponent(id)}`, patch),
+
+    /** `GET /v3/customers/{id}/notifications`. */
+    listCustomerNotifications: async (id: string) =>
+      (await call<List<AsaasNotification>>('GET', `/customers/${encodeURIComponent(id)}/notifications`)).data ?? [],
+
+    /**
+     * `PUT /v3/notifications/{id}` (doc conferred 2026-10-08:
+     * https://docs.asaas.com/reference/atualizar-notificacao-existente). One at a time on purpose: the
+     * batch route fails whole when one event refuses a channel (WhatsApp, measured in production
+     * 2026-10-08).
+     */
+    updateNotification: (id: string, patch: Partial<Omit<AsaasNotification, 'id' | 'event' | 'deleted'>>) =>
+      call<AsaasNotification>('PUT', `/notifications/${encodeURIComponent(id)}`, patch),
+
+    getCustomer: (id: string) => call<AsaasCustomer>('GET', `/customers/${encodeURIComponent(id)}`),
+
+    /** `PUT /v3/customers/{id}` (https://docs.asaas.com/reference/atualizar-cliente-existente), #914. */
+    setCustomerAddress: (id: string, a: AsaasCustomerAddress) =>
+      call<AsaasCustomer>('PUT', `/customers/${encodeURIComponent(id)}`, { postalCode: a.postalCode, addressNumber: a.addressNumber }),
 
     listSubscriptionsByReference: async (externalReference: string) =>
       (await call<List<AsaasSubscription>>('GET', `/subscriptions?${q({ externalReference })}`)).data ?? [],
@@ -248,6 +343,19 @@ export function asaasClient(cfg: AsaasConfig) {
       description: string;
       externalReference: string;
     }) => call<AsaasSubscription>('POST', '/subscriptions', { ...s, billingType: 'PIX' }),
+
+    /**
+     * Subscription the payer settles by boleto or Pix, his pick (`billingType: UNDEFINED`,
+     * https://docs.asaas.com/reference/criar-nova-assinatura, conferred 2026-10-08). The legacy fee (#917).
+     */
+    createUndefinedSubscription: (s: {
+      customer: string;
+      value: number;
+      nextDueDate: string;
+      cycle: string;
+      description: string;
+      externalReference: string;
+    }) => call<AsaasSubscription>('POST', '/subscriptions', { ...s, billingType: 'UNDEFINED' }),
 
     /** `PUT /v3/customers/{id}` (https://docs.asaas.com/reference/atualizar-cliente-existente). */
     setCustomerNotifications: (id: string, enabled: boolean) =>
@@ -299,6 +407,14 @@ export function asaasClient(cfg: AsaasConfig) {
     getPayment: (id: string) => call<AsaasPayment>('GET', `/payments/${encodeURIComponent(id)}`),
 
     deletePayment: (id: string) => call('DELETE', `/payments/${encodeURIComponent(id)}`),
+
+    /**
+     * #914: the QR of a Pix charge (doc conferred 2026-10-08:
+     * https://docs.asaas.com/reference/obter-qr-code-para-pagamentos-via-pix). `encodedImage` is a
+     * base64 PNG, `payload` the copy-and-paste code; dynamic QR, paid once.
+     */
+    getPixQrCode: (id: string) =>
+      call<{ encodedImage?: string | null; payload?: string | null; expirationDate?: string | null }>('GET', `/payments/${encodeURIComponent(id)}/pixQrCode`),
 
     /** `GET /v3/subscriptions/{id}/invoiceSettings`; 404 = none configured (or no such subscription). */
     getSubscriptionInvoiceSettings: async (id: string) => {

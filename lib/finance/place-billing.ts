@@ -7,6 +7,8 @@
  * BR-B2B-046.
  */
 
+import { DUE_DAY_OF_MONTH } from '@/lib/contract/template'
+
 /** O fuso do contrato: `paid_on`, `competence_month` e o prazo do repasse são de São Paulo. */
 export const BILLING_TIME_ZONE = 'America/Sao_Paulo'
 
@@ -137,18 +139,31 @@ export interface PlaceCharge {
   invoice: PlaceInvoice | null
 }
 
+/**
+ * `portal`: nasceu de um aceite do portal. `cms_contract` (#918): a mensalidade do contrato do CMS,
+ * anterior ao portal (`legacy:<client_id>` no Asaas), sem aceite. Mesma tabela, mesmas cobranças e
+ * notas (`places-pagamento.md` §3.8).
+ */
+export type SubscriptionOrigin = 'portal' | 'cms_contract'
+
 export interface PlaceSubscription {
   id: string
-  acceptanceId: string
+  origin: SubscriptionOrigin
+  /** `null` só em `cms_contract`. */
+  acceptanceId: string | null
   clientId: string | null
+  /** Razão social do aceite; em `cms_contract`, o nome do cliente no CMS. */
+  clientName: string | null
   attractionId: string | null
   attractionEntityKind: string | null
   placeName: string
   contactEmail: string
   /** 1, 3 ou 6 — `place_acceptances.billing_period` (BR-B2B-045). */
   billingPeriod: number | null
-  paymentMethod: 'credit_card' | 'pix_automatic' | 'pix' | null
+  paymentMethod: 'credit_card' | 'pix_automatic' | 'pix' | 'bank_slip_or_pix' | null
   status: 'pending_payment' | 'paid' | 'past_due' | 'expired' | 'refund_pending' | 'refunded'
+  /** Instante ISO da criação da linha: o começo do contrato do CMS antes da 1ª cobrança paga. */
+  createdAt: string | null
   paidAt: string | null
   /** `YYYY-MM-DD`, São Paulo: fim do mês pago = próxima cobrança. */
   paidThrough: string | null
@@ -159,8 +174,49 @@ export interface PlaceSubscription {
   earlyTerminationFeeCents: number | null
   /** `YYYY-MM-DD`, São Paulo. */
   earlyTerminationPaidOn: string | null
+  /**
+   * `YYYY-MM-DD`: data interna de revisão do contrato do CMS (#918, `contract_ends_on`). Não é fim:
+   * o contrato é por prazo indeterminado e a cobrança no Asaas renova sozinha. `null` no portal.
+   */
+  contractEndsOn: string | null
   /** Da mais nova para a mais antiga, por vencimento. */
   charges: PlaceCharge[]
+}
+
+/** Dias de antecedência do alerta de renovação do contrato do CMS (operador, 2026-10-08, #918). */
+export const CONTRACT_REVIEW_NOTICE_DAYS = 30
+
+/**
+ * A revisão do contrato do CMS está a `CONTRACT_REVIEW_NOTICE_DAYS` dias ou menos (ou já passou),
+ * com o contrato vivo. `today` é `YYYY-MM-DD` de São Paulo.
+ */
+export function contractReviewDue(subscription: PlaceSubscription, today: string): boolean {
+  const endsOn = subscription.contractEndsOn
+  if (endsOn === null || subscription.origin !== 'cms_contract' || isCanceled(subscription)) return false
+  return daysBetween(today, endsOn) <= CONTRACT_REVIEW_NOTICE_DAYS
+}
+
+/**
+ * A data da próxima cobrança (`YYYY-MM-DD`), ou `null` quando não há próxima (cancelada, sem renovação).
+ *
+ * Portal: `paidThrough`, o fim do mês pago. Contrato do CMS (#918): a assinatura `legacy:` do Asaas
+ * vence todo dia `DUE_DAY_OF_MONTH`, pague o cliente quando pagar, e a cobrança ainda `PENDING` não é
+ * gravada em `place_subscription_charges` (só paga, vencida ou estornada). Por isso é o primeiro dia
+ * `DUE_DAY_OF_MONTH` de hoje em diante; se a cobrança desse dia já está gravada (paga adiantada), o do
+ * mês seguinte. `paidThrough` ali conta da confirmação e não é vencimento. `today` é de São Paulo.
+ */
+export function nextChargeDate(subscription: PlaceSubscription, today: string): string | null {
+  if (!subscription.renews || isCanceled(subscription)) return null
+  if (subscription.origin !== 'cms_contract') return subscription.paidThrough
+  const day = String(DUE_DAY_OF_MONTH).padStart(2, '0')
+  let year = Number(today.slice(0, 4))
+  let month = Number(today.slice(5, 7)) + (Number(today.slice(8, 10)) > DUE_DAY_OF_MONTH ? 1 : 0)
+  for (;;) {
+    if (month > 12) [year, month] = [year + 1, 1]
+    const due = `${year}-${String(month).padStart(2, '0')}-${day}`
+    if (!subscription.charges.some((charge) => charge.dueDate === due)) return due
+    month += 1
+  }
 }
 
 /**
@@ -227,13 +283,24 @@ function monthBounds(month: string): { from: string; to: string } {
 const inMonth = (date: string | null, month: string) => date !== null && date.slice(0, 7) === month
 
 /**
+ * O contrato do CMS corre antes da 1ª cobrança paga (a view conta a 1ª vencida como pendência,
+ * §3.8): `pending_payment` dele é contrato vivo, não rascunho de checkout.
+ */
+function contractRunsUnpaid(subscription: PlaceSubscription): boolean {
+  return subscription.origin === 'cms_contract' && subscription.status === 'pending_payment' && subscription.canceledAt === null
+}
+
+/**
  * Quem estava no Com história no mês: pagou alguma vez até o fim dele e não tinha saído antes
- * do começo. `pending_payment` nunca pagou — é rascunho de checkout, não assinatura.
+ * do começo. `pending_payment` nunca pagou — é rascunho de checkout, não assinatura. O contrato do
+ * CMS (#918) conta desde que a linha existe, pago ou não.
  */
 export function activeInMonth(subscription: PlaceSubscription, month: string): boolean {
   const { from, to } = monthBounds(month)
-  const paidOn = saoPauloDate(subscription.paidAt)
-  if (paidOn === null || paidOn > to) return false
+  const startedOn = saoPauloDate(
+    subscription.paidAt ?? (subscription.origin === 'cms_contract' ? subscription.createdAt : null)
+  )
+  if (startedOn === null || startedOn > to) return false
   const left = [saoPauloDate(subscription.canceledAt), saoPauloDate(subscription.expiredAt)]
     .filter((date): date is string => date !== null)
     .sort()[0]
@@ -264,7 +331,7 @@ export function summarizePlaceMonth(input: {
   let refundedCents = 0
 
   for (const subscription of input.subscriptions) {
-    if (subscription.status === 'paid' || subscription.status === 'past_due') {
+    if (subscription.status === 'paid' || subscription.status === 'past_due' || contractRunsUnpaid(subscription)) {
       recurringCents += subscription.renewalAmountCents ?? subscription.charges[0]?.amountCents ?? 0
     }
     if (inMonth(subscription.earlyTerminationPaidOn, input.month)) {
