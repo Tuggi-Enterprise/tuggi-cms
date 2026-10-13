@@ -351,6 +351,74 @@ describe('INV-E1a — the ways of a line POI are tied to it by id, never by name
     assert.doesNotMatch(q, /name/)
     assert.doesNotMatch(choice.sameIdentityWaysQuery(1, 'Q1"];way(1);', 10), /way\(around\.a:10\)\["wikidata"/, 'only a QID enters the query')
   })
+
+  describe('local OSM DB first, Overpass only where it has no answer (operator 2026-10-13, 2026-10-05)', () => {
+    const at = (m: number) => ({ lat: PIN.lat, lon: PIN.lng + m * M_LNG })
+    const bridge = { type: 'way', id: 1, tags: { highway: 'motorway', bridge: 'yes', wikidata: 'Q1' }, geometry: [at(0), at(100)] }
+    const wall = { type: 'way', id: 3, tags: { barrier: 'city_wall', historic: 'citywalls' }, geometry: [at(0), at(100)] }
+    const sibling = { type: 'way', id: 2, tags: { highway: 'motorway', wikidata: 'Q1' }, geometry: [at(100), at(300)] }
+    const LONG = 300 * 2 * 0.9 // a corridor of 300 m, at least 90% of it
+
+    /** `sameIdentityCorridor(element)` with `local` as the DB answer (null = no region) and a mocked fetch. */
+    async function corridor(element: unknown, local: unknown[] | null, overpass: unknown[] = []) {
+      const { BoundaryDetector } = await import('../../lib/services/trigger-points-google/core/boundary-detector')
+      const { LocalOSMFetcher } = await import('../../lib/services/trigger-points-google/services/local-osm-fetcher')
+      const fetcher = LocalOSMFetcher.getInstance() as any
+      const restore = { byWikidata: fetcher.fetchWaysByWikidata, regions: fetcher.regionList, fetch: globalThis.fetch }
+      const bodies: string[] = []
+      fetcher.fetchWaysByWikidata = () => local
+      fetcher.regionList = () => (local ? [{ name: 'test', covers: () => true }] : [])
+      globalThis.fetch = (async (_url: string, init: { body: string }) => {
+        bodies.push(init.body)
+        return new Response(JSON.stringify({ elements: overpass }), { status: 200 })
+      }) as typeof fetch
+      try {
+        const ring = await (new BoundaryDetector() as any).sameIdentityCorridor(element)
+        return { bodies, area: calculatePolygonAreaInM2(ring) }
+      } finally {
+        fetcher.fetchWaysByWikidata = restore.byWikidata
+        fetcher.regionList = restore.regions
+        globalThis.fetch = restore.fetch
+      }
+    }
+
+    it('BR-AUDIO-010: with the local DB holding ways of the wikidata, Overpass is never called', async () => {
+      const r = await corridor(bridge, [bridge, sibling])
+      assert.equal(r.bodies.length, 0)
+      assert.ok(r.area > LONG * choice.LINE_CORRIDOR_HALF_WIDTH_M, `the sibling joins the corridor: ${r.area} m²`)
+    })
+
+    it('BR-AUDIO-010: a line that is no bridge nor waterway, under the local DB, never calls Overpass (Mura civiche, way 698912710)', async () => {
+      const r = await corridor(wall, [])
+      assert.equal(r.bodies.length, 0)
+      assert.ok(r.area > 0, 'the segment alone is the corridor')
+    })
+
+    it('BR-AUDIO-010: a bridge with no other way of its wikidata in the local DB asks Overpass the relation half only', async () => {
+      const r = await corridor(bridge, [bridge], [sibling])
+      assert.equal(r.bodies.length, 1)
+      assert.doesNotMatch(r.bodies[0], /wikidata/)
+      assert.match(r.bodies[0], /rel\(bw\.a\)/)
+      assert.ok(r.area > LONG * choice.LINE_CORRIDOR_HALF_WIDTH_M, `${r.area} m²`)
+    })
+
+    it('BR-AUDIO-010: no local region falls back to the whole Overpass query, never to an error', async () => {
+      const r = await corridor(wall, null, [])
+      assert.equal(r.bodies.length, 1)
+      assert.match(r.bodies[0], /rel\(bw\.a\)/)
+      const b = await corridor(bridge, null, [sibling])
+      assert.match(b.bodies[0], /\["wikidata"="Q1"\]/)
+      assert.ok(b.area > LONG * choice.LINE_CORRIDOR_HALF_WIDTH_M)
+    })
+
+    it('mayHaveIdentityRelation: waterway and bridge ways only', () => {
+      assert.equal(choice.mayHaveIdentityRelation({ waterway: 'river' }), true)
+      assert.equal(choice.mayHaveIdentityRelation({ highway: 'primary', bridge: 'viaduct' }), true)
+      assert.equal(choice.mayHaveIdentityRelation({ highway: 'primary', bridge: 'no' }), false)
+      assert.equal(choice.mayHaveIdentityRelation({ barrier: 'city_wall' }), false)
+      assert.equal(choice.mayHaveIdentityRelation(undefined), false)
+    })
+  })
 })
 
 describe('INV-E1a — with storedReference, a detection of another footprint gives way to the stored border (BR-AUDIO-010, #779)', () => {

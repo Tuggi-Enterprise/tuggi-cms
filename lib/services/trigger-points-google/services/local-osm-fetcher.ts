@@ -659,6 +659,41 @@ export class LocalOSMFetcher {
   }
 
   /**
+   * INV-E1a, the wikidata half of `boundary-choice#sameIdentityWaysQuery`: the ways within
+   * `radiusM` (bounding box) of `center` carrying `wikidata`, from `streets` and `pois`, as
+   * Overpass elements, one per way id. null when no region covers `center` (the caller goes to
+   * Overpass). The relation half has no local answer: the DB keeps no relation membership.
+   */
+  public fetchWaysByWikidata(center: { lat: number; lng: number }, radiusM: number, wikidata: string): any[] | null {
+    const db = this.select(center);
+    if (!db) return null;
+    try {
+      const b = this.calculateBBox(center, radiusM);
+      const byId = new Map<string, any>();
+      for (const table of ['streets', 'pois'] as const) {
+        const cols = table === 'pois' ? 'p.id, p.osm_id, p.osm_type, p.geometry_json, p.tags_json' : 'p.id, p.type, p.geometry_json, p.tags_json';
+        const only = table === 'pois' ? `AND p.osm_type = 'way'` : '';
+        const rows = db.prepare(this.rtreeAvailable[table]
+          ? `SELECT ${cols} FROM ${table} p JOIN ${table}_rtree r ON r.rowid = p.rowid
+             WHERE r.max_lat >= ? AND r.min_lat <= ? AND r.max_lng >= ? AND r.min_lng <= ?
+               AND p.tags_json LIKE ? AND json_extract(p.tags_json, '$.wikidata') = ? ${only}`
+          : `SELECT ${cols} FROM ${table} p
+             WHERE p.max_lat >= ? AND p.min_lat <= ? AND p.max_lng >= ? AND p.min_lng <= ?
+               AND p.tags_json LIKE ? AND json_extract(p.tags_json, '$.wikidata') = ? ${only}`
+        ).all(b.minLat, b.maxLat, b.minLng, b.maxLng, `%${wikidata}%`, wikidata) as any[];
+        for (const row of rows) {
+          const el = this.toOverpassElement(row, 'way');
+          if (el.type === 'way' && !byId.has(String(el.id))) byId.set(String(el.id), el);
+        }
+      }
+      return [...byId.values()];
+    } catch (error) {
+      console.error(`❌ [LocalOSMFetcher] Error fetching ways by wikidata:`, error);
+      return null;
+    }
+  }
+
+  /**
    * BR-POI-010: the municipality whose seat is the POI's OSM element (`admin-boundaries#findMunicipality`),
    * from the region covering the pin. null outside every region, and for a region whose import found no
    * country (or predates BR-POI-010).

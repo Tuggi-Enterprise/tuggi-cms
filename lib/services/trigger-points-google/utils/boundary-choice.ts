@@ -329,6 +329,16 @@ out geom;
 `;
 }
 
+/**
+ * Whether the relation half of `sameIdentityWaysQuery` can tie anything to this way: a waterway
+ * relation's ways carry `waterway=*` (wiki Relation:waterway), and a bridge relation ties the ways
+ * on the bridge (`bridge=*`; wiki Relation:bridge). Any other line — a city wall, a path — has no
+ * such relation to be in, and Overpass is not asked for it.
+ */
+export function mayHaveIdentityRelation(tags: Record<string, unknown> | undefined): boolean {
+  return Boolean(tags?.waterway || (tags?.bridge && tags.bridge !== 'no') || tags?.man_made === 'bridge');
+}
+
 /** Closed ring of a corridor `halfWidthM` each side of a polyline (offset along vertex normals). */
 export function corridorRing(line: LatLng[], halfWidthM: number): LatLng[] {
   if (line.length < 2) return [];
