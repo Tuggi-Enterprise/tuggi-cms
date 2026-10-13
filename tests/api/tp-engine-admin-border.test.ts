@@ -164,16 +164,18 @@ describe('BR-POI-009 — municipal border: one TP per main road entering the mun
     assert.equal(tps.length, 3)
   })
 
-  it('a road leaving the municipality again before the inset gives no TP', async () => {
+  it('a road leaving the municipality again before the inset gives no TP while another road enters', async () => {
     const e = await engine()
     const clip = way('corner', 'primary', [at(-HALF - 200, HALF - 50), at(-HALF + 50, HALF - 50), at(-HALF + 50, HALF + 200)])
-    assert.equal(e.adminBorderTriggerPoints('poi', C, [MUNICIPALITY], [clip]).length, 0)
+    const tps = e.adminBorderTriggerPoints('poi', C, [MUNICIPALITY], [...ROADS, clip])
+    assert.ok(!tps.some(t => t.street.id === 'corner'), tps.map(t => t.street.id).join(', '))
   })
 
-  it('a road weaving along the border (crossing it every ~400 m) gives no TP: it skirts, it does not enter', async () => {
+  it('a road weaving along the border (crossing it every ~400 m) gives no TP while another road enters: it skirts', async () => {
     const e = await engine()
     const zig = [-1_200, -800, -400, 0, 400, 800, 1_200].map((n, i) => at(-HALF + (i % 2 ? 40 : -40), n))
-    assert.equal(e.adminBorderTriggerPoints('poi', C, [MUNICIPALITY], [way('skirting', 'primary', zig)]).length, 0)
+    const tps = e.adminBorderTriggerPoints('poi', C, [MUNICIPALITY], [...ROADS, way('skirting', 'primary', zig)])
+    assert.ok(!tps.some(t => t.street.id === 'skirting'), tps.map(t => t.street.id).join(', '))
   })
 
   it('BR-POI-010: a road crossing a river border and following the bank before turning inland still enters (Aljezur, EN 120 at the Seixe)', async () => {
@@ -186,10 +188,38 @@ describe('BR-POI-009 — municipal border: one TP per main road entering the mun
     assert.ok(e.calculateDistance(tps[0].location, at(-300, HALF)) <= e.ADMIN_BORDER_ENTRY_PROBE_M, 'never farther than the probe')
   })
 
-  it('BR-POI-010: a road running along the border past the probe, never that deep, gives no TP', async () => {
+  it('BR-POI-010: a road running along the border past the probe, never that deep, gives no TP while another road enters', async () => {
     const e = await engine()
     const along = way('along', 'primary', [at(-1_200, HALF + 500), at(-1_200, HALF - 40), at(1_200, HALF - 40), at(1_200, HALF + 500)])
-    assert.equal(e.adminBorderTriggerPoints('poi', C, [MUNICIPALITY], [along]).length, 0)
+    const tps = e.adminBorderTriggerPoints('poi', C, [MUNICIPALITY], [...ROADS, along])
+    assert.ok(!tps.some(t => t.street.id === 'along'), tps.map(t => t.street.id).join(', '))
+  })
+
+  it('INV-E11b: when no road enters deep enough, the only road in still carries one TP, inside, at its deepest probe point (Alpbach, 2026-10-09)', async () => {
+    const e = await engine()
+    // The valley road: crosses the north border and runs 40 m inside along it (the border is the river).
+    const along = way('along', 'primary', [at(-1_200, HALF + 500), at(-1_200, HALF - 40), at(1_200, HALF - 40), at(1_200, HALF + 500)])
+    const tps = e.adminBorderTriggerPoints('poi', C, [MUNICIPALITY], [along])
+    assert.ok(tps.length >= 1, 'a municipality with a main road in never ends with 0 TPs')
+    for (const tp of tps) {
+      assert.ok(e.isPointInPolygon(tp.location, MUNICIPALITY), 'inside the border')
+      assert.ok(e.edgeM(tp.location, MUNICIPALITY) > 30 && e.edgeM(tp.location, MUNICIPALITY) < e.ADMIN_BORDER_TP_MIN_EDGE_M)
+      assert.equal(tp.radius, e.ADMIN_BORDER_TP_RADIUS_M)
+    }
+  })
+
+  it('INV-E11b: a tiny town crossed in less than the inset gets its TP on the stretch inside (Rattenberg, 2026-10-09)', async () => {
+    const e = await engine()
+    const clip = way('corner', 'primary', [at(-HALF - 200, HALF - 50), at(-HALF + 50, HALF - 50), at(-HALF + 50, HALF + 200)])
+    const tps = e.adminBorderTriggerPoints('poi', C, [MUNICIPALITY], [clip])
+    assert.equal(tps.length, 1)
+    assert.ok(e.isPointInPolygon(tps[0].location, MUNICIPALITY))
+  })
+
+  it('INV-E11b: the fallback never stands in a tunnel — no GPS there', async () => {
+    const e = await engine()
+    const tunnel = way('tunnel', 'primary', [at(-HALF - 200, HALF - 50), at(-HALF + 50, HALF - 50), at(-HALF + 50, HALF + 200)], { tunnel: 'yes' })
+    assert.equal(e.adminBorderTriggerPoints('poi', C, [MUNICIPALITY], [tunnel]).length, 0)
   })
 
   it('BR-POI-010: only the main road types and ferries carry a TP; every other border source leaves the mode off', async () => {

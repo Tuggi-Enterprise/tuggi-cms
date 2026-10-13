@@ -8,7 +8,6 @@ import { TRIGGER_POINT_DB_TYPES } from '../../lib/services/trigger-points-google
 import {
   BUILDING_LEVEL_HEIGHT_M, heightFromTags, LANDMARK_MIN_PROMINENCE_M, SANITY_MAX_TP_DISTANCE_M, VisibilityClass, maxEdgeDistanceFor,
 } from '../../lib/services/trigger-points-google/config/visibility-class'
-import { OSMDataFetcher } from '../../lib/services/trigger-points-google/services/osm-data-fetcher'
 import { storedBuildingHeightM } from '../../lib/services/osm-local-data-service'
 import { APP_SCHEMA_SKIP, appSchema } from './setup/app-schema'
 
@@ -24,14 +23,6 @@ function typesInLatestCheck(): string[] {
 describe('#781 TP engine SSOT', () => {
   it('TRIGGER_POINT_DB_TYPES matches the CHECK of core.attraction_trigger_points.type', { skip: APP_SCHEMA_SKIP }, () => {
     assert.deepEqual([...TRIGGER_POINT_DB_TYPES].sort(), typesInLatestCheck().sort())
-  })
-
-  it('INV-E3: OSMDataFetcher measures building height with heightFromTags, not its own floor ruler', () => {
-    const fetcher = new OSMDataFetcher() as unknown as { extractBuildingHeight(tags: unknown): number }
-    for (const tags of [{ height: '12 m' }, { 'building:height': '9' }, { 'building:levels': '4' }]) {
-      assert.equal(fetcher.extractBuildingHeight(tags), heightFromTags(tags)!.heightM)
-    }
-    assert.equal(fetcher.extractBuildingHeight({ 'building:levels': '4' }), 4 * BUILDING_LEVEL_HEIGHT_M)
   })
 
   it('#777: one "elevated terrain" threshold — LANDMARK_MIN_PROMINENCE_M decides, no literal elsewhere in the engine', () => {

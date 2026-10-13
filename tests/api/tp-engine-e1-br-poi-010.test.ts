@@ -121,13 +121,13 @@ describe('BR-POI-010 — the stored border is never borrowed (#779)', () => {
   })
 })
 
-describe('BR-POI-010 — a municipality is never the border by name (#779)', () => {
-  const lake = { type: 'relation', id: 11379206, tags: { natural: 'water', name: 'Lagoa Formosa' }, geometry: square(110) }
-  const municipality = { type: 'relation', id: 315134, tags: { boundary: 'administrative', admin_level: '8', name: 'Lagoa Formosa' }, geometry: square(14500) }
+describe('BR-POI-010 — a municipality is never the border of a POI that is not its seat, even tied by id (#779)', () => {
+  const lake = { type: 'relation', id: 11379206, tags: { natural: 'water', name: 'Lagoa Formosa', wikidata: 'Q10' }, geometry: square(110) }
+  const municipality = { type: 'relation', id: 315134, tags: { boundary: 'administrative', admin_level: '8', name: 'Lagoa Formosa', wikidata: 'Q10' }, geometry: square(14500) }
 
   it('BR-POI-010 rule 4: Lagoa Formosa keeps relation 11379206, never the municipality 315134', () => {
-    assert.equal(choice.chooseContainingBoundary(PIN, { name: 'Lagoa Formosa' }, [municipality, lake]).chosen?.element.id, 11379206)
-    const alone = choice.chooseContainingBoundary(PIN, { name: 'Lagoa Formosa' }, [municipality])
+    assert.equal(choice.chooseContainingBoundary(PIN, { wikidata: 'Q10' }, [municipality, lake]).chosen?.element.id, 11379206)
+    const alone = choice.chooseContainingBoundary(PIN, { wikidata: 'Q10' }, [municipality])
     assert.equal(alone.chosen, undefined)
     assert.ok(alone.rejected.some(x => x.element === 'relation/315134' && /BR-POI-010/.test(x.reason)))
   })
@@ -146,9 +146,9 @@ describe('BR-POI-010 rule 5 — an open way is never a polygon (#779)', () => {
   // A river passing 50 m from the pin, named as the POI: the Itaobim church took its 265 km².
   const river = [0, 1, 2, 3, 4].map(i => ({ lat: PIN.lat + (i - 2) * 500 * M_LAT, lon: PIN.lng + 50 * M_LNG + (i % 2) * 300 * M_LNG }))
 
-  it('BR-POI-010: an open way or an open relation is never chosen, even carrying the POI name', () => {
+  it('BR-POI-010: an open way or an open relation is never chosen, even tied by wikidata', () => {
     for (const type of ['way', 'relation']) {
-      const r = choice.chooseContainingBoundary(PIN, { name: 'Rio Jequitinhonha' }, [{ type, id: 1390692330, tags: { waterway: 'river', name: 'Rio Jequitinhonha' }, geometry: river }])
+      const r = choice.chooseContainingBoundary(PIN, { wikidata: 'Q20' }, [{ type, id: 1390692330, tags: { waterway: 'river', name: 'Rio Jequitinhonha', wikidata: 'Q20' }, geometry: river }])
       assert.equal(r.chosen, undefined, type)
     }
     assert.deepEqual(choice.outerRing(river.map(p => ({ lat: p.lat, lng: p.lon })), PIN), [])

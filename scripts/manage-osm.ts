@@ -266,6 +266,8 @@ async function importMunicipalBorders(pbfPath: string, localData: OSMLocalDataSe
     }
     console.log(`   Country: ${result.country} (from ${result.countrySource}) → municipal admin_level ${result.level} (admin-boundaries#MUNICIPALITY_ADMIN_LEVEL_BY_COUNTRY)`);
     console.log(`   ✅ ${result.kept} municipalities kept at admin_level ${result.level} (${result.outsideRegion} centred outside ${region}.poly, dropped). Check the count against the country's.`);
+    const standalone = Object.entries(result.standaloneByLevel).map(([l, n]) => `${l}→${n}`).join(', ');
+    if (standalone) console.log(`   Of those, cities outside the municipal level with no municipality inside (admin-boundaries#STANDALONE_MUNICIPALITY_LEVELS_BY_COUNTRY): ${standalone}`);
     console.log(`   Seats for the POI matching (BR-POI-010): ${result.keptWithSeat} of ${result.kept} municipalities (${result.keptSeatedByLabel} by label, no admin_centre).`);
     if (result.keptWithSeat < result.kept) console.warn(`⚠️ ${result.kept - result.keptWithSeat} municipalities have neither admin_centre nor label: no POI can enter their municipal mode.`);
     const warning = seatLevelWarning(result);

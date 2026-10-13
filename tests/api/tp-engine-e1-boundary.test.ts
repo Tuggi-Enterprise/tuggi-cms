@@ -9,7 +9,7 @@
  */
 import { describe, it, mock, before } from 'node:test'
 import assert from 'node:assert/strict'
-import { calculatePolygonAreaInM2 } from '../../lib/services/trigger-points-google/utils/calculations'
+import { calculatePolygonAreaInM2, isPointInPolygon } from '../../lib/services/trigger-points-google/utils/calculations'
 
 type LatLng = { lat: number; lng: number }
 const PIN: LatLng = { lat: -22.95, lng: -43.15 }
@@ -43,98 +43,57 @@ before(async () => {
   choice = await import('../../lib/services/trigger-points-google/utils/boundary-choice')
 })
 
-describe('INV-E1c — the element holding the pin is chosen by identity and geometry, never by type (BR-AUDIO-010)', () => {
-  it('an element carrying the POI name wins over a smaller unnamed one (Praia da Reserva took a 248 m² kiosk)', () => {
-    const beach = { type: 'relation', id: 1, tags: { natural: 'beach', name: 'Praia da Reserva' }, geometry: square(300) }
-    const kiosk = { type: 'way', id: 2, tags: { building: 'yes', amenity: 'fast_food' }, geometry: square(8) }
-    const r = choice.chooseContainingBoundary(PIN, { name: 'Praia da Reserva ' }, [kiosk, beach])
-    assert.equal(r.chosen?.element.id, 1)
-  })
-
-  it('the element carrying the POI name need not hold the pin, only be plausible (pin on the promenade, off the sand)', () => {
-    const beach = { type: 'way', id: 20, tags: { name: 'Praia da Reserva' }, geometry: square(100, { lat: PIN.lat - 130 * M_LAT, lng: PIN.lng }) }
-    const kiosk = { type: 'way', id: 21, tags: {}, geometry: square(8) }
-    assert.equal(choice.chooseContainingBoundary(PIN, { name: 'Praia da Reserva' }, [kiosk, beach]).chosen?.element.id, 20)
-    const farBeach = { ...beach, geometry: square(100, { lat: PIN.lat - 900 * M_LAT, lng: PIN.lng }) }
-    assert.equal(choice.chooseContainingBoundary(PIN, { name: 'Praia da Reserva' }, [kiosk, farBeach]).chosen?.element.id, 21)
-  })
-
-  it('a named element of another name is the ground under the POI, and so is every unnamed one holding it', () => {
-    const city = { type: 'relation', id: 3, tags: { boundary: 'administrative', name: 'Rio de Janeiro' }, geometry: square(5000) }
-    const park = { type: 'way', id: 4, tags: { name: 'Parque Nacional da Tijuca' }, geometry: square(900) }
-    const bigUnnamed = { type: 'way', id: 5, tags: { landuse: 'forest' }, geometry: square(1200) }
-    const smallUnnamed = { type: 'way', id: 6, tags: { natural: 'bare_rock' }, geometry: square(60) }
-    const r = choice.chooseContainingBoundary(PIN, { name: 'Mirante Dona Marta' }, [city, park, bigUnnamed, smallUnnamed])
-    assert.equal(r.chosen?.element.id, 6)
-    assert.ok(r.rejected.some(x => x.element === 'relation/3' && x.reason === choice.NAMED_GROUND_REASON))
-    assert.ok(r.rejected.some(x => x.element === 'way/5' && /holds the named ground/.test(x.reason)))
-  })
-
-  it('BR-POI-009, INV-E1c (#779): an unnamed area holding a named place of another name is ground, not the POI — the peak keeps the pin circle (Pico Alto do Boqueirão in the 100 km² Pedra Branca forest)', () => {
-    const city = { type: 'relation', id: 2697338, tags: { boundary: 'administrative', name: 'Rio de Janeiro' }, geometry: square(20000) }
-    const suburb = { type: 'relation', id: 5515740, tags: { boundary: 'administrative', name: 'Guaratiba' }, geometry: square(9000) }
-    const forest = { type: 'relation', id: 4033046, tags: { natural: 'wood' }, geometry: square(5000) }
-    const peaks = [{ name: 'Morro da Ilha', natural: 'peak' }, { name: 'Pico Alto do Boqueirão', natural: 'peak' }]
-    const r = choice.chooseContainingBoundary(PIN, { name: 'Pico Alto do Boqueirão', namedInside: () => peaks }, [city, suburb, forest])
+describe('INV-E1c — an element is the POI border only when an id ties them, never by name (BR-AUDIO-010, operator 2026-10-11)', () => {
+  it('BR-AUDIO-010: a node without wikidata beside a polygon of its name takes nothing — the caller draws the point circle (spring "Morava")', () => {
+    const region = { type: 'relation', id: 20275185, tags: { boundary: 'historic', name: 'Morava', wikidata: 'Q43266' }, geometry: square(5000) }
+    const sameName = { type: 'way', id: 11, tags: { name: 'Morava' }, geometry: square(20) }
+    const r = choice.chooseContainingBoundary(PIN, { nodeId: 288804870 }, [region, sameName])
     assert.equal(r.chosen, undefined)
-    assert.ok(r.rejected.some(x => x.element === 'relation/4033046' && /holds "morro da ilha"/.test(x.reason)))
-    // Only the POI itself inside: the unnamed area may still be its border.
-    const own = choice.chooseContainingBoundary(PIN, { name: 'Pico Alto do Boqueirão', namedInside: () => [peaks[1]] }, [city, suburb, forest])
-    assert.equal(own.chosen?.element.id, 4033046)
+    assert.deepEqual(r.rejected.map(x => x.reason), [choice.NO_ID_LINK_REASON, choice.NO_ID_LINK_REASON])
   })
 
-  it('the tags of the element never decide: a place relation with the POI name is its border, one with another name is not', () => {
-    const rel = { type: 'relation', id: 7, tags: { boundary: 'administrative', admin_level: '10', name: 'Maracanã' }, geometry: square(800) }
-    assert.equal(choice.chooseContainingBoundary(PIN, { name: 'maracana' }, [rel]).chosen?.element.id, 7)
-    assert.equal(choice.chooseContainingBoundary(PIN, { name: 'Estádio do Maracanã' }, [rel]).chosen, undefined)
+  it('BR-AUDIO-010: a node with the wikidata of a polygon takes it; another wikidata of the same name is refused (Morava Q179251 vs Moravia Q43266)', () => {
+    const region = { type: 'relation', id: 20275185, tags: { boundary: 'historic', name: 'Morava', wikidata: 'Q43266' }, geometry: square(5000) }
+    const own = { type: 'way', id: 11, tags: { name: 'Pramen Moravy', wikidata: 'Q179251' }, geometry: square(20) }
+    const r = choice.chooseContainingBoundary(PIN, { wikidata: 'Q179251', nodeId: 288804870 }, [region, own])
+    assert.equal(r.chosen?.element.id, 11, 'the tie is the wikidata, whatever the name')
+    assert.ok(r.rejected.some(x => x.element === 'relation/20275185' && x.reason === choice.NO_ID_LINK_REASON))
   })
 
-  it('a POI with its own node id takes only an element carrying its name (a bust does not take the square)', () => {
-    const square_ = { type: 'way', id: 8, tags: {}, geometry: square(30) }
-    const r = choice.chooseContainingBoundary(PIN, { name: 'Busto X', namedOnly: true }, [square_])
-    assert.equal(r.chosen, undefined)
-    assert.match(r.rejected[0].reason, /own node id/)
-    const church = { type: 'way', id: 9, tags: { name: 'Igreja X' }, geometry: square(20) }
-    assert.equal(choice.chooseContainingBoundary(PIN, { name: 'Igreja X', namedOnly: true }, [square_, church]).chosen?.element.id, 9)
-  })
-
-  it('BR-POI-009, INV-E1c: a built element of akin name holding the pin is the border (Igreja Matriz ~ "Paróquia … Martiz", Cabo Frio); a square of akin name is not built', () => {
-    const church = { type: 'way', id: 40, tags: { name: 'Paróquia Nossa Senhora da Assunção Martiz' }, geometry: square(15) }
-    const plaza = { type: 'way', id: 41, tags: { name: 'Praça Nossa Senhora da Assunção' }, geometry: square(60) }
-    const poi = 'Igreja Matriz da Nossa Senhora da Assunção'
-    assert.ok(choice.akinPoiName(church.tags, poi))
-    assert.ok(!choice.akinPoiName({ name: 'Maracanã' }, 'Estádio do Maracanã'), 'one shared word is not an identity')
-    assert.ok(!choice.akinPoiName({ name: 'Rua Nossa Senhora de Copacabana' }, poi))
-    // the buildings layer covers the church (900 m²), not the square (14,400 m²)
-    const churchBuilt = (ring: LatLng[]) => calculatePolygonAreaInM2(ring) < 2_000
-    assert.equal(choice.chooseContainingBoundary(PIN, { name: poi, isBuilt: churchBuilt }, [plaza, church]).chosen?.element.id, 40)
-    assert.equal(choice.chooseContainingBoundary(PIN, { name: poi, isBuilt: churchBuilt }, [plaza]).chosen, undefined, 'the square alone is ground')
-    assert.equal(choice.chooseContainingBoundary(PIN, { name: poi, isBuilt: () => false }, [plaza, church]).chosen, undefined,
-      'not built: the akin element is the ground, as before')
-    assert.equal(choice.chooseContainingBoundary(PIN, { name: poi, namedOnly: true, isBuilt: () => true }, [church]).chosen, undefined,
-      'a curated node id keeps its own identity: exact name only')
-  })
-
-  it('INV-E1a/c (#786): `short_name` and `;` lists are the element\'s names — the stadium is the Maracanã, and the smallest of the identity wins', () => {
-    const stadium = { type: 'relation', id: 30, tags: { name: 'Estádio Jornalista Mário Filho', short_name: 'Maracanã' }, geometry: square(150, { lat: PIN.lat + 170 * M_LAT, lng: PIN.lng }) }
-    const hood = { type: 'relation', id: 31, tags: { boundary: 'administrative', name: 'Maracanã' }, geometry: square(700) }
-    assert.equal(choice.chooseContainingBoundary(PIN, { name: 'Maracanã', namedOnly: true }, [hood, stadium]).chosen?.element.id, 30,
-      'the pin is 20 m off the stadium, on the street: plausible, and smaller than the neighbourhood')
-    assert.ok(choice.carriesPoiName({ alt_name: 'Estádio do Maracanã;Maracanã' }, 'maracana'))
-  })
-
-  it('only what holds the pin counts; a closed road is no area; the smallest unnamed polygon wins', () => {
-    const roundabout = { type: 'way', id: 10, tags: { highway: 'primary' }, geometry: square(20) }
-    const nearby = { type: 'way', id: 11, tags: {}, geometry: square(40, { lat: PIN.lat + 300 * M_LAT, lng: PIN.lng }) }
+  it('BR-AUDIO-010: an unnamed or other-named polygon under the pin is the ground, never the POI', () => {
     const plaza = { type: 'way', id: 12, tags: { leisure: 'park' }, geometry: square(40) }
-    const district = { type: 'way', id: 13, tags: { landuse: 'residential' }, geometry: square(400) }
-    const r = choice.chooseContainingBoundary(PIN, { name: 'X' }, [roundabout, nearby, district, plaza])
-    assert.equal(r.chosen?.element.id, 12)
+    const building = { type: 'way', id: 13, tags: { building: 'yes', name: 'Kostel X' }, geometry: square(15) }
+    assert.equal(choice.chooseContainingBoundary(PIN, { wikidata: 'Q1', nodeId: 5 }, [plaza, building]).chosen, undefined)
+    assert.equal(choice.chooseContainingBoundary(PIN, {}, [plaza, building]).chosen, undefined, 'no id at all: nothing ties')
+  })
+
+  it('BR-AUDIO-010: of the tied elements the smallest wins; one off the pin counts only while plausible (pin on the street, 20 m off its building)', () => {
+    const site = { type: 'relation', id: 30, tags: { wikidata: 'Q8' }, geometry: square(300) }
+    const nearBuilding = { type: 'way', id: 31, tags: { building: 'church', wikidata: 'Q8' }, geometry: square(15, { lat: PIN.lat + 35 * M_LAT, lng: PIN.lng }) }
+    assert.equal(choice.chooseContainingBoundary(PIN, { wikidata: 'Q8' }, [site, nearBuilding]).chosen?.element.id, 31)
+    const far = { ...nearBuilding, geometry: square(15, { lat: PIN.lat + 2000 * M_LAT, lng: PIN.lng }) }
+    const r = choice.chooseContainingBoundary(PIN, { wikidata: 'Q8' }, [far])
+    assert.equal(r.chosen, undefined)
+    assert.match(r.rejected[0].reason, /far from its edge/)
+  })
+
+  it('BR-AUDIO-010: a node that is a member of a relation is tied to it; as its label or admin_centre it is not', () => {
+    const rel = (role: string) => ({ type: 'relation', id: 40, tags: { type: 'multipolygon', name: 'Area' }, geometry: square(60),
+      members: [{ type: 'node', ref: 777, role }, { type: 'way', ref: 1, role: 'outer' }] })
+    assert.equal(choice.chooseContainingBoundary(PIN, { nodeId: 777 }, [rel('')]).chosen?.element.id, 40)
+    assert.equal(choice.chooseContainingBoundary(PIN, { nodeId: 777 }, [rel('label')]).chosen, undefined)
+    assert.equal(choice.chooseContainingBoundary(PIN, { nodeId: 777 }, [rel('admin_centre')]).chosen, undefined)
+    assert.equal(choice.chooseContainingBoundary(PIN, { nodeId: 778 }, [rel('')]).chosen, undefined, 'another node is not a member')
+  })
+
+  it('a closed road is no area, even tied', () => {
+    const roundabout = { type: 'way', id: 10, tags: { highway: 'primary', wikidata: 'Q9' }, geometry: square(20) }
+    assert.equal(choice.chooseContainingBoundary(PIN, { wikidata: 'Q9' }, [roundabout]).chosen, undefined)
   })
 
   it('multipolygon read by its outer ring (Pão de Açúcar: summit in the hole of the rock)', () => {
-    const rock = { type: 'relation', id: 14, tags: { name: 'Pão de Açúcar' }, geometry: [...square(400), ...square(60)] }
-    const r = choice.chooseContainingBoundary(PIN, { name: 'Pão de Açúcar' }, [rock])
+    const rock = { type: 'relation', id: 14, tags: { name: 'Pão de Açúcar', wikidata: 'Q7' }, geometry: [...square(400), ...square(60)] }
+    const r = choice.chooseContainingBoundary(PIN, { wikidata: 'Q7' }, [rock])
     assert.ok(r.chosen!.areaM2 > 600_000, `outer ring, not the hole: ${r.chosen!.areaM2} m²`)
   })
 
@@ -142,6 +101,17 @@ describe('INV-E1c — the element holding the pin is chosen by identity and geom
     const pts = [...square(10), ...square(5)].map(p => ({ lat: p.lat, lng: p.lon }))
     assert.deepEqual(choice.splitRings(pts).map(r => r.length), [5, 5])
     assert.equal(choice.splitRings(pts.slice(0, 5)).length, 1)
+  })
+
+  it('INV-E11b: outerRings reads a building relation with parts far apart as separate rings, holes dropped (Weitra, relation 2374229)', () => {
+    const far = { lat: PIN.lat + 0.1, lng: PIN.lng + 0.1 } // ~14 km away, like Weitra's 5 houses
+    const ll = (r: Array<{ lat: number; lon: number }>) => r.map(p => ({ lat: p.lat, lng: p.lon }))
+    const parts = choice.outerRings([...ll(square(10)), ...ll(square(10, far)), ...ll(square(4))])
+    assert.equal(parts.length, 2, 'two houses, the courtyard is a hole')
+    for (const r of parts) assert.ok(calculatePolygonAreaInM2(r) < 1_000, 'no ring spans the gap between the houses')
+    // A point between the houses is inside no building any more.
+    const between = { lat: PIN.lat + 0.05, lng: PIN.lng + 0.05 }
+    assert.ok(parts.every(r => !isPointInPolygon(between, r)))
   })
 })
 
@@ -175,18 +145,18 @@ describe('INV-E1a — a relation id from Overpass becomes its outer ring, not a 
     assert.ok(Math.abs(ring[0].lat - PIN.lat) < 400 * M_LAT, 'the small ring at the pin, not the larger one away')
   })
 
-  it('INV-E1a: an open curated way is a line — the ways of the same identity joined end to end, as a corridor (Ponte Rio-Niterói)', () => {
+  it('INV-E1a: an open curated way is a line — the ways tied to it by id joined end to end, as a corridor (Ponte Rio-Niterói)', () => {
     const at = (m: number) => ({ lat: PIN.lat, lon: PIN.lng + m * M_LNG })
-    const start = { id: 1, tags: { highway: 'motorway', name: 'Ponte Rio-Niterói' }, geometry: [at(0), at(100)] }
-    const ways = [
-      { id: 2, tags: { highway: 'motorway', official_name: 'Ponte Rio-Niterói' }, geometry: [at(100), at(300)] },
-      { id: 3, tags: { highway: 'motorway', name: 'Ponte Rio-Niterói' }, geometry: [at(-200), at(0)].reverse() },
-      { id: 4, tags: { highway: 'motorway', name: 'Avenida Brasil' }, geometry: [at(300), at(900)] },
-      { id: 5, tags: { highway: 'motorway_link', name: 'Ponte Rio-Niterói' }, geometry: [at(300), at(700)] },
+    const start = { id: 1, tags: { highway: 'motorway', name: 'Ponte Rio-Niterói', wikidata: 'Q1' }, geometry: [at(0), at(100)] }
+    // What `sameIdentityWaysQuery` returns: only ways tied by id, whatever their name.
+    const tied = [
+      { id: 2, tags: { highway: 'motorway', wikidata: 'Q1' }, geometry: [at(100), at(300)] },
+      { id: 3, tags: { highway: 'motorway', name: 'Ponte' }, geometry: [at(-200), at(0)].reverse() },
+      { id: 5, tags: { highway: 'motorway_link', wikidata: 'Q1' }, geometry: [at(300), at(700)] },
     ]
-    const line = choice.chainSameIdentity(start, ways)
+    const line = choice.chainSameIdentity(start, tied)
     const xs = line.map(p => Math.round((p.lng - PIN.lng) / M_LNG))
-    assert.deepEqual([Math.min(...xs), Math.max(...xs)], [-200, 300], 'another name or another via kind does not join')
+    assert.deepEqual([Math.min(...xs), Math.max(...xs)], [-200, 300], 'another via kind does not join')
     const ring = choice.corridorRing(line, choice.LINE_CORRIDOR_HALF_WIDTH_M)
     assert.deepEqual(ring[0], ring[ring.length - 1])
     const area = calculatePolygonAreaInM2(ring)
@@ -222,30 +192,37 @@ describe('INV-E1a — a relation id from Overpass becomes its outer ring, not a 
   })
 })
 
-describe('INV-E1a/c — a typed id gives way to a smaller element of the POI identity (BR-AUDIO-010, #786)', () => {
+describe('INV-E1a/c — a way or relation POI is its own geometry, never another element (BR-AUDIO-010, operator 2026-10-11)', () => {
   const ring = (half: number) => square(half).map(p => ({ lat: p.lat, lng: p.lon }))
-  const run = async (narrower: { success: boolean; data?: unknown }) => {
+  const run = async (osmType: string, byId: { success: boolean; data?: unknown; error?: string }) => {
     const { BoundaryDetector } = await import('../../lib/services/trigger-points-google/core/boundary-detector')
     const d = new BoundaryDetector() as any
-    const asked: unknown[] = []
-    d.detectOSMBoundaryByID = async () => ({ success: true, data: { coordinates: ring(700), synthetic: false, source: 'osm' } })
-    d.detectContainingBoundary = async (...args: unknown[]) => { asked.push(args[2]); return narrower }
+    const asked: string[] = []
+    d.detectOSMBoundaryByID = async () => byId
+    d.detectContainingBoundary = async () => { asked.push('contains'); return { success: true, data: { coordinates: ring(150), synthetic: false, source: 'osm' } } }
     d.withClassification = async (b: unknown) => b
-    const r = await d.detectBoundary({ id: 'x', name: 'Maracanã', osm_id: 5520332, osm_type: 'relation', location: PIN })
+    const r = await d.detectBoundary({ name: 'Maracanã', osm_id: 5520332, osm_type: osmType, location: PIN })
     return { r, asked }
   }
 
-  it('the neighbourhood id (Maracanã) gives way to the stadium carrying the name', async () => {
-    const { r, asked } = await run({ success: true, data: { coordinates: ring(150), synthetic: false, source: 'osm' } })
-    assert.equal(asked.length, 1)
-    assert.ok(Math.abs((asked[0] as number) - calculatePolygonAreaInM2(ring(700))) < 1, 'only smaller than the typed border')
-    assert.equal(r.data.coordinates.length, ring(150).length)
-    assert.ok(calculatePolygonAreaInM2(r.data.coordinates) < 100_000)
+  it('BR-AUDIO-010: the relation keeps its own ring; no element at the pin is asked (Maracanã id = neighbourhood, #786 undone)', async () => {
+    const { r, asked } = await run('relation', { success: true, data: { coordinates: ring(700), synthetic: false, source: 'osm' } })
+    assert.deepEqual(asked, [])
+    assert.ok(calculatePolygonAreaInM2(r.data.coordinates) > 1_000_000)
   })
 
-  it('no smaller element of the identity: the typed border stays', async () => {
-    const { r } = await run({ success: false })
-    assert.ok(calculatePolygonAreaInM2(r.data.coordinates) > 1_000_000)
+  it('BR-AUDIO-010: a way whose own geometry is refused falls to the point circle, never to another element', async () => {
+    const { r, asked } = await run('way', { success: false, error: 'Curated osm_id boundary is implausible (pin outside, > 500 m from the edge)' })
+    assert.deepEqual(asked, [])
+    assert.equal(r.data.synthetic, true)
+    assert.equal(r.data.source, 'synthetic')
+  })
+
+  it('BR-AUDIO-010: a node asks for an element tied to it', async () => {
+    const circle = { success: true, data: { coordinates: ring(10), synthetic: true, source: 'osm', osmTags: { wikidata: 'Q1' } } }
+    const { r, asked } = await run('node', circle)
+    assert.deepEqual(asked, ['contains'])
+    assert.equal(r.data.synthetic, false)
   })
 })
 
@@ -260,27 +237,22 @@ describe('INV-E1b — a drawn circle leaves with source=synthetic on every path 
     const calls: string[] = []
     d.detectOSMBoundaryByID = async () => { calls.push('id'); return { success: true, data: { coordinates: circle, synthetic: true, source: 'osm', osmTags: { tourism: 'artwork' } } } }
     d.detectContainingBoundary = async () => { calls.push('contains'); return { success: false } }
-    d.detectOSMBoundary = async () => { calls.push('name'); return { success: false } }
     d.withClassification = async (b: unknown) => b
     const r = await d.detectBoundary({ id: 'x', name: 'x', osm_id: 1, osm_type: 'node', location: PIN })
-    assert.deepEqual(calls, ['id', 'contains'], 'with a node id the name search does not run')
+    assert.deepEqual(calls, ['id', 'contains'])
     assert.equal(r.data.source, 'synthetic')
     assert.equal(r.data.synthetic, true)
   })
 
-  it('a circle from the name search (Nominatim point) also leaves synthetic', async () => {
+  it('a POI without id and without a tied element leaves as the point circle: there is no name search (operator, 2026-10-11)', async () => {
     const { BoundaryDetector } = await import('../../lib/services/trigger-points-google/core/boundary-detector')
     const d = new BoundaryDetector() as any
-    const circle50 = Array.from({ length: 17 }, (_, i) => ({
-      lat: PIN.lat + 50 * M_LAT * Math.cos(((i % 16) / 16) * 2 * Math.PI),
-      lng: PIN.lng + 50 * M_LNG * Math.sin(((i % 16) / 16) * 2 * Math.PI),
-    }))
     d.detectContainingBoundary = async () => ({ success: false })
-    d.detectOSMBoundary = async () => ({ success: true, data: { coordinates: circle50, source: 'osm' } })
     d.withClassification = async (b: unknown) => b
-    const r = await d.detectBoundary({ id: 'x', name: 'x', location: PIN })
+    const r = await d.detectBoundary({ name: 'x', location: PIN })
     assert.equal(r.data.source, 'synthetic')
     assert.equal(r.data.synthetic, true)
+    assert.ok(calculatePolygonAreaInM2(r.data.coordinates) < 400, 'the 10 m pin circle')
   })
 
   it('a stored synthetic border reads back as synthetic, not as a source; manual stays manual', async () => {
@@ -369,50 +341,15 @@ describe('#779 — the relief footprint is for a natural landform only (BR-POI-0
   })
 })
 
-describe('INV-E1c — a smaller element of the identity narrows the typed border only at the pin (BR-POI-009, #779)', () => {
-  const narrow = async (element: { type: string; id: number; tags: Record<string, string>; geometry: unknown }) => {
-    const { BoundaryDetector } = await import('../../lib/services/trigger-points-google/core/boundary-detector')
-    const { LocalOSMFetcher } = await import('../../lib/services/trigger-points-google/services/local-osm-fetcher')
-    const local = LocalOSMFetcher.getInstance() as any
-    const restore = local.fetchAreasContaining
-    local.fetchAreasContaining = () => [element]
-    const d = new BoundaryDetector() as any
-    d.detectOSMBoundaryByID = async (id: string) => ({ success: true, data: { osmId: id } })
-    try {
-      return await d.detectContainingBoundary({ id: 'x', name: element.tags.name, osm_id: 462451555, osm_type: 'way', location: PIN }, undefined, 1_820_000)
-    } finally {
-      local.fetchAreasContaining = restore
-    }
-  }
-
-  it('BR-POI-009: the skating rink of the same name 74 m off the pin does not replace the park holding it (Parque dos Patins)', async () => {
-    const rink = { type: 'way', id: 261938652, tags: { name: 'Parque dos Patins', leisure: 'pitch' }, geometry: square(25, { lat: PIN.lat, lng: PIN.lng + 99 * M_LNG }) }
-    assert.equal((await narrow(rink)).success, false)
-  })
-
-  it('INV-E1c (#786): the stadium 17 m off the pin, on the street, still narrows the neighbourhood (Maracanã)', async () => {
-    const stadium = { type: 'way', id: 1, tags: { name: 'Estádio', short_name: 'Maracanã' }, geometry: square(150, { lat: PIN.lat, lng: PIN.lng + 167 * M_LNG }) }
-    const r = await narrow({ ...stadium, tags: { ...stadium.tags, name: 'Maracanã' } })
-    assert.equal(r.success, true)
-    assert.equal(r.data.osmId, '1')
-  })
-})
-
-describe('INV-E1a — the ways of a line POI are its identity whatever the letter case (BR-POI-009, #779)', () => {
-  it('BR-POI-009: the query asks Overpass for the name ignoring case, escaped (Rio Pavuna / "Rio pavuna")', () => {
-    const q = choice.sameIdentityWaysQuery(674849609, ['Rio pavuna', 'Av. "A" (1)'], 30_000)
+describe('INV-E1a — the ways of a line POI are tied to it by id, never by name (BR-AUDIO-010, operator 2026-10-11)', () => {
+  it('BR-AUDIO-010: the query asks for the same wikidata and for the waterway or bridge relation, no name', () => {
+    const q = choice.sameIdentityWaysQuery(674849609, 'Q123', 30_000)
     assert.match(q, /way\(674849609\)->\.a;/)
-    assert.ok(q.includes('way(around.a:30000)["name"~"^Rio pavuna$",i];'), q)
-    assert.ok(q.includes('["official_name"~"^Rio pavuna$",i];'), q)
-    assert.ok(q.includes('["name"~"^Av\\\\. \\"A\\" \\\\(1\\\\)$",i];'), q)
-  })
-
-  it('BR-POI-009: a way named "Rio Pavuna" continues a river whose curated way is "Rio pavuna"', () => {
-    const at = (m: number) => ({ lat: PIN.lat, lon: PIN.lng + m * M_LNG })
-    const start = { id: 1, tags: { waterway: 'stream', name: 'Rio pavuna' }, geometry: [at(0), at(100)] }
-    const ways = [{ id: 2, tags: { waterway: 'stream', name: 'Rio Pavuna' }, geometry: [at(100), at(900)] }]
-    const xs = choice.chainSameIdentity(start, ways).map(p => Math.round((p.lng - PIN.lng) / M_LNG))
-    assert.equal(Math.max(...xs), 900)
+    assert.ok(q.includes('way(around.a:30000)["wikidata"="Q123"];'), q)
+    assert.ok(q.includes('rel(bw.a)["type"~"^(waterway|bridge)$"]->.r;'), q)
+    assert.ok(q.includes('way(r.r)(around.a:30000);'), q)
+    assert.doesNotMatch(q, /name/)
+    assert.doesNotMatch(choice.sameIdentityWaysQuery(1, 'Q1"];way(1);', 10), /way\(around\.a:10\)\["wikidata"/, 'only a QID enters the query')
   })
 })
 
@@ -462,22 +399,5 @@ describe('INV-E1a — with storedReference, a detection of another footprint giv
     assert.equal((await run(40, true)).metadata.strategy, 'osm_priority')
     dbRow = { geojson: { type: 'Polygon', coordinates: [lngLat(200)] }, boundary_source: null }
     assert.equal((await run(37, false)).metadata.strategy, 'osm_priority')
-  })
-})
-
-describe('INV-E3 — only the POI own buildings lend it height on the Nominatim path (BR-AUDIO-010, #779)', () => {
-  const ring = (half: number, c: LatLng = PIN) => square(half, c).map(p => ({ lat: p.lat, lng: p.lon }))
-  const at = (dxM: number) => ({ lat: PIN.lat, lng: PIN.lng + dxM * M_LNG })
-
-  it('BR-AUDIO-010: a tower 80 m from a 10 m point circle lends nothing (Escultura Baleia Metálica took the B32 123 m)', () => {
-    const tower = { geometry: square(20, at(80)), tags: { height: '123' } }
-    assert.deepEqual(choice.buildingsOfPoi([tower], ring(10), PIN), [])
-  })
-
-  it('BR-AUDIO-010: the building holding the pin and those inside the POI ring are kept', () => {
-    const host = { geometry: square(30), tags: { height: '40' } }
-    const inside = { geometry: square(5, at(100)), tags: { height: '12' } }
-    const outside = { geometry: square(5, at(300)), tags: { height: '90' } }
-    assert.deepEqual(choice.buildingsOfPoi([host, inside, outside], ring(150), PIN), [host, inside])
   })
 })

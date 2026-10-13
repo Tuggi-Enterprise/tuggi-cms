@@ -8,8 +8,10 @@
 import 'dotenv/config';
 import { getSupabase } from '../lib/core/supabase-client';
 import { normalizeLocation } from '../lib/shared/location-normalize';
+import { pickCategory } from '../lib/shared/poi-filter';
+import { representativePoint } from '../lib/utils/geometry';
 import fs from 'node:fs';
-import readline from 'node:readline';
+import { splitOnLineFeed } from '../lib/services/osm-local-data-service';
 import { createHash } from 'node:crypto';
 import path from 'node:path';
 
@@ -43,14 +45,17 @@ function generateUUID(osmId: any, osmType: string, name: string): string {
   ].join('-');
 }
 
+/**
+ * The pin (lat/lon): point inside an areal, middle of a linear (lib/utils/geometry#representativePoint).
+ * It used to be the first vertex of the ring: in the Czech homolog 12,396 of 12,456 areal/linear
+ * POIs sat on the edge, p50 28 m and up to 34 km off. MultiPoint/GeometryCollection keep the first coordinate.
+ */
 function getPointFromGeometry(geometry: any): { lat: number; lon: number } | null {
   if (!geometry || !geometry.coordinates) return null;
 
-  if (geometry.type === 'Point') {
-    return { lon: geometry.coordinates[0], lat: geometry.coordinates[1] };
-  }
-  
-  // For LineStrings, Polygons, etc., take the first point as a reference
+  const rep = representativePoint(geometry);
+  if (rep) return { lon: rep[0], lat: rep[1] };
+
   try {
     let coords = geometry.coordinates;
     while (Array.isArray(coords[0]) && typeof coords[0][0] !== 'number') {
@@ -63,31 +68,6 @@ function getPointFromGeometry(geometry: any): { lat: number; lon: number } | nul
     return null;
   }
   return null;
-}
-
-/**
- * The category is the OSM key that got the object past Stage 1, in the priority order of
- * CATEGORIES (lib/shared/poi-filter). Two traps this walks around:
- *  - Keys admitted only by the tail of CATEGORIES (man_made, waterway, geological, aeroway, place)
- *    were absent here, so lighthouses, waterfalls, towns and aerodromes landed with a null
- *    category: 458 of Iceland's 2,747 POIs, and the same in the German, Dutch and Swiss imports.
- *  - `tourism=yes` / `historic=yes` carry no category at all, yet sit at the head of the order and
- *    used to win: the waterfall Rjúkandi (tourism=yes + waterway=waterfall) came in as "yes".
- *    Skipping the empty values lets the describing tag through.
- */
-const EMPTY_TAG_VALUES = new Set(['yes', 'no', 'true', 'false']);
-
-function pickCategory(props: any): string | undefined {
-  const ordered = [
-    props.tourism, props.historic, props.leisure, props.natural, props.amenity,
-    props.aerialway, props.man_made, props.waterway, props.geological, props.aeroway, props.place,
-  ];
-  const found = ordered.find(v => v && !EMPTY_TAG_VALUES.has(String(v).toLowerCase()));
-  if (found) return found;
-  // Boolean-flag categories: the key itself names the category, so skipping the empty value
-  // would leave nothing (mountain_pass=yes -> "mountain_pass").
-  if (props.mountain_pass) return 'mountain_pass';
-  return undefined;
 }
 
 function geoJsonToWkt(geometry: any): string | null {
@@ -296,7 +276,9 @@ async function main() {
   }
 
   // Driver: stream the file, accumulate batches of BATCH_SIZE features, flush each.
-  const rl = readline.createInterface({ input: fs.createReadStream(filePath), crlfDelay: Infinity });
+  // \n only (lib/services/osm-local-data-service#splitOnLineFeed): JSON.stringify leaves U+2028/U+2029
+  // raw, node:readline splits on them, and the feature was dropped by the silent catch below.
+  const rl = splitOnLineFeed(fs.createReadStream(filePath));
   let batch: any[] = [];
   for await (let line of rl) {
     line = line.trim();

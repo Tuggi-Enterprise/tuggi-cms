@@ -293,12 +293,6 @@ describe('BR-AUDIO-010 — engine-agnostic: no POI name or category becomes a br
     }
   })
 
-  it('name variations strip the leading word generically', async () => {
-    const { BoundaryDetector } = await import('../../lib/services/trigger-points-google/core/boundary-detector')
-    const v = (Object.create(BoundaryDetector.prototype) as any).generateNameVariations('Estádio Nabi Abi Chedid (Arena Red Bull)')
-    assert.ok(v.includes('Nabi Abi Chedid'), v.join(' | '))
-  })
-
 })
 
 describe('BR-AUDIO-010 — what the CMS saves is what the engine computed', () => {

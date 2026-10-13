@@ -165,7 +165,27 @@ export function adminBorderTriggerPoints(poiId: string, pin: LatLng, parts: LatL
     return null;
   };
 
+  /**
+   * INV-E11b: the deepest point inside the border along a crossing road, within the probe, before
+   * the road leaves or ends. Used only when no road entered by `entryPoint`: in an alpine valley the
+   * border runs along the river next to the only road in (Alpbach, Feichten, Obernberg am Brenner,
+   * 2026-10-09: inside, 6–68 m from the border for the whole probe), and a tiny town is crossed in
+   * less than the inset (Rattenberg, 1.5 km of border). Without it those municipalities had 0 TPs.
+   */
+  const shallowEntry = (street: StreetData, seg: number, crossing: LatLng, dir: 1 | -1) => {
+    let best: { point: LatLng; edgeM: number } | null = null;
+    for (let d = ENTRY_PROBE_STEP_M; d <= ADMIN_BORDER_ENTRY_PROBE_M; d += ENTRY_PROBE_STEP_M) {
+      const p = walk(street, seg, crossing, dir, d);
+      if (!inside(p.point)) { if (edgeM(p.point) > ENTRY_PROBE_STEP_M) break; continue; }
+      const e = edgeM(p.point);
+      if (!best || e > best.edgeM) best = { point: p.point, edgeM: e };
+      if (p.ended) break;
+    }
+    return best;
+  };
+
   const entries: Entry[] = [];
+  const shallow: Entry[] = [];
   for (const s of roads) {
     const c = s.coordinates;
     const travel = travelDirections(s);
@@ -187,9 +207,12 @@ export function adminBorderTriggerPoints(poiId: string, pin: LatLng, parts: LatL
       // A ferry ends at the pier, on the coast: its end is the arrival, so the edge rule does not apply.
       const ferryTp = s.type === 'ferry' ? walk(s, k, crossing, dir, ADMIN_BORDER_TP_INSET_M) : null;
       const tp = ferryTp ? (inside(ferryTp.point) ? ferryTp : null) : entryPoint(s, k, crossing, dir);
-      if (!tp) continue;
       // Travel direction only ranks: of a dual carriageway, the inbound one keeps the spacing.
-      entries.push({ street: s, point: tp.point, score: roadRank(s.type) * 2 + (travel.includes(dir) ? 1 : 0) });
+      const score = roadRank(s.type) * 2 + (travel.includes(dir) ? 1 : 0);
+      if (tp) { entries.push({ street: s, point: tp.point, score }); continue; }
+      // No GPS in a tunnel: its crossing is no fallback (Rattenberg's B171 runs under the castle hill).
+      const shallowTp = s.type === 'ferry' || String((s as StreetData & { tags?: Record<string, unknown> }).tags?.tunnel ?? 'no') !== 'no' ? null : shallowEntry(s, k, crossing, dir);
+      if (shallowTp) shallow.push({ street: s, point: shallowTp.point, score });
     }
   }
 
@@ -215,8 +238,10 @@ export function adminBorderTriggerPoints(poiId: string, pin: LatLng, parts: LatL
     }
   }
 
+  // INV-E11b: a municipality never ends with 0 TPs while a main road crosses into it. The shallow
+  // entries count only when no road entered and no ferry arrives; otherwise they are roads that skirt.
   const kept: Entry[] = [];
-  for (const e of entries.sort((x, y) => y.score - x.score)) {
+  for (const e of (entries.length ? entries : shallow).sort((x, y) => y.score - x.score)) {
     if (kept.every(k => calculateDistance(k.point, e.point) >= ADMIN_BORDER_TP_MIN_SPACING_M)) kept.push(e);
   }
 

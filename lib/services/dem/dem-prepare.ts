@@ -17,16 +17,16 @@
  */
 
 import * as fs from 'fs'
-import * as os from 'os'
 import * as path from 'path'
 import { createHash } from 'crypto'
-import { fromUrl } from 'geotiff'
+import { fromUrl, type GeoTIFFImage } from 'geotiff'
 import {
   COPERNICUS_GLO30,
   DEM_LATTICE_DEG,
   GEDTM30,
   copernicusTileName,
   copernicusTileUrl,
+  copernicusTileWidth,
   type DemLayer,
 } from './dem-sources'
 import {
@@ -51,6 +51,7 @@ import {
   type DemManifest,
   type DemTileRecord,
 } from './dem-store'
+import { LOCK_POLL_MS, tryLock } from './file-lock'
 
 type LatLng = { lat: number; lng: number }
 export type { DemArea }
@@ -124,8 +125,11 @@ async function head(url: string): Promise<{ etag: string | null; lastModified: s
   return { etag: res.headers.get('etag'), lastModified: res.headers.get('last-modified') }
 }
 
+/** The image of one tile COG, read by window over HTTP ranges. A test hands a synthetic one. */
+type OpenTile = (url: string) => Promise<Pick<GeoTIFFImage, 'getOrigin' | 'getResolution' | 'getWidth' | 'getHeight' | 'readRasters'>>
+
 /** Copernicus GLO-30 (surface), one COG per 1°×1° tile on AWS Open Data. */
-export function copernicusReader(): LayerReader {
+export function copernicusReader(openTile: OpenTile = async url => (await fromUrl(url)).getImage()): LayerReader {
   let tileList: Set<string> | null = null
   return {
     layer: 'surface',
@@ -167,18 +171,18 @@ export function copernicusReader(): LayerReader {
           }
           try {
             const meta = await withRetry(`HEAD ${name}`, () => head(url))
-            const image = await withRetry(`open ${name}`, async () => (await fromUrl(url)).getImage())
+            const image = await withRetry(`open ${name}`, () => openTile(url))
             const [ox, oy] = image.getOrigin()
             const [rx, ry] = image.getResolution()
             const tw = image.getWidth(), th = image.getHeight()
             // The georeference must match the name and the lattice (EP: "coordenadas batendo").
-            const lngStepArcsec = rx * 3600
+            // Above 50° a column is 1.5″, 2″… wide (`copernicusTileWidth`): read on that step, not refused.
             if (Math.abs(ox - west) > 1e-9 || Math.abs(oy - (south + 1)) > 1e-9 || Math.abs(ry + DEM_LATTICE_DEG) > 1e-12
-              || th !== 3600 || Math.abs(tw * rx - 1) > 1e-9 || Math.abs(lngStepArcsec - Math.round(lngStepArcsec)) > 1e-6) {
+              || th !== 3600 || tw !== copernicusTileWidth(south) || Math.abs(tw * rx - 1) > 1e-9) {
               failures.push(`${name}: georeference ${ox},${oy} res ${rx},${ry} size ${tw}×${th} does not match the tile`)
               continue
             }
-            const k = Math.round(lngStepArcsec)
+            const k = 3600 / tw
             // Grid rows/cols inside this tile.
             const rowLo = Math.max(0, nIdx - (south + 1) * 3600)
             const rowHi = Math.min(grid.height - 1, nIdx - (south * 3600 + 1))
@@ -453,44 +457,7 @@ export function demMinFreeBytes(): number {
 /** A failed cell is not prepared again before this, so a queue of its POIs does not download it once per POI. */
 export const DEM_CELL_RETRY_AFTER_MS = 30 * 60_000
 
-const LOCK_POLL_MS = 2_000
 const LOCKS_DIR = '_locks'
-
-function processAlive(pid: number): boolean {
-  try {
-    process.kill(pid, 0)
-    return true
-  } catch (err) {
-    return (err as NodeJS.ErrnoException).code === 'EPERM'
-  }
-}
-
-/**
- * Lock of one cell between workers (processes on this machine): a file created with O_EXCL. A
- * lock whose process died (the queue kills a POI child at its deadline) is taken over.
- */
-function tryLock(file: string): boolean {
-  fs.mkdirSync(path.dirname(file), { recursive: true })
-  for (let attempt = 0; attempt < 2; attempt++) {
-    try {
-      fs.writeFileSync(file, JSON.stringify({ pid: process.pid, host: os.hostname(), at: new Date().toISOString() }), { flag: 'wx' })
-      return true
-    } catch (err) {
-      if ((err as NodeJS.ErrnoException).code !== 'EEXIST') throw err
-      let holder: { pid?: number; host?: string } = {}
-      try {
-        holder = JSON.parse(fs.readFileSync(file, 'utf8'))
-      } catch {
-        // half-written by a process that died: stale once it is not fresh
-        if (Date.now() - fs.statSync(file).mtimeMs < 60_000) return false
-      }
-      const stale = !holder.pid || (holder.host === os.hostname() && !processAlive(holder.pid))
-      if (!stale) return false
-      fs.rmSync(file, { force: true })
-    }
-  }
-  return false
-}
 
 function readCellManifest(dir: string, id: string): DemManifest | null {
   const file = path.join(dir, id, DEM_MANIFEST_FILE)
