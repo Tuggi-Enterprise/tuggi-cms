@@ -380,6 +380,12 @@ async function approveWithoutPlace(
     const acceptance = await acceptanceOf(submission.id)
     if (!acceptance) return { ok: false, httpStatus: 503, error: 'lookup_failed' }
     const existing = answers.tax_id ? await findClientByTaxId(answers.tax_id) : null
+    // The CNPJ is public: a guide who types the CNPJ of a client of another type must not get that
+    // client linked and approved here (security review of #936). Refused before any write — the
+    // database would refuse the transition anyway (TGP10), but only after the approval.
+    if (existing && existing.client_type !== clientTypeOfKind(kind)) {
+      return { ok: false, httpStatus: 409, error: 'tax_id_other_client_type' }
+    }
     if (existing) {
       clientId = existing.id as string
     } else {

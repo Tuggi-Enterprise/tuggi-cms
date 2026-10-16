@@ -3993,6 +3993,7 @@
       "approveError": "Não foi possível aprovar. Nada foi criado — tente de novo.",
       "approvePartial": "O local foi criado, mas a aprovação não terminou. Tente de novo — o que já foi feito não se repete.",
       "approveBusy": "A aprovação já está em andamento. Espere um minuto e recarregue.",
+      "approveTaxIdOtherType": "Não aprovado: o CNPJ informado já é de um parceiro de outro tipo no cadastro. Nada foi gravado. Peça ajuste ao parceiro ou confira o CNPJ.",
       "openPlace": "Abrir a ficha do local",
       "changesTitle": "Pedir ajuste a {name}",
       "where": "Onde (opcional)",

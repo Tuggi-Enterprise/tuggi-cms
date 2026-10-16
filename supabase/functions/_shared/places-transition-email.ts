@@ -33,6 +33,10 @@ import { ACCESS_FROM_NAME, issueAccessLink, portalMail, type AccessLinkDeps, typ
 /** The stores of the app — the same URLs as `tuggi-enterprise/src/lib/app-meta.ts` (`APP_STORE_URL`, `PLAY_STORE_URL`). */
 export const APP_STORE_URL = 'https://apps.apple.com/app/tuggi-drive/id6744379818';
 export const PLAY_STORE_URL = 'https://play.google.com/store/apps/details?id=com.tuggidrive.app';
+const STORE_LINKS = [
+  { label: 'Tuggi na App Store (iPhone)', url: APP_STORE_URL },
+  { label: 'Tuggi no Google Play (Android)', url: PLAY_STORE_URL },
+];
 
 /** One reminder, 3 days after the approval (market benchmark, #813). */
 export const KIT_REMINDER_AFTER_MS = 3 * 24 * 3600 * 1000;
@@ -97,6 +101,9 @@ export function approvedEmail(plan: Plan | null, claim: boolean): LinkMail {
  * profile (BR-B2B-064 item 10), and the text stays inside the item 14 ceiling — no radius, no count,
  * no "forever". The transfer: QR and code to refer passengers, and no listing (BR-B2B-065 item 4).
  */
+/** The QR is also in the app for whoever signs in with the acceptance e-mail (#936, operator's ask). */
+const APP_LINE = 'Baixe o Tuggi e entre com este e-mail para ver o seu QR Code também no app.';
+
 export function noPlaceApprovedEmail(category: string | null, claim: boolean): LinkMail {
   const guide = category === 'tour_guide';
   return (url, origin) =>
@@ -108,13 +115,16 @@ export function noPlaceApprovedEmail(category: string | null, claim: boolean): L
             'Olá,',
             'o seu cadastro foi aprovado e o seu perfil de guia já aparece no app do Tuggi para turistas perto das cidades onde você atua.',
             'No portal você baixa o seu QR Code para divulgar, edita o perfil e pode tirá-lo do app quando quiser.',
+            APP_LINE,
           ]
         : [
             'Olá,',
             'o seu cadastro foi aprovado.',
             'No portal você baixa o seu QR Code e o seu código para indicar o Tuggi aos seus passageiros.',
+            APP_LINE,
           ],
       cta: { label: 'Abrir o portal', url },
+      links: STORE_LINKS,
       small: [claim ? claimEntry(origin) : plainEntry(origin), STRANGER],
     });
 }
@@ -133,10 +143,7 @@ export function liveEmail(plan: Plan | null): LinkMail {
         'Para ver o seu local no app, baixe o Tuggi:',
       ],
       cta: { label: 'Baixar o kit', url },
-      links: [
-        { label: 'Tuggi na App Store (iPhone)', url: APP_STORE_URL },
-        { label: 'Tuggi no Google Play (Android)', url: PLAY_STORE_URL },
-      ],
+      links: STORE_LINKS,
       small: [plainEntry(origin), STRANGER],
     });
 }

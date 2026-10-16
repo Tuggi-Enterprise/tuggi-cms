@@ -300,6 +300,15 @@ const GUIDE = { submissionId: SID, status: 'live', email: 'guia@exemplo.com', pl
 const TRANSFER = { submissionId: SID, status: 'approved', email: 'transfer@exemplo.com', plan: 'no_place', category: 'transfer' }
 const PLACE_WORDS = /seu local|mapa|kit|adesivo|display|história/i
 
+/** #936, operator's ask: the QR is also in the app — the line and the two store links, in text and HTML. */
+function assertAppLine(mail: { text: string; html: string }) {
+  assert.match(mail.text, /Baixe o Tuggi e entre com este e-mail para ver o seu QR Code também no app\./)
+  for (const url of ['https://apps.apple.com/app/tuggi-drive/id6744379818', 'https://play.google.com/store/apps/details?id=com.tuggidrive.app']) {
+    assert.ok(mail.text.includes(url), url)
+    assert.ok(mail.html.includes(url), url)
+  }
+}
+
 test('BR-B2B-064 items 10 and 14: the guide, already live at approval, gets "Seu perfil de guia está no Tuggi" and nothing about a place or a kit', async () => {
   const f = fake({ target: GUIDE })
   assert.equal(await mod.notifyApproved(f.deps, SID), 'sent')
@@ -309,6 +318,7 @@ test('BR-B2B-064 items 10 and 14: the guide, already live at approval, gets "Seu
   assert.match(f.mails[0].text, /perto das cidades onde você atua/)
   assert.match(f.mails[0].text, /QR Code/)
   assert.match(f.mails[0].text, /tirá-lo do app/)
+  assertAppLine(f.mails[0])
   assert.doesNotMatch(f.mails[0].text, PLACE_WORDS)
   // item 14: never the radius, a count, a position or "forever".
   assert.doesNotMatch(f.mails[0].text, /\bkm\b|para sempre|gratuit|turistas por|posição|—/i)
@@ -319,6 +329,7 @@ test('BR-B2B-065 items 2 and 4: the transfer without an address gets "Seu cadast
   assert.equal(await mod.notifyApproved(f.deps, SID), 'sent')
   assert.equal(f.mails[0].subject, 'Seu cadastro foi aprovado no Tuggi')
   assert.match(f.mails[0].text, /QR Code e o seu código para indicar o Tuggi aos seus passageiros/)
+  assertAppLine(f.mails[0])
   assert.doesNotMatch(f.mails[0].text, PLACE_WORDS)
   assert.doesNotMatch(f.mails[0].text, /aparece no app|—/)
 })

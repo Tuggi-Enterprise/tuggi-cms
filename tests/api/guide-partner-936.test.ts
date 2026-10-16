@@ -55,6 +55,8 @@ interface World {
   publishError: { code: string; details?: string } | null
   copyError: { message: string } | null
   rpcArgs: Record<string, unknown>[]
+  /** The client `findClientByTaxId` finds by the CNPJ the partner typed; null = none. */
+  existingClient: Record<string, unknown> | null
 }
 let w: World
 
@@ -66,6 +68,7 @@ function reset(answers: Record<string, string> = GUIDE, over: Partial<World> = {
     publishError: null,
     copyError: null,
     rpcArgs: [],
+    existingClient: null,
     ...over,
   }
 }
@@ -105,6 +108,7 @@ function table(name: string) {
     },
     then: (resolve: (v: unknown) => unknown) => {
       if (update && update.approval_claimed_at) return resolve({ data: [{ id: SUB }], error: null })
+      if (name === 'clients' && !update && !insert && w.existingClient) return resolve({ data: [w.existingClient], error: null })
       return resolve({ data: [], error: null })
     },
   }
@@ -303,6 +307,28 @@ test('BR-B2B-064 item 5: the guide without consent does not approve — refused 
   assert.deepEqual(w.calls, [])
   reset({ ...GUIDE, public_contact_consent: undefined as unknown as string })
   assert.equal((await validation.approvePortalSubmission(SUB, operator, 'op', CMS_OP, NOW)).ok, false)
+})
+
+test('#936 security review: a CNPJ of a client of another type neither links nor approves — refused before any write', async () => {
+  const OTHER = '55555555-5555-4555-8555-555555555555'
+  reset({ ...GUIDE, tax_id: '11.222.333/0001-81' }, { existingClient: { id: OTHER, name: 'Pousada', email: 'x@p.com', client_type: 'venue' } })
+  const out = await validation.approvePortalSubmission(SUB, operator, 'op', CMS_OP, NOW)
+  assert.deepEqual(out, { ok: false, httpStatus: 409, error: 'tax_id_other_client_type' })
+  assert.deepEqual(w.calls, ['claim', 'release'])
+  assert.equal(w.submission.client_id, null)
+
+  reset({ ...TRANSFER, tax_id: '11.222.333/0001-81' }, { existingClient: { id: OTHER, name: 'Ana', email: 'x@p.com', client_type: 'tour_guide' } })
+  const transfer = await validation.approvePortalSubmission(SUB, operator, 'op', CMS_OP, NOW)
+  assert.equal(transfer.ok, false)
+  assert.deepEqual(w.calls, ['claim', 'release'])
+})
+
+test('#936: a CNPJ of a client of the same type links that client, no new client', async () => {
+  reset({ ...GUIDE, tax_id: '11.222.333/0001-81' }, { existingClient: { id: CLIENT, name: 'Ana Guia', email: 'ana@guia.com.br', client_type: 'tour_guide' } })
+  const out = await validation.approvePortalSubmission(SUB, operator, 'op', CMS_OP, NOW)
+  assert.equal(out.ok, true)
+  assert.deepEqual(w.calls.slice(0, 4), ['claim', 'write_client_id', 'approve_client', 'transition:approved'])
+  assert.equal(w.clientInsert, null)
 })
 
 test('#936 §3: the publication failing leaves the guide approved, says so, and "Publicar o perfil" converges', async () => {

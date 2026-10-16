@@ -156,7 +156,7 @@ export interface ProposalDetail {
 
 /** The columns the promotion panel compares against. An allowlist, like the write. */
 const CLIENT_COMPARE_COLUMNS =
-  'id, name, email, phone, company_name, address, city, state, country, postal_code, industry, website, social_handle, tax_id, tax_id_type, legal_representative_name, legal_representative_role, status, created_at'
+  'id, name, email, phone, company_name, address, city, state, country, postal_code, industry, website, social_handle, tax_id, tax_id_type, client_type, legal_representative_name, legal_representative_role, status, created_at'
 
 export async function loadProposalDetail(submissionId: string): Promise<ProposalDetail | null> {
   const { data: submission, error } = await service()

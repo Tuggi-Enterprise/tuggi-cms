@@ -181,6 +181,7 @@ export function ValidationDecision({
     if (!outcome) return
     if (outcome.failed) {
       if (outcome.error === 'approval_in_progress') setError({ text: t('dialogs.approveBusy') })
+      else if (outcome.error === 'tax_id_other_client_type') setError({ text: t('dialogs.approveTaxIdOtherType') })
       else if (outcome.attractionId) setError({ text: t('dialogs.approvePartial'), attractionId: outcome.attractionId, detail: outcome.error })
       else setError({ text: t('dialogs.approveError') })
       return
