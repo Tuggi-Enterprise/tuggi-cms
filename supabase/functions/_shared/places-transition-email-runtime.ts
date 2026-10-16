@@ -8,7 +8,7 @@ import { alert } from './places-payment-runtime.ts';
 import type { RpcError } from './places-portal-draft.ts';
 import type { ApprovedRow, NoticeTarget, Plan, TransitionDeps } from './places-transition-email.ts';
 
-const planOf = (v: unknown): Plan | null => (v === 'map_only' || v === 'map_and_description' ? v : null);
+const planOf = (v: unknown): Plan | null => (v === 'map_only' || v === 'map_and_description' || v === 'no_place' ? v : null);
 const errOf = (e: { code?: string; details?: string; message?: string } | null): RpcError | null =>
   e ? { code: e.code, details: e.details, message: e.message } : null;
 
@@ -29,12 +29,12 @@ export function transitionDeps(): TransitionDeps {
     now: () => new Date(),
     async target(submissionId): Promise<NoticeTarget | null> {
       const [s, a] = await Promise.all([
-        partner().from('place_submissions').select('id, status').eq('id', submissionId).maybeSingle(),
+        partner().from('place_submissions').select('id, status, category:answers->>category').eq('id', submissionId).maybeSingle(),
         partner().from('place_acceptances').select('email, plan_choice').eq('submission_id', submissionId).maybeSingle(),
       ]);
       if (s.error || a.error) throw new Error(`target read ${s.error?.code ?? a.error?.code}`);
       if (!s.data) return null;
-      return { submissionId, status: s.data.status, email: a.data?.email ?? null, plan: planOf(a.data?.plan_choice) };
+      return { submissionId, status: s.data.status, email: a.data?.email ?? null, plan: planOf(a.data?.plan_choice), category: s.data.category ?? null };
     },
     async approvedRows(): Promise<ApprovedRow[]> {
       const subs = await partner().from('place_submissions').select('id, attraction_id').eq('status', 'approved').limit(500);

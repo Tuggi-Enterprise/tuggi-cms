@@ -19,6 +19,11 @@
 //    `partner.record_place_submission_notice`, recorded BEFORE sending — a lost reminder is better
 //    than two.
 //
+// THE PARTNER WITHOUT A PLACE (`no_place`, #936, contract §8.6, BR-B2B-064, BR-B2B-065): one e-mail,
+// the approval, with its own text — no place, no map, no kit. The guide's approval already publishes
+// its profile (`approved → live` inside the CMS approval), so the approval e-mail finds it in `live`
+// and there is no separate "no ar". Neither "no ar" nor the kit reminder ever goes to `no_place`.
+//
 // Recipient: always the acceptance e-mail (BR-B2B-049 item 10). No data of the submission in any of
 // them — no trade name, CPF, CNPJ or amount: the e-mail was never confirmed (BR-B2B-043), the same
 // rule as `accessEmail` (security review of #863).
@@ -33,10 +38,11 @@ export const PLAY_STORE_URL = 'https://play.google.com/store/apps/details?id=com
 export const KIT_REMINDER_AFTER_MS = 3 * 24 * 3600 * 1000;
 export const KIT_REMINDER = 'kit_reminder';
 
-/** `partner.place_acceptances.plan_choice`. */
-export type Plan = 'map_only' | 'map_and_description';
+/** `partner.place_acceptances.plan_choice`; `no_place` = guide or transfer without an address (§8.6). */
+export type Plan = 'map_only' | 'map_and_description' | 'no_place';
 
-export type NoticeTarget = { submissionId: string; status: string; email: string | null; plan: Plan | null };
+/** `category`: `answers.category` of the submission — tells the guide (`tour_guide`) from the transfer in `no_place`. */
+export type NoticeTarget = { submissionId: string; status: string; email: string | null; plan: Plan | null; category: string | null };
 
 /** A submission in `approved`: its acceptance e-mail and plan, whether its POI is published, and when it was approved. */
 export type ApprovedRow = { submissionId: string; email: string | null; plan: Plan | null; published: boolean; approvedAt: string | null };
@@ -82,6 +88,33 @@ export function approvedEmail(plan: Plan | null, claim: boolean): LinkMail {
           : 'Avisamos por este e-mail quando o seu local estiver no mapa do app.',
       ],
       cta: { label: 'Baixar o kit', url },
+      small: [claim ? claimEntry(origin) : plainEntry(origin), STRANGER],
+    });
+}
+
+/**
+ * Approval of a partner without a place (BR-B2B-064, BR-B2B-065). The guide: approval publishes the
+ * profile (BR-B2B-064 item 10), and the text stays inside the item 14 ceiling — no radius, no count,
+ * no "forever". The transfer: QR and code to refer passengers, and no listing (BR-B2B-065 item 4).
+ */
+export function noPlaceApprovedEmail(category: string | null, claim: boolean): LinkMail {
+  const guide = category === 'tour_guide';
+  return (url, origin) =>
+    portalMail({
+      subject: guide ? 'Seu perfil de guia está no Tuggi' : 'Seu cadastro foi aprovado no Tuggi',
+      preheader: guide ? 'Turistas perto das cidades onde você atua já encontram o seu perfil no app.' : 'O seu QR Code e o seu código já estão no portal.',
+      paragraphs: guide
+        ? [
+            'Olá,',
+            'o seu cadastro foi aprovado e o seu perfil de guia já aparece no app do Tuggi para turistas perto das cidades onde você atua.',
+            'No portal você baixa o seu QR Code para divulgar, edita o perfil e pode tirá-lo do app quando quiser.',
+          ]
+        : [
+            'Olá,',
+            'o seu cadastro foi aprovado.',
+            'No portal você baixa o seu QR Code e o seu código para indicar o Tuggi aos seus passageiros.',
+          ],
+      cta: { label: 'Abrir o portal', url },
       small: [claim ? claimEntry(origin) : plainEntry(origin), STRANGER],
     });
 }
@@ -135,7 +168,8 @@ export function parseNotify(body: unknown): { event: NotifyEvent; submissionId: 
   return { event: b.event, submissionId: b.submission_id };
 }
 
-export type NotifyOutcome = 'sent' | 'not_found' | 'not_approved' | 'not_live' | 'failed';
+/** `no_place`: "no ar" asked for a partner without a place, which never gets one. */
+export type NotifyOutcome = 'sent' | 'not_found' | 'not_approved' | 'not_live' | 'no_place' | 'failed';
 
 /**
  * The approval e-mail. An ownerless submission (cookie flow, #863) gets the claim link — the only
@@ -151,12 +185,15 @@ export async function notifyApproved(d: TransitionDeps, submissionId: string): P
     return 'failed';
   }
   if (!t) return 'not_found';
-  if (t.status !== 'approved') return 'not_approved';
+  const noPlace = t.plan === 'no_place';
+  // The guide is already `live` when the CMS asks: its approval publishes the profile (§8.6).
+  if (t.status !== 'approved' && !(noPlace && t.status === 'live')) return 'not_approved';
+  const build = (claim: boolean) => (noPlace ? noPlaceApprovedEmail(t.category, claim) : approvedEmail(t.plan, claim));
 
-  const viaClaim = await issueAccessLink(d, submissionId, approvedEmail(t.plan, true));
+  const viaClaim = await issueAccessLink(d, submissionId, build(true));
   if (viaClaim.kind === 'sent') return 'sent';
   if (!t.email) return 'failed';
-  const mail = approvedEmail(t.plan, false)(statusUrl(d.origin), d.origin);
+  const mail = build(false)(statusUrl(d.origin), d.origin);
   return (await d.sendEmail(t.email, mail.subject, mail.html, mail.text, ACCESS_FROM_NAME)) ? 'sent' : 'failed';
 }
 
@@ -180,6 +217,7 @@ export async function notifyLive(d: TransitionDeps, submissionId: string): Promi
   }
   if (!t) return 'not_found';
   if (t.status !== 'live') return 'not_live';
+  if (t.plan === 'no_place') return 'no_place';
   return (await send(d, t.email, liveEmail(t.plan))) ? 'sent' : 'failed';
 }
 
@@ -191,7 +229,8 @@ export async function notifyLive(d: TransitionDeps, submissionId: string): Promi
 export async function runTransitionEmails(d: TransitionDeps): Promise<Record<string, unknown>> {
   let rows: ApprovedRow[];
   try {
-    rows = await d.approvedRows();
+    // A partner without a place never gets "no ar" nor the kit reminder (BR-B2B-064, BR-B2B-065).
+    rows = (await d.approvedRows()).filter((r) => r.plan !== 'no_place');
   } catch (e) {
     await d.alert('sweep_approved_read_failed', { error: e instanceof Error ? e.message.slice(0, 120) : 'unknown' });
     return { live: 'db_error', kit_reminder: 'db_error' };

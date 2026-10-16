@@ -293,3 +293,64 @@ test('#813: the daily sweep runs the transition e-mails', () => {
   const src = readFileSync(resolve(FUNCTIONS, 'places-payment-sweep/index.ts'), 'utf8')
   assert.match(src, /runTransitionEmails\(transitionDeps\(\)\)/)
 })
+
+// ─── partner without a place (#936, contract §8.6) ─────────────────────────────────────────────
+
+const GUIDE = { submissionId: SID, status: 'live', email: 'guia@exemplo.com', plan: 'no_place', category: 'tour_guide' }
+const TRANSFER = { submissionId: SID, status: 'approved', email: 'transfer@exemplo.com', plan: 'no_place', category: 'transfer' }
+const PLACE_WORDS = /seu local|mapa|kit|adesivo|display|história/i
+
+test('BR-B2B-064 items 10 and 14: the guide, already live at approval, gets "Seu perfil de guia está no Tuggi" and nothing about a place or a kit', async () => {
+  const f = fake({ target: GUIDE })
+  assert.equal(await mod.notifyApproved(f.deps, SID), 'sent')
+  assert.equal(f.mails.length, 1)
+  assert.equal(f.mails[0].to, 'guia@exemplo.com')
+  assert.equal(f.mails[0].subject, 'Seu perfil de guia está no Tuggi')
+  assert.match(f.mails[0].text, /perto das cidades onde você atua/)
+  assert.match(f.mails[0].text, /QR Code/)
+  assert.match(f.mails[0].text, /tirá-lo do app/)
+  assert.doesNotMatch(f.mails[0].text, PLACE_WORDS)
+  // item 14: never the radius, a count, a position or "forever".
+  assert.doesNotMatch(f.mails[0].text, /\bkm\b|para sempre|gratuit|turistas por|posição|—/i)
+})
+
+test('BR-B2B-065 items 2 and 4: the transfer without an address gets "Seu cadastro foi aprovado no Tuggi" with the QR and the code, and no listing', async () => {
+  const f = fake({ target: TRANSFER })
+  assert.equal(await mod.notifyApproved(f.deps, SID), 'sent')
+  assert.equal(f.mails[0].subject, 'Seu cadastro foi aprovado no Tuggi')
+  assert.match(f.mails[0].text, /QR Code e o seu código para indicar o Tuggi aos seus passageiros/)
+  assert.doesNotMatch(f.mails[0].text, PLACE_WORDS)
+  assert.doesNotMatch(f.mails[0].text, /aparece no app|—/)
+})
+
+test('BR-B2B-064, BR-B2B-065: a place in live is still not "approved" for the approval e-mail; only no_place is', async () => {
+  const place = fake({ target: { submissionId: SID, status: 'live', email: 'dono@local.com', plan: 'map_only', category: 'restaurant' } })
+  assert.equal(await mod.notifyApproved(place.deps, SID), 'not_approved')
+  assert.equal(place.mails.length, 0)
+})
+
+test('BR-B2B-064, BR-B2B-065: "no ar" never goes to no_place, at the act or in the sweep', async () => {
+  const f = fake({ target: GUIDE })
+  assert.equal(await mod.notifyLive(f.deps, SID), 'no_place')
+  assert.equal(f.mails.length, 0)
+
+  const sweep = fake({ rows: [{ submissionId: SID, email: 'guia@exemplo.com', plan: 'no_place', published: true, approvedAt: null }] })
+  const out = await mod.runTransitionEmails(sweep.deps)
+  assert.equal(out.live, 0)
+  assert.deepEqual(sweep.live, [])
+  assert.equal(sweep.mails.length, 0)
+})
+
+test('BR-B2B-064, BR-B2B-065: the kit reminder never goes to no_place, however long it stays approved', async () => {
+  const old = new Date(NOW.getTime() - 30 * DAY).toISOString()
+  const f = fake({
+    rows: [
+      { submissionId: SID, email: 'transfer@exemplo.com', plan: 'no_place', published: false, approvedAt: old },
+      { submissionId: SID2, email: 'dono@local.com', plan: 'map_only', published: false, approvedAt: old },
+    ],
+  })
+  const out = await mod.runTransitionEmails(f.deps)
+  assert.equal(out.kit_reminder, 1)
+  assert.deepEqual(f.records, [`${SID2}:kit_reminder`])
+  assert.deepEqual(f.mails.map((m) => m.to), ['dono@local.com'])
+})
