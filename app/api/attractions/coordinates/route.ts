@@ -2,7 +2,7 @@
  * GET /api/attractions/coordinates?ids=uuid1,uuid2,...
  *
  * Retorna as coordenadas reais de um conjunto de atrações do banco.
- * Usado pelo RouteEditor para mostrar a posição exata do POI vinculado
+ * Usado pelo RouteEditorModal para mostrar a posição exata do POI vinculado
  * a cada waypoint da rota (que pode diferir da posição do waypoint em si).
  *
  * Limite: 50 IDs por request (rotas têm no máximo ~20 waypoints).
