@@ -23,6 +23,8 @@
  * wrote down for the write side.
  */
 
+import { partnerBadgeOf, partnerKindOf, type PartnerBadge, type PartnerKind } from '@/lib/partnerships/partner-kind'
+import { loadGuideProfileFacts } from '@/lib/services/guide-profile-service'
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { getSupabaseService } from '@/lib/core/supabase-client'
 import { placeService, type PartnerPlaceRow } from '@/lib/core/place-service'
@@ -244,6 +246,10 @@ export interface ClientDirectoryRow {
   discardReason: string | null
   /** `portal` for a row of `partner.place_submissions` (#812). Absent = the old form or a client. */
   origin?: 'form' | 'portal'
+  /** `partnerKindOf` of a portal row (#936). Absent = `place`: only the portal brings the other two. */
+  partnerKind?: PartnerKind
+  /** "Agência", "Transfer" or "Guia" in the row (spec #936 §6). Absent or `null` = no badge. */
+  partnerBadge?: PartnerBadge | null
   /**
    * The POI a portal submission created (`place_submissions.attraction_id`) — what the board's
    * `Publicado` publishes (#906). Absent on every other row: those publish from the record.
@@ -394,6 +400,12 @@ export async function loadClientDirectory(operator: SupabaseClient): Promise<Cli
   }
 
   const portalFacts = await loadPortalFacts(portalSubmissions.map((row) => row.id))
+  // #936: the guide's state is its profile (`Publicado` = active and visible, BR-B2B-064 item 10).
+  const guideFacts = await loadGuideProfileFacts(
+    portalSubmissions
+      .filter((row) => row.client_id && partnerKindOf(row.answers) === 'guide')
+      .map((row) => row.client_id as string)
+  )
 
   const rows: ClientDirectoryRow[] = submissions.map((row) => {
     const clientId = row.promoted_client_id
@@ -479,12 +491,16 @@ export async function loadClientDirectory(operator: SupabaseClient): Promise<Cli
   const portalClaimed: string[] = []
   for (const row of portalSubmissions) {
     const answers = row.answers ?? {}
-    const clientId = row.attraction_id ? clientOfPlace.get(row.attraction_id) ?? null : null
+    const partnerKind = partnerKindOf(answers)
+    // #936: a partner without a place names its client in `client_id`; a place, through its POI.
+    const clientId = row.client_id ?? (row.attraction_id ? clientOfPlace.get(row.attraction_id) ?? null : null)
     if (clientId) portalClaimed.push(clientId)
     const client = clientId ? clients.get(clientId) ?? null : null
     const state = derivePipelineState({
       origin: 'portal',
       portalStatus: row.status,
+      partnerKind,
+      guideProfile: clientId ? guideFacts.get(clientId) ?? null : null,
       proposalStatus: 'submitted',
       conference: NO_CONFERENCE.conference,
       clientId,
@@ -516,6 +532,8 @@ export async function loadClientDirectory(operator: SupabaseClient): Promise<Cli
       triage: { approvedAt: null, places: [] },
       discardReason: null,
       origin: 'portal',
+      partnerKind,
+      partnerBadge: partnerBadgeOf(answers),
       attractionId: row.attraction_id ?? null,
       portalAcceptance: portalFacts.acceptances.get(row.id) ?? null,
       liveAt: portalFacts.liveAt.get(row.id) ?? null,
@@ -586,6 +604,30 @@ export async function loadClientDirectory(operator: SupabaseClient): Promise<Cli
 }
 
 /**
+ * The portal submission of a partner without a place (#936), linked by `client_id`. `null` for
+ * every other client, and when the read fails — the header then falls back to the place reading.
+ */
+async function loadNoPlaceSubmission(
+  clientId: string
+): Promise<{ status: PortalBoardStatus; kind: PartnerKind } | null> {
+  const { data, error } = await service()
+    .from('place_submissions')
+    .select('status, answers')
+    .eq('client_id', clientId)
+    .in('status', PORTAL_BOARD_STATUSES as unknown as string[])
+    .order('status_changed_at', { ascending: false })
+    .limit(1)
+  if (error) {
+    console.error('[partnerships] no-place submission read failed', error.code)
+    return null
+  }
+  const row = ((data ?? []) as { status: string; answers: PartnerAnswers | null }[])[0]
+  if (!row || !isPortalBoardStatus(row.status)) return null
+  const kind = partnerKindOf(row.answers)
+  return kind === 'place' ? null : { status: row.status, kind }
+}
+
+/**
  * ── ADAPTERS ──────────────────────────────────────────────────────────────────────────────────
  *
  * What `cms_client_directory` answers, in the shapes the derivation already expects. They are
@@ -598,6 +640,8 @@ interface PortalSubmissionRow {
   status: PortalBoardStatus
   answers: PartnerAnswers | null
   attraction_id: string | null
+  /** #936: the client of a partner without a place. */
+  client_id: string | null
   submitted_at: string | null
   status_changed_at: string | null
 }
@@ -611,7 +655,7 @@ interface PortalSubmissionRow {
 async function loadPortalSubmissions(): Promise<PortalSubmissionRow[]> {
   const { data, error } = await service()
     .from('place_submissions')
-    .select('id, status, answers, attraction_id, submitted_at, status_changed_at')
+    .select('id, status, answers, attraction_id, client_id, submitted_at, status_changed_at')
     .in('status', PORTAL_BOARD_STATUSES as unknown as string[])
     .order('status_changed_at', { ascending: false })
     .limit(DIRECTORY_SUBMISSION_CAP)
@@ -779,6 +823,8 @@ export interface PartnershipPlace {
 }
 
 export interface PartnershipDetail {
+  /** #936: `guide` / `referral_only` when the client came from the portal without a place. Absent = `place`. */
+  partnerKind?: PartnerKind
   /** What the BR-B2B-057 gate still lacks for this client, in copy order. */
   gateMissing: GateItem[]
   state: PipelineState
@@ -851,13 +897,14 @@ export async function loadPartnershipDetail(
   // Two rounds, not eight (#875): everything keyed by the client id goes in the first, and what
   // needs the places or the client row goes in the second. An absent client costs the first
   // round's reads, which is the rare case paying for the common one.
-  const [clients, contracts, places, submission, clientConference, gate] = await Promise.all([
+  const [clients, contracts, places, submission, clientConference, gate, noPlace] = await Promise.all([
     loadClients([clientId]),
     loadLiveContracts([clientId]),
     loadPartnerPlaces([clientId], operator),
     loadPromotedSubmission(clientId),
     getClientConference(clientId),
     loadAcceptanceGate([clientId]),
+    loadNoPlaceSubmission(clientId),
   ])
   const client = clients.get(clientId)
   if (!client) return null
@@ -891,8 +938,26 @@ export async function loadPartnershipDetail(
     refusal: refusals.get(item.place.attractionId) ?? null,
   }))
 
+  // #936: the partner without a place is read from its portal submission and its profile — the
+  // same derivation as its queue row, so the header and the row cannot disagree.
+  const noPlaceState = noPlace
+    ? derivePipelineState({
+        origin: 'portal',
+        portalStatus: noPlace.status,
+        partnerKind: noPlace.kind,
+        guideProfile: noPlace.kind === 'guide' ? ((await loadGuideProfileFacts([clientId])).get(clientId) ?? null) : null,
+        proposalStatus: 'submitted',
+        conference,
+        clientId,
+        gateMissing,
+        placeCount: 0,
+        publishedPlaceCount: 0,
+      })
+    : null
+
   return {
-    state: derivePipelineState({
+    partnerKind: noPlace?.kind ?? 'place',
+    state: noPlaceState ?? derivePipelineState({
       proposalStatus: submission?.status ?? 'promoted',
       conference,
       clientId,

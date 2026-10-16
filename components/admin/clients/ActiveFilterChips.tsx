@@ -55,6 +55,7 @@ export function ActiveFilterChips({
 }: ActiveFilterChipsProps) {
   const t = useTranslations('Clients.directory')
   const p = useTranslations('Partnerships')
+  const types = useTranslations('Clients.profile')
 
   /** The label of one applied value — the pipeline's vocabulary, never this component's. */
   function valueLabel(key: FacetKey, value: string): string {
@@ -66,6 +67,8 @@ export function ActiveFilterChips({
     if (key === 'contract') return t(`contractValues.${value}`)
     if (key === 'plan') return t(`planValues.${value}`)
     if (key === 'status') return t(`statusValues.${value}`)
+    // #936: the type is a closed id (`tour_guide`, `driver`…) and never reaches the screen raw.
+    if (key === 'clientType' && types.has(`clientTypes.${value}`)) return types(`clientTypes.${value}` as 'clientTypes.venue')
     return value
   }
 

@@ -62,6 +62,8 @@ export const CLIENT_TYPES = [
   'creator',
   'driver',
   'venue',
+  // BR-B2B-064 item 1 (#933): the tour guide, a partner without a place.
+  'tour_guide',
 ] as const
 
 export type ClientType = (typeof CLIENT_TYPES)[number]

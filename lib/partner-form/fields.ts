@@ -77,6 +77,13 @@ export type PortalFieldId =
   | 'representative_cpf'
   | 'referral_source'
   | 'referral_code'
+  // The path without an address (#933, contract §8.1 and §8.6): the tour guide, and the transfer
+  // without a base. Read through `lib/partnerships/partner-kind.ts`.
+  | 'has_service_address'
+  | 'service_cities'
+  | 'bio'
+  | 'profile_photo'
+  | 'public_contact_consent'
 
 export interface PartnerAnswerField {
   id: PartnerFieldId
@@ -93,6 +100,10 @@ export const PARTNER_CATEGORIES = [
   'attraction',
   'fitness_center',
   'other',
+  // BR-B2B-054 item 4 (#933). `tour_guide` is a partner without a place (BR-B2B-064).
+  'travel_agency',
+  'transfer',
+  'tour_guide',
 ] as const
 
 /**

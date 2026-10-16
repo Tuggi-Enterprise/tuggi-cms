@@ -237,6 +237,7 @@ export function ClientBoard({
       }
       // #906: the board's `Publicado` has one sentence for any failure, refusal included.
       if (act === 'publish_portal_place') return t('blocked.publish_failed')
+      if (act === 'publish_guide_profile') return t('blocked.publish_guide_failed')
       if (outcome.kind === 'failed') return t('blocked.unknown')
 
       // The one sentence that names a fact from the answer instead of only the code. The stamp

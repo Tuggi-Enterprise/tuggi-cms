@@ -2650,7 +2650,8 @@
         "coupons": "Coupons",
         "configuration": "Configuration",
         "afterSave": "Available after saving",
-        "afterApproval": "Available after approval"
+        "afterApproval": "Available after approval",
+        "guide": "App profile"
       },
       "save": "Save",
       "missingTitle": "Missing to save",
@@ -2735,7 +2736,8 @@
         "partner": "Partner",
         "creator": "Creator",
         "driver": "Driver",
-        "venue": "Place"
+        "venue": "Place",
+        "tour_guide": "Tour guide"
       },
       "qr": {
         "title": "Public link and QR",
@@ -2953,6 +2955,79 @@
           "tax_id": "a valid CNPJ",
           "email": "the e-mail"
         }
+      }
+    },
+    "guide": {
+      "title": "App profile",
+      "loading": "Loading the profile…",
+      "loadError": "Could not read the profile. Reload the page.",
+      "publish": {
+        "missing": "The profile is not in the app yet.",
+        "action": "Publish the profile",
+        "error": "The profile did not reach the app. Try again."
+      },
+      "visibility": {
+        "title": "Visibility",
+        "listed": "In the app",
+        "hidden": "Hidden from the app",
+        "noConsent": "No consent from the guide",
+        "hiddenReason": "Reason: {reason}",
+        "hide": "Hide from the app",
+        "show": "Show in the app",
+        "noConsentLine": "The guide withdrew the consent in the portal. Only the guide can appear again.",
+        "hiddenDone": "Hidden from the app.",
+        "shownDone": "Back in the app.",
+        "undo": "Undo",
+        "error": "That did not work. Try again."
+      },
+      "data": {
+        "title": "Details",
+        "photoAlt": "Photo of {name}",
+        "name": "Name",
+        "cities": "Cities",
+        "languages": "Languages",
+        "specialties": "Specialties",
+        "whatsapp": "WhatsApp",
+        "copy": "Copy",
+        "copied": "Copied",
+        "testWhatsapp": "Test on WhatsApp",
+        "consent": "Consent",
+        "consentYes": "Agreed to appear in the app",
+        "consentNo": "No consent"
+      },
+      "bio": {
+        "title": "Bio",
+        "edit": "Edit",
+        "save": "Save",
+        "cancel": "Cancel",
+        "counter": "{count}/{max}",
+        "saved": "Saved at {time}",
+        "error": "Not saved: {reason}. The text is still here.",
+        "length": "the bio takes 1 to {max} characters",
+        "failed": "the server did not answer"
+      },
+      "hideDialog": {
+        "title": "Hide {name} from the app?",
+        "body": "The profile leaves the guide list right away. Nothing is deleted and you can show it again.",
+        "reason": "Reason",
+        "choose": "Choose the reason",
+        "otherLabel": "Describe the reason",
+        "reasonRequired": "Choose the reason. For Other, write which.",
+        "confirm": "Hide",
+        "cancel": "Cancel"
+      },
+      "reasons": {
+        "tourist_report": "Tourist report",
+        "inactive": "Inactive guide",
+        "guide_request": "Guide's request",
+        "other": "Other"
+      },
+      "specialties": {
+        "city_tour": "City tour",
+        "historic_cultural": "Historic and cultural",
+        "nature_hiking": "Nature and hiking",
+        "gastronomic": "Food",
+        "bilingual": "Bilingual"
       }
     }
   },

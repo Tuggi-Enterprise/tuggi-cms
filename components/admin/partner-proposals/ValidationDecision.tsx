@@ -14,6 +14,7 @@
  * never disables it (BR-B2B-011).
  */
 
+import { hasPublicContactConsent, partnerKindOf } from '@/lib/partnerships/partner-kind'
 import { useEffect, useRef, useState } from 'react'
 import Link from 'next/link'
 import { useTranslations } from 'next-intl'
@@ -39,7 +40,8 @@ import { formatShortDate } from './format'
 import { FIELD } from './surface'
 
 export type DecisionResult =
-  | { kind: 'approved'; paid: boolean; attractionId: string | null }
+  /** `guidePublishFailed` (#936): the guide is approved and its profile did not reach the app. */
+  | { kind: 'approved'; paid: boolean; attractionId: string | null; guidePublishFailed?: boolean }
   | { kind: 'changes' }
   | { kind: 'rejected'; refundTotal: string | null }
 
@@ -69,6 +71,8 @@ const ACT =
 const NEUTRAL = 'border border-gray-200 bg-white text-gray-700 hover:bg-gray-50 dark:border-gray-700 dark:bg-gray-900 dark:text-gray-200'
 /** The "Marque os N itens" line in the sidebar, which "Aprovar" points at. */
 const MISSING_ID = 'approve-missing'
+/** The "Sem a autorização" line under the acts (#936), which the disabled "Aprovar" points at. */
+const CONSENT_ID = 'approve-consent'
 
 function isTextField(target: EventTarget | null): boolean {
   if (!(target instanceof HTMLElement)) return false
@@ -95,7 +99,11 @@ export function ValidationDecision({
   const charged = review.payment?.status === 'paid' && totalCents > 0
   const hasOffers = Boolean(review.answers.offer_free || review.answers.offer_subscriber)
   const missing = total - done
-  const canApprove = !readOnly && missing === 0
+  const partnerKind = partnerKindOf(review.answers)
+  // BR-B2B-064 item 5: without the guide's consent to show the contact, the proposal does not
+  // approve. The route refuses too (`no_contact_consent`); this keeps the button honest.
+  const consentMissing = partnerKind === 'guide' && !hasPublicContactConsent(review.answers)
+  const canApprove = !readOnly && missing === 0 && !consentMissing
 
   const [dialog, setDialog] = useState<Dialog>(null)
   const [busy, setBusy] = useState(false)
@@ -149,6 +157,7 @@ export function ValidationDecision({
       const payload = (await response.json().catch(() => ({}))) as {
         error?: string
         attractionId?: string | null
+        guidePublishError?: string | null
       }
       if (response.status === 409 && payload.error === 'status_conflict') {
         setError({ text: t('dialogs.conflict') })
@@ -177,7 +186,12 @@ export function ValidationDecision({
       return
     }
     setDialog(null)
-    onDecided({ kind: 'approved', paid, attractionId: outcome.attractionId ?? null })
+    onDecided({
+      kind: 'approved',
+      paid,
+      attractionId: outcome.attractionId ?? null,
+      guidePublishFailed: Boolean(outcome.guidePublishError),
+    })
   }
 
   async function sendChanges() {
@@ -270,7 +284,7 @@ export function ValidationDecision({
             type="button"
             className={cn(ACT, 'bg-green-700 text-white hover:bg-green-800')}
             disabled={!canApprove}
-            aria-describedby={missing > 0 ? MISSING_ID : undefined}
+            aria-describedby={consentMissing ? CONSENT_ID : missing > 0 ? MISSING_ID : undefined}
             title={t('decision.shortcut', { key: 'A' })}
             onClick={() => open('approve')}
           >
@@ -295,6 +309,11 @@ export function ValidationDecision({
             <XCircle className="h-3.5 w-3.5" aria-hidden="true" />
             {t('decision.reject')}
           </button>
+          {consentMissing ? (
+            <p id={CONSENT_ID} className="basis-full text-xs font-semibold text-amber-800 dark:text-amber-400">
+              {t('decision.noConsent')}
+            </p>
+          ) : null}
         </>
       )}
 
@@ -316,8 +335,16 @@ export function ValidationDecision({
         }
       >
         <div className="space-y-2 text-sm text-gray-700 dark:text-gray-300">
-          <p>{paid ? t('dialogs.approvePaid') : t('dialogs.approveFree')}</p>
-          {hasOffers ? <p>{t('dialogs.approveOffers')}</p> : null}
+          <p>
+            {partnerKind === 'guide'
+              ? t('dialogs.approveGuide')
+              : partnerKind === 'referral_only'
+                ? t('dialogs.approveReferral')
+                : paid
+                  ? t('dialogs.approvePaid')
+                  : t('dialogs.approveFree')}
+          </p>
+          {hasOffers && partnerKind === 'place' ? <p>{t('dialogs.approveOffers')}</p> : null}
           <p>{t('dialogs.approveEmail')}</p>
         </div>
         {errorBox}

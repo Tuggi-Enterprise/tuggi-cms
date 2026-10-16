@@ -49,7 +49,7 @@ import {
 } from '@/components/admin/clients/shared/PortalSubmission'
 import type { ClientEditorTab } from '@/components/admin/clients/ClientEditorModal'
 import type { PendencyId } from '@/lib/partnerships/place-readiness'
-import { IN_PROGRESS_STATES } from '@/lib/partnerships/pipeline'
+import { IN_PROGRESS_STATES, stateMessageKey } from '@/lib/partnerships/pipeline'
 import { deriveTriageStatus, type TriageGate } from '@/lib/partnerships/triage'
 import { returnParams } from '@/lib/navigation/return-to'
 import { placeToolHref } from '@/lib/partnerships/place-tool'
@@ -258,11 +258,11 @@ export function PartnershipDetail({
       {detail ? (
         <div className="space-y-1">
           <p className="text-sm font-medium text-gray-900 dark:text-white">
-            {t(`states.${detail.state}`)}
+            {t(`states.${stateMessageKey(detail.state, detail.partnerKind)}`)}
             {/* `published` and `discarded` have no next step, and the place to say so is not a
                 bare em dash hanging next to the state. */}
             {IN_PROGRESS_STATES.indexOf(detail.state) >= 0 && (
-              <span className="ml-2 font-normal text-gray-800 dark:text-gray-200">{t(`nextSteps.${detail.state}`)}</span>
+              <span className="ml-2 font-normal text-gray-800 dark:text-gray-200">{t(`nextSteps.${stateMessageKey(detail.state, detail.partnerKind)}`)}</span>
             )}
             {/* The clock, out of the SAME module the queue column reads — the list and the record
                 cannot disagree about a promise made to a partner (BR-B2B-010, item 4). */}

@@ -8,6 +8,7 @@
  * disables "Aprovar" (BR-B2B-011, the operator decides).
  */
 
+import type { PartnerKind } from '@/lib/partnerships/partner-kind'
 import { storyNudge } from '@/lib/partner-form/schema'
 import type { PartnerAnswers } from '@/lib/partner-form/schema'
 
@@ -28,7 +29,7 @@ export const PORTAL_NOTE_MAX = 2000
 /** The story budget the narration fits in: 40 words ≈ 15 s (BR-B2B-044, item 3). */
 export const STORY_WORD_LIMIT = 40
 
-export type ConferenceItem = 'company' | 'place' | 'story' | 'offers' | 'photos'
+export type ConferenceItem = 'company' | 'place' | 'story' | 'offers' | 'photos' | 'person' | 'profile' | 'service'
 
 export const PAID_PLAN = 'map_and_description'
 
@@ -51,7 +52,13 @@ export function conferenceItems(input: {
   planChoice: string | null | undefined
   hasOffers: boolean
   photoCount: number
+  /** #936: without a place there is no company, place, story, offer or photo block to tick. */
+  kind?: PartnerKind
 }): ConferenceItem[] {
+  // BR-B2B-064 item 9 (closed list: photo, bio, self-declaration) and BR-B2B-065 item 5. No
+  // document, no POI gates: BR-B2B-011 does not apply to a partner without a place.
+  if (input.kind === 'guide') return ['person', 'profile']
+  if (input.kind === 'referral_only') return ['person', 'service']
   const items: ConferenceItem[] = ['company', 'place']
   if (isPaidPlan(input.planChoice)) items.push('story')
   if (input.hasOffers) items.push('offers')

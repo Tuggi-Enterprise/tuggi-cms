@@ -19,6 +19,7 @@
  * The operator's ticks do NOT persist: they are an attention ruler, not a record.
  */
 
+import { hasPublicContactConsent, partnerKindOf } from '@/lib/partnerships/partner-kind'
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import Link from 'next/link'
 import { useTranslations } from 'next-intl'
@@ -137,9 +138,10 @@ export function useValidationRecord(submissionId: string | null): ValidationReco
   const plan = review?.acceptance?.planChoice ?? answers.plan_choice
   const offerCount = offersOf(answers).length
   const photoCount = review?.photos.length ?? 0
+  const kind = partnerKindOf(answers)
   const items = useMemo(
-    () => conferenceItems({ planChoice: plan, hasOffers: offerCount > 0, photoCount }),
-    [plan, offerCount, photoCount]
+    () => conferenceItems({ planChoice: plan, hasOffers: offerCount > 0, photoCount, kind }),
+    [plan, offerCount, photoCount, kind]
   )
 
   const toggle = useCallback(
@@ -324,9 +326,16 @@ export function SubmissionBand({
     return null
   })()
 
+  const kind = partnerKindOf(review.answers)
   const doneText = result
     ? result.kind === 'approved'
-      ? result.paid
+      ? kind === 'guide'
+        ? result.guidePublishFailed
+          ? t('done.guidePublishFailed')
+          : t('done.approvedGuide')
+        : kind === 'referral_only'
+          ? t('done.approvedReferral')
+          : result.paid
         ? t('done.approvedPaid')
         : t('done.approvedFree')
       : result.kind === 'changes'
@@ -336,7 +345,7 @@ export function SubmissionBand({
           : t('done.rejected')
     : null
   // `review.clientId`, not the record's client: after approving a pre-registration the client loads later, and the focus must still land on "Ir para Locais" (design review #890).
-  const approvedNow = result?.kind === 'approved' && Boolean(review.clientId)
+  const approvedNow = result?.kind === 'approved' && Boolean(review.clientId) && kind !== 'referral_only'
   const nextHref = review.nextInReviewId ? validationHref(review.nextInReviewId) : null
 
   return (
@@ -356,10 +365,10 @@ export function SubmissionBand({
                     primaryRef.current = node
                   }}
                   className={cn(ACT, PRIMARY)}
-                  onClick={() => onOpenTab('places')}
+                  onClick={() => onOpenTab(kind === 'guide' ? 'guide' : 'places')}
                 >
                   <MapPin className="h-3.5 w-3.5" aria-hidden="true" />
-                  {t('done.openPlaces')}
+                  {kind === 'guide' ? t('done.openGuide') : t('done.openPlaces')}
                 </button>
               ) : null}
               {nextHref ? (
@@ -541,8 +550,123 @@ export function SubmissionBlocks({
       </p>
     ) : null
 
+  /*
+   * #936 · THE PARTNER WITHOUT A PLACE: two blocks and nothing of the place (spec §4). Quem é, then
+   * Perfil no app for the guide or Atendimento for the transfer without a base. No document and no
+   * POI gates: BR-B2B-011 does not apply (BR-B2B-064 item 9, BR-B2B-065 item 5).
+   */
+  const kind = partnerKindOf(answers)
+  const serviceCities = parseJson<{ city?: string; state?: string }[]>(answers.service_cities, [])
+    .map((c) => [c.city, c.state].filter(Boolean).join('/'))
+    .filter(Boolean)
+    .join(', ')
+  const subtypes = parseJson<string[]>(answers.subtypes, [])
+  const whatsappDigits = (answers.whatsapp ?? '').replace(/\D/g, '')
+  const whatsappLink = whatsappDigits ? (
+    <span className="flex flex-wrap items-center gap-3">
+      <span className="font-mono">{answers.whatsapp}</span>
+      <a
+        className="text-xs font-bold text-primary-800 underline dark:text-tuggi-blue"
+        href={`https://wa.me/${whatsappDigits.length <= 11 ? `55${whatsappDigits}` : whatsappDigits}`}
+        target="_blank"
+        rel="noreferrer"
+      >
+        {t('guide.testWhatsapp')}
+      </a>
+    </span>
+  ) : null
+  const bio = answers.bio ?? ''
+  const noPlaceBlocks = (
+    <>
+      <RecordSection icon={<Building2 className="h-4 w-4 text-tuggi-blue" />} title={t('person.title')} aside={changed('company')}>
+        <div className={FIELD_GRID}>
+          <ReadField label={t('person.name')}>{answers.representative_name || answers.legal_name}</ReadField>
+          <ReadField label={t('company.email')}>{acceptance?.email}</ReadField>
+          <ReadField label={t('person.phone')}>{answers.representative_phone}</ReadField>
+          <ReadField label={t('company.category')}>{category}</ReadField>
+          {answers.tax_id ? <ReadField label={t('company.taxId')}>{answers.tax_id}</ReadField> : null}
+          <ReadField label={t('company.cpf')} fullWidth>
+            <span className="flex flex-wrap items-center gap-3">
+              <span className="font-mono">
+                {cpf ? formatCpf(cpf) : (acceptance?.signerCpfMasked ?? answers.representative_cpf ?? '—')}
+              </span>
+              {acceptance ? (
+                <button
+                  type="button"
+                  aria-pressed={cpf !== null}
+                  onClick={() => void revealCpf()}
+                  className="inline-flex items-center gap-1 rounded-lg px-2 py-1 text-xs font-bold text-primary-800 hover:bg-tuggi-blue/5 dark:text-tuggi-blue"
+                >
+                  {cpf ? <EyeOff className="h-3.5 w-3.5" aria-hidden="true" /> : <Eye className="h-3.5 w-3.5" aria-hidden="true" />}
+                  {cpf ? t('company.hideCpf') : t('company.showCpf')}
+                </button>
+              ) : null}
+              {cpfError ? <span role="alert" className="text-xs text-destructive">{t('company.cpfError')}</span> : null}
+            </span>
+          </ReadField>
+          <ReadField label={t('person.declaration')} fullWidth>
+            {answers.legal_status_declaration === 'true'
+              ? acceptance?.acceptedAt
+                ? t('person.declaredOn', { date: formatDate(acceptance.acceptedAt) })
+                : t('person.declared')
+              : t('person.notDeclared')}
+          </ReadField>
+        </div>
+      </RecordSection>
+
+      {kind === 'guide' ? (
+        <RecordSection icon={<ImageIcon className="h-4 w-4 text-tuggi-blue" />} title={t('guide.title')} aside={changed('facade')}>
+          <p className="mb-4 text-xs text-gray-600 dark:text-gray-300">{t('guide.hint')}</p>
+          <div className="flex flex-col gap-6 sm:flex-row">
+            {facadePhoto ? (
+              <div className="shrink-0 space-y-2">
+                {/* eslint-disable-next-line @next/next/no-img-element -- short-lived signed URL of a private bucket */}
+                <img src={facadePhoto.url} alt={t('guide.photoAlt')} width={160} height={160} className="h-40 w-40 rounded-full object-cover" />
+                <a className="block text-xs font-bold text-primary-800 underline dark:text-tuggi-blue" href={facadePhoto.url} target="_blank" rel="noreferrer">
+                  {t('guide.openOriginal')}
+                </a>
+              </div>
+            ) : (
+              <Line tone="bad">{t('guide.noPhoto')}</Line>
+            )}
+            <div className={FIELD_GRID}>
+              <ReadField label={t('guide.displayName')}>{answers.trade_name}</ReadField>
+              <ReadField label={t('guide.cities')}>{serviceCities}</ReadField>
+              <ReadField label={t('guide.bio')} fullWidth>
+                <span className="block whitespace-pre-wrap">{bio}</span>
+                <span className="mt-1 block text-xs text-gray-500">{t('guide.bioCount', { count: bio.length })}</span>
+              </ReadField>
+              <ReadField label={t('guide.languages')}>{languages.join(', ').toUpperCase()}</ReadField>
+              <ReadField label={t('guide.specialties')}>
+                {subtypes.map((id) => (t.has(`guide.specialtyLabels.${id}`) ? t(`guide.specialtyLabels.${id}` as 'guide.title') : id)).join(', ')}
+              </ReadField>
+              <ReadField label={t('guide.whatsapp')}>{whatsappLink}</ReadField>
+              <ReadField label={t('guide.consent')}>
+                {hasPublicContactConsent(answers) ? (
+                  acceptance?.acceptedAt ? t('guide.consentOn', { date: formatDate(acceptance.acceptedAt) }) : t('guide.consentYes')
+                ) : (
+                  <span className="font-semibold text-amber-800 dark:text-amber-400">{t('guide.consentNo')}</span>
+                )}
+              </ReadField>
+            </div>
+          </div>
+        </RecordSection>
+      ) : (
+        <RecordSection icon={<MapPin className="h-4 w-4 text-indigo-500" />} title={t('service.title')} color="indigo-500">
+          <div className={FIELD_GRID}>
+            <ReadField label={t('guide.cities')}>{serviceCities}</ReadField>
+            <ReadField label={t('guide.whatsapp')}>{whatsappLink}</ReadField>
+            <ReadField label={t('guide.languages')}>{languages.join(', ').toUpperCase()}</ReadField>
+          </div>
+        </RecordSection>
+      )}
+    </>
+  )
+
   const blocks = (
     <>
+      {kind !== 'place' ? noPlaceBlocks : (
+      <>
       {/* 3 · company */}
       <RecordSection icon={<Building2 className="h-4 w-4 text-tuggi-blue" />} title={t('company.title')} aside={changed('company')}>
         <div className="mb-6 space-y-2">
@@ -825,6 +949,9 @@ export function SubmissionBlocks({
           <p className="text-sm text-gray-600 dark:text-gray-300">{t('photos.none')}</p>
         )}
       </RecordSection>
+
+      </>
+      )}
 
       {/* 8 · acceptance and plan — while the submission is not linked, or inside the record of it */}
       {collapsed || !review.clientId ? (

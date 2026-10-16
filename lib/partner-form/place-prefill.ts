@@ -42,6 +42,7 @@
  *    tier's narration; turning them into a description is exactly what starts BR-B2B-018.
  */
 
+import { hasNoPlace, partnerKindOf } from '@/lib/partnerships/partner-kind'
 import { PARTNER_CATEGORIES } from './fields'
 import { normalizeLocation } from '@/lib/shared/location-normalize'
 import { joinAddress } from './promotion'
@@ -74,6 +75,12 @@ export const PLACE_TYPE_BY_CATEGORY: Readonly<Record<PartnerCategory, PlaceType 
   // A gym or studio is a service; the catalogue has no narrower type (`PLACE_TYPES`).
   fitness_center: 'service',
   other: 'other',
+  // BR-B2B-054 item 5: agency and transfer WITH an address are a service. The tour guide has no
+  // place (BR-B2B-064), and neither has the transfer without one (BR-B2B-065): `buildPlacePrefill`
+  // answers `null` for both, through `partnerKindOf`, and the caller skips.
+  travel_agency: 'service',
+  transfer: 'service',
+  tour_guide: null,
 }
 
 /**
@@ -265,6 +272,8 @@ function text(value: unknown): string {
  * fato da superfície — mas entra no PADRÃO DO CATÁLOGO (`Brazil`), não como a sigla.
  */
 export function buildPlacePrefill(answers: PartnerAnswers): PlacePrefill | null {
+  // A partner without an address has no place to prefill (BR-B2B-064 item 3, BR-B2B-065 item 3).
+  if (hasNoPlace(partnerKindOf(answers))) return null
   const name = text(answers.trade_name)
   const city = text(answers.city)
   if (!name || !city) return null

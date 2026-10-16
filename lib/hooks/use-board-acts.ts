@@ -116,6 +116,12 @@ export function useBoardActs({
           )
         }
 
+        case 'publish_guide_profile': {
+          // #936: the guide has no place — the act publishes the profile, through the validation route.
+          if (!row.submissionId) return { kind: 'refused', reason: 'no_submission' }
+          return post(`/api/admin/partnerships/validation/${row.submissionId}`, { action: 'publish_guide' }, reload)
+        }
+
         case 'communicate_refusal': {
           // The place the refusal is on. `hasUncommunicatedRefusal` decided the row's state;
           // this finds WHICH one, from the same facts, so the two cannot pick different places.

@@ -40,6 +40,14 @@ import { PLAN_CHOICES, type PlanChoice } from '@/lib/partner-form/fields'
 import { createPromotedClient, findClientByTaxId } from '@/lib/services/partner-proposal-admin-service'
 import { ClientService } from '@/lib/services/client-service'
 import ptMessages from '@/messages/pt.json'
+import {
+  clientTypeOfKind,
+  hasNoPlace,
+  noPlaceApprovalBlock,
+  partnerKindOf,
+  type PartnerKind,
+} from '@/lib/partnerships/partner-kind'
+import { copyGuidePhoto, guideRpcErrorOf } from '@/lib/services/guide-profile-service'
 
 function partner() {
   return getSupabaseService().schema('partner')
@@ -65,6 +73,8 @@ import {
 
 export type PortalDecision =
   | { action: 'approve' }
+  /** #936: publishes an approved guide's profile — the retry of the approval's second half. */
+  | { action: 'publish_guide' }
   | { action: 'request_changes'; note: string }
   | { action: 'reject'; note: string; reason: PortalRefusalReason }
 
@@ -73,6 +83,7 @@ export function parsePortalDecision(body: unknown): PortalDecision | { error: st
   if (!body || typeof body !== 'object' || Array.isArray(body)) return { error: 'invalid_body' }
   const record = body as Record<string, unknown>
   if (record.action === 'approve') return { action: 'approve' }
+  if (record.action === 'publish_guide') return { action: 'publish_guide' }
 
   const note = typeof record.note === 'string' ? record.note.trim() : ''
   if (record.action === 'request_changes' || record.action === 'reject') {
@@ -90,7 +101,17 @@ export function parsePortalDecision(body: unknown): PortalDecision | { error: st
 }
 
 export type PortalActOutcome =
-  | { ok: true; status: string; attractionId?: string; clientId?: string }
+  | {
+      ok: true
+      status: string
+      attractionId?: string
+      clientId?: string
+      /**
+       * #936: the guide was approved and the profile did not reach the app. The approval stands;
+       * the screen says so and offers "Publicar o perfil" (`publish_guide`).
+       */
+      guidePublishError?: string
+    }
   | {
       ok: false
       httpStatus: number
@@ -188,6 +209,7 @@ interface SubmissionForApproval {
   status: string
   answers: PartnerAnswers | null
   attraction_id: string | null
+  client_id: string | null
 }
 
 const CATEGORY_LABELS = ptMessages.PartnerForm.categories as Record<string, string>
@@ -240,7 +262,7 @@ export async function approvePortalSubmission(
 ): Promise<PortalActOutcome> {
   const { data, error } = await partner()
     .from('place_submissions')
-    .select('id, status, answers, attraction_id')
+    .select('id, status, answers, attraction_id, client_id')
     .eq('id', submissionId)
     .maybeSingle()
   if (error) {
@@ -252,6 +274,20 @@ export async function approvePortalSubmission(
   if (submission.status !== 'in_review') return { ok: false, httpStatus: 409, error: 'status_conflict' }
 
   const answers = submission.answers ?? {}
+  const kind = partnerKindOf(answers)
+  if (hasNoPlace(kind)) {
+    // BR-B2B-064 item 5: without the consent to show the contact, the guide does not approve —
+    // refused here, before the claim and before any write, whatever the screen offered.
+    const blocked = noPlaceApprovalBlock(answers)
+    if (blocked) return { ok: false, httpStatus: 422, error: blocked }
+    const claimed = await claimApproval(submission.id, now)
+    if (claimed === 'error') return { ok: false, httpStatus: 503, error: 'claim_failed' }
+    if (claimed === 'busy') return { ok: false, httpStatus: 409, error: 'approval_in_progress' }
+    const done = await approveWithoutPlace(submission, answers, kind, operator, actorUserId, approverCmsUserId)
+    if (!done.ok) await releaseApproval(submission.id)
+    return done
+  }
+
   const prefill = buildPlacePrefill(answers)
   if (!prefill) return { ok: false, httpStatus: 422, error: 'nothing_to_prefill' }
 
@@ -317,6 +353,129 @@ async function approveClaimed(
 
   const outcome = await transition(submission.id, 'approved', actorUserId, null)
   return outcome.ok ? { ...outcome, attractionId, clientId: client.clientId } : { ...outcome, attractionId }
+}
+
+/**
+ * THE PARTNER WITHOUT A PLACE (#936, BR-B2B-064, BR-B2B-065; contract §8.6). No POI is created and
+ * `cms_create_place` never runs. Order, each step safe to run again:
+ *   client (the one `client_id` already names — a retry —, else by CNPJ when there is one, else
+ *   created as `tour_guide` / `driver`) → `client_id` → client approved → transition `approved`
+ *   → for the guide only: photo copy → `core.cms_publish_guide_profile` → transition `live`.
+ *
+ * THE APPROVAL COMES BEFORE THE PUBLICATION, against the order of contract §8.6, on purpose: the
+ * spec (#936 §3) wants "Aprovado, mas o perfil não foi para o app" when the publication fails, and
+ * that sentence is only true if the approval already happened. `cms_publish_guide_profile` accepts
+ * `approved`, so nothing in the database prefers the other order.
+ */
+async function approveWithoutPlace(
+  submission: SubmissionForApproval,
+  answers: PartnerAnswers,
+  kind: PartnerKind,
+  operator: SupabaseClient,
+  actorUserId: string,
+  approverCmsUserId: string
+): Promise<PortalActOutcome> {
+  let clientId = submission.client_id
+  if (!clientId) {
+    const acceptance = await acceptanceOf(submission.id)
+    if (!acceptance) return { ok: false, httpStatus: 503, error: 'lookup_failed' }
+    const existing = answers.tax_id ? await findClientByTaxId(answers.tax_id) : null
+    if (existing) {
+      clientId = existing.id as string
+    } else {
+      if (!acceptance.email) return { ok: false, httpStatus: 503, error: 'lookup_failed' }
+      const plan = buildPromotionPlan({ ...answers, representative_email: acceptance.email }, null, {
+        categoryLabel: CATEGORY_LABELS[answers.category ?? ''] ?? null,
+      })
+      const write = resolvePromotionWrite(plan, { approved: [] })
+      const created = await createPromotedClient(write.updates, answers, clientTypeOfKind(kind))
+      if (!created.ok) return { ok: false, httpStatus: 503, error: 'client_write_failed' }
+      clientId = created.clientId
+    }
+    const { error: linkError } = await partner()
+      .from('place_submissions')
+      .update({ client_id: clientId })
+      .eq('id', submission.id)
+    if (linkError) {
+      console.error('[portal-validation] client_id not written', linkError.code)
+      return { ok: false, httpStatus: 503, error: 'link_failed' }
+    }
+  }
+
+  const approval = await approveRelationship(clientId, approverCmsUserId)
+  if (!approval.ok) return { ok: false, httpStatus: 503, error: approval.error }
+
+  const outcome = await transition(submission.id, 'approved', actorUserId, null)
+  if (!outcome.ok) return outcome
+  if (kind !== 'guide') return { ...outcome, clientId }
+
+  const published = await publishGuide(submission.id, clientId, answers, operator, actorUserId)
+  return published.ok
+    ? { ok: true, status: published.status, clientId }
+    : { ...outcome, clientId, guidePublishError: published.error }
+}
+
+/**
+ * The guide's publication: photo → profile → `live`. Shared by the approval and by
+ * `publishApprovedGuide` (the "Publicar o perfil" retry), so the two cannot publish differently.
+ * `live` is "Publicado" in the portal (contract §8.6); a failed `live` after a published profile
+ * is logged and answered as published, because the app already lists the guide.
+ */
+async function publishGuide(
+  submissionId: string,
+  clientId: string,
+  answers: PartnerAnswers,
+  operator: SupabaseClient,
+  actorUserId: string,
+  alreadyLive = false
+): Promise<{ ok: true; status: string } | { ok: false; httpStatus: number; error: string }> {
+  const copied = await copyGuidePhoto(submissionId, clientId, answers.profile_photo)
+  if (!copied.ok) return { ok: false, httpStatus: copied.error === 'invalid_photo' ? 422 : 503, error: copied.error }
+
+  const { error } = await operator.schema('core').rpc('cms_publish_guide_profile', { p_submission_id: submissionId })
+  if (error) {
+    console.error('[portal-validation] guide publish failed', error.code)
+    return { ok: false, ...guideRpcErrorOf(error.code, (error as { details?: string }).details) }
+  }
+  if (alreadyLive) return { ok: true, status: 'live' }
+  const live = await transition(submissionId, 'live', actorUserId, null)
+  if (!live.ok) console.error('[portal-validation] guide live transition failed', live.error)
+  return { ok: true, status: live.ok ? live.status : 'approved' }
+}
+
+/** "Publicar o perfil" (#936 §3): an approved guide whose profile is not in the app yet. */
+export async function publishApprovedGuide(
+  submissionId: string,
+  operator: SupabaseClient,
+  actorUserId: string
+): Promise<PortalActOutcome> {
+  const { data, error } = await partner()
+    .from('place_submissions')
+    .select('id, status, answers, attraction_id, client_id')
+    .eq('id', submissionId)
+    .maybeSingle()
+  if (error) {
+    console.error('[portal-validation] submission read failed', error.code)
+    return { ok: false, httpStatus: 503, error: 'lookup_failed' }
+  }
+  const submission = data as SubmissionForApproval | null
+  if (!submission) return { ok: false, httpStatus: 404, error: 'not_found' }
+  const answers = submission.answers ?? {}
+  if (partnerKindOf(answers) !== 'guide') return { ok: false, httpStatus: 422, error: 'not_a_guide' }
+  if (!['approved', 'live'].includes(submission.status) || !submission.client_id) {
+    return { ok: false, httpStatus: 409, error: 'status_conflict' }
+  }
+  const blocked = noPlaceApprovalBlock(answers)
+  if (blocked) return { ok: false, httpStatus: 422, error: blocked }
+  const published = await publishGuide(
+    submission.id,
+    submission.client_id,
+    answers,
+    operator,
+    actorUserId,
+    submission.status === 'live'
+  )
+  return published.ok ? { ok: true, status: published.status, clientId: submission.client_id } : published
 }
 
 /**
@@ -453,7 +612,8 @@ export async function portalRegistrationOfPlace(
 export interface ClientPortalSubmission {
   id: string
   status: string
-  attraction_id: string
+  /** `null` for a partner without a place, linked by `client_id` (#936). */
+  attraction_id: string | null
   submitted_at: string | null
 }
 
@@ -463,6 +623,8 @@ export interface ClientPortalSubmission {
  * `isLegacyMirror`). `null` when either read failed — the callers decide what failing means for them.
  */
 export async function portalSubmissionsOfClient(clientId: string): Promise<ClientPortalSubmission[] | null> {
+  // The id goes into a PostgREST `or` filter below: anything but a UUID never gets there.
+  if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(clientId)) return []
   const { data: places, error: placesError } = await getSupabaseService()
     .schema('core')
     .from('attractions')
@@ -473,20 +635,19 @@ export async function portalSubmissionsOfClient(clientId: string): Promise<Clien
     console.error('[portal-validation] client places lookup failed', placesError.code)
     return null
   }
-  if (!places || places.length === 0) return []
+  const placeIds = ((places ?? []) as { id: string }[]).map((place) => place.id)
 
+  // #936: a partner without a place reaches its client through `client_id`, not through a POI.
+  const filter = placeIds.length > 0 ? `attraction_id.in.(${placeIds.join(',')}),client_id.eq.${clientId}` : `client_id.eq.${clientId}`
   const { data, error } = await partner()
     .from('place_submissions')
     .select(`id, status, attraction_id, submitted_at, ${PORTAL_REGISTRATION_COLUMNS}`)
-    .in(
-      'attraction_id',
-      (places as { id: string }[]).map((place) => place.id)
-    )
+    .or(filter)
     .order('submitted_at', { ascending: false })
     .limit(50)
   if (error) {
-    // Before migration 20261004120000 the table does not exist: that also refuses, so the CMS
-    // that carries this ships after the migration (release order, CLAUDE.md §2).
+    // Before migration 20261004120000 the table does not exist, and before 20261016120000 the
+    // column `client_id` does not: both refuse, so the CMS that carries this ships after them.
     console.error('[portal-validation] portal origin lookup failed', error.code)
     return null
   }

@@ -20,6 +20,7 @@
 
 import type { ConferenceRecord } from '@/lib/partner-form/regularity'
 import type { GateItem } from '@/lib/partnerships/acceptance-gate'
+import type { PartnerKind } from '@/lib/partnerships/partner-kind'
 
 /**
  * The labels of the pipeline. Since #872 (BR-B2B-057) the board has four stages, and the three
@@ -47,6 +48,12 @@ export type PipelineState =
   | 'changes_requested'
   | 'approved_awaiting_narration'
   | 'portal_refused'
+  // The partner without a place (#936, BR-B2B-064 items 10 and 11, BR-B2B-065, BR-B2B-057 as
+  // amended on 2026-10-16). Terminal and not work, like `published`: the guide's profile is out
+  // of the app by the curator's decision or the guide's withdrawn consent; the transfer without a
+  // base is active with its QR and nothing more is due.
+  | 'hidden_from_app'
+  | 'referral_only'
 
 /**
  * `partner.place_submissions.status` (BR-B2B-049). `draft` and `awaiting_payment` are not the
@@ -110,6 +117,8 @@ export const TERMINAL_STATES: PipelineState[] = ['discarded', 'refused_at_triage
 /** Every state, in pipeline order — the order the queue's counters are shown in. */
 export const PIPELINE_STATES: PipelineState[] = IN_PROGRESS_STATES.concat(
   'published',
+  'hidden_from_app',
+  'referral_only',
   ...TERMINAL_STATES
 )
 
@@ -160,12 +169,47 @@ export interface PipelineInput {
    */
   origin?: 'form' | 'portal'
   portalStatus?: PortalBoardStatus
+  /** `partnerKindOf(answers)` of the portal submission (#936). Absent = `place`. */
+  partnerKind?: PartnerKind
+  /**
+   * The guide's public profile (`partner.guide_profiles`), `null` when it does not exist yet —
+   * the approval did not reach the publication. Read only for `partnerKind = 'guide'`.
+   */
+  guideProfile?: GuideProfileFacts | null
+}
+
+/** What the queue needs from `partner.guide_profiles`: whether the app lists it. */
+export interface GuideProfileFacts {
+  hidden: boolean
+  /** `public_contact_consent`: the guide can withdraw it in the portal (BR-B2B-064 item 5). */
+  consent: boolean
+}
+
+/**
+ * The portal row of a partner without a place, once approved (`approved` or `live`). The gate of
+ * BR-B2B-057 still comes first: entering `Publicado` needs slug, code and acceptance.
+ *
+ *  · guide without a profile           → `approved_awaiting_narration` ("falta publicar o perfil");
+ *  · guide hidden, or without consent  → `hidden_from_app`;
+ *  · guide listed                      → `published` — the profile active and visible (BR-B2B-064 item 10);
+ *  · transfer without a base           → `referral_only` (BR-B2B-065).
+ */
+function noPlaceApprovedState(input: PipelineInput): PipelineState {
+  if (input.gateMissing.length > 0) return 'awaiting_acceptance'
+  if (input.partnerKind === 'referral_only') return 'referral_only'
+  const profile = input.guideProfile ?? null
+  if (!profile) return 'approved_awaiting_narration'
+  return profile.hidden || !profile.consent ? 'hidden_from_app' : 'published'
 }
 
 export function derivePipelineState(input: PipelineInput): PipelineState {
   // BEFORE the client branch, on purpose — see `origin`.
   if (input.origin === 'portal' && input.portalStatus) {
     const state = PORTAL_STATE[input.portalStatus]
+    // #936: without a place, `approved` and `live` are read from the profile, never from a POI.
+    if (input.partnerKind && input.partnerKind !== 'place' && (state === 'approved_awaiting_narration' || state === 'published')) {
+      return noPlaceApprovedState(input)
+    }
     // BR-B2B-057, item 2: the portal row already carries its acceptance and passes through
     // `Aguardando aceite` without stopping — unless the gate is not open (a code still missing).
     if (state === 'approved_awaiting_narration' && input.gateMissing.length > 0) return 'awaiting_acceptance'
@@ -196,6 +240,16 @@ export function derivePipelineState(input: PipelineInput): PipelineState {
   }
 
   return conferenceStarted(input.conference) ? 'in_conference' : 'proposal_received'
+}
+
+/**
+ * The message key of a state in `Partnerships.states` / `Partnerships.nextSteps`, by partner kind
+ * (spec #936 §2): the derivation stays in one place and the copy says `perfil` where a guide has
+ * no `local`. Every screen that prints a row's state goes through here.
+ */
+export function stateMessageKey(state: PipelineState, kind: PartnerKind | null | undefined): string {
+  if (kind === 'guide' && state === 'approved_awaiting_narration') return 'approved_awaiting_guide_profile'
+  return state
 }
 
 /**
@@ -235,7 +289,7 @@ export function portalDetailTarget(
   state: PipelineState,
   ids: { submissionId: string; clientId: string | null }
 ): DetailTarget {
-  if (state === 'published' && ids.clientId) {
+  if ((state === 'published' || state === 'hidden_from_app' || state === 'referral_only') && ids.clientId) {
     return { kind: 'client', clientId: ids.clientId, tab: 'partnership' }
   }
   return { kind: 'validation', submissionId: ids.submissionId }

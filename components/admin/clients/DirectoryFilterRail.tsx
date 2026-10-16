@@ -332,6 +332,7 @@ function FilterPanel({
 }: DirectoryFilterRailProps & { headless?: boolean }) {
   const t = useTranslations('Clients.directory')
   const p = useTranslations('Partnerships')
+  const types = useTranslations('Clients.profile')
   /** `FilterPanel` is mounted twice — rail and sheet — so every id it prints has to differ. */
   const suffix = headless ? '-sheet' : ''
 
@@ -345,6 +346,8 @@ function FilterPanel({
     if (key === 'contract') return t(`contractValues.${value}`)
     if (key === 'plan') return t(`planValues.${value}`)
     if (key === 'status') return t(`statusValues.${value}`)
+    // #936: the type is a closed id (`tour_guide`, `driver`…) and never reaches the screen raw.
+    if (key === 'clientType' && types.has(`clientTypes.${value}`)) return types(`clientTypes.${value}` as 'clientTypes.venue')
     return value
   }
 

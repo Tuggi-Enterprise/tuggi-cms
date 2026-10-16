@@ -2632,7 +2632,8 @@
         "coupons": "Cupones",
         "configuration": "Configuración",
         "afterSave": "Disponible después de guardar",
-        "afterApproval": "Disponible después de aprobar"
+        "afterApproval": "Disponible después de aprobar",
+        "guide": "Perfil en la app"
       },
       "save": "Guardar",
       "missingTitle": "Faltan para guardar",
@@ -2717,7 +2718,8 @@
         "partner": "Socio",
         "creator": "Creador de contenido",
         "driver": "Conductor",
-        "venue": "Lugar"
+        "venue": "Lugar",
+        "tour_guide": "Guía de turismo"
       },
       "qr": {
         "title": "Enlace público y QR",
@@ -2935,6 +2937,79 @@
           "tax_id": "un CNPJ válido",
           "email": "el correo"
         }
+      }
+    },
+    "guide": {
+      "title": "Perfil en la app",
+      "loading": "Cargando el perfil…",
+      "loadError": "No se pudo leer el perfil. Recarga la página.",
+      "publish": {
+        "missing": "El perfil todavía no está en la app.",
+        "action": "Publicar el perfil",
+        "error": "El perfil no llegó a la app. Inténtalo de nuevo."
+      },
+      "visibility": {
+        "title": "Visibilidad",
+        "listed": "En la app",
+        "hidden": "Oculto en la app",
+        "noConsent": "Sin autorización del guía",
+        "hiddenReason": "Motivo: {reason}",
+        "hide": "Ocultar en la app",
+        "show": "Mostrar en la app",
+        "noConsentLine": "El guía retiró la autorización en el portal. Solo él puede volver a aparecer.",
+        "hiddenDone": "Oculto en la app.",
+        "shownDone": "De vuelta en la app.",
+        "undo": "Deshacer",
+        "error": "No funcionó. Inténtalo de nuevo."
+      },
+      "data": {
+        "title": "Datos",
+        "photoAlt": "Foto de {name}",
+        "name": "Nombre",
+        "cities": "Ciudades",
+        "languages": "Idiomas",
+        "specialties": "Especialidades",
+        "whatsapp": "WhatsApp",
+        "copy": "Copiar",
+        "copied": "Copiado",
+        "testWhatsapp": "Probar en WhatsApp",
+        "consent": "Autorización",
+        "consentYes": "Autorizó aparecer en la app",
+        "consentNo": "Sin autorización"
+      },
+      "bio": {
+        "title": "Presentación",
+        "edit": "Editar",
+        "save": "Guardar",
+        "cancel": "Cancelar",
+        "counter": "{count}/{max}",
+        "saved": "Guardado a las {time}",
+        "error": "No se guardó: {reason}. El texto sigue aquí.",
+        "length": "la presentación tiene de 1 a {max} caracteres",
+        "failed": "el servidor no respondió"
+      },
+      "hideDialog": {
+        "title": "¿Ocultar a {name} en la app?",
+        "body": "El perfil sale de la lista de guías al instante. No se borra nada y puedes mostrarlo de nuevo.",
+        "reason": "Motivo",
+        "choose": "Elige el motivo",
+        "otherLabel": "Describe el motivo",
+        "reasonRequired": "Elige el motivo. En Otro, escribe cuál.",
+        "confirm": "Ocultar",
+        "cancel": "Cancelar"
+      },
+      "reasons": {
+        "tourist_report": "Denuncia de turista",
+        "inactive": "Guía inactivo",
+        "guide_request": "Pedido del guía",
+        "other": "Otro"
+      },
+      "specialties": {
+        "city_tour": "City tour",
+        "historic_cultural": "Histórico y cultural",
+        "nature_hiking": "Naturaleza y senderos",
+        "gastronomic": "Gastronómico",
+        "bilingual": "Bilingüe"
       }
     }
   },

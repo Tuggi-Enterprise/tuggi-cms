@@ -17,6 +17,7 @@
  * 5.44:1) as ink and never `text-tuggi-blue` (#00A8E8, 2.70:1 on white, which fails SC 1.4.3).
  */
 
+import { stateMessageKey } from '@/lib/partnerships/pipeline'
 import Link from 'next/link'
 import { Lock, X } from 'lucide-react'
 import { useTranslations } from 'next-intl'
@@ -157,7 +158,7 @@ export function BoardCard({
        * screen reader does not walk the column to find out where the card sits, and position on
        * its own is not an answer.
        */
-      aria-label={`${name} — ${p(`states.${row.state}`)}`}
+      aria-label={`${name} — ${p(`states.${stateMessageKey(row.state, row.partnerKind)}`)}`}
       className={`rounded-2xl border border-l-4 border-gray-200 bg-white p-3 text-sm shadow-sm transition-shadow dark:border-gray-800 dark:bg-gray-900 ${
         STANCE_STRIPE[stance]
       } ${dragging ? 'opacity-50' : 'hover:shadow-md'}`}

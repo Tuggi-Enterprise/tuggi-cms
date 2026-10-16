@@ -22,7 +22,7 @@
 import { useCallback, useEffect, useId, useMemo, useRef, useState } from 'react'
 import {
   Save, Loader2, Building2, Scale, Users, MapPin, Gift, AlertTriangle, Plus, Edit,
-  FileSignature, Handshake,
+  FileSignature, Handshake, UserRound,
 } from 'lucide-react'
 import { useLocale, useTranslations } from 'next-intl'
 import { useDialogShell } from '@/lib/hooks/use-dialog-shell'
@@ -35,6 +35,8 @@ import { FiscalPaymentsTab } from '@/components/admin/clients/tabs/FiscalPayment
 import { AffiliateNetworkSection, TeamTab } from '@/components/admin/clients/tabs/TeamTab'
 import { AppUsersTab, type AppUserLite } from '@/components/admin/clients/tabs/AppUsersTab'
 import { PlacesTab } from '@/components/admin/clients/tabs/PlacesTab'
+import { GuideProfileTab } from '@/components/admin/clients/tabs/GuideProfileTab'
+import { partnerKindOf, placesTabOf, type PartnerKind } from '@/lib/partnerships/partner-kind'
 import { PartnershipTab } from '@/components/admin/clients/tabs/PartnershipTab'
 import { CouponsTab } from '@/components/admin/clients/tabs/CouponsTab'
 import { ContractTab } from '@/components/admin/clients/tabs/ContractTab'
@@ -63,6 +65,8 @@ export type ClientEditorTab =
   | 'contract'
   | 'team'
   | 'places'
+  // #936: the tour guide's public profile, in place of `places` (a guide has no place).
+  | 'guide'
   | 'coupons'
 
 interface ClientEditorModalProps {
@@ -114,6 +118,18 @@ const TABS: TabDef[] = [
   { id: 'places', labelKey: 'places', icon: MapPin },
   { id: 'coupons', labelKey: 'coupons', icon: Gift },
 ]
+
+/**
+ * The tabs of a record by partner kind (spec #936 §5): the guide's `places` becomes `guide`
+ * ("Perfil no app"); the transfer without a base has no place and nothing takes its spot.
+ */
+function tabsOfKind(kind: PartnerKind): TabDef[] {
+  const placesTab = placesTabOf(kind)
+  return TABS.flatMap((tab) => {
+    if (tab.id !== 'places' || placesTab === 'places') return [tab]
+    return placesTab === 'guide' ? [{ id: 'guide' as const, labelKey: 'guide', icon: UserRound }] : []
+  })
+}
 
 export function ClientEditorModal({
   clientId: clientIdProp,
@@ -243,6 +259,7 @@ export function ClientEditorModal({
   }, [])
 
   const review = validation.review
+  const partnerKind = partnerKindOf(review?.answers)
   const reviewAnswers = review?.answers
   const headerName = useMemo(() => {
     if (preRegistration) return reviewAnswers?.trade_name || tValidation('noTradeName')
@@ -513,7 +530,7 @@ export function ClientEditorModal({
             return (
               <>
                 <RecordTabs
-                  tabs={TABS.map((tab) => ({
+                  tabs={tabsOfKind(partnerKind).map((tab) => ({
                     id: tab.id,
                     label: tTabs(tab.labelKey),
                     icon: tab.icon,
@@ -585,7 +602,10 @@ export function ClientEditorModal({
                 ) : null}
               </div>
             )}
-            {activeTab === 'places' && (
+            {activeTab === 'guide' && partnerKind === 'guide' && clientId ? (
+              <GuideProfileTab clientId={clientId} submissionId={review?.id ?? null} onPublished={() => void validation.refetch()} />
+            ) : null}
+            {activeTab === 'places' && partnerKind === 'place' && (
               <PlacesTab
                 client={client}
                 edited={edited}

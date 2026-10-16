@@ -26,6 +26,7 @@
  * `promoteProposal`; the reasoning is on that function.
  */
 
+import { hasNoPlace, partnerKindOf } from '@/lib/partnerships/partner-kind'
 import { getSupabaseService } from '@/lib/core/supabase-client'
 import { operatorLabel } from '@/lib/services/operator-label'
 import type { PartnerAnswers } from '@/lib/partner-form/schema'
@@ -529,7 +530,10 @@ export type ClientWriteOutcome =
  * nobody chose, all of them promoted from a proposal.
  */
 function commercialTermsOfChoice(answers: PartnerAnswers): Record<string, unknown> {
-  return answers.plan_choice === 'map_only'
+  // BR-B2B-064 item 2 and BR-B2B-065 item 3: the partner without a place has no plan and a
+  // commission of zero, WRITTEN as zero — the same terms as the free tier, whatever `plan_choice`
+  // the portal sent (`no_place`, or `map_only` before #933's amendment).
+  return answers.plan_choice === 'map_only' || hasNoPlace(partnerKindOf(answers))
     ? { commission_rate: 0, monthly_fee_cents: null }
     : { commission_rate: DEFAULT_COMMISSION_RATE }
 }
@@ -557,7 +561,9 @@ async function writeClient(command: PromotionCommand): Promise<ClientWriteOutcom
  */
 export async function createPromotedClient(
   updates: Partial<Record<PromotableColumn, string>>,
-  answers: PartnerAnswers
+  answers: PartnerAnswers,
+  /** The portal's partner without a place is born `tour_guide` or `driver` (`clientTypeOfKind`). */
+  clientType: ClientType = PROMOTED_CLIENT_TYPE
 ): Promise<ClientWriteOutcome> {
   const { data, error } = await service()
     .from(CLIENTS)
@@ -566,7 +572,7 @@ export async function createPromotedClient(
     // the partnership is another decision on the client's own page (BR-B2B-010, item 1).
     .insert({
       ...updates,
-      client_type: PROMOTED_CLIENT_TYPE,
+      client_type: clientType,
       ...commercialTermsOfChoice(answers),
     })
     .select('id')
