@@ -326,7 +326,7 @@ async function approveClaimed(
   const acceptance = await acceptanceOf(submission.id)
   if (!acceptance) return { ok: false, httpStatus: 503, error: 'lookup_failed', attractionId }
 
-  const client = await resolveApprovalClient(attractionId, answers, acceptance.email, operator)
+  const client = await resolveApprovalClient(submission.id, attractionId, answers, acceptance.email, operator)
   if (!client.ok) return { ok: false, httpStatus: 503, error: client.error, attractionId }
 
   const place = await applyPlacePrefill(attractionId, prefill, client.clientId, operator)
@@ -394,7 +394,12 @@ async function approveWithoutPlace(
         categoryLabel: CATEGORY_LABELS[answers.category ?? ''] ?? null,
       })
       const write = resolvePromotionWrite(plan, { approved: [] })
-      const created = await createPromotedClient(write.updates, answers, clientTypeOfKind(kind))
+      const reserved = await reservedSlugOf(submission.id)
+      if (!reserved.ok) return { ok: false, httpStatus: 503, error: 'lookup_failed' }
+      const created = await createPromotedClient(write.updates, answers, {
+        clientType: clientTypeOfKind(kind),
+        slug: reserved.slug,
+      })
       if (!created.ok) return { ok: false, httpStatus: 503, error: 'client_write_failed' }
       clientId = created.clientId
     }
@@ -486,10 +491,11 @@ export async function publishApprovedGuide(
 
 /**
  * The client of this submission: the one its POI is already linked to (a retry), else the one
- * with the same CNPJ, else a new one from `PROMOTION_MAP`. Read with the operator's session —
+ * with the same CNPJ, else a new one from `PROMOTION_MAP` with the kit's slug (`reservedSlugOf`). Read with the operator's session —
  * the POI is unapproved and only `CMS admins can read attractions` sees it.
  */
 async function resolveApprovalClient(
+  submissionId: string,
   attractionId: string,
   answers: PartnerAnswers,
   acceptanceEmail: string | null,
@@ -519,8 +525,30 @@ async function resolveApprovalClient(
     categoryLabel: CATEGORY_LABELS[answers.category ?? ''] ?? null,
   })
   const write = resolvePromotionWrite(plan, { approved: [] })
-  const created = await createPromotedClient(write.updates, answers)
+  const reserved = await reservedSlugOf(submissionId)
+  if (!reserved.ok) return { ok: false, error: 'lookup_failed' }
+  const created = await createPromotedClient(write.updates, answers, { slug: reserved.slug })
   return created.ok ? { ok: true, clientId: created.clientId } : { ok: false, error: 'client_write_failed' }
+}
+
+/**
+ * The kit's slug, reserved when the submission left draft (`partner.place_slugs`, #815). Only a NEW
+ * client inherits it: an existing client keeps its slug (BR-B2B-037 item 4, a printed slug never
+ * changes). The database lets this one insert through `client_slug_space_guard` because the
+ * submission is `in_review` with `approval_claimed_at` set, which the claim above guarantees.
+ * A failed read fails the approval (retry-safe) instead of creating a client with a second QR.
+ */
+async function reservedSlugOf(submissionId: string): Promise<{ ok: true; slug: string | null } | { ok: false }> {
+  const { data, error } = await partner()
+    .from('place_slugs')
+    .select('slug')
+    .eq('submission_id', submissionId)
+    .maybeSingle()
+  if (error) {
+    console.error('[portal-validation] place slug read failed', error.code)
+    return { ok: false }
+  }
+  return { ok: true, slug: (data as { slug?: string } | null)?.slug ?? null }
 }
 
 /**

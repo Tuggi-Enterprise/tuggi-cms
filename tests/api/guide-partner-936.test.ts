@@ -104,6 +104,7 @@ function table(name: string) {
       if (name === 'place_submissions') return { data: w.submission, error: null }
       if (name === 'place_acceptances') return { data: { email: 'ana@guia.com.br', plan_choice: null }, error: null }
       if (name === 'clients') return { data: { email: 'ana@guia.com.br', name: 'Ana Guia' }, error: null }
+      if (name === 'place_slugs') return { data: { slug: 'ana-guia' }, error: null }
       return { data: null, error: null }
     },
     then: (resolve: (v: unknown) => unknown) => {
@@ -292,6 +293,17 @@ test('BR-B2B-064 items 3 and 10: approving the guide creates no place and publis
     'transition:live',
   ])
   assert.ok(!w.calls.some((call) => call === 'create_poi' || call === 'apply_place' || call === 'describe'))
+})
+
+test('BR-B2B-037 items 3 and 4 · #815: the guide\'s client is born with the kit\'s slug, one QR in the kit and in the app', async () => {
+  await validation.approvePortalSubmission(SUB, operator, 'op', CMS_OP, NOW)
+  assert.equal(w.clientInsert?.slug, 'ana-guia')
+})
+
+test('BR-B2B-037 item 4: a guide linked by CNPJ keeps the slug its client already had: nothing inserted', async () => {
+  reset({ ...GUIDE, tax_id: '11.222.333/0001-81' }, { existingClient: { id: CLIENT, name: 'Ana Guia', email: 'ana@guia.com.br', client_type: 'tour_guide' } })
+  await validation.approvePortalSubmission(SUB, operator, 'op', CMS_OP, NOW)
+  assert.equal(w.clientInsert, null)
 })
 
 test('BR-B2B-064 item 2: the guide is born with commission zero, written as zero', async () => {

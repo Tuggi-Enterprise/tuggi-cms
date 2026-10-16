@@ -47,6 +47,13 @@ interface World {
   /** `ClientService.approveClient` throwing (#872). */
   approveFails: boolean
   approvedWith: unknown[] | null
+  /** `partner.place_slugs.slug` of the submission — the kit's QR (#815). */
+  placeSlug: string | null
+  placeSlugError: boolean
+  /** The options `createPromotedClient` received. */
+  createdWith: Record<string, unknown> | null
+  /** The client `findClientByTaxId` finds; null = none. */
+  existingClientId: string | null
 }
 let w: World
 
@@ -67,6 +74,10 @@ function reset(over: Partial<World> = {}) {
     clientInsert: null,
     approveFails: false,
     approvedWith: null,
+    placeSlug: 'bar-do-ze',
+    placeSlugError: false,
+    createdWith: null,
+    existingClientId: null,
     ...over,
   }
 }
@@ -111,6 +122,20 @@ function clientsTable() {
   return q
 }
 
+function placeSlugsTable() {
+  const q: any = {
+    select: () => q,
+    eq: () => q,
+    maybeSingle: async () => {
+      w.calls.push('read_place_slug')
+      return w.placeSlugError
+        ? { data: null, error: { code: '42501' } }
+        : { data: w.placeSlug ? { slug: w.placeSlug } : null, error: null }
+    },
+  }
+  return q
+}
+
 function acceptancesTable() {
   const q: any = {
     select: () => q,
@@ -123,7 +148,13 @@ function acceptancesTable() {
 const service = {
   schema: () => ({
     from: (table: string) =>
-      table === 'place_acceptances' ? acceptancesTable() : table === 'clients' ? clientsTable() : submissionsTable(),
+      table === 'place_acceptances'
+        ? acceptancesTable()
+        : table === 'clients'
+          ? clientsTable()
+          : table === 'place_slugs'
+            ? placeSlugsTable()
+            : submissionsTable(),
     rpc: async (_name: string, args: Record<string, unknown>) => {
       w.calls.push(`transition:${args.p_to}`)
       return { data: args.p_to, error: null }
@@ -174,11 +205,12 @@ before(async () => {
     namedExports: {
       findClientByTaxId: async () => {
         w.calls.push('find_client_by_tax_id')
-        return null
+        return w.existingClientId ? { id: w.existingClientId } : null
       },
-      createPromotedClient: async (updates: Record<string, unknown>) => {
+      createPromotedClient: async (updates: Record<string, unknown>, _answers: unknown, options: Record<string, unknown> = {}) => {
         w.calls.push('create_client')
         w.clientInsert = updates
+        w.createdWith = options
         return { ok: true, clientId: CLIENT, created: true }
       },
     },
@@ -208,6 +240,7 @@ test('BR-B2B-049 item 7: claim → POI → attraction_id → client → link/det
     'or:approval_claimed_at.is.null,approval_claimed_at.lt.2026-10-04T11:59:00.000Z',
     'create_poi',
     'write_attraction_id',
+    'read_place_slug',
     'create_client',
     `apply:${POI}:${CLIENT}`,
     `describe:${POI}`,
@@ -285,6 +318,7 @@ test('BR-B2B-049 item 7: a retry after the POI row but before the client resolve
   assert.equal(out.ok, true)
   assert.deepEqual(w.calls.filter((c) => !c.startsWith('or:')), [
     'claim',
+    'read_place_slug',
     'create_client',
     `apply:${POI}:${CLIENT}`,
     `describe:${POI}`,
@@ -380,4 +414,38 @@ test('#888: the acceptance missing → lookup_failed BEFORE the description step
   assert.deepEqual(out, { ok: false, httpStatus: 503, error: 'lookup_failed', attractionId: POI })
   assert.deepEqual(w.describedWith, [])
   assert.equal(w.calls[w.calls.length - 1], 'release')
+})
+
+// ── #936: one QR per partner — the client inherits the kit's slug ─────────────────────────────
+
+test('BR-B2B-037 items 3 and 4 · #815: the client created at approval carries the kit\'s slug, so the kit QR and the app QR are the same', async () => {
+  const out = await mod.approvePortalSubmission(SUB, operator, 'op', CMS_OP, NOW)
+  assert.equal(out.ok, true)
+  assert.equal(w.createdWith?.slug, 'bar-do-ze')
+  assert.ok(w.calls.indexOf('claim') < w.calls.indexOf('create_client'), 'the database lets the place slug through only while the approval is claimed')
+})
+
+test('BR-B2B-037 item 4: a client found by CNPJ keeps its own slug: no insert, no slug read, no slug written', async () => {
+  const EXISTING = '55555555-5555-4555-8555-555555555555'
+  reset({ submission: { id: SUB, status: 'in_review', answers: { ...ANSWERS, tax_id: '11.222.333/0001-81' }, attraction_id: null }, existingClientId: EXISTING })
+  const out = await mod.approvePortalSubmission(SUB, operator, 'op', CMS_OP, NOW)
+  assert.equal(out.ok, true)
+  assert.ok(!w.calls.includes('create_client') && !w.calls.includes('read_place_slug'))
+  assert.ok(!w.updates.some((u) => 'slug' in u))
+  assert.ok(w.calls.includes(`apply:${POI}:${EXISTING}`))
+})
+
+test('#815: the kit slug unreadable fails the approval before any client — never a client with a second QR', async () => {
+  reset({ placeSlugError: true })
+  const out = await mod.approvePortalSubmission(SUB, operator, 'op', CMS_OP, NOW)
+  assert.deepEqual(out, { ok: false, httpStatus: 503, error: 'lookup_failed', attractionId: POI })
+  assert.ok(!w.calls.includes('create_client'))
+  assert.equal(w.calls[w.calls.length - 1], 'release')
+})
+
+test('#815: a submission without a reserved slug still gets a client, and the database derives its slug', async () => {
+  reset({ placeSlug: null })
+  const out = await mod.approvePortalSubmission(SUB, operator, 'op', CMS_OP, NOW)
+  assert.equal(out.ok, true)
+  assert.equal(w.createdWith?.slug, null)
 })

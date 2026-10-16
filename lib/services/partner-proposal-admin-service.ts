@@ -562,8 +562,19 @@ async function writeClient(command: PromotionCommand): Promise<ClientWriteOutcom
 export async function createPromotedClient(
   updates: Partial<Record<PromotableColumn, string>>,
   answers: PartnerAnswers,
-  /** The portal's partner without a place is born `tour_guide` or `driver` (`clientTypeOfKind`). */
-  clientType: ClientType = PROMOTED_CLIENT_TYPE
+  {
+    clientType = PROMOTED_CLIENT_TYPE,
+    slug = null,
+  }: {
+    /** The portal's partner without a place is born `tour_guide` or `driver` (`clientTypeOfKind`). */
+    clientType?: ClientType
+    /**
+     * The kit's slug reserved at submit (`partner.place_slugs`, #815): the portal's client inherits
+     * it, so the kit QR and the app QR are the same (BR-B2B-037 items 3 and 4). Null = the
+     * database derives one (`partner.ensure_client_slug`).
+     */
+    slug?: string | null
+  } = {}
 ): Promise<ClientWriteOutcome> {
   const { data, error } = await service()
     .from(CLIENTS)
@@ -573,6 +584,7 @@ export async function createPromotedClient(
     .insert({
       ...updates,
       client_type: clientType,
+      ...(slug ? { slug } : {}),
       ...commercialTermsOfChoice(answers),
     })
     .select('id')
