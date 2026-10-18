@@ -160,3 +160,47 @@ describe('BR-POI-011 item 6: the national border is the ISO-tagged relation', ()
     assert.equal(nationalBorderFeature([ustica], 'IT'), undefined)
   })
 })
+
+describe('BR-POI-011 items 12–14 (amendment of 2026-10-18): verifiable history counts as a reference', () => {
+  const plaque = { name: 'Lapide a Giuseppe Mazzini', historic: 'memorial', memorial: 'plaque' }
+
+  it('item 12.a: a plaque with an inscription enters', () => {
+    assert.equal(f({ ...plaque, inscription: 'In questa casa nacque Giuseppe Mazzini il 22 giugno 1805' }).remove, false)
+  })
+
+  it('item 12.a/12.b: memorial:text, description and the honoree tags count too', () => {
+    assert.equal(f({ ...plaque, 'memorial:text': 'Qui soggiornò Giuseppe Garibaldi nel 1849' }).remove, false)
+    assert.equal(f({ ...plaque, 'inscription:it': 'Qui soggiornò Giuseppe Garibaldi nel 1849' }).remove, false)
+    assert.equal(f({ ...plaque, 'name:etymology:wikidata': 'Q23677' }).remove, false)
+    assert.equal(f({ name: 'Monumento ai caduti di Varzi', historic: 'memorial', memorial: 'war_memorial', 'subject:wikidata': 'Q361' }).remove, false)
+  })
+
+  it('item 5: a plaque with nothing does not enter, and a bare wikidata is not history', () => {
+    assert.equal(f(plaque).remove, true)
+    assert.equal(f({ ...plaque, wikidata: 'Q98765432' }).remove, true)
+  })
+
+  it('item 14: a Stolperstein with an inscription does not enter; stone and ghost_bike neither', () => {
+    const inscription = 'Hier wohnte Max Levi Jg. 1890 deportiert 1942 ermordet in Auschwitz'
+    assert.match(f({ name: 'Stolperstein Max Levi', historic: 'memorial', memorial: 'stolperstein', inscription, 'subject:wikidata': 'Q1' }).reason ?? '', /MEMORIAL_NOISE/)
+    assert.match(f({ name: 'Gedenkstein', historic: 'memorial', memorial: 'stone', inscription }).reason ?? '', /MEMORIAL_NOISE/)
+    assert.match(f({ name: 'Ghost bike Anna', historic: 'memorial', memorial: 'ghost_bike', inscription }).reason ?? '', /MEMORIAL_NOISE/)
+  })
+
+  it('item 13: a plaque whose only text is a Way of the Cross station does not enter', () => {
+    assert.equal(f({ ...plaque, name: 'XII Stazione', inscription: 'XII Stazione - Gesù muore in croce' }).remove, true)
+  })
+
+  it('item 13: prayer, saint, motto and generic war dead are not facts; a local year is', () => {
+    assert.equal(f({ ...plaque, inscription: 'Ave Maria piena di grazia il Signore è con te' }).remove, true)
+    assert.equal(f({ ...plaque, inscription: "Sant'Antonio da Padova prega per noi" }).remove, true)
+    assert.equal(f({ ...plaque, inscription: 'Pace e bene' }).remove, true)
+    assert.equal(f({ name: 'Ai caduti', historic: 'memorial', memorial: 'war_memorial', inscription: 'Ai caduti della grande guerra 1915-1918' }).remove, true)
+    assert.equal(f({ name: 'Ai caduti', historic: 'memorial', memorial: 'war_memorial', inscription: 'Ai caduti di Varzi nel bombardamento del 12 marzo 1944 e ricostruito nel 1951' }).remove, false)
+  })
+
+  it('item 12 reaches the item-5 roadside objects (cross, shrine), not the other minors', () => {
+    assert.equal(f({ name: 'Wegkreuz Huber', historic: 'wayside_cross', inscription: 'Errichtet 1872 von der Familie Huber nach dem Hochwasser' }).remove, false)
+    assert.equal(f({ name: 'Alter Bahndamm', historic: 'railway', description: 'Trasse der 1872 eröffneten Lokalbahn' }).remove, true)
+  })
+})

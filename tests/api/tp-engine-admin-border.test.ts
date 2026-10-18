@@ -89,6 +89,41 @@ describe('BR-POI-009 — municipal border: one TP per main road entering the mun
     assert.equal(e.adminBorderTriggerPoints('poi', C, [MUNICIPALITY], [a, b]).length, 1)
   })
 
+  it('BR-POI-010: a pier ON the coast — the border vertex OSM shares with the route, or a few metres in — still gets the sea TP (Favignana, Pantelleria)', async () => {
+    const e = await engine()
+    const { applyTpPostConditions } = await import('../../lib/services/trigger-points-google/utils/tp-selection')
+    const pier = at(0, -HALF)
+    // the coastline carries the pier node: it is a vertex of the border
+    const island = [at(-HALF, -HALF), at(-HALF, HALF), at(HALF, HALF), at(HALF, -HALF), pier]
+    // two routes end at the same pier: walking on from one leads back out to sea on the other
+    const fromWest = way('Trapani - Pantelleria', 'ferry', [at(-8_000, -HALF - 6_000), at(-100, -HALF - 800), pier])
+    const fromEast = way('Mazara - Pantelleria', 'ferry', [at(8_000, -HALF - 6_000), at(100, -HALF - 800), pier])
+    const inner = at(0, -HALF + 10)
+    const intoHarbour = way('Trapani - Favignana', 'ferry', [at(-8_000, -HALF - 6_000), at(0, -HALF - 800), inner])
+    for (const [ring, routes] of [[island, [fromWest, fromEast]], [MUNICIPALITY, [intoHarbour]]] as const) {
+      const tps = e.adminBorderTriggerPoints('poi', C, [ring], [...routes])
+      assert.ok(tps.length >= 1, `${routes.map(r => r.id).join(', ')}: no TP`)
+      for (const tp of tps) {
+        assert.equal(tp.generationMethod, e.ADMIN_BORDER_SEA_METHOD)
+        assert.ok(!e.isPointInPolygon(tp.location, ring), 'out at sea')
+        assert.ok(Math.abs(e.edgeM(tp.location, ring) - 300) <= 60, `${e.edgeM(tp.location, ring).toFixed(0)} m from the border`)
+      }
+      const kept = applyTpPostConditions(tps, C, { source: 'osm_admin', coordinates: ring, adminParts: [ring] }).kept
+      assert.equal(kept.length, tps.length, 'E11 keeps them')
+    }
+  })
+
+  it('BR-POI-010: a ferry between two islands of the same municipality is no entry, and leaves the arrival from outside its TP (Favignana–Marettimo)', async () => {
+    const e = await engine()
+    const pier = at(0, -HALF)
+    const other = square(500, at(0, -HALF - 3_000)) // a second island of the same municipality
+    const otherPier = at(0, -HALF - 2_500)
+    const hop = way('Favignana-Marettimo', 'ferry', [pier, at(-150, -HALF - 1_200), otherPier])
+    const arrival = way('Trapani - Favignana', 'ferry', [at(-9_000, -HALF - 1_500), at(-200, -HALF - 300), pier])
+    const tps = e.adminBorderTriggerPoints('poi', C, [MUNICIPALITY, other], [hop, arrival])
+    assert.deepEqual(tps.map(t => t.street.id), ['Trapani - Favignana'])
+  })
+
   it('BR-POI-010: a ferry ending far from the coast (the other island) gives no sea TP', async () => {
     const e = await engine()
     const ferry = way('f_far', 'ferry', [at(0, -HALF - 5_000), at(0, -HALF - 400)])

@@ -95,10 +95,53 @@ export function matchesEliteCategories(props: any): boolean {
 // sets isFamous, which bypasses the blocklist. `office`/`visitor_centre` stay out: those are real.
 export const INFO_FURNITURE = ['board', 'map', 'guidepost', 'route_marker', 'audioguide', 'terminal', 'tactile_model'];
 
-// Memorial subtypes that are markers, not destinations: a Stolperstein is a 10cm brass cobblestone
-// (41k in Germany alone), a plaque is a wall sign. Each victim has their own Wikidata item, so the
-// wikidata guard does not apply here.
-export const MEMORIAL_NOISE = ['stolperstein', 'plaque', 'stone', 'ghost_bike'];
+// Memorial subtypes that are markers, not destinations, cut with no condition (BR-POI-011 item 14): a
+// Stolperstein is a 10cm brass cobblestone (41k in Germany alone), dozens per block, each the story of a
+// person and not of the place. Each victim has their own Wikidata item and an inscription, so neither
+// the wikidata guard nor item 12 applies here. A plaque is not here: it enters by item 12.
+export const MEMORIAL_NOISE = ['stolperstein', 'stone', 'ghost_bike'];
+
+// ---- BR-POI-011 item 12: verifiable history also counts as a reference for the objects of items 2 and 5 ----
+// Only what the tags show (12.a, and the tag half of 12.b). Out of this filter because they need a
+// lookup: 12.b "name matched to a person or event" and 12.c (facts on the object's own Wikidata item).
+
+/** Item 13: text that fits any place — prayer, Way of the Cross, biblical episode. Never a fact. */
+const DEVOTIONAL_TEXT = /\b(via crucis|kreuzweg|stazione|statio|station [ivxl\d]+|ave maria|pater noster|padre nostro|vater unser|ora pro nobis|prega per noi|requiem|gloria patri|gegrüßet|gelobt sei|lodato sia|sia lodato|deo gratias|in hoc signo|inri|ecce homo|ave crux|crux ave|spes unica|miserere|agnus dei|ave regina|salve regina|o crux|gesù (cade|incontra|muore|è|e'|viene)|jesus (fällt|begegnet|stirbt|wird)|annunciazione|natività|crocifissione|deposizione|ultima cena|verkündigung|kreuzigung|abendmahl)\b/i;
+/** Item 13: a saint's name, the war dead in general. A fact only with a local year. */
+const SAINT_TEXT = /\b(san|santa|santo|sant'|s\.|ss\.|st\.|hl\.|heilige[rn]?|madonna|beata|maria|sv\.|svat[ýáé])\s/i;
+const WAR_TEXT = /\b(caduti|guerra|gefallenen|weltkrieg|krieg|war\b|guerre|morts|padlým|válk)/i;
+const WORLD_WAR_YEAR = /^(191[4-8]|19(39|4[0-5]))$/;
+const YEAR = /\b(1[0-9]{3}|20[0-9]{2})\b/g;
+/** Below this, a text without any year is a motto or a label ("Pace", "Gedenktafel"), not a fact. */
+const MIN_UNDATED_FACT_WORDS = 5;
+
+function isSubstantiveText(raw: unknown): boolean {
+  const text = String(raw ?? '').replace(/\s+/g, ' ').trim();
+  if (text.length < 6 || /^(yes|no)$/i.test(text) || DEVOTIONAL_TEXT.test(text)) return false;
+  const years = text.match(YEAR) ?? [];
+  if ((SAINT_TEXT.test(text) || WAR_TEXT.test(text)) && !years.some(y => !WORLD_WAR_YEAR.test(y))) return false;
+  return years.length > 0 || text.split(' ').length >= MIN_UNDATED_FACT_WORDS;
+}
+
+/** The objects item 12 names: memorial, plaque, war memorial, public art, statue, chapel, shrine, cross. */
+function isHistoryObject(props: any): boolean {
+  return ['memorial', 'monument', 'wayside_cross', 'wayside_shrine', 'wayside_chapel', 'tree_shrine'].includes(String(props.historic))
+    || props.tourism === 'artwork' || props.amenity === 'place_of_worship'
+    || ['chapel', 'wayside_shrine'].includes(String(props.building)) || props.memorial === 'cross';
+}
+
+/**
+ * BR-POI-011 item 12 (tags only): an item-12 object with ≥ 1 substantive fact from its own text
+ * (12.a: inscription, inscription:*, memorial:text, description — item 13 filters the generic ones)
+ * or its honoree (12.b: name:etymology:wikidata, subject:wikidata). Stolperstein never gets here (item 14).
+ */
+export function hasVerifiableHistory(props: any): boolean {
+  if (!isHistoryObject(props)) return false;
+  if (props['name:etymology:wikidata'] || props['subject:wikidata']) return true;
+  return Object.keys(props)
+    .filter(k => k === 'inscription' || k.startsWith('inscription:') || k === 'memorial:text' || k === 'description')
+    .some(k => isSubstantiveText(props[k]));
+}
 
 // Objects whose own tag is the only "fame" they carry, so isFamous lets every one of them through.
 // Austria (2026-10-07): 7,617 wayside crosses and shrines (historic=* counts as fame), ~700 ski
@@ -149,7 +192,7 @@ export function hasPublicReference(props: any, facts?: ReferenceFacts): boolean 
 /** The MINOR_* gate: true when the object enters only by one of those tags and has no public reference (BR-POI-011 item 0). */
 export function isMinorWithoutReference(props: any, hasHardReference: boolean): boolean {
   if (hasHardReference) return false;
-  if (MINOR_HISTORIC.includes(String(props.historic))) return true;
+  if (MINOR_HISTORIC.includes(String(props.historic))) return !hasVerifiableHistory(props);
   // Only when the lift is the reason it got in: a lift that is also tourism=* or historic=* keeps the normal path.
   if (props.aerialway && !props.tourism && !props.historic && !TOURIST_AERIALWAYS.includes(String(props.aerialway))) return true;
   if (props.natural === 'water' && MINOR_WATER.includes(String(props.water))) return true;
@@ -225,7 +268,7 @@ export function touristNoiseReason(props: any, hasReference: boolean = hasPublic
   // BR-POI-011 items 2–4: "without a reference" in the sense of item 0 — a bare wikidata is not one.
   if (hasReference) return null;
   const memorialType = String(props.memorial || props['memorial:type'] || '');
-  if (props.historic === 'memorial' && memorialType === 'war_memorial') return 'WAR_MEMORIAL: no public reference';
+  if (props.historic === 'memorial' && memorialType === 'war_memorial' && !hasVerifiableHistory(props)) return 'WAR_MEMORIAL: no public reference';
   if (SKI_LIFTS.includes(String(props.aerialway)) && !props.tourism && !props.historic) return `SKI_LIFT: aerialway=${props.aerialway} without a public reference`;
   if (props.tourism === 'gallery') return 'GALLERY: commercial gallery without a public reference';
   return null;
@@ -280,7 +323,7 @@ export function weakObjectReason(props: any, name: string, hasReference: boolean
   // register vouches for the object (P1435): only an article or a heritage tag spares it. CZ homolog: 242.
   if (GENERIC_NAMES.has(name.toLowerCase().normalize('NFC').replace(/\s+/g, ' ').trim())
     && !props.wikipedia && !Object.keys(props).some(k => k.startsWith('wikipedia:')) && !props.heritage) return 'generic-name';
-  if (hasReference) return null;
+  if (hasReference || hasVerifiableHistory(props)) return null;
   if (['zoo', 'theme_park'].includes(String(props.tourism)) || PLAGUE_COLUMN.test(name)) return null;
   const historic = String(props.historic || '');
   const isChurch = props.building === 'church' || CHURCH_NAME.test(name);

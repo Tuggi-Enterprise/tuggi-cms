@@ -73,10 +73,12 @@ async function main() {
         console.log('💎 Using Osmium for high-performance import...');
         await importWithOsmium(pbfPath, localData, dir);
         await importMunicipalBorders(pbfPath, localData, region, regionPoly, dir);
+        await importIdentityRelations(pbfPath, localData, dir);
       } else {
         console.log('⚙️ Osmium not found. Using pbf2json fallback...');
         await importWithPbf2Json(pbfPath, localData);
         console.warn('⚠️ Municipal borders (BR-POI-010) need osmium: run --import-admin once it is installed.');
+        console.warn('⚠️ Bridge/waterway relations (INV-E1a) need osmium: run --import-relations once it is installed; until then the engine asks Overpass for them.');
       }
     } finally {
       localData.close();
@@ -121,6 +123,24 @@ async function main() {
       localData.close();
     }
   }
+  else if (command === '--import-relations') {
+    // Only the bridge and waterway relations (INV-E1a) into an existing region database: what a
+    // region imported before them needs to stop asking Overpass. `--db` writes elsewhere.
+    const pbfPath = args[1];
+    const region = argValue(args, '--region');
+    if (!pbfPath || !region || !fs.existsSync(pbfPath)) {
+      console.error('❌ Usage: --import-relations <file> --region <name> [--db <file>]');
+      process.exitCode = 1;
+      return;
+    }
+    const dbPath = argValue(args, '--db') ?? regionDbPath(region);
+    const localData = new OSMLocalDataService(dbPath);
+    try {
+      await importIdentityRelations(pbfPath, localData, path.dirname(path.resolve(dbPath)));
+    } finally {
+      localData.close();
+    }
+  }
   else if (command === '--clear-cache') {
     console.log('🧹 Clearing all OSM cache...');
     cache.clearAll();
@@ -147,6 +167,8 @@ Usage:
   npx tsx scripts/manage-osm.ts --import-pbf <file> --region <name> --skip-hotfixes
   npx tsx scripts/manage-osm.ts --import-admin <file> --region <name> [--poly <file>] [--db <file>]
                                                                Only the municipal borders (BR-POI-010) into <region>.db
+  npx tsx scripts/manage-osm.ts --import-relations <file> --region <name> [--db <file>]
+                                                               Only the bridge/waterway relations (INV-E1a) into <region>.db
   npx tsx scripts/manage-osm.ts --clear-cache                  Clear all query cache
   npx tsx scripts/manage-osm.ts --status                       List local regions
     `);
@@ -272,6 +294,28 @@ async function importMunicipalBorders(pbfPath: string, localData: OSMLocalDataSe
     if (result.keptWithSeat < result.kept) console.warn(`⚠️ ${result.kept - result.keptWithSeat} municipalities have neither admin_centre nor label: no POI can enter their municipal mode.`);
     const warning = seatLevelWarning(result);
     if (warning) console.warn(`\n⚠️⚠️ CHECK THE MUNICIPAL LEVEL: ${warning}\n`);
+  } finally {
+    try {
+      if (fs.existsSync(filteredPbf)) fs.unlinkSync(filteredPbf);
+    } catch (e) {
+      console.warn(`⚠️ Could not delete ${filteredPbf} (${(e as NodeJS.ErrnoException).code}); delete it by hand.`);
+    }
+  }
+}
+
+/**
+ * The way members of the `type=bridge` and `type=waterway` relations (INV-E1a,
+ * `osm-local-data-service#IDENTITY_RELATION_TABLE`), so the corridor of a bridge or river way is
+ * tied locally instead of by Overpass. `-R`: the relations only, not the elements they reference.
+ */
+async function importIdentityRelations(pbfPath: string, localData: OSMLocalDataService, dir: string) {
+  const filteredPbf = path.join(dir, '.identity_relations.osm.pbf');
+  console.log('🌉 Bridge/waterway relations: filtering type=bridge,waterway...');
+  const filter = spawnSync('osmium', ['tags-filter', pbfPath, 'r/type=bridge,waterway', '-R', '-o', filteredPbf, '--overwrite'], { stdio: 'inherit' });
+  if (filter.status !== 0) throw new Error(`osmium tags-filter (relations) failed (status ${filter.status})`);
+  try {
+    const r = await streamOsmium(['cat', filteredPbf, '-f', 'opl,add_metadata=false', '-o', '-'], lines => localData.importIdentityRelations(lines), 'cat (relations)');
+    console.log(`   ✅ ${r.relations.bridge} bridge + ${r.relations.waterway} waterway relations, ${r.members} way memberships`);
   } finally {
     try {
       if (fs.existsSync(filteredPbf)) fs.unlinkSync(filteredPbf);

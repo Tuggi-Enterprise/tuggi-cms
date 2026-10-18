@@ -20,7 +20,7 @@ import { LocalOSMFetcher } from '../services/local-osm-fetcher';
 import { emitDebugQuality, DebugQualitySnapshot } from '../debug-quality-logger';
 import { selectSpacedTriggerPoints, applyTpPostConditions, bestStreetPointOutside, REACH_RESCUE_METHOD } from '../utils/tp-selection';
 import { poiEdgeRing } from '../utils/validation';
-import { ADMIN_BORDER_ROAD_TYPES, adminBorderTriggerPoints, isAdminBorder } from '../utils/admin-border-tps';
+import { ADMIN_BORDER_FERRY_PIER_MAX_M, ADMIN_BORDER_ROAD_TYPES, adminBorderTriggerPoints, isAdminBorder } from '../utils/admin-border-tps';
 import { calculatePolygonPerimeter } from '../utils/calculations';
 
 /** Radii searched around the border for the rescue TP (INV-E11b), closest first. Provisional (#775). */
@@ -190,7 +190,10 @@ export class CoreTriggerPointPredictor {
       const radiusM = Math.max(200, calculatePolygonPerimeter(ring) / 1_000);
       for (const s of fetcher.fetchStreetsAlongBoundary(ring, radiusM, ADMIN_BORDER_ROAD_TYPES) ?? []) byId.set(String(s.id), s);
     }
-    const triggerPoints = adminBorderTriggerPoints(poiId, poiData.location, parts, [...byId.values()]);
+    const triggerPoints = adminBorderTriggerPoints(poiId, poiData.location, parts, [...byId.values()], (s, why) => trace.push({
+      poi_id: poiId, stage: 'E7', rule: 'admin-border-tps#adminBorderTriggerPoints', candidate: '',
+      value: `ferry ${s.name ?? s.id}: ${why}`, limit: `pier ≤ ${ADMIN_BORDER_FERRY_PIER_MAX_M} m`, decision: 'dropped',
+    }));
     trace.push(...triggerPoints.map(tp => ({
       poi_id: poiId, stage: 'E7' as const, rule: 'admin-border-tps#adminBorderTriggerPoints', candidate: candidateKey(tp.location),
       value: `${tp.street.type} ${tp.street.name ?? tp.street.id}; radius ${tp.radius} m`, limit: `parts=${parts.length}; roads=${byId.size}`, decision: 'kept' as const,
