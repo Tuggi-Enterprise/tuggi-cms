@@ -118,6 +118,17 @@
       "request_access": "Solicitar acesso como cliente",
       "footer": "Acesso seguro apenas para pessoal autorizado"
     },
+    "SetPassword": {
+      "title": "Defina sua senha",
+      "subtitle": "Você foi convidado para o CMS da Tuggi. Escolha a senha que vai usar para entrar.",
+      "password_label": "Nova senha",
+      "confirmation_label": "Repita a senha",
+      "submit": "Salvar senha e entrar",
+      "saving": "Salvando...",
+      "mismatch": "As senhas não são iguais.",
+      "generic_error": "Não foi possível salvar a senha. Tente de novo.",
+      "invalid_link": "Este link expirou ou já foi usado. Peça a um administrador do CMS para enviar um novo convite."
+    },
     "Dashboard": {
       "title": "Tuggi",
       "subtitle": "Analytics",

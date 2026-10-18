@@ -4,12 +4,11 @@ import { useState, useEffect, useCallback } from 'react'
 import { useSupabaseClient } from '@supabase/auth-helpers-react'
 import { 
   UserCog, Plus, Search, MoreVertical, Shield, Edit2, 
-  Trash2, CheckCircle, XCircle, Mail, Calendar, RefreshCw,
+  CheckCircle, XCircle, Mail, RefreshCw,
   AlertCircle, Loader2, Users
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { StatCard, StatCardRow } from '@/components/ui/StatCard'
-import { RoleBadge } from '@/components/ui/RoleBadge'
 
 // ============================================================================
 // TYPES
@@ -186,6 +185,7 @@ export default function CMSUsersPage() {
   const [showInviteModal, setShowInviteModal] = useState(false)
   const [searchQuery, setSearchQuery] = useState('')
   const [error, setError] = useState<string | null>(null)
+  const [notice, setNotice] = useState<string | null>(null)
 
   // Fetch CMS users
   const fetchUsers = useCallback(async () => {
@@ -213,49 +213,32 @@ export default function CMSUsersPage() {
     fetchUsers()
   }, [fetchUsers])
 
-  // Invite new user
+  // Invite new user. The invite needs the service role, so it runs on the server (#941):
+  // `POST /api/admin/cms-users` sends the e-mail and writes `core.cms_users`. An error thrown
+  // here is shown inside the modal, which stays open.
   const handleInvite = async (data: InviteFormData) => {
     setIsInviting(true)
-    
+    setNotice(null)
+
     try {
-      // 1. Create user in Supabase Auth via invite
-      const { data: authData, error: authError } = await supabase.auth.admin.inviteUserByEmail(data.email, {
-        data: {
-          full_name: data.full_name
-        }
+      const response = await fetch('/api/admin/cms-users', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify(data),
       })
-      
-      if (authError) {
-        // If user already exists in auth, we can still add to cms_users
-        if (!authError.message.includes('already registered')) {
-          throw authError
-        }
+      const body = await response.json().catch(() => null)
+
+      if (!response.ok) {
+        throw new Error(body?.error || 'Erro ao convidar usuário')
       }
-      
-      // 2. Create entry in cms_users
-      const { error: cmsError } = await supabase
-        .schema('core')
-        .from('cms_users')
-        .insert({
-          email: data.email,
-          full_name: data.full_name || null,
-          role: data.role,
-          is_active: true
-        })
-      
-      if (cmsError) {
-        if (cmsError.message.includes('duplicate key')) {
-          throw new Error('Este email já está cadastrado no CMS')
-        }
-        throw cmsError
+
+      const notices: Record<string, string> = {
+        invite: `Convite enviado para ${data.email}.`,
+        password_link: `${data.email} já tinha conta no Tuggi. Foi adicionado ao CMS e recebeu um link para definir a senha.`,
+        none: `${data.email} já tinha conta no Tuggi e foi adicionado ao CMS, mas o e-mail para definir a senha não saiu. Ele entra com a senha que já usa.`,
       }
-      
-      // Refresh list
+      setNotice(notices[body?.mail] ?? notices.invite)
       await fetchUsers()
-      
-    } catch (err) {
-      console.error('Error inviting user:', err)
-      throw err
     } finally {
       setIsInviting(false)
     }
@@ -369,6 +352,13 @@ export default function CMSUsersPage() {
           />
         </div>
       </div>
+
+      {notice && (
+        <div className="mb-6 p-4 bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-800 rounded-xl text-green-700 dark:text-green-400 flex items-center">
+          <CheckCircle className="h-5 w-5 mr-2 flex-shrink-0" />
+          {notice}
+        </div>
+      )}
 
       {/* Error State */}
       {error && (

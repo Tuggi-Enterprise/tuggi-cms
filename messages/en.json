@@ -118,6 +118,17 @@
       "request_access": "Request access as client",
       "footer": "Secure access for authorized personnel only"
     },
+    "SetPassword": {
+      "title": "Set your password",
+      "subtitle": "You were invited to the Tuggi CMS. Choose the password you will use to sign in.",
+      "password_label": "New password",
+      "confirmation_label": "Repeat the password",
+      "submit": "Save password and sign in",
+      "saving": "Saving...",
+      "mismatch": "The passwords do not match.",
+      "generic_error": "Could not save the password. Please try again.",
+      "invalid_link": "This link has expired or was already used. Ask a CMS administrator to send a new invite."
+    },
     "Dashboard": {
       "title": "Tuggi",
       "subtitle": "Analytics",

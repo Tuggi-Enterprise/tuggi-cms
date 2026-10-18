@@ -7,6 +7,9 @@ export type AuditAction =
   | 'PASSWORD_RESET_REQUEST'
   | 'PASSWORD_CHANGE'
   | 'UPDATE_PROFILE'
+  // #941: someone was put on the CMS team, with the role they got. Granting `admin` is the
+  // widest privilege in the CMS, so the row says who granted it.
+  | 'INVITE_CMS_USER'
   | 'CREATE_POI'
   | 'UPDATE_POI'
   | 'DELETE_POI'

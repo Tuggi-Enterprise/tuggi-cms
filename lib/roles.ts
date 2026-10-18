@@ -39,7 +39,7 @@ export function isClient(role?: string | null): boolean {
 // longer described together.
 
 /** Paths served without a session, matched WHOLE. */
-export const PUBLIC_EXACT_PATHS = ['/login', '/client-signup', '/debug', '/unauthorized'] as const
+export const PUBLIC_EXACT_PATHS = ['/login', '/set-password', '/client-signup', '/debug', '/unauthorized'] as const
 
 /**
  * Paths public from the segment on — `/contrato`, because the credential is the next segment.
