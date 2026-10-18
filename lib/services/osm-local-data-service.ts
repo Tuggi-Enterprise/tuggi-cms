@@ -34,6 +34,39 @@ export function storedBuildingHeightM(tags: Record<string, unknown>): number {
 }
 
 /**
+ * The relation half of `boundary-choice#sameIdentityWaysQuery` (INV-E1a), kept locally: one row
+ * per way member of a `type=bridge` or `type=waterway` relation. Only those two classes; every
+ * other relation stays out. A region database WITHOUT this table predates it (the engine then asks
+ * Overpass the relation half); WITH it and no row for a way, the way is in no such relation.
+ * Created only by `importIdentityRelations`, never by `init()`: opening an old base for
+ * `--import-admin` must not make it look complete.
+ */
+export const IDENTITY_RELATION_TABLE = 'identity_relation_ways';
+export const IDENTITY_RELATION_TYPES = ['bridge', 'waterway'] as const;
+export type IdentityRelationType = (typeof IDENTITY_RELATION_TYPES)[number];
+
+/**
+ * The way members of the identity relations, from `osmium cat -f opl,add_metadata=false` over the
+ * extract filtered to `r/type=bridge,waterway`. OPL escapes `,` `=` `@` and space inside values
+ * (`%2c%`…), so splitting on them is safe. Any role counts: `sameIdentityWaysQuery` reads `way(r.r)`.
+ */
+export async function scanIdentityRelations(lines: AsyncIterable<string>): Promise<Array<{ relationId: number; type: IdentityRelationType; wayIds: number[] }>> {
+  const out: Array<{ relationId: number; type: IdentityRelationType; wayIds: number[] }> = [];
+  for await (const raw of lines) {
+    const line = raw.trim();
+    if (line[0] !== 'r') continue;
+    const fields = line.split(' ');
+    const tags = fields.find(f => f.startsWith('T'))?.slice(1) ?? '';
+    const type = /(?:^|,)type=([^,]*)/.exec(tags)?.[1];
+    if (!(IDENTITY_RELATION_TYPES as readonly string[]).includes(type ?? '')) continue;
+    const wayIds = (fields.find(f => f.startsWith('M'))?.slice(1) ?? '').split(',')
+      .map(m => /^w(\d+)@/.exec(m)?.[1]).filter((id): id is string => id !== undefined).map(Number);
+    if (wayIds.length > 0) out.push({ relationId: Number(fields[0].slice(1)), type: type as IdentityRelationType, wayIds });
+  }
+  return out;
+}
+
+/**
  * Writes and queries ONE local OSM region database (`local-osm-regions#regionDbPath`, #833).
  * The importer behind `scripts/manage-osm.ts --import-pbf`; the engine reads through
  * `LocalOSMFetcher`.
@@ -281,6 +314,34 @@ export class OSMLocalDataService {
   /** Municipal borders, whole (BR-POI-010): `admin-boundaries#importAdminBoundaries` on this database. */
   public importAdminBoundaries(lines: AsyncIterable<string>, opts: { region: RegionPolygon; seatScan?: MunicipalSeatScan }): Promise<AdminBoundaryImport> {
     return importAdminBoundaries(this.db, lines, opts);
+  }
+
+  /**
+   * Replaces `IDENTITY_RELATION_TABLE` with the relations of `scanIdentityRelations(lines)`, in one
+   * transaction. Returns the count per relation type and the member rows written.
+   */
+  public async importIdentityRelations(lines: AsyncIterable<string>): Promise<{ relations: Record<IdentityRelationType, number>; members: number }> {
+    const scanned = await scanIdentityRelations(lines);
+    const relations: Record<IdentityRelationType, number> = { bridge: 0, waterway: 0 };
+    let members = 0;
+    this.db.transaction(() => {
+      this.db.exec(`DROP TABLE IF EXISTS ${IDENTITY_RELATION_TABLE}`);
+      this.db.exec(`
+        CREATE TABLE ${IDENTITY_RELATION_TABLE} (
+          way_id INTEGER NOT NULL,
+          relation_id INTEGER NOT NULL,
+          relation_type TEXT NOT NULL,
+          PRIMARY KEY (way_id, relation_id)
+        ) WITHOUT ROWID
+      `);
+      this.db.exec(`CREATE INDEX idx_${IDENTITY_RELATION_TABLE}_relation ON ${IDENTITY_RELATION_TABLE}(relation_id)`);
+      const insert = this.db.prepare(`INSERT OR IGNORE INTO ${IDENTITY_RELATION_TABLE} (way_id, relation_id, relation_type) VALUES (?, ?, ?)`);
+      for (const r of scanned) {
+        relations[r.type]++;
+        for (const wayId of r.wayIds) members += insert.run(wayId, r.relationId, r.type).changes;
+      }
+    })();
+    return { relations, members };
   }
 
   /**

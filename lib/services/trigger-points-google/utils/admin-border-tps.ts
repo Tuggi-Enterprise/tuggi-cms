@@ -107,12 +107,24 @@ interface Entry { street: StreetData; point: LatLng; score: number; sea?: boolea
  * inbound one). Every polygon part counts: a municipality with islands or exclaves exists.
  * `pin` is the POI pin (`core.attraction_coordinate`): every TP's `expectedBearing` points at it.
  */
-export function adminBorderTriggerPoints(poiId: string, pin: LatLng, parts: LatLng[][], streets: StreetData[]): TriggerPoint[] {
+export function adminBorderTriggerPoints(
+  poiId: string, pin: LatLng, parts: LatLng[][], streets: StreetData[],
+  /** why a ferry gave no TP, for the engine trace (an island municipality has no other entry) */
+  onFerryDropped?: (street: StreetData, why: string) => void
+): TriggerPoint[] {
   const rings = parts.filter(r => r.length >= 3);
   const inside = (p: LatLng) => rings.some(r => isPointInPolygon(p, r));
   const edgeM = (p: LatLng) => Math.min(...rings.map(r =>
     r.reduce((m, a, i) => Math.min(m, calculateDistanceToLineSegment(p, a, r[(i + 1) % r.length])), Infinity)));
   const roads = streets.filter(s => roadRank(s.type) >= 0 && (s.coordinates?.length ?? 0) >= 2);
+  /**
+   * In a part and farther than the tolerance from its edge: a ferry with such a vertex entered the
+   * part. The pier node OSM shares with the coastline is ON the edge — point-in-polygon calls it
+   * inside — and is an arrival, not an entry (Favignana, Pantelleria, 2026-10-14: every route ended
+   * on a border vertex, the crossing walk went back out to sea on the next route at the same pier,
+   * and the sea pass skipped them as "inside": 0 TPs).
+   */
+  const deepInside = (p: LatLng) => inside(p) && edgeM(p) > ENTRY_PROBE_STEP_M;
 
   const byNode = new Map<string, StreetData[]>();
   for (const s of roads) {
@@ -188,6 +200,8 @@ export function adminBorderTriggerPoints(poiId: string, pin: LatLng, parts: LatL
   const shallow: Entry[] = [];
   for (const s of roads) {
     const c = s.coordinates;
+    // A ferry that never gets in arrives at the pier: the sea pass below takes it.
+    if (s.type === 'ferry' && !c.some(deepInside)) continue;
     const travel = travelDirections(s);
     for (let k = 0; k < c.length - 1; k++) {
       const aIn = inside(c[k]), bIn = inside(c[k + 1]);
@@ -210,17 +224,22 @@ export function adminBorderTriggerPoints(poiId: string, pin: LatLng, parts: LatL
       // Travel direction only ranks: of a dual carriageway, the inbound one keeps the spacing.
       const score = roadRank(s.type) * 2 + (travel.includes(dir) ? 1 : 0);
       if (tp) { entries.push({ street: s, point: tp.point, score }); continue; }
+      if (ferryTp) onFerryDropped?.(s, `crossing: ${ADMIN_BORDER_TP_INSET_M} m along the route stands outside (edge ${Math.round(edgeM(ferryTp.point))} m)`);
       // No GPS in a tunnel: its crossing is no fallback (Rattenberg's B171 runs under the castle hill).
       const shallowTp = s.type === 'ferry' || String((s as StreetData & { tags?: Record<string, unknown> }).tags?.tunnel ?? 'no') !== 'no' ? null : shallowEntry(s, k, crossing, dir);
       if (shallowTp) shallow.push({ street: s, point: shallowTp.point, score });
     }
   }
 
-  // Sea TP (BR-POI-010): a ferry that never enters a part but ends at its pier gets the TP out at
-  // sea, on the route. A route that does enter took the crossing path above.
+  // Sea TP (BR-POI-010): a ferry that never enters a part but ends at its pier — off the coast or on
+  // it — gets the TP out at sea, on the route. A route that does enter took the crossing path above.
   for (const s of roads) {
     if (s.type !== 'ferry') continue;
     const c = s.coordinates;
+    // Pier to pier of this municipality (Favignana–Marettimo): a hop between its own parts, not an
+    // entry. Left in, its sea TP took the spacing from the arrival from Trapani at the same pier.
+    const atPier = (p: LatLng) => edgeM(p) <= ADMIN_BORDER_FERRY_PIER_MAX_M;
+    if (atPier(c[0]) && atPier(c[c.length - 1])) continue;
     const ends = [
       { end: c[0], seg: 0, dir: 1 as const },
       { end: c[c.length - 1], seg: c.length - 2, dir: -1 as const },
@@ -230,9 +249,7 @@ export function adminBorderTriggerPoints(poiId: string, pin: LatLng, parts: LatL
       // real end is a pier. Two routes meeting at one pier (Graciosa: from Velas and from Praia da
       // Vitória) are two arrivals, not a split.
       if ((byNode.get(nodeKey(end)) ?? []).some(w => w !== s && w.type === 'ferry' && (w.name ?? '') === (s.name ?? ''))) continue;
-      const pierOf = rings.some(r => !c.some(p => isPointInPolygon(p, r))
-        && r.reduce((m, a, i) => Math.min(m, calculateDistanceToLineSegment(end, a, r[(i + 1) % r.length])), Infinity) <= ADMIN_BORDER_FERRY_PIER_MAX_M);
-      if (!pierOf) continue;
+      if (c.some(deepInside) || !atPier(end)) continue;
       const tp = walk(s, seg, end, dir, ADMIN_BORDER_SEA_OFFSET_M);
       entries.push({ street: s, point: tp.point, score: roadRank(s.type) * 2 + 1, sea: true });
     }

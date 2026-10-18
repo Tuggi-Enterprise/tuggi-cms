@@ -14,11 +14,18 @@ export default [
     // `playwright/.cache/` holds Vite's bundled output, which is 71 errors of minified vendor
     // code: `npm run lint` and therefore the pre-commit hook failed for anyone who had run
     // `tests/ct/` once, with a diff that contained none of it.
-    ignores: ['playwright/.cache/**', 'playwright-report/**', 'test-results/**'],
+    // `output/` is the gitignored scratch of the data drivers (run-sql.cjs and friends).
+    ignores: ['playwright/.cache/**', 'playwright-report/**', 'test-results/**', 'output/**'],
   },
   ...nextCoreWebVitals,
   ...nextTypescript,
   {
+    // Same `files` as the `next` block that registers `react-hooks`/`react`/`@next/next`.
+    // Without it this block applies to every linted file, and eslint 9 lints `**/*.cjs` by
+    // default — a pattern `eslint-config-next` 16 does not cover. Any stray `.cjs` (e.g. the
+    // untracked `output/*/run-sql.cjs`) then got these rules without the plugin and the whole
+    // run aborted: "could not find plugin react-hooks".
+    files: ['**/*.{js,jsx,mjs,ts,tsx,mts,cts}'],
     rules: {
       // Allow explicit any where necessary for Supabase/Google Maps interop
       '@typescript-eslint/no-explicit-any': 'warn',

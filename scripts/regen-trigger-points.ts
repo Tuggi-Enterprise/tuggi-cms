@@ -222,13 +222,23 @@ async function runBatch(batchId: string, storedBoundary = false) {
   console.log(`\n📊 Worker: ${processed} ok, ${failed} falhou em ${totalS}s`)
 }
 
+/** Attempts of one claim before the worker gives up (a transient API error ended a worker mid-batch). */
+const CLAIM_ATTEMPTS = 6
+
 /**
  * Claims the next POI of the queue (atomic, SKIP LOCKED: one worker per POI) and prepares its
- * relief; null when the queue is empty or the claim fails.
+ * relief; null when the queue is empty or the claim keeps failing. A failed claim is retried with
+ * backoff: on 2026-10-15 one `Project not specified` from the API ended a worker of a 24k batch.
  */
 async function claimNext(batchId: string): Promise<{ attractionId: string; reliefError: string | null } | null> {
-  const { data: attractionId, error } = await db.rpc('claim_next_regen', { p_batch_id: batchId, p_worker_id: WORKER_ID })
-  if (error) { console.error('❌ Erro no claim:', error.message); return null }
+  let attractionId: string | null = null
+  for (let attempt = 1; ; attempt++) {
+    const { data, error } = await db.rpc('claim_next_regen', { p_batch_id: batchId, p_worker_id: WORKER_ID })
+    if (!error) { attractionId = data; break }
+    console.error(`❌ Claim error (attempt ${attempt}/${CLAIM_ATTEMPTS}):`, error.message)
+    if (attempt >= CLAIM_ATTEMPTS) return null
+    await new Promise(resolve => setTimeout(resolve, 5_000 * 2 ** (attempt - 1)))
+  }
   if (!attractionId) { console.log(`\n✅ Worker concluído — fila vazia.`); return null }
   // #831: the relief of the POI's 1° cell is prepared here, outside the POI deadline (one
   // cell takes 2–11 min); a cell that cannot be prepared fails the item, the old TPs stay.

@@ -9,7 +9,8 @@ import { ElevationAnalysisService } from '../services/elevation-service';
 import { TRIGGER_POINTS_CONSTANTS } from '../config/trigger-points-config';
 import { isCuratedBoundaryImplausible } from '../utils/osm-validation';
 import { isNaturalLandform } from '../../../shared/poi-taxonomy';
-import { boundaryFate, isMunicipalElement, type BoundaryFate, type OwnIdLookup, assembleOuterRings, chainSameIdentity, sameIdentityWaysQuery, chooseContainingBoundary, corridorRing, footprintRing, polygonOuterRings, IDENTITY_NEAR_PIN_M, LINE_CORRIDOR_HALF_WIDTH_M, outerRing, sameFootprint, type BoundaryRejection, type OsmAreaElement } from '../utils/boundary-choice';
+import { regionAt } from '../../local-osm-regions';
+import { boundaryFate, isMunicipalElement, type BoundaryFate, type OwnIdLookup, assembleOuterRings, chainSameIdentity, mayHaveIdentityRelation, sameIdentityWaysQuery, chooseContainingBoundary, corridorRing, footprintRing, polygonOuterRings, IDENTITY_NEAR_PIN_M, LINE_CORRIDOR_HALF_WIDTH_M, outerRing, sameFootprint, type BoundaryRejection, type OsmAreaElement } from '../utils/boundary-choice';
 
 /**
  * Radius of the circle that marks a POI with no footprint of its own: an OSM node, a pin with
@@ -1265,19 +1266,46 @@ out geom;
    * kind that continue it end to end, as a corridor of the way's own `width`, else
    * LINE_CORRIDOR_HALF_WIDTH_M each side. The Ponte Rio-Niterói id is one 45-point motorway
    * segment, and read as a ring it was a 1,040 m² sliver. Overpass down: the segment alone.
+   * Local DB first (operator, 2026-10-13): both halves come from there — the ways of its wikidata,
+   * and the members of its bridge or waterway relation (`LocalOSMFetcher#fetchWaysByIdentityRelation`).
+   * Overpass is asked only when no region covers the way (the whole query), or when the region
+   * predates the relation table, holds no other way of that wikidata and the way may be in such a
+   * relation (the relation half alone: transition until the region is reimported).
    */
   private async sameIdentityCorridor(element: any): Promise<Array<{ lat: number; lng: number }>> {
-    let ways: any[] = [];
-    try {
-      const query = sameIdentityWaysQuery(element.id, element.tags?.wikidata as string | undefined, SANITY_MAX_TP_DISTANCE_M);
-      const response = await this.retryOSMQuery(query, `ways tied by id to way(${element.id})`, 3, 2000);
-      ways = (await response.json()).elements ?? [];
-    } catch (error) {
-      console.warn(`⚠️ Ways tied by id to way(${element.id}) unavailable:`, error instanceof Error ? error.message : error);
+    const raw = String(element.tags?.wikidata ?? '').trim();
+    const qid = /^Q\d+$/.test(raw) ? raw : null;
+    const first = element.geometry?.[0];
+    const { LocalOSMFetcher } = await import('../services/local-osm-fetcher');
+    const fetcher = LocalOSMFetcher.getInstance();
+    const at = first ? { lat: first.lat, lng: first.lon ?? first.lng } : undefined;
+    // [] = the region answered (no wikidata to look up); null = no region covers the way.
+    const local = !at || !regionAt(fetcher.regionList(), at.lat, at.lng) ? null : qid ? fetcher.fetchWaysByWikidata(at, SANITY_MAX_TP_DISTANCE_M, qid) : [];
+    let ways: any[] = local ?? [];
+    let source = 'local';
+    let relationFromOverpass = false;
+    if (local !== null && at && mayHaveIdentityRelation(element.tags)) {
+      const byRelation = fetcher.fetchWaysByIdentityRelation(at, SANITY_MAX_TP_DISTANCE_M, element.id);
+      // One copy per way id: a duplicate would let chainSameIdentity walk a way back over itself.
+      if (byRelation) ways = ways.concat(byRelation.filter(w => !ways.some(x => String(x.id) === String(w.id))));
+      else relationFromOverpass = !ways.some(w => String(w.id) !== String(element.id));
+    }
+    if (local === null || relationFromOverpass) {
+      source = local ? 'local+overpass(relation)' : 'overpass';
+      try {
+        // The local DB answered the wikidata half (nothing there): ask Overpass for the relation half only.
+        const query = sameIdentityWaysQuery(element.id, local ? null : qid, SANITY_MAX_TP_DISTANCE_M);
+        const response = await this.retryOSMQuery(query, `ways tied by id to way(${element.id})`, 3, 2000);
+        ways = ways.concat((await response.json()).elements ?? []);
+      } catch (error) {
+        console.warn(`⚠️ Ways tied by id to way(${element.id}) unavailable:`, error instanceof Error ? error.message : error);
+      }
     }
     const width = parseFloat(String(element.tags?.width ?? ''));
     const halfWidthM = Number.isFinite(width) && width > 0 ? width / 2 : LINE_CORRIDOR_HALF_WIDTH_M;
-    return corridorRing(chainSameIdentity(element, ways), halfWidthM);
+    const ring = corridorRing(chainSameIdentity(element, ways), halfWidthM);
+    console.log(`🧵 way(${element.id}) corridor: ${ways.length} tied ways (${source}), ${Math.round(calculatePolygonAreaInM2(ring))} m²`);
+    return ring;
   }
 
   private async createEstimatedBoundary(poiData: POIData): Promise<BoundaryData> {
