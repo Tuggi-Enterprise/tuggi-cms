@@ -244,43 +244,27 @@ export default function CMSUsersPage() {
     }
   }
 
-  // Toggle user active status
+  // Toggle user active status. Goes through the PATCH (#969): RLS lets the browser read
+  // core.cms_users and not write it, so the old direct update changed nothing while the
+  // screen said "desativado".
   const toggleUserStatus = async (user: CMSUser) => {
     try {
-      const { error } = await supabase
-        .schema('core')
-        .from('cms_users')
-        .update({ is_active: !user.is_active })
-        .eq('id', user.id)
+      const response = await fetch(`/api/admin/users/${user.id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ is_active: !user.is_active }),
+      })
+      const body = await response.json().catch(() => null)
+      if (!response.ok) {
+        throw new Error(body?.error || `HTTP ${response.status}`)
+      }
 
-      if (error) throw error
-      
-      setUsers(prev => prev.map(u => 
-        u.id === user.id ? { ...u, is_active: !u.is_active } : u
+      const saved = body?.user?.is_active
+      setUsers(prev => prev.map(u =>
+        u.id === user.id ? { ...u, is_active: typeof saved === 'boolean' ? saved : !u.is_active } : u
       ))
     } catch (err) {
-      console.error('Error toggling user status:', err)
-      alert('Erro ao atualizar status do usuário')
-    }
-  }
-
-  // Update user role
-  const updateUserRole = async (user: CMSUser, newRole: CMSUser['role']) => {
-    try {
-      const { error } = await supabase
-        .schema('core')
-        .from('cms_users')
-        .update({ role: newRole })
-        .eq('id', user.id)
-
-      if (error) throw error
-      
-      setUsers(prev => prev.map(u => 
-        u.id === user.id ? { ...u, role: newRole } : u
-      ))
-    } catch (err) {
-      console.error('Error updating user role:', err)
-      alert('Erro ao atualizar papel do usuário')
+      alert(`Erro ao atualizar status do usuário: ${err instanceof Error ? err.message : 'erro desconhecido'}`)
     }
   }
 
@@ -417,10 +401,13 @@ export default function CMSUsersPage() {
                       </div>
                     </td>
                     <td className="px-6 py-4">
+                      {/* Read only (#969): the role is immutable after creation, the PATCH refuses it,
+                          and the old direct update was dropped by RLS while the select moved. */}
                       <select
                         value={user.role}
-                        onChange={(e) => updateUserRole(user, e.target.value as CMSUser['role'])}
-                        className="bg-transparent border-none text-sm font-medium focus:ring-0 cursor-pointer"
+                        disabled
+                        aria-readonly="true"
+                        className="bg-transparent border-none text-sm font-medium focus:ring-0"
                       >
                         <option value="admin">Admin</option>
                         <option value="editor">Editor</option>

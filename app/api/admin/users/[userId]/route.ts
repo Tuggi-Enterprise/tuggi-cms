@@ -11,6 +11,13 @@
  * autorização, e o efeito prático era concreto: uma sessão revogada no painel seguia concedendo
  * módulo até o cookie expirar. `withAuth` usa `getUser()`, que revalida a cada chamada.
  *
+ * WHY THE SERVICE CLIENT FOR WRITES (#969): on `core.cms_users` the `authenticated` role only has
+ * SELECT; UPDATE and DELETE belong to `service_role`. With the cookie client the PATCH wrote 0
+ * rows and the screen showed "Cannot coerce the result to a single JSON object", and the DELETE
+ * answered "deleted" without deleting anything. `withAuth({ roles: ['admin'] })` is the barrier
+ * that remains, as in `POST /api/admin/cms-users` (#941). Every write checks the row it wrote:
+ * 0 rows is an error.
+ *
  * NADA DISSO ERA PEGO POR CI. `npm run check:routes` reporta rotas sem `withAuth`, mas não está
  * em `check-all`, nem em `pre-build`, nem em `.github/workflows/deploy-producao.yml` — 118 dos
  * 171 arquivos de rota ainda exportam função simples. Corrigir esta não corrige aquelas.
@@ -18,11 +25,59 @@
 
 import { NextResponse } from 'next/server'
 import { withAuth } from '@/lib/auth-middleware'
+import { getSupabaseService } from '@/lib/core/supabase-client'
 import { logAuditEvent } from '@/lib/services/audit-service'
 import { MODULE_MIN_ROLES, TOGGLEABLE_MODULES, type ModuleId } from '@/lib/modules'
+import { CMS_PASSWORD_MIN_LENGTH } from '@/lib/roles'
 
-/** Campos que o PATCH aceita. `role` e `client_id` são imutáveis após a criação. */
+/**
+ * Columns of `core.cms_users` the PATCH accepts. `role` and `client_id` are immutable after
+ * creation. `password` is accepted too, but it is not a column: it goes to Auth, see
+ * `findAuthUserId`.
+ */
 const ALLOWED_FIELDS = ['email', 'full_name', 'is_active', 'enabled_modules'] as const
+
+/** Worst case of the `auth.admin.listUsers` scan: this many pages of this size. */
+const AUTH_LOOKUP_PAGE_SIZE = 1000
+const AUTH_LOOKUP_MAX_PAGES = 100
+
+type ServiceClient = ReturnType<typeof getSupabaseService>
+
+/**
+ * The Auth id of the person on this `cms_users` row, found by e-mail.
+ *
+ * `cms_users.id` is not guaranteed to be the Auth id: `POST /api/admin/users` uses a fresh UUID
+ * when it creates without a password, and some rows were born by SQL with `gen_random_uuid`.
+ * What ties the two sides together is the e-mail, and it is by e-mail that `withAuth` finds the
+ * caller's row. So:
+ *   1. the shortcut: Auth has a user with the same id AND the same e-mail;
+ *   2. otherwise, the pages of `listUsers` until the e-mail shows up. supabase-js exposes no
+ *      lookup by e-mail, and path 2 only runs for the legacy rows.
+ * `id: null` when no Auth account has that e-mail.
+ */
+async function findAuthUserId(
+  service: ServiceClient,
+  cmsUserId: string,
+  email: string
+): Promise<{ id: string | null } | { error: true }> {
+  const wanted = email.trim().toLowerCase()
+
+  const { data: byId } = await service.auth.admin.getUserById(cmsUserId)
+  if (byId?.user?.email?.toLowerCase() === wanted) return { id: byId.user.id }
+
+  for (let page = 1; page <= AUTH_LOOKUP_MAX_PAGES; page++) {
+    const { data, error } = await service.auth.admin.listUsers({ page, perPage: AUTH_LOOKUP_PAGE_SIZE })
+    if (error) {
+      console.error('[admin users] auth lookup failed:', error.code ?? error.status)
+      return { error: true }
+    }
+    const users = data?.users ?? []
+    const match = users.find((u) => u.email?.toLowerCase() === wanted)
+    if (match) return { id: match.id }
+    if (users.length < AUTH_LOOKUP_PAGE_SIZE) break
+  }
+  return { id: null }
+}
 
 /**
  * `enabled_modules` é uma coluna de texto: sem isto, qualquer string entrava.
@@ -103,20 +158,12 @@ export const PATCH = withAuth<{ userId: string }>(
     } catch {
       return NextResponse.json({ error: 'Invalid JSON body' }, { status: 400 })
     }
-
-    const { data: currentUser, error: fetchError } = await auth.supabase
-      .schema('core')
-      .from('cms_users')
-      .select('*')
-      .eq('id', userId)
-      .single()
-
-    if (fetchError || !currentUser) {
-      return NextResponse.json({ error: 'User not found' }, { status: 404 })
+    if (!body || typeof body !== 'object' || Array.isArray(body)) {
+      return NextResponse.json({ error: 'Invalid JSON body' }, { status: 400 })
     }
 
-    // `role` e `client_id` são imutáveis após a criação — e a imutabilidade da role é o que
-    // deixa a validação de módulos abaixo confiar em `currentUser.role` como a role do alvo.
+    // `role` and `client_id` are immutable after creation, and the immutable role is what lets
+    // the module check below trust `currentUser.role` as the target's role.
     if ('role' in body || 'client_id' in body) {
       return NextResponse.json(
         { error: 'Cannot update role or client_id after user creation' },
@@ -131,8 +178,40 @@ export const PATCH = withAuth<{ userId: string }>(
       }
     }
 
-    if (Object.keys(updateData).length === 0) {
+    // The password never goes into `updateData`, a log line, the audit or the response.
+    const password = 'password' in body ? body.password : undefined
+    if (password !== undefined) {
+      if (typeof password !== 'string' || password.length < CMS_PASSWORD_MIN_LENGTH) {
+        return NextResponse.json(
+          { error: `Password must be at least ${CMS_PASSWORD_MIN_LENGTH} characters` },
+          { status: 400 }
+        )
+      }
+    }
+
+    if (Object.keys(updateData).length === 0 && password === undefined) {
       return NextResponse.json({ error: 'No fields to update' }, { status: 400 })
+    }
+
+    if ('is_active' in updateData && typeof updateData.is_active !== 'boolean') {
+      return NextResponse.json({ error: 'is_active must be a boolean' }, { status: 400 })
+    }
+
+    const service = getSupabaseService()
+
+    const { data: currentUser, error: fetchError } = await service
+      .schema('core')
+      .from('cms_users')
+      .select('*')
+      .eq('id', userId)
+      .maybeSingle()
+
+    if (fetchError) {
+      console.error('[admin users] lookup failed:', fetchError.code)
+      return NextResponse.json({ error: 'Failed to read the CMS user' }, { status: 500 })
+    }
+    if (!currentUser) {
+      return NextResponse.json({ error: 'User not found' }, { status: 404 })
     }
 
     if ('enabled_modules' in updateData) {
@@ -144,7 +223,7 @@ export const PATCH = withAuth<{ userId: string }>(
     }
 
     if ('email' in updateData && updateData.email !== currentUser.email) {
-      const { count: emailCount } = await auth.supabase
+      const { count: emailCount } = await service
         .schema('core')
         .from('cms_users')
         .select('id', { count: 'exact' })
@@ -155,35 +234,85 @@ export const PATCH = withAuth<{ userId: string }>(
       }
     }
 
-    const { data: user, error: updateError } = await auth.supabase
-      .schema('core')
-      .from('cms_users')
-      .update({ ...updateData, updated_at: new Date().toISOString() })
-      .eq('id', userId)
-      .select()
-      .single()
-
-    if (updateError) {
-      return NextResponse.json({ error: updateError.message }, { status: 500 })
+    // The Auth account is found BEFORE anything is written: without it the password has nowhere
+    // to go, and saving half of the request would leave the screen saying "saved".
+    let authUserId: string | null = null
+    if (password !== undefined) {
+      const found = await findAuthUserId(service, userId, currentUser.email)
+      if ('error' in found) {
+        return NextResponse.json({ error: 'Failed to find the login account' }, { status: 502 })
+      }
+      if (!found.id) {
+        return NextResponse.json(
+          { error: `No login account exists for ${currentUser.email}. Invite this person instead.` },
+          { status: 404 }
+        )
+      }
+      authUserId = found.id
     }
 
-    // Os módulos concedidos entram na descrição: "campos alterados: enabled_modules" não diz se
-    // alguém ganhou ou perdeu o Financeiro, que é a única coisa que se quer saber deste log.
-    const updatedFields = Object.keys(updateData)
-    const modulesNote =
-      'enabled_modules' in updateData
-        ? ` (modules: ${(updateData.enabled_modules as string[]).join('+') || 'none'})`
-        : ''
+    let user = currentUser
+    if (Object.keys(updateData).length > 0) {
+      const { data: updated, error: updateError } = await service
+        .schema('core')
+        .from('cms_users')
+        .update({ ...updateData, updated_at: new Date().toISOString() })
+        .eq('id', userId)
+        .select()
 
-    await logAuditEvent({
-      request: req,
-      action: 'UPDATE_PROFILE',
-      entity: 'USER',
-      entityId: userId,
-      userId: auth.user.id,
-      userEmail: auth.cmsUser.email ?? null,
-      description: `Updated CMS user fields: ${updatedFields.join(', ')}${modulesNote}`,
-    })
+      if (updateError) {
+        console.error('[admin users] update failed:', updateError.code)
+        return NextResponse.json({ error: 'Failed to save the CMS user' }, { status: 500 })
+      }
+      if (!updated || updated.length !== 1) {
+        return NextResponse.json(
+          { error: 'The CMS user was not saved: no row was updated' },
+          { status: 500 }
+        )
+      }
+      user = updated[0]
+
+      // The granted modules go into the description: "fields changed: enabled_modules" does not
+      // say whether someone gained or lost Finance, which is all anyone wants from this log.
+      const updatedFields = Object.keys(updateData)
+      const modulesNote =
+        'enabled_modules' in updateData
+          ? ` (modules: ${(updateData.enabled_modules as string[]).join('+') || 'none'})`
+          : ''
+
+      await logAuditEvent({
+        request: req,
+        action: 'UPDATE_PROFILE',
+        entity: 'USER',
+        entityId: userId,
+        userId: auth.user.id,
+        userEmail: auth.cmsUser.email ?? null,
+        description: `Updated CMS user fields: ${updatedFields.join(', ')}${modulesNote}`,
+      })
+    }
+
+    if (authUserId) {
+      const { error: passwordError } = await service.auth.admin.updateUserById(authUserId, { password })
+      if (passwordError) {
+        console.error('[admin users] password update failed:', passwordError.code ?? passwordError.status)
+        // GoTrue's message says why (weak, too short) and does not carry the password.
+        const saved = Object.keys(updateData).length > 0 ? 'The other fields were saved, but the ' : 'The '
+        return NextResponse.json(
+          { error: `${saved}password was not changed: ${passwordError.message}` },
+          { status: 422 }
+        )
+      }
+
+      await logAuditEvent({
+        request: req,
+        action: 'PASSWORD_CHANGE',
+        entity: 'USER',
+        entityId: userId,
+        userId: auth.user.id,
+        userEmail: auth.cmsUser.email ?? null,
+        description: 'Admin set a new password for a CMS user',
+      })
+    }
 
     return NextResponse.json({ success: true, user })
   }
@@ -191,42 +320,36 @@ export const PATCH = withAuth<{ userId: string }>(
 
 export const DELETE = withAuth<{ userId: string }>(
   { roles: ['admin'] },
-  async (req, ctx, auth) => {
+  async (_req, ctx) => {
     const params = await ctx.params
     const userId = params?.userId
     if (!userId) {
       return NextResponse.json({ error: 'Missing userId' }, { status: 400 })
     }
 
-    const { data: user, error: userError } = await auth.supabase
-      .schema('core')
-      .from('cms_users')
-      .select('id, email')
-      .eq('id', userId)
-      .single()
-
-    if (userError || !user) {
-      return NextResponse.json({ error: 'User not found' }, { status: 404 })
-    }
-
-    const { error: deleteError } = await auth.supabase
+    const { data: deleted, error: deleteError } = await getSupabaseService()
       .schema('core')
       .from('cms_users')
       .delete()
       .eq('id', userId)
+      .select('id')
 
     if (deleteError) {
-      return NextResponse.json({ error: deleteError.message }, { status: 500 })
+      console.error('[admin users] delete failed:', deleteError.code)
+      return NextResponse.json({ error: 'Failed to delete the CMS user' }, { status: 500 })
+    }
+    if (!deleted || deleted.length === 0) {
+      return NextResponse.json({ error: 'User not found' }, { status: 404 })
     }
 
-    // A conta de Auth NÃO é apagada aqui, e isso é de antes desta rodada: a linha de
-    // `core.cms_users` é o que dá acesso ao CMS, e sem ela o login não leva a lugar nenhum.
-    // Remover a conta de Auth é ato separado, feito no painel.
+    // The Auth account is NOT deleted here, as before: the `core.cms_users` row is what grants
+    // access to the CMS, and without it the login leads nowhere. Removing the Auth account is a
+    // separate act, done in the dashboard.
     //
-    // ESTE ATO SEGUE SEM AUDITORIA, como já estava. `AuditAction` não tem valor para "apagou um
-    // usuário do CMS", e inventar um aqui seria arriscar um `insert` recusado por constraint em
-    // `core.audit_logs.action` — e `logAuditEvent` engole o erro. Um log que falha em silêncio é
-    // pior que a ausência declarada dele. Auditar isto pede a ação nova E a migration, juntas.
+    // THIS ACT IS STILL NOT AUDITED. `AuditAction` has no value for "deleted a CMS user", and
+    // inventing one here would risk an insert refused by the constraint on
+    // `core.audit_logs.action`, which `logAuditEvent` swallows. A log that fails silently is
+    // worse than its declared absence. Auditing this needs the new action AND the migration.
 
     return NextResponse.json({ success: true, message: 'User deleted successfully' })
   }

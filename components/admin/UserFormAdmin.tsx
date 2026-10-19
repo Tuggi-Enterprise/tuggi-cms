@@ -5,6 +5,7 @@ import { AlertCircle, Check } from 'lucide-react'
 import { CmsUser } from '@/lib/supabase'
 import { Client } from '@/types/clients'
 import { TOGGLEABLE_MODULES, MODULES, MODULE_MIN_ROLES, type ModuleId } from '@/lib/modules'
+import { CMS_PASSWORD_MIN_LENGTH } from '@/lib/roles'
 
 const MODULE_LABELS: Record<string, string> = {
   [MODULES.EVENTS]: 'Events',
@@ -82,7 +83,9 @@ export function UserFormAdmin({ user, onSubmit, onCancel, isLoading = false }: U
 
     // If creating new user, password is required
     if (!user && !formData.password) newErrors.password = 'Password is required for new users'
-    if (formData.password && formData.password.length < 6) newErrors.password = 'Password must be at least 6 characters'
+    if (formData.password && formData.password.length < CMS_PASSWORD_MIN_LENGTH) {
+      newErrors.password = `Password must be at least ${CMS_PASSWORD_MIN_LENGTH} characters`
+    }
 
     // If role is client, client_id is required
     if (formData.role === 'client' && !formData.client_id) {
@@ -112,7 +115,9 @@ export function UserFormAdmin({ user, onSubmit, onCancel, isLoading = false }: U
         is_active: formData.is_active,
         enabled_modules: formData.enabled_modules.filter((mod) =>
           (reachableModules as string[]).includes(mod)
-        )
+        ),
+        // Empty keeps the current password (#969). The field used to be dropped without a word.
+        ...(formData.password ? { password: formData.password } : {}),
       } : formData
 
       const response = await fetch(endpoint, {
