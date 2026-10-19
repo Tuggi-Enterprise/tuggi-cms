@@ -933,7 +933,7 @@
       },
       "credit": {
         "panel": {
-          "title": "Concesiones de horas",
+          "title": "Historial del saldo",
           "state": "Estado",
           "state_unlimited": "Ilimitado",
           "state_metered": "Con saldo",
@@ -974,7 +974,7 @@
           "source_cms": "Concesión del CMS",
           "source_partner": "Socio",
           "source_transfer": "Transferencia",
-          "source_referral": "Invitación",
+          "source_referral": "Sello",
           "source_mission": "Misión",
           "empty": "Ninguna concesión registrada.",
           "revoke_cta": "Anular"

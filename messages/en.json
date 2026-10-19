@@ -945,7 +945,7 @@
       },
       "credit": {
         "panel": {
-          "title": "Hour grants",
+          "title": "Balance history",
           "state": "Status",
           "state_unlimited": "Unlimited",
           "state_metered": "With balance",
@@ -986,7 +986,7 @@
           "source_cms": "CMS grant",
           "source_partner": "Partner",
           "source_transfer": "Transfer",
-          "source_referral": "Referral",
+          "source_referral": "Stamp",
           "source_mission": "Mission",
           "empty": "No grants recorded.",
           "revoke_cta": "Revoke"
