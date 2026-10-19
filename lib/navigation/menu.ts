@@ -74,6 +74,7 @@ import {
   Smartphone,
   Store,
   Target,
+  ThumbsDown,
   Trophy,
   Flag,
   Upload,
@@ -192,6 +193,8 @@ function catalogue(): { basic: NavEntry[]; modules: NavEntry[] } {
               // Direções e avisos: os clipes que não pertencem a nenhum POI. Saiu de `Admin`
               // porque é conteúdo, não administração — o comentário antigo já dizia isso.
               item('/dashboard/system-audio', 'system_audio', Volume2),
+              // Os votos dos turistas nas histórias (#950, BR-CONTEUDO-009 item 5): o que corrigir no texto.
+              item('/admin/story-feedback', 'story_feedback', ThumbsDown),
             ],
           },
           {
