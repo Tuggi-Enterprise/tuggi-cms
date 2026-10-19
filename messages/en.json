@@ -945,13 +945,14 @@
       },
       "credit": {
         "panel": {
-          "title": "Access and balance",
+          "title": "Hour grants",
           "state": "Status",
           "state_unlimited": "Unlimited",
           "state_metered": "With balance",
           "state_free": "Free",
           "balance": "Balance",
           "balance_minutes": "{minutes} minutes",
+          "last_grant": "Last grant",
           "ends_at": "Access until",
           "license": "License",
           "provider": "Source",
@@ -972,7 +973,6 @@
           "col_type": "Type",
           "col_amount": "Amount",
           "col_source": "Source",
-          "col_by": "Granted by",
           "col_status": "Status",
           "type_minutes": "Balance",
           "type_until": "Period",
@@ -1089,8 +1089,6 @@
         }
       },
       "modal": {
-        "profile": "Profile",
-        "device": "Device",
         "subscription": "Subscription",
         "trips": "Trips",
         "poi_visits": "Points visited",
@@ -1144,12 +1142,8 @@
           "overview": "Overview",
           "passport": "Passport",
           "access": "Access and balance",
-          "client": "Linked client",
           "admin_only": "Available to admins only"
         }
-      },
-      "overview": {
-        "no_device": "No device recorded yet."
       },
       "passport": {
         "stamps": "Stamps",

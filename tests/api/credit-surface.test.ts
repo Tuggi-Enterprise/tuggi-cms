@@ -624,14 +624,20 @@ test('BR-MONETIZACAO-063: the cap refusal states both units, like every other nu
   }
 })
 
-test('the state field of the panel has a label of its own, not the section heading', () => {
+test('#977: the panel prints no summary; state, balance and period are the drawer row alone', () => {
   const panel = codeOnly(readFileSync(join(COMPONENT_DIR, 'CreditPanel.tsx'), 'utf-8'))
-  assert.match(panel, /t\('panel\.state'\)/)
+  for (const key of ['panel.state', 'panel.balance', 'panel.ends_at', 'panel.inert_notice']) {
+    assert.doesNotMatch(panel, new RegExp(`t\\('${key.replace('.', '\\.')}'\\s*[,)]`), `CreditPanel repeats ${key}`)
+  }
   assert.equal(
     (panel.match(/t\('panel\.title'\)/g) ?? []).length,
     1,
     'panel.title labels the section heading; a second use is a field wearing the heading'
   )
+  // DS-COMPONENTE-015: the idle balance is still named, now on the row that owns the balance.
+  const drawer = codeOnly(readFileSync(join(ROOT, 'components/dashboard/AppUserDrawer.tsx'), 'utf-8'))
+  assert.match(drawer, /t\('credit\.panel\.inert_notice'/)
+  assert.match(drawer, /t\('credit\.panel\.state'\)/)
 })
 
 test('the three keys the stacking case needs exist, and each one is rendered', () => {

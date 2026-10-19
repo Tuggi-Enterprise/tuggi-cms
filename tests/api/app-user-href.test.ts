@@ -16,7 +16,8 @@ const USER_ID = 'a1b2c3d4-e5f6-7890-abcd-ef1234567890'
 test('the record opens on the requested tab, and a missing or unknown tab opens the overview', () => {
   assert.equal(appUserTab('passport'), 'passport')
   assert.equal(appUserTab('credit'), 'credit')
-  assert.equal(appUserTab('client'), 'client')
+  // #977: the linked client moved to the overview, so an old link to its tab opens there.
+  assert.equal(appUserTab('client'), 'overview')
   assert.equal(appUserTab(null), 'overview')
   assert.equal(appUserTab('history'), 'overview')
   assert.equal(appUserTab('PASSPORT'), 'overview')

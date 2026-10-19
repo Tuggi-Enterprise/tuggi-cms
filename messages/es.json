@@ -933,13 +933,14 @@
       },
       "credit": {
         "panel": {
-          "title": "Acceso y saldo",
+          "title": "Concesiones de horas",
           "state": "Estado",
           "state_unlimited": "Ilimitado",
           "state_metered": "Con saldo",
           "state_free": "Gratuito",
           "balance": "Saldo",
           "balance_minutes": "{minutes} minutos",
+          "last_grant": "Última concesión",
           "ends_at": "Plazo vigente",
           "license": "Licencia",
           "provider": "Origen",
@@ -960,7 +961,6 @@
           "col_type": "Tipo",
           "col_amount": "Cantidad",
           "col_source": "Origen",
-          "col_by": "Concedido por",
           "col_status": "Situación",
           "type_minutes": "Saldo",
           "type_until": "Plazo",
@@ -1077,8 +1077,6 @@
         }
       },
       "modal": {
-        "profile": "Perfil",
-        "device": "Dispositivo",
         "subscription": "Suscripción",
         "trips": "Viajes",
         "poi_visits": "Puntos visitados",
@@ -1132,12 +1130,8 @@
           "overview": "Visión general",
           "passport": "Pasaporte",
           "access": "Acceso y saldo",
-          "client": "Cliente vinculado",
           "admin_only": "Disponible solo para administradores"
         }
-      },
-      "overview": {
-        "no_device": "Ningún dispositivo registrado todavía."
       },
       "passport": {
         "stamps": "Sellos",

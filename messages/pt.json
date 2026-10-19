@@ -943,13 +943,14 @@
       },
       "credit": {
         "panel": {
-          "title": "Acesso e saldo",
+          "title": "Concessões de horas",
           "state": "Estado",
           "state_unlimited": "Ilimitado",
           "state_metered": "Com saldo",
           "state_free": "Gratuito",
           "balance": "Saldo",
           "balance_minutes": "{minutes} minutos",
+          "last_grant": "Última concessão",
           "ends_at": "Prazo vigente",
           "license": "Licença",
           "provider": "Origem",
@@ -970,7 +971,6 @@
           "col_type": "Tipo",
           "col_amount": "Quantidade",
           "col_source": "Origem",
-          "col_by": "Concedido por",
           "col_status": "Situação",
           "type_minutes": "Saldo",
           "type_until": "Prazo",
@@ -1087,8 +1087,6 @@
         }
       },
       "modal": {
-        "profile": "Perfil",
-        "device": "Dispositivo",
         "subscription": "Assinatura",
         "trips": "Viagens",
         "poi_visits": "Pontos visitados",
@@ -1142,12 +1140,8 @@
           "overview": "Visão geral",
           "passport": "Passaporte",
           "access": "Acesso e saldo",
-          "client": "Cliente vinculado",
           "admin_only": "Disponível só para administradores"
         }
-      },
-      "overview": {
-        "no_device": "Nenhum dispositivo registrado ainda."
       },
       "passport": {
         "stamps": "Carimbos",

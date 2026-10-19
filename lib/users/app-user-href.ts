@@ -9,8 +9,11 @@
  * browser.
  */
 
-/** The four tabs of the record, in the order they are drawn. */
-export const APP_USER_TABS = ['overview', 'passport', 'credit', 'client'] as const
+/**
+ * The three tabs of the record, in the order they are drawn. `client` was a fourth until #977; the
+ * linked client now sits on the overview, so an old `?tab=client` lands there like any unknown tab.
+ */
+export const APP_USER_TABS = ['overview', 'passport', 'credit'] as const
 
 export type AppUserTab = (typeof APP_USER_TABS)[number]
 

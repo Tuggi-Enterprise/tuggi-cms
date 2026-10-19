@@ -1,7 +1,11 @@
 'use client'
 
 /**
- * Access and balance for one app user, plus the two histories — spec §3, §4, §7.
+ * The grants and the usage of one app user, and the two doors that write them — spec §3, §4, §7.
+ *
+ * Since #977 the panel prints no summary of its own: state, balance and period are the hours row of
+ * `AppUserDrawer`, read from `core.dashboard_user_detail`, and that row is the only place the tab
+ * says them. What stays here is what only this read has: the ledgers and the grant and revoke.
  *
  * It replaced the *Subscription* block of the user modal, which edited `tier` + date and
  * wrote `drive.profiles` straight through a service-role route. Three things it does
@@ -13,9 +17,9 @@
  *   (BR-MONETIZACAO-046). A failed read prints "balance not loaded", never `0 min`:
  *   measured zero and unknown zero are different facts (`DS-COMPONENTE-007`).
  * - **During `unlimited` the balance stays on screen, with the label that names why it
- *   is idle** (`DS-COMPONENTE-015`, BR-MONETIZACAO-051). This diverges from the app on
- *   purpose: there the balance disappears, because the tourist cannot act on the period.
- *   The operator can. One rule, two audiences, opposite results — nobody harmonises them.
+ *   is idle** (`DS-COMPONENTE-015`, BR-MONETIZACAO-051), on the drawer's hours row. This
+ *   diverges from the app on purpose: there the balance disappears, because the tourist
+ *   cannot act on the period. The operator can. One rule, two audiences, opposite results.
  * - **403 is a state, not a failure.** A `viewer` does not pass
  *   `core.is_caller_platform_admin()`, so the read answers 403 and that is expected: it
  *   gets its own sentence, not a red box. For a non-admin the grant and revoke buttons
@@ -29,8 +33,7 @@
  */
 
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { useTranslations } from 'next-intl'
-import { Badge } from '@/components/ui/badge'
+import { useLocale, useTranslations } from 'next-intl'
 import { Button } from '@/components/ui/button'
 import { Label } from '@/components/ui/label'
 import { Textarea } from '@/components/ui/textarea'
@@ -49,9 +52,6 @@ interface Props {
   nickname: string | null
   email: string | null
   isAdmin: boolean
-  /** Licence and provider are the profile's labels, not the entitlement. Secondary line. */
-  licenseLabel?: string | null
-  providerLabel?: string | null
   onChanged?: () => void
 }
 
@@ -60,8 +60,6 @@ export function CreditPanel({
   nickname,
   email,
   isAdmin,
-  licenseLabel,
-  providerLabel,
   onChanged,
 }: Props) {
   const t = useTranslations('Pages.AppUsers.credit')
@@ -167,54 +165,6 @@ export function CreditPanel({
         </div>
       ) : (
         <>
-          <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
-            <div>
-              {/* The field that carries the state badge has its own label. It used to
-                  repeat `panel.title`, the section heading 20 px above it, which left the
-                  badge in an unnamed field and the panel saying the same thing twice. */}
-              <p className="text-xs text-gray-700 dark:text-gray-400">{t('panel.state')}</p>
-              <Badge
-                className="mt-1"
-                variant={
-                  envelope.state === 'unlimited'
-                    ? 'default'
-                    : envelope.state === 'metered'
-                      ? 'secondary'
-                      : 'outline'
-                }
-              >
-                {t(`panel.state_${envelope.state}`)}
-              </Badge>
-            </div>
-            <div>
-              <p className="text-xs text-gray-700 dark:text-gray-400">{t('panel.balance')}</p>
-              <p className="mt-1 text-lg font-bold text-gray-900 dark:text-white">
-                {formatDuration(envelope.balance_minutes)}
-              </p>
-              <p className="text-xs text-gray-700 dark:text-gray-400">
-                {t('panel.balance_minutes', { minutes: envelope.balance_minutes })}
-              </p>
-              <p className="mt-1 text-xs text-gray-700 dark:text-gray-400">
-                {t('panel.license')}: {licenseLabel || '—'} · {t('panel.provider')}:{' '}
-                {providerLabel || '—'}
-              </p>
-            </div>
-            <div>
-              <p className="text-xs text-gray-700 dark:text-gray-400">{t('panel.ends_at')}</p>
-              <p className="mt-1 font-medium text-gray-900 dark:text-white">
-                {envelope.ends_at ? new Date(envelope.ends_at).toLocaleDateString() : '—'}
-              </p>
-            </div>
-          </div>
-
-          {envelope.state === 'unlimited' && envelope.balance_minutes > 0 && envelope.ends_at ? (
-            <p className="text-xs text-gray-700 dark:text-gray-400">
-              {t('panel.inert_notice', {
-                date: new Date(envelope.ends_at).toLocaleDateString(),
-              })}
-            </p>
-          ) : null}
-
           <div className="flex gap-2 border-b border-gray-200 dark:border-gray-700" role="tablist">
             {(['grants', 'consumption'] as const).map((key) => (
               <button
@@ -289,6 +239,9 @@ function GrantsTable({
   onRevoke: (grant: LedgerGrant) => void
 }) {
   const t = useTranslations('Pages.AppUsers.credit')
+  const locale = useLocale()
+  // No seconds: a grant is read by the day and the minute (#977).
+  const when = new Intl.DateTimeFormat(locale, { dateStyle: 'short', timeStyle: 'short' })
 
   if (grants.length === 0) {
     return <p className="py-6 text-center text-sm text-gray-700 dark:text-gray-400">{t('grants.empty')}</p>
@@ -302,7 +255,6 @@ function GrantsTable({
           <th className="py-2 pr-3">{t('grants.col_type')}</th>
           <th className="py-2 pr-3">{t('grants.col_amount')}</th>
           <th className="py-2 pr-3">{t('grants.col_source')}</th>
-          <th className="py-2 pr-3">{t('grants.col_by')}</th>
           <th className="py-2 pr-3">{t('grants.col_status')}</th>
           <th className="py-2" />
         </tr>
@@ -310,7 +262,7 @@ function GrantsTable({
       <tbody className="divide-y divide-gray-100 dark:divide-gray-800">
         {grants.map((grant) => (
           <tr key={grant.id} className="text-gray-900 dark:text-white">
-            <td className="py-2 pr-3">{new Date(grant.granted_at).toLocaleString()}</td>
+            <td className="py-2 pr-3 whitespace-nowrap">{when.format(new Date(grant.granted_at))}</td>
             <td className="py-2 pr-3">
               {grant.grant_type === 'minutes' ? t('grants.type_minutes') : t('grants.type_until')}
             </td>
@@ -321,10 +273,15 @@ function GrantsTable({
                     date: grant.ends_at ? new Date(grant.ends_at).toLocaleDateString() : '',
                   })}
             </td>
-            <td className="py-2 pr-3">{sourceLabel(grant.source)}</td>
-            {/* A self-service port stores NULL on purpose. The cell says so in words —
-                never blank, never a dash that reads as missing data. */}
-            <td className="py-2 pr-3">{grant.granted_by_email || t('grants.by_system')}</td>
+            {/* Source and who granted it, one column (#977). A self-service port stores NULL
+                on purpose; the line says so in words, never blank, never a dash that reads as
+                missing data. */}
+            <td className="py-2 pr-3">
+              <span className="block">{sourceLabel(grant.source)}</span>
+              <span className="block text-xs text-gray-700 dark:text-gray-400">
+                {grant.granted_by_email || t('grants.by_system')}
+              </span>
+            </td>
             <td className="py-2 pr-3">
               {grant.invalidated_at ? (
                 <span title={grant.invalidation_reason ?? undefined}>

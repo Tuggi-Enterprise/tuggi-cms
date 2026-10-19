@@ -96,21 +96,21 @@ export function TripList({ trips, selectedTripId, onSelectTrip }: TripListProps)
 
                   <div className="flex items-center justify-between pt-3 border-t border-gray-100 dark:border-gray-800">
                     <div className="flex flex-col">
-                      <span className="text-[9px] font-bold text-gray-500 uppercase mb-0.5">{t('trip_time')}</span>
+                      <span className="text-[11px] font-bold text-gray-500 uppercase tracking-widest mb-0.5">{t('trip_time')}</span>
                       <span className="flex items-center gap-1 text-xs font-bold text-gray-900 dark:text-white">
                         <Clock className="h-2.5 w-2.5 text-tuggi-blue" aria-hidden="true" />
                         {Math.round(trip.duration_minutes)} min
                       </span>
                     </div>
                     <div className="flex flex-col items-center">
-                      <span className="text-[9px] font-bold text-gray-500 uppercase mb-0.5">{t('trip_speed')}</span>
+                      <span className="text-[11px] font-bold text-gray-500 uppercase tracking-widest mb-0.5">{t('trip_speed')}</span>
                       <span className="flex items-center gap-1 text-xs font-bold text-gray-900 dark:text-white">
                         <Activity className="h-2.5 w-2.5 text-green-600" aria-hidden="true" />
                         {(trip.avg_speed || 0).toFixed(1)} km/h
                       </span>
                     </div>
                     <div className="flex flex-col items-end">
-                      <span className="text-[9px] font-bold text-gray-500 uppercase mb-0.5">{t('trip_visited')}</span>
+                      <span className="text-[11px] font-bold text-gray-500 uppercase tracking-widest mb-0.5">{t('trip_visited')}</span>
                       <span className="flex items-center gap-1 text-xs font-bold text-orange-600">
                         <MapPin className="h-2.5 w-2.5" aria-hidden="true" />
                         {trip.heard_count || 0}

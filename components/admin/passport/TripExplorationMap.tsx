@@ -156,39 +156,22 @@ export function TripExplorationMap({ exploration, bufferMeters, onBufferChange, 
             </div>
           </div>
 
-          <div className="flex items-center gap-6 bg-gray-50/50 dark:bg-gray-800/50 py-2 px-4 rounded-2xl border border-gray-100 dark:border-gray-700">
-            <div className="flex items-center gap-4 min-w-[180px]">
-              <div className="flex flex-col flex-1">
-                <div className="flex justify-between items-center px-1 mb-1">
-                  <span className="text-[10px] font-bold text-gray-500 uppercase tracking-widest">{t('buffer')}</span>
-                  <span className="text-[10px] font-black text-tuggi-blue">{(bufferMeters / 1000).toFixed(1)} km</span>
-                </div>
-                <input
-                  type="range"
-                  min="100"
-                  max="5000"
-                  step="100"
-                  value={bufferMeters}
-                  aria-label={t('buffer')}
-                  onChange={(e) => onBufferChange(parseInt(e.target.value, 10))}
-                  className="w-full h-1.5 accent-tuggi-blue"
-                />
+          <div className="flex items-center gap-4 min-w-[220px] bg-gray-50/50 dark:bg-gray-800/50 py-2 px-4 rounded-2xl border border-gray-100 dark:border-gray-700">
+            <div className="flex flex-col flex-1">
+              <div className="flex justify-between items-center px-1 mb-1">
+                <span className="text-[11px] font-bold text-gray-500 uppercase tracking-widest">{t('buffer')}</span>
+                <span className="text-[11px] font-black text-tuggi-blue">{(bufferMeters / 1000).toFixed(1)} km</span>
               </div>
-            </div>
-            
-            <div className="h-6 w-px bg-gray-200 dark:bg-gray-700" />
-            
-            <div className="flex items-center gap-4">
-              <div className="flex items-center gap-2">
-                <div className="w-2.5 h-2.5 rounded-full bg-orange-600" />
-                <span className="text-[10px] font-bold text-gray-500 uppercase tracking-widest">{t('heard')}</span>
-                <span className="text-[11px] font-black text-orange-600">{exploration?.heard_count || 0}</span>
-              </div>
-              <div className="flex items-center gap-2">
-                <div className="w-2.5 h-2.5 rounded-full bg-gray-400" />
-                <span className="text-[10px] font-bold text-gray-500 uppercase tracking-widest">{t('missed')}</span>
-                <span className="text-[11px] font-black text-gray-500">{exploration?.missed_count || 0}</span>
-              </div>
+              <input
+                type="range"
+                min="100"
+                max="5000"
+                step="100"
+                value={bufferMeters}
+                aria-label={t('buffer')}
+                onChange={(e) => onBufferChange(parseInt(e.target.value, 10))}
+                className="w-full h-1.5 accent-tuggi-blue"
+              />
             </div>
           </div>
         </div>
@@ -210,6 +193,22 @@ export function TripExplorationMap({ exploration, bufferMeters, onBufferChange, 
           <Wrapper apiKey={apiKey} libraries={GOOGLE_MAPS_LIBRARIES} version={GOOGLE_MAPS_VERSION}>
             <TripMapContent exploration={exploration} labels={labels} />
           </Wrapper>
+        )}
+        {/* The legend sits on the map it explains (#977), bottom left and above Google's own
+            logo, which the terms of use say must stay visible. */}
+        {exploration && !isLoading && hasSelection && (
+          <div className="absolute left-3 bottom-8 z-10 flex items-center gap-4 rounded-xl bg-white/95 dark:bg-gray-900/95 px-3 py-2 shadow-md border border-gray-200 dark:border-gray-700">
+            <div className="flex items-center gap-2">
+              <div className="w-2.5 h-2.5 rounded-full bg-orange-600" />
+              <span className="text-[11px] font-bold text-gray-500 uppercase tracking-widest">{t('heard')}</span>
+              <span className="text-[11px] font-black text-orange-600">{exploration.heard_count || 0}</span>
+            </div>
+            <div className="flex items-center gap-2">
+              <div className="w-2.5 h-2.5 rounded-full bg-gray-400" />
+              <span className="text-[11px] font-bold text-gray-500 uppercase tracking-widest">{t('missed')}</span>
+              <span className="text-[11px] font-black text-gray-500">{exploration.missed_count || 0}</span>
+            </div>
+          </div>
         )}
       </div>
 

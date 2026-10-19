@@ -161,9 +161,10 @@ test.describe('BR-USUARIO-042 — the nickname is the identifier, and the door',
     const dialog = page.getByRole('dialog')
     await expect(dialog).toBeVisible()
 
-    // Every tab a viewer can open, not only the first: the drawer spreads the old modal over four
-    // panels, and a name that leaks into one of them is still on screen.
-    for (const tab of [DRAWER.tabs.overview, DRAWER.tabs.access, DRAWER.tabs.client]) {
+    // Every tab a viewer can open, not only the first: the drawer spreads the old modal over its
+    // panels, and a name that leaks into one of them is still on screen. The linked client is on
+    // the overview since #977, so the overview pass covers it too.
+    for (const tab of [DRAWER.tabs.overview, DRAWER.tabs.access]) {
       await dialog.getByRole('button', { name: tab }).first().click()
       const rendered = await dialog.innerText()
       expect(rendered).toContain(NICKNAME)
@@ -233,8 +234,8 @@ async function mockPassport(page: Page) {
   )
 }
 
-test.describe('#976: the record is a drawer with four tabs', () => {
-  test('BR-USUARIO-042: the drawer opens from the nickname, named by it, with four tabs and no History', async ({ mount, page }) => {
+test.describe('#976, #977: the record is a drawer with three tabs', () => {
+  test('BR-USUARIO-042: the drawer opens from the nickname, named by it, with three tabs and no History', async ({ mount, page }) => {
     await mockDetail(page, POST_MIGRATION_ROW)
     await mount(<DashboardWrapper><AppUserLinkHarness /></DashboardWrapper>)
 
@@ -243,9 +244,10 @@ test.describe('#976: the record is a drawer with four tabs', () => {
     await expect(dialog).toBeVisible()
     await expect(dialog.getByRole('heading', { name: new RegExp(NICKNAME) })).toBeVisible()
 
-    // The sidebar on a monitor: one list, four entries, in the design's order.
+    // The sidebar on a monitor: one list, three entries, in the design's order. Linked client is
+    // no longer a tab (#977).
     const tabs = dialog.getByRole('complementary', { name: DRAWER.title }).getByRole('button')
-    await expect(tabs).toHaveText([DRAWER.tabs.overview, DRAWER.tabs.passport, DRAWER.tabs.access, DRAWER.tabs.client])
+    await expect(tabs).toHaveText([DRAWER.tabs.overview, DRAWER.tabs.passport, DRAWER.tabs.access])
     // A viewer is not an admin: the Passaporte is there and closed, as the page was.
     await expect(tabs.nth(1)).toBeDisabled()
   })
@@ -259,16 +261,16 @@ test.describe('#976: the record is a drawer with four tabs', () => {
     const sidebar = dialog.getByRole('complementary', { name: DRAWER.title })
 
     await expect(sidebar.getByRole('button', { name: DRAWER.tabs.overview })).toHaveAttribute('aria-current', 'page')
-    await expect(dialog.getByText(MODAL.device)).toBeVisible()
+    await expect(dialog.getByText(MODAL.platform)).toBeVisible()
+    // #977: the linked client lives on the overview now.
+    await expect(dialog.getByText(MODAL.no_linked_client)).toBeVisible()
     await expect(dialog.getByText(MODAL.hours)).toBeHidden()
 
     await sidebar.getByRole('button', { name: DRAWER.tabs.access }).click()
     await expect(sidebar.getByRole('button', { name: DRAWER.tabs.access })).toHaveAttribute('aria-current', 'page')
     await expect(dialog.getByText(MODAL.hours)).toBeVisible()
-    await expect(dialog.getByText(MODAL.device)).toBeHidden()
-
-    await sidebar.getByRole('button', { name: DRAWER.tabs.client }).click()
-    await expect(dialog.getByText(MODAL.no_linked_client)).toBeVisible()
+    await expect(dialog.getByText(MODAL.platform)).toBeHidden()
+    await expect(dialog.getByText(MODAL.no_linked_client)).toBeHidden()
   })
 
   test('the X closes the drawer and focus goes back to the nickname', async ({ mount, page }) => {
@@ -320,5 +322,18 @@ test.describe('#976: the record is a drawer with four tabs', () => {
 
     const sidebar = page.getByRole('dialog').getByRole('complementary', { name: DRAWER.title })
     await expect(sidebar.getByRole('button', { name: DRAWER.tabs.overview })).toHaveAttribute('aria-current', 'page')
+  })
+  test('#977: ?tab=client, the old linked client tab, opens the overview with the linked client on it', async ({ mount, page }) => {
+    await mockDetail(page, POST_MIGRATION_ROW)
+    await mount(
+      <DashboardWrapper>
+        <AppUserDeepLinkHarness query={`user=${USER_ID}&tab=client`} />
+      </DashboardWrapper>
+    )
+
+    const dialog = page.getByRole('dialog')
+    const sidebar = dialog.getByRole('complementary', { name: DRAWER.title })
+    await expect(sidebar.getByRole('button', { name: DRAWER.tabs.overview })).toHaveAttribute('aria-current', 'page')
+    await expect(dialog.getByText(MODAL.no_linked_client)).toBeVisible()
   })
 })

@@ -18,23 +18,25 @@
  * the nine columns are absent, and absent prints as an em dash: `0` would be an assertion nobody
  * made.
  *
- * The overlap is named rather than hidden: for a platform admin, `CreditPanel` shows state and
- * balance again, from its own door (`/api/admin/users/:id/credit`). Removing that header is a
- * change to `DS-COMPONENTE-015`, which belongs to `design`; `onChanged` re-runs this read so the
- * two cannot drift apart on screen. For everyone who is not an admin, `CreditPanel` answers 403
- * and the hours block is the only place the hours exist.
+ * **One block of state and balance** (#977). The hours row is the only place the state, the
+ * balance and the period are printed; `CreditPanel` underneath keeps the grant button and the two
+ * ledgers and no summary of its own, so the tab no longer says the same thing twice. `onChanged`
+ * re-runs this read after a grant or a revoke, so the row follows the ledger. During `unlimited` the
+ * balance stays on the row with the sentence that says why it is idle (`DS-COMPONENTE-015`).
  *
- * Tabs (design spec on #976): there is no History tab. Its only content would be
- * `subscription_history`, which goes under the credit tab and disappears when empty.
+ * Tabs (design spec on #976, #977): Overview, Passaporte, Access and balance. There is no History
+ * tab, because `subscription_history` goes under the credit tab and disappears when empty; and the
+ * linked client sits on the overview, beside route publishing, instead of on a tab of its own.
  */
 
 import { useCallback, useEffect, useId, useState } from 'react'
 import { useLocale, useTranslations } from 'next-intl'
 import {
-  Activity, CreditCard, Gift, Hourglass, Infinity as InfinityIcon,
-  Link2, Plane, Smartphone, Timer, User, Wallet,
+  Activity, BadgeCheck, Building2, CalendarClock, CreditCard, Gift, Hourglass, Infinity as InfinityIcon,
+  Map as MapIcon, MapPin, Navigation, Plane, Store, Timer, User, Wallet,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
+import { StatCard, StatCardRow } from '@/components/ui/StatCard'
 import { SubscriptionBadge, ProviderIcon } from '@/components/ui/SubscriptionBadge'
 import { CreditPanel } from '@/components/admin/credit/CreditPanel'
 import { RoutePublishingToggle } from '@/components/admin/RoutePublishingToggle'
@@ -91,20 +93,36 @@ function UserHours({ detail }: { detail: UserDetail }) {
       ? t(`credit.grants.source_${source}`)
       : source
     : UNKNOWN_VALUE
+  const day = (iso: string) => new Date(iso).toLocaleDateString(locale)
+  const unlimited = detail.state === 'unlimited'
 
-  const cells: Array<{ key: string; label: string; value: string; icon: typeof Wallet }> = [
+  // The row is the tab's one summary (#977). Access until only while the period runs; licence
+  // and provider only when the profile has them, because a card of an em dash says nothing.
+  const cards: Array<{ key: string; label: string; value: string; subtitle?: string; icon: typeof Wallet }> = [
     {
       key: 'state',
       label: t('credit.panel.state'),
       value: t(`credit.panel.state_${detail.state}`),
-      icon: detail.state === 'unlimited' ? InfinityIcon : Hourglass,
+      icon: unlimited ? InfinityIcon : Hourglass,
     },
     {
       key: 'balance',
       label: t('credit.panel.balance'),
       value: formatDurationOrDash(detail.balance_minutes),
+      subtitle:
+        detail.balance_minutes == null
+          ? undefined
+          : t('credit.panel.balance_minutes', { minutes: detail.balance_minutes }),
       icon: Timer,
     },
+    ...(unlimited
+      ? [{
+          key: 'ends_at',
+          label: t('credit.panel.ends_at'),
+          value: detail.ends_at ? day(detail.ends_at) : UNKNOWN_VALUE,
+          icon: CalendarClock,
+        }]
+      : []),
     {
       key: 'granted',
       label: tLabels('granted_total'),
@@ -118,11 +136,10 @@ function UserHours({ detail }: { detail: UserDetail }) {
       icon: Wallet,
     },
     {
-      key: 'source',
-      label: t('credit.grants.col_source'),
-      value: detail.last_grant_at
-        ? `${sourceLabel} · ${new Date(detail.last_grant_at).toLocaleDateString(locale)}`
-        : sourceLabel,
+      key: 'last_grant',
+      label: t('credit.panel.last_grant'),
+      value: sourceLabel,
+      subtitle: detail.last_grant_at ? day(detail.last_grant_at) : undefined,
       icon: grantOrigin(source) === 'purchase' ? CreditCard : Gift,
     },
     {
@@ -137,123 +154,123 @@ function UserHours({ detail }: { detail: UserDetail }) {
             : tCommon('no'),
       icon: CreditCard,
     },
+    ...(detail.subscription_tier_display_name
+      ? [{ key: 'license', label: t('credit.panel.license'), value: detail.subscription_tier_display_name, icon: BadgeCheck }]
+      : []),
+    ...(detail.subscription_provider
+      ? [{ key: 'provider', label: t('credit.panel.provider'), value: detail.subscription_provider, icon: Store }]
+      : []),
   ]
 
+  // DS-COMPONENTE-015, BR-MONETIZACAO-051: during the period the balance is idle, and the row
+  // says so instead of hiding it.
+  const inertUntil = unlimited && (detail.balance_minutes ?? 0) > 0 ? detail.ends_at : null
+
   return (
-    <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
-      {cells.map((cell) => (
-        <div key={cell.key} className="bg-gray-50 dark:bg-gray-800/40 rounded-xl p-3 flex flex-col gap-1">
-          <span className="flex items-center gap-1.5 text-[9px] font-black uppercase tracking-widest text-gray-500 dark:text-gray-400">
-            <cell.icon className="h-3.5 w-3.5" />
-            {cell.label}
-          </span>
-          <span className="text-sm font-black text-gray-900 dark:text-white leading-tight break-words">
-            {cell.value}
-          </span>
-        </div>
-      ))}
+    <div className="space-y-3">
+      <StatCardRow columns={6} className="gap-3">
+        {cards.map((card) => (
+          <StatCard
+            key={card.key}
+            size="compact"
+            glow={false}
+            icon={card.icon}
+            label={card.label}
+            value={card.value}
+            subtitle={card.subtitle}
+          />
+        ))}
+      </StatCardRow>
+      {inertUntil ? (
+        <p className="text-xs text-gray-700 dark:text-gray-400">
+          {t('credit.panel.inert_notice', { date: day(inertUntil) })}
+        </p>
+      ) : null}
     </div>
   )
 }
 
-function Row({ label, children }: { label: string; children: React.ReactNode }) {
+/** Label on top, value under it: the shape of every field on the overview (#977). */
+function Field({ label, children }: { label: string; children: React.ReactNode }) {
   return (
-    <div className="flex justify-between gap-4">
-      <span className="text-gray-500">{label}</span>
-      <span className="font-medium text-gray-900 dark:text-white text-right">{children}</span>
+    <div className="min-w-0">
+      <p className="text-xs text-gray-600 dark:text-gray-400">{label}</p>
+      <p className="font-medium text-gray-900 dark:text-white break-words">{children}</p>
     </div>
   )
 }
 
-function OverviewTab({ user, isAdmin }: { user: UserDetail; isAdmin: boolean }) {
+/** The same badge the app users list prints in its Language column. */
+const LANGUAGE_BADGE =
+  'inline-block px-2 py-0.5 bg-gray-100 dark:bg-gray-800 rounded text-xs font-bold text-gray-600 dark:text-gray-400 uppercase'
+
+function OverviewTab({
+  user,
+  isAdmin,
+  onChanged,
+}: {
+  user: UserDetail
+  isAdmin: boolean
+  onChanged: () => void
+}) {
   const t = useTranslations('Pages.AppUsers')
   const locale = useLocale()
   const date = (iso: string | null | undefined, empty: string) =>
     iso ? new Date(iso).toLocaleDateString(locale) : empty
-  const hasDevice = Boolean(user.last_platform || user.last_device_model || user.last_app_version)
+
+  const stats = [
+    { key: 'trips', label: t('modal.trips'), value: user.trip_count || 0, icon: MapIcon },
+    { key: 'poi_visits', label: t('modal.poi_visits'), value: user.poi_visits_count || 0, icon: MapPin },
+    { key: 'km', label: t('modal.km'), value: Math.round(user.total_km || 0), icon: Navigation },
+    { key: 'cities', label: t('modal.cities'), value: user.unique_cities_visited || 0, icon: Building2 },
+  ]
 
   return (
     <div className="space-y-6">
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-        <div className="text-center p-4 bg-tuggi-blue/10 rounded-xl">
-          <p className="text-2xl font-bold text-tuggi-blue">{user.trip_count || 0}</p>
-          <p className="text-xs text-gray-600">{t('modal.trips')}</p>
-        </div>
-        <div className="text-center p-4 bg-green-500/10 rounded-xl">
-          <p className="text-2xl font-bold text-green-700">{user.poi_visits_count || 0}</p>
-          <p className="text-xs text-gray-600">{t('modal.poi_visits')}</p>
-        </div>
-        <div className="text-center p-4 bg-purple-500/10 rounded-xl">
-          <p className="text-2xl font-bold text-purple-700">{Math.round(user.total_km || 0)}</p>
-          <p className="text-xs text-gray-600">{t('modal.km')}</p>
-        </div>
-        <div className="text-center p-4 bg-orange-500/10 rounded-xl">
-          <p className="text-2xl font-bold text-orange-700">{user.unique_cities_visited || 0}</p>
-          <p className="text-xs text-gray-600">{t('modal.cities')}</p>
-        </div>
-      </div>
+      <StatCardRow columns={4} className="gap-3">
+        {stats.map((s) => (
+          <StatCard key={s.key} size="compact" glow={false} icon={s.icon} label={s.label} value={s.value} />
+        ))}
+      </StatCardRow>
 
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-        <section className="space-y-3">
-          <h3 className="text-sm font-bold text-gray-700 dark:text-gray-300 flex items-center">
-            <User className="h-4 w-4 mr-2" aria-hidden="true" />
-            {t('modal.profile')}
-          </h3>
-          <div className="space-y-2 text-sm">
-            <Row label={t('modal.country')}>{user.country || UNKNOWN_VALUE}</Row>
-            <Row label={t('modal.language')}>{user.language || UNKNOWN_VALUE}</Row>
-            <Row label={t('modal.driver_type')}>{user.driver_type || UNKNOWN_VALUE}</Row>
-          </div>
-        </section>
-
-        <section className="space-y-3">
-          <h3 className="text-sm font-bold text-gray-700 dark:text-gray-300 flex items-center">
-            <Smartphone className="h-4 w-4 mr-2" aria-hidden="true" />
-            {t('modal.device')}
-          </h3>
-          {hasDevice ? (
-            <div className="space-y-2 text-sm">
-              <Row label={t('modal.platform')}>
-                <span
-                  className={cn(
-                    'px-2 py-0.5 rounded text-xs font-bold',
-                    user.last_platform === 'ios'
-                      ? 'bg-blue-100 text-blue-700'
-                      : user.last_platform === 'android'
-                        ? 'bg-green-100 text-green-700'
-                        : 'bg-gray-100 text-gray-700'
-                  )}
-                >
-                  {user.last_platform || UNKNOWN_VALUE}
-                </span>
-              </Row>
-              <Row label={t('modal.model')}>{user.last_device_model || UNKNOWN_VALUE}</Row>
-              <Row label={t('modal.app_version')}>{user.last_app_version || UNKNOWN_VALUE}</Row>
-              <Row label={t('modal.logins')}>{user.login_count || 0}</Row>
-            </div>
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-x-6 gap-y-4 text-sm">
+        <Field label={t('modal.country')}>{user.country || UNKNOWN_VALUE}</Field>
+        <Field label={t('modal.language')}>
+          {user.language ? <span className={LANGUAGE_BADGE}>{user.language}</span> : UNKNOWN_VALUE}
+        </Field>
+        <Field label={t('modal.driver_type')}>{user.driver_type || UNKNOWN_VALUE}</Field>
+        <Field label={t('modal.platform')}>
+          {user.last_platform ? (
+            <span
+              className={cn(
+                'inline-block px-2 py-0.5 rounded text-xs font-bold',
+                user.last_platform === 'ios'
+                  ? 'bg-blue-100 text-blue-700'
+                  : user.last_platform === 'android'
+                    ? 'bg-green-100 text-green-700'
+                    : 'bg-gray-100 text-gray-700'
+              )}
+            >
+              {user.last_platform}
+            </span>
           ) : (
-            <p className="text-sm text-gray-500">{t('overview.no_device')}</p>
+            UNKNOWN_VALUE
           )}
-        </section>
+        </Field>
+        <Field label={t('modal.model')}>{user.last_device_model || UNKNOWN_VALUE}</Field>
+        <Field label={t('modal.app_version')}>{user.last_app_version || UNKNOWN_VALUE}</Field>
+        <Field label={t('modal.logins')}>{user.login_count || 0}</Field>
+        <Field label={t('modal.created_at')}>{date(user.created_at, UNKNOWN_VALUE)}</Field>
+        <Field label={t('modal.last_login')}>{date(user.last_sign_in_at, t('modal.never'))}</Field>
+        <Field label={t('modal.last_trip')}>{date(user.last_trip_at, t('modal.never'))}</Field>
       </div>
 
-      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 text-sm text-gray-600 border-t border-gray-200 dark:border-gray-700 pt-4">
-        <div>
-          <p className="text-xs">{t('modal.created_at')}</p>
-          <p className="font-medium text-gray-800 dark:text-gray-300">{date(user.created_at, UNKNOWN_VALUE)}</p>
-        </div>
-        <div>
-          <p className="text-xs">{t('modal.last_login')}</p>
-          <p className="font-medium text-gray-800 dark:text-gray-300">{date(user.last_sign_in_at, t('modal.never'))}</p>
-        </div>
-        <div>
-          <p className="text-xs">{t('modal.last_trip')}</p>
-          <p className="font-medium text-gray-800 dark:text-gray-300">{date(user.last_trip_at, t('modal.never'))}</p>
-        </div>
+      {/* #977: the linked client and route publishing side by side; the client had a tab of its
+          own for one card. Route publishing is admin only (#945, BR-ROTA-006, App Store 1.2). */}
+      <div className={cn('grid grid-cols-1 gap-6', isAdmin && 'lg:grid-cols-2')}>
+        <LinkedClientSection userId={user.user_id} linked={user.linked_client} onChanged={onChanged} />
+        {isAdmin && <RoutePublishingToggle userId={user.user_id} />}
       </div>
-
-      {/* #945: route publishing, on and off (BR-ROTA-006, App Store 1.2). Admin only. */}
-      {isAdmin && <RoutePublishingToggle userId={user.user_id} />}
     </div>
   )
 }
@@ -289,8 +306,6 @@ function CreditTab({
         nickname={user.nickname}
         email={null}
         isAdmin={isAdmin}
-        licenseLabel={user.subscription_tier_display_name}
-        providerLabel={user.subscription_provider}
         onChanged={onChanged}
       />
 
@@ -369,7 +384,6 @@ export function AppUserDrawer({
     { id: 'overview' as const, label: t('drawer.tabs.overview'), icon: User },
     { id: 'passport' as const, label: t('drawer.tabs.passport'), icon: Plane, disabled: passportBlocked },
     { id: 'credit' as const, label: t('drawer.tabs.access'), icon: Wallet },
-    { id: 'client' as const, label: t('drawer.tabs.client'), icon: Link2 },
   ]
 
   const spinner = (
@@ -429,12 +443,9 @@ export function AppUserDrawer({
             />
 
             <main className="flex-1 overflow-y-auto p-4 lg:p-8">
-              {user && shown === 'overview' && <OverviewTab user={user} isAdmin={isAdmin} />}
+              {user && shown === 'overview' && <OverviewTab user={user} isAdmin={isAdmin} onChanged={changed} />}
               {shown === 'passport' && (isAdmin ? <UserPassportTab passport={passport} /> : spinner)}
               {user && shown === 'credit' && <CreditTab user={user} isAdmin={isAdmin} onChanged={changed} />}
-              {user && shown === 'client' && (
-                <LinkedClientSection userId={user.user_id} linked={user.linked_client} onChanged={changed} />
-              )}
             </main>
           </>
         ) : (
