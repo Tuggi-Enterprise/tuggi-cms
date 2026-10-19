@@ -1,12 +1,16 @@
 /**
- * PATCH/DELETE /api/admin/users/[userId] — editing a CMS team member (#969).
+ * PATCH/DELETE /api/admin/users/[userId] and POST .../password-link: editing a CMS team member
+ * (#969).
  *
  * RLS on `core.cms_users` lets `authenticated` read and only `service_role` write. The route
- * wrote with the cookie client, so every edit hit 0 rows: the Edit User screen showed "Cannot
- * coerce the result to a single JSON object", the password field was dropped without a word,
- * and the active toggle said "desativado" while the person kept access. These tests pin the
- * fixed route: writes go through the service client behind the admin gate, 0 rows is an error,
- * and a new password reaches the Auth account found by e-mail, never the audit log.
+ * wrote with the cookie client, so every edit hit 0 rows. These tests pin the fixed route: writes
+ * go through the service client behind the admin gate, 0 rows is an error.
+ *
+ * Security review of the first fix: setting the password of the Auth account found by the row's
+ * e-mail, plus editing that e-mail, let an admin take over any account, a tourist's included. The
+ * PATCH now refuses `password` and `email`, `updateUserById` is never reached, and the password
+ * goes by link to the address on the row. Deactivating or deleting yourself or the last active
+ * admin is refused.
  *
  * Run with: npm run test:api
  */
@@ -24,8 +28,9 @@ interface Scenario {
   authUsers: AuthUser[]
   /** Simulates the RLS refusal the bug was about: the update reports no error and no row. */
   updateHitsNothing: boolean
-  passwordError: { code: string; status: number; message: string } | null
+  linkError: { code: string; status: number } | null
   passwordCalls: Array<{ id: string; password: unknown }>
+  passwordLinks: Array<{ email: string; redirectTo?: string }>
   audits: Array<Record<string, unknown>>
 }
 
@@ -115,10 +120,12 @@ function serviceClient() {
         }),
         updateUserById: async (id: string, attrs: { password?: unknown }) => {
           scenario.passwordCalls.push({ id, password: attrs.password })
-          return scenario.passwordError
-            ? { data: { user: null }, error: scenario.passwordError }
-            : { data: { user: { id } }, error: null }
+          return { data: { user: { id } }, error: null }
         },
+      },
+      resetPasswordForEmail: async (email: string, options?: { redirectTo?: string }) => {
+        scenario.passwordLinks.push({ email, redirectTo: options?.redirectTo })
+        return scenario.linkError ? { data: null, error: scenario.linkError } : { data: {}, error: null }
       },
     },
   }
@@ -140,6 +147,7 @@ function auditClient() {
 type Handler = (req: NextRequest, ctx: { params: Promise<{ userId: string }> }) => Promise<Response>
 let PATCH: Handler
 let DELETE: Handler
+let PASSWORD_LINK: Handler
 
 before(async () => {
   mock.module('next/headers', {
@@ -155,6 +163,8 @@ before(async () => {
   const route = await import('@/app/api/admin/users/[userId]/route')
   PATCH = route.PATCH as unknown as Handler
   DELETE = route.DELETE as unknown as Handler
+  const linkRoute = await import('@/app/api/admin/users/[userId]/password-link/route')
+  PASSWORD_LINK = linkRoute.POST as unknown as Handler
 })
 
 beforeEach(() => {
@@ -174,8 +184,9 @@ beforeEach(() => {
       { id: 'auth-tourist', email: 'turista@gmail.com' },
     ],
     updateHitsNothing: false,
-    passwordError: null,
+    linkError: null,
     passwordCalls: [],
+    passwordLinks: [],
     audits: [],
   }
 })
@@ -183,7 +194,7 @@ beforeEach(() => {
 function call(handler: Handler, userId: string, body?: unknown) {
   return handler(
     new NextRequest(`http://localhost/api/admin/users/${userId}`, {
-      method: handler === DELETE ? 'DELETE' : 'PATCH',
+      method: handler === DELETE ? 'DELETE' : handler === PASSWORD_LINK ? 'POST' : 'PATCH',
       headers: { 'content-type': 'application/json' },
       body: body === undefined ? undefined : JSON.stringify(body),
     }),
@@ -224,59 +235,91 @@ test('#969: an update that writes 0 rows is an error, not a "saved"', async () =
   assert.equal(scenario.audits.length, 0, 'nothing happened, so nothing is audited')
 })
 
-test('#969: admin sets a password, updateUserById gets the Auth id found by e-mail, not the CMS id', async () => {
-  const res = await call(PATCH, 'cms-legacy', { password: 'segredo-123' })
-  assert.equal(res.status, 200)
-  assert.deepEqual(scenario.passwordCalls, [{ id: 'auth-legacy', password: 'segredo-123' }])
-})
-
-test('#969: when the CMS id is the Auth id, the shortcut is used', async () => {
-  const res = await call(PATCH, 'u-same', { full_name: 'Editor', password: 'segredo-123' })
-  assert.equal(res.status, 200)
-  assert.deepEqual(scenario.passwordCalls, [{ id: 'u-same', password: 'segredo-123' }])
-})
-
-test('#969: the password stays out of the audit and out of the response', async () => {
-  const res = await call(PATCH, 'cms-legacy', { full_name: 'Legado Novo', password: 'segredo-123' })
-  assert.equal(res.status, 200)
-  const text = await res.text()
-  assert.ok(!text.includes('segredo-123'), 'response must not echo the password')
-  assert.equal(row('cms-legacy')?.password, undefined, 'the password is not a cms_users column')
-  assert.deepEqual(scenario.audits.map((a) => a.action), ['UPDATE_PROFILE', 'PASSWORD_CHANGE'])
-  for (const audit of scenario.audits) {
-    assert.ok(!JSON.stringify(audit).includes('segredo-123'), `audit ${String(audit.action)} must not carry the password`)
+test('#969: password in the PATCH is refused and updateUserById is never called', async () => {
+  for (const id of ['cms-legacy', 'u-same']) {
+    const res = await call(PATCH, id, { full_name: 'Tomada', password: 'segredo-123' })
+    assert.equal(res.status, 400)
+    const text = await res.text()
+    assert.ok(!text.includes('segredo-123'), 'the response must not echo the password')
   }
-})
-
-test('#969: a password shorter than the minimum is refused before anything is written', async () => {
-  for (const password of ['12345', '', 123456, null]) {
-    const res = await call(PATCH, 'cms-legacy', { full_name: 'X', password })
-    assert.equal(res.status, 400, `${JSON.stringify(password)} must be refused`)
-  }
-  assert.equal(row('cms-legacy')?.full_name, 'Legado')
+  assert.equal(row('cms-legacy')?.full_name, 'Legado', 'nothing is half saved')
   assert.equal(scenario.passwordCalls.length, 0)
+  assert.equal(scenario.audits.length, 0)
 })
 
-test('#969: no Auth account for the e-mail is a clear 404, and the other fields are not half saved', async () => {
-  const res = await call(PATCH, 'cms-noauth', { full_name: 'Sem Conta', password: 'segredo-123' })
+test('#969: email in the PATCH gets 400, so a row cannot be pointed at a tourist account', async () => {
+  const res = await call(PATCH, 'u-same', { email: 'turista@gmail.com' })
+  assert.equal(res.status, 400)
+  assert.equal(row('u-same')?.email, 'editor@tuggi.app')
+
+  const same = await call(PATCH, 'u-same', { email: 'editor@tuggi.app', full_name: 'X' })
+  assert.equal(same.status, 400, 'even the unchanged e-mail is refused: the field is not editable')
+})
+
+test('#969: password-link sends the reset e-mail to the address on the row, to /pt/set-password', async () => {
+  const res = await call(PASSWORD_LINK, 'cms-legacy')
+  assert.equal(res.status, 200)
+  assert.equal((await res.json()).email, 'legado@gmail.com')
+  assert.equal(scenario.passwordLinks.length, 1)
+  assert.equal(scenario.passwordLinks[0].email, 'legado@gmail.com')
+  assert.match(scenario.passwordLinks[0].redirectTo ?? '', /\/pt\/set-password$/)
+  assert.equal(scenario.passwordCalls.length, 0)
+  assert.deepEqual(scenario.audits.map((a) => a.action), ['PASSWORD_RESET_REQUEST'])
+  assert.ok(!JSON.stringify(scenario.audits[0]).includes('legado@gmail.com'), 'the audit carries no e-mail of the target')
+})
+
+test('#969: password-link for a missing row is 404 and sends nothing', async () => {
+  const res = await call(PASSWORD_LINK, 'nobody')
   assert.equal(res.status, 404)
-  assert.match((await res.json()).error, /No login account/)
-  assert.equal(row('cms-noauth')?.full_name, null)
-  assert.equal(scenario.passwordCalls.length, 0)
+  assert.equal(scenario.passwordLinks.length, 0)
 })
 
-test('#969: a GoTrue refusal of the password is an error that says the password did not change', async () => {
-  scenario.passwordError = { code: 'weak_password', status: 422, message: 'Password should contain a digit' }
-  const res = await call(PATCH, 'cms-legacy', { password: 'abcdefgh' })
-  assert.equal(res.status, 422)
-  assert.match((await res.json()).error, /password was not changed/)
-  assert.ok(!scenario.audits.some((a) => a.action === 'PASSWORD_CHANGE'))
+test('#969: password-link failure at GoTrue is an error, not a "sent"', async () => {
+  scenario.linkError = { code: 'over_email_send_rate_limit', status: 429 }
+  const res = await call(PASSWORD_LINK, 'cms-legacy')
+  assert.equal(res.status, 502)
+  assert.equal(scenario.audits.length, 0)
+})
+
+test('#969: password-link by someone who is not an admin gets 403 and sends nothing', async () => {
+  for (const caller of [{ role: 'editor', is_active: true }, { role: 'viewer', is_active: true }, { role: 'client', is_active: true }, { role: 'admin', is_active: false }, null]) {
+    scenario.caller = caller
+    const res = await call(PASSWORD_LINK, 'cms-legacy')
+    assert.equal(res.status, 403, `password-link by ${JSON.stringify(caller)} must be refused`)
+  }
+  assert.equal(scenario.passwordLinks.length, 0)
+})
+
+test('#969: an admin cannot deactivate or delete their own account (409)', async () => {
+  scenario.rows.push({ id: 'cms-admin-1', email: 'Admin@Tuggi.app', full_name: 'Eu', role: 'admin', is_active: true, enabled_modules: [] })
+  const patch = await call(PATCH, 'cms-admin-1', { is_active: false })
+  assert.equal(patch.status, 409)
+  assert.equal(row('cms-admin-1')?.is_active, true)
+  const del = await call(DELETE, 'cms-admin-1')
+  assert.equal(del.status, 409)
+  assert.ok(row('cms-admin-1'), 'the row is still there')
+})
+
+test('#969: deactivating or deleting the last active admin is refused (409)', async () => {
+  const patch = await call(PATCH, 'cms-legacy', { is_active: false })
+  assert.equal(patch.status, 409)
+  assert.equal(row('cms-legacy')?.is_active, true)
+  const del = await call(DELETE, 'cms-legacy')
+  assert.equal(del.status, 409)
+  assert.ok(row('cms-legacy'))
+})
+
+test('#969: with another active admin left, deactivating an admin goes through', async () => {
+  scenario.rows.push({ id: 'cms-admin-2', email: 'outro@tuggi.app', full_name: 'Outro', role: 'admin', is_active: true, enabled_modules: [] })
+  const res = await call(PATCH, 'cms-legacy', { is_active: false })
+  assert.equal(res.status, 200)
+  assert.equal(row('cms-legacy')?.is_active, false)
 })
 
 test('#969: someone who is not an admin gets 403 and nothing is written', async () => {
   for (const caller of [{ role: 'editor', is_active: true }, { role: 'viewer', is_active: true }, { role: 'client', is_active: true }, { role: 'admin', is_active: false }, null]) {
     scenario.caller = caller
-    const patch = await call(PATCH, 'u-same', { full_name: 'Invasor', password: 'segredo-123' })
+    const patch = await call(PATCH, 'u-same', { full_name: 'Invasor' })
     assert.equal(patch.status, 403, `PATCH by ${JSON.stringify(caller)} must be refused`)
     const del = await call(DELETE, 'u-same')
     assert.equal(del.status, 403, `DELETE by ${JSON.stringify(caller)} must be refused`)

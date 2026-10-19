@@ -25,9 +25,7 @@ import { withAuth } from '@/lib/auth-middleware'
 import { getSupabaseService } from '@/lib/core/supabase-client'
 import { CMS_ROLES, type Role } from '@/lib/roles'
 import { logAuditEvent } from '@/lib/services/audit-service'
-
-/** The CMS page where an invited person defines the password. Public in `lib/roles.ts`. */
-const SET_PASSWORD_PATH = '/pt/set-password'
+import { sendSetPasswordLink, setPasswordRedirectTo } from '@/lib/services/cms-password-link'
 
 const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
 const EMAIL_MAX = 254
@@ -93,8 +91,7 @@ export const POST = withAuth({ roles: ['admin'] }, async (req: NextRequest, _ctx
     return NextResponse.json({ error: DUPLICATE_MESSAGE }, { status: 409 })
   }
 
-  const origin = process.env.NEXT_PUBLIC_APP_URL?.trim() || req.nextUrl.origin
-  const redirectTo = `${origin}${SET_PASSWORD_PATH}`
+  const redirectTo = setPasswordRedirectTo(req)
   const { data: invited, error: inviteError } = await service.auth.admin.inviteUserByEmail(input.email, {
     data: input.fullName ? { full_name: input.fullName } : undefined,
     redirectTo,
@@ -130,11 +127,9 @@ export const POST = withAuth({ roles: ['admin'] }, async (req: NextRequest, _ctx
   }
 
   // Only after the row exists: a link to a CMS the person cannot enter is a dead end.
-  // Implicit flow, like the invite: the service client is built without PKCE.
   let mail: 'invite' | 'password_link' | 'none' = 'invite'
   if (alreadyInAuth) {
-    const { error: linkError } = await service.auth.resetPasswordForEmail(input.email, { redirectTo })
-    if (linkError) console.error('[cms-users invite] password link failed:', linkError.code ?? linkError.status)
+    const linkError = await sendSetPasswordLink(service, input.email, redirectTo)
     mail = linkError ? 'none' : 'password_link'
   }
 

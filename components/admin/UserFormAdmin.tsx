@@ -1,7 +1,7 @@
 'use client'
 
 import { useEffect, useState } from 'react'
-import { AlertCircle, Check } from 'lucide-react'
+import { AlertCircle, Check, Mail } from 'lucide-react'
 import { CmsUser } from '@/lib/supabase'
 import { Client } from '@/types/clients'
 import { TOGGLEABLE_MODULES, MODULES, MODULE_MIN_ROLES, type ModuleId } from '@/lib/modules'
@@ -24,7 +24,7 @@ export function UserFormAdmin({ user, onSubmit, onCancel, isLoading = false }: U
   const [formData, setFormData] = useState({
     email: user?.email || '',
     full_name: user?.full_name || '',
-    password: '', // Only for new users or password reset
+    password: '', // Only for new users: an existing one gets the password link (#969)
     role: user?.role || 'viewer',
     is_active: user?.is_active ?? true,
     client_id: user?.client_id || '',
@@ -51,6 +51,29 @@ export function UserFormAdmin({ user, onSubmit, onCancel, isLoading = false }: U
   const [errors, setErrors] = useState<Record<string, string>>({})
   const [showSuccess, setShowSuccess] = useState(false)
   const [loadingClients, setLoadingClients] = useState(false)
+  const [passwordLink, setPasswordLink] = useState<
+    { state: 'idle' | 'sending' } | { state: 'sent'; email: string } | { state: 'error'; message: string }
+  >({ state: 'idle' })
+
+  /**
+   * The admin never types someone else's password (#969): the route e-mails the set-password
+   * link to the address on the row, and only its owner can use it.
+   */
+  const sendPasswordLink = async () => {
+    if (!user) return
+    setPasswordLink({ state: 'sending' })
+    try {
+      const response = await fetch(`/api/admin/users/${user.id}/password-link`, { method: 'POST' })
+      const body = await response.json().catch(() => null)
+      if (!response.ok) {
+        setPasswordLink({ state: 'error', message: body?.error || `HTTP ${response.status}` })
+        return
+      }
+      setPasswordLink({ state: 'sent', email: body?.email || user.email })
+    } catch {
+      setPasswordLink({ state: 'error', message: 'Network error' })
+    }
+  }
 
   useEffect(() => {
     // Load clients if role is client
@@ -109,15 +132,13 @@ export function UserFormAdmin({ user, onSubmit, onCancel, isLoading = false }: U
       const method = user ? 'PATCH' : 'POST'
 
       // Prepare payload - don't send immutable fields if updating
+      // The e-mail is fixed after creation (#969): changing it is inviting the new address.
       const payload = user ? {
-        email: formData.email,
         full_name: formData.full_name,
         is_active: formData.is_active,
         enabled_modules: formData.enabled_modules.filter((mod) =>
           (reachableModules as string[]).includes(mod)
         ),
-        // Empty keeps the current password (#969). The field used to be dropped without a word.
-        ...(formData.password ? { password: formData.password } : {}),
       } : formData
 
       const response = await fetch(endpoint, {
@@ -138,7 +159,7 @@ export function UserFormAdmin({ user, onSubmit, onCancel, isLoading = false }: U
         onSubmit?.(data.user)
         setShowSuccess(false)
       }, 1500)
-    } catch (error) {
+    } catch {
       setErrors({ submit: 'An error occurred' })
     }
   }
@@ -201,6 +222,7 @@ export function UserFormAdmin({ user, onSubmit, onCancel, isLoading = false }: U
               errors.email ? 'border-red-500' : 'border-gray-300'
             }`}
             disabled={isLoading || !!user}
+            readOnly={!!user}
           />
           {errors.email && <p className="text-red-600 text-sm mt-1">{errors.email}</p>}
         </div>
@@ -223,24 +245,47 @@ export function UserFormAdmin({ user, onSubmit, onCancel, isLoading = false }: U
           {errors.full_name && <p className="text-red-600 text-sm mt-1">{errors.full_name}</p>}
         </div>
 
-        {/* Password */}
-        <div>
-          <label className="block text-sm font-medium text-gray-700 mb-2">
-            Password {!user && '*'}
-          </label>
-          <input
-            type="password"
-            name="password"
-            value={formData.password}
-            onChange={handleChange}
-            placeholder={user ? 'Leave empty to keep current password' : 'At least 6 characters'}
-            className={`w-full px-4 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent ${
-              errors.password ? 'border-red-500' : 'border-gray-300'
-            }`}
-            disabled={isLoading}
-          />
-          {errors.password && <p className="text-red-600 text-sm mt-1">{errors.password}</p>}
-        </div>
+        {/* Password: typed only on creation; an existing user gets the link */}
+        {user ? (
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-2">
+              Password
+            </label>
+            <button
+              type="button"
+              onClick={sendPasswordLink}
+              disabled={isLoading || passwordLink.state === 'sending'}
+              className="inline-flex items-center gap-2 px-4 py-2 border border-gray-300 rounded-lg text-gray-800 hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed font-medium"
+            >
+              <Mail className="w-4 h-4" />
+              {passwordLink.state === 'sending' ? 'Enviando...' : 'Enviar link para definir senha'}
+            </button>
+            {passwordLink.state === 'sent' && (
+              <p className="text-green-700 text-sm mt-1">Link enviado para {passwordLink.email}</p>
+            )}
+            {passwordLink.state === 'error' && (
+              <p className="text-red-600 text-sm mt-1">{passwordLink.message}</p>
+            )}
+          </div>
+        ) : (
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-2">
+              Password *
+            </label>
+            <input
+              type="password"
+              name="password"
+              value={formData.password}
+              onChange={handleChange}
+              placeholder={`At least ${CMS_PASSWORD_MIN_LENGTH} characters`}
+              className={`w-full px-4 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent ${
+                errors.password ? 'border-red-500' : 'border-gray-300'
+              }`}
+              disabled={isLoading}
+            />
+            {errors.password && <p className="text-red-600 text-sm mt-1">{errors.password}</p>}
+          </div>
+        )}
 
         {/* Role */}
         <div>
