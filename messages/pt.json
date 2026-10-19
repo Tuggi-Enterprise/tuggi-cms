@@ -916,10 +916,10 @@
         "new_7d": "Novos (7d)",
         "active_7d": "Ativos (7d)",
         "free_only": "Só grátis",
-        "purchased": "Compraram horas",
-        "purchased_detail": "{share}% da base\nApp Store {appStore} · Google Play {playStore}",
-        "until": "Acesso por prazo",
-        "consumed": "Já consumiram horas"
+        "purchased": "Compraram",
+        "purchased_detail": "{share}% da base\nApple {appStore} · Google {playStore}",
+        "until": "Prazo vigente",
+        "consumed": "Usaram horas"
       },
       "table": {
         "user": "Usuário",
@@ -1185,7 +1185,7 @@
           "app_store": "App Store",
           "play_store": "Google Play"
         },
-        "unknown": "Sem nível"
+        "unknown": "Desconhecido"
       }
     },
     "Notifications": {

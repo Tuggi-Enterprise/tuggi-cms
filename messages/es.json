@@ -898,7 +898,7 @@
         "all": "Todos",
         "all_platforms": "Todas",
         "all_access": "Todos",
-        "clear": "Limpar filtros"
+        "clear": "Limpiar filtros"
       },
       "stats": {
         "total": "Total",
@@ -906,10 +906,10 @@
         "new_7d": "Nuevos (7d)",
         "active_7d": "Activos (7d)",
         "free_only": "Solo gratis",
-        "purchased": "Compraron horas",
-        "purchased_detail": "{share}% de la base\nApp Store {appStore} · Google Play {playStore}",
-        "until": "Acceso por plazo",
-        "consumed": "Ya consumieron horas"
+        "purchased": "Compraron",
+        "purchased_detail": "{share}% de la base\nApple {appStore} · Google {playStore}",
+        "until": "Plazo vigente",
+        "consumed": "Usaron horas"
       },
       "table": {
         "user": "Usuario",
@@ -1175,7 +1175,7 @@
           "app_store": "App Store",
           "play_store": "Google Play"
         },
-        "unknown": "Sin nivel"
+        "unknown": "Desconocido"
       }
     },
     "Notifications": {

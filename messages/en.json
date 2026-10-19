@@ -919,9 +919,9 @@
         "active_7d": "Active (7d)",
         "free_only": "Free only",
         "purchased": "Bought hours",
-        "purchased_detail": "{share}% of users\nApp Store {appStore} · Google Play {playStore}",
-        "until": "Time-based access",
-        "consumed": "Have used hours"
+        "purchased_detail": "{share}% of users\nApple {appStore} · Google {playStore}",
+        "until": "Access period",
+        "consumed": "Used hours"
       },
       "table": {
         "user": "User",
@@ -1181,13 +1181,13 @@
         "level": {
           "free": "Free",
           "purchased": "Bought hours",
-          "until": "Time-based access"
+          "until": "Access period"
         },
         "store": {
           "app_store": "App Store",
           "play_store": "Google Play"
         },
-        "unknown": "No level"
+        "unknown": "Unknown"
       }
     },
     "Notifications": {
