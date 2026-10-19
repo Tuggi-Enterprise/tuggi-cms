@@ -23,9 +23,8 @@ import {
   MODERATION_BATCH_MODE,
   MODERATION_BATCH_LANGUAGE,
   MODERATION_BATCH_GENDER,
-  MODERATION_ATTEMPTS_KEY,
+  refuseUserRouteRequest,
   type ModerationBatchDeps,
-  type PendingUserRoute,
   type RouteSourceRow,
 } from '../_shared/route-moderation.ts';
 
@@ -262,7 +261,9 @@ const upsertAttractionDescription = async (
  * migration 20261019110000 `owner_user_id` does not exist (42703): read without it, and no route
  * is a user route.
  */
-const getRouteData = async (routeId: string): Promise<{ name: string; description: string | null; userRoute: boolean }> => {
+type RouteData = { name: string; description: string | null; userRoute: boolean; status: string | null };
+
+const getRouteData = async (routeId: string): Promise<RouteData> => {
   const read = (columns: string) => supabaseAdmin
     .schema('core')
     .from('custom_routes')
@@ -271,14 +272,14 @@ const getRouteData = async (routeId: string): Promise<{ name: string; descriptio
     .eq('is_active', true)
     .maybeSingle();
 
-  let { data, error } = await read('name, description, metadata, owner_user_id');
+  let { data, error } = await read('name, description, metadata, owner_user_id, status');
   if (error?.code === '42703') ({ data, error } = await read('name, description, metadata'));
 
   if (error || !data) {
     throw new Error(`Route not found or inactive: ${routeId}`);
   }
-  const row = data as unknown as RouteSourceRow;
-  return { name: row.name, description: row.description || null, userRoute: isUserRoute(row) };
+  const row = data as unknown as RouteSourceRow & { status?: string | null };
+  return { name: row.name, description: row.description || null, userRoute: isUserRoute(row), status: row.status ?? null };
 };
 
 /** Upload route audio with a route-specific storage path (includes gender, mirrors POI pattern) */
@@ -373,14 +374,23 @@ const produceRouteTranslation = async (
   routeId: string,
   targetLanguage: string,
   voiceGender: 'male' | 'female',
-  opts: { generateAudio: boolean; originalName?: string; originalDescription?: string },
+  opts: {
+    generateAudio: boolean;
+    originalName?: string;
+    originalDescription?: string;
+    /** Batch or CMS. A tourist never writes the verdict of a user route (security-reviewer, #945). */
+    mayRecordVerdict: boolean;
+    /** Already read by the caller (route mode reads it to refuse before the lock). */
+    routeData?: RouteData;
+  },
 ): Promise<RouteProduction> => {
+  // Step 1: Fetch route name + description (or use overrides from body)
+  const routeData = opts.routeData ?? await getRouteData(routeId);
+
   // Optimistic lock
   await setRouteTranslationStatus(routeId, targetLanguage, voiceGender, 'generating');
 
   try {
-    // Step 1: Fetch route name + description (or use overrides from body)
-    const routeData = await getRouteData(routeId);
     let translatedName: string;
     let translatedText: string | null;
 
@@ -394,12 +404,14 @@ const produceRouteTranslation = async (
         targetLanguage,
         {
           runPrompt: async (prompt) => (await runGeminiPromptWithUsage(prompt, GEMINI_API_KEY, 2048, 0.2)).text,
-          setModerationResult: async (flagged, reason) => {
-            const { error } = await supabaseAdmin.schema('core').rpc('set_route_moderation_result', {
-              p_route_id: routeId, p_flagged: flagged, p_reason: reason,
-            });
-            if (error) throw new Error(`set_route_moderation_result failed: ${error.code}`);
-          },
+          setModerationResult: opts.mayRecordVerdict
+            ? async (flagged, reason) => {
+              const { error } = await supabaseAdmin.schema('core').rpc('set_route_moderation_result', {
+                p_route_id: routeId, p_flagged: flagged, p_reason: reason,
+              });
+              if (error) throw new Error(`set_route_moderation_result failed: ${error.code}`);
+            }
+            : null,
         },
       );
       console.log(`[${requestId}] User route screened: flagged=${moderated.flagged}`);
@@ -423,8 +435,9 @@ const produceRouteTranslation = async (
         translateWithGemini(sourceName, targetLanguage),
         translateWithGemini(sourceDescription, targetLanguage),
       ]);
+      // CMS route only: the text of a user route never goes to the log (security-reviewer, #945).
+      console.log(`[${requestId}] Translated name="${translatedName.slice(0, 40)}" desc=${translatedText?.length ?? 0}chars`);
     }
-    console.log(`[${requestId}] Translated name="${translatedName.slice(0, 40)}" desc=${translatedText?.length ?? 0}chars`);
 
     // Step 3: Generate audio (optional, default true)
     let audioUrl: string | null = null;
@@ -446,43 +459,24 @@ const produceRouteTranslation = async (
 };
 
 /**
- * Database side of the batch mode (#945). Only a route with an owner: `set_route_moderation_result`
- * leaves an ownerless route untouched, so screening it would spend the LLM every round for nothing.
- * The attempt counter lives in `metadata` until the `data` gives it a column.
+ * Database side of the batch mode (#945). The queue is the database's: `core.claim_user_routes_for_moderation`
+ * picks the routes owed a verdict, oldest first, SKIP LOCKED, and spends the attempt before the
+ * model is called (the ceiling lives in `core.user_route_needs_moderation`). Nothing is filtered or
+ * counted here.
  */
 const moderationBatchDeps = (requestId: string): ModerationBatchDeps => ({
-  listPending: async (limit, maxAttempts) => {
+  claim: async (limit) => {
     const { data, error } = await supabaseAdmin
       .schema('core')
-      .from('custom_routes')
-      .select('id, metadata')
-      .eq('status', 'pending_review')
-      .eq('is_active', true)
-      .not('owner_user_id', 'is', null)
-      .is('moderation_reason', null)
-      .is('moderation_reviewed_at', null)
-      .or(`metadata->>${MODERATION_ATTEMPTS_KEY}.is.null,metadata->>${MODERATION_ATTEMPTS_KEY}.lt.${maxAttempts}`)
-      .order('created_at', { ascending: true })
-      .limit(limit);
-    if (error) throw new Error(`pending user routes: ${error.code}`);
-    return (data ?? []) as PendingUserRoute[];
+      .rpc('claim_user_routes_for_moderation', { p_limit: limit });
+    if (error) throw new Error(`claim_user_routes_for_moderation: ${error.code}`);
+    return (data ?? []) as Array<{ id: string; attempt: number }>;
   },
   screenRoute: async (routeId) => {
     const produced = await produceRouteTranslation(
-      requestId, routeId, MODERATION_BATCH_LANGUAGE, MODERATION_BATCH_GENDER, { generateAudio: true },
+      requestId, routeId, MODERATION_BATCH_LANGUAGE, MODERATION_BATCH_GENDER, { generateAudio: true, mayRecordVerdict: true },
     );
     return { flagged: produced.flagged };
-  },
-  recordFailedAttempt: async (route, attempts) => {
-    const { error } = await supabaseAdmin
-      .schema('core')
-      .from('custom_routes')
-      .update({ metadata: { ...(route.metadata ?? {}), [MODERATION_ATTEMPTS_KEY]: attempts } })
-      .eq('id', route.id);
-    if (error) {
-      console.error(`[${requestId}] moderation attempt not recorded: ${error.code}`);
-      throw new Error(error.code);
-    }
   },
 });
 
@@ -533,7 +527,7 @@ serve(async (req) => {
         { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
       );
     }
-    const batch = await handleModerationBatch(isServiceRole, parsedBody as Record<string, unknown>, moderationBatchDeps(requestId));
+    const batch = await handleModerationBatch(isServiceRole, parsedBody as unknown as Record<string, unknown>, moderationBatchDeps(requestId));
     console.log(`[${requestId}] Batch ${MODERATION_BATCH_MODE}: ${JSON.stringify(batch.body)}`);
     return new Response(
       JSON.stringify(batch.body),
@@ -618,10 +612,22 @@ serve(async (req) => {
     // ── ROUTE MODE ────────────────────────────────────────────────────────────
     if (routeId) {
       console.log(`[${requestId}] ROUTE MODE: routeId=${routeId} targetLanguage=${targetLanguage}`);
+      const routeData = await getRouteData(routeId);
+      // #945, BR-ROTA-006: a tourist never screens a user route still in review (the verdict is
+      // the batch's or the CMS's), and gets nothing from it: 422 before any LLM or lock.
+      const refusal = refuseUserRouteRequest(routeData, productionGate.source);
+      if (refusal) {
+        return new Response(
+          JSON.stringify({ error: refusal }),
+          { status: 422, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+        );
+      }
       const produced = await produceRouteTranslation(requestId, routeId, targetLanguage, voiceGender, {
         generateAudio: body.generateAudio !== false,
         originalName: body.originalName,
         originalDescription: body.originalDescription,
+        mayRecordVerdict: productionGate.source !== 'app_user',
+        routeData,
       });
       if (produced.flagged) {
         return new Response(

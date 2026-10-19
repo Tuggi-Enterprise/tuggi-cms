@@ -87,17 +87,27 @@ of a route an app user just published.
   `Authorization: Bearer <machine key>` (`ef_secret_key` from the Vault, as the other crons;
   `isOwnMachineKey`). Any other caller: `401`. `limit` is an integer 1..20 (default 20), else `400 invalid_limit`.
   Out of the per-request rate limit; the production gate does not apply (platform caller).
-- Queue: `core.custom_routes` with `status = 'pending_review'`, `is_active`, `owner_user_id` not null,
-  `moderation_reason` null, `moderation_reviewed_at` null, `metadata->>moderation_attempts` < 3,
-  oldest `created_at` first. A route without owner is skipped: `set_route_moderation_result` never moves it.
+- Queue: the database's. `core.claim_user_routes_for_moderation(p_limit)` (service_role) takes the
+  routes `core.user_route_needs_moderation` says are owed a verdict, oldest first, `SKIP LOCKED`, and
+  spends one attempt (`core.custom_routes.moderation_attempts`) before the model is called; the
+  ceiling of 3 lives there. The EF neither filters nor counts.
 - Per route: the same path as the route mode, in `en-us` / `male` (screen + translate in one LLM call;
   audio and `custom_route_descriptions` only if it passed; verdict by `core.set_route_moderation_result`).
   Other languages come on demand through the route mode. 5 routes at a time.
-- Failure on one route (LLM, bad answer, TTS, storage): the batch goes on, the route stays
-  `pending_review`, and `metadata.moderation_attempts` goes up by one. At 3 it leaves the queue
-  (still in review, for the CMS).
-- Response `200`: `{ success, mode, selected, passed, flagged, failed, exhausted }`, counts only.
-  `503 pending_routes_unavailable` when the queue cannot be read.
+- Failure on one route (LLM, bad answer, TTS, storage): the batch goes on and the route stays
+  `pending_review`; the next claim decides whether it comes back.
+- Response `200`: `{ success, mode, selected, passed, flagged, failed }`, counts only.
+  `503 pending_routes_unavailable` when the claim fails.
+
+### User route in the route mode (security-reviewer, #945)
+
+- The verdict is written only by the batch or the CMS (`productionGate.source !== 'app_user'`). A tourist
+  asking for a user route in `pending_review` gets `422 route_under_review` (removed: `422 route_unavailable`)
+  before any LLM call. On an `active` user route the tourist call still screens, without writing the
+  verdict; flagged answers `422 route_under_review` and produces nothing.
+- The traveller text enters the prompt as one `JSON.stringify` value, declared as data and never
+  instructions; the answer is validated by shape (`parseModeratedRouteTranslation`).
+- The text of a user route is never logged (`Translated name=` is for CMS routes only).
 
 ## Storage Structure
 
