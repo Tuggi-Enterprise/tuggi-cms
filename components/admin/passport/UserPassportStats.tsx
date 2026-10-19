@@ -4,6 +4,7 @@ import { useTranslations } from 'next-intl'
 import { Trophy, Navigation, Award } from 'lucide-react'
 import type { PassportStats } from '@/lib/core/passport-service'
 import { UNKNOWN_VALUE } from '@/lib/format/unknown'
+import { favoriteCategoryLabel } from '@/lib/format/passport'
 import { StatCard, StatCardRow } from '@/components/ui/StatCard'
 
 interface UserPassportStatsProps {
@@ -42,7 +43,7 @@ export function UserPassportStats({ stats }: UserPassportStatsProps) {
         glow={false}
         icon={Award}
         label={t('top_category')}
-        value={stats.top_categories[0]?.category || UNKNOWN_VALUE}
+        value={favoriteCategoryLabel(stats.top_categories) ?? UNKNOWN_VALUE}
       />
     </StatCardRow>
   )

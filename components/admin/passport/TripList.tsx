@@ -3,6 +3,8 @@
 import { useLocale, useTranslations } from 'next-intl'
 import { Clock, MapPin, ChevronRight, Activity, Plane } from 'lucide-react'
 import { cn } from '@/lib/utils'
+import { tripAverageSpeedKmh } from '@/lib/format/passport'
+import { UNKNOWN_VALUE } from '@/lib/format/unknown'
 
 /** One row of `drive.get_user_trips_with_stats`. */
 export interface PassportTrip {
@@ -10,11 +12,10 @@ export interface PassportTrip {
   trip_start: string
   trip_end: string
   duration_minutes: number
-  point_count: number
   heard_count: number
-  avg_speed: number
-  start_latitude?: number
-  start_longitude?: number
+  /** Numeric arrives as a string from PostgREST. */
+  distance_traveled_m: number | string | null
+  moving_seconds: number | null
 }
 
 interface TripListProps {
@@ -64,6 +65,7 @@ export function TripList({ trips, selectedTripId, onSelectTrip }: TripListProps)
           <div className="grid gap-3">
             {dayTrips.map((trip) => {
               const selected = selectedTripId === trip.trip_session_id
+              const speed = tripAverageSpeedKmh(trip)
               return (
                 <button
                   key={trip.trip_session_id}
@@ -106,7 +108,7 @@ export function TripList({ trips, selectedTripId, onSelectTrip }: TripListProps)
                       <span className="text-[11px] font-bold text-gray-500 uppercase tracking-widest mb-0.5">{t('trip_speed')}</span>
                       <span className="flex items-center gap-1 text-xs font-bold text-gray-900 dark:text-white">
                         <Activity className="h-2.5 w-2.5 text-green-600" aria-hidden="true" />
-                        {(trip.avg_speed || 0).toFixed(1)} km/h
+                        {speed == null ? UNKNOWN_VALUE : `${speed.toFixed(1)} km/h`}
                       </span>
                     </div>
                     <div className="flex flex-col items-end">
