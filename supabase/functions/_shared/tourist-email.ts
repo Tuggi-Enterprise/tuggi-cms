@@ -121,7 +121,12 @@ const REENGAGEMENT_FOOTER_NOTE: Copy = {
   it: 'Ricevi questa e-mail perché hai chiesto novità e promemoria di Tuggi.',
 };
 
-/** §3.2 */
+/**
+ * §3.2. SERVICE E-MAILS CARRY THE FACT AND NOTHING ELSE (BR-COMUNICACAO-020, R1 of the
+ * `security-reviewer` on #957): a closing that nudges the reader to use the app turns a service
+ * message into marketing under ePrivacy/PECR (ICO), and marketing needs the opt-in these two do
+ * not ask for. No `closing` here nor in `HOURS_EXPIRING`; the button stays.
+ */
 const HOURS_EARNED = {
   subject: {
     pt: 'Você ganhou {{duration}} no Tuggi',
@@ -158,13 +163,6 @@ const HOURS_EARNED = {
     fr: "Ce sont des heures gratuites, valables jusqu'au {{date}}.",
     it: 'Sono ore gratuite e valgono fino al {{date}}.',
   },
-  closing: {
-    pt: 'Ligue o guia na próxima saída.',
-    en: 'Turn on the guide next time you head out.',
-    es: 'Enciende la guía en tu próxima salida.',
-    fr: 'Allume le guide à ta prochaine sortie.',
-    it: 'Accendi la guida alla prossima uscita.',
-  },
 } satisfies Record<string, Copy>;
 
 /** §3.3 — the spec publishes the plural only; the selection sends it at 3 days (and never at 1). */
@@ -189,13 +187,6 @@ const HOURS_EXPIRING = {
     es: 'Tienes {{duration}} en horas gratis y vencen el {{date}}.',
     fr: "Tu as {{duration}} d'heures gratuites, et elles expirent le {{date}}.",
     it: 'Hai {{duration}} di ore gratuite e scadono il {{date}}.',
-  },
-  closing: {
-    pt: 'Ligue o guia antes disso e ouça a história dos lugares por onde passar.',
-    en: 'Turn on the guide before then and hear the stories of the places you pass.',
-    es: 'Enciende la guía antes y escucha la historia de los lugares por donde pases.',
-    fr: "Allume le guide d'ici là et écoute l'histoire des lieux où tu passes.",
-    it: 'Accendi la guida prima di allora e ascolta la storia dei luoghi dove passi.',
   },
 } satisfies Record<string, Copy>;
 
@@ -377,14 +368,13 @@ export function renderTouristEmail(
     );
     // Without an expiry (coupon, cms, partner never expire) the validity line leaves.
     if (date) body.push(fill(HOURS_EARNED.validity[lang], vars));
-    body.push(HOURS_EARNED.closing[lang]);
   } else if (type === 'tourist_hours_expiring') {
     const count = daysUntil(data.expires_at, now);
     // Plural only (spec §3.3), and an expiry already past is not a warning.
     if (!duration || !date || count === null || count < 2) return null;
     subject = fill(HOURS_EXPIRING.subject[lang], { ...vars, count: String(count) });
     preheader = fill(HOURS_EXPIRING.preheader[lang], vars);
-    body.push(fill(HOURS_EXPIRING.paragraph[lang], vars), HOURS_EXPIRING.closing[lang]);
+    body.push(fill(HOURS_EXPIRING.paragraph[lang], vars));
   } else if (type === 'tourist_reengagement_7') {
     subject = REENGAGEMENT_7.subject[lang];
     preheader = REENGAGEMENT_7.preheader[lang];

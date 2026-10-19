@@ -203,6 +203,8 @@ test('the audit line counts and never names', () => {
 let calls: { url: string; body: any }[]
 let candidates: unknown[]
 let claimAnswer: unknown
+/** What `marketing.email_unsubscribes` answers for the address `send-transactional` looks up. */
+let unsubscribeAnswer: { status: number; body: unknown }
 
 beforeEach(() => {
   env = {
@@ -214,12 +216,16 @@ beforeEach(() => {
   calls = []
   candidates = [row({ email_opt_in: true, last_used_at: new Date(Date.now() - 8 * DAY).toISOString() })]
   claimAnswer = true
+  unsubscribeAnswer = { status: 200, body: [] }
   globalThis.fetch = (async (url: string | URL | Request, init?: RequestInit) => {
     const u = String(url)
     const body = init?.body ? JSON.parse(String(init.body)) : null
     calls.push({ url: u, body })
     if (u.endsWith('/rpc/get_tourist_lifecycle_email_candidates')) return new Response(JSON.stringify(candidates))
     if (u.endsWith('/rpc/claim_tourist_lifecycle_email')) return new Response(JSON.stringify(claimAnswer))
+    if (u.includes('/rest/v1/email_unsubscribes?')) {
+      return new Response(JSON.stringify(unsubscribeAnswer.body), { status: unsubscribeAnswer.status })
+    }
     return new Response(JSON.stringify({ id: 'resend-1' }), { status: 200 })
   }) as typeof fetch
 })
@@ -310,4 +316,25 @@ test('send-transactional sends no tourist e-mail it cannot unsubscribe from, nor
   const badTo = await post('transactional', '/send', { type: 'tourist_reengagement_14', to: 'not-an-address', lang: 'pt' })
   assert.equal(badTo.status, 400)
   assert.ok(!calls.some((c) => c.url.startsWith('https://api.resend.com')))
+})
+
+test('BR-COMUNICACAO-020 item 4: send-transactional refuses, unsent, a tourist e-mail to an unsubscribed address', async () => {
+  // The route is reachable by hand too (an operator testing a template), so the list is applied
+  // here and not only in the selection. The lookup lowercases as every writer of the list does.
+  unsubscribeAnswer = { status: 200, body: [{ email: 'ana@example.com' }] }
+  const res = await post('transactional', '/send', { type: 'tourist_reengagement_14', to: 'Ana@Example.COM', lang: 'pt' })
+  assert.equal(res.status, 409)
+  assert.equal((await res.json()).error, 'unsubscribed')
+  const lookup = calls.find((c) => c.url.includes('/rest/v1/email_unsubscribes?'))!
+  assert.match(lookup.url, /email=eq\.ana%40example\.com/)
+  assert.ok(!calls.some((c) => c.url.startsWith('https://api.resend.com')), 'an unsubscribed address reached Resend')
+
+  // A list it cannot read counts as unsubscribed: fail closed.
+  for (const answer of [{ status: 500, body: { code: '42501' } }, { status: 200, body: { not: 'an array' } }]) {
+    calls = []
+    unsubscribeAnswer = answer
+    const unknown = await post('transactional', '/send', { type: 'tourist_hours_earned', to: 'ana@example.com', lang: 'pt', data: { minutes: 60 } })
+    assert.equal(unknown.status, 503)
+    assert.ok(!calls.some((c) => c.url.startsWith('https://api.resend.com')), `list ${answer.status} still sent`)
+  }
 })

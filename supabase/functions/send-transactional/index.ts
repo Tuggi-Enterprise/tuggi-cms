@@ -21,7 +21,8 @@
 //                             -> to the tourist (#957, BR-COMUNICACAO-020), in the profile's
 //                                language, with the signed one-tap unsubscribe and the RFC 8058
 //                                headers. Copy in `_shared/tourist-email.ts`; called by
-//                                `tourist-lifecycle-email`.
+//                                `tourist-lifecycle-email`. Refused, unsent, for an address in
+//                                `marketing.email_unsubscribes` (409; 503 when unreadable).
 //
 // lang: 'pt' | 'en' | 'es' | 'fr' | 'it' (normalized; defaults to 'pt'). Applies
 //       to the user-facing types; partner_new (team) is always pt.
@@ -60,6 +61,7 @@ import { requireAdmin } from '../_shared/auth-middleware.ts';
 import { renderEmail, renderText } from '../_shared/emailLayout.ts';
 import { isTouristEmailType, renderTouristEmail, type TouristEmailType } from '../_shared/tourist-email.ts';
 import { buildOneClickUrl, buildUnsubscribeUrl, unsubscribeHeaders } from '../_shared/unsubscribe-link.ts';
+import { getSecretKey } from '../_shared/secret-key.ts';
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -473,6 +475,31 @@ async function renderTourist(
   };
 }
 
+/**
+ * BR-COMUNICACAO-020 item 4 — is `to` in `marketing.email_unsubscribes`? `tourist-lifecycle-email`
+ * already drops the unsubscribed, but this route is also reachable by hand (an operator testing a
+ * template), and that path must not mail an address that said no. Over PostgREST with `fetch`, not
+ * supabase-js, so the handler still runs under Node in `tests/api/tourist-lifecycle-email.test.ts`.
+ * The address is lowercased and trimmed exactly as every writer of the list stores it.
+ * `null` = the list could not be read; the caller fails CLOSED on it.
+ */
+async function isUnsubscribed(to: string): Promise<boolean | null> {
+  const url = (Deno.env.get('SUPABASE_URL') ?? '').trim().replace(/\/$/, '');
+  const key = (getSecretKey() ?? '').trim();
+  if (!url || !key) return null;
+  try {
+    const email = encodeURIComponent(to.toLowerCase().trim());
+    const res = await fetch(`${url}/rest/v1/email_unsubscribes?select=email&email=eq.${email}&limit=1`, {
+      headers: { apikey: key, Authorization: `Bearer ${key}`, 'Accept-Profile': 'marketing' },
+    });
+    if (!res.ok) return null;
+    const rows = await res.json();
+    return Array.isArray(rows) ? rows.length > 0 : null;
+  } catch {
+    return null;
+  }
+}
+
 const EVENT_BY_TYPE: Record<string, PartnerEvent> = {
   partner_received: 'received',
   partner_approved: 'approved',
@@ -545,6 +572,14 @@ Deno.serve(async (req: Request) => {
       }
       const tourist = await renderTourist(type, recipient, lang, data ?? {});
       if (!tourist) return json({ error: 'not_renderable', type }, 422);
+      const unsubscribed = await isUnsubscribed(recipient);
+      if (unsubscribed !== false) {
+        // The request id and the verdict only: the address is PII.
+        console.warn(`[${requestId}] tourist e-mail refused: ${unsubscribed ? 'unsubscribed' : 'unsubscribe list unavailable'}`);
+        return unsubscribed
+          ? json({ error: 'unsubscribed', type }, 409)
+          : json({ error: 'unsubscribe_list_unavailable', type }, 503);
+      }
       const res = await fetch(RESEND_URL, {
         method: 'POST',
         headers: {

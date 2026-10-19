@@ -71,7 +71,7 @@ test('spec §3.2: hours earned names the friend, sums the duration and dates the
   // Without a nickname the generic line, and without an expiry the validity line leaves.
   const generic = mod.renderTouristEmail('tourist_hours_earned', 'pt', { minutes: 45 }, NOW)
   assert.equal(generic.content.paragraphs[1], 'Somamos 45 min ao seu saldo.')
-  assert.equal(generic.content.paragraphs.length, 3)
+  assert.equal(generic.content.paragraphs.length, 2)
 
   // No number of hours, no e-mail.
   assert.equal(mod.renderTouristEmail('tourist_hours_earned', 'pt', {}, NOW), null)
@@ -143,4 +143,23 @@ test('the date is long, in the reader zone, without year; an unknown zone falls 
   assert.equal(mod.formatDuration(300), '5 h')
   assert.equal(mod.formatDuration(45), '45 min')
   assert.equal(mod.formatDuration(0), null)
+})
+
+test('BR-COMUNICACAO-020 item 2: the two service e-mails carry the fact and no closing nudge (R1, #957)', () => {
+  // A service e-mail that invites the reader to use the app is marketing (ePrivacy/PECR, ICO), and
+  // these two go without opt-in. Only the fact stays; the button stays. Reengagement is not touched.
+  const expected: Record<string, number> = { tourist_hours_earned: 3, tourist_hours_expiring: 2 }
+  for (const type of ['tourist_hours_earned', 'tourist_hours_expiring']) {
+    assert.equal('closing' in (mod.TOURIST_EMAIL_CATALOGUE as any)[type === 'tourist_hours_earned' ? 'HOURS_EARNED' : 'HOURS_EXPIRING'], false)
+    for (const lang of LANGS) {
+      const rendered = mod.renderTouristEmail(type, lang, (DATA as any)[type], NOW)
+      // greeting + fact (+ validity, for hours earned with an expiry), nothing after.
+      assert.equal(rendered.content.paragraphs.length, expected[type], `${type}/${lang} grew a paragraph`)
+      assert.doesNotMatch(all(rendered), /guia|guide|guía|guida/iu, `${type}/${lang} still nudges to turn on the guide`)
+      assert.ok(rendered.content.cta_label, `${type}/${lang} lost the button`)
+    }
+  }
+  assert.ok(mod.renderTouristEmail('tourist_reengagement_14', 'pt', {}, NOW).content.paragraphs.includes(
+    'Na próxima saída, ligue o guia antes de começar.'
+  ))
 })
