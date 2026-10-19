@@ -102,7 +102,8 @@
     "menu": "Menu",
     "switch_language": "Trocar idioma",
     "ranking": "Placar",
-    "route_progress": "Progresso de roteiros"
+    "route_progress": "Progresso de roteiros",
+    "story_feedback": "Votos nas histórias"
   },
   "Pages": {
     "Login": {
@@ -1517,6 +1518,49 @@
       "okBody": "Você não receberá mais nossos emails. Sentiremos sua falta!",
       "errorTitle": "Link inválido",
       "errorBody": "Não foi possível processar o cancelamento. O link pode ter expirado."
+    },
+    "StoryFeedback": {
+      "title": "Votos nas histórias",
+      "subtitle": "Histórias com voto negativo, das mais apontadas como erradas para as menos.",
+      "headers": {
+        "poi": "POI",
+        "lang": "Idioma",
+        "voice": "Voz",
+        "wrong": "Informação errada",
+        "dislike": "Não gostei",
+        "downNoReason": "Negativo sem motivo",
+        "up": "Positivos",
+        "lastVote": "Último voto"
+      },
+      "filters": {
+        "includeOld": "Incluir versões antigas do texto",
+        "langAll": "Todos os idiomas",
+        "reason": "Motivo",
+        "reasonAll": "Todos os motivos",
+        "wrong": "Informação errada",
+        "dislike": "Não gostei"
+      },
+      "reasons": {
+        "wrong_info": "Informação errada",
+        "disliked": "Não gostei",
+        "none": "Sem motivo"
+      },
+      "voices": {
+        "male": "masculina",
+        "female": "feminina"
+      },
+      "comments": "Comentários",
+      "backHere": "Voltar para os votos nas histórias",
+      "loading": "Carregando…",
+      "empty": "Nenhum voto negativo ainda.",
+      "emptyFiltered": "Nenhum voto com esses filtros.",
+      "clearFilters": "Limpar filtros",
+      "noComment": "Sem comentário",
+      "error": "Não deu para carregar os votos.",
+      "retry": "Tentar de novo",
+      "pagination": "Página {current} de {total} ({count} histórias)",
+      "prev": "Anterior",
+      "next": "Próxima"
     }
   },
   "EventManagement": {

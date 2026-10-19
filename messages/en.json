@@ -102,7 +102,8 @@
     "menu": "Menu",
     "switch_language": "Switch language",
     "ranking": "Scoreboard",
-    "route_progress": "Route progress"
+    "route_progress": "Route progress",
+    "story_feedback": "Story votes"
   },
   "Pages": {
     "Login": {
@@ -1520,6 +1521,49 @@
       "okBody": "You will not receive our emails anymore. We will miss you!",
       "errorTitle": "Invalid link",
       "errorBody": "We could not process your request. The link may have expired."
+    },
+    "StoryFeedback": {
+      "title": "Story votes",
+      "subtitle": "Stories with negative votes, most reported as wrong first.",
+      "headers": {
+        "poi": "POI",
+        "lang": "Language",
+        "voice": "Voice",
+        "wrong": "Wrong info",
+        "dislike": "Disliked",
+        "downNoReason": "Negative, no reason",
+        "up": "Positive",
+        "lastVote": "Last vote"
+      },
+      "filters": {
+        "includeOld": "Include older versions of the text",
+        "langAll": "All languages",
+        "reason": "Reason",
+        "reasonAll": "All reasons",
+        "wrong": "Wrong info",
+        "dislike": "Disliked"
+      },
+      "reasons": {
+        "wrong_info": "Wrong info",
+        "disliked": "Disliked",
+        "none": "No reason"
+      },
+      "voices": {
+        "male": "male",
+        "female": "female"
+      },
+      "comments": "Comments",
+      "backHere": "Back to story votes",
+      "loading": "Loading…",
+      "empty": "No negative votes yet.",
+      "emptyFiltered": "No votes match these filters.",
+      "clearFilters": "Clear filters",
+      "noComment": "No comment",
+      "error": "Couldn't load the votes.",
+      "retry": "Try again",
+      "pagination": "Page {current} of {total} ({count} stories)",
+      "prev": "Previous",
+      "next": "Next"
     }
   },
   "EventManagement": {
