@@ -974,6 +974,8 @@
           "source_cms": "Concesión del CMS",
           "source_partner": "Socio",
           "source_transfer": "Transferencia",
+          "source_referral": "Invitación",
+          "source_mission": "Misión",
           "empty": "Ninguna concesión registrada.",
           "revoke_cta": "Anular"
         },

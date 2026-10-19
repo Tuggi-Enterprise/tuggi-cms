@@ -38,7 +38,7 @@ import { Button } from '@/components/ui/button'
 import { Label } from '@/components/ui/label'
 import { Textarea } from '@/components/ui/textarea'
 import { formatDuration } from '@/lib/format/duration'
-import { GRANT_SOURCES } from '@/lib/credit/entitlement'
+import { GRANT_SOURCES, missionOf } from '@/lib/credit/entitlement'
 import { DialogShell } from './DialogShell'
 import { GrantCreditDialog } from './GrantCreditDialog'
 import { creditFailureText, readFailure, type CreditFailure } from './errorText'
@@ -278,6 +278,10 @@ function GrantsTable({
                 missing data. */}
             <td className="py-2 pr-3">
               <span className="block">{sourceLabel(grant.source)}</span>
+              {/* Which mission paid it: same-instant mission grants read as duplicates without it (#978). */}
+              {grant.source === 'mission' && missionOf(grant.source_ref) ? (
+                <span className="block text-xs text-gray-700 dark:text-gray-400">{missionOf(grant.source_ref)}</span>
+              ) : null}
               <span className="block text-xs text-gray-700 dark:text-gray-400">
                 {grant.granted_by_email || t('grants.by_system')}
               </span>

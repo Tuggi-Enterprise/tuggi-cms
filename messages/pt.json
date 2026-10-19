@@ -984,6 +984,8 @@
           "source_cms": "Concessão do CMS",
           "source_partner": "Parceiro",
           "source_transfer": "Transferência",
+          "source_referral": "Convite",
+          "source_mission": "Missão",
           "empty": "Nenhuma concessão registrada.",
           "revoke_cta": "Estornar"
         },
