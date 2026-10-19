@@ -123,11 +123,14 @@ export default function AppUsersPage() {
       setIsLoading(true)
       setError(null)
       
-      // Fetch users with the new detailed RPC
+      // The whole base, not a page of it: the search filters in the browser, so an account left
+      // out of this payload is an account the operator cannot find (#975). The RPC ends in
+      // `LIMIT limit_count`, and `LIMIT NULL` in Postgres means no limit. Move paging and search
+      // to the server once the base outgrows a single payload (BR-USUARIO-042, item 3).
       const { data, error } = await supabase
         .schema('core')
-        .rpc('dashboard_app_users_detailed', { 
-          limit_count: 200,
+        .rpc('dashboard_app_users_detailed', {
+          limit_count: null,
           filter_country: filterCountry || null,
           filter_platform: filterPlatform || null
         })
@@ -136,7 +139,7 @@ export default function AppUsersPage() {
         // Fallback to old RPC
         const { data: fallbackData, error: fallbackError } = await supabase
           .schema('core')
-          .rpc('dashboard_user_sessions', { limit_count: 200 })
+          .rpc('dashboard_user_sessions', { limit_count: null })
         
         if (fallbackError) throw fallbackError
         
