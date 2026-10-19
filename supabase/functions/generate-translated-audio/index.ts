@@ -2,7 +2,7 @@ import { serve } from "https://deno.land/std@0.177.0/http/server.ts";
 import { getSecretKey } from '../_shared/secret-key.ts';
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
 import { generateAudioWithTTS } from '../_shared/ttsGenerator.ts';
-import { validateAuthHeader } from '../_shared/auth-middleware.ts';
+import { validateAuthHeader, isOwnMachineKey } from '../_shared/auth-middleware.ts';
 import { checkRateLimit, createRateLimitResponse, RATE_LIMIT_CONFIG } from '../_shared/rate-limiter.ts';
 import { createSecureHeaders } from '../_shared/security-headers.ts';
 import {
@@ -16,6 +16,17 @@ import {
   createProductionRefusedResponse,
 } from '../_shared/content-production-gate.ts';
 import { rebuildReadModel } from '../_shared/read-model.ts';
+import {
+  isUserRoute,
+  translateAndModerateUserRoute,
+  handleModerationBatch,
+  MODERATION_BATCH_MODE,
+  MODERATION_BATCH_LANGUAGE,
+  MODERATION_BATCH_GENDER,
+  refuseUserRouteRequest,
+  type ModerationBatchDeps,
+  type RouteSourceRow,
+} from '../_shared/route-moderation.ts';
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -87,6 +98,8 @@ const getOriginalDescription = async (attractionId: string): Promise<{ descripti
 import {
   translateWithGemini as sharedTranslateWithGemini,
   translatePoiNameWithUsage,
+  runGeminiPromptWithUsage,
+  getLanguageName,
 } from '../_shared/translationUtility.ts';
 
 // Translate text using shared utility
@@ -242,23 +255,31 @@ const upsertAttractionDescription = async (
 // ROUTE MODE HELPERS
 // ─────────────────────────────────────────────────────────────────────────────
 
-/** Fetch route name + description from custom_routes */
-const getRouteData = async (routeId: string): Promise<{ name: string; description: string }> => {
-  const { data, error } = await supabaseAdmin
+/**
+ * Fetch route name + description from custom_routes, and whether it is a user route (#945).
+ * The description may be missing on a user route (BR-ROTA-006): the caller decides. Before
+ * migration 20261019110000 `owner_user_id` does not exist (42703): read without it, and no route
+ * is a user route.
+ */
+type RouteData = { name: string; description: string | null; userRoute: boolean; status: string | null };
+
+const getRouteData = async (routeId: string): Promise<RouteData> => {
+  const read = (columns: string) => supabaseAdmin
     .schema('core')
     .from('custom_routes')
-    .select('name, description')
+    .select(columns)
     .eq('id', routeId)
     .eq('is_active', true)
     .maybeSingle();
 
+  let { data, error } = await read('name, description, metadata, owner_user_id, status');
+  if (error?.code === '42703') ({ data, error } = await read('name, description, metadata'));
+
   if (error || !data) {
     throw new Error(`Route not found or inactive: ${routeId}`);
   }
-  if (!data.description) {
-    throw new Error(`Route ${routeId} has no description to translate.`);
-  }
-  return { name: data.name, description: data.description };
+  const row = data as unknown as RouteSourceRow & { status?: string | null };
+  return { name: row.name, description: row.description || null, userRoute: isUserRoute(row), status: row.status ?? null };
 };
 
 /** Upload route audio with a route-specific storage path (includes gender, mirrors POI pattern) */
@@ -299,7 +320,7 @@ const upsertRouteDescription = async (
   language: string,
   gender: 'male' | 'female',
   translatedName: string,
-  translatedText: string,
+  translatedText: string | null,
   audioUrl: string | null,
 ): Promise<void> => {
   const { error } = await supabaseAdmin
@@ -339,6 +360,126 @@ const setRouteTranslationStatus = async (
     }, { onConflict: 'route_id,language,gender' });
 };
 
+/**
+ * The per-route path: translation (screened, for a user route) + audio + persistence. The route
+ * mode and the batch mode (#945) both run it. `flagged` means the user route was held for review and
+ * nothing was produced. Throws when there is no verdict or the production failed (lock -> failed).
+ */
+type RouteProduction =
+  | { flagged: true }
+  | { flagged: false; name: string; description: string | null; audioUrl: string | null };
+
+const produceRouteTranslation = async (
+  requestId: string,
+  routeId: string,
+  targetLanguage: string,
+  voiceGender: 'male' | 'female',
+  opts: {
+    generateAudio: boolean;
+    originalName?: string;
+    originalDescription?: string;
+    /** Batch or CMS. A tourist never writes the verdict of a user route (security-reviewer, #945). */
+    mayRecordVerdict: boolean;
+    /** Already read by the caller (route mode reads it to refuse before the lock). */
+    routeData?: RouteData;
+  },
+): Promise<RouteProduction> => {
+  // Step 1: Fetch route name + description (or use overrides from body)
+  const routeData = opts.routeData ?? await getRouteData(routeId);
+
+  // Optimistic lock
+  await setRouteTranslationStatus(routeId, targetLanguage, voiceGender, 'generating');
+
+  try {
+    let translatedName: string;
+    let translatedText: string | null;
+
+    if (routeData.userRoute) {
+      // #945, BR-ROTA-006: a user route is translated and screened in ONE call, on the text
+      // stored in the database (body overrides are ignored, so nobody screens a clean text
+      // and publishes another). No description: the name alone is screened and translated.
+      const moderated = await translateAndModerateUserRoute(
+        routeData,
+        getLanguageName(targetLanguage),
+        targetLanguage,
+        {
+          runPrompt: async (prompt) => (await runGeminiPromptWithUsage(prompt, GEMINI_API_KEY, 2048, 0.2)).text,
+          setModerationResult: opts.mayRecordVerdict
+            ? async (flagged, reason) => {
+              const { error } = await supabaseAdmin.schema('core').rpc('set_route_moderation_result', {
+                p_route_id: routeId, p_flagged: flagged, p_reason: reason,
+              });
+              if (error) throw new Error(`set_route_moderation_result failed: ${error.code}`);
+            }
+            : null,
+        },
+      );
+      console.log(`[${requestId}] User route screened: flagged=${moderated.flagged}`);
+      if (moderated.flagged) {
+        // Nothing produced from an improper text: no audio, no stored translation.
+        await setRouteTranslationStatus(routeId, targetLanguage, voiceGender, 'failed').catch(() => {});
+        return { flagged: true };
+      }
+      translatedName = moderated.name;
+      translatedText = moderated.description;
+    } else {
+      const sourceName        = opts.originalName        ?? routeData.name;
+      const sourceDescription = opts.originalDescription ?? routeData.description;
+      if (!sourceDescription) {
+        throw new Error(`Route ${routeId} has no description to translate.`);
+      }
+      console.log(`[${requestId}] Source: name="${sourceName?.slice(0, 40)}" desc=${sourceDescription.length}chars`);
+
+      // Step 2: Translate name + description in parallel
+      [translatedName, translatedText] = await Promise.all([
+        translateWithGemini(sourceName, targetLanguage),
+        translateWithGemini(sourceDescription, targetLanguage),
+      ]);
+      // CMS route only: the text of a user route never goes to the log (security-reviewer, #945).
+      console.log(`[${requestId}] Translated name="${translatedName.slice(0, 40)}" desc=${translatedText?.length ?? 0}chars`);
+    }
+
+    // Step 3: Generate audio (optional, default true)
+    let audioUrl: string | null = null;
+    if (opts.generateAudio && translatedText) {
+      const audioBuffer = await generateAudioWithTTS(translatedText, targetLanguage, voiceGender, GOOGLE_CLOUD_API_KEY);
+      audioUrl = await uploadRouteAudioToStorage(audioBuffer, routeId, targetLanguage, voiceGender);
+      console.log(`[${requestId}] Route audio uploaded: ${audioUrl}`);
+    }
+
+    // Step 4: Persist (includes gender — mirrors attraction_descriptions pattern)
+    await upsertRouteDescription(routeId, targetLanguage, voiceGender, translatedName, translatedText, audioUrl);
+    console.log(`[${requestId}] Route description saved (status=ready, gender=${voiceGender})`);
+    return { flagged: false, name: translatedName, description: translatedText, audioUrl };
+  } catch (routeError) {
+    // Release lock with failed status
+    await setRouteTranslationStatus(routeId, targetLanguage, voiceGender, 'failed').catch(() => {});
+    throw routeError;
+  }
+};
+
+/**
+ * Database side of the batch mode (#945). The queue is the database's: `core.claim_user_routes_for_moderation`
+ * picks the routes owed a verdict, oldest first, SKIP LOCKED, and spends the attempt before the
+ * model is called (the ceiling lives in `core.user_route_needs_moderation`). Nothing is filtered or
+ * counted here.
+ */
+const moderationBatchDeps = (requestId: string): ModerationBatchDeps => ({
+  claim: async (limit) => {
+    const { data, error } = await supabaseAdmin
+      .schema('core')
+      .rpc('claim_user_routes_for_moderation', { p_limit: limit });
+    if (error) throw new Error(`claim_user_routes_for_moderation: ${error.code}`);
+    return (data ?? []) as Array<{ id: string; attempt: number }>;
+  },
+  screenRoute: async (routeId) => {
+    const produced = await produceRouteTranslation(
+      requestId, routeId, MODERATION_BATCH_LANGUAGE, MODERATION_BATCH_GENDER, { generateAudio: true, mayRecordVerdict: true },
+    );
+    return { flagged: produced.flagged };
+  },
+});
+
 // ─────────────────────────────────────────────────────────────────────────────
 
 serve(async (req) => {
@@ -363,6 +504,36 @@ serve(async (req) => {
     )
   }
   console.log(`[Generate-Translated-Audio] ✅ Authorized: ${authResult.email}`)
+
+  // The body is read once, here: the batch mode (#945) is decided before the per-request limit.
+  const parsedBody = await req.json().catch(() => null) as (RequestBody & { mode?: unknown }) | null;
+  if (!parsedBody || typeof parsedBody !== 'object') {
+    return new Response(
+      JSON.stringify({ error: 'invalid_json' }),
+      { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+    );
+  }
+
+  // ✅ #945, BR-ROTA-006 — FIRST SCREENING OF USER ROUTES, called by the database cron every 5 min.
+  // Machine key only (401 otherwise). Out of the per-request limit: one call screens up to `limit`
+  // routes, the cron is its only caller, and the 5/hour of the limiter would refuse 7 of its 12.
+  // The production gate below (BR-CONTEUDO-003) answers not_applicable to the machine key anyway.
+  if (parsedBody.mode === MODERATION_BATCH_MODE) {
+    const bearer = req.headers.get('authorization')?.replace(/^Bearer\s+/i, '') ?? '';
+    const isServiceRole = isOwnMachineKey(bearer);
+    if (isServiceRole && (!GEMINI_API_KEY || !GOOGLE_CLOUD_API_KEY)) {
+      return new Response(
+        JSON.stringify({ error: "Missing required API keys" }),
+        { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+      );
+    }
+    const batch = await handleModerationBatch(isServiceRole, parsedBody as unknown as Record<string, unknown>, moderationBatchDeps(requestId));
+    console.log(`[${requestId}] Batch ${MODERATION_BATCH_MODE}: ${JSON.stringify(batch.body)}`);
+    return new Response(
+      JSON.stringify(batch.body),
+      { status: batch.status, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+    );
+  }
 
   // ✅ RATE LIMITING CHECK
   const config = RATE_LIMIT_CONFIG['generate-translated-audio']
@@ -415,8 +586,7 @@ serve(async (req) => {
       );
     }
 
-    // Parse request body
-    const body = await req.json() as RequestBody;
+    const body = parsedBody as RequestBody;
     const { attractionId, routeId, targetLanguage, voiceGender } = body;
 
     // Validate: need either attractionId (POI mode) or routeId (route mode)
@@ -442,51 +612,33 @@ serve(async (req) => {
     // ── ROUTE MODE ────────────────────────────────────────────────────────────
     if (routeId) {
       console.log(`[${requestId}] ROUTE MODE: routeId=${routeId} targetLanguage=${targetLanguage}`);
-
-      // Optimistic lock
-      await setRouteTranslationStatus(routeId, targetLanguage, voiceGender, 'generating');
-
-      try {
-        // Step 1: Fetch route name + description (or use overrides from body)
-        let sourceName        = body.originalName;
-        let sourceDescription = body.originalDescription;
-
-        if (!sourceName || !sourceDescription) {
-          const routeData = await getRouteData(routeId);
-          sourceName        = sourceName        ?? routeData.name;
-          sourceDescription = sourceDescription ?? routeData.description;
-        }
-        console.log(`[${requestId}] Source: name="${sourceName?.slice(0, 40)}" desc=${sourceDescription?.length}chars`);
-
-        // Step 2: Translate name + description in parallel
-        const [translatedName, translatedText] = await Promise.all([
-          translateWithGemini(sourceName!, targetLanguage),
-          translateWithGemini(sourceDescription!, targetLanguage),
-        ]);
-        console.log(`[${requestId}] Translated name="${translatedName.slice(0, 40)}" desc=${translatedText.length}chars`);
-
-        // Step 3: Generate audio (optional, default true)
-        let audioUrl: string | null = null;
-        if (body.generateAudio !== false) {
-          const audioBuffer = await generateAudioWithTTS(translatedText, targetLanguage, voiceGender, GOOGLE_CLOUD_API_KEY);
-          audioUrl = await uploadRouteAudioToStorage(audioBuffer, routeId, targetLanguage, voiceGender);
-          console.log(`[${requestId}] Route audio uploaded: ${audioUrl}`);
-        }
-
-        // Step 4: Persist (includes gender — mirrors attraction_descriptions pattern)
-        await upsertRouteDescription(routeId, targetLanguage, voiceGender, translatedName, translatedText, audioUrl);
-        console.log(`[${requestId}] Route description saved (status=ready, gender=${voiceGender})`);
-
+      const routeData = await getRouteData(routeId);
+      // #945, BR-ROTA-006: a tourist never screens a user route still in review (the verdict is
+      // the batch's or the CMS's), and gets nothing from it: 422 before any LLM or lock.
+      const refusal = refuseUserRouteRequest(routeData, productionGate.source);
+      if (refusal) {
         return new Response(
-          JSON.stringify({ success: true, data: { name: translatedName, description: translatedText, audioUrl } }),
-          { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+          JSON.stringify({ error: refusal }),
+          { status: 422, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
         );
-
-      } catch (routeError) {
-        // Release lock with failed status
-        await setRouteTranslationStatus(routeId, targetLanguage, voiceGender, 'failed').catch(() => {});
-        throw routeError;
       }
+      const produced = await produceRouteTranslation(requestId, routeId, targetLanguage, voiceGender, {
+        generateAudio: body.generateAudio !== false,
+        originalName: body.originalName,
+        originalDescription: body.originalDescription,
+        mayRecordVerdict: productionGate.source !== 'app_user',
+        routeData,
+      });
+      if (produced.flagged) {
+        return new Response(
+          JSON.stringify({ error: 'route_under_review' }),
+          { status: 422, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+        );
+      }
+      return new Response(
+        JSON.stringify({ success: true, data: { name: produced.name, description: produced.description, audioUrl: produced.audioUrl } }),
+        { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+      );
     }
 
     // ── POI MODE: NAME-ONLY (lazy backfill, scenario 1) ──────────────────────

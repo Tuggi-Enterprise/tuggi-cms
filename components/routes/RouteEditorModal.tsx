@@ -30,6 +30,12 @@ import { ROUTE_LANGUAGES, localeToLangCode } from '@/lib/constants/route-languag
 import { RouteTranslationsPanel } from './RouteTranslationsPanel'
 import { mustRegenerate, storedSnapToRoads } from '@/lib/services/routing/route-geometry'
 import { TRAVEL_MODES, type TravelMode, type RoutePartner } from '@/lib/routes/route-ownership'
+import {
+  ROUTE_VISIBILITIES, ROUTE_LINK_BASE, dateInputToInstant, hasPublicationColumns, instantToDateInput,
+  isUserRoute, isValidRouteSlug, routeAvailability, routeLink,
+  type ModerationAction, type RouteVisibility,
+} from '@/lib/routes/route-publication'
+import { appUserLabel } from '@/lib/format/user-identity'
 
 // SSOT: language catalogue is in lib/constants/route-languages.ts
 // Alias kept for backward-compat with JSX below (uses .name not .label)
@@ -83,6 +89,7 @@ function RouteEditorModalInner({
   routeId, onClose, onSaved, onDeleted,
 }: Omit<RouteEditorModalProps, 'isOpen'>) {
   const t       = useTranslations('CustomRoutes.editor')
+  const tp      = useTranslations('CustomRoutes.publication')
   const commonT = useTranslations('Common')
   const { canEdit, isViewer, isAdmin } = useCmsUser()
   const locale    = useLocale()
@@ -115,6 +122,19 @@ function RouteEditorModalInner({
   const [newPartnerDescription, setNewPartnerDescription] = useState('')
   const [isCreatingPartner, setIsCreatingPartner] = useState(false)
   const [isSaving,    setIsSaving]    = useState(false)
+
+  // ── Publication (#945, BR-ROTA-003/004/005/006). Only when the row has the columns. ──
+  const [pubAvailable, setPubAvailable] = useState(false)
+  const [visibility,   setVisibility]   = useState<RouteVisibility>('public')
+  const [slug,         setSlug]         = useState('')
+  const [initialSlug,  setInitialSlug]  = useState('')
+  const [validFrom,    setValidFrom]    = useState('')
+  const [validUntil,   setValidUntil]   = useState('')
+  const [initialValidity, setInitialValidity] = useState('|')
+  const [routeStatus,  setRouteStatus]  = useState<string>('active')
+  const [slugError,    setSlugError]    = useState<'slug_invalid' | 'slug_taken' | null>(null)
+  const [slugCopied,   setSlugCopied]   = useState(false)
+  const [isModerating, setIsModerating] = useState(false)
 
   // ── Route geometry state ───────────────────────────────────────────────────
   const [waypoints,      setWaypoints]      = useState<Waypoint[]>([])
@@ -220,6 +240,20 @@ function RouteEditorModalInner({
         setBestTime(route.best_time || [])
         setRoadConditions(route.road_conditions || [])
         setPhotogenicRating(route.photogenic_rating || 'unknown')
+        const withPublication = hasPublicationColumns(route)
+        setPubAvailable(withPublication)
+        if (withPublication) {
+          setVisibility(route.visibility === 'link_only' ? 'link_only' : 'public')
+          setSlug(route.slug || '')
+          setInitialSlug(route.slug || '')
+          const from = instantToDateInput(route.valid_from)
+          const until = instantToDateInput(route.valid_until)
+          setValidFrom(from)
+          setValidUntil(until)
+          setInitialValidity(`${from}|${until}`)
+          setRouteStatus(route.status || 'active')
+          setSlugError(null)
+        }
       })
       .catch(err => console.error('Error loading route:', err))
       .finally(() => setIsLoadingRoute(false))
@@ -651,8 +685,58 @@ function RouteEditorModalInner({
     setWaypoints(prev => prev.filter(w => w.id !== id))
   }
 
+  // ── Publication helpers (#945) ─────────────────────────────────────────────
+  const validityInvalid = Boolean(validFrom && validUntil && validUntil < validFrom)
+  const slugFormatInvalid = slug !== initialSlug && !isValidRouteSlug(slug)
+
+  /** Fields the PUT carries only when they changed: an untouched slug or validity is not rewritten. */
+  const publicationBody = (): Record<string, unknown> => {
+    if (!pubAvailable) return {}
+    const body: Record<string, unknown> = { visibility }
+    if (slug !== initialSlug) body.slug = slug
+    if (`${validFrom}|${validUntil}` !== initialValidity) {
+      body.valid_from = dateInputToInstant(validFrom, 'start')
+      body.valid_until = dateInputToInstant(validUntil, 'end')
+    }
+    return body
+  }
+
+  const copySlugLink = async () => {
+    if (!initialSlug) return
+    try {
+      await navigator.clipboard.writeText(routeLink(initialSlug))
+      setSlugCopied(true)
+      setTimeout(() => setSlugCopied(false), 2000)
+    } catch { /* clipboard refused */ }
+  }
+
+  /** BR-ROTA-006: remove never DELETEs; restore brings a moderation removal back. */
+  const moderateRoute = async (action: ModerationAction) => {
+    if (!effectiveRouteId) return
+    if (action === 'remove' && !window.confirm(tp('remove_confirm', { name, owner: isUserRoute(initialData ?? {}) ? appUserLabel({ nickname: initialData?.owner_nickname, user_id: initialData?.owner_user_id }) : tp('owner_cms') }))) return
+    setIsModerating(true)
+    try {
+      const res = await fetch(`/api/routes/${effectiveRouteId}/moderation`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action }),
+      })
+      if (res.ok) {
+        const data = await res.json()
+        setRouteStatus(data.route?.status || (action === 'remove' ? 'removed_by_moderation' : 'active'))
+      } else {
+        alert(t('save_error'))
+      }
+    } catch { alert(t('save_error')) } finally { setIsModerating(false) }
+  }
+
   // ── Save ───────────────────────────────────────────────────────────────────
   const handleSave = async () => {
+    if (pubAvailable && (validityInvalid || slugFormatInvalid)) {
+      if (slugFormatInvalid) setSlugError('slug_invalid')
+      setActiveTab('content')
+      return
+    }
     if (!name.trim() || !country.trim() || !region.trim() || waypoints.length < 2) {
       if (!name.trim() || !country.trim() || !region.trim()) setActiveTab('content')
       else setActiveTab('route')
@@ -679,6 +763,7 @@ function RouteEditorModalInner({
           country: country || null, region: region || null,
           travel_mode: travelMode, partner_id: partnerId || null,
           content_language: contentLanguage,
+          ...(effectiveIsEditing ? publicationBody() : {}),
         }),
       })
       if (res.ok) {
@@ -690,6 +775,12 @@ function RouteEditorModalInner({
         onSaved(savedId)
       } else {
         const err = await res.json()
+        // #945: a refused slug is a field error, not an alert (spec 8.2).
+        if (err.code === 'slug_taken' || err.code === 'slug_invalid') {
+          setSlugError(err.code)
+          setActiveTab('content')
+          return
+        }
         alert(`${t('save_error')}: ${err.error}`)
       }
     } catch { alert(t('save_error')) } finally { setIsSaving(false) }
@@ -1269,6 +1360,120 @@ function RouteEditorModalInner({
                         </div>
                       </div>
                     </section>
+
+                    {/* PUBLICATION (#945, spec 8.2): only on an existing route, after migration 20261019110000 */}
+                    {pubAvailable && effectiveIsEditing && (() => {
+                      const availability = routeAvailability({
+                        status: routeStatus, is_active: isActive,
+                        valid_from: dateInputToInstant(validFrom, 'start'), valid_until: dateInputToInstant(validUntil, 'end'),
+                      })
+                      const stateKey = {
+                        ok: 'state_active', not_yet_valid: 'state_active', expired: 'state_expired',
+                        pending_review: 'state_review', removed_by_author: 'state_removed_author',
+                        removed_by_moderation: 'state_removed_moderation',
+                      }[availability]
+                      const userRoute = initialData ? isUserRoute(initialData) : false
+                      const tripDate = initialData?.source_trip_started_at
+                        ? new Date(initialData.source_trip_started_at).toLocaleDateString(locale)
+                        : null
+                      return (
+                    <section className="space-y-3 pt-1 border-t border-gray-100 dark:border-gray-800">
+                      <h3 className="text-[10px] font-bold text-gray-400 uppercase tracking-widest flex items-center gap-1.5">
+                        <Link2 className="h-3.5 w-3.5" /> {tp('section_title')}
+                      </h3>
+
+                      <div>
+                        <label className="block text-xs font-semibold text-gray-600 dark:text-gray-400 mb-1">{tp('visibility_label')}</label>
+                        <div className="grid grid-cols-2 gap-2" role="radiogroup" aria-label={tp('visibility_label')}>
+                          {ROUTE_VISIBILITIES.map(id => (
+                            <button key={id} type="button" role="radio" aria-checked={visibility === id}
+                              onClick={() => setVisibility(id)}
+                              className={cn('flex items-center justify-center gap-1.5 py-2 px-3 rounded-xl border-2 transition-all text-xs font-bold',
+                                visibility === id ? 'bg-tuggi-blue/10 border-tuggi-blue text-tuggi-blue' : 'bg-gray-50 dark:bg-gray-800 border-transparent hover:border-gray-200 text-gray-500'
+                              )}
+                            >
+                              {id === 'public' ? <Globe className="h-4 w-4" /> : <Link2 className="h-4 w-4" />}
+                              {tp(id === 'public' ? 'visibility_public' : 'visibility_link')}
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+
+                      <div>
+                        <label className="block text-xs font-semibold text-gray-600 dark:text-gray-400 mb-1">{tp('validity_label')}</label>
+                        <div className="grid grid-cols-2 gap-3">
+                          <div>
+                            <label htmlFor="route-valid-from" className="block text-[10px] text-gray-500 mb-1">{tp('valid_from')}</label>
+                            <input id="route-valid-from" type="date" value={validFrom} onChange={e => setValidFrom(e.target.value)}
+                              className="w-full px-3 py-2 bg-gray-50 dark:bg-gray-800 border border-transparent rounded-xl focus:ring-2 focus:ring-tuggi-blue text-sm" />
+                          </div>
+                          <div>
+                            <label htmlFor="route-valid-until" className="block text-[10px] text-gray-500 mb-1">{tp('valid_until')}</label>
+                            <input id="route-valid-until" type="date" value={validUntil} onChange={e => setValidUntil(e.target.value)}
+                              aria-invalid={validityInvalid}
+                              aria-describedby={validityInvalid ? 'route-validity-error' : undefined}
+                              className={cn('w-full px-3 py-2 bg-gray-50 dark:bg-gray-800 border rounded-xl focus:ring-2 focus:ring-tuggi-blue text-sm',
+                                validityInvalid ? 'border-red-500' : 'border-transparent')} />
+                          </div>
+                        </div>
+                        {validityInvalid
+                          ? <p id="route-validity-error" className="text-[11px] text-red-700 mt-1">{tp('validity_error')}</p>
+                          : <p className="text-[11px] text-gray-500 mt-1">{tp('validity_hint')}</p>}
+                      </div>
+
+                      <div>
+                        <label htmlFor="route-slug" className="block text-xs font-semibold text-gray-600 dark:text-gray-400 mb-1">{tp('slug_label')}</label>
+                        <div className="flex items-stretch gap-2">
+                          <div className={cn('flex flex-1 items-center rounded-xl bg-gray-50 dark:bg-gray-800 border',
+                            slugError || slugFormatInvalid ? 'border-red-500' : 'border-transparent')}>
+                            <span className="pl-3 text-sm text-gray-500 select-none">{ROUTE_LINK_BASE.replace('https://', '')}</span>
+                            <input id="route-slug" type="text" value={slug}
+                              onChange={e => { setSlug(e.target.value); setSlugError(null) }}
+                              aria-invalid={Boolean(slugError || slugFormatInvalid)}
+                              aria-describedby="route-slug-help"
+                              className="flex-1 min-w-0 bg-transparent border-none py-2 pr-3 text-sm focus:ring-0" />
+                          </div>
+                          <button type="button" onClick={copySlugLink} disabled={!initialSlug}
+                            className="inline-flex items-center gap-1.5 px-3 rounded-xl border border-gray-200 dark:border-gray-700 text-xs font-bold text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-800 disabled:opacity-50">
+                            {slugCopied ? <CheckCircle className="h-3.5 w-3.5 text-green-700" /> : <Link2 className="h-3.5 w-3.5" />}
+                            {slugCopied ? tp('copied') : tp('copy_link')}
+                          </button>
+                        </div>
+                        <p id="route-slug-help" className={cn('text-[11px] mt-1', slugError || slugFormatInvalid ? 'text-red-700' : 'text-gray-500')}>
+                          {slugError === 'slug_taken' ? tp('slug_taken') : (slugError || slugFormatInvalid) ? tp('slug_invalid') : tp('slug_hint')}
+                        </p>
+                      </div>
+
+                      <div className="grid grid-cols-2 gap-3">
+                        <div>
+                          <p className="text-xs font-semibold text-gray-600 dark:text-gray-400 mb-1">{tp('owner_label')}</p>
+                          <p className="text-sm text-gray-800 dark:text-gray-200">
+                            {userRoute ? tp('owner_user', { nickname: appUserLabel({ nickname: initialData?.owner_nickname, user_id: initialData?.owner_user_id }) }) : tp('owner_cms')}
+                          </p>
+                          {userRoute && tripDate && <p className="text-xs text-gray-500">{tp('source_trip', { date: tripDate })}</p>}
+                        </div>
+                        <div>
+                          <p className="text-xs font-semibold text-gray-600 dark:text-gray-400 mb-1">{tp('state_label')}</p>
+                          <div className="flex items-center gap-2 flex-wrap">
+                            <span className="inline-flex px-2.5 py-1 rounded-full text-xs font-bold bg-gray-100 text-gray-800 dark:bg-gray-700 dark:text-gray-200">{tp(stateKey)}</span>
+                            {isAdmin && userRoute && (routeStatus === 'active' || routeStatus === 'pending_review') && (
+                              <button type="button" disabled={isModerating} onClick={() => moderateRoute('remove')}
+                                className="px-3 py-1 rounded-lg text-xs font-bold bg-red-700 text-white hover:bg-red-800 disabled:opacity-50">
+                                {tp('remove')}
+                              </button>
+                            )}
+                            {isAdmin && routeStatus === 'removed_by_moderation' && (
+                              <button type="button" disabled={isModerating} onClick={() => moderateRoute('restore')}
+                                className="px-3 py-1 rounded-lg text-xs font-bold bg-green-700 text-white hover:bg-green-800 disabled:opacity-50">
+                                {tp('restore')}
+                              </button>
+                            )}
+                          </div>
+                        </div>
+                      </div>
+                    </section>
+                      )
+                    })()}
 
                     {/* MODE AND PARTNER (#792) */}
                     <section className="space-y-3 pt-1 border-t border-gray-100 dark:border-gray-800">

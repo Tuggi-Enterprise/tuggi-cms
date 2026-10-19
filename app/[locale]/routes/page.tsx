@@ -7,12 +7,18 @@ import {
   Plus, Search, Route as RouteIcon, Edit, Trash2,
   Map as MapIcon, Activity, Clock, CheckCircle, XCircle,
   History, RefreshCw, X, RotateCcw, Mountain, Building2,
-  Trees, Wheat, Car, Accessibility, Globe,
+  Trees, Wheat, Car, Accessibility, Globe, Link2, Check, Inbox,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { RouteEditorModal } from '@/components/routes/RouteEditorModal'
 import { useCmsUser } from '@/lib/hooks/useCmsUser'
 import { useRouter as useLocalizedRouter } from '@/navigation'
+import { appUserLabel } from '@/lib/format/user-identity'
+import { UNKNOWN_VALUE } from '@/lib/format/unknown'
+import {
+  isUserRoute, routeAvailability, routeLink,
+  type ModerationAction, type ReportSummary, type RouteAvailability,
+} from '@/lib/routes/route-publication'
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
@@ -29,6 +35,27 @@ interface Route {
   accessibility?: string
   country?: string
   region?: string
+  // #945, present only after migration 20261019110000
+  slug?: string
+  visibility?: string
+  status?: string
+  valid_from?: string | null
+  valid_until?: string | null
+  owner_user_id?: string | null
+  moderation_reason?: string | null
+  owner_nickname?: string | null
+  in_review_queue?: boolean
+  reports?: ReportSummary
+}
+
+/** Badge of the state (spec 8.1): text always next to the color. */
+const AVAILABILITY_BADGE: Record<RouteAvailability, { key: string; className: string }> = {
+  ok:                    { key: 'state_active',             className: 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400' },
+  not_yet_valid:         { key: 'state_active',             className: 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400' },
+  expired:               { key: 'state_expired',            className: 'bg-amber-100 text-amber-800 dark:bg-amber-900/30 dark:text-amber-300' },
+  pending_review:        { key: 'state_review',             className: 'bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-300' },
+  removed_by_author:     { key: 'state_removed_author',     className: 'bg-gray-100 text-gray-700 dark:bg-gray-700 dark:text-gray-300' },
+  removed_by_moderation: { key: 'state_removed_moderation', className: 'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-300' },
 }
 
 // ─── Filter types ─────────────────────────────────────────────────────────────
@@ -58,6 +85,7 @@ const SCENIC_OPTIONS = [
 
 export default function RoutesPage() {
   const t           = useTranslations('CustomRoutes')
+  const tp          = useTranslations('CustomRoutes.publication')
   const searchParams = useSearchParams()
   const router      = useRouter()
   const pathname    = usePathname()
@@ -78,6 +106,14 @@ export default function RoutesPage() {
 
   // ── Filters state ────────────────────────────────────────────────────────
   const [filters, setFilters] = useState<Filters>(DEFAULT_FILTERS)
+
+  // ── #945: origin, review queue, copy link ────────────────────────────────
+  const [origin,      setOrigin]      = useState<'' | 'cms' | 'users'>('')
+  const [queueOnly,   setQueueOnly]   = useState(false)
+  const [publication, setPublication] = useState(false)          // migration applied
+  const [reviewCount, setReviewCount] = useState<number | null>(null) // null = no queue for this user
+  const [copiedId,    setCopiedId]    = useState<string | null>(null)
+  const [loadError,   setLoadError]   = useState(false)
   const searchTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   // ── Modal state ──────────────────────────────────────────────────────────
@@ -102,8 +138,12 @@ export default function RoutesPage() {
   }, [searchParams])
 
   // ── Fetch routes ──────────────────────────────────────────────────────────
-  const fetchRoutes = useCallback(async (f: Filters = filters, p: number = page) => {
+  const fetchRoutes = useCallback(async (
+    f: Filters = filters, p: number = page,
+    o: '' | 'cms' | 'users' = origin, q: boolean = queueOnly,
+  ) => {
     setIsLoading(true)
+    setLoadError(false)
     try {
       const params = new URLSearchParams()
       if (f.search)        params.set('search',        f.search)
@@ -112,6 +152,8 @@ export default function RoutesPage() {
       if (f.drivability)   params.set('drivability',   f.drivability)
       if (f.accessibility) params.set('accessibility', f.accessibility)
       if (f.scenic.length) params.set('scenic',        f.scenic.join(','))
+      if (o)               params.set('origin',        o)
+      if (q)               params.set('queue',         '1')
       params.set('page',     String(p))
       params.set('pageSize', String(PAGE_SIZE))
 
@@ -120,16 +162,21 @@ export default function RoutesPage() {
         const data = await res.json()
         setRoutes(data.routes || [])
         setTotal(data.total || 0)
+        setPublication(data.publication === true)
+        setReviewCount(typeof data.reviewCount === 'number' ? data.reviewCount : null)
         // Collect unique countries for filter
         const found = [...new Set((data.routes || []).map((r: Route) => r.country).filter(Boolean))] as string[]
         setCountries(prev => [...new Set([...prev, ...found])])
+      } else {
+        setLoadError(true)
       }
     } catch (err) {
       console.error('Error fetching routes:', err)
+      setLoadError(true)
     } finally {
       setIsLoading(false)
     }
-  }, [filters, page])
+  }, [filters, page, origin, queueOnly])
 
   useEffect(() => { fetchRoutes() }, []) // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -200,6 +247,41 @@ export default function RoutesPage() {
     setRoutes(prev => prev.map(r => r.id === id ? { ...r, is_active: !current } : r))
   }
 
+  // ── #945: origin, queue, moderation, copy link ────────────────────────────
+  const applyOrigin = (next: '' | 'cms' | 'users') => {
+    setOrigin(next)
+    setPage(1)
+    fetchRoutes(filters, 1, next, queueOnly)
+  }
+
+  const toggleQueue = () => {
+    const next = !queueOnly
+    setQueueOnly(next)
+    setPage(1)
+    fetchRoutes(filters, 1, origin, next)
+  }
+
+  /** BR-ROTA-006. Remove confirms by sentence (DS-COMPONENTE-013); approve does not (reversible). */
+  const moderate = async (route: Route, action: ModerationAction) => {
+    if (action === 'remove' && !confirm(tp('remove_confirm', { name: route.name, owner: appUserLabel({ nickname: route.owner_nickname, user_id: route.owner_user_id }) }))) return
+    const res = await fetch(`/api/routes/${route.id}/moderation`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ action }),
+    })
+    if (!res.ok) alert(t('editor.save_error'))
+    fetchRoutes()
+  }
+
+  const copyLink = async (route: Route) => {
+    if (!route.slug) return
+    try {
+      await navigator.clipboard.writeText(routeLink(route.slug))
+      setCopiedId(route.id)
+      setTimeout(() => setCopiedId(current => (current === route.id ? null : current)), 2000)
+    } catch { /* clipboard refused: the icon does not change */ }
+  }
+
   // ── Audit log ─────────────────────────────────────────────────────────────
   const openAudit = async (route: Route) => {
     setAuditRoute(route)
@@ -249,6 +331,22 @@ export default function RoutesPage() {
           )}
         </div>
 
+        {/* Review queue (#945, spec 8.1): admin only, after the migration */}
+        {reviewCount !== null && (
+          <button
+            type="button"
+            onClick={toggleQueue}
+            disabled={reviewCount === 0 && !queueOnly}
+            aria-pressed={queueOnly}
+            className={cn('w-full flex items-center justify-center gap-2 py-2.5 rounded-xl text-sm font-bold transition-all disabled:opacity-50 disabled:cursor-not-allowed',
+              queueOnly ? 'bg-tuggi-blue text-white' : 'bg-blue-50 text-blue-800 dark:bg-blue-900/30 dark:text-blue-200 hover:bg-blue-100'
+            )}
+          >
+            <Inbox className="h-4 w-4" />
+            {reviewCount === 0 && !queueOnly ? tp('review_queue_empty') : tp('review_queue', { count: reviewCount })}
+          </button>
+        )}
+
         {/* Search */}
         <div className="relative">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-400" />
@@ -278,6 +376,21 @@ export default function RoutesPage() {
             ))}
           </div>
         </div>
+
+        {/* Origin (#945) */}
+        {publication && (
+          <div className="space-y-2">
+            <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest">{tp('origin_label')}</p>
+            <div className="grid grid-cols-3 gap-1.5">
+              {([['', 'origin_all'], ['cms', 'origin_cms'], ['users', 'origin_users']] as const).map(([v, key]) => (
+                <button key={v} onClick={() => applyOrigin(v)} aria-pressed={origin === v}
+                  className={cn('py-1.5 px-2 rounded-lg text-xs font-semibold transition-all',
+                    origin === v ? 'bg-tuggi-blue text-white' : 'bg-gray-50 dark:bg-gray-800 text-gray-500 hover:bg-gray-100 dark:hover:bg-gray-700'
+                  )}>{tp(key)}</button>
+              ))}
+            </div>
+          </div>
+        )}
 
         {/* Country */}
         {countries.length > 0 && (
@@ -394,6 +507,19 @@ export default function RoutesPage() {
               <div className="w-12 h-12 border-4 border-tuggi-blue/20 border-t-tuggi-blue rounded-full animate-spin" />
               <p className="text-gray-500 font-medium animate-pulse">Carregando rotas...</p>
             </div>
+          ) : loadError ? (
+            <div className="py-24 flex flex-col items-center justify-center text-center px-4">
+              <XCircle className="h-10 w-10 text-red-400 mb-3" />
+              <p className="text-gray-700 dark:text-gray-300 font-semibold mb-3">Não deu para carregar as rotas.</p>
+              <button onClick={() => fetchRoutes()} className="text-tuggi-blue font-semibold hover:underline text-sm">
+                <RefreshCw className="inline h-3.5 w-3.5 mr-1" /> Tentar de novo
+              </button>
+            </div>
+          ) : routes.length === 0 && queueOnly ? (
+            <div className="py-24 flex flex-col items-center justify-center text-center px-4">
+              <Inbox className="h-12 w-12 text-gray-300 dark:text-gray-600 mb-4" />
+              <h3 className="text-xl font-bold text-gray-900 dark:text-white">{tp('review_empty_title')}</h3>
+            </div>
           ) : routes.length === 0 ? (
             <div className="py-24 flex flex-col items-center justify-center text-center px-4">
               <div className="p-4 bg-gray-50 dark:bg-gray-900 rounded-full mb-4">
@@ -438,6 +564,19 @@ export default function RoutesPage() {
                             <p className="font-bold text-gray-900 dark:text-white leading-tight truncate max-w-[480px]">
                               {route.name}
                             </p>
+                            {isUserRoute(route) && (
+                              <p className="text-xs text-gray-500 mt-0.5">{tp('owner_user', { nickname: appUserLabel({ nickname: route.owner_nickname, user_id: route.owner_user_id }) })}</p>
+                            )}
+                            {route.in_review_queue && route.status === 'pending_review' && (
+                              <p className="text-xs font-semibold text-blue-800 dark:text-blue-300 mt-0.5">
+                                {tp('reason_filter', { category: route.moderation_reason || UNKNOWN_VALUE })}
+                              </p>
+                            )}
+                            {route.in_review_queue && (route.reports?.count ?? 0) > 0 && (
+                              <p className="text-xs font-semibold text-red-700 dark:text-red-300 mt-0.5">
+                                {tp('reason_reports', { count: route.reports!.count, reasons: route.reports!.reasons.join(', ') || UNKNOWN_VALUE })}
+                              </p>
+                            )}
                             {route.description && (
                               <p className="text-xs text-gray-500 line-clamp-1 mt-0.5">{route.description}</p>
                             )}
@@ -476,6 +615,12 @@ export default function RoutesPage() {
                         )}
                       </td>
                       <td className="px-6 py-4">
+                        {publication && route.status && (isUserRoute(route) || route.status !== 'active' || routeAvailability(route) === 'expired') ? (
+                          <span className={cn('inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-bold',
+                            AVAILABILITY_BADGE[routeAvailability(route)].className)}>
+                            {tp(AVAILABILITY_BADGE[routeAvailability(route)].key)}
+                          </span>
+                        ) : (
                         <button
                           onClick={e => { e.stopPropagation(); toggleStatus(route.id, route.is_active) }}
                           className={cn(
@@ -488,9 +633,41 @@ export default function RoutesPage() {
                           {route.is_active ? <CheckCircle className="h-3 w-3" /> : <XCircle className="h-3 w-3" />}
                           {route.is_active ? 'Ativa' : 'Inativa'}
                         </button>
+                        )}
+                        {route.visibility === 'link_only' && (
+                          <span className="ml-1.5 inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-gray-100 text-gray-700 dark:bg-gray-700 dark:text-gray-300">
+                            <Link2 className="h-3 w-3" /> {tp('visibility_link_badge')}
+                          </span>
+                        )}
                       </td>
                       <td className="px-6 py-4 text-right">
                         <div className="flex items-center justify-end gap-1">
+                          {route.in_review_queue && (
+                            <>
+                              <button
+                                onClick={e => { e.stopPropagation(); moderate(route, 'approve') }}
+                                className="px-3 py-1.5 rounded-lg text-xs font-bold bg-green-700 text-white hover:bg-green-800 transition-all"
+                              >
+                                {tp('approve')}
+                              </button>
+                              <button
+                                onClick={e => { e.stopPropagation(); moderate(route, 'remove') }}
+                                className="px-3 py-1.5 rounded-lg text-xs font-bold bg-red-700 text-white hover:bg-red-800 transition-all"
+                              >
+                                {tp('remove')}
+                              </button>
+                            </>
+                          )}
+                          {route.slug && (
+                            <button
+                              onClick={e => { e.stopPropagation(); copyLink(route) }}
+                              className="p-2 text-gray-400 hover:text-tuggi-blue hover:bg-tuggi-blue/10 rounded-lg transition-all"
+                              title={copiedId === route.id ? tp('copied') : tp('copy_link')}
+                              aria-label={copiedId === route.id ? tp('copied') : tp('copy_link')}
+                            >
+                              {copiedId === route.id ? <Check className="h-4 w-4 text-green-700" /> : <Link2 className="h-4 w-4" />}
+                            </button>
+                          )}
                           <button
                             onClick={e => { e.stopPropagation(); openAudit(route) }}
                             className="p-2 text-gray-400 hover:text-tuggi-blue hover:bg-tuggi-blue/10 rounded-lg transition-all"
@@ -505,6 +682,9 @@ export default function RoutesPage() {
                           >
                             <Edit className="h-4 w-4" />
                           </button>
+                          {/* A user route is removed by moderation, never switched off: is_active false
+                              would read as "removed by the author" (core.custom_route_availability). */}
+                          {!isUserRoute(route) && (
                           <button
                             className="p-2 text-gray-400 hover:text-red-500 hover:bg-red-50 rounded-lg transition-all"
                             title="Desativar"
@@ -515,6 +695,7 @@ export default function RoutesPage() {
                           >
                             <Trash2 className="h-4 w-4" />
                           </button>
+                          )}
                         </div>
                       </td>
                     </tr>
