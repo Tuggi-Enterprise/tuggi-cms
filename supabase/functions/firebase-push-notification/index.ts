@@ -12,6 +12,17 @@ import {
   shouldAbortForBadPayload,
 } from '../_shared/fcm-errors.ts';
 import { requireAdmin } from '../_shared/auth-middleware.ts';
+// BR-COMUNICACAO-019 (#955): every push to a tourist passes this gate, here and only here.
+import {
+  emptyGateTally,
+  parsePushKind,
+  PUSH_KINDS,
+  pushGateRequest,
+  readActiveWindowDays,
+  sendThroughPushGate,
+  type PushGateOutcome,
+  type PushKind,
+} from '../_shared/push-gate.ts';
 
 /**
  * PER-LANGUAGE COPY — the payload this function accepts, and what it promises.
@@ -171,8 +182,8 @@ Deno.serve(async (req) => {
           binaryDer[i] = binaryDerString.charCodeAt(i);
         }
       } catch (e) {
-        console.error(`[${requestId}] ❌ Final atob failure:`, e.message);
-        throw new Error(`Invalid FIREBASE_PRIVATE_KEY format: ${e.message}`);
+        console.error(`[${requestId}] ❌ Final atob failure:`, (e as Error).message);
+        throw new Error(`Invalid FIREBASE_PRIVATE_KEY format: ${(e as Error).message}`);
       }
 
       // 3. Import Key
@@ -270,11 +281,24 @@ Deno.serve(async (req) => {
       };
     };
 
+    // One OAuth exchange per run. The gated send calls `sendNotification` once per person, and a
+    // token exchange per person would cost one Google round trip for each of them.
+    let accessTokenPromise: Promise<string> | null = null;
+    const getAccessToken = () => (accessTokenPromise ??= createAccessToken());
+
     // Helper: Send Notification
-    const sendNotification = async (tokens: string[], notification: any, priority: string, ttl: number) => {
+    // `brake` is shared by every call of one run: a gated send calls this once per person, and a
+    // brake that reset per person would never see the 50-attempt sample of `shouldAbortForBadPayload`.
+    const sendNotification = async (
+      tokens: string[],
+      notification: any,
+      priority: string,
+      ttl: number,
+      brake: { invalid: number; attempted: number } = { invalid: 0, attempted: 0 }
+    ) => {
       if (tokens.length === 0) return { success: 0, failure: 0, errors: [], aborted: null };
       
-      const accessToken = await createAccessToken();
+      const accessToken = await getAccessToken();
       const results = {
         success: 0,
         failure: 0,
@@ -288,17 +312,15 @@ Deno.serve(async (req) => {
       // A payload FCM rejects fails EVERY token with the same INVALID_ARGUMENT,
       // so the loop has to be able to stop itself instead of hammering FCM with
       // a request it already answered. See _shared/fcm-errors.ts for the number.
-      let invalidArgumentCount = 0;
-      let attempted = 0;
 
-      // Walk the audience in random order. `core.get_audience_push_tokens`
-      // builds it with `array_agg(DISTINCT tok)` and DISTINCT sorts, so the
-      // head of the list is the lexicographically smallest tokens in the base —
-      // rows anyone signed in can plant. Shuffling is what turns the window the
-      // brake measures into a sample of the audience. See ABORT_MIN_SAMPLE.
+      // Walk the audience in random order. Any list built in SQL with
+      // `array_agg(DISTINCT …)` comes back sorted, so its head is whatever sorts
+      // first — rows anyone signed in can plant. Shuffling (here and over the
+      // people in `gatedSendToUsers`) is what turns the window the brake measures
+      // into a sample of the audience. See ABORT_MIN_SAMPLE.
       for (const token of sampledSendOrder(tokens)) {
         const message = { message: { ...baseMessage, token } };
-        attempted++;
+        brake.attempted++;
 
         try {
           const res = await fetch(`https://fcm.googleapis.com/v1/projects/${FIREBASE_PROJECT_ID}/messages:send`, {
@@ -340,12 +362,12 @@ Deno.serve(async (req) => {
               // it "signals an invalid registration only if the payload is
               // completely valid" — which we cannot prove from here. So the
               // token stays active and the failure is loud instead of silent.
-              invalidArgumentCount++;
+              brake.invalid++;
               console.error(
-                `[${requestId}] 🚨 FCM INVALID_ARGUMENT — sender-side payload error, token KEPT ACTIVE — token=${token.substring(0, 8)} reason=${error} count=${invalidArgumentCount}/${attempted}`
+                `[${requestId}] 🚨 FCM INVALID_ARGUMENT — sender-side payload error, token KEPT ACTIVE — token=${token.substring(0, 8)} reason=${error} count=${brake.invalid}/${brake.attempted}`
               );
-              if (shouldAbortForBadPayload(invalidArgumentCount, attempted)) {
-                results.aborted = `FCM rejected the payload: INVALID_ARGUMENT on ${invalidArgumentCount} of ${attempted} tokens. Send aborted, ${tokens.length - attempted} token(s) not attempted, no token deactivated.`;
+              if (shouldAbortForBadPayload(brake.invalid, brake.attempted)) {
+                results.aborted = `FCM rejected the payload: INVALID_ARGUMENT on ${brake.invalid} of ${brake.attempted} tokens. Send aborted, the rest of the audience not attempted, no token deactivated.`;
                 results.errors.push(results.aborted);
                 console.error(`[${requestId}] ⛔ ${results.aborted}`);
                 break;
@@ -354,7 +376,7 @@ Deno.serve(async (req) => {
           }
         } catch (e) {
           results.failure++;
-          results.errors.push(`Token ${token.substring(0, 8)}...: ${e.message}`);
+          results.errors.push(`Token ${token.substring(0, 8)}...: ${(e as Error).message}`);
         }
       }
       return results;
@@ -440,8 +462,144 @@ Deno.serve(async (req) => {
           console.log(`[${requestId}] ✅ Log created:`, insertData?.[0]?.id);
         }
       } catch (e) {
-        console.error(`[${requestId}] 📝 Log function crashed:`, e.message);
+        console.error(`[${requestId}] 📝 Log function crashed:`, (e as Error).message);
       }
+    };
+
+    /**
+     * BR-COMUNICACAO-019 items 4, 5 and 9 (#955): the push goes person by person through
+     * `sendThroughPushGate`, so the cap counts people and `record_push_sent` follows what the
+     * provider accepted for that person. `kind = null` is the partner push, which the rule does
+     * not reach ("Não se aplica a: push ao parceiro").
+     *
+     * `persistInbox`: the inbox row is written only after the gate said yes, because the inbox
+     * mirrors the pushes that left; a piece the gate held back goes to the opening notice
+     * (item 6). A broadcast persists its inbox for the whole audience first (#858) and passes
+     * `false`, with `skipWithoutDevice` so nobody without a device costs a gate call.
+     */
+    const driveRpc = supabase.schema('drive');
+    let activeWindowDays: number | null | undefined;
+    const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+    const gatedSendToUsers = async (
+      userIds: string[],
+      notification: any,
+      kind: PushKind | null,
+      priority: string,
+      ttl: number,
+      opts: { persistInbox: boolean; inboxType?: string; deeplink?: string | null; skipWithoutDevice: boolean }
+    ) => {
+      const ids = [...new Set((Array.isArray(userIds) ? userIds : []).filter((id) => typeof id === 'string' && UUID_RE.test(id)))];
+      const tally = emptyGateTally();
+      const stats = { success: 0, failure: 0, errors: [] as string[], aborted: null as string | null };
+      let tokenCount = 0;
+      let unrecorded = 0;
+      if (ids.length === 0) return { stats, tally, tokenCount };
+
+      if (kind && PUSH_KINDS[kind].requiresActive && activeWindowDays === undefined) {
+        activeWindowDays = await readActiveWindowDays(driveRpc);
+      }
+
+      // The devices of the whole audience, 200 people per read instead of two reads per person.
+      const tokensByUser = new Map<string, Set<string>>();
+      const addToken = (uid: unknown, tok: unknown) => {
+        if (typeof uid !== 'string' || typeof tok !== 'string' || tok === '') return;
+        if (!tokensByUser.has(uid)) tokensByUser.set(uid, new Set());
+        tokensByUser.get(uid)!.add(tok);
+      };
+      for (let i = 0; i < ids.length; i += 200) {
+        const chunk = ids.slice(i, i + 200);
+        const [fcmResult, profileResult] = await Promise.all([
+          supabase.schema('drive').from('fcm_tokens').select('user_id, fcm_token').in('user_id', chunk).eq('is_active', true),
+          supabase.schema('drive').from('profiles').select('id, push_token').in('id', chunk),
+        ]);
+        for (const t of fcmResult.data ?? []) addToken(t.user_id, t.fcm_token);
+        for (const p of profileResult.data ?? []) addToken(p.id, p.push_token);
+      }
+
+      const brake = { invalid: 0, attempted: 0 };
+      const deliverTo = async (uid: string): Promise<boolean> => {
+        let notif = notification;
+        if (opts.persistInbox) {
+          const { data: inserted, error: insErr } = await supabase
+            .schema('drive')
+            .from('user_notifications')
+            .insert({
+              user_id: uid,
+              type: opts.inboxType ?? 'generic',
+              title: notification.title,
+              body: notification.body ?? null,
+              data: notification.data ?? {},
+              deeplink: opts.deeplink ?? null,
+            })
+            .select('id')
+            .single();
+          if (insErr) {
+            console.error(`[${requestId}] ⚠️ inbox persist failed:`, insErr.code ?? '?');
+          } else if (inserted?.id) {
+            // The device acks delivery with this id (ack_notification_delivered).
+            notif = { ...notif, data: { ...(notif.data || {}), notification_id: inserted.id } };
+          }
+        }
+        // BADGE (SSOT = inbox): a single recipient gets the unread count on the app icon. A
+        // multi-user send would pay one count per person, so it keeps the badge off.
+        if (ids.length === 1 && notif && notif.badge === undefined) {
+          const { count, error: cErr } = await supabase
+            .schema('drive')
+            .from('user_notifications')
+            .select('id', { count: 'exact', head: true })
+            .eq('user_id', uid)
+            .is('read_at', null);
+          if (!cErr && typeof count === 'number' && count > 0) notif = { ...notif, badge: count };
+        }
+        const tokens = [...(tokensByUser.get(uid) ?? [])];
+        if (tokens.length === 0) return false;
+        tokenCount += tokens.length;
+        const s = await sendNotification(tokens, notif, priority, ttl, brake);
+        stats.success += s.success;
+        stats.failure += s.failure;
+        stats.errors.push(...s.errors);
+        if (s.aborted) stats.aborted = s.aborted;
+        return s.success > 0;
+      };
+
+      // Random order for the same reason as the tokens (`sampledSendOrder`), and 10 people at a
+      // time so a broadcast to the whole base fits the function's wall clock.
+      const order = sampledSendOrder(ids);
+      for (let i = 0; i < order.length && !stats.aborted; i += 10) {
+        await Promise.all(order.slice(i, i + 10).map(async (uid) => {
+          if (opts.skipWithoutDevice && !tokensByUser.has(uid)) {
+            tally.not_delivered += 1;
+            return;
+          }
+          if (!kind) {
+            tally[(await deliverTo(uid)) ? 'sent' : 'not_delivered'] += 1;
+            return;
+          }
+          const result = await sendThroughPushGate(
+            driveRpc,
+            pushGateRequest(uid, kind),
+            activeWindowDays ?? null,
+            () => deliverTo(uid)
+          );
+          tally[result.outcome] += 1;
+          if (result.outcome === 'sent' && !result.recorded) unrecorded += 1;
+        }));
+      }
+
+      // Counts only, never an id (BR-USUARIO-043). `denied` is consent, cap or quiet hours: the
+      // SQL answers a boolean (BR-COMUNICACAO-019 item 6 wants the reason; asked of `data` on #955).
+      console.log(
+        `[${requestId}] 🚦 push gate kind=${kind ?? 'partner'} ${JSON.stringify(tally)}` +
+        (unrecorded > 0 ? ` unrecorded=${unrecorded}` : '')
+      );
+      if (tally.gate_missing > 0) {
+        console.warn(
+          `[${requestId}] 🚧 drive.push_allowed is missing: ${tally.gate_missing} unrequested push(es) withheld. ` +
+          'Expected until db-tuggiApp migration 20261019200200 is applied.'
+        );
+      }
+      return { stats, tally, tokenCount };
     };
 
     // -------- ROUTES --------
@@ -449,6 +607,11 @@ Deno.serve(async (req) => {
       const body = await req.json();
       let { notification } = body;
       const { type, userIds, topic, priority = 'normal', ttl = 3600, template, lang, data, filters } = body;
+
+      // The partner push is the one push BR-COMUNICACAO-019 does not reach. It is recognised by
+      // the template rendering its own copy: a caller that brings its own title is not a partner
+      // template and goes through the gate like everybody else.
+      const isPartnerTemplate = Boolean(template) && !notification?.title;
 
       // Localized partner-flow templates: when `template` is given and no explicit
       // notification.title was passed, render title/body from the shared i18n map.
@@ -473,8 +636,29 @@ Deno.serve(async (req) => {
       const localized: Record<string, LocalizedCopy> | undefined = body.localized;
       const localizedLangs = localized ? Object.keys(localized) : [];
 
-      let tokens = [];
-      let stats;
+      // BR-COMUNICACAO-019 item 9 (#955): a push that does not pass the gate is a defect. A topic
+      // reaches whoever subscribed with nobody counted, and a broadcast without its inbox has no
+      // list of people to count — both are refused instead of sent around the cap.
+      const refuse = (error: string, message: string) =>
+        new Response(JSON.stringify({ success: false, error, message, requestId }), {
+          status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+        });
+      if (type === 'topic') {
+        return refuse('TOPIC_NOT_GATED', 'A topic send cannot pass the per-person push cap.');
+      }
+      if (type === 'broadcast' && body.persist === false) {
+        return refuse('BROADCAST_NEEDS_INBOX', 'A broadcast is capped person by person through its inbox rows.');
+      }
+      let userKind: PushKind | null = null;
+      if (type === 'user' && !isPartnerTemplate) {
+        userKind = body.push_kind === undefined ? 'cms_direct' : parsePushKind(body.push_kind);
+        if (!userKind) return refuse('INVALID_PUSH_KIND', 'push_kind is not a known kind.');
+      }
+
+      let recipientCount = 0;
+      let stats: { success: number; failure: number; errors: string[]; aborted: string | null } =
+        { success: 0, failure: 0, errors: [], aborted: null };
+      let gateTally: Record<PushGateOutcome, number> = emptyGateTally();
       let broadcastUserIds: string[] = [];
 
       /**
@@ -484,16 +668,11 @@ Deno.serve(async (req) => {
        * warns about.
        */
       const runBroadcastPass = async (passFilters: Record<string, unknown>, notif: any) => {
-        const { data: audienceTokens, error: audienceErr } = await supabase
-          .schema('core')
-          .rpc('get_audience_push_tokens', { p_filters: passFilters });
-        if (audienceErr) throw audienceErr;
-
-        const passTokens: string[] = audienceTokens || [];
-        console.log(`[${requestId}] 🎯 broadcast audience=${passTokens.length} filters=${JSON.stringify(passFilters)}`);
-
+        // #955: the people of the audience are the inbox rows `broadcast_persist_inbox` writes for
+        // every profile of the filter (#858); the push then goes person by person through the
+        // gate, which also applies the consent `get_audience_push_tokens` used to apply in SQL.
         let passUserIds: string[] = [];
-        if (body.persist !== false && notif?.title) {
+        if (notif?.title) {
           const notifType = notif?.data?.type ?? data?.type ?? 'generic';
           const deeplink = resolveDeeplink(notif?.data, data);
           const { data: inboxIds, error: inboxErr } = await supabase
@@ -506,16 +685,17 @@ Deno.serve(async (req) => {
               p_data: notif.data ?? {},
               p_deeplink: deeplink,
             });
-          if (inboxErr) {
-            console.error(`[${requestId}] ⚠️ broadcast inbox persist failed:`, JSON.stringify(inboxErr));
-          } else {
-            passUserIds = inboxIds || [];
-            console.log(`[${requestId}] 📥 ${passUserIds.length} broadcast inbox rows persisted`);
-          }
+          // Without the inbox there is nobody to count, so there is no push either.
+          if (inboxErr) throw inboxErr;
+          passUserIds = inboxIds || [];
+          console.log(`[${requestId}] 📥 ${passUserIds.length} broadcast inbox rows persisted filters=${JSON.stringify(passFilters)}`);
         }
 
-        const passStats = await sendNotification(passTokens, notif, priority, ttl);
-        return { tokens: passTokens, userIds: passUserIds, stats: passStats };
+        const pass = await gatedSendToUsers(passUserIds, notif, 'cms_broadcast', priority, ttl, {
+          persistInbox: false,
+          skipWithoutDevice: true,
+        });
+        return { tokenCount: pass.tokenCount, userIds: passUserIds, stats: pass.stats, tally: pass.tally };
       };
 
       // ---- Per-language broadcast: one pass per key of `localized` ----
@@ -539,11 +719,12 @@ Deno.serve(async (req) => {
               ? (pass.stats.failure > 0 ? 'partial' : 'sent')
               : 'failed';
           await logResult(
-            type, notif, pass.userIds, topic, passStatus, pass.stats, passFilters, pass.tokens.length
+            type, notif, pass.userIds, topic, passStatus, pass.stats, passFilters, pass.tokenCount
           );
           passes.push({
             language: lang,
-            recipients: pass.tokens.length,
+            recipients: pass.tokenCount,
+            gate: pass.tally,
             success: pass.stats.success,
             failure: pass.stats.failure,
             status: passStatus,
@@ -564,111 +745,35 @@ Deno.serve(async (req) => {
       }
 
       if (type === 'user') {
-        // Persist one inbox row per recipient — the Notification Center mirrors
-        // every user-targeted push. `persist` defaults true; routes never reach
-        // this EF (in-app toasts) so they're naturally excluded. For a single
-        // recipient we embed the row id in the FCM data so the device can ack
-        // delivery (ack_notification_delivered).
-        if (body.persist !== false && Array.isArray(userIds) && userIds.length && notification?.title) {
-          const notifType = template
-            ? `partner_${String(template).replace(/^partner_/, '')}`
-            : (notification?.data?.type ?? data?.type ?? 'generic');
-          // Same resolver as the two broadcast paths below — this one used to
-          // read `deeplink` only, so a link typed in the CMS composer (which
-          // emits `data.url`) reached the device but never the inbox row.
-          const deeplink = resolveDeeplink(notification?.data, data);
-          const rows = userIds.map((uid: string) => ({
-            user_id: uid,
-            type: notifType,
-            title: notification.title,
-            body: notification.body ?? null,
-            data: notification.data ?? {},
-            deeplink,
-          }));
-          try {
-            const { data: inserted, error: insErr } = await supabase
-              .schema('drive')
-              .from('user_notifications')
-              .insert(rows)
-              .select('id');
-            if (insErr) {
-              console.error(`[${requestId}] ⚠️ inbox persist failed:`, JSON.stringify(insErr));
-            } else if (inserted?.length === 1) {
-              notification = {
-                ...notification,
-                data: { ...(notification.data || {}), notification_id: inserted[0].id },
-              };
-              console.log(`[${requestId}] 📥 inbox row ${inserted[0].id} persisted`);
-            } else {
-              console.log(`[${requestId}] 📥 ${inserted?.length ?? 0} inbox rows persisted`);
-            }
-          } catch (e) {
-            console.error(`[${requestId}] ⚠️ inbox persist exception:`, (e as Error).message);
-          }
-        }
-
-        // ✅ BADGE (default, SSOT = inbox): for a SINGLE recipient, set the
-        // app-icon badge to their current unread count so the Tuggi icon shows
-        // the number and draws attention. Absolute value → aps.badge (iOS) /
-        // notificationCount (Android); the app clears it on foreground. A
-        // multi-user send shares one FCM message, so a per-user badge isn't
-        // possible there. An explicit caller-provided badge is respected.
-        if (
-          Array.isArray(userIds) &&
-          userIds.length === 1 &&
-          notification &&
-          notification.badge === undefined
-        ) {
-          try {
-            const { count, error: cErr } = await supabase
-              .schema('drive')
-              .from('user_notifications')
-              .select('id', { count: 'exact', head: true })
-              .eq('user_id', userIds[0])
-              .is('read_at', null);
-            if (!cErr && typeof count === 'number' && count > 0) {
-              notification = { ...notification, badge: count };
-              console.log(`[${requestId}] 🔢 badge set to ${count} (unread)`);
-            }
-          } catch (e) {
-            console.warn(`[${requestId}] ⚠️ badge count failed:`, (e as Error).message);
-          }
-        }
-
-        // Fetch from both tables to ensure we have the latest "organized" token too
-        const [fcmResult, profileResult] = await Promise.all([
-          supabase.schema('drive').from('fcm_tokens').select('fcm_token').in('user_id', userIds).eq('is_active', true),
-          supabase.schema('drive').from('profiles').select('push_token').in('id', userIds)
-        ]);
-        
-        const fcmTokens = fcmResult.data?.map(t => t.fcm_token) || [];
-        const profileTokens = profileResult.data?.map(p => p.push_token).filter(Boolean) || [];
-        
-        tokens = Array.from(new Set([...fcmTokens, ...profileTokens]));
-        stats = await sendNotification(tokens, notification, priority, ttl);
+        // One inbox row per recipient the gate let through — the Notification Center mirrors
+        // every user-targeted push that left. `persist` defaults true; routes never reach this
+        // EF (in-app toasts) so they're naturally excluded. Each row id rides in the FCM data so
+        // the device can ack delivery (ack_notification_delivered).
+        const notifType = template
+          ? `partner_${String(template).replace(/^partner_/, '')}`
+          : (notification?.data?.type ?? data?.type ?? 'generic');
+        // Same resolver as the two broadcast paths below — this one used to
+        // read `deeplink` only, so a link typed in the CMS composer (which
+        // emits `data.url`) reached the device but never the inbox row.
+        const deeplink = resolveDeeplink(notification?.data, data);
+        const sent = await gatedSendToUsers(userIds, notification, userKind, priority, ttl, {
+          persistInbox: body.persist !== false && Boolean(notification?.title),
+          inboxType: notifType,
+          deeplink,
+          skipWithoutDevice: false,
+        });
+        stats = sent.stats;
+        gateTally = sent.tally;
+        recipientCount = sent.tokenCount;
       } else if (type === 'broadcast') {
-        // Audience is resolved in SQL (core.get_audience_push_tokens) so platform/
-        // language/tier filters are applied via the profiles JOIN — fcm_tokens has
-        // no platform column. Empty filters → whole base. SSOT shared with the
-        // estimate + newsletter RPCs (core.build_audience_filter).
+        // Audience is resolved in SQL (core.build_audience_filter, through
+        // broadcast_persist_inbox) so platform/language/tier filters are applied via the
+        // profiles table. Empty filters → whole base.
         const pass = await runBroadcastPass(filters ?? {}, notification);
-        tokens = pass.tokens;
+        recipientCount = pass.tokenCount;
         broadcastUserIds = pass.userIds;
         stats = pass.stats;
-      } else if (type === 'topic') {
-        // Topic send (direct call to FCM)
-        const accessToken = await createAccessToken();
-        const baseMessage = constructMessage(notification, priority, ttl);
-        const res = await fetch(`https://fcm.googleapis.com/v1/projects/${FIREBASE_PROJECT_ID}/messages:send`, {
-          method: 'POST',
-          headers: { 'Authorization': `Bearer ${accessToken}`, 'Content-Type': 'application/json' },
-          body: JSON.stringify({ message: { ...baseMessage, topic } }),
-        });
-        const data = await res.json();
-        stats = res.ok ? { success: 1, failure: 0 } : { success: 0, failure: 1, errors: [data.error?.message] };
-        if (!res.ok) {
-          console.error(`[${requestId}] ❌ Topic FCM Error:`, JSON.stringify(data));
-        }
+        gateTally = pass.tally;
       }
 
       const logUserIds = type === 'broadcast' ? broadcastUserIds : userIds;
@@ -692,7 +797,7 @@ Deno.serve(async (req) => {
         // The history showed "All Users" for every broadcast because the segment was never
         // written down. A `user`/`topic` send has no audience filter, and null says so.
         type === 'broadcast' ? (filters ?? {}) : null,
-        type === 'topic' ? 1 : tokens.length
+        recipientCount
       );
 
       if (stats.aborted) {
@@ -710,7 +815,7 @@ Deno.serve(async (req) => {
         });
       }
 
-      return new Response(JSON.stringify({ success: true, result: stats }), {
+      return new Response(JSON.stringify({ success: true, result: stats, gate: gateTally }), {
         headers: { ...corsHeaders, 'Content-Type': 'application/json' },
       });
     }
@@ -730,6 +835,12 @@ Deno.serve(async (req) => {
 
       if (!scheduleAt) {
         return new Response(JSON.stringify({ error: 'scheduleAt is required' }), {
+          status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+        });
+      }
+      // Same refusal as /send (#955, BR-COMUNICACAO-019 item 9): a topic cannot be capped.
+      if (type === 'topic') {
+        return new Response(JSON.stringify({ error: 'TOPIC_NOT_GATED' }), {
           status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' },
         });
       }
@@ -788,8 +899,8 @@ Deno.serve(async (req) => {
       const results = [];
 
       for (const item of pending) {
-        let tokens = [];
         let stats;
+        let recipientCount = 0;
         let scheduledBroadcastIds: string[] = [];
 
         // Mark as processing to avoid double-spend
@@ -798,24 +909,20 @@ Deno.serve(async (req) => {
             .eq('id', item.id);
 
         try {
+            const itemNotification = { title: item.title, body: item.body, data: item.data };
+            const itemPriority = item.priority || 'normal';
+            const itemTtl = item.ttl || 3600;
             if (item.type === 'user') {
-                const [fcmResult, profileResult] = await Promise.all([
-                   supabase.schema('drive').from('fcm_tokens').select('fcm_token').in('user_id', item.user_ids).eq('is_active', true),
-                   supabase.schema('drive').from('profiles').select('push_token').in('id', item.user_ids)
-                ]);
-                const fcmTokens = fcmResult.data?.map(t => t.fcm_token) || [];
-                const profileTokens = profileResult.data?.map(p => p.push_token).filter(Boolean) || [];
-                tokens = Array.from(new Set([...fcmTokens, ...profileTokens]));
+                // The scheduled direct send passes the same gate as /send (#955).
+                const sent = await gatedSendToUsers(item.user_ids, itemNotification, 'cms_direct', itemPriority, itemTtl, {
+                    persistInbox: false,
+                    skipWithoutDevice: false,
+                });
+                stats = sent.stats;
+                recipientCount = sent.tokenCount;
             } else if (item.type === 'broadcast') {
-                // Same SSOT audience resolver as the immediate /send broadcast path.
-                const { data: audienceTokens, error: audienceErr } = await supabase
-                    .schema('core')
-                    .rpc('get_audience_push_tokens', { p_filters: item.audience_filters ?? {} });
-                if (audienceErr) throw audienceErr;
-                tokens = audienceTokens || [];
-                console.log(`[${requestId}] 🎯 scheduled broadcast ${item.id} audience=${tokens.length}`);
-
-                // Mirror into the inbox (SSOT for the in-app Notification Center).
+                // Same audience as the immediate /send broadcast: the inbox rows of the filter
+                // (#858), then person by person through the gate (#955).
                 if (item.title) {
                     const notifType = item.data?.type ?? 'generic';
                     // `item.data` is the `notification.data` frozen by /schedule.
@@ -830,21 +937,20 @@ Deno.serve(async (req) => {
                             p_data: item.data ?? {},
                             p_deeplink: deeplink,
                         });
-                    if (inboxErr) {
-                        console.error(`[${requestId}] ⚠️ scheduled broadcast inbox persist failed:`, JSON.stringify(inboxErr));
-                    } else {
-                        scheduledBroadcastIds = inboxIds || [];
-                        console.log(`[${requestId}] 📥 ${scheduledBroadcastIds.length} scheduled broadcast inbox rows persisted`);
-                    }
+                    if (inboxErr) throw inboxErr;
+                    scheduledBroadcastIds = inboxIds || [];
+                    console.log(`[${requestId}] 📥 ${scheduledBroadcastIds.length} scheduled broadcast inbox rows persisted`);
                 }
-            } else if (item.type === 'topic') {
-                // Topic send (direct call to FCM in sendNotification helper if topic is provided)
-                // For simplicity, we handle it as topic in sendNotification logic if type is topic
-                // But current sendNotification needs tokens. Let's adapt if needed or use logic from /send
+                const pass = await gatedSendToUsers(scheduledBroadcastIds, itemNotification, 'cms_broadcast', itemPriority, itemTtl, {
+                    persistInbox: false,
+                    skipWithoutDevice: true,
+                });
+                stats = pass.stats;
+                recipientCount = pass.tokenCount;
+            } else {
+                // A topic item (scheduled before #955) cannot pass the cap: it fails loudly.
+                throw new Error('TOPIC_NOT_GATED');
             }
-
-            // Note: priority and ttl come from scheduled_notifications columns if they exist
-            stats = await sendNotification(tokens, { title: item.title, body: item.body, data: item.data }, item.priority || 'normal', item.ttl || 3600);
 
             // Same rule as /send: an aborted run never counts as sent. Only this
             // item is abandoned — each pending row carries its own payload, so a
@@ -874,14 +980,14 @@ Deno.serve(async (req) => {
                 itemStatus,
                 stats,
                 item.type === 'broadcast' ? (item.audience_filters ?? {}) : null,
-                item.type === 'topic' ? 1 : tokens.length
+                recipientCount
             );
             results.push({ id: item.id, status: itemStatus, ...(stats.aborted ? { aborted: stats.aborted } : {}) });
 
         } catch (e) {
-            console.error(`[${requestId}] ⚠️ Failed processing notification ${item.id}:`, e.message);
+            console.error(`[${requestId}] ⚠️ Failed processing notification ${item.id}:`, (e as Error).message);
             await supabase.schema('marketing').from('scheduled_notifications')
-                .update({ status: 'failed', error_details: e.message })
+                .update({ status: 'failed', error_details: (e as Error).message })
                 .eq('id', item.id);
         }
       }

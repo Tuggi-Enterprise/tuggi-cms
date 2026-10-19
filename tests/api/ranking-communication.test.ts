@@ -65,6 +65,7 @@ const consent = (over: Record<string, unknown> = {}) => ({
   email_opt_in: true,
   push_notifications_enabled: true,
   has_live_push_token: true,
+  active_recently: true,
   ...over,
 })
 
@@ -378,4 +379,47 @@ test('CLAUDE.md §6 / BR-MONETIZACAO-081 item 6.6: the orchestrator consumes the
   // No second predicate: the constants of the rule appear in the shared module and nowhere else.
   assert.equal(/DISPUTE_POINT_DISTANCE\s*=/.test(source), false)
   assert.equal(/points_official\s*>\s*0/.test(source), false)
+})
+
+// ---------------------------------------------------------------------------------------------
+// BR-COMUNICACAO-019 (#955) — ranking push only for whoever is using the app, and one deferral
+// ---------------------------------------------------------------------------------------------
+
+test('BR-COMUNICACAO-019 item 3.j: a push-reachable account not using the app gets the e-mail, not the push', () => {
+  assert.equal(mod.resolveRankingChannel(consent({ active_recently: false })), 'email')
+  // Without the e-mail consent there is nothing left: the push is not the fallback of the e-mail.
+  assert.equal(mod.resolveRankingChannel(consent({ active_recently: false, email_opt_in: null })), null)
+})
+
+test('BR-COMUNICACAO-019 item 2: "using the app" not measured is not inactive, so nothing leaves', () => {
+  assert.equal(mod.resolveRankingChannel(consent({ active_recently: null })), null)
+  // Whoever push cannot reach anyway keeps the e-mail: activity changes nothing for them.
+  assert.equal(
+    mod.resolveRankingChannel(consent({ active_recently: null, has_live_push_token: false })),
+    'email'
+  )
+})
+
+test('BR-COMUNICACAO-019 item 2: an account using the app keeps the push', () => {
+  assert.equal(mod.resolveRankingChannel(consent({ active_recently: true })), 'push')
+})
+
+test('BR-COMUNICACAO-019 item 5: denied at the first evaluation (07:00 local, quiet hours) is deferred once', () => {
+  assert.equal(mod.dailyWindowStep('denied', 0), 'defer')
+  // The second denial closes the day: there is no second deferral.
+  assert.equal(mod.dailyWindowStep('denied', 1), 'close')
+  assert.equal(mod.dailyWindowStep('denied', 4), 'close')
+})
+
+test('BR-COMUNICACAO-019 item 5: sent, inactive, missing gate and no device close the day', () => {
+  for (const outcome of ['sent', 'inactive', 'gate_missing', 'not_delivered']) {
+    assert.equal(mod.dailyWindowStep(outcome, 0), 'close', outcome)
+  }
+})
+
+test('#955: a failed delivery or an unanswered gate is retried, not deferred', () => {
+  for (const outcome of ['error', 'failed', 'gate_error']) {
+    assert.equal(mod.dailyWindowStep(outcome, 0), 'retry', outcome)
+    assert.equal(mod.dailyWindowStep(outcome, 3), 'retry', outcome)
+  }
 })

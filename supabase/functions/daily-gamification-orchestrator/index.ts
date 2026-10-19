@@ -8,15 +8,16 @@ import { getSecretKey } from '../_shared/supabase-client.ts';
 // `drive.trigger_fomo_orchestrator()` — ja manda o `ef_secret_key` do Vault, que e exatamente o
 // que `isOwnMachineKey` aceita. BR-COMUNICACAO-012, BR-USUARIO-043.
 import { requireAdmin } from '../_shared/auth-middleware.ts';
-// The copy of this push lives in _shared/daily-push-i18n.ts, outside this file,
-// because this one imports a remote URL and therefore cannot be loaded by a
-// test. Spec: docs/design/copy-push-diario-2026-08.md.
-import { getTranslation } from '../_shared/daily-push-i18n.ts';
+// #955: the daily retrospective (`daily_fomo`) left the push — BR-COMUNICACAO-019 item 3.i moves
+// it to the first opening of the day. What this window still pushes is the ranking piece, and it
+// passes the one gate of `firebase-push-notification` (`_shared/push-gate.ts`).
+import { readActiveWindowDays, readUserActive, singleGateOutcome } from '../_shared/push-gate.ts';
 // The ranking pieces of #747 ride THIS daily window and never schedule one of their own —
 // BR-COMUNICACAO-012 item 1.4.e. The decision of who gets what lives in `_shared`, pure and
 // tested (`tests/api/ranking-communication.test.ts`); this file only reads, dispatches and logs.
 import {
   buildRankingDispatch,
+  dailyWindowStep,
   RANKING_PUSH_TYPE,
   RANKING_PUSH_TYPES,
   type RankingDecision,
@@ -150,7 +151,29 @@ async function collectRankingDispatch(
       email_opt_in: (row.email_opt_in as boolean | null) ?? null,
       push_notifications_enabled: (row.push_notifications_enabled as boolean | null) ?? null,
       has_live_push_token: liveTokenUserIds.has(id) || Boolean(row.push_token),
+      active_recently: null,
     });
+  }
+
+  // "Using the app" — BR-COMUNICACAO-019 item 2, decided by `drive.user_active_within_days` with
+  // the window of `drive.unrequested_push_policy()` and never a 7 written here. Asked only for
+  // whoever push could reach: for anybody else the answer changes nothing. A failed read stays
+  // `null`, and `resolveRankingChannel` sends `null` nowhere.
+  const activeWindowDays = await readActiveWindowDays(client);
+  const pushReachable = [...consentByUserId.values()].filter(
+    (c) => c.ranking_opt_in === true && c.push_notifications_enabled === true && c.has_live_push_token
+  );
+  if (activeWindowDays === null && pushReachable.length > 0) {
+    console.warn(
+      `[${requestId}] ⚠️ ranking: "using the app" not measurable — no ranking push today. ` +
+      'Expected until db-tuggiApp migration 20261019200200 is applied.'
+    );
+  } else if (activeWindowDays !== null) {
+    for (let i = 0; i < pushReachable.length; i += 10) {
+      await Promise.all(pushReachable.slice(i, i + 10).map(async (c) => {
+        c.active_recently = await readUserActive(client, c.user_id, activeWindowDays);
+      }));
+    }
   }
 
   // The rank we last TOLD them. Ordered newest first, so the first row per user wins.
@@ -412,14 +435,18 @@ Deno.serve(async (req) => {
 
     // Calculate 'yesterday' to match the summary_date logic (CURRENT_DATE - 1)
     const yesterdayDate = new Date(Date.now() - 86400000).toISOString().split('T')[0];
-    const userIdsNotified = [];
+    // Accounts whose day is closed: marked notified below, so the next hourly run skips them.
+    const userIdsNotified: string[] = [];
+    // Accounts that come back on the next hourly run: the one deferral of BR-COMUNICACAO-019
+    // item 5, or a retry after a failed delivery. Both spend one `attempt_count`.
+    const userIdsAgain: string[] = [];
     // O que volta ao chamador e CONTAGEM, nunca identidade: `results[]` devolvia o `user_id` real
     // de cada conta da janela mais o estado de ranking dela — dado pessoal pseudonimizado saindo
     // num corpo HTTP (BR-USUARIO-043). O detalhe por conta e do log, e la tambem sem apelido.
-    const resultsByKind: Record<string, { sent: number; error: number }> = {};
-    const tally = (kind: string, outcome: 'sent' | 'error') => {
-      const row = (resultsByKind[kind] ??= { sent: 0, error: 0 });
-      row[outcome] += 1;
+    const resultsByKind: Record<string, Record<string, number>> = {};
+    const tally = (kind: string, outcome: string) => {
+      const row = (resultsByKind[kind] ??= {});
+      row[outcome] = (row[outcome] ?? 0) + 1;
     };
 
     // 1b. The ranking pieces of #747 ride this same window — BR-COMUNICACAO-012 item 1.4.e.
@@ -434,21 +461,25 @@ Deno.serve(async (req) => {
       ranking.streakDaysByUserId
     );
 
+    // 1c. The attempts already spent on yesterday's row: the deferral happens once, never twice.
+    const attemptsByUserId = new Map<string, number>();
+    const { data: attemptRows, error: attemptErr } = await driveClient
+      .from('daily_user_fomo_stats')
+      .select('user_id, attempt_count')
+      .in('user_id', candidateIds)
+      .eq('summary_date', yesterdayDate);
+    if (attemptErr) console.warn(`[${requestId}] ⚠️ attempt count read failed (${attemptErr.code ?? '?'}) — no deferral this run.`);
+    for (const r of (attemptRows ?? []) as Array<Record<string, unknown>>) {
+      attemptsByUserId.set(String(r.user_id), Number(r.attempt_count ?? 0));
+    }
+
     // 2. Send Push directly via firebase-push-notification/send (EF-to-EF)
     const pushUrl = `${supabaseUrl}/functions/v1/firebase-push-notification/send`;
     let rankingSent = 0;
 
     for (const user of candidates) {
-      const i18n = getTranslation(user.language);
-
-      const messageBody = user.heard_count > 0
-        ? i18n.body(user.nickname || i18n.fallback, user.heard_count, user.missed_count)
-        : i18n.body_zero_heard(user.nickname || i18n.fallback, user.missed_count);
-
-      // THE DAILY SLOT IS ONE, AND THE RANKING TAKES IT — BR-COMUNICACAO-014 item 4: a ranking
-      // piece is a service push (item 2.2) and `daily_fomo` is promotional (item 2.3), so the
-      // retrospective is the one that yields. This is not a second send: it is the same slot,
-      // carrying the more urgent of the two.
+      // One piece per person per day, the most perishable (BR-COMUNICACAO-012 item 1.4.e), and
+      // whether it may leave NOW is the gate's: cap, quiet hours, consent (BR-COMUNICACAO-019).
       const decision = ranking.byUserId.get(user.user_id);
       const rankingLang = normalizeCopyLang(user.language);
       const rankingCopy = decision
@@ -466,9 +497,7 @@ Deno.serve(async (req) => {
           )
         : null;
 
-      // Copy missing = the piece does NOT leave, and the slot goes back to the retrospective.
-      // The catalogue in `_shared/ranking-comm-i18n.ts` is empty until `design` fills it, so this
-      // is today's normal path and not an error.
+      // Copy missing = the piece does NOT leave. Nothing else takes the slot any more.
       if (decision && !rankingCopy) {
         console.log(
           `[${requestId}] 🔇 ranking: '${decision.piece}' has no copy in ` +
@@ -476,12 +505,11 @@ Deno.serve(async (req) => {
         );
       }
 
-      // The ranking piece, when there is one AND it has copy. Built beside the retrospective and
-      // not in place of it: `payload` below stays a plain literal so the source ruler of
-      // `tests/api/edge-daily-push-copy.test.ts` keeps reading the `daily_fomo` data bag.
       const rankingPayload = rankingCopy && decision ? {
         type: 'user',
         userIds: [user.user_id],
+        // The kind the gate counts (`_shared/push-gate.ts`, `PUSH_KINDS`).
+        push_kind: RANKING_PUSH_TYPE[decision.piece],
         notification: {
           title: rankingCopy.title,
           body: rankingCopy.body,
@@ -501,36 +529,15 @@ Deno.serve(async (req) => {
         ttl: 86400,
       } : null;
 
-      const kind = rankingPayload && decision ? decision.piece : 'daily_fomo';
+      // Nothing to push today: the day is closed for this account.
+      if (!rankingPayload || !decision) {
+        userIdsNotified.push(user.user_id);
+        continue;
+      }
+      const kind = decision.piece;
 
+      let outcome: string;
       try {
-        const payload = {
-          type: 'user',
-          userIds: [user.user_id],
-          notification: {
-            title: i18n.title,
-            body: messageBody,
-            // `type` is NOT decoration. The app only records an open when
-            // `data.type` is present (firebaseMessaging.ts, both
-            // onNotificationOpenedApp and getInitialNotification), so without it
-            // this push produced zero open events since it shipped; and
-            // firebase-push-notification writes `data.type ?? 'generic'` into
-            // drive.user_notifications.type, so every daily row landed in the
-            // inbox as `generic`. snake_case, like `partner_approved`.
-            // deeplink → app opens the Explore/Discover sheet on nearby
-            // attractions so the tap lands somewhere actionable (was: no
-            // deeplink → fell into the inbox and went nowhere on tap).
-            data: {
-              type: 'daily_fomo',
-              source: 'daily-fomo',
-              date: new Date().toISOString().split('T')[0],
-              deeplink: 'tuggi://map',
-            }
-          },
-          priority: 'high',
-          ttl: 86400
-        };
-
         const pushResponse = await fetch(pushUrl, {
           method: 'POST',
           headers: {
@@ -538,28 +545,33 @@ Deno.serve(async (req) => {
             'Authorization': `Bearer ${supabaseKey}`,
             'apikey': supabaseKey
           },
-          body: JSON.stringify(rankingPayload ?? payload)
+          body: JSON.stringify(rankingPayload)
         });
 
         if (!pushResponse.ok) {
           const errText = await pushResponse.text();
-          throw new Error(`Edge Function returned a non-2xx status code: ${pushResponse.status} ${pushResponse.statusText} - ${errText}`);
+          throw new Error(`Edge Function returned a non-2xx status code: ${pushResponse.status} ${pushResponse.statusText} - ${errText.slice(0, 300)}`);
         }
-
-        const pushResult = await pushResponse.json();
-
-        if (rankingPayload) rankingSent += 1;
-        // Sem apelido no log: a linha imprimia `user.nickname`, que e o nome de exibicao da conta,
-        // num fluxo de log que nao e lugar para ele.
-        console.log(`[${requestId}] 📲 Push (${kind}) sent`, JSON.stringify(pushResult));
-        tally(kind, 'sent');
-        userIdsNotified.push(user.user_id);
-
-      } catch (pushErr: any) {
-        console.error(`[${requestId}] ⚠️ Push failed for ${user.user_id}:`, pushErr.message);
-        tally(kind, 'error');
-        await driveClient.rpc('increment_fomo_attempt', { p_user_id: user.user_id, p_date: yesterdayDate });
+        // A `/send` deployed before #955 answers without `gate`; a 2xx from it was a send.
+        outcome = singleGateOutcome(await pushResponse.json()) ?? 'sent';
+      } catch (pushErr) {
+        // Sem user_id no log (BR-USUARIO-043).
+        console.error(`[${requestId}] ⚠️ Push (${kind}) failed:`, (pushErr as Error).message);
+        outcome = 'error';
       }
+
+      tally(kind, outcome);
+      if (outcome === 'sent') rankingSent += 1;
+      // The gate answered "denied" at the first evaluation of the day — 07:00 local, inside the
+      // quiet hours — so the piece is evaluated once more on the next hourly run, from scratch:
+      // a streak that stopped being true by then is not chosen again (BR-COMUNICACAO-019 item 5).
+      const step = dailyWindowStep(outcome, attemptsByUserId.get(user.user_id) ?? (attemptErr ? 1 : 0));
+      if (step === 'close') userIdsNotified.push(user.user_id);
+      else userIdsAgain.push(user.user_id);
+    }
+
+    for (const userId of userIdsAgain) {
+      await driveClient.rpc('increment_fomo_attempt', { p_user_id: userId, p_date: yesterdayDate });
     }
 
     // 3. Mark cache as notified to avoid double-send
@@ -578,11 +590,16 @@ Deno.serve(async (req) => {
     }
 
     const duration = Date.now() - startTime;
-    console.log(`[${requestId}] ✅ Orchestration finished in ${duration}ms. Sent: ${userIdsNotified.length}/${candidates.length}`);
+    console.log(
+      `[${requestId}] ✅ Orchestration finished in ${duration}ms. Ranking pushes sent: ${rankingSent}, ` +
+      `closed: ${userIdsNotified.length}, again next hour: ${userIdsAgain.length}, of ${candidates.length}`
+    );
 
     return new Response(JSON.stringify({
       success: true,
-      sent: userIdsNotified.length,
+      sent: rankingSent,
+      closed: userIdsNotified.length,
+      again: userIdsAgain.length,
       total: candidates.length,
       ranking_sent: rankingSent,
       ranking_email_sent: rankingEmailSent,

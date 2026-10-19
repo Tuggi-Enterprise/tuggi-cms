@@ -105,6 +105,11 @@ export interface RecipientConsent {
   push_notifications_enabled: boolean | null;
   /** A live token exists for this account — the thing an uninstall kills. */
   has_live_push_token: boolean;
+  /**
+   * Opened the app or had the guide on within the window of BR-COMUNICACAO-019 item 2
+   * (`drive.user_active_within_days`). `null` = NOT MEASURED, which is not "inactive".
+   */
+  active_recently: boolean | null;
 }
 
 export interface RankingDispatchInput {
@@ -294,11 +299,14 @@ export function selectRankingPiece(
 }
 
 /**
- * Which channel reaches this person — BR-COMUNICACAO-012 item 1.4.a and BR-COMUNICACAO-017 item 2.
+ * Which channel reaches this person — BR-COMUNICACAO-012 item 1.4.a, BR-COMUNICACAO-017 item 2 and
+ * BR-COMUNICACAO-019 item 3.j.
  *
  * `null` for "no recipient", and that is the common answer, not the exception:
  *   - without the scoreboard opt-in there is no recipient at all, on any channel;
- *   - push needs its own opt-in AND a live token;
+ *   - push needs its own opt-in AND a live token AND someone using the app (019 item 2). Whoever
+ *     push could reach but is not using the app gets the e-mail instead, with its consent;
+ *     whoever we could not measure gets nothing today, because unknown is not inactive;
  *   - e-mail is only for whoever push does not reach, and needs the third consent. The same
  *     piece never leaves by both channels for the same person in the same cycle, which this
  *     function guarantees by construction: it returns one value.
@@ -310,9 +318,34 @@ export function selectRankingPiece(
 export function resolveRankingChannel(consent: RecipientConsent | undefined): RankingChannel | null {
   if (!consent) return null;
   if (consent.ranking_opt_in !== true) return null;
-  if (consent.push_notifications_enabled === true && consent.has_live_push_token) return 'push';
+  if (consent.push_notifications_enabled === true && consent.has_live_push_token) {
+    if (consent.active_recently === true) return 'push';
+    if (consent.active_recently === null) return null;
+  }
   if (consent.email_opt_in === true) return 'email';
   return null;
+}
+
+/**
+ * What the daily window does with an account after trying its piece — BR-COMUNICACAO-019 item 5.
+ *
+ * The window first sees an account at 07:00 local (`drive.get_morning_push_candidates`), which is
+ * inside the quiet hours, so the gate answers `denied`. The account is then evaluated ONCE more on
+ * the next hourly run (08:00 local), from scratch: the cap is asked again, and a piece that stopped
+ * being true by then (the streak turns at midnight UTC) is simply not chosen. A second `denied`
+ * closes the day. `attemptsSoFar` is `daily_user_fomo_stats.attempt_count`, which every pass that
+ * comes back spends, so "once" is counted by the database and not by memory.
+ *
+ * - `close`: mark the day notified; nothing more today.
+ * - `defer`: the one deferral.
+ * - `retry`: the delivery or the gate failed; the next run tries again (`attempt_count < 5`).
+ */
+export type DailyWindowStep = 'close' | 'defer' | 'retry';
+
+export function dailyWindowStep(outcome: string, attemptsSoFar: number): DailyWindowStep {
+  if (outcome === 'error' || outcome === 'failed' || outcome === 'gate_error') return 'retry';
+  if (outcome === 'denied' && attemptsSoFar === 0) return 'defer';
+  return 'close';
 }
 
 /**
