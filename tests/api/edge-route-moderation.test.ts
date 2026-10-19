@@ -97,3 +97,103 @@ test('#945: the EF wires the filter to set_route_moderation_result and screens t
   assert.match(source, /if \(routeData\.userRoute\)/, 'the user-route branch is decided by the stored row')
   assert.match(source, /error\?\.code === '42703'/, 'before the migration owner_user_id is absent and the CMS route path still works')
 })
+
+// ── Batch mode: first screening of freshly published user routes (#945) ──────────────────────────
+
+function batchDeps(routes: Array<{ id: string; metadata: Record<string, unknown> | null }>, outcome: Record<string, 'pass' | 'flag' | 'fail'>) {
+  const screened: string[] = []
+  const attempts: Array<{ id: string; attempts: number }> = []
+  const listCalls: Array<{ limit: number; maxAttempts: number }> = []
+  return {
+    screened,
+    attempts,
+    listCalls,
+    deps: {
+      listPending: async (limit: number, maxAttempts: number) => { listCalls.push({ limit, maxAttempts }); return routes.slice(0, limit) },
+      screenRoute: async (id: string) => {
+        screened.push(id)
+        if (outcome[id] === 'fail') throw new Error('All Gemini translation models failed')
+        return { flagged: outcome[id] === 'flag' }
+      },
+      recordFailedAttempt: async (route: { id: string }, n: number) => { attempts.push({ id: route.id, attempts: n }) },
+    },
+  }
+}
+
+test('BR-ROTA-006 batch: an empty queue answers zero counts and screens nothing', async () => {
+  const run = batchDeps([], {})
+  const out = await mod.handleModerationBatch(true, { mode: 'moderate_pending_user_routes', limit: 20 }, run.deps)
+  assert.equal(out.status, 200)
+  assert.deepEqual(out.body, { success: true, mode: 'moderate_pending_user_routes', selected: 0, passed: 0, flagged: 0, failed: 0, exhausted: 0 })
+  assert.deepEqual(run.listCalls, [{ limit: 20, maxAttempts: 3 }])
+})
+
+test('BR-ROTA-006 batch: a clean route passes and an improper one is held, each counted', async () => {
+  const run = batchDeps([{ id: 'a', metadata: null }, { id: 'b', metadata: { source: 'user_trip' } }], { a: 'pass', b: 'flag' })
+  const out = await mod.handleModerationBatch(true, { mode: 'moderate_pending_user_routes', limit: 20 }, run.deps)
+  assert.equal(out.status, 200)
+  assert.equal(out.body.passed, 1)
+  assert.equal(out.body.flagged, 1)
+  assert.equal(out.body.failed, 0)
+  assert.deepEqual(run.screened.sort(), ['a', 'b'])
+  assert.deepEqual(run.attempts, [], 'a verdict is not a failed attempt')
+})
+
+test('BR-ROTA-006 batch: an LLM failure on one route does not stop the batch and counts the attempt', async () => {
+  const routes = [
+    { id: 'a', metadata: null },
+    { id: 'b', metadata: { source: 'user_trip', moderation_attempts: 2 } },
+    { id: 'c', metadata: { moderation_attempts: 1 } },
+    { id: 'd', metadata: null }, { id: 'e', metadata: null }, { id: 'f', metadata: null },
+  ]
+  const run = batchDeps(routes, { a: 'fail', b: 'fail', c: 'pass', d: 'pass', e: 'pass', f: 'flag' })
+  const out = await mod.handleModerationBatch(true, { mode: 'moderate_pending_user_routes', limit: 20 }, run.deps)
+  assert.equal(out.status, 200)
+  assert.deepEqual(
+    { selected: out.body.selected, passed: out.body.passed, flagged: out.body.flagged, failed: out.body.failed, exhausted: out.body.exhausted },
+    { selected: 6, passed: 3, flagged: 1, failed: 2, exhausted: 1 },
+  )
+  assert.equal(run.screened.length, 6, 'every route of the batch, including the ones after the failures')
+  assert.deepEqual(run.attempts.sort((x, y) => x.id.localeCompare(y.id)), [{ id: 'a', attempts: 1 }, { id: 'b', attempts: 3 }])
+})
+
+test('BR-ROTA-006 batch: a failure to record the attempt does not stop the batch either', async () => {
+  const run = batchDeps([{ id: 'a', metadata: null }, { id: 'b', metadata: null }], { a: 'fail', b: 'pass' })
+  run.deps.recordFailedAttempt = async () => { throw new Error('PGRST') }
+  const out = await mod.handleModerationBatch(true, { mode: 'moderate_pending_user_routes' }, run.deps)
+  assert.equal(out.status, 200)
+  assert.equal(out.body.failed, 1)
+  assert.equal(out.body.passed, 1)
+})
+
+test('BR-ROTA-006 batch: without the service role it is 401 and nothing is read or screened', async () => {
+  const run = batchDeps([{ id: 'a', metadata: null }], { a: 'pass' })
+  const out = await mod.handleModerationBatch(false, { mode: 'moderate_pending_user_routes', limit: 20 }, run.deps)
+  assert.equal(out.status, 401)
+  assert.deepEqual(run.listCalls, [])
+  assert.deepEqual(run.screened, [])
+})
+
+test('BR-ROTA-006 batch: limit is an integer from 1 to 20, and a queue read failure is 503 with no detail', async () => {
+  for (const limit of [0, 21, 2.5, '20', null]) {
+    const out = await mod.handleModerationBatch(true, { mode: 'moderate_pending_user_routes', limit }, batchDeps([], {}).deps)
+    assert.equal(out.status, 400, String(limit))
+  }
+  const broken = batchDeps([], {})
+  broken.deps.listPending = async () => { throw new Error('pending user routes: 42703') }
+  const out = await mod.handleModerationBatch(true, { mode: 'moderate_pending_user_routes', limit: 5 }, broken.deps)
+  assert.deepEqual(out, { status: 503, body: { error: 'pending_routes_unavailable' } })
+})
+
+test('#945: the EF wires the batch mode to the machine key, the queue filters and the shared per-route path', () => {
+  const source = readFileSync(EF, 'utf8')
+  assert.match(source, /parsedBody\.mode === MODERATION_BATCH_MODE/)
+  assert.match(source, /handleModerationBatch\(isServiceRole,/)
+  assert.match(source, /const isServiceRole = isOwnMachineKey\(bearer\)/)
+  for (const filter of [/\.eq\('status', 'pending_review'\)/, /\.not\('owner_user_id', 'is', null\)/, /\.is\('moderation_reason', null\)/, /\.is\('moderation_reviewed_at', null\)/, /\.order\('created_at', \{ ascending: true \}\)/]) {
+    assert.match(source, filter)
+  }
+  assert.equal(source.match(/const produceRouteTranslation = /g)?.length, 1, 'one per-route path')
+  assert.equal(source.match(/produceRouteTranslation\(/g)?.length, 2, 'called by the route mode and by the batch')
+  assert.ok(source.indexOf('parsedBody.mode === MODERATION_BATCH_MODE') < source.indexOf('checkRateLimit(req'), 'the batch is decided before the per-request limit')
+})

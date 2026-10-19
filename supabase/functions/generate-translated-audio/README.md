@@ -78,6 +78,27 @@ The function supports the following languages with neural voices:
 }
 ```
 
+## Batch mode: first screening of user routes (#945, BR-ROTA-006)
+
+Called by a database cron (owned by `data`) every 5 minutes. Nobody else starts the first screening
+of a route an app user just published.
+
+- Request: `POST` with body exactly `{"mode":"moderate_pending_user_routes","limit":20}` and
+  `Authorization: Bearer <machine key>` (`ef_secret_key` from the Vault, as the other crons;
+  `isOwnMachineKey`). Any other caller: `401`. `limit` is an integer 1..20 (default 20), else `400 invalid_limit`.
+  Out of the per-request rate limit; the production gate does not apply (platform caller).
+- Queue: `core.custom_routes` with `status = 'pending_review'`, `is_active`, `owner_user_id` not null,
+  `moderation_reason` null, `moderation_reviewed_at` null, `metadata->>moderation_attempts` < 3,
+  oldest `created_at` first. A route without owner is skipped: `set_route_moderation_result` never moves it.
+- Per route: the same path as the route mode, in `en-us` / `male` (screen + translate in one LLM call;
+  audio and `custom_route_descriptions` only if it passed; verdict by `core.set_route_moderation_result`).
+  Other languages come on demand through the route mode. 5 routes at a time.
+- Failure on one route (LLM, bad answer, TTS, storage): the batch goes on, the route stays
+  `pending_review`, and `metadata.moderation_attempts` goes up by one. At 3 it leaves the queue
+  (still in review, for the CMS).
+- Response `200`: `{ success, mode, selected, passed, flagged, failed, exhausted }`, counts only.
+  `503 pending_routes_unavailable` when the queue cannot be read.
+
 ## Storage Structure
 
 Audio files are stored in the `travel-app-audios` bucket with the following pattern:

@@ -116,3 +116,109 @@ export async function translateAndModerateUserRoute(
   await deps.setModerationResult(result.flagged, result.flagged ? result.category ?? 'flagged by the text filter' : null)
   return result
 }
+
+// ─────────────────────────────────────────────────────────────────────────────
+// First screening of freshly published user routes, in batch (#945, BR-ROTA-006 item 3).
+//
+// Nobody else starts it: the app publishes the route `pending_review` and leaves. A database cron
+// (the `data`'s) calls the EF every 5 minutes with `{"mode":"moderate_pending_user_routes","limit":20}`
+// and the machine key. Each route runs the SAME per-route path as the route mode (screen + translate
+// in one LLM call, then audio if it passed, verdict through `core.set_route_moderation_result`).
+// ─────────────────────────────────────────────────────────────────────────────
+
+export const MODERATION_BATCH_MODE = 'moderate_pending_user_routes'
+/** Ceiling of one call: each route is one LLM call plus one TTS, and the EF has a wall clock. */
+export const MODERATION_BATCH_MAX_LIMIT = 20
+/** A route whose screening failed this many times leaves the batch (no verdict: it stays in review). */
+export const MODERATION_MAX_ATTEMPTS = 3
+/** `custom_routes.metadata` key that counts failed screenings, until the `data` gives it a column. */
+export const MODERATION_ATTEMPTS_KEY = 'moderation_attempts'
+/** The batch produces one translation: the default the read RPCs fall back to. Others come on demand. */
+export const MODERATION_BATCH_LANGUAGE = 'en-us'
+export const MODERATION_BATCH_GENDER = 'male' as const
+/** Routes screened at the same time inside one call. */
+export const MODERATION_BATCH_CONCURRENCY = 5
+
+export interface PendingUserRoute {
+  id: string
+  metadata: Record<string, unknown> | null
+}
+
+export interface ModerationBatchDeps {
+  /** Oldest first: user routes `pending_review`, active, with no verdict, under the attempt ceiling. */
+  listPending: (limit: number, maxAttempts: number) => Promise<PendingUserRoute[]>
+  /** The per-route path of the route mode. Throws when there is no verdict (LLM failure, bad answer). */
+  screenRoute: (routeId: string) => Promise<{ flagged: boolean }>
+  /** Writes the new failure count. Its own failure does not stop the batch. */
+  recordFailedAttempt: (route: PendingUserRoute, attempts: number) => Promise<void>
+}
+
+export interface ModerationBatchSummary {
+  mode: typeof MODERATION_BATCH_MODE
+  selected: number
+  passed: number
+  flagged: number
+  failed: number
+  /** Of the failed, how many reached `MODERATION_MAX_ATTEMPTS` now and leave the batch. */
+  exhausted: number
+}
+
+export function moderationAttemptsOf(metadata: Record<string, unknown> | null | undefined): number {
+  const value = metadata?.[MODERATION_ATTEMPTS_KEY]
+  return typeof value === 'number' && Number.isInteger(value) && value > 0 ? value : 0
+}
+
+/** `limit` is optional (default the ceiling); anything else than an integer 1..ceiling is refused. */
+export function parseModerationBatchLimit(body: Record<string, unknown>): number | null {
+  if (body.limit === undefined) return MODERATION_BATCH_MAX_LIMIT
+  const limit = body.limit
+  if (typeof limit !== 'number' || !Number.isInteger(limit) || limit < 1 || limit > MODERATION_BATCH_MAX_LIMIT) return null
+  return limit
+}
+
+export async function moderatePendingUserRoutes(limit: number, deps: ModerationBatchDeps): Promise<ModerationBatchSummary> {
+  const routes = await deps.listPending(limit, MODERATION_MAX_ATTEMPTS)
+  const summary: ModerationBatchSummary = {
+    mode: MODERATION_BATCH_MODE, selected: routes.length, passed: 0, flagged: 0, failed: 0, exhausted: 0,
+  }
+
+  const screenOne = async (route: PendingUserRoute) => {
+    try {
+      const { flagged } = await deps.screenRoute(route.id)
+      if (flagged) summary.flagged++
+      else summary.passed++
+    } catch {
+      // No verdict: the route stays pending_review (fail closed) and comes back next round.
+      summary.failed++
+      const attempts = moderationAttemptsOf(route.metadata) + 1
+      if (attempts >= MODERATION_MAX_ATTEMPTS) summary.exhausted++
+      await deps.recordFailedAttempt(route, attempts).catch(() => {})
+    }
+  }
+
+  for (let i = 0; i < routes.length; i += MODERATION_BATCH_CONCURRENCY) {
+    await Promise.all(routes.slice(i, i + MODERATION_BATCH_CONCURRENCY).map(screenOne))
+  }
+  return summary
+}
+
+/**
+ * The whole batch mode as status + body, so the test runs it without Deno. Only the machine key
+ * (service role) gets in: 401 otherwise, before anything is read or spent.
+ */
+export async function handleModerationBatch(
+  isServiceRole: boolean,
+  body: Record<string, unknown>,
+  deps: ModerationBatchDeps,
+): Promise<{ status: number; body: Record<string, unknown> }> {
+  if (!isServiceRole) return { status: 401, body: { error: 'Unauthorized' } }
+  const limit = parseModerationBatchLimit(body)
+  if (limit === null) {
+    return { status: 400, body: { error: 'invalid_limit', detail: `limit must be an integer from 1 to ${MODERATION_BATCH_MAX_LIMIT}` } }
+  }
+  try {
+    return { status: 200, body: { success: true, ...(await moderatePendingUserRoutes(limit, deps)) } }
+  } catch {
+    return { status: 503, body: { error: 'pending_routes_unavailable' } }
+  }
+}
