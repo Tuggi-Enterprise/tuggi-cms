@@ -300,7 +300,7 @@ test('BR-COMUNICACAO-020 item 4: send-transactional signs the unsubscribe over `
   assert.match(resend.headers['List-Unsubscribe'], /^<https:\/\/project\.supabase\.co\/functions\/v1\/send-newsletter\/unsubscribe\?e=/)
   assert.equal(resend.headers['List-Unsubscribe-Post'], 'List-Unsubscribe=One-Click')
   assert.match(resend.html, /https:\/\/www\.tuggi\.app\/en\/unsubscribe\?e=[^&]+&amp;s=[^&]+&amp;lang=fr/)
-  assert.match(resend.html, /Ne plus recevoir d&#39;e-mails sur mes heures/)
+  assert.match(resend.html, /Ne plus recevoir les avis et nouveautés de Tuggi/)
   assert.match(resend.html, /Tu reçois cet e-mail parce que tu as un compte Tuggi\./)
   assert.doesNotMatch(resend.html, /atacante/)
   assert.match(resend.text, /Ne plus recevoir/)
