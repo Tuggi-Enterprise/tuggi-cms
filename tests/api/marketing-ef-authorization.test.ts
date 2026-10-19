@@ -152,10 +152,14 @@ test('Gmail bulk-sender: BOTH unsubscribe headers go out, not just one', () => {
   // https://support.google.com/a/answer/81126 — a sender doing 5,000 messages a day must
   // "support one-click unsubscribe", which is `List-Unsubscribe` AND
   // `List-Unsubscribe-Post: List-Unsubscribe=One-Click` (RFC 2369 + RFC 8058).
-  assert.match(newsletter, /'List-Unsubscribe': `<\$\{oneClickUrl\}>`/)
-  assert.match(newsletter, /'List-Unsubscribe-Post': 'List-Unsubscribe=One-Click'/)
+  // #957: the pair moved to `_shared/unsubscribe-link.ts`, shared with `send-transactional`.
+  const unsubscribe = FN('_shared/unsubscribe-link.ts')
+  assert.match(unsubscribe, /'List-Unsubscribe': `<\$\{oneClickUrl\}>`/)
+  assert.match(unsubscribe, /'List-Unsubscribe-Post': 'List-Unsubscribe=One-Click'/)
   // And they travel together: one function composes the pair, so a caller cannot send half.
-  const pairs = [...newsletter.matchAll(/'List-Unsubscribe':/g)].length
+  const pairs = [newsletter, unsubscribe, FN('send-transactional/index.ts')]
+    .map((source) => [...source.matchAll(/'List-Unsubscribe':/g)].length)
+    .reduce((a, b) => a + b, 0)
   assert.equal(pairs, 1, 'the header pair is spelled out more than once and will drift')
   // EVERY send site carries it, and the count is not a literal on purpose: `/ranking` (#747) was
   // the third one, and a hard-coded `2` would have turned a correct new sender into a red test
