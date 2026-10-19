@@ -904,26 +904,27 @@
         "title": "Filtros",
         "country": "País",
         "platform": "Plataforma",
-        "subscription": "Assinatura",
+        "access": "Nível de acesso",
         "all": "Todos",
         "all_platforms": "Todas",
-        "all_subscriptions": "Todas",
+        "all_access": "Todos",
         "clear": "Limpar filtros"
       },
       "stats": {
         "total": "Total",
-        "free": "Free",
-        "premium": "Premium",
-        "apple": "Apple",
-        "google": "Google",
-        "stripe": "Stripe",
+        "total_detail": "iOS {ios} · Android {android}",
         "new_7d": "Novos (7d)",
-        "churn_7d": "Churn (7d)"
+        "active_7d": "Ativos (7d)",
+        "free_only": "Só grátis",
+        "purchased": "Compraram horas",
+        "purchased_detail": "{share}% da base\nApp Store {appStore} · Google Play {playStore}",
+        "until": "Acesso por prazo",
+        "consumed": "Já consumiram horas"
       },
       "table": {
         "user": "Usuário",
         "country": "País",
-        "subscription": "Assinatura",
+        "access": "Nível de acesso",
         "platform": "Plataforma",
         "last_active": "Última Atividade",
         "trips": "Viagens",
@@ -1173,6 +1174,18 @@
         "action_upgrade": "Subiu de plano",
         "action_downgrade": "Desceu de plano",
         "action_cancel": "Cancelou"
+      },
+      "access": {
+        "level": {
+          "free": "Grátis",
+          "purchased": "Comprou horas",
+          "until": "Acesso por prazo"
+        },
+        "store": {
+          "app_store": "App Store",
+          "play_store": "Google Play"
+        },
+        "unknown": "Sem nível"
       }
     },
     "Notifications": {

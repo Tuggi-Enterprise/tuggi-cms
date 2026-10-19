@@ -906,26 +906,27 @@
         "title": "Filters",
         "country": "Country",
         "platform": "Platform",
-        "subscription": "Subscription",
+        "access": "Access level",
         "all": "All",
         "all_platforms": "All",
-        "all_subscriptions": "All",
+        "all_access": "All",
         "clear": "Clear filters"
       },
       "stats": {
         "total": "Total",
-        "free": "Free",
-        "premium": "Premium",
-        "apple": "Apple",
-        "google": "Google",
-        "stripe": "Stripe",
+        "total_detail": "iOS {ios} · Android {android}",
         "new_7d": "New (7d)",
-        "churn_7d": "Churn (7d)"
+        "active_7d": "Active (7d)",
+        "free_only": "Free only",
+        "purchased": "Bought hours",
+        "purchased_detail": "{share}% of users\nApp Store {appStore} · Google Play {playStore}",
+        "until": "Time-based access",
+        "consumed": "Have used hours"
       },
       "table": {
         "user": "User",
         "country": "Country",
-        "subscription": "Subscription",
+        "access": "Access level",
         "platform": "Platform",
         "last_active": "Last Activity",
         "trips": "Trips",
@@ -1175,6 +1176,18 @@
         "action_upgrade": "Upgraded",
         "action_downgrade": "Downgraded",
         "action_cancel": "Canceled"
+      },
+      "access": {
+        "level": {
+          "free": "Free",
+          "purchased": "Bought hours",
+          "until": "Time-based access"
+        },
+        "store": {
+          "app_store": "App Store",
+          "play_store": "Google Play"
+        },
+        "unknown": "No level"
       }
     },
     "Notifications": {
