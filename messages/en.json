@@ -1093,7 +1093,7 @@
         "device": "Device",
         "subscription": "Subscription",
         "trips": "Trips",
-        "poi_visits": "POI Visits",
+        "poi_visits": "Points visited",
         "km": "KM",
         "cities": "Cities",
         "hours": "Hours standing",
@@ -1102,10 +1102,9 @@
         "cancel": "Cancel",
         "save": "Save",
         "saving": "Saving...",
-        "tier": "Tier",
-        "provider": "Provider",
+        "tier": "Plan",
+        "provider": "Source",
         "expires_at": "Expires at",
-        "history": "Subscription History",
         "created_at": "Registration",
         "last_login": "Last login",
         "last_trip": "Last trip",
@@ -1117,10 +1116,10 @@
         "save_error": "Error saving subscription",
         "country": "Country",
         "language": "Language",
-        "driver_type": "Driver Type",
+        "driver_type": "Driver type",
         "platform": "Platform",
         "model": "Model",
-        "app_version": "App Version",
+        "app_version": "App version",
         "logins": "Logins",
         "duration": "Duration",
         "days_unit": "days",
@@ -1137,7 +1136,50 @@
       "can_publish_label": "Can publish itineraries in the app",
       "can_publish_hint": "Shows the \"Save as itinerary\" button on the trip screen.",
       "can_publish_saved": "Saved",
-      "can_publish_error": "Couldn't save. Try again."
+      "can_publish_error": "Couldn't save. Try again.",
+      "drawer": {
+        "title": "Tourist record",
+        "loading": "Loading…",
+        "tabs": {
+          "overview": "Overview",
+          "passport": "Passport",
+          "access": "Access and balance",
+          "client": "Linked client",
+          "admin_only": "Available to admins only"
+        }
+      },
+      "overview": {
+        "no_device": "No device recorded yet."
+      },
+      "passport": {
+        "stamps": "Stamps",
+        "stamps_hint": "Points visited across all trips",
+        "trips": "Trips",
+        "distance": "Distance",
+        "top_category": "Favorite category",
+        "trip_history": "Trip history",
+        "empty": "No trips recorded yet.",
+        "trip_time": "Time",
+        "trip_speed": "Speed",
+        "trip_visited": "Visited",
+        "exploration_title": "Trip exploration",
+        "exploration_hint": "Points heard and points missed within the chosen radius",
+        "buffer": "Radius",
+        "heard": "Heard",
+        "missed": "Missed",
+        "select_trip": "Pick a trip from the list to see the map.",
+        "exploration_loading": "Calculating points in the radius…",
+        "exploration_summary": "On this trip the user heard {heard, plural, one {# point} other {# points}}. With a detour of up to {radius} km, they could have heard {total}.",
+        "map_key_missing": "The map did not load: the Google Maps key is missing from the environment."
+      },
+      "history": {
+        "subscription": "Subscription history",
+        "action_subscribe": "Subscribed",
+        "action_renew": "Renewed",
+        "action_upgrade": "Upgraded",
+        "action_downgrade": "Downgraded",
+        "action_cancel": "Canceled"
+      }
     },
     "Notifications": {
       "title": "Push notifications",

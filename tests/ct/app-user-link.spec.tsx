@@ -24,10 +24,12 @@
 
 import { test, expect } from '@playwright/experimental-ct-react'
 import type { Page } from '@playwright/test'
-import { AppUserLinkHarness, DashboardWrapper } from './helpers'
+import { AppUserDeepLinkHarness, AppUserLinkHarness, DashboardWrapper } from './helpers'
 import ptMessages from '@/messages/pt.json'
 
 const MODAL = ptMessages.Pages.AppUsers.modal
+const DRAWER = ptMessages.Pages.AppUsers.drawer
+const PASSPORT = ptMessages.Pages.AppUsers.passport
 const PANEL = ptMessages.Pages.AppUsers.credit.panel
 const GRANTS = ptMessages.Pages.AppUsers.credit.grants
 const LABELS = ptMessages.Pages.Dashboard.labels
@@ -82,6 +84,14 @@ const POST_MIGRATION_ROW = {
   last_grant_at: '2026-08-20T10:00:00Z',
   last_purchase_product_id: 'tuggi_hours_10',
   ends_at: null,
+}
+
+/** Opens the record from the nickname and walks to the access and balance tab. */
+async function openCreditTab(page: Page) {
+  await page.getByRole('button', { name: NICKNAME }).click()
+  const dialog = page.getByRole('dialog')
+  await dialog.getByRole('button', { name: DRAWER.tabs.access }).first().click()
+  return dialog
 }
 
 async function mockDetail(page: Page, row: Record<string, unknown>) {
@@ -151,13 +161,18 @@ test.describe('BR-USUARIO-042 — the nickname is the identifier, and the door',
     const dialog = page.getByRole('dialog')
     await expect(dialog).toBeVisible()
 
-    const rendered = await dialog.innerText()
-    expect(rendered).toContain(NICKNAME)
-    expect(rendered).not.toContain('Joana')
-    expect(rendered).not.toContain('joana.ribeiro@example.com')
-    // Not even a fragment: the local part of an address is the same personal datum, cut
-    // smaller (the rule's item 2, and the fallback it exists to close).
-    expect(rendered).not.toContain('joana.ribeiro')
+    // Every tab a viewer can open, not only the first: the drawer spreads the old modal over four
+    // panels, and a name that leaks into one of them is still on screen.
+    for (const tab of [DRAWER.tabs.overview, DRAWER.tabs.access, DRAWER.tabs.client]) {
+      await dialog.getByRole('button', { name: tab }).first().click()
+      const rendered = await dialog.innerText()
+      expect(rendered).toContain(NICKNAME)
+      expect(rendered).not.toContain('Joana')
+      expect(rendered).not.toContain('joana.ribeiro@example.com')
+      // Not even a fragment: the local part of an address is the same personal datum, cut
+      // smaller (the rule's item 2, and the fallback it exists to close).
+      expect(rendered).not.toContain('joana.ribeiro')
+    }
   })
 })
 
@@ -166,8 +181,7 @@ test.describe('BR-MONETIZACAO-046 — the hours come resolved, and absent is not
     await mockDetail(page, POST_MIGRATION_ROW)
     await mount(<DashboardWrapper><AppUserLinkHarness /></DashboardWrapper>)
 
-    await page.getByRole('button', { name: NICKNAME }).click()
-    const dialog = page.getByRole('dialog')
+    const dialog = await openCreditTab(page)
     await expect(dialog.getByText(MODAL.hours)).toBeVisible()
 
     const rendered = await dialog.innerText()
@@ -184,8 +198,7 @@ test.describe('BR-MONETIZACAO-046 — the hours come resolved, and absent is not
     await mockDetail(page, PRE_MIGRATION_ROW)
     await mount(<DashboardWrapper><AppUserLinkHarness /></DashboardWrapper>)
 
-    await page.getByRole('button', { name: NICKNAME }).click()
-    const dialog = page.getByRole('dialog')
+    const dialog = await openCreditTab(page)
     await expect(dialog.getByText(MODAL.hours)).toBeVisible()
     await expect(dialog.getByText(LABELS.no_paid_access_data)).toBeVisible()
 
@@ -194,5 +207,118 @@ test.describe('BR-MONETIZACAO-046 — the hours come resolved, and absent is not
     // nothing"; `Não` would say "never bought". Neither is a fact anybody has yet.
     expect(rendered).not.toContain('0 min')
     expect(rendered).not.toContain(PANEL.state_free)
+  })
+})
+
+async function mockPassport(page: Page) {
+  // An admin: the Passaporte is admin only, as its page was.
+  await page.route('**/api/auth/check', (route) =>
+    route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ user: { role: 'admin' } }) })
+  )
+  await page.route('**/rest/v1/rpc/dashboard_user_detail', (route) =>
+    route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify([POST_MIGRATION_ROW]) })
+  )
+  await page.route('**/api/admin/users/**', (route) =>
+    route.fulfill({ status: 403, contentType: 'application/json', body: JSON.stringify({ error: 'forbidden' }) })
+  )
+  await page.route('**/rest/v1/rpc/get_user_passport_stats', (route) =>
+    route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({ total_trips: 0, total_passed_lifetime: 17, total_distance_km: 42.5, top_categories: [] }),
+    })
+  )
+  await page.route('**/rest/v1/rpc/get_user_trips_with_stats', (route) =>
+    route.fulfill({ status: 200, contentType: 'application/json', body: '[]' })
+  )
+}
+
+test.describe('#976: the record is a drawer with four tabs', () => {
+  test('BR-USUARIO-042: the drawer opens from the nickname, named by it, with four tabs and no History', async ({ mount, page }) => {
+    await mockDetail(page, POST_MIGRATION_ROW)
+    await mount(<DashboardWrapper><AppUserLinkHarness /></DashboardWrapper>)
+
+    await page.getByRole('button', { name: NICKNAME }).click()
+    const dialog = page.getByRole('dialog')
+    await expect(dialog).toBeVisible()
+    await expect(dialog.getByRole('heading', { name: new RegExp(NICKNAME) })).toBeVisible()
+
+    // The sidebar on a monitor: one list, four entries, in the design's order.
+    const tabs = dialog.getByRole('complementary', { name: DRAWER.title }).getByRole('button')
+    await expect(tabs).toHaveText([DRAWER.tabs.overview, DRAWER.tabs.passport, DRAWER.tabs.access, DRAWER.tabs.client])
+    // A viewer is not an admin: the Passaporte is there and closed, as the page was.
+    await expect(tabs.nth(1)).toBeDisabled()
+  })
+
+  test('switching tabs swaps the panel, and the overview is where it starts', async ({ mount, page }) => {
+    await mockDetail(page, POST_MIGRATION_ROW)
+    await mount(<DashboardWrapper><AppUserLinkHarness /></DashboardWrapper>)
+
+    await page.getByRole('button', { name: NICKNAME }).click()
+    const dialog = page.getByRole('dialog')
+    const sidebar = dialog.getByRole('complementary', { name: DRAWER.title })
+
+    await expect(sidebar.getByRole('button', { name: DRAWER.tabs.overview })).toHaveAttribute('aria-current', 'page')
+    await expect(dialog.getByText(MODAL.device)).toBeVisible()
+    await expect(dialog.getByText(MODAL.hours)).toBeHidden()
+
+    await sidebar.getByRole('button', { name: DRAWER.tabs.access }).click()
+    await expect(sidebar.getByRole('button', { name: DRAWER.tabs.access })).toHaveAttribute('aria-current', 'page')
+    await expect(dialog.getByText(MODAL.hours)).toBeVisible()
+    await expect(dialog.getByText(MODAL.device)).toBeHidden()
+
+    await sidebar.getByRole('button', { name: DRAWER.tabs.client }).click()
+    await expect(dialog.getByText(MODAL.no_linked_client)).toBeVisible()
+  })
+
+  test('the X closes the drawer and focus goes back to the nickname', async ({ mount, page }) => {
+    await mockDetail(page, POST_MIGRATION_ROW)
+    await mount(<DashboardWrapper><AppUserLinkHarness /></DashboardWrapper>)
+
+    const trigger = page.getByRole('button', { name: NICKNAME })
+    await trigger.click()
+    const dialog = page.getByRole('dialog')
+    // Focus goes in on open, to the close button (`useDialogShell`).
+    const close = dialog.getByRole('button', { name: MODAL.close })
+    await expect(close).toBeFocused()
+
+    await close.click()
+    await expect(dialog).toBeHidden()
+    await expect(trigger).toBeFocused()
+  })
+
+  test('?user=&tab=passport opens the drawer on the Passaporte tab', async ({ mount, page }) => {
+    await mockPassport(page)
+    await mount(
+      <DashboardWrapper>
+        <AppUserDeepLinkHarness query={`user=${USER_ID}&tab=passport`} />
+      </DashboardWrapper>
+    )
+
+    const dialog = page.getByRole('dialog')
+    await expect(dialog).toBeVisible()
+    const sidebar = dialog.getByRole('complementary', { name: DRAWER.title })
+    await expect(sidebar.getByRole('button', { name: DRAWER.tabs.passport })).toHaveAttribute('aria-current', 'page')
+    await expect(dialog.getByText(PASSPORT.stamps, { exact: true })).toBeVisible()
+    await expect(dialog.getByText('17', { exact: true })).toBeVisible()
+    // No trip: the list's empty sentence, and the same sentence where the map would be.
+    await expect(dialog.getByText(PASSPORT.empty)).toHaveCount(2)
+
+    // Closing hands the address back without the drawer's two parameters.
+    await page.keyboard.press('Escape')
+    await expect(dialog).toBeHidden()
+    await expect(page.getByTestId('address')).toHaveText('')
+  })
+
+  test('an unknown tab in the address opens the overview', async ({ mount, page }) => {
+    await mockDetail(page, POST_MIGRATION_ROW)
+    await mount(
+      <DashboardWrapper>
+        <AppUserDeepLinkHarness query={`user=${USER_ID}&tab=history`} />
+      </DashboardWrapper>
+    )
+
+    const sidebar = page.getByRole('dialog').getByRole('complementary', { name: DRAWER.title })
+    await expect(sidebar.getByRole('button', { name: DRAWER.tabs.overview })).toHaveAttribute('aria-current', 'page')
   })
 })

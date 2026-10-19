@@ -1,74 +1,64 @@
 'use client'
 
-import { Trophy, Map, Navigation, Award } from 'lucide-react'
-import { PassportStats } from '@/lib/core/passport-service'
+import { useTranslations } from 'next-intl'
+import { Trophy, Map, Navigation, Award, type LucideIcon } from 'lucide-react'
+import type { PassportStats } from '@/lib/core/passport-service'
+import { UNKNOWN_VALUE } from '@/lib/format/unknown'
 
 interface UserPassportStatsProps {
   stats: PassportStats | null
 }
 
+/**
+ * The four lifetime numbers of the Passaporte. Only the stamps card keeps a hint: the decorative
+ * subtitles the others had said nothing the number beside them did not (copy, #976).
+ */
 export function UserPassportStats({ stats }: UserPassportStatsProps) {
+  const t = useTranslations('Pages.AppUsers.passport')
   if (!stats) return null
 
+  const cards: Array<{ key: string; label: string; value: string; hint?: string; icon: LucideIcon; tone: string }> = [
+    {
+      key: 'stamps',
+      label: t('stamps'),
+      value: String(stats.total_passed_lifetime),
+      hint: t('stamps_hint'),
+      icon: Trophy,
+      tone: 'bg-orange-100 dark:bg-orange-900/30 text-orange-600',
+    },
+    { key: 'trips', label: t('trips'), value: String(stats.total_trips), icon: Map, tone: 'bg-tuggi-blue/10 text-tuggi-blue' },
+    {
+      key: 'distance',
+      label: t('distance'),
+      value: `${stats.total_distance_km.toFixed(1)} km`,
+      icon: Navigation,
+      tone: 'bg-green-100 dark:bg-green-900/30 text-green-600',
+    },
+    {
+      key: 'category',
+      label: t('top_category'),
+      value: stats.top_categories[0]?.category || UNKNOWN_VALUE,
+      icon: Award,
+      tone: 'bg-purple-100 dark:bg-purple-900/30 text-purple-600',
+    },
+  ]
+
   return (
-    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8 mt-6 animate-in fade-in slide-in-from-top-4 duration-500">
-      {/* Total POIs */}
-      <div className="bg-white/80 dark:bg-gray-900/80 backdrop-blur-xl rounded-3xl p-6 border border-gray-200 dark:border-gray-800 shadow-2xl shadow-black/5 hover:scale-[1.02] transition-transform duration-300">
-        <div className="flex items-center gap-4 mb-4">
-          <div className="p-3 bg-orange-100 dark:bg-orange-900/30 rounded-2xl">
-            <Trophy className="h-6 w-6 text-orange-600" />
+    <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+      {cards.map((card) => (
+        <div key={card.key} className="bg-white dark:bg-gray-900 rounded-2xl p-4 border border-gray-200 dark:border-gray-800">
+          <div className="flex items-center gap-3">
+            <div className={`p-2 rounded-xl shrink-0 ${card.tone}`}>
+              <card.icon className="h-5 w-5" aria-hidden="true" />
+            </div>
+            <div className="min-w-0">
+              <p className="text-[10px] font-bold text-gray-500 uppercase tracking-widest leading-none mb-1">{card.label}</p>
+              <p className="text-xl font-bold text-gray-900 dark:text-white leading-tight truncate">{card.value}</p>
+            </div>
           </div>
-          <div>
-            <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest leading-none mb-1">Lifetime Passed</p>
-            <h3 className="text-2xl font-bold text-gray-900 dark:text-white leading-none">{stats.total_passed_lifetime}</h3>
-          </div>
+          {card.hint ? <p className="mt-2 text-xs text-gray-500">{card.hint}</p> : null}
         </div>
-        <p className="text-xs text-gray-500 font-medium italic">"Carimbos no Passaporte"</p>
-      </div>
-
-      {/* Total Trips */}
-      <div className="bg-white/80 dark:bg-gray-900/80 backdrop-blur-xl rounded-3xl p-6 border border-gray-200 dark:border-gray-800 shadow-2xl shadow-black/5 hover:scale-[1.02] transition-transform duration-300 delay-75">
-        <div className="flex items-center gap-4 mb-4">
-          <div className="p-3 bg-tuggi-blue/10 rounded-2xl">
-            <Map className="h-6 w-6 text-tuggi-blue" />
-          </div>
-          <div>
-            <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest leading-none mb-1">Total Trips</p>
-            <h3 className="text-2xl font-bold text-gray-900 dark:text-white leading-none">{stats.total_trips}</h3>
-          </div>
-        </div>
-        <p className="text-xs text-gray-500 font-medium italic">Journeys completed</p>
-      </div>
-
-      {/* Distance */}
-      <div className="bg-white/80 dark:bg-gray-900/80 backdrop-blur-xl rounded-3xl p-6 border border-gray-200 dark:border-gray-800 shadow-2xl shadow-black/5 hover:scale-[1.02] transition-transform duration-300 delay-150">
-        <div className="flex items-center gap-4 mb-4">
-          <div className="p-3 bg-green-100 dark:bg-green-900/30 rounded-2xl">
-            <Navigation className="h-6 w-6 text-green-600" />
-          </div>
-          <div>
-            <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest leading-none mb-1">Distance</p>
-            <h3 className="text-2xl font-bold text-gray-900 dark:text-white leading-none">{stats.total_distance_km.toFixed(1)} km</h3>
-          </div>
-        </div>
-        <p className="text-xs text-gray-500 font-medium italic">Exploring the world</p>
-      </div>
-
-      {/* Top Category */}
-      <div className="bg-white/80 dark:bg-gray-900/80 backdrop-blur-xl rounded-3xl p-6 border border-gray-200 dark:border-gray-800 shadow-2xl shadow-black/5 hover:scale-[1.02] transition-transform duration-300 delay-200">
-        <div className="flex items-center gap-4 mb-4">
-          <div className="p-3 bg-purple-100 dark:bg-purple-900/30 rounded-2xl">
-            <Award className="h-6 w-6 text-purple-600" />
-          </div>
-          <div className="flex-1 min-w-0">
-            <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest leading-none mb-1">Top Category</p>
-            <h3 className="text-lg font-bold text-gray-900 dark:text-white leading-tight truncate">
-              {stats.top_categories[0]?.category || 'Explorer'}
-            </h3>
-          </div>
-        </div>
-        <p className="text-xs text-gray-500 font-medium italic">Favorite interest</p>
-      </div>
+      ))}
     </div>
   )
 }

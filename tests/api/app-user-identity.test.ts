@@ -51,7 +51,8 @@ const TOURIST_SURFACES = [
   'components/dashboard/UpcomingExpirationsCard.tsx',
   'components/dashboard/LowBalanceCard.tsx',
   'components/dashboard/PaidAccessCard.tsx',
-  'components/dashboard/UserDetailModal.tsx',
+  'components/dashboard/AppUserDrawer.tsx',
+  'components/admin/passport/UserPassportTab.tsx',
   'components/dashboard/LinkedClientSection.tsx',
   'components/dashboard/reports/MeteredBalances.tsx',
   'components/dashboard/reports/UsersPremium.tsx',
@@ -63,7 +64,7 @@ const TOURIST_SURFACES = [
  * "wherever the nickname appears, clicking opens the file".
  *
  * It is a subset of `TOURIST_SURFACES`: `PaidAccessCard` shows aggregates and no person,
- * `AppUserLink` and `UserDetailModal` are the door and the room, and `LinkedClientSection`
+ * `AppUserLink` and `AppUserDrawer` are the door and the room, and `LinkedClientSection`
  * names a business counterparty (item 4), not the tourist.
  */
 const NICKNAME_SURFACES = [
@@ -209,7 +210,7 @@ test('BR-USUARIO-042: the file opened from a report names the tourist by nicknam
   // takes both columns out of it — so the grant confirmation reached from a dashboard report
   // has one signal, not two. If somebody wires an address back into this prop, the scan above
   // catches the value and this catches the disappearance of the refusal.
-  const modal = codeOf('components/dashboard/UserDetailModal.tsx')
+  const modal = codeOf('components/dashboard/AppUserDrawer.tsx')
 
   assert.ok(modal.includes('<CreditPanel'), 'the user file is where the credit panel is mounted')
   assert.ok(modal.includes('email={null}'), 'CreditPanel must be told, explicitly, that there is no address here')
@@ -365,9 +366,10 @@ test('BR-USUARIO-042: AppUserLink is the only door, so no screen owns a second c
   // Two owners of the same state is the defect #659 came to remove — there were literally two
   // components named `UserDetailModal`, one of them declared inside a page. A surface that
   // mounts the modal itself is a surface rebuilding the row click that was never reachable by
-  // keyboard in the first place.
+  // keyboard in the first place. Since #976 the list also opens the drawer from its address
+  // (`?user=&tab=`), and it does so through `AppUserDeepLink`, exported by the same module.
   const directMounts = NICKNAME_SURFACES.filter((surface) =>
-    codeOf(surface).includes('<UserDetailModal')
+    codeOf(surface).includes('<AppUserDrawer')
   )
 
   assert.deepEqual(
@@ -379,11 +381,11 @@ test('BR-USUARIO-042: AppUserLink is the only door, so no screen owns a second c
   // And the modal itself is declared once, in components/dashboard. `grep` rather than the
   // surface list, because the copy that existed was inline in a page and a list of files is
   // exactly what would not have caught it.
-  const declarations = grepFiles('(function|const)\\s+UserDetailModal\\b', ['app', 'components'])
+  const declarations = grepFiles('(function|const)\\s+(UserDetailModal|AppUserDrawer)\\b', ['app', 'components'])
 
   assert.deepEqual(
     declarations,
-    ['components/dashboard/UserDetailModal.tsx'],
+    ['components/dashboard/AppUserDrawer.tsx'],
     'the tourist file is one component; a second declaration is the defect this card removed'
   )
 })

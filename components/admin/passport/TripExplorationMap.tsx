@@ -1,19 +1,47 @@
 'use client'
 
-import { useEffect, useRef, useState, useCallback } from 'react'
-import { Wrapper, Status } from '@googlemaps/react-wrapper'
+import { useEffect, useMemo, useRef, useCallback } from 'react'
+import { useTranslations } from 'next-intl'
+import { Wrapper } from '@googlemaps/react-wrapper'
 import { GOOGLE_MAPS_LIBRARIES, GOOGLE_MAPS_VERSION } from '@/lib/maps-config'
 import { TripExploration, POIExp } from '@/lib/core/passport-service'
-import { Info, Map as MapIcon, Sliders, Navigation } from 'lucide-react'
+import { Info, Navigation } from 'lucide-react'
 
 interface TripExplorationMapProps {
   exploration: TripExploration | null
   bufferMeters: number
   onBufferChange: (meters: number) => void
   isLoading?: boolean
+  /** False while no trip is selected: the map then asks for one instead of drawing nothing. */
+  hasSelection?: boolean
 }
 
-function TripMapContent({ exploration, bufferMeters }: { exploration: TripExploration | null, bufferMeters: number }) {
+interface MarkerLabels {
+  heard: string
+  missed: string
+}
+
+/**
+ * The info window is built from DOM nodes and `textContent`, not an HTML string: a POI name is
+ * curated text, and a string template would render any markup in it.
+ */
+function markerContent(poi: POIExp, isHeard: boolean, labels: MarkerLabels): HTMLElement {
+  const root = document.createElement('div')
+  root.style.cssText = 'padding: 12px; min-width: 200px; font-family: sans-serif;'
+  const name = document.createElement('p')
+  name.style.cssText = 'font-weight: bold; margin-bottom: 4px; color: #111;'
+  name.textContent = poi.name
+  const city = document.createElement('p')
+  city.style.cssText = 'font-size: 11px; color: #666; margin-bottom: 8px;'
+  city.textContent = poi.city
+  const badge = document.createElement('div')
+  badge.style.cssText = `font-size: 10px; padding: 4px 8px; border-radius: 4px; font-weight: bold; background: ${isHeard ? '#FFF7ED' : '#F3F4F6'}; color: ${isHeard ? '#C2410C' : '#4B5563'}; border: 1px solid ${isHeard ? '#FFEDD5' : '#E5E7EB'};`
+  badge.textContent = isHeard ? labels.heard : labels.missed
+  root.append(name, city, badge)
+  return root
+}
+
+function TripMapContent({ exploration, labels }: { exploration: TripExploration | null; labels: MarkerLabels }) {
   const mapRef = useRef<HTMLDivElement>(null)
   const mapInstanceRef = useRef<google.maps.Map | null>(null)
   const polylineRef = useRef<google.maps.Polyline | null>(null)
@@ -50,7 +78,7 @@ function TripMapContent({ exploration, bufferMeters }: { exploration: TripExplor
 
     // 1. Draw Route Trail
     if (exploration.trail && exploration.trail.coordinates) {
-      const path = exploration.trail.coordinates.map((coord: [number, number]) => ({
+      const path: google.maps.LatLngLiteral[] = exploration.trail.coordinates.map((coord: [number, number]) => ({
         lat: coord[1],
         lng: coord[0]
       }))
@@ -64,7 +92,7 @@ function TripMapContent({ exploration, bufferMeters }: { exploration: TripExplor
         map
       })
 
-      path.forEach((p: any) => bounds.extend(p))
+      path.forEach((point) => bounds.extend(point))
     }
     
     // 2. Markers
@@ -85,15 +113,7 @@ function TripMapContent({ exploration, bufferMeters }: { exploration: TripExplor
       })
 
       marker.addListener('click', () => {
-        infoWindowRef.current?.setContent(`
-          <div style="padding: 12px; min-width: 200px; font-family: sans-serif;">
-            <p style="font-weight: bold; margin-bottom: 4px; color: #111;">${poi.name}</p>
-            <p style="font-size: 11px; color: #666; margin-bottom: 8px;">${poi.city}</p>
-            <div style="font-size: 10px; padding: 4px 8px; border-radius: 4px; background: ${isHeard ? '#FFF7ED' : '#F3F4F6'}; color: ${isHeard ? '#FF6F00' : '#6B7280'}; font-weight: bold; border: 1px solid ${isHeard ? '#FFEDD5' : '#E5E7EB'};">
-              ${isHeard ? '✓ Visitado nesta viagem' : '✗ Deixou de visitar'}
-            </div>
-          </div>
-        `)
+        infoWindowRef.current?.setContent(markerContent(poi, isHeard, labels))
         infoWindowRef.current?.open(map, marker)
       })
 
@@ -107,13 +127,19 @@ function TripMapContent({ exploration, bufferMeters }: { exploration: TripExplor
     if (!bounds.isEmpty()) {
       map.fitBounds(bounds, { top: 50, bottom: 50, left: 50, right: 50 })
     }
-  }, [exploration])
+  }, [exploration, labels])
 
-  return <div ref={mapRef} className="w-full h-full rounded-b-3xl" />
+  // Absolute, because the box around it has a minimum height and no fixed one: `h-full` there
+  // resolves to zero and the map paints nothing.
+  return <div ref={mapRef} className="absolute inset-0" />
 }
 
-export function TripExplorationMap({ exploration, bufferMeters, onBufferChange, isLoading }: TripExplorationMapProps) {
+export function TripExplorationMap({ exploration, bufferMeters, onBufferChange, isLoading, hasSelection = true }: TripExplorationMapProps) {
+  const t = useTranslations('Pages.AppUsers.passport')
   const apiKey = process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY
+  const heardLabel = t('heard')
+  const missedLabel = t('missed')
+  const labels = useMemo(() => ({ heard: heardLabel, missed: missedLabel }), [heardLabel, missedLabel])
 
   return (
     <div className="bg-white/90 dark:bg-gray-900/90 backdrop-blur-xl rounded-[40px] border border-gray-200 dark:border-gray-800 shadow-3xl shadow-black/10 flex flex-col h-full animate-in fade-in duration-700">
@@ -125,8 +151,8 @@ export function TripExplorationMap({ exploration, bufferMeters, onBufferChange, 
               <Navigation className="h-5 w-5 text-tuggi-blue" />
             </div>
             <div>
-              <h3 className="text-lg font-bold text-gray-900 dark:text-white leading-tight tracking-tight">Trip Exploration</h3>
-              <p className="text-[9px] text-gray-400 font-bold uppercase tracking-widest leading-none mt-0.5">FOMO Analysis & Radius Tracking</p>
+              <h3 className="text-lg font-bold text-gray-900 dark:text-white leading-tight tracking-tight">{t('exploration_title')}</h3>
+              <p className="text-xs text-gray-500 mt-0.5">{t('exploration_hint')}</p>
             </div>
           </div>
 
@@ -134,7 +160,7 @@ export function TripExplorationMap({ exploration, bufferMeters, onBufferChange, 
             <div className="flex items-center gap-4 min-w-[180px]">
               <div className="flex flex-col flex-1">
                 <div className="flex justify-between items-center px-1 mb-1">
-                  <span className="text-[8px] font-bold text-gray-500 uppercase tracking-widest">Buffer</span>
+                  <span className="text-[10px] font-bold text-gray-500 uppercase tracking-widest">{t('buffer')}</span>
                   <span className="text-[10px] font-black text-tuggi-blue">{(bufferMeters / 1000).toFixed(1)} km</span>
                 </div>
                 <input
@@ -143,7 +169,8 @@ export function TripExplorationMap({ exploration, bufferMeters, onBufferChange, 
                   max="5000"
                   step="100"
                   value={bufferMeters}
-                  onChange={(e) => onBufferChange(parseInt(e.target.value))}
+                  aria-label={t('buffer')}
+                  onChange={(e) => onBufferChange(parseInt(e.target.value, 10))}
                   className="w-full h-1.5 accent-tuggi-blue"
                 />
               </div>
@@ -154,12 +181,12 @@ export function TripExplorationMap({ exploration, bufferMeters, onBufferChange, 
             <div className="flex items-center gap-4">
               <div className="flex items-center gap-2">
                 <div className="w-2.5 h-2.5 rounded-full bg-orange-600" />
-                <span className="text-[9px] font-bold text-gray-400 uppercase tracking-widest">Heard</span>
+                <span className="text-[10px] font-bold text-gray-500 uppercase tracking-widest">{t('heard')}</span>
                 <span className="text-[11px] font-black text-orange-600">{exploration?.heard_count || 0}</span>
               </div>
               <div className="flex items-center gap-2">
                 <div className="w-2.5 h-2.5 rounded-full bg-gray-400" />
-                <span className="text-[9px] font-bold text-gray-400 uppercase tracking-widest">Missed</span>
+                <span className="text-[10px] font-bold text-gray-500 uppercase tracking-widest">{t('missed')}</span>
                 <span className="text-[11px] font-black text-gray-500">{exploration?.missed_count || 0}</span>
               </div>
             </div>
@@ -172,14 +199,16 @@ export function TripExplorationMap({ exploration, bufferMeters, onBufferChange, 
           <div className="absolute inset-0 flex items-center justify-center bg-gray-50/10 backdrop-blur-sm z-10">
             <div className="text-center">
               <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-tuggi-blue mx-auto mb-4" />
-              <p className="text-gray-600 font-bold uppercase tracking-widest text-xs">Analyzing spatial data...</p>
+              <p className="text-gray-600 text-sm">{t('exploration_loading')}</p>
             </div>
           </div>
+        ) : !hasSelection ? (
+          <div className="absolute inset-0 flex items-center justify-center p-8 text-center text-sm text-gray-500">{t('select_trip')}</div>
         ) : !apiKey ? (
-           <div className="p-8 text-center text-red-500">Google Maps API key missing.</div>
+          <div className="p-8 text-center text-red-600">{t('map_key_missing')}</div>
         ) : (
           <Wrapper apiKey={apiKey} libraries={GOOGLE_MAPS_LIBRARIES} version={GOOGLE_MAPS_VERSION}>
-            <TripMapContent exploration={exploration} bufferMeters={bufferMeters} />
+            <TripMapContent exploration={exploration} labels={labels} />
           </Wrapper>
         )}
       </div>
@@ -192,7 +221,11 @@ export function TripExplorationMap({ exploration, bufferMeters, onBufferChange, 
               <Info className="h-5 w-5 text-tuggi-blue" />
             </div>
             <p className="text-sm font-medium text-gray-700 dark:text-gray-300">
-               Legal! O usuário ouviu <span className="font-bold text-orange-600">{exploration.heard_count} pontos</span> hoje, mas ele poderia ter ouvido <span className="font-bold text-gray-900 dark:text-white">{exploration.heard_count + exploration.missed_count} pontos</span> se tivesse desviado um pouco da rota (Raio de {(exploration.buffer_meters / 1000).toFixed(1)}km).
+              {t('exploration_summary', {
+                heard: exploration.heard_count,
+                radius: (exploration.buffer_meters / 1000).toFixed(1),
+                total: exploration.heard_count + exploration.missed_count,
+              })}
             </p>
           </div>
         </div>

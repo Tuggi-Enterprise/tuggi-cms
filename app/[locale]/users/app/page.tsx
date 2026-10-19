@@ -1,11 +1,12 @@
 'use client'
 
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, Suspense } from 'react'
+import { useRouter, useSearchParams } from 'next/navigation'
 import { useSupabaseClient } from '@supabase/auth-helpers-react'
 import {
   Smartphone, Search, RefreshCw, Filter, Crown,
   TrendingUp, AlertCircle, ChevronDown,
-  Apple, Zap, User, Play, Plane, ArrowUpDown, ArrowUp, ArrowDown
+  Apple, Zap, User, Play, ArrowUpDown, ArrowUp, ArrowDown
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { StatCard, StatCardRow } from '@/components/ui/StatCard'
@@ -13,10 +14,11 @@ import { SubscriptionBadge, ProviderIcon } from '@/components/ui/SubscriptionBad
 import { Button } from '@/components/ui/button'
 import { GrantCreditDialog } from '@/components/admin/credit/GrantCreditDialog'
 import type { GrantTarget } from '@/components/admin/credit/types'
-import { AppUserLink } from '@/components/dashboard/AppUserLink'
+import { AppUserDeepLink, AppUserLink } from '@/components/dashboard/AppUserLink'
 import { useCmsUser } from '@/lib/hooks/useCmsUser'
 import { appUserInitial } from '@/lib/format/user-identity'
-import { useTranslations } from 'next-intl'
+import { useLocale, useTranslations } from 'next-intl'
+import { APP_USER_PARAM, APP_USER_TAB_PARAM, appUserListHref, appUserTab } from '@/lib/users/app-user-href'
 
 // ============================================================================
 // TYPES
@@ -82,6 +84,29 @@ type SortConfig = {
   direction: 'asc' | 'desc'
 }
 
+
+/**
+ * The record opened from the address, `?user=<id>&tab=<tab>` (#976): the link an operator shares,
+ * and where the old Passaporte page `/admin/users/<id>` redirects. Closing takes the two drawer
+ * parameters off and keeps the rest. Its own component because `useSearchParams` needs a
+ * Suspense boundary, and the list should not wait on one.
+ */
+function DrawerFromAddress({ onUpdate }: { onUpdate: () => void }) {
+  const searchParams = useSearchParams()
+  const router = useRouter()
+  const locale = useLocale()
+  const userId = searchParams.get(APP_USER_PARAM)?.trim()
+  if (!userId) return null
+
+  return (
+    <AppUserDeepLink
+      userId={userId}
+      tab={appUserTab(searchParams.get(APP_USER_TAB_PARAM))}
+      onClose={() => router.replace(appUserListHref(new URLSearchParams(searchParams.toString()), locale), { scroll: false })}
+      onUpdate={onUpdate}
+    />
+  )
+}
 
 // ============================================================================
 // MAIN PAGE
@@ -496,7 +521,6 @@ export default function AppUsersPage() {
                     <SortIcon column="last_sign_in_at" />
                   </div>
                 </th>
-                <th className="px-6 py-4 text-center text-xs font-bold text-gray-500 uppercase tracking-wider">Passaporte</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-100 dark:divide-gray-800">
@@ -517,7 +541,7 @@ export default function AppUsersPage() {
                 ))
               ) : sortedUsers.length === 0 ? (
                 <tr>
-                  <td colSpan={isAdmin ? 11 : 10} className="px-6 py-12 text-center text-gray-500">
+                  <td colSpan={isAdmin ? 10 : 9} className="px-6 py-12 text-center text-gray-500">
                     {t('table.no_results')}
                   </td>
                 </tr>
@@ -603,16 +627,6 @@ export default function AppUsersPage() {
                         : t('modal.never')
                       }
                     </td>
-                    <td className="px-6 py-4 text-center">
-                      <button
-                        type="button"
-                        onClick={() => { window.location.href = `/admin/users/${user.user_id}` }}
-                        className="p-2 bg-orange-100 hover:bg-orange-200 text-orange-600 rounded-xl transition-all duration-300 hover:scale-110 shadow-sm"
-                        title="Ver Passaporte"
-                      >
-                        <Plane className="h-4 w-4" />
-                      </button>
-                    </td>
                   </tr>
                 ))
               )}
@@ -620,6 +634,10 @@ export default function AppUsersPage() {
           </table>
         </div>
       </div>
+
+      <Suspense fallback={null}>
+        <DrawerFromAddress onUpdate={() => { fetchUsers(); fetchSubscriptionStats() }} />
+      </Suspense>
 
       {/* Batch grant, from the selection. Same dialog as the individual grant. */}
       {batchOpen ? (

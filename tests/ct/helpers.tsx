@@ -22,7 +22,8 @@ import ptMessages from '@/messages/pt.json'
 import esMessages from '@/messages/es.json'
 import enMessages from '@/messages/en.json'
 import { QueryProvider } from '@/components/providers/QueryProvider'
-import { AppUserLink } from '@/components/dashboard/AppUserLink'
+import { AppUserDeepLink, AppUserLink } from '@/components/dashboard/AppUserLink'
+import { APP_USER_PARAM, APP_USER_TAB_PARAM, appUserTab } from '@/lib/users/app-user-href'
 import { ClientDirectory } from '@/components/admin/clients/ClientDirectory'
 import { ClientBoard } from '@/components/admin/clients/ClientBoard'
 import { recordHref } from '@/lib/clients/record-href'
@@ -178,6 +179,29 @@ export function AppUserLinkHarness({
       <button type="button">antes</button>
       <AppUserLink user={{ user_id: userId, nickname }} />
       <button type="button">depois</button>
+    </div>
+  )
+}
+
+/**
+ * The record opened from the address, as `DrawerFromAddress` on the app users list does it (#976):
+ * the query string is parsed with the same helper and handed to `AppUserDeepLink`. The Next router
+ * is not mounted in a component test, so the harness stands in for `useSearchParams` and
+ * `router.replace`, and nothing else.
+ */
+export function AppUserDeepLinkHarness({ query }: { query: string }) {
+  const [params, setParams] = useState(() => new URLSearchParams(query))
+  const userId = params.get(APP_USER_PARAM)?.trim()
+  return (
+    <div>
+      <p data-testid="address">{params.toString()}</p>
+      {userId ? (
+        <AppUserDeepLink
+          userId={userId}
+          tab={appUserTab(params.get(APP_USER_TAB_PARAM))}
+          onClose={() => setParams(new URLSearchParams())}
+        />
+      ) : null}
     </div>
   )
 }

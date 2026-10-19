@@ -1081,7 +1081,7 @@
         "device": "Dispositivo",
         "subscription": "Suscripción",
         "trips": "Viajes",
-        "poi_visits": "Visitas POI",
+        "poi_visits": "Puntos visitados",
         "km": "KM",
         "cities": "Ciudades",
         "hours": "Situación de horas",
@@ -1090,10 +1090,9 @@
         "cancel": "Cancelar",
         "save": "Guardar",
         "saving": "Guardando...",
-        "tier": "Nivel",
-        "provider": "Proveedor",
+        "tier": "Plan",
+        "provider": "Origen",
         "expires_at": "Vence en",
-        "history": "Historial de Suscripción",
         "created_at": "Registro",
         "last_login": "Último login",
         "last_trip": "Último viaje",
@@ -1105,10 +1104,10 @@
         "save_error": "Error al guardar la suscripción",
         "country": "País",
         "language": "Idioma",
-        "driver_type": "Tipo de Driver",
+        "driver_type": "Tipo de conductor",
         "platform": "Plataforma",
         "model": "Modelo",
-        "app_version": "Versión de la App",
+        "app_version": "Versión de la app",
         "logins": "Inicios de sesión",
         "duration": "Duración",
         "days_unit": "días",
@@ -1125,7 +1124,50 @@
       "can_publish_label": "Puede publicar itinerarios en la app",
       "can_publish_hint": "Muestra el botón \"Guardar como itinerario\" en la pantalla del viaje.",
       "can_publish_saved": "Guardado",
-      "can_publish_error": "No se pudo guardar. Inténtalo de nuevo."
+      "can_publish_error": "No se pudo guardar. Inténtalo de nuevo.",
+      "drawer": {
+        "title": "Ficha del turista",
+        "loading": "Cargando…",
+        "tabs": {
+          "overview": "Visión general",
+          "passport": "Pasaporte",
+          "access": "Acceso y saldo",
+          "client": "Cliente vinculado",
+          "admin_only": "Disponible solo para administradores"
+        }
+      },
+      "overview": {
+        "no_device": "Ningún dispositivo registrado todavía."
+      },
+      "passport": {
+        "stamps": "Sellos",
+        "stamps_hint": "Puntos visitados en todos los viajes",
+        "trips": "Viajes",
+        "distance": "Distancia",
+        "top_category": "Categoría favorita",
+        "trip_history": "Historial de viajes",
+        "empty": "Ningún viaje registrado todavía.",
+        "trip_time": "Tiempo",
+        "trip_speed": "Velocidad",
+        "trip_visited": "Visitados",
+        "exploration_title": "Exploración del viaje",
+        "exploration_hint": "Puntos escuchados y puntos perdidos en el radio elegido",
+        "buffer": "Radio",
+        "heard": "Escuchados",
+        "missed": "Perdidos",
+        "select_trip": "Elige un viaje de la lista para ver el mapa.",
+        "exploration_loading": "Calculando puntos en el radio…",
+        "exploration_summary": "En este viaje el usuario escuchó {heard, plural, one {# punto} other {# puntos}}. Con un desvío de hasta {radius} km, podría haber escuchado {total}.",
+        "map_key_missing": "El mapa no cargó: falta la clave de Google Maps en el entorno."
+      },
+      "history": {
+        "subscription": "Historial de suscripción",
+        "action_subscribe": "Se suscribió",
+        "action_renew": "Renovó",
+        "action_upgrade": "Subió de plan",
+        "action_downgrade": "Bajó de plan",
+        "action_cancel": "Canceló"
+      }
     },
     "Notifications": {
       "title": "Notificaciones push",
