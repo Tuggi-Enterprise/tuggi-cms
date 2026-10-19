@@ -108,7 +108,7 @@ test('spec §3.4: French puts a no-break space before the question mark', () => 
 test('spec §3.1: the footer says which class the reader is in', () => {
   const service = mod.renderTouristEmail('tourist_hours_earned', 'pt', DATA.tourist_hours_earned, NOW)
   assert.equal(service.footerNote, 'Você recebe este e-mail porque tem uma conta no Tuggi.')
-  assert.equal(service.unsubscribeLabel, 'Não quero mais avisos sobre minhas horas')
+  assert.equal(service.unsubscribeLabel, 'Parar de receber avisos e novidades do Tuggi')
   const promo = mod.renderTouristEmail('tourist_reengagement_14', 'pt', {}, NOW)
   assert.equal(promo.footerNote, 'Você recebe este e-mail porque pediu novidades e lembretes do Tuggi.')
   assert.equal(promo.unsubscribeLabel, undefined)

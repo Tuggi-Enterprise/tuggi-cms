@@ -107,11 +107,11 @@ const SERVICE_FOOTER_NOTE: Copy = {
   it: 'Ricevi questa e-mail perché hai un account Tuggi.',
 };
 const SERVICE_UNSUBSCRIBE: Copy = {
-  pt: 'Não quero mais avisos sobre minhas horas',
-  en: 'Stop emails about my hours',
-  es: 'No quiero más avisos sobre mis horas',
-  fr: "Ne plus recevoir d'e-mails sur mes heures",
-  it: 'Non voglio più avvisi sulle mie ore',
+  pt: 'Parar de receber avisos e novidades do Tuggi',
+  en: 'Stop all Tuggi alerts and news',
+  es: 'Dejar de recibir avisos y novedades de Tuggi',
+  fr: 'Ne plus recevoir les avis et nouveautés de Tuggi',
+  it: 'Non ricevere più avvisi e novità di Tuggi',
 };
 const REENGAGEMENT_FOOTER_NOTE: Copy = {
   pt: 'Você recebe este e-mail porque pediu novidades e lembretes do Tuggi.',
