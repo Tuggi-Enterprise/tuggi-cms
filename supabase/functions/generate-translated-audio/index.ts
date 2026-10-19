@@ -16,6 +16,7 @@ import {
   createProductionRefusedResponse,
 } from '../_shared/content-production-gate.ts';
 import { rebuildReadModel } from '../_shared/read-model.ts';
+import { isUserRoute, translateAndModerateUserRoute, type RouteSourceRow } from '../_shared/route-moderation.ts';
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -87,6 +88,8 @@ const getOriginalDescription = async (attractionId: string): Promise<{ descripti
 import {
   translateWithGemini as sharedTranslateWithGemini,
   translatePoiNameWithUsage,
+  runGeminiPromptWithUsage,
+  getLanguageName,
 } from '../_shared/translationUtility.ts';
 
 // Translate text using shared utility
@@ -242,23 +245,29 @@ const upsertAttractionDescription = async (
 // ROUTE MODE HELPERS
 // ─────────────────────────────────────────────────────────────────────────────
 
-/** Fetch route name + description from custom_routes */
-const getRouteData = async (routeId: string): Promise<{ name: string; description: string }> => {
-  const { data, error } = await supabaseAdmin
+/**
+ * Fetch route name + description from custom_routes, and whether it is a user route (#945).
+ * The description may be missing on a user route (BR-ROTA-006): the caller decides. Before
+ * migration 20261019110000 `owner_user_id` does not exist (42703): read without it, and no route
+ * is a user route.
+ */
+const getRouteData = async (routeId: string): Promise<{ name: string; description: string | null; userRoute: boolean }> => {
+  const read = (columns: string) => supabaseAdmin
     .schema('core')
     .from('custom_routes')
-    .select('name, description')
+    .select(columns)
     .eq('id', routeId)
     .eq('is_active', true)
     .maybeSingle();
 
+  let { data, error } = await read('name, description, metadata, owner_user_id');
+  if (error?.code === '42703') ({ data, error } = await read('name, description, metadata'));
+
   if (error || !data) {
     throw new Error(`Route not found or inactive: ${routeId}`);
   }
-  if (!data.description) {
-    throw new Error(`Route ${routeId} has no description to translate.`);
-  }
-  return { name: data.name, description: data.description };
+  const row = data as unknown as RouteSourceRow;
+  return { name: row.name, description: row.description || null, userRoute: isUserRoute(row) };
 };
 
 /** Upload route audio with a route-specific storage path (includes gender, mirrors POI pattern) */
@@ -299,7 +308,7 @@ const upsertRouteDescription = async (
   language: string,
   gender: 'male' | 'female',
   translatedName: string,
-  translatedText: string,
+  translatedText: string | null,
   audioUrl: string | null,
 ): Promise<void> => {
   const { error } = await supabaseAdmin
@@ -448,26 +457,58 @@ serve(async (req) => {
 
       try {
         // Step 1: Fetch route name + description (or use overrides from body)
-        let sourceName        = body.originalName;
-        let sourceDescription = body.originalDescription;
+        const routeData = await getRouteData(routeId);
+        let translatedName: string;
+        let translatedText: string | null;
 
-        if (!sourceName || !sourceDescription) {
-          const routeData = await getRouteData(routeId);
-          sourceName        = sourceName        ?? routeData.name;
-          sourceDescription = sourceDescription ?? routeData.description;
+        if (routeData.userRoute) {
+          // #945, BR-ROTA-006: a user route is translated and screened in ONE call, on the text
+          // stored in the database (body overrides are ignored, so nobody screens a clean text
+          // and publishes another). No description: the name alone is screened and translated.
+          const moderated = await translateAndModerateUserRoute(
+            routeData,
+            getLanguageName(targetLanguage),
+            targetLanguage,
+            {
+              runPrompt: async (prompt) => (await runGeminiPromptWithUsage(prompt, GEMINI_API_KEY, 2048, 0.2)).text,
+              setModerationResult: async (flagged, reason) => {
+                const { error } = await supabaseAdmin.schema('core').rpc('set_route_moderation_result', {
+                  p_route_id: routeId, p_flagged: flagged, p_reason: reason,
+                });
+                if (error) throw new Error(`set_route_moderation_result failed: ${error.code}`);
+              },
+            },
+          );
+          console.log(`[${requestId}] User route screened: flagged=${moderated.flagged}`);
+          if (moderated.flagged) {
+            // Nothing produced from an improper text: no audio, no stored translation.
+            await setRouteTranslationStatus(routeId, targetLanguage, voiceGender, 'failed').catch(() => {});
+            return new Response(
+              JSON.stringify({ error: 'route_under_review' }),
+              { status: 422, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+            );
+          }
+          translatedName = moderated.name;
+          translatedText = moderated.description;
+        } else {
+          const sourceName        = body.originalName        ?? routeData.name;
+          const sourceDescription = body.originalDescription ?? routeData.description;
+          if (!sourceDescription) {
+            throw new Error(`Route ${routeId} has no description to translate.`);
+          }
+          console.log(`[${requestId}] Source: name="${sourceName?.slice(0, 40)}" desc=${sourceDescription.length}chars`);
+
+          // Step 2: Translate name + description in parallel
+          [translatedName, translatedText] = await Promise.all([
+            translateWithGemini(sourceName, targetLanguage),
+            translateWithGemini(sourceDescription, targetLanguage),
+          ]);
         }
-        console.log(`[${requestId}] Source: name="${sourceName?.slice(0, 40)}" desc=${sourceDescription?.length}chars`);
-
-        // Step 2: Translate name + description in parallel
-        const [translatedName, translatedText] = await Promise.all([
-          translateWithGemini(sourceName!, targetLanguage),
-          translateWithGemini(sourceDescription!, targetLanguage),
-        ]);
-        console.log(`[${requestId}] Translated name="${translatedName.slice(0, 40)}" desc=${translatedText.length}chars`);
+        console.log(`[${requestId}] Translated name="${translatedName.slice(0, 40)}" desc=${translatedText?.length ?? 0}chars`);
 
         // Step 3: Generate audio (optional, default true)
         let audioUrl: string | null = null;
-        if (body.generateAudio !== false) {
+        if (body.generateAudio !== false && translatedText) {
           const audioBuffer = await generateAudioWithTTS(translatedText, targetLanguage, voiceGender, GOOGLE_CLOUD_API_KEY);
           audioUrl = await uploadRouteAudioToStorage(audioBuffer, routeId, targetLanguage, voiceGender);
           console.log(`[${requestId}] Route audio uploaded: ${audioUrl}`);

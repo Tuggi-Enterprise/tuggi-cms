@@ -11,6 +11,7 @@ import { SupabaseClient } from '@supabase/supabase-js'
 import { OSRMService, LatLng, RouteResult } from './routing/OSRMService'
 import { mustRegenerate, storedLineToLatLngs } from './routing/route-geometry'
 import type { TravelMode } from '@/lib/routes/route-ownership'
+import type { PublicationParams } from '@/lib/routes/route-publication'
 
 // Characteristic Enums
 export type AccessibilityLevel = 'accessible' | 'partial' | 'not_accessible' | 'unknown';
@@ -92,6 +93,19 @@ export interface UpdateRouteRequest {
   resources?: RouteResources;
   photogenic_rating?: PhotgenicRating;
   stops_count?: number;
+  // #945: visibility, slug and validity (BR-ROTA-003/004/005), and the moderation status
+  // (BR-ROTA-006, admin only in the database). Sent only when set: before migration
+  // 20261019110000 the RPC does not have these parameters, and the call of today must keep resolving.
+  publication?: PublicationParams;
+  status?: 'active' | 'removed_by_moderation';
+}
+
+/** A refusal of `upsert_custom_route` that keeps the PostgREST code, so the route can map it to a field. */
+export class RouteWriteError extends Error {
+  constructor(message: string, readonly dbError: { code?: string; message?: string }) {
+    super(message)
+    this.name = 'RouteWriteError'
+  }
 }
 
 /**
@@ -256,11 +270,13 @@ export class RouteService {
         p_road_conditions: data.road_conditions ?? oldRoute.road_conditions ?? [],
         p_resources: data.resources ?? oldRoute.resources ?? {},
         p_photogenic_rating: data.photogenic_rating ?? oldRoute.photogenic_rating ?? 'unknown',
-        p_stops_count: data.stops_count ?? oldRoute.stops_count ?? (data.waypoints ?? oldRoute.waypoints ?? []).length
+        p_stops_count: data.stops_count ?? oldRoute.stops_count ?? (data.waypoints ?? oldRoute.waypoints ?? []).length,
+        ...(data.publication ?? {}),
+        ...(data.status ? { p_status: data.status } : {}),
       })
 
     if (error) {
-      throw new Error(`Failed to update route: ${error.message}`)
+      throw new RouteWriteError(`Failed to update route: ${error.message}`, error)
     }
 
     // Determine audit action

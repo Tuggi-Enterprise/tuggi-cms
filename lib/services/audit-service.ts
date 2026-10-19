@@ -16,6 +16,8 @@ export type AuditAction =
   // Hour-credit ledger (epic #283). `core.audit_logs.action` is free text — the only
   // CHECK on the table is on `status` — so a value added here reaches the row as written.
   | 'GRANT_TIME_CREDIT'
+  // #945, BR-ROTA-006: the CMS turns an app user's route publishing on or off (App Store 1.2 block).
+  | 'SET_ROUTE_PUBLISHING'
   // A period grant is two transactions: the access period committed and the ledger row did
   // not. The right exists with no grant row behind it, so this row is the only record of
   // who applied it — and of the fact that it must not be applied again.

@@ -45,6 +45,7 @@ import {
 import { cn } from '@/lib/utils'
 import { SubscriptionBadge } from '@/components/ui/SubscriptionBadge'
 import { CreditPanel } from '@/components/admin/credit/CreditPanel'
+import { RoutePublishingToggle } from '@/components/admin/RoutePublishingToggle'
 import { LinkedClientSection } from '@/components/dashboard/LinkedClientSection'
 import { useCmsUser } from '@/lib/hooks/useCmsUser'
 import { dashboardService, type UserDetail } from '@/lib/services/dashboard-service'
@@ -321,6 +322,9 @@ export function UserDetailModal({
                     `email={null}`: the RPC behind this modal does not return one, and the
                     founder's exception (BR-USUARIO-042, 4th edge case) is the app users list,
                     not this file. */}
+                {/* #945: route publishing, on and off (BR-ROTA-006, App Store 1.2). Admin only. */}
+                {isAdmin && <RoutePublishingToggle userId={user.user_id} />}
+
                 <CreditPanel
                   userId={user.user_id}
                   nickname={user.nickname}
