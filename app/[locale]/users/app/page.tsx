@@ -436,6 +436,11 @@ export default function AppUsersPage() {
             className="w-full pl-10 pr-4 py-3 border border-gray-200 dark:border-gray-700 rounded-xl bg-white dark:bg-gray-900 text-gray-900 dark:text-white focus:ring-2 focus:ring-tuggi-blue focus:border-transparent"
           />
         </div>
+        {/* The count lives inside the search block: a bare <p> as a direct child of the page
+            rendered outside the content grid (operator, 2026-10-19). */}
+        <p className="mt-3 text-sm text-gray-500">
+          {t('table.results_info', { filtered: filteredUsers.length, total: users.length })}
+        </p>
       </div>
 
       {/* Error State */}
@@ -446,10 +451,6 @@ export default function AppUsersPage() {
         </div>
       )}
 
-      {/* Results count */}
-      <p className="text-sm text-gray-500 mb-4">
-        {t('table.results_info', { filtered: filteredUsers.length, total: users.length })}
-      </p>
 
       {/* Selection bar. The button carries the count — never "Confirmar", never "OK". */}
       {isAdmin && selectedVisibleIds.length > 0 && (
