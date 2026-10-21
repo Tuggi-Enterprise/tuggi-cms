@@ -1,7 +1,7 @@
 // Validador e ranker de trigger points
 
 import { POIData, GeographicContext, TriggerPointCandidate, TriggerPoint, BoundaryData } from '../types/interfaces';
-import { calculateDistance, calculateBearing, extractBuildingHeight, calculateDistanceToBoundary, distanceToLineSegment } from '../utils/calculations';
+import { calculateDistance, calculateBearing, extractBuildingHeight, calculateDistanceToBoundary, distanceToRingSidesM, nearestRingVertex } from '../utils/calculations';
 import { SANITY_MAX_TP_DISTANCE_M, proximityBand, proximityRankScore } from '../config/visibility-class';
 import { tpReachCapM } from '../utils/validation';
 import { TRIGGER_POINTS_CONSTANTS } from '../config/trigger-points-config';
@@ -539,18 +539,7 @@ export class TriggerPointValidator {
     location: { lat: number; lng: number },
     boundaryCoordinates: Array<{ lat: number; lng: number }>
   ): { lat: number; lng: number } {
-    let nearest = boundaryCoordinates[0];
-    let minDistance = calculateDistance(location, nearest);
-
-    for (const point of boundaryCoordinates) {
-      const distance = calculateDistance(location, point);
-      if (distance < minDistance) {
-        minDistance = distance;
-        nearest = point;
-      }
-    }
-
-    return nearest;
+    return nearestRingVertex(location, boundaryCoordinates).point;
   }
   
   
@@ -837,23 +826,7 @@ export class TriggerPointValidator {
     }
     
     // Encontrar o lado do boundary mais próximo do TP
-    const tpLocation = candidate.location;
-    let minDistance = Infinity;
-    let closestSideIndex = -1;
-    
-    // Calcular distância para cada lado do boundary
-    for (let i = 0; i < boundary.coordinates.length; i++) {
-      const point1 = boundary.coordinates[i];
-      const point2 = boundary.coordinates[(i + 1) % boundary.coordinates.length];
-      
-      // Calcular distância do TP para o segmento de linha
-      const distance = distanceToLineSegment(tpLocation, point1, point2);
-      
-      if (distance < minDistance) {
-        minDistance = distance;
-        closestSideIndex = i;
-      }
-    }
+    const minDistance = distanceToRingSidesM(candidate.location, boundary.coordinates);
     
     // Se TP está muito próximo de um lado específico (< 50m), é provavelmente front street
     if (minDistance < 50) {
