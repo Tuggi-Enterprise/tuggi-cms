@@ -1,15 +1,24 @@
-// _shared/places-invoice.ts — the NFS-e of the Com história plan (#901, mirror #900).
+// _shared/places-invoice.ts — the NFS-e of the Com história plan (#901, mirror #900) and of the CMS
+// contract (#918, same flow; only the text changes: `INVOICE_TEXT`).
 //
 // Term 3.5: "os valores incluem os tributos devidos pela TUGGI, que emite o documento fiscal".
 // Contract: `docs/contracts/places-pagamento.md` §0 and §3.5 (workspace). BR-B2B-046.
 //
 // When the invoice is issued (operator, 2026-10-07): in the month of the PAYMENT.
-//   - Monthly fee: the Asaas subscription carries `invoiceSettings` with
-//     `effectiveDatePeriod: ON_PAYMENT_CONFIRMATION` — set on creation (`configureSubscriptionInvoices`)
-//     and by the daily sweep for any live subscription still without it (backfill, `reconcileInvoices`).
+//   - #914 (operator, 2026-10-08): nothing of the invoice runs in the checkout. Asaas validates the
+//     customer's address on `invoiceSettings` and refused the Pix checkout for it; the invoice is a
+//     step AFTER a confirmed payment (`invoiceAfterPayment`, from the webhook once the charge is
+//     recorded, and from the daily sweep for what escaped).
+//   - Monthly fee: the FIRST confirmed payment of a subscription without `invoiceSettings` gets its own
+//     invoice (`ensurePaymentInvoice`), then the subscription gets `invoiceSettings` with
+//     `effectiveDatePeriod: ON_PAYMENT_CONFIRMATION` for the next ones (`configureSubscriptionInvoices`).
+//     Why both: the create doc only says existing charges "podem ser consideradas", and an
+//     ON_PAYMENT_CONFIRMATION trigger already past is not a promise; the update doc says the rules
+//     reach charges "que ainda não possuam nota fiscal criada", so scheduling first never duplicates.
+//     A subscription that already has settings is left to Asaas (scheduling too would race it).
 //   - One-off charge (no `subscription`: the early-termination fee of a Pix Automático plan, and the
 //     first QR charge of journey 3): scheduled with `effectiveDate` = the day the confirmation arrives
-//     (`ensureOneOffInvoice`), never before the money.
+//     (`ensurePaymentInvoice`), never before the money.
 //   - Free month: no payment, so no invoice.
 //
 // The mirror (`partner.record_place_invoice`) is an upsert by `inv_` of the RE-READ invoice, so a
@@ -21,15 +30,19 @@
 //   ASAAS_INVOICE_SERVICE_CODE  municipal service code (`municipalServiceCode`), from the accountant;
 //   ASAAS_INVOICE_SERVICE_NAME  its name (`municipalServiceName`, required to schedule an invoice);
 //   ASAAS_INVOICE_ISS_RATE      ISS rate in percent (`taxes.iss`, e.g. `2` or `2.5`).
-// Without all three, nothing is configured nor scheduled: one alert per subscription, never a failed
-// checkout. PIS, COFINS, CSLL, INSS and IR go as 0 and ISS is not withheld by the taker.
+// Without all three, nothing is configured nor scheduled: one alert per confirmed payment, never a
+// failed checkout. PIS, COFINS, CSLL, INSS and IR go as 0 and ISS is not withheld by the taker.
 //
 // Never log an invoice body: it carries the taker's CPF/CNPJ, name and e-mail.
 
 import type { AsaasClient, AsaasInvoice, AsaasInvoiceTaxes, AsaasPayment } from './asaas.ts';
 import { AsaasError } from './asaas.ts';
 import type { Rpc } from './places-payment.ts';
-import { formatBrl, isUuid, subscriptionIdFromReference, toCents } from './places-payment.ts';
+import { formatBrl, isUuid, PAID_STATUSES, subscriptionIdFromReference, toCents } from './places-payment.ts';
+import { LEGACY_SUBSCRIPTION_DESCRIPTION } from './places-legacy-customers.ts';
+
+/** `place_subscriptions.origin` (contract §3.8): a portal plan, or the CMS contract from before the portal. */
+export type InvoiceOrigin = 'portal' | 'cms_contract';
 
 export type InvoiceConfig = { serviceCode: string; serviceName: string; issRate: number };
 
@@ -42,7 +55,10 @@ export type InvoiceDeps = {
   invoiceConfig: InvoiceConfig | null;
   /** The mirror's current status of an `inv_`, null when not mirrored yet. */
   invoiceStatusOf: (providerInvoiceId: string) => Promise<string | null>;
-  sendEmail: (to: string, subject: string, text: string) => Promise<boolean>;
+  /** Text-only unless `mail.html`; `fromName` names the sender; `replyTo` goes as Resend's `reply_to` (omitted, replies go to the sender). */
+  sendEmail: (to: string, subject: string, text: string, mail?: { html?: string; fromName?: string; replyTo?: string }) => Promise<boolean>;
+  /** Origin of the subscription the `pay_` belongs to; a charge not mirrored → `portal`. Throws on a read error. */
+  invoiceOriginOf: (providerPaymentId: string) => Promise<InvoiceOrigin>;
 };
 
 /** A live (or just ended) plan the sweep reconciles. */
@@ -50,6 +66,7 @@ export type InvoiceTarget = {
   subscription_id: string;
   provider_subscription_id: string | null;
   provider_customer_id: string | null;
+  origin: InvoiceOrigin;
 };
 
 export const INVOICE_ENV = {
@@ -70,7 +87,25 @@ export function parseInvoiceConfig(get: (name: string) => string | undefined): I
 
 const taxesOf = (c: InvoiceConfig): AsaasInvoiceTaxes => ({ retainIss: false, iss: c.issRate, pis: 0, cofins: 0, csll: 0, inss: 0, ir: 0 });
 
-const OBSERVATIONS = 'Tuggi · Com história';
+/**
+ * What the NFS-e and its e-mail say, by origin: the only place (#918). The CMS contract is not the
+ * Com história plan (operator 2026-10-08): its service is the text of its Asaas subscription, never
+ * "Com história". `serviceDescription` and `observations` go on the invoice; the rest, on the e-mail.
+ */
+export const INVOICE_TEXT: Record<InvoiceOrigin, { serviceDescription: string; observations: string; subject: string; issued: string }> = {
+  portal: {
+    serviceDescription: 'Tuggi Com história',
+    observations: 'Tuggi · Com história',
+    subject: 'Nota fiscal da sua mensalidade Com história',
+    issued: 'A nota fiscal da sua mensalidade do plano Com história foi emitida.',
+  },
+  cms_contract: {
+    serviceDescription: LEGACY_SUBSCRIPTION_DESCRIPTION,
+    observations: LEGACY_SUBSCRIPTION_DESCRIPTION,
+    subject: 'Nota fiscal da sua mensalidade Tuggi',
+    issued: `A nota fiscal do serviço "${LEGACY_SUBSCRIPTION_DESCRIPTION}" foi emitida.`,
+  },
+};
 
 /** The statuses `partner.record_place_invoice` accepts — exactly the Asaas ones (doc + webhook, 2026-10-07). */
 export const INVOICE_STATUSES = [
@@ -121,13 +156,13 @@ const MIRROR_ALERTS = new Set(['unknown_subscription', 'subscription_mismatch', 
 
 /** Text by the design (#901, comment 6040645900). A null number or value drops its line. */
 export const INVOICE_EMAIL = {
-  subject: 'Nota fiscal da sua mensalidade Com história',
-  text: (pdfUrl: string, number: string | null, valueCents: number | null) => {
+  subject: (origin: InvoiceOrigin = 'portal') => INVOICE_TEXT[origin].subject,
+  text: (pdfUrl: string, number: string | null, valueCents: number | null, origin: InvoiceOrigin = 'portal') => {
     const facts = [number ? `Número: ${number}` : null, valueCents !== null ? `Valor: ${formatBrl(valueCents)}` : null].filter((l): l is string => !!l);
     return [
       'Olá,',
       '',
-      'A nota fiscal da sua mensalidade do plano Com história foi emitida.',
+      INVOICE_TEXT[origin].issued,
       '',
       ...(facts.length ? [...facts, ''] : []),
       `Para baixar o PDF, abra: ${pdfUrl}`,
@@ -211,7 +246,9 @@ async function sendInvoiceEmail(deps: InvoiceDeps, inv: AsaasInvoice): Promise<v
   try {
     const email = inv.customer ? str((await deps.asaas.getCustomer(inv.customer)).email) : null;
     if (!pdf || !email) throw new Error(!pdf ? 'no_pdf' : 'no_email');
-    if (!(await deps.sendEmail(email, INVOICE_EMAIL.subject, INVOICE_EMAIL.text(pdf, str(inv.number), typeof inv.value === 'number' ? toCents(inv.value) : null)))) throw new Error('send_failed');
+    const origin = await deps.invoiceOriginOf(str(inv.payment) as string);
+    const text = INVOICE_EMAIL.text(pdf, str(inv.number), typeof inv.value === 'number' ? toCents(inv.value) : null, origin);
+    if (!(await deps.sendEmail(email, INVOICE_EMAIL.subject(origin), text))) throw new Error('send_failed');
   } catch (e) {
     await deps.alert('invoice_email_failed', { provider_invoice_id: inv.id, error: e instanceof Error ? e.message : 'unknown' });
   }
@@ -247,27 +284,25 @@ export async function handleInvoiceEvent(
 }
 
 /**
- * Sets `invoiceSettings` on a subscription that has none. Never throws: a failure alerts and the
+ * Sets `invoiceSettings` on a subscription that has none. Only after a confirmed payment
+ * (`invoiceAfterPayment`), never from the checkout (#914). Never throws: a failure alerts and the
  * daily sweep tries again. Returns what happened.
  */
-export async function configureSubscriptionInvoices(
+async function configureSubscriptionInvoices(
   deps: InvoiceDeps,
   providerSubscriptionId: string,
   subscriptionId: string,
-  opts: { alertWhenUnconfigured: boolean } = { alertWhenUnconfigured: true },
+  origin: InvoiceOrigin,
 ): Promise<'configured' | 'already' | 'unconfigured' | 'failed'> {
   const c = deps.invoiceConfig;
-  if (!c) {
-    if (opts.alertWhenUnconfigured) await deps.alert('invoice_config_missing', { subscription_id: subscriptionId, provider_subscription_id: providerSubscriptionId });
-    return 'unconfigured';
-  }
+  if (!c) return 'unconfigured'; // callers alert (`invoiceAfterPayment`) or stay silent (sweep)
   try {
     if (await deps.asaas.getSubscriptionInvoiceSettings(providerSubscriptionId)) return 'already';
     await deps.asaas.createSubscriptionInvoiceSettings(providerSubscriptionId, {
       municipalServiceCode: c.serviceCode,
       municipalServiceName: c.serviceName,
       effectiveDatePeriod: 'ON_PAYMENT_CONFIRMATION',
-      observations: OBSERVATIONS,
+      observations: INVOICE_TEXT[origin].observations,
       taxes: taxesOf(c),
     });
     return 'configured';
@@ -282,25 +317,27 @@ export async function configureSubscriptionInvoices(
 }
 
 /**
- * The invoice of a confirmed one-off payment (no `subscription`), scheduled for today — the month of
- * the payment. Idempotent by the re-read: a payment with a live invoice is left alone. Throws a
- * transient `AsaasError` so the webhook answers 500 and Asaas resends (the charge is then a
- * `duplicate_event`, and this runs again).
+ * The invoice of one confirmed payment, scheduled for today — the month of the payment. Idempotent by
+ * the re-read: a payment with a live invoice is left alone. Throws only a transient `AsaasError`, so
+ * the webhook answers 500 and Asaas resends (the charge is then a `duplicate_event`, and this runs
+ * again); anything else alerts and returns `failed`.
  */
-export async function ensureOneOffInvoice(deps: InvoiceDeps, p: AsaasPayment, subscriptionId: string | null): Promise<string> {
+export async function ensurePaymentInvoice(deps: InvoiceDeps, p: AsaasPayment, subscriptionId: string | null, origin: InvoiceOrigin = 'portal'): Promise<string> {
   const c = deps.invoiceConfig;
   if (!c) {
     await deps.alert('invoice_config_missing', { subscription_id: subscriptionId, provider_payment_id: p.id });
     return 'unconfigured';
   }
   if (!subscriptionId) return 'unknown_subscription';
-  const existing = await deps.asaas.listInvoices({ payment: p.id });
-  if (existing.some((i) => LIVE.has(invoiceStatus(i.status) as InvoiceStatus))) return 'already';
   try {
+    // #914: inside the try. A permanent refusal here used to escape as a 500, and Asaas resent the
+    // charge's event until the queue paused (15 failures): every later payment then stopped arriving.
+    const existing = await deps.asaas.listInvoices({ payment: p.id });
+    if (existing.some((i) => LIVE.has(invoiceStatus(i.status) as InvoiceStatus))) return 'already';
     const inv = await deps.asaas.scheduleInvoice({
       payment: p.id,
-      serviceDescription: 'Tuggi Com história',
-      observations: OBSERVATIONS,
+      serviceDescription: INVOICE_TEXT[origin].serviceDescription,
+      observations: INVOICE_TEXT[origin].observations,
       externalReference: subscriptionId,
       value: p.value,
       deductions: 0,
@@ -316,6 +353,41 @@ export async function ensureOneOffInvoice(deps: InvoiceDeps, p: AsaasPayment, su
     await deps.alert('invoice_not_scheduled', { subscription_id: subscriptionId, provider_payment_id: p.id, error: e instanceof Error ? e.message : 'unknown' });
     return 'failed';
   }
+}
+
+/**
+ * #914: the invoice step, only AFTER payment(s) confirmed and recorded. One-off → its own invoice.
+ * Subscription: with `invoiceSettings` already there, Asaas issues it (nothing here: scheduling too
+ * would race Asaas into a second invoice); without, each paid payment gets its own invoice FIRST, then
+ * the settings for the next ones (see the header for why that order never duplicates). Throws only a
+ * transient `AsaasError` (the webhook answers 500, the sweep counts it); the rest alerts.
+ */
+export async function invoiceAfterPayment(
+  deps: InvoiceDeps,
+  paid: AsaasPayment[],
+  subscriptionId: string | null,
+  providerSubscriptionId: string | null,
+  origin: InvoiceOrigin = 'portal',
+): Promise<string> {
+  if (!providerSubscriptionId) {
+    let last = 'none';
+    for (const p of paid) last = await ensurePaymentInvoice(deps, p, subscriptionId, origin);
+    return last;
+  }
+  if (!deps.invoiceConfig) {
+    await deps.alert('invoice_config_missing', { subscription_id: subscriptionId, provider_subscription_id: providerSubscriptionId });
+    return 'unconfigured';
+  }
+  if (!subscriptionId) return 'unknown_subscription';
+  try {
+    if (await deps.asaas.getSubscriptionInvoiceSettings(providerSubscriptionId)) return 'covered';
+  } catch (e) {
+    if (e instanceof AsaasError && e.transient) throw e;
+    await deps.alert('invoice_settings_failed', { subscription_id: subscriptionId, provider_subscription_id: providerSubscriptionId, error: e instanceof Error ? e.message : 'unknown' });
+    return 'failed';
+  }
+  for (const p of paid) await ensurePaymentInvoice(deps, p, subscriptionId, origin);
+  return await configureSubscriptionInvoices(deps, providerSubscriptionId, subscriptionId, origin);
 }
 
 /**
@@ -353,18 +425,27 @@ export function reconcileFrom(today: string): string {
 }
 
 /**
- * Daily, inside `places-payment-sweep`: (1) backfill `invoiceSettings` on every live subscription
- * still without it — nothing, silently, while the secrets are missing (the alert was the
- * checkout's); (2) re-read the invoices of each customer since the start of last month and record them.
+ * Daily, inside `places-payment-sweep`: (1) what the webhook missed — a live subscription without
+ * `invoiceSettings` and with at least one paid charge gets `invoiceAfterPayment` (one without a paid
+ * charge is left alone: the invoice never comes before the money, #914); nothing, silently, while the
+ * secrets are missing (the alert was the webhook's); (2) re-read the invoices of each customer since
+ * the start of last month and record them.
  */
 export async function reconcileInvoices(deps: InvoiceDeps, targets: InvoiceTarget[]): Promise<Record<string, number | string>> {
   const out = { configured: 0, settings_failed: 0, recorded: 0, mirror_failed: 0 };
   const from = reconcileFrom(deps.today());
   for (const t of targets) {
-    if (t.provider_subscription_id && deps.invoiceConfig) {
-      const r = await configureSubscriptionInvoices(deps, t.provider_subscription_id, t.subscription_id, { alertWhenUnconfigured: false });
+    if (!t.provider_subscription_id || !deps.invoiceConfig) continue;
+    try {
+      if (await deps.asaas.getSubscriptionInvoiceSettings(t.provider_subscription_id)) continue;
+      const paid = (await deps.asaas.listSubscriptionPayments(t.provider_subscription_id)).filter((p) => PAID_STATUSES.has(p.status));
+      if (!paid.length) continue;
+      const r = await invoiceAfterPayment(deps, paid, t.subscription_id, t.provider_subscription_id, t.origin);
       if (r === 'configured') out.configured++;
       if (r === 'failed') out.settings_failed++;
+    } catch (e) {
+      out.settings_failed++;
+      console.error('[places-invoice] reconcile settings', t.subscription_id, e instanceof Error ? e.message : 'unknown');
     }
   }
   for (const customer of new Set(targets.map((t) => t.provider_customer_id).filter((c): c is string => !!c))) {

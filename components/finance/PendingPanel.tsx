@@ -16,7 +16,7 @@
  */
 
 import { useLocale, useTranslations } from 'next-intl'
-import { CELL, DIM, DenseTableScroller, HEAD, HEAD_NUM, NUM } from '@/components/ui/dense-table'
+import { CELL, DIM, DenseTableScroller, HEAD_SOLO, HEAD_SOLO_NUM, NUM } from '@/components/ui/dense-table'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { formatMoney } from '@/lib/finance/money'
@@ -149,12 +149,12 @@ export function PendingPanel({
         <table className="w-full min-w-[900px] border-collapse">
           <thead>
             <tr>
-              <th scope="col" className={HEAD}>{t('columns.severity')}</th>
-              <th scope="col" className={HEAD}>{t('columns.what')}</th>
-              <th scope="col" className={HEAD}>{t('columns.place')}</th>
-              <th scope="col" className={HEAD_NUM}>{t('columns.amount')}</th>
-              <th scope="col" className={HEAD}>{t('columns.since')}</th>
-              <th scope="col" className={HEAD}>{t('columns.action')}</th>
+              <th scope="col" className={HEAD_SOLO}>{t('columns.severity')}</th>
+              <th scope="col" className={HEAD_SOLO}>{t('columns.what')}</th>
+              <th scope="col" className={HEAD_SOLO}>{t('columns.place')}</th>
+              <th scope="col" className={HEAD_SOLO_NUM}>{t('columns.amount')}</th>
+              <th scope="col" className={HEAD_SOLO}>{t('columns.since')}</th>
+              <th scope="col" className={HEAD_SOLO}>{t('columns.action')}</th>
             </tr>
           </thead>
           <tbody>

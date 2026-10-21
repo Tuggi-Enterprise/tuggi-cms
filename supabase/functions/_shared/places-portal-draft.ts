@@ -85,6 +85,11 @@ export type Deps = {
    */
   submissions: {
     settledOwnerless(email: string): Promise<string | null>;
+    /**
+     * #916: the legacy e-mail variant of a mirror submission (`legacy_client_id`, `core.clients`
+     * name, fee and courtesy); `null` for a portal submission.
+     */
+    legacyMail(submissionId: string): Promise<{ placeName: string; paying: boolean } | null>;
   };
   origin: string;
 };
@@ -209,6 +214,42 @@ export function accessEmail(url: string, origin: string): { subject: string; htm
   return { subject, html, text };
 }
 
+/** One line of the place name: our database's, but still no control character and no runaway length. */
+export function placeNameForMail(raw: unknown): string {
+  const s = typeof raw === 'string' ? raw.replace(/[\u0000-\u001f\u007f]+/g, ' ').replace(/\s+/g, ' ').trim() : '';
+  return s.length > 120 ? `${s.slice(0, 119)}…` : s;
+}
+
+/**
+ * The legacy access e-mail (spec of `design`, #916 §1). The place name goes in the body because it
+ * comes from `core.clients`, typed by the operator, never by whoever asks for a link (the reason
+ * `accessEmail` carries none). It opens a sentence, so no article ("o"/"a" depends on the name);
+ * no name → "Seu local". Sender `ACCESS_FROM_NAME`, set by `mailAccessLink`. Also the e-mail of
+ * `request_link` `login` for a legacy submission (#916: `/entrar` with that e-mail). Announces the
+ * portal: no word on cancelling, switching plan or the free plan, and no link validity (an expired
+ * link lands on the sign-in, which sends another).
+ */
+export function legacyAccessEmail(url: string, origin: string, v: { placeName: string; paying: boolean }): { subject: string; html: string; text: string } {
+  const host = new URL(origin).host;
+  const name = placeNameForMail(v.placeName) || 'Seu local';
+  return portalMail({
+    subject: 'Conheça o novo portal do seu local no Tuggi',
+    preheader: 'Uma novidade para quem está no app do Tuggi.',
+    paragraphs: [
+      'Olá,',
+      'O Tuggi está evoluindo e melhorando a experiência de quem está com a gente. Criamos um portal para você acompanhar as informações do seu estabelecimento sempre que quiser.',
+      v.paying
+        ? `${name} já está no app do Tuggi, e agora você acompanha a sua conta pelo portal, onde vê o seu plano e o valor.`
+        : `${name} já está no app do Tuggi, e agora você acompanha tudo pelo portal. Quando quiser adicionar a história em áudio do local, é só pedir por lá.`,
+    ],
+    cta: { label: 'Conhecer o portal', url },
+    small: [
+      `Se o botão não abrir, entre em ${host} com este e-mail.`,
+      'Não reconhece este local? Escreva para suporte@tuggi.app.',
+    ],
+  });
+}
+
 /**
  * The portal e-mail layout of `accessEmail`, for the transition e-mails of #813
  * (`places-transition-email.ts`): paragraphs, one button, small print, signature. Every string is
@@ -220,17 +261,21 @@ export function portalMail(m: {
   preheader: string;
   paragraphs: string[];
   cta?: { label: string; url: string };
+  /** Paragraphs after the button (the cancel e-mail's closing question). */
+  closing?: string[];
   links?: { label: string; url: string }[];
   small: string[];
 }): { subject: string; html: string; text: string } {
   const sign = 'Equipe Tuggi';
   const links = m.links ?? [];
+  const closing = m.closing ?? [];
   const html = [
     PAGE_OPEN,
     `<div style="display:none;max-height:0;overflow:hidden;opacity:0;mso-hide:all">${escapeHtml(m.preheader)}</div>`,
     CARD_OPEN,
     ...m.paragraphs.map((p) => `<p style="${P}">${escapeHtml(p)}</p>`),
     ...(m.cta ? [button(m.cta.url, m.cta.label)] : []),
+    ...closing.map((p) => `<p style="${P}">${escapeHtml(p)}</p>`),
     ...links.map((l) => `<p style="${P}"><a href="${escapeHtml(l.url)}" style="color:#1A1A1A">${escapeHtml(l.label)}</a></p>`),
     ...m.small.map((p) => `<p style="${SMALL}">${escapeHtml(p)}</p>`),
     `<p style="${P};margin:16px 0 0">${escapeHtml(sign)}</p>`,
@@ -239,6 +284,7 @@ export function portalMail(m: {
   const text = [
     ...m.paragraphs.flatMap((p) => [p, '']),
     ...(m.cta ? [`${m.cta.label}: ${m.cta.url}`, ''] : []),
+    ...closing.flatMap((p) => [p, '']),
     ...links.flatMap((l) => [`${l.label}: ${l.url}`]),
     ...(links.length ? [''] : []),
     ...m.small.flatMap((p) => [p, '']),
@@ -493,7 +539,9 @@ export async function handle(deps: Deps, raw: unknown, jwt: string): Promise<Res
         // e-mail ("entre … com este e-mail, e mandamos outro"). None → a plain sign-in.
         const sid = await deps.submissions.settledOwnerless(email).catch(() => null);
         if (sid && UUID.test(sid)) {
-          const o = await issueAccessLink(accessDeps(deps), sid);
+          // #916: a client from before the portal never registered: the access e-mail is the legacy one.
+          const legacy = await deps.submissions.legacyMail(sid).catch(() => null);
+          const o = await issueAccessLink(accessDeps(deps), sid, legacy ? (url, origin) => legacyAccessEmail(url, origin, legacy) : accessEmail);
           if (o.kind === 'sent') return { status: 200, body: { ok: true } };
           // TGP29 (5 links/h of this submission) answers like a sent link and sends nothing: a 429
           // only for an e-mail with an ownerless submission would tell anyone that it registered a

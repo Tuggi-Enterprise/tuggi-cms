@@ -14,10 +14,10 @@
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
 import { createAdminClient, getPublishableKey, getSupabaseUrl } from './supabase-client.ts';
 import { asaasClient } from './asaas.ts';
-import { saoPauloDate, type CancelRedoRow, type Deps, type ExpiredCardRow, type Rpc, type SubscriptionIds } from './places-payment.ts';
+import { SUPPORT_EMAIL, saoPauloDate, type CancelRedoRow, type Deps, type ExpiredCardRow, type Rpc, type SubscriptionIds } from './places-payment.ts';
 import { issueAccessLink } from './places-portal-draft.ts';
-import { INVOICE_ENV, MirrorReadError, parseInvoiceConfig, type InvoiceTarget } from './places-invoice.ts';
-import { accessLinkDeps } from './places-access-link-runtime.ts';
+import { INVOICE_ENV, MirrorReadError, parseInvoiceConfig, type InvoiceOrigin, type InvoiceTarget } from './places-invoice.ts';
+import { accessLinkDeps, fromWithName } from './places-access-link-runtime.ts';
 
 const RESEND_URL = 'https://api.resend.com/emails';
 
@@ -40,7 +40,7 @@ export function rpcOf(client: any): Rpc {
   };
 }
 
-async function sendEmail(to: string, subject: string, text: string): Promise<boolean> {
+async function sendEmail(to: string, subject: string, text: string, mail: { html?: string; fromName?: string; replyTo?: string } = {}): Promise<boolean> {
   const key = (Deno.env.get('RESEND_API_KEY') ?? '').trim();
   if (!key) return false;
   try {
@@ -48,10 +48,12 @@ async function sendEmail(to: string, subject: string, text: string): Promise<boo
       method: 'POST',
       headers: { Authorization: `Bearer ${key}`, 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        from: (Deno.env.get('RESEND_FROM') ?? 'Tuggi <news@tuggi.app>').trim(),
+        from: fromWithName((Deno.env.get('RESEND_FROM') ?? 'Tuggi <news@tuggi.app>').trim(), mail.fromName),
         to: [to],
         subject,
+        ...(mail.html ? { html: mail.html } : {}),
         text,
+        ...(mail.replyTo ? { reply_to: mail.replyTo } : {}),
       }),
       signal: AbortSignal.timeout(10_000),
     });
@@ -64,7 +66,7 @@ async function sendEmail(to: string, subject: string, text: string): Promise<boo
 /** Ids and outcomes only (see `Deps.alert`). Log line first: the e-mail may fail. */
 export async function alert(what: string, fields: Record<string, string | number | null | undefined>): Promise<void> {
   console.error('[places-payment][ALERT]', what, JSON.stringify(fields));
-  const to = (Deno.env.get('PARTNER_ALERT_TO') ?? 'suporte@tuggi.app').trim();
+  const to = (Deno.env.get('PARTNER_ALERT_TO') ?? SUPPORT_EMAIL).trim();
   const lines = Object.entries(fields).map(([k, v]) => `${k}: ${v ?? '—'}`);
   await sendEmail(to, `[Tuggi pagamento] ${what}`, [`Alerta da EF de pagamento do Com história (#811): ${what}`, '', ...lines].join('\n'));
 }
@@ -115,17 +117,27 @@ export function baseDeps(asaas: NonNullable<ReturnType<typeof asaasFromEnv>>): D
       const { data, error } = await admin
         .schema('partner')
         .from('place_subscriptions')
-        .select('id, provider_subscription_id, provider_customer_id, canceled_at')
+        .select('id, provider_subscription_id, provider_customer_id, canceled_at, origin')
         .not('provider_customer_id', 'is', null)
         .or(`canceled_at.is.null,canceled_at.gt.${since}`);
       if (error) throw new Error(`invoice targets read ${error.code}`);
       // deno-lint-ignore no-explicit-any
       return (data ?? []).map((r: any) => ({
         subscription_id: r.id,
-        // an ended plan's subscription is gone at Asaas: only its invoices are re-read
+        // an ended plan's subscription is gone at Asaas: only its invoices are re-read.
         provider_subscription_id: r.canceled_at ? null : r.provider_subscription_id ?? null,
         provider_customer_id: r.provider_customer_id,
+        // #918: the CMS contract gets its NFS-e by the same flow, with its own text (`INVOICE_TEXT`).
+        origin: r.origin === 'cms_contract' ? 'cms_contract' : 'portal',
       }));
+    },
+    invoiceOriginOf: async (providerPaymentId: string): Promise<InvoiceOrigin> => {
+      const charge = await admin.schema('partner').from('place_subscription_charges').select('subscription_id').eq('provider_payment_id', providerPaymentId).maybeSingle();
+      if (charge.error) throw new Error(`invoice origin read ${charge.error.code}`);
+      if (!charge.data?.subscription_id) return 'portal';
+      const sub = await admin.schema('partner').from('place_subscriptions').select('origin').eq('id', charge.data.subscription_id).maybeSingle();
+      if (sub.error) throw new Error(`invoice origin read ${sub.error.code}`);
+      return sub.data?.origin === 'cms_contract' ? 'cms_contract' : 'portal';
     },
     asaas,
     admin: rpcOf(admin),
@@ -197,6 +209,23 @@ export function baseDeps(asaas: NonNullable<ReturnType<typeof asaasFromEnv>>): D
       if (error) throw new Error(`sent payouts read ${error.code}`);
       // deno-lint-ignore no-explicit-any
       return (data ?? []).map((r: any) => ({ payout_id: r.id, provider_transfer_id: r.provider_transfer_id }));
+    },
+    // #916: the mirror submission of a client from before the portal (`legacy_client_id`).
+    legacyOf: async (submissionId) => {
+      const { data, error } = await admin.schema('partner').from('place_submissions').select('legacy_client_id, legacy_fee_ended_at').eq('id', submissionId).maybeSingle();
+      if (error) throw new Error(`legacy read ${error.code}`);
+      return typeof data?.legacy_client_id === 'string' ? { client_id: data.legacy_client_id, fee_ended_at: data.legacy_fee_ended_at ?? null } : null;
+    },
+    legacyFeesEnded: async () => {
+      const { data, error } = await admin
+        .schema('partner')
+        .from('place_submissions')
+        .select('legacy_client_id')
+        .not('legacy_client_id', 'is', null)
+        .not('legacy_fee_ended_at', 'is', null);
+      if (error) throw new Error(`legacy fees read ${error.code}`);
+      // deno-lint-ignore no-explicit-any
+      return (data ?? []).map((r: any) => r.legacy_client_id as string);
     },
   };
 }

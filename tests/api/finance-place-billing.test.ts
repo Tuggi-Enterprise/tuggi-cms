@@ -26,9 +26,11 @@ import assert from 'node:assert/strict'
 
 import {
   activeInMonth,
+  contractReviewDue,
   daysBetween,
   isPaidWithoutInvoice,
   matchesFilter,
+  nextChargeDate,
   pickInvoice,
   receivedByClient,
   saoPauloDate,
@@ -68,8 +70,10 @@ function charge(over: Partial<PlaceCharge> = {}): PlaceCharge {
 function sub(over: Partial<PlaceSubscription> = {}): PlaceSubscription {
   return {
     id: over.id ?? 'sub-1',
-    acceptanceId: 'acc-1',
+    origin: over.origin ?? 'portal',
+    acceptanceId: over.origin === 'cms_contract' ? null : 'acc-1',
     clientId: over.clientId === undefined ? 'client-1' : over.clientId,
+    clientName: over.clientName ?? null,
     attractionId: null,
     attractionEntityKind: null,
     placeName: over.placeName ?? 'Baires Bistrô',
@@ -77,9 +81,11 @@ function sub(over: Partial<PlaceSubscription> = {}): PlaceSubscription {
     billingPeriod: 1,
     paymentMethod: 'credit_card',
     status: over.status ?? 'paid',
+    createdAt: over.createdAt ?? null,
+    contractEndsOn: over.contractEndsOn ?? null,
     paidAt: over.paidAt === undefined ? '2026-08-10T15:00:00Z' : over.paidAt,
-    paidThrough: '2026-09-10',
-    renews: true,
+    paidThrough: over.paidThrough === undefined ? '2026-09-10' : over.paidThrough,
+    renews: over.renews ?? true,
     renewalAmountCents: over.renewalAmountCents === undefined ? 10_000 : over.renewalAmountCents,
     canceledAt: over.canceledAt ?? null,
     expiredAt: over.expiredAt ?? null,
@@ -319,4 +325,67 @@ test('#902: receivedByClient soma duas assinaturas do mesmo cliente', () => {
     sub({ id: 'b', clientId: 'c1', charges: [charge({ amountCents: 2_000 })] }),
   ])
   assert.equal(map.get('c1'), 3_000)
+})
+
+// ── #918: the CMS contract subscription (origin cms_contract, contract §3.8) ──────────────────
+
+test('#918 §3.8: a CMS contract runs before its first paid charge: in the month table from its creation, and in the recurring total', () => {
+  const contract = sub({ id: 'k', origin: 'cms_contract', status: 'pending_payment', paidAt: null, createdAt: '2026-10-08T22:00:00Z', charges: [] })
+  assert.equal(activeInMonth(contract, '2026-10'), true)
+  assert.equal(activeInMonth(contract, '2026-09'), false, 'not before the row exists')
+  const totals = summarizePlaceMonth({ month: '2026-10', subscriptions: [contract], payoutsPaid: [] })
+  assert.equal(totals.recurringCents, 10_000)
+  assert.equal(totals.receivedCents, 0)
+  // a portal pending_payment is a checkout draft: out of both
+  const draft = sub({ id: 'd', status: 'pending_payment', paidAt: null, createdAt: '2026-10-08T22:00:00Z', charges: [] })
+  assert.equal(activeInMonth(draft, '2026-10'), false)
+  assert.equal(summarizePlaceMonth({ month: '2026-10', subscriptions: [draft], payoutsPaid: [] }).recurringCents, 0)
+})
+
+test('#918 §3.8: a paid CMS contract charge counts in received and inflow, and in the filters, like any charge', () => {
+  const contract = sub({
+    id: 'k',
+    origin: 'cms_contract',
+    paidAt: '2026-10-19T15:00:00Z',
+    charges: [charge({ providerPaymentId: 'pay_oct', paidOn: '2026-10-19', dueDate: '2026-10-20' }), charge({ providerPaymentId: 'pay_sep', status: 'overdue', paidOn: null, dueDate: '2026-09-20' })],
+  })
+  const totals = summarizePlaceMonth({ month: '2026-10', subscriptions: [contract], payoutsPaid: [] })
+  assert.equal(totals.receivedCents, 10_000)
+  assert.equal(totals.inflowCents, 10_000)
+  assert.equal(totals.recurringCents, 10_000)
+  assert.equal(matchesFilter(contract, 'overdue'), true)
+  assert.equal(matchesFilter(contract, 'without_invoice'), true)
+  assert.equal(matchesFilter(sub({ origin: 'cms_contract', canceledAt: '2026-11-01T00:00:00Z' }), 'canceled'), true)
+  // and in the client's real revenue (profitability)
+  assert.equal(receivedByClient([contract]).get('client-1'), 10_000)
+})
+
+test('#918: the CMS contract review is highlighted from 30 days before the date on, only on a live cms_contract row', () => {
+  const contract = sub({ origin: 'cms_contract', contractEndsOn: '2027-09-20' })
+  assert.equal(contractReviewDue(contract, '2027-08-20'), false)
+  assert.equal(contractReviewDue(contract, '2027-08-21'), true)
+  assert.equal(contractReviewDue(contract, '2027-10-01'), true)
+  assert.equal(contractReviewDue(sub({ origin: 'cms_contract', contractEndsOn: null }), '2027-09-19'), false)
+  assert.equal(contractReviewDue(sub({ origin: 'cms_contract', contractEndsOn: '2027-09-20', canceledAt: '2027-01-01T00:00:00Z' }), '2027-09-19'), false)
+  assert.equal(contractReviewDue(sub({ contractEndsOn: '2027-09-20' }), '2027-09-19'), false)
+})
+
+test('#918: the next charge of a CMS contract is the next DUE_DAY_OF_MONTH (the PENDING one Asaas holds), not paidThrough', () => {
+  const contract = (over: Partial<PlaceSubscription> = {}) =>
+    sub({ origin: 'cms_contract', status: 'pending_payment', paidAt: null, paidThrough: null, charges: [], ...over })
+  // the PENDING charge of 2026-10-20 is not recorded: the row still shows it
+  assert.equal(nextChargeDate(contract(), '2026-10-08'), '2026-10-20')
+  assert.equal(nextChargeDate(contract(), '2026-10-20'), '2026-10-20')
+  // the day after, it is overdue (recorded as such, or not yet): the next is the following month
+  assert.equal(nextChargeDate(contract(), '2026-10-21'), '2026-11-20')
+  assert.equal(nextChargeDate(contract(), '2026-12-25'), '2027-01-20')
+  // paid early: the charge of the 20th is recorded, so the next is the following month, whatever paidThrough says
+  const paidEarly = contract({ status: 'paid', paidThrough: '2026-11-15', charges: [charge({ dueDate: '2026-10-20', paidOn: '2026-10-15' })] })
+  assert.equal(nextChargeDate(paidEarly, '2026-10-16'), '2026-11-20')
+  // nothing next once it no longer renews
+  assert.equal(nextChargeDate(contract({ canceledAt: '2026-10-01T00:00:00Z' }), '2026-10-08'), null)
+  assert.equal(nextChargeDate(contract({ renews: false }), '2026-10-08'), null)
+  // the portal keeps paidThrough
+  assert.equal(nextChargeDate(sub(), '2026-08-20'), '2026-09-10')
+  assert.equal(nextChargeDate(sub({ renews: false }), '2026-08-20'), null)
 })

@@ -478,7 +478,7 @@ export async function acceptContract(input: AcceptInput): Promise<AcceptOutcome>
   // already exists, writing the same path with the same content.
   const completed = acceptance.signed_document_hash
     ? acceptance
-    : await archiveSignedDocument(input.contract, acceptance)
+    : ((await archiveSignedDocument(input.contract, acceptance))?.acceptance ?? null)
 
   if (!completed) return { ok: false, reason: 'write_failed' }
 
@@ -488,7 +488,7 @@ export async function acceptContract(input: AcceptInput): Promise<AcceptOutcome>
   if (won) {
     await sendSignedCopy({
       to: completed.recipient_email,
-      token: input.signingToken,
+      link: { token: input.signingToken },
       signerName: completed.signer_name,
       signerRole: completed.signer_role,
       legalName: input.contract.snapshot.partner.legalName,
@@ -514,10 +514,14 @@ export async function acceptContract(input: AcceptInput): Promise<AcceptOutcome>
  *
  * A failed e-mail never fails the acceptance: the signature is committed and the receipt
  * with the verification code is already on the signer's screen.
+ *
+ * #919: the acceptance made in the partner portal has no signing token. Its copy points at the
+ * portal's Contract section (`channel: 'portal'`), where the owner downloads the signed PDF
+ * behind their own session; `send-transactional` composes that address from its own origin too.
  */
-async function sendSignedCopy(input: {
+export async function sendSignedCopy(input: {
   to: string
-  token: string
+  link: { token: string } | { portal: true }
   signerName: string
   signerRole: string
   legalName: string
@@ -534,7 +538,7 @@ async function sendSignedCopy(input: {
       legal_name: input.legalName,
       accepted_at: input.acceptedAt,
       verification_code: input.verificationCode,
-      token: input.token,
+      ...('token' in input.link ? { token: input.link.token } : { channel: 'portal' }),
     },
     context: 'signed contract copy',
   })
@@ -568,11 +572,17 @@ async function sendSignedCopy(input: {
  * #341: the race is settled by Postgres, not by an `if` in JavaScript. Whoever loses the
  * claim returns the winner's row, so a legitimate signer never sees a failure, and its own
  * bytes stay in the bucket unnamed by any row.
+ *
+ * Exported for #919: the portal's acceptance is recorded by `core.portal_accept_contract` and the
+ * archive is finished here, by the same function, never by a copy of it.
+ *
+ * `archivedNow` is true only for the request that won the claim: it happens once per acceptance,
+ * which is what lets the portal send the signed copy exactly once (#919).
  */
-async function archiveSignedDocument(
+export async function archiveSignedDocument(
   contract: ContractRow,
   acceptance: AcceptanceRow
-): Promise<AcceptanceRow | null> {
+): Promise<{ acceptance: AcceptanceRow; archivedNow: boolean } | null> {
   // `ip_address` and `user_agent` are on `acceptance` and stay there: the trail keeps them,
   // the operator surface shows them, and the artefact that travels to the partner does not
   // carry them (#390 — see the note on `AcceptanceStamp`).
@@ -626,7 +636,8 @@ async function archiveSignedDocument(
     // pair the trail names; ours are an orphan object nobody reads. Returning the winner's
     // row is what keeps a real signature from answering 503 to the person who signed.
     console.warn('[contract] archive already claimed for contract', contract.id)
-    return await getAcceptance(contract.id)
+    const winner = await getAcceptance(contract.id)
+    return winner ? { acceptance: winner, archivedNow: false } : null
   }
 
   const { error: statusError } = await service()
@@ -638,7 +649,7 @@ async function archiveSignedDocument(
     console.error('[contract] status update failed for contract', contract.id)
   }
 
-  return claimed
+  return { acceptance: claimed, archivedNow: true }
 }
 
 /** The version a new contract is generated with, exported so routes do not import two modules. */
