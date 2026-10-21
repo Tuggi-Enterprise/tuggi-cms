@@ -28,7 +28,7 @@
  */
 
 import type { BuildingData } from '../services/osm-data-fetcher';
-import { calculateDistance, findClosestPointOnBoundary, isPointInPolygon } from '../utils/calculations';
+import { calculateDistance, findClosestPointOnBoundary, isPointInPolygon, ringSegmentsAlongLine } from '../utils/calculations';
 import { DemStore } from '../../dem/dem-store';
 import { EDGE_BAND_M, LANDMARK_AVOID_STREET_TYPES, MIN_APPARENT_ANGLE_DEG, RELIEF_STEP_M, heightFromTags } from '../config/visibility-class';
 
@@ -681,7 +681,11 @@ export class VisibilityMapBuilder {
     const xy = (p: GeoPoint) => ({ x: (p.lng - from.lng) * kx, y: (p.lat - from.lat) * ky });
     const r = xy(to);
     let best: number | null = null;
-    for (let i = 0; i < polygon.length; i++) {
+    // A large footprint (a lake's 10 000 sides) is read only along the line: the same test on the
+    // sides that can cross it (`ringSegmentsAlongLine`).
+    const sides = ringSegmentsAlongLine(polygon, from, to);
+    for (let s = 0; s < (sides ? sides.length : polygon.length); s++) {
+      const i = sides ? sides[s] : s;
       const a = xy(polygon[i]), b = xy(polygon[(i + 1) % polygon.length]);
       const e = { x: b.x - a.x, y: b.y - a.y };
       const den = r.x * e.y - r.y * e.x;

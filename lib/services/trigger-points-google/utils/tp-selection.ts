@@ -5,7 +5,7 @@
  * frontal TPs included. Numbers live in config/visibility-class.ts.
  */
 import { StreetData, TriggerPoint } from '../types/interfaces';
-import { calculateBearing, calculateDistance, calculateDistanceToPolygon, closestPointOnSegment, isPointInPolygon, spheroidDistanceM, spheroidDistanceToPolygonM } from './calculations';
+import { calculateBearing, calculateDistance, calculateDistanceToPolygon, closestPointOnSegment, isPointInPolygon, nearestBoundarySegment, spheroidDistanceM, spheroidDistanceToPolygonM } from './calculations';
 import { EDGE_BAND_M, LANDMARK_CELL_RINGS_M, PERIMETER_SECTOR_M, SANITY_MAX_TP_DISTANCE_M, VisibilityClass, isCarStreet, landmarkSectorOf, landmarkStreetTier, observerPath, proximityBand, proximityRankScore, sizeReachFarFromM } from '../config/visibility-class';
 import { partitionByPoiReach, poiEdgeRing, tpReachCapM } from './validation';
 import { ADMIN_BORDER_SEA_MAX_EDGE_M, ADMIN_BORDER_SEA_METHOD, isAdminBorder } from './admin-border-tps';
@@ -30,6 +30,9 @@ const PERIMETER_COVERAGE_CLASSES = new Set<VisibilityClass | undefined>([Visibil
 
 /** Arc length (m) from the first vertex of `ring` to the edge point closest to `p`. */
 export function perimeterPositionM(p: LatLng, ring: LatLng[]): number {
+  // Large edge: the same segment and the same sum, found through the ring index.
+  const near = nearestBoundarySegment(p, ring);
+  if (near) return near.walkedM + closestPointOnSegment(p, ring[near.k], ring[near.k + 1]).t * calculateDistance(ring[near.k], ring[near.k + 1]);
   let best = Infinity;
   let at = 0;
   let walked = 0;
@@ -52,12 +55,15 @@ export function perimeterSectors(ring: LatLng[]): { count: number; sectorOf: (p:
   for (let i = 0; i < ring.length - 1; i++) perimeter += calculateDistance(ring[i], ring[i + 1]);
   const count = Math.max(1, Math.round(perimeter / PERIMETER_SECTOR_M));
   const len = perimeter / count;
-  const sectorOf = (p: LatLng) => (perimeter > 0 ? Math.min(count - 1, Math.floor(perimeterPositionM(p, ring) / len)) : 0);
+  // One position per point: the far pass asks for the sector of every candidate many times.
+  const positions = new WeakMap<LatLng, number>();
+  const positionOf = (p: LatLng) => positions.get(p) ?? positions.set(p, perimeterPositionM(p, ring)).get(p)!;
+  const sectorOf = (p: LatLng) => (perimeter > 0 ? Math.min(count - 1, Math.floor(positionOf(p) / len)) : 0);
   return {
     count,
     sectorOf,
     /** arc distance from the point's edge position to the middle of its sector */
-    offMidM: p => Math.abs(perimeterPositionM(p, ring) - (sectorOf(p) + 0.5) * len),
+    offMidM: p => Math.abs(positionOf(p) - (sectorOf(p) + 0.5) * len),
   };
 }
 
@@ -195,11 +201,12 @@ export function selectSpacedTriggerPoints(
     for (const tp of tps) if (!why?.has(tp)) why?.set(tp, `${label.get(tp)}; ${lost.get(tp) ?? 'lost'}`);
   } else {
     const perimeterRing = PERIMETER_COVERAGE_CLASSES.has(classification?.group) && edgeRing && edgeRing.length >= 4 ? edgeRing : undefined;
-    if (perimeterRing) {
+    const edgeSectors = perimeterRing ? perimeterSectors(perimeterRing) : null;
+    if (edgeSectors) {
       // INV-E10d: every perimeter sector with a candidate in reach gets one TP, above the class
       // cap — a cap by count left the Lagoa with 1 km of Av. Borges de Medeiros bare. Inside the
       // spacing is a physical floor, never waived.
-      const { count, sectorOf, offMidM } = perimeterSectors(perimeterRing);
+      const { count, sectorOf, offMidM } = edgeSectors;
       const bySector = new Map<number, TriggerPoint[]>();
       for (const tp of ranked.filter(inFloor)) {
         const k = sectorOf(tp.location);
@@ -242,16 +249,22 @@ export function selectSpacedTriggerPoints(
     // area/linear is the perimeter sector of INV-E10d: from the centroid of a 5 km island, 45°
     // took the whole Linha Vermelha as covered by the TPs at its two ends (Ilha do Fundão).
     const farPool = sizeFarFromM === null ? [] : ranked.filter(tp => !inFloor(tp));
-    const edgeSectorOf = perimeterRing ? perimeterSectors(perimeterRing).sectorOf : null;
-    const sectorOf = (tp: TriggerPoint) => (edgeSectorOf ? edgeSectorOf(tp.location) : landmarkCellOf(tp, centre).sector);
+    const sectorOf = (tp: TriggerPoint) => (edgeSectors ? edgeSectors.sectorOf(tp.location) : landmarkCellOf(tp, centre).sector);
     const publicOf = (tp: TriggerPoint) => (observerPath(tp.street?.type) === 'ride' ? tp.street!.type : 'street');
+    // The order depends only on `accepted`: re-sorted after a win, and a loss leaves the rest of
+    // the pool in order (a stable sort of a sorted pool is the same pool). Sorting every turn,
+    // with the edge sector read per comparison, never ended on Lago di Como (2026-10-21).
+    let sortedFor = -1;
     while (far < maxFar && farPool.length) {
-      const sectors = new Set(accepted.map(a => `${publicOf(a)}:${sectorOf(a)}`));
-      const paths = new Set(accepted.map(publicOf));
-      const key = (tp: TriggerPoint) => [
-        sectors.has(`${publicOf(tp)}:${sectorOf(tp)}`) ? 1 : 0, paths.has(publicOf(tp)) ? 1 : 0, landmarkStreetTier(tp.street?.type), -tp.quality,
-      ];
-      farPool.sort((a, b) => { const ka = key(a), kb = key(b); return ka[0] - kb[0] || ka[1] - kb[1] || ka[2] - kb[2] || ka[3] - kb[3]; });
+      if (sortedFor !== accepted.length) {
+        const sectors = new Set(accepted.map(a => `${publicOf(a)}:${sectorOf(a)}`));
+        const paths = new Set(accepted.map(publicOf));
+        const keys = new Map(farPool.map(tp => [tp, [
+          sectors.has(`${publicOf(tp)}:${sectorOf(tp)}`) ? 1 : 0, paths.has(publicOf(tp)) ? 1 : 0, landmarkStreetTier(tp.street?.type), -tp.quality,
+        ]]));
+        farPool.sort((a, b) => { const ka = keys.get(a)!, kb = keys.get(b)!; return ka[0] - kb[0] || ka[1] - kb[1] || ka[2] - kb[2] || ka[3] - kb[3]; });
+        sortedFor = accepted.length;
+      }
       const tp = farPool.shift()!;
       const r = tryAccept(tp);
       why?.set(tp, `${tp.street?.type || '?'}; far s${sectorOf(tp)}; ${r === 'won' ? 'won' : `lost: ${r}`}`);

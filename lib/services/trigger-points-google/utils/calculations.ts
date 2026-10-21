@@ -46,6 +46,15 @@ export function spheroidDistanceM(a: GeoPoint, b: GeoPoint): number {
 /** `calculateDistanceToPolygon` in the `spheroidDistanceM` metric: 0 inside, else to the nearest edge. */
 export function spheroidDistanceToPolygonM(point: GeoPoint, polygon: GeoPoint[]): number {
   if (isPointInPolygon(point, polygon)) return 0;
+  if (polygon.length >= RING_INDEX_MIN_VERTICES) {
+    // Same minimum through the ring index; the ellipsoid's radii are above MIN_M_PER_DEG_LAT too.
+    const idx = ringIndexOf(polygon);
+    let min = Infinity;
+    walkRingAround(point, idx, k => {
+      min = Math.min(min, spheroidDistanceM(point, closestPointOnSegment(point, polygon[k], polygon[(k + 1) % polygon.length]).point));
+    }, boundM => min < boundM);
+    return min;
+  }
   let min = Infinity;
   for (let i = 0; i < polygon.length; i++) {
     const foot = closestPointOnSegment(point, polygon[i], polygon[(i + 1) % polygon.length]).point;
@@ -192,12 +201,269 @@ export function calculatePolygonPerimeter(coordinates: Array<{lat: number, lng: 
 }
 
 /**
+ * Rings at or above this many vertices are queried through a spatial index (`ringIndexOf`).
+ * Below it the plain loop is cheaper than building the grid.
+ */
+export const RING_INDEX_MIN_VERTICES = 512;
+
+/** Lower bound of metres per degree of latitude (110 574 m at the equator), kept conservative. */
+const MIN_M_PER_DEG_LAT = 110_000;
+
+type RingIndex = {
+  ring: GeoPoint[];
+  n: number;
+  minLat: number; minLng: number;
+  cellLat: number; cellLng: number;
+  rows: number; cols: number;
+  /** segment k (vertex k → k+1 mod n) ids per cell, row-major */
+  cells: Int32Array[];
+  /** segment ids per latitude row, for the crossing count of `isPointInPolygon` */
+  rowsOf: Int32Array[];
+  /** metres of the smaller cell side, lower bound over the grid's latitudes */
+  cellMinM: number;
+  /** arc length from vertex 0 to vertex k, summed in ring order (`perimeterPositionM`) */
+  walked: Float64Array;
+  stamp: Uint32Array;
+  query: number;
+};
+
+const ringIndexes = new WeakMap<GeoPoint[], RingIndex>();
+
+/**
+ * Uniform grid over the segments of a large ring, cached per ring array (the border is read
+ * thousands of times per POI: street reach, fan walk, perimeter TPs, spacing). Every query below
+ * evaluates the same segment formula as the plain loop and only skips segments that provably
+ * cannot be the minimum, so the result is the same number. Lago di Como (9 943 vertices) and the
+ * Golfo di Taranto (14 323) spent the 3 600 s timeout in O(vertices) per point (2026-10-21).
+ */
+function ringIndexOf(ring: GeoPoint[]): RingIndex {
+  const hit = ringIndexes.get(ring);
+  if (hit && hit.n === ring.length) return hit;
+  const n = ring.length;
+  let minLat = Infinity, maxLat = -Infinity, minLng = Infinity, maxLng = -Infinity;
+  for (const p of ring) {
+    if (p.lat < minLat) minLat = p.lat; if (p.lat > maxLat) maxLat = p.lat;
+    if (p.lng < minLng) minLng = p.lng; if (p.lng > maxLng) maxLng = p.lng;
+  }
+  // Points queried sit a few km off the ring at most; 1° of slack keeps the cos bound safe.
+  const cosMax = Math.cos((Math.min(89, Math.max(Math.abs(minLat), Math.abs(maxLat)) + 1) * Math.PI) / 180);
+  const spanLatM = Math.max(1, (maxLat - minLat) * MIN_M_PER_DEG_LAT);
+  const spanLngM = Math.max(1, (maxLng - minLng) * MIN_M_PER_DEG_LAT * cosMax);
+  // About one segment per cell.
+  const cellM = Math.max(10, Math.sqrt((spanLatM * spanLngM) / n));
+  const cellLat = cellM / MIN_M_PER_DEG_LAT;
+  const cellLng = cellM / (MIN_M_PER_DEG_LAT * cosMax);
+  const rows = Math.max(1, Math.ceil((maxLat - minLat) / cellLat) + 1);
+  const cols = Math.max(1, Math.ceil((maxLng - minLng) / cellLng) + 1);
+  const lists: number[][] = Array.from({ length: rows * cols }, () => []);
+  const rowLists: number[][] = Array.from({ length: rows }, () => []);
+  const walked = new Float64Array(n);
+  for (let k = 0; k < n; k++) {
+    const a = ring[k], b = ring[(k + 1) % n];
+    if (k < n - 1) walked[k + 1] = walked[k] + calculateDistance(a, b);
+    const r0 = Math.floor((Math.min(a.lat, b.lat) - minLat) / cellLat);
+    const r1 = Math.floor((Math.max(a.lat, b.lat) - minLat) / cellLat);
+    const c0 = Math.floor((Math.min(a.lng, b.lng) - minLng) / cellLng);
+    const c1 = Math.floor((Math.max(a.lng, b.lng) - minLng) / cellLng);
+    for (let r = r0; r <= r1; r++) {
+      rowLists[r].push(k);
+      for (let c = c0; c <= c1; c++) lists[r * cols + c].push(k);
+    }
+  }
+  const index: RingIndex = {
+    ring, n, minLat, minLng, cellLat, cellLng, rows, cols,
+    cells: lists.map(l => Int32Array.from(l)),
+    rowsOf: rowLists.map(l => Int32Array.from(l)),
+    // A gap of k whole cells is at least k·cellM in latitude, and in longitude at the highest
+    // latitude of the grid; haversine never measures less than that (0.95 for the sine bound).
+    cellMinM: cellM * 0.95,
+    walked, stamp: new Uint32Array(n), query: 0,
+  };
+  ringIndexes.set(ring, index);
+  return index;
+}
+
+/**
+ * Visits the segments of an indexed ring (each once) in rings of cells around `p`, nearest first,
+ * until `settled(boundM)`: every segment not visited yet lies at least `boundM` from `p`.
+ */
+function walkRingAround(p: GeoPoint, idx: RingIndex, visit: (k: number) => void, settled: (boundM: number) => boolean): void {
+  const { rows, cols } = idx;
+  if (++idx.query === 0xffffffff) { idx.stamp.fill(0); idx.query = 1; }
+  const q = idx.query;
+  const pr = Math.floor((p.lat - idx.minLat) / idx.cellLat);
+  const pc = Math.floor((p.lng - idx.minLng) / idx.cellLng);
+  // Cells outside the grid hold nothing: start at the first ring that touches it.
+  const kStart = Math.max(pr < 0 ? -pr : pr >= rows ? pr - rows + 1 : 0, pc < 0 ? -pc : pc >= cols ? pc - cols + 1 : 0);
+  const kEnd = kStart + Math.max(rows, cols);
+  const cell = (r: number, c: number) => {
+    if (r < 0 || r >= rows || c < 0 || c >= cols) return;
+    const list = idx.cells[r * cols + c];
+    for (let i = 0; i < list.length; i++) {
+      const k = list[i];
+      if (idx.stamp[k] === q) continue;
+      idx.stamp[k] = q;
+      visit(k);
+    }
+  };
+  for (let k = kStart; k <= kEnd; k++) {
+    if (k === 0) cell(pr, pc);
+    else {
+      for (let c = pc - k; c <= pc + k; c++) { cell(pr - k, c); cell(pr + k, c); }
+      for (let r = pr - k + 1; r <= pr + k - 1; r++) { cell(r, pc - k); cell(r, pc + k); }
+    }
+    // Every segment not seen yet lies beyond k whole cells.
+    if (settled(k * idx.cellMinM)) return;
+  }
+}
+
+/**
+ * Nearest segment of an indexed ring to `p`: the smallest `calculateDistanceToLineSegment`, and
+ * on a tie the lowest segment id — the one the plain loop keeps. `closed: false` leaves out the
+ * closing segment (n−1 → 0), as `calculateDistanceToBoundary` and `perimeterPositionM` do.
+ */
+function nearestRingSegment(p: GeoPoint, idx: RingIndex, closed: boolean): { k: number; d: number } {
+  const { ring, n } = idx;
+  let best = Infinity, bestK = -1;
+  walkRingAround(p, idx, k => {
+    if (!closed && k === n - 1) return;
+    const d = calculateDistanceToLineSegment(p, ring[k], ring[(k + 1) % n]);
+    if (d < best || (d === best && k < bestK)) { best = d; bestK = k; }
+  }, boundM => bestK >= 0 && best < boundM); // nothing unseen can beat, nor tie, `best`
+  return { k: bestK, d: best };
+}
+
+/** Nearest vertex of an indexed ring to `p` (`calculateDistance`), the lowest index on a tie. */
+function nearestRingVertexIndexed(p: GeoPoint, idx: RingIndex): { k: number; d: number } {
+  const { ring } = idx;
+  let best = Infinity, bestK = -1;
+  // Vertex k is the start of segment k, so it is seen with it.
+  walkRingAround(p, idx, k => {
+    const d = calculateDistance(p, ring[k]);
+    if (d < best || (d === best && k < bestK)) { best = d; bestK = k; }
+  }, boundM => bestK >= 0 && best < boundM);
+  return { k: bestK, d: best };
+}
+
+/**
+ * Nearest vertex of `ring` to `p`: the first one at the smallest `calculateDistance`. Indexed on a
+ * large ring (`RING_INDEX_MIN_VERTICES`).
+ */
+export function nearestRingVertex(p: GeoPoint, ring: GeoPoint[]): { point: GeoPoint; distance: number } {
+  if (ring.length >= RING_INDEX_MIN_VERTICES) {
+    const { k, d } = nearestRingVertexIndexed(p, ringIndexOf(ring));
+    return { point: ring[k], distance: d };
+  }
+  let point = ring[0];
+  let distance = calculateDistance(p, point);
+  for (const v of ring) {
+    const d = calculateDistance(p, v);
+    if (d < distance) { distance = d; point = v; }
+  }
+  return { point, distance };
+}
+
+/**
+ * Distance from `p` to the closest side of `ring`, closing side included, with no inside test (a
+ * point inside measures to its nearest side, not 0). Indexed on a large ring.
+ */
+export function distanceToRingSidesM(p: GeoPoint, ring: GeoPoint[]): number {
+  if (ring.length >= RING_INDEX_MIN_VERTICES) return nearestRingSegment(p, ringIndexOf(ring), true).d;
+  let min = Infinity;
+  for (let i = 0; i < ring.length; i++) min = Math.min(min, distanceToLineSegment(p, ring[i], ring[(i + 1) % ring.length]));
+  return min;
+}
+
+/**
+ * Segment ids of a large ring that can touch the straight line `a → b` (in lat/lng), each once;
+ * null below `RING_INDEX_MIN_VERTICES` (the caller loops over every side). The line is sampled
+ * every half cell and each sample's cell is read with its 8 neighbours, so every cell the line
+ * crosses is read.
+ */
+export function ringSegmentsAlongLine(ring: GeoPoint[], a: GeoPoint, b: GeoPoint): number[] | null {
+  if (ring.length < RING_INDEX_MIN_VERTICES) return null;
+  const idx = ringIndexOf(ring);
+  if (++idx.query === 0xffffffff) { idx.stamp.fill(0); idx.query = 1; }
+  const q = idx.query;
+  const steps = Math.max(1, Math.ceil(Math.max(Math.abs(b.lat - a.lat) / idx.cellLat, Math.abs(b.lng - a.lng) / idx.cellLng) * 2));
+  const out: number[] = [];
+  let lastR = NaN, lastC = NaN;
+  for (let s = 0; s <= steps; s++) {
+    const r0 = Math.floor((a.lat + ((b.lat - a.lat) * s) / steps - idx.minLat) / idx.cellLat);
+    const c0 = Math.floor((a.lng + ((b.lng - a.lng) * s) / steps - idx.minLng) / idx.cellLng);
+    if (r0 === lastR && c0 === lastC) continue;
+    lastR = r0; lastC = c0;
+    for (let r = r0 - 1; r <= r0 + 1; r++) {
+      if (r < 0 || r >= idx.rows) continue;
+      for (let c = c0 - 1; c <= c0 + 1; c++) {
+        if (c < 0 || c >= idx.cols) continue;
+        const list = idx.cells[r * idx.cols + c];
+        for (let i = 0; i < list.length; i++) {
+          const k = list[i];
+          if (idx.stamp[k] === q) continue;
+          idx.stamp[k] = q;
+          out.push(k);
+        }
+      }
+    }
+  }
+  return out;
+}
+
+/**
+ * The vertices of `ring` that can be within `boundM` of the polyline, in ring order: those inside
+ * the polyline's box grown by `boundM` (conservative in degrees).
+ */
+function ringVerticesNear(ring: GeoPoint[], polyline: GeoPoint[], boundM: number): GeoPoint[] {
+  let minLat = Infinity, maxLat = -Infinity, minLng = Infinity, maxLng = -Infinity;
+  for (const p of polyline) {
+    if (p.lat < minLat) minLat = p.lat; if (p.lat > maxLat) maxLat = p.lat;
+    if (p.lng < minLng) minLng = p.lng; if (p.lng > maxLng) maxLng = p.lng;
+  }
+  const growLat = (boundM + 1) / MIN_M_PER_DEG_LAT;
+  const growLng = growLat / Math.cos((Math.min(89, Math.max(Math.abs(minLat), Math.abs(maxLat)) + growLat) * Math.PI) / 180);
+  return ring.filter(t => t.lat >= minLat - growLat && t.lat <= maxLat + growLat
+    && t.lng >= minLng - growLng && t.lng <= maxLng + growLng);
+}
+
+/** `isPointInPolygon` over an indexed ring: the same crossing test, on the segments of the point's row. */
+function isPointInIndexedRing(point: GeoPoint, idx: RingIndex): boolean {
+  const r = Math.floor((point.lat - idx.minLat) / idx.cellLat);
+  if (r < 0 || r >= idx.rows) return false;
+  const { ring, n } = idx;
+  const x = point.lng;
+  const y = point.lat;
+  let inside = false;
+  const list = idx.rowsOf[r];
+  for (let s = 0; s < list.length; s++) {
+    // Segment k is the plain loop's pair (j = k, i = k + 1 mod n).
+    const k = list[s];
+    const xi = ring[(k + 1) % n].lng, yi = ring[(k + 1) % n].lat;
+    const xj = ring[k].lng, yj = ring[k].lat;
+    if (((yi > y) !== (yj > y)) && (x < (xj - xi) * (y - yi) / (yj - yi) + xi)) inside = !inside;
+  }
+  return inside;
+}
+
+/**
+ * Index of the ring segment closest to `p` and the arc length from vertex 0 to that segment's start,
+ * for a ring large enough to be indexed; null below `RING_INDEX_MIN_VERTICES` (the caller loops).
+ */
+export function nearestBoundarySegment(p: GeoPoint, ring: GeoPoint[]): { k: number; walkedM: number } | null {
+  if (ring.length < RING_INDEX_MIN_VERTICES) return null;
+  const idx = ringIndexOf(ring);
+  const { k } = nearestRingSegment(p, idx, false);
+  return k < 0 ? null : { k, walkedM: idx.walked[k] };
+}
+
+/**
  * Verifica se um ponto está dentro de um polígono
  */
 export function isPointInPolygon(
   point: { lat: number; lng: number },
   polygon: Array<{lat: number, lng: number}>
 ): boolean {
+  if (polygon.length >= RING_INDEX_MIN_VERTICES) return isPointInIndexedRing(point, ringIndexOf(polygon));
   let inside = false;
   const x = point.lng;
   const y = point.lat;
@@ -226,9 +492,10 @@ export function calculateDistanceToPolygon(
   if (isPointInPolygon(point, polygon)) {
     return 0;
   }
-  
+  if (polygon.length >= RING_INDEX_MIN_VERTICES) return nearestRingSegment(point, ringIndexOf(polygon), true).d;
+
   let minDistance = Infinity;
-  
+
   for (let i = 0; i < polygon.length; i++) {
     const nextIndex = (i + 1) % polygon.length;
     const distance = calculateDistanceToLineSegment(
@@ -310,7 +577,14 @@ export function closestStreetPointToPoi(
   const polyline = street.fullCoordinates && street.fullCoordinates.length >= 2
     ? street.fullCoordinates
     : street.coordinates;
-  const targets = boundaryCoords && boundaryCoords.length >= 3 ? boundaryCoords : [poiPin];
+  let targets = boundaryCoords && boundaryCoords.length >= 3 ? boundaryCoords : [poiPin];
+  if (boundaryCoords && boundaryCoords.length >= RING_INDEX_MIN_VERTICES && polyline.length) {
+    // The nearest edge vertex to any street vertex bounds the answer: only the edge vertices that
+    // can come closer than that are projected, in the same order (the first minimum still wins).
+    let bound = Infinity;
+    for (const p of polyline) bound = Math.min(bound, nearestRingVertex(p, boundaryCoords).distance);
+    targets = ringVerticesNear(boundaryCoords, polyline, bound);
+  }
 
   let best: { point: { lat: number; lng: number }; distance: number } | null = null;
   for (const target of targets) {
@@ -338,7 +612,17 @@ export function streetFootOnEdge(
   const edgeDist = (p: GeoPoint) => hasBoundary ? calculateDistanceToBoundary(p, boundaryCoords!) : calculateDistance(p, poiPin);
   const seeds: GeoPoint[] = [...polyline];
   const seen = new Set(polyline.map(p => `${p.lat},${p.lng}`));
-  for (const target of hasBoundary ? boundaryCoords! : [poiPin]) {
+  let targets = hasBoundary ? boundaryCoords! : [poiPin];
+  if (hasBoundary && boundaryCoords!.length >= RING_INDEX_MIN_VERTICES) {
+    // Large border: an edge vertex farther from the street than its closest vertex already is
+    // cannot hold the minimum (the closest pair of two polylines has a vertex in it), so only the
+    // edge vertices near the street are projected. 10 000 projections per street x 5 000 streets
+    // was most of Lago di Como's timeout (2026-10-21).
+    let bound = Infinity;
+    for (const p of polyline) bound = Math.min(bound, edgeDist(p));
+    targets = ringVerticesNear(boundaryCoords!, polyline, bound);
+  }
+  for (const target of targets) {
     const proj = closestPointOnPolyline(target, polyline);
     if (!proj) continue;
     const key = `${proj.point.lat},${proj.point.lng}`;
@@ -551,7 +835,10 @@ export function calculateDistanceToBoundary(
   if (isPointInPolygon(point, boundaryCoordinates)) {
     return 0; // Ponto dentro do boundary
   }
-  
+  if (boundaryCoordinates.length >= RING_INDEX_MIN_VERTICES) {
+    return nearestRingSegment(point, ringIndexOf(boundaryCoordinates), false).d;
+  }
+
   // Calcular distância mínima até qualquer segmento do boundary
   let minDistance = Infinity;
   
@@ -687,6 +974,21 @@ export function findClosestPointOnBoundary(
   triggerPoint: { lat: number; lng: number },
   boundaryCoordinates: Array<{ lat: number; lng: number }>
 ): { lat: number; lng: number; distance: number } {
+  if (boundaryCoordinates.length >= RING_INDEX_MIN_VERTICES) {
+    // The plain loop below, through the ring index: the first nearest vertex, replaced by the
+    // first nearest side only when that side is strictly closer.
+    const idx = ringIndexOf(boundaryCoordinates);
+    const { ring, n } = idx;
+    let dV = Infinity, kV = -1, dE = Infinity, kE = -1;
+    walkRingAround(triggerPoint, idx, k => {
+      const v = calculateDistance(triggerPoint, ring[k]);
+      if (v < dV || (v === dV && k < kV)) { dV = v; kV = k; }
+      const e = calculateDistanceToLineSegment(triggerPoint, ring[k], ring[(k + 1) % n]);
+      if (e < dE || (e === dE && k < kE)) { dE = e; kE = k; }
+    }, boundM => kV >= 0 && (dV < boundM || (dE < boundM && dE < dV)));
+    const point = dE < dV ? closestPointOnSegment(triggerPoint, ring[kE], ring[(kE + 1) % n]).point : ring[kV];
+    return { lat: point.lat, lng: point.lng, distance: Math.min(dE, dV) };
+  }
   let closestPoint = boundaryCoordinates[0];
   let minDistance = calculateDistance(triggerPoint, closestPoint);
   

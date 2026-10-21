@@ -1441,6 +1441,15 @@ export class CoreTriggerPointPredictor {
       const minLng = Math.floor(Math.min(aimBox.minLng, tp.location.lng) / GRID_CELL_DEG) - 1;
       const maxLng = Math.floor(Math.max(aimBox.maxLng, tp.location.lng) / GRID_CELL_DEG) + 1;
       const out: typeof buildingTops = [];
+      // A border spread over a gulf puts its aims 100 km apart: 750 000 cells of 200 m per candidate,
+      // nearly all empty (Golfo di Taranto, 543 s of LOS, 2026-10-21). Then the occupied cells are read.
+      if ((maxLat - minLat + 1) * (maxLng - minLng + 1) > buildingGrid.size) {
+        for (const [key, arr] of buildingGrid) {
+          const [lat, lng] = key.split(',').map(Number);
+          if (lat >= minLat && lat <= maxLat && lng >= minLng && lng <= maxLng) out.push(...arr);
+        }
+        return out;
+      }
       for (let lat = minLat; lat <= maxLat; lat++) {
         for (let lng = minLng; lng <= maxLng; lng++) {
           const arr = buildingGrid.get(`${lat},${lng}`);
