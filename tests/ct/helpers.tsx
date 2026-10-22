@@ -98,6 +98,34 @@ export function DirectoryHarness({ initial = EMPTY_FILTERS }: { initial?: Direct
   )
 }
 
+/**
+ * The table with a search box of its own (#991): the page's box lives in the host, and a mount has
+ * no host. Typing here changes `filters.search` exactly as the host does, so the table re-renders
+ * the same rows under a new search, which is when a repeated key leaves a stale row behind.
+ */
+export function DirectorySearchHarness() {
+  const [filters, setFilters] = useHarnessFilters(EMPTY_FILTERS)
+  const directory = useClientDirectory()
+  return (
+    <>
+      <input
+        aria-label="harness-search"
+        value={filters.search}
+        onChange={(event) => setFilters({ ...filters, search: event.target.value })}
+      />
+      <ClientDirectory
+        filters={filters}
+        onFiltersChange={setFilters}
+        rows={directory.rows}
+        truncated={directory.truncated}
+        loading={directory.loading}
+        failed={directory.failed}
+        hrefFor={harnessHref}
+      />
+    </>
+  )
+}
+
 export function BoardHarness({ initial = EMPTY_FILTERS }: { initial?: DirectoryFilters }) {
   const [filters, setFilters] = useHarnessFilters(initial)
   const directory = useClientDirectory()

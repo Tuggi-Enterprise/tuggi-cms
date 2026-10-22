@@ -25,9 +25,18 @@ import type { ClientDirectoryRow } from '@/lib/services/partnership-service'
 
 type Translator = ReturnType<typeof useTranslations>
 
-/** A row is a client, or a proposal that is not one yet — one of the two ids is always there. */
+/**
+ * The React key of a row, unique across the list (#991): the source and the id of that source.
+ *
+ * It used to be `clientId ?? submissionId`, so the proposal row and the portal row of one client
+ * carried the same key and React kept rows of an earlier search on screen ("office" still showed
+ * Ancho&Faca). `assembleDirectoryRows` gives each client one row now, but the key does not lean on
+ * that: a proposal and a portal submission can never share a key, nor two submissions.
+ */
 export function rowKey(row: ClientDirectoryRow): string {
-  return row.clientId ?? row.submissionId ?? ''
+  if (row.origin === 'portal') return `portal:${row.submissionId ?? ''}`
+  if (row.submissionId) return `proposal:${row.submissionId}`
+  return `client:${row.clientId ?? ''}`
 }
 
 export function placeLine(row: ClientDirectoryRow): string {

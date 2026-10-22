@@ -74,6 +74,7 @@ import type { ContractState, ContractStatus } from '@/lib/contract/status'
 import type { ContractTier } from '@/lib/contract/snapshot'
 import type { PortalAcceptanceFacts } from '@/lib/clients/partner-plan'
 import { PLAN_CHOICES, type PlanChoice } from '@/lib/partner-form/fields'
+import { assembleDirectoryRows, type PortalDirectoryRow } from '@/lib/clients/directory-rows'
 
 /**
  * What a row with no client says about money: nothing, and `undeclared` is the honest reading of
@@ -485,16 +486,19 @@ export async function loadClientDirectory(operator: SupabaseClient): Promise<Cli
   })
 
   // The portal's submissions (#812). The row is the SUBMISSION until it is live; the client the
-  // approval created is found through the POI it links (`attraction_id` → `partner_client_id`),
-  // and claimed below so it does not show up a second time as a client nobody proposed.
+  // approval created is found through the POI it links (`attraction_id` → `partner_client_id`).
+  // Whether it stays a row or folds into its client's row is `assembleDirectoryRows`' call (#991).
   const clientOfPlace = new Map(placeRows.map((place) => [place.attractionId, place.partnerClientId]))
-  const portalClaimed: string[] = []
+  const portalRows: PortalDirectoryRow[] = []
   for (const row of portalSubmissions) {
     const answers = row.answers ?? {}
     const partnerKind = partnerKindOf(answers)
     // #936: a partner without a place names its client in `client_id`; a place, through its POI.
-    const clientId = row.client_id ?? (row.attraction_id ? clientOfPlace.get(row.attraction_id) ?? null : null)
-    if (clientId) portalClaimed.push(clientId)
+    // #916: a legacy mirror names it in `legacy_client_id` until #991's migration fills `client_id`.
+    const clientId =
+      row.client_id ??
+      row.legacy_client_id ??
+      (row.attraction_id ? clientOfPlace.get(row.attraction_id) ?? null : null)
     const client = clientId ? clients.get(clientId) ?? null : null
     const state = derivePipelineState({
       origin: 'portal',
@@ -508,53 +512,54 @@ export async function loadClientDirectory(operator: SupabaseClient): Promise<Cli
       placeCount: 0,
       publishedPlaceCount: 0,
     })
-    rows.push({
-      submissionId: row.id,
-      clientId,
-      state,
-      target: portalDetailTarget(state, { submissionId: row.id, clientId }),
-      name: answers.trade_name ?? client?.name ?? null,
-      taxId: answers.tax_id ?? null,
-      city: answers.city ?? null,
-      region: normalizeState('Brazil', answers.state, answers.city) ?? answers.state ?? null,
-      country: 'Brazil',
-      clientType: client?.clientType ?? null,
-      status: client?.status ?? null,
-      contract: 'none',
-      fee: client?.fee ?? NO_FEE,
-      contractTier: null,
-      planChoice: isPlanChoice(answers.plan_choice) ? answers.plan_choice : null,
-      duplicateCount: 0,
-      since: row.status_changed_at ?? row.submitted_at,
-      places: summarizePlaces([]),
-      // No triage clock: the portal's is the 2-business-day one of `validation-clock` (#812),
-      // and an empty place list keeps the 72-hour counter from ever counting this row.
-      triage: { approvedAt: null, places: [] },
-      discardReason: null,
-      origin: 'portal',
-      partnerKind,
-      partnerBadge: partnerBadgeOf(answers),
-      attractionId: row.attraction_id ?? null,
-      portalAcceptance: portalFacts.acceptances.get(row.id) ?? null,
-      liveAt: portalFacts.liveAt.get(row.id) ?? null,
-      gateMissing: gateOf(clientId),
+    portalRows.push({
+      legacy: Boolean(row.legacy_client_id),
+      row: {
+        submissionId: row.id,
+        clientId,
+        state,
+        target: portalDetailTarget(state, { submissionId: row.id, clientId }),
+        name: answers.trade_name ?? client?.name ?? null,
+        taxId: answers.tax_id ?? null,
+        city: answers.city ?? null,
+        region: normalizeState('Brazil', answers.state, answers.city) ?? answers.state ?? null,
+        country: 'Brazil',
+        clientType: client?.clientType ?? null,
+        status: client?.status ?? null,
+        contract: 'none',
+        fee: client?.fee ?? NO_FEE,
+        contractTier: null,
+        planChoice: isPlanChoice(answers.plan_choice) ? answers.plan_choice : null,
+        duplicateCount: 0,
+        since: row.status_changed_at ?? row.submitted_at,
+        places: summarizePlaces([]),
+        // No triage clock: the portal's is the 2-business-day one of `validation-clock` (#812),
+        // and an empty place list keeps the 72-hour counter from ever counting this row.
+        triage: { approvedAt: null, places: [] },
+        discardReason: null,
+        origin: 'portal',
+        partnerKind,
+        partnerBadge: partnerBadgeOf(answers),
+        attractionId: row.attraction_id ?? null,
+        portalAcceptance: portalFacts.acceptances.get(row.id) ?? null,
+        liveAt: portalFacts.liveAt.get(row.id) ?? null,
+        gateMissing: gateOf(clientId),
+      },
     })
   }
 
   // The other half of the list: every client no proposal claims. The 10 that predate the form,
   // and every registration somebody typed by hand — invisible in the queue until now.
   const claimed = new Set(
-    submissions
-      .map((row) => row.promoted_client_id)
-      .filter((id): id is string => typeof id === 'string')
-      .concat(portalClaimed)
+    submissions.map((row) => row.promoted_client_id).filter((id): id is string => typeof id === 'string')
   )
 
+  const clientRows: ClientDirectoryRow[] = []
   for (const client of clients.values()) {
     if (claimed.has(client.id)) continue
     const { readiness, outcomes, contract } = partnershipOf(client)
 
-    rows.push({
+    clientRows.push({
       submissionId: null,
       clientId: client.id,
       // A client that arrived without a proposal HAS a conference to read since 2026-08-21 —
@@ -600,7 +605,7 @@ export async function loadClientDirectory(operator: SupabaseClient): Promise<Cli
   // The caps are applied inside `cms_client_directory`, so whether they bit is its answer to
   // give. Recomputing it here from the lengths it returned would be the same arithmetic in two
   // places, disagreeing the first time one of the two limits changes.
-  return { rows, truncated: payload.truncated }
+  return { rows: assembleDirectoryRows(rows, clientRows, portalRows), truncated: payload.truncated }
 }
 
 /**
@@ -642,6 +647,8 @@ interface PortalSubmissionRow {
   attraction_id: string | null
   /** #936: the client of a partner without a place. */
   client_id: string | null
+  /** #916: the client a legacy mirror was seeded for. */
+  legacy_client_id: string | null
   submitted_at: string | null
   status_changed_at: string | null
 }
@@ -655,7 +662,7 @@ interface PortalSubmissionRow {
 async function loadPortalSubmissions(): Promise<PortalSubmissionRow[]> {
   const { data, error } = await service()
     .from('place_submissions')
-    .select('id, status, answers, attraction_id, client_id, submitted_at, status_changed_at')
+    .select('id, status, answers, attraction_id, client_id, legacy_client_id, submitted_at, status_changed_at')
     .in('status', PORTAL_BOARD_STATUSES as unknown as string[])
     .order('status_changed_at', { ascending: false })
     .limit(DIRECTORY_SUBMISSION_CAP)
