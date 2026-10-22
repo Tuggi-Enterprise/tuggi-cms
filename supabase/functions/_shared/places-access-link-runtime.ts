@@ -6,7 +6,7 @@
 
 import { createAdminClient } from './supabase-client.ts';
 import { PORTAL_ORIGIN_ENV, PORTAL_SIGNUP_ORIGIN, portalOrigin, type AccessLinkDeps, type Deps } from './places-portal-draft.ts';
-import { isPayingLegacy } from './places-legacy-access.ts';
+import { isPayingLegacy, portalUserOutcome, type ListUsersPage, type PortalUser } from './places-legacy-access.ts';
 
 const RESEND_URL = 'https://api.resend.com/emails';
 
@@ -61,11 +61,28 @@ export function randomToken(): string {
   return btoa(String.fromCharCode(...b)).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
 }
 
+/**
+ * The portal's Auth user of `email`: created confirmed and marked as portal (`signup_origin`), or
+ * `exists` when the address is already registered. The one place that creates a portal user: the
+ * access link (`ensureUser`) and the legacy accounts of #997 (`places-legacy-access`).
+ */
+export async function createPortalUser(admin: Admin, email: string): Promise<PortalUser> {
+  const { data, error } = await admin.auth.admin.createUser({ email, email_confirm: true, user_metadata: { signup_origin: PORTAL_SIGNUP_ORIGIN } });
+  return portalUserOutcome(data?.user?.id, error);
+}
+
+/** One page of the Auth users, for `userFinder` (`places-legacy-access.ts`). */
+export function listUsersPage(admin: Admin): ListUsersPage {
+  return async (page, perPage) => {
+    const { data, error } = await admin.auth.admin.listUsers({ page, perPage });
+    return error ? { error: error.code ?? 'unknown' } : { users: data.users };
+  };
+}
+
 export function authAdmin(admin: Admin): Pick<Deps['auth'], 'ensureUser' | 'magicLink'> {
   return {
     async ensureUser(email) {
-      const { error } = await admin.auth.admin.createUser({ email, email_confirm: true, user_metadata: { signup_origin: PORTAL_SIGNUP_ORIGIN } });
-      return !error || error.code === 'email_exists' || error.status === 422;
+      return (await createPortalUser(admin, email)).kind !== 'failed';
     },
     async magicLink(email) {
       const { data, error } = await admin.auth.admin.generateLink({ type: 'magiclink', email });

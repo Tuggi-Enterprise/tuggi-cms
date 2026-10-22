@@ -589,3 +589,196 @@ test('#916 BR-B2B-047 item 1: a legacy mirror with no acceptance is no portal re
   assert.equal(isLegacyMirror({ legacy_client_id: null, place_acceptances: null }), false)
   assert.equal(isLegacyMirror({}), false)
 })
+
+// ─── #997: the account of every mirror without an owner, no e-mail and no link ────────────────
+
+const MIRROR_A = '11111111-aaaa-4aaa-8aaa-000000000001'
+const MIRROR_B = '11111111-aaaa-4aaa-8aaa-000000000002'
+const MIRROR_C = '11111111-aaaa-4aaa-8aaa-000000000003'
+const USER_NEW = '22222222-bbbb-4bbb-8bbb-000000000001'
+const USER_OLD = '22222222-bbbb-4bbb-8bbb-000000000002'
+const ACCOUNT = '33333333-cccc-4ccc-8ccc-000000000001'
+
+type Bound = { submissionId: string; userId: string }
+
+/**
+ * A fake Auth + database: `createUser` registers the e-mail, `bind` writes `account_id` on the
+ * mirror, and `rows()` is what the EF reads (mirrors with `account_id` null), so a second run sees
+ * the effect of the first.
+ */
+function accountWorld(opts: { existing?: Record<string, { id: string; confirmed: boolean }>; bindError?: (s: string) => unknown } = {}) {
+  const users = new Map<string, { id: string; confirmed: boolean }>(Object.entries(opts.existing ?? {}))
+  const mirrors = new Map<string, { email: string; account: string | null }>([
+    [MIRROR_A, { email: 'Ze@Bar.com.br ', account: null }],
+    [MIRROR_B, { email: 'sol@pousada.com', account: null }],
+  ])
+  const created: string[] = []
+  const bound: Bound[] = []
+  const pages: number[] = []
+  let n = 0
+  const listPage = async (page: number, perPage: number) => {
+    pages.push(page)
+    const all = [...users.entries()].map(([email, u]) => ({ id: u.id, email, email_confirmed_at: u.confirmed ? '2026-01-01T00:00:00Z' : null }))
+    return { users: all.slice((page - 1) * perPage, page * perPage) }
+  }
+  const deps = {
+    createUser: async (email: string) => {
+      if (users.has(email)) return access.portalUserOutcome(undefined, { code: 'email_exists', status: 422 })
+      const id = `22222222-bbbb-4bbb-8bbb-1${String(++n).padStart(11, '0')}`
+      users.set(email, { id, confirmed: true })
+      created.push(email)
+      return access.portalUserOutcome(id, null)
+    },
+    findUser: access.userFinder(listPage),
+    bind: async (submissionId: string, userId: string) => {
+      bound.push({ submissionId, userId })
+      const err = opts.bindError?.(submissionId)
+      if (err) return { data: null, error: err }
+      mirrors.get(submissionId)!.account = `${ACCOUNT.slice(0, -1)}${bound.length}`
+      return { data: mirrors.get(submissionId)!.account, error: null }
+    },
+  }
+  const rows = () => [...mirrors.entries()].filter(([, m]) => m.account === null).map(([id, m]) => ({ id, contact_email: m.email }))
+  return { deps, rows, users, created, bound, pages, mirrors }
+}
+
+test('#997: dry run lists the mirrors without an owner and creates no user and binds nothing', async () => {
+  const w = accountWorld()
+  const out = await access.runLegacyAccounts(w.deps, w.rows(), true)
+  assert.deepEqual(out, [
+    { submission_id: MIRROR_A, status: 'would_bind' },
+    { submission_id: MIRROR_B, status: 'would_bind' },
+  ])
+  assert.equal(w.created.length + w.bound.length + w.pages.length, 0)
+})
+
+test('#997: real run creates the user of contact_email (normalised) and binds it to THAT mirror; the answer carries ids and the account only', async () => {
+  const w = accountWorld()
+  const out = await access.runLegacyAccounts(w.deps, w.rows(), false)
+  assert.deepEqual(w.created, ['ze@bar.com.br', 'sol@pousada.com'])
+  assert.deepEqual(w.bound.map((b) => b.submissionId), [MIRROR_A, MIRROR_B])
+  assert.equal(w.bound[0].userId, w.users.get('ze@bar.com.br')!.id)
+  assert.deepEqual(out.map((r: { status: string }) => r.status), ['created', 'created'])
+  assert.equal(out[0].account_id, `${ACCOUNT.slice(0, -1)}1`)
+  // no PII in what the EF answers and logs
+  assert.doesNotMatch(JSON.stringify(out), /@|bar\.com|pousada/i)
+  // the user list is never read when every address is new
+  assert.equal(w.pages.length, 0)
+})
+
+test('#997: a second run reads no mirror and creates nothing (the bound mirror has account_id)', async () => {
+  const w = accountWorld()
+  await access.runLegacyAccounts(w.deps, w.rows(), false)
+  const created = w.created.length
+  const bound = w.bound.length
+  const second = await access.runLegacyAccounts(w.deps, w.rows(), false)
+  assert.deepEqual(second, [])
+  assert.equal(w.created.length, created)
+  assert.equal(w.bound.length, bound)
+})
+
+test('#997: an address that already has a confirmed user reuses that user (no second user)', async () => {
+  const w = accountWorld({ existing: { 'ze@bar.com.br': { id: USER_OLD, confirmed: true } } })
+  const out = await access.runLegacyAccounts(w.deps, w.rows(), false)
+  assert.deepEqual(out[0], { submission_id: MIRROR_A, status: 'reused', account_id: `${ACCOUNT.slice(0, -1)}1` })
+  assert.equal(w.bound[0].userId, USER_OLD)
+  assert.deepEqual(w.created, ['sol@pousada.com'])
+  assert.equal(out[1].status, 'created')
+})
+
+test('#997: a user created on a run whose bind failed is found and reused on the next run', async () => {
+  let fail = true
+  const w = accountWorld({ bindError: (s) => (s === MIRROR_A && fail ? { code: '08006', message: 'connection' } : null) })
+  const first = await access.runLegacyAccounts(w.deps, w.rows(), false)
+  assert.deepEqual(first[0], { submission_id: MIRROR_A, status: 'failed', code: '08006' })
+  fail = false
+  const second = await access.runLegacyAccounts(w.deps, w.rows(), false)
+  assert.deepEqual(second.map((r: { submission_id: string; status: string }) => [r.submission_id, r.status]), [[MIRROR_A, 'reused']])
+  assert.equal(w.created.filter((e) => e === 'ze@bar.com.br').length, 1)
+})
+
+test('#997: an existing user whose e-mail was never confirmed does not get the venue account', async () => {
+  const w = accountWorld({ existing: { 'ze@bar.com.br': { id: USER_OLD, confirmed: false } } })
+  const out = await access.runLegacyAccounts(w.deps, w.rows(), false)
+  assert.deepEqual(out[0], { submission_id: MIRROR_A, status: 'refused', code: 'user_unconfirmed' })
+  assert.ok(!w.bound.some((b) => b.userId === USER_OLD))
+  assert.equal(out[1].status, 'created')
+})
+
+test('#997: the database refusing the bind (e-mail differs, TGP10) counts as refused and never stops the batch; the message never leaks', async () => {
+  const w = accountWorld({
+    bindError: (s) => (s === MIRROR_A ? { code: 'TGP10', details: 'email_mismatch', message: 'ze@bar.com.br differs' } : null),
+  })
+  const out = await access.runLegacyAccounts(w.deps, w.rows(), false)
+  assert.deepEqual(out[0], { submission_id: MIRROR_A, status: 'refused', code: 'TGP10', detail: 'email_mismatch' })
+  assert.equal(out[1].status, 'created')
+  assert.equal(w.mirrors.get(MIRROR_A)!.account, null)
+  assert.doesNotMatch(JSON.stringify(out), /@/)
+})
+
+test('#997: a detail that is not a bare token is dropped; a throwing dependency fails that mirror only', async () => {
+  const w = accountWorld({ bindError: (s) => (s === MIRROR_A ? { code: 'TGP10', details: 'user ze@bar.com.br' } : null) })
+  const out = await access.runLegacyAccounts(w.deps, w.rows(), false)
+  assert.deepEqual(out[0], { submission_id: MIRROR_A, status: 'refused', code: 'TGP10' })
+
+  const boom = accountWorld()
+  boom.deps.createUser = async (email: string) => {
+    if (email.startsWith('ze')) throw new Error('ze@bar.com.br exploded')
+    return access.portalUserOutcome(USER_NEW, null)
+  }
+  const out2 = await access.runLegacyAccounts(boom.deps, boom.rows(), false)
+  assert.deepEqual(out2[0], { submission_id: MIRROR_A, status: 'failed', code: 'unexpected' })
+  assert.equal(out2[1].status, 'created')
+})
+
+test('#997: a mirror without a usable contact_email fails without touching Auth; an Auth error other than a taken e-mail fails', async () => {
+  const w = accountWorld()
+  const rows = [{ id: MIRROR_C, contact_email: '  ' }, ...w.rows()]
+  w.deps.createUser = async (email: string) => (email.startsWith('sol') ? access.portalUserOutcome(undefined, { code: 'over_request_rate_limit', status: 429 }) : access.portalUserOutcome(USER_NEW, null))
+  const out = await access.runLegacyAccounts(w.deps, rows, false)
+  assert.deepEqual(out[0], { submission_id: MIRROR_C, status: 'failed', code: 'no_email' })
+  assert.equal(out[1].status, 'created')
+  assert.deepEqual(out[2], { submission_id: MIRROR_B, status: 'failed', code: 'over_request_rate_limit' })
+})
+
+test('#997: portalUserOutcome reads GoTrue: no error is a new user, email_exists, user_already_exists and 422 are a taken address', () => {
+  assert.deepEqual(access.portalUserOutcome(USER_NEW.toUpperCase(), null), { kind: 'created', id: USER_NEW })
+  assert.deepEqual(access.portalUserOutcome('not-a-uuid', null), { kind: 'created', id: null })
+  assert.deepEqual(access.portalUserOutcome(undefined, { code: 'email_exists', status: 422 }), { kind: 'exists' })
+  assert.deepEqual(access.portalUserOutcome(undefined, { code: 'user_already_exists', status: 400 }), { kind: 'exists' })
+  assert.deepEqual(access.portalUserOutcome(undefined, { status: 422 }), { kind: 'exists' })
+  assert.deepEqual(access.portalUserOutcome(undefined, { status: 500 }), { kind: 'failed', code: 'http_500' })
+})
+
+test('#997: userFinder reads the user pages on demand, once for the whole run, and is case-blind', async () => {
+  const pages: number[] = []
+  const users = Array.from({ length: 2500 }, (_, i) => ({ id: `44444444-dddd-4ddd-8ddd-${String(i).padStart(12, '0')}`, email: `u${i}@x.test`, email_confirmed_at: '2026-01-01T00:00:00Z' }))
+  const find = access.userFinder(async (page: number, perPage: number) => {
+    pages.push(page)
+    return { users: users.slice((page - 1) * perPage, page * perPage) }
+  })
+  assert.equal((await find('U1500@X.TEST'))?.id, users[1500].id)
+  assert.deepEqual(pages, [1, 2])
+  assert.equal((await find('u10@x.test'))?.confirmed, true)
+  assert.deepEqual(pages, [1, 2])
+  assert.equal(await find('nobody@x.test'), null)
+  assert.deepEqual(pages, [1, 2, 3])
+  assert.equal(await find('again@x.test'), null)
+  assert.deepEqual(pages, [1, 2, 3])
+  const broken = access.userFinder(async () => ({ error: 'unexpected_failure' }))
+  await assert.rejects(broken('a@b.c'), /user_list/)
+})
+
+test('#997: the create_accounts wiring sends no e-mail and generates no link; only the machine key reaches it', async () => {
+  const { readFile } = await import('node:fs/promises')
+  const src = await readFile(resolve(SHARED, '../places-legacy-access/index.ts'), 'utf8')
+  const body = src.slice(src.indexOf('async function createAccounts'), src.indexOf('Deno.serve'))
+  assert.ok(body.includes('place_bind_legacy_account') && body.includes('createPortalUser'))
+  assert.doesNotMatch(body, /sendEmail|generateLink|magicLink|issueAccessLink|accessLinkDeps|resend/i)
+  const serve = src.slice(src.indexOf('Deno.serve'))
+  assert.ok(serve.indexOf("auth.role !== 'service_role'") < serve.indexOf('createAccounts('))
+  const runtime = await readFile(resolve(SHARED, 'places-access-link-runtime.ts'), 'utf8')
+  const create = runtime.slice(runtime.indexOf('export async function createPortalUser'), runtime.indexOf('export function listUsersPage'))
+  assert.doesNotMatch(create, /generateLink|sendEmail|inviteUserByEmail/)
+  assert.match(create, /email_confirm: true, user_metadata: \{ signup_origin: PORTAL_SIGNUP_ORIGIN \}/)
+})
