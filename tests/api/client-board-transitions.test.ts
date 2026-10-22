@@ -69,6 +69,8 @@ function row(overrides: Partial<ClientDirectoryRow> = {}): ClientDirectoryRow {
     triage: { approvedAt: null, places: [] },
     discardReason: null,
     gateMissing: [],
+    hasHeldPhoto: false,
+    hasHeldStory: false,
     ...overrides,
   }
 }

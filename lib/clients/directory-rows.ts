@@ -45,6 +45,9 @@ function fold(target: ClientDirectoryRow, portal: ClientDirectoryRow): void {
   target.portalAcceptance =
     target.portalAcceptance ?? portal.portalAcceptance ?? null;
   target.planChoice = target.planChoice ?? portal.planChoice;
+  // #1000: what the partner saved on `/status` lives on the mirror and is shown on the record.
+  target.hasHeldPhoto = target.hasHeldPhoto || portal.hasHeldPhoto;
+  target.hasHeldStory = target.hasHeldStory || portal.hasHeldStory;
 }
 
 /**

@@ -43,6 +43,7 @@ import {
   type BoardColumnId,
 } from '@/lib/clients/board-transitions'
 import type { ClientDirectoryRow } from '@/lib/services/partnership-service'
+import { HeldBadges } from '@/components/admin/clients/shared/HeldBadges'
 
 /**
  * PAGA OU NÃO PAGA, ON THE LEFT EDGE OF THE CARD.
@@ -250,6 +251,9 @@ export function BoardCard({
           {c('proposalBadge')}
         </span>
       )}
+
+      {/* #1000: a photo or the story saved on `/status` and not published, the free tier's lead. */}
+      <HeldBadges row={row} />
 
       {showGate && (
         <p id={gateId} className="mt-2 flex items-start gap-1 text-xs text-gray-900 dark:text-gray-200">

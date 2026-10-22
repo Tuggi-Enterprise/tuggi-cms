@@ -44,6 +44,7 @@ import { formatDate } from '@/components/admin/partner-proposals/format'
 import { idleFor, placeLine, planLine, rowKey, whatIsMissing } from '@/components/admin/clients/board/row-text'
 import { derivePartnerPlan, paymentStance } from '@/lib/clients/partner-plan'
 import { PaymentStanceBadge } from '@/components/admin/clients/shared/PaymentStanceBadge'
+import { HeldBadges } from '@/components/admin/clients/shared/HeldBadges'
 import { deriveTriageStatus, type TriageStatus } from '@/lib/partnerships/triage'
 import { triageDeadlineText, triageText } from '@/components/admin/partnerships/triage-text'
 import {
@@ -349,6 +350,7 @@ export function ClientDirectory({
                                   {t(`partnerBadges.${row.partnerBadge}`)}
                                 </span>
                               ) : null}
+                              <HeldBadges row={row} />
                               {row.duplicateCount > 0 && (
                                 <span className="mt-1 inline-block rounded-full border border-secondary-700 px-2 py-0.5 text-xs text-gray-900 dark:text-gray-200">
                                   {p('queue.duplicateBadge', { count: row.duplicateCount })}

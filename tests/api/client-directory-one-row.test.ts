@@ -51,6 +51,8 @@ function row(overrides: Partial<ClientDirectoryRow>): ClientDirectoryRow {
     triage: { approvedAt: '2026-08-31T12:00:00.000Z', places: [] },
     discardReason: null,
     gateMissing: [],
+    hasHeldPhoto: false,
+    hasHeldStory: false,
     ...overrides,
   }
 }

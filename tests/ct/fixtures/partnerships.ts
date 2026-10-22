@@ -63,6 +63,8 @@ export function queueRow(overrides: Partial<ClientDirectoryRow> = {}): ClientDir
     triage: { approvedAt: null, places: [] },
     discardReason: null,
     gateMissing: [],
+    hasHeldPhoto: false,
+    hasHeldStory: false,
     ...overrides,
   }
 }

@@ -269,6 +269,13 @@ export interface ClientDirectoryRow {
    * Empty for a row without a client: its gate is the promotion, which creates slug and code.
    */
   gateMissing: GateItem[]
+  /**
+   * A photo / the story the partner saved on `/status` without publishing
+   * (`place_change_requests.status = 'held'`, #998). The free tier's sign of being close to
+   * subscribing (#1000). Only a portal submission carries one; it reaches its client's row by fold.
+   */
+  hasHeldPhoto: boolean
+  hasHeldStory: boolean
 }
 
 export interface ClientDirectory {
@@ -349,10 +356,11 @@ async function loadDirectoryPayload(): Promise<DirectoryPayload> {
 }
 
 export async function loadClientDirectory(operator: SupabaseClient): Promise<ClientDirectory> {
-  const [payload, placeRows, portalSubmissions] = await Promise.all([
+  const [payload, placeRows, portalSubmissions, held] = await Promise.all([
     loadDirectoryPayload(),
     loadAllPartnerPlaces(operator),
     loadPortalSubmissions(),
+    loadHeldChanges(),
   ])
 
   const submissions = payload.submissions
@@ -483,6 +491,8 @@ export async function loadClientDirectory(operator: SupabaseClient): Promise<Cli
       triage: { approvedAt: client?.approvedAt ?? null, places: outcomes },
       discardReason: row.status === 'discarded' ? row.discard_reason : null,
       gateMissing: gateOf(client?.id ?? null),
+      hasHeldPhoto: false,
+      hasHeldStory: false,
     }
   })
 
@@ -545,6 +555,8 @@ export async function loadClientDirectory(operator: SupabaseClient): Promise<Cli
         portalAcceptance: portalFacts.acceptances.get(row.id) ?? null,
         liveAt: portalFacts.liveAt.get(row.id) ?? null,
         gateMissing: gateOf(clientId),
+        hasHeldPhoto: held.get(row.id)?.photo ?? false,
+        hasHeldStory: held.get(row.id)?.story ?? false,
       },
     })
   }
@@ -600,6 +612,8 @@ export async function loadClientDirectory(operator: SupabaseClient): Promise<Cli
       triage: { approvedAt: client.approvedAt, places: outcomes },
       discardReason: null,
       gateMissing: gateOf(client.id),
+      hasHeldPhoto: false,
+      hasHeldStory: false,
     })
   }
 
@@ -672,6 +686,36 @@ async function loadPortalSubmissions(): Promise<PortalSubmissionRow[]> {
     return []
   }
   return (data as PortalSubmissionRow[]).filter((row) => isPortalBoardStatus(row.status))
+}
+
+/** What a portal submission holds unpublished, per kind (#1000). */
+export interface HeldChanges {
+  photo: boolean
+  story: boolean
+}
+
+/**
+ * Every held change, per submission: ONE read, filtered by status and never by a list of ids, so
+ * it pays no URL ceiling and costs as many rows as there are held changes. `service_role`, because
+ * the table is granted to nobody else. A failed read only loses the badges, logged.
+ */
+async function loadHeldChanges(): Promise<Map<string, HeldChanges>> {
+  const held = new Map<string, HeldChanges>()
+  const { data, error } = await service()
+    .from('place_change_requests')
+    .select('submission_id, kind')
+    .eq('status', 'held')
+  if (error) {
+    console.error('[partnerships] held changes read failed:', error.code ?? 'no_code')
+    return held
+  }
+  for (const row of (data ?? []) as { submission_id: string; kind: string }[]) {
+    const entry = held.get(row.submission_id) ?? { photo: false, story: false }
+    if (row.kind === 'photo') entry.photo = true
+    if (row.kind === 'text') entry.story = true
+    held.set(row.submission_id, entry)
+  }
+  return held
 }
 
 interface PortalFacts {
