@@ -75,6 +75,7 @@ import type { ContractTier } from '@/lib/contract/snapshot'
 import type { PortalAcceptanceFacts } from '@/lib/clients/partner-plan'
 import { PLAN_CHOICES, type PlanChoice } from '@/lib/partner-form/fields'
 import { assembleDirectoryRows, type PortalDirectoryRow } from '@/lib/clients/directory-rows'
+import { placesPortalOrigin } from '@/lib/partnerships/acceptance-link'
 
 /**
  * What a row with no client says about money: nothing, and `undeclared` is the honest reading of
@@ -883,6 +884,24 @@ export interface PartnershipDetail {
   welcomeDivergence: WelcomeDivergence | null
   /** The same facts the queue column reads, so the header and the row cannot disagree. */
   triage: TriageFacts
+  /** The client's portal submission, read by `client_id` or by its POI (#991). `null` or absent = none. */
+  portal?: PortalAccount | null
+}
+
+/**
+ * What the record's `Portal` block says (#991): the account that logs in, since when the place is
+ * live, the plan, and where the partner's `/status` is. The legacy mirror counts here (#916): it
+ * is how an old client reaches `/status`, even before it accepts anything.
+ */
+export interface PortalAccount {
+  submissionId: string
+  /** The access e-mail: the acceptance's, else the submission's `contact_email`. */
+  email: string | null
+  /** `min(created_at)` of the submission's `live` transitions, the date the directory reads. */
+  liveAt: string | null
+  /** The acceptance's plan, else the one the submission names. `null` = none declared. */
+  planChoice: PlanChoice | null
+  statusUrl: string
 }
 
 /** The welcome POI of a client that is not among that client's places. */
@@ -924,7 +943,7 @@ export async function loadPartnershipDetail(
     buildPlaceReadiness(row, readinessContextOf(contract?.tier ?? null))
   )
   const attractionIds = readiness.map((item) => item.place.attractionId)
-  const [trail, refusals, welcomeDivergence, conferenceByLabel, promotedByLabel, reviewedByLabel] =
+  const [trail, refusals, welcomeDivergence, conferenceByLabel, promotedByLabel, reviewedByLabel, portal] =
     await Promise.all([
       loadPublicationTrail(attractionIds),
       loadCurrentRefusals(attractionIds),
@@ -932,6 +951,7 @@ export async function loadPartnershipDetail(
       clientConference.reviewedBy ? operatorLabel(clientConference.reviewedBy) : null,
       submission ? operatorLabel(submission.promoted_by) : null,
       submission ? operatorLabel(submission.reviewed_by) : null,
+      loadPortalAccount(clientId, attractionIds),
     ])
   // #909: the promotion names the approver on the form path; a client created directly has no
   // proposal, and `approveClient` wrote `approved_by`. One more lookup, and only for that case.
@@ -1002,6 +1022,63 @@ export async function loadPartnershipDetail(
     })),
     welcomeDivergence,
     triage: { approvedAt: client.approvedAt, places: outcomes },
+    portal,
+  }
+}
+
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
+
+/**
+ * The client's portal submission for the record's `Portal` block (#991): by `client_id`, by
+ * `legacy_client_id` (a mirror before #991's migration fills `client_id`) or by one of its POIs.
+ * The live one wins, else the latest. `null` when there is none, or when the read failed (logged):
+ * the block then does not render, and nothing else on the record depends on it.
+ */
+async function loadPortalAccount(clientId: string, attractionIds: string[]): Promise<PortalAccount | null> {
+  // The ids go into a PostgREST `or` filter: anything but a UUID never gets there.
+  if (!UUID.test(clientId)) return null
+  const filters = [`client_id.eq.${clientId}`, `legacy_client_id.eq.${clientId}`]
+  const placeIds = attractionIds.filter((id) => UUID.test(id))
+  if (placeIds.length > 0) filters.push(`attraction_id.in.(${placeIds.join(',')})`)
+
+  const { data, error } = await service()
+    .from('place_submissions')
+    .select('id, status, contact_email, plan_choice:answers->>plan_choice, place_acceptances(email, plan_choice)')
+    .or(filters.join(','))
+    .in('status', PORTAL_BOARD_STATUSES as unknown as string[])
+    .order('status_changed_at', { ascending: false })
+    .limit(10)
+  if (error) {
+    console.error('[partnerships] portal account read failed', error.code)
+    return null
+  }
+  const rows = (data ?? []) as unknown as {
+    id: string
+    status: string
+    contact_email: string | null
+    plan_choice: string | null
+    place_acceptances: { email: string | null; plan_choice: string | null } | { email: string | null; plan_choice: string | null }[] | null
+  }[]
+  const row = rows.find((candidate) => candidate.status === 'live') ?? rows[0]
+  if (!row) return null
+  const acceptance = Array.isArray(row.place_acceptances) ? row.place_acceptances[0] ?? null : row.place_acceptances
+
+  const live = await service()
+    .from('place_submission_transitions')
+    .select('created_at')
+    .eq('submission_id', row.id)
+    .eq('to_status', 'live')
+    .order('created_at', { ascending: true })
+    .limit(1)
+  if (live.error) console.error('[partnerships] portal live transition read failed', live.error.code)
+  const plan = acceptance?.plan_choice ?? row.plan_choice
+
+  return {
+    submissionId: row.id,
+    email: acceptance?.email || row.contact_email || null,
+    liveAt: ((live.data ?? []) as { created_at: string }[])[0]?.created_at ?? null,
+    planChoice: isPlanChoice(plan) ? plan : null,
+    statusUrl: `${placesPortalOrigin(process.env.PLACES_PORTAL_ORIGIN)}/status`,
   }
 }
 

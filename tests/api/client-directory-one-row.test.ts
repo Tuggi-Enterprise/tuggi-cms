@@ -205,9 +205,11 @@ test('#991 · changing the search draws exactly the rows it counts, each once', 
   }
 })
 
-test('#991 · the directory hands its three sources to assembleDirectoryRows', () => {
+test('#991 · the directory hands its three sources to assembleDirectoryRows, and the record reads the portal', () => {
   const service = readFileSync(resolve(root, 'lib/services/partnership-service.ts'), 'utf8')
   const directory = service.slice(service.indexOf('export async function loadClientDirectory'))
   assert.match(directory, /rows: assembleDirectoryRows\(rows, clientRows, portalRows\)/)
   assert.doesNotMatch(directory.slice(0, directory.indexOf('async function loadNoPlaceSubmission')), /portalClaimed/)
+  assert.match(service, /legacy_client_id\.eq\.\$\{clientId\}/)
+  assert.match(service, /loadPortalAccount\(clientId, attractionIds\)/)
 })

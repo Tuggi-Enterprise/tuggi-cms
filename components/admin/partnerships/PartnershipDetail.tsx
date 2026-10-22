@@ -10,6 +10,7 @@
  *   9  O local — while a place is not published, or there is none
  *   10 Publicação — once a place is published
  *   11 Contrato — regularity, the contract or the portal term, and the way to the Contrato tab
+ *   11b Portal — the access account, live since, plan and the partner's `/status` (#991)
  *   12 the submission after the decision, collapsed
  *   13 Histórico — the submission's history and the pipeline's dated facts, merged by date
  *
@@ -31,7 +32,7 @@ import { useCallback, useEffect, useState } from 'react'
 import { useRecordRead } from '@/lib/hooks/use-record-cache'
 import { useTranslations } from 'next-intl'
 import Link from 'next/link'
-import { FileSignature, History, Lock, MapPin, Radio } from 'lucide-react'
+import { ExternalLink, FileSignature, Globe, History, Lock, MapPin, Radio } from 'lucide-react'
 import { gateLine } from '@/components/admin/clients/board/row-text'
 import { Button } from '@/components/ui/button'
 import { PlaceFormModal } from '@/components/place-management/PlaceFormModal'
@@ -352,6 +353,8 @@ export function PartnershipDetail({
           ) : null}
 
           <ContractBlock detail={detail} clientId={detail.client.id} onOpenTab={onOpenTab} />
+
+          {detail.portal ? <PortalBlock portal={detail.portal} /> : null}
         </>
       ) : null}
 
@@ -449,6 +452,30 @@ function ContractBlock({
       <button type="button" onClick={() => onOpenTab('contract')} className={`mt-3 ${LINK_BUTTON}`}>
         {t('detail.openContract')}
       </button>
+    </RecordSection>
+  )
+}
+
+// ── Block 11b · Portal ───────────────────────────────────────────────────────────────────────
+
+/**
+ * The client's side of the Portal Locais in four lines (#991): the old client is one record, and
+ * its portal submission is a fact of the record, not a second row of the list. Lines with no data
+ * do not render.
+ */
+function PortalBlock({ portal }: { portal: NonNullable<Detail['portal']> }) {
+  const t = useTranslations('Partnerships')
+  return (
+    <RecordSection icon={<Globe className="h-4 w-4 text-tuggi-blue" />} title={t('detail.blockPortal')}>
+      <div className="space-y-1 text-sm text-gray-900 dark:text-gray-100">
+        {portal.email ? <p className="break-words">{t('detail.portalAccount', { email: portal.email })}</p> : null}
+        {portal.liveAt ? <p>{t('detail.portalLiveSince', { date: formatDate(portal.liveAt) })}</p> : null}
+        <p>{t('detail.portalPlan', { plan: portal.planChoice ?? 'none' })}</p>
+      </div>
+      <a href={portal.statusUrl} className={`mt-3 gap-1 ${LINK_BUTTON}`}>
+        {t('detail.portalStatusLink')}
+        <ExternalLink className="h-3.5 w-3.5" aria-hidden="true" />
+      </a>
     </RecordSection>
   )
 }
