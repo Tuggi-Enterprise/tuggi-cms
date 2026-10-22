@@ -176,6 +176,8 @@ export type Deps = InvoiceDeps & {
   /**
    * #995: legacy submissions that accepted the new plan with `total_cents = 0` (100% voucher) and whose
    * fee still runs. No checkout follows that acceptance, so the sweep ends the fee. Throws on a read error.
+   * It also brings the free and courtesy mirrors (no old fee, `legacy_fee_ended_at` null forever): the
+   * database refuses their `migrated` and the sweep skips them (`endLegacyAfterMigration`).
    */
   legacyFreeMigrations: () => Promise<string[]>;
 };
@@ -1925,8 +1927,7 @@ export async function runSweep(deps: Deps): Promise<Record<string, unknown>> {
   try {
     let n = 0;
     for (const submissionId of await deps.legacyFreeMigrations()) {
-      await endLegacyAfterMigration(deps, submissionId);
-      n++;
+      if (await endLegacyAfterMigration(deps, submissionId, 'sweep')) n++;
     }
     summary.legacy_free_migrated = n;
   } catch (e) {
@@ -2396,17 +2397,24 @@ export async function cancelLegacy(deps: PortalDeps, submissionId: string): Prom
  * plan. Never throws: a failure alerts, and the sweep ends the Asaas side of every fee the database
  * ended. Idempotent: the database returns an ended fee unchanged, and only live `legacy:<id>`
  * subscriptions are deleted (a 404 on the DELETE counts as done).
+ *
+ * From the sweep, a mirror that pays no old fee (free or courtesy client that took the new plan with a
+ * 100% voucher, #995) stops at the database refusal (`TGP10 not_paying`): no Asaas call, no alert, and
+ * `false`, because its `legacy_fee_ended_at` stays null and the sweep reads it again every day. The
+ * filter lives in the database (`place_legacy_monthly_fee_cents`, postgres only), not in a second copy
+ * in the read. From the checkout the same refusal goes on to `legacy_migrated`: a story to validate.
  */
-async function endLegacyAfterMigration(deps: Deps, submissionId: string): Promise<void> {
+async function endLegacyAfterMigration(deps: Deps, submissionId: string, from: 'checkout' | 'sweep' = 'checkout'): Promise<boolean> {
   let mark: LegacyMark | null = null;
   try {
     mark = await deps.legacyOf(submissionId);
-    if (!mark) return;
+    if (!mark) return true;
     let endedNow = false;
     if (!mark.fee_ended_at) {
       const { error } = await deps.admin('partner', 'place_end_legacy_fee', { p_submission_id: submissionId, p_reason: 'migrated' });
       // A business refusal: a legacy client that pays no fee (nothing to end).
       if (error && !isBusinessError(error)) throw new Error(`db ${error.code ?? 'unknown'}`);
+      if (from === 'sweep' && error?.code === 'TGP10' && error.details === 'not_paying') return false;
       endedNow = !error;
     }
     // Only a fee the database ended now proves a paying client: with no live `legacy:<id>`, the fee may
@@ -2420,6 +2428,7 @@ async function endLegacyAfterMigration(deps: Deps, submissionId: string): Promis
   // The mirror stays `live`, so the story written in the wizard never enters the CMS review queue:
   // the operator is told there is a story to validate and publish (security review, #916).
   if (mark) await deps.alert('legacy_migrated', { submission_id: submissionId });
+  return true;
 }
 
 /**

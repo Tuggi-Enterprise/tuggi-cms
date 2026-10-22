@@ -380,6 +380,14 @@ test('#916 (security): the paying legacy client migrates with no live legacy:<id
   assert.deepEqual(alerts[0].fields, { submission_id: SUBMISSION, client_id: CLIENT })
 })
 
+test('#995: the free legacy client that pays by card checks out; the database refuses migrated (TGP10 not_paying) and the operator is still told there is a story to validate', async () => {
+  const asaas = fakeAsaas([...checkoutRoutes(), subsByLegacyRef([])])
+  const db = fakeDb({ place_payment_checkout: { data: [checkoutRow] }, attach_place_subscription: { data: 'pending_payment' }, place_end_legacy_fee: { error: { code: 'TGP10', details: 'not_paying' } } })
+  const { d, alerts } = deps(asaas, db, { user: owner().rpc })
+  assert.equal((await pay.checkout(d, checkoutBody)).status, 200)
+  assert.deepEqual(alerts.map((a) => [a.what, a.fields]), [['legacy_migrated', { submission_id: SUBMISSION }]])
+})
+
 test('#916: refused card — the legacy fee is NOT ended (the client never stays without a plan)', async () => {
   const asaas = fakeAsaas([
     at('GET', '/subscriptions?', 200, { data: [] }),
@@ -475,6 +483,32 @@ test('#995: a paying legacy client that accepted with total 0 is migrated by the
   assert.ok(asaasCallsAtEnd >= 0)
   assert.ok(!asaas.calls.slice(0, asaasCallsAtEnd).some((c) => c.path.includes('legacy') || c.method === 'DELETE'))
   assert.deepEqual(alerts.filter((a) => a.what.startsWith('legacy')).map((a) => [a.what, a.fields]), [['legacy_migrated', { submission_id: SUBMISSION }]])
+})
+
+test('#995: a free or courtesy legacy client that took the paid plan with a 100% voucher is skipped by the sweep every day: the database refuses migrated (TGP10 not_paying), no Asaas call, no alert', async () => {
+  const asaas = legacyAtAsaas()
+  const db = fakeDb({ place_end_legacy_fee: { error: { code: 'TGP10', details: 'not_paying' } } })
+  // legacy_fee_ended_at stays null, so the read brings it back on every run
+  const { d, alerts } = deps(asaas, db, { legacyFreeMigrations: async () => [SUBMISSION] })
+  for (let run = 0; run < 2; run++) {
+    const summary = await pay.runSweep(d)
+    assert.equal(summary.legacy_free_migrated, 0)
+  }
+  assert.deepEqual(db.calls.filter((c) => c.fn === 'place_end_legacy_fee').map((c) => c.args), [
+    { p_submission_id: SUBMISSION, p_reason: 'migrated' },
+    { p_submission_id: SUBMISSION, p_reason: 'migrated' },
+  ])
+  assert.deepEqual(asaas.calls, [])
+  assert.deepEqual(alerts, [])
+})
+
+test('#995: only not_paying is skipped: another refusal of migrated in the sweep (no_new_subscription) still reads Asaas and tells the operator', async () => {
+  const asaas = legacyAtAsaas()
+  const db = fakeDb({ place_end_legacy_fee: { error: { code: 'TGP10', details: 'no_new_subscription' } } })
+  const { d, alerts } = deps(asaas, db, { legacyFreeMigrations: async () => [SUBMISSION] })
+  assert.equal((await pay.runSweep(d)).legacy_free_migrated, 1)
+  assert.ok(asaas.calls.some((c) => c.path.includes('legacy')))
+  assert.deepEqual(alerts.filter((a) => a.what.startsWith('legacy')).map((a) => a.what), ['legacy_migrated'])
 })
 
 test('#995: a client that is not legacy (portal submission, 100% voucher) is never touched by the sweep; an empty list touches nothing', async () => {
