@@ -20,14 +20,22 @@ export function fromWithName(from: string, name?: string): string {
 }
 
 /** Resend's message id, or `null` when it was not sent. */
-export async function sendEmailWithId(to: string, subject: string, html: string, text: string, fromName?: string): Promise<string | null> {
+/** `replyTo` goes as Resend's `reply_to`; omitted, replies go to the sender. */
+export async function sendEmailWithId(to: string, subject: string, html: string, text: string, fromName?: string, replyTo?: string): Promise<string | null> {
   const key = (Deno.env.get('RESEND_API_KEY') ?? '').trim();
   if (!key) return null;
   try {
     const res = await fetch(RESEND_URL, {
       method: 'POST',
       headers: { Authorization: `Bearer ${key}`, 'Content-Type': 'application/json' },
-      body: JSON.stringify({ from: fromWithName((Deno.env.get('RESEND_FROM') ?? 'Tuggi <news@tuggi.app>').trim(), fromName), to: [to], subject, html, text }),
+      body: JSON.stringify({
+        from: fromWithName((Deno.env.get('RESEND_FROM') ?? 'Tuggi <news@tuggi.app>').trim(), fromName),
+        to: [to],
+        subject,
+        html,
+        text,
+        ...(replyTo ? { reply_to: replyTo } : {}),
+      }),
       signal: AbortSignal.timeout(10_000),
     });
     if (!res.ok) return null;
