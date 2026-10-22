@@ -68,6 +68,11 @@ export type AuditAction =
   // The whole CPF of a portal signer, shown on the operator's explicit click (#812): the screen
   // carries only the mask, and this row is who saw the number and when.
   | 'REVEAL_PORTAL_CPF'
+  // #996: "Ver como o lojista". Issuing says which admin asked to see which submission; opening is
+  // the access being spent, and its row is written with `id` = the access's jti, so a second
+  // opening collides on the primary key and is refused (`portal-view-service.ts`).
+  | 'ISSUE_PORTAL_VIEW_ACCESS'
+  | 'OPEN_PORTAL_VIEW'
   // Pointing the client at a place the catalogue ALREADY carried (#409), which is the ordinary
   // act and not the exception: the three clients that used `CREATE_PARTNER_PLACE` each got an
   // empty second row beside an establishment that was already published. This row is what
@@ -172,6 +177,8 @@ interface AuditLogInput {
   userId?: string | null
   userEmail?: string | null
   entityId?: string | null
+  /** The row's own id, for a caller that needs the insert to be unique (#996, single-use access). */
+  id?: string
 }
 
 /**
@@ -233,6 +240,7 @@ export async function logAuditEvent(input: AuditLogInput): Promise<boolean> {
       .schema('core')
       .from('audit_logs')
       .insert({
+        ...(input.id ? { id: input.id } : {}),
         user_id: input.userId ?? null,
         user_email: input.userEmail ?? null,
         action: input.action,

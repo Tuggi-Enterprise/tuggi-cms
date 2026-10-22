@@ -4500,7 +4500,8 @@
       "portalAccount": "Conta de acesso: {email}",
       "portalLiveSince": "No ar desde {date}",
       "portalPlan": "Plano: {plan, select, map_only {No mapa} map_and_description {Com história} other {sem plano declarado}}",
-      "portalStatusLink": "Abrir o /status"
+      "portalStatusLink": "Abrir o /status",
+      "portalViewAs": "Ver como o lojista"
     },
     "returnBar": {
       "label": "Voltar para a esteira de {name}"

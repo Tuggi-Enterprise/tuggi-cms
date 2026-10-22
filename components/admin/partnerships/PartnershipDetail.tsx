@@ -10,7 +10,7 @@
  *   9  O local — while a place is not published, or there is none
  *   10 Publicação — once a place is published
  *   11 Contrato — regularity, the contract or the portal term, and the way to the Contrato tab
- *   11b Portal — the access account, live since, plan and the partner's `/status` (#991)
+ *   11b Portal — the access account, live since, plan and the partner's `/status` (#991); "Ver como o lojista", read-only, in a new tab (#996)
  *   12 the submission after the decision, collapsed
  *   13 Histórico — the submission's history and the pipeline's dated facts, merged by date
  *
@@ -32,7 +32,7 @@ import { useCallback, useEffect, useState } from 'react'
 import { useRecordRead } from '@/lib/hooks/use-record-cache'
 import { useTranslations } from 'next-intl'
 import Link from 'next/link'
-import { ExternalLink, FileSignature, Globe, History, Lock, MapPin, Radio } from 'lucide-react'
+import { ExternalLink, Eye, FileSignature, Globe, History, Lock, MapPin, Radio } from 'lucide-react'
 import { gateLine } from '@/components/admin/clients/board/row-text'
 import { Button } from '@/components/ui/button'
 import { PlaceFormModal } from '@/components/place-management/PlaceFormModal'
@@ -472,10 +472,22 @@ function PortalBlock({ portal }: { portal: NonNullable<Detail['portal']> }) {
         {portal.liveAt ? <p>{t('detail.portalLiveSince', { date: formatDate(portal.liveAt) })}</p> : null}
         <p>{t('detail.portalPlan', { plan: portal.planChoice ?? 'none' })}</p>
       </div>
-      <a href={portal.statusUrl} className={`mt-3 gap-1 ${LINK_BUTTON}`}>
-        {t('detail.portalStatusLink')}
-        <ExternalLink className="h-3.5 w-3.5" aria-hidden="true" />
-      </a>
+      <div className="mt-3 flex flex-wrap gap-x-6 gap-y-2">
+        {/* #996: the access is minted by this GET on the server, at the click, and spent by the portal. */}
+        <a
+          href={`/api/admin/partnerships/portal-view/${portal.submissionId}`}
+          target="_blank"
+          rel="noopener"
+          className={`gap-1 ${LINK_BUTTON}`}
+        >
+          <Eye className="h-3.5 w-3.5" aria-hidden="true" />
+          {t('detail.portalViewAs')}
+        </a>
+        <a href={portal.statusUrl} target="_blank" rel="noopener" className={`gap-1 ${LINK_BUTTON}`}>
+          {t('detail.portalStatusLink')}
+          <ExternalLink className="h-3.5 w-3.5" aria-hidden="true" />
+        </a>
+      </div>
     </RecordSection>
   )
 }
