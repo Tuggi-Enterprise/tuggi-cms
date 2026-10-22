@@ -148,6 +148,7 @@ function deps(asaas: ReturnType<typeof fakeAsaas>, db: ReturnType<typeof fakeDb>
     // #916: no legacy submission by default
     legacyOf: async () => null,
     legacyFeesEnded: async () => [],
+    legacyFreeMigrations: async () => [],
     ...extra,
   }
   return { d, alerts, emails }

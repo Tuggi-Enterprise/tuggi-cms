@@ -227,6 +227,19 @@ export function baseDeps(asaas: NonNullable<ReturnType<typeof asaasFromEnv>>): D
       // deno-lint-ignore no-explicit-any
       return (data ?? []).map((r: any) => r.legacy_client_id as string);
     },
+    legacyFreeMigrations: async () => {
+      // One acceptance per submission (`place_acceptances.submission_id`); only legacy mirrors whose fee still runs.
+      const { data, error } = await admin
+        .schema('partner')
+        .from('place_acceptances')
+        .select('submission_id, place_submissions!inner(legacy_client_id, legacy_fee_ended_at)')
+        .eq('total_cents', 0)
+        .not('place_submissions.legacy_client_id', 'is', null)
+        .is('place_submissions.legacy_fee_ended_at', null);
+      if (error) throw new Error(`legacy free migrations read ${error.code}`);
+      // deno-lint-ignore no-explicit-any
+      return (data ?? []).map((r: any) => r.submission_id as string);
+    },
   };
 }
 

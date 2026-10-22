@@ -173,6 +173,11 @@ export type Deps = InvoiceDeps & {
   legacyOf: (submissionId: string) => Promise<LegacyMark | null>;
   /** #916: `core.clients.id` of every legacy submission whose fee ended. Throws on a read error. */
   legacyFeesEnded: () => Promise<string[]>;
+  /**
+   * #995: legacy submissions that accepted the new plan with `total_cents = 0` (100% voucher) and whose
+   * fee still runs. No checkout follows that acceptance, so the sweep ends the fee. Throws on a read error.
+   */
+  legacyFreeMigrations: () => Promise<string[]>;
 };
 
 export type LegacyMark = { client_id: string; fee_ended_at: string | null };
@@ -1914,6 +1919,21 @@ export async function runSweep(deps: Deps): Promise<Record<string, unknown>> {
     summary.aligned = changed;
   }
 
+  // #995: a legacy client that accepted the new plan with a 100% voucher has no checkout, so nothing ran
+  // `endLegacyAfterMigration` for it: it runs here, the same function, order and failure handling. Before
+  // the block below, which redoes the DELETE when it fails.
+  try {
+    let n = 0;
+    for (const submissionId of await deps.legacyFreeMigrations()) {
+      await endLegacyAfterMigration(deps, submissionId);
+      n++;
+    }
+    summary.legacy_free_migrated = n;
+  } catch (e) {
+    summary.legacy_free_migrated = 'db_error';
+    await deps.alert('sweep_legacy_free_migration_read_failed', { error: e instanceof Error ? e.message : 'unknown' });
+  }
+
   // #916: a legacy fee ended in the database whose Asaas subscription is still live (the DELETE failed
   // or the EF died in between) is ended here. The legacy fee falls due on day 20 and this runs daily.
   try {
@@ -2370,10 +2390,12 @@ export async function cancelLegacy(deps: PortalDeps, submissionId: string): Prom
 }
 
 /**
- * After a new plan is attached (#916): a legacy submission whose fee still runs ends it, `migrated`
- * (`partner.place_end_legacy_fee`), then the legacy Asaas subscription. In this order, so a refused
- * card never leaves the client with no plan. Never fails the checkout: a failure alerts, and the sweep
- * ends the Asaas side of every fee the database ended.
+ * After a new plan is attached (#916), or by the sweep after an acceptance with `total_cents = 0`
+ * (#995): a legacy submission whose fee still runs ends it, `migrated` (`partner.place_end_legacy_fee`),
+ * then the legacy Asaas subscription. In this order, so a refused card never leaves the client with no
+ * plan. Never throws: a failure alerts, and the sweep ends the Asaas side of every fee the database
+ * ended. Idempotent: the database returns an ended fee unchanged, and only live `legacy:<id>`
+ * subscriptions are deleted (a 404 on the DELETE counts as done).
  */
 async function endLegacyAfterMigration(deps: Deps, submissionId: string): Promise<void> {
   let mark: LegacyMark | null = null;

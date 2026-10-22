@@ -204,6 +204,7 @@ function deps(asaas: ReturnType<typeof fakeAsaas>, db: ReturnType<typeof fakeDb>
     sentPayouts: async () => [],
     legacyOf: async () => ({ client_id: CLIENT, fee_ended_at: null }),
     legacyFeesEnded: async () => [],
+    legacyFreeMigrations: async () => [],
     userEmail: async () => 'ze@example.com',
     sendEmail: async (to: string, subject: string, text: string, opts: Record<string, unknown>) => {
       mails.push({ to, subject, text, opts })
@@ -435,6 +436,101 @@ test('#916: the sweep ends a legacy subscription still live after the database e
   const x = deps(quiet, fakeDb({}), { legacyFeesEnded: async () => [CLIENT] })
   assert.equal((await pay.runSweep(x.d)).legacy_ended, 0)
   assert.ok(!x.alerts.some((a) => a.what.includes('legacy')))
+})
+
+// #995: an acceptance with total_cents = 0 (100% voucher) has no checkout, so the sweep runs the same
+// endLegacyAfterMigration the checkout runs. Asaas keeps the legacy subscription live until its DELETE.
+function legacyAtAsaas(deleteStatus = 200) {
+  let deleted = false
+  const route: Route = (c) => {
+    if (c.method === 'GET' && c.path === `/subscriptions?externalReference=${encodeURIComponent(LEGACY_REF)}`) {
+      return { status: 200, body: { data: [{ ...legacySub, deleted }] } }
+    }
+    if (c.method === 'DELETE' && c.path === '/subscriptions/sub_legacy') {
+      deleted = true
+      return { status: deleteStatus, body: deleteStatus === 200 ? { deleted: true, id: 'sub_legacy' } : { errors: [{ code: 'not_found' }] } }
+    }
+    return undefined
+  }
+  return fakeAsaas([route])
+}
+
+test('#995: a paying legacy client that accepted with total 0 is migrated by the sweep: place_end_legacy_fee(migrated) first, then DELETE of legacy:<client_id> only', async () => {
+  const asaas = legacyAtAsaas()
+  const db = fakeDb({ place_end_legacy_fee: { data: CLIENT } })
+  // how many Asaas calls had happened when the database ended the fee
+  let asaasCallsAtEnd = -1
+  const admin = async (schema: string, fn: string, args: Record<string, unknown>) => {
+    if (fn === 'place_end_legacy_fee') asaasCallsAtEnd = asaas.calls.length
+    return db.rpc(schema, fn, args)
+  }
+  const { d, alerts } = deps(asaas, db, { admin, legacyFreeMigrations: async () => [SUBMISSION] })
+  const summary = await pay.runSweep(d)
+  assert.equal(summary.legacy_free_migrated, 1)
+  assert.deepEqual(db.calls.filter((c) => c.fn === 'place_end_legacy_fee'), [
+    { schema: 'partner', fn: 'place_end_legacy_fee', args: { p_submission_id: SUBMISSION, p_reason: 'migrated' } },
+  ])
+  assert.deepEqual(asaas.calls.filter((c) => c.method === 'DELETE').map((c) => c.path), ['/subscriptions/sub_legacy'])
+  // the database ends the fee before the legacy subscription is read or deleted at Asaas
+  assert.ok(asaasCallsAtEnd >= 0)
+  assert.ok(!asaas.calls.slice(0, asaasCallsAtEnd).some((c) => c.path.includes('legacy') || c.method === 'DELETE'))
+  assert.deepEqual(alerts.filter((a) => a.what.startsWith('legacy')).map((a) => [a.what, a.fields]), [['legacy_migrated', { submission_id: SUBMISSION }]])
+})
+
+test('#995: a client that is not legacy (portal submission, 100% voucher) is never touched by the sweep; an empty list touches nothing', async () => {
+  for (const [list, legacyOf] of [
+    [[SUBMISSION], async () => null],
+    [[], async () => ({ client_id: CLIENT, fee_ended_at: null })],
+  ] as const) {
+    const asaas = legacyAtAsaas()
+    const db = fakeDb({ place_end_legacy_fee: { data: CLIENT } })
+    const { d, alerts } = deps(asaas, db, { legacyFreeMigrations: async () => list, legacyOf })
+    const summary = await pay.runSweep(d)
+    assert.equal(summary.legacy_free_migrated, list.length)
+    assert.ok(!db.calls.some((c) => c.fn === 'place_end_legacy_fee'))
+    assert.ok(!asaas.calls.some((c) => c.method === 'DELETE' || c.path.includes('legacy')))
+    assert.ok(!alerts.some((a) => a.what.includes('legacy')))
+  }
+})
+
+test('#995: a second run does not break: the fee already ended skips the database, the deleted subscription is not deleted again, and a DELETE answering 404 counts as done', async () => {
+  const asaas = legacyAtAsaas()
+  const db = fakeDb({ place_end_legacy_fee: { data: CLIENT } })
+  let ended: string | null = null
+  const { d, alerts } = deps(asaas, db, {
+    legacyFreeMigrations: async () => [SUBMISSION],
+    legacyOf: async () => ({ client_id: CLIENT, fee_ended_at: ended }),
+  })
+  await pay.runSweep(d)
+  ended = '2026-10-08T12:00:00Z'
+  const second = await pay.runSweep(d)
+  assert.equal(second.legacy_free_migrated, 1)
+  assert.equal(db.calls.filter((c) => c.fn === 'place_end_legacy_fee').length, 1)
+  assert.equal(asaas.calls.filter((c) => c.method === 'DELETE').length, 1)
+  assert.ok(!alerts.some((a) => a.what.endsWith('_failed') || a.what === 'legacy_subscription_not_found'))
+
+  // Asaas still lists it live but the DELETE answers 404 (already removed): done, no failure alert
+  const gone = legacyAtAsaas(404)
+  const x = deps(gone, fakeDb({ place_end_legacy_fee: { data: CLIENT } }), { legacyFreeMigrations: async () => [SUBMISSION] })
+  assert.equal((await pay.runSweep(x.d)).legacy_free_migrated, 1)
+  assert.deepEqual(x.alerts.filter((a) => a.what.startsWith('legacy') || a.what.startsWith('sweep_legacy')).map((a) => a.what), ['legacy_migrated'])
+})
+
+test('#995: Asaas down during the migration alerts and is retried by the ended-fee block of the same sweep; a read failure alerts and the sweep goes on', async () => {
+  const asaas = fakeAsaas([subsByLegacyRef([legacySub]), at('DELETE', '/subscriptions/sub_legacy', 503, {})])
+  const { d, alerts } = deps(asaas, fakeDb({ place_end_legacy_fee: { data: CLIENT } }), {
+    legacyFreeMigrations: async () => [SUBMISSION],
+    legacyFeesEnded: async () => [CLIENT],
+  })
+  const summary = await pay.runSweep(d)
+  assert.equal(summary.legacy_free_migrated, 1)
+  assert.deepEqual(alerts.filter((a) => a.what.includes('legacy')).map((a) => a.what), ['legacy_migration_end_failed', 'legacy_migrated', 'sweep_legacy_end_failed'])
+
+  const broken = deps(fakeAsaas([]), fakeDb({}), { legacyFreeMigrations: async () => { throw new Error('legacy free migrations read 500') } })
+  const s = await pay.runSweep(broken.d)
+  assert.equal(s.legacy_free_migrated, 'db_error')
+  assert.equal(s.legacy_ended, 0)
+  assert.deepEqual(broken.alerts.filter((a) => a.what.includes('legacy')).map((a) => a.what), ['sweep_legacy_free_migration_read_failed'])
 })
 
 // ─── payment: webhook ────────────────────────────────────────────────────────────────────────
