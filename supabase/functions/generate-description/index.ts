@@ -50,9 +50,12 @@ import {
 } from "../_shared/venueComposition.ts";
 
 // --- Types ---
+/**
+ * Who asked for this description. No e-mail on purpose (#1014): the row is readable with the
+ * public key, and an e-mail next to a POI and a timestamp is a trail of where a tourist was.
+ */
 interface GeneratedByInfo {
     user_id: string;
-    email: string;
     source: "app_user" | "cms_admin" | "system";
 }
 
@@ -846,22 +849,21 @@ async function processPOIItem(
         await rebuildReadModel(supabaseAdmin, poi_id);
         mark("read_model");
 
-        // 5.1 Track who generated this description (non-blocking, defensive)
-        // Runs as a separate UPDATE so that if the generated_by columns don't exist
-        // yet (migration not applied), the main generation flow is NOT affected.
+        // 5.1 Track who generated this description. Separate UPDATE, best-effort: a failure here
+        // must not cost the text that was just paid for. `generated_by_email` is never written
+        // (#1014); the source is the only part that goes to the log.
         if (generatedBy && finalRows?.id) {
-            try {
-                await supabaseAdmin.schema("core")
-                    .from("attraction_descriptions")
-                    .update({
-                        generated_by_user_id: generatedBy.user_id,
-                        generated_by_email: generatedBy.email,
-                        generated_by_source: generatedBy.source,
-                    })
-                    .eq("id", finalRows.id);
-                console.log(`${LOG_PREFIX} ✅ Generated-by tracked: ${generatedBy.source} (${generatedBy.email})`);
-            } catch (trackingErr) {
-                console.warn(`${LOG_PREFIX} ⚠️ Generated-by tracking skipped (columns may not exist yet):`, trackingErr);
+            const { error: trackingError } = await supabaseAdmin.schema("core")
+                .from("attraction_descriptions")
+                .update({
+                    generated_by_user_id: generatedBy.user_id,
+                    generated_by_source: generatedBy.source,
+                })
+                .eq("id", finalRows.id);
+            if (trackingError) {
+                console.warn(`${LOG_PREFIX} ⚠️ Generated-by tracking skipped: ${trackingError.code ?? "unknown"}`);
+            } else {
+                console.log(`${LOG_PREFIX} ✅ Generated-by tracked: ${generatedBy.source}`);
             }
         }
 
@@ -1085,13 +1087,12 @@ serve(async (req) => {
         // --- Derive generatedBy from auth result ---
         const generatedBy: GeneratedByInfo = {
             user_id: authResult.userId!,
-            email: authResult.email!,
             // SSOT with the production gate above: one spelling of "who is
             // asking", in `_shared/content-production-gate.ts`.
             source: classifyProductionRequester(authResult.role),
         };
         console.log(
-            `[Generate-Description] 📋 Generated-by: ${generatedBy.source} (${generatedBy.email})`,
+            `[Generate-Description] 📋 Generated-by: ${generatedBy.source}`,
         );
 
         // --- BATCH PATH (APP) ---

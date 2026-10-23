@@ -12,6 +12,11 @@ export { scenario };
 
 export const fetchCalls: string[] = [];
 
+/** What every `fetch` answers. Defaults to a 400, so a paid call fails; a test may script it. */
+export const network: { reply: () => Response } = {
+  reply: () => new Response('{}', { status: 400 }),
+};
+
 const TEST_ENV: Record<string, string> = {
   SUPABASE_URL: 'http://supabase.test',
   SUPABASE_SERVICE_ROLE_KEY: 'test-service-role-key',
@@ -23,7 +28,7 @@ export async function loadHandler(functionDir: string): Promise<Handler> {
   for (const [name, value] of Object.entries(TEST_ENV)) Deno.env.set(name, value);
   globalThis.fetch = (input: string | URL | Request) => {
     fetchCalls.push(input instanceof Request ? input.url : String(input));
-    return Promise.resolve(new Response('{}', { status: 400 }));
+    return Promise.resolve(network.reply());
   };
   const before = capturedHandlers.length;
   await import(new URL(`../${functionDir}/index.ts`, import.meta.url).href);
@@ -43,6 +48,7 @@ let ipCounter = 0;
 /** Resets the trail and returns a fresh request; each one gets its own IP so the rate limiter stays out. */
 export function request(body: unknown): Request {
   scenario.calls.length = 0;
+  scenario.writes.length = 0;
   fetchCalls.length = 0;
   ipCounter += 1;
   return new Request('http://edge.test/fn', {
