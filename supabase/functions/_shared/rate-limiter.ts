@@ -104,7 +104,7 @@ export function checkRateLimit(
 
   // Determinar chave de rate limit: preferir user ID, caso contrário IP
   const authHeader = req.headers.get('authorization')
-  const userId = extractUserID(authHeader)
+  const userId = extractUserID(authHeader ?? undefined)
   const clientIP = getClientIP(req)
   const identifier = userId || clientIP
   const key = `ratelimit:${functionName}:${identifier}`

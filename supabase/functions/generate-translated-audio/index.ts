@@ -503,7 +503,7 @@ serve(async (req) => {
       { status: 401, headers: createSecureHeaders(corsHeaders) }
     )
   }
-  console.log(`[Generate-Translated-Audio] ✅ Authorized: ${authResult.email}`)
+  console.log(`[Generate-Translated-Audio] ✅ Authorized (ID: ${authResult.userId})`)
 
   // The body is read once, here: the batch mode (#945) is decided before the per-request limit.
   const parsedBody = await req.json().catch(() => null) as (RequestBody & { mode?: unknown }) | null;
@@ -539,7 +539,7 @@ serve(async (req) => {
   const config = RATE_LIMIT_CONFIG['generate-translated-audio']
   const rateLimit = checkRateLimit(req, 'generate-translated-audio', config.maxRequests, config.windowSeconds)
   if (!rateLimit.allowed) {
-    console.warn(`[Generate-Translated-Audio] ⚠️ Rate limit exceeded for ${rateLimit.clientId}`)
+    console.warn(`[Generate-Translated-Audio] ⚠️ Rate limit exceeded (ID: ${authResult.userId})`)
     return createRateLimitResponse(rateLimit, corsHeaders)
   }
   console.log(`[Generate-Translated-Audio] ✅ Rate limit OK (${rateLimit.remaining} remaining)`)
@@ -552,7 +552,7 @@ serve(async (req) => {
   // Refused in the instant: no queue, no promise, nothing produced later.
   const productionGate = await decideContentProduction(authResult, 'Generate-Translated-Audio')
   if (!productionGate.allowed) {
-    console.log(`[Generate-Translated-Audio] ⛔ BR-CONTEUDO-003: production refused (state=${productionGate.state})`)
+    console.log(`[Generate-Translated-Audio] ⛔ production refused (refusal=${productionGate.refusal}, state=${productionGate.state})`)
     return createProductionRefusedResponse(productionGate, createSecureHeaders(corsHeaders))
   }
 

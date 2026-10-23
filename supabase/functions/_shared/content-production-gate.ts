@@ -37,14 +37,26 @@
  * and in the #630 card — do not "fix" it by trusting a receipt sent in the
  * body: a receipt the client asserts is not a receipt the server witnessed.
  *
- * FAILING OPEN IS A DECISION, NOT AN OVERSIGHT
- * --------------------------------------------
- * `docs/contracts/entitlement.md`, "O que nenhum consumidor faz": *não trata
- * erro como `free`* — "rebaixar por falha nossa é o único desfecho
- * inaceitável" (BR-MONETIZACAO-025, 026 e 046). An unreachable database is our
- * failure, so an unresolved state ALLOWS and logs. The ceiling on what that
- * can cost is the rate limiter each function already applies; the ceiling on
- * who can even try is the JWT each one already validates.
+ * THE GUEST IS REFUSED BEFORE ANY STATE IS READ (#1007)
+ * ----------------------------------------------------
+ * BR-USUARIO-037 item 4.i: asking for audio or text that does not exist yet
+ * needs a permanent account AND hours, and the refusal holds in the server
+ * "mesmo quando o pedido chega". A guest (Anonymous Sign-Ins, `is_anonymous`)
+ * never satisfies item 1 of BR-CONTEUDO-003 (it has no balance and receives no
+ * grant, BR-USUARIO-037 item 5), so asking `get_entitlement` would only spend
+ * a round trip. The refusal has its own code, `account_required`, because the
+ * screen answers it differently: "create an account", not "buy hours".
+ *
+ * AN UNRESOLVED STATE REFUSES, AND THE REFUSAL SAYS IT FAILED (#1007)
+ * ------------------------------------------------------------------
+ * Until 2026-10-22 an unreachable `get_entitlement` ALLOWED the production,
+ * read from the entitlement contract's "não trata erro como `free`". That line
+ * protects the tourist's STATE on the device, and nothing here touches it: the
+ * answer is 503 `entitlement_unavailable`, a failure the caller retries, never
+ * the 403 that says "you may not". So nobody is downgraded, and an outage of
+ * the database no longer opens the paid generators to every token. Error,
+ * timeout, a row without `state`, missing env and a thrown exception are the
+ * same answer. Decided by the Tech Lead on the #1007 card.
  */
 
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
@@ -70,22 +82,94 @@ export function classifyProductionRequester(
   return 'app_user';
 }
 
+/** Why a production was refused. Each one is a distinct answer to the app (see the response). */
+export type ProductionRefusal =
+  | 'account_required'
+  | 'not_entitled'
+  | 'entitlement_unavailable';
+
 export interface ProductionGateDecision {
   /** May this request spend LLM or TTS? */
   allowed: boolean;
   source: ProductionRequesterSource;
   /**
-   * The state `drive.get_entitlement` answered, or `'unresolved'` when the call
-   * failed — which is NOT `free` and never becomes it (see the header).
+   * The state `drive.get_entitlement` answered, `'unresolved'` when the call
+   * failed (which is NOT `free` and never becomes it), or `'guest'` when the
+   * caller is an anonymous account and the state was not read.
    */
-  state: 'unlimited' | 'metered' | 'free' | 'unresolved' | 'not_applicable';
+  state: 'unlimited' | 'metered' | 'free' | 'unresolved' | 'not_applicable' | 'guest';
+  /** Present exactly when `allowed` is false. */
+  refusal?: ProductionRefusal;
 }
 
 /** The states that carry the right to turn the guide on, hence to produce. */
 const PAID_STATES = ['unlimited', 'metered'];
 
 /**
- * Answers BR-CONTEUDO-003 item 1 for the caller behind this request.
+ * How long the gate waits for `drive.get_entitlement`. The routine reads one
+ * profile and the ledger of one account, so a healthy answer is milliseconds;
+ * past this, the database is in trouble and the caller is told to retry
+ * instead of holding the request until the platform kills it.
+ */
+export const ENTITLEMENT_TIMEOUT_MS = 5000;
+
+/** The PostgREST envelope, reduced to what the gate reads. */
+export interface EntitlementReadResult {
+  data: unknown;
+  error: { code?: string } | null;
+}
+
+export type EntitlementReader = (
+  userId: string,
+  signal: AbortSignal,
+) => Promise<EntitlementReadResult>;
+
+export interface ProductionGateOptions {
+  /** Replaces the database call. Tests only; production uses the default. */
+  readEntitlement?: EntitlementReader;
+  timeoutMs?: number;
+}
+
+/** `null` when the env to reach the database is missing. */
+function defaultEntitlementReader(): EntitlementReader | null {
+  const projectUrl = Deno.env.get('PROJECT_URL') ||
+    Deno.env.get('SUPABASE_URL') || '';
+  const secretKey = getSecretKey();
+  if (!projectUrl || !secretKey) return null;
+
+  const admin = createClient(projectUrl, secretKey);
+  return async (userId, signal) => {
+    const { data, error } = await admin
+      .schema('drive')
+      .rpc('get_entitlement', { p_user_id: userId })
+      .abortSignal(signal);
+    return { data, error };
+  };
+}
+
+const TIMED_OUT = Symbol('timed-out');
+
+function unresolved(
+  functionName: string,
+  source: ProductionRequesterSource,
+  why: string,
+): ProductionGateDecision {
+  // No PII and no message: the routine writes it and may interpolate its own
+  // arguments back (`docs/contracts/entitlement.md`, "Erros").
+  console.error(
+    `[${functionName}] BR-CONTEUDO-003: drive.get_entitlement unresolved (${why}), refusing with entitlement_unavailable`,
+  );
+  return {
+    allowed: false,
+    source,
+    state: 'unresolved',
+    refusal: 'entitlement_unavailable',
+  };
+}
+
+/**
+ * Answers BR-CONTEUDO-003 item 1 and BR-USUARIO-037 item 4.i for the caller
+ * behind this request.
  *
  * The CMS operator and the platform itself are OUT OF SCOPE of the rule, not
  * exceptions to it: "Não se aplica a: a produção pedida por um humano — o ato
@@ -95,98 +179,113 @@ const PAID_STATES = ['unlimited', 'metered'];
 export async function decideContentProduction(
   auth: AuthResult,
   functionName: string,
+  options: ProductionGateOptions = {},
 ): Promise<ProductionGateDecision> {
   const source = classifyProductionRequester(auth.role);
+
+  // A guest is never an operator nor the platform, so this comes first.
+  if (auth.isAnonymous === true) {
+    return { allowed: false, source, state: 'guest', refusal: 'account_required' };
+  }
 
   if (source !== 'app_user') {
     return { allowed: true, source, state: 'not_applicable' };
   }
 
   const userId = auth.userId;
-  if (!userId) {
-    // Authenticated with no subject: cannot resolve, does not downgrade.
-    console.warn(
-      `[${functionName}] BR-CONTEUDO-003: authenticated request with no user id — allowing (unresolved)`,
-    );
-    return { allowed: true, source, state: 'unresolved' };
-  }
+  if (!userId) return unresolved(functionName, source, 'no user id');
 
-  const projectUrl = Deno.env.get('PROJECT_URL') ||
-    Deno.env.get('SUPABASE_URL') || '';
-  const secretKey = getSecretKey();
+  const readEntitlement = options.readEntitlement ?? defaultEntitlementReader();
+  if (!readEntitlement) return unresolved(functionName, source, 'missing env');
 
-  if (!projectUrl || !secretKey) {
-    console.error(
-      `[${functionName}] BR-CONTEUDO-003: cannot reach drive.get_entitlement (missing env) — allowing (unresolved)`,
-    );
-    return { allowed: true, source, state: 'unresolved' };
-  }
+  const controller = new AbortController();
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const timedOut = new Promise<typeof TIMED_OUT>((resolve) => {
+    timer = setTimeout(() => {
+      controller.abort();
+      resolve(TIMED_OUT);
+    }, options.timeoutMs ?? ENTITLEMENT_TIMEOUT_MS);
+  });
 
   try {
-    const admin = createClient(projectUrl, secretKey);
-    const { data, error } = await admin
-      .schema('drive')
-      .rpc('get_entitlement', { p_user_id: userId });
+    const outcome = await Promise.race([
+      readEntitlement(userId, controller.signal),
+      timedOut,
+    ]);
+    if (outcome === TIMED_OUT) return unresolved(functionName, source, 'timeout');
 
-    if (error) {
-      // No PII and no message: the routine writes it and may interpolate its
-      // own arguments back (`docs/contracts/entitlement.md`, "Erros").
-      console.warn(
-        `[${functionName}] BR-CONTEUDO-003: drive.get_entitlement failed (sqlstate: ${
-          error.code ?? 'unknown'
-        }) — allowing (unresolved)`,
+    if (outcome.error) {
+      return unresolved(
+        functionName,
+        source,
+        `sqlstate ${outcome.error.code ?? 'unknown'}`,
       );
-      return { allowed: true, source, state: 'unresolved' };
     }
 
     // PostgREST returns the single row as an array of one.
-    const row = Array.isArray(data) ? data[0] : data;
-    const state = typeof row?.state === 'string' ? row.state : null;
+    const row = Array.isArray(outcome.data) ? outcome.data[0] : outcome.data;
+    const state = typeof (row as { state?: unknown } | null)?.state === 'string'
+      ? (row as { state: string }).state
+      : null;
+    if (!state) return unresolved(functionName, source, 'no state in the row');
 
-    if (!state) {
-      console.warn(
-        `[${functionName}] BR-CONTEUDO-003: drive.get_entitlement returned no state — allowing (unresolved)`,
-      );
-      return { allowed: true, source, state: 'unresolved' };
-    }
-
+    const allowed = PAID_STATES.includes(state);
     return {
-      allowed: PAID_STATES.includes(state),
+      allowed,
       source,
       state: state as ProductionGateDecision['state'],
+      ...(allowed ? {} : { refusal: 'not_entitled' as const }),
     };
   } catch (unexpected) {
-    console.warn(
-      `[${functionName}] BR-CONTEUDO-003: drive.get_entitlement threw — allowing (unresolved)`,
-      unexpected instanceof Error ? unexpected.name : 'unknown',
+    return unresolved(
+      functionName,
+      source,
+      `threw ${unexpected instanceof Error ? unexpected.name : 'unknown'}`,
     );
-    return { allowed: true, source, state: 'unresolved' };
+  } finally {
+    clearTimeout(timer);
   }
 }
 
 /**
- * The typed refusal. **403, never 402 and never 200 with an empty payload:**
- * the caller has to be able to tell "you may not" from "it failed", because a
- * failure is retried and this is not — item 3 of the rule refuses *in the
- * instant*, with no queue, no wait and nothing to announce later.
+ * The typed refusal. Three bodies, one per `ProductionRefusal`:
  *
- * The body carries no sentence for the tourist. The screen owns the wording
- * (spec `docs/design/spec-audio-sem-idioma-2026-08.md`), and a sentence
- * shipped from here would be a second copy of it, untranslated and outside the
- * "teto do afirmável" of BR-CONTEUDO-003.
+ * - `not_entitled`: **403 `content_production_not_entitled`, never 402 and
+ *   never 200 with an empty payload.** The caller has to tell "you may not"
+ *   from "it failed", because a failure is retried and this is not: item 3 of
+ *   BR-CONTEUDO-003 refuses *in the instant*, with no queue and nothing to
+ *   announce later.
+ * - `account_required`: **403 `account_required`**, BR-USUARIO-037 item 4.i.
+ *   Same "you may not", different door: the guest is asked for an account.
+ * - `entitlement_unavailable`: **503**, the gate could not read the state.
+ *   This one IS a failure, and it is the only one worth retrying.
+ *
+ * None is 401: the app renews the session on 401, and a refusal returned as
+ * 401 would drop the session of someone correctly signed in. The bodies carry
+ * no sentence for the tourist. The screen owns the wording (spec
+ * `docs/design/spec-audio-sem-idioma-2026-08.md`), and a sentence shipped from
+ * here would be a second copy of it, untranslated and outside the "teto do
+ * afirmável" of BR-CONTEUDO-003.
  */
 export const CONTENT_PRODUCTION_REFUSED = 'content_production_not_entitled';
+export const ACCOUNT_REQUIRED = 'account_required';
+export const ENTITLEMENT_UNAVAILABLE = 'entitlement_unavailable';
 
 export function createProductionRefusedResponse(
   decision: ProductionGateDecision,
   headers: Record<string, string>,
 ): Response {
-  return new Response(
-    JSON.stringify({
+  const [status, body] = decision.refusal === 'account_required'
+    ? [403, { error: ACCOUNT_REQUIRED, rule: 'BR-USUARIO-037' }]
+    : decision.refusal === 'entitlement_unavailable'
+    ? [503, { error: ENTITLEMENT_UNAVAILABLE, rule: 'BR-CONTEUDO-003' }]
+    : [403, {
       error: CONTENT_PRODUCTION_REFUSED,
       rule: 'BR-CONTEUDO-003',
       state: decision.state,
-    }),
-    { status: 403, headers: { ...headers, 'Content-Type': 'application/json' } },
-  );
+    }];
+  return new Response(JSON.stringify(body), {
+    status,
+    headers: { ...headers, 'Content-Type': 'application/json' },
+  });
 }

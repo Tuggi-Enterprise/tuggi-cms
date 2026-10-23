@@ -540,7 +540,7 @@ async function processPOIItem(
             console.log(`${LOG_PREFIX} Generating FRESH Master (Gemini)...`);
             
             // Check for group membership (Parent/Main POI)
-            let memberPois = [];
+            let memberPois: Record<string, unknown>[] = [];
             const { data: groupMembership } = await supabaseAdmin.schema("core")
                 .from("attraction_group_members")
                 .select("group_id")
@@ -1028,7 +1028,7 @@ serve(async (req) => {
             );
         }
         console.log(
-            `[Generate-Description] ✅ Authorized: ${authResult.email}`,
+            `[Generate-Description] ✅ Authorized (ID: ${authResult.userId})`,
         );
 
         // ✅ VERIFICAR RATE LIMIT
@@ -1041,7 +1041,7 @@ serve(async (req) => {
         );
         if (!rateLimit.allowed) {
             console.warn(
-                `[Generate-Description] 🚫 Rate limit exceeded for ${authResult.email}`,
+                `[Generate-Description] 🚫 Rate limit exceeded (ID: ${authResult.userId})`,
             );
             return createRateLimitResponse(rateLimit, corsHeaders);
         }
@@ -1066,7 +1066,7 @@ serve(async (req) => {
         );
         if (!productionGate.allowed) {
             console.log(
-                `[Generate-Description] ⛔ BR-CONTEUDO-003: production refused (state=${productionGate.state})`,
+                `[Generate-Description] ⛔ production refused (refusal=${productionGate.refusal}, state=${productionGate.state})`,
             );
             return createProductionRefusedResponse(
                 productionGate,
