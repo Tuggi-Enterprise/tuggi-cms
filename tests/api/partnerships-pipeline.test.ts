@@ -630,13 +630,26 @@ test('#390 · #910 · BR-B2B-026 item 4: the Contrato block opens the record\'s 
   }
 })
 
-test('#359 crit. 36 · DS-LAYOUT-006 pt. 4: no shortcut opens a new tab', () => {
+// DS-LAYOUT-006 pt. 4 is about the CMS tool that resolves a pendency: it opens in the same tab.
+// The portal is another product, so #996 opens it in a new tab on purpose ("Ver como o lojista" and
+// the /status link of the Portal block). Those two hrefs are the whole exception (#894).
+const NEW_TAB_TO_THE_PORTAL = [/^\{`\/api\/admin\/partnerships\/portal-view\/\$\{/, /^\{portal\.statusUrl\}$/]
+
+test('#359 crit. 36 · DS-LAYOUT-006 pt. 4: no shortcut opens a new tab, only the links to the portal', () => {
   for (const file of [
     'components/admin/partnerships/PendencyList.tsx',
     'components/admin/partnerships/PartnershipDetail.tsx',
     'components/admin/clients/ClientDirectory.tsx',
   ]) {
-    assert.equal(read(file).indexOf('target="_blank"'), -1, file)
+    const source = read(file)
+    const anchors = source.match(/<a\s[^>]*>/g) ?? []
+    const newTab = anchors.filter((anchor) => anchor.includes('target="_blank"'))
+    assert.equal(source.split('target="_blank"').length - 1, newTab.length, `${file}: every new tab is an <a>`)
+    for (const anchor of newTab) {
+      const href = anchor.match(/href=(\{[^\s]*\})/)?.[1] ?? ''
+      assert.ok(NEW_TAB_TO_THE_PORTAL.some((re) => re.test(href)), `${file}: ${href || anchor} opens a new tab`)
+      assert.match(anchor, /rel="noopener"/, `${file}: ${href} opens a new tab without rel="noopener"`)
+    }
   }
 })
 
