@@ -1,7 +1,7 @@
 /**
  * #1007: the decision both producers share, `_shared/content-production-gate.ts`. The function tests
  * prove each `index.ts` returns it before spending; these prove every way the state read can fail
- * ends in the same refusal, and that the guest is refused before anything is read.
+ * ends in the same refusal, and (#1021) that the guest is decided by his state, not by his account.
  */
 import { assert, assertEquals } from './assert.ts';
 import {
@@ -20,15 +20,41 @@ const mustNotRead: EntitlementReader = () => {
   throw new Error('get_entitlement must not be read here');
 };
 
-Deno.test('BR-USUARIO-037 4.i: a guest is refused with account_required even carrying an operator role', async () => {
-  for (const role of [undefined, 'admin', 'service_role']) {
-    const decision = await decideContentProduction(
-      { valid: true, userId: 'guest', isAnonymous: true, role },
-      'test',
-      { readEntitlement: mustNotRead },
-    );
-    assertEquals(decision, { allowed: false, source: decision.source, state: 'guest', refusal: 'account_required' });
+const GUEST = { valid: true, userId: '11111111-1111-4111-8111-111111111111', isAnonymous: true };
+
+Deno.test('BR-CONTEUDO-003 item 1 (#1021): a guest in metered produces, a guest in free is refused as not_entitled', async () => {
+  for (const [state, allowed] of [['metered', true], ['unlimited', true], ['free', false]] as const) {
+    const asked: string[] = [];
+    const decision = await decideContentProduction(GUEST, 'test', {
+      readEntitlement: (userId) => {
+        asked.push(userId);
+        return Promise.resolve({ data: [{ state }], error: null });
+      },
+    });
+    assertEquals([state, decision], [state, {
+      allowed,
+      source: 'app_user',
+      state,
+      ...(allowed ? {} : { refusal: 'not_entitled' }),
+    }]);
+    assertEquals(asked, [GUEST.userId]);
   }
+});
+
+Deno.test('BR-CONTEUDO-003 item 1 (#1021): a guest carrying an operator role is still read as a tourist', async () => {
+  for (const role of ['admin', 'editor', 'service_role']) {
+    const decision = await decideContentProduction({ ...GUEST, role }, 'test', {
+      readEntitlement: reader({ data: [{ state: 'free' }], error: null }),
+    });
+    assertEquals([role, decision.allowed, decision.source, decision.refusal], [role, false, 'app_user', 'not_entitled']);
+  }
+});
+
+Deno.test('BR-CONTEUDO-003 item 5 (#1021): a guest whose state cannot be read gets 503, never a pass', async () => {
+  const decision = await decideContentProduction(GUEST, 'test', {
+    readEntitlement: reader({ data: null, error: { code: '57014' } }),
+  });
+  assertEquals([decision.allowed, decision.refusal], [false, 'entitlement_unavailable']);
 });
 
 Deno.test('BR-CONTEUDO-003 item 5: every unresolved read refuses with entitlement_unavailable', async () => {
@@ -75,7 +101,7 @@ Deno.test('BR-CONTEUDO-003 item 5: missing env and a token without subject refus
   assertEquals(noSubject.refusal, 'entitlement_unavailable');
 });
 
-Deno.test('BR-CONTEUDO-003 item 1: metered and unlimited produce, free is refused as not_entitled', async () => {
+Deno.test('BR-CONTEUDO-003 item 1: permanent account, metered and unlimited produce, free is refused as not_entitled', async () => {
   for (const [state, allowed] of [['metered', true], ['unlimited', true], ['free', false]] as const) {
     const decision = await decideContentProduction(TOURIST, 'test', {
       readEntitlement: reader({ data: [{ state }], error: null }),
@@ -93,12 +119,8 @@ Deno.test('BR-CONTEUDO-004 2.b: the platform and the CMS operator are out of sco
   }
 });
 
-Deno.test('#1007 contract: the three refusals map to 403 account_required, 503 and 403 not_entitled', async () => {
+Deno.test('BR-CONTEUDO-003 contract (#1021): the two refusals map to 503 and 403 not_entitled', async () => {
   const headers = { 'X-Test': '1' };
-  const guest = createProductionRefusedResponse(
-    { allowed: false, source: 'app_user', state: 'guest', refusal: 'account_required' },
-    headers,
-  );
   const down = createProductionRefusedResponse(
     { allowed: false, source: 'app_user', state: 'unresolved', refusal: 'entitlement_unavailable' },
     headers,
@@ -107,13 +129,12 @@ Deno.test('#1007 contract: the three refusals map to 403 account_required, 503 a
     { allowed: false, source: 'app_user', state: 'free', refusal: 'not_entitled' },
     headers,
   );
-  assertEquals([guest.status, await guest.json()], [403, { error: 'account_required', rule: 'BR-USUARIO-037' }]);
   assertEquals([down.status, await down.json()], [503, { error: 'entitlement_unavailable', rule: 'BR-CONTEUDO-003' }]);
   assertEquals([free.status, await free.json()], [403, {
     error: 'content_production_not_entitled',
     rule: 'BR-CONTEUDO-003',
     state: 'free',
   }]);
-  assertEquals(guest.headers.get('content-type'), 'application/json');
-  assertEquals(guest.headers.get('x-test'), '1');
+  assertEquals(free.headers.get('content-type'), 'application/json');
+  assertEquals(free.headers.get('x-test'), '1');
 });

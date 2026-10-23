@@ -37,16 +37,19 @@
  * and in the #630 card — do not "fix" it by trusting a receipt sent in the
  * body: a receipt the client asserts is not a receipt the server witnessed.
  *
- * THE GUEST IS REFUSED BEFORE ANY STATE IS READ (#1007)
- * ----------------------------------------------------
- * BR-USUARIO-037 item 4.i: asking for audio or text that does not exist yet
- * needs a permanent account AND hours, and the refusal holds in the server
- * "mesmo quando o pedido chega". A guest (Anonymous Sign-Ins, `is_anonymous`)
- * never satisfies item 1 of BR-CONTEUDO-003 (it has no balance and receives no
- * grant, BR-USUARIO-037 item 5), so asking `get_entitlement` would only spend
- * a round trip. The refusal has its own code, `account_required`, because the
- * screen answers it differently: "create an account", not "buy hours".
- *
+ * THE GUEST IS ASKED THE SAME QUESTION AS ANY TOURIST (#1021)
+ * ------------------------------------------------------------
+ * From #1007 to #1021 a guest (Anonymous Sign-Ins, `is_anonymous`) was
+ * refused with its own `account_required` before the state was read. On
+ * 2026-10-23 the operator decided the guest buys hours and turns the guide on
+ * without creating an account, so item 1 of BR-CONTEUDO-003 is read for him
+ * like for anyone: `get_entitlement` answers, and `state` decides. A guest with
+ * purchased balance is `metered` and produces; a guest without it is `free`
+ * and gets the same `not_entitled` as a permanent account. The account is not
+ * a condition here, the paid state is. What survives from #1007 is that a
+ * guest is never the CMS operator nor the platform, whatever role the request
+ * carries: he is always the tourist whose state is read.
+
  * AN UNRESOLVED STATE REFUSES, AND THE REFUSAL SAYS IT FAILED (#1007)
  * ------------------------------------------------------------------
  * Until 2026-10-22 an unreachable `get_entitlement` ALLOWED the production,
@@ -83,21 +86,17 @@ export function classifyProductionRequester(
 }
 
 /** Why a production was refused. Each one is a distinct answer to the app (see the response). */
-export type ProductionRefusal =
-  | 'account_required'
-  | 'not_entitled'
-  | 'entitlement_unavailable';
+export type ProductionRefusal = 'not_entitled' | 'entitlement_unavailable';
 
 export interface ProductionGateDecision {
   /** May this request spend LLM or TTS? */
   allowed: boolean;
   source: ProductionRequesterSource;
   /**
-   * The state `drive.get_entitlement` answered, `'unresolved'` when the call
-   * failed (which is NOT `free` and never becomes it), or `'guest'` when the
-   * caller is an anonymous account and the state was not read.
+   * The state `drive.get_entitlement` answered, or `'unresolved'` when the
+   * call failed (which is NOT `free` and never becomes it).
    */
-  state: 'unlimited' | 'metered' | 'free' | 'unresolved' | 'not_applicable' | 'guest';
+  state: 'unlimited' | 'metered' | 'free' | 'unresolved' | 'not_applicable';
   /** Present exactly when `allowed` is false. */
   refusal?: ProductionRefusal;
 }
@@ -168,8 +167,8 @@ function unresolved(
 }
 
 /**
- * Answers BR-CONTEUDO-003 item 1 and BR-USUARIO-037 item 4.i for the caller
- * behind this request.
+ * Answers BR-CONTEUDO-003 item 1 for the caller behind this request, guest or
+ * permanent account alike.
  *
  * The CMS operator and the platform itself are OUT OF SCOPE of the rule, not
  * exceptions to it: "Não se aplica a: a produção pedida por um humano — o ato
@@ -181,12 +180,10 @@ export async function decideContentProduction(
   functionName: string,
   options: ProductionGateOptions = {},
 ): Promise<ProductionGateDecision> {
-  const source = classifyProductionRequester(auth.role);
-
-  // A guest is never an operator nor the platform, so this comes first.
-  if (auth.isAnonymous === true) {
-    return { allowed: false, source, state: 'guest', refusal: 'account_required' };
-  }
+  // A guest is never an operator nor the platform: his state is always read.
+  const source: ProductionRequesterSource = auth.isAnonymous === true
+    ? 'app_user'
+    : classifyProductionRequester(auth.role);
 
   if (source !== 'app_user') {
     return { allowed: true, source, state: 'not_applicable' };
@@ -248,15 +245,13 @@ export async function decideContentProduction(
 }
 
 /**
- * The typed refusal. Three bodies, one per `ProductionRefusal`:
+ * The typed refusal. Two bodies, one per `ProductionRefusal`:
  *
  * - `not_entitled`: **403 `content_production_not_entitled`, never 402 and
  *   never 200 with an empty payload.** The caller has to tell "you may not"
  *   from "it failed", because a failure is retried and this is not: item 3 of
  *   BR-CONTEUDO-003 refuses *in the instant*, with no queue and nothing to
  *   announce later.
- * - `account_required`: **403 `account_required`**, BR-USUARIO-037 item 4.i.
- *   Same "you may not", different door: the guest is asked for an account.
  * - `entitlement_unavailable`: **503**, the gate could not read the state.
  *   This one IS a failure, and it is the only one worth retrying.
  *
@@ -268,16 +263,13 @@ export async function decideContentProduction(
  * afirmável" of BR-CONTEUDO-003.
  */
 export const CONTENT_PRODUCTION_REFUSED = 'content_production_not_entitled';
-export const ACCOUNT_REQUIRED = 'account_required';
 export const ENTITLEMENT_UNAVAILABLE = 'entitlement_unavailable';
 
 export function createProductionRefusedResponse(
   decision: ProductionGateDecision,
   headers: Record<string, string>,
 ): Response {
-  const [status, body] = decision.refusal === 'account_required'
-    ? [403, { error: ACCOUNT_REQUIRED, rule: 'BR-USUARIO-037' }]
-    : decision.refusal === 'entitlement_unavailable'
+  const [status, body] = decision.refusal === 'entitlement_unavailable'
     ? [503, { error: ENTITLEMENT_UNAVAILABLE, rule: 'BR-CONTEUDO-003' }]
     : [403, {
       error: CONTENT_PRODUCTION_REFUSED,
