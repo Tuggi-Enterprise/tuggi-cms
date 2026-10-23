@@ -17,7 +17,9 @@ import { IDENTITY_RELATION_TABLE } from '../../osm-local-data-service';
  * Princípios:
  * - Singleton: uma conexão SQLite por região, aberta no primeiro uso e reutilizada pelo processo
  * - DRY: Helpers centralizados (calculateBBox, toOverpassElement, queryStreets, queryBuildings)
- * - KISS: Interface simples com fallback transparente (retorna null = cache miss)
+ * - KISS: null = no region covers the point, or the local query failed (the caller may ask
+ *   Overpass). A covered point answers locally, empty included: an empty answer where we hold the
+ *   whole country is data, not a miss (operator, 2026-10-24).
  */
 /** Sanity bound on the query points along one edge (fetchStreetsAlongBoundary). */
 const BOUNDARY_SAMPLE_CAP = 600;
@@ -282,7 +284,8 @@ export class LocalOSMFetcher {
   }
 
   /**
-   * Busca ruas estendidas por raio. Retorna null se cache miss.
+   * Streets in the bbox of `radius` around `center`. [] when the region covering `center` has
+   * none; null only outside every region or when the query throws.
    */
   public fetchExtendedStreets(center: { lat: number; lng: number }, radius: number): StreetData[] | null {
     const db = this.select(center);
@@ -291,8 +294,6 @@ export class LocalOSMFetcher {
     try {
       const bbox = this.calculateBBox(center, radius);
       const rows = this.queryStreets(bbox);
-      if (rows.length === 0) return null;
-
       const streets = this.toStreetData(rows);
       console.log(`🚀 [LocalOSMFetcher] Extended streets found locally: ${streets.length}`);
       return streets;
@@ -307,7 +308,8 @@ export class LocalOSMFetcher {
    * transparente com o boundary-detector.ts e geographic-analyzer.ts.
    * 
    * Aceita centro + raio (calcula bbox internamente) ou bbox direto.
-   * Retorna null se não encontrar dados (= fallback para Overpass online).
+   * `{ elements: [] }` when the region covering `center` has nothing there; null only outside
+   * every region or when the query throws (= the caller may ask Overpass).
    */
   public fetchAsOverpassData(
     center: { lat: number; lng: number },
@@ -350,8 +352,6 @@ export class LocalOSMFetcher {
           elements.push(this.toOverpassElement(row, options.targetOsmType));
         }
       }
-
-      if (elements.length === 0) return null;
 
       console.log(`🚀 [LocalOSMFetcher] Overpass-compatible response: ${elements.length} elements`);
       return { elements };

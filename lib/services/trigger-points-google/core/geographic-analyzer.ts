@@ -245,7 +245,7 @@ export class GeographicContextAnalyzer {
       
       let roads: any[] = [];
       
-      if (localData && localData.elements.length > 0) {
+      if (localData) { // covered and empty is final; Overpass only for null (uncovered / failed)
         roads = localData.elements;
       } else {
         // 🔄 ESTRATÉGIA 2: OVERPASS API (Fallback)

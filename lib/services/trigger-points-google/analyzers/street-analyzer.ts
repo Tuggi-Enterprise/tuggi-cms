@@ -663,7 +663,8 @@ export class StreetAnalyzer {
       try {
         const { LocalOSMFetcher } = await import('../services/local-osm-fetcher');
         const localStreets = LocalOSMFetcher.getInstance().fetchExtendedStreets(boundary.center, searchRadius);
-        if (localStreets && localStreets.length > 0) {
+        // null = no region covers the point, or the local query failed. Covered and empty is final.
+        if (localStreets) {
           console.log(`🚀 [LocalOSMFetcher] Found ${localStreets.length} streets locally around boundary`);
           return localStreets;
         }
@@ -1147,7 +1148,8 @@ out geom tags; // ADICIONAR 'tags' para obter tunnel, bridge, layer, etc
       try {
         const { LocalOSMFetcher } = await import('../services/local-osm-fetcher');
         const localStreets = LocalOSMFetcher.getInstance().fetchExtendedStreets(location, radius);
-        if (localStreets && localStreets.length > 0) {
+        // null = no region covers the point, or the local query failed. Covered and empty is final.
+        if (localStreets) {
           console.log(`🚀 [LocalOSMFetcher] Found ${localStreets.length} streets locally around point`);
           return localStreets;
         }

@@ -782,7 +782,8 @@ out geom tags;
       );
       
       let consolidatedResponseInitial: any;
-      if (localConsolidated && localConsolidated.elements.length > 0) {
+      // null = no region covers the center, or the local query failed. Covered and empty is final.
+      if (localConsolidated) {
         consolidatedResponseInitial = { ok: true, json: async () => localConsolidated };
       } else {
         // 🔄 ESTRATÉGIA 2: OVERPASS API (Fallback)
@@ -912,7 +913,7 @@ out geom tags;
           );
           
           let expandedStreetsResponse: any;
-          if (localData && localData.elements.length > 0) {
+          if (localData) { // covered and empty is final; Overpass only for null (uncovered / failed)
              expandedStreetsResponse = { ok: true, json: async () => localData };
           } else {
             // 🔄 RETRY COM BACKOFF: Query expandida é importante para POIs grandes
