@@ -103,7 +103,7 @@
     "switch_language": "Switch language",
     "ranking": "Scoreboard",
     "route_progress": "Route progress",
-    "story_feedback": "Story votes"
+    "story_feedback": "Text votes"
   },
   "Pages": {
     "Login": {
@@ -1578,10 +1578,11 @@
       "errorBody": "We could not process your request. The link may have expired."
     },
     "StoryFeedback": {
-      "title": "Story votes",
-      "subtitle": "Stories with negative votes, most reported as wrong first.",
+      "title": "Text votes",
+      "subtitle": "POIs, events, places and routes with negative votes, most reported as wrong first.",
       "headers": {
-        "poi": "POI",
+        "item": "Item",
+        "kind": "Type",
         "lang": "Language",
         "voice": "Voice",
         "wrong": "Wrong info",
@@ -1592,6 +1593,8 @@
       },
       "filters": {
         "includeOld": "Include older versions of the text",
+        "kind": "Type",
+        "kindAll": "All types",
         "langAll": "All languages",
         "reason": "Reason",
         "reasonAll": "All reasons",
@@ -1603,12 +1606,19 @@
         "disliked": "Disliked",
         "none": "No reason"
       },
+      "kinds": {
+        "poi": "POI",
+        "event": "Event",
+        "place": "Place",
+        "route": "Route"
+      },
+      "langBase": "Base text",
       "voices": {
         "male": "male",
         "female": "female"
       },
       "comments": "Comments",
-      "backHere": "Back to story votes",
+      "backHere": "Back to text votes",
       "loading": "Loading…",
       "empty": "No negative votes yet.",
       "emptyFiltered": "No votes match these filters.",
@@ -1616,7 +1626,7 @@
       "noComment": "No comment",
       "error": "Couldn't load the votes.",
       "retry": "Try again",
-      "pagination": "Page {current} of {total} ({count} stories)",
+      "pagination": "Page {current} of {total} ({count} items)",
       "prev": "Previous",
       "next": "Next"
     }

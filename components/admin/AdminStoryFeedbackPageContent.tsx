@@ -1,13 +1,14 @@
 'use client'
 
 /**
- * Client-side content of /admin/story-feedback, card #950, BR-CONTEUDO-009 item 5, spec
+ * Client-side content of /admin/story-feedback, cards #950 and #1016, BR-CONTEUDO-009 item 5, spec
  * `docs/design/spec-voto-na-historia-2026-10.md` §7. Shell, filters in the URL, table, pagination and
  * states follow `AdminCancellationsPageContent`.
  *
- * One row per POI and language with at least one down on the current text. A click on the row opens
- * the newest comments below it. Nothing on this screen identifies the tourist (item 7): the route
- * answers no author, and nothing here asks for one.
+ * One row per item (POI, event, place, route) and language with at least one down on the current
+ * text. A click on the row opens the newest comments below it, rendered as plain text: anyone votes,
+ * guests included. Nothing on this screen identifies the tourist (item 7): the route answers no
+ * author, and nothing here asks for one.
  */
 
 import { Fragment, Suspense, useEffect, useState } from 'react'
@@ -18,26 +19,28 @@ import { useLocale, useTranslations } from 'next-intl'
 import { Container } from '@/components/ui/Container'
 import { useCmsUser } from '@/lib/hooks/useCmsUser'
 import { formatDate } from '@/lib/contract/snapshot'
-import { placeToolHref } from '@/lib/partnerships/place-tool'
 import {
+  FEEDBACK_KINDS,
   STORY_LANGUAGES,
   STORY_REASON_FILTERS,
+  feedbackEditHref,
+  isFeedbackKind,
   isStoryLanguage,
   isStoryReasonFilter,
   isStorySort,
-  type StoryFeedbackItem,
+  type FeedbackItem,
   type StorySort,
 } from '@/lib/story-feedback'
 
 const PAGE_SIZE = 50
 
 export interface StoryFeedbackViewProps {
-  rows: StoryFeedbackItem[]
+  rows: FeedbackItem[]
   loading: boolean
   error: boolean
   filtered: boolean
   sort: StorySort
-  /** `/<locale>/admin/story-feedback?…`, where the POI screen sends the curator back. */
+  /** `/<locale>/admin/story-feedback?…`, where the POI and place editors send the curator back. */
   returnTo: string
   onSort: (sort: StorySort) => void
   onClearFilters: () => void
@@ -49,7 +52,7 @@ export function StoryFeedbackView({ rows, loading, error, filtered, sort, return
   const t = useTranslations('Pages.StoryFeedback')
   const locale = useLocale()
   const [open, setOpen] = useState<string | null>(null)
-  const columns = 8
+  const columns = 9
 
   const sortable = (key: StorySort, label: string) => (
     <th className="px-4 py-3 text-right" aria-sort={sort === key ? 'descending' : 'none'}>
@@ -74,7 +77,8 @@ export function StoryFeedbackView({ rows, loading, error, filtered, sort, return
         <table className="min-w-full divide-y divide-gray-200 text-sm">
           <thead className="bg-gray-50 text-xs uppercase tracking-wider text-gray-500">
             <tr>
-              <th className="px-4 py-3 text-left">{t('headers.poi')}</th>
+              <th className="px-4 py-3 text-left">{t('headers.item')}</th>
+              <th className="px-4 py-3 text-left">{t('headers.kind')}</th>
               <th className="px-4 py-3 text-left">{t('headers.lang')}</th>
               {sortable('wrong', t('headers.wrong'))}
               {sortable('dislike', t('headers.dislike'))}
@@ -106,26 +110,24 @@ export function StoryFeedbackView({ rows, loading, error, filtered, sort, return
               </tr>
             ) : (
               rows.map((r) => {
-                const key = `${r.poiId}:${r.language}`
+                const key = `${r.kind}:${r.itemId}:${r.language ?? ''}`
                 const expanded = open === key
-                // The RPC carries no entity_kind: `null` opens the POI editor, on the description tab.
-                const href = placeToolHref({
-                  locale,
-                  attractionId: r.poiId,
-                  entityKind: null,
-                  returnTo,
-                  returnLabel: t('backHere'),
-                  pendency: 'audio_description',
-                })
+                const href = feedbackEditHref(r, { locale, returnTo, returnLabel: t('backHere') })
+                const name = r.itemName ?? '—'
                 return (
                   <Fragment key={key}>
                     <tr className="cursor-pointer hover:bg-gray-50/50" onClick={() => setOpen(expanded ? null : key)}>
                       <td className="px-4 py-3 font-semibold text-gray-900">
-                        <Link href={href} onClick={(e) => e.stopPropagation()} className="hover:text-tuggi-blue hover:underline">
-                          {r.poiName ?? '—'}
-                        </Link>
+                        {href ? (
+                          <Link href={href} onClick={(e) => e.stopPropagation()} className="hover:text-tuggi-blue hover:underline">
+                            {name}
+                          </Link>
+                        ) : (
+                          name
+                        )}
                       </td>
-                      <td className="px-4 py-3 uppercase text-gray-700">{r.language}</td>
+                      <td className="px-4 py-3 text-gray-700">{t(`kinds.${r.kind}`)}</td>
+                      <td className="px-4 py-3 text-gray-700">{r.language ? r.language.toUpperCase() : t('langBase')}</td>
                       <td className="px-4 py-3 text-right font-semibold text-gray-900">{r.wrong}</td>
                       <td className="px-4 py-3 text-right text-gray-700">{r.disliked}</td>
                       <td className="px-4 py-3 text-right text-gray-700">{r.downNoReason}</td>
@@ -189,15 +191,17 @@ function AdminStoryFeedbackContent() {
   const { isAdmin, isLoading: authChecking } = useCmsUser()
   const isAuthorized = !authChecking && isAdmin
 
+  const rawKind = searchParams.get('kind')
   const rawLang = searchParams.get('lang')
   const rawReason = searchParams.get('reason')
   const rawSort = searchParams.get('sort')
+  const kind = isFeedbackKind(rawKind) ? rawKind : ''
   const lang = isStoryLanguage(rawLang) ? rawLang : ''
   const reason = isStoryReasonFilter(rawReason) ? rawReason : ''
   const sort: StorySort = isStorySort(rawSort) ? rawSort : 'wrong'
-  const filtered = Boolean(lang || reason)
+  const filtered = Boolean(kind || lang || reason)
 
-  const [rows, setRows] = useState<StoryFeedbackItem[]>([])
+  const [rows, setRows] = useState<FeedbackItem[]>([])
   const [page, setPage] = useState(1)
   const [pagination, setPagination] = useState({ page: 1, limit: PAGE_SIZE, total: 0, pages: 1 })
   const [loading, setLoading] = useState(true)
@@ -207,17 +211,19 @@ function AdminStoryFeedbackContent() {
     if (!authChecking && !isAdmin) router.push('/unauthorized')
   }, [authChecking, isAdmin, router])
 
-  const query = (next: { lang?: string; reason?: string; sort?: string }) => {
+  const query = (next: { kind?: string; lang?: string; reason?: string; sort?: string }) => {
     const params = new URLSearchParams()
+    const k = next.kind ?? kind
     const l = next.lang ?? lang
     const r = next.reason ?? reason
     const s = next.sort ?? sort
+    if (k) params.set('kind', k)
     if (l) params.set('lang', l)
     if (r) params.set('reason', r)
     if (s !== 'wrong') params.set('sort', s)
     return params.toString()
   }
-  const setFilter = (next: { lang?: string; reason?: string; sort?: string }) => {
+  const setFilter = (next: { kind?: string; lang?: string; reason?: string; sort?: string }) => {
     const qs = query(next)
     router.push(qs ? `${pathname}?${qs}` : pathname)
   }
@@ -226,6 +232,7 @@ function AdminStoryFeedbackContent() {
     try {
       setLoading(true)
       const params = new URLSearchParams({ page: String(target), limit: String(PAGE_SIZE), sort })
+      if (kind) params.set('kind', kind)
       if (lang) params.set('lang', lang)
       if (reason) params.set('reason', reason)
       const res = await fetch(`/api/admin/story-feedback?${params}`)
@@ -237,7 +244,7 @@ function AdminStoryFeedbackContent() {
         return
       }
       setError(false)
-      setRows(data.stories || [])
+      setRows(data.items || [])
       setPagination(data.pagination)
       setPage(target)
     } catch {
@@ -251,7 +258,7 @@ function AdminStoryFeedbackContent() {
     if (!isAuthorized) return
     fetchPage(1)
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isAuthorized, lang, reason, sort])
+  }, [isAuthorized, kind, lang, reason, sort])
 
   if (authChecking) {
     return (
@@ -278,6 +285,19 @@ function AdminStoryFeedbackContent() {
         </div>
 
         <div className="mb-6 flex flex-wrap items-center gap-3 rounded-lg border border-gray-200 bg-white p-3">
+          <select
+            aria-label={t('filters.kind')}
+            value={kind}
+            onChange={(e) => setFilter({ kind: e.target.value })}
+            className="rounded-md border border-gray-200 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-tuggi-blue/40"
+          >
+            <option value="">{t('filters.kindAll')}</option>
+            {FEEDBACK_KINDS.map((k) => (
+              <option key={k} value={k}>
+                {t(`kinds.${k}`)}
+              </option>
+            ))}
+          </select>
           <select
             aria-label={t('headers.lang')}
             value={lang}

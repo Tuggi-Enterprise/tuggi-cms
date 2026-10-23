@@ -103,7 +103,7 @@
     "switch_language": "Trocar idioma",
     "ranking": "Placar",
     "route_progress": "Progresso de roteiros",
-    "story_feedback": "Votos nas histórias"
+    "story_feedback": "Votos nos textos"
   },
   "Pages": {
     "Login": {
@@ -1575,10 +1575,11 @@
       "errorBody": "Não foi possível processar o cancelamento. O link pode ter expirado."
     },
     "StoryFeedback": {
-      "title": "Votos nas histórias",
-      "subtitle": "Histórias com voto negativo, das mais apontadas como erradas para as menos.",
+      "title": "Votos nos textos",
+      "subtitle": "POIs, eventos, locais e rotas com voto negativo, dos mais apontados como errados para os menos.",
       "headers": {
-        "poi": "POI",
+        "item": "Item",
+        "kind": "Tipo",
         "lang": "Idioma",
         "voice": "Voz",
         "wrong": "Informação errada",
@@ -1589,6 +1590,8 @@
       },
       "filters": {
         "includeOld": "Incluir versões antigas do texto",
+        "kind": "Tipo",
+        "kindAll": "Todos os tipos",
         "langAll": "Todos os idiomas",
         "reason": "Motivo",
         "reasonAll": "Todos os motivos",
@@ -1600,12 +1603,19 @@
         "disliked": "Não gostei",
         "none": "Sem motivo"
       },
+      "kinds": {
+        "poi": "POI",
+        "event": "Evento",
+        "place": "Local",
+        "route": "Rota"
+      },
+      "langBase": "Texto base",
       "voices": {
         "male": "masculina",
         "female": "feminina"
       },
       "comments": "Comentários",
-      "backHere": "Voltar para os votos nas histórias",
+      "backHere": "Voltar para os votos nos textos",
       "loading": "Carregando…",
       "empty": "Nenhum voto negativo ainda.",
       "emptyFiltered": "Nenhum voto com esses filtros.",
@@ -1613,7 +1623,7 @@
       "noComment": "Sem comentário",
       "error": "Não deu para carregar os votos.",
       "retry": "Tentar de novo",
-      "pagination": "Página {current} de {total} ({count} histórias)",
+      "pagination": "Página {current} de {total} ({count} itens)",
       "prev": "Anterior",
       "next": "Próxima"
     }

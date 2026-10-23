@@ -103,7 +103,7 @@
     "switch_language": "Cambiar idioma",
     "ranking": "Marcador",
     "route_progress": "Progreso de rutas",
-    "story_feedback": "Votos en las historias"
+    "story_feedback": "Votos en los textos"
   },
   "Pages": {
     "Login": {
@@ -1565,10 +1565,11 @@
       "errorBody": "No pudimos procesar tu solicitud. El enlace puede haber caducado."
     },
     "StoryFeedback": {
-      "title": "Votos en las historias",
-      "subtitle": "Historias con voto negativo, primero las más señaladas como incorrectas.",
+      "title": "Votos en los textos",
+      "subtitle": "POIs, eventos, lugares y rutas con voto negativo, primero los más señalados como incorrectos.",
       "headers": {
-        "poi": "POI",
+        "item": "Elemento",
+        "kind": "Tipo",
         "lang": "Idioma",
         "voice": "Voz",
         "wrong": "Dato incorrecto",
@@ -1579,6 +1580,8 @@
       },
       "filters": {
         "includeOld": "Incluir versiones anteriores del texto",
+        "kind": "Tipo",
+        "kindAll": "Todos los tipos",
         "langAll": "Todos los idiomas",
         "reason": "Motivo",
         "reasonAll": "Todos los motivos",
@@ -1590,12 +1593,19 @@
         "disliked": "No gustó",
         "none": "Sin motivo"
       },
+      "kinds": {
+        "poi": "POI",
+        "event": "Evento",
+        "place": "Lugar",
+        "route": "Ruta"
+      },
+      "langBase": "Texto base",
       "voices": {
         "male": "masculina",
         "female": "femenina"
       },
       "comments": "Comentarios",
-      "backHere": "Volver a los votos en las historias",
+      "backHere": "Volver a los votos en los textos",
       "loading": "Cargando…",
       "empty": "Aún no hay votos negativos.",
       "emptyFiltered": "Ningún voto con estos filtros.",
@@ -1603,7 +1613,7 @@
       "noComment": "Sin comentario",
       "error": "No se pudieron cargar los votos.",
       "retry": "Reintentar",
-      "pagination": "Página {current} de {total} ({count} historias)",
+      "pagination": "Página {current} de {total} ({count} elementos)",
       "prev": "Anterior",
       "next": "Siguiente"
     }
