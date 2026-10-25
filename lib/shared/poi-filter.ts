@@ -291,7 +291,7 @@ function offKeyWithoutVisit(props: any, facts?: ReferenceFacts): boolean {
 /** The MINOR_* gate: true when the object enters only by one of those tags and has no public reference (BR-POI-011 item 0). */
 export function isMinorWithoutReference(props: any, hasHardReference: boolean): boolean {
   if (hasHardReference) return false;
-  if (MINOR_HISTORIC.includes(String(props.historic))) return !hasVerifiableHistory(props);
+  if (MINOR_HISTORIC.includes(String(props.historic))) return !hasVerifiableHistory(props) && !isStreetVisible(props);
   // Only when the lift is the reason it got in: a lift that is also tourism=* or historic=* keeps the normal path.
   if (props.aerialway && !props.tourism && !props.historic && !TOURIST_AERIALWAYS.includes(String(props.aerialway))) return true;
   if (props.natural === 'water' && MINOR_WATER.includes(String(props.water))) return true;
@@ -365,10 +365,9 @@ export const SKI_LIFTS = ['chair_lift', 'gondola', 'mixed_lift'];
 export function touristNoiseReason(props: any, hasReference: boolean = hasPublicReference(props), wikivoyage = false): string | null {
   // Item 1: P1435/heritage alone do not keep a bare building; a Wikivoyage listing does (item 0 via hasStrongReference).
   if (!hasWikipediaArticle(props) && !pickCategory(props) && !wikivoyage) return 'BARE_HERITAGE: listed building with no Wikipedia article';
-  // BR-POI-011 items 2–4: "without a reference" in the sense of item 0 — a bare wikidata is not one.
+  // BR-POI-011 items 3–4: "without a reference" in the sense of item 0 — a bare wikidata is not one.
+  // Item 2 (war memorial) yields at import to item 23: a war memorial is a memorial (isStreetVisible).
   if (hasReference) return null;
-  const memorialType = String(props.memorial || props['memorial:type'] || '');
-  if (props.historic === 'memorial' && memorialType === 'war_memorial' && !hasVerifiableHistory(props)) return 'WAR_MEMORIAL: no public reference';
   if (SKI_LIFTS.includes(String(props.aerialway)) && !props.tourism && !props.historic) return `SKI_LIFT: aerialway=${props.aerialway} without a public reference`;
   if (props.tourism === 'gallery') return 'GALLERY: commercial gallery without a public reference';
   return null;
@@ -413,6 +412,28 @@ export const GENERIC_NAMES = new Set([
   'stadion', 'zimní stadion', 'hřiště', 'koupaliště', 'kříž s kristem',
 ]);
 
+const STREET_VISIBLE_HISTORIC = ['memorial', 'monument', 'wayside_shrine', 'wayside_chapel'];
+// A place_of_worship is a chapel only when its name says so. Without the word it is a congregation:
+// Nova Scotia (2026-10-25), 103 of 115 such "chapels" were Kingdom Halls, parishes and Bible fellowships.
+const CHAPEL_NAME = /chapel|kapel|kapl[eiy]|cappell|capill|capel/i;
+
+/**
+ * BR-POI-011 item 23, at import (operator, 2026-10-25: "vamos deixar passar as estátuas"): what a
+ * passer-by sees on the street — memorial (a war memorial too), statue, monument, mural and other public
+ * art, wayside shrine, chapel — enters on its name alone: "são coisas que as pessoas podem ver na rua e
+ * ter curiosidade", and the description draws on the surroundings. Items 2, 5, 12 and 13 no longer bar
+ * these. Still out: Stolperstein, `stone`, `ghost_bike` (item 14, MEMORIAL_NOISE runs first), a nameless
+ * one (shouldFilterPOI), and what item 23 does not name — a cross (`wayside_cross`, `memorial=cross`) and
+ * a plaque (`memorial=plaque`, which item 5 lists apart from the memorial; it enters by item 12).
+ */
+export function isStreetVisible(props: any): boolean {
+  const memorialType = String(props.memorial || props['memorial:type'] || '');
+  if (MEMORIAL_NOISE.includes(memorialType) || ['cross', 'plaque'].includes(memorialType)) return false;
+  if (STREET_VISIBLE_HISTORIC.includes(String(props.historic)) || props.tourism === 'artwork') return true;
+  if (['chapel', 'wayside_shrine'].includes(String(props.building))) return true;
+  return props.amenity === 'place_of_worship' && CHAPEL_NAME.test(String(props.name ?? ''));
+}
+
 /**
  * BR-POI-011 item 5: the object entered by one of these tags and has no public reference (item 0) —
  * returns which one, or null. Places are out of scope (items 8 and 10, BR-POI-010).
@@ -423,7 +444,7 @@ export function weakObjectReason(props: any, name: string, hasReference: boolean
   // register vouches for the object (P1435): only an article or a heritage tag spares it. CZ homolog: 242.
   if (GENERIC_NAMES.has(name.toLowerCase().normalize('NFC').replace(/\s+/g, ' ').trim())
     && !props.wikipedia && !Object.keys(props).some(k => k.startsWith('wikipedia:')) && !props.heritage) return 'generic-name';
-  if (hasReference || hasVerifiableHistory(props)) return null;
+  if (hasReference || hasVerifiableHistory(props) || isStreetVisible(props)) return null;
   if (['zoo', 'theme_park'].includes(String(props.tourism)) || PLAGUE_COLUMN.test(name)) return null;
   const historic = String(props.historic || '');
   const isChurch = props.building === 'church' || CHURCH_NAME.test(name);
@@ -833,7 +854,8 @@ export function shouldFilterPOI(poi: any, facts?: ReferenceFacts): POIFilterResu
       if (!isFamous) return { remove: true, reason: "RELIGIOUS_BRAND: Marca religiosa genérica" };
     }
 
-    if (!isCatholic && !isFamous && !hasHistoric) {
+    // A chapel is street-visible (BR-POI-011 item 23); this gate is for the local church congregations.
+    if (!isCatholic && !isFamous && !hasHistoric && !isStreetVisible(props)) {
        return { remove: true, reason: "Category: Religião local sem relevância histórica" };
     }
   }

@@ -43,15 +43,13 @@ describe('BR-POI-011 item 0: what a public reference is', () => {
 
 describe('BR-POI-011 item 5: objects that enter by their own tag need a public reference', () => {
   const cases: Array<[string, Record<string, string>, string]> = [
-    ['artwork-weak', { name: 'Socha Ležící ženy', tourism: 'artwork', wikidata: 'Q1' }, 'artwork-weak'],
-    ['memorial-weak', { name: 'Pomník Mistra Jana Husa v Lounech', historic: 'memorial', wikidata: 'Q2' }, 'memorial-weak'],
-    ['chapel-weak', { name: 'Hřbitovní kaple', amenity: 'place_of_worship', historic: 'yes', wikidata: 'Q3' }, 'chapel-weak'],
+    // artwork-weak, memorial-weak and chapel-weak are gone at import: item 23 lets them in (below).
     ['tree-weak', { name: 'Lípa u kostela', natural: 'tree', wikidata: 'Q4' }, 'tree-weak'],
     ['guidepost', { name: 'Rozcestí Pod Lysou', tourism: 'information', historic: 'yes', description: 'turistický rozcestník' }, 'guidepost'],
     ['ruins-weak', { name: 'Zaniklá ves Lhota', historic: 'ruins' }, 'ruins-weak'],
     ['water-weak', { name: 'Dolní Kačák', natural: 'water', wikidata: 'Q5' }, 'water-weak'],
     ['peak-weak', { name: 'Kamenný vrch', natural: 'peak', ele: '612', wikidata: 'Q6' }, 'peak-weak'],
-    ['roadside-religious', { name: 'Boží muka u cesty', historic: 'memorial', wikidata: 'Q7' }, 'roadside-religious'],
+    ['roadside-religious', { name: 'Kříž u cesty', historic: 'memorial', memorial: 'cross', wikidata: 'Q7' }, 'roadside-religious'],
     ['minor-infra', { name: 'Štola Josef', man_made: 'adit', historic: 'yes', wikidata: 'Q8' }, 'minor-infra'],
     ['commerce-sport', { name: 'ibis Praha Old Town', tourism: 'hotel', wikidata: 'Q10' }, 'commerce-sport'],
     ['commerce-sport (stadium)', { name: 'Stadion Evžena Rošického', leisure: 'stadium', wikidata: 'Q11' }, 'commerce-sport'],
@@ -195,12 +193,58 @@ describe('BR-POI-011 items 12–14 (amendment of 2026-10-18): verifiable history
     assert.equal(f({ ...plaque, inscription: 'Ave Maria piena di grazia il Signore è con te' }).remove, true)
     assert.equal(f({ ...plaque, inscription: "Sant'Antonio da Padova prega per noi" }).remove, true)
     assert.equal(f({ ...plaque, inscription: 'Pace e bene' }).remove, true)
-    assert.equal(f({ name: 'Ai caduti', historic: 'memorial', memorial: 'war_memorial', inscription: 'Ai caduti della grande guerra 1915-1918' }).remove, true)
-    assert.equal(f({ name: 'Ai caduti', historic: 'memorial', memorial: 'war_memorial', inscription: 'Ai caduti di Varzi nel bombardamento del 12 marzo 1944 e ricostruito nel 1951' }).remove, false)
+    // A war memorial enters by item 23 whatever its text; a plaque still needs the fact.
+    assert.equal(f({ ...plaque, name: 'Ai caduti', inscription: 'Ai caduti della grande guerra 1915-1918' }).remove, true)
+    assert.equal(f({ ...plaque, name: 'Ai caduti', inscription: 'Ai caduti di Varzi nel bombardamento del 12 marzo 1944 e ricostruito nel 1951' }).remove, false)
   })
 
   it('item 12 reaches the item-5 roadside objects (cross, shrine), not the other minors', () => {
     assert.equal(f({ name: 'Wegkreuz Huber', historic: 'wayside_cross', inscription: 'Errichtet 1872 von der Familie Huber nach dem Hochwasser' }).remove, false)
     assert.equal(f({ name: 'Alter Bahndamm', historic: 'railway', description: 'Trasse der 1872 eröffneten Lokalbahn' }).remove, true)
+  })
+})
+
+describe('BR-POI-011 item 23 at import (operator, 2026-10-25): what a passer-by sees on the street enters on its name', () => {
+  it('a named statue with no reference and no history enters', () => {
+    assert.equal(f({ name: 'Samuel de Champlain', tourism: 'artwork', artwork_type: 'statue' }).remove, false)
+    assert.equal(f({ name: 'Statue of Joseph Howe', historic: 'memorial', memorial: 'statue' }).remove, false)
+  })
+
+  it('a named memorial, war memorial and monument enter', () => {
+    assert.equal(f({ name: 'Halifax Explosion Memorial Bell Tower', historic: 'memorial' }).remove, false)
+    assert.equal(f({ name: 'Lunenburg Cenotaph', historic: 'memorial', memorial: 'war_memorial' }).remove, false)
+    assert.equal(f({ name: 'Kriegerdenkmal Lavant', historic: 'memorial', memorial: 'war_memorial', wikidata: 'Q5' }).remove, false, 'item 2 yields to item 23')
+    assert.equal(f({ name: 'Glooscap Monument', historic: 'monument' }).remove, false)
+  })
+
+  it('a named mural and other public art enter', () => {
+    assert.equal(f({ name: 'Mi\'kmaq Heritage Mural', tourism: 'artwork', artwork_type: 'mural' }).remove, false)
+    assert.equal(f({ name: 'Wave Sculpture Halifax', tourism: 'artwork', artwork_type: 'sculpture' }).remove, false)
+  })
+
+  it('a named chapel and wayside shrine enter, Protestant too', () => {
+    assert.equal(f({ name: 'Hřbitovní kaple', amenity: 'place_of_worship', historic: 'yes', wikidata: 'Q3' }).remove, false)
+    assert.equal(f({ name: 'Covenanter Chapel', amenity: 'place_of_worship', religion: 'christian', denomination: 'presbyterian' }).remove, false)
+    assert.equal(f({ name: 'Bildstock St. Nikolaus', historic: 'wayside_shrine', wikidata: 'Q1' }).remove, false)
+  })
+
+  it('Stolperstein, stone and ghost_bike stay out (item 14)', () => {
+    assert.match(reason({ name: 'Stolperstein Max Levi', historic: 'memorial', memorial: 'stolperstein' }), /MEMORIAL_NOISE/)
+    assert.match(reason({ name: 'Gedenkstein Huber', historic: 'memorial', memorial: 'stone' }), /MEMORIAL_NOISE/)
+    assert.match(reason({ name: 'Ghost bike Anna', historic: 'memorial', memorial: 'ghost_bike' }), /MEMORIAL_NOISE/)
+  })
+
+  it('a statue with no name stays out', () => {
+    assert.equal(f({ tourism: 'artwork', artwork_type: 'statue' }).remove, true)
+    assert.equal(f({ historic: 'memorial', memorial: 'statue' }).remove, true)
+  })
+
+  it('what item 23 does not name keeps items 5 and 12: a cross, a plaque with no fact, a church', () => {
+    assert.equal(f({ name: 'Hubertuskreuz', historic: 'wayside_cross' }).remove, true)
+    assert.match(reason({ name: 'Kříž u cesty', historic: 'memorial', memorial: 'cross', wikidata: 'Q7' }), /roadside-religious/)
+    assert.equal(f({ name: 'Lapide a Giuseppe Mazzini', historic: 'memorial', memorial: 'plaque' }).remove, true)
+    assert.equal(f({ name: "Kingdom Hall of Jehovah's Witnesses", amenity: 'place_of_worship', denomination: 'jehovahs_witness' }).remove, true, 'a congregation is not a chapel')
+    assert.equal(weakObjectReason({ tourism: 'artwork' }, 'Socha Ležící ženy', false), null, 'not weak any more')
+    assert.match(reason({ name: 'Socha', tourism: 'artwork', wikidata: 'Q1' }), /generic-name/, 'a name that only says what it is')
   })
 })

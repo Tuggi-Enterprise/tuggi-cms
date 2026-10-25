@@ -15,7 +15,9 @@ describe('elite filter: minor objects need a hard reference', () => {
     assert.equal(f({ name: 'Hubertuskreuz', historic: 'wayside_cross', heritage: '2' }).remove, false)
     assert.equal(f({ name: 'Bildstock St. Nikolaus', historic: 'wayside_shrine', wikipedia: 'de:Bildstock St. Nikolaus' }).remove, false)
     // BR-POI-011 item 0: the register's Wikidata item alone is not a reference.
-    assert.equal(f({ name: 'Bildstock St. Nikolaus', historic: 'wayside_shrine', wikidata: 'Q1' }).remove, true)
+    assert.equal(f({ name: 'Hubertuskreuz', historic: 'wayside_cross', wikidata: 'Q1' }).remove, true)
+    // A wayside shrine is street-visible: BR-POI-011 item 23 lets it in on its name.
+    assert.equal(f({ name: 'Bildstock St. Nikolaus', historic: 'wayside_shrine', wikidata: 'Q1' }).remove, false)
   })
 
   it('drops tows and lift stations, keeps referenced gondolas and chair lifts', () => {
@@ -94,12 +96,9 @@ describe('elite filter: register-vouched noise (BR-POI-004)', () => {
     assert.match(f({ name: 'Studánka', natural: 'spring' }).reason ?? '', /natural=spring/)
   })
 
-  it('drops a war memorial, a ski lift and a gallery without a public reference (BR-POI-011 items 0, 2–4)', () => {
-    assert.equal(f({ name: 'Kriegerdenkmal Lavant', historic: 'memorial', memorial: 'war_memorial' }).remove, true)
-    // BR-POI-011 item 0 lists the heritage tag as a reference: a listed war memorial now enters.
-    assert.equal(f({ name: 'Kriegerdenkmal Lavant', historic: 'memorial', memorial: 'war_memorial', heritage: '2' }).remove, false)
-    assert.equal(f({ name: 'Kriegerdenkmal Mauthausen', historic: 'memorial', memorial: 'war_memorial', wikipedia: 'de:Kriegerdenkmal Mauthausen' }).remove, false)
-    assert.equal(f({ name: 'Kriegerdenkmal Mauthausen', historic: 'memorial', memorial: 'war_memorial', wikidata: 'Q5' }).remove, true, 'BR-POI-011 item 0')
+  it('keeps a war memorial (BR-POI-011 item 23), drops a ski lift and a gallery without a public reference (items 0, 3–4)', () => {
+    assert.equal(f({ name: 'Kriegerdenkmal Lavant', historic: 'memorial', memorial: 'war_memorial' }).remove, false)
+    assert.equal(f({ name: 'Kriegerdenkmal Mauthausen', historic: 'memorial', memorial: 'war_memorial', wikidata: 'Q5' }).remove, false)
     assert.equal(f({ name: 'Gaisberg Sesselbahn', aerialway: 'chair_lift' }).remove, true)
     assert.equal(f({ name: 'Gondelbahn Hahnenkamm', aerialway: 'gondola' }).remove, true)
     assert.equal(f({ name: 'Galerie Kugler', tourism: 'gallery' }).remove, true)
