@@ -2,7 +2,7 @@ import { spawnSync, spawn } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
 import { splitOnLineFeed } from '../lib/services/osm-local-data-service';
-import { shouldFilterPOI, pickCategory, CATEGORIES } from '../lib/shared/poi-filter';
+import { shouldFilterPOI, pickCategory, matchesEliteCategories, CATEGORIES } from '../lib/shared/poi-filter';
 import { wikidataFacts, firstQid, osmLinkedItems, withLinkedWikidata, referencedLinks, type WikidataFacts } from '../lib/services/wikidata-sitelinks';
 import { scenicRoadFeatures } from '../lib/services/osm-scenic-roads';
 import { polygonContains, type RegionPolygon } from '../lib/services/local-osm-regions';
@@ -101,6 +101,9 @@ export async function municipalSeats(inputPath: string, iso: string, outputDir: 
   for (const seats of scan.seats.values()) for (const s of seats) out.add(`${s.type}/${s.id}`);
   return out;
 }
+
+/** Stage 1 keys beyond CATEGORIES: the object's own reference (BR-POI-011 item 0). */
+export const STAGE1_REFERENCE_KEYS = ['wikidata', 'wikipedia'];
 
 const objectKeyOf = (p: any) => `${p['@type']}/${p['@id']}`;
 const kmBetween = (a: number[], b: number[]) => Math.hypot((a[0] - b[0]) * 111.32 * Math.cos((a[1] * Math.PI) / 180), (a[1] - b[1]) * 110.54);
@@ -214,7 +217,10 @@ async function main() {
   const filteredPbf = path.join(outputDir, `filtered-${timestamp}.osm.pbf`);
   const expressionsPath = path.join(outputDir, `expressions-${timestamp}.txt`);
 
-  const expressions = CATEGORIES.map(tag => `nwr/${tag}`).join('\n');
+  // Plus every object that names a Wikidata item or an article: a strong reference outranks the key
+  // (poi-filter#hasStrongReference, BR-POI-011 item 0). Province House is office=government +
+  // building=public, and no key of CATEGORIES reached it (Nova Scotia recall, 2026-10-25).
+  const expressions = [...CATEGORIES, ...STAGE1_REFERENCE_KEYS].map(tag => `nwr/${tag}`).join('\n');
   fs.writeFileSync(expressionsPath, expressions);
 
   const stage1 = spawnSync('osmium', ['tags-filter', inputPath, '--expressions', expressionsPath, '-o', filteredPbf, '--overwrite']);
@@ -276,7 +282,10 @@ async function main() {
     // Only the items that can change the verdict: an object the filter drops even with every
     // reference (a road, a stream, a shop) is not resolved — CZ: 98k items in Stage 2.
     const couldPass = !shouldFilterPOI({ properties: { ...p, wikidata: q ?? 'Q0', wikipedia: p.wikipedia ?? 'xx:any' } }, { heritage: true, wikivoyage: true }).remove;
-    if (couldPass) q ? qids.push(q) : unlinked.push(objectKeyOf(p));
+    // The declared-id lookup only for objects a key let in: off-key, every named way and node osmium
+    // brought along as a member would go to the Query Service.
+    if (couldPass && q) qids.push(q);
+    else if (couldPass && matchesEliteCategories(p)) unlinked.push(objectKeyOf(p));
   }
   // An object with no `wikidata` tag whose item declares it (P402/P10689/P11693): the item's article,
   // P1435 and Wikivoyage are its reference too (BR-POI-011 item 0). Never by name.

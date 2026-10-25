@@ -192,7 +192,8 @@ async function main() {
         lat: lat,
         lon: lon,
         osm_properties: props,
-        category: pickCategory(props),
+        // An object let in by its reference alone (poi-filter#hasStrongReference) may have no category key.
+        category: pickCategory(props) ?? 'attraction',
         city: props['addr:city'],
         state: loc.state,
         country: loc.country,

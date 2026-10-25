@@ -189,10 +189,33 @@ export const REFERENCE_TOURISM = ['attraction', 'museum', 'viewpoint'];
  * the Czech water register minted an item for each of 9,758 ponds (2026-10-09).
  */
 export function hasPublicReference(props: any, facts?: ReferenceFacts): boolean {
-  return !!props.wikipedia || Object.keys(props).some(k => k.startsWith('wikipedia:'))
+  return hasWikipediaArticle(props)
     || !!props.heritage || !!props.listed_status || !!props['ref:bic'] || !!props.unesco
     || REFERENCE_TOURISM.includes(String(props.tourism))
     || !!facts?.heritage || !!facts?.wikivoyage;
+}
+
+/**
+ * A Wikipedia article written by people: tag `wikipedia` or `wikipedia:<lang>`, except cebwiki, which
+ * Lsjbot generated from the geonames dump (BR-POI-011 item 0; Nova Scotia 2026-10-25: 4,196 of 4,529
+ * Wikidata matches were cebwiki only). The sitelink side is lib/services/wikidata-sitelinks#NOT_AN_ARTICLE.
+ */
+export function hasWikipediaArticle(props: any): boolean {
+  return Object.keys(props).some(k => (k === 'wikipedia' || k.startsWith('wikipedia:')) && !!props[k]
+    && k !== 'wikipedia:ceb' && !/^ceb:/i.test(String(props[k])));
+}
+
+/**
+ * BR-POI-011 item 0, the part that outranks the Stage 1 key (operator, 2026-10-25): an article, P1435 or
+ * Wikivoyage lets an object in even when no key of CATEGORIES matches it — Province House
+ * (office=government + building=public), a historic building tagged only building=*, a hotel, a
+ * boundary=protected_area park. A bare `wikidata` is not one. A road (`highway=*`) and an admin
+ * boundary stay out whatever their reference: the street is never a POI (poi-taxonomy
+ * `excluded_street`), and the town is the place=* node (BR-POI-010).
+ */
+export function hasStrongReference(props: any, facts?: ReferenceFacts): boolean {
+  if (props.highway || props.boundary === 'administrative') return false;
+  return hasWikipediaArticle(props) || !!facts?.heritage || !!facts?.wikivoyage;
 }
 
 /** The MINOR_* gate: true when the object enters only by one of those tags and has no public reference (BR-POI-011 item 0). */
@@ -269,8 +292,9 @@ export const SKI_LIFTS = ['chair_lift', 'gondola', 'mixed_lift'];
  *  - ski-area chair lifts and gondolas: 399 of 520;
  *  - tourism=gallery, almost always an art dealer or a studio: 261 of 273.
  */
-export function touristNoiseReason(props: any, hasReference: boolean = hasPublicReference(props)): string | null {
-  if (!props.wikipedia && !pickCategory(props)) return 'BARE_HERITAGE: listed building with no Wikipedia article';
+export function touristNoiseReason(props: any, hasReference: boolean = hasPublicReference(props), wikivoyage = false): string | null {
+  // Item 1: P1435/heritage alone do not keep a bare building; a Wikivoyage listing does (item 0 via hasStrongReference).
+  if (!hasWikipediaArticle(props) && !pickCategory(props) && !wikivoyage) return 'BARE_HERITAGE: listed building with no Wikipedia article';
   // BR-POI-011 items 2–4: "without a reference" in the sense of item 0 — a bare wikidata is not one.
   if (hasReference) return null;
   const memorialType = String(props.memorial || props['memorial:type'] || '');
@@ -531,7 +555,7 @@ export function shouldFilterPOI(poi: any, facts?: ReferenceFacts): POIFilterResu
   const name = (props.name || "").trim();
   const nameLower = name.toLowerCase();
 
-  const hasWikipedia = !!props.wikipedia || Object.keys(props).some(k => k.startsWith("wikipedia:"));
+  const hasWikipedia = hasWikipediaArticle(props);
   const hasHistoric = !!props.historic;
   const hasHeritage = !!props.heritage || !!props.listed_status || !!props['ref:bic'] || !!props.unesco;
   // BR-POI-011 item 0 governs the gates of that rule (hasHardReference). Outside them a bare wikidata
@@ -574,8 +598,9 @@ export function shouldFilterPOI(poi: any, facts?: ReferenceFacts): POIFilterResu
     return { remove: true, reason: "Category: Rota/Trajeto (não é um ponto fixo)" };
   }
 
-  // Objeto que só entrou como referenciado do Stage 1 (rua, trilho, portão, entrada).
-  if (!matchesEliteCategories(props)) {
+  // An object Stage 1 brought only as a referenced member (road, rail, gate, entrance) — unless its
+  // strong reference outranks the key (hasStrongReference; the refine takes wikidata/wikipedia to Stage 1).
+  if (!matchesEliteCategories(props) && !hasStrongReference(props, facts)) {
     return { remove: true, reason: "OFF_CATEGORY: não casa nenhuma categoria do Stage 1" };
   }
 
@@ -592,7 +617,7 @@ export function shouldFilterPOI(poi: any, facts?: ReferenceFacts): POIFilterResu
     return { remove: true, reason: `MINOR: ${props.railway === "funicular" ? "railway=funicular" : props.landuse === "cemetery" ? "landuse=cemetery" : props.historic ? 'historic=' + props.historic : props.aerialway ? 'aerialway=' + props.aerialway : props.water ? 'water=' + props.water : props.amenity ? 'amenity=' + props.amenity : props.leisure ? 'leisure=' + props.leisure : props.natural ? 'natural=' + props.natural : 'place=' + props.place} sem wiki/heritage` };
   }
 
-  const noise = touristNoiseReason(props, hasHardReference);
+  const noise = touristNoiseReason(props, hasHardReference, !!facts?.wikivoyage);
   if (noise) return { remove: true, reason: noise };
 
   const weak = weakObjectReason(props, name, hasHardReference);
