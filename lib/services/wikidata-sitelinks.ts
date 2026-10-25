@@ -48,9 +48,9 @@ export function factsOf(entity: any, languages: readonly string[]): WikidataFact
   }
 }
 
-async function getJson(url: string): Promise<any> {
+async function getJson(url: string, init: RequestInit = {}): Promise<any> {
   for (let attempt = 0; ; attempt++) {
-    const res = await fetch(url, { headers: UA })
+    const res = await fetch(url, { ...init, headers: { ...UA, ...(init.headers as Record<string, string> ?? {}) } })
     if (res.ok) return res.json()
     if (attempt >= 6 || (res.status !== 429 && res.status < 500)) throw new Error(`HTTP ${res.status} ${url.slice(0, 120)}`)
     await new Promise(r => setTimeout(r, 1000 * 2 ** attempt))
@@ -91,4 +91,85 @@ export async function wikidataFacts(
 export function firstQid(value: unknown): string | null {
   const q = String(value ?? '').split(';')[0].trim()
   return /^Q\d+$/.test(q) ? q : null
+}
+
+/**
+ * The Wikidata properties by which an item declares the OSM object it is. An object mapped without
+ * its `wikidata` tag still has its article, P1435 and Wikivoyage on the item that points at it
+ * (Mexico recall 2026-10-22: 125 objects). The link is the declared id, never the name: matching by
+ * name made 28 wrong pairs of 224.
+ */
+export const OSM_ID_PROPERTY = { relation: 'P402', way: 'P10689', node: 'P11693' } as const
+export type OsmType = keyof typeof OSM_ID_PROPERTY
+const SPARQL_BATCH = 300
+
+/**
+ * SPARQL bindings (?osm, ?item) of one property into `out`, keyed "type/id". An object two items
+ * claim is ambiguous and links to neither (kept as '' so a later binding cannot revive it).
+ */
+export function linksFromBindings(type: OsmType, bindings: any[], out: Map<string, string>): void {
+  for (const b of bindings) {
+    const id = String(b?.osm?.value ?? '').trim()
+    const q = /\/(Q\d+)$/.exec(String(b?.item?.value ?? ''))?.[1]
+    if (!/^\d+$/.test(id) || !q) continue
+    const key = `${type}/${id}`
+    const seen = out.get(key)
+    out.set(key, seen === undefined || seen === q ? q : '')
+  }
+}
+
+/** Sets `wikidata` from `links` when the object has none; true when it did. */
+export function withLinkedWikidata(props: any, links: Map<string, string>): boolean {
+  if (firstQid(props?.wikidata)) return false
+  const q = links.get(`${props?.['@type']}/${props?.['@id']}`)
+  if (!q) return false
+  props.wikidata = q
+  return true
+}
+
+/**
+ * The item that declares each OSM object ("node/1", "way/2", "relation/3"), through the Wikidata
+ * Query Service. `cachePath` keeps every asked key between runs ('' = no item, or ambiguous).
+ * Throws when the service does not answer, as wikidataFacts does.
+ */
+export async function osmLinkedItems(
+  keys: string[], opts: { cachePath?: string; onProgress?: (done: number, total: number) => void } = {},
+): Promise<Map<string, string>> {
+  const cache: Record<string, string> = opts.cachePath && fs.existsSync(opts.cachePath) ? JSON.parse(fs.readFileSync(opts.cachePath, 'utf8')) : {}
+  const unique = [...new Set(keys)].filter(k => /^(node|way|relation)\/\d+$/.test(k))
+  const missing = unique.filter(k => cache[k] === undefined)
+  let done = 0
+  for (const type of Object.keys(OSM_ID_PROPERTY) as OsmType[]) {
+    const ids = missing.filter(k => k.startsWith(`${type}/`)).map(k => k.slice(type.length + 1))
+    for (let i = 0; i < ids.length; i += SPARQL_BATCH) {
+      const chunk = ids.slice(i, i + SPARQL_BATCH)
+      const query = `SELECT ?osm ?item WHERE { VALUES ?osm { ${chunk.map(id => `"${id}"`).join(' ')} } ?item wdt:${OSM_ID_PROPERTY[type]} ?osm }`
+      const body = await getJson('https://query.wikidata.org/sparql', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded', Accept: 'application/sparql-results+json' },
+        body: `query=${encodeURIComponent(query)}`,
+      })
+      const found = new Map<string, string>()
+      linksFromBindings(type, body?.results?.bindings ?? [], found)
+      for (const id of chunk) cache[`${type}/${id}`] = found.get(`${type}/${id}`) ?? ''
+      done += chunk.length
+      opts.onProgress?.(done, missing.length)
+    }
+  }
+  if (opts.cachePath && missing.length) fs.writeFileSync(opts.cachePath, JSON.stringify(cache))
+  const out = new Map<string, string>()
+  for (const k of unique) if (cache[k]) out.set(k, cache[k])
+  return out
+}
+
+/**
+ * Keeps the links whose item is a reference (BR-POI-011 item 0: article, P1435 or Wikivoyage). A bare
+ * item would still count as fame outside the item-0 gates (poi-filter#shouldFilterPOI hasWikidata):
+ * Nova Scotia (2026-10-25) linked 40 churches through register items with no article.
+ */
+export function referencedLinks(links: Map<string, string>, facts: Map<string, WikidataFacts>): Map<string, string> {
+  return new Map([...links].filter(([, q]) => {
+    const f = facts.get(q)
+    return !!f && (!!f.article || f.heritage.length > 0 || f.wikivoyage)
+  }))
 }

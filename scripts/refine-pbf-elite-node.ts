@@ -3,7 +3,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { splitOnLineFeed } from '../lib/services/osm-local-data-service';
 import { shouldFilterPOI, pickCategory, CATEGORIES } from '../lib/shared/poi-filter';
-import { wikidataFacts, firstQid, type WikidataFacts } from '../lib/services/wikidata-sitelinks';
+import { wikidataFacts, firstQid, osmLinkedItems, withLinkedWikidata, referencedLinks, type WikidataFacts } from '../lib/services/wikidata-sitelinks';
 import { scenicRoadFeatures } from '../lib/services/osm-scenic-roads';
 import { polygonContains, type RegionPolygon } from '../lib/services/local-osm-regions';
 import { scanMunicipalSeats, municipalityAdminLevels } from '../lib/services/admin-boundaries';
@@ -265,21 +265,33 @@ async function main() {
   // BR-POI-011 item 0: a bare wikidata is not a reference; its article, P1435 and Wikivoyage are.
   // Every item is resolved first (cached across runs in output/wikidata-facts-cache.json).
   const qids: string[] = [];
+  const unlinked: string[] = [];
   for await (const line of splitOnLineFeed(fs.createReadStream(geojsonSeqPath))) {
     const clean = line.trim().replace(/^\x1e/, '').trim();
     if (!clean) continue;
     let p: any;
     try { p = JSON.parse(clean).properties; } catch { continue; }
-    const q = firstQid(p?.wikidata);
+    if (!p) continue;
+    const q = firstQid(p.wikidata);
     // Only the items that can change the verdict: an object the filter drops even with every
     // reference (a road, a stream, a shop) is not resolved — CZ: 98k items in Stage 2.
-    if (q && !shouldFilterPOI({ properties: { ...p, wikipedia: p.wikipedia ?? 'xx:any' } }, { heritage: true, wikivoyage: true }).remove) qids.push(q);
+    const couldPass = !shouldFilterPOI({ properties: { ...p, wikidata: q ?? 'Q0', wikipedia: p.wikipedia ?? 'xx:any' } }, { heritage: true, wikivoyage: true }).remove;
+    if (couldPass) q ? qids.push(q) : unlinked.push(objectKeyOf(p));
   }
+  // An object with no `wikidata` tag whose item declares it (P402/P10689/P11693): the item's article,
+  // P1435 and Wikivoyage are its reference too (BR-POI-011 item 0). Never by name.
+  const declared = await osmLinkedItems(unlinked, {
+    cachePath: path.join(outputDir, 'wikidata-osm-links-cache.json'),
+    onProgress: (d, t) => process.stdout.write(`\r   OSM ids looked up in Wikidata: ${d.toLocaleString()} / ${t.toLocaleString()}`),
+  });
+  qids.push(...declared.values());
   const facts = await wikidataFacts(qids, {
     languages: lang ? [lang] : [], cachePath: path.join(outputDir, 'wikidata-facts-cache.json'),
     onProgress: (d, t) => process.stdout.write(`\r   Wikidata items fetched: ${d.toLocaleString()} / ${t.toLocaleString()}`),
   });
   const withArticle = [...facts.values()].filter(f => f.article).length;
+  const links = referencedLinks(declared, facts);
+  console.log(`\n   Objects without a wikidata tag that an item declares: ${declared.size.toLocaleString()} of ${new Set(unlinked).size.toLocaleString()} | injected (item with article, P1435 or Wikivoyage): ${links.size.toLocaleString()}`);
   console.log(`\n   Wikidata items: ${facts.size.toLocaleString()} | with a Wikipedia article: ${withArticle.toLocaleString()} | P1435: ${[...facts.values()].filter(f => f.heritage.length).length.toLocaleString()}`);
 
   // Split on \n only: node:readline also breaks on U+2028/U+2029, which osmium leaves raw inside
@@ -336,6 +348,7 @@ async function main() {
 
       const feature = JSON.parse(cleanLine);
       const fp = feature.properties || {};
+      withLinkedWikidata(fp, links);
       const q = firstQid(fp.wikidata);
       const f = q ? facts.get(q) : undefined;
       if (f?.article && !fp.wikipedia) fp.wikipedia = f.article;

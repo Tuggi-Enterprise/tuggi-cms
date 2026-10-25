@@ -208,7 +208,7 @@ export const SYNONYM_TO_CATEGORY: Record<string, string> = {
   // place (administrative / settlement)
   city: 'city', town: 'town', village: 'village', suburb: 'suburb',
   neighbourhood: 'neighbourhood', neighborhood: 'neighbourhood', hamlet: 'hamlet',
-  locality: 'locality', borough: 'borough', quarter: 'quarter', municipality: 'city',
+  locality: 'locality', borough: 'borough', city_district: 'borough', quarter: 'quarter', municipality: 'city',
 }
 
 /**

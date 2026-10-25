@@ -71,7 +71,11 @@ export const CATEGORIES = [
   "amenity=spa",
   "water_characteristic=mineral",
   "boundary=national_park",
-  "place=city"
+  "place=city",
+  // Mexico recall (2026-10-22): Coyoacán, San Ángel and the alcaldías are place=borough|city_district,
+  // which no key reached. They pass only with a public reference (MINOR_PLACE).
+  "place=borough",
+  "place=city_district"
 ];
 
 /**
@@ -161,7 +165,9 @@ export const MINOR_LEISURE = ['water_park', 'dog_park', 'tanning_salon', 'ice_ri
 // ~290 wetlands, ~190 grasslands (model airfields, ski slopes), ~160 bare rocks, 88 bays of reservoirs.
 export const MINOR_NATURAL = ['spring', 'cliff', 'valley', 'wetland', 'grassland', 'bare_rock', 'bay'];
 // Czechia (2026-10-09): ~1,300 neighbourhoods (housing estates, street corners) with no reference.
-export const MINOR_PLACE = ['neighbourhood'];
+// borough/city_district (Mexico, 2026-10-22) are not in item 5: they enter Stage 1 only to bring the
+// referenced ones (item 0), so an unreferenced one goes the same way.
+export const MINOR_PLACE = ['neighbourhood', 'borough', 'city_district'];
 
 /**
  * What the object's Wikidata item says, resolved by the caller (lib/services/wikidata-sitelinks#wikidataFacts).
@@ -510,6 +516,12 @@ export const FILTER_CONFIG = {
 // historic=boundary_stone marca hasHistoric=true, então o TAG_BLOCKLIST normal não pega.
 export const MARKER_NOISE_TAGS = ['boundary_stone', 'milestone', 'survey_point', 'geodesic', 'distance_marker'];
 
+// A cenote is a cave entrance, and every one was NATURAL_NOISE without wikidata (Mexico 2026-10-22:
+// Dos Ojos, X-Kekén). A named one enters with a reference, a `cave:type` or a cenote name.
+const CENOTE_NAME = /\bcenotes?\b/i;
+function isNotableCave(props: any, name: string, hasReference: boolean): boolean {
+  return hasReference || !!props['cave:type'] || CENOTE_NAME.test(name);
+}
 /**
  * Centered filtering logic.
  * Handles both "tags" (Overpass) and "properties" (GeoJSON) formats.
@@ -663,6 +675,11 @@ export function shouldFilterPOI(poi: any, facts?: ReferenceFacts): POIFilterResu
     const individualTags = String(props[key]).split(';');
     for (const t of individualTags) {
       const tagValue = t.trim();
+
+      // building=yes says it is a building, not what it is: when a type tag got the object in, that tag
+      // decides (Mexico 2026-10-22: Museo de Sitio de Monte Albán, 103 museums cut by building=yes).
+      if (key === 'building' && tagValue === 'yes' && pickCategory(props)) continue;
+      if (key === 'natural' && tagValue === 'cave_entrance' && isNotableCave(props, name, hasHardReference || hasWikidata)) continue;
       
       // Block ALL shops by default for Elite filter, unless it's a major landmark (handled by isCulturalExemption)
       if (key === 'shop' && !isFamous) {
