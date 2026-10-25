@@ -49,6 +49,26 @@ describe('BR-POI-011 item 0: a strong reference outranks the category key', () =
     assert.equal(f({ name: 'Halifax County', boundary: 'administrative', admin_level: '6', type: 'boundary', wikidata: 'Q9', wikipedia: 'en:Halifax County' }).remove, true)
   })
 
+  it('BR-POI-011 item 0: off-key, a boundary with an article enters only as a park', () => {
+    const art = (name: string) => ({ name, wikidata: 'Q11', wikipedia: `en:${name}` })
+    assert.equal(f({ ...art('Millbrook First Nation'), boundary: 'aboriginal_lands' }).remove, true)
+    assert.equal(f({ ...art('Halifax West'), boundary: 'political' }).remove, true)
+    assert.equal(f({ ...art('Kejimkujik National Park'), boundary: 'national_park' }).remove, false)
+  })
+
+  it('BR-POI-011 item 0: off-key, a school or a hospital with an article needs historic=* or tourism=*', () => {
+    const p = { name: 'Citadel High School', amenity: 'school', building: 'school', wikidata: 'Q12', wikipedia: 'en:Citadel High School' }
+    assert.equal(f(p).remove, true)
+    assert.equal(f({ name: 'Acadia University', amenity: 'university', wikidata: 'Q13', wikipedia: 'en:Acadia University' }).remove, true)
+    assert.equal(f({ name: 'Victoria General', amenity: 'hospital', wikidata: 'Q14', wikipedia: 'en:Victoria General Hospital' }).remove, true)
+    assert.equal(f({ ...p, historic: 'building' }).remove, false)
+  })
+
+  it('BR-POI-011 item 0: off-key, an industrial park and a pipeline stay out even with an article', () => {
+    assert.equal(f({ name: 'Burnside Industrial Park', landuse: 'industrial', wikidata: 'Q15', wikipedia: 'en:Burnside Industrial Park' }).remove, true)
+    assert.equal(f({ name: 'Maritimes Pipeline', man_made: 'pipeline', wikidata: 'Q16', wikipedia: 'en:Maritimes Pipeline' }).remove, true)
+  })
+
   it('absolute noise stays out even with an article', () => {
     assert.match(f({ name: 'Famous Bench', amenity: 'bench', wikidata: 'Q10', wikipedia: 'en:Famous Bench' }).reason ?? '', /ABSOLUTE_NOISE/)
   })

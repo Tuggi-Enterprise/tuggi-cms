@@ -209,13 +209,31 @@ export function hasWikipediaArticle(props: any): boolean {
  * BR-POI-011 item 0, the part that outranks the Stage 1 key (operator, 2026-10-25): an article, P1435 or
  * Wikivoyage lets an object in even when no key of CATEGORIES matches it — Province House
  * (office=government + building=public), a historic building tagged only building=*, a hotel, a
- * boundary=protected_area park. A bare `wikidata` is not one. A road (`highway=*`) and an admin
- * boundary stay out whatever their reference: the street is never a POI (poi-taxonomy
- * `excluded_street`), and the town is the place=* node (BR-POI-010).
+ * boundary=protected_area park. A bare `wikidata` is not one. A road (`highway=*`) stays out whatever
+ * its reference: the street is never a POI (poi-taxonomy `excluded_street`). So does what
+ * offKeyWithoutVisit names.
  */
 export function hasStrongReference(props: any, facts?: ReferenceFacts): boolean {
-  if (props.highway || props.boundary === 'administrative') return false;
+  if (props.highway || offKeyWithoutVisit(props)) return false;
   return hasWikipediaArticle(props) || !!facts?.heritage || !!facts?.wikivoyage;
+}
+
+const VISITABLE_BOUNDARIES = ['national_park', 'protected_area'];
+const SCHOOL_AMENITIES = ['school', 'college', 'university', 'kindergarten'];
+
+/**
+ * Off-key objects whose article describes an institution or a territory, not a place to visit
+ * (Tech Lead, 2026-10-25, Nova Scotia gains): any boundary but a park — administrative (the town is
+ * the place=* node, BR-POI-010), aboriginal_lands, political —, an industrial or business park, a
+ * pipeline, and a school or a hospital unless historic=* or tourism=* is on the object. Only the
+ * hasStrongReference path: an object a CATEGORIES key lets in is not judged here.
+ */
+function offKeyWithoutVisit(props: any): boolean {
+  if (props.boundary && !VISITABLE_BOUNDARIES.includes(String(props.boundary))) return true;
+  if (props.man_made === 'pipeline' || props.landuse === 'industrial' || props.industrial) return true;
+  const institution = SCHOOL_AMENITIES.includes(String(props.amenity)) || props.amenity === 'hospital'
+    || ['school', 'university', 'hospital'].includes(String(props.building));
+  return institution && !props.historic && !props.tourism;
 }
 
 /** The MINOR_* gate: true when the object enters only by one of those tags and has no public reference (BR-POI-011 item 0). */
