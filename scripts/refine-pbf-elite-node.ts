@@ -9,7 +9,7 @@ import { polygonContains, type RegionPolygon } from '../lib/services/local-osm-r
 import { scanMunicipalSeats, municipalityAdminLevels } from '../lib/services/admin-boundaries';
 import { representativePoint } from '../lib/utils/geometry';
 import {
-  COUNTRY_LANGUAGE, VILLAGE_PAGEVIEW_PERCENTILE, placeClass, tagStrength, signalStrength, percentile,
+  COUNTRY_LANGUAGE, VILLAGE_PAGEVIEW_PERCENTILE, articleLanguages, placeClass, tagStrength, signalStrength, percentile,
   proseLengths, monthlyPageviews, nameInCountryLanguage, type VillageSignals, type Strength,
 } from '../lib/services/country-relevance';
 
@@ -294,8 +294,10 @@ async function main() {
     onProgress: (d, t) => process.stdout.write(`\r   OSM ids looked up in Wikidata: ${d.toLocaleString()} / ${t.toLocaleString()}`),
   });
   qids.push(...declared.values());
+  // Only an article in the country's language or en is about a place of it (BR-POI-011 item 0).
+  const articleLangs = iso ? articleLanguages(iso, lang) : undefined;
   const facts = await wikidataFacts(qids, {
-    languages: lang ? [lang] : [], cachePath: path.join(outputDir, 'wikidata-facts-cache.json'),
+    languages: articleLangs ?? (lang ? [lang] : []), cachePath: path.join(outputDir, 'wikidata-facts-cache.json'),
     onProgress: (d, t) => process.stdout.write(`\r   Wikidata items fetched: ${d.toLocaleString()} / ${t.toLocaleString()}`),
   });
   const withArticle = [...facts.values()].filter(f => f.article).length;
@@ -361,7 +363,7 @@ async function main() {
       const q = firstQid(fp.wikidata);
       const f = q ? facts.get(q) : undefined;
       if (f?.article && !fp.wikipedia) fp.wikipedia = f.article;
-      const filterResult = shouldFilterPOI(feature, f && { heritage: f.heritage.length > 0, wikivoyage: f.wikivoyage });
+      const filterResult = shouldFilterPOI(feature, { heritage: !!f?.heritage.length, wikivoyage: !!f?.wikivoyage, titles: f?.titles, languages: articleLangs });
       if (filterResult.remove) {
         const r = (filterResult.reason ?? '?').replace(/ without a public reference.*$/, '').replace(/\(.*$/, '').replace(/'.*$/, '').trim();
         reasons.set(r, (reasons.get(r) ?? 0) + 1);

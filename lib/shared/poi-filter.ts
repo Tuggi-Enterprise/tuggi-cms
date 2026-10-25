@@ -178,6 +178,13 @@ export interface ReferenceFacts {
   heritage?: boolean
   /** A Wikivoyage page. */
   wikivoyage?: boolean
+  /** The item's Wikipedia titles by language (sitelinks), for the languages the caller asked. */
+  titles?: Record<string, string>
+  /**
+   * Article languages that count for the country being imported — its own and `en`
+   * (country-relevance#articleLanguages). Absent: any language counts.
+   */
+  languages?: readonly string[]
 }
 
 export const REFERENCE_TOURISM = ['attraction', 'museum', 'viewpoint'];
@@ -214,8 +221,47 @@ export function hasWikipediaArticle(props: any): boolean {
  * offKeyWithoutVisit names.
  */
 export function hasStrongReference(props: any, facts?: ReferenceFacts): boolean {
-  if (props.highway || offKeyWithoutVisit(props)) return false;
-  return hasWikipediaArticle(props) || !!facts?.heritage || !!facts?.wikivoyage;
+  if (props.highway || offKeyWithoutVisit(props, facts)) return false;
+  if (facts?.heritage) return true;
+  const article = articleSubject(props, facts);
+  // The Wikivoyage page of an item whose article is about something else is about that thing too.
+  return article === 'this' || (article === 'none' && !!facts?.wikivoyage);
+}
+
+/** Lowercase, no diacritics, no disambiguation "(…)", punctuation as spaces, padded for word matching. */
+const normalizeTitle = (s: string) => ` ${s.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase()
+  .replace(/\(.*?\)/g, ' ').replace(/[^\p{L}\p{N}]+/gu, ' ').trim()} `;
+const CORPORATE_WORDS = / (the|company|co|inc|corporation|corp|group|limited|ltd|restaurants?|international|holdings) /g;
+const NAME_KEYS = ['name', 'old_name', 'alt_name', 'official_name', 'short_name', 'building:name'];
+
+/**
+ * Whom the object's article is about (Tech Lead, 2026-10-25, Nova Scotia gains). `this`: its title
+ * contains one of the object's names or the reverse — "Point of entry" tagged with the item of Hyder,
+ * Alaska is not. Only articles in a language of the country or `en` count (`facts.languages`; Gavin
+ * Islet had only plwiki); none left is `none`. The article of the object's brand is `other`: Wendy's
+ * carried the item of The Wendy's Company, whose title contains the name; the TD Centre is not TD.
+ * A building (`building=*`) needs no name match.
+ */
+function articleSubject(props: any, facts?: ReferenceFacts): 'this' | 'other' | 'none' {
+  const articles: [string, string][] = Object.entries(facts?.titles ?? {});
+  for (const [k, v] of Object.entries(props)) {
+    if (k !== 'wikipedia' && !k.startsWith('wikipedia:')) continue;
+    const m = /^([a-z-]+):(.+)$/.exec(String(v));
+    const lang = k === 'wikipedia' ? m?.[1] : k.slice('wikipedia:'.length);
+    if (lang) articles.push([lang, m && m[1] === lang ? m[2] : String(v)]);
+  }
+  const counted = articles.filter(([lang]) => lang !== 'ceb' && (!facts?.languages || facts.languages.includes(lang)));
+  if (!counted.length) return 'none';
+  if (props['brand:wikidata'] && props['brand:wikidata'] === props.wikidata) return 'other';
+  const brand = props.brand ? normalizeTitle(String(props.brand)) : null;
+  const names = [...NAME_KEYS, ...(facts?.languages ?? []).map(l => `name:${l}`)]
+    .flatMap(k => String(props[k] ?? '').split(';')).map(normalizeTitle).filter(n => n.trim());
+  const own = counted.map(([, title]) => normalizeTitle(title))
+    .filter(t => t.trim() && !(brand && t.replace(CORPORATE_WORDS, ' ').replace(CORPORATE_WORDS, ' ').replace(/ +/g, ' ') === brand));
+  // A mapped footprint's own item is the building, even under another name: HMCS Scotian is
+  // en:Pier 2, Halifax; the Oval Pavillion, en:Emera Oval.
+  if (own.length && props.building && props.building !== 'no') return 'this';
+  return own.some(t => names.some(n => t.includes(n) || n.includes(t))) ? 'this' : 'other';
 }
 
 const VISITABLE_BOUNDARIES = ['national_park', 'protected_area'];
@@ -225,15 +271,21 @@ const SCHOOL_AMENITIES = ['school', 'college', 'university', 'kindergarten'];
  * Off-key objects whose article describes an institution or a territory, not a place to visit
  * (Tech Lead, 2026-10-25, Nova Scotia gains): any boundary but a park — administrative (the town is
  * the place=* node, BR-POI-010), aboriginal_lands, political —, an industrial or business park, a
- * pipeline, and a school or a hospital unless historic=* or tourism=* is on the object. Only the
+ * pipeline, and a school, a hospital, a military base (CFB) or a rail/bus station unless historic=* or
+ * tourism=* is on the object — a listed station with an article still enters. Only the
  * hasStrongReference path: an object a CATEGORIES key lets in is not judged here.
  */
-function offKeyWithoutVisit(props: any): boolean {
+function offKeyWithoutVisit(props: any, facts?: ReferenceFacts): boolean {
   if (props.boundary && !VISITABLE_BOUNDARIES.includes(String(props.boundary))) return true;
   if (props.man_made === 'pipeline' || props.landuse === 'industrial' || props.industrial) return true;
   const institution = SCHOOL_AMENITIES.includes(String(props.amenity)) || props.amenity === 'hospital'
     || ['school', 'university', 'hospital'].includes(String(props.building));
-  return institution && !props.historic && !props.tourism;
+  // A base and a station: the article is about the unit or the line (Nova Scotia gains, 2026-10-25).
+  const military = props.landuse === 'military' || !!props.military || /\bCFB\b/.test(String(props.name ?? ''));
+  const station = ['station', 'halt'].includes(String(props.railway)) || props.public_transport === 'station'
+    || props.amenity === 'bus_station' || props.building === 'train_station';
+  if (station && facts?.heritage) return false; // a listed station (P1435) with its article still enters
+  return (institution || military || station) && !props.historic && !props.tourism;
 }
 
 /** The MINOR_* gate: true when the object enters only by one of those tags and has no public reference (BR-POI-011 item 0). */

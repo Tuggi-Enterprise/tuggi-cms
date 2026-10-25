@@ -31,6 +31,20 @@ export const COUNTRY_LANGUAGE: Readonly<Record<string, string>> = {
   HU: 'hu', IS: 'is', IT: 'it', LU: 'fr', NL: 'nl', PL: 'pl', PT: 'pt', SI: 'sl', SK: 'sk', US: 'en',
 }
 
+/** Official languages besides COUNTRY_LANGUAGE, for countries with more than one. */
+const OTHER_OFFICIAL_LANGUAGES: Readonly<Record<string, readonly string[]>> = {
+  BE: ['fr', 'de'], CA: ['en', 'fr'], CH: ['fr', 'it'], LU: ['de'],
+}
+
+/**
+ * Wikipedia languages whose article counts as written about a place of this country: its own and `en`
+ * (BR-POI-011 item 0; Gavin Islet, Nova Scotia, had only plwiki). Fed to poi-filter#ReferenceFacts.languages.
+ */
+export function articleLanguages(iso: string, lang?: string): string[] {
+  return [...new Set([...(lang ? [lang] : []), ...(COUNTRY_LANGUAGE[iso] ? [COUNTRY_LANGUAGE[iso]] : []),
+    ...(OTHER_OFFICIAL_LANGUAGES[iso] ?? []), 'en'])]
+}
+
 export type Strength = 'seat' | 'heritage' | 'tourism' | 'historic' | 'P1435' | 'wikivoyage' | 'en-article' | 'de-article' | 'pageviews'
 
 export interface VillageSignals {
