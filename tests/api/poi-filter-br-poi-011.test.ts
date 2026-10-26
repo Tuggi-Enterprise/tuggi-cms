@@ -267,5 +267,6 @@ describe('BR-POI-011 (Nova Scotia, 2026-10-25): the street-name cut only judges 
     assert.doesNotMatch(reason({ name: 'Memory Lane', tourism: 'museum' }), /^STREET/)
     assert.doesNotMatch(reason({ name: 'Blueberry Acres', tourism: 'attraction' }), /^STREET/)
     assert.equal(f({ name: 'Chemin des Vignes', place: 'locality' }).remove, true)
+    assert.match(reason({ name: 'Duke Street Roundabout', natural: 'grass', area: 'yes' }), /^STREET/, 'a roundabout is a road part')
   })
 })

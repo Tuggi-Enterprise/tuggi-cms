@@ -908,7 +908,8 @@ export function shouldFilterPOI(poi: any, facts?: ReferenceFacts): POIFilterResu
   // (attraction) were cut as streets in Nova Scotia (2026-10-25). `place=*` is not a sight tag here: a
   // locality named "Chemin des X" is the street noise this check exists for.
   const category = props.highway ? undefined : pickCategory(props);
-  const hasSightTag = !!category && category !== props.place;
+  // A roundabout is a road part whatever the tag: the grass island "Duke Street Roundabout" (natural=grass).
+  const hasSightTag = !!category && category !== props.place && !nameLower.endsWith(' roundabout');
   const isGenericStreet = !hasSightTag && (
     FILTER_CONFIG.STREET_KEYWORDS.PREFIXES.some(p => nameLower.startsWith(p)) ||
     FILTER_CONFIG.STREET_KEYWORDS.SUFFIXES.some(s => nameLower.endsWith(s)) ||
