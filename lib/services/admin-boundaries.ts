@@ -64,6 +64,39 @@ export function municipalityAdminLevels(country: string): number[] {
   return [municipalityAdminLevel(country), ...(STANDALONE_MUNICIPALITY_LEVELS_BY_COUNTRY[country.toUpperCase()] ?? [])]
 }
 
+/** Wikidata class whose instances (P31, through any depth of P279) are municipalities: "municipality". */
+export const MUNICIPALITY_WIKIDATA_CLASS = 'Q15284'
+
+/** Which relations are municipalities when the refine looks for seats (BR-POI-010 item 4, BR-POI-011 item 8). */
+export interface MunicipalSeatLevels {
+  /** Every relation at these levels is a municipality. */
+  levels: readonly number[]
+  /**
+   * A relation at these levels is a municipality only when its Wikidata item — its `wikidata` tag, else the one item
+   * declaring it by P402 — is an instance of `MUNICIPALITY_WIKIDATA_CLASS`. No item, no municipality. The centre
+   * member of such a relation is the same place as the relation, and takes its item when it has none.
+   */
+  byWikidataClass: readonly number[]
+}
+
+/**
+ * SSOT — countries whose OSM levels do not tell a municipality from a community, by ISO 3166-1 alpha-2. A country not
+ * listed: every relation at `municipalityAdminLevels`.
+ * CA, measured 2026-10-26 on the Geofabrik provinces (relations, and the P31 of their items): level 8 is the community
+ * in NS (2,318, for 49 municipalities + 21 villages; towns are there too), PE (495) and NB (216, of them 145 "parish of
+ * New Brunswick"), the municipality in QC (1,338, 1,333 with an item of the Q15284 tree), ON (499) and BC (345). Level 6
+ * is the municipality in NS, PE, NB and AB (district/rural municipality, town, village; most NS/PE relations carry no
+ * `wikidata`), and in QC, ON and BC the county, MRC or regional district, whose centre is a municipality anyway. No
+ * OSM tag separates the two at level 8 (no `border_type` in NS/PE), hence the item's class.
+ */
+export const MUNICIPAL_SEAT_LEVELS_BY_COUNTRY: Readonly<Record<string, MunicipalSeatLevels>> = {
+  CA: { levels: [6], byWikidataClass: [8] },
+}
+
+export function municipalSeatLevels(country: string): MunicipalSeatLevels {
+  return MUNICIPAL_SEAT_LEVELS_BY_COUNTRY[country.toUpperCase()] ?? { levels: municipalityAdminLevels(country), byWikidataClass: [] }
+}
+
 export const ADMIN_BOUNDARIES_TABLE = 'admin_boundaries'
 export const ADMIN_BOUNDARY_SEATS_TABLE = 'admin_boundary_seats'
 export const REGION_METADATA_TABLE = 'region_metadata'

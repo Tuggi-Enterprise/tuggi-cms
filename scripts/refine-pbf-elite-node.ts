@@ -3,10 +3,12 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { splitOnLineFeed } from '../lib/services/osm-local-data-service';
 import { shouldFilterPOI, pickCategory, matchesEliteCategories, CATEGORIES } from '../lib/shared/poi-filter';
-import { wikidataFacts, firstQid, osmLinkedItems, withLinkedWikidata, referencedLinks, type WikidataFacts } from '../lib/services/wikidata-sitelinks';
+import { wikidataFacts, firstQid, osmLinkedItems, withLinkedWikidata, referencedLinks, instancesOfClass, type WikidataFacts } from '../lib/services/wikidata-sitelinks';
 import { scenicRoadFeatures } from '../lib/services/osm-scenic-roads';
 import { polygonContains, type RegionPolygon } from '../lib/services/local-osm-regions';
-import { scanMunicipalSeats, municipalityAdminLevels } from '../lib/services/admin-boundaries';
+import {
+  scanMunicipalSeats, municipalSeatLevels, MUNICIPALITY_WIKIDATA_CLASS, type MunicipalSeatLevels, type Seat,
+} from '../lib/services/admin-boundaries';
 import { representativePoint } from '../lib/utils/geometry';
 import {
   COUNTRY_LANGUAGE, VILLAGE_PAGEVIEW_PERCENTILE, articleLanguages, placeClass, tagStrength, signalStrength, percentile,
@@ -79,26 +81,61 @@ export function borderVerdict(border: RegionPolygon, feature: any, lang: string 
   return 'abroad';
 }
 
+/** A boundary=administrative relation at a seat level, as `municipalSeats` reads it. */
+export interface SeatRelation { id: number; level: number; qid: string | null; seats: Seat[] }
+
+/**
+ * BR-POI-010 item 4 over the relations: the centre members ("node/123") of the municipalities, and the item each
+ * centre member of a `byWikidataClass` relation inherits from it (it is the same place: the label node of a Nova
+ * Scotia community has no `wikidata`, its relation does). `municipal`: the items of the municipality class.
+ */
+export function seatsOf(relations: SeatRelation[], rule: MunicipalSeatLevels, municipal: Set<string>): { seats: Set<string>; inherited: Map<string, string> } {
+  const seats = new Set<string>();
+  const inherited = new Map<string, string>();
+  for (const r of relations) {
+    const byClass = rule.byWikidataClass.includes(r.level);
+    if (!byClass && !rule.levels.includes(r.level)) continue;
+    if (!byClass || (r.qid && municipal.has(r.qid))) for (const s of r.seats) seats.add(`${s.type}/${s.id}`);
+    if (byClass && r.qid) for (const s of r.seats) if (!inherited.has(`${s.type}/${s.id}`)) inherited.set(`${s.type}/${s.id}`, r.qid);
+  }
+  return { seats, inherited };
+}
+
+const unescapeOpl = (s: string) => s.replace(/%([0-9a-fA-F]+)%/g, (_, h) => String.fromCodePoint(parseInt(h, 16)));
+
 /**
  * Municipal seats (BR-POI-010 item 4) of the extract, as "node/123": the admin_centre (else label)
- * member of each boundary=administrative relation at the country's municipal level(s).
+ * member of each boundary=administrative relation that is a municipality (admin-boundaries#municipalSeatLevels).
+ * Where the level alone does not say it (Canada), the relation's item decides, by its Wikidata class.
  */
-export async function municipalSeats(inputPath: string, iso: string, outputDir: string, timestamp: number): Promise<Set<string>> {
+export async function municipalSeats(inputPath: string, iso: string, outputDir: string, timestamp: number): Promise<{ seats: Set<string>; inherited: Map<string, string> }> {
   const relPbf = path.join(outputDir, `admin-${timestamp}.osm.pbf`);
   const f = spawnSync('osmium', ['tags-filter', inputPath, 'r/boundary=administrative', '-R', '-o', relPbf, '--overwrite']);
   if (f.status !== 0) throw new Error(`osmium tags-filter (admin) failed: ${f.stderr}`);
-  const levels = new Set(municipalityAdminLevels(iso).map(String));
+  const rule = municipalSeatLevels(iso);
+  const levels = new Set([...rule.levels, ...rule.byWikidataClass].map(String));
+  const meta = new Map<number, { level: number; qid: string | null }>();
   const proc = spawn('osmium', ['cat', relPbf, '-t', 'relation', '-f', 'opl,add_metadata=false', '-o', '-']);
-  async function* municipal() {
+  async function* atSeatLevels() {
     for await (const line of splitOnLineFeed(proc.stdout)) {
       const level = /(?:[ ,]T|,)admin_level=([^,\s]*)/.exec(line)?.[1];
-      if (level && levels.has(level)) yield line;
+      if (!level || !levels.has(level)) continue;
+      meta.set(Number(line.split(' ')[0].slice(1)), { level: Number(level), qid: firstQid(unescapeOpl(/(?:[ ,]T|,)wikidata=([^,\s]*)/.exec(line)?.[1] ?? '')) });
+      yield line;
     }
   }
-  const scan = await scanMunicipalSeats(municipal());
+  const scan = await scanMunicipalSeats(atSeatLevels());
   fs.unlinkSync(relPbf);
-  const out = new Set<string>();
-  for (const seats of scan.seats.values()) for (const s of seats) out.add(`${s.type}/${s.id}`);
+  const relations: SeatRelation[] = [...meta].map(([id, m]) => ({ id, ...m, seats: scan.seats.get(id) ?? [] }));
+  const byClass = relations.filter(r => rule.byWikidataClass.includes(r.level));
+  if (!byClass.length) return seatsOf(relations, rule, new Set());
+  // No `wikidata` tag: the one item declaring the relation (P402) is its item.
+  const declared = await osmLinkedItems(byClass.filter(r => !r.qid).map(r => `relation/${r.id}`), { cachePath: path.join(outputDir, 'wikidata-osm-links-cache.json') });
+  for (const r of byClass) r.qid ??= declared.get(`relation/${r.id}`) ?? null;
+  const municipal = await instancesOfClass(byClass.map(r => r.qid).filter((q): q is string => !!q), MUNICIPALITY_WIKIDATA_CLASS, { cachePath: path.join(outputDir, 'wikidata-class-cache.json') });
+  const out = seatsOf(relations, rule, municipal);
+  const kept = byClass.filter(r => r.qid && municipal.has(r.qid)).length;
+  console.log(`🏛️  Level ${rule.byWikidataClass.join('/')} relations: ${byClass.length.toLocaleString()} | with an item: ${byClass.filter(r => r.qid).length.toLocaleString()} | municipality (${MUNICIPALITY_WIKIDATA_CLASS}): ${kept.toLocaleString()} | centre members that take the relation's item: ${out.inherited.size.toLocaleString()}`);
   return out;
 }
 
@@ -208,8 +245,11 @@ async function main() {
   if (border) console.log(`🧭 Clipping to the ISO3166-1=${iso} border (${border.outer.length} outer rings; ±${BORDER_TOLERANCE_M} m only for a ${lang ?? '?'} name — BR-POI-011 item 6)`);
   else console.warn('⚠️  No --iso <code>: the extract buffer past the border is kept and stamped with this country.');
   if (iso && !lang) console.warn(`⚠️  No language for ${iso} (country-relevance#COUNTRY_LANGUAGE): pass --lang <wiki code>. Without it the village pageviews (BR-POI-011 item 9) and the border name exception (item 6) are off.`);
-  const seats = iso ? await municipalSeats(inputPath, iso, outputDir, timestamp) : new Set<string>();
-  if (iso) console.log(`🏛️  Municipal seats (BR-POI-010 item 4, levels ${municipalityAdminLevels(iso).join('/')}): ${seats.size.toLocaleString()}`);
+  const { seats, inherited } = iso ? await municipalSeats(inputPath, iso, outputDir, timestamp) : { seats: new Set<string>(), inherited: new Map<string, string>() };
+  if (iso) {
+    const rule = municipalSeatLevels(iso);
+    console.log(`🏛️  Municipal seats (BR-POI-010 item 4, levels ${rule.levels.join('/')}${rule.byWikidataClass.length ? ` + ${rule.byWikidataClass.join('/')} by Wikidata class` : ''}): ${seats.size.toLocaleString()}`);
+  }
   console.log('');
 
   // 1. Stage 1: Categorical Filter
@@ -272,6 +312,7 @@ async function main() {
   // Every item is resolved first (cached across runs in output/wikidata-facts-cache.json).
   const qids: string[] = [];
   const unlinked: string[] = [];
+  const placeItems = new Map<string, string | null>();
   for await (const line of splitOnLineFeed(fs.createReadStream(geojsonSeqPath))) {
     const clean = line.trim().replace(/^\x1e/, '').trim();
     if (!clean) continue;
@@ -286,6 +327,7 @@ async function main() {
     // brought along as a member would go to the Query Service.
     if (couldPass && q) qids.push(q);
     else if (couldPass && matchesEliteCategories(p)) unlinked.push(objectKeyOf(p));
+    if (couldPass && placeClass(p)) placeItems.set(objectKeyOf(p), q);
   }
   // An object with no `wikidata` tag whose item declares it (P402/P10689/P11693): the item's article,
   // P1435 and Wikivoyage are its reference too (BR-POI-011 item 0). Never by name.
@@ -293,7 +335,21 @@ async function main() {
     cachePath: path.join(outputDir, 'wikidata-osm-links-cache.json'),
     onProgress: (d, t) => process.stdout.write(`\r   OSM ids looked up in Wikidata: ${d.toLocaleString()} / ${t.toLocaleString()}`),
   });
+  // The centre member of a community relation is that place, and takes its item when no item declares it.
+  let inheritedUsed = 0;
+  for (const key of unlinked) if (!declared.has(key) && inherited.has(key)) { declared.set(key, inherited.get(key)!); inheritedUsed++; }
+  if (inherited.size) console.log(`   Objects without a wikidata tag that take the item of the relation they are the centre of: ${inheritedUsed.toLocaleString()}`);
   qids.push(...declared.values());
+  // Where the level does not say "municipality" (admin-boundaries#municipalSeatLevels), a village whose own item is a
+  // municipality is its seat: Chester (NS) and Murray Harbour (PE) are labels of no municipal relation.
+  if (iso && municipalSeatLevels(iso).byWikidataClass.length) {
+    for (const [key, q] of placeItems) if (!q) placeItems.set(key, declared.get(key) ?? null);
+    const items = [...placeItems.values()].filter((q): q is string => !!q);
+    const municipal = await instancesOfClass(items, MUNICIPALITY_WIKIDATA_CLASS, { cachePath: path.join(outputDir, 'wikidata-class-cache.json') });
+    const before = seats.size;
+    for (const [key, q] of placeItems) if (q && municipal.has(q)) seats.add(key);
+    console.log(`   Villages/neighbourhoods whose own item is a municipality (${MUNICIPALITY_WIKIDATA_CLASS}): ${municipal.size.toLocaleString()} items of ${new Set(items).size.toLocaleString()} | new seats: ${(seats.size - before).toLocaleString()}`);
+  }
   // Only an article in the country's language or en is about a place of it (BR-POI-011 item 0).
   const articleLangs = iso ? articleLanguages(iso, lang) : undefined;
   const facts = await wikidataFacts(qids, {
@@ -302,7 +358,7 @@ async function main() {
   });
   const withArticle = [...facts.values()].filter(f => f.article).length;
   const links = referencedLinks(declared, facts);
-  console.log(`\n   Objects without a wikidata tag that an item declares: ${declared.size.toLocaleString()} of ${new Set(unlinked).size.toLocaleString()} | injected (item with article, P1435 or Wikivoyage): ${links.size.toLocaleString()}`);
+  console.log(`\n   Objects without a wikidata tag that an item declares: ${(declared.size - inheritedUsed).toLocaleString()} (+${inheritedUsed.toLocaleString()} by their relation) of ${new Set(unlinked).size.toLocaleString()} | injected (item with article, P1435 or Wikivoyage): ${links.size.toLocaleString()}`);
   console.log(`\n   Wikidata items: ${facts.size.toLocaleString()} | with a Wikipedia article: ${withArticle.toLocaleString()} | P1435: ${[...facts.values()].filter(f => f.heritage.length).length.toLocaleString()}`);
 
   // Split on \n only: node:readline also breaks on U+2028/U+2029, which osmium leaves raw inside

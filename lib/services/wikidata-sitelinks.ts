@@ -163,6 +163,33 @@ export async function osmLinkedItems(
 }
 
 /**
+ * The items of `ids` that are an instance (P31) of `classId` or of a subclass of it (P279, any depth), through the
+ * Wikidata Query Service. `cachePath` keeps every asked item between runs, per class. Throws when the service does not
+ * answer, as wikidataFacts does.
+ */
+export async function instancesOfClass(
+  ids: string[], classId: string, opts: { cachePath?: string } = {},
+): Promise<Set<string>> {
+  const cache: Record<string, Record<string, boolean>> = opts.cachePath && fs.existsSync(opts.cachePath) ? JSON.parse(fs.readFileSync(opts.cachePath, 'utf8')) : {}
+  const known = cache[classId] ??= {}
+  const unique = [...new Set(ids.filter(id => /^Q\d+$/.test(id)))]
+  const missing = unique.filter(id => known[id] === undefined)
+  for (let i = 0; i < missing.length; i += SPARQL_BATCH) {
+    const chunk = missing.slice(i, i + SPARQL_BATCH)
+    const query = `SELECT DISTINCT ?item WHERE { VALUES ?item { ${chunk.map(id => `wd:${id}`).join(' ')} } ?item wdt:P31/wdt:P279* wd:${classId} }`
+    const body = await getJson('https://query.wikidata.org/sparql', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded', Accept: 'application/sparql-results+json' },
+      body: `query=${encodeURIComponent(query)}`,
+    })
+    const found = new Set((body?.results?.bindings ?? []).map((b: any) => /\/(Q\d+)$/.exec(String(b?.item?.value ?? ''))?.[1]))
+    for (const id of chunk) known[id] = found.has(id)
+  }
+  if (opts.cachePath && missing.length) fs.writeFileSync(opts.cachePath, JSON.stringify(cache))
+  return new Set(unique.filter(id => known[id]))
+}
+
+/**
  * Keeps the links whose item is a reference (BR-POI-011 item 0: article, P1435 or Wikivoyage). A bare
  * item would still count as fame outside the item-0 gates (poi-filter#shouldFilterPOI hasWikidata):
  * Nova Scotia (2026-10-25) linked 40 churches through register items with no article.
