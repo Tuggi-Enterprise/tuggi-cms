@@ -73,8 +73,9 @@ export interface MunicipalSeatLevels {
   levels: readonly number[]
   /**
    * A relation at these levels is a municipality only when its Wikidata item — its `wikidata` tag, else the one item
-   * declaring it by P402 — is an instance of `MUNICIPALITY_WIKIDATA_CLASS`. No item, no municipality. The centre
-   * member of such a relation is the same place as the relation, and takes its item when it has none.
+   * declaring it by P402 — is an instance of `MUNICIPALITY_WIKIDATA_CLASS`. No item, no municipality. The `label`
+   * member of such a relation is the same place as the relation, and takes its item when it has none; the
+   * `admin_centre` does not (the seat of a county or MRC is another place).
    */
   byWikidataClass: readonly number[]
 }
@@ -82,15 +83,17 @@ export interface MunicipalSeatLevels {
 /**
  * SSOT — countries whose OSM levels do not tell a municipality from a community, by ISO 3166-1 alpha-2. A country not
  * listed: every relation at `municipalityAdminLevels`.
- * CA, measured 2026-10-26 on the Geofabrik provinces (relations, and the P31 of their items): level 8 is the community
- * in NS (2,318, for 49 municipalities + 21 villages; towns are there too), PE (495) and NB (216, of them 145 "parish of
- * New Brunswick"), the municipality in QC (1,338, 1,333 with an item of the Q15284 tree), ON (499) and BC (345). Level 6
- * is the municipality in NS, PE, NB and AB (district/rural municipality, town, village; most NS/PE relations carry no
- * `wikidata`), and in QC, ON and BC the county, MRC or regional district, whose centre is a municipality anyway. No
- * OSM tag separates the two at level 8 (no `border_type` in NS/PE), hence the item's class.
+ * CA, measured 2026-10-26 on the Geofabrik provinces (relations, and the P31 of their items): no level means
+ * "municipality" in every province. Level 8 is the community in NS (2,318, for 49 municipalities + 21 villages; towns
+ * are there too) and PE (495), the civil parish in NB (216, 139 items "parish of New Brunswick"), the municipality in
+ * QC (1,338, 1,333 with an item of the Q15284 tree), ON (499) and BC (345). Level 6 holds the municipalities of NS, PE
+ * and NB (regional municipality, municipal district, town, rural municipality, village; 30 of the 35 NS items, 4 of the
+ * 5 PE items and 65 of the 84 NB items are in the Q15284 tree), but also First Nations, national parks, NB rural
+ * districts and QC MRCs. Level 9 is the community in NB (1,206, 2 municipal items). No OSM tag separates them (no
+ * `border_type` in NS/PE), hence the item's class at every level.
  */
 export const MUNICIPAL_SEAT_LEVELS_BY_COUNTRY: Readonly<Record<string, MunicipalSeatLevels>> = {
-  CA: { levels: [6], byWikidataClass: [8] },
+  CA: { levels: [], byWikidataClass: [6, 7, 8, 9] },
 }
 
 export function municipalSeatLevels(country: string): MunicipalSeatLevels {

@@ -86,8 +86,9 @@ export interface SeatRelation { id: number; level: number; qid: string | null; s
 
 /**
  * BR-POI-010 item 4 over the relations: the centre members ("node/123") of the municipalities, and the item each
- * centre member of a `byWikidataClass` relation inherits from it (it is the same place: the label node of a Nova
- * Scotia community has no `wikidata`, its relation does). `municipal`: the items of the municipality class.
+ * label member of a `byWikidataClass` relation inherits from it (it is the same place: the label node of a Nova
+ * Scotia community has no `wikidata`, its relation does; an admin_centre may be another place). `municipal`: the items
+ * of the municipality class.
  */
 export function seatsOf(relations: SeatRelation[], rule: MunicipalSeatLevels, municipal: Set<string>): { seats: Set<string>; inherited: Map<string, string> } {
   const seats = new Set<string>();
@@ -96,7 +97,7 @@ export function seatsOf(relations: SeatRelation[], rule: MunicipalSeatLevels, mu
     const byClass = rule.byWikidataClass.includes(r.level);
     if (!byClass && !rule.levels.includes(r.level)) continue;
     if (!byClass || (r.qid && municipal.has(r.qid))) for (const s of r.seats) seats.add(`${s.type}/${s.id}`);
-    if (byClass && r.qid) for (const s of r.seats) if (!inherited.has(`${s.type}/${s.id}`)) inherited.set(`${s.type}/${s.id}`, r.qid);
+    if (byClass && r.qid) for (const s of r.seats) if (s.role === 'label' && !inherited.has(`${s.type}/${s.id}`)) inherited.set(`${s.type}/${s.id}`, r.qid);
   }
   return { seats, inherited };
 }
@@ -248,7 +249,7 @@ async function main() {
   const { seats, inherited } = iso ? await municipalSeats(inputPath, iso, outputDir, timestamp) : { seats: new Set<string>(), inherited: new Map<string, string>() };
   if (iso) {
     const rule = municipalSeatLevels(iso);
-    console.log(`🏛️  Municipal seats (BR-POI-010 item 4, levels ${rule.levels.join('/')}${rule.byWikidataClass.length ? ` + ${rule.byWikidataClass.join('/')} by Wikidata class` : ''}): ${seats.size.toLocaleString()}`);
+    console.log(`🏛️  Municipal seats (BR-POI-010 item 4, levels ${[rule.levels.join('/'), rule.byWikidataClass.length ? `${rule.byWikidataClass.join('/')} by Wikidata class` : ''].filter(Boolean).join(' + ')}): ${seats.size.toLocaleString()}`);
   }
   console.log('');
 
