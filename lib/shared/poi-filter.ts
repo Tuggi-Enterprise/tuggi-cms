@@ -604,7 +604,9 @@ export const FILTER_CONFIG = {
       "contrada ", "rione ", "vicolo ", "salita ", "calata ", "fondamenta ", "traversa ", "largo ", "piazzale ", "ciclovia ", // IT
       // FR — "rue"/"route"/"chemin" respondem por ~24k de ruído sem esses prefixos (boulevard/avenue já cobertos pelo EN)
       "rue ", "route ", "chemin ", "ruelle ", "impasse ", "voie ", "quai ", "cours ", "sentier ", "passage ", "allée ", "allee ", "promenade ", "chaussée ", "chaussee ", "faubourg ", "montée ", "montee ", "rond-point ", "ancienne route ", // FR
-      "street ", "avenue ", "st. ", "ave. ", "road ", "rd. ", "lane ", "way ", "drive ", "dr. ", "boulevard ", "blvd. ", "highway " // EN
+      // No "st. ": at the head of an English name it is Saint ("St. Peters Canal", "St. Ann's Lookoff");
+      // the street abbreviation comes last ("Main St.", SUFFIXES). Nova Scotia, 2026-10-25.
+      "street ", "avenue ", "ave. ","road ", "rd. ", "lane ", "way ", "drive ", "dr. ", "boulevard ", "blvd. ", "highway " // EN
     ],
     SUFFIXES: [
       " street", " avenue", " st.", " ave", " road", " rd.", " lane", " way", " drive", " dr.", " boulevard", " blvd.", // EN
@@ -900,12 +902,18 @@ export function shouldFilterPOI(poi: any, facts?: ReferenceFacts): POIFilterResu
     return { remove: true, reason: "PARK: Praça/Largo genérico sem fama ou histórico" };
   }
 
-  // Generic Street Names check - streets should not be POIs unless they are landmarks
-  const isGenericStreet = 
+  // Generic Street Names check - streets should not be POIs unless they are landmarks.
+  // BR-POI-011: the name only judges what is a road — `highway=*`, or no sight tag at all. A sight tag
+  // (what pickCategory names) outranks the name: "Memory Lane" (museum) and "Blueberry Acres"
+  // (attraction) were cut as streets in Nova Scotia (2026-10-25). `place=*` is not a sight tag here: a
+  // locality named "Chemin des X" is the street noise this check exists for.
+  const category = props.highway ? undefined : pickCategory(props);
+  const hasSightTag = !!category && category !== props.place;
+  const isGenericStreet = !hasSightTag && (
     FILTER_CONFIG.STREET_KEYWORDS.PREFIXES.some(p => nameLower.startsWith(p)) ||
     FILTER_CONFIG.STREET_KEYWORDS.SUFFIXES.some(s => nameLower.endsWith(s)) ||
-    FILTER_CONFIG.STREET_KEYWORDS.COMPOUND_SUFFIXES.some(s => nameLower.endsWith(s));
-    
+    FILTER_CONFIG.STREET_KEYWORDS.COMPOUND_SUFFIXES.some(s => nameLower.endsWith(s)));
+
   if (isGenericStreet && !isFamous) {
     return { remove: true, reason: "STREET: Rua/Avenida/Street genérica sem fama ou histórico" };
   }

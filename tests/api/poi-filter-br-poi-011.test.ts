@@ -248,3 +248,24 @@ describe('BR-POI-011 item 23 at import (operator, 2026-10-25): what a passer-by 
     assert.match(reason({ name: 'Socha', tourism: 'artwork', wikidata: 'Q1' }), /generic-name/, 'a name that only says what it is')
   })
 })
+
+describe('BR-POI-011 (Nova Scotia, 2026-10-25): the street-name cut only judges a road; "St." at the head is Saint', () => {
+  it('St. Peters Canal (waterway=canal + historic) enters', () => {
+    assert.equal(f({ name: 'St. Peters Canal', waterway: 'canal', historic: 'canal' }).remove, false)
+    assert.equal(f({ name: 'St. Peters Canal National Historic Site', tourism: 'attraction' }).remove, false)
+  })
+  it('St. Ann\'s Lookoff (tourism=viewpoint) enters', () => {
+    assert.equal(f({ name: "St. Ann's Lookoff", tourism: 'viewpoint' }).remove, false)
+  })
+  it('Main St. (highway=residential) stays out', () => {
+    assert.equal(f({ name: 'Main St.', highway: 'residential' }).remove, true)
+  })
+  it('St. Mary\'s Church (amenity=place_of_worship) is not cut by its name', () => {
+    assert.doesNotMatch(reason({ name: "St. Mary's Church", amenity: 'place_of_worship' }), /^STREET/)
+  })
+  it('a sight tag outranks a street suffix; a locality named like a street stays out', () => {
+    assert.doesNotMatch(reason({ name: 'Memory Lane', tourism: 'museum' }), /^STREET/)
+    assert.doesNotMatch(reason({ name: 'Blueberry Acres', tourism: 'attraction' }), /^STREET/)
+    assert.equal(f({ name: 'Chemin des Vignes', place: 'locality' }).remove, true)
+  })
+})
