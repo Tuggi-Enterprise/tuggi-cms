@@ -64,7 +64,12 @@ export function matchesAccessFilter(level: unknown, filter: string): boolean {
   return accessLevelOf(level) === filter
 }
 
-/** `core.dashboard_app_user_stats()`, one row. PostgREST sends `bigint` as a number here. */
+/**
+ * `core.dashboard_app_user_stats()`, one row. PostgREST sends `bigint` as a number here.
+ *
+ * Since #1045 every column up to `consumed_users` counts permanent accounts only, and the guests
+ * come in their own three columns (BR-USUARIO-037, edge case on panel counts; contract Part 19).
+ */
 export interface AppUserStats {
   total_users: number
   ios_users: number
@@ -79,6 +84,9 @@ export interface AppUserStats {
   purchased_unknown_store_users: number
   until_users: number
   consumed_users: number
+  total_guests: number
+  active_guests_7d: number
+  guests_converted: number
 }
 
 /** Share of the counted base that bought hours, as a whole percent. An empty base is 0, not NaN. */
@@ -86,4 +94,71 @@ export function purchasedShare(stats: Pick<AppUserStats, 'purchased_users' | 'to
   const total = Number(stats.total_users)
   if (!total) return 0
   return Math.round((Number(stats.purchased_users) / total) * 100)
+}
+
+/**
+ * ACCOUNTS AND GUESTS ARE TWO COUNTS, NEVER ONE (BR-USUARIO-037, edge case on panel counts, #1045).
+ *
+ * A guest is an anonymous account of the app. Summed into "users" it inflates the base and sinks
+ * every conversion rate without anything getting worse, so the panel shows the two side by side
+ * and, next to them, the share of guests that became an account.
+ */
+
+/** `filter_kind` of `core.dashboard_app_users_detailed`; `''` on the page is both, sent as `null`. */
+export const USER_KINDS = ['account', 'guest'] as const
+
+export type UserKind = (typeof USER_KINDS)[number]
+
+/**
+ * The RPC answers any other value with `22023`, so an unknown filter goes as `null` (both kinds)
+ * instead of turning the list into an error.
+ */
+export function userKindFilterOf(raw: unknown): UserKind | null {
+  return (USER_KINDS as readonly unknown[]).includes(raw) ? (raw as UserKind) : null
+}
+
+/**
+ * Guests that became an account, as a whole percent of `converted + guests still in the base`
+ * (contract Part 19). `guests_converted` are already in `total_users`; `total_guests` are the ones
+ * that have not converted. The 90-day purge takes out guests that never converted, so this reads
+ * "of the guests still in the base". An empty denominator is 0, not NaN.
+ */
+export function guestConversionRate(
+  counts: { guests_converted: unknown; total_guests: unknown },
+): number {
+  const converted = Number(counts.guests_converted) || 0
+  const denominator = converted + (Number(counts.total_guests) || 0)
+  if (!denominator) return 0
+  return Math.round((converted / denominator) * 100)
+}
+
+/** The user counts the dashboard reads from `core.dashboard_user_analytics[_global]`, one row. */
+export interface UserAnalyticsCounts {
+  /** Permanent accounts. Never guests (BR-USUARIO-037). */
+  totalUsers: number
+  activeUsers30d: number
+  totalGuests: number
+  activeGuests30d: number
+  guestsConverted: number
+  /** Whole percent, see `guestConversionRate`. */
+  guestConversionRate: number
+}
+
+/**
+ * Maps the row as PostgREST returns it. A missing column reads 0: the RPC before #1045 had no guest
+ * columns, and zero guests is what that function counted.
+ */
+export function userAnalyticsCountsOf(row: Record<string, unknown> | null | undefined): UserAnalyticsCounts {
+  const r = row ?? {}
+  return {
+    totalUsers: Number(r.total_users) || 0,
+    activeUsers30d: Number(r.active_users_30d) || 0,
+    totalGuests: Number(r.total_guests) || 0,
+    activeGuests30d: Number(r.active_guests_30d) || 0,
+    guestsConverted: Number(r.guests_converted) || 0,
+    guestConversionRate: guestConversionRate({
+      guests_converted: r.guests_converted,
+      total_guests: r.total_guests,
+    }),
+  }
 }

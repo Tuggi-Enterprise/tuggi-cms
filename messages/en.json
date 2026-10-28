@@ -239,8 +239,10 @@
         "catalog": "Catalog",
         "approved": "Approved POIs",
         "users": "Users",
+        "users_detail": "accounts · {guests} guests\n{rate}% became an account",
         "premium": "Premium",
         "active_30d": "Active 30d",
+        "active_30d_detail": "accounts · {guests} guests",
         "total_trips": "Total Trips",
         "active_base": "Active Base (MAU)",
         "history": "History",
@@ -910,11 +912,17 @@
         "all": "All",
         "all_platforms": "All",
         "all_access": "All",
-        "clear": "Clear filters"
+        "clear": "Clear filters",
+        "kind": "Type",
+        "all_kinds": "All",
+        "kind_account": "Accounts",
+        "kind_guest": "Guests"
       },
       "stats": {
-        "total": "Total",
+        "total": "Accounts",
         "total_detail": "iOS {ios} · Android {android}",
+        "guests": "Guests",
+        "guests_detail": "{active} active (7d)\n{rate}% became an account",
         "new_7d": "New (7d)",
         "active_7d": "Active (7d)",
         "free_only": "Free only",
@@ -942,7 +950,8 @@
         "load_error": "Error loading users",
         "results_info": "Showing {filtered} of {total} users",
         "no_results": "No users found",
-        "logins": "Logins"
+        "logins": "Logins",
+        "guest_badge": "Guest"
       },
       "credit": {
         "panel": {

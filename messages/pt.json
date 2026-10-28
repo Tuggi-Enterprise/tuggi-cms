@@ -239,8 +239,10 @@
         "catalog": "Catálogo Global",
         "approved": "Curadoria Aprovada",
         "users": "Ecossistema de Usuários",
+        "users_detail": "contas · {guests} convidados\n{rate}% viraram conta",
         "premium": "Membros Premium",
         "active_30d": "Ativos (30d)",
+        "active_30d_detail": "contas · {guests} convidados",
         "total_trips": "Viagens Totais",
         "active_base": "Base Ativa (MAU)",
         "history": "Histórico de Atividade",
@@ -908,11 +910,17 @@
         "all": "Todos",
         "all_platforms": "Todas",
         "all_access": "Todos",
-        "clear": "Limpar filtros"
+        "clear": "Limpar filtros",
+        "kind": "Tipo",
+        "all_kinds": "Todos",
+        "kind_account": "Contas",
+        "kind_guest": "Convidados"
       },
       "stats": {
-        "total": "Total",
+        "total": "Contas",
         "total_detail": "iOS {ios} · Android {android}",
+        "guests": "Convidados",
+        "guests_detail": "{active} ativos (7d)\n{rate}% viraram conta",
         "new_7d": "Novos (7d)",
         "active_7d": "Ativos (7d)",
         "free_only": "Só grátis",
@@ -940,7 +948,8 @@
         "load_error": "Erro ao carregar usuários",
         "results_info": "Mostrando {filtered} de {total} usuários",
         "no_results": "Nenhum usuário encontrado",
-        "logins": "Logins"
+        "logins": "Logins",
+        "guest_badge": "Convidado"
       },
       "credit": {
         "panel": {

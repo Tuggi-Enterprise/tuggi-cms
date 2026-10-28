@@ -19,6 +19,7 @@ import { fetchDashboardRoute, type RpcResult } from '@/lib/api/dashboard-fetch'
 import { nameMatchFilter } from '@/lib/shared/name-search'
 import { optionalMinutes } from '@/lib/format/duration'
 import { ENTITLEMENT_STATES } from '@/lib/credit/entitlement'
+import { userAnalyticsCountsOf } from '@/lib/users/app-user-access'
 import type { EntitlementState, GrantSource } from '@/lib/credit/entitlement'
 
 // The entitlement vocabulary is owned by `lib/credit/entitlement.ts`; it is re-exported
@@ -88,9 +89,14 @@ export interface DashboardStats {
   contentCoverage: number
   citiesCovered: number
   
-  // User Analytics
+  // User Analytics. Accounts and guests are two counts, never summed (BR-USUARIO-037, #1045).
   totalUsers: number
   activeUsers30d: number
+  totalGuests: number
+  activeGuests30d: number
+  guestsConverted: number
+  /** Whole percent of guests that became an account; `guestConversionRate`. */
+  guestConversionRate: number
   totalTrips: number
   totalKmDriven: number
   totalPOIVisits: number
@@ -182,6 +188,10 @@ export const EMPTY_DASHBOARD_STATS: DashboardStats = {
   citiesCovered: 0,
   totalUsers: 0,
   activeUsers30d: 0,
+  totalGuests: 0,
+  activeGuests30d: 0,
+  guestsConverted: 0,
+  guestConversionRate: 0,
   totalTrips: 0,
   totalKmDriven: 0,
   totalPOIVisits: 0,
@@ -410,6 +420,8 @@ export interface AppUserDetailed {
   total_km: number
   poi_visits_count: number
   last_trip_at: string | null
+  /** Guest (anonymous account) or permanent account; last column since #1045. */
+  is_anonymous: boolean
 }
 
 /** One line of the subscription timeline of `core.dashboard_user_detail`. */
@@ -628,8 +640,7 @@ class DashboardService {
         citiesCovered: cityStats.length,
         
         // User Analytics
-        totalUsers: Number(userAnalytics.total_users || 0),
-        activeUsers30d: Number(userAnalytics.active_users_30d || 0),
+        ...userAnalyticsCountsOf(userAnalytics),
         totalTrips: Number(userAnalytics.total_trips || 0),
         totalKmDriven: Math.round(Number(userAnalytics.total_km_driven || 0)),
         totalPOIVisits: Number(userAnalytics.total_poi_visits || 0),

@@ -231,10 +231,27 @@ export default function DashboardPage() {
           <StatCard size="compact" icon={CheckCircle} title={t('labels.approved')} value={stats.approvedPOIs} color={TUGGI_COLORS.green} isLoading={isLoading} />
         </Link>
         <Link href="/dashboard/reports/users">
-          <StatCard size="compact" icon={Users} title={t('labels.users')} value={stats.totalUsers} color={TUGGI_COLORS.purple} isLoading={isLoading} />
+          {/* Accounts and guests side by side, never summed (BR-USUARIO-037, #1045). */}
+          <StatCard
+            size="compact"
+            icon={Users}
+            title={t('labels.users')}
+            value={stats.totalUsers}
+            subtitle={t('labels.users_detail', { guests: stats.totalGuests, rate: stats.guestConversionRate })}
+            color={TUGGI_COLORS.purple}
+            isLoading={isLoading}
+          />
         </Link>
         <Link href="/dashboard/reports/engagement">
-          <StatCard size="compact" icon={Zap} title={t('labels.active_30d')} value={stats.activeUsers30d} color={TUGGI_COLORS.green} isLoading={isLoading} />
+          <StatCard
+            size="compact"
+            icon={Zap}
+            title={t('labels.active_30d')}
+            value={stats.activeUsers30d}
+            subtitle={t('labels.active_30d_detail', { guests: stats.activeGuests30d })}
+            color={TUGGI_COLORS.green}
+            isLoading={isLoading}
+          />
         </Link>
         {/* Paid access = `unlimited` + `metered` (BR-MONETIZACAO-046). With no aggregate
             the card shows an em dash: zero would claim that nobody pays. */}

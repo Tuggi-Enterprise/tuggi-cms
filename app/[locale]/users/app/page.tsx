@@ -5,7 +5,7 @@ import { useRouter, useSearchParams } from 'next/navigation'
 import { useSupabaseClient } from '@supabase/auth-helpers-react'
 import {
   Smartphone, Search, RefreshCw, Filter, AlertCircle, ChevronDown,
-  User, UserPlus, Activity, ShoppingBag, CalendarClock, Headphones,
+  User, UserPlus, UserRound, Activity, ShoppingBag, CalendarClock, Headphones,
   ArrowUpDown, ArrowUp, ArrowDown
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
@@ -19,7 +19,8 @@ import { appUserInitial } from '@/lib/format/user-identity'
 import { useLocale, useTranslations } from 'next-intl'
 import { APP_USER_PARAM, APP_USER_TAB_PARAM, appUserListHref, appUserTab } from '@/lib/users/app-user-href'
 import {
-  ACCESS_LEVELS, accessBadge, accessLevelOf, matchesAccessFilter, purchasedShare, storeDetailKey,
+  ACCESS_LEVELS, USER_KINDS, accessBadge, accessLevelOf, guestConversionRate, matchesAccessFilter,
+  purchasedShare, storeDetailKey, userKindFilterOf,
   type AppUserStats,
 } from '@/lib/users/app-user-access'
 
@@ -65,6 +66,8 @@ interface AppUser {
   /** `app_store` | `play_store` | null; the newest real purchase, SANDBOX ignored. */
   purchase_store: string | null
   minutes_consumed: number
+  /** A guest (anonymous account), not a permanent one (BR-USUARIO-037, #1045). */
+  is_anonymous: boolean
 }
 
 type SortConfig = {
@@ -140,6 +143,7 @@ export default function AppUsersPage() {
   const [filterCountry, setFilterCountry] = useState<string>('')
   const [filterPlatform, setFilterPlatform] = useState<string>('')
   const [filterAccess, setFilterAccess] = useState<string>('')
+  const [filterKind, setFilterKind] = useState<string>('')
   const [showFilters, setShowFilters] = useState(false)
   
   // Sorting
@@ -163,7 +167,8 @@ export default function AppUsersPage() {
         .rpc('dashboard_app_users_detailed', {
           limit_count: null,
           filter_country: filterCountry || null,
-          filter_platform: filterPlatform || null
+          filter_platform: filterPlatform || null,
+          filter_kind: userKindFilterOf(filterKind),
         })
 
       // No fallback to another RPC: a list without `access_level` would show every tourist with
@@ -177,7 +182,7 @@ export default function AppUsersPage() {
     } finally {
       setIsLoading(false)
     }
-  }, [supabase, filterCountry, filterPlatform])
+  }, [supabase, filterCountry, filterPlatform, filterKind])
 
   // The big numbers. They exclude test accounts (`excluded_from_metrics`) and the list does not,
   // so they are never recomputed from `users`: a missing row shows the skeleton, not a guess.
@@ -263,6 +268,7 @@ export default function AppUsersPage() {
     setFilterCountry('')
     setFilterPlatform('')
     setFilterAccess('')
+    setFilterKind('')
     setSearchQuery('')
   }
   
@@ -312,14 +318,27 @@ export default function AppUsersPage() {
         </div>
       </div>
 
-      {/* Big numbers (#979). Read from `dashboard_app_user_stats`; the three levels add up to the total. */}
-      <StatCardRow columns={7} className="mb-6">
+      {/* Big numbers (#979). Read from `dashboard_app_user_stats`; the three levels add up to the total.
+          Every card counts accounts, and guests have their own card: the two are never summed
+          (BR-USUARIO-037, #1045). */}
+      <StatCardRow columns={8} className="mb-6">
         <StatCard
           label={t('stats.total')}
           value={stats?.total_users ?? 0}
           subtitle={stats ? t('stats.total_detail', { ios: stats.ios_users, android: stats.android_users }) : undefined}
           icon={Smartphone}
           color="#00A8E8"
+          isLoading={isLoading || !stats}
+        />
+        <StatCard
+          label={t('stats.guests')}
+          value={stats?.total_guests ?? 0}
+          subtitle={stats ? t('stats.guests_detail', {
+            active: stats.active_guests_7d,
+            rate: guestConversionRate(stats),
+          }) : undefined}
+          icon={UserRound}
+          color="#64748B"
           isLoading={isLoading || !stats}
         />
         <StatCard label={t('stats.new_7d')} value={stats?.new_users_7d ?? 0} icon={UserPlus} color="#10B981" isLoading={isLoading || !stats} />
@@ -344,7 +363,7 @@ export default function AppUsersPage() {
       {/* Filters Panel */}
       {showFilters && (
         <div className="mb-6 p-4 bg-white dark:bg-gray-900 rounded-xl border border-gray-200 dark:border-gray-800 animate-in slide-in-from-top-2">
-          <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+          <div className="grid grid-cols-1 md:grid-cols-5 gap-4">
             <div>
               <label className="block text-xs font-bold text-gray-500 uppercase tracking-wider mb-2">
                 {t('filters.country')}
@@ -386,6 +405,21 @@ export default function AppUsersPage() {
                 <option value="">{t('filters.all_access')}</option>
                 {ACCESS_LEVELS.map((level) => (
                   <option key={level} value={level}>{t(`access.${accessBadge(level).labelKey}`)}</option>
+                ))}
+              </select>
+            </div>
+            <div>
+              <label className="block text-xs font-bold text-gray-500 uppercase tracking-wider mb-2">
+                {t('filters.kind')}
+              </label>
+              <select
+                value={filterKind}
+                onChange={(e) => setFilterKind(e.target.value)}
+                className="w-full px-4 py-2 border border-gray-200 dark:border-gray-700 rounded-lg bg-white dark:bg-gray-800 text-gray-900 dark:text-white"
+              >
+                <option value="">{t('filters.all_kinds')}</option>
+                {USER_KINDS.map((kind) => (
+                  <option key={kind} value={kind}>{t(`filters.kind_${kind}`)}</option>
                 ))}
               </select>
             </div>
@@ -551,6 +585,11 @@ export default function AppUsersPage() {
                             className="block font-medium text-gray-900 dark:text-white truncate max-w-full"
                             onUpdate={refreshAll}
                           />
+                          {user.is_anonymous && (
+                            <span className="mt-1 inline-block px-2 py-0.5 rounded bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-300 text-xs font-bold">
+                              {t('table.guest_badge')}
+                            </span>
+                          )}
                         </div>
                       </div>
                     </td>
