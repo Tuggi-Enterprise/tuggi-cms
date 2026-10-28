@@ -610,7 +610,7 @@
           "delivered": "Recibidos",
           "delivered_hint": "La app avisó que el push llegó. En iPhone con la app cerrada ese aviso no sale, así que el número queda por debajo del real.",
           "opened": "Abiertos",
-          "opened_hint": "La persona tocó el push. Este número es confiable.",
+          "opened_hint": "La persona tocó el push, abrió el mensaje en el buzón de la app o marcó todas como leídas. Aun así, es el número más confiable del embudo.",
           "not_delivered": "No recibidos",
           "not_delivered_hint": "FCM rechazó el dispositivo o el envío falló, como un correo devuelto. No es enviados menos recibidos: esa diferencia incluye los iPhone que no avisaron.",
           "open_rate": "Apertura",
@@ -623,7 +623,7 @@
           "installed_hint": "Dispositivos que todavía pueden recibir push. El token se apaga cuando un envío encuentra el dispositivo sin la app.",
           "uninstalled": "Desinstalaron",
           "uninstalled_sub": "en la semana",
-          "uninstalled_hint": "Tokens apagados en los últimos 7 días. Solo cuenta cuando un envío encuentra el dispositivo sin la app, así que una semana sin envío muestra cero."
+          "uninstalled_hint": "Aparece como sin dato: la base de datos desactiva el token cuando un envío encuentra el dispositivo sin la app, pero no guarda la fecha. Sin ella, no se puede contar cuántos desinstalaron en la semana."
         },
         "performance": {
           "title": "Resultado de la campaña",
@@ -1566,7 +1566,7 @@
         "delivered": "Recibidos",
         "delivered_hint": "La app avisó que el push llegó. En iPhone con la app cerrada ese aviso no sale, así que el número queda por debajo del real.",
         "opened": "Abiertos",
-        "opened_hint": "La persona tocó el push. Este número es confiable.",
+        "opened_hint": "La persona tocó el push, abrió el mensaje en el buzón de la app o marcó todas como leídas. Aun así, es el número más confiable del embudo.",
         "in_progress": "Enviando por zonas horarias",
         "in_progress_hint": "Elegidos que el envío todavía no cerró. Si quedan después de que pasa el día, el envío no terminó.",
         "denied": "Bloqueados en la puerta",

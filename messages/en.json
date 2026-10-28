@@ -621,7 +621,7 @@
           "delivered": "Delivered",
           "delivered_hint": "The app reported the push arrived. On an iPhone with the app closed that report never goes out, so the number runs below the real one.",
           "opened": "Opened",
-          "opened_hint": "The person tapped the push. This number is reliable.",
+          "opened_hint": "The person tapped the push, opened the message in the app inbox or marked all as read. Even so, it is the most reliable number in the funnel.",
           "not_delivered": "Not delivered",
           "not_delivered_hint": "FCM refused the device or the send failed, like a bounced e-mail. It is not sent minus delivered: that gap includes iPhones that never reported.",
           "open_rate": "Open rate",
@@ -634,7 +634,7 @@
           "installed_hint": "Devices that can still get a push. The token is turned off when a send finds the device without the app.",
           "uninstalled": "Uninstalled",
           "uninstalled_sub": "this week",
-          "uninstalled_hint": "Tokens turned off in the last 7 days. It only counts when a send finds the device without the app, so a week with no send shows zero."
+          "uninstalled_hint": "Shows as no data: the database turns the token off when a send finds the device without the app, but does not store the date. Without it, there is no way to count how many uninstalled in the week."
         },
         "performance": {
           "title": "Campaign results",
@@ -1579,7 +1579,7 @@
         "delivered": "Delivered",
         "delivered_hint": "The app reported the push arrived. On an iPhone with the app closed that report never goes out, so the number runs below the real one.",
         "opened": "Opened",
-        "opened_hint": "The person tapped the push. This number is reliable.",
+        "opened_hint": "The person tapped the push, opened the message in the app inbox or marked all as read. Even so, it is the most reliable number in the funnel.",
         "in_progress": "Sending across time zones",
         "in_progress_hint": "Picked people the send has not closed yet. If some remain after the day is over, the send did not finish.",
         "denied": "Blocked at the gate",
