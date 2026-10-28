@@ -331,7 +331,8 @@ export function PieceCard({
     }
   }
 
-  const lowerDay = day.toLocaleLowerCase()
+  // English capitalizes weekdays, so the sentence keeps the label as is.
+  const lowerDay = useLocale() === 'en' ? day : day.toLocaleLowerCase()
 
   return (
     <div
