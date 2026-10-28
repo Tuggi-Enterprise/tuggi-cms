@@ -86,6 +86,21 @@ function stringifyData(data: unknown): Record<string, string> {
   return out;
 }
 
+/** `delivery_error` when the person had no active device, so FCM was never asked (#1052). */
+const NO_ACTIVE_TOKEN = 'NO_ACTIVE_TOKEN';
+/** `delivery_error` when the send threw before or around FCM (OAuth exchange, network). */
+const SEND_EXCEPTION = 'SEND_EXCEPTION';
+
+/**
+ * `drive.user_notifications.delivery_error` (#1052): the distinct codes, sorted, comma separated.
+ * Anything that is not an upper-case code reads UNKNOWN, so no token, message or id reaches the
+ * column whatever FCM answers.
+ */
+function deliveryErrorOf(codes: string[]): string {
+  const clean = new Set(codes.map((c) => (/^[A-Z_]{1,64}$/.test(c) ? c : 'UNKNOWN')));
+  return [...clean].sort().join(',') || 'UNKNOWN';
+}
+
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
@@ -295,13 +310,15 @@ Deno.serve(async (req) => {
       ttl: number,
       brake: { invalid: number; attempted: number } = { invalid: 0, attempted: 0 }
     ) => {
-      if (tokens.length === 0) return { success: 0, failure: 0, errors: [], aborted: null };
+      if (tokens.length === 0) return { success: 0, failure: 0, errors: [], codes: [], aborted: null };
       
       const accessToken = await getAccessToken();
       const results = {
         success: 0,
         failure: 0,
         errors: [] as string[],
+        // One FCM code per refused token, for `recordDeliveryFailure`. Codes only, never the token.
+        codes: [] as string[],
         // Set only when the loop gave up on a payload FCM keeps rejecting; the
         // routes turn it into a non-2xx so the caller does not record a send.
         aborted: null as string | null,
@@ -340,6 +357,7 @@ Deno.serve(async (req) => {
             // prose `message` — the old `message.includes(...)` matched neither.
             const code = fcmErrorCode(data);
             results.failure++;
+            results.codes.push(code || 'UNKNOWN');
             results.errors.push(`Token ${token.substring(0, 8)}...: ${code || 'UNKNOWN'} ${error}`);
             console.error(`[${requestId}] ⚠️ FCM error for token ${token.substring(0, 8)}:`, JSON.stringify(data));
 
@@ -375,6 +393,7 @@ Deno.serve(async (req) => {
           }
         } catch (e) {
           results.failure++;
+          results.codes.push(SEND_EXCEPTION);
           results.errors.push(`Token ${token.substring(0, 8)}...: ${(e as Error).message}`);
         }
       }
@@ -475,6 +494,29 @@ Deno.serve(async (req) => {
      * (item 6). A broadcast persists its inbox for the whole audience first (#858) and passes
      * `false`, with `skipWithoutDevice` so nobody without a device costs a gate call.
      */
+    /**
+     * #1052, BR-COMUNICACAO-022: the inbox row of a push nobody received says so, in
+     * `delivery_failed_at` and `delivery_error`. "Not received" is the gate's `not_delivered`
+     * (`deliverTo` resolved false: no active device, or FCM refused every token), the same
+     * predicate the weekly sender writes to `weekly_push_sends`, so the two columns of the report
+     * measure the same thing. Only rows this run wrote and holds the id of: a broadcast's inbox is
+     * written in SQL by `broadcast_persist_inbox`, which answers people, not rows.
+     *
+     * A failed write is logged and the send goes on: the push already left (or did not), and the
+     * report losing one row is cheaper than the caller retrying a send that went out.
+     */
+    const recordDeliveryFailure = async (notificationId: string, codes: string[]) => {
+      const deliveryError = deliveryErrorOf(codes);
+      const { error } = await supabase
+        .schema('drive')
+        .from('user_notifications')
+        .update({ delivery_failed_at: new Date().toISOString(), delivery_error: deliveryError })
+        .eq('id', notificationId);
+      if (error) {
+        console.error(`[${requestId}] ⚠️ delivery failure not recorded: ${error.code ?? '?'} (${deliveryError})`);
+      }
+    };
+
     const driveRpc = supabase.schema('drive');
     let activeWindowDays: number | null | undefined;
     const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -518,6 +560,7 @@ Deno.serve(async (req) => {
       const brake = { invalid: 0, attempted: 0 };
       const deliverTo = async (uid: string): Promise<boolean> => {
         let notif = notification;
+        let inboxId: string | null = null;
         if (opts.persistInbox) {
           const { data: inserted, error: insErr } = await supabase
             .schema('drive')
@@ -535,6 +578,7 @@ Deno.serve(async (req) => {
           if (insErr) {
             console.error(`[${requestId}] ⚠️ inbox persist failed:`, insErr.code ?? '?');
           } else if (inserted?.id) {
+            inboxId = inserted.id;
             // The device acks delivery with this id (ack_notification_delivered).
             notif = { ...notif, data: { ...(notif.data || {}), notification_id: inserted.id } };
           }
@@ -551,13 +595,23 @@ Deno.serve(async (req) => {
           if (!cErr && typeof count === 'number' && count > 0) notif = { ...notif, badge: count };
         }
         const tokens = [...(tokensByUser.get(uid) ?? [])];
-        if (tokens.length === 0) return false;
+        if (tokens.length === 0) {
+          if (inboxId) await recordDeliveryFailure(inboxId, [NO_ACTIVE_TOKEN]);
+          return false;
+        }
         tokenCount += tokens.length;
-        const s = await sendNotification(tokens, notif, priority, ttl, brake);
+        let s: Awaited<ReturnType<typeof sendNotification>>;
+        try {
+          s = await sendNotification(tokens, notif, priority, ttl, brake);
+        } catch (e) {
+          if (inboxId) await recordDeliveryFailure(inboxId, [SEND_EXCEPTION]);
+          throw e;
+        }
         stats.success += s.success;
         stats.failure += s.failure;
         stats.errors.push(...s.errors);
         if (s.aborted) stats.aborted = s.aborted;
+        if (s.success === 0 && inboxId) await recordDeliveryFailure(inboxId, s.codes);
         return s.success > 0;
       };
 

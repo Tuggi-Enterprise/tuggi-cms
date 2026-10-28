@@ -33,6 +33,10 @@ export interface Scenario {
    * answers per query, for code that reads the same table more than once.
    */
   tables: Record<string, unknown | TableAnswer>;
+  /** What an RPC answers, by name; RPCs not listed answer `{ data: null, error: null }`. */
+  rpcs: Record<string, { data: unknown; error: { code?: string } | null }>;
+  /** The error a query on a table answers, by its chain; tables not listed never fail. */
+  tableErrors: Record<string, (chain: string[]) => { code?: string } | null>;
   calls: string[];
   /** Every insert, update and upsert, in order. Reset with `calls` by `request()`. */
   writes: FakeWrite[];
@@ -42,6 +46,8 @@ export const scenario: Scenario = {
   user: null,
   entitlement: { data: null, error: null },
   tables: {},
+  rpcs: {},
+  tableErrors: {},
   calls: [],
   writes: [],
 };
@@ -78,7 +84,8 @@ function builder(result: (chain: string[]) => Promise<unknown>, table?: string):
 function tableResult(table: string, chain: string[]): Promise<unknown> {
   const answer = scenario.tables[table];
   const data = typeof answer === 'function' ? (answer as TableAnswer)(chain) : answer;
-  return Promise.resolve({ data: data ?? null, error: null });
+  const error = scenario.tableErrors[table]?.(chain) ?? null;
+  return Promise.resolve(error ? { data: null, error } : { data: data ?? null, error: null });
 }
 
 function entitlementResult(): Promise<unknown> {
@@ -94,7 +101,8 @@ function schemaScope(): Record<string, unknown> {
     },
     rpc: (fn: string) => {
       scenario.calls.push(`rpc:${fn}`);
-      return builder(fn === 'get_entitlement' ? entitlementResult : () => Promise.resolve(EMPTY));
+      if (fn === 'get_entitlement') return builder(entitlementResult);
+      return builder(() => Promise.resolve(scenario.rpcs[fn] ?? EMPTY));
     },
   };
 }

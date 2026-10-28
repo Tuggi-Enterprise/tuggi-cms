@@ -12,8 +12,8 @@ export { scenario };
 
 export const fetchCalls: string[] = [];
 
-/** What every `fetch` answers. Defaults to a 400, so a paid call fails; a test may script it. */
-export const network: { reply: () => Response } = {
+/** What every `fetch` answers, by URL. Defaults to a 400, so a paid call fails; a test may script it. */
+export const network: { reply: (url: string) => Response } = {
   reply: () => new Response('{}', { status: 400 }),
 };
 
@@ -27,11 +27,21 @@ const TEST_ENV: Record<string, string> = {
 export async function loadHandler(functionDir: string): Promise<Handler> {
   for (const [name, value] of Object.entries(TEST_ENV)) Deno.env.set(name, value);
   globalThis.fetch = (input: string | URL | Request) => {
-    fetchCalls.push(input instanceof Request ? input.url : String(input));
-    return Promise.resolve(network.reply());
+    const url = input instanceof Request ? input.url : String(input);
+    fetchCalls.push(url);
+    return Promise.resolve(network.reply(url));
   };
   const before = capturedHandlers.length;
-  await import(new URL(`../${functionDir}/index.ts`, import.meta.url).href);
+  // A function on `Deno.serve` instead of std's `serve` is captured the same way.
+  const realServe = Deno.serve;
+  (Deno as { serve: unknown }).serve = (handler: Handler) => {
+    capturedHandlers.push(handler);
+  };
+  try {
+    await import(new URL(`../${functionDir}/index.ts`, import.meta.url).href);
+  } finally {
+    (Deno as { serve: unknown }).serve = realServe;
+  }
   if (capturedHandlers.length !== before + 1) throw new Error(`${functionDir} did not call serve once`);
   return capturedHandlers[before];
 }
