@@ -27,7 +27,9 @@ export type PushKind =
   | 'ranking_rank_drop'
   | 'weekly_podium'
   | 'cms_broadcast'
-  | 'cms_direct';
+  | 'cms_direct'
+  | 'weekly_thursday_local'
+  | 'weekly_saturday_local';
 
 export interface PushKindPolicy {
   /**
@@ -54,6 +56,12 @@ export const PUSH_KINDS: Readonly<Record<PushKind, PushKindPolicy>> = {
   // Item 3.l: the CMS push counts against the cap and comes last.
   cms_broadcast: { requested: false, requiresActive: false, vacancyPriority: 4 },
   cms_direct: { requested: false, requiresActive: false, vacancyPriority: 4 },
+  // Item 3.m (#1046, #1047): the weekly pieces reach whoever has push on, using the app or not. They
+  // have their own cap (item 4.1) and stay out of the item 7 dispute: `drive.push_allowed` counts
+  // them apart, so their priority is never compared with the kinds above. Sender:
+  // `weekly-local-push` (`_shared/weekly-local-push.ts`).
+  weekly_thursday_local: { requested: false, requiresActive: false, vacancyPriority: 4 },
+  weekly_saturday_local: { requested: false, requiresActive: false, vacancyPriority: 4 },
 };
 
 /** `null` for anything that is not a known kind: an unknown kind is refused, never defaulted. */
