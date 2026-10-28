@@ -27,6 +27,8 @@ export interface RpcError {
   message: string
   /** The provider's SQLSTATE, when the route carried one. `42501` is the only one a screen names. */
   code?: string
+  /** The HTTP status. `403` is the gate of `withAuth`, which carries no SQLSTATE. */
+  status?: number
 }
 
 export interface RpcResult<T> {
@@ -48,7 +50,7 @@ export async function fetchDashboardRoute<T>(path: string): Promise<RpcResult<T>
   if (!response.ok) {
     const message = (body && typeof body.error === 'string' && body.error) || `HTTP ${response.status}`
     const code = body && typeof body.code === 'string' ? body.code : undefined
-    return { data: null, error: { message, code } }
+    return { data: null, error: { message, code, status: response.status } }
   }
 
   return { data: (body?.data ?? null) as T | null, error: null }

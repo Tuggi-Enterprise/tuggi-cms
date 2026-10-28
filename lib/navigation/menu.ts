@@ -172,6 +172,9 @@ function catalogue(): { basic: NavEntry[]; modules: NavEntry[] } {
               item('/dashboard/reports/ranking', 'ranking', Trophy),
               // Quem iniciou, está em andamento e concluiu cada roteiro (#794).
               item('/dashboard/reports/route-progress', 'route_progress', Flag),
+              // Who received and who opened each push (#1051). `Bell`, not the `BellRing` of
+              // the weekly push: one configures, the other reads.
+              item('/dashboard/reports/push', 'push_results', Bell),
             ],
           },
         ],

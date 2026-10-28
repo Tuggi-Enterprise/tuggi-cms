@@ -617,7 +617,7 @@
         "funnel": {
           "title": "Delivery",
           "sent": "Sent",
-          "sent_hint": "What FCM accepted. Not delivered, not opened.",
+          "sent_hint": "On the weekly push, what FCM accepted. On direct and mass pushes, every recipient, with or without a device. Not delivered or opened.",
           "delivered": "Delivered",
           "delivered_hint": "The app reported the push arrived. On an iPhone with the app closed that report never goes out, so the number runs below the real one.",
           "opened": "Opened",

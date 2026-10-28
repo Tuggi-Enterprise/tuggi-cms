@@ -17,7 +17,7 @@
 
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useLocale, useTranslations } from 'next-intl'
-import { ChevronDown, ChevronRight } from 'lucide-react'
+import { CheckCheck, ChevronDown, ChevronRight, MailOpen, Percent, Send } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Container } from '@/components/ui/Container'
 import { CharCount } from '@/components/ui/CharCount'
@@ -26,6 +26,10 @@ import { Label } from '@/components/ui/label'
 import { Select } from '@/components/ui/select'
 import { Textarea } from '@/components/ui/textarea'
 import { TuggiLogo } from '@/components/ui/TuggiLogo'
+import { StatCard, StatCardRow } from '@/components/ui/StatCard'
+import { CHART_COLORS } from '@/lib/constants/chart-colors'
+import { UNKNOWN_VALUE } from '@/lib/format/unknown'
+import type { WeeklyPushEngagement, WeeklyPushEngagementSend } from '@/lib/notifications/push-report'
 import {
   CELL,
   DIM,
@@ -55,6 +59,7 @@ import {
   type WeeklyPushPieceRow,
   type WeeklyPushPolicy,
   type WeeklyPushResults,
+  type WeeklyPushSend,
   type WeeklyPushSettings,
   type WeeklyPushTextProblem,
   type WeeklyPushTextRow,
@@ -66,7 +71,7 @@ type Load<T> = { state: 'loading' } | { state: 'error' } | { state: 'ready'; dat
 type Translate = ReturnType<typeof useTranslations>
 
 const SAVED_MS = 2000
-const RESULT_COLUMNS = 7
+const RESULT_COLUMNS = 9
 
 /** Values every refusal message may ask for; a key that does not use one ignores it. */
 function errorValues(policy: WeeklyPushPolicy | null, code?: WeeklyPushErrorCode | 'name_in_title') {
@@ -102,6 +107,7 @@ export function WeeklyPushPageContent() {
   const locale = useLocale()
   const [settings, setSettings] = useState<Load<WeeklyPushSettings>>({ state: 'loading' })
   const [results, setResults] = useState<Load<WeeklyPushResults>>({ state: 'loading' })
+  const [engagement, setEngagement] = useState<Load<WeeklyPushEngagement>>({ state: 'loading' })
 
   const dateFormat = useMemo(() => new Intl.DateTimeFormat(locale, { dateStyle: 'short' }), [locale])
 
@@ -125,10 +131,23 @@ export function WeeklyPushPageContent() {
     }
   }, [])
 
+  // Received and opened (#1051) come from their own read and fail alone: the table keeps its
+  // columns and the two new ones print "sem dado".
+  const fetchEngagement = useCallback(async () => {
+    try {
+      const response = await fetch('/api/admin/weekly-push/engagement', { cache: 'no-store' })
+      if (!response.ok) throw new Error(String(response.status))
+      setEngagement({ state: 'ready', data: (await response.json()) as WeeklyPushEngagement })
+    } catch {
+      setEngagement({ state: 'error' })
+    }
+  }, [])
+
   useEffect(() => {
     void fetchSettings()
     void fetchResults()
-  }, [fetchSettings, fetchResults])
+    void fetchEngagement()
+  }, [fetchSettings, fetchResults, fetchEngagement])
 
   const ready = settings.state === 'ready' ? settings.data : null
 
@@ -230,6 +249,7 @@ export function WeeklyPushPageContent() {
             </h2>
             <p className={`mt-1 text-sm ${DIM}`}>{t('results.subtitle')}</p>
           </header>
+          <EngagementSummary engagement={engagement} t={t} locale={locale} />
           {results.state === 'loading' ? loadingLine : null}
           {results.state === 'error' ? (
             <div role="alert" className="flex items-center gap-3 rounded-md border border-red-200 bg-red-50 p-3 text-sm text-red-800">
@@ -245,6 +265,7 @@ export function WeeklyPushPageContent() {
           {results.state === 'ready' ? (
             <ResultsTable
               results={results.data}
+              engagement={engagement.state === 'ready' ? engagement.data.sends : null}
               pieces={ready?.pieces ?? []}
               t={t}
               dateFormat={dateFormat}
@@ -413,20 +434,76 @@ export function PieceCard({
 
 // ── Results ──────────────────────────────────────────────────────────────────────────────
 
+/**
+ * The summary of the last weeks (#1051, spec 2.3): sent, received, opened and the rate, the two
+ * pieces together. Received is a floor (no confirmation from an iPhone with the app closed), and
+ * the hint under the title says so next to the number. NULL or a failed read prints "sem dado".
+ */
+function EngagementSummary({
+  engagement,
+  t,
+  locale,
+}: {
+  engagement: Load<WeeklyPushEngagement>
+  t: Translate
+  locale: string
+}) {
+  const summary = engagement.state === 'ready' ? engagement.data.summary : null
+  const integer = new Intl.NumberFormat(locale)
+  const percent = new Intl.NumberFormat(locale, { style: 'percent', maximumFractionDigits: 1 })
+  const show = (value: number | null | undefined, format: (v: number) => string) =>
+    value == null ? UNKNOWN_VALUE : format(value)
+  const noData = useTranslations('Pages.Dashboard.push')('no_data')
+  const cards = [
+    { key: 'sent', icon: Send, color: CHART_COLORS.blue, label: t('results.sent'), title: t('results.sent_hint'), value: show(summary?.sent, integer.format) },
+    { key: 'delivered', icon: CheckCheck, color: CHART_COLORS.green, label: t('results.delivered'), title: t('results.delivered_hint'), value: show(summary?.delivered, integer.format) },
+    { key: 'opened', icon: MailOpen, color: CHART_COLORS.purple, label: t('results.opened'), title: t('results.opened_hint'), value: show(summary?.opened, integer.format) },
+    { key: 'rate', icon: Percent, color: CHART_COLORS.orange, label: t('results.summary.open_rate'), title: t('results.summary.open_rate_hint'), value: show(summary?.open_rate, percent.format) },
+  ]
+  const weeks = summary?.weeks
+  return (
+    <div className="mb-4 space-y-2">
+      {weeks !== undefined && (
+        <h3 className="text-sm font-semibold text-gray-900 dark:text-gray-100">{t('results.summary.title', { weeks })}</h3>
+      )}
+      <p className={`text-[11px] ${DIM}`}>{t('results.summary.hint')}</p>
+      <StatCardRow columns={4}>
+        {cards.map((card) => (
+          <div key={card.key} title={card.title}>
+            <StatCard
+              size="compact"
+              icon={card.icon}
+              color={card.color}
+              label={card.label}
+              value={card.value}
+              subtitle={card.value === UNKNOWN_VALUE ? noData : undefined}
+              isLoading={engagement.state === 'loading'}
+            />
+          </div>
+        ))}
+      </StatCardRow>
+    </div>
+  )
+}
+
 function ResultsTable({
   results,
+  engagement,
   pieces,
   t,
   dateFormat,
   locale,
 }: {
   results: WeeklyPushResults
+  /** `drive.cms_get_weekly_push_engagement` sends; `null` while it loads or after it failed. */
+  engagement: WeeklyPushEngagementSend[] | null
   pieces: WeeklyPushPieceRow[]
   t: Translate
   dateFormat: Intl.DateTimeFormat
   locale: string
 }) {
   const dayMonth = useMemo(() => new Intl.DateTimeFormat(locale, { day: '2-digit', month: '2-digit' }), [locale])
+  const noData = useTranslations('Pages.Dashboard.push')('no_data')
 
   if (results.weeks.length === 0) {
     return (
@@ -442,6 +519,14 @@ function ResultsTable({
     return hour === undefined ? day : t('pieces.row_title', { day, hour })
   }
   const count = (n: number) => <span className={n === 0 ? DIM : undefined}>{n}</span>
+  const engagementOf = new Map((engagement ?? []).map((e) => [`${e.piece}:${e.local_date}`, e]))
+  /** Received and opened: NULL, a failed read or a send the engagement does not know is "sem dado". */
+  const measured = (send: WeeklyPushSend, field: 'delivered' | 'opened') => {
+    // A send with nothing sent has no engagement row and nothing to receive: that zero is measured.
+    const row = engagementOf.get(`${send.piece}:${send.local_date}`)
+    const n = engagement === null ? null : row ? row[field] : send.sent === 0 ? 0 : null
+    return n == null ? <span className={DIM} title={noData}>{UNKNOWN_VALUE}</span> : count(n)
+  }
 
   return (
     <div className="rounded-lg border border-gray-200 bg-white dark:border-gray-800 dark:bg-gray-900">
@@ -454,6 +539,8 @@ function ResultsTable({
               <th scope="col" className={HEAD_SOLO}>{t('results.piece')}</th>
               <th scope="col" className={HEAD_SOLO_NUM} title={t('results.picked_hint')}>{t('results.picked')}</th>
               <th scope="col" className={HEAD_SOLO_NUM} title={t('results.sent_hint')}>{t('results.sent')}</th>
+              <th scope="col" className={HEAD_SOLO_NUM} title={t('results.delivered_hint')}>{t('results.delivered')}</th>
+              <th scope="col" className={HEAD_SOLO_NUM} title={t('results.opened_hint')}>{t('results.opened')}</th>
               <th scope="col" className={HEAD_SOLO_NUM} title={t('results.denied_hint')}>{t('results.denied')}</th>
               <th scope="col" className={HEAD_SOLO_NUM} title={t('results.in_progress_hint')}>{t('results.in_progress')}</th>
               <th scope="col" className={HEAD_SOLO_NUM} title={t('results.failed_hint')}>{t('results.failed')}</th>
@@ -486,6 +573,8 @@ function ResultsTable({
                   <td className={`${CELL} whitespace-nowrap`}>{pieceLabel(send.piece)}</td>
                   <td className={`${NUM} font-semibold`}>{count(send.picked)}</td>
                   <td className={NUM}>{count(send.sent)}</td>
+                  <td className={NUM}>{measured(send, 'delivered')}</td>
+                  <td className={NUM}>{measured(send, 'opened')}</td>
                   <td className={NUM}>{count(send.denied)}</td>
                   <td className={NUM}>{count(send.claimed)}</td>
                   <td className={`${NUM} ${DIM}`}>{notDelivered(send)}</td>

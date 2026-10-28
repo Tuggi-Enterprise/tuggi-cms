@@ -606,7 +606,7 @@
         "funnel": {
           "title": "Entrega",
           "sent": "Enviados",
-          "sent_hint": "Lo que FCM aceptó. No es recibido ni abierto.",
+          "sent_hint": "En la regla semanal, lo que FCM aceptó. En el push directo y masivo, todo destinatario, con o sin dispositivo. No es recibido ni abierto.",
           "delivered": "Recibidos",
           "delivered_hint": "La app avisó que el push llegó. En iPhone con la app cerrada ese aviso no sale, así que el número queda por debajo del real.",
           "opened": "Abiertos",
