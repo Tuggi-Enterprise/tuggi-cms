@@ -58,6 +58,7 @@ import {
   Activity,
   BarChart3,
   Bell,
+  BellRing,
   CalendarDays,
   Coins,
   Database,
@@ -236,6 +237,8 @@ function catalogue(): { basic: NavEntry[]; modules: NavEntry[] } {
             items: [
               item('/dashboard/marketing/newsletter', 'newsletter', Mail),
               item('/dashboard/marketing/notifications', 'notifications', Bell),
+              // The weekly push (#1047), next to the one-off push, where the operator looks for push.
+              item('/admin/weekly-push', 'weekly_push', BellRing),
             ],
           },
         ],

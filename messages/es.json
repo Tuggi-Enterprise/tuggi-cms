@@ -76,6 +76,7 @@
     "logout": "Cerrar sesión",
     "toggle_theme": "Alternar tema",
     "notifications": "Notificaciones",
+    "weekly_push": "Régua de push",
     "marketing": "Marketing",
     "events": "Eventos",
     "places": "Lugares",
@@ -1369,6 +1370,115 @@
           "trips": "Mis viajes (Pasaporte)",
           "external": "Enlace externo"
         }
+      }
+    },
+    "WeeklyPush": {
+      "title": "Régua de push",
+      "subtitle": "Duas peças por semana, na hora local de cada pessoa. Ligue, desligue, edite o texto e veja o que saiu.",
+      "audience": "Vai a quem tem push ligado, inclusive quem não abre o app há tempo e o convidado. Quem aceitou a permissão antes da tela que promete lugares perto recebe só evento e rota.",
+      "limits": "Teto da régua: {cap} por pessoa por semana. Silêncio: das {from}h às {until}h no fuso da pessoa. Os dois vêm da regra e não mudam aqui.",
+      "last_changed": "Última alteração: {date}",
+      "loading": "Carregando…",
+      "pieces": {
+        "title": "Peças",
+        "thursday_local": {
+          "label": "Quinta",
+          "order": "Evento perto que acontece nos próximos dias; senão, o lembrete para conhecer a cidade."
+        },
+        "saturday_local": {
+          "label": "Sábado",
+          "order": "Rota perto com histórias; senão, o lembrete para sair hoje."
+        },
+        "row_title": "{day}, {hour}h local",
+        "never_repeats": "Nunca repete o mesmo evento ou a mesma rota para a mesma pessoa.",
+        "enabled": "Ligada",
+        "disabled": "Desligada",
+        "disabled_hint": "Ninguém recebe esta peça até você ligar de novo. O que já saiu fica no resultado.",
+        "hour_label": "Hora local",
+        "hour_option": "{hour}h",
+        "hour_hint": "Vale no fuso de cada pessoa; sem fuso na conta, vale o de São Paulo. O envio percorre os fusos ao longo do dia.",
+        "hour_in_quiet": "Essa hora cai no silêncio ({from}h às {until}h) e a peça não sai. Escolha entre {until}h e {before_from}h.",
+        "last_send": "Último envio: {date}",
+        "no_send_yet": "Ainda não saiu."
+      },
+      "texts": {
+        "title": "Textos",
+        "language_label": "Idioma",
+        "language_hint": "Cada pessoa recebe no idioma do app dela. Idioma sem texto não recebe a peça.",
+        "language_locked": "Salve ou cancele a edição para trocar de idioma.",
+        "piece_label": "Peça",
+        "variant_label": "Variante",
+        "variant": {
+          "event": "Evento perto",
+          "route": "Rota perto",
+          "reminder_city": "Lembrete com cidade",
+          "reminder_no_city": "Lembrete sem cidade"
+        },
+        "variant_hint": "Com cidade quando a última posição da pessoa é recente. Sem cidade quando é velha ou não existe.",
+        "title_label": "Título",
+        "body_label": "Corpo",
+        "counter_hint": "'{name}' e '{city}' não contam.",
+        "placeholders_hint": "'{name}' vira o nome do evento ou da rota. '{city}' vira a cidade do item ou, no lembrete, a cidade da última posição.",
+        "city_form_hint": "A cidade entra sem artigo. Escreva \"'{city}' no fim de semana\", nunca \"em '{city}'\".",
+        "edit": "Editar",
+        "edit_aria": "Editar título e corpo de {day}, {variant}",
+        "save": "Salvar texto",
+        "empty_title": "Sem texto em {language}",
+        "errors": {
+          "title_required": "Escreva o título.",
+          "body_required": "Escreva o corpo.",
+          "title_too_long": "O título passa de {max} caracteres sem contar '{name}' e '{city}'. Encurte.",
+          "body_too_long": "O corpo passa de {max} caracteres sem contar '{name}' e '{city}'. Encurte.",
+          "city_required": "Esta variante precisa de '{city}' no título ou no corpo.",
+          "city_forbidden": "O lembrete sem cidade não pode ter '{city}'.",
+          "name_in_title": "'{name}' vai no corpo, não no título.",
+          "name_required": "Esta variante precisa de '{name}' no corpo.",
+          "unknown_placeholder": "Só '{name}' e '{city}' são preenchidos. Tire {placeholder}."
+        }
+      },
+      "preview": {
+        "title": "Prévia",
+        "sample_event_name": "Festival de Jazz",
+        "sample_route_name": "Caminho dos Faróis",
+        "sample_city": "Búzios",
+        "sample_hint": "Nome e cidade de exemplo. No envio, entram os do banco."
+      },
+      "results": {
+        "title": "Resultado por envio",
+        "subtitle": "Os números fecham quando o último fuso passa da hora da peça.",
+        "caption": "Resultado por envio, últimas {weeks} semanas",
+        "week": "{from} a {to}",
+        "date": "Data",
+        "piece": "Peça",
+        "picked": "Escolhidos",
+        "picked_hint": "Pessoas escolhidas para a peça no dia. As colunas ao lado somam este número.",
+        "sent": "Enviados",
+        "sent_hint": "O que o FCM aceitou. Não é entregue nem aberto.",
+        "in_progress": "Enviando pelos fusos",
+        "in_progress_hint": "Escolhidos que ainda não passaram pelo envio.",
+        "denied": "Barrados pelo portão",
+        "denied_hint": "Teto da semana ou silêncio no fuso da pessoa.",
+        "failed": "Não entregues",
+        "failed_hint": "O FCM recusou o aparelho ou o envio falhou. A pessoa pode receber o mesmo item em outra semana.",
+        "push_off_today": "Com push desligado hoje",
+        "push_off_today_short": "Desligado hoje",
+        "push_off_today_value": "{off} de {people}",
+        "push_off_today_hint": "Das pessoas que receberam alguma peça na semana, quantas estão com o push desligado agora. O banco não guarda quando desligaram.",
+        "empty_title": "Nenhum envio ainda",
+        "empty_body": "A primeira linha aparece depois do primeiro envio com a peça ligada.",
+        "load_failed": "Não foi possível carregar os envios. Tente de novo.",
+        "retry": "Tentar de novo"
+      },
+      "messages": {
+        "text_saved": "Texto salvo. Vale a partir do próximo envio.",
+        "text_save_failed": "Não foi possível salvar o texto. Tente de novo.",
+        "piece_on": "Peça de {day} ligada. Vale a partir do próximo envio.",
+        "piece_off": "Peça de {day} desligada. Ninguém recebe até ligar de novo.",
+        "hour_saved": "Hora salva: {hour}h no fuso de cada pessoa. Vale a partir do próximo envio.",
+        "piece_save_failed": "Não foi possível salvar a peça. Tente de novo.",
+        "refused": "O banco não aceita esta peça, variante ou idioma. Recarregue a página.",
+        "network": "Não deu para falar com o servidor. Confira a conexão e tente de novo.",
+        "load_failed": "Não foi possível carregar a régua. Recarregue a página."
       }
     },
     "Marketing": {

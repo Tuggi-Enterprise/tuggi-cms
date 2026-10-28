@@ -150,9 +150,16 @@ export function SortHead<K extends string>({
 export function DenseTableScroller({
   children,
   maxHeightClassName = 'max-h-[calc(100vh-19rem)]',
+  label,
 }: {
   children: ReactNode
   maxHeightClassName?: string
+  /**
+   * Names the scroll box and puts it in the tab order, so a keyboard can scroll a table with
+   * nothing focusable inside (axe `scrollable-region-focusable`, WCAG 2.1.1). Omit it when the
+   * rows already carry buttons or links: those take the focus and scroll the box.
+   */
+  label?: string
 }) {
   const [more, setMore] = useState(false)
 
@@ -178,6 +185,7 @@ export function DenseTableScroller({
       <div
         ref={measure}
         onScroll={(event) => update(event.currentTarget)}
+        {...(label ? { role: 'region', 'aria-label': label, tabIndex: 0 } : {})}
         className={`custom-scrollbar ${maxHeightClassName} overflow-auto`}
       >
         {children}
@@ -195,6 +203,7 @@ export function FilterChip({
   active,
   count,
   onClick,
+  disabled,
   children,
 }: {
   active: boolean
@@ -205,6 +214,8 @@ export function FilterChip({
    */
   count?: number
   onClick: () => void
+  /** Locks the filter while something on the page must not change under it (an open edit). */
+  disabled?: boolean
   children: ReactNode
 }) {
   return (
@@ -212,7 +223,8 @@ export function FilterChip({
       type="button"
       onClick={onClick}
       aria-pressed={active}
-      className={`inline-flex min-h-[28px] items-center gap-1.5 whitespace-nowrap rounded-full border px-3 py-1 text-xs font-semibold transition-colors ${
+      disabled={disabled}
+      className={`inline-flex min-h-[28px] items-center gap-1.5 whitespace-nowrap rounded-full border px-3 py-1 text-xs font-semibold transition-colors disabled:cursor-not-allowed disabled:opacity-50 ${
         active
           ? 'border-tuggi-blue/35 bg-tuggi-blue/10 text-primary-800 dark:text-tuggi-blue'
           : 'border-gray-200 bg-white text-gray-700 hover:border-gray-300 dark:border-gray-700 dark:bg-gray-900 dark:text-gray-300'

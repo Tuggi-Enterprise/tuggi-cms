@@ -203,6 +203,8 @@ test('o catálogo do admin é exatamente este — apagar um destino tem de doer'
     // Os votos nas histórias (#950).
     '/admin/story-feedback',
     '/admin/users',
+    // The weekly push (#1047).
+    '/admin/weekly-push',
     '/clients/coordinator',
     '/dashboard',
     '/dashboard/marketing/newsletter',
