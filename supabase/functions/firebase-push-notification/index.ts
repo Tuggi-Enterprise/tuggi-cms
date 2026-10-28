@@ -126,7 +126,7 @@ Deno.serve(async (req) => {
         console.warn(`[${requestId}] ⛔ refused ${path}: ${auth.status}`);
         return auth;
       }
-      console.log(`[${requestId}] 🔓 authorized as ${auth.email} (${auth.role ?? 'none'})`);
+      console.log(`[${requestId}] 🔓 authorized (${auth.role ?? 'none'})`);
     }
 
     // Get environment variables inside handler to be safe
@@ -428,7 +428,6 @@ Deno.serve(async (req) => {
           sent_at: new Date().toISOString()
         };
 
-        console.log(`[${requestId}] 📄 Log payload:`, JSON.stringify(logData));
 
         let { data: insertData, error } = await supabase
           .schema('marketing')
