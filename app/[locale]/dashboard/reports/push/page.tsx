@@ -48,6 +48,7 @@ import {
   presetRange,
   pushFunnel,
   pushTypeCounts,
+  sourcesSinceDay,
   type PushPeoplePage,
   type PushReport,
   type PushReportPeriod,
@@ -219,6 +220,8 @@ function PushReportPage() {
   const stamp = useMemo(() => new Intl.DateTimeFormat(locale, { dateStyle: 'short', timeStyle: 'short' }), [locale])
   const n = (v: number) => integer.format(v)
   const noData = t('no_data')
+  /** Influenced, push off, uninstalled and not delivered have a source only from this day (contract §13.1). */
+  const measuredSince = sourcesSinceDay(report?.windows.sources_since, report?.period.time_zone)
 
   const toggleSort = (key: SortKey) =>
     setSort((s) => (s?.key !== key ? { key, dir: -1 } : s.dir === -1 ? { key, dir: 1 } : null))
@@ -376,95 +379,102 @@ function PushReportPage() {
             )}
           </div>
         ) : (
-          <DenseTableScroller>
-            <table className="w-max min-w-full border-collapse">
-              <thead>
-                <tr>
-                  <th className={GROUP} colSpan={2} />
-                  <th scope="colgroup" colSpan={4} className={`${GROUP} ${EDGE}`}>{t('funnel.title')}</th>
-                  <th scope="colgroup" colSpan={2} className={`${GROUP} ${EDGE}`}>{t('performance.opens_title')}</th>
-                  <th scope="colgroup" className={`${GROUP} ${EDGE}`} />
-                  <th scope="colgroup" colSpan={2} className={`${GROUP} ${EDGE}`}>
-                    {t('performance.revenue')} {t('performance.revenue_sub')}
-                  </th>
-                  <th scope="colgroup" colSpan={2} className={`${GROUP} ${EDGE}`}>{t('performance.base_cost')}</th>
-                </tr>
-                <tr>
-                  <th scope="col" className={HEAD}>{t('sends.date')}</th>
-                  <th scope="col" className={HEAD}>{t('sends.type')}</th>
-                  {numHead('sent', t('funnel.sent'), t('funnel.sent_hint'), true)}
-                  {numHead('delivered', t('funnel.delivered'), t('funnel.delivered_hint'))}
-                  {numHead('opened', t('funnel.opened'), t('funnel.opened_hint'))}
-                  {numHead('not_delivered', t('funnel.not_delivered'), t('funnel.not_delivered_hint'))}
-                  {numHead('open_rate', t('performance.direct'), t('performance.direct_hint'), true)}
-                  {numHead('influenced', t('performance.influenced'), t('performance.influenced_hint'))}
-                  {numHead('action', t('performance.action'), t('performance.action_hint'), true)}
-                  {numHead('revenue_opened', t('performance.revenue_opened'), t('performance.revenue_hint'), true)}
-                  {numHead('revenue_not_opened', t('performance.revenue_not_opened'), t('performance.revenue_hint'))}
-                  {numHead('push_off', t('performance.base_cost_push_off'), t('performance.base_cost_hint'), true)}
-                  {numHead('uninstalled', t('performance.base_cost_uninstalled'), t('performance.base_cost_hint'))}
-                </tr>
-              </thead>
-              <tbody>
-                {isLoading ? (
-                  <tr><td colSpan={COLUMNS} className={`${CELL} ${DIM}`}>{t('loading')}</td></tr>
-                ) : sends.length === 0 ? (
-                  <tr><td colSpan={COLUMNS} className={`${CELL} ${DIM}`}>{t('empty_title')}. {t('empty_body')}</td></tr>
-                ) : (
-                  sends.map((send) => {
-                    const m = measures(send)
-                    const isSelected = selected?.send_key === send.send_key
-                    const variants = variantsOf(send)
-                    const date = day.format(calendarDate(send.day))
-                    const cell = (key: SortKey, format: (v: number) => string = n, extra = '') => (
-                      <td className={`${NUM} ${extra}`}>
-                        <Measure value={m[key]} format={format} noData={noData} />
-                      </td>
-                    )
-                    return (
-                      <tr
-                        key={send.send_key}
-                        className={`border-t border-gray-100 dark:border-gray-800 ${
-                          isSelected ? 'bg-tuggi-blue/10' : 'hover:bg-gray-50 dark:hover:bg-gray-800/50'
-                        }`}
-                      >
-                        <td className={`${CELL} whitespace-nowrap`}>
-                          {hasPersonMeasure(send) ? (
-                            <button
-                              type="button"
-                              onClick={() => pick(send)}
-                              aria-pressed={isSelected}
-                              title={t('sends.people')}
-                              className="min-h-[24px] text-left font-medium underline-offset-2 hover:underline"
-                            >
-                              {date}
-                            </button>
-                          ) : (
-                            date
-                          )}
+          <>
+            {measuredSince && (
+              <p className={`mb-2 text-[11px] ${DIM}`}>
+                {t('measured_since', { date: day.format(calendarDate(measuredSince)) })}
+              </p>
+            )}
+            <DenseTableScroller>
+              <table className="w-max min-w-full border-collapse">
+                <thead>
+                  <tr>
+                    <th className={GROUP} colSpan={2} />
+                    <th scope="colgroup" colSpan={4} className={`${GROUP} ${EDGE}`}>{t('funnel.title')}</th>
+                    <th scope="colgroup" colSpan={2} className={`${GROUP} ${EDGE}`}>{t('performance.opens_title')}</th>
+                    <th scope="colgroup" className={`${GROUP} ${EDGE}`} />
+                    <th scope="colgroup" colSpan={2} className={`${GROUP} ${EDGE}`}>
+                      {t('performance.revenue')} {t('performance.revenue_sub')}
+                    </th>
+                    <th scope="colgroup" colSpan={2} className={`${GROUP} ${EDGE}`}>{t('performance.base_cost')}</th>
+                  </tr>
+                  <tr>
+                    <th scope="col" className={HEAD}>{t('sends.date')}</th>
+                    <th scope="col" className={HEAD}>{t('sends.type')}</th>
+                    {numHead('sent', t('funnel.sent'), t('funnel.sent_hint'), true)}
+                    {numHead('delivered', t('funnel.delivered'), t('funnel.delivered_hint'))}
+                    {numHead('opened', t('funnel.opened'), t('funnel.opened_hint'))}
+                    {numHead('not_delivered', t('funnel.not_delivered'), t('funnel.not_delivered_hint'))}
+                    {numHead('open_rate', t('performance.direct'), t('performance.direct_hint'), true)}
+                    {numHead('influenced', t('performance.influenced'), t('performance.influenced_hint'))}
+                    {numHead('action', t('performance.action'), t('performance.action_hint'), true)}
+                    {numHead('revenue_opened', t('performance.revenue_opened'), t('performance.revenue_hint'), true)}
+                    {numHead('revenue_not_opened', t('performance.revenue_not_opened'), t('performance.revenue_hint'))}
+                    {numHead('push_off', t('performance.base_cost_push_off'), t('performance.base_cost_hint'), true)}
+                    {numHead('uninstalled', t('performance.base_cost_uninstalled'), t('performance.base_cost_hint'))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {isLoading ? (
+                    <tr><td colSpan={COLUMNS} className={`${CELL} ${DIM}`}>{t('loading')}</td></tr>
+                  ) : sends.length === 0 ? (
+                    <tr><td colSpan={COLUMNS} className={`${CELL} ${DIM}`}>{t('empty_title')}. {t('empty_body')}</td></tr>
+                  ) : (
+                    sends.map((send) => {
+                      const m = measures(send)
+                      const isSelected = selected?.send_key === send.send_key
+                      const variants = variantsOf(send)
+                      const date = day.format(calendarDate(send.day))
+                      const cell = (key: SortKey, format: (v: number) => string = n, extra = '') => (
+                        <td className={`${NUM} ${extra}`}>
+                          <Measure value={m[key]} format={format} noData={noData} />
                         </td>
-                        <td className={CELL}>
-                          <TypeLabel type={send.type} t={t} />
-                          {variants && <div className={`text-xs ${DIM}`}>{variants}</div>}
-                        </td>
-                        {cell('sent', n, `font-semibold ${EDGE}`)}
-                        {cell('delivered')}
-                        {cell('opened')}
-                        {cell('not_delivered', n, DIM)}
-                        {cell('open_rate', (v) => percent.format(v), EDGE)}
-                        {cell('influenced')}
-                        {cell('action', n, EDGE)}
-                        {cell('revenue_opened', (v) => usd.format(v), EDGE)}
-                        {cell('revenue_not_opened', (v) => usd.format(v))}
-                        {cell('push_off', n, EDGE)}
-                        {cell('uninstalled')}
-                      </tr>
-                    )
-                  })
-                )}
-              </tbody>
-            </table>
-          </DenseTableScroller>
+                      )
+                      return (
+                        <tr
+                          key={send.send_key}
+                          className={`border-t border-gray-100 dark:border-gray-800 ${
+                            isSelected ? 'bg-tuggi-blue/10' : 'hover:bg-gray-50 dark:hover:bg-gray-800/50'
+                          }`}
+                        >
+                          <td className={`${CELL} whitespace-nowrap`}>
+                            {hasPersonMeasure(send) ? (
+                              <button
+                                type="button"
+                                onClick={() => pick(send)}
+                                aria-pressed={isSelected}
+                                title={t('sends.people')}
+                                className="min-h-[24px] text-left font-medium underline-offset-2 hover:underline"
+                              >
+                                {date}
+                              </button>
+                            ) : (
+                              date
+                            )}
+                          </td>
+                          <td className={CELL}>
+                            <TypeLabel type={send.type} t={t} />
+                            {variants && <div className={`text-xs ${DIM}`}>{variants}</div>}
+                          </td>
+                          {cell('sent', n, `font-semibold ${EDGE}`)}
+                          {cell('delivered')}
+                          {cell('opened')}
+                          {cell('not_delivered', n, DIM)}
+                          {cell('open_rate', (v) => percent.format(v), EDGE)}
+                          {cell('influenced')}
+                          {cell('action', n, EDGE)}
+                          {cell('revenue_opened', (v) => usd.format(v), EDGE)}
+                          {cell('revenue_not_opened', (v) => usd.format(v))}
+                          {cell('push_off', n, EDGE)}
+                          {cell('uninstalled')}
+                        </tr>
+                      )
+                    })
+                  )}
+                </tbody>
+              </table>
+            </DenseTableScroller>
+          </>
         )}
       </section>
 

@@ -634,7 +634,7 @@
           "installed_hint": "Devices that can still get a push. The token is turned off when a send finds the device without the app.",
           "uninstalled": "Uninstalled",
           "uninstalled_sub": "this week",
-          "uninstalled_hint": "Shows as no data: the database turns the token off when a send finds the device without the app, but does not store the date. Without it, there is no way to count how many uninstalled in the week."
+          "uninstalled_hint": "A minimum: Firebase only reports that the app is gone when a later send reaches the device."
         },
         "performance": {
           "title": "Campaign results",
@@ -706,7 +706,8 @@
           "partner_approved": "Partner: approved",
           "partner_rejected": "Partner: declined",
           "partner_new": "Partner: new sign-up"
-        }
+        },
+        "measured_since": "Measured since {date}. No data before that."
       }
     },
     "POIMigration": {

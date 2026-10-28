@@ -218,3 +218,40 @@ test('#1051: the type chips count sends per type, by volume, and only types with
   ])
   assert.deepEqual(lib.presetRange('7d', new Date(2026, 9, 28, 15)), { from: '2026-10-22', to: '2026-10-28' })
 })
+
+test('#1052 BR-COMUNICACAO-022: the new sources pass through as numbers on new sends, null on old ones, never 0', async () => {
+  const report = {
+    ...REPORT,
+    windows: { ...REPORT.windows, sources_since: '2026-10-28T20:15:00Z', app_open_retention_days: 90 },
+    devices: { active_tokens: 120, people_with_active_token: 110, uninstalls: 4, inactive_tokens_changed: 37 },
+    sends: [
+      send({ send_key: 'direct:hours_credited:2026-10-29', day: '2026-10-29', not_delivered: 2, influenced_opens: 1, base_cost: { push_off: 0, uninstalled: 1 } }),
+      send({}),
+    ],
+  }
+  answers.cms_get_push_report = { data: report }
+  const res = await reportRoute.GET(get('/api/dashboard/push?from=2026-10-01&to=2026-10-30'), ctx)
+  assert.equal(res.status, 200)
+  const { data } = await res.json()
+  assert.deepEqual(data.windows, { action_hours: 24, revenue_days: 7, base_cost_hours: 48, sources_since: '2026-10-28T20:15:00Z', app_open_retention_days: 90 })
+  assert.deepEqual(data.devices, { active_tokens: 120, people_with_active_token: 110, uninstalls: 4 })
+  assert.doesNotMatch(JSON.stringify(data), /inactive_tokens_changed/)
+
+  const [fresh, old] = data.sends
+  assert.deepEqual([fresh.not_delivered, fresh.influenced_opens, fresh.base_cost], [2, 1, { push_off: 0, uninstalled: 1 }])
+  assert.deepEqual([old.not_delivered, old.influenced_opens, old.base_cost], [null, null, { push_off: null, uninstalled: null }])
+
+  assert.equal(lib.pushFunnel(data.sends).not_delivered, 2)
+  assert.equal(lib.pushFunnel([old]).not_delivered, null)
+  assert.equal(lib.sumMeasured(data.sends.map((s: { influenced_opens: number | null }) => s.influenced_opens)), 1)
+})
+
+test('#1052 BR-COMUNICACAO-022: "measured since" is the Sao Paulo day of sources_since, and no line without it', () => {
+  assert.equal(lib.sourcesSinceDay('2026-10-28T20:15:00Z'), '2026-10-28')
+  assert.equal(lib.sourcesSinceDay('2026-10-29T01:30:00Z'), '2026-10-28')
+  assert.equal(lib.sourcesSinceDay('2026-10-28'), '2026-10-28')
+  assert.equal(lib.sourcesSinceDay(undefined), null)
+  assert.equal(lib.sourcesSinceDay(null), null)
+  assert.equal(lib.sourcesSinceDay('2026-02-30'), null)
+  assert.equal(lib.sourcesSinceDay('soon'), null)
+})

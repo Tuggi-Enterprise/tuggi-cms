@@ -632,7 +632,7 @@
           "installed_hint": "Aparelhos que ainda podem receber push. O token é desligado quando um envio encontra o aparelho sem o app.",
           "uninstalled": "Desinstalaram",
           "uninstalled_sub": "na semana",
-          "uninstalled_hint": "Aparece como sem dado: o banco desliga o token quando um envio encontra o aparelho sem o app, mas não guarda a data. Sem ela, não dá para contar quantos desinstalaram na semana."
+          "uninstalled_hint": "Número mínimo: o Firebase só avisa que o app saiu quando um envio seguinte encontra o aparelho."
         },
         "performance": {
           "title": "Resultado da campanha",
@@ -704,7 +704,8 @@
           "partner_approved": "Parceiro: aprovado",
           "partner_rejected": "Parceiro: recusado",
           "partner_new": "Parceiro: novo cadastro"
-        }
+        },
+        "measured_since": "Medido desde {date}. Antes disso, sem dado."
       }
     },
     "POIMigration": {

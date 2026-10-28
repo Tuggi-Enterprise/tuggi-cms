@@ -73,7 +73,19 @@ export interface PushReportSend {
 
 export interface PushReport {
   period: { from: string; to: string; type: string | null; time_zone: string }
-  windows: { action_hours: number; revenue_days: number; base_cost_hours: number }
+  windows: {
+    action_hours: number
+    revenue_days: number
+    base_cost_hours: number
+    /**
+     * From db-tuggiApp 20261028170000 (contract §13.1, #1052): influenced opens, push off,
+     * uninstalled and the not delivered of a direct push only have a source for sends from this
+     * moment on; older sends keep `null`. Absent while that migration is not applied.
+     */
+    sources_since?: string | null
+    /** Days `drive.app_opens` is kept: an older send reads `influenced_opens` as `null` again. */
+    app_open_retention_days?: number | null
+  }
   /**
    * `inactive_tokens_changed` comes back too and is dropped by the route: it is the last write on
    * the token, not the day of the uninstall (decision D5 of the migration), so no screen shows it.
@@ -169,6 +181,19 @@ export function presetRange(period: PushReportPeriod, today: Date = new Date()):
   const start = new Date(today)
   start.setDate(start.getDate() - (PUSH_REPORT_PERIODS[period] - 1))
   return { from: local(start), to: local(today) }
+}
+
+/**
+ * The calendar day of `windows.sources_since` in the report zone, for "Medido desde". The
+ * contract says ISO date; a timestamp is read in the zone of the report so the day matches the
+ * day column. `null` when absent or unreadable, and then the screen shows no line.
+ */
+export function sourcesSinceDay(value: string | null | undefined, timeZone = 'America/Sao_Paulo'): string | null {
+  if (!value) return null
+  if (ISO_DATE.test(value)) return isCalendarDate(value) ? value : null
+  const instant = new Date(value)
+  if (Number.isNaN(instant.getTime())) return null
+  return new Intl.DateTimeFormat('en-CA', { timeZone, year: 'numeric', month: '2-digit', day: '2-digit' }).format(instant)
 }
 
 // ── Sums that keep "no source" apart from zero ───────────────────────────────────────────

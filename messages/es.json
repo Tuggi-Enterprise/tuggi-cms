@@ -623,7 +623,7 @@
           "installed_hint": "Dispositivos que todavía pueden recibir push. El token se apaga cuando un envío encuentra el dispositivo sin la app.",
           "uninstalled": "Desinstalaron",
           "uninstalled_sub": "en la semana",
-          "uninstalled_hint": "Aparece como sin dato: la base de datos desactiva el token cuando un envío encuentra el dispositivo sin la app, pero no guarda la fecha. Sin ella, no se puede contar cuántos desinstalaron en la semana."
+          "uninstalled_hint": "Número mínimo: Firebase solo avisa que la app ya no está cuando un envío posterior llega al dispositivo."
         },
         "performance": {
           "title": "Resultado de la campaña",
@@ -695,7 +695,8 @@
           "partner_approved": "Socio: aprobado",
           "partner_rejected": "Socio: rechazado",
           "partner_new": "Socio: registro nuevo"
-        }
+        },
+        "measured_since": "Medido desde {date}. Antes, sin dato."
       }
     },
     "POIMigration": {
