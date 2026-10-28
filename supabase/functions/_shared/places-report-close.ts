@@ -265,7 +265,7 @@ export function reportCycleEmail(v: ReportMail, origin: string): { subject: stri
       `${name} já tem o relatório de ${month} no painel: quanta gente usou o Tuggi ${inCity}, quantas pessoas passaram pela sua porta e o que o local aproveitou no período.`,
       'Dá para baixar em PDF e mandar para o sócio.',
       ...(v.plan === 'free' && v.hasCompare
-        ? [`O relatório também mostra o que os locais do plano Com história alcançam a mais ${inCity}, e a troca de plano é feita no mesmo painel.`]
+        ? [`O relatório também mostra o que os locais do plano Experiência alcançam a mais ${inCity}, e a troca de plano é feita no mesmo painel.`]
         : []),
     ],
     cta: { label: 'Ver o relatório', url: `${origin}${REPORTS_PATH}` },

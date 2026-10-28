@@ -11,7 +11,9 @@ import assert from 'node:assert/strict'
 import { parseRcEvent, withProfilePartners, type RcEvent } from '@/lib/finance/app-revenue'
 import {
   PLACE_PAYOUT_RATE,
+  acceptancesWithCommission,
   buildPayoutStatement,
+  hasCommissionInTerms,
   businessDaysUntil,
   payoutAction,
   previousPeriod,
@@ -178,4 +180,19 @@ test('the closed month before today, and the business days left to the deadline'
   // 2026-10-26 (Mon) → 2026-10-30 (Fri): 4 weekdays left.
   assert.equal(businessDaysUntil('2026-10-26', '2026-10-30'), 4)
   assert.equal(businessDaysUntil('2026-10-30', '2026-10-30'), 0)
+})
+
+test('BR-B2B-044 item 6, BR-B2B-045 H8 (#1053): only an acceptance whose term carries commission (up to the v10) becomes a payout client', () => {
+  // `partner.place_acceptance_terms_model` rows (contract places-pagamento §3.9)
+  assert.equal(hasCommissionInTerms([{ has_commission: true, has_commitment: true }]), true)
+  assert.equal(hasCommissionInTerms([{ has_commission: false, has_commitment: false }]), false)
+  assert.equal(hasCommissionInTerms({ has_commission: true }), true)
+  // zero rows, null and a string are no commission: nobody is paid by a guess
+  for (const off of [[], null, undefined, 'true', [{ has_commission: 'true' }], [{}]]) assert.equal(hasCommissionInTerms(off), false, JSON.stringify(off))
+
+  const V10 = { id: 'acc-v10', client_id: CLIENT }
+  const V11 = { id: 'acc-v11', client_id: CLIENT }
+  const UNKNOWN = { id: 'acc-unknown', client_id: OTHER }
+  const kept = acceptancesWithCommission([V10, V11, UNKNOWN], new Map([['acc-v10', true], ['acc-v11', false]]))
+  assert.deepEqual(kept, [V10], 'the v11 acceptance of the same client never takes the v10 one\'s place, and an unread one is dropped')
 })

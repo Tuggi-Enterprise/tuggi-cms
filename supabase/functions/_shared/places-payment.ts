@@ -1,4 +1,4 @@
-// _shared/places-payment.ts — the payment of the Com história plan (#811, épico #802).
+// _shared/places-payment.ts — the payment of the Experiência plan (#811, épico #802; named Com história until #1053).
 //
 // Contract: `docs/contracts/places-pagamento.md` (workspace). Rules: BR-B2B-044, BR-B2B-045,
 // BR-B2B-046, BR-B2B-049, BR-B2B-055; term `locais-2026-10-v7`, clauses 4.1–4.7.
@@ -496,7 +496,8 @@ async function startSubscription(
       value: toReais(co.next_amount_cents),
       nextDueDate: firstCharge,
       cycle: co.billing_cycle,
-      description: `Tuggi · Com história · ${co.billing_period} ${co.billing_period === 1 ? 'mês' : 'meses'}`,
+      // #1053, BR-B2B-045 item 3: no lock-in period in what the payer reads on the provider's charge.
+      description: 'Tuggi · Experiência',
       externalReference: co.external_reference,
     });
     if (isReply(created)) return created;
@@ -1125,7 +1126,8 @@ async function chargeEarlyTermination(deps: Deps, ids: SubscriptionIds, feeCents
         customer: ids.provider_customer_id,
         value: toReais(feeCents),
         dueDate: chargeOn,
-        description: 'Tuggi Com história: diferença do desconto (cancelamento antes do fim da fidelidade)',
+        // Only an acceptance up to the v10 has a fee (BR-B2B-045 H8); the v11 quotes 0 and never gets here.
+        description: 'Tuggi Experiência: diferença do desconto (cancelamento antes do fim da fidelidade)',
       });
       invoiceUrl = p.invoiceUrl ?? null;
       if (!invoiceUrl) await deps.alert('cancel_fee_invoice_missing', { subscription_id: ids.subscription_id, provider_payment_id: p.id });
@@ -2045,7 +2047,7 @@ export const PORTAL_URL = 'https://partner.tuggi.app';
 const CANCEL_ASK_REASON = 'Pode contar para a gente por que cancelou? Basta responder este e-mail. Uma linha já nos ajuda a melhorar.';
 
 export const CANCEL_EMAIL = {
-  subject: 'Seu plano Com história foi cancelado',
+  subject: 'Seu plano Experiência foi cancelado',
   replyTo: SUPPORT_EMAIL,
   fromName: ACCESS_FROM_NAME,
   /** `answered` (#913, BR-B2B-060 item 9): the portal survey kept a reason or a comment; the closing thanks instead of asking. */
@@ -2069,15 +2071,15 @@ export const CANCEL_EMAIL = {
           ];
     return portalMail({
       subject: CANCEL_EMAIL.subject,
-      preheader: 'Confirmamos o cancelamento do seu plano Com história.',
+      preheader: 'Confirmamos o cancelamento do seu plano Experiência.',
       paragraphs: [
         'Olá,',
-        'Confirmamos o cancelamento do seu plano Com história. Obrigado por ter mostrado o seu local aos turistas que usam o Tuggi, vamos sentir falta da sua história no app.',
+        'Confirmamos o cancelamento do seu plano Experiência. Obrigado por ter mostrado o seu local aos turistas que usam o Tuggi, vamos sentir falta da sua história no app.',
         until
-          ? `A história do seu local continua no ar até ${until}. Depois disso, o local segue no mapa do app no plano No mapa, sem custo.`
-          : 'O local segue no mapa do app no plano No mapa, sem custo.',
+          ? `A história do seu local continua no ar até ${until}. Depois disso, o local segue no mapa do app no plano Presença, sem custo.`
+          : 'O local segue no mapa do app no plano Presença, sem custo.',
         ...feeLines,
-        'Se quiser voltar, o seu local continua cadastrado. É só entrar e contratar o plano Com história de novo.',
+        'Se quiser voltar, o seu local continua cadastrado. É só entrar e contratar o plano Experiência de novo.',
       ],
       cta: { label: 'Entrar', url: PORTAL_URL },
       closing: [

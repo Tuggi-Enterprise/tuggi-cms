@@ -579,7 +579,7 @@ test('#863 §8.4 BR-B2B-055, BR-B2B-046: cancel with fee 0 — endDate = eve of 
   assert.deepEqual(asaas.calls.map((c) => `${c.method} ${c.path}`), ['PUT /subscriptions/sub_1', 'GET /payments?subscription=sub_1&status=PENDING'])
   assert.deepEqual(asaas.calls[0].body, { endDate: '2027-01-05' })
   assert.deepEqual(sent, ['ze@example.com'])
-  assert.equal(mail.subject, 'Seu plano Com história foi cancelado')
+  assert.equal(mail.subject, 'Seu plano Experiência foi cancelado')
   assert.equal(mail.replyTo, 'suporte@tuggi.app')
   assert.equal(mail.fromName, 'Tuggi Locais')
   assert.match(mail.html, /<a href="https:\/\/partner\.tuggi\.app"[^>]*>Entrar<\/a>/)
@@ -622,21 +622,21 @@ test('#863 §8.4: Asaas down on cancel — the database is not undone, the opera
 test('#863 §8.4: the cancel e-mail formats the fee like the portal (thousands, cents)', () => {
   assert.equal(pay.formatBrl(13500), 'R$ 135,00')
   assert.equal(pay.formatBrl(123456), 'R$ 1.234,56')
-  assert.equal(pay.CANCEL_EMAIL.subject, 'Seu plano Com história foi cancelado')
+  assert.equal(pay.CANCEL_EMAIL.subject, 'Seu plano Experiência foi cancelado')
 })
 
 const D =
-  'Se quiser voltar, o seu local continua cadastrado. É só entrar e contratar o plano Com história de novo.\n\nEntrar: https://partner.tuggi.app\n\nPode contar para a gente por que cancelou? Basta responder este e-mail. Uma linha já nos ajuda a melhorar.\n\nEquipe Tuggi'
-const A = 'Olá,\n\nConfirmamos o cancelamento do seu plano Com história. Obrigado por ter mostrado o seu local aos turistas que usam o Tuggi, vamos sentir falta da sua história no app.'
-const B_UNTIL = 'A história do seu local continua no ar até 06/01/2027. Depois disso, o local segue no mapa do app no plano No mapa, sem custo.'
-const B_NONE = 'O local segue no mapa do app no plano No mapa, sem custo.'
+  'Se quiser voltar, o seu local continua cadastrado. É só entrar e contratar o plano Experiência de novo.\n\nEntrar: https://partner.tuggi.app\n\nPode contar para a gente por que cancelou? Basta responder este e-mail. Uma linha já nos ajuda a melhorar.\n\nEquipe Tuggi'
+const A = 'Olá,\n\nConfirmamos o cancelamento do seu plano Experiência. Obrigado por ter mostrado o seu local aos turistas que usam o Tuggi, vamos sentir falta da sua história no app.'
+const B_UNTIL = 'A história do seu local continua no ar até 06/01/2027. Depois disso, o local segue no mapa do app no plano Presença, sem custo.'
+const B_NONE = 'O local segue no mapa do app no plano Presença, sem custo.'
 const LAST = 'As mensalidades param aqui. Como o cancelamento veio antes do fim da fidelidade, há uma última cobrança de R$ 135,00, a diferença do desconto dos meses usados,'
 const fee = (method: string, invoiceUrl: string | null = null) => ({ cents: 13500, chargeOn: '2027-01-06', method, invoiceUrl }) as never
 const cancelText = (until: string | null, f: unknown) => pay.CANCEL_EMAIL.build(until, f as never).text
 
 test('#863 §8.4 BR-B2B-046: cancel e-mail (text approved 2026-10-08) — plain text keeps blocks A, B, C, D, E word for word and the portal URL, one per variant of C', () => {
   const t = cancelText
-  assert.equal(pay.CANCEL_EMAIL.subject, 'Seu plano Com história foi cancelado')
+  assert.equal(pay.CANCEL_EMAIL.subject, 'Seu plano Experiência foi cancelado')
   assert.equal(pay.CANCEL_EMAIL.replyTo, 'suporte@tuggi.app')
   assert.equal(pay.CANCEL_EMAIL.fromName, 'Tuggi Locais')
   assert.equal(t('06/01/2027', null), [A, B_UNTIL, 'Você não terá mais nenhuma cobrança.', D].join('\n\n'))
@@ -667,14 +667,14 @@ test('#863 §8.4 BR-B2B-046: cancel e-mail (text approved 2026-10-08) — plain 
 
 test('#863 §8.4: cancel e-mail in the portal layout — preheader, the blocks as paragraphs, the portal as the "Entrar" button (no raw URL in the paragraph), the reason question after it, no small print', () => {
   const { subject, html } = pay.CANCEL_EMAIL.build('06/01/2027', fee('credit_card'))
-  assert.equal(subject, 'Seu plano Com história foi cancelado')
+  assert.equal(subject, 'Seu plano Experiência foi cancelado')
   assert.match(html, /^<!doctype html>/i)
-  assert.match(html, /<div style="display:none[^"]*">Confirmamos o cancelamento do seu plano Com história\.<\/div>/)
+  assert.match(html, /<div style="display:none[^"]*">Confirmamos o cancelamento do seu plano Experiência\.<\/div>/)
   const button = html.indexOf('<a href="https://partner.tuggi.app"')
   assert.ok(button > 0)
   assert.match(html, /<a href="https:\/\/partner\.tuggi\.app"[^>]*>Entrar<\/a>/)
   assert.equal(html.split('https://partner.tuggi.app').length, 2, 'the URL is only the button')
-  assert.ok(html.indexOf('É só entrar e contratar o plano Com história de novo.') < button)
+  assert.ok(html.indexOf('É só entrar e contratar o plano Experiência de novo.') < button)
   assert.ok(html.indexOf('Pode contar para a gente por que cancelou?') > button)
   assert.ok(html.indexOf('Equipe Tuggi') > html.indexOf('Pode contar'))
   assert.match(html, /há uma última cobrança de R\$ 135,00, a diferença do desconto dos meses usados, no seu cartão em 06\/01\/2027/)

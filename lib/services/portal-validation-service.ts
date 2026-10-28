@@ -38,6 +38,7 @@ import {
 } from '@/lib/services/partner-place-provisioning'
 import { PLAN_CHOICES, type PlanChoice } from '@/lib/partner-form/fields'
 import { createPromotedClient, findClientByTaxId } from '@/lib/services/partner-proposal-admin-service'
+import { hasCommissionInTerms } from '@/lib/finance/payouts'
 import { ClientService } from '@/lib/services/client-service'
 import ptMessages from '@/messages/pt.json'
 import {
@@ -326,7 +327,7 @@ async function approveClaimed(
   const acceptance = await acceptanceOf(submission.id)
   if (!acceptance) return { ok: false, httpStatus: 503, error: 'lookup_failed', attractionId }
 
-  const client = await resolveApprovalClient(submission.id, attractionId, answers, acceptance.email, operator)
+  const client = await resolveApprovalClient(submission.id, attractionId, answers, acceptance, operator)
   if (!client.ok) return { ok: false, httpStatus: 503, error: client.error, attractionId }
 
   const place = await applyPlacePrefill(attractionId, prefill, client.clientId, operator)
@@ -498,9 +499,10 @@ async function resolveApprovalClient(
   submissionId: string,
   attractionId: string,
   answers: PartnerAnswers,
-  acceptanceEmail: string | null,
+  acceptance: { id: string | null; email: string | null },
   operator: SupabaseClient
 ): Promise<{ ok: true; clientId: string } | { ok: false; error: string }> {
+  const acceptanceEmail = acceptance.email
   const { data, error } = await operator
     .schema('core')
     .from('attractions')
@@ -527,7 +529,10 @@ async function resolveApprovalClient(
   const write = resolvePromotionWrite(plan, { approved: [] })
   const reserved = await reservedSlugOf(submissionId)
   if (!reserved.ok) return { ok: false, error: 'lookup_failed' }
-  const created = await createPromotedClient(write.updates, answers, { slug: reserved.slug })
+  // #1053, BR-B2B-044 item 6: the commission the new client is born with follows the accepted term.
+  const commission = await acceptanceHasCommission(acceptance.id)
+  if (commission === null) return { ok: false, error: 'lookup_failed' }
+  const created = await createPromotedClient(write.updates, answers, { slug: reserved.slug, commission })
   return created.ok ? { ok: true, clientId: created.clientId } : { ok: false, error: 'client_write_failed' }
 }
 
@@ -585,21 +590,36 @@ async function approveRelationship(
  * it accepted and paid — the acceptance IS the instrument (BR-B2B-047, item 1). `null` when the
  * read failed or there is no acceptance; a tier the form no longer offers reads `null`.
  */
+/**
+ * #1053: does the accepted term carry commission (`partner.place_acceptance_terms_model`, contract
+ * places-pagamento §3.9)? Up to the `locais-2026-10-v10`, yes; from the v11 on, no. `null` = the read
+ * failed, and the approval fails with it (retry-safe) instead of guessing a percentage.
+ */
+async function acceptanceHasCommission(acceptanceId: string | null): Promise<boolean | null> {
+  if (!acceptanceId) return null
+  const { data, error } = await partner().rpc('place_acceptance_terms_model', { p_acceptance_id: acceptanceId })
+  if (error) {
+    console.error('[portal-validation] terms model read failed', error.code)
+    return null
+  }
+  return hasCommissionInTerms(data)
+}
+
 async function acceptanceOf(
   submissionId: string
-): Promise<{ email: string | null; planChoice: PlanChoice | null } | null> {
+): Promise<{ id: string | null; email: string | null; planChoice: PlanChoice | null } | null> {
   const { data, error } = await partner()
     .from('place_acceptances')
-    .select('email, plan_choice')
+    .select('id, email, plan_choice')
     .eq('submission_id', submissionId)
     .maybeSingle()
   if (error || !data) {
     console.error('[portal-validation] acceptance read failed', error?.code ?? 'no_row')
     return null
   }
-  const row = data as { email: string | null; plan_choice: string | null }
+  const row = data as { id?: string | null; email: string | null; plan_choice: string | null }
   const planChoice = PLAN_CHOICES.find((choice) => choice === row.plan_choice) ?? null
-  return { email: row.email || null, planChoice }
+  return { id: row.id ?? null, email: row.email || null, planChoice }
 }
 
 /**

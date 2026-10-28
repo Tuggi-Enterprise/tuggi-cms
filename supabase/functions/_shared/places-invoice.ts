@@ -1,4 +1,4 @@
-// _shared/places-invoice.ts — the NFS-e of the Com história plan (#901, mirror #900) and of the CMS
+// _shared/places-invoice.ts — the NFS-e of the Experiência plan (#901, mirror #900) and of the CMS
 // contract (#918, same flow; only the text changes: `INVOICE_TEXT`).
 //
 // Term 3.5: "os valores incluem os tributos devidos pela TUGGI, que emite o documento fiscal".
@@ -89,15 +89,16 @@ const taxesOf = (c: InvoiceConfig): AsaasInvoiceTaxes => ({ retainIss: false, is
 
 /**
  * What the NFS-e and its e-mail say, by origin: the only place (#918). The CMS contract is not the
- * Com história plan (operator 2026-10-08): its service is the text of its Asaas subscription, never
- * "Com história". `serviceDescription` and `observations` go on the invoice; the rest, on the e-mail.
+ * Experiência plan (operator 2026-10-08): its service is the text of its Asaas subscription, never
+ * "Experiência". `serviceDescription` and `observations` go on the invoice; the rest, on the e-mail.
+ * #1053: the plan was renamed; an invoice already issued keeps the old name, as expected.
  */
 export const INVOICE_TEXT: Record<InvoiceOrigin, { serviceDescription: string; observations: string; subject: string; issued: string }> = {
   portal: {
-    serviceDescription: 'Tuggi Com história',
-    observations: 'Tuggi · Com história',
-    subject: 'Nota fiscal da sua mensalidade Com história',
-    issued: 'A nota fiscal da sua mensalidade do plano Com história foi emitida.',
+    serviceDescription: 'Tuggi Experiência',
+    observations: 'Tuggi · Experiência',
+    subject: 'Nota fiscal da sua mensalidade Experiência',
+    issued: 'A nota fiscal da sua mensalidade do plano Experiência foi emitida.',
   },
   cms_contract: {
     serviceDescription: LEGACY_SUBSCRIPTION_DESCRIPTION,

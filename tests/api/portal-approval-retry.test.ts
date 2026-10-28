@@ -15,6 +15,7 @@ import assert from 'node:assert/strict'
 const SUB = '11111111-1111-4111-8111-111111111111'
 const POI = '22222222-2222-4222-8222-222222222222'
 const CLIENT = '33333333-3333-4333-8333-333333333333'
+const ACCEPTANCE = '44444444-aaaa-4aaa-8aaa-444444444444'
 const NOW = new Date('2026-10-04T12:00:00.000Z')
 const CMS_OP = '44444444-4444-4444-8444-444444444444'
 
@@ -54,6 +55,8 @@ interface World {
   createdWith: Record<string, unknown> | null
   /** The client `findClientByTaxId` finds; null = none. */
   existingClientId: string | null
+  /** #1053: `has_commission` of `partner.place_acceptance_terms_model`; `'error'` = the read fails. */
+  termsCommission: boolean | 'error'
 }
 let w: World
 
@@ -68,6 +71,7 @@ function reset(over: Partial<World> = {}) {
     calls: [],
     updates: [],
     acceptanceEmail: 'dono@bardoze.com.br',
+    termsCommission: true,
     acceptancePlanChoice: 'map_and_description',
     descriptionFails: false,
     describedWith: [],
@@ -140,7 +144,7 @@ function acceptancesTable() {
   const q: any = {
     select: () => q,
     eq: () => q,
-    maybeSingle: async () => ({ data: w.acceptanceEmail ? { email: w.acceptanceEmail, plan_choice: w.acceptancePlanChoice } : null, error: null }),
+    maybeSingle: async () => ({ data: w.acceptanceEmail ? { id: ACCEPTANCE, email: w.acceptanceEmail, plan_choice: w.acceptancePlanChoice } : null, error: null }),
   }
   return q
 }
@@ -155,7 +159,12 @@ const service = {
           : table === 'place_slugs'
             ? placeSlugsTable()
             : submissionsTable(),
-    rpc: async (_name: string, args: Record<string, unknown>) => {
+    rpc: async (name: string, args: Record<string, unknown>) => {
+      if (name === 'place_acceptance_terms_model') {
+        assert.equal(args.p_acceptance_id, ACCEPTANCE)
+        if (w.termsCommission === 'error') return { data: null, error: { code: 'XX000' } }
+        return { data: [{ has_commission: w.termsCommission, has_commitment: w.termsCommission }], error: null }
+      }
       w.calls.push(`transition:${args.p_to}`)
       return { data: args.p_to, error: null }
     },
@@ -413,6 +422,25 @@ test('#888: the acceptance missing → lookup_failed BEFORE the description step
   const out = await mod.approvePortalSubmission(SUB, operator, 'op', CMS_OP, NOW)
   assert.deepEqual(out, { ok: false, httpStatus: 503, error: 'lookup_failed', attractionId: POI })
   assert.deepEqual(w.describedWith, [])
+  assert.equal(w.calls[w.calls.length - 1], 'release')
+})
+
+// ── #1053: the commission the new client is born with follows the accepted term ────────────────
+
+test('BR-B2B-044 item 6, BR-MONETIZACAO-039 item 2 (#1053): an acceptance of the v11 on creates the client without commission; up to the v10, with it', async () => {
+  reset({ termsCommission: false })
+  assert.equal((await mod.approvePortalSubmission(SUB, operator, 'op', CMS_OP, NOW)).ok, true)
+  assert.equal(w.createdWith?.commission, false)
+  reset({ termsCommission: true })
+  assert.equal((await mod.approvePortalSubmission(SUB, operator, 'op', CMS_OP, NOW)).ok, true)
+  assert.equal(w.createdWith?.commission, true)
+})
+
+test('#1053: the terms model unreadable fails the approval before any client, never a guessed percentage', async () => {
+  reset({ termsCommission: 'error' })
+  const out = await mod.approvePortalSubmission(SUB, operator, 'op', CMS_OP, NOW)
+  assert.deepEqual(out, { ok: false, httpStatus: 503, error: 'lookup_failed', attractionId: POI })
+  assert.ok(!w.calls.includes('create_client'))
   assert.equal(w.calls[w.calls.length - 1], 'release')
 })
 

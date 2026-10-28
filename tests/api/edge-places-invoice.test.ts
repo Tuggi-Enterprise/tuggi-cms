@@ -267,7 +267,7 @@ test('#901 BR-B2B-046: a one-off charge (cancellation fee) is scheduled for toda
   assert.ok(log.indexOf('asaas POST /invoices') > log.indexOf('db confirm_place_charge'), log.join(' | '))
   const [inv] = posts(asaas, '/invoices')
   assert.deepEqual(inv.body, {
-    payment: 'pay_fee', serviceDescription: 'Tuggi Com história', observations: 'Tuggi · Com história', externalReference: SUB_UUID,
+    payment: 'pay_fee', serviceDescription: 'Tuggi Experiência', observations: 'Tuggi · Experiência', externalReference: SUB_UUID,
     value: 135, deductions: 0, effectiveDate: '2026-10-04', municipalServiceCode: '1.03', municipalServiceName: 'Processamento de dados',
     taxes: { retainIss: false, iss: 2.5, pis: 0, cofins: 0, csll: 0, inss: 0, ir: 0 },
   })
@@ -636,10 +636,10 @@ test('#901 BR-B2B-046 B2: a refund that Asaas refuses does not cancel the invoic
 test('#901: the invoice e-mail carries the design subject, the number and the value; a null number or value drops its line', async () => {
   const m = mirror({ current: 'AUTHORIZED' })
   await hook(m.d, invEvent('e1', 'INVOICE_AUTHORIZED'))
-  assert.equal(m.emails[0].subject, 'Nota fiscal da sua mensalidade Com história')
+  assert.equal(m.emails[0].subject, 'Nota fiscal da sua mensalidade Experiência')
   assert.equal(
     m.emails[0].text,
-    'Olá,\n\nA nota fiscal da sua mensalidade do plano Com história foi emitida.\n\nNúmero: 42\nValor: R$ 99,90\n\nPara baixar o PDF, abra: https://x/pdf\n\nEquipe Tuggi',
+    'Olá,\n\nA nota fiscal da sua mensalidade do plano Experiência foi emitida.\n\nNúmero: 42\nValor: R$ 99,90\n\nPara baixar o PDF, abra: https://x/pdf\n\nEquipe Tuggi',
   )
   const bare = inv.INVOICE_EMAIL.text('https://x/pdf', null, null)
   assert.doesNotMatch(bare, /Número:|Valor:/)

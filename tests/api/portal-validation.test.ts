@@ -80,7 +80,7 @@ test('#812: one allowlist each — PROMOTION_MAP for the client, buildPlacePrefi
   const src = read('lib/services/portal-validation-service.ts')
   assert.match(src, /buildPromotionPlan\(portalAnswers, null/)
   assert.match(src, /buildPlacePrefill\(answers\)/)
-  assert.match(src, /createPromotedClient\(write\.updates, answers, \{ slug: reserved\.slug \}\)/)
+  assert.match(src, /createPromotedClient\(write\.updates, answers, \{ slug: reserved\.slug, commission \}\)/)
 })
 
 test('BR-B2B-047 item 1: the contract route refuses to generate for a portal client', () => {

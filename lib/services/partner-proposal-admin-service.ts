@@ -529,13 +529,15 @@ export type ClientWriteOutcome =
  * number that has one, and it was already disagreeing — 9 of 28 clients carry `0.200` that
  * nobody chose, all of them promoted from a proposal.
  */
-function commercialTermsOfChoice(answers: PartnerAnswers): Record<string, unknown> {
+function commercialTermsOfChoice(answers: PartnerAnswers, commission: boolean): Record<string, unknown> {
   // BR-B2B-064 item 2 and BR-B2B-065 item 3: the partner without a place has no plan and a
   // commission of zero, WRITTEN as zero — the same terms as the free tier, whatever `plan_choice`
   // the portal sent (`no_place`, or `map_only` before #933's amendment).
-  return answers.plan_choice === 'map_only' || hasNoPlace(partnerKindOf(answers))
-    ? { commission_rate: 0, monthly_fee_cents: null }
-    : { commission_rate: DEFAULT_COMMISSION_RATE }
+  if (answers.plan_choice === 'map_only' || hasNoPlace(partnerKindOf(answers))) return { commission_rate: 0, monthly_fee_cents: null }
+  // #1053, BR-B2B-044 item 6 and BR-MONETIZACAO-039 item 2: the paid plan accepted on the
+  // `locais-2026-10-v11` on has no commission, WRITTEN as zero, never left absent.
+  if (!commission) return { commission_rate: 0 }
+  return { commission_rate: DEFAULT_COMMISSION_RATE }
 }
 
 async function writeClient(command: PromotionCommand): Promise<ClientWriteOutcome> {
@@ -565,6 +567,7 @@ export async function createPromotedClient(
   {
     clientType = PROMOTED_CLIENT_TYPE,
     slug = null,
+    commission = true,
   }: {
     /** The portal's partner without a place is born `tour_guide` or `driver` (`clientTypeOfKind`). */
     clientType?: ClientType
@@ -574,6 +577,12 @@ export async function createPromotedClient(
      * database derives one (`partner.ensure_client_slug`).
      */
     slug?: string | null
+    /**
+     * #1053: `has_commission` of the acceptance (`partner.place_acceptance_terms_model`). The
+     * portal's approval passes it; the public proposal form has no acceptance and keeps the
+     * starting percentage.
+     */
+    commission?: boolean
   } = {}
 ): Promise<ClientWriteOutcome> {
   const { data, error } = await service()
@@ -585,7 +594,7 @@ export async function createPromotedClient(
       ...updates,
       client_type: clientType,
       ...(slug ? { slug } : {}),
-      ...commercialTermsOfChoice(answers),
+      ...commercialTermsOfChoice(answers, commission),
     })
     .select('id')
     .single()

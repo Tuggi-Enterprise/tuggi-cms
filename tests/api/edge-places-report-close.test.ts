@@ -375,9 +375,9 @@ test('#993 copy §7: subject, period, button to the reports tab, and the compari
   assert.match(paid.text, /Ver o relatório: https:\/\/partner\.tuggi\.app\/status\/relatorios/)
   assert.match(paid.text, /Se o botão não abrir, entre em partner\.tuggi\.app com este e-mail\./)
   assert.match(paid.text, /Não reconhece este local\? Escreva para suporte@tuggi\.app\./)
-  assert.doesNotMatch(paid.text, /Com história alcançam/)
-  assert.match(freeCompare.text, /O relatório também mostra o que os locais do plano Com história alcançam a mais em Cabo Frio, e a troca de plano é feita no mesmo painel\./)
-  assert.doesNotMatch(freeAlone.text, /Com história alcançam/)
+  assert.doesNotMatch(paid.text, /Experiência alcançam/)
+  assert.match(freeCompare.text, /O relatório também mostra o que os locais do plano Experiência alcançam a mais em Cabo Frio, e a troca de plano é feita no mesmo painel\./)
+  assert.doesNotMatch(freeAlone.text, /Experiência alcançam/)
   // No name: the sentence opens with the fallback of the legacy e-mail.
   assert.match(freeAlone.text, /\n\nSeu local já tem o relatório de outubro no painel: quanta gente usou o Tuggi em Búzios,/)
 })

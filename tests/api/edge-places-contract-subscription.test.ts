@@ -212,7 +212,7 @@ test('#918: the authorized NFS-e e-mail of a CMS contract names the contract ser
   assert.match(contract.text, new RegExp(CONTRACT_SERVICE))
   assert.doesNotMatch(contract.subject + contract.text, /Com hist/)
   const portal = await send('portal')
-  assert.equal(portal.subject, 'Nota fiscal da sua mensalidade Com história')
+  assert.equal(portal.subject, 'Nota fiscal da sua mensalidade Experiência')
 })
 
 test('#918: a boleto marked paid in cash in the Asaas panel is a paid charge too', async () => {
