@@ -243,7 +243,7 @@ function PushReportPage() {
   ]
   const baseTiles = [
     { key: 'installed', icon: Smartphone, color: CHART_COLORS.blue, label: t('base.installed'), hint: t('base.installed_hint'), ...tile(report?.devices.active_tokens ?? null, n, t('base.installed_sub')) },
-    { key: 'uninstalled', icon: UserMinus, color: CHART_COLORS.orange, label: t('base.uninstalled'), hint: t('no_data_hint'), ...tile(report?.devices.uninstalls ?? null, n, t('base.uninstalled_sub')) },
+    { key: 'uninstalled', icon: UserMinus, color: CHART_COLORS.orange, label: t('base.uninstalled'), hint: t('base.uninstalled_hint'), ...tile(report?.devices.uninstalls ?? null, n, t('base.uninstalled_sub')) },
     { key: 'open_rate', icon: Percent, color: CHART_COLORS.purple, label: t('funnel.open_rate'), hint: t('performance.direct_hint'), ...tile(funnel.open_rate, (v) => percent.format(v), t('funnel.open_rate_sub')) },
     { key: 'revenue', icon: CircleDollarSign, color: CHART_COLORS.green, label: t('performance.revenue'), hint: t('performance.revenue_hint'), ...tile(funnel.opened_revenue_usd, (v) => usd.format(v), t('performance.revenue_sub')) },
   ]
