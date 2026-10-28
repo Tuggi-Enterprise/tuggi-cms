@@ -171,7 +171,6 @@ Deno.serve(async (req) => {
       }
 
       console.log(`[${requestId}] 🛠 Cleaned length: ${pemContents.length}`);
-      console.log(`[${requestId}] 🔍 Key preview: ${pemContents.substring(0, 10)}...${pemContents.substring(pemContents.length - 10)}`);
 
       // 3. Decode Base64 to Binary
       let binaryDer;
@@ -456,7 +455,7 @@ Deno.serve(async (req) => {
         }
 
         if (error) {
-          console.error(`[${requestId}] ❌ Supabase log error:`, JSON.stringify(error));
+          console.error(`[${requestId}] ❌ Supabase log error:`, error?.code ?? 'unknown');
         } else {
           console.log(`[${requestId}] ✅ Log created:`, insertData?.[0]?.id);
         }
@@ -865,7 +864,7 @@ Deno.serve(async (req) => {
         .single();
 
       if (schedErr) {
-        console.error(`[${requestId}] ❌ schedule insert error:`, JSON.stringify(schedErr));
+        console.error(`[${requestId}] ❌ schedule insert error:`, schedErr?.code ?? 'unknown');
         throw schedErr;
       }
 
@@ -1003,7 +1002,7 @@ Deno.serve(async (req) => {
     return new Response(JSON.stringify({ error: 'Not found' }), { status: 404, headers: corsHeaders });
 
   } catch (err: any) {
-    console.error(`[${requestId}] 💥 Fatal error:`, err);
+    console.error(`[${requestId}] 💥 Fatal error:`, (err as { code?: string })?.code ?? (err as Error)?.message);
     return new Response(JSON.stringify({ 
       error: 'Internal Server Error',
       message: err.message,
