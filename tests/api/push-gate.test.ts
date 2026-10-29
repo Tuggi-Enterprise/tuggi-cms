@@ -21,6 +21,7 @@ const FUNCTIONS = resolve(import.meta.dirname, '../../supabase/functions')
 const MODULE_PATH = resolve(FUNCTIONS, '_shared/push-gate.ts')
 const RANKING_PATH = resolve(FUNCTIONS, '_shared/ranking-communication.ts')
 const PUSH_PATH = resolve(FUNCTIONS, 'firebase-push-notification/index.ts')
+const SENDER_PATH = resolve(FUNCTIONS, '_shared/push-send.ts')
 const ORCHESTRATOR_PATH = resolve(FUNCTIONS, 'daily-gamification-orchestrator/index.ts')
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -267,19 +268,25 @@ test('#955: the one-person /send answer names its outcome; an answer without a t
 // ---------------------------------------------------------------------------------------------
 
 test('BR-COMUNICACAO-019 item 9: firebase-push-notification reaches FCM only from inside the gated sender', () => {
-  const source = readFileSync(PUSH_PATH, 'utf8')
-  assert.match(source, /from '\.\.\/_shared\/push-gate\.ts'/)
-  assert.match(source, /sendThroughPushGate\(/)
+  // Since #1046 the sender lives in `_shared/push-send.ts`, shared with `weekly-local-push`; the
+  // route file only creates it and answers HTTP.
+  const route = readFileSync(PUSH_PATH, 'utf8')
+  const sender = readFileSync(SENDER_PATH, 'utf8')
+  const source = `${route}\n${sender}`
+  assert.match(route, /from '\.\.\/_shared\/push-send\.ts'/)
+  assert.doesNotMatch(route, /sendNotification\(|fcm\.googleapis\.com/, 'the route reaches FCM outside the shared sender')
+  assert.match(sender, /from '\.\/push-gate\.ts'/)
+  assert.match(sender, /sendThroughPushGate\(/)
   // `sendNotification(` is declared once and called once, in `deliverTo`, which only the gate (or
   // the partner path, `kind = null`) calls.
-  const calls = source.match(/await sendNotification\(/g) ?? []
+  const calls = sender.match(/await sendNotification\(/g) ?? []
   assert.equal(calls.length, 1, `sendNotification is called ${calls.length} times`)
-  const deliverAt = source.indexOf('const deliverTo = async')
-  const callAt = source.indexOf('await sendNotification(')
-  const gatedEnd = source.indexOf('// -------- ROUTES --------')
+  const deliverAt = sender.indexOf('const deliverTo = async')
+  const callAt = sender.indexOf('await sendNotification(')
+  const gatedEnd = sender.indexOf('const send = async')
   assert.ok(deliverAt > -1 && callAt > deliverAt && callAt < gatedEnd, 'the FCM send moved out of the gated sender')
-  // The routes send only through it.
-  const routes = source.slice(gatedEnd)
+  // The routes (`send` here, `/process-scheduled` in the route file) send only through it.
+  const routes = `${sender.slice(gatedEnd)}\n${route}`
   assert.ok((routes.match(/gatedSendToUsers\(/g) ?? []).length >= 4, 'a route sends around the gate')
   // The topic send is gone: nothing addresses FCM by topic any more.
   assert.doesNotMatch(source, /message: \{ \.\.\.baseMessage, topic \}/)
@@ -287,7 +294,7 @@ test('BR-COMUNICACAO-019 item 9: firebase-push-notification reaches FCM only fro
 })
 
 test('BR-COMUNICACAO-019, "Não se aplica a": only the partner template skips the gate, and only without a caller title', () => {
-  const source = readFileSync(PUSH_PATH, 'utf8')
+  const source = readFileSync(SENDER_PATH, 'utf8')
   assert.match(source, /const isPartnerTemplate = Boolean\(template\) && !notification\?\.title;/)
   assert.match(source, /if \(type === 'user' && !isPartnerTemplate\) \{/)
   assert.match(source, /'cms_broadcast'/)

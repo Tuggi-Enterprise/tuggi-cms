@@ -32,6 +32,8 @@ const FN = (name: string) =>
 
 const newsletter = FN('send-newsletter/index.ts')
 const push = FN('firebase-push-notification/index.ts')
+/** What `/send` runs, shared with `weekly-local-push` since #1046: the log and the FCM payload live here. */
+const pushSender = FN('_shared/push-send.ts')
 const webhook = FN('resend-webhook/index.ts')
 const middleware = FN('_shared/auth-middleware.ts')
 const orchestrator = FN('daily-gamification-orchestrator/index.ts')
@@ -271,20 +273,20 @@ test('an Italian reader with no name is not greeted in English', () => {
 test('the push log persists the counts and the segment it actually used', () => {
   // `stats.success`/`stats.failure` were counted token by token and went to console.log; the
   // audience `filters` were dropped, so the history showed "All Users" for every broadcast.
-  assert.match(push, /success_count: stats\?\.success/)
-  assert.match(push, /failure_count: stats\?\.failure/)
-  assert.match(push, /recipient_count:/)
-  assert.match(push, /audience_filters:/)
+  assert.match(pushSender, /success_count: stats\?\.success/)
+  assert.match(pushSender, /failure_count: stats\?\.failure/)
+  assert.match(pushSender, /recipient_count:/)
+  assert.match(pushSender, /audience_filters:/)
   // The columns are the `data` agent's migration (§2): until it runs, the insert must not lose
   // the log row that exists today.
-  assert.match(push, /PGRST204/, 'a missing column would drop the log entirely')
+  assert.match(pushSender, /PGRST204/, 'a missing column would drop the log entirely')
 })
 
 test('the push data map is coerced to strings before it reaches FCM', () => {
   // FCM `data` is map<string,string>. A number in there is INVALID_ARGUMENT for EVERY token —
   // the failure `shouldAbortForBadPayload` exists to stop — and the CMS composer now writes
   // `data.type` alongside whatever the operator typed.
-  assert.match(push, /data: stringifyData\(notification\.data\)/)
+  assert.match(pushSender, /data: stringifyData\(notification\.data\)/)
 })
 
 // --- The daily window is not an anonymous trigger (#747) ----------------------

@@ -3,12 +3,16 @@
  *
  * The database decides who gets which piece and writes the copy: `drive.claim_weekly_push` returns
  * each person, piece and local date once, with title and body already filled in the person's
- * language. This module only sends each row through the one push path,
- * `firebase-push-notification/send`, and closes the row with `drive.finish_weekly_push`. The cap of
- * the weekly bucket (item 4.1) and the quiet hours (item 5) are decided by `drive.push_allowed`
- * behind that path, so there is no second gate here.
+ * language. This module only sends each row through the one push path, the `send` of
+ * `_shared/push-send.ts` that `firebase-push-notification/send` answers with, and closes the row
+ * with `drive.finish_weekly_push`. The cap of the weekly bucket (item 4.1) and the quiet hours
+ * (item 5) are decided by `drive.push_allowed` behind that path, so there is no second gate here.
  *
- * Pure: no remote import and no `Deno` global. The client, `fetch` and the logger come in as
+ * The send is a function call, not HTTP (#1046): a run calling `/send` once per person spent the
+ * Supabase budget of function-to-function calls per trace, and every person after it closed
+ * `failed` with `RateLimitError` (https://supabase.com/docs/guides/functions/recursive-functions).
+ *
+ * Pure: no remote import and no `Deno` global. The client, `send` and the logger come in as
  * arguments, so `_tests/weekly-local-push.test.ts` drives it without network or database.
  *
  * Logs carry counts and the reason of a failure, never a user id, token, e-mail or position.
@@ -35,7 +39,7 @@ export interface WeeklyPushRow {
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
-/** People sent to at the same time. Same width as the per-person loop of `/send`. */
+/** People sent to at the same time. Same width as the per-person loop of the sender. */
 export const SEND_CONCURRENCY = 10;
 
 function isWeeklyKind(kind: PushKind | null): kind is WeeklyPushKind {
@@ -77,7 +81,7 @@ export function parseClaimRow(raw: unknown): WeeklyPushRow | { invalid: string }
 }
 
 /**
- * The body of the one-person `/send`. `data.type` is the push kind, so the inbox row, the cap and
+ * The body of the one-person send, the same body `/send` takes. `data.type` is the push kind, so the inbox row, the cap and
  * the GA4 open all name the piece (BR-COMUNICACAO-016); `data.variant` separates event, route and
  * reminder for the measurement of 3.m.9.
  */
@@ -97,7 +101,7 @@ export function weeklySendBody(row: WeeklyPushRow): Record<string, unknown> {
 }
 
 /**
- * What the `/send` answer means for the row. Success is proved by the gate tally of the answer,
+ * What the send answer (status and body of `/send`) means for the row. Success is proved by the gate tally of the answer,
  * never by the status alone: a 2xx without a tally proves nothing and closes as `failed`.
  *
  * `inactive` cannot happen (the weekly kinds do not require "using the app") and would be the gate
@@ -122,12 +126,8 @@ export function finishOutcomeFrom(status: number, answer: unknown): WeeklyPushOu
 export interface WeeklyPushDeps {
   /** A client already pinned to the `drive` schema, with the machine key. */
   drive: DriveRpc;
-  /** `fetch`, or a stand-in in the tests. */
-  fetch: (url: string, init: RequestInit) => Promise<Response>;
-  /** `${SUPABASE_URL}/functions/v1/firebase-push-notification/send`. */
-  sendUrl: string;
-  /** The machine key `/send` admits (`requireAdmin`, machine bypass). */
-  machineKey: string;
+  /** `createPushSender(...).send`, or a stand-in in the tests: the `/send` answer, in process. */
+  send: (body: Record<string, unknown>) => Promise<{ status: number; body: unknown }>;
   log: (line: string) => void;
   /** `now()` when absent; the tests pin the instant. */
   now?: Date;
@@ -150,20 +150,11 @@ export class WeeklyClaimError extends Error {
 
 async function deliver(deps: WeeklyPushDeps, row: WeeklyPushRow): Promise<WeeklyPushOutcome> {
   try {
-    const res = await deps.fetch(deps.sendUrl, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        Authorization: `Bearer ${deps.machineKey}`,
-        apikey: deps.machineKey,
-      },
-      body: JSON.stringify(weeklySendBody(row)),
-    });
-    const answer = await res.json().catch(() => null);
-    const outcome = finishOutcomeFrom(res.status, answer);
+    const { status, body: answer } = await deps.send(weeklySendBody(row));
+    const outcome = finishOutcomeFrom(status, answer);
     if (outcome === 'failed') {
       const gate = singleGateOutcome(answer);
-      deps.log(`[weekly-local-push] send ${row.sendId} failed: status=${res.status} gate=${gate ?? 'none'}`);
+      deps.log(`[weekly-local-push] send ${row.sendId} failed: status=${status} gate=${gate ?? 'none'}`);
     }
     return outcome;
   } catch (error) {

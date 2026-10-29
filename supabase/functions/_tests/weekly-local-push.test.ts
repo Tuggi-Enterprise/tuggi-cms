@@ -2,15 +2,16 @@
  * #1047: the weekly push sender, `_shared/weekly-local-push.ts` and `weekly-local-push/index.ts`.
  * BR-COMUNICACAO-019 item 3.m, BR-COMUNICACAO-012 item 1.7.
  *
- * The module gets a fake `drive` client and a fake `fetch`, so every claim row, every `/send` body
- * and every `finish_weekly_push` call is read back. The handler test proves the gate in front.
+ * The module gets a fake `drive` client and a fake `send`, so every claim row, every `/send` body
+ * and every `finish_weekly_push` call is read back. The handler tests prove the gate in front and,
+ * with the real sender of `_shared/push-send.ts`, that a run reaches FCM with no call to another
+ * function (#1046).
  */
 import { assert, assertEquals } from './assert.ts';
-import { fetchCalls, loadHandler, scenario } from './harness.ts';
+import { fetchCalls, loadHandler, network, scenario } from './harness.ts';
 import { type DriveRpc, PUSH_KINDS } from '../_shared/push-gate.ts';
 import { runWeeklyLocalPush, SEND_CONCURRENCY, type WeeklyPushDeps } from '../_shared/weekly-local-push.ts';
 
-const SEND_URL = 'http://supabase.test/functions/v1/firebase-push-notification/send';
 const USER_A = '33333333-3333-4333-8333-333333333333';
 const USER_B = '44444444-4444-4444-8444-444444444444';
 
@@ -33,11 +34,11 @@ function claimRow(overrides: Record<string, unknown> = {}): Record<string, unkno
 
 interface Trail {
   rpcs: Array<{ fn: string; args?: Record<string, unknown> }>;
-  sends: Array<{ url: string; headers: Record<string, string>; body: Record<string, unknown> }>;
+  sends: Array<{ body: Record<string, unknown> }>;
   logs: string[];
 }
 
-/** A fake run: `claim` is what the claim answers, `reply` what `/send` answers for each body. */
+/** A fake run: `claim` is what the claim answers, `reply` what the sender answers for each body. */
 function fakeRun(
   claim: { data: unknown; error: { code?: string } | null },
   reply: (body: Record<string, unknown>) => Response | Promise<Response>,
@@ -57,13 +58,12 @@ function fakeRun(
   };
   const deps: WeeklyPushDeps = {
     drive,
-    fetch: (url, init) => {
-      const body = JSON.parse(String(init.body));
-      trail.sends.push({ url, headers: init.headers as Record<string, string>, body });
-      return Promise.resolve(reply(body));
+    // The answer `/send` would give, read the way the route writes it: status and JSON body.
+    send: async (body) => {
+      trail.sends.push({ body });
+      const res = await reply(body);
+      return { status: res.status, body: await res.json().catch(() => null) };
     },
-    sendUrl: SEND_URL,
-    machineKey: 'machine-key',
     log: (line) => trail.logs.push(line),
   };
   return { deps, trail };
@@ -84,8 +84,6 @@ Deno.test('BR-COMUNICACAO-019 3.m (#1047): a claim row becomes one /send with th
 
   assertEquals(trail.sends.length, 1);
   const send = trail.sends[0];
-  assertEquals(send.url, SEND_URL);
-  assertEquals(send.headers.Authorization, 'Bearer machine-key');
   assertEquals(send.body.type, 'user');
   assertEquals(send.body.userIds, [USER_A]);
   assertEquals(send.body.push_kind, 'weekly_thursday_local');
@@ -242,4 +240,59 @@ Deno.test('#1047: the cron call with the machine key claims and answers the tall
     invalid: 0,
     unfinished: 0,
   });
+});
+
+// ---- #1046: the whole run, with the real sender, against the Supabase function-to-function budget ----
+
+Deno.test('BR-COMUNICACAO-019 3.m (#1046): 120 claimed people all leave, through the gate, with no call to another function', async () => {
+  const keyPair = await crypto.subtle.generateKey(
+    { name: 'RSASSA-PKCS1-v1_5', modulusLength: 2048, publicExponent: new Uint8Array([1, 0, 1]), hash: 'SHA-256' },
+    true,
+    ['sign', 'verify'],
+  );
+  const pkcs8 = new Uint8Array(await crypto.subtle.exportKey('pkcs8', keyPair.privateKey));
+  Deno.env.set('FIREBASE_PRIVATE_KEY', btoa(String.fromCharCode(...pkcs8)));
+  Deno.env.set('FIREBASE_PROJECT_ID', 'tuggi-test');
+  Deno.env.set('FIREBASE_CLIENT_EMAIL', 'push@tuggi-test.iam.gserviceaccount.test');
+
+  const people = Array.from({ length: 120 }, (_, i) => `${String(i).padStart(8, '0')}-0000-4000-8000-000000000000`);
+  const rows = people.map((user_id, i) => claimRow({ send_id: 5000 + i, user_id }));
+  scenario.rpcs = {
+    claim_weekly_push: { data: rows, error: null },
+    unrequested_push_policy: { data: null, error: null },
+    push_allowed: { data: true, error: null },
+    record_push_sent: { data: null, error: null },
+    finish_weekly_push: { data: true, error: null },
+  };
+  scenario.tables = {
+    fcm_tokens: people.map((user_id) => ({ user_id, fcm_token: `tok-${user_id}` })),
+    profiles: [],
+    user_notifications: (chain: string[]) => (chain.includes('insert') ? { id: crypto.randomUUID() } : null),
+    notification_logs: [{ id: 1 }],
+  };
+  scenario.tableErrors = {};
+  scenario.writes.length = 0;
+  network.reply = (url) => {
+    if (url.startsWith('https://oauth2.googleapis.com/')) {
+      return new Response(JSON.stringify({ access_token: 'test-access-token' }), { status: 200 });
+    }
+    if (url.includes('fcm.googleapis.com')) return new Response('{"name":"projects/x/messages/1"}', { status: 200 });
+    return new Response('{}', { status: 400 });
+  };
+
+  const res = await call('Bearer test-service-role-key');
+  const report = await res.json();
+
+  assertEquals(res.status, 200);
+  assertEquals(report, { claimed: 120, outcomes: { sent: 120, denied: 0, not_delivered: 0, failed: 0 }, invalid: 0, unfinished: 0 });
+  assertEquals(fetchCalls.filter((u) => u.includes('/functions/v1/')), []);
+  assertEquals(fetchCalls.filter((u) => u.startsWith('https://oauth2.googleapis.com/')).length, 1);
+  assertEquals(fetchCalls.filter((u) => u.includes('fcm.googleapis.com')).length, 120);
+  assertEquals(scenario.calls.filter((c) => c === 'rpc:push_allowed').length, 120);
+  assertEquals(scenario.calls.filter((c) => c === 'rpc:record_push_sent').length, 120);
+  const inbox = scenario.writes.filter((w) => w.table === 'user_notifications' && w.op === 'insert');
+  assertEquals(inbox.map((w) => (w.values as { user_id: string }).user_id).sort(), [...people].sort());
+  assertEquals((inbox[0].values as { type: string }).type, 'weekly_thursday_local');
+  assertEquals(scenario.writes.filter((w) => w.table === 'notification_logs').length, 120);
+  assertEquals(scenario.calls.filter((c) => c === 'rpc:finish_weekly_push').length, 120);
 });
