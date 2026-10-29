@@ -628,6 +628,9 @@
         },
         "base": {
           "title": "Base",
+          "push_enabled": "Com push liberado",
+          "push_enabled_sub": "pessoas, não aparelhos",
+          "push_enabled_hint": "Pessoas com o push do app ligado e pelo menos um aparelho que ainda recebe push, convidados incluídos. É quem recebe a régua semanal. Mostra o dia de hoje, não o período.",
           "installed": "Com o app",
           "installed_sub": "aparelhos com token ativo",
           "installed_hint": "Aparelhos que ainda podem receber push. O token é desligado quando um envio encontra o aparelho sem o app.",

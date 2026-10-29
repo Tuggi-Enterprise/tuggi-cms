@@ -16,7 +16,7 @@
 import { Suspense, useCallback, useEffect, useMemo, useState } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
 import { useLocale, useTranslations } from 'next-intl'
-import { Bell, CheckCheck, CircleDollarSign, MailOpen, Percent, Send, Smartphone, UserMinus, XCircle } from 'lucide-react'
+import { Bell, BellRing, CheckCheck, CircleDollarSign, MailOpen, Percent, Send, Smartphone, UserMinus, XCircle } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Select } from '@/components/ui/select'
@@ -243,12 +243,14 @@ function PushReportPage() {
     { key: 'delivered', icon: CheckCheck, color: CHART_COLORS.green, label: t('funnel.delivered'), hint: t('funnel.delivered_hint'), ...tile(funnel.delivered, n) },
     { key: 'opened', icon: MailOpen, color: CHART_COLORS.purple, label: t('funnel.opened'), hint: t('funnel.opened_hint'), ...tile(funnel.opened, n) },
     { key: 'not_delivered', icon: XCircle, color: CHART_COLORS.red, label: t('funnel.not_delivered'), hint: t('funnel.not_delivered_hint'), ...tile(funnel.not_delivered, n) },
-  ]
-  const baseTiles = [
-    { key: 'installed', icon: Smartphone, color: CHART_COLORS.blue, label: t('base.installed'), hint: t('base.installed_hint'), ...tile(report?.devices.active_tokens ?? null, n, t('base.installed_sub')) },
-    { key: 'uninstalled', icon: UserMinus, color: CHART_COLORS.orange, label: t('base.uninstalled'), hint: t('base.uninstalled_hint'), ...tile(report?.devices.uninstalls ?? null, n, t('base.uninstalled_sub')) },
     { key: 'open_rate', icon: Percent, color: CHART_COLORS.purple, label: t('funnel.open_rate'), hint: t('performance.direct_hint'), ...tile(funnel.open_rate, (v) => percent.format(v), t('funnel.open_rate_sub')) },
     { key: 'revenue', icon: CircleDollarSign, color: CHART_COLORS.green, label: t('performance.revenue'), hint: t('performance.revenue_hint'), ...tile(funnel.opened_revenue_usd, (v) => usd.format(v), t('performance.revenue_sub')) },
+  ]
+  /** A snapshot of today, apart from the period above (BR-COMUNICACAO-019 3.m.1 for push_enabled). */
+  const baseTiles = [
+    { key: 'push_enabled', icon: BellRing, color: CHART_COLORS.green, label: t('base.push_enabled'), hint: t('base.push_enabled_hint'), ...tile(report?.devices.push_enabled_people ?? null, n, t('base.push_enabled_sub')) },
+    { key: 'installed', icon: Smartphone, color: CHART_COLORS.blue, label: t('base.installed'), hint: t('base.installed_hint'), ...tile(report?.devices.active_tokens ?? null, n, t('base.installed_sub')) },
+    { key: 'uninstalled', icon: UserMinus, color: CHART_COLORS.orange, label: t('base.uninstalled'), hint: t('base.uninstalled_hint'), ...tile(report?.devices.uninstalls ?? null, n, t('base.uninstalled_sub')) },
   ]
 
   const numHead = (key: SortKey, label: string, title: string, edge = false) => (
@@ -340,8 +342,8 @@ function PushReportPage() {
         ))}
       </div>
 
-      {[funnelTiles, baseTiles].map((row, i) => (
-        <StatCardRow key={i} columns={4}>
+      {([[funnelTiles, 6], [baseTiles, 3]] as const).map(([row, columns], i) => (
+        <StatCardRow key={i} columns={columns}>
           {row.map((card) => (
             <div key={card.key} title={card.hint}>
               <StatCard

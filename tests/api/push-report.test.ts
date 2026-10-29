@@ -111,7 +111,7 @@ test('#1051 BR-COMUNICACAO-019 3.m.9: the report reads the period in Sao Paulo d
     { schema: 'drive', fn: 'cms_get_push_report', args: { p_from: '2026-10-01T00:00:00-03:00', p_to: '2026-10-29T00:00:00-03:00' } },
   ])
   const { data } = await res.json()
-  assert.deepEqual(data.devices, { active_tokens: 120, people_with_active_token: 110, uninstalls: null })
+  assert.deepEqual(data.devices, { active_tokens: 120, people_with_active_token: 110, uninstalls: null, push_enabled_people: null })
   assert.equal(data.sends.length, 1)
   assert.doesNotMatch(JSON.stringify(data), /inactive_tokens_changed/)
 })
@@ -234,7 +234,7 @@ test('#1052 BR-COMUNICACAO-022: the new sources pass through as numbers on new s
   assert.equal(res.status, 200)
   const { data } = await res.json()
   assert.deepEqual(data.windows, { action_hours: 24, revenue_days: 7, base_cost_hours: 48, sources_since: '2026-10-28T20:15:00Z', app_open_retention_days: 90 })
-  assert.deepEqual(data.devices, { active_tokens: 120, people_with_active_token: 110, uninstalls: 4 })
+  assert.deepEqual(data.devices, { active_tokens: 120, people_with_active_token: 110, uninstalls: 4, push_enabled_people: null })
   assert.doesNotMatch(JSON.stringify(data), /inactive_tokens_changed/)
 
   const [fresh, old] = data.sends
@@ -254,4 +254,22 @@ test('#1052 BR-COMUNICACAO-022: "measured since" is the Sao Paulo day of sources
   assert.equal(lib.sourcesSinceDay(null), null)
   assert.equal(lib.sourcesSinceDay('2026-02-30'), null)
   assert.equal(lib.sourcesSinceDay('soon'), null)
+})
+
+test('#1046 BR-COMUNICACAO-019 3.m.1: people with push enabled pass through as a number, and absent or null is null, never 0', async () => {
+  const route = '/api/dashboard/push?from=2026-10-01&to=2026-10-28'
+  const devicesOf = async (devices: Record<string, unknown>) => {
+    answers.cms_get_push_report = { data: { ...REPORT, devices } }
+    const res = await reportRoute.GET(get(route), ctx)
+    assert.equal(res.status, 200)
+    return (await res.json()).data.devices
+  }
+  const base = { active_tokens: 120, people_with_active_token: 110, uninstalls: 4, inactive_tokens_changed: 37 }
+
+  assert.deepEqual(await devicesOf({ ...base, push_enabled_people: 95 }), { active_tokens: 120, people_with_active_token: 110, uninstalls: 4, push_enabled_people: 95 })
+  assert.equal((await devicesOf({ ...base, push_enabled_people: 0 })).push_enabled_people, 0)
+  assert.equal((await devicesOf({ ...base, push_enabled_people: null })).push_enabled_people, null)
+  const absent = await devicesOf(base)
+  assert.ok('push_enabled_people' in absent)
+  assert.equal(absent.push_enabled_people, null)
 })

@@ -619,6 +619,9 @@
         },
         "base": {
           "title": "Base",
+          "push_enabled": "Con push activado",
+          "push_enabled_sub": "personas, no dispositivos",
+          "push_enabled_hint": "Personas con el push de la app activado y al menos un dispositivo que todavía recibe push, invitados incluidos. Son quienes reciben la regla semanal. Muestra el día de hoy, no el período.",
           "installed": "Con la app",
           "installed_sub": "dispositivos con token activo",
           "installed_hint": "Dispositivos que todavía pueden recibir push. El token se apaga cuando un envío encuentra el dispositivo sin la app.",

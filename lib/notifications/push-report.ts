@@ -90,7 +90,17 @@ export interface PushReport {
    * `inactive_tokens_changed` comes back too and is dropped by the route: it is the last write on
    * the token, not the day of the uninstall (decision D5 of the migration), so no screen shows it.
    */
-  devices: { active_tokens: number; people_with_active_token: number; uninstalls: number | null }
+  devices: {
+    active_tokens: number
+    people_with_active_token: number
+    uninstalls: number | null
+    /**
+     * People with the app push on and a live token, guests included: the audience of the weekly
+     * push (BR-COMUNICACAO-019 3.m.1, #1046). A snapshot of today, not of the period. The route
+     * turns an absent field into `null` (sem dado) while the database does not send it yet.
+     */
+    push_enabled_people: number | null
+  }
   sends: PushReportSend[]
 }
 

@@ -630,6 +630,9 @@
         },
         "base": {
           "title": "Base",
+          "push_enabled": "Push enabled",
+          "push_enabled_sub": "people, not devices",
+          "push_enabled_hint": "People with the app push turned on and at least one device that can still get a push, guests included. They are who gets the weekly push. Shows today, not the period.",
           "installed": "With the app",
           "installed_sub": "devices with an active token",
           "installed_hint": "Devices that can still get a push. The token is turned off when a send finds the device without the app.",
