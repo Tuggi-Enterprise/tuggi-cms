@@ -945,17 +945,26 @@ async function collectAudience(deps: CollectDeps, today: string): Promise<Collec
   return 'written';
 }
 
-/** The four navigation actions of one story, lowered; an action Meta did not list stays null. */
+/**
+ * The four navigation actions of one story, lowered. Meta lists only the actions that happened: when
+ * the listed ones add up to the total it answered, an unlisted action is a measured 0 (the reference
+ * sample: the results sum to the total). Otherwise an unlisted action stays null, unknown.
+ */
 export function navigationValues(body: Record<string, unknown>): Record<string, number | null> {
   const out: Record<string, number | null> = Object.fromEntries(STORY_ACTIONS.map((a) => [a, null]));
   const item = (Array.isArray(body.data) ? body.data[0] : null) as Record<string, unknown> | null;
-  const total = item?.total_value as { breakdowns?: unknown } | undefined;
+  const total = item?.total_value as { value?: unknown; breakdowns?: unknown } | undefined;
+  let listed = 0;
   for (const b of (Array.isArray(total?.breakdowns) ? total.breakdowns : []) as Array<Record<string, unknown>>) {
     for (const r of (Array.isArray(b.results) ? b.results : []) as Array<Record<string, unknown>>) {
       const action = String((r.dimension_values as unknown[] | undefined)?.[0] ?? '').toLowerCase();
-      if ((STORY_ACTIONS as readonly string[]).includes(action)) out[action] = num(r.value);
+      const value = num(r.value);
+      if (!(STORY_ACTIONS as readonly string[]).includes(action) || value === null) continue;
+      out[action] = value;
+      listed += value;
     }
   }
+  if (num(total?.value) === listed) for (const a of STORY_ACTIONS) out[a] = out[a] ?? 0;
   return out;
 }
 

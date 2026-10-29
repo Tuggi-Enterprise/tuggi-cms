@@ -815,6 +815,11 @@ Deno.test('#1062: the daily run records its row in collector_runs; demographics 
   assertEquals(r.store.tables.collector_runs.has('apple'), false);
   assertEquals(demographicRows({ data: [{ total_value: { breakdowns: [{ dimension_keys: ['timeframe', 'country'], results: [{ dimension_values: ['THIS_WEEK', 'BR'], value: 9 }] }] } }] }, 'country'), [['BR', 9]]);
   assertEquals(navigationValues({ data: [] }), { tap_forward: null, tap_back: null, tap_exit: null, swipe_forward: null });
+  // The production answer of 2026-10-29: no swipe_forward listed, the listed ones add up to the total, so it is 0.
+  const listed = navigation({ tap_forward: 11, tap_back: 1, tap_exit: 2 });
+  assertEquals(navigationValues(listed), { tap_forward: 11, tap_back: 1, tap_exit: 2, swipe_forward: 0 });
+  (listed.data[0].total_value as { value: number }).value = 20;
+  assertEquals(navigationValues(listed).swipe_forward, null);
 });
 
 Deno.test('#1062: {"job":"stories"} through the handler runs the stories only; an unknown job is 400', async () => {
