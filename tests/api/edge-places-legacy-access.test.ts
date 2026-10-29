@@ -260,6 +260,8 @@ test('#916 BR-B2B-060: cancel_legacy — the database first with the user JWT, t
   assert.equal(mails[0].to, 'ze@example.com')
   assert.equal(mails[0].subject, 'Seu plano mensal no Tuggi foi cancelado')
   assert.match(mails[0].text, /Seu plano termina em 20\/10\/2026, quando acabaria o mês já pago\. Depois disso não há nova cobrança nem taxa de saída\./)
+  // #1056 BR-B2B-019 items 3 and 6 (2026-10-29): the legacy plan also loses the photos with the story, and both come back
+  assert.match(mails[0].text, /Em 20\/10\/2026, a história e as fotos do seu local saem do app\. O local continua no mapa, sem custo, e as duas voltam/)
   assert.equal(mails[0].opts.fromName, 'Tuggi Locais')
   assert.equal(mails[0].opts.replyTo, 'suporte@tuggi.app')
   // design ajuste 2: no reason step in the legacy cancel, so the e-mail asks it

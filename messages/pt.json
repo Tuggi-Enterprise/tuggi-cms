@@ -4715,7 +4715,7 @@
       "unpublishAction": "Tirar do app",
       "unpublishTitle": "Tirar {name} do app.",
       "unpublishBody": "O local sai do app e para de disparar. O cadastro, o vínculo com o cliente e tudo o que já foi produzido continuam aqui.",
-      "unpublishContract": "Tirar do app não encerra o contrato e não cancela a cobrança. Se a intenção é parar a mensalidade, isso se resolve no contrato, não aqui.",
+      "unpublishContract": "Tirar do app não encerra o contrato e não cancela a cobrança. Para parar a mensalidade, use Cancelar plano, na aba Locais da ficha do cliente.",
       "unpublishConfirm": "Tirar {name} do app",
       "unpublishing": "Tirando do app…",
       "unpublishFailed": "Não foi possível tirar do app. Nada mudou."

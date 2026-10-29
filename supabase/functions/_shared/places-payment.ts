@@ -2075,11 +2075,12 @@ export const CANCEL_EMAIL = {
       paragraphs: [
         'Olá,',
         'Confirmamos o cancelamento do seu plano Experiência. Obrigado por ter mostrado o seu local aos turistas que usam o Tuggi, vamos sentir falta da sua história no app.',
+        // #1056 (operator 2026-10-29), BR-B2B-060 item 8: the photos leave the app with the story, stay kept in the portal and come back together.
         until
-          ? `A história do seu local continua no ar até ${until}. Depois disso, o local segue no mapa do app no plano Presença, sem custo.`
-          : 'O local segue no mapa do app no plano Presença, sem custo.',
+          ? `A história e as fotos do seu local continuam no ar até ${until}. Depois disso, elas ficam guardadas no portal, e o local segue no mapa do app no plano Presença, sem custo.`
+          : 'A história e as fotos do seu local ficam guardadas no portal, e o local segue no mapa do app no plano Presença, sem custo.',
         ...feeLines,
-        'Se quiser voltar, o seu local continua cadastrado. É só entrar e contratar o plano Experiência de novo.',
+        'Se quiser voltar, é só entrar e contratar o plano Experiência de novo: a história e as fotos voltam juntas, sem refazer o cadastro.',
       ],
       cta: { label: 'Entrar', url: PORTAL_URL },
       closing: [
@@ -2449,7 +2450,10 @@ export const LEGACY_CANCEL_EMAIL = {
         until
           ? `Seu plano termina em ${until}, quando acabaria o mês já pago. Depois disso não há nova cobrança nem taxa de saída.`
           : 'Seu plano termina hoje. Não há cobrança nem taxa de saída.',
-        'O seu local continua no mapa do app, sem custo.',
+        // #1056 (operator 2026-10-29), BR-B2B-019 items 3 and 6 and the legacy-contract edge case: the photos leave with the story here too.
+        until
+          ? `Em ${until}, a história e as fotos do seu local saem do app. O local continua no mapa, sem custo, e as duas voltam se você contratar o plano Experiência.`
+          : 'A história e as fotos do seu local saem do app hoje. O local continua no mapa, sem custo, e as duas voltam se você contratar o plano Experiência.',
       ],
       cta: { label: 'Entrar', url: PORTAL_URL },
       // The legacy cancel has no reason step (design, #916): the e-mail is where the reason comes from.

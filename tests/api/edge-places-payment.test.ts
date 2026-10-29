@@ -625,11 +625,12 @@ test('#863 §8.4: the cancel e-mail formats the fee like the portal (thousands, 
   assert.equal(pay.CANCEL_EMAIL.subject, 'Seu plano Experiência foi cancelado')
 })
 
+// #1056 BR-B2B-060 item 8 (2026-10-29): blocks B and D say the photos leave with the story, stay in the portal and come back together.
 const D =
-  'Se quiser voltar, o seu local continua cadastrado. É só entrar e contratar o plano Experiência de novo.\n\nEntrar: https://partner.tuggi.app\n\nPode contar para a gente por que cancelou? Basta responder este e-mail. Uma linha já nos ajuda a melhorar.\n\nEquipe Tuggi'
+  'Se quiser voltar, é só entrar e contratar o plano Experiência de novo: a história e as fotos voltam juntas, sem refazer o cadastro.\n\nEntrar: https://partner.tuggi.app\n\nPode contar para a gente por que cancelou? Basta responder este e-mail. Uma linha já nos ajuda a melhorar.\n\nEquipe Tuggi'
 const A = 'Olá,\n\nConfirmamos o cancelamento do seu plano Experiência. Obrigado por ter mostrado o seu local aos turistas que usam o Tuggi, vamos sentir falta da sua história no app.'
-const B_UNTIL = 'A história do seu local continua no ar até 06/01/2027. Depois disso, o local segue no mapa do app no plano Presença, sem custo.'
-const B_NONE = 'O local segue no mapa do app no plano Presença, sem custo.'
+const B_UNTIL = 'A história e as fotos do seu local continuam no ar até 06/01/2027. Depois disso, elas ficam guardadas no portal, e o local segue no mapa do app no plano Presença, sem custo.'
+const B_NONE = 'A história e as fotos do seu local ficam guardadas no portal, e o local segue no mapa do app no plano Presença, sem custo.'
 const LAST = 'As mensalidades param aqui. Como o cancelamento veio antes do fim da fidelidade, há uma última cobrança de R$ 135,00, a diferença do desconto dos meses usados,'
 const fee = (method: string, invoiceUrl: string | null = null) => ({ cents: 13500, chargeOn: '2027-01-06', method, invoiceUrl }) as never
 const cancelText = (until: string | null, f: unknown) => pay.CANCEL_EMAIL.build(until, f as never).text
@@ -674,7 +675,9 @@ test('#863 §8.4: cancel e-mail in the portal layout — preheader, the blocks a
   assert.ok(button > 0)
   assert.match(html, /<a href="https:\/\/partner\.tuggi\.app"[^>]*>Entrar<\/a>/)
   assert.equal(html.split('https://partner.tuggi.app').length, 2, 'the URL is only the button')
-  assert.ok(html.indexOf('É só entrar e contratar o plano Experiência de novo.') < button)
+  assert.ok(html.indexOf('é só entrar e contratar o plano Experiência de novo') < button)
+  // #1056: nothing in the e-mail says the photos stay in the app, on the map or "for now"
+  assert.doesNotMatch(html, /fotos (continuam|ficam) no (app|mapa)|por enquanto/)
   assert.ok(html.indexOf('Pode contar para a gente por que cancelou?') > button)
   assert.ok(html.indexOf('Equipe Tuggi') > html.indexOf('Pode contar'))
   assert.match(html, /há uma última cobrança de R\$ 135,00, a diferença do desconto dos meses usados, no seu cartão em 06\/01\/2027/)
