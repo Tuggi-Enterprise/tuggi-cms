@@ -54,6 +54,8 @@ export const HEAD_SOLO = HEAD.replace('top-7', 'top-0')
 export const HEAD_SOLO_NUM = `${HEAD_SOLO} text-right`
 export const CELL = 'px-3 py-2.5 text-sm text-gray-800 dark:text-gray-200 align-middle'
 export const NUM = `${CELL} text-right tabular-nums whitespace-nowrap`
+/** The cell of a 32 px icon button or link: no vertical padding, so the row stays at the 40 px of `CELL`. */
+export const ICON_CELL = CELL.replace('py-2.5', 'py-0')
 /**
  * A TINTA DO VALOR RECUADO — `text-gray-500`, e a primeira tentativa foi `text-gray-400`.
  *

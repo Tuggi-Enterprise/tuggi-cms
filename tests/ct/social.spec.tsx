@@ -47,6 +47,9 @@ async function axeClean(page: Page) {
   expect(axe.violations.map((v) => `${v.id}: ${v.nodes.map((n) => n.target.join(' ')).join(' | ')}`)).toEqual([])
 }
 
+/** The `WidgetCard` around a heading (#1061: the cards are `WidgetCard`, not `section`). */
+const CARD_OF = 'xpath=ancestor::div[contains(@class,"shadow-sm")][1]'
+
 const RAW = /CAROUSEL_ALBUM|REELS|IMAGE|VIDEO|Pages\.Social|\bpending\b/
 
 async function noLeak(page: Page) {
@@ -63,7 +66,7 @@ test('#1059: the overview at 1440 has three numbered recommendations, four ranki
   await expect(page.getByText('Modelo: gemini-2.5-flash-lite.')).toBeVisible()
   await expect(page.getByRole('button', { name: 'Geral', exact: true })).toHaveAttribute('aria-pressed', 'true')
   // The floor: Imagem has 2 posts, so it is last, with no number and no bar.
-  const format = page.getByRole('heading', { name: 'Por formato' }).locator('xpath=ancestor::section[1]')
+  const format = page.getByRole('heading', { level: 3, name: 'Por formato' }).locator(CARD_OF)
   await expect(format.locator('li').last()).toContainText('Imagem')
   await expect(format.locator('li').last()).toContainText('Poucos posts (2)')
   await expect(format.locator('li').first()).toContainText('7,2%')
@@ -75,12 +78,36 @@ test('#1059: the overview at 1440 has three numbered recommendations, four ranki
   await page.screenshot({ path: testInfo.outputPath('social-overview-1440.png'), fullPage: true })
 })
 
-test('#1059: at 390 the overview tabs fit, the icons go and nothing leaks', async ({ mount, page }, testInfo) => {
+test('#1061: the page follows the reports: h1 with the icon, tabs on their own line, four indicators above 400 px', async ({ mount, page }) => {
+  await page.setViewportSize({ width: 1440, height: 1000 })
+  await mockApi(page)
+  await mount(<SocialHarness search="" />)
+  const h1 = page.getByRole('heading', { level: 1, name: 'Redes sociais' })
+  await expect(h1.locator('svg')).toHaveClass(/text-tuggi-purple/)
+  const tabs = page.getByRole('button', { name: 'Geral', exact: true })
+  expect((await tabs.boundingBox())!.y).toBeGreaterThan((await h1.boundingBox())!.y + 40)
+  const tiles = page.locator('div.grid', { has: page.getByText('Instalações', { exact: true }) }).last().locator(':scope > *')
+  await expect(tiles).toHaveCount(4)
+  await expect(page.getByText('+38 em 7 dias')).toBeVisible()
+  await expect(page.getByText('24.180')).toBeVisible()
+  await expect(page.getByText('4,1%', { exact: true })).toBeVisible()
+  for (const tile of await tiles.all()) expect((await tile.boundingBox())!.y + (await tile.boundingBox())!.height).toBeLessThan(400)
+  // R1 item 7: the rankings section is a real heading; its four cards sit under it as h3.
+  await expect(page.getByRole('heading', { level: 2, name: 'O que rende mais' })).toHaveClass(/text-lg font-bold/)
+  await expect(page.getByRole('heading', { level: 3 })).toHaveCount(4)
+  await expect(page.locator('.shadow-sm', { has: page.getByRole('heading', { level: 2, name: 'O que postar nesta semana' }) })).toHaveCount(1)
+})
+
+test('#1061: at 390 no tab label wraps: the bar scrolls inside its box and nothing leaks', async ({ mount, page }, testInfo) => {
   await page.setViewportSize({ width: 390, height: 844 })
   await mockApi(page)
   await mount(<SocialHarness search="" />)
   await expect(page.locator('ol > li')).toHaveCount(3)
-  await expect(page.getByRole('button', { name: 'Posts', exact: true }).locator('svg')).toBeHidden()
+  for (const name of ['Geral', 'Posts', 'Concorrentes']) {
+    const tab = page.getByRole('button', { name, exact: true })
+    await expect(tab.locator('svg')).toBeVisible()
+    expect((await tab.boundingBox())!.height).toBeLessThan(40)
+  }
   await expect(page.locator('.recharts-responsive-container')).toHaveCount(5)
   await settle(page)
   await noLeak(page)
@@ -100,6 +127,10 @@ test('#1059: our posts at 1440 sort by reach with aria-sort, filter by format, a
   await expect(page.locator('tbody tr').first().locator('td').nth(4)).toHaveText(/2\.581/)
   await reach.getByRole('button').click()
   await expect(reach).toHaveAttribute('aria-sort', 'ascending')
+  // #1061 R1 item 8: a row with the 32 px link is 40 px, as a plain CELL row (plus its 1 px top border).
+  for (const row of (await page.locator('tbody tr').all()).slice(0, 3)) expect(Math.round((await row.boundingBox())!.height)).toBeLessThanOrEqual(41)
+  // R1 item 9: the short head names the whole column in its title.
+  await expect(page.getByRole('button', { name: 'Compart.' })).toHaveAttribute('title', 'Ordenar por Compartilhamentos')
   await expect(page.locator('tbody td', { hasText: 'sem dado' }).first()).toHaveAttribute('class', /text-right/)
   await expect(page.locator('tbody tr').nth(0).locator('a[target="_blank"]')).toHaveAttribute('href', /instagram\.com\/p\/fixture/)
   await page.getByRole('button', { name: /^Reels/ }).click()
@@ -129,6 +160,8 @@ test('#1059: competitors at 1440 put our account first, marked by a word and wit
   await expect(rows.first()).toContainText('Nossa conta')
   await expect(rows.first().getByRole('button', { name: /Remover/ })).toHaveCount(0)
   await expect(rows.nth(1)).toContainText('@melhoresdestinos')
+  // #1061 R1 item 8: the remove button is a 32 px target, no longer the 40 px that stretched the row.
+  expect((await rows.nth(1).getByRole('button', { name: /Remover/ }).boundingBox())!.height).toBe(32)
   // Not enough days: the cell says so, with no "+0".
   const shaka = page.locator('tr[data-account="shakaguide"]')
   await expect(shaka.locator('td').nth(2)).toHaveText('sem dado')
@@ -208,7 +241,7 @@ test('#1059: the funnel with the first production collection keeps every bar ins
   await expect(page.locator('[data-strip="posts"]')).toContainText('+600,0%')
   // Gray is named in the legend.
   await expect(page.getByText('Cinza: últimos 2 dias do GA4, ainda podem mudar')).toBeVisible()
-  const card = page.getByRole('heading', { name: 'Do Instagram ao app' }).locator('xpath=ancestor::section[1]')
+  const card = page.getByRole('heading', { name: 'Do Instagram ao app' }).locator(CARD_OF)
   await card.screenshot({ path: testInfo.outputPath('social-funnel-sparse-1440.png') })
 })
 
@@ -220,6 +253,6 @@ test('#1059: the funnel with 28 full days, both periods measured, prints totals 
   await settle(page)
   await expect(page.locator('[data-strip="profile_views"]')).not.toContainText(' de 28 dias')
   await expect(page.locator('[data-strip="profile_views"] .text-green-700, [data-strip="profile_views"] .text-red-700')).toHaveCount(1)
-  const card = page.getByRole('heading', { name: 'Do Instagram ao app' }).locator('xpath=ancestor::section[1]')
+  const card = page.getByRole('heading', { name: 'Do Instagram ao app' }).locator(CARD_OF)
   await card.screenshot({ path: testInfo.outputPath('social-funnel-full-1440.png') })
 })

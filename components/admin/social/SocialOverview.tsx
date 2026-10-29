@@ -6,18 +6,21 @@
  * the operator asks. The period governs rankings and funnel, never the recommendations.
  */
 
-import { BarChart3, CalendarDays, Clock, LayoutGrid, Sparkles, Tags } from 'lucide-react'
+import { BarChart3, CalendarDays, Clock, Download, Eye, LayoutGrid, Sparkles, Tags, Users, Workflow } from 'lucide-react'
 import { useTranslations } from 'next-intl'
 import { useQuery } from '@tanstack/react-query'
 import { DIM } from '@/components/ui/dense-table'
-import { fmtDay, fmtWeekday } from '@/lib/social/format'
+import { StatCard, StatCardRow } from '@/components/ui/StatCard'
+import { CHART_COLORS } from '@/lib/constants/chart-colors'
+import { UNKNOWN_VALUE } from '@/lib/format/unknown'
+import { MIN_POSTS } from '@/lib/social/constants'
+import { fmtDay, fmtInt, fmtRate, fmtSigned, fmtWeekday } from '@/lib/social/format'
 import { formatBucketKey, themeKey } from '@/lib/social/labels'
 import type { OverviewPayload, RankingRow } from '@/lib/social/repository'
 import { mondayOf, type SocialPeriod } from '@/lib/social/time'
 import { RankedBarList, type RankedItem } from './RankedBarList'
 import { FunnelStrip } from './FunnelStrip'
-import { CardError, CardLoading, RawValue, SocialCard, socialQueries } from './shared'
-
+import { CardError, CardLoading, LOADING_HEIGHT, SocialCard, socialQueries } from './shared'
 
 function Recommendations({ data }: { data: OverviewPayload }) {
   const t = useTranslations('Pages.Social.overview.recs')
@@ -71,36 +74,28 @@ function Recommendations({ data }: { data: OverviewPayload }) {
 function useRankingItems(rows: RankingRow[]) {
   const t = useTranslations('Pages.Social')
   const of = (dimension: RankingRow['dimension']) => rows.filter((r) => r.dimension === dimension)
-  const item = (r: RankingRow, label: React.ReactNode, text: string): RankedItem => ({
+  const item = (r: RankingRow, text: string, raw = false): RankedItem => ({
     key: `${r.dimension}:${r.bucket ?? 'null'}`,
-    label,
     text,
+    raw,
     posts: r.posts,
     rate: r.rate,
   })
 
-  const format = of('format').map((r) => {
-    const word = t(`format.${formatBucketKey(r.bucket)}`)
-    return item(r, word, word)
-  })
+  const format = of('format').map((r) => item(r, t(`format.${formatBucketKey(r.bucket)}`)))
   const theme = of('theme').map((r) => {
-    const raw = String(r.bucket)
     const k = r.bucket === null ? null : themeKey(r.bucket)
-    if (k === null) return item(r, <RawValue value={raw} />, raw)
-    const word = t(`theme.${k}`)
-    return item(r, word, word)
+    return k === null ? item(r, String(r.bucket), true) : item(r, t(`theme.${k}`))
   })
   const weekday = of('weekday').map((r) => {
     const n = r.bucket === null ? NaN : Number(r.bucket)
-    if (!(n >= 1 && n <= 7)) return item(r, <RawValue value={String(r.bucket)} />, String(r.bucket))
-    const word = fmtWeekday(n)
-    return item(r, word, word)
+    return n >= 1 && n <= 7 ? item(r, fmtWeekday(n)) : item(r, String(r.bucket), true)
   })
   const slot = of('slot').map((r) => {
     const n = r.bucket === null ? NaN : Number(r.bucket)
-    if (!(n >= 0 && n <= 7)) return item(r, <RawValue value={String(r.bucket)} />, String(r.bucket))
-    const word = t('overview.ranking.hour_value', { from: n * 3, to: n * 3 + 3 })
-    return item(r, word, word)
+    return n >= 0 && n <= 7
+      ? item(r, t('overview.ranking.hour_value', { from: n * 3, to: n * 3 + 3 }))
+      : item(r, String(r.bucket), true)
   })
   return { format, theme, weekday, slot }
 }
@@ -112,12 +107,10 @@ function Rankings({ data }: { data: OverviewPayload }) {
   return (
     <section aria-labelledby="social-ranking-title">
       <div className="mb-3">
-        <h2 id="social-ranking-title" className="text-xs font-black uppercase tracking-widest text-gray-700 dark:text-gray-300">
+        <h2 id="social-ranking-title" className="text-lg font-bold text-gray-900 dark:text-gray-100">
           {t('title')}
         </h2>
-        <p className={`mt-1 text-xs ${DIM}`}>
-          {t('caption', { days })}
-        </p>
+        <p className={`mt-1 text-sm ${DIM}`}>{t('caption', { days })}</p>
       </div>
       <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
         <RankedBarList title={t('by_format')} icon={LayoutGrid} items={format} />
@@ -126,6 +119,90 @@ function Rankings({ data }: { data: OverviewPayload }) {
         <RankedBarList title={t('by_hour')} icon={Clock} items={slot} />
       </div>
     </section>
+  )
+}
+
+/**
+ * The row of four (#1061, R1.1): followers (not governed by the period), reach and median engagement
+ * of the period's posts, installs of the funnel. A missing value prints `UNKNOWN_VALUE` with "sem
+ * dado"; a partial install count says how many days it measured, never in the cell (#1051).
+ */
+function Indicators({ data }: { data: OverviewPayload | undefined }) {
+  const t = useTranslations('Pages.Social.indicators')
+  const ind = data?.indicators
+  const totals = data?.funnel.totals
+  const ios = totals?.installs_ios ?? null
+  const android = totals?.installs_android ?? null
+  const installs = ios === null && android === null ? null : (ios ?? 0) + (android ?? 0)
+  const days = data?.funnel.days.length ?? 0
+  const measured = data?.funnel.measured.installs ?? 0
+  const split = { ios: ios === null ? UNKNOWN_VALUE : fmtInt(ios), android: android === null ? UNKNOWN_VALUE : fmtInt(android) }
+  const tiles = [
+    {
+      key: 'followers',
+      icon: Users,
+      color: CHART_COLORS.blue,
+      label: t('followers'),
+      value: ind?.followers ?? null,
+      text: (v: number) => fmtInt(v),
+      subtitle:
+        ind?.followers_7d_delta != null
+          ? t('followers_delta', { delta: fmtSigned(ind.followers_7d_delta) })
+          : ind?.followers_since
+            ? t('followers_since', { date: fmtDay(ind.followers_since) })
+            : t('no_data'),
+    },
+    {
+      key: 'reach',
+      icon: Eye,
+      color: CHART_COLORS.green,
+      label: t('reach'),
+      value: ind?.reach_sum ?? null,
+      text: (v: number) => fmtInt(v),
+      subtitle: ind?.reach_sum != null ? t('reach_posts', { count: ind.reach_posts }) : t('no_data'),
+    },
+    {
+      key: 'engagement',
+      icon: BarChart3,
+      color: CHART_COLORS.purple,
+      label: t('engagement'),
+      value: ind?.engagement_median ?? null,
+      text: (v: number) => fmtRate(v),
+      subtitle:
+        ind?.engagement_median != null
+          ? t('engagement_posts', { count: ind.engagement_posts })
+          : t('engagement_few', { min: MIN_POSTS }),
+    },
+    {
+      key: 'installs',
+      icon: Download,
+      color: CHART_COLORS.orange,
+      label: t('installs'),
+      value: installs,
+      text: (v: number) => fmtInt(v),
+      subtitle:
+        installs === null
+          ? t('no_data')
+          : measured < days
+            ? t('installs_partial', { ...split, measured, days })
+            : t('installs_split', split),
+    },
+  ]
+  return (
+    <StatCardRow columns={4}>
+      {tiles.map((tile) => (
+        <StatCard
+          key={tile.key}
+          size="compact"
+          icon={tile.icon}
+          color={tile.color}
+          label={tile.label}
+          value={tile.value === null ? UNKNOWN_VALUE : tile.text(tile.value)}
+          subtitle={tile.subtitle}
+          isLoading={!data}
+        />
+      ))}
+    </StatCardRow>
   )
 }
 
@@ -142,18 +219,23 @@ export function SocialOverview({ period }: { period: SocialPeriod }) {
   }
   if (!query.data) {
     return (
-      <div className="space-y-4">
+      <div className="space-y-6">
+        <Indicators data={undefined} />
         <SocialCard title={t('overview.recs.title')} icon={Sparkles}>
-          <CardLoading />
+          <CardLoading height={LOADING_HEIGHT.recs} />
         </SocialCard>
         <SocialCard title={t('overview.ranking.title')} icon={BarChart3}>
-          <CardLoading />
+          <CardLoading height={LOADING_HEIGHT.ranking} />
+        </SocialCard>
+        <SocialCard title={t('overview.funnel.title')} icon={Workflow}>
+          <CardLoading height={LOADING_HEIGHT.funnel} />
         </SocialCard>
       </div>
     )
   }
   return (
     <div className="space-y-6">
+      <Indicators data={query.data} />
       <Recommendations data={query.data} />
       <Rankings data={query.data} />
       <FunnelStrip funnel={query.data.funnel} period={period} />

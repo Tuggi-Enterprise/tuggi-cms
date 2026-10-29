@@ -11,6 +11,7 @@ import type { LucideIcon } from 'lucide-react'
 import { useTranslations } from 'next-intl'
 import { Button } from '@/components/ui/button'
 import { DIM } from '@/components/ui/dense-table'
+import { SectionHeader, WidgetCard } from '@/components/dashboard/WidgetCard'
 import type { AccountsPayload, OverviewPayload, PostsPayload } from '@/lib/social/repository'
 import type { SocialPeriod } from '@/lib/social/time'
 
@@ -38,36 +39,49 @@ export const socialQueries = {
   }),
 }
 
+/**
+ * A card of the page (#1061, R1 item 5): `WidgetCard` with its `SectionHeader`, the note in the
+ * `right` slot. `h2` by default, because the page title is the `h1`; the four rankings sit under a
+ * section `h2` and pass `h3` (axe `heading-order`).
+ */
 export function SocialCard({
   title,
-  icon: Icon,
+  icon,
   note,
   children,
-  className = '',
+  className,
+  as = 'h2',
 }: {
   title: string
   icon?: LucideIcon
   note?: ReactNode
   children: ReactNode
   className?: string
+  as?: 'h2' | 'h3'
 }) {
   return (
-    <section className={`rounded-xl border border-gray-200 bg-white p-4 dark:border-gray-800 dark:bg-gray-900 ${className}`}>
-      <div className="mb-3 flex flex-wrap items-center justify-between gap-x-4 gap-y-1">
-        <h2 className="flex min-w-0 items-center gap-2 text-xs font-black uppercase tracking-widest text-gray-700 dark:text-gray-300">
-          {Icon && <Icon className="h-4 w-4 shrink-0 text-gray-500" aria-hidden="true" />}
-          <span className="truncate">{title}</span>
-        </h2>
-        {note && <p className={`text-[11px] ${DIM}`}>{note}</p>}
-      </div>
+    <WidgetCard className={className}>
+      <SectionHeader
+        as={as}
+        title={title}
+        icon={icon}
+        iconColor="#6b7280"
+        className="mb-3 flex-wrap gap-x-4 gap-y-1"
+        right={note ? <p className={`text-[11px] ${DIM}`}>{note}</p> : undefined}
+      />
       {children}
-    </section>
+    </WidgetCard>
   )
 }
 
-export function CardLoading() {
+/** Height of each card's pulse while it loads, so the card does not grow when the data lands (R1 item 10). */
+export const LOADING_HEIGHT = { recs: 'h-24', ranking: 'h-40', funnel: 'h-64' } as const
+
+export function CardLoading({ height }: { height: string }) {
   const tc = useTranslations('Common.status')
-  return <p className={`text-sm ${DIM}`}>{tc('loading')}</p>
+  return (
+    <div role="status" aria-label={tc('loading')} className={`animate-pulse rounded-lg bg-gray-100 dark:bg-gray-800 ${height}`} />
+  )
 }
 
 export function CardError({ onRetry }: { onRetry: () => void }) {

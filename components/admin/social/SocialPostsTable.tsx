@@ -21,6 +21,7 @@ import {
   FilterChip,
   HEAD_SOLO,
   HEAD_SOLO_NUM,
+  ICON_CELL,
   NUM,
   SortHead,
   type SortState,
@@ -34,19 +35,23 @@ import { CardError, RawValue, SocialCard, socialQueries } from './shared'
 
 type SortKey = 'date' | PostMetric
 
-const METRIC_COLUMNS: Array<{ key: PostMetric; label: string }> = [
+/** `full` names the column in the `title` and in `sort_aria` when the head prints a short label (R1 item 9). */
+const METRIC_COLUMNS: Array<{ key: PostMetric; label: string; full?: string }> = [
   { key: 'reach', label: 'col_reach' },
   { key: 'likes', label: 'col_likes' },
-  { key: 'comments', label: 'col_comments' },
+  { key: 'comments', label: 'col_comments', full: 'col_comments_full' },
   { key: 'saved', label: 'col_saved' },
-  { key: 'shares', label: 'col_shares' },
-  { key: 'profile_visits', label: 'col_profile_visits' },
-  { key: 'follows', label: 'col_follows' },
+  { key: 'shares', label: 'col_shares', full: 'col_shares_full' },
+  { key: 'profile_visits', label: 'col_profile_visits', full: 'col_profile_visits_full' },
+  { key: 'follows', label: 'col_follows', full: 'col_follows_full' },
 ]
 
-/** The look of `Button ghost size="icon"` on a link, which `Button` cannot render. */
+/**
+ * The look of `Button ghost size="icon"` on a link, which `Button` cannot render, at 32 px: a 40 px
+ * target made every row 61 px tall (#1061, R1 item 8); 32 px is still above SC 2.5.8's 24 px.
+ */
 export const ICON_LINK =
-  'inline-flex h-10 w-10 items-center justify-center rounded-md text-gray-700 hover:bg-accent hover:text-accent-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring dark:text-gray-300'
+  'inline-flex h-8 w-8 items-center justify-center rounded-md text-gray-700 hover:bg-accent hover:text-accent-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring dark:text-gray-300'
 
 const FORMAT_ORDER: FormatKey[] = ['carousel', 'reels', 'image', 'other']
 
@@ -149,7 +154,7 @@ export function SocialPostsTable() {
                       className={`${HEAD_SOLO_NUM} w-[76px] whitespace-normal`}
                       sort={sort}
                       onToggle={toggle}
-                      title={tp('sort_aria', { column: tp(c.label) })}
+                      title={tp('sort_aria', { column: tp(c.full ?? c.label) })}
                     />
                   ))}
                   <th scope="col" className={`${HEAD_SOLO} w-[44px]`}>
@@ -202,7 +207,7 @@ export function SocialPostsTable() {
                               </td>
                             )
                           })}
-                          <td className={`${CELL} py-1`}>
+                          <td className={ICON_CELL}>
                             {link && (
                               <a
                                 href={link}

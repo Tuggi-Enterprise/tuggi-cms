@@ -21,6 +21,7 @@ import {
   DenseTableScroller,
   HEAD_SOLO,
   HEAD_SOLO_NUM,
+  ICON_CELL,
   NUM,
   SortHead,
   type SortState,
@@ -275,12 +276,13 @@ export function SocialCompetitors() {
                               <span className={DIM}>{fmtDay(a.last_day)}</span>
                             )}
                           </td>
-                          <td className={`${CELL} py-1`}>
+                          <td className={ICON_CELL}>
                             {!a.is_own && (
                               <Button
                                 type="button"
                                 variant="ghost"
                                 size="icon"
+                                className="h-8 w-8"
                                 aria-label={t('remove_aria', { username: a.username })}
                                 onClick={() => setRemoving({ id: a.id, username: a.username })}
                               >

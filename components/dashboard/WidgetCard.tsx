@@ -48,6 +48,11 @@ interface SectionHeaderProps {
   /** Conteúdo extra à direita (ex.: badge "realtime"), substitui o link se passado. */
   right?: ReactNode
   className?: string
+  /**
+   * Heading level. `h3` by default, as every dashboard card has rendered so far; a page whose cards
+   * sit right under the `h1` passes `h2` (axe `heading-order`), as `CardTitle` of `card.tsx` does.
+   */
+  as?: 'h2' | 'h3'
 }
 
 export function SectionHeader({
@@ -58,14 +63,15 @@ export function SectionHeader({
   linkLabel = 'ver detalhes',
   right,
   className,
+  as: Heading = 'h3',
 }: SectionHeaderProps) {
   return (
     <div className={cn('flex items-center justify-between mb-4', className)}>
       <div className="flex items-center gap-2 min-w-0">
-        {Icon && <Icon className="h-4 w-4 shrink-0" style={{ color: iconColor }} />}
-        <h3 className="text-xs font-black uppercase tracking-widest text-gray-700 dark:text-gray-300 truncate">
+        {Icon && <Icon className="h-4 w-4 shrink-0" style={{ color: iconColor }} aria-hidden="true" />}
+        <Heading className="text-xs font-black uppercase tracking-widest text-gray-700 dark:text-gray-300 truncate">
           {title}
-        </h3>
+        </Heading>
       </div>
 
       {right ? (

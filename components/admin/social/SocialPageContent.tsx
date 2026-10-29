@@ -5,15 +5,17 @@
  * `?view=competitors` live in the URL; the overview is the default and is never written. `?period=`
  * belongs to the overview only.
  *
+ * The shell is the reports' (#1061, R1 items 1 to 3): `cms-width` up to 1600 px, the `h1` with the
+ * menu's icon, the tabs on their own line, scrolling and never wrapping.
+ *
  * The header carries the only freshness line of the page (copy `data_until`) and the collection
  * banner (copy section 5), which is the "collection error" state of all three views.
  */
 
-import { CircleAlert, ImageIcon, LayoutDashboard, Users } from 'lucide-react'
+import { CircleAlert, ImageIcon, LayoutDashboard, Share2, Users } from 'lucide-react'
 import { useTranslations } from 'next-intl'
 import { usePathname, useRouter, useSearchParams } from 'next/navigation'
 import { useQuery } from '@tanstack/react-query'
-import { Container } from '@/components/ui/Container'
 import { ReportTabs } from '@/components/dashboard/ReportTabs'
 import { Select } from '@/components/ui/select'
 import { fmtDay } from '@/lib/social/format'
@@ -49,7 +51,7 @@ function CollectBanner({ collection }: { collection: { first_day: string | null;
   return (
     <div
       role="status"
-      className={`mb-4 flex gap-2 rounded-xl border px-4 py-3 text-sm ${
+      className={`flex gap-2 rounded-xl border px-4 py-3 text-sm ${
         amber ? 'border-amber-200 bg-amber-50 text-amber-900' : 'border-gray-200 bg-white text-gray-800'
       }`}
     >
@@ -98,27 +100,16 @@ export function SocialPageContent() {
   }
 
   return (
-    <div className="cms-width min-h-screen bg-gray-50/50">
-      <Container className="py-8">
-        <div className="mb-2 flex flex-wrap items-center justify-between gap-3">
-          <h1 className="text-2xl font-bold text-gray-900 dark:text-gray-100">{t('title')}</h1>
-          <div className="max-w-full overflow-x-auto">
-            <ReportTabs
-              iconClassName="hidden h-4 w-4 sm:block"
-              tabs={[
-                { key: 'overview', label: t('tabs.overview'), icon: LayoutDashboard },
-                { key: 'posts', label: t('tabs.posts'), icon: ImageIcon },
-                { key: 'competitors', label: t('tabs.competitors'), icon: Users },
-              ]}
-              active={view}
-              onChange={(key) => go({ view: viewOf(key) })}
-            />
-          </div>
-        </div>
-        <div className="mb-4 flex flex-wrap items-end justify-between gap-3">
+    <div className="cms-width min-h-screen space-y-6 bg-gray-50 p-6 dark:bg-gray-950 lg:p-8">
+      <div>
+        <h1 className="flex items-center text-2xl font-bold text-gray-900 dark:text-white">
+          <Share2 className="mr-3 h-8 w-8 text-tuggi-purple" aria-hidden="true" />
+          {t('title')}
+        </h1>
+        <div className="mt-1 flex flex-wrap items-end justify-between gap-3">
           <p className="max-w-3xl text-sm text-gray-600 dark:text-gray-400">
             {t('subtitle')}{' '}
-            {collection?.last_day && <span className="font-medium text-gray-800">{t('data_until', { date: fmtDay(collection.last_day) })}.</span>}{' '}
+            {collection?.last_day && <span className="font-medium text-gray-800 dark:text-gray-200">{t('data_until', { date: fmtDay(collection.last_day) })}.</span>}{' '}
             {t('tz_note')}
           </p>
           {view === 'overview' && (
@@ -134,11 +125,22 @@ export function SocialPageContent() {
             </label>
           )}
         </div>
-        {collection && <CollectBanner collection={collection} />}
-        {view === 'overview' && <SocialOverview period={period} />}
-        {view === 'posts' && <SocialPostsTable />}
-        {view === 'competitors' && <SocialCompetitors />}
-      </Container>
+      </div>
+      <div className="max-w-full overflow-x-auto">
+        <ReportTabs
+          tabs={[
+            { key: 'overview', label: t('tabs.overview'), icon: LayoutDashboard },
+            { key: 'posts', label: t('tabs.posts'), icon: ImageIcon },
+            { key: 'competitors', label: t('tabs.competitors'), icon: Users },
+          ]}
+          active={view}
+          onChange={(key) => go({ view: viewOf(key) })}
+        />
+      </div>
+      {collection && <CollectBanner collection={collection} />}
+      {view === 'overview' && <SocialOverview period={period} />}
+      {view === 'posts' && <SocialPostsTable />}
+      {view === 'competitors' && <SocialCompetitors />}
     </div>
   )
 }

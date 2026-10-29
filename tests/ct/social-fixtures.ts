@@ -34,6 +34,15 @@ export const OVERVIEW = {
   today,
   period: '4w',
   collection: { first_day: addDays(today, -40), last_day: today },
+  indicators: {
+    followers: 1520,
+    followers_7d_delta: 38,
+    followers_since: null,
+    reach_sum: 24180,
+    reach_posts: 11,
+    engagement_median: 0.0412,
+    engagement_posts: 11,
+  },
   recommendations: {
     week_start: mondayOf(today),
     model: 'gemini-2.5-flash-lite',

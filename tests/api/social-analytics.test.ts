@@ -368,3 +368,24 @@ test('#1059: the median of the competitors is said as a median', () => {
   assert.match(pt.Pages.Social.competitors.engagement_hint, /^Mediana/)
   assert.doesNotMatch(pt.Pages.Social.competitors.engagement_hint, /média/i)
 })
+
+test('#1061 R1.1: the four indicators come from social.overview_indicators of the period, as the database answered', async () => {
+  answers['watched_accounts'] = () => ({ data: { id: 'own-1', username: 'tuggi_app' } })
+  answers['account_daily'] = () => ({ data: [{ day: '2026-10-27' }] })
+  answers['rpc:overview_indicators'] = () => ({
+    data: [{ followers: 1520, followers_7d_delta: null, reach_sum: '24180', reach_posts: 11, engagement_median: '0.0412', engagement_posts: 11 }],
+  })
+  const body = await (await overviewRoute.GET(req('GET', '/overview?period=6m'), ctx)).json()
+  const call = rpcArgs.find((c) => c.fn === 'overview_indicators')
+  assert.deepEqual(call?.args, { p_since: time.brasiliaMidnightIso(repo.periodWindow(body.today, '6m').from) })
+  // numeric arrives as a string and is read as a number; without 7 days the delta says when it starts.
+  assert.deepEqual(body.indicators, {
+    followers: 1520,
+    followers_7d_delta: null,
+    followers_since: '2026-11-03',
+    reach_sum: 24180,
+    reach_posts: 11,
+    engagement_median: 0.0412,
+    engagement_posts: 11,
+  })
+})

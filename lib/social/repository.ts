@@ -127,10 +127,25 @@ export type FunnelTotals = Record<FunnelSeries | 'posts', number | null>
 /** Days of the window with a value, per series; `installs` counts a day with iOS or Android. */
 export type FunnelMeasured = Record<FunnelSeries | 'installs', number>
 
+/**
+ * The row of four (#1061, R1.1), from `social.overview_indicators`: every number is the database's.
+ * `followers_since` is the day the 7-day delta starts to exist, when it does not yet.
+ */
+export interface OverviewIndicators {
+  followers: number | null
+  followers_7d_delta: number | null
+  followers_since: string | null
+  reach_sum: number | null
+  reach_posts: number
+  engagement_median: number | null
+  engagement_posts: number
+}
+
 export interface OverviewPayload {
   today: string
   period: SocialPeriod
   collection: { first_day: string | null; last_day: string | null }
+  indicators: OverviewIndicators
   recommendations: { week_start: string; model: string | null; items: SocialRecommendation[] } | null
   ranking: { since: string; rows: RankingRow[] }
   funnel: {
@@ -182,7 +197,7 @@ export async function readOverview(supabase: Client, period: SocialPeriod, now =
   const { from, to, prevFrom, prevTo } = periodWindow(today, period)
   const own = await ownAccount(supabase)
 
-  const [collection, weekly, ranking, funnelRows, mediaRows] = await Promise.all([
+  const [collection, weekly, ranking, funnelRows, mediaRows, indicatorRows] = await Promise.all([
     collectionDays(supabase, own),
     social(supabase)
       .from('weekly_insights')
@@ -204,7 +219,9 @@ export async function readOverview(supabase: Client, period: SocialPeriod, now =
           .gte('posted_at', brasiliaMidnightIso(prevFrom))
           .order('posted_at')
       : Promise.resolve({ data: [], error: null }),
+    social(supabase).rpc('overview_indicators', { p_since: brasiliaMidnightIso(from) }),
   ])
+  const ind = (check<Array<Record<string, unknown>> | null>('indicators', indicatorRows) ?? [])[0] ?? {}
 
   const weeklyRows = check<Array<Record<string, unknown>> | null>('weekly', weekly) ?? []
   const latest = weeklyRows[0]
@@ -254,6 +271,16 @@ export async function readOverview(supabase: Client, period: SocialPeriod, now =
     today,
     period,
     collection,
+    indicators: {
+      followers: num(ind.followers),
+      followers_7d_delta: num(ind.followers_7d_delta),
+      followers_since:
+        num(ind.followers_7d_delta) === null && collection.first_day ? addDays(collection.first_day, 7) : null,
+      reach_sum: num(ind.reach_sum),
+      reach_posts: num(ind.reach_posts) ?? 0,
+      engagement_median: num(ind.engagement_median),
+      engagement_posts: num(ind.engagement_posts) ?? 0,
+    },
     recommendations: latest
       ? { week_start: String(latest.week_start), model: (latest.model as string) ?? null, items }
       : null,
