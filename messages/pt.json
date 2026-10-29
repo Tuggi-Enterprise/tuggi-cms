@@ -4845,6 +4845,25 @@
       "unlinking": "Desvinculando…",
       "failed": "Não foi possível desvincular agora. Tente de novo."
     },
+    "cancelPlan": {
+      "action": "Cancelar plano",
+      "confirmTitle": "Cancelar o plano de {place}?",
+      "planPortal": "Plano Experiência, {value} por mês.",
+      "planLegacy": "Plano de antes do portal, {value} por mês.",
+      "effectNow": "A cobrança no Asaas termina agora, e o parceiro recebe um e-mail de confirmação.",
+      "effectLater": "Em {date} a história e as fotos saem do app, e ele passa a falar só o nome do local. Se o parceiro voltar a pagar, a história e as fotos voltam.",
+      "effectLaterToday": "A história e as fotos saem do app hoje, e ele passa a falar só o nome do local. Se o parceiro voltar a pagar, a história e as fotos voltam.",
+      "fee": "Diferença do desconto dos meses usados: {fee}, cobrada uma vez em {chargeOn}, pelo mesmo meio do plano.",
+      "confirmAction": "Sim, cancelar o plano",
+      "back": "Voltar",
+      "canceling": "Cancelando…",
+      "canceledStatus": "Plano cancelado. História e fotos saem do app em {date}.",
+      "canceledStatusToday": "Plano cancelado. História e fotos saem do app hoje.",
+      "alreadyCanceled": "Este plano já estava cancelado. Recarregue a ficha para ver a data em que a história sai.",
+      "asaasFailed": "O plano foi cancelado aqui, mas o Asaas não confirmou o fim da cobrança. Apague a assinatura no painel do Asaas e confira em Pendências antes de responder ao parceiro.",
+      "forbidden": "Sua conta não tem permissão para cancelar plano. Fale com um administrador do CMS.",
+      "failed": "Não deu para cancelar agora. Tente de novo."
+    },
     "registration": {
       "action": "Puxar dados do cadastro",
       "pulling": "Puxando…",
