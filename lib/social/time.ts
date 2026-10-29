@@ -137,11 +137,19 @@ export function parseInputValue(raw: string | null | undefined): WallTime | null
   return { year, month, day, hour, minute }
 }
 
-/** The earliest wall clock the editor accepts at `now`, rounded UP to the step. */
+/**
+ * The earliest instant the editor accepts: now, cut to the minute (the field has no seconds), plus
+ * `SCHEDULE_MIN_LEAD_MINUTES`. 9 minutes ahead is refused, 10 is accepted (spec 8.8).
+ */
+export function minScheduleInstant(now: Date): Date {
+  const minute = now.getTime() - (now.getTime() % 60000)
+  return new Date(minute + SCHEDULE_MIN_LEAD_MINUTES * 60000)
+}
+
+/** `min` of the field: `minScheduleInstant` rounded UP to the step, as a Brasília wall clock. */
 export function minScheduleWallTime(now: Date): WallTime {
   const step = SCHEDULE_STEP_MINUTES * 60000
-  const earliest = now.getTime() + SCHEDULE_MIN_LEAD_MINUTES * 60000
-  return wallTimeAt(new Date(Math.ceil(earliest / step) * step))
+  return wallTimeAt(new Date(Math.ceil(minScheduleInstant(now).getTime() / step) * step))
 }
 
 /** `31/10/2026 18:00`: the one display format of the screen (copy, "Formato de data"). */

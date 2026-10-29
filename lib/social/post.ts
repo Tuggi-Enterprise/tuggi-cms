@@ -204,6 +204,10 @@ export type PostErrorCode =
   | 'too_many_mentions'
   | 'time_missing'
   | 'time_past'
+  /** Form only: a piece still uploading, failed, or not serving the type. */
+  | 'media_pending'
+
+export const FIELD_ORDER = ['networks', 'media', 'caption', 'scheduled_at'] as const
 
 export interface PostError {
   field: 'networks' | 'media' | 'caption' | 'scheduled_at'
