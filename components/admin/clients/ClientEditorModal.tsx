@@ -613,6 +613,7 @@ export function ClientEditorModal({
                 canEdit
                 clientId={clientId}
                 onOpenPipeline={() => setActiveTab('partnership')}
+                portalRecords={portalRecords}
               />
             )}
             {activeTab === 'coupons' && (

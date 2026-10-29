@@ -14,7 +14,7 @@
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
 import { createAdminClient, getPublishableKey, getSupabaseUrl } from './supabase-client.ts';
 import { asaasClient } from './asaas.ts';
-import { SUPPORT_EMAIL, saoPauloDate, type CancelRedoRow, type Deps, type ExpiredCardRow, type Rpc, type SubscriptionIds } from './places-payment.ts';
+import { SUPPORT_EMAIL, saoPauloDate, type CancelRedoRow, type Deps, type ExpiredCardRow, type Rpc, type SubscriptionIds, type SupportDeps } from './places-payment.ts';
 import { issueAccessLink } from './places-portal-draft.ts';
 import { INVOICE_ENV, MirrorReadError, parseInvoiceConfig, type InvoiceOrigin, type InvoiceTarget } from './places-invoice.ts';
 import { accessLinkDeps, fromWithName } from './places-access-link-runtime.ts';
@@ -239,6 +239,34 @@ export function baseDeps(asaas: NonNullable<ReturnType<typeof asaasFromEnv>>): D
       if (error) throw new Error(`legacy free migrations read ${error.code}`);
       // deno-lint-ignore no-explicit-any
       return (data ?? []).map((r: any) => r.submission_id as string);
+    },
+  };
+}
+
+/**
+ * #1054: the support's cancel, signed by the CMS admin the EF validated (`operatorId`). The e-mail
+ * goes where the portal's goes: the account that owns the record (`account_id`, the portal session's
+ * user), read by service_role; a pre-portal mirror with no account uses its `contact_email`.
+ */
+export function supportDeps(asaas: NonNullable<ReturnType<typeof asaasFromEnv>>, operatorId: string): SupportDeps {
+  const admin = createAdminClient();
+  return {
+    ...baseDeps(asaas),
+    operatorId,
+    ownerEmail: async (submissionId) => {
+      const { data, error } = await admin
+        .schema('partner')
+        .from('place_submissions')
+        .select('account_id, contact_email')
+        .eq('id', submissionId)
+        .maybeSingle();
+      if (error) throw new Error(`owner read ${error.code}`);
+      if (data?.account_id) {
+        const u = await admin.auth.admin.getUserById(data.account_id);
+        if (u.error) throw new Error('owner auth read failed');
+        if (u.data?.user?.email) return u.data.user.email;
+      }
+      return typeof data?.contact_email === 'string' && data.contact_email ? data.contact_email : null;
     },
   };
 }

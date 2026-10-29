@@ -50,6 +50,9 @@ export type AuditAction =
   | 'REVIEW_CLIENT_CONFERENCE'
   // BR-B2B-056 (#872): who issued an acceptance link, and whether it went by e-mail.
   | 'ISSUE_ACCEPTANCE_LINK'
+  // BR-B2B-060 (#1054): an admin cancelled a place's paid plan at the partner's written request.
+  // The database records the operator on the cancellation; this row ties it to the CMS session.
+  | 'SUPPORT_CANCEL_PLACE_PLAN'
   // The place the approval creates (#360). It is a write into a catalogue of 2.2 million rows
   // made by a side-effect and not by the Places screen, so the row that says which approval
   // produced which POI is the only way back from one to the other.

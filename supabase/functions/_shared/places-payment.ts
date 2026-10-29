@@ -962,9 +962,31 @@ export async function cancelRenewal(deps: PortalDeps, submissionId: string, expe
   }
 
   const ends = row.paid_through ?? row.commitment_ends_at;
-  const chargeOn = ends ? saoPauloDate(new Date(ends)) : null;
-  const feeCents = Number.isInteger(row.early_termination_fee_cents) && row.early_termination_fee_cents > 0 ? row.early_termination_fee_cents : 0;
   const ids = await deps.subscriptionIds(submissionId);
+  const fee = await settleRenewalCancelAtAsaas(deps, submissionId, ids, ends, row.early_termination_fee_cents);
+
+  const answers = sanitizeCancelFeedback(feedback);
+  await recordCancelFeedback(deps, ids, answers);
+
+  await sendRenewalCancelEmail(deps, await deps.userEmail(), ends, fee, answers.reason !== null || answers.comment !== null, ids);
+  return reply(200, { result: 'canceled' });
+}
+
+/**
+ * The Asaas half of a renewal cancel the database just applied, shared by the owner's cancel
+ * (`cancelRenewal`) and the support's (`supportCancel`, #1054). Best effort: a failure alerts the
+ * operator and the cancellation stands. `ends` is `paid_through` (or the commitment end); null =
+ * never paid, the free month (#898). Returns the one charge left, for the e-mail.
+ */
+async function settleRenewalCancelAtAsaas(
+  deps: Deps,
+  submissionId: string,
+  ids: SubscriptionIds | null,
+  ends: string | null,
+  earlyTerminationFeeCents: number,
+): Promise<CancelFee | null> {
+  const chargeOn = ends ? saoPauloDate(new Date(ends)) : null;
+  const feeCents = Number.isInteger(earlyTerminationFeeCents) && earlyTerminationFeeCents > 0 ? earlyTerminationFeeCents : 0;
   // The fee is owed by the term whether or not Asaas took the change: the e-mail states it, and a
   // failure below alerts the operator to schedule it by hand.
   let fee: CancelFee | null = null;
@@ -982,18 +1004,22 @@ export async function cancelRenewal(deps: PortalDeps, submissionId: string, expe
     // Asaas subscription goes, and its first fee (already generated, Asaas does it 40 days ahead) with it.
     await endFreeMonth(deps, ids);
   }
+  return fee;
+}
 
-  const answers = sanitizeCancelFeedback(feedback);
-  await recordCancelFeedback(deps, ids, answers);
-
-  const to = await deps.userEmail();
-  if (to) {
-    const until = ends ? formatDateBr(saoPauloDate(new Date(ends))) : null;
-    const mail = CANCEL_EMAIL.build(until, fee, answers.reason !== null || answers.comment !== null);
-    const sent = await deps.sendEmail(to, mail.subject, mail.text, { html: mail.html, fromName: CANCEL_EMAIL.fromName, replyTo: CANCEL_EMAIL.replyTo });
-    if (!sent) await deps.alert('cancel_email_failed', { subscription_id: ids?.subscription_id ?? null });
-  }
-  return reply(200, { result: 'canceled' });
+/** The Experiência cancel e-mail (term 4.5, "no ato"); a failure alerts. `until` = the day the story leaves. */
+async function sendRenewalCancelEmail(
+  deps: Deps,
+  to: string | null,
+  until: string | null,
+  fee: CancelFee | null,
+  answered: boolean,
+  ids: SubscriptionIds | null,
+): Promise<void> {
+  if (!to) return;
+  const mail = CANCEL_EMAIL.build(until ? formatDateBr(saoPauloDate(new Date(until))) : null, fee, answered);
+  const sent = await deps.sendEmail(to, mail.subject, mail.text, { html: mail.html, fromName: CANCEL_EMAIL.fromName, replyTo: CANCEL_EMAIL.replyTo });
+  if (!sent) await deps.alert('cancel_email_failed', { subscription_id: ids?.subscription_id ?? null });
 }
 
 /**
@@ -2373,24 +2399,231 @@ export async function cancelLegacy(deps: PortalDeps, submissionId: string): Prom
   const v = Array.isArray(data) ? data[0] : data;
   const clientId = isUuid(v) ? v.toLowerCase() : null;
   let endsOn: string | null = null;
+  let asaasRead = false;
   try {
     if (!clientId) throw new Error('no client id');
     endsOn = await legacyPaidUntil(deps, clientId);
-    // The database proved a paying legacy client: no live `legacy:<id>` means the fee may still run
-    // under a reference we do not know (security review, #916). The flow does not change.
-    if ((await endLegacySubscriptions(deps, clientId)) === 0) {
+    asaasRead = true;
+  } catch (e) {
+    // Asaas unreachable: one alert, and the sweep ends the subscription (`legacyFeesEnded`).
+    await deps.alert('legacy_subscription_end_failed', { submission_id: submissionId, client_id: clientId, error: e instanceof Error ? e.message : 'unknown' });
+  }
+  if (asaasRead && clientId) await endLegacyAtAsaas(deps, submissionId, clientId, true);
+  await sendLegacyCancelEmail(deps, await deps.userEmail(), endsOn, submissionId);
+  return reply(200, { result: 'canceled', ends_on: endsOn });
+}
+
+/**
+ * The Asaas half of a legacy cancel the database just applied, shared by the owner's cancel
+ * (`cancelLegacy`) and the support's (`supportCancel`, #1054): DELETE of every live `legacy:<id>`.
+ * Best effort: a failure alerts, and the daily sweep ends it (`legacyFeesEnded`). `provedPaying`:
+ * the database just proved a paying client, so no live `legacy:<id>` means the fee may still run
+ * under a reference we do not know (security review, #916). A repeated cancel passes false.
+ */
+async function endLegacyAtAsaas(deps: Deps, submissionId: string | null, clientId: string, provedPaying: boolean): Promise<void> {
+  try {
+    if ((await endLegacySubscriptions(deps, clientId)) === 0 && provedPaying) {
       await deps.alert('legacy_subscription_not_found', { submission_id: submissionId, client_id: clientId });
     }
   } catch (e) {
     await deps.alert('legacy_subscription_end_failed', { submission_id: submissionId, client_id: clientId, error: e instanceof Error ? e.message : 'unknown' });
   }
-  const to = await deps.userEmail();
-  if (to) {
-    const mail = LEGACY_CANCEL_EMAIL.build(endsOn ? formatDateBr(endsOn) : null);
-    const sent = await deps.sendEmail(to, mail.subject, mail.text, { html: mail.html, fromName: ACCESS_FROM_NAME, replyTo: SUPPORT_EMAIL });
-    if (!sent) await deps.alert('legacy_cancel_email_failed', { submission_id: submissionId });
+}
+
+/** The legacy cancel e-mail; `endsOn` is `YYYY-MM-DD`, null = it ended today. A failure alerts. */
+async function sendLegacyCancelEmail(deps: Deps, to: string | null, endsOn: string | null, submissionId: string | null): Promise<void> {
+  if (!to) return;
+  const mail = LEGACY_CANCEL_EMAIL.build(endsOn ? formatDateBr(endsOn) : null);
+  const sent = await deps.sendEmail(to, mail.subject, mail.text, { html: mail.html, fromName: ACCESS_FROM_NAME, replyTo: SUPPORT_EMAIL });
+  if (!sent) await deps.alert('legacy_cancel_email_failed', { submission_id: submissionId });
+}
+
+// ─── support: the CMS cancels a place's paid plan (#1054) ───────────────────────────────────────
+
+/**
+ * BR-B2B-060 (support edge case): the partner asks in writing and an admin of the CMS cancels, with
+ * no survey and no consent (it counts as unticked). Same effects as the owner's cancel, per plan:
+ * Experiência as `cancelRenewal`, the pre-portal plan as `cancelLegacy`. The database decides and
+ * records (`partner.support_place_plans`, `partner.support_cancel_place_plan`, service_role, which
+ * checks again that the operator is an active CMS admin); the EF does the Asaas half and the e-mail.
+ */
+export type SupportDeps = Deps & {
+  /** `auth.users.id` of the CMS admin, from the JWT the EF validated — never from the body. */
+  operatorId: string;
+  /**
+   * Who gets the confirmation: the portal account that owns the record (the portal's `userEmail`,
+   * read by service_role), else the record's `contact_email` (a pre-portal mirror). Throws on error.
+   */
+  ownerEmail: (submissionId: string) => Promise<string | null>;
+};
+
+/** Who may call the support actions. `secretOk`: `x-cms-job-secret` matched `CMS_JOB_SECRET`. */
+export type SupportCaller = { valid: boolean; userId?: string; role?: string };
+
+/**
+ * The gate of the support actions, pure so the test proves it: the CMS's secret, then a valid JWT,
+ * then the `admin` role of `core.cms_users` (`lib/roles.ts`; `super_admin` is not a CMS role). Our
+ * own machine key is refused: the action needs a person to sign it. Returns the operator id.
+ */
+export function supportOperator(secretOk: boolean, caller: SupportCaller): string | Reply {
+  if (!secretOk) return reply(401, { error: 'unauthorized' });
+  if (!caller.valid) return reply(401, { error: 'relogin' });
+  if (caller.role !== 'admin' || !isUuid(caller.userId)) return reply(403, { error: 'forbidden' });
+  return caller.userId;
+}
+
+type SupportPlanRow = {
+  plan: 'experience' | 'legacy';
+  state?: 'active' | 'canceled';
+  outcome?: 'applied' | 'already_canceled';
+  submission_id: string | null;
+  subscription_id: string | null;
+  story_until: string | null;
+  early_termination_fee_cents: number | null;
+};
+
+/** `YYYY-MM-DD` in São Paulo of the day the story leaves; null = today or already past. */
+function supportEndsOn(storyUntil: string | null, deps: Deps): string | null {
+  if (!storyUntil) return null;
+  const day = saoPauloDate(new Date(storyUntil));
+  return day > deps.today() ? day : null;
+}
+
+const feeOf = (r: SupportPlanRow): number =>
+  Number.isInteger(r.early_termination_fee_cents) && (r.early_termination_fee_cents as number) > 0 ? (r.early_termination_fee_cents as number) : 0;
+
+/** What the screen reads of one plan. The fee falls due on the day the story leaves, as in the portal. */
+function supportPlanView(r: SupportPlanRow, deps: Deps) {
+  const fee = feeOf(r);
+  return {
+    plan: r.plan,
+    ends_on: supportEndsOn(r.story_until, deps),
+    fee_cents: fee,
+    charge_on: fee > 0 && r.story_until ? saoPauloDate(new Date(r.story_until)) : null,
+  };
+}
+
+function supportIds(body: Record<string, unknown>): { clientId: string; attractionId: string } | Reply {
+  if (!isUuid(body.client_id)) return reply(400, { error: 'invalid', field: 'client_id' });
+  if (!isUuid(body.attraction_id)) return reply(400, { error: 'invalid', field: 'attraction_id' });
+  return { clientId: body.client_id.toLowerCase(), attractionId: body.attraction_id.toLowerCase() };
+}
+
+async function supportPlans(deps: Deps, clientId: string, attractionId: string): Promise<SupportPlanRow[] | Reply> {
+  const { data, error } = await deps.admin('partner', 'support_place_plans', { p_client_id: clientId, p_attraction_id: attractionId });
+  if (error) return isBusinessError(error) ? portalErrorReply(error) : reply(502, { error: 'unavailable' });
+  return (Array.isArray(data) ? data : []) as SupportPlanRow[];
+}
+
+/** Sum of the exit fees the cancel would charge now: what the confirmation shows. */
+const activeFee = (rows: SupportPlanRow[]): number => rows.filter((r) => r.state === 'active').reduce((sum, r) => sum + feeOf(r), 0);
+
+/**
+ * `support_cancel_quote`: what the confirmation shows, read only. `plans` empty = no paid plan.
+ * `ends_on` null = the story leaves today. `charge_on` only with a fee.
+ */
+export async function supportCancelQuote(deps: Deps, body: Record<string, unknown>): Promise<Reply> {
+  const ids = supportIds(body);
+  if (isReply(ids)) return ids;
+  const rows = await supportPlans(deps, ids.clientId, ids.attractionId);
+  if (isReply(rows)) return rows;
+  return reply(200, {
+    plans: rows.map((r) => ({ ...supportPlanView(r, deps), state: r.state === 'canceled' ? 'canceled' : 'active' })),
+    fee_cents: activeFee(rows),
+  });
+}
+
+/** Alerts that mean "Asaas did not confirm the end of the charge": the screen says so (`asaasFailed`). */
+const PROVIDER_ALERTS = new Set([
+  'cancel_fee_not_scheduled',
+  'cancel_end_date_failed',
+  'cancel_free_month_failed',
+  'cancel_resume_failed',
+  'legacy_subscription_end_failed',
+  'legacy_subscription_not_found',
+]);
+
+/**
+ * `support_cancel`: cancels every active paid plan of the place. `expected_fee_cents` is the fee the
+ * confirmation showed (required; the pre-portal plan has none, so 0): a different fee now answers
+ * 409 `quote_changed` and nothing is written. Then the database, then per plan the Asaas half and
+ * the e-mail. If Asaas fails the database is NOT undone: the operator is alerted and the answer
+ * carries `provider: 'failed'`. A second click answers `already_canceled` and only redoes the
+ * idempotent Asaas half, with no e-mail.
+ */
+export async function supportCancel(deps: SupportDeps, body: Record<string, unknown>): Promise<Reply> {
+  const ids = supportIds(body);
+  if (isReply(ids)) return ids;
+  const expected = body.expected_fee_cents;
+  if (!(Number.isInteger(expected) && (expected as number) >= 0)) return reply(400, { error: 'invalid', field: 'expected_fee_cents' });
+
+  const before = await supportPlans(deps, ids.clientId, ids.attractionId);
+  if (isReply(before)) return before;
+  if (activeFee(before) !== expected) return reply(409, { error: 'quote_changed' });
+
+  const { data, error } = await deps.admin('partner', 'support_cancel_place_plan', {
+    p_client_id: ids.clientId,
+    p_attraction_id: ids.attractionId,
+    p_operator_id: deps.operatorId,
+  });
+  if (error) {
+    if (isBusinessError(error)) return portalErrorReply(error);
+    await deps.alert('support_cancel_failed', { attraction_id: ids.attractionId, code: error.code });
+    return reply(502, { error: 'unavailable' });
   }
-  return reply(200, { result: 'canceled', ends_on: endsOn });
+  const rows = (Array.isArray(data) ? data : []) as SupportPlanRow[];
+
+  // Every alert of the Asaas half passes through here, so the answer can say Asaas failed.
+  let providerFailed = false;
+  const tracked: Deps = {
+    ...deps,
+    alert: async (what, fields) => {
+      if (PROVIDER_ALERTS.has(what)) providerFailed = true;
+      await deps.alert(what, fields);
+    },
+  };
+
+  for (const r of rows) {
+    const applied = r.outcome === 'applied';
+    if (r.plan === 'experience' && r.submission_id) {
+      const sub = await tracked.subscriptionIds(r.submission_id);
+      // Never paid (free month): no `paid_through`, the Asaas subscription goes as in the portal.
+      const paidThrough = sub?.status === 'pending_payment' ? null : r.story_until;
+      if (!applied) {
+        await resumeCancelAtAsaas(tracked, r.submission_id, { renews: false, paid_through: paidThrough });
+        continue;
+      }
+      // A fee confirmed between the check and the cancel: the database's stands, the operator hears.
+      const shown = before.find((b) => b.plan === 'experience' && b.submission_id === r.submission_id);
+      if (shown && feeOf(shown) !== feeOf(r)) await deps.alert('support_cancel_fee_moved', { submission_id: r.submission_id, fee_cents: feeOf(r) });
+      const fee = await settleRenewalCancelAtAsaas(tracked, r.submission_id, sub, paidThrough, feeOf(r));
+      await sendRenewalCancelEmail(deps, await ownerEmailOrNull(deps, r.submission_id), r.story_until, fee, false, sub);
+    } else if (r.plan === 'legacy') {
+      await endLegacyAtAsaas(tracked, r.submission_id, ids.clientId, applied);
+      if (applied && r.submission_id) {
+        // The database's date (`place_legacy_paid_until`), not the one Asaas would suggest.
+        await sendLegacyCancelEmail(deps, await ownerEmailOrNull(deps, r.submission_id), supportEndsOn(r.story_until, deps), r.submission_id);
+      }
+    }
+  }
+
+  const anyApplied = rows.some((r) => r.outcome === 'applied');
+  return reply(200, {
+    result: anyApplied ? 'canceled' : 'already_canceled',
+    plans: rows.map((r) => ({ ...supportPlanView(r, deps), outcome: r.outcome === 'applied' ? 'applied' : 'already_canceled' })),
+    provider: providerFailed ? 'failed' : 'ok',
+  });
+}
+
+async function ownerEmailOrNull(deps: SupportDeps, submissionId: string): Promise<string | null> {
+  try {
+    const to = await deps.ownerEmail(submissionId);
+    if (!to) await deps.alert('support_cancel_no_email', { submission_id: submissionId });
+    return to;
+  } catch (e) {
+    await deps.alert('support_cancel_no_email', { submission_id: submissionId, error: e instanceof Error ? e.message.slice(0, 120) : 'unknown' });
+    return null;
+  }
 }
 
 /**
