@@ -21,6 +21,21 @@
 //   back 90 days at most; GA4 aggregated reports have no such limit and go back to the first post.
 // - Business Discovery paginates with cursors only, and the token travels in the Authorization
 //   header: a URL with `access_token=` would leak it to any log that prints a failed fetch.
+//
+// #1062, checked 2026-10-29 against the v26.0 references (Media Insights, User Insights, User Stories):
+// - reels: ig_reels_avg_watch_time and ig_reels_video_view_total_time ("in development"), REELS only.
+//   The reference states no unit; Meta answers milliseconds, kept as is in the `_ms` columns.
+// - stories: GET {ig-user-id}/stories lists the live ones ("Stories are only available for 24
+//   hours"), and "Story media metrics are only available for 24 hours", so the hourly job keeps the
+//   latest reading. reach, views and replies in one call; navigation alone, because the breakdown
+//   story_navigation_action_type is "Only compatible with the navigation metric". The breakdown table
+//   lists the values in upper case and the sample answers lower case: they are lowered here.
+// - audience: follower_demographics, period=lifetime, metric_type=total_value, a timeframe is required
+//   (this_week, the snapshot of the week), one breakdown per call (age, city, country, gender). Only
+//   the top 45 are returned, and nothing below 100 followers.
+// - GA4 (Data API schema): sessionCampaignName is a standard dimension; customEvent:store fails the
+//   whole request while `store` is not registered as an event-scoped custom dimension of the property,
+//   so the report is asked again without it and only the clicks by store stay unknown.
 
 import { GA4_APP_PROPERTY_ID, GA4_ROW_LIMIT, GA4_SITE_PROPERTY_ID } from './ga4-data.ts';
 
@@ -73,6 +88,17 @@ export const THEME_HINTS: Record<Theme, string> = {
 
 const FEED_METRICS = ['reach', 'saved', 'shares', 'views', 'profile_visits', 'follows', 'likes', 'comments'];
 const REELS_METRICS = ['reach', 'saved', 'shares', 'views', 'likes', 'comments'];
+const REELS_WATCH_METRICS = [...REELS_METRICS, 'ig_reels_avg_watch_time', 'ig_reels_video_view_total_time'];
+const STORY_METRICS = ['reach', 'views', 'replies'];
+const STORY_BASE_METRICS = ['reach', 'replies'];
+const STORY_FIELDS = 'id,media_type,permalink,timestamp';
+/** The four story navigation actions, lower case (`social.stories` columns). */
+export const STORY_ACTIONS = ['tap_forward', 'tap_back', 'tap_exit', 'swipe_forward'] as const;
+export const AUDIENCE_BREAKDOWNS = ['city', 'country', 'age', 'gender'] as const;
+export const AUDIENCE_TIMEFRAME = 'this_week';
+/** The site event of a store button (#1060), with `store` = app_store | play_store. */
+export const STORE_CLICK_EVENT = 'click_store';
+export const STORE_IDS = ['app_store', 'play_store'] as const;
 const BASE_METRICS = ['reach', 'saved', 'shares', 'likes', 'comments'];
 const MEDIA_FIELDS = 'id,media_type,media_product_type,caption,permalink,timestamp,like_count,comments_count';
 const BD_MEDIA_FIELDS = 'id,media_type,media_product_type,caption,permalink,timestamp,like_count,comments_count';
@@ -210,7 +236,20 @@ export interface WatchedAccount {
   is_own: boolean;
 }
 
-export type SocialTable = 'account_daily' | 'media' | 'media_metrics' | 'funnel_daily' | 'weekly_insights';
+export type SocialTable =
+  | 'account_daily'
+  | 'media'
+  | 'media_metrics'
+  | 'funnel_daily'
+  | 'weekly_insights'
+  | 'store_clicks_daily'
+  | 'audience_weekly'
+  | 'stories'
+  | 'collector_runs';
+
+/** The jobs of `social.collector_runs` (one row per job, the last run wins). */
+export type CollectorJob = 'daily' | 'stories' | 'audience' | 'apple';
+export type CollectorStatus = 'ok' | 'error' | 'not_configured';
 
 export interface PostForPrompt {
   posted_at: string | null;
@@ -229,6 +268,8 @@ export interface SocialStore {
   untaggedMedia(accountId: string, limit: number): Promise<Array<{ id: string; caption: string | null }>>;
   setTheme(mediaId: string, theme: Theme, model: string): Promise<void>;
   hasWeekly(weekStart: string): Promise<boolean>;
+  /** Whether `audience_weekly` has the snapshot of the week starting `weekStart`. */
+  hasAudience(weekStart: string): Promise<boolean>;
   rpc(fn: 'own_media_ranking' | 'account_engagement', args: Record<string, unknown>): Promise<Record<string, unknown>[]>;
   ownPostsSince(accountId: string, sinceIso: string): Promise<PostForPrompt[]>;
   funnelSince(day: string): Promise<Record<string, unknown>[]>;
@@ -297,6 +338,13 @@ export function supabaseStore(social: any): SocialStore {
       );
       return Array.isArray(rows) && rows.length > 0;
     },
+    async hasAudience(weekStart) {
+      const rows = check<unknown[]>(
+        'audience_read',
+        await social.from('audience_weekly').select('week_start').eq('week_start', weekStart).limit(1),
+      );
+      return Array.isArray(rows) && rows.length > 0;
+    },
     async rpc(fn, args) {
       return check<Record<string, unknown>[]>(`rpc_${fn}`, await social.rpc(fn, args)) ?? [];
     },
@@ -330,7 +378,7 @@ export function supabaseStore(social: any): SocialStore {
         'funnel_read',
         await social
           .from('funnel_daily')
-          .select('day, profile_views, website_clicks, ig_site_sessions, installs_ios, installs_android')
+          .select('day, profile_views, website_clicks, ig_site_sessions, store_clicks, installs_ios, installs_android')
           .gte('day', day)
           .order('day'),
       ) ?? [];
@@ -388,8 +436,11 @@ export interface CollectReport {
   funnel: {
     meta: 'ok' | 'partial' | 'failed' | 'skipped';
     site: 'ok' | 'failed' | 'no_credentials';
+    /** `no_store_dimension`: the total per day and campaign is known, the store is not (see header). */
+    store_clicks: 'ok' | 'no_store_dimension' | 'failed' | 'no_credentials';
     app: 'ok' | 'no_access' | 'failed' | 'no_credentials';
   };
+  audience: 'written' | 'exists' | 'empty' | 'failed' | 'skipped';
   themes: number;
   weekly: 'written' | 'exists' | 'not_monday' | 'few_posts' | 'rejected' | 'failed' | 'no_model';
 }
@@ -423,11 +474,19 @@ export function insightValues(body: Record<string, unknown>): Record<string, num
 }
 
 const METRIC_COLUMNS = ['likes', 'comments', 'reach', 'saved', 'shares', 'views', 'profile_visits', 'follows'] as const;
+/** Reel watch time: Meta's metric name and the `media_metrics` column that keeps it, in milliseconds. */
+const WATCH_COLUMNS = [
+  ['ig_reels_avg_watch_time', 'reels_avg_watch_time_ms'],
+  ['ig_reels_video_view_total_time', 'reels_total_watch_time_ms'],
+] as const;
 
-/** The insights of one own post, degrading to fewer metrics when Meta refuses one for that type. */
+/**
+ * The insights of one own post, degrading to fewer metrics when Meta refuses one for that type. A
+ * reel asks the watch time first; the total is "in development", so a refusal retries without both.
+ */
 async function ownInsights(meta: Meta, node: MediaNode, day: string): Promise<Record<string, unknown>> {
   const reels = node.media_product_type === 'REELS';
-  const attempts = reels ? [REELS_METRICS, BASE_METRICS] : [FEED_METRICS, BASE_METRICS];
+  const attempts = reels ? [REELS_WATCH_METRICS, REELS_METRICS, BASE_METRICS] : [FEED_METRICS, BASE_METRICS];
   let values: Record<string, number | null> = {};
   for (const metrics of attempts) {
     try {
@@ -439,6 +498,7 @@ async function ownInsights(meta: Meta, node: MediaNode, day: string): Promise<Re
   }
   const row: Record<string, unknown> = { media_id: String(node.id), day };
   for (const c of METRIC_COLUMNS) row[c] = values[c] ?? null;
+  for (const [metric, column] of WATCH_COLUMNS) row[column] = values[metric] ?? null;
   // The media object carries the counters too: they fill likes and comments when insights did not.
   row.likes = row.likes ?? num(node.like_count);
   row.comments = row.comments ?? num(node.comments_count);
@@ -519,6 +579,7 @@ async function collectCompetitor(deps: CollectDeps, account: WatchedAccount, tod
   const metrics = nodes.map((n) => {
     const row: Record<string, unknown> = { media_id: String(n.id), day: today };
     for (const c of METRIC_COLUMNS) row[c] = null;
+    for (const [, column] of WATCH_COLUMNS) row[column] = null;
     row.likes = num(n.like_count);
     row.comments = num(n.comments_count);
     return row;
@@ -642,6 +703,45 @@ export function siteSessionsBody(from: string, to: string): Record<string, unkno
   };
 }
 
+/**
+ * `click_store` from Instagram per day and campaign, and per store while `customEvent:store` exists
+ * (`withStore`). The campaign is the session's (`sessionCampaignName`), the token the visit came with.
+ */
+export function storeClicksBody(from: string, to: string, withStore: boolean): Record<string, unknown> {
+  return {
+    dateRanges: [{ startDate: from, endDate: to }],
+    dimensions: [
+      { name: 'date' },
+      { name: 'sessionCampaignName' },
+      ...(withStore ? [{ name: 'customEvent:store' }] : []),
+    ],
+    metrics: [{ name: 'eventCount' }],
+    dimensionFilter: {
+      andGroup: {
+        expressions: [
+          { filter: { fieldName: 'eventName', stringFilter: { matchType: 'EXACT', value: STORE_CLICK_EVENT } } },
+          {
+            filter: {
+              fieldName: 'sessionSource',
+              stringFilter: { matchType: 'FULL_REGEXP', value: IG_SESSION_SOURCE_PATTERN, caseSensitive: false },
+            },
+          },
+        ],
+      },
+    },
+    limit: String(GA4_ROW_LIMIT),
+  };
+}
+
+/**
+ * A campaign token someone wrote in a link, not one of GA4's placeholders: `(not set)`, `(direct)`,
+ * `(organic)`, `(referral)` and any other value in parentheses are not campaigns.
+ */
+export function isCampaignToken(v: string): boolean {
+  const t = v.trim();
+  return t.length > 0 && !(t.startsWith('(') && t.endsWith(')'));
+}
+
 export function appInstallsBody(from: string, to: string): Record<string, unknown> {
   return {
     dateRanges: [{ startDate: from, endDate: to }],
@@ -684,10 +784,14 @@ async function collectGa4(
   today: string,
   rows: FunnelRows,
   start: string,
-): Promise<Pick<CollectReport['funnel'], 'site' | 'app'>> {
-  if (!deps.ga4) return { site: 'no_credentials', app: 'no_credentials' };
+): Promise<Pick<CollectReport['funnel'], 'site' | 'store_clicks' | 'app'>> {
+  if (!deps.ga4) return { site: 'no_credentials', store_clicks: 'no_credentials', app: 'no_credentials' };
   const to = addDays(today, -1);
-  const result: Pick<CollectReport['funnel'], 'site' | 'app'> = { site: 'ok', app: 'ok' };
+  const result: Pick<CollectReport['funnel'], 'site' | 'store_clicks' | 'app'> = {
+    site: 'ok',
+    store_clicks: 'ok',
+    app: 'ok',
+  };
 
   try {
     const from = ga4From(rows, start, today, ['ig_site_sessions']);
@@ -705,6 +809,13 @@ async function collectGa4(
   } catch (e) {
     result.site = 'failed';
     deps.log(`[social-collect] ga4 site failed: ${reason(e)}`);
+  }
+
+  try {
+    result.store_clicks = await collectStoreClicks(deps, deps.ga4(GA4_SITE_PROPERTY_ID), rows, start, today);
+  } catch (e) {
+    result.store_clicks = 'failed';
+    deps.log(`[social-collect] ga4 store clicks failed: ${reason(e)}`);
   }
 
   try {
@@ -734,6 +845,220 @@ async function collectGa4(
     deps.log(`[social-collect] ga4 app ${result.app}: ${msg}`);
   }
   return result;
+}
+
+/**
+ * Store clicks from Instagram (#1062, R2.2 and R2.3): the day's total into `funnel_daily.store_clicks`
+ * (a day the site recorded anyone and no click is a measured 0, as the sessions), and each campaign
+ * token by store into `store_clicks_daily`. While `customEvent:store` is not registered GA4 refuses
+ * the report; it is asked again without the store, the totals still land, and no row by store is
+ * written (the CMS prints those columns as unknown, never as zero).
+ */
+async function collectStoreClicks(
+  deps: CollectDeps,
+  run: Ga4Run,
+  rows: FunnelRows,
+  start: string,
+  today: string,
+): Promise<CollectReport['funnel']['store_clicks']> {
+  const from = ga4From(rows, start, today, ['store_clicks']);
+  const to = addDays(today, -1);
+  let withStore = true;
+  let report: unknown;
+  try {
+    report = await run(storeClicksBody(from, to, true));
+  } catch (e) {
+    if (reason(e) !== 'ga4_report_400') throw e;
+    withStore = false;
+    deps.log('[social-collect] ga4 refused customEvent:store; store clicks without the store');
+    report = await run(storeClicksBody(from, to, false));
+  }
+  const live = activeDays(await run(activeDaysBody(from, to)));
+  const totals = new Map<string, number>();
+  const byStore = new Map<string, Record<string, unknown>>();
+  for (const r of ga4RowsOf(report)) {
+    const day = ga4Day(r.dimensionValues?.[0]?.value);
+    const campaign = String(r.dimensionValues?.[1]?.value ?? '').trim();
+    const store = String(r.dimensionValues?.[2]?.value ?? '');
+    const v = Number(r.metricValues?.[0]?.value);
+    if (!day || !Number.isFinite(v)) continue;
+    totals.set(day, (totals.get(day) ?? 0) + Math.trunc(v));
+    if (!withStore || !isCampaignToken(campaign) || !(STORE_IDS as readonly string[]).includes(store)) continue;
+    const k = `${day}|${campaign}|${store}`;
+    const prev = (byStore.get(k)?.clicks as number | undefined) ?? 0;
+    byStore.set(k, { day, campaign, store, clicks: prev + Math.trunc(v) });
+  }
+  const days = daysBetween(from, to).filter((d) => live.has(d) || totals.has(d));
+  await deps.store.upsert('funnel_daily', days.map((day) => ({ day, store_clicks: totals.get(day) ?? 0 })), 'day');
+  await deps.store.upsert('store_clicks_daily', [...byStore.values()], 'day,campaign,store');
+  return withStore ? 'ok' : 'no_store_dimension';
+}
+
+// ----------------------------------------------------------------------------------------------
+// Audience and stories (#1062)
+
+/**
+ * One `follower_demographics` answer as `[label, count]`: the result whose dimension key is the
+ * breakdown (the key list may carry `timeframe` first). Nothing answered is an empty list.
+ */
+export function demographicRows(body: Record<string, unknown>, breakdown: string): Array<[string, number]> {
+  const item = (Array.isArray(body.data) ? body.data[0] : null) as Record<string, unknown> | null;
+  const total = item?.total_value as { breakdowns?: unknown } | undefined;
+  const breakdowns = Array.isArray(total?.breakdowns) ? (total.breakdowns as Array<Record<string, unknown>>) : [];
+  const out: Array<[string, number]> = [];
+  for (const b of breakdowns) {
+    const keys = Array.isArray(b.dimension_keys) ? (b.dimension_keys as unknown[]).map(String) : [];
+    const at = keys.indexOf(breakdown);
+    for (const r of (Array.isArray(b.results) ? b.results : []) as Array<Record<string, unknown>>) {
+      const values = Array.isArray(r.dimension_values) ? (r.dimension_values as unknown[]).map(String) : [];
+      const label = values[at >= 0 ? at : values.length - 1];
+      const count = num(r.value);
+      if (label && count !== null) out.push([label, count]);
+    }
+  }
+  return out;
+}
+
+/**
+ * The week's audience snapshot of our account, once per week (Monday in Brasília). Written only
+ * when all four breakdowns answered: a refusal leaves the week empty and the next daily run asks
+ * again. Four empty answers are the account under 100 followers, and write nothing.
+ */
+async function collectAudience(deps: CollectDeps, today: string): Promise<CollectReport['audience']> {
+  const weekStart = mondayOf(today);
+  if (await deps.store.hasAudience(weekStart)) return 'exists';
+  const rows: Record<string, unknown>[] = [];
+  for (const breakdown of AUDIENCE_BREAKDOWNS) {
+    const body = await deps.meta.get(`${deps.meta.igUserId}/insights`, {
+      metric: 'follower_demographics',
+      period: 'lifetime',
+      metric_type: 'total_value',
+      timeframe: AUDIENCE_TIMEFRAME,
+      breakdown,
+    });
+    for (const [label, count] of demographicRows(body, breakdown)) {
+      rows.push({ week_start: weekStart, breakdown, label, follower_count: count });
+    }
+  }
+  if (rows.length === 0) return 'empty';
+  await deps.store.upsert('audience_weekly', rows, 'week_start,breakdown,label');
+  return 'written';
+}
+
+/** The four navigation actions of one story, lowered; an action Meta did not list stays null. */
+export function navigationValues(body: Record<string, unknown>): Record<string, number | null> {
+  const out: Record<string, number | null> = Object.fromEntries(STORY_ACTIONS.map((a) => [a, null]));
+  const item = (Array.isArray(body.data) ? body.data[0] : null) as Record<string, unknown> | null;
+  const total = item?.total_value as { breakdowns?: unknown } | undefined;
+  for (const b of (Array.isArray(total?.breakdowns) ? total.breakdowns : []) as Array<Record<string, unknown>>) {
+    for (const r of (Array.isArray(b.results) ? b.results : []) as Array<Record<string, unknown>>) {
+      const action = String((r.dimension_values as unknown[] | undefined)?.[0] ?? '').toLowerCase();
+      if ((STORY_ACTIONS as readonly string[]).includes(action)) out[action] = num(r.value);
+    }
+  }
+  return out;
+}
+
+export interface StoriesReport {
+  stories: number;
+  read: number;
+  failed: number;
+}
+
+/**
+ * `{"job":"stories"}`, hourly: the live stories of our account and their insights, the latest
+ * reading overwriting the earlier one. A story whose insights all failed is not written, so a
+ * refusal never erases a good reading; a story whose navigation alone failed keeps the earlier
+ * navigation (the row is written without those columns).
+ */
+export async function collectStories(deps: Pick<CollectDeps, 'store' | 'meta' | 'log'>): Promise<StoriesReport> {
+  const { meta, store } = deps;
+  const own = (await store.activeAccounts()).find((a) => a.is_own);
+  if (!own) throw new Error('no_own_account');
+  const listed = await meta.get(`${meta.igUserId}/stories`, { fields: STORY_FIELDS });
+  const nodes = (Array.isArray(listed.data) ? (listed.data as MediaNode[]) : []).filter((n) => str(n.id));
+  const report: StoriesReport = { stories: nodes.length, read: 0, failed: 0 };
+  const readings = await mapLimit(nodes, INSIGHT_CONCURRENCY, async (n) => {
+    let values: Record<string, number | null> | null = null;
+    for (const metrics of [STORY_METRICS, STORY_BASE_METRICS]) {
+      try {
+        values = insightValues(await meta.get(`${n.id}/insights`, { metric: metrics.join(',') }));
+        break;
+      } catch (e) {
+        if (!isInvalidParameter(e)) break;
+      }
+    }
+    let nav: Record<string, number | null> | null = null;
+    try {
+      nav = navigationValues(
+        await meta.get(`${n.id}/insights`, {
+          metric: 'navigation',
+          breakdown: 'story_navigation_action_type',
+          metric_type: 'total_value',
+        }),
+      );
+    } catch (e) {
+      deps.log(`[social-collect] story navigation refused: ${reason(e)}`);
+    }
+    return { n, values, nav };
+  });
+  const full: Record<string, unknown>[] = [];
+  const withoutNav: Record<string, unknown>[] = [];
+  for (const { n, values, nav } of readings) {
+    if (!values && !nav) {
+      report.failed += 1;
+      continue;
+    }
+    report.read += 1;
+    const row: Record<string, unknown> = {
+      id: String(n.id),
+      account_id: own.id,
+      media_type: str(n.media_type),
+      permalink: str(n.permalink),
+      posted_at: str(n.timestamp),
+      reach: values?.reach ?? null,
+      views: values?.views ?? null,
+      replies: values?.replies ?? null,
+    };
+    if (nav) full.push({ ...row, ...nav });
+    else withoutNav.push(row);
+  }
+  await store.upsert('stories', full, 'id');
+  await store.upsert('stories', withoutNav, 'id');
+  return report;
+}
+
+/** One row of `social.collector_runs` per job: when it last ran, how it ended, and a short detail. */
+export async function recordRun(
+  deps: Pick<CollectDeps, 'store' | 'now' | 'log'>,
+  job: CollectorJob,
+  status: CollectorStatus,
+  detail: string | null,
+  extra: Record<string, unknown> = {},
+): Promise<void> {
+  try {
+    await deps.store.upsert(
+      'collector_runs',
+      [{ job, last_run_at: deps.now().toISOString(), status, detail: detail ? detail.slice(0, 500) : null, ...extra }],
+      'job',
+    );
+  } catch (e) {
+    // The run's own result is already written; a lost bookkeeping row is logged, never fatal.
+    deps.log(`[social-collect] collector_runs ${job} failed: ${reason(e)}`);
+  }
+}
+
+/** The hourly stories job, with its `collector_runs` row whatever happens. */
+export async function runStoriesCollect(deps: CollectDeps): Promise<StoriesReport | null> {
+  try {
+    const report = await collectStories(deps);
+    await recordRun(deps, 'stories', report.failed > 0 && report.read === 0 ? 'error' : 'ok', JSON.stringify(report));
+    return report;
+  } catch (e) {
+    deps.log(`[social-collect] stories failed: ${reason(e)}`);
+    await recordRun(deps, 'stories', 'error', reason(e));
+    return null;
+  }
 }
 
 // ----------------------------------------------------------------------------------------------
@@ -976,7 +1301,8 @@ export async function runSocialCollect(deps: CollectDeps): Promise<CollectReport
     accounts: { ok: [], failed: [] },
     media: 0,
     metrics: 0,
-    funnel: { meta: 'skipped', site: 'no_credentials', app: 'no_credentials' },
+    funnel: { meta: 'skipped', site: 'no_credentials', store_clicks: 'no_credentials', app: 'no_credentials' },
+    audience: 'skipped',
     themes: 0,
     weekly: 'not_monday',
   };
@@ -1019,7 +1345,20 @@ export async function runSocialCollect(deps: CollectDeps): Promise<CollectReport
   }
   const ga4 = await collectGa4(deps, today, rows, start);
   report.funnel.site = ga4.site;
+  report.funnel.store_clicks = ga4.store_clicks;
   report.funnel.app = ga4.app;
+
+  if (own) {
+    try {
+      report.audience = await collectAudience(deps, today);
+    } catch (e) {
+      report.audience = 'failed';
+      deps.log(`[social-collect] audience failed: ${reason(e)}`);
+    }
+    if (report.audience !== 'exists') {
+      await recordRun(deps, 'audience', report.audience === 'failed' ? 'error' : 'ok', report.audience);
+    }
+  }
 
   if (own) {
     try {
@@ -1034,5 +1373,7 @@ export async function runSocialCollect(deps: CollectDeps): Promise<CollectReport
       deps.log(`[social-collect] weekly failed: ${reason(e)}`);
     }
   }
+  const failed = report.accounts.failed.length > 0 && report.accounts.ok.length === 0;
+  await recordRun(deps, 'daily', failed ? 'error' : 'ok', JSON.stringify({ funnel: report.funnel, accounts_failed: report.accounts.failed.length }));
   return report;
 }

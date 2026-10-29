@@ -10,7 +10,9 @@ import { assert, assertEquals } from './assert.ts';
 import { fetchCalls, loadHandler, network, scenario } from './harness.ts';
 import {
   checkRecommendations,
+  demographicRows,
   IG_SESSION_SOURCE_PATTERN,
+  navigationValues,
   type CollectDeps,
   type Gemini,
   lookupAccount,
@@ -18,6 +20,7 @@ import {
   metaClient,
   type PostForPrompt,
   runSocialCollect,
+  runStoriesCollect,
   type SocialStore,
   type SocialTable,
   THEME_HINTS,
@@ -39,6 +42,10 @@ const PK: Record<SocialTable, string[]> = {
   media_metrics: ['media_id', 'day'],
   funnel_daily: ['day'],
   weekly_insights: ['week_start'],
+  store_clicks_daily: ['day', 'campaign', 'store'],
+  audience_weekly: ['week_start', 'breakdown', 'label'],
+  stories: ['id'],
+  collector_runs: ['job'],
 };
 
 /** The schema `social` in memory: upsert merges the columns it carries into the row of its key. */
@@ -49,6 +56,10 @@ class MemoryStore implements SocialStore {
     media_metrics: new Map(),
     funnel_daily: new Map(),
     weekly_insights: new Map(),
+    store_clicks_daily: new Map(),
+    audience_weekly: new Map(),
+    stories: new Map(),
+    collector_runs: new Map(),
   };
   igIds: Record<string, string> = {};
   rpcs: Array<{ fn: string; args: Record<string, unknown> }> = [];
@@ -87,6 +98,9 @@ class MemoryStore implements SocialStore {
   }
   hasWeekly(weekStart: string) {
     return Promise.resolve(this.tables.weekly_insights.has(weekStart));
+  }
+  hasAudience(weekStart: string) {
+    return Promise.resolve([...this.tables.audience_weekly.values()].some((r) => r.week_start === weekStart));
   }
   rpc(fn: 'own_media_ranking' | 'account_engagement', args: Record<string, unknown>) {
     this.rpcs.push({ fn, args });
@@ -157,6 +171,50 @@ const okJson = (body: unknown) => new Response(JSON.stringify(body), { status: 2
 const DEFAULT_ACCOUNT: AccountAnswer = (metric) =>
   metric === 'profile_views' ? okJson({ data: [{ name: 'profile_views', total_value: { value: 37 } }] }) : metaError(400, 100);
 
+/** Our live stories: s1 answers everything, s2 refuses views and navigation, s3 refuses all. */
+const STORIES = [
+  { id: 's1', media_type: 'VIDEO', permalink: 'https://www.instagram.com/stories/tuggi_app/s1/', timestamp: '2026-11-02T08:00:00+0000' },
+  { id: 's2', media_type: 'IMAGE', timestamp: '2026-11-02T07:00:00+0000' },
+  { id: 's3', media_type: 'IMAGE', timestamp: '2026-11-02T06:00:00+0000' },
+];
+
+/** The navigation answer of the reference sample: the total and one result per action. */
+const navigation = (actions: Record<string, number>) => ({
+  data: [{
+    name: 'navigation',
+    period: 'lifetime',
+    total_value: {
+      value: Object.values(actions).reduce((a, b) => a + b, 0),
+      breakdowns: [{
+        dimension_keys: ['story_navigation_action_type'],
+        results: Object.entries(actions).map(([k, value]) => ({ dimension_values: [k], value })),
+      }],
+    },
+  }],
+});
+
+/** follower_demographics by breakdown; the key list carries `timeframe` first, as the reference sample. */
+const DEMOGRAPHICS: Record<string, Record<string, number>> = {
+  city: { 'Rio de Janeiro, Rio de Janeiro': 310, 'São Paulo, São Paulo': 250 },
+  country: { BR: 1400, PT: 40 },
+  age: { '25-34': 600, '35-44': 420 },
+  gender: { F: 820, M: 640, U: 60 },
+};
+let demographicsAnswer: (breakdown: string) => Response = (breakdown) =>
+  new Response(JSON.stringify({
+    data: [{
+      name: 'follower_demographics',
+      period: 'lifetime',
+      total_value: {
+        breakdowns: [{
+          dimension_keys: ['timeframe', breakdown],
+          results: Object.entries(DEMOGRAPHICS[breakdown] ?? {}).map(([k, value]) => ({ dimension_values: ['THIS_WEEK', k], value })),
+        }],
+      },
+    }],
+  }), { status: 200 });
+const demographics = (breakdown: string) => demographicsAnswer(breakdown);
+
 /** Brasília midnight is 03:00 UTC, so `since` minus three hours is 00:00 UTC of the same day. */
 const dayOfSince = (since: string | null) => new Date(Number(since) * 1000 - 3 * 3_600_000).toISOString().slice(0, 10);
 
@@ -180,9 +238,21 @@ function graph(url: URL, account: AccountAnswer = DEFAULT_ACCOUNT): Response {
   if (path === IG_USER && fields.startsWith('business_discovery.username(ghost)')) return metaError(400, 110, 2207013);
   if (path === IG_USER) return ok({ id: IG_USER, username: 'tuggi_app', followers_count: 1520, media_count: 3 });
   if (path === `${IG_USER}/media`) return ok({ data: ownMedia, paging: { cursors: { before: 'b', after: 'a' } } });
+  if (path === `${IG_USER}/insights` && metric === 'follower_demographics') {
+    return demographics(url.searchParams.get('breakdown') ?? '');
+  }
   if (path === `${IG_USER}/insights`) return account(metric, dayOfSince(url.searchParams.get('since')));
+  if (path === `${IG_USER}/stories`) return ok({ data: STORIES });
+  if (path === 's1/insights' && metric === 'navigation') return ok(navigation({ TAP_FORWARD: 19, tap_back: 4, tap_exit: 1, swipe_forward: 1 }));
+  if (path === 's1/insights') return ok(insight({ reach: 120, views: 160, replies: 2 }));
+  if (path === 's2/insights' && metric === 'navigation') return metaError(500, 2);
+  if (path === 's2/insights') return metric.includes('views') ? metaError(400, 100) : ok(insight({ reach: 40, replies: 0 }));
+  if (path === 's3/insights') return metaError(500, 2);
   if (path === 'm1/insights') return ok(insight({ reach: 1000, saved: 20, shares: 5, views: 3000, profile_visits: 9, follows: 2, likes: 41, comments: 3 }));
-  if (path === 'm2/insights') return ok(insight({ reach: 4000, saved: 30, shares: 50, views: 9000, likes: 90, comments: 8 }));
+  if (path === 'm2/insights') {
+    const watch: Record<string, number> = metric.includes('ig_reels_avg_watch_time') ? { ig_reels_avg_watch_time: 12_400, ig_reels_video_view_total_time: 2_880_000 } : {};
+    return ok(insight({ reach: 4000, saved: 30, shares: 50, views: 9000, likes: 90, comments: 8, ...watch }));
+  }
   if (path === 'm3/insights') {
     return metric.includes('profile_visits') ? metaError(400, 100) : ok(insight({ reach: 300, saved: 1, shares: 0, likes: 12, comments: 0 }));
   }
@@ -206,6 +276,8 @@ interface RigOptions {
   account?: AccountAnswer;
   /** Days each GA4 property recorded anyone; every asked day when absent. */
   ga4Live?: (day: string) => boolean;
+  /** False: `store` is not a registered custom dimension, and GA4 refuses a report that asks it. */
+  storeDimension?: boolean;
   store?: MemoryStore;
 }
 
@@ -251,6 +323,22 @@ function rig(opts: RigOptions = {}): Rig & { ga4Calls: Ga4Call[] } {
         if (opts.ga4Live?.(d) ?? true) rows.push({ dimensionValues: [{ value: d.replaceAll('-', '') }], metricValues: [{ value: '50' }] });
       }
       return Promise.resolve({ rows });
+    }
+    if ((body.dimensionFilter as { andGroup?: unknown }).andGroup) {
+      const dims = (body.dimensions as Array<{ name: string }>).map((d) => d.name);
+      if (dims.includes('customEvent:store') && opts.storeDimension === false) return Promise.reject(new Error('ga4_report_400'));
+      const row = (day: string, campaign: string, store: string, n: number) => ({
+        dimensionValues: [{ value: day }, { value: campaign }, ...(dims.length === 3 ? [{ value: store }] : [])],
+        metricValues: [{ value: String(n) }],
+      });
+      return Promise.resolve({
+        rows: [
+          row('20261101', 'bio_novembro', 'app_store', 3),
+          row('20261101', 'bio_novembro', 'play_store', 5),
+          row('20261101', '(not set)', 'app_store', 2),
+          row('20261031', 'story_buzios', 'play_store', 1),
+        ],
+      });
     }
     if (propertyId === '491146217') {
       return Promise.resolve({
@@ -303,15 +391,16 @@ Deno.test('#1059: the daily run writes our account, a competitor, the funnel, th
   // A competitor has likes and comments only; a hidden like count stays null.
   assertEquals(r.store.tables.media_metrics.get('c1|2026-11-02'), {
     media_id: 'c1', day: '2026-11-02', likes: null, comments: 4, reach: null, saved: null, shares: null, views: null, profile_visits: null, follows: null,
+    reels_avg_watch_time_ms: null, reels_total_watch_time_ms: null,
   });
 
   // Funnel: yesterday's profile views; website_clicks refused by Meta is never written (null) and logged.
   assertEquals(r.store.tables.funnel_daily.get('2026-11-01'), {
-    day: '2026-11-01', profile_views: 37, ig_site_sessions: 0, installs_ios: 4, installs_android: 7,
+    day: '2026-11-01', profile_views: 37, ig_site_sessions: 0, store_clicks: 10, installs_ios: 4, installs_android: 7,
   });
   assert(r.logs.some((l) => l.includes('website_clicks refused on 90 day(s): meta_400_100_x')), r.logs.join('\n'));
   assertEquals(r.store.tables.funnel_daily.get('2026-10-31')?.ig_site_sessions, 12);
-  assertEquals(report.funnel, { meta: 'partial', site: 'ok', app: 'ok' });
+  assertEquals(report.funnel, { meta: 'partial', site: 'ok', store_clicks: 'ok', app: 'ok' });
 
   // Themes: the three own posts, never the competitor's, never an id the model made up.
   assertEquals(report.themes, 3);
@@ -496,7 +585,8 @@ const fullFunnel = (from: string, to: string, value: number) => {
   const store = new MemoryStore([OWN]);
   for (let d = from; d <= to; d = new Date(Date.parse(`${d}T12:00:00Z`) + 86_400_000).toISOString().slice(0, 10)) {
     store.tables.funnel_daily.set(d, {
-      day: d, profile_views: value, website_clicks: value, ig_site_sessions: value, installs_ios: value, installs_android: value,
+      day: d, profile_views: value, website_clicks: value, ig_site_sessions: value, store_clicks: value, installs_ios: value,
+      installs_android: value,
     });
   }
   return store;
@@ -516,9 +606,11 @@ Deno.test('#1059 DS-COMPONENTE-084: the first run backfills GA4 from the first p
   await runSocialCollect(r.deps);
   // The oldest own post is 2026-10-20, more recent than 360 days back: the history starts 360 days back.
   const start = '2025-11-08';
-  assertEquals(ranges(r, '494999879'), [[start, '2026-11-02'], [start, '2026-11-02']]);
+  // The site answers two reports for the sessions and two for the store clicks (#1062), all one range.
+  assertEquals(ranges(r, '494999879'), [[start, '2026-11-02'], [start, '2026-11-02'], [start, '2026-11-02'], [start, '2026-11-02']]);
   assertEquals(ranges(r, '491146217'), [[start, '2026-11-02'], [start, '2026-11-02']]);
   assertEquals(r.store.tables.funnel_daily.get(start)?.ig_site_sessions, 0);
+  assertEquals(r.store.tables.funnel_daily.get(start)?.store_clicks, 0);
   assertEquals(r.store.tables.funnel_daily.get('2026-10-31')?.ig_site_sessions, 12);
   // Meta keeps 90 days: every one of them asked once, newest first, and written.
   const asked = metaDays(r.urls, 'profile_views');
@@ -539,7 +631,7 @@ Deno.test('#1059: with the history complete, a daily run asks GA4 and Meta for t
   const store = fullFunnel('2025-10-01', '2026-11-02', 5);
   const r = rig({ store, now: TUESDAY });
   await runSocialCollect(r.deps);
-  assertEquals(ranges(r, '494999879'), [['2026-10-31', '2026-11-02'], ['2026-10-31', '2026-11-02']]);
+  assertEquals(ranges(r, '494999879'), Array(4).fill(['2026-10-31', '2026-11-02']));
   assertEquals(ranges(r, '491146217'), [['2026-10-31', '2026-11-02'], ['2026-10-31', '2026-11-02']]);
   assertEquals(metaDays(r.urls, 'profile_views'), ['2026-10-31', '2026-11-01', '2026-11-02']);
   // GA4 settles late: the refreshed days take the new numbers, the older ones keep theirs.
@@ -596,4 +688,146 @@ Deno.test('#1059 DS-COMPONENTE-084: a day GA4 recorded nobody stays null, and a 
   assertEquals(store.tables.funnel_daily.get('2026-11-01')?.installs_ios, 5);
   assertEquals(store.tables.funnel_daily.get('2026-05-31')?.ig_site_sessions, undefined);
   assertEquals(store.tables.funnel_daily.get('2026-06-01')?.ig_site_sessions, 0);
+});
+
+// ------------------------------------------------------------------------------------------------
+// #1062: reels watch time, store clicks, audience, stories and the collector_runs ledger
+
+Deno.test('#1062: a reel keeps the watch time in milliseconds as Meta answers it; a feed post and a competitor keep null', async () => {
+  const r = rig();
+  await runSocialCollect(r.deps);
+  const reel = r.store.tables.media_metrics.get('m2|2026-11-02');
+  assertEquals([reel?.reels_avg_watch_time_ms, reel?.reels_total_watch_time_ms, reel?.views], [12_400, 2_880_000, 9000]);
+  assert(r.urls.some((u) => u.includes('/m2/insights') && u.includes('ig_reels_video_view_total_time')), 'reel not asked for its watch time');
+  assert(!r.urls.some((u) => u.includes('/m1/insights') && u.includes('ig_reels')), 'a feed post was asked for reel metrics');
+  const feed = r.store.tables.media_metrics.get('m1|2026-11-02');
+  assertEquals([feed?.reels_avg_watch_time_ms, feed?.reels_total_watch_time_ms], [null, null]);
+});
+
+Deno.test('#1062: store clicks from Instagram land as a daily total and by campaign and store; GA4 placeholders are not campaigns', async () => {
+  const r = rig({ now: TUESDAY });
+  const report = await runSocialCollect(r.deps);
+  assertEquals(report.funnel.store_clicks, 'ok');
+  // 3 + 5 + 2 on the 1st (the "(not set)" click counts in the total), 1 on the 31st, a measured 0 on a day without clicks.
+  assertEquals(r.store.tables.funnel_daily.get('2026-11-01')?.store_clicks, 10);
+  assertEquals(r.store.tables.funnel_daily.get('2026-10-31')?.store_clicks, 1);
+  assertEquals(r.store.tables.funnel_daily.get('2026-10-30')?.store_clicks, 0);
+  assertEquals([...r.store.tables.store_clicks_daily.values()], [
+    { day: '2026-11-01', campaign: 'bio_novembro', store: 'app_store', clicks: 3 },
+    { day: '2026-11-01', campaign: 'bio_novembro', store: 'play_store', clicks: 5 },
+    { day: '2026-10-31', campaign: 'story_buzios', store: 'play_store', clicks: 1 },
+  ]);
+  const body = r.ga4Calls.find((c) => (c.body.dimensionFilter as { andGroup?: unknown } | undefined)?.andGroup)?.body;
+  assertEquals(JSON.stringify(body?.dimensions), JSON.stringify([{ name: 'date' }, { name: 'sessionCampaignName' }, { name: 'customEvent:store' }]));
+  assert(JSON.stringify(body?.dimensionFilter).includes('"value":"click_store"'), 'not filtered on click_store');
+});
+
+Deno.test('#1062: without the store dimension registered, GA4 is asked again without it; totals land, no row by store, no failure', async () => {
+  const r = rig({ now: TUESDAY, storeDimension: false });
+  const report = await runSocialCollect(r.deps);
+  assertEquals(report.funnel.store_clicks, 'no_store_dimension');
+  assertEquals(r.store.tables.funnel_daily.get('2026-11-01')?.store_clicks, 10);
+  assertEquals(r.store.count('store_clicks_daily'), 0);
+  const daily = r.store.tables.collector_runs.get('daily');
+  assertEquals(daily?.status, 'ok');
+  assert(String(daily?.detail).includes('"store_clicks":"no_store_dimension"'), String(daily?.detail));
+});
+
+Deno.test('#1062: the audience is written once a week, one row per breakdown and label, under the Monday of Brasília', async () => {
+  const r = rig({ now: TUESDAY });
+  const report = await runSocialCollect(r.deps);
+  assertEquals(report.audience, 'written');
+  assertEquals(r.store.tables.audience_weekly.get('2026-11-02|city|Rio de Janeiro, Rio de Janeiro')?.follower_count, 310);
+  assertEquals(r.store.tables.audience_weekly.get('2026-11-02|gender|U')?.follower_count, 60);
+  assertEquals(r.store.count('audience_weekly'), 9);
+  const asked = r.urls.filter((u) => u.includes('follower_demographics')).map((u) => new URL(u).searchParams);
+  assertEquals(asked.map((p) => p.get('breakdown')), ['city', 'country', 'age', 'gender']);
+  assert(asked.every((p) => p.get('period') === 'lifetime' && p.get('metric_type') === 'total_value' && p.get('timeframe') === 'this_week'));
+  assertEquals(r.store.tables.collector_runs.get('audience')?.status, 'ok');
+  // The same week again: nothing asked, nothing rewritten.
+  const again = rig({ store: r.store, now: new Date('2026-11-04T09:00:00Z') });
+  assertEquals((await runSocialCollect(again.deps)).audience, 'exists');
+  assertEquals(again.urls.filter((u) => u.includes('follower_demographics')).length, 0);
+});
+
+Deno.test('#1062: under 100 followers Meta answers no audience: nothing is written and the next week asks again', async () => {
+  const saved = demographicsAnswer;
+  demographicsAnswer = () => new Response(JSON.stringify({ data: [] }), { status: 200 });
+  try {
+    const r = rig({ now: TUESDAY });
+    assertEquals((await runSocialCollect(r.deps)).audience, 'empty');
+    assertEquals(r.store.count('audience_weekly'), 0);
+    assertEquals(r.store.tables.collector_runs.get('audience')?.detail, 'empty');
+  } finally {
+    demographicsAnswer = saved;
+  }
+});
+
+Deno.test('#1062: a refused breakdown writes no partial week, and the run goes on', async () => {
+  const saved = demographicsAnswer;
+  demographicsAnswer = (b) => (b === 'age' ? metaError(400, 100) : saved(b));
+  try {
+    const r = rig({ now: TUESDAY });
+    const report = await runSocialCollect(r.deps);
+    assertEquals([report.audience, r.store.count('audience_weekly')], ['failed', 0]);
+    assertEquals(r.store.tables.collector_runs.get('audience')?.status, 'error');
+    assertEquals(r.store.tables.collector_runs.get('daily')?.status, 'ok');
+  } finally {
+    demographicsAnswer = saved;
+  }
+});
+
+Deno.test('#1062: the stories job reads each live story, lowers the navigation actions and never writes a failed reading', async () => {
+  const r = rig();
+  const report = await runStoriesCollect(r.deps);
+  assertEquals(report, { stories: 3, read: 2, failed: 1 });
+  assertEquals(r.store.tables.stories.get('s1'), {
+    id: 's1', account_id: OWN.id, media_type: 'VIDEO', permalink: 'https://www.instagram.com/stories/tuggi_app/s1/',
+    posted_at: '2026-11-02T08:00:00+0000', reach: 120, views: 160, replies: 2,
+    tap_forward: 19, tap_back: 4, tap_exit: 1, swipe_forward: 1,
+  });
+  // s2: views refused (retried without), navigation refused: written without the navigation columns.
+  const s2 = r.store.tables.stories.get('s2');
+  assertEquals([s2?.reach, s2?.views, s2?.replies, 'tap_exit' in (s2 ?? {})], [40, null, 0, false]);
+  assertEquals(r.store.tables.stories.has('s3'), false);
+  const nav = r.urls.find((u) => u.includes('/s1/insights') && u.includes('navigation'));
+  assertEquals(new URL(nav ?? 'x:/').searchParams.get('breakdown'), 'story_navigation_action_type');
+  // Only the stories: no daily work rides on the hourly job.
+  assert(!r.urls.some((u) => u.includes('/media') || u.includes('business_discovery')), r.urls.join('\n'));
+  assertEquals(r.ga4Calls.length, 0);
+  const run = r.store.tables.collector_runs.get('stories');
+  assertEquals([run?.status, run?.last_run_at], ['ok', MONDAY.toISOString()]);
+  assertEquals(r.store.count('collector_runs'), 1);
+});
+
+Deno.test('#1062: a stories listing refused by Meta records the error in collector_runs and writes no story', async () => {
+  const r = rig({ accounts: [RIVAL] });
+  assertEquals(await runStoriesCollect(r.deps), null);
+  assertEquals(r.store.tables.collector_runs.get('stories')?.status, 'error');
+  assertEquals(r.store.count('stories'), 0);
+});
+
+Deno.test('#1062: the daily run records its row in collector_runs; demographics parse picks the breakdown key', async () => {
+  const r = rig();
+  await runSocialCollect(r.deps);
+  const daily = r.store.tables.collector_runs.get('daily');
+  assertEquals(daily?.status, 'ok');
+  assertEquals(r.store.tables.collector_runs.has('apple'), false);
+  assertEquals(demographicRows({ data: [{ total_value: { breakdowns: [{ dimension_keys: ['timeframe', 'country'], results: [{ dimension_values: ['THIS_WEEK', 'BR'], value: 9 }] }] } }] }, 'country'), [['BR', 9]]);
+  assertEquals(navigationValues({ data: [] }), { tap_forward: null, tap_back: null, tap_exit: null, swipe_forward: null });
+});
+
+Deno.test('#1062: {"job":"stories"} through the handler runs the stories only; an unknown job is 400', async () => {
+  Deno.env.set('META_PAGE_TOKEN', TOKEN);
+  Deno.env.set('META_IG_USER_ID', IG_USER);
+  network.reply = (url) => graph(new URL(url));
+  scenario.tables.watched_accounts = [{ ...OWN }];
+  const res = await call(MACHINE, { job: 'stories' });
+  assertEquals([res.status, await res.json()], [200, { stories: 3, read: 2, failed: 1 }]);
+  assert(fetchCalls.every((u) => u.includes('/stories') || /\/s\d\/insights/.test(u)), fetchCalls.join('\n'));
+  const tables = scenario.writes.filter((w) => w.op === 'upsert').map((w) => w.table);
+  assertEquals([...new Set(tables)].sort(), ['collector_runs', 'stories']);
+  assertEquals((await call(MACHINE, { job: 'everything' })).status, 400);
+  delete scenario.tables.watched_accounts;
+  network.reply = () => new Response('{}', { status: 400 });
 });

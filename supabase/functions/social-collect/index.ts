@@ -3,9 +3,10 @@
  *
  *   POST {}                                  daily run (pg_cron `social-collect`, 09:00 UTC = 6h Brasília)
  *   POST {"force_weekly": true}              the same run, writing the weekly recommendation on any day
+ *   POST {"job":"stories"}                   the live stories only (pg_cron `social-collect-stories`, hourly)
  *   POST {"action":"lookup","username":"x"}  Business Discovery only: the CMS checks a username
  *   -> 200 the run report, or { ok, ig_user_id, followers_count } / { ok: false, reason }
- *   -> 400 bad action or username, 401 any caller without our secret key, 405 any other method,
+ *   -> 400 bad action, job or username, 401 any caller without our secret key, 405 any other method,
  *      503 when META_PAGE_TOKEN or META_IG_USER_ID is missing (nothing is written)
  *
  * Machine key only (`isOwnSecretKey`: `ef_secret_key` of the cron, `cms_secret_key` of the CMS
@@ -22,7 +23,9 @@ import {
   type Gemini,
   lookupAccount,
   metaClient,
+  recordRun,
   runSocialCollect,
+  runStoriesCollect,
   supabaseStore,
 } from '../_shared/social-collect.ts';
 
@@ -38,6 +41,8 @@ serve(async (req) => {
   const body = (await req.json().catch(() => ({}))) as Record<string, unknown> | null;
   const action = body?.action;
   if (action !== undefined && action !== 'lookup') return json({ error: 'unknown_action' }, 400);
+  const job = body?.job;
+  if (job !== undefined && job !== 'stories') return json({ error: 'unknown_job' }, 400);
 
   const token = (Deno.env.get('META_PAGE_TOKEN') ?? '').trim();
   const igUserId = (Deno.env.get('META_IG_USER_ID') ?? '').trim();
@@ -61,6 +66,15 @@ serve(async (req) => {
   const social = createClient(supabaseUrl, getSecretKey().trim(), {
     auth: { autoRefreshToken: false, persistSession: false },
   }).schema('social');
+  const store = supabaseStore(social);
+  const now = () => new Date();
+  const log = (line: string) => console.log(line);
+
+  if (job === 'stories') {
+    const report = await runStoriesCollect({ store, meta, ga4: null, gemini: null, now, log });
+    console.log(`[social-collect] stories ${JSON.stringify(report)}`);
+    return json(report ?? { error: 'stories_failed' }, report ? 200 : 500);
+  }
 
   const sa = parseServiceAccount(Deno.env.get(GA4_CREDENTIALS_ENV));
   const geminiKey = (Deno.env.get('GEMINI_API_KEY') ?? '').trim();
@@ -78,18 +92,20 @@ serve(async (req) => {
 
   try {
     const report = await runSocialCollect({
-      store: supabaseStore(social),
+      store,
       meta,
       ga4: sa ? (propertyId) => ga4Runner(sa, propertyId, (url, init) => fetch(url, init)) : null,
       gemini,
-      now: () => new Date(),
-      log: (line) => console.log(line),
+      now,
+      log,
       forceWeekly: body?.force_weekly === true,
     });
     console.log(`[social-collect] done ${JSON.stringify(report)}`);
     return json(report, 200);
   } catch (error) {
-    console.error(`[social-collect] run aborted: ${error instanceof Error ? error.message : 'unknown'}`);
+    const message = error instanceof Error ? error.message : 'unknown';
+    console.error(`[social-collect] run aborted: ${message}`);
+    await recordRun({ store, now, log }, 'daily', 'error', message);
     return json({ error: 'server_error' }, 500);
   }
 });
