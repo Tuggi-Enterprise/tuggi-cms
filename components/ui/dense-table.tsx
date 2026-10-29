@@ -232,7 +232,7 @@ export function FilterChip({
     >
       {children}
       {count !== undefined && (
-        <span className={active ? 'opacity-70' : 'text-gray-500 dark:text-gray-400'}>{count}</span>
+        <span className={active ? 'font-normal' : 'text-gray-500 dark:text-gray-400'}>{count}</span>
       )}
     </button>
   )
