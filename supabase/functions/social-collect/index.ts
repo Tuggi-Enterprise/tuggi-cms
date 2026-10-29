@@ -9,6 +9,10 @@
  *   -> 400 bad action, job or username, 401 any caller without our secret key, 405 any other method,
  *      503 when META_PAGE_TOKEN or META_IG_USER_ID is missing (nothing is written)
  *
+ * #1062: the daily run also reads the App Store Connect Analytics Reports (first-time downloads by
+ * campaign) when APPLE_ASC_KEY_ID, APPLE_ASC_ISSUER_ID and APPLE_ASC_PRIVATE_KEY are set; without them
+ * it records `apple` as `not_configured` in `social.collector_runs` and goes on.
+ *
  * Machine key only (`isOwnSecretKey`: `ef_secret_key` of the cron, `cms_secret_key` of the CMS
  * server). The Meta token lives in this function's secrets and nowhere else: the CMS validates a
  * username by calling the lookup above, never the Graph API. The work is `_shared/social-collect.ts`;
@@ -19,6 +23,7 @@ import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
 import { getSecretKey, isOwnSecretKey } from '../_shared/secret-key.ts';
 import { GA4_CREDENTIALS_ENV, ga4Runner, parseServiceAccount } from '../_shared/ga4-data.ts';
 import { runGeminiPromptWithUsage } from '../_shared/translationUtility.ts';
+import { appleConfig } from '../_shared/apple-downloads.ts';
 import {
   type Gemini,
   lookupAccount,
@@ -99,6 +104,7 @@ serve(async (req) => {
       now,
       log,
       forceWeekly: body?.force_weekly === true,
+      apple: { config: appleConfig((name) => Deno.env.get(name)), fetch: (url, init) => fetch(url, init) },
     });
     console.log(`[social-collect] done ${JSON.stringify(report)}`);
     return json(report, 200);

@@ -46,6 +46,7 @@ const PK: Record<SocialTable, string[]> = {
   audience_weekly: ['week_start', 'breakdown', 'label'],
   stories: ['id'],
   collector_runs: ['job'],
+  apple_downloads_daily: ['day', 'campaign'],
 };
 
 /** The schema `social` in memory: upsert merges the columns it carries into the row of its key. */
@@ -60,6 +61,7 @@ class MemoryStore implements SocialStore {
     audience_weekly: new Map(),
     stories: new Map(),
     collector_runs: new Map(),
+    apple_downloads_daily: new Map(),
   };
   igIds: Record<string, string> = {};
   rpcs: Array<{ fn: string; args: Record<string, unknown> }> = [];
@@ -98,6 +100,9 @@ class MemoryStore implements SocialStore {
   }
   hasWeekly(weekStart: string) {
     return Promise.resolve(this.tables.weekly_insights.has(weekStart));
+  }
+  appleCoveredFrom() {
+    return Promise.resolve((this.tables.collector_runs.get('apple')?.covered_from as string | undefined) ?? null);
   }
   hasAudience(weekStart: string) {
     return Promise.resolve([...this.tables.audience_weekly.values()].some((r) => r.week_start === weekStart));

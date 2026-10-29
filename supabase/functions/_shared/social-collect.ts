@@ -6,7 +6,7 @@
 // lands in the schema `social` (migration 20261029150000) by upsert on the primary key, so a second
 // run on the same day rewrites the same rows instead of adding new ones.
 //
-// Import-free except `ga4-data.ts` (itself import-free): the database, `fetch`, Gemini and the clock
+// Import-free except `ga4-data.ts` and `apple-downloads.ts` (both import-free): the database, `fetch`, Gemini and the clock
 // are parameters, so the Deno tests drive it with recorded answers and no network.
 //
 // Graph API v26.0, checked 2026-10-29 against the official reference:
@@ -38,6 +38,7 @@
 //   so the report is asked again without it and only the clicks by store stay unknown.
 
 import { GA4_APP_PROPERTY_ID, GA4_ROW_LIMIT, GA4_SITE_PROPERTY_ID } from './ga4-data.ts';
+import { type AppleConfig, collectAppleDownloads } from './apple-downloads.ts';
 
 /** Same value as `SOCIAL_TIME_ZONE` in the CMS (`lib/social/time.ts`): every day here is Brasília. */
 export const SOCIAL_TIME_ZONE = 'America/Sao_Paulo';
@@ -245,7 +246,8 @@ export type SocialTable =
   | 'store_clicks_daily'
   | 'audience_weekly'
   | 'stories'
-  | 'collector_runs';
+  | 'collector_runs'
+  | 'apple_downloads_daily';
 
 /** The jobs of `social.collector_runs` (one row per job, the last run wins). */
 export type CollectorJob = 'daily' | 'stories' | 'audience' | 'apple';
@@ -270,6 +272,8 @@ export interface SocialStore {
   hasWeekly(weekStart: string): Promise<boolean>;
   /** Whether `audience_weekly` has the snapshot of the week starting `weekStart`. */
   hasAudience(weekStart: string): Promise<boolean>;
+  /** The `covered_from` the Apple job recorded, or null. */
+  appleCoveredFrom(): Promise<string | null>;
   rpc(fn: 'own_media_ranking' | 'account_engagement', args: Record<string, unknown>): Promise<Record<string, unknown>[]>;
   ownPostsSince(accountId: string, sinceIso: string): Promise<PostForPrompt[]>;
   funnelSince(day: string): Promise<Record<string, unknown>[]>;
@@ -344,6 +348,13 @@ export function supabaseStore(social: any): SocialStore {
         await social.from('audience_weekly').select('week_start').eq('week_start', weekStart).limit(1),
       );
       return Array.isArray(rows) && rows.length > 0;
+    },
+    async appleCoveredFrom() {
+      const rows = check<Array<{ covered_from: string | null }>>(
+        'apple_coverage',
+        await social.from('collector_runs').select('covered_from').eq('job', 'apple').limit(1),
+      ) ?? [];
+      return rows[0]?.covered_from ?? null;
     },
     async rpc(fn, args) {
       return check<Record<string, unknown>[]>(`rpc_${fn}`, await social.rpc(fn, args)) ?? [];
@@ -426,6 +437,11 @@ export interface CollectDeps {
   now: () => Date;
   log: (line: string) => void;
   forceWeekly?: boolean;
+  /**
+   * The App Store Connect side (#1062). `config` null: the secrets are missing and the job records
+   * `not_configured`. Absent: the run does not touch Apple at all (the stories job, the tests of #1059).
+   */
+  apple?: { config: AppleConfig | null; fetch: FetchFn };
 }
 
 export interface CollectReport {
@@ -441,6 +457,7 @@ export interface CollectReport {
     app: 'ok' | 'no_access' | 'failed' | 'no_credentials';
   };
   audience: 'written' | 'exists' | 'empty' | 'failed' | 'skipped';
+  apple: 'read' | 'pending' | 'not_configured' | 'failed' | 'skipped';
   themes: number;
   weekly: 'written' | 'exists' | 'not_monday' | 'few_posts' | 'rejected' | 'failed' | 'no_model';
 }
@@ -1057,6 +1074,37 @@ export async function recordRun(
   }
 }
 
+/**
+ * The Apple job of the daily run: `not_configured` without the secrets (no error, no call), otherwise
+ * the downloads by campaign and the first covered day, which only moves back (`covered_from`).
+ */
+async function runAppleCollect(
+  deps: CollectDeps,
+  apple: NonNullable<CollectDeps['apple']>,
+): Promise<CollectReport['apple']> {
+  if (!apple.config) {
+    await recordRun(deps, 'apple', 'not_configured', null);
+    return 'not_configured';
+  }
+  try {
+    const coveredFrom = await deps.store.appleCoveredFrom();
+    const result = await collectAppleDownloads({
+      config: apple.config,
+      fetch: apple.fetch,
+      now: deps.now,
+      coveredFrom,
+      write: (rows) => deps.store.upsert('apple_downloads_daily', rows as unknown as Record<string, unknown>[], 'day,campaign'),
+    });
+    const first = [coveredFrom, result.first_day].filter((d): d is string => !!d).sort()[0] ?? null;
+    await recordRun(deps, 'apple', 'ok', JSON.stringify(result), { covered_from: first });
+    return result.state;
+  } catch (e) {
+    deps.log(`[social-collect] apple failed: ${reason(e)}`);
+    await recordRun(deps, 'apple', 'error', reason(e));
+    return 'failed';
+  }
+}
+
 /** The hourly stories job, with its `collector_runs` row whatever happens. */
 export async function runStoriesCollect(deps: CollectDeps): Promise<StoriesReport | null> {
   try {
@@ -1312,6 +1360,7 @@ export async function runSocialCollect(deps: CollectDeps): Promise<CollectReport
     metrics: 0,
     funnel: { meta: 'skipped', site: 'no_credentials', store_clicks: 'no_credentials', app: 'no_credentials' },
     audience: 'skipped',
+    apple: 'skipped',
     themes: 0,
     weekly: 'not_monday',
   };
@@ -1368,6 +1417,7 @@ export async function runSocialCollect(deps: CollectDeps): Promise<CollectReport
       await recordRun(deps, 'audience', report.audience === 'failed' ? 'error' : 'ok', report.audience);
     }
   }
+  if (deps.apple) report.apple = await runAppleCollect(deps, deps.apple);
 
   if (own) {
     try {
