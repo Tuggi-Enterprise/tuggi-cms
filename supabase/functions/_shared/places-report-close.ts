@@ -17,14 +17,14 @@
 import { saoPauloDate, SUPPORT_EMAIL } from './places-payment.ts';
 import { ACCESS_FROM_NAME, placeNameForMail, portalMail, type RpcError } from './places-portal-draft.ts';
 import { SEND_SPACING_MS } from './places-legacy-access.ts';
-import type { Ga4, Ga4Row } from './ga4-data.ts';
+import { GA4_SITE_PROPERTY_ID, type Ga4, type Ga4Row } from './ga4-data.ts';
 
 /** BR-B2B-059 item 5: the first cycle the platform publishes. */
 export const FIRST_CYCLE_END = '2026-09-20';
 /** BR-B2B-059 item 2: the cycle closes on this day of the month, America/Sao_Paulo. */
 export const CYCLE_END_DAY = 20;
 /** BR-B2B-059 item 7e: the Institucional property of GA4. */
-export const GA4_PROPERTY_ID = '494999879';
+export const GA4_PROPERTY_ID = GA4_SITE_PROPERTY_ID;
 /** The reports tab of the portal (#994). */
 export const REPORTS_PATH = '/status/relatorios';
 /** BR-B2B-059 item 7e: how many cities the block lists. */

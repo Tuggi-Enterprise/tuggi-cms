@@ -18,6 +18,10 @@ export const GA4_CREDENTIALS_ENV = 'GA4_SERVICE_ACCOUNT_JSON';
 export const GA4_SCOPE = 'https://www.googleapis.com/auth/analytics.readonly';
 export const GOOGLE_TOKEN_URL = 'https://oauth2.googleapis.com/token';
 export const GA4_API = 'https://analyticsdata.googleapis.com/v1beta';
+/** The site's GA4 property, "Institucional" (BR-B2B-059 item 7e; the social funnel of #1059 reads it too). */
+export const GA4_SITE_PROPERTY_ID = '494999879';
+/** The app's GA4 property (Firebase), where `first_open` lives (#1059). */
+export const GA4_APP_PROPERTY_ID = '491146217';
 /** The API's default and the most this job ever reads: the city list of a page. */
 export const GA4_ROW_LIMIT = 10000;
 
@@ -99,11 +103,18 @@ export async function serviceAccountAssertion(sa: ServiceAccount, nowSeconds: nu
 type FetchFn = (url: string, init: RequestInit) => Promise<Response>;
 
 /**
- * A `Ga4` for one property. The token is drawn on the first report and reused for the run (the job
- * lasts seconds; the token one hour). Errors carry the HTTP status only: Google's body can echo the
- * request, and nothing of it goes to the log.
+ * Any `runReport` body against one property, answering Google's raw JSON. The token is drawn on the
+ * first report and reused for the run (the job lasts seconds; the token one hour). Errors carry the
+ * HTTP status only (`ga4_report_403` is "this service account has no access to the property"):
+ * Google's body can echo the request, and nothing of it goes to the log.
+ * `ga4Client` below and the social collector (#1059) both stand on this, so the token flow exists once.
  */
-export function ga4Client(sa: ServiceAccount, propertyId: string, fetchFn: FetchFn, now: () => number = Date.now): Ga4 {
+export function ga4Runner(
+  sa: ServiceAccount,
+  propertyId: string,
+  fetchFn: FetchFn,
+  now: () => number = Date.now,
+): (body: Record<string, unknown>) => Promise<unknown> {
   let token: Promise<string> | null = null;
   const accessToken = () =>
     (token ??= (async () => {
@@ -121,14 +132,20 @@ export function ga4Client(sa: ServiceAccount, propertyId: string, fetchFn: Fetch
       }
       return body.access_token;
     })());
-  return async (q) => {
+  return async (body) => {
     const res = await fetchFn(`${GA4_API}/properties/${propertyId}:runReport`, {
       method: 'POST',
       headers: { Authorization: `Bearer ${await accessToken()}`, 'Content-Type': 'application/json' },
-      body: JSON.stringify(ga4ReportBody(q)),
+      body: JSON.stringify(body),
       signal: AbortSignal.timeout(15_000),
     });
     if (!res.ok) throw new Error(`ga4_report_${res.status}`);
-    return ga4Rows(await res.json(), q.byCity === true);
+    return await res.json();
   };
+}
+
+/** A `Ga4` for one property: the page-users report of the cycle report, on `ga4Runner`. */
+export function ga4Client(sa: ServiceAccount, propertyId: string, fetchFn: FetchFn, now: () => number = Date.now): Ga4 {
+  const run = ga4Runner(sa, propertyId, fetchFn, now);
+  return async (q) => ga4Rows(await run(ga4ReportBody(q)), q.byCity === true);
 }
