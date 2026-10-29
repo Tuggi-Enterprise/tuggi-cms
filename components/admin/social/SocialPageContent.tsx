@@ -29,6 +29,8 @@ import {
 import { SocialOverview } from './SocialOverview'
 import { SocialPostsTable } from './SocialPostsTable'
 import { SocialCompetitors } from './SocialCompetitors'
+import { SocialStories } from './SocialStories'
+import { CompetitorTopPosts } from './CompetitorTopPosts'
 import { socialQueries, type SocialView } from './shared'
 
 export function viewOf(raw: string | null): SocialView {
@@ -139,8 +141,18 @@ export function SocialPageContent() {
       </div>
       {collection && <CollectBanner collection={collection} />}
       {view === 'overview' && <SocialOverview period={period} />}
-      {view === 'posts' && <SocialPostsTable />}
-      {view === 'competitors' && <SocialCompetitors />}
+      {view === 'posts' && (
+        <>
+          <SocialPostsTable />
+          <SocialStories />
+        </>
+      )}
+      {view === 'competitors' && (
+        <>
+          <SocialCompetitors />
+          <CompetitorTopPosts />
+        </>
+      )}
     </div>
   )
 }

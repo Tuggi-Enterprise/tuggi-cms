@@ -2,8 +2,8 @@
 
 /**
  * The overview of `/admin/social` (#1059, spec 2): the answer (the week's recommendations), the
- * evidence (four rankings by interactions per reach) and the result (the daily funnel), in the order
- * the operator asks. The period governs rankings and funnel, never the recommendations.
+ * evidence (four rankings by interactions per reach) and the result (the daily funnel, then the same
+ * period by campaign), in the order the operator asks; the audience last, because it changes weekly. The period governs rankings and funnel, never the recommendations.
  */
 
 import { BarChart3, CalendarDays, Clock, Download, Eye, LayoutGrid, Sparkles, Tags, Users, Workflow } from 'lucide-react'
@@ -20,6 +20,8 @@ import type { OverviewPayload, RankingRow } from '@/lib/social/repository'
 import { mondayOf, type SocialPeriod } from '@/lib/social/time'
 import { RankedBarList, type RankedItem } from './RankedBarList'
 import { FunnelStrip } from './FunnelStrip'
+import { SocialCampaigns } from './SocialCampaigns'
+import { SocialAudience } from './SocialAudience'
 import { CardError, CardLoading, LOADING_HEIGHT, SocialCard, socialQueries } from './shared'
 
 function Recommendations({ data }: { data: OverviewPayload }) {
@@ -239,6 +241,8 @@ export function SocialOverview({ period }: { period: SocialPeriod }) {
       <Recommendations data={query.data} />
       <Rankings data={query.data} />
       <FunnelStrip funnel={query.data.funnel} period={period} />
+      <SocialCampaigns data={query.data} />
+      <SocialAudience data={query.data} />
     </div>
   )
 }

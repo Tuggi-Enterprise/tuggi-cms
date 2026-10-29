@@ -12,7 +12,13 @@ import { useTranslations } from 'next-intl'
 import { Button } from '@/components/ui/button'
 import { DIM } from '@/components/ui/dense-table'
 import { SectionHeader, WidgetCard } from '@/components/dashboard/WidgetCard'
-import type { AccountsPayload, OverviewPayload, PostsPayload } from '@/lib/social/repository'
+import type {
+  AccountsPayload,
+  CompetitorPostsPayload,
+  OverviewPayload,
+  PostsPayload,
+  StoriesPayload,
+} from '@/lib/social/repository'
 import type { SocialPeriod } from '@/lib/social/time'
 
 export async function getJson<T>(url: string): Promise<T> {
@@ -36,6 +42,16 @@ export const socialQueries = {
   accounts: () => ({
     queryKey: ['social', 'accounts'] as const,
     queryFn: () => getJson<AccountsPayload>('/api/admin/social/accounts'),
+  }),
+  stories: () => ({
+    queryKey: ['social', 'stories'] as const,
+    queryFn: () => getJson<StoriesPayload>('/api/admin/social/stories?days=14'),
+  }),
+  /** `null` asks the server's default week (the last closed one). */
+  competitorPosts: (week: string | null) => ({
+    queryKey: ['social', 'competitor-posts', week] as const,
+    queryFn: () =>
+      getJson<CompetitorPostsPayload>(`/api/admin/social/competitor-posts${week ? `?week=${week}` : ''}`),
   }),
 }
 

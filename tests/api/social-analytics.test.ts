@@ -82,6 +82,8 @@ let overviewRoute: any
 let postsRoute: any
 let accountsRoute: any
 let accountRoute: any
+let competitorPostsRoute: any
+let storiesRoute: any
 let time: any
 let labels: any
 let repo: any
@@ -102,6 +104,8 @@ before(async () => {
   postsRoute = await import('@/app/api/admin/social/posts/route')
   accountsRoute = await import('@/app/api/admin/social/accounts/route')
   accountRoute = await import('@/app/api/admin/social/accounts/[id]/route')
+  competitorPostsRoute = await import('@/app/api/admin/social/competitor-posts/route')
+  storiesRoute = await import('@/app/api/admin/social/stories/route')
   time = await import('@/lib/social/time')
   labels = await import('@/lib/social/labels')
   repo = await import('@/lib/social/repository')
@@ -334,8 +338,8 @@ test('#1059 DS-COMPONENTE-084: the overview counts measured days per series, and
   answers['rpc:own_media_ranking'] = () => ({ data: [{ dimension: 'format', bucket: null, posts: 3, rate: 0.01 }] })
   const body = await (await overviewRoute.GET(req('GET', '/overview?period=4w'), ctx)).json()
   assert.equal(body.funnel.from, from)
-  assert.deepEqual(body.funnel.measured, { profile_views: 1, website_clicks: 1, ig_site_sessions: 2, installs_ios: 1, installs_android: 2, installs: 2 })
-  assert.deepEqual(body.funnel.previous_measured, { profile_views: 0, website_clicks: 0, ig_site_sessions: 0, installs_ios: 0, installs_android: 0, installs: 0 })
+  assert.deepEqual(body.funnel.measured, { profile_views: 1, website_clicks: 1, ig_site_sessions: 2, store_clicks: 0, installs_ios: 1, installs_android: 2, installs: 2 })
+  assert.deepEqual(body.funnel.previous_measured, { profile_views: 0, website_clicks: 0, ig_site_sessions: 0, store_clicks: 0, installs_ios: 0, installs_android: 0, installs: 0 })
   // A 0 Meta answered is a 0; days nobody measured do not become zeros.
   assert.deepEqual([body.funnel.totals.website_clicks, body.funnel.previous.website_clicks], [0, null])
   assert.deepEqual(body.ranking.rows[0], { dimension: 'format', bucket: null, posts: 3, rate: 0.01 })
@@ -388,4 +392,110 @@ test('#1061 R1.1: the four indicators come from social.overview_indicators of th
     engagement_median: 0.0412,
     engagement_posts: 11,
   })
+})
+
+test('#1062: the two new doors are admin only, and nothing of social is read before the gate', async () => {
+  for (const r of ['editor', 'viewer', 'client']) {
+    role = r
+    assert.equal((await competitorPostsRoute.GET(req('GET', '/competitor-posts'), ctx)).status, 403, r)
+    assert.equal((await storiesRoute.GET(req('GET', '/stories?days=14'), ctx)).status, 403, r)
+  }
+  assert.deepEqual(calls, [])
+})
+
+test('#1062 R2.1: competitor-posts defaults to the last closed week, offers four closed weeks and the current one, refuses any other', async () => {
+  answers['watched_accounts'] = () => ({ data: [{ id: 'c1' }, { id: 'c2' }] })
+  answers['rpc:competitor_top_posts'] = () => ({
+    data: [{ username: 'izitravel', posted_at: '2026-10-21T13:00:00+00:00', permalink: 'https://www.instagram.com/p/x/', media_type: 'VIDEO', media_product_type: 'REELS', theme: 'pending', caption_first_line: 'Roma', hashtags: ['viagem'], likes: 400, comments: 20, followers_on_day: 51234, rate: '0.0081976' }],
+  })
+  const body = await (await competitorPostsRoute.GET(req('GET', '/competitor-posts'), ctx)).json()
+  const monday = time.mondayOf(body.today)
+  assert.equal(body.week_start, time.addDays(monday, -7))
+  assert.equal(body.week_end, time.addDays(monday, -1))
+  assert.equal(body.partial, false)
+  assert.deepEqual(body.weeks, [-7, -14, -21, -28].map((n) => time.addDays(monday, n)).concat(monday))
+  assert.equal(body.tracked, 2)
+  assert.deepEqual(rpcArgs.find((c) => c.fn === 'competitor_top_posts')?.args, { p_week_start: time.addDays(monday, -7) })
+  assert.equal(body.rows[0].rate, 0.0081976)
+  const current = await (await competitorPostsRoute.GET(req('GET', `/competitor-posts?week=${monday}`), ctx)).json()
+  assert.equal(current.partial, true)
+  for (const bad of [time.addDays(monday, -35), time.addDays(monday, 1), 'x', '2026-13-40']) {
+    assert.equal((await competitorPostsRoute.GET(req('GET', `/competitor-posts?week=${bad}`), ctx)).status, 400, bad)
+  }
+})
+
+test('#1062 R2.6: stories come from social.recent_stories with the hourly job\'s last run; days outside 1..30 is 400', async () => {
+  answers['collector_runs'] = () => ({ data: [{ job: 'stories', last_run_at: '2026-10-29T19:05:07Z', status: 'ok', detail: null, covered_from: null }] })
+  answers['rpc:recent_stories'] = () => ({
+    data: [{ id: 's1', posted_at: '2026-10-29T16:39:13Z', media_type: 'IMAGE', permalink: null, reach: 10, views: 16, replies: 0, tap_forward: 11, tap_back: 1, tap_exit: 2, swipe_forward: 0, collected_at: '2026-10-29T19:05:07Z', exit_rate: '0.2' }],
+  })
+  const body = await (await storiesRoute.GET(req('GET', '/stories?days=14'), ctx)).json()
+  assert.deepEqual(rpcArgs.find((c) => c.fn === 'recent_stories')?.args, { p_days: 14 })
+  assert.equal(body.collection.last_run_at, '2026-10-29T19:05:07Z')
+  assert.equal(body.stories[0].exit_rate, 0.2)
+  assert.equal(body.stories[0].tap_forward, 11)
+  for (const bad of ['0', '31', '1.5', 'x']) assert.equal((await storiesRoute.GET(req('GET', `/stories?days=${bad}`), ctx)).status, 400, bad)
+  answers['collector_runs'] = () => ({ data: [] })
+  const never = await (await storiesRoute.GET(req('GET', '/stories'), ctx)).json()
+  assert.equal(never.collection.last_run_at, null)
+})
+
+test('#1062 R2.3 R2.5: the overview carries the campaigns, the Apple state, the clicks-by-store flag and the audience', async () => {
+  answers['watched_accounts'] = () => ({ data: { id: 'own-1', username: 'tuggi_app' } })
+  answers['rpc:campaign_totals'] = () => ({ data: [{ campaign: 'bio_novembro', clicks_app_store: 3, clicks_play_store: 5, downloads_ios: null }] })
+  answers['collector_runs'] = () => ({
+    data: [
+      { job: 'daily', last_run_at: 'x', status: 'ok', detail: '{"funnel":{"store_clicks":"no_store_dimension"}}', covered_from: null },
+      { job: 'apple', last_run_at: 'x', status: 'ok', detail: null, covered_from: '2026-10-27' },
+    ],
+  })
+  answers['rpc:latest_audience'] = () => ({
+    data: [
+      ...['A', 'B', 'C', 'D', 'E', 'F'].map((c, i) => ({ week_start: '2026-10-26', followers: 1520, breakdown: 'city', label: c, follower_count: 60 - i, share: '0.03' })),
+      { week_start: '2026-10-26', followers: 1520, breakdown: 'gender', label: 'F', follower_count: 820, share: '0.5394736842' },
+    ],
+  })
+  const body = await (await overviewRoute.GET(req('GET', '/overview'), ctx)).json()
+  const { from, to } = repo.periodWindow(body.today, '4w')
+  assert.deepEqual(rpcArgs.find((c) => c.fn === 'campaign_totals')?.args, { p_from: from, p_to: to })
+  assert.deepEqual(body.campaigns, [{ campaign: 'bio_novembro', clicks_app_store: 3, clicks_play_store: 5, downloads_ios: null }])
+  assert.equal(body.clicks_by_store, false)
+  assert.deepEqual(body.apple, { configured: true, first_day: '2026-10-27' })
+  assert.equal(body.audience.day, '2026-10-26')
+  assert.equal(body.audience.city.length, 5)
+  assert.deepEqual(body.audience.gender, [{ label: 'F', count: 820, share: 0.5394736842 }])
+  assert.equal(body.audience_reason, null)
+  assert.ok(body.funnel.days.every((d: Record<string, unknown>) => 'store_clicks' in d))
+})
+
+test('#1062 R2.5: no audience row is "not collected", or "below 100" when our account has fewer followers; no Apple run is "not configured"', async () => {
+  answers['watched_accounts'] = () => ({ data: { id: 'own-1', username: 'tuggi_app' } })
+  answers['rpc:overview_indicators'] = () => ({ data: [{ followers: 87 }] })
+  const small = await (await overviewRoute.GET(req('GET', '/overview'), ctx)).json()
+  assert.deepEqual([small.audience, small.audience_reason], [null, 'below_100'])
+  assert.deepEqual(small.apple, { configured: false, first_day: null })
+  assert.equal(small.clicks_by_store, true)
+  answers['rpc:overview_indicators'] = () => ({ data: [{ followers: 1520 }] })
+  answers['collector_runs'] = () => ({ data: [{ job: 'apple', last_run_at: 'x', status: 'not_configured', detail: null, covered_from: null }] })
+  const big = await (await overviewRoute.GET(req('GET', '/overview'), ctx)).json()
+  assert.equal(big.audience_reason, 'not_collected')
+  assert.deepEqual(big.apple, { configured: false, first_day: null })
+})
+
+test('#1062 R2.4: the posts carry views and the reel watch time, converted from milliseconds to whole seconds on the server', async () => {
+  answers['watched_accounts'] = () => ({ data: { id: 'own-1', username: 'tuggi_app' } })
+  answers['media'] = () => ({
+    data: [{ id: 'm2', posted_at: '2026-10-28T15:00:00Z', caption: 'x', media_type: 'VIDEO', media_product_type: 'REELS', theme: null, permalink: null, media_metrics: [{ day: '2026-10-29', reach: 4000, views: 9000, reels_avg_watch_time_ms: 12_400, reels_total_watch_time_ms: 11_520_400 }] }],
+  })
+  const body = await (await postsRoute.GET(req('GET', '/posts'), ctx)).json()
+  const m = body.posts[0].metrics
+  assert.deepEqual([m.views, m.reels_avg_watch_time_s, m.reels_total_watch_time_s, m.profile_visits], [9000, 12, 11520, null])
+  const media = calls.find((c) => c.table === 'media')
+  assert.match(String(media?.args[0][0]), /reels_avg_watch_time_ms, reels_total_watch_time_ms/)
+})
+
+test('#1062 R2.4: the reel watch time reads 12 s, 1 min 05 s, 48 min and 3 h 12 min', async () => {
+  const format = await import('@/lib/social/format')
+  assert.deepEqual([12, 65, 9].map(format.fmtWatchAvg), ['12 s', '1 min 05 s', '9 s'])
+  assert.deepEqual([2880, 11520, 40, 3600].map(format.fmtWatchTotal), ['48 min', '3 h 12 min', '40 s', '1 h 00 min'])
 })

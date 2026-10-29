@@ -27,7 +27,7 @@ import {
   type SortState,
 } from '@/components/ui/dense-table'
 import { UNKNOWN_VALUE } from '@/lib/format/unknown'
-import { fmtDateTime, fmtDay, fmtInt } from '@/lib/social/format'
+import { fmtDateTime, fmtDay, fmtInt, fmtWatchAvg, fmtWatchTotal } from '@/lib/social/format'
 import { formatKey, themeKey, type FormatKey } from '@/lib/social/labels'
 import { safePermalink } from '@/lib/social/funnel'
 import type { PostMetric, SocialPostRow } from '@/lib/social/repository'
@@ -35,16 +35,32 @@ import { CardError, RawValue, SocialCard, socialQueries } from './shared'
 
 type SortKey = 'date' | PostMetric
 
+type MetricColumn = { key: PostMetric; label: string; full?: string; width?: string; text?: (v: number) => string }
+
 /** `full` names the column in the `title` and in `sort_aria` when the head prints a short label (R1 item 9). */
-const METRIC_COLUMNS: Array<{ key: PostMetric; label: string; full?: string }> = [
+const BASE_COLUMNS: MetricColumn[] = [
   { key: 'reach', label: 'col_reach' },
   { key: 'likes', label: 'col_likes' },
   { key: 'comments', label: 'col_comments', full: 'col_comments_full' },
   { key: 'saved', label: 'col_saved' },
   { key: 'shares', label: 'col_shares', full: 'col_shares_full' },
+]
+const FEED_COLUMNS: MetricColumn[] = [
   { key: 'profile_visits', label: 'col_profile_visits', full: 'col_profile_visits_full' },
   { key: 'follows', label: 'col_follows', full: 'col_follows_full' },
 ]
+/**
+ * With the "Reels" chip on (#1062, R2.4) the two measures Meta does not return for a reel leave and
+ * the three of a reel come in. Seconds come from the server; the shape `12 s`, `1 min 05 s` is here.
+ */
+const REEL_COLUMNS: MetricColumn[] = [
+  { key: 'views', label: 'col_views', full: 'col_views_full', width: 'w-[90px]' },
+  { key: 'reels_avg_watch_time_s', label: 'col_avg_watch', full: 'col_avg_watch_full', width: 'w-[90px]', text: fmtWatchAvg },
+  { key: 'reels_total_watch_time_s', label: 'col_total_watch', full: 'col_total_watch_full', width: 'w-[100px]', text: fmtWatchTotal },
+]
+
+export const metricColumns = (filter: FormatKey | null): MetricColumn[] =>
+  filter === 'reels' ? [...BASE_COLUMNS, ...REEL_COLUMNS] : [...BASE_COLUMNS, ...FEED_COLUMNS]
 
 /**
  * The look of `Button ghost size="icon"` on a link, which `Button` cannot render, at 32 px: a 40 px
@@ -94,6 +110,12 @@ export function SocialPostsTable() {
     () => sortPosts(filter ? posts.filter((p) => formatKey(p.media_type, p.media_product_type) === filter) : posts, sort),
     [posts, filter, sort]
   )
+  const columns = metricColumns(filter)
+  const pick = (k: FormatKey | null) => {
+    setFilter(k)
+    // A sort on a column that leaves the table falls back to the newest first.
+    setSort((s) => (s.key === 'date' || metricColumns(k).some((c) => c.key === s.key) ? s : { key: 'date', dir: -1 }))
+  }
   const toggle = (key: SortKey) =>
     setSort((s) => (s.key === key ? { key, dir: s.dir === 1 ? -1 : 1 } : { key, dir: -1 }))
 
@@ -115,11 +137,11 @@ export function SocialPostsTable() {
         <>
           {query.data && (
             <div className="mb-3 flex flex-wrap gap-2">
-              <FilterChip active={filter === null} count={posts.length} onClick={() => setFilter(null)}>
+              <FilterChip active={filter === null} count={posts.length} onClick={() => pick(null)}>
                 {tp('filter_all')}
               </FilterChip>
               {FORMAT_ORDER.filter((k) => counts.has(k)).map((k) => (
-                <FilterChip key={k} active={filter === k} count={counts.get(k)} onClick={() => setFilter(k)}>
+                <FilterChip key={k} active={filter === k} count={counts.get(k)} onClick={() => pick(k)}>
                   {t(`format.${k}`)}
                 </FilterChip>
               ))}
@@ -146,12 +168,12 @@ export function SocialPostsTable() {
                   <th scope="col" className={`${HEAD_SOLO} w-[100px]`}>
                     {tp('col_theme')}
                   </th>
-                  {METRIC_COLUMNS.map((c) => (
+                  {columns.map((c) => (
                     <SortHead
                       key={c.key}
                       column={c.key}
                       label={tp(c.label)}
-                      className={`${HEAD_SOLO_NUM} w-[76px] whitespace-normal`}
+                      className={`${HEAD_SOLO_NUM} ${c.width ?? 'w-[76px]'} whitespace-normal`}
                       sort={sort}
                       onToggle={toggle}
                       title={tp('sort_aria', { column: tp(c.full ?? c.label) })}
@@ -166,7 +188,7 @@ export function SocialPostsTable() {
                 {!query.data
                   ? [0, 1, 2].map((i) => (
                       <tr key={i} className="animate-pulse">
-                        <td colSpan={12} className={CELL}>
+                        <td colSpan={columns.length + 5} className={CELL}>
                           <span className="block h-4 rounded bg-gray-100 dark:bg-gray-800" />
                         </td>
                       </tr>
@@ -193,7 +215,7 @@ export function SocialPostsTable() {
                               t(`theme.${theme}`)
                             )}
                           </td>
-                          {METRIC_COLUMNS.map((c) => {
+                          {columns.map((c) => {
                             const v = p.metrics?.[c.key] ?? null
                             return (
                               <td key={c.key} className={NUM}>
@@ -202,7 +224,7 @@ export function SocialPostsTable() {
                                     {tp('na')}
                                   </span>
                                 ) : (
-                                  fmtInt(v)
+                                  (c.text ?? fmtInt)(v)
                                 )}
                               </td>
                             )

@@ -43,3 +43,24 @@ export const fmtDateTime = (iso: string) => dateTime.format(new Date(iso)).repla
 export const fmtLongDay = (day: string) => longDate.format(dayAsDate(day))
 /** ISO weekday 1..7 as "segunda-feira" (2026-11-02 is a Monday). */
 export const fmtWeekday = (isoDay: number) => weekdayLong.format(dayAsDate(`2026-11-0${1 + isoDay}`))
+
+const pad2 = (n: number) => String(n).padStart(2, '0')
+
+/**
+ * The average watch time of a reel (#1062, R2.4), whole seconds: `12 s`, `1 min 05 s`. Units are
+ * the abbreviations of the copy, the same in every locale, so they live here and not in i18n.
+ */
+export function fmtWatchAvg(seconds: number): string {
+  const s = Math.max(0, Math.round(seconds))
+  if (s < 60) return `${s} s`
+  return `${Math.floor(s / 60)} min ${pad2(s % 60)} s`
+}
+
+/** The total watch time of a reel, whole seconds: `48 min`, `3 h 12 min` (under a minute, `40 s`). */
+export function fmtWatchTotal(seconds: number): string {
+  const s = Math.max(0, Math.round(seconds))
+  if (s < 60) return `${s} s`
+  const minutes = Math.floor(s / 60)
+  if (minutes < 60) return `${minutes} min`
+  return `${Math.floor(minutes / 60)} h ${pad2(minutes % 60)} min`
+}

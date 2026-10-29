@@ -22,12 +22,13 @@ const funnelDay = (day: string, i: number) => ({
   profile_views: wave(i, 140, 40),
   website_clicks: wave(i, 18, 6),
   ig_site_sessions: wave(i, 22, 8),
+  store_clicks: wave(i, 6, 3),
   installs_ios: wave(i, 4, 2),
   installs_android: wave(i, 7, 3),
 })
 
 const days = daysBetween(from, to).map(funnelDay)
-const total = (k: 'profile_views' | 'website_clicks' | 'ig_site_sessions' | 'installs_ios' | 'installs_android') =>
+const total = (k: 'profile_views' | 'website_clicks' | 'ig_site_sessions' | 'store_clicks' | 'installs_ios' | 'installs_android') =>
   days.reduce((n, d) => n + d[k], 0)
 
 export const OVERVIEW = {
@@ -95,13 +96,50 @@ export const OVERVIEW = {
       profile_views: total('profile_views'),
       website_clicks: total('website_clicks'),
       ig_site_sessions: total('ig_site_sessions'),
+      store_clicks: total('store_clicks'),
       installs_ios: total('installs_ios'),
       installs_android: total('installs_android'),
     },
-    previous: { posts: 8, profile_views: 3500, website_clicks: 520, ig_site_sessions: 700, installs_ios: 140, installs_android: 160 },
-    measured: { profile_views: 28, website_clicks: 28, ig_site_sessions: 28, installs_ios: 28, installs_android: 28, installs: 28 },
-    previous_measured: { profile_views: 28, website_clicks: 28, ig_site_sessions: 28, installs_ios: 28, installs_android: 28, installs: 28 },
+    previous: { posts: 8, profile_views: 3500, website_clicks: 520, ig_site_sessions: 700, store_clicks: 150, installs_ios: 140, installs_android: 160 },
+    measured: { profile_views: 28, website_clicks: 28, ig_site_sessions: 28, store_clicks: 28, installs_ios: 28, installs_android: 28, installs: 28 },
+    previous_measured: { profile_views: 28, website_clicks: 28, ig_site_sessions: 28, store_clicks: 28, installs_ios: 28, installs_android: 28, installs: 28 },
   },
+  campaigns: [
+    { campaign: 'bio_novembro', clicks_app_store: 41, clicks_play_store: 63, downloads_ios: null },
+    { campaign: 'story_buzios_1028', clicks_app_store: 12, clicks_play_store: 9, downloads_ios: null },
+    { campaign: 'apple_only_search', clicks_app_store: 0, clicks_play_store: 0, downloads_ios: null },
+  ],
+  clicks_by_store: true,
+  apple: { configured: false, first_day: null },
+  audience: {
+    day: mondayOf(today),
+    followers: 1520,
+    city: [
+      { label: 'Rio de Janeiro, Rio de Janeiro', count: 312, share: 0.2053 },
+      { label: 'São Paulo, São Paulo', count: 248, share: 0.1632 },
+      { label: 'Niterói, Rio de Janeiro', count: 97, share: 0.0638 },
+      { label: 'Belo Horizonte, Minas Gerais', count: 61, share: 0.0401 },
+      { label: 'Armação dos Búzios, Rio de Janeiro', count: 44, share: 0.0289 },
+    ],
+    country: [
+      { label: 'BR', count: 1402, share: 0.9224 },
+      { label: 'PT', count: 41, share: 0.027 },
+      { label: 'AR', count: 22, share: 0.0145 },
+    ],
+    age: [
+      { label: '18-24', count: 160, share: 0.1053 },
+      { label: '25-34', count: 598, share: 0.3934 },
+      { label: '35-44', count: 421, share: 0.277 },
+      { label: '45-54', count: 210, share: 0.1382 },
+      { label: '65+', count: 38, share: 0.025 },
+    ],
+    gender: [
+      { label: 'F', count: 820, share: 0.5395 },
+      { label: 'M', count: 640, share: 0.4211 },
+      { label: 'U', count: 60, share: 0.0395 },
+    ],
+  },
+  audience_reason: null,
 }
 
 const CAPTIONS = [
@@ -140,6 +178,9 @@ export const POSTS = {
         shares: i === 3 ? 0 : 2 + (i % 6),
         profile_visits: reel ? null : 6 + (i % 5),
         follows: reel ? null : i % 3,
+        views: 1500 + 211 * i,
+        reels_avg_watch_time_s: reel ? [12, 65, 9, 31, 48][i % 5] : null,
+        reels_total_watch_time_s: reel ? [2880, 11520, 540, 1860, 40][i % 5] : null,
       },
     }
   }),
@@ -204,6 +245,7 @@ const sparseDays = daysBetween(from, to).map((day, i, all) => {
     profile_views: tail === 0 ? 9 : null,
     website_clicks: tail === 0 ? 0 : null,
     ig_site_sessions: tail <= 2 ? 0 : null,
+    store_clicks: null,
     installs_ios: tail <= 2 ? [3, 1, 0][2 - tail] : null,
     installs_android: tail <= 2 ? [1, 2, 3][2 - tail] : null,
   }
@@ -215,9 +257,47 @@ export const OVERVIEW_SPARSE = {
     from,
     to,
     days: sparseDays,
-    totals: { posts: 14, profile_views: 9, website_clicks: 0, ig_site_sessions: 0, installs_ios: 4, installs_android: 6 },
-    measured: { profile_views: 1, website_clicks: 1, ig_site_sessions: 3, installs_ios: 3, installs_android: 3, installs: 3 },
-    previous: { posts: 2, profile_views: null, website_clicks: null, ig_site_sessions: null, installs_ios: null, installs_android: null },
-    previous_measured: { profile_views: 0, website_clicks: 0, ig_site_sessions: 0, installs_ios: 0, installs_android: 0, installs: 0 },
+    totals: { posts: 14, profile_views: 9, website_clicks: 0, ig_site_sessions: 0, store_clicks: null, installs_ios: 4, installs_android: 6 },
+    measured: { profile_views: 1, website_clicks: 1, ig_site_sessions: 3, store_clicks: 0, installs_ios: 3, installs_android: 3, installs: 3 },
+    previous: { posts: 2, profile_views: null, website_clicks: null, ig_site_sessions: null, store_clicks: null, installs_ios: null, installs_android: null },
+    previous_measured: { profile_views: 0, website_clicks: 0, ig_site_sessions: 0, store_clicks: 0, installs_ios: 0, installs_android: 0, installs: 0 },
   },
+}
+
+/** Our stories (#1062, R2.6): one live, one from two days ago, one without navigation and without link. */
+export const STORIES = {
+  collection: { last_run_at: new Date(Date.now() - 20 * 60_000).toISOString() },
+  stories: [
+    { id: 's1', posted_at: new Date(Date.now() - 3 * 3_600_000).toISOString(), media_type: 'VIDEO', permalink: 'https://www.instagram.com/stories/tuggi_app/s1/', collected_at: null, reach: 150, views: 210, replies: 2, tap_forward: 14, tap_back: 1, tap_exit: 6, swipe_forward: 0, exit_rate: 0.04 },
+    { id: 's2', posted_at: at(addDays(today, -2), 10), media_type: 'IMAGE', permalink: 'https://www.instagram.com/stories/tuggi_app/s2/', collected_at: null, reach: 98, views: 130, replies: 0, tap_forward: 40, tap_back: 3, tap_exit: 21, swipe_forward: 5, exit_rate: 0.2143 },
+    { id: 's3', posted_at: at(addDays(today, -5), 19), media_type: 'IMAGE', permalink: null, collected_at: null, reach: 0, views: null, replies: null, tap_forward: null, tap_back: null, tap_exit: null, swipe_forward: null, exit_rate: null },
+  ],
+}
+
+export const STORIES_NEVER = { collection: { last_run_at: null }, stories: [] }
+
+const week0 = addDays(mondayOf(today), -7)
+
+/** The competitors' ten best posts of the last closed week (#1062, R2.1). */
+export const COMPETITOR_POSTS = {
+  today,
+  week_start: week0,
+  week_end: addDays(week0, 6),
+  partial: false,
+  weeks: [1, 2, 3, 4].map((k) => addDays(mondayOf(today), -7 * k)).concat(mondayOf(today)),
+  tracked: 5,
+  rows: Array.from({ length: 10 }, (_, i) => ({
+    username: ['izitravel', 'roadtrippers', 'melhoresdestinos', 'autioapp', 'shakaguide'][i % 5],
+    posted_at: at(addDays(week0, i % 7), 11 + (i % 6)),
+    permalink: `https://www.instagram.com/p/rival${i}/`,
+    media_type: ['VIDEO', 'CAROUSEL_ALBUM', 'IMAGE'][i % 3],
+    media_product_type: ['REELS', 'FEED', 'FEED'][i % 3],
+    theme: i % 4 === 0 ? 'pending' : ['cidade', 'curiosidade', 'produto'][i % 3],
+    caption_first_line: `Roteiro de ${['Roma', 'Lisboa', 'Gramado', 'Paraty', 'Bonito'][i % 5]} em ${3 + i} paradas`,
+    hashtags: i === 0 ? ['viagem', 'roadtrip', 'roma', 'italia', 'dicasdeviagem', 'europa', 'audioguia'] : ['viagem', 'roteiro'],
+    likes: 4200 - 300 * i,
+    comments: 120 - 9 * i,
+    followers_on_day: 51234,
+    rate: (4320 - 309 * i) / 51234,
+  })),
 }

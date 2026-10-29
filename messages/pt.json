@@ -1701,6 +1701,7 @@
         "footer": "Download iOS é o toque em Obter na App Store; a Apple fecha o dia em dois dias. Android por campanha não é medido.",
         "apple_missing": "Downloads iOS: sem a chave da Apple. Quando ela entrar, os números chegam em até 48 horas.",
         "apple_pending": "A Apple entrega o primeiro relatório em até 48 horas.",
+      "store_unknown": "O GA4 ainda não separa os cliques por loja: falta registrar o parâmetro store como dimensão personalizada.",
         "empty": "Nenhuma visita com utm_campaign no período. Links da bio e dos stories precisam levar utm_campaign para aparecer aqui.",
         "na": "sem dado",
         "table_label": "Tabela de cliques e downloads por campanha"

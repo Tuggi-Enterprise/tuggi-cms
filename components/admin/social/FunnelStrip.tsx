@@ -1,9 +1,9 @@
 'use client'
 
 /**
- * The daily funnel (spec 2.3): five small multiples on the same axis of days, read top to bottom in
+ * The daily funnel (spec 2.3): six small multiples on the same axis of days, read top to bottom in
  * the order the funnel walks (posts, profile views, bio link taps, Instagram sessions on the site,
- * installs). One axis per measure, never two on one chart. Six months become weeks (Monday to
+ * store button taps on the site (#1062, R2.2), installs). One axis per measure, never two on one chart. Six months become weeks (Monday to
  * Sunday): 180 bars do not read in 1000 px.
  *
  * A strip whose data is all null in the period (GA4 without credentials, a metric Meta stopped
@@ -33,7 +33,7 @@ const FunnelBars = dynamic(() => import('./FunnelBars'), { ssr: false, loading: 
 /** GA4 processes up to 48 h late (GA4 Help, "Data processing latency"): its last two days can change. */
 const GA4_UNSETTLED_DAYS = 2
 
-type StripKey = 'posts' | 'profile_views' | 'website_clicks' | 'site_sessions' | 'installs'
+type StripKey = 'posts' | 'profile_views' | 'website_clicks' | 'site_sessions' | 'store_clicks' | 'installs'
 
 interface Bucket {
   x: string
@@ -92,6 +92,8 @@ export function FunnelStrip({ funnel, period }: { funnel: OverviewPayload['funne
     key: StripKey
     label: string
     hint?: string
+    /** The `title` of the "no data" word, when this strip has its own reason for it. */
+    emptyHint?: string
     total: number | null
     previous: number | null
     data: FunnelBarDatum[]
@@ -135,6 +137,16 @@ export function FunnelStrip({ funnel, period }: { funnel: OverviewPayload['funne
       total: funnel.totals.ig_site_sessions,
       previous: funnel.previous.ig_site_sessions,
       data: buckets.map((b) => datum(b, sum(b.days, 'ig_site_sessions'), { ga4: true })),
+    },
+    {
+      key: 'store_clicks',
+      measured: 'store_clicks',
+      label: tf('store_clicks'),
+      hint: tf('store_clicks_hint'),
+      emptyHint: tf('store_clicks_empty_hint'),
+      total: funnel.totals.store_clicks,
+      previous: funnel.previous.store_clicks,
+      data: buckets.map((b) => datum(b, sum(b.days, 'store_clicks'), { ga4: true })),
     },
     {
       key: 'installs',
@@ -182,7 +194,9 @@ export function FunnelStrip({ funnel, period }: { funnel: OverviewPayload['funne
                 </div>
                 <div style={{ height: plot }}>
                   {s.total === null ? (
-                    <p className={`flex h-full items-center text-sm ${DIM}`}>{tf('no_data')}</p>
+                    <p className={`flex h-full items-center text-sm ${DIM}`} title={s.emptyHint}>
+                      {tf('no_data')}
+                    </p>
                   ) : (
                     <FunnelBars
                       data={s.data}

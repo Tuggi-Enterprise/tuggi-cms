@@ -23,6 +23,7 @@ import {
   brasiliaDay,
   brasiliaMidnightIso,
   daysBetween,
+  mondayOf,
   type SocialPeriod,
 } from './time'
 
@@ -112,7 +113,14 @@ export interface RankingRow {
   rate: number | null
 }
 
-export const FUNNEL_SERIES = ['profile_views', 'website_clicks', 'ig_site_sessions', 'installs_ios', 'installs_android'] as const
+export const FUNNEL_SERIES = [
+  'profile_views',
+  'website_clicks',
+  'ig_site_sessions',
+  'store_clicks',
+  'installs_ios',
+  'installs_android',
+] as const
 export type FunnelSeries = (typeof FUNNEL_SERIES)[number]
 
 export interface FunnelPost {
@@ -141,11 +149,51 @@ export interface OverviewIndicators {
   engagement_posts: number
 }
 
+/** One campaign token of the period (#1062, R2.3), from `social.campaign_totals`. */
+export interface CampaignRow {
+  campaign: string
+  clicks_app_store: number
+  clicks_play_store: number
+  /** Null while the Apple report does not cover the period (never 0 for "unknown"). */
+  downloads_ios: number | null
+}
+
+export interface AudienceItem {
+  label: string
+  count: number
+  /** `follower_count / followers` of the database; null without the day's followers. */
+  share: number | null
+}
+
+/** The latest weekly `follower_demographics` snapshot (#1062, R2.5). */
+export interface AudienceSnapshot {
+  day: string
+  followers: number | null
+  city: AudienceItem[]
+  country: AudienceItem[]
+  age: AudienceItem[]
+  gender: AudienceItem[]
+}
+
+/** The five largest cities and countries; age and gender come whole (spec R2.5). */
+export const AUDIENCE_TOP = 5
+/** Under this, Meta does not answer `follower_demographics` (User Insights reference, v26.0). */
+export const AUDIENCE_MIN_FOLLOWERS = 100
+
 export interface OverviewPayload {
   today: string
   period: SocialPeriod
   collection: { first_day: string | null; last_day: string | null }
   indicators: OverviewIndicators
+  campaigns: CampaignRow[]
+  /**
+   * False while GA4 refuses `customEvent:store` (the collector's daily run says so): the clicks by
+   * store are unknown, not zero.
+   */
+  clicks_by_store: boolean
+  apple: { configured: boolean; first_day: string | null }
+  audience: AudienceSnapshot | null
+  audience_reason: 'below_100' | 'not_collected' | null
   recommendations: { week_start: string; model: string | null; items: SocialRecommendation[] } | null
   ranking: { since: string; rows: RankingRow[] }
   funnel: {
@@ -157,6 +205,47 @@ export interface OverviewPayload {
     /** Coverage of each series in the window and in the previous one (DS-COMPONENTE-084). */
     measured: FunnelMeasured
     previous_measured: FunnelMeasured
+  }
+}
+
+export interface CollectorRun {
+  job: 'daily' | 'stories' | 'audience' | 'apple'
+  last_run_at: string
+  status: 'ok' | 'error' | 'not_configured'
+  detail: string | null
+  covered_from: string | null
+}
+
+async function collectorRuns(supabase: Client): Promise<Map<string, CollectorRun>> {
+  const rows =
+    check<CollectorRun[] | null>(
+      'collector_runs',
+      await social(supabase).from('collector_runs').select('job, last_run_at, status, detail, covered_from')
+    ) ?? []
+  return new Map(rows.map((r) => [r.job, r]))
+}
+
+/** Whether the last daily run read the clicks by store: its detail says `no_store_dimension` otherwise. */
+export function clicksByStore(daily: CollectorRun | undefined): boolean {
+  return !(daily?.detail ?? '').includes('"store_clicks":"no_store_dimension"')
+}
+
+/** `social.latest_audience` rows grouped by breakdown; cities and countries cut to the top five. */
+export function groupAudience(rows: Array<Record<string, unknown>>): AudienceSnapshot | null {
+  if (rows.length === 0) return null
+  const of = (b: string, top?: number) => {
+    const list = rows
+      .filter((r) => r.breakdown === b)
+      .map((r) => ({ label: String(r.label), count: num(r.follower_count) ?? 0, share: num(r.share) }))
+    return top ? list.slice(0, top) : list
+  }
+  return {
+    day: String(rows[0].week_start),
+    followers: num(rows[0].followers),
+    city: of('city', AUDIENCE_TOP),
+    country: of('country', AUDIENCE_TOP),
+    age: of('age'),
+    gender: of('gender'),
   }
 }
 
@@ -197,7 +286,7 @@ export async function readOverview(supabase: Client, period: SocialPeriod, now =
   const { from, to, prevFrom, prevTo } = periodWindow(today, period)
   const own = await ownAccount(supabase)
 
-  const [collection, weekly, ranking, funnelRows, mediaRows, indicatorRows] = await Promise.all([
+  const [collection, weekly, ranking, funnelRows, mediaRows, indicatorRows, campaignRows, runs, audienceRows] = await Promise.all([
     collectionDays(supabase, own),
     social(supabase)
       .from('weekly_insights')
@@ -207,7 +296,7 @@ export async function readOverview(supabase: Client, period: SocialPeriod, now =
     social(supabase).rpc('own_media_ranking', { p_since: brasiliaMidnightIso(from) }),
     social(supabase)
       .from('funnel_daily')
-      .select('day, profile_views, website_clicks, ig_site_sessions, installs_ios, installs_android')
+      .select(`day, ${FUNNEL_SERIES.join(', ')}`)
       .gte('day', prevFrom)
       .lte('day', to)
       .order('day'),
@@ -220,6 +309,9 @@ export async function readOverview(supabase: Client, period: SocialPeriod, now =
           .order('posted_at')
       : Promise.resolve({ data: [], error: null }),
     social(supabase).rpc('overview_indicators', { p_since: brasiliaMidnightIso(from) }),
+    social(supabase).rpc('campaign_totals', { p_from: from, p_to: to }),
+    collectorRuns(supabase),
+    social(supabase).rpc('latest_audience'),
   ])
   const ind = (check<Array<Record<string, unknown>> | null>('indicators', indicatorRows) ?? [])[0] ?? {}
 
@@ -266,6 +358,15 @@ export async function readOverview(supabase: Client, period: SocialPeriod, now =
   }
   const days = series(from, to)
   const previousDays = series(prevFrom, prevTo)
+  const campaigns = (check<Array<Record<string, unknown>> | null>('campaigns', campaignRows) ?? []).map((r) => ({
+    campaign: String(r.campaign),
+    clicks_app_store: num(r.clicks_app_store) ?? 0,
+    clicks_play_store: num(r.clicks_play_store) ?? 0,
+    downloads_ios: num(r.downloads_ios),
+  }))
+  const apple = runs.get('apple')
+  const audience = groupAudience(check<Array<Record<string, unknown>> | null>('audience', audienceRows) ?? [])
+  const followers = num(ind.followers)
 
   return {
     today,
@@ -281,6 +382,18 @@ export async function readOverview(supabase: Client, period: SocialPeriod, now =
       engagement_median: num(ind.engagement_median),
       engagement_posts: num(ind.engagement_posts) ?? 0,
     },
+    campaigns,
+    clicks_by_store: clicksByStore(runs.get('daily')),
+    apple: {
+      configured: !!apple && apple.status !== 'not_configured',
+      first_day: apple?.status === 'ok' ? (apple.covered_from ?? null) : null,
+    },
+    audience,
+    audience_reason: audience
+      ? null
+      : followers !== null && followers < AUDIENCE_MIN_FOLLOWERS
+        ? 'below_100'
+        : 'not_collected',
     recommendations: latest
       ? { week_start: String(latest.week_start), model: (latest.model as string) ?? null, items }
       : null,
@@ -300,8 +413,16 @@ export async function readOverview(supabase: Client, period: SocialPeriod, now =
 // ---------------------------------------------------------------------------------------------
 // Our posts
 
-export const POST_METRICS = ['reach', 'likes', 'comments', 'saved', 'shares', 'profile_visits', 'follows'] as const
-export type PostMetric = (typeof POST_METRICS)[number]
+export const POST_METRICS = ['reach', 'likes', 'comments', 'saved', 'shares', 'profile_visits', 'follows', 'views'] as const
+/** Reel watch time, kept in milliseconds by the collector and served in whole seconds (#1062, R2.4). */
+export const WATCH_METRICS = [
+  ['reels_avg_watch_time_s', 'reels_avg_watch_time_ms'],
+  ['reels_total_watch_time_s', 'reels_total_watch_time_ms'],
+] as const
+export type PostMetric = (typeof POST_METRICS)[number] | (typeof WATCH_METRICS)[number][0]
+
+/** Milliseconds to whole seconds; null stays null. */
+export const msToSeconds = (ms: number | null): number | null => (ms === null ? null : Math.round(ms / 1000))
 
 export interface SocialPostRow {
   id: string
@@ -328,7 +449,10 @@ export async function readPosts(supabase: Client): Promise<PostsPayload> {
     social(supabase)
       .from('media')
       .select(
-        `id, posted_at, caption, media_type, media_product_type, theme, permalink, media_metrics(day, ${POST_METRICS.join(', ')})`
+        `id, posted_at, caption, media_type, media_product_type, theme, permalink, media_metrics(day, ${[
+          ...POST_METRICS,
+          ...WATCH_METRICS.map(([, ms]) => ms),
+        ].join(', ')})`
       )
       .eq('account_id', own.id)
       .order('posted_at', { ascending: false })
@@ -341,7 +465,10 @@ export async function readPosts(supabase: Client): Promise<PostsPayload> {
     posts: rows.map((r) => {
       const m = Array.isArray(r.media_metrics) ? (r.media_metrics[0] as Record<string, unknown> | undefined) : undefined
       const metrics = m
-        ? (Object.fromEntries(POST_METRICS.map((k) => [k, num(m[k])])) as Record<PostMetric, number | null>)
+        ? (Object.fromEntries([
+            ...POST_METRICS.map((k) => [k, num(m[k])]),
+            ...WATCH_METRICS.map(([s, ms]) => [s, msToSeconds(num(m[ms]))]),
+          ]) as Record<PostMetric, number | null>)
         : null
       return {
         id: String(r.id),
@@ -353,6 +480,131 @@ export async function readPosts(supabase: Client): Promise<PostsPayload> {
         permalink: (r.permalink as string) ?? null,
         metrics,
       }
+    }),
+  }
+}
+
+// ---------------------------------------------------------------------------------------------
+// The competitors' best posts of a week (#1062, R2.1)
+
+export interface CompetitorPostRow {
+  username: string
+  posted_at: string | null
+  permalink: string | null
+  media_type: string | null
+  media_product_type: string | null
+  theme: string
+  caption_first_line: string | null
+  hashtags: string[]
+  likes: number | null
+  comments: number | null
+  followers_on_day: number | null
+  rate: number | null
+}
+
+export interface CompetitorPostsPayload {
+  today: string
+  week_start: string
+  week_end: string
+  /** The week is still running: the numbers are until today. */
+  partial: boolean
+  /** The four closed weeks, newest first, then the current one (the order of the select). */
+  weeks: string[]
+  /** Active competitors: with none the card does not show. */
+  tracked: number
+  rows: CompetitorPostRow[]
+}
+
+/** How many closed weeks the select offers, before the current one (spec R2.1). */
+export const COMPETITOR_WEEKS = 4
+
+/** The closed weeks newest first, then the running one; the default is the first (the last closed). */
+export function competitorWeeks(today: string): string[] {
+  const current = mondayOf(today)
+  return [...Array.from({ length: COMPETITOR_WEEKS }, (_, i) => addDays(current, -7 * (i + 1))), current]
+}
+
+export async function readCompetitorPosts(
+  supabase: Client,
+  week: string | null,
+  now = new Date()
+): Promise<CompetitorPostsPayload | null> {
+  const today = brasiliaDay(now)
+  const weeks = competitorWeeks(today)
+  const weekStart = week ?? weeks[0]
+  if (!weeks.includes(weekStart)) return null
+  const [tracked, rows] = await Promise.all([
+    social(supabase).from('watched_accounts').select('id').eq('active', true).eq('is_own', false),
+    social(supabase).rpc('competitor_top_posts', { p_week_start: weekStart }),
+  ])
+  const trackedRows = check<Array<{ id: string }> | null>('competitor_count', tracked) ?? []
+  return {
+    today,
+    week_start: weekStart,
+    week_end: addDays(weekStart, 6),
+    partial: weekStart === mondayOf(today),
+    weeks,
+    tracked: trackedRows.length,
+    rows: (check<Array<Record<string, unknown>> | null>('competitor_posts', rows) ?? []).map((r) => ({
+      username: String(r.username),
+      posted_at: (r.posted_at as string) ?? null,
+      permalink: (r.permalink as string) ?? null,
+      media_type: (r.media_type as string) ?? null,
+      media_product_type: (r.media_product_type as string) ?? null,
+      theme: typeof r.theme === 'string' ? r.theme : 'pending',
+      caption_first_line: (r.caption_first_line as string) ?? null,
+      hashtags: Array.isArray(r.hashtags) ? (r.hashtags as unknown[]).map(String) : [],
+      likes: num(r.likes),
+      comments: num(r.comments),
+      followers_on_day: num(r.followers_on_day),
+      rate: num(r.rate),
+    })),
+  }
+}
+
+// ---------------------------------------------------------------------------------------------
+// Stories (#1062, R2.6)
+
+export const STORY_METRICS = ['reach', 'views', 'replies', 'tap_forward', 'tap_back', 'tap_exit', 'swipe_forward'] as const
+export type StoryMetric = (typeof STORY_METRICS)[number]
+
+export interface StoryRow extends Record<StoryMetric, number | null> {
+  id: string
+  posted_at: string | null
+  media_type: string | null
+  permalink: string | null
+  collected_at: string | null
+  /** `tap_exit / reach` of the database; null with no reach. */
+  exit_rate: number | null
+}
+
+export interface StoriesPayload {
+  /** When the hourly job last ran; null when it never did (no `collector_runs` row). */
+  collection: { last_run_at: string | null }
+  stories: StoryRow[]
+}
+
+export const STORY_DAYS_DEFAULT = 14
+export const STORY_DAYS_MAX = 30
+
+export async function readStories(supabase: Client, days: number): Promise<StoriesPayload> {
+  const [runs, result] = await Promise.all([
+    collectorRuns(supabase),
+    social(supabase).rpc('recent_stories', { p_days: days }),
+  ])
+  return {
+    collection: { last_run_at: runs.get('stories')?.last_run_at ?? null },
+    stories: (check<Array<Record<string, unknown>> | null>('stories', result) ?? []).map((r) => {
+      const row = {
+        id: String(r.id),
+        posted_at: (r.posted_at as string) ?? null,
+        media_type: (r.media_type as string) ?? null,
+        permalink: (r.permalink as string) ?? null,
+        collected_at: (r.collected_at as string) ?? null,
+        exit_rate: num(r.exit_rate),
+      } as StoryRow
+      for (const k of STORY_METRICS) row[k] = num(r[k])
+      return row
     }),
   }
 }
