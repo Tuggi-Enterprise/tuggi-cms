@@ -59,6 +59,7 @@ import {
   BarChart3,
   Bell,
   BellRing,
+  Share2,
   CalendarDays,
   Coins,
   Database,
@@ -242,6 +243,8 @@ function catalogue(): { basic: NavEntry[]; modules: NavEntry[] } {
               item('/dashboard/marketing/notifications', 'notifications', Bell),
               // The weekly push (#1047), next to the one-off push, where the operator looks for push.
               item('/admin/weekly-push', 'weekly_push', BellRing),
+              // The social agenda (#1058): posts on Instagram and Facebook, next to the push.
+              item('/admin/social', 'social', Share2),
             ],
           },
         ],

@@ -200,6 +200,8 @@ test('o catálogo do admin é exatamente este — apagar um destino tem de doer'
     '/admin/poi-trigger-map',
     // Os números das horas concedidas (#855).
     '/admin/reward-settings',
+    // The social agenda (#1058).
+    '/admin/social',
     // Os votos nas histórias (#950).
     '/admin/story-feedback',
     '/admin/users',
@@ -214,6 +216,8 @@ test('o catálogo do admin é exatamente este — apagar um destino tem de doer'
     '/dashboard/reports/catalog',
     '/dashboard/reports/engagement',
     '/dashboard/reports/geography',
+    // Who received and who opened each push (#1051).
+    '/dashboard/reports/push',
     // O placar de pontuação (#741), irmão de `Base de Usuários` no grupo de relatórios.
     '/dashboard/reports/ranking',
     '/dashboard/reports/route-progress',

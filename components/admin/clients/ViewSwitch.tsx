@@ -28,19 +28,25 @@ export function isBoardView(param: string | null): boolean {
 interface ViewSwitchProps {
   board: boolean
   onChange: (board: boolean) => void
+  /**
+   * Words of another screen that reuses the switch (the social agenda, #1058: calendar or list).
+   * Absent, the switch speaks the client board's own words.
+   */
+  labels?: { group: string; first: string; second: string }
 }
 
-export function ViewSwitch({ board, onChange }: ViewSwitchProps) {
+export function ViewSwitch({ board, onChange, labels }: ViewSwitchProps) {
   const t = useTranslations('Clients.board')
+  const words = labels ?? { group: t('switchLabel'), first: t('boardView'), second: t('tableView') }
 
   return (
     <div
       role="group"
-      aria-label={t('switchLabel')}
+      aria-label={words.group}
       className="inline-flex overflow-hidden rounded-xl border border-gray-200 dark:border-gray-700"
     >
-      <Option label={t('boardView')} active={board} onSelect={() => onChange(true)} />
-      <Option label={t('tableView')} active={!board} onSelect={() => onChange(false)} />
+      <Option label={words.first} active={board} onSelect={() => onChange(true)} />
+      <Option label={words.second} active={!board} onSelect={() => onChange(false)} />
     </div>
   )
 }
