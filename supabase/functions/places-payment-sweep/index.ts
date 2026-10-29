@@ -10,9 +10,11 @@
 // `_shared/places-transition-email.ts`): published place → `live` + "no ar" e-mail, and the one kit
 // reminder. That part does not need Asaas and runs even when the payment part cannot.
 //
-// Since #889 it also takes the paid description off when the payment ends, and puts it back when
+// Since #889 it also takes the paid content off when the payment ends, and puts it back when
 // the partner pays again (`reconcilePartnerStories`, `_shared/places-story-suspension.ts`,
-// BR-B2B-019). Database only — it runs even when Asaas is not configured.
+// BR-B2B-019). Since #1055 the database decides and keeps story and photos
+// (`partner.place_suspend_paid_content` / `partner.place_restore_paid_content`), for the portal
+// plan and the pre-portal one. Database only — it runs even when Asaas is not configured.
 //
 // Since #901 `runSweep` also backfills the subscriptions' invoice settings and re-reads the invoices
 // into `partner.place_invoices` (`reconcileInvoices`, `_shared/places-invoice.ts`).
