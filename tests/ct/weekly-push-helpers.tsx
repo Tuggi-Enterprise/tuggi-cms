@@ -17,6 +17,9 @@ export function WeeklyPushHarness() {
       messages={{
         Pages: {
           WeeklyPush: ptMessages.Pages.WeeklyPush,
+          Dashboard: {
+            push: { base: ptMessages.Pages.Dashboard.push.base, no_data: ptMessages.Pages.Dashboard.push.no_data },
+          },
           Marketing: { Audience: { language: ptMessages.Pages.Marketing.Audience.language } },
           Notifications: { preview: ptMessages.Pages.Notifications.preview },
         },

@@ -10,7 +10,16 @@ import AxeBuilder from '@axe-core/playwright'
 import { WeeklyPushHarness } from './weekly-push-helpers'
 import { RESULTS, SETTINGS } from './weekly-push-fixtures'
 
-async function mockApi(page: Page) {
+async function mockApi(page: Page, pushEnabledPeople: number | null = 1234) {
+  await page.route(
+    (url) => url.pathname === '/api/dashboard/push',
+    (route) =>
+      route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({ data: { devices: { push_enabled_people: pushEnabledPeople } } }),
+      })
+  )
   await page.route('**/api/admin/weekly-push/results', (route) =>
     route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(RESULTS) })
   )
@@ -49,4 +58,22 @@ test('#1047 BR-COMUNICACAO-019 3.m: {city} in the reminder without city locks Sa
   await expect(body).toHaveAttribute('aria-invalid', 'true')
   await expect(page.getByRole('button', { name: 'Inglês' })).toBeDisabled()
   await page.screenshot({ path: testInfo.outputPath('weekly-push-edit-1440.png'), fullPage: true })
+})
+
+test('#1046 BR-COMUNICACAO-019 3.m.1: the results open with the people who have push enabled, and null reads sem dado, never 0', async ({ mount, page }) => {
+  await page.setViewportSize({ width: 1440, height: 900 })
+  await mockApi(page, 1234)
+  const mounted = await mount(<WeeklyPushHarness />)
+  const tile = page.locator('[title^="Pessoas com o push do app ligado"]')
+  await expect(tile).toContainText('Com push liberado')
+  await expect(tile).toContainText('1.234')
+  await expect(tile).toContainText('pessoas, não aparelhos')
+  await mounted.unmount()
+
+  await page.unrouteAll()
+  await mockApi(page, null)
+  await mount(<WeeklyPushHarness />)
+  await expect(tile).toContainText('Com push liberado')
+  await expect(tile).toContainText('sem dado')
+  await expect(tile).not.toContainText('0')
 })

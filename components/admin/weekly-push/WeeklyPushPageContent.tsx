@@ -17,7 +17,7 @@
 
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useLocale, useTranslations } from 'next-intl'
-import { CheckCheck, ChevronDown, ChevronRight, MailOpen, Percent, Send } from 'lucide-react'
+import { BellRing, CheckCheck, ChevronDown, ChevronRight, MailOpen, Percent, Send } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Container } from '@/components/ui/Container'
 import { CharCount } from '@/components/ui/CharCount'
@@ -29,7 +29,12 @@ import { TuggiLogo } from '@/components/ui/TuggiLogo'
 import { StatCard, StatCardRow } from '@/components/ui/StatCard'
 import { CHART_COLORS } from '@/lib/constants/chart-colors'
 import { UNKNOWN_VALUE } from '@/lib/format/unknown'
-import type { WeeklyPushEngagement, WeeklyPushEngagementSend } from '@/lib/notifications/push-report'
+import {
+  presetRange,
+  type PushReport,
+  type WeeklyPushEngagement,
+  type WeeklyPushEngagementSend,
+} from '@/lib/notifications/push-report'
 import {
   CELL,
   DIM,
@@ -108,6 +113,7 @@ export function WeeklyPushPageContent() {
   const [settings, setSettings] = useState<Load<WeeklyPushSettings>>({ state: 'loading' })
   const [results, setResults] = useState<Load<WeeklyPushResults>>({ state: 'loading' })
   const [engagement, setEngagement] = useState<Load<WeeklyPushEngagement>>({ state: 'loading' })
+  const [audience, setAudience] = useState<Load<number | null>>({ state: 'loading' })
 
   const dateFormat = useMemo(() => new Intl.DateTimeFormat(locale, { dateStyle: 'short' }), [locale])
 
@@ -143,11 +149,26 @@ export function WeeklyPushPageContent() {
     }
   }, [])
 
+  // The audience of the weekly push (BR-COMUNICACAO-019 3.m.1, #1046) is the people count of the
+  // push report, read for today only so the report does the least work. It fails alone too.
+  const fetchAudience = useCallback(async () => {
+    try {
+      const today = presetRange('7d').to
+      const response = await fetch(`/api/dashboard/push?from=${today}&to=${today}`, { cache: 'no-store' })
+      if (!response.ok) throw new Error(String(response.status))
+      const { data } = (await response.json()) as { data: PushReport }
+      setAudience({ state: 'ready', data: data.devices.push_enabled_people ?? null })
+    } catch {
+      setAudience({ state: 'error' })
+    }
+  }, [])
+
   useEffect(() => {
     void fetchSettings()
     void fetchResults()
     void fetchEngagement()
-  }, [fetchSettings, fetchResults, fetchEngagement])
+    void fetchAudience()
+  }, [fetchSettings, fetchResults, fetchEngagement, fetchAudience])
 
   const ready = settings.state === 'ready' ? settings.data : null
 
@@ -249,6 +270,7 @@ export function WeeklyPushPageContent() {
             </h2>
             <p className={`mt-1 text-sm ${DIM}`}>{t('results.subtitle')}</p>
           </header>
+          <AudienceTile audience={audience} locale={locale} />
           <EngagementSummary engagement={engagement} t={t} locale={locale} />
           {results.state === 'loading' ? loadingLine : null}
           {results.state === 'error' ? (
@@ -433,6 +455,31 @@ export function PieceCard({
 }
 
 // ── Results ──────────────────────────────────────────────────────────────────────────────
+
+/**
+ * People with push enabled today, the audience of the weekly push (BR-COMUNICACAO-019 3.m.1,
+ * #1046): the same tile, words and "sem dado" as the push report. Null (database before the
+ * field) or a failed read prints "sem dado", never 0.
+ */
+function AudienceTile({ audience, locale }: { audience: Load<number | null>; locale: string }) {
+  const tPush = useTranslations('Pages.Dashboard.push')
+  const people = audience.state === 'ready' ? audience.data : null
+  return (
+    <StatCardRow columns={4} className="mb-4">
+      <div title={tPush('base.push_enabled_hint')}>
+        <StatCard
+          size="compact"
+          icon={BellRing}
+          color={CHART_COLORS.green}
+          label={tPush('base.push_enabled')}
+          value={people == null ? UNKNOWN_VALUE : new Intl.NumberFormat(locale).format(people)}
+          subtitle={people == null ? tPush('no_data') : tPush('base.push_enabled_sub')}
+          isLoading={audience.state === 'loading'}
+        />
+      </div>
+    </StatCardRow>
+  )
+}
 
 /**
  * The summary of the last weeks (#1051, spec 2.3): sent, received, opened and the rate, the two
