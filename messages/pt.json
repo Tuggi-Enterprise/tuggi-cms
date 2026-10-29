@@ -1701,7 +1701,7 @@
         "footer": "Download iOS é o toque em Obter na App Store; a Apple fecha o dia em dois dias. Android por campanha não é medido.",
         "apple_missing": "Downloads iOS: sem a chave da Apple. Quando ela entrar, os números chegam em até 48 horas.",
         "apple_pending": "A Apple entrega o primeiro relatório em até 48 horas.",
-      "store_unknown": "O GA4 ainda não separa os cliques por loja: falta registrar o parâmetro store como dimensão personalizada.",
+      "store_unknown": "O GA4 ainda não separa os cliques por loja. Registre o parâmetro store do evento click_store como dimensão personalizada de evento no GA4 do site: os cliques seguintes aparecem aqui em até 48 horas, os de antes ficam sem dado.",
         "empty": "Nenhuma visita com utm_campaign no período. Links da bio e dos stories precisam levar utm_campaign para aparecer aqui.",
         "na": "sem dado",
         "table_label": "Tabela de cliques e downloads por campanha"
@@ -1720,7 +1720,7 @@
         "age_open": "{from} ou mais",
         "footer": "A Meta informa só as 45 maiores cidades e países. O resto não aparece.",
         "below_100": "A Meta só informa o público a partir de 100 seguidores.",
-        "not_collected": "A primeira foto do público chega na segunda, {date}."
+        "not_collected": "A primeira foto do público sai na próxima coleta diária, às 6h, horário de Brasília."
       },
       "format": {
         "carousel": "Carrossel",
