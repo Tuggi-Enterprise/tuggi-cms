@@ -61,7 +61,7 @@ test('#1059: the overview at 1440 has three numbered recommendations, four ranki
   await expect(page.getByRole('heading', { level: 1, name: 'Redes sociais' })).toBeVisible()
   await expect(page.locator('ol > li')).toHaveCount(3)
   await expect(page.getByText('Modelo: gemini-2.5-flash-lite.')).toBeVisible()
-  await expect(page.getByRole('button', { name: /Visão geral/ })).toHaveAttribute('aria-pressed', 'true')
+  await expect(page.getByRole('button', { name: 'Geral', exact: true })).toHaveAttribute('aria-pressed', 'true')
   // The floor: Imagem has 2 posts, so it is last, with no number and no bar.
   const format = page.getByRole('heading', { name: 'Por formato' }).locator('xpath=ancestor::section[1]')
   await expect(format.locator('li').last()).toContainText('Imagem')
@@ -80,7 +80,7 @@ test('#1059: at 390 the overview tabs fit, the icons go and nothing leaks', asyn
   await mockApi(page)
   await mount(<SocialHarness search="" />)
   await expect(page.locator('ol > li')).toHaveCount(3)
-  await expect(page.getByRole('button', { name: /Nossos posts/ }).locator('svg')).toBeHidden()
+  await expect(page.getByRole('button', { name: 'Posts', exact: true }).locator('svg')).toBeHidden()
   await expect(page.locator('.recharts-responsive-container')).toHaveCount(5)
   await settle(page)
   await noLeak(page)
