@@ -72,7 +72,7 @@ function useRankingItems(rows: RankingRow[]) {
   const t = useTranslations('Pages.Social')
   const of = (dimension: RankingRow['dimension']) => rows.filter((r) => r.dimension === dimension)
   const item = (r: RankingRow, label: React.ReactNode, text: string): RankedItem => ({
-    key: `${r.dimension}:${r.bucket}`,
+    key: `${r.dimension}:${r.bucket ?? 'null'}`,
     label,
     text,
     posts: r.posts,
@@ -84,20 +84,21 @@ function useRankingItems(rows: RankingRow[]) {
     return item(r, word, word)
   })
   const theme = of('theme').map((r) => {
-    const k = themeKey(r.bucket)
-    if (k === null) return item(r, <RawValue value={r.bucket} />, r.bucket)
+    const raw = String(r.bucket)
+    const k = r.bucket === null ? null : themeKey(r.bucket)
+    if (k === null) return item(r, <RawValue value={raw} />, raw)
     const word = t(`theme.${k}`)
     return item(r, word, word)
   })
   const weekday = of('weekday').map((r) => {
-    const n = Number(r.bucket)
-    if (!(n >= 1 && n <= 7)) return item(r, <RawValue value={r.bucket} />, r.bucket)
+    const n = r.bucket === null ? NaN : Number(r.bucket)
+    if (!(n >= 1 && n <= 7)) return item(r, <RawValue value={String(r.bucket)} />, String(r.bucket))
     const word = fmtWeekday(n)
     return item(r, word, word)
   })
   const slot = of('slot').map((r) => {
-    const n = Number(r.bucket)
-    if (!(n >= 0 && n <= 7)) return item(r, <RawValue value={r.bucket} />, r.bucket)
+    const n = r.bucket === null ? NaN : Number(r.bucket)
+    if (!(n >= 0 && n <= 7)) return item(r, <RawValue value={String(r.bucket)} />, String(r.bucket))
     const word = t('overview.ranking.hour_value', { from: n * 3, to: n * 3 + 3 })
     return item(r, word, word)
   })

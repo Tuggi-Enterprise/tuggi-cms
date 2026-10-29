@@ -1662,11 +1662,13 @@
           "note": "Aproximado: post do feed não leva link, então o cruzamento é por dia, e quem instalou pode ter vindo de outro lugar. Instalação é a primeira abertura do app no GA4.",
           "profile_views_hint": "Contas que abriram o perfil, pela Meta.",
           "website_clicks_hint": "Toques no link da bio, pela Meta.",
-          "site_sessions_hint": "Sessões no site com origem instagram, ig ou l.instagram.com, pelo GA4 do site.",
+          "site_sessions_hint": "Sessões no site com origem instagram, ig ou qualquer endereço instagram.com, pelo GA4 do site.",
           "installs_hint": "Primeira abertura do app no dia, pelo GA4 do app, de qualquer origem.",
           "posts": "Posts publicados",
           "no_data": "sem dado",
           "latency_hint": "Pode mudar: o GA4 processa em até 48 horas.",
+          "legend_muted": "Cinza: últimos 2 dias do GA4, ainda podem mudar",
+          "coverage": "em {measured} de {days} dias",
           "change_hint": "Contra os {days} dias anteriores."
         }
       },
@@ -1725,7 +1727,7 @@
         "col_growth_30d": "30 dias",
         "growth_value": "{delta} ({percent})",
         "col_engagement": "Interações por seguidor",
-        "engagement_hint": "Curtidas e comentários dos últimos {count} posts, divididos pelos seguidores. Concorrente só mostra curtida e comentário; a nossa conta é medida do mesmo jeito aqui, para comparar igual.",
+        "engagement_hint": "Mediana de curtidas e comentários por post, nos últimos {count} posts, dividida pelos seguidores. Concorrente só mostra curtida e comentário; a nossa conta é medida do mesmo jeito aqui, para comparar igual.",
         "col_mix": "Formatos",
         "mix_value": "{carousel}% carrossel · {reels}% reels · {image}% imagem",
         "mix_hint": "Parte dos últimos {count} posts em cada formato.",

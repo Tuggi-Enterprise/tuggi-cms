@@ -8,15 +8,15 @@ import { test, expect } from '@playwright/experimental-ct-react'
 import type { Page } from '@playwright/test'
 import AxeBuilder from '@axe-core/playwright'
 import { SocialHarness } from './social-helpers'
-import { ACCOUNTS, OVERVIEW, POSTS } from './social-fixtures'
+import { ACCOUNTS, OVERVIEW, OVERVIEW_SPARSE, POSTS } from './social-fixtures'
 
 const json = (body: unknown, status = 200) => ({ status, contentType: 'application/json', body: JSON.stringify(body) })
 
-async function mockApi(page: Page) {
+async function mockApi(page: Page, overview: unknown = OVERVIEW) {
   const seen: string[] = []
   await page.route('**/api/admin/social/overview*', (route) => {
     seen.push(route.request().url())
-    return route.fulfill(json(OVERVIEW))
+    return route.fulfill(json(overview))
   })
   await page.route('**/api/admin/social/posts', (route) => {
     seen.push(route.request().url())
@@ -177,4 +177,49 @@ test('#1059: at 390 the competitors table scrolls inside its box and the form wr
   await expect(page.locator('tbody tr')).toHaveCount(ACCOUNTS.accounts.length)
   await noLeak(page)
   await page.screenshot({ path: testInfo.outputPath('social-competitors-390.png'), fullPage: true })
+})
+
+test('#1059: the funnel with the first production collection keeps every bar inside its own strip (DS-COMPONENTE-084)', async ({ mount, page }, testInfo) => {
+  await page.setViewportSize({ width: 1440, height: 1000 })
+  await mockApi(page, OVERVIEW_SPARSE)
+  await mount(<SocialHarness search="" />)
+  await expect(page.locator('.recharts-responsive-container')).toHaveCount(5)
+  await settle(page)
+  // Every bar of a strip stays inside that strip's own box: no bar crosses into the next strip.
+  for (const key of ['posts', 'profile_views', 'website_clicks', 'site_sessions', 'installs']) {
+    const strip = page.locator(`[data-strip="${key}"]`)
+    const box = (await strip.boundingBox())!
+    for (const bar of await strip.locator('.recharts-bar-rectangle path').all()) {
+      const b = (await bar.boundingBox())!
+      expect(b.y, key).toBeGreaterThanOrEqual(box.y)
+      expect(b.y + b.height, key).toBeLessThanOrEqual(box.y + box.height + 0.5)
+    }
+  }
+  // Visits: one day of 9 gets its own top, 10, and the bar fills most of the strip from its base.
+  const visits = page.locator('[data-strip="profile_views"]')
+  await expect(visits.locator('svg text').filter({ hasText: /\d/ })).toHaveText(['10'])
+  const ninePx = (await visits.locator('.recharts-bar-rectangle path').first().boundingBox())!.height
+  expect(ninePx).toBeGreaterThan(35)
+  // Measured on 1 of 28 days: a floor with its coverage, and no change printed.
+  await expect(visits).toContainText('em 1 de 28 dias')
+  await expect(visits.locator('.text-green-700, .text-red-700')).toHaveCount(0)
+  await expect(page.locator('[data-strip="website_clicks"]')).toContainText('em 1 de 28 dias')
+  // Posts come from the whole history: their change prints.
+  await expect(page.locator('[data-strip="posts"]')).toContainText('+600,0%')
+  // Gray is named in the legend.
+  await expect(page.getByText('Cinza: últimos 2 dias do GA4, ainda podem mudar')).toBeVisible()
+  const card = page.getByRole('heading', { name: 'Do Instagram ao app' }).locator('xpath=ancestor::section[1]')
+  await card.screenshot({ path: testInfo.outputPath('social-funnel-sparse-1440.png') })
+})
+
+test('#1059: the funnel with 28 full days, both periods measured, prints totals and changes (DS-COMPONENTE-084)', async ({ mount, page }, testInfo) => {
+  await page.setViewportSize({ width: 1440, height: 1000 })
+  await mockApi(page)
+  await mount(<SocialHarness search="" />)
+  await expect(page.locator('.recharts-responsive-container')).toHaveCount(5)
+  await settle(page)
+  await expect(page.locator('[data-strip="profile_views"]')).not.toContainText(' de 28 dias')
+  await expect(page.locator('[data-strip="profile_views"] .text-green-700, [data-strip="profile_views"] .text-red-700')).toHaveCount(1)
+  const card = page.getByRole('heading', { name: 'Do Instagram ao app' }).locator('xpath=ancestor::section[1]')
+  await card.screenshot({ path: testInfo.outputPath('social-funnel-full-1440.png') })
 })

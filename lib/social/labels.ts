@@ -20,9 +20,11 @@ export function formatKey(mediaType: string | null, productType: string | null):
 
 /**
  * The `bucket` of `social.own_media_ranking` for the format dimension: `REELS`, or the media type of
- * a post that is not a reel. A `VIDEO` bucket is therefore a feed video, which the copy calls Outro.
+ * a post that is not a reel. A `VIDEO` bucket is therefore a feed video, which the copy calls Outro,
+ * and so is a null bucket (a post Meta sent without `media_type`).
  */
-export function formatBucketKey(bucket: string): FormatKey {
+export function formatBucketKey(bucket: string | null): FormatKey {
+  if (bucket === null) return 'other'
   return bucket === 'REELS' ? 'reels' : formatKey(bucket, bucket === 'VIDEO' ? 'FEED' : null)
 }
 

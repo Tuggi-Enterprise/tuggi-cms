@@ -90,6 +90,8 @@ export const OVERVIEW = {
       installs_android: total('installs_android'),
     },
     previous: { posts: 8, profile_views: 3500, website_clicks: 520, ig_site_sessions: 700, installs_ios: 140, installs_android: 160 },
+    measured: { profile_views: 28, website_clicks: 28, ig_site_sessions: 28, installs_ios: 28, installs_android: 28, installs: 28 },
+    previous_measured: { profile_views: 28, website_clicks: 28, ig_site_sessions: 28, installs_ios: 28, installs_android: 28, installs: 28 },
   },
 }
 
@@ -178,4 +180,35 @@ export const ACCOUNTS = {
       is_own: true,
     },
   ],
+}
+
+/**
+ * The first production collection as the operator saw it (2026-10-29): profile views only on the
+ * last day (9), a bio-link 0 on that day and nothing before, installs only on the last three days.
+ * Partial coverage everywhere, which is what broke the strips and printed a 28-day "0".
+ */
+const sparseDays = daysBetween(from, to).map((day, i, all) => {
+  const tail = all.length - 1 - i
+  return {
+    day,
+    posts: i % 2 === 0 ? [{ format: 'carousel', caption: 'Roteiro de Paraty' }] : [],
+    profile_views: tail === 0 ? 9 : null,
+    website_clicks: tail === 0 ? 0 : null,
+    ig_site_sessions: tail <= 2 ? 0 : null,
+    installs_ios: tail <= 2 ? [3, 1, 0][2 - tail] : null,
+    installs_android: tail <= 2 ? [1, 2, 3][2 - tail] : null,
+  }
+})
+
+export const OVERVIEW_SPARSE = {
+  ...OVERVIEW,
+  funnel: {
+    from,
+    to,
+    days: sparseDays,
+    totals: { posts: 14, profile_views: 9, website_clicks: 0, ig_site_sessions: 0, installs_ios: 4, installs_android: 6 },
+    measured: { profile_views: 1, website_clicks: 1, ig_site_sessions: 3, installs_ios: 3, installs_android: 3, installs: 3 },
+    previous: { posts: 2, profile_views: null, website_clicks: null, ig_site_sessions: null, installs_ios: null, installs_android: null },
+    previous_measured: { profile_views: 0, website_clicks: 0, ig_site_sessions: 0, installs_ios: 0, installs_android: 0, installs: 0 },
+  },
 }

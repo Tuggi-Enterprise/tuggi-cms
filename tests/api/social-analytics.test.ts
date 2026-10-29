@@ -280,7 +280,7 @@ test('#1059 copy 2.2: format and theme map to the copy keys; an unknown value is
     ['STORY', 'STORY', 'other'],
   ]
   for (const [type, product, key] of cases) assert.equal(labels.formatKey(type, product), key, `${type}/${product}`)
-  assert.deepEqual(['REELS', 'IMAGE', 'CAROUSEL_ALBUM', 'VIDEO'].map(labels.formatBucketKey), ['reels', 'image', 'carousel', 'other'])
+  assert.deepEqual(['REELS', 'IMAGE', 'CAROUSEL_ALBUM', 'VIDEO', null].map(labels.formatBucketKey), ['reels', 'image', 'carousel', 'other', 'other'])
   assert.equal(labels.themeKey(null), 'pending')
   assert.equal(labels.themeKey('pending'), 'pending')
   assert.equal(labels.themeKey('bastidor'), 'bastidor')
@@ -319,4 +319,52 @@ test('#1059: the screen is pt only, and the menu label exists in the three local
     assert.ok(m.Navigation.social, locale)
     if (locale !== 'pt') assert.equal(m.Pages.Social, undefined, locale)
   }
+})
+
+test('#1059 DS-COMPONENTE-084: the overview counts measured days per series, and the previous period without data is null', async () => {
+  const today = time.brasiliaDay(new Date())
+  const { from, to } = repo.periodWindow(today, '4w')
+  answers['watched_accounts'] = () => ({ data: { id: 'own-1', username: 'tuggi_app' } })
+  answers['funnel_daily'] = () => ({
+    data: [
+      { day: time.addDays(to, -2), profile_views: null, website_clicks: null, ig_site_sessions: 0, installs_ios: 3, installs_android: 1 },
+      { day: to, profile_views: 9, website_clicks: 0, ig_site_sessions: 0, installs_ios: null, installs_android: 3 },
+    ],
+  })
+  answers['rpc:own_media_ranking'] = () => ({ data: [{ dimension: 'format', bucket: null, posts: 3, rate: 0.01 }] })
+  const body = await (await overviewRoute.GET(req('GET', '/overview?period=4w'), ctx)).json()
+  assert.equal(body.funnel.from, from)
+  assert.deepEqual(body.funnel.measured, { profile_views: 1, website_clicks: 1, ig_site_sessions: 2, installs_ios: 1, installs_android: 2, installs: 2 })
+  assert.deepEqual(body.funnel.previous_measured, { profile_views: 0, website_clicks: 0, ig_site_sessions: 0, installs_ios: 0, installs_android: 0, installs: 0 })
+  // A 0 Meta answered is a 0; days nobody measured do not become zeros.
+  assert.deepEqual([body.funnel.totals.website_clicks, body.funnel.previous.website_clicks], [0, null])
+  assert.deepEqual(body.ranking.rows[0], { dimension: 'format', bucket: null, posts: 3, rate: 0.01 })
+})
+
+test('#1059 DS-COMPONENTE-084: a change prints only between two fully measured periods; each strip has its own top', async () => {
+  const funnel = await import('@/lib/social/funnel')
+  const full = { now: 'full', before: 'full' } as const
+  assert.equal(funnel.changeRatio(23, 2, full), 10.5)
+  assert.equal(funnel.changeRatio(9, null, full), null)
+  assert.equal(funnel.changeRatio(9, 0, full), null)
+  assert.equal(funnel.changeRatio(9, 4, { now: 'partial', before: 'full' }), null)
+  assert.equal(funnel.changeRatio(9, 4, { now: 'full', before: 'none' }), null)
+  assert.deepEqual([[0, 28], [1, 28], [28, 28]].map(([m, d]) => funnel.coverageOf(m, d)), ['none', 'partial', 'full'])
+  assert.deepEqual(
+    [[null, null], [0], [1], [9], [3, 4], [12], [140], [7.2]].map((v) => funnel.stripTop(v)),
+    [1, 1, 1, 10, 4, 15, 150, 8]
+  )
+})
+
+test('#1059: the post link opens only on Instagram\'s own host', async () => {
+  const { safePermalink } = await import('@/lib/social/funnel')
+  assert.equal(safePermalink('https://www.instagram.com/p/DfFMgQiEcuG/'), 'https://www.instagram.com/p/DfFMgQiEcuG/')
+  for (const bad of ['javascript:alert(1)', 'https://www.instagram.com.evil.io/p/x', 'http://www.instagram.com/p/x', 'https://evil.io/?https://www.instagram.com/', null, undefined, '']) {
+    assert.equal(safePermalink(bad), null, String(bad))
+  }
+})
+
+test('#1059: the median of the competitors is said as a median', () => {
+  assert.match(pt.Pages.Social.competitors.engagement_hint, /^Mediana/)
+  assert.doesNotMatch(pt.Pages.Social.competitors.engagement_hint, /média/i)
 })

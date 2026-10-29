@@ -28,6 +28,7 @@ import {
 import { UNKNOWN_VALUE } from '@/lib/format/unknown'
 import { fmtDateTime, fmtDay, fmtInt } from '@/lib/social/format'
 import { formatKey, themeKey, type FormatKey } from '@/lib/social/labels'
+import { safePermalink } from '@/lib/social/funnel'
 import type { PostMetric, SocialPostRow } from '@/lib/social/repository'
 import { CardError, RawValue, SocialCard, socialQueries } from './shared'
 
@@ -168,6 +169,7 @@ export function SocialPostsTable() {
                   : visible.map((p) => {
                       const line = firstLine(p.caption)
                       const theme = themeKey(p.theme)
+                      const link = safePermalink(p.permalink)
                       return (
                         <tr key={p.id} className="border-t border-gray-100 dark:border-gray-800">
                           <td className={`${CELL} whitespace-nowrap`}>{p.posted_at ? fmtDateTime(p.posted_at) : UNKNOWN_VALUE}</td>
@@ -201,9 +203,9 @@ export function SocialPostsTable() {
                             )
                           })}
                           <td className={`${CELL} py-1`}>
-                            {p.permalink && (
+                            {link && (
                               <a
-                                href={p.permalink}
+                                href={link}
                                 target="_blank"
                                 rel="noopener"
                                 aria-label={tp('open_aria', { date: p.posted_at ? fmtDateTime(p.posted_at) : '' })}

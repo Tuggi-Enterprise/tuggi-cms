@@ -106,7 +106,8 @@ export interface SocialRecommendation {
 
 export interface RankingRow {
   dimension: 'format' | 'theme' | 'weekday' | 'slot'
-  bucket: string
+  /** Null for a format bucket of a post Meta sent without `media_type` (the screen calls it Outro). */
+  bucket: string | null
   posts: number
   rate: number | null
 }
@@ -123,13 +124,25 @@ export type FunnelDay = { day: string; posts: FunnelPost[] } & Record<FunnelSeri
 
 export type FunnelTotals = Record<FunnelSeries | 'posts', number | null>
 
+/** Days of the window with a value, per series; `installs` counts a day with iOS or Android. */
+export type FunnelMeasured = Record<FunnelSeries | 'installs', number>
+
 export interface OverviewPayload {
   today: string
   period: SocialPeriod
   collection: { first_day: string | null; last_day: string | null }
   recommendations: { week_start: string; model: string | null; items: SocialRecommendation[] } | null
   ranking: { since: string; rows: RankingRow[] }
-  funnel: { from: string; to: string; days: FunnelDay[]; totals: FunnelTotals; previous: FunnelTotals }
+  funnel: {
+    from: string
+    to: string
+    days: FunnelDay[]
+    totals: FunnelTotals
+    previous: FunnelTotals
+    /** Coverage of each series in the window and in the previous one (DS-COMPONENTE-084). */
+    measured: FunnelMeasured
+    previous_measured: FunnelMeasured
+  }
 }
 
 /** The window of a period: `days` whole days ending yesterday, and the same length right before. */
@@ -154,6 +167,14 @@ export function sumSeries(days: Array<Record<string, unknown>>, key: string): nu
     if (v !== null) total = (total ?? 0) + v
   }
   return total
+}
+
+/** How many days of a window carry a value, per series (a null day was not measured). */
+export function measuredDays(days: FunnelDay[]): FunnelMeasured {
+  const m = { installs: 0 } as FunnelMeasured
+  for (const k of FUNNEL_SERIES) m[k] = days.filter((d) => d[k] !== null).length
+  m.installs = days.filter((d) => d.installs_ios !== null || d.installs_android !== null).length
+  return m
 }
 
 export async function readOverview(supabase: Client, period: SocialPeriod, now = new Date()): Promise<OverviewPayload> {
@@ -198,7 +219,7 @@ export async function readOverview(supabase: Client, period: SocialPeriod, now =
 
   const rankingRows = (check<Array<Record<string, unknown>> | null>('ranking', ranking) ?? []).map((r) => ({
     dimension: String(r.dimension) as RankingRow['dimension'],
-    bucket: String(r.bucket),
+    bucket: r.bucket === null || r.bucket === undefined ? null : String(r.bucket),
     posts: Number(r.posts) || 0,
     rate: num(r.rate),
   }))
@@ -227,6 +248,7 @@ export async function readOverview(supabase: Client, period: SocialPeriod, now =
     return t
   }
   const days = series(from, to)
+  const previousDays = series(prevFrom, prevTo)
 
   return {
     today,
@@ -236,7 +258,15 @@ export async function readOverview(supabase: Client, period: SocialPeriod, now =
       ? { week_start: String(latest.week_start), model: (latest.model as string) ?? null, items }
       : null,
     ranking: { since: from, rows: rankingRows },
-    funnel: { from, to, days, totals: totals(days), previous: totals(series(prevFrom, prevTo)) },
+    funnel: {
+      from,
+      to,
+      days,
+      totals: totals(days),
+      previous: totals(previousDays),
+      measured: measuredDays(days),
+      previous_measured: measuredDays(previousDays),
+    },
   }
 }
 
