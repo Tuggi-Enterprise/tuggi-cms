@@ -161,8 +161,8 @@ export function SocialAgendaPageContent() {
               >
                 <ChevronLeft className="h-4 w-4" aria-hidden />
               </button>
-              <span className="min-w-[9rem] text-center text-sm font-semibold capitalize text-gray-900 dark:text-gray-100">
-                {monthLabel}
+              <span className="min-w-[9rem] text-center text-sm font-semibold text-gray-900 dark:text-gray-100">
+                {monthLabel.charAt(0).toUpperCase() + monthLabel.slice(1)}
               </span>
               <button
                 type="button"
