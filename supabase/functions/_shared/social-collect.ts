@@ -13,13 +13,16 @@
 // - media insights: reach, saved, shares, views, likes, comments for FEED and REELS; profile_visits
 //   and follows only for FEED (a reel answers an error for them). impressions and plays are gone.
 // - account insights: profile_views and website_clicks lost their time series on 2025-01-08 and are
-//   not in the v26.0 table; they are still asked one by one with metric_type=total_value, and a
-//   refusal writes null (never 0) and logs the Meta error code. profile_links_taps is NOT the bio
-//   link (it counts the contact buttons), so it is not a substitute.
+//   not in the v26.0 table; they are still asked one day at a time with metric_type=total_value. A
+//   refusal or an empty answer writes nothing (the day stays null, never 0) and is logged once per
+//   run with the Meta error code; only a 0 Meta answered is written as 0. profile_links_taps is NOT
+//   the bio link (it counts the contact buttons), so it is not a substitute.
+// - "User Metrics data is stored for up to 90 days" (Insights guide), so the account funnel reaches
+//   back 90 days at most; GA4 aggregated reports have no such limit and go back to the first post.
 // - Business Discovery paginates with cursors only, and the token travels in the Authorization
 //   header: a URL with `access_token=` would leak it to any log that prints a failed fetch.
 
-import { GA4_APP_PROPERTY_ID, GA4_SITE_PROPERTY_ID } from './ga4-data.ts';
+import { GA4_APP_PROPERTY_ID, GA4_ROW_LIMIT, GA4_SITE_PROPERTY_ID } from './ga4-data.ts';
 
 /** Same value as `SOCIAL_TIME_ZONE` in the CMS (`lib/social/time.ts`): every day here is Brasília. */
 export const SOCIAL_TIME_ZONE = 'America/Sao_Paulo';
@@ -39,10 +42,17 @@ export const OWN_MEDIA_MAX_PAGES = 20;
 export const MIN_POSTS = 3;
 /** The window the weekly recommendation reads: four weeks, the default period of the screen. */
 export const WEEKLY_WINDOW_DAYS = 28;
-/** GA4 processes up to 48 h late, so the last three days are read again every run. */
+/** GA4 and Meta process up to 48 h late, so the last three days are read again every run. */
 export const GA4_LOOKBACK_DAYS = 3;
-/** `sessionSource` values that mean "came from Instagram" on the site. */
-export const IG_SESSION_SOURCES = ['ig', 'instagram', 'l.instagram.com', 'm.instagram.com'];
+/** Meta keeps account metrics for 90 days (Insights guide, checked 2026-10-29). */
+export const META_FUNNEL_MAX_DAYS = 90;
+/**
+ * The funnel history reaches back to our first post, and at least two six-month periods (the
+ * screen's longest comparison) when the first post is more recent than that.
+ */
+export const FUNNEL_HISTORY_DAYS = 360;
+/** `sessionSource` that means "came from Instagram": ig, instagram, or any instagram.com host. */
+export const IG_SESSION_SOURCE_PATTERN = '(ig|instagram|([a-z0-9-]+\\.)*instagram\\.com)';
 export const INSIGHT_CONCURRENCY = 5;
 
 export const THEMES = ['cidade', 'curiosidade', 'produto', 'bastidor', 'outro'] as const;
@@ -222,6 +232,8 @@ export interface SocialStore {
   rpc(fn: 'own_media_ranking' | 'account_engagement', args: Record<string, unknown>): Promise<Record<string, unknown>[]>;
   ownPostsSince(accountId: string, sinceIso: string): Promise<PostForPrompt[]>;
   funnelSince(day: string): Promise<Record<string, unknown>[]>;
+  /** The Brasília day of our oldest post, or null without posts. */
+  firstPostDay(accountId: string): Promise<string | null>;
   followersSince(day: string): Promise<Array<{ account_id: string; day: string; followers_count: number | null }>>;
 }
 
@@ -322,6 +334,20 @@ export function supabaseStore(social: any): SocialStore {
           .gte('day', day)
           .order('day'),
       ) ?? [];
+    },
+    async firstPostDay(accountId) {
+      const rows = check<Array<{ posted_at: string | null }>>(
+        'first_post',
+        await social
+          .from('media')
+          .select('posted_at')
+          .eq('account_id', accountId)
+          .not('posted_at', 'is', null)
+          .order('posted_at', { ascending: true })
+          .limit(1),
+      ) ?? [];
+      const at = rows[0]?.posted_at;
+      return at ? brasiliaDay(new Date(at)) : null;
     },
     async followersSince(day) {
       return check<Array<{ account_id: string; day: string; followers_count: number | null }>>(
@@ -501,31 +527,78 @@ async function collectCompetitor(deps: CollectDeps, account: WatchedAccount, tod
   return { media: nodes.length, metrics: metrics.length };
 }
 
-/** Yesterday's profile views and bio link taps, each asked alone so one refusal keeps the other. */
-async function collectMetaFunnel(deps: CollectDeps, today: string): Promise<CollectReport['funnel']['meta']> {
-  const yesterday = addDays(today, -1);
-  const row: Record<string, unknown> = { day: yesterday };
-  let refused = 0;
-  for (const metric of ['profile_views', 'website_clicks']) {
-    try {
-      const body = await deps.meta.get(`${deps.meta.igUserId}/insights`, {
-        metric,
-        period: 'day',
-        metric_type: 'total_value',
-        since: String(brasiliaMidnight(yesterday)),
-        until: String(brasiliaMidnight(today)),
-      });
-      const item = (Array.isArray(body.data) ? body.data[0] : null) as Record<string, unknown> | null;
-      row[metric] = num((item?.total_value as { value?: unknown } | undefined)?.value) ??
-        num((item?.values as Array<{ value?: unknown }> | undefined)?.[0]?.value);
-    } catch (e) {
-      refused += 1;
-      row[metric] = null;
-      deps.log(`[social-collect] account insight ${metric} refused: ${e instanceof Error ? e.message : 'unknown'}`);
-    }
+type FunnelRows = Map<string, Record<string, unknown>>;
+
+/** A day not collected yet for these columns: no row, or every one of them still null. */
+function blank(rows: FunnelRows, day: string, columns: string[]): boolean {
+  const row = rows.get(day);
+  return !row || columns.every((c) => row[c] === null || row[c] === undefined);
+}
+
+type AccountMetric = { kind: 'value'; value: number } | { kind: 'empty' } | { kind: 'refused'; reason: string };
+
+const ACCOUNT_FUNNEL_METRICS = ['profile_views', 'website_clicks'] as const;
+
+/** One account metric for one Brasília day. Only a number Meta answered is a value. */
+async function accountMetric(meta: Meta, metric: string, day: string): Promise<AccountMetric> {
+  try {
+    const body = await meta.get(`${meta.igUserId}/insights`, {
+      metric,
+      period: 'day',
+      metric_type: 'total_value',
+      since: String(brasiliaMidnight(day)),
+      until: String(brasiliaMidnight(addDays(day, 1))),
+    });
+    const item = (Array.isArray(body.data) ? body.data[0] : null) as Record<string, unknown> | null;
+    const value = num((item?.total_value as { value?: unknown } | undefined)?.value) ??
+      num((item?.values as Array<{ value?: unknown }> | undefined)?.[0]?.value);
+    return value === null ? { kind: 'empty' } : { kind: 'value', value };
+  } catch (e) {
+    return { kind: 'refused', reason: reason(e) };
   }
-  await deps.store.upsert('funnel_daily', [row], 'day');
-  return refused === 0 ? 'ok' : refused === 2 ? 'failed' : 'partial';
+}
+
+/**
+ * Profile views and bio link taps, one day at a time, newest first: the last three days always
+ * (Meta settles late), and every older day of the last 90 not collected yet. The walk stops at the
+ * first group of days where Meta refused both metrics on some day: past retention, or the metric is
+ * gone, and asking further back would only repeat the refusal. Each metric is upserted on its own,
+ * so a refusal never overwrites the other metric, nor a value an earlier run collected.
+ */
+async function collectMetaFunnel(deps: CollectDeps, today: string, rows: FunnelRows): Promise<CollectReport['funnel']['meta']> {
+  const recentFrom = addDays(today, -GA4_LOOKBACK_DAYS);
+  const days = daysBetween(addDays(today, -META_FUNNEL_MAX_DAYS), addDays(today, -1))
+    .filter((d) => d >= recentFrom || blank(rows, d, [...ACCOUNT_FUNNEL_METRICS]))
+    .reverse();
+  const written: Record<string, Array<Record<string, unknown>>> = { profile_views: [], website_clicks: [] };
+  const refusals: Record<string, { count: number; reason: string }> = {};
+  let asked = 0;
+  let refused = 0;
+  for (let i = 0; i < days.length; i += INSIGHT_CONCURRENCY) {
+    const chunk = days.slice(i, i + INSIGHT_CONCURRENCY);
+    const answers = await Promise.all(
+      chunk.map(async (day) => ({ day, got: await Promise.all(ACCOUNT_FUNNEL_METRICS.map((m) => accountMetric(deps.meta, m, day))) })),
+    );
+    let exhausted = false;
+    for (const { day, got } of answers) {
+      got.forEach((answer, j) => {
+        const metric = ACCOUNT_FUNNEL_METRICS[j];
+        asked += 1;
+        if (answer.kind === 'value') written[metric].push({ day, [metric]: answer.value });
+        if (answer.kind === 'refused') {
+          refused += 1;
+          refusals[metric] = { count: (refusals[metric]?.count ?? 0) + 1, reason: refusals[metric]?.reason ?? answer.reason };
+        }
+      });
+      if (got.every((a) => a.kind === 'refused')) exhausted = true;
+    }
+    if (exhausted) break;
+  }
+  for (const [metric, list] of Object.entries(refusals)) {
+    deps.log(`[social-collect] account insight ${metric} refused on ${list.count} day(s): ${list.reason}`);
+  }
+  for (const metric of ACCOUNT_FUNNEL_METRICS) await deps.store.upsert('funnel_daily', written[metric], 'day');
+  return refused === 0 ? 'ok' : refused === asked ? 'failed' : 'partial';
 }
 
 const ga4Day = (v: unknown): string | null =>
@@ -544,15 +617,28 @@ function daysBetween(from: string, to: string): string[] {
   return out;
 }
 
+/** Days the property recorded anyone at all: only on these is a missing Instagram row a measured 0. */
+export function activeDaysBody(from: string, to: string): Record<string, unknown> {
+  return {
+    dateRanges: [{ startDate: from, endDate: to }],
+    dimensions: [{ name: 'date' }],
+    metrics: [{ name: 'activeUsers' }],
+    limit: String(GA4_ROW_LIMIT),
+  };
+}
+
 export function siteSessionsBody(from: string, to: string): Record<string, unknown> {
   return {
     dateRanges: [{ startDate: from, endDate: to }],
     dimensions: [{ name: 'date' }],
     metrics: [{ name: 'sessions' }],
     dimensionFilter: {
-      filter: { fieldName: 'sessionSource', inListFilter: { values: IG_SESSION_SOURCES, caseSensitive: false } },
+      filter: {
+        fieldName: 'sessionSource',
+        stringFilter: { matchType: 'FULL_REGEXP', value: IG_SESSION_SOURCE_PATTERN, caseSensitive: false },
+      },
     },
-    limit: '1000',
+    limit: String(GA4_ROW_LIMIT),
   };
 }
 
@@ -562,57 +648,89 @@ export function appInstallsBody(from: string, to: string): Record<string, unknow
     dimensions: [{ name: 'date' }, { name: 'platform' }],
     metrics: [{ name: 'eventCount' }],
     dimensionFilter: { filter: { fieldName: 'eventName', stringFilter: { matchType: 'EXACT', value: 'first_open' } } },
-    limit: '1000',
+    limit: String(GA4_ROW_LIMIT),
   };
 }
 
-async function collectGa4(deps: CollectDeps, today: string): Promise<Pick<CollectReport['funnel'], 'site' | 'app'>> {
+/** The days a GA4 property answered anyone, from an `activeDaysBody` report. */
+function activeDays(body: unknown): Set<string> {
+  const out = new Set<string>();
+  for (const r of ga4RowsOf(body)) {
+    const day = ga4Day(r.dimensionValues?.[0]?.value);
+    if (day && Number(r.metricValues?.[0]?.value) > 0) out.add(day);
+  }
+  return out;
+}
+
+/**
+ * The first day to ask GA4 for: the oldest day since `start` not collected yet for these columns,
+ * or the last three days when nothing older is missing. One report covers the whole range. A day
+ * GA4 never measured stays blank and is asked again on every run, inside that same single report.
+ */
+function ga4From(rows: FunnelRows, start: string, today: string, columns: string[]): string {
+  const recentFrom = addDays(today, -GA4_LOOKBACK_DAYS);
+  if (start >= recentFrom) return recentFrom;
+  return daysBetween(start, addDays(recentFrom, -1)).find((d) => blank(rows, d, columns)) ?? recentFrom;
+}
+
+/**
+ * Instagram sessions on the site and app installs per day, from `start` (the funnel history) when
+ * a day is missing, or the last three days otherwise. A day the property recorded nobody at all is
+ * not written: it stays null, not 0 (before the property existed, say). A failed report writes
+ * nothing, so a 403 never erases what an earlier run collected.
+ */
+async function collectGa4(
+  deps: CollectDeps,
+  today: string,
+  rows: FunnelRows,
+  start: string,
+): Promise<Pick<CollectReport['funnel'], 'site' | 'app'>> {
   if (!deps.ga4) return { site: 'no_credentials', app: 'no_credentials' };
-  const from = addDays(today, -GA4_LOOKBACK_DAYS);
   const to = addDays(today, -1);
-  const days = daysBetween(from, to);
   const result: Pick<CollectReport['funnel'], 'site' | 'app'> = { site: 'ok', app: 'ok' };
 
   try {
-    const counts = new Map(days.map((d) => [d, 0]));
-    for (const r of ga4RowsOf(await deps.ga4(GA4_SITE_PROPERTY_ID)(siteSessionsBody(from, to)))) {
+    const from = ga4From(rows, start, today, ['ig_site_sessions']);
+    const run = deps.ga4(GA4_SITE_PROPERTY_ID);
+    const [active, sessions] = await Promise.all([run(activeDaysBody(from, to)), run(siteSessionsBody(from, to))]);
+    const live = activeDays(active);
+    const counts = new Map<string, number>();
+    for (const r of ga4RowsOf(sessions)) {
       const day = ga4Day(r.dimensionValues?.[0]?.value);
       const v = Number(r.metricValues?.[0]?.value);
-      if (day && counts.has(day) && Number.isFinite(v)) counts.set(day, (counts.get(day) ?? 0) + Math.trunc(v));
+      if (day && Number.isFinite(v)) counts.set(day, (counts.get(day) ?? 0) + Math.trunc(v));
     }
-    await deps.store.upsert('funnel_daily', days.map((day) => ({ day, ig_site_sessions: counts.get(day) })), 'day');
+    const days = daysBetween(from, to).filter((d) => live.has(d) || counts.has(d));
+    await deps.store.upsert('funnel_daily', days.map((day) => ({ day, ig_site_sessions: counts.get(day) ?? 0 })), 'day');
   } catch (e) {
     result.site = 'failed';
-    deps.log(`[social-collect] ga4 site failed: ${e instanceof Error ? e.message : 'unknown'}`);
+    deps.log(`[social-collect] ga4 site failed: ${reason(e)}`);
   }
 
   try {
-    const ios = new Map(days.map((d) => [d, 0]));
-    const android = new Map(days.map((d) => [d, 0]));
-    for (const r of ga4RowsOf(await deps.ga4(GA4_APP_PROPERTY_ID)(appInstallsBody(from, to)))) {
+    const from = ga4From(rows, start, today, ['installs_ios', 'installs_android']);
+    const run = deps.ga4(GA4_APP_PROPERTY_ID);
+    const [active, installs] = await Promise.all([run(activeDaysBody(from, to)), run(appInstallsBody(from, to))]);
+    const live = activeDays(active);
+    const ios = new Map<string, number>();
+    const android = new Map<string, number>();
+    for (const r of ga4RowsOf(installs)) {
       const day = ga4Day(r.dimensionValues?.[0]?.value);
       const platform = String(r.dimensionValues?.[1]?.value ?? '').toLowerCase();
       const v = Number(r.metricValues?.[0]?.value);
-      if (!day || !Number.isFinite(v)) continue;
       const target = platform === 'ios' ? ios : platform === 'android' ? android : null;
-      if (target?.has(day)) target.set(day, (target.get(day) ?? 0) + Math.trunc(v));
+      if (day && target && Number.isFinite(v)) target.set(day, (target.get(day) ?? 0) + Math.trunc(v));
     }
+    const days = daysBetween(from, to).filter((d) => live.has(d) || ios.has(d) || android.has(d));
     await deps.store.upsert(
       'funnel_daily',
-      days.map((day) => ({ day, installs_ios: ios.get(day), installs_android: android.get(day) })),
+      days.map((day) => ({ day, installs_ios: ios.get(day) ?? 0, installs_android: android.get(day) ?? 0 })),
       'day',
     );
   } catch (e) {
-    const msg = e instanceof Error ? e.message : 'unknown';
-    if (msg === 'ga4_report_403') {
-      // The service account was not granted the app property: null, never zero, until it is.
-      result.app = 'no_access';
-      await deps.store
-        .upsert('funnel_daily', days.map((day) => ({ day, installs_ios: null, installs_android: null })), 'day')
-        .catch(() => undefined);
-    } else {
-      result.app = 'failed';
-    }
+    const msg = reason(e);
+    // ga4_report_403: the service account was not granted the app property. Nothing is written.
+    result.app = msg === 'ga4_report_403' ? 'no_access' : 'failed';
     deps.log(`[social-collect] ga4 app ${result.app}: ${msg}`);
   }
   return result;
@@ -880,15 +998,26 @@ export async function runSocialCollect(deps: CollectDeps): Promise<CollectReport
     }
   }
 
+  // The funnel fills whatever history is missing, so the first run (or one after a gap) backfills.
+  let start = addDays(today, -FUNNEL_HISTORY_DAYS);
+  const rows: FunnelRows = new Map();
+  try {
+    const firstPost = own ? await deps.store.firstPostDay(own.id) : null;
+    if (firstPost && firstPost < start) start = firstPost;
+    for (const r of await deps.store.funnelSince(start)) rows.set(String(r.day), r);
+  } catch (e) {
+    // Unread history reads as missing: the run asks for all of it again, and the upsert is idempotent.
+    deps.log(`[social-collect] funnel history read failed: ${reason(e)}`);
+  }
   if (own) {
     try {
-      report.funnel.meta = await collectMetaFunnel(deps, today);
+      report.funnel.meta = await collectMetaFunnel(deps, today, rows);
     } catch (e) {
       report.funnel.meta = 'failed';
       deps.log(`[social-collect] funnel write failed: ${reason(e)}`);
     }
   }
-  const ga4 = await collectGa4(deps, today);
+  const ga4 = await collectGa4(deps, today, rows, start);
   report.funnel.site = ga4.site;
   report.funnel.app = ga4.app;
 

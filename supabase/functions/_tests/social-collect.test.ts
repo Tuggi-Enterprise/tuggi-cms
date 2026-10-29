@@ -10,6 +10,7 @@ import { assert, assertEquals } from './assert.ts';
 import { fetchCalls, loadHandler, network, scenario } from './harness.ts';
 import {
   checkRecommendations,
+  IG_SESSION_SOURCE_PATTERN,
   type CollectDeps,
   type Gemini,
   lookupAccount,
@@ -113,6 +114,13 @@ class MemoryStore implements SocialStore {
   funnelSince() {
     return Promise.resolve([...this.tables.funnel_daily.values()]);
   }
+  firstPostDay(accountId: string) {
+    const days = [...this.tables.media.values()]
+      .filter((m) => m.account_id === accountId && typeof m.posted_at === 'string')
+      .map((m) => String(m.posted_at).slice(0, 10))
+      .sort();
+    return Promise.resolve(days[0] ?? null);
+  }
   followersSince() {
     return Promise.resolve(
       [...this.tables.account_daily.values()].map((r) => ({
@@ -140,8 +148,20 @@ const insight = (pairs: Record<string, number>) => ({
 const metaError = (status: number, code: number, subcode?: number) =>
   new Response(JSON.stringify({ error: { message: 'x', type: 'OAuthException', code, error_subcode: subcode } }), { status });
 
+/** What Meta answers for one account metric on one Brasília day (`since` is that day's midnight). */
+type AccountAnswer = (metric: string, day: string) => Response;
+
+const okJson = (body: unknown) => new Response(JSON.stringify(body), { status: 200 });
+
+/** The first run's Meta: profile views 37 every day, website_clicks refused (code 100). */
+const DEFAULT_ACCOUNT: AccountAnswer = (metric) =>
+  metric === 'profile_views' ? okJson({ data: [{ name: 'profile_views', total_value: { value: 37 } }] }) : metaError(400, 100);
+
+/** Brasília midnight is 03:00 UTC, so `since` minus three hours is 00:00 UTC of the same day. */
+const dayOfSince = (since: string | null) => new Date(Number(since) * 1000 - 3 * 3_600_000).toISOString().slice(0, 10);
+
 /** The Graph API, recorded. `m3` refuses the full FEED list once (code 100), like a type mismatch. */
-function graph(url: URL): Response {
+function graph(url: URL, account: AccountAnswer = DEFAULT_ACCOUNT): Response {
   const path = url.pathname.replace('/v26.0/', '');
   const fields = url.searchParams.get('fields') ?? '';
   const metric = url.searchParams.get('metric') ?? '';
@@ -160,9 +180,7 @@ function graph(url: URL): Response {
   if (path === IG_USER && fields.startsWith('business_discovery.username(ghost)')) return metaError(400, 110, 2207013);
   if (path === IG_USER) return ok({ id: IG_USER, username: 'tuggi_app', followers_count: 1520, media_count: 3 });
   if (path === `${IG_USER}/media`) return ok({ data: ownMedia, paging: { cursors: { before: 'b', after: 'a' } } });
-  if (path === `${IG_USER}/insights`) {
-    return metric === 'profile_views' ? ok({ data: [{ name: 'profile_views', total_value: { value: 37 } }] }) : metaError(400, 100);
-  }
+  if (path === `${IG_USER}/insights`) return account(metric, dayOfSince(url.searchParams.get('since')));
   if (path === 'm1/insights') return ok(insight({ reach: 1000, saved: 20, shares: 5, views: 3000, profile_visits: 9, follows: 2, likes: 41, comments: 3 }));
   if (path === 'm2/insights') return ok(insight({ reach: 4000, saved: 30, shares: 50, views: 9000, likes: 90, comments: 8 }));
   if (path === 'm3/insights') {
@@ -180,8 +198,28 @@ interface Rig {
   prompts: string[];
 }
 
-function rig(opts: { now?: Date; geminiAnswers?: string[]; appAccess?: boolean; accounts?: WatchedAccount[] } = {}): Rig {
-  const store = new MemoryStore(opts.accounts ?? [OWN, RIVAL, BROKEN]);
+interface RigOptions {
+  now?: Date;
+  geminiAnswers?: string[];
+  appAccess?: boolean;
+  accounts?: WatchedAccount[];
+  account?: AccountAnswer;
+  /** Days each GA4 property recorded anyone; every asked day when absent. */
+  ga4Live?: (day: string) => boolean;
+  store?: MemoryStore;
+}
+
+/** Every GA4 body a run sent, per property, to read the range it asked for. */
+type Ga4Call = { property: string; body: Record<string, unknown> };
+
+function ga4Range(body: Record<string, unknown>): [string, string] {
+  const r = (body.dateRanges as Array<{ startDate: string; endDate: string }>)[0];
+  return [r.startDate, r.endDate];
+}
+
+function rig(opts: RigOptions = {}): Rig & { ga4Calls: Ga4Call[] } {
+  const store = opts.store ?? new MemoryStore(opts.accounts ?? [OWN, RIVAL, BROKEN]);
+  const ga4Calls: Ga4Call[] = [];
   const urls: string[] = [];
   const headers: Array<Record<string, string>> = [];
   const logs: string[] = [];
@@ -190,7 +228,7 @@ function rig(opts: { now?: Date; geminiAnswers?: string[]; appAccess?: boolean; 
     fetch: (url, init) => {
       urls.push(url);
       headers.push((init?.headers ?? {}) as Record<string, string>);
-      return Promise.resolve(graph(new URL(url)));
+      return Promise.resolve(graph(new URL(url), opts.account));
     },
     token: TOKEN,
     igUserId: IG_USER,
@@ -204,8 +242,17 @@ function rig(opts: { now?: Date; geminiAnswers?: string[]; appAccess?: boolean; 
     return Promise.resolve({ text: answers.shift() ?? '[]', model: 'gemini-2.5-flash-lite' });
   };
   const ga4 = (propertyId: string) => (body: Record<string, unknown>) => {
+    ga4Calls.push({ property: propertyId, body });
+    if (propertyId === '491146217' && opts.appAccess === false) return Promise.reject(new Error('ga4_report_403'));
+    if (!body.dimensionFilter) {
+      const [from, to] = ga4Range(body);
+      const rows = [];
+      for (let d = from; d <= to; d = new Date(Date.parse(`${d}T12:00:00Z`) + 86_400_000).toISOString().slice(0, 10)) {
+        if (opts.ga4Live?.(d) ?? true) rows.push({ dimensionValues: [{ value: d.replaceAll('-', '') }], metricValues: [{ value: '50' }] });
+      }
+      return Promise.resolve({ rows });
+    }
     if (propertyId === '491146217') {
-      if (opts.appAccess === false) return Promise.reject(new Error('ga4_report_403'));
       return Promise.resolve({
         rows: [
           { dimensionValues: [{ value: '20261101' }, { value: 'iOS' }], metricValues: [{ value: '4' }] },
@@ -214,7 +261,9 @@ function rig(opts: { now?: Date; geminiAnswers?: string[]; appAccess?: boolean; 
         ],
       });
     }
-    assertEquals((body.dimensionFilter as { filter: { fieldName: string } }).filter.fieldName, 'sessionSource');
+    const filter = (body.dimensionFilter as { filter: { fieldName: string; stringFilter: { value: string } } }).filter;
+    assertEquals(filter.fieldName, 'sessionSource');
+    assertEquals(filter.stringFilter.value, IG_SESSION_SOURCE_PATTERN);
     return Promise.resolve({ rows: [{ dimensionValues: [{ value: '20261031' }], metricValues: [{ value: '12' }] }] });
   };
   return {
@@ -224,6 +273,7 @@ function rig(opts: { now?: Date; geminiAnswers?: string[]; appAccess?: boolean; 
     headers,
     logs,
     prompts,
+    ga4Calls,
   };
 }
 
@@ -255,10 +305,11 @@ Deno.test('#1059: the daily run writes our account, a competitor, the funnel, th
     media_id: 'c1', day: '2026-11-02', likes: null, comments: 4, reach: null, saved: null, shares: null, views: null, profile_visits: null, follows: null,
   });
 
-  // Funnel: yesterday's profile views; website_clicks refused by Meta is null and logged.
+  // Funnel: yesterday's profile views; website_clicks refused by Meta is never written (null) and logged.
   assertEquals(r.store.tables.funnel_daily.get('2026-11-01'), {
-    day: '2026-11-01', profile_views: 37, website_clicks: null, ig_site_sessions: 0, installs_ios: 4, installs_android: 7,
+    day: '2026-11-01', profile_views: 37, ig_site_sessions: 0, installs_ios: 4, installs_android: 7,
   });
+  assert(r.logs.some((l) => l.includes('website_clicks refused on 90 day(s): meta_400_100_x')), r.logs.join('\n'));
   assertEquals(r.store.tables.funnel_daily.get('2026-10-31')?.ig_site_sessions, 12);
   assertEquals(report.funnel, { meta: 'partial', site: 'ok', app: 'ok' });
 
@@ -318,7 +369,7 @@ Deno.test('#1059: without access to the app property, installs are null (never z
   const report = await runSocialCollect(r.deps);
   assertEquals(report.funnel.app, 'no_access');
   const row = r.store.tables.funnel_daily.get('2026-11-01');
-  assertEquals([row?.installs_ios, row?.installs_android, row?.ig_site_sessions], [null, null, 0]);
+  assertEquals([row?.installs_ios ?? null, row?.installs_android ?? null, row?.ig_site_sessions], [null, null, 0]);
   assert(r.logs.some((l) => l.includes('ga4 app no_access')), 'no log line for the missing access');
 });
 
@@ -436,4 +487,113 @@ Deno.test('#1059: the daily run through the handler reads the active accounts of
   assert(!scenario.writes.some((w) => w.op === 'insert'), 'a plain insert would duplicate on the second run');
   delete scenario.tables.watched_accounts;
   network.reply = () => new Response('{}', { status: 400 });
+});
+
+// ------------------------------------------------------------------------------------------------
+// The funnel history (#1059, operator's capture of 2026-10-29: installs only on the last three days)
+
+const fullFunnel = (from: string, to: string, value: number) => {
+  const store = new MemoryStore([OWN]);
+  for (let d = from; d <= to; d = new Date(Date.parse(`${d}T12:00:00Z`) + 86_400_000).toISOString().slice(0, 10)) {
+    store.tables.funnel_daily.set(d, {
+      day: d, profile_views: value, website_clicks: value, ig_site_sessions: value, installs_ios: value, installs_android: value,
+    });
+  }
+  return store;
+};
+
+const ranges = (r: { ga4Calls: Ga4Call[] }, property: string) =>
+  r.ga4Calls.filter((c) => c.property === property).map((c) => ga4Range(c.body));
+
+const metaDays = (urls: string[], metric: string) =>
+  urls
+    .filter((u) => u.includes(`${IG_USER}/insights`) && new URL(u).searchParams.get('metric') === metric)
+    .map((u) => dayOfSince(new URL(u).searchParams.get('since')))
+    .sort();
+
+Deno.test('#1059 DS-COMPONENTE-084: the first run backfills GA4 from the first post in one report per query, and Meta 90 days', async () => {
+  const r = rig({ accounts: [OWN], now: TUESDAY });
+  await runSocialCollect(r.deps);
+  // The oldest own post is 2026-10-20, more recent than 360 days back: the history starts 360 days back.
+  const start = '2025-11-08';
+  assertEquals(ranges(r, '494999879'), [[start, '2026-11-02'], [start, '2026-11-02']]);
+  assertEquals(ranges(r, '491146217'), [[start, '2026-11-02'], [start, '2026-11-02']]);
+  assertEquals(r.store.tables.funnel_daily.get(start)?.ig_site_sessions, 0);
+  assertEquals(r.store.tables.funnel_daily.get('2026-10-31')?.ig_site_sessions, 12);
+  // Meta keeps 90 days: every one of them asked once, newest first, and written.
+  const asked = metaDays(r.urls, 'profile_views');
+  assertEquals([asked.length, asked[0], asked.at(-1)], [90, '2026-08-05', '2026-11-02']);
+  assertEquals(r.store.tables.funnel_daily.get('2026-08-05')?.profile_views, 37);
+  assertEquals(r.store.tables.funnel_daily.get('2026-08-04')?.profile_views, undefined);
+});
+
+Deno.test('#1059: an older first post moves the backfill back to it', async () => {
+  const store = new MemoryStore([OWN]);
+  await store.upsert('media', [{ id: 'old', account_id: OWN.id, posted_at: '2025-10-01T17:51:22+0000' }], 'id');
+  const r = rig({ store, now: TUESDAY });
+  await runSocialCollect(r.deps);
+  assertEquals(ranges(r, '494999879')[0], ['2025-10-01', '2026-11-02']);
+});
+
+Deno.test('#1059: with the history complete, a daily run asks GA4 and Meta for the last three days only, and rewrites them', async () => {
+  const store = fullFunnel('2025-10-01', '2026-11-02', 5);
+  const r = rig({ store, now: TUESDAY });
+  await runSocialCollect(r.deps);
+  assertEquals(ranges(r, '494999879'), [['2026-10-31', '2026-11-02'], ['2026-10-31', '2026-11-02']]);
+  assertEquals(ranges(r, '491146217'), [['2026-10-31', '2026-11-02'], ['2026-10-31', '2026-11-02']]);
+  assertEquals(metaDays(r.urls, 'profile_views'), ['2026-10-31', '2026-11-01', '2026-11-02']);
+  // GA4 settles late: the refreshed days take the new numbers, the older ones keep theirs.
+  assertEquals(store.tables.funnel_daily.get('2026-10-31')?.ig_site_sessions, 12);
+  assertEquals(store.tables.funnel_daily.get('2026-11-01')?.installs_android, 7);
+  assertEquals(store.tables.funnel_daily.get('2026-10-30')?.ig_site_sessions, 5);
+  // website_clicks refused on the refreshed days: the 5 collected before stays, never overwritten by null.
+  assertEquals(store.tables.funnel_daily.get('2026-11-01')?.website_clicks, 5);
+});
+
+Deno.test('#1059: a gap in the history moves the GA4 report back to the oldest missing day, and Meta asks that day', async () => {
+  const store = fullFunnel('2025-10-01', '2026-11-02', 5);
+  store.tables.funnel_daily.delete('2026-09-15');
+  store.tables.funnel_daily.set('2026-10-10', { day: '2026-10-10', profile_views: null, website_clicks: null, ig_site_sessions: 5, installs_ios: null, installs_android: null });
+  const r = rig({ store, now: TUESDAY });
+  await runSocialCollect(r.deps);
+  assertEquals(ranges(r, '494999879')[0], ['2026-09-15', '2026-11-02']);
+  assertEquals(ranges(r, '491146217')[0], ['2026-09-15', '2026-11-02']);
+  assertEquals(metaDays(r.urls, 'profile_views'), ['2026-09-15', '2026-10-10', '2026-10-31', '2026-11-01', '2026-11-02']);
+  assertEquals(store.tables.funnel_daily.get('2026-09-15')?.ig_site_sessions, 0);
+  assertEquals(store.tables.funnel_daily.get('2026-10-10')?.installs_ios, 0);
+});
+
+Deno.test('#1059 DS-COMPONENTE-084: a 0 Meta answered is written as 0; an empty answer or a refusal writes nothing', async () => {
+  const account: AccountAnswer = (metric, day) => {
+    if (metric === 'website_clicks') return okJson({ data: [{ name: 'website_clicks', total_value: { value: 0 } }] });
+    return day === '2026-11-02' ? okJson({ data: [] }) : metaError(400, 100);
+  };
+  const r = rig({ accounts: [OWN], now: TUESDAY, account });
+  const report = await runSocialCollect(r.deps);
+  const day = r.store.tables.funnel_daily.get('2026-11-02');
+  assertEquals([day?.website_clicks, day?.profile_views], [0, undefined]);
+  assertEquals(r.store.tables.funnel_daily.get('2026-11-01')?.profile_views, undefined);
+  assertEquals(report.funnel.meta, 'partial');
+});
+
+Deno.test('#1059: the Meta walk stops at the first days where both metrics are refused, past retention', async () => {
+  const account: AccountAnswer = (metric, day) =>
+    day >= '2026-10-20' ? okJson({ data: [{ name: metric, total_value: { value: 3 } }] }) : metaError(400, 100);
+  const r = rig({ accounts: [OWN], now: TUESDAY, account });
+  const report = await runSocialCollect(r.deps);
+  const asked = metaDays(r.urls, 'profile_views');
+  // 14 days answered, then one group of 5 that holds the first refusals; nothing older is asked.
+  assertEquals(asked.length, 15);
+  assertEquals(asked[0], '2026-10-19');
+  assertEquals(report.funnel.meta, 'partial');
+});
+
+Deno.test('#1059 DS-COMPONENTE-084: a day GA4 recorded nobody stays null, and a 403 keeps the installs already collected', async () => {
+  const store = fullFunnel('2026-10-31', '2026-11-02', 5);
+  const r = rig({ store, now: TUESDAY, appAccess: false, ga4Live: (d) => d >= '2026-06-01' });
+  const report = await runSocialCollect(r.deps);
+  assertEquals(report.funnel.app, 'no_access');
+  assertEquals(store.tables.funnel_daily.get('2026-11-01')?.installs_ios, 5);
+  assertEquals(store.tables.funnel_daily.get('2026-05-31')?.ig_site_sessions, undefined);
+  assertEquals(store.tables.funnel_daily.get('2026-06-01')?.ig_site_sessions, 0);
 });
