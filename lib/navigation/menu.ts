@@ -73,6 +73,7 @@ import {
   Package,
   Route,
   Smartphone,
+  Share2,
   Store,
   Target,
   ThumbsDown,
@@ -242,6 +243,8 @@ function catalogue(): { basic: NavEntry[]; modules: NavEntry[] } {
               item('/dashboard/marketing/notifications', 'notifications', Bell),
               // The weekly push (#1047), next to the one-off push, where the operator looks for push.
               item('/admin/weekly-push', 'weekly_push', BellRing),
+              // The social analytics (#1059): our posts, the competitors and the Instagram funnel.
+              item('/admin/social', 'social', Share2),
             ],
           },
         ],

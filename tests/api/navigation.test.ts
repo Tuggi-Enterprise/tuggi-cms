@@ -200,6 +200,8 @@ test('o catálogo do admin é exatamente este — apagar um destino tem de doer'
     '/admin/poi-trigger-map',
     // Os números das horas concedidas (#855).
     '/admin/reward-settings',
+    // The social analytics (#1059).
+    '/admin/social',
     // Os votos nas histórias (#950).
     '/admin/story-feedback',
     '/admin/users',
