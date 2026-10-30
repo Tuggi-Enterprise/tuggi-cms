@@ -12,6 +12,7 @@ import {
   checkRecommendations,
   demographicRows,
   followMoves,
+  HISTORY_BUDGET_MS,
   IG_SESSION_SOURCE_PATTERN,
   navigationValues,
   type CollectDeps,
@@ -152,9 +153,6 @@ class MemoryStore implements SocialStore {
   }
   mediaCount(accountId: string) {
     return Promise.resolve([...this.tables.media.values()].filter((m) => m.account_id === accountId).length);
-  }
-  knownMedia(ids: string[]) {
-    return Promise.resolve(new Set(ids.filter((id) => this.tables.media.has(id))));
   }
   count(table: SocialTable) {
     return this.tables[table].size;
@@ -989,7 +987,7 @@ Deno.test('#1064: the first run walks a competitor to the end with the after cur
   assert(r.headers.every((h) => h.Authorization === `Bearer ${TOKEN}`));
 });
 
-Deno.test('#1064: once the history is whole, the next run stops at the first page with a stored post', async () => {
+Deno.test('#1064: once the history is whole, the next run reads only the first page', async () => {
   const first = rig({ accounts: [ROMA] });
   await runSocialCollect(first.deps);
   romaNewest = [romaPost('r4', '2026-11-02T08:00:00+0000', 40), ...romaNewest];
@@ -1018,4 +1016,20 @@ Deno.test('#1064: a second page Meta refuses keeps the first page, logs the stop
   } finally {
     romaAfter = saved;
   }
+});
+
+Deno.test('#1064: the history walks last, after the funnel, and stops at HISTORY_BUDGET_MS, keeping what it wrote', async () => {
+  let clock = MONDAY.getTime();
+  const r = rig({ accounts: [ROMA] });
+  // Every call to the clock after the start is past the budget: the walk never asks page 2.
+  r.deps.now = () => {
+    const t = new Date(clock);
+    clock += HISTORY_BUDGET_MS;
+    return t;
+  };
+  const report = await runSocialCollect(r.deps);
+  assertEquals(report.history, { done: [], partial: ['romatours'], posts: 0 });
+  assertEquals([r.store.tables.media.has('r3'), r.store.tables.media.has('r1')], [true, false]);
+  assert(!r.urls.some((u) => decodeURIComponent(u).includes('media.after(')), 'page 2 asked past the budget');
+  assert(r.store.tables.collector_runs.has('daily'), 'the daily run did not finish');
 });

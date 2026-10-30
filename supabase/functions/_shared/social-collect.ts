@@ -25,8 +25,9 @@
 // #1064, checked 2026-10-30 against the v26.0 Business Discovery reference: "the response will
 // include before and after cursors if the response contains multiple pages of data" and "will not
 // include previous or next fields", so the next page is asked by hand with `media.after(<cursor>)`.
-// A competitor's history is walked to the end while we keep fewer posts of it than its
-// `media_count`; after that a run stops at the first page holding a post already stored.
+// Every run reads the first page of each competitor (its newest posts); while we keep fewer posts of
+// it than its `media_count`, the run walks the rest of its history at the end, under
+// HISTORY_BUDGET_MS.
 //
 // #1062, checked 2026-10-29 against the v26.0 references (Media Insights, User Insights, User Stories):
 // - reels: ig_reels_avg_watch_time and ig_reels_video_view_total_time ("in development"), REELS only.
@@ -67,6 +68,13 @@ export const COMPETITOR_PAGE_SIZE = 50;
  * 50 is the 10 000 posts the `/media` edge returns at most (IG User Media reference, v26.0).
  */
 export const COMPETITOR_MAX_PAGES = 200;
+/**
+ * The history walk of the competitors runs last in the daily run and stops this long after the run
+ * started, so the funnel, the themes and the week are never starved: the gateway answers 504 at 150 s
+ * (#1064, the first run with the walk inside the account loop timed out). What a stopped walk wrote
+ * stays; the next run walks again from the second page.
+ */
+export const HISTORY_BUDGET_MS = 100_000;
 /** Pages of 50 of our own media the collector walks at most, a guard against a runaway cursor. */
 export const OWN_MEDIA_MAX_PAGES = 20;
 /** Below this, a group has no rate and the week gets no recommendation (copy `few_posts_hint`). */
@@ -297,8 +305,6 @@ export interface SocialStore {
   followersSince(day: string): Promise<Array<{ account_id: string; day: string; followers_count: number | null }>>;
   /** How many posts of the account `media` keeps (#1064: the history walk runs until it holds them all). */
   mediaCount(accountId: string): Promise<number>;
-  /** Which of these post ids `media` already keeps. */
-  knownMedia(ids: string[]): Promise<Set<string>>;
 }
 
 export class StoreError extends Error {
@@ -438,11 +444,6 @@ export function supabaseStore(social: any): SocialStore {
       check('media_count', r);
       return typeof r.count === 'number' ? r.count : 0;
     },
-    async knownMedia(ids) {
-      if (ids.length === 0) return new Set();
-      const rows = check<Array<{ id: string }>>('known_media', await social.from('media').select('id').in('id', ids)) ?? [];
-      return new Set(rows.map((r) => String(r.id)));
-    },
   };
 }
 
@@ -488,6 +489,8 @@ export interface CollectReport {
   audience: 'written' | 'exists' | 'empty' | 'failed' | 'skipped';
   apple: 'read' | 'pending' | 'not_configured' | 'failed' | 'skipped';
   themes: number;
+  /** #1064: the competitors whose history walk reached the end in this run, and those it left. */
+  history: { done: string[]; partial: string[]; posts: number };
   weekly: 'written' | 'exists' | 'not_monday' | 'few_posts' | 'rejected' | 'failed' | 'no_model';
 }
 
@@ -622,14 +625,29 @@ function competitorMetrics(nodes: MediaNode[], today: string): Record<string, un
   });
 }
 
+/** Where a competitor's history walk resumes: the cursor after its first page. */
+interface HistoryNext {
+  account: WatchedAccount;
+  after: string;
+  safe: boolean;
+}
+
+/** Writes one page of a competitor: the posts and the counters of the media object. */
+async function writeCompetitorPage(store: SocialStore, account: WatchedAccount, nodes: MediaNode[], today: string) {
+  await store.upsert('media', nodes.map((m) => mediaRow(m, account.id)), 'id');
+  await store.upsert('media_metrics', competitorMetrics(nodes, today), 'media_id,day');
+}
+
 /**
- * A competitor (#1059), its whole history since #1064. The first page is the profile and the newest
- * posts; while `media` keeps fewer posts of the account than its `media_count`, the walk follows the
- * `after` cursor to the end, and otherwise it stops after the first page holding a post already
- * stored. Every page is written as it arrives, so a page refused halfway keeps the ones before it
- * and the next run walks again. Likes and comments are the counters of the media object.
+ * A competitor (#1059): the profile and the newest page of posts, as before #1064. When `media`
+ * keeps fewer posts of the account than its `media_count`, the cursor after this page is returned
+ * and `walkHistory` follows it at the end of the run.
  */
-async function collectCompetitor(deps: CollectDeps, account: WatchedAccount, today: string): Promise<{ media: number; metrics: number }> {
+async function collectCompetitor(
+  deps: CollectDeps,
+  account: WatchedAccount,
+  today: string,
+): Promise<{ media: number; metrics: number; next: HistoryNext | null }> {
   const { meta, store } = deps;
   let safe = false;
   let bd: Record<string, unknown> | undefined;
@@ -649,30 +667,41 @@ async function collectCompetitor(deps: CollectDeps, account: WatchedAccount, tod
     [{ account_id: account.id, day: today, followers_count: num(bd.followers_count), media_count: mediaCount }],
     'account_id,day',
   );
+  const page = bd.media as MediaPage;
+  const nodes = ((page?.data ?? []) as MediaNode[]).filter((m) => str(m.id));
+  await writeCompetitorPage(store, account, nodes, today);
+  const after = str(page?.paging?.cursors?.after);
+  const history = after !== null && nodes.length > 0 && (mediaCount === null || (await store.mediaCount(account.id)) < mediaCount);
+  return { media: nodes.length, metrics: nodes.length, next: history ? { account, after: after as string, safe } : null };
+}
 
-  const history = mediaCount === null || (await store.mediaCount(account.id)) < mediaCount;
-  let page = bd.media as MediaPage;
-  let written = 0;
-  let previous: string | null = null;
-  for (let n = 1; ; n++) {
-    const nodes = ((page?.data ?? []) as MediaNode[]).filter((m) => str(m.id));
-    if (nodes.length === 0) break;
-    const known = history ? new Set<string>() : await store.knownMedia(nodes.map((m) => String(m.id)));
-    await store.upsert('media', nodes.map((m) => mediaRow(m, account.id)), 'id');
-    await store.upsert('media_metrics', competitorMetrics(nodes, today), 'media_id,day');
-    written += nodes.length;
-    if (known.size > 0) break;
-    const after = str(page?.paging?.cursors?.after);
-    if (!after || after === previous || n >= COMPETITOR_MAX_PAGES) break;
-    previous = after;
+/**
+ * The rest of a competitor's history (#1064): page after page with the `after` cursor, each written
+ * as it arrives, until the cursor ends, `COMPETITOR_MAX_PAGES`, or `deadline`. A refused page stops
+ * the walk and keeps what came before. Answers whether the walk reached the end.
+ */
+async function walkHistory(deps: CollectDeps, next: HistoryNext, today: string, deadline: number): Promise<{ posts: number; done: boolean }> {
+  const { account } = next;
+  let after: string | null = next.after;
+  let posts = 0;
+  for (let n = 2; n <= COMPETITOR_MAX_PAGES; n++) {
+    if (deps.now().getTime() >= deadline) return { posts, done: false };
+    let page: MediaPage;
     try {
-      page = (await businessDiscovery(meta, account.username, after, safe))?.media as MediaPage;
+      page = (await businessDiscovery(deps.meta, account.username, after, next.safe))?.media as MediaPage;
     } catch (e) {
-      deps.log(`[social-collect] account @${account.username} history stopped at page ${n + 1}: ${reason(e)}`);
-      break;
+      deps.log(`[social-collect] account @${account.username} history stopped at page ${n}: ${reason(e)}`);
+      return { posts, done: false };
     }
+    const nodes = ((page?.data ?? []) as MediaNode[]).filter((m) => str(m.id));
+    if (nodes.length === 0) return { posts, done: true };
+    await writeCompetitorPage(deps.store, account, nodes, today);
+    posts += nodes.length;
+    const following = str(page?.paging?.cursors?.after);
+    if (!following || following === after) return { posts, done: true };
+    after = following;
   }
-  return { media: written, metrics: written };
+  return { posts, done: false };
 }
 
 type FunnelRows = Map<string, Record<string, unknown>>;
@@ -1514,17 +1543,21 @@ export async function runSocialCollect(deps: CollectDeps): Promise<CollectReport
     audience: 'skipped',
     apple: 'skipped',
     themes: 0,
+    history: { done: [], partial: [], posts: 0 },
     weekly: 'not_monday',
   };
+  const deadline = deps.now().getTime() + HISTORY_BUDGET_MS;
+  const histories: HistoryNext[] = [];
 
   const accounts = await deps.store.activeAccounts();
   const own = accounts.find((a) => a.is_own) ?? null;
 
   for (const account of accounts) {
     try {
-      const done = account.is_own
+      const done: { media: number; metrics: number; next?: HistoryNext | null } = account.is_own
         ? await collectOwn(deps, account, today)
         : await collectCompetitor(deps, account, today);
+      if (done.next) histories.push(done.next);
       report.media += done.media;
       report.metrics += done.metrics;
       report.accounts.ok.push(account.username);
@@ -1584,6 +1617,20 @@ export async function runSocialCollect(deps: CollectDeps): Promise<CollectReport
       deps.log(`[social-collect] weekly failed: ${reason(e)}`);
     }
   }
+  // Last, so a long history never starves what the screen reads every day.
+  for (const next of histories) {
+    try {
+      const walk = await walkHistory(deps, next, today, deadline);
+      report.history.posts += walk.posts;
+      report.media += walk.posts;
+      report.metrics += walk.posts;
+      (walk.done ? report.history.done : report.history.partial).push(next.account.username);
+    } catch (e) {
+      report.history.partial.push(next.account.username);
+      deps.log(`[social-collect] account @${next.account.username} history failed: ${reason(e)}`);
+    }
+  }
+
   const failed = report.accounts.failed.length > 0 && report.accounts.ok.length === 0;
   await recordRun(deps, 'daily', failed ? 'error' : 'ok', JSON.stringify({ funnel: report.funnel, accounts_failed: report.accounts.failed.length }));
   return report;
