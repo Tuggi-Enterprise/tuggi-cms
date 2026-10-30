@@ -44,3 +44,20 @@ export const USERNAME_PATTERN = /^[a-z0-9._]{1,30}$/
 export function normalizeUsername(raw: unknown): string {
   return typeof raw === 'string' ? raw.trim().replace(/^@/, '').toLowerCase() : ''
 }
+
+/** The markets an account can be marked with (#1064, CHECK of `social.watched_accounts.market`). */
+export const MARKETS = ['BR', 'US', 'EU'] as const
+export type Market = (typeof MARKETS)[number]
+
+export function isMarket(v: unknown): v is Market {
+  return typeof v === 'string' && (MARKETS as readonly string[]).includes(v)
+}
+
+/**
+ * The Meta Ad Library searched by the account's name (#1064, spec M4): Business Discovery gives no id
+ * of the Facebook page, so the link is a keyword search, not the advertiser's page.
+ */
+export function adLibrarySearchUrl(username: string): string {
+  const q = encodeURIComponent(username)
+  return `https://www.facebook.com/ads/library/?active_status=all&ad_type=all&country=ALL&q=${q}&search_type=keyword_unordered&media_type=all`
+}

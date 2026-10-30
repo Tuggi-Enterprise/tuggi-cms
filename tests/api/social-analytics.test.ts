@@ -207,19 +207,21 @@ test('#1059: an active duplicate is refused before the Meta and names the row to
 test('#1059: a new account is checked on social-collect lookup and inserted with the ig user id', async () => {
   answers['watched_accounts:select.eq.maybeSingle'] = () => ({ data: null })
   answers['watched_accounts:insert.select.single'] = (c) => {
-    assert.deepEqual(c.args[0], [{ username: 'roadtrippers', ig_user_id: '17841499999999999' }])
-    return { data: { id: 'new-1', username: 'roadtrippers' } }
+    assert.deepEqual(c.args[0], [{ username: 'roadtrippers', ig_user_id: '17841499999999999', market: null }])
+    return { data: { id: 'new-1', username: 'roadtrippers', market: null } }
   }
   const res = await accountsRoute.POST(req('POST', '/accounts', { username: ' @RoadTrippers' }), ctx)
   assert.equal(res.status, 200)
-  assert.deepEqual(await res.json(), { account: { id: 'new-1', username: 'roadtrippers', followers: 51234, reactivated: false } })
+  assert.deepEqual(await res.json(), {
+    account: { id: 'new-1', username: 'roadtrippers', market: null, followers: 51234, reactivated: false },
+  })
   assert.deepEqual(invokes, [{ fn: 'social-collect', body: { action: 'lookup', username: 'roadtrippers' } }])
 })
 
 test('#1059: a removed account comes back by UPDATE active true, never a second insert', async () => {
   answers['watched_accounts:select.eq.maybeSingle'] = () => ({ data: { id: RIVAL_ID, is_own: false, active: false } })
   answers['watched_accounts:update.eq.select.single'] = (c) => {
-    assert.deepEqual(c.args[0], [{ active: true, ig_user_id: '17841499999999999' }])
+    assert.deepEqual(c.args[0], [{ active: true, market: null, ig_user_id: '17841499999999999' }])
     assert.deepEqual(c.args[1], ['id', RIVAL_ID])
     return { data: { id: RIVAL_ID, username: 'izitravel' } }
   }
@@ -598,4 +600,267 @@ test('#1063: every growth key the card reads exists in pt', () => {
   for (const k of ['caption_week', 'band_net_week', 'band_posts_week', 'chart_aria_week']) used.push(k)
   assert.ok(used.length > 15)
   for (const k of used) assert.equal(typeof pt.Pages.Social.growth[k], 'string', k)
+})
+
+// ---------------------------------------------------------------------------------------------
+// #1064: competitors by market, the growth of any account, the comparison and the seal
+
+/* eslint-disable @typescript-eslint/no-explicit-any */
+let growthRoute: any
+let marketsRoute: any
+/* eslint-enable @typescript-eslint/no-explicit-any */
+const OWN_ID = 'b0000000-0000-4000-8000-000000000001'
+
+before(async () => {
+  growthRoute = await import('@/app/api/admin/social/growth/route')
+  marketsRoute = await import('@/app/api/admin/social/markets/route')
+})
+
+test('#1064: the growth and markets doors are admin only, and nothing of social is read before the gate', async () => {
+  for (const r of ['editor', 'viewer', 'client']) {
+    role = r
+    assert.equal((await growthRoute.GET(req('GET', `/growth?account=${RIVAL_ID}`), ctx)).status, 403, r)
+    assert.equal((await marketsRoute.GET(req('GET', '/markets'), ctx)).status, 403, r)
+    assert.equal((await accountRoute.PATCH(req('PATCH', `/accounts/${RIVAL_ID}`, { market: 'BR' }), idCtx(RIVAL_ID))).status, 403, r)
+  }
+  assert.deepEqual(calls, [])
+})
+
+test('#1064 M1: adding takes the market, BR, US, EU or none, and refuses another before the database and the Meta', async () => {
+  for (const market of ['br', 'XX', 3, '']) {
+    const res = await accountsRoute.POST(req('POST', '/accounts', { username: 'roadtrippers', market }), ctx)
+    assert.deepEqual([res.status, await res.json()], [400, { error: { code: 'invalid_market' } }], String(market))
+  }
+  assert.deepEqual([calls, invokes], [[], []])
+  answers['watched_accounts:select.eq.maybeSingle'] = () => ({ data: null })
+  answers['watched_accounts:insert.select.single'] = (c) => {
+    assert.deepEqual(c.args[0], [{ username: 'roadtrippers', ig_user_id: '17841499999999999', market: 'EU' }])
+    return { data: { id: 'new-1', username: 'roadtrippers', market: 'EU' } }
+  }
+  const res = await accountsRoute.POST(req('POST', '/accounts', { username: 'roadtrippers', market: 'EU' }), ctx)
+  assert.equal((await res.json()).account.market, 'EU')
+})
+
+test('#1064 M1: PATCH { market } marks an active competitor and answers the row; null clears it', async () => {
+  for (const body of [{ market: 'br' }, { market: 'US', active: false }, { market: undefined }, { markets: 'US' }]) {
+    assert.equal((await accountRoute.PATCH(req('PATCH', `/accounts/${RIVAL_ID}`, body), idCtx(RIVAL_ID))).status, 400, JSON.stringify(body))
+  }
+  assert.deepEqual(calls, [])
+  for (const market of ['US', null]) {
+    answers['watched_accounts:select.eq.maybeSingle'] = () => ({ data: { id: RIVAL_ID, is_own: false, active: true } })
+    answers['watched_accounts:update.eq.eq.eq.select.maybeSingle'] = (c) => {
+      assert.deepEqual(c.args.slice(0, 4), [[{ market }], ['id', RIVAL_ID], ['is_own', false], ['active', true]])
+      return { data: { id: RIVAL_ID, username: 'izitravel', market } }
+    }
+    const res = await accountRoute.PATCH(req('PATCH', `/accounts/${RIVAL_ID}`, { market }), idCtx(RIVAL_ID))
+    assert.deepEqual([res.status, await res.json()], [200, { account: { id: RIVAL_ID, username: 'izitravel', market } }])
+  }
+})
+
+test('#1064 M1: our own account never gets a market (400), and an inactive or missing id is 404', async () => {
+  answers['watched_accounts:select.eq.maybeSingle'] = () => ({ data: { id: OWN_ID, is_own: true, active: true } })
+  const own = await accountRoute.PATCH(req('PATCH', `/accounts/${OWN_ID}`, { market: 'BR' }), idCtx(OWN_ID))
+  assert.deepEqual([own.status, await own.json()], [400, { error: { code: 'own_account' } }])
+  assert.ok(!calls.some((c) => c.chain.includes('update')))
+  for (const data of [null, { id: RIVAL_ID, is_own: false, active: false }]) {
+    answers['watched_accounts:select.eq.maybeSingle'] = () => ({ data })
+    assert.equal((await accountRoute.PATCH(req('PATCH', `/accounts/${RIVAL_ID}`, { market: 'BR' }), idCtx(RIVAL_ID))).status, 404)
+  }
+})
+
+test('#1064 M1: the accounts carry the market as the database keeps it, and an unknown value as none', async () => {
+  answers['watched_accounts:select.eq'] = () => ({
+    data: [
+      { id: OWN_ID, username: 'tuggi_app', is_own: true, market: null },
+      { id: RIVAL_ID, username: 'izitravel', is_own: false, market: 'EU' },
+      { id: 'c3', username: 'autioapp', is_own: false, market: 'XX' },
+    ],
+  })
+  const body = await (await accountsRoute.GET(req('GET', '/accounts'), ctx)).json()
+  assert.deepEqual(body.accounts.map((a: { market: string | null }) => a.market), [null, 'EU', null])
+})
+
+test('#1064 M8.2: a competitor\'s growth starts on its first total, the net is the day-to-day difference, gains and losses are null', async () => {
+  const today = time.brasiliaDay(new Date())
+  const d = (n: number) => time.addDays(today, n)
+  answers['watched_accounts:select.eq.maybeSingle'] = () => ({ data: { id: RIVAL_ID, username: 'izitravel', is_own: false, active: true } })
+  answers['account_daily:select.eq.order'] = () => ({
+    data: [
+      { day: d(-4), followers_count: null },
+      { day: d(-3), followers_count: 1000 },
+      { day: d(-2), followers_count: 1012 },
+      { day: d(-1), followers_count: null },
+      { day: d(0), followers_count: 1009 },
+    ],
+  })
+  answers['media'] = () => ({ data: [{ id: 'p1', posted_at: `${d(-2)}T15:00:00.000Z` }, { id: 'p2', posted_at: `${d(-2)}T18:00:00.000Z` }] })
+  const res = await growthRoute.GET(req('GET', `/growth?account=${RIVAL_ID}`), ctx)
+  assert.equal(res.status, 200)
+  const body = await res.json()
+  assert.deepEqual([body.kind, body.account, body.from, body.to], ['competitor', { id: RIVAL_ID, username: 'izitravel' }, d(-3), d(0)])
+  assert.deepEqual(
+    body.days.map((x: Record<string, unknown>) => [x.total, x.net, x.follows, x.unfollows, x.posts]),
+    [
+      [1000, null, null, null, 0],
+      [1012, 12, null, null, 2],
+      [null, null, null, null, 0],
+      [1009, null, null, null, 0],
+    ]
+  )
+  assert.equal(body.measured.net, 1)
+  const media = calls.find((c) => c.table === 'media')
+  assert.deepEqual(media?.args[media.chain.indexOf('gte')], ['posted_at', time.brasiliaMidnightIso(d(-3))])
+})
+
+test('#1064 M8.2: our account through the growth door is the overview\'s series; a bad id is 400, an inactive one 404', async () => {
+  const today = time.brasiliaDay(new Date())
+  const yesterday = time.addDays(today, -1)
+  answers['funnel_daily:select.not.order'] = () => ({ data: [{ day: yesterday, follows: 9, unfollows: 4 }] })
+  answers['account_daily:select.eq.order'] = () => ({ data: [{ day: today, followers_count: 738 }] })
+  answers['watched_accounts:select.eq.maybeSingle'] = () => ({ data: { id: OWN_ID, username: 'tuggi_app', is_own: true, active: true } })
+  const mine = await (await growthRoute.GET(req('GET', `/growth?account=${OWN_ID}`), ctx)).json()
+  answers['watched_accounts'] = () => ({ data: { id: OWN_ID, username: 'tuggi_app' } })
+  const overview = await (await overviewRoute.GET(req('GET', '/overview?period=4w'), ctx)).json()
+  assert.equal(mine.kind, 'own')
+  assert.deepEqual({ from: mine.from, to: mine.to, days: mine.days, measured: mine.measured }, overview.growth)
+  assert.equal((await growthRoute.GET(req('GET', '/growth?account=x'), ctx)).status, 400)
+  answers['watched_accounts:select.eq.maybeSingle'] = () => ({ data: { id: RIVAL_ID, username: 'izitravel', is_own: false, active: false } })
+  assert.equal((await growthRoute.GET(req('GET', `/growth?account=${RIVAL_ID}`), ctx)).status, 404)
+})
+
+/** One competitor post as PostgREST answers it, with its last metrics row. */
+const post = (id: string, account: string, postedAt: string, likes: number | null, comments: number | null, extra = {}) => ({
+  id,
+  account_id: account,
+  posted_at: postedAt,
+  media_type: 'IMAGE',
+  media_product_type: 'FEED',
+  theme: null,
+  media_metrics: [{ day: '2026-10-30', likes, comments }],
+  ...extra,
+})
+
+test('#1064: a post\'s rate divides by the followers of the closest day, the earlier on a tie; no followers or 0 is null', () => {
+  const daily = [
+    { account_id: 'a', day: '2026-10-28', followers_count: 1000 },
+    { account_id: 'a', day: '2026-10-30', followers_count: 2000 },
+    { account_id: 'z', day: '2026-10-29', followers_count: 0 },
+  ]
+  const rated = repo.rateCompetitorPosts(
+    [
+      post('tie', 'a', '2026-10-29T15:00:00.000Z', 90, 10),
+      post('exact', 'a', '2026-10-30T15:00:00.000Z', 100, null),
+      post('far', 'a', '2026-01-01T15:00:00.000Z', 10, 0),
+      post('hidden', 'a', '2026-10-30T16:00:00.000Z', null, null),
+      post('zero', 'z', '2026-10-29T15:00:00.000Z', 5, 5),
+      post('none', 'y', '2026-10-29T15:00:00.000Z', 5, 5),
+    ],
+    daily
+  )
+  assert.deepEqual(
+    rated.map((p: { id: string; rate: number | null }) => [p.id, p.rate]),
+    [['tie', 0.1], ['exact', 0.05], ['far', 0.01], ['zero', null], ['none', null]]
+  )
+  // Brasília: 01:30 UTC on Friday is still Thursday there.
+  assert.equal(repo.rateCompetitorPosts([post('late', 'a', '2026-10-30T01:30:00.000Z', 1, 0)], daily)[0].weekday, 4)
+})
+
+test('#1064 OUTLIER: 3.1 times the account median gets the seal, 2.9 does not, and 4 posts never do', () => {
+  assert.equal(constants.OUTLIER_FACTOR, 3)
+  assert.equal(constants.OUTLIER_MIN_POSTS, 5)
+  assert.equal(repo.isOutlier(0.031, 0.01, 5), true)
+  assert.equal(repo.isOutlier(0.029, 0.01, 5), false)
+  assert.equal(repo.isOutlier(0.031, 0.01, 4), false)
+  assert.equal(repo.isOutlier(null, 0.01, 9), false)
+  assert.equal(repo.median([0.3, 0.1, 0.2, 0.4]), 0.25)
+})
+
+test('#1064 M8.4: competitor-posts seals by the median of every collected post of the account and sends the rule', async () => {
+  const A = 'c0000000-0000-4000-8000-00000000000a'
+  const B = 'c0000000-0000-4000-8000-00000000000b'
+  answers['watched_accounts'] = () => ({ data: [{ id: A, username: 'izitravel' }, { id: B, username: 'small' }] })
+  answers['rpc:competitor_top_posts'] = () => ({
+    data: [
+      { username: 'izitravel', posted_at: '2026-10-21T13:00:00+00:00', rate: '0.031' },
+      { username: 'izitravel', posted_at: '2026-10-22T13:00:00+00:00', rate: '0.029' },
+      { username: 'small', posted_at: '2026-10-22T13:00:00+00:00', rate: '0.5' },
+    ],
+  })
+  // izitravel: five posts at 1 % and the two of the week; median 1 %. small: four posts.
+  const media = [
+    ...[1, 2, 3, 4, 5].map((i) => post(`a${i}`, A, `2026-09-0${i}T12:00:00.000Z`, 10, 0)),
+    post('a6', A, '2026-10-21T13:00:00.000Z', 31, 0),
+    post('a7', A, '2026-10-22T13:00:00.000Z', 29, 0),
+    ...[1, 2, 3].map((i) => post(`b${i}`, B, `2026-09-0${i}T12:00:00.000Z`, 1, 0)),
+    post('b4', B, '2026-10-22T13:00:00.000Z', 50, 0),
+  ]
+  answers['media'] = () => ({ data: media })
+  answers['account_daily'] = () => ({
+    data: [
+      { account_id: A, day: '2026-09-01', followers_count: 1000 },
+      { account_id: B, day: '2026-09-01', followers_count: 100 },
+    ],
+  })
+  const body = await (await competitorPostsRoute.GET(req('GET', '/competitor-posts'), ctx)).json()
+  assert.deepEqual(body.outlier_rule, { factor: constants.OUTLIER_FACTOR, min_posts: constants.OUTLIER_MIN_POSTS })
+  assert.deepEqual(
+    body.rows.map((r: Record<string, unknown>) => [r.username, r.outlier, r.account_median, r.account_posts]),
+    [['izitravel', true, 0.01, 7], ['izitravel', false, 0.01, 7], ['small', false, 0.01, 4]]
+  )
+  const read = calls.find((c) => c.table === 'media')
+  assert.ok(read && !read.chain.includes('gte'), 'the median reads the whole history')
+  assert.ok(read.chain.includes('range'), 'the read pages past 1000 rows')
+})
+
+test('#1064 M8.3: the comparison is a dense matrix in fixed order, the median per group, and a reason for every empty cell', async () => {
+  const A = 'c0000000-0000-4000-8000-00000000000a'
+  const B = 'c0000000-0000-4000-8000-00000000000b'
+  answers['watched_accounts'] = () => ({
+    data: [{ id: A, market: 'BR' }, { id: B, market: 'US' }, { id: 'c3', market: null }],
+  })
+  const now = new Date()
+  const iso = (daysAgo: number) => new Date(now.getTime() - daysAgo * 86_400_000).toISOString()
+  answers['media'] = () => ({
+    data: [
+      post('r1', A, iso(3), 10, 0, { media_type: 'VIDEO', media_product_type: 'REELS' }),
+      post('r2', A, iso(4), 30, 0, { media_type: 'VIDEO', media_product_type: 'REELS' }),
+      post('r3', A, iso(5), 20, 0, { media_type: 'VIDEO', media_product_type: 'REELS' }),
+      post('i1', A, iso(6), 10, 0),
+      post('i2', A, iso(7), 10, 0),
+      post('u1', B, iso(3), 5, 0, { theme: 'cidade' }),
+      post('u2', B, iso(4), 5, 0, { theme: 'cidade' }),
+      post('u3', B, iso(5), 5, 0, { theme: 'cidade' }),
+    ],
+  })
+  answers['account_daily'] = () => ({ data: [{ account_id: A, day: time.brasiliaDay(now), followers_count: 1000 }] })
+  const res = await marketsRoute.GET(req('GET', '/markets'), ctx)
+  assert.equal(res.status, 200)
+  const body = await res.json()
+  assert.equal(body.window_days, constants.MARKET_WINDOW_DAYS)
+  assert.deepEqual(body.markets, { BR: { accounts: 1 }, US: { accounts: 1 }, EU: { accounts: 0 } })
+  assert.equal(body.unassigned, 1)
+  const media = calls.find((c) => c.table === 'media')
+  assert.deepEqual(media?.args[media.chain.indexOf('in')], ['account_id', [A, B]])
+  assert.deepEqual(media?.args[media.chain.indexOf('gte')], ['posted_at', time.brasiliaMidnightIso(body.since)])
+  const cell = (dimension: string, bucket: string | null, market: string) =>
+    body.rows.find((r: Record<string, unknown>) => r.dimension === dimension && r.bucket === bucket && r.market === market)
+  // 3 formats, 5 themes and "pending", 7 weekdays, by 3 markets.
+  assert.equal(body.rows.length, (3 + 6 + 7) * 3)
+  assert.deepEqual(
+    body.rows.filter((r: Record<string, unknown>) => r.dimension === 'format' && r.market === 'BR').map((r: Record<string, unknown>) => r.bucket),
+    ['IMAGE', 'CAROUSEL_ALBUM', 'REELS']
+  )
+  assert.deepEqual(cell('format', 'REELS', 'BR'), { dimension: 'format', bucket: 'REELS', market: 'BR', posts: 3, rate: 0.02, reason: null })
+  assert.deepEqual([cell('format', 'IMAGE', 'BR').posts, cell('format', 'IMAGE', 'BR').reason, cell('format', 'IMAGE', 'BR').rate], [2, 'few_posts', null])
+  assert.equal(cell('format', 'CAROUSEL_ALBUM', 'BR').reason, 'no_posts')
+  assert.deepEqual([cell('theme', 'cidade', 'US').posts, cell('theme', 'cidade', 'US').reason], [3, 'no_followers'])
+  assert.ok(body.rows.filter((r: Record<string, unknown>) => r.market === 'EU').every((r: Record<string, unknown>) => r.reason === 'no_account' && r.rate === null))
+  assert.ok(!body.rows.some((r: Record<string, unknown>) => r.rate === 0), 'no cell prints 0 for a missing number')
+})
+
+test('#1064 M4: the Ad Library link searches the username by keyword', () => {
+  const url = new URL(labels.adLibrarySearchUrl('izi.travel'))
+  assert.equal(url.origin + url.pathname, 'https://www.facebook.com/ads/library/')
+  assert.equal(url.searchParams.get('q'), 'izi.travel')
+  assert.equal(url.searchParams.get('search_type'), 'keyword_unordered')
 })

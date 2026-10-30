@@ -23,3 +23,18 @@ export const META_FUNNEL_MAX_DAYS = 90
 
 /** Above this many days, the growth chart groups by week from Monday (#1063, spec G1). */
 export const GROWTH_WEEKLY_FROM_DAYS = 120
+
+/**
+ * The window of "O que rende em cada mercado" (#1064, spec M3): ninety days, because the finest
+ * dimension has seven groups per market, each under the floor `MIN_POSTS`.
+ */
+export const MARKET_WINDOW_DAYS = 90
+
+/**
+ * The "fora da curva" seal of a competitor's post (#1064, decision of the Tech Lead): interactions
+ * per follower above `OUTLIER_FACTOR` times the median of that account's posts, and only for an
+ * account with `OUTLIER_MIN_POSTS` posts or more. The competitor-posts payload carries both as
+ * `outlier_rule`, and the copy reads them from there.
+ */
+export const OUTLIER_FACTOR = 3
+export const OUTLIER_MIN_POSTS = 5
