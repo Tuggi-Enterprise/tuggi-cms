@@ -20,10 +20,10 @@ import { DIM } from '@/components/ui/dense-table'
 import { CHART_COLORS, CHART_NEUTRAL } from '@/lib/constants/chart-colors'
 import { UNKNOWN_VALUE } from '@/lib/format/unknown'
 import { fmtDay, fmtInt, fmtLongDay, fmtSignedRate } from '@/lib/social/format'
-import { changeRatio, coverageOf, type Coverage } from '@/lib/social/funnel'
+import { bucketize, changeRatio, coverageOf, type Coverage, type DayBucket } from '@/lib/social/funnel'
 import type { FormatKey } from '@/lib/social/labels'
 import type { FunnelDay, FunnelMeasured, FunnelSeries, FunnelTotals, OverviewPayload } from '@/lib/social/repository'
-import { SOCIAL_PERIODS, addDays, mondayOf, type SocialPeriod } from '@/lib/social/time'
+import { SOCIAL_PERIODS, addDays, type SocialPeriod } from '@/lib/social/time'
 import { STRIP_AXIS_PX, STRIP_PLOT_PX, type FunnelBarDatum } from './FunnelBars'
 import { SocialCard } from './shared'
 
@@ -35,21 +35,7 @@ const GA4_UNSETTLED_DAYS = 2
 
 type StripKey = 'posts' | 'profile_views' | 'website_clicks' | 'site_sessions' | 'store_clicks' | 'installs'
 
-interface Bucket {
-  x: string
-  days: FunnelDay[]
-}
-
-/** Days, or weeks from Monday when the period is six months. */
-export function bucketize(days: FunnelDay[], period: SocialPeriod): Bucket[] {
-  if (period !== '6m') return days.map((d) => ({ x: d.day, days: [d] }))
-  const weeks = new Map<string, FunnelDay[]>()
-  for (const d of days) {
-    const w = mondayOf(d.day)
-    weeks.set(w, [...(weeks.get(w) ?? []), d])
-  }
-  return [...weeks].map(([x, list]) => ({ x, days: list }))
-}
+type Bucket = DayBucket<FunnelDay>
 
 function sum(days: FunnelDay[], key: FunnelSeries): number | null {
   let total: number | null = null
@@ -73,9 +59,9 @@ function Change({ ratio }: { ratio: number | null }) {
 export function FunnelStrip({ funnel, period }: { funnel: OverviewPayload['funnel']; period: SocialPeriod }) {
   const t = useTranslations('Pages.Social')
   const tf = useTranslations('Pages.Social.overview.funnel')
-  const buckets = bucketize(funnel.days, period)
-  const unsettled = new Set(Array.from({ length: GA4_UNSETTLED_DAYS }, (_, i) => addDays(funnel.to, -i)))
   const weekly = period === '6m'
+  const buckets = bucketize(funnel.days, weekly)
+  const unsettled = new Set(Array.from({ length: GA4_UNSETTLED_DAYS }, (_, i) => addDays(funnel.to, -i)))
 
   const datum = (b: Bucket, a: number | null, opts: { b?: number | null; ga4?: boolean; detail?: string[] } = {}): FunnelBarDatum => ({
     x: b.x,

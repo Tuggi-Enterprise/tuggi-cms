@@ -13,3 +13,13 @@ export const ACCOUNT_WINDOW_DAYS = 30
 
 /** A competitor silent for longer than this is marked on its "last post" cell (spec 4.1). */
 export const STALE_POST_DAYS = 14
+
+/**
+ * Days of account insights Meta keeps ("User Metrics data is stored for up to 90 days", Insights
+ * guide): the growth chart starts there (#1063, copy `growth.meta_window`). The collector holds the
+ * same value as `META_FUNNEL_MAX_DAYS` in `_shared/social-collect.ts`; the social test compares them.
+ */
+export const META_FUNNEL_MAX_DAYS = 90
+
+/** Above this many days, the growth chart groups by week from Monday (#1063, spec G1). */
+export const GROWTH_WEEKLY_FROM_DAYS = 120

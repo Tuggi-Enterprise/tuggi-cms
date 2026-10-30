@@ -180,6 +180,30 @@ export const AUDIENCE_TOP = 5
 /** Under this, Meta does not answer `follower_demographics` (User Insights reference, v26.0). */
 export const AUDIENCE_MIN_FOLLOWERS = 100
 
+/**
+ * One day of the account's growth (#1063, spec G8). `total` is the followers at the end of the day,
+ * rebuilt from `account_daily` and the day's moves; `follows`, `unfollows` and `net` are Meta's
+ * `follows_and_unfollows`, null when not measured (never 0, DS-COMPONENTE-084). `posts` is always a
+ * count: `social.media` keeps every post of our account.
+ */
+export interface GrowthDay {
+  day: string
+  total: number | null
+  follows: number | null
+  unfollows: number | null
+  net: number | null
+  posts: number
+}
+
+/** The whole history, not the period: `days` empty until the first day with follows and unfollows. */
+export interface AccountGrowth {
+  from: string
+  to: string
+  days: GrowthDay[]
+  /** Days of the series with a measured net, for the floor of the net total (spec G4). */
+  measured: { net: number }
+}
+
 export interface OverviewPayload {
   today: string
   period: SocialPeriod
@@ -206,6 +230,7 @@ export interface OverviewPayload {
     measured: FunnelMeasured
     previous_measured: FunnelMeasured
   }
+  growth: AccountGrowth
 }
 
 export interface CollectorRun {
@@ -281,12 +306,59 @@ export function measuredDays(days: FunnelDay[]): FunnelMeasured {
   return m
 }
 
+/**
+ * The growth series (#1063). The axis runs from the first day with a total or a net to yesterday.
+ * The total walks back from the newest reading: total(d - 1) = total(d) - net(d). A reading of
+ * `account_daily` is real and wins over the walk; the reading of day D is taken by the 6h run, so
+ * it stands for the end of D - 1. A null net stops the walk before it: the days before have no
+ * total until the next older reading. No net at all is an empty series, never a row of zeros.
+ */
+export function buildGrowth(input: {
+  today: string
+  moves: Array<Record<string, unknown>>
+  readings: Array<Record<string, unknown>>
+  postsOn: (day: string) => number
+}): AccountGrowth {
+  const to = addDays(input.today, -1)
+  const moves = new Map<string, { follows: number; unfollows: number }>()
+  for (const r of input.moves) {
+    const follows = num(r.follows)
+    const unfollows = num(r.unfollows)
+    if (follows !== null && unfollows !== null && String(r.day) <= to) moves.set(String(r.day), { follows, unfollows })
+  }
+  const anchors = new Map<string, number>()
+  for (const r of input.readings) {
+    const v = num(r.followers_count)
+    const day = addDays(String(r.day), -1)
+    if (v !== null && day <= to) anchors.set(day, v)
+  }
+  if (moves.size === 0) return { from: to, to, days: [], measured: { net: 0 } }
+  const from = [...moves.keys(), ...anchors.keys()].sort()[0]
+  const days: GrowthDay[] = daysBetween(from, to).map((day) => {
+    const m = moves.get(day)
+    return {
+      day,
+      total: null,
+      follows: m?.follows ?? null,
+      unfollows: m?.unfollows ?? null,
+      net: m ? m.follows - m.unfollows : null,
+      posts: input.postsOn(day),
+    }
+  })
+  for (let i = days.length - 1; i >= 0; i--) {
+    const anchor = anchors.get(days[i].day)
+    const next = days[i + 1]
+    days[i].total = anchor ?? (next && next.total !== null && next.net !== null ? next.total - next.net : null)
+  }
+  return { from, to, days, measured: { net: days.filter((d) => d.net !== null).length } }
+}
+
 export async function readOverview(supabase: Client, period: SocialPeriod, now = new Date()): Promise<OverviewPayload> {
   const today = brasiliaDay(now)
   const { from, to, prevFrom, prevTo } = periodWindow(today, period)
   const own = await ownAccount(supabase)
 
-  const [collection, weekly, ranking, funnelRows, mediaRows, indicatorRows, campaignRows, runs, audienceRows] = await Promise.all([
+  const [collection, weekly, ranking, funnelRows, mediaRows, indicatorRows, campaignRows, runs, audienceRows, moveRows, readingRows] = await Promise.all([
     collectionDays(supabase, own),
     social(supabase)
       .from('weekly_insights')
@@ -300,18 +372,22 @@ export async function readOverview(supabase: Client, period: SocialPeriod, now =
       .gte('day', prevFrom)
       .lte('day', to)
       .order('day'),
+    // The whole history of our posts: the funnel reads its two windows, the growth chart every day.
     own
       ? social(supabase)
           .from('media')
           .select('media_type, media_product_type, caption, posted_at')
           .eq('account_id', own.id)
-          .gte('posted_at', brasiliaMidnightIso(prevFrom))
           .order('posted_at')
       : Promise.resolve({ data: [], error: null }),
     social(supabase).rpc('overview_indicators', { p_since: brasiliaMidnightIso(from) }),
     social(supabase).rpc('campaign_totals', { p_from: from, p_to: to }),
     collectorRuns(supabase),
     social(supabase).rpc('latest_audience'),
+    social(supabase).from('funnel_daily').select('day, follows, unfollows').not('follows', 'is', null).order('day'),
+    own
+      ? social(supabase).from('account_daily').select('day, followers_count').eq('account_id', own.id).order('day')
+      : Promise.resolve({ data: [], error: null }),
   ])
   const ind = (check<Array<Record<string, unknown>> | null>('indicators', indicatorRows) ?? [])[0] ?? {}
 
@@ -367,6 +443,12 @@ export async function readOverview(supabase: Client, period: SocialPeriod, now =
   const apple = runs.get('apple')
   const audience = groupAudience(check<Array<Record<string, unknown>> | null>('audience', audienceRows) ?? [])
   const followers = num(ind.followers)
+  const growth = buildGrowth({
+    today,
+    moves: check<Array<Record<string, unknown>> | null>('growth_moves', moveRows) ?? [],
+    readings: check<Array<Record<string, unknown>> | null>('growth_readings', readingRows) ?? [],
+    postsOn: (day) => postsByDay.get(day)?.length ?? 0,
+  })
 
   return {
     today,
@@ -407,6 +489,7 @@ export async function readOverview(supabase: Client, period: SocialPeriod, now =
       measured: measuredDays(days),
       previous_measured: measuredDays(previousDays),
     },
+    growth,
   }
 }
 

@@ -309,6 +309,7 @@ test('#1059 copy 5: the banner says none, failed after 6h30 without today, first
 test('#1059: the facts the CMS and social-collect share are the same on both sides', () => {
   assert.equal(edge.SOCIAL_TIME_ZONE, time.SOCIAL_TIME_ZONE)
   assert.equal(edge.MIN_POSTS, constants.MIN_POSTS)
+  assert.equal(edge.META_FUNNEL_MAX_DAYS, constants.META_FUNNEL_MAX_DAYS)
   assert.equal(String(edge.USERNAME_PATTERN), String(labels.USERNAME_PATTERN))
   for (const theme of labels.THEME_KEYS) {
     assert.equal(edge.THEME_HINTS[theme], pt.Pages.Social.theme[`${theme}_hint`], theme)
@@ -498,4 +499,103 @@ test('#1062 R2.4: the reel watch time reads 12 s, 1 min 05 s, 48 min and 3 h 12 
   const format = await import('@/lib/social/format')
   assert.deepEqual([12, 65, 9].map(format.fmtWatchAvg), ['12 s', '1 min 05 s', '9 s'])
   assert.deepEqual([2880, 11520, 40, 3600].map(format.fmtWatchTotal), ['48 min', '3 h 12 min', '40 s', '1 h 00 min'])
+})
+
+// ---------------------------------------------------------------------------------------------
+// #1063: how the account grew.
+
+test('#1063 DS-COMPONENTE-084: the total walks back from today\'s 700 through nets of +5 and -2', () => {
+  const g = repo.buildGrowth({
+    today: '2026-11-03',
+    moves: [
+      { day: '2026-11-01', follows: 8, unfollows: 3 },
+      { day: '2026-11-02', follows: 1, unfollows: 3 },
+    ],
+    // The 6h reading of day D is the end of D - 1.
+    readings: [{ day: '2026-11-03', followers_count: 700 }],
+    postsOn: (day: string) => (day === '2026-11-01' ? 2 : 0),
+  })
+  assert.equal(g.from, '2026-11-01')
+  assert.equal(g.to, '2026-11-02')
+  assert.deepEqual(g.days, [
+    { day: '2026-11-01', total: 702, follows: 8, unfollows: 3, net: 5, posts: 2 },
+    { day: '2026-11-02', total: 700, follows: 1, unfollows: 3, net: -2, posts: 0 },
+  ])
+  assert.deepEqual(g.measured, { net: 2 })
+})
+
+test('#1063 DS-COMPONENTE-084: a null net stops the walk before it; a real reading of account_daily wins and restarts it', () => {
+  const g = repo.buildGrowth({
+    today: '2026-11-06',
+    moves: [
+      { day: '2026-11-01', follows: 4, unfollows: 0 },
+      { day: '2026-11-02', follows: 10, unfollows: 1 },
+      { day: '2026-11-03', follows: 7, unfollows: 2 },
+      // 2026-11-04 not measured (refused or not settled): no row.
+      { day: '2026-11-05', follows: null, unfollows: null },
+    ],
+    readings: [
+      { day: '2026-11-06', followers_count: 740 },
+      { day: '2026-11-03', followers_count: 690 },
+    ],
+    postsOn: () => 1,
+  })
+  const totals = Object.fromEntries(g.days.map((d: { day: string; total: number | null }) => [d.day, d.total]))
+  assert.deepEqual(totals, {
+    '2026-11-01': 681,
+    '2026-11-02': 690,
+    '2026-11-03': null,
+    '2026-11-04': null,
+    '2026-11-05': 740,
+  })
+  // A null net is null, never 0; posts are always counted.
+  assert.equal(g.days[3].net, null)
+  assert.equal(g.days[3].posts, 1)
+  assert.deepEqual(g.measured, { net: 3 })
+})
+
+test('#1063: no follows and unfollows yet is an empty series, not a row of zeros', () => {
+  const g = repo.buildGrowth({ today: '2026-11-03', moves: [], readings: [{ day: '2026-11-03', followers_count: 700 }], postsOn: () => 3 })
+  assert.deepEqual(g.days, [])
+  assert.deepEqual(g.measured, { net: 0 })
+})
+
+test('#1063: the overview carries the growth of the whole history, whatever the period', async () => {
+  const today = time.brasiliaDay(new Date())
+  const yesterday = time.addDays(today, -1)
+  answers['watched_accounts'] = () => ({ data: { id: 'own-1', username: 'tuggi_app' } })
+  answers['funnel_daily:select.not.order'] = () => ({ data: [{ day: yesterday, follows: 9, unfollows: 4 }] })
+  answers['account_daily:select.eq.order'] = () => ({ data: [{ day: today, followers_count: 738 }] })
+  for (const period of ['4w', '6m']) {
+    const res = await overviewRoute.GET(req('GET', `/overview?period=${period}`), ctx)
+    assert.equal(res.status, 200)
+    const body = await res.json()
+    assert.deepEqual(body.growth.days, [{ day: yesterday, total: 738, follows: 9, unfollows: 4, net: 5, posts: 0 }], period)
+  }
+  const growthRead = calls.find((c) => c.table === 'funnel_daily' && c.chain.includes('not'))
+  assert.ok(growthRead, 'growth reads funnel_daily')
+  assert.ok(!growthRead.chain.includes('gte'), 'the growth read is not cut by the period')
+})
+
+test('#1063 spec G1: the line domain opens from a floor, not from zero; bucketize groups weeks on the caller\'s word', async () => {
+  const funnel = await import('@/lib/social/funnel')
+  assert.deepEqual(funnel.lineDomain([600, 712]), [600, 800])
+  assert.deepEqual(funnel.lineDomain([648, 738]), [640, 740])
+  assert.deepEqual(funnel.lineDomain([700, 700]), [699, 701])
+  assert.deepEqual(funnel.lineDomain([null, null]), [0, 1])
+  const days = ['2026-11-01', '2026-11-02', '2026-11-08', '2026-11-09'].map((day) => ({ day }))
+  assert.deepEqual(funnel.bucketize(days, false).length, 4)
+  assert.deepEqual(
+    funnel.bucketize(days, true).map((b: { x: string; days: unknown[] }) => [b.x, b.days.length]),
+    [['2026-10-26', 1], ['2026-11-02', 2], ['2026-11-09', 1]]
+  )
+  assert.equal(constants.GROWTH_WEEKLY_FROM_DAYS, 120)
+})
+
+test('#1063: every growth key the card reads exists in pt', () => {
+  const src = readFileSync(resolve(root, 'components/admin/social/SocialGrowth.tsx'), 'utf8')
+  const used = [...src.matchAll(/\bt\('([a-z_]+)'/g)].map((m) => m[1])
+  for (const k of ['caption_week', 'band_net_week', 'band_posts_week', 'chart_aria_week']) used.push(k)
+  assert.ok(used.length > 15)
+  for (const k of used) assert.equal(typeof pt.Pages.Social.growth[k], 'string', k)
 })
