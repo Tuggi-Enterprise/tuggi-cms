@@ -1678,7 +1678,7 @@
         "chart_aria_week": "Gráfico do crescimento da conta, de {from} a {to}, semana a semana: total de seguidores, saldo de ganhos e perdas e posts publicados.",
         "account_label": "Conta",
         "account_own": "@{username} (nossa conta)",
-        "caption_competitor": "Histórico de @{username} a partir de {date}. O período acima não muda este gráfico.",
+        "caption_competitor": "Histórico de @{username} a partir de {date}.",
         "band_net_hint_competitor": "Diferença do total de seguidores entre o dia e o anterior.",
         "competitor_note": "Para outra conta, a Meta mostra só o total de seguidores do dia, sem ganhos e perdas. O saldo é a diferença entre dois dias seguidos, e a curva começa em {date}, o primeiro dia em que a coleta guardou o total.",
         "no_total_competitor_hint": "A coleta deste dia não trouxe o total de seguidores desta conta.",
@@ -1932,6 +1932,7 @@
         "col_open": "Abrir",
         "more_hashtags": "+{count}",
         "footer": "Só contas acompanhadas. A Meta não dá alcance de terceiros, então a régua é por seguidor.",
+        "footer_outlier": "Fora da curva: interações por seguidor acima de {factor} vezes a mediana da própria conta, com pelo menos {min} posts coletados. Pode ter sido impulsionado, e a Meta não diz se um post foi pago; o link ao lado do selo abre os anúncios da conta na Biblioteca de Anúncios.",
         "empty": "Nenhum post dos concorrentes na semana de {date}.",
         "open_aria": "Abrir o post de @{username} no Instagram",
         "table_label": "Tabela dos melhores posts dos concorrentes"
