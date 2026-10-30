@@ -31,6 +31,8 @@ import { SocialPostsTable } from './SocialPostsTable'
 import { SocialCompetitors } from './SocialCompetitors'
 import { SocialStories } from './SocialStories'
 import { CompetitorTopPosts } from './CompetitorTopPosts'
+import { CompetitorGrowth } from './CompetitorGrowth'
+import { MarketComparison } from './MarketComparison'
 import { socialQueries, type SocialView } from './shared'
 
 export function viewOf(raw: string | null): SocialView {
@@ -150,6 +152,8 @@ export function SocialPageContent() {
       {view === 'competitors' && (
         <>
           <SocialCompetitors />
+          <CompetitorGrowth />
+          <MarketComparison />
           <CompetitorTopPosts />
         </>
       )}

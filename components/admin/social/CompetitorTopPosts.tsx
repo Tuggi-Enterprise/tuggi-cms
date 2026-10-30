@@ -8,18 +8,22 @@
  * database's; the table does not sort. Hashtags are plain text, selectable, so the operator copies.
  *
  * Without a tracked competitor the card does not show: the form above already says what to do.
+ *
+ * #1064 (spec M4): a post far above its own account's median wears the "fora da curva" seal and a
+ * link to the account in the Meta Ad Library. The rule (factor and floor) comes in the payload.
  */
 
 import { useState } from 'react'
 import { ExternalLink, Trophy } from 'lucide-react'
 import { useTranslations } from 'next-intl'
 import { useQuery } from '@tanstack/react-query'
+import { Badge } from '@/components/ui/badge'
 import { Select } from '@/components/ui/select'
 import { CELL, DIM, DenseTableScroller, HEAD_SOLO, HEAD_SOLO_NUM, ICON_CELL, NUM } from '@/components/ui/dense-table'
 import { UNKNOWN_VALUE } from '@/lib/format/unknown'
 import { fmtDay, fmtInt, fmtRate2 } from '@/lib/social/format'
 import { safePermalink } from '@/lib/social/funnel'
-import { formatKey, themeKey } from '@/lib/social/labels'
+import { adLibrarySearchUrl, formatKey, themeKey } from '@/lib/social/labels'
 import { addDays, brasiliaDay } from '@/lib/social/time'
 import { ICON_LINK } from './SocialPostsTable'
 import { CardError, RawValue, SocialCard, socialQueries } from './shared'
@@ -30,6 +34,7 @@ const HASHTAGS_SHOWN = 5
 export function CompetitorTopPosts() {
   const t = useTranslations('Pages.Social.competitor_posts')
   const ts = useTranslations('Pages.Social')
+  const to = useTranslations('Pages.Social.outlier')
   const [week, setWeek] = useState<string | null>(null)
   const query = useQuery(socialQueries.competitorPosts(week))
   const data = query.data
@@ -87,7 +92,7 @@ export function CompetitorTopPosts() {
                   <th scope="col" className={`${HEAD_SOLO} w-[240px]`}>
                     {t('col_hashtags')}
                   </th>
-                  <th scope="col" className={`${HEAD_SOLO_NUM} w-[100px] whitespace-normal`} title={t('rate_hint')}>
+                  <th scope="col" className={`${HEAD_SOLO_NUM} w-[190px] whitespace-normal`} title={t('rate_hint')}>
                     {t('col_rate')}
                   </th>
                   <th scope="col" className={`${HEAD_SOLO_NUM} w-[76px]`}>
@@ -157,7 +162,32 @@ export function CompetitorTopPosts() {
                               </span>
                             )}
                           </td>
-                          <td className={NUM}>{r.rate === null ? <span className={DIM}>{UNKNOWN_VALUE}</span> : fmtRate2(r.rate)}</td>
+                          <td className={`${NUM} py-0`}>
+                            <span className="inline-flex h-10 items-center justify-end gap-2">
+                              {r.rate === null ? <span className={DIM}>{UNKNOWN_VALUE}</span> : fmtRate2(r.rate)}
+                              {r.outlier && (
+                                <>
+                                  <Badge
+                                    variant="outline"
+                                    className="min-h-6"
+                                    title={to('hint', { factor: data.outlier_rule.factor, min: data.outlier_rule.min_posts })}
+                                  >
+                                    {to('badge')}
+                                  </Badge>
+                                  <a
+                                    href={adLibrarySearchUrl(r.username)}
+                                    target="_blank"
+                                    rel="noopener"
+                                    aria-label={to('ad_library_aria', { username: r.username })}
+                                    title={to('ad_library_hint')}
+                                    className={ICON_LINK}
+                                  >
+                                    <ExternalLink className="h-4 w-4" aria-hidden="true" />
+                                  </a>
+                                </>
+                              )}
+                            </span>
+                          </td>
                           <td className={NUM}>{r.likes === null ? <span className={DIM}>{UNKNOWN_VALUE}</span> : fmtInt(r.likes)}</td>
                           <td className={NUM}>{r.comments === null ? <span className={DIM}>{UNKNOWN_VALUE}</span> : fmtInt(r.comments)}</td>
                           <td className={ICON_CELL}>
@@ -179,7 +209,15 @@ export function CompetitorTopPosts() {
               </tbody>
             </table>
           </DenseTableScroller>
-          <p className={`mt-2 text-[11px] ${DIM}`}>{t('footer')}</p>
+          <p className={`mt-2 text-[11px] ${DIM}`}>
+            {t('footer')}
+            {data && (
+              <>
+                {' '}
+                {t('footer_outlier', { factor: data.outlier_rule.factor, min: data.outlier_rule.min_posts })}
+              </>
+            )}
+          </p>
         </>
       )}
     </SocialCard>

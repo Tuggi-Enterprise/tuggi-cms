@@ -5,6 +5,9 @@
  * checked here BEFORE any call (Nielsen 5): trimmed, without the `@`, lowercase, Instagram's
  * characters only, and never our own account. The server checks it again, then asks the Meta
  * through `social-collect`; every refusal lands on the field with what to do next (Nielsen 9).
+ *
+ * #1064 (spec M1): a market goes with the account, none by default, because the operator may not
+ * have decided it yet and the table's select fixes it later.
  */
 
 import { useId, useRef, useState } from 'react'
@@ -13,8 +16,9 @@ import { useTranslations } from 'next-intl'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
+import { Select } from '@/components/ui/select'
 import { DIM } from '@/components/ui/dense-table'
-import { USERNAME_PATTERN, normalizeUsername } from '@/lib/social/labels'
+import { MARKETS, MARKET_KEY, USERNAME_PATTERN, isMarket, normalizeUsername, type Market } from '@/lib/social/labels'
 
 type FieldError = 'error_invalid' | 'error_own' | 'error_duplicate' | 'error_not_found' | 'error_meta'
 
@@ -36,10 +40,12 @@ export function AddAccountForm({
 }) {
   const t = useTranslations('Pages.Social.competitors')
   const inputId = useId()
+  const marketId = useId()
   const errorId = useId()
   const hintId = useId()
   const inputRef = useRef<HTMLInputElement>(null)
   const [value, setValue] = useState('')
+  const [market, setMarket] = useState<Market | null>(null)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<{ key: FieldError; username: string } | null>(null)
   const [status, setStatus] = useState('')
@@ -62,11 +68,12 @@ export function AddAccountForm({
       const res = await fetch('/api/admin/social/accounts', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ username }),
+        body: JSON.stringify({ username, market }),
       })
       const body = (await res.json().catch(() => null)) as { account?: { id: string }; error?: { code?: string; id?: string } } | null
       if (res.ok && body?.account) {
         setValue('')
+        setMarket(null)
         setStatus(t('added', { username }))
         onAdded(body.account.id, username)
         return
@@ -83,11 +90,11 @@ export function AddAccountForm({
 
   return (
     <form onSubmit={submit} noValidate className="mb-4">
-      <Label htmlFor={inputId} className="mb-1 block text-sm font-medium text-gray-800 dark:text-gray-200">
-        {t('add_label')}
-      </Label>
-      <div className="flex flex-wrap items-start gap-2">
+      <div className="flex flex-wrap items-end gap-2">
         <div className="w-full max-w-xs">
+          <Label htmlFor={inputId} className="mb-1 block text-sm font-medium text-gray-800 dark:text-gray-200">
+            {t('add_label')}
+          </Label>
           <Input
             id={inputId}
             ref={inputRef}
@@ -100,6 +107,25 @@ export function AddAccountForm({
             aria-invalid={error ? true : undefined}
             aria-describedby={error ? `${errorId} ${hintId}` : hintId}
           />
+        </div>
+        <div className="w-full sm:w-40">
+          <Label htmlFor={marketId} className="mb-1 block text-sm font-medium text-gray-800 dark:text-gray-200">
+            {t('market_label')}
+          </Label>
+          <Select
+            id={marketId}
+            value={market ?? ''}
+            onValueChange={(v) => setMarket(isMarket(v) ? v : null)}
+            disabled={busy}
+            aria-describedby={hintId}
+          >
+            <option value="">{t('market_none')}</option>
+            {MARKETS.map((m) => (
+              <option key={m} value={m}>
+                {t(MARKET_KEY[m])}
+              </option>
+            ))}
+          </Select>
         </div>
         <Button type="submit" variant="cta" disabled={busy}>
           {busy ? (
@@ -116,7 +142,7 @@ export function AddAccountForm({
         </p>
       )}
       <p id={hintId} className={`mt-1 text-xs ${DIM}`}>
-        {t('add_hint')}
+        {t('add_hint')} {t('market_hint')}
       </p>
       <p role="status" className="sr-only">
         {status}

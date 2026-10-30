@@ -7,6 +7,9 @@
  *
  * The engagement is `social.account_engagement` (per follower, the same ruler for every row,
  * because a competitor has no reach); this file never divides a like by anything.
+ *
+ * #1064 (spec M1): the second column marks each competitor's market, saved on change. Our row has no
+ * select: the comparison by market is between competitors.
  */
 
 import { useMemo, useState } from 'react'
@@ -15,6 +18,7 @@ import { useTranslations } from 'next-intl'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
+import { Select } from '@/components/ui/select'
 import {
   CELL,
   DIM,
@@ -30,6 +34,7 @@ import { CHART_COLORS } from '@/lib/constants/chart-colors'
 import { UNKNOWN_VALUE } from '@/lib/format/unknown'
 import { ACCOUNT_WINDOW_DAYS, STALE_POST_DAYS } from '@/lib/social/constants'
 import { fmtDay, fmtDecimal, fmtInt, fmtRate2, fmtSigned, fmtSignedRate } from '@/lib/social/format'
+import { MARKETS, MARKET_KEY, isMarket, type Market } from '@/lib/social/labels'
 import type { Growth, SocialAccountRow } from '@/lib/social/repository'
 import { addDays, brasiliaDay, expectedCollectDay } from '@/lib/social/time'
 import { AddAccountForm } from './AddAccountForm'
@@ -37,6 +42,7 @@ import { RemoveAccountDialog } from './RemoveAccountDialog'
 import { CardError, SocialCard, socialQueries } from './shared'
 
 const accountsQueryKey = socialQueries.accounts().queryKey
+const marketsQueryKey = socialQueries.markets().queryKey
 
 type SortKey = 'followers' | 'growth_7d' | 'growth_30d' | 'engagement' | 'frequency'
 
@@ -47,6 +53,15 @@ const MIX = [
 ] as const
 
 const WEEKS_IN_WINDOW = ACCOUNT_WINDOW_DAYS / 7
+
+/**
+ * The market and remove cells keep 8 and 6 px a side, and the select is 120 px so "Sem mercado"
+ * fits beside the chevron: with the engagement and frequency columns a little narrower, the eleven
+ * columns fit the 1440 card without scrolling (spec M7, measured on the CT bench), because the
+ * content of the other columns is wider than their declared width.
+ */
+const MARKET_CELL = ICON_CELL.replace('px-3', 'px-2')
+const REMOVE_CELL = ICON_CELL.replace('px-3', 'px-1.5')
 
 const sortValue = (a: SocialAccountRow, key: SortKey): number | null =>
   key === 'followers'
@@ -98,6 +113,47 @@ function GrowthCell({ growth, from, days }: { growth: Growth | null; from: strin
   )
 }
 
+/** The compact market select of a competitor row (spec M1): 32 px high, inside the 40 px row. */
+function MarketCell({
+  account,
+  value,
+  saving,
+  failed,
+  onChange,
+}: {
+  account: SocialAccountRow
+  value: Market | null
+  saving: boolean
+  failed: boolean
+  onChange: (next: Market | null) => void
+}) {
+  const t = useTranslations('Pages.Social.competitors')
+  return (
+    <>
+      <Select
+        value={value ?? ''}
+        onValueChange={(v) => onChange(isMarket(v) ? v : null)}
+        disabled={saving}
+        aria-label={t('market_aria', { username: account.username })}
+        title={value === null ? t('market_none_hint') : undefined}
+        className="h-8 w-[120px] rounded-lg px-2 py-0 pr-7 text-xs font-medium shadow-none"
+      >
+        <option value="">{t('market_none')}</option>
+        {MARKETS.map((m) => (
+          <option key={m} value={m}>
+            {t(MARKET_KEY[m])}
+          </option>
+        ))}
+      </Select>
+      {failed && (
+        <p role="alert" className="mt-1 text-xs text-red-700">
+          {t('market_failed', { username: account.username })}
+        </p>
+      )}
+    </>
+  )
+}
+
 function MixCell({ account }: { account: SocialAccountRow }) {
   const t = useTranslations('Pages.Social.competitors')
   const total = account.posts_30d
@@ -128,6 +184,32 @@ export function SocialCompetitors() {
   const [flash, setFlash] = useState<string | null>(null)
   const [removing, setRemoving] = useState<{ id: string; username: string } | null>(null)
   const [announce, setAnnounce] = useState('')
+  const [pending, setPending] = useState<{ id: string; market: Market | null } | null>(null)
+  const [marketFailed, setMarketFailed] = useState<string | null>(null)
+
+  const changeMarket = async (a: SocialAccountRow, market: Market | null) => {
+    setMarketFailed(null)
+    setPending({ id: a.id, market })
+    try {
+      const res = await fetch(`/api/admin/social/accounts/${a.id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ market }),
+      })
+      if (!res.ok) throw new Error(`HTTP ${res.status}`)
+      await queryClient.invalidateQueries({ queryKey: accountsQueryKey })
+      void queryClient.invalidateQueries({ queryKey: marketsQueryKey })
+      setAnnounce(
+        market
+          ? t('market_saved', { username: a.username, market: t(MARKET_KEY[market]) })
+          : t('market_cleared', { username: a.username })
+      )
+    } catch {
+      setMarketFailed(a.id)
+    } finally {
+      setPending(null)
+    }
+  }
 
   const accounts = useMemo(() => orderAccounts(query.data?.accounts ?? [], sort), [query.data, sort])
   const own = accounts.find((a) => a.is_own) ?? null
@@ -183,18 +265,21 @@ export function SocialCompetitors() {
                   <th scope="col" className={`${HEAD_SOLO} w-[200px]`}>
                     {t('col_account')}
                   </th>
+                  <th scope="col" className={`${HEAD_SOLO} w-[136px]`}>
+                    {t('market_label')}
+                  </th>
                   {headNum('followers', t('col_followers'), 'w-[96px]')}
                   {headNum('growth_7d', `${t('growth_group')} ${t('col_growth_7d')}`, 'w-[96px]')}
                   {headNum('growth_30d', `${t('growth_group')} ${t('col_growth_30d')}`, 'w-[96px]')}
-                  {headNum('engagement', t('col_engagement'), 'w-[110px] whitespace-normal')}
+                  {headNum('engagement', t('col_engagement'), 'w-[100px] whitespace-normal')}
                   <th scope="col" className={`${HEAD_SOLO} w-[180px]`}>
                     {t('col_mix')}
                   </th>
-                  {headNum('frequency', t('col_frequency'), 'w-[90px] whitespace-normal')}
+                  {headNum('frequency', t('col_frequency'), 'w-[80px] whitespace-normal')}
                   <th scope="col" className={`${HEAD_SOLO_NUM} w-[96px]`}>
                     {t('col_last_post')}
                   </th>
-                  <th scope="col" className={`${HEAD_SOLO_NUM} w-[96px]`}>
+                  <th scope="col" className={`${HEAD_SOLO_NUM} w-[96px] whitespace-normal`}>
                     {t('col_last_collect')}
                   </th>
                   <th scope="col" className={`${HEAD_SOLO} w-[44px]`}>
@@ -206,7 +291,7 @@ export function SocialCompetitors() {
                 {!query.data
                   ? [0, 1, 2].map((i) => (
                       <tr key={i} className="animate-pulse">
-                        <td colSpan={10} className={CELL}>
+                        <td colSpan={11} className={CELL}>
                           <span className="block h-4 rounded bg-gray-100 dark:bg-gray-800" />
                         </td>
                       </tr>
@@ -237,6 +322,17 @@ export function SocialCompetitors() {
                               <Badge variant="outline" className="ml-2 align-middle">
                                 {t('own_badge')}
                               </Badge>
+                            )}
+                          </td>
+                          <td className={MARKET_CELL}>
+                            {!a.is_own && (
+                              <MarketCell
+                                account={a}
+                                value={pending?.id === a.id ? pending.market : a.market}
+                                saving={pending?.id === a.id}
+                                failed={marketFailed === a.id}
+                                onChange={(m) => void changeMarket(a, m)}
+                              />
                             )}
                           </td>
                           <td className={NUM}>{a.followers === null ? <span className={DIM}>{t('na')}</span> : fmtInt(a.followers)}</td>
@@ -276,7 +372,7 @@ export function SocialCompetitors() {
                               <span className={DIM}>{fmtDay(a.last_day)}</span>
                             )}
                           </td>
-                          <td className={ICON_CELL}>
+                          <td className={REMOVE_CELL}>
                             {!a.is_own && (
                               <Button
                                 type="button"

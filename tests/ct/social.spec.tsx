@@ -8,12 +8,40 @@ import { test, expect } from '@playwright/experimental-ct-react'
 import type { Page } from '@playwright/test'
 import AxeBuilder from '@axe-core/playwright'
 import { SocialHarness } from './social-helpers'
-import { ACCOUNTS, COMPETITOR_POSTS, OVERVIEW, OVERVIEW_SPARSE, POSTS, STORIES, STORIES_NEVER, growthFixture } from './social-fixtures'
+import {
+  ACCOUNTS,
+  COMPETITOR_POSTS,
+  MARKETS,
+  OVERVIEW,
+  OVERVIEW_SPARSE,
+  POSTS,
+  STORIES,
+  STORIES_NEVER,
+  competitorGrowth,
+  growthFixture,
+} from './social-fixtures'
 
 const json = (body: unknown, status = 200) => ({ status, contentType: 'application/json', body: JSON.stringify(body) })
 
+/** #1064: what the PATCH of a market answers; a test flips it to a failure. */
+const marketWrite = { fail: false, bodies: [] as unknown[] }
+
 async function mockApi(page: Page, overview: unknown = OVERVIEW, stories: unknown = STORIES) {
   const seen: string[] = []
+  marketWrite.fail = false
+  marketWrite.bodies = []
+  await page.route('**/api/admin/social/growth*', (route) => {
+    const url = route.request().url()
+    seen.push(url)
+    const id = new URL(url).searchParams.get('account')
+    if (id === 'own') return route.fulfill(json({ ...OVERVIEW.growth, kind: 'own', account: { id: 'own', username: 'tuggi_app' } }))
+    if (id === 'c5') return route.fulfill(json({ from: OVERVIEW.growth.to, to: OVERVIEW.growth.to, days: [], measured: { net: 0 }, kind: 'competitor', account: { id: 'c5', username: 'shakaguide' } }))
+    return route.fulfill(json(competitorGrowth()))
+  })
+  await page.route('**/api/admin/social/markets', (route) => {
+    seen.push(route.request().url())
+    return route.fulfill(json(MARKETS))
+  })
   await page.route('**/api/admin/social/stories*', (route) => {
     seen.push(route.request().url())
     return route.fulfill(json(stories))
@@ -36,13 +64,20 @@ async function mockApi(page: Page, overview: unknown = OVERVIEW, stories: unknow
   await page.route('**/api/admin/social/accounts', (route) => {
     seen.push(route.request().url())
     if (route.request().method() === 'POST') {
-      const { username } = route.request().postDataJSON() as { username: string }
+      const { username, market } = route.request().postDataJSON() as { username: string; market: string | null }
       if (username === 'izitravel') return route.fulfill(json({ error: { code: 'duplicate', id: 'c1' } }, 409))
+      if (username === 'romatours') return route.fulfill(json({ account: { id: 'c9', username, market, followers: 9000, reactivated: false } }))
       return route.fulfill(json({ error: { code: 'not_found' } }, 422))
     }
     return route.fulfill(json(ACCOUNTS))
   })
-  await page.route('**/api/admin/social/accounts/*', (route) => route.fulfill(json({ ok: true })))
+  await page.route('**/api/admin/social/accounts/*', (route) => {
+    const body = route.request().postDataJSON() as Record<string, unknown>
+    if (!('market' in body)) return route.fulfill(json({ ok: true }))
+    marketWrite.bodies.push(body)
+    if (marketWrite.fail) return route.fulfill(json({ error: { code: 'server_error' } }, 500))
+    return route.fulfill(json({ account: { id: 'c1', username: 'izitravel', market: body.market } }))
+  })
   return seen
 }
 
@@ -175,9 +210,9 @@ test('#1059: competitors at 1440 put our account first, marked by a word and wit
   expect((await rows.nth(1).getByRole('button', { name: /Remover/ }).boundingBox())!.height).toBe(32)
   // Not enough days: the cell says so, with no "+0".
   const shaka = page.locator('table').first().locator('tr[data-account="shakaguide"]')
-  await expect(shaka.locator('td').nth(2)).toHaveText('sem dado')
+  await expect(shaka.locator('td').nth(3)).toHaveText('sem dado')
   // A failed collection is amber with its glyph.
-  await expect(page.locator('table').first().locator('tr[data-account="autioapp"] td').nth(8).locator('svg')).toBeVisible()
+  await expect(page.locator('table').first().locator('tr[data-account="autioapp"] td').nth(9).locator('svg')).toBeVisible()
   await axeClean(page)
   await page.screenshot({ path: testInfo.outputPath('social-competitors-1440.png'), fullPage: true })
 })
@@ -480,4 +515,202 @@ test('#1063 G5: no follows and unfollows yet is the empty state, never a flat li
   const card = growthCard(page)
   await expect(card.getByText('Ainda sem histórico de seguidores')).toBeVisible()
   await expect(card.locator('.recharts-surface')).toHaveCount(0)
+})
+
+// ---------------------------------------------------------------------------------------------
+// #1064: competitors by market (spec M1 to M9).
+
+const cardOf = (page: Page, name: string) => page.locator('.shadow-sm', { has: page.getByRole('heading', { level: 2, name }) })
+
+test('#1064 M9.1: the Competitors view at 1440 has four cards in order; Mercado is the second column; our row has no select', async ({ mount, page }, testInfo) => {
+  await page.setViewportSize({ width: 1440, height: 1000 })
+  await mockApi(page)
+  await mount(<SocialHarness search="view=competitors" />)
+  const table = page.locator('table').first()
+  await expect(table.locator('tbody tr')).toHaveCount(ACCOUNTS.accounts.length)
+  await expect(table.locator('thead th').nth(1)).toHaveText('Mercado')
+  await expect(page.locator('.recharts-surface')).toHaveCount(3)
+  const titles = await page.getByRole('heading', { level: 2 }).allTextContents()
+  expect(titles).toEqual(['Concorrentes', 'Como a conta cresceu', 'O que rende em cada mercado', 'O que rendeu nos concorrentes'])
+  const own = table.locator('tbody tr').first()
+  await expect(own.locator('select')).toHaveCount(0)
+  const rival = table.locator('tr[data-account="izitravel"]')
+  await expect(rival.getByLabel('Mercado de @izitravel')).toHaveValue('EU')
+  const none = table.locator('tr[data-account="shakaguide"]').getByLabel('Mercado de @shakaguide')
+  await expect(none).toHaveValue('')
+  await expect(none).toHaveAttribute('title', /Fora da comparação por mercado/)
+  // The select does not grow the row: a competitor row is as tall as ours, which has none.
+  expect(Math.round((await rival.boundingBox())!.height)).toBe(Math.round((await own.boundingBox())!.height))
+  expect(Math.round((await rival.getByLabel('Mercado de @izitravel').boundingBox())!.height)).toBe(32)
+  const scroller = table.locator('xpath=..')
+  expect(await scroller.evaluate((el) => el.scrollWidth - el.clientWidth)).toBeLessThanOrEqual(0)
+  await axeClean(page)
+  await page.screenshot({ path: testInfo.outputPath('social-competitors-1064-1440.png'), fullPage: true })
+})
+
+test('#1064 M9.2: adding sends the market chosen in the form; none is the default and the hint says what it means', async ({ mount, page }) => {
+  await page.setViewportSize({ width: 1440, height: 1000 })
+  await mockApi(page)
+  await mount(<SocialHarness search="view=competitors" />)
+  const market = page.getByLabel('Mercado', { exact: true })
+  await expect(market).toHaveValue('')
+  await expect(page.getByText(/Sem mercado, a conta fica fora da comparação por mercado/)).toBeVisible()
+  await page.getByLabel('Acompanhar outra conta').fill('romatours')
+  await market.selectOption('EU')
+  const post = page.waitForRequest((r) => r.method() === 'POST' && r.url().endsWith('/accounts'))
+  await page.getByRole('button', { name: 'Adicionar' }).click()
+  expect((await post).postDataJSON()).toEqual({ username: 'romatours', market: 'EU' })
+  await expect(market).toHaveValue('')
+})
+
+test('#1064 M9.3: a market change PATCHes, announces, and reloads the comparison; a failure puts the old value back with an alert', async ({ mount, page }) => {
+  await page.setViewportSize({ width: 1440, height: 1000 })
+  const seen = await mockApi(page)
+  await mount(<SocialHarness search="view=competitors" />)
+  const select = page.getByLabel('Mercado de @izitravel')
+  await expect(select).toHaveValue('EU')
+  await expect(cardOf(page, 'O que rende em cada mercado').locator('table')).toHaveCount(3)
+  const readsBefore = seen.filter((u) => u.endsWith('/markets')).length
+  await select.selectOption('BR')
+  await expect(page.getByRole('status').filter({ hasText: '@izitravel agora entra na comparação como Brasil.' })).toHaveCount(1)
+  expect(marketWrite.bodies).toEqual([{ market: 'BR' }])
+  await expect.poll(() => seen.filter((u) => u.endsWith('/markets')).length).toBeGreaterThan(readsBefore)
+
+  marketWrite.fail = true
+  const other = page.getByLabel('Mercado de @roadtrippers')
+  await other.selectOption('')
+  await expect(page.getByRole('alert').filter({ hasText: 'Não foi possível salvar o mercado de @roadtrippers.' })).toBeVisible()
+  await expect(other).toHaveValue('US')
+  await expect(other).toBeEnabled()
+})
+
+test('#1064 M9.4: the growth card starts on the first competitor, four tooltip lines, a gap where a total is missing; ours is the overview chart', async ({ mount, page }) => {
+  await page.setViewportSize({ width: 1440, height: 1000 })
+  await mockApi(page)
+  await mount(<SocialHarness search="view=competitors" />)
+  const card = cardOf(page, 'Como a conta cresceu')
+  const picker = card.getByRole('combobox', { name: /^Conta/ })
+  await expect(picker).toHaveValue('c3')
+  await expect(picker.locator('option').first()).toHaveText('@tuggi_app (nossa conta)')
+  const g = competitorGrowth()
+  await expect(card.getByText(`Histórico de @melhoresdestinos a partir de`)).toBeVisible()
+  await expect(card.getByText(/Para outra conta, a Meta mostra só o total de seguidores do dia/)).toBeVisible()
+  await expect(card.getByRole('group', { name: /crescimento de @melhoresdestinos/ })).toBeVisible()
+  await expect(card.getByText(/\d ganhos/)).toHaveCount(0)
+  const plots = card.locator('.recharts-wrapper')
+  await expect(plots).toHaveCount(3)
+  await card.scrollIntoViewIfNeeded()
+  const posts = (await plots.nth(2).boundingBox())!
+  const xOf = (i: number) => posts.x + 42 + 8 / 2 + ((posts.width - 42 - 8) * (i + 0.5)) / g.days.length
+  const tip = card.locator('.recharts-tooltip-wrapper').nth(2)
+  await page.mouse.move(xOf(6), posts.y + 20)
+  await expect(tip).toContainText('Seguidores: —')
+  await expect(tip).toContainText('Saldo: —')
+  await expect(tip).toContainText('Sem saldo: falta o total de seguidores deste dia ou do anterior.')
+  await expect(tip).not.toContainText('Ganhos e perdas')
+  await page.mouse.move(xOf(7), posts.y + 20)
+  await expect(tip).toContainText('Saldo: —')
+  await page.mouse.move(xOf(9), posts.y + 20)
+  await expect(tip).toContainText(/Saldo: [+-]\d/)
+  await axeClean(page)
+
+  await picker.selectOption('own')
+  await expect(card.getByText('Histórico inteiro. O período acima não muda este gráfico.')).toBeVisible()
+  await expect(card.getByText(/A Meta só guarda 90 dias/)).toBeVisible()
+  await picker.selectOption('c5')
+  await expect(card.getByText(/Ainda sem histórico de @shakaguide/)).toBeVisible()
+  await expect(card.locator('.recharts-surface')).toHaveCount(0)
+})
+
+test('#1064 M9.5: the comparison by market: format and theme side by side, weekday below, fixed order, one bar ruler per table', async ({ mount, page }, testInfo) => {
+  await page.setViewportSize({ width: 1440, height: 1000 })
+  await mockApi(page)
+  await mount(<SocialHarness search="view=competitors" />)
+  const card = cardOf(page, 'O que rende em cada mercado')
+  const tables = card.locator('[data-market-dimension]')
+  await expect(tables).toHaveCount(3)
+  const [format, theme, weekday] = await Promise.all([0, 1, 2].map(async (i) => (await tables.nth(i).boundingBox())!))
+  expect(Math.round(format.y)).toBe(Math.round(theme.y))
+  expect(theme.x).toBeGreaterThan(format.x)
+  expect(weekday.y).toBeGreaterThan(format.y + format.height - 1)
+  await expect(card.getByRole('heading', { level: 3 })).toHaveText(['Por formato', 'Por tema', 'Por dia da semana'])
+  const formatTable = tables.nth(0)
+  await expect(formatTable.locator('tbody th')).toHaveText(['Imagem', 'Carrossel', 'Reels'])
+  await expect(formatTable.locator('thead th').nth(1)).toContainText('Brasil1 conta')
+  // Europa has no account: the whole column is the unknown mark with its reason.
+  const eu = formatTable.locator('tbody tr td:nth-of-type(3)')
+  await expect(eu).toHaveText(['—', '—', '—'])
+  await expect(eu.first()).toHaveAttribute('title', 'Nenhuma conta marcada como Europa.')
+  // A group of 2 posts prints no number, the count on the left, and the floor in the title.
+  const fewBr = formatTable.locator('tbody tr').first().locator('td').first()
+  await expect(fewBr).toContainText('2 posts')
+  await expect(fewBr).toContainText('—')
+  await expect(fewBr).toHaveAttribute('title', /Menos de 3 posts/)
+  // The highest of each column is bold; Reels in Brasil, Carrossel in the US.
+  await expect(formatTable.locator('tbody tr').nth(2).locator('td').first().locator('.font-semibold')).toHaveCount(1)
+  await expect(formatTable.locator('tbody tr').nth(1).locator('td').nth(1).locator('.font-semibold')).toHaveCount(1)
+  const bar = (row: number, col: number) =>
+    formatTable.locator('tbody tr').nth(row).locator('td').nth(col).locator('[aria-hidden] > span').evaluate((el) => el.getBoundingClientRect().width)
+  expect(await bar(2, 0)).toBeGreaterThan(await bar(1, 0))
+  await expect(card.getByText('0,00%')).toHaveCount(0)
+  await expect(tables.nth(2).locator('tbody tr').last().locator('td').nth(1)).toHaveAttribute('title', /Sem o total de seguidores/)
+  const rowHeights = await formatTable.locator('tbody tr').evaluateAll((els) => els.map((e) => Math.round(e.getBoundingClientRect().height)))
+  expect(rowHeights.every((h) => h === 40)).toBe(true)
+  await card.screenshot({ path: testInfo.outputPath('social-markets-1440.png') })
+})
+
+test('#1064 M9.6: a post at 3.1 times its account median wears the seal and the Ad Library link; at 2.9 it does not; the row stays 40 px', async ({ mount, page }) => {
+  await page.setViewportSize({ width: 1440, height: 1000 })
+  await mockApi(page)
+  await mount(<SocialHarness search="view=competitors" />)
+  const top = cardOf(page, 'O que rendeu nos concorrentes')
+  const rows = top.locator('tbody tr')
+  await expect(rows).toHaveCount(10)
+  await expect(rows.nth(0).getByText('Fora da curva')).toHaveAttribute('title', /acima de 3 vezes a mediana .* pelo menos 5 posts/)
+  const ad = rows.nth(0).getByRole('link', { name: 'Ver os anúncios de @izitravel na Biblioteca de Anúncios da Meta' })
+  const href = new URL((await ad.getAttribute('href'))!)
+  expect(href.origin + href.pathname).toBe('https://www.facebook.com/ads/library/')
+  expect(href.searchParams.get('q')).toBe('izitravel')
+  await expect(rows.nth(1).getByText('Fora da curva')).toHaveCount(0)
+  await expect(rows.nth(4).getByText('Fora da curva')).toHaveCount(0)
+  const h = async (i: number) => Math.round((await rows.nth(i).boundingBox())!.height)
+  // The seal does not grow the row: the sealed row is as tall as the one without.
+  expect(await h(0)).toBe(await h(1))
+  await expect(top.getByText(/Fora da curva: interações por seguidor acima de 3 vezes/)).toBeVisible()
+  await axeClean(page)
+})
+
+test('#1064 M9.7: at 390 the form stacks, every table scrolls inside its box, nothing leaks, axe clean', async ({ mount, page }, testInfo) => {
+  await page.setViewportSize({ width: 390, height: 844 })
+  await mockApi(page)
+  await mount(<SocialHarness search="view=competitors" />)
+  await expect(page.locator('[data-market-dimension]')).toHaveCount(3)
+  await expect(page.locator('.recharts-surface')).toHaveCount(3)
+  const field = (await page.getByLabel('Acompanhar outra conta').boundingBox())!
+  const market = (await page.getByLabel('Mercado', { exact: true }).boundingBox())!
+  const add = (await page.getByRole('button', { name: 'Adicionar' }).boundingBox())!
+  expect(market.y).toBeGreaterThan(field.y + field.height - 1)
+  expect(add.y).toBeGreaterThan(market.y + market.height - 1)
+  await noLeak(page)
+  await axeClean(page)
+  await page.screenshot({ path: testInfo.outputPath('social-competitors-1064-390.png'), fullPage: true })
+})
+
+test('#1064 M9.8: the comparison card holds its height within 8 px from loading to data', async ({ mount, page }) => {
+  await page.setViewportSize({ width: 1440, height: 1000 })
+  await mockApi(page)
+  let release: () => void = () => undefined
+  const gate = new Promise<void>((r) => (release = r))
+  await page.route('**/api/admin/social/markets', async (route) => {
+    await gate
+    return route.fulfill(json(MARKETS))
+  })
+  await mount(<SocialHarness search="view=competitors" />)
+  const card = cardOf(page, 'O que rende em cada mercado')
+  await expect(card.getByRole('status')).toBeVisible()
+  const before = (await card.boundingBox())!.height
+  release()
+  await expect(card.locator('[data-market-dimension]')).toHaveCount(3)
+  const after = (await card.boundingBox())!.height
+  expect(Math.abs(after - before)).toBeLessThanOrEqual(8)
 })

@@ -219,6 +219,7 @@ const account = (
   id,
   username,
   is_own: false,
+  market: null as string | null,
   followers,
   last_day: today,
   growth_7d: { delta: Math.round(followers * 0.012), ratio: 0.012 },
@@ -236,10 +237,10 @@ export const ACCOUNTS = {
   today,
   collection: { first_day: addDays(today, -40), last_day: today },
   accounts: [
-    account('c1', 'izitravel', 51234),
-    account('c2', 'roadtrippers', 288400, { growth_7d: { delta: -320, ratio: -0.0011 } }),
-    account('c3', 'melhoresdestinos', 1940000, { engagement: 0.0041 }),
-    account('c4', 'autioapp', 8120, { last_day: addDays(today, -3), last_post: at(addDays(today, -20), 9) }),
+    account('c1', 'izitravel', 51234, { market: 'EU' }),
+    account('c2', 'roadtrippers', 288400, { growth_7d: { delta: -320, ratio: -0.0011 }, market: 'US' }),
+    account('c3', 'melhoresdestinos', 1940000, { engagement: 0.0041, market: 'BR' }),
+    account('c4', 'autioapp', 8120, { last_day: addDays(today, -3), last_post: at(addDays(today, -20), 9), market: 'US' }),
     account('c5', 'shakaguide', 3010, {
       growth_7d: null,
       growth_30d: null,
@@ -323,5 +324,71 @@ export const COMPETITOR_POSTS = {
     comments: 120 - 9 * i,
     followers_on_day: 51234,
     rate: (4320 - 309 * i) / 51234,
+    // #1064 M4: the first post is 3.1 times its account's median, the second 2.9, the fifth's account has 4 posts.
+    outlier: i === 0,
+    account_median: i === 4 ? 0.01 : i === 0 ? (4320 / 51234) / 3.1 : (4011 / 51234) / 2.9,
+    account_posts: i === 4 ? 4 : 40,
   })),
+  outlier_rule: { factor: 3, min_posts: 5 },
+}
+
+/**
+ * #1064 M2: a competitor's growth, the daily total of `account_daily` from its first collection. One
+ * day without a total (index 6) leaves a gap and two days without net; no gains and losses ever.
+ */
+export function competitorGrowth(span = 14) {
+  const gFrom = addDays(today, -(span - 1))
+  const totals = Array.from({ length: span }, (_, i) => (i === 6 ? null : 51000 + i * 18 + (i % 3) * 7))
+  const list = daysBetween(gFrom, today).map((day, i) => ({
+    day,
+    total: totals[i],
+    follows: null,
+    unfollows: null,
+    net: i > 0 && totals[i] !== null && totals[i - 1] !== null ? (totals[i] as number) - (totals[i - 1] as number) : null,
+    posts: i % 3 === 0 ? 1 : 0,
+  }))
+  return {
+    from: gFrom,
+    to: today,
+    days: list,
+    measured: { net: list.filter((d) => d.net !== null).length },
+    kind: 'competitor',
+    account: { id: 'c3', username: 'melhoresdestinos' },
+  }
+}
+
+const MARKET_FORMATS = ['IMAGE', 'CAROUSEL_ALBUM', 'REELS']
+const MARKET_THEMES = ['cidade', 'curiosidade', 'produto', 'bastidor', 'outro', 'pending']
+const MARKET_WEEKDAYS = ['1', '2', '3', '4', '5', '6', '7']
+
+/**
+ * #1064 M3: Brasil with one account and Estados Unidos with two, Europa with none (the whole column
+ * is the unknown mark). Reels win in Brasil and carousels in the US; a group of 2 posts is under the
+ * floor; one US group has no followers to divide by.
+ */
+export const MARKETS = {
+  today,
+  window_days: 90,
+  since: addDays(today, -90),
+  markets: { BR: { accounts: 1 }, US: { accounts: 2 }, EU: { accounts: 0 } },
+  unassigned: 1,
+  rows: (
+    [
+      ['format', MARKET_FORMATS],
+      ['theme', MARKET_THEMES],
+      ['weekday', MARKET_WEEKDAYS],
+    ] as const
+  ).flatMap(([dimension, buckets]) =>
+    buckets.flatMap((bucket, i) =>
+      (['BR', 'US', 'EU'] as const).map((market) => {
+        if (market === 'EU') return { dimension, bucket, market, posts: 0, rate: null, reason: 'no_account' }
+        const seed = (i + 1) * (market === 'BR' ? 3 : 2)
+        if (dimension === 'format' && bucket === 'IMAGE' && market === 'BR') return { dimension, bucket, market, posts: 2, rate: null, reason: 'few_posts' }
+        if (dimension === 'theme' && bucket === 'bastidor') return { dimension, bucket, market, posts: 0, rate: null, reason: 'no_posts' }
+        if (dimension === 'weekday' && bucket === '7' && market === 'US') return { dimension, bucket, market, posts: 4, rate: null, reason: 'no_followers' }
+        const lead = dimension === 'format' && ((market === 'BR' && bucket === 'REELS') || (market === 'US' && bucket === 'CAROUSEL_ALBUM'))
+        return { dimension, bucket, market, posts: 3 + seed, rate: (lead ? 0.031 : 0.008) + seed * 0.0007, reason: null }
+      })
+    )
+  ),
 }

@@ -13,8 +13,10 @@ import { Button } from '@/components/ui/button'
 import { DIM } from '@/components/ui/dense-table'
 import { SectionHeader, WidgetCard } from '@/components/dashboard/WidgetCard'
 import type {
+  AccountGrowthPayload,
   AccountsPayload,
   CompetitorPostsPayload,
+  MarketsPayload,
   OverviewPayload,
   PostsPayload,
   StoriesPayload,
@@ -53,6 +55,16 @@ export const socialQueries = {
     queryFn: () =>
       getJson<CompetitorPostsPayload>(`/api/admin/social/competitor-posts${week ? `?week=${week}` : ''}`),
   }),
+  /** #1064 M2: the growth chart of one account, ours or a competitor's. */
+  growth: (accountId: string) => ({
+    queryKey: ['social', 'growth', accountId] as const,
+    queryFn: () => getJson<AccountGrowthPayload>(`/api/admin/social/growth?account=${accountId}`),
+  }),
+  /** #1064 M3: changing a market invalidates this key, and the comparison reads again in place. */
+  markets: () => ({
+    queryKey: ['social', 'markets'] as const,
+    queryFn: () => getJson<MarketsPayload>('/api/admin/social/markets'),
+  }),
 }
 
 /**
@@ -90,8 +102,18 @@ export function SocialCard({
   )
 }
 
-/** Height of each card's pulse while it loads, so the card does not grow when the data lands (R1 item 10). */
-export const LOADING_HEIGHT = { recs: 'h-24', growth: 'h-72', ranking: 'h-40', funnel: 'h-64' } as const
+/**
+ * Height of each card's pulse while it loads, so the card does not grow when the data lands (R1 item
+ * 10). `markets` (#1064 M5) is the comparison at 1440, measured on the CT bench: formato and tema side
+ * by side, dia da semana below, and the note, 700 px. The spec's 22rem counted the weekday table only.
+ */
+export const LOADING_HEIGHT = {
+  recs: 'h-24',
+  growth: 'h-72',
+  ranking: 'h-40',
+  funnel: 'h-64',
+  markets: 'h-[43.75rem]',
+} as const
 
 export function CardLoading({ height }: { height: string }) {
   const tc = useTranslations('Common.status')
@@ -100,14 +122,14 @@ export function CardLoading({ height }: { height: string }) {
   )
 }
 
-export function CardError({ onRetry }: { onRetry: () => void }) {
+export function CardError({ onRetry, message }: { onRetry: () => void; message?: string }) {
   const t = useTranslations('Pages.Social')
   return (
     <div
       role="alert"
       className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-800"
     >
-      <span>{t('load_failed')}</span>
+      <span>{message ?? t('load_failed')}</span>
       <Button type="button" variant="outline" size="sm" onClick={onRetry}>
         {t('retry')}
       </Button>

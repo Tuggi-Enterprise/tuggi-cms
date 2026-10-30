@@ -49,6 +49,13 @@ export function normalizeUsername(raw: unknown): string {
 export const MARKETS = ['BR', 'US', 'EU'] as const
 export type Market = (typeof MARKETS)[number]
 
+/** The key of each market in `Pages.Social.competitors`, in the order of the selects (spec M1). */
+export const MARKET_KEY: Record<Market, 'market_br' | 'market_us' | 'market_eu'> = {
+  BR: 'market_br',
+  US: 'market_us',
+  EU: 'market_eu',
+}
+
 export function isMarket(v: unknown): v is Market {
   return typeof v === 'string' && (MARKETS as readonly string[]).includes(v)
 }
