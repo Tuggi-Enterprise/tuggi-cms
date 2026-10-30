@@ -11,6 +11,7 @@ import { fetchCalls, loadHandler, network, scenario } from './harness.ts';
 import {
   checkRecommendations,
   demographicRows,
+  followMoves,
   IG_SESSION_SOURCE_PATTERN,
   navigationValues,
   type CollectDeps,
@@ -840,4 +841,103 @@ Deno.test('#1062: {"job":"stories"} through the handler runs the stories only; a
   assertEquals((await call(MACHINE, { job: 'everything' })).status, 400);
   delete scenario.tables.watched_accounts;
   network.reply = () => new Response('{}', { status: 400 });
+});
+
+// ---------------------------------------------------------------------------------------------
+// #1063: follows and unfollows of our account, for the growth chart.
+
+/**
+ * The account's own answer to follows_and_unfollows, recorded on 2026-10-30 (id dropped): a settled
+ * day lists FOLLOWER and NON_FOLLOWER, the day Meta has not settled yet comes with no `results`.
+ */
+const followsAnswer = (results?: Record<string, number>) =>
+  okJson({
+    data: [{
+      name: 'follows_and_unfollows',
+      period: 'day',
+      title: 'Começaram a seguir e deixaram de seguir',
+      total_value: {
+        breakdowns: [{
+          dimension_keys: ['follow_type'],
+          ...(results ? { results: Object.entries(results).map(([k, value]) => ({ dimension_values: [k], value })) } : {}),
+        }],
+      },
+    }],
+  });
+
+const FOLLOWS_BY_DAY: Record<string, Record<string, number> | 'refused' | 'unsettled'> = {
+  '2026-11-02': 'unsettled',
+  '2026-11-01': { FOLLOWER: 57, NON_FOLLOWER: 6 },
+  '2026-10-31': 'refused',
+  '2026-10-30': { FOLLOWER: 74, NON_FOLLOWER: 5 },
+  '2026-10-29': { FOLLOWER: 3 },
+};
+
+const followsAccount: AccountAnswer = (metric, day) => {
+  if (metric !== 'follows_and_unfollows') return DEFAULT_ACCOUNT(metric, day);
+  const a = FOLLOWS_BY_DAY[day] ?? { FOLLOWER: 1, NON_FOLLOWER: 1 };
+  if (a === 'refused') return metaError(500, 2);
+  return followsAnswer(a === 'unsettled' ? undefined : a);
+};
+
+Deno.test('#1063 DS-COMPONENTE-084: follows and unfollows land per day; a refused or unsettled day stays null, never 0', async () => {
+  const r = rig({ accounts: [OWN], now: TUESDAY, account: followsAccount });
+  await runSocialCollect(r.deps);
+  const day = (d: string) => r.store.tables.funnel_daily.get(d);
+  assertEquals([day('2026-11-01')?.follows, day('2026-11-01')?.unfollows], [57, 6]);
+  assertEquals([day('2026-10-30')?.follows, day('2026-10-30')?.unfollows], [74, 5]);
+  // Only FOLLOWER listed: Meta lists what happened, so the unfollows of that day are a measured 0.
+  assertEquals([day('2026-10-29')?.follows, day('2026-10-29')?.unfollows], [3, 0]);
+  // Refused (500) and unsettled (breakdown without results): nothing written for the two columns.
+  for (const d of ['2026-10-31', '2026-11-02']) assertEquals([day(d)?.follows, day(d)?.unfollows], [undefined, undefined]);
+  // The profile views of the refused day are still written: one metric never blocks another.
+  assertEquals(day('2026-10-31')?.profile_views, 37);
+  // The refusal sits in the first group of five: that group is written whole, then the walk stops
+  // (the rule of the funnel walk) and the next run asks the missing days again.
+  const asked = r.urls.filter((u) => new URL(u).searchParams.get('metric') === 'follows_and_unfollows');
+  assertEquals(asked.length, 5);
+  for (const u of asked) {
+    const q = new URL(u).searchParams;
+    assertEquals([q.get('breakdown'), q.get('metric_type'), q.get('period')], ['follow_type', 'total_value', 'day']);
+  }
+  assert(r.logs.some((l) => l.includes('follows_and_unfollows refused on 1 day(s): meta_500_2_x')), r.logs.join('\n'));
+});
+
+Deno.test('#1063: a refused follows walk stops alone; the funnel walk still reaches its own gaps', async () => {
+  const store = fullFunnel('2025-10-01', '2026-11-02', 5);
+  store.tables.funnel_daily.delete('2026-09-15');
+  const r = rig({ store, now: TUESDAY });
+  await runSocialCollect(r.deps);
+  assertEquals(metaDays(r.urls, 'profile_views'), ['2026-09-15', '2026-10-31', '2026-11-01', '2026-11-02']);
+  // Refused on every day: one group of five asked, then the walk stops.
+  assertEquals(metaDays(r.urls, 'follows_and_unfollows').length, 5);
+});
+
+Deno.test('#1063: with the funnel complete, the follows backfill asks only its own missing days', async () => {
+  const store = fullFunnel('2025-10-01', '2026-11-02', 5);
+  store.tables.funnel_daily.set('2026-10-01', { ...store.tables.funnel_daily.get('2026-10-01'), follows: 2, unfollows: 1 });
+  const steady: AccountAnswer = (metric, day) =>
+    metric === 'follows_and_unfollows' ? followsAnswer({ FOLLOWER: 1, NON_FOLLOWER: 1 }) : DEFAULT_ACCOUNT(metric, day);
+  const r = rig({ store, now: TUESDAY, account: steady });
+  await runSocialCollect(r.deps);
+  // profile_views keeps the three recent days; follows asks 89 of the 90 days, the one collected stays.
+  assertEquals(metaDays(r.urls, 'profile_views'), ['2026-10-31', '2026-11-01', '2026-11-02']);
+  const follows = metaDays(r.urls, 'follows_and_unfollows');
+  assertEquals([follows.length, follows.includes('2026-10-01')], [89, false]);
+  assertEquals(store.tables.funnel_daily.get('2026-10-01')?.follows, 2);
+  assertEquals(store.tables.funnel_daily.get('2026-10-15')?.follows, 1);
+  // A refusal of follows never touches a metric collected before (website_clicks is refused here).
+  assertEquals(store.tables.funnel_daily.get('2026-10-31')?.website_clicks, 5);
+});
+
+Deno.test('#1063: followMoves reads the breakdown by name, upper-cases it and leaves UNKNOWN out', () => {
+  const item = (results: Array<[string, number]>, keys = ['follow_type']) => ({
+    total_value: { breakdowns: [{ dimension_keys: keys, results: results.map(([k, value]) => ({ dimension_values: [k], value })) }] },
+  });
+  assertEquals(followMoves(item([['FOLLOWER', 57], ['NON_FOLLOWER', 6]])), { follows: 57, unfollows: 6 });
+  assertEquals(followMoves(item([['non_follower', 4], ['UNKNOWN', 9]])), { follows: 0, unfollows: 4 });
+  assertEquals(followMoves(item([])), null);
+  assertEquals(followMoves(item([['FOLLOWER', 1]], ['age'])), null);
+  assertEquals(followMoves({ total_value: { breakdowns: [{ dimension_keys: ['follow_type'] }] } }), null);
+  assertEquals(followMoves(null), null);
 });

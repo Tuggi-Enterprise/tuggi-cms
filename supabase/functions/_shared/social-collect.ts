@@ -36,6 +36,10 @@
 // - GA4 (Data API schema): sessionCampaignName is a standard dimension; customEvent:store fails the
 //   whole request while `store` is not registered as an event-scoped custom dimension of the property,
 //   so the report is asked again without it and only the clicks by store stay unknown.
+//
+// #1063, checked 2026-10-30 against the v26.0 User Insights reference: follows_and_unfollows is
+// period=day, metric_type=total_value, breakdown follow_type, and is not returned under 100 followers.
+// It rides the same 90-day walk as the account funnel and lands in funnel_daily.follows/unfollows.
 
 import { GA4_APP_PROPERTY_ID, GA4_ROW_LIMIT, GA4_SITE_PROPERTY_ID } from './ga4-data.ts';
 import { type AppleConfig, collectAppleDownloads } from './apple-downloads.ts';
@@ -389,7 +393,7 @@ export function supabaseStore(social: any): SocialStore {
         'funnel_read',
         await social
           .from('funnel_daily')
-          .select('day, profile_views, website_clicks, ig_site_sessions, store_clicks, installs_ios, installs_android')
+          .select('day, profile_views, website_clicks, follows, unfollows, ig_site_sessions, store_clicks, installs_ios, installs_android')
           .gte('day', day)
           .order('day'),
       ) ?? [];
@@ -613,56 +617,138 @@ function blank(rows: FunnelRows, day: string, columns: string[]): boolean {
   return !row || columns.every((c) => row[c] === null || row[c] === undefined);
 }
 
-type AccountMetric = { kind: 'value'; value: number } | { kind: 'empty' } | { kind: 'refused'; reason: string };
+type AccountMetric = { kind: 'value'; row: Record<string, number> } | { kind: 'empty' } | { kind: 'refused'; reason: string };
 
-const ACCOUNT_FUNNEL_METRICS = ['profile_views', 'website_clicks'] as const;
+type InsightItem = Record<string, unknown> | null;
+
+/** The single number of an account metric: `total_value.value`, or the first `values` entry. */
+function singleValue(column: string) {
+  return (item: InsightItem): Record<string, number> | null => {
+    const value = num((item?.total_value as { value?: unknown } | undefined)?.value) ??
+      num((item?.values as Array<{ value?: unknown }> | undefined)?.[0]?.value);
+    return value === null ? null : { [column]: value };
+  };
+}
+
+/**
+ * Which `follow_type` value is a follow and which an unfollow (#1063). The reference lists FOLLOWER,
+ * NON_FOLLOWER and UNKNOWN and says nothing more; the account's own answer settled it on 2026-10-30:
+ * FOLLOWER 57 and NON_FOLLOWER 6 on 2026-10-28, FOLLOWER 74 and NON_FOLLOWER 5 on 2026-10-27, while
+ * `followers_count` grew from 699 to 738 between two daily runs. UNKNOWN is neither, and is left out.
+ */
+export const FOLLOW_TYPE = { follows: 'FOLLOWER', unfollows: 'NON_FOLLOWER' } as const;
+
+/**
+ * Follows and unfollows of one day from a `follows_and_unfollows` answer broken down by
+ * `follow_type`. No result at all (Meta answers the breakdown with no `results` while the day is not
+ * settled) is no value: the day stays null. With results, a type Meta did not list is 0, because Meta
+ * lists only what happened (seen on the story navigation breakdown).
+ */
+export function followMoves(item: InsightItem): { follows: number; unfollows: number } | null {
+  const total = item?.total_value as { breakdowns?: unknown } | undefined;
+  const breakdowns = Array.isArray(total?.breakdowns) ? (total.breakdowns as Array<Record<string, unknown>>) : [];
+  const counts = new Map<string, number>();
+  for (const b of breakdowns) {
+    const keys = Array.isArray(b.dimension_keys) ? (b.dimension_keys as unknown[]).map(String) : [];
+    const at = keys.indexOf('follow_type');
+    if (at < 0) continue;
+    for (const r of (Array.isArray(b.results) ? b.results : []) as Array<Record<string, unknown>>) {
+      const values = Array.isArray(r.dimension_values) ? (r.dimension_values as unknown[]).map(String) : [];
+      const value = num(r.value);
+      if (values[at] && value !== null) counts.set(values[at].toUpperCase(), value);
+    }
+  }
+  if (counts.size === 0) return null;
+  return { follows: counts.get(FOLLOW_TYPE.follows) ?? 0, unfollows: counts.get(FOLLOW_TYPE.unfollows) ?? 0 };
+}
+
+interface AccountFunnelMetric {
+  metric: string;
+  /** The `funnel_daily` columns this metric writes; a day is asked again while all of them are null. */
+  columns: string[];
+  params?: Record<string, string>;
+  parse: (item: InsightItem) => Record<string, number> | null;
+}
+
+/**
+ * The account metrics, in walks of their own: the funnel pair, and the follows and unfollows of the
+ * growth chart (#1063). Each walk stops on its own refusals, so a metric Meta refuses never cuts the
+ * backfill of another.
+ */
+const ACCOUNT_METRIC_WALKS: AccountFunnelMetric[][] = [
+  [
+    { metric: 'profile_views', columns: ['profile_views'], parse: singleValue('profile_views') },
+    { metric: 'website_clicks', columns: ['website_clicks'], parse: singleValue('website_clicks') },
+  ],
+  [{ metric: 'follows_and_unfollows', columns: ['follows', 'unfollows'], params: { breakdown: 'follow_type' }, parse: followMoves }],
+];
 
 /** One account metric for one Brasília day. Only a number Meta answered is a value. */
-async function accountMetric(meta: Meta, metric: string, day: string): Promise<AccountMetric> {
+async function accountMetric(meta: Meta, m: AccountFunnelMetric, day: string): Promise<AccountMetric> {
   try {
     const body = await meta.get(`${meta.igUserId}/insights`, {
-      metric,
+      metric: m.metric,
       period: 'day',
       metric_type: 'total_value',
+      ...m.params,
       since: String(brasiliaMidnight(day)),
       until: String(brasiliaMidnight(addDays(day, 1))),
     });
-    const item = (Array.isArray(body.data) ? body.data[0] : null) as Record<string, unknown> | null;
-    const value = num((item?.total_value as { value?: unknown } | undefined)?.value) ??
-      num((item?.values as Array<{ value?: unknown }> | undefined)?.[0]?.value);
-    return value === null ? { kind: 'empty' } : { kind: 'value', value };
+    const row = m.parse((Array.isArray(body.data) ? body.data[0] : null) as InsightItem);
+    return row === null ? { kind: 'empty' } : { kind: 'value', row };
   } catch (e) {
     return { kind: 'refused', reason: reason(e) };
   }
 }
 
 /**
- * Profile views and bio link taps, one day at a time, newest first: the last three days always
- * (Meta settles late), and every older day of the last 90 not collected yet. The walk stops at the
- * first group of days where Meta refused both metrics on some day: past retention, or the metric is
+ * Profile views, bio link taps and follows and unfollows, one day at a time, newest first: the last
+ * three days always (Meta settles late), and every older day of the last 90 a metric has not
+ * collected yet (each metric asks only its own missing days). Each walk stops at the first group of
+ * days where Meta refused every metric of the walk on some day: past retention, or the metric is
  * gone, and asking further back would only repeat the refusal. Each metric is upserted on its own,
- * so a refusal never overwrites the other metric, nor a value an earlier run collected.
+ * so a refusal never overwrites another metric, nor a value an earlier run collected.
  */
 async function collectMetaFunnel(deps: CollectDeps, today: string, rows: FunnelRows): Promise<CollectReport['funnel']['meta']> {
+  let asked = 0;
+  let refused = 0;
+  for (const walk of ACCOUNT_METRIC_WALKS) {
+    const done = await walkAccountMetrics(deps, today, rows, walk);
+    asked += done.asked;
+    refused += done.refused;
+  }
+  return refused === 0 ? 'ok' : refused === asked ? 'failed' : 'partial';
+}
+
+async function walkAccountMetrics(
+  deps: CollectDeps,
+  today: string,
+  rows: FunnelRows,
+  walk: AccountFunnelMetric[],
+): Promise<{ asked: number; refused: number }> {
   const recentFrom = addDays(today, -GA4_LOOKBACK_DAYS);
+  const wanted = (d: string) => walk.filter((m) => d >= recentFrom || blank(rows, d, m.columns));
   const days = daysBetween(addDays(today, -META_FUNNEL_MAX_DAYS), addDays(today, -1))
-    .filter((d) => d >= recentFrom || blank(rows, d, [...ACCOUNT_FUNNEL_METRICS]))
+    .filter((d) => wanted(d).length > 0)
     .reverse();
-  const written: Record<string, Array<Record<string, unknown>>> = { profile_views: [], website_clicks: [] };
+  const written = new Map<string, Array<Record<string, unknown>>>(walk.map((m) => [m.metric, []]));
   const refusals: Record<string, { count: number; reason: string }> = {};
   let asked = 0;
   let refused = 0;
   for (let i = 0; i < days.length; i += INSIGHT_CONCURRENCY) {
     const chunk = days.slice(i, i + INSIGHT_CONCURRENCY);
     const answers = await Promise.all(
-      chunk.map(async (day) => ({ day, got: await Promise.all(ACCOUNT_FUNNEL_METRICS.map((m) => accountMetric(deps.meta, m, day))) })),
+      chunk.map(async (day) => {
+        const metrics = wanted(day);
+        return { day, metrics, got: await Promise.all(metrics.map((m) => accountMetric(deps.meta, m, day))) };
+      }),
     );
     let exhausted = false;
-    for (const { day, got } of answers) {
+    for (const { day, metrics, got } of answers) {
       got.forEach((answer, j) => {
-        const metric = ACCOUNT_FUNNEL_METRICS[j];
+        const metric = metrics[j].metric;
         asked += 1;
-        if (answer.kind === 'value') written[metric].push({ day, [metric]: answer.value });
+        if (answer.kind === 'value') written.get(metric)!.push({ day, ...answer.row });
         if (answer.kind === 'refused') {
           refused += 1;
           refusals[metric] = { count: (refusals[metric]?.count ?? 0) + 1, reason: refusals[metric]?.reason ?? answer.reason };
@@ -675,8 +761,8 @@ async function collectMetaFunnel(deps: CollectDeps, today: string, rows: FunnelR
   for (const [metric, list] of Object.entries(refusals)) {
     deps.log(`[social-collect] account insight ${metric} refused on ${list.count} day(s): ${list.reason}`);
   }
-  for (const metric of ACCOUNT_FUNNEL_METRICS) await deps.store.upsert('funnel_daily', written[metric], 'day');
-  return refused === 0 ? 'ok' : refused === asked ? 'failed' : 'partial';
+  for (const m of walk) await deps.store.upsert('funnel_daily', written.get(m.metric)!, 'day');
+  return { asked, refused };
 }
 
 const ga4Day = (v: unknown): string | null =>
