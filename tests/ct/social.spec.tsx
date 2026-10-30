@@ -8,7 +8,7 @@ import { test, expect } from '@playwright/experimental-ct-react'
 import type { Page } from '@playwright/test'
 import AxeBuilder from '@axe-core/playwright'
 import { SocialHarness } from './social-helpers'
-import { ACCOUNTS, COMPETITOR_POSTS, OVERVIEW, OVERVIEW_SPARSE, POSTS, STORIES, STORIES_NEVER } from './social-fixtures'
+import { ACCOUNTS, COMPETITOR_POSTS, OVERVIEW, OVERVIEW_SPARSE, POSTS, STORIES, STORIES_NEVER, growthFixture } from './social-fixtures'
 
 const json = (body: unknown, status = 200) => ({ status, contentType: 'application/json', body: JSON.stringify(body) })
 
@@ -82,7 +82,7 @@ test('#1059: the overview at 1440 has three numbered recommendations, four ranki
   await expect(format.locator('li').last()).toContainText('Poucos posts (2)')
   await expect(format.locator('li').first()).toContainText('7,2%')
   await expect(page.getByText('Visitas ao perfil', { exact: true })).toBeVisible()
-  await expect(page.locator('.recharts-responsive-container')).toHaveCount(6)
+  await expect(page.locator('[data-strip] .recharts-responsive-container')).toHaveCount(6)
   await expect(page.locator('#root')).not.toContainText(RAW)
   expect(seen.filter((u) => u.includes('/posts') || u.includes('/accounts'))).toEqual([])
   await axeClean(page)
@@ -119,7 +119,7 @@ test('#1061: at 390 no tab label wraps: the bar scrolls inside its box and nothi
     await expect(tab.locator('svg')).toBeVisible()
     expect((await tab.boundingBox())!.height).toBeLessThan(40)
   }
-  await expect(page.locator('.recharts-responsive-container')).toHaveCount(6)
+  await expect(page.locator('[data-strip] .recharts-responsive-container')).toHaveCount(6)
   await settle(page)
   await noLeak(page)
   await page.screenshot({ path: testInfo.outputPath('social-overview-390.png'), fullPage: true })
@@ -227,7 +227,7 @@ test('#1059: the funnel with the first production collection keeps every bar ins
   await page.setViewportSize({ width: 1440, height: 1000 })
   await mockApi(page, OVERVIEW_SPARSE)
   await mount(<SocialHarness search="" />)
-  await expect(page.locator('.recharts-responsive-container')).toHaveCount(5)
+  await expect(page.locator('[data-strip] .recharts-responsive-container')).toHaveCount(5)
   await settle(page)
   // Every bar of a strip stays inside that strip's own box: no bar crosses into the next strip.
   // #1062: no store click measured yet: that strip says "sem dado" with its reason, and draws no bar.
@@ -263,7 +263,7 @@ test('#1059: the funnel with 28 full days, both periods measured, prints totals 
   await page.setViewportSize({ width: 1440, height: 1000 })
   await mockApi(page)
   await mount(<SocialHarness search="" />)
-  await expect(page.locator('.recharts-responsive-container')).toHaveCount(6)
+  await expect(page.locator('[data-strip] .recharts-responsive-container')).toHaveCount(6)
   await settle(page)
   await expect(page.locator('[data-strip="profile_views"]')).not.toContainText(' de 28 dias')
   await expect(page.locator('[data-strip="profile_views"] .text-green-700, [data-strip="profile_views"] .text-red-700')).toHaveCount(1)
@@ -275,7 +275,7 @@ test('#1062 R2.2 R2.3 R2.5: the overview adds store clicks between sessions and 
   await page.setViewportSize({ width: 1440, height: 1000 })
   await mockApi(page)
   await mount(<SocialHarness search="" />)
-  await expect(page.locator('.recharts-responsive-container')).toHaveCount(6)
+  await expect(page.locator('[data-strip] .recharts-responsive-container')).toHaveCount(6)
   const order = await page.locator('[data-strip]').evaluateAll((els) => els.map((e) => e.getAttribute('data-strip')))
   expect(order).toEqual(['posts', 'profile_views', 'website_clicks', 'site_sessions', 'store_clicks', 'installs'])
   // Campaigns: without the Apple key the column says so once, in the note and the head; no ratio anywhere.
@@ -396,4 +396,88 @@ test('#1062 R2.1: the competitors\' best posts of the last closed week, in the d
   await top.locator('select').selectOption(COMPETITOR_POSTS.weeks[1])
   await expect(top.locator('tbody tr')).toHaveCount(2)
   expect(seen.some((u) => u.endsWith(`competitor-posts?week=${COMPETITOR_POSTS.weeks[1]}`))).toBe(true)
+})
+
+// ---------------------------------------------------------------------------------------------
+// #1063: how the account grew (spec G9).
+
+const growthCard = (page: Page) => page.locator('.shadow-sm', { has: page.getByRole('heading', { level: 2, name: 'Como a conta cresceu' }) })
+
+test('#1063 G9: the growth card sits between the indicators and the recommendations, under 380 px, strips of 96, 64 and 56 + 22', async ({ mount, page }, testInfo) => {
+  await page.setViewportSize({ width: 1440, height: 900 })
+  await mockApi(page)
+  await mount(<SocialHarness search="" />)
+  const card = growthCard(page)
+  await expect(card.locator('.recharts-surface')).toHaveCount(3)
+  await card.screenshot({ path: testInfo.outputPath('social-growth-1440.png') })
+  const box = (await card.boundingBox())!
+  const tiles = (await page.getByText('Instalações', { exact: true }).boundingBox())!
+  const recs = (await page.getByRole('heading', { level: 2, name: 'O que postar nesta semana' }).boundingBox())!
+  expect(box.y).toBeGreaterThan(tiles.y)
+  expect(box.y + box.height).toBeLessThan(recs.y)
+  expect(box.height).toBeLessThanOrEqual(380)
+  const heights = await card.locator('.recharts-responsive-container').evaluateAll((els) => els.map((e) => Math.round(e.getBoundingClientRect().height)))
+  expect(heights).toEqual([96, 64, 78])
+  await expect(card.getByText('Histórico inteiro. O período acima não muda este gráfico.')).toBeVisible()
+  await expect(card.getByText(/A Meta só guarda 90 dias/)).toBeVisible()
+  // DS-COMPONENTE-084: the net over days not all measured is a floor, and says so.
+  await expect(card.getByText(/· em 88 de 90 dias$/)).toBeVisible()
+  await axeClean(page)
+})
+
+test('#1063 G9 DS-COMPONENTE-084: hover prints five lines; a day Meta did not answer prints the unknown mark and its reason', async ({ mount, page }) => {
+  await page.setViewportSize({ width: 1440, height: 900 })
+  await mockApi(page)
+  await mount(<SocialHarness search="" />)
+  const card = growthCard(page)
+  const plots = card.locator('.recharts-wrapper')
+  await expect(plots).toHaveCount(3)
+  const posts = (await plots.nth(2).boundingBox())!
+  const g = OVERVIEW.growth
+  const xOf = (i: number) => posts.x + 34 + 8 / 2 + ((posts.width - 34 - 8) * (i + 0.5)) / g.days.length
+  // The refused day (index span - 50 = 40): unknown moves and net, with the reason.
+  await page.mouse.move(xOf(40), posts.y + 20)
+  const tip = card.locator('.recharts-tooltip-wrapper').nth(2)
+  await expect(tip).toContainText('Ganhos e perdas: —')
+  await expect(tip).toContainText('Saldo: —')
+  await expect(tip).toContainText('A Meta não devolveu os ganhos e perdas deste dia.')
+  // A day with a loss: five lines, the net with its sign from Intl.
+  await page.mouse.move(xOf(70), posts.y + 20)
+  await expect(tip).toContainText('Ganhos e perdas: +1 / -9')
+  await expect(tip).toContainText('Saldo: -8')
+  await expect(tip).toContainText(/Seguidores: \d/)
+  await expect(tip).toContainText(/post/)
+})
+
+test('#1063 G9: 130 days group by week, with Monday ticks and a week title; the period does not change the card', async ({ mount, page }) => {
+  await page.setViewportSize({ width: 1440, height: 900 })
+  const growth = growthFixture(130)
+  await mockApi(page, { ...OVERVIEW, period: '6m', growth })
+  await mount(<SocialHarness search="?period=6m" />)
+  const card = growthCard(page)
+  await expect(card.getByText('Histórico inteiro, por semana. O período acima não muda este gráfico.')).toBeVisible()
+  await expect(card.getByText('Saldo da semana')).toBeVisible()
+  await expect(card.getByRole('group', { name: /semana a semana/ })).toBeVisible()
+  const posts = (await card.locator('.recharts-wrapper').nth(2).boundingBox())!
+  await page.mouse.move(posts.x + posts.width / 2, posts.y + 20)
+  await expect(card.locator('.recharts-tooltip-wrapper').nth(2)).toContainText('Semana de')
+})
+
+test('#1063 G9: at 390 the growth card scrolls inside its box and nothing leaks; without moves it says why', async ({ mount, page }, testInfo) => {
+  await page.setViewportSize({ width: 390, height: 844 })
+  await mockApi(page)
+  await mount(<SocialHarness search="" />)
+  const card = growthCard(page)
+  await expect(card.locator('.recharts-surface')).toHaveCount(3)
+  expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(390)
+  await card.screenshot({ path: testInfo.outputPath('social-growth-390.png') })
+})
+
+test('#1063 G5: no follows and unfollows yet is the empty state, never a flat line of zeros', async ({ mount, page }) => {
+  await page.setViewportSize({ width: 1440, height: 900 })
+  await mockApi(page, { ...OVERVIEW, growth: { from: OVERVIEW.growth.to, to: OVERVIEW.growth.to, days: [], measured: { net: 0 } } })
+  await mount(<SocialHarness search="" />)
+  const card = growthCard(page)
+  await expect(card.getByText('Ainda sem histórico de seguidores')).toBeVisible()
+  await expect(card.locator('.recharts-surface')).toHaveCount(0)
 })

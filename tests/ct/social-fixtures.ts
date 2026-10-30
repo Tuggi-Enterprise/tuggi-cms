@@ -31,6 +31,29 @@ const days = daysBetween(from, to).map(funnelDay)
 const total = (k: 'profile_views' | 'website_clicks' | 'ig_site_sessions' | 'store_clicks' | 'installs_ios' | 'installs_android') =>
   days.reduce((n, d) => n + d[k], 0)
 
+/**
+ * The account growth (#1063): `span` days ending yesterday, total walking back from 754. Day 40 is
+ * a day Meta did not answer (net and the totals before it null), day 70 lost followers, and the last
+ * day is not settled yet (null), as the first production backfill came.
+ */
+export function growthFixture(span: number) {
+  const gFrom = addDays(to, -(span - 1))
+  const list = daysBetween(gFrom, to).map((day, i) => {
+    const unsettled = i === span - 1
+    const refused = i === span - 50
+    const follows = unsettled || refused ? null : i === span - 20 ? 1 : wave(i, 6, 3) + Math.floor(i / 3)
+    const unfollows = unsettled || refused ? null : i === span - 20 ? 9 : wave(i, 1, 1)
+    return { day, total: null as number | null, follows, unfollows, net: follows === null ? null : follows - (unfollows as number), posts: i % 4 === 0 ? 1 : i % 9 === 0 ? 2 : 0 }
+  })
+  list[span - 1].total = 754
+  list[span - 2].total = 720
+  for (let i = span - 3; i >= 0; i--) {
+    const next = list[i + 1]
+    list[i].total = next.total !== null && next.net !== null ? next.total - next.net : i === span - 52 ? 560 : null
+  }
+  return { from: gFrom, to, days: list, measured: { net: list.filter((d) => d.net !== null).length } }
+}
+
 export const OVERVIEW = {
   today,
   period: '4w',
@@ -140,6 +163,7 @@ export const OVERVIEW = {
     ],
   },
   audience_reason: null,
+  growth: growthFixture(90),
 }
 
 const CAPTIONS = [

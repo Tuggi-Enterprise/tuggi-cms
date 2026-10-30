@@ -1,12 +1,13 @@
 'use client'
 
 /**
- * The overview of `/admin/social` (#1059, spec 2): the answer (the week's recommendations), the
+ * The overview of `/admin/social` (#1059, spec 2): the row of indicators and, right under it, how
+ * the account grew over its whole history (#1063); then the answer (the week's recommendations), the
  * evidence (four rankings by interactions per reach) and the result (the daily funnel, then the same
  * period by campaign), in the order the operator asks; the audience last, because it changes weekly. The period governs rankings and funnel, never the recommendations.
  */
 
-import { BarChart3, CalendarDays, Clock, Download, Eye, LayoutGrid, Sparkles, Tags, Users, Workflow } from 'lucide-react'
+import { BarChart3, CalendarDays, Clock, Download, Eye, LayoutGrid, Sparkles, Tags, TrendingUp, Users, Workflow } from 'lucide-react'
 import { useTranslations } from 'next-intl'
 import { useQuery } from '@tanstack/react-query'
 import { DIM } from '@/components/ui/dense-table'
@@ -22,6 +23,7 @@ import { RankedBarList, type RankedItem } from './RankedBarList'
 import { FunnelStrip } from './FunnelStrip'
 import { SocialCampaigns } from './SocialCampaigns'
 import { SocialAudience } from './SocialAudience'
+import { SocialGrowth } from './SocialGrowth'
 import { CardError, CardLoading, LOADING_HEIGHT, SocialCard, socialQueries } from './shared'
 
 function Recommendations({ data }: { data: OverviewPayload }) {
@@ -223,6 +225,9 @@ export function SocialOverview({ period }: { period: SocialPeriod }) {
     return (
       <div className="space-y-6">
         <Indicators data={undefined} />
+        <SocialCard title={t('growth.title')} icon={TrendingUp}>
+          <CardLoading height={LOADING_HEIGHT.growth} />
+        </SocialCard>
         <SocialCard title={t('overview.recs.title')} icon={Sparkles}>
           <CardLoading height={LOADING_HEIGHT.recs} />
         </SocialCard>
@@ -238,6 +243,7 @@ export function SocialOverview({ period }: { period: SocialPeriod }) {
   return (
     <div className="space-y-6">
       <Indicators data={query.data} />
+      <SocialGrowth growth={query.data.growth} />
       <Recommendations data={query.data} />
       <Rankings data={query.data} />
       <FunnelStrip funnel={query.data.funnel} period={period} />

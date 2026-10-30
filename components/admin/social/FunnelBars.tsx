@@ -39,7 +39,9 @@ interface Props {
   mutedNote: string
 }
 
-const MARGIN = { top: 8, right: 8, left: 0, bottom: 0 }
+/** Shared with the growth chart (#1063), so its three strips line up with the same x per day. */
+export const STRIP_MARGIN = { top: 8, right: 8, left: 0, bottom: 0 }
+export const STRIP_Y_AXIS_PX = 34
 /** Plot height of one strip, and the room the X axis adds under the last one. */
 export const STRIP_PLOT_PX = 56
 export const STRIP_AXIS_PX = 22
@@ -83,7 +85,7 @@ export function FunnelBars({ data, colorA, labelA, colorB, labelB, showAxis, mut
   const top = stripTop(data.map((d) => (d.a ?? 0) + (stacked ? (d.b ?? 0) : 0)))
   return (
     <ResponsiveContainer width="100%" height={STRIP_PLOT_PX + (showAxis ? STRIP_AXIS_PX : 0)}>
-      <BarChart data={data} margin={MARGIN}>
+      <BarChart data={data} margin={STRIP_MARGIN}>
         <CartesianGrid strokeDasharray="3 3" vertical={false} strokeOpacity={0.4} />
         <XAxis
           dataKey="x"
@@ -103,7 +105,7 @@ export function FunnelBars({ data, colorA, labelA, colorB, labelB, showAxis, mut
           tick={{ fill: '#6b7280', fontSize: 10, fontWeight: 700 }}
           axisLine={false}
           tickLine={false}
-          width={34}
+          width={STRIP_Y_AXIS_PX}
           allowDecimals={false}
         />
         <Tooltip

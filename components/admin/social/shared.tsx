@@ -91,7 +91,7 @@ export function SocialCard({
 }
 
 /** Height of each card's pulse while it loads, so the card does not grow when the data lands (R1 item 10). */
-export const LOADING_HEIGHT = { recs: 'h-24', ranking: 'h-40', funnel: 'h-64' } as const
+export const LOADING_HEIGHT = { recs: 'h-24', growth: 'h-72', ranking: 'h-40', funnel: 'h-64' } as const
 
 export function CardLoading({ height }: { height: string }) {
   const tc = useTranslations('Common.status')
