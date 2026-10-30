@@ -22,6 +22,12 @@
 // - Business Discovery paginates with cursors only, and the token travels in the Authorization
 //   header: a URL with `access_token=` would leak it to any log that prints a failed fetch.
 //
+// #1064, checked 2026-10-30 against the v26.0 Business Discovery reference: "the response will
+// include before and after cursors if the response contains multiple pages of data" and "will not
+// include previous or next fields", so the next page is asked by hand with `media.after(<cursor>)`.
+// A competitor's history is walked to the end while we keep fewer posts of it than its
+// `media_count`; after that a run stops at the first page holding a post already stored.
+//
 // #1062, checked 2026-10-29 against the v26.0 references (Media Insights, User Insights, User Stories):
 // - reels: ig_reels_avg_watch_time and ig_reels_video_view_total_time ("in development"), REELS only.
 //   The reference states no unit; Meta answers milliseconds, kept as is in the `_ms` columns.
@@ -54,8 +60,13 @@ export const GRAPH_HOST = 'https://graph.facebook.com';
 export const USERNAME_PATTERN = /^[a-z0-9._]{1,30}$/;
 /** The newest posts of our account whose insights are read every day (spec section 3 footer). */
 export const INSIGHT_POSTS = 90;
-/** How many recent posts of a competitor Business Discovery brings (card #1059). */
-export const COMPETITOR_MEDIA_LIMIT = 50;
+/** Posts of a competitor per Business Discovery page (#1064: the walk pages with `after`). */
+export const COMPETITOR_PAGE_SIZE = 50;
+/**
+ * Pages of a competitor walked at most in one run, a guard against a runaway cursor: 200 pages of
+ * 50 is the 10 000 posts the `/media` edge returns at most (IG User Media reference, v26.0).
+ */
+export const COMPETITOR_MAX_PAGES = 200;
 /** Pages of 50 of our own media the collector walks at most, a guard against a runaway cursor. */
 export const OWN_MEDIA_MAX_PAGES = 20;
 /** Below this, a group has no rate and the week gets no recommendation (copy `few_posts_hint`). */
@@ -284,6 +295,10 @@ export interface SocialStore {
   /** The Brasília day of our oldest post, or null without posts. */
   firstPostDay(accountId: string): Promise<string | null>;
   followersSince(day: string): Promise<Array<{ account_id: string; day: string; followers_count: number | null }>>;
+  /** How many posts of the account `media` keeps (#1064: the history walk runs until it holds them all). */
+  mediaCount(accountId: string): Promise<number>;
+  /** Which of these post ids `media` already keeps. */
+  knownMedia(ids: string[]): Promise<Set<string>>;
 }
 
 export class StoreError extends Error {
@@ -417,6 +432,16 @@ export function supabaseStore(social: any): SocialStore {
         'followers_read',
         await social.from('account_daily').select('account_id, day, followers_count').gte('day', day).order('day'),
       ) ?? [];
+    },
+    async mediaCount(accountId) {
+      const r = await social.from('media').select('id', { count: 'exact', head: true }).eq('account_id', accountId);
+      check('media_count', r);
+      return typeof r.count === 'number' ? r.count : 0;
+    },
+    async knownMedia(ids) {
+      if (ids.length === 0) return new Set();
+      const rows = check<Array<{ id: string }>>('known_media', await social.from('media').select('id').in('id', ids)) ?? [];
+      return new Set(rows.map((r) => String(r.id)));
     },
   };
 }
@@ -571,33 +596,23 @@ async function collectOwn(deps: CollectDeps, account: WatchedAccount, today: str
   return { media: nodes.length, metrics: metrics.length };
 }
 
-async function businessDiscovery(meta: Meta, username: string): Promise<Record<string, unknown>> {
-  const fields = (mediaFields: string) =>
-    `business_discovery.username(${username}){id,followers_count,media_count,media.limit(${COMPETITOR_MEDIA_LIMIT}){${mediaFields}}}`;
-  try {
-    return await meta.get(meta.igUserId, { fields: fields(BD_MEDIA_FIELDS) });
-  } catch (e) {
-    // `media_product_type` is not in the Business Discovery examples; if Meta refuses it, ask without.
-    if (!isInvalidParameter(e)) throw e;
-    return await meta.get(meta.igUserId, { fields: fields(BD_MEDIA_FIELDS_SAFE) });
-  }
+/** One page of a competitor through Business Discovery; `safe` drops `media_product_type`. */
+async function businessDiscovery(
+  meta: Meta,
+  username: string,
+  after: string | null,
+  safe: boolean,
+): Promise<Record<string, unknown> | undefined> {
+  const media = `media${after ? `.after(${after})` : ''}.limit(${COMPETITOR_PAGE_SIZE})`;
+  const fields = `business_discovery.username(${username}){id,followers_count,media_count,${media}{${safe ? BD_MEDIA_FIELDS_SAFE : BD_MEDIA_FIELDS}}}`;
+  const body = await meta.get(meta.igUserId, { fields });
+  return body.business_discovery as Record<string, unknown> | undefined;
 }
 
-async function collectCompetitor(deps: CollectDeps, account: WatchedAccount, today: string): Promise<{ media: number; metrics: number }> {
-  const { meta, store } = deps;
-  const body = await businessDiscovery(meta, account.username);
-  const bd = body.business_discovery as Record<string, unknown> | undefined;
-  if (!bd) throw new MetaError(200, null, null);
-  if (str(bd.id) && bd.id !== account.ig_user_id) await store.setIgUserId(account.id, String(bd.id));
-  await store.upsert(
-    'account_daily',
-    [{ account_id: account.id, day: today, followers_count: num(bd.followers_count), media_count: num(bd.media_count) }],
-    'account_id,day',
-  );
-  const media = ((bd.media as { data?: unknown } | undefined)?.data ?? []) as MediaNode[];
-  const nodes = media.filter((n) => str(n.id));
-  await store.upsert('media', nodes.map((n) => mediaRow(n, account.id)), 'id');
-  const metrics = nodes.map((n) => {
+type MediaPage = { data?: unknown; paging?: { cursors?: { after?: unknown } } } | undefined;
+
+function competitorMetrics(nodes: MediaNode[], today: string): Record<string, unknown>[] {
+  return nodes.map((n) => {
     const row: Record<string, unknown> = { media_id: String(n.id), day: today };
     for (const c of METRIC_COLUMNS) row[c] = null;
     for (const [, column] of WATCH_COLUMNS) row[column] = null;
@@ -605,8 +620,59 @@ async function collectCompetitor(deps: CollectDeps, account: WatchedAccount, tod
     row.comments = num(n.comments_count);
     return row;
   });
-  await store.upsert('media_metrics', metrics, 'media_id,day');
-  return { media: nodes.length, metrics: metrics.length };
+}
+
+/**
+ * A competitor (#1059), its whole history since #1064. The first page is the profile and the newest
+ * posts; while `media` keeps fewer posts of the account than its `media_count`, the walk follows the
+ * `after` cursor to the end, and otherwise it stops after the first page holding a post already
+ * stored. Every page is written as it arrives, so a page refused halfway keeps the ones before it
+ * and the next run walks again. Likes and comments are the counters of the media object.
+ */
+async function collectCompetitor(deps: CollectDeps, account: WatchedAccount, today: string): Promise<{ media: number; metrics: number }> {
+  const { meta, store } = deps;
+  let safe = false;
+  let bd: Record<string, unknown> | undefined;
+  try {
+    bd = await businessDiscovery(meta, account.username, null, safe);
+  } catch (e) {
+    // `media_product_type` is not in the Business Discovery examples; if Meta refuses it, ask without.
+    if (!isInvalidParameter(e)) throw e;
+    safe = true;
+    bd = await businessDiscovery(meta, account.username, null, safe);
+  }
+  if (!bd) throw new MetaError(200, null, null);
+  if (str(bd.id) && bd.id !== account.ig_user_id) await store.setIgUserId(account.id, String(bd.id));
+  const mediaCount = num(bd.media_count);
+  await store.upsert(
+    'account_daily',
+    [{ account_id: account.id, day: today, followers_count: num(bd.followers_count), media_count: mediaCount }],
+    'account_id,day',
+  );
+
+  const history = mediaCount === null || (await store.mediaCount(account.id)) < mediaCount;
+  let page = bd.media as MediaPage;
+  let written = 0;
+  let previous: string | null = null;
+  for (let n = 1; ; n++) {
+    const nodes = ((page?.data ?? []) as MediaNode[]).filter((m) => str(m.id));
+    if (nodes.length === 0) break;
+    const known = history ? new Set<string>() : await store.knownMedia(nodes.map((m) => String(m.id)));
+    await store.upsert('media', nodes.map((m) => mediaRow(m, account.id)), 'id');
+    await store.upsert('media_metrics', competitorMetrics(nodes, today), 'media_id,day');
+    written += nodes.length;
+    if (known.size > 0) break;
+    const after = str(page?.paging?.cursors?.after);
+    if (!after || after === previous || n >= COMPETITOR_MAX_PAGES) break;
+    previous = after;
+    try {
+      page = (await businessDiscovery(meta, account.username, after, safe))?.media as MediaPage;
+    } catch (e) {
+      deps.log(`[social-collect] account @${account.username} history stopped at page ${n + 1}: ${reason(e)}`);
+      break;
+    }
+  }
+  return { media: written, metrics: written };
 }
 
 type FunnelRows = Map<string, Record<string, unknown>>;

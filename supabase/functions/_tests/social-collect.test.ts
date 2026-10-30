@@ -150,6 +150,12 @@ class MemoryStore implements SocialStore {
       })),
     );
   }
+  mediaCount(accountId: string) {
+    return Promise.resolve([...this.tables.media.values()].filter((m) => m.account_id === accountId).length);
+  }
+  knownMedia(ids: string[]) {
+    return Promise.resolve(new Set(ids.filter((id) => this.tables.media.has(id))));
+  }
   count(table: SocialTable) {
     return this.tables[table].size;
   }
@@ -224,6 +230,30 @@ const demographics = (breakdown: string) => demographicsAnswer(breakdown);
 /** Brasília midnight is 03:00 UTC, so `since` minus three hours is 00:00 UTC of the same day. */
 const dayOfSince = (since: string | null) => new Date(Number(since) * 1000 - 3 * 3_600_000).toISOString().slice(0, 10);
 
+/**
+ * #1064: a competitor with three posts in two pages of Business Discovery, as the reference answers
+ * them: the `after` cursor on a page that has a next one, and no `next` field ever. `romaAfter`
+ * answers the second page; a test swaps it for a refusal.
+ */
+const ROMA_ID = '17841411111111111';
+const romaPost = (id: string, timestamp: string, likes: number) =>
+  ({ id, media_type: 'IMAGE', media_product_type: 'FEED', caption: id, permalink: `https://www.instagram.com/p/${id}/`, timestamp, like_count: likes, comments_count: 1 });
+let romaNewest = [romaPost('r3', '2026-10-31T12:00:00+0000', 30), romaPost('r2', '2026-10-20T12:00:00+0000', 20)];
+let romaAfter: () => Response = () =>
+  okJson({ business_discovery: { id: ROMA_ID, followers_count: 9000, media_count: 3, media: { data: [romaPost('r1', '2026-09-01T12:00:00+0000', 10)], paging: { cursors: { before: 'QVFIUb2' } } } } });
+function romaPage(fields: string): Response {
+  if (fields.includes('media.after(QVFIUa1).limit(50){')) return romaAfter();
+  if (!fields.includes('{id,followers_count,media_count,media.limit(50){')) return metaError(400, 100);
+  return okJson({
+    business_discovery: {
+      id: ROMA_ID,
+      followers_count: 9000,
+      media_count: 3,
+      media: { data: romaNewest, paging: { cursors: { before: 'QVFIUb1', after: 'QVFIUa1' } } },
+    },
+  });
+}
+
 /** The Graph API, recorded. `m3` refuses the full FEED list once (code 100), like a type mismatch. */
 function graph(url: URL, account: AccountAnswer = DEFAULT_ACCOUNT): Response {
   const path = url.pathname.replace('/v26.0/', '');
@@ -240,6 +270,7 @@ function graph(url: URL, account: AccountAnswer = DEFAULT_ACCOUNT): Response {
       },
     });
   }
+  if (path === IG_USER && fields.startsWith('business_discovery.username(romatours)')) return romaPage(fields);
   if (path === IG_USER && fields.startsWith('business_discovery.username(autioapp)')) return metaError(500, 2);
   if (path === IG_USER && fields.startsWith('business_discovery.username(ghost)')) return metaError(400, 110, 2207013);
   if (path === IG_USER) return ok({ id: IG_USER, username: 'tuggi_app', followers_count: 1520, media_count: 3 });
@@ -940,4 +971,51 @@ Deno.test('#1063: followMoves reads the breakdown by name, upper-cases it and le
   assertEquals(followMoves(item([['FOLLOWER', 1]], ['age'])), null);
   assertEquals(followMoves({ total_value: { breakdowns: [{ dimension_keys: ['follow_type'] }] } }), null);
   assertEquals(followMoves(null), null);
+});
+
+const ROMA: WatchedAccount = { id: 'a0000000-0000-4000-8000-000000000004', username: 'romatours', ig_user_id: null, is_own: false };
+
+Deno.test('#1064: the first run walks a competitor to the end with the after cursor, the token in the header', async () => {
+  const r = rig({ accounts: [ROMA] });
+  const report = await runSocialCollect(r.deps);
+  assertEquals(report.accounts, { ok: ['romatours'], failed: [] });
+  const roma = [...r.store.tables.media.values()].filter((m) => m.account_id === ROMA.id).map((m) => m.id).sort();
+  assertEquals(roma, ['r1', 'r2', 'r3']);
+  assertEquals(r.store.tables.media_metrics.get('r1|2026-11-02')?.likes, 10);
+  const pages = r.urls.filter((u) => decodeURIComponent(u).includes('business_discovery.username(romatours)')).map(decodeURIComponent);
+  assertEquals(pages.length, 2);
+  assert(pages[1].includes('media.after(QVFIUa1).limit(50)'), pages[1]);
+  assert(r.urls.every((u) => !u.includes('access_token')), 'token in a URL');
+  assert(r.headers.every((h) => h.Authorization === `Bearer ${TOKEN}`));
+});
+
+Deno.test('#1064: once the history is whole, the next run stops at the first page with a stored post', async () => {
+  const first = rig({ accounts: [ROMA] });
+  await runSocialCollect(first.deps);
+  romaNewest = [romaPost('r4', '2026-11-02T08:00:00+0000', 40), ...romaNewest];
+  try {
+    const next = rig({ accounts: [ROMA], store: first.store, now: TUESDAY });
+    await runSocialCollect(next.deps);
+    const pages = next.urls.filter((u) => decodeURIComponent(u).includes('business_discovery.username(romatours)'));
+    assertEquals(pages.length, 1);
+    assert(first.store.tables.media.has('r4'));
+    assertEquals(first.store.tables.media_metrics.get('r3|2026-11-03')?.likes, 30);
+    assertEquals(first.store.tables.media_metrics.get('r1|2026-11-03'), undefined);
+  } finally {
+    romaNewest = romaNewest.slice(1);
+  }
+});
+
+Deno.test('#1064: a second page Meta refuses keeps the first page, logs the stop, and the account is not failed', async () => {
+  const saved = romaAfter;
+  romaAfter = () => metaError(400, 4);
+  try {
+    const r = rig({ accounts: [ROMA] });
+    const report = await runSocialCollect(r.deps);
+    assertEquals(report.accounts.ok, ['romatours']);
+    assertEquals([r.store.tables.media.has('r3'), r.store.tables.media.has('r2'), r.store.tables.media.has('r1')], [true, true, false]);
+    assert(r.logs.some((l) => l.includes('@romatours history stopped at page 2: meta_400_4_x')), r.logs.join('\n'));
+  } finally {
+    romaAfter = saved;
+  }
 });
