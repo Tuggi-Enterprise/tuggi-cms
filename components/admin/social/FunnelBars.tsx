@@ -41,7 +41,7 @@ interface Props {
 
 /** Shared with the growth chart (#1063), so its three strips line up with the same x per day. */
 export const STRIP_MARGIN = { top: 8, right: 8, left: 0, bottom: 0 }
-export const STRIP_Y_AXIS_PX = 34
+export const STRIP_Y_AXIS_PX = 42
 /** Plot height of one strip, and the room the X axis adds under the last one. */
 export const STRIP_PLOT_PX = 56
 export const STRIP_AXIS_PX = 22

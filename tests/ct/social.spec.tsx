@@ -434,7 +434,7 @@ test('#1063 G9 DS-COMPONENTE-084: hover prints five lines; a day Meta did not an
   await expect(plots).toHaveCount(3)
   const posts = (await plots.nth(2).boundingBox())!
   const g = OVERVIEW.growth
-  const xOf = (i: number) => posts.x + 34 + 8 / 2 + ((posts.width - 34 - 8) * (i + 0.5)) / g.days.length
+  const xOf = (i: number) => posts.x + 42 + 8 / 2 + ((posts.width - 42 - 8) * (i + 0.5)) / g.days.length
   // The refused day (index span - 50 = 40): unknown moves and net, with the reason.
   await page.mouse.move(xOf(40), posts.y + 20)
   const tip = card.locator('.recharts-tooltip-wrapper').nth(2)
