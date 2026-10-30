@@ -1675,7 +1675,18 @@
         "empty_body": "Os ganhos e perdas de seguidores chegam na coleta diária, às 6h, horário de Brasília. Quando a primeira trouxer números, o gráfico aparece aqui.",
         "failed": "O histórico de seguidores não carregou. Tente de novo.",
         "chart_aria_day": "Gráfico do crescimento da conta, de {from} a {to}, dia a dia: total de seguidores, saldo de ganhos e perdas e posts publicados.",
-        "chart_aria_week": "Gráfico do crescimento da conta, de {from} a {to}, semana a semana: total de seguidores, saldo de ganhos e perdas e posts publicados."
+        "chart_aria_week": "Gráfico do crescimento da conta, de {from} a {to}, semana a semana: total de seguidores, saldo de ganhos e perdas e posts publicados.",
+        "account_label": "Conta",
+        "account_own": "@{username} (nossa conta)",
+        "caption_competitor": "Histórico de @{username} a partir de {date}. O período acima não muda este gráfico.",
+        "band_net_hint_competitor": "Diferença do total de seguidores entre o dia e o anterior.",
+        "competitor_note": "Para outra conta, a Meta mostra só o total de seguidores do dia, sem ganhos e perdas. O saldo é a diferença entre dois dias seguidos, e a curva começa em {date}, o primeiro dia em que a coleta guardou o total.",
+        "no_total_competitor_hint": "A coleta deste dia não trouxe o total de seguidores desta conta.",
+        "no_net_competitor_hint": "Sem saldo: falta o total de seguidores deste dia ou do anterior.",
+        "no_net_competitor_week_hint": "Sem saldo da semana: falta o total de seguidores no fim desta semana ou da anterior.",
+        "empty_competitor": "Ainda sem histórico de @{username}. O total de seguidores entra na coleta diária, às 6h, horário de Brasília, e a curva aparece a partir do segundo dia.",
+        "chart_aria_competitor_day": "Gráfico do crescimento de @{username}, de {from} a {to}, dia a dia: total de seguidores, saldo entre dias e posts publicados.",
+        "chart_aria_competitor_week": "Gráfico do crescimento de @{username}, de {from} a {to}, semana a semana: total de seguidores, saldo entre semanas e posts publicados."
       },
       "overview": {
         "recs": {
@@ -1734,7 +1745,7 @@
         "footer": "Download iOS é o toque em Obter na App Store; a Apple fecha o dia em dois dias. Android por campanha não é medido.",
         "apple_missing": "Downloads iOS: sem a chave da Apple. Quando ela entrar, os números chegam em até 48 horas.",
         "apple_pending": "A Apple entrega o primeiro relatório em até 48 horas.",
-      "store_unknown": "O GA4 ainda não separa os cliques por loja. Registre o parâmetro store do evento click_store como dimensão personalizada de evento no GA4 do site: os cliques seguintes aparecem aqui em até 48 horas, os de antes ficam sem dado.",
+        "store_unknown": "O GA4 ainda não separa os cliques por loja. Registre o parâmetro store do evento click_store como dimensão personalizada de evento no GA4 do site: os cliques seguintes aparecem aqui em até 48 horas, os de antes ficam sem dado.",
         "empty": "Nenhuma visita com utm_campaign no período. Links da bio e dos stories precisam levar utm_campaign para aparecer aqui.",
         "na": "sem dado",
         "table_label": "Tabela de cliques e downloads por campanha"
@@ -1889,7 +1900,18 @@
         "growth_from": "O crescimento aparece a partir de {date}, com 7 dias de coleta.",
         "error_own": "@{username} é a nossa conta.",
         "mix_legend": "Formatos:",
-        "table_label": "Tabela dos concorrentes"
+        "table_label": "Tabela dos concorrentes",
+        "market_label": "Mercado",
+        "market_br": "Brasil",
+        "market_us": "EUA",
+        "market_eu": "Europa",
+        "market_none": "Sem mercado",
+        "market_hint": "Sem mercado, a conta fica fora da comparação por mercado. Dá para escolher depois, na tabela.",
+        "market_aria": "Mercado de @{username}",
+        "market_none_hint": "Fora da comparação por mercado. Escolha Brasil, EUA ou Europa para esta conta entrar.",
+        "market_saved": "@{username} agora entra na comparação como {market}.",
+        "market_cleared": "@{username} ficou sem mercado e saiu da comparação.",
+        "market_failed": "Não foi possível salvar o mercado de @{username}. Tente de novo."
       },
       "competitor_posts": {
         "title": "O que rendeu nos concorrentes",
@@ -1913,6 +1935,26 @@
         "empty": "Nenhum post dos concorrentes na semana de {date}.",
         "open_aria": "Abrir o post de @{username} no Instagram",
         "table_label": "Tabela dos melhores posts dos concorrentes"
+      },
+      "markets": {
+        "title": "O que rende em cada mercado",
+        "caption": "Posts dos concorrentes nos últimos {days} dias, pela mediana das interações por seguidor de cada grupo: curtidas e comentários do post divididos pelos seguidores da conta no dia.",
+        "note": "O mercado de cada conta é a marca que você escolheu na tabela acima. A Meta não mostra de onde são os seguidores de outra conta, então Brasil, EUA e Europa aqui dizem onde a conta atua, não onde está o público dela.",
+        "accounts": "{count, plural, one {# conta} other {# contas}}",
+        "empty_title": "Nenhum concorrente com mercado",
+        "empty_body": "Escolha Brasil, EUA ou Europa na coluna Mercado da tabela acima. A comparação aparece assim que uma conta tiver mercado.",
+        "no_account_hint": "Nenhuma conta marcada como {market}.",
+        "no_posts_hint": "Nenhum post deste grupo em {market} no período.",
+        "no_followers_hint": "Sem o total de seguidores da conta no dia do post, a divisão não se faz.",
+        "failed": "A comparação por mercado não carregou. Tente de novo.",
+        "table_label": "Tabela da comparação por mercado"
+      },
+      "outlier": {
+        "badge": "Fora da curva",
+        "hint": "Interações por seguidor acima de {factor} vezes a mediana dos posts desta conta, que tem pelo menos {min} posts coletados. Pode ter sido impulsionado. A Meta não diz se um post foi pago.",
+        "ad_library": "Ver na Biblioteca de Anúncios",
+        "ad_library_aria": "Ver os anúncios de @{username} na Biblioteca de Anúncios da Meta",
+        "ad_library_hint": "Mostra os anúncios da conta no ar agora; na União Europeia, também os do último ano. Impulsionamento que já acabou pode não estar lá."
       },
       "collect": {
         "none_title": "Ainda sem números",
