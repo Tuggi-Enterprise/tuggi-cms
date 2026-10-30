@@ -1337,9 +1337,14 @@ export type LookupResult =
  * not the documented envelope is `meta_error`: nothing is written on a doubt.
  */
 export async function lookupInstagram(username: string): Promise<LookupResult> {
+  // supabase-js 2.116 sends an `sb_secret_` key only in `apikey`, never as Bearer, and the function's
+  // gate reads `Authorization`: without this header every lookup answered 401 (#1064, 2026-10-30).
+  const key = process.env.SUPABASE_SECRET_KEY
+  if (!key) return { ok: false, reason: 'meta_error' }
   try {
     const { data, error } = await getSupabaseService().functions.invoke(SOCIAL_COLLECT_FUNCTION, {
       body: { action: 'lookup', username },
+      headers: { Authorization: `Bearer ${key}` },
     })
     if (error || !data || typeof data !== 'object') return { ok: false, reason: 'meta_error' }
     const d = data as Record<string, unknown>

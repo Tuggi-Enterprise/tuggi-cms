@@ -27,6 +27,8 @@ let calls: Call[]
 let role: string
 let answers: Record<string, (c: Call) => { data?: unknown; error?: { code: string } | null }>
 let invokes: Array<{ fn: string; body: unknown }>
+let invokeAuth: string | null = null
+process.env.SUPABASE_SECRET_KEY ||= "sb_secret_test"
 let lookupReply: { data: unknown; error: unknown }
 let rpcArgs: Array<{ fn: string; args: unknown }>
 
@@ -69,8 +71,9 @@ function client() {
       },
     }),
     functions: {
-      invoke: async (fn: string, opts: { body: unknown }) => {
+      invoke: async (fn: string, opts: { body: unknown; headers?: Record<string, string> }) => {
         invokes.push({ fn, body: opts.body })
+        invokeAuth = opts.headers?.Authorization ?? null
         return lookupReply
       },
     },
@@ -216,6 +219,8 @@ test('#1059: a new account is checked on social-collect lookup and inserted with
     account: { id: 'new-1', username: 'roadtrippers', market: null, followers: 51234, reactivated: false },
   })
   assert.deepEqual(invokes, [{ fn: 'social-collect', body: { action: 'lookup', username: 'roadtrippers' } }])
+  // #1064: the function's gate reads Authorization; supabase-js never puts an sb_secret_ key there.
+  assert.equal(invokeAuth, `Bearer ${process.env.SUPABASE_SECRET_KEY}`)
 })
 
 test('#1059: a removed account comes back by UPDATE active true, never a second insert', async () => {
