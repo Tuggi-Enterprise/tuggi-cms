@@ -129,9 +129,18 @@ class MemoryStore implements ImportStore {
     this.finished.push({ sourceId, status, summary });
     return Promise.resolve();
   }
+  /** Storage that writes the object and still answers an error, as seen on 2026-11-02. */
+  uploadAnswersError = false;
   uploadImage(path: string, bytes: Uint8Array, contentType: string) {
     this.uploads.set(path, { bytes, contentType });
+    if (this.uploadAnswersError) return Promise.reject(new Error('upload: http_504'));
     return Promise.resolve(`http://supabase.test/storage/v1/object/public/${IMAGE_BUCKET}/${path}`);
+  }
+  storedImageUrl(path: string, size: number) {
+    const stored = this.uploads.get(path);
+    return Promise.resolve(
+      stored?.bytes.length === size ? `http://supabase.test/storage/v1/object/public/${IMAGE_BUCKET}/${path}` : null,
+    );
   }
 }
 
@@ -475,6 +484,25 @@ Deno.test('#1075 BR-EVENTO-009 item 5: an event that came in without its poster 
   );
 });
 
+Deno.test('#1075 BR-EVENTO-009 item 5: an upload that answers an error but left the whole object keeps the poster', async () => {
+  const store = new MemoryStore();
+  store.uploadAnswersError = true;
+  const [report] = await runEventsImport(deps(store, newServer()));
+  const f1 = store.events.get('902');
+  assert(f1?.poster_url?.endsWith('/902/2370.webp'), 'the stored object is the poster');
+  assertEquals(report.summary.errors, []);
+  const timing = report.summary.timings.find((t) => t.external_id === '902');
+  assertEquals(timing?.upload_error, 'upload: http_504');
+
+  // An object that is not whole is no proof: the event goes without the poster, and the error shows.
+  const partial = new MemoryStore();
+  partial.uploadAnswersError = true;
+  partial.storedImageUrl = () => Promise.resolve(null);
+  const [failed] = await runEventsImport(deps(partial, newServer()));
+  assertEquals(partial.events.get('902')?.poster_url, null);
+  assert(failed.summary.errors.some((e) => e.external_id === '902' && e.message === 'image: upload: http_504'));
+});
+
 // ---------------------------------------------------------------------------------------------
 // The handler
 
@@ -512,6 +540,7 @@ Deno.test('#1075: the handler reads the active sources of core, calls import_eve
   globalThis.fetch = (input: string | URL | Request, init?: RequestInit) => {
     const url = input instanceof Request ? input.url : String(input);
     fetchCalls.push(url);
+    if (url.startsWith('http://supabase.test/storage/')) return Promise.resolve(Response.json({ Key: 'k' }));
     return recorded(url, init);
   };
   scenario.tables.event_sources = (chain: string[]) => (chain.includes('select') ? [SPTUR] : null);
@@ -529,7 +558,10 @@ Deno.test('#1075: the handler reads the active sources of core, calls import_eve
     const values = updates.at(-1)?.values as { last_run_status: string; last_run_summary: { read: number } };
     assertEquals([values.last_run_status, values.last_run_summary.read], ['ok', 17]);
     assert(scenario.calls.includes('from:event_source_items'), 'it reads what earlier links already saw');
-    assert(scenario.calls.includes(`storage:${IMAGE_BUCKET}`), 'the image goes to the attraction image bucket');
+    assert(
+      fetchCalls.includes(`http://supabase.test/storage/v1/object/${IMAGE_BUCKET}/events/${SPTUR.id}/902/2370.webp`),
+      'the image goes to the attraction image bucket',
+    );
   } finally {
     globalThis.fetch = realFetch;
     delete scenario.tables.event_sources;
@@ -549,6 +581,7 @@ Deno.test('#1075: out of time, the handler answers 200 and calls its own next li
   globalThis.fetch = (input: string | URL | Request, init?: RequestInit) => {
     const url = input instanceof Request ? input.url : String(input);
     fetchCalls.push(url);
+    if (url.startsWith('http://supabase.test/storage/')) return Promise.resolve(Response.json({ Key: 'k' }));
     if (url.includes('/functions/v1/')) {
       sent.push({ url, body: JSON.parse(String(init?.body)), auth: new Headers(init?.headers).get('authorization') });
       return Promise.resolve(new Response('{}', { status: 202 }));

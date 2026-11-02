@@ -21,6 +21,7 @@ import { getSecretKey, isOwnSecretKey } from '../_shared/secret-key.ts';
 import {
   type EventSource,
   IMAGE_BUCKET,
+  IMAGE_FETCH_TIMEOUT_MS,
   type ImportStore,
   type KnownItem,
   messageOf,
@@ -28,6 +29,7 @@ import {
   readLink,
   runEventsImport,
   type RunLink,
+  UPLOAD_TIMEOUT_MS,
 } from '../_shared/events-import.ts';
 
 declare const EdgeRuntime: { waitUntil(promise: Promise<unknown>): void } | undefined;
@@ -56,6 +58,7 @@ serve(async (req) => {
     auth: { autoRefreshToken: false, persistSession: false },
   });
   const core = supabase.schema('core');
+  const publicUrl = (path: string) => supabase.storage.from(IMAGE_BUCKET).getPublicUrl(path).data.publicUrl;
 
   const store: ImportStore = {
     async activeSources() {
@@ -98,11 +101,29 @@ serve(async (req) => {
         .eq('id', sourceId);
       if (error) throw new Error(`event_sources update: ${error.code ?? 'unknown'}`);
     },
+    // Storage over HTTP, not supabase-js: its upload takes no signal, and an upload that hangs must
+    // end here, not at the 60 s of the gateway.
     async uploadImage(path, bytes, contentType) {
-      const bucket = supabase.storage.from(IMAGE_BUCKET);
-      const { error } = await bucket.upload(path, bytes, { upsert: true, contentType });
-      if (error) throw new Error(`upload: ${error.message ?? 'unknown'}`);
-      return bucket.getPublicUrl(path).data.publicUrl;
+      const res = await fetch(`${supabaseUrl}/storage/v1/object/${IMAGE_BUCKET}/${path}`, {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${secretKey}`,
+          apikey: secretKey,
+          'Content-Type': contentType,
+          'x-upsert': 'true',
+        },
+        body: bytes,
+        signal: AbortSignal.timeout(UPLOAD_TIMEOUT_MS),
+      });
+      await res.body?.cancel();
+      if (!res.ok) throw new Error(`upload: http_${res.status}`);
+      return publicUrl(path);
+    },
+    async storedImageUrl(path, size) {
+      const url = publicUrl(path);
+      const res = await fetch(url, { method: 'HEAD', signal: AbortSignal.timeout(IMAGE_FETCH_TIMEOUT_MS) });
+      await res.body?.cancel();
+      return res.ok && Number(res.headers.get('content-length')) === size ? url : null;
     },
   };
 

@@ -30,6 +30,8 @@ export const ALLOWED_IMAGE_TYPES = ['image/webp', 'image/jpeg', 'image/png'];
 export const FETCH_TIMEOUT_MS = 20_000;
 /** The image, body included: a slow poster must not hold the event. */
 export const IMAGE_FETCH_TIMEOUT_MS = 8_000;
+/** The upload of one poster to our bucket. */
+export const UPLOAD_TIMEOUT_MS = 15_000;
 /**
  * No item starts after this much of a link: the platform answers the caller at 150 s and kills the
  * worker, and the items in flight still need their card, image, upload and RPC.
@@ -118,6 +120,8 @@ export interface ItemTiming {
   upload_ms: number;
   rpc_ms: number;
   image_error?: string;
+  /** The upload answered an error, yet the object was there, whole: the poster was kept. */
+  upload_error?: string;
 }
 
 export interface RunSummary {
@@ -158,6 +162,8 @@ export interface ImportStore {
   finishSource(sourceId: string, status: RunStatus, summary: RunSummary): Promise<void>;
   /** Uploads with upsert and answers the public URL. */
   uploadImage(path: string, bytes: Uint8Array, contentType: string): Promise<string>;
+  /** The public URL of `path` when the bucket serves it with exactly `size` bytes; null otherwise. */
+  storedImageUrl(path: string, size: number): Promise<string | null>;
 }
 
 export type Fetch = (url: string, init?: RequestInit) => Promise<Response>;
@@ -459,9 +465,19 @@ async function copyImage(
   if (bytes.length > MAX_IMAGE_BYTES) throw new Error('image_too_large');
   onStep('upload');
   const uploadStarted = now();
-  const url = await deps.store.uploadImage(imagePath(source.id, externalId, imageId, contentType), bytes, contentType);
-  timing.upload_ms = now() - uploadStarted;
-  return url;
+  const path = imagePath(source.id, externalId, imageId, contentType);
+  try {
+    return await deps.store.uploadImage(path, bytes, contentType);
+  } catch (error) {
+    // Storage was seen on 2026-11-02 writing the object in a second and answering 504 at 60 s. The
+    // object is the proof of success, not the answer: served whole, it is the poster.
+    const stored = await deps.store.storedImageUrl(path, bytes.length).catch(() => null);
+    if (!stored) throw error;
+    timing.upload_error = messageOf(error);
+    return stored;
+  } finally {
+    timing.upload_ms = now() - uploadStarted;
+  }
 }
 
 /** One list item to the payload of `core.import_event_upsert`, and the image failure if there was one. */
