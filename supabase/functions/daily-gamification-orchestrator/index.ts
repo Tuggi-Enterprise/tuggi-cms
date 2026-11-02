@@ -8,10 +8,14 @@ import { getSecretKey } from '../_shared/supabase-client.ts';
 // `drive.trigger_fomo_orchestrator()` — ja manda o `ef_secret_key` do Vault, que e exatamente o
 // que `isOwnMachineKey` aceita. BR-COMUNICACAO-012, BR-USUARIO-043.
 import { requireAdmin } from '../_shared/auth-middleware.ts';
-// #955: the daily retrospective (`daily_fomo`) left the push — BR-COMUNICACAO-019 item 3.i moves
-// it to the first opening of the day. What this window still pushes is the ranking piece, and it
-// passes the one gate of `firebase-push-notification` (`_shared/push-gate.ts`).
+// BR-COMUNICACAO-019 item 3.i (#1071, operator 2026-11-02): the summary of yesterday is a push
+// again, beside the opening notice, outside every cap. The ranking pieces ride the same window.
+// Both pass the one gate (`_shared/push-gate.ts`) through the sender of `_shared/push-send.ts`,
+// called in process: a call per person to `/send` over HTTP spends the Supabase budget of
+// function-to-function calls (#1046).
 import { readActiveWindowDays, readUserActive, singleGateOutcome } from '../_shared/push-gate.ts';
+import { createPushSender } from '../_shared/push-send.ts';
+import { composeDailySummaryPush, DAILY_SUMMARY_TYPE, dailySummarySendBody } from '../_shared/daily-push-i18n.ts';
 // The ranking pieces of #747 ride THIS daily window and never schedule one of their own —
 // BR-COMUNICACAO-012 item 1.4.e. The decision of who gets what lives in `_shared`, pure and
 // tested (`tests/api/ranking-communication.test.ts`); this file only reads, dispatches and logs.
@@ -419,13 +423,13 @@ Deno.serve(async (req) => {
       db: { schema: 'drive' }
     });
 
-    // 1. Get Candidates (those at 07:00 AM local time)
+    // 1. Get Candidates. The local hour and who qualifies are decided by the RPC, not here.
     const { data: candidates, error: candidateError } = await driveClient
       .rpc('get_morning_push_candidates');
 
     if (candidateError) throw candidateError;
     if (!candidates || candidates.length === 0) {
-      console.log(`[${requestId}] ℹ️ No candidates found for the current hour (7:00 AM local time check).`);
+      console.log(`[${requestId}] ℹ️ No candidates found for the current hour.`);
       return new Response(JSON.stringify({ success: true, message: 'No candidates for current hour' }), {
         headers: { ...corsHeaders, 'Content-Type': 'application/json' },
       });
@@ -473,11 +477,46 @@ Deno.serve(async (req) => {
       attemptsByUserId.set(String(r.user_id), Number(r.attempt_count ?? 0));
     }
 
-    // 2. Send Push directly via firebase-push-notification/send (EF-to-EF)
-    const pushUrl = `${supabaseUrl}/functions/v1/firebase-push-notification/send`;
+    // 2. One sender for the run, in process: one OAuth exchange with Google for every person.
+    const { send } = createPushSender(
+      createClient(supabaseUrl, supabaseKey, { auth: { autoRefreshToken: false, persistSession: false } }),
+      requestId
+    );
+    /** The outcome of a one-person send, read from the gate tally; anything else is `error`. */
+    const pushOutcome = async (payload: Record<string, unknown>, kind: string): Promise<string> => {
+      try {
+        const { status, body } = await send(payload);
+        if (status < 200 || status >= 300) {
+          console.error(`[${requestId}] ⚠️ Push (${kind}) failed: status ${status}`);
+          return 'error';
+        }
+        return singleGateOutcome(body) ?? 'error';
+      } catch (pushErr) {
+        // Sem user_id no log (BR-USUARIO-043).
+        console.error(`[${requestId}] ⚠️ Push (${kind}) failed:`, (pushErr as Error)?.name ?? 'Error');
+        return 'error';
+      }
+    };
+    const today = new Date().toISOString().split('T')[0];
     let rankingSent = 0;
+    let dailySent = 0;
 
     for (const user of candidates) {
+      const attemptsSoFar = attemptsByUserId.get(user.user_id) ?? (attemptErr ? 1 : 0);
+
+      // BR-COMUNICACAO-019 item 3.i.2 (#1071): one summary per person per day, so only on the first
+      // pass of the day. A person who comes back on the next hourly run (the ranking deferral or a
+      // retry) already had it; an attempt count that could not be read counts as a pass, because a
+      // second summary is worse than none. Both counts zero: nothing to tell, nothing leaves.
+      if (attemptsSoFar === 0) {
+        const daily = composeDailySummaryPush(user.language, user.heard_count, user.missed_count);
+        if (daily) {
+          const outcome = await pushOutcome(dailySummarySendBody(user.user_id, daily, today), DAILY_SUMMARY_TYPE);
+          tally(DAILY_SUMMARY_TYPE, outcome);
+          if (outcome === 'sent') dailySent += 1;
+        }
+      }
+
       // One piece per person per day, the most perishable (BR-COMUNICACAO-012 item 1.4.e), and
       // whether it may leave NOW is the gate's: cap, quiet hours, consent (BR-COMUNICACAO-019).
       const decision = ranking.byUserId.get(user.user_id);
@@ -535,43 +574,22 @@ Deno.serve(async (req) => {
         continue;
       }
       const kind = decision.piece;
-
-      let outcome: string;
-      try {
-        const pushResponse = await fetch(pushUrl, {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            'Authorization': `Bearer ${supabaseKey}`,
-            'apikey': supabaseKey
-          },
-          body: JSON.stringify(rankingPayload)
-        });
-
-        if (!pushResponse.ok) {
-          const errText = await pushResponse.text();
-          throw new Error(`Edge Function returned a non-2xx status code: ${pushResponse.status} ${pushResponse.statusText} - ${errText.slice(0, 300)}`);
-        }
-        // A `/send` deployed before #955 answers without `gate`; a 2xx from it was a send.
-        outcome = singleGateOutcome(await pushResponse.json()) ?? 'sent';
-      } catch (pushErr) {
-        // Sem user_id no log (BR-USUARIO-043).
-        console.error(`[${requestId}] ⚠️ Push (${kind}) failed:`, (pushErr as Error).message);
-        outcome = 'error';
-      }
+      const outcome = await pushOutcome(rankingPayload, kind);
 
       tally(kind, outcome);
       if (outcome === 'sent') rankingSent += 1;
-      // The gate answered "denied" at the first evaluation of the day — 07:00 local, inside the
-      // quiet hours — so the piece is evaluated once more on the next hourly run, from scratch:
+      // The gate answered "denied" at the first evaluation of the day (quiet hours or cap), so the
+      // piece is evaluated once more on the next hourly run, from scratch:
       // a streak that stopped being true by then is not chosen again (BR-COMUNICACAO-019 item 5).
-      const step = dailyWindowStep(outcome, attemptsByUserId.get(user.user_id) ?? (attemptErr ? 1 : 0));
+      const step = dailyWindowStep(outcome, attemptsSoFar);
       if (step === 'close') userIdsNotified.push(user.user_id);
       else userIdsAgain.push(user.user_id);
     }
 
     for (const userId of userIdsAgain) {
-      await driveClient.rpc('increment_fomo_attempt', { p_user_id: userId, p_date: yesterdayDate });
+      // The spent pass is what keeps the next run from sending the summary again.
+      const { error: incrementErr } = await driveClient.rpc('increment_fomo_attempt', { p_user_id: userId, p_date: yesterdayDate });
+      if (incrementErr) console.error(`[${requestId}] ❌ attempt count not spent (${incrementErr.code ?? '?'})`);
     }
 
     // 3. Mark cache as notified to avoid double-send
@@ -591,13 +609,15 @@ Deno.serve(async (req) => {
 
     const duration = Date.now() - startTime;
     console.log(
-      `[${requestId}] ✅ Orchestration finished in ${duration}ms. Ranking pushes sent: ${rankingSent}, ` +
+      `[${requestId}] ✅ Orchestration finished in ${duration}ms. Daily summaries sent: ${dailySent}, ` +
+      `ranking pushes sent: ${rankingSent}, ` +
       `closed: ${userIdsNotified.length}, again next hour: ${userIdsAgain.length}, of ${candidates.length}`
     );
 
     return new Response(JSON.stringify({
       success: true,
-      sent: rankingSent,
+      sent: rankingSent + dailySent,
+      daily_sent: dailySent,
       closed: userIdsNotified.length,
       again: userIdsAgain.length,
       total: candidates.length,

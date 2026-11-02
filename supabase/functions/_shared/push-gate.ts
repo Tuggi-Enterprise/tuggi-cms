@@ -29,7 +29,8 @@ export type PushKind =
   | 'cms_broadcast'
   | 'cms_direct'
   | 'weekly_thursday_local'
-  | 'weekly_saturday_local';
+  | 'weekly_saturday_local'
+  | 'daily_summary';
 
 export interface PushKindPolicy {
   /**
@@ -45,23 +46,36 @@ export interface PushKindPolicy {
    * senders it applies to the deferred queue that `data` still has to create (#955).
    */
   vacancyPriority: number;
+  /**
+   * BR-COMUNICACAO-019 items 3.i, 3.n, 4, 4.1 and 7 (operator, 2026-11-02): outside every cap, not
+   * only the cap of item 4. The gate still asks consent at send time, through `push_allowed` with
+   * `p_requested = true`, which is the one form of the SQL that answers consent and nothing else;
+   * the quiet hours of item 5 are applied by the candidate query of the sender
+   * (`drive.get_morning_push_candidates`, `drive.get_first_story_push_candidates`). Nothing goes to
+   * `record_push_sent`: `drive.push_send_log` exists to count caps, and this push takes no slot.
+   */
+  outsideCaps: boolean;
 }
 
 export const PUSH_KINDS: Readonly<Record<PushKind, PushKindPolicy>> = {
-  ranking_streak_at_risk: { requested: false, requiresActive: true, vacancyPriority: 1 },
-  referral_hours_credited: { requested: false, requiresActive: true, vacancyPriority: 2 },
-  ranking_rank_at_risk: { requested: false, requiresActive: true, vacancyPriority: 3 },
-  ranking_rank_drop: { requested: false, requiresActive: true, vacancyPriority: 3 },
-  weekly_podium: { requested: false, requiresActive: true, vacancyPriority: 3 },
+  ranking_streak_at_risk: { requested: false, requiresActive: true, vacancyPriority: 1, outsideCaps: false },
+  referral_hours_credited: { requested: false, requiresActive: true, vacancyPriority: 2, outsideCaps: false },
+  ranking_rank_at_risk: { requested: false, requiresActive: true, vacancyPriority: 3, outsideCaps: false },
+  ranking_rank_drop: { requested: false, requiresActive: true, vacancyPriority: 3, outsideCaps: false },
+  weekly_podium: { requested: false, requiresActive: true, vacancyPriority: 3, outsideCaps: false },
   // Item 3.l: the CMS push counts against the cap and comes last.
-  cms_broadcast: { requested: false, requiresActive: false, vacancyPriority: 4 },
-  cms_direct: { requested: false, requiresActive: false, vacancyPriority: 4 },
+  cms_broadcast: { requested: false, requiresActive: false, vacancyPriority: 4, outsideCaps: false },
+  cms_direct: { requested: false, requiresActive: false, vacancyPriority: 4, outsideCaps: false },
   // Item 3.m (#1046, #1047): the weekly pieces reach whoever has push on, using the app or not. They
   // have their own cap (item 4.1) and stay out of the item 7 dispute: `drive.push_allowed` counts
   // them apart, so their priority is never compared with the kinds above. Sender:
   // `weekly-local-push` (`_shared/weekly-local-push.ts`).
-  weekly_thursday_local: { requested: false, requiresActive: false, vacancyPriority: 4 },
-  weekly_saturday_local: { requested: false, requiresActive: false, vacancyPriority: 4 },
+  weekly_thursday_local: { requested: false, requiresActive: false, vacancyPriority: 4, outsideCaps: false },
+  weekly_saturday_local: { requested: false, requiresActive: false, vacancyPriority: 4, outsideCaps: false },
+  // Item 3.i (#1071): the summary of yesterday, at the local morning hour, to whoever used the app
+  // the day before. Outside every cap; the vacancy order never compares it. Sender:
+  // `daily-gamification-orchestrator`.
+  daily_summary: { requested: false, requiresActive: false, vacancyPriority: 4, outsideCaps: true },
 };
 
 /** `null` for anything that is not a known kind: an unknown kind is refused, never defaulted. */
@@ -110,11 +124,13 @@ export interface PushGateRequest {
   kind: PushKind;
   requested: boolean;
   requiresActive: boolean;
+  /** `PushKindPolicy.outsideCaps`. Absent reads `false`. */
+  outsideCaps?: boolean;
 }
 
 export function pushGateRequest(userId: string, kind: PushKind): PushGateRequest {
-  const { requested, requiresActive } = PUSH_KINDS[kind];
-  return { userId, kind, requested, requiresActive };
+  const { requested, requiresActive, outsideCaps } = PUSH_KINDS[kind];
+  return { userId, kind, requested, requiresActive, outsideCaps };
 }
 
 /**
@@ -150,7 +166,10 @@ export const PUSH_GATE_OUTCOMES: readonly PushGateOutcome[] = [
 
 export interface PushGateResult {
   outcome: PushGateOutcome;
-  /** `record_push_sent` succeeded. `false` on a sent push means the cap did not see it. */
+  /**
+   * `record_push_sent` succeeded. `false` on a sent push means the cap did not see it. A kind
+   * outside every cap has no cap to see it and reads `true` when sent.
+   */
   recorded: boolean;
 }
 
@@ -167,7 +186,9 @@ export async function sendThroughPushGate(
   activeWindowDays: number | null,
   deliver: () => Promise<boolean>
 ): Promise<PushGateResult> {
-  const args = { p_user_id: request.userId, p_kind: request.kind, p_requested: request.requested };
+  const outsideCaps = request.outsideCaps === true;
+  // Outside every cap: the SQL is asked the consent question only (see `PushKindPolicy.outsideCaps`).
+  const args = { p_user_id: request.userId, p_kind: request.kind, p_requested: request.requested || outsideCaps };
 
   if (request.requiresActive && !request.requested) {
     if (activeWindowDays === null) return { outcome: 'gate_error', recorded: false };
@@ -196,6 +217,7 @@ export async function sendThroughPushGate(
   }
   if (!accepted) return { outcome: 'not_delivered', recorded: false };
   if (gateMissing) return { outcome: 'sent', recorded: false };
+  if (outsideCaps) return { outcome: 'sent', recorded: true };
 
   const { error: recordError } = await client.rpc('record_push_sent', args);
   return { outcome: 'sent', recorded: !recordError };
