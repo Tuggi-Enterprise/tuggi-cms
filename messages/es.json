@@ -1822,7 +1822,8 @@
           "en": "Inglés",
           "es": "Español",
           "it": "Italiano",
-          "fr": "Francés"
+          "fr": "Francés",
+          "de": "Alemán"
         },
         "onboarding": {
           "label": "Completaron el onboarding",

@@ -21,13 +21,13 @@ export interface NotificationPayload {
 }
 
 /**
- * The languages a push may be composed in — the APP's interface catalogue, five, by
- * BR-IDIOMA-001 item 3. It is deliberately NOT the newsletter's list (four: no `fr`) and
- * not the content catalogue (twelve): a push lands on the phone's notification tray, which
- * is app-interface surface, and `drive.profiles.language` is what the audience filter
- * matches by prefix (`core.build_audience_filter`).
+ * The languages a push may be composed in: the catalogue of the server push to the tourist,
+ * six, by BR-IDIOMA-001 item 3 (#1073). It is NOT the app's interface list (five, no `de`),
+ * not the newsletter's (four) and not the content catalogue (twelve). `drive.profiles.language`
+ * is what the audience filter matches by prefix (`core.build_audience_filter`), so `de` reaches
+ * de, de-AT and de_CH; the Edge Function picks the copy by the same two-letter prefix.
  */
-export const PUSH_LANGUAGES = ['pt', 'en', 'es', 'it', 'fr'] as const;
+export const PUSH_LANGUAGES = ['pt', 'en', 'es', 'it', 'fr', 'de'] as const;
 export type PushLanguage = (typeof PUSH_LANGUAGES)[number];
 
 /** Title + body of one language of a campaign. */

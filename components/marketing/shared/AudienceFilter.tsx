@@ -37,7 +37,7 @@ import { Label } from '@/components/ui/label';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Target, Users, Smartphone, Globe, ShieldCheck, Database, Activity, AlertTriangle, Info } from 'lucide-react';
 import { useLocale, useTranslations } from 'next-intl';
-import { AudienceFilters, NotificationService } from '@/lib/services/notification-service';
+import { AudienceFilters, NotificationService, PUSH_LANGUAGES } from '@/lib/services/notification-service';
 import { listSubscriptionTiers, tierLabel, type SubscriptionTierOption } from '@/lib/services/marketing/subscription-tiers';
 import { cn } from '@/lib/utils';
 
@@ -290,11 +290,9 @@ export function AudienceFilter({ filters, onChange, estimateFn, baseLabel, onEst
                 {/* Values are the 2-letter code (the app's languageCode). The SQL match is a
                     case-insensitive prefix, so "pt" covers pt / pt-br / pt-BR / pt-PT.
                     SSOT: core.build_audience_filter. */}
-                <SelectItem value="pt">{t('language.pt')}</SelectItem>
-                <SelectItem value="en">{t('language.en')}</SelectItem>
-                <SelectItem value="es">{t('language.es')}</SelectItem>
-                <SelectItem value="it">{t('language.it')}</SelectItem>
-                <SelectItem value="fr">{t('language.fr')}</SelectItem>
+                {PUSH_LANGUAGES.map((code) => (
+                  <SelectItem key={code} value={code}>{t(`language.${code}`)}</SelectItem>
+                ))}
               </Select>
           </div>
 

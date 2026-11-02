@@ -127,8 +127,17 @@ test('#1047: a malformed body never reaches the database, new_place included', a
   ]
   for (const body of bad) assert.equal((await settingsRoute.PATCH(req('PATCH', body), ctx)).status, 400, JSON.stringify(body))
   assert.equal((await textsRoute.PUT(req('PUT', { ...TEXT, variant: 'new_place' }, '/texts'), ctx)).status, 400)
-  assert.equal((await textsRoute.PUT(req('PUT', { ...TEXT, language: 'de' }, '/texts'), ctx)).status, 400)
+  assert.equal((await textsRoute.PUT(req('PUT', { ...TEXT, language: 'ru' }, '/texts'), ctx)).status, 400)
   assert.deepEqual(calls, [])
+})
+
+test('#1073 BR-IDIOMA-001 item 3: the weekly texts are written in the six server-push languages, de included', async () => {
+  assert.deepEqual([...lib.WEEKLY_PUSH_LANGUAGES].sort(), ['de', 'en', 'es', 'fr', 'it', 'pt'])
+  assert.equal(lib.isWeeklyPushLanguage('de'), true)
+  assert.equal((await textsRoute.PUT(req('PUT', { ...TEXT, language: 'de' }, '/texts'), ctx)).status, 200)
+  assert.deepEqual(calls, [
+    { schema: 'drive', fn: 'cms_set_weekly_push_text', args: { p_piece: 'thursday_local', p_variant: 'event', p_language: 'de', p_title: TEXT.title, p_body: TEXT.body } },
+  ])
 })
 
 test('#1047 BR-COMUNICACAO-019 item 5: TGN02 (hour in the quiet hours) comes back as hour_not_allowed and reads as the copy sentence', async () => {

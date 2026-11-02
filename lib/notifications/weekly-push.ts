@@ -23,8 +23,11 @@ export const PIECE_VARIANTS: Record<WeeklyPushPiece, readonly WeeklyPushVariant[
   saturday_local: ['route', 'reminder_city', 'reminder_no_city'],
 }
 
-/** Display order of the language chips (spec 2.3). The set itself is `weekly_push_texts_language_ck`. */
-export const WEEKLY_PUSH_LANGUAGES = ['pt', 'en', 'es', 'fr', 'it'] as const
+/**
+ * Display order of the language chips (spec 2.3). The set itself is `weekly_push_texts_language_ck`,
+ * the six of BR-IDIOMA-001 item 3 (`de` since #1073).
+ */
+export const WEEKLY_PUSH_LANGUAGES = ['pt', 'en', 'es', 'fr', 'it', 'de'] as const
 export type WeeklyPushLanguage = (typeof WEEKLY_PUSH_LANGUAGES)[number]
 
 /** `weekly_push_texts_title_len_ck` and `_body_len_ck`, measured without the two placeholders. */
