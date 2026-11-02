@@ -86,6 +86,7 @@
     "catalog": "Catálogo",
     "system_audio": "Audios de Sistema",
     "acquisition": "Adquisición",
+    "conversion": "Conversión",
     "my_network": "Mi red",
     "points": "Puntos",
     "partners": "Socios",
@@ -407,6 +408,31 @@
           "country_hint": "El catálogo de fronteras tiene siete países. Los usuarios nacidos fuera quedan sin país aunque tengan coordenada.",
           "platform_unknown": "No registrado",
           "platform_hint": "Sistema del dispositivo con el que empezó el usuario, no el actual."
+        },
+        "conversion": {
+          "title": "Conversión",
+          "subtitle": "De quien instala a quien compra, en el mes",
+          "month": "Mes",
+          "updating": "actualizando",
+          "steps": {
+            "installs": "Instaló",
+            "installs_hint": "Primera apertura de la app en el mes, contada por GA4.",
+            "entered": "Entró",
+            "entered_hint": "Pasó los Términos en el mes, con cuenta o como invitado. La misma base que Adquisición.",
+            "account": "Creó cuenta",
+            "account_hint": "Tiene cuenta hoy, creada al entrar o después de entrar como invitado.",
+            "used_hours": "Usó horas",
+            "used_hours_hint": "Gastó horas en la guía, gratis o pagadas.",
+            "purchased": "Compró",
+            "purchased_hint": "Pagó alguna vez: horas o suscripción, con cuenta o sin ella."
+          },
+          "of_entered": "{pct}% de los que entraron",
+          "installs_split": "iOS {ios} · Android {android}",
+          "not_entered": "{count} instalaron y no entraron",
+          "not_entered_hint": "Estimación: Instaló y Entró vienen de fuentes distintas.",
+          "note_installs": "Instaló viene de GA4 y no se liga a una persona: cuenta dispositivos, no la misma gente que los otros pasos.",
+          "note_cohort": "Creó cuenta, Usó horas y Compró cuentan lo que hizo hasta hoy quien entró en el mes, en % de los que entraron y en cualquier orden: se puede comprar sin cuenta. El mes en curso sigue subiendo.",
+          "empty": "Nada este mes"
         },
         "ranking": {
           "title": "Marcador de puntuación"

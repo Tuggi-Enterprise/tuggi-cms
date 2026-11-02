@@ -86,6 +86,7 @@
     "catalog": "Catalog",
     "system_audio": "System Audio",
     "acquisition": "Acquisition",
+    "conversion": "Conversion",
     "my_network": "My network",
     "points": "Points",
     "partners": "Partners",
@@ -418,6 +419,31 @@
           "country_hint": "The boundary catalogue holds seven countries. Users born elsewhere have no country even with a coordinate.",
           "platform_unknown": "Not recorded",
           "platform_hint": "The system of the device the user started on, not the current one."
+        },
+        "conversion": {
+          "title": "Conversion",
+          "subtitle": "From install to purchase, for the month",
+          "month": "Month",
+          "updating": "updating",
+          "steps": {
+            "installs": "Installed",
+            "installs_hint": "First app open in the month, counted by GA4.",
+            "entered": "Entered",
+            "entered_hint": "Got past the Terms in the month, with an account or as a guest. Same base as Acquisition.",
+            "account": "Signed up",
+            "account_hint": "Has an account today, created on entry or after coming in as a guest.",
+            "used_hours": "Used hours",
+            "used_hours_hint": "Spent hours on the guide, free or paid.",
+            "purchased": "Purchased",
+            "purchased_hint": "Paid at least once: hours or a subscription, with or without an account."
+          },
+          "of_entered": "{pct}% of those who entered",
+          "installs_split": "iOS {ios} · Android {android}",
+          "not_entered": "{count} installed and did not enter",
+          "not_entered_hint": "An estimate: Installed and Entered come from different sources.",
+          "note_installs": "Installed comes from GA4 and is not tied to a person: it counts devices, not the same people as the other steps.",
+          "note_cohort": "Signed up, Used hours and Purchased count what this month’s cohort has done up to today, as a % of those who entered and in any order: you can buy without an account. The current month keeps growing.",
+          "empty": "Nothing this month"
         },
         "ranking": {
           "title": "Scoring scoreboard"

@@ -86,6 +86,7 @@
     "catalog": "Catálogo",
     "system_audio": "Áudios de Sistema",
     "acquisition": "Aquisição",
+    "conversion": "Conversão",
     "my_network": "Minha rede",
     "points": "Pontos",
     "partners": "Parceiros",
@@ -416,6 +417,31 @@
           "country_hint": "O catálogo de fronteiras tem sete países. Usuários nascidos fora deles ficam sem país mesmo tendo coordenada.",
           "platform_unknown": "Não registrado",
           "platform_hint": "Sistema do aparelho em que o usuário começou, não o atual."
+        },
+        "conversion": {
+          "title": "Conversão",
+          "subtitle": "De quem instala até quem compra, no mês",
+          "month": "Mês",
+          "updating": "atualizando",
+          "steps": {
+            "installs": "Instalou",
+            "installs_hint": "Primeira abertura do app no mês, contada pelo GA4.",
+            "entered": "Entrou",
+            "entered_hint": "Passou dos Termos no mês, com conta ou como convidado. A mesma base da Aquisição.",
+            "account": "Criou conta",
+            "account_hint": "Tem conta hoje, criada na entrada ou depois de entrar como convidado.",
+            "used_hours": "Usou horas",
+            "used_hours_hint": "Gastou horas no guia, grátis ou pagas.",
+            "purchased": "Comprou",
+            "purchased_hint": "Pagou alguma vez: horas ou assinatura, com conta ou sem."
+          },
+          "of_entered": "{pct}% de quem entrou",
+          "installs_split": "iOS {ios} · Android {android}",
+          "not_entered": "{count} instalaram e não entraram",
+          "not_entered_hint": "Estimativa: Instalou e Entrou vêm de fontes diferentes.",
+          "note_installs": "Instalou vem do GA4 e não se liga a pessoa: conta aparelhos, não a mesma gente dos outros degraus.",
+          "note_cohort": "Criou conta, Usou horas e Comprou contam o que a turma do mês fez até hoje, em % de quem entrou e em qualquer ordem: dá para comprar sem conta. O mês corrente ainda sobe.",
+          "empty": "Nada neste mês"
         },
         "ranking": {
           "title": "Placar de pontuação"
