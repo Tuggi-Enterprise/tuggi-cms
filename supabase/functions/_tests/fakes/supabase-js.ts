@@ -125,7 +125,14 @@ export function createClient(_url: string, _key: string, _options?: unknown): an
     storage: {
       from: (bucket: string) => {
         scenario.calls.push(`storage:${bucket}`);
-        return builder(() => Promise.resolve(EMPTY));
+        const chain = builder(() => Promise.resolve(EMPTY)) as Record<string, unknown>;
+        // `getPublicUrl` is synchronous in the real client: it builds the URL and asks nothing.
+        return new Proxy(chain, {
+          get: (target, prop) =>
+            prop === 'getPublicUrl'
+              ? (path: string) => ({ data: { publicUrl: `http://supabase.test/storage/v1/object/public/${bucket}/${path}` } })
+              : target[prop as string],
+        });
       },
     },
     functions: {
