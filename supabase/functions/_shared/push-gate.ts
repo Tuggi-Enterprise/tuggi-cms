@@ -30,7 +30,8 @@ export type PushKind =
   | 'cms_direct'
   | 'weekly_thursday_local'
   | 'weekly_saturday_local'
-  | 'daily_summary';
+  | 'daily_summary'
+  | 'first_story';
 
 export interface PushKindPolicy {
   /**
@@ -76,6 +77,9 @@ export const PUSH_KINDS: Readonly<Record<PushKind, PushKindPolicy>> = {
   // the day before. Outside every cap; the vacancy order never compares it. Sender:
   // `daily-gamification-orchestrator`.
   daily_summary: { requested: false, requiresActive: false, vacancyPriority: 4, outsideCaps: true },
+  // Item 3.n (#1072): once in a life, after the first story. Outside every cap. Sender:
+  // `first-story-push` (`_shared/first-story-push.ts`).
+  first_story: { requested: false, requiresActive: false, vacancyPriority: 4, outsideCaps: true },
 };
 
 /** `null` for anything that is not a known kind: an unknown kind is refused, never defaulted. */
