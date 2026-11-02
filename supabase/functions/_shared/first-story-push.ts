@@ -5,12 +5,18 @@
  *
  * The database decides who and when: `drive.get_first_story_push_candidates(p_now)` answers the
  * people whose first story fell in the last 24 h, with the guide off, never sent before, with push
- * on and outside the quiet hours (item 5). This module sends each one through the one push path
- * (the `send` of `_shared/push-send.ts`, in process, #1046), and only then records the people the
- * provider accepted with `drive.mark_first_story_push_sent`. The kind is outside every cap
+ * on and outside the quiet hours (item 5). This module FIRST records every valid candidate with
+ * `drive.mark_first_story_push_sent`, and only after that write sends each one through the one push
+ * path (the `send` of `_shared/push-send.ts`, in process, #1046). The kind is outside every cap
  * (`PUSH_KINDS.first_story.outsideCaps`), so the gate asks consent and nothing else.
  *
- * Once in a life holds only if two runs never overlap: the cron is hourly and a run ends inside the
+ * Mark before send is the decision of #1072 (item 3.n.3, once in a life by the person's id): at most
+ * once. Sending first and marking after repeated the push every hour, up to the end of the 24 h
+ * window, whenever the mark failed. Now a failed mark sends nothing and the run reports the failure;
+ * a person whose send fails stays marked and does not get the push again. Losing one push costs less
+ * than repeating it.
+ *
+ * Once in a life also needs two runs never to overlap: the cron is hourly and a run ends inside the
  * wall clock of an Edge Function, far below the hour.
  *
  * The copy is `copy`'s, transcribed from `docs/design/copy/push-2026-11.md`, section B: the same
@@ -102,9 +108,12 @@ export interface FirstStoryReport {
   outcomes: Record<FirstStoryOutcome, number>;
   /** Rows without a valid `user_id`: not sent. */
   invalid: number;
-  /** Rows `mark_first_story_push_sent` wrote. */
+  /** Rows `mark_first_story_push_sent` wrote, before any send. */
   marked: number;
-  /** Sent and not recorded, after one retry: these people can get the push again next hour. */
+  /**
+   * Valid candidates the mark did not record after one retry. Nobody was sent to, and these people
+   * come back next hour. Above zero means the run failed: `firstStoryRunFailed`.
+   */
   unmarked: number;
 }
 
@@ -143,7 +152,7 @@ async function deliver(deps: FirstStoryDeps, userId: string, language: unknown):
   }
 }
 
-/** Records the sent people, once more on an error. `null` when both attempts failed. */
+/** Records the people about to be sent to, once more on an error. `null` when both attempts failed. */
 async function mark(deps: FirstStoryDeps, userIds: string[]): Promise<number | null> {
   for (let attempt = 1; attempt <= 2; attempt += 1) {
     const { data, error } = await deps.drive.rpc('mark_first_story_push_sent', { p_user_ids: userIds });
@@ -153,10 +162,15 @@ async function mark(deps: FirstStoryDeps, userIds: string[]): Promise<number | n
   return null;
 }
 
+/** A run whose mark failed sent nothing; the caller answers 500 with the report. */
+export function firstStoryRunFailed(report: FirstStoryReport): boolean {
+  return report.unmarked > 0;
+}
+
 /**
- * One run: candidates, one send per person, then one mark with the people the provider accepted.
- * Throws `FirstStoryCandidatesError` when the candidate query fails, so the caller answers 500;
- * everything after it is counted, never thrown.
+ * One run: candidates, one mark with every valid one, then one send per person, only if the mark
+ * held. Throws `FirstStoryCandidatesError` when the candidate query fails, so the caller answers
+ * 500; the mark failure is counted in `unmarked`, never thrown.
  */
 export async function runFirstStoryPush(deps: FirstStoryDeps): Promise<FirstStoryReport> {
   const now = deps.now ?? new Date();
@@ -183,22 +197,23 @@ export async function runFirstStoryPush(deps: FirstStoryDeps): Promise<FirstStor
     if (!people.has(row.user_id)) people.set(row.user_id, row.language);
   }
 
-  const sent: string[] = [];
   const entries = [...people.entries()];
+  if (entries.length > 0) {
+    const marked = await mark(deps, entries.map(([userId]) => userId));
+    if (marked === null) {
+      report.unmarked = entries.length;
+      deps.log(`[first-story-push] ${JSON.stringify(report)}`);
+      return report;
+    }
+    report.marked = marked;
+  }
+
   for (let i = 0; i < entries.length; i += SEND_CONCURRENCY) {
     await Promise.all(
       entries.slice(i, i + SEND_CONCURRENCY).map(async ([userId, language]) => {
-        const outcome = await deliver(deps, userId, language);
-        report.outcomes[outcome] += 1;
-        if (outcome === 'sent') sent.push(userId);
+        report.outcomes[await deliver(deps, userId, language)] += 1;
       })
     );
-  }
-
-  if (sent.length > 0) {
-    const marked = await mark(deps, sent);
-    if (marked === null) report.unmarked = sent.length;
-    else report.marked = marked;
   }
 
   deps.log(`[first-story-push] ${JSON.stringify(report)}`);

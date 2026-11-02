@@ -5,7 +5,7 @@
  *
  * The module gets a fake `drive` client and a fake `send`. The handler tests prove the machine key
  * in front and, with the real sender of `_shared/push-send.ts`, that the push asks consent only,
- * takes no cap slot, writes its inbox row and marks only who the provider accepted.
+ * takes no cap slot, writes its inbox row, and that the mark comes before every send: at most once.
  */
 import { assert, assertEquals } from './assert.ts';
 import { fetchCalls, loadHandler, network, scenario } from './harness.ts';
@@ -14,6 +14,7 @@ import {
   FIRST_STORY_COPY,
   firstStoryCopy,
   type FirstStoryDeps,
+  firstStoryRunFailed,
   runFirstStoryPush,
   SEND_CONCURRENCY,
 } from '../_shared/first-story-push.ts';
@@ -26,6 +27,8 @@ interface Trail {
   rpcs: Array<{ fn: string; args?: Record<string, unknown> }>;
   sends: Array<Record<string, unknown>>;
   logs: string[];
+  /** RPCs and sends in the order they happened: `rpc:<fn>` and `send`. */
+  order: string[];
 }
 
 type Answer = { data: unknown; error: { code?: string } | null };
@@ -35,11 +38,12 @@ function fakeRun(
   reply: (body: Record<string, unknown>) => Response | Promise<Response>,
   markAnswer: (attempt: number) => Answer = () => ({ data: 1, error: null }),
 ): { deps: FirstStoryDeps; trail: Trail } {
-  const trail: Trail = { rpcs: [], sends: [], logs: [] };
+  const trail: Trail = { rpcs: [], sends: [], logs: [], order: [] };
   let markAttempts = 0;
   const drive: DriveRpc = {
     rpc(fn, args) {
       trail.rpcs.push({ fn, args });
+      trail.order.push(`rpc:${fn}`);
       if (fn === 'get_first_story_push_candidates') return Promise.resolve(candidates);
       if (fn === 'mark_first_story_push_sent') return Promise.resolve(markAnswer(++markAttempts));
       return Promise.resolve({ data: null, error: { code: 'unexpected' } });
@@ -52,6 +56,7 @@ function fakeRun(
       now: NOW,
       send: async (body) => {
         trail.sends.push(body);
+        trail.order.push('send');
         const res = await reply(body);
         return { status: res.status, body: await res.json().catch(() => null) };
       },
@@ -106,7 +111,7 @@ Deno.test('BR-COMUNICACAO-019 3.n.6: first_story is outside every cap, unrequest
 
 // ---- the run ----
 
-Deno.test('BR-COMUNICACAO-019 3.n (#1072): each candidate gets one /send to tuggi://map in its language, then one mark with the sent', async () => {
+Deno.test('BR-COMUNICACAO-019 3.n.3 (#1072): one mark with every candidate, then one /send each to tuggi://map in its language', async () => {
   const { deps, trail } = fakeRun({ data: [row(USER_A, 'de'), row(USER_B, 'es')], error: null }, () => gateAnswer('sent'), () => ({ data: 2, error: null }));
   const report = await runFirstStoryPush(deps);
 
@@ -123,12 +128,12 @@ Deno.test('BR-COMUNICACAO-019 3.n (#1072): each candidate gets one /send to tugg
   const marked = marks(trail);
   assertEquals(marked.length, 1);
   assertEquals((marked[0]!.p_user_ids as string[]).sort(), [USER_A, USER_B]);
-  // The mark comes after every send.
-  assertEquals(trail.rpcs.at(-1)?.fn, 'mark_first_story_push_sent');
+  // At most once: the mark is written before the first send.
+  assertEquals(trail.order, ['rpc:get_first_story_push_candidates', 'rpc:mark_first_story_push_sent', 'send', 'send']);
   assertEquals(report, { candidates: 2, outcomes: { sent: 2, denied: 0, not_delivered: 0, failed: 0 }, invalid: 0, marked: 2, unmarked: 0 });
 });
 
-Deno.test('contract §14 (#1072): only who the provider accepted is marked; denied, no device and failure come back next hour', async () => {
+Deno.test('BR-COMUNICACAO-019 3.n.3 (#1072): every valid candidate is marked before the sends, whatever the provider answers', async () => {
   const people = [USER_A, USER_B, '55555555-5555-4555-8555-555555555555', '66666666-6666-4666-8666-666666666666'];
   const answers: Record<string, () => Response> = {
     [people[0]]: () => gateAnswer('sent'),
@@ -136,16 +141,50 @@ Deno.test('contract §14 (#1072): only who the provider accepted is marked; deni
     [people[2]]: () => gateAnswer('not_delivered'),
     [people[3]]: () => new Response('{"error":"boom"}', { status: 500 }),
   };
-  const { deps, trail } = fakeRun({ data: people.map((p) => row(p)), error: null }, (b) => answers[(b.userIds as string[])[0]]());
+  const { deps, trail } = fakeRun({ data: people.map((p) => row(p)), error: null }, (b) => answers[(b.userIds as string[])[0]](), () => ({ data: 4, error: null }));
   const report = await runFirstStoryPush(deps);
-  assertEquals(marks(trail), [{ p_user_ids: [people[0]] }]);
+  assertEquals(marks(trail), [{ p_user_ids: people }]);
   assertEquals(report.outcomes, { sent: 1, denied: 1, not_delivered: 1, failed: 1 });
+  assertEquals([report.marked, report.unmarked, firstStoryRunFailed(report)], [4, 0, false]);
 });
 
-Deno.test('#1072: nobody sent, nobody marked; no candidate, nothing at all', async () => {
+Deno.test('BR-COMUNICACAO-019 3.n.3 (#1072): a person whose send failed does not come back in the next run', async () => {
+  // A candidate query that honours the mark, the way drive.first_story_push_sends does.
+  const recorded = new Set<string>();
+  const sends: string[] = [];
+  const drive: DriveRpc = {
+    rpc(fn, args) {
+      if (fn === 'get_first_story_push_candidates') {
+        return Promise.resolve({ data: [USER_A, USER_B].filter((id) => !recorded.has(id)).map((id) => row(id)), error: null });
+      }
+      if (fn === 'mark_first_story_push_sent') {
+        const ids = (args?.p_user_ids ?? []) as string[];
+        ids.forEach((id) => recorded.add(id));
+        return Promise.resolve({ data: ids.length, error: null });
+      }
+      return Promise.resolve({ data: null, error: { code: 'unexpected' } });
+    },
+  };
+  const deps: FirstStoryDeps = {
+    drive,
+    now: NOW,
+    send: (body) => {
+      const id = (body.userIds as string[])[0];
+      sends.push(id);
+      return Promise.resolve(id === USER_A ? { status: 500, body: null } : { status: 200, body: { gate: { sent: 1 } } });
+    },
+    log: () => {},
+  };
+  const first = await runFirstStoryPush(deps);
+  assertEquals([first.outcomes.failed, first.outcomes.sent, first.marked], [1, 1, 2]);
+  const second = await runFirstStoryPush(deps);
+  assertEquals([second.candidates, sends.sort()], [0, [USER_A, USER_B].sort()]);
+});
+
+Deno.test('#1072: a denied push is still marked; no candidate, nothing at all', async () => {
   const denied = fakeRun({ data: [row(USER_A)], error: null }, () => gateAnswer('denied'));
-  await runFirstStoryPush(denied.deps);
-  assertEquals(marks(denied.trail), []);
+  const deniedReport = await runFirstStoryPush(denied.deps);
+  assertEquals([marks(denied.trail), deniedReport.outcomes.denied], [[{ p_user_ids: [USER_A] }], 1]);
   const empty = fakeRun({ data: [], error: null }, () => gateAnswer('sent'));
   const report = await runFirstStoryPush(empty.deps);
   assertEquals([empty.trail.sends.length, marks(empty.trail).length, report.candidates], [0, 0, 0]);
@@ -162,16 +201,21 @@ Deno.test('BR-COMUNICACAO-019 3.n.3: a repeated row is one send; a row without a
   assertEquals(report.invalid, 2);
 });
 
-Deno.test('#1072: a mark that fails is tried once more, and a second failure is counted, never hidden', async () => {
+Deno.test('BR-COMUNICACAO-019 3.n.3 (#1072): a mark that fails is tried once more, then the sends go out', async () => {
   const retried = fakeRun({ data: [row(USER_A)], error: null }, () => gateAnswer('sent'), (n) =>
     n === 1 ? { data: null, error: { code: '57014' } } : { data: 1, error: null });
   const ok = await runFirstStoryPush(retried.deps);
-  assertEquals([marks(retried.trail).length, ok.marked, ok.unmarked], [2, 1, 0]);
+  assertEquals([marks(retried.trail).length, retried.trail.sends.length, ok.marked, ok.unmarked], [2, 1, 1, 0]);
+  assertEquals(retried.trail.order.slice(-1), ['send']);
+});
 
-  const failed = fakeRun({ data: [row(USER_A)], error: null }, () => gateAnswer('sent'), () => ({ data: null, error: { code: '42501' } }));
-  const report = await runFirstStoryPush(failed.deps);
-  assertEquals([marks(failed.trail).length, report.unmarked], [2, 1]);
-  assert(failed.trail.logs.some((l) => l.includes('mark attempt 2 failed: 42501')));
+Deno.test('BR-COMUNICACAO-019 3.n.3 (#1072): a mark that fails twice sends to nobody and the run is a failure', async () => {
+  const { deps, trail } = fakeRun({ data: [row(USER_A), row(USER_B)], error: null }, () => gateAnswer('sent'), () => ({ data: null, error: { code: '42501' } }));
+  const report = await runFirstStoryPush(deps);
+  assertEquals([marks(trail).length, trail.sends.length], [2, 0]);
+  assertEquals(report, { candidates: 2, outcomes: { sent: 0, denied: 0, not_delivered: 0, failed: 0 }, invalid: 0, marked: 0, unmarked: 2 });
+  assertEquals(firstStoryRunFailed(report), true);
+  assert(trail.logs.some((l) => l.includes('mark attempt 2 failed: 42501')));
 });
 
 Deno.test('#1072: a failed candidate query throws and sends nothing', async () => {
@@ -274,9 +318,25 @@ Deno.test('BR-COMUNICACAO-019 3.n.6 (#1072): with the real sender, consent is as
   assertEquals(fetchCalls.filter((u) => u.includes('fcm.googleapis.com')).length, 2);
   assertEquals(scenario.calls.filter((c) => c === 'rpc:push_allowed').length, 2);
   assertEquals(scenario.calls.filter((c) => c === 'rpc:record_push_sent').length, 0);
-  assertEquals(scenario.calls.at(-1), 'rpc:mark_first_story_push_sent');
+  const markAt = scenario.calls.indexOf('rpc:mark_first_story_push_sent');
+  assert(markAt >= 0 && markAt < scenario.calls.indexOf('rpc:push_allowed'), 'the mark precedes the first send');
   const inbox = scenario.writes.filter((w) => w.table === 'user_notifications' && w.op === 'insert');
   assertEquals(inbox.map((w) => (w.values as { type: string }).type), ['first_story', 'first_story']);
   const de = inbox.find((w) => (w.values as { user_id: string }).user_id === USER_A)!.values as Record<string, unknown>;
   assertEquals([de.title, de.deeplink], [FIRST_STORY_COPY.de.title, 'tuggi://map']);
+});
+
+Deno.test('BR-COMUNICACAO-019 3.n.3 (#1072): the handler answers 500 with the report when the mark fails twice, and FCM is never called', async () => {
+  scenario.rpcs = {
+    get_first_story_push_candidates: { data: [row(USER_A, 'de')], error: null },
+    mark_first_story_push_sent: { data: null, error: { code: '57014' } },
+  };
+  scenario.tableErrors = {};
+  scenario.writes.length = 0;
+  const res = await call('Bearer test-service-role-key');
+  assertEquals(res.status, 500);
+  assertEquals(await res.json(), { candidates: 1, outcomes: { sent: 0, denied: 0, not_delivered: 0, failed: 0 }, invalid: 0, marked: 0, unmarked: 1 });
+  assertEquals(fetchCalls.filter((u) => u.includes('fcm.googleapis.com')), []);
+  assertEquals(scenario.calls.filter((c) => c === 'rpc:mark_first_story_push_sent').length, 2);
+  assertEquals(scenario.calls.filter((c) => c === 'rpc:push_allowed').length, 0);
 });

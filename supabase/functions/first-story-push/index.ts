@@ -4,6 +4,7 @@
  *
  *   POST, no body, machine key only (pg_cron, once an hour)
  *   -> 200 { candidates, outcomes: { sent, denied, not_delivered, failed }, invalid, marked, unmarked }
+ *   -> 500 with the same report when the mark failed twice: nobody was sent to (`unmarked` > 0)
  *   -> 401 any other caller, 405 any other method, 500 when the candidate query fails
  *
  * The work lives in `_shared/first-story-push.ts`; this file only authenticates and wires the
@@ -13,7 +14,7 @@
 import { serve } from 'https://deno.land/std@0.177.0/http/server.ts';
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
 import { isOwnMachineKey } from '../_shared/auth-middleware.ts';
-import { FirstStoryCandidatesError, runFirstStoryPush } from '../_shared/first-story-push.ts';
+import { FirstStoryCandidatesError, firstStoryRunFailed, runFirstStoryPush } from '../_shared/first-story-push.ts';
 import { createPushSender } from '../_shared/push-send.ts';
 import { getSecretKey } from '../_shared/secret-key.ts';
 
@@ -42,7 +43,8 @@ serve(async (req) => {
       send,
       log: (line) => console.log(line),
     });
-    return json(report, 200);
+    // The mark failed and nothing went out: the cron must see a failure, not a quiet 2xx.
+    return json(report, firstStoryRunFailed(report) ? 500 : 200);
   } catch (error) {
     const code = error instanceof FirstStoryCandidatesError ? error.code : 'internal';
     console.error(`[first-story-push] run aborted: ${code}`);
