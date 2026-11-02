@@ -162,7 +162,7 @@ test('#747 spec §6 item 10: composed in `pt` with rank 3 the body carries `3º`
 // ===============================================================================================
 
 test('#747 spec §1.6: the cascade is this module\'s and NOT the daily module\'s — `fr` reads French', () => {
-  assert.deepEqual([...mod.RANKING_COPY_LANGS], ['pt', 'en', 'es', 'fr', 'it'])
+  assert.deepEqual([...mod.RANKING_COPY_LANGS], ['pt', 'en', 'es', 'fr', 'it', 'de'])
   assert.equal(mod.normalizeCopyLang('fr'), 'fr')
   assert.equal(mod.normalizeCopyLang('fr-CA'), 'fr')
   // `daily-push-i18n.ts`'s `getTranslation` says, in writing, "Anything else (e.g. fr) gets en".
@@ -183,8 +183,41 @@ test('#747 spec §1.6: there is ONE Portuguese — `pt-PT`, `pt-BR` and `pt` are
   assert.equal(mod.normalizeCopyLang('pt_BR'), 'pt')
   assert.equal(mod.normalizeCopyLang('pt-br'), 'pt')
   assert.equal(mod.normalizeCopyLang('it-IT'), 'it')
-  assert.equal(mod.normalizeCopyLang('de'), 'en')
   assert.equal(mod.normalizeCopyLang(null), 'en')
+})
+
+test('BR-IDIOMA-001 item 3, push-2026-11 C.6.1 (#1073): `de` and its regional tags read German; `zh` stays English', () => {
+  for (const raw of ['de', 'de-AT', 'de_CH', 'DE-de']) assert.equal(mod.normalizeCopyLang(raw), 'de', raw)
+  for (const raw of ['zh', 'ko', 'nl', '']) assert.equal(mod.normalizeCopyLang(raw), 'en', raw)
+  const copy = mod.resolveRankingPushCopy('rank_drop', 'de', mod.rankingCopyVars('rank_drop', 'de', { rank: 12, points: 20 }))
+  assert.deepEqual(copy, {
+    title: 'Du bist jetzt auf dem 12. Platz',
+    body: 'Jemand ist in der Rangliste dieser Woche an dir vorbeigezogen. Und die Woche ist noch nicht vorbei.',
+  })
+  const risk = mod.resolveRankingPushCopy('rank_at_risk', 'de', mod.rankingCopyVars('rank_at_risk', 'de', { rank: 3, points: 9 }))
+  assert.deepEqual(risk, {
+    title: 'Deine Stunden sind aufgebraucht',
+    body: 'Du bist auf dem 3. Platz, jemand ist nur wenige Punkte hinter dir. Ohne Stunden schweigt der Guide.',
+  })
+})
+
+test('push-2026-11 C.6.2 (#1073): the German ordinal is the number and a dot', () => {
+  assert.equal(mod.formatRankOrdinal(3, 'de'), '3.')
+  assert.equal(mod.formatRankOrdinal(12, 'de'), '12.')
+  assert.equal(mod.formatRankOrdinal(1, 'de'), '1.')
+})
+
+test('BR-COMUNICACAO-008, push-2026-11 C.6.4 (#1073): the German push strings order no guide on, carry no ? ! and no story next to a count', () => {
+  for (const key of Object.keys(mod.RANKING_COPY_CATALOG).filter((k) => k.startsWith('ranking.push.'))) {
+    const value = mod.RANKING_COPY_CATALOG[key].de
+    assert.ok(value, `${key}: German is missing`)
+    const all = typeof value === 'string' ? [value] : [value.one, value.other]
+    for (const s of all) {
+      assert.doesNotMatch(s, /einschalten|aktivieren|anschalten|[?!]/i, `${key}: ${s}`)
+      if (s.includes('{{count}}')) assert.doesNotMatch(s, /Geschichte/, `${key}: ${s}`)
+      assert.ok(s.replace(/\{\{\s*[a-z]+\s*\}\}/g, '').length <= 110, `${key}: ${s}`)
+    }
+  }
 })
 
 test('BR-COMUNICACAO-017: the promotional e-mail sender publishes FOUR languages, and `fr` is not one of them', () => {
@@ -193,7 +226,9 @@ test('BR-COMUNICACAO-017: the promotional e-mail sender publishes FOUR languages
   assert.deepEqual([...mod.RANKING_EMAIL_LANGS], ['pt', 'en', 'es', 'it'])
   assert.equal(mod.mailableEmailLang('fr'), null)
   assert.equal(mod.mailableEmailLang('fr-CA'), null)
-  assert.equal(mod.mailableEmailLang('de'), 'en')
+  // #1073: German is push only, and out of the e-mail audience like French.
+  assert.equal(mod.mailableEmailLang('de'), null)
+  assert.equal(mod.mailableEmailLang('zh'), 'en')
   assert.equal(mod.mailableEmailLang('pt-PT'), 'pt')
   assert.equal(mod.mailableEmailLang('it'), 'it')
 })
@@ -231,7 +266,7 @@ test('BR-COMUNICACAO-017: the nine e-mail keys are FILLED, and the fail-closed c
   // `tests/api/ranking-email.test.ts`. What this one keeps proving is the CONTRACT: all three
   // fields or none, and no fallback to another language.
   for (const piece of PIECES) {
-    for (const lang of mod.RANKING_COPY_LANGS) {
+    for (const lang of mod.RANKING_COPY_LANGS.filter((l: string) => l !== 'de')) {
       const vars = piece === 'streak_at_risk' ? { count: 3 } : { rank: mod.formatRankOrdinal(4, lang) }
       assert.ok(
         mod.resolveRankingEmailCopy(piece, lang, vars),
@@ -427,6 +462,7 @@ test('BR-RANKING-008: with a measured length the streak piece states the DAYS, a
     es: 'Tu racha está en 3 días',
     fr: 'Ta série est à 3 jours',
     it: 'La tua serie è a 3 giorni',
+    de: 'Deine Serie steht bei 3 Tagen',
   }
   const expectedOne: Record<string, string> = {
     pt: 'Sua sequência está em 1 dia',
@@ -434,6 +470,7 @@ test('BR-RANKING-008: with a measured length the streak piece states the DAYS, a
     es: 'Tu racha está en 1 día',
     fr: 'Ta série est à 1 jour',
     it: 'La tua serie è a 1 giorno',
+    de: 'Deine Serie steht bei 1 Tag',
   }
   for (const lang of mod.RANKING_COPY_LANGS) {
     const many = mod.resolveRankingPushCopy(
@@ -467,6 +504,7 @@ test("#747 spec §1.2: the drop title is `design`'s sentence in the five languag
     es: 'Bajaste al 4.º puesto',
     fr: 'Tu passes 4e au classement',
     it: 'Ora sei 4º in classifica',
+    de: 'Du bist jetzt auf dem 4. Platz',
   }
   for (const lang of mod.RANKING_COPY_LANGS) {
     const copy = mod.resolveRankingPushCopy(

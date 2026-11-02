@@ -71,6 +71,12 @@ export const DAILY_SUMMARY_COPY: Readonly<Record<RankingCopyLang, DailySummaryCo
     nearbyBody: { one: "Lungo la strada c'era 1 altro luogo.", other: "Lungo la strada c'erano altri {{missed}} luoghi." },
     mapBody: "Guarda sulla mappa cosa c'è intorno a te oggi.",
   },
+  de: {
+    heardTitle: { one: 'Gestern hast du 1 Geschichte gehört', other: 'Gestern hast du {{heard}} Geschichten gehört' },
+    nearbyTitle: { one: 'Gestern lag 1 Ort auf deinem Weg', other: 'Gestern lagen {{missed}} Orte auf deinem Weg' },
+    nearbyBody: { one: 'Außerdem lag 1 Ort auf deinem Weg.', other: 'Außerdem lagen {{missed}} Orte auf deinem Weg.' },
+    mapBody: 'Schau auf der Karte, was heute um dich herum ist.',
+  },
 };
 
 /** A whole number of 1 or more, or 0. A missing or broken count is no fact, so it reads 0. */

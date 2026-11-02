@@ -121,3 +121,17 @@ test('BR-COMUNICACAO-019 3.i.2: the orchestrator sends the summary once a day, o
   // The local hour and "used yesterday" are the RPC's (SSOT): no hour test in the sender.
   assert.doesNotMatch(source, /getHours\(|getUTCHours\(|toLocaleString\(/)
 })
+
+test('push-2026-11 A.6.7 and C.6.1 (#1073): `de`, `de-AT` and `de_CH` get the German strings', () => {
+  const de = daily.composeDailySummaryPush('de', 5, 123)
+  assert.deepEqual(de, {
+    title: 'Gestern hast du 5 Geschichten gehört',
+    body: 'Außerdem lagen 123 Orte auf deinem Weg. Schau auf der Karte, was heute um dich herum ist.',
+  })
+  assert.deepEqual(daily.composeDailySummaryPush('de-AT', 5, 123), de)
+  assert.deepEqual(daily.composeDailySummaryPush('de_CH', 5, 123), de)
+  assert.deepEqual(daily.composeDailySummaryPush('de', 0, 1), {
+    title: 'Gestern lag 1 Ort auf deinem Weg',
+    body: 'Schau auf der Karte, was heute um dich herum ist.',
+  })
+})

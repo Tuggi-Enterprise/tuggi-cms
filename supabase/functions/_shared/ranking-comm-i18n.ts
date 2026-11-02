@@ -80,9 +80,15 @@ import type { RankingPiece } from './ranking-communication.ts';
  * copy was written that way; this family has no pair that would justify a second translation
  * surface, and `design` chose one (§1.6, "Escolhi um português só. Registrado, não escalado.").
  */
-export type RankingCopyLang = 'pt' | 'en' | 'es' | 'fr' | 'it';
+export type RankingCopyLang = 'pt' | 'en' | 'es' | 'fr' | 'it' | 'de';
 
-export const RANKING_COPY_LANGS: readonly RankingCopyLang[] = ['pt', 'en', 'es', 'fr', 'it'];
+/**
+ * `de` (#1073, BR-IDIOMA-001 item 3, BR-COMUNICACAO-019 item 11): every push the server sends a
+ * tourist has German, while the app itself has no German screen. It is push only: the ranking
+ * e-mail stays in `RANKING_EMAIL_LANGS`, so a German reader is outside the e-mail audience, like
+ * the French one. Copy: `docs/design/copy/push-2026-11.md`, section C.
+ */
+export const RANKING_COPY_LANGS: readonly RankingCopyLang[] = ['pt', 'en', 'es', 'fr', 'it', 'de'];
 
 /**
  * The languages the PROMOTIONAL e-mail sender publishes — four, not five.
@@ -99,7 +105,8 @@ export const RANKING_EMAIL_LANGS: readonly RankingCopyLang[] = ['pt', 'en', 'es'
  * The language cascade of spec §1.6, and it is NOT the daily module's.
  *
  * `pt-br` / `pt-pt` / `pt` → `pt` · `en` → `en` · `es` → `es` · `fr` → `fr` · `it` → `it` ·
- * anything else → `en`.
+ * `de` → `de` · anything else → `en`. The one cascade of every CMS push to a tourist (ranking,
+ * daily summary, first story).
  */
 export function normalizeCopyLang(raw: string | null | undefined): RankingCopyLang {
   const value = String(raw ?? '').toLowerCase().replace('_', '-');
@@ -107,6 +114,7 @@ export function normalizeCopyLang(raw: string | null | undefined): RankingCopyLa
   if (value.startsWith('es')) return 'es';
   if (value.startsWith('fr')) return 'fr';
   if (value.startsWith('it')) return 'it';
+  if (value.startsWith('de')) return 'de';
   return 'en';
 }
 
@@ -142,6 +150,9 @@ export function formatRankOrdinal(rank: number, lang: RankingCopyLang): string {
       return `${n}.º`;
     case 'fr':
       return n === 1 ? `${n}er` : `${n}e`;
+    // Server only: the app has no German table to mirror, so the proof is this module's own test.
+    case 'de':
+      return `${n}.`;
     case 'en': {
       const lastTwo = n % 100;
       if (lastTwo >= 11 && lastTwo <= 13) return `${n}th`;
@@ -260,6 +271,7 @@ export const RANKING_COPY_CATALOG: Record<string, Partial<Record<RankingCopyLang
     es: 'Bajaste al {{rank}} puesto',
     fr: 'Tu passes {{rank}} au classement',
     it: 'Ora sei {{rank}} in classifica',
+    de: 'Du bist jetzt auf dem {{rank}} Platz',
   },
   'ranking.push.rank_drop.body': {
     pt: 'Alguém passou à sua frente no placar desta semana. E a semana ainda não acabou.',
@@ -267,6 +279,7 @@ export const RANKING_COPY_CATALOG: Record<string, Partial<Record<RankingCopyLang
     es: 'Alguien te adelantó en el marcador de esta semana. Y la semana no ha terminado.',
     fr: "Quelqu'un est passé devant toi au classement de cette semaine. Et la semaine n'est pas finie.",
     it: 'Qualcuno ti ha superato nella classifica di questa settimana. E la settimana non è finita.',
+    de: 'Jemand ist in der Rangliste dieser Woche an dir vorbeigezogen. Und die Woche ist noch nicht vorbei.',
   },
 
   // -------------------------------------------------------------------------------------------
@@ -285,6 +298,7 @@ export const RANKING_COPY_CATALOG: Record<string, Partial<Record<RankingCopyLang
     es: { one: 'Tu racha está en {{count}} día', other: 'Tu racha está en {{count}} días' },
     fr: { one: 'Ta série est à {{count}} jour', other: 'Ta série est à {{count}} jours' },
     it: { one: 'La tua serie è a {{count}} giorno', other: 'La tua serie è a {{count}} giorni' },
+    de: { one: 'Deine Serie steht bei {{count}} Tag', other: 'Deine Serie steht bei {{count}} Tagen' },
   },
   'ranking.push.streak_at_risk.body': {
     pt: 'Falta uma história para ela continuar.',
@@ -292,6 +306,7 @@ export const RANKING_COPY_CATALOG: Record<string, Partial<Record<RankingCopyLang
     es: 'Falta una historia para que continúe.',
     fr: "Il manque une histoire pour qu'elle continue.",
     it: 'Manca una storia perché continui.',
+    de: 'Eine Geschichte noch, und sie geht weiter.',
   },
 
   // -------------------------------------------------------------------------------------------
@@ -311,6 +326,7 @@ export const RANKING_COPY_CATALOG: Record<string, Partial<Record<RankingCopyLang
     es: 'Se acabaron tus horas',
     fr: 'Tes heures sont terminées',
     it: 'Le tue ore sono finite',
+    de: 'Deine Stunden sind aufgebraucht',
   },
   'ranking.push.rank_at_risk.body': {
     pt: 'Você está em {{rank}} lugar, com alguém a poucos pontos de distância. Sem horas, o guia para de narrar.',
@@ -318,6 +334,7 @@ export const RANKING_COPY_CATALOG: Record<string, Partial<Record<RankingCopyLang
     es: 'Estás en el {{rank}} puesto, con alguien a pocos puntos de distancia. Sin horas, la guía deja de narrar.',
     fr: "Tu es {{rank}} au classement, avec quelqu'un à quelques points de toi. Sans heures, le guide arrête de raconter.",
     it: 'Sei {{rank}} in classifica, con qualcuno a pochi punti da te. Senza ore, la guida smette di raccontare.',
+    de: 'Du bist auf dem {{rank}} Platz, jemand ist nur wenige Punkte hinter dir. Ohne Stunden schweigt der Guide.',
   },
 
   // ===========================================================================================
