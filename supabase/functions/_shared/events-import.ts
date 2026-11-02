@@ -25,6 +25,7 @@ export const PAGE_SIZE = 100;
 /** A runaway `total` must not keep the function walking until the platform kills it. */
 export const MAX_PAGES = 50;
 export const MAX_IMAGE_BYTES = 10 * 1024 * 1024;
+export const ALLOWED_IMAGE_TYPES = ['image/webp', 'image/jpeg', 'image/png'];
 export const FETCH_TIMEOUT_MS = 20_000;
 export const BROWSER_USER_AGENT =
   'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0 Safari/537.36';
@@ -372,9 +373,17 @@ async function copyImage(
     throw new Error(`image_http_${res.status}`);
   }
   const contentType = (res.headers.get('content-type') ?? '').split(';')[0].trim().toLowerCase();
-  if (!contentType.startsWith('image/')) {
+  // Closed list: the bucket is public and has no MIME lock, so an SVG from a compromised source
+  // would be served from our origin.
+  if (!ALLOWED_IMAGE_TYPES.includes(contentType)) {
     await res.body?.cancel();
     throw new Error('image_not_an_image');
+  }
+  // Refuse by the declared size before buffering, so a huge body cannot exhaust the function memory.
+  const declared = Number(res.headers.get('content-length') ?? '0');
+  if (declared > MAX_IMAGE_BYTES) {
+    await res.body?.cancel();
+    throw new Error('image_too_large');
   }
   const bytes = new Uint8Array(await res.arrayBuffer());
   if (bytes.length === 0) throw new Error('image_empty');
