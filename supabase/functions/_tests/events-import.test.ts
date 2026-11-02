@@ -107,18 +107,22 @@ class MemoryStore implements ImportStore {
     return Promise.resolve(this.sources);
   }
   knownItems() {
-    return Promise.resolve([...this.items.values()]);
+    return Promise.resolve(
+      [...this.items.values()].map((k) => ({ ...k, poster_url: this.events.get(k.external_id)?.poster_url ?? null })),
+    );
   }
+  /** Like the RPC: an unchanged hash only touches `last_seen_at`, the payload is not written. */
   upsertEvent(_sourceId: string, externalId: string, payload: EventPayload) {
     this.calls.push({ externalId, payload });
     const before = this.events.get(externalId);
-    this.events.set(externalId, payload);
+    const action = !before ? 'created' : before.source_hash === payload.source_hash ? 'unchanged' : 'updated';
+    if (action !== 'unchanged') this.events.set(externalId, payload);
     this.items.set(externalId, {
       external_id: externalId,
       source_hash: payload.source_hash,
       last_seen_at: new Date(this.clock()).toISOString(),
+      poster_url: null,
     });
-    const action = !before ? 'created' : before.source_hash === payload.source_hash ? 'unchanged' : 'updated';
     return Promise.resolve({ attraction_id: `attr-${externalId}`, action });
   }
   saveProgress(_sourceId: string, summary: RunSummary) {
@@ -131,7 +135,10 @@ class MemoryStore implements ImportStore {
   }
   /** Storage that writes the object and still answers an error, as seen on 2026-11-02. */
   uploadAnswersError = false;
+  /** Every upload, the ones onto an object already there included. */
+  uploadCount = 0;
   uploadImage(path: string, bytes: Uint8Array, contentType: string) {
+    this.uploadCount += 1;
     this.uploads.set(path, { bytes, contentType });
     if (this.uploadAnswersError) return Promise.reject(new Error('upload: http_504'));
     return Promise.resolve(`http://supabase.test/storage/v1/object/public/${IMAGE_BUCKET}/${path}`);
@@ -282,10 +289,63 @@ Deno.test('#1075: a list served 7 at a time is walked to its total, and no event
   ]);
   assertEquals([report.status, report.summary.created, report.summary.errors], ['ok', 17, []]);
   assertEquals(store.finished.map((f) => [f.sourceId, f.status]), [[SPTUR.id, 'ok']]);
-  // A second run over the same answers creates nothing and re-uploads onto the same objects.
-  const uploadsBefore = store.uploads.size;
+  // A second run over the same answers creates nothing.
   const [again] = await runEventsImport(deps(store, newServer(7)));
-  assertEquals([again.summary.created, again.summary.unchanged, store.uploads.size], [0, 17, uploadsBefore]);
+  assertEquals([again.summary.created, again.summary.unchanged], [0, 17]);
+});
+
+const imageFetches = (server: Server) => server.urls.filter((u) => u.includes('/api/csp/midia')).length;
+
+Deno.test('#1075 BR-EVENTO-009 item 5: a run with nothing changed fetches no image and uploads nothing', async () => {
+  const store = new MemoryStore();
+  const first = newServer();
+  await runEventsImport(deps(store, first));
+  // F1 and Cirque carry an image; the other cards of the fixture have none.
+  assertEquals([imageFetches(first), store.uploadCount], [2, 2]);
+
+  const second = newServer();
+  const [again] = await runEventsImport(deps(store, second));
+  assertEquals([imageFetches(second), store.uploadCount], [0, 2]);
+  assertEquals([again.status, again.summary.unchanged, again.summary.errors], ['ok', 17, []]);
+  const f1 = store.calls.slice(-17).find((c) => c.externalId === '902');
+  assertEquals(
+    f1?.payload.poster_url,
+    `http://supabase.test/storage/v1/object/public/${IMAGE_BUCKET}/events/${SPTUR.id}/902/2370.webp`,
+  );
+  assertEquals(f1?.payload.image_credit, 'Crédito: Divulgação');
+  assertEquals(again.summary.timings.find((t) => t.external_id === '902')?.poster_reused, true);
+
+  // The text changes at the source and the image does not: the event is updated with the same poster.
+  const store2 = new MemoryStore();
+  await runEventsImport(deps(store2, newServer()));
+  const edited = { ...F1, website: 'https://f1.example' };
+  const third = newServer();
+  const base = sptur(third);
+  const [changed] = await runEventsImport({
+    store: store2,
+    log: () => {},
+    fetch: (url, init) => url.includes(`slug=${F1_SLUG}`) ? Promise.resolve(Response.json(edited)) : base(url, init),
+  });
+  assertEquals([changed.summary.updated, imageFetches(third), store2.uploadCount], [1, 0, 2]);
+  assert(store2.events.get('902')?.poster_url?.endsWith('/902/2370.webp'), 'the poster stays');
+});
+
+Deno.test('#1075 BR-EVENTO-009 item 5: an image changed at the source is fetched and uploaded once', async () => {
+  const store = new MemoryStore();
+  await runEventsImport(deps(store, newServer()));
+  const uploadsBefore = store.uploadCount;
+  const newImage = { ...F1, imagens: [{ id: 9999, alt: 'Crédito: Nova', disponivel: true }] };
+  const server = newServer();
+  const base = sptur(server);
+  const [report] = await runEventsImport({
+    store,
+    log: () => {},
+    fetch: (url, init) => url.includes(`slug=${F1_SLUG}`) ? Promise.resolve(Response.json(newImage)) : base(url, init),
+  });
+  assertEquals([imageFetches(server), store.uploadCount - uploadsBefore, report.summary.updated], [1, 1, 1]);
+  assert(server.urls.includes('https://cidadedesaopaulo.com/api/csp/midia?id=9999&v=grande'));
+  assert(store.events.get('902')?.poster_url?.endsWith('/902/9999.webp'), 'the new poster');
+  assertEquals(store.events.get('902')?.image_credit, 'Crédito: Nova');
 });
 
 Deno.test('#1075: an image that fails keeps the event, with no poster, and the error in the summary', async () => {
@@ -467,14 +527,35 @@ Deno.test('#1075 BR-EVENTO-009 item 5: an event that came in without its poster 
   assertEquals([first.summary.created, store.events.get('902')?.poster_url], [17, null]);
   assertEquals(store.events.get('902')?.source_hash, payloadHash(cardHash, false));
 
-  const [second] = await runEventsImport(deps(store, newServer()));
+  // `|noimg` tries again: both images are fetched and uploaded.
+  const retry = newServer();
+  const [second] = await runEventsImport(deps(store, retry));
   // F1 and Cirque have images; the other cards of the fixture have none and stay unchanged.
-  assertEquals([second.summary.updated, second.summary.unchanged], [2, 15]);
+  assertEquals([second.summary.updated, second.summary.unchanged, imageFetches(retry), store.uploadCount], [
+    2,
+    15,
+    2,
+    2,
+  ]);
   assert(store.events.get('902')?.poster_url?.endsWith('/902/2370.webp'), 'the poster arrived');
 
-  // The image fails again: the RPC would write the null poster over it, so the event is not sent.
+  // The stored poster is this image: the run does not fetch it, so its failure costs nothing.
+  const steady = { ...newServer(), imageFails: true };
+  const [same] = await runEventsImport(deps(store, steady));
+  assertEquals([imageFetches(steady), same.summary.unchanged, same.summary.errors], [0, 17, []]);
+
+  // The source changes the image and the new one fails: the RPC would write the null poster over
+  // the stored one, so the event is not sent.
+  const changed = { ...F1, imagens: [{ id: 9999, alt: 'x', disponivel: true }] };
+  const failing = { ...newServer(), imageFails: true };
+  const failingFetch = sptur(failing);
   const callsBefore = store.calls.length;
-  const [third] = await runEventsImport(deps(store, { ...newServer(), imageFails: true }));
+  const [third] = await runEventsImport({
+    store,
+    log: () => {},
+    fetch: (url, init) =>
+      url.includes(`slug=${F1_SLUG}`) ? Promise.resolve(Response.json(changed)) : failingFetch(url, init),
+  });
   assert(store.events.get('902')?.poster_url?.endsWith('/902/2370.webp'), 'the stored poster stays');
   assertEquals(store.calls.slice(callsBefore).some((c) => c.externalId === '902'), false);
   assert(
@@ -567,6 +648,55 @@ Deno.test('#1075: the handler reads the active sources of core, calls import_eve
     delete scenario.tables.event_sources;
     delete scenario.rpcs.import_event_upsert;
     network.reply = () => new Response('{}', { status: 400 });
+  }
+});
+
+Deno.test('#1075: the handler reads every page of known items and reuses the stored poster of the same image', async () => {
+  const server = newServer();
+  const recorded = sptur(server);
+  const realFetch = globalThis.fetch;
+  globalThis.fetch = (input: string | URL | Request, init?: RequestInit) => {
+    const url = input instanceof Request ? input.url : String(input);
+    fetchCalls.push(url);
+    if (url.startsWith('http://supabase.test/storage/')) return Promise.resolve(Response.json({ Key: 'k' }));
+    return recorded(url, init);
+  };
+  const poster = `http://supabase.test/storage/v1/object/public/${IMAGE_BUCKET}/events/${SPTUR.id}/902/2370.webp`;
+  const old = '2026-10-26T09:00:00.000Z';
+  const filler = Array.from({ length: 1000 }, (_, i) => ({
+    external_id: `old-${i}`,
+    source_hash: 'h|noimg',
+    last_seen_at: old,
+    attractions: null,
+  }));
+  const f1 = {
+    external_id: '902',
+    source_hash: payloadHash(await sourceHash(F1), true),
+    last_seen_at: old,
+    attractions: { image_url: poster },
+  };
+  // A page of 1000, then the page with the F1 item, then the empty page that ends the walk.
+  const pages = [filler, [f1], []];
+  let page = 0;
+  scenario.tables.event_sources = (chain: string[]) => (chain.includes('select') ? [SPTUR] : null);
+  scenario.tables.event_source_items = (chain: string[]) => {
+    assert(chain.includes('range') && chain.includes('order'), chain.join());
+    return pages[page++];
+  };
+  scenario.rpcs.import_event_upsert = { data: [{ attraction_id: 'a1', action: 'unchanged' }], error: null };
+  try {
+    const res = await call(MACHINE);
+    assertEquals(res.status, 200);
+    assertEquals(page, 3);
+    assertEquals(server.urls.includes('https://cidadedesaopaulo.com/api/csp/midia?id=2370&v=grande'), false);
+    assertEquals(fetchCalls.some((u) => u.includes(`/events/${SPTUR.id}/902/`)), false);
+    // The Cirque poster is not stored yet: it is still copied.
+    assert(fetchCalls.some((u) => u.includes(`/events/${SPTUR.id}/973/`)), 'the new poster is uploaded');
+  } finally {
+    globalThis.fetch = realFetch;
+    delete scenario.tables.event_sources;
+    delete scenario.tables.event_source_items;
+    delete scenario.rpcs.import_event_upsert;
   }
 });
 

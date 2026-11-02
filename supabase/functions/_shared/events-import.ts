@@ -122,6 +122,8 @@ export interface ItemTiming {
   image_error?: string;
   /** The upload answered an error, yet the object was there, whole: the poster was kept. */
   upload_error?: string;
+  /** The stored poster was the same image of the source: no fetch, no upload. */
+  poster_reused?: boolean;
 }
 
 export interface RunSummary {
@@ -146,15 +148,18 @@ export interface RunSummary {
 
 export type RunStatus = 'ok' | 'partial' | 'error';
 
-/** What `core.event_source_items` knows of one item of a source. */
+/** What `core.event_source_items` knows of one item of a source, and the poster its event carries. */
 export interface KnownItem {
   external_id: string;
   source_hash: string;
   last_seen_at: string;
+  /** `image_url` of the linked attraction, which the RPC writes with `poster_url`; null when none. */
+  poster_url: string | null;
 }
 
 export interface ImportStore {
   activeSources(): Promise<EventSource[]>;
+  /** Every item of the source, all pages of it. */
   knownItems(sourceId: string): Promise<KnownItem[]>;
   upsertEvent(sourceId: string, externalId: string, payload: EventPayload): Promise<unknown>;
   /** `last_run_status 'running'` and the summary so far: the trail when the platform kills the worker. */
@@ -414,6 +419,10 @@ const num = (v: unknown): number | null => {
   return typeof n === 'number' && Number.isFinite(n) ? n : null;
 };
 
+const safePart = (s: string) => s.replace(/[^a-zA-Z0-9_-]/g, '_');
+const imageStem = (sourceId: string, externalId: string, imageId: string) =>
+  `events/${safePart(sourceId)}/${safePart(externalId)}/${safePart(imageId)}`;
+
 /** `events/<source id>/<external id>/<image id>.<ext>`: the same image lands on the same object. */
 export function imagePath(sourceId: string, externalId: string, imageId: string, contentType: string): string {
   const ext = contentType.includes('png')
@@ -421,8 +430,26 @@ export function imagePath(sourceId: string, externalId: string, imageId: string,
     : contentType.includes('jpeg') || contentType.includes('jpg')
     ? 'jpg'
     : 'webp';
-  const safe = (s: string) => s.replace(/[^a-zA-Z0-9_-]/g, '_');
-  return `events/${safe(sourceId)}/${safe(externalId)}/${safe(imageId)}.${ext}`;
+  return `${imageStem(sourceId, externalId, imageId)}.${ext}`;
+}
+
+/**
+ * The poster already stored for this very image of the source, or null. It counts only when the last
+ * run copied it (`|img`) and the stored URL is our object of this image id: then the image is not
+ * fetched nor uploaded again. A new event, an image changed at the source or a `|noimg` copies.
+ */
+export function reusablePoster(
+  known: KnownItem | undefined,
+  sourceId: string,
+  externalId: string,
+  imageId: string,
+): string | null {
+  const url = known?.poster_url;
+  if (!url || !known.source_hash.endsWith(POSTER_COPIED)) return null;
+  const object = `/${IMAGE_BUCKET}/${imageStem(sourceId, externalId, imageId)}.`;
+  const at = url.lastIndexOf(object);
+  if (at < 0) return null;
+  return ['webp', 'jpg', 'png'].includes(url.slice(at + object.length)) ? url : null;
 }
 
 /** Copies the first image of the card to our bucket (BR-EVENTO-009 item 5) and answers its public URL. */
@@ -487,6 +514,7 @@ export async function buildPayload(
   item: ListItem,
   timing: ItemTiming,
   onStep: (step: 'image' | 'upload') => void = () => {},
+  known?: KnownItem,
 ): Promise<{ payload: EventPayload; imageError: string | null }> {
   const now = deps.now ?? Date.now;
   const externalId = String(item.id);
@@ -500,10 +528,16 @@ export async function buildPayload(
   let credit: string | null = null;
   let imageError: string | null = null;
   if (first && first.id !== undefined && first.id !== null && first.disponivel !== false) {
+    const imageId = String(first.id);
     const imageStarted = now();
     try {
-      onStep('image');
-      posterUrl = await copyImage(deps, source, externalId, String(first.id), timing, onStep);
+      posterUrl = reusablePoster(known, source.id, externalId, imageId);
+      if (posterUrl) {
+        timing.poster_reused = true;
+      } else {
+        onStep('image');
+        posterUrl = await copyImage(deps, source, externalId, imageId, timing, onStep);
+      }
       // BR-EVENTO-009, edge case: an image without a credit is credited to the source.
       credit = str(first.alt) ?? SPTUR_CREDIT;
     } catch (error) {
@@ -669,8 +703,15 @@ export async function importSource(
     const timing: ItemTiming = { external_id: externalId, card_ms: 0, image_ms: 0, upload_ms: 0, rpc_ms: 0 };
     step(externalId, 'card');
     try {
-      const { payload, imageError } = await buildPayload(deps, source, item, timing, (s) => step(externalId, s));
       const before = known.get(externalId);
+      const { payload, imageError } = await buildPayload(
+        deps,
+        source,
+        item,
+        timing,
+        (s) => step(externalId, s),
+        before,
+      );
       if (imageError && before?.source_hash.endsWith(POSTER_COPIED)) {
         // The RPC writes poster_url as sent, null included: an event that has its poster keeps it,
         // and keeps the version before this run, until the image copies again.

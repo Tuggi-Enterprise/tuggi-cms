@@ -32,6 +32,16 @@ import {
   UPLOAD_TIMEOUT_MS,
 } from '../_shared/events-import.ts';
 
+/** One row of `core.event_source_items` with the `image_url` of its attraction (FK `attraction_id`). */
+interface KnownRow {
+  external_id: string;
+  source_hash: string;
+  last_seen_at: string;
+  attractions: { image_url: string | null } | { image_url: string | null }[] | null;
+}
+
+const KNOWN_ITEMS_PAGE = 1000;
+
 declare const EdgeRuntime: { waitUntil(promise: Promise<unknown>): void } | undefined;
 
 /** Keeps the worker alive for `task` after the response, where the platform offers it. */
@@ -69,13 +79,31 @@ serve(async (req) => {
       if (error) throw new Error(`event_sources: ${error.code ?? 'unknown'}`);
       return (data ?? []) as EventSource[];
     },
+    // Page by page until an empty page: PostgREST cuts an answer at its max rows (1000 by default),
+    // and a smaller cap must not end the walk early either.
     async knownItems(sourceId) {
-      const { data, error } = await core
-        .from('event_source_items')
-        .select('external_id, source_hash, last_seen_at')
-        .eq('source_id', sourceId);
-      if (error) throw new Error(`event_source_items: ${error.code ?? 'unknown'}`);
-      return (data ?? []) as KnownItem[];
+      const items: KnownItem[] = [];
+      for (let from = 0;;) {
+        const { data, error } = await core
+          .from('event_source_items')
+          .select('external_id, source_hash, last_seen_at, attractions(image_url)')
+          .eq('source_id', sourceId)
+          .order('external_id')
+          .range(from, from + KNOWN_ITEMS_PAGE - 1);
+        if (error) throw new Error(`event_source_items: ${error.code ?? 'unknown'}`);
+        const rows = (data ?? []) as KnownRow[];
+        if (!rows.length) return items;
+        for (const r of rows) {
+          const attraction = Array.isArray(r.attractions) ? r.attractions[0] : r.attractions;
+          items.push({
+            external_id: r.external_id,
+            source_hash: r.source_hash,
+            last_seen_at: r.last_seen_at,
+            poster_url: attraction?.image_url ?? null,
+          });
+        }
+        from += rows.length;
+      }
     },
     async saveProgress(sourceId, summary) {
       const { error } = await core
