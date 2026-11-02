@@ -443,7 +443,15 @@
           "not_entered_hint": "An estimate: Installed and Entered come from different sources.",
           "note_installs": "Installed comes from GA4 and is not tied to a person: it counts devices, not the same people as the other steps.",
           "note_cohort": "Signed up, Used hours and Purchased count what this month’s cohort has done up to today, as a % of those who entered and in any order: you can buy without an account. The current month keeps growing.",
-          "empty": "Nothing this month"
+          "empty": "Nothing this month",
+          "funnel_title": "From device to purchase",
+          "installs_floor": "iOS {ios} · Android {android} · floor",
+          "installs_unknown": "no GA4 data this month",
+          "floor_note": "GA4 counted fewer installs than entries this month, so the install count is a floor.",
+          "no_data": "no data",
+          "load_failed": "Could not load this month’s conversion.",
+          "retry": "Try again",
+          "entered_sub": "account or guest"
         },
         "ranking": {
           "title": "Scoring scoreboard"

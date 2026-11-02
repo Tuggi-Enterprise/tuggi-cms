@@ -122,7 +122,19 @@ export function CardLoading({ height }: { height: string }) {
   )
 }
 
-export function CardError({ onRetry, message }: { onRetry: () => void; message?: string }) {
+/**
+ * The failed-card box. `message` and `retryLabel` let a screen outside `/admin/social` reuse it
+ * without its namespace, which exists only in pt (the Conversion report, #1068).
+ */
+export function CardError({
+  onRetry,
+  message,
+  retryLabel,
+}: {
+  onRetry: () => void
+  message?: string
+  retryLabel?: string
+}) {
   const t = useTranslations('Pages.Social')
   return (
     <div
@@ -131,7 +143,7 @@ export function CardError({ onRetry, message }: { onRetry: () => void; message?:
     >
       <span>{message ?? t('load_failed')}</span>
       <Button type="button" variant="outline" size="sm" onClick={onRetry}>
-        {t('retry')}
+        {retryLabel ?? t('retry')}
       </Button>
     </div>
   )

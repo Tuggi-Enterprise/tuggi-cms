@@ -432,7 +432,15 @@
           "not_entered_hint": "Estimación: Instaló y Entró vienen de fuentes distintas.",
           "note_installs": "Instaló viene de GA4 y no se liga a una persona: cuenta dispositivos, no la misma gente que los otros pasos.",
           "note_cohort": "Creó cuenta, Usó horas y Compró cuentan lo que hizo hasta hoy quien entró en el mes, en % de los que entraron y en cualquier orden: se puede comprar sin cuenta. El mes en curso sigue subiendo.",
-          "empty": "Nada este mes"
+          "empty": "Nada este mes",
+          "funnel_title": "Del dispositivo a la compra",
+          "installs_floor": "iOS {ios} · Android {android} · piso",
+          "installs_unknown": "sin dato de GA4 este mes",
+          "floor_note": "GA4 contó menos instalaciones que entradas este mes, así que el número de instalaciones es un piso.",
+          "no_data": "sin dato",
+          "load_failed": "No se pudo cargar la conversión de este mes.",
+          "retry": "Intentar de nuevo",
+          "entered_sub": "cuenta o invitado"
         },
         "ranking": {
           "title": "Marcador de puntuación"

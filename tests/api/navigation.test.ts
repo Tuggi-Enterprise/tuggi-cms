@@ -214,6 +214,8 @@ test('o catálogo do admin é exatamente este — apagar um destino tem de doer'
     '/dashboard/realtime',
     '/dashboard/reports/acquisition',
     '/dashboard/reports/catalog',
+    // From install to purchase (#1068).
+    '/dashboard/reports/conversion',
     '/dashboard/reports/engagement',
     '/dashboard/reports/geography',
     // Who received and who opened each push (#1051).

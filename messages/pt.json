@@ -441,7 +441,15 @@
           "not_entered_hint": "Estimativa: Instalou e Entrou vêm de fontes diferentes.",
           "note_installs": "Instalou vem do GA4 e não se liga a pessoa: conta aparelhos, não a mesma gente dos outros degraus.",
           "note_cohort": "Criou conta, Usou horas e Comprou contam o que a turma do mês fez até hoje, em % de quem entrou e em qualquer ordem: dá para comprar sem conta. O mês corrente ainda sobe.",
-          "empty": "Nada neste mês"
+          "empty": "Nada neste mês",
+          "funnel_title": "Do aparelho à compra",
+          "installs_floor": "iOS {ios} · Android {android} · piso",
+          "installs_unknown": "sem dado do GA4 neste mês",
+          "floor_note": "O GA4 contou menos instalações do que entradas neste mês, então o número de instalações é um piso.",
+          "no_data": "sem dado",
+          "load_failed": "Não foi possível carregar a conversão deste mês.",
+          "retry": "Tentar de novo",
+          "entered_sub": "conta ou convidado"
         },
         "ranking": {
           "title": "Placar de pontuação"
