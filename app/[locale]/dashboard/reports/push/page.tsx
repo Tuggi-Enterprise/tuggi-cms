@@ -9,7 +9,9 @@
  * `app/api/dashboard/push` (admin gate + service_role). DS-COMPONENTE-084: a measured zero prints
  * "0" dim, a NULL prints `UNKNOWN_VALUE` with "sem dado", never 0. Broadcast has no per person
  * measure: its received, opened, rate and revenue split print "sem dado", it stays out of the
- * open rate, and its date is not a button. The person is `AppUserLink` (BR-USUARIO-042: nickname,
+ * open rate, and its date is not a button. "Aceito" is what Firebase took for delivery, not what
+ * the person saw (#1070, `pushAccepted`); the week table sums the sends on screen by Sao Paulo
+ * week (`pushWeeks`). The person is `AppUserLink` (BR-USUARIO-042: nickname,
  * never the e-mail). No export.
  */
 
@@ -32,6 +34,7 @@ import {
   GROUP,
   HEAD,
   HEAD_SOLO,
+  HEAD_SOLO_NUM,
   NUM,
   SortHead,
   type SortState,
@@ -44,10 +47,13 @@ import {
   PUSH_PEOPLE_PAGE_SIZE,
   PUSH_REPORT_DEFAULT_PERIOD,
   PUSH_REPORT_PERIODS,
+  formatMinutesToOpen,
   hasPersonMeasure,
   presetRange,
+  pushAccepted,
   pushFunnel,
   pushTypeCounts,
+  pushWeeks,
   sourcesSinceDay,
   type PushPeoplePage,
   type PushReport,
@@ -62,11 +68,12 @@ type Translate = ReturnType<typeof useTranslations>
 
 type SortKey =
   | 'sent'
-  | 'delivered'
+  | 'accepted'
   | 'opened'
   | 'not_delivered'
   | 'open_rate'
   | 'influenced'
+  | 'time_to_open'
   | 'action'
   | 'revenue_opened'
   | 'revenue_not_opened'
@@ -78,11 +85,12 @@ function measures(send: PushReportSend): Record<SortKey, number | null> {
   const perPerson = hasPersonMeasure(send)
   return {
     sent: send.sent,
-    delivered: perPerson ? send.delivered : null,
+    accepted: pushAccepted(send),
     opened: perPerson ? send.opened : null,
     not_delivered: send.not_delivered,
     open_rate: perPerson ? send.open_rate : null,
     influenced: send.influenced_opens,
+    time_to_open: perPerson ? send.median_minutes_to_open : null,
     action: send.action_pushes,
     revenue_opened: perPerson ? send.revenue.opened_revenue_usd : null,
     revenue_not_opened: perPerson ? send.revenue.not_opened_revenue_usd : null,
@@ -212,6 +220,7 @@ function PushReportPage() {
     })
   }, [allSends, type, sort])
   const funnel = useMemo(() => pushFunnel(sends), [sends])
+  const weeks = useMemo(() => pushWeeks(sends), [sends])
 
   const integer = useMemo(() => new Intl.NumberFormat(locale), [locale])
   const percent = useMemo(() => new Intl.NumberFormat(locale, { style: 'percent', maximumFractionDigits: 1 }), [locale])
@@ -240,7 +249,7 @@ function PushReportPage() {
 
   const funnelTiles = [
     { key: 'sent', icon: Send, color: CHART_COLORS.blue, label: t('funnel.sent'), hint: t('funnel.sent_hint'), ...tile(funnel.sent, n) },
-    { key: 'delivered', icon: CheckCheck, color: CHART_COLORS.green, label: t('funnel.delivered'), hint: t('funnel.delivered_hint'), ...tile(funnel.delivered, n) },
+    { key: 'accepted', icon: CheckCheck, color: CHART_COLORS.green, label: t('funnel.accepted'), hint: t('funnel.accepted_hint'), ...tile(funnel.accepted, n) },
     { key: 'opened', icon: MailOpen, color: CHART_COLORS.purple, label: t('funnel.opened'), hint: t('funnel.opened_hint'), ...tile(funnel.opened, n) },
     { key: 'not_delivered', icon: XCircle, color: CHART_COLORS.red, label: t('funnel.not_delivered'), hint: t('funnel.not_delivered_hint'), ...tile(funnel.not_delivered, n) },
     { key: 'open_rate', icon: Percent, color: CHART_COLORS.purple, label: t('funnel.open_rate'), hint: t('performance.direct_hint'), ...tile(funnel.open_rate, (v) => percent.format(v), t('funnel.open_rate_sub')) },
@@ -281,7 +290,8 @@ function PushReportPage() {
     setSelected(send)
   }
 
-  const COLUMNS = 13
+  const COLUMNS = 14
+  const WEEK_COLUMNS = 8
 
   return (
     <div className="cms-width p-6 space-y-4 min-h-screen bg-gray-50 dark:bg-gray-950">
@@ -360,8 +370,51 @@ function PushReportPage() {
         </StatCardRow>
       ))}
       <p className={`text-[11px] ${DIM}`}>
-        {t('funnel.delivered_hint')} {t('no_data_hint')}
+        {t('funnel.accepted_hint')} {t('no_data_hint')}
       </p>
+
+      {!reportError && (
+        <section className={CARD} aria-label={t('weeks.title')}>
+          <p className="px-3 pt-3 text-sm font-semibold text-gray-900 dark:text-white">{t('weeks.title')}</p>
+          <p className={`px-3 pb-2 text-[11px] ${DIM}`}>{t('weeks.hint')}</p>
+          <DenseTableScroller>
+            <table className="w-max min-w-full border-collapse">
+              <thead>
+                <tr>
+                  <th scope="col" className={HEAD_SOLO}>{t('weeks.week')}</th>
+                  <th scope="col" className={HEAD_SOLO_NUM} title={t('funnel.sent_hint')}>{t('funnel.sent')}</th>
+                  <th scope="col" className={HEAD_SOLO_NUM} title={t('funnel.accepted_hint')}>{t('funnel.accepted')}</th>
+                  <th scope="col" className={HEAD_SOLO_NUM} title={t('funnel.opened_hint')}>{t('funnel.opened')}</th>
+                  <th scope="col" className={HEAD_SOLO_NUM} title={t('performance.direct_hint')}>{t('weeks.open_rate')}</th>
+                  <th scope="col" className={HEAD_SOLO_NUM} title={t('performance.influenced_hint')}>{t('performance.influenced')}</th>
+                  <th scope="col" className={HEAD_SOLO_NUM} title={t('performance.base_cost_hint')}>{t('performance.base_cost_push_off')}</th>
+                  <th scope="col" className={HEAD_SOLO_NUM} title={t('performance.base_cost_hint')}>{t('performance.base_cost_uninstalled')}</th>
+                </tr>
+              </thead>
+              <tbody>
+                {isLoading ? (
+                  <tr><td colSpan={WEEK_COLUMNS} className={`${CELL} ${DIM}`}>{t('loading')}</td></tr>
+                ) : weeks.length === 0 ? (
+                  <tr><td colSpan={WEEK_COLUMNS} className={`${CELL} ${DIM}`}>{t('empty_title')}. {t('empty_body')}</td></tr>
+                ) : (
+                  weeks.map((week) => (
+                    <tr key={week.week_start} className="border-t border-gray-100 dark:border-gray-800">
+                      <td className={`${CELL} whitespace-nowrap`}>{day.format(calendarDate(week.week_start))}</td>
+                      <td className={`${NUM} font-semibold`}><Measure value={week.sent} format={n} noData={noData} /></td>
+                      <td className={NUM}><Measure value={week.accepted} format={n} noData={noData} /></td>
+                      <td className={NUM}><Measure value={week.opened} format={n} noData={noData} /></td>
+                      <td className={NUM}><Measure value={week.open_rate} format={(v) => percent.format(v)} noData={noData} /></td>
+                      <td className={NUM}><Measure value={week.influenced_opens} format={n} noData={noData} /></td>
+                      <td className={NUM}><Measure value={week.push_off} format={n} noData={noData} /></td>
+                      <td className={NUM}><Measure value={week.uninstalled} format={n} noData={noData} /></td>
+                    </tr>
+                  ))
+                )}
+              </tbody>
+            </table>
+          </DenseTableScroller>
+        </section>
+      )}
 
       <section className={CARD} aria-label={t('sends.title')}>
         {reportError ? (
@@ -383,7 +436,7 @@ function PushReportPage() {
         ) : (
           <>
             {measuredSince && (
-              <p className={`mb-2 text-[11px] ${DIM}`}>
+              <p className={`px-3 pb-2 pt-3 text-[11px] ${DIM}`}>
                 {t('measured_since', { date: day.format(calendarDate(measuredSince)) })}
               </p>
             )}
@@ -393,7 +446,7 @@ function PushReportPage() {
                   <tr>
                     <th className={GROUP} colSpan={2} />
                     <th scope="colgroup" colSpan={4} className={`${GROUP} ${EDGE}`}>{t('funnel.title')}</th>
-                    <th scope="colgroup" colSpan={2} className={`${GROUP} ${EDGE}`}>{t('performance.opens_title')}</th>
+                    <th scope="colgroup" colSpan={3} className={`${GROUP} ${EDGE}`}>{t('performance.opens_title')}</th>
                     <th scope="colgroup" className={`${GROUP} ${EDGE}`} />
                     <th scope="colgroup" colSpan={2} className={`${GROUP} ${EDGE}`}>
                       {t('performance.revenue')} {t('performance.revenue_sub')}
@@ -404,11 +457,12 @@ function PushReportPage() {
                     <th scope="col" className={HEAD}>{t('sends.date')}</th>
                     <th scope="col" className={HEAD}>{t('sends.type')}</th>
                     {numHead('sent', t('funnel.sent'), t('funnel.sent_hint'), true)}
-                    {numHead('delivered', t('funnel.delivered'), t('funnel.delivered_hint'))}
+                    {numHead('accepted', t('funnel.accepted'), t('funnel.accepted_hint'))}
                     {numHead('opened', t('funnel.opened'), t('funnel.opened_hint'))}
                     {numHead('not_delivered', t('funnel.not_delivered'), t('funnel.not_delivered_hint'))}
                     {numHead('open_rate', t('performance.direct'), t('performance.direct_hint'), true)}
                     {numHead('influenced', t('performance.influenced'), t('performance.influenced_hint'))}
+                    {numHead('time_to_open', t('sends.time_to_open'), t('sends.time_to_open_hint'))}
                     {numHead('action', t('performance.action'), t('performance.action_hint'), true)}
                     {numHead('revenue_opened', t('performance.revenue_opened'), t('performance.revenue_hint'), true)}
                     {numHead('revenue_not_opened', t('performance.revenue_not_opened'), t('performance.revenue_hint'))}
@@ -459,11 +513,12 @@ function PushReportPage() {
                             {variants && <div className={`text-xs ${DIM}`}>{variants}</div>}
                           </td>
                           {cell('sent', n, `font-semibold ${EDGE}`)}
-                          {cell('delivered')}
+                          {cell('accepted')}
                           {cell('opened')}
                           {cell('not_delivered', n, DIM)}
                           {cell('open_rate', (v) => percent.format(v), EDGE)}
                           {cell('influenced')}
+                          {cell('time_to_open', formatMinutesToOpen)}
                           {cell('action', n, EDGE)}
                           {cell('revenue_opened', (v) => usd.format(v), EDGE)}
                           {cell('revenue_not_opened', (v) => usd.format(v))}

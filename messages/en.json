@@ -651,8 +651,8 @@
           "title": "Delivery",
           "sent": "Sent",
           "sent_hint": "On the weekly push, what FCM accepted. On direct and mass pushes, every recipient, with or without a device. Not delivered or opened.",
-          "delivered": "Delivered",
-          "delivered_hint": "The app reported the push arrived. On an iPhone with the app closed that report never goes out, so the number runs below the real one.",
+          "accepted": "Accepted",
+          "accepted_hint": "Firebase accepted it for delivery. There is no way to know if the person saw it.",
           "opened": "Opened",
           "opened_hint": "The person tapped the push, opened the message in the app inbox or marked all as read. Even so, it is the most reliable number in the funnel.",
           "not_delivered": "Not delivered",
@@ -700,7 +700,15 @@
           "date": "Date",
           "type": "Type",
           "variant": "Variant",
-          "people": "See people"
+          "people": "See people",
+          "time_to_open": "Time to open",
+          "time_to_open_hint": "Median time between the send and the tap on the push."
+        },
+        "weeks": {
+          "title": "By week",
+          "week": "Week",
+          "hint": "Monday to Sunday, Brasília time. Each row adds up the sends in the table below, with the same type filter.",
+          "open_rate": "Direct open rate"
         },
         "people": {
           "title": "People in the send of {date}",
@@ -1613,8 +1621,8 @@
         "picked_hint": "People picked for the piece on the day. The columns beside add up to this number.",
         "sent": "Sent",
         "sent_hint": "What FCM accepted. Not delivered, not opened.",
-        "delivered": "Delivered",
-        "delivered_hint": "The app reported the push arrived. On an iPhone with the app closed that report never goes out, so the number runs below the real one.",
+        "accepted": "Accepted",
+        "accepted_hint": "Firebase accepted it for delivery. There is no way to know if the person saw it.",
         "opened": "Opened",
         "opened_hint": "The person tapped the push, opened the message in the app inbox or marked all as read. Even so, it is the most reliable number in the funnel.",
         "in_progress": "Sending across time zones",
@@ -1628,7 +1636,7 @@
         "push_off_today_hint": "Of the people who got a piece this week, how many have push off right now. The database does not keep when they turned it off.",
         "summary": {
           "title": "Last {weeks} weeks",
-          "hint": "Both pieces added up. Delivered undercounts iPhones with the app closed.",
+          "hint": "Both pieces added up.",
           "open_rate": "Open rate",
           "open_rate_hint": "Opened over sent."
         },

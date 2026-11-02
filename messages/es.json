@@ -640,8 +640,8 @@
           "title": "Entrega",
           "sent": "Enviados",
           "sent_hint": "En la regla semanal, lo que FCM aceptó. En el push directo y masivo, todo destinatario, con o sin dispositivo. No es recibido ni abierto.",
-          "delivered": "Recibidos",
-          "delivered_hint": "La app avisó que el push llegó. En iPhone con la app cerrada ese aviso no sale, así que el número queda por debajo del real.",
+          "accepted": "Aceptado",
+          "accepted_hint": "Firebase lo aceptó para entregar. No hay forma de saber si la persona lo vio.",
           "opened": "Abiertos",
           "opened_hint": "La persona tocó el push, abrió el mensaje en el buzón de la app o marcó todas como leídas. Aun así, es el número más confiable del embudo.",
           "not_delivered": "No recibidos",
@@ -689,7 +689,15 @@
           "date": "Fecha",
           "type": "Tipo",
           "variant": "Variante",
-          "people": "Ver personas"
+          "people": "Ver personas",
+          "time_to_open": "Tiempo hasta abrir",
+          "time_to_open_hint": "Mediana entre el envío y el toque en el push."
+        },
+        "weeks": {
+          "title": "Por semana",
+          "week": "Semana",
+          "hint": "Lunes a domingo, en hora de Brasilia. Cada fila suma los envíos de la tabla de abajo, con el mismo filtro de tipo.",
+          "open_rate": "Apertura directa"
         },
         "people": {
           "title": "Personas del envío del {date}",
@@ -1600,8 +1608,8 @@
         "picked_hint": "Personas elegidas para la pieza en el día. Las columnas de al lado suman este número.",
         "sent": "Enviados",
         "sent_hint": "Lo que FCM aceptó. No es entregado ni abierto.",
-        "delivered": "Recibidos",
-        "delivered_hint": "La app avisó que el push llegó. En iPhone con la app cerrada ese aviso no sale, así que el número queda por debajo del real.",
+        "accepted": "Aceptado",
+        "accepted_hint": "Firebase lo aceptó para entregar. No hay forma de saber si la persona lo vio.",
         "opened": "Abiertos",
         "opened_hint": "La persona tocó el push, abrió el mensaje en el buzón de la app o marcó todas como leídas. Aun así, es el número más confiable del embudo.",
         "in_progress": "Enviando por zonas horarias",
@@ -1615,7 +1623,7 @@
         "push_off_today_hint": "De las personas que recibieron alguna pieza en la semana, cuántas tienen el push apagado ahora. La base de datos no guarda cuándo lo apagaron.",
         "summary": {
           "title": "Últimas {weeks} semanas",
-          "hint": "Las dos piezas sumadas. Recibidos cuenta de menos en iPhone con la app cerrada.",
+          "hint": "Las dos piezas sumadas.",
           "open_rate": "Tasa de apertura",
           "open_rate_hint": "Abiertos sobre enviados."
         },

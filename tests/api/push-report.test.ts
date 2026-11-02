@@ -190,7 +190,7 @@ test('#1051 DS-COMPONENTE-084: NULL stays "no source" through the sums, and broa
     send({ send_key: 'broadcast:generic:2026-10-20', channel: 'broadcast', type: 'generic', sent: 1000, delivered: null, opened: 400 }),
   ])
   assert.equal(funnel.sent, 1010)
-  assert.equal(funnel.delivered, 6)
+  assert.equal(funnel.accepted, null)
   assert.equal(funnel.opened, 3)
   assert.equal(funnel.measured_sent, 10)
   assert.equal(funnel.open_rate, 0.3)
@@ -198,7 +198,7 @@ test('#1051 DS-COMPONENTE-084: NULL stays "no source" through the sums, and broa
 
   const onlyBroadcast = lib.pushFunnel([send({ channel: 'broadcast', delivered: null })])
   assert.equal(onlyBroadcast.open_rate, null)
-  assert.equal(onlyBroadcast.delivered, null)
+  assert.equal(onlyBroadcast.accepted, null)
   assert.equal(onlyBroadcast.opened, null)
 
   const empty = lib.pushFunnel([])
@@ -272,4 +272,84 @@ test('#1046 BR-COMUNICACAO-019 3.m.1: people with push enabled pass through as a
   const absent = await devicesOf(base)
   assert.ok('push_enabled_people' in absent)
   assert.equal(absent.push_enabled_people, null)
+})
+
+test('#1070 BR-COMUNICACAO-022 "enviado não é entregue": Aceito is sent minus not delivered on a direct push, and sem dado without that source', () => {
+  assert.equal(lib.pushAccepted(send({ sent: 10, not_delivered: 2 })), 8)
+  assert.equal(lib.pushAccepted(send({ sent: 10, not_delivered: 0 })), 10)
+  assert.equal(lib.pushAccepted(send({ sent: 10, not_delivered: null })), null)
+  assert.equal(lib.pushAccepted(send({ channel: 'broadcast', sent: 1000, not_delivered: null })), null)
+  assert.equal(lib.pushAccepted(send({ channel: 'broadcast', sent: 1000, not_delivered: 3 })), null)
+  // Weekly `sent` is already the FCM accept (item 1.a); its not_delivered is a separate outcome, not a subset.
+  assert.equal(lib.pushAccepted(send({ channel: 'weekly', sent: 189, not_delivered: 4 })), 189)
+
+  const funnel = lib.pushFunnel([
+    send({ sent: 10, not_delivered: 2 }),
+    send({ send_key: 'direct:hours_credited:2026-10-21', sent: 5, not_delivered: null }),
+    send({ send_key: 'weekly:thursday_local:2026-10-23', channel: 'weekly', sent: 189, not_delivered: 4 }),
+    send({ send_key: 'broadcast:generic:2026-10-20', channel: 'broadcast', sent: 1000, not_delivered: null }),
+  ])
+  assert.equal(funnel.accepted, 8 + 189)
+  assert.equal(lib.pushFunnel([send({ not_delivered: null })]).accepted, null)
+})
+
+test('#1070 BR-COMUNICACAO-022 item 4: the week table starts on Monday in Sao Paulo days and keeps sem dado apart from 0', () => {
+  assert.equal(lib.weekStartOf('2026-11-02'), '2026-11-02')
+  assert.equal(lib.weekStartOf('2026-11-01'), '2026-10-26')
+  assert.equal(lib.weekStartOf('2026-11-08'), '2026-11-02')
+  assert.equal(lib.weekStartOf('2026-01-01'), '2025-12-29')
+
+  const weeks = lib.pushWeeks([
+    send({ send_key: 'direct:a:2026-11-01', day: '2026-11-01', sent: 10, opened: 3, not_delivered: 2, influenced_opens: null, base_cost: { push_off: 0, uninstalled: null } }),
+    send({ send_key: 'direct:a:2026-11-02', day: '2026-11-02', sent: 4, opened: 1, not_delivered: null, influenced_opens: 2, base_cost: { push_off: 1, uninstalled: 0 } }),
+    send({ send_key: 'direct:b:2026-11-08', day: '2026-11-08', sent: 6, opened: 2, not_delivered: 1, influenced_opens: null, base_cost: { push_off: null, uninstalled: null } }),
+    send({ send_key: 'broadcast:g:2026-10-27', channel: 'broadcast', day: '2026-10-27', sent: 100, opened: 50, not_delivered: null }),
+  ])
+  assert.deepEqual(weeks.map((w: { week_start: string }) => w.week_start), ['2026-11-02', '2026-10-26'])
+  const [now, before] = weeks
+  assert.deepEqual(
+    [now.sent, now.accepted, now.opened, now.influenced_opens, now.push_off, now.uninstalled],
+    [10, 5, 3, 2, 1, 0]
+  )
+  assert.equal(now.open_rate, 0.3)
+  assert.deepEqual(
+    [before.sent, before.accepted, before.opened, before.influenced_opens, before.push_off, before.uninstalled],
+    [110, 8, 3, null, 0, null]
+  )
+  assert.equal(before.open_rate, 0.3)
+
+  const onlyBroadcast = lib.pushWeeks([send({ channel: 'broadcast', sent: 100, not_delivered: null })])
+  assert.equal(onlyBroadcast[0].accepted, null)
+  assert.equal(onlyBroadcast[0].open_rate, null)
+  assert.deepEqual(lib.pushWeeks([]), [])
+})
+
+test('#1070: time to open prints under a minute, minutes, and hours with padded minutes', () => {
+  assert.equal(lib.formatMinutesToOpen(0), '< 1 min')
+  assert.equal(lib.formatMinutesToOpen(0.4), '< 1 min')
+  assert.equal(lib.formatMinutesToOpen(1), '1 min')
+  assert.equal(lib.formatMinutesToOpen(12.3), '12 min')
+  assert.equal(lib.formatMinutesToOpen(59.6), '1 h 00 min')
+  assert.equal(lib.formatMinutesToOpen(60), '1 h 00 min')
+  assert.equal(lib.formatMinutesToOpen(185), '3 h 05 min')
+  assert.equal(lib.formatMinutesToOpen(1500), '25 h 00 min')
+})
+
+test('#1070 BR-COMUNICACAO-022 item 4: median_minutes_to_open passes through, and absent or null is null, never 0', async () => {
+  answers.cms_get_push_report = {
+    data: {
+      ...REPORT,
+      sends: [
+        send({ send_key: 'direct:a:2026-10-20', median_minutes_to_open: 12.5 }),
+        send({ send_key: 'direct:b:2026-10-20', median_minutes_to_open: 0 }),
+        send({ send_key: 'direct:c:2026-10-20', median_minutes_to_open: null }),
+        send({ send_key: 'direct:d:2026-10-20' }),
+      ],
+    },
+  }
+  const res = await reportRoute.GET(get('/api/dashboard/push?from=2026-10-01&to=2026-10-28'), ctx)
+  assert.equal(res.status, 200)
+  const { data } = await res.json()
+  assert.deepEqual(data.sends.map((s: { median_minutes_to_open: unknown }) => s.median_minutes_to_open), [12.5, 0, null, null])
+  assert.ok(data.sends.every((s: object) => 'median_minutes_to_open' in s))
 })

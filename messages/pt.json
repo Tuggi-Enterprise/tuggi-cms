@@ -649,8 +649,8 @@
           "title": "Entrega",
           "sent": "Enviados",
           "sent_hint": "Na régua, o que o FCM aceitou. No push direto e em massa, todo destinatário, com ou sem aparelho. Não é recebido nem aberto.",
-          "delivered": "Recebidos",
-          "delivered_hint": "O app avisou que o push chegou. No iPhone com o app fechado esse aviso não sai, então o número fica abaixo do real.",
+          "accepted": "Aceito",
+          "accepted_hint": "O Firebase aceitou entregar. Não dá para saber se a pessoa viu.",
           "opened": "Abertos",
           "opened_hint": "A pessoa tocou no push, abriu a mensagem no Correio do app ou marcou todas como lidas. Ainda assim, é o número mais confiável do funil.",
           "not_delivered": "Não recebidos",
@@ -698,7 +698,15 @@
           "date": "Data",
           "type": "Tipo",
           "variant": "Variante",
-          "people": "Ver pessoas"
+          "people": "Ver pessoas",
+          "time_to_open": "Tempo até abrir",
+          "time_to_open_hint": "Mediana entre o envio e o toque no push."
+        },
+        "weeks": {
+          "title": "Por semana",
+          "week": "Semana",
+          "hint": "Segunda a domingo, no horário de Brasília. Cada linha soma os envios da tabela abaixo, com o mesmo filtro de tipo.",
+          "open_rate": "Abertura direta"
         },
         "people": {
           "title": "Pessoas do envio de {date}",
@@ -1610,8 +1618,8 @@
         "picked_hint": "Pessoas escolhidas para a peça no dia. As colunas ao lado somam este número.",
         "sent": "Enviados",
         "sent_hint": "O que o FCM aceitou. Não é entregue nem aberto.",
-        "delivered": "Recebidos",
-        "delivered_hint": "O app avisou que o push chegou. No iPhone com o app fechado esse aviso não sai, então o número fica abaixo do real.",
+        "accepted": "Aceito",
+        "accepted_hint": "O Firebase aceitou entregar. Não dá para saber se a pessoa viu.",
         "opened": "Abertos",
         "opened_hint": "A pessoa tocou no push, abriu a mensagem no Correio do app ou marcou todas como lidas. Ainda assim, é o número mais confiável do funil.",
         "in_progress": "Enviando pelos fusos",
@@ -1625,7 +1633,7 @@
         "push_off_today_hint": "Das pessoas que receberam alguma peça na semana, quantas estão com o push desligado agora. O banco não guarda quando desligaram.",
         "summary": {
           "title": "Últimas {weeks} semanas",
-          "hint": "As duas peças somadas. Recebidos conta a menos no iPhone com o app fechado.",
+          "hint": "As duas peças somadas.",
           "open_rate": "Taxa de abertura",
           "open_rate_hint": "Abertos sobre enviados."
         },

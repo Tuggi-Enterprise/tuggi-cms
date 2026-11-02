@@ -69,6 +69,11 @@ export interface PushReportSend {
   revenue: PushRevenue
   base_cost: { push_off: number | null; uninstalled: number | null }
   variants: PushVariantCounts[] | null
+  /**
+   * Median minutes between the send and the tap on the push (#1070). The route turns an absent
+   * field into `null` (sem dado) while the database does not send it yet.
+   */
+  median_minutes_to_open: number | null
 }
 
 export interface PushReport {
@@ -223,14 +228,32 @@ export function hasPersonMeasure(send: Pick<PushReportSend, 'channel'>): boolean
   return send.channel !== 'broadcast'
 }
 
+/**
+ * Accepted: pushes Firebase took for delivery (#1070). Not received, not seen: "enviado não é
+ * entregue" (BR-COMUNICACAO-022). The two channels count `sent` differently in the database:
+ * - weekly: `sent` is already what FCM accepted (BR-COMUNICACAO-022 1.a) and `not_delivered` is a
+ *   separate outcome, so accepted is `sent`;
+ * - direct: `sent` is every inbox row (1.b) and `not_delivered` the rows FCM refused or with no
+ *   device, so accepted is `sent - not_delivered`, and `null` where that count has no source;
+ * - broadcast: no delivery record at all, `null`.
+ */
+export function pushAccepted(send: Pick<PushReportSend, 'channel' | 'sent' | 'not_delivered'>): number | null {
+  if (send.channel === 'weekly') return send.sent
+  if (send.channel === 'broadcast' || send.not_delivered == null) return null
+  return send.sent - send.not_delivered
+}
+
 export interface PushFunnel {
   sent: number
-  delivered: number | null
+  accepted: number | null
   opened: number | null
   not_delivered: number | null
   /** Sent pushes that have a per person measure: the denominator of the rate. */
   measured_sent: number
   open_rate: number | null
+  influenced_opens: number | null
+  push_off: number | null
+  uninstalled: number | null
   opened_revenue_usd: number | null
 }
 
@@ -241,13 +264,51 @@ export function pushFunnel(sends: readonly PushReportSend[]): PushFunnel {
   const opened = sumMeasured(measured.map((s) => s.opened))
   return {
     sent: sends.reduce((n, s) => n + s.sent, 0),
-    delivered: sumMeasured(measured.map((s) => s.delivered)),
+    accepted: sumMeasured(sends.map(pushAccepted)),
     opened,
     not_delivered: sumMeasured(sends.map((s) => s.not_delivered)),
     measured_sent: measuredSent,
     open_rate: measuredSent > 0 && opened != null ? opened / measuredSent : null,
+    influenced_opens: sumMeasured(sends.map((s) => s.influenced_opens)),
+    push_off: sumMeasured(sends.map((s) => s.base_cost.push_off)),
+    uninstalled: sumMeasured(sends.map((s) => s.base_cost.uninstalled)),
     opened_revenue_usd: sumMeasured(measured.map((s) => s.revenue.opened_revenue_usd)),
   }
+}
+
+export interface PushWeek extends PushFunnel {
+  /** The Monday of the week, `YYYY-MM-DD`. */
+  week_start: string
+}
+
+/**
+ * The Monday of a send day. `send.day` is already a calendar day in the report zone
+ * (`REPORT_UTC_OFFSET`), so the week runs Monday to Sunday in Sao Paulo with plain date math.
+ */
+export function weekStartOf(day: string): string {
+  const date = new Date(`${day}T00:00:00Z`)
+  date.setUTCDate(date.getUTCDate() - ((date.getUTCDay() + 6) % 7))
+  return date.toISOString().slice(0, 10)
+}
+
+/** One row per week of the sends on screen, newest first, with the same sums as the tiles. */
+export function pushWeeks(sends: readonly PushReportSend[]): PushWeek[] {
+  const byWeek = new Map<string, PushReportSend[]>()
+  for (const send of sends) {
+    const week = weekStartOf(send.day)
+    byWeek.set(week, [...(byWeek.get(week) ?? []), send])
+  }
+  return [...byWeek.entries()]
+    .sort(([a], [b]) => b.localeCompare(a))
+    .map(([week_start, group]) => ({ week_start, ...pushFunnel(group) }))
+}
+
+/** "< 1 min", "12 min", "3 h 05 min": the median time to open of a send. */
+export function formatMinutesToOpen(minutes: number): string {
+  if (minutes < 1) return '< 1 min'
+  const total = Math.round(minutes)
+  if (total < 60) return `${total} min`
+  return `${Math.floor(total / 60)} h ${String(total % 60).padStart(2, '0')} min`
 }
 
 /** The type chips: one per `data.type` with sends in the period, by number of sends. */

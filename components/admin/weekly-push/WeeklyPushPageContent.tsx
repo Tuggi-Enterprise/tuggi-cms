@@ -31,6 +31,7 @@ import { CHART_COLORS } from '@/lib/constants/chart-colors'
 import { UNKNOWN_VALUE } from '@/lib/format/unknown'
 import {
   presetRange,
+  pushAccepted,
   type PushReport,
   type WeeklyPushEngagement,
   type WeeklyPushEngagementSend,
@@ -482,9 +483,9 @@ function AudienceTile({ audience, locale }: { audience: Load<number | null>; loc
 }
 
 /**
- * The summary of the last weeks (#1051, spec 2.3): sent, received, opened and the rate, the two
- * pieces together. Received is a floor (no confirmation from an iPhone with the app closed), and
- * the hint under the title says so next to the number. NULL or a failed read prints "sem dado".
+ * The summary of the last weeks (#1051, spec 2.3): sent, accepted, opened and the rate, the two
+ * pieces together. Accepted is what Firebase took for delivery (#1070, `pushAccepted`); on the
+ * weekly push that is the sent count itself. NULL or a failed read prints "sem dado".
  */
 function EngagementSummary({
   engagement,
@@ -503,7 +504,7 @@ function EngagementSummary({
   const noData = useTranslations('Pages.Dashboard.push')('no_data')
   const cards = [
     { key: 'sent', icon: Send, color: CHART_COLORS.blue, label: t('results.sent'), title: t('results.sent_hint'), value: show(summary?.sent, integer.format) },
-    { key: 'delivered', icon: CheckCheck, color: CHART_COLORS.green, label: t('results.delivered'), title: t('results.delivered_hint'), value: show(summary?.delivered, integer.format) },
+    { key: 'accepted', icon: CheckCheck, color: CHART_COLORS.green, label: t('results.accepted'), title: t('results.accepted_hint'), value: show(summary ? pushAccepted({ channel: 'weekly', sent: summary.sent, not_delivered: null }) : null, integer.format) },
     { key: 'opened', icon: MailOpen, color: CHART_COLORS.purple, label: t('results.opened'), title: t('results.opened_hint'), value: show(summary?.opened, integer.format) },
     { key: 'rate', icon: Percent, color: CHART_COLORS.orange, label: t('results.summary.open_rate'), title: t('results.summary.open_rate_hint'), value: show(summary?.open_rate, percent.format) },
   ]
@@ -567,11 +568,12 @@ function ResultsTable({
   }
   const count = (n: number) => <span className={n === 0 ? DIM : undefined}>{n}</span>
   const engagementOf = new Map((engagement ?? []).map((e) => [`${e.piece}:${e.local_date}`, e]))
-  /** Received and opened: NULL, a failed read or a send the engagement does not know is "sem dado". */
-  const measured = (send: WeeklyPushSend, field: 'delivered' | 'opened') => {
-    // A send with nothing sent has no engagement row and nothing to receive: that zero is measured.
+  /** Accepted and opened: NULL, a failed read or a send the engagement does not know is "sem dado". */
+  const measured = (send: WeeklyPushSend, field: 'accepted' | 'opened') => {
+    // A send with nothing sent has no engagement row and nothing to accept: that zero is measured.
     const row = engagementOf.get(`${send.piece}:${send.local_date}`)
-    const n = engagement === null ? null : row ? row[field] : send.sent === 0 ? 0 : null
+    const value = (r: WeeklyPushEngagementSend) => (field === 'accepted' ? pushAccepted({ channel: 'weekly', ...r }) : r.opened)
+    const n = engagement === null ? null : row ? value(row) : send.sent === 0 ? 0 : null
     return n == null ? <span className={DIM} title={noData}>{UNKNOWN_VALUE}</span> : count(n)
   }
 
@@ -586,7 +588,7 @@ function ResultsTable({
               <th scope="col" className={HEAD_SOLO}>{t('results.piece')}</th>
               <th scope="col" className={HEAD_SOLO_NUM} title={t('results.picked_hint')}>{t('results.picked')}</th>
               <th scope="col" className={HEAD_SOLO_NUM} title={t('results.sent_hint')}>{t('results.sent')}</th>
-              <th scope="col" className={HEAD_SOLO_NUM} title={t('results.delivered_hint')}>{t('results.delivered')}</th>
+              <th scope="col" className={HEAD_SOLO_NUM} title={t('results.accepted_hint')}>{t('results.accepted')}</th>
               <th scope="col" className={HEAD_SOLO_NUM} title={t('results.opened_hint')}>{t('results.opened')}</th>
               <th scope="col" className={HEAD_SOLO_NUM} title={t('results.denied_hint')}>{t('results.denied')}</th>
               <th scope="col" className={HEAD_SOLO_NUM} title={t('results.in_progress_hint')}>{t('results.in_progress')}</th>
@@ -620,7 +622,7 @@ function ResultsTable({
                   <td className={`${CELL} whitespace-nowrap`}>{pieceLabel(send.piece)}</td>
                   <td className={`${NUM} font-semibold`}>{count(send.picked)}</td>
                   <td className={NUM}>{count(send.sent)}</td>
-                  <td className={NUM}>{measured(send, 'delivered')}</td>
+                  <td className={NUM}>{measured(send, 'accepted')}</td>
                   <td className={NUM}>{measured(send, 'opened')}</td>
                   <td className={NUM}>{count(send.denied)}</td>
                   <td className={NUM}>{count(send.claimed)}</td>
