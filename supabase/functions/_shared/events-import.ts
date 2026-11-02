@@ -26,7 +26,21 @@ export const PAGE_SIZE = 100;
 export const MAX_PAGES = 50;
 export const MAX_IMAGE_BYTES = 10 * 1024 * 1024;
 export const ALLOWED_IMAGE_TYPES = ['image/webp', 'image/jpeg', 'image/png'];
+/** The list and the card. */
 export const FETCH_TIMEOUT_MS = 20_000;
+/** The image, body included: a slow poster must not hold the event. */
+export const IMAGE_FETCH_TIMEOUT_MS = 8_000;
+/**
+ * No item starts after this much of a link: the platform answers the caller at 150 s and kills the
+ * worker, and the items in flight still need their card, image, upload and RPC.
+ */
+export const RUN_BUDGET_MS = 100_000;
+/** Items processed at the same time. */
+export const CONCURRENCY = 4;
+/** A run is at most this many links (calls of the function), the first included. */
+export const MAX_CHAIN_LINKS = 6;
+/** The per-item timings kept in `last_run_summary`, the latest ones, so the jsonb does not grow. */
+export const MAX_TIMINGS = 30;
 export const BROWSER_USER_AGENT =
   'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0 Safari/537.36';
 
@@ -96,21 +110,51 @@ export interface RunError {
   message: string;
 }
 
+/** Milliseconds of each step of one item; `image_error` when the poster was not copied. */
+export interface ItemTiming {
+  external_id: string;
+  card_ms: number;
+  image_ms: number;
+  upload_ms: number;
+  rpc_ms: number;
+  image_error?: string;
+}
+
 export interface RunSummary {
+  /** The link of the run this summary is from (1 = the cron or the manual call). */
+  chain: number;
+  run_started_at: string;
   read: number;
+  /** Items an earlier link of this run already upserted (`last_seen_at` after `run_started_at`). */
+  already_seen: number;
+  /** Items left for the next link because the time budget ran out. */
+  pending: number;
   created: number;
   updated: number;
   unchanged: number;
   linked: number;
   skipped_deleted: number;
   errors: RunError[];
+  /** `<external_id>:<step>` of the items being processed when the summary was written. */
+  in_flight: string[];
+  timings: ItemTiming[];
 }
 
 export type RunStatus = 'ok' | 'partial' | 'error';
 
+/** What `core.event_source_items` knows of one item of a source. */
+export interface KnownItem {
+  external_id: string;
+  source_hash: string;
+  last_seen_at: string;
+}
+
 export interface ImportStore {
   activeSources(): Promise<EventSource[]>;
+  knownItems(sourceId: string): Promise<KnownItem[]>;
   upsertEvent(sourceId: string, externalId: string, payload: EventPayload): Promise<unknown>;
+  /** `last_run_status 'running'` and the summary so far: the trail when the platform kills the worker. */
+  saveProgress(sourceId: string, summary: RunSummary): Promise<void>;
   finishSource(sourceId: string, status: RunStatus, summary: RunSummary): Promise<void>;
   /** Uploads with upsert and answers the public URL. */
   uploadImage(path: string, bytes: Uint8Array, contentType: string): Promise<string>;
@@ -122,6 +166,14 @@ export interface ImportDeps {
   store: ImportStore;
   fetch: Fetch;
   log: (line: string) => void;
+  /** The clock of the time budget; `Date.now` when absent. */
+  now?: () => number;
+}
+
+/** Which link of a run this call is. */
+export interface RunLink {
+  chain: number;
+  run_started_at: string;
 }
 
 export interface SourceReport {
@@ -287,10 +339,10 @@ export interface ListItem {
 
 type Card = Record<string, unknown>;
 
-function sourceFetch(deps: ImportDeps, url: string): Promise<Response> {
+function sourceFetch(deps: ImportDeps, url: string, timeoutMs = FETCH_TIMEOUT_MS): Promise<Response> {
   return deps.fetch(url, {
     headers: { 'User-Agent': BROWSER_USER_AGENT, Accept: 'application/json, image/*' },
-    signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
+    signal: AbortSignal.timeout(timeoutMs),
   });
 }
 
@@ -340,6 +392,16 @@ export async function sourceHash(card: Card): Promise<string> {
   return Array.from(new Uint8Array(digest), (b) => b.toString(16).padStart(2, '0')).join('');
 }
 
+/**
+ * The `source_hash` sent to the RPC: the card's, plus whether the poster was copied. An event that
+ * came in without its poster differs from the same card with it, so the next run updates it.
+ */
+export function payloadHash(cardHash: string, posterCopied: boolean): string {
+  return `${cardHash}|${posterCopied ? 'img' : 'noimg'}`;
+}
+
+const POSTER_COPIED = '|img';
+
 const str = (v: unknown): string | null => (typeof v === 'string' && v.trim() ? v.trim() : null);
 const num = (v: unknown): number | null => {
   const n = typeof v === 'string' ? Number(v) : v;
@@ -363,10 +425,15 @@ async function copyImage(
   source: EventSource,
   externalId: string,
   imageId: string,
+  timing: ItemTiming,
+  onStep: (step: 'upload') => void,
 ): Promise<string> {
+  const now = deps.now ?? Date.now;
+  const started = now();
   const res = await sourceFetch(
     deps,
     `${trimBase(source.base_url)}/api/csp/midia?id=${encodeURIComponent(imageId)}&v=grande`,
+    IMAGE_FETCH_TIMEOUT_MS,
   );
   if (!res.ok) {
     await res.body?.cancel();
@@ -385,33 +452,48 @@ async function copyImage(
     await res.body?.cancel();
     throw new Error('image_too_large');
   }
+  // The timeout signal also covers the body: a poster that trickles in is cut at the same mark.
   const bytes = new Uint8Array(await res.arrayBuffer());
+  timing.image_ms = now() - started;
   if (bytes.length === 0) throw new Error('image_empty');
   if (bytes.length > MAX_IMAGE_BYTES) throw new Error('image_too_large');
-  return await deps.store.uploadImage(imagePath(source.id, externalId, imageId, contentType), bytes, contentType);
+  onStep('upload');
+  const uploadStarted = now();
+  const url = await deps.store.uploadImage(imagePath(source.id, externalId, imageId, contentType), bytes, contentType);
+  timing.upload_ms = now() - uploadStarted;
+  return url;
 }
 
-/** One list item to the payload of `core.import_event_upsert`. Image failures land in `errors`. */
+/** One list item to the payload of `core.import_event_upsert`, and the image failure if there was one. */
 export async function buildPayload(
   deps: ImportDeps,
   source: EventSource,
   item: ListItem,
-  errors: RunError[],
-): Promise<EventPayload> {
+  timing: ItemTiming,
+  onStep: (step: 'image' | 'upload') => void = () => {},
+): Promise<{ payload: EventPayload; imageError: string | null }> {
+  const now = deps.now ?? Date.now;
   const externalId = String(item.id);
+  const cardStarted = now();
   const card = await readCard(deps, source.base_url, item.slug);
+  timing.card_ms = now() - cardStarted;
   const dates = eventDates(card.agenda, item, source.timezone);
   const images = Array.isArray(card.imagens) ? (card.imagens as Record<string, unknown>[]) : [];
   const first = images[0];
   let posterUrl: string | null = null;
   let credit: string | null = null;
+  let imageError: string | null = null;
   if (first && first.id !== undefined && first.id !== null && first.disponivel !== false) {
+    const imageStarted = now();
     try {
-      posterUrl = await copyImage(deps, source, externalId, String(first.id));
+      onStep('image');
+      posterUrl = await copyImage(deps, source, externalId, String(first.id), timing, onStep);
       // BR-EVENTO-009, edge case: an image without a credit is credited to the source.
       credit = str(first.alt) ?? SPTUR_CREDIT;
     } catch (error) {
-      errors.push({ external_id: externalId, message: `image: ${messageOf(error)}` });
+      if (!timing.image_ms) timing.image_ms = now() - imageStarted;
+      imageError = messageOf(error);
+      timing.image_error = imageError;
     }
   }
   const categoria = card.categoria as { slug?: unknown } | undefined;
@@ -420,7 +502,7 @@ export async function buildPayload(
     : [];
   const name = str(card.titulo) ?? str(item.titulo);
   if (!name) throw new Error('missing_title');
-  return {
+  const payload: EventPayload = {
     name,
     description: buildDescription(card.descricao_html),
     ...dates,
@@ -433,8 +515,9 @@ export async function buildPayload(
     poster_url: posterUrl,
     image_credit: credit,
     source_url: `${trimBase(source.base_url)}/events/${encodeURIComponent(item.slug)}/`,
-    source_hash: await sourceHash(card),
+    source_hash: payloadHash(await sourceHash(card), posterUrl !== null),
   };
+  return { payload, imageError };
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -445,8 +528,22 @@ export function messageOf(error: unknown): string {
   return raw.slice(0, 300);
 }
 
-export function emptySummary(): RunSummary {
-  return { read: 0, created: 0, updated: 0, unchanged: 0, linked: 0, skipped_deleted: 0, errors: [] };
+export function emptySummary(link: RunLink = { chain: 1, run_started_at: '' }): RunSummary {
+  return {
+    chain: link.chain,
+    run_started_at: link.run_started_at,
+    read: 0,
+    already_seen: 0,
+    pending: 0,
+    created: 0,
+    updated: 0,
+    unchanged: 0,
+    linked: 0,
+    skipped_deleted: 0,
+    errors: [],
+    in_flight: [],
+    timings: [],
+  };
 }
 
 /** What `import_event_upsert` answers: the row, or a one-row array of it. */
@@ -457,11 +554,61 @@ export function readAction(data: unknown): ImportAction {
   throw new Error('rpc_unexpected_answer');
 }
 
+/**
+ * Runs `work` over `items`, `size` at a time, starting an item only while `mayStart()` holds.
+ * Answers how many were started.
+ */
+export async function pool<T>(
+  items: T[],
+  size: number,
+  mayStart: () => boolean,
+  work: (item: T) => Promise<void>,
+): Promise<number> {
+  let next = 0;
+  const worker = async () => {
+    while (next < items.length && mayStart()) await work(items[next++]);
+  };
+  await Promise.all(Array.from({ length: Math.min(size, items.length) }, worker));
+  return next;
+}
+
+/**
+ * Writes the summary as it goes, one write at a time; a write asked while another is in flight is
+ * folded into the next one, which always carries the latest state. `flush` waits for the last.
+ */
+function progressWriter(deps: ImportDeps, source: EventSource, summary: RunSummary) {
+  let writing: Promise<void> | null = null;
+  let dirty = false;
+  const run = async () => {
+    while (dirty) {
+      dirty = false;
+      try {
+        await deps.store.saveProgress(source.id, structuredClone(summary));
+      } catch (error) {
+        deps.log(`[events-import] ${source.id} progress not recorded: ${messageOf(error)}`);
+      }
+    }
+    writing = null;
+  };
+  return {
+    mark() {
+      dirty = true;
+      if (!writing) writing = run();
+    },
+    async flush() {
+      while (writing) await writing;
+    },
+  };
+}
+
 export async function importSource(
   deps: ImportDeps,
   source: EventSource,
+  link: RunLink = { chain: 1, run_started_at: new Date((deps.now ?? Date.now)()).toISOString() },
+  deadline = (deps.now ?? Date.now)() + RUN_BUDGET_MS,
 ): Promise<{ status: RunStatus; summary: RunSummary }> {
-  const summary = emptySummary();
+  const now = deps.now ?? Date.now;
+  const summary = emptySummary(link);
   if (source.adapter !== 'sptur_csp') {
     summary.errors.push({ external_id: null, message: `unknown_adapter:${source.adapter}` });
     return { status: 'error', summary };
@@ -471,31 +618,78 @@ export async function importSource(
     return { status: 'error', summary };
   }
   let items: ListItem[];
+  let known: Map<string, KnownItem>;
   try {
     items = await readList(deps, source.base_url);
   } catch (error) {
     summary.errors.push({ external_id: null, message: `list: ${messageOf(error)}` });
     return { status: 'error', summary };
   }
+  try {
+    known = new Map((await deps.store.knownItems(source.id)).map((k) => [k.external_id, k]));
+  } catch (error) {
+    summary.errors.push({ external_id: null, message: `known_items: ${messageOf(error)}` });
+    return { status: 'error', summary };
+  }
   summary.read = items.length;
-  for (const item of items) {
+  // An earlier link of this run already upserted these: this link starts with the ones it did not.
+  const startedAt = Date.parse(link.run_started_at);
+  const todo = items.filter((item) => {
+    const seen = known.get(String(item.id));
+    return !(seen && Date.parse(seen.last_seen_at) > startedAt);
+  });
+  summary.already_seen = items.length - todo.length;
+
+  const progress = progressWriter(deps, source, summary);
+  const inFlight = new Map<string, string>();
+  const step = (externalId: string, name: string) => {
+    inFlight.set(externalId, name);
+    summary.in_flight = [...inFlight].map(([id, s]) => `${id}:${s}`);
+    progress.mark();
+  };
+
+  const started = await pool(todo, CONCURRENCY, () => now() < deadline, async (item) => {
     const externalId = String(item.id);
+    const timing: ItemTiming = { external_id: externalId, card_ms: 0, image_ms: 0, upload_ms: 0, rpc_ms: 0 };
+    step(externalId, 'card');
     try {
-      const payload = await buildPayload(deps, source, item, summary.errors);
-      const action = readAction(await deps.store.upsertEvent(source.id, externalId, payload));
-      summary[action] += 1;
+      const { payload, imageError } = await buildPayload(deps, source, item, timing, (s) => step(externalId, s));
+      const before = known.get(externalId);
+      if (imageError && before?.source_hash.endsWith(POSTER_COPIED)) {
+        // The RPC writes poster_url as sent, null included: an event that has its poster keeps it,
+        // and keeps the version before this run, until the image copies again.
+        summary.errors.push({ external_id: externalId, message: `image: ${imageError}; stored event kept` });
+      } else {
+        if (imageError) summary.errors.push({ external_id: externalId, message: `image: ${imageError}` });
+        step(externalId, 'rpc');
+        const rpcStarted = now();
+        const answer = await deps.store.upsertEvent(source.id, externalId, payload);
+        timing.rpc_ms = now() - rpcStarted;
+        summary[readAction(answer)] += 1;
+      }
     } catch (error) {
       summary.errors.push({ external_id: externalId, message: messageOf(error) });
+    } finally {
+      inFlight.delete(externalId);
+      summary.in_flight = [...inFlight].map(([id, s]) => `${id}:${s}`);
+      summary.timings.push(timing);
+      if (summary.timings.length > MAX_TIMINGS) summary.timings.shift();
+      progress.mark();
     }
-  }
-  return { status: summary.errors.length ? 'partial' : 'ok', summary };
+  });
+  await progress.flush();
+  summary.pending = todo.length - started;
+  return { status: summary.pending > 0 || summary.errors.length ? 'partial' : 'ok', summary };
 }
 
-export async function runEventsImport(deps: ImportDeps): Promise<SourceReport[]> {
+export async function runEventsImport(deps: ImportDeps, link?: RunLink): Promise<SourceReport[]> {
+  const now = deps.now ?? Date.now;
+  const deadline = now() + RUN_BUDGET_MS;
+  const thisLink = link ?? { chain: 1, run_started_at: new Date(now()).toISOString() };
   const sources = await deps.store.activeSources();
   const reports: SourceReport[] = [];
   for (const source of sources) {
-    const { status, summary } = await importSource(deps, source);
+    const { status, summary } = await importSource(deps, source, thisLink, deadline);
     let recorded = true;
     try {
       await deps.store.finishSource(source.id, status, summary);
@@ -503,9 +697,27 @@ export async function runEventsImport(deps: ImportDeps): Promise<SourceReport[]>
       recorded = false;
       deps.log(`[events-import] ${source.id} last_run not recorded: ${messageOf(error)}`);
     }
-    const { errors, ...counts } = summary;
+    const { errors, timings: _timings, in_flight: _inFlight, ...counts } = summary;
     deps.log(`[events-import] ${source.id} ${status} ${JSON.stringify({ ...counts, errors: errors.length })}`);
     reports.push({ source_id: source.id, name: source.name, status, summary, recorded });
   }
   return reports;
+}
+
+/** The link to call next: when some source ran out of time and the run has links left. */
+export function nextLink(reports: SourceReport[], link: RunLink): RunLink | null {
+  if (!reports.some((r) => r.summary.pending > 0)) return null;
+  if (link.chain >= MAX_CHAIN_LINKS) return null;
+  return { chain: link.chain + 1, run_started_at: link.run_started_at };
+}
+
+/** The body of a chained call, checked: `null` when absent (first link), an error code when malformed. */
+export function readLink(body: unknown, nowMs: number): RunLink | null | 'invalid_chain' {
+  const b = (body ?? {}) as { chain?: unknown; run_started_at?: unknown };
+  if (b.chain === undefined && b.run_started_at === undefined) return null;
+  const chain = b.chain;
+  const startedAt = typeof b.run_started_at === 'string' ? Date.parse(b.run_started_at) : NaN;
+  const valid = typeof chain === 'number' && Number.isInteger(chain) && chain >= 2 && chain <= MAX_CHAIN_LINKS &&
+    Number.isFinite(startedAt) && startedAt <= nowMs && nowMs - startedAt <= MAX_CHAIN_LINKS * 5 * 60_000;
+  return valid ? { chain: chain as number, run_started_at: new Date(startedAt).toISOString() } : 'invalid_chain';
 }

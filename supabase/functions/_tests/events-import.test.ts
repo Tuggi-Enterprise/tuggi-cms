@@ -17,8 +17,15 @@ import {
   IMAGE_BUCKET,
   type ImportDeps,
   type ImportStore,
+  type KnownItem,
   localIso,
   mapCategory,
+  MAX_CHAIN_LINKS,
+  nextLink,
+  payloadHash,
+  pool,
+  readLink,
+  RUN_BUDGET_MS,
   runEventsImport,
   type RunStatus,
   type RunSummary,
@@ -88,19 +95,35 @@ class MemoryStore implements ImportStore {
   sources: EventSource[] = [SPTUR];
   /** external_id -> last payload; the `source_hash` decides updated or unchanged, like the RPC. */
   events = new Map<string, EventPayload>();
+  /** `core.event_source_items`: the hash and when the RPC last saw each item, by `clock`. */
+  items = new Map<string, KnownItem>();
+  clock: () => number = Date.now;
   calls: { externalId: string; payload: EventPayload }[] = [];
+  progress: RunSummary[] = [];
   finished: { sourceId: string; status: RunStatus; summary: RunSummary }[] = [];
   uploads = new Map<string, { bytes: Uint8Array; contentType: string }>();
 
   activeSources() {
     return Promise.resolve(this.sources);
   }
+  knownItems() {
+    return Promise.resolve([...this.items.values()]);
+  }
   upsertEvent(_sourceId: string, externalId: string, payload: EventPayload) {
     this.calls.push({ externalId, payload });
     const before = this.events.get(externalId);
     this.events.set(externalId, payload);
+    this.items.set(externalId, {
+      external_id: externalId,
+      source_hash: payload.source_hash,
+      last_seen_at: new Date(this.clock()).toISOString(),
+    });
     const action = !before ? 'created' : before.source_hash === payload.source_hash ? 'unchanged' : 'updated';
     return Promise.resolve({ attraction_id: `attr-${externalId}`, action });
+  }
+  saveProgress(_sourceId: string, summary: RunSummary) {
+    this.progress.push(summary);
+    return Promise.resolve();
   }
   finishSource(sourceId: string, status: RunStatus, summary: RunSummary) {
     this.finished.push({ sourceId, status, summary });
@@ -225,7 +248,7 @@ Deno.test('#1075 BR-EVENTO-009: the Formula 1 card becomes the exact payload of 
     poster_url: `http://supabase.test/storage/v1/object/public/travel-app-images/${path}`,
     image_credit: 'Crédito: Divulgação',
     source_url: `https://cidadedesaopaulo.com/events/${F1_SLUG}/`,
-    source_hash: await sourceHash(F1),
+    source_hash: payloadHash(await sourceHash(F1), true),
   });
   // BR-EVENTO-009 item 5: the image is ours; the app never reaches the source's server.
   assertEquals(store.uploads.get(path)?.contentType, 'image/webp');
@@ -305,6 +328,154 @@ Deno.test('#1075 BR-EVENTO-009: an image without alt is credited to the source',
 });
 
 // ---------------------------------------------------------------------------------------------
+// Time budget, links and poster retry
+
+/** A clock that only moves when a card is fetched: each card costs `cardMs`. */
+function slowCards(server: Server, cardMs: number) {
+  const clock = { t: Date.parse('2026-11-02T21:51:00Z') };
+  const base = sptur(server);
+  const fetch = (url: string, init?: RequestInit) => {
+    if (url.includes('/api/csp/evento?')) clock.t += cardMs;
+    return base(url, init);
+  };
+  return { clock, fetch };
+}
+
+Deno.test('#1075: at the time budget no item starts; the source closes partial and asks for the next link', async () => {
+  const store = new MemoryStore();
+  const server = newServer();
+  const { clock, fetch } = slowCards(server, 15_000);
+  store.clock = () => clock.t;
+  const runStartedAt = new Date(clock.t).toISOString();
+  const link = { chain: 1, run_started_at: runStartedAt };
+  const [report] = await runEventsImport({ store, fetch, log: () => {}, now: () => clock.t }, link);
+
+  const done = report.summary.created;
+  assert(done > 0 && done < 17, `some items, not all: ${done}`);
+  assertEquals(report.summary.pending, 17 - done);
+  assertEquals([report.status, store.finished.at(-1)?.status], ['partial', 'partial']);
+  // No item started after the budget: the last start is under 100 s, and at most 4 were in flight.
+  assert(done <= Math.ceil(RUN_BUDGET_MS / 15_000) + 4, `${done} started`);
+  // The trail: one running summary per step, the last one with every finished item timed.
+  assert(store.progress.length >= done, 'progress written as it goes');
+  assertEquals(store.progress.at(-1)?.timings.length, done);
+  assert(report.summary.timings.every((t) => t.card_ms >= 15_000), 'the card time is measured');
+  assertEquals(nextLink([report], link), { chain: 2, run_started_at: runStartedAt });
+
+  // Link 2 starts with the items link 1 did not see, and reads no card twice.
+  const cardsBefore = server.urls.filter((u) => u.includes('/api/csp/evento?')).length;
+  const link2 = { chain: 2, run_started_at: runStartedAt };
+  const [second] = await runEventsImport({ store, fetch, log: () => {}, now: () => clock.t }, link2);
+  const cardsAfter = server.urls.filter((u) => u.includes('/api/csp/evento?')).length;
+  assertEquals(second.summary.already_seen, done);
+  assertEquals(second.summary.chain, 2);
+  assertEquals(cardsAfter - cardsBefore, Math.min(17 - done, second.summary.created));
+  assertEquals(store.calls.length, done + second.summary.created);
+  assertEquals(new Set(store.calls.map((c) => c.externalId)).size, store.calls.length);
+
+  // A third link finishes the run; once nothing is pending, no next link.
+  const [third] = await runEventsImport({ store, fetch, log: () => {}, now: () => clock.t }, {
+    chain: 3,
+    run_started_at: runStartedAt,
+  });
+  assertEquals([third.status, third.summary.pending, new Set(store.calls.map((c) => c.externalId)).size], [
+    'ok',
+    0,
+    17,
+  ]);
+  assertEquals(nextLink([third], { chain: 3, run_started_at: runStartedAt }), null);
+});
+
+Deno.test('#1075: a run has at most 6 links, and a chained body is checked', () => {
+  const pending = [{ source_id: 's', name: 'n', status: 'partial' as const, recorded: true, summary: { pending: 3 } }];
+  const at = (chain: number) => nextLink(pending as never, { chain, run_started_at: 'x' });
+  assertEquals(MAX_CHAIN_LINKS, 6);
+  assertEquals(at(5)?.chain, 6);
+  assertEquals(at(6), null);
+
+  const now = Date.parse('2026-11-02T22:00:00Z');
+  assertEquals(readLink({}, now), null);
+  assertEquals(readLink(null, now), null);
+  assertEquals(readLink({ chain: 2, run_started_at: '2026-11-02T21:58:00.000Z' }, now), {
+    chain: 2,
+    run_started_at: '2026-11-02T21:58:00.000Z',
+  });
+  for (
+    const bad of [
+      { chain: 1, run_started_at: '2026-11-02T21:58:00Z' },
+      { chain: 7, run_started_at: '2026-11-02T21:58:00Z' },
+      { chain: 2.5, run_started_at: '2026-11-02T21:58:00Z' },
+      { chain: '2', run_started_at: '2026-11-02T21:58:00Z' },
+      { chain: 2 },
+      { chain: 2, run_started_at: 'yesterday' },
+      { chain: 2, run_started_at: '2026-11-02T23:00:00Z' },
+      { chain: 2, run_started_at: '2026-11-01T21:58:00Z' },
+    ]
+  ) assertEquals([bad, readLink(bad, now)], [bad, 'invalid_chain']);
+});
+
+Deno.test('#1075: four items at a time, never more', async () => {
+  let running = 0;
+  let peak = 0;
+  const done: number[] = [];
+  const started = await pool([...Array(10).keys()], 4, () => true, async (n) => {
+    running += 1;
+    peak = Math.max(peak, running);
+    await new Promise((r) => setTimeout(r, 1));
+    running -= 1;
+    done.push(n);
+  });
+  assertEquals([started, peak, done.length], [10, 4, 10]);
+
+  // The same through a whole run: the cards in flight at once never pass 4.
+  const server = newServer();
+  const base = sptur(server);
+  let cards = 0;
+  let cardPeak = 0;
+  const store = new MemoryStore();
+  await runEventsImport({
+    store,
+    log: () => {},
+    fetch: async (url, init) => {
+      if (!url.includes('/api/csp/evento?')) return base(url, init);
+      cards += 1;
+      cardPeak = Math.max(cardPeak, cards);
+      await new Promise((r) => setTimeout(r, 1));
+      cards -= 1;
+      return base(url, init);
+    },
+  });
+  assertEquals([cardPeak, store.calls.length], [4, 17]);
+});
+
+Deno.test('#1075 BR-EVENTO-009 item 5: an event that came in without its poster is updated when the image copies', async () => {
+  const cardHash = await sourceHash(F1);
+  assert(payloadHash(cardHash, true) !== payloadHash(cardHash, false));
+  assert(payloadHash(cardHash, true).startsWith(cardHash));
+
+  const store = new MemoryStore();
+  const [first] = await runEventsImport(deps(store, { ...newServer(), imageFails: true }));
+  assertEquals([first.summary.created, store.events.get('902')?.poster_url], [17, null]);
+  assertEquals(store.events.get('902')?.source_hash, payloadHash(cardHash, false));
+
+  const [second] = await runEventsImport(deps(store, newServer()));
+  // F1 and Cirque have images; the other cards of the fixture have none and stay unchanged.
+  assertEquals([second.summary.updated, second.summary.unchanged], [2, 15]);
+  assert(store.events.get('902')?.poster_url?.endsWith('/902/2370.webp'), 'the poster arrived');
+
+  // The image fails again: the RPC would write the null poster over it, so the event is not sent.
+  const callsBefore = store.calls.length;
+  const [third] = await runEventsImport(deps(store, { ...newServer(), imageFails: true }));
+  assert(store.events.get('902')?.poster_url?.endsWith('/902/2370.webp'), 'the stored poster stays');
+  assertEquals(store.calls.slice(callsBefore).some((c) => c.externalId === '902'), false);
+  assert(
+    third.summary.errors.some((e) =>
+      e.external_id === '902' && e.message === 'image: image_http_403; stored event kept'
+    ),
+  );
+});
+
+// ---------------------------------------------------------------------------------------------
 // The handler
 
 const handler = await loadHandler('events-import');
@@ -351,9 +522,13 @@ Deno.test('#1075: the handler reads the active sources of core, calls import_eve
     assertEquals(res.status, 200);
     assertEquals([body[0].status, body[0].summary.created, body[0].summary.errors], ['ok', 17, []]);
     assertEquals(scenario.calls.filter((c) => c === 'rpc:import_event_upsert').length, 17);
-    const update = scenario.writes.find((w) => w.table === 'event_sources' && w.op === 'update');
-    const values = update?.values as { last_run_status: string; last_run_summary: { read: number } };
+    const updates = scenario.writes.filter((w) => w.table === 'event_sources' && w.op === 'update');
+    const statuses = updates.map((w) => (w.values as { last_run_status: string }).last_run_status);
+    // The trail while it runs, then the final record, last.
+    assert(statuses.length > 1 && statuses.slice(0, -1).every((s) => s === 'running'), statuses.join());
+    const values = updates.at(-1)?.values as { last_run_status: string; last_run_summary: { read: number } };
     assertEquals([values.last_run_status, values.last_run_summary.read], ['ok', 17]);
+    assert(scenario.calls.includes('from:event_source_items'), 'it reads what earlier links already saw');
     assert(scenario.calls.includes(`storage:${IMAGE_BUCKET}`), 'the image goes to the attraction image bucket');
   } finally {
     globalThis.fetch = realFetch;
@@ -361,4 +536,56 @@ Deno.test('#1075: the handler reads the active sources of core, calls import_eve
     delete scenario.rpcs.import_event_upsert;
     network.reply = () => new Response('{}', { status: 400 });
   }
+});
+
+Deno.test('#1075: out of time, the handler answers 200 and calls its own next link with chain and run_started_at', async () => {
+  const server = newServer();
+  const recorded = sptur(server);
+  const sent: { url: string; body: unknown; auth: string | null }[] = [];
+  const realFetch = globalThis.fetch;
+  const realNow = Date.now;
+  let t = realNow();
+  Date.now = () => (t += 20_000);
+  globalThis.fetch = (input: string | URL | Request, init?: RequestInit) => {
+    const url = input instanceof Request ? input.url : String(input);
+    fetchCalls.push(url);
+    if (url.includes('/functions/v1/')) {
+      sent.push({ url, body: JSON.parse(String(init?.body)), auth: new Headers(init?.headers).get('authorization') });
+      return Promise.resolve(new Response('{}', { status: 202 }));
+    }
+    return recorded(url, init);
+  };
+  scenario.tables.event_sources = (chain: string[]) => (chain.includes('select') ? [SPTUR] : null);
+  scenario.rpcs.import_event_upsert = { data: [{ attraction_id: 'a1', action: 'created' }], error: null };
+  try {
+    const res = await call(MACHINE);
+    const body = await res.json();
+    assertEquals([res.status, body[0].status], [200, 'partial']);
+    assert(body[0].summary.pending > 0, 'items left');
+    await new Promise((r) => setTimeout(r, 0));
+    assertEquals(sent.length, 1);
+    assertEquals(sent[0].url, 'http://supabase.test/functions/v1/events-import');
+    assertEquals(sent[0].auth, MACHINE);
+    const next = sent[0].body as { chain: number; run_started_at: string };
+    assertEquals([next.chain, next.run_started_at], [2, body[0].summary.run_started_at]);
+  } finally {
+    globalThis.fetch = realFetch;
+    Date.now = realNow;
+    delete scenario.tables.event_sources;
+    delete scenario.rpcs.import_event_upsert;
+  }
+});
+
+Deno.test('#1075: a malformed chain body is 400 with nothing touched', async () => {
+  scenario.calls.length = 0;
+  fetchCalls.length = 0;
+  const res = await handler(
+    new Request('http://edge.test/events-import', {
+      method: 'POST',
+      headers: { authorization: MACHINE, 'content-type': 'application/json' },
+      body: JSON.stringify({ chain: 99, run_started_at: new Date().toISOString() }),
+    }),
+  );
+  assertEquals(res.status, 400);
+  assertEquals([scenario.calls, fetchCalls], [[], []]);
 });
