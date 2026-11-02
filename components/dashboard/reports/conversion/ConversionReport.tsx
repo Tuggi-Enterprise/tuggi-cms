@@ -6,18 +6,18 @@ import { useLocale, useTranslations } from 'next-intl'
 
 import { StatCard, StatCardRow } from '@/components/ui/StatCard'
 import { WidgetCard, SectionHeader } from '@/components/dashboard/WidgetCard'
-import { RankRow } from '@/components/dashboard/reports/acquisition/RankRow'
+import { FunnelBands, type FunnelBand } from '@/components/dashboard/reports/conversion/FunnelBands'
 import { CardError } from '@/components/admin/social/shared'
 import { DIM } from '@/components/ui/dense-table'
 import { CHART_COLORS } from '@/lib/constants/chart-colors'
 import { UNKNOWN_VALUE } from '@/lib/format/unknown'
-import { readFunnel, type ConversionFunnel } from '@/lib/conversion/funnel'
+import { readFunnel, type ConversionFunnel, type FunnelView } from '@/lib/conversion/funnel'
 
 /**
  * The Conversion report (#1068, spec-cms-relatorio-conversao-2026-11). Presentational: the page
  * owns the URL and the query, this owns the screen, so the CT bench mounts it with a fixture.
  *
- * No `recharts` here: the funnel is five `RankRow` on one ruler, painted in CSS.
+ * No `recharts` here: the funnel is `FunnelBands`, five bands on one ruler painted in CSS (#1069).
  */
 export interface ConversionReportProps {
   month: string
@@ -33,17 +33,16 @@ export interface ConversionReportProps {
 const monthLabel = (iso: string, locale: string) =>
   new Date(`${iso}T12:00:00Z`).toLocaleDateString(locale, { month: 'long', year: 'numeric', timeZone: 'UTC' })
 
-/** A `RankRow` worth of height: `py-2.5` + 20px line + `mb-1.5` + 6px bar = 52px. */
-function RowSkeleton() {
-  return (
-    <div className="py-2.5">
-      <div className="h-8 rounded-md bg-gray-100 dark:bg-gray-800 animate-pulse" />
-    </div>
-  )
-}
-
-const SEPARATOR = 'mt-3 pt-3 border-t border-dashed border-gray-200 dark:border-gray-800'
-const ROWS = 'divide-y divide-gray-100 dark:divide-gray-800'
+/**
+ * One colour per step, read by the tile AND the band of the same step so the two never diverge
+ * (spec section 7.2). Installs has no tile and no colour: its band is hollow, another instrument.
+ */
+const STEP_COLORS = {
+  entered: CHART_COLORS.blue,
+  account: CHART_COLORS.purple,
+  used_hours: CHART_COLORS.orange,
+  purchased: CHART_COLORS.green,
+} as const
 
 export function ConversionReport({
   month,
@@ -79,15 +78,11 @@ export function ConversionReport({
     }
   }
 
-  const rateRight = (rate: number | null | undefined) => (
-    <span className={`text-[11px] tabular-nums ${DIM}`}>{rate == null ? UNKNOWN_VALUE : percent.format(rate)}</span>
-  )
-
   const tiles = [
-    { key: 'entered', icon: LogIn, color: CHART_COLORS.blue, ...tile(f?.entered, null, k('entered_sub')) },
-    { key: 'account', icon: UserCheck, color: CHART_COLORS.purple, ...tile(f?.account, view?.rates.account) },
-    { key: 'used_hours', icon: Hourglass, color: CHART_COLORS.orange, ...tile(f?.usedHours, view?.rates.usedHours) },
-    { key: 'purchased', icon: CreditCard, color: CHART_COLORS.green, ...tile(f?.purchased, view?.rates.purchased) },
+    { key: 'entered', icon: LogIn, color: STEP_COLORS.entered, ...tile(f?.entered, null, k('entered_sub')) },
+    { key: 'account', icon: UserCheck, color: STEP_COLORS.account, ...tile(f?.account, view?.rates.account) },
+    { key: 'used_hours', icon: Hourglass, color: STEP_COLORS.used_hours, ...tile(f?.usedHours, view?.rates.usedHours) },
+    { key: 'purchased', icon: CreditCard, color: STEP_COLORS.purchased, ...tile(f?.purchased, view?.rates.purchased) },
   ]
 
   const installsSub = () => {
@@ -96,6 +91,27 @@ export function ConversionReport({
     const split = { ios: integer.format(f.installs.ios ?? 0), android: integer.format(f.installs.android ?? 0) }
     // DS-COMPONENTE-084 item 1: an incomplete register prints the value marked as a floor.
     return view.installs === 'floor' ? k('installs_floor', split) : k('installs_split', split)
+  }
+
+  /** Steps 3 to 5 are each a share of Entered, in any order (BR-USUARIO-037 3.j): no rate between them. */
+  const steps = (fn: ConversionFunnel, v: FunnelView): FunnelBand[] => {
+    const step = (key: keyof typeof STEP_COLORS, value: number, rate: number | null): FunnelBand => ({
+      key,
+      label: k(`steps.${key}`),
+      hint: k(`steps.${key}_hint`),
+      value,
+      display: integer.format(value),
+      // DS-COMPONENTE-084 item 2: entered = 0 prints no rate.
+      note: rate == null ? UNKNOWN_VALUE : key === 'entered' ? percent.format(rate) : k('of_entered', { pct: decimal.format(rate * 100) }),
+      noteShort: rate == null ? UNKNOWN_VALUE : percent.format(rate),
+      fill: STEP_COLORS[key],
+    })
+    return [
+      step('entered', fn.entered, fn.entered > 0 ? 1 : null),
+      step('account', fn.account, v.rates.account),
+      step('used_hours', fn.usedHours, v.rates.usedHours),
+      step('purchased', fn.purchased, v.rates.purchased),
+    ]
   }
 
   return (
@@ -156,44 +172,33 @@ export function ConversionReport({
         {isError ? (
           <CardError onRetry={onRetry} message={k('load_failed')} retryLabel={k('retry')} />
         ) : isLoading || !f || !view ? (
-          <div aria-busy="true" data-testid="conversion-funnel-body">
-            <RowSkeleton />
-            <div className={`${SEPARATOR} ${ROWS}`}>
-              <RowSkeleton />
-              <RowSkeleton />
-              <RowSkeleton />
-              <RowSkeleton />
-            </div>
+          <div data-testid="conversion-funnel-body">
+            <FunnelBands label={k('funnel_title')} loading />
           </div>
         ) : (
           <div data-testid="conversion-funnel-body">
-            {view.installs === 'unknown' ? (
-              <RankRow label={k('steps.installs')} sub={installsSub()} value={0} display={UNKNOWN_VALUE}
-                max={view.max} color={CHART_COLORS.blue} muted />
-            ) : (
-              <RankRow label={k('steps.installs')} sub={installsSub()} value={f.installs.total ?? 0}
-                display={integer.format(f.installs.total ?? 0)} max={view.max} color={CHART_COLORS.blue} />
-            )}
-
-            {/* A different instrument below the line: GA4 counts devices, Entered counts people. */}
-            <div className={`${SEPARATOR} ${ROWS}`}>
-              <RankRow
-                label={k('steps.entered')}
-                sub={view.notEntered == null ? undefined : k('not_entered', { count: integer.format(view.notEntered) })}
-                value={f.entered}
-                display={integer.format(f.entered)}
-                max={view.max}
-                color={CHART_COLORS.blue}
-                right={rateRight(f.entered > 0 ? 1 : null)}
-              />
-              <RankRow label={k('steps.account')} value={f.account} display={integer.format(f.account)}
-                max={view.max} color={CHART_COLORS.blue} right={rateRight(view.rates.account)} />
-              <RankRow label={k('steps.used_hours')} value={f.usedHours} display={integer.format(f.usedHours)}
-                max={view.max} color={CHART_COLORS.blue} right={rateRight(view.rates.usedHours)} />
-              <RankRow label={k('steps.purchased')} value={f.purchased} display={integer.format(f.purchased)}
-                max={view.max} color={CHART_COLORS.blue} right={rateRight(view.rates.purchased)} />
-            </div>
-
+            <FunnelBands
+              label={k('funnel_title')}
+              max={view.max}
+              head={{
+                key: 'installs',
+                label: k('steps.installs'),
+                hint: k('steps.installs_hint'),
+                value: view.installs === 'unknown' ? null : f.installs.total,
+                display: view.installs === 'unknown' ? UNKNOWN_VALUE : integer.format(f.installs.total ?? 0),
+                note: installsSub(),
+                noteShort: installsSub(),
+                fill: 'outline',
+                muted: view.installs === 'unknown',
+              }}
+              // The drop between instruments is a difference on the seam, never a rate (DS-COMPONENTE-084 item 2).
+              seam={
+                view.notEntered == null
+                  ? undefined
+                  : { text: k('not_entered', { count: integer.format(view.notEntered) }), hint: k('not_entered_hint') }
+              }
+              steps={steps(f, view)}
+            />
             {view.installs === 'floor' && <p className={`text-[11px] mt-2 ${DIM}`}>{k('floor_note')}</p>}
           </div>
         )}
