@@ -1,13 +1,14 @@
 /**
- * Accounts and guests on the panel are two counts, never one (#1045, contract `banco-para-cms.md`
- * Part 19). BR-USUARIO-037, edge case on panel counts.
+ * Accounts and guests on the panel (#1045, contract `banco-para-cms.md` Part 19). BR-USUARIO-037,
+ * edge case on panel counts, amended on 2026-11-02 (#1067): the general numbers count everyone who
+ * uses the app, account and guest together, and the RPC is the one that sums them.
  *
  * What breaks in silence here:
  *
- * 1. a guest column read under the wrong name, so the card shows zero guests and nobody notices;
+ * 1. a guest column read under the wrong name, so the users list shows zero guests;
  * 2. the conversion rate dividing by zero on an empty base, or using the wrong denominator;
  * 3. the list sending a kind the RPC refuses (`22023`), which turns the whole list into an error;
- * 4. the dashboard summing guests into the users number.
+ * 4. the dashboard adding guests on top of a total that already has them.
  *
  * Run with: npm run test:api
  */
@@ -52,7 +53,7 @@ test('BR-USUARIO-037: the analytics row maps accounts and guests to separate fie
     guestsConverted: 1,
     guestConversionRate: 17,
   })
-  assert.equal(counts.totalUsers, 660, 'the users number is accounts only, guests are not added to it')
+  assert.equal(counts.totalUsers, 660, 'the users number is total_users as the RPC sends it, nothing added on the client')
 })
 
 test('BR-USUARIO-037: a row from before the guest columns reads zero guests, never NaN', () => {
@@ -90,16 +91,17 @@ test('BR-USUARIO-037: the users page asks for the kind and marks the guest row',
   assert.match(page, /guestConversionRate\(stats\)/)
 })
 
-test('BR-USUARIO-037: the dashboard reads the shared mapping, not its own sum', () => {
+test('BR-USUARIO-037 (#1067): the dashboard shows the RPC total for everyone, with no guest line and no sum of its own', () => {
   const service = source('lib/services/dashboard-service.ts')
   assert.match(service, /\.\.\.userAnalyticsCountsOf\(userAnalytics\)/)
   assert.doesNotMatch(service, /total_users\) \+|\+ Number\(userAnalytics\.total_guests/)
   const dashboard = source('app/[locale]/dashboard/page.tsx')
-  assert.match(dashboard, /labels\.users_detail', \{ guests: stats\.totalGuests, rate: stats\.guestConversionRate \}/)
-  assert.match(dashboard, /labels\.active_30d_detail', \{ guests: stats\.activeGuests30d \}/)
+  assert.match(dashboard, /value=\{stats\.totalUsers\}/)
+  assert.match(dashboard, /value=\{stats\.activeUsers30d\}/)
+  assert.doesNotMatch(dashboard, /stats\.totalGuests|stats\.activeGuests30d|users_detail|active_30d_detail/)
 })
 
-test('BR-USUARIO-037: every new label exists in every locale, and none adds the two counts', () => {
+test('BR-USUARIO-037: every users list label exists in every locale, and the dashboard guest lines are gone', () => {
   for (const locale of LOCALES) {
     const pages = JSON.parse(source(`messages/${locale}.json`)).Pages
     const keys: Array<[Record<string, any>, string]> = [
@@ -107,7 +109,6 @@ test('BR-USUARIO-037: every new label exists in every locale, and none adds the 
       [pages.AppUsers, 'filters.kind'], [pages.AppUsers, 'filters.all_kinds'],
       [pages.AppUsers, 'filters.kind_account'], [pages.AppUsers, 'filters.kind_guest'],
       [pages.AppUsers, 'table.guest_badge'],
-      [pages.Dashboard, 'labels.users_detail'], [pages.Dashboard, 'labels.active_30d_detail'],
     ]
     for (const [tree, key] of keys) {
       const value = lookup(tree, key)
@@ -116,6 +117,18 @@ test('BR-USUARIO-037: every new label exists in every locale, and none adds the 
     }
     for (const kind of USER_KINDS) assert.equal(typeof lookup(pages.AppUsers, `filters.kind_${kind}`), 'string')
     assert.match(pages.AppUsers.stats.guests_detail, /\{rate\}/)
-    assert.match(pages.Dashboard.labels.users_detail, /\{guests\}[^\n]*\n[^\n]*\{rate\}/)
+    assert.equal(lookup(pages.Dashboard, 'labels.users_detail'), undefined, `${locale}: orphan label left behind`)
+    assert.equal(lookup(pages.Dashboard, 'labels.active_30d_detail'), undefined, `${locale}: orphan label left behind`)
+  }
+})
+
+test('BR-USUARIO-037 (#1067): Acquisition names the new people users, not accounts, in every locale', () => {
+  const expected = { en: 'New users', pt: 'Novos usuários', es: 'Nuevos usuarios' } as const
+  for (const locale of LOCALES) {
+    const acquisition = JSON.parse(source(`messages/${locale}.json`)).Pages.Dashboard.reports.acquisition
+    assert.equal(acquisition.stat_total, expected[locale])
+    for (const key of ['subtitle', 'stat_clusters_sub', 'by_day', 'clusters', 'clusters_hint', 'footnote']) {
+      assert.doesNotMatch(acquisition[key], /\b(accounts?|contas?|cuentas?)\b/i, `${locale}: ${key}`)
+    }
   }
 })

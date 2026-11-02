@@ -231,13 +231,13 @@ export default function DashboardPage() {
           <StatCard size="compact" icon={CheckCircle} title={t('labels.approved')} value={stats.approvedPOIs} color={TUGGI_COLORS.green} isLoading={isLoading} />
         </Link>
         <Link href="/dashboard/reports/users">
-          {/* Accounts and guests side by side, never summed (BR-USUARIO-037, #1045). */}
+          {/* The general numbers count everyone who uses the app, account and guest together
+              (BR-USUARIO-037, amendment of 2026-11-02, #1067). The RPC already sums them. */}
           <StatCard
             size="compact"
             icon={Users}
             title={t('labels.users')}
             value={stats.totalUsers}
-            subtitle={t('labels.users_detail', { guests: stats.totalGuests, rate: stats.guestConversionRate })}
             color={TUGGI_COLORS.purple}
             isLoading={isLoading}
           />
@@ -248,7 +248,6 @@ export default function DashboardPage() {
             icon={Zap}
             title={t('labels.active_30d')}
             value={stats.activeUsers30d}
-            subtitle={t('labels.active_30d_detail', { guests: stats.activeGuests30d })}
             color={TUGGI_COLORS.green}
             isLoading={isLoading}
           />

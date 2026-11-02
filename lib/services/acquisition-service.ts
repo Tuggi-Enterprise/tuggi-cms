@@ -1,7 +1,7 @@
 import { getSupabaseClient } from '@/lib/core/supabase-client'
 
 // ============================================================================
-// acquisition-service — de onde vieram as contas novas.
+// acquisition-service — de onde vieram os usuários novos, com conta ou convidado.
 //
 // Lê core.dashboard_acquisition(), que é a única porta de saída de
 // core.profile_origin e core.origin_cluster (ambas com RLS e sem policy).

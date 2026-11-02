@@ -89,7 +89,8 @@ export interface DashboardStats {
   contentCoverage: number
   citiesCovered: number
   
-  // User Analytics. Accounts and guests are two counts, never summed (BR-USUARIO-037, #1045).
+  // User Analytics. total_users and active_users_30d count everyone who uses the app, account and
+  // guest together (BR-USUARIO-037, amendment of 2026-11-02, #1067).
   totalUsers: number
   activeUsers30d: number
   totalGuests: number
