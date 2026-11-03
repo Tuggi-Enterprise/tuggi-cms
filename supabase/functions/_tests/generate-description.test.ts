@@ -19,8 +19,8 @@ import {
 } from './harness.ts';
 
 const handler = await loadHandler('generate-description');
-/** The four filters of the imported-row read: attraction, language, is_original, generated_by_source. */
-const isImportedRead = (chain: string[]) => chain.includes('limit') && chain.filter((m) => m === 'eq').length === 4;
+/** The three filters of the imported-row read: attraction, is_original, generated_by_source (any language, #1088). */
+const isImportedRead = (chain: string[]) => chain.includes('limit') && chain.filter((m) => m === 'eq').length === 3;
 const BODY = { poi_id: '33333333-3333-4333-8333-333333333333', language: 'fr-fr' };
 
 Deno.test('BR-CONTEUDO-003 item 1 (#1021): guest in free gets 403 content_production_not_entitled, nothing paid runs', async () => {
@@ -159,6 +159,7 @@ const EVENT_ID = '44444444-4444-4444-8444-444444444444';
 const SOURCE_TEXT = 'Show gratuito na Praça das Artes, com a Orquestra Sinfônica Municipal.';
 const IMPORTED_ROW = {
   id: 'imported-row',
+  language: 'pt-br',
   gender: 'male',
   // Since #1082 the stored text is the source's alone; the credit is the `source_credit` field (migration 20261103140000).
   description: SOURCE_TEXT,
@@ -170,16 +171,17 @@ const IMPORTED_ROW = {
   updated_at: null,
 };
 
-function importedScenario(importedInTheLanguage: boolean) {
+/** An event whose imported text is IMPORTED_ROW (pt-br); `translation` is the stored row of the asked language. */
+function importedScenario(translation: Record<string, unknown> | null = null) {
   scenario.user = PERMANENT;
   scenario.entitlement = { data: [{ state: 'metered' }], error: null };
   scenario.tables = {
     attractions: { name: 'Concerto na Praça', city: 'São Paulo', state: 'SP', country: 'Brazil', entity_kind: 'event' },
     attraction_descriptions: (chain: string[]) => {
-      if (isImportedRead(chain)) return importedInTheLanguage ? [IMPORTED_ROW] : [];
+      if (isImportedRead(chain)) return [IMPORTED_ROW];
       if (chain.includes('update') && chain.includes('select')) return [{ id: IMPORTED_ROW.id }];
       if (chain.includes('upsert') && chain.includes('single')) return { id: 'translated-row' };
-      if (chain.includes('maybeSingle')) return null;
+      if (chain.includes('maybeSingle')) return translation;
       if (chain.includes('neq')) {
         return [{ description: IMPORTED_ROW.description, facts_pack_json: null, language: 'pt-br', generation_meta: null }];
       }
@@ -196,7 +198,7 @@ function reset() {
 const descriptionWrites = () => scenario.writes.filter((w) => w.table === 'attraction_descriptions');
 
 Deno.test('BR-EVENTO-009 item 4 (#1080, #1081): an old imported row with updated_at null keeps its text, and the TTS reads it whole', async () => {
-  importedScenario(true);
+  importedScenario();
   network.reply = (url) =>
     url.includes('texttospeech.googleapis.com')
       ? new Response(JSON.stringify({ audioContent: btoa('mp3') }), { status: 200 })
@@ -223,7 +225,7 @@ Deno.test('BR-EVENTO-009 item 4 (#1080, #1081): an old imported row with updated
 });
 
 Deno.test('BR-EVENTO-009 item 4 (#1080): the other gender and force in the source language still do not generate a text', async () => {
-  importedScenario(true);
+  importedScenario();
   try {
     const response = await handler(
       request({ poi_id: EVENT_ID, language: 'pt-br', gender: 'female', force: true, generate_audio: false }),
@@ -239,7 +241,7 @@ Deno.test('BR-EVENTO-009 item 4 (#1080): the other gender and force in the sourc
 });
 
 Deno.test('BR-EVENTO-009 item 3 (#1081): a language the source did not write is translated from a text without the credit', async () => {
-  importedScenario(false);
+  importedScenario();
   network.reply = () => geminiText('Concert gratuit sur la Praça das Artes.');
   try {
     const response = await handler(request({ poi_id: EVENT_ID, language: 'fr-fr', generate_audio: false }));
@@ -255,6 +257,118 @@ Deno.test('BR-EVENTO-009 item 3 (#1081): a language the source did not write is 
     const asked = fetchBodies.filter((b): b is string => typeof b === 'string' && b.includes('Orquestra Sinfônica'));
     assert(asked.length >= 1, `the source text was not sent to the translation: ${JSON.stringify(fetchCalls)}`);
     assert(asked.every((b) => !b.includes('Informações') && !b.includes('cidadedesaopaulo.com')), asked.join('\n'));
+  } finally {
+    reset();
+  }
+});
+
+// ---------------------------------------------------------------------------------------------
+// #1088, BR-EVENTO-009 item 4: a translation of an imported event follows the imported text it came from.
+
+const TRANSLATED = 'Concert gratuit sur la Praça des Arts.';
+const UPDATED_TRANSLATION = 'Concert gratuit, nouvelle date, sur la Praça des Arts.';
+
+function storedTranslation(meta: Record<string, unknown> | null, audioUrl: string | null) {
+  return {
+    id: 'translated-row',
+    updated_at: new Date().toISOString(),
+    facts_pack_json: null,
+    description: TRANSLATED,
+    audio_url: audioUrl,
+    generation_meta: meta,
+    name: 'Concert sur la place',
+    verification_status: null,
+  };
+}
+
+/** Gemini answers the translation, Google answers the voice. */
+function paidApis(translation: string) {
+  network.reply = (url) =>
+    url.includes('texttospeech.googleapis.com')
+      ? new Response(JSON.stringify({ audioContent: btoa('mp3') }), { status: 200 })
+      : geminiText(translation);
+}
+
+const textWrite = () =>
+  descriptionWrites().find((w) => w.op === 'upsert' && (w.values as Record<string, unknown>).description !== '[PROCESSING]');
+const trailWrite = () =>
+  descriptionWrites().find((w) => w.op === 'update' && 'generation_meta' in (w.values as Record<string, unknown>));
+/** Gemini calls that translated the description: the ones that carried the imported text (the name has its own call). */
+const askedGemini = () =>
+  fetchCalls.filter((u, i) => u.includes('generativelanguage.googleapis.com') && (fetchBodies[i] ?? '').includes('Orquestra Sinfônica'));
+const askedTts = () => fetchCalls.filter((u) => u.includes('texttospeech.googleapis.com'));
+
+Deno.test('BR-EVENTO-009 item 4 (#1088): the source changed the imported text, so the translation and its voice are redone in the same row', async () => {
+  importedScenario(storedTranslation({ kind: 'translation', source_description_hash: 'hash-of-an-older-text' }, 'https://old.mp3'));
+  paidApis(UPDATED_TRANSLATION);
+  try {
+    const response = await handler(request({ poi_id: EVENT_ID, language: 'fr-fr', gender: 'male' }));
+    const answer = await response.json();
+    assert(response.status === 200, JSON.stringify(answer));
+
+    const written = textWrite();
+    assert(written, `no text was written: ${JSON.stringify(descriptionWrites())}`);
+    const values = written.values as Record<string, unknown>;
+    assertEquals([values.language, values.gender, values.description], ['fr-fr', 'male', UPDATED_TRANSLATION]);
+    assert(String(values.audio_url).includes(`${EVENT_ID}-fr-fr-male.mp3`), `the voice was not redone: ${values.audio_url}`);
+    // The same row is rewritten (upsert on attraction, language, gender), never deleted, and the imported row is untouched.
+    assert(!scenario.calls.some((c) => c === 'delete'), JSON.stringify(scenario.calls));
+    assert(descriptionWrites().every((w) => (w.values as Record<string, unknown>).language !== 'pt-br'));
+
+    // Translated from the imported text, and the trail records which text that was.
+    assert(askedGemini().length === 1, `not translated once from the imported text: ${JSON.stringify(fetchCalls)}`);
+    assert(askedTts().length === 1, JSON.stringify(fetchCalls));
+    const trail = trailWrite();
+    assert(trail, `no trail was written: ${JSON.stringify(descriptionWrites())}`);
+    assertEquals((trail.values as { generation_meta: Record<string, unknown> }).generation_meta.source_description_hash, IMPORTED_ROW.description_hash);
+  } finally {
+    reset();
+  }
+});
+
+Deno.test('BR-EVENTO-009 item 4 (#1088): the imported text did not change, so the translation and its voice are reused and nothing is paid', async () => {
+  importedScenario(storedTranslation({ kind: 'translation', source_description_hash: IMPORTED_ROW.description_hash }, 'https://kept.mp3'));
+  try {
+    const response = await handler(request({ poi_id: EVENT_ID, language: 'fr-fr', gender: 'male' }));
+    const answer = await response.json();
+    assert(response.status === 200, JSON.stringify(answer));
+    assertEquals([answer.data.description, answer.data.audio_url, answer.data.status], [TRANSLATED, 'https://kept.mp3', 'hit']);
+    assertEquals(answer.data.generation_meta, undefined);
+    assertEquals(descriptionWrites(), []);
+    assertEquals(fetchCalls, []);
+  } finally {
+    reset();
+  }
+});
+
+Deno.test('BR-EVENTO-009 item 4 (#1088): a current translation without voice gets only the TTS, and keeps the hash', async () => {
+  importedScenario(storedTranslation({ kind: 'translation', source_description_hash: IMPORTED_ROW.description_hash }, null));
+  paidApis('must not be asked');
+  try {
+    const response = await handler(request({ poi_id: EVENT_ID, language: 'fr-fr', gender: 'male' }));
+    const answer = await response.json();
+    assert(response.status === 200, JSON.stringify(answer));
+    assertEquals((textWrite()?.values as Record<string, unknown>).description, TRANSLATED);
+    assertEquals(askedGemini(), []);
+    assert(askedTts().length === 1, JSON.stringify(fetchCalls));
+    const meta = (trailWrite()?.values as { generation_meta: Record<string, unknown> }).generation_meta;
+    assertEquals([meta.kind, meta.source_description_hash], ['tts_only', IMPORTED_ROW.description_hash]);
+  } finally {
+    reset();
+  }
+});
+
+Deno.test('BR-EVENTO-009 item 4 (#1088): a translation written before the hash existed is translated once more', async () => {
+  importedScenario(storedTranslation({ kind: 'translation', source_language: 'pt-br', grounded: null }, 'https://old.mp3'));
+  paidApis(UPDATED_TRANSLATION);
+  try {
+    const response = await handler(request({ poi_id: EVENT_ID, language: 'fr-fr', gender: 'male', generate_audio: false }));
+    const answer = await response.json();
+    assert(response.status === 200, JSON.stringify(answer));
+    assertEquals((textWrite()?.values as Record<string, unknown>).description, UPDATED_TRANSLATION);
+    assert(askedGemini().length === 1, JSON.stringify(fetchCalls));
+    const meta = (trailWrite()?.values as { generation_meta: Record<string, unknown> }).generation_meta;
+    assertEquals(meta.source_description_hash, IMPORTED_ROW.description_hash);
   } finally {
     reset();
   }

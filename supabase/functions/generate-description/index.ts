@@ -165,6 +165,7 @@ const PARTNER_WITHOUT_INPUT = "partner_place_requires_partner_input";
 /** The row `core.import_event_upsert` writes: the source's text, in the source's language (BR-EVENTO-009 item 3). */
 interface ImportedOriginal {
     id: string;
+    language: string;
     gender: "male" | "female";
     description: string;
     description_hash: string;
@@ -176,22 +177,35 @@ interface ImportedOriginal {
 }
 
 /**
- * BR-EVENTO-009 item 4: the imported description of this event in this language, whatever gender was asked.
- * The import writes one row only (gender default), so every gender of the source language answers from it.
+ * BR-EVENTO-009 item 4: the imported description of this event, in the language the source wrote it, whatever
+ * language and gender were asked. The import writes one row only (one language, gender default): every gender of
+ * that language answers from it, and every other language is a translation of it (#1088).
  * A read failure throws: falling through to the generation is exactly what would overwrite the copied text.
  */
-async function readImportedOriginal(poiId: string, language: string): Promise<ImportedOriginal | null> {
+async function readImportedOriginal(poiId: string): Promise<ImportedOriginal | null> {
     const { data, error } = await supabaseAdmin.schema("core")
         .from("attraction_descriptions")
-        .select("id, gender, description, description_hash, facts_pack_json, audio_url, name, verification_status, updated_at")
+        .select("id, language, gender, description, description_hash, facts_pack_json, audio_url, name, verification_status, updated_at")
         .eq("attraction_id", poiId)
-        .eq("language", language)
         .eq("is_original", true)
         .eq("generated_by_source", "event_import")
         .neq("description", "[PROCESSING]")
         .limit(1);
     if (error) throw new Error(`imported_original_read_failed: ${error.code ?? "unknown"}`);
     return (data?.[0] as ImportedOriginal | undefined) ?? null;
+}
+
+/**
+ * #1088: a translation of an imported description is current only while the imported text is the one it was
+ * translated from. The translation records `source_description_hash` in `generation_meta`; a translation without
+ * it (written before #1088) counts as outdated and is translated once more, which records the hash. When the
+ * source changes the text, the import rewrites the original row and its hash moves, so every translation of
+ * the old text stops matching and is redone in place (same row, never deleted: `story_feedback` and the trigger
+ * points hang on it).
+ */
+function isTranslationOfCurrentImport(generationMeta: unknown, imported: ImportedOriginal): boolean {
+    const recorded = (generationMeta as { source_description_hash?: unknown } | null)?.source_description_hash;
+    return typeof recorded === "string" && recorded === imported.description_hash;
 }
 
 /**
@@ -352,8 +366,8 @@ async function processPOIItem(
     // 0. BR-EVENTO-009 item 4: the text copied from an official source is never rewritten here, in any
     // gender and with or without `force`. It goes before the lookup below because that one treats the
     // imported row (updated_at old or null, no facts) as stale, and the lock would overwrite it.
-    const imported = await readImportedOriginal(poi_id, language);
-    if (imported) {
+    const imported = await readImportedOriginal(poi_id);
+    if (imported?.language === language) {
         const answer = await answerFromImportedOriginal(imported, poi_id, language, shouldGenerateAudio, LOG_PREFIX);
         mark("imported");
         logTiming(`imported_${answer.status}`);
@@ -402,12 +416,30 @@ async function processPOIItem(
                 // para evento vinculado — venueId é null em todo o resto.
                 const composedWithVenue = !venueId ||
                     isComposedWithVenue(existing.generation_meta, venueId);
-                if (!composedWithVenue) {
+                if (!composedWithVenue && !imported) {
                     console.log(
                         `${LOG_PREFIX} Cache Hit, mas a descrição não foi composta com o anfitrião ${venueId} (BR-EVENTO-002). Regerando uma vez.`,
                     );
                 }
-                if (!force && !isStale && (existing.facts_pack_json?.length > 0) && hasAudio && composedWithVenue) {
+                // #1088: a translation of an imported event has no facts and no venue composition to wait for. Its
+                // freshness is the imported text it came from: the same hash is reused, any other is redone.
+                if (imported) {
+                    const current = isTranslationOfCurrentImport(existing.generation_meta, imported);
+                    if (!current) {
+                        console.log(`${LOG_PREFIX} The source changed the imported text (#1088). Translating again.`);
+                    } else if (!force && hasAudio) {
+                        console.log(`${LOG_PREFIX} Translation of the current imported text (#1088). Returning.`);
+                        const { generation_meta: _trail, ...hit } = existing;
+                        mark("lookup");
+                        logTiming("hit");
+                        return { ...hit, status: "hit" };
+                    } else if (!force) {
+                        cachedForAudioOnly = {
+                            description: existing.description,
+                            facts_pack_json: existing.facts_pack_json,
+                        };
+                    }
+                } else if (!force && !isStale && (existing.facts_pack_json?.length > 0) && hasAudio && composedWithVenue) {
                     console.log(`${LOG_PREFIX} Cache Hit (Fresh). Returning.`);
                     // `generation_meta` é trilha interna e entrou na query só para a
                     // decisão acima: fica fora da resposta, que continua byte a byte
@@ -428,7 +460,7 @@ async function processPOIItem(
                 // empacotar, e inventar um para satisfazer este gate seria mentir na trilha. Com a
                 // exigência aqui, os 19 locais do backfill caíam para a geração fresca e batiam na
                 // guarda `PARTNER_WITHOUT_INPUT`: texto trocado, áudio nenhum, local mudo.
-                if (!force && !isStale && !hasAudio) {
+                if (!imported && !force && !isStale && !hasAudio) {
                     console.log(`${LOG_PREFIX} Cache Hit (Description only, audio_url missing). Proceeding to TTS synthesis.`);
                     // E o texto vai JUNTO, que é o que o comentário sempre prometeu — ver
                     // `cachedForAudioOnly` no topo. Sem isto o passo 3 regera do zero.
@@ -526,14 +558,35 @@ async function processPOIItem(
         if (!force && cachedForAudioOnly) {
             console.log(`${LOG_PREFIX} Reusing the stored ${language} text — TTS only, no LLM call.`);
             result = cachedForAudioOnly;
-            generationMeta = { kind: "tts_only", grounded: null };
+            // #1088: the voice of a translation of an imported event keeps the hash its text was translated from.
+            generationMeta = imported
+                ? { kind: "tts_only", grounded: null, source_description_hash: imported.description_hash }
+                : { kind: "tts_only", grounded: null };
         }
 
         // 3.1 Check existing descriptions for potential translation source
         // We try to find any existing description to translate FROM, 
         // prioritizing pt-br if target is not pt-br, or just taking any available one.
         // SKIP this if 'force' is true (user wants a fresh generation)
-        if (!force && !result) {
+        if (imported && !result) {
+            // #1088, BR-EVENTO-009 items 3 and 4: every other language of an imported event is a translation of the
+            // imported text, and only of it. Another translation would carry its age (a pt-br made before the source
+            // changed), and a fresh generation would narrate what the source did not say; `force` translates again.
+            console.log(`${LOG_PREFIX} Translating the imported ${imported.language} text to ${language}...`);
+            const { text: translated, usage: tUsage } = await translateWithGeminiWithUsage(
+                imported.description,
+                language,
+                GEMINI_API_KEY,
+            );
+            result = { description: translated, facts_pack_json: imported.facts_pack_json };
+            if (tUsage) callUsage = { ...tUsage, kind: "translation" };
+            generationMeta = {
+                kind: "translation",
+                source_language: imported.language,
+                grounded: null,
+                source_description_hash: imported.description_hash,
+            };
+        } else if (!force && !result) {
             const { data: candidates } = await supabaseAdmin.schema("core")
                 .from("attraction_descriptions")
                 .select("description, facts_pack_json, language, generation_meta")
@@ -585,7 +638,7 @@ async function processPOIItem(
                     };
                 }
             }
-        } else {
+        } else if (force) {
             console.log(`${LOG_PREFIX} Force flag detected. Skipping translation and generating fresh.`);
         }
 
