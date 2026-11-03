@@ -255,6 +255,19 @@ export function buildDescription(html: unknown, creditLine: string = SPTUR_CREDI
   return body ? `${body}\n\n${creditLine}` : creditLine;
 }
 
+/**
+ * BR-EVENTO-009, edge case "a linha de crédito é texto exibido, não narração": the text to speak out of a
+ * description built by `buildDescription`. The credit line comes off only when it is the last paragraph, so a
+ * text the curator rewrote is spoken whole. Empty means there is nothing to narrate.
+ */
+export function spokenDescription(description: string, creditLine: string): string {
+  const text = description.trimEnd();
+  const credit = creditLine.trim();
+  if (!credit) return text;
+  if (text === credit) return '';
+  return text.endsWith(`\n${credit}`) ? text.slice(0, -credit.length).trimEnd() : text;
+}
+
 // ---------------------------------------------------------------------------------------------
 // Dates
 

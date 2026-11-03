@@ -48,6 +48,7 @@ import {
     selectTranslationSource,
     venueCompositionMeta,
 } from "../_shared/venueComposition.ts";
+import { spokenDescription } from "../_shared/events-import.ts";
 
 // --- Types ---
 /**
@@ -162,6 +163,105 @@ async function hashDescription(text: string): Promise<string> {
  */
 const PARTNER_WITHOUT_INPUT = "partner_place_requires_partner_input";
 
+/** The row `core.import_event_upsert` writes: the source's text, in the source's language (BR-EVENTO-009 item 3). */
+interface ImportedOriginal {
+    id: string;
+    gender: "male" | "female";
+    description: string;
+    description_hash: string;
+    facts_pack_json: unknown;
+    audio_url: string | null;
+    name: string | null;
+    verification_status: string | null;
+    updated_at: string | null;
+}
+
+/**
+ * BR-EVENTO-009 item 4: the imported description of this event in this language, whatever gender was asked.
+ * The import writes one row only (gender default), so every gender of the source language answers from it.
+ * A read failure throws: falling through to the generation is exactly what would overwrite the copied text.
+ */
+async function readImportedOriginal(poiId: string, language: string): Promise<ImportedOriginal | null> {
+    const { data, error } = await supabaseAdmin.schema("core")
+        .from("attraction_descriptions")
+        .select("id, gender, description, description_hash, facts_pack_json, audio_url, name, verification_status, updated_at")
+        .eq("attraction_id", poiId)
+        .eq("language", language)
+        .eq("is_original", true)
+        .eq("generated_by_source", "event_import")
+        .neq("description", "[PROCESSING]")
+        .limit(1);
+    if (error) throw new Error(`imported_original_read_failed: ${error.code ?? "unknown"}`);
+    return (data?.[0] as ImportedOriginal | undefined) ?? null;
+}
+
+/** The credit line of the source that imported this event (`core.event_sources.credit`), or null. */
+async function readSourceCredit(poiId: string): Promise<string | null> {
+    const { data, error } = await supabaseAdmin.schema("core")
+        .from("event_source_items")
+        .select("event_sources(credit)")
+        .eq("attraction_id", poiId)
+        .limit(1);
+    if (error) throw new Error(`event_source_credit_read_failed: ${error.code ?? "unknown"}`);
+    const source = data?.[0]?.event_sources;
+    const credit = Array.isArray(source) ? source[0]?.credit : source?.credit;
+    return typeof credit === "string" && credit.trim() ? credit : null;
+}
+
+/**
+ * Answers a request about an imported description without writing its text. With audio asked and none stored,
+ * the voice is synthesized from the text without the credit line (BR-EVENTO-009, "não é narração") in the
+ * row's own gender, and only `audio_url` is written, and only if the text is still the one that was spoken.
+ */
+async function answerFromImportedOriginal(
+    row: ImportedOriginal,
+    poiId: string,
+    language: string,
+    shouldGenerateAudio: boolean,
+    logPrefix: string,
+): Promise<Record<string, unknown>> {
+    const { description_hash: _hash, ...visible } = row;
+    if (!shouldGenerateAudio || row.audio_url) {
+        console.log(`${logPrefix} Imported description (BR-EVENTO-009 item 4): kept as is.`);
+        return { ...visible, status: "hit" };
+    }
+    if (!GOOGLE_TTS_API_KEY) {
+        throw new GenerationFailure(GenerationFailureCode.AUDIO_SYNTHESIS_FAILED, "tts_key_missing");
+    }
+    const credit = await readSourceCredit(poiId);
+    // Without the credit we cannot tell it apart from the text, and reading it aloud is what the rule forbids.
+    if (!credit) throw new GenerationFailure(GenerationFailureCode.AUDIO_SYNTHESIS_FAILED, "source_credit_unknown");
+    const spoken = spokenDescription(row.description, credit);
+    if (!spoken) throw new GenerationFailure(GenerationFailureCode.AUDIO_SYNTHESIS_FAILED, "nothing_to_speak");
+
+    const audioBuffer = await generateAudioWithTTS(spoken, language, row.gender, GOOGLE_TTS_API_KEY);
+    const storagePath = `master_audio/${poiId}/${poiId}-${language}-${row.gender}.mp3`;
+    const { error: upErr } = await supabaseAdmin.storage.from("travel-app-audios")
+        .upload(storagePath, audioBuffer, { contentType: "audio/mpeg", upsert: true });
+    if (upErr) {
+        console.error(`${logPrefix} ❌ Upload of ${storagePath} failed: ${upErr.message}`);
+        throw new GenerationFailure(GenerationFailureCode.AUDIO_SYNTHESIS_FAILED, "storage_upload_failed");
+    }
+    const audioUrl = supabaseAdmin.storage.from("travel-app-audios").getPublicUrl(storagePath).data.publicUrl;
+
+    // The hash filter keeps a voice from being paired with a text the import changed meanwhile.
+    const { data: written, error: writeError } = await supabaseAdmin.schema("core")
+        .from("attraction_descriptions")
+        .update({ audio_url: audioUrl })
+        .eq("id", row.id)
+        .eq("description_hash", row.description_hash)
+        .select("id");
+    if (writeError || !written?.length) {
+        throw new GenerationFailure(
+            GenerationFailureCode.DESCRIPTION_WRITE_FAILED,
+            writeError?.code ?? "imported_text_changed",
+        );
+    }
+    await rebuildReadModel(supabaseAdmin, poiId);
+    console.log(`${logPrefix} Imported description (BR-EVENTO-009 item 4): voice added, text untouched.`);
+    return { ...visible, audio_url: audioUrl, status: "generated" };
+}
+
 async function processPOIItem(
     poi_id: string,
     language: string,
@@ -263,6 +363,17 @@ async function processPOIItem(
      * finishReason ruim, cota da API — nenhuma delas deveria custar o conteúdo que estava no ar.
      */
     let rowBeforeLock: Record<string, unknown> | null = null;
+
+    // 0. BR-EVENTO-009 item 4: the text copied from an official source is never rewritten here, in any
+    // gender and with or without `force`. It goes before the lookup below because that one treats the
+    // imported row (updated_at old or null, no facts) as stale, and the lock would overwrite it.
+    const imported = await readImportedOriginal(poi_id, language);
+    if (imported) {
+        const answer = await answerFromImportedOriginal(imported, poi_id, language, shouldGenerateAudio, LOG_PREFIX);
+        mark("imported");
+        logTiming(`imported_${answer.status}`);
+        return answer;
+    }
 
     // 1. Optimistic Locking / Cache Check Loop (Max 15s)
     // We check if content exists. If it's "[PROCESSING]", we wait.

@@ -12,6 +12,9 @@ export { scenario };
 
 export const fetchCalls: string[] = [];
 
+/** The body each `fetch` sent, in the order of `fetchCalls`; what reached a paid API, word for word. */
+export const fetchBodies: (string | null)[] = [];
+
 /** What every `fetch` answers, by URL. Defaults to a 400, so a paid call fails; a test may script it. */
 export const network: { reply: (url: string) => Response } = {
   reply: () => new Response('{}', { status: 400 }),
@@ -26,9 +29,10 @@ const TEST_ENV: Record<string, string> = {
 
 export async function loadHandler(functionDir: string): Promise<Handler> {
   for (const [name, value] of Object.entries(TEST_ENV)) Deno.env.set(name, value);
-  globalThis.fetch = (input: string | URL | Request) => {
+  globalThis.fetch = (input: string | URL | Request, init?: RequestInit) => {
     const url = input instanceof Request ? input.url : String(input);
     fetchCalls.push(url);
+    fetchBodies.push(typeof init?.body === 'string' ? init.body : null);
     return Promise.resolve(network.reply(url));
   };
   const before = capturedHandlers.length;
@@ -60,6 +64,7 @@ export function request(body: unknown): Request {
   scenario.calls.length = 0;
   scenario.writes.length = 0;
   fetchCalls.length = 0;
+  fetchBodies.length = 0;
   ipCounter += 1;
   return new Request('http://edge.test/fn', {
     method: 'POST',

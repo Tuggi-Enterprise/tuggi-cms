@@ -8,6 +8,7 @@
 import { assert, assertEquals } from './assert.ts';
 import {
   callsPastTheGate,
+  fetchBodies,
   fetchCalls,
   GUEST,
   loadHandler,
@@ -18,6 +19,8 @@ import {
 } from './harness.ts';
 
 const handler = await loadHandler('generate-description');
+/** The four filters of the imported-row read: attraction, language, is_original, generated_by_source. */
+const isImportedRead = (chain: string[]) => chain.includes('limit') && chain.filter((m) => m === 'eq').length === 4;
 const BODY = { poi_id: '33333333-3333-4333-8333-333333333333', language: 'fr-fr' };
 
 Deno.test('BR-CONTEUDO-003 item 1 (#1021): guest in free gets 403 content_production_not_entitled, nothing paid runs', async () => {
@@ -111,6 +114,7 @@ Deno.test('#1014: a generation that reaches the write records who asked without 
   scenario.tables = {
     attractions: { name: 'Praia do Forno', city: 'Arraial do Cabo', state: 'RJ', country: 'Brazil' },
     attraction_descriptions: (chain: string[]) => {
+      if (isImportedRead(chain)) return []; // BR-EVENTO-009 item 4: no imported text in fr-fr
       if (chain.includes('upsert') && chain.includes('single')) return { id: 'row-1' };
       if (chain.includes('maybeSingle')) return null;
       if (chain.includes('neq')) {
@@ -145,5 +149,110 @@ Deno.test('#1014: a generation that reaches the write records who asked without 
   } finally {
     scenario.tables = {};
     network.reply = () => new Response('{}', { status: 400 });
+  }
+});
+
+// ---------------------------------------------------------------------------------------------
+// BR-EVENTO-009 item 4 (#1080): the description copied from an official source is not rewritten.
+
+const EVENT_ID = '44444444-4444-4444-8444-444444444444';
+const CREDIT = 'Informações: Cidade de São Paulo (cidadedesaopaulo.com)';
+const SOURCE_TEXT = 'Show gratuito na Praça das Artes, com a Orquestra Sinfônica Municipal.';
+const IMPORTED_ROW = {
+  id: 'imported-row',
+  gender: 'male',
+  description: `${SOURCE_TEXT}\n\n${CREDIT}`,
+  description_hash: 'hash-of-the-source-text',
+  facts_pack_json: null,
+  audio_url: null,
+  name: 'Concerto na Praça',
+  verification_status: null,
+  updated_at: null,
+};
+
+function importedScenario(importedInTheLanguage: boolean) {
+  scenario.user = PERMANENT;
+  scenario.entitlement = { data: [{ state: 'metered' }], error: null };
+  scenario.tables = {
+    attractions: { name: 'Concerto na Praça', city: 'São Paulo', state: 'SP', country: 'Brazil', entity_kind: 'event' },
+    event_source_items: [{ event_sources: { credit: CREDIT } }],
+    attraction_descriptions: (chain: string[]) => {
+      if (isImportedRead(chain)) return importedInTheLanguage ? [IMPORTED_ROW] : [];
+      if (chain.includes('update') && chain.includes('select')) return [{ id: IMPORTED_ROW.id }];
+      if (chain.includes('upsert') && chain.includes('single')) return { id: 'translated-row' };
+      if (chain.includes('maybeSingle')) return null;
+      if (chain.includes('neq')) {
+        return [{ description: IMPORTED_ROW.description, facts_pack_json: null, language: 'pt-br', generation_meta: null }];
+      }
+      return null;
+    },
+  };
+}
+
+function reset() {
+  scenario.tables = {};
+  network.reply = () => new Response('{}', { status: 400 });
+}
+
+const descriptionWrites = () => scenario.writes.filter((w) => w.table === 'attraction_descriptions');
+
+Deno.test('BR-EVENTO-009 item 4 (#1080): an old imported row with updated_at null keeps its text, and the TTS never hears the credit line', async () => {
+  importedScenario(true);
+  network.reply = (url) =>
+    url.includes('texttospeech.googleapis.com')
+      ? new Response(JSON.stringify({ audioContent: btoa('mp3') }), { status: 200 })
+      : new Response('{}', { status: 400 });
+  try {
+    const response = await handler(request({ poi_id: EVENT_ID, language: 'pt-br', gender: 'male' }));
+    const answer = await response.json();
+    assert(response.status === 200, JSON.stringify(answer));
+    assertEquals(answer.data.description, IMPORTED_ROW.description);
+
+    // The only write is the voice: no lock, no upsert, no text, no generated-by stamp.
+    assertEquals(descriptionWrites().map((w) => [w.op, Object.keys(w.values as object)]), [['update', ['audio_url']]]);
+
+    // Only the TTS was paid for, with the source text and without the credit line.
+    assert(fetchCalls.length === 1, JSON.stringify(fetchCalls));
+    assert(fetchCalls[0].includes('texttospeech.googleapis.com'));
+    const ssml = JSON.parse(fetchBodies[0]!).input.ssml as string;
+    assert(ssml.includes('Orquestra Sinfônica Municipal'), ssml);
+    assert(!ssml.includes('Informações'), `the credit line was spoken: ${ssml}`);
+    assert(!ssml.includes('cidadedesaopaulo.com'), `the credit line was spoken: ${ssml}`);
+  } finally {
+    reset();
+  }
+});
+
+Deno.test('BR-EVENTO-009 item 4 (#1080): the other gender and force in the source language still do not generate a text', async () => {
+  importedScenario(true);
+  try {
+    const response = await handler(
+      request({ poi_id: EVENT_ID, language: 'pt-br', gender: 'female', force: true, generate_audio: false }),
+    );
+    const answer = await response.json();
+    assert(response.status === 200, JSON.stringify(answer));
+    assertEquals(answer.data.description, IMPORTED_ROW.description);
+    assertEquals(descriptionWrites(), []);
+    assertEquals(fetchCalls, []);
+  } finally {
+    reset();
+  }
+});
+
+Deno.test('BR-EVENTO-009 item 4 (#1080): a language the source did not write is still generated', async () => {
+  importedScenario(false);
+  network.reply = () => geminiText('Concert gratuit sur la Praça das Artes.');
+  try {
+    const response = await handler(request({ poi_id: EVENT_ID, language: 'fr-fr', generate_audio: false }));
+    const answer = await response.json();
+    assert(response.status === 200, JSON.stringify(answer));
+    const upsert = descriptionWrites().find((w) =>
+      w.op === 'upsert' && (w.values as Record<string, unknown>).description !== '[PROCESSING]'
+    );
+    assert(upsert, `no text was written: ${JSON.stringify(descriptionWrites())}`);
+    assertEquals((upsert.values as Record<string, unknown>).language, 'fr-fr');
+    assertEquals((upsert.values as Record<string, unknown>).description, 'Concert gratuit sur la Praça das Artes.');
+  } finally {
+    reset();
   }
 });
