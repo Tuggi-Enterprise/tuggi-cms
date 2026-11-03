@@ -1,0 +1,22 @@
+[
+ {
+  "id": 24258,
+  "link": "https://destinopoa.com.br/lugar/hard-rock-cafe-porto-alegre/",
+  "title": {
+   "rendered": "Hard Rock Cafe Porto Alegre"
+  },
+  "acf": {
+   "endereco": "Pontal Shopping - Av. Padre Cacique, 2893 - Cristal"
+  }
+ },
+ {
+  "id": 3843,
+  "link": "https://destinopoa.com.br/lugar/estadio-beira-rio-sport-club-internacional/",
+  "title": {
+   "rendered": "Estádio Beira-Rio (Sport Club Internacional)"
+  },
+  "acf": {
+   "endereco": "Av. Padre Cacique, número 891, bairro Praia de Belas, CEP 90810-240"
+  }
+ }
+]

@@ -3,7 +3,8 @@
 // The weekly import of events from official tourism sources (#1075, #1077, BR-EVENTO-009). One source
 // is a row of `core.event_sources`; its `adapter` names the reader: `sptur_csp`, the API behind
 // https://cidadedesaopaulo.com/calendario-de-eventos/ (SPTuris, city of São Paulo), here; the generic
-// `opendatasoft`, `ckan`, `file` and `jsonld`, driven by the row's `config`, in `events-sources.ts`.
+// `opendatasoft`, `ckan`, `file`, `jsonld`, `wp_rest` and `mapas_culturais`, driven by the row's `config`, in
+// `events-sources.ts`.
 //
 // Import-free: the database, the bucket and `fetch` are parameters, so the Deno tests drive it with
 // recorded SPTuris answers and no network. `events-import/index.ts` wires the real clients.
@@ -788,7 +789,7 @@ async function planGeneric(deps: ImportDeps, source: EventSource, summary: RunSu
     summary.read = pages.length;
     return pages.map((key) => ({ key }));
   }
-  const records = await readRecords(source, get);
+  const records = await readRecords(source, get, nowMs);
   summary.read = records.length;
   const items = new Map<string, GenericItem>();
   for (const record of records) {

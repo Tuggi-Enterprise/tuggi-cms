@@ -1,0 +1,118 @@
+[
+ {
+  "name": "Destino POA (Prefeitura de Porto Alegre)",
+  "adapter": "wp_rest",
+  "base_url": "https://destinopoa.com.br",
+  "city": "Porto Alegre",
+  "state": "Rio Grande do Sul",
+  "country": "Brazil",
+  "timezone": "America/Sao_Paulo",
+  "credit": "Informações: Prefeitura de Porto Alegre (destinopoa.com.br)",
+  "config": {
+   "version": 1,
+   "language": "pt-br",
+   "fetch": {
+    "endpoint": "https://destinopoa.com.br/wp-json/wp/v2/evento",
+    "page_size": 100,
+    "embed": ["wp:featuredmedia", "wp:term"],
+    "relations": [
+     {"path": "acf.lugar_cadastrado", "endpoint": "https://destinopoa.com.br/wp-json/wp/v2/lugar", "as": "_lugar"}
+    ]
+   },
+   "fields": {
+    "external_id": "id",
+    "name": "title.rendered",
+    "description": "content.rendered",
+    "starts_at": {"join": ["acf.data_do_evento", "acf.horario_de_inicio"], "sep": " "},
+    "ends_at": {"join": ["acf.data_de_termino", "acf.horario_de_termino"], "sep": " "},
+    "address": [
+     {"join": ["acf.nome_do_local_evento", "acf.endereco_evento"], "sep": ", "},
+     {"join": ["_lugar.title", "_lugar.acf.endereco"], "sep": ", "}
+    ],
+    "image": "_embedded.wp:featuredmedia.0.source_url",
+    "image_credit": "_embedded.wp:featuredmedia.0.alt_text",
+    "url": "link",
+    "is_free": {"path": "acf.entradas_ingressos", "free_values": ["gratuito"]},
+    "category": "_terms.categoria-de-evento"
+   },
+   "category": {
+    "rules": [
+     ["show de musica", "music"],
+     ["concerto", "music"],
+     ["musica", "music"],
+     ["musical", "music"],
+     ["teatro", "theatre"],
+     ["danca", "theatre"],
+     ["comedia", "theatre"],
+     ["exposic", "exhibition"],
+     ["mostra", "exhibition"],
+     ["infantil", "kids"],
+     ["ferias escolares", "kids"],
+     ["palestra", "conference"],
+     ["conferencia", "conference"],
+     ["bate papo", "conference"],
+     ["feira", "fair"],
+     ["mercado", "fair"],
+     ["esportiv", "sports"],
+     ["festa", "festival"],
+     ["natal", "festival"]
+    ],
+    "default": "other"
+   }
+  }
+ },
+ {
+  "name": "Mapa Cultural do Ceará (Secretaria da Cultura do Estado do Ceará)",
+  "adapter": "mapas_culturais",
+  "base_url": "https://mapacultural.secult.ce.gov.br",
+  "city": "Fortaleza",
+  "state": "Ceará",
+  "country": "Brazil",
+  "timezone": "America/Fortaleza",
+  "credit": "Informações: Secretaria da Cultura do Estado do Ceará (secult.ce.gov.br)",
+  "config": {
+   "version": 1,
+   "language": "pt-br",
+   "fetch": {
+    "endpoint": "https://mapacultural.secult.ce.gov.br/api/event/findByLocation",
+    "select": "id,name,shortDescription,singleUrl,terms,occurrences.rule,occurrences.space.name,occurrences.space.endereco,occurrences.space.location,occurrences.space.En_Municipio",
+    "files": "(avatar):url",
+    "days_ahead": 365
+   },
+   "filter": [
+    {"field": "occurrence.space.En_Municipio", "op": "eq", "value": "Fortaleza", "ignore_case": true}
+   ],
+   "fields": {
+    "external_id": "id",
+    "name": "name",
+    "description": "shortDescription",
+    "starts_at": {"join": ["occurrence.rule.startsOn", "occurrence.rule.startsAt"], "sep": " "},
+    "ends_at": {"join": [["occurrence.rule.until", "occurrence.rule.startsOn"], "occurrence.rule.endsAt"], "sep": " "},
+    "lat": "occurrence.space.location.latitude",
+    "lon": "occurrence.space.location.longitude",
+    "address": {"join": ["occurrence.space.name", "occurrence.space.endereco"], "sep": ", "},
+    "image": "@files:avatar.url",
+    "url": "singleUrl",
+    "is_free": {"path": "occurrence.rule.price", "free_values": ["gratuito", "gratuita", "é gratuita.", "grátis", "gratis", "entrada gratuita", "entrada franca", "0"]},
+    "category": "terms.linguagem"
+   },
+   "category": {
+    "rules": [
+     ["musica", "music"],
+     ["hip hop", "music"],
+     ["teatro", "theatre"],
+     ["danca", "theatre"],
+     ["circense", "theatre"],
+     ["performance", "theatre"],
+     ["exposic", "exhibition"],
+     ["artes visuais", "exhibition"],
+     ["contadores de historias", "kids"],
+     ["palestra", "conference"],
+     ["esporte", "sports"],
+     ["feira", "fair"]
+    ],
+    "default": "other"
+   }
+  }
+ }
+]

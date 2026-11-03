@@ -160,6 +160,10 @@ function sources(net: Net) {
     if (u.host === 'donnees.montreal.ca') return Promise.resolve(new Response(text('ckan-montreal.geojson')));
     if (u.host === 'datos.madrid.es') return Promise.resolve(new Response(text('file-madrid.json')));
     if (u.host === 'datosabiertos.malaga.eu') return Promise.resolve(new Response(text('file-malaga.csv')));
+    if (u.host === 'destinopoa.com.br' && u.pathname.startsWith('/wp-json/')) return Promise.resolve(wordpress(u));
+    if (u.host === 'mapacultural.secult.ce.gov.br' && u.pathname === '/api/event/findByLocation') {
+      return Promise.resolve(new Response(text('mapas-culturais-ceara.json')));
+    }
     if (u.host === 'www.donneesquebec.ca') return Promise.resolve(new Response(text('file-quebec.csv')));
     if (url === 'https://www.iamsterdam.com/sitemap/events.xml') {
       return Promise.resolve(new Response(text('jsonld-amsterdam-sitemap.xml')));
@@ -183,6 +187,26 @@ function sources(net: Net) {
     }
     return Promise.resolve(new Response('not found', { status: 404 }));
   };
+}
+
+/**
+ * Destino POA as WordPress answers it (read 2026-11-03): `per_page` and `page` over the recorded posts, the 400
+ * `rest_post_invalid_page_number` past the last page, and `lugar?include=` for the registered places.
+ */
+function wordpress(u: URL): Response {
+  if (u.pathname === '/wp-json/wp/v2/lugar') {
+    const ids = (u.searchParams.get('include') ?? '').split(',');
+    const places = json('wp-rest-destinopoa-lugar.json') as { id: number }[];
+    return Response.json(places.filter((p) => ids.includes(String(p.id))));
+  }
+  if (u.pathname !== '/wp-json/wp/v2/evento') return new Response('not found', { status: 404 });
+  const posts = json('wp-rest-destinopoa.json') as unknown[];
+  const perPage = Number(u.searchParams.get('per_page') ?? 10);
+  const pageNo = Number(u.searchParams.get('page') ?? 1);
+  if ((pageNo - 1) * perPage >= posts.length) {
+    return Response.json({ code: 'rest_post_invalid_page_number', data: { status: 400 } }, { status: 400 });
+  }
+  return Response.json(page(posts, (pageNo - 1) * perPage, perPage));
 }
 
 /** The cache, the quota and the Places API in memory. */
@@ -623,4 +647,109 @@ Deno.test('#1077: source dates, with and without offset, and the CSV of the Qué
 
 Deno.test('#1077: the SPTuris keeps its credit line and sends no language and no is_free', () => {
   assertEquals(SPTUR_CREDIT_LINE, 'Informações: Cidade de São Paulo (cidadedesaopaulo.com)');
+});
+
+// ---------------------------------------------------------------------------------------------
+// #1089: wp_rest (Porto Alegre, Destino POA) and mapas_culturais (Fortaleza, Mapa Cultural do Ceará)
+
+const SEED_1089 = json('sources-1089.json') as Omit<EventSource, 'id'>[];
+const PORTO_ALEGRE: EventSource = { id: '1d000000-0000-4000-8000-000000000016', ...SEED_1089[0] };
+const FORTALEZA: EventSource = { id: '1d000000-0000-4000-8000-000000000017', ...SEED_1089[1] };
+/** 2026-11-03 15:00 UTC, the day the Brazilian fixtures were recorded (noon in both cities). */
+const NOW_1089 = Date.parse('2026-11-03T15:00:00Z');
+
+function setup1089(geo?: Geo) {
+  const store = new Store();
+  store.clock = () => NOW_1089;
+  const net: Net = { urls: [], userAgents: [], pageSize: 2 };
+  const deps: ImportDeps = { store, fetch: sources(net), log: () => {}, now: () => NOW_1089, geocoding: geo };
+  return { store, net, deps };
+}
+
+Deno.test('#1089 BR-EVENTO-009 items 3, 5 and 8: wp_rest (Destino POA) walks the pages, reads ACF, the place relation and the terms', async () => {
+  const geo = new Geo();
+  geo.quota = 10;
+  geo.answer = { lat: -30.0346, lon: -51.2177 };
+  const { store, net, deps } = setup1089(geo);
+  // Pages of 2 over 4 posts: page 3 is the 400 WordPress answers past the end, and it only ends the walk.
+  const source = {
+    ...PORTO_ALEGRE,
+    config: { ...PORTO_ALEGRE.config, fetch: { ...(PORTO_ALEGRE.config!.fetch as object), page_size: 2 } },
+  };
+  const run = await importSource(deps, source, link());
+  assertEquals([run.status, run.summary.read, run.summary.created], ['ok', 4, 3]);
+  assertEquals(run.summary.skipped_reasons, { ended: 1 });
+  const pages = net.urls.filter((u) => u.includes('/wp/v2/evento?'));
+  assertEquals(pages.map((u) => new URL(u).searchParams.get('page')), ['1', '2', '3']);
+  assertEquals(new URL(pages[0]).searchParams.get('_embed'), 'wp:featuredmedia,wp:term');
+  // One request for the places the events point to, by id.
+  const places = net.urls.filter((u) => u.includes('/wp/v2/lugar?'));
+  assertEquals(places.length, 1);
+  assertEquals(new URL(places[0]).searchParams.get('include')!.split(',').sort(), ['24258', '3843']);
+
+  const fair = store.calls.find((c) => c.externalId === '44050')!.payload;
+  assertEquals(fair.name, 'Contação de história e concerto');
+  assertEquals([fair.starts_at, fair.ends_at, fair.all_day], ['2026-11-07T00:00:00-03:00', '2026-11-08T23:59:59-03:00', true]);
+  assertEquals(fair.address, 'Feira do Livro de Porto Alegre, Praca Da Alfandega - Centro Histórico, Porto Alegre - RS');
+  assertEquals([fair.lat, fair.lon], [-30.0346, -51.2177]);
+  assertEquals([fair.language, fair.is_free, fair.event_category], ['pt-br', false, 'music']);
+  assertEquals(fair.source_url, 'https://destinopoa.com.br/evento/contacao-de-historia-e-concerto/');
+  assert(fair.description.startsWith('Aliança Francesa Porto Alegre apresenta'), fair.description.slice(0, 50));
+  assert(!/<[a-z!]/i.test(fair.description), 'no HTML left');
+  // BR-EVENTO-009 item 5: the cover is copied; without credit at the source, the source line.
+  assert(fair.poster_url!.startsWith(`http://supabase.test/storage/v1/object/public/${IMAGE_BUCKET}/events/${source.id}/44050/`));
+  assertEquals(fair.image_credit, 'Informações: Prefeitura de Porto Alegre (destinopoa.com.br)');
+
+  // A registered place (Hard Rock Cafe) gives the address the event did not write.
+  const rock = store.calls.find((c) => c.externalId === '44040')!.payload;
+  assertEquals(rock.name, 'Agenda Novembro – Hard Rock Cafe Porto Alegre');
+  assertEquals(rock.address, 'Hard Rock Cafe Porto Alegre, Pontal Shopping - Av. Padre Cacique, 2893 - Cristal');
+  // The hour of the ACF field, local to Porto Alegre, and the entities of the title as text.
+  const show = store.calls.find((c) => c.externalId === '35034')!.payload;
+  assert(show.name.startsWith('ZECA & ALCIONE & ARAGÃO'), show.name);
+  assertEquals([show.starts_at, show.all_day], ['2026-11-14T20:00:00-03:00', false]);
+});
+
+Deno.test('#1089 BR-EVENTO-009 items 7 and 8: mapas_culturais (Ceará) keeps Fortaleza in any case, one event per id, coordinate of the space', async () => {
+  const { store, net, deps } = setup1089();
+  const run = await importSource(deps, FORTALEZA, link());
+  // 7 events, 9 occurrences: Potengi, a space-less one and a space-less first occurrence out; a second room is a duplicate.
+  assertEquals([run.status, run.summary.read, run.summary.created], ['ok', 9, 5]);
+  assertEquals(run.summary.skipped_reasons, { filtered: 3, duplicate: 1 });
+  const asked = new URL(net.urls[0]);
+  assertEquals(asked.pathname, '/api/event/findByLocation');
+  assertEquals([asked.searchParams.get('@from'), asked.searchParams.get('@to')], ['2026-11-03', '2027-11-03']);
+  assertEquals(asked.searchParams.get('@files'), '(avatar):url');
+  assert(asked.searchParams.get('@select')!.includes('occurrences.space.En_Municipio'));
+
+  const fair = store.calls.find((c) => c.externalId === '21238')!.payload; // "FORTALEZA", upper case
+  assertEquals([fair.starts_at, fair.ends_at, fair.all_day], ['2026-11-08T16:00:00-03:00', '2026-11-08T20:00:00-03:00', false]);
+  // No language term at the source: the default.
+  assertEquals([fair.is_free, fair.event_category], [true, 'other']);
+  assertEquals(fair.source_url, 'https://mapacultural.secult.ce.gov.br/evento/21238/');
+  assert(fair.lat !== null && fair.lon !== null);
+  assert(!fair.address!.includes('undefined') && !fair.address!.includes(', ,'), fair.address!);
+
+  // 00:00 to 00:00 is a day without hours.
+  const dance = store.calls.find((c) => c.externalId === '20998')!.payload;
+  assertEquals([dance.starts_at, dance.ends_at, dance.all_day], ['2026-12-09T00:00:00-03:00', '2026-12-09T23:59:59-03:00', true]);
+  assertEquals([dance.lat, dance.lon], [-3.7269001, -38.5296251]);
+  assertEquals(dance.address, 'Teatro, Rua Senador Pompeu, Centro, Fortaleza, CE, 60025-000');
+  // A weekly class running until December is one event over its whole rule; "É gratuita." is free.
+  const ginga = store.calls.find((c) => c.externalId === '11109')!.payload;
+  assertEquals([ginga.starts_at, ginga.ends_at, ginga.is_free], ['2024-02-20T19:00:00-03:00', '2026-12-17T21:00:00-03:00', true]);
+  assert(ginga.description.startsWith('Projeto Ginga MARABAIANO'));
+  // Only the occurrence in Fortaleza counts when the first one has no city.
+  assert(store.calls.some((c) => c.externalId === '21530'));
+  assert(!store.calls.some((c) => c.externalId === '11654' || c.externalId === '21322'));
+});
+
+Deno.test('#1089: an ACF date YYYYMMDD, with and without hour, is a source date', () => {
+  assertEquals(parseWhen('20261107', 'America/Sao_Paulo'), {
+    day: '2026-11-07',
+    iso: '2026-11-07T00:00:00-03:00',
+    dateOnly: true,
+  });
+  assertEquals(parseWhen('20261114 20:00:00', 'America/Sao_Paulo')?.iso, '2026-11-14T20:00:00-03:00');
+  assertEquals(parseWhen('2026110', 'America/Sao_Paulo'), null);
 });

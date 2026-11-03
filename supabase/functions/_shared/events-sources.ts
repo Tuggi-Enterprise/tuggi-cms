@@ -1,12 +1,12 @@
 // _shared/events-sources.ts
 //
-// The four generic readers of the events import (#1077, BR-EVENTO-009): opendatasoft, ckan, file and
-// jsonld. Each turns one row of `core.event_sources` into records, and every record goes through the
+// The generic readers of the events import (#1077, BR-EVENTO-009): opendatasoft, ckan, file, jsonld,
+// and since #1089 wp_rest (WordPress REST) and mapas_culturais (the Mapas Culturais API). Each turns one row of `core.event_sources` into records, and every record goes through the
 // same field map of `config.fields` (the grammar is COMMENT ON COLUMN core.event_sources.config,
 // migration 20261103120000). Pure apart from the `get` it receives, so the Deno tests drive it with
 // answers recorded from the real sources.
 
-import { htmlToText, localIso, offsetMinutes } from './events-text.ts';
+import { decodeEntities, htmlToText, localIso, offsetMinutes } from './events-text.ts';
 
 /** `EVENT_CATEGORIES` of `components/event-management/EventFormModal.tsx`, what import_event_upsert accepts. */
 export const CMS_CATEGORIES = [
@@ -34,6 +34,8 @@ export interface SourceFilter {
   field: FieldSpec;
   op: 'eq' | 'in' | 'not_in';
   value: unknown;
+  /** Compare lower case: the Mapas Culturais of Ceará writes the same city "Fortaleza" and "FORTALEZA" (#1089). */
+  ignore_case?: boolean;
 }
 
 export interface SourceConfig {
@@ -220,12 +222,14 @@ export interface When {
 
 /**
  * A source date: `YYYY-MM-DD`, with a time (`T` or space, seconds and fraction optional) and an
- * optional offset, or `DD/MM/YYYY` when the CSV says so. Without an offset it is the local time of
- * `timeZone`. Anything else is null.
+ * optional offset, `DD/MM/YYYY` when the CSV says so, or `YYYYMMDD` (the ACF date field of WordPress,
+ * Destino POA, #1089). Without an offset it is the local time of `timeZone`. Anything else is null.
  */
 export function parseWhen(value: unknown, timeZone: string, dateFormat?: string): When | null {
   let text = textOf(clean(value));
   if (text === undefined) return null;
+  const compact = /^(\d{4})(\d{2})(\d{2})(\s.*)?$/.exec(text);
+  if (compact) text = `${compact[1]}-${compact[2]}-${compact[3]}${compact[4] ?? ''}`;
   const dmy = /^(\d{1,2})\/(\d{1,2})\/(\d{4})(.*)$/.exec(text);
   if (dmy && (dateFormat ?? 'DD/MM/YYYY').toUpperCase().startsWith('DD/MM')) {
     text = `${dmy[3]}-${dmy[2].padStart(2, '0')}-${dmy[1].padStart(2, '0')}${dmy[4].replace(/^\s+/, ' ')}`.trim();
@@ -304,9 +308,11 @@ export function linkOf(value: string | null): string | null {
 /** `config.filter`, applied to a record after the fetch: false = the record is not the source's. */
 export function passesFilter(record: Rec, filters: SourceFilter[] | undefined, pageUrl?: string): boolean {
   for (const f of filters ?? []) {
-    const v = textOf(resolveSpec(record, f.field, pageUrl));
-    const list = (Array.isArray(f.value) ? f.value : [f.value]).map((x) => String(x));
-    if (f.op === 'eq' && v !== String(f.value)) return false;
+    const fold = (x: string) => (f.ignore_case ? x.toLowerCase() : x);
+    const raw = textOf(resolveSpec(record, f.field, pageUrl));
+    const v = raw === undefined ? undefined : fold(raw);
+    const list = (Array.isArray(f.value) ? f.value : [f.value]).map((x) => fold(String(x)));
+    if (f.op === 'eq' && v !== fold(String(f.value))) return false;
     if (f.op === 'in' && (v === undefined || !list.includes(v))) return false;
     if (f.op === 'not_in' && v !== undefined && list.includes(v)) return false;
   }
@@ -578,16 +584,150 @@ export function extractEvent(html: string): Rec | null {
   return null;
 }
 
-/** The records of a record-based adapter (opendatasoft, ckan, file). */
-export function readRecords(source: GenericSource, get: GetText): Promise<Rec[]> {
+
+// ---------------------------------------------------------------------------------------------
+// wp_rest (#1089): a WordPress custom post type through /wp-json/wp/v2, fields from ACF
+
+const MAX_WP_INCLUDE = 100;
+
+/**
+ * `_embedded['wp:term']` as `{ <taxonomy>: [names] }`, names as text (WordPress writes `&amp;`), so a
+ * category spec reads `_terms.<taxonomy>` like any other path.
+ */
+function wpTerms(record: Rec): Record<string, string[]> {
+  const groups = getPath(record, '_embedded.wp:term');
+  const out: Record<string, string[]> = {};
+  for (const group of Array.isArray(groups) ? groups : []) {
+    for (const term of Array.isArray(group) ? group as Rec[] : []) {
+      const taxonomy = textOf(term?.taxonomy);
+      const name = textOf(term?.name);
+      if (!taxonomy || !name) continue;
+      (out[taxonomy] ??= []).push(decodeEntities(name).trim());
+    }
+  }
+  return out;
+}
+
+/**
+ * WordPress REST, page by page: `<endpoint>?per_page=<n>&page=<p>&_embed=<embed>`. The walk ends on a
+ * page smaller than asked, or on the 400 WordPress answers past the last page (`rest_post_invalid_page_number`,
+ * read 2026-11-03), which only ends it after page 1. `relations` fetch the posts an ACF relation field points to
+ * (`{path, endpoint, as}`, ids by `include`, 100 a request) and put the first one under `as`, its title as text.
+ */
+export async function readWpRest(cfg: Rec, get: GetText): Promise<Rec[]> {
+  const endpoint = str(cfg.endpoint, 'fetch.endpoint');
+  const perPage = pageSizeOf(cfg.page_size, 100);
+  const embed = Array.isArray(cfg.embed) ? cfg.embed.filter((e): e is string => typeof e === 'string') : [];
+  const out: Rec[] = [];
+  for (let page = 1; page <= MAX_READER_PAGES; page++) {
+    const u = new URL(endpoint);
+    u.searchParams.set('per_page', String(perPage));
+    u.searchParams.set('page', String(page));
+    if (embed.length) u.searchParams.set('_embed', embed.join(','));
+    let body: unknown;
+    try {
+      body = await getJson(get, u.toString());
+    } catch (error) {
+      if (page > 1 && error instanceof Error && error.message.startsWith('http_400 ')) break;
+      throw error;
+    }
+    if (!Array.isArray(body)) throw new Error('wp_rest_malformed');
+    out.push(...(body as Rec[]));
+    if (body.length < perPage) break;
+  }
+  for (const record of out) record._terms = wpTerms(record);
+
+  const relations = Array.isArray(cfg.relations) ? cfg.relations as Rec[] : [];
+  for (const rel of relations) {
+    const path = str(rel.path, 'fetch.relations.path');
+    const alias = str(rel.as, 'fetch.relations.as');
+    const relEndpoint = str(rel.endpoint, 'fetch.relations.endpoint');
+    const idsOf = (record: Rec) =>
+      [getPath(record, path)].flat().map((v) => textOf(v)).filter((v): v is string => !!v && /^\d+$/.test(v));
+    const ids = [...new Set(out.flatMap(idsOf))];
+    const byId = new Map<string, Rec>();
+    for (let i = 0; i < ids.length; i += MAX_WP_INCLUDE) {
+      const u = new URL(relEndpoint);
+      u.searchParams.set('include', ids.slice(i, i + MAX_WP_INCLUDE).join(','));
+      u.searchParams.set('per_page', String(MAX_WP_INCLUDE));
+      const posts = await getJson(get, u.toString());
+      if (!Array.isArray(posts)) throw new Error('wp_rest_malformed');
+      for (const post of posts as Rec[]) {
+        const title = textOf(getPath(post, 'title.rendered'));
+        byId.set(String(post.id), { ...post, title: htmlToText(title ?? '') });
+      }
+    }
+    for (const record of out) {
+      const first = idsOf(record).map((id) => byId.get(id)).find(Boolean);
+      if (first) record[alias] = first;
+    }
+  }
+  return out;
+}
+
+// ---------------------------------------------------------------------------------------------
+// mapas_culturais (#1089): the API of the Mapas Culturais platform (Ceará, Sergipe, Pará...)
+
+const DAY_MS = 24 * 60 * 60 * 1000;
+
+/** "Rua X, , Centro, Fortaleza, undefined, CE, 60025-000": the empty and "undefined" parts out. */
+function cleanAddress(value: unknown): unknown {
+  const text = textOf(value);
+  if (text === undefined) return value;
+  return text.split(',').map((p) => p.trim()).filter((p) => p && p.toLowerCase() !== 'undefined').join(', ');
+}
+
+/**
+ * `<endpoint>?@from=<today>&@to=<today + days_ahead>&@select=<select>&@files=<files>`, one request
+ * (`event/findByLocation`; `eventOccurrence/find` answers 500, read 2026-11-03). One record per occurrence,
+ * `{...event, occurrence}`, in date order: the city filter of item 7 is per occurrence, and with the
+ * external id of the event the first one still on wins (the others are `duplicate`).
+ */
+export async function readMapasCulturais(cfg: Rec, get: GetText, timeZone: string, nowMs: number): Promise<Rec[]> {
+  const endpoint = str(cfg.endpoint, 'fetch.endpoint');
+  const days = typeof cfg.days_ahead === 'number' && cfg.days_ahead > 0 ? Math.min(cfg.days_ahead, 730) : 365;
+  const u = new URL(endpoint);
+  u.searchParams.set('@from', localDay(timeZone, nowMs));
+  u.searchParams.set('@to', localDay(timeZone, nowMs + days * DAY_MS));
+  u.searchParams.set('@select', str(cfg.select, 'fetch.select'));
+  if (typeof cfg.files === 'string' && cfg.files) u.searchParams.set('@files', cfg.files);
+  const body = await getJson(get, u.toString());
+  if (!Array.isArray(body)) throw new Error('mapas_culturais_malformed');
+  const out: Rec[] = [];
+  for (const event of body as Rec[]) {
+    const { occurrences, ...rest } = event ?? {};
+    const list = (Array.isArray(occurrences) ? occurrences as Rec[] : [])
+      .filter((o) => o && typeof o === 'object')
+      .map((o) => {
+        const space = (o.space ?? null) as Rec | null;
+        const rule = (o.rule ?? {}) as Rec;
+        // 00:00 to 00:00 is how the form saves a day without hours (ADECE, 2026-12-09): a whole day, not midnight.
+        const noHours = rule.startsAt === '00:00' && (rule.endsAt === '00:00' || !rule.endsAt);
+        return {
+          ...o,
+          rule: noHours ? { ...rule, startsAt: undefined, endsAt: undefined } : rule,
+          space: space ? { ...space, endereco: cleanAddress(space.endereco) } : space,
+        };
+      });
+    const key = (o: Rec) => `${textOf(getPath(o, 'rule.startsOn')) ?? ''} ${textOf(getPath(o, 'rule.startsAt')) ?? ''}`;
+    list.sort((a, b) => key(a).localeCompare(key(b)));
+    for (const occurrence of list) out.push({ ...rest, occurrence });
+  }
+  return out;
+}
+
+/** The records of a record-based adapter (every generic one but jsonld). */
+export function readRecords(source: GenericSource, get: GetText, nowMs: number = Date.now()): Promise<Rec[]> {
   const cfg = (source.config?.fetch ?? {}) as Rec;
   if (source.adapter === 'opendatasoft') return readOpendatasoft(cfg, get);
   if (source.adapter === 'ckan') return readCkan(cfg, get);
   if (source.adapter === 'file') return readFile(cfg, get);
+  if (source.adapter === 'wp_rest') return readWpRest(cfg, get);
+  if (source.adapter === 'mapas_culturais') return readMapasCulturais(cfg, get, source.timezone, nowMs);
   return Promise.reject(new Error(`unknown_adapter:${source.adapter}`));
 }
 
-export const GENERIC_ADAPTERS = ['opendatasoft', 'ckan', 'file', 'jsonld'];
+export const GENERIC_ADAPTERS = ['opendatasoft', 'ckan', 'file', 'jsonld', 'wp_rest', 'mapas_culturais'];
 
 // ---------------------------------------------------------------------------------------------
 // Geocoding (BR-EVENTO-009 item 8)
