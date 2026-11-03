@@ -48,7 +48,6 @@ import {
     selectTranslationSource,
     venueCompositionMeta,
 } from "../_shared/venueComposition.ts";
-import { spokenDescription } from "../_shared/events-import.ts";
 
 // --- Types ---
 /**
@@ -195,23 +194,12 @@ async function readImportedOriginal(poiId: string, language: string): Promise<Im
     return (data?.[0] as ImportedOriginal | undefined) ?? null;
 }
 
-/** The credit line of the source that imported this event (`core.event_sources.credit`), or null. */
-async function readSourceCredit(poiId: string): Promise<string | null> {
-    const { data, error } = await supabaseAdmin.schema("core")
-        .from("event_source_items")
-        .select("event_sources(credit)")
-        .eq("attraction_id", poiId)
-        .limit(1);
-    if (error) throw new Error(`event_source_credit_read_failed: ${error.code ?? "unknown"}`);
-    const source = data?.[0]?.event_sources;
-    const credit = Array.isArray(source) ? source[0]?.credit : source?.credit;
-    return typeof credit === "string" && credit.trim() ? credit : null;
-}
-
 /**
  * Answers a request about an imported description without writing its text. With audio asked and none stored,
- * the voice is synthesized from the text without the credit line (BR-EVENTO-009, "não é narração") in the
- * row's own gender, and only `audio_url` is written, and only if the text is still the one that was spoken.
+ * the voice is synthesized from the whole text in the row's own gender, and only `audio_url` is written, and only
+ * if the text is still the one that was spoken. The text has no credit line to leave out: since #1082 the credit is
+ * its own field (`source_credit`), and migration 20261103140000 took it off the texts stored before (BR-EVENTO-009,
+ * "não é narração").
  */
 async function answerFromImportedOriginal(
     row: ImportedOriginal,
@@ -228,10 +216,7 @@ async function answerFromImportedOriginal(
     if (!GOOGLE_TTS_API_KEY) {
         throw new GenerationFailure(GenerationFailureCode.AUDIO_SYNTHESIS_FAILED, "tts_key_missing");
     }
-    const credit = await readSourceCredit(poiId);
-    // Without the credit we cannot tell it apart from the text, and reading it aloud is what the rule forbids.
-    if (!credit) throw new GenerationFailure(GenerationFailureCode.AUDIO_SYNTHESIS_FAILED, "source_credit_unknown");
-    const spoken = spokenDescription(row.description, credit);
+    const spoken = row.description.trim();
     if (!spoken) throw new GenerationFailure(GenerationFailureCode.AUDIO_SYNTHESIS_FAILED, "nothing_to_speak");
 
     const audioBuffer = await generateAudioWithTTS(spoken, language, row.gender, GOOGLE_TTS_API_KEY);

@@ -156,12 +156,12 @@ Deno.test('#1014: a generation that reaches the write records who asked without 
 // BR-EVENTO-009 item 4 (#1080): the description copied from an official source is not rewritten.
 
 const EVENT_ID = '44444444-4444-4444-8444-444444444444';
-const CREDIT = 'Informações: Cidade de São Paulo (cidadedesaopaulo.com)';
 const SOURCE_TEXT = 'Show gratuito na Praça das Artes, com a Orquestra Sinfônica Municipal.';
 const IMPORTED_ROW = {
   id: 'imported-row',
   gender: 'male',
-  description: `${SOURCE_TEXT}\n\n${CREDIT}`,
+  // Since #1082 the stored text is the source's alone; the credit is the `source_credit` field (migration 20261103140000).
+  description: SOURCE_TEXT,
   description_hash: 'hash-of-the-source-text',
   facts_pack_json: null,
   audio_url: null,
@@ -175,7 +175,6 @@ function importedScenario(importedInTheLanguage: boolean) {
   scenario.entitlement = { data: [{ state: 'metered' }], error: null };
   scenario.tables = {
     attractions: { name: 'Concerto na Praça', city: 'São Paulo', state: 'SP', country: 'Brazil', entity_kind: 'event' },
-    event_source_items: [{ event_sources: { credit: CREDIT } }],
     attraction_descriptions: (chain: string[]) => {
       if (isImportedRead(chain)) return importedInTheLanguage ? [IMPORTED_ROW] : [];
       if (chain.includes('update') && chain.includes('select')) return [{ id: IMPORTED_ROW.id }];
@@ -196,7 +195,7 @@ function reset() {
 
 const descriptionWrites = () => scenario.writes.filter((w) => w.table === 'attraction_descriptions');
 
-Deno.test('BR-EVENTO-009 item 4 (#1080): an old imported row with updated_at null keeps its text, and the TTS never hears the credit line', async () => {
+Deno.test('BR-EVENTO-009 item 4 (#1080, #1081): an old imported row with updated_at null keeps its text, and the TTS reads it whole', async () => {
   importedScenario(true);
   network.reply = (url) =>
     url.includes('texttospeech.googleapis.com')
@@ -211,11 +210,11 @@ Deno.test('BR-EVENTO-009 item 4 (#1080): an old imported row with updated_at nul
     // The only write is the voice: no lock, no upsert, no text, no generated-by stamp.
     assertEquals(descriptionWrites().map((w) => [w.op, Object.keys(w.values as object)]), [['update', ['audio_url']]]);
 
-    // Only the TTS was paid for, with the source text and without the credit line.
+    // Only the TTS was paid for, with the source text, read without asking for the credit of the source (#1081).
     assert(fetchCalls.length === 1, JSON.stringify(fetchCalls));
     assert(fetchCalls[0].includes('texttospeech.googleapis.com'));
     const ssml = JSON.parse(fetchBodies[0]!).input.ssml as string;
-    assert(ssml.includes('Orquestra Sinfônica Municipal'), ssml);
+    assert(ssml.includes('Show gratuito na Praça das Artes') && ssml.includes('Orquestra Sinfônica Municipal.'), ssml);
     assert(!ssml.includes('Informações'), `the credit line was spoken: ${ssml}`);
     assert(!ssml.includes('cidadedesaopaulo.com'), `the credit line was spoken: ${ssml}`);
   } finally {
@@ -239,7 +238,7 @@ Deno.test('BR-EVENTO-009 item 4 (#1080): the other gender and force in the sourc
   }
 });
 
-Deno.test('BR-EVENTO-009 item 4 (#1080): a language the source did not write is still generated', async () => {
+Deno.test('BR-EVENTO-009 item 3 (#1081): a language the source did not write is translated from a text without the credit', async () => {
   importedScenario(false);
   network.reply = () => geminiText('Concert gratuit sur la Praça das Artes.');
   try {
@@ -252,6 +251,10 @@ Deno.test('BR-EVENTO-009 item 4 (#1080): a language the source did not write is 
     assert(upsert, `no text was written: ${JSON.stringify(descriptionWrites())}`);
     assertEquals((upsert.values as Record<string, unknown>).language, 'fr-fr');
     assertEquals((upsert.values as Record<string, unknown>).description, 'Concert gratuit sur la Praça das Artes.');
+    // The translation started from the stored source text, which carries no credit line to translate.
+    const asked = fetchBodies.filter((b): b is string => typeof b === 'string' && b.includes('Orquestra Sinfônica'));
+    assert(asked.length >= 1, `the source text was not sent to the translation: ${JSON.stringify(fetchCalls)}`);
+    assert(asked.every((b) => !b.includes('Informações') && !b.includes('cidadedesaopaulo.com')), asked.join('\n'));
   } finally {
     reset();
   }
