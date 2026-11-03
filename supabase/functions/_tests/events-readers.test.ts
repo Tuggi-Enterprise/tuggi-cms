@@ -63,6 +63,11 @@ const MADRID = source('Madrid', '1d000000-0000-4000-8000-000000000005');
 const QUEBEC = source('Québec', '1d000000-0000-4000-8000-000000000006');
 const AMSTERDAM = source('Amsterdam', '1d000000-0000-4000-8000-000000000007');
 const WIEN = source('Wien', '1d000000-0000-4000-8000-000000000008');
+/** #1083: the Montréal row read through `datastore_search`, the config the data applies (`sources-1083.json`). */
+const MONTREAL_DATASTORE: EventSource = {
+  id: '1d000000-0000-4000-8000-000000000014',
+  ...(json('sources-1083.json') as Omit<EventSource, 'id'>[])[0],
+};
 
 const JPEG = new Uint8Array([0xff, 0xd8, 0xff, 0xe0, 1, 2, 3, 4]);
 
@@ -123,6 +128,7 @@ function sources(net: Net) {
   const paris = json('ods-paris.json').results as unknown[];
   const lyon = json('ods-lyon.json').results as unknown[];
   const bcn = json('ckan-barcelona.json').result.records as unknown[];
+  const mtl = json('ckan-montreal-datastore.json').result.records as unknown[];
   return (url: string, init?: RequestInit): Promise<Response> => {
     net.urls.push(url);
     net.userAgents.push(new Headers(init?.headers).get('user-agent') ?? '');
@@ -137,6 +143,11 @@ function sources(net: Net) {
     if (u.host === 'opendata-ajuntament.barcelona.cat') {
       return Promise.resolve(
         Response.json({ success: true, result: { total: bcn.length, records: page(bcn, offset, net.pageSize) } }),
+      );
+    }
+    if (u.host === 'donnees.montreal.ca' && u.pathname === '/api/3/action/datastore_search') {
+      return Promise.resolve(
+        Response.json({ success: true, result: { total: mtl.length, records: page(mtl, offset, net.pageSize) } }),
       );
     }
     if (u.host === 'donnees.montreal.ca') return Promise.resolve(new Response(text('ckan-montreal.geojson')));
@@ -288,6 +299,41 @@ Deno.test('#1077 BR-EVENTO-009 item 7: ckan GeoJSON (Montréal) drops the counci
   assertEquals(byName(store, 'Spectacle en rodage')!.is_free, false);
 });
 
+Deno.test('#1083 BR-EVENTO-009 item 7: ckan datastore (Montréal) reads the same events the GeoJSON download gave', async () => {
+  const { store, net, deps } = setup();
+  net.pageSize = 3;
+  const run = await importSource(deps, MONTREAL_DATASTORE, link());
+  // Two pages of the API, not the /download/ path the production run was refused on.
+  assert(net.urls.every((u) => u.startsWith('https://donnees.montreal.ca/api/3/action/datastore_search?')));
+  assertEquals(net.urls.filter((u) => u.includes('datastore_search')).length, 2);
+  assert(net.urls[0].includes('resource_id=6decf611-6f11-4f34-bb36-324d804c9bad') && net.urls[0].includes('sort=_id'));
+  assertEquals(run.summary.read, 4);
+  assertEquals(run.summary.skipped_reasons, { ended: 1, filtered: 1 });
+  assertEquals(run.summary.created, 2);
+  const expo = byName(store, 'Dans l’œil du lièvre')!;
+  assertEquals([expo.is_free, expo.all_day, expo.event_category], [true, true, 'exhibition']);
+  assertEquals([expo.starts_at, expo.ends_at], ['2025-06-25T00:00:00-04:00', '2027-06-25T23:59:59-04:00']);
+  // The datastore writes the coordinate as text; it is the same point.
+  assertEquals([expo.lat, expo.lon], [45.553583493785, -73.539622314344]);
+  assertEquals(expo.address, null);
+  assertEquals(byName(store, 'Spectacle en rodage')!.is_free, false);
+});
+
+Deno.test('#1083: a refused download says which host refused, the portal or the bucket it redirects to', async () => {
+  const { deps } = setup();
+  deps.fetch = () => {
+    const res = new Response('Forbidden', { status: 403 });
+    Object.defineProperty(res, 'url', { value: 'https://montreal-prod.storage.googleapis.com/resources/x.geojson' });
+    return Promise.resolve(res);
+  };
+  const run = await importSource(deps, MONTREAL, link());
+  assertEquals(run.status, 'error');
+  assertEquals(run.summary.errors[0].message, 'list: http_403 montreal-prod.storage.googleapis.com');
+  deps.fetch = () => Promise.resolve(new Response('Forbidden', { status: 403 }));
+  const direct = await importSource(deps, MONTREAL, link());
+  assertEquals(direct.summary.errors[0].message, 'list: http_403 donnees.montreal.ca');
+});
+
 Deno.test('#1077 BR-EVENTO-009 item 8: file JSON (Madrid), free from 1/0; no coordinate and no address stays out', async () => {
   const geo = new Geo();
   const { store, deps } = setup(geo);
@@ -379,7 +425,7 @@ Deno.test('#1077 BR-EVENTO-009: jsonld by sitemap (Amsterdam), the link pattern,
   const run = await importSource(deps, AMSTERDAM, link());
   // 3 EN pages of the sitemap match; the Dutch /uit/ one does not. Two EN pages are not recorded (404).
   assertEquals(run.summary.read, 3);
-  assertEquals(run.summary.errors.filter((e) => e.message === 'http_404').length, 2);
+  assertEquals(run.summary.errors.filter((e) => e.message === 'http_404 www.iamsterdam.com').length, 2);
   assert(net.userAgents.every((ua) => ua === BROWSER_USER_AGENT), 'every call carries the browser User-Agent');
   assert(/Chrome\/\d+\.\d+\.\d+\.\d+ Safari/.test(BROWSER_USER_AGENT));
   const ev = byName(store, 'Midterm Madness')!;

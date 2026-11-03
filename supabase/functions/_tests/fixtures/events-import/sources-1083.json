@@ -1,0 +1,106 @@
+[
+ {
+  "name": "Événements publics (Ville de Montréal)",
+  "adapter": "ckan",
+  "base_url": "https://donnees.montreal.ca",
+  "city": "Montréal",
+  "state": "Québec",
+  "country": "Canada",
+  "timezone": "America/Toronto",
+  "credit": "Informações: Ville de Montréal (montreal.ca)",
+  "config": {
+   "version": 1,
+   "language": "fr-fr",
+   "fetch": {
+    "mode": "datastore",
+    "endpoint": "https://donnees.montreal.ca/api/3/action/datastore_search",
+    "resource_id": "6decf611-6f11-4f34-bb36-324d804c9bad",
+    "sort": "_id",
+    "page_size": 1000
+   },
+   "filter": [
+    {
+     "field": "type_evenement",
+     "op": "not_in",
+     "value": [
+      "Conseil et comité"
+     ]
+    }
+   ],
+   "fields": {
+    "external_id": "url_fiche",
+    "name": "titre",
+    "description": "description",
+    "starts_at": "date_debut",
+    "ends_at": "date_fin",
+    "lat": "lat",
+    "lon": "long",
+    "address": {
+     "join": [
+      "titre_adresse",
+      "adresse_principale",
+      "code_postal"
+     ],
+     "sep": ", "
+    },
+    "url": "url_fiche",
+    "is_free": {
+     "path": "cout",
+     "free_values": [
+      "gratuit"
+     ]
+    },
+    "category": "type_evenement"
+   },
+   "category": {
+    "rules": [
+     [
+      "festival",
+      "festival"
+     ],
+     [
+      "musique",
+      "music"
+     ],
+     [
+      "theatre",
+      "theatre"
+     ],
+     [
+      "danse",
+      "theatre"
+     ],
+     [
+      "exposition",
+      "exhibition"
+     ],
+     [
+      "heure du conte",
+      "kids"
+     ],
+     [
+      "enfant",
+      "kids"
+     ],
+     [
+      "sport",
+      "sports"
+     ],
+     [
+      "conference",
+      "conference"
+     ],
+     [
+      "salon",
+      "fair"
+     ],
+     [
+      "marche",
+      "fair"
+     ]
+    ],
+    "default": "other"
+   }
+  }
+ }
+]

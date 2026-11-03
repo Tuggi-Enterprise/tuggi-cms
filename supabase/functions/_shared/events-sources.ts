@@ -53,7 +53,7 @@ export interface GenericSource {
   config?: SourceConfig | null;
 }
 
-/** Reads a URL and answers its body as text; throws `http_<status>` on an answer that is not ok. */
+/** Reads a URL and answers its body as text; throws `http_<status> <host>` on an answer that is not ok. */
 export type GetText = (url: string) => Promise<string>;
 
 /** No reader walks more pages than this, whatever the source says its total is. */

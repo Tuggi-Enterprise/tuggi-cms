@@ -757,12 +757,24 @@ const skip = (summary: RunSummary, reason: string) => {
   summary.skipped_reasons[reason] = (summary.skipped_reasons[reason] ?? 0) + 1;
 };
 
+const hostOf = (url: string): string => {
+  try {
+    return new URL(url).host;
+  } catch {
+    return 'unknown_host';
+  }
+};
+
 async function sha256Hex(text: string): Promise<string> {
   const digest = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(text));
   return Array.from(new Uint8Array(digest), (b) => b.toString(16).padStart(2, '0')).join('');
 }
 
-/** A text getter with the browser User-Agent; `http_<status>` on an answer that is not ok. */
+/**
+ * A text getter with the browser User-Agent. An answer that is not ok throws `http_<status> <host>`, the host of
+ * the answer after redirects: a CKAN download redirects to a storage bucket, and the summary has to say which of
+ * the two refused (Montréal, #1083).
+ */
 export function textGetter(deps: ImportDeps) {
   return async (url: string): Promise<string> => {
     const res = await deps.fetch(url, {
@@ -775,7 +787,7 @@ export function textGetter(deps: ImportDeps) {
     });
     if (!res.ok) {
       await res.body?.cancel();
-      throw new Error(`http_${res.status}`);
+      throw new Error(`http_${res.status} ${hostOf(res.url || url)}`);
     }
     return await res.text();
   };
