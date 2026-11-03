@@ -35,9 +35,11 @@ import {
   cacheVerdict,
   type GeocodeCacheRow,
   type Geocoding,
+  linkOf,
   mapCategoryByRules,
   parseCsv,
   parseWhen,
+  resolveSpec,
 } from '../_shared/events-sources.ts';
 
 const FIXTURES = new URL('./fixtures/events-import/', import.meta.url);
@@ -63,6 +65,11 @@ const MADRID = source('Madrid', '1d000000-0000-4000-8000-000000000005');
 const QUEBEC = source('Québec', '1d000000-0000-4000-8000-000000000006');
 const AMSTERDAM = source('Amsterdam', '1d000000-0000-4000-8000-000000000007');
 const WIEN = source('Wien', '1d000000-0000-4000-8000-000000000008');
+/** #1084: the Málaga row the data registers (`sources-1084.json`). */
+const MALAGA: EventSource = {
+  id: '1d000000-0000-4000-8000-000000000015',
+  ...(json('sources-1084.json') as Omit<EventSource, 'id'>[])[0],
+};
 /** #1083: the Montréal row read through `datastore_search`, the config the data applies (`sources-1083.json`). */
 const MONTREAL_DATASTORE: EventSource = {
   id: '1d000000-0000-4000-8000-000000000014',
@@ -152,6 +159,7 @@ function sources(net: Net) {
     }
     if (u.host === 'donnees.montreal.ca') return Promise.resolve(new Response(text('ckan-montreal.geojson')));
     if (u.host === 'datos.madrid.es') return Promise.resolve(new Response(text('file-madrid.json')));
+    if (u.host === 'datosabiertos.malaga.eu') return Promise.resolve(new Response(text('file-malaga.csv')));
     if (u.host === 'www.donneesquebec.ca') return Promise.resolve(new Response(text('file-quebec.csv')));
     if (url === 'https://www.iamsterdam.com/sitemap/events.xml') {
       return Promise.resolve(new Response(text('jsonld-amsterdam-sitemap.xml')));
@@ -332,6 +340,55 @@ Deno.test('#1083: a refused download says which host refused, the portal or the 
   deps.fetch = () => Promise.resolve(new Response('Forbidden', { status: 403 }));
   const direct = await importSource(deps, MONTREAL, link());
   assertEquals(direct.summary.errors[0].message, 'list: http_403 donnees.montreal.ca');
+});
+
+Deno.test('#1084 BR-EVENTO-009 items 3, 7 and 8: file CSV (Málaga), a day per date, title without markup, address geocoded', async () => {
+  const geo = new Geo();
+  geo.quota = 10;
+  const { store, deps } = setup(geo);
+  const run = await importSource(deps, MALAGA, link());
+  // 7 rows of the real 2026 file: one ended, one session repeating an activity id.
+  assertEquals(run.summary.read, 7);
+  assertEquals(run.summary.skipped_reasons, { ended: 1, duplicate: 1 });
+  assertEquals(run.summary.created, 5);
+  const fest = byName(store, 'MICKEY MAGIC FEST')!;
+  // The source writes "<b>MICKEY ...</b>" and "20/11/2026 00:00:00": text, and a whole day in Málaga.
+  assertEquals(fest.name, 'MICKEY MAGIC FEST. EL ENCUENTRO DISNEY FAN DE ESPAÑA');
+  assertEquals([fest.starts_at, fest.ends_at, fest.all_day], [
+    '2026-11-20T00:00:00+01:00',
+    '2026-11-20T23:59:59+01:00',
+    true,
+  ]);
+  assertEquals([fest.language, fest.is_free], ['es-es', undefined]);
+  // A link written without the scheme is still the source link.
+  const thyssen = store.calls.find((c) => c.externalId === '145682')!.payload;
+  assertEquals(thyssen.source_url, 'https://www.cultura.malaga.eu');
+  assertEquals(thyssen.event_category, 'exhibition');
+  assertEquals(store.calls.find((c) => c.externalId === '148245')!.payload.event_category, 'sports');
+  // No coordinate at the source: venue and street, or the free-text place; one query per address.
+  assertEquals(geo.searches.sort(), [
+    'CEIP Clara Campoamor (AV. Imperio Argentina, 2) Málaga, Málaga, Spain',
+    'La Caja Blanca, AVENIDA DEL EDITOR ÁNGEL CAFFARENA, 8, Málaga, Spain',
+    'Museo Carmen Thyssen Málaga, CALLE COMPAÑÍA, 10, Málaga, Spain',
+    'Museo Centro de Arte Contemporáneo, Málaga (MuCAC sede la Coracha), Málaga, Spain',
+  ]);
+});
+
+Deno.test('#1084: the {date} spec keeps the day of a timestamp, so the event is all day', () => {
+  const rec = { a: '21/11/2026 00:00:00', b: '2026-11-03T00:00:00Z', c: 'nan' };
+  assertEquals(resolveSpec(rec, { date: 'a' }), '21/11/2026');
+  assertEquals(resolveSpec(rec, { date: 'b' }), '2026-11-03');
+  assertEquals(resolveSpec(rec, { date: 'c' }), undefined);
+  assertEquals(parseWhen(resolveSpec(rec, { date: 'a' }), 'Europe/Madrid', 'DD/MM/YYYY')?.dateOnly, true);
+});
+
+Deno.test('#1084: a link without scheme gets https, and what is not a link is no link', () => {
+  assertEquals(linkOf('www.cultura.malaga.eu'), 'https://www.cultura.malaga.eu');
+  assertEquals(linkOf('juventud.malaga.eu/agenda?x=1'), 'https://juventud.malaga.eu/agenda?x=1');
+  assertEquals(linkOf('http://www.nycgovparks.org/events/x'), 'http://www.nycgovparks.org/events/x');
+  assertEquals(linkOf('Consultar en taquilla'), null);
+  assertEquals(linkOf('mailto:agenda@malaga.eu'), null);
+  assertEquals(linkOf(null), null);
 });
 
 Deno.test('#1077 BR-EVENTO-009 item 8: file JSON (Madrid), free from 1/0; no coordinate and no address stays out', async () => {

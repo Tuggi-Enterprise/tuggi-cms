@@ -27,6 +27,7 @@ export type FieldSpec =
   | FieldSpec[]
   | { join: FieldSpec[]; sep?: string }
   | { template: string }
+  | { date: FieldSpec }
   | { path: FieldSpec; free_values: string[] };
 
 export interface SourceFilter {
@@ -134,6 +135,12 @@ export function resolveSpec(record: Rec, spec: FieldSpec | undefined, pageUrl?: 
       return v === undefined ? '' : encodeURIComponent(v).replace(/%2F/gi, '/');
     });
     return missing ? undefined : out;
+  }
+  if ('date' in spec) {
+    // The day of a timestamp that only means a day (Málaga writes "21/11/2026 00:00:00" for every
+    // event, #1084): what comes before the time, so the event is all day in the source zone.
+    const v = textOf(resolveSpec(record, spec.date, pageUrl));
+    return v === undefined ? undefined : clean(v.split(/[T ]/)[0]);
   }
   if ('path' in spec) return resolveSpec(record, spec.path, pageUrl);
   return undefined;
@@ -287,6 +294,13 @@ export interface MappedEvent {
 
 export type MapResult = { event: MappedEvent } | { skip: string };
 
+/** An http(s) link; a host written without the scheme (Málaga: "www.cultura.malaga.eu") gets https; else null. */
+export function linkOf(value: string | null): string | null {
+  if (!value) return null;
+  if (/^https?:\/\//i.test(value)) return value;
+  return /^[a-z0-9-]+(\.[a-z0-9-]+)+(?:[/?#]\S*)?$/i.test(value) ? `https://${value}` : null;
+}
+
 /** `config.filter`, applied to a record after the fetch: false = the record is not the source's. */
 export function passesFilter(record: Rec, filters: SourceFilter[] | undefined, pageUrl?: string): boolean {
   for (const f of filters ?? []) {
@@ -310,10 +324,12 @@ export function mapRecord(source: GenericSource, record: Rec, nowMs: number, pag
   const csv = (fetchCfg.csv ?? {}) as Rec;
   const dateFormat = typeof csv.date_format === 'string' ? csv.date_format : undefined;
 
-  const url = textField(record, fields.url, pageUrl) ?? (pageUrl ?? null);
+  const url = linkOf(textField(record, fields.url, pageUrl)) ?? (pageUrl ?? null);
   const externalId = textField(record, fields.external_id, pageUrl) ?? url;
   if (!externalId) return { skip: 'missing_external_id' };
-  const name = textField(record, fields.name, pageUrl);
+  // A title can come with markup (Málaga writes "<b>...</b>"): it is text, on one line.
+  const rawName = textField(record, fields.name, pageUrl);
+  const name = rawName ? htmlToText(rawName).replace(/\s+/g, ' ').trim() : '';
   if (!name) return { skip: 'missing_name' };
 
   const start = whenFromQuery(pageUrl, fetchCfg.start_from_query, source.timezone) ??
