@@ -5,11 +5,15 @@
  *   -> 200 [{ source_id, name, status, summary, recorded }], 500 when a `last_run_*` was not written
  *   -> 401 any caller without our secret key, 405 any other method, 400 a malformed chain body
  *
- *   POST { chain, run_started_at }   the next link of a run, called by the function itself
+ *   POST { source_id }   that one active source only (a manual run of one city, #1077); same answers
+ *
+ *   POST { chain, run_started_at, done?, after?, only? }   the next link of a run, called by the function itself
  *   -> 202 at once; the link runs in the background (`EdgeRuntime.waitUntil`)
  *
  * A link stops starting items at `RUN_BUDGET_MS`. When items are left it calls the next link,
- * without waiting, up to `MAX_CHAIN_LINKS`; the next one starts with the items not yet seen.
+ * without waiting, up to `MAX_CHAIN_LINKS`; the next one starts with the items not yet seen (SPTuris)
+ * or after the last item key started (`after`, the generic readers), and skips the generic sources
+ * already done (`done`). Sources go oldest `last_run_at` first.
  *
  * Machine key only (`isOwnSecretKey`), as `social-collect`: the cron sends the `ef_secret_key` of the
  * Vault. Deploy with `--no-verify-jwt`: no caller sends a JWT. The work is `_shared/events-import.ts`;
@@ -18,11 +22,13 @@
 import { serve } from 'https://deno.land/std@0.177.0/http/server.ts';
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
 import { getSecretKey, isOwnSecretKey } from '../_shared/secret-key.ts';
+import { type Geocoding } from '../_shared/events-sources.ts';
 import {
   type EventSource,
   IMAGE_BUCKET,
   IMAGE_FETCH_TIMEOUT_MS,
   type ImportStore,
+  isUuid,
   type KnownItem,
   messageOf,
   nextLink,
@@ -41,6 +47,10 @@ interface KnownRow {
 }
 
 const KNOWN_ITEMS_PAGE = 1000;
+/** The Places key, the same the CMS route /api/maps/geocode reads. */
+const PLACES_KEY_SECRET = 'NEXT_PUBLIC_GOOGLE_MAPS_API_KEY';
+const PLACES_SEARCH_URL = 'https://places.googleapis.com/v1/places:searchText';
+const GEOCODE_TIMEOUT_MS = 10_000;
 
 declare const EdgeRuntime: { waitUntil(promise: Promise<unknown>): void } | undefined;
 
@@ -61,6 +71,8 @@ serve(async (req) => {
   const body = await req.json().catch(() => ({}));
   const chained = readLink(body, Date.now());
   if (chained === 'invalid_chain') return json({ error: 'invalid_chain' }, 400);
+  const only = (body as { source_id?: unknown } | null)?.source_id;
+  if (!chained && only !== undefined && !isUuid(only)) return json({ error: 'invalid_source_id' }, 400);
 
   const supabaseUrl = (Deno.env.get('SUPABASE_URL') ?? '').trim();
   const secretKey = getSecretKey().trim();
@@ -74,8 +86,10 @@ serve(async (req) => {
     async activeSources() {
       const { data, error } = await core
         .from('event_sources')
-        .select('id, name, adapter, base_url, timezone')
-        .eq('is_active', true);
+        .select('id, name, adapter, base_url, timezone, city, state, country, credit, config')
+        .eq('is_active', true)
+        // The source that waited longest goes first, so 19 sources share the links of a run.
+        .order('last_run_at', { ascending: true, nullsFirst: true });
       if (error) throw new Error(`event_sources: ${error.code ?? 'unknown'}`);
       return (data ?? []) as EventSource[];
     },
@@ -155,6 +169,55 @@ serve(async (req) => {
     },
   };
 
+  // BR-EVENTO-009 item 8. The key the CMS already uses for places:searchText (the project key has no
+  // Geocoding API); without it, events with no coordinate are skipped with the reason in the summary.
+  const placesKey = (Deno.env.get(PLACES_KEY_SECRET) ?? '').trim();
+  const geocoding: Geocoding | undefined = placesKey
+    ? {
+      async cached(key) {
+        const { data, error } = await core
+          .from('event_geocode_cache')
+          .select('lat, lon, queried_at')
+          .eq('address_key', key)
+          .maybeSingle();
+        if (error) throw new Error(`event_geocode_cache: ${error.code ?? 'unknown'}`);
+        return (data ?? null) as { lat: number | null; lon: number | null; queried_at: string } | null;
+      },
+      async save(key, lat, lon) {
+        const { error } = await core
+          .from('event_geocode_cache')
+          .upsert({ address_key: key, lat, lon, queried_at: new Date().toISOString() }, { onConflict: 'address_key' });
+        if (error) throw new Error(`event_geocode_cache write: ${error.code ?? 'unknown'}`);
+      },
+      async takeQuota() {
+        const { data, error } = await core.rpc('event_geocode_take_quota');
+        if (error) throw new Error(`event_geocode_take_quota: ${error.code ?? 'unknown'}`);
+        return data === true;
+      },
+      async search(text) {
+        const res = await fetch(PLACES_SEARCH_URL, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'X-Goog-Api-Key': placesKey,
+            'X-Goog-FieldMask': 'places.location',
+          },
+          body: JSON.stringify({ textQuery: text.slice(0, 300), pageSize: 1 }),
+          signal: AbortSignal.timeout(GEOCODE_TIMEOUT_MS),
+        });
+        if (!res.ok) {
+          await res.body?.cancel();
+          throw new Error(`places: http_${res.status}`);
+        }
+        const body = await res.json() as { places?: { location?: { latitude?: number; longitude?: number } }[] };
+        const loc = body.places?.[0]?.location;
+        return typeof loc?.latitude === 'number' && typeof loc?.longitude === 'number'
+          ? { lat: loc.latitude, lon: loc.longitude }
+          : null;
+      },
+    }
+    : undefined;
+
   /** The next link gets its own request: a new worker, with its own 150 s. */
   const callNext = (next: RunLink) =>
     fetch(`${supabaseUrl}/functions/v1/events-import`, {
@@ -168,10 +231,17 @@ serve(async (req) => {
       })
       .catch((error) => console.error(`[events-import] link ${next.chain} not called: ${messageOf(error)}`));
 
-  const link: RunLink = chained ?? { chain: 1, run_started_at: new Date().toISOString() };
+  const link: RunLink = chained ??
+    { chain: 1, run_started_at: new Date().toISOString(), ...(isUuid(only) ? { only } : {}) };
   const run = async () => {
     const reports = await runEventsImport(
-      { store, fetch: (url, init) => fetch(url, init), log: (l) => console.log(l) },
+      {
+        store,
+        fetch: (url, init) => fetch(url, init),
+        log: (l) => console.log(l),
+        geocoding,
+        geocodingOff: geocoding ? undefined : `secret ${PLACES_KEY_SECRET} missing`,
+      },
       link,
     );
     const next = nextLink(reports, link);

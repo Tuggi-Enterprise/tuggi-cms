@@ -1,8 +1,9 @@
 // _shared/events-import.ts
 //
-// The weekly import of events from official tourism sources (#1075, BR-EVENTO-009). One source is a
-// row of `core.event_sources`; its `adapter` names the reader. The only reader today is `sptur_csp`,
-// the API behind https://cidadedesaopaulo.com/calendario-de-eventos/ (SPTuris, city of São Paulo).
+// The weekly import of events from official tourism sources (#1075, #1077, BR-EVENTO-009). One source
+// is a row of `core.event_sources`; its `adapter` names the reader: `sptur_csp`, the API behind
+// https://cidadedesaopaulo.com/calendario-de-eventos/ (SPTuris, city of São Paulo), here; the generic
+// `opendatasoft`, `ckan`, `file` and `jsonld`, driven by the row's `config`, in `events-sources.ts`.
 //
 // Import-free: the database, the bucket and `fetch` are parameters, so the Deno tests drive it with
 // recorded SPTuris answers and no network. `events-import/index.ts` wires the real clients.
@@ -15,6 +16,22 @@
 //   today's date and changes every day: it stays out of `source_hash`, or every run is an update.
 // - image: GET /api/csp/midia?id=<id>&v=grande -> image/webp. The credit is the image's `alt`.
 // - public page: /events/<slug>/ (the SPA route `path:"/events/:slug/"` of its bundle).
+
+import { htmlToText, localIso } from './events-text.ts';
+import {
+  discoverPages,
+  extractEvent,
+  GENERIC_ADAPTERS,
+  type GeocodeAnswer,
+  geocoder,
+  type Geocoding,
+  type MappedEvent,
+  mapRecord,
+  passesFilter,
+  readRecords,
+  type Rec,
+  type SourceConfig,
+} from './events-sources.ts';
 
 /** BR-EVENTO-009 item 3: the credit line that closes every description copied from the SPTuris. */
 export const SPTUR_CREDIT = 'Cidade de São Paulo (cidadedesaopaulo.com)';
@@ -43,8 +60,11 @@ export const CONCURRENCY = 4;
 export const MAX_CHAIN_LINKS = 6;
 /** The per-item timings kept in `last_run_summary`, the latest ones, so the jsonb does not grow. */
 export const MAX_TIMINGS = 30;
+/** The errors kept in the summary of a generic source (a feed of thousands can fail item by item). */
+export const MAX_ERRORS = 50;
+/** A whole browser User-Agent: tourism sites answer 403 to a short one (Manchester, #1076). */
 export const BROWSER_USER_AGENT =
-  'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0 Safari/537.36';
+  'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36';
 
 /** `EVENT_CATEGORIES` of `components/event-management/EventFormModal.tsx`, the CMS's closed list. */
 export type EventCategory =
@@ -83,6 +103,13 @@ export interface EventSource {
   adapter: string;
   base_url: string;
   timezone: string;
+  /** The city, state and country of the row (BR-EVENTO-009 item 7); the generic readers geocode in them. */
+  city?: string;
+  state?: string | null;
+  country?: string;
+  /** BR-EVENTO-009 item 3: "Informações: <órgão> (<domínio>)", the last line of every description. */
+  credit?: string;
+  config?: SourceConfig | null;
 }
 
 export type ImportAction = 'created' | 'updated' | 'unchanged' | 'linked' | 'skipped_deleted';
@@ -105,6 +132,10 @@ export interface EventPayload {
   image_credit: string | null;
   source_url: string;
   source_hash: string;
+  /** `config.language` of the source; absent = pt-br in the RPC (the SPTuris sends none). */
+  language?: string;
+  /** Only when the source says it; a string here is 22023 in the RPC. */
+  is_free?: boolean;
 }
 
 export interface RunError {
@@ -140,6 +171,9 @@ export interface RunSummary {
   unchanged: number;
   linked: number;
   skipped_deleted: number;
+  /** Items that did not go to the RPC, by reason (ended, missing data, geocoding): not errors. */
+  skipped: number;
+  skipped_reasons: Record<string, number>;
   errors: RunError[];
   /** `<external_id>:<step>` of the items being processed when the summary was written. */
   in_flight: string[];
@@ -179,12 +213,22 @@ export interface ImportDeps {
   log: (line: string) => void;
   /** The clock of the time budget; `Date.now` when absent. */
   now?: () => number;
+  /** BR-EVENTO-009 item 8: the cache, the quota and the Places API. Absent = geocoding off. */
+  geocoding?: Geocoding;
+  /** Why geocoding is off, for the summary (a missing secret, by name). */
+  geocodingOff?: string;
 }
 
 /** Which link of a run this call is. */
 export interface RunLink {
   chain: number;
   run_started_at: string;
+  /** Generic sources this run already finished: later links do not read them again. */
+  done?: string[];
+  /** Per generic source, the last item key an earlier link started; the next one goes on after it. */
+  after?: Record<string, string>;
+  /** A run of this one source (a manual call with `source_id`), carried along the links. */
+  only?: string;
 }
 
 export interface SourceReport {
@@ -194,118 +238,27 @@ export interface SourceReport {
   summary: RunSummary;
   /** False when `last_run_*` could not be written: the run happened, its record did not. */
   recorded: boolean;
+  /** A generic source: it goes on by `cursor`, not by `last_seen_at`. */
+  generic?: boolean;
+  /** The last item key this link started, when items are left. */
+  cursor?: string;
 }
 
 // ---------------------------------------------------------------------------------------------
 // Text
 
-const NAMED_ENTITIES: Record<string, string> = {
-  amp: '&',
-  lt: '<',
-  gt: '>',
-  quot: '"',
-  apos: "'",
-  nbsp: ' ',
-  ndash: '–',
-  mdash: '—',
-  hellip: '…',
-  lsquo: '‘',
-  rsquo: '’',
-  ldquo: '“',
-  rdquo: '”',
-  laquo: '«',
-  raquo: '»',
-  ordm: 'º',
-  ordf: 'ª',
-  deg: '°',
-  copy: '©',
-  reg: '®',
-  middot: '·',
-  bull: '•',
-  euro: '€',
-};
+export { decodeEntities, htmlToText, localIso } from './events-text.ts';
 
-export function decodeEntities(text: string): string {
-  return text.replace(/&(#x[0-9a-f]+|#[0-9]+|[a-z]+);/gi, (whole, body: string) => {
-    if (body[0] === '#') {
-      const code = body[1] === 'x' || body[1] === 'X' ? parseInt(body.slice(2), 16) : parseInt(body.slice(1), 10);
-      return Number.isFinite(code) && code > 0 && code <= 0x10ffff ? String.fromCodePoint(code) : whole;
-    }
-    return NAMED_ENTITIES[body.toLowerCase()] ?? whole;
-  });
-}
-
-const BLOCK_TAG = /<\/?(p|div|h[1-6]|ul|ol|li|blockquote|section|article|table|tr)\b[^>]*>/gi;
-
-/** HTML to plain text: one paragraph per block, `\n` for `<br>`, no tag, entities decoded. */
-export function htmlToText(html: string): string {
-  const marked = html
-    .replace(/<(script|style)\b[\s\S]*?<\/\1>/gi, '')
-    .replace(/<br\s*\/?>/gi, '\u0001')
-    .replace(/<li\b[^>]*>/gi, '\u0002• ')
-    .replace(BLOCK_TAG, '\u0002')
-    .replace(/<[^>]*>/g, '');
-  return decodeEntities(marked)
-    .split('\u0002')
-    .map((block) =>
-      block
-        .split('\u0001')
-        .map((line) => line.replace(/\s+/g, ' ').trim())
-        .filter((line) => line.length > 0)
-        .join('\n')
-    )
-    .filter((block) => block.length > 0)
-    .join('\n\n');
-}
-
-/** BR-EVENTO-009 item 3: the source's text as it is, then the credit line as its own paragraph. */
-export function buildDescription(html: unknown): string {
+/** BR-EVENTO-009 item 3: the source's text as it is, then the credit line of the source as its own paragraph. */
+export function buildDescription(html: unknown, creditLine: string = SPTUR_CREDIT_LINE): string {
   const body = typeof html === 'string' ? htmlToText(html) : '';
-  return body ? `${body}\n\n${SPTUR_CREDIT_LINE}` : SPTUR_CREDIT_LINE;
+  return body ? `${body}\n\n${creditLine}` : creditLine;
 }
 
 // ---------------------------------------------------------------------------------------------
 // Dates
 
 const DAY = /^(\d{4})-(\d{2})-(\d{2})/;
-
-/** Offset of `timeZone` at the instant `ms`, in minutes east of UTC. */
-function offsetMinutes(timeZone: string, ms: number): number {
-  const parts = new Intl.DateTimeFormat('en-US', {
-    timeZone,
-    hourCycle: 'h23',
-    year: 'numeric',
-    month: '2-digit',
-    day: '2-digit',
-    hour: '2-digit',
-    minute: '2-digit',
-    second: '2-digit',
-  }).formatToParts(new Date(ms));
-  const get = (type: string) => Number(parts.find((p) => p.type === type)?.value);
-  const asUtc = Date.UTC(get('year'), get('month') - 1, get('day'), get('hour'), get('minute'), get('second'));
-  return Math.round((asUtc - Math.floor(ms / 1000) * 1000) / 60_000);
-}
-
-function formatOffset(minutes: number): string {
-  const sign = minutes < 0 ? '-' : '+';
-  const abs = Math.abs(minutes);
-  return `${sign}${String(Math.floor(abs / 60)).padStart(2, '0')}:${String(abs % 60).padStart(2, '0')}`;
-}
-
-/**
- * The local wall time `day` + `time` in `timeZone`, as ISO 8601 with that zone's offset on that day
- * (`2026-11-06T00:00:00-03:00`). Throws on a value that does not start with a YYYY-MM-DD day.
- */
-export function localIso(day: string, time: '00:00:00' | '23:59:59', timeZone: string): string {
-  const m = DAY.exec(day);
-  if (!m) throw new Error(`invalid_date:${day}`);
-  const [h, mi, s] = time.split(':').map(Number);
-  const wall = Date.UTC(Number(m[1]), Number(m[2]) - 1, Number(m[3]), h, mi, s);
-  // The offset at the wall time read as UTC is a guess; read it again at the instant it points to.
-  const first = offsetMinutes(timeZone, wall);
-  const offset = offsetMinutes(timeZone, wall - first * 60_000);
-  return `${m[1]}-${m[2]}-${m[3]}T${time}${formatOffset(offset)}`;
-}
 
 interface AgendaEntry {
   inicio?: unknown;
@@ -424,13 +377,11 @@ const imageStem = (sourceId: string, externalId: string, imageId: string) =>
   `events/${safePart(sourceId)}/${safePart(externalId)}/${safePart(imageId)}`;
 
 /** `events/<source id>/<external id>/<image id>.<ext>`: the same image lands on the same object. */
+const imageExt = (contentType: string) =>
+  contentType.includes('png') ? 'png' : contentType.includes('jpeg') || contentType.includes('jpg') ? 'jpg' : 'webp';
+
 export function imagePath(sourceId: string, externalId: string, imageId: string, contentType: string): string {
-  const ext = contentType.includes('png')
-    ? 'png'
-    : contentType.includes('jpeg') || contentType.includes('jpg')
-    ? 'jpg'
-    : 'webp';
-  return `${imageStem(sourceId, externalId, imageId)}.${ext}`;
+  return `${imageStem(sourceId, externalId, imageId)}.${imageExt(contentType)}`;
 }
 
 /**
@@ -461,13 +412,29 @@ async function copyImage(
   timing: ItemTiming,
   onStep: (step: 'upload') => void,
 ): Promise<string> {
-  const now = deps.now ?? Date.now;
-  const started = now();
-  const res = await sourceFetch(
+  return await copyImageFrom(
     deps,
     `${trimBase(source.base_url)}/api/csp/midia?id=${encodeURIComponent(imageId)}&v=grande`,
-    IMAGE_FETCH_TIMEOUT_MS,
+    imageStem(source.id, externalId, imageId),
+    timing,
+    onStep,
   );
+}
+
+/**
+ * Copies the image at `url` to our bucket as `<stem>.<ext>` (BR-EVENTO-009 item 5) and answers its
+ * public URL: closed list of types, size refused before buffering, upload confirmed by the object.
+ */
+async function copyImageFrom(
+  deps: ImportDeps,
+  url: string,
+  stem: string,
+  timing: ItemTiming,
+  onStep: (step: 'upload') => void,
+): Promise<string> {
+  const now = deps.now ?? Date.now;
+  const started = now();
+  const res = await sourceFetch(deps, url, IMAGE_FETCH_TIMEOUT_MS);
   if (!res.ok) {
     await res.body?.cancel();
     throw new Error(`image_http_${res.status}`);
@@ -492,7 +459,7 @@ async function copyImage(
   if (bytes.length > MAX_IMAGE_BYTES) throw new Error('image_too_large');
   onStep('upload');
   const uploadStarted = now();
-  const path = imagePath(source.id, externalId, imageId, contentType);
+  const path = `${stem}.${imageExt(contentType)}`;
   try {
     return await deps.store.uploadImage(path, bytes, contentType);
   } catch (error) {
@@ -590,6 +557,8 @@ export function emptySummary(link: RunLink = { chain: 1, run_started_at: '' }): 
     unchanged: 0,
     linked: 0,
     skipped_deleted: 0,
+    skipped: 0,
+    skipped_reasons: {},
     errors: [],
     in_flight: [],
     timings: [],
@@ -651,18 +620,35 @@ function progressWriter(deps: ImportDeps, source: EventSource, summary: RunSumma
   };
 }
 
-export async function importSource(
+export interface SourceRun {
+  status: RunStatus;
+  summary: RunSummary;
+  /** Generic sources only: the last item key started, when items are left. */
+  cursor?: string;
+}
+
+export function importSource(
   deps: ImportDeps,
   source: EventSource,
   link: RunLink = { chain: 1, run_started_at: new Date((deps.now ?? Date.now)()).toISOString() },
   deadline = (deps.now ?? Date.now)() + RUN_BUDGET_MS,
-): Promise<{ status: RunStatus; summary: RunSummary }> {
+): Promise<SourceRun> {
+  if (source.adapter === 'sptur_csp') return importSptur(deps, source, link, deadline);
+  if (GENERIC_ADAPTERS.includes(source.adapter)) return importGeneric(deps, source, link, deadline);
+  const summary = emptySummary(link);
+  summary.errors.push({ external_id: null, message: `unknown_adapter:${source.adapter}` });
+  return Promise.resolve({ status: 'error', summary });
+}
+
+/** The SPTuris run (#1075), unchanged: the list, then the card of each item. */
+async function importSptur(
+  deps: ImportDeps,
+  source: EventSource,
+  link: RunLink,
+  deadline: number,
+): Promise<SourceRun> {
   const now = deps.now ?? Date.now;
   const summary = emptySummary(link);
-  if (source.adapter !== 'sptur_csp') {
-    summary.errors.push({ external_id: null, message: `unknown_adapter:${source.adapter}` });
-    return { status: 'error', summary };
-  }
   if (!/^https:\/\//.test(source.base_url ?? '')) {
     summary.errors.push({ external_id: null, message: 'invalid_base_url' });
     return { status: 'error', summary };
@@ -739,6 +725,272 @@ export async function importSource(
   return { status: summary.pending > 0 || summary.errors.length ? 'partial' : 'ok', summary };
 }
 
+// ---------------------------------------------------------------------------------------------
+// The generic run (#1077)
+
+/** One item of a generic source: a record already mapped, or a jsonld page still to read. */
+interface GenericItem {
+  key: string;
+  record?: Rec;
+  event?: MappedEvent;
+}
+
+const skip = (summary: RunSummary, reason: string) => {
+  summary.skipped += 1;
+  summary.skipped_reasons[reason] = (summary.skipped_reasons[reason] ?? 0) + 1;
+};
+
+async function sha256Hex(text: string): Promise<string> {
+  const digest = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(text));
+  return Array.from(new Uint8Array(digest), (b) => b.toString(16).padStart(2, '0')).join('');
+}
+
+/** A text getter with the browser User-Agent; `http_<status>` on an answer that is not ok. */
+export function textGetter(deps: ImportDeps) {
+  return async (url: string): Promise<string> => {
+    const res = await deps.fetch(url, {
+      headers: {
+        'User-Agent': BROWSER_USER_AGENT,
+        Accept: 'application/json, application/geo+json, text/csv, text/html, application/xml;q=0.9, */*;q=0.8',
+        'Accept-Language': 'en-US,en;q=0.9',
+      },
+      signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
+    });
+    if (!res.ok) {
+      await res.body?.cancel();
+      throw new Error(`http_${res.status}`);
+    }
+    return await res.text();
+  };
+}
+
+/** The items of a generic source: records filtered and mapped, or the page URLs of a jsonld source. */
+async function planGeneric(deps: ImportDeps, source: EventSource, summary: RunSummary): Promise<GenericItem[]> {
+  const get = textGetter(deps);
+  const nowMs = (deps.now ?? Date.now)();
+  if (source.adapter === 'jsonld') {
+    const pages = await discoverPages((source.config?.fetch ?? {}) as Rec, get);
+    summary.read = pages.length;
+    return pages.map((key) => ({ key }));
+  }
+  const records = await readRecords(source, get);
+  summary.read = records.length;
+  const items = new Map<string, GenericItem>();
+  for (const record of records) {
+    // BR-EVENTO-009 item 7: what the fetch could not narrow to the city is dropped here.
+    if (!passesFilter(record, source.config?.filter)) {
+      skip(summary, 'filtered');
+      continue;
+    }
+    const mapped = mapRecord(source, record, nowMs);
+    if ('skip' in mapped) {
+      skip(summary, mapped.skip);
+      continue;
+    }
+    if (items.has(mapped.event.external_id)) {
+      skip(summary, 'duplicate');
+      continue;
+    }
+    items.set(mapped.event.external_id, { key: mapped.event.external_id, record, event: mapped.event });
+  }
+  return [...items.values()];
+}
+
+type GenericBuild = { payload: EventPayload; imageError: string | null } | { skip: string };
+
+/** One generic item to the payload of `core.import_event_upsert`, or the reason it does not go. */
+async function buildGenericPayload(
+  deps: ImportDeps,
+  source: EventSource,
+  item: GenericItem,
+  timing: ItemTiming,
+  onStep: (step: 'page' | 'geocode' | 'image' | 'upload') => void,
+  known: KnownItem | undefined,
+  geocode: ((address: string | null, city: string, country: string) => Promise<GeocodeAnswer>) | null,
+): Promise<GenericBuild> {
+  const now = deps.now ?? Date.now;
+  let record = item.record;
+  let event = item.event;
+  if (!record || !event) {
+    // jsonld: the page is the item; its first schema.org Event is the record.
+    onStep('page');
+    const pageStarted = now();
+    const html = await textGetter(deps)(item.key);
+    timing.card_ms = now() - pageStarted;
+    const node = extractEvent(html);
+    if (!node) return { skip: 'no_event_jsonld' };
+    if (!passesFilter(node, source.config?.filter, item.key)) return { skip: 'filtered' };
+    const mapped = mapRecord(source, node, now(), item.key);
+    if ('skip' in mapped) return mapped;
+    record = node;
+    // The page URL is the key the run walks by, so it is the external id too.
+    event = { ...mapped.event, external_id: item.key };
+  }
+  const sourceUrl = event.url;
+  if (!sourceUrl) return { skip: 'missing_url' };
+  const recordHash = await sourceHash(record);
+
+  // BR-EVENTO-009 item 8: no coordinate at the source, the one of the published address. An item
+  // already stored and unchanged keeps the coordinate it has (null lat/lon leaves it, D8 of #1075).
+  let lat = event.lat;
+  let lon = event.lon;
+  const unchanged = known !== undefined && known.source_hash.split('|')[0] === recordHash;
+  if (lat === null && !unchanged) {
+    if (!geocode) return { skip: 'geocode_off' };
+    onStep('geocode');
+    const answer = await geocode(event.address, source.city ?? '', source.country ?? '');
+    if ('skip' in answer) return answer;
+    lat = answer.lat;
+    lon = answer.lon;
+  }
+
+  let posterUrl: string | null = null;
+  let credit: string | null = null;
+  let imageError: string | null = null;
+  const creditLine = source.credit ?? SPTUR_CREDIT_LINE;
+  if (event.image) {
+    const imageId = (await sha256Hex(event.image)).slice(0, 16);
+    const imageStarted = now();
+    try {
+      posterUrl = reusablePoster(known, source.id, event.external_id, imageId);
+      if (posterUrl) {
+        timing.poster_reused = true;
+      } else {
+        onStep('image');
+        posterUrl = await copyImageFrom(
+          deps,
+          event.image,
+          imageStem(source.id, event.external_id, imageId),
+          timing,
+          onStep,
+        );
+      }
+      // BR-EVENTO-009, edge case: an image without a credit is credited to the source, in the line of item 3.
+      credit = event.image_credit ?? creditLine;
+    } catch (error) {
+      if (!timing.image_ms) timing.image_ms = now() - imageStarted;
+      imageError = messageOf(error);
+      timing.image_error = imageError;
+    }
+  }
+
+  const payload: EventPayload = {
+    name: event.name,
+    description: buildDescription(event.description, creditLine),
+    starts_at: event.starts_at,
+    ends_at: event.ends_at,
+    all_day: event.all_day,
+    lat,
+    lon,
+    address: event.address,
+    website: null,
+    event_category: event.category,
+    tags: [],
+    poster_url: posterUrl,
+    image_credit: credit,
+    source_url: sourceUrl,
+    source_hash: payloadHash(recordHash, posterUrl !== null),
+  };
+  if (source.config?.language) payload.language = source.config.language;
+  if (event.is_free !== undefined) payload.is_free = event.is_free;
+  return { payload, imageError };
+}
+
+async function importGeneric(
+  deps: ImportDeps,
+  source: EventSource,
+  link: RunLink,
+  deadline: number,
+): Promise<SourceRun> {
+  const now = deps.now ?? Date.now;
+  const summary = emptySummary(link);
+  const after = link.after?.[source.id];
+  // Out of time before this source started: nothing read, the next link starts it.
+  if (now() >= deadline) {
+    summary.pending = 1;
+    summary.errors.push({ external_id: null, message: 'not_started: time budget spent by earlier sources' });
+    return { status: 'partial', summary, cursor: after };
+  }
+  if (!source.config?.fetch) {
+    summary.errors.push({ external_id: null, message: 'config_missing:fetch' });
+    return { status: 'error', summary };
+  }
+  let items: GenericItem[];
+  let known: Map<string, KnownItem>;
+  try {
+    items = await planGeneric(deps, source, summary);
+  } catch (error) {
+    summary.errors.push({ external_id: null, message: `list: ${messageOf(error)}` });
+    return { status: 'error', summary };
+  }
+  try {
+    known = new Map((await deps.store.knownItems(source.id)).map((k) => [k.external_id, k]));
+  } catch (error) {
+    summary.errors.push({ external_id: null, message: `known_items: ${messageOf(error)}` });
+    return { status: 'error', summary };
+  }
+  // The keys in one order, so a later link goes on after the last key this one started.
+  items.sort((x, y) => (x.key < y.key ? -1 : x.key > y.key ? 1 : 0));
+  const startedAt = Date.parse(link.run_started_at);
+  const todo = items.filter((item) => {
+    if (after !== undefined && item.key <= after) return false;
+    const seen = known.get(item.key);
+    return !(seen && Date.parse(seen.last_seen_at) > startedAt);
+  });
+  summary.already_seen = items.length - todo.length;
+
+  const geocode = deps.geocoding ? geocoder(deps.geocoding, now) : null;
+  if (!geocode && deps.geocodingOff) {
+    summary.errors.push({ external_id: null, message: `geocoding off: ${deps.geocodingOff}` });
+  }
+
+  const progress = progressWriter(deps, source, summary);
+  const inFlight = new Map<string, string>();
+  const step = (key: string, name: string) => {
+    inFlight.set(key, name);
+    summary.in_flight = [...inFlight].map(([id, s]) => `${id}:${s}`);
+    progress.mark();
+  };
+
+  const started = await pool(todo, CONCURRENCY, () => now() < deadline, async (item) => {
+    const timing: ItemTiming = { external_id: item.key, card_ms: 0, image_ms: 0, upload_ms: 0, rpc_ms: 0 };
+    step(item.key, 'start');
+    try {
+      const before = known.get(item.key);
+      const built = await buildGenericPayload(deps, source, item, timing, (s) => step(item.key, s), before, geocode);
+      if ('skip' in built) {
+        skip(summary, built.skip);
+      } else if (built.imageError && before?.source_hash.endsWith(POSTER_COPIED)) {
+        summary.errors.push({ external_id: item.key, message: `image: ${built.imageError}; stored event kept` });
+      } else {
+        if (built.imageError) summary.errors.push({ external_id: item.key, message: `image: ${built.imageError}` });
+        step(item.key, 'rpc');
+        const rpcStarted = now();
+        const answer = await deps.store.upsertEvent(source.id, item.key, built.payload);
+        timing.rpc_ms = now() - rpcStarted;
+        summary[readAction(answer)] += 1;
+      }
+    } catch (error) {
+      summary.errors.push({ external_id: item.key, message: messageOf(error) });
+    } finally {
+      inFlight.delete(item.key);
+      summary.in_flight = [...inFlight].map(([id, s]) => `${id}:${s}`);
+      summary.timings.push(timing);
+      if (summary.timings.length > MAX_TIMINGS) summary.timings.shift();
+      progress.mark();
+    }
+  });
+  await progress.flush();
+  summary.pending = todo.length - started;
+  // A long run keeps only the first errors, so the summary stays small.
+  if (summary.errors.length > MAX_ERRORS) summary.errors.splice(MAX_ERRORS);
+  return {
+    status: summary.pending > 0 || summary.errors.length ? 'partial' : 'ok',
+    summary,
+    cursor: summary.pending > 0 && started > 0 ? todo[started - 1].key : (summary.pending > 0 ? after : undefined),
+  };
+}
+
 export async function runEventsImport(deps: ImportDeps, link?: RunLink): Promise<SourceReport[]> {
   const now = deps.now ?? Date.now;
   const deadline = now() + RUN_BUDGET_MS;
@@ -746,7 +998,10 @@ export async function runEventsImport(deps: ImportDeps, link?: RunLink): Promise
   const sources = await deps.store.activeSources();
   const reports: SourceReport[] = [];
   for (const source of sources) {
-    const { status, summary } = await importSource(deps, source, thisLink, deadline);
+    // A generic source an earlier link of this run finished is not read again.
+    if (thisLink.done?.includes(source.id)) continue;
+    if (thisLink.only && source.id !== thisLink.only) continue;
+    const { status, summary, cursor } = await importSource(deps, source, thisLink, deadline);
     let recorded = true;
     try {
       await deps.store.finishSource(source.id, status, summary);
@@ -756,7 +1011,12 @@ export async function runEventsImport(deps: ImportDeps, link?: RunLink): Promise
     }
     const { errors, timings: _timings, in_flight: _inFlight, ...counts } = summary;
     deps.log(`[events-import] ${source.id} ${status} ${JSON.stringify({ ...counts, errors: errors.length })}`);
-    reports.push({ source_id: source.id, name: source.name, status, summary, recorded });
+    const report: SourceReport = { source_id: source.id, name: source.name, status, summary, recorded };
+    if (GENERIC_ADAPTERS.includes(source.adapter)) {
+      report.generic = true;
+      if (cursor !== undefined) report.cursor = cursor;
+    }
+    reports.push(report);
   }
   return reports;
 }
@@ -765,16 +1025,58 @@ export async function runEventsImport(deps: ImportDeps, link?: RunLink): Promise
 export function nextLink(reports: SourceReport[], link: RunLink): RunLink | null {
   if (!reports.some((r) => r.summary.pending > 0)) return null;
   if (link.chain >= MAX_CHAIN_LINKS) return null;
-  return { chain: link.chain + 1, run_started_at: link.run_started_at };
+  const next: RunLink = { chain: link.chain + 1, run_started_at: link.run_started_at };
+  const done = [
+    ...(link.done ?? []),
+    ...reports.filter((r) => r.generic && r.summary.pending === 0).map((r) => r.source_id),
+  ];
+  const after: Record<string, string> = {};
+  for (const r of reports) {
+    if (r.generic && r.summary.pending > 0 && r.cursor !== undefined) after[r.source_id] = r.cursor;
+  }
+  if (link.only) next.only = link.only;
+  if (done.length) next.done = done;
+  if (Object.keys(after).length) next.after = after;
+  return next;
 }
+
+const MAX_LINK_SOURCES = 100;
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+export const isUuid = (v: unknown): v is string => typeof v === 'string' && UUID.test(v);
+const MAX_CURSOR_LENGTH = 2048;
 
 /** The body of a chained call, checked: `null` when absent (first link), an error code when malformed. */
 export function readLink(body: unknown, nowMs: number): RunLink | null | 'invalid_chain' {
-  const b = (body ?? {}) as { chain?: unknown; run_started_at?: unknown };
+  const b = (body ?? {}) as {
+    chain?: unknown;
+    run_started_at?: unknown;
+    done?: unknown;
+    after?: unknown;
+    only?: unknown;
+  };
   if (b.chain === undefined && b.run_started_at === undefined) return null;
   const chain = b.chain;
   const startedAt = typeof b.run_started_at === 'string' ? Date.parse(b.run_started_at) : NaN;
   const valid = typeof chain === 'number' && Number.isInteger(chain) && chain >= 2 && chain <= MAX_CHAIN_LINKS &&
     Number.isFinite(startedAt) && startedAt <= nowMs && nowMs - startedAt <= MAX_CHAIN_LINKS * 5 * 60_000;
-  return valid ? { chain: chain as number, run_started_at: new Date(startedAt).toISOString() } : 'invalid_chain';
+  if (!valid) return 'invalid_chain';
+  const link: RunLink = { chain: chain as number, run_started_at: new Date(startedAt).toISOString() };
+  const id = (v: unknown) => typeof v === 'string' && v.length > 0 && v.length <= 64;
+  if (b.only !== undefined) {
+    if (!isUuid(b.only)) return 'invalid_chain';
+    link.only = b.only as string;
+  }
+  if (b.done !== undefined) {
+    if (!Array.isArray(b.done) || b.done.length > MAX_LINK_SOURCES || !b.done.every(id)) return 'invalid_chain';
+    link.done = b.done as string[];
+  }
+  if (b.after !== undefined) {
+    if (!b.after || typeof b.after !== 'object' || Array.isArray(b.after)) return 'invalid_chain';
+    const entries = Object.entries(b.after as Record<string, unknown>);
+    const ok = entries.length <= MAX_LINK_SOURCES &&
+      entries.every(([k, v]) => id(k) && typeof v === 'string' && v.length > 0 && v.length <= MAX_CURSOR_LENGTH);
+    if (!ok) return 'invalid_chain';
+    link.after = Object.fromEntries(entries) as Record<string, string>;
+  }
+  return link;
 }

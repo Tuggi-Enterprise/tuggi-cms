@@ -1,0 +1,311 @@
+{
+ "help": "https://opendata-ajuntament.barcelona.cat/data/api/3/action/help_show?name=datastore_search",
+ "success": true,
+ "result": {
+  "sort": "modified desc",
+  "resource_id": "877ccf66-9106-4ae2-be51-95a9f6469e4c",
+  "fields": [
+   {
+    "type": "int4",
+    "id": "_id"
+   },
+   {
+    "type": "text",
+    "id": "register_id"
+   },
+   {
+    "type": "text",
+    "id": "name"
+   },
+   {
+    "type": "text",
+    "id": "institution_id"
+   },
+   {
+    "type": "text",
+    "id": "institution_name"
+   },
+   {
+    "type": "timestamp",
+    "id": "created"
+   },
+   {
+    "type": "timestamp",
+    "id": "modified"
+   },
+   {
+    "type": "text",
+    "id": "addresses_roadtype_id"
+   },
+   {
+    "type": "text",
+    "id": "addresses_roadtype_name"
+   },
+   {
+    "type": "numeric",
+    "id": "addresses_road_id"
+   },
+   {
+    "type": "text",
+    "id": "addresses_road_name"
+   },
+   {
+    "type": "numeric",
+    "id": "addresses_start_street_number"
+   },
+   {
+    "type": "numeric",
+    "id": "addresses_end_street_number"
+   },
+   {
+    "type": "numeric",
+    "id": "addresses_neighborhood_id"
+   },
+   {
+    "type": "text",
+    "id": "addresses_neighborhood_name"
+   },
+   {
+    "type": "numeric",
+    "id": "addresses_district_id"
+   },
+   {
+    "type": "text",
+    "id": "addresses_district_name"
+   },
+   {
+    "type": "numeric",
+    "id": "addresses_zip_code"
+   },
+   {
+    "type": "text",
+    "id": "addresses_town"
+   },
+   {
+    "type": "text",
+    "id": "addresses_main_address"
+   },
+   {
+    "type": "text",
+    "id": "addresses_type"
+   },
+   {
+    "type": "numeric",
+    "id": "values_id"
+   },
+   {
+    "type": "numeric",
+    "id": "values_attribute_id"
+   },
+   {
+    "type": "text",
+    "id": "values_category"
+   },
+   {
+    "type": "text",
+    "id": "values_attribute_name"
+   },
+   {
+    "type": "text",
+    "id": "values_value"
+   },
+   {
+    "type": "text",
+    "id": "values_outstanding"
+   },
+   {
+    "type": "text",
+    "id": "values_description"
+   },
+   {
+    "type": "text",
+    "id": "secondary_filters_id"
+   },
+   {
+    "type": "text",
+    "id": "secondary_filters_name"
+   },
+   {
+    "type": "text",
+    "id": "secondary_filters_fullpath"
+   },
+   {
+    "type": "text",
+    "id": "secondary_filters_tree"
+   },
+   {
+    "type": "text",
+    "id": "secondary_filters_asia_id"
+   },
+   {
+    "type": "numeric",
+    "id": "geo_epgs_25831_x"
+   },
+   {
+    "type": "numeric",
+    "id": "geo_epgs_25831_y"
+   },
+   {
+    "type": "numeric",
+    "id": "geo_epgs_4326_lat"
+   },
+   {
+    "type": "numeric",
+    "id": "geo_epgs_4326_lon"
+   },
+   {
+    "type": "text",
+    "id": "estimated_dates"
+   },
+   {
+    "type": "timestamp",
+    "id": "start_date"
+   },
+   {
+    "type": "timestamp",
+    "id": "end_date"
+   },
+   {
+    "type": "text",
+    "id": "timetable"
+   }
+  ],
+  "records": [
+   {
+    "addresses_roadtype_name": "",
+    "addresses_end_street_number": "28",
+    "geo_epgs_4326_lon": "2.1457730218797497",
+    "values_attribute_name": "",
+    "estimated_dates": "",
+    "addresses_road_name": "Carrer de Cambrils",
+    "values_category": "",
+    "addresses_zip_code": "8023",
+    "secondary_filters_id": "",
+    "values_value": "",
+    "addresses_town": "Barcelona",
+    "secondary_filters_name": "",
+    "timetable": "<table class=\"timetable-table\"><tr class=\"timetable-header\"><th class=\"weekdays\">Dies</th><th class=\"hours\">Hores</th><th class=\"prices\">Preus</th><th class=\"description\">Observacions</th></tr><tr><td class=\"timetable-day\" rowspan=1><div>Dijous</div></td><td class=\"timetable-hour\" rowspan=1><div>a les 18.00&nbsp;h</div></td><td class=\"timetable-price\" rowspan=1><div>Entrada Gratuïta</div></td><td class=\"timetable-description\" rowspan=1><div><p style=\"margin:0\">Aforament limitat</p></div></td></tr></table>",
+    "secondary_filters_tree": "",
+    "start_date": "2026-11-26T12:00:00",
+    "addresses_district_name": "Gràcia",
+    "end_date": "2026-11-26T12:00:00",
+    "geo_epgs_25831_x": "428607.482",
+    "addresses_start_street_number": "28",
+    "register_id": "﻿99400789830",
+    "institution_id": "",
+    "addresses_main_address": "True",
+    "addresses_district_id": "6",
+    "addresses_roadtype_id": "",
+    "addresses_type": "",
+    "addresses_neighborhood_id": "28",
+    "_id": 4873,
+    "name": "Xerrada 'Primers auxilis per a gent gran'",
+    "addresses_road_id": "56402",
+    "created": "2026-10-30T14:24:00.047877",
+    "geo_epgs_25831_y": "4584887.074",
+    "institution_name": "",
+    "modified": "2026-10-30T14:25:24.872237",
+    "secondary_filters_asia_id": "",
+    "secondary_filters_fullpath": "",
+    "geo_epgs_4326_lat": "41.41236403095899",
+    "values_description": "",
+    "values_id": null,
+    "addresses_neighborhood_name": "Vallcarca i els Penitents",
+    "values_outstanding": "",
+    "values_attribute_id": null
+   },
+   {
+    "addresses_roadtype_name": "",
+    "addresses_end_street_number": "28",
+    "geo_epgs_4326_lon": "2.1457730218797497",
+    "values_attribute_name": "",
+    "estimated_dates": "",
+    "addresses_road_name": "Carrer de Cambrils",
+    "values_category": "",
+    "addresses_zip_code": "8023",
+    "secondary_filters_id": "",
+    "values_value": "",
+    "addresses_town": "Barcelona",
+    "secondary_filters_name": "",
+    "timetable": "<table class=\"timetable-table\"><tr class=\"timetable-header\"><th class=\"weekdays\">Dies</th><th class=\"hours\">Hores</th><th class=\"prices\">Preus</th><th class=\"description\">Observacions</th></tr><tr><td class=\"timetable-day\" rowspan=1><div>Dijous</div></td><td class=\"timetable-hour\" rowspan=1><div>a les 19.00&nbsp;h</div></td><td class=\"timetable-price\" rowspan=1><div>Entrada Gratuïta</div></td><td class=\"timetable-description\" rowspan=1><div><p style=\"margin:0\">Aforament limitat</p></div></td></tr></table>",
+    "secondary_filters_tree": "",
+    "start_date": "2026-11-19T12:00:00",
+    "addresses_district_name": "Gràcia",
+    "end_date": "2026-11-19T12:00:00",
+    "geo_epgs_25831_x": "428607.482",
+    "addresses_start_street_number": "28",
+    "register_id": "﻿99400789829",
+    "institution_id": "",
+    "addresses_main_address": "True",
+    "addresses_district_id": "6",
+    "addresses_roadtype_id": "",
+    "addresses_type": "",
+    "addresses_neighborhood_id": "28",
+    "_id": 4872,
+    "name": "Xerrada 'Una sola salut: Com connecten els antibiòtics, els animals, medi ambient i nosaltres?'",
+    "addresses_road_id": "56402",
+    "created": "2026-10-30T14:16:04.631687",
+    "geo_epgs_25831_y": "4584887.074",
+    "institution_name": "",
+    "modified": "2026-10-30T14:23:36.687176",
+    "secondary_filters_asia_id": "",
+    "secondary_filters_fullpath": "",
+    "geo_epgs_4326_lat": "41.41236403095899",
+    "values_description": "",
+    "values_id": null,
+    "addresses_neighborhood_name": "Vallcarca i els Penitents",
+    "values_outstanding": "",
+    "values_attribute_id": null
+   },
+   {
+    "addresses_roadtype_name": "",
+    "addresses_end_street_number": "28",
+    "geo_epgs_4326_lon": "2.1457730218797497",
+    "values_attribute_name": "",
+    "estimated_dates": "",
+    "addresses_road_name": "Carrer de Cambrils",
+    "values_category": "",
+    "addresses_zip_code": "8023",
+    "secondary_filters_id": "",
+    "values_value": "",
+    "addresses_town": "Barcelona",
+    "secondary_filters_name": "",
+    "timetable": "<table class=\"timetable-table\"><tr class=\"timetable-header\"><th class=\"weekdays\">Dies</th><th class=\"hours\">Hores</th><th class=\"prices\">Preus</th><th class=\"description\">Observacions</th></tr><tr><td class=\"timetable-day\" rowspan=1><div>Dijous</div></td><td class=\"timetable-hour\" rowspan=1><div>a les 18.00&nbsp;h</div></td><td class=\"timetable-price\" rowspan=1><div>Entrada Gratuïta</div></td><td class=\"timetable-description\" rowspan=1><div><p style=\"margin:0\">Aforament limitat</p></div></td></tr></table>",
+    "secondary_filters_tree": "",
+    "start_date": "2026-11-12T12:00:00",
+    "addresses_district_name": "Gràcia",
+    "end_date": "2026-11-12T12:00:00",
+    "geo_epgs_25831_x": "428607.482",
+    "addresses_start_street_number": "28",
+    "register_id": "﻿99400789827",
+    "institution_id": "",
+    "addresses_main_address": "True",
+    "addresses_district_id": "6",
+    "addresses_roadtype_id": "",
+    "addresses_type": "",
+    "addresses_neighborhood_id": "28",
+    "_id": 4871,
+    "name": "Xerrada 'Document voluntats anticipades'",
+    "addresses_road_id": "56402",
+    "created": "2026-10-30T14:11:04.080434",
+    "geo_epgs_25831_y": "4584887.074",
+    "institution_name": "",
+    "modified": "2026-10-30T14:14:38.216222",
+    "secondary_filters_asia_id": "",
+    "secondary_filters_fullpath": "",
+    "geo_epgs_4326_lat": "41.41236403095899",
+    "values_description": "",
+    "values_id": null,
+    "addresses_neighborhood_name": "Vallcarca i els Penitents",
+    "values_outstanding": "",
+    "values_attribute_id": null
+   }
+  ],
+  "_links": {
+   "start": "/api/action/datastore_search?sort=modified+desc&limit=3&resource_id=877ccf66-9106-4ae2-be51-95a9f6469e4c",
+   "next": "/api/action/datastore_search?sort=modified+desc&offset=3&limit=3&resource_id=877ccf66-9106-4ae2-be51-95a9f6469e4c"
+  },
+  "limit": 3,
+  "total": 4878
+ }
+}
