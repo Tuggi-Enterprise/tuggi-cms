@@ -225,10 +225,10 @@ Deno.test('#1077 BR-EVENTO-009 item 3: opendatasoft (Paris) pages to its total, 
     banksy.source_url,
     'https://www.paris.fr/evenements/l-exposition-permanente-du-musee-banksy-sur-le-plus-mysterieux-des-graffeurs-51551',
   );
-  // BR-EVENTO-009 item 3: HTML to text, no tag left, the credit of the city as the last paragraph.
+  // BR-EVENTO-009 item 3: HTML to text, no tag left, and since #1082 no credit line in the text.
   assert(!/<[a-z]/i.test(banksy.description), 'no HTML left');
   assert(banksy.description.startsWith('Ouvert depuis juin 2019'), banksy.description.slice(0, 40));
-  assert(banksy.description.endsWith('\n\nInformações: Ville de Paris (paris.fr)'), 'credit line last');
+  assert(!banksy.description.includes('Informações:'), `credit line in the text: ${banksy.description.slice(-60)}`);
   // BR-EVENTO-009 item 5: the cover copied to our bucket, with the credit the source gives.
   assert(
     banksy.poster_url!.startsWith(
@@ -270,8 +270,8 @@ Deno.test('#1077 BR-EVENTO-009: ckan datastore (Barcelona), BOM out of the id, l
   assertEquals(talk.payload.language, 'ca-es');
   assertEquals(talk.payload.source_url, 'https://guia.barcelona.cat/ca/detall/-/99400789830');
   assertEquals([talk.payload.lat, talk.payload.lon], [41.41236403095899, 2.1457730218797497]);
-  // No description at the source: the credit line alone.
-  assertEquals(talk.payload.description, 'Informações: Ajuntament de Barcelona (barcelona.cat)');
+  // No description at the source: no description (#1082), the credit is not a text of its own.
+  assertEquals(talk.payload.description, '');
 });
 
 Deno.test('#1077 BR-EVENTO-009 item 7: ckan GeoJSON (Montréal) drops the council and the ended; free from cout', async () => {
@@ -409,7 +409,7 @@ Deno.test('#1077 BR-EVENTO-009: jsonld (Wien Erleben) takes the dates of subEven
   assertEquals([ev.starts_at, ev.ends_at], ['2026-11-27T19:00:00+01:00', '2026-11-29T17:00:00+01:00']);
   assertEquals([ev.lat, ev.lon], [48.134641833869146, 16.28270199842222]);
   assertEquals([ev.language, ev.poster_url], ['de-de', null]);
-  assert(ev.description.endsWith('\n\nInformações: Stadt Wien (wien.gv.at)'));
+  assert(ev.description.length > 0 && !ev.description.includes('Informações:'), ev.description.slice(-60));
 });
 
 Deno.test('#1077: a second run of the same records is unchanged, and fetches no image again', async () => {
@@ -421,6 +421,19 @@ Deno.test('#1077: a second run of the same records is unchanged, and fetches no 
   // The store fake answers the poster of each item, so the second run reuses it.
   assertEquals(net.urls.filter((u) => u.includes('cdn.paris.fr')).length, imagesFirst);
   assertEquals(store.calls.length, 6);
+});
+
+Deno.test('#1082 BR-EVENTO-009 item 3: the credit is out of the hash, so taking it off the text updates no event', async () => {
+  // The hash of an item is the record of the source, never the description built from it: a run after #1082
+  // over records stored before it, or with another credit line in the source row, is unchanged.
+  const { store, deps } = setup();
+  await importSource(deps, PARIS, link());
+  const other = { ...PARIS, credit: 'Informações: Outra fonte (example.org)' };
+  const run2 = await importSource(deps, other, { chain: 1, run_started_at: new Date(NOW + 1000).toISOString() });
+  assertEquals([run2.summary.unchanged, run2.summary.updated, run2.summary.created], [3, 0, 0]);
+  const [first, second] = [store.calls.slice(0, 3), store.calls.slice(3)];
+  assertEquals(second.map((c) => c.payload.source_hash), first.map((c) => c.payload.source_hash));
+  assertEquals(second.map((c) => c.payload.description), first.map((c) => c.payload.description));
 });
 
 Deno.test('#1077: a generic source goes on after the last key started; done sources are not read again', async () => {

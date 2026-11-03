@@ -217,7 +217,7 @@ Deno.test('#1075: SPTuris categories map onto EVENT_CATEGORIES of the CMS; unkno
   for (const [slug, expected] of cases) assertEquals([slug, mapCategory(slug)], [slug, expected]);
 });
 
-Deno.test('#1075 BR-EVENTO-009 item 3: the HTML becomes paragraphs of plain text, then the credit line', () => {
+Deno.test('#1075 #1082 BR-EVENTO-009 item 3: the HTML becomes paragraphs of plain text, without the credit line', () => {
   assertEquals(
     htmlToText(
       '<p><em>Alegría &ndash; In a New Light</em>, do Cirque&nbsp;du Soleil.</p>\n<p>Linha 1<br/>Linha 2 &amp; mais &#8220;x&#8221;</p><ul><li>um</li><li>dois</li></ul>',
@@ -226,9 +226,11 @@ Deno.test('#1075 BR-EVENTO-009 item 3: the HTML becomes paragraphs of plain text
   );
   const text = buildDescription(F1.descricao_html);
   assert(text.startsWith('O Fórmula 1 MSC Cruises Grande Prêmio de São Paulo 2026 promete'), text.slice(0, 80));
-  assert(text.endsWith('\n\nInformações: Cidade de São Paulo (cidadedesaopaulo.com)'), text.slice(-80));
+  assert(!text.includes(SPTUR_CREDIT_LINE), `the credit line went into the text: ${text.slice(-80)}`);
+  assert(!text.includes('Informações:'), text.slice(-80));
   assert(!/[<>]/.test(text), 'no tag survives');
-  assertEquals(buildDescription(undefined), SPTUR_CREDIT_LINE);
+  // No text at the source: no description, and the RPC stores none.
+  assertEquals(buildDescription(undefined), '');
 });
 
 Deno.test('#1075: the hash ignores `hoje`, which changes every day, and sees any other change', async () => {

@@ -33,7 +33,7 @@ import {
   type SourceConfig,
 } from './events-sources.ts';
 
-/** BR-EVENTO-009 item 3: the credit line that closes every description copied from the SPTuris. */
+/** BR-EVENTO-009 item 3: the credit line of the SPTuris, the fallback when a source row has no `credit`. */
 export const SPTUR_CREDIT = 'Cidade de São Paulo (cidadedesaopaulo.com)';
 export const SPTUR_CREDIT_LINE = `Informações: ${SPTUR_CREDIT}`;
 /** The bucket the CMS already serves attraction images from (`PUBLIC_IMAGE_BUCKET` in the CMS). */
@@ -107,7 +107,7 @@ export interface EventSource {
   city?: string;
   state?: string | null;
   country?: string;
-  /** BR-EVENTO-009 item 3: "Informações: <órgão> (<domínio>)", the last line of every description. */
+  /** BR-EVENTO-009 item 3: "Informações: <órgão> (<domínio>)". Shown apart from the text (#1082), and the image credit when the image has none. */
   credit?: string;
   config?: SourceConfig | null;
 }
@@ -249,15 +249,19 @@ export interface SourceReport {
 
 export { decodeEntities, htmlToText, localIso } from './events-text.ts';
 
-/** BR-EVENTO-009 item 3: the source's text as it is, then the credit line of the source as its own paragraph. */
-export function buildDescription(html: unknown, creditLine: string = SPTUR_CREDIT_LINE): string {
-  const body = typeof html === 'string' ? htmlToText(html) : '';
-  return body ? `${body}\n\n${creditLine}` : creditLine;
+/**
+ * BR-EVENTO-009 item 3: the source's text as it is. The credit line of the source is not part of it since #1082: it
+ * is its own field (`source_credit` of the event details), so the voice never reads it and nothing translates it.
+ * No text at the source gives '', which the RPC stores as no description.
+ */
+export function buildDescription(html: unknown): string {
+  return typeof html === 'string' ? htmlToText(html) : '';
 }
 
 /**
  * BR-EVENTO-009, edge case "a linha de crédito é texto exibido, não narração": the text to speak out of a
- * description built by `buildDescription`. The credit line comes off only when it is the last paragraph, so a
+ * description imported before #1082, when the credit line was still its last paragraph. It goes away in #1081, once
+ * the migration that takes the line out of the stored texts is applied. The credit line comes off only when it is the last paragraph, so a
  * text the curator rewrote is spoken whole. Empty means there is nothing to narrate.
  */
 export function spokenDescription(description: string, creditLine: string): string {
@@ -889,7 +893,7 @@ async function buildGenericPayload(
 
   const payload: EventPayload = {
     name: event.name,
-    description: buildDescription(event.description, creditLine),
+    description: buildDescription(event.description),
     starts_at: event.starts_at,
     ends_at: event.ends_at,
     all_day: event.all_day,
