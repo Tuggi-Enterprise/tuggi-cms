@@ -10,7 +10,7 @@ import { useEffect, useState } from 'react'
 import { useQueryClient } from '@tanstack/react-query'
 import { useTranslations } from 'next-intl'
 import { CalendarDays, Info, CalendarClock, Ticket, Link2, Loader2 } from 'lucide-react'
-import { eventService } from '@/lib/core/event-service'
+import { eventService, sourceCreditOf } from '@/lib/core/event-service'
 import { useEventDetails } from '@/lib/hooks/use-events'
 import { useReverseGeocode } from '@/lib/hooks/use-reverse-geocode'
 import { IDENTITY_REQUIRED_FIELDS, missingRequiredLabels } from '@/lib/core/entity-form-validation'
@@ -52,10 +52,12 @@ function fromDatetimeLocal(val: string): string | null {
 
 export function EventFormModal({ eventId, isOpen, onClose, onSaved }: EventFormModalProps) {
   const t = useTranslations('Modals.EventDetails')
+  const tEvents = useTranslations('EventManagement')
   const queryClient = useQueryClient()
   const { canEdit } = useCmsUser()
   const isEdit = !!eventId
   const { data: details, isLoading: loadingDetails, refetch } = useEventDetails(eventId ?? null, isOpen && isEdit)
+  const sourceCredit = isEdit ? sourceCreditOf(details) : null
 
   const [form, setForm] = useState<Record<string, any>>({})
   const [saving, setSaving] = useState(false)
@@ -235,6 +237,13 @@ export function EventFormModal({ eventId, isOpen, onClose, onSaved }: EventFormM
       onClose={onClose}
       onSave={handleSave}
       invalidate={invalidate}
+      descriptionFooter={sourceCredit ? (
+        // BR-EVENTO-009 item 3 (#1082): the credit of the source is its own field, shown and never edited here.
+        <p data-testid="event-source-credit" className="text-xs text-gray-500 dark:text-gray-400">
+          <span className="font-bold uppercase tracking-tighter mr-1.5">{tEvents('source.credit')}</span>
+          {sourceCredit}
+        </p>
+      ) : undefined}
       sidebarFooter={isEdit ? (
         <PublishingControls
           title={t('sections.publish')}

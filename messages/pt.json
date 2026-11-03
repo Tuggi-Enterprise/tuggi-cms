@@ -2317,7 +2317,8 @@
     "empty": "Nenhum evento encontrado.",
     "source": {
       "label": "Fonte",
-      "manual": "Cadastro manual"
+      "manual": "Cadastro manual",
+      "credit": "Crédito da fonte"
     },
     "categories": {
       "music": "Música",

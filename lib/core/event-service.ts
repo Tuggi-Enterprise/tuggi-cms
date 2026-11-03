@@ -137,6 +137,17 @@ function client() {
   return getSupabaseClient()
 }
 
+/**
+ * BR-EVENTO-009 item 3 (#1082): the credit line of the source that imported the event, read from
+ * `source_credit` of get_event_details. Null for a manual or a linked event, and also while the RPC does not
+ * send the field yet: an absent or blank credit shows nothing.
+ */
+export function sourceCreditOf(details: unknown): string | null {
+  if (!details || typeof details !== 'object') return null
+  const credit = (details as { source_credit?: unknown }).source_credit
+  return typeof credit === 'string' && credit.trim() ? credit.trim() : null
+}
+
 export const eventService = {
   async list(filters: EventFilters = {}): Promise<{ items: EventListItem[]; total: number }> {
     const page = filters.page ?? 1

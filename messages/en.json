@@ -1969,7 +1969,8 @@
     "empty": "No events found.",
     "source": {
       "label": "Source",
-      "manual": "Added by hand"
+      "manual": "Added by hand",
+      "credit": "Source credit"
     },
     "categories": {
       "music": "Music",

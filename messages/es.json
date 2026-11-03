@@ -1956,7 +1956,8 @@
     "empty": "No se encontraron eventos.",
     "source": {
       "label": "Fuente",
-      "manual": "Registro manual"
+      "manual": "Registro manual",
+      "credit": "Crédito de la fuente"
     },
     "categories": {
       "music": "Música",
