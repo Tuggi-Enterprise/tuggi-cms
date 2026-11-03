@@ -1927,7 +1927,26 @@
       "status_pending": "Pending",
       "time_all": "All dates",
       "time_upcoming": "Upcoming",
-      "time_past": "Past"
+      "time_past": "Past",
+      "country": "Country",
+      "country_all": "All countries",
+      "state": "State",
+      "state_all": "All states",
+      "city": "City",
+      "city_all": "All cities",
+      "category": "Category",
+      "source": "Source",
+      "source_all": "All sources",
+      "period": "Period",
+      "period_from": "From",
+      "period_to": "To",
+      "price": "Price",
+      "price_all": "Free and paid",
+      "price_free": "Free",
+      "price_paid": "Paid",
+      "missing_image": "No image",
+      "missing_trigger_points": "No trigger point",
+      "clear": "Clear filters"
     },
     "stats": {
       "total": "Total",
@@ -1947,7 +1966,22 @@
       "pending": "Pending"
     },
     "content_summary": "{desc} desc · {tp} TP",
-    "empty": "No events found."
+    "empty": "No events found.",
+    "source": {
+      "label": "Source",
+      "manual": "Added by hand"
+    },
+    "categories": {
+      "music": "Music",
+      "sports": "Sports",
+      "festival": "Festival",
+      "theatre": "Theatre",
+      "exhibition": "Exhibition",
+      "kids": "Kids",
+      "conference": "Talk",
+      "fair": "Fair",
+      "other": "Other"
+    }
   },
   "PartnerProposals": {
     "promotion": {

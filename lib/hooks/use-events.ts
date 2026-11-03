@@ -24,6 +24,16 @@ export function useEventFacets(filters: EventFilters, enabled: boolean = true) {
   })
 }
 
+/** Options of the sidebar filters, in cascade by country and state (#1078). */
+export function useEventFilterOptions(country: string | null, state: string | null) {
+  return useQuery({
+    queryKey: ['events-filter-options', country, state],
+    queryFn: () => eventService.getFilterOptions(country, state),
+    placeholderData: (previousData) => previousData,
+    staleTime: 60 * 1000,
+  })
+}
+
 /** Detalhe de 1 evento. */
 export function useEventDetails(id: string | null, enabled: boolean = true) {
   return useQuery({

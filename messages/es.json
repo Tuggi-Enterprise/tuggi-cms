@@ -1914,7 +1914,26 @@
       "status_pending": "Pendientes",
       "time_all": "Todas las fechas",
       "time_upcoming": "Próximos",
-      "time_past": "Pasados"
+      "time_past": "Pasados",
+      "country": "País",
+      "country_all": "Todos los países",
+      "state": "Estado",
+      "state_all": "Todos los estados",
+      "city": "Ciudad",
+      "city_all": "Todas las ciudades",
+      "category": "Categoría",
+      "source": "Fuente",
+      "source_all": "Todas las fuentes",
+      "period": "Período",
+      "period_from": "Desde",
+      "period_to": "Hasta",
+      "price": "Precio",
+      "price_all": "Gratis y pagos",
+      "price_free": "Gratis",
+      "price_paid": "Pagos",
+      "missing_image": "Sin imagen",
+      "missing_trigger_points": "Sin punto de disparo",
+      "clear": "Limpiar filtros"
     },
     "stats": {
       "total": "Total",
@@ -1934,7 +1953,22 @@
       "pending": "Pendiente"
     },
     "content_summary": "{desc} desc · {tp} TP",
-    "empty": "No se encontraron eventos."
+    "empty": "No se encontraron eventos.",
+    "source": {
+      "label": "Fuente",
+      "manual": "Registro manual"
+    },
+    "categories": {
+      "music": "Música",
+      "sports": "Deporte",
+      "festival": "Festival",
+      "theatre": "Teatro",
+      "exhibition": "Exposición",
+      "kids": "Infantil",
+      "conference": "Charla",
+      "fair": "Feria",
+      "other": "Otros"
+    }
   },
   "PartnerProposals": {
     "promotion": {

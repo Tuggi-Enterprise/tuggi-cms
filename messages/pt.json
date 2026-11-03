@@ -2275,7 +2275,26 @@
       "status_pending": "Pendentes",
       "time_all": "Todas as datas",
       "time_upcoming": "Próximos",
-      "time_past": "Passados"
+      "time_past": "Passados",
+      "country": "País",
+      "country_all": "Todos os países",
+      "state": "Estado",
+      "state_all": "Todos os estados",
+      "city": "Cidade",
+      "city_all": "Todas as cidades",
+      "category": "Categoria",
+      "source": "Fonte",
+      "source_all": "Todas as fontes",
+      "period": "Período",
+      "period_from": "De",
+      "period_to": "Até",
+      "price": "Preço",
+      "price_all": "Grátis e pagos",
+      "price_free": "Grátis",
+      "price_paid": "Pagos",
+      "missing_image": "Sem imagem",
+      "missing_trigger_points": "Sem ponto de disparo",
+      "clear": "Limpar filtros"
     },
     "stats": {
       "total": "Total",
@@ -2295,7 +2314,22 @@
       "pending": "Pendente"
     },
     "content_summary": "{desc} desc · {tp} TP",
-    "empty": "Nenhum evento encontrado."
+    "empty": "Nenhum evento encontrado.",
+    "source": {
+      "label": "Fonte",
+      "manual": "Cadastro manual"
+    },
+    "categories": {
+      "music": "Música",
+      "sports": "Esporte",
+      "festival": "Festival",
+      "theatre": "Teatro",
+      "exhibition": "Exposição",
+      "kids": "Infantil",
+      "conference": "Palestra",
+      "fair": "Feira",
+      "other": "Outros"
+    }
   },
   "PlaceManagement": {
     "title": "Locais",

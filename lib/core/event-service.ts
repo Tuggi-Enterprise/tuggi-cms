@@ -35,6 +35,9 @@ export interface EventListItem {
   price_max: number | null
   description_count: number
   trigger_point_count: number
+  /** The official source of the event (core.event_sources), null for an event created by hand. */
+  source_id: string | null
+  source_name: string | null
 }
 
 export interface EventFilters {
@@ -47,8 +50,64 @@ export interface EventFilters {
   time?: 'all' | 'upcoming' | 'past'
   startsAfter?: string | null
   startsBefore?: string | null
+  /** Codes of core.event_details.event_category; empty = every category. */
+  categories?: string[]
+  /** uuid of core.event_sources, or 'manual' for events with no source item. */
+  source?: string | null
+  free?: EventFreeFilter
+  missingImage?: boolean
+  missingTriggerPoints?: boolean
   page?: number
   pageSize?: number
+}
+
+export type EventFreeFilter = 'all' | 'free' | 'paid'
+
+/** One option of a sidebar filter, from core.cms_event_filter_options. */
+export interface EventFilterOption {
+  value: string
+  /** Null for the 'manual' source and a code for a category: the screen names them. */
+  label: string | null
+  count: number
+}
+
+export interface EventFilterOptions {
+  country: EventFilterOption[]
+  state: EventFilterOption[]
+  city: EventFilterOption[]
+  category: EventFilterOption[]
+  source: EventFilterOption[]
+}
+
+const OPTION_KINDS = ['country', 'state', 'city', 'category', 'source'] as const
+
+/**
+ * The filter arguments shared by cms_list_events and cms_event_facets (core.cms_event_scope, #1076).
+ * Defaults are sent explicitly, so an absent filter never narrows the list.
+ */
+export function scopeArgs(filters: EventFilters) {
+  return {
+    search_term: filters.search || null,
+    country_filter: filters.country || null,
+    state_filter: filters.state || null,
+    city_filter: filters.city || null,
+    category_filter: filters.categories && filters.categories.length > 0 ? filters.categories : null,
+    source_filter: filters.source || null,
+    free_filter: filters.free || 'all',
+    missing_image: !!filters.missingImage,
+    missing_trigger_points: !!filters.missingTriggerPoints,
+  }
+}
+
+/** Rows of cms_event_filter_options grouped by kind; an unknown kind is dropped. */
+export function groupFilterOptions(rows: { kind: string; value: string; label: string | null; count: number | string }[]): EventFilterOptions {
+  const out: EventFilterOptions = { country: [], state: [], city: [], category: [], source: [] }
+  for (const row of rows) {
+    const kind = row.kind as (typeof OPTION_KINDS)[number]
+    if (OPTION_KINDS.indexOf(kind) < 0 || !row.value) continue
+    out[kind].push({ value: row.value, label: row.label, count: Number(row.count || 0) })
+  }
+  return out
 }
 
 export interface EventFacets {
@@ -85,11 +144,8 @@ export const eventService = {
     const { data, error } = await client()
       .schema('core')
       .rpc('cms_list_events', {
-        search_term: filters.search || null,
+        ...scopeArgs(filters),
         status_filter: filters.status || 'all',
-        country_filter: filters.country || null,
-        state_filter: filters.state || null,
-        city_filter: filters.city || null,
         event_status_filter: filters.eventStatus || 'all',
         time_filter: filters.time || 'all',
         starts_after: filters.startsAfter || null,
@@ -106,12 +162,7 @@ export const eventService = {
   async getFacets(filters: EventFilters = {}): Promise<EventFacets> {
     const { data, error } = await client()
       .schema('core')
-      .rpc('cms_event_facets', {
-        search_term: filters.search || null,
-        country_filter: filters.country || null,
-        state_filter: filters.state || null,
-        city_filter: filters.city || null,
-      })
+      .rpc('cms_event_facets', scopeArgs(filters))
     if (error) throw new Error(error.message)
     const f = (data?.[0] || {}) as Record<string, number>
     return {
@@ -123,6 +174,15 @@ export const eventService = {
       withDescription: Number(f.with_description_count || 0),
       withTriggerPoints: Number(f.with_trigger_points_count || 0),
     }
+  },
+
+  /** Options of the sidebar, in cascade: states of the country, cities of the state (#1078). */
+  async getFilterOptions(country?: string | null, state?: string | null): Promise<EventFilterOptions> {
+    const { data, error } = await client()
+      .schema('core')
+      .rpc('cms_event_filter_options', { country_filter: country || null, state_filter: state || null })
+    if (error) throw new Error(error.message)
+    return groupFilterOptions((data || []) as { kind: string; value: string; label: string | null; count: number }[])
   },
 
   async getDetails(id: string) {
