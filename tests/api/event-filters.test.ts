@@ -28,7 +28,7 @@ const SOURCE = '0b1d6c1e-5f3a-4c8e-9a51-2d6f0f2a7b11'
 test('#1078: the URL of "Paris, exhibition, free, no image" reads back the same filters', () => {
   const url = new URLSearchParams(
     `country=France&state=%C3%8Ele-de-France&city=Paris&category=exhibition,music&source=${SOURCE}` +
-      '&from=2026-11-01&to=2026-11-30&free=free&noImage=1&noTriggerPoints=1&status=approved&time=upcoming&page=3&view=map',
+      '&from=2026-11-01&to=2026-11-30&free=free&noImage=1&noTriggerPoints=1&status=approved&time=past&page=3&view=map',
   )
   const f = readEventFilters(url)
   assert.equal(f.city, 'Paris')
@@ -106,4 +106,12 @@ test('#1078: filter options group by kind and keep the manual source, whose labe
   assert.deepEqual(g.source.map((o) => o.value), [SOURCE, 'manual'])
   assert.equal(g.source[1].label, null)
   assert.equal(g.state.length, 0)
+})
+
+test('the events screen opens on what is still happening; past or all only when chosen', () => {
+  assert.equal(EMPTY_EVENT_FILTERS.time, 'upcoming')
+  assert.equal(readEventFilters(new URLSearchParams('')).time, 'upcoming')
+  assert.equal(writeEventFilters({ ...EMPTY_EVENT_FILTERS, time: 'all' }).toString(), 'time=all')
+  assert.equal(readEventFilters(new URLSearchParams('time=past')).time, 'past')
+  assert.equal(hasActiveEventFilters({ ...EMPTY_EVENT_FILTERS, time: 'past' }), true)
 })

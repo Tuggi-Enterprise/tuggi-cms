@@ -29,7 +29,7 @@ export interface EventPageFilters {
 export const EMPTY_EVENT_FILTERS: EventPageFilters = {
   search: '',
   status: 'all',
-  time: 'all',
+  time: 'upcoming',
   country: '',
   state: '',
   city: '',
@@ -63,7 +63,7 @@ export function readEventFilters(params: ReadableParams): EventPageFilters {
   return {
     search: params.get('search') || '',
     status: oneOf(params.get('status'), ['all', 'approved', 'pending'] as const, 'all'),
-    time: oneOf(params.get('time'), ['all', 'upcoming', 'past'] as const, 'all'),
+    time: oneOf(params.get('time'), ['all', 'upcoming', 'past'] as const, 'upcoming'),
     country: params.get('country') || '',
     state: params.get('state') || '',
     city: params.get('city') || '',
@@ -84,7 +84,7 @@ export function writeEventFilters(f: EventPageFilters): URLSearchParams {
   const p = new URLSearchParams()
   if (f.search.trim()) p.set('search', f.search)
   if (f.status !== 'all') p.set('status', f.status)
-  if (f.time !== 'all') p.set('time', f.time)
+  if (f.time !== 'upcoming') p.set('time', f.time)
   if (f.country) p.set('country', f.country)
   if (f.state) p.set('state', f.state)
   if (f.city) p.set('city', f.city)
