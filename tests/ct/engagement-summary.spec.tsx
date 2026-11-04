@@ -1,6 +1,7 @@
 /**
- * The executive summary of the Engagement report (#1099, spec-cms-relatorio-engajamento-2026-11
- * Parte B, criterion §B15), mounted with the fixtures of the report.
+ * The executive summary of the Engagement and conversion report (#1099, #1101,
+ * spec-cms-relatorio-engajamento-2026-11 Parte B criterion §B15 and Parte C criterion §C16), mounted
+ * with the fixtures of the report.
  *
  * Run with: npx playwright test -c playwright-ct.config.ts engagement-summary
  * Set ENGAGEMENT_SHOTS=<dir> to also write the 1440 and 390 captures of the summary.
@@ -9,7 +10,8 @@
 import { test, expect } from '@playwright/experimental-ct-react'
 import type { Page } from '@playwright/test'
 import { EngagementHarness as Screen, SparklineHarness } from './engagement-helpers'
-import { BANK, GA4, MONTHS, TODAY } from './engagement-fixtures'
+import { BANK, CONVERSION, CONVERSION_OLD, GA4, MONTHS, TODAY } from './engagement-fixtures'
+import AxeBuilder from '@axe-core/playwright'
 import { CHART_COLORS, CHART_NEUTRAL } from '@/lib/constants/chart-colors'
 import ptMessages from '@/messages/pt.json'
 
@@ -57,7 +59,7 @@ test('spec B15 items 1 and 3 DS-COMPONENTE-100: October by default, last closed 
   await expect(ret.getByTestId('summary-tile-delta')).toHaveText('−1 pt vs ago')
   await expect(ret.getByTestId('summary-tile-delta')).toHaveClass(/text-red-700/)
 
-  await c.update(<Screen months={MONTHS} today={TODAY} bank={BANK_OPEN} ga4={GA4_ENGAGED} summaryMonth="2026-11" />)
+  await c.update(<Screen months={MONTHS} today={TODAY} bank={BANK_OPEN} ga4={GA4_ENGAGED} month="2026-11" />)
   await expect(page.locator('[data-testid^="summary-delta-icon-"]')).toHaveCount(0)
   for (const d of await page.getByTestId('summary-tile-delta').all()) await expect(d).toHaveText(E.until_today)
 })
@@ -74,55 +76,6 @@ test('spec B15 item 6: six right-aligned slots, a gap opens two paths, the accen
   await expect(page.locator('svg[role="img"] > title')).toHaveText('null · null · 160 · 142 · 98 · 29')
   await c.update(<SparklineHarness points={[10, 12, null, 14, 15, 16]} />)
   await expect(page.getByTestId('sparkline-path')).toHaveCount(2)
-})
-
-test('spec B15 item 7: modes columns on the ruler, opened at the end, heights value over stripTop times 160, a 2 px gap, three legend items, six panel values', async ({ mount, page }) => {
-  await page.setViewportSize({ width: 1440, height: 1200 })
-  await mount(<Screen months={MONTHS} today={TODAY} bank={BANK_OPEN} ga4={GA4_ENGAGED} />)
-  const card = page.getByTestId('summary-modes')
-  await expect(card.locator('li[data-testid^="summary-modes-columns-col-"]')).toHaveCount(4)
-  // November: 9, 11, 21 of stripTop(41) = 50
-  for (const [key, v] of [['drive_only', 9], ['both', 11], ['explore_only', 21]] as const) {
-    const h = await card.getByTestId(`summary-modes-columns-seg-${key}`).evaluate((e) => e.getBoundingClientRect().height)
-    expect(Math.abs(h - (v / 50) * 160)).toBeLessThanOrEqual(1)
-  }
-  await expect(card.getByTestId('summary-modes-columns-seg-drive_only')).toHaveCSS('background-color', rgb(CHART_COLORS.blue))
-  const gap = await card.getByTestId('summary-modes-columns-seg-drive_only').evaluate((e) => {
-    const a = e.getBoundingClientRect()
-    const b = (e.nextElementSibling as HTMLElement).getBoundingClientRect()
-    return a.top - b.bottom
-  })
-  expect(Math.abs(gap - 2)).toBeLessThanOrEqual(0.5)
-  // contract Parte 25: before data_since.open the three groups are null and nothing is drawn
-  await expect(card.getByTestId('summary-modes-columns-col-2026-09').locator('[data-testid^="summary-modes-columns-seg-"]')).toHaveCount(0)
-  await expect(card.getByTestId('summary-modes-columns-col-2026-09')).toContainText('no carro \u2014, os dois \u2014, explorando \u2014')
-  await expect(card.getByTestId('summary-modes-columns-legend').locator('li')).toHaveCount(3)
-  await expect(card.getByTestId('summary-modes-columns-legend')).not.toContainText(/\d/)
-  await expect(card.getByTestId('summary-modes-panel').locator('dd')).toHaveCount(6)
-})
-
-test('spec B15 item 8: two hollow bands above the seam, two filled below, max of four, a rate only inside each instrument, one biggest drop', async ({ mount, page }) => {
-  await page.setViewportSize({ width: 1440, height: 1200 })
-  await mount(<Screen months={MONTHS} today={TODAY} bank={BANK_OPEN} ga4={GA4_ENGAGED} summaryMonth="2026-09" />)
-  const f = page.getByTestId('summary-funnel')
-  await expect(f.getByTestId('funnel-band-opened')).toHaveClass(/border-dashed/)
-  await expect(f.getByTestId('funnel-band-engaged')).toHaveClass(/border-dashed/)
-  await expect(f.getByTestId('funnel-band-used')).toHaveCSS('background-color', rgb(CHART_COLORS.blue))
-  await expect(f.getByTestId('funnel-seam')).toHaveText('')
-  const w = async (k: string) => f.getByTestId(`funnel-band-${k}`).evaluate((e) => e.getBoundingClientRect().width)
-  const col = await f.getByTestId('funnel-band-col-opened').evaluate((e) => e.getBoundingClientRect().width)
-  expect(Math.abs((await w('opened')) - col)).toBeLessThanOrEqual(1)
-  await expect(f.getByTestId('funnel-step-engaged')).toContainText('54% de quem abriu')
-  await expect(f.getByTestId('funnel-step-returned')).toContainText('11% de quem ouviu áudio')
-  await expect(f.getByTestId('funnel-badge')).toHaveCount(2) // the md and the short layout of the same band
-  await expect(f.getByTestId('funnel-step-returned').getByTestId('funnel-badge').first()).toHaveText(S.biggest_drop)
-})
-
-test('spec B15 item 8: with one rate measured no badge', async ({ mount, page }) => {
-  await page.setViewportSize({ width: 1440, height: 1200 })
-  await mount(<Screen months={MONTHS} today={TODAY} bank={BANK_OPEN} ga4={GA4_ENGAGED} />)
-  await expect(page.getByTestId('summary-funnel').getByTestId('funnel-badge')).toHaveCount(0)
-  await expect(page.getByTestId('summary-funnel').getByTestId('funnel-step-returned')).toContainText('fecha')
 })
 
 test('spec B15 item 9: a column sums 100 %, the suppressed band is neutral with its title, inner label only on 18 px, sky from light to dark', async ({ mount, page }) => {
@@ -144,38 +97,260 @@ test('spec B15 item 9: a column sums 100 %, the suppressed band is neutral with 
   await expect(aug.getByTestId('summary-frequency-columns-seg-d1')).toHaveText('64%')
 })
 
-test('spec B15 item 10: four toned rows, a null cell without tone, five legend squares, the curve gate with two closed cohorts', async ({ mount, page }) => {
-  await page.setViewportSize({ width: 1440, height: 1200 })
-  await mount(<Screen months={MONTHS} today={TODAY} bank={BANK_OPEN} ga4={GA4_ENGAGED} />)
-  const heat = page.getByTestId('summary-cohort-heat')
-  await expect(heat.locator('tbody tr[data-testid^="engagement-row-"]')).toHaveCount(4)
-  const d1Aug = heat.locator('[data-testid="engagement-row-ret_d1"] td').nth(0)
-  await expect(d1Aug).toHaveClass(/bg-emerald-300/)
-  const d30Oct = heat.locator('[data-testid="engagement-row-ret_d30"] td').nth(2)
-  await expect(d30Oct).not.toHaveClass(/bg-emerald/)
-  await expect(heat.getByTestId('summary-heat-legend').locator('li')).toHaveCount(5)
-  await expect(heat.getByTestId('summary-curve')).toHaveCount(0)
-  await expect(heat.getByTestId('summary-curve-gate')).toHaveText(S.curve_gate.replace('{n}', '2'))
-})
-
 test('spec B15 item 11: bank down marks tiles 2 and 4, GA4 down tiles 1 and 3 and the heads; a source filter empties the GA4 heads and keeps modes and frequency', async ({ mount, page }) => {
   await page.setViewportSize({ width: 1440, height: 1200 })
-  const c = await mount(<Screen months={MONTHS} today={TODAY} bankFailed ga4={GA4_ENGAGED} />)
+  const c = await mount(<Screen months={MONTHS} today={TODAY} bankFailed ga4={GA4_ENGAGED} conversion={CONVERSION} />)
   const summary = page.getByTestId('engagement-summary')
   await expect(summary.getByText(E.bank_failed, { exact: true })).toHaveCount(1)
   for (const t of ['guide_median', 'returned']) await expect(page.getByTestId(`summary-tile-${t}`).locator('p').first()).toHaveAttribute('title', E.cell_bank_failed)
   await expect(page.getByTestId('summary-tile-engaged').locator('p').first()).toHaveText('189')
 
-  await c.update(<Screen months={MONTHS} today={TODAY} bank={BANK_OPEN} ga4Failed />)
+  await c.update(<Screen months={MONTHS} today={TODAY} bank={BANK_OPEN} ga4Failed conversion={CONVERSION} />)
   await expect(summary.getByText(E.ga4_failed, { exact: true })).toHaveCount(1)
   for (const t of ['engaged', 'screen_minutes']) await expect(page.getByTestId(`summary-tile-${t}`).locator('p').first()).toHaveAttribute('title', E.cell_ga4_failed)
-  await expect(page.getByTestId('summary-funnel').getByTestId('funnel-step-opened')).toContainText(E.cell_ga4_failed)
+  await expect(page.getByTestId('summary-use-funnel').getByTestId('funnel-step-installs')).toBeVisible()
 
   await c.update(<Screen months={MONTHS} today={TODAY} bank={BANK_OPEN} filters={{ source: 'none', country: null, platform: null, account: null }} />)
   for (const t of ['engaged', 'screen_minutes']) await expect(page.getByTestId(`summary-tile-${t}`).locator('p').first()).toHaveAttribute('title', E.cell_ga4_filter)
-  await expect(page.getByTestId('summary-funnel').getByTestId('funnel-step-engaged')).toContainText(E.cell_ga4_filter)
   await expect(page.getByTestId('summary-modes-columns-seg-drive_only')).toBeVisible()
   await expect(page.getByTestId('summary-frequency-columns-col-2026-08').getByTestId('summary-frequency-columns-seg-d1')).toBeVisible()
   // BR-COMUNICACAO-022 item 4: no value prints 0 from a null (the axis ticks are not values)
-  await expect(summary.locator('dd, [data-testid^="summary-tile-"] p, [data-testid^="funnel-step-"] span').filter({ hasText: /^0$/ })).toHaveCount(0)
+  await expect(summary.locator('dd, [data-testid^="summary-tile-"] p').filter({ hasText: /^0$/ })).toHaveCount(0)
 })
+
+// ── Parte C (#1101) ──────────────────────────────────────────────────────────────────────────
+
+const U = S.use_funnel
+const P = S.purchase_funnel
+const full = (extra: Record<string, unknown> = {}) => <Screen months={MONTHS} today={TODAY} bank={BANK_OPEN} ga4={GA4_ENGAGED} conversion={CONVERSION} {...extra} />
+const top = (page: Page, id: string) => page.getByTestId(id).evaluate((e) => Math.round(e.getBoundingClientRect().top))
+const width = (page: Page, id: string) => page.getByTestId(id).evaluate((e) => e.getBoundingClientRect().width)
+
+test('#1101 spec C16 item 3: at 1440 modes beside days of use and the use funnel beside the purchase funnel; the purchase funnel wears id conversion', async ({ mount, page }) => {
+  await page.setViewportSize({ width: 1440, height: 1200 })
+  await mount(full())
+  expect(await top(page, 'summary-modes')).toBe(await top(page, 'summary-frequency'))
+  expect(await top(page, 'summary-use-funnel')).toBe(await top(page, 'summary-purchase-funnel'))
+  expect(await top(page, 'summary-use-funnel')).toBeGreaterThan(await top(page, 'summary-modes'))
+  await expect(page.getByTestId('summary-purchase-funnel')).toHaveAttribute('id', 'conversion')
+  // the cohorts come after both rows, at full width
+  expect(await top(page, 'summary-cohort-heat')).toBeGreaterThan(await top(page, 'summary-purchase-funnel'))
+})
+
+test('#1101 spec C16 item 3: at 390 the four cards stack in the order modes, days, use funnel, purchase funnel', async ({ mount, page }) => {
+  await page.setViewportSize({ width: 390, height: 1200 })
+  await mount(full())
+  const order = ['summary-modes', 'summary-frequency', 'summary-use-funnel', 'summary-purchase-funnel']
+  const tops = [] as number[]
+  for (const id of order) tops.push(await top(page, id))
+  expect([...tops].sort((a, b) => a - b)).toEqual(tops)
+  expect(new Set(tops).size).toBe(4)
+  const o = await page.evaluate(() => ({ s: document.documentElement.scrollWidth, c: document.documentElement.clientWidth }))
+  expect(o.s).toBeLessThanOrEqual(o.c + 1)
+})
+
+test('#1101 spec C16 item 4 BR-COMUNICACAO-022 item 4: August to October draw one neutral trip_total segment of active.trip, November the three modes, four legend items, the split month in the header, three visible help lines', async ({ mount, page }) => {
+  await page.setViewportSize({ width: 1440, height: 1200 })
+  await mount(full())
+  const card = page.getByTestId('summary-modes')
+  // stripTop of August's 150 (the tallest month) is 200
+  for (const [m, trip] of [['2026-08', 150], ['2026-09', 160], ['2026-10', 120]] as const) {
+    const col = card.getByTestId(`summary-modes-columns-col-${m}`)
+    await expect(col.locator('[data-testid^="summary-modes-columns-seg-"]')).toHaveCount(1)
+    const seg = col.getByTestId('summary-modes-columns-seg-trip_total')
+    await expect(seg).toHaveCSS('background-color', rgb(CHART_NEUTRAL))
+    await expect(seg).toHaveAttribute('title', S.modes.unsplit_title.replace('{n}', String(trip)))
+    const h = await seg.evaluate((e) => e.getBoundingClientRect().height)
+    expect(Math.abs(h - (trip / 200) * 160)).toBeLessThanOrEqual(1)
+  }
+  const nov = card.getByTestId('summary-modes-columns-col-2026-11')
+  for (const key of ['drive_only', 'both', 'explore_only']) await expect(nov.getByTestId(`summary-modes-columns-seg-${key}`)).toBeVisible()
+  await expect(nov.getByTestId('summary-modes-columns-seg-trip_total')).toHaveCount(0)
+  await expect(card.getByTestId('summary-modes-columns-legend').locator('li')).toHaveCount(4)
+  await expect(card.getByTestId('summary-modes-columns-legend').locator('li').last()).toHaveText(S.modes.unsplit)
+  await expect(card.getByTestId('summary-modes-note')).toHaveText(S.modes_note.replace('{month}', 'nov 2026'))
+  const help = card.getByTestId('summary-modes-help').locator('li')
+  await expect(help).toHaveCount(3)
+  for (const li of await help.all()) {
+    await expect(li).toBeVisible()
+    await expect(li).not.toHaveAttribute('title', /.*/)
+  }
+  await expect(help.first()).toContainText(S.modes.help_drive_only)
+  await expect(card.getByTestId('summary-modes-panel').locator('dd')).toHaveCount(6)
+  const helpBottom = await card.getByTestId('summary-modes-help').evaluate((e) => e.getBoundingClientRect().bottom)
+  const panelTop = await card.getByTestId('summary-modes-panel').evaluate((e) => e.getBoundingClientRect().top)
+  expect(panelTop).toBeGreaterThanOrEqual(helpBottom)
+})
+
+test('#1101 spec C16 item 4: with has_mode_fields false every month draws the neutral segment and the header says no month is split', async ({ mount, page }) => {
+  await page.setViewportSize({ width: 1440, height: 1200 })
+  const noModes = { ...BANK_OPEN, has_mode_fields: false }
+  await mount(full({ bank: noModes }))
+  const card = page.getByTestId('summary-modes')
+  await expect(card.getByTestId('summary-modes-columns-seg-trip_total')).toHaveCount(4)
+  await expect(card.getByTestId('summary-modes-note')).toHaveText(S.modes_note_none)
+})
+
+test('#1101 spec C16 item 5 DS-COMPONENTE-084 item 2: four bands in order, the two GA4 ones hollow with the tag, Entered split into account and guest, the only rate below Entered is of entered', async ({ mount, page }) => {
+  await page.setViewportSize({ width: 1440, height: 1200 })
+  await mount(full())
+  const f = page.getByTestId('summary-use-funnel')
+  const items = await f.locator('[data-testid="funnel-bands"] > li').evaluateAll((els) => els.map((e) => e.getAttribute('data-testid')))
+  expect(items).toEqual(['funnel-step-installs', 'funnel-seam', 'funnel-step-entered', 'funnel-step-new_engaged', 'funnel-step-used'])
+  for (const k of ['installs', 'new_engaged']) {
+    await expect(f.getByTestId(`funnel-band-${k}`)).toHaveClass(/border-dashed/)
+    await expect(f.getByTestId(`funnel-step-${k}`).getByTestId('funnel-tag').first()).toHaveText(E.ga4_badge)
+  }
+  await expect(f.getByTestId('funnel-step-entered').getByTestId('funnel-tag')).toHaveCount(0)
+  // Entered: 120 with an account and 200 guests of 320, the 2 px gap between them
+  const band = await width(page, 'funnel-band-entered')
+  const account = await f.getByTestId('funnel-part-account').evaluate((e) => e.getBoundingClientRect().width)
+  const guest = await f.getByTestId('funnel-part-guest').evaluate((e) => e.getBoundingClientRect().width)
+  expect(Math.abs(account - (band - 2) * (120 / 320))).toBeLessThanOrEqual(1)
+  expect(Math.abs(guest - (band - 2) * (200 / 320))).toBeLessThanOrEqual(1)
+  await expect(f.getByTestId('funnel-part-account')).toHaveAttribute('title', U.part_account.replace('{n}', '120'))
+  await expect(f.getByTestId('funnel-part-account')).toHaveCSS('background-color', rgb(CHART_COLORS.blue))
+  // one ruler: installs 450 is the widest
+  const col = await f.getByTestId('funnel-band-col-installs').evaluate((e) => e.getBoundingClientRect().width)
+  expect(Math.abs((await width(page, 'funnel-band-installs')) - col)).toBeLessThanOrEqual(1)
+  expect(Math.abs((await width(page, 'funnel-band-used')) - (250 / 450) * col)).toBeLessThanOrEqual(1)
+  // the seam prints the difference with installs measured, and no ratio
+  await expect(f.getByTestId('funnel-seam')).toHaveText(U.not_entered.replace('{count}', '130'))
+  await expect(f.getByTestId('funnel-step-used')).toContainText(U.of_entered.replace('{pct}', '78%'))
+  // interacted (GA4) carries no rate: its note is the sub, no percent
+  await expect(f.getByTestId('funnel-step-new_engaged')).toContainText(U.new_engaged_sub)
+  await expect(f.getByTestId('funnel-step-new_engaged')).not.toContainText('%')
+})
+
+test('#1101 spec C16 item 5 BR-COMUNICACAO-022 item 4: a function before #1100 empties Guide or story with no source and prints no rate; installs below entered shows no difference', async ({ mount, page }) => {
+  await page.setViewportSize({ width: 1440, height: 1200 })
+  await mount(full({ conversion: { ...CONVERSION_OLD, installs: { ios: 100, android: 100, total: 200 } } }))
+  const f = page.getByTestId('summary-use-funnel')
+  await expect(f.getByTestId('funnel-band-used')).toHaveCount(0)
+  await expect(f.getByTestId('funnel-step-used')).toContainText(S.tiles.no_source_bank)
+  await expect(f.getByTestId('funnel-seam')).toHaveText('')
+  await expect(f.getByText(U.floor_note)).toBeVisible()
+})
+
+test('#1101 spec C16 item 6 DS-COMPONENTE-101: trunk parts split Entered, each branch bar is its rate, both rates in the same class, the branch that converts more has the badge', async ({ mount, page }) => {
+  await page.setViewportSize({ width: 1440, height: 1200 })
+  await mount(full())
+  const f = page.getByTestId('summary-purchase-funnel')
+  const trunk = await f.getByTestId('purchase-trunk').locator('[aria-hidden="true"]').first().evaluate((e) => e.getBoundingClientRect().width)
+  const tested = await width(page, 'purchase-trunk-part-tested')
+  const untested = await width(page, 'purchase-trunk-part-untested')
+  expect(Math.abs(tested - (trunk - 2) * (120 / 320))).toBeLessThanOrEqual(1)
+  expect(Math.abs(untested - (trunk - 2) * (200 / 320))).toBeLessThanOrEqual(1)
+  await expect(f.getByTestId('purchase-trunk-part-tested')).toHaveCSS('background-color', rgb(CHART_COLORS.blue))
+  await expect(f.getByTestId('purchase-trunk-part-untested')).toHaveCSS('background-color', rgb(CHART_COLORS.orange))
+  await expect(f.getByTestId('purchase-trunk')).toContainText(P.purchased_line.replace('{n}', '38').replace('{pct}', '12%'))
+  for (const [key, rate, color] of [['tested', 30 / 120, CHART_COLORS.blue], ['untested', 8 / 200, CHART_COLORS.orange]] as const) {
+    const branch = f.getByTestId(`purchase-branch-${key}`)
+    const track = await branch.getByTestId(`purchase-branch-fill-${key}`).evaluate((e) => (e.parentElement as HTMLElement).getBoundingClientRect().width)
+    const fill = await width(page, `purchase-branch-fill-${key}`)
+    expect(Math.abs(fill - Math.max(4, rate * track))).toBeLessThanOrEqual(1)
+    await expect(branch).toHaveCSS('border-top-color', rgb(color))
+  }
+  const cls = async (k: string) => f.getByTestId(`purchase-rate-${k}`).getAttribute('class')
+  expect(await cls('tested')).toBe(await cls('untested'))
+  await expect(f.getByTestId('purchase-rate-tested')).toHaveText('25%')
+  await expect(f.getByTestId('purchase-rate-untested')).toHaveText('4%')
+  await expect(f.getByTestId('purchase-branch-tested').getByTestId('funnel-badge')).toHaveText(P.converts_more)
+  await expect(f.getByTestId('purchase-branch-untested').getByTestId('funnel-badge')).toHaveCount(0)
+  await expect(f.getByTestId('purchase-branch-tested')).toContainText(P.counts.replace('{bought}', '30').replace('{not}', '90'))
+})
+
+test('#1101 DS-COMPONENTE-101 items 3 and 5: a base under 30 prints no badge and says so on the rate; without the #1100 fields the trunk keeps Entered and Bought in one part', async ({ mount, page }) => {
+  await page.setViewportSize({ width: 1440, height: 1200 })
+  const c = await mount(full({ conversion: { ...CONVERSION, entered: 50, testedFree: 29, purchasedAfterFree: 10, purchasedWithoutFree: 1, purchased: 11 } }))
+  const f = page.getByTestId('summary-purchase-funnel')
+  await expect(f.getByTestId('funnel-badge')).toHaveCount(0)
+  await expect(f.getByTestId('purchase-rate-tested')).toHaveAttribute('title', P.small_base.replace('{a}', '29').replace('{b}', '21'))
+  await c.update(full({ conversion: CONVERSION_OLD }))
+  await expect(f.getByTestId('purchase-trunk-part-all')).toHaveAttribute('title', P.no_split)
+  await expect(f.getByTestId('purchase-trunk')).toContainText('320')
+  await expect(f.getByTestId('purchase-trunk')).toContainText(P.purchased_line.replace('{n}', '38').replace('{pct}', '12%'))
+  for (const key of ['tested', 'untested']) {
+    await expect(f.getByTestId(`purchase-rate-${key}`)).toHaveText('\u2014')
+    await expect(f.getByTestId(`purchase-rate-${key}`)).toHaveAttribute('title', S.tiles.no_source_bank)
+    await expect(f.getByTestId(`purchase-branch-fill-${key}`)).toHaveCount(0)
+  }
+  await expect(f.getByTestId('purchase-branch-tested').locator('p').filter({ hasText: /^0$/ })).toHaveCount(0)
+})
+
+test('#1101 spec C16 item 7: under a filter neither funnel draws, both say why and clear filters gives them back', async ({ mount, page }) => {
+  await page.setViewportSize({ width: 1440, height: 1200 })
+  const asked: unknown[] = []
+  await mount(full({ filters: { source: null, country: null, platform: 'ios', account: null }, onFiltersChange: (f: unknown) => asked.push(f) }))
+  await expect(page.getByTestId('funnel-bands')).toHaveCount(0)
+  await expect(page.getByTestId('purchase-trunk')).toHaveCount(0)
+  for (const id of ['summary-use-funnel', 'summary-purchase-funnel']) {
+    const card = page.getByTestId(id)
+    await expect(card.getByText(U.no_filters)).toBeVisible()
+    await expect(card.getByRole('button', { name: E.clear_filters })).toBeVisible()
+  }
+  await page.getByTestId('summary-use-funnel').getByRole('button', { name: E.clear_filters }).click()
+  await expect.poll(() => asked).toEqual([{ source: null, country: null, platform: null, account: null }])
+})
+
+test('#1101 spec C16 item 8: the cohorts block is the whole third card, every measured rate toned, the cohort size not; the detail drops the card', async ({ mount, page }) => {
+  await page.setViewportSize({ width: 1440, height: 1200 })
+  await mount(full())
+  const heat = page.getByTestId('summary-cohort-heat')
+  await expect(heat.getByText(E.groups.g_activation, { exact: true })).toBeVisible()
+  await expect(heat.getByText(E.groups.g_cohort, { exact: true })).toBeVisible()
+  const rows = await heat.locator('tbody tr[data-testid^="engagement-row-"]').evaluateAll((els) => els.map((e) => e.getAttribute('data-testid')))
+  expect(rows).toEqual(['audio_24h', 'audio_7d', 'cohort_size', 'ret_d1', 'ret_d7', 'ret_d30', 'ret_d60', 'ret_d90', 'second_30', 'second_60', 'second_90'].map((k) => `engagement-row-${k}`))
+  await expect(heat.locator('[data-testid="engagement-row-ret_d1"] td').nth(0)).toHaveClass(/bg-emerald-300/)
+  for (const td of await heat.locator('[data-testid="engagement-row-cohort_size"] td').all()) await expect(td).not.toHaveClass(/bg-emerald/)
+  await expect(heat.locator('[data-testid="engagement-row-ret_d30"] td').nth(2)).not.toHaveClass(/bg-emerald/)
+  await expect(page.getByTestId('engagement-card_after_first')).toHaveCount(0)
+  await expect(heat.getByTestId('summary-heat-legend').locator('li')).toHaveCount(5)
+  await expect(heat.getByTestId('summary-curve-gate')).toHaveText(S.curve_gate.replace('{n}', '2'))
+})
+
+test('#1101 spec C16 item 11: the conversion read down puts a retry in both funnel cards and leaves the rest; GA4 down keeps installs and empties interacted with its reason', async ({ mount, page }) => {
+  await page.setViewportSize({ width: 1440, height: 1200 })
+  const c = await mount(full({ conversion: undefined, conversionFailed: true }))
+  for (const id of ['summary-use-funnel', 'summary-purchase-funnel']) {
+    await expect(page.getByTestId(id).getByRole('alert')).toContainText(U.failed)
+    await expect(page.getByTestId(id).getByRole('button', { name: E.retry })).toBeVisible()
+  }
+  await expect(page.getByTestId('summary-modes-columns-seg-drive_only')).toBeVisible()
+  await expect(page.getByTestId('summary-tile-engaged').locator('p').first()).toHaveText('189')
+
+  await c.update(full({ ga4: undefined, ga4Failed: true }))
+  const f = page.getByTestId('summary-use-funnel')
+  await expect(f.getByTestId('funnel-band-installs')).toBeVisible()
+  await expect(f.getByTestId('funnel-band-new_engaged')).toHaveCount(0)
+  await expect(f.getByTestId('funnel-step-new_engaged')).toContainText(E.cell_ga4_failed)
+
+  // the function before newEngagedUsers: no source, not 0
+  await c.update(full({ ga4: { ...GA4_ENGAGED, months: GA4_ENGAGED.months.map((m) => ({ ...m, newEngagedUsers: null })) } }))
+  await expect(f.getByTestId('funnel-step-new_engaged')).toContainText(S.tiles.no_source_ga4)
+
+  // the current month: the funnels print what there is, the month line says until today
+  await c.update(full({ month: '2026-11' }))
+  await expect(page.getByTestId('engagement-summary').getByText(E.until_today, { exact: true }).first()).toBeVisible()
+  await expect(f.getByTestId('funnel-step-entered')).toContainText('320')
+})
+
+test('#1101 spec C10: the loading funnels keep the height of the loaded ones within the row', async ({ mount, page }) => {
+  await page.setViewportSize({ width: 1440, height: 1200 })
+  const c = await mount(<Screen months={MONTHS} today={TODAY} bank={BANK_OPEN} ga4={GA4_ENGAGED} />)
+  await expect(page.getByTestId('purchase-loading')).toBeVisible()
+  await expect(page.getByTestId('summary-use-funnel').locator('ul[aria-busy="true"]')).toBeVisible()
+  await c.update(full())
+  await expect(page.getByTestId('purchase-trunk')).toBeVisible()
+})
+
+for (const w of [1440, 390]) {
+  test(`#1101 spec C16 item 12 at ${w}: axe finds nothing in the summary with both funnels`, async ({ mount, page }) => {
+    await page.setViewportSize({ width: w, height: 1200 })
+    await mount(full())
+    await expect(page.getByTestId('purchase-trunk')).toBeVisible()
+    const r = await new AxeBuilder({ page }).include('[data-testid="engagement-summary"]').analyze()
+    expect(r.violations.map((v) => `${v.id}: ${v.nodes.map((n) => n.target.join(' ')).join(', ')}`)).toEqual([])
+    if (SHOTS) await page.screenshot({ path: `${SHOTS}/engagement-c-${w}.png`, fullPage: true })
+  })
+}

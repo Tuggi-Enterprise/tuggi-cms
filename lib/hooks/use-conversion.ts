@@ -1,7 +1,7 @@
 import { useQuery } from '@tanstack/react-query'
 import { conversionService } from '@/lib/services/conversion-service'
 
-/** One month of the Conversion report. The months of the selector come from `useAcquisitionMonths`. */
+/** One month of `core.dashboard_conversion_funnel`, the two funnels of the Engagement page (#1101). */
 export function useConversion(month: string) {
   return useQuery({
     queryKey: ['conversion', month],

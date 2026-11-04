@@ -9,6 +9,8 @@
 
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
+import { existsSync, readFileSync } from 'node:fs'
+import { resolve } from 'node:path'
 
 import {
   bankSliceEmpty,
@@ -19,9 +21,9 @@ import {
   type GridCard,
   type GridInput,
 } from '@/lib/engagement/cells'
-import { ENGAGEMENT_MAX_MONTHS, engagementMonths, engagementRange, saoPauloDay } from '@/lib/engagement/months'
+import { conversionRedirectTarget, ENGAGEMENT_MAX_MONTHS, engagementMonths, engagementRange, saoPauloDay } from '@/lib/engagement/months'
 import { parseBankReport, parseEngagementFilters, parseGa4Report, type EngagementBankMonth } from '@/lib/engagement/report'
-import { clickBlocks, defaultClicksMonth } from '@/lib/engagement/clicks'
+import { clickBlocks } from '@/lib/engagement/clicks'
 import { UNKNOWN_VALUE } from '@/lib/format/unknown'
 
 const TODAY = '2026-11-04'
@@ -270,6 +272,20 @@ test('#1094: clicks are one month, grouped by screen by the sum of people, on th
   assert.equal(max, 142)
   assert.deepEqual(blocks.map((b) => b.screen), ['guide_map', 'poi_detail'])
   assert.deepEqual(blocks[0].rows.map((r) => r.button), ['start_guide', 'open_explore'])
-  assert.equal(defaultClicksMonth(MONTHS, clicks), '2026-10')
-  assert.equal(defaultClicksMonth(MONTHS, []), '2026-11')
+})
+
+test('#1101 spec C16 item 1: the old Conversion route goes to the purchase funnel, a valid ?month=YYYY-MM-DD becomes ?month=YYYY-MM, anything else is dropped', () => {
+  assert.equal(conversionRedirectTarget('pt', undefined), '/pt/dashboard/reports/engagement#conversion')
+  assert.equal(conversionRedirectTarget('pt', '2026-10-01'), '/pt/dashboard/reports/engagement?month=2026-10#conversion')
+  assert.equal(conversionRedirectTarget('en', '2026-09-15'), '/en/dashboard/reports/engagement?month=2026-09#conversion')
+  for (const bad of ['2026-10', '2026-13-01', 'x', ['2026-10-01'], '2026-10-01&x=1']) {
+    assert.equal(conversionRedirectTarget('pt', bad), '/pt/dashboard/reports/engagement#conversion', JSON.stringify(bad))
+  }
+})
+
+test('#1101 spec C8.3: the Conversion page only redirects, with redirect() (307), and the screen it replaced is gone', () => {
+  const src = readFileSync(resolve(import.meta.dirname, '../../app/[locale]/dashboard/reports/conversion/page.tsx'), 'utf8')
+  assert.match(src, /redirect\(conversionRedirectTarget\(/)
+  assert.doesNotMatch(src, /permanentRedirect|'use client'/)
+  assert.equal(existsSync(resolve(import.meta.dirname, '../../components/dashboard/reports/conversion')), false)
 })

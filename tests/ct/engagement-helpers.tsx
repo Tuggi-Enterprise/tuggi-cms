@@ -1,6 +1,8 @@
 import { NextIntlClientProvider } from 'next-intl'
 import { EngagementReport } from '@/components/dashboard/reports/engagement/EngagementReport'
 import type { EngagementBankReport, EngagementFilters, EngagementGa4Report, EngagementUse } from '@/lib/engagement/report'
+import type { ConversionFunnel } from '@/lib/conversion/funnel'
+import { summaryMonthOf } from '@/lib/engagement/summary'
 import { Sparkline } from '@/components/ui/Sparkline'
 import ptMessages from '@/messages/pt.json'
 
@@ -16,7 +18,12 @@ export function EngagementHarness(props: {
   ga4Failed?: boolean
   /** Draws a stand-in for the all-time blocks, so the note above them renders (#1096). */
   allTime?: boolean
-  summaryMonth?: string
+  /** `?month=`; the page resolves it with `summaryMonthOf`, so does this. */
+  month?: string
+  conversion?: ConversionFunnel
+  conversionFailed?: boolean
+  /** Called with the filters the screen asks for (clear filters). */
+  onFiltersChange?: (f: EngagementFilters) => void
 }) {
   return (
     <NextIntlClientProvider locale="pt" timeZone="America/Sao_Paulo" messages={{ Pages: { Dashboard: ptMessages.Pages.Dashboard } }}>
@@ -24,7 +31,7 @@ export function EngagementHarness(props: {
         use={props.use ?? 'audio'}
         onUseChange={() => {}}
         filters={props.filters ?? { source: null, country: null, platform: null, account: null }}
-        onFiltersChange={() => {}}
+        onFiltersChange={props.onFiltersChange ?? (() => {})}
         months={props.months}
         today={props.today}
         bank={props.bank}
@@ -33,10 +40,11 @@ export function EngagementHarness(props: {
         ga4={props.ga4}
         ga4Failed={!!props.ga4Failed}
         onGa4Retry={() => {}}
-        summaryMonth={props.summaryMonth ?? null}
-        onSummaryMonthChange={() => {}}
-        clicksMonth={null}
-        onClicksMonthChange={() => {}}
+        month={summaryMonthOf(props.month ?? null, props.months, props.today)}
+        onMonthChange={() => {}}
+        conversion={props.conversion}
+        conversionFailed={!!props.conversionFailed}
+        onConversionRetry={() => {}}
         isFetching={false}
         allTime={props.allTime ? <div data-testid="engagement-all-time" className="h-24 rounded-2xl border border-gray-200 bg-white" /> : undefined}
       />

@@ -51,13 +51,6 @@ export const clickColor = (screen: string, button: string) => (isNonTap(button) 
 export const screenGroupColor = (screen: string, buttons: readonly string[]) =>
   buttons.length > 0 && buttons.every(isNonTap) ? CHART_NEUTRAL : screenColor(screen)
 
-/** The latest month that has a click, or the latest month of the ruler. */
-export function defaultClicksMonth(months: readonly string[], clicks: readonly EngagementGa4Click[] | undefined): string {
-  const withClicks = new Set((clicks ?? []).map((c) => c.month))
-  for (let i = months.length - 1; i >= 0; i--) if (withClicks.has(months[i])) return months[i]
-  return months[months.length - 1]
-}
-
 /** One month of `button_clicked`, grouped by screen, on one ruler: the most people of the month (spec §5). */
 export function clickBlocks(clicks: readonly EngagementGa4Click[], month: string) {
   const of = clicks.filter((c) => c.month === month)

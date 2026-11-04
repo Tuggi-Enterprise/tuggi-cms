@@ -21,14 +21,15 @@ import ptMessages from '@/messages/pt.json'
 
 const E = ptMessages.Pages.Dashboard.reports.engagement
 const SHOTS = process.env.ENGAGEMENT_SHOTS
-const CARDS = ['card_people_time', 'card_frequency', 'card_after_first']
+/** The two grid cards of the detail and the third card, which became the cohorts block of the summary (#1101). */
+const CARDS = ['engagement-card_people_time', 'engagement-card_frequency', 'summary-cohort-heat']
 
 /** The cell of a row in one month column (1 = first month). */
 const cellOf = (page: Page, row: string, column: number) =>
   page.locator(`[data-testid="engagement-row-${row}"] td`).nth(column - 1)
 
 async function cardHeights(page: Page) {
-  return page.evaluate((keys: string[]) => keys.map((k: string) => document.querySelector(`[data-testid="engagement-${k}"]`)!.getBoundingClientRect().height), CARDS)
+  return page.evaluate((keys: string[]) => keys.map((k: string) => document.querySelector(`[data-testid="${k}"]`)!.getBoundingClientRect().height), CARDS)
 }
 
 for (const width of [1440, 390]) {
@@ -43,7 +44,7 @@ for (const width of [1440, 390]) {
     await expect(page.getByRole('heading', { level: 1, name: E.title })).toBeVisible()
     await expect(page.getByText('Export')).toHaveCount(0)
     for (const k of CARDS) {
-      const heads = page.locator(`[data-testid="engagement-${k}"] thead th[scope="col"]`)
+      const heads = page.locator(`[data-testid="${k}"] thead th[scope="col"]`)
       await expect(heads).toHaveCount(MONTHS.length + 1)
       await expect(heads.last()).toContainText(E.until_today)
     }
@@ -100,7 +101,8 @@ test('spec §11 item 7: under a source filter the GA4 rows say GA4 has no such f
   await expect(cellOf(page, 'active_ga4', 1)).toHaveAttribute('title', E.cell_ga4_filter)
   await expect(cellOf(page, 'active_by', 1)).toHaveText('204')
   await expect(page.getByTestId('engagement-card_clicks').getByText(E.ga4_filter_hint, { exact: true })).toBeVisible()
-  await expect(page.getByRole('button', { name: E.clear_filters })).toBeVisible()
+  // the bar's, and one in each funnel card, which refuse any filter (#1101)
+  await expect(page.getByRole('button', { name: E.clear_filters })).toHaveCount(3)
 })
 
 test('spec §11 item 8: bank down and GA4 down keep the table, mark their own cells and offer a retry per card', async ({ mount, page }) => {
@@ -108,8 +110,8 @@ test('spec §11 item 8: bank down and GA4 down keep the table, mark their own ce
   await mount(<Screen months={MONTHS} today={TODAY} bankFailed ga4Failed />)
   await expect(cellOf(page, 'active_by', 1)).toHaveAttribute('title', E.cell_bank_failed)
   await expect(cellOf(page, 'active_ga4', 1)).toHaveAttribute('title', E.cell_ga4_failed)
-  // one on top of the summary (#1099) and one per grid card
-  await expect(page.getByText(E.bank_failed, { exact: true })).toHaveCount(4)
+  // one on top of the summary (#1099) and one per grid card of the detail
+  await expect(page.getByText(E.bank_failed, { exact: true })).toHaveCount(3)
   // the summary, two grid cards with GA4 rows, plus the clicks card
   await expect(page.getByText(E.ga4_failed, { exact: true })).toHaveCount(4)
   await expect(page.locator('td').filter({ hasText: /^0$/ })).toHaveCount(0)
@@ -127,7 +129,8 @@ test('spec §11 item 12: clicks of one month by screen, people on the bar, taps 
   await page.setViewportSize({ width: 1440, height: 1000 })
   await mount(<Screen months={MONTHS} today={TODAY} bank={BANK} ga4={GA4} />)
   const card = page.getByTestId('engagement-card_clicks')
-  await expect(card.getByRole('combobox')).toHaveValue('2026-10')
+  await expect(card.getByRole('combobox')).toHaveCount(0)
+  await expect(card.getByTestId('engagement-clicks-month')).toHaveText('outubro de 2026')
   await expect(card.getByTestId('engagement-click-row')).toHaveCount(5)
   await expect(card.getByText('301 toques')).toBeVisible()
   const first = card.getByTestId('engagement-click-row').first()
@@ -151,8 +154,8 @@ test('spec §11 items 10 and 11 at 390: each table scrolls, opens at the latest 
   await box.evaluate((el) => { el.scrollLeft = 0 })
   const x2 = (await head.boundingBox())!.x
   expect(Math.abs(x1 - x2)).toBeLessThanOrEqual(1)
-  // three grid cards and the cohort heat map of the summary (#1099)
-  await expect(page.locator('caption')).toHaveCount(4)
+  // two grid cards and the cohorts block of the summary, the third card's new home (#1101)
+  await expect(page.locator('caption')).toHaveCount(3)
 })
 
 test('spec §3 and §11 item 11 at 390: the left fade sits at the seam of the first column while months hide on the left, and leaves at scroll 0', async ({ mount, page }) => {
@@ -190,7 +193,7 @@ test('spec §11 item 11 at 1440: eleven months fit without scrolling, and axe fi
   await page.setViewportSize({ width: 1440, height: 1000 })
   await mount(<Screen months={MONTHS_11} today={TODAY} bank={BANK} ga4={GA4} />)
   for (const k of CARDS) {
-    const r = await page.locator(`[data-testid="engagement-${k}"] [role="region"]`).evaluate((el) => el.scrollWidth - el.clientWidth)
+    const r = await page.locator(`[data-testid="${k}"] [role="region"]`).evaluate((el) => el.scrollWidth - el.clientWidth)
     expect(r, k).toBeLessThanOrEqual(1)
   }
   const results = await new AxeBuilder({ page }).include('#root').withTags(['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa', 'wcag22aa']).analyze()
@@ -278,4 +281,12 @@ function routeImports(entry: string, seen = new Set<string>(), pkgs = new Set<st
 test('spec §11 item 14: no static recharts import on the route (the all-time donut stays behind next/dynamic)', async () => {
   const pkgs = routeImports(path.resolve('app/[locale]/dashboard/reports/engagement/page.tsx'))
   expect([...pkgs].filter((p) => p.startsWith('recharts'))).toEqual([])
+})
+
+test('#1101 spec C16 item 2: one month for the page; ?month=2026-09 moves the summary, the funnels and the clicks card, whose header names it', async ({ mount, page }) => {
+  await page.setViewportSize({ width: 1440, height: 1000 })
+  await mount(<Screen months={MONTHS} today={TODAY} bank={BANK} ga4={GA4} month="2026-09" />)
+  await expect(page.getByTestId('summary-month')).toHaveValue('2026-09')
+  await expect(page.getByTestId('engagement-card_clicks').getByTestId('engagement-clicks-month')).toHaveText('setembro de 2026')
+  await expect(page.locator('select')).toHaveCount(3) // the month of the page, platform and account: no second month selector
 })

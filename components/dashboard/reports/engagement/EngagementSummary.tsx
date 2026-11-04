@@ -1,14 +1,16 @@
 'use client'
 
 import { useMemo, type ReactNode } from 'react'
-import { Car, Filter, Repeat, Smartphone, Sparkles, Undo2, Users } from 'lucide-react'
+import { Car, CreditCard, Filter, Repeat, Smartphone, Sparkles, Undo2, Users } from 'lucide-react'
 
 import { WidgetCard, SectionHeader } from '@/components/dashboard/WidgetCard'
-import { FunnelBands, type FunnelBand } from '@/components/dashboard/reports/conversion/FunnelBands'
+import { BranchFunnel, type BranchFunnelBranch } from '@/components/dashboard/reports/engagement/BranchFunnel'
+import { FunnelBands, type FunnelBand } from '@/components/dashboard/reports/engagement/FunnelBands'
 import { Ga4Badge, MonthGrid, type MonthGridGroup } from '@/components/dashboard/reports/engagement/MonthGrid'
 import { StackedMonthColumns, type StackedColumn } from '@/components/dashboard/reports/engagement/StackedMonthColumns'
 import { SummaryTile } from '@/components/dashboard/reports/engagement/SummaryTile'
 import { CardError } from '@/components/admin/social/shared'
+import { Button } from '@/components/ui/button'
 import { DIM } from '@/components/ui/dense-table'
 import { StatCardRow } from '@/components/ui/StatCard'
 import { Sparkline } from '@/components/ui/Sparkline'
@@ -17,12 +19,16 @@ import { formatDurationOrDash } from '@/lib/format/duration'
 import { UNKNOWN_VALUE } from '@/lib/format/unknown'
 import { cn } from '@/lib/utils'
 import type { Cell, CellFormatters } from '@/lib/engagement/cells'
+import { readPurchaseFunnel, readUseFunnel, type ConversionFunnel, type PurchaseBranch } from '@/lib/conversion/funnel'
 import {
   BAND_KEYS,
   buildSummary,
   formatDelta,
   MODE_KEYS,
+  modesSplitSince,
+  newEngagedCell,
   SUPPRESSED_SEGMENT,
+  UNSPLIT_SEGMENT,
   type MonthColumn,
   type SummaryInput,
   type SummaryTileData,
@@ -31,8 +37,9 @@ import {
 
 /**
  * The executive summary on top of the Engagement report (#1099, spec-cms-relatorio-engajamento-2026-11
- * Parte B): the month line, four tiles, ways of use, the month funnel, days of use and the cohort
- * heat map. Every number comes from `lib/engagement/summary.ts`; this translates and lays out.
+ * Parte B, Parte C since #1101): the month line, four tiles, ways of use beside days of use, the use
+ * funnel beside the purchase funnel, and the cohort heat map. Every number comes from
+ * `lib/engagement/summary.ts` and `lib/conversion/funnel.ts`; this translates and lays out.
  */
 
 type K = (key: string, values?: Record<string, string | number>) => string
@@ -50,7 +57,6 @@ export interface EngagementSummaryProps {
   /** `set`: the month alone, for the change line of a tile, which has no room for the year at 390. */
   monthShort: (month: string) => string
   monthLong: (month: string) => string
-  day: (iso: string) => string
   onBankRetry: () => void
   onGa4Retry: () => void
   ga4BadgeHint: string
@@ -58,12 +64,27 @@ export interface EngagementSummaryProps {
   heatGroups: MonthGridGroup[]
   heatMonths: { key: string; label: string; untilToday: string | null }[]
   curve: { closed: number; points: (number | null)[] | null }
+  /** `core.dashboard_conversion_funnel` of the month, the source of both funnels (#1101). */
+  conversion?: ConversionFunnel
+  conversionFailed: boolean
+  onConversionRetry: () => void
+  /** Any filter of the bar: the funnels count the whole cohort and refuse it (§C1 item 8). */
+  filtered: boolean
+  onClearFilters: () => void
 }
 
 const TILE_ICONS: Record<TileKey, typeof Users> = { engaged: Users, guide_median: Car, screen_minutes: Smartphone, returned: Undo2 }
 
-/** Modes, bottom to top (spec §B5). */
-const MODE_COLORS: Record<string, string> = { drive_only: CHART_COLORS.blue, both: CHART_COLORS.purple, explore_only: CHART_COLORS.orange }
+/** Modes, bottom to top (spec §B5); the grey of a month not split yet (§C4.1). */
+const MODE_COLORS: Record<string, string> = {
+  drive_only: CHART_COLORS.blue,
+  both: CHART_COLORS.purple,
+  explore_only: CHART_COLORS.orange,
+  [UNSPLIT_SEGMENT]: CHART_NEUTRAL,
+}
+
+/** The two branches of the purchase funnel, the colour of their trunk part (§C6, DS-COMPONENTE-101 item 4). */
+const BRANCH_COLORS = { tested: CHART_COLORS.blue, untested: CHART_COLORS.orange } as const
 
 /**
  * Days of use, an ordinal scale of one hue, more days darker; dark mode inverts the anchor (spec §B7).
@@ -90,7 +111,7 @@ export const HEAT_TONES = ['bg-emerald-50', 'bg-emerald-100', 'bg-emerald-200', 
 const hasValue = (c: Cell) => (c.state === 'measured' || c.state === 'floor') && c.value !== null
 
 export function EngagementSummary(props: EngagementSummaryProps) {
-  const { k, locale, fmt, input, useName, cellTitle, monthHeader, monthShort, monthLong, day } = props
+  const { k, locale, fmt, input, useName, cellTitle, monthHeader, monthShort, monthLong } = props
   const s = (key: string, values?: Record<string, string | number>) => k(`summary.${key}`, values)
   const summary = useMemo(() => buildSummary(input), [input])
   const current = input.today.slice(0, 7)
@@ -186,13 +207,20 @@ export function EngagementSummary(props: EngagementSummaryProps) {
       key: seg.key,
       fraction: seg.fraction,
       color: MODE_COLORS[seg.key],
-      title: hasValue(seg.cell) ? s('segment_title', { segment: modeLabel(seg.key), n: countText(seg.cell) }) : (titleOf(seg.cell, 'bank') ?? ''),
+      title:
+        seg.key === UNSPLIT_SEGMENT
+          ? s('modes.unsplit_title', { n: countText(seg.cell) })
+          : hasValue(seg.cell)
+            ? s('segment_title', { segment: modeLabel(seg.key), n: countText(seg.cell) })
+            : (titleOf(seg.cell, 'bank') ?? ''),
     }),
     (c) => {
       const by = Object.fromEntries(c.segments.map((x) => [x.key, countText(x.cell)]))
+      if (by[UNSPLIT_SEGMENT]) return `${monthHeader(c.month)}: ${s('modes.unsplit_title', { n: by[UNSPLIT_SEGMENT] })}`
       return s('modes_sr', { month: monthHeader(c.month), drive: by.drive_only, both: by.both, explore: by.explore_only })
     }
   )
+  const splitSince = modesSplitSince(input)
 
   const bandLabel = (key: string) => s(`bands.${key}`)
   const freqColumns = monthCols(
@@ -222,43 +250,177 @@ export function EngagementSummary(props: EngagementSummaryProps) {
       })
   )
 
-  // ── Funnel ──
-  const f = summary.funnel
-  const funnelLoading = f.steps.some((x) => x.cell.state === 'loading')
-  const band = (key: (typeof f.steps)[number]['key']): FunnelBand => {
-    const step = f.steps.find((x) => x.key === key)!
-    const value = step.value
-    const display = value === null ? UNKNOWN_VALUE : fmt.integer.format(value)
-    const reason = value === null ? titleOf(step.cell, step.source) : undefined
-    const pct = step.rate === null ? null : fmt.percent.format(step.rate)
-    let note: string | undefined
-    let noteShort: string | undefined
-    // Below md the reason has no room beside the label: the dash stays, the label's title says why.
-    if (reason) note = reason
-    else if (key === 'opened') note = noteShort = s('steps.opened_sub')
-    else if (key === 'used') note = noteShort = s('steps.used_sub')
-    else if (pct) {
-      note = s(key === 'engaged' ? 'of_opened' : 'of_used', { pct, use: useName })
-      noteShort = pct
+  // ── Funnels (#1101 §C5, §C6) ──
+  const conv = props.conversionFailed ? undefined : props.conversion
+  const convLoading = !conv && !props.conversionFailed
+  const pct = (v: number | null) => (v === null ? UNKNOWN_VALUE : fmt.percent.format(v))
+  const int = (v: number | null) => (v === null ? UNKNOWN_VALUE : fmt.integer.format(v))
+  const u = (key: string, values?: Record<string, string | number>) => s(`use_funnel.${key}`, values)
+  const pf = (key: string, values?: Record<string, string | number>) => s(`purchase_funnel.${key}`, values)
+  const noBank = s('tiles.no_source_bank')
+  const ga4Tag = { text: k('ga4_badge'), hint: props.ga4BadgeHint }
+
+  const engagedCell = newEngagedCell(month, input)
+  const useLoading = convLoading || engagedCell.state === 'loading'
+  const useView = conv ? readUseFunnel(conv, hasValue(engagedCell) ? (engagedCell.value as number) : null) : undefined
+
+  const bandsOfUse = (f: ConversionFunnel, v: NonNullable<typeof useView>) => {
+    const split = { ios: fmt.integer.format(f.installs.ios ?? 0), android: fmt.integer.format(f.installs.android ?? 0) }
+    // DS-COMPONENTE-084 item 1: unknown, floor and measured print differently.
+    const installsNote = v.installs === 'unknown' ? u('installs_unknown') : u(v.installs === 'floor' ? 'installs_floor' : 'installs_split', split)
+    const head: FunnelBand = {
+      key: 'installs',
+      label: u('installs'),
+      hint: u('installs_hint'),
+      value: v.installs === 'unknown' ? null : f.installs.total,
+      display: v.installs === 'unknown' ? UNKNOWN_VALUE : int(f.installs.total),
+      note: installsNote,
+      noteShort: installsNote,
+      fill: 'outline',
+      muted: v.installs === 'unknown',
+      tag: ga4Tag,
     }
-    const labels = {
-      opened: s('steps.opened'),
-      engaged: s('steps.engaged'),
-      used: useName.charAt(0).toLocaleUpperCase(locale) + useName.slice(1),
-      returned: s('steps.returned'),
-    }
+    const parts =
+      v.guest === null
+        ? undefined
+        : [
+            { key: 'account', value: f.account, fill: CHART_COLORS.blue, title: u('part_account', { n: int(f.account) }) },
+            { key: 'guest', value: v.guest, fill: `${CHART_COLORS.blue}40`, title: u('part_guest', { n: int(v.guest) }) },
+          ]
+    const engagedReason = hasValue(engagedCell) ? undefined : titleOf(engagedCell, 'ga4')
+    const engagedValue = hasValue(engagedCell) ? (engagedCell.value as number) : null
+    const used = f.usedGuideOrStory
+    const steps: FunnelBand[] = [
+      {
+        key: 'entered',
+        label: u('entered'),
+        hint: v.guest === null ? noBank : u('entered_hint'),
+        value: f.entered,
+        display: int(f.entered),
+        // DS-COMPONENTE-084 item 2: entered = 0 prints no rate.
+        note: v.rates.account === null ? UNKNOWN_VALUE : u('with_account', { n: int(f.account), pct: pct(v.rates.account) }),
+        noteShort: pct(v.rates.account),
+        fill: CHART_COLORS.blue,
+        parts,
+      },
+      {
+        key: 'new_engaged',
+        label: u('new_engaged'),
+        hint: engagedReason ?? u('new_engaged_hint'),
+        value: engagedValue,
+        display: int(engagedValue),
+        note: engagedReason ?? u('new_engaged_sub'),
+        fill: 'outline',
+        muted: engagedValue === null,
+        tag: ga4Tag,
+      },
+      {
+        key: 'used',
+        label: u('used'),
+        hint: used === null ? noBank : u('used_hint'),
+        value: used,
+        display: int(used),
+        // BR-COMUNICACAO-022 item 4: a function before #1100 prints "no data", never 0.
+        note: used === null ? noBank : v.rates.used === null ? UNKNOWN_VALUE : u('of_entered', { pct: pct(v.rates.used) }),
+        noteShort: used === null ? undefined : pct(v.rates.used),
+        fill: CHART_COLORS.blue,
+        muted: used === null,
+      },
+    ]
+    // The drop between instruments is a difference on the seam, never a rate (DS-COMPONENTE-084 item 2).
+    const seam = v.notEntered === null ? undefined : { text: u('not_entered', { count: int(v.notEntered) }), hint: u('not_entered_hint') }
+    return { head, steps, seam }
+  }
+
+  const purchaseView = conv ? readPurchaseFunnel(conv) : undefined
+  const branchProps = (b: PurchaseBranch, view: NonNullable<typeof purchaseView>): BranchFunnelBranch => {
+    const label = pf(b.key)
+    const [ta, tb] = view.branches
+    // DS-COMPONENTE-101 item 5: a branch field the source does not send prints "no data"; item 2: an empty branch has no rate.
+    const rateTitle =
+      b.size === null || (b.size > 0 && b.bought === null)
+        ? noBank
+        : b.size === 0
+          ? pf('empty_branch')
+          : view.smallBase
+            ? pf('small_base', { a: int(ta.size), b: int(tb.size) })
+            : undefined
     return {
-      key,
-      label: labels[key],
-      hint: reason ?? (key === 'engaged' ? s('tiles.engaged_hint') : labels[key]),
-      value,
-      display,
-      note,
-      noteShort,
-      fill: step.source === 'ga4' ? 'outline' : CHART_COLORS.blue,
-      muted: value === null,
-      badge: f.biggestDrop === key ? s('biggest_drop') : undefined,
+      key: b.key,
+      color: BRANCH_COLORS[b.key],
+      label,
+      hint: pf(`${b.key}_hint`),
+      sizeNumber: int(b.size),
+      sizeRest: b.size === null ? undefined : pf('size_share', { pct: pct(b.share) }),
+      sizeTitle: b.size === null ? noBank : undefined,
+      fill: b.rate,
+      rate: pct(b.rate),
+      rateMuted: b.rate === null,
+      rateTitle,
+      rateCaption: pf(b.key === 'tested' ? 'rate_tested' : 'rate_untested'),
+      badge: view.convertsMore === b.key ? pf('converts_more') : undefined,
+      counts: b.bought === null || b.notBought === null ? UNKNOWN_VALUE : pf('counts', { bought: int(b.bought), not: int(b.notBought) }),
+      countsMuted: b.bought === null || b.notBought === null,
+      countsTitle: b.bought === null || b.notBought === null ? noBank : undefined,
+      sr: pf('sr', { branch: label, n: int(b.size), bought: int(b.bought), pct: pct(b.rate) }),
     }
+  }
+
+  const trunkParts = (view: NonNullable<typeof purchaseView>) => {
+    if (!view.split) return [{ key: 'all', fraction: view.entered > 0 ? 1 : 0, color: CHART_COLORS.blue, title: pf('no_split') }]
+    return view.branches.map((b) => ({
+      key: b.key,
+      fraction: b.share ?? 0,
+      color: BRANCH_COLORS[b.key],
+      title: pf(b.key === 'tested' ? 'part_tested' : 'part_untested', { n: int(b.size), pct: pct(b.share) }),
+    }))
+  }
+
+  /** The body both funnel cards share for a filter or a failed read (§C10). */
+  const funnelGate = () => {
+    if (props.filtered) {
+      return (
+        <div className="flex flex-col items-start gap-3 py-4" data-testid="funnel-filtered">
+          <p className="text-sm text-gray-800 dark:text-gray-200">{u('no_filters')}</p>
+          <Button type="button" variant="outline" size="sm" onClick={props.onClearFilters}>
+            {k('clear_filters')}
+          </Button>
+        </div>
+      )
+    }
+    if (props.conversionFailed) return <CardError onRetry={props.onConversionRetry} message={u('failed')} retryLabel={k('retry')} />
+    return null
+  }
+
+  const useBody = () => {
+    const gate = funnelGate()
+    if (gate) return gate
+    if (useLoading || !conv || !useView) return <FunnelBands label={u('title')} loading heads={1} steps={3} />
+    const b = bandsOfUse(conv, useView)
+    return (
+      <>
+        <FunnelBands label={u('title')} max={useView.max} head={b.head} seam={b.seam} steps={b.steps} />
+        {useView.installs === 'floor' && <p className={cn('text-[11px] mt-2', DIM)}>{u('floor_note')}</p>}
+      </>
+    )
+  }
+
+  const purchaseBody = () => {
+    const gate = funnelGate()
+    if (gate) return gate
+    if (!purchaseView) return <BranchFunnel label={pf('title')} loading />
+    return (
+      <BranchFunnel
+        label={pf('title')}
+        trunk={{
+          label: pf('entered'),
+          display: int(purchaseView.entered),
+          parts: trunkParts(purchaseView),
+          purchased: pf('purchased_line', { n: int(purchaseView.purchased), pct: pct(purchaseView.purchasedRate) }),
+        }}
+        branches={purchaseView.branches.map((b) => branchProps(b, purchaseView))}
+      />
+    )
   }
 
   // ── Panel ──
@@ -269,7 +431,6 @@ export function EngagementSummary(props: EngagementSummaryProps) {
     const v = c.value as number
     return { text: key === 'bg_share' ? fmt.percent.format(v) : key === 'fg' || key === 'bg' ? formatDurationOrDash(Math.round(v)) : fmt.integer.format(v) }
   }
-  const openSince = input.bank?.data_since.open
 
   return (
     <section data-testid="engagement-summary" className="space-y-6" aria-labelledby="engagement-summary-title">
@@ -310,25 +471,36 @@ export function EngagementSummary(props: EngagementSummaryProps) {
         ))}
       </StatCardRow>
 
-      <div data-testid="summary-modes">
-        <WidgetCard>
-          <SectionHeader
-            as="h2"
-            title={s('card_modes')}
-            icon={Car}
-            className="flex-wrap gap-2"
-            right={<span className={cn('text-[11px] text-right', DIM, !openSince && 'invisible')}>{s('modes_note', { date: openSince ? day(openSince) : '00/00/0000' })}</span>}
-          />
-          <div className="space-y-4 lg:grid lg:grid-cols-[1fr_280px] lg:gap-6 lg:space-y-0">
+      <div className="grid grid-cols-1 gap-6 lg:grid-cols-2 lg:items-start">
+        <div data-testid="summary-modes">
+          <WidgetCard>
+            <SectionHeader
+              as="h2"
+              title={s('card_modes')}
+              icon={Car}
+              className="flex-wrap gap-2"
+              right={
+                <span className={cn('text-[11px] text-right', DIM, !input.bank && 'invisible')} data-testid="summary-modes-note">
+                  {splitSince ? s('modes_note', { month: monthHeader(splitSince) }) : s('modes_note_none')}
+                </span>
+              }
+            />
             <StackedMonthColumns
               label={s('card_modes')}
               testId="summary-modes-columns"
               columns={modeColumns}
               axisTop={fmt.integer.format(summary.modes.top)}
               loading={!input.bank && !input.bankFailed}
-              legend={MODE_KEYS.map((key) => ({ key, label: modeLabel(key), color: MODE_COLORS[key] }))}
+              legend={[...MODE_KEYS, UNSPLIT_SEGMENT].map((key) => ({ key, label: modeLabel(key === UNSPLIT_SEGMENT ? 'unsplit' : key), color: MODE_COLORS[key] }))}
             />
-            <dl className="grid grid-cols-2 gap-x-4 gap-y-3 self-start" data-testid="summary-modes-panel">
+            <ul className={cn('mt-3 space-y-1 text-[11px] leading-4', DIM)} data-testid="summary-modes-help">
+              {MODE_KEYS.map((key) => (
+                <li key={key}>
+                  <span className="font-semibold text-gray-700 dark:text-gray-300">{modeLabel(key)}:</span> {s(`modes.help_${key}`)}
+                </li>
+              ))}
+            </ul>
+            <dl className="mt-4 grid grid-cols-2 md:grid-cols-3 gap-x-4 gap-y-3" data-testid="summary-modes-panel">
               {(['drive_only', 'explore_only', 'both', 'fg', 'bg', 'bg_share'] as const).map((key) => {
                 const v = panelValue(key)
                 return (
@@ -341,34 +513,39 @@ export function EngagementSummary(props: EngagementSummaryProps) {
                 )
               })}
             </dl>
-          </div>
-        </WidgetCard>
+          </WidgetCard>
+        </div>
+
+        <div data-testid="summary-frequency">
+          <WidgetCard>
+            <SectionHeader as="h2" title={s('card_frequency_bars')} icon={Repeat} className="flex-wrap gap-2" right={<span className={cn('text-[11px] text-right', DIM)}>{k('use_note', { use: useName })}</span>} />
+            <StackedMonthColumns
+              label={s('card_frequency_bars')}
+              testId="summary-frequency-columns"
+              mode="share"
+              columns={freqColumns}
+              axisTop="100%"
+              loading={!input.bank && !input.bankFailed}
+              legend={BAND_KEYS.map((key) => ({ key, label: bandLabel(key), className: BAND_FILL[key] }))}
+            />
+          </WidgetCard>
+        </div>
       </div>
 
-      <div data-testid="summary-funnel">
-        <WidgetCard>
-          <SectionHeader as="h2" title={s('card_funnel')} icon={Filter} className="flex-wrap gap-2" right={<span className={cn('text-[11px] text-right', DIM)}>{s('funnel_note')}</span>} />
-          {funnelLoading ? (
-            <FunnelBands label={s('card_funnel')} loading heads={2} steps={2} />
-          ) : (
-            <FunnelBands label={s('card_funnel')} max={f.max} head={[band('opened'), band('engaged')]} steps={[band('used'), band('returned')]} />
-          )}
-        </WidgetCard>
-      </div>
+      <div className="grid grid-cols-1 gap-6 lg:grid-cols-2 lg:items-start">
+        <div data-testid="summary-use-funnel">
+          <WidgetCard>
+            <SectionHeader as="h2" title={u('title')} icon={Filter} className="flex-wrap gap-2" right={<span className={cn('text-[11px] text-right', DIM)}>{u('note')}</span>} />
+            {useBody()}
+          </WidgetCard>
+        </div>
 
-      <div data-testid="summary-frequency">
-        <WidgetCard>
-          <SectionHeader as="h2" title={s('card_frequency_bars')} icon={Repeat} className="flex-wrap gap-2" right={<span className={cn('text-[11px] text-right', DIM)}>{k('use_note', { use: useName })}</span>} />
-          <StackedMonthColumns
-            label={s('card_frequency_bars')}
-            testId="summary-frequency-columns"
-            mode="share"
-            columns={freqColumns}
-            axisTop="100%"
-            loading={!input.bank && !input.bankFailed}
-            legend={BAND_KEYS.map((key) => ({ key, label: bandLabel(key), className: BAND_FILL[key] }))}
-          />
-        </WidgetCard>
+        <div id="conversion" className="scroll-mt-6" data-testid="summary-purchase-funnel">
+          <WidgetCard>
+            <SectionHeader as="h2" title={pf('title')} icon={CreditCard} className="flex-wrap gap-2" right={<span className={cn('text-[11px] text-right', DIM)}>{pf('note')}</span>} />
+            {purchaseBody()}
+          </WidgetCard>
+        </div>
       </div>
 
       <MonthGrid

@@ -7,6 +7,8 @@ import { EngagementReport } from '@/components/dashboard/reports/engagement/Enga
 import { AllTimeBlocks } from '@/components/dashboard/reports/engagement/AllTimeBlocks'
 import { dashboardService, DashboardStats, EMPTY_DASHBOARD_STATS } from '@/lib/services/dashboard-service'
 import { useEngagementBank, useEngagementGa4 } from '@/lib/hooks/use-engagement'
+import { useConversion } from '@/lib/hooks/use-conversion'
+import { summaryMonthOf } from '@/lib/engagement/summary'
 import { engagementMonths, isMonth, saoPauloDay } from '@/lib/engagement/months'
 import {
   ENGAGEMENT_DEFAULT_USE,
@@ -18,8 +20,8 @@ import {
 } from '@/lib/engagement/report'
 
 /**
- * Engagement report (#1094): the page owns `?use=`, the four filters, `?summary_month=` (#1099), `?clicks_month=` and the
- * queries; the screen is `EngagementReport`. The month ruler comes from `engagementMonths`, the
+ * Engagement and conversion report (#1094, #1101): the page owns `?use=`, the four filters, the one
+ * `?month=` of the page (§C8) and the queries; the screen is `EngagementReport`. The month ruler comes from `engagementMonths`, the
  * same list the API route reads, not from the database.
  */
 export default function EngagementReportPage() {
@@ -30,16 +32,17 @@ export default function EngagementReportPage() {
   const use: EngagementUse = (ENGAGEMENT_USES as readonly string[]).includes(useParam ?? '') ? (useParam as EngagementUse) : ENGAGEMENT_DEFAULT_USE
   const parsed = parseEngagementFilters(params)
   const filters: EngagementFilters = parsed === 'invalid' ? NO_FILTERS : parsed
-  const summaryParam = params.get('summary_month')
-  const summaryMonth = isMonth(summaryParam) ? summaryParam : null
-  const clicksParam = params.get('clicks_month')
-  const clicksMonth = isMonth(clicksParam) ? clicksParam : null
+  const monthParam = params.get('month')
 
   const months = useMemo(() => engagementMonths(), [])
   const today = useMemo(() => saoPauloDay(), [])
+  const month = summaryMonthOf(isMonth(monthParam) ? monthParam : null, months, today)
 
   const bank = useEngagementBank(filters)
   const ga4 = useEngagementGa4(filters)
+  // The RPC has no filter: under any filter the funnels refuse it (§C1 item 8), the read stays the cohort's.
+  const conversion = useConversion(`${month}-01`)
+  const conversionFailed = conversion.isError || (!!conversion.data && !conversion.data.success)
 
   const [stats, setStats] = useState<DashboardStats>(EMPTY_DASHBOARD_STATS)
   useEffect(() => {
@@ -72,10 +75,11 @@ export default function EngagementReportPage() {
       ga4={ga4.isError ? undefined : ga4.data}
       ga4Failed={ga4.isError}
       onGa4Retry={() => void ga4.refetch()}
-      summaryMonth={summaryMonth}
-      onSummaryMonthChange={(m) => write({ summary_month: m })}
-      clicksMonth={clicksMonth}
-      onClicksMonthChange={(m) => write({ clicks_month: m })}
+      month={month}
+      onMonthChange={(m) => write({ month: m })}
+      conversion={conversion.data?.success ? conversion.data.data : undefined}
+      conversionFailed={conversionFailed}
+      onConversionRetry={() => void conversion.refetch()}
       isFetching={(bank.isFetching && !bank.isLoading) || (ga4.isFetching && !ga4.isLoading)}
       allTime={<AllTimeBlocks stats={stats} />}
     />

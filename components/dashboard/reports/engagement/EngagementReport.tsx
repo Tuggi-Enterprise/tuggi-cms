@@ -23,8 +23,9 @@ import {
   type GridCard,
   type GridRow,
 } from '@/lib/engagement/cells'
-import { clickBlocks, clickColor, defaultClicksMonth, screenGroupColor } from '@/lib/engagement/clicks'
-import { cohortCurve, HEAT_ROWS, heatStep, summaryMonthOf } from '@/lib/engagement/summary'
+import { clickBlocks, clickColor, screenGroupColor } from '@/lib/engagement/clicks'
+import { cohortCurve, heatStep } from '@/lib/engagement/summary'
+import type { ConversionFunnel } from '@/lib/conversion/funnel'
 import {
   ENGAGEMENT_USES,
   ga4Filterable,
@@ -37,9 +38,10 @@ import {
 } from '@/lib/engagement/report'
 
 /**
- * The Engagement report (#1094, spec-cms-relatorio-engajamento-2026-11). Presentational: the page
- * owns the URL and the queries, this owns the screen, so the CT bench mounts it with a fixture.
- * No `recharts` here: the grid is a table and the clicks are `RankRow`.
+ * The Engagement and conversion report (#1094, #1101, spec-cms-relatorio-engajamento-2026-11).
+ * Presentational: the page owns the URL and the queries, this owns the screen, so the CT bench
+ * mounts it with a fixture. No `recharts` here: the grid is a table, the funnels are CSS bands and
+ * the clicks are `RankRow`.
  */
 export interface EngagementReportProps {
   use: EngagementUse
@@ -56,12 +58,13 @@ export interface EngagementReportProps {
   ga4?: EngagementGa4Report
   ga4Failed: boolean
   onGa4Retry: () => void
-  /** `?summary_month=`; `null` = the last closed month (#1099). */
-  summaryMonth: string | null
-  onSummaryMonthChange: (month: string) => void
-  /** `null` = the latest month with a click. */
-  clicksMonth: string | null
-  onClicksMonthChange: (month: string) => void
+  /** `?month=`, already resolved by `summaryMonthOf`: the one month of the page (#1101 §C8). */
+  month: string
+  onMonthChange: (month: string) => void
+  /** The month of `core.dashboard_conversion_funnel`, the two funnels' source. */
+  conversion?: ConversionFunnel
+  conversionFailed: boolean
+  onConversionRetry: () => void
   isFetching: boolean
   /** The four all-time blocks of before (platform, top POIs, language, cities), untouched. */
   allTime?: ReactNode
@@ -135,10 +138,11 @@ export function EngagementReport({
   ga4,
   ga4Failed,
   onGa4Retry,
-  summaryMonth,
-  onSummaryMonthChange,
-  clicksMonth,
-  onClicksMonthChange,
+  month,
+  onMonthChange,
+  conversion,
+  conversionFailed,
+  onConversionRetry,
   isFetching,
   allTime,
 }: EngagementReportProps) {
@@ -220,23 +224,26 @@ export function EngagementReport({
 
   const columns = months.map((m) => ({ key: m, label: monthHeader(m, locale), untilToday: m === current ? k('until_today') : null }))
 
-  // The summary (#1099): the cohort heat map reuses the cells the third card resolves, toned by value.
+  // The cohorts (#1101 §C7): the third card whole, every rate row toned by value, in the summary.
   const afterFirst = cards.find((c) => c.key === 'card_after_first')!
-  const heatRows = HEAT_ROWS.map((key) => afterFirst.groups.flatMap((g) => g.rows).find((r) => r.key === key)!)
-  const heatGroups: MonthGridGroup[] = toGroups({ ...afterFirst, groups: [{ key: null, rows: heatRows }] }).map((g) => ({
+  const heatGroups: MonthGridGroup[] = toGroups(afterFirst).map((g, gi) => ({
     ...g,
-    rows: g.rows.map((row, ri) => ({
-      ...row,
-      cells: row.cells.map((cell, ci) => {
-        const c = heatRows[ri].cells[ci]
-        const step = c.state === 'measured' || c.state === 'floor' ? heatStep(c.value) : null
-        return { ...cell, tone: step === null ? undefined : HEAT_TONES[step] }
-      }),
-    })),
+    rows: g.rows.map((row, ri) => {
+      const def = afterFirst.groups[gi].rows[ri]
+      if (def.kind !== 'rate') return row
+      return {
+        ...row,
+        cells: row.cells.map((cell, ci) => {
+          const c = def.cells[ci]
+          const step = c.state === 'measured' || c.state === 'floor' ? heatStep(c.value) : null
+          return { ...cell, tone: step === null ? undefined : HEAT_TONES[step] }
+        }),
+      }
+    }),
   }))
   const summaryInput = useMemo(
-    () => ({ months, today, use, bank, bankFailed, ga4, ga4Failed, ga4Filtered, summaryMonth: summaryMonthOf(summaryMonth, months, today) }),
-    [months, today, use, bank, bankFailed, ga4, ga4Failed, ga4Filtered, summaryMonth]
+    () => ({ months, today, use, bank, bankFailed, ga4, ga4Failed, ga4Filtered, summaryMonth: month }),
+    [months, today, use, bank, bankFailed, ga4, ga4Failed, ga4Filtered, month]
   )
 
   const notice = (card: GridCard) => {
@@ -341,18 +348,22 @@ export function EngagementReport({
         fmt={fmt}
         input={summaryInput}
         useName={useName}
-        onMonthChange={onSummaryMonthChange}
+        onMonthChange={onMonthChange}
         cellTitle={cellTitle}
         monthHeader={(m) => monthHeader(m, locale)}
         monthShort={(m) => monthHeader(m, locale).split(' ')[0]}
         monthLong={(m) => monthLong(m, locale)}
-        day={day}
         onBankRetry={onBankRetry}
         onGa4Retry={onGa4Retry}
         ga4BadgeHint={ga4Filtered ? k('ga4_filter_hint') : k('ga4_badge_hint')}
         heatGroups={heatGroups}
         heatMonths={columns}
         curve={cohortCurve(afterFirst)}
+        conversion={conversion}
+        conversionFailed={conversionFailed}
+        onConversionRetry={onConversionRetry}
+        filtered={hasFilters(filters)}
+        onClearFilters={() => onFiltersChange(NO_FILTERS)}
       />
 
       {emptySlice && (
@@ -367,7 +378,7 @@ export function EngagementReport({
         </div>
       )}
 
-      {cards.map((card) => (
+      {cards.filter((card) => card.key !== 'card_after_first').map((card) => (
         <MonthGrid
           key={card.key}
           testId={`engagement-${card.key}`}
@@ -387,14 +398,11 @@ export function EngagementReport({
         k={k}
         nameLabel={nameLabel}
         locale={locale}
-        months={months}
-        current={current}
         ga4={ga4}
         ga4Failed={ga4Failed}
         ga4Filtered={ga4Filtered}
         onRetry={onGa4Retry}
-        month={clicksMonth}
-        onMonthChange={onClicksMonthChange}
+        month={month}
         integer={fmt.integer}
       />
 
@@ -419,31 +427,25 @@ function ClicksCard({
   k,
   nameLabel,
   locale,
-  months,
-  current,
   ga4,
   ga4Failed,
   ga4Filtered,
   onRetry,
   month,
-  onMonthChange,
   integer,
 }: {
   k: (key: string, values?: Record<string, string | number>) => string
   nameLabel: (kind: 'buttons' | 'screens', raw: string) => string | null
   locale: string
-  months: string[]
-  current: string
   ga4?: EngagementGa4Report
   ga4Failed: boolean
   ga4Filtered: boolean
   onRetry: () => void
-  month: string | null
-  onMonthChange: (month: string) => void
+  /** The page's month (#1101 §C8): the card has no selector of its own and names the month. */
+  month: string
   integer: Intl.NumberFormat
 }) {
-  const selected = month && months.includes(month) ? month : defaultClicksMonth(months, ga4?.clicks)
-  const { blocks, max } = ga4 ? clickBlocks(ga4.clicks, selected) : { blocks: [], max: 0 }
+  const { blocks, max } = ga4 ? clickBlocks(ga4.clicks, month) : { blocks: [], max: 0 }
 
   return (
     <div data-testid="engagement-card_clicks">
@@ -456,20 +458,9 @@ function ClicksCard({
           right={
             <span className="flex items-center gap-2">
               <Ga4Badge text={k('ga4_badge')} hint={ga4Filtered ? k('ga4_filter_hint') : k('ga4_badge_hint')} />
-              <label className="flex items-center gap-2">
-                <span className="sr-only">{k('clicks_month')}</span>
-                <select
-                  value={selected}
-                  onChange={(e) => onMonthChange(e.target.value)}
-                  className="rounded-lg border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-900 px-3 py-2 text-sm font-semibold text-gray-900 dark:text-white"
-                >
-                  {[...months].reverse().map((m) => (
-                    <option key={m} value={m}>
-                      {m === current ? `${monthLong(m, locale)} (${k('until_today')})` : monthLong(m, locale)}
-                    </option>
-                  ))}
-                </select>
-              </label>
+              <span className={`text-[11px] ${DIM}`} data-testid="engagement-clicks-month">
+                {k('summary.clicks_month_of', { month: monthLong(month, locale) })}
+              </span>
             </span>
           }
         />

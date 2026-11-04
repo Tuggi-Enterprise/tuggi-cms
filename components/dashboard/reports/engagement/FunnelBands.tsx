@@ -4,15 +4,17 @@ import { cn } from '@/lib/utils'
 import { DIM } from '@/components/ui/dense-table'
 
 /**
- * The funnel chart of the Conversion report (#1069, spec-cms-relatorio-conversao-2026-11 §7):
+ * The sequential funnel chart (#1069, spec-cms-relatorio-conversao-2026-11 §7), the use funnel of the
+ * Engagement and conversion page since #1101 (spec-cms-relatorio-engajamento-2026-11 §C5):
  * horizontal bands centred on ONE ruler, no connector between steps, the number beside each band.
  * The Excel / Power BI funnel shape, in CSS. Not `recharts`: its trapezoid draws each step's base
  * from the NEXT step, which says "account flows into used hours into purchased", and that is false
  * here, a guest buys without an account (BR-USUARIO-037 3.j).
  *
  * Presentational: every number and string arrives formatted, `max` is `readFunnel().max`. Each band
- * is `value / max` of the band column, never relative to the band above, so Used hours may be
- * wider than Account below it, and that is the truth.
+ * is `value / max` of the band column, never relative to the band above, so a later step may be
+ * wider than the one above it, and that is the truth. A band with `parts` splits its own width
+ * among them (account and guest of Entered), each `part.value / band.value`.
  *
  * Different from `admin/social/FunnelBars.tsx`, which is recharts and draws something else.
  */
@@ -32,14 +34,25 @@ export interface FunnelBand {
   /** A colour fills the band; `outline` draws it hollow and dashed (the other instrument). */
   fill: string | 'outline'
   muted?: boolean
-  /** A badge after the note, which then turns bold: the one highlight of a funnel (#1099, "biggest drop"). */
+  /** A badge after the note, which then turns bold: the one highlight of a funnel. */
   badge?: string
+  /** A tag after the label, with its hint: the other instrument (`GA4`). */
+  tag?: { text: string; hint: string }
+  /** The band split in parts that sum to `value`, a 2 px gap between them; a part of 0 draws nothing. */
+  parts?: FunnelBandPart[]
+}
+
+export interface FunnelBandPart {
+  key: string
+  value: number
+  fill: string
+  title: string
 }
 
 export type FunnelBandsProps = { label: string } & (
   | {
       loading: true
-      /** Skeleton rows above and below the seam; 1 and 4 by default, the Conversion funnel. */
+      /** Skeleton rows above and below the seam; 1 and 3 by default, the use funnel. */
       heads?: number
       steps?: number
     }
@@ -54,8 +67,8 @@ export type FunnelBandsProps = { label: string } & (
     }
 )
 
-/** The four steps below the seam in `ConversionReport`; the skeleton keeps the same grid. */
-const SKELETON_STEPS = 4
+/** The three steps below the seam of the use funnel; the skeleton keeps the same grid. */
+const SKELETON_STEPS = 3
 
 const LI = 'md:flex md:items-center md:gap-4'
 const LABEL_COL = 'hidden md:block w-40 shrink-0 text-right'
@@ -65,22 +78,35 @@ const PULSE = 'rounded-md bg-gray-100 dark:bg-gray-800 animate-pulse'
 
 function Band({ band, max }: { band: FunnelBand; max: number }) {
   const show = band.value !== null && band.value > 0 && max > 0
+  const width = `${((band.value as number) / max) * 100}%`
+  const parts = band.parts?.filter((p) => p.value > 0)
   return (
     <div className={BAND_COL} aria-hidden="true" data-testid={`funnel-band-col-${band.key}`}>
-      {show && (
-        <div
-          data-testid={`funnel-band-${band.key}`}
-          className={cn(
-            'h-full rounded-md min-w-[4px] transition-[width] duration-300 motion-reduce:transition-none',
-            band.fill === 'outline'
-              ? 'border-2 border-dashed border-gray-500 dark:border-gray-400'
-              : 'border border-transparent'
-          )}
-          style={{
-            width: `${((band.value as number) / max) * 100}%`,
-            backgroundColor: band.fill === 'outline' ? undefined : band.fill,
-          }}
-        />
+      {show && parts && parts.length > 0 ? (
+        <div data-testid={`funnel-band-${band.key}`} className="h-full min-w-[4px] flex gap-[2px] rounded-md overflow-hidden" style={{ width }}>
+          {parts.map((p) => (
+            <div
+              key={p.key}
+              data-testid={`funnel-part-${p.key}`}
+              title={p.title}
+              className="h-full min-w-0"
+              style={{ flex: `${p.value} 1 0%`, backgroundColor: p.fill }}
+            />
+          ))}
+        </div>
+      ) : (
+        show && (
+          <div
+            data-testid={`funnel-band-${band.key}`}
+            className={cn(
+              'h-full rounded-md min-w-[4px] transition-[width] duration-300 motion-reduce:transition-none',
+              band.fill === 'outline'
+                ? 'border-2 border-dashed border-gray-500 dark:border-gray-400'
+                : 'border border-transparent'
+            )}
+            style={{ width, backgroundColor: band.fill === 'outline' ? undefined : band.fill }}
+          />
+        )
       )}
     </div>
   )
@@ -94,12 +120,13 @@ function Row({ band, max }: { band: FunnelBand; max: number }) {
       <div className="flex h-5 items-baseline justify-between gap-3 md:hidden">
         <span className={cn('text-sm font-semibold truncate', labelTone)} title={band.hint}>
           {band.label}
+          {band.tag && <FunnelBadge text={band.tag.text} hint={band.tag.hint} />}
         </span>
         <span className="flex shrink-0 items-baseline gap-3">
           {band.noteShort && (
             <span className={cn('text-[11px] tabular-nums', band.badge ? 'font-semibold text-gray-900 dark:text-white' : DIM)}>
               {band.noteShort}
-              {band.badge && <Badge text={band.badge} />}
+              {band.badge && <FunnelBadge text={band.badge} />}
             </span>
           )}
           <span className={number}>{band.display}</span>
@@ -107,6 +134,7 @@ function Row({ band, max }: { band: FunnelBand; max: number }) {
       </div>
       <span className={cn(LABEL_COL, 'text-sm font-semibold', labelTone)} title={band.hint}>
         {band.label}
+        {band.tag && <FunnelBadge text={band.tag.text} hint={band.tag.hint} />}
       </span>
       <Band band={band} max={max} />
       <div className={NUMBER_COL}>
@@ -114,7 +142,7 @@ function Row({ band, max }: { band: FunnelBand; max: number }) {
         {band.note && (
           <span className={cn('text-[11px] leading-4 tabular-nums', band.badge ? 'font-semibold text-gray-900 dark:text-white' : DIM)}>
             {band.note}
-            {band.badge && <Badge text={band.badge} />}
+            {band.badge && <FunnelBadge text={band.badge} />}
           </span>
         )}
       </div>
@@ -122,10 +150,10 @@ function Row({ band, max }: { band: FunnelBand; max: number }) {
   )
 }
 
-/** The classes of the GA4 badge: grey border, mono. */
-function Badge({ text }: { text: string }) {
+/** The classes of the GA4 badge: grey border, mono. The purchase funnel reuses it (`converts_more`). */
+export function FunnelBadge({ text, hint }: { text: string; hint?: string }) {
   return (
-    <span data-testid="funnel-badge" className={cn('ml-1.5 inline-block rounded border border-gray-400 px-1.5 align-middle font-mono text-[10px] font-normal uppercase tracking-wider', DIM)}>
+    <span data-testid={hint ? 'funnel-tag' : 'funnel-badge'} title={hint} className={cn('ml-1.5 inline-block rounded border border-gray-400 px-1.5 align-middle font-mono text-[10px] font-normal uppercase tracking-wider', DIM)}>
       {text}
     </span>
   )

@@ -11,7 +11,8 @@
  *  - **`null` is never `0`** (BR-COMUNICACAO-022 item 4): every value is a `Cell` from `cells.ts`,
  *    with the state that says why it is empty.
  *  - **No fraction crosses instruments** (DS-COMPONENTE-084 item 2): the divisions below are GA4 by
- *    GA4 (`engagedShare`, the funnel's `of_opened`) and bank by bank (`of_used`, the frequency bands).
+ *    GA4 (`engagedShare`) and bank by bank (the frequency bands). The two funnels of the page (#1101)
+ *    live in `lib/conversion/funnel.ts`.
  */
 
 import { resolveCell, screenMinutes, type Cell, type GridCard, type GridInput, type RowDef } from '@/lib/engagement/cells'
@@ -35,8 +36,8 @@ export const MINUS = '−'
 // ── Month ─────────────────────────────────────────────────────────────────────────────────────
 
 /**
- * The month of the summary: `?summary_month=` when it is on the ruler, else the last closed month
- * (the one before today's in Sao Paulo), else the current one, as in the first month of the ruler.
+ * The month of the page: `?month=` when it is on the ruler, else the last closed month (the one
+ * before today's in Sao Paulo), else the current one, as in the first month of the ruler (#1101 §C8).
  */
 export function summaryMonthOf(param: string | null, months: readonly string[], today: string): string {
   if (param && months.includes(param)) return param
@@ -126,6 +127,10 @@ export interface SummaryTileData {
 
 /** Engaged people of a GA4 month; the version of the function that does not send them yet is `no_source`. */
 const ENGAGED_ROW: RowDef = { key: 'engaged_ga4', source: 'ga4', kind: 'count', ga4: (m) => m.engagedUsers }
+/** Engaged people of the month's cohort, the "interacted" band of the use funnel (#1101 §C15.1). */
+const NEW_ENGAGED_ROW: RowDef = { key: 'new_engaged_ga4', source: 'ga4', kind: 'count', ga4: (m) => m.newEngagedUsers }
+/** GA4 fields a deployed function may not send yet: a month answered without them is `no_source`. */
+const LATE_GA4_FIELDS: readonly RowDef[] = [ENGAGED_ROW, NEW_ENGAGED_ROW]
 const GA4_ACTIVE_ROW: RowDef = { key: 'active_ga4', source: 'ga4', kind: 'count', ga4: (m) => m.activeUsers }
 const SCREEN_ROW: RowDef = { key: 'screen_minutes', source: 'ga4', kind: 'minutes', ga4: screenMinutes }
 /**
@@ -148,7 +153,7 @@ const RETURNED_ROW: RowDef = {
 /** `resolveCell`, plus `no_source` where the source answered the month without the field. */
 function cellOf(row: RowDef, month: string, input: GridInput): Cell {
   const cell = resolveCell(row, month, input)
-  if (row === ENGAGED_ROW && cell.state === 'suppressed' && input.ga4?.months.some((m) => m.month === month && m.engagedUsers === null)) {
+  if (LATE_GA4_FIELDS.includes(row) && cell.state === 'suppressed' && input.ga4?.months.some((m) => m.month === month && row.ga4!(m) === null)) {
     return { ...cell, state: 'no_source' }
   }
   return cell
@@ -239,19 +244,45 @@ function modeCell(row: RowDef, month: string, input: GridInput): Cell {
   return cell
 }
 
-/** Counted columns of the modes card: one ruler, `stripTop` of the tallest month (spec §B5). */
+/** The grey segment of a month the database cannot split by mode yet (#1101 §C4.1). */
+export const UNSPLIT_SEGMENT = 'trip_total'
+
+const unsplit = (c: Cell) => c.state === 'before_source' || c.state === 'no_source'
+
+/**
+ * Counted columns of the modes card: one ruler, `stripTop` of the tallest month (spec §B5). A month
+ * whose three modes are before their source or not sent draws one neutral segment, the people who
+ * used the guide (`active.trip`), so August to October are not empty (§C4.1). Without that number
+ * the column stays empty with the modes' reason; a month with any mode measured draws the three.
+ */
 export function buildModeColumns(input: GridInput): { columns: MonthColumn[]; top: number } {
-  const raw = input.months.map((month) => ({ month, cells: MODE_KEYS.map((k) => modeCell(modeRow(k), month, input)) }))
-  const totals = raw.map((r) => r.cells.reduce((s, c) => s + (valueOf(c) ?? 0), 0))
+  const raw = input.months.map((month) => {
+    const cells = MODE_KEYS.map((k) => modeCell(modeRow(k), month, input))
+    const trip = cellOf(TRIP_ROW, month, input)
+    const segments = cells.every(unsplit) && hasValue(trip) ? [{ key: UNSPLIT_SEGMENT, cell: trip }] : cells.map((cell, i) => ({ key: MODE_KEYS[i] as string, cell }))
+    return { month, segments }
+  })
+  const totals = raw.map((r) => r.segments.reduce((s, x) => s + (valueOf(x.cell) ?? 0), 0))
   const top = stripTop(totals)
   return {
     top,
     columns: raw.map((r) => ({
       month: r.month,
       empty: null,
-      segments: r.cells.map((cell, i) => ({ key: MODE_KEYS[i], cell, fraction: (valueOf(cell) ?? 0) / top, share: null })),
+      segments: r.segments.map(({ key, cell }) => ({ key, cell, fraction: (valueOf(cell) ?? 0) / top, share: null })),
     })),
   }
+}
+
+/** The first month the database splits by mode, for the card's header; `null` with none yet (§C4.3). */
+export function modesSplitSince(input: GridInput): string | null {
+  if (!input.bank || input.bankFailed) return null
+  return input.months.find((m) => !unsplit(modeCell(modeRow('drive_only'), m, input))) ?? null
+}
+
+/** The "interacted" cell of the use funnel for one month: GA4, the month's cohort (§C5). */
+export function newEngagedCell(month: string, input: GridInput): Cell {
+  return cellOf(NEW_ENGAGED_ROW, month, input)
 }
 
 export interface ModesPanel {
@@ -314,55 +345,8 @@ export function buildFrequencyColumns(input: GridInput): MonthColumn[] {
   })
 }
 
-// ── Funnel ───────────────────────────────────────────────────────────────────────────────────
-
-export type FunnelKey = 'opened' | 'engaged' | 'used' | 'returned'
-
-export interface SummaryFunnelStep {
-  key: FunnelKey
-  source: 'bank' | 'ga4'
-  cell: Cell
-  /** The band's number: the count, or `round(rate × active)` for `returned`. */
-  value: number | null
-  /** `engaged` over `opened` (GA4), `returned` over `used` (bank); `null` when it does not print. */
-  rate: number | null
-}
-
-export interface SummaryFunnel {
-  steps: SummaryFunnelStep[]
-  max: number
-  /** The step whose loss is the larger of the two measured losses; `null` with fewer than two. */
-  biggestDrop: FunnelKey | null
-}
-
-export function buildFunnel(month: string, input: GridInput): SummaryFunnel {
-  const opened = cellOf(GA4_ACTIVE_ROW, month, input)
-  const engaged = cellOf(ENGAGED_ROW, month, input)
-  const used = cellOf(ACTIVE_ROW, month, input)
-  const returned = cellOf(RETURNED_ROW, month, input)
-  const o = valueOf(opened)
-  const e = valueOf(engaged)
-  const u = valueOf(used)
-  const r = valueOf(returned)
-  const ofOpened = o !== null && e !== null && o > 0 && e <= o ? e / o : null
-  const ofUsed = r !== null && u !== null ? r : null
-  const steps: SummaryFunnelStep[] = [
-    { key: 'opened', source: 'ga4', cell: opened, value: o, rate: null },
-    { key: 'engaged', source: 'ga4', cell: engaged, value: e, rate: ofOpened },
-    { key: 'used', source: 'bank', cell: used, value: u, rate: null },
-    { key: 'returned', source: 'bank', cell: returned, value: ofUsed !== null ? Math.round(ofUsed * (u as number)) : null, rate: ofUsed },
-  ]
-  const losses: { key: FunnelKey; loss: number }[] = []
-  if (ofOpened !== null) losses.push({ key: 'engaged', loss: 1 - ofOpened })
-  if (ofUsed !== null) losses.push({ key: 'returned', loss: 1 - ofUsed })
-  const biggestDrop = losses.length === 2 ? (losses[0].loss >= losses[1].loss ? losses[0].key : losses[1].key) : null
-  const max = steps.reduce((m, s) => Math.max(m, s.value ?? 0), 0)
-  return { steps, max, biggestDrop }
-}
-
 // ── Cohorts ──────────────────────────────────────────────────────────────────────────────────
 
-export const HEAT_ROWS = ['ret_d1', 'ret_d7', 'ret_d30', 'second_30'] as const
 /** Lower bounds of the five steps of the heat map, fixed and absolute (spec §B8). */
 export const HEAT_STEPS = [0, 0.05, 0.1, 0.2, 0.35] as const
 
@@ -409,7 +393,6 @@ export interface Summary {
   tiles: SummaryTileData[]
   modes: { columns: MonthColumn[]; top: number }
   panel: ModesPanel
-  funnel: SummaryFunnel
   frequency: MonthColumn[]
 }
 
@@ -419,7 +402,6 @@ export function buildSummary(input: SummaryInput): Summary {
     tiles: buildTiles(input),
     modes: buildModeColumns(input),
     panel: buildModesPanel(input.summaryMonth, input),
-    funnel: buildFunnel(input.summaryMonth, input),
     frequency: buildFrequencyColumns(input),
   }
 }

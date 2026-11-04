@@ -57,3 +57,15 @@ export function engagementRange(months: readonly string[]): { p_from: string; p_
   const after = addMonths(months[months.length - 1], 1)
   return { p_from: `${first}-01T00:00:00${ENGAGEMENT_UTC_OFFSET}`, p_to: `${after}-01T00:00:00${ENGAGEMENT_UTC_OFFSET}` }
 }
+
+const OLD_CONVERSION_MONTH = /^(\d{4}-(0[1-9]|1[0-2]))-\d{2}$/
+
+/**
+ * Where `/dashboard/reports/conversion` goes since #1101 (spec §C8.3): the purchase funnel of the
+ * Engagement page. The old page's `?month=YYYY-MM-DD` becomes `?month=YYYY-MM`; anything else is
+ * dropped and the page falls to its default month.
+ */
+export function conversionRedirectTarget(locale: string, month: unknown): string {
+  const m = typeof month === 'string' ? OLD_CONVERSION_MONTH.exec(month) : null
+  return `/${locale}/dashboard/reports/engagement${m ? `?month=${m[1]}` : ''}#conversion`
+}

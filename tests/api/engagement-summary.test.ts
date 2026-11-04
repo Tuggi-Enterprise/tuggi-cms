@@ -1,6 +1,6 @@
 /**
  * #1099: the executive summary on top of the Engagement report (spec-cms-relatorio-engajamento-2026-11
- * Parte B, criterion §B15 items 1, 3, 4, 5, 7, 8, 9, 10). Pure module, no mount:
+ * Parte B, criterion §B15 items 1, 3, 4, 5, 7, 9, 10; Parte C §C16 item 4 since #1101). Pure module, no mount:
  * `lib/engagement/summary.ts`.
  *
  * Run with: npm run test:api
@@ -15,7 +15,6 @@ import { buildGrid, type Cell, type GridInput } from '@/lib/engagement/cells'
 import { parseBankReport, parseGa4Report } from '@/lib/engagement/report'
 import {
   buildFrequencyColumns,
-  buildFunnel,
   buildModeColumns,
   buildModesPanel,
   buildTiles,
@@ -24,10 +23,13 @@ import {
   formatDelta,
   heatStep,
   MINUS,
+  modesSplitSince,
+  newEngagedCell,
   SUMMARY_MIN_BASE,
   summaryMonthOf,
   SUPPRESSED_SEGMENT,
   tileDelta,
+  UNSPLIT_SEGMENT,
   type SummaryInput,
   type TilePoint,
 } from '@/lib/engagement/summary'
@@ -223,10 +225,8 @@ test('#1099 BR-COMUNICACAO-022 item 4 DS-COMPONENTE-084: a missing number is a s
     assert.equal(t.delta.state, 'unknown')
     assert.ok(t.spark.every((s) => s.value === null))
   }
-  const f = buildFunnel('2026-10', failed)
-  assert.ok(f.steps.every((s) => s.value === null && s.rate === null))
-  assert.equal(f.biggestDrop, null)
-  assert.equal(f.max, 0)
+  assert.equal(newEngagedCell('2026-10', failed).state, 'source_failed')
+  assert.equal(newEngagedCell('2026-10', failed).value, null)
   // GA4 deployed before engagedUsers: the field is absent, the tile says the source does not send it.
   const old = parseGa4Report({ months: GA4.months.map(({ engagedUsers: _e, ...m }) => m), clicks: [] })!
   const engaged = tile(input({ ga4: old }), 'engaged')
@@ -252,40 +252,50 @@ test('#1099 spec B4.3: the tile line has six slots ending at the tile month; mon
 
 // ── §B15 item 7 ─────────────────────────────────────────────────────────────────────────────
 
-test('#1099 spec B15 item 7: modes columns follow the ruler; a month before data_since.open is before_source in all three, on one stripTop ruler', () => {
+test('#1099 #1101 spec B15 item 7: November splits in three modes on one stripTop ruler, the months before data_since.open draw the neutral segment', () => {
   const { columns, top } = buildModeColumns(input())
   assert.deepEqual(columns.map((c) => c.month), MONTHS)
   assert.deepEqual(columns[3].segments.map((s) => s.key), ['drive_only', 'both', 'explore_only'])
-  assert.equal(top, 50)
-  assert.ok(Math.abs(columns[3].segments[0].fraction * COLUMN_PLOT_PX - (9 / 50) * 160) < 1)
-  // contract Parte 25: the three groups are null until open is measured, drive_only too
-  for (const s of columns[1].segments) {
-    assert.equal(s.cell.state, 'before_source')
-    assert.equal(s.cell.since, '2026-10-28')
-    assert.equal(s.fraction, 0)
-  }
+  // the tallest month is August's 150 people who used the guide, not November's 41
+  assert.equal(top, 200)
+  assert.ok(Math.abs(columns[3].segments[0].fraction * COLUMN_PLOT_PX - (9 / 200) * 160) < 1)
   const panel = buildModesPanel('2026-11', input())
   assert.deepEqual([panel.drive_only.value, panel.explore_only.value, panel.both.value, panel.fg.value, panel.bg.value, panel.bg_share.value], [9, 21, 11, 18, 14, 0.44])
 })
 
-// ── §B15 item 8 ─────────────────────────────────────────────────────────────────────────────
+test('#1101 spec C16 item 4 BR-COMUNICACAO-022 item 4: a month the database cannot split draws one trip_total segment of active.trip, never three zeros; with no active.trip the column stays empty with the modes reason', () => {
+  const { columns, top } = buildModeColumns(input())
+  for (const [i, trip] of [[0, 150], [1, 160], [2, 120]] as const) {
+    const segs = columns[i].segments
+    assert.equal(UNSPLIT_SEGMENT, 'trip_total')
+    assert.deepEqual(segs.map((s) => s.key), [UNSPLIT_SEGMENT])
+    assert.equal(segs[0].cell.value, trip)
+    assert.ok(Math.abs(segs[0].fraction * 160 - (trip / top) * 160) < 1)
+  }
+  assert.equal(modesSplitSince(input()), '2026-11')
+  // migration 20261104140000 not applied: every month is unsplit, November included
+  const noModes = parseBankReport({ data_since: SINCE, months: MONTHS.map((m) => month(m)).map(({ modes: _m, ...m }) => m) })
+  assert.equal(noModes.has_mode_fields, false)
+  const all = buildModeColumns(input({ bank: noModes }))
+  assert.ok(all.columns.every((c) => c.segments.length === 1 && c.segments[0].key === UNSPLIT_SEGMENT))
+  assert.equal(modesSplitSince(input({ bank: noModes })), null)
+  // active.trip null: no grey segment and no zero, the three modes keep their reason and draw nothing
+  const noTrip = parseBankReport({ data_since: SINCE, months: [month('2026-09', { active: { open: null, trip: null, audio: 231 } })] })
+  const col = buildModeColumns(input({ bank: noTrip })).columns[1]
+  assert.deepEqual(col.segments.map((s) => [s.key, s.cell.state, s.fraction]), [['drive_only', 'before_source', 0], ['both', 'before_source', 0], ['explore_only', 'before_source', 0]])
+  for (const s of col.segments) noZeroFromNull(s.cell)
+  // the bank failed: nothing claims a split month
+  assert.equal(modesSplitSince(input({ bank: undefined, bankFailed: true })), null)
+})
 
-test('#1099 DS-COMPONENTE-084 item 2 spec B15 item 8: of_opened is GA4 over GA4, of_used bank over bank, the max is the largest of four, one biggest drop', () => {
-  const sep = buildFunnel('2026-09', input())
-  assert.deepEqual(sep.steps.map((s) => [s.key, s.source]), [['opened', 'ga4'], ['engaged', 'ga4'], ['used', 'bank'], ['returned', 'bank']])
-  assert.equal(sep.steps[1].rate, 175 / 327)
-  assert.equal(sep.steps[3].rate, 0.11)
-  assert.equal(sep.steps[3].value, Math.round(0.11 * 231))
-  assert.equal(sep.max, 327)
-  assert.equal(sep.biggestDrop, 'returned')
-  // October: the return window is open, one rate measured, no badge
-  const oct = buildFunnel('2026-10', input())
-  assert.equal(oct.steps[3].cell.state, 'not_due')
-  assert.equal(oct.steps[3].value, null)
-  assert.equal(oct.biggestDrop, null)
-  // a source filter empties the GA4 heads and keeps the bank steps
-  const filtered = buildFunnel('2026-09', input({ ga4Filtered: true }))
-  assert.deepEqual(filtered.steps.map((s) => s.cell.state), ['ga4_filter', 'ga4_filter', 'measured', 'measured'])
+test('#1101 spec C16 item 10 BR-COMUNICACAO-022 item 4: the interacted cell is GA4 of the month; a payload without newEngagedUsers is no_source, never 0', () => {
+  const withNew = parseGa4Report({ months: GA4.months.map((m) => ({ ...m, newEngagedUsers: m.month === '2026-10' ? 150 : 0 })), clicks: [] })!
+  assert.deepEqual(newEngagedCell('2026-10', input({ ga4: withNew })), { ...newEngagedCell('2026-10', input({ ga4: withNew })), state: 'measured', value: 150 })
+  assert.equal(newEngagedCell('2026-09', input({ ga4: withNew })).value, 0)
+  const old = newEngagedCell('2026-10', input())
+  assert.equal(old.state, 'no_source')
+  assert.equal(old.value, null)
+  assert.equal(newEngagedCell('2026-10', input({ ga4: undefined, ga4Failed: true })).state, 'source_failed')
 })
 
 // ── §B15 item 9 ─────────────────────────────────────────────────────────────────────────────

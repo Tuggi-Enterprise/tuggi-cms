@@ -1,4 +1,5 @@
 import type { EngagementBankReport, EngagementGa4Report } from '@/lib/engagement/report'
+import type { ConversionFunnel } from '@/lib/conversion/funnel'
 
 /** The fixture of the Engagement report CT (#1094): the numbers of the spec §7 sketch. */
 export const TODAY = '2026-11-04'
@@ -80,3 +81,23 @@ export const GA4_NAMED: EngagementGa4Report = {
     { month: '2026-10', screen: '(not set)', button: 'poi_navigate', events: 20, users: 14 },
   ],
 }
+
+/**
+ * October of `core.dashboard_conversion_funnel` after #1100 (#1101, the spec §C11 sketch): 450
+ * installed, 320 entered, 120 with an account; 120 tried free hours and 30 of them bought, 200 did not
+ * try and 8 bought.
+ */
+export const CONVERSION: ConversionFunnel = {
+  month: '2026-10',
+  installs: { ios: 160, android: 290, total: 450 },
+  entered: 320,
+  account: 120,
+  purchased: 38,
+  testedFree: 120,
+  purchasedAfterFree: 30,
+  purchasedWithoutFree: 8,
+  usedGuideOrStory: 250,
+}
+
+/** The same month from the function before #1100: none of its four fields. */
+export const CONVERSION_OLD: ConversionFunnel = { ...CONVERSION, testedFree: null, purchasedAfterFree: null, purchasedWithoutFree: null, usedGuideOrStory: null }

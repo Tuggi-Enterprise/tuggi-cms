@@ -79,7 +79,6 @@ import {
   ThumbsDown,
   Trophy,
   Flag,
-  Funnel,
   Upload,
   UserCog,
   Users,
@@ -165,7 +164,6 @@ function catalogue(): { basic: NavEntry[]; modules: NavEntry[] } {
               item('/dashboard/reports/geography', 'geography', MapPin),
               item('/dashboard/reports/acquisition', 'acquisition', BarChart3),
               // From install to purchase, by month (#1068): read right after where they came from.
-              item('/dashboard/reports/conversion', 'conversion', Funnel),
               item('/dashboard/reports/engagement', 'engagement', Activity),
               // "Base de Usuários" e não "Usuários": é RELATÓRIO. O rótulo antigo era o mesmo
               // literal de outros dois destinos — o dropdown de topo e `/admin/users` — e a
