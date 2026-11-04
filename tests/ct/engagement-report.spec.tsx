@@ -63,6 +63,7 @@ test('spec §11 item 4 BR-COMUNICACAO-022 item 4: suppressed and before-source p
   await page.setViewportSize({ width: 1440, height: 1000 })
   // The database sends null for a month before data_since (contract Parte 25): August of audio here.
   const bank = {
+    has_mode_fields: true,
     data_since: { ...BANK.data_since, audio: '2026-09-02' },
     months: BANK.months.map((m) => (m.month === '2026-08' ? { ...m, active: { ...m.active, audio: null } } : m)),
   }
@@ -107,16 +108,17 @@ test('spec §11 item 8: bank down and GA4 down keep the table, mark their own ce
   await mount(<Screen months={MONTHS} today={TODAY} bankFailed ga4Failed />)
   await expect(cellOf(page, 'active_by', 1)).toHaveAttribute('title', E.cell_bank_failed)
   await expect(cellOf(page, 'active_ga4', 1)).toHaveAttribute('title', E.cell_ga4_failed)
-  await expect(page.getByText(E.bank_failed, { exact: true })).toHaveCount(3)
-  // two grid cards with GA4 rows, plus the clicks card
-  await expect(page.getByText(E.ga4_failed, { exact: true })).toHaveCount(3)
+  // one on top of the summary (#1099) and one per grid card
+  await expect(page.getByText(E.bank_failed, { exact: true })).toHaveCount(4)
+  // the summary, two grid cards with GA4 rows, plus the clicks card
+  await expect(page.getByText(E.ga4_failed, { exact: true })).toHaveCount(4)
   await expect(page.locator('td').filter({ hasText: /^0$/ })).toHaveCount(0)
   if (SHOTS) await page.screenshot({ path: `${SHOTS}/engagement-1440-failed.png`, fullPage: true })
 })
 
 test('spec §6: an empty slice says so above the cards, with clear filters', async ({ mount, page }) => {
   await page.setViewportSize({ width: 1440, height: 1000 })
-  const empty = { data_since: BANK.data_since, months: MONTHS.map((month) => ({ ...BANK.months[0], month, active: { open: null, trip: null, audio: null }, new: { open: null, trip: null, audio: null }, guide_minutes_median: null, guide_minutes_p75: null, days_used: { open: BANK.months[0].days_used.open, trip: BANK.months[0].days_used.open, audio: BANK.months[0].days_used.open }, returned_next_month: { open: null, trip: null, audio: null }, cohort: { size: null, retention: { d1: null, d7: null, d30: null, d60: null, d90: null }, second_trip: { d30: null, d60: null, d90: null } } })) }
+  const empty = { has_mode_fields: true, data_since: BANK.data_since, months: MONTHS.map((month) => ({ ...BANK.months[0], month, active: { open: null, trip: null, audio: null }, new: { open: null, trip: null, audio: null }, guide_minutes_median: null, guide_minutes_p75: null, days_used: { open: BANK.months[0].days_used.open, trip: BANK.months[0].days_used.open, audio: BANK.months[0].days_used.open }, returned_next_month: { open: null, trip: null, audio: null }, cohort: { size: null, retention: { d1: null, d7: null, d30: null, d60: null, d90: null }, second_trip: { d30: null, d60: null, d90: null } } })) }
   await mount(<Screen months={MONTHS} today={TODAY} bank={empty} ga4={GA4} filters={{ source: null, country: 'PT', platform: null, account: null }} />)
   await expect(page.getByTestId('engagement-empty-slice')).toContainText(E.empty_filtered)
 })
@@ -149,7 +151,8 @@ test('spec §11 items 10 and 11 at 390: each table scrolls, opens at the latest 
   await box.evaluate((el) => { el.scrollLeft = 0 })
   const x2 = (await head.boundingBox())!.x
   expect(Math.abs(x1 - x2)).toBeLessThanOrEqual(1)
-  await expect(page.locator('caption')).toHaveCount(3)
+  // three grid cards and the cohort heat map of the summary (#1099)
+  await expect(page.locator('caption')).toHaveCount(4)
 })
 
 test('spec §3 and §11 item 11 at 390: the left fade sits at the seam of the first column while months hide on the left, and leaves at scroll 0', async ({ mount, page }) => {

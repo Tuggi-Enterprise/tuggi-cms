@@ -8,6 +8,7 @@ import { ReportTabs } from '@/components/dashboard/ReportTabs'
 import { WidgetCard, SectionHeader } from '@/components/dashboard/WidgetCard'
 import { RankRow } from '@/components/dashboard/reports/acquisition/RankRow'
 import { Ga4Badge, MonthGrid, type MonthGridCell, type MonthGridGroup } from '@/components/dashboard/reports/engagement/MonthGrid'
+import { EngagementSummary, HEAT_TONES } from '@/components/dashboard/reports/engagement/EngagementSummary'
 import { CardError } from '@/components/admin/social/shared'
 import { Button } from '@/components/ui/button'
 import { Select } from '@/components/ui/select'
@@ -23,6 +24,7 @@ import {
   type GridRow,
 } from '@/lib/engagement/cells'
 import { clickBlocks, clickColor, defaultClicksMonth, screenGroupColor } from '@/lib/engagement/clicks'
+import { cohortCurve, HEAT_ROWS, heatStep, summaryMonthOf } from '@/lib/engagement/summary'
 import {
   ENGAGEMENT_USES,
   ga4Filterable,
@@ -54,6 +56,9 @@ export interface EngagementReportProps {
   ga4?: EngagementGa4Report
   ga4Failed: boolean
   onGa4Retry: () => void
+  /** `?summary_month=`; `null` = the last closed month (#1099). */
+  summaryMonth: string | null
+  onSummaryMonthChange: (month: string) => void
   /** `null` = the latest month with a click. */
   clicksMonth: string | null
   onClicksMonthChange: (month: string) => void
@@ -130,6 +135,8 @@ export function EngagementReport({
   ga4,
   ga4Failed,
   onGa4Retry,
+  summaryMonth,
+  onSummaryMonthChange,
   clicksMonth,
   onClicksMonthChange,
   isFetching,
@@ -159,7 +166,7 @@ export function EngagementReport({
   )
   const emptySlice = hasFilters(filters) && !bankFailed && !!bank && bankSliceEmpty(cards)
 
-  const cellTitle = (c: Cell, row: GridRow): string | undefined => {
+  const cellTitle = (c: Cell, source: GridRow['source']): string | undefined => {
     switch (c.state) {
       case 'floor':
         return k('cell_floor', { date: c.due ? day(c.due) : '' })
@@ -170,7 +177,7 @@ export function EngagementReport({
       case 'ga4_filter':
         return k('cell_ga4_filter')
       case 'source_failed':
-        return row.source === 'ga4' ? k('cell_ga4_failed') : k('cell_bank_failed')
+        return source === 'ga4' ? k('cell_ga4_failed') : k('cell_bank_failed')
       case 'suppressed':
         return k('cell_suppressed')
       default:
@@ -203,7 +210,7 @@ export function EngagementReport({
             main: printed.main,
             share: printed.share,
             floor: c.state === 'floor',
-            title: cellTitle(c, row),
+            title: cellTitle(c, row.source),
             loading: c.state === 'loading',
             muted: c.state !== 'measured' && c.state !== 'floor',
           }
@@ -212,6 +219,25 @@ export function EngagementReport({
     }))
 
   const columns = months.map((m) => ({ key: m, label: monthHeader(m, locale), untilToday: m === current ? k('until_today') : null }))
+
+  // The summary (#1099): the cohort heat map reuses the cells the third card resolves, toned by value.
+  const afterFirst = cards.find((c) => c.key === 'card_after_first')!
+  const heatRows = HEAT_ROWS.map((key) => afterFirst.groups.flatMap((g) => g.rows).find((r) => r.key === key)!)
+  const heatGroups: MonthGridGroup[] = toGroups({ ...afterFirst, groups: [{ key: null, rows: heatRows }] }).map((g) => ({
+    ...g,
+    rows: g.rows.map((row, ri) => ({
+      ...row,
+      cells: row.cells.map((cell, ci) => {
+        const c = heatRows[ri].cells[ci]
+        const step = c.state === 'measured' || c.state === 'floor' ? heatStep(c.value) : null
+        return { ...cell, tone: step === null ? undefined : HEAT_TONES[step] }
+      }),
+    })),
+  }))
+  const summaryInput = useMemo(
+    () => ({ months, today, use, bank, bankFailed, ga4, ga4Failed, ga4Filtered, summaryMonth: summaryMonthOf(summaryMonth, months, today) }),
+    [months, today, use, bank, bankFailed, ga4, ga4Failed, ga4Filtered, summaryMonth]
+  )
 
   const notice = (card: GridCard) => {
     const hasGa4 = card.groups.some((g) => g.rows.some((r) => r.source === 'ga4'))
@@ -308,6 +334,26 @@ export function EngagementReport({
         )}
         {isFetching && <span className={`text-[11px] uppercase tracking-widest ${DIM}`}>{k('updating')}</span>}
       </div>
+
+      <EngagementSummary
+        k={k}
+        locale={locale}
+        fmt={fmt}
+        input={summaryInput}
+        useName={useName}
+        onMonthChange={onSummaryMonthChange}
+        cellTitle={cellTitle}
+        monthHeader={(m) => monthHeader(m, locale)}
+        monthShort={(m) => monthHeader(m, locale).split(' ')[0]}
+        monthLong={(m) => monthLong(m, locale)}
+        day={day}
+        onBankRetry={onBankRetry}
+        onGa4Retry={onGa4Retry}
+        ga4BadgeHint={ga4Filtered ? k('ga4_filter_hint') : k('ga4_badge_hint')}
+        heatGroups={heatGroups}
+        heatMonths={columns}
+        curve={cohortCurve(afterFirst)}
+      />
 
       {emptySlice && (
         <div

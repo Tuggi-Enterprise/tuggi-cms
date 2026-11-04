@@ -528,6 +528,77 @@
             "route_explorer": "Open route (old name)",
             "route_explorer_sheet": "Open route",
             "completion_modal": "Route finished"
+          },
+          "summary": {
+            "title": "Summary of {month}",
+            "closed": "last closed month",
+            "month_label": "Summary month",
+            "detail_divider": "Month by month detail",
+            "tiles": {
+              "engaged": "Engaged people",
+              "engaged_n": "{pct} of {n} active",
+              "engaged_n_plain": "of {n} active",
+              "engaged_over": "GA4 counted more engaged than active people this month",
+              "engaged_hint": "Opened the app and did at least one of these: guide_session_start, detail_card_opened, story_play_start; button_clicked with poi_navigate, event_navigate, route_navigate, search_this_area, explore_chip_opened, explore_tab_selected, explore_filter_opened",
+              "guide_median": "Guide on per person, median",
+              "guide_median_n": "of {n} who started a trip",
+              "screen_minutes": "App minutes per person",
+              "screen_minutes_n": "of {n} active",
+              "returned": "Came back the next month",
+              "returned_n": "of {n} who {use} in {month}",
+              "no_source_bank": "the database does not send this number yet",
+              "no_source_ga4": "the published GA4 read does not send this number yet"
+            },
+            "delta_vs": "{delta} vs {month}",
+            "delta_flat": "steady",
+            "delta_pt": "{n} pt",
+            "delta_hint": "{prev} → {curr}; base {n_prev} and {n_curr}",
+            "delta_small_base": "small base: {n_prev} and {n_curr}; under 30 is not a trend",
+            "delta_partial": "month in progress; not compared with a whole month",
+            "card_modes": "Ways of use",
+            "modes_note": "exploring: measured since {date}",
+            "modes": {
+              "drive_only": "Only driving",
+              "explore_only": "Only exploring",
+              "both": "Both",
+              "fg": "Guide in foreground, median",
+              "bg": "Guide in background, median",
+              "bg_share": "Of guide time, in the background"
+            },
+            "modes_sr": "{month}: driving {drive}, both {both}, exploring {explore}",
+            "segment_title": "{segment}: {n} people",
+            "card_funnel": "Funnel of the month",
+            "funnel_note": "GA4 and database side by side; no rate between them",
+            "steps": {
+              "opened": "Opened the app",
+              "opened_sub": "active devices in GA4",
+              "engaged": "Valuable interaction",
+              "used_sub": "people in the database",
+              "returned": "Came back the next month"
+            },
+            "of_opened": "{pct} of who opened",
+            "of_used": "{pct} of who {use}",
+            "biggest_drop": "biggest drop",
+            "card_frequency_bars": "Days of use per month",
+            "bands": {
+              "d1": "1 day",
+              "d2": "2 days",
+              "d3_5": "3 to 5 days",
+              "d6_plus": "6 or more",
+              "suppressed": "bands under 5 people"
+            },
+            "band_title": "{band}: {n} people, {pct}",
+            "frequency_sr": "{month}: {bands}",
+            "card_cohort_heat": "Cohorts: who comes back",
+            "curve_gate": "curve from 6 closed cohorts; today {n}",
+            "curve_title": "Typical retention of the {n} closed cohorts",
+            "scale_legend": {
+              "s0": "under 5%",
+              "s1": "5 to 10%",
+              "s2": "10 to 20%",
+              "s3": "20 to 35%",
+              "s4": "35% or more"
+            }
           }
         },
         "content_coverage": {

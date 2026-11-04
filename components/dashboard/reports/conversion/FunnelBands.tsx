@@ -32,15 +32,22 @@ export interface FunnelBand {
   /** A colour fills the band; `outline` draws it hollow and dashed (the other instrument). */
   fill: string | 'outline'
   muted?: boolean
+  /** A badge after the note, which then turns bold: the one highlight of a funnel (#1099, "biggest drop"). */
+  badge?: string
 }
 
 export type FunnelBandsProps = { label: string } & (
-  | { loading: true }
+  | {
+      loading: true
+      /** Skeleton rows above and below the seam; 1 and 4 by default, the Conversion funnel. */
+      heads?: number
+      steps?: number
+    }
   | {
       loading?: false
       max: number
-      /** The other instrument, above the seam. */
-      head: FunnelBand
+      /** The other instrument, above the seam: one band, or several (#1099). */
+      head: FunnelBand | FunnelBand[]
       /** The difference printed on the seam; absent when there is none to print (floor, unknown). */
       seam?: { text: string; hint: string }
       steps: FunnelBand[]
@@ -89,7 +96,12 @@ function Row({ band, max }: { band: FunnelBand; max: number }) {
           {band.label}
         </span>
         <span className="flex shrink-0 items-baseline gap-3">
-          {band.noteShort && <span className={cn('text-[11px] tabular-nums', DIM)}>{band.noteShort}</span>}
+          {band.noteShort && (
+            <span className={cn('text-[11px] tabular-nums', band.badge ? 'font-semibold text-gray-900 dark:text-white' : DIM)}>
+              {band.noteShort}
+              {band.badge && <Badge text={band.badge} />}
+            </span>
+          )}
           <span className={number}>{band.display}</span>
         </span>
       </div>
@@ -99,9 +111,23 @@ function Row({ band, max }: { band: FunnelBand; max: number }) {
       <Band band={band} max={max} />
       <div className={NUMBER_COL}>
         <span className={cn(number, 'leading-5')}>{band.display}</span>
-        {band.note && <span className={cn('text-[11px] leading-4 tabular-nums', DIM)}>{band.note}</span>}
+        {band.note && (
+          <span className={cn('text-[11px] leading-4 tabular-nums', band.badge ? 'font-semibold text-gray-900 dark:text-white' : DIM)}>
+            {band.note}
+            {band.badge && <Badge text={band.badge} />}
+          </span>
+        )}
       </div>
     </li>
+  )
+}
+
+/** The classes of the GA4 badge: grey border, mono. */
+function Badge({ text }: { text: string }) {
+  return (
+    <span data-testid="funnel-badge" className={cn('ml-1.5 inline-block rounded border border-gray-400 px-1.5 align-middle font-mono text-[10px] font-normal uppercase tracking-wider', DIM)}>
+      {text}
+    </span>
   )
 }
 
@@ -147,9 +173,11 @@ export function FunnelBands(props: FunnelBandsProps) {
   if (props.loading) {
     return (
       <ul aria-label={props.label} aria-busy="true" className={list}>
-        <SkeletonRow />
+        {Array.from({ length: props.heads ?? 1 }, (_, i) => (
+          <SkeletonRow key={`h${i}`} />
+        ))}
         <Seam />
-        {Array.from({ length: SKELETON_STEPS }, (_, i) => (
+        {Array.from({ length: props.steps ?? SKELETON_STEPS }, (_, i) => (
           <SkeletonRow key={i} />
         ))}
       </ul>
@@ -157,7 +185,9 @@ export function FunnelBands(props: FunnelBandsProps) {
   }
   return (
     <ul aria-label={props.label} className={list} data-testid="funnel-bands">
-      <Row band={props.head} max={props.max} />
+      {(Array.isArray(props.head) ? props.head : [props.head]).map((h) => (
+        <Row key={h.key} band={h} max={props.max} />
+      ))}
       <Seam seam={props.seam} />
       {props.steps.map((s) => (
         <Row key={s.key} band={s} max={props.max} />

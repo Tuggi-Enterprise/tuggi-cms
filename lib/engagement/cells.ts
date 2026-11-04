@@ -39,6 +39,8 @@ export type CellState =
   | 'ga4_filter'
   | 'source_failed'
   | 'suppressed'
+  /** The source answered without this field: the deployed version does not send it yet (#1099). */
+  | 'no_source'
 
 export interface Cell {
   state: CellState
@@ -58,7 +60,7 @@ type Window = { days: number } | 'next_month'
 /** Which `data_since` governs a bank row. `use` is the selected definition. */
 type Since = 'use' | EngagementUse
 
-interface RowDef {
+export interface RowDef {
   key: string
   source: RowSource
   kind: CellKind
@@ -89,7 +91,7 @@ export interface GridCard {
 }
 
 /** `screen_minutes`: GA4 by GA4, and no active users is no average (DS-COMPONENTE-084 item 2). */
-const screenMinutes = (m: EngagementGa4Month) => (m.activeUsers > 0 ? m.engagementSeconds / m.activeUsers / 60 : null)
+export const screenMinutes = (m: EngagementGa4Month) => (m.activeUsers > 0 ? m.engagementSeconds / m.activeUsers / 60 : null)
 
 const RET = [1, 7, 30, 60, 90] as const
 const SECOND = [30, 60, 90] as const

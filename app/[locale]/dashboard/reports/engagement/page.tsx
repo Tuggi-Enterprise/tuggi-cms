@@ -18,7 +18,7 @@ import {
 } from '@/lib/engagement/report'
 
 /**
- * Engagement report (#1094): the page owns `?use=`, the four filters, `?clicks_month=` and the
+ * Engagement report (#1094): the page owns `?use=`, the four filters, `?summary_month=` (#1099), `?clicks_month=` and the
  * queries; the screen is `EngagementReport`. The month ruler comes from `engagementMonths`, the
  * same list the API route reads, not from the database.
  */
@@ -30,6 +30,8 @@ export default function EngagementReportPage() {
   const use: EngagementUse = (ENGAGEMENT_USES as readonly string[]).includes(useParam ?? '') ? (useParam as EngagementUse) : ENGAGEMENT_DEFAULT_USE
   const parsed = parseEngagementFilters(params)
   const filters: EngagementFilters = parsed === 'invalid' ? NO_FILTERS : parsed
+  const summaryParam = params.get('summary_month')
+  const summaryMonth = isMonth(summaryParam) ? summaryParam : null
   const clicksParam = params.get('clicks_month')
   const clicksMonth = isMonth(clicksParam) ? clicksParam : null
 
@@ -70,6 +72,8 @@ export default function EngagementReportPage() {
       ga4={ga4.isError ? undefined : ga4.data}
       ga4Failed={ga4.isError}
       onGa4Retry={() => void ga4.refetch()}
+      summaryMonth={summaryMonth}
+      onSummaryMonthChange={(m) => write({ summary_month: m })}
       clicksMonth={clicksMonth}
       onClicksMonthChange={(m) => write({ clicks_month: m })}
       isFetching={(bank.isFetching && !bank.isLoading) || (ga4.isFetching && !ga4.isLoading)}

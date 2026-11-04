@@ -75,12 +75,24 @@ export interface DaysUsed {
   d6_plus: number | null
 }
 
+/** People of the month in three groups that do not overlap (#1098); `null` before `data_since.open`. */
+export interface EngagementModes {
+  drive_only: number | null
+  explore_only: number | null
+  both: number | null
+}
+
 export interface EngagementBankMonth {
   month: string
   active: ByUse
   new: ByUse
   guide_minutes_median: number | null
   guide_minutes_p75: number | null
+  modes: EngagementModes
+  guide_foreground_minutes_median: number | null
+  guide_background_minutes_median: number | null
+  /** Share of guide time with the app in the background (not only screen off), 0 to 1. */
+  guide_background_share: number | null
   days_used: Record<EngagementUse, DaysUsed>
   returned_next_month: ByUse
   activation: { audio_24h: number | null; audio_7d: number | null }
@@ -95,6 +107,12 @@ export interface EngagementBankReport {
   /** ISO dates, or `null` when the source has no row yet. */
   data_since: Record<EngagementUse, string | null>
   months: EngagementBankMonth[]
+  /**
+   * The function sends the keys of #1098 (`modes` and the foreground and background times). Until
+   * migration 20261104140000 is applied they are absent, and the screen says "the database does not
+   * send this yet" instead of a reason that is not the real one.
+   */
+  has_mode_fields: boolean
 }
 
 /** `null` and anything that is not a finite number is `null`. Zero is a value. */
@@ -124,6 +142,7 @@ export function parseBankReport(raw: unknown): EngagementBankReport {
   const since = obj(r.data_since)
   const months = Array.isArray(r.months) ? r.months : []
   return {
+    has_mode_fields: months.some((m) => 'modes' in obj(m)),
     data_since: { open: day(since.open), trip: day(since.trip), audio: day(since.audio) },
     months: months
       .map((m) => {
@@ -133,12 +152,17 @@ export function parseBankReport(raw: unknown): EngagementBankReport {
         const c = obj(o.cohort)
         const ret = obj(c.retention)
         const sec = obj(c.second_trip)
+        const modes = obj(o.modes)
         return {
           month: typeof o.month === 'string' ? o.month.slice(0, 7) : '',
           active: byUse(o.active),
           new: byUse(o.new),
           guide_minutes_median: n(o.guide_minutes_median),
           guide_minutes_p75: n(o.guide_minutes_p75),
+          modes: { drive_only: n(modes.drive_only), explore_only: n(modes.explore_only), both: n(modes.both) },
+          guide_foreground_minutes_median: n(o.guide_foreground_minutes_median),
+          guide_background_minutes_median: n(o.guide_background_minutes_median),
+          guide_background_share: n(o.guide_background_share),
           days_used: { open: daysUsed(du.open), trip: daysUsed(du.trip), audio: daysUsed(du.audio) },
           returned_next_month: byUse(o.returned_next_month),
           activation: { audio_24h: n(act.audio_24h), audio_7d: n(act.audio_7d) },
@@ -160,6 +184,8 @@ export interface EngagementGa4Month {
   activeUsers: number
   engagementSeconds: number
   sessionsPerUser: number | null
+  /** People with an engaged event (#1099); `null` when the function deployed does not send it yet. */
+  engagedUsers: number | null
 }
 
 export interface EngagementGa4Click {
@@ -184,7 +210,7 @@ export function parseGa4Report(raw: unknown): EngagementGa4Report | null {
     const o = obj(m)
     const activeUsers = n(o.activeUsers)
     if (typeof o.month !== 'string' || activeUsers === null) continue
-    months.push({ month: o.month, activeUsers, engagementSeconds: n(o.engagementSeconds) ?? 0, sessionsPerUser: n(o.sessionsPerUser) })
+    months.push({ month: o.month, activeUsers, engagementSeconds: n(o.engagementSeconds) ?? 0, sessionsPerUser: n(o.sessionsPerUser), engagedUsers: n(o.engagedUsers) })
   }
   const clicks: EngagementGa4Click[] = []
   for (const c of r.clicks) {

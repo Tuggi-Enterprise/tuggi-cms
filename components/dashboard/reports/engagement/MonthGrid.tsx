@@ -28,6 +28,8 @@ export interface MonthGridCell {
   loading: boolean
   /** The value recedes to `DIM` (every state without a number). */
   muted: boolean
+  /** Background classes of a heat map cell (#1099, spec §B8); the ink turns `text-gray-900`. */
+  tone?: string
 }
 
 export interface MonthGridRow {
@@ -56,6 +58,8 @@ export interface MonthGridProps {
   metricLabel: string
   ga4Badge: string
   ga4BadgeHint: string
+  /** Below the table, inside the card: the scale legend of a heat map (#1099). */
+  footer?: ReactNode
 }
 
 export function Ga4Badge({ text, hint }: { text: string; hint: string }) {
@@ -69,7 +73,7 @@ export function Ga4Badge({ text, hint }: { text: string; hint: string }) {
   )
 }
 
-export function MonthGrid({ testId, title, icon, right, notice, months, groups, metricLabel, ga4Badge, ga4BadgeHint }: MonthGridProps) {
+export function MonthGrid({ testId, title, icon, right, notice, months, groups, metricLabel, ga4Badge, ga4BadgeHint, footer }: MonthGridProps) {
   return (
     <div data-testid={testId}>
       <WidgetCard padded={false}>
@@ -108,7 +112,7 @@ export function MonthGrid({ testId, title, icon, right, notice, months, groups, 
                       {row.ga4 && <Ga4Badge text={ga4Badge} hint={ga4BadgeHint} />}
                     </th>
                     {row.cells.map((c, i) => (
-                      <td key={months[i].key} className={NUM} title={c.title} data-state={c.loading ? 'loading' : undefined}>
+                      <td key={months[i].key} className={cn(NUM, c.tone && !c.loading && [c.tone, 'text-gray-900'])} title={c.title} data-state={c.loading ? 'loading' : undefined}>
                         {c.loading ? (
                           <span className="inline-block h-5 w-10 py-0.5 align-top bg-clip-content animate-pulse rounded bg-gray-100 dark:bg-gray-800" />
                         ) : (
@@ -126,6 +130,7 @@ export function MonthGrid({ testId, title, icon, right, notice, months, groups, 
             ))}
           </table>
         </DenseTableScroller>
+        {footer && <div className="px-4 pb-4 pt-3">{footer}</div>}
       </WidgetCard>
     </div>
   )
