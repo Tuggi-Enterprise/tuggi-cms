@@ -253,6 +253,12 @@ test('#1094 BR-COMUNICACAO-022 item 4: the parser keeps null apart from zero and
   assert.equal(parseGa4Report({ months: 'x' }), null)
 })
 
+test('#1101 spec C16 item 10 BR-COMUNICACAO-022 item 4: a GA4 payload without newEngagedUsers parses to null, a 0 stays 0', () => {
+  const r = parseGa4Report({ months: [{ month: '2026-10', activeUsers: 262, engagedUsers: 189 }, { month: '2026-11', activeUsers: 41, engagedUsers: 30, newEngagedUsers: 0 }], clicks: [] })!
+  assert.equal(r.months[0].newEngagedUsers, null)
+  assert.equal(r.months[1].newEngagedUsers, 0)
+})
+
 test('#1094: clicks are one month, grouped by screen by the sum of people, on the ruler of the most people of the month', () => {
   const clicks = [
     { month: '2026-10', screen: 'guide_map', button: 'start_guide', events: 301, users: 142 },

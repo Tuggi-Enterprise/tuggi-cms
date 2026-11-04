@@ -186,6 +186,8 @@ export interface EngagementGa4Month {
   sessionsPerUser: number | null
   /** People with an engaged event (#1099); `null` when the function deployed does not send it yet. */
   engagedUsers: number | null
+  /** Of those, the month's cohort by first session (#1101, spec §C15.1); `null` until the function sends it. */
+  newEngagedUsers: number | null
 }
 
 export interface EngagementGa4Click {
@@ -210,7 +212,7 @@ export function parseGa4Report(raw: unknown): EngagementGa4Report | null {
     const o = obj(m)
     const activeUsers = n(o.activeUsers)
     if (typeof o.month !== 'string' || activeUsers === null) continue
-    months.push({ month: o.month, activeUsers, engagementSeconds: n(o.engagementSeconds) ?? 0, sessionsPerUser: n(o.sessionsPerUser), engagedUsers: n(o.engagedUsers) })
+    months.push({ month: o.month, activeUsers, engagementSeconds: n(o.engagementSeconds) ?? 0, sessionsPerUser: n(o.sessionsPerUser), engagedUsers: n(o.engagedUsers), newEngagedUsers: n(o.newEngagedUsers) })
   }
   const clicks: EngagementGa4Click[] = []
   for (const c of r.clicks) {

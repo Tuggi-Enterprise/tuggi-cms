@@ -2,7 +2,7 @@
  * engagement-ga4: the GA4 half of the CMS Engagement report (#1094). Read only, nothing is written.
  *
  *   POST {"from_month":"2026-08","platform":"ios"|"android"|null,"country":"BR"|null}
- *   -> 200 { months: [{ month, activeUsers, engagementSeconds, sessionsPerUser, engagedUsers }],
+ *   -> 200 { months: [{ month, activeUsers, engagementSeconds, sessionsPerUser, engagedUsers, newEngagedUsers }],
  *            clicks: [{ month, screen, button, events, users }] }
  *   -> 400 bad body, 401 no valid caller, 403 a CMS user who is not admin, 405 any other method,
  *      502 Google refused or did not answer, 503 GA4_SERVICE_ACCOUNT_JSON missing

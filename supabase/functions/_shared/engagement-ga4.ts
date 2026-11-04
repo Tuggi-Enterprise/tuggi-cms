@@ -3,7 +3,8 @@
 // The GA4 half of the CMS Engagement report (#1094, spec-cms-relatorio-engajamento-2026-11 §4 and §5):
 // per month of the app property, active users, engagement time and sessions per user, the people
 // with at least one engaged event (#1099, spec Parte B §B14.1), and the `button_clicked` events by
-// screen and button. Read only; the database half is
+// screen and button, and the people of the month's cohort with an engaged event (#1101, spec Parte C
+// §C15.1). Read only; the database half is
 // `drive.cms_get_engagement_monthly` and the two are never divided by each other (DS-COMPONENTE-084
 // item 2).
 //
@@ -13,7 +14,9 @@
 // `userEngagementDuration` is seconds; `sessionsPerUser` is sessions / activeUsers;
 // `customEvent:<parameter>` needs the parameter registered as a custom dimension; `endDate` accepts
 // `today`; rows whose metrics are all zero are left out; `totalUsers` under an event filter counts
-// the distinct users with at least one event that passed it; `inListFilter` matches any of its values. Filters: `platform` answers `iOS` /
+// the distinct users with at least one event that passed it; `inListFilter` matches any of its values;
+// `firstSessionDate` is "the date the user's first session occurred, formatted as YYYYMMDD", one per
+// user, so the rows of one `yearMonth` split its users without repeating any. Filters: `platform` answers `iOS` /
 // `Android`, `countryId` answers ISO 3166-1 alpha-2, the format of `drive.profiles.country`.
 
 export const ENGAGEMENT_CLICK_EVENT = 'button_clicked';
@@ -56,6 +59,8 @@ export type EngagementGa4Month = {
   sessionsPerUser: number | null;
   /** People with at least one engaged event; a month GA4 left out of that report is a measured 0. */
   engagedUsers: number;
+  /** Of those, the ones whose first session fell in the same month (#1101); same rule for a missing month. */
+  newEngagedUsers: number;
 };
 
 export type EngagementGa4Click = { month: string; screen: string; button: string; events: number; users: number };
@@ -117,10 +122,10 @@ export function clicksReportBody(q: EngagementGa4Query): Record<string, unknown>
   };
 }
 
-/** Distinct users with at least one engaged event, one row per `yearMonth` (spec §B14.1). */
-export function engagedReportBody(q: EngagementGa4Query): Record<string, unknown> {
+/** The engaged events, or `button_clicked` with an engaged button (spec §B14.1). */
+function engagedFilter(): Record<string, unknown> {
   const inList = (fieldName: string, values: readonly string[]) => ({ filter: { fieldName, inListFilter: { values: [...values] } } });
-  const engaged = {
+  return {
     orGroup: {
       expressions: [
         inList('eventName', ENGAGED_EVENTS),
@@ -135,13 +140,31 @@ export function engagedReportBody(q: EngagementGa4Query): Record<string, unknown
       ],
     },
   };
+}
+
+/** Distinct users with at least one engaged event, one row per `yearMonth` (spec §B14.1). */
+export function engagedReportBody(q: EngagementGa4Query): Record<string, unknown> {
   return {
     dateRanges: dateRanges(q),
     dimensions: [{ name: 'yearMonth' }],
     metrics: [{ name: 'totalUsers' }],
-    dimensionFilter: filterOf(q, [engaged]),
+    dimensionFilter: filterOf(q, [engagedFilter()]),
     orderBys: [{ dimension: { dimensionName: 'yearMonth' } }],
     limit: '1000',
+  };
+}
+
+/**
+ * The same engaged users split by the date of their first session (spec §C15.1): the parser keeps
+ * the rows whose first session is in the row's month, the cohort of the month.
+ */
+export function newEngagedReportBody(q: EngagementGa4Query): Record<string, unknown> {
+  return {
+    dateRanges: dateRanges(q),
+    dimensions: [{ name: 'yearMonth' }, { name: 'firstSessionDate' }],
+    metrics: [{ name: 'totalUsers' }],
+    dimensionFilter: filterOf(q, [engagedFilter()]),
+    limit: '10000',
   };
 }
 
@@ -172,8 +195,8 @@ const dimension = (r: RawRow, i: number): string | null => {
 };
 
 /** One entry per month GA4 answered, oldest first. A row without a month or users is dropped. */
-export function parseUsersReport(body: unknown): Omit<EngagementGa4Month, 'engagedUsers'>[] {
-  const out: Omit<EngagementGa4Month, 'engagedUsers'>[] = [];
+export function parseUsersReport(body: unknown): Omit<EngagementGa4Month, 'engagedUsers' | 'newEngagedUsers'>[] {
+  const out: Omit<EngagementGa4Month, 'engagedUsers' | 'newEngagedUsers'>[] = [];
   for (const r of rowsOf(body)) {
     const month = monthOf(dimension(r, 0));
     const activeUsers = metric(r, 0);
@@ -199,6 +222,23 @@ export function parseEngagedReport(body: unknown): Map<string, number> {
   return out;
 }
 
+/**
+ * Engaged users of the month's cohort: only rows whose `firstSessionDate` falls in the row's
+ * `yearMonth`, summed by month. `(not set)` and any date that is not `YYYYMMDD` are dropped.
+ */
+export function parseNewEngagedReport(body: unknown): Map<string, number> {
+  const out = new Map<string, number>();
+  for (const r of rowsOf(body)) {
+    const ym = dimension(r, 0);
+    const month = monthOf(ym);
+    const first = dimension(r, 1);
+    const users = metric(r, 0);
+    if (!month || users === null || first === null || !/^\d{8}$/.test(first) || first.slice(0, 6) !== ym) continue;
+    out.set(month, (out.get(month) ?? 0) + Math.floor(users));
+  }
+  return out;
+}
+
 /** One entry per month, screen and button; the screen and button names travel raw. */
 export function parseClicksReport(body: unknown): EngagementGa4Click[] {
   const out: EngagementGa4Click[] = [];
@@ -214,14 +254,24 @@ export function parseClicksReport(body: unknown): EngagementGa4Click[] {
   return out;
 }
 
-/** The three reports. Throws what `ga4Runner` throws (`ga4_token_<status>`, `ga4_report_<status>`). */
+/** The four reports. Throws what `ga4Runner` throws (`ga4_token_<status>`, `ga4_report_<status>`). */
 export async function readEngagementGa4(
   run: (body: Record<string, unknown>) => Promise<unknown>,
   q: EngagementGa4Query,
 ): Promise<EngagementGa4Report> {
-  const [users, engaged, clicks] = await Promise.all([run(usersReportBody(q)), run(engagedReportBody(q)), run(clicksReportBody(q))]);
+  const [users, engaged, newEngaged, clicks] = await Promise.all([
+    run(usersReportBody(q)),
+    run(engagedReportBody(q)),
+    run(newEngagedReportBody(q)),
+    run(clicksReportBody(q)),
+  ]);
   const byMonth = parseEngagedReport(engaged);
+  const newByMonth = parseNewEngagedReport(newEngaged);
   // A month with active users and no engaged row: GA4 leaves out a row whose metric is zero.
-  const months = parseUsersReport(users).map((m) => ({ ...m, engagedUsers: byMonth.get(m.month) ?? 0 }));
+  const months = parseUsersReport(users).map((m) => ({
+    ...m,
+    engagedUsers: byMonth.get(m.month) ?? 0,
+    newEngagedUsers: newByMonth.get(m.month) ?? 0,
+  }));
   return { months, clicks: parseClicksReport(clicks) };
 }

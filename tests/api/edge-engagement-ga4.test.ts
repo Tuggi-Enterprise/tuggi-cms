@@ -85,19 +85,21 @@ test('#1094 BR-COMUNICACAO-022 item 4: parsing keeps a missing sessions number a
   assert.deepEqual(clicks, [{ month: '2026-10', screen: 'guide_map', button: 'start_guide', events: 301, users: 142 }])
 })
 
-test('#1094 #1099: the three reports go through one runner, a month without an engaged row is a measured 0, and a GA4 refusal surfaces as the runner error', async () => {
-  const bodies: { metrics: { name: string }[] }[] = []
-  const report = await ga4.readEngagementGa4(async (body: { dimensions: unknown[]; metrics: { name: string }[] }) => {
+test('#1094 #1099 #1101: the four reports go through one runner, a month without an engaged row is a measured 0, and a GA4 refusal surfaces as the runner error', async () => {
+  const bodies: { dimensions: { name: string }[]; metrics: { name: string }[] }[] = []
+  const report = await ga4.readEngagementGa4(async (body: { dimensions: { name: string }[]; metrics: { name: string }[] }) => {
     bodies.push(body)
-    if (body.dimensions.length > 1) return { rows: [] }
+    const dims = body.dimensions.map((d) => d.name)
+    if (dims.includes('customEvent:screen_name')) return { rows: [] }
+    if (dims.includes('firstSessionDate')) return { rows: [row(['202610', '20261003'], ['40'])] }
     if (body.metrics[0].name === 'totalUsers') return { rows: [row(['202610'], ['189'])] }
     return { rows: [row(['202609'], ['327', '156960', '2.1']), row(['202610'], ['262', '157200', '2.4'])] }
   }, { fromMonth: '2026-08', platform: null, country: null })
-  assert.equal(bodies.length, 3)
+  assert.equal(bodies.length, 4)
   assert.deepEqual(report, {
     months: [
-      { month: '2026-09', activeUsers: 327, engagementSeconds: 156960, sessionsPerUser: 2.1, engagedUsers: 0 },
-      { month: '2026-10', activeUsers: 262, engagementSeconds: 157200, sessionsPerUser: 2.4, engagedUsers: 189 },
+      { month: '2026-09', activeUsers: 327, engagementSeconds: 156960, sessionsPerUser: 2.1, engagedUsers: 0, newEngagedUsers: 0 },
+      { month: '2026-10', activeUsers: 262, engagementSeconds: 157200, sessionsPerUser: 2.4, engagedUsers: 189, newEngagedUsers: 40 },
     ],
     clicks: [],
   })
@@ -105,6 +107,34 @@ test('#1094 #1099: the three reports go through one runner, a month without an e
     ga4.readEngagementGa4(async () => { throw new Error('ga4_report_403') }, { fromMonth: '2026-08', platform: null, country: null }),
     /ga4_report_403/,
   )
+})
+
+test('#1101 spec C16 item 10 BR-COMUNICACAO-022 item 4: new engaged users sum only the rows whose first session is inside the month; (not set) and a bad date are dropped', () => {
+  const byMonth = ga4.parseNewEngagedReport({
+    rows: [
+      row(['202610', '20261003'], ['40']),
+      row(['202610', '20261031'], ['5']),
+      row(['202610', '20260915'], ['70']), // first session in September: not October's cohort
+      row(['202610', '(not set)'], ['9']),
+      row(['202611', '20261101'], ['3']),
+      row(['202611', '2026110'], ['1']),
+      row(['bad', '20261101'], ['1']),
+      row(['202611', '20261102'], ['x']),
+    ],
+  })
+  assert.deepEqual([...byMonth.entries()], [['2026-10', 45], ['2026-11', 3]])
+  assert.equal(ga4.parseNewEngagedReport({}).size, 0)
+})
+
+test('#1101 spec C15.1: the new engaged report is totalUsers by yearMonth and firstSessionDate, under the same filter as the engaged one', () => {
+  for (const q of [{ fromMonth: '2026-08', platform: null, country: null }, { fromMonth: '2026-08', platform: 'ios', country: 'BR' }]) {
+    const body = ga4.newEngagedReportBody(q)
+    const engaged = ga4.engagedReportBody(q)
+    assert.deepEqual(body.dimensions, [{ name: 'yearMonth' }, { name: 'firstSessionDate' }])
+    assert.deepEqual(body.metrics, [{ name: 'totalUsers' }])
+    assert.deepEqual(body.dateRanges, engaged.dateRanges)
+    assert.deepEqual(body.dimensionFilter, engaged.dimensionFilter)
+  }
 })
 
 test('#1099: engaged people are totalUsers by yearMonth under one filter: the engaged events, or button_clicked with an engaged button, inside platform and country', () => {
