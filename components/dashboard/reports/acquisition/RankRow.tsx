@@ -25,9 +25,11 @@ interface RankRowProps {
   /** recua a linha quando ela não é um lugar de verdade (lacuna, teste); the label recedes to `DIM`, which still passes 4.5:1 */
   muted?: boolean
   right?: React.ReactNode
+  /** Overrides the label type, as `font-mono text-xs` for a raw event name (#1094). */
+  labelClassName?: string
 }
 
-export function RankRow({ label, sub, value, display, partOf = 0, max, color, partColor, muted, right }: RankRowProps) {
+export function RankRow({ label, sub, value, display, partOf = 0, max, color, partColor, muted, right, labelClassName }: RankRowProps) {
   const pct = max > 0 ? (value / max) * 100 : 0
   const partPct = value > 0 ? (partOf / value) * 100 : 0
 
@@ -35,7 +37,7 @@ export function RankRow({ label, sub, value, display, partOf = 0, max, color, pa
     <div className="py-2.5">
       <div className="flex items-baseline justify-between gap-3 mb-1.5">
         <div className="min-w-0 flex items-baseline gap-2">
-          <span className={cn('text-sm font-semibold truncate', muted ? DIM : 'text-gray-900 dark:text-white')}>
+          <span className={cn('text-sm font-semibold truncate', muted ? DIM : 'text-gray-900 dark:text-white', labelClassName)}>
             {label}
           </span>
           {sub && <span className={cn('text-[11px] shrink-0', DIM)}>{sub}</span>}

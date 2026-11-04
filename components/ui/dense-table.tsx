@@ -68,6 +68,14 @@ export const ICON_CELL = CELL.replace('py-2.5', 'py-0')
 export const DIM = 'text-gray-500 dark:text-gray-400'
 /** Onde um grupo começa, e o único lugar onde a régua vertical aparece. */
 export const EDGE = 'border-l border-gray-200 dark:border-gray-800'
+/**
+ * The first column stuck to the left, for a table whose columns are months (#1094, Engagement).
+ * The background is opaque, not `/95` with blur as in `HEAD`: here the cell covers numbers that
+ * scroll under it, and the blur would let them show through. `border-r` is the only mark of the
+ * seam, as `EDGE` is on the vertical.
+ */
+export const ROW_HEAD =
+  'sticky left-0 z-10 bg-white dark:bg-gray-900 px-3 py-2.5 text-left align-middle border-r border-gray-200 dark:border-gray-800'
 
 export interface SortState<K extends string> {
   key: K
@@ -153,6 +161,7 @@ export function DenseTableScroller({
   children,
   maxHeightClassName = 'max-h-[calc(100vh-19rem)]',
   label,
+  startAtEnd = false,
 }: {
   children: ReactNode
   maxHeightClassName?: string
@@ -162,6 +171,8 @@ export function DenseTableScroller({
    * rows already carry buttons or links: those take the focus and scroll the box.
    */
   label?: string
+  /** Opens scrolled to the right end: a table of months shows the latest ones first (#1094). */
+  startAtEnd?: boolean
 }) {
   const [more, setMore] = useState(false)
 
@@ -171,9 +182,11 @@ export function DenseTableScroller({
 
   const measure = useCallback(
     (el: HTMLDivElement | null) => {
-      if (el) update(el)
+      if (!el) return
+      if (startAtEnd) el.scrollLeft = el.scrollWidth
+      update(el)
     },
-    [update]
+    [update, startAtEnd]
   )
 
   return (
