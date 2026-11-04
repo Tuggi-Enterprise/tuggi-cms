@@ -1,8 +1,9 @@
 // _shared/engagement-ga4.ts
 //
 // The GA4 half of the CMS Engagement report (#1094, spec-cms-relatorio-engajamento-2026-11 §4 and §5):
-// per month of the app property, active users, engagement time and sessions per user, and the
-// `button_clicked` events by screen and button. Read only; the database half is
+// per month of the app property, active users, engagement time and sessions per user, the people
+// with at least one engaged event (#1099, spec Parte B §B14.1), and the `button_clicked` events by
+// screen and button. Read only; the database half is
 // `drive.cms_get_engagement_monthly` and the two are never divided by each other (DS-COMPONENTE-084
 // item 2).
 //
@@ -11,12 +12,30 @@
 // Data API v1beta, checked 2026-11-04: `yearMonth` answers `YYYYMM` in the property time zone;
 // `userEngagementDuration` is seconds; `sessionsPerUser` is sessions / activeUsers;
 // `customEvent:<parameter>` needs the parameter registered as a custom dimension; `endDate` accepts
-// `today`; rows whose metrics are all zero are left out. Filters: `platform` answers `iOS` /
+// `today`; rows whose metrics are all zero are left out; `totalUsers` under an event filter counts
+// the distinct users with at least one event that passed it; `inListFilter` matches any of its values. Filters: `platform` answers `iOS` /
 // `Android`, `countryId` answers ISO 3166-1 alpha-2, the format of `drive.profiles.country`.
 
 export const ENGAGEMENT_CLICK_EVENT = 'button_clicked';
 export const ENGAGEMENT_SCREEN_DIMENSION = 'customEvent:screen_name';
 export const ENGAGEMENT_BUTTON_DIMENSION = 'customEvent:button_name';
+
+/**
+ * "Engaged" (#1099, operator 2026-11-04): opened the app and did at least one of these. The lists
+ * live here only: the query reads them and the tests import them. Not engaged: opening alone,
+ * permission prompts, a banner shown.
+ */
+export const ENGAGED_EVENTS: readonly string[] = ['guide_session_start', 'detail_card_opened', 'story_play_start'];
+/** `button_clicked` counts only with one of these `button_name` values (#1095 for the Explore taps). */
+export const ENGAGED_BUTTONS: readonly string[] = [
+  'poi_navigate',
+  'event_navigate',
+  'route_navigate',
+  'search_this_area',
+  'explore_chip_opened',
+  'explore_tab_selected',
+  'explore_filter_opened',
+];
 
 /** The app platforms the CMS filters by, to the value of the GA4 `platform` dimension. */
 const GA4_PLATFORM: Record<string, string> = { ios: 'iOS', android: 'Android' };
@@ -35,6 +54,8 @@ export type EngagementGa4Month = {
   engagementSeconds: number;
   /** `null` when GA4 sent no number. */
   sessionsPerUser: number | null;
+  /** People with at least one engaged event; a month GA4 left out of that report is a measured 0. */
+  engagedUsers: number;
 };
 
 export type EngagementGa4Click = { month: string; screen: string; button: string; events: number; users: number };
@@ -96,6 +117,34 @@ export function clicksReportBody(q: EngagementGa4Query): Record<string, unknown>
   };
 }
 
+/** Distinct users with at least one engaged event, one row per `yearMonth` (spec §B14.1). */
+export function engagedReportBody(q: EngagementGa4Query): Record<string, unknown> {
+  const inList = (fieldName: string, values: readonly string[]) => ({ filter: { fieldName, inListFilter: { values: [...values] } } });
+  const engaged = {
+    orGroup: {
+      expressions: [
+        inList('eventName', ENGAGED_EVENTS),
+        {
+          andGroup: {
+            expressions: [
+              { filter: { fieldName: 'eventName', stringFilter: { matchType: 'EXACT', value: ENGAGEMENT_CLICK_EVENT } } },
+              inList(ENGAGEMENT_BUTTON_DIMENSION, ENGAGED_BUTTONS),
+            ],
+          },
+        },
+      ],
+    },
+  };
+  return {
+    dateRanges: dateRanges(q),
+    dimensions: [{ name: 'yearMonth' }],
+    metrics: [{ name: 'totalUsers' }],
+    dimensionFilter: filterOf(q, [engaged]),
+    orderBys: [{ dimension: { dimensionName: 'yearMonth' } }],
+    limit: '1000',
+  };
+}
+
 type RawRow = { dimensionValues?: { value?: unknown }[]; metricValues?: { value?: unknown }[] };
 
 function rowsOf(body: unknown): RawRow[] {
@@ -123,8 +172,8 @@ const dimension = (r: RawRow, i: number): string | null => {
 };
 
 /** One entry per month GA4 answered, oldest first. A row without a month or users is dropped. */
-export function parseUsersReport(body: unknown): EngagementGa4Month[] {
-  const out: EngagementGa4Month[] = [];
+export function parseUsersReport(body: unknown): Omit<EngagementGa4Month, 'engagedUsers'>[] {
+  const out: Omit<EngagementGa4Month, 'engagedUsers'>[] = [];
   for (const r of rowsOf(body)) {
     const month = monthOf(dimension(r, 0));
     const activeUsers = metric(r, 0);
@@ -137,6 +186,17 @@ export function parseUsersReport(body: unknown): EngagementGa4Month[] {
     });
   }
   return out.sort((a, b) => a.month.localeCompare(b.month));
+}
+
+/** Engaged users by month; a row it cannot read is dropped. */
+export function parseEngagedReport(body: unknown): Map<string, number> {
+  const out = new Map<string, number>();
+  for (const r of rowsOf(body)) {
+    const month = monthOf(dimension(r, 0));
+    const users = metric(r, 0);
+    if (month && users !== null) out.set(month, Math.floor(users));
+  }
+  return out;
 }
 
 /** One entry per month, screen and button; the screen and button names travel raw. */
@@ -154,11 +214,14 @@ export function parseClicksReport(body: unknown): EngagementGa4Click[] {
   return out;
 }
 
-/** Both reports. Throws what `ga4Runner` throws (`ga4_token_<status>`, `ga4_report_<status>`). */
+/** The three reports. Throws what `ga4Runner` throws (`ga4_token_<status>`, `ga4_report_<status>`). */
 export async function readEngagementGa4(
   run: (body: Record<string, unknown>) => Promise<unknown>,
   q: EngagementGa4Query,
 ): Promise<EngagementGa4Report> {
-  const [users, clicks] = await Promise.all([run(usersReportBody(q)), run(clicksReportBody(q))]);
-  return { months: parseUsersReport(users), clicks: parseClicksReport(clicks) };
+  const [users, engaged, clicks] = await Promise.all([run(usersReportBody(q)), run(engagedReportBody(q)), run(clicksReportBody(q))]);
+  const byMonth = parseEngagedReport(engaged);
+  // A month with active users and no engaged row: GA4 leaves out a row whose metric is zero.
+  const months = parseUsersReport(users).map((m) => ({ ...m, engagedUsers: byMonth.get(m.month) ?? 0 }));
+  return { months, clicks: parseClicksReport(clicks) };
 }
