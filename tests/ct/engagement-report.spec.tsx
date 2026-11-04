@@ -151,6 +151,37 @@ test('spec §11 items 10 and 11 at 390: each table scrolls, opens at the latest 
   await expect(page.locator('caption')).toHaveCount(3)
 })
 
+test('spec §3 and §11 item 11 at 390: the left fade sits at the seam of the first column while months hide on the left, and leaves at scroll 0', async ({ mount, page }) => {
+  await page.setViewportSize({ width: 390, height: 1000 })
+  await mount(<Screen months={MONTHS_11} today={TODAY} bank={BANK} ga4={GA4} />)
+  const card = page.getByTestId('engagement-card_people_time')
+  const box = card.getByRole('region', { name: E.card_people_time })
+  const left = card.locator('[data-fade="left"]')
+  const right = card.locator('[data-fade="right"]')
+  await expect(left).toHaveCSS('opacity', '1')
+  await expect(right).toHaveCSS('opacity', '0')
+  const seam = (await card.locator('[data-testid="engagement-row-active_by"] th').boundingBox())!
+  const fade = (await left.boundingBox())!
+  expect(Math.abs(fade.x - (seam.x + seam.width))).toBeLessThanOrEqual(1)
+  await box.evaluate((el) => { el.scrollLeft = 0 })
+  await expect(left).toHaveCSS('opacity', '0')
+  await expect(right).toHaveCSS('opacity', '1')
+})
+
+test('spec §11 item 11 at 390: the source and country fields take the whole row, so the placeholder is not cut', async ({ mount, page }) => {
+  await page.setViewportSize({ width: 390, height: 1000 })
+  await mount(<Screen months={MONTHS_11} today={TODAY} bank={BANK} ga4={GA4} />)
+  for (const placeholder of [E.source_placeholder, E.country_placeholder]) {
+    const fits = await page.getByPlaceholder(placeholder).evaluate((el: HTMLInputElement) => {
+      const ctx = document.createElement('canvas').getContext('2d')!
+      const cs = getComputedStyle(el)
+      ctx.font = `400 ${cs.fontSize} ${cs.fontFamily}`
+      return ctx.measureText(el.placeholder).width <= el.clientWidth - parseFloat(cs.paddingLeft) - parseFloat(cs.paddingRight)
+    })
+    expect(fits, placeholder).toBe(true)
+  }
+})
+
 test('spec §11 item 11 at 1440: eleven months fit without scrolling, and axe finds nothing', async ({ mount, page }) => {
   await page.setViewportSize({ width: 1440, height: 1000 })
   await mount(<Screen months={MONTHS_11} today={TODAY} bank={BANK} ga4={GA4} />)

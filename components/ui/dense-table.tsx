@@ -162,6 +162,7 @@ export function DenseTableScroller({
   maxHeightClassName = 'max-h-[calc(100vh-19rem)]',
   label,
   startAtEnd = false,
+  leftFadeClassName = 'left-0',
 }: {
   children: ReactNode
   maxHeightClassName?: string
@@ -173,11 +174,18 @@ export function DenseTableScroller({
   label?: string
   /** Opens scrolled to the right end: a table of months shows the latest ones first (#1094). */
   startAtEnd?: boolean
+  /**
+   * Where the left fade sits: at the seam of a sticky first column, whose width only the caller
+   * knows (`left-32 md:left-60` in `MonthGrid`). Without a sticky column it stays at the edge.
+   */
+  leftFadeClassName?: string
 }) {
   const [more, setMore] = useState(false)
+  const [moreLeft, setMoreLeft] = useState(false)
 
   const update = useCallback((el: HTMLDivElement) => {
     setMore(el.scrollLeft + el.clientWidth < el.scrollWidth - 2)
+    setMoreLeft(el.scrollLeft > 2)
   }, [])
 
   const measure = useCallback(
@@ -193,6 +201,14 @@ export function DenseTableScroller({
     <div className="relative">
       <div
         aria-hidden="true"
+        data-fade="left"
+        className={`pointer-events-none absolute inset-y-0 ${leftFadeClassName} z-30 w-12 bg-gradient-to-r from-white/95 to-transparent transition-opacity dark:from-gray-900/95 ${
+          moreLeft ? 'opacity-100' : 'opacity-0'
+        }`}
+      />
+      <div
+        aria-hidden="true"
+        data-fade="right"
         className={`pointer-events-none absolute inset-y-0 right-0 z-30 w-12 bg-gradient-to-l from-white/95 to-transparent transition-opacity dark:from-gray-900/95 ${
           more ? 'opacity-100' : 'opacity-0'
         }`}

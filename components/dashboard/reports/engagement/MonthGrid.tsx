@@ -75,7 +75,7 @@ export function MonthGrid({ testId, title, icon, right, notice, months, groups, 
       <WidgetCard padded={false}>
         <SectionHeader as="h2" title={title} icon={icon} right={right} className="flex-wrap gap-2 px-4 pt-4" />
         {notice && <div className="space-y-2 px-4 pb-3">{notice}</div>}
-        <DenseTableScroller label={title} startAtEnd maxHeightClassName="">
+        <DenseTableScroller label={title} startAtEnd leftFadeClassName="left-32 md:left-60" maxHeightClassName="">
           <table className="w-max min-w-full table-fixed border-collapse">
             <caption className="sr-only">{title}</caption>
             <thead>

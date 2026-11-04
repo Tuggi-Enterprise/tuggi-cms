@@ -13,6 +13,7 @@ import { Button } from '@/components/ui/button'
 import { Select } from '@/components/ui/select'
 import { DIM } from '@/components/ui/dense-table'
 import { CHART_COLORS } from '@/lib/constants/chart-colors'
+import { cn } from '@/lib/utils'
 import {
   bankSliceEmpty,
   buildGrid,
@@ -84,12 +85,14 @@ function TextFilter({
   value,
   normalize,
   onCommit,
+  className,
 }: {
   label: string
   placeholder: string
   value: string | null
   normalize: (raw: string) => string
   onCommit: (value: string | null) => void
+  className?: string
 }) {
   // The call site keys this by `value`, so a value changed elsewhere (clear filters) remounts the draft.
   const [draft, setDraft] = useState(value ?? '')
@@ -98,7 +101,7 @@ function TextFilter({
     if ((v || null) !== value) onCommit(v || null)
   }
   return (
-    <label className="block">
+    <label className={cn('block', className)}>
       <span className="sr-only">{label}</span>
       <input
         type="text"
@@ -252,6 +255,7 @@ export function EngagementReport({
         <div className="grid w-full grid-cols-2 gap-2 md:flex md:w-auto md:flex-wrap md:items-center md:gap-3">
           <TextFilter
             key={`source-${filters.source ?? ''}`}
+            className="col-span-2 md:col-auto"
             label={k('filter_source')}
             placeholder={k('source_placeholder')}
             value={filters.source}
@@ -260,6 +264,7 @@ export function EngagementReport({
           />
           <TextFilter
             key={`country-${filters.country ?? ''}`}
+            className="col-span-2 md:col-auto"
             label={k('filter_country')}
             placeholder={k('country_placeholder')}
             value={filters.country}
