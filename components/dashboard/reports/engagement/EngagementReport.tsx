@@ -12,7 +12,6 @@ import { CardError } from '@/components/admin/social/shared'
 import { Button } from '@/components/ui/button'
 import { Select } from '@/components/ui/select'
 import { DIM } from '@/components/ui/dense-table'
-import { CHART_COLORS } from '@/lib/constants/chart-colors'
 import { cn } from '@/lib/utils'
 import {
   bankSliceEmpty,
@@ -23,7 +22,7 @@ import {
   type GridCard,
   type GridRow,
 } from '@/lib/engagement/cells'
-import { clickBlocks, defaultClicksMonth } from '@/lib/engagement/clicks'
+import { clickBlocks, clickColor, defaultClicksMonth, screenGroupColor } from '@/lib/engagement/clicks'
 import {
   ENGAGEMENT_USES,
   ga4Filterable,
@@ -139,6 +138,12 @@ export function EngagementReport({
   const t = useTranslations('Pages.Dashboard')
   const locale = useLocale()
   const k = (key: string, values?: Record<string, string | number>) => t(`reports.engagement.${key}`, values)
+  /** The friendly label of a raw GA4 name, or `null` when copy has none (`(not set)`, a name newer than the copy). */
+  const nameLabel = (kind: 'buttons' | 'screens', raw: string): string | null => {
+    const key = `reports.engagement.${kind}.${raw}`
+    // a dot would walk into a nested key; the GA4 names are snake_case, so a dotted one has no label
+    return !raw.includes('.') && t.has(key) ? t(key) : null
+  }
 
   const fmt = useMemo(() => cellFormatters(locale), [locale])
   const dayFmt = useMemo(() => new Intl.DateTimeFormat(locale, { day: '2-digit', month: '2-digit', year: 'numeric', timeZone: 'UTC' }), [locale])
@@ -334,6 +339,7 @@ export function EngagementReport({
 
       <ClicksCard
         k={k}
+        nameLabel={nameLabel}
         locale={locale}
         months={months}
         current={current}
@@ -346,7 +352,8 @@ export function EngagementReport({
         integer={fmt.integer}
       />
 
-      <div className={`text-xs max-w-3xl space-y-1 ${DIM}`}>
+      {/* `ml-0`: the `cms-width` child rule centers a `div` with a `max-w-*` (a `p` escapes it by the preflight margin), so the legend starts at the content edge, with the note below (#1096) */}
+      <div data-testid="engagement-legend" className={`text-xs max-w-3xl ml-0 space-y-1 ${DIM}`}>
         <p>{k('legend_unknown')}</p>
         <p>{k('legend_sources')}</p>
         <p>{k('legend_suppression')}</p>
@@ -354,7 +361,7 @@ export function EngagementReport({
 
       {allTime && (
         <>
-          <p className={`text-xs ${DIM}`}>{k('all_time_note')}</p>
+          <p data-testid="engagement-all-time-note" className={`text-xs ${DIM}`}>{k('all_time_note')}</p>
           {allTime}
         </>
       )}
@@ -364,6 +371,7 @@ export function EngagementReport({
 
 function ClicksCard({
   k,
+  nameLabel,
   locale,
   months,
   current,
@@ -376,6 +384,7 @@ function ClicksCard({
   integer,
 }: {
   k: (key: string, values?: Record<string, string | number>) => string
+  nameLabel: (kind: 'buttons' | 'screens', raw: string) => string | null
   locale: string
   months: string[]
   current: string
@@ -435,24 +444,38 @@ function ClicksCard({
           <p className={`text-sm py-6 text-center ${DIM}`}>{k('clicks_empty')}</p>
         ) : (
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-x-8" data-testid="engagement-clicks">
-            {blocks.map((b) => (
-              <div key={b.screen} className="mt-3">
-                <p className={`text-[10px] font-bold uppercase tracking-widest mb-1 ${DIM}`}>{b.screen}</p>
-                {b.rows.map((r) => (
-                  <div key={r.button} data-testid="engagement-click-row">
-                    <RankRow
-                      label={r.button}
-                      labelClassName="font-mono text-xs"
-                      value={r.users}
-                      display={integer.format(r.users)}
-                      max={max}
-                      color={CHART_COLORS.blue}
-                      right={<span className={`text-[11px] tabular-nums ${DIM}`}>{k('clicks_taps', { n: integer.format(r.events) })}</span>}
-                    />
-                  </div>
-                ))}
-              </div>
-            ))}
+            {blocks.map((b) => {
+              const screen = nameLabel('screens', b.screen)
+              const groupColor = screenGroupColor(b.screen, b.rows.map((r) => r.button))
+              return (
+                <div key={b.screen} className="mt-3" data-testid="engagement-click-group">
+                  <p
+                    title={b.screen}
+                    className={cn('flex items-center gap-2 mb-1 text-[11px] font-bold text-gray-900 dark:text-white', !screen && 'font-mono')}
+                  >
+                    <span aria-hidden="true" data-testid="engagement-click-marker" className="h-2.5 w-2.5 shrink-0 rounded-full" style={{ backgroundColor: groupColor }} />
+                    <span className="truncate">{screen ?? b.screen}</span>
+                  </p>
+                  {b.rows.map((r) => {
+                    const label = nameLabel('buttons', r.button)
+                    return (
+                      <div key={r.button} data-testid="engagement-click-row">
+                        <RankRow
+                          label={label ?? r.button}
+                          title={r.button}
+                          labelClassName={label ? undefined : 'font-mono text-xs'}
+                          value={r.users}
+                          display={integer.format(r.users)}
+                          max={max}
+                          color={clickColor(b.screen, r.button)}
+                          right={<span className={`text-[11px] tabular-nums ${DIM}`}>{k('clicks_taps', { n: integer.format(r.events) })}</span>}
+                        />
+                      </div>
+                    )
+                  })}
+                </div>
+              )
+            })}
           </div>
         )}
       </WidgetCard>

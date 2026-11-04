@@ -59,3 +59,19 @@ export const GA4: EngagementGa4Report = {
 
 /** Thirteen months, for the scroll at 390 and the rule "eleven fit at 1440". */
 export const MONTHS_11 = ['2026-01', '2026-02', '2026-03', '2026-04', '2026-05', '2026-06', '2026-07', '2026-08', '2026-09', '2026-10', '2026-11']
+
+/**
+ * The clicks with the names the app sends (#1096): labelled taps, one name copy has no label, and a
+ * screen whose events are all permission answers, which are not taps.
+ */
+export const GA4_NAMED: EngagementGa4Report = {
+  ...GA4,
+  clicks: [
+    { month: '2026-10', screen: 'guide_map_screen', button: 'guide_module_opened', events: 410, users: 190 },
+    { month: '2026-10', screen: 'guide_map_screen', button: 'discovery_banner_shown', events: 380, users: 170 },
+    { month: '2026-10', screen: 'guide_map_screen', button: '(not set)', events: 12, users: 9 },
+    { month: '2026-10', screen: 'single_detail', button: 'story_play_pressed', events: 220, users: 120 },
+    { month: '2026-10', screen: 'permission_screen', button: 'location_permission_granted', events: 80, users: 75 },
+    { month: '2026-10', screen: '(not set)', button: 'poi_navigate', events: 20, users: 14 },
+  ],
+}

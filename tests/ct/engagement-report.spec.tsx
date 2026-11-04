@@ -15,7 +15,8 @@ import AxeBuilder from '@axe-core/playwright'
 import fs from 'fs'
 import path from 'path'
 import { EngagementHarness as Screen } from './engagement-helpers'
-import { BANK, GA4, MONTHS, MONTHS_11, TODAY } from './engagement-fixtures'
+import { BANK, GA4, GA4_NAMED, MONTHS, MONTHS_11, TODAY } from './engagement-fixtures'
+import { CHART_COLORS, CHART_NEUTRAL } from '@/lib/constants/chart-colors'
 import ptMessages from '@/messages/pt.json'
 
 const E = ptMessages.Pages.Dashboard.reports.engagement
@@ -192,6 +193,69 @@ test('spec §11 item 11 at 1440: eleven months fit without scrolling, and axe fi
   const results = await new AxeBuilder({ page }).include('#root').withTags(['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa', 'wcag22aa']).analyze()
   expect(results.violations, JSON.stringify(results.violations.map((v) => v.id))).toEqual([])
 })
+
+/** `#00A8E8` as the browser reports a computed color. */
+const rgb = (hex: string) => `rgb(${[1, 3, 5].map((i) => parseInt(hex.slice(i, i + 2), 16)).join(', ')})`
+
+/** The bar fill of a click row, and the font family of its label. */
+async function clickRow(page: Page, title: string) {
+  const row = page.getByTestId('engagement-click-row').filter({ has: page.locator(`[title="${title}"]`) })
+  await expect(row).toHaveCount(1)
+  return row.evaluate((el) => {
+    const track = el.querySelector('.h-1\\.5') as HTMLElement
+    const fill = track.firstElementChild!.lastElementChild as HTMLElement
+    const label = el.querySelector('[title]') as HTMLElement
+    return { text: label.textContent, bar: getComputedStyle(fill).backgroundColor, mono: getComputedStyle(label).fontFamily.includes('mono') }
+  })
+}
+
+test('#1096: a click with a label prints the label, with the raw name on hover, and the bar wears the screen color', async ({ mount, page }) => {
+  await page.setViewportSize({ width: 1440, height: 1000 })
+  await mount(<Screen months={MONTHS} today={TODAY} bank={BANK} ga4={GA4_NAMED} />)
+  const row = await clickRow(page, 'guide_module_opened')
+  expect(row).toEqual({ text: E.buttons.guide_module_opened, bar: rgb(CHART_COLORS.blue), mono: false })
+  const group = page.getByTestId('engagement-click-group').filter({ has: page.locator('[title="guide_map_screen"]') })
+  await expect(group.locator('p[title="guide_map_screen"]')).toHaveText(E.screens.guide_map_screen)
+  await expect(group.getByTestId('engagement-click-marker')).toHaveCSS('background-color', rgb(CHART_COLORS.blue))
+  // another screen, another color
+  expect((await clickRow(page, 'story_play_pressed')).bar).toBe(rgb(CHART_COLORS.orange))
+})
+
+test('#1096: a name without a label falls back to the raw name in mono, button and screen alike', async ({ mount, page }) => {
+  await page.setViewportSize({ width: 1440, height: 1000 })
+  const named = await mount(<Screen months={MONTHS} today={TODAY} bank={BANK} ga4={GA4_NAMED} />)
+  expect(await clickRow(page, '(not set)')).toMatchObject({ text: '(not set)', mono: true })
+  const title = page.locator('[data-testid="engagement-click-group"] p[title="(not set)"]')
+  await expect(title).toHaveText('(not set)')
+  expect(await title.evaluate((el) => getComputedStyle(el).fontFamily.includes('mono'))).toBe(true)
+  // the old fixture names have no label either, and still print
+  await named.unmount()
+  await mount(<Screen months={MONTHS} today={TODAY} bank={BANK} ga4={GA4} />)
+  expect(await clickRow(page, 'start_guide')).toMatchObject({ text: 'start_guide', mono: true })
+})
+
+test('#1096: what is not a tap is grey by its event name, bar and group, while a tap on the same screen keeps the color', async ({ mount, page }) => {
+  await page.setViewportSize({ width: 1440, height: 1000 })
+  await mount(<Screen months={MONTHS} today={TODAY} bank={BANK} ga4={GA4_NAMED} />)
+  expect((await clickRow(page, 'discovery_banner_shown')).bar).toBe(rgb(CHART_NEUTRAL))
+  expect((await clickRow(page, 'location_permission_granted')).bar).toBe(rgb(CHART_NEUTRAL))
+  const marker = (screen: string) => page.getByTestId('engagement-click-group').filter({ has: page.locator(`p[title="${screen}"]`) }).getByTestId('engagement-click-marker')
+  await expect(marker('permission_screen')).toHaveCSS('background-color', rgb(CHART_NEUTRAL))
+  // the banner view shares guide_map_screen with a tap, so the group keeps its color
+  await expect(marker('guide_map_screen')).toHaveCSS('background-color', rgb(CHART_COLORS.blue))
+})
+
+for (const width of [1440, 390]) {
+  test(`#1096 at ${width}: the legend and the all-time note start at the content edge, not centered by the cms-width rule`, async ({ mount, page }) => {
+    await page.setViewportSize({ width, height: 1000 })
+    await mount(<Screen months={MONTHS} today={TODAY} bank={BANK} ga4={GA4_NAMED} allTime />)
+    const edge = (await page.getByTestId('engagement-card_clicks').boundingBox())!.x
+    for (const id of ['engagement-legend', 'engagement-all-time-note', 'engagement-all-time']) {
+      expect(Math.abs((await page.getByTestId(id).boundingBox())!.x - edge), id).toBeLessThanOrEqual(1)
+    }
+    if (SHOTS) await page.screenshot({ path: `${SHOTS}/engagement-1096-${width}.png`, fullPage: true })
+  })
+}
 
 /** Route imports, walked from the page through `@/` and relative paths. */
 function routeImports(entry: string, seen = new Set<string>(), pkgs = new Set<string>()) {

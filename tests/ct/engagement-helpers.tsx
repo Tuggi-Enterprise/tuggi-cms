@@ -13,6 +13,8 @@ export function EngagementHarness(props: {
   bankFailed?: boolean
   ga4?: EngagementGa4Report
   ga4Failed?: boolean
+  /** Draws a stand-in for the all-time blocks, so the note above them renders (#1096). */
+  allTime?: boolean
 }) {
   return (
     <NextIntlClientProvider locale="pt" timeZone="America/Sao_Paulo" messages={{ Pages: { Dashboard: ptMessages.Pages.Dashboard } }}>
@@ -32,6 +34,7 @@ export function EngagementHarness(props: {
         clicksMonth={null}
         onClicksMonthChange={() => {}}
         isFetching={false}
+        allTime={props.allTime ? <div data-testid="engagement-all-time" className="h-24 rounded-2xl border border-gray-200 bg-white" /> : undefined}
       />
     </NextIntlClientProvider>
   )

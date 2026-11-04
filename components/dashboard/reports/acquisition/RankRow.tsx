@@ -2,6 +2,7 @@
 
 import { cn } from '@/lib/utils'
 import { DIM } from '@/components/ui/dense-table'
+import { CHART_NEUTRAL } from '@/lib/constants/chart-colors'
 
 /**
  * Linha de ranking com barra de proporção. Extraída porque cidades, parceiros e
@@ -27,9 +28,11 @@ interface RankRowProps {
   right?: React.ReactNode
   /** Overrides the label type, as `font-mono text-xs` for a raw event name (#1094). */
   labelClassName?: string
+  /** Hover text of the label, as the raw event name behind a friendly label (#1096). */
+  title?: string
 }
 
-export function RankRow({ label, sub, value, display, partOf = 0, max, color, partColor, muted, right, labelClassName }: RankRowProps) {
+export function RankRow({ label, sub, value, display, partOf = 0, max, color, partColor, muted, right, labelClassName, title }: RankRowProps) {
   const pct = max > 0 ? (value / max) * 100 : 0
   const partPct = value > 0 ? (partOf / value) * 100 : 0
 
@@ -37,7 +40,7 @@ export function RankRow({ label, sub, value, display, partOf = 0, max, color, pa
     <div className="py-2.5">
       <div className="flex items-baseline justify-between gap-3 mb-1.5">
         <div className="min-w-0 flex items-baseline gap-2">
-          <span className={cn('text-sm font-semibold truncate', muted ? DIM : 'text-gray-900 dark:text-white', labelClassName)}>
+          <span title={title} className={cn('text-sm font-semibold truncate', muted ? DIM : 'text-gray-900 dark:text-white', labelClassName)}>
             {label}
           </span>
           {sub && <span className={cn('text-[11px] shrink-0', DIM)}>{sub}</span>}
@@ -53,7 +56,7 @@ export function RankRow({ label, sub, value, display, partOf = 0, max, color, pa
           {partOf > 0 && partColor && (
             <div className="h-full rounded-full" style={{ width: `${partPct}%`, backgroundColor: partColor }} />
           )}
-          <div className="h-full rounded-full flex-1" style={{ backgroundColor: muted ? '#a5a39c' : color }} />
+          <div className="h-full rounded-full flex-1" style={{ backgroundColor: muted ? CHART_NEUTRAL : color }} />
         </div>
       </div>
     </div>
