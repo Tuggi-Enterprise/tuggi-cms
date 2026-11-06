@@ -57,8 +57,16 @@ export const UPLOAD_TIMEOUT_MS = 15_000;
 export const RUN_BUDGET_MS = 100_000;
 /** Items processed at the same time. */
 export const CONCURRENCY = 4;
-/** A run is at most this many links (calls of the function), the first included. */
-export const MAX_CHAIN_LINKS = 6;
+/**
+ * A run is at most this many links (calls of the function), the first included. Paris has 3,000 live
+ * events and a link copies about 200 posters: its first run needs some 16 links (#1091).
+ */
+export const MAX_CHAIN_LINKS = 24;
+/**
+ * A `running` source with no progress written for this long is dead: no worker lives longer than
+ * 400 s, and a live link writes progress at every item step (#1091).
+ */
+export const STALE_RUN_MS = 10 * 60_000;
 /** The per-item timings kept in `last_run_summary`, the latest ones, so the jsonb does not grow. */
 export const MAX_TIMINGS = 30;
 /** The errors kept in the summary of a generic source (a feed of thousands can fail item by item). */
@@ -179,6 +187,8 @@ export interface RunSummary {
   /** `<external_id>:<step>` of the items being processed when the summary was written. */
   in_flight: string[];
   timings: ItemTiming[];
+  /** When the last progress was written: the clock of the stalled-run sweep (#1091). */
+  progress_at?: string;
 }
 
 export type RunStatus = 'ok' | 'partial' | 'error';
@@ -192,8 +202,16 @@ export interface KnownItem {
   poster_url: string | null;
 }
 
+/** A row of `core.event_sources` whose `last_run_status` is `running`, with the summary it holds. */
+export interface RunningSource {
+  id: string;
+  summary: Partial<RunSummary> | null;
+}
+
 export interface ImportStore {
   activeSources(): Promise<EventSource[]>;
+  /** Every source with `last_run_status = 'running'`, active or not. */
+  runningSources(): Promise<RunningSource[]>;
   /** Every item of the source, all pages of it. */
   knownItems(sourceId: string): Promise<KnownItem[]>;
   upsertEvent(sourceId: string, externalId: string, payload: EventPayload): Promise<unknown>;
@@ -600,11 +618,13 @@ export async function pool<T>(
  * folded into the next one, which always carries the latest state. `flush` waits for the last.
  */
 function progressWriter(deps: ImportDeps, source: EventSource, summary: RunSummary) {
+  const now = deps.now ?? Date.now;
   let writing: Promise<void> | null = null;
   let dirty = false;
   const run = async () => {
     while (dirty) {
       dirty = false;
+      summary.progress_at = new Date(now()).toISOString();
       try {
         await deps.store.saveProgress(source.id, structuredClone(summary));
       } catch (error) {
@@ -1011,12 +1031,23 @@ export async function runEventsImport(deps: ImportDeps, link?: RunLink): Promise
   const now = deps.now ?? Date.now;
   const deadline = now() + RUN_BUDGET_MS;
   const thisLink = link ?? { chain: 1, run_started_at: new Date(now()).toISOString() };
+  // A new run first closes the runs that died: a source is never `running` forever (#1091).
+  if (thisLink.chain === 1) {
+    await sweepStalled(deps).catch((error) => deps.log(`[events-import] sweep failed: ${messageOf(error)}`));
+  }
   const sources = await deps.store.activeSources();
+  deps.log(`[events-import] link ${thisLink.chain} of run ${thisLink.run_started_at}: ${sources.length} sources`);
   const reports: SourceReport[] = [];
   for (const source of sources) {
     // A generic source an earlier link of this run finished is not read again.
     if (thisLink.done?.includes(source.id)) continue;
     if (thisLink.only && source.id !== thisLink.only) continue;
+    // `running` before the first byte is read: a worker killed while it reads the source (Paris is 32
+    // pages) leaves a row the sweep closes, not the `partial` of the link before (#1091).
+    const opening = { ...emptySummary(thisLink), progress_at: new Date(now()).toISOString() };
+    await deps.store.saveProgress(source.id, opening).catch((error) =>
+      deps.log(`[events-import] ${source.id} start not recorded: ${messageOf(error)}`)
+    );
     const { status, summary, cursor } = await importSource(deps, source, thisLink, deadline);
     let recorded = true;
     try {
@@ -1035,6 +1066,82 @@ export async function runEventsImport(deps: ImportDeps, link?: RunLink): Promise
     reports.push(report);
   }
   return reports;
+}
+
+/** The summary a dead run closes with: what it had, nothing in flight, and why it ended. */
+function closedSummary(summary: Partial<RunSummary> | null, message: string): RunSummary {
+  const s = summary ?? {};
+  const base = emptySummary({ chain: s.chain ?? 1, run_started_at: s.run_started_at ?? '' });
+  const inFlight = (s.in_flight ?? []).join(', ') || 'none';
+  const errors = [...(s.errors ?? []), {
+    external_id: null,
+    message: `${message}; in flight: ${inFlight}`.slice(0, 300),
+  }];
+  if (errors.length > MAX_ERRORS) errors.splice(0, errors.length - MAX_ERRORS);
+  return { ...base, ...s, in_flight: [], errors };
+}
+
+/**
+ * #1091: closes as `error` every source left `running` with no progress for `STALE_RUN_MS`. Such a
+ * run is dead: the platform killed its worker (CPU, memory or wall clock) between two writes, and
+ * no next link was called. The next run reads it again from the start; `import_event_upsert` keys
+ * the item by (source, external id), so nothing is created twice. Answers the ids it closed.
+ */
+export async function sweepStalled(deps: ImportDeps): Promise<string[]> {
+  const now = (deps.now ?? Date.now)();
+  const closed: string[] = [];
+  for (const row of await deps.store.runningSources()) {
+    const last = Date.parse(row.summary?.progress_at ?? row.summary?.run_started_at ?? '');
+    if (Number.isFinite(last) && now - last < STALE_RUN_MS) continue;
+    const since = Number.isFinite(last) ? new Date(last).toISOString() : 'unknown';
+    const summary = closedSummary(row.summary, `stalled: no progress since ${since}, the worker died`);
+    try {
+      await deps.store.finishSource(row.id, 'error', summary);
+      closed.push(row.id);
+      deps.log(`[events-import] ${row.id} stalled since ${since}: closed as error`);
+    } catch (error) {
+      deps.log(`[events-import] ${row.id} stalled, not closed: ${messageOf(error)}`);
+    }
+  }
+  return closed;
+}
+
+/**
+ * #1091: the store of one call, watched. It keeps the last progress of each source this call has
+ * open; `close(reason)`, wired to the platform's `beforeunload`, writes those as `error` with the
+ * shutdown reason, so a worker killed in the middle of a source leaves the reason, not `running`.
+ */
+export function shutdownGuard(store: ImportStore, log: (line: string) => void) {
+  const open = new Map<string, RunSummary>();
+  const watched: ImportStore = {
+    activeSources: () => store.activeSources(),
+    runningSources: () => store.runningSources(),
+    knownItems: (id) => store.knownItems(id),
+    upsertEvent: (id, externalId, payload) => store.upsertEvent(id, externalId, payload),
+    uploadImage: (path, bytes, type) => store.uploadImage(path, bytes, type),
+    storedImageUrl: (path, size) => store.storedImageUrl(path, size),
+    saveProgress(id, summary) {
+      open.set(id, summary);
+      return store.saveProgress(id, summary);
+    },
+    finishSource(id, status, summary) {
+      open.delete(id);
+      return store.finishSource(id, status, summary);
+    },
+  };
+  const close = async (reason: string): Promise<void> => {
+    const left = [...open];
+    open.clear();
+    await Promise.all(left.map(async ([id, summary]) => {
+      log(`[events-import] ${id} cut by shutdown (${reason}) in link ${summary.chain}`);
+      try {
+        await store.finishSource(id, 'error', closedSummary(summary, `shutdown: ${reason}`));
+      } catch (error) {
+        log(`[events-import] ${id} shutdown not recorded: ${messageOf(error)}`);
+      }
+    }));
+  };
+  return { store: watched, close };
 }
 
 /** The link to call next: when some source ran out of time and the run has links left. */

@@ -70,18 +70,34 @@ export function htmlToText(html: string): string {
 
 const DAY = /^(\d{4})-(\d{2})-(\d{2})/;
 
+/**
+ * One formatter per zone. Building an `Intl.DateTimeFormat` costs more CPU than the rest of a record,
+ * and a feed asks for seven per record: for the 3,151 records of Paris it was 290 of the 460 ms of
+ * CPU a link spent before its first item, of the 2 s an Edge Function worker has (#1091).
+ */
+const zoneFormatters = new Map<string, Intl.DateTimeFormat>();
+
+function zoneFormatter(timeZone: string): Intl.DateTimeFormat {
+  let f = zoneFormatters.get(timeZone);
+  if (!f) {
+    f = new Intl.DateTimeFormat('en-US', {
+      timeZone,
+      hourCycle: 'h23',
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+      hour: '2-digit',
+      minute: '2-digit',
+      second: '2-digit',
+    });
+    zoneFormatters.set(timeZone, f);
+  }
+  return f;
+}
+
 /** Offset of `timeZone` at the instant `ms`, in minutes east of UTC. */
 export function offsetMinutes(timeZone: string, ms: number): number {
-  const parts = new Intl.DateTimeFormat('en-US', {
-    timeZone,
-    hourCycle: 'h23',
-    year: 'numeric',
-    month: '2-digit',
-    day: '2-digit',
-    hour: '2-digit',
-    minute: '2-digit',
-    second: '2-digit',
-  }).formatToParts(new Date(ms));
+  const parts = zoneFormatter(timeZone).formatToParts(new Date(ms));
   const get = (type: string) => Number(parts.find((p) => p.type === type)?.value);
   const asUtc = Date.UTC(get('year'), get('month') - 1, get('day'), get('hour'), get('minute'), get('second'));
   return Math.round((asUtc - Math.floor(ms / 1000) * 1000) / 60_000);

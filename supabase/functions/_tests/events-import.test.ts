@@ -10,6 +10,7 @@ import { assert, assertEquals } from './assert.ts';
 import { fetchCalls, loadHandler, network, scenario } from './harness.ts';
 import {
   buildDescription,
+  emptySummary,
   eventDates,
   type EventPayload,
   type EventSource,
@@ -29,9 +30,12 @@ import {
   runEventsImport,
   type RunStatus,
   type RunSummary,
+  shutdownGuard,
   sourceHash,
   SPTUR_CREDIT,
   SPTUR_CREDIT_LINE,
+  STALE_RUN_MS,
+  sweepStalled,
 } from '../_shared/events-import.ts';
 
 const fixture = (name: string) =>
@@ -101,10 +105,17 @@ class MemoryStore implements ImportStore {
   calls: { externalId: string; payload: EventPayload }[] = [];
   progress: RunSummary[] = [];
   finished: { sourceId: string; status: RunStatus; summary: RunSummary }[] = [];
+  /** `last_run_status` and `last_run_summary` of each source, as the two writes leave them. */
+  rows = new Map<string, { status: string; summary: RunSummary }>();
   uploads = new Map<string, { bytes: Uint8Array; contentType: string }>();
 
   activeSources() {
     return Promise.resolve(this.sources);
+  }
+  runningSources() {
+    return Promise.resolve(
+      [...this.rows].filter(([, r]) => r.status === 'running').map(([id, r]) => ({ id, summary: r.summary })),
+    );
   }
   knownItems() {
     return Promise.resolve(
@@ -125,12 +136,14 @@ class MemoryStore implements ImportStore {
     });
     return Promise.resolve({ attraction_id: `attr-${externalId}`, action });
   }
-  saveProgress(_sourceId: string, summary: RunSummary) {
+  saveProgress(sourceId: string, summary: RunSummary) {
     this.progress.push(summary);
+    this.rows.set(sourceId, { status: 'running', summary });
     return Promise.resolve();
   }
   finishSource(sourceId: string, status: RunStatus, summary: RunSummary) {
     this.finished.push({ sourceId, status, summary });
+    this.rows.set(sourceId, { status, summary });
     return Promise.resolve();
   }
   /** Storage that writes the object and still answers an error, as seen on 2026-11-02. */
@@ -156,6 +169,7 @@ function deps(store: MemoryStore, server: Server): ImportDeps {
 }
 
 const newServer = (pageSize = 100): Server => ({ pageSize, urls: [], userAgents: [] });
+const newFetch = () => sptur(newServer());
 
 // ---------------------------------------------------------------------------------------------
 // Pure pieces
@@ -457,12 +471,12 @@ Deno.test('#1075: at the time budget no item starts; the source closes partial a
   assertEquals(nextLink([third], { chain: 3, run_started_at: runStartedAt }), null);
 });
 
-Deno.test('#1075: a run has at most 6 links, and a chained body is checked', () => {
+Deno.test('#1075 #1091: a run has at most 24 links, and a chained body is checked', () => {
   const pending = [{ source_id: 's', name: 'n', status: 'partial' as const, recorded: true, summary: { pending: 3 } }];
   const at = (chain: number) => nextLink(pending as never, { chain, run_started_at: 'x' });
-  assertEquals(MAX_CHAIN_LINKS, 6);
-  assertEquals(at(5)?.chain, 6);
-  assertEquals(at(6), null);
+  assertEquals(MAX_CHAIN_LINKS, 24);
+  assertEquals(at(23)?.chain, 24);
+  assertEquals(at(24), null);
 
   const now = Date.parse('2026-11-02T22:00:00Z');
   assertEquals(readLink({}, now), null);
@@ -474,13 +488,13 @@ Deno.test('#1075: a run has at most 6 links, and a chained body is checked', () 
   for (
     const bad of [
       { chain: 1, run_started_at: '2026-11-02T21:58:00Z' },
-      { chain: 7, run_started_at: '2026-11-02T21:58:00Z' },
+      { chain: 25, run_started_at: '2026-11-02T21:58:00Z' },
       { chain: 2.5, run_started_at: '2026-11-02T21:58:00Z' },
       { chain: '2', run_started_at: '2026-11-02T21:58:00Z' },
       { chain: 2 },
       { chain: 2, run_started_at: 'yesterday' },
       { chain: 2, run_started_at: '2026-11-02T23:00:00Z' },
-      { chain: 2, run_started_at: '2026-11-01T21:58:00Z' },
+      { chain: 2, run_started_at: '2026-10-31T21:58:00Z' },
     ]
   ) assertEquals([bad, readLink(bad, now)], [bad, 'invalid_chain']);
 });
@@ -588,6 +602,140 @@ Deno.test('#1075 BR-EVENTO-009 item 5: an upload that answers an error but left 
 
 // ---------------------------------------------------------------------------------------------
 // The handler
+
+// ---------------------------------------------------------------------------------------------
+// #1091: a link that dies in the middle never leaves its source `running`
+
+/**
+ * A worker killed after `stopAfter` cards: from then on no card answers, so the link never reaches its
+ * final write, as when the platform cuts the worker between two progress writes.
+ */
+function dyingCards(server: Server, stopAfter: number) {
+  const clock = { t: Date.parse('2026-11-03T11:04:00Z') };
+  const base = sptur(server);
+  let cards = 0;
+  const fetch = (url: string, init?: RequestInit) => {
+    if (url.includes('/api/csp/evento?')) {
+      clock.t += 1_000;
+      if (++cards > stopAfter) return new Promise<Response>(() => {});
+    }
+    return base(url, init);
+  };
+  return { clock, fetch };
+}
+
+/** Lets the pending promise callbacks run, so the progress writes land. */
+const settle = async () => {
+  for (let i = 0; i < 20; i++) await new Promise((r) => setTimeout(r, 0));
+};
+
+Deno.test('#1091: a link cut by the platform closes its source as error with the shutdown reason', async () => {
+  const store = new MemoryStore();
+  const { clock, fetch } = dyingCards(newServer(), 5);
+  store.clock = () => clock.t;
+  const guard = shutdownGuard(store, () => {});
+  const link = { chain: 3, run_started_at: new Date(clock.t).toISOString() };
+  // Never resolves: the cards after the fifth hang, as in a worker the platform is killing.
+  void runEventsImport({ store: guard.store, fetch, log: () => {}, now: () => clock.t }, link);
+  await settle();
+  assertEquals(store.rows.get(SPTUR.id)?.status, 'running');
+  assertEquals(store.calls.length, 5);
+
+  await guard.close('CPUTime');
+  const row = store.rows.get(SPTUR.id);
+  assertEquals(row?.status, 'error');
+  assertEquals([row?.summary.created, row?.summary.chain, row?.summary.in_flight], [5, 3, []]);
+  const last = row?.summary.errors.at(-1);
+  assertEquals(last?.external_id, null);
+  assert(last?.message.startsWith('shutdown: CPUTime; in flight: '), last?.message);
+  assert(/\d+:card/.test(last?.message ?? ''), `names the items that were cut: ${last?.message}`);
+  // A source already closed is not written again by a late shutdown.
+  const writes = store.finished.length;
+  await guard.close('WallClockTime');
+  assertEquals(store.finished.length, writes);
+});
+
+Deno.test('#1091 BR-EVENTO-009: a worker killed without notice is closed as error by the next run, and the rerun creates nothing twice', async () => {
+  const store = new MemoryStore();
+  const { clock, fetch } = dyingCards(newServer(), 6);
+  store.clock = () => clock.t;
+  void runEventsImport({ store, fetch, log: () => {}, now: () => clock.t }, {
+    chain: 1,
+    run_started_at: new Date(clock.t).toISOString(),
+  });
+  await settle();
+  assertEquals(store.rows.get(SPTUR.id)?.status, 'running');
+  const progressAt = Date.parse(store.rows.get(SPTUR.id)?.summary.progress_at ?? '');
+  assert(Number.isFinite(progressAt), 'every progress write carries its time');
+
+  // A live run is left alone: within the stale mark, the sweep closes nothing.
+  clock.t = progressAt + STALE_RUN_MS - 1;
+  assertEquals(await sweepStalled({ store, fetch: newFetch(), log: () => {}, now: () => clock.t }), []);
+  assertEquals(store.rows.get(SPTUR.id)?.status, 'running');
+
+  // Past the mark, the next run (the Monday cron or a manual run) first closes the dead one.
+  clock.t = progressAt + STALE_RUN_MS + 1;
+  const created = store.calls.length;
+  const [report] = await runEventsImport({ store, fetch: sptur(newServer()), log: () => {}, now: () => clock.t }, {
+    chain: 1,
+    run_started_at: new Date(clock.t).toISOString(),
+  });
+  const closed = store.finished[0];
+  assertEquals([closed.sourceId, closed.status], [SPTUR.id, 'error']);
+  assert(
+    closed.summary.errors.at(-1)?.message.startsWith(
+      `stalled: no progress since ${new Date(progressAt).toISOString()}`,
+    ),
+    closed.summary.errors.at(-1)?.message,
+  );
+  assertEquals(closed.summary.created, created);
+
+  // The rerun ends ok, reads the stored items again and keys them by external id: no event twice.
+  assertEquals([report.status, store.rows.get(SPTUR.id)?.status], ['ok', 'ok']);
+  assertEquals([report.summary.created, report.summary.updated + report.summary.unchanged], [17 - created, created]);
+  assertEquals(store.events.size, 17);
+});
+
+Deno.test('#1091: a link killed while it still reads the list leaves running, and the shutdown closes it', async () => {
+  const store = new MemoryStore();
+  store.rows.set(SPTUR.id, { status: 'partial', summary: emptySummary() });
+  const guard = shutdownGuard(store, () => {});
+  const hang = () => new Promise<Response>(() => {});
+  void runEventsImport({ store: guard.store, fetch: hang, log: () => {} }, {
+    chain: 2,
+    run_started_at: new Date().toISOString(),
+  });
+  await settle();
+  assertEquals(store.rows.get(SPTUR.id)?.status, 'running');
+  await guard.close('WallClockTime');
+  assertEquals(store.rows.get(SPTUR.id)?.status, 'error');
+  assert(store.rows.get(SPTUR.id)?.summary.errors[0].message.startsWith('shutdown: WallClockTime; in flight: none'));
+});
+
+Deno.test('#1091: a running row from before #1091, without progress_at, is closed by its run_started_at', async () => {
+  const store = new MemoryStore();
+  const summary = {
+    ...emptySummary({ chain: 2, run_started_at: '2026-11-03T11:04:00.000Z' }),
+    created: 182,
+    read: 3121,
+  };
+  store.rows.set('edcf0132-05c3-4638-9c69-43ea19af6f6e', { status: 'running', summary });
+  store.rows.set('5e000000-0000-4000-8000-00000000000f', { status: 'ok', summary });
+  const now = Date.parse('2026-11-06T12:00:00Z');
+  const closed = await sweepStalled({ store, fetch: newFetch(), log: () => {}, now: () => now });
+  assertEquals(closed, ['edcf0132-05c3-4638-9c69-43ea19af6f6e']);
+  const row = store.rows.get('edcf0132-05c3-4638-9c69-43ea19af6f6e');
+  assertEquals([row?.status, row?.summary.created, row?.summary.read], ['error', 182, 3121]);
+  assert(row?.summary.errors[0].message.includes('2026-11-03T11:04:00.000Z'), row?.summary.errors[0].message);
+});
+
+Deno.test('#1091: the zone offset stays right with one cached formatter per zone', () => {
+  for (let i = 0; i < 3; i++) {
+    assertEquals(localIso('2026-11-06', '00:00:00', 'America/Sao_Paulo'), '2026-11-06T00:00:00-03:00');
+    assertEquals(localIso('2026-07-01', '23:59:59', 'Europe/Paris'), '2026-07-01T23:59:59+02:00');
+    assertEquals(localIso('2026-12-01', '23:59:59', 'Europe/Paris'), '2026-12-01T23:59:59+01:00');
+  }
+});
 
 const handler = await loadHandler('events-import');
 const MACHINE = 'Bearer test-service-role-key';
@@ -753,4 +901,36 @@ Deno.test('#1075: a malformed chain body is 400 with nothing touched', async () 
   );
   assertEquals(res.status, 400);
   assertEquals([scenario.calls, fetchCalls], [[], []]);
+});
+
+Deno.test('#1091: POST { sweep: true } closes the dead running rows as error and imports nothing', async () => {
+  const dead = {
+    id: 'edcf0132-05c3-4638-9c69-43ea19af6f6e',
+    last_run_status: 'running',
+    last_run_summary: { ...emptySummary({ chain: 1, run_started_at: '2026-11-03T11:04:00.000Z' }), created: 198 },
+  };
+  scenario.tables.event_sources = (chain: string[]) => (chain.includes('select') ? [dead] : null);
+  try {
+    scenario.calls.length = 0;
+    scenario.writes.length = 0;
+    fetchCalls.length = 0;
+    const res = await handler(
+      new Request('http://edge.test/events-import', {
+        method: 'POST',
+        headers: { authorization: MACHINE, 'content-type': 'application/json' },
+        body: JSON.stringify({ sweep: true }),
+      }),
+    );
+    assertEquals([res.status, await res.json()], [200, { closed: [dead.id] }]);
+    const update = scenario.writes.find((w) => w.table === 'event_sources' && w.op === 'update');
+    const values = update?.values as { last_run_status: string; last_run_summary: RunSummary };
+    assertEquals([values.last_run_status, values.last_run_summary.created], ['error', 198]);
+    assert(
+      values.last_run_summary.errors[0].message.startsWith('stalled: '),
+      values.last_run_summary.errors[0].message,
+    );
+    assertEquals([scenario.calls.includes('rpc:import_event_upsert'), fetchCalls], [false, []]);
+  } finally {
+    delete scenario.tables.event_sources;
+  }
 });

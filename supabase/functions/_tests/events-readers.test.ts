@@ -88,6 +88,9 @@ class Store implements ImportStore {
   activeSources() {
     return Promise.resolve(this.sources);
   }
+  runningSources() {
+    return Promise.resolve([]);
+  }
   knownItems() {
     return Promise.resolve(
       [...this.items.values()].map((k) => ({ ...k, poster_url: this.events.get(k.external_id)?.poster_url ?? null })),

@@ -10,6 +10,12 @@
  *   POST { chain, run_started_at, done?, after?, only? }   the next link of a run, called by the function itself
  *   -> 202 at once; the link runs in the background (`EdgeRuntime.waitUntil`)
  *
+ *   POST { sweep: true }   only closes the dead runs (#1091) -> 200 { closed: [source_id] }
+ *
+ * A run never stays `running` (#1091). A worker the platform shuts down (CPU, memory, wall clock)
+ * writes `error` with the reason on `beforeunload`; a worker killed without it is closed as `error`
+ * by the next call, once its source has had no progress for `STALE_RUN_MS`.
+ *
  * A link stops starting items at `RUN_BUDGET_MS`. When items are left it calls the next link,
  * without waiting, up to `MAX_CHAIN_LINKS`; the next one starts with the items not yet seen (SPTuris)
  * or after the last item key started (`after`, the generic readers), and skips the generic sources
@@ -35,6 +41,10 @@ import {
   readLink,
   runEventsImport,
   type RunLink,
+  type RunningSource,
+  type RunSummary,
+  shutdownGuard,
+  sweepStalled,
   UPLOAD_TIMEOUT_MS,
 } from '../_shared/events-import.ts';
 
@@ -53,6 +63,18 @@ const PLACES_SEARCH_URL = 'https://places.googleapis.com/v1/places:searchText';
 const GEOCODE_TIMEOUT_MS = 10_000;
 
 declare const EdgeRuntime: { waitUntil(promise: Promise<unknown>): void } | undefined;
+
+/** The open calls of this worker; the platform may serve several on one. */
+const openCalls = new Set<(reason: string) => Promise<void>>();
+
+// The platform's notice before it shuts the worker down; `detail.reason` is CPUTime, Memory,
+// WallClockTime, EarlyDrop or TerminationRequested (Supabase, "Edge Function shutdown reasons").
+addEventListener('beforeunload', (ev) => {
+  const reason = (ev as CustomEvent<{ reason?: string }>).detail?.reason ?? 'unknown';
+  if (!openCalls.size) return;
+  console.error(`[events-import] worker shutdown (${reason}) with ${openCalls.size} call(s) open`);
+  for (const close of openCalls) inBackground(close(reason));
+});
 
 /** Keeps the worker alive for `task` after the response, where the platform offers it. */
 const inBackground = (task: Promise<unknown>) => {
@@ -82,7 +104,17 @@ serve(async (req) => {
   const core = supabase.schema('core');
   const publicUrl = (path: string) => supabase.storage.from(IMAGE_BUCKET).getPublicUrl(path).data.publicUrl;
 
-  const store: ImportStore = {
+  const db: ImportStore = {
+    async runningSources() {
+      const { data, error } = await core
+        .from('event_sources')
+        .select('id, last_run_status, last_run_summary')
+        .eq('last_run_status', 'running');
+      if (error) throw new Error(`event_sources running: ${error.code ?? 'unknown'}`);
+      return ((data ?? []) as { id: string; last_run_status?: string; last_run_summary?: Partial<RunSummary> | null }[])
+        .filter((r) => r.last_run_status === 'running')
+        .map((r): RunningSource => ({ id: r.id, summary: r.last_run_summary ?? null }));
+    },
     async activeSources() {
       const { data, error } = await core
         .from('event_sources')
@@ -169,6 +201,9 @@ serve(async (req) => {
     },
   };
 
+  const guard = shutdownGuard(db, (l) => console.error(l));
+  const store = guard.store;
+
   // BR-EVENTO-009 item 8. The key the CMS already uses for places:searchText (the project key has no
   // Geocoding API); without it, events with no coordinate are skipped with the reason in the summary.
   const placesKey = (Deno.env.get(PLACES_KEY_SECRET) ?? '').trim();
@@ -231,22 +266,41 @@ serve(async (req) => {
       })
       .catch((error) => console.error(`[events-import] link ${next.chain} not called: ${messageOf(error)}`));
 
+  const log = (l: string) => console.log(l);
+  if (!chained && (body as { sweep?: unknown } | null)?.sweep === true) {
+    try {
+      return json({ closed: await sweepStalled({ store: db, fetch, log }) }, 200);
+    } catch (error) {
+      console.error(`[events-import] sweep aborted: ${messageOf(error)}`);
+      return json({ error: 'server_error' }, 500);
+    }
+  }
+
   const link: RunLink = chained ??
     { chain: 1, run_started_at: new Date().toISOString(), ...(isUuid(only) ? { only } : {}) };
   const run = async () => {
-    const reports = await runEventsImport(
-      {
-        store,
-        fetch: (url, init) => fetch(url, init),
-        log: (l) => console.log(l),
-        geocoding,
-        geocodingOff: geocoding ? undefined : `secret ${PLACES_KEY_SECRET} missing`,
-      },
-      link,
-    );
-    const next = nextLink(reports, link);
-    if (next) inBackground(callNext(next));
-    return reports;
+    openCalls.add(guard.close);
+    try {
+      const reports = await runEventsImport(
+        {
+          store,
+          fetch: (url, init) => fetch(url, init),
+          log,
+          geocoding,
+          geocodingOff: geocoding ? undefined : `secret ${PLACES_KEY_SECRET} missing`,
+        },
+        link,
+      );
+      const next = nextLink(reports, link);
+      if (next) inBackground(callNext(next));
+      return reports;
+    } catch (error) {
+      // A throw between a progress write and the final one closes the source here, with the cause.
+      await guard.close(`aborted: ${messageOf(error)}`);
+      throw error;
+    } finally {
+      openCalls.delete(guard.close);
+    }
   };
 
   // A chained link answers at once, so the link that called it is not held until this one ends.
