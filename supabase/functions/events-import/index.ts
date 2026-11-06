@@ -12,9 +12,10 @@
  *
  *   POST { sweep: true }   only closes the dead runs (#1091) -> 200 { closed: [source_id] }
  *
- * A run never stays `running` (#1091). A worker the platform shuts down (CPU, memory, wall clock)
- * writes `error` with the reason on `beforeunload`; a worker killed without it is closed as `error`
- * by the next call, once its source has had no progress for `STALE_RUN_MS`.
+ * A run never stays `running` (#1091). A worker the platform shuts down with notice (memory, wall
+ * clock) writes `error` with the reason on `beforeunload`. One killed without it, as the 2 s of CPU
+ * do (seen on 2026-10-28, Tempora #53), is closed as `error` by the next call, once its source has
+ * had no progress for `STALE_RUN_MS`.
  *
  * A link stops starting items at `RUN_BUDGET_MS`. When items are left it calls the next link,
  * without waiting, up to `MAX_CHAIN_LINKS`; the next one starts with the items not yet seen (SPTuris)

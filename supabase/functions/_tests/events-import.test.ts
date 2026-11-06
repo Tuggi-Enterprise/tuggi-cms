@@ -641,13 +641,13 @@ Deno.test('#1091: a link cut by the platform closes its source as error with the
   assertEquals(store.rows.get(SPTUR.id)?.status, 'running');
   assertEquals(store.calls.length, 5);
 
-  await guard.close('CPUTime');
+  await guard.close('Memory');
   const row = store.rows.get(SPTUR.id);
   assertEquals(row?.status, 'error');
   assertEquals([row?.summary.created, row?.summary.chain, row?.summary.in_flight], [5, 3, []]);
   const last = row?.summary.errors.at(-1);
   assertEquals(last?.external_id, null);
-  assert(last?.message.startsWith('shutdown: CPUTime; in flight: '), last?.message);
+  assert(last?.message.startsWith('shutdown: Memory; in flight: '), last?.message);
   assert(/\d+:card/.test(last?.message ?? ''), `names the items that were cut: ${last?.message}`);
   // A source already closed is not written again by a late shutdown.
   const writes = store.finished.length;
