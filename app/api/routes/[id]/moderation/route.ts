@@ -6,11 +6,16 @@ import { classifyPublicationError, isModerationAction, moderationStatus } from '
 /**
  * POST /api/routes/[id]/moderation : body `{ action: 'approve' | 'remove' | 'restore' }` (#945).
  *
- * BR-ROTA-006: the CMS admin decides the review queue. `remove` writes `removed_by_moderation` and
- * never DELETEs (BR-ROTA-002); `approve` and `restore` write `active`. All three go through
- * `core.upsert_custom_route` with `p_status`, on the operator's cookie client: the RPC is the one
- * that refuses a non-admin, a `removed_by_author` route (TGW10, BR-ROTA-007), and that stamps
- * `moderation_reviewed_at`, which closes the open reports of the route.
+ * BR-ROTA-006: moderation of a route that is already decided. `remove` writes `removed_by_moderation`
+ * and never DELETEs (BR-ROTA-002); `approve` keeps a reported route on the air and `restore` brings a
+ * moderation removal back, both writing `active`. All three go through `core.upsert_custom_route`
+ * with `p_status`, on the operator's cookie client: the RPC is the one that refuses a non-admin, a
+ * `removed_by_author` route (TGW10, BR-ROTA-007), and that stamps `moderation_reviewed_at`, which
+ * closes the open reports of the route.
+ *
+ * Since #1106 (BR-ROTA-006 item 3) a route in `pending_review` is NOT approved here: that would put
+ * its submission on the air without deciding the version. It answers 409 `use_revision_queue`, and
+ * the version is decided in /admin/route-review (`core.approve_route_revision`).
  *
  * Admin only at the door too: the queue is an admin screen, and a partner has no user route to see.
  */
@@ -31,6 +36,13 @@ export const POST = withAuth<Params>({ roles: ['admin'] }, async (request: NextR
   if (!isModerationAction(body.action)) return NextResponse.json({ error: 'invalid_action' }, { status: 400 })
 
   try {
+    if (body.action === 'approve') {
+      const current = await RouteService.getRouteById(auth.supabase, id)
+      if (!current) return NextResponse.json({ error: 'route_not_found' }, { status: 404 })
+      if ((current as { status?: string }).status === 'pending_review') {
+        return NextResponse.json({ error: 'use_revision_queue' }, { status: 409 })
+      }
+    }
     const route = await RouteService.updateRoute(auth.supabase, id, { status: moderationStatus(body.action) }, auth.user.id)
     return NextResponse.json({ route })
   } catch (error) {

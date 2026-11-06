@@ -106,7 +106,8 @@
     "ranking": "Scoreboard",
     "route_progress": "Route progress",
     "push_results": "Push results",
-    "story_feedback": "Text votes"
+    "story_feedback": "Text votes",
+    "route_review": "Route approval"
   },
   "Pages": {
     "Login": {
@@ -2152,6 +2153,107 @@
       "pagination": "Page {current} of {total} ({count} items)",
       "prev": "Previous",
       "next": "Next"
+    },
+    "RouteReview": {
+      "title": "Route approval",
+      "subtitle": "Versions of routes published in the app, oldest first. None goes live without your approval.",
+      "loading": "Loading…",
+      "retry": "Try again",
+      "empty": "No version waiting for approval.",
+      "select_hint": "Pick a version from the list to review.",
+      "headers": {
+        "route": "Route",
+        "author": "Author",
+        "version": "Version",
+        "submitted": "Sent on"
+      },
+      "first_submission": "First submission",
+      "edit_of": "Edit of version {no}",
+      "version": "Version {no}",
+      "has_signal": "Alert",
+      "no_description": "No description. The route can be approved with the name only.",
+      "signal_text": "Text filter: {category}",
+      "reports": "{count, plural, one {# report} other {# reports}}",
+      "filter_note": "The automatic filters only flag. You approve or refuse.",
+      "map_title": "Track",
+      "map_recorded": "Recorded",
+      "map_uncovered": "Unrecorded stretch",
+      "map_failed": "The map did not load.",
+      "no_line": "This version has no track.",
+      "diff_title": "What changes from the live version",
+      "diff_first": "First submission: there is no live version to compare.",
+      "diff_none": "Name, description, visibility and cover are unchanged.",
+      "line_changed": "The track changed.",
+      "field": "Field",
+      "before": "Live",
+      "after": "This version",
+      "empty_value": "(empty)",
+      "fields": {
+        "name": "Name",
+        "description": "Description",
+        "visibility": "Visibility",
+        "cover": "Cover"
+      },
+      "changes": {
+        "added": "New",
+        "removed": "Removed",
+        "edited": "Edited",
+        "moved": "Moved",
+        "same": "Same"
+      },
+      "stops_title": "Stops, in the author's order",
+      "annotation": "Note",
+      "story": "Tuggi story",
+      "no_text": "Position only, no text",
+      "photo_alt": "Photo {n} of stop {stop}",
+      "photo_unavailable": "Photo unavailable",
+      "photo_checking": "Checking…",
+      "photo_unchecked": "Not checked by the filter",
+      "photo_clean": "No filter alert",
+      "photo_flagged": "Flagged by the filter: {categories}",
+      "decision": "Decision",
+      "approve": "Approve this version",
+      "approving": "Approving…",
+      "approved": "Version approved and live. Translation and audio were requested.",
+      "approved_translation_failed": "Version approved and live, but the translation failed (code {status}). Generate it from the route's Languages tab.",
+      "reject_label": "Reason for refusing. The author reads this text as you write it.",
+      "reject_placeholder": "Tell the author what to fix before sending again.",
+      "reject": "Refuse with reason",
+      "rejecting": "Refusing…",
+      "rejected": "Version refused. The author reads the reason in the app.",
+      "reason_required": "Write the reason: the author needs it to fix the route.",
+      "reason_too_long": "The reason has at most 1,000 characters.",
+      "errors": {
+        "already_decided": "This version was already decided. Reload the queue.",
+        "route_removed": "The route was taken down and this version can no longer be approved.",
+        "revision_not_found": "Version not found.",
+        "not_available": "The queue shows up once the database migration is applied.",
+        "reason_required": "Write the reason: the author needs it to fix the route.",
+        "reason_too_long": "The reason has at most 1,000 characters.",
+        "generic": "That did not work. Try again."
+      },
+      "promote": {
+        "open": "Make it a POI",
+        "hint": "The text is the author's. Fix only spelling, grammar and wrong facts. The POI starts under review.",
+        "nearby_title": "POIs within {radius} m",
+        "nearby_none": "No POI within {radius} m.",
+        "distance": "{meters} m",
+        "name": "Name",
+        "description": "Description",
+        "city": "City",
+        "country": "Country",
+        "state": "State",
+        "photo": "POI photo",
+        "no_photo": "No photo",
+        "photo_alt": "Photo {n}",
+        "submit": "Create POI under review",
+        "submitting": "Creating…",
+        "cancel": "Cancel",
+        "done": "POI created under review. It is not approved yet.",
+        "done_photo_failed": "POI created under review, but the photo was not copied.",
+        "already": "Already a POI",
+        "cannot": "A note without text does not become a POI."
+      }
     }
   },
   "EventManagement": {
@@ -3173,7 +3275,6 @@
       "source_trip": "Trip on {date}",
       "reason_filter": "Flagged by the text filter: {category}",
       "reason_reports": "{count, plural, one {# report} other {# reports}}: {reasons}",
-      "approve": "Approve",
       "remove": "Remove",
       "restore": "Restore",
       "remove_confirm": "Remove \"{name}\" by {owner}? No one will be able to open it, not even with the link.",
@@ -3193,7 +3294,9 @@
       "slug_invalid": "Use only lowercase letters, numbers and hyphens.",
       "slug_taken": "That address belongs to another route.",
       "owner_label": "Owner",
-      "state_label": "State"
+      "state_label": "State",
+      "open_review": "Open in the approval queue",
+      "keep": "Keep live"
     }
   },
   "Geofences": {

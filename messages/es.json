@@ -106,7 +106,8 @@
     "ranking": "Marcador",
     "route_progress": "Progreso de rutas",
     "push_results": "Resultado de push",
-    "story_feedback": "Votos en los textos"
+    "story_feedback": "Votos en los textos",
+    "route_review": "Aprobación de rutas"
   },
   "Pages": {
     "Login": {
@@ -2139,6 +2140,107 @@
       "pagination": "Página {current} de {total} ({count} elementos)",
       "prev": "Anterior",
       "next": "Siguiente"
+    },
+    "RouteReview": {
+      "title": "Aprobación de rutas",
+      "subtitle": "Versiones de rutas publicadas en la app, de la más antigua a la más nueva. Ninguna sale al aire sin tu aprobación.",
+      "loading": "Cargando…",
+      "retry": "Intentar de nuevo",
+      "empty": "Ninguna versión esperando aprobación.",
+      "select_hint": "Elige una versión de la lista para revisar.",
+      "headers": {
+        "route": "Ruta",
+        "author": "Autor",
+        "version": "Versión",
+        "submitted": "Enviada el"
+      },
+      "first_submission": "Primer envío",
+      "edit_of": "Edición de la versión {no}",
+      "version": "Versión {no}",
+      "has_signal": "Alerta",
+      "no_description": "Sin descripción. La ruta se puede aprobar solo con el nombre.",
+      "signal_text": "Filtro de texto: {category}",
+      "reports": "{count, plural, one {# denuncia} other {# denuncias}}",
+      "filter_note": "Los filtros automáticos solo señalan. Quien aprueba o rechaza eres tú.",
+      "map_title": "Trazado",
+      "map_recorded": "Grabado",
+      "map_uncovered": "Tramo sin grabación",
+      "map_failed": "El mapa no cargó.",
+      "no_line": "Esta versión no tiene trazado.",
+      "diff_title": "Qué cambia respecto a la versión en el aire",
+      "diff_first": "Primer envío: no hay versión en el aire para comparar.",
+      "diff_none": "Nombre, descripción, visibilidad y portada siguen iguales.",
+      "line_changed": "El trazado cambió.",
+      "field": "Campo",
+      "before": "En el aire",
+      "after": "En esta versión",
+      "empty_value": "(vacío)",
+      "fields": {
+        "name": "Nombre",
+        "description": "Descripción",
+        "visibility": "Visibilidad",
+        "cover": "Portada"
+      },
+      "changes": {
+        "added": "Nueva",
+        "removed": "Salió",
+        "edited": "Editada",
+        "moved": "Cambió de lugar",
+        "same": "Igual"
+      },
+      "stops_title": "Paradas, en el orden del autor",
+      "annotation": "Anotación",
+      "story": "Historia de Tuggi",
+      "no_text": "Solo la posición, sin texto",
+      "photo_alt": "Foto {n} de la parada {stop}",
+      "photo_unavailable": "Foto no disponible",
+      "photo_checking": "Revisando…",
+      "photo_unchecked": "No revisada por el filtro",
+      "photo_clean": "Sin alerta del filtro",
+      "photo_flagged": "Marcada por el filtro: {categories}",
+      "decision": "Decisión",
+      "approve": "Aprobar esta versión",
+      "approving": "Aprobando…",
+      "approved": "Versión aprobada y en el aire. Se pidieron la traducción y el audio.",
+      "approved_translation_failed": "Versión aprobada y en el aire, pero la traducción falló (código {status}). Genérala desde la pestaña Idiomas de la ruta.",
+      "reject_label": "Motivo del rechazo. El autor lee este texto tal como lo escribas.",
+      "reject_placeholder": "Dile al autor qué debe corregir para enviar de nuevo.",
+      "reject": "Rechazar con motivo",
+      "rejecting": "Rechazando…",
+      "rejected": "Versión rechazada. El autor lee el motivo en la app.",
+      "reason_required": "Escribe el motivo: el autor lo necesita para corregir.",
+      "reason_too_long": "El motivo tiene como máximo 1.000 caracteres.",
+      "errors": {
+        "already_decided": "Esta versión ya fue decidida. Recarga la cola.",
+        "route_removed": "La ruta salió del aire y esta versión ya no se puede aprobar.",
+        "revision_not_found": "Versión no encontrada.",
+        "not_available": "La cola aparece cuando se aplique la migración de la base de datos.",
+        "reason_required": "Escribe el motivo: el autor lo necesita para corregir.",
+        "reason_too_long": "El motivo tiene como máximo 1.000 caracteres.",
+        "generic": "No funcionó. Inténtalo de nuevo."
+      },
+      "promote": {
+        "open": "Convertir en POI",
+        "hint": "El texto es del autor. Corrige solo ortografía, gramática y datos erróneos. El POI nace en revisión.",
+        "nearby_title": "POIs a menos de {radius} m",
+        "nearby_none": "Ningún POI a menos de {radius} m.",
+        "distance": "{meters} m",
+        "name": "Nombre",
+        "description": "Descripción",
+        "city": "Ciudad",
+        "country": "País",
+        "state": "Estado",
+        "photo": "Foto del POI",
+        "no_photo": "Sin foto",
+        "photo_alt": "Foto {n}",
+        "submit": "Crear POI en revisión",
+        "submitting": "Creando…",
+        "cancel": "Cancelar",
+        "done": "POI creado en revisión. Todavía no está aprobado.",
+        "done_photo_failed": "POI creado en revisión, pero la foto no se copió.",
+        "already": "Ya es un POI",
+        "cannot": "Una anotación sin texto no se convierte en POI."
+      }
     }
   },
   "EventManagement": {
@@ -3155,7 +3257,6 @@
       "source_trip": "Viaje del {date}",
       "reason_filter": "Marcada por el filtro de texto: {category}",
       "reason_reports": "{count, plural, one {# denuncia} other {# denuncias}}: {reasons}",
-      "approve": "Aprobar",
       "remove": "Eliminar",
       "restore": "Restaurar",
       "remove_confirm": "¿Eliminar \"{name}\", de {owner}? Nadie podrá abrirla, ni con el enlace.",
@@ -3175,7 +3276,9 @@
       "slug_invalid": "Usa solo minúsculas, números y guiones.",
       "slug_taken": "Esa dirección ya es de otra ruta.",
       "owner_label": "Dueño",
-      "state_label": "Estado"
+      "state_label": "Estado",
+      "open_review": "Abrir en la cola de aprobación",
+      "keep": "Mantener en el aire"
     }
   },
   "Geofences": {

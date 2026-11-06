@@ -644,12 +644,23 @@ export default function RoutesPage() {
                         <div className="flex items-center justify-end gap-1">
                           {route.in_review_queue && (
                             <>
-                              <button
-                                onClick={e => { e.stopPropagation(); moderate(route, 'approve') }}
-                                className="px-3 py-1.5 rounded-lg text-xs font-bold bg-green-700 text-white hover:bg-green-800 transition-all"
-                              >
-                                {tp('approve')}
-                              </button>
+                              {/* BR-ROTA-006 item 3 (#1106): a version waiting for approval is decided in the
+                                  approval queue, never by writing the route status. */}
+                              {route.status === 'pending_review' ? (
+                                <button
+                                  onClick={e => { e.stopPropagation(); localizedRouter.push('/admin/route-review') }}
+                                  className="px-3 py-1.5 rounded-lg text-xs font-bold bg-tuggi-blue text-white hover:opacity-90 transition-all"
+                                >
+                                  {tp('open_review')}
+                                </button>
+                              ) : (
+                                <button
+                                  onClick={e => { e.stopPropagation(); moderate(route, 'approve') }}
+                                  className="px-3 py-1.5 rounded-lg text-xs font-bold bg-green-700 text-white hover:bg-green-800 transition-all"
+                                >
+                                  {tp('keep')}
+                                </button>
+                              )}
                               <button
                                 onClick={e => { e.stopPropagation(); moderate(route, 'remove') }}
                                 className="px-3 py-1.5 rounded-lg text-xs font-bold bg-red-700 text-white hover:bg-red-800 transition-all"

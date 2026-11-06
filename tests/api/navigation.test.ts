@@ -200,6 +200,8 @@ test('o catálogo do admin é exatamente este — apagar um destino tem de doer'
     '/admin/poi-trigger-map',
     // Os números das horas concedidas (#855).
     '/admin/reward-settings',
+    // The approval of user route versions (#1106, BR-ROTA-006 item 3).
+    '/admin/route-review',
     // The social analytics (#1059).
     '/admin/social',
     // Os votos nas histórias (#950).

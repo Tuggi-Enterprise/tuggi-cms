@@ -64,6 +64,7 @@ import {
   Database,
   Gift,
   Hourglass,
+  Inbox,
   Handshake,
   LayoutDashboard,
   Mail,
@@ -196,6 +197,8 @@ function catalogue(): { basic: NavEntry[]; modules: NavEntry[] } {
               item('/events', 'events', CalendarDays),
               item('/places', 'places', Store),
               item('/routes', 'custom_routes', Route),
+              // The approval of user route versions (#1106, BR-ROTA-006 item 3): admin, under /admin.
+              item('/admin/route-review', 'route_review', Inbox),
               // Direções e avisos: os clipes que não pertencem a nenhum POI. Saiu de `Admin`
               // porque é conteúdo, não administração — o comentário antigo já dizia isso.
               item('/dashboard/system-audio', 'system_audio', Volume2),

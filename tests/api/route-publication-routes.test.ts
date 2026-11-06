@@ -210,7 +210,8 @@ test('BR-ROTA-006/002: remove marks removed_by_moderation through the RPC and ne
   assert.ok(!scenario.calls.some((c) => c.target === 'delete_custom_route'), 'not the delete RPC either')
 })
 
-test('BR-ROTA-006: approving from the queue writes active', async () => {
+test('BR-ROTA-006: keeping a reported route on the air writes active (a route in review is decided in the version queue, #1106)', async () => {
+  scenario.route = { ...USER_ROUTE, status: 'active' }
   const res = await moderation.POST(request('POST', { action: 'approve' }), routeCtx)
   assert.equal(res.status, 200)
   assert.equal(upsertArgs()!.p_status, 'active')

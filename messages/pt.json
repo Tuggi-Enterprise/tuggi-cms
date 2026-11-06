@@ -106,7 +106,8 @@
     "ranking": "Placar",
     "route_progress": "Progresso de roteiros",
     "push_results": "Resultado de push",
-    "story_feedback": "Votos nos textos"
+    "story_feedback": "Votos nos textos",
+    "route_review": "Aprovação de rotas"
   },
   "Pages": {
     "Login": {
@@ -2500,6 +2501,107 @@
       "pagination": "Página {current} de {total} ({count} itens)",
       "prev": "Anterior",
       "next": "Próxima"
+    },
+    "RouteReview": {
+      "title": "Aprovação de rotas",
+      "subtitle": "Versões de rotas publicadas no app, da mais antiga para a mais nova. Nenhuma vai ao ar sem a sua aprovação.",
+      "loading": "Carregando…",
+      "retry": "Tentar de novo",
+      "empty": "Nenhuma versão esperando aprovação.",
+      "select_hint": "Escolha uma versão na lista para revisar.",
+      "headers": {
+        "route": "Rota",
+        "author": "Autor",
+        "version": "Versão",
+        "submitted": "Enviada em"
+      },
+      "first_submission": "Primeiro envio",
+      "edit_of": "Edição da versão {no}",
+      "version": "Versão {no}",
+      "has_signal": "Alerta",
+      "no_description": "Sem descrição. A rota pode ser aprovada só com o nome.",
+      "signal_text": "Filtro de texto: {category}",
+      "reports": "{count, plural, one {# denúncia} other {# denúncias}}",
+      "filter_note": "Os filtros automáticos só sinalizam. Quem aprova ou recusa é você.",
+      "map_title": "Traçado",
+      "map_recorded": "Gravado",
+      "map_uncovered": "Trecho sem gravação",
+      "map_failed": "O mapa não carregou.",
+      "no_line": "Esta versão não tem traçado.",
+      "diff_title": "O que muda em relação à versão no ar",
+      "diff_first": "Primeiro envio: não há versão no ar para comparar.",
+      "diff_none": "Nome, descrição, visibilidade e capa continuam iguais.",
+      "line_changed": "O traçado mudou.",
+      "field": "Campo",
+      "before": "No ar",
+      "after": "Nesta versão",
+      "empty_value": "(vazio)",
+      "fields": {
+        "name": "Nome",
+        "description": "Descrição",
+        "visibility": "Visibilidade",
+        "cover": "Capa"
+      },
+      "changes": {
+        "added": "Nova",
+        "removed": "Saiu",
+        "edited": "Editada",
+        "moved": "Mudou de lugar",
+        "same": "Igual"
+      },
+      "stops_title": "Paradas, na ordem do autor",
+      "annotation": "Anotação",
+      "story": "História do Tuggi",
+      "no_text": "Só a posição, sem texto",
+      "photo_alt": "Foto {n} da parada {stop}",
+      "photo_unavailable": "Foto indisponível",
+      "photo_checking": "Conferindo…",
+      "photo_unchecked": "Não conferida pelo filtro",
+      "photo_clean": "Sem alerta do filtro",
+      "photo_flagged": "Marcada pelo filtro: {categories}",
+      "decision": "Decisão",
+      "approve": "Aprovar esta versão",
+      "approving": "Aprovando…",
+      "approved": "Versão aprovada e no ar. A tradução e o áudio foram pedidos.",
+      "approved_translation_failed": "Versão aprovada e no ar, mas a tradução não saiu (código {status}). Gere pela aba Idiomas da rota.",
+      "reject_label": "Motivo da recusa. O autor lê este texto como você escrever.",
+      "reject_placeholder": "Diga o que o autor precisa corrigir para enviar de novo.",
+      "reject": "Recusar com motivo",
+      "rejecting": "Recusando…",
+      "rejected": "Versão recusada. O autor lê o motivo no app.",
+      "reason_required": "Escreva o motivo: o autor precisa dele para corrigir.",
+      "reason_too_long": "O motivo tem no máximo 1.000 caracteres.",
+      "errors": {
+        "already_decided": "Esta versão já foi decidida. Recarregue a fila.",
+        "route_removed": "A rota saiu do ar e esta versão não pode mais ser aprovada.",
+        "revision_not_found": "Versão não encontrada.",
+        "not_available": "A fila aparece depois que a migração do banco for aplicada.",
+        "reason_required": "Escreva o motivo: o autor precisa dele para corrigir.",
+        "reason_too_long": "O motivo tem no máximo 1.000 caracteres.",
+        "generic": "Não deu certo. Tente de novo."
+      },
+      "promote": {
+        "open": "Virar POI",
+        "hint": "O texto é do autor. Corrija só ortografia, gramática e fato errado. O POI nasce em revisão.",
+        "nearby_title": "POIs a até {radius} m",
+        "nearby_none": "Nenhum POI a até {radius} m.",
+        "distance": "{meters} m",
+        "name": "Nome",
+        "description": "Descrição",
+        "city": "Cidade",
+        "country": "País",
+        "state": "Estado",
+        "photo": "Foto do POI",
+        "no_photo": "Sem foto",
+        "photo_alt": "Foto {n}",
+        "submit": "Criar POI em revisão",
+        "submitting": "Criando…",
+        "cancel": "Cancelar",
+        "done": "POI criado em revisão. Ele ainda não foi aprovado.",
+        "done_photo_failed": "POI criado em revisão, mas a foto não foi copiada.",
+        "already": "Já virou POI",
+        "cannot": "Anotação sem texto não vira POI."
+      }
     }
   },
   "EventManagement": {
@@ -3533,7 +3635,6 @@
       "source_trip": "Viagem de {date}",
       "reason_filter": "Barrada pelo filtro de texto: {category}",
       "reason_reports": "{count, plural, one {# denúncia} other {# denúncias}}: {reasons}",
-      "approve": "Aprovar",
       "remove": "Remover",
       "restore": "Restaurar",
       "remove_confirm": "Remover \"{name}\", de {owner}? Ninguém mais consegue abrir, nem quem tem o link.",
@@ -3553,7 +3654,9 @@
       "slug_invalid": "Use só letras minúsculas, números e hífen.",
       "slug_taken": "Esse endereço já é de outra rota.",
       "owner_label": "Dono",
-      "state_label": "Estado"
+      "state_label": "Estado",
+      "open_review": "Abrir na fila de aprovação",
+      "keep": "Manter no ar"
     }
   },
   "Geofences": {
