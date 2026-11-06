@@ -97,7 +97,7 @@ export interface UpdateRouteRequest {
   // (BR-ROTA-006, admin only in the database). Sent only when set: before migration
   // 20261019110000 the RPC does not have these parameters, and the call of today must keep resolving.
   publication?: PublicationParams;
-  status?: 'active' | 'removed_by_moderation';
+  status?: 'active' | 'pending_review' | 'removed_by_moderation';
 }
 
 /** A refusal of `upsert_custom_route` that keeps the PostgREST code, so the route can map it to a field. */

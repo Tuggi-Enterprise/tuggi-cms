@@ -224,6 +224,32 @@ test('BR-ROTA-006: restore brings a moderation removal back to active', async ()
   assert.equal(upsertArgs()!.p_status, 'active')
 })
 
+test('BR-ROTA-006 item 3 (#1109): restoring a user route that never had a version approved goes back to review, not 409 and not on the air', async () => {
+  scenario.route = { ...USER_ROUTE, status: 'removed_by_moderation', live_revision_id: null }
+  const res = await moderation.POST(request('POST', { action: 'restore' }), routeCtx)
+  assert.equal(res.status, 200)
+  assert.equal(upsertArgs()!.p_status, 'pending_review')
+  assert.equal((await res.json()).route.status, 'pending_review')
+})
+
+test('BR-ROTA-006 item 6 (#1109): a user route with a version on the air, and a CMS route, restore to active', async () => {
+  scenario.route = { ...USER_ROUTE, status: 'removed_by_moderation', live_revision_id: 'rev-1' }
+  await moderation.POST(request('POST', { action: 'restore' }), routeCtx)
+  assert.equal(upsertArgs()!.p_status, 'active')
+
+  scenario = fresh()
+  scenario.route = { ...USER_ROUTE, status: 'removed_by_moderation', owner_user_id: null, metadata: {}, live_revision_id: null }
+  await moderation.POST(request('POST', { action: 'restore' }), routeCtx)
+  assert.equal(upsertArgs()!.p_status, 'active')
+})
+
+test('BR-ROTA-006 (#1109): restoring a route that does not exist answers 404 and writes nothing', async () => {
+  scenario.route = null
+  const res = await moderation.POST(request('POST', { action: 'restore' }), routeCtx)
+  assert.equal(res.status, 404)
+  assert.equal(upsertArgs(), undefined)
+})
+
 test('BR-ROTA-007: a route its author removed is not restored (TGW10 -> 409)', async () => {
   scenario.upsertError = { code: 'TGW10', message: 'A route its author removed stays removed' }
   const res = await moderation.POST(request('POST', { action: 'restore' }), routeCtx)
