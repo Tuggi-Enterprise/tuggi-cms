@@ -3,8 +3,8 @@ export function assert(condition: unknown, message = 'assertion failed'): assert
   if (!condition) throw new Error(message);
 }
 
-export function assertEquals(actual: unknown, expected: unknown): void {
+export function assertEquals(actual: unknown, expected: unknown, message?: string): void {
   const a = JSON.stringify(actual);
   const e = JSON.stringify(expected);
-  if (a !== e) throw new Error(`expected ${e}, got ${a}`);
+  if (a !== e) throw new Error(`${message ? `${message}: ` : ''}expected ${e}, got ${a}`);
 }
