@@ -95,8 +95,8 @@ of a route an app user just published.
   `isOwnMachineKey`). Any other caller: `401`. `limit` is an integer 1..20 (default 20), else `400 invalid_limit`.
   Out of the per-request rate limit; the production gate does not apply (platform caller).
 - Queue: the database's. `core.claim_user_routes_for_moderation(p_limit)` (service_role) takes the
-  routes `core.user_route_needs_moderation` says are owed a verdict, oldest first, `SKIP LOCKED`, and
-  spends one attempt (`core.custom_routes.moderation_attempts`) before the model is called; the
+  routes whose pending version `core.route_revision_needs_text_filter` says is owed a verdict (#1111), oldest first, `SKIP LOCKED`, and
+  spends one attempt (`core.custom_route_revisions.filter_attempts`) before the model is called; the
   ceiling of 3 lives there. The EF neither filters nor counts.
 - Per route: the same path as the route mode, in `en-us` / `male` (screen + translate in one LLM call;
   audio and `custom_route_descriptions` only if it passed; verdict by `core.set_route_moderation_result`).

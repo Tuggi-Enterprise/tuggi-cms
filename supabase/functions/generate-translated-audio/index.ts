@@ -583,7 +583,7 @@ const getPendingRevisionText = async (routeId: string): Promise<{ name: string; 
 /**
  * Database side of the batch mode (#945). The queue is the database's: `core.claim_user_routes_for_moderation`
  * picks the routes owed a verdict, oldest first, SKIP LOCKED, and spends the attempt before the
- * model is called (the ceiling lives in `core.user_route_needs_moderation`). Nothing is filtered or
+ * model is called (the ceiling lives in `core.route_revision_needs_text_filter`, per pending version, since #1111). Nothing is filtered or
  * counted here. Since #1106 a route only has its PENDING version screened (BR-ROTA-006 item 3): no
  * translation, no audio, and the verdict is a signal for the curator.
  */
