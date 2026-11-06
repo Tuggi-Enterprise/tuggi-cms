@@ -85,6 +85,15 @@ export function classifyProductionRequester(
   return 'app_user';
 }
 
+/**
+ * The requester behind an authenticated request. A guest is never an operator nor the platform,
+ * whatever role the request carries: he is always the tourist whose state is read. Also decides
+ * who the per-request limit of `generate-translated-audio` counts (#1112).
+ */
+export function productionRequesterOf(auth: AuthResult): ProductionRequesterSource {
+  return auth.isAnonymous === true ? 'app_user' : classifyProductionRequester(auth.role);
+}
+
 /** Why a production was refused. Each one is a distinct answer to the app (see the response). */
 export type ProductionRefusal = 'not_entitled' | 'entitlement_unavailable';
 
@@ -180,10 +189,7 @@ export async function decideContentProduction(
   functionName: string,
   options: ProductionGateOptions = {},
 ): Promise<ProductionGateDecision> {
-  // A guest is never an operator nor the platform: his state is always read.
-  const source: ProductionRequesterSource = auth.isAnonymous === true
-    ? 'app_user'
-    : classifyProductionRequester(auth.role);
+  const source = productionRequesterOf(auth);
 
   if (source !== 'app_user') {
     return { allowed: true, source, state: 'not_applicable' };

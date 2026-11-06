@@ -13,6 +13,7 @@ import {
 import { createAuditLogger } from '../_shared/audit-logger.ts';
 import {
   decideContentProduction,
+  productionRequesterOf,
   createProductionRefusedResponse,
 } from '../_shared/content-production-gate.ts';
 import { rebuildReadModel } from '../_shared/read-model.ts';
@@ -664,14 +665,18 @@ serve(async (req) => {
     );
   }
 
-  // ✅ RATE LIMITING CHECK
-  const config = RATE_LIMIT_CONFIG['generate-translated-audio']
-  const rateLimit = checkRateLimit(req, 'generate-translated-audio', config.maxRequests, config.windowSeconds)
-  if (!rateLimit.allowed) {
-    console.warn(`[Generate-Translated-Audio] ⚠️ Rate limit exceeded (ID: ${authResult.userId})`)
-    return createRateLimitResponse(rateLimit, corsHeaders)
+  // ✅ RATE LIMITING CHECK, app user only (#1112). The CMS curator approves routes in a row and
+  // the platform drains in batch; neither is counted nor refused. Same classification as the
+  // production gate below, so the two never disagree on who is the tourist.
+  if (productionRequesterOf(authResult) === 'app_user') {
+    const config = RATE_LIMIT_CONFIG['generate-translated-audio']
+    const rateLimit = checkRateLimit(req, 'generate-translated-audio', config.maxRequests, config.windowSeconds)
+    if (!rateLimit.allowed) {
+      console.warn(`[Generate-Translated-Audio] ⚠️ Rate limit exceeded (ID: ${authResult.userId})`)
+      return createRateLimitResponse(rateLimit, corsHeaders)
+    }
+    console.log(`[Generate-Translated-Audio] ✅ Rate limit OK (${rateLimit.remaining} remaining)`)
   }
-  console.log(`[Generate-Translated-Audio] ✅ Rate limit OK (${rateLimit.remaining} remaining)`)
 
   // ✅ BR-CONTEUDO-003 item 5 — GATE DE PRODUÇÃO, NO CORPO DA FUNÇÃO.
   // Every path below this line spends LLM (translation, POI name) and/or TTS:

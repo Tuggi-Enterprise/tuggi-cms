@@ -78,6 +78,13 @@ The function supports the following languages with neural voices:
 }
 ```
 
+## Per-request rate limit (#1112)
+
+`RATE_LIMIT_CONFIG['generate-translated-audio']` (`_shared/rate-limiter.ts`) counts the app user only, tourist or
+guest; past it the answer is `429`. The CMS operator (`admin`, `super_admin`, `editor` in `core.cms_users`) and our
+machine keys are neither counted nor refused. Who is who comes from `productionRequesterOf`, the same classification
+the production gate (BR-CONTEUDO-003) uses.
+
 ## Batch mode: first screening of user routes (#945, BR-ROTA-006)
 
 Called by a database cron (owned by `data`) every 5 minutes. Nobody else starts the first screening
