@@ -10,7 +10,7 @@
 // session. `requireAdmin` lets in an active CMS admin (or our own machine key) and nobody else: an
 // app user's token or the publishable key gets 401/403 before any photo is read.
 //
-// The key `GOOGLE_CLOUD_API_KEY` lives only in the Edge Function secrets and goes in a header, never
+// The key `GOOGLE_VISION_API_KEY` (its own key: `GOOGLE_CLOUD_API_KEY` does not reach Vision) lives only in the Edge Function secrets and goes in a header, never
 // in a URL. Each photo goes to the provider as its bytes, read from the private bucket with the
 // service role; no link to it leaves the project. Nothing of the photo, its key or the provider
 // answer goes to the log: counts and the HTTP status only. A provider failure leaves the photo
@@ -31,7 +31,7 @@ import {
 const json = (status: number, body: unknown) =>
   new Response(JSON.stringify(body), { status, headers: { 'Content-Type': 'application/json' } });
 
-const GOOGLE_CLOUD_API_KEY = Deno.env.get('GOOGLE_CLOUD_API_KEY') ?? '';
+const VISION_API_KEY = Deno.env.get('GOOGLE_VISION_API_KEY') ?? '';
 
 Deno.serve(async (req) => {
   if (req.method !== 'POST') return json(405, { error: 'method_not_allowed' });
@@ -45,7 +45,7 @@ Deno.serve(async (req) => {
   let providerError = '';
 
   const result = await handlePhotoModeration(body, {
-    hasApiKey: Boolean(GOOGLE_CLOUD_API_KEY),
+    hasApiKey: Boolean(VISION_API_KEY),
     readRevision: async (revisionId) => {
       const { data, error } = await db
         .schema('core')
@@ -60,7 +60,7 @@ Deno.serve(async (req) => {
       const { data, error } = await db.storage.from(DIARY_PHOTO_BUCKET).download(key);
       return error || !data ? null : new Uint8Array(await data.arrayBuffer());
     },
-    classify: (bytes) => classifyWithSafeSearch(bytes, GOOGLE_CLOUD_API_KEY),
+    classify: (bytes) => classifyWithSafeSearch(bytes, VISION_API_KEY),
     onUnchecked: (reason, error) => {
       unchecked[reason] = (unchecked[reason] ?? 0) + 1;
       // Our own messages (`safesearch http 403`) or the timeout's name; no URL, header or body.

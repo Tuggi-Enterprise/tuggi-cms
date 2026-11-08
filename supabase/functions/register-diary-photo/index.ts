@@ -13,7 +13,7 @@
 // Who calls: the app, with the user's session JWT. The user id comes from the token
 // (`auth.getUser`), never from the body. Our own machine keys are not a user and get 401.
 //
-// The key `GOOGLE_CLOUD_API_KEY` lives only in the Edge Function secrets. Nothing of the photo, its
+// The key `GOOGLE_VISION_API_KEY` (its own key: `GOOGLE_CLOUD_API_KEY` does not reach Vision) lives only in the Edge Function secrets. Nothing of the photo, its
 // key (which carries the user id), the user id or the provider answer goes to the log: the status
 // and the outcome only.
 //
@@ -31,7 +31,7 @@ const FUNCTION_NAME = 'register-diary-photo';
 const json = (status: number, body: unknown) =>
   new Response(JSON.stringify(body), { status, headers: { 'Content-Type': 'application/json' } });
 
-const GOOGLE_CLOUD_API_KEY = Deno.env.get('GOOGLE_CLOUD_API_KEY') ?? '';
+const VISION_API_KEY = Deno.env.get('GOOGLE_VISION_API_KEY') ?? '';
 
 /** storage-js answers a missing object with 404, or with 400 and `statusCode: '404'` in older servers. */
 function isNotFound(error: unknown): boolean {
@@ -65,7 +65,7 @@ Deno.serve(async (req) => {
 
   const body = await req.json().catch(() => null);
   const result = await handleDiaryPhotoRegistration(body, userId, {
-    hasApiKey: Boolean(GOOGLE_CLOUD_API_KEY),
+    hasApiKey: Boolean(VISION_API_KEY),
     now: () => new Date(),
     readPhoto: async (key): Promise<PhotoRead> => {
       const { data, error } = await db.storage.from(DIARY_PHOTO_BUCKET).download(key);
@@ -78,7 +78,7 @@ Deno.serve(async (req) => {
     },
     classify: async (bytes) => {
       try {
-        return await classifyWithSafeSearch(bytes, GOOGLE_CLOUD_API_KEY);
+        return await classifyWithSafeSearch(bytes, VISION_API_KEY);
       } catch (e) {
         console.warn(`[${FUNCTION_NAME}] provider_error ${e instanceof Error ? e.message : 'unknown'}`);
         throw e;
