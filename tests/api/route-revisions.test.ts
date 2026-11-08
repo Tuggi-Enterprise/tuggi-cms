@@ -28,6 +28,7 @@ import {
 } from '@/lib/routes/route-revisions'
 
 const REVISION_ID = '11111111-2222-4333-8444-555555555555'
+const PUSH_PATH = '/functions/v1/firebase-push-notification/route-revision'
 const ROUTE_ID = '22222222-3333-4444-8555-666666666666'
 const LIVE_ID = '33333333-4444-4555-8666-777777777777'
 const ANNOTATION = '44444444-5555-4666-8777-888888888888'
@@ -147,7 +148,9 @@ interface Scenario {
   reject: { data: unknown; error: { code: string } | null }
   translationReady: boolean
   efStatus: number
-  efCalls: Array<{ url: string; body: unknown }>
+  efCalls: Array<{ url: string; body: unknown; auth: string | null }>
+  /** What `firebase-push-notification/route-revision` answers; `throw` makes the fetch reject. */
+  push: { status: number; body: unknown } | 'throw'
   route: Record<string, unknown>
 }
 
@@ -175,6 +178,7 @@ function fresh(): Scenario {
     translationReady: true,
     efStatus: 200,
     efCalls: [],
+    push: { status: 200, body: { outcome: 'sent' } },
     route: { id: ROUTE_ID, slug: 'rota-da-orla', status: 'active', live_revision_id: LIVE_ID },
   }
 }
@@ -251,7 +255,12 @@ before(async () => {
   })
   process.env.NEXT_PUBLIC_SUPABASE_URL = 'https://project.test'
   globalThis.fetch = (async (url: string, init?: RequestInit) => {
-    scenario.efCalls.push({ url: String(url), body: init?.body ? JSON.parse(String(init.body)) : null })
+    const auth = new Headers(init?.headers).get('authorization')
+    scenario.efCalls.push({ url: String(url), body: init?.body ? JSON.parse(String(init.body)) : null, auth })
+    if (String(url).endsWith(PUSH_PATH)) {
+      if (scenario.push === 'throw') throw new TypeError('fetch failed')
+      return new Response(JSON.stringify(scenario.push.body), { status: scenario.push.status })
+    }
     return new Response('{}', { status: scenario.efStatus })
   }) as typeof fetch
   RejectForm = (await import('@/components/admin/route-review/RejectForm')).RejectForm
@@ -275,6 +284,8 @@ function request(body?: unknown): NextRequest {
 }
 
 const ctx = { params: Promise.resolve({ revisionId: REVISION_ID }) }
+const translationCalls = () => scenario.efCalls.filter((c) => c.url.endsWith('/generate-translated-audio'))
+const pushCalls = () => scenario.efCalls.filter((c) => c.url.endsWith(PUSH_PATH))
 const rpcCalls = () => scenario.calls.filter((c) => c.op === 'rpc').map((c) => c.target)
 
 test('BR-ROTA-006 item 3: a refusal without a reason is 400 and calls nothing', async () => {
@@ -308,9 +319,9 @@ test('contract item 4: after the approval the CMS asks generate-translated-audio
   const res = await approve.POST(request(), ctx)
   const out = await res.json()
   assert.equal(out.translation, 'requested')
-  assert.equal(scenario.efCalls.length, 1)
-  assert.equal(scenario.efCalls[0].url, 'https://project.test/functions/v1/generate-translated-audio')
-  assert.deepEqual(scenario.efCalls[0].body, { routeId: ROUTE_ID, targetLanguage: 'en-us', voiceGender: 'male', generateAudio: true })
+  assert.equal(translationCalls().length, 1)
+  assert.equal(translationCalls()[0].url, 'https://project.test/functions/v1/generate-translated-audio')
+  assert.deepEqual(translationCalls()[0].body, { routeId: ROUTE_ID, targetLanguage: 'en-us', voiceGender: 'male', generateAudio: true })
 })
 
 test('contract item 4: nothing changed, translation ready and no annotation text, no call; a failed call keeps the approval', async () => {
@@ -318,7 +329,7 @@ test('contract item 4: nothing changed, translation ready and no annotation text
   scenario.revisions[REVISION_ID].stops = []
   const quiet = await (await approve.POST(request(), ctx)).json()
   assert.equal(quiet.translation, 'not_needed')
-  assert.equal(scenario.efCalls.length, 0)
+  assert.equal(translationCalls().length, 0)
 
   scenario = fresh()
   scenario.efStatus = 429
@@ -327,6 +338,52 @@ test('contract item 4: nothing changed, translation ready and no annotation text
   const out = await res.json()
   assert.equal(out.translation, 'failed')
   assert.equal(out.translation_status, 429)
+})
+
+test('BR-ROTA-006 item 3 (#1120): after the approval the author push is asked once, with the version id and the curator session', async () => {
+  const res = await approve.POST(request(), ctx)
+  assert.equal(res.status, 200)
+  assert.equal(pushCalls().length, 1)
+  assert.equal(pushCalls()[0].url, `https://project.test${PUSH_PATH}`)
+  assert.deepEqual(pushCalls()[0].body, { revisionId: REVISION_ID })
+  assert.equal(pushCalls()[0].auth, 'Bearer curator-jwt')
+})
+
+test('BR-ROTA-006 item 3 (#1120): after the refusal the author push is asked once, and the reason never travels with it', async () => {
+  const reason = 'Tire o telefone da anotação 3.'
+  const res = await reject.POST(request({ reason }), ctx)
+  assert.equal(res.status, 200)
+  assert.equal(pushCalls().length, 1)
+  assert.deepEqual(pushCalls()[0].body, { revisionId: REVISION_ID })
+  assert.ok(!JSON.stringify(pushCalls()[0]).includes(reason), 'the reason stays in the app')
+})
+
+test('BR-ROTA-006 item 3 (#1120): a failed push does not undo the decision and does not change the answer', async () => {
+  const baselineApprove = await (await approve.POST(request(), ctx)).json()
+  scenario = fresh()
+  const baselineReject = await (await reject.POST(request({ reason: 'Ajuste.' }), ctx)).json()
+  for (const push of ['throw', { status: 500, body: { error: 'Internal Server Error' } }, { status: 200, body: { outcome: 'failed' } }] as const) {
+    scenario = fresh()
+    scenario.push = push
+    const approved = await approve.POST(request(), ctx)
+    assert.equal(approved.status, 200, JSON.stringify(push))
+    assert.deepEqual(await approved.json(), baselineApprove)
+    assert.ok(!scenario.calls.some((c) => c.op === 'rpc' && c.target !== 'approve_route_revision'), 'nothing reverts the approval')
+    scenario = fresh()
+    scenario.push = push
+    const rejected = await reject.POST(request({ reason: 'Ajuste.' }), ctx)
+    assert.equal(rejected.status, 200, JSON.stringify(push))
+    assert.deepEqual(await rejected.json(), baselineReject)
+  }
+})
+
+test('BR-ROTA-006 item 3 (#1120): a decision the database refused sends no push, and the old moderation door sends none', async () => {
+  scenario.approve = { data: null, error: { code: 'TGW18' } }
+  await approve.POST(request(), ctx)
+  scenario.reject = { data: null, error: { code: 'TGW18' } }
+  await reject.POST(request({ reason: 'Ajuste.' }), ctx)
+  await moderation.POST(request({ action: 'remove' }), { params: Promise.resolve({ id: ROUTE_ID }) })
+  assert.equal(pushCalls().length, 0)
 })
 
 test('#1106: an already decided version is 409, and a non-admin is 403 before any RPC', async () => {

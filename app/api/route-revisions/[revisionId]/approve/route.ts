@@ -12,8 +12,8 @@ type Params = { revisionId: string }
 /**
  * POST /api/route-revisions/[revisionId]/approve (#1106, BR-ROTA-006 item 3). The ONLY approval of a
  * user route version: `core.approve_route_revision`, never `core.upsert_custom_route` with
- * `p_status`. Then `generate-translated-audio` when the approved text needs it (contract, item 4).
- * Admin only.
+ * `p_status`. Then `generate-translated-audio` when the approved text needs it (contract, item 4),
+ * and the push to the author (#1120), whose failure changes nothing here. Admin only.
  */
 export const POST = withAuth<Params>({ roles: ['admin'] }, async (_req, ctx, auth) => {
   const { revisionId } = (await ctx.params) as Params

@@ -5,6 +5,7 @@ import { resolveDeeplink } from '../_shared/notification-deeplink.ts';
 // BR-COMUNICACAO-019 (#955): every push to a tourist passes the gate inside the one sender,
 // `_shared/push-send.ts`, which `/send`, `/process-scheduled` and `weekly-local-push` share (#1046).
 import { createPushSender } from '../_shared/push-send.ts';
+import { isRevisionId, runRouteRevisionPush } from '../_shared/route-revision-push.ts';
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -68,6 +69,27 @@ Deno.serve(async (req) => {
       const answer = await send(await req.json());
       return new Response(JSON.stringify(answer.body), {
         status: answer.status, headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+      });
+    }
+
+    // BR-ROTA-006 item 3 (#1120): the author's push after a curator decided a version. The CMS
+    // route calls this after the RPC answered success; what the push says is read from the rows.
+    // A failed push answers 200 with its outcome: it never undoes the decision.
+    if (path === '/route-revision') {
+      const payload = await req.json().catch(() => null);
+      const revisionId = (payload as { revisionId?: unknown } | null)?.revisionId;
+      if (!isRevisionId(revisionId)) {
+        return new Response(JSON.stringify({ error: 'invalid_revision_id' }), {
+          status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+        });
+      }
+      const outcome = await runRouteRevisionPush(
+        { db: supabase, send, log: (line) => console.log(`[${requestId}] ${line}`) },
+        revisionId,
+      );
+      const status = outcome === 'not_found' ? 404 : outcome === 'not_decided' ? 409 : 200;
+      return new Response(JSON.stringify({ outcome }), {
+        status, headers: { ...corsHeaders, 'Content-Type': 'application/json' },
       });
     }
 

@@ -243,19 +243,20 @@ test('#955: every ranking piece pushes under a kind the gate knows, and p_kind i
 test('BR-COMUNICACAO-019 items 3.e, 3.j, 3.l, 3.m.1: who is unrequested and who needs "using the app"', () => {
   // 3.m.1: the weekly pieces reach whoever has push on, using the app or not.
   const reachesEveryone = (kind: string) =>
-    kind.startsWith('cms_') || kind.endsWith('_local') || kind === 'daily_summary' || kind === 'first_story'
+    kind.startsWith('cms_') || kind.endsWith('_local') || kind === 'daily_summary' || kind === 'first_story' ||
+    kind === 'route_revision'
   for (const [kind, policy] of Object.entries(gate.PUSH_KINDS) as Array<[string, any]>) {
     assert.equal(policy.requested, false, `${kind}: no requested sender exists yet`)
     assert.equal(policy.requiresActive, !reachesEveryone(kind), kind)
   }
 })
 
-test('BR-COMUNICACAO-019 items 3.i, 3.n, 4, 4.1 and 7: only the summary and the first story are outside every cap', () => {
+test('BR-COMUNICACAO-019 items 3.i, 3.n, 4, 4.1 and 7, BR-ROTA-006 item 3: only the summary, the first story and the version answer are outside every cap', () => {
   const outside = Object.entries(gate.PUSH_KINDS as Record<string, { outsideCaps: boolean }>)
     .filter(([, policy]) => policy.outsideCaps)
     .map(([kind]) => kind)
     .sort()
-  assert.deepEqual(outside, ['daily_summary', 'first_story'])
+  assert.deepEqual(outside, ['daily_summary', 'first_story', 'route_revision'])
   for (const [kind, policy] of Object.entries(gate.PUSH_KINDS) as Array<[string, any]>) {
     assert.equal(typeof policy.outsideCaps, 'boolean', kind)
   }

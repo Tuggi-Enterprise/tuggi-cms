@@ -223,6 +223,36 @@ export async function requestRouteTranslation(routeId: string, accessToken: stri
   }
 }
 
+/** How long the curator's answer waits for the author's push before it gives up on it. */
+const AUTHOR_PUSH_TIMEOUT_MS = 10_000
+
+/**
+ * BR-ROTA-006 item 3 (#1120): the push to the author after a decision, by
+ * `firebase-push-notification/route-revision` with the curator's session (contract
+ * `docs/contracts/notificacoes.md` §17). Called only after the RPC answered success. A failed push
+ * does not undo the decision and does not change what the curator gets back: it only reaches the
+ * log, as a status, never with the author, the name or the reason.
+ */
+export async function notifyRevisionAuthor(revisionId: string, accessToken: string | null): Promise<void> {
+  if (!accessToken) {
+    console.error('[route-revisions] author push skipped: no session')
+    return
+  }
+  try {
+    const res = await fetch(`${process.env.NEXT_PUBLIC_SUPABASE_URL}/functions/v1/firebase-push-notification/route-revision`, {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${accessToken}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ revisionId }),
+      signal: AbortSignal.timeout(AUTHOR_PUSH_TIMEOUT_MS),
+    })
+    const body = (await res.json().catch(() => null)) as { outcome?: unknown } | null
+    const outcome = typeof body?.outcome === 'string' ? body.outcome : 'unknown'
+    if (!res.ok || outcome !== 'sent') console.error('[route-revisions] author push not sent:', res.status, outcome)
+  } catch (error) {
+    console.error('[route-revisions] author push failed:', (error as Error)?.name ?? 'Error')
+  }
+}
+
 /**
  * BR-ROTA-006 item 3: the only approval of a user route version. Then, when the approved text needs
  * it, asks for its translation and audio (route text and annotations). A failed translation does not
@@ -268,16 +298,26 @@ export async function approveRevision(db: Db, revisionId: string, accessToken: s
       console.error('[route-revisions] translation after approval failed:', status)
     }
   }
+  await notifyRevisionAuthor(revisionId, accessToken)
   return { ok: true, data: outcome }
 }
 
-/** BR-ROTA-006 item 3: refuses a version with the reason the author reads. The route state does not move. */
-export async function rejectRevision(db: Db, revisionId: string, reason: string): Promise<Result<Record<string, unknown>>> {
+/**
+ * BR-ROTA-006 item 3: refuses a version with the reason the author reads. The route state does not
+ * move. Then the generic push to the author (#1120), which never carries the reason.
+ */
+export async function rejectRevision(
+  db: Db,
+  revisionId: string,
+  reason: string,
+  accessToken: string | null,
+): Promise<Result<Record<string, unknown>>> {
   const { data, error } = await db.schema('core').rpc('reject_route_revision', { p_revision_id: revisionId, p_reason: reason })
   if (error) {
     console.error('[route-revisions] reject refused:', error.code)
     return fail(error.code)
   }
+  await notifyRevisionAuthor(revisionId, accessToken)
   return { ok: true, data: ((Array.isArray(data) ? data[0] : data) ?? {}) as Record<string, unknown> }
 }
 

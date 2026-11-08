@@ -31,7 +31,8 @@ export type PushKind =
   | 'weekly_thursday_local'
   | 'weekly_saturday_local'
   | 'daily_summary'
-  | 'first_story';
+  | 'first_story'
+  | 'route_revision';
 
 export interface PushKindPolicy {
   /**
@@ -80,6 +81,11 @@ export const PUSH_KINDS: Readonly<Record<PushKind, PushKindPolicy>> = {
   // Item 3.n (#1072): once in a life, after the first story. Outside every cap. Sender:
   // `first-story-push` (`_shared/first-story-push.ts`).
   first_story: { requested: false, requiresActive: false, vacancyPriority: 4, outsideCaps: true },
+  // BR-ROTA-006 item 3 (#1120): the answer to a version the author sent, once per decision. Outside
+  // every cap, consent only. No quiet hours either: the send follows the curator's click, and the
+  // decision has no candidate query to hold it. Sender: `firebase-push-notification/route-revision`
+  // (`_shared/route-revision-push.ts`).
+  route_revision: { requested: false, requiresActive: false, vacancyPriority: 4, outsideCaps: true },
 };
 
 /** `null` for anything that is not a known kind: an unknown kind is refused, never defaulted. */
