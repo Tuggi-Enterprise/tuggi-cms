@@ -25,6 +25,7 @@ import { isOwnMachineKey } from '../_shared/auth-middleware.ts';
 import { checkRateLimit, RATE_LIMIT_CONFIG } from '../_shared/rate-limiter.ts';
 import { classifyWithSafeSearch, DIARY_PHOTO_BUCKET } from '../_shared/photo-moderation.ts';
 import { handleDiaryPhotoRegistration, type PhotoRead } from '../_shared/diary-photo-registration.ts';
+import { isNotFound } from '../_shared/photo-screening.ts';
 
 const FUNCTION_NAME = 'register-diary-photo';
 
@@ -32,16 +33,6 @@ const json = (status: number, body: unknown) =>
   new Response(JSON.stringify(body), { status, headers: { 'Content-Type': 'application/json' } });
 
 const VISION_API_KEY = Deno.env.get('GOOGLE_VISION_API_KEY') ?? '';
-
-/** storage-js answers a missing object with 404, or with 400 and `statusCode: '404'` in older servers. */
-function isNotFound(error: unknown): boolean {
-  const e = error as { status?: unknown; statusCode?: unknown; message?: unknown };
-  return (
-    String(e?.status ?? '') === '404' ||
-    String(e?.statusCode ?? '') === '404' ||
-    (typeof e?.message === 'string' && /not.?found/i.test(e.message))
-  );
-}
 
 Deno.serve(async (req) => {
   if (req.method !== 'POST') return json(405, { error: 'method_not_allowed' });

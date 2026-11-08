@@ -183,6 +183,13 @@ export const RATE_LIMIT_CONFIG: Record<string, RateLimitConfig> = {
     windowSeconds: 3600,
   },
 
+  // One Vision call per profile photo (#1130). A person trying a few photos in a row stays far
+  // below; a 429 only asks to try later.
+  'register-profile-photo': {
+    maxRequests: 30,
+    windowSeconds: 3600,
+  },
+
   // Extração de imagens (menos cara mas ainda significativa)
   'extract-iphan-images': {
     maxRequests: 10,
