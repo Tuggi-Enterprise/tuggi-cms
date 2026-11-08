@@ -151,8 +151,11 @@ export async function classifyWithSafeSearch(
     signal: AbortSignal.timeout(PHOTO_MODERATION_TIMEOUT_S * 1000),
   })
   if (!res.ok) {
-    await res.body?.cancel()
-    throw new Error(`safesearch http ${res.status}`)
+    // Google names the cause in `error.details[].reason` (API_KEY_SERVICE_BLOCKED, SERVICE_DISABLED,
+    // BILLING_DISABLED...). Only that token goes into the message: no key, no image.
+    const text = await res.text().catch(() => '')
+    const reason = /"reason"\s*:\s*"([A-Z_]+)"/.exec(text)?.[1] ?? 'unknown'
+    throw new Error(`safesearch http ${res.status} reason=${reason}`)
   }
   return parseSafeSearchResponse(await res.json())
 }

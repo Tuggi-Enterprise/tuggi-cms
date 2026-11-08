@@ -76,7 +76,14 @@ Deno.serve(async (req) => {
       if (!data) throw new Error('storage read empty');
       return { kind: 'found', bytes: new Uint8Array(await data.arrayBuffer()) };
     },
-    classify: (bytes) => classifyWithSafeSearch(bytes, GOOGLE_CLOUD_API_KEY),
+    classify: async (bytes) => {
+      try {
+        return await classifyWithSafeSearch(bytes, GOOGLE_CLOUD_API_KEY);
+      } catch (e) {
+        console.warn(`[${FUNCTION_NAME}] provider_error ${e instanceof Error ? e.message : 'unknown'}`);
+        throw e;
+      }
+    },
     removePhoto: async (key) => {
       const { error } = await db.storage.from(DIARY_PHOTO_BUCKET).remove([key]);
       return !error;
