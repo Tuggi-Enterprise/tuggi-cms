@@ -4,35 +4,53 @@
  *
  * Apple 1.2 asks for a filter AND the human review: the filter here only SIGNALS. A flagged photo is
  * shown marked to the curator in the CMS queue and blocks nothing by itself; approving and refusing
- * stay with the person (`core.approve_route_revision`, `core.reject_route_revision`).
+ * stay with the person (`core.approve_route_revision`, `core.reject_route_revision`). Only a `clean`
+ * cover may become the photo of the automatic POI (operator, 2026-11-08, #1114).
  *
- * Provider: OpenAI Moderation, model `omni-moderation-latest`, free. Checked on 2026-11-06 in the
- * official guide (developers.openai.com/api/docs/guides/moderation): `input` is an array of
- * `{ type: 'image_url', image_url: { url } }`, the URL may be a web address or a data URL, images up
- * to 20 MB, and the answer is `results[]` with `flagged`, `categories` (booleans per category),
- * `category_scores` and `category_applied_input_types`. The guide shows one image per request and
- * says nothing of more, so this module sends ONE photo per request.
+ * Provider: Google Cloud Vision SafeSearch (operator, 2026-11-08, #1114: everything on Google).
+ * Checked on 2026-11-08 in the official reference (docs.cloud.google.com/vision/docs):
+ * `POST https://vision.googleapis.com/v1/images:annotate` with `requests[].image.content` (base64)
+ * and `features: [{ type: 'SAFE_SEARCH_DETECTION' }]`; the answer is `responses[]` with
+ * `safeSearchAnnotation` (`adult`, `spoof`, `medical`, `violence`, `racy`, each a Likelihood from
+ * `VERY_UNLIKELY` to `VERY_LIKELY`, or `UNKNOWN`) or `error`. Files up to 20 MB and a 10 MB JSON
+ * request. The key goes in the `x-goog-api-key` header, never in the URL (docs: authentication,
+ * api-keys-use).
  *
- * The photo travels as a signed URL of the private bucket `travel-diary-photos`, valid for
- * `PHOTO_SIGNED_URL_TTL_S` seconds: long enough for the provider to fetch it, never a public link.
- * Nothing of the photo, its key (which carries the author id) or the answer goes to the log.
+ * The photo travels as its bytes read from the private bucket `travel-diary-photos` with the
+ * service role. The reference says `image.source.imageUri` must be publicly accessible and that
+ * Google cannot guarantee such a fetch, so a signed URL is not used. Nothing of the photo, its key
+ * (which carries the author id) or the answer goes to the log.
  *
  * Deno module with no imports, so `tests/api` loads it through a path built at run time.
  */
 
-export const PHOTO_MODERATION_MODEL = 'omni-moderation-latest'
-export const OPENAI_MODERATIONS_URL = 'https://api.openai.com/v1/moderations'
+export const PHOTO_MODERATION_PROVIDER = 'google-cloud-vision-safesearch'
+export const SAFE_SEARCH_URL = 'https://vision.googleapis.com/v1/images:annotate'
 export const DIARY_PHOTO_BUCKET = 'travel-diary-photos'
-/** Seconds the provider has to fetch the photo. */
-export const PHOTO_SIGNED_URL_TTL_S = 120
 /** Photos screened in one call; the rest come back `unchecked`, and the curator still sees them. */
 export const PHOTO_MODERATION_MAX = 100
 /** Photos screened at the same time. */
 export const PHOTO_MODERATION_CONCURRENCY = 4
 /** Seconds one provider call may take before the photo is left `unchecked`. */
 export const PHOTO_MODERATION_TIMEOUT_S = 20
+/** Largest photo sent: base64 grows it by a third and the JSON request stops at 10 MB. */
+export const PHOTO_MODERATION_MAX_BYTES = 7 * 1024 * 1024
 
-/** Formats the provider reads (the guide's image inputs). A HEIC photo is left `unchecked`. */
+/** Likelihood levels of the reference, weakest first. `UNKNOWN` is not a level: it never approves. */
+export const LIKELIHOOD_LEVELS = ['VERY_UNLIKELY', 'UNLIKELY', 'POSSIBLE', 'LIKELY', 'VERY_LIKELY'] as const
+export type Likelihood = (typeof LIKELIHOOD_LEVELS)[number]
+
+/**
+ * The rule, in one place: a photo is `flagged` when a category reaches its level. `medical` and
+ * `spoof` are read by nobody (operator, 2026-11-08, #1114).
+ */
+export const SAFE_SEARCH_FLAG_AT: Readonly<Record<'adult' | 'violence' | 'racy', Likelihood>> = {
+  adult: 'LIKELY',
+  violence: 'LIKELY',
+  racy: 'VERY_LIKELY',
+}
+
+/** Formats the provider reads that the app sends. A HEIC photo is left `unchecked`. */
 const SUPPORTED_EXTENSION = /\.(jpe?g|png|webp|gif)$/i
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
@@ -42,7 +60,7 @@ export type PhotoStatus = 'clean' | 'flagged' | 'unchecked'
 export interface PhotoVerdict {
   key: string
   status: PhotoStatus
-  /** The provider categories that came back true, e.g. `sexual`, `violence/graphic`. */
+  /** The SafeSearch categories that reached their level, e.g. `adult`, `violence`. */
   categories: string[]
 }
 
@@ -66,41 +84,102 @@ export function revisionPhotoKeys(revision: { stops?: unknown; cover_photo_key?:
   return keys
 }
 
-export function buildModerationBody(url: string): { model: string; input: Array<{ type: 'image_url'; image_url: { url: string } }> } {
-  return { model: PHOTO_MODERATION_MODEL, input: [{ type: 'image_url', image_url: { url } }] }
+function toBase64(bytes: Uint8Array): string {
+  const native = (bytes as Uint8Array & { toBase64?: () => string }).toBase64
+  if (typeof native === 'function') return native.call(bytes)
+  let binary = ''
+  for (let i = 0; i < bytes.length; i += 0x8000) {
+    binary += String.fromCharCode(...bytes.subarray(i, i + 0x8000))
+  }
+  return btoa(binary)
 }
 
-/** Reads the provider answer. Out of shape throws: the photo is left `unchecked`, never `clean`. */
-export function parseModerationResponse(json: unknown): Classification {
-  const result = (json as { results?: unknown })?.results
-  const first = Array.isArray(result) ? (result[0] as { flagged?: unknown; categories?: unknown }) : null
-  if (!first || typeof first.flagged !== 'boolean') throw new Error('moderation: no result in the answer')
-  const categories = first.categories && typeof first.categories === 'object'
-    ? Object.entries(first.categories as Record<string, unknown>).filter(([, on]) => on === true).map(([name]) => name).sort()
-    : []
-  return { flagged: first.flagged, categories: first.flagged ? categories : [] }
+export function buildSafeSearchBody(bytes: Uint8Array): {
+  requests: Array<{ image: { content: string }; features: Array<{ type: 'SAFE_SEARCH_DETECTION' }> }>
+} {
+  return { requests: [{ image: { content: toBase64(bytes) }, features: [{ type: 'SAFE_SEARCH_DETECTION' }] }] }
+}
+
+/**
+ * Reads the provider answer. An `error`, no `safeSearchAnnotation`, or a deciding category missing
+ * or `UNKNOWN` throws: the photo is left `unchecked`, never `clean`.
+ */
+export function parseSafeSearchResponse(json: unknown): Classification {
+  const responses = (json as { responses?: unknown })?.responses
+  const first = Array.isArray(responses) ? (responses[0] as { error?: unknown; safeSearchAnnotation?: unknown }) : null
+  if (!first || first.error) throw new Error('safesearch: error or no result in the answer')
+  const annotation = first.safeSearchAnnotation as Record<string, unknown> | undefined
+  if (!annotation || typeof annotation !== 'object') throw new Error('safesearch: no safeSearchAnnotation')
+  const categories: string[] = []
+  for (const [category, threshold] of Object.entries(SAFE_SEARCH_FLAG_AT)) {
+    const level = LIKELIHOOD_LEVELS.indexOf(annotation[category] as Likelihood)
+    if (level < 0) throw new Error(`safesearch: ${category} has no level`)
+    if (level >= LIKELIHOOD_LEVELS.indexOf(threshold)) categories.push(category)
+  }
+  categories.sort()
+  return { flagged: categories.length > 0, categories }
+}
+
+/** One SafeSearch call. Throws on any failure (HTTP status, timeout, answer out of shape). */
+export async function classifyWithSafeSearch(
+  bytes: Uint8Array,
+  apiKey: string,
+  fetchImpl: typeof fetch = fetch,
+): Promise<Classification> {
+  const res = await fetchImpl(SAFE_SEARCH_URL, {
+    method: 'POST',
+    headers: { 'x-goog-api-key': apiKey, 'Content-Type': 'application/json' },
+    body: JSON.stringify(buildSafeSearchBody(bytes)),
+    signal: AbortSignal.timeout(PHOTO_MODERATION_TIMEOUT_S * 1000),
+  })
+  if (!res.ok) {
+    await res.body?.cancel()
+    throw new Error(`safesearch http ${res.status}`)
+  }
+  return parseSafeSearchResponse(await res.json())
 }
 
 export interface PhotoModerationDeps {
-  /** A signed URL of the private bucket, or `null` when it could not be signed. */
-  sign: (key: string) => Promise<string | null>
+  /** The photo bytes from the private bucket, or `null` when it could not be read. */
+  readPhoto: (key: string) => Promise<Uint8Array | null>
   /** One provider call. Throws on any failure. */
-  classify: (url: string) => Promise<Classification>
+  classify: (bytes: Uint8Array) => Promise<Classification>
 }
 
-/** Screens each photo. A failure of one leaves that one `unchecked` and the others go on. */
-export async function moderatePhotos(keys: string[], deps: PhotoModerationDeps): Promise<PhotoVerdict[]> {
+/** Why a photo stayed `unchecked`; counts only, for the log. */
+export type UncheckedReason = 'format' | 'over_max' | 'read' | 'size' | 'provider'
+
+/**
+ * Screens each photo. A failure of one leaves that one `unchecked` and the others go on; the
+ * caller asks again later. `onUnchecked` gets the reason only, never the key.
+ */
+export async function moderatePhotos(
+  keys: string[],
+  deps: PhotoModerationDeps,
+  onUnchecked: (reason: UncheckedReason, error?: unknown) => void = () => {},
+): Promise<PhotoVerdict[]> {
   const out: PhotoVerdict[] = keys.map((key) => ({ key, status: 'unchecked', categories: [] }))
-  const checkable = out.slice(0, PHOTO_MODERATION_MAX).filter((v) => SUPPORTED_EXTENSION.test(v.key))
+  const checkable: PhotoVerdict[] = []
+  out.forEach((v, i) => {
+    if (i >= PHOTO_MODERATION_MAX) onUnchecked('over_max')
+    else if (!SUPPORTED_EXTENSION.test(v.key)) onUnchecked('format')
+    else checkable.push(v)
+  })
   const one = async (verdict: PhotoVerdict) => {
+    let bytes: Uint8Array | null
     try {
-      const url = await deps.sign(verdict.key)
-      if (!url) return
-      const c = await deps.classify(url)
+      bytes = await deps.readPhoto(verdict.key)
+    } catch {
+      bytes = null
+    }
+    if (!bytes) return onUnchecked('read')
+    if (bytes.length > PHOTO_MODERATION_MAX_BYTES) return onUnchecked('size')
+    try {
+      const c = await deps.classify(bytes)
       verdict.status = c.flagged ? 'flagged' : 'clean'
       verdict.categories = c.categories
-    } catch {
-      // stays unchecked: the curator sees the photo without a verdict
+    } catch (error) {
+      onUnchecked('provider', error)
     }
   }
   for (let i = 0; i < checkable.length; i += PHOTO_MODERATION_CONCURRENCY) {
@@ -113,6 +192,7 @@ export interface PhotoModerationRequestDeps extends PhotoModerationDeps {
   /** `core.custom_route_revisions` by id (service role), or `null` when there is none. Throws on a read error. */
   readRevision: (revisionId: string) => Promise<{ stops?: unknown; cover_photo_key?: unknown } | null>
   hasApiKey: boolean
+  onUnchecked?: (reason: UncheckedReason, error?: unknown) => void
 }
 
 /** The whole request after the admin gate, as status + body, so the test runs it without Deno. */
@@ -132,6 +212,6 @@ export async function handlePhotoModeration(
     return { status: 503, body: { error: 'revision_unavailable' } }
   }
   if (!revision) return { status: 404, body: { error: 'revision_not_found' } }
-  const photos = await moderatePhotos(revisionPhotoKeys(revision), deps)
-  return { status: 200, body: { model: PHOTO_MODERATION_MODEL, photos } }
+  const photos = await moderatePhotos(revisionPhotoKeys(revision), deps, deps.onUnchecked)
+  return { status: 200, body: { model: PHOTO_MODERATION_PROVIDER, photos } }
 }

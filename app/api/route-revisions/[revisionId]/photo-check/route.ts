@@ -10,7 +10,7 @@ type Params = { revisionId: string }
 /**
  * POST /api/route-revisions/[revisionId]/photo-check (#1106, BR-ROTA-006 item 3): the automatic
  * screening of the version's photos by the Edge Function `moderate-route-photos`. A flagged photo is
- * shown marked; it blocks nothing. The OpenAI key lives only in the function. Admin only.
+ * shown marked; it blocks nothing. The Google Cloud Vision key lives only in the function. Admin only.
  */
 export const POST = withAuth<Params>({ roles: ['admin'] }, async (_req, ctx, auth) => {
   const { revisionId } = (await ctx.params) as Params
