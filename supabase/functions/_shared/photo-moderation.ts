@@ -7,6 +7,9 @@
  * stay with the person (`core.approve_route_revision`, `core.reject_route_revision`). Only a `clean`
  * cover may become the photo of the automatic POI (operator, 2026-11-08, #1114).
  *
+ * The same rule REFUSES at upload since #1116 (BR-ROTA-008 item 4): `register-diary-photo` runs it
+ * before the row of a diary photo exists (`_shared/diary-photo-registration.ts`).
+ *
  * Provider: Google Cloud Vision SafeSearch (operator, 2026-11-08, #1114: everything on Google).
  * Checked on 2026-11-08 in the official reference (docs.cloud.google.com/vision/docs):
  * `POST https://vision.googleapis.com/v1/images:annotate` with `requests[].image.content` (base64)
@@ -52,6 +55,26 @@ export const SAFE_SEARCH_FLAG_AT: Readonly<Record<'adult' | 'violence' | 'racy',
 
 /** Formats the provider reads that the app sends. A HEIC photo is left `unchecked`. */
 const SUPPORTED_EXTENSION = /\.(jpe?g|png|webp|gif)$/i
+
+/** The key names a format the provider reads (`SUPPORTED_EXTENSION`). */
+export function isSupportedPhotoKey(key: string): boolean {
+  return SUPPORTED_EXTENSION.test(key)
+}
+
+/**
+ * The bytes really are one of the formats of `SUPPORTED_EXTENSION`, by their signature: JPEG
+ * `FF D8 FF`, PNG `89 50 4E 47`, GIF `GIF8`, WEBP `RIFF....WEBP`. A key ending in `.jpg` over
+ * other bytes would make the provider answer an error on every try.
+ */
+export function hasSupportedPhotoSignature(bytes: Uint8Array): boolean {
+  const at = (i: number, ...sig: number[]) => sig.every((b, j) => bytes[i + j] === b)
+  return (
+    at(0, 0xff, 0xd8, 0xff) ||
+    at(0, 0x89, 0x50, 0x4e, 0x47) ||
+    at(0, 0x47, 0x49, 0x46, 0x38) ||
+    (at(0, 0x52, 0x49, 0x46, 0x46) && at(8, 0x57, 0x45, 0x42, 0x50))
+  )
+}
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
 
@@ -162,7 +185,7 @@ export async function moderatePhotos(
   const checkable: PhotoVerdict[] = []
   out.forEach((v, i) => {
     if (i >= PHOTO_MODERATION_MAX) onUnchecked('over_max')
-    else if (!SUPPORTED_EXTENSION.test(v.key)) onUnchecked('format')
+    else if (!isSupportedPhotoKey(v.key)) onUnchecked('format')
     else checkable.push(v)
   })
   const one = async (verdict: PhotoVerdict) => {

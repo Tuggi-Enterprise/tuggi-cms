@@ -176,6 +176,13 @@ export const RATE_LIMIT_CONFIG: Record<string, RateLimitConfig> = {
     windowSeconds: 3600,
   },
 
+  // One Vision call per diary photo (#1116). A long offline trip syncs up to 3 photos per
+  // annotation in one pass; a 429 only makes the app try again on its next sync.
+  'register-diary-photo': {
+    maxRequests: 120,
+    windowSeconds: 3600,
+  },
+
   // Extração de imagens (menos cara mas ainda significativa)
   'extract-iphan-images': {
     maxRequests: 10,
