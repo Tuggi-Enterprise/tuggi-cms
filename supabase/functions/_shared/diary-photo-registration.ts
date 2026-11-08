@@ -26,7 +26,7 @@
 
 import {
   type Classification,
-  hasSupportedPhotoSignature,
+  hasJpegSignature,
   isSupportedPhotoKey,
   PHOTO_MODERATION_MAX_BYTES,
 } from './photo-moderation.ts'
@@ -136,7 +136,7 @@ export async function handleDiaryPhotoRegistration(
     return answer(409, { error: 'rpc_refused', code: PHOTO_NOT_UPLOADED_CODE }, 'not_uploaded')
   }
   const bytes = read.bytes
-  if (bytes.length > PHOTO_MODERATION_MAX_BYTES || !hasSupportedPhotoSignature(bytes)) {
+  if (bytes.length > PHOTO_MODERATION_MAX_BYTES || !hasJpegSignature(bytes)) {
     return answer(422, { error: 'photo_unsupported' }, 'unsupported')
   }
 

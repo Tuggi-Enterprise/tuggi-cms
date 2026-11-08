@@ -173,6 +173,9 @@ test('#1116: a format the provider does not read is 422 photo_unsupported, nothi
   for (const [over, opts] of [
     [{ storageKey: `${USER}/${DIARY}/${PHOTO}.heic` }, {}],
     [{}, { bytes: new Uint8Array([0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11]) }],
+    // an animated GIF under a .jpg key: Vision reads only its first frame
+    [{}, { bytes: new Uint8Array([0x47, 0x49, 0x46, 0x38, 0x39, 0x61, 0, 0, 0, 0, 0, 0]) }],
+    [{}, { bytes: new Uint8Array([0x52, 0x49, 0x46, 0x46, 0, 0, 0, 0, 0x57, 0x45, 0x42, 0x50]) }],
   ] as const) {
     const { deps, trail } = fakes(opts)
     const out = await mod.handleDiaryPhotoRegistration(body(over), USER, deps)

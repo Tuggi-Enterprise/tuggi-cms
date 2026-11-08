@@ -62,18 +62,13 @@ export function isSupportedPhotoKey(key: string): boolean {
 }
 
 /**
- * The bytes really are one of the formats of `SUPPORTED_EXTENSION`, by their signature: JPEG
- * `FF D8 FF`, PNG `89 50 4E 47`, GIF `GIF8`, WEBP `RIFF....WEBP`. A key ending in `.jpg` over
- * other bytes would make the provider answer an error on every try.
+ * The bytes are a JPEG (`FF D8 FF`), the only format the app uploads (`diaryPhotoRemoteKey`, #1116).
+ * GIF and WEBP are refused on purpose: Vision reads only the first frame of an animated GIF
+ * (docs.cloud.google.com/vision/docs/supported-files), so a clean first frame would let the rest
+ * through. A key ending in `.jpg` over other bytes is refused here instead of failing at the provider.
  */
-export function hasSupportedPhotoSignature(bytes: Uint8Array): boolean {
-  const at = (i: number, ...sig: number[]) => sig.every((b, j) => bytes[i + j] === b)
-  return (
-    at(0, 0xff, 0xd8, 0xff) ||
-    at(0, 0x89, 0x50, 0x4e, 0x47) ||
-    at(0, 0x47, 0x49, 0x46, 0x38) ||
-    (at(0, 0x52, 0x49, 0x46, 0x46) && at(8, 0x57, 0x45, 0x42, 0x50))
-  )
+export function hasJpegSignature(bytes: Uint8Array): boolean {
+  return bytes[0] === 0xff && bytes[1] === 0xd8 && bytes[2] === 0xff
 }
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
