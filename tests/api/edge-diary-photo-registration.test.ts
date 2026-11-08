@@ -24,6 +24,7 @@ const PHOTO = '33333333-4444-4555-8666-777777777777'
 const ANNOTATION = '44444444-5555-4666-8777-888888888888'
 const KEY = `${USER}/${DIARY}/${PHOTO}.jpg`
 const JPEG = new Uint8Array([0xff, 0xd8, 0xff, 0xe0, 1, 2, 3])
+const SCREENED_AT = '2026-11-08T12:05:00.000Z'
 
 let mod: any
 let moderation: any
@@ -52,17 +53,23 @@ function fakes(opts: {
   register?: { ok: true; photoId: string; created: boolean } | { ok: false; code: string | null }
   removed?: boolean
 } = {}) {
-  const trail = { read: 0, classified: 0, removed: [] as string[], registered: [] as unknown[] }
+  const trail = { read: 0, classified: 0, removed: [] as string[], registered: [] as unknown[], order: [] as string[] }
   const deps = {
     hasApiKey: true,
+    now: () => {
+      trail.order.push('clock')
+      return new Date(SCREENED_AT)
+    },
     readPhoto: async () => {
       trail.read++
+      trail.order.push('read')
       if (opts.read instanceof Error) throw opts.read
       if (opts.read === 'missing') return { kind: 'missing' }
       return { kind: 'found', bytes: opts.bytes ?? JPEG }
     },
     classify: async () => {
       trail.classified++
+      trail.order.push('classify')
       const v = opts.vision ?? CLEAN
       if (v instanceof Error) throw v
       return moderation.parseSafeSearchResponse(v)
@@ -71,8 +78,9 @@ function fakes(opts: {
       trail.removed.push(key)
       return opts.removed ?? true
     },
-    register: async (userId: string, photo: unknown) => {
-      trail.registered.push({ userId, photo })
+    register: async (userId: string, photo: unknown, screenedAt: string) => {
+      trail.order.push('register')
+      trail.registered.push({ userId, photo, screenedAt })
       return opts.register ?? { ok: true, photoId: PHOTO, created: true }
     },
   }
@@ -85,9 +93,27 @@ test('BR-ROTA-008 item 4 (#1116): a clean photo is registered with the user id o
   assert.equal(out.status, 200)
   assert.deepEqual(out.body, { photoId: PHOTO, created: true })
   assert.deepEqual(trail.registered, [
-    { userId: USER, photo: { photoId: PHOTO, annotationId: ANNOTATION, storageKey: KEY, takenAt: '2026-11-08T12:00:00.000Z' } },
+    {
+      userId: USER,
+      photo: { photoId: PHOTO, annotationId: ANNOTATION, storageKey: KEY, takenAt: '2026-11-08T12:00:00.000Z' },
+      screenedAt: SCREENED_AT,
+    },
   ])
   assert.deepEqual(trail.removed, [])
+})
+
+test('BR-ROTA-008 item 4 (#1116): p_screened_at is the clock read before the object, so a swap during the screening is refused by the database', async () => {
+  const { deps, trail } = fakes()
+  await mod.handleDiaryPhotoRegistration(body(), USER, deps)
+  assert.deepEqual(trail.order, ['clock', 'read', 'classify', 'register'])
+  assert.equal((trail.registered[0] as { screenedAt: string }).screenedAt, SCREENED_AT)
+})
+
+test('#1116: the object changed after the screening (TGW16 from the RPC) is 409 rpc_refused, the app uploads again', async () => {
+  const { deps } = fakes({ register: { ok: false, code: 'TGW16' } })
+  const out = await mod.handleDiaryPhotoRegistration(body(), USER, deps)
+  assert.equal(out.status, 409)
+  assert.deepEqual(out.body, { error: 'rpc_refused', code: 'TGW16' })
 })
 
 test('BR-ROTA-008 item 4 (#1116): an improper photo is deleted from the bucket, never registered, and answered with its categories', async () => {

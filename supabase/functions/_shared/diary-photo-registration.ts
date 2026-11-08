@@ -12,7 +12,8 @@
  *   folder.
  * - 401 `{ error: 'unauthorized' }`: no user behind the token.
  * - 409 `{ error: 'rpc_refused', code }`: the SQLSTATE of the RPC (TGW16, TGW19), and TGW16 for an
- *   object that is not in the bucket, the code the app already reads as "upload again".
+ *   object that is not in the bucket, the code the app already reads as "upload again". The RPC
+ *   also gives TGW16 when the object was written after `screenedAt`: bytes nobody screened.
  * - 422 `{ error: 'photo_refused', categories }`: improper. The object is deleted and no row is
  *   written. Answered only after the delete worked.
  * - 422 `{ error: 'photo_unsupported' }`: not a format the provider reads, or past
@@ -57,13 +58,18 @@ export type RegisterResult =
 
 export interface DiaryPhotoRegistrationDeps {
   hasApiKey: boolean
+  /** The clock of the function, read once right before the object is read. */
+  now: () => Date
   readPhoto: (key: string) => Promise<PhotoRead>
   /** One provider call. Throws on any failure (HTTP status, timeout, answer out of shape). */
   classify: (bytes: Uint8Array) => Promise<Classification>
   /** Storage API delete of one object. `true` only when it is gone. */
   removePhoto: (key: string) => Promise<boolean>
-  /** `drive.add_annotation_photo_as` with the user id of the token. */
-  register: (userId: string, photo: DiaryPhotoRegistration) => Promise<RegisterResult>
+  /**
+   * `drive.add_annotation_photo_as` with the user id of the token. `screenedAt` goes as
+   * `p_screened_at`: the database refuses with TGW16 an object created or updated after it.
+   */
+  register: (userId: string, photo: DiaryPhotoRegistration, screenedAt: string) => Promise<RegisterResult>
 }
 
 /** Why the answer is what it is; the only thing the handler logs besides the status. */
@@ -126,6 +132,9 @@ export async function handleDiaryPhotoRegistration(
   if (!isSupportedPhotoKey(photo.storageKey)) return answer(422, { error: 'photo_unsupported' }, 'unsupported')
   if (!deps.hasApiKey) return answer(503, UNAVAILABLE, 'no_key')
 
+  // Taken before the read, so any write after it is newer than what was screened. No margin for
+  // clock skew between the function and the database: subtract 0; a margin would only go backwards.
+  const screenedAt = deps.now().toISOString()
   let read: PhotoRead
   try {
     read = await deps.readPhoto(photo.storageKey)
@@ -161,7 +170,7 @@ export async function handleDiaryPhotoRegistration(
 
   let result: RegisterResult
   try {
-    result = await deps.register(userId, photo)
+    result = await deps.register(userId, photo, screenedAt)
   } catch {
     return answer(503, { error: 'register_unavailable' }, 'rpc')
   }

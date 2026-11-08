@@ -4,7 +4,9 @@
 // `travel-diary-photos`, then calls here; this function screens the object with Google Cloud
 // Vision SafeSearch (the rule of `_shared/photo-moderation.ts`) and only a clean photo reaches
 // `drive.add_annotation_photo_as`, which only the service role may execute. An improper photo is
-// deleted from the bucket and never registered (BR-ROTA-008 item 4). The provider down, the bucket
+// deleted from the bucket and never registered (BR-ROTA-008 item 4). The time read right before the
+// object is read goes to the RPC as `p_screened_at`, and the database refuses (TGW16) an object
+// written after it, so bytes swapped during the provider call are never registered. The provider down, the bucket
 // or the RPC failing: nothing is written or deleted, and the app tries again (fail closed). The
 // answers are in `_shared/diary-photo-registration.ts` and in `docs/contracts/diario-de-bordo.md`.
 //
@@ -64,6 +66,7 @@ Deno.serve(async (req) => {
   const body = await req.json().catch(() => null);
   const result = await handleDiaryPhotoRegistration(body, userId, {
     hasApiKey: Boolean(GOOGLE_CLOUD_API_KEY),
+    now: () => new Date(),
     readPhoto: async (key): Promise<PhotoRead> => {
       const { data, error } = await db.storage.from(DIARY_PHOTO_BUCKET).download(key);
       if (error) {
@@ -78,13 +81,14 @@ Deno.serve(async (req) => {
       const { error } = await db.storage.from(DIARY_PHOTO_BUCKET).remove([key]);
       return !error;
     },
-    register: async (uid, photo) => {
+    register: async (uid, photo, screenedAt) => {
       const { data, error } = await db.schema('drive').rpc('add_annotation_photo_as', {
         p_user_id: uid,
         p_photo_id: photo.photoId,
         p_annotation_id: photo.annotationId,
         p_storage_key: photo.storageKey,
         p_taken_at: photo.takenAt,
+        p_screened_at: screenedAt,
       });
       if (error) return { ok: false, code: typeof error.code === 'string' ? error.code : null };
       const row = (Array.isArray(data) ? data[0] : data) as { photo_id?: unknown; created?: unknown } | null;
