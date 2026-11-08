@@ -100,6 +100,10 @@ function stringifyData(data: unknown): Record<string, string> {
 const NO_ACTIVE_TOKEN = 'NO_ACTIVE_TOKEN';
 /** `delivery_error` when the send threw before or around FCM (OAuth exchange, network). */
 const SEND_EXCEPTION = 'SEND_EXCEPTION';
+/** `delivery_error` of an `inboxAlways` row whose push the gate refused: consent off, or not active. */
+const PUSH_NOT_ALLOWED = 'PUSH_NOT_ALLOWED';
+/** `delivery_error` of an `inboxAlways` row whose push the gate could not decide (missing or erroring SQL). */
+const PUSH_GATE_UNAVAILABLE = 'PUSH_GATE_UNAVAILABLE';
 
 /**
  * `drive.user_notifications.delivery_error` (#1052): the distinct codes, sorted, comma separated.
@@ -463,7 +467,10 @@ export function createPushSender(supabase: any, requestId: string) {
    *
    * `persistInbox`: the inbox row is written only after the gate said yes, because the inbox
    * mirrors the pushes that left; a piece the gate held back goes to the opening notice
-   * (item 6). A broadcast persists its inbox for the whole audience first (#858) and passes
+   * (item 6). The one exception is a kind with `inboxAlways` (`route_revision`, #1123): its row is
+   * written before the gate, once, and a push the gate held back marks it as not delivered with
+   * `PUSH_NOT_ALLOWED` or `PUSH_GATE_UNAVAILABLE`, so the push report does not read it as sent
+   * and received. A broadcast persists its inbox for the whole audience first (#858) and passes
    * `false`, with `skipWithoutDevice` so nobody without a device costs a gate call.
    */
   /**
@@ -529,32 +536,39 @@ export function createPushSender(supabase: any, requestId: string) {
       for (const p of profileResult.data ?? []) addToken(p.id, p.push_token);
     }
 
-    const brake = { invalid: 0, attempted: 0 };
-    const deliverTo = async (uid: string): Promise<boolean> => {
-      let notif = notification;
-      let inboxId: string | null = null;
-      if (opts.persistInbox) {
-        const { data: inserted, error: insErr } = await supabase
-          .schema('drive')
-          .from('user_notifications')
-          .insert({
-            user_id: uid,
-            type: opts.inboxType ?? 'generic',
-            title: notification.title,
-            body: notification.body ?? null,
-            data: notification.data ?? {},
-            deeplink: opts.deeplink ?? null,
-          })
-          .select('id')
-          .single();
-        if (insErr) {
-          console.error(`[${requestId}] ⚠️ inbox persist failed:`, insErr.code ?? '?');
-        } else if (inserted?.id) {
-          inboxId = inserted.id;
-          // The device acks delivery with this id (ack_notification_delivered).
-          notif = { ...notif, data: { ...(notif.data || {}), notification_id: inserted.id } };
-        }
+    /** One inbox row for this person; its id, or `null` when the write failed (logged). */
+    const persistInboxRow = async (uid: string): Promise<string | null> => {
+      const { data: inserted, error: insErr } = await supabase
+        .schema('drive')
+        .from('user_notifications')
+        .insert({
+          user_id: uid,
+          type: opts.inboxType ?? 'generic',
+          title: notification.title,
+          body: notification.body ?? null,
+          data: notification.data ?? {},
+          deeplink: opts.deeplink ?? null,
+        })
+        .select('id')
+        .single();
+      if (insErr) {
+        console.error(`[${requestId}] ⚠️ inbox persist failed:`, insErr.code ?? '?');
+        return null;
       }
+      return inserted?.id ?? null;
+    };
+    // #1123: the row is written before the gate, so the gate's answer cannot keep it out.
+    const inboxBeforeGate = opts.persistInbox && kind !== null && PUSH_KINDS[kind].inboxAlways === true;
+
+    const brake = { invalid: 0, attempted: 0 };
+    /** `writtenInboxId`: the row already written before the gate; `undefined` writes it here. */
+    const deliverTo = async (uid: string, writtenInboxId?: string | null): Promise<boolean> => {
+      let notif = notification;
+      const inboxId = writtenInboxId !== undefined
+        ? writtenInboxId
+        : opts.persistInbox ? await persistInboxRow(uid) : null;
+      // The device acks delivery with this id (ack_notification_delivered).
+      if (inboxId) notif = { ...notif, data: { ...(notif.data || {}), notification_id: inboxId } };
       // BADGE (SSOT = inbox): a single recipient gets the unread count on the app icon. A
       // multi-user send would pay one count per person, so it keeps the badge off.
       if (ids.length === 1 && notif && notif.badge === undefined) {
@@ -600,13 +614,22 @@ export function createPushSender(supabase: any, requestId: string) {
           tally[(await deliverTo(uid)) ? 'sent' : 'not_delivered'] += 1;
           return;
         }
+        const writtenInboxId = inboxBeforeGate ? await persistInboxRow(uid) : undefined;
         const result = await sendThroughPushGate(
           driveRpc,
           pushGateRequest(uid, kind),
           activeWindowDays ?? null,
-          () => deliverTo(uid)
+          () => deliverTo(uid, writtenInboxId)
         );
         tally[result.outcome] += 1;
+        // `deliverTo` never ran for these outcomes, so the row written before the gate says why.
+        if (writtenInboxId) {
+          if (result.outcome === 'denied' || result.outcome === 'inactive') {
+            await recordDeliveryFailure(writtenInboxId, [PUSH_NOT_ALLOWED]);
+          } else if (result.outcome === 'gate_missing' || result.outcome === 'gate_error') {
+            await recordDeliveryFailure(writtenInboxId, [PUSH_GATE_UNAVAILABLE]);
+          }
+        }
         if (result.outcome === 'sent' && !result.recorded) unrecorded += 1;
       }));
     }

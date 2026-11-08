@@ -8,7 +8,8 @@
  *   supabase/functions/_tests/
  */
 import { assert, assertEquals } from './assert.ts';
-import { fetchCalls, loadHandler, network, scenario } from './harness.ts';
+import { fetchBodies, fetchCalls, loadHandler, network, scenario } from './harness.ts';
+import { routeRevisionSendBody } from '../_shared/route-revision-push.ts';
 
 const USER = '55555555-5555-4555-8555-555555555555';
 const INBOX_ID = '66666666-6666-4666-8666-666666666666';
@@ -151,4 +152,121 @@ Deno.test('BR-COMUNICACAO-022 (#1052): a failed write is logged and the send sti
   const line = logged.find((l) => l.includes('delivery failure not recorded'));
   assert(line, 'the failed write is logged');
   assert(line.includes('PGRST204') && !line.includes(USER) && !line.includes(TOKENS[0].slice(0, 8)), line);
+});
+
+/**
+ * #1123, BR-COMUNICACAO-019 3.o (operator, 2026-11-08): the route revision row reaches the Correio
+ * with push on or off; the push itself still needs the gate's yes. One row per call, never two.
+ */
+const ROUTE = '77777777-7777-4777-8777-777777777777';
+const routeRevisionBody = routeRevisionSendBody({
+  decision: 'approved',
+  edit: false,
+  routeId: ROUTE,
+  routeName: 'Praias de Búzios',
+  authorId: USER,
+  language: 'pt',
+});
+
+async function sendBody(body: Record<string, unknown>): Promise<{ status: number; body: Record<string, unknown> }> {
+  scenario.calls.length = 0;
+  scenario.writes.length = 0;
+  fetchCalls.length = 0;
+  fetchBodies.length = 0;
+  const res = await handler(
+    new Request('http://edge.test/functions/v1/firebase-push-notification/send', {
+      method: 'POST',
+      headers: { authorization: 'Bearer test-service-role-key', 'content-type': 'application/json' },
+      body: JSON.stringify(body),
+    }),
+  );
+  return { status: res.status, body: await res.json() };
+}
+
+function inboxInserts(): Array<Record<string, unknown>> {
+  return scenario.writes
+    .filter((w) => w.table === 'user_notifications' && w.op === 'insert')
+    .map((w) => w.values as Record<string, unknown>);
+}
+
+function fcmSends(): string[] {
+  return fetchCalls.filter((u) => u.includes('fcm.googleapis.com'));
+}
+
+const accepted = () => new Response('{"name":"projects/x/messages/1"}', { status: 200 });
+
+Deno.test('BR-COMUNICACAO-019 3.o (#1123): route revision with push off writes the Correio row and sends nothing', async () => {
+  setDevices(TOKENS);
+  scenario.rpcs = { push_allowed: { data: false, error: null } };
+  scriptFcm([]);
+
+  const { status, body } = await sendBody(routeRevisionBody);
+
+  assertEquals(status, 200);
+  assertEquals((body.gate as Record<string, number>).denied, 1);
+  const rows = inboxInserts();
+  assertEquals(rows.length, 1);
+  assertEquals(rows[0].user_id, USER);
+  assertEquals(rows[0].type, 'route_revision_approved');
+  assertEquals(rows[0].title, 'Seu roteiro foi aprovado');
+  assertEquals(rows[0].deeplink, `tuggi://route?id=${ROUTE}`);
+  assertEquals(fcmSends(), []);
+  assertEquals(deliveryWrites().map((w) => w.delivery_error), ['PUSH_NOT_ALLOWED']);
+});
+
+Deno.test('BR-COMUNICACAO-019 3.o (#1123): route revision with push on writes one row and sends one push carrying its id', async () => {
+  setDevices([TOKENS[0]]);
+  scriptFcm([accepted]);
+
+  const { status, body } = await sendBody(routeRevisionBody);
+
+  assertEquals(status, 200);
+  assertEquals((body.gate as Record<string, number>).sent, 1);
+  assertEquals(inboxInserts().length, 1);
+  const pushes = fetchBodies.filter((_, i) => fetchCalls[i].includes('fcm.googleapis.com'));
+  assertEquals(pushes.length, 1);
+  const data = JSON.parse(String(pushes[0])).message.data;
+  assertEquals(data.notification_id, INBOX_ID);
+  assertEquals(data.type, 'route_revision_approved');
+  assertEquals(deliveryWrites(), []);
+});
+
+Deno.test('BR-COMUNICACAO-019 3.o.5 (#1123): route revision push refused by FCM keeps the row and marks the failure', async () => {
+  setDevices([TOKENS[0]]);
+  scriptFcm([() => fcmRefusal('UNREGISTERED')]);
+
+  const { status, body } = await sendBody(routeRevisionBody);
+
+  assertEquals(status, 200);
+  assertEquals((body.gate as Record<string, number>).not_delivered, 1);
+  assertEquals(inboxInserts().length, 1);
+  assertEquals(deliveryWrites().map((w) => w.delivery_error), ['UNREGISTERED']);
+});
+
+Deno.test('BR-COMUNICACAO-019 3.o (#1123): route revision with the gate unavailable keeps the row and says so', async () => {
+  setDevices(TOKENS);
+  scenario.rpcs = { push_allowed: { data: null, error: { code: '57014' } } };
+  scriptFcm([]);
+
+  const { body } = await sendBody(routeRevisionBody);
+
+  assertEquals((body.gate as Record<string, number>).gate_error, 1);
+  assertEquals(inboxInserts().length, 1);
+  assertEquals(fcmSends(), []);
+  assertEquals(deliveryWrites().map((w) => w.delivery_error), ['PUSH_GATE_UNAVAILABLE']);
+});
+
+Deno.test('BR-COMUNICACAO-019 item 9 (#1123): any other kind with push off still writes no row', async () => {
+  setDevices(TOKENS);
+  scenario.rpcs = { push_allowed: { data: false, error: null } };
+  scriptFcm([]);
+
+  for (const pushKind of ['cms_direct', 'first_story', 'daily_summary', 'weekly_thursday_local']) {
+    const { body } = await sendBody({ ...routeRevisionBody, push_kind: pushKind });
+    const gate = body.gate as Record<string, number>;
+    assertEquals(gate.denied, 1, pushKind);
+    assertEquals(inboxInserts(), [], pushKind);
+    assertEquals(deliveryWrites(), [], pushKind);
+    assertEquals(fcmSends(), [], pushKind);
+  }
 });

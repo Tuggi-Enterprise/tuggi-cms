@@ -13,6 +13,9 @@
  *
  * The refusal is generic: it never carries the curator's reason, which the author reads in the app.
  *
+ * The Correio row is written with push on or off (#1123, `PUSH_KINDS.route_revision.inboxAlways`):
+ * `send` writes it before the gate, once, and the push still needs the author's consent.
+ *
  * Pure: no remote import and no `Deno` global, so `_tests/route-revision-push.test.ts` drives it.
  * Logs carry outcomes and error codes, never a user id, the route name or the reason.
  */

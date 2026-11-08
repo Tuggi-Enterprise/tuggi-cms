@@ -139,8 +139,14 @@ Deno.test('§6: the name is cut at 40 characters with the ellipsis, and a short 
   assert(!/[\uD800-\uDBFF](?![\uDC00-\uDFFF])/.test(emoji), 'no lone surrogate');
 });
 
-Deno.test('BR-ROTA-006 item 3: the push kind is outside every cap and asks consent only', () => {
-  assertEquals(PUSH_KINDS.route_revision, { requested: false, requiresActive: false, vacancyPriority: 4, outsideCaps: true });
+Deno.test('BR-ROTA-006 item 3, BR-COMUNICACAO-019 3.o (#1123): outside every cap, consent only, Correio row always', () => {
+  assertEquals(PUSH_KINDS.route_revision, {
+    requested: false,
+    requiresActive: false,
+    vacancyPriority: 4,
+    outsideCaps: true,
+    inboxAlways: true,
+  });
 });
 
 // ---- who, what, where ----

@@ -57,6 +57,13 @@ export interface PushKindPolicy {
    * `record_push_sent`: `drive.push_send_log` exists to count caps, and this push takes no slot.
    */
   outsideCaps: boolean;
+  /**
+   * The Correio row is written before the gate asks, so it exists with push on or off; the push
+   * itself still needs the gate's yes (`push-send.ts`, `gatedSendToUsers`). Only `route_revision`
+   * (#1123, operator 2026-11-08). Absent reads `false`: every other kind writes the row after the
+   * yes, because its inbox mirrors the pushes that left.
+   */
+  inboxAlways?: true;
 }
 
 export const PUSH_KINDS: Readonly<Record<PushKind, PushKindPolicy>> = {
@@ -84,8 +91,8 @@ export const PUSH_KINDS: Readonly<Record<PushKind, PushKindPolicy>> = {
   // BR-ROTA-006 item 3 (#1120): the answer to a version the author sent, once per decision. Outside
   // every cap, consent only. No quiet hours either: the send follows the curator's click, and the
   // decision has no candidate query to hold it. Sender: `firebase-push-notification/route-revision`
-  // (`_shared/route-revision-push.ts`).
-  route_revision: { requested: false, requiresActive: false, vacancyPriority: 4, outsideCaps: true },
+  // (`_shared/route-revision-push.ts`). The Correio row is written with push on or off (#1123).
+  route_revision: { requested: false, requiresActive: false, vacancyPriority: 4, outsideCaps: true, inboxAlways: true },
 };
 
 /** `null` for anything that is not a known kind: an unknown kind is refused, never defaulted. */
