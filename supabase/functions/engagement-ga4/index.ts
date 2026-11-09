@@ -3,8 +3,10 @@
  *
  *   POST {"from_month":"2026-08","platform":"ios"|"android"|null,"country":"BR"|null}
  *   -> 200 { months: [{ month, activeUsers, engagementSeconds, sessionsPerUser, engagedUsers, newEngagedUsers,
- *                        paywallViewedUsers }],
- *            clicks: [{ month, screen, button, events, users }] }
+ *                        paywallViewedUsers, paywallDismissedUsers, paywallPlanTappedUsers, paywallPurchaseFailedUsers,
+ *                        paywallConvertedUsers, permissions, active1DayAvg, active7DayAvg, active28DayAvg,
+ *                        storyStarts, storyCompletes, storyCompletesNatural }],
+ *            clicks: [{ month, screen, button, events, users }], storyCompletionSince, unavailable }
  *   -> 400 bad body, 401 no valid caller, 403 a CMS user who is not admin, 405 any other method,
  *      502 Google refused or did not answer, 503 GA4_SERVICE_ACCOUNT_JSON missing
  *
