@@ -4154,10 +4154,10 @@
       },
       "qr": {
         "title": "Link público e QR",
-        "subtitle": "Só para consulta. O parceiro baixa o QR e o kit no Portal Locais.",
+        "subtitle": "Serve para conferir uma peça impressa. O QR e o kit para imprimir saem no Portal Locais.",
         "targetUrl": "URL alvo",
-        "noSlugWarning": "Sem slug, o parceiro não tem endereço tuggi.app/@ nem QR. Defina um slug acima.",
-        "scanLabel": "Escaneie para conferir",
+        "noSlugWarning": "Sem slug, não há endereço tuggi.app/@ nem QR. Preencha o slug para gerar os dois.",
+        "scanLabel": "Compare com a peça impressa",
         "portalLink": "Abrir o Portal Locais"
       },
       "material": {

@@ -177,7 +177,7 @@ test.describe('#911 §8 — Perfil', () => {
     const card = (title: string) => main(page).locator('section, div.rounded-3xl', { has: page.locator('h2', { hasText: title }) }).first()
     await expect(card('Link público e QR').getByLabel('Slug (endereço /@…)')).toHaveValue('bar-do-ze')
     await expect(card('Identidade').getByLabel('Tipo de relação')).toBeVisible()
-    await expect(card('Link público e QR').getByText('Só para consulta. O parceiro baixa o QR e o kit no Portal Locais.')).toBeVisible()
+    await expect(card('Link público e QR').getByText('Serve para conferir uma peça impressa. O QR e o kit para imprimir saem no Portal Locais.')).toBeVisible()
   })
 
   test('item 6: with no avatar, @ nor bio, "Aparência no app" is a closed <details>', async ({ mount, page }) => {

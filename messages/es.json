@@ -3677,10 +3677,10 @@
       },
       "qr": {
         "title": "Enlace público y QR",
-        "subtitle": "Solo para consulta. El socio descarga el QR y el kit en el Portal Locales.",
+        "subtitle": "Sirve para revisar una pieza impresa. El QR y el kit para imprimir salen del Portal Locales.",
         "targetUrl": "URL destino",
-        "noSlugWarning": "Sin slug, el socio no tiene dirección tuggi.app/@ ni QR. Define un slug arriba.",
-        "scanLabel": "Escanea para comprobar",
+        "noSlugWarning": "Sin slug, no hay dirección tuggi.app/@ ni QR. Completa el slug para generar los dos.",
+        "scanLabel": "Compara con la pieza impresa",
         "portalLink": "Abrir el Portal Locales"
       }
     },

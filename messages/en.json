@@ -3695,10 +3695,10 @@
       },
       "qr": {
         "title": "Public link and QR",
-        "subtitle": "For lookup only. The partner downloads the QR and the kit in the Places portal.",
+        "subtitle": "Use it to check a printed piece. The QR and the print kit come from the Places portal.",
         "targetUrl": "Target URL",
-        "noSlugWarning": "Without a slug the partner has no tuggi.app/@ address and no QR. Set a slug above.",
-        "scanLabel": "Scan to check",
+        "noSlugWarning": "Without a slug, there is no tuggi.app/@ address and no QR. Fill in the slug to create both.",
+        "scanLabel": "Compare with the printed piece",
         "portalLink": "Open the Places portal"
       }
     },
