@@ -220,3 +220,76 @@ export function readPurchaseFunnel(f: ConversionFunnel): PurchaseFunnelView {
     smallBase: measured && !bigEnough,
   }
 }
+
+// ── Step funnels of Parte E (#1161, spec §E6) ────────────────────────────────────────────────
+
+export type StepSource = 'bank' | 'ga4'
+/** `unknown`: no number (no source, not sent, failed or filtered); `reason` says which. */
+export type StepState = 'measured' | 'floor' | 'unknown'
+export type StepReason = 'before_source' | 'no_source' | 'source_failed' | 'filter' | 'loading'
+
+export interface StepInput {
+  key: string
+  source: StepSource
+  value: number | null
+  /** A number that is a minimum (a window still open, a registrar that started in the month). */
+  floor?: boolean
+  /** `floor` with an open window: the first day it is complete, `YYYY-MM-DD`. */
+  due?: string | null
+  /** Why `value` is `null`. */
+  reason?: StepReason
+}
+
+export interface FunnelStep extends StepInput {
+  state: StepState
+  /** Drawn hollow, with no rate and outside the biggest drop: a step of the other instrument (spec §E1 item 6). */
+  hollow: boolean
+  /** `value / base`, only for a full step; `null` with an unknown or zero base (DS-COMPONENTE-084 item 2). */
+  rate: number | null
+  /** What the previous full step had and this one lost, drawn behind the bar; `null` when not positive. */
+  lost: number | null
+  /** A step larger than the previous full step (a story heard without the guide): the gain, printed with `+`. */
+  gain: number | null
+}
+
+export interface StepFunnelView {
+  source: StepSource
+  /** The first full step's value: every rate is a share of it. */
+  base: number | null
+  /** One ruler for every bar: the largest value of the funnel. */
+  max: number
+  steps: FunnelStep[]
+  /** The largest drop in points between consecutive full steps, when it prints (spec §E6). */
+  biggestDrop: { from: string; to: string; points: number } | null
+}
+
+/**
+ * A funnel of steps on one ruler (spec §E6). Every full step's rate is a share of the first full step
+ * (BR-USUARIO-037 item 3.j: the guest buys without an account, so "entered" is the true start), never of
+ * the step above. A step of the other instrument is hollow, has no rate and is skipped by the biggest
+ * drop (DS-COMPONENTE-084 item 2). The biggest drop prints only with two or more rates, a base of
+ * `SUMMARY_MIN_BASE` or more (DS-COMPONENTE-100 item 1) and no tie after rounding to whole points.
+ */
+export function readStepFunnel(source: StepSource, inputs: StepInput[]): StepFunnelView {
+  const full = inputs.filter((s) => s.source === source)
+  const base = full[0]?.value ?? null
+  let previous: number | null = null
+  const steps: FunnelStep[] = inputs.map((s) => {
+    const hollow = s.source !== source
+    const state: StepState = s.value === null ? 'unknown' : s.floor ? 'floor' : 'measured'
+    if (hollow) return { ...s, state, hollow, rate: null, lost: null, gain: null }
+    const rate = rateOf(s.value, base)
+    const diff = previous === null || s.value === null ? null : previous - s.value
+    if (s.value !== null) previous = s.value
+    return { ...s, state, hollow, rate, lost: diff !== null && diff > 0 ? diff : null, gain: diff !== null && diff < 0 ? -diff : null }
+  })
+  const rated = steps.filter((s) => !s.hollow && s.rate !== null)
+  let biggestDrop: StepFunnelView['biggestDrop'] = null
+  if (rated.length >= 2 && base !== null && base >= SUMMARY_MIN_BASE) {
+    const drops = rated.slice(1).map((s, i) => ({ from: rated[i].key, to: s.key, points: Math.round(((rated[i].rate as number) - (s.rate as number)) * 100) }))
+    const top = Math.max(...drops.map((d) => d.points))
+    const winners = drops.filter((d) => d.points === top)
+    if (top > 0 && winners.length === 1) biggestDrop = winners[0]
+  }
+  return { source, base, max: Math.max(0, ...inputs.map((s) => s.value ?? 0)), steps, biggestDrop }
+}
