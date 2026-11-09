@@ -50,6 +50,8 @@ function client() {
 let bankRoute: any
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 let ga4Route: any
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+let usageRoute: any
 
 before(async () => {
   process.env.SUPABASE_SECRET_KEY = 'sb_secret_test'
@@ -59,6 +61,7 @@ before(async () => {
   })
   bankRoute = await import('@/app/api/dashboard/engagement/route')
   ga4Route = await import('@/app/api/dashboard/engagement/ga4/route')
+  usageRoute = await import('@/app/api/dashboard/engagement/usage/route')
 })
 
 beforeEach(() => {
@@ -129,4 +132,34 @@ test('#1094: the GA4 door calls engagement-ga4 with the secret key as Bearer, an
   assert.equal((await ga4Route.GET(get('/api/dashboard/engagement/ga4'), ctx)).status, 502)
   invokeAnswer = { data: { months: 'nope' } }
   assert.equal((await ga4Route.GET(get('/api/dashboard/engagement/ga4'), ctx)).status, 502)
+})
+
+test('#1161 BR-COMUNICACAO-022 item 4: the usage door is admin only, reads cms_get_usage_monthly with the filters, keeps null as null, and a function not applied yet (PGRST202) is a 502 with its code', async () => {
+  role = 'editor'
+  assert.equal((await usageRoute.GET(get('/api/dashboard/engagement/usage'), ctx)).status, 403)
+  assert.equal(calls.length, 0)
+  role = 'admin'
+  rpcAnswer = {
+    data: {
+      data_since: { open: '2026-10-28T17:27:03Z', trip: '2025-07-31T20:39:39Z', movement: '2026-07-29T15:11:04Z' },
+      months: [{ month: '2026-10', first_day: { entered: 119, guide: 32, story: 24, guide_or_story: 37, explore_only: null, nothing: null }, movement: null }],
+    },
+  }
+  const res = await usageRoute.GET(get('/api/dashboard/engagement/usage?platform=ios&account=anonymous'), ctx)
+  assert.equal(res.status, 200)
+  assert.equal(calls[0].target, 'drive.cms_get_usage_monthly')
+  const args = calls[0].args as Record<string, unknown>
+  assert.equal(args.p_platform, 'ios')
+  assert.equal(args.p_account, 'anonymous')
+  assert.equal(args.p_source, null)
+  const body = await res.json()
+  assert.equal(body.data.data_since.movement, '2026-07-29')
+  assert.equal(body.data.months[0].first_day.explore_only, null)
+  assert.equal(body.data.months[0].movement, null)
+  rpcAnswer = { error: { code: 'PGRST202', message: 'Could not find the function drive.cms_get_usage_monthly(p_from, p_to)' } }
+  const failed = await usageRoute.GET(get('/api/dashboard/engagement/usage'), ctx)
+  assert.equal(failed.status, 502)
+  const failedBody = await failed.json()
+  assert.equal(failedBody.code, 'PGRST202')
+  assert.doesNotMatch(JSON.stringify(failedBody), /Could not find/)
 })

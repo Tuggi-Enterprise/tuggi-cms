@@ -202,6 +202,32 @@ export interface EngagementGa4Month {
    * `null` before the event was collected, or from a function before #1156.
    */
   paywallViewedUsers: number | null
+  /**
+   * The other paywall events (#1161), devices, by the rule of `paywallViewedUsers`: `null` before GA4
+   * received the event, or from a function before #1161.
+   */
+  paywallDismissedUsers: number | null
+  paywallPlanTappedUsers: number | null
+  paywallPurchaseFailedUsers: number | null
+  paywallConvertedUsers: number | null
+  /** Devices that answered each system permission (#1161); `null` before the first answer of the type, or not sent. */
+  permissions: Record<Ga4PermissionType, Ga4PermissionMonth | null>
+  /** Daily active windows averaged over the month (#1161), devices; `null` when not sent. */
+  active1DayAvg: number | null
+  active7DayAvg: number | null
+  active28DayAvg: number | null
+  /** Story events (#1161), events and not devices; `null` before the event or when not sent. */
+  storyStarts: number | null
+  storyCompletes: number | null
+  storyCompletesNatural: number | null
+}
+
+export const GA4_PERMISSION_TYPES = ['location', 'motion', 'notifications'] as const
+export type Ga4PermissionType = (typeof GA4_PERMISSION_TYPES)[number]
+/** `asked` with any status, `allowed` with `granted` or `limited`: distinct devices of one GA4 event. */
+export interface Ga4PermissionMonth {
+  asked: number
+  allowed: number
 }
 
 export interface EngagementGa4Click {
@@ -215,6 +241,20 @@ export interface EngagementGa4Click {
 export interface EngagementGa4Report {
   months: EngagementGa4Month[]
   clicks: EngagementGa4Click[]
+  /** The first month whose story ends carry `completion` (#1161); `null` with none, or from an older function. */
+  storyCompletionSince: string | null
+}
+
+function permissionsOf(v: unknown): Record<Ga4PermissionType, Ga4PermissionMonth | null> {
+  const o = obj(v)
+  const out = {} as Record<Ga4PermissionType, Ga4PermissionMonth | null>
+  for (const type of GA4_PERMISSION_TYPES) {
+    const p = obj(o[type])
+    const asked = n(p.asked)
+    const allowed = n(p.allowed)
+    out[type] = asked === null || allowed === null ? null : { asked, allowed }
+  }
+  return out
 }
 
 /** The answer of `engagement-ga4`, or null when it is not one: the route then reports a failed read. */
@@ -226,7 +266,26 @@ export function parseGa4Report(raw: unknown): EngagementGa4Report | null {
     const o = obj(m)
     const activeUsers = n(o.activeUsers)
     if (typeof o.month !== 'string' || activeUsers === null) continue
-    months.push({ month: o.month, activeUsers, engagementSeconds: n(o.engagementSeconds) ?? 0, sessionsPerUser: n(o.sessionsPerUser), engagedUsers: n(o.engagedUsers), newEngagedUsers: n(o.newEngagedUsers), paywallViewedUsers: n(o.paywallViewedUsers) })
+    months.push({
+      month: o.month,
+      activeUsers,
+      engagementSeconds: n(o.engagementSeconds) ?? 0,
+      sessionsPerUser: n(o.sessionsPerUser),
+      engagedUsers: n(o.engagedUsers),
+      newEngagedUsers: n(o.newEngagedUsers),
+      paywallViewedUsers: n(o.paywallViewedUsers),
+      paywallDismissedUsers: n(o.paywallDismissedUsers),
+      paywallPlanTappedUsers: n(o.paywallPlanTappedUsers),
+      paywallPurchaseFailedUsers: n(o.paywallPurchaseFailedUsers),
+      paywallConvertedUsers: n(o.paywallConvertedUsers),
+      permissions: permissionsOf(o.permissions),
+      active1DayAvg: n(o.active1DayAvg),
+      active7DayAvg: n(o.active7DayAvg),
+      active28DayAvg: n(o.active28DayAvg),
+      storyStarts: n(o.storyStarts),
+      storyCompletes: n(o.storyCompletes),
+      storyCompletesNatural: n(o.storyCompletesNatural),
+    })
   }
   const clicks: EngagementGa4Click[] = []
   for (const c of r.clicks) {
@@ -236,5 +295,6 @@ export function parseGa4Report(raw: unknown): EngagementGa4Report | null {
     if (typeof o.month !== 'string' || typeof o.screen !== 'string' || typeof o.button !== 'string' || events === null || users === null) continue
     clicks.push({ month: o.month, screen: o.screen, button: o.button, events, users })
   }
-  return { months, clicks }
+  const since = typeof r.storyCompletionSince === 'string' && /^\d{4}-\d{2}$/.test(r.storyCompletionSince) ? r.storyCompletionSince : null
+  return { months, clicks, storyCompletionSince: since }
 }

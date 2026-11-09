@@ -6,6 +6,7 @@ import {
   type EngagementFilters,
   type EngagementGa4Report,
 } from '@/lib/engagement/report'
+import type { UsageReport } from '@/lib/engagement/usage'
 
 /**
  * The two reads of the Engagement report (#1094), one query per source so each fails and retries
@@ -41,6 +42,18 @@ export function useEngagementGa4(filters: EngagementFilters) {
     queryKey: ['engagement', 'ga4', filters.country, filters.platform],
     queryFn: () => unwrap<EngagementGa4Report>(`/api/dashboard/engagement/ga4${query(filters, ['country', 'platform'])}`),
     enabled: ga4Filterable(filters),
+    placeholderData: (previous) => previous,
+    staleTime: 5 * 60 * 1000,
+    gcTime: 10 * 60 * 1000,
+    retry: 1,
+  })
+}
+
+/** `drive.cms_get_usage_monthly` (#1161): its own query, so a function not applied yet fails only its blocks. */
+export function useEngagementUsage(filters: EngagementFilters) {
+  return useQuery({
+    queryKey: ['engagement', 'usage', filters],
+    queryFn: () => unwrap<UsageReport>(`/api/dashboard/engagement/usage${query(filters, ['source', 'country', 'platform', 'account'])}`),
     placeholderData: (previous) => previous,
     staleTime: 5 * 60 * 1000,
     gcTime: 10 * 60 * 1000,

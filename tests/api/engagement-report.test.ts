@@ -171,7 +171,7 @@ test('#1094 DS-COMPONENTE-084 item 2: the share of a day band is bank over bank 
   const d1 = cell(cards, 'days_1', '2026-08')
   assert.equal(d1.share, 131 / 204)
   assert.equal(printed(cards, 'days_1', '2026-08').share, '64%')
-  const otherGa4 = grid({ ga4: { months: ga4.months.map((m) => ({ ...m, activeUsers: 9999 })), clicks: [] } })
+  const otherGa4 = grid({ ga4: { months: ga4.months.map((m) => ({ ...m, activeUsers: 9999 })), clicks: [], storyCompletionSince: null } })
   assert.equal(cell(otherGa4, 'days_1', '2026-08').share, 131 / 204)
   // No base: the count alone.
   const noBase = MONTHS.map((m) => month(m, { active: { open: null, trip: 150, audio: null } }))
