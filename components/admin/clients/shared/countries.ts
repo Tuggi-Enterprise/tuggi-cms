@@ -1,4 +1,5 @@
 import type { TaxIdType } from '@/types/clients'
+import { isAppPartnerType } from '@/lib/partnerships/partner-kind'
 
 export interface TaxIdEntry {
   type: TaxIdType
@@ -40,4 +41,25 @@ export function usesBankingIBAN(country: string): boolean {
 
 export function taxConfigFor(country: string): TaxIdEntry {
   return TAX_ID_CONFIG[country] ?? DEFAULT_TAX_ID
+}
+
+const CPF_TAX_ID: TaxIdEntry = { type: 'cpf', label: 'CPF', placeholder: 'XXX.XXX.XXX-XX' }
+const CPF_OR_CNPJ: TaxIdEntry = { type: 'cpf', label: 'CPF / CNPJ', placeholder: 'CPF ou CNPJ' }
+
+/**
+ * The document of one client. Creator, influencer and driver carry a CPF or a CNPJ whatever the
+ * country (BR-B2B-066 item 4, contract `parceiro-sem-local.md` §4.4), and the database refuses
+ * the save (`TGP22 tax_id`) when the type does not match the digits: the type comes from the
+ * document, 11 characters CPF, 14 CNPJ. Every other client keeps the document of its country.
+ */
+export function taxConfigOfClient(
+  clientType: string | null | undefined,
+  country: string,
+  taxId: string | null | undefined
+): TaxIdEntry {
+  if (!isAppPartnerType(clientType)) return taxConfigFor(country)
+  const document = (taxId ?? '').replace(/[^0-9A-Za-z]/g, '')
+  if (document.length === 11) return CPF_TAX_ID
+  if (document.length === 14) return TAX_ID_CONFIG.Brazil
+  return CPF_OR_CNPJ
 }

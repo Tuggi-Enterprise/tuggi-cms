@@ -26,7 +26,7 @@ import {
 } from 'lucide-react'
 import { useLocale, useTranslations } from 'next-intl'
 import { useDialogShell } from '@/lib/hooks/use-dialog-shell'
-import { taxConfigFor } from '@/components/admin/clients/shared/countries'
+import { taxConfigOfClient } from '@/components/admin/clients/shared/countries'
 import { ApprovalHeaderControls } from '@/components/admin/clients/shared/ApprovalHeaderControls'
 import { RecordShell } from '@/components/admin/clients/shared/RecordShell'
 import { RecordTabs } from '@/components/admin/clients/shared/RecordTabs'
@@ -36,7 +36,7 @@ import { AffiliateNetworkSection, TeamTab } from '@/components/admin/clients/tab
 import { AppUsersTab, type AppUserLite } from '@/components/admin/clients/tabs/AppUsersTab'
 import { PlacesTab } from '@/components/admin/clients/tabs/PlacesTab'
 import { GuideProfileTab } from '@/components/admin/clients/tabs/GuideProfileTab'
-import { partnerKindOf, placesTabOf, type PartnerKind } from '@/lib/partnerships/partner-kind'
+import { isAppPartnerType, partnerKindOf, placesTabOf, type PartnerKind } from '@/lib/partnerships/partner-kind'
 import { PartnershipTab } from '@/components/admin/clients/tabs/PartnershipTab'
 import { CouponsTab } from '@/components/admin/clients/tabs/CouponsTab'
 import { ContractTab } from '@/components/admin/clients/tabs/ContractTab'
@@ -283,10 +283,13 @@ export function ClientEditorModal({
     setError(null)
     setSuccess(null)
 
-    // Auto-set tax_id_type from country (preserve legacy behaviour).
+    // Auto-set tax_id_type from country (preserve legacy behaviour). Creator, influencer and driver
+    // take it from the document, CPF or CNPJ (#1139): the country's `cnpj` over a CPF is refused by
+    // the database, and saving the commission of an approved app partner would fail with it.
     const payload: Partial<Client> = { ...edited }
-    if (payload.country) {
-      payload.tax_id_type = taxConfigFor(payload.country).type
+    const clientType = payload.client_type ?? client?.client_type ?? null
+    if (payload.country || isAppPartnerType(clientType)) {
+      payload.tax_id_type = taxConfigOfClient(clientType, payload.country ?? '', payload.tax_id ?? client?.tax_id ?? null).type
     }
 
     try {

@@ -214,7 +214,8 @@ export interface ClientLegacyPlan {
   story_until: string | null
 }
 
-export type TaxIdType = 'cnpj' | 'nipc' | 'nif' | 'vat' | 'ein' | 'other'
+/** `cpf`: creator, influencer and driver of the app request (#1137, contract `parceiro-sem-local.md` §4.4). */
+export type TaxIdType = 'cpf' | 'cnpj' | 'nipc' | 'nif' | 'vat' | 'ein' | 'other'
 
 /**
  * Link between a Client and a CMS User
