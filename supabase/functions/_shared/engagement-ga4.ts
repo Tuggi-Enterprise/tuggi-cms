@@ -3,8 +3,8 @@
 // The GA4 half of the CMS Engagement report (#1094, spec-cms-relatorio-engajamento-2026-11 §4 and §5):
 // per month of the app property, active users, engagement time and sessions per user, the people
 // with at least one engaged event (#1099, spec Parte B §B14.1), and the `button_clicked` events by
-// screen and button, and the people of the month's cohort with an engaged event (#1101, spec Parte C
-// §C15.1). Read only; the database half is
+// screen and button, the people of the month's cohort with an engaged event (#1101, spec Parte C
+// §C15.1), and the devices that opened the purchase screen (#1156, spec Parte D §D3). Read only; the database half is
 // `drive.cms_get_engagement_monthly` and the two are never divided by each other (DS-COMPONENTE-084
 // item 2).
 //
@@ -25,6 +25,8 @@ import { ga4AppFilter } from './ga4-data.ts';
 export const ENGAGEMENT_CLICK_EVENT = 'button_clicked';
 export const ENGAGEMENT_SCREEN_DIMENSION = 'customEvent:screen_name';
 export const ENGAGEMENT_BUTTON_DIMENSION = 'customEvent:button_name';
+/** The app's `ANALYTICS_EVENTS.PAYWALL_VIEWED` (tuggi-drive-v2 `src/features/analytics/types.ts`). */
+export const PAYWALL_VIEWED_EVENT = 'paywall_viewed';
 
 /**
  * "Engaged" (#1099, operator 2026-11-04): opened the app and did at least one of these. The lists
@@ -64,6 +66,12 @@ export type EngagementGa4Month = {
   engagedUsers: number;
   /** Of those, the ones whose first session fell in the same month (#1101); same rule for a missing month. */
   newEngagedUsers: number;
+  /**
+   * Devices with at least one `paywall_viewed` in the month (#1156). GA4 leaves out a zero row, so a
+   * missing month after the first one with the event is a measured 0, and a month before it is `null`:
+   * the event was not being collected, and that is unknown, not zero (DS-COMPONENTE-084 item 1).
+   */
+  paywallViewedUsers: number | null;
 };
 
 export type EngagementGa4Click = { month: string; screen: string; button: string; events: number; users: number };
@@ -169,6 +177,19 @@ export function newEngagedReportBody(q: EngagementGa4Query): Record<string, unkn
   };
 }
 
+/** Distinct users with at least one `paywall_viewed`, one row per `yearMonth` (#1156). */
+export function paywallReportBody(q: EngagementGa4Query): Record<string, unknown> {
+  const event = { filter: { fieldName: 'eventName', stringFilter: { matchType: 'EXACT', value: PAYWALL_VIEWED_EVENT } } };
+  return {
+    dateRanges: dateRanges(q),
+    dimensions: [{ name: 'yearMonth' }],
+    metrics: [{ name: 'totalUsers' }],
+    dimensionFilter: filterOf(q, [event]),
+    orderBys: [{ dimension: { dimensionName: 'yearMonth' } }],
+    limit: '1000',
+  };
+}
+
 type RawRow = { dimensionValues?: { value?: unknown }[]; metricValues?: { value?: unknown }[] };
 
 function rowsOf(body: unknown): RawRow[] {
@@ -196,8 +217,10 @@ const dimension = (r: RawRow, i: number): string | null => {
 };
 
 /** One entry per month GA4 answered, oldest first. A row without a month or users is dropped. */
-export function parseUsersReport(body: unknown): Omit<EngagementGa4Month, 'engagedUsers' | 'newEngagedUsers'>[] {
-  const out: Omit<EngagementGa4Month, 'engagedUsers' | 'newEngagedUsers'>[] = [];
+type UsersMonth = Omit<EngagementGa4Month, 'engagedUsers' | 'newEngagedUsers' | 'paywallViewedUsers'>;
+
+export function parseUsersReport(body: unknown): UsersMonth[] {
+  const out: UsersMonth[] = [];
   for (const r of rowsOf(body)) {
     const month = monthOf(dimension(r, 0));
     const activeUsers = metric(r, 0);
@@ -255,24 +278,38 @@ export function parseClicksReport(body: unknown): EngagementGa4Click[] {
   return out;
 }
 
-/** The four reports. Throws what `ga4Runner` throws (`ga4_token_<status>`, `ga4_report_<status>`). */
+/**
+ * The paywall devices of a month: the GA4 count, a measured 0 from the first month with the event on,
+ * and `null` before it (see `EngagementGa4Month.paywallViewedUsers`).
+ */
+export function paywallOf(month: string, byMonth: Map<string, number>): number | null {
+  const first = [...byMonth.keys()].sort()[0];
+  if (first === undefined || month < first) return null;
+  return byMonth.get(month) ?? 0;
+}
+
+/** The five reports. Throws what `ga4Runner` throws (`ga4_token_<status>`, `ga4_report_<status>`). */
 export async function readEngagementGa4(
   run: (body: Record<string, unknown>) => Promise<unknown>,
   q: EngagementGa4Query,
 ): Promise<EngagementGa4Report> {
-  const [users, engaged, newEngaged, clicks] = await Promise.all([
+  const [users, engaged, newEngaged, clicks, paywall] = await Promise.all([
     run(usersReportBody(q)),
     run(engagedReportBody(q)),
     run(newEngagedReportBody(q)),
     run(clicksReportBody(q)),
+    run(paywallReportBody(q)),
   ]);
   const byMonth = parseEngagedReport(engaged);
   const newByMonth = parseNewEngagedReport(newEngaged);
+  // Same shape as the engaged report: users by yearMonth.
+  const paywallByMonth = parseEngagedReport(paywall);
   // A month with active users and no engaged row: GA4 leaves out a row whose metric is zero.
   const months = parseUsersReport(users).map((m) => ({
     ...m,
     engagedUsers: byMonth.get(m.month) ?? 0,
     newEngagedUsers: newByMonth.get(m.month) ?? 0,
+    paywallViewedUsers: paywallOf(m.month, paywallByMonth),
   }));
   return { months, clicks: parseClicksReport(clicks) };
 }

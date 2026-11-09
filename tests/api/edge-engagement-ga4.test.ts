@@ -93,25 +93,26 @@ test('#1094 BR-COMUNICACAO-022 item 4: parsing keeps a missing sessions number a
   assert.deepEqual(clicks, [{ month: '2026-10', screen: 'guide_map', button: 'start_guide', events: 301, users: 142 }])
 })
 
-test('#1094 #1099 #1101: the four reports go through one runner, a month without an engaged row is a measured 0, and a GA4 refusal surfaces as the runner error', async () => {
+test('#1094 #1099 #1101 #1156: the five reports go through one runner, a month without an engaged row is a measured 0, a month before the first paywall row is null, and a GA4 refusal surfaces as the runner error', async () => {
   const bodies: { dimensions: { name: string }[]; metrics: { name: string }[] }[] = []
   const report = await ga4.readEngagementGa4(async (body: { dimensions: { name: string }[]; metrics: { name: string }[] }) => {
     bodies.push(body)
     const dims = body.dimensions.map((d) => d.name)
     if (dims.includes('customEvent:screen_name')) return { rows: [] }
     if (dims.includes('firstSessionDate')) return { rows: [row(['202610', '20261003'], ['40'])] }
+    if (JSON.stringify(body).includes('"paywall_viewed"')) return { rows: [row(['202610'], ['12'])] }
     if (body.metrics[0].name === 'totalUsers') return { rows: [row(['202610'], ['189'])] }
     return { rows: [row(['202609'], ['327', '156960', '2.1']), row(['202610'], ['262', '157200', '2.4'])] }
   }, { fromMonth: '2026-08', platform: null, country: null })
-  assert.equal(bodies.length, 4)
+  assert.equal(bodies.length, 5)
   // #1149: no report on the app property goes out without the exclusion.
   for (const body of bodies) {
     assert.ok(JSON.stringify((body as { dimensionFilter?: unknown }).dimensionFilter).includes(JSON.stringify(notTourist)), JSON.stringify(body.dimensions))
   }
   assert.deepEqual(report, {
     months: [
-      { month: '2026-09', activeUsers: 327, engagementSeconds: 156960, sessionsPerUser: 2.1, engagedUsers: 0, newEngagedUsers: 0 },
-      { month: '2026-10', activeUsers: 262, engagementSeconds: 157200, sessionsPerUser: 2.4, engagedUsers: 189, newEngagedUsers: 40 },
+      { month: '2026-09', activeUsers: 327, engagementSeconds: 156960, sessionsPerUser: 2.1, engagedUsers: 0, newEngagedUsers: 0, paywallViewedUsers: null },
+      { month: '2026-10', activeUsers: 262, engagementSeconds: 157200, sessionsPerUser: 2.4, engagedUsers: 189, newEngagedUsers: 40, paywallViewedUsers: 12 },
     ],
     clicks: [],
   })
@@ -185,6 +186,21 @@ test('#1099: engaged people are totalUsers by yearMonth under one filter: the en
     engaged,
     notTourist,
   ])
+})
+
+test('#1156 DS-COMPONENTE-084 item 1: the paywall report is totalUsers of paywall_viewed by yearMonth under the same filters; before the first month with the event it is unknown, after it a missing month is a measured 0', () => {
+  const body = ga4.paywallReportBody({ fromMonth: '2026-08', platform: 'android', country: 'BR' })
+  assert.deepEqual(body.dimensions, [{ name: 'yearMonth' }])
+  assert.deepEqual(body.metrics, [{ name: 'totalUsers' }])
+  const filter = JSON.stringify(body.dimensionFilter)
+  for (const part of ['"paywall_viewed"', '"Android"', '"BR"', JSON.stringify(notTourist)]) assert.ok(filter.includes(part), part)
+  assert.equal(ga4.PAYWALL_VIEWED_EVENT, 'paywall_viewed')
+  const byMonth = new Map([['2026-09', 30], ['2026-11', 4]])
+  assert.equal(ga4.paywallOf('2026-08', byMonth), null)
+  assert.equal(ga4.paywallOf('2026-09', byMonth), 30)
+  assert.equal(ga4.paywallOf('2026-10', byMonth), 0)
+  assert.equal(ga4.paywallOf('2026-11', byMonth), 4)
+  assert.equal(ga4.paywallOf('2026-11', new Map()), null)
 })
 
 test('#1094: the function gates with requireAdmin before it reads the body or the credential, and logs no Google body', () => {
