@@ -48,7 +48,7 @@
 // period=day, metric_type=total_value, breakdown follow_type, and is not returned under 100 followers.
 // It rides the same 90-day walk as the account funnel and lands in funnel_daily.follows/unfollows.
 
-import { GA4_APP_PROPERTY_ID, GA4_ROW_LIMIT, GA4_SITE_PROPERTY_ID } from './ga4-data.ts';
+import { GA4_APP_PROPERTY_ID, GA4_ROW_LIMIT, GA4_SITE_PROPERTY_ID, ga4AppFilter } from './ga4-data.ts';
 import { type AppleConfig, collectAppleDownloads } from './apple-downloads.ts';
 
 /** Same value as `SOCIAL_TIME_ZONE` in the CMS (`lib/social/time.ts`): every day here is Brasília. */
@@ -467,6 +467,12 @@ export interface CollectDeps {
   now: () => Date;
   log: (line: string) => void;
   forceWeekly?: boolean;
+  /**
+   * Read the app installs again over the whole funnel history, not only the missing days and the last
+   * three (#1149): once, after the report on the app property changes, so the days collected before
+   * take the new count.
+   */
+  recollectApp?: boolean;
   /**
    * The App Store Connect side (#1062). `config` null: the secrets are missing and the job records
    * `not_configured`. Absent: the run does not touch Apple at all (the stories job, the tests of #1059).
@@ -940,12 +946,18 @@ export function isCampaignToken(v: string): boolean {
   return t.length > 0 && !(t.startsWith('(') && t.endsWith(')'));
 }
 
+/** `activeDaysBody` on the app property: only tourists count as anyone (#1149). */
+export function appActiveDaysBody(from: string, to: string): Record<string, unknown> {
+  return { ...activeDaysBody(from, to), dimensionFilter: ga4AppFilter() };
+}
+
+/** `first_open` per day and platform, without the devices that are not tourists (#1149). */
 export function appInstallsBody(from: string, to: string): Record<string, unknown> {
   return {
     dateRanges: [{ startDate: from, endDate: to }],
     dimensions: [{ name: 'date' }, { name: 'platform' }],
     metrics: [{ name: 'eventCount' }],
-    dimensionFilter: { filter: { fieldName: 'eventName', stringFilter: { matchType: 'EXACT', value: 'first_open' } } },
+    dimensionFilter: ga4AppFilter({ filter: { fieldName: 'eventName', stringFilter: { matchType: 'EXACT', value: 'first_open' } } }),
     limit: String(GA4_ROW_LIMIT),
   };
 }
@@ -1017,9 +1029,10 @@ async function collectGa4(
   }
 
   try {
-    const from = ga4From(rows, start, today, ['installs_ios', 'installs_android']);
+    const columns = ['installs_ios', 'installs_android'];
+    const from = deps.recollectApp ? start : ga4From(rows, start, today, columns);
     const run = deps.ga4(GA4_APP_PROPERTY_ID);
-    const [active, installs] = await Promise.all([run(activeDaysBody(from, to)), run(appInstallsBody(from, to))]);
+    const [active, installs] = await Promise.all([run(appActiveDaysBody(from, to)), run(appInstallsBody(from, to))]);
     const live = activeDays(active);
     const ios = new Map<string, number>();
     const android = new Map<string, number>();
@@ -1030,7 +1043,8 @@ async function collectGa4(
       const target = platform === 'ios' ? ios : platform === 'android' ? android : null;
       if (day && target && Number.isFinite(v)) target.set(day, (target.get(day) ?? 0) + Math.trunc(v));
     }
-    const days = daysBetween(from, to).filter((d) => live.has(d) || ios.has(d) || android.has(d));
+    // A day collected before that now has no tourist at all (only robots, #1149) is a measured 0.
+    const days = daysBetween(from, to).filter((d) => live.has(d) || ios.has(d) || android.has(d) || !blank(rows, d, columns));
     await deps.store.upsert(
       'funnel_daily',
       days.map((day) => ({ day, installs_ios: ios.get(day) ?? 0, installs_android: android.get(day) ?? 0 })),

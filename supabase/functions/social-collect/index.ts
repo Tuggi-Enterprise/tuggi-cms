@@ -3,6 +3,8 @@
  *
  *   POST {}                                  daily run (pg_cron `social-collect`, 09:00 UTC = 6h Brasília)
  *   POST {"force_weekly": true}              the same run, writing the weekly recommendation on any day
+ *   POST {"recollect_app": true}             the same run, reading the app installs again over the whole
+ *                                            funnel history (#1149, once after the app report changes)
  *   POST {"job":"stories"}                   the live stories only (pg_cron `social-collect-stories`, hourly)
  *   POST {"action":"lookup","username":"x"}  Business Discovery only: the CMS checks a username
  *   -> 200 the run report, or { ok, ig_user_id, followers_count } / { ok: false, reason }
@@ -104,6 +106,7 @@ serve(async (req) => {
       now,
       log,
       forceWeekly: body?.force_weekly === true,
+      recollectApp: body?.recollect_app === true,
       apple: { config: appleConfig((name) => Deno.env.get(name)), fetch: (url, init) => fetch(url, init) },
     });
     console.log(`[social-collect] done ${JSON.stringify(report)}`);

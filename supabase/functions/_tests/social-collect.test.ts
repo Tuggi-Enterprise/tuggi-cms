@@ -28,6 +28,8 @@ import {
   THEME_HINTS,
   type WatchedAccount,
 } from '../_shared/social-collect.ts';
+import { GA4_APP_NOT_TOURIST, ga4AppFilter } from '../_shared/ga4-data.ts';
+import { appActiveDaysBody, appInstallsBody } from '../_shared/social-collect.ts';
 
 const OWN: WatchedAccount = { id: 'a0000000-0000-4000-8000-000000000001', username: 'tuggi_app', ig_user_id: null, is_own: true };
 const RIVAL: WatchedAccount = { id: 'a0000000-0000-4000-8000-000000000002', username: 'izitravel', ig_user_id: null, is_own: false };
@@ -314,7 +316,11 @@ interface RigOptions {
   /** False: `store` is not a registered custom dimension, and GA4 refuses a report that asks it. */
   storeDimension?: boolean;
   store?: MemoryStore;
+  /** The `first_open` rows of the app property: `YYYYMMDD`, platform, count. */
+  appInstalls?: Array<[string, string, number]>;
 }
+
+const DEFAULT_INSTALLS: Array<[string, string, number]> = [['20261101', 'iOS', 4], ['20261101', 'Android', 7], ['20261101', 'web', 99]];
 
 /** Every GA4 body a run sent, per property, to read the range it asked for. */
 type Ga4Call = { property: string; body: Record<string, unknown> };
@@ -348,17 +354,31 @@ function rig(opts: RigOptions = {}): Rig & { ga4Calls: Ga4Call[] } {
     }
     return Promise.resolve({ text: answers.shift() ?? '[]', model: 'gemini-2.5-flash-lite' });
   };
+  const liveRows = (body: Record<string, unknown>) => {
+    const [from, to] = ga4Range(body);
+    const rows = [];
+    for (let d = from; d <= to; d = new Date(Date.parse(`${d}T12:00:00Z`) + 86_400_000).toISOString().slice(0, 10)) {
+      if (opts.ga4Live?.(d) ?? true) rows.push({ dimensionValues: [{ value: d.replaceAll('-', '') }], metricValues: [{ value: '50' }] });
+    }
+    return { rows };
+  };
   const ga4 = (propertyId: string) => (body: Record<string, unknown>) => {
     ga4Calls.push({ property: propertyId, body });
     if (propertyId === '491146217' && opts.appAccess === false) return Promise.reject(new Error('ga4_report_403'));
-    if (!body.dimensionFilter) {
-      const [from, to] = ga4Range(body);
-      const rows = [];
-      for (let d = from; d <= to; d = new Date(Date.parse(`${d}T12:00:00Z`) + 86_400_000).toISOString().slice(0, 10)) {
-        if (opts.ga4Live?.(d) ?? true) rows.push({ dimensionValues: [{ value: d.replaceAll('-', '') }], metricValues: [{ value: '50' }] });
-      }
-      return Promise.resolve({ rows });
+    if (propertyId === '491146217') {
+      // #1149: the app property is asked for tourists only; the double answers by metric.
+      assert(JSON.stringify(body.dimensionFilter).includes(JSON.stringify(ga4AppFilter())), 'app report without the exclusion');
+      const metric = (body.metrics as Array<{ name: string }>)[0].name;
+      if (metric === 'activeUsers') return Promise.resolve(liveRows(body));
+      return Promise.resolve({
+        rows: (opts.appInstalls ?? DEFAULT_INSTALLS).map(([day, platform, n]) => ({
+          dimensionValues: [{ value: day }, { value: platform }],
+          metricValues: [{ value: String(n) }],
+        })),
+      });
     }
+    assert(!JSON.stringify(body.dimensionFilter ?? null).includes('notExpression'), 'site report with the app exclusion');
+    if (!body.dimensionFilter) return Promise.resolve(liveRows(body));
     if ((body.dimensionFilter as { andGroup?: unknown }).andGroup) {
       const dims = (body.dimensions as Array<{ name: string }>).map((d) => d.name);
       if (dims.includes('customEvent:store') && opts.storeDimension === false) return Promise.reject(new Error('ga4_report_400'));
@@ -372,15 +392,6 @@ function rig(opts: RigOptions = {}): Rig & { ga4Calls: Ga4Call[] } {
           row('20261101', 'bio_novembro', 'play_store', 5),
           row('20261101', '(not set)', 'app_store', 2),
           row('20261031', 'story_buzios', 'play_store', 1),
-        ],
-      });
-    }
-    if (propertyId === '491146217') {
-      return Promise.resolve({
-        rows: [
-          { dimensionValues: [{ value: '20261101' }, { value: 'iOS' }], metricValues: [{ value: '4' }] },
-          { dimensionValues: [{ value: '20261101' }, { value: 'Android' }], metricValues: [{ value: '7' }] },
-          { dimensionValues: [{ value: '20261101' }, { value: 'web' }], metricValues: [{ value: '99' }] },
         ],
       });
     }
@@ -723,6 +734,73 @@ Deno.test('#1059 DS-COMPONENTE-084: a day GA4 recorded nobody stays null, and a 
   assertEquals(store.tables.funnel_daily.get('2026-11-01')?.installs_ios, 5);
   assertEquals(store.tables.funnel_daily.get('2026-05-31')?.ig_site_sessions, undefined);
   assertEquals(store.tables.funnel_daily.get('2026-06-01')?.ig_site_sessions, 0);
+});
+
+const FIRST_OPEN = { filter: { fieldName: 'eventName', stringFilter: { matchType: 'EXACT', value: 'first_open' } } };
+
+Deno.test('#1149: the exclusion is NOT any signature of the one list, each a platform AND a list of countries or cities', () => {
+  const platform = (value: string) => ({ filter: { fieldName: 'platform', stringFilter: { matchType: 'EXACT', value } } });
+  const inList = (fieldName: string, values: string[]) => ({ filter: { fieldName, inListFilter: { values, caseSensitive: true } } });
+  assertEquals(ga4AppFilter(), {
+    notExpression: {
+      orGroup: {
+        expressions: [
+          { andGroup: { expressions: [platform('Android'), inList('country', ['(not set)'])] } },
+          { andGroup: { expressions: [platform('Android'), inList('city', ['Calpella', 'Boardman', 'Reston', 'Atlanta', 'Marietta'])] } },
+          {
+            andGroup: {
+              expressions: [
+                platform('iOS'),
+                inList('city', [
+                  'San Jose', 'Cupertino', 'Saratoga', 'Mountain View', 'Sunnyvale', 'Santa Clara', 'Los Altos', 'Los Gatos', 'Campbell',
+                  'Los Altos Hills', 'Palo Alto',
+                ]),
+              ],
+            },
+          },
+        ],
+      },
+    },
+  });
+  // The list is the one source: the builder reads it whole.
+  assertEquals(GA4_APP_NOT_TOURIST.length, 3);
+  for (const s of GA4_APP_NOT_TOURIST) assert(s.values.length > 0, 'inListFilter.values must be non-empty');
+});
+
+Deno.test('#1149: the exclusion joins the report filter by andGroup: a filter is paired with it, an andGroup takes it as one more expression', () => {
+  const exclusion = ga4AppFilter();
+  assertEquals(ga4AppFilter(FIRST_OPEN), { andGroup: { expressions: [FIRST_OPEN, exclusion] } });
+  const both = { andGroup: { expressions: [FIRST_OPEN, { filter: { fieldName: 'platform', stringFilter: { matchType: 'EXACT', value: 'iOS' } } }] } };
+  assertEquals(ga4AppFilter(both), { andGroup: { expressions: [...both.andGroup.expressions, exclusion] } });
+  const either = { orGroup: { expressions: [FIRST_OPEN] } };
+  assertEquals(ga4AppFilter(either), { andGroup: { expressions: [either, exclusion] } });
+  // The installs body keeps first_open and adds the exclusion; the liveness probe of the app counts tourists only.
+  assertEquals(appInstallsBody('2026-10-01', '2026-10-31').dimensionFilter, { andGroup: { expressions: [FIRST_OPEN, exclusion] } });
+  assertEquals(appActiveDaysBody('2026-10-01', '2026-10-31').dimensionFilter, exclusion);
+});
+
+Deno.test('#1149: recollect_app reads the app installs over the whole history once, and a day left with robots only becomes a measured 0', async () => {
+  const store = fullFunnel('2025-11-08', '2026-11-02', 5);
+  const r = rig({ store, now: TUESDAY, ga4Live: (d) => d !== '2026-10-15', appInstalls: [['20261001', 'iOS', 3], ['20261001', 'Android', 2]] });
+  r.deps.recollectApp = true;
+  const report = await runSocialCollect(r.deps);
+  assertEquals(report.funnel.app, 'ok');
+  // The app reads from the start of the history; the site keeps its last three days.
+  assertEquals(ranges(r, '491146217'), [['2025-11-08', '2026-11-02'], ['2025-11-08', '2026-11-02']]);
+  assertEquals(ranges(r, '494999879'), Array(4).fill(['2026-10-31', '2026-11-02']));
+  assertEquals([store.tables.funnel_daily.get('2026-10-01')?.installs_ios, store.tables.funnel_daily.get('2026-10-01')?.installs_android], [3, 2]);
+  // Collected before with robot installs, now nobody: 0, not the old 5.
+  assertEquals([store.tables.funnel_daily.get('2026-10-15')?.installs_ios, store.tables.funnel_daily.get('2026-10-15')?.installs_android], [0, 0]);
+  assertEquals(store.tables.funnel_daily.get('2026-10-15')?.ig_site_sessions, 5);
+  // Without the flag the next run is the daily one again.
+  const daily = rig({ store, now: TUESDAY });
+  await runSocialCollect(daily.deps);
+  assertEquals(ranges(daily, '491146217'), [['2026-10-31', '2026-11-02'], ['2026-10-31', '2026-11-02']]);
+});
+
+Deno.test('#1149: the handler turns recollect_app on only for true', async () => {
+  const src = await Deno.readTextFile(new URL('../social-collect/index.ts', import.meta.url));
+  assert(src.includes('recollectApp: body?.recollect_app === true'), 'recollect_app wiring');
 });
 
 // ------------------------------------------------------------------------------------------------

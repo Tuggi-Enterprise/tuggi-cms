@@ -8,7 +8,8 @@
 // `drive.cms_get_engagement_monthly` and the two are never divided by each other (DS-COMPONENTE-084
 // item 2).
 //
-// Import-free, on top of `ga4Runner` (`_shared/ga4-data.ts`), so the CMS tests load it as is.
+// On top of `ga4Runner` and `ga4AppFilter` (`_shared/ga4-data.ts`, import-free too), so the CMS
+// tests load it as is. Every report excludes the devices that are not tourists (#1149).
 //
 // Data API v1beta, checked 2026-11-04: `yearMonth` answers `YYYYMM` in the property time zone;
 // `userEngagementDuration` is seconds; `sessionsPerUser` is sessions / activeUsers;
@@ -18,6 +19,8 @@
 // `firstSessionDate` is "the date the user's first session occurred, formatted as YYYYMMDD", one per
 // user, so the rows of one `yearMonth` split its users without repeating any. Filters: `platform` answers `iOS` /
 // `Android`, `countryId` answers ISO 3166-1 alpha-2, the format of `drive.profiles.country`.
+
+import { ga4AppFilter } from './ga4-data.ts';
 
 export const ENGAGEMENT_CLICK_EVENT = 'button_clicked';
 export const ENGAGEMENT_SCREEN_DIMENSION = 'customEvent:screen_name';
@@ -83,28 +86,26 @@ export function parseEngagementGa4Query(raw: unknown): EngagementGa4Query | null
   return { fromMonth, platform, country };
 }
 
-function filterOf(q: EngagementGa4Query, extra: Record<string, unknown>[] = []): Record<string, unknown> | undefined {
+/** The report's own filter, AND NOT the devices that are not tourists (#1149): never empty. */
+function filterOf(q: EngagementGa4Query, extra: Record<string, unknown>[] = []): Record<string, unknown> {
   const exact = (fieldName: string, value: string) => ({ filter: { fieldName, stringFilter: { matchType: 'EXACT', value } } });
   const parts = [
     ...(q.platform ? [exact('platform', GA4_PLATFORM[q.platform])] : []),
     ...(q.country ? [exact('countryId', q.country)] : []),
     ...extra,
   ];
-  if (parts.length === 0) return undefined;
-  if (parts.length === 1) return parts[0];
-  return { andGroup: { expressions: parts } };
+  return ga4AppFilter(parts.length > 0 ? { andGroup: { expressions: parts } } : undefined);
 }
 
 const dateRanges = (q: EngagementGa4Query) => [{ startDate: `${q.fromMonth}-01`, endDate: 'today' }];
 
 /** Users, engagement time and sessions per user, one row per `yearMonth`. */
 export function usersReportBody(q: EngagementGa4Query): Record<string, unknown> {
-  const filter = filterOf(q);
   return {
     dateRanges: dateRanges(q),
     dimensions: [{ name: 'yearMonth' }],
     metrics: [{ name: 'activeUsers' }, { name: 'userEngagementDuration' }, { name: 'sessionsPerUser' }],
-    ...(filter ? { dimensionFilter: filter } : {}),
+    dimensionFilter: filterOf(q),
     orderBys: [{ dimension: { dimensionName: 'yearMonth' } }],
     limit: '1000',
   };

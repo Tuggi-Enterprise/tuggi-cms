@@ -18,9 +18,14 @@ const FUNCTIONS = resolve(import.meta.dirname, '../../supabase/functions')
 // Untyped on purpose: a `typeof import` would pull the `.ts` sibling imports into `tsc` (TS5097).
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 let ga4: any
+// The exclusion of the devices that are not tourists (#1149), from its one builder.
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+let notTourist: any
 
 before(async () => {
   ga4 = await import(pathToFileURL(resolve(FUNCTIONS, '_shared/engagement-ga4.ts')).href)
+  const data = await import(pathToFileURL(resolve(FUNCTIONS, '_shared/ga4-data.ts')).href)
+  notTourist = data.ga4AppFilter()
 })
 
 const row = (dims: string[], metrics: string[]) => ({
@@ -41,7 +46,8 @@ test('#1094: the users report reads by yearMonth until today, and platform and c
   assert.deepEqual(plain.dateRanges, [{ startDate: '2026-08-01', endDate: 'today' }])
   assert.deepEqual(plain.dimensions, [{ name: 'yearMonth' }])
   assert.deepEqual(plain.metrics.map((m: { name: string }) => m.name), ['activeUsers', 'userEngagementDuration', 'sessionsPerUser'])
-  assert.equal(plain.dimensionFilter, undefined)
+  // #1149: with no filter of its own, the report still leaves out the devices that are not tourists.
+  assert.deepEqual(plain.dimensionFilter, notTourist)
 
   const filtered = ga4.usersReportBody({ fromMonth: '2026-08', platform: 'ios', country: 'BR' })
   assert.deepEqual(filtered.dimensionFilter, {
@@ -49,6 +55,7 @@ test('#1094: the users report reads by yearMonth until today, and platform and c
       expressions: [
         { filter: { fieldName: 'platform', stringFilter: { matchType: 'EXACT', value: 'iOS' } } },
         { filter: { fieldName: 'countryId', stringFilter: { matchType: 'EXACT', value: 'BR' } } },
+        notTourist,
       ],
     },
   })
@@ -61,6 +68,7 @@ test('#1094: the clicks report is button_clicked by month, screen_name and butto
   assert.deepEqual(body.dimensionFilter.andGroup.expressions, [
     { filter: { fieldName: 'platform', stringFilter: { matchType: 'EXACT', value: 'Android' } } },
     { filter: { fieldName: 'eventName', stringFilter: { matchType: 'EXACT', value: 'button_clicked' } } },
+    notTourist,
   ])
 })
 
@@ -96,6 +104,10 @@ test('#1094 #1099 #1101: the four reports go through one runner, a month without
     return { rows: [row(['202609'], ['327', '156960', '2.1']), row(['202610'], ['262', '157200', '2.4'])] }
   }, { fromMonth: '2026-08', platform: null, country: null })
   assert.equal(bodies.length, 4)
+  // #1149: no report on the app property goes out without the exclusion.
+  for (const body of bodies) {
+    assert.ok(JSON.stringify((body as { dimensionFilter?: unknown }).dimensionFilter).includes(JSON.stringify(notTourist)), JSON.stringify(body.dimensions))
+  }
   assert.deepEqual(report, {
     months: [
       { month: '2026-09', activeUsers: 327, engagementSeconds: 156960, sessionsPerUser: 2.1, engagedUsers: 0, newEngagedUsers: 0 },
@@ -165,12 +177,13 @@ test('#1099: engaged people are totalUsers by yearMonth under one filter: the en
   assert.deepEqual(plain.dimensions, [{ name: 'yearMonth' }])
   assert.deepEqual(plain.metrics, [{ name: 'totalUsers' }])
   assert.deepEqual(plain.dateRanges, [{ startDate: '2026-08-01', endDate: 'today' }])
-  assert.deepEqual(plain.dimensionFilter, engaged)
+  assert.deepEqual(plain.dimensionFilter, { andGroup: { expressions: [engaged, notTourist] } })
   const filtered = ga4.engagedReportBody({ fromMonth: '2026-08', platform: 'ios', country: 'BR' })
   assert.deepEqual(filtered.dimensionFilter.andGroup.expressions, [
     { filter: { fieldName: 'platform', stringFilter: { matchType: 'EXACT', value: 'iOS' } } },
     { filter: { fieldName: 'countryId', stringFilter: { matchType: 'EXACT', value: 'BR' } } },
     engaged,
+    notTourist,
   ])
 })
 

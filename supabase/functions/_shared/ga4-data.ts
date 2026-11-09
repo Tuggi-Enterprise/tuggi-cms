@@ -25,6 +25,66 @@ export const GA4_APP_PROPERTY_ID = '491146217';
 /** The API's default and the most this job ever reads: the city list of a page. */
 export const GA4_ROW_LIMIT = 10000;
 
+/**
+ * The devices of the app property that are not tourists (#1149, measured 2026-11-09 on `first_open`
+ * since 2025-01-01): the Google Play test robots (Android with no country, Android in US data
+ * centers) and the Apple review (iOS around Cupertino). The one list: every report on the app
+ * property excludes it through `ga4AppFilter`, and the tests import it. Left in on purpose: Malaysia,
+ * Singapore and the Philippines (few, not known to be robots), and the team's devices (#1148).
+ */
+export const GA4_APP_NOT_TOURIST: readonly { platform: 'iOS' | 'Android'; field: 'country' | 'city'; values: readonly string[] }[] = [
+  { platform: 'Android', field: 'country', values: ['(not set)'] },
+  { platform: 'Android', field: 'city', values: ['Calpella', 'Boardman', 'Reston', 'Atlanta', 'Marietta'] },
+  {
+    platform: 'iOS',
+    field: 'city',
+    values: [
+      'San Jose',
+      'Cupertino',
+      'Saratoga',
+      'Mountain View',
+      'Sunnyvale',
+      'Santa Clara',
+      'Los Altos',
+      'Los Gatos',
+      'Campbell',
+      'Los Altos Hills',
+      'Palo Alto',
+    ],
+  },
+];
+
+/**
+ * The `dimensionFilter` of a report on the app property: the report's own filter, if any, AND NOT any
+ * signature of `GA4_APP_NOT_TOURIST`. An `andGroup` filter takes the exclusion as one more expression;
+ * any other filter is paired with it in a new `andGroup`. Data API v1beta, checked 2026-11-09:
+ * FilterExpression is one of `andGroup`, `orGroup`, `notExpression`, `filter`; `inListFilter.values`
+ * must be non-empty; `platform` answers `iOS` / `Android`; a dimension filter may name a dimension
+ * the report does not break down by.
+ */
+export function ga4AppFilter(filter?: Record<string, unknown>): Record<string, unknown> {
+  const exclusion = {
+    notExpression: {
+      orGroup: {
+        expressions: GA4_APP_NOT_TOURIST.map((s) => ({
+          andGroup: {
+            expressions: [
+              { filter: { fieldName: 'platform', stringFilter: { matchType: 'EXACT', value: s.platform } } },
+              { filter: { fieldName: s.field, inListFilter: { values: [...s.values], caseSensitive: true } } },
+            ],
+          },
+        })),
+      },
+    },
+  };
+  if (!filter) return exclusion;
+  const group = (filter as { andGroup?: { expressions?: unknown } }).andGroup;
+  if (group && Array.isArray(group.expressions) && Object.keys(filter).length === 1) {
+    return { andGroup: { expressions: [...group.expressions, exclusion] } };
+  }
+  return { andGroup: { expressions: [filter, exclusion] } };
+}
+
 export type ServiceAccount = { clientEmail: string; privateKey: string };
 
 /** The JSON key of the service account, or null when it is absent or not one. */
