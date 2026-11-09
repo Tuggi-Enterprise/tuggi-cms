@@ -57,7 +57,8 @@ test('spec B15 items 1 and 3 DS-COMPONENTE-100: October by default, last closed 
   // #1154 DS-COMPONENTE-100 item 4: the return tile keeps October and says when it closes, no older month under its name
   const ret = page.getByTestId('summary-tile-returned')
   await expect(ret.getByTestId('summary-tile-month')).toHaveCount(0)
-  await expect(ret.getByTestId('summary-tile-delta')).toHaveText(S.delta_closes.replace('{date}', '01/12/2026'))
+  await expect(ret.getByTestId('summary-tile-delta')).toHaveText(S.delta_closes.replace('{date}', '01/12'))
+  await expect(ret.getByTestId('summary-tile-delta')).toHaveAttribute('title', E.cell_not_due.replace('{date}', '01/12/2026'))
   await expect(ret.getByTestId('summary-tile-delta')).toHaveAttribute('data-state', 'closes')
   await expect(ret.locator('[data-testid^="summary-delta-icon-"]')).toHaveCount(0)
   await c.update(<Screen months={MONTHS} today={TODAY} bank={BANK_OPEN} ga4={GA4_ENGAGED} month="2026-09" />)
@@ -68,7 +69,7 @@ test('spec B15 items 1 and 3 DS-COMPONENTE-100: October by default, last closed 
   await expect(page.locator('[data-testid^="summary-delta-icon-"]')).toHaveCount(0)
   const deltas = await page.getByTestId('summary-tile-delta').all()
   for (const d of deltas.slice(0, 3)) await expect(d).toHaveText(E.until_today)
-  await expect(deltas[3]).toHaveText(S.delta_closes.replace('{date}', '01/01/2027'))
+  await expect(deltas[3]).toHaveText(S.delta_closes.replace('{date}', '01/01'))
 })
 
 test('spec B15 item 6: six right-aligned slots, a gap opens two paths, the accent disc has r 4 and a white ring, the title lists the values', async ({ mount, page }) => {

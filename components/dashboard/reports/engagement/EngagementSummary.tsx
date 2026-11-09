@@ -159,8 +159,9 @@ export function EngagementSummary(props: EngagementSummaryProps) {
         delta = { text: s('delta_new'), title: s('delta_new_hint', { month: monthLong(d.prev.month) }) }
         break
       case 'closes': {
-        const date = d.due ? day(d.due) : ''
-        delta = { text: s('delta_closes', { date }), title: k('cell_not_due', { date }) }
+        // day and month on the line, which truncates at 390 with the year; the whole date in the title
+        const short = d.due ? new Intl.DateTimeFormat(locale, { day: '2-digit', month: '2-digit', timeZone: 'UTC' }).format(new Date(`${d.due}T12:00:00Z`)) : ''
+        delta = { text: s('delta_closes', { date: short }), title: k('cell_not_due', { date: d.due ? day(d.due) : '' }) }
         break
       }
       default: {
