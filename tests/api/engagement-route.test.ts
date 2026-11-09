@@ -18,13 +18,14 @@ import type { NextRequest } from 'next/server'
 type Call = { kind: 'rpc' | 'invoke'; target: string; args: unknown; headers?: unknown }
 let calls: Call[]
 let role: string
+let signedIn: boolean
 let rpcAnswer: { data?: unknown; error?: { code: string; message: string } }
 let invokeAnswer: { data?: unknown; error?: { name: string; message: string } }
 
 function client() {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const c: any = {
-    auth: { getUser: async () => ({ data: { user: { id: 'op', email: 'admin@tuggi.app' } }, error: null }) },
+    auth: { getUser: async () => (signedIn ? { data: { user: { id: 'op', email: 'admin@tuggi.app' } }, error: null } : { data: { user: null }, error: { message: 'no session' } }) },
     schema: (schema: string) => ({
       from: () => {
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -52,6 +53,8 @@ let bankRoute: any
 let ga4Route: any
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 let usageRoute: any
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+let activeRoute: any
 
 before(async () => {
   process.env.SUPABASE_SECRET_KEY = 'sb_secret_test'
@@ -62,11 +65,13 @@ before(async () => {
   bankRoute = await import('@/app/api/dashboard/engagement/route')
   ga4Route = await import('@/app/api/dashboard/engagement/ga4/route')
   usageRoute = await import('@/app/api/dashboard/engagement/usage/route')
+  activeRoute = await import('@/app/api/dashboard/engagement/active/route')
 })
 
 beforeEach(() => {
   calls = []
   role = 'admin'
+  signedIn = true
   rpcAnswer = { data: { data_since: { open: '2026-10-28', trip: '2026-08-01', audio: '2026-08-01' }, months: [] } }
   invokeAnswer = { data: { months: [], clicks: [] } }
 })
@@ -162,4 +167,44 @@ test('#1161 BR-COMUNICACAO-022 item 4: the usage door is admin only, reads cms_g
   const failedBody = await failed.json()
   assert.equal(failedBody.code, 'PGRST202')
   assert.doesNotMatch(JSON.stringify(failedBody), /Could not find/)
+})
+
+test('#1162 security review of #1160: the active-users door answers 401 without a session and 403 to every non-admin role, and calls nothing before the gate', async () => {
+  signedIn = false
+  assert.equal((await activeRoute.GET(get('/api/dashboard/engagement/active'), ctx)).status, 401)
+  signedIn = true
+  for (const r of ['editor', 'viewer', 'client']) {
+    role = r
+    assert.equal((await activeRoute.GET(get('/api/dashboard/engagement/active'), ctx)).status, 403, r)
+  }
+  assert.deepEqual(calls, [])
+})
+
+test('#1162 BR-COMUNICACAO-022 item 4 DS-COMPONENTE-084 item 1: the active-users door reads cms_get_active_users_monthly with the filters, keeps open_coverage and null, and answers a refusal by its code', async () => {
+  rpcAnswer = {
+    data: {
+      data_since: { open: '2026-10-28T17:27:03Z', use: '2025-07-31T20:39:39Z' },
+      months: [
+        { month: '2026-10', days: 31, all_sources: { open_coverage: 'partial', dau: 4.3, wau: 16.3, mau: 72, dau_mau: 0.0591 }, trip_or_story: { dau: 3.5, wau: 15.1, mau: 55, dau_mau: 0.0628 } },
+        { month: '2026-07', days: null, all_sources: null, trip_or_story: null },
+      ],
+    },
+  }
+  const res = await activeRoute.GET(get('/api/dashboard/engagement/active?country=BR&account=account'), ctx)
+  assert.equal(res.status, 200)
+  assert.equal(calls[0].target, 'drive.cms_get_active_users_monthly')
+  const args = calls[0].args as Record<string, unknown>
+  assert.equal(args.p_country, 'BR')
+  assert.equal(args.p_account, 'account')
+  assert.equal(args.p_platform, null)
+  assert.equal(args.p_from, '2026-08-01T00:00:00-03:00')
+  const { data } = await res.json()
+  assert.equal(data.data_since.open, '2026-10-28')
+  assert.deepEqual(data.months[0].all_sources, { open_coverage: 'partial', dau: 4.3, wau: 16.3, mau: 72, dau_mau: 0.0591 })
+  assert.deepEqual(data.months[1].all_sources, { open_coverage: null, dau: null, wau: null, mau: null, dau_mau: null })
+  assert.equal((await activeRoute.GET(get('/api/dashboard/engagement/active?platform=web'), ctx)).status, 400)
+  rpcAnswer = { error: { code: '42501', message: 'permission denied for function cms_get_active_users_monthly' } }
+  const refused = await activeRoute.GET(get('/api/dashboard/engagement/active'), ctx)
+  assert.equal(refused.status, 403)
+  assert.doesNotMatch(JSON.stringify(await refused.json()), /permission denied/)
 })
