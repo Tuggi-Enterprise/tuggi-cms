@@ -107,7 +107,8 @@
     "route_progress": "Route progress",
     "push_results": "Push results",
     "story_feedback": "Text votes",
-    "route_review": "Route approval"
+    "route_review": "Route approval",
+    "public_names": "Public names"
   },
   "Pages": {
     "Login": {
@@ -1593,6 +1594,34 @@
           "play_store": "Google Play"
         },
         "unknown": "Unknown"
+      },
+      "public_identity": {
+        "title": "Public name",
+        "hint": "Reset sends the field back to the generated value and does not count toward the person's change limit.",
+        "fields": {
+          "display_name": "Display name",
+          "nickname": "@",
+          "bio": "Bio"
+        },
+        "empty": "empty",
+        "reset_at": "Reset by moderation on {date}",
+        "reset": "Reset",
+        "reset_label": "Reset {field}",
+        "reset_hint": {
+          "display_name": "The name goes back to a generated nickname.",
+          "nickname": "The account gets a generated @. The current @ is blocked forever and does not redirect.",
+          "bio": "The bio becomes empty."
+        },
+        "confirm": "Confirm",
+        "cancel": "Cancel",
+        "lock_label": "Lock editing of name, @ and bio",
+        "lock_hint": "Locked, the person changes none of the three; moderation can still reset. Does not touch route publishing.",
+        "locked_since": "Locked since {date}. Moderation can still reset.",
+        "reset_done": "Reset: {value}",
+        "reset_done_empty": "Reset: the bio is empty.",
+        "locked_done": "Editing locked.",
+        "unlocked_done": "Editing unlocked.",
+        "error": "Could not save now. Try again."
       }
     },
     "Notifications": {
@@ -2253,6 +2282,108 @@
         "done_photo_failed": "POI created under review, but the photo was not copied.",
         "already": "Already a POI",
         "cannot": "A note without text does not become a POI."
+      }
+    },
+    "PublicNames": {
+      "title": "Public names",
+      "subtitle": "Reports of name, @ and bio, and the lists the filter reads. Reset and lock of one account live on its record.",
+      "reports": {
+        "title": "Name reports",
+        "count": "{count, plural, =0 {none open} one {# open} other {# open}}",
+        "body": "A report changes nothing by itself. Remove sends the field back to the generated value; keep closes the report and changes nothing.",
+        "loading": "Loading reports…",
+        "failed": "Could not read the reports now.",
+        "retry": "Try again",
+        "empty": "No open reports.",
+        "more": "Showing the {shown} oldest of {total}.",
+        "columns": {
+          "value": "Reported value",
+          "field": "Field",
+          "account": "Account",
+          "surface": "Where",
+          "reports": "Reports",
+          "decision": "Decision"
+        },
+        "fields": {
+          "display_name": "Display name",
+          "nickname": "@",
+          "bio": "Bio"
+        },
+        "surfaces": {
+          "scoreboard": "Scoreboard",
+          "discovered_by": "Discovered by",
+          "profile_page": "Creator page"
+        },
+        "times": "{count, plural, one {# time} other {# times}}",
+        "last": "last on {date}",
+        "remove": "Remove",
+        "keep": "Keep",
+        "confirmRemove": "Confirm removal",
+        "cancel": "Cancel",
+        "removeHint": {
+          "display_name": "The name goes back to a generated nickname.",
+          "nickname": "The account gets a generated @. The removed @ is blocked forever and does not redirect.",
+          "bio": "The bio becomes empty."
+        },
+        "outcomes": {
+          "removed": "Removed. The field is now {value}.",
+          "removedEmpty": "Removed. The bio is empty.",
+          "dismissed": "Kept. The report left the queue.",
+          "already_decided": "Someone else already decided this report.",
+          "not_found": "This report no longer exists.",
+          "failed": "Could not decide now. Try again."
+        }
+      },
+      "lists": {
+        "title": "Filter lists",
+        "body": "The database normalizes each term the same way as the text and matches the two. A change here applies to the next write.",
+        "loading": "Loading lists…",
+        "failed": "Could not read the lists now.",
+        "retry": "Try again",
+        "saved": "Saved.",
+        "removed": "Removed.",
+        "termLabel": "Term",
+        "emptyList": "Empty list.",
+        "normalized": "the filter reads {value}",
+        "removeTerm": "Remove {term}",
+        "reserved": {
+          "title": "Reserved names ({count})",
+          "body": "No account takes them as @. The marked ones are refused as display name too.",
+          "nameLabel": "Name",
+          "matchLabel": "Refuses when the @",
+          "match": {
+            "exact": "is equal",
+            "contains": "contains"
+          },
+          "displayName": "Also applies to the display name",
+          "displayNameShort": "+ name",
+          "invalid": "Use 1 to 30 unaccented letters, digits, dot, dash or underscore.",
+          "add": "Reserve",
+          "remove": "Remove {name}"
+        },
+        "blocked": {
+          "title": "Blocked terms ({count})",
+          "body": "Own list. Adds to the LDNOOBW and matches the same way.",
+          "add": "Block"
+        },
+        "allowed": {
+          "title": "Allowed terms ({count})",
+          "body": "For a false positive, such as a surname. An allowed text passes the list and still goes to moderation.",
+          "add": "Allow"
+        },
+        "ldnoobw": {
+          "title": "LDNOOBW (read only)",
+          "body": "Third-party list, CC-BY-4.0 license, in the app interface languages. Changes only by migration.",
+          "summary": "{count} terms, commit {commit}",
+          "truncated": "Showing {shown} of {total}.",
+          "language": "{language}: {count, plural, one {# term} other {# terms}}"
+        },
+        "errors": {
+          "invalid": "Value out of format. A term needs 1 to 150 characters, with at least one letter or digit.",
+          "duplicate": "Already on the list.",
+          "not_found": "It had already left the list.",
+          "failed": "Could not save now. Try again."
+        }
       }
     }
   },

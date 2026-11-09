@@ -40,6 +40,7 @@ import { StatCard, StatCardRow } from '@/components/ui/StatCard'
 import { SubscriptionBadge, ProviderIcon } from '@/components/ui/SubscriptionBadge'
 import { CreditPanel } from '@/components/admin/credit/CreditPanel'
 import { RoutePublishingToggle } from '@/components/admin/RoutePublishingToggle'
+import { PublicIdentityModeration } from '@/components/admin/PublicIdentityModeration'
 import { RecordShell } from '@/components/admin/clients/shared/RecordShell'
 import { RecordTabs } from '@/components/admin/clients/shared/RecordTabs'
 import { UserPassportTab, usePassport } from '@/components/admin/passport/UserPassportTab'
@@ -270,6 +271,8 @@ function OverviewTab({
       <div className={cn('grid grid-cols-1 gap-6', isAdmin && 'lg:grid-cols-2')}>
         <LinkedClientSection userId={user.user_id} linked={user.linked_client} onChanged={onChanged} />
         {isAdmin && <RoutePublishingToggle userId={user.user_id} />}
+        {/* #1144, BR-USUARIO-051 items 5 and 6: reset a field and lock the edit; admin only. */}
+        {isAdmin && <PublicIdentityModeration userId={user.user_id} onChanged={onChanged} />}
       </div>
     </div>
   )

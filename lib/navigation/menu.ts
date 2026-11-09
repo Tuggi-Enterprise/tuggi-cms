@@ -75,6 +75,7 @@ import {
   Route,
   Smartphone,
   Share2,
+  ShieldAlert,
   Store,
   Target,
   ThumbsDown,
@@ -268,6 +269,8 @@ function catalogue(): { basic: NavEntry[]; modules: NavEntry[] } {
               // consolidação das duas não for decidida.
               item('/admin/users', 'cms_team', UserCog),
               item('/users/app', 'app_users', Smartphone),
+              // The moderation of display name, @ and bio (#1144, BR-USUARIO-051 item 5): reports and filter lists.
+              item('/admin/public-names', 'public_names', ShieldAlert),
               item('/admin/audit-logs', 'audit_logs', Activity),
               // Os números das horas concedidas (#855): escrita só por `drive.set_reward_setting`.
               item('/admin/reward-settings', 'reward_settings', Hourglass),

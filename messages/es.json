@@ -107,7 +107,8 @@
     "route_progress": "Progreso de rutas",
     "push_results": "Resultado de push",
     "story_feedback": "Votos en los textos",
-    "route_review": "Aprobación de rutas"
+    "route_review": "Aprobación de rutas",
+    "public_names": "Nombres públicos"
   },
   "Pages": {
     "Login": {
@@ -1581,6 +1582,34 @@
           "play_store": "Google Play"
         },
         "unknown": "Desconocido"
+      },
+      "public_identity": {
+        "title": "Nombre público",
+        "hint": "Restablecer devuelve el campo al generado por la base y no cuenta en el límite de cambios de la persona.",
+        "fields": {
+          "display_name": "Nombre visible",
+          "nickname": "@",
+          "bio": "Bio"
+        },
+        "empty": "vacío",
+        "reset_at": "Restablecido por la moderación el {date}",
+        "reset": "Restablecer",
+        "reset_label": "Restablecer {field}",
+        "reset_hint": {
+          "display_name": "El nombre vuelve a un apodo generado.",
+          "nickname": "La cuenta recibe un @ generado. El @ actual queda bloqueado para siempre y no redirige.",
+          "bio": "La bio queda vacía."
+        },
+        "confirm": "Confirmar",
+        "cancel": "Cancelar",
+        "lock_label": "Bloquear la edición de nombre, @ y bio",
+        "lock_hint": "Bloqueada, la persona no cambia ninguno de los tres; la moderación aún restablece. No toca publicar rutas.",
+        "locked_since": "Bloqueada desde el {date}. La moderación aún restablece.",
+        "reset_done": "Restablecido: {value}",
+        "reset_done_empty": "Restablecido: la bio quedó vacía.",
+        "locked_done": "Edición bloqueada.",
+        "unlocked_done": "Edición desbloqueada.",
+        "error": "No se pudo guardar ahora. Intenta de nuevo."
       }
     },
     "Notifications": {
@@ -2240,6 +2269,108 @@
         "done_photo_failed": "POI creado en revisión, pero la foto no se copió.",
         "already": "Ya es un POI",
         "cannot": "Una anotación sin texto no se convierte en POI."
+      }
+    },
+    "PublicNames": {
+      "title": "Nombres públicos",
+      "subtitle": "Denuncias de nombre, @ y bio, y las listas que lee el filtro. Restablecer y bloquear una cuenta está en su ficha.",
+      "reports": {
+        "title": "Denuncias de nombre",
+        "count": "{count, plural, =0 {ninguna abierta} one {# abierta} other {# abiertas}}",
+        "body": "Una denuncia no cambia nada sola. Quitar devuelve el campo al generado por la base; mantener cierra la denuncia sin cambiar nada.",
+        "loading": "Cargando denuncias…",
+        "failed": "No se pudieron leer las denuncias ahora.",
+        "retry": "Intentar de nuevo",
+        "empty": "Ninguna denuncia abierta.",
+        "more": "Mostrando las {shown} más antiguas de {total}.",
+        "columns": {
+          "value": "Valor denunciado",
+          "field": "Campo",
+          "account": "Cuenta",
+          "surface": "Dónde",
+          "reports": "Denuncias",
+          "decision": "Decisión"
+        },
+        "fields": {
+          "display_name": "Nombre visible",
+          "nickname": "@",
+          "bio": "Bio"
+        },
+        "surfaces": {
+          "scoreboard": "Marcador",
+          "discovered_by": "Descubierto por",
+          "profile_page": "Página del creador"
+        },
+        "times": "{count, plural, one {# vez} other {# veces}}",
+        "last": "última el {date}",
+        "remove": "Quitar",
+        "keep": "Mantener",
+        "confirmRemove": "Confirmar",
+        "cancel": "Cancelar",
+        "removeHint": {
+          "display_name": "El nombre vuelve a un apodo generado.",
+          "nickname": "La cuenta recibe un @ generado. El @ quitado queda bloqueado para siempre y no redirige.",
+          "bio": "La bio queda vacía."
+        },
+        "outcomes": {
+          "removed": "Quitado. El campo ahora es {value}.",
+          "removedEmpty": "Quitado. La bio quedó vacía.",
+          "dismissed": "Mantenido. La denuncia salió de la cola.",
+          "already_decided": "Otra persona ya decidió esta denuncia.",
+          "not_found": "Esta denuncia ya no existe.",
+          "failed": "No se pudo decidir ahora. Intenta de nuevo."
+        }
+      },
+      "lists": {
+        "title": "Listas del filtro",
+        "body": "La base normaliza cada término igual que el texto y los compara. Un cambio aquí vale en la próxima escritura.",
+        "loading": "Cargando listas…",
+        "failed": "No se pudieron leer las listas ahora.",
+        "retry": "Intentar de nuevo",
+        "saved": "Guardado.",
+        "removed": "Quitado.",
+        "termLabel": "Término",
+        "emptyList": "Lista vacía.",
+        "normalized": "el filtro lee {value}",
+        "removeTerm": "Quitar {term}",
+        "reserved": {
+          "title": "Nombres reservados ({count})",
+          "body": "Ninguna cuenta los usa como @. Los marcados también se rechazan como nombre visible.",
+          "nameLabel": "Nombre",
+          "matchLabel": "Rechaza cuando el @",
+          "match": {
+            "exact": "es igual",
+            "contains": "contiene"
+          },
+          "displayName": "Vale también para el nombre visible",
+          "displayNameShort": "+ nombre",
+          "invalid": "Usa de 1 a 30 letras sin tilde, números, punto, guion o guion bajo.",
+          "add": "Reservar",
+          "remove": "Quitar {name}"
+        },
+        "blocked": {
+          "title": "Términos bloqueados ({count})",
+          "body": "Lista propia. Se suma a la LDNOOBW y compara igual.",
+          "add": "Bloquear"
+        },
+        "allowed": {
+          "title": "Términos permitidos ({count})",
+          "body": "Para un falso positivo, como un apellido. El texto permitido pasa la lista y aún va a la moderación.",
+          "add": "Permitir"
+        },
+        "ldnoobw": {
+          "title": "LDNOOBW (solo lectura)",
+          "body": "Lista de terceros, licencia CC-BY-4.0, en los idiomas de la interfaz de la app. Cambia solo por migración.",
+          "summary": "{count} términos, commit {commit}",
+          "truncated": "Mostrando {shown} de {total}.",
+          "language": "{language}: {count, plural, one {# término} other {# términos}}"
+        },
+        "errors": {
+          "invalid": "Valor fuera de formato. El término necesita de 1 a 150 caracteres, con al menos una letra o número.",
+          "duplicate": "Ya está en la lista.",
+          "not_found": "Ya había salido de la lista.",
+          "failed": "No se pudo guardar ahora. Intenta de nuevo."
+        }
       }
     }
   },

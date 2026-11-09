@@ -198,6 +198,8 @@ test('o catálogo do admin é exatamente este — apagar um destino tem de doer'
     '/admin/coupons',
     '/admin/materials',
     '/admin/poi-trigger-map',
+    // The moderation of public names (#1144, BR-USUARIO-051 item 5).
+    '/admin/public-names',
     // Os números das horas concedidas (#855).
     '/admin/reward-settings',
     // The approval of user route versions (#1106, BR-ROTA-006 item 3).

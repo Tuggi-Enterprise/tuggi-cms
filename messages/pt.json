@@ -107,7 +107,8 @@
     "route_progress": "Progresso de roteiros",
     "push_results": "Resultado de push",
     "story_feedback": "Votos nos textos",
-    "route_review": "Aprovação de rotas"
+    "route_review": "Aprovação de rotas",
+    "public_names": "Nomes públicos"
   },
   "Pages": {
     "Login": {
@@ -1591,6 +1592,34 @@
           "play_store": "Google Play"
         },
         "unknown": "Desconhecido"
+      },
+      "public_identity": {
+        "title": "Nome público",
+        "hint": "Redefinir devolve o campo ao gerado pelo banco e não conta no limite de trocas da pessoa.",
+        "fields": {
+          "display_name": "Nome de exibição",
+          "nickname": "@",
+          "bio": "Bio"
+        },
+        "empty": "vazio",
+        "reset_at": "Redefinido pela moderação em {date}",
+        "reset": "Redefinir",
+        "reset_label": "Redefinir {field}",
+        "reset_hint": {
+          "display_name": "O nome volta a um apelido gerado.",
+          "nickname": "A conta recebe um @ gerado. O @ atual fica bloqueado para sempre e não redireciona.",
+          "bio": "A bio fica vazia."
+        },
+        "confirm": "Confirmar",
+        "cancel": "Cancelar",
+        "lock_label": "Travar a edição de nome, @ e bio",
+        "lock_hint": "Travada, a pessoa não muda nenhum dos três; a moderação ainda redefine. Não mexe em publicar roteiros.",
+        "locked_since": "Travada desde {date}. A moderação ainda redefine.",
+        "reset_done": "Redefinido: {value}",
+        "reset_done_empty": "Redefinido: a bio ficou vazia.",
+        "locked_done": "Edição travada.",
+        "unlocked_done": "Edição destravada.",
+        "error": "Não deu para salvar agora. Tente de novo."
       }
     },
     "Notifications": {
@@ -2601,6 +2630,108 @@
         "done_photo_failed": "POI criado em revisão, mas a foto não foi copiada.",
         "already": "Já virou POI",
         "cannot": "Anotação sem texto não vira POI."
+      }
+    },
+    "PublicNames": {
+      "title": "Nomes públicos",
+      "subtitle": "Denúncias de nome, @ e bio, e as listas que o filtro lê. Redefinir e travar uma conta fica na ficha dela.",
+      "reports": {
+        "title": "Denúncias de nome",
+        "count": "{count, plural, =0 {nenhuma aberta} one {# aberta} other {# abertas}}",
+        "body": "Uma denúncia não muda nada sozinha. Remover devolve o campo ao gerado pelo banco; manter fecha a denúncia sem mudar nada.",
+        "loading": "Carregando denúncias…",
+        "failed": "Não deu para ler as denúncias agora.",
+        "retry": "Tentar de novo",
+        "empty": "Nenhuma denúncia aberta.",
+        "more": "Mostrando as {shown} mais antigas de {total}.",
+        "columns": {
+          "value": "Valor denunciado",
+          "field": "Campo",
+          "account": "Conta",
+          "surface": "Onde",
+          "reports": "Denúncias",
+          "decision": "Decisão"
+        },
+        "fields": {
+          "display_name": "Nome de exibição",
+          "nickname": "@",
+          "bio": "Bio"
+        },
+        "surfaces": {
+          "scoreboard": "Placar",
+          "discovered_by": "Descoberto por",
+          "profile_page": "Página do criador"
+        },
+        "times": "{count, plural, one {# vez} other {# vezes}}",
+        "last": "última em {date}",
+        "remove": "Remover",
+        "keep": "Manter",
+        "confirmRemove": "Confirmar remoção",
+        "cancel": "Cancelar",
+        "removeHint": {
+          "display_name": "O nome volta a um apelido gerado.",
+          "nickname": "A conta recebe um @ gerado. O @ removido fica bloqueado para sempre e não redireciona.",
+          "bio": "A bio fica vazia."
+        },
+        "outcomes": {
+          "removed": "Removido. O campo agora é {value}.",
+          "removedEmpty": "Removido. A bio ficou vazia.",
+          "dismissed": "Mantido. A denúncia saiu da fila.",
+          "already_decided": "Outra pessoa já decidiu esta denúncia.",
+          "not_found": "Esta denúncia não existe mais.",
+          "failed": "Não deu para decidir agora. Tente de novo."
+        }
+      },
+      "lists": {
+        "title": "Listas do filtro",
+        "body": "O banco normaliza cada termo do mesmo jeito que o texto e casa os dois. Mudança aqui vale na próxima gravação.",
+        "loading": "Carregando listas…",
+        "failed": "Não deu para ler as listas agora.",
+        "retry": "Tentar de novo",
+        "saved": "Salvo.",
+        "removed": "Retirado.",
+        "termLabel": "Termo",
+        "emptyList": "Lista vazia.",
+        "normalized": "o filtro lê {value}",
+        "removeTerm": "Retirar {term}",
+        "reserved": {
+          "title": "Nomes reservados ({count})",
+          "body": "Nenhuma conta usa como @. Os marcados também são recusados como nome de exibição.",
+          "nameLabel": "Nome",
+          "matchLabel": "Recusa quando o @",
+          "match": {
+            "exact": "é igual",
+            "contains": "contém"
+          },
+          "displayName": "Vale também para o nome de exibição",
+          "displayNameShort": "+ nome",
+          "invalid": "Use de 1 a 30 letras sem acento, números, ponto, traço ou sublinhado.",
+          "add": "Reservar",
+          "remove": "Retirar {name}"
+        },
+        "blocked": {
+          "title": "Termos bloqueados ({count})",
+          "body": "Lista própria. Soma à LDNOOBW e casa do mesmo jeito.",
+          "add": "Bloquear"
+        },
+        "allowed": {
+          "title": "Termos permitidos ({count})",
+          "body": "Para falso positivo, como um sobrenome. O texto permitido passa pela lista e ainda vai à moderação.",
+          "add": "Permitir"
+        },
+        "ldnoobw": {
+          "title": "LDNOOBW (só leitura)",
+          "body": "Lista de terceiros, licença CC-BY-4.0, nos idiomas da interface do app. Muda só por migration.",
+          "summary": "{count} termos, commit {commit}",
+          "truncated": "Mostrando {shown} de {total}.",
+          "language": "{language}: {count, plural, one {# termo} other {# termos}}"
+        },
+        "errors": {
+          "invalid": "Valor fora do formato. O termo precisa ter de 1 a 150 caracteres, com ao menos uma letra ou número.",
+          "duplicate": "Já está na lista.",
+          "not_found": "Já tinha saído da lista.",
+          "failed": "Não deu para salvar agora. Tente de novo."
+        }
       }
     }
   },

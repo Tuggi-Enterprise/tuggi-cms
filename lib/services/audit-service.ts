@@ -173,6 +173,15 @@ export type AuditAction =
   // Approving creates the partner record with its rate and its commission mark.
   | 'APPROVE_PARTNER_REQUEST'
   | 'REFUSE_PARTNER_REQUEST'
+  // #1144, BR-USUARIO-051 items 1, 5 and 6, BR-USUARIO-050 item 7: the moderation of public names.
+  // No reported value, name or term in the description: ids and the field are enough.
+  | 'DECIDE_PUBLIC_IDENTITY_REPORT'
+  | 'RESET_PUBLIC_IDENTITY'
+  | 'SET_PUBLIC_IDENTITY_LOCK'
+  | 'ADD_RESERVED_PUBLIC_NAME'
+  | 'REMOVE_RESERVED_PUBLIC_NAME'
+  | 'ADD_TEXT_FILTER_TERM'
+  | 'REMOVE_TEXT_FILTER_TERM'
 
 export type AuditEntity = 'USER' | 'POI' | 'AUTH' | 'CLIENT' | 'PARTNER_PROPOSAL' | 'FINANCE'
 
