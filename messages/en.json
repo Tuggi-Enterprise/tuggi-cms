@@ -414,11 +414,11 @@
             "new_by": "New: {use}",
             "new_by_hint": "People who {use} for the first time this month.",
             "screen_minutes": "On screen per active user, average",
-            "screen_minutes_hint": "Foreground app time divided by Google Analytics active users.",
+            "screen_minutes_hint": "Time with the app open in the foreground, with or without the guide, divided by Google Analytics active users.",
             "guide_median": "Guide on, median",
-            "guide_median_hint": "Per person, the sum of ended trips started in the month; half the people were below this.",
+            "guide_median_hint": "From turning the guide on to turning it off, screen on or off. A pause of up to 1 h counts when the guide is turned back on in the same trip. A trip over 8 h is left out. Sum per person of the trips started in the month; half of those who took a trip were below this.",
             "guide_p75": "Guide on, p75",
-            "guide_p75_hint": "Per person, the sum of ended trips started in the month; three in four were below this.",
+            "guide_p75_hint": "From turning the guide on to turning it off, screen on or off. A pause of up to 1 h counts when the guide is turned back on in the same trip. A trip over 8 h is left out. Sum per person of the trips started in the month; three in four of those who took a trip were below this.",
             "sessions_ga4": "Sessions per active user",
             "sessions_ga4_hint": "Sessions divided by Google Analytics active users in the month.",
             "days_1": "1 day",
@@ -430,23 +430,23 @@
             "days_6_plus": "6 days or more",
             "days_6_plus_hint": "People who {use} on 6 days or more of the month, and their share of the active.",
             "returned_next": "Returned the next month",
-            "returned_next_hint": "Share of the month's active who {use} again the next month.",
+            "returned_next_hint": "Share of those who {use} in the month and {use} again the next month.",
             "audio_24h": "New with 1st audio in 24 h",
             "audio_24h_hint": "Base: who took their first trip this month. Share who listened to audio within 24 h of that trip.",
             "audio_7d": "New with 1st audio in 7 days",
             "audio_7d_hint": "Base: who took their first trip this month. Share who listened to audio within 7 days of that trip.",
             "cohort_size": "People in the cohort",
             "cohort_size_hint": "Who took their first trip this month.",
-            "ret_d1": "Returned by day 1",
-            "ret_d7": "Returned by day 7",
-            "ret_d30": "Returned by day 30",
-            "ret_d60": "Returned by day 60",
-            "ret_d90": "Returned by day 90",
-            "ret_hint": "Share of the cohort with another trip on a local day 1 to {days} after the first.",
-            "ret_on_d1": "Returned on day 1",
-            "ret_on_d7": "Returned on day 7",
-            "ret_on_d30": "Returned on day 30",
-            "ret_on_hint": "Share of the cohort with another trip on local day {days} after the first, that day only.",
+            "ret_d1": "Returned by D1",
+            "ret_d7": "Returned by D7",
+            "ret_d30": "Returned by D30",
+            "ret_d60": "Returned by D60",
+            "ret_d90": "Returned by D90",
+            "ret_hint": "Share of the cohort with another trip on any day from D1 to D{days}. D1 is the day after the first trip, Brasília time.",
+            "ret_on_d1": "Returned on D1",
+            "ret_on_d7": "Returned on D7",
+            "ret_on_d30": "Returned on D30",
+            "ret_on_hint": "Share of the cohort with another trip on D{days} exactly. D1 is the day after the first trip, Brasília time. This is the figure market benchmarks use.",
             "second_30": "2nd trip in 30 days",
             "second_60": "2nd trip in 60 days",
             "second_90": "2nd trip in 90 days",
@@ -550,7 +550,9 @@
               "returned_n": "{count} of the {n} who {use} in {month}",
               "returned_n_plain": "of the {n} who {use} in {month}",
               "no_source_bank": "No data: the database does not send this number yet.",
-              "no_source_ga4": "No data: the GA4 query does not return this number yet."
+              "no_source_ga4": "No data: the GA4 query does not return this number yet.",
+              "returned_closes": "closes on {date}",
+              "returned_closes_hint": "The return of {month} is measured over the whole next month. The number appears on {date}."
             },
             "delta_vs": "{delta} vs {month}",
             "delta_flat": "steady",
@@ -625,6 +627,7 @@
               "title": "Purchase funnel",
               "note": "cohort of the month, to date",
               "entered": "Entered",
+              "purchased": "Purchased",
               "purchased_line": "Bought {n} · {pct} of those who entered",
               "part_tested": "tried for free: {n} · {pct}",
               "part_untested": "did not try: {n} · {pct}",
@@ -640,118 +643,31 @@
               "converts_more": "converts more",
               "small_base": "Small base ({a} and {b}): under 30 people, the difference is not a trend.",
               "empty_branch": "nobody in this branch",
-              "sr": "{branch}: {n} people, {bought} bought ({pct})"
+              "sr": "{branch}: {n} people, {bought} bought ({pct})",
+              "purchased_hint": "Of the month's cohort, who made at least one real store purchase, of hours or a subscription, to date. Test purchases do not count."
             },
             "clicks_month_of": "{month}",
-            "delta_new": "new",
-            "delta_new_hint": "Nothing measured in {month}: there is no change to compare.",
-            "delta_closes": "closes on {date}"
+            "delta_none": "no prior month",
+            "delta_none_hint": "{month} has no value for this number, so there is nothing to compare with."
           },
           "n_of": "{count} of {base}",
           "dictionary": {
-            "title": "Dictionary",
+            "title": "How each number is counted",
             "note": "What each line counts and where it comes from",
             "source_ga4": "GA4",
             "source_bank": "Database",
             "source_ga4_hint": "Google Analytics: counts devices and sessions.",
             "source_bank_hint": "Tuggi database: counts people.",
-            "items": {
-              "engaged": {
-                "term": "Engaged people",
-                "definition": "Opened the app and did at least one of these: turned the guide on, opened a place or event card, played a story, asked for directions to a place, event or route, searched this area or used Explore.",
-                "origin": "GA4 totalUsers with an engaged event, or button_clicked with an engaged button"
-              },
-              "active_ga4": {
-                "term": "Active",
-                "definition": "Devices with the app open in the month. Counts devices, not people.",
-                "origin": "GA4 activeUsers"
-              },
-              "use_open": {
-                "term": "Opened the app",
-                "definition": "Opened the app on the local day (Sao Paulo time).",
-                "origin": "drive.app_opens"
-              },
-              "use_trip": {
-                "term": "Started a trip",
-                "definition": "Turned the guide on. The trip counts in the month it started.",
-                "origin": "drive.trip_sessions.start_time"
-              },
-              "use_audio": {
-                "term": "Listened to audio",
-                "definition": "Listened to the audio of a place.",
-                "origin": "drive.poi_visits with audio_played"
-              },
-              "new_by": {
-                "term": "New",
-                "definition": "Did the selected use for the first time this month.",
-                "origin": "the table of the selected use"
-              },
-              "screen_minutes": {
-                "term": "On screen per active user",
-                "definition": "App open in the foreground, with or without the guide, divided by the GA4 active users.",
-                "origin": "GA4 userEngagementDuration per active user"
-              },
-              "guide_time": {
-                "term": "Guide on, median and p75",
-                "definition": "From turning the guide on to turning it off, including screen off time and pauses of up to 1 h when the guide is turned back on in the same trip (BR-AUDIO-018). A trip over 8 h is left out. Median and p75 are among the people who took a trip in the month.",
-                "origin": "drive.trip_sessions.duration"
-              },
-              "guide_fg_bg": {
-                "term": "Guide in foreground and background",
-                "definition": "Over the guide on trips, each beat stands for the time to the next beat of the same trip, at most 120 s, in the state the app was in. Median per person; the background share adds up the time of everyone. Fewer than 5 people with beats: no data.",
-                "origin": "drive.session_heartbeats (app_state)"
-              },
-              "modes": {
-                "term": "Ways of use",
-                "definition": "Distinct people of the month. Only driving: turned the guide on and never opened the app without it. Only exploring: opened the app on a day without the guide, and never turned it on in the month. Both: each of the two in the month.",
-                "origin": "drive.trip_sessions and drive.app_opens"
-              },
-              "sessions_ga4": {
-                "term": "Sessions per active user",
-                "definition": "Sessions divided by the GA4 active users in the month.",
-                "origin": "GA4 sessionsPerUser"
-              },
-              "days": {
-                "term": "Days of use",
-                "definition": "Distinct local days of the month with the selected use, and their share of the active people of that use.",
-                "origin": "the table of the selected use"
-              },
-              "returned_next": {
-                "term": "Returned the next month",
-                "definition": "Share of the active people of the month who did the selected use again the next month. It closes when the next month ends.",
-                "origin": "the table of the selected use"
-              },
-              "activation": {
-                "term": "New with 1st audio in 24 h and 7 days",
-                "definition": "Base: who took their first trip this month. Share who listened to audio within 24 h and within 7 days of that trip.",
-                "origin": "drive.trip_sessions and drive.poi_visits with audio_played"
-              },
-              "cohort_size": {
-                "term": "People in the cohort",
-                "definition": "Who took their first trip this month.",
-                "origin": "drive.trip_sessions"
-              },
-              "ret": {
-                "term": "Returned by day N",
-                "definition": "Share of the cohort with another trip on a local day 1 to N after the first.",
-                "origin": "drive.trip_sessions"
-              },
-              "ret_on": {
-                "term": "Returned on day N",
-                "definition": "Share of the cohort with another trip on local day N after the first, that day only.",
-                "origin": "drive.trip_sessions"
-              },
-              "second": {
-                "term": "2nd trip in N days",
-                "definition": "Share of the cohort with a trip started at least 3 days after the first and less than N days after it.",
-                "origin": "drive.trip_sessions"
-              },
-              "clicks": {
-                "term": "What they tap",
-                "definition": "People and taps per button in the month, grouped by screen. An old screen name adds up on the line of its new name.",
-                "origin": "GA4 button_clicked (eventCount, totalUsers)"
-              }
-            }
+            "col_definition": "What it counts",
+            "col_origin": "Event or table",
+            "col_source": "Source",
+            "note_time": "In the month by month grid, month and day follow Brasília time.",
+            "note_d1": "On D1, \"Returned by\" and \"Returned on\" give the same number, because the window has a single day.",
+            "use_open": "Opened the app: the app was started from scratch. Coming back from the background does not count.",
+            "use_trip": "Started a trip: turned the guide on, which opens a trip.",
+            "use_audio": "Listened to audio: the narration of at least one place played.",
+            "fg_bg": "During a trip the app records a beat every 60 s with the app state: on screen (foreground) or off it (background). Each beat counts until the next one, at most 2 min; the rest of a longer gap does not count. Median per person; the % is of everyone's pooled time.",
+            "clicks": "Taps in the month by screen and button. Rows marked \"not a tap\" are displays or answers to a permission request. Counts devices, not people."
           }
         },
         "content_coverage": {

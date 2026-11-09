@@ -293,3 +293,22 @@ test('#1101 spec C16 item 2: one month for the page; ?month=2026-09 moves the su
   await expect(page.getByTestId('engagement-card_clicks').getByTestId('engagement-clicks-month')).toHaveText('setembro de 2026')
   await expect(page.locator('select')).toHaveCount(3) // the month of the page, platform and account: no second month selector
 })
+
+for (const width of [1440, 390]) {
+  test(`#1154 spec D5 at ${width}: the dictionary prints each line's own label and hint, GA4 with the badge and the bank in dim text, and nothing scrolls sideways`, async ({ mount, page }) => {
+    await page.setViewportSize({ width, height: 1200 })
+    await mount(<Screen months={MONTHS} today={TODAY} bank={BANK} ga4={GA4} />)
+    const dict = page.getByTestId('engagement-dictionary')
+    await expect(dict.getByRole('heading', { name: E.dictionary.title })).toBeVisible()
+    const guide = dict.getByTestId('engagement-dictionary-guide_median')
+    await expect(guide.getByTestId('engagement-dictionary-term')).toHaveText(`${E.summary.tiles.guide_median} · ${E.rows.guide_median}`)
+    await expect(guide).toContainText(E.rows.guide_median_hint)
+    await expect(guide.getByTestId('engagement-dictionary-source')).toContainText(E.dictionary.source_bank)
+    await expect(dict.getByTestId('engagement-dictionary-active_by')).toContainText(E.rows.active_by_hint.replace('{use}', E.use_name.audio))
+    await expect(dict.getByTestId('engagement-dictionary-screen_minutes').getByTestId('engagement-dictionary-source')).toHaveText(new RegExp(`${E.dictionary.source_ga4}$`))
+    await expect(dict.getByTestId('engagement-dictionary-notes')).toContainText(E.dictionary.note_d1)
+    const overflow = await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth)
+    expect(overflow).toBe(0)
+    if (SHOTS) await dict.screenshot({ path: `${SHOTS}/engagement-dictionary-${width}.png` })
+  })
+}

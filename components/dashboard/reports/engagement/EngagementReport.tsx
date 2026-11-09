@@ -429,30 +429,52 @@ export function EngagementReport({
         </>
       )}
 
-      <DictionaryCard k={k} />
+      <DictionaryCard k={k} useName={useName} />
     </div>
   )
 }
 
-/** What each line counts, the event or table it reads, and its source (#1154). */
-function DictionaryCard({ k }: { k: (key: string, values?: Record<string, string | number>) => string }) {
+/**
+ * What each number counts, the event or table it reads, and its source (#1154, spec §D5). The term
+ * and the definition are the line's own keys (`ENGAGEMENT_DICTIONARY`); GA4 wears the same badge as
+ * the lines, the database goes in dim text. From `lg:` the entries line up under four column heads;
+ * below it each entry stacks, so nothing scrolls sideways at 390 (§D5 item 5).
+ */
+function DictionaryCard({ k, useName }: { k: (key: string, values?: Record<string, string | number>) => string; useName: string }) {
   const d = (key: string) => k(`dictionary.${key}`)
+  const ROW = 'lg:grid lg:grid-cols-[13rem_minmax(0,1fr)_15rem_4.5rem] lg:gap-x-6'
   return (
     <div data-testid="engagement-dictionary">
       <WidgetCard>
         <SectionHeader as="h2" title={d('title')} icon={BookOpen} className="flex-wrap gap-2" right={<span className={`text-[11px] text-right ${DIM}`}>{d('note')}</span>} />
-        <dl className="grid grid-cols-1 gap-x-8 gap-y-4 lg:grid-cols-2">
+        <div className={cn('hidden pb-2 border-b border-gray-200 dark:border-gray-800 text-[10px] font-bold uppercase tracking-widest', ROW, DIM)} aria-hidden="true">
+          <span />
+          <span>{d('col_definition')}</span>
+          <span>{d('col_origin')}</span>
+          <span>{d('col_source')}</span>
+        </div>
+        <dl className="divide-y divide-gray-100 dark:divide-gray-800">
           {ENGAGEMENT_DICTIONARY.map((e) => (
-            <div key={e.key} data-testid={`engagement-dictionary-${e.key}`}>
-              <dt className="text-sm font-semibold text-gray-900 dark:text-white">
-                {d(`items.${e.key}.term`)}
-                <Ga4Badge text={d(`source_${e.source}`)} hint={d(`source_${e.source}_hint`)} />
+            <div key={e.key} data-testid={`engagement-dictionary-${e.key}`} className={cn('py-3', ROW)}>
+              <dt className="text-sm font-semibold text-gray-900 dark:text-white" data-testid="engagement-dictionary-term">
+                {e.terms.map((t) => k(t, { use: useName })).join(' · ')}
               </dt>
-              <dd className="mt-0.5 text-xs leading-5 text-gray-700 dark:text-gray-300">{d(`items.${e.key}.definition`)}</dd>
-              <dd className={`mt-0.5 font-mono text-[11px] break-words ${DIM}`}>{d(`items.${e.key}.origin`)}</dd>
+              <dd className="mt-0.5 lg:mt-0 text-xs leading-5 text-gray-700 dark:text-gray-300 first-letter:uppercase">{k(e.definition, { use: useName, ...e.values })}</dd>
+              <dd className={`mt-0.5 lg:mt-0 font-mono text-[11px] leading-5 break-words ${DIM}`}>
+                <span className="lg:sr-only">{d('col_origin')}: </span>
+                {e.origin}
+              </dd>
+              <dd className="mt-0.5 lg:mt-0 text-xs leading-5" data-testid="engagement-dictionary-source">
+                <span className="sr-only">{d('col_source')}: </span>
+                {e.source === 'ga4' ? <Ga4Badge text={d('source_ga4')} hint={d('source_ga4_hint')} /> : <span className={DIM} title={d('source_bank_hint')}>{d('source_bank')}</span>}
+              </dd>
             </div>
           ))}
         </dl>
+        <div className={`mt-3 space-y-1 text-xs ${DIM}`} data-testid="engagement-dictionary-notes">
+          <p>{d('note_time')}</p>
+          <p>{d('note_d1')}</p>
+        </div>
       </WidgetCard>
     </div>
   )

@@ -302,13 +302,24 @@ test('#1154 DS-COMPONENTE-084 item 2: every grid row has a dictionary entry with
   for (const c of grid()) for (const g of c.groups) for (const r of g.rows) {
     assert.deepEqual([...(defined.get(r.key) ?? [])], [r.source], r.key)
   }
-  const messages = (lang: string) => JSON.parse(readFileSync(resolve(process.cwd(), `messages/${lang}.json`), 'utf8')).Pages.Dashboard.reports.engagement.dictionary
+})
+
+test('#1154 spec D5 item 1: each entry prints the keys of its own line, which exist in the three languages; no entry carries a copied definition', () => {
+  const engagement = (lang: string) => JSON.parse(readFileSync(resolve(process.cwd(), `messages/${lang}.json`), 'utf8')).Pages.Dashboard.reports.engagement
+  const at = (o: Record<string, unknown>, path: string) => path.split('.').reduce<unknown>((acc, p) => (acc && typeof acc === 'object' ? (acc as Record<string, unknown>)[p] : undefined), o)
   for (const lang of ['en', 'pt', 'es']) {
+    const m = engagement(lang)
     for (const e of ENGAGEMENT_DICTIONARY) {
-      const item = messages(lang).items[e.key]
-      assert.ok(item?.term && item?.definition && item?.origin, `${lang} ${e.key}`)
+      for (const key of [...e.terms, e.definition]) assert.equal(typeof at(m, key), 'string', `${lang} ${e.key} ${key}`)
     }
+    assert.equal(m.dictionary.items, undefined, `${lang}: the copied definitions of the first version are gone`)
   }
+  // a grid row's definition is the hint that row already carries
+  for (const e of ENGAGEMENT_DICTIONARY) for (const r of e.rows) {
+    if (/^(ret|ret_on|second)_/.test(r)) continue
+    if (e.rows.length === 1) assert.equal(e.definition, `rows.${r}_hint`, e.key)
+  }
+  assert.deepEqual(new Set(ENGAGEMENT_DICTIONARY.map((e) => e.key)).size, ENGAGEMENT_DICTIONARY.length)
 })
 
 test('#1154 BR-COMUNICACAO-022 item 4: "returned on day N" is no data while the function does not send retention_on, never 0; sent, it prints with its n', () => {
