@@ -299,18 +299,32 @@ test.describe('#409 — the QR card at 390px', () => {
     expect(box?.width).toBeGreaterThanOrEqual(220)
   })
 
-  test('a device with no file share sheet still gets the download', async ({ mount, page }) => {
+  test('#1147 BR-B2B-037 items 1 and 2: lookup only, the QR is of tuggi.app/@slug and the Portal issues it', async ({ mount, page }) => {
     await mount(
       <Wrapper>
         <ClientQrCode clientId="11111111-1111-1111-1111-111111111111" slug="pao-do-edu" />
       </Wrapper>
     )
 
-    // Headless Chromium exposes no `navigator.canShare` for files, which is the branch every
-    // desktop browser also takes: the share button is absent and the download is the primary
-    // act. The path out of this card exists at every capability level — that is the assertion.
-    await expect(page.getByRole('button', { name: QR.share })).toHaveCount(0)
-    await expect(page.getByRole('button', { name: QR.downloadPng })).toBeVisible()
+    // The canvas is named by the value it encodes (`aria-label={finalUrl}`, `value={finalUrl}`).
+    await expect(page.locator('canvas')).toHaveAttribute('aria-label', 'https://www.tuggi.app/@pao-do-edu')
+    await expect(page.getByText('https://www.tuggi.app/@pao-do-edu')).toBeVisible()
+    await expect(page.getByText('/d/')).toHaveCount(0)
+    // The CMS no longer issues the QR: no download, copy nor share; the partner gets it in the Portal.
+    await expect(page.getByRole('button')).toHaveCount(0)
+    await expect(page.getByRole('link', { name: QR.portalLink })).toHaveAttribute('href', 'https://partner.tuggi.app')
+  })
+
+  test('#1147 BR-B2B-037 item 1: without a slug there is no /@ address, so no QR and no legacy link', async ({ mount, page }) => {
+    await mount(
+      <Wrapper>
+        <ClientQrCode clientId="11111111-1111-1111-1111-111111111111" />
+      </Wrapper>
+    )
+
+    await expect(page.getByText(QR.noSlugWarning)).toBeVisible()
+    await expect(page.locator('canvas')).toHaveCount(0)
+    await expect(page.getByText('/download?ID=')).toHaveCount(0)
   })
 })
 

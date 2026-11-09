@@ -247,7 +247,7 @@ export function CoordinatorOverview() {
                               </span>
                             )}
                           </div>
-                          {c.slug && <span className="font-mono text-[10px] text-gray-400">/d/{c.slug}</span>}
+                          {c.slug && <span className="font-mono text-[10px] text-gray-400">/@{c.slug}</span>}
                         </td>
                         <td className="px-2 py-3 text-right font-bold text-gray-900 dark:text-white">{c.signups}</td>
                         <td className="px-2 py-3 text-right text-gray-600 dark:text-gray-300">{c.mau_30d}</td>
@@ -336,7 +336,7 @@ export function CoordinatorOverview() {
           Dados agregados e anônimos — sem informações pessoais dos usuários finais.
         </p>
         <p className="font-mono">
-          Tuggi · Programa de afiliados{selectedRoot?.slug ? ` · /d/${selectedRoot.slug}` : ''}
+          Tuggi · Programa de afiliados{selectedRoot?.slug ? ` · /@${selectedRoot.slug}` : ''}
         </p>
       </footer>
 

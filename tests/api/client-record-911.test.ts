@@ -39,8 +39,9 @@ const SPEC_TABLE: Record<string, string> = {
   'Clients.editor.tabs.people': 'Pessoas',
   'Clients.editor.tabs.afterSave': 'Disponível depois de salvar',
   'Clients.profile.qr.title': 'Link público e QR',
-  'Clients.profile.qr.subtitle': 'Para imprimir em banner, voucher e cartão.',
-  'Clients.profile.fields.slug': 'Slug (endereço /d/…)',
+  // #1147: the CMS no longer issues the QR for printing; the card is lookup only and points to the Portal.
+  'Clients.profile.qr.subtitle': 'Só para consulta. O parceiro baixa o QR e o kit no Portal Locais.',
+  'Clients.profile.fields.slug': 'Slug (endereço /@…)',
   'Clients.profile.sections.attribution': 'Aparência no app',
   'Clients.profile.sections.attributionEmpty': 'Aparência no app: avatar, @ e bio (vazio)',
   'Clients.profile.material.help': 'O primeiro pedido vem da proposta. Reposição se registra aqui.',

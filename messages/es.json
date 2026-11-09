@@ -3648,7 +3648,7 @@
         "companyName": "Razón social",
         "email": "Email principal",
         "phone": "Teléfono",
-        "slug": "Slug (dirección /d/…)",
+        "slug": "Slug (dirección /@…)",
         "slugAutoPlaceholder": "generado automáticamente",
         "website": "Sitio web",
         "industry": "Industria",
@@ -3677,15 +3677,11 @@
       },
       "qr": {
         "title": "Enlace público y QR",
-        "subtitle": "Para imprimir en banner, voucher y tarjeta.",
+        "subtitle": "Solo para consulta. El socio descarga el QR y el kit en el Portal Locales.",
         "targetUrl": "URL destino",
-        "noSlugWarning": "Sin slug definido — el QR usará el fallback legado /download?ID={id}. Define un slug arriba para una URL amigable /d/'{slug}'.",
-        "scanLabel": "Escanea para atribuir descargas",
-        "downloadPng": "Descargar PNG",
-        "copyImage": "Copiar imagen",
-        "copied": "Copiado",
-        "legacyLink": "Legado: /download?ID={id} (aún funciona)",
-        "share": "Compartir"
+        "noSlugWarning": "Sin slug, el socio no tiene dirección tuggi.app/@ ni QR. Define un slug arriba.",
+        "scanLabel": "Escanea para comprobar",
+        "portalLink": "Abrir el Portal Locales"
       }
     },
     "fiscal": {

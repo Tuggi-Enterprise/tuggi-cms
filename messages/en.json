@@ -3666,7 +3666,7 @@
         "companyName": "Legal name",
         "email": "Primary email",
         "phone": "Phone",
-        "slug": "Slug (address /d/…)",
+        "slug": "Slug (address /@…)",
         "slugAutoPlaceholder": "auto-generated",
         "website": "Website",
         "industry": "Industry",
@@ -3695,15 +3695,11 @@
       },
       "qr": {
         "title": "Public link and QR",
-        "subtitle": "For printing on banners, vouchers and cards.",
+        "subtitle": "For lookup only. The partner downloads the QR and the kit in the Places portal.",
         "targetUrl": "Target URL",
-        "noSlugWarning": "No slug set — the QR will use the legacy /download?ID={id} fallback. Set a slug above for a friendly /d/'{slug}' URL.",
-        "scanLabel": "Scan to attribute downloads",
-        "downloadPng": "Download PNG",
-        "copyImage": "Copy image",
-        "copied": "Copied",
-        "legacyLink": "Legacy: /download?ID={id} (still works)",
-        "share": "Share"
+        "noSlugWarning": "Without a slug the partner has no tuggi.app/@ address and no QR. Set a slug above.",
+        "scanLabel": "Scan to check",
+        "portalLink": "Open the Places portal"
       }
     },
     "fiscal": {

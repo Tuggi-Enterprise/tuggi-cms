@@ -175,9 +175,9 @@ test.describe('#911 §8 — Perfil', () => {
       'Aparência no app',
     ])
     const card = (title: string) => main(page).locator('section, div.rounded-3xl', { has: page.locator('h2', { hasText: title }) }).first()
-    await expect(card('Link público e QR').getByLabel('Slug (endereço /d/…)')).toHaveValue('bar-do-ze')
+    await expect(card('Link público e QR').getByLabel('Slug (endereço /@…)')).toHaveValue('bar-do-ze')
     await expect(card('Identidade').getByLabel('Tipo de relação')).toBeVisible()
-    await expect(card('Link público e QR').getByText('Para imprimir em banner, voucher e cartão.')).toBeVisible()
+    await expect(card('Link público e QR').getByText('Só para consulta. O parceiro baixa o QR e o kit no Portal Locais.')).toBeVisible()
   })
 
   test('item 6: with no avatar, @ nor bio, "Aparência no app" is a closed <details>', async ({ mount, page }) => {
@@ -203,7 +203,7 @@ test.describe('#911 §8 — Perfil', () => {
     await mockRecord(page)
     await mount(<ClientRecordModal />)
     await expect(titles(page)).toHaveText(['Identidade', 'Endereço', 'Link público e QR'])
-    await expect(main(page).getByLabel('Slug (endereço /d/…)')).toBeVisible()
+    await expect(main(page).getByLabel('Slug (endereço /@…)')).toBeVisible()
     await expect(main(page).locator('canvas')).toHaveCount(0)
   })
 })
