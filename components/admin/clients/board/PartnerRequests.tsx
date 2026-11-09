@@ -5,7 +5,10 @@
  * (#1139, BR-B2B-066 items 2 and 5, BR-USUARIO-052 item 4.d).
  *
  * Only requests with the acceptance reach it (the database filters). The repeated document is
- * NOT refused (5.a): it arrives marked, and the curator sees the mark before deciding. Approving
+ * NOT refused (5.a): it arrives marked, and the curator sees the mark before deciding. The record
+ * another account also points at arrives marked too (`record_shared`, contract §4.2): approving
+ * it would hand that record's fiscal data to whoever asked, so the database refuses until a person
+ * unlinks the other accounts. Approving
  * and refusing are the RPCs of the contract, through the admin routes; the rate the approval
  * writes is read back from the database and never declared here (BR-MONETIZACAO-039 item 6.c).
  *
@@ -19,6 +22,7 @@ import { Button } from '@/components/ui/button'
 import { formatDate } from '@/components/admin/partner-proposals/format'
 import {
   REFUSAL_REASON_MAX,
+  approvalKeepsRequest,
   formatDocument,
   publishesHref,
   refusalReasonOf,
@@ -159,6 +163,14 @@ export function PartnerRequestsQueue({ requests, status, busyId, notice, onAppro
                           )}
                           {request.existingClientId && (
                             <p className="mt-1 text-xs text-gray-700 dark:text-gray-300">{t('completes')}</p>
+                          )}
+                          {request.recordShared && (
+                            <p className="mt-1 inline-block rounded-lg bg-amber-100 px-2 py-0.5 text-xs font-semibold text-amber-900 dark:bg-amber-900 dark:text-amber-100">
+                              {t('recordShared')}
+                            </p>
+                          )}
+                          {request.recordShared && (
+                            <p className="mt-1 max-w-[16rem] text-xs text-gray-700 dark:text-gray-300">{t('recordSharedHint')}</p>
                           )}
                         </td>
                         <td className={CELL}>
@@ -341,8 +353,8 @@ export function PartnerRequestsBand({ onDecided }: { onDecided?: () => void }) {
         } else {
           setNotice({ tone: 'error', text: t(`outcomes.${outcome.kind}`) })
         }
-        // `document_in_use` keeps the request in the queue; everything else left it.
-        if (outcome.kind !== 'document_in_use') await load()
+        // `document_in_use` and `record_shared` keep the request in the queue; everything else left it.
+        if (outcome.kind === 'refused' || !approvalKeepsRequest(outcome)) await load()
       } catch {
         setNotice({ tone: 'error', text: t('outcomes.failed') })
       } finally {

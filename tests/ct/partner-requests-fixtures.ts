@@ -26,6 +26,7 @@ export const RPC_ROWS = [
     terms_version: 'parceiros-sem-local-2026-11-v2',
     document_in_use: false,
     existing_client_id: '33333333-3333-4333-8333-333333333333',
+    record_shared: false,
   },
   {
     request_id: 13,
@@ -47,6 +48,7 @@ export const RPC_ROWS = [
     terms_version: 'parceiros-sem-local-2026-11-v2',
     document_in_use: true,
     existing_client_id: null,
+    record_shared: false,
   },
   {
     request_id: 14,
@@ -68,6 +70,7 @@ export const RPC_ROWS = [
     terms_version: 'parceiros-sem-local-2026-11-v2',
     document_in_use: false,
     existing_client_id: null,
+    record_shared: false,
   },
 ]
 

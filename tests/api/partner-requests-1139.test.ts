@@ -12,6 +12,7 @@
  *  · refusing a repeated document before the curator sees it (the row must arrive marked);
  *  · calling the refusal RPC without a reason, or logging the reason;
  *  · answering `document_in_use` as a success, or as a 503;
+ *  · answering `record_shared` as a success or a failure, or dropping its mark from the row (#1137 D16);
  *  · the queue route opened to a non-admin role or cached.
  *
  * Run with: npm run test:api
@@ -185,6 +186,22 @@ test('BR-B2B-066 5.a: document_in_use is an answer (200), nothing is audited, an
   assert.equal(audits.length, 0)
 })
 
+test('contract §4.2 record_shared: another account points at the record, so it is an answer (200), nothing is audited, and the request stays', async () => {
+  answers.approve_partner_request_as = {
+    data: { request_id: 12, status: 'in_review', changed: false, reason: 'record_shared', client_id: null, partner_code: null, commission_rate: null },
+    error: null,
+  }
+  const res = await approvePOST(post({}), params('12'), AUTH)
+  assert.equal(res.status, 200)
+  const { outcome } = (await res.json()) as { outcome: import('@/lib/partner-requests/queue').ApprovalOutcome }
+  assert.deepEqual(outcome, { kind: 'record_shared' })
+  assert.equal(audits.length, 0)
+  assert.equal(queue.approvalKeepsRequest(outcome), true, 'the band does not reload it out of the queue')
+  assert.equal(queue.approvalKeepsRequest({ kind: 'document_in_use' }), true)
+  assert.equal(queue.approvalKeepsRequest({ kind: 'not_in_review' }), false)
+  assert.equal(queue.approvalKeepsRequest({ kind: 'approved', clientId: CLIENT, partnerCode: null, commissionRate: null }), false)
+})
+
 test('an already decided request answers not_in_review; an unknown one is 404; a bad id never reaches the RPC', async () => {
   answers.approve_partner_request_as = {
     data: { request_id: 12, status: 'approved', changed: false, reason: 'not_in_review', client_id: CLIENT, partner_code: null, commission_rate: null },
@@ -269,6 +286,18 @@ test('BR-B2B-066 5.a: the queue shows the type, the document and the mark of the
   assert.ok(html.includes('parceiros-sem-local-2026-11-v2'))
   assert.ok(html.includes('08/11/2026'))
   assert.equal(html.split('>Aprovar<').length - 1, 3)
+})
+
+test('contract §4.1 record_shared: only the shared record is marked, with what the curator does about it', () => {
+  const rows = queue.parsePartnerRequestRows([{ ...RPC_ROWS[0], record_shared: true }, RPC_ROWS[1], { ...RPC_ROWS[2], record_shared: undefined }])
+  assert.deepEqual(rows?.map((r) => r.recordShared), [true, false, false], 'absent is false, never a guess')
+  const html = render({ requests: rows ?? [] })
+  assert.equal(html.split('Outra conta também usa este cadastro').length - 1, 1)
+  assert.equal(html.split('desvincule as outras contas e aprove de novo, ou recuse com motivo').length - 1, 1)
+  assert.equal(render().split('Outra conta também usa este cadastro').length - 1, 0)
+
+  const messages = JSON.parse(readFileSync(resolve(ROOT, 'messages/pt.json'), 'utf8'))
+  assert.match(messages.Clients.board.requests.outcomes.record_shared, /Desvincule as outras contas e aprove de novo, ou recuse com motivo/)
 })
 
 test('an empty or failed queue says so', () => {

@@ -16,8 +16,8 @@ import { RPC_ROWS, REQUESTS } from './partner-requests-fixtures'
 
 const CAPTURE = process.env.CT_CAPTURE_DIR
 
-async function serveQueue(page: Page, posts: { url: string; body: unknown }[]) {
-  let rows = [...REQUESTS]
+async function serveQueue(page: Page, posts: { url: string; body: unknown }[], sharedId?: number) {
+  let rows = REQUESTS.map((row) => ({ ...row, recordShared: row.requestId === sharedId }))
   await page.route('**/api/admin/partner-requests', (route: Route) =>
     route.fulfill({ json: { requests: rows } })
   )
@@ -27,6 +27,9 @@ async function serveQueue(page: Page, posts: { url: string; body: unknown }[]) {
     const id = Number(url.split('/').slice(-2)[0])
     if (url.endsWith('/approve') && id === 13) {
       return route.fulfill({ json: { outcome: { kind: 'document_in_use' } } })
+    }
+    if (url.endsWith('/approve') && id === sharedId) {
+      return route.fulfill({ json: { outcome: { kind: 'record_shared' } } })
     }
     rows = rows.filter((row) => row.requestId !== id)
     if (url.endsWith('/approve')) {
@@ -76,6 +79,19 @@ test('#1139 BR-B2B-066 5.a: the repeated document is not approved and stays in t
   await component.getByRole('row', { name: /Viaja Rio/ }).getByRole('button', { name: 'Aprovar' }).click()
   await expect(component.getByRole('status')).toContainText('o documento já é de outro parceiro')
   await expect(component.getByText('3 pedidos esperando decisão')).toBeVisible()
+})
+
+test('#1139 contract §4.2 record_shared: the shared record is marked, not approved, and the request stays', async ({ mount, page }) => {
+  await page.setViewportSize({ width: 1440, height: 900 })
+  await serveQueue(page, [], 12)
+  const component = await mount(<PartnerRequestsBandHarness />)
+
+  const row = component.getByRole('row', { name: /Ana Souza/ })
+  await expect(row.getByText('Outra conta também usa este cadastro')).toBeVisible()
+  await row.getByRole('button', { name: 'Aprovar' }).click()
+  await expect(component.getByRole('status')).toContainText('Desvincule as outras contas e aprove de novo, ou recuse com motivo.')
+  await expect(component.getByText('3 pedidos esperando decisão')).toBeVisible()
+  if (CAPTURE) await page.screenshot({ path: `${CAPTURE}/fila-cadastro-compartilhado-1440.png`, fullPage: true })
 })
 
 test('#1139 BR-USUARIO-052 4.d: refusing needs a reason and sends it', async ({ mount, page }) => {

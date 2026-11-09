@@ -6,8 +6,8 @@
  * item 6, declared only in `drive.approve_partner_request_as`) and the commission mark. This route
  * declares no rate and writes nothing but the audit row.
  *
- * `document_in_use` and `not_in_review` are answers, not failures: 200 with the outcome, and the
- * screen says what to do. Only an unknown request (404) or a failed call (503) is an error.
+ * `document_in_use`, `record_shared` and `not_in_review` are answers, not failures: 200 with the
+ * outcome, and the screen says what to do. Only an unknown request (404) or a failed call (503) is an error.
  */
 
 import { NextResponse } from 'next/server'

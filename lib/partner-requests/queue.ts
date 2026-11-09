@@ -4,10 +4,11 @@
  * `docs/contracts/parceiro-sem-local.md` §4.
  *
  * The database decides everything: who is in the queue (only with the acceptance), whether the
- * document is already another partner's (`document_in_use`, 5.a), the default rate of the record
- * (BR-MONETIZACAO-039 item 6, declared only in `drive.approve_partner_request_as`) and the mark of
- * the commission. This module only reads the three answers and formats what the curator sees.
- * No rate is declared here.
+ * document is already another partner's (`document_in_use`, 5.a), whether the record the approval
+ * would complete has another account linked to it (`record_shared`, contract §4.2), the default
+ * rate of the record (BR-MONETIZACAO-039 item 6, declared only in `drive.approve_partner_request_as`)
+ * and the mark of the commission. This module only reads the three answers and formats what the
+ * curator sees. No rate is declared here.
  *
  * Pure: the routes, the screen and the tests read it alike.
  */
@@ -42,6 +43,11 @@ export interface PartnerRequestRow {
   documentInUse: boolean
   /** The record the approval completes (migrated creator, old app driver), or `null` = creates one. */
   existingClientId: string | null
+  /**
+   * Contract §4.1: another account also points at `existingClientId`. The approval answers
+   * `record_shared` and changes nothing until a person sorts out who owns the record (§4.2).
+   */
+  recordShared: boolean
 }
 
 function text(value: unknown): string | null {
@@ -87,6 +93,7 @@ export function parsePartnerRequestRows(data: unknown): PartnerRequestRow[] | nu
       termsVersion: text(r.terms_version),
       documentInUse: r.document_in_use === true,
       existingClientId: text(r.existing_client_id),
+      recordShared: r.record_shared === true,
     })
   }
   return rows
@@ -125,6 +132,7 @@ export function publishesHref(publishesAt: string | null): string | null {
 export type ApprovalOutcome =
   | { kind: 'approved'; clientId: string; partnerCode: string | null; commissionRate: number | null }
   | { kind: 'document_in_use' }
+  | { kind: 'record_shared' }
   | { kind: 'not_in_review' }
 
 export function readApprovalOutcome(data: unknown): ApprovalOutcome | null {
@@ -140,8 +148,17 @@ export function readApprovalOutcome(data: unknown): ApprovalOutcome | null {
     }
   }
   if (r.reason === 'document_in_use') return { kind: 'document_in_use' }
+  if (r.reason === 'record_shared') return { kind: 'record_shared' }
   if (r.reason === 'not_in_review') return { kind: 'not_in_review' }
   return null
+}
+
+/**
+ * The answers that leave the request in the queue: a person has to act on the other record (or
+ * the other accounts) first, or refuse with a reason.
+ */
+export function approvalKeepsRequest(outcome: ApprovalOutcome): boolean {
+  return outcome.kind === 'document_in_use' || outcome.kind === 'record_shared'
 }
 
 /** What a refusal answered (`drive.refuse_partner_request_as`, contract §4.3). */
