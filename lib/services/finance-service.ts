@@ -37,7 +37,7 @@ import {
 } from '@/lib/finance/cost-taxonomy'
 import type { PartnerMixRow, PassPrice } from '@/lib/finance/overview'
 import type { BillingStart } from '@/lib/finance/billing'
-import { parseRcEvent, withProfilePartners, type RcEvent } from '@/lib/finance/app-revenue'
+import { parseRcEvent, withProfilePartners, type CommissionWindow, type RcEvent } from '@/lib/finance/app-revenue'
 import {
   PENDING_KINDS,
   receivedByClient,
@@ -2101,6 +2101,36 @@ export async function loadRcEvents(limit = 5000): Promise<RcEvent[] | null> {
 }
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
+
+/**
+ * The window of the apuração of each partner that has one (`partner.get_commission_starts`,
+ * BR-B2B-066 item 6, #1139), or `null` when the read failed.
+ *
+ * `null` and not an empty map: without the windows every purchase made before the approval of a
+ * creator, influencer or driver would enter the commission, and that error falls on the side of
+ * paying a debt nobody owes.
+ */
+export async function loadCommissionWindows(
+  partnerIds: readonly string[]
+): Promise<Map<string, CommissionWindow> | null> {
+  const windows = new Map<string, CommissionWindow>()
+  const ids = Array.from(new Set(partnerIds)).filter((id) => UUID_RE.test(id))
+  for (const batch of chunk(ids)) {
+    const { data, error } = await getSupabaseService()
+      .schema('partner')
+      .rpc('get_commission_starts', { p_client_ids: batch })
+    if (error) return null
+    for (const row of (data ?? []) as {
+      client_id: string
+      counts_from: string | null
+      excluded_reason: string | null
+    }[]) {
+      if (!row.counts_from && !row.excluded_reason) continue
+      windows.set(row.client_id, { countsFrom: row.counts_from ?? null, excludedReason: row.excluded_reason ?? null })
+    }
+  }
+  return windows
+}
 
 /**
  * A taxa de comissão de cada parceiro, como fração.
