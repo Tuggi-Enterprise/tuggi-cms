@@ -9,6 +9,7 @@ import { WidgetCard, SectionHeader } from '@/components/dashboard/WidgetCard'
 import { RankRow } from '@/components/dashboard/reports/acquisition/RankRow'
 import { Ga4Badge, MonthGrid, type MonthGridCell, type MonthGridGroup } from '@/components/dashboard/reports/engagement/MonthGrid'
 import { EngagementSummary, HEAT_TONES } from '@/components/dashboard/reports/engagement/EngagementSummary'
+import { EngagementQuestions } from '@/components/dashboard/reports/engagement/EngagementQuestions'
 import { CardError } from '@/components/admin/social/shared'
 import { Button } from '@/components/ui/button'
 import { Select } from '@/components/ui/select'
@@ -28,6 +29,7 @@ import { ENGAGEMENT_DICTIONARY } from '@/lib/engagement/dictionary'
 import { cohortCurve, heatStep } from '@/lib/engagement/summary'
 import type { ConversionFunnel } from '@/lib/conversion/funnel'
 import type { FreeMinutesHistogram } from '@/lib/engagement/free-minutes'
+import type { UsageReport } from '@/lib/engagement/usage'
 import {
   ENGAGEMENT_USES,
   ga4Filterable,
@@ -42,8 +44,8 @@ import {
 /**
  * The Engagement and conversion report (#1094, #1101, spec-cms-relatorio-engajamento-2026-11).
  * Presentational: the page owns the URL and the queries, this owns the screen, so the CT bench
- * mounts it with a fixture. No `recharts` here: the grid is a table, the funnels are CSS bands and
- * the clicks are `RankRow`.
+ * mounts it with a fixture. No static `recharts` here: the question blocks (#1161) load their charts
+ * through `next/dynamic`; the grid is a table and the clicks are `RankRow`.
  */
 export interface EngagementReportProps {
   use: EngagementUse
@@ -71,6 +73,10 @@ export interface EngagementReportProps {
   freeMinutes?: FreeMinutesHistogram | null
   freeMinutesFailed: boolean
   onFreeMinutesRetry: () => void
+  /** `drive.cms_get_usage_monthly` (#1161); a failed read (also before the migration) fails only its blocks. */
+  usage?: UsageReport
+  usageFailed: boolean
+  onUsageRetry: () => void
   isFetching: boolean
   /** The four all-time blocks of before (platform, top POIs, language, cities), untouched. */
   allTime?: ReactNode
@@ -90,6 +96,9 @@ function monthHeader(month: string, locale: string): string {
 
 const monthLong = (month: string, locale: string) =>
   new Date(`${month}-15T12:00:00Z`).toLocaleDateString(locale, { month: 'long', year: 'numeric', timeZone: 'UTC' })
+
+/** The month by name alone ("outubro"), for the answer sentences (copy §0). */
+const monthName = (month: string, locale: string) => new Date(`${month}-15T12:00:00Z`).toLocaleDateString(locale, { month: 'long', timeZone: 'UTC' })
 
 /** The text input of a free filter: written to the URL on Enter or blur, not on every key. */
 function TextFilter({
@@ -152,6 +161,9 @@ export function EngagementReport({
   freeMinutes,
   freeMinutesFailed,
   onFreeMinutesRetry,
+  usage,
+  usageFailed,
+  onUsageRetry,
   isFetching,
   allTime,
 }: EngagementReportProps) {
@@ -262,6 +274,11 @@ export function EngagementReport({
     [months, today, use, bank, bankFailed, ga4, ga4Failed, ga4Filtered, month]
   )
 
+  const questionsInput = useMemo(
+    () => ({ month, months, today, bank, bankFailed, ga4, ga4Failed, ga4Filtered, usage, usageFailed, conversion, conversionFailed, filtered: hasFilters(filters) }),
+    [month, months, today, bank, bankFailed, ga4, ga4Failed, ga4Filtered, usage, usageFailed, conversion, conversionFailed, filters]
+  )
+
   const notice = (card: GridCard) => {
     const hasGa4 = card.groups.some((g) => g.rows.some((r) => r.source === 'ga4'))
     return (
@@ -299,6 +316,21 @@ export function EngagementReport({
       </div>
 
       <div className="flex flex-wrap items-center gap-3">
+        <label className="w-full md:w-auto">
+          <span className="sr-only">{k('summary.month_label')}</span>
+          <select
+            data-testid="summary-month"
+            value={month}
+            onChange={(e) => onMonthChange(e.target.value)}
+            className="w-full rounded-xl border border-gray-200 bg-white px-4 py-2.5 text-sm font-bold text-gray-900 shadow-sm dark:border-gray-700 dark:bg-gray-900 dark:text-white md:w-auto"
+          >
+            {[...months].reverse().map((m) => (
+              <option key={m} value={m}>
+                {m === current ? `${monthLong(m, locale)} (${k('until_today')})` : monthLong(m, locale)}
+              </option>
+            ))}
+          </select>
+        </label>
         <div className="max-w-full overflow-x-auto">
           <ReportTabs
             tabs={ENGAGEMENT_USES.map((u) => ({ key: u, label: k(`use_${u}`) }))}
@@ -358,27 +390,36 @@ export function EngagementReport({
         {isFetching && <span className={`text-[11px] uppercase tracking-widest ${DIM}`}>{k('updating')}</span>}
       </div>
 
-      <EngagementSummary
+      <EngagementQuestions
         k={k}
         locale={locale}
+        input={questionsInput}
+        monthHeader={(m) => monthHeader(m, locale)}
+        monthShort={(m) => monthHeader(m, locale).split(' ')[0]}
+        monthName={(m) => monthName(m, locale)}
+        day={day}
+        onBankRetry={onBankRetry}
+        onGa4Retry={onGa4Retry}
+        onUsageRetry={onUsageRetry}
+        onConversionRetry={onConversionRetry}
+        onClearFilters={() => onFiltersChange(NO_FILTERS)}
+        ga4BadgeHint={ga4Filtered ? k('ga4_filter_hint') : k('ga4_badge_hint')}
+      />
+
+      <EngagementSummary
+        k={k}
         fmt={fmt}
         input={summaryInput}
         useName={useName}
-        onMonthChange={onMonthChange}
         cellTitle={cellTitle}
         monthHeader={(m) => monthHeader(m, locale)}
-        monthShort={(m) => monthHeader(m, locale).split(' ')[0]}
         monthLong={(m) => monthLong(m, locale)}
-        day={day}
         onBankRetry={onBankRetry}
         onGa4Retry={onGa4Retry}
         ga4BadgeHint={ga4Filtered ? k('ga4_filter_hint') : k('ga4_badge_hint')}
         heatGroups={heatGroups}
         heatMonths={columns}
         curve={cohortCurve(afterFirst)}
-        conversion={conversion}
-        conversionFailed={conversionFailed}
-        onConversionRetry={onConversionRetry}
         freeMinutes={freeMinutes}
         freeMinutesFailed={freeMinutesFailed}
         onFreeMinutesRetry={onFreeMinutesRetry}

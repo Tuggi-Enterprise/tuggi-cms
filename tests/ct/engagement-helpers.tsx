@@ -3,6 +3,7 @@ import { EngagementReport } from '@/components/dashboard/reports/engagement/Enga
 import type { EngagementBankReport, EngagementFilters, EngagementGa4Report, EngagementUse } from '@/lib/engagement/report'
 import type { ConversionFunnel } from '@/lib/conversion/funnel'
 import type { FreeMinutesHistogram } from '@/lib/engagement/free-minutes'
+import type { UsageReport } from '@/lib/engagement/usage'
 import { summaryMonthOf } from '@/lib/engagement/summary'
 import { Sparkline } from '@/components/ui/Sparkline'
 import ptMessages from '@/messages/pt.json'
@@ -26,6 +27,9 @@ export function EngagementHarness(props: {
   /** `null` = the function is not deployed; absent = loading. */
   freeMinutes?: FreeMinutesHistogram | null
   freeMinutesFailed?: boolean
+  /** `drive.cms_get_usage_monthly` (#1161); absent = loading. */
+  usage?: UsageReport
+  usageFailed?: boolean
   /** Called with the filters the screen asks for (clear filters). */
   onFiltersChange?: (f: EngagementFilters) => void
 }) {
@@ -52,6 +56,9 @@ export function EngagementHarness(props: {
         freeMinutes={props.freeMinutes}
         freeMinutesFailed={!!props.freeMinutesFailed}
         onFreeMinutesRetry={() => {}}
+        usage={props.usage}
+        usageFailed={!!props.usageFailed}
+        onUsageRetry={() => {}}
         isFetching={false}
         allTime={props.allTime ? <div data-testid="engagement-all-time" className="h-24 rounded-2xl border border-gray-200 bg-white" /> : undefined}
       />

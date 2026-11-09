@@ -104,8 +104,8 @@ test('spec §11 item 7: under a source filter the GA4 rows say GA4 has no such f
   await expect(cellOf(page, 'active_ga4', 1)).toHaveAttribute('title', E.cell_ga4_filter)
   await expect(cellOf(page, 'active_by', 1)).toHaveText('204')
   await expect(page.getByTestId('engagement-card_clicks').getByText(E.ga4_filter_hint, { exact: true })).toBeVisible()
-  // the bar's, one in each funnel card (#1101) and one in the free minutes card (#1156), which refuse any filter
-  await expect(page.getByRole('button', { name: E.clear_filters })).toHaveCount(4)
+  // the bar's, the bank half of the purchase funnel (#1161) and the free minutes card (#1156), which refuse any filter
+  await expect(page.getByRole('button', { name: E.clear_filters })).toHaveCount(3)
 })
 
 test('spec §11 item 8: bank down and GA4 down keep the table, mark their own cells and offer a retry per card', async ({ mount, page }) => {
@@ -115,8 +115,8 @@ test('spec §11 item 8: bank down and GA4 down keep the table, mark their own ce
   await expect(cellOf(page, 'active_ga4', 1)).toHaveAttribute('title', E.cell_ga4_failed)
   // one on top of the summary (#1099) and one per grid card of the detail
   await expect(page.getByText(E.bank_failed, { exact: true })).toHaveCount(3)
-  // the summary, two grid cards with GA4 rows, plus the clicks card
-  await expect(page.getByText(E.ga4_failed, { exact: true })).toHaveCount(4)
+  // the summary, the GA4 purchase funnel (#1161), two grid cards with GA4 rows, plus the clicks card
+  await expect(page.getByText(E.ga4_failed, { exact: true })).toHaveCount(5)
   await expect(page.locator('td').filter({ hasText: /^0$/ })).toHaveCount(0)
   if (SHOTS) await page.screenshot({ path: `${SHOTS}/engagement-1440-failed.png`, fullPage: true })
 })
