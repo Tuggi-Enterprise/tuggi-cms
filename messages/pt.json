@@ -4290,7 +4290,54 @@
         "publish_portal_place": "Local publicado.",
         "publish_guide_profile": "Perfil publicado."
       },
-      "dismissRefusal": "Dispensar este aviso"
+      "dismissRefusal": "Dispensar este aviso",
+      "requests": {
+        "title": "Pedidos de parceiro pelo app",
+        "count": "{count, plural, one {# pedido esperando decisão} other {# pedidos esperando decisão}}",
+        "body": "Criador, influencer e motorista que já aceitaram o termo. Confira o documento e decida. Aprovar cria o cadastro de parceiro com o código e a comissão padrão do documento, que você edita depois na aba Fiscal & Pagamentos.",
+        "loading": "Carregando os pedidos…",
+        "failed": "Não deu para ler os pedidos. Recarregue a página.",
+        "empty": "Nenhum pedido esperando decisão.",
+        "columns": {
+          "type": "Tipo",
+          "person": "Quem pede",
+          "document": "Documento",
+          "contact": "Contato",
+          "publishes": "Onde publica e cidade",
+          "acceptance": "Aceite",
+          "decision": "Decisão"
+        },
+        "types": {
+          "creator": "Criador",
+          "influencer": "Influencer",
+          "driver": "Motorista"
+        },
+        "documentTypes": {
+          "cpf": "CPF",
+          "cnpj": "CNPJ"
+        },
+        "representative": "Representante: {name}, CPF {cpf}",
+        "account": "Conta @{nickname}",
+        "documentInUse": "Documento já está em outro parceiro",
+        "documentInUseHint": "Confira quem é antes de decidir. A aprovação não cria um segundo cadastro com o mesmo documento.",
+        "completes": "Completa o cadastro que a conta já tem",
+        "approve": "Aprovar",
+        "refuse": "Recusar",
+        "reasonLabel": "Motivo da recusa. A pessoa lê este texto no app.",
+        "refuseConfirm": "Recusar com este motivo",
+        "cancel": "Cancelar",
+        "reasonCount": "{count} de {max}",
+        "outcomes": {
+          "approved": "Aprovado. Código {code}, comissão de {rate}.",
+          "approvedNoRate": "Aprovado. Código {code}.",
+          "refused": "Recusado. A pessoa vê o motivo no app e pode pedir de novo.",
+          "document_in_use": "Não aprovado: o documento já é de outro parceiro. Recuse com motivo ou resolva o outro cadastro antes.",
+          "not_in_review": "Este pedido já foi decidido. A lista foi atualizada.",
+          "not_found": "Este pedido não existe mais. A lista foi atualizada.",
+          "invalid_reason": "Escreva um motivo de 1 a 500 caracteres.",
+          "failed": "Não deu para registrar a decisão. Nada mudou. Tente de novo."
+        }
+      }
     },
     "stance": {
       "paying": "Pagante",

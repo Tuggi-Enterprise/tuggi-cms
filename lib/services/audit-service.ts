@@ -169,6 +169,10 @@ export type AuditAction =
   | 'CALCULATE_FINANCE_PAYOUTS'
   | 'RELEASE_FINANCE_PAYOUT'
   | 'RECORD_FINANCE_PAYOUT_INVOICE'
+  // #1139, BR-B2B-066 item 2: the decision on a request of a partner without a place from the app.
+  // Approving creates the partner record with its rate and its commission mark.
+  | 'APPROVE_PARTNER_REQUEST'
+  | 'REFUSE_PARTNER_REQUEST'
 
 export type AuditEntity = 'USER' | 'POI' | 'AUTH' | 'CLIENT' | 'PARTNER_PROPOSAL' | 'FINANCE'
 

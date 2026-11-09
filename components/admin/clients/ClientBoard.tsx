@@ -87,6 +87,8 @@ interface ClientBoardProps {
    */
   hrefFor: (row: ClientDirectoryRow) => string
   viewSwitch?: React.ReactNode
+  /** #1139: the queue of app partner requests, drawn above the alert band. The host owns it. */
+  requests?: React.ReactNode
 }
 
 export function ClientBoard({
@@ -101,6 +103,7 @@ export function ClientBoard({
   onAct,
   hrefFor,
   viewSwitch,
+  requests,
 }: ClientBoardProps) {
   const t = useTranslations('Clients.board')
   const c = useTranslations('Clients.directory')
@@ -434,6 +437,8 @@ export function ClientBoard({
               {c('truncated')}
             </p>
           )}
+
+          {requests}
 
           {/* ── The band that outranks the board ─────────────────────────────────────────── */}
           {board.alert.length > 0 && (
