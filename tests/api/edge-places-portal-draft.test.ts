@@ -473,3 +473,68 @@ test('#872 (BR-B2B-056): the three link actions are behind x-places-draft-secret
   assert.equal(mod.DRAFT_SECRET_HEADER, 'x-places-draft-secret')
   for (const rpc of ['client_acceptance_link_get', 'client_acceptance_link_terms', 'client_acceptance_link_accept']) assert.ok(mod.DRAFT_RPCS.includes(rpc), rpc)
 })
+
+// ---- #1138 — aceite do pedido de parceiro sem local feito no app (parceiro-sem-local.md §3) ------
+
+const APP_ACCEPT = { action: 'app_request_accept', token_sha256: TOKEN, accept: { terms_version: 'parceiros-sem-local-2026-11-v2', terms_sha256: 'c'.repeat(64) }, ip: '203.0.113.9', user_agent: 'UA' }
+const APP_ACTIONS = [{ action: 'app_request_get', token_sha256: TOKEN }, { action: 'app_request_terms', token_sha256: TOKEN }, APP_ACCEPT]
+
+test('#1138 (BR-B2B-066 item 5.b): app_request_get hands the Worker only the keys of §3.2, never the request id, the user or the hash', async () => {
+  const open = {
+    state: 'open',
+    expires_at: '2026-12-08T12:00:00Z',
+    partner_type: 'creator',
+    document_type: 'cnpj',
+    document: '11222333000181',
+    full_name: 'Ana Souza',
+    legal_name: 'Ana Souza Conteúdo LTDA',
+    representative_cpf: '52998224725',
+    whatsapp: '5524999998888',
+    contact_email: 'ana@example.com',
+  }
+  const f = fake({ partner_request_link_get: { data: { ...open, request_id: 12, user_id: USER, link_token_sha256: TOKEN, publishes_at: '@ana' } } })
+  assert.deepEqual(await mod.handle(f.deps, APP_ACTIONS[0], ''), { status: 200, body: open })
+  assert.deepEqual(f.calls, [{ fn: 'partner_request_link_get', args: { p_token_sha256: TOKEN } }])
+  const accepted = await mod.handle(fake({ partner_request_link_get: { data: { state: 'accepted', accepted_at: '2026-11-08T12:00:00Z', user_id: USER } } }).deps, APP_ACTIONS[0], '')
+  assert.deepEqual(accepted, { status: 200, body: { state: 'accepted', accepted_at: '2026-11-08T12:00:00Z' } })
+  const none = await mod.handle(fake({ partner_request_link_get: { data: null } }).deps, APP_ACTIONS[0], '')
+  assert.deepEqual(none, { status: 502, body: { error: 'unavailable' } })
+})
+
+test('#1138 (BR-B2B-066 item 5.d): without the approved terms v2, app_request_terms and app_request_accept answer TGP33 as conflict tgp33, and an invalid link as one not_found', async () => {
+  for (const [a, fn] of [[APP_ACTIONS[1], 'partner_request_link_terms'], [APP_ACCEPT, 'partner_request_link_accept']] as const) {
+    const unpublished = await mod.handle(fake({ [fn]: { error: { code: 'TGP33', details: 'creator', message: 'x' } } }).deps, a, '')
+    assert.deepEqual(unpublished, { status: 409, body: { error: 'conflict', detail: 'tgp33' } }, fn)
+    const dead = await mod.handle(fake({ [fn]: { error: { code: 'TGP30' } } }).deps, a, '')
+    assert.deepEqual(dead, { status: 404, body: { error: 'not_found' } }, fn)
+  }
+  const ok = await mod.handle(fake({ partner_request_link_terms: { data: [{ terms_version: 'v2', body_html: '<p>x</p>', sha256: 'c'.repeat(64) }] } }).deps, APP_ACTIONS[1], '')
+  assert.deepEqual(ok, { status: 200, body: { terms_version: 'v2', body_html: '<p>x</p>', sha256: 'c'.repeat(64) } })
+})
+
+test('#1138 (BR-B2B-047 item 2, BR-B2B-066 item 5.c): app_request_accept sends version, hash, ip and user agent only (no signer, kit or publicity) and answers already_accepted', async () => {
+  const f = fake({ partner_request_link_accept: { data: [{ acceptance_id: SID, accepted_at: '2026-11-08T12:00:00Z', already_accepted: false }] } })
+  assert.deepEqual(await mod.handle(f.deps, { ...APP_ACCEPT, accept: { ...APP_ACCEPT.accept, terms_sha256: 'C'.repeat(64) } }, ''), { status: 200, body: { accepted_at: '2026-11-08T12:00:00Z', already_accepted: false } })
+  assert.deepEqual(f.calls, [{ fn: 'partner_request_link_accept', args: { p_token_sha256: TOKEN, p_terms_version: 'parceiros-sem-local-2026-11-v2', p_terms_sha256: 'c'.repeat(64), p_ip: '203.0.113.9', p_user_agent: 'UA' } }])
+  const again = await mod.handle(fake({ partner_request_link_accept: { data: [{ accepted_at: '2026-11-08T12:00:00Z', already_accepted: true }] } }).deps, APP_ACCEPT, '')
+  assert.deepEqual(again, { status: 200, body: { accepted_at: '2026-11-08T12:00:00Z', already_accepted: true } })
+  const changed = await mod.handle(fake({ partner_request_link_accept: { error: { code: 'TGP09' } } }).deps, APP_ACCEPT, '')
+  assert.deepEqual(changed, { status: 409, body: { error: 'terms_changed' } })
+})
+
+test('#1138: app_request_accept refuses a malformed accept, ip or user agent, and the three actions a malformed token_sha256, before any database call', async () => {
+  const f = fake()
+  const { ip: _ip, ...noIp } = APP_ACCEPT
+  assert.deepEqual(await mod.handle(f.deps, noIp, ''), { status: 400, body: { error: 'invalid', field: 'ip' } })
+  assert.deepEqual(await mod.handle(f.deps, { ...APP_ACCEPT, user_agent: 'u'.repeat(1025) }, ''), { status: 400, body: { error: 'invalid', field: 'user_agent' } })
+  for (const accept of [undefined, {}, { terms_version: 'v2' }, { terms_version: 'v 2', terms_sha256: 'c'.repeat(64) }, { terms_version: 'v2', terms_sha256: 'c'.repeat(63) }]) {
+    assert.deepEqual(await mod.handle(f.deps, { ...APP_ACCEPT, accept }, ''), { status: 400, body: { error: 'invalid', field: 'accept' } })
+  }
+  for (const a of APP_ACTIONS) {
+    for (const t of [undefined, 'r' + 'a'.repeat(64), 'A'.repeat(64)]) {
+      assert.deepEqual(await mod.handle(f.deps, { ...a, token_sha256: t }, ''), { status: 400, body: { error: 'invalid', field: 'token_sha256' } }, `${a.action} ${String(t)}`)
+    }
+  }
+  assert.equal(f.calls.length, 0)
+  for (const rpc of ['partner_request_link_get', 'partner_request_link_terms', 'partner_request_link_accept']) assert.ok(mod.DRAFT_RPCS.includes(rpc), rpc)
+})
