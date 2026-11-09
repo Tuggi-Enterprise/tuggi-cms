@@ -619,7 +619,10 @@
               "used_hint": "Da turma do mês, quem ligou o guia ou ouviu uma história, até hoje.",
               "of_entered": "{pct} de quem entrou",
               "no_filters": "Os funis contam a turma inteira do mês e não seguem os filtros.",
-              "failed": "Não foi possível carregar o funil deste mês."
+              "failed": "Não foi possível carregar o funil deste mês.",
+              "consumed_1h": "Consumiu 1 hora",
+              "consumed_1h_hint": "Da turma do mês, quem gastou 60 minutos ou mais do saldo de horas, gratuitas ou compradas, até o fim do mês.",
+              "consumed_1h_floor": "Piso: o registro de minutos começa em {date}, então este mês conta só a partir desse dia."
             },
             "purchase_funnel": {
               "title": "Funil de compra",
@@ -642,11 +645,37 @@
               "small_base": "Base pequena ({a} e {b}): abaixo de 30 pessoas, a diferença não é tendência.",
               "empty_branch": "ninguém neste ramo",
               "sr": "{branch}: {n} pessoas, {bought} compraram ({pct})",
-              "purchased_hint": "Da turma do mês, quem fez ao menos uma compra real na loja, de horas ou de assinatura, até hoje. Compra de teste não conta."
+              "purchased_hint": "Da turma do mês, quem fez ao menos uma compra real na loja, de horas ou de assinatura, até hoje. Compra de teste não conta.",
+              "paywall_viewed": "Viu o paywall",
+              "paywall_viewed_sub": "aparelhos no mês, não pessoas da turma",
+              "paywall_viewed_hint": "Aparelhos que abriram a tela de compra pelo menos uma vez no mês, por qualquer caminho do app. Conta todo aparelho ativo no mês, não só a turma, e aparelho não é pessoa: por isso não vira % de quem entrou."
             },
             "clicks_month_of": "{month}",
             "delta_none": "sem mês anterior",
-            "delta_none_hint": "{month} não tem este número, então não há com o que comparar."
+            "delta_none_hint": "{month} não tem este número, então não há com o que comparar.",
+            "free_minutes": {
+              "title": "Minutos gratuitos por pessoa",
+              "note": "turma do mês, até hoje",
+              "hint": "Minutos gastos de horas que a pessoa não pagou (boas-vindas, convite, missão, cupom, parceiro ou concedidas pelo CMS), somados da entrada até hoje. Só minutos gratuitos: não se compara com Consumiu 1 hora, que soma também os comprados.",
+              "buckets": {
+                "b0_15": "0 a 15 min",
+                "b15_30": "15 a 30 min",
+                "b30_60": "30 min a 1 h",
+                "b60_120": "1 a 2 h",
+                "b120_180": "2 a 3 h",
+                "b180_plus": "3 h ou mais"
+              },
+              "b0_15_hint": "Inclui quem entrou e não gastou nenhum minuto gratuito.",
+              "mark_15m": "15 min",
+              "mark_1h": "1 h",
+              "mark_3h": "3 h",
+              "base": "{n} pessoas entraram em {month}",
+              "base_suppressed": "Menos de 5 pessoas entraram em {month}: o gráfico fica oculto.",
+              "bar_title": "{range}: {n} pessoas, {pct}",
+              "bucket_suppressed": "menos de 5",
+              "empty": "Ninguém entrou em {month}.",
+              "failed": "Não foi possível carregar o gráfico deste mês."
+            }
           },
           "n_of": "{count} de {base}",
           "dictionary": {

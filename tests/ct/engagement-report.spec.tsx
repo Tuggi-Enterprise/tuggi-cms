@@ -104,8 +104,8 @@ test('spec §11 item 7: under a source filter the GA4 rows say GA4 has no such f
   await expect(cellOf(page, 'active_ga4', 1)).toHaveAttribute('title', E.cell_ga4_filter)
   await expect(cellOf(page, 'active_by', 1)).toHaveText('204')
   await expect(page.getByTestId('engagement-card_clicks').getByText(E.ga4_filter_hint, { exact: true })).toBeVisible()
-  // the bar's, and one in each funnel card, which refuse any filter (#1101)
-  await expect(page.getByRole('button', { name: E.clear_filters })).toHaveCount(3)
+  // the bar's, one in each funnel card (#1101) and one in the free minutes card (#1156), which refuse any filter
+  await expect(page.getByRole('button', { name: E.clear_filters })).toHaveCount(4)
 })
 
 test('spec §11 item 8: bank down and GA4 down keep the table, mark their own cells and offer a retry per card', async ({ mount, page }) => {

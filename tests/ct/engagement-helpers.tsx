@@ -2,6 +2,7 @@ import { NextIntlClientProvider } from 'next-intl'
 import { EngagementReport } from '@/components/dashboard/reports/engagement/EngagementReport'
 import type { EngagementBankReport, EngagementFilters, EngagementGa4Report, EngagementUse } from '@/lib/engagement/report'
 import type { ConversionFunnel } from '@/lib/conversion/funnel'
+import type { FreeMinutesHistogram } from '@/lib/engagement/free-minutes'
 import { summaryMonthOf } from '@/lib/engagement/summary'
 import { Sparkline } from '@/components/ui/Sparkline'
 import ptMessages from '@/messages/pt.json'
@@ -22,6 +23,9 @@ export function EngagementHarness(props: {
   month?: string
   conversion?: ConversionFunnel
   conversionFailed?: boolean
+  /** `null` = the function is not deployed; absent = loading. */
+  freeMinutes?: FreeMinutesHistogram | null
+  freeMinutesFailed?: boolean
   /** Called with the filters the screen asks for (clear filters). */
   onFiltersChange?: (f: EngagementFilters) => void
 }) {
@@ -45,6 +49,9 @@ export function EngagementHarness(props: {
         conversion={props.conversion}
         conversionFailed={!!props.conversionFailed}
         onConversionRetry={() => {}}
+        freeMinutes={props.freeMinutes}
+        freeMinutesFailed={!!props.freeMinutesFailed}
+        onFreeMinutesRetry={() => {}}
         isFetching={false}
         allTime={props.allTime ? <div data-testid="engagement-all-time" className="h-24 rounded-2xl border border-gray-200 bg-white" /> : undefined}
       />

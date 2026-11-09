@@ -27,6 +27,7 @@ import { clickBlocks, clickColor, screenGroupColor } from '@/lib/engagement/clic
 import { ENGAGEMENT_DICTIONARY } from '@/lib/engagement/dictionary'
 import { cohortCurve, heatStep } from '@/lib/engagement/summary'
 import type { ConversionFunnel } from '@/lib/conversion/funnel'
+import type { FreeMinutesHistogram } from '@/lib/engagement/free-minutes'
 import {
   ENGAGEMENT_USES,
   ga4Filterable,
@@ -66,6 +67,10 @@ export interface EngagementReportProps {
   conversion?: ConversionFunnel
   conversionFailed: boolean
   onConversionRetry: () => void
+  /** `core.cms_get_free_minutes_histogram` of the month (#1156); `null` = not deployed, `undefined` = loading. */
+  freeMinutes?: FreeMinutesHistogram | null
+  freeMinutesFailed: boolean
+  onFreeMinutesRetry: () => void
   isFetching: boolean
   /** The four all-time blocks of before (platform, top POIs, language, cities), untouched. */
   allTime?: ReactNode
@@ -144,6 +149,9 @@ export function EngagementReport({
   conversion,
   conversionFailed,
   onConversionRetry,
+  freeMinutes,
+  freeMinutesFailed,
+  onFreeMinutesRetry,
   isFetching,
   allTime,
 }: EngagementReportProps) {
@@ -371,6 +379,9 @@ export function EngagementReport({
         conversion={conversion}
         conversionFailed={conversionFailed}
         onConversionRetry={onConversionRetry}
+        freeMinutes={freeMinutes}
+        freeMinutesFailed={freeMinutesFailed}
+        onFreeMinutesRetry={onFreeMinutesRetry}
         filtered={hasFilters(filters)}
         onClearFilters={() => onFiltersChange(NO_FILTERS)}
       />

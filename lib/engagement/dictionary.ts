@@ -70,10 +70,14 @@ export const ENGAGEMENT_DICTIONARY: readonly DictionaryEntry[] = [
   { key: 'entered', terms: ['summary.use_funnel.entered'], definition: 'summary.use_funnel.entered_hint', origin: 'core.dashboard_acquisition', source: 'bank', rows: [] },
   { key: 'new_engaged', terms: ['summary.use_funnel.new_engaged'], definition: 'summary.use_funnel.new_engaged_hint', origin: 'GA4 ENGAGED_EVENTS · firstSessionDate', source: 'ga4', rows: [] },
   { key: 'used', terms: ['summary.use_funnel.used'], definition: 'summary.use_funnel.used_hint', origin: `${TRIPS} · drive.poi_visits`, source: 'bank', rows: [] },
+  { key: 'consumed_1h', terms: ['summary.use_funnel.consumed_1h'], definition: 'summary.use_funnel.consumed_1h_hint', origin: 'drive.time_credit_consumption', source: 'bank', rows: [] },
   // purchase funnel
   { key: 'purchased', terms: ['summary.purchase_funnel.purchased'], definition: 'summary.purchase_funnel.purchased_hint', origin: 'drive.time_credit_grants · drive.subscription_history', source: 'bank', rows: [] },
   { key: 'tested', terms: ['summary.purchase_funnel.tested'], definition: 'summary.purchase_funnel.tested_hint', origin: 'drive.time_credit_consumption', source: 'bank', rows: [] },
   { key: 'untested', terms: ['summary.purchase_funnel.untested'], definition: 'summary.purchase_funnel.untested_hint', origin: 'drive.time_credit_consumption', source: 'bank', rows: [] },
+  { key: 'paywall_viewed', terms: ['summary.purchase_funnel.paywall_viewed'], definition: 'summary.purchase_funnel.paywall_viewed_hint', origin: 'GA4 paywall_viewed', source: 'ga4', rows: [] },
+  // free minutes histogram
+  { key: 'free_minutes', terms: ['summary.free_minutes.title'], definition: 'summary.free_minutes.hint', origin: 'core.cms_get_free_minutes_histogram', source: 'bank', rows: [] },
   // cohorts
   { key: 'activation', terms: ['rows.audio_24h', 'rows.audio_7d'], definition: 'rows.audio_24h_hint', origin: `${TRIPS} · drive.poi_visits (audio_played)`, source: 'bank', rows: ['audio_24h', 'audio_7d'] },
   { key: 'cohort_size', terms: ['rows.cohort_size'], definition: 'rows.cohort_size_hint', origin: TRIPS, source: 'bank', rows: ['cohort_size'] },

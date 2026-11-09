@@ -20,6 +20,7 @@
  */
 
 import { SUMMARY_MIN_BASE } from '@/lib/engagement/summary'
+import { METERING_LEDGER_START } from '@/lib/ranking/metering'
 
 export interface ConversionInstalls {
   ios: number | null
@@ -43,7 +44,19 @@ export interface ConversionFunnel {
   purchasedAfterFree: number | null
   purchasedWithoutFree: number | null
   usedGuideOrStory: number | null
+  /**
+   * #1155 (contract banco-para-cms Parte 26 §2): of entered, who used 60 minutes or more of the hour
+   * balance by the end of the month. `null` = a month before the minute ledger, or a function before
+   * #1155: "no data", never 0.
+   */
+  consumed1h: number | null
 }
+
+/**
+ * The month the minute ledger starts in (`METERING_LEDGER_START`, the one owner of that instant): its
+ * `consumed_1h` counts only the days after the start, so it is a floor (contract Parte 26 §2).
+ */
+export const LEDGER_FIRST_MONTH = new Date(METERING_LEDGER_START).toISOString().slice(0, 7)
 
 export type InstallsState = 'unknown' | 'floor' | 'measured'
 
@@ -79,6 +92,7 @@ export function parseConversionFunnel(raw: unknown): ConversionFunnel {
     purchasedAfterFree: nullableCount(r.purchased_after_free),
     purchasedWithoutFree: nullableCount(r.purchased_without_free),
     usedGuideOrStory: nullableCount(r.used_guide_or_story),
+    consumed1h: nullableCount(r.consumed_1h),
   }
 }
 
@@ -106,28 +120,34 @@ function rateOf(value: number | null, base: number | null): number | null {
 
 export interface UseFunnelView {
   installs: InstallsState
-  /** One ruler for the four bands; an unknown count draws no band and does not set it. */
+  /** One ruler for the five bands; an unknown count draws no band and does not set it. */
   max: number
   notEntered: number | null
   /** `entered − account`, the guest part of Entered; `null` when account came larger (spec §C15.6). */
   guest: number | null
-  rates: { account: number | null; used: number | null }
+  rates: { account: number | null; used: number | null; consumed1h: number | null }
+  /** `consumed_1h` of the month the ledger starts in: a floor, printed with its sign. */
+  consumed1hFloor: boolean
 }
 
 /**
- * The use funnel: installs (GA4), entered, interacted (GA4, `newEngaged`) and guide or story. The
- * GA4 count only widens the ruler; the two rates are bank over bank of the same cohort.
+ * The use funnel: installs (GA4), entered, interacted (GA4, `newEngaged`), guide or story and
+ * consumed 1 hour. The GA4 count only widens the ruler; the rates are bank over bank of the same
+ * cohort, each a share of entered and never of the step above (DS-COMPONENTE-101 item 2,
+ * BR-USUARIO-037 3.j), so consumed 1 hour may come larger than guide or story.
  */
 export function readUseFunnel(f: ConversionFunnel, newEngaged: number | null): UseFunnelView {
   return {
     installs: installsState(f.installs.total, f.entered),
-    max: Math.max(f.installs.total ?? 0, f.entered, newEngaged ?? 0, f.usedGuideOrStory ?? 0),
+    max: Math.max(f.installs.total ?? 0, f.entered, newEngaged ?? 0, f.usedGuideOrStory ?? 0, f.consumed1h ?? 0),
     notEntered: notEntered(f.installs.total, f.entered),
     guest: f.account <= f.entered ? f.entered - f.account : null,
     rates: {
       account: rateOfEntered(f.account, f.entered),
       used: rateOf(f.usedGuideOrStory, f.entered),
+      consumed1h: rateOf(f.consumed1h, f.entered),
     },
+    consumed1hFloor: f.consumed1h !== null && f.month.slice(0, 7) === LEDGER_FIRST_MONTH,
   }
 }
 

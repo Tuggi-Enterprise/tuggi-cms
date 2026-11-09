@@ -10,7 +10,7 @@
 import { test, expect } from '@playwright/experimental-ct-react'
 import type { Page } from '@playwright/test'
 import { EngagementHarness as Screen, SparklineHarness } from './engagement-helpers'
-import { BANK, CONVERSION, CONVERSION_OLD, GA4, MONTHS, TODAY } from './engagement-fixtures'
+import { BANK, CONVERSION, CONVERSION_OLD, FREE_MINUTES, GA4, MONTHS, TODAY } from './engagement-fixtures'
 import AxeBuilder from '@axe-core/playwright'
 import { CHART_COLORS, CHART_NEUTRAL } from '@/lib/constants/chart-colors'
 import ptMessages from '@/messages/pt.json'
@@ -130,7 +130,7 @@ test('spec B15 item 11: bank down marks tiles 2 and 4, GA4 down tiles 1 and 3 an
 
 const U = S.use_funnel
 const P = S.purchase_funnel
-const full = (extra: Record<string, unknown> = {}) => <Screen months={MONTHS} today={TODAY} bank={BANK_OPEN} ga4={GA4_ENGAGED} conversion={CONVERSION} {...extra} />
+const full = (extra: Record<string, unknown> = {}) => <Screen months={MONTHS} today={TODAY} bank={BANK_OPEN} ga4={GA4_ENGAGED} conversion={CONVERSION} freeMinutes={FREE_MINUTES} {...extra} />
 const top = (page: Page, id: string) => page.getByTestId(id).evaluate((e) => Math.round(e.getBoundingClientRect().top))
 const width = (page: Page, id: string) => page.getByTestId(id).evaluate((e) => e.getBoundingClientRect().width)
 
@@ -145,14 +145,14 @@ test('#1101 spec C16 item 3: at 1440 modes beside days of use and the use funnel
   expect(await top(page, 'summary-cohort-heat')).toBeGreaterThan(await top(page, 'summary-purchase-funnel'))
 })
 
-test('#1101 spec C16 item 3: at 390 the four cards stack in the order modes, days, use funnel, purchase funnel', async ({ mount, page }) => {
+test('#1101 spec C16 item 3 #1156 spec D8 item 3: at 390 the cards stack in the order modes, days, use funnel, free minutes, purchase funnel', async ({ mount, page }) => {
   await page.setViewportSize({ width: 390, height: 1200 })
   await mount(full())
-  const order = ['summary-modes', 'summary-frequency', 'summary-use-funnel', 'summary-purchase-funnel']
+  const order = ['summary-modes', 'summary-frequency', 'summary-use-funnel', 'summary-free-histogram', 'summary-purchase-funnel']
   const tops = [] as number[]
   for (const id of order) tops.push(await top(page, id))
   expect([...tops].sort((a, b) => a - b)).toEqual(tops)
-  expect(new Set(tops).size).toBe(4)
+  expect(new Set(tops).size).toBe(5)
   const o = await page.evaluate(() => ({ s: document.documentElement.scrollWidth, c: document.documentElement.clientWidth }))
   expect(o.s).toBeLessThanOrEqual(o.c + 1)
 })
@@ -199,12 +199,12 @@ test('#1101 spec C16 item 4: with has_mode_fields false every month draws the ne
   await expect(card.getByTestId('summary-modes-note')).toHaveText(S.modes_note_none)
 })
 
-test('#1101 spec C16 item 5 DS-COMPONENTE-084 item 2: four bands in order, the two GA4 ones hollow with the tag, Entered split into account and guest, the only rate below Entered is of entered', async ({ mount, page }) => {
+test('#1101 spec C16 item 5 #1156 spec D8 item 1 DS-COMPONENTE-084 item 2: five bands in order, the two GA4 ones hollow with the tag, Entered split into account and guest, the only rate below Entered is of entered', async ({ mount, page }) => {
   await page.setViewportSize({ width: 1440, height: 1200 })
   await mount(full())
   const f = page.getByTestId('summary-use-funnel')
   const items = await f.locator('[data-testid="funnel-bands"] > li').evaluateAll((els) => els.map((e) => e.getAttribute('data-testid')))
-  expect(items).toEqual(['funnel-step-installs', 'funnel-seam', 'funnel-step-entered', 'funnel-step-new_engaged', 'funnel-step-used'])
+  expect(items).toEqual(['funnel-step-installs', 'funnel-seam', 'funnel-step-entered', 'funnel-step-new_engaged', 'funnel-step-used', 'funnel-step-consumed_1h'])
   for (const k of ['installs', 'new_engaged']) {
     await expect(f.getByTestId(`funnel-band-${k}`)).toHaveClass(/border-dashed/)
     await expect(f.getByTestId(`funnel-step-${k}`).getByTestId('funnel-tag').first()).toHaveText(E.ga4_badge)

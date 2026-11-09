@@ -1,9 +1,10 @@
 'use client'
 
 import { useMemo, type ReactNode } from 'react'
-import { Car, CreditCard, Filter, Repeat, Smartphone, Sparkles, Undo2, Users } from 'lucide-react'
+import { Car, CreditCard, Filter, Hourglass, Repeat, Smartphone, Sparkles, Undo2, Users } from 'lucide-react'
 
 import { WidgetCard, SectionHeader } from '@/components/dashboard/WidgetCard'
+import { RankRow } from '@/components/dashboard/reports/acquisition/RankRow'
 import { BranchFunnel, type BranchFunnelBranch } from '@/components/dashboard/reports/engagement/BranchFunnel'
 import { FunnelBands, type FunnelBand } from '@/components/dashboard/reports/engagement/FunnelBands'
 import { Ga4Badge, MonthGrid, type MonthGridGroup } from '@/components/dashboard/reports/engagement/MonthGrid'
@@ -20,6 +21,8 @@ import { UNKNOWN_VALUE } from '@/lib/format/unknown'
 import { cn } from '@/lib/utils'
 import { rateCount, type Cell, type CellFormatters } from '@/lib/engagement/cells'
 import { readPurchaseFunnel, readUseFunnel, type ConversionFunnel, type PurchaseBranch } from '@/lib/conversion/funnel'
+import { readFreeMinutes, type FreeMinutesHistogram, type FreeMinutesMark } from '@/lib/engagement/free-minutes'
+import { METERING_LEDGER_START } from '@/lib/ranking/metering'
 import {
   BAND_KEYS,
   buildSummary,
@@ -70,6 +73,10 @@ export interface EngagementSummaryProps {
   conversion?: ConversionFunnel
   conversionFailed: boolean
   onConversionRetry: () => void
+  /** `core.cms_get_free_minutes_histogram` of the month (#1156); `null` = not deployed, `undefined` = loading. */
+  freeMinutes?: FreeMinutesHistogram | null
+  freeMinutesFailed: boolean
+  onFreeMinutesRetry: () => void
   /** Any filter of the bar: the funnels count the whole cohort and refuse it (§C1 item 8). */
   filtered: boolean
   onClearFilters: () => void
@@ -87,6 +94,9 @@ const MODE_COLORS: Record<string, string> = {
 
 /** The two branches of the purchase funnel, the colour of their trunk part (§C6, DS-COMPONENTE-101 item 4). */
 const BRANCH_COLORS = { tested: CHART_COLORS.blue, untested: CHART_COLORS.orange } as const
+
+/** The label of each mark of the histogram (spec §D4). */
+const MARK_KEYS: Record<FreeMinutesMark, string> = { 15: 'mark_15m', 60: 'mark_1h', 180: 'mark_3h' }
 
 /**
  * Days of use, an ordinal scale of one hue, more days darker; dark mode inverts the anchor (spec §B7).
@@ -109,6 +119,8 @@ const BAND_INK: Record<string, string> = {
 
 /** The five steps of the cohort heat map, by `heatStep` (spec §B8). */
 export const HEAT_TONES = ['bg-emerald-50', 'bg-emerald-100', 'bg-emerald-200', 'bg-emerald-300', 'bg-emerald-400'] as const
+
+const PULSE_BLOCK = 'rounded bg-gray-100 dark:bg-gray-800 animate-pulse'
 
 const hasValue = (c: Cell) => (c.state === 'measured' || c.state === 'floor') && c.value !== null
 
@@ -273,6 +285,7 @@ export function EngagementSummary(props: EngagementSummaryProps) {
   const u = (key: string, values?: Record<string, string | number>) => s(`use_funnel.${key}`, values)
   const pf = (key: string, values?: Record<string, string | number>) => s(`purchase_funnel.${key}`, values)
   const noBank = s('tiles.no_source_bank')
+  const ledgerDay = new Date(METERING_LEDGER_START).toISOString().slice(0, 10)
   const ga4Tag = { text: k('ga4_badge'), hint: props.ga4BadgeHint }
 
   const engagedCell = newEngagedCell(month, input)
@@ -305,6 +318,7 @@ export function EngagementSummary(props: EngagementSummaryProps) {
     const engagedReason = hasValue(engagedCell) ? undefined : titleOf(engagedCell, 'ga4')
     const engagedValue = hasValue(engagedCell) ? (engagedCell.value as number) : null
     const used = f.usedGuideOrStory
+    const consumed = f.consumed1h
     const steps: FunnelBand[] = [
       {
         key: 'entered',
@@ -340,6 +354,18 @@ export function EngagementSummary(props: EngagementSummaryProps) {
         noteShort: used === null ? undefined : pct(v.rates.used),
         fill: CHART_COLORS.blue,
         muted: used === null,
+      },
+      {
+        key: 'consumed_1h',
+        label: u('consumed_1h'),
+        hint: consumed === null ? noBank : v.consumed1hFloor ? `${u('consumed_1h_hint')} ${u('consumed_1h_floor', { date: day(ledgerDay) })}` : u('consumed_1h_hint'),
+        value: consumed,
+        display: consumed === null ? UNKNOWN_VALUE : `${v.consumed1hFloor ? '≥ ' : ''}${int(consumed)}`,
+        // DS-COMPONENTE-101 item 2: a share of entered only, never of the step above.
+        note: consumed === null ? noBank : v.rates.consumed1h === null ? UNKNOWN_VALUE : u('of_entered', { pct: pct(v.rates.consumed1h) }),
+        noteShort: consumed === null ? undefined : pct(v.rates.consumed1h),
+        fill: CHART_COLORS.blue,
+        muted: consumed === null,
       },
     ]
     // The drop between instruments is a difference on the seam, never a rate (DS-COMPONENTE-084 item 2).
@@ -410,7 +436,7 @@ export function EngagementSummary(props: EngagementSummaryProps) {
   const useBody = () => {
     const gate = funnelGate()
     if (gate) return gate
-    if (useLoading || !conv || !useView) return <FunnelBands label={u('title')} loading heads={1} steps={3} />
+    if (useLoading || !conv || !useView) return <FunnelBands label={u('title')} loading heads={1} steps={4} />
     const b = bandsOfUse(conv, useView)
     return (
       <>
@@ -420,11 +446,121 @@ export function EngagementSummary(props: EngagementSummaryProps) {
     )
   }
 
+  // ── Saw the paywall (#1156 §D3): GA4 devices of the whole month, beside the funnel and out of it ──
+  const paywallMonth = input.ga4?.months.find((m) => m.month === month)
+  const paywallValue = paywallMonth?.paywallViewedUsers ?? null
+  const paywallLoading = !input.ga4 && !input.ga4Failed && !input.ga4Filtered
+  const paywallLine = (
+    <div className="mt-4 border-t border-dashed border-gray-200 pt-3 dark:border-gray-800" data-testid="purchase-paywall">
+      <div className="flex items-baseline justify-between gap-3">
+        <span className="text-sm font-semibold text-gray-900 dark:text-white" title={pf('paywall_viewed_hint')}>
+          {pf('paywall_viewed')}
+          <Ga4Badge text={k('ga4_badge')} hint={props.ga4BadgeHint} />
+        </span>
+        {paywallLoading ? (
+          <span className={cn(PULSE_BLOCK, 'h-4 w-10')} data-testid="purchase-paywall-loading" />
+        ) : (
+          // DS-COMPONENTE-084 item 2: a device count, no rate and no comparison with the bank.
+          <span
+            data-testid="purchase-paywall-value"
+            className={cn('text-sm font-mono font-bold tabular-nums', paywallValue === null ? DIM : 'text-gray-900 dark:text-white')}
+            title={paywallValue === null ? (input.ga4Failed ? k('cell_ga4_failed') : s('tiles.no_source_ga4')) : undefined}
+          >
+            {paywallValue === null ? UNKNOWN_VALUE : fmt.integer.format(paywallValue)}
+          </span>
+        )}
+      </div>
+      <p className={cn('text-[11px] leading-4', DIM)}>{pf('paywall_viewed_sub')}</p>
+    </div>
+  )
+
+  // ── Free minutes histogram (#1156 §D4) ──
+  const fm = (key: string, values?: Record<string, string | number>) => s(`free_minutes.${key}`, values)
+  const freeView = props.freeMinutes === undefined ? undefined : readFreeMinutes(props.freeMinutes, month)
+  const freeBody = () => {
+    if (props.filtered) {
+      return (
+        <div className="flex flex-col items-start gap-3 py-4" data-testid="free-minutes-filtered">
+          <p className="text-sm text-gray-800 dark:text-gray-200">{u('no_filters')}</p>
+          <Button type="button" variant="outline" size="sm" onClick={props.onClearFilters}>
+            {k('clear_filters')}
+          </Button>
+        </div>
+      )
+    }
+    if (props.freeMinutesFailed) return <CardError onRetry={props.onFreeMinutesRetry} message={fm('failed')} retryLabel={k('retry')} />
+    if (!freeView) {
+      return (
+        <ul aria-label={fm('title')} aria-busy="true" data-testid="free-minutes-loading">
+          {Array.from({ length: 6 }, (_, i) => (
+            <li key={i} className="py-2.5 space-y-2">
+              <div className={cn(PULSE_BLOCK, 'h-4 w-28')} />
+              <div className={cn(PULSE_BLOCK, 'h-1.5 w-full rounded-full')} />
+              {[0, 2, 4].includes(i) && <div className="my-1 h-4" />}
+            </li>
+          ))}
+        </ul>
+      )
+    }
+    if (freeView.state === 'no_source') return <p className={cn('py-4 text-sm', DIM)} data-testid="free-minutes-no-source">{noBank}</p>
+    if (freeView.state === 'small_base') return <p className="py-4 text-sm text-gray-800 dark:text-gray-200" data-testid="free-minutes-small-base">{fm('base_suppressed', { month: monthLong(month) })}</p>
+    const before = freeView.state === 'before_ledger'
+    return (
+      <ul aria-label={fm('title')} data-testid="free-minutes-rows">
+        {freeView.rows.map((r) => {
+          const range = fm(`buckets.${r.key}`)
+          const hidden = r.people === null
+          const pctText = r.share === null ? '' : fmt.percent.format(r.share)
+          const title = before
+            ? noBank
+            : hidden
+              ? k('cell_suppressed')
+              : `${fm('bar_title', { range, n: fmt.integer.format(r.people as number), pct: pctText || UNKNOWN_VALUE })}${r.fromMin === 0 ? ` ${fm('b0_15_hint')}` : ''}`
+          return (
+            <li key={r.key} data-testid="free-minutes-row">
+              <RankRow
+                label={range}
+                title={title}
+                value={hidden ? 0 : (r.people as number)}
+                display={hidden ? UNKNOWN_VALUE : fmt.integer.format(r.people as number)}
+                max={freeView.max}
+                color={CHART_COLORS.blue}
+                muted={hidden}
+                right={
+                  <span className={cn('text-[11px] tabular-nums', DIM)}>
+                    {hidden ? (before ? '' : fm('bucket_suppressed')) : freeView.state === 'empty' ? '' : pctText}
+                  </span>
+                }
+              />
+              {r.markAfter !== null && (
+                <div aria-hidden="true" className="relative my-1 h-4" data-testid="free-minutes-mark">
+                  <div className="absolute inset-x-0 top-1/2 border-t border-dashed border-gray-300 dark:border-gray-700" />
+                  <span className={cn('absolute left-0 top-0 bg-white pr-2 text-[11px] font-semibold leading-4 dark:bg-gray-900', DIM)}>{fm(MARK_KEYS[r.markAfter])}</span>
+                </div>
+              )}
+            </li>
+          )
+        })}
+      </ul>
+    )
+  }
+  const freeBaseLine = () => {
+    if (!freeView || props.filtered || props.freeMinutesFailed) return null
+    const text =
+      freeView.state === 'measured'
+        ? fm('base', { n: fmt.integer.format(freeView.base as number), month: monthLong(month) })
+        : freeView.state === 'empty'
+          ? fm('empty', { month: monthLong(month) })
+          : null
+    return text ? <p className={cn('-mt-1 mb-2 text-xs', DIM)} data-testid="free-minutes-base">{text}</p> : null
+  }
+
   const purchaseBody = () => {
     const gate = funnelGate()
     if (gate) return gate
     if (!purchaseView) return <BranchFunnel label={pf('title')} loading />
     return (
+      <>
       <BranchFunnel
         label={pf('title')}
         trunk={{
@@ -435,6 +571,8 @@ export function EngagementSummary(props: EngagementSummaryProps) {
         }}
         branches={purchaseView.branches.map((b) => branchProps(b, purchaseView))}
       />
+      {paywallLine}
+      </>
     )
   }
 
@@ -548,11 +686,27 @@ export function EngagementSummary(props: EngagementSummaryProps) {
       </div>
 
       <div className="grid grid-cols-1 gap-6 lg:grid-cols-2 lg:items-start">
-        <div data-testid="summary-use-funnel">
-          <WidgetCard>
-            <SectionHeader as="h2" title={u('title')} icon={Filter} className="flex-wrap gap-2" right={<span className={cn('text-[11px] text-right', DIM)}>{u('note')}</span>} />
-            {useBody()}
-          </WidgetCard>
+        <div className="space-y-6">
+          <div data-testid="summary-use-funnel">
+            <WidgetCard>
+              <SectionHeader as="h2" title={u('title')} icon={Filter} className="flex-wrap gap-2" right={<span className={cn('text-[11px] text-right', DIM)}>{u('note')}</span>} />
+              {useBody()}
+            </WidgetCard>
+          </div>
+
+          <div data-testid="summary-free-histogram">
+            <WidgetCard>
+              <SectionHeader
+                as="h2"
+                title={fm('title')}
+                icon={Hourglass}
+                className="flex-wrap gap-2"
+                right={<span className={cn('text-[11px] text-right', DIM)} title={fm('hint')}>{fm('note')}</span>}
+              />
+              {freeBaseLine()}
+              {freeBody()}
+            </WidgetCard>
+          </div>
         </div>
 
         <div id="conversion" className="scroll-mt-6" data-testid="summary-purchase-funnel">

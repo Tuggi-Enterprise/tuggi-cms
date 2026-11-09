@@ -1,4 +1,5 @@
 import type { EngagementBankReport, EngagementGa4Report } from '@/lib/engagement/report'
+import type { FreeMinutesHistogram } from '@/lib/engagement/free-minutes'
 import type { ConversionFunnel } from '@/lib/conversion/funnel'
 
 /** The fixture of the Engagement report CT (#1094): the numbers of the spec §7 sketch. */
@@ -51,10 +52,10 @@ export const BANK: EngagementBankReport = {
 
 export const GA4: EngagementGa4Report = {
   months: [
-    { month: '2026-08', activeUsers: 318, engagementSeconds: 318 * 540, sessionsPerUser: 2.3, engagedUsers: 160, newEngagedUsers: 120 },
-    { month: '2026-09', activeUsers: 327, engagementSeconds: 327 * 480, sessionsPerUser: 2.1, engagedUsers: 175, newEngagedUsers: 110 },
-    { month: '2026-10', activeUsers: 262, engagementSeconds: 262 * 600, sessionsPerUser: 2.4, engagedUsers: 189, newEngagedUsers: 150 },
-    { month: '2026-11', activeUsers: 41, engagementSeconds: 41 * 420, sessionsPerUser: 1.6, engagedUsers: 30, newEngagedUsers: 6 },
+    { month: '2026-08', activeUsers: 318, engagementSeconds: 318 * 540, sessionsPerUser: 2.3, engagedUsers: 160, newEngagedUsers: 120, paywallViewedUsers: null },
+    { month: '2026-09', activeUsers: 327, engagementSeconds: 327 * 480, sessionsPerUser: 2.1, engagedUsers: 175, newEngagedUsers: 110, paywallViewedUsers: 140 },
+    { month: '2026-10', activeUsers: 262, engagementSeconds: 262 * 600, sessionsPerUser: 2.4, engagedUsers: 189, newEngagedUsers: 150, paywallViewedUsers: 96 },
+    { month: '2026-11', activeUsers: 41, engagementSeconds: 41 * 420, sessionsPerUser: 1.6, engagedUsers: 30, newEngagedUsers: 6, paywallViewedUsers: 12 },
   ],
   clicks: [
     { month: '2026-10', screen: 'guide_map', button: 'start_guide', events: 301, users: 142 },
@@ -99,7 +100,25 @@ export const CONVERSION: ConversionFunnel = {
   purchasedAfterFree: 30,
   purchasedWithoutFree: 8,
   usedGuideOrStory: 250,
+  consumed1h: 90,
 }
 
-/** The same month from the function before #1100: none of its four fields. */
-export const CONVERSION_OLD: ConversionFunnel = { ...CONVERSION, testedFree: null, purchasedAfterFree: null, purchasedWithoutFree: null, usedGuideOrStory: null }
+/** The same month from the function before #1100: none of its four fields, nor the one of #1155. */
+export const CONVERSION_OLD: ConversionFunnel = { ...CONVERSION, testedFree: null, purchasedAfterFree: null, purchasedWithoutFree: null, usedGuideOrStory: null, consumed1h: null }
+
+/**
+ * October of `core.cms_get_free_minutes_histogram` (#1156, contract Parte 26 §3): 320 entered, the 30
+ * min to 1 h bucket hidden (1 to 4 people), the rest measured.
+ */
+export const FREE_MINUTES: FreeMinutesHistogram = {
+  month: '2026-10',
+  base: 320,
+  buckets: [
+    { fromMin: 0, toMin: 15, people: 150 },
+    { fromMin: 15, toMin: 30, people: 60 },
+    { fromMin: 30, toMin: 60, people: null },
+    { fromMin: 60, toMin: 120, people: 70 },
+    { fromMin: 120, toMin: 180, people: 25 },
+    { fromMin: 180, toMin: null, people: 11 },
+  ],
+}

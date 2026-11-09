@@ -196,6 +196,12 @@ export interface EngagementGa4Month {
   engagedUsers: number | null
   /** Of those, the month's cohort by first session (#1101, spec §C15.1); `null` until the function sends it. */
   newEngagedUsers: number | null
+  /**
+   * Devices with a `paywall_viewed` in the month (#1156): all of the month, not the cohort, and a
+   * device is not a person, so it never forms a fraction with the database (DS-COMPONENTE-084 item 2).
+   * `null` before the event was collected, or from a function before #1156.
+   */
+  paywallViewedUsers: number | null
 }
 
 export interface EngagementGa4Click {
@@ -220,7 +226,7 @@ export function parseGa4Report(raw: unknown): EngagementGa4Report | null {
     const o = obj(m)
     const activeUsers = n(o.activeUsers)
     if (typeof o.month !== 'string' || activeUsers === null) continue
-    months.push({ month: o.month, activeUsers, engagementSeconds: n(o.engagementSeconds) ?? 0, sessionsPerUser: n(o.sessionsPerUser), engagedUsers: n(o.engagedUsers), newEngagedUsers: n(o.newEngagedUsers) })
+    months.push({ month: o.month, activeUsers, engagementSeconds: n(o.engagementSeconds) ?? 0, sessionsPerUser: n(o.sessionsPerUser), engagedUsers: n(o.engagedUsers), newEngagedUsers: n(o.newEngagedUsers), paywallViewedUsers: n(o.paywallViewedUsers) })
   }
   const clicks: EngagementGa4Click[] = []
   for (const c of r.clicks) {

@@ -7,7 +7,7 @@ import { EngagementReport } from '@/components/dashboard/reports/engagement/Enga
 import { AllTimeBlocks } from '@/components/dashboard/reports/engagement/AllTimeBlocks'
 import { dashboardService, DashboardStats, EMPTY_DASHBOARD_STATS } from '@/lib/services/dashboard-service'
 import { useEngagementBank, useEngagementGa4 } from '@/lib/hooks/use-engagement'
-import { useConversion } from '@/lib/hooks/use-conversion'
+import { useConversion, useFreeMinutes } from '@/lib/hooks/use-conversion'
 import { summaryMonthOf } from '@/lib/engagement/summary'
 import { engagementMonths, isMonth, saoPauloDay } from '@/lib/engagement/months'
 import {
@@ -43,6 +43,8 @@ export default function EngagementReportPage() {
   // The RPC has no filter: under any filter the funnels refuse it (§C1 item 8), the read stays the cohort's.
   const conversion = useConversion(`${month}-01`)
   const conversionFailed = conversion.isError || (!!conversion.data && !conversion.data.success)
+  const freeMinutes = useFreeMinutes(month)
+  const freeMinutesFailed = freeMinutes.isError || (!!freeMinutes.data && !freeMinutes.data.success)
 
   const [stats, setStats] = useState<DashboardStats>(EMPTY_DASHBOARD_STATS)
   useEffect(() => {
@@ -80,6 +82,9 @@ export default function EngagementReportPage() {
       conversion={conversion.data?.success ? conversion.data.data : undefined}
       conversionFailed={conversionFailed}
       onConversionRetry={() => void conversion.refetch()}
+      freeMinutes={freeMinutes.data?.success ? freeMinutes.data.data : undefined}
+      freeMinutesFailed={freeMinutesFailed}
+      onFreeMinutesRetry={() => void freeMinutes.refetch()}
       isFetching={(bank.isFetching && !bank.isLoading) || (ga4.isFetching && !ga4.isLoading)}
       allTime={<AllTimeBlocks stats={stats} />}
     />
