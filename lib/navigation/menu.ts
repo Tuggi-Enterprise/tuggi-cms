@@ -56,6 +56,7 @@
 
 import {
   Activity,
+  Banknote,
   BarChart3,
   Bell,
   BellRing,
@@ -167,6 +168,8 @@ function catalogue(): { basic: NavEntry[]; modules: NavEntry[] } {
               item('/dashboard/reports/acquisition', 'acquisition', BarChart3),
               // From install to purchase, by month (#1068): read right after where they came from.
               item('/dashboard/reports/engagement', 'engagement', Activity),
+              // Gross revenue of the store purchases, month by month (#1157): read right after conversion.
+              item('/dashboard/reports/revenue', 'revenue', Banknote),
               // "Base de Usuários" e não "Usuários": é RELATÓRIO. O rótulo antigo era o mesmo
               // literal de outros dois destinos — o dropdown de topo e `/admin/users` — e a
               // barra não mostra o pai quando o painel está fechado.

@@ -67,6 +67,7 @@
     "poi_fetching": "Búsqueda de POIs",
     "reports": "Reportes",
     "engagement": "Participación y conversión",
+    "revenue": "Ingresos",
     "tp_single_test": "TP Prueba Única",
     "cms_team": "Equipo CMS",
     "app_users": "Usuarios de la App",
@@ -743,6 +744,37 @@
         },
         "ranking": {
           "title": "Marcador de puntuación"
+        },
+        "revenue": {
+          "title": "Ingresos",
+          "subtitle": "Compras en App Store y Google Play, mes a mes",
+          "gross_note": "Ingresos brutos: lo que pagó la persona, antes de la comisión de la tienda y de los impuestos. Solo compras reales; las compras de prueba quedan fuera.",
+          "month_label": "Ingresos de {month}",
+          "until_today": "hasta hoy",
+          "revenue_usd": "Ingresos en US$",
+          "revenue_usd_hint": "Suma de las compras del mes, convertidas a dólares por RevenueCat. Los reembolsos no se descuentan aquí; aparecen en Reembolsos.",
+          "by_currency": "Por moneda",
+          "by_currency_hint": "El monto cobrado en la moneda de cada compra, sin conversión.",
+          "purchases": "Compras",
+          "purchases_hint": "Compras pagadas aprobadas por la tienda en el mes: pase de horas, primera suscripción y renovación. Una compra sin precio registrado cuenta aquí y no suma a los ingresos.",
+          "avg_ticket": "Ticket promedio",
+          "avg_ticket_hint": "Ingresos en US$ divididos por la cantidad de compras.",
+          "mix_title": "Por producto",
+          "mix_col_purchases": "Compras",
+          "tiers": {
+            "hours_10": "10 horas",
+            "hours_25": "25 horas",
+            "hours_45": "45 horas",
+            "monthly": "Suscripción mensual",
+            "legacy_days": "Plan por días (antiguo)",
+            "other": "Otro: {tier}"
+          },
+          "refunds": "Reembolsos",
+          "refunds_hint": "Compras que la tienda reembolsó en el mes y el monto devuelto, en US$.",
+          "refunds_no_data": "Sin dato: la base aún no registra los reembolsos de la tienda.",
+          "suppressed": "Menos de 5 personas en este grupo: el valor queda oculto.",
+          "empty": "Ninguna compra este mes.",
+          "failed": "No se pudieron cargar los ingresos de este mes."
         }
       },
       "ranking": {

@@ -67,6 +67,7 @@
     "poi_fetching": "POI Fetching",
     "reports": "Reports",
     "engagement": "Engagement and conversion",
+    "revenue": "Revenue",
     "tp_single_test": "TP Single Test",
     "cms_team": "CMS Team",
     "app_users": "App Users",
@@ -754,6 +755,37 @@
         },
         "ranking": {
           "title": "Scoring scoreboard"
+        },
+        "revenue": {
+          "title": "Revenue",
+          "subtitle": "Purchases on the App Store and Google Play, month by month",
+          "gross_note": "Gross revenue: what people paid, before the store commission and taxes. Real purchases only; test purchases are left out.",
+          "month_label": "Revenue for {month}",
+          "until_today": "until today",
+          "revenue_usd": "Revenue in US$",
+          "revenue_usd_hint": "Sum of the month's purchases, converted to dollars by RevenueCat. Refunds are not taken out here; they show under Refunds.",
+          "by_currency": "By currency",
+          "by_currency_hint": "The amount charged in the currency of each purchase, not converted.",
+          "purchases": "Purchases",
+          "purchases_hint": "Paid purchases the store approved in the month: hour pass, first subscription and renewal. A purchase with no recorded price counts here and adds nothing to revenue.",
+          "avg_ticket": "Revenue per purchase",
+          "avg_ticket_hint": "Revenue in US$ divided by the number of purchases.",
+          "mix_title": "By product",
+          "mix_col_purchases": "Purchases",
+          "tiers": {
+            "hours_10": "10 hours",
+            "hours_25": "25 hours",
+            "hours_45": "45 hours",
+            "monthly": "Monthly subscription",
+            "legacy_days": "Day plan (legacy)",
+            "other": "Other: {tier}"
+          },
+          "refunds": "Refunds",
+          "refunds_hint": "Purchases the store refunded in the month and the amount returned, in US$.",
+          "refunds_no_data": "No data: the database does not record store refunds yet.",
+          "suppressed": "Fewer than 5 people in this group: the value is hidden.",
+          "empty": "No purchases this month.",
+          "failed": "Could not load this month's revenue."
         }
       },
       "ranking": {

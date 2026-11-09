@@ -67,6 +67,7 @@
     "poi_fetching": "Busca de POIs",
     "reports": "Relatórios",
     "engagement": "Engajamento e conversão",
+    "revenue": "Receita",
     "tp_single_test": "TP Teste Único",
     "cms_team": "Equipe CMS",
     "app_users": "Usuários do App",
@@ -752,6 +753,37 @@
         },
         "ranking": {
           "title": "Placar de pontuação"
+        },
+        "revenue": {
+          "title": "Receita",
+          "subtitle": "Compras na App Store e no Google Play, mês a mês",
+          "gross_note": "Receita bruta: o que a pessoa pagou, antes da comissão da loja e dos impostos. Só compras reais; compras de teste ficam fora.",
+          "month_label": "Receita de {month}",
+          "until_today": "até hoje",
+          "revenue_usd": "Receita em US$",
+          "revenue_usd_hint": "Soma das compras do mês, convertidas em dólar pela RevenueCat. Reembolsos não são descontados aqui; aparecem em Reembolsos.",
+          "by_currency": "Por moeda",
+          "by_currency_hint": "O valor cobrado na moeda de cada compra, sem conversão.",
+          "purchases": "Compras",
+          "purchases_hint": "Compras pagas aprovadas pela loja no mês: passe de horas, primeira assinatura e renovação. Compra sem preço gravado conta aqui e não soma na receita.",
+          "avg_ticket": "Ticket médio",
+          "avg_ticket_hint": "Receita em US$ dividida pelo número de compras.",
+          "mix_title": "Por produto",
+          "mix_col_purchases": "Compras",
+          "tiers": {
+            "hours_10": "10 horas",
+            "hours_25": "25 horas",
+            "hours_45": "45 horas",
+            "monthly": "Assinatura mensal",
+            "legacy_days": "Plano por dias (antigo)",
+            "other": "Outro: {tier}"
+          },
+          "refunds": "Reembolsos",
+          "refunds_hint": "Compras que a loja devolveu no mês e o valor devolvido, em US$.",
+          "refunds_no_data": "Sem dado: o banco ainda não registra os reembolsos da loja.",
+          "suppressed": "Menos de 5 pessoas neste grupo: o valor fica oculto.",
+          "empty": "Nenhuma compra neste mês.",
+          "failed": "Não foi possível carregar a receita deste mês."
         }
       },
       "ranking": {

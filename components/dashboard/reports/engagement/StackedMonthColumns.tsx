@@ -12,7 +12,9 @@ import { COLUMN_PLOT_PX, INNER_LABEL_MIN_PX } from '@/lib/engagement/summary'
  * Presentational: heights arrive as fractions of the plot from `lib/engagement/summary.ts`, labels
  * translated. A `null` segment draws nothing and enters no total; its `title` says why. The 2 px gap
  * and the legend are the second channel next to colour (DS-A11Y-007). An inner label prints only
- * when the segment is `INNER_LABEL_MIN_PX` tall, never clipped.
+ * when the segment is `INNER_LABEL_MIN_PX` tall, never clipped. Each column is `relative`, so its
+ * sr-only line stays inside the scroller: with more columns than the width holds (twelve months at
+ * 390 px, #1157) an unanchored one widened the whole page.
  */
 
 export interface StackedSegment {
@@ -66,7 +68,7 @@ export function StackedMonthColumns({ mode = 'count', label, testId, columns, ax
           </div>
           <ul role="list" className="flex items-start">
             {columns.map((c) => (
-              <li key={c.key} className="flex w-[88px] shrink-0 flex-col items-center md:w-24" data-testid={`${testId}-col-${c.key}`}>
+              <li key={c.key} className="relative flex w-[88px] shrink-0 flex-col items-center md:w-24" data-testid={`${testId}-col-${c.key}`}>
                 <span className="sr-only">{c.srText}</span>
                 <div aria-hidden="true" className="flex w-10 flex-col-reverse gap-[2px]" style={{ height: COLUMN_PLOT_PX }}>
                   {loading ? (
