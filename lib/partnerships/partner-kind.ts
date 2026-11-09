@@ -74,17 +74,26 @@ export function isAppPartnerType(value: unknown): value is AppPartnerType {
 }
 
 /**
- * #1139, BR-B2B-066 item 2: an approved creator, influencer or driver with no place is a partner
- * without a place. Its acceptance arrived with the app request, the creator has no slug apart
- * from its @, and nothing of the place pipeline (create the place, publish it, the gate of
- * BR-B2B-057) is owed: the board shows it as the transfer without a base, QR and code only.
- * A pending record (the old app signup) keeps the ordinary path, where the approval is work.
+ * #1139, BR-B2B-066 item 2: a creator, influencer or driver approved BY THE APP REQUEST, with no
+ * place, is a partner without a place. Its acceptance arrived with the request, the creator has no
+ * slug apart from its @, and nothing of the place pipeline (create the place, publish it, the gate
+ * of BR-B2B-057) is owed: the board shows it as the transfer without a base, QR and code only.
+ *
+ * "By the request" is `commission_starts_at`, which only `drive.approve_partner_request_as` writes
+ * (contract `parceiro-sem-local.md` §4.2 and §4.4, BR-B2B-066 item 6). A record approved by hand
+ * or by the old app signup has no mark and no acceptance, so it keeps the gate and its warning
+ * (BR-B2B-057 item 3). A pending record keeps the ordinary path, where the approval is work.
  */
 export function isApprovedAppPartnerWithoutPlace(
-  client: { clientType: string | null; status: string | null },
+  client: { clientType: string | null; status: string | null; commissionStartsAt: string | null },
   placeCount: number
 ): boolean {
-  return isAppPartnerType(client.clientType) && client.status === 'approved' && placeCount === 0
+  return (
+    isAppPartnerType(client.clientType) &&
+    client.status === 'approved' &&
+    client.commissionStartsAt !== null &&
+    placeCount === 0
+  )
 }
 
 /** Why the approval of this submission cannot happen yet, before any write. `null` = it can. */

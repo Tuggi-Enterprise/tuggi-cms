@@ -177,8 +177,9 @@ export interface PipelineInput {
    */
   guideProfile?: GuideProfileFacts | null
   /**
-   * #1139: `isApprovedAppPartnerWithoutPlace` of the client (creator, influencer or driver of the
-   * app request, approved, no place). Absent = false.
+   * #1139: `isApprovedAppPartnerWithoutPlace` of the client (creator, influencer or driver
+   * approved by the app request, which is the `commission_starts_at` mark, and no place). Absent =
+   * false.
    */
   appPartnerWithoutPlace?: boolean
 }

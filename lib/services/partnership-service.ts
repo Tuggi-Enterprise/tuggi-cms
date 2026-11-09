@@ -24,6 +24,7 @@
  */
 
 import {
+  APP_PARTNER_TYPES,
   isApprovedAppPartnerWithoutPlace,
   partnerBadgeOf,
   partnerKindOf,
@@ -120,11 +121,12 @@ const SUBMISSION_COLUMNS =
  * The columns of `partner.clients` the pipeline decides with. An allowlist, and a short one: the
  * fiscal record, the banking record, the team and the coupons stay on the client's own page
  * (DS-LAYOUT-006, 1st edge case) — copying three of them here "for convenience" is how the
- * second source of the same fact gets born.
+ * second source of the same fact gets born. `commission_starts_at` is here because the path is
+ * decided with it (#1139, `isApprovedAppPartnerWithoutPlace`), not to show it.
  */
 const CLIENT_COLUMNS =
   'id, name, company_name, city, state, country, client_type, tax_id, status, approved_at, approved_by, ' +
-  'created_at, monthly_fee_cents, is_courtesy, courtesy_reason, welcome_poi_id'
+  'created_at, monthly_fee_cents, is_courtesy, courtesy_reason, commission_starts_at, welcome_poi_id'
 
 interface SubmissionRow {
   id: string
@@ -167,6 +169,12 @@ export interface PipelineClient {
    * carried one, 10 pointed at a POI that was not the client's place.
    */
   welcomePoiId: string | null
+  /**
+   * #1139: the commission mark, written only by the approval of the app request (contract
+   * `parceiro-sem-local.md` §4.4). `null` = not approved by the request: the gate of BR-B2B-057
+   * still applies (`isApprovedAppPartnerWithoutPlace`).
+   */
+  commissionStartsAt: string | null
 }
 
 export interface PipelineContract {
@@ -365,15 +373,22 @@ async function loadDirectoryPayload(): Promise<DirectoryPayload> {
 }
 
 export async function loadClientDirectory(operator: SupabaseClient): Promise<ClientDirectory> {
-  const [payload, placeRows, portalSubmissions, held] = await Promise.all([
+  const [payload, placeRows, portalSubmissions, held, marks] = await Promise.all([
     loadDirectoryPayload(),
     loadAllPartnerPlaces(operator),
     loadPortalSubmissions(),
     loadHeldChanges(),
+    loadAppPartnerMarks(),
   ])
 
   const submissions = payload.submissions
   const clients = indexClients(payload.clients, new Map<string, PipelineClient>())
+  // #1139: the mark decides whether the gate below holds an app partner, so it fails like the gate.
+  if (!marks) throw new Error('commission mark read failed')
+  for (const [clientId, startsAt] of marks) {
+    const client = clients.get(clientId)
+    if (client) client.commissionStartsAt = startsAt
+  }
 
   // BR-B2B-057: one read of the gate for every client. A board that cannot read it cannot place a
   // single card honestly, so a failed read fails the list instead of guessing.
@@ -1319,7 +1334,29 @@ function toRefusal(row: TriageRefusalRow): TriageRefusal {
   }
 }
 
-// ── The five reads ───────────────────────────────────────────────────────────────────────────
+// ── The reads ────────────────────────────────────────────────────────────────────────────────
+
+/**
+ * #1139: `commission_starts_at` of the approved creators, influencers and drivers, the column
+ * `cms_client_directory` does not return. Read by type, never by a list of ids (the URL ceiling
+ * of `.in`), and only the marked ones kept. `null` = the read failed.
+ */
+async function loadAppPartnerMarks(): Promise<Map<string, string> | null> {
+  const { data, error } = await service()
+    .from('clients')
+    .select('id, commission_starts_at')
+    .in('client_type', [...APP_PARTNER_TYPES])
+    .eq('status', 'approved')
+  if (error || !data) {
+    console.error('[partnerships] commission mark read failed:', error?.code ?? 'no_data')
+    return null
+  }
+  const marks = new Map<string, string>()
+  for (const row of data as { id: string; commission_starts_at: string | null }[]) {
+    if (typeof row.commission_starts_at === 'string') marks.set(row.id, row.commission_starts_at)
+  }
+  return marks
+}
 
 async function loadClients(ids: string[]): Promise<Map<string, PipelineClient>> {
   const map = new Map<string, PipelineClient>()
@@ -1351,6 +1388,8 @@ function indexClients(
       approvedBy: (row.approved_by as string) ?? null,
       createdAt: (row.created_at as string) ?? null,
       welcomePoiId: (row.welcome_poi_id as string) ?? null,
+      // `cms_client_directory` does not return it: the board fills it from `loadAppPartnerMarks`.
+      commissionStartsAt: (row.commission_starts_at as string) ?? null,
       fee: {
         // `monthly_fee_cents` absent is an incomplete registration and is NOT zero —
         // BR-B2B-017, item 6. `?? null` and never `?? 0`.

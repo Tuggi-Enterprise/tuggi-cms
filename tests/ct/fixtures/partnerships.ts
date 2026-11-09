@@ -247,6 +247,7 @@ function client(overrides: Partial<PipelineClient> & { id: string; fee: PartnerF
     country: null,
     clientType: null,
     welcomePoiId: null,
+    commissionStartsAt: null,
     taxId: null,
     status: 'active',
     approvedAt: null,
