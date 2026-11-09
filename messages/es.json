@@ -665,14 +665,13 @@
               "of_entered": "de quienes entraron",
               "of_opened": "de quienes abrieron la app",
               "of_viewed": "de quienes vieron el paywall",
-              "of_heard": "de quienes ya escucharon una historia",
               "of_guide": "de quienes encendieron la guía",
               "of_guide_time": "del tiempo con la guía encendida",
               "no_filter_source": "Esta fuente no aplica este filtro.",
               "of_trips": "de los viajes",
               "market": "Mercado",
               "market_hint": "Referencia publicada para apps de viaje. La meta propia viene después.",
-              "market_line": "Mercado: {value} · {source}, {year}"
+              "market_line": "Mercado: {value} ({source}, {year})"
             },
             "block_0": {
               "title": "El mes en tres líneas",
@@ -706,8 +705,8 @@
               "day_nothing": "No hizo nada",
               "day_nothing_hint": "Aceptó los Términos y no hizo ninguna de las tres cosas de arriba.",
               "day_rest": "Sin guía ni historia",
-              "day_rest_hint": "No encendió la guía ni escuchó una historia. Antes de que la base registrara la apertura de la app, no se puede separar a quien exploró de quien no hizo nada.",
-              "gap": "Instalaciones de más sobre entradas"
+              "day_rest_hint": "No encendió la guía ni escuchó una historia. Antes de que la app registrara las aperturas, no se puede separar a quien exploró el mapa de quien no hizo nada.",
+              "gap": "Instalaciones más que entradas"
             },
             "block_2": {
               "title": "¿Quién enciende la guía y se mueve?",
@@ -737,15 +736,15 @@
             "block_4": {
               "title": "¿Cuánto tiempo pasa con la guía encendida en movimiento?",
               "base": "personas que encendieron la guía en {month}",
-              "answer_medians": "En la mediana por persona, quien encendió la guía pasó {vehicle} en vehículo{cmp}, {walk} caminando y {still} detenido.",
+              "answer_medians": "En la mediana por persona, quien encendió la guía pasó {vehicle} en vehículo{cmp}. Caminando fueron {walk}, y detenido, {still}.",
               "answer_no_source": "Sin dato: la app todavía no registra si la persona está en vehículo, caminando o detenida.",
               "answer_empty": "Nadie encendió la guía en {month}.",
               "vehicle": "En vehículo",
               "walking": "Caminando",
               "stopped": "Detenido",
               "cycling": "En bicicleta",
-              "hint_buckets": "Quien clasifica es la app: la señal de actividad del teléfono y, cuando falta, la velocidad del GPS. Cada mediana se calcula aparte, así que no suman el tiempo total.",
-              "coverage": "{pct} de los viajes con registro de movimiento"
+              "hint_buckets": "La app clasifica cada tramo por el sensor de movimiento del teléfono y, cuando falta, por la velocidad del GPS. Cada mediana se calcula aparte, así que no suman el tiempo con la guía encendida.",
+              "coverage": "{pct} de los viajes del mes tienen registro de movimiento."
             },
             "block_7": {
               "bank": "En la base: ¿probó antes de comprar?",
@@ -798,7 +797,7 @@
             "block_5": {
               "title": "¿Cuántas horas consume cada persona?",
               "base": "personas que gastaron minutos en {month}",
-              "answer": "La mitad de quienes gastaron minutos en {month} gastó más de {median}{cmp}. Un cuarto pasó de {p75}.",
+              "answer": "La mitad de quienes gastaron minutos en {month} usó más de {median}{cmp}. Un cuarto pasó de {p75}.",
               "answer_empty": "Nadie gastó minutos en {month}.",
               "median": "Mediana por persona",
               "p75": "p75 por persona",
@@ -809,7 +808,7 @@
               "hist_base": "{used, plural, one {# persona usó} other {# personas usaron}} minutos gratuitos, de {n} que entraron en {month}",
               "hist_not_used": "No usó",
               "hist_not_used_hint": "Entró y no gastó ningún minuto gratuito. Las otras barras son solo de quienes usaron.",
-              "hint": "Las medianas cuentan los minutos gastados en el mes. El gráfico es la cohorte que entró en el mes, con los minutos gratuitos sumados hasta hoy."
+              "hint": "Las medianas cuentan los minutos gastados en cada mes, entre quienes gastaron. El gráfico es la cohorte que entró en el mes, con los minutos gratuitos sumados hasta hoy."
             },
             "block_6": {
               "title": "¿Quién usa sin comprar?",
@@ -819,7 +818,7 @@
               "answer_empty": "Nadie usó la guía ni escuchó una historia en {month}.",
               "people": "Usó y no compró",
               "not_bought_hint": "Ninguna compra real en la tienda hasta hoy, ni de horas ni de suscripción.",
-              "of_not_bought": "de quienes no compraron",
+              "of_not_bought": "de quienes usaron y no compraron",
               "bands": "Gratuito ya gastado",
               "band_15": "hasta 15 min",
               "band_60": "15 min a 1 h",
@@ -869,8 +868,8 @@
               "by_trips": "Más viajes",
               "by_no_story": "Más viajes sin historia",
               "trips_row": "{n, plural, one {# viaje} other {# viajes}}",
-              "no_story_row": "{n} sin historia de {trips}",
-              "empty": "Ningún viaje con ciudad conocida en {month}.",
+              "no_story_row": "{n} de {trips} sin historia",
+              "empty": "Ninguna ciudad en esta lista en {month}.",
               "link": "Ver todas en Geografía"
             },
             "extra_active": {
@@ -887,7 +886,7 @@
               "wau_hint": "Activos en una ventana de 7 días, en promedio en el mes.",
               "ratio_hint": "Activos en un día promedio divididos por los activos del mes. Una app de viaje se usa durante el viaje, no todos los días, así que esta razón es baja por naturaleza.",
               "market": "Apps de viaje: cerca de {pct} (CleverTap, 2023)",
-              "before_open": "La base cuenta la apertura de la app desde {date}; antes del primer mes entero, el gráfico queda vacío."
+              "before_open": "La base cuenta las aperturas de la app desde el {date}. El mes en que empezó el conteo aparece como piso, y el gráfico solo muestra meses enteros."
             },
             "block_9": {
               "title": "Detalles",

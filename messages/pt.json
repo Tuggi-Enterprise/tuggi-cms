@@ -670,14 +670,13 @@
               "of_entered": "de quem entrou",
               "of_opened": "de quem abriu o app",
               "of_viewed": "de quem viu o paywall",
-              "of_heard": "de quem já ouviu uma história",
               "of_guide": "de quem ligou o guia",
               "of_guide_time": "do tempo com o guia ligado",
               "no_filter_source": "Esta fonte não aplica este filtro.",
               "of_trips": "das viagens",
               "market": "Mercado",
               "market_hint": "Referência publicada para apps de viagem. A meta própria vem depois.",
-              "market_line": "Mercado: {value} · {source}, {year}"
+              "market_line": "Mercado: {value} ({source}, {year})"
             },
             "block_0": {
               "title": "O mês em três linhas",
@@ -711,7 +710,7 @@
               "day_nothing": "Não fez nada",
               "day_nothing_hint": "Passou dos Termos e não fez nenhuma das três coisas acima.",
               "day_rest": "Sem guia nem história",
-              "day_rest_hint": "Não ligou o guia nem ouviu história. Antes de o banco registrar a abertura do app, não dá para separar quem explorou de quem não fez nada.",
+              "day_rest_hint": "Não ligou o guia nem ouviu história. Antes de o app registrar as aberturas, não dá para separar quem explorou o mapa de quem não fez nada.",
               "gap": "Instalações a mais que entradas"
             },
             "block_2": {
@@ -742,15 +741,15 @@
             "block_4": {
               "title": "Quanto tempo fica com o guia ligado em movimento?",
               "base": "pessoas que ligaram o guia em {month}",
-              "answer_medians": "Na mediana por pessoa, quem ligou o guia passou {vehicle} em veículo{cmp}, {walk} andando e {still} parado.",
+              "answer_medians": "Na mediana por pessoa, quem ligou o guia passou {vehicle} em veículo{cmp}. Andando foram {walk}, e parado, {still}.",
               "answer_no_source": "Sem dado: o app ainda não registra se a pessoa está em veículo, andando ou parada.",
               "answer_empty": "Ninguém ligou o guia em {month}.",
               "vehicle": "Em veículo",
               "walking": "Andando",
               "stopped": "Parado",
               "cycling": "De bicicleta",
-              "hint_buckets": "Quem classifica é o app: o sinal de atividade do aparelho e, quando ele falta, a velocidade do GPS. Cada mediana é calculada à parte, então elas não somam o tempo total.",
-              "coverage": "{pct} das viagens com o registro de movimento"
+              "hint_buckets": "O app classifica cada trecho pelo sensor de movimento do celular e, quando ele falta, pela velocidade do GPS. Cada mediana é calculada à parte, então elas não somam o tempo com o guia ligado.",
+              "coverage": "{pct} das viagens do mês têm o registro de movimento."
             },
             "block_7": {
               "bank": "No banco: testou antes de comprar?",
@@ -803,7 +802,7 @@
             "block_5": {
               "title": "Quantas horas cada pessoa consome?",
               "base": "pessoas que gastaram minutos em {month}",
-              "answer": "Metade de quem gastou minutos em {month} gastou mais de {median}{cmp}. Um quarto passou de {p75}.",
+              "answer": "Metade de quem gastou minutos em {month} usou mais de {median}{cmp}. Um quarto passou de {p75}.",
               "answer_empty": "Ninguém gastou minutos em {month}.",
               "median": "Mediana por pessoa",
               "p75": "p75 por pessoa",
@@ -814,7 +813,7 @@
               "hist_base": "{used, plural, one {# pessoa usou} other {# pessoas usaram}} minutos gratuitos, de {n} que entraram em {month}",
               "hist_not_used": "Não usou",
               "hist_not_used_hint": "Entrou e não gastou nenhum minuto gratuito. As outras barras são só de quem usou.",
-              "hint": "As medianas contam os minutos gastos no mês. O gráfico é a turma que entrou no mês, com os minutos gratuitos somados até hoje."
+              "hint": "As medianas contam os minutos gastos em cada mês, entre quem gastou. O gráfico é a turma que entrou no mês, com os minutos gratuitos somados até hoje."
             },
             "block_6": {
               "title": "Quem usa sem comprar?",
@@ -824,7 +823,7 @@
               "answer_empty": "Ninguém usou o guia nem ouviu história em {month}.",
               "people": "Usou e não comprou",
               "not_bought_hint": "Nenhuma compra real na loja até hoje, nem de horas nem de assinatura.",
-              "of_not_bought": "de quem não comprou",
+              "of_not_bought": "de quem usou e não comprou",
               "bands": "Gratuito já gasto",
               "band_15": "até 15 min",
               "band_60": "15 min a 1 h",
@@ -874,8 +873,8 @@
               "by_trips": "Mais viagens",
               "by_no_story": "Mais viagens sem história",
               "trips_row": "{n, plural, one {# viagem} other {# viagens}}",
-              "no_story_row": "{n} sem história de {trips}",
-              "empty": "Nenhuma viagem com cidade conhecida em {month}.",
+              "no_story_row": "{n} de {trips} sem história",
+              "empty": "Nenhuma cidade nesta lista em {month}.",
               "link": "Ver todas na Geografia"
             },
             "extra_active": {
@@ -892,7 +891,7 @@
               "wau_hint": "Ativos numa janela de 7 dias, em média no mês.",
               "ratio_hint": "Ativos num dia médio divididos pelos ativos do mês. App de viagem se usa durante a viagem, não todo dia, então essa razão fica baixa por natureza.",
               "market": "Apps de viagem: cerca de {pct} (CleverTap, 2023)",
-              "before_open": "O banco conta a abertura do app desde {date}; antes do primeiro mês inteiro, o gráfico fica vazio."
+              "before_open": "O banco conta as aberturas do app desde {date}. O mês em que a contagem começou aparece como piso, e o gráfico só mostra meses inteiros."
             },
             "block_9": {
               "title": "Detalhes",

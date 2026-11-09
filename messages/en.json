@@ -672,14 +672,13 @@
               "of_entered": "of those who entered",
               "of_opened": "of those who opened the app",
               "of_viewed": "of those who saw the paywall",
-              "of_heard": "of those who have heard a story",
               "of_guide": "of those who turned the guide on",
               "of_guide_time": "of the time with the guide on",
               "no_filter_source": "This source does not apply this filter.",
               "of_trips": "of trips",
               "market": "Market",
               "market_hint": "Published benchmark for travel apps. Our own target comes later.",
-              "market_line": "Market: {value} · {source}, {year}"
+              "market_line": "Market: {value} ({source}, {year})"
             },
             "block_0": {
               "title": "The month in three lines",
@@ -713,8 +712,8 @@
               "day_nothing": "Did nothing",
               "day_nothing_hint": "Accepted the Terms and did none of the three things above.",
               "day_rest": "No guide and no story",
-              "day_rest_hint": "Did not turn the guide on or listen to a story. Before the database recorded app opens, those who explored cannot be told apart from those who did nothing.",
-              "gap": "Installs over entries"
+              "day_rest_hint": "Did not turn the guide on or listen to a story. Before the app recorded opens, there is no telling those who explored the map from those who did nothing.",
+              "gap": "More installs than entries"
             },
             "block_2": {
               "title": "Who turns the guide on and gets moving?",
@@ -744,15 +743,15 @@
             "block_4": {
               "title": "How long is the guide on while they move?",
               "base": "people who turned the guide on in {month}",
-              "answer_medians": "The median person who turned the guide on spent {vehicle} in a vehicle{cmp}, {walk} walking and {still} stopped.",
+              "answer_medians": "Those who turned the guide on spent a median of {vehicle} each in a vehicle{cmp}. Walking, the median was {walk}, and stopped, {still}.",
               "answer_no_source": "No data: the app does not record yet whether the person is in a vehicle, walking or stopped.",
               "answer_empty": "Nobody turned the guide on in {month}.",
               "vehicle": "In a vehicle",
               "walking": "Walking",
               "stopped": "Stopped",
               "cycling": "Cycling",
-              "hint_buckets": "The app classifies it: the phone's activity signal and, when it is missing, the GPS speed. Each median is computed on its own, so they do not add up to the total time.",
-              "coverage": "{pct} of trips with movement recorded"
+              "hint_buckets": "The app classifies each stretch by the phone's motion sensor and, when it is missing, by GPS speed. Each median is computed on its own, so they do not add up to the time with the guide on.",
+              "coverage": "{pct} of the month's trips have movement recorded."
             },
             "block_7": {
               "bank": "In the database: did they try before buying?",
@@ -805,7 +804,7 @@
             "block_5": {
               "title": "How many hours does each person use?",
               "base": "people who used minutes in {month}",
-              "answer": "Half of those who used minutes in {month} used more than {median}{cmp}. A quarter went past {p75}.",
+              "answer": "Half of those who spent minutes in {month} used more than {median}{cmp}. A quarter went past {p75}.",
               "answer_empty": "Nobody used minutes in {month}.",
               "median": "Median per person",
               "p75": "p75 per person",
@@ -816,7 +815,7 @@
               "hist_base": "{used, plural, one {# person used} other {# people used}} free minutes, of {n} who entered in {month}",
               "hist_not_used": "Did not use",
               "hist_not_used_hint": "Entered and used no free minutes. The other bars are only those who used some.",
-              "hint": "The medians count the minutes used in the month. The chart is the cohort that entered in the month, with free minutes added up to date."
+              "hint": "The medians count the minutes used in each month, among those who used any. The chart is the cohort that entered in the month, with free minutes added up to date."
             },
             "block_6": {
               "title": "Who uses it without buying?",
@@ -826,7 +825,7 @@
               "answer_empty": "Nobody used the guide or listened to a story in {month}.",
               "people": "Used and did not buy",
               "not_bought_hint": "No real store purchase to date, of hours or a subscription.",
-              "of_not_bought": "of those who did not buy",
+              "of_not_bought": "of those who used it and did not buy",
               "bands": "Free time already used",
               "band_15": "up to 15 min",
               "band_60": "15 min to 1 h",
@@ -876,8 +875,8 @@
               "by_trips": "Most trips",
               "by_no_story": "Most trips with no story",
               "trips_row": "{n, plural, one {# trip} other {# trips}}",
-              "no_story_row": "{n} with no story of {trips}",
-              "empty": "No trip with a known city in {month}.",
+              "no_story_row": "{n} of {trips} with no story",
+              "empty": "No city on this list in {month}.",
               "link": "See all in Geography"
             },
             "extra_active": {
@@ -894,7 +893,7 @@
               "wau_hint": "Active in a 7-day window, averaged over the month.",
               "ratio_hint": "Active on an average day divided by active in the month. A travel app is used during a trip, not every day, so this ratio is low by nature.",
               "market": "Travel apps: about {pct} (CleverTap, 2023)",
-              "before_open": "The database counts app opens since {date}; before the first whole month, the chart stays empty."
+              "before_open": "The database counts app opens since {date}. The month the count started shows as a floor, and the chart only shows whole months."
             },
             "block_9": {
               "title": "Details",
