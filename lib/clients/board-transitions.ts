@@ -34,6 +34,7 @@ import {
 } from '@/lib/clients/directory-filter'
 import { PIPELINE_STATES, TERMINAL_STATES, type PipelineState } from '@/lib/partnerships/pipeline'
 import type { GateItem } from '@/lib/partnerships/acceptance-gate'
+import { hasNoPlace } from '@/lib/partnerships/partner-kind'
 import type { ClientDirectoryRow } from '@/lib/services/partnership-service'
 
 /**
@@ -223,6 +224,13 @@ export function planTransition(
   if (from === to) return { kind: 'noop' }
 
   if (row.origin === 'portal') return planPortalTransition(row, from, to)
+
+  // #1139, BR-B2B-066 item 2: the creator, influencer and driver of the app request have no
+  // place. Creating one, the `no_place` refusal and the gate of BR-B2B-057 are the place path,
+  // and none of them applies: the record is finished at the approval, in the record's hands.
+  if (row.partnerKind && hasNoPlace(row.partnerKind)) {
+    return indexOfColumn(to) < indexOfColumn(from) ? { kind: 'backwards' } : { kind: 'blocked', reason: 'not_closable' }
+  }
 
   const fromIndex = indexOfColumn(from)
   const toIndex = indexOfColumn(to)

@@ -23,7 +23,13 @@
  * wrote down for the write side.
  */
 
-import { partnerBadgeOf, partnerKindOf, type PartnerBadge, type PartnerKind } from '@/lib/partnerships/partner-kind'
+import {
+  isApprovedAppPartnerWithoutPlace,
+  partnerBadgeOf,
+  partnerKindOf,
+  type PartnerBadge,
+  type PartnerKind,
+} from '@/lib/partnerships/partner-kind'
 import { loadGuideProfileFacts } from '@/lib/services/guide-profile-service'
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { getSupabaseService } from '@/lib/core/supabase-client'
@@ -248,7 +254,10 @@ export interface ClientDirectoryRow {
   discardReason: string | null
   /** `portal` for a row of `partner.place_submissions` (#812). Absent = the old form or a client. */
   origin?: 'form' | 'portal'
-  /** `partnerKindOf` of a portal row (#936). Absent = `place`: only the portal brings the other two. */
+  /**
+   * `partnerKindOf` of a portal row (#936), or `referral_only` for the approved creator, influencer
+   * or driver of the app request (#1139). Absent = `place`.
+   */
   partnerKind?: PartnerKind
   /** "Agência", "Transfer" or "Guia" in the row (spec #936 §6). Absent or `null` = no badge. */
   partnerBadge?: PartnerBadge | null
@@ -571,6 +580,9 @@ export async function loadClientDirectory(operator: SupabaseClient): Promise<Cli
   for (const client of clients.values()) {
     if (claimed.has(client.id)) continue
     const { readiness, outcomes, contract } = partnershipOf(client)
+    // #1139: the approved creator, influencer or driver of the app request — no place, no gate.
+    const appPartner = isApprovedAppPartnerWithoutPlace(client, readiness.length)
+    const clientGate = appPartner ? [] : gateOf(client.id)
 
     clientRows.push({
       submissionId: null,
@@ -582,11 +594,12 @@ export async function loadClientDirectory(operator: SupabaseClient): Promise<Cli
         proposalStatus: 'promoted',
         conference: (conferences.get(client.id) ?? NO_CONFERENCE).conference,
         clientId: client.id,
-        gateMissing: gateOf(client.id),
+        gateMissing: clientGate,
         placeCount: readiness.length,
         publishedPlaceCount: readiness.filter((item) => item.published).length,
         refusedPlaceCount: outcomes.filter(isRefusedAtTriage).length,
         uncommunicatedRefusal: hasUncommunicatedRefusal(outcomes),
+        appPartnerWithoutPlace: appPartner,
       }),
       // A registration nobody proposed still opens the record, and still through the one
       // composer: the second hand-built query string was the same defect as the first.
@@ -611,7 +624,8 @@ export async function loadClientDirectory(operator: SupabaseClient): Promise<Cli
       places: summarizePlaces(readiness),
       triage: { approvedAt: client.approvedAt, places: outcomes },
       discardReason: null,
-      gateMissing: gateOf(client.id),
+      gateMissing: clientGate,
+      ...(appPartner ? { partnerKind: 'referral_only' as const } : {}),
       hasHeldPhoto: false,
       hasHeldStory: false,
     })
@@ -980,12 +994,15 @@ export async function loadPartnershipDetail(
   if (!client) return null
   // BR-B2B-057: the state below depends on the gate, and a guess would be a wrong header.
   if (!gate) throw new Error('acceptance gate read failed')
-  const gateMissing = missingGateItems(gate.get(clientId))
 
   const contract = contracts.get(clientId) ?? null
   const readiness = (places.get(clientId) ?? []).map((row) =>
     buildPlaceReadiness(row, readinessContextOf(contract?.tier ?? null))
   )
+  // #1139: the partner of the app request owes nothing to the gate of BR-B2B-057 (its acceptance
+  // is the request's, and the creator's link is its @), the same reading as its board row.
+  const appPartnerWithoutPlace = isApprovedAppPartnerWithoutPlace(client, readiness.length)
+  const gateMissing = appPartnerWithoutPlace ? [] : missingGateItems(gate.get(clientId))
   const attractionIds = readiness.map((item) => item.place.attractionId)
   const [trail, refusals, welcomeDivergence, conferenceByLabel, promotedByLabel, reviewedByLabel, portal] =
     await Promise.all([
@@ -1037,6 +1054,7 @@ export async function loadPartnershipDetail(
       publishedPlaceCount: readiness.filter((item) => item.published).length,
       refusedPlaceCount: outcomes.filter(isRefusedAtTriage).length,
       uncommunicatedRefusal: hasUncommunicatedRefusal(outcomes),
+      appPartnerWithoutPlace,
     }),
     gateMissing,
     client,

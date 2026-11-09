@@ -61,6 +61,32 @@ export function placesTabOf(kind: PartnerKind): 'places' | 'guide' | null {
   return 'places'
 }
 
+/**
+ * BR-B2B-066 item 1: the three partners without a place that ask in the app (creator, influencer,
+ * driver). Contract `parceiro-sem-local.md` §2.1 `p_partner_type`.
+ */
+export const APP_PARTNER_TYPES = ['creator', 'influencer', 'driver'] as const satisfies readonly ClientType[]
+
+export type AppPartnerType = (typeof APP_PARTNER_TYPES)[number]
+
+export function isAppPartnerType(value: unknown): value is AppPartnerType {
+  return typeof value === 'string' && (APP_PARTNER_TYPES as readonly string[]).includes(value)
+}
+
+/**
+ * #1139, BR-B2B-066 item 2: an approved creator, influencer or driver with no place is a partner
+ * without a place. Its acceptance arrived with the app request, the creator has no slug apart
+ * from its @, and nothing of the place pipeline (create the place, publish it, the gate of
+ * BR-B2B-057) is owed: the board shows it as the transfer without a base, QR and code only.
+ * A pending record (the old app signup) keeps the ordinary path, where the approval is work.
+ */
+export function isApprovedAppPartnerWithoutPlace(
+  client: { clientType: string | null; status: string | null },
+  placeCount: number
+): boolean {
+  return isAppPartnerType(client.clientType) && client.status === 'approved' && placeCount === 0
+}
+
 /** Why the approval of this submission cannot happen yet, before any write. `null` = it can. */
 export function noPlaceApprovalBlock(answers: PartnerAnswers | null | undefined): 'no_contact_consent' | null {
   if (partnerKindOf(answers) === 'guide' && !hasPublicContactConsent(answers)) return 'no_contact_consent'

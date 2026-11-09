@@ -176,6 +176,11 @@ export interface PipelineInput {
    * the approval did not reach the publication. Read only for `partnerKind = 'guide'`.
    */
   guideProfile?: GuideProfileFacts | null
+  /**
+   * #1139: `isApprovedAppPartnerWithoutPlace` of the client (creator, influencer or driver of the
+   * app request, approved, no place). Absent = false.
+   */
+  appPartnerWithoutPlace?: boolean
 }
 
 /** What the queue needs from `partner.guide_profiles`: whether the app lists it. */
@@ -223,6 +228,12 @@ export function derivePipelineState(input: PipelineInput): PipelineState {
     // A refusal decided and not communicated is an act owed to somebody outside the company, so
     // the row is work whatever the rest of the partnership looks like.
     if (input.uncommunicatedRefusal === true) return 'refusal_not_communicated'
+
+    // #1139, BR-B2B-066 item 2: the approved partner of the app request has no place to create,
+    // curate or publish, and its acceptance lives with the request, so neither the place count
+    // nor the gate of BR-B2B-057 holds it in `Aguardando aceite`. QR and code, like the transfer
+    // without a base.
+    if (input.appPartnerWithoutPlace === true) return 'referral_only'
 
     const refused = input.refusedPlaceCount ?? 0
     // DECIDED, not "finished": a place is resolved when it is in the app or its triage refused it.
