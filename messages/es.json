@@ -581,7 +581,6 @@
             "purchase_funnel": {
               "title": "Embudo de compra",
               "note": "cohorte del mes, hasta hoy",
-              "entered": "Entró",
               "purchased": "Compró",
               "purchased_line": "Compró {n} · {pct} de quienes entraron",
               "part_tested": "probó gratis: {n} · {pct}",
@@ -748,7 +747,8 @@
             },
             "block_7": {
               "bank": "En la base: ¿probó antes de comprar?",
-              "bank_base": "cohorte de {month}, personas, hasta hoy",
+              "bank_entered": "Entraron (mes UTC)",
+              "bank_base_utc": "cohorte de {month} por mes UTC, personas, con los invitados ya borrados, sin filtros, hasta hoy",
               "free_before": "Gratuito gastado antes de comprar, mediana",
               "free_before_hint": "Minutos gratuitos que quien compró gastó entre entrar y la primera compra. La mitad gastó más que esto.",
               "title": "¿Quién pasó por el paywall y no compró?",

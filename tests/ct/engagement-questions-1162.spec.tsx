@@ -41,7 +41,8 @@ const chartsDrawn = async (page: Page) => {
   for (const id of ['block-5-histogram', 'block-7-lines', 'block-8-curve', 'extra_active_bank-lines', 'extra_active_ga4-lines', 'extra-permissions-bars']) {
     await expect(page.locator(`[data-testid="${id}"] svg.recharts-surface`), id).toHaveCount(1)
   }
-  await expect(page.locator('[data-testid="month-bars"] svg.recharts-surface')).toHaveCount(5)
+  // block 3 has no point in October's window and draws the "no data" frame (#1166)
+  await expect(page.locator('[data-testid="month-bars"] svg.recharts-surface')).toHaveCount(4)
 }
 
 for (const width of [1440, 390]) {

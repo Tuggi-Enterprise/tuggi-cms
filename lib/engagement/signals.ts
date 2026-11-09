@@ -6,8 +6,8 @@
  *  - **Two rulers that never mix** (DS-COMPONENTE-084 item 2): the database counts people
  *    (`cms_get_active_users_monthly`), GA4 counts devices; each half has its own numbers, its own chart
  *    and its own base line. DAU/MAU is always a ratio inside one ruler.
- *  - **Coverage of app opens** (contract Parte 27 §5): `partial` prints the database numbers as a floor
- *    and keeps the month off the chart; `none` is "no data", never 0 (BR-COMUNICACAO-022 item 4).
+ *  - **Coverage of app opens** (contract Parte 27 §5): `partial` prints the database counts as a floor,
+ *    and its DAU/MAU as no data, off the chart (DS-COMPONENTE-084 item 2); `none` is "no data", never 0 (BR-COMUNICACAO-022 item 4).
  *  - **Permissions are GA4 over GA4**, the same event: devices that allowed over devices that answered.
  */
 
@@ -47,6 +47,9 @@ function activeCell(input: QuestionsInput, month: string, key: keyof ActiveRuler
   const m = input.active.months.find((x) => x.month === month)
   const all = m?.all_sources
   if (!all || all.open_coverage === 'none' || all.open_coverage === null) return cell('before_source', null, { since })
+  // DS-COMPONENTE-084 item 2: a ratio over part of the month has no referent (the MAU is short, so it comes out
+  // inflated). It prints no number and names when the opens started; the counts above stay as floors.
+  if (key === 'dau_mau' && all.open_coverage === 'partial') return cell('before_source', null, { since })
   const v = all[key]
   if (v === null) return cell('no_source')
   return cell(all.open_coverage === 'partial' ? 'floor' : 'measured', v)
@@ -61,10 +64,10 @@ export function buildActiveBank(input: QuestionsInput): ActiveHalf {
     stat('mau', 'questions.extra_active.mau', 'count'),
     stat('dau_mau', 'questions.extra_active.ratio', 'rate', 'questions.extra_active.ratio_hint'),
   ]
-  // A floor month is a different coverage: it stays off the chart, the numbers above say "at least" (DS-COMPONENTE-084 item 2).
+  // A partial month is a different coverage: its ratio is no data, so it stays off the chart (DS-COMPONENTE-084 item 2).
   const chart = chartMonths(input.month).map((month): ChartRow => {
     const c = activeCell(input, month, 'dau_mau')
-    return c.state === 'measured' ? { month, values: { ratio: c.value }, reason: null } : { month, values: {}, reason: c.state === 'floor' ? 'before_source' : c.state }
+    return c.state === 'measured' ? { month, values: { ratio: c.value }, reason: null } : { month, values: {}, reason: c.state, since: c.since }
   })
   const status = statusOf(input, ['active'], stats[0].cell)
   const [dau, , mau, ratio] = stats.map((s) => s.cell)

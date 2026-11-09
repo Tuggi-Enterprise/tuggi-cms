@@ -20,6 +20,7 @@ import {
   type HorizontalBarsRow,
   type LinesRow,
   type LinesSeries,
+  drawnLegend,
   type MonthBarsRow,
   type MonthBarsSeries,
   type StepFunnelRow,
@@ -33,7 +34,7 @@ import { UNKNOWN_VALUE } from '@/lib/format/unknown'
 import { cn } from '@/lib/utils'
 import type { Cell } from '@/lib/engagement/cells'
 import { answerOf, firstSentence, type Answer, type AnswerValue } from '@/lib/engagement/answers'
-import { buildBlocks, buildPaywallFunnel, buildUseFunnel, chartMonths, freeBeforeCell, type QuestionBlock, type QuestionsInput, type Stat, type StatKind } from '@/lib/engagement/blocks'
+import { buildBlocks, buildPaywallFunnel, buildUseFunnel, chartMonths, freeBeforeCell, hasNoPoint, type ChartRow, type QuestionBlock, type QuestionsInput, type Stat, type StatKind } from '@/lib/engagement/blocks'
 import { pickHeadlines } from '@/lib/engagement/headlines'
 import { buildActiveBank, buildActiveGa4, buildPermissions, buildWhere, type ActiveHalf } from '@/lib/engagement/signals'
 import { BENCHMARKS } from '@/lib/engagement/benchmarks'
@@ -250,6 +251,14 @@ export function EngagementQuestions(props: EngagementQuestionsProps) {
   }
 
   // ── Charts ──
+  const rowReason = (r: ChartRow): string | null => (r.reason ? (reasonTitle({ state: r.reason, value: null, share: null, since: r.since ?? null, due: null }, 'bank') ?? UNKNOWN_VALUE) : null)
+  /** The dashed frame of spec §E5.5, at the chart's height, in place of a chart with nothing to draw. */
+  const noDataFrame = (message: string, testId: string) => (
+    <div style={{ height: MONTH_BARS_PX }} className="flex flex-col items-center justify-center gap-2 rounded-lg border border-dashed border-gray-300 px-6 text-center dark:border-gray-700" data-testid={testId}>
+      <Gauge className={cn('h-5 w-5', DIM)} aria-hidden="true" />
+      <span className={cn('text-sm', DIM)}>{message}</span>
+    </div>
+  )
   const chartOf = (b: QuestionBlock, colors: Record<string, string>, labels: Record<string, string>, mode: 'expand' | 'stack' | 'group', format: (v: number) => string, axis: (v: number) => string) => {
     const series: MonthBarsSeries[] = b.series.map((key) => ({ key, label: k(labels[key]), color: colors[key] }))
     const rows: MonthBarsRow[] = b.chart.map((r) => ({
@@ -257,9 +266,9 @@ export function EngagementQuestions(props: EngagementQuestionsProps) {
       label: monthHeader(r.month),
       short: monthShort(r.month),
       values: r.values,
-      reason: r.reason ? (reasonTitle({ state: r.reason, value: null, share: null, since: null, due: null }, 'bank') ?? UNKNOWN_VALUE) : null,
+      reason: rowReason(r),
     }))
-    const legend: QuestionLegendItem[] = series.filter((x) => b.chart.some((r) => r.values[x.key] !== undefined && r.values[x.key] !== null)).map((x) => ({ key: x.key, label: x.label, color: x.color }))
+    const legend: QuestionLegendItem[] = drawnLegend(series, b.chart).map((x) => ({ key: x.key, label: x.label, color: x.color }))
     const chart = <MonthBars label={k(BLOCK_TITLES[b.key])} rows={rows} series={series} mode={mode} format={format} axis={axis} />
     return { chart, legend }
   }
@@ -306,6 +315,9 @@ export function EngagementQuestions(props: EngagementQuestionsProps) {
     const chart = bars ? bars.chart : opts.chart
     const legend = bars ? bars.legend : opts.legend
     const noSource = b.status === 'no_source' && b.key === 'block_4'
+    // a month chart with no point in the window says why instead of drawing an empty axis (spec §E9); the reason is the selected month's
+    const noPoint = bars !== null && !noSource && b.status !== 'loading' && b.status !== 'failed' && b.status !== 'filtered' && hasNoPoint(b.chart)
+    const noPointReason = noPoint ? (rowReason(b.chart[b.chart.length - 1]) ?? s('tiles.no_source_bank')) : null
     return (
       <QuestionCard
         key={b.key}
@@ -333,15 +345,14 @@ export function EngagementQuestions(props: EngagementQuestionsProps) {
           ) : b.status === 'filtered' ? (
             filteredChart(MONTH_BARS_PX, k('cell_ga4_filter'))
           ) : noSource ? (
-            <div style={{ height: MONTH_BARS_PX }} className="flex flex-col items-center justify-center gap-2 rounded-lg border border-dashed border-gray-300 px-6 text-center dark:border-gray-700" data-testid="question-no-source">
-              <Gauge className={cn('h-5 w-5', DIM)} aria-hidden="true" />
-              <span className={cn('text-sm', DIM)}>{q('block_4.answer_no_source')}</span>
-            </div>
+            noDataFrame(q('block_4.answer_no_source'), 'question-no-source')
+          ) : noPointReason !== null ? (
+            noDataFrame(noPointReason, 'question-no-point')
           ) : (
             chart
           )
         }
-        legend={b.status === 'failed' || b.status === 'filtered' || noSource ? undefined : legend}
+        legend={b.status === 'failed' || b.status === 'filtered' || noSource || noPoint ? undefined : legend}
         hint={opts.hint}
       >
         {opts.extra}
@@ -552,7 +563,8 @@ export function EngagementQuestions(props: EngagementQuestionsProps) {
         <BranchFunnel
           label={pf('title')}
           trunk={{
-            label: pf('entered'),
+            // not the use funnel's "Entered": this is another cohort (UTC month, purged guests, no filter; contract Parte 26)
+            label: q('block_7.bank_entered'),
             display: int(purchaseView.entered),
             parts: trunkParts(purchaseView),
             purchased: pf('purchased_line', { n: int(purchaseView.purchased), pct: pct(purchaseView.purchasedRate) }),
@@ -575,9 +587,14 @@ export function EngagementQuestions(props: EngagementQuestionsProps) {
         id="purchase-funnel"
         testId="question-purchase_funnel"
         title={q('purchase_funnel.title')}
-        badges={ga4Badge}
         answer={payLoading ? undefined : dropAnswer(paywall.view, 'purchase_funnel.answer', payLabel)}
-        base={q('purchase_funnel.base', { month: monthName(month) })}
+        // only the part above the line is GA4, so the badge goes on its base line, not the header (spec §E3)
+        base={
+          <span data-testid="purchase-funnel-base-ga4">
+            {q('purchase_funnel.base', { month: monthName(month) })}
+            {ga4Badge}
+          </span>
+        }
       >
         <div className="mt-4">
           {payLoading ? (
@@ -600,7 +617,7 @@ export function EngagementQuestions(props: EngagementQuestionsProps) {
         </div>
         <div className="mt-4 border-t border-dashed border-gray-200 pt-4 dark:border-gray-800" data-testid="purchase-bank">
           <p className="text-sm font-semibold text-gray-900 dark:text-white">{q('block_7.bank')}</p>
-          <p className={cn('mb-2 text-[11px] leading-4', DIM)}>{q('block_7.bank_base', { month: monthName(month) })}</p>
+          <p className={cn('mb-2 text-[11px] leading-4', DIM)} data-testid="purchase-bank-base">{q('block_7.bank_base_utc', { month: monthName(month) })}</p>
           {bankHalf()}
         </div>
       </QuestionCard>
@@ -682,7 +699,7 @@ export function EngagementQuestions(props: EngagementQuestionsProps) {
   const dauMau = BENCHMARKS.dau_mau
   const activeHalf = (half: ActiveHalf, source: 'bank' | 'ga4') => {
     const id = `extra_active_${source}`
-    const rows = half.chart.map((r) => ({ key: r.month, label: monthHeader(r.month), short: monthShort(r.month), values: r.values, reason: r.reason ? (reasonTitle({ state: r.reason, value: null, share: null, since: null, due: null }, source) ?? null) : null }))
+    const rows = half.chart.map((r) => ({ key: r.month, label: monthHeader(r.month), short: monthShort(r.month), values: r.values, reason: r.reason ? (reasonTitle({ state: r.reason, value: null, share: null, since: r.since ?? null, due: null }, source) ?? null) : null }))
     const body =
       half.status === 'failed' ? (
         <div style={{ height: ACTIVE_LINES_PX }} className="flex items-center">

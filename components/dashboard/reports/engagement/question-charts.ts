@@ -20,6 +20,16 @@ export interface MonthBarsRow {
   reason: string | null
 }
 
+/**
+ * The legend of a month chart (DS-A11Y-007): once the chart defines two series or more, every series it
+ * draws is named, even when only one has a number (block 2 before the split by mode draws only the grey
+ * total). A chart of one series needs no legend.
+ */
+export function drawnLegend<T extends { key: string }>(series: T[], rows: { values: Record<string, number | null> }[]): T[] {
+  if (series.length < 2) return []
+  return series.filter((x) => rows.some((r) => r.values[x.key] !== undefined && r.values[x.key] !== null))
+}
+
 /** Plot plus the month axis, px (spec §E4: 176 + 22). */
 export const MONTH_BARS_PX = 198
 

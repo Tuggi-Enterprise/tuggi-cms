@@ -586,7 +586,6 @@
             "purchase_funnel": {
               "title": "Funil de compra",
               "note": "turma do mês, até hoje",
-              "entered": "Entrou",
               "purchased": "Comprou",
               "purchased_line": "Comprou {n} · {pct} de quem entrou",
               "part_tested": "testou de graça: {n} · {pct}",
@@ -753,7 +752,8 @@
             },
             "block_7": {
               "bank": "No banco: testou antes de comprar?",
-              "bank_base": "turma de {month}, pessoas, até hoje",
+              "bank_entered": "Entraram (mês UTC)",
+              "bank_base_utc": "turma de {month} pelo mês UTC, pessoas, com os convidados já apagados, sem filtros, até hoje",
               "free_before": "Gratuito gasto antes de comprar, mediana",
               "free_before_hint": "Minutos gratuitos que quem comprou gastou entre entrar e a primeira compra. Metade gastou mais que isto.",
               "title": "Quem passou pelo paywall e não comprou?",

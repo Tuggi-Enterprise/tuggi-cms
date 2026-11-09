@@ -588,7 +588,6 @@
             "purchase_funnel": {
               "title": "Purchase funnel",
               "note": "cohort of the month, to date",
-              "entered": "Entered",
               "purchased": "Purchased",
               "purchased_line": "Bought {n} · {pct} of those who entered",
               "part_tested": "tried for free: {n} · {pct}",
@@ -755,7 +754,8 @@
             },
             "block_7": {
               "bank": "In the database: did they try before buying?",
-              "bank_base": "{month} cohort, people, to date",
+              "bank_entered": "Entered (UTC month)",
+              "bank_base_utc": "{month} cohort by UTC month, people, including guests already deleted, no filters, to date",
               "free_before": "Free time used before buying, median",
               "free_before_hint": "Free minutes that buyers used between entering and their first purchase. Half used more than this.",
               "title": "Who saw the paywall and did not buy?",

@@ -28,9 +28,9 @@ const boxes = (page: Page) =>
 /** The charts are behind next/dynamic: wait until every one has drawn its svg. */
 const chartsDrawn = async (page: Page) => {
   await expect(page.getByTestId('step-funnel')).toHaveCount(2)
-  // #1162: block 6 is the fifth month-bars chart
-  await expect(page.getByTestId('month-bars')).toHaveCount(5)
-  await expect(page.locator('[data-testid="month-bars"] svg.recharts-surface')).toHaveCount(5)
+  // #1162: block 6 is a month-bars chart; #1166: block 3 has no off-screen share in October's window, so it draws the frame instead
+  await expect(page.getByTestId('month-bars')).toHaveCount(4)
+  await expect(page.locator('[data-testid="month-bars"] svg.recharts-surface')).toHaveCount(4)
 }
 
 test('#1161 spec E16 item 1 at 1440: block 0, the two funnels side by side, then blocks 1 to 4 in pairs; nothing scrolls sideways', async ({ mount, page }) => {
@@ -79,8 +79,9 @@ test('#1161 spec E16 item 3: every block has its question as h2, an answer sente
   // block 1, built by rule from the October numbers: 32 of 119 is 27 %, against 35 % in September
   await expect(page.getByTestId('question-block_1').getByTestId('question-answer')).toHaveText('27% de quem entrou ligou o guia no primeiro dia, menos que em setembro (35%).')
   await expect(page.getByTestId('question-block_2').getByTestId('question-answer')).toContainText('44 pessoas ligaram o guia, menos que em setembro (80). Metade percorreu mais de 0,2 km com o guia ligado.')
-  // the whole purchase funnel card is GA4 above the line and wears the badge in the header
-  await expect(page.getByTestId('question-purchase_funnel').locator('h2 + span')).toContainText(E.ga4_badge)
+  // #1166: only the part above the line is GA4, so the badge sits on its base line, not in the header
+  await expect(page.getByTestId('question-purchase_funnel').locator('h2 + span')).toHaveCount(0)
+  await expect(page.getByTestId('purchase-funnel-base-ga4')).toContainText(E.ga4_badge)
 })
 
 test('#1161 spec E16 item 4 BR-USUARIO-037 item 3.j DS-COMPONENTE-084 item 2: seven steps; installs and location hollow with no percent; the biggest drop in orange with the badge and U+2212', async ({ mount, page }) => {

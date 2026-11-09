@@ -34,6 +34,7 @@ export interface QuestionCardProps {
   base?: ReactNode
   stats?: ReactNode
   chart?: ReactNode
+  /** Printed whenever it has an item; the caller decides which series a chart names (`drawnLegend`). */
   legend?: QuestionLegendItem[]
   hint?: string
   children?: ReactNode
@@ -65,7 +66,7 @@ export function QuestionCard({ id, testId, title, badges, answer, base, stats, c
         {stats && <div className="mt-4 grid grid-cols-2 gap-x-4 gap-y-4 lg:grid-cols-3">{stats}</div>}
         {children}
         {chart && <div className="mt-4">{chart}</div>}
-        {legend && legend.length > 1 && (
+        {legend && legend.length > 0 && (
           <ul className={cn('mt-2 flex flex-wrap gap-x-4 gap-y-1 text-[11px]', DIM)} data-testid="question-legend">
             {legend.map((l) => (
               <li key={l.key} className="flex items-center gap-1.5" title={l.hint}>

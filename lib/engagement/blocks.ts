@@ -69,6 +69,13 @@ export interface ChartRow {
   values: Record<string, number | null>
   /** Why the month draws nothing, when it does not. */
   reason: CellState | null
+  /** `before_source`: the first day the source recorded, so the reason can name it. */
+  since?: string | null
+}
+
+/** No month of the window has a number: the chart gives way to the "no data" frame (spec §E5.5 and §E9). */
+export function hasNoPoint(chart: ChartRow[]): boolean {
+  return chart.every((r) => Object.values(r.values).every((v) => v === null || v === undefined))
 }
 
 /** `filtered`: a GA4 block under a filter GA4 does not have. */
@@ -423,7 +430,7 @@ export function buildBlock3(input: QuestionsInput): QuestionBlock {
   const chart = chartMonths(input.month).map((month): ChartRow => {
     const bg = bankCell(input, month, 'open', (b) => b.guide_background_share)
     const v = valueOf(bg)
-    return v === null ? { month, values: {}, reason: bg.state } : { month, values: { on_screen: 1 - v, off_screen: v }, reason: null }
+    return v === null ? { month, values: {}, reason: bg.state, since: bg.since } : { month, values: { on_screen: 1 - v, off_screen: v }, reason: null }
   })
   const status = statusOf(input, ['bank'], median.cell)
   return {
