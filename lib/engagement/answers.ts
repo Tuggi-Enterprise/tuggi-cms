@@ -17,6 +17,7 @@ export type AnswerValue =
   | { kind: 'minutes'; value: number }
   | { kind: 'km'; value: number }
   | { kind: 'month'; value: string }
+  | { kind: 'date'; value: string }
 
 /** The comparison clause `{cmp}` (copy §1.2); `null` prints an empty clause. */
 export interface Comparison {
@@ -124,10 +125,60 @@ export function answerBlock4(block: QuestionBlock, month: string): Answer | null
   return finish(block, 'questions.block_4.answer_medians', { vehicle: minutes(block.headline.cell), walk: minutes(walking), still: minutes(stopped) })
 }
 
-const ANSWERS = { block_1: answerBlock1, block_2: answerBlock2, block_3: answerBlock3, block_4: answerBlock4 } as const
+/** Block 5: the median of minutes spent per person in the month, then the p75 (copy §7, month of consumption). */
+export function answerBlock5(block: QuestionBlock, month: string): Answer | null {
+  const g = gate(block, month)
+  if (g || !has(block.headline.cell)) return g
+  const { p75 } = block.facts
+  if (!has(p75)) return null
+  return finish(block, 'questions.block_5.answer', { median: minutes(block.headline.cell), p75: minutes(p75), month: { kind: 'month', value: month } })
+}
 
-export function answerOf(block: QuestionBlock, month: string): Answer | null {
-  return ANSWERS[block.key](block, month)
+/** Block 6: who used and did not buy, then how many of them already spent more than an hour free (copy §8). */
+export function answerBlock6(block: QuestionBlock, month: string): Answer | null {
+  const g = gate(block, month)
+  if (g || !has(block.headline.cell)) return g
+  const { over } = block.facts
+  return has(over)
+    ? finish(block, 'questions.block_6.answer_count', { n: int(block.headline.cell), over: int(over) })
+    : finish(block, 'questions.block_6.answer_count_short', { n: int(block.headline.cell) })
+}
+
+/** Block 7: the share that saw the paywall and did not buy, then the two exits (copy §9). GA4 end to end. */
+export function answerBlock7(block: QuestionBlock, month: string): Answer | null {
+  const g = gate(block, month, 'questions.common.answer_no_data_ga4')
+  if (g || !has(block.headline.cell)) return g
+  const { notBought, viewed, dismissed, failed } = block.facts
+  if (!has(notBought) || !has(viewed)) return null
+  const values: Record<string, AnswerValue> = { pct: pct(block.headline.cell), n: int(notBought), viewed: int(viewed) }
+  if (!has(dismissed) || !has(failed)) return finish(block, 'questions.block_7.answer_short', values)
+  return finish(block, 'questions.block_7.answer', { ...values, dismissed: int(dismissed), failed: int(failed) })
+}
+
+/** Block 8: D1 of the cohort, then the 2nd trip in 30 days, or the day that window closes (copy §10). */
+export function answerBlock8(block: QuestionBlock, month: string, today: string): Answer | null {
+  const g = gate(block, month)
+  if (g || !has(block.headline.cell)) return g
+  const values: Record<string, AnswerValue> = { pct: pct(block.headline.cell), month: { kind: 'month', value: month } }
+  if (month === today.slice(0, 7)) return { key: 'questions.block_8.answer_in_progress', values, cmp: null, floor: false, retry: false }
+  const { second } = block.facts
+  if (has(second) && second.state === 'measured') return finish(block, 'questions.block_8.answer', { ...values, second: pct(second) })
+  if ((second.state === 'not_due' || second.state === 'floor') && second.due) return finish(block, 'questions.block_8.answer_30_open', { ...values, date: { kind: 'date', value: second.due } })
+  return null
+}
+
+const ANSWERS = {
+  block_1: answerBlock1,
+  block_2: answerBlock2,
+  block_3: answerBlock3,
+  block_4: answerBlock4,
+  block_5: answerBlock5,
+  block_6: answerBlock6,
+  block_7: answerBlock7,
+} as const
+
+export function answerOf(block: QuestionBlock, month: string, today = ''): Answer | null {
+  return block.key === 'block_8' ? answerBlock8(block, month, today) : ANSWERS[block.key](block, month)
 }
 
 /**

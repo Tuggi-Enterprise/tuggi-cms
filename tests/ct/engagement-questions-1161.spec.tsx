@@ -28,8 +28,9 @@ const boxes = (page: Page) =>
 /** The charts are behind next/dynamic: wait until every one has drawn its svg. */
 const chartsDrawn = async (page: Page) => {
   await expect(page.getByTestId('step-funnel')).toHaveCount(2)
-  await expect(page.getByTestId('month-bars')).toHaveCount(4)
-  await expect(page.locator('[data-testid="month-bars"] svg.recharts-surface')).toHaveCount(4)
+  // #1162: block 6 is the fifth month-bars chart
+  await expect(page.getByTestId('month-bars')).toHaveCount(5)
+  await expect(page.locator('[data-testid="month-bars"] svg.recharts-surface')).toHaveCount(5)
 }
 
 test('#1161 spec E16 item 1 at 1440: block 0, the two funnels side by side, then blocks 1 to 4 in pairs; nothing scrolls sideways', async ({ mount, page }) => {
@@ -133,7 +134,7 @@ test('#1161 BR-COMUNICACAO-022 item 4: with the usage function not applied yet, 
   }
   await expect(page.getByTestId('question-block_3').getByTestId('question-answer')).toContainText('35 min')
   await expect(page.getByTestId('question-use_funnel')).toContainText(Q.common.answer_failed)
-  await expect(page.getByTestId('engagement-summary')).toBeVisible()
+  await expect(page.getByTestId('engagement-details')).toBeVisible()
   // no number of the failed source prints as 0
   await expect(page.getByTestId('stat-block_1-1').getByTestId('stat-line-value')).toHaveText('—')
 })

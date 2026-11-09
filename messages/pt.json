@@ -461,7 +461,6 @@
           "cell_ga4_filter": "O Google Analytics não aplica este filtro.",
           "cell_bank_failed": "O banco não respondeu.",
           "cell_ga4_failed": "O Google Analytics não respondeu.",
-          "cell_suppressed": "Menos de 5 pessoas no recorte: o valor fica oculto.",
           "bank_failed": "Não foi possível ler o banco.",
           "ga4_failed": "Não foi possível ler o Google Analytics.",
           "retry": "Tentar de novo",
@@ -469,7 +468,6 @@
           "clicks_empty": "Nenhum clique registrado neste mês.",
           "legend_unknown": "— sem dado: a fonte ainda não gravava, a janela ainda não fechou, menos de 5 pessoas no recorte, filtro que o Google Analytics não aplica, ou fonte fora do ar. Passe o mouse para ver o motivo.",
           "legend_sources": "Linhas GA4 contam aparelho e sessão do Google Analytics; as demais contam pessoas no banco. Não se dividem umas pelas outras.",
-          "legend_suppression": "Grupo com menos de 5 pessoas fica oculto.",
           "all_time_note": "Os quatro blocos abaixo somam desde o início e não seguem os filtros.",
           "buttons": {
             "guide_module_opened": "Ligou o guia",
@@ -532,26 +530,15 @@
           },
           "summary": {
             "title": "Resumo de {month}",
-            "closed": "último mês fechado",
             "month_label": "Mês do resumo",
-            "detail_divider": "Detalhe mês a mês",
             "tiles": {
               "engaged": "Pessoas engajadas",
-              "engaged_n": "{pct} dos {n} ativos",
-              "engaged_n_plain": "dos {n} ativos",
-              "engaged_over": "Neste mês o GA4 contou mais engajados do que ativos.",
               "engaged_hint": "Abriram o app e fizeram ao menos uma destas: ligaram o guia, abriram a ficha de um lugar ou evento, ouviram uma história, pediram o caminho até um lugar, evento ou rota, buscaram nesta área ou usaram o Explorar. Fonte: GA4.",
               "guide_median": "Guia ligado por pessoa, mediana",
-              "guide_median_n": "de {n} que iniciaram viagem",
               "screen_minutes": "Minutos de app por pessoa",
-              "screen_minutes_n": "dos {n} ativos",
               "returned": "Voltaram no mês seguinte",
-              "returned_n": "{count} dos {n} que {use} em {month}",
-              "returned_n_plain": "de quem {use} em {month} ({n})",
               "no_source_bank": "Sem dado: o banco ainda não envia este número.",
-              "no_source_ga4": "Sem dado: a consulta ao GA4 ainda não traz este número.",
-              "returned_closes": "fecha em {date}",
-              "returned_closes_hint": "O retorno de {month} se mede pelo mês seguinte inteiro. O número aparece em {date}."
+              "no_source_ga4": "Sem dado: a consulta ao GA4 ainda não traz este número."
             },
             "delta_vs": "{delta} vs {month}",
             "delta_flat": "estável",
@@ -559,8 +546,6 @@
             "delta_hint": "{prev} → {curr}; base {n_prev} e {n_curr}",
             "delta_small_base": "Base pequena ({n_prev} e {n_curr}): abaixo de 30 pessoas, a variação não é tendência.",
             "delta_partial": "Mês em curso: a comparação vem quando ele fechar.",
-            "card_modes": "Modos de uso",
-            "modes_note": "separação por modo desde {month}",
             "modes": {
               "drive_only": "Só com o guia",
               "explore_only": "Só explorando",
@@ -569,26 +554,12 @@
               "bg": "Guia em 2º plano, mediana",
               "bg_share": "Guia em 2º plano, % do tempo",
               "unsplit": "Usaram o guia, sem separar por modo",
-              "unsplit_title": "usaram o guia, sem separar por modo: {n} pessoas",
               "help_drive_only": "abriu o app só nos dias em que ligou o guia.",
               "help_explore_only": "abriu o app para mapa, eventos, histórias ou busca e não ligou o guia em nenhum dia do mês.",
               "help_both": "ligou o guia em alguns dias e, em outros, abriu o app sem ligar o guia."
             },
             "modes_sr": "{month}: só com o guia {drive}, os dois {both}, explorando {explore}",
-            "segment_title": "{segment}: {n} pessoas",
-            "card_frequency_bars": "Dias de uso por mês",
-            "bands": {
-              "d1": "1 dia",
-              "d2": "2 dias",
-              "d3_5": "3 a 5 dias",
-              "d6_plus": "6 ou mais",
-              "suppressed": "faixas com menos de 5 pessoas"
-            },
-            "band_title": "{band}: {n} pessoas, {pct}",
-            "frequency_sr": "{month}: {bands}",
             "card_cohort_heat": "Turmas: quem volta",
-            "curve_gate": "a curva aparece com 6 turmas fechadas; hoje há {n}",
-            "curve_title": "Retenção típica das {n} turmas fechadas",
             "scale_legend": {
               "s0": "menos de 5%",
               "s1": "5 a 10%",
@@ -596,34 +567,21 @@
               "s3": "20 a 35%",
               "s4": "35% ou mais"
             },
-            "modes_note_none": "separação por modo: ainda sem mês medido",
             "use_funnel": {
               "title": "Funil de uso",
               "note": "turma do mês, até hoje",
               "installs": "Baixou o app",
               "installs_hint": "Primeira abertura do app no mês, contada pelo GA4.",
-              "installs_split": "iOS {ios} · Android {android}",
-              "installs_floor": "iOS {ios} · Android {android} · piso",
-              "installs_unknown": "sem dado do GA4 neste mês",
-              "floor_note": "Baixou o app é um piso neste mês: o GA4 contou menos instalações do que entradas, então faltou medição e o número real é maior.",
-              "not_entered": "{count} baixaram e não entraram",
-              "not_entered_hint": "Estimativa: Baixou o app e Entrou vêm de fontes diferentes.",
               "entered": "Entrou",
               "entered_hint": "Passou dos Termos no mês, com conta ou como convidado. A mesma base da Aquisição.",
-              "with_account": "{n} com conta · {pct}",
-              "part_account": "com conta: {n}",
-              "part_guest": "convidado: {n}",
               "new_engaged": "Usou o app",
               "new_engaged_hint": "Aparelhos cuja primeira sessão no GA4 foi neste mês e que fizeram ao menos uma destas: ligaram o guia, abriram a ficha de um lugar ou evento, ouviram uma história, pediram o caminho, buscaram nesta área ou usaram o Explorar. Conta aparelhos, não pessoas, por isso não tem % de quem entrou.",
-              "new_engaged_sub": "aparelhos novos no mês, não pessoas",
               "used": "Guia ou história",
               "used_hint": "Da turma do mês, quem ligou o guia ou ouviu uma história, até hoje.",
-              "of_entered": "{pct} de quem entrou",
               "no_filters": "Os funis contam a turma inteira do mês e não seguem os filtros.",
               "failed": "Não foi possível carregar o funil deste mês.",
               "consumed_1h": "Consumiu 1 hora",
-              "consumed_1h_hint": "Da turma do mês, quem gastou 60 minutos ou mais do saldo de horas, gratuitas ou compradas, até o fim do mês.",
-              "consumed_1h_floor": "Piso: o registro de minutos começa em {date}, então este mês conta só a partir desse dia."
+              "consumed_1h_hint": "Da turma do mês, quem gastou 60 minutos ou mais do saldo de horas, gratuitas ou compradas, até o fim do mês."
             },
             "purchase_funnel": {
               "title": "Funil de compra",
@@ -648,7 +606,6 @@
               "sr": "{branch}: {n} pessoas, {bought} compraram ({pct})",
               "purchased_hint": "Da turma do mês, quem fez ao menos uma compra real na loja, de horas ou de assinatura, até hoje. Compra de teste não conta.",
               "paywall_viewed": "Viu o paywall",
-              "paywall_viewed_sub": "aparelhos no mês, não pessoas da turma",
               "paywall_viewed_hint": "Aparelhos que abriram a tela de compra pelo menos uma vez no mês, por qualquer caminho do app. Conta todo aparelho ativo no mês, não só a turma, e aparelho não é pessoa: por isso não vira % de quem entrou."
             },
             "clicks_month_of": "{month}",
@@ -659,21 +616,17 @@
               "note": "turma do mês, até hoje",
               "hint": "Minutos gastos de horas que a pessoa não pagou (boas-vindas, convite, missão, cupom, parceiro ou concedidas pelo CMS), somados da entrada até hoje. Só minutos gratuitos: não se compara com Consumiu 1 hora, que soma também os comprados.",
               "buckets": {
-                "b0_15": "0 a 15 min",
+                "b0_15": "até 15 min",
                 "b15_30": "15 a 30 min",
                 "b30_60": "30 min a 1 h",
                 "b60_120": "1 a 2 h",
                 "b120_180": "2 a 3 h",
                 "b180_plus": "3 h ou mais"
               },
-              "b0_15_hint": "Inclui quem entrou e não gastou nenhum minuto gratuito.",
               "mark_15m": "15 min",
               "mark_1h": "1 h",
               "mark_3h": "3 h",
-              "base": "{n} pessoas entraram em {month}",
-              "base_suppressed": "Menos de 5 pessoas entraram em {month}: o gráfico fica oculto.",
               "bar_title": "{range}: {n} pessoas, {pct}",
-              "bucket_suppressed": "menos de 5",
               "empty": "Ninguém entrou em {month}.",
               "failed": "Não foi possível carregar o gráfico deste mês."
             }
@@ -720,7 +673,11 @@
               "of_heard": "de quem já ouviu uma história",
               "of_guide": "de quem ligou o guia",
               "of_guide_time": "do tempo com o guia ligado",
-              "no_filter_source": "Esta fonte não aplica este filtro."
+              "no_filter_source": "Esta fonte não aplica este filtro.",
+              "of_trips": "das viagens",
+              "market": "Mercado",
+              "market_hint": "Referência publicada para apps de viagem. A meta própria vem depois.",
+              "market_line": "Mercado: {value} · {source}, {year}"
             },
             "block_0": {
               "title": "O mês em três linhas",
@@ -799,7 +756,15 @@
               "bank": "No banco: testou antes de comprar?",
               "bank_base": "turma de {month}, pessoas, até hoje",
               "free_before": "Gratuito gasto antes de comprar, mediana",
-              "free_before_hint": "Minutos gratuitos que quem comprou gastou entre entrar e a primeira compra. Metade gastou mais que isto."
+              "free_before_hint": "Minutos gratuitos que quem comprou gastou entre entrar e a primeira compra. Metade gastou mais que isto.",
+              "title": "Quem passou pelo paywall e não comprou?",
+              "base": "aparelhos que viram o paywall em {month}, pelo GA4",
+              "answer": "{pct} dos aparelhos que viram o paywall não compraram ({n} de {viewed}){cmp}. {dismissed, plural, one {# fechou} other {# fecharam}} sem comprar, e {failed, plural, one {# tentou} other {# tentaram}} e não {failed, plural, one {concluiu} other {concluíram}} a compra.",
+              "answer_short": "{pct} dos aparelhos que viram o paywall não compraram ({n} de {viewed}){cmp}.",
+              "answer_empty": "Nenhum aparelho viu o paywall em {month}.",
+              "not_bought": "Não comprou",
+              "series_tapped": "Tocou num plano, de quem viu",
+              "series_bought": "Comprou, de quem viu"
             },
             "extra_first_story": {
               "title": "Tempo até a primeira história",
@@ -834,8 +799,107 @@
               "exit_failed": "Não concluiu a compra",
               "exit_failed_hint": "Tocou em comprar e a compra não terminou: desistiu na tela da loja, a loja recusou ou a conta não foi confirmada.",
               "exits_hint": "Um aparelho pode aparecer nas duas saídas no mesmo mês, então elas não somam o que faltou comprar."
+            },
+            "block_5": {
+              "title": "Quantas horas cada pessoa consome?",
+              "base": "pessoas que gastaram minutos em {month}",
+              "answer": "Metade de quem gastou minutos em {month} gastou mais de {median}{cmp}. Um quarto passou de {p75}.",
+              "answer_empty": "Ninguém gastou minutos em {month}.",
+              "median": "Mediana por pessoa",
+              "p75": "p75 por pessoa",
+              "stat_free": "Gratuito, mediana",
+              "stat_paid": "Pago, mediana",
+              "split_hint": "Gratuito: minutos de horas que a pessoa não pagou (boas-vindas, convite, missão, cupom, parceiro ou concedidas pelo CMS). Pago: minutos de horas compradas ou da assinatura.",
+              "hist_title": "Minutos gratuitos da turma de {month}, até hoje",
+              "hist_base": "{used, plural, one {# pessoa usou} other {# pessoas usaram}} minutos gratuitos, de {n} que entraram em {month}",
+              "hist_not_used": "Não usou",
+              "hist_not_used_hint": "Entrou e não gastou nenhum minuto gratuito. As outras barras são só de quem usou.",
+              "hint": "As medianas contam os minutos gastos no mês. O gráfico é a turma que entrou no mês, com os minutos gratuitos somados até hoje."
+            },
+            "block_6": {
+              "title": "Quem usa sem comprar?",
+              "base": "pessoas que ligaram o guia ou ouviram uma história em {month}",
+              "answer_count": "{n, plural, one {# pessoa usou} other {# pessoas usaram}} o guia ou uma história e não {n, plural, one {comprou} other {compraram}}{cmp}. {over, plural, =0 {Nenhuma delas passou de 1 hora gratuita.} one {# delas já gastou mais de 1 hora gratuita.} other {# delas já gastaram mais de 1 hora gratuita.}}",
+              "answer_count_short": "{n, plural, one {# pessoa usou} other {# pessoas usaram}} o guia ou uma história e não {n, plural, one {comprou} other {compraram}}{cmp}.",
+              "answer_empty": "Ninguém usou o guia nem ouviu história em {month}.",
+              "people": "Usou e não comprou",
+              "not_bought_hint": "Nenhuma compra real na loja até hoje, nem de horas nem de assinatura.",
+              "of_not_bought": "de quem não comprou",
+              "bands": "Gratuito já gasto",
+              "band_15": "até 15 min",
+              "band_60": "15 min a 1 h",
+              "band_more": "mais de 1 h",
+              "bands_hint": "Minutos gratuitos gastos até o fim do mês. A primeira faixa inclui quem não gastou nenhum."
+            },
+            "block_8": {
+              "title": "Voltam?",
+              "base": "turma de {month}: pessoas que fizeram a primeira viagem no mês",
+              "answer": "{pct} da turma de {month} viajou de novo no dia seguinte{cmp}. {second} fez uma 2ª viagem em até 30 dias.",
+              "answer_30_open": "{pct} da turma de {month} viajou de novo no dia seguinte{cmp}. A 2ª viagem em 30 dias fecha em {date}.",
+              "answer_in_progress": "Até hoje, {pct} da turma de {month} viajou de novo no dia seguinte. A turma ainda está se formando.",
+              "answer_empty": "Ninguém fez a primeira viagem em {month}.",
+              "axis_x": "Dias depois da primeira viagem",
+              "axis_y": "Turma que viajou naquele dia",
+              "series": "Turma de {month}",
+              "market": "Apps de viagem: D1 cerca de {d1}, D30 cerca de {d30} (Business of Apps, 2025)",
+              "market_note": "O mercado conta a partir da instalação. Aqui, a turma começa na primeira viagem.",
+              "hint": "Voltou no dia N: viajou de novo exatamente no dia N. D1 é o dia seguinte ao da primeira viagem, no horário de Brasília. \"Voltou até o dia N\", na tabela dos Detalhes, conta qualquer dia do D1 ao N, por isso é sempre maior.",
+              "second": "2ª viagem em até 30 dias",
+              "d1": "Voltou no dia seguinte",
+              "d30": "Voltou no dia 30",
+              "market_series": "Mercado"
+            },
+            "extra_permissions": {
+              "title": "Permissões",
+              "base": "aparelhos que viram o pedido em {month}, pelo GA4",
+              "answer": "{pct} dos aparelhos que viram o pedido deram a localização{cmp}.",
+              "location": "Localização",
+              "motion": "Movimento",
+              "motion_hint": "Movimento e condicionamento físico no iOS, atividade física no Android.",
+              "notifications": "Notificação",
+              "row": "{allowed} de {asked} · {pct}"
+            },
+            "extra_no_story": {
+              "title": "Viagens sem história",
+              "answer": "{pct} das viagens com o guia ligado terminaram sem nenhuma história ({n} de {total}){cmp}.",
+              "hint": "O guia ficou ligado e nenhum áudio tocou. Costuma mostrar onde falta conteúdo, não quem usou mal."
+            },
+            "extra_per_hour": {
+              "title": "Histórias por hora de guia",
+              "hint": "Histórias tocadas divididas pelas horas de guia ligado, somando as viagens do mês."
+            },
+            "extra_where": {
+              "title": "Onde usam",
+              "base": "viagens com o guia ligado em {month}",
+              "by_trips": "Mais viagens",
+              "by_no_story": "Mais viagens sem história",
+              "trips_row": "{n, plural, one {# viagem} other {# viagens}}",
+              "no_story_row": "{n} sem história de {trips}",
+              "empty": "Nenhuma viagem com cidade conhecida em {month}.",
+              "link": "Ver todas na Geografia"
+            },
+            "extra_active": {
+              "title": "Ativos por dia, semana e mês",
+              "base_bank": "pessoas, pelo banco",
+              "base_ga4": "aparelhos, pelo GA4",
+              "answer": "Num dia médio de {month}, {dau, plural, one {# pessoa abriu} other {# pessoas abriram}} o app, {ratio} das {mau} do mês{cmp}.",
+              "answer_ga4": "Num dia médio de {month}, {dau, plural, one {# aparelho usou} other {# aparelhos usaram}} o app, {ratio} dos {mau} do mês{cmp}.",
+              "dau": "Por dia (DAU), média",
+              "wau": "Por semana (WAU), média",
+              "mau": "No mês (MAU)",
+              "ratio": "DAU/MAU (stickiness)",
+              "dau_hint": "Ativos em cada dia, em média nos dias do mês.",
+              "wau_hint": "Ativos numa janela de 7 dias, em média no mês.",
+              "ratio_hint": "Ativos num dia médio divididos pelos ativos do mês. App de viagem se usa durante a viagem, não todo dia, então essa razão fica baixa por natureza.",
+              "market": "Apps de viagem: cerca de {pct} (CleverTap, 2023)",
+              "before_open": "O banco conta a abertura do app desde {date}; antes do primeiro mês inteiro, o gráfico fica vazio."
+            },
+            "block_9": {
+              "title": "Detalhes",
+              "base": "tabela mês a mês, toques por tela e como cada número é contado"
             }
-          }
+          },
+          "cell_missing": "O banco não mandou este número."
         },
         "content_coverage": {
           "title": "Cobertura de Conteúdo",

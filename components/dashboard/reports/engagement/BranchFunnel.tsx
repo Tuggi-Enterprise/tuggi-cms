@@ -2,7 +2,6 @@
 
 import type { ReactNode } from 'react'
 
-import { FunnelBadge } from '@/components/dashboard/reports/engagement/FunnelBands'
 import { DIM } from '@/components/ui/dense-table'
 import { cn } from '@/lib/utils'
 
@@ -152,3 +151,12 @@ export function BranchFunnel(props: BranchFunnelProps) {
 }
 
 export default BranchFunnel
+
+/** The badge beside a branch rate ("converts more"), in the classes of `Ga4Badge`. */
+function FunnelBadge({ text }: { text: string }) {
+  return (
+    <span data-testid="funnel-badge" className={cn('ml-1.5 inline-block rounded border border-gray-400 px-1.5 align-middle font-mono text-[10px] font-normal uppercase tracking-wider', DIM)}>
+      {text}
+    </span>
+  )
+}

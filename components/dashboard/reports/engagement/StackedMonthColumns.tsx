@@ -2,7 +2,11 @@
 
 import { DenseTableScroller, DIM } from '@/components/ui/dense-table'
 import { cn } from '@/lib/utils'
-import { COLUMN_PLOT_PX, INNER_LABEL_MIN_PX } from '@/lib/engagement/summary'
+
+/** Plot height of the month columns, px (spec §B5). */
+export const COLUMN_PLOT_PX = 160
+/** An inner label prints only on a segment this tall or taller, px (spec §B7). */
+export const INNER_LABEL_MIN_PX = 18
 
 /**
  * Stacked columns, one per month (#1099, spec §B5 and §B7): the modes card counts people on one

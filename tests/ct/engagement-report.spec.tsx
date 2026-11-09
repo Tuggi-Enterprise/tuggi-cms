@@ -35,12 +35,12 @@ async function cardHeights(page: Page) {
 for (const width of [1440, 390]) {
   test(`spec §11 items 1, 3 and 9 at ${width}: the months of the ruler in the three cards, the skeleton keeps every height`, async ({ mount, page }) => {
     await page.setViewportSize({ width, height: 1000 })
-    const loading = await mount(<Screen months={MONTHS} today={TODAY} />)
+    const loading = await mount(<Screen detailsOpen months={MONTHS} today={TODAY} />)
     await expect(page.locator('[data-state="loading"]').first()).toBeVisible()
     const before = await cardHeights(page)
     await loading.unmount()
 
-    await mount(<Screen months={MONTHS} today={TODAY} bank={BANK} ga4={GA4} />)
+    await mount(<Screen detailsOpen months={MONTHS} today={TODAY} bank={BANK} ga4={GA4} />)
     await expect(page.getByRole('heading', { level: 1, name: E.title })).toBeVisible()
     await expect(page.getByText('Export')).toHaveCount(0)
     for (const k of CARDS) {
@@ -60,39 +60,40 @@ for (const width of [1440, 390]) {
   })
 }
 
-test('spec §11 item 4 BR-COMUNICACAO-022 item 4: suppressed and before-source print the dash with different titles, and no null prints 0', async ({ mount, page }) => {
+test('spec §11 item 4 BR-COMUNICACAO-022 item 4: missing and before-source print the dash with different titles, and no null prints 0', async ({ mount, page }) => {
   await page.setViewportSize({ width: 1440, height: 1000 })
-  // The database sends null for a month before data_since (contract Parte 25): August of audio here.
+  // The database sends null for a month before data_since (contract Parte 25): August of the guide here
+  // (#1162: the table is fixed on the guide, `?use=` is gone).
   const bank = {
     has_mode_fields: true,
     has_retention_on: false,
-    data_since: { ...BANK.data_since, audio: '2026-09-02' },
-    months: BANK.months.map((m) => (m.month === '2026-08' ? { ...m, active: { ...m.active, audio: null } } : m)),
+    data_since: { ...BANK.data_since, trip: '2026-09-02' },
+    months: BANK.months.map((m) => (m.month === '2026-08' ? { ...m, active: { ...m.active, trip: null } } : m)),
   }
-  await mount(<Screen months={MONTHS} today={TODAY} bank={bank} ga4={GA4} />)
-  // August: audio before its source; d6_plus null too, but the reason that wins is the source.
+  await mount(<Screen detailsOpen months={MONTHS} today={TODAY} bank={bank} ga4={GA4} />)
+  // August: the guide before its source, and the reason printed is the source.
   const active = cellOf(page, 'active_by', 1)
   await expect(active).toHaveText('—')
   await expect(active).toHaveAttribute('title', E.cell_before_source.replace('{date}', '02/09/2026'))
   await expect(page.locator('td').filter({ hasText: /^0$/ })).toHaveCount(0)
 })
 
-test('spec §11 item 4: a null band in a measured month is suppressed', async ({ mount, page }) => {
+test('#1162 spec E3.4: a null band with no other reason is missing, a defect that shows, never suppressed', async ({ mount, page }) => {
   await page.setViewportSize({ width: 1440, height: 1000 })
-  await mount(<Screen months={MONTHS} today={TODAY} bank={BANK} ga4={GA4} />)
-  const d6 = cellOf(page, 'days_6_plus', 1)
-  await expect(d6).toHaveText('—')
-  await expect(d6).toHaveAttribute('title', E.cell_suppressed)
-  await expect(cellOf(page, 'days_1', 1)).toHaveText('131 · 64%')
+  await mount(<Screen detailsOpen months={MONTHS} today={TODAY} bank={BANK} ga4={GA4} />)
+  const d2 = cellOf(page, 'days_2', 4)
+  await expect(d2).toHaveText('—')
+  await expect(d2).toHaveAttribute('title', E.cell_missing)
+  await expect(cellOf(page, 'days_1', 1)).toHaveText('100 · 67%')
 })
 
 test('spec §11 item 5: last month return prints a floor with a number, and D90 of a young cohort is not due', async ({ mount, page }) => {
   await page.setViewportSize({ width: 1440, height: 1000 })
-  await mount(<Screen months={MONTHS} today={TODAY} bank={BANK} ga4={GA4} />)
+  await mount(<Screen detailsOpen months={MONTHS} today={TODAY} bank={BANK} ga4={GA4} />)
   const oct = cellOf(page, 'returned_next', 3)
-  // #1154: the people behind the rate on the line below, 0.09 of the 187 active of October
-  await expect(oct).toHaveText('≥ 9%17 de 187')
-  await expect(oct.getByTestId('engagement-cell-n')).toHaveText('17 de 187')
+  // #1154: the people behind the rate on the line below, 0.08 of the 120 of October with the guide (#1162: the table is fixed on the guide)
+  await expect(oct).toHaveText('≥ 8%10 de 120')
+  await expect(oct.getByTestId('engagement-cell-n')).toHaveText('10 de 120')
   await expect(oct).toHaveAttribute('title', E.cell_floor.replace('{date}', '01/12/2026'))
   const d90 = cellOf(page, 'ret_d90', 2)
   await expect(d90).toHaveAttribute('title', E.cell_not_due.replace('{date}', '30/12/2026'))
@@ -100,22 +101,23 @@ test('spec §11 item 5: last month return prints a floor with a number, and D90 
 
 test('spec §11 item 7: under a source filter the GA4 rows say GA4 has no such filter, and the clicks card says why', async ({ mount, page }) => {
   await page.setViewportSize({ width: 1440, height: 1000 })
-  await mount(<Screen months={MONTHS} today={TODAY} bank={BANK} filters={{ source: 'none', country: null, platform: null, account: null }} />)
+  await mount(<Screen detailsOpen months={MONTHS} today={TODAY} bank={BANK} filters={{ source: 'none', country: null, platform: null, account: null }} />)
   await expect(cellOf(page, 'active_ga4', 1)).toHaveAttribute('title', E.cell_ga4_filter)
-  await expect(cellOf(page, 'active_by', 1)).toHaveText('204')
+  await expect(cellOf(page, 'active_by', 1)).toHaveText('150')
   await expect(page.getByTestId('engagement-card_clicks').getByText(E.ga4_filter_hint, { exact: true })).toBeVisible()
-  // the bar's, the bank half of the purchase funnel (#1161) and the free minutes card (#1156), which refuse any filter
-  await expect(page.getByRole('button', { name: E.clear_filters })).toHaveCount(3)
+  // the bar's, the bank half of the purchase funnel (#1161) and the free minutes histogram, which refuse any
+  // filter, plus the three GA4 cards a source filter empties (#1162: block 7, active devices, permissions)
+  await expect(page.getByRole('button', { name: E.clear_filters })).toHaveCount(6)
 })
 
 test('spec §11 item 8: bank down and GA4 down keep the table, mark their own cells and offer a retry per card', async ({ mount, page }) => {
   await page.setViewportSize({ width: 1440, height: 1000 })
-  await mount(<Screen months={MONTHS} today={TODAY} bankFailed ga4Failed />)
+  await mount(<Screen detailsOpen months={MONTHS} today={TODAY} bankFailed ga4Failed />)
   await expect(cellOf(page, 'active_by', 1)).toHaveAttribute('title', E.cell_bank_failed)
   await expect(cellOf(page, 'active_ga4', 1)).toHaveAttribute('title', E.cell_ga4_failed)
-  // one on top of the summary (#1099) and one per grid card of the detail
-  await expect(page.getByText(E.bank_failed, { exact: true })).toHaveCount(3)
-  // the summary, the GA4 purchase funnel (#1161), two grid cards with GA4 rows, plus the clicks card
+  // one per grid card of Details (#1162: the summary on top is gone)
+  await expect(page.getByText(E.bank_failed, { exact: true })).toHaveCount(2)
+  // the GA4 purchase funnel (#1161), the permissions card (#1162), two grid cards with GA4 rows, plus the clicks card
   await expect(page.getByText(E.ga4_failed, { exact: true })).toHaveCount(5)
   await expect(page.locator('td').filter({ hasText: /^0$/ })).toHaveCount(0)
   if (SHOTS) await page.screenshot({ path: `${SHOTS}/engagement-1440-failed.png`, fullPage: true })
@@ -124,13 +126,13 @@ test('spec §11 item 8: bank down and GA4 down keep the table, mark their own ce
 test('spec §6: an empty slice says so above the cards, with clear filters', async ({ mount, page }) => {
   await page.setViewportSize({ width: 1440, height: 1000 })
   const empty = { has_mode_fields: true, has_retention_on: false, data_since: BANK.data_since, months: MONTHS.map((month) => ({ ...BANK.months[0], month, active: { open: null, trip: null, audio: null }, new: { open: null, trip: null, audio: null }, guide_minutes_median: null, guide_minutes_p75: null, days_used: { open: BANK.months[0].days_used.open, trip: BANK.months[0].days_used.open, audio: BANK.months[0].days_used.open }, returned_next_month: { open: null, trip: null, audio: null }, cohort: { size: null, retention: { d1: null, d7: null, d30: null, d60: null, d90: null }, retention_on: { d1: null, d7: null, d30: null }, second_trip: { d30: null, d60: null, d90: null } } })) }
-  await mount(<Screen months={MONTHS} today={TODAY} bank={empty} ga4={GA4} filters={{ source: null, country: 'PT', platform: null, account: null }} />)
+  await mount(<Screen detailsOpen months={MONTHS} today={TODAY} bank={empty} ga4={GA4} filters={{ source: null, country: 'PT', platform: null, account: null }} />)
   await expect(page.getByTestId('engagement-empty-slice')).toContainText(E.empty_filtered)
 })
 
 test('spec §11 item 12: clicks of one month by screen, people on the bar, taps beside, the widest bar is the column', async ({ mount, page }) => {
   await page.setViewportSize({ width: 1440, height: 1000 })
-  await mount(<Screen months={MONTHS} today={TODAY} bank={BANK} ga4={GA4} />)
+  await mount(<Screen detailsOpen months={MONTHS} today={TODAY} bank={BANK} ga4={GA4} />)
   const card = page.getByTestId('engagement-card_clicks')
   await expect(card.getByRole('combobox')).toHaveCount(0)
   await expect(card.getByTestId('engagement-clicks-month')).toHaveText('outubro de 2026')
@@ -146,7 +148,7 @@ test('spec §11 item 12: clicks of one month by screen, people on the bar, taps 
 
 test('spec §11 items 10 and 11 at 390: each table scrolls, opens at the latest month, and the first column stays put', async ({ mount, page }) => {
   await page.setViewportSize({ width: 390, height: 1000 })
-  await mount(<Screen months={MONTHS_11} today={TODAY} bank={BANK} ga4={GA4} />)
+  await mount(<Screen detailsOpen months={MONTHS_11} today={TODAY} bank={BANK} ga4={GA4} />)
   const box = page.getByRole('region', { name: E.card_people_time })
   await expect(box).toHaveAttribute('tabindex', '0')
   const state = await box.evaluate((el) => ({ left: el.scrollLeft, max: el.scrollWidth - el.clientWidth }))
@@ -163,7 +165,7 @@ test('spec §11 items 10 and 11 at 390: each table scrolls, opens at the latest 
 
 test('spec §3 and §11 item 11 at 390: the left fade sits at the seam of the first column while months hide on the left, and leaves at scroll 0', async ({ mount, page }) => {
   await page.setViewportSize({ width: 390, height: 1000 })
-  await mount(<Screen months={MONTHS_11} today={TODAY} bank={BANK} ga4={GA4} />)
+  await mount(<Screen detailsOpen months={MONTHS_11} today={TODAY} bank={BANK} ga4={GA4} />)
   const card = page.getByTestId('engagement-card_people_time')
   const box = card.getByRole('region', { name: E.card_people_time })
   const left = card.locator('[data-fade="left"]')
@@ -180,7 +182,7 @@ test('spec §3 and §11 item 11 at 390: the left fade sits at the seam of the fi
 
 test('spec §11 item 11 at 390: the source and country fields take the whole row, so the placeholder is not cut', async ({ mount, page }) => {
   await page.setViewportSize({ width: 390, height: 1000 })
-  await mount(<Screen months={MONTHS_11} today={TODAY} bank={BANK} ga4={GA4} />)
+  await mount(<Screen detailsOpen months={MONTHS_11} today={TODAY} bank={BANK} ga4={GA4} />)
   for (const placeholder of [E.source_placeholder, E.country_placeholder]) {
     const fits = await page.getByPlaceholder(placeholder).evaluate((el: HTMLInputElement) => {
       const ctx = document.createElement('canvas').getContext('2d')!
@@ -194,7 +196,7 @@ test('spec §11 item 11 at 390: the source and country fields take the whole row
 
 test('spec §11 item 11 at 1440: eleven months fit without scrolling, and axe finds nothing', async ({ mount, page }) => {
   await page.setViewportSize({ width: 1440, height: 1000 })
-  await mount(<Screen months={MONTHS_11} today={TODAY} bank={BANK} ga4={GA4} />)
+  await mount(<Screen detailsOpen months={MONTHS_11} today={TODAY} bank={BANK} ga4={GA4} />)
   for (const k of CARDS) {
     const r = await page.locator(`[data-testid="${k}"] [role="region"]`).evaluate((el) => el.scrollWidth - el.clientWidth)
     expect(r, k).toBeLessThanOrEqual(1)
@@ -220,7 +222,7 @@ async function clickRow(page: Page, title: string) {
 
 test('#1096: a click with a label prints the label, with the raw name on hover, and the bar wears the screen color', async ({ mount, page }) => {
   await page.setViewportSize({ width: 1440, height: 1000 })
-  await mount(<Screen months={MONTHS} today={TODAY} bank={BANK} ga4={GA4_NAMED} />)
+  await mount(<Screen detailsOpen months={MONTHS} today={TODAY} bank={BANK} ga4={GA4_NAMED} />)
   const row = await clickRow(page, 'guide_module_opened')
   expect(row).toEqual({ text: E.buttons.guide_module_opened, bar: rgb(CHART_COLORS.blue), mono: false })
   const group = page.getByTestId('engagement-click-group').filter({ has: page.locator('[title="guide_map_screen"]') })
@@ -232,20 +234,20 @@ test('#1096: a click with a label prints the label, with the raw name on hover, 
 
 test('#1096: a name without a label falls back to the raw name in mono, button and screen alike', async ({ mount, page }) => {
   await page.setViewportSize({ width: 1440, height: 1000 })
-  const named = await mount(<Screen months={MONTHS} today={TODAY} bank={BANK} ga4={GA4_NAMED} />)
+  const named = await mount(<Screen detailsOpen months={MONTHS} today={TODAY} bank={BANK} ga4={GA4_NAMED} />)
   expect(await clickRow(page, '(not set)')).toMatchObject({ text: '(not set)', mono: true })
   const title = page.locator('[data-testid="engagement-click-group"] p[title="(not set)"]')
   await expect(title).toHaveText('(not set)')
   expect(await title.evaluate((el) => getComputedStyle(el).fontFamily.includes('mono'))).toBe(true)
   // the old fixture names have no label either, and still print
   await named.unmount()
-  await mount(<Screen months={MONTHS} today={TODAY} bank={BANK} ga4={GA4} />)
+  await mount(<Screen detailsOpen months={MONTHS} today={TODAY} bank={BANK} ga4={GA4} />)
   expect(await clickRow(page, 'start_guide')).toMatchObject({ text: 'start_guide', mono: true })
 })
 
 test('#1096: what is not a tap is grey by its event name, bar and group, while a tap on the same screen keeps the color', async ({ mount, page }) => {
   await page.setViewportSize({ width: 1440, height: 1000 })
-  await mount(<Screen months={MONTHS} today={TODAY} bank={BANK} ga4={GA4_NAMED} />)
+  await mount(<Screen detailsOpen months={MONTHS} today={TODAY} bank={BANK} ga4={GA4_NAMED} />)
   expect((await clickRow(page, 'discovery_banner_shown')).bar).toBe(rgb(CHART_NEUTRAL))
   expect((await clickRow(page, 'location_permission_granted')).bar).toBe(rgb(CHART_NEUTRAL))
   const marker = (screen: string) => page.getByTestId('engagement-click-group').filter({ has: page.locator(`p[title="${screen}"]`) }).getByTestId('engagement-click-marker')
@@ -257,7 +259,7 @@ test('#1096: what is not a tap is grey by its event name, bar and group, while a
 for (const width of [1440, 390]) {
   test(`#1096 at ${width}: the legend and the all-time note start at the content edge, not centered by the cms-width rule`, async ({ mount, page }) => {
     await page.setViewportSize({ width, height: 1000 })
-    await mount(<Screen months={MONTHS} today={TODAY} bank={BANK} ga4={GA4_NAMED} allTime />)
+    await mount(<Screen detailsOpen months={MONTHS} today={TODAY} bank={BANK} ga4={GA4_NAMED} allTime />)
     const edge = (await page.getByTestId('engagement-card_clicks').boundingBox())!.x
     for (const id of ['engagement-legend', 'engagement-all-time-note', 'engagement-all-time']) {
       expect(Math.abs((await page.getByTestId(id).boundingBox())!.x - edge), id).toBeLessThanOrEqual(1)
@@ -288,7 +290,7 @@ test('spec §11 item 14: no static recharts import on the route (the all-time do
 
 test('#1101 spec C16 item 2: one month for the page; ?month=2026-09 moves the summary, the funnels and the clicks card, whose header names it', async ({ mount, page }) => {
   await page.setViewportSize({ width: 1440, height: 1000 })
-  await mount(<Screen months={MONTHS} today={TODAY} bank={BANK} ga4={GA4} month="2026-09" />)
+  await mount(<Screen detailsOpen months={MONTHS} today={TODAY} bank={BANK} ga4={GA4} month="2026-09" />)
   await expect(page.getByTestId('summary-month')).toHaveValue('2026-09')
   await expect(page.getByTestId('engagement-card_clicks').getByTestId('engagement-clicks-month')).toHaveText('setembro de 2026')
   await expect(page.locator('select')).toHaveCount(3) // the month of the page, platform and account: no second month selector
@@ -297,14 +299,14 @@ test('#1101 spec C16 item 2: one month for the page; ?month=2026-09 moves the su
 for (const width of [1440, 390]) {
   test(`#1154 spec D5 at ${width}: the dictionary prints each line's own label and hint, GA4 with the badge and the bank in dim text, and nothing scrolls sideways`, async ({ mount, page }) => {
     await page.setViewportSize({ width, height: 1200 })
-    await mount(<Screen months={MONTHS} today={TODAY} bank={BANK} ga4={GA4} />)
+    await mount(<Screen detailsOpen months={MONTHS} today={TODAY} bank={BANK} ga4={GA4} />)
     const dict = page.getByTestId('engagement-dictionary')
     await expect(dict.getByRole('heading', { name: E.dictionary.title })).toBeVisible()
     const guide = dict.getByTestId('engagement-dictionary-guide_median')
     await expect(guide.getByTestId('engagement-dictionary-term')).toHaveText(`${E.summary.tiles.guide_median} · ${E.rows.guide_median}`)
     await expect(guide).toContainText(E.rows.guide_median_hint)
     await expect(guide.getByTestId('engagement-dictionary-source')).toContainText(E.dictionary.source_bank)
-    await expect(dict.getByTestId('engagement-dictionary-active_by')).toContainText(E.rows.active_by_hint.replace('{use}', E.use_name.audio))
+    await expect(dict.getByTestId('engagement-dictionary-active_by')).toContainText(E.rows.active_by_hint.replace('{use}', E.use_name.trip))
     await expect(dict.getByTestId('engagement-dictionary-screen_minutes').getByTestId('engagement-dictionary-source')).toHaveText(new RegExp(`${E.dictionary.source_ga4}$`))
     await expect(dict.getByTestId('engagement-dictionary-notes')).toContainText(E.dictionary.note_d1)
     const overflow = await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth)

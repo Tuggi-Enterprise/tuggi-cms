@@ -49,3 +49,52 @@ export const STEP_PAD_PX = 16
 export function stepFunnelHeight(rows: number): number {
   return rows * STEP_ROW_PX + STEP_PAD_PX
 }
+
+export interface HorizontalBarsRow {
+  key: string
+  label: string
+  /** The length of the bar, 0 when unknown. */
+  value: number
+  /** The text right of the bar: "5 · 22%". */
+  display: string
+  muted: boolean
+  /** Tooltip and screen reader. */
+  title: string
+}
+
+export interface HorizontalBarsMark {
+  /** The row the dashed line sits on top of (`ReferenceLine` at the start of its band). */
+  before: string
+  label: string
+}
+
+/** Histogram rows of block 5 and permission rows (spec §E4: 6 × 32 + 16, 3 × 36 + 16). */
+export const HISTOGRAM_ROW_PX = 32
+export const PERMISSION_ROW_PX = 36
+
+export function horizontalBarsHeight(rows: number, rowPx: number): number {
+  return rows * rowPx + STEP_PAD_PX
+}
+
+export interface LinesSeries {
+  key: string
+  label: string
+  color: string
+  /** The market: grey and dashed, connected over the days with no published value. */
+  dashed?: boolean
+}
+
+export interface LinesRow {
+  key: string
+  /** The tick at 1440 (`out 2026`, `D1`). */
+  label: string
+  /** The tick at 390. */
+  short: string
+  values: Record<string, number | null>
+  /** Why the point is not drawn. */
+  reason: string | null
+}
+
+/** Plot plus axis of a line chart, px (spec §E4: 176 + 22; the active halves 140 + 22). */
+export const LINES_PX = 198
+export const ACTIVE_LINES_PX = 162

@@ -1,5 +1,6 @@
 import type { EngagementBankReport, EngagementGa4Month, EngagementGa4Report } from '@/lib/engagement/report'
 import type { UsageMonth, UsageReport } from '@/lib/engagement/usage'
+import type { ActiveUsersReport } from '@/lib/engagement/active-users'
 import type { FreeMinutesHistogram } from '@/lib/engagement/free-minutes'
 import type { ConversionFunnel } from '@/lib/conversion/funnel'
 
@@ -78,11 +79,12 @@ export const GA4: EngagementGa4Report = {
   storyCompletionSince: null,
   months: [
     ga4Month({ month: '2026-08', activeUsers: 318, engagementSeconds: 318 * 540, sessionsPerUser: 2.3, engagedUsers: 160, newEngagedUsers: 120 }),
-    ga4Month({ month: '2026-09', activeUsers: 327, engagementSeconds: 327 * 480, sessionsPerUser: 2.1, engagedUsers: 175, newEngagedUsers: 110, paywallViewedUsers: 140, paywallDismissedUsers: 93, paywallConvertedUsers: 8 }),
+    ga4Month({ month: '2026-09', activeUsers: 327, engagementSeconds: 327 * 480, sessionsPerUser: 2.1, engagedUsers: 175, newEngagedUsers: 110, paywallViewedUsers: 140, paywallDismissedUsers: 93, paywallConvertedUsers: 8, active1DayAvg: 15.2, active7DayAvg: 87.5, active28DayAvg: 305 }),
     // October with the numbers the deployed engagement-ga4 answered on 2026-11-09 (#1161)
     ga4Month({
       month: '2026-10', activeUsers: 262, engagementSeconds: 262 * 600, sessionsPerUser: 2.4, engagedUsers: 189, newEngagedUsers: 150,
       paywallViewedUsers: 95, paywallDismissedUsers: 79, paywallPlanTappedUsers: 2, paywallConvertedUsers: 9,
+      active1DayAvg: 10.9, active7DayAvg: 58.5, active28DayAvg: 211.7, storyStarts: 634,
       permissions: { location: { asked: 61, allowed: 60 }, motion: { asked: 10, allowed: 8 }, notifications: { asked: 24, allowed: 19 } },
     }),
     ga4Month({ month: '2026-11', activeUsers: 41, engagementSeconds: 41 * 420, sessionsPerUser: 1.6, engagedUsers: 30, newEngagedUsers: 6, paywallViewedUsers: 12 }),
@@ -137,19 +139,20 @@ export const CONVERSION: ConversionFunnel = {
 export const CONVERSION_OLD: ConversionFunnel = { ...CONVERSION, testedFree: null, purchasedAfterFree: null, purchasedWithoutFree: null, usedGuideOrStory: null, consumed1h: null }
 
 /**
- * October of `core.cms_get_free_minutes_histogram` (#1156, contract Parte 26 §3): 320 entered, the 30
- * min to 1 h bucket hidden (1 to 4 people), the rest measured.
+ * October of `core.cms_get_free_minutes_histogram` after #1160 (contract Parte 27 §3, measured on
+ * 2026-11-09): 118 in the cohort, 95 did not use, the six buckets only of the 23 who did.
  */
 export const FREE_MINUTES: FreeMinutesHistogram = {
   month: '2026-10',
-  base: 320,
+  base: 118,
+  notUsed: 95,
   buckets: [
-    { fromMin: 0, toMin: 15, people: 150 },
-    { fromMin: 15, toMin: 30, people: 60 },
-    { fromMin: 30, toMin: 60, people: null },
-    { fromMin: 60, toMin: 120, people: 70 },
-    { fromMin: 120, toMin: 180, people: 25 },
-    { fromMin: 180, toMin: null, people: 11 },
+    { fromMin: 0, toMin: 15, people: 5 },
+    { fromMin: 15, toMin: 30, people: 4 },
+    { fromMin: 30, toMin: 60, people: 4 },
+    { fromMin: 60, toMin: 120, people: 6 },
+    { fromMin: 120, toMin: 180, people: 2 },
+    { fromMin: 180, toMin: null, people: 2 },
   ],
 }
 
@@ -162,6 +165,10 @@ const usageMonth = (m: Partial<UsageMonth> & Pick<UsageMonth, 'month'>): UsageMo
   purchase: { purchased: null, after_free: null, free_minutes_before_median: null },
   time_to_first_story: { people: null, minutes_median: null },
   ledger_coverage: null,
+  consumed: null,
+  used_without_buying: { people: null, zero: null, up_to_15: null, up_to_60: null, over_60: null },
+  stories: null,
+  top_cities: null,
   ...m,
 })
 
@@ -183,6 +190,9 @@ export const USAGE: UsageReport = {
       usage_funnel: { entered: 150, guide_on: 70, first_story: 40, used_1h: 15, second_trip: 20 },
       time_to_first_story: { people: 45, minutes_median: 14 },
       ledger_coverage: 'partial',
+      consumed: { total: { people: 20, median: 25, p75: 70 }, free: { people: 18, median: 22, p75: 60 }, paid: { people: 3, median: 50, p75: 90 } },
+      used_without_buying: { people: 85, zero: 40, up_to_15: 20, up_to_60: 15, over_60: 10 },
+      stories: { trips: 160, trips_without_story: 70, stories: 900, per_guide_hour: 8.2 },
     }),
     usageMonth({
       month: '2026-09',
@@ -193,6 +203,9 @@ export const USAGE: UsageReport = {
       usage_funnel: { entered: 140, guide_on: 60, first_story: 35, used_1h: 18, second_trip: 12 },
       time_to_first_story: { people: 40, minutes_median: 12 },
       ledger_coverage: 'full',
+      consumed: { total: { people: 45, median: 36, p75: 110 }, free: { people: 40, median: 32, p75: 85 }, paid: { people: 7, median: 60, p75: 120 } },
+      used_without_buying: { people: 76, zero: 30, up_to_15: 18, up_to_60: 14, over_60: 14 },
+      stories: { trips: 150, trips_without_story: 60, stories: 980, per_guide_hour: 9.8 },
     }),
     usageMonth({
       month: '2026-10',
@@ -204,6 +217,23 @@ export const USAGE: UsageReport = {
       purchase: { purchased: 9, after_free: 1, free_minutes_before_median: 150 },
       time_to_first_story: { people: 27, minutes_median: 10.6 },
       ledger_coverage: 'full',
+      consumed: { total: { people: 40, median: 30, p75: 108.3 }, free: { people: 33, median: 30, p75: 77 }, paid: { people: 8, median: 69.5, p75: 127.5 } },
+      used_without_buying: { people: 42, zero: 15, up_to_15: 9, up_to_60: 8, over_60: 10 },
+      stories: { trips: 89, trips_without_story: 40, stories: 727, per_guide_hour: 11.57 },
+      top_cities: {
+        by_trips: [
+          { city_id: -298285, city: 'São Paulo', trips: 9 },
+          { city_id: -2697338, city: 'Armação dos Búzios', trips: 7 },
+          { city_id: -298179, city: 'Bragança Paulista', trips: 7 },
+          { city_id: -2697339, city: 'Cabo Frio', trips: 5 },
+          { city_id: -298450, city: 'Campos do Jordão', trips: 4 },
+        ],
+        by_trips_without_story: [
+          { city_id: -298179, city: 'Bragança Paulista', trips_without_story: 2, trips: 7 },
+          { city_id: -298285, city: 'São Paulo', trips_without_story: 2, trips: 9 },
+          { city_id: -2697339, city: 'Cabo Frio', trips_without_story: 1, trips: 5 },
+        ],
+      },
     }),
     usageMonth({
       month: '2026-11',
@@ -216,4 +246,32 @@ export const USAGE: UsageReport = {
       ledger_coverage: 'full',
     }),
   ],
+}
+
+/**
+ * `drive.cms_get_active_users_monthly` (#1162, contract Parte 27 §5). October is the example of the
+ * contract (`partial`: app opens only from 28/10, a floor); November is the first month with opens all
+ * month (`full`); August and September have no opens (`none`).
+ */
+export const ACTIVE: ActiveUsersReport = {
+  data_since: { open: '2026-10-28', use: '2025-07-31' },
+  months: [
+    { month: '2026-08', days: 31, all_sources: { open_coverage: 'none', dau: 3.1, wau: 14, mau: 60, dau_mau: 0.0517 }, trip_or_story: { dau: 3.1, wau: 14, mau: 60, dau_mau: 0.0517 } },
+    { month: '2026-09', days: 30, all_sources: { open_coverage: 'none', dau: 3.6, wau: 15.5, mau: 64, dau_mau: 0.0563 }, trip_or_story: { dau: 3.6, wau: 15.5, mau: 64, dau_mau: 0.0563 } },
+    { month: '2026-10', days: 31, all_sources: { open_coverage: 'partial', dau: 4.3, wau: 16.3, mau: 72, dau_mau: 0.0591 }, trip_or_story: { dau: 3.5, wau: 15.1, mau: 55, dau_mau: 0.0628 } },
+    { month: '2026-11', days: 9, all_sources: { open_coverage: 'full', dau: 6.2, wau: 21, mau: 48, dau_mau: 0.1292 }, trip_or_story: { dau: 3, wau: 12, mau: 30, dau_mau: 0.1 } },
+  ],
+}
+
+/**
+ * The bank answer after #1155, with "returned on day N" (#1162 block 8): August and September closed,
+ * October with D30 and the 2nd trip still open on `TODAY`.
+ */
+export const BANK_RETENTION: EngagementBankReport = {
+  ...BANK,
+  has_retention_on: true,
+  months: BANK.months.map((m) => {
+    const on = { '2026-08': { d1: 0.12, d7: 0.04, d30: 0.02 }, '2026-09': { d1: 0.1, d7: 0.03, d30: 0.015 }, '2026-10': { d1: 0.08, d7: 0.03, d30: null } }[m.month] ?? { d1: null, d7: null, d30: null }
+    return { ...m, cohort: { ...m.cohort, retention_on: on } }
+  }),
 }

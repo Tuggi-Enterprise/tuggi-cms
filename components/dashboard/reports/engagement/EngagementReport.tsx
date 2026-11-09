@@ -1,14 +1,12 @@
 'use client'
 
-import { useMemo, useState, type ReactNode } from 'react'
-import { Activity, BookOpen, MousePointerClick, Repeat, Sparkles, Users } from 'lucide-react'
+import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
+import { Activity, BookOpen, ChevronDown, MousePointerClick, Repeat, Sparkles, Users } from 'lucide-react'
 import { useLocale, useTranslations } from 'next-intl'
 
-import { ReportTabs } from '@/components/dashboard/ReportTabs'
 import { WidgetCard, SectionHeader } from '@/components/dashboard/WidgetCard'
 import { RankRow } from '@/components/dashboard/reports/acquisition/RankRow'
 import { Ga4Badge, MonthGrid, type MonthGridCell, type MonthGridGroup } from '@/components/dashboard/reports/engagement/MonthGrid'
-import { EngagementSummary, HEAT_TONES } from '@/components/dashboard/reports/engagement/EngagementSummary'
 import { EngagementQuestions } from '@/components/dashboard/reports/engagement/EngagementQuestions'
 import { CardError } from '@/components/admin/social/shared'
 import { Button } from '@/components/ui/button'
@@ -26,12 +24,12 @@ import {
 } from '@/lib/engagement/cells'
 import { clickBlocks, clickColor, screenGroupColor } from '@/lib/engagement/clicks'
 import { ENGAGEMENT_DICTIONARY } from '@/lib/engagement/dictionary'
-import { cohortCurve, heatStep } from '@/lib/engagement/summary'
+import { heatStep } from '@/lib/engagement/summary'
 import type { ConversionFunnel } from '@/lib/conversion/funnel'
 import type { FreeMinutesHistogram } from '@/lib/engagement/free-minutes'
 import type { UsageReport } from '@/lib/engagement/usage'
+import type { ActiveUsersReport } from '@/lib/engagement/active-users'
 import {
-  ENGAGEMENT_USES,
   ga4Filterable,
   hasFilters,
   NO_FILTERS,
@@ -41,15 +39,19 @@ import {
   type EngagementUse,
 } from '@/lib/engagement/report'
 
+/** The use of the Details table: the guide (spec §E8 item 1, `?use=` is gone). */
+const DETAIL_USE: EngagementUse = 'trip'
+/** The five steps of the cohort heat map, by `heatStep` (spec §B8); Tailwind does not scan `lib/`. */
+const HEAT_TONES = ['bg-emerald-50', 'bg-emerald-100', 'bg-emerald-200', 'bg-emerald-300', 'bg-emerald-400'] as const
+
 /**
  * The Engagement and conversion report (#1094, #1101, spec-cms-relatorio-engajamento-2026-11).
  * Presentational: the page owns the URL and the queries, this owns the screen, so the CT bench
- * mounts it with a fixture. No static `recharts` here: the question blocks (#1161) load their charts
- * through `next/dynamic`; the grid is a table and the clicks are `RankRow`.
+ * mounts it with a fixture. No static `recharts` here: the question blocks (#1161, #1162) load their
+ * charts through `next/dynamic`; Details (block 9, spec §E8) is a closed `<details>` with the table,
+ * the cohort heat map, the clicks, the dictionary and the all-time blocks.
  */
 export interface EngagementReportProps {
-  use: EngagementUse
-  onUseChange: (use: EngagementUse) => void
   filters: EngagementFilters
   onFiltersChange: (filters: EngagementFilters) => void
   /** The month ruler, `YYYY-MM`, oldest first (`engagementMonths`). */
@@ -77,6 +79,10 @@ export interface EngagementReportProps {
   usage?: UsageReport
   usageFailed: boolean
   onUsageRetry: () => void
+  /** `drive.cms_get_active_users_monthly` (#1162), people; the GA4 half is in `ga4`. */
+  active?: ActiveUsersReport
+  activeFailed: boolean
+  onActiveRetry: () => void
   isFetching: boolean
   /** The four all-time blocks of before (platform, top POIs, language, cities), untouched. */
   allTime?: ReactNode
@@ -141,8 +147,6 @@ function TextFilter({
 }
 
 export function EngagementReport({
-  use,
-  onUseChange,
   filters,
   onFiltersChange,
   months,
@@ -164,12 +168,25 @@ export function EngagementReport({
   usage,
   usageFailed,
   onUsageRetry,
+  active,
+  activeFailed,
+  onActiveRetry,
   isFetching,
   allTime,
 }: EngagementReportProps) {
+  const use = DETAIL_USE
+  const detailsRef = useRef<HTMLDetailsElement>(null)
+  // Details opens by itself when the URL arrives with #detalhes or an anchor inside it (spec §E8).
+  useEffect(() => {
+    const hash = window.location.hash.slice(1)
+    const el = detailsRef.current
+    if (!hash || !el) return
+    if (hash === el.id || el.querySelector(`#${CSS.escape(hash)}`)) el.open = true
+  }, [])
   const t = useTranslations('Pages.Dashboard')
   const locale = useLocale()
   const k = (key: string, values?: Record<string, string | number>) => t(`reports.engagement.${key}`, values)
+  const s = (key: string, values?: Record<string, string | number>) => k(`summary.${key}`, values)
   /** The friendly label of a raw GA4 name, or `null` when copy has none (`(not set)`, a name newer than the copy). */
   const nameLabel = (kind: 'buttons' | 'screens', raw: string): string | null => {
     const key = `reports.engagement.${kind}.${raw}`
@@ -203,8 +220,8 @@ export function EngagementReport({
         return k('cell_ga4_filter')
       case 'source_failed':
         return source === 'ga4' ? k('cell_ga4_failed') : k('cell_bank_failed')
-      case 'suppressed':
-        return k('cell_suppressed')
+      case 'missing':
+        return k('cell_missing')
       case 'no_source':
         return source === 'ga4' ? k('summary.tiles.no_source_ga4') : k('summary.tiles.no_source_bank')
       default:
@@ -269,14 +286,9 @@ export function EngagementReport({
       }
     }),
   }))
-  const summaryInput = useMemo(
-    () => ({ months, today, use, bank, bankFailed, ga4, ga4Failed, ga4Filtered, summaryMonth: month }),
-    [months, today, use, bank, bankFailed, ga4, ga4Failed, ga4Filtered, month]
-  )
-
   const questionsInput = useMemo(
-    () => ({ month, months, today, bank, bankFailed, ga4, ga4Failed, ga4Filtered, usage, usageFailed, conversion, conversionFailed, filtered: hasFilters(filters) }),
-    [month, months, today, bank, bankFailed, ga4, ga4Failed, ga4Filtered, usage, usageFailed, conversion, conversionFailed, filters]
+    () => ({ month, months, today, bank, bankFailed, ga4, ga4Failed, ga4Filtered, usage, usageFailed, conversion, conversionFailed, active, activeFailed, filtered: hasFilters(filters) }),
+    [month, months, today, bank, bankFailed, ga4, ga4Failed, ga4Filtered, usage, usageFailed, conversion, conversionFailed, active, activeFailed, filters]
   )
 
   const notice = (card: GridCard) => {
@@ -331,13 +343,6 @@ export function EngagementReport({
             ))}
           </select>
         </label>
-        <div className="max-w-full overflow-x-auto">
-          <ReportTabs
-            tabs={ENGAGEMENT_USES.map((u) => ({ key: u, label: k(`use_${u}`) }))}
-            active={use}
-            onChange={(key) => onUseChange(key as EngagementUse)}
-          />
-        </div>
         <div className="grid w-full grid-cols-2 gap-2 md:flex md:w-auto md:flex-wrap md:items-center md:gap-3">
           <TextFilter
             key={`source-${filters.source ?? ''}`}
@@ -404,27 +409,10 @@ export function EngagementReport({
         onConversionRetry={onConversionRetry}
         onClearFilters={() => onFiltersChange(NO_FILTERS)}
         ga4BadgeHint={ga4Filtered ? k('ga4_filter_hint') : k('ga4_badge_hint')}
-      />
-
-      <EngagementSummary
-        k={k}
-        fmt={fmt}
-        input={summaryInput}
-        useName={useName}
-        cellTitle={cellTitle}
-        monthHeader={(m) => monthHeader(m, locale)}
-        monthLong={(m) => monthLong(m, locale)}
-        onBankRetry={onBankRetry}
-        onGa4Retry={onGa4Retry}
-        ga4BadgeHint={ga4Filtered ? k('ga4_filter_hint') : k('ga4_badge_hint')}
-        heatGroups={heatGroups}
-        heatMonths={columns}
-        curve={cohortCurve(afterFirst)}
         freeMinutes={freeMinutes}
         freeMinutesFailed={freeMinutesFailed}
         onFreeMinutesRetry={onFreeMinutesRetry}
-        filtered={hasFilters(filters)}
-        onClearFilters={() => onFiltersChange(NO_FILTERS)}
+        onActiveRetry={onActiveRetry}
       />
 
       {emptySlice && (
@@ -439,49 +427,85 @@ export function EngagementReport({
         </div>
       )}
 
-      {cards.filter((card) => card.key !== 'card_after_first').map((card) => (
+      <details
+        ref={detailsRef}
+        id="detalhes"
+        data-testid="engagement-details"
+        className="group scroll-mt-6 rounded-xl border border-gray-200 bg-white shadow-sm dark:border-gray-800 dark:bg-gray-900"
+      >
+        <summary className="flex min-h-12 cursor-pointer list-none items-center justify-between gap-3 px-4 py-3 [&::-webkit-details-marker]:hidden">
+          <span className="min-w-0">
+            <span className="block text-base font-bold text-gray-900 dark:text-white">{k('questions.block_9.title')}</span>
+            <span className={`block text-[11px] leading-4 ${DIM}`}>{k('questions.block_9.base')}</span>
+          </span>
+          <ChevronDown className={`h-4 w-4 shrink-0 transition-transform group-open:rotate-180 ${DIM}`} aria-hidden="true" />
+        </summary>
+        <div className="space-y-6 p-4 pt-0">
+        {cards.filter((card) => card.key !== 'card_after_first').map((card) => (
+          <MonthGrid
+            key={card.key}
+            testId={`engagement-${card.key}`}
+            title={k(card.key)}
+            icon={CARD_ICONS[card.key]}
+            right={right(card)}
+            notice={anyNotice(card) ? notice(card) : undefined}
+            months={columns}
+            groups={toGroups(card)}
+            metricLabel={k('col_metric')}
+            ga4Badge={k('ga4_badge')}
+            ga4BadgeHint={ga4Filtered ? k('ga4_filter_hint') : k('ga4_badge_hint')}
+          />
+        ))}
+
         <MonthGrid
-          key={card.key}
-          testId={`engagement-${card.key}`}
-          title={k(card.key)}
-          icon={CARD_ICONS[card.key]}
-          right={right(card)}
-          notice={anyNotice(card) ? notice(card) : undefined}
+          testId="summary-cohort-heat"
+          title={s('card_cohort_heat')}
+          icon={Sparkles}
+          right={<span className={cn('text-[11px] text-right', DIM)}>{k('cohort_note')}</span>}
           months={columns}
-          groups={toGroups(card)}
+          groups={heatGroups}
           metricLabel={k('col_metric')}
           ga4Badge={k('ga4_badge')}
           ga4BadgeHint={ga4Filtered ? k('ga4_filter_hint') : k('ga4_badge_hint')}
+          footer={
+            <ul className={cn('flex flex-wrap gap-x-4 gap-y-1 text-[10px]', DIM)} data-testid="summary-heat-legend">
+              {HEAT_TONES.map((tone, i) => (
+                <li key={tone} className="flex items-center gap-1.5">
+                  <span aria-hidden="true" className={cn('h-3 w-3 rounded-sm', tone)} />
+                  {s(`scale_legend.s${i}`)}
+                </li>
+              ))}
+            </ul>
+          }
         />
-      ))}
 
-      <ClicksCard
-        k={k}
-        nameLabel={nameLabel}
-        locale={locale}
-        ga4={ga4}
-        ga4Failed={ga4Failed}
-        ga4Filtered={ga4Filtered}
-        onRetry={onGa4Retry}
-        month={month}
-        integer={fmt.integer}
-      />
+        <ClicksCard
+          k={k}
+          nameLabel={nameLabel}
+          locale={locale}
+          ga4={ga4}
+          ga4Failed={ga4Failed}
+          ga4Filtered={ga4Filtered}
+          onRetry={onGa4Retry}
+          month={month}
+          integer={fmt.integer}
+        />
 
-      {/* `ml-0`: the `cms-width` child rule centers a `div` with a `max-w-*` (a `p` escapes it by the preflight margin), so the legend starts at the content edge, with the note below (#1096) */}
-      <div data-testid="engagement-legend" className={`text-xs max-w-3xl ml-0 space-y-1 ${DIM}`}>
-        <p>{k('legend_unknown')}</p>
-        <p>{k('legend_sources')}</p>
-        <p>{k('legend_suppression')}</p>
-      </div>
+        {/* `ml-0`: the `cms-width` child rule centers a `div` with a `max-w-*` (a `p` escapes it by the preflight margin), so the legend starts at the content edge, with the note below (#1096) */}
+        <div data-testid="engagement-legend" className={`text-xs max-w-3xl ml-0 space-y-1 ${DIM}`}>
+          <p>{k('legend_unknown')}</p>
+          <p>{k('legend_sources')}</p>
+        </div>
 
-      {allTime && (
-        <>
-          <p data-testid="engagement-all-time-note" className={`text-xs ${DIM}`}>{k('all_time_note')}</p>
-          {allTime}
-        </>
-      )}
-
-      <DictionaryCard k={k} useName={useName} />
+        {allTime && (
+          <>
+            <p data-testid="engagement-all-time-note" className={`text-xs ${DIM}`}>{k('all_time_note')}</p>
+            {allTime}
+          </>
+        )}
+          <DictionaryCard k={k} useName={useName} />
+        </div>
+      </details>
     </div>
   )
 }

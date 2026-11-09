@@ -13,12 +13,7 @@ import { resolve } from 'node:path'
 
 import {
   parseConversionFunnel,
-  installsState,
-  rateOfEntered,
-  notEntered,
-  readUseFunnel,
   readPurchaseFunnel,
-  LEDGER_FIRST_MONTH,
   type ConversionFunnel,
 } from '../../lib/conversion/funnel'
 
@@ -77,82 +72,12 @@ test('#1101 BR-COMUNICACAO-022 item 4: a jsonb from before #1100 parses the new 
 
 // ── Use funnel ──────────────────────────────────────────────────────────────────────────────
 
-test('#1101 spec C16 item 5 DS-COMPONENTE-084 item 2: the use funnel rates account and guide or story over entered, bank over bank; interacted only sets the ruler', () => {
-  const v = readUseFunnel(parseConversionFunnel(raw(1000, 720)), 640)
-  assert.equal(v.installs, 'measured')
-  assert.equal(v.notEntered, 280)
-  assert.equal(v.guest, 720 - 312)
-  assert.equal(v.rates.account, 312 / 720)
-  assert.equal(v.rates.used, 500 / 720)
-  assert.deepEqual(Object.keys(v.rates), ['account', 'used', 'consumed1h'])
-  // the ruler is the largest of the four, GA4 counts included
-  assert.equal(v.max, 1000)
-  assert.equal(readUseFunnel(parseConversionFunnel(raw(null, 720)), 900).max, 900)
-  assert.equal(readUseFunnel(parseConversionFunnel(raw(null, 720)), null).max, 720)
-})
-
 test('#1101 spec C16 item 5 DS-COMPONENTE-084 item 2: funnel.ts never divides the GA4 counts', () => {
   const src = readFileSync(resolve(import.meta.dirname, '../../lib/conversion/funnel.ts'), 'utf8')
   for (const line of src.split('\n').filter((l) => /newEngaged|installs/.test(l) && !l.trim().startsWith('*') && !l.trim().startsWith('//'))) {
     assert.doesNotMatch(line, /\/\s*[a-zA-Z(]|[a-zA-Z)]\s*\//, `divides a GA4 count: ${line.trim()}`)
   }
 })
-
-test('#1101 DS-COMPONENTE-084 item 2 BR-COMUNICACAO-022 item 4: no guide-or-story field prints no rate; entered = 0 prints no rate at all', () => {
-  const v = readUseFunnel(parseConversionFunnel(raw(1000, 720, { used_guide_or_story: undefined })), null)
-  assert.equal(v.rates.used, null)
-  const empty = readUseFunnel(parseConversionFunnel(raw(40, 0, { account: 0, purchased: 0, used_guide_or_story: 0 })), 0)
-  assert.deepEqual(empty.rates, { account: null, used: null, consumed1h: null })
-  assert.equal(empty.notEntered, 40)
-})
-
-test('#1156 spec D2 happy path DS-COMPONENTE-101 item 2: consumed 1 hour is read from consumed_1h and rated over entered, never over guide or story', () => {
-  const v = readUseFunnel(parseConversionFunnel(raw(1000, 720, { consumed_1h: 180 })), 640)
-  assert.equal(v.rates.consumed1h, 180 / 720)
-  assert.notEqual(v.rates.consumed1h, 180 / 500)
-  assert.equal(v.consumed1hFloor, false)
-})
-
-test('#1156 spec D8 item 1 BR-COMUNICACAO-022 item 4: consumed_1h null (a function before #1155, a month before the ledger) is no data with no rate, never 0; a sent 0 is a measured 0', () => {
-  const absent = parseConversionFunnel(raw(1000, 720))
-  assert.equal(absent.consumed1h, null)
-  const v = readUseFunnel(absent, null)
-  assert.equal(v.rates.consumed1h, null)
-  assert.equal(readUseFunnel(parseConversionFunnel(raw(1000, 720, { consumed_1h: null })), null).rates.consumed1h, null)
-  const zero = readUseFunnel(parseConversionFunnel(raw(1000, 720, { consumed_1h: 0 })), null)
-  assert.equal(zero.rates.consumed1h, 0)
-})
-
-test('#1156 spec D8 item 1 BR-USUARIO-037 3.j: consumed 1 hour larger than guide or story is drawn wider, no error, and it sets the ruler when it is the largest', () => {
-  const f = parseConversionFunnel(raw(null, 700, { used_guide_or_story: 300, consumed_1h: 710 }))
-  const v = readUseFunnel(f, 200)
-  assert.equal(v.max, 710)
-  assert.equal(v.rates.consumed1h, 710 / 700)
-  assert.equal(v.rates.used, 300 / 700)
-})
-
-test('#1156 contract Parte 26 §2: the month the minute ledger starts in is a floor, the month after is not', () => {
-  assert.equal(LEDGER_FIRST_MONTH, '2026-08')
-  assert.equal(readUseFunnel(parseConversionFunnel(raw(1000, 720, { month: '2026-08', consumed_1h: 30 })), null).consumed1hFloor, true)
-  assert.equal(readUseFunnel(parseConversionFunnel(raw(1000, 720, { month: '2026-08', consumed_1h: null })), null).consumed1hFloor, false)
-  assert.equal(readUseFunnel(parseConversionFunnel(raw(1000, 720, { month: '2026-09', consumed_1h: 30 })), null).consumed1hFloor, false)
-})
-
-test('#1101 spec C15.6: account larger than entered has no guest part', () => {
-  assert.equal(readUseFunnel(parseConversionFunnel(raw(1000, 10, { account: 12 })), null).guest, null)
-})
-
-test('DS-COMPONENTE-084 item 1: installs null is unknown, 0 is measured, below entered is a floor with no difference', () => {
-  assert.equal(parseConversionFunnel(raw(null, 720)).installs.total, null)
-  assert.equal(installsState(null, 720), 'unknown')
-  assert.equal(installsState(0, 0), 'measured')
-  assert.equal(notEntered(0, 0), 0)
-  assert.equal(installsState(500, 720), 'floor')
-  assert.equal(notEntered(500, 720), null)
-  assert.equal(rateOfEntered(5, 0), null)
-})
-
-// ── Purchase funnel ─────────────────────────────────────────────────────────────────────────
 
 test('#1101 spec C16 item 6 DS-COMPONENTE-101 item 1: the two branches are disjoint and sum to entered; the rest of each is named, not measured', () => {
   const v = readPurchaseFunnel(parseConversionFunnel(raw(1000, 720)))

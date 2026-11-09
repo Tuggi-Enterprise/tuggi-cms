@@ -102,7 +102,7 @@ test('#1094 BR-COMUNICACAO-022 item 4 DS-COMPONENTE-084 item 1: a null cell prin
 
   const septemberSince = grid({ bank: bank(months, { open: '2026-10-28', trip: '2026-08-01', audio: '2026-08-01' }) })
   const d6 = cell(septemberSince, 'days_6_plus', '2026-08')
-  assert.equal(d6.state, 'suppressed')
+  assert.equal(d6.state, 'missing')
   assert.equal(formatCell(d6.kind, d6, f).main, UNKNOWN_VALUE)
   assert.notEqual(d6.state, active.state)
 
@@ -140,7 +140,7 @@ test('#1094 DS-COMPONENTE-084 item 1: an open window prints a floor with a numbe
   assert.equal(cell(withNumber, 'ret_d90', '2026-08').state, 'not_due')
   // A closed window with null is suppressed: August D60 closed on 2026-10-31.
   const aug = MONTHS.map((m) => (m === '2026-08' ? month(m, { cohort: { size: 4, retention: { d1: null, d7: null, d30: null, d60: null, d90: null }, second_trip: { d30: null, d60: null, d90: null } } }) : month(m)))
-  assert.equal(cell(grid({ bank: bank(aug) }), 'ret_d60', '2026-08').state, 'suppressed')
+  assert.equal(cell(grid({ bank: bank(aug) }), 'ret_d60', '2026-08').state, 'missing')
 })
 
 test('#1094: the current month marks no floor cell by cell, its header says "until today"', () => {
@@ -163,7 +163,7 @@ test('#1094: `open` counts only whole months after its data_since; trip and audi
   assert.equal(cell(cards, 'active_by', '2026-10').state, 'before_source')
   assert.equal(cell(cards, 'active_by', '2026-11').state, 'measured')
   const tripLate = grid({ use: 'trip', bank: bank(months.map((m) => ({ ...m, active: { open: null, trip: null, audio: 204 } })), { open: '2026-10-28', trip: '2026-08-20', audio: '2026-08-01' }) })
-  assert.equal(cell(tripLate, 'active_by', '2026-08').state, 'suppressed')
+  assert.equal(cell(tripLate, 'active_by', '2026-08').state, 'missing')
 })
 
 test('#1094 DS-COMPONENTE-084 item 2: the share of a day band is bank over bank of the same use and month, never over GA4', () => {
@@ -184,7 +184,7 @@ test('#1094: GA4 rows are GA4 by GA4, a month GA4 left out is zero active, and n
   assert.equal(printed(cards, 'screen_minutes', '2026-08').main, '9 min')
   assert.equal(printed(cards, 'sessions_ga4', '2026-08').main, '2,3')
   assert.equal(cell(cards, 'active_ga4', '2026-11').value, 0)
-  assert.equal(cell(cards, 'screen_minutes', '2026-11').state, 'suppressed')
+  assert.equal(cell(cards, 'screen_minutes', '2026-11').state, 'missing')
 })
 
 test('#1094: a filter GA4 does not have, a failed GA4 and a failed bank each mark only their own rows', () => {
@@ -211,12 +211,17 @@ test('#1094: a month the database did not return is a column of "before the sour
   assert.deepEqual(grid().map((c) => c.groups.reduce((s, g) => s + g.rows.length, 0)), [6, 6, 14])
 })
 
-test('#1094: the empty slice is every bank cell without a number', () => {
+test('#1094 #1162: the empty slice is no bank count above zero, nulls or measured zeros alike', () => {
   const nothing = parseBankReport({
     data_since: { open: '2026-10-28', trip: '2026-08-01', audio: '2026-08-01' },
     months: MONTHS.map((m) => ({ month: m })),
   })
   assert.equal(bankSliceEmpty(grid({ bank: nothing })), true)
+  const zeros = parseBankReport({
+    data_since: { open: '2026-10-28', trip: '2026-08-01', audio: '2026-08-01' },
+    months: MONTHS.map((m) => ({ month: m, active: { open: 0, trip: 0, audio: 0 }, new: { open: 0, trip: 0, audio: 0 } })),
+  })
+  assert.equal(bankSliceEmpty(grid({ bank: zeros })), true)
   assert.equal(bankSliceEmpty(grid()), false)
 })
 

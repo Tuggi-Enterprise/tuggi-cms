@@ -32,6 +32,7 @@ const input = (over: Partial<QuestionsInput> = {}): QuestionsInput => ({
   usageFailed: false,
   conversion: CONVERSION,
   conversionFailed: false,
+  activeFailed: false,
   filtered: false,
   ...over,
 })
@@ -129,7 +130,8 @@ test('#1161 DS-COMPONENTE-084 item 1 BR-VIAGEM-008: block 4 prints the buckets t
 
 test('#1161 BR-COMUNICACAO-022 item 4: a failed usage read fails blocks 1, 2 and 4 with a retry and leaves block 3; a loading one prints no sentence', () => {
   const blocks = buildBlocks(input({ usage: undefined, usageFailed: true }))
-  assert.deepEqual(blocks.map((b) => b.status), ['failed', 'failed', 'ready', 'failed'])
+  // #1162: blocks 5 and 6 read the same function; 7 is GA4 and 8 the bank, they stand
+  assert.deepEqual(blocks.map((b) => b.status), ['failed', 'failed', 'ready', 'failed', 'failed', 'failed', 'ready', 'ready'])
   for (const b of blocks.filter((x) => x.status === 'failed')) {
     const a = answerOf(b, '2026-10')!
     assert.equal(a.key, 'questions.common.answer_failed')
@@ -228,7 +230,7 @@ const withDelta = (key: QuestionBlock['key'], state: TileDelta['state'], prev: n
 test('#1161 DS-COMPONENTE-100 item 1: block 0 takes a base of 30 and leaves a base of 29, on the real blocks', () => {
   // October against September: vehicle 4 to 0 min (100 %), guide 80 to 44 people (45 %), median 28 to 35 min
   // (25 %), and the first-day share 35 % to 27 % (23 %) is the fourth, so it stays out
-  const real = pickHeadlines(buildBlocks(input()), '2026-10', TODAY)
+  const real = pickHeadlines(buildBlocks(input()).slice(0, 4), '2026-10', TODAY)
   assert.equal(real.lines.length, HEADLINE_LINES)
   assert.deepEqual(real.lines.map((l) => [l.block, l.direction]), [['block_4', 'down'], ['block_2', 'down'], ['block_3', 'up']])
   // the same fall over 29 people is small_base in tileDelta, so it never reaches the list

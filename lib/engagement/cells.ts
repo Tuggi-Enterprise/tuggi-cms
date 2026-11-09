@@ -8,8 +8,9 @@
  *  - **`null` is never `0`** (BR-COMUNICACAO-022 item 4; DS-COMPONENTE-084 item 1). A `null` cell
  *    gets a state that says why it is empty: the source was not recording yet (`before_source`),
  *    its window has not closed (`not_due`), GA4 has no such filter (`ga4_filter`), the source
- *    failed (`source_failed`), or, when nothing else explains it, fewer than 5 people
- *    (`suppressed`). `0` prints only when the source sent `0`: a measured zero.
+ *    failed (`source_failed`), or, when nothing else explains it, the source did not send it
+ *    (`missing`, a defect that shows instead of hiding: since #1160 no group is suppressed, spec
+ *    §E3.4). `0` prints only when the source sent `0`: a measured zero.
  *  - **A window that has not closed prints a floor** (`floor`, "at least this") when the database
  *    sent a number (DS-COMPONENTE-084 item 1, clause of 2026-09-16).
  *  - **No fraction crosses instruments** (DS-COMPONENTE-084 item 2). The only divisions below are
@@ -38,7 +39,8 @@ export type CellState =
   | 'not_due'
   | 'ga4_filter'
   | 'source_failed'
-  | 'suppressed'
+  /** `null` with no other reason: the source did not send the number (spec §E3.4). */
+  | 'missing'
   /** The source answered without this field: the deployed version does not send it yet (#1099). */
   | 'no_source'
 
@@ -245,7 +247,7 @@ export function resolveCell(row: RowDef, month: string, input: GridInput): Cell 
     const m = input.ga4.months.find((x) => x.month === month)
     // GA4 leaves out a month whose metrics are all zero: it answered, and nobody was active.
     const value = m ? row.ga4!(m) : row.key === 'active_ga4' ? 0 : null
-    return value === null ? empty('suppressed') : { ...empty('measured'), value }
+    return value === null ? empty('missing') : { ...empty('measured'), value }
   }
 
   if (input.bankFailed) return empty('source_failed')
@@ -276,7 +278,7 @@ export function resolveCell(row: RowDef, month: string, input: GridInput): Cell 
   }
   if (beforeSource(month, since, sinceUse)) return empty('before_source', { since })
   if (open) return empty('not_due', { due })
-  return empty('suppressed')
+  return empty('missing')
 }
 
 /** The three cards, every row with one cell per month. */
@@ -295,11 +297,15 @@ export function buildGrid(input: GridInput): GridCard[] {
   }))
 }
 
-/** Every bank cell of every month is empty: the slice has nothing to show (spec §6, "recorte vazio"). */
+/**
+ * No bank count of any month is above zero, and the database answered: the slice has nobody (spec §6,
+ * "recorte vazio"). Since #1160 a small group is a number, so an empty slice answers zeros; a `missing`
+ * cell counts as answered too.
+ */
 export function bankSliceEmpty(cards: readonly GridCard[]): boolean {
-  const bank = cards.flatMap((c) => c.groups.flatMap((g) => g.rows.filter((r) => r.source === 'bank').flatMap((r) => r.cells)))
-  return bank.length > 0 && bank.every((c) => c.state === 'suppressed' || c.state === 'before_source' || c.state === 'not_due' || c.state === 'no_source')
-    && bank.some((c) => c.state === 'suppressed')
+  const bank = cards.flatMap((c) => c.groups.flatMap((g) => g.rows.filter((r) => r.source === 'bank' && r.kind === 'count').flatMap((r) => r.cells)))
+  const answered = bank.some((c) => c.state === 'measured' || c.state === 'floor' || c.state === 'missing')
+  return answered && !bank.some((c) => (c.state === 'measured' || c.state === 'floor') && (c.value ?? 0) > 0)
 }
 
 export interface CellFormatters {

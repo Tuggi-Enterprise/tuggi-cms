@@ -2,13 +2,28 @@
 
 import { useMemo, type ReactNode } from 'react'
 import dynamic from 'next/dynamic'
-import { ArrowDown, ArrowUp, Gauge } from 'lucide-react'
+import { ArrowDown, ArrowRight, ArrowUp, Gauge } from 'lucide-react'
 
 import { BranchFunnel, type BranchFunnelBranch } from '@/components/dashboard/reports/engagement/BranchFunnel'
 import { Ga4Badge } from '@/components/dashboard/reports/engagement/MonthGrid'
 import { QuestionCard, type QuestionLegendItem } from '@/components/dashboard/reports/engagement/QuestionCard'
 import { STAT_BADGE, StatLine } from '@/components/dashboard/reports/engagement/StatLine'
-import { MONTH_BARS_PX, stepFunnelHeight, type MonthBarsRow, type MonthBarsSeries, type StepFunnelRow } from '@/components/dashboard/reports/engagement/question-charts'
+import {
+  ACTIVE_LINES_PX,
+  HISTOGRAM_ROW_PX,
+  PERMISSION_ROW_PX,
+  horizontalBarsHeight,
+  LINES_PX,
+  MONTH_BARS_PX,
+  stepFunnelHeight,
+  type HorizontalBarsMark,
+  type HorizontalBarsRow,
+  type LinesRow,
+  type LinesSeries,
+  type MonthBarsRow,
+  type MonthBarsSeries,
+  type StepFunnelRow,
+} from '@/components/dashboard/reports/engagement/question-charts'
 import { CardError } from '@/components/admin/social/shared'
 import { Button } from '@/components/ui/button'
 import { DIM } from '@/components/ui/dense-table'
@@ -20,6 +35,9 @@ import type { Cell } from '@/lib/engagement/cells'
 import { answerOf, firstSentence, type Answer, type AnswerValue } from '@/lib/engagement/answers'
 import { buildBlocks, buildPaywallFunnel, buildUseFunnel, chartMonths, freeBeforeCell, type QuestionBlock, type QuestionsInput, type Stat, type StatKind } from '@/lib/engagement/blocks'
 import { pickHeadlines } from '@/lib/engagement/headlines'
+import { buildActiveBank, buildActiveGa4, buildPermissions, buildWhere, type ActiveHalf } from '@/lib/engagement/signals'
+import { BENCHMARKS } from '@/lib/engagement/benchmarks'
+import { readFreeMinutes, type FreeMinutesHistogram, type FreeMinutesMark } from '@/lib/engagement/free-minutes'
 import { addMonths } from '@/lib/engagement/months'
 import { formatDelta, SUMMARY_MIN_BASE, type TileDelta } from '@/lib/engagement/summary'
 import { readPurchaseFunnel, type FunnelStep, type PurchaseBranch, type StepFunnelView } from '@/lib/conversion/funnel'
@@ -35,6 +53,14 @@ import { readPurchaseFunnel, type FunnelStep, type PurchaseBranch, type StepFunn
 const MonthBars = dynamic(() => import('@/components/dashboard/reports/engagement/MonthBars').then((m) => m.MonthBars), {
   ssr: false,
   loading: () => <div className="animate-pulse rounded-lg bg-gray-100 dark:bg-gray-800" style={{ height: MONTH_BARS_PX }} />,
+})
+const QuestionLines = dynamic(() => import('@/components/dashboard/reports/engagement/QuestionLines').then((m) => m.QuestionLines), {
+  ssr: false,
+  loading: () => <div className="animate-pulse rounded-lg bg-gray-100 dark:bg-gray-800" style={{ height: LINES_PX }} />,
+})
+const HorizontalBars = dynamic(() => import('@/components/dashboard/reports/engagement/HorizontalBars').then((m) => m.HorizontalBars), {
+  ssr: false,
+  loading: () => <div className="animate-pulse rounded-lg bg-gray-100 dark:bg-gray-800" style={{ height: horizontalBarsHeight(6, HISTOGRAM_ROW_PX) }} />,
 })
 const StepFunnel = dynamic(() => import('@/components/dashboard/reports/engagement/StepFunnel').then((m) => m.StepFunnel), {
   ssr: false,
@@ -58,6 +84,11 @@ export interface EngagementQuestionsProps {
   onConversionRetry: () => void
   onClearFilters: () => void
   ga4BadgeHint: string
+  /** `core.cms_get_free_minutes_histogram` of the month (block 5); `null` = not deployed, `undefined` = loading. */
+  freeMinutes?: FreeMinutesHistogram | null
+  freeMinutesFailed: boolean
+  onFreeMinutesRetry: () => void
+  onActiveRetry: () => void
 }
 
 /** Series colours (spec §E4). */
@@ -82,12 +113,23 @@ const SCREEN_LABELS: Record<string, string> = { on_screen: 'questions.block_3.on
 /** Ordinal, faster darker (spec §E4). */
 const MOVEMENT_COLORS: Record<string, string> = { vehicle: '#082f49', walking: '#0369a1', stopped: '#38bdf8' }
 const MOVEMENT_LABELS: Record<string, string> = { vehicle: 'questions.block_4.vehicle', walking: 'questions.block_4.walking', stopped: 'questions.block_4.stopped' }
+/** The same ordinal ramp as block 4, darker nearer the whole hour (spec §E4). */
+const NOT_BOUGHT_COLORS: Record<string, string> = { up_to_15: '#38bdf8', up_to_60: '#0369a1', over_60: '#082f49' }
+const NOT_BOUGHT_LABELS: Record<string, string> = { up_to_15: 'questions.block_6.band_15', up_to_60: 'questions.block_6.band_60', over_60: 'questions.block_6.band_more' }
+const PAYWALL_COLORS: Record<string, string> = { tapped: CHART_COLORS.blue, bought: CHART_COLORS.orange }
+const PAYWALL_LABELS: Record<string, string> = { tapped: 'questions.block_7.series_tapped', bought: 'questions.block_7.series_bought' }
+/** The label of each mark of the histogram (spec §D4). */
+const MARK_KEYS: Record<FreeMinutesMark, string> = { 15: 'mark_15m', 60: 'mark_1h', 180: 'mark_3h' }
 const BRANCH_COLORS = { tested: CHART_COLORS.blue, untested: CHART_COLORS.orange } as const
 const BLOCK_TITLES: Record<QuestionBlock['key'], string> = {
   block_1: 'questions.block_1.title',
   block_2: 'questions.block_2.title',
   block_3: 'questions.block_3.title',
   block_4: 'questions.block_4.title',
+  block_5: 'questions.block_5.title',
+  block_6: 'questions.block_6.title',
+  block_7: 'questions.block_7.title',
+  block_8: 'questions.block_8.title',
 }
 
 const has = (c: Cell) => (c.state === 'measured' || c.state === 'floor') && c.value !== null
@@ -110,7 +152,7 @@ export function EngagementQuestions(props: EngagementQuestionsProps) {
   const minutes = (v: number) => (v > 0 && v < 1 ? `${fmt.dec.format(v)} min` : formatDuration(Math.round(v)))
   const byKind = (kind: StatKind, v: number) => (kind === 'count' ? fmt.int.format(v) : kind === 'rate' ? fmt.pct.format(v) : kind === 'minutes' ? minutes(v) : fmt.dec.format(v))
   const valueText = (a: AnswerValue): string =>
-    a.kind === 'pct' ? fmt.pct.format(a.value) : a.kind === 'int' ? fmt.int.format(a.value) : a.kind === 'minutes' ? minutes(a.value) : a.kind === 'km' ? fmt.dec.format(a.value) : monthName(a.value)
+    a.kind === 'pct' ? fmt.pct.format(a.value) : a.kind === 'int' ? fmt.int.format(a.value) : a.kind === 'minutes' ? minutes(a.value) : a.kind === 'km' ? fmt.dec.format(a.value) : a.kind === 'date' ? day(a.value) : monthName(a.value)
 
   const blocks = useMemo(() => buildBlocks(input), [input])
   const useFunnel = useMemo(() => buildUseFunnel(input), [input])
@@ -202,6 +244,7 @@ export function EngagementQuestions(props: EngagementQuestionsProps) {
         denominator={st.pctOf ? k(st.pctOf) : null}
         badges={badges}
         delta={shown ? deltaOf(st.delta) : null}
+        reference={st.reference ? q('common.market_line', { value: fmt.pct.format(BENCHMARKS[st.reference].value), source: BENCHMARKS[st.reference].source, year: BENCHMARKS[st.reference].year }) : null}
       />
     )
   }
@@ -231,10 +274,37 @@ export function EngagementQuestions(props: EngagementQuestionsProps) {
   const shareAxis = (v: number) => fmt.pct.format(v)
   const countAxis = (v: number) => fmt.int.format(v)
 
-  const blockCard = (b: QuestionBlock, opts: { colors: Record<string, string>; labels: Record<string, string>; mode: 'expand' | 'stack' | 'group'; format: (v: number) => string; axis: (v: number) => string; retry: () => void; hint?: string; extra?: ReactNode }) => {
-    const answer = answerOf(b, month)
+  const filteredChart = (height: number, message: string) => (
+    <div style={{ minHeight: height }} className="flex flex-col items-start justify-center gap-3" data-testid="question-filtered">
+      <p className="text-sm text-gray-800 dark:text-gray-200">{message}</p>
+      <Button type="button" variant="outline" size="sm" onClick={props.onClearFilters}>
+        {k('clear_filters')}
+      </Button>
+    </div>
+  )
+
+  const blockCard = (
+    b: QuestionBlock,
+    opts: {
+      colors: Record<string, string>
+      labels: Record<string, string>
+      mode: 'expand' | 'stack' | 'group'
+      format: (v: number) => string
+      axis: (v: number) => string
+      retry: () => void
+      hint?: string
+      extra?: ReactNode
+      /** A chart other than the month bars; `legend` goes with it. */
+      chart?: ReactNode
+      legend?: QuestionLegendItem[]
+      badges?: ReactNode
+    }
+  ) => {
+    const answer = answerOf(b, month, input.today)
     const text = b.status === 'loading' ? undefined : renderAnswer(answer)
-    const { chart, legend } = chartOf(b, opts.colors, opts.labels, opts.mode, opts.format, opts.axis)
+    const bars = opts.chart === undefined ? chartOf(b, opts.colors, opts.labels, opts.mode, opts.format, opts.axis) : null
+    const chart = bars ? bars.chart : opts.chart
+    const legend = bars ? bars.legend : opts.legend
     const noSource = b.status === 'no_source' && b.key === 'block_4'
     return (
       <QuestionCard
@@ -242,6 +312,7 @@ export function EngagementQuestions(props: EngagementQuestionsProps) {
         id={b.key.replace('_', '-')}
         testId={`question-${b.key}`}
         title={k(BLOCK_TITLES[b.key])}
+        badges={opts.badges}
         answer={
           text === undefined ? undefined : text === null ? null : (
             <>
@@ -259,6 +330,8 @@ export function EngagementQuestions(props: EngagementQuestionsProps) {
         chart={
           b.status === 'failed' ? (
             failedChart(opts.retry)
+          ) : b.status === 'filtered' ? (
+            filteredChart(MONTH_BARS_PX, k('cell_ga4_filter'))
           ) : noSource ? (
             <div style={{ height: MONTH_BARS_PX }} className="flex flex-col items-center justify-center gap-2 rounded-lg border border-dashed border-gray-300 px-6 text-center dark:border-gray-700" data-testid="question-no-source">
               <Gauge className={cn('h-5 w-5', DIM)} aria-hidden="true" />
@@ -268,7 +341,7 @@ export function EngagementQuestions(props: EngagementQuestionsProps) {
             chart
           )
         }
-        legend={b.status === 'failed' || noSource ? undefined : legend}
+        legend={b.status === 'failed' || b.status === 'filtered' || noSource ? undefined : legend}
         hint={opts.hint}
       >
         {opts.extra}
@@ -276,7 +349,7 @@ export function EngagementQuestions(props: EngagementQuestionsProps) {
     )
   }
 
-  const [b1, b2, b3, b4] = blocks
+  const [b1, b2, b3, b4, b5, b6, b7, b8] = blocks
   const b4Coverage = b4.facts.coverage
   const retryUsage = props.onUsageRetry
 
@@ -306,7 +379,7 @@ export function EngagementQuestions(props: EngagementQuestionsProps) {
           ) : (
             headlines.lines.map((line) => {
               const b = blocks.find((x) => x.key === line.block)!
-              const sentence = firstSentence(renderAnswer(answerOf(b, month)) ?? '')
+              const sentence = firstSentence(renderAnswer(answerOf(b, month, input.today)) ?? '')
               const Icon = line.direction === 'up' ? ArrowUp : ArrowDown
               return (
                 <li key={line.block} className="flex flex-wrap items-start gap-x-2 gap-y-0.5 text-sm leading-5 text-gray-900 dark:text-white" data-testid="block-0-line" data-block={line.block}>
@@ -534,6 +607,220 @@ export function EngagementQuestions(props: EngagementQuestionsProps) {
     </div>
   )
 
+  // ── Block 5: the free minutes histogram of the cohort, "did not use" apart (spec §E5.6) ──
+  const fm = (key: string, values?: Record<string, string | number>) => s(`free_minutes.${key}`, values)
+  const freeView = props.freeMinutes === undefined ? undefined : readFreeMinutes(props.freeMinutes, month)
+  const histHeight = horizontalBarsHeight(6, HISTOGRAM_ROW_PX)
+  const histogram = (() => {
+    if (input.filtered) return filteredChart(histHeight, s('use_funnel.no_filters'))
+    if (props.freeMinutesFailed) return failedChart(props.onFreeMinutesRetry)
+    if (!freeView) return <div className="animate-pulse rounded-lg bg-gray-100 dark:bg-gray-800" style={{ height: histHeight }} data-testid="block-5-histogram-loading" />
+    if (freeView.state === 'no_source' || freeView.state === 'before_ledger') {
+      return (
+        <div style={{ height: histHeight }} className={cn('flex items-center justify-center rounded-lg border border-dashed border-gray-300 px-6 text-center text-sm dark:border-gray-700', DIM)} data-testid="block-5-histogram-none">
+          {freeView.state === 'no_source' ? s('tiles.no_source_bank') : q('common.answer_no_data_bank', { month: monthName(month) })}
+        </div>
+      )
+    }
+    const rows: HorizontalBarsRow[] = freeView.rows.map((r) => {
+      const range = fm(`buckets.${r.key}`)
+      const n = r.people === null ? UNKNOWN_VALUE : fmt.int.format(r.people)
+      const p = r.share === null ? null : fmt.pct.format(r.share)
+      return { key: r.key, label: range, value: r.people ?? 0, display: p ? `${n} · ${p}` : n, muted: r.people === null, title: fm('bar_title', { range, n, pct: p ?? UNKNOWN_VALUE }) }
+    })
+    const marks: HorizontalBarsMark[] = freeView.rows.flatMap((r, i) => (r.markAfter !== null && freeView.rows[i + 1] ? [{ before: freeView.rows[i + 1].key, label: fm(MARK_KEYS[r.markAfter]) }] : []))
+    return (
+      <>
+        <p className={cn('mb-1 text-[11px] leading-4', DIM)} data-testid="block-5-histogram-base">
+          {q('block_5.hist_title', { month: monthName(month) })}
+          {freeView.used !== null && freeView.base !== null && ` · ${q('block_5.hist_base', { used: freeView.used, n: fmt.int.format(freeView.base), month: monthName(month) })}`}
+        </p>
+        {freeView.notUsed !== null && (
+          <p className="mb-2 text-xs text-gray-800 dark:text-gray-200" title={q('block_5.hist_not_used_hint')} data-testid="block-5-not-used">
+            <span className="font-semibold">{q('block_5.hist_not_used')}</span>
+            {`: ${fmt.int.format(freeView.notUsed)}${freeView.notUsedShare === null ? '' : ` · ${fmt.pct.format(freeView.notUsedShare)}`}`}
+          </p>
+        )}
+        <HorizontalBars label={q('block_5.hist_title', { month: monthName(month) })} rows={rows} max={freeView.max} rowPx={HISTOGRAM_ROW_PX} marks={marks} testId="block-5-histogram" />
+      </>
+    )
+  })()
+
+  // ── Block 7: two rates by month, GA4 over GA4 (spec §E5.8) ──
+  const monthRows = (b: QuestionBlock, source: 'bank' | 'ga4'): LinesRow[] =>
+    b.chart.map((r) => ({
+      key: r.month,
+      label: monthHeader(r.month),
+      short: monthShort(r.month),
+      values: r.values,
+      reason: r.reason ? (reasonTitle({ state: r.reason, value: null, share: null, since: null, due: null }, source) ?? null) : null,
+    }))
+  const paywallSeries: LinesSeries[] = b7.series.map((key) => ({ key, label: k(PAYWALL_LABELS[key]), color: PAYWALL_COLORS[key] }))
+  const paywallLines = <QuestionLines label={k(BLOCK_TITLES.block_7)} rows={monthRows(b7, 'ga4')} series={paywallSeries} height={LINES_PX} format={share} testId="block-7-lines" />
+
+  // ── Block 8: the cohort's curve with the market dashed (spec §E5.9) ──
+  const curveRows: LinesRow[] = (b8.curve ?? []).map((pt) => ({
+    key: pt.key,
+    label: pt.key.toUpperCase(),
+    short: pt.key.toUpperCase(),
+    // a day whose window is open is not drawn; its number says when it closes (DS-COMPONENTE-100 item 4)
+    values: { cohort: pt.cell.state === 'measured' ? pt.cell.value : null, market: pt.market },
+    reason: pt.cell.state === 'measured' ? null : pt.cell.due ? k('cell_not_due', { date: day(pt.cell.due) }) : (reasonTitle(pt.cell, 'bank') ?? null),
+  }))
+  const curveSeries: LinesSeries[] = [
+    { key: 'cohort', label: q('block_8.series', { month: monthName(month) }), color: CHART_COLORS.blue },
+    { key: 'market', label: q('block_8.market_series'), color: CHART_NEUTRAL, dashed: true },
+  ]
+  const curve = <QuestionLines label={k(BLOCK_TITLES.block_8)} rows={curveRows} series={curveSeries} height={LINES_PX} format={share} testId="block-8-curve" />
+  const lineLegend = (series: LinesSeries[]): QuestionLegendItem[] => series.map((x) => ({ key: x.key, label: x.label, color: x.dashed ? CHART_NEUTRAL : x.color, hollow: x.dashed }))
+
+  // ── Signals (spec §E7): active people and devices, permissions, where they use it ──
+  const activeBank = useMemo(() => buildActiveBank(input), [input])
+  const activeGa4 = useMemo(() => buildActiveGa4(input), [input])
+  const permissions = useMemo(() => buildPermissions(input), [input])
+  const where = useMemo(() => buildWhere(input), [input])
+  const dauMau = BENCHMARKS.dau_mau
+  const activeHalf = (half: ActiveHalf, source: 'bank' | 'ga4') => {
+    const id = `extra_active_${source}`
+    const rows = half.chart.map((r) => ({ key: r.month, label: monthHeader(r.month), short: monthShort(r.month), values: r.values, reason: r.reason ? (reasonTitle({ state: r.reason, value: null, share: null, since: null, due: null }, source) ?? null) : null }))
+    const body =
+      half.status === 'failed' ? (
+        <div style={{ height: ACTIVE_LINES_PX }} className="flex items-center">
+          <CardError onRetry={source === 'bank' ? props.onActiveRetry : props.onGa4Retry} message={q('common.answer_failed')} retryLabel={k('retry')} />
+        </div>
+      ) : half.status === 'filtered' ? (
+        filteredChart(ACTIVE_LINES_PX, k('cell_ga4_filter'))
+      ) : (
+        <QuestionLines
+          label={`${q('extra_active.title')} · ${q(source === 'bank' ? 'extra_active.base_bank' : 'extra_active.base_ga4')}`}
+          rows={rows}
+          series={[{ key: 'ratio', label: q('extra_active.ratio'), color: CHART_COLORS.blue }]}
+          height={ACTIVE_LINES_PX}
+          format={share}
+          reference={{ y: dauMau.value, label: `${q('common.market')} ${fmt.pct.format(dauMau.value)}` }}
+          testId={`${id}-lines`}
+        />
+      )
+    return (
+      <div className="min-w-0" data-testid={id}>
+        <p className="flex items-center gap-2 text-sm font-semibold text-gray-900 dark:text-white">
+          {q(source === 'bank' ? 'extra_active.base_bank' : 'extra_active.base_ga4')}
+          {source === 'ga4' && ga4Badge}
+        </p>
+        {half.status === 'loading' ? (
+          <div className="mt-1 h-5 w-3/4 animate-pulse rounded bg-gray-100 dark:bg-gray-800" />
+        ) : (
+          half.answer && <p className="mt-1 max-w-prose text-sm leading-5 text-gray-800 dark:text-gray-200" data-testid={`${id}-answer`}>{renderAnswer(half.answer)}</p>
+        )}
+        {source === 'bank' && input.active?.data_since.open && (
+          <p className={cn('mt-1 text-[11px] leading-4', DIM)}>{q('extra_active.before_open', { date: day(input.active.data_since.open) })}</p>
+        )}
+        <div className="mt-3 grid grid-cols-2 gap-x-4 gap-y-4">{half.stats.map((st, i) => statLine(st, i, id))}</div>
+        <div className="mt-4">{body}</div>
+      </div>
+    )
+  }
+  const activeCard = (
+    <QuestionCard
+      id="extra-active"
+      testId="question-extra_active"
+      title={q('extra_active.title')}
+      answer={null}
+      base={q('extra_active.market', { pct: fmt.pct.format(dauMau.value) })}
+      hint={q('extra_active.ratio_hint')}
+    >
+      <div className="mt-4 grid grid-cols-1 gap-6 lg:grid-cols-2">
+        {activeHalf(activeBank, 'bank')}
+        {activeHalf(activeGa4, 'ga4')}
+      </div>
+    </QuestionCard>
+  )
+
+  const permissionRows: HorizontalBarsRow[] = permissions.rows.map((r) => {
+    const label = q(`extra_permissions.${r.type}`)
+    const known = has(r.asked) && has(r.allowed)
+    const display = known && r.share !== null ? q('extra_permissions.row', { allowed: fmt.int.format(r.allowed.value as number), asked: fmt.int.format(r.asked.value as number), pct: fmt.pct.format(r.share) }) : known ? fmt.int.format(r.allowed.value as number) : UNKNOWN_VALUE
+    return { key: r.type, label, value: r.share ?? 0, display, muted: !known, title: `${label}: ${known ? display : `${UNKNOWN_VALUE} ${reasonTitle(r.asked, 'ga4') ?? ''}`}` }
+  })
+  const permissionsHeight = horizontalBarsHeight(3, PERMISSION_ROW_PX)
+  const permissionsCard = (
+    <QuestionCard
+      id="extra-permissions"
+      testId="question-extra_permissions"
+      title={q('extra_permissions.title')}
+      badges={ga4Badge}
+      answer={permissions.status === 'loading' ? undefined : permissions.answer ? renderAnswer(permissions.answer) : null}
+      base={q('extra_permissions.base', { month: monthName(month) })}
+      hint={q('extra_permissions.motion_hint')}
+      chart={
+        permissions.status === 'failed' ? (
+          <CardError onRetry={props.onGa4Retry} message={k('ga4_failed')} retryLabel={k('retry')} />
+        ) : permissions.status === 'filtered' ? (
+          filteredChart(permissionsHeight, k('cell_ga4_filter'))
+        ) : permissions.status === 'loading' ? (
+          <div className="animate-pulse rounded-lg bg-gray-100 dark:bg-gray-800" style={{ height: permissionsHeight }} />
+        ) : (
+          <HorizontalBars label={q('extra_permissions.title')} rows={permissionRows} max={1} rowPx={PERMISSION_ROW_PX} track testId="extra-permissions-bars" />
+        )
+      }
+    />
+  )
+
+  const cityList = (title: string, rows: { id: number; name: string; right: string; sub?: string }[], testId: string) => (
+    <div className="min-w-0" data-testid={testId}>
+      <p className={cn('text-[11px] font-bold uppercase tracking-widest leading-[1.15]', DIM)}>{title}</p>
+      {rows.length === 0 ? (
+        <p className={cn('mt-2 text-sm', DIM)}>{q('extra_where.empty', { month: monthName(month) })}</p>
+      ) : (
+        <ol className="mt-2 divide-y divide-gray-100 dark:divide-gray-800">
+          {rows.map((r) => (
+            <li key={r.id} className="flex items-baseline justify-between gap-3 py-1.5 text-sm">
+              <span className="min-w-0 truncate text-gray-900 dark:text-white">{r.name}</span>
+              <span className="shrink-0 text-right tabular-nums text-gray-800 dark:text-gray-200">
+                {r.right}
+                {r.sub && <span className={cn('block text-[11px] leading-4', DIM)}>{r.sub}</span>}
+              </span>
+            </li>
+          ))}
+        </ol>
+      )}
+    </div>
+  )
+  const whereCard = (
+    <QuestionCard
+      id="extra-where"
+      testId="question-extra_where"
+      title={q('extra_where.title')}
+      answer={where.status === 'loading' ? undefined : where.answer ? renderAnswer(where.answer) : null}
+      base={q('extra_where.base', { month: monthName(month) })}
+      stats={where.stats.map((st, i) => statLine(st, i, 'extra_where'))}
+      hint={q('extra_no_story.hint')}
+    >
+      {where.status === 'failed' ? (
+        <div className="mt-4">
+          <CardError onRetry={props.onUsageRetry} message={q('common.answer_failed')} retryLabel={k('retry')} />
+        </div>
+      ) : where.status === 'loading' ? (
+        <div className="mt-4 h-40 animate-pulse rounded-lg bg-gray-100 dark:bg-gray-800" />
+      ) : (
+        <div className="mt-4 grid grid-cols-1 gap-4 sm:grid-cols-2">
+          {cityList(q('extra_where.by_trips'), where.byTrips.map((c) => ({ id: c.id, name: c.name, right: q('extra_where.trips_row', { n: c.trips }) })), 'extra-where-by-trips')}
+          {where.byNoStory &&
+            cityList(
+              q('extra_where.by_no_story'),
+              where.byNoStory.map((c) => ({ id: c.id, name: c.name, right: q('extra_where.no_story_row', { n: fmt.int.format(c.withoutStory ?? 0), trips: fmt.int.format(c.trips) }) })),
+              'extra-where-by-no-story',
+            )}
+        </div>
+      )}
+      {/* a plain anchor with the locale prefix (`localePrefix: 'always'`): the CT bench mounts no router */}
+      <a href={`/${locale}/dashboard/reports/geography`} className="mt-3 inline-flex items-center gap-1 text-sm text-primary-800 underline-offset-2 hover:underline dark:text-sky-300" data-testid="extra-where-link">
+        {q('extra_where.link')}
+        <ArrowRight className="h-3.5 w-3.5" aria-hidden="true" />
+      </a>
+    </QuestionCard>
+  )
+
   return (
     <div className="space-y-6" data-testid="engagement-questions">
       {block0}
@@ -578,6 +865,34 @@ export function EngagementQuestions(props: EngagementQuestionsProps) {
             </p>
           ) : null,
         })}
+      </div>
+      <div className="grid grid-cols-1 gap-6 lg:grid-cols-2 lg:items-start">
+        {blockCard(b5, { colors: {}, labels: {}, mode: 'group', format: minutes, axis: countAxis, retry: retryUsage, hint: q('block_5.hint'), chart: histogram })}
+        {blockCard(b6, { colors: NOT_BOUGHT_COLORS, labels: NOT_BOUGHT_LABELS, mode: 'stack', format: (v) => fmt.int.format(v), axis: countAxis, retry: retryUsage, hint: q('block_6.bands_hint') })}
+      </div>
+      <div className="grid grid-cols-1 gap-6 lg:grid-cols-2 lg:items-start">
+        {blockCard(b7, { colors: {}, labels: {}, mode: 'group', format: share, axis: shareAxis, retry: props.onGa4Retry, badges: ga4Badge, chart: paywallLines, legend: lineLegend(paywallSeries) })}
+        {blockCard(b8, {
+          colors: {},
+          labels: {},
+          mode: 'group',
+          format: share,
+          axis: shareAxis,
+          retry: props.onBankRetry,
+          hint: q('block_8.hint'),
+          chart: curve,
+          legend: lineLegend(curveSeries),
+          extra: (
+            <p className={cn('mt-2 text-[11px] leading-4', DIM)} data-testid="block-8-market">
+              {q('block_8.market', { d1: fmt.pct.format(BENCHMARKS.retention_d1.value), d30: new Intl.NumberFormat(locale, { style: 'percent', maximumFractionDigits: 1 }).format(BENCHMARKS.retention_d30.value) })} {q('block_8.market_note')}
+            </p>
+          ),
+        })}
+      </div>
+      {activeCard}
+      <div className="grid grid-cols-1 gap-6 lg:grid-cols-2 lg:items-start">
+        {permissionsCard}
+        {whereCard}
       </div>
     </div>
   )

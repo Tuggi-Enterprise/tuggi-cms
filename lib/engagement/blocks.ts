@@ -1,6 +1,6 @@
 /**
- * The question blocks 1 to 4 and the two step funnels of the Engagement page (#1161, spec Parte E §E5
- * and §E6), resolved in plain TS so every number is tested without mounting. The components print what
+ * The question blocks 1 to 8 and the two step funnels of the Engagement page (#1161, #1162, spec Parte E
+ * §E5 and §E6), resolved in plain TS so every number is tested without mounting. The components print what
  * this returns; the sentence of each block comes from `answers.ts`, the three lines on top from
  * `headlines.ts`.
  *
@@ -16,12 +16,14 @@
  *    recomputed from speed.
  */
 
-import { beforeSource, type Cell, type CellState } from '@/lib/engagement/cells'
+import { beforeSource, GRID_CARDS, resolveCell, type Cell, type CellState, type RowDef } from '@/lib/engagement/cells'
 import { addDays, addMonths } from '@/lib/engagement/months'
 import { buildModeColumns, SUMMARY_MIN_BASE, tileDelta, type DeltaUnit, type TileDelta } from '@/lib/engagement/summary'
 import { readStepFunnel, type ConversionFunnel, type StepFunnelView, type StepInput, type StepReason } from '@/lib/conversion/funnel'
 import type { EngagementBankMonth, EngagementBankReport, EngagementGa4Month, EngagementGa4Report } from '@/lib/engagement/report'
 import type { UsageMonth, UsageReport } from '@/lib/engagement/usage'
+import type { ActiveUsersReport } from '@/lib/engagement/active-users'
+import { BENCHMARKS, type BenchmarkKey } from '@/lib/engagement/benchmarks'
 
 /** Months in each chart: the six that end on the month of the page (spec §E1 item 2). */
 export const CHART_MONTHS = 6
@@ -35,8 +37,8 @@ export const MOVEMENT_FULL_COVERAGE = 0.5
 export const SECOND_TRIP_WINDOW_DAYS = 30
 
 export type StatKind = 'count' | 'minutes' | 'rate' | 'km'
-export type BlockKey = 'block_1' | 'block_2' | 'block_3' | 'block_4'
-export const BLOCK_KEYS: readonly BlockKey[] = ['block_1', 'block_2', 'block_3', 'block_4']
+export type BlockKey = 'block_1' | 'block_2' | 'block_3' | 'block_4' | 'block_5' | 'block_6' | 'block_7' | 'block_8'
+export const BLOCK_KEYS: readonly BlockKey[] = ['block_1', 'block_2', 'block_3', 'block_4', 'block_5', 'block_6', 'block_7', 'block_8']
 
 export interface Stat {
   /** The copy key of the label, under `questions`. */
@@ -57,6 +59,8 @@ export interface Stat {
   signed?: boolean
   /** The copy key of the hint of the label. */
   hint?: string
+  /** The market reference printed under the number (`benchmarks.ts`). */
+  reference?: BenchmarkKey
 }
 
 export interface ChartRow {
@@ -67,7 +71,8 @@ export interface ChartRow {
   reason: CellState | null
 }
 
-export type BlockStatus = 'loading' | 'failed' | 'no_source' | 'empty' | 'ready'
+/** `filtered`: a GA4 block under a filter GA4 does not have. */
+export type BlockStatus = 'loading' | 'failed' | 'no_source' | 'empty' | 'filtered' | 'ready'
 
 export interface QuestionBlock {
   key: BlockKey
@@ -82,6 +87,16 @@ export interface QuestionBlock {
   facts: Record<string, Cell>
   /** The first day of the block's source, for "measured since". */
   since: string | null
+  /** Block 8: the cohort's "returned on day N" and the market line, D1 to D30 (spec §E5.9). */
+  curve?: CurvePoint[]
+}
+
+export interface CurvePoint {
+  /** `d1`, `d7`, `d30`. */
+  key: string
+  cell: Cell
+  /** The market reference of this day, when one is published. */
+  market: number | null
 }
 
 export interface QuestionsInput {
@@ -100,24 +115,27 @@ export interface QuestionsInput {
   usageFailed: boolean
   conversion?: ConversionFunnel
   conversionFailed: boolean
+  /** `drive.cms_get_active_users_monthly` (#1162). */
+  active?: ActiveUsersReport
+  activeFailed: boolean
   /** Any filter of the bar. */
   filtered: boolean
 }
 
-const cell = (state: CellState, value: number | null = null, extra: Partial<Cell> = {}): Cell => ({ state, value, share: null, since: null, due: null, ...extra })
-const hasValue = (c: Cell) => (c.state === 'measured' || c.state === 'floor') && c.value !== null
-const valueOf = (c: Cell) => (hasValue(c) ? (c.value as number) : null)
-const share = (num: number | null, den: number | null) => (num === null || den === null || den <= 0 ? null : num / den)
+export const cell = (state: CellState, value: number | null = null, extra: Partial<Cell> = {}): Cell => ({ state, value, share: null, since: null, due: null, ...extra })
+export const hasValue = (c: Cell) => (c.state === 'measured' || c.state === 'floor') && c.value !== null
+export const valueOf = (c: Cell) => (hasValue(c) ? (c.value as number) : null)
+export const share = (num: number | null, den: number | null) => (num === null || den === null || den <= 0 ? null : num / den)
 
 /** The months of a chart: six ending on `month`, oldest first. */
 export function chartMonths(month: string): string[] {
   return Array.from({ length: CHART_MONTHS }, (_, i) => addMonths(month, i - (CHART_MONTHS - 1)))
 }
 
-type UsageSince = keyof UsageReport['data_since']
+export type UsageSince = keyof UsageReport['data_since']
 
 /** A number of `cms_get_usage_monthly` with the reason it is empty. */
-function usageCell(input: QuestionsInput, month: string, since: UsageSince, pick: (m: UsageMonth) => number | null | undefined): Cell {
+export function usageCell(input: QuestionsInput, month: string, since: UsageSince, pick: (m: UsageMonth) => number | null | undefined): Cell {
   if (input.usageFailed) return cell('source_failed')
   if (!input.usage) return cell('loading')
   const start = input.usage.data_since[since]
@@ -145,7 +163,7 @@ function bankCell(input: QuestionsInput, month: string, since: BankSince, pick: 
 }
 
 /** A number of the GA4 half with the reason it is empty. */
-function ga4Cell(input: QuestionsInput, month: string, pick: (m: EngagementGa4Month) => number | null): Cell {
+export function ga4Cell(input: QuestionsInput, month: string, pick: (m: EngagementGa4Month) => number | null): Cell {
   if (input.ga4Filtered) return cell('ga4_filter')
   if (input.ga4Failed) return cell('source_failed')
   if (!input.ga4) return cell('loading')
@@ -155,7 +173,7 @@ function ga4Cell(input: QuestionsInput, month: string, pick: (m: EngagementGa4Mo
 }
 
 /** A rate of two cells of one instrument: a floor if either is, no rate over zero (DS-COMPONENTE-084 item 2). */
-function rateCell(num: Cell, den: Cell): Cell {
+export function rateCell(num: Cell, den: Cell): Cell {
   if (!hasValue(num)) return num
   if (!hasValue(den)) return den
   const r = share(num.value, den.value)
@@ -163,7 +181,7 @@ function rateCell(num: Cell, den: Cell): Cell {
   return cell(num.state === 'floor' || den.state === 'floor' ? 'floor' : 'measured', r)
 }
 
-interface StatSpec {
+export interface StatSpec {
   key: string
   source: 'bank' | 'ga4'
   kind: StatKind
@@ -173,9 +191,10 @@ interface StatSpec {
   pctOf?: string
   signed?: boolean
   hint?: string
+  reference?: BenchmarkKey
 }
 
-function statOf(spec: StatSpec, input: QuestionsInput): Stat {
+export function statOf(spec: StatSpec, input: QuestionsInput): Stat {
   const current = input.today.slice(0, 7)
   const now = spec.at(input.month)
   const base = valueOf(now.base)
@@ -186,6 +205,8 @@ function statOf(spec: StatSpec, input: QuestionsInput): Stat {
     delta = tileDelta({ month: input.month, cell: now.cell, base }, { month: prevMonth, cell: prev.cell, base: valueOf(prev.base) }, spec.unit, current)
     // A month before the ruler was never read: calling the number "new" would be a guess.
     if (delta.state === 'new' && !input.months.includes(prevMonth)) delta = { ...delta, state: 'unknown' }
+    // A floor is an incomplete registrar: its change is not a trend (DS-COMPONENTE-100 item 1, DS-COMPONENTE-084 item 1).
+    if (now.cell.state === 'floor' && !now.cell.due && delta.state !== 'partial') delta = { ...delta, state: 'unknown' }
   }
   return {
     key: spec.key,
@@ -199,13 +220,17 @@ function statOf(spec: StatSpec, input: QuestionsInput): Stat {
     small: base !== null && base < SUMMARY_MIN_BASE,
     signed: spec.signed,
     hint: spec.hint,
+    reference: spec.reference,
   }
 }
 
 /** The state of a whole block from the sources it reads. */
-function statusOf(input: QuestionsInput, sources: ('usage' | 'bank')[], headline: Cell): BlockStatus {
-  if (sources.some((s) => (s === 'usage' ? input.usageFailed : input.bankFailed))) return 'failed'
-  if (sources.some((s) => (s === 'usage' ? !input.usage : !input.bank))) return 'loading'
+export function statusOf(input: QuestionsInput, sources: ('usage' | 'bank' | 'ga4' | 'active')[], headline: Cell): BlockStatus {
+  if (sources.includes('ga4') && input.ga4Filtered) return 'filtered'
+  const failed = { usage: input.usageFailed, bank: input.bankFailed, ga4: input.ga4Failed, active: input.activeFailed }
+  const read = { usage: !!input.usage, bank: !!input.bank, ga4: !!input.ga4, active: !!input.active }
+  if (sources.some((s) => failed[s])) return 'failed'
+  if (sources.some((s) => !read[s])) return 'loading'
   if (headline.state === 'before_source') return 'no_source'
   return 'ready'
 }
@@ -455,8 +480,194 @@ export function buildBlock4(input: QuestionsInput): QuestionBlock {
   }
 }
 
+// ── Block 5: how many hours each person uses (spec §E5.6) ────────────────────────────────────
+
+/**
+ * A ledger number of a month: a floor in the ledger's first month, which only has its last days
+ * (`ledger_coverage` `partial`, DS-COMPONENTE-084 item 1).
+ */
+function ledgerCell(input: QuestionsInput, month: string, pick: (m: UsageMonth) => number | null | undefined): Cell {
+  const c = usageCell(input, month, 'ledger', pick)
+  const coverage = input.usage?.months.find((x) => x.month === month)?.ledger_coverage
+  return hasValue(c) && coverage === 'partial' ? { ...c, state: 'floor' } : c
+}
+
+/**
+ * The minutes spent in the month per person (`consumed_minutes`, the month of consumption): the total
+ * median is the answer, free and paid each over who spent that kind, the p75 of the total. The free
+ * minutes histogram of the cohort is drawn by the component from `core.cms_get_free_minutes_histogram`.
+ */
+export function buildBlock5(input: QuestionsInput): QuestionBlock {
+  const people = (m: string) => ledgerCell(input, m, (u) => u.consumed?.total.people)
+  const minutesStat = (key: string, pick: (u: UsageMonth) => number | null | undefined, base: (m: string) => Cell, hint?: string) =>
+    statOf({ key, source: 'bank', kind: 'minutes', unit: 'relative', hint, at: (m) => ({ cell: ledgerCell(input, m, pick), base: base(m) }) }, input)
+  const headline = minutesStat('questions.block_5.median', (u) => u.consumed?.total.median, people, 'questions.block_5.split_hint')
+  const stats: Stat[] = [
+    headline,
+    minutesStat('questions.block_5.stat_free', (u) => u.consumed?.free.median, (m) => ledgerCell(input, m, (u) => u.consumed?.free.people), 'questions.block_5.split_hint'),
+    minutesStat('questions.block_5.stat_paid', (u) => u.consumed?.paid.median, (m) => ledgerCell(input, m, (u) => u.consumed?.paid.people), 'questions.block_5.split_hint'),
+    minutesStat('questions.block_5.p75', (u) => u.consumed?.total.p75, people),
+  ]
+  const status = statusOf(input, ['usage'], headline.cell)
+  return {
+    key: 'block_5',
+    status: status === 'ready' && valueOf(people(input.month)) === 0 ? 'empty' : status,
+    headline,
+    stats,
+    series: [],
+    chart: [],
+    facts: { p75: stats[3].cell },
+    since: input.usage?.data_since.ledger ?? null,
+  }
+}
+
+// ── Block 6: who uses it without buying (spec §E5.7) ─────────────────────────────────────────
+
+/** The bands of free minutes already spent, darker nearer the whole hour (spec §E4); the first includes 0 (copy §8). */
+export const NOT_BOUGHT_SERIES = ['up_to_15', 'up_to_60', 'over_60'] as const
+
+export function buildBlock6(input: QuestionsInput): QuestionBlock {
+  const people = (m: string) => usageCell(input, m, 'trip', (u) => u.used_without_buying.people)
+  const band = (m: string, key: (typeof NOT_BOUGHT_SERIES)[number]) =>
+    ledgerCell(input, m, (u) => {
+      const w = u.used_without_buying
+      if (key === 'up_to_15') return w.zero === null || w.up_to_15 === null ? null : w.zero + w.up_to_15
+      return w[key]
+    })
+  // No denominator of the same ruler for "used the guide or a story": the count stands alone (DS-COMPONENTE-084 item 2).
+  const headline = statOf({ key: 'questions.block_6.people', source: 'bank', kind: 'count', unit: 'relative', hint: 'questions.block_6.not_bought_hint', at: (m) => ({ cell: people(m), base: people(m) }) }, input)
+  const bandStat = (key: (typeof NOT_BOUGHT_SERIES)[number], label: string) =>
+    statOf(
+      {
+        key: label,
+        source: 'bank',
+        kind: 'count',
+        unit: 'relative',
+        pctOf: 'questions.block_6.of_not_bought',
+        hint: 'questions.block_6.bands_hint',
+        at: (m) => ({ cell: band(m, key), base: people(m), pct: share(valueOf(band(m, key)), valueOf(people(m))) }),
+      },
+      input,
+    )
+  const stats: Stat[] = [headline, bandStat('up_to_15', 'questions.block_6.band_15'), bandStat('up_to_60', 'questions.block_6.band_60'), bandStat('over_60', 'questions.block_6.band_more')]
+  const chart = chartMonths(input.month).map((month): ChartRow => {
+    const cells = NOT_BOUGHT_SERIES.map((k) => band(month, k))
+    if (cells.every((c) => !hasValue(c))) return { month, values: {}, reason: cells[0].state }
+    return { month, values: Object.fromEntries(NOT_BOUGHT_SERIES.map((k, i) => [k, valueOf(cells[i])])), reason: null }
+  })
+  const status = statusOf(input, ['usage'], headline.cell)
+  return {
+    key: 'block_6',
+    status: status === 'ready' && valueOf(people(input.month)) === 0 ? 'empty' : status,
+    headline,
+    stats,
+    series: [...NOT_BOUGHT_SERIES],
+    chart,
+    facts: { over: band(input.month, 'over_60') },
+    since: input.usage?.data_since.trip ?? null,
+  }
+}
+
+// ── Block 7: who saw the paywall and did not buy (spec §E5.8) ────────────────────────────────
+
+/** Two rates of the month, both over who saw: GA4 over GA4 (DS-COMPONENTE-084 item 2). */
+export const PAYWALL_SERIES = ['tapped', 'bought'] as const
+
+/**
+ * GA4 end to end, devices. The answer is the share that saw and did not buy, viewed minus converted over
+ * viewed (one instrument). It prints no change: a rise of "did not buy" would wear the green of an
+ * improvement, so the block stays out of the three lines on top.
+ */
+export function buildBlock7(input: QuestionsInput): QuestionBlock {
+  const g = (m: string, pick: (x: EngagementGa4Month) => number | null) => ga4Cell(input, m, pick)
+  const viewed = (m: string) => g(m, (x) => x.paywallViewedUsers)
+  const converted = (m: string) => g(m, (x) => x.paywallConvertedUsers)
+  const notBought = (m: string): Cell => {
+    const v = viewed(m)
+    const c = converted(m)
+    if (!hasValue(v)) return v
+    if (!hasValue(c)) return c
+    return cell('measured', Math.max(0, (v.value as number) - (c.value as number)))
+  }
+  const headline = statOf({ key: 'questions.block_7.not_bought', source: 'ga4', kind: 'rate', unit: null, pctOf: 'questions.common.of_viewed', at: (m) => ({ cell: rateCell(notBought(m), viewed(m)), base: viewed(m) }) }, input)
+  const ofViewed = (key: string, pick: (x: EngagementGa4Month) => number | null, hint?: string) =>
+    statOf(
+      { key, source: 'ga4', kind: 'count', unit: 'relative', pctOf: 'questions.common.of_viewed', hint, at: (m) => ({ cell: g(m, pick), base: viewed(m), pct: share(valueOf(g(m, pick)), valueOf(viewed(m))) }) },
+      input,
+    )
+  const stats: Stat[] = [
+    statOf({ key: 'questions.purchase_funnel.step_1', source: 'ga4', kind: 'count', unit: 'relative', at: (m) => ({ cell: viewed(m), base: viewed(m) }) }, input),
+    ofViewed('questions.purchase_funnel.exit_closed', (x) => x.paywallDismissedUsers, 'questions.purchase_funnel.exit_closed_hint'),
+    ofViewed('questions.purchase_funnel.step_2', (x) => x.paywallPlanTappedUsers),
+    ofViewed('questions.purchase_funnel.exit_failed', (x) => x.paywallPurchaseFailedUsers, 'questions.purchase_funnel.exit_failed_hint'),
+  ]
+  const chart = chartMonths(input.month).map((month): ChartRow => {
+    const tapped = rateCell(g(month, (x) => x.paywallPlanTappedUsers), viewed(month))
+    const bought = rateCell(converted(month), viewed(month))
+    if (!hasValue(tapped) && !hasValue(bought)) return { month, values: {}, reason: bought.state }
+    return { month, values: { tapped: valueOf(tapped), bought: valueOf(bought) }, reason: null }
+  })
+  const status = statusOf(input, ['ga4'], headline.cell)
+  return {
+    key: 'block_7',
+    status: status === 'ready' && valueOf(viewed(input.month)) === 0 ? 'empty' : status,
+    headline,
+    stats,
+    series: [...PAYWALL_SERIES],
+    chart,
+    facts: {
+      notBought: notBought(input.month),
+      viewed: viewed(input.month),
+      dismissed: g(input.month, (x) => x.paywallDismissedUsers),
+      failed: g(input.month, (x) => x.paywallPurchaseFailedUsers),
+    },
+    since: null,
+  }
+}
+
+// ── Block 8: do they come back (spec §E5.9) ──────────────────────────────────────────────────
+
+const COHORT_ROWS = new Map(GRID_CARDS.flatMap((c) => c.groups.flatMap((g) => g.rows)).map((r): [string, RowDef] => [r.key, r]))
+
+/**
+ * The days of the curve: "returned on day N" (the field the bank sends: D1, D7, D30), with the market
+ * where one is published (Business of Apps 2025: D1 and D30, `benchmarks.ts`).
+ */
+export const CURVE_DAYS = [
+  { key: 'd1', row: 'ret_on_d1', market: 'retention_d1' },
+  { key: 'd7', row: 'ret_on_d7', market: null },
+  { key: 'd30', row: 'ret_on_d30', market: 'retention_d30' },
+] as const
+
+/**
+ * The cohort of the first trip of the month (bank), read through the grid's own rows, so the window
+ * (`not_due`, floor) is decided in one place (`cells.ts`). Our cohort starts at the first trip and the
+ * market's at the install: the base line says so.
+ */
+export function buildBlock8(input: QuestionsInput): QuestionBlock {
+  const grid = { months: input.months as string[], today: input.today, use: 'trip' as const, bank: input.bank, bankFailed: input.bankFailed, ga4: input.ga4, ga4Failed: input.ga4Failed, ga4Filtered: input.ga4Filtered }
+  const row = (key: string, m: string) => resolveCell(COHORT_ROWS.get(key)!, m, grid)
+  const size = (m: string) => row('cohort_size', m)
+  const rate = (key: string, rowKey: string, reference?: BenchmarkKey) =>
+    statOf({ key, source: 'bank', kind: 'rate', unit: 'points', reference, hint: 'questions.block_8.hint', at: (m) => ({ cell: row(rowKey, m), base: size(m) }) }, input)
+  const headline = rate('questions.block_8.d1', 'ret_on_d1', 'retention_d1')
+  const stats: Stat[] = [headline, rate('questions.block_8.d30', 'ret_on_d30', 'retention_d30'), rate('questions.block_8.second', 'second_30')]
+  const status = statusOf(input, ['bank'], headline.cell)
+  return {
+    key: 'block_8',
+    status: status === 'ready' && valueOf(size(input.month)) === 0 ? 'empty' : status,
+    headline,
+    stats,
+    series: ['cohort', 'market'],
+    chart: [],
+    facts: { second: stats[2].cell, size: size(input.month) },
+    since: input.bank?.data_since.trip ?? null,
+    curve: CURVE_DAYS.map((d) => ({ key: d.key, cell: row(d.row, input.month), market: d.market ? BENCHMARKS[d.market].value : null })),
+  }
+}
+
 export function buildBlocks(input: QuestionsInput): QuestionBlock[] {
-  return [buildBlock1(input), buildBlock2(input), buildBlock3(input), buildBlock4(input)]
+  return [buildBlock1(input), buildBlock2(input), buildBlock3(input), buildBlock4(input), buildBlock5(input), buildBlock6(input), buildBlock7(input), buildBlock8(input)]
 }
 
 // ── Funnels (spec §E6) ───────────────────────────────────────────────────────────────────────

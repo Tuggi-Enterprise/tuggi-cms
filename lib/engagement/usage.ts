@@ -47,7 +47,28 @@ export interface UsageMonth {
   purchase: { purchased: number | null; after_free: number | null; free_minutes_before_median: number | null }
   /** `none` before the minute ledger, `partial` in its first month (a floor), `full`; `null` after the current month. */
   ledger_coverage: 'none' | 'partial' | 'full' | null
+  /**
+   * Minutes of the ledger spent in the month, per person, by kind (Parte 27 §4 `consumed_minutes`): the
+   * month of consumption, not the cohort. `null` with `ledger_coverage` `none`.
+   */
+  consumed: { total: UsageMinutes; free: UsageMinutes; paid: UsageMinutes } | null
+  /** Used the guide or a story in the month and had not bought by its end, by free minutes spent. */
+  used_without_buying: { people: number | null; zero: number | null; up_to_15: number | null; up_to_60: number | null; over_60: number | null }
   time_to_first_story: { people: number | null; minutes_median: number | null }
+  /** The trips of the guide base and the audio in them; `null` before the trip or the audio source. */
+  stories: { trips: number | null; trips_without_story: number | null; stories: number | null; per_guide_hour: number | null } | null
+  /** Up to five municipalities; `null` before the trip source. */
+  top_cities: {
+    by_trips: { city_id: number; city: string; trips: number }[]
+    /** `null` before the audio source. */
+    by_trips_without_story: { city_id: number; city: string; trips_without_story: number; trips: number }[] | null
+  } | null
+}
+
+export interface UsageMinutes {
+  people: number | null
+  median: number | null
+  p75: number | null
 }
 
 export interface UsageReport {
@@ -66,6 +87,24 @@ const obj = (v: unknown): Record<string, unknown> => (v && typeof v === 'object'
 /** A block the function sends as `null` (a month before the source) stays `null`, not an object of nulls. */
 const block = (v: unknown): Record<string, unknown> | null => (v && typeof v === 'object' ? (v as Record<string, unknown>) : null)
 const day = (v: unknown) => (typeof v === 'string' && /^\d{4}-\d{2}-\d{2}/.test(v) ? v.slice(0, 10) : null)
+const minutesOf = (v: unknown): UsageMinutes => {
+  const o = obj(v)
+  return { people: n(o.people), median: n(o.median), p75: n(o.p75) }
+}
+
+/** A city row with a name and every count a number; anything else is dropped, never printed as 0. */
+function cities<T extends string>(v: unknown, keys: readonly T[]): ({ city_id: number; city: string } & Record<T, number>)[] {
+  if (!Array.isArray(v)) return []
+  const out: ({ city_id: number; city: string } & Record<T, number>)[] = []
+  for (const raw of v) {
+    const o = obj(raw)
+    const id = n(o.city_id)
+    const counts = keys.map((k) => n(o[k]))
+    if (id === null || typeof o.city !== 'string' || counts.some((c) => c === null)) continue
+    out.push({ city_id: id, city: o.city, ...Object.fromEntries(keys.map((k, i) => [k, counts[i]])) } as { city_id: number; city: string } & Record<T, number>)
+  }
+  return out
+}
 
 /** The jsonb of the function. A missing key is `null`, never `0`. */
 export function parseUsageReport(raw: unknown): UsageReport {
@@ -84,7 +123,11 @@ export function parseUsageReport(raw: unknown): UsageReport {
         const uf = obj(o.usage_funnel)
         const pu = obj(o.purchase)
         const tf = obj(o.time_to_first_story)
-        const lc = obj(o.consumed_minutes).ledger_coverage
+        const cm = obj(o.consumed_minutes)
+        const lc = cm.ledger_coverage
+        const uwb = obj(o.used_without_buying)
+        const st = block(o.stories)
+        const tc = block(o.top_cities)
         return {
           month: typeof o.month === 'string' ? o.month.slice(0, 7) : '',
           guide: g && { people: n(g.people), trips: n(g.trips), hours: n(g.hours) },
@@ -115,6 +158,13 @@ export function parseUsageReport(raw: unknown): UsageReport {
           purchase: { purchased: n(pu.purchased), after_free: n(pu.after_free), free_minutes_before_median: n(pu.free_minutes_before_median) },
           time_to_first_story: { people: n(tf.people), minutes_median: n(tf.minutes_median) },
           ledger_coverage: lc === 'none' || lc === 'partial' || lc === 'full' ? lc : null,
+          consumed: block(cm.total) ? { total: minutesOf(cm.total), free: minutesOf(cm.free), paid: minutesOf(cm.paid) } : null,
+          used_without_buying: { people: n(uwb.people), zero: n(uwb.zero), up_to_15: n(uwb.up_to_15), up_to_60: n(uwb.up_to_60), over_60: n(uwb.over_60) },
+          stories: st && { trips: n(st.trips), trips_without_story: n(st.trips_without_story), stories: n(st.stories), per_guide_hour: n(st.per_guide_hour) },
+          top_cities: tc && {
+            by_trips: cities(tc.by_trips, ['trips'] as const),
+            by_trips_without_story: Array.isArray(tc.by_trips_without_story) ? cities(tc.by_trips_without_story, ['trips_without_story', 'trips'] as const) : null,
+          },
         }
       })
       .filter((m) => /^\d{4}-\d{2}$/.test(m.month)),

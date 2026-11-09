@@ -463,7 +463,6 @@
           "cell_ga4_filter": "Google Analytics does not apply this filter.",
           "cell_bank_failed": "The database did not answer.",
           "cell_ga4_failed": "Google Analytics did not answer.",
-          "cell_suppressed": "Fewer than 5 people in the slice: the value is hidden.",
           "bank_failed": "Could not read the database.",
           "ga4_failed": "Could not read Google Analytics.",
           "retry": "Try again",
@@ -471,7 +470,6 @@
           "clicks_empty": "No click recorded this month.",
           "legend_unknown": "— no data: the source was not recording yet, the window has not closed, fewer than 5 people in the slice, a filter Google Analytics does not apply, or the source is down. Hover to see the reason.",
           "legend_sources": "GA4 rows count Google Analytics devices and sessions; the others count people in the database. They are never divided by each other.",
-          "legend_suppression": "A group of fewer than 5 people is hidden.",
           "all_time_note": "The four blocks below add up since the start and do not follow the filters.",
           "buttons": {
             "guide_module_opened": "Turned the guide on",
@@ -534,26 +532,15 @@
           },
           "summary": {
             "title": "Summary of {month}",
-            "closed": "last closed month",
             "month_label": "Summary month",
-            "detail_divider": "Month by month detail",
             "tiles": {
               "engaged": "Engaged people",
-              "engaged_n": "{pct} of the {n} active",
-              "engaged_n_plain": "of the {n} active",
-              "engaged_over": "This month GA4 counted more engaged than active people.",
               "engaged_hint": "Opened the app and did at least one of these: turned the guide on, opened a place or event card, played a story, asked for directions to a place, event or route, searched this area or used Explore. Source: GA4.",
               "guide_median": "Guide on per person, median",
-              "guide_median_n": "of {n} who started a trip",
               "screen_minutes": "App minutes per person",
-              "screen_minutes_n": "of the {n} active",
               "returned": "Returned the next month",
-              "returned_n": "{count} of the {n} who {use} in {month}",
-              "returned_n_plain": "of the {n} who {use} in {month}",
               "no_source_bank": "No data: the database does not send this number yet.",
-              "no_source_ga4": "No data: the GA4 query does not return this number yet.",
-              "returned_closes": "closes on {date}",
-              "returned_closes_hint": "The return of {month} is measured over the whole next month. The number appears on {date}."
+              "no_source_ga4": "No data: the GA4 query does not return this number yet."
             },
             "delta_vs": "{delta} vs {month}",
             "delta_flat": "steady",
@@ -561,8 +548,6 @@
             "delta_hint": "{prev} → {curr}; base {n_prev} and {n_curr}",
             "delta_small_base": "Small base ({n_prev} and {n_curr}): under 30 people, a change is not a trend.",
             "delta_partial": "Month in progress: the comparison comes when it closes.",
-            "card_modes": "How they use it",
-            "modes_note": "split by mode since {month}",
             "modes": {
               "drive_only": "Guide only",
               "explore_only": "Only exploring",
@@ -571,26 +556,12 @@
               "bg": "Guide in background, median",
               "bg_share": "Guide in background, % of time",
               "unsplit": "Used the guide, not split by mode",
-              "unsplit_title": "used the guide, not split by mode: {n} people",
               "help_drive_only": "opened the app only on the days they turned the guide on.",
               "help_explore_only": "opened the app for the map, events, stories or search and did not turn the guide on any day of the month.",
               "help_both": "turned the guide on some days and, on other days, opened the app without it."
             },
             "modes_sr": "{month}: guide only {drive}, both {both}, exploring {explore}",
-            "segment_title": "{segment}: {n} people",
-            "card_frequency_bars": "Days of use per month",
-            "bands": {
-              "d1": "1 day",
-              "d2": "2 days",
-              "d3_5": "3 to 5 days",
-              "d6_plus": "6 or more",
-              "suppressed": "bands under 5 people"
-            },
-            "band_title": "{band}: {n} people, {pct}",
-            "frequency_sr": "{month}: {bands}",
             "card_cohort_heat": "Cohorts: who comes back",
-            "curve_gate": "the curve appears with 6 closed cohorts; today there are {n}",
-            "curve_title": "Typical retention of the {n} closed cohorts",
             "scale_legend": {
               "s0": "under 5%",
               "s1": "5 to 10%",
@@ -598,34 +569,21 @@
               "s3": "20 to 35%",
               "s4": "35% or more"
             },
-            "modes_note_none": "split by mode: no measured month yet",
             "use_funnel": {
               "title": "Use funnel",
               "note": "cohort of the month, to date",
               "installs": "Installed",
               "installs_hint": "First app open in the month, counted by GA4.",
-              "installs_split": "iOS {ios} · Android {android}",
-              "installs_floor": "iOS {ios} · Android {android} · floor",
-              "installs_unknown": "no GA4 data this month",
-              "floor_note": "Installed is a floor this month: GA4 counted fewer installs than entries, so some measurement is missing and the real number is higher.",
-              "not_entered": "{count} installed and did not enter",
-              "not_entered_hint": "An estimate: Installed and Entered come from different sources.",
               "entered": "Entered",
               "entered_hint": "Got past the Terms in the month, with an account or as a guest. Same base as Acquisition.",
-              "with_account": "{n} with an account · {pct}",
-              "part_account": "with an account: {n}",
-              "part_guest": "guest: {n}",
               "new_engaged": "Used the app",
               "new_engaged_hint": "Devices whose first GA4 session was this month and that did at least one of these: turned the guide on, opened a place or event card, played a story, asked for directions, searched this area or used Explore. Counts devices, not people, so there is no % of those who entered.",
-              "new_engaged_sub": "new devices in the month, not people",
               "used": "Guide or story",
               "used_hint": "Of the month's cohort, who turned the guide on or played a story, to date.",
-              "of_entered": "{pct} of those who entered",
               "no_filters": "The funnels count the whole cohort of the month and do not follow the filters.",
               "failed": "Could not load this month's funnel.",
               "consumed_1h": "Used 1 hour",
-              "consumed_1h_hint": "Of the month's cohort, who used 60 minutes or more of their hour balance, paid for or not, by the end of the month.",
-              "consumed_1h_floor": "Floor: the minute ledger starts on {date}, so this month counts only from that day on."
+              "consumed_1h_hint": "Of the month's cohort, who used 60 minutes or more of their hour balance, paid for or not, by the end of the month."
             },
             "purchase_funnel": {
               "title": "Purchase funnel",
@@ -650,7 +608,6 @@
               "sr": "{branch}: {n} people, {bought} bought ({pct})",
               "purchased_hint": "Of the month's cohort, who made at least one real store purchase, of hours or a subscription, to date. Test purchases do not count.",
               "paywall_viewed": "Saw the paywall",
-              "paywall_viewed_sub": "devices in the month, not cohort people",
               "paywall_viewed_hint": "Devices that opened the purchase screen at least once in the month, from anywhere in the app. It counts every device active in the month, not only the cohort, and a device is not a person: so it is never a % of those who entered."
             },
             "clicks_month_of": "{month}",
@@ -661,21 +618,17 @@
               "note": "cohort of the month, to date",
               "hint": "Minutes spent from hours they did not pay for (welcome, invite, mission, coupon, partner or granted by the CMS), added up from entry to today. Free minutes only: not comparable with Used 1 hour, which also counts bought minutes.",
               "buckets": {
-                "b0_15": "0 to 15 min",
+                "b0_15": "up to 15 min",
                 "b15_30": "15 to 30 min",
                 "b30_60": "30 min to 1 h",
                 "b60_120": "1 to 2 h",
                 "b120_180": "2 to 3 h",
                 "b180_plus": "3 h or more"
               },
-              "b0_15_hint": "Includes those who entered and spent no free minute.",
               "mark_15m": "15 min",
               "mark_1h": "1 h",
               "mark_3h": "3 h",
-              "base": "{n} people entered in {month}",
-              "base_suppressed": "Fewer than 5 people entered in {month}: the chart is hidden.",
               "bar_title": "{range}: {n} people, {pct}",
-              "bucket_suppressed": "under 5",
               "empty": "Nobody entered in {month}.",
               "failed": "Could not load this month's chart."
             }
@@ -722,7 +675,11 @@
               "of_heard": "of those who have heard a story",
               "of_guide": "of those who turned the guide on",
               "of_guide_time": "of the time with the guide on",
-              "no_filter_source": "This source does not apply this filter."
+              "no_filter_source": "This source does not apply this filter.",
+              "of_trips": "of trips",
+              "market": "Market",
+              "market_hint": "Published benchmark for travel apps. Our own target comes later.",
+              "market_line": "Market: {value} · {source}, {year}"
             },
             "block_0": {
               "title": "The month in three lines",
@@ -801,7 +758,15 @@
               "bank": "In the database: did they try before buying?",
               "bank_base": "{month} cohort, people, to date",
               "free_before": "Free time used before buying, median",
-              "free_before_hint": "Free minutes that buyers used between entering and their first purchase. Half used more than this."
+              "free_before_hint": "Free minutes that buyers used between entering and their first purchase. Half used more than this.",
+              "title": "Who saw the paywall and did not buy?",
+              "base": "devices that saw the paywall in {month}, by GA4",
+              "answer": "{pct} of the devices that saw the paywall did not buy ({n} of {viewed}){cmp}. {dismissed} closed it without buying, and {failed} tried and did not finish the purchase.",
+              "answer_short": "{pct} of the devices that saw the paywall did not buy ({n} of {viewed}){cmp}.",
+              "answer_empty": "No device saw the paywall in {month}.",
+              "not_bought": "Did not buy",
+              "series_tapped": "Tapped a plan, of those who saw it",
+              "series_bought": "Bought, of those who saw it"
             },
             "extra_first_story": {
               "title": "Time to the first story",
@@ -836,8 +801,107 @@
               "exit_failed": "Did not finish the purchase",
               "exit_failed_hint": "Tapped buy and the purchase did not finish: backed out on the store screen, the store declined, or the account could not be confirmed.",
               "exits_hint": "A device can appear in both exits in the same month, so they do not add up to those who did not buy."
+            },
+            "block_5": {
+              "title": "How many hours does each person use?",
+              "base": "people who used minutes in {month}",
+              "answer": "Half of those who used minutes in {month} used more than {median}{cmp}. A quarter went past {p75}.",
+              "answer_empty": "Nobody used minutes in {month}.",
+              "median": "Median per person",
+              "p75": "p75 per person",
+              "stat_free": "Free, median",
+              "stat_paid": "Paid, median",
+              "split_hint": "Free: minutes from hours they did not pay for (welcome, invite, mission, coupon, partner or granted by the CMS). Paid: minutes from bought hours or the subscription.",
+              "hist_title": "Free minutes of the {month} cohort, to date",
+              "hist_base": "{used, plural, one {# person used} other {# people used}} free minutes, of {n} who entered in {month}",
+              "hist_not_used": "Did not use",
+              "hist_not_used_hint": "Entered and used no free minutes. The other bars are only those who used some.",
+              "hint": "The medians count the minutes used in the month. The chart is the cohort that entered in the month, with free minutes added up to date."
+            },
+            "block_6": {
+              "title": "Who uses it without buying?",
+              "base": "people who turned the guide on or listened to a story in {month}",
+              "answer_count": "{n, plural, one {# person used} other {# people used}} the guide or a story and did not buy{cmp}. {over, plural, =0 {None of them has spent more than 60 free minutes.} one {# of them has already spent more than 60 free minutes.} other {# of them have already spent more than 60 free minutes.}}",
+              "answer_count_short": "{n, plural, one {# person used} other {# people used}} the guide or a story and did not buy{cmp}.",
+              "answer_empty": "Nobody used the guide or listened to a story in {month}.",
+              "people": "Used and did not buy",
+              "not_bought_hint": "No real store purchase to date, of hours or a subscription.",
+              "of_not_bought": "of those who did not buy",
+              "bands": "Free time already used",
+              "band_15": "up to 15 min",
+              "band_60": "15 min to 1 h",
+              "band_more": "over 1 h",
+              "bands_hint": "Free minutes used by the end of the month. The first band includes those who used none."
+            },
+            "block_8": {
+              "title": "Do they come back?",
+              "base": "{month} cohort: people who took their first trip that month",
+              "answer": "{pct} of the {month} cohort took another trip the next day{cmp}. {second} took a 2nd trip within 30 days.",
+              "answer_30_open": "{pct} of the {month} cohort took another trip the next day{cmp}. The 2nd trip within 30 days closes on {date}.",
+              "answer_in_progress": "So far, {pct} of the {month} cohort took another trip the next day. The cohort is still forming.",
+              "answer_empty": "Nobody took a first trip in {month}.",
+              "axis_x": "Days after the first trip",
+              "axis_y": "Cohort that travelled that day",
+              "series": "{month} cohort",
+              "market": "Travel apps: D1 about {d1}, D30 about {d30} (Business of Apps, 2025)",
+              "market_note": "The market counts from install. Here, the cohort starts at the first trip.",
+              "hint": "Returned on day N: took another trip on day N exactly. D1 is the day after the first trip, Brasília time. \"Returned by day N\", in the Details table, counts any day from D1 to N, so it is always higher.",
+              "second": "2nd trip within 30 days",
+              "d1": "Returned the next day",
+              "d30": "Returned on day 30",
+              "market_series": "Market"
+            },
+            "extra_permissions": {
+              "title": "Permissions",
+              "base": "devices that saw the request in {month}, by GA4",
+              "answer": "{pct} of the devices that saw the request allowed location{cmp}.",
+              "location": "Location",
+              "motion": "Motion",
+              "motion_hint": "Motion & Fitness on iOS, physical activity on Android.",
+              "notifications": "Notifications",
+              "row": "{allowed} of {asked} · {pct}"
+            },
+            "extra_no_story": {
+              "title": "Trips with no story",
+              "answer": "{pct} of trips with the guide on ended with no story ({n} of {total}){cmp}.",
+              "hint": "The guide was on and no audio played. It usually shows where content is missing, not who used it wrong."
+            },
+            "extra_per_hour": {
+              "title": "Stories per guide hour",
+              "hint": "Stories played divided by hours with the guide on, adding up the month's trips."
+            },
+            "extra_where": {
+              "title": "Where they use it",
+              "base": "trips with the guide on in {month}",
+              "by_trips": "Most trips",
+              "by_no_story": "Most trips with no story",
+              "trips_row": "{n, plural, one {# trip} other {# trips}}",
+              "no_story_row": "{n} with no story of {trips}",
+              "empty": "No trip with a known city in {month}.",
+              "link": "See all in Geography"
+            },
+            "extra_active": {
+              "title": "Active per day, week and month",
+              "base_bank": "people, from the database",
+              "base_ga4": "devices, by GA4",
+              "answer": "On an average day in {month}, {dau, plural, one {# person opened} other {# people opened}} the app, {ratio} of the {mau} active that month{cmp}.",
+              "answer_ga4": "On an average day in {month}, {dau, plural, one {# device used} other {# devices used}} the app, {ratio} of the {mau} active that month{cmp}.",
+              "dau": "Per day (DAU), average",
+              "wau": "Per week (WAU), average",
+              "mau": "In the month (MAU)",
+              "ratio": "DAU/MAU (stickiness)",
+              "dau_hint": "Active on each day, averaged over the days of the month.",
+              "wau_hint": "Active in a 7-day window, averaged over the month.",
+              "ratio_hint": "Active on an average day divided by active in the month. A travel app is used during a trip, not every day, so this ratio is low by nature.",
+              "market": "Travel apps: about {pct} (CleverTap, 2023)",
+              "before_open": "The database counts app opens since {date}; before the first whole month, the chart stays empty."
+            },
+            "block_9": {
+              "title": "Details",
+              "base": "month by month table, taps by screen and how each number is counted"
             }
-          }
+          },
+          "cell_missing": "The database did not send this number."
         },
         "content_coverage": {
           "title": "Content Coverage",

@@ -9,7 +9,7 @@
 
 import { test, expect } from '@playwright/experimental-ct-react'
 import type { Page } from '@playwright/test'
-import { EngagementHarness as Screen, SparklineHarness } from './engagement-helpers'
+import { EngagementHarness as Screen } from './engagement-helpers'
 import { BANK, CONVERSION, CONVERSION_OLD, FREE_MINUTES, GA4, MONTHS, TODAY } from './engagement-fixtures'
 import AxeBuilder from '@axe-core/playwright'
 import { CHART_COLORS, CHART_NEUTRAL } from '@/lib/constants/chart-colors'
@@ -26,41 +26,8 @@ const GA4_ENGAGED = GA4
 
 const rgb = (hex: string) => `rgb(${[1, 3, 5].map((i) => parseInt(hex.slice(i, i + 2), 16)).join(', ')})`
 const P = E.summary.purchase_funnel
-const full = (extra: Record<string, unknown> = {}) => <Screen months={MONTHS} today={TODAY} bank={BANK_OPEN} ga4={GA4_ENGAGED} conversion={CONVERSION} freeMinutes={FREE_MINUTES} {...extra} />
+const full = (extra: Record<string, unknown> = {}) => <Screen detailsOpen months={MONTHS} today={TODAY} bank={BANK_OPEN} ga4={GA4_ENGAGED} conversion={CONVERSION} freeMinutes={FREE_MINUTES} {...extra} />
 const width = (page: Page, id: string) => page.getByTestId(id).evaluate((e) => e.getBoundingClientRect().width)
-
-test('spec B15 item 6: six right-aligned slots, a gap opens two paths, the accent disc has r 4 and a white ring, the title lists the values', async ({ mount, page }) => {
-  const c = await mount(<SparklineHarness points={[null, null, 160, 142, 98, 29]} />)
-  const path = page.getByTestId('sparkline-path')
-  await expect(path).toHaveCount(1)
-  await expect(path).toHaveAttribute('data-points', '4')
-  await expect(path).toHaveAttribute('data-start', '2')
-  const disc = page.getByTestId('sparkline-accent')
-  await expect(disc).toHaveAttribute('r', '4')
-  await expect(disc).toHaveCSS('stroke', 'rgb(255, 255, 255)')
-  await expect(page.locator('svg[role="img"] > title')).toHaveText('null · null · 160 · 142 · 98 · 29')
-  await c.update(<SparklineHarness points={[10, 12, null, 14, 15, 16]} />)
-  await expect(page.getByTestId('sparkline-path')).toHaveCount(2)
-})
-
-test('spec B15 item 9: a column sums 100 %, the suppressed band is neutral with its title, inner label only on 18 px, sky from light to dark', async ({ mount, page }) => {
-  await page.setViewportSize({ width: 1440, height: 1200 })
-  await mount(<Screen months={MONTHS} today={TODAY} bank={BANK_OPEN} ga4={GA4_ENGAGED} />)
-  const card = page.getByTestId('summary-frequency')
-  const aug = card.getByTestId('summary-frequency-columns-col-2026-08')
-  // August of audio: d6_plus null with active 204 known: 204 − (131 + 40 + 26) = 7 people
-  const rest = aug.getByTestId('summary-frequency-columns-seg-suppressed')
-  await expect(rest).toHaveCSS('background-color', rgb(CHART_NEUTRAL))
-  await expect(rest).toHaveAttribute('title', E.cell_suppressed)
-  // the segments and the 2 px gaps between them fill the 160 px plot exactly
-  const plot = await aug.locator('[data-testid^="summary-frequency-columns-seg-"]').evaluateAll((els) => els.reduce((s, e) => s + e.getBoundingClientRect().height, 0) + 2 * (els.length - 1))
-  expect(Math.abs(plot - 160)).toBeLessThanOrEqual(1)
-  await expect(aug.getByTestId('summary-frequency-columns-seg-d1')).toHaveClass(/bg-sky-400/)
-  await expect(aug.getByTestId('summary-frequency-columns-seg-d3_5')).toHaveClass(/bg-sky-800/)
-  // 7 of 204 is 5.5 px: no inner label
-  await expect(rest).toHaveText('')
-  await expect(aug.getByTestId('summary-frequency-columns-seg-d1')).toHaveText('64%')
-})
 
 test('#1101 spec C16 item 6 DS-COMPONENTE-101: trunk parts split Entered, each branch bar is its rate, both rates in the same class, the branch that converts more has the badge', async ({ mount, page }) => {
   await page.setViewportSize({ width: 1440, height: 1200 })
@@ -121,15 +88,14 @@ test('#1101 spec C16 item 8: the cohorts block is the whole third card, every me
   await expect(heat.locator('[data-testid="engagement-row-ret_d30"] td').nth(2)).not.toHaveClass(/bg-emerald/)
   await expect(page.getByTestId('engagement-card_after_first')).toHaveCount(0)
   await expect(heat.getByTestId('summary-heat-legend').locator('li')).toHaveCount(5)
-  await expect(heat.getByTestId('summary-curve-gate')).toHaveText(S.curve_gate.replace('{n}', '2'))
 })
 
 for (const w of [1440, 390]) {
-  test(`#1101 spec C16 item 12 at ${w}: axe finds nothing in the summary with both funnels`, async ({ mount, page }) => {
+  test(`#1101 spec C16 item 12 at ${w}: axe finds nothing in the purchase funnel`, async ({ mount, page }) => {
     await page.setViewportSize({ width: w, height: 1200 })
     await mount(full())
     await expect(page.getByTestId('purchase-trunk')).toBeVisible()
-    const r = await new AxeBuilder({ page }).include('[data-testid="engagement-summary"]').analyze()
+    const r = await new AxeBuilder({ page }).include('[data-testid="question-purchase_funnel"]').analyze()
     expect(r.violations.map((v) => `${v.id}: ${v.nodes.map((n) => n.target.join(' ')).join(', ')}`)).toEqual([])
     if (SHOTS) await page.screenshot({ path: `${SHOTS}/engagement-c-${w}.png`, fullPage: true })
   })

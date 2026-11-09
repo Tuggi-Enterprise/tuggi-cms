@@ -58,7 +58,6 @@ export interface ConversionFunnel {
  */
 export const LEDGER_FIRST_MONTH = new Date(METERING_LEDGER_START).toISOString().slice(0, 7)
 
-export type InstallsState = 'unknown' | 'floor' | 'measured'
 
 /** `null` stays `null`; anything else becomes a finite number or `null`. Zero is a value. */
 function nullableCount(v: unknown): number | null {
@@ -96,59 +95,15 @@ export function parseConversionFunnel(raw: unknown): ConversionFunnel {
   }
 }
 
-export function installsState(installsTotal: number | null, entered: number): InstallsState {
-  if (installsTotal === null) return 'unknown'
-  return installsTotal < entered ? 'floor' : 'measured'
-}
-
-/** Share of `entered`. Zero denominator prints no rate (DS-COMPONENTE-084 item 2), so `null`. */
 export function rateOfEntered(value: number, entered: number): number | null {
   return entered > 0 ? value / entered : null
 }
 
 /** "N installed and did not enter": only when installs is measured and not a floor. */
-export function notEntered(installsTotal: number | null, entered: number): number | null {
-  return installsState(installsTotal, entered) === 'measured' ? (installsTotal as number) - entered : null
-}
 
 /** A share of a base; a zero or unknown base prints no rate (DS-COMPONENTE-084 item 2). */
 function rateOf(value: number | null, base: number | null): number | null {
   return value === null || base === null || base <= 0 ? null : value / base
-}
-
-// ── Use funnel (spec §C5) ────────────────────────────────────────────────────────────────────
-
-export interface UseFunnelView {
-  installs: InstallsState
-  /** One ruler for the five bands; an unknown count draws no band and does not set it. */
-  max: number
-  notEntered: number | null
-  /** `entered − account`, the guest part of Entered; `null` when account came larger (spec §C15.6). */
-  guest: number | null
-  rates: { account: number | null; used: number | null; consumed1h: number | null }
-  /** `consumed_1h` of the month the ledger starts in: a floor, printed with its sign. */
-  consumed1hFloor: boolean
-}
-
-/**
- * The use funnel: installs (GA4), entered, interacted (GA4, `newEngaged`), guide or story and
- * consumed 1 hour. The GA4 count only widens the ruler; the rates are bank over bank of the same
- * cohort, each a share of entered and never of the step above (DS-COMPONENTE-101 item 2,
- * BR-USUARIO-037 3.j), so consumed 1 hour may come larger than guide or story.
- */
-export function readUseFunnel(f: ConversionFunnel, newEngaged: number | null): UseFunnelView {
-  return {
-    installs: installsState(f.installs.total, f.entered),
-    max: Math.max(f.installs.total ?? 0, f.entered, newEngaged ?? 0, f.usedGuideOrStory ?? 0, f.consumed1h ?? 0),
-    notEntered: notEntered(f.installs.total, f.entered),
-    guest: f.account <= f.entered ? f.entered - f.account : null,
-    rates: {
-      account: rateOfEntered(f.account, f.entered),
-      used: rateOf(f.usedGuideOrStory, f.entered),
-      consumed1h: rateOf(f.consumed1h, f.entered),
-    },
-    consumed1hFloor: f.consumed1h !== null && f.month.slice(0, 7) === LEDGER_FIRST_MONTH,
-  }
 }
 
 // ── Purchase funnel (spec §C6, DS-COMPONENTE-101) ────────────────────────────────────────────

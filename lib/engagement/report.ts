@@ -10,7 +10,6 @@
 
 export const ENGAGEMENT_USES = ['open', 'trip', 'audio'] as const
 export type EngagementUse = (typeof ENGAGEMENT_USES)[number]
-export const ENGAGEMENT_DEFAULT_USE: EngagementUse = 'audio'
 
 export const ENGAGEMENT_PLATFORMS = ['ios', 'android'] as const
 export type EngagementPlatform = (typeof ENGAGEMENT_PLATFORMS)[number]
