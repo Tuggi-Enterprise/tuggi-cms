@@ -222,6 +222,19 @@ test('BR-COMUNICACAO-019 item 7: streak first, then referral hours, then the oth
   assert.equal(p('cms_broadcast'), Math.max(...Object.values(gate.PUSH_KINDS).map((k: any) => k.vacancyPriority)))
 })
 
+test('BR-COMUNICACAO-019 items 3.p, 3.q and 7 (#1136): the gift sits with the referral hours, the link after the ranking and before the CMS', () => {
+  const p = (kind: string) => gate.PUSH_KINDS[kind].vacancyPriority
+  assert.equal(p('hours_gifted'), p('referral_hours_credited'))
+  for (const kind of ['ranking_rank_at_risk', 'ranking_rank_drop', 'weekly_podium']) {
+    assert.ok(p(kind) < p('caravan_joined'), kind)
+  }
+  assert.ok(p('caravan_joined') < p('cms_broadcast'))
+  for (const kind of ['caravan_joined', 'hours_gifted']) {
+    assert.equal(gate.parsePushKind(kind), kind)
+    assert.equal(gate.PUSH_KINDS[kind].outsideCaps, false, kind)
+  }
+})
+
 test('BR-COMUNICACAO-019 item 7: the daily window order agrees with the vacancy order', () => {
   // `RANKING_PIECES_BY_PERISHABILITY` is the ranking slice of item 7 inside one evaluation; the
   // two orders may never disagree.

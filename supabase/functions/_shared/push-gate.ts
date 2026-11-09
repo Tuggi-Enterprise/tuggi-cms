@@ -18,7 +18,7 @@
 
 /**
  * Every kind of push the gate knows. `p_kind` of the SQL must match `^[a-z0-9_]{1,64}$`.
- * The drive repo declares the two it sends in `_shared/user-push.ts`; a new kind is born here.
+ * The drive repo declares the ones it sends in `_shared/user-push.ts`; a new kind is born here.
  */
 export type PushKind =
   | 'ranking_streak_at_risk'
@@ -32,7 +32,9 @@ export type PushKind =
   | 'weekly_saturday_local'
   | 'daily_summary'
   | 'first_story'
-  | 'route_revision';
+  | 'route_revision'
+  | 'caravan_joined'
+  | 'hours_gifted';
 
 export interface PushKindPolicy {
   /**
@@ -69,12 +71,18 @@ export interface PushKindPolicy {
 export const PUSH_KINDS: Readonly<Record<PushKind, PushKindPolicy>> = {
   ranking_streak_at_risk: { requested: false, requiresActive: true, vacancyPriority: 1, outsideCaps: false },
   referral_hours_credited: { requested: false, requiresActive: true, vacancyPriority: 2, outsideCaps: false },
+  // Item 3.q (#1136): the gift follows 3.e whole, and shares its place in item 7. Sender:
+  // tuggi-drive-v2 `referral-activation-push`.
+  hours_gifted: { requested: false, requiresActive: true, vacancyPriority: 2, outsideCaps: false },
   ranking_rank_at_risk: { requested: false, requiresActive: true, vacancyPriority: 3, outsideCaps: false },
   ranking_rank_drop: { requested: false, requiresActive: true, vacancyPriority: 3, outsideCaps: false },
   weekly_podium: { requested: false, requiresActive: true, vacancyPriority: 3, outsideCaps: false },
+  // Item 3.p (#1136): the link stays true tomorrow and is on the Caravan, so it yields to the ranking
+  // pieces and beats only the CMS. Sender: tuggi-drive-v2 `referral-activation-push`.
+  caravan_joined: { requested: false, requiresActive: true, vacancyPriority: 4, outsideCaps: false },
   // Item 3.l: the CMS push counts against the cap and comes last.
-  cms_broadcast: { requested: false, requiresActive: false, vacancyPriority: 4, outsideCaps: false },
-  cms_direct: { requested: false, requiresActive: false, vacancyPriority: 4, outsideCaps: false },
+  cms_broadcast: { requested: false, requiresActive: false, vacancyPriority: 5, outsideCaps: false },
+  cms_direct: { requested: false, requiresActive: false, vacancyPriority: 5, outsideCaps: false },
   // Item 3.m (#1046, #1047): the weekly pieces reach whoever has push on, using the app or not. They
   // have their own cap (item 4.1) and stay out of the item 7 dispute: `drive.push_allowed` counts
   // them apart, so their priority is never compared with the kinds above. Sender:
